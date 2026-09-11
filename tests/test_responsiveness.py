@@ -308,6 +308,26 @@ def test_ttm_p90_internal_excluded():
     assert score_ttm_p90(prs, [15.0, 50.0]) == 50.0
 
 
+def test_ttm_p90_corrupt_negative_latency_neutral():
+    # FAIL-BEFORE (2026-09-12 adversarial review): merged_at < created_at is
+    # out-of-domain telemetry. Before the guard, a negative latency sorted to
+    # the bottom -> ECDF percentile 0 -> a spurious PERFECT 100 on corrupt
+    # data. Corrupt samples are now dropped; all-corrupt -> neutral 50.0.
+    prs = [_pr(merged_hours=-5.0, pr_number=1)]
+    assert score_ttm_p90(prs, [1.0, 2.0]) == 50.0
+
+
+def test_ttm_p90_corrupt_samples_dropped_not_p90():
+    # FAIL-BEFORE: 1 valid merged PR at 10h + 9 corrupt at -100h. Before the
+    # guard the sorted list put the corrupt values at rank 9 (ceil(0.9*10)),
+    # so p90 = -100 -> ECDF(-100,[1,2]) = 0 -> a spurious PERFECT 100. After
+    # the guard only the valid sample remains: p90 = 10 -> ECDF(10,[1,2]) =
+    # 100 -> score 0.0 (the one real PR is genuinely slow vs the population).
+    prs = [_pr(merged_hours=-100.0, pr_number=i) for i in range(1, 10)]
+    prs.append(_pr(merged_hours=10.0, pr_number=99))
+    assert score_ttm_p90(prs, [1.0, 2.0]) == 0.0
+
+
 # --------------------------------------------------------------------------- #
 # Weighted pillar combination
 # --------------------------------------------------------------------------- #

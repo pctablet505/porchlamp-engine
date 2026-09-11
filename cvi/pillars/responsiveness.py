@@ -212,7 +212,14 @@ def score_ttm_p90(
         (p.merged_at - p.created_at).total_seconds() / 3600.0
         for p in merged_external
     ]
-    p90 = _p90_nearest_rank(latencies)
+    # Out-of-domain telemetry (merged_at < created_at) yields a negative
+    # latency that would sort to the bottom and, if dominant, drive the p90
+    # negative -> ECDF percentile 0 -> a spurious perfect 100. Drop corrupt
+    # samples; if none survive, fall back to the neutral 50.0.
+    valid = [lat for lat in latencies if lat >= 0.0]
+    if not valid:
+        return _NEUTRAL
+    p90 = _p90_nearest_rank(valid)
     return _clamp(100.0 - compute_ecosystem_percentile(p90, ttm_p90_population))
 
 
