@@ -31,7 +31,6 @@ from cvi.models import (
     AuthorAssociation,
     Ecosystem,
     LegalIPModel,
-    OpenSSFSignals,
     PromotionLadder,
     RawPREvent,
 )
@@ -69,12 +68,6 @@ def _parse_dt(s: Any) -> Optional[datetime]:
     except ValueError:
         return None
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
-def _months_since(dt: Optional[datetime], now: datetime) -> Optional[float]:
-    if dt is None:
-        return None
-    return round(max(0.0, (now - dt).total_seconds()) / (30.44 * 86400.0), 4)
 
 
 def _is_bot(login: Any) -> bool:
@@ -282,8 +275,11 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         if first_rev and created and first_rev >= created:
             latency = (first_rev - created).total_seconds() / 3600.0
         # APPROXIMATION: comments_total is the issue+review thread total, not
-        # inline-only; used as maintainer_review_comments for terminal PRs.
-        mrc = int(e.get("comments_total") or 0) if (closed or merged) else 0
+        # inline-only. A PR that received a review counts as engaged (>=1) even
+        # with 0 issue comments, so reviewed-but-open PRs are not ghosts.
+        mrc = int(e.get("comments_total") or 0)
+        if first_rev is not None:
+            mrc = max(mrc, 1)
         events.append(RawPREvent(
             repo_owner=owner, repo_name=name, pr_number=int(e["number"]),
             created_at=created or now, author_login=str(e.get("author_login") or ""),
@@ -378,29 +374,12 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     b.set("hard_ai_ban", b.meta["ai_posture"] is AIPosture.PROSCRIBED,
           "derived from ai_posture", None, "derived")
 
-    # --- OpenSSFSignals where mappable; None where no source exists ---
-    pushed = _parse_dt(gh.get("pushed_at"))
-    if any(x is not None for x in (gh, contribs, commits, deps)) and gh:
-        nonbot = (sum(1 for c in commits if not _is_bot(c.get("author_login")))
-                  if commits is not None else 0)
-        sig = OpenSSFSignals(
-            created_since_months=None,  # no created_at in github_meta cache
-            updated_since_months=_months_since(pushed, now),
-            contributor_count=len(contribs) if contribs is not None else None,
-            org_count=None,  # no org-affiliation API in the raw cache
-            commit_frequency_weekly=round(nonbot * 7 / COMMITS_WINDOW_DAYS, 4)
-            if commits is not None else None,
-            recent_releases_count=None,
-            closed_issues_count_90d=None,
-            updated_issues_count_90d=None,
-            comment_frequency=None,
-            dependents_count=int(usedby) if usedby is not None else None,
-        )
-        b.set("openssf_signals", sig, [src("github_meta", key), src("contributors", key),
-                                       src("commits_180d", key), src("depsdev", key)],
-              gh_at, "derived")
-    else:
-        b.missing("openssf_signals", None)
+    # --- OpenSSFSignals: only when ALL ten fields have sources; the PIKE
+    # scorer treats missing fields as 0.0 in the numerator while keeping the
+    # full 10.5 denominator, so partial signals would bias criticality toward
+    # 0 instead of neutral. org_count / releases / issue counts / comment
+    # frequency have no collector yet -> None (engine neutral 50). ---
+    b.missing("openssf_signals", None)
 
     meta = {k: _jsonable(v) for k, v in b.meta.items()}
     if b.meta.get("openssf_signals") is not None:

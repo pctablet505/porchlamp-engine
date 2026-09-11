@@ -106,11 +106,9 @@ def test_full_bundle(tmp_path):
     assert m["mean_inline_comments"] == 4.0   # only PR1 qualifies
     assert out["provenance"]["stars"]["source"].endswith("github_meta/acme__widget.json")
     assert out["provenance"]["stars"]["fetched_at"] == "2026-09-11T00:00:00Z"
-    assert m["openssf_signals"]["contributor_count"] == 3
-    assert m["openssf_signals"]["dependents_count"] == 777
-    assert m["openssf_signals"]["commit_frequency_weekly"] == round(3 * 7 / 180, 4)
-    assert m["openssf_signals"]["created_since_months"] is None  # no source
-    assert m["openssf_signals"]["updated_since_months"] > 0
+    # openssf_signals stays None until all 10 PIKE fields have collectors
+    # (partial signals would bias criticality toward 0, not neutral)
+    assert m["openssf_signals"] is None
 
 
 def test_pr_event_mapping(tmp_path):
@@ -121,9 +119,10 @@ def test_pr_event_mapping(tmp_path):
     assert evs[1]["maintainer_review_comments"] == 4
     assert evs[2]["is_external"] is False and evs[2]["author_association"] == "MEMBER"
     assert evs[2]["response_latency_hours"] is None
-    assert evs[3]["maintainer_review_comments"] == 0      # open PR -> 0
+    assert evs[3]["maintainer_review_comments"] == 0      # open, 0 comments, no review
     assert evs[4]["author_association"] == "FIRST_TIME"   # FIRST_TIME_CONTRIBUTOR mapped
-    assert evs[4]["is_external"] is True and evs[4]["maintainer_review_comments"] == 0
+    assert evs[4]["is_external"] is True
+    assert evs[4]["maintainer_review_comments"] == 9      # open but 9 comments -> engaged
 
 
 def test_missing_files(tmp_path):
