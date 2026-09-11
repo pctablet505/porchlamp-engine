@@ -69,8 +69,11 @@ def score_repository(
     """Score one repository through the full 5-phase pipeline (spec 2, 7).
 
     Phase 0 — EBA gate via :func:`cvi.stage0.apply_stage0`, called as
-    ``apply_stage0(meta, pr_events, now, ai_persona=...)`` with
-    ``ai_persona=True`` iff ``persona is Persona.AI_ASSISTED``. A hard gate
+    ``apply_stage0(meta, pr_events, now, ai_persona=..., persona=...)`` with
+    ``ai_persona=True`` iff ``persona is Persona.AI_ASSISTED``; the
+    ``persona`` argument additionally enforces persona-specific Stage 0
+    constraints (spec 4, currently the senior_systems multi-vendor EF >= 3
+    gate). A hard gate
     failure short-circuits the pipeline: no pillar scorer is ever called,
     and the result carries ``is_stage0_disqualified=True``,
     ``overall_cvi=0.0``, ``rank_tier=Tier.D``, the zero-pillar decomposition
@@ -94,7 +97,7 @@ def score_repository(
     Phase 5 — :func:`cvi.persona.persona_composite` under ``persona``.
     """
     ai_persona = persona is Persona.AI_ASSISTED
-    stage0_result = apply_stage0(meta, pr_events, now, ai_persona=ai_persona)
+    stage0_result = apply_stage0(meta, pr_events, now, ai_persona=ai_persona, persona=persona)
 
     if not stage0_result.passed:
         zero = PillarScores(0.0, 0.0, 0.0, 0.0, 0.0)
