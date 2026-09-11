@@ -45,12 +45,12 @@ cd /home/pctablet505/Projects/contributor-value-index
 env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/ -n auto -p no:cacheprovider
 ```
 
-Current suite: **502 tests, all green** — 20 test modules covering the engine,
+Current suite: **526 tests, all green** — 21 test modules covering the engine,
 all five pillars, stage 0 (incl. the `senior_systems` persona gate), StarScout,
 OpenSSF criticality, ECDF normalization (in the pillar suites), matrix,
 persona, lakehouse, deep-dive payload, REST API, ingestion, performance SLA,
-web demo, and the spec-§14 ground-truth fixtures (100% statement and branch
-coverage). CI (`.github/workflows/ci.yml`) runs the same command on Python 3.12.
+1,000-repo benchmark catalog, web demo, and the spec-§14 ground-truth fixtures
+(100% statement and branch coverage across all 21 modules). CI runs on Python 3.12.
 
 ## Module Map
 
@@ -73,11 +73,12 @@ coverage). CI (`.github/workflows/ci.yml`) runs the same command on Python 3.12.
 | `cvi/persona.py` | Phase 5 persona weight presets, custom-weight `reproject`, `rank_deltas` |
 | `cvi/engine.py` | `score_repository`: wires the 5-phase pipeline; tier assignment; DI seam `pillar_scorers` |
 | `cvi/lakehouse.py` | `OperationalStore` (SQLite `repositories` table per spec 11.2) + matrix/leaderboard/quadrant queries |
-| `cvi/api.py` | FastAPI app (`create_app`): the four REST endpoints below, over any `OperationalStore` |
+| `cvi/api.py` | FastAPI app (`create_app`): matrix, leaderboard, repo deep-dive, reproject, healthz |
 | `cvi/ingest.py` | Ingestion: 1.2 req/s token-bucket limiter, ETag-caching HTTP client, rate-limit circuit breaker, GHArchive streamer, raw-metric upsert into the store |
-| `cvi/deepdive.py` | Spec-12.2 deep-dive payload: raw metrics, Kaplan–Meier survival curve, legal-IP/EF/GFI detail (org-level EF breakdown and curated GFI list are pending-feed placeholders) |
-| `web/index.html` | Offline single-page UI: matrix scatter, scorecard drawer, persona re-projection panel (calls the API at `/v1/`) |
-| `scripts/demo_app.py` | Demo server: 26 deterministic fixture repos; page at `http://127.0.0.1:8000/`, CVI API under `/v1/` (`PORT` to override, `--db` for a file-backed store) |
+| `cvi/deepdive.py` | Spec-12.2 deep-dive payload: raw metrics, Kaplan–Meier survival curve, legal-IP/EF/GFI detail, and Maintainer Improvement Playbook |
+| `cvi/benchmark_data.py` | 1,000-repository benchmark catalog across 6 ecosystems, 4 quadrants, realistic metrics and synthetic PR events |
+| `web/index.html` | High-density developer UI: Light/Dark mode, 2D matrix, ranked leaderboard, side-by-side comparator, scorecard drawer |
+| `scripts/demo_app.py` | Demo server: seeds 1,000 benchmark repos by default; UI at `http://127.0.0.1:8000/`, API under `/v1/` |
 
 ## API Reference
 
@@ -88,6 +89,15 @@ Base URL: `http://127.0.0.1:8000` (FastAPI app from `cvi/api.py: create_app`).
 ```bash
 curl http://127.0.0.1:8000/healthz
 # {"status":"ok"}
+```
+
+**`GET /v1/cvi/leaderboard`** — paginated benchmark ranked leaderboard.
+
+Query params: `ecosystem` (optional), `persona` (default `balanced`), `min_stars` (default `0`), `limit` (default `100`, max `1000`), `offset` (default `0`), `search` (fuzzy name/owner match).
+
+```bash
+curl "http://127.0.0.1:8000/v1/cvi/leaderboard?limit=10&ecosystem=pypi"
+# {"total":175,"page":1,"limit":10,"items":[{"rank":1,"name":"transformers",...}]}
 ```
 
 **`GET /v1/cvi/matrix`** — scatter nodes + quadrant count badges.

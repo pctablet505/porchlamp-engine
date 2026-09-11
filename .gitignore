@@ -26,4 +26,7 @@ __pycache__/
 .pytest_cache/
 .coverage
 .coverage.*
-
+.agents/
+ORIGINAL_REQUEST.md
+PROJECT.md
+uv.lock

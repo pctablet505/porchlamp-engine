@@ -1,245 +1,1615 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CVI — Contributor Value Index</title>
 <style>
   :root {
-    --bg: #090d16;
-    --card: #0f172a;
-    --card-elevated: #1e293b;
-    --card-border: #1e293b;
-    --card-border-strong: #334155;
-    --text: #f8fafc;
-    --muted: #94a3b8;
-    --subtle: #64748b;
-    --accent: #38bdf8;
-    --error-bg: rgba(239, 68, 68, 0.15);
-    --error-border: #ef4444;
+    --bg-base: #090d16;
+    --bg-surface: #0f172a;
+    --bg-surface-elevated: #1e293b;
+    --bg-surface-hover: #334155;
+    --border-subtle: #1e293b;
+    --border-strong: #334155;
+    --border-focus: #38bdf8;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+
     --sweet: #10b981;
+    --sweet-bg: rgba(16, 185, 129, 0.12);
+    --sweet-border: rgba(16, 185, 129, 0.35);
+
     --crucible: #6366f1;
+    --crucible-bg: rgba(99, 102, 241, 0.12);
+    --crucible-border: rgba(99, 102, 241, 0.35);
+
     --nursery: #f59e0b;
+    --nursery-bg: rgba(245, 158, 11, 0.12);
+    --nursery-border: rgba(245, 158, 11, 0.35);
+
     --graveyard: #ef4444;
+    --graveyard-bg: rgba(239, 68, 68, 0.12);
+    --graveyard-border: rgba(239, 68, 68, 0.35);
+
+    --accent: #38bdf8;
+    --accent-bg: rgba(56, 189, 248, 0.12);
+    --accent-border: rgba(56, 189, 248, 0.35);
+
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", Helvetica, Arial, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+    --shadow-popover: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+    --shadow-drawer: -12px 0 35px rgba(0, 0, 0, 0.7);
   }
+
+  [data-theme="light"] {
+    --bg-base: #f8fafc;
+    --bg-surface: #ffffff;
+    --bg-surface-elevated: #f1f5f9;
+    --bg-surface-hover: #e2e8f0;
+    --border-subtle: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --border-focus: #0284c7;
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
+
+    --sweet: #059669;
+    --sweet-bg: rgba(5, 150, 105, 0.12);
+    --sweet-border: rgba(5, 150, 105, 0.35);
+
+    --crucible: #4f46e5;
+    --crucible-bg: rgba(79, 70, 229, 0.12);
+    --crucible-border: rgba(79, 70, 229, 0.35);
+
+    --nursery: #d97706;
+    --nursery-bg: rgba(217, 119, 6, 0.12);
+    --nursery-border: rgba(217, 119, 6, 0.35);
+
+    --graveyard: #dc2626;
+    --graveyard-bg: rgba(220, 38, 38, 0.12);
+    --graveyard-border: rgba(220, 38, 38, 0.35);
+
+    --accent: #0284c7;
+    --accent-bg: rgba(2, 132, 199, 0.12);
+    --accent-border: rgba(2, 132, 199, 0.35);
+
+    --shadow-popover: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
+    --shadow-drawer: -12px 0 35px rgba(0, 0, 0, 0.15);
+  }
+
   * { box-sizing: border-box; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 14.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font: 13.5px/1.45 var(--font-sans);
+    letter-spacing: -0.01em;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
   }
-  header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 18px 24px; border-bottom: 1px solid var(--card-border);
-    background: #0c1222;
+
+  /* Top Navigation & App Shell */
+  header.app-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    gap: 16px;
+    flex-wrap: wrap;
   }
-  h1 { margin: 0; font-size: 22px; letter-spacing: 0.5px; }
-  h1 span { color: var(--muted); font-weight: 400; font-size: 15px; margin-left: 6px; }
-  .tagline { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .brand-zone {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .brand-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-decoration: none;
+    letter-spacing: -0.02em;
+  }
+  .brand-logo .logo-icon {
+    color: var(--sweet);
+    font-size: 19px;
+  }
+  .brand-tag {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+
+  /* Nav Tabs */
+  .nav-tabs {
+    display: flex;
+    background: var(--bg-surface-elevated);
+    padding: 3px;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    gap: 2px;
+  }
+  .nav-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .nav-tab:hover {
+    color: var(--text-primary);
+    background: var(--bg-surface-hover);
+  }
+  .nav-tab.active {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    font-weight: 600;
+  }
+
+  /* Header Right Tools */
+  .header-tools {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .omnibar-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 11px;
+    border-radius: 6px;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-strong);
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .omnibar-btn:hover {
+    border-color: var(--border-focus);
+    color: var(--text-primary);
+  }
+  .omnibar-btn kbd {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-family: var(--font-mono);
+  }
+  .theme-toggle-btn, .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.15s;
+  }
+  .theme-toggle-btn:hover, .icon-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+  }
+
   .pill {
-    font-size: 12px; padding: 4px 12px; border-radius: 999px;
-    border: 1px solid var(--card-border); color: var(--muted); white-space: nowrap;
+    font-size: 11px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+  }
+  .pill.ok { color: var(--sweet); border-color: var(--sweet-border); background: var(--sweet-bg); }
+  .pill.bad { color: var(--graveyard); border-color: var(--graveyard-border); background: var(--graveyard-bg); }
+
+  .error-banner {
+    margin: 12px 20px 0;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--graveyard-bg);
+    border: 1px solid var(--graveyard-border);
+    color: var(--graveyard);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* Main Workspace Area */
+  main.workspace {
+    flex: 1;
+    padding: 16px 20px;
+    max-width: 1720px;
+    width: 100%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .screen-view {
+    display: none;
+    flex-direction: column;
+    gap: 16px;
+    animation: fadeIn 0.15s ease;
+  }
+  .screen-view.active {
+    display: flex;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(2px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Cards & Toolbars */
+  .card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .card-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+  }
+  .card-title span.sub {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+  .hint {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin: 4px 0 0;
+  }
+  code {
+    background: var(--bg-surface-elevated);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    border: 1px solid var(--border-strong);
+  }
+
+  /* Controls & Filters Bar */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .toolbar label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  select, input[type="text"], input[type="number"] {
+    background: var(--bg-surface-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 12.5px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  select:focus, input[type="text"]:focus, input[type="number"]:focus {
+    border-color: var(--border-focus);
+  }
+  input[type="number"] {
+    width: 80px;
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
-  .pill.ok { color: var(--sweet); border-color: var(--sweet); }
-  .pill.bad { color: var(--graveyard); border-color: var(--graveyard); }
-  .error-banner {
-    margin: 14px 24px 0; padding: 10px 14px; border-radius: 8px;
-    background: var(--error-bg); border: 1px solid var(--error-border);
-    color: #fecaca; font-size: 14px;
+  input[type="text"] {
+    min-width: 200px;
   }
-  .card {
-    background: var(--card); border: 1px solid var(--card-border);
-    border-radius: 10px; padding: 16px 18px; margin: 14px 24px;
-  }
-  h2 { margin: 0 0 10px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
-  h4 { margin: 14px 0 6px; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
-  .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; }
-  code { background: #1e293b; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
-  .controls { display: flex; flex-wrap: wrap; gap: 18px; align-items: end; }
-  .controls label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-  .controls .check { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 6px; color: var(--text); }
-  select, input[type="number"] {
-    background: #0d1526; color: var(--text); border: 1px solid var(--card-border-strong);
-    border-radius: 6px; padding: 6px 10px; font-size: 14px;
-  }
-  input[type="number"] { width: 92px; }
-  .hint { flex-basis: 100%; }
-  .badges { flex-basis: 100%; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Badges */
   .badge {
-    display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
-    border: 1px solid var(--card-border-strong); border-radius: 999px; padding: 3px 10px; color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    padding: 2px 9px;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    white-space: nowrap;
   }
-  .badge i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-  .badge b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
-  .badge.sweet { color: var(--sweet); border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.08); }
-  .badge.crucible { color: var(--crucible); border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.08); }
-  .badge.nursery { color: var(--nursery); border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.08); }
-  .badge.graveyard { color: var(--graveyard); border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.08); }
-  .badge.accent { color: var(--accent); border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.08); }
+  .badge i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .badge b { color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .badge.sweet { color: var(--sweet); border-color: var(--sweet-border); background: var(--sweet-bg); }
+  .badge.crucible { color: var(--crucible); border-color: var(--crucible-border); background: var(--crucible-bg); }
+  .badge.nursery { color: var(--nursery); border-color: var(--nursery-border); background: var(--nursery-bg); }
+  .badge.graveyard { color: var(--graveyard); border-color: var(--graveyard-border); background: var(--graveyard-bg); }
+  .badge.accent { color: var(--accent); border-color: var(--accent-border); background: var(--accent-bg); }
 
-  main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 0; align-items: start; }
-  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
-  .scatter-card { margin-right: 0; }
-  .drawer { margin: 14px 24px 14px 0; position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
-  @media (max-width: 1100px) { .drawer { margin: 0 24px 14px; position: static; max-height: none; } }
-  .drawer-empty { color: var(--muted); font-size: 13.5px; padding: 24px 8px; text-align: center; }
-  .drawer-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
-  .drawer h3 { margin: 0; font-size: 18px; word-break: break-all; }
-  .drawer .sub { color: var(--muted); font-size: 12.5px; margin: 4px 0 10px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-bottom: 12px; }
-  .kv div { background: #0d1526; border: 1px solid var(--card-border); border-radius: 8px; padding: 8px 10px; }
-  .kv span { display: block; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
-  .kv b { font-size: 14px; font-variant-numeric: tabular-nums; }
-  .cvi-big { font-size: 28px; font-weight: 700; color: var(--accent); }
-  .gated-note {
-    background: var(--error-bg); border: 1px solid var(--error-border);
-    border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: #fecaca; margin-bottom: 12px;
+  /* Ecosystem Segmented Pills */
+  .segmented-tabs {
+    display: inline-flex;
+    background: var(--bg-surface-elevated);
+    padding: 2px;
+    border-radius: 6px;
+    border: 1px solid var(--border-strong);
+    gap: 1px;
+    overflow-x: auto;
+    max-width: 100%;
   }
-  .radar-box { background: #0d1526; border: 1px solid var(--card-border); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
-  .pillar-bars { margin-bottom: 12px; }
-  .pillar { display: grid; grid-template-columns: 96px 1fr 40px; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; }
-  .pillar .name { color: var(--muted); }
-  .pillar .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-  .bar { height: 8px; background: #0d1526; border-radius: 4px; overflow: hidden; }
-  .bar i { display: block; height: 100%; border-radius: 4px; }
-  .survival-box { background: #0d1526; border: 1px solid var(--card-border); border-radius: 8px; padding: 10px; margin-bottom: 12px; }
-  .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; margin-top: 8px; }
-  .metrics-grid .item { background: #131d33; padding: 6px 8px; border-radius: 6px; font-size: 11.5px; }
-  .metrics-grid .item span { display: block; color: var(--muted); font-size: 10px; }
-  .metrics-grid .item b { font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--text); }
-  .gov-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .seg-btn {
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.12s;
+    white-space: nowrap;
+  }
+  .seg-btn:hover { color: var(--text-primary); }
+  .seg-btn.active {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+  }
 
-  #scatter svg { width: 100%; height: auto; display: block; }
-  #scatter g.node { cursor: pointer; }
-  #scatter g.node circle { transition: stroke-width 0.1s, filter 0.1s; }
-  #scatter g.node:hover circle { stroke: #fff; stroke-width: 2; filter: drop-shadow(0 0 6px rgba(255,255,255,0.5)); }
-  #scatter g.node.selected circle { stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 0 8px var(--accent)); }
-  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted); }
-  .legend span { display: inline-flex; align-items: center; gap: 6px; }
-  .legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-  .legend .hollow { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #9ca3af; display: inline-block; }
+  /* Screen A: 2D Matrix Layout */
+  .matrix-viewport-container {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+  }
+  #scatter {
+    width: 100%;
+    height: 540px;
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+  }
+  #scatter svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: grab;
+  }
+  #scatter svg:active {
+    cursor: grabbing;
+  }
+  #scatter g.node { cursor: pointer; outline: none; }
+  #scatter g.node circle { transition: stroke-width 0.12s, filter 0.12s; }
+  #scatter g.node:hover circle {
+    stroke: #ffffff;
+    stroke-width: 2.5;
+    filter: drop-shadow(0 0 8px rgba(255,255,255,0.7));
+  }
+  #scatter g.node.selected circle {
+    stroke: var(--accent);
+    stroke-width: 3;
+    filter: drop-shadow(0 0 10px var(--accent));
+  }
 
-  .presets { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
-  .preset-label { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  .canvas-controls {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: var(--bg-surface-elevated);
+    padding: 4px;
+    border-radius: 6px;
+    border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-popover);
+    z-index: 10;
+  }
+  .canvas-btn {
+    background: transparent;
+    border: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .canvas-btn:hover {
+    background: var(--bg-surface-hover);
+  }
+
+  /* Hover Card Tooltip */
+  .hover-card {
+    position: absolute;
+    z-index: 100;
+    pointer-events: none;
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    padding: 12px 14px;
+    box-shadow: var(--shadow-popover);
+    width: 270px;
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .hover-card-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .hover-card-metric {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+  }
+  .hover-card-metric b {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Legend */
+  .matrix-legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .matrix-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .matrix-legend .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .matrix-legend .hollow {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1.5px solid var(--graveyard);
+    display: inline-block;
+  }
+
+  /* Screen B: Leaderboard Table */
+  .table-container {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    overflow-x: auto;
+  }
+  table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  table.data-table th {
+    background: var(--bg-surface-elevated);
+    padding: 9px 12px;
+    font-weight: 600;
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-strong);
+    user-select: none;
+    cursor: pointer;
+    transition: color 0.12s;
+  }
+  table.data-table th:hover {
+    color: var(--text-primary);
+  }
+  table.data-table th.no-sort {
+    cursor: default;
+  }
+  table.data-table th .sort-icon {
+    font-size: 10px;
+    margin-left: 4px;
+    opacity: 0.5;
+  }
+  table.data-table th.sorted .sort-icon {
+    opacity: 1;
+    color: var(--accent);
+  }
+  table.data-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  table.data-table tbody tr {
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  table.data-table tbody tr:hover {
+    background: var(--bg-surface-hover);
+  }
+  table.data-table tbody tr.selected {
+    background: var(--accent-bg);
+  }
+  .mono-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Mini progress bar inside cell */
+  .cvi-score-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mini-bar-track {
+    width: 50px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg-surface-elevated);
+    overflow: hidden;
+  }
+  .mini-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+  }
+
+  .repo-identity {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .repo-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .repo-meta-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* Pagination Bar */
+  .pagination-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-top: 1px solid var(--border-subtle);
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .pagination-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .page-btn {
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-surface-elevated);
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* Compare floating action button */
+  .btn-primary {
+    background: var(--accent);
+    color: #090d16;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: filter 0.15s;
+  }
+  .btn-primary:hover { filter: brightness(1.1); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Screen E: Comparator View */
+  .comparator-grid {
+    display: grid;
+    grid-template-columns: 360px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 1100px) {
+    .comparator-grid { grid-template-columns: 1fr; }
+  }
+
+  .comparator-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .compare-repo-chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .compare-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg-surface-elevated);
+    font-size: 12px;
+    font-family: var(--font-mono);
+  }
+  .compare-chip button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+    font-size: 12px;
+  }
+  .compare-chip button:hover { color: var(--graveyard); }
+
+  /* Comparison Diff Table */
+  table.diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  table.diff-table th, table.diff-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+  table.diff-table th {
+    background: var(--bg-surface-elevated);
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  table.diff-table tr.category-row td {
+    background: var(--bg-surface-elevated);
+    font-weight: 700;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+    padding-top: 12px;
+  }
+  .diff-winner {
+    color: var(--sweet) !important;
+    font-weight: 700;
+    background: var(--sweet-bg);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+
+  /* Verdict Box */
+  .verdict-box {
+    background: var(--accent-bg);
+    border: 1px solid var(--accent-border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-top: 14px;
+  }
+  .verdict-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    margin: 0 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .verdict-body {
+    font-size: 12.5px;
+    color: var(--text-primary);
+    line-height: 1.5;
+    margin: 0;
+  }
+
+  /* Screen D: Persona Configurator */
+  .presets {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 14px;
+  }
   .preset-btn {
-    margin: 0; background: #1e293b; color: var(--text); border: 1px solid var(--card-border-strong);
-    border-radius: 6px; padding: 5px 10px; font-size: 12px; font-weight: 500; cursor: pointer;
+    background: var(--bg-surface-elevated);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.12s;
   }
-  .preset-btn:hover { background: #334155; }
-  .preset-btn.active { background: var(--accent); color: #090d16; border-color: var(--accent); font-weight: 600; }
+  .preset-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-surface-hover);
+  }
+  .preset-btn.active {
+    background: var(--accent);
+    color: #090d16;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
 
-  .weights { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
-  .weights label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
-  button.submit-btn {
-    margin-top: 14px; background: var(--accent); color: #090d16; border: 0; border-radius: 8px;
-    padding: 9px 20px; font-size: 14px; font-weight: 600; cursor: pointer;
+  .sliders-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+    margin-bottom: 16px;
   }
-  button.submit-btn:hover { filter: brightness(1.1); }
-  .field-error { color: #fca5a5; font-size: 13px; margin-top: 8px; }
-  #reproject-results { margin: 14px 0 0; padding: 0; list-style: none; max-height: 420px; overflow-y: auto; }
+  .slider-card {
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .slider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .lock-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px;
+    transition: color 0.12s;
+  }
+  .lock-btn:hover { color: var(--text-primary); }
+  .lock-btn.locked { color: var(--accent); }
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .slider-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .field-error {
+    color: var(--graveyard);
+    font-size: 12.5px;
+    margin-top: 8px;
+  }
+
+  #reproject-results {
+    margin: 14px 0 0;
+    padding: 0;
+    list-style: none;
+    max-height: 480px;
+    overflow-y: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+  }
   #reproject-results li {
-    display: grid; grid-template-columns: 44px minmax(0, 1fr) 92px 74px 70px; gap: 10px;
-    padding: 6px 8px; border-bottom: 1px solid var(--card-border); font-size: 13.5px; align-items: center;
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr) 96px 74px 74px;
+    gap: 10px;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 12.5px;
+    align-items: center;
+    cursor: pointer;
+    transition: background 0.1s;
   }
-  #reproject-results li:nth-child(odd) { background: #0d1526; }
-  #reproject-results .rank { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 600; }
-  #reproject-results .repo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #reproject-results .move { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; }
-  #reproject-results .score { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; }
-  .delta { font-weight: 600; font-size: 12.5px; }
+  #reproject-results li:hover { background: var(--bg-surface-hover); }
+  #reproject-results .rank { color: var(--text-muted); font-family: var(--font-mono); font-weight: 600; }
+  #reproject-results .repo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  #reproject-results .move { color: var(--text-muted); font-family: var(--font-mono); font-size: 11.5px; }
+  #reproject-results .score { text-align: right; font-family: var(--font-mono); color: var(--text-primary); font-weight: 600; }
+  .delta { font-weight: 600; font-family: var(--font-mono); font-size: 11.5px; }
   .delta.up { color: var(--sweet); }
   .delta.down { color: var(--graveyard); }
-  .delta.flat { color: var(--muted); font-weight: 400; }
-  footer { color: var(--muted); font-size: 12px; padding: 6px 24px 22px; line-height: 1.6; }
+  .delta.flat { color: var(--text-muted); font-weight: 400; }
+
+  /* Screen C: Scorecard Slide-Over Drawer */
+  .drawer-backdrop {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(2px);
+    z-index: 90;
+    display: none;
+  }
+  .drawer-backdrop.open { display: block; }
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 540px;
+    max-width: 95vw;
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-drawer);
+    z-index: 100;
+    overflow-y: auto;
+    padding: 20px 24px;
+    transform: translateX(100%);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .drawer.open {
+    transform: translateX(0);
+  }
+  .drawer-close-btn {
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .drawer-close-btn:hover { color: var(--text-primary); }
+  .drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .drawer h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    word-break: break-all;
+  }
+  .drawer-sub {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-top: 6px;
+  }
+  .gated-note {
+    background: var(--graveyard-bg);
+    border: 1px solid var(--graveyard-border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 12px;
+    color: var(--graveyard);
+  }
+  .kv-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .kv-item {
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .kv-item span {
+    display: block;
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+  .kv-item b {
+    font-size: 13.5px;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+  }
+  .cvi-big {
+    font-size: 26px !important;
+    font-weight: 800;
+    color: var(--accent) !important;
+  }
+
+  .drawer-section-title {
+    margin: 8px 0 6px;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .radar-box, .survival-box {
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .pillar {
+    display: grid;
+    grid-template-columns: 96px 1fr 40px;
+    align-items: center;
+    gap: 8px;
+    margin: 5px 0;
+    font-size: 12px;
+  }
+  .pillar .name { color: var(--text-secondary); }
+  .pillar .val { text-align: right; font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); }
+  .bar { height: 6px; background: var(--bg-surface); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 3px; }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .metrics-grid .item {
+    background: var(--bg-surface);
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+  }
+  .metrics-grid .item span { display: block; color: var(--text-muted); font-size: 10px; }
+  .metrics-grid .item b { font-size: 12px; font-family: var(--font-mono); color: var(--text-primary); }
+
+  /* Maintainer Improvement Playbook */
+  .playbook-container {
+    background: var(--bg-surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .playbook-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    background: var(--accent-bg);
+    border: 1px solid var(--accent-border);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .playbook-action {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: border-color 0.12s;
+  }
+  .playbook-action:hover {
+    border-color: var(--border-focus);
+  }
+  .playbook-action-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .playbook-action-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-primary);
+  }
+  .playbook-action-badge {
+    font-size: 11px;
+    color: var(--sweet);
+    background: var(--sweet-bg);
+    border: 1px solid var(--sweet-border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: var(--font-mono);
+  }
+  .playbook-action-desc {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin: 0;
+  }
+  .playbook-target {
+    font-size: 10.5px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  /* Omnibar Modal */
+  .modal-backdrop {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(3px);
+    z-index: 120;
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 15vh;
+  }
+  .modal-backdrop.open { display: flex; }
+  .omnibar-dialog {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    box-shadow: var(--shadow-popover);
+    width: 620px;
+    max-width: 90vw;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .omnibar-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-strong);
+  }
+  .omnibar-input-wrap input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    font-size: 14px;
+    color: var(--text-primary);
+    outline: none;
+  }
+  .omnibar-results {
+    list-style: none;
+    margin: 0;
+    padding: 8px;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+  .omnibar-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    transition: background 0.1s;
+  }
+  .omnibar-item:hover, .omnibar-item.active {
+    background: var(--bg-surface-elevated);
+    color: var(--text-primary);
+  }
+
+  footer.app-footer {
+    color: var(--text-muted);
+    font-size: 11.5px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    line-height: 1.6;
+    margin-top: auto;
+  }
 </style>
 </head>
 <body>
-<header>
-  <div>
-    <h1>CVI <span>Contributor Value Index</span></h1>
-    <p class="tagline">2D discovery matrix · friction × leverage · single-file offline demo (no CDN, no build step)</p>
+
+<header class="app-header">
+  <div class="brand-zone">
+    <a href="#matrix" class="brand-logo">
+      <span class="logo-icon">♦</span>
+      <span>CVI</span>
+    </a>
+    <span class="brand-tag">Contributor Value Index</span>
+    <span class="brand-tag" style="font-family: var(--font-mono)">v1.0</span>
   </div>
-  <div id="server-status" class="pill">checking API…</div>
+
+  <nav class="nav-tabs" aria-label="Main Navigation">
+    <button type="button" class="nav-tab active" id="nav-matrix" data-screen="matrix">
+      <span>📊</span> 2D Matrix
+    </button>
+    <button type="button" class="nav-tab" id="nav-leaderboard" data-screen="leaderboard">
+      <span>🏆</span> Benchmark Leaderboard
+    </button>
+    <button type="button" class="nav-tab" id="nav-comparator" data-screen="comparator">
+      <span>⚖️</span> Comparator
+    </button>
+    <button type="button" class="nav-tab" id="nav-configurator" data-screen="configurator">
+      <span>🎛️</span> Persona Configurator
+    </button>
+  </nav>
+
+  <div class="header-tools">
+    <button type="button" class="omnibar-btn" id="open-omnibar-btn" title="Quick Search (Cmd+K)">
+      <span>🔍</span> Search repos… <kbd>⌘K</kbd>
+    </button>
+    <button type="button" class="theme-toggle-btn" id="theme-toggle-btn" title="Toggle Light/Dark Theme">
+      <span id="theme-icon">🌙</span>
+    </button>
+    <button type="button" class="icon-btn" id="shortcuts-btn" title="Keyboard Shortcuts (?)">?</button>
+    <div id="server-status" class="pill">checking API…</div>
+  </div>
 </header>
 
 <div id="error-banner" class="error-banner" hidden></div>
 
-<section class="card controls">
-  <label>Ecosystem
-    <select id="ecosystem">
-      <option value="">All ecosystems</option>
-      <option value="npm">npm</option>
-      <option value="pypi">pypi</option>
-      <option value="crates">crates</option>
-      <option value="go">go</option>
-      <option value="maven">maven</option>
-      <option value="systems">systems</option>
-    </select>
-  </label>
-  <label>min_stars
-    <input id="min_stars" type="number" min="0" step="1" value="0">
-  </label>
-  <label class="check">
-    <input id="exclude_black_holes" type="checkbox" checked>
-    exclude black holes
-  </label>
-  <p class="hint">Demo default here is <code>min_stars=0</code> so every seeded repo is visible — the API's own default is <code>min_stars=100</code>; type 100 above to see that filter drop the small repos. Filters apply live to <code>GET /v1/cvi/matrix</code>.</p>
-  <div class="badges" id="quadrant-badges"></div>
-</section>
+<main class="workspace">
 
-<main>
-  <section class="card scatter-card">
-    <h2>Discovery Matrix <span id="node-count" class="hint"></span></h2>
-    <div id="scatter" aria-label="CVI 2D matrix scatter"></div>
-    <div class="legend">
+  <!-- ===================================================================== -->
+  <!-- SCREEN A: 2D DISCOVERY MATRIX VIEW -->
+  <!-- ===================================================================== -->
+  <section id="screen-matrix" class="screen-view active">
+    <!-- Filters Toolbar (Preserves exact IDs for API test suites) -->
+    <div class="toolbar">
+      <label>Ecosystem
+        <select id="ecosystem">
+          <option value="">All ecosystems</option>
+          <option value="npm">npm</option>
+          <option value="pypi">pypi</option>
+          <option value="crates">crates</option>
+          <option value="go">go</option>
+          <option value="maven">maven</option>
+          <option value="systems">systems</option>
+        </select>
+      </label>
+
+      <label>min_stars
+        <input id="min_stars" type="number" min="0" step="1" value="0">
+      </label>
+
+      <label style="cursor: pointer;">
+        <input id="exclude_black_holes" type="checkbox" checked style="cursor: pointer;">
+        exclude black holes
+      </label>
+
+      <div class="hint" style="flex-basis: 100%;">
+        Demo default here is <code>min_stars=0</code> so every seeded repo is visible — the API's own default is <code>min_stars=100</code>; type 100 above to see that filter drop the small repos. Filters apply live to <code>GET /v1/cvi/matrix</code>.
+      </div>
+
+      <div class="badges" id="quadrant-badges" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;"></div>
+    </div>
+
+    <!-- Matrix Canvas Card -->
+    <div class="card matrix-viewport-container" style="padding: 0;">
+      <div class="card-header" style="padding: 12px 16px; margin: 0; border-bottom: 1px solid var(--border-subtle);">
+        <h2 class="card-title">
+          2D Discovery Matrix <span id="node-count" class="sub"></span>
+        </h2>
+        <span class="hint">Click any node to open Deep-Dive Scorecard Drawer</span>
+      </div>
+
+      <div id="scatter" aria-label="CVI 2D matrix scatter">
+        <!-- Canvas Controls -->
+        <div class="canvas-controls">
+          <button type="button" class="canvas-btn" id="zoom-in-btn" title="Zoom In">+</button>
+          <button type="button" class="canvas-btn" id="zoom-out-btn" title="Zoom Out">−</button>
+          <button type="button" class="canvas-btn" id="zoom-reset-btn" title="Reset View" style="font-size: 12px;">⟲</button>
+        </div>
+      </div>
+
+      <div id="matrix-hover-card" class="hover-card"></div>
+    </div>
+
+    <!-- Matrix Legend -->
+    <div class="matrix-legend">
       <span><i class="dot" style="background: var(--sweet)"></i><b>♦</b> Sweet Spot — high leverage, low friction</span>
       <span><i class="dot" style="background: var(--crucible)"></i><b>⬢</b> Crucible — high leverage, high friction</span>
       <span><i class="dot" style="background: var(--nursery)"></i><b>●</b> Nursery — low leverage, low friction</span>
       <span><i class="dot" style="background: var(--graveyard)"></i><b>✕</b> Graveyard — low leverage, high friction</span>
-      <span><i class="hollow"></i>gated (black hole) — hollow + X, excluded by default filter</span>
+      <span><i class="hollow"></i> gated (black hole) — hollow + X, excluded by default filter</span>
       <span>node radius ∝ √stars (minimum radius applied)</span>
     </div>
   </section>
-  <aside class="card drawer" id="drawer" aria-live="polite">
-    <div class="drawer-empty">Click a node for the deep-dive scorecard<br>(<code>GET /v1/cvi/repos/{owner}/{name}</code>).</div>
-  </aside>
+
+
+  <!-- ===================================================================== -->
+  <!-- SCREEN B: MULTI-ECOSYSTEM RANKED LEADERBOARD (TOP 1,000) -->
+  <!-- ===================================================================== -->
+  <section id="screen-leaderboard" class="screen-view">
+    <div class="toolbar">
+      <div class="segmented-tabs" id="lb-ecosystem-pills">
+        <button type="button" class="seg-btn active" data-eco="">All</button>
+        <button type="button" class="seg-btn" data-eco="pypi">PyPI</button>
+        <button type="button" class="seg-btn" data-eco="npm">npm</button>
+        <button type="button" class="seg-btn" data-eco="crates">Crates</button>
+        <button type="button" class="seg-btn" data-eco="go">Go</button>
+        <button type="button" class="seg-btn" data-eco="maven">Maven</button>
+        <button type="button" class="seg-btn" data-eco="systems">Systems</button>
+      </div>
+
+      <input type="text" id="lb-search-input" placeholder="Search by repository or owner…" style="max-width: 260px;">
+
+      <label>Quadrant:
+        <select id="lb-quadrant-filter">
+          <option value="">All Quadrants</option>
+          <option value="Sweet Spot">♦ Sweet Spot</option>
+          <option value="Crucible">⬢ Crucible</option>
+          <option value="Nursery">● Nursery</option>
+          <option value="Graveyard">✕ Graveyard</option>
+        </select>
+      </label>
+
+      <button type="button" class="btn-primary" id="lb-compare-btn" disabled>
+        <span>⚖️</span> Compare Selected (<span id="lb-selected-count">0</span>)
+      </button>
+    </div>
+
+    <div class="table-container">
+      <table class="data-table" id="leaderboard-table">
+        <thead>
+          <tr>
+            <th class="no-sort" style="width: 32px;"><input type="checkbox" id="lb-select-all" title="Select all visible"></th>
+            <th data-sort="rank" class="sorted"># <span class="sort-icon">▲</span></th>
+            <th data-sort="repo_id">Repository <span class="sort-icon">↕</span></th>
+            <th data-sort="overall_cvi">CVI Score <span class="sort-icon">↕</span></th>
+            <th data-sort="rank_tier">Tier <span class="sort-icon">↕</span></th>
+            <th data-sort="matrix_quadrant">Quadrant <span class="sort-icon">↕</span></th>
+            <th data-sort="score_responsiveness" title="Responsiveness (P1)">P1 (Resp) <span class="sort-icon">↕</span></th>
+            <th data-sort="score_criticality" title="Production Impact (P2)">P2 (Crit) <span class="sort-icon">↕</span></th>
+            <th data-sort="score_governance" title="Governance & IP (P3)">P3 (Gov) <span class="sort-icon">↕</span></th>
+            <th data-sort="score_rigor_ai" title="Engineering Rigor & AI (P4)">P4 (Rigor) <span class="sort-icon">↕</span></th>
+            <th data-sort="score_accessibility" title="Accessibility (P5)">P5 (Access) <span class="sort-icon">↕</span></th>
+            <th data-sort="leverage_score">Lev / Frict <span class="sort-icon">↕</span></th>
+            <th data-sort="stars">Stars <span class="sort-icon">↕</span></th>
+            <th data-sort="monthly_downloads">Downloads/mo <span class="sort-icon">↕</span></th>
+            <th data-sort="dependents_count">Dependents <span class="sort-icon">↕</span></th>
+            <th data-sort="elephant_factor">EF <span class="sort-icon">↕</span></th>
+            <th class="no-sort">Action</th>
+          </tr>
+        </thead>
+        <tbody id="leaderboard-tbody">
+          <!-- Populated dynamically via JS -->
+        </tbody>
+      </table>
+
+      <div class="pagination-bar">
+        <span id="lb-pagination-summary">Showing 0 of 0 repositories</span>
+        <div class="pagination-controls">
+          <label style="font-size: 11.5px; color: var(--text-muted); margin-right: 8px;">
+            Rows:
+            <select id="lb-page-size" style="padding: 2px 6px; font-size: 11.5px;">
+              <option value="15">15</option>
+              <option value="25" selected>25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <button type="button" class="page-btn" id="lb-prev-page">Previous</button>
+          <span id="lb-page-info" class="mono-num" style="padding: 0 4px;">Page 1</span>
+          <button type="button" class="page-btn" id="lb-next-page">Next</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ===================================================================== -->
+  <!-- SCREEN E: SIDE-BY-SIDE REPOSITORY COMPARATOR -->
+  <!-- ===================================================================== -->
+  <section id="screen-comparator" class="screen-view">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Side-by-Side Repository Comparator</h2>
+          <p class="hint">Evaluate trade-offs across all 15 empirical metrics and receive synthesized persona recommendations.</p>
+        </div>
+      </div>
+
+      <div class="toolbar" style="margin-bottom: 16px;">
+        <label>Select Repository to Compare:
+          <select id="comp-repo-picker" style="min-width: 240px;">
+            <option value="">-- Add repository to comparison --</option>
+          </select>
+        </label>
+        <button type="button" class="btn-primary" id="comp-add-repo-btn">+ Add to Compare</button>
+        <span class="hint" style="margin-left: auto;">Comparing <span id="comp-count-label">2</span> repositories (max 4)</span>
+      </div>
+
+      <div class="compare-repo-chips" id="comp-chips"></div>
+
+      <div class="comparator-grid">
+        <!-- Visual Dual / Multi Radar Chart -->
+        <div class="comparator-card">
+          <h4 style="margin: 0 0 10px; font-size: 12.5px; text-transform: uppercase; color: var(--text-muted);">
+            Superimposed 5-Pillar Radar
+          </h4>
+          <div id="comp-radar-container"></div>
+          <div id="comp-radar-legend" style="margin-top: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px;"></div>
+
+          <div class="verdict-box" id="comp-verdict-box">
+            <h4 class="verdict-title"><span>⚖️</span> Synthesized Verdict</h4>
+            <p class="verdict-body" id="comp-verdict-text">Select repositories to compare.</p>
+          </div>
+        </div>
+
+        <!-- Metric Differential Table -->
+        <div class="table-container">
+          <table class="diff-table" id="comp-diff-table">
+            <thead>
+              <tr id="comp-table-header-row">
+                <th style="width: 220px;">Metric Dimension</th>
+                <!-- Populated per repository -->
+              </tr>
+            </thead>
+            <tbody id="comp-diff-tbody">
+              <!-- Populated dynamically via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- ===================================================================== -->
+  <!-- SCREEN D: PERSONA CONFIGURATOR & WEIGHT ADJUSTER -->
+  <!-- ===================================================================== -->
+  <section id="screen-configurator" class="screen-view">
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">Persona Configurator &amp; Weight Adjuster</h2>
+          <p class="hint">
+            Weights are normalized to sum to exactly 1.0 on submit and sent as full-precision floats; the server validates the exact 5-key set and the sum (within 1e-6) before touching the store. Rank deltas are <code>old_rank − new_rank</code> (positive = moved up).
+          </p>
+        </div>
+      </div>
+
+      <div class="presets">
+        <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-right: 4px;">Presets:</span>
+        <button type="button" class="preset-btn active" data-preset="balanced">Balanced Default</button>
+        <button type="button" class="preset-btn" data-preset="first_timer">First-Timer (Nursery)</button>
+        <button type="button" class="preset-btn" data-preset="career">Career Capital (Sweet Spot)</button>
+        <button type="button" class="preset-btn" data-preset="systems">Senior Systems (Crucible)</button>
+        <button type="button" class="preset-btn" data-preset="ai">AI-Assisted</button>
+      </div>
+
+      <!-- Sliders Array with Sum-to-100% Lock Mechanism -->
+      <div class="sliders-grid">
+        <div class="slider-card" data-pillar="responsiveness">
+          <div class="slider-header">
+            <span>⚡ Responsiveness (P1)</span>
+            <button type="button" class="lock-btn" data-lock="responsiveness" title="Lock weight">🔓</button>
+          </div>
+          <div class="slider-row">
+            <input type="range" id="sl-responsiveness" min="0" max="100" step="1" value="25">
+            <input id="w-responsiveness" type="number" min="0" max="1" step="0.01" value="0.25">
+          </div>
+        </div>
+
+        <div class="slider-card" data-pillar="criticality">
+          <div class="slider-header">
+            <span>🌐 Criticality (P2)</span>
+            <button type="button" class="lock-btn" data-lock="criticality" title="Lock weight">🔓</button>
+          </div>
+          <div class="slider-row">
+            <input type="range" id="sl-criticality" min="0" max="100" step="1" value="25">
+            <input id="w-criticality" type="number" min="0" max="1" step="0.01" value="0.25">
+          </div>
+        </div>
+
+        <div class="slider-card" data-pillar="governance">
+          <div class="slider-header">
+            <span>🛡️ Governance (P3)</span>
+            <button type="button" class="lock-btn" data-lock="governance" title="Lock weight">🔓</button>
+          </div>
+          <div class="slider-row">
+            <input type="range" id="sl-governance" min="0" max="100" step="1" value="20">
+            <input id="w-governance" type="number" min="0" max="1" step="0.01" value="0.20">
+          </div>
+        </div>
+
+        <div class="slider-card" data-pillar="rigor">
+          <div class="slider-header">
+            <span>🔒 Rigor &amp; AI (P4)</span>
+            <button type="button" class="lock-btn" data-lock="rigor" title="Lock weight">🔓</button>
+          </div>
+          <div class="slider-row">
+            <input type="range" id="sl-rigor" min="0" max="100" step="1" value="15">
+            <input id="w-rigor" type="number" min="0" max="1" step="0.01" value="0.15">
+          </div>
+        </div>
+
+        <div class="slider-card" data-pillar="accessibility">
+          <div class="slider-header">
+            <span>🌱 Accessibility (P5)</span>
+            <button type="button" class="lock-btn" data-lock="accessibility" title="Lock weight">🔓</button>
+          </div>
+          <div class="slider-row">
+            <input type="range" id="sl-accessibility" min="0" max="100" step="1" value="15">
+            <input id="w-accessibility" type="number" min="0" max="1" step="0.01" value="0.15">
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <button id="reproject-btn" class="btn-primary" style="padding: 8px 18px;">
+          Re-project leaderboard
+        </button>
+        <span id="sum-indicator" class="mono-num" style="font-size: 12px; color: var(--text-muted);">
+          Total weight: 100%
+        </span>
+      </div>
+
+      <p id="reproject-error" class="field-error" hidden></p>
+      <ol id="reproject-results"></ol>
+    </div>
+  </section>
+
 </main>
 
-<section class="card">
-  <h2>Persona re-projection <span class="hint">— <code>POST /v1/cvi/reproject</code></span></h2>
-  <p class="hint">Weights are normalized to sum to exactly 1.0 on submit and sent as full-precision floats; the server validates the exact 5-key set and the sum (within 1e-6) before touching the store. Rank deltas are <code>old_rank − new_rank</code> (positive = moved up).</p>
 
-  <div class="presets">
-    <span class="preset-label">Persona Presets:</span>
-    <button type="button" class="preset-btn" data-preset="balanced">Balanced Default</button>
-    <button type="button" class="preset-btn" data-preset="first_timer">First-Timer (Nursery)</button>
-    <button type="button" class="preset-btn" data-preset="career">Career Capital (Sweet Spot)</button>
-    <button type="button" class="preset-btn" data-preset="systems">Senior Systems (Crucible)</button>
-    <button type="button" class="preset-btn" data-preset="ai">AI-Assisted</button>
+<!-- ===================================================================== -->
+<!-- SCREEN C: REPOSITORY SCORECARD DRAWER & IMPROVEMENT PLAYBOOK -->
+<!-- ===================================================================== -->
+<div class="drawer-backdrop" id="drawer-backdrop"></div>
+<aside class="drawer" id="drawer" aria-live="polite">
+  <div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 40px 0;">
+    Select a repository to inspect its deep-dive scorecard.
   </div>
+</aside>
 
-  <div class="weights">
-    <label>responsiveness <input id="w-responsiveness" type="number" min="0" step="0.01" value="0.25"></label>
-    <label>criticality <input id="w-criticality" type="number" min="0" step="0.01" value="0.25"></label>
-    <label>governance <input id="w-governance" type="number" min="0" step="0.01" value="0.20"></label>
-    <label>rigor <input id="w-rigor" type="number" min="0" step="0.01" value="0.15"></label>
-    <label>accessibility <input id="w-accessibility" type="number" min="0" step="0.01" value="0.15"></label>
+
+<!-- ===================================================================== -->
+<!-- GLOBAL OMNIBAR MODAL -->
+<!-- ===================================================================== -->
+<div class="modal-backdrop" id="omnibar-modal">
+  <div class="omnibar-dialog">
+    <div class="omnibar-input-wrap">
+      <span style="font-size: 16px;">🔍</span>
+      <input type="text" id="omnibar-search" placeholder="Type repository, owner, or command (/matrix, /leaderboard)…" autocomplete="off">
+      <kbd>ESC</kbd>
+    </div>
+    <ul class="omnibar-results" id="omnibar-results">
+      <!-- Populated dynamically -->
+    </ul>
   </div>
-  <button id="reproject-btn" class="submit-btn">Re-project leaderboard</button>
-  <p id="reproject-error" class="field-error" hidden></p>
-  <ol id="reproject-results"></ol>
-</section>
+</div>
 
-<footer>
+
+<!-- ===================================================================== -->
+<!-- KEYBOARD SHORTCUTS MODAL -->
+<!-- ===================================================================== -->
+<div class="modal-backdrop" id="shortcuts-modal">
+  <div class="omnibar-dialog" style="width: 480px; padding: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+      <h3 style="margin: 0; font-size: 16px;">Keyboard Navigation Map</h3>
+      <kbd>ESC</kbd>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px; font-size: 12.5px;">
+      <div style="display: flex; justify-content: space-between;"><kbd>1</kbd> <span>Switch to 2D Discovery Matrix</span></div>
+      <div style="display: flex; justify-content: space-between;"><kbd>2</kbd> <span>Switch to Benchmark Leaderboard</span></div>
+      <div style="display: flex; justify-content: space-between;"><kbd>3</kbd> <span>Switch to Persona Configurator</span></div>
+      <div style="display: flex; justify-content: space-between;"><kbd>4</kbd> <span>Switch to Side-by-Side Comparator</span></div>
+      <div style="display: flex; justify-content: space-between;"><kbd>⌘K</kbd> / <kbd>/</kbd> <span>Open Omnibar Quick Search</span></div>
+      <div style="display: flex; justify-content: space-between;"><kbd>T</kbd> <span>Toggle Dark / Light Theme</span></div>
+      <div style="display: flex; justify-content: space-between;"><kbd>ESC</kbd> <span>Close active drawer or modal</span></div>
+      <div style="display: flex; justify-content: space-between;"><kbd>?</kbd> <span>Show this shortcuts modal</span></div>
+    </div>
+  </div>
+</div>
+
+
+<footer class="app-footer">
   CVI demo · matrix nodes: x = friction (0–100), y = leverage (0–100), boundary at 50 on both axes ·
   API defaults: <code>min_stars=100</code>, <code>exclude_black_holes=true</code>, <code>persona</code>/<code>domain</code> params reserved no-ops.
 </footer>
 
+
+<!-- ===================================================================== -->
+<!-- VANILLA APPLICATION LOGIC & VISUAL ENGINE -->
+<!-- ===================================================================== -->
 <script>
 "use strict";
 
 // ---------------------------------------------------------------------------
-// Constants + helpers
+// Constants & Color Tokens
 // ---------------------------------------------------------------------------
 const PILLARS = ["responsiveness", "criticality", "governance", "rigor", "accessibility"];
 const QUADRANT_COLORS = {
@@ -254,7 +1624,6 @@ const QUADRANT_GLYPHS = {
   "Nursery": "●",
   "Graveyard": "✕",
 };
-// Quadrant cells in data coordinates: x = friction, y = leverage; boundary 50.
 const CELLS = [
   { name: "Sweet Spot", x0: 0, x1: 50, y0: 50, y1: 100 },
   { name: "Crucible", x0: 50, x1: 100, y0: 50, y1: 100 },
@@ -300,10 +1669,89 @@ function hideBanner() {
 }
 
 // ---------------------------------------------------------------------------
-// Matrix load + scatter rendering
+// Global Application State
 // ---------------------------------------------------------------------------
-const state = { nodes: [], selected: null };
+const state = {
+  theme: "dark",
+  nodes: [],
+  allRepos: [],
+  repoDetailsCache: {},
+  selectedNodeId: null,
+  selectedForCompare: [],
+  leaderboard: {
+    ecosystem: "",
+    query: "",
+    quadrant: "",
+    sortCol: "rank",
+    sortAsc: true,
+    page: 1,
+    pageSize: 25,
+  },
+  zoom: { scale: 1.0, tx: 0, ty: 0 },
+  locks: {
+    responsiveness: false,
+    criticality: false,
+    governance: false,
+    rigor: false,
+    accessibility: false,
+  },
+};
 
+// ---------------------------------------------------------------------------
+// Theme Management (Light & Dark with LocalStorage)
+// ---------------------------------------------------------------------------
+function initTheme() {
+  const saved = localStorage.getItem("cvi-theme");
+  const prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+  const initial = saved ? saved : (prefersLight ? "light" : "dark");
+  setTheme(initial);
+}
+
+function setTheme(theme) {
+  state.theme = theme;
+  document.documentElement.setAttribute("data-theme", theme);
+  localStorage.setItem("cvi-theme", theme);
+  $("theme-icon").textContent = theme === "light" ? "☀️" : "🌙";
+  if (state.nodes.length) renderScatter();
+  if (state.selectedNodeId && state.repoDetailsCache[state.selectedNodeId]) {
+    renderDrawer(state.repoDetailsCache[state.selectedNodeId]);
+  }
+  if (document.getElementById("screen-comparator").classList.contains("active")) {
+    renderComparator();
+  }
+}
+
+$("theme-toggle-btn").addEventListener("click", () => {
+  setTheme(state.theme === "dark" ? "light" : "dark");
+});
+
+// ---------------------------------------------------------------------------
+// Screen Navigation
+// ---------------------------------------------------------------------------
+function switchScreen(screenId) {
+  document.querySelectorAll(".nav-tab").forEach(tab => {
+    tab.classList.toggle("active", tab.dataset.screen === screenId);
+  });
+  document.querySelectorAll(".screen-view").forEach(view => {
+    view.classList.toggle("active", view.id === `screen-${screenId}`);
+  });
+
+  if (screenId === "leaderboard") {
+    renderLeaderboard();
+  } else if (screenId === "comparator") {
+    renderComparator();
+  } else if (screenId === "matrix") {
+    renderScatter();
+  }
+}
+
+document.querySelectorAll(".nav-tab").forEach(tab => {
+  tab.addEventListener("click", () => switchScreen(tab.dataset.screen));
+});
+
+// ---------------------------------------------------------------------------
+// Data Fetching: Matrix, Leaderboard, Repo Details
+// ---------------------------------------------------------------------------
 async function loadMatrix() {
   const params = new URLSearchParams();
   const eco = $("ecosystem").value;
@@ -327,10 +1775,65 @@ async function loadMatrix() {
   }
   hideBanner();
   state.nodes = body.nodes || [];
-  state.selected = null;
   renderBadges(body.quadrant_counts);
   renderScatter();
-  renderDrawerPlaceholder();
+
+  // Also load full leaderboard data in the background if not loaded
+  if (state.allRepos.length === 0) {
+    loadFullLeaderboard();
+  }
+}
+
+async function loadFullLeaderboard() {
+  try {
+    const res = await fetch("/v1/cvi/leaderboard?limit=1000");
+    if (res.ok) {
+      const data = await res.json();
+      state.allRepos = Array.isArray(data) ? data : (data.items || []);
+    } else {
+      // Fallback: construct baseline repo records from matrix nodes
+      state.allRepos = state.nodes.map((n, i) => ({
+        repo_id: n.repo_id,
+        owner: n.owner,
+        name: n.name,
+        rank: i + 1,
+        overall_cvi: n.cvi,
+        rank_tier: n.tier,
+        matrix_quadrant: n.quadrant,
+        leverage_score: n.y,
+        friction_score: n.x,
+        stars: n.size,
+        monthly_downloads: 0,
+        dependents_count: 0,
+        elephant_factor: 1,
+        ecosystem: $("ecosystem").value || "general",
+        is_stage0_disqualified: n.is_gated,
+        pillar_scores: { responsiveness: 50, criticality: 50, governance: 50, rigor: 50, accessibility: 50 }
+      }));
+    }
+    // Populate comparator defaults if empty
+    if (state.selectedForCompare.length === 0 && state.allRepos.length >= 2) {
+      state.selectedForCompare = [state.allRepos[0].repo_id, state.allRepos[1].repo_id];
+    }
+    populateComparatorPicker();
+    renderLeaderboard();
+  } catch (e) {
+    console.warn("Leaderboard fetch error:", e);
+  }
+}
+
+async function fetchRepoDetails(owner, name) {
+  const repoId = `${owner}/${name}`;
+  if (state.repoDetailsCache[repoId]) return state.repoDetailsCache[repoId];
+  try {
+    const res = await fetch(`/v1/cvi/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    state.repoDetailsCache[repoId] = data;
+    return data;
+  } catch (err) {
+    return null;
+  }
 }
 
 function renderBadges(counts) {
@@ -350,106 +1853,572 @@ function renderBadges(counts) {
   }
 }
 
-// Plot geometry (SVG user units).
-const GEO = { w: 720, h: 600, left: 64, right: 20, top: 30, bottom: 52 };
+// ---------------------------------------------------------------------------
+// Screen A: 2D Discovery Matrix Rendering & Zoom/Pan
+// ---------------------------------------------------------------------------
+const GEO = { w: 760, h: 540, left: 60, right: 24, top: 24, bottom: 50 };
 function xPx(friction) { return GEO.left + (friction / 100) * (GEO.w - GEO.left - GEO.right); }
 function yPx(leverage) { return GEO.top + ((100 - leverage) / 100) * (GEO.h - GEO.top - GEO.bottom); }
 
 function nodeRadius(size) {
-  // radius proportional to sqrt(stars) with a minimum radius.
-  return Math.min(30, Math.max(4.5, 0.092 * Math.sqrt(Math.max(0, size || 0))));
+  return Math.min(24, Math.max(5, 0.088 * Math.sqrt(Math.max(0, size || 0))));
 }
 
 function renderScatter() {
   const host = $("scatter");
-  host.textContent = "";
-  const svg = svgEl("svg", { viewBox: `0 0 ${GEO.w} ${GEO.h}`, role: "img" });
+  const oldSvg = host.querySelector("svg");
+  if (oldSvg) oldSvg.remove();
 
-  // Quadrant background cells (lightly colored) + labels.
+  const svg = svgEl("svg", { viewBox: `0 0 ${GEO.w} ${GEO.h}`, role: "img" });
+  const viewportG = svgEl("g", {
+    transform: `translate(${state.zoom.tx}, ${state.zoom.ty}) scale(${state.zoom.scale})`
+  });
+
+  const isLight = state.theme === "light";
+  const axisColor = isLight ? "#64748b" : "#94a3b8";
+  const gridBorder = isLight ? "#cbd5e1" : "#334155";
+  const bisectorStroke = isLight ? "#94a3b8" : "#64748b";
+
+  // Quadrant background washes & watermark titles
   for (const cell of CELLS) {
     const x = xPx(cell.x0), y = yPx(cell.y1);
     const w = xPx(cell.x1) - x, h = yPx(cell.y0) - y;
-    svg.appendChild(svgEl("rect", { x, y, width: w, height: h, fill: QUADRANT_COLORS[cell.name], opacity: 0.08 }));
+    viewportG.appendChild(svgEl("rect", {
+      x, y, width: w, height: h,
+      fill: QUADRANT_COLORS[cell.name],
+      opacity: isLight ? 0.07 : 0.09
+    }));
     const label = svgEl("text", {
-      x: x + 12, y: y + 22, fill: QUADRANT_COLORS[cell.name],
-      opacity: 0.85, "font-size": 13, "font-weight": 600,
+      x: x + 14, y: y + 24,
+      fill: QUADRANT_COLORS[cell.name],
+      opacity: 0.9,
+      "font-size": 13,
+      "font-weight": 700,
+      "font-family": "var(--font-sans)",
+      "letter-spacing": "0.03em"
     });
     label.textContent = `${QUADRANT_GLYPHS[cell.name]} ${cell.name.toUpperCase()}`;
-    svg.appendChild(label);
+    viewportG.appendChild(label);
   }
 
-  // Boundary lines at 50 on both axes.
-  svg.appendChild(svgEl("line", { x1: xPx(50), y1: yPx(100), x2: xPx(50), y2: yPx(0), stroke: "#64748b", "stroke-dasharray": "5 5", opacity: 0.7 }));
-  svg.appendChild(svgEl("line", { x1: xPx(0), y1: yPx(50), x2: xPx(100), y2: yPx(50), stroke: "#64748b", "stroke-dasharray": "5 5", opacity: 0.7 }));
+  // Bisector lines at (50, 50)
+  viewportG.appendChild(svgEl("line", {
+    x1: xPx(50), y1: yPx(100), x2: xPx(50), y2: yPx(0),
+    stroke: bisectorStroke, "stroke-dasharray": "5 5", opacity: 0.7, "stroke-width": 1.2
+  }));
+  viewportG.appendChild(svgEl("line", {
+    x1: xPx(0), y1: yPx(50), x2: xPx(100), y2: yPx(50),
+    stroke: bisectorStroke, "stroke-dasharray": "5 5", opacity: 0.7, "stroke-width": 1.2
+  }));
 
-  // Ticks + axis frame.
+  // Axis Ticks
   for (let v = 0; v <= 100; v += 20) {
-    const tickX = svgEl("text", { x: xPx(v), y: yPx(0) + 18, fill: "#94a3b8", "font-size": 11, "text-anchor": "middle" });
+    const tickX = svgEl("text", {
+      x: xPx(v), y: yPx(0) + 18, fill: axisColor,
+      "font-size": 11, "font-family": "var(--font-mono)", "text-anchor": "middle"
+    });
     tickX.textContent = String(v);
-    svg.appendChild(tickX);
-    const tickY = svgEl("text", { x: GEO.left - 8, y: yPx(v) + 4, fill: "#94a3b8", "font-size": 11, "text-anchor": "end" });
-    tickY.textContent = String(v);
-    svg.appendChild(tickY);
-  }
-  svg.appendChild(svgEl("rect", { x: xPx(0), y: yPx(100), width: xPx(100) - xPx(0), height: yPx(0) - yPx(100), fill: "none", stroke: "#334155" }));
-  const xAxis = svgEl("text", { x: (xPx(0) + xPx(100)) / 2, y: GEO.h - 8, fill: "#94a3b8", "font-size": 12.5, "text-anchor": "middle" });
-  xAxis.textContent = "Friction (x) → [0: Fast review · 100: PR black hole]";
-  svg.appendChild(xAxis);
-  const yAxis = svgEl("text", {
-    x: 14, y: (yPx(0) + yPx(100)) / 2, fill: "#94a3b8", "font-size": 12.5,
-    "text-anchor": "middle", transform: `rotate(-90 14 ${(yPx(0) + yPx(100)) / 2})`,
-  });
-  yAxis.textContent = "↑ Leverage (y) [0: Small footprint · 100: Critical infra]";
-  svg.appendChild(yAxis);
+    viewportG.appendChild(tickX);
 
-  // Nodes: gated last (drawn on top), hollow + X marker.
+    const tickY = svgEl("text", {
+      x: GEO.left - 8, y: yPx(v) + 4, fill: axisColor,
+      "font-size": 11, "font-family": "var(--font-mono)", "text-anchor": "end"
+    });
+    tickY.textContent = String(v);
+    viewportG.appendChild(tickY);
+  }
+
+  // Axis Box Frame
+  viewportG.appendChild(svgEl("rect", {
+    x: xPx(0), y: yPx(100), width: xPx(100) - xPx(0), height: yPx(0) - yPx(100),
+    fill: "none", stroke: gridBorder, "stroke-width": 1
+  }));
+
+  // Axis Labels
+  const xAxis = svgEl("text", {
+    x: (xPx(0) + xPx(100)) / 2, y: GEO.h - 12, fill: axisColor,
+    "font-size": 12, "font-family": "var(--font-sans)", "font-weight": 600, "text-anchor": "middle"
+  });
+  xAxis.textContent = "Friction (x) → [0: Fast review / Low friction · 100: PR black hole / High friction]";
+  viewportG.appendChild(xAxis);
+
+  const yAxis = svgEl("text", {
+    x: 14, y: (yPx(0) + yPx(100)) / 2, fill: axisColor,
+    "font-size": 12, "font-family": "var(--font-sans)", "font-weight": 600,
+    "text-anchor": "middle", transform: `rotate(-90 14 ${(yPx(0) + yPx(100)) / 2})`
+  });
+  yAxis.textContent = "↑ Leverage (y) [0: Small footprint · 100: Critical global infrastructure]";
+  viewportG.appendChild(yAxis);
+
+  // Nodes Rendering
   const ordered = [...state.nodes].sort((a, b) => (a.is_gated ? 1 : 0) - (b.is_gated ? 1 : 0));
   for (const node of ordered) {
     const color = QUADRANT_COLORS[node.quadrant] || "#94a3b8";
     const cx = xPx(Math.max(0, Math.min(100, node.x)));
     const cy = yPx(Math.max(0, Math.min(100, node.y)));
     const r = nodeRadius(node.size);
-    const isSelected = node.repo_id === state.selected;
+    const isSelected = node.repo_id === state.selectedNodeId;
     const group = svgEl("g", { class: "node" + (isSelected ? " selected" : ""), tabindex: 0, role: "button" });
     group.setAttribute("aria-label", `${node.repo_id}: CVI ${node.cvi}, ${node.quadrant}`);
 
     if (node.is_gated) {
-      group.appendChild(svgEl("circle", { cx, cy, r, fill: "none", stroke: "#ef4444", "stroke-width": 2 }));
+      group.appendChild(svgEl("circle", { cx, cy, r, fill: "none", stroke: "#ef4444", "stroke-width": 2.2 }));
       const d = r * 0.55;
       group.appendChild(svgEl("line", { x1: cx - d, y1: cy - d, x2: cx + d, y2: cy + d, stroke: "#ef4444", "stroke-width": 2 }));
       group.appendChild(svgEl("line", { x1: cx - d, y1: cy + d, x2: cx + d, y2: cy - d, stroke: "#ef4444", "stroke-width": 2 }));
     } else {
-      group.appendChild(svgEl("circle", { cx, cy, r, fill: color, "fill-opacity": 0.85, stroke: isSelected ? "#ffffff" : "#090d16", "stroke-width": isSelected ? 2.5 : 1 }));
+      group.appendChild(svgEl("circle", {
+        cx, cy, r, fill: color, "fill-opacity": isLight ? 0.9 : 0.82,
+        stroke: isSelected ? "var(--border-focus)" : (isLight ? "#ffffff" : "#090d16"),
+        "stroke-width": isSelected ? 3 : 1.2
+      }));
     }
 
-    const title = svgEl("title");
-    title.textContent =
-      `${node.repo_id}  ·  CVI ${node.cvi} (${node.tier})\n` +
-      `friction ${node.x} · leverage ${node.y} · ${node.quadrant}\n` +
-      `stars ${node.size}${node.is_gated ? " · GATED (black hole)" : ""}`;
-    group.appendChild(title);
+    // Hover tooltip handlers
+    group.addEventListener("mouseenter", (e) => showHoverCard(node, e));
+    group.addEventListener("mouseleave", hideHoverCard);
 
-    const open = () => openDeepDive(node);
-    group.addEventListener("click", open);
+    // Click handler to open Screen C Scorecard Drawer
+    group.addEventListener("click", () => openDeepDive(node));
     group.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); }
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openDeepDive(node); }
     });
-    svg.appendChild(group);
+
+    viewportG.appendChild(group);
   }
 
+  svg.appendChild(viewportG);
   host.appendChild(svg);
+
   $("node-count").textContent =
     state.nodes.length ? `— showing ${state.nodes.length} node${state.nodes.length === 1 ? "" : "s"}` : "";
+
+  initCanvasInteractions(svg);
 }
 
 // ---------------------------------------------------------------------------
-// Radar Chart & Kaplan-Meier SVG Renderers
+// Canvas Zoom and Pan Interactions
 // ---------------------------------------------------------------------------
-function renderRadarSvg(pillars) {
+function initCanvasInteractions(svg) {
+  let isDragging = false;
+  let startX = 0, startY = 0;
+
+  svg.addEventListener("mousedown", (e) => {
+    if (e.target.closest(".node")) return;
+    isDragging = true;
+    startX = e.clientX - state.zoom.tx;
+    startY = e.clientY - state.zoom.ty;
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    state.zoom.tx = e.clientX - startX;
+    state.zoom.ty = e.clientY - startY;
+    updateCanvasTransform();
+  });
+
+  window.addEventListener("mouseup", () => { isDragging = false; });
+
+  svg.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+    state.zoom.scale = Math.max(0.5, Math.min(4.0, state.zoom.scale * zoomFactor));
+    updateCanvasTransform();
+  }, { passive: false });
+}
+
+function updateCanvasTransform() {
+  const g = document.querySelector("#scatter svg g");
+  if (g) {
+    g.setAttribute("transform", `translate(${state.zoom.tx}, ${state.zoom.ty}) scale(${state.zoom.scale})`);
+  }
+}
+
+$("zoom-in-btn").addEventListener("click", () => {
+  state.zoom.scale = Math.min(4.0, state.zoom.scale * 1.25);
+  updateCanvasTransform();
+});
+$("zoom-out-btn").addEventListener("click", () => {
+  state.zoom.scale = Math.max(0.5, state.zoom.scale * 0.8);
+  updateCanvasTransform();
+});
+$("zoom-reset-btn").addEventListener("click", () => {
+  state.zoom = { scale: 1.0, tx: 0, ty: 0 };
+  updateCanvasTransform();
+});
+
+// Hover card tooltip
+function showHoverCard(node, event) {
+  const card = $("matrix-hover-card");
+  const host = $("scatter");
+  const rect = host.getBoundingClientRect();
+
+  const glyph = QUADRANT_GLYPHS[node.quadrant] || "●";
+  card.innerHTML = `
+    <div class="hover-card-title">
+      <span>${esc(node.repo_id)}</span>
+      <span class="badge ${node.tier === 'Tier S+' || node.tier === 'Tier S' ? 'sweet' : 'accent'}">${esc(node.tier)}</span>
+    </div>
+    <div class="hover-card-metric">
+      <span>CVI Score</span>
+      <b>${Number(node.cvi).toFixed(2)} / 100</b>
+    </div>
+    <div class="hover-card-metric">
+      <span>Quadrant</span>
+      <span style="color: ${QUADRANT_COLORS[node.quadrant]}"><b>${glyph} ${esc(node.quadrant)}</b></span>
+    </div>
+    <div class="hover-card-metric">
+      <span>Lev / Frict</span>
+      <b>${Number(node.y).toFixed(1)} / ${Number(node.x).toFixed(1)}</b>
+    </div>
+    <div class="hover-card-metric">
+      <span>Stars</span>
+      <b>${Number(node.size).toLocaleString("en-US")}</b>
+    </div>
+    <div style="font-size: 10.5px; color: var(--accent); margin-top: 4px; text-align: right;">
+      Click node for full scorecard →
+    </div>
+  `;
+
+  card.style.display = "flex";
+  let left = event.clientX - rect.left + 14;
+  let top = event.clientY - rect.top + 14;
+  if (left + 280 > rect.width) left = left - 300;
+  if (top + 160 > rect.height) top = top - 170;
+  card.style.left = `${Math.max(10, left)}px`;
+  card.style.top = `${Math.max(10, top)}px`;
+}
+
+function hideHoverCard() {
+  $("matrix-hover-card").style.display = "none";
+}
+
+// ---------------------------------------------------------------------------
+// Screen B: Multi-Ecosystem Ranked Leaderboard
+// ---------------------------------------------------------------------------
+function renderLeaderboard() {
+  const tbody = $("leaderboard-tbody");
+  tbody.innerHTML = "";
+
+  let repos = [...state.allRepos];
+
+  // Filter ecosystem
+  if (state.leaderboard.ecosystem) {
+    repos = repos.filter(r => (r.ecosystem || "").toLowerCase() === state.leaderboard.ecosystem.toLowerCase());
+  }
+  // Filter quadrant
+  if (state.leaderboard.quadrant) {
+    repos = repos.filter(r => r.matrix_quadrant === state.leaderboard.quadrant);
+  }
+  // Search query
+  if (state.leaderboard.query) {
+    const q = state.leaderboard.query.toLowerCase();
+    repos = repos.filter(r => (r.repo_id || "").toLowerCase().includes(q) || (r.owner || "").toLowerCase().includes(q));
+  }
+
+  // Sort
+  const col = state.leaderboard.sortCol;
+  const asc = state.leaderboard.sortAsc ? 1 : -1;
+  repos.sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if (col === "rank") { va = Number(a.rank || 0); vb = Number(b.rank || 0); }
+    else if (col === "overall_cvi") { va = Number(a.overall_cvi || 0); vb = Number(b.overall_cvi || 0); }
+    else if (col === "stars") { va = Number(a.stars || 0); vb = Number(b.stars || 0); }
+    else if (col === "monthly_downloads") { va = Number(a.monthly_downloads || 0); vb = Number(b.monthly_downloads || 0); }
+    else if (col === "dependents_count") { va = Number(a.dependents_count || 0); vb = Number(b.dependents_count || 0); }
+    else if (col === "elephant_factor") { va = Number(a.elephant_factor || 0); vb = Number(b.elephant_factor || 0); }
+    else if (col.startsWith("score_")) { va = Number(a[col] || 0); vb = Number(b[col] || 0); }
+    if (va < vb) return -1 * asc;
+    if (va > vb) return 1 * asc;
+    return 0;
+  });
+
+  const total = repos.length;
+  const pageSize = Number(state.leaderboard.pageSize);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  state.leaderboard.page = Math.min(state.leaderboard.page, totalPages);
+  const startIdx = (state.leaderboard.page - 1) * pageSize;
+  const endIdx = Math.min(total, startIdx + pageSize);
+  const paged = repos.slice(startIdx, endIdx);
+
+  $("lb-pagination-summary").textContent = `Showing ${total === 0 ? 0 : startIdx + 1}–${endIdx} of ${total} repositories`;
+  $("lb-page-info").textContent = `Page ${state.leaderboard.page} of ${totalPages}`;
+  $("lb-prev-page").disabled = state.leaderboard.page <= 1;
+  $("lb-next-page").disabled = state.leaderboard.page >= totalPages;
+
+  for (const repo of paged) {
+    const isChecked = state.selectedForCompare.includes(repo.repo_id);
+    const tr = document.createElement("tr");
+    if (isChecked) tr.classList.add("selected");
+
+    const glyph = QUADRANT_GLYPHS[repo.matrix_quadrant] || "●";
+    const quadColor = QUADRANT_COLORS[repo.matrix_quadrant] || "#94a3b8";
+
+    const tierClass =
+      repo.rank_tier === "Tier S+" ? "badge sweet" :
+      (repo.rank_tier === "Tier S" ? "badge sweet" :
+      (repo.rank_tier === "Tier A" ? "badge accent" :
+      (repo.rank_tier === "Tier B" ? "badge nursery" : "badge graveyard")));
+
+    const cviVal = Number(repo.overall_cvi || 0);
+    const p1 = Number(repo.score_responsiveness || 0).toFixed(0);
+    const p2 = Number(repo.score_criticality || 0).toFixed(0);
+    const p3 = Number(repo.score_governance || 0).toFixed(0);
+    const p4 = Number(repo.score_rigor_ai || 0).toFixed(0);
+    const p5 = Number(repo.score_accessibility || 0).toFixed(0);
+
+    const ef = repo.elephant_factor ?? 1;
+    const efClass = ef >= 3 ? "badge sweet" : "badge nursery";
+
+    tr.innerHTML = `
+      <td style="text-align: center;"><input type="checkbox" class="lb-row-cb" data-repo="${esc(repo.repo_id)}" ${isChecked ? 'checked' : ''}></td>
+      <td class="mono-num" style="font-weight: 700; color: var(--text-muted);">#${repo.rank || "—"}</td>
+      <td>
+        <div class="repo-identity">
+          <span class="repo-name">${esc(repo.owner)}/${esc(repo.name)}</span>
+          <div class="repo-meta-row">
+            <span class="badge" style="font-size: 10.5px; padding: 1px 6px;">${esc(repo.ecosystem || 'repo')}</span>
+            ${repo.license ? `<span style="font-size: 10.5px;">${esc(repo.license)}</span>` : ''}
+          </div>
+        </div>
+      </td>
+      <td>
+        <div class="cvi-score-cell">
+          <div class="mini-bar-track">
+            <div class="mini-bar-fill" style="width: ${cviVal}%; background: ${quadColor};"></div>
+          </div>
+          <span class="mono-num" style="font-weight: 700;">${cviVal.toFixed(2)}</span>
+        </div>
+      </td>
+      <td><span class="${tierClass}">${esc(repo.rank_tier || "Tier B")}</span></td>
+      <td><span style="color: ${quadColor}; font-weight: 600;">${glyph} ${esc(repo.matrix_quadrant || "—")}</span></td>
+      <td class="mono-num">${p1}</td>
+      <td class="mono-num">${p2}</td>
+      <td class="mono-num">${p3}</td>
+      <td class="mono-num">${p4}</td>
+      <td class="mono-num">${p5}</td>
+      <td class="mono-num" style="font-size: 11.5px; color: var(--text-secondary);">
+        ${Number(repo.leverage_score || 0).toFixed(1)} / ${Number(repo.friction_score || 0).toFixed(1)}
+      </td>
+      <td class="mono-num">${Number(repo.stars || 0).toLocaleString("en-US")}</td>
+      <td class="mono-num">${Number(repo.monthly_downloads || 0).toLocaleString("en-US")}</td>
+      <td class="mono-num">${Number(repo.dependents_count || 0).toLocaleString("en-US")}</td>
+      <td><span class="${efClass}">EF ${ef}</span></td>
+      <td>
+        <button type="button" class="btn-primary" style="padding: 3px 8px; font-size: 11.5px;" data-inspect="${esc(repo.repo_id)}">
+          Inspect →
+        </button>
+      </td>
+    `;
+
+    // Click row to open deep-dive
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("input[type='checkbox']")) return;
+      openDeepDive(repo);
+    });
+
+    tbody.appendChild(tr);
+  }
+
+  // Row Checkbox Event delegation
+  tbody.querySelectorAll(".lb-row-cb").forEach(cb => {
+    cb.addEventListener("change", (e) => {
+      const rid = cb.dataset.repo;
+      if (cb.checked) {
+        if (!state.selectedForCompare.includes(rid)) {
+          if (state.selectedForCompare.length >= 4) {
+            alert("Maximum 4 repositories can be compared simultaneously.");
+            cb.checked = false;
+            return;
+          }
+          state.selectedForCompare.push(rid);
+        }
+      } else {
+        state.selectedForCompare = state.selectedForCompare.filter(x => x !== rid);
+      }
+      updateCompareButtonState();
+      populateComparatorPicker();
+    });
+  });
+
+  updateCompareButtonState();
+}
+
+function updateCompareButtonState() {
+  const count = state.selectedForCompare.length;
+  $("lb-selected-count").textContent = String(count);
+  $("lb-compare-btn").disabled = count < 2;
+}
+
+$("lb-compare-btn").addEventListener("click", () => {
+  switchScreen("comparator");
+});
+
+// Search & filter wiring
+$("lb-search-input").addEventListener("input", (e) => {
+  state.leaderboard.query = e.target.value;
+  state.leaderboard.page = 1;
+  renderLeaderboard();
+});
+
+$("lb-quadrant-filter").addEventListener("change", (e) => {
+  state.leaderboard.quadrant = e.target.value;
+  state.leaderboard.page = 1;
+  renderLeaderboard();
+});
+
+$("lb-page-size").addEventListener("change", (e) => {
+  state.leaderboard.pageSize = Number(e.target.value);
+  state.leaderboard.page = 1;
+  renderLeaderboard();
+});
+
+$("lb-prev-page").addEventListener("click", () => {
+  if (state.leaderboard.page > 1) {
+    state.leaderboard.page--;
+    renderLeaderboard();
+  }
+});
+$("lb-next-page").addEventListener("click", () => {
+  state.leaderboard.page++;
+  renderLeaderboard();
+});
+
+// Ecosystem pills
+document.querySelectorAll("#lb-ecosystem-pills .seg-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("#lb-ecosystem-pills .seg-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.leaderboard.ecosystem = btn.dataset.eco;
+    state.leaderboard.page = 1;
+    renderLeaderboard();
+  });
+});
+
+// Table Header Sorting
+document.querySelectorAll("#leaderboard-table th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const col = th.dataset.sort;
+    if (state.leaderboard.sortCol === col) {
+      state.leaderboard.sortAsc = !state.leaderboard.sortAsc;
+    } else {
+      state.leaderboard.sortCol = col;
+      state.leaderboard.sortAsc = false; // default desc for metric values
+    }
+    document.querySelectorAll("#leaderboard-table th").forEach(t => t.classList.remove("sorted"));
+    th.classList.add("sorted");
+    const icon = th.querySelector(".sort-icon");
+    if (icon) icon.textContent = state.leaderboard.sortAsc ? "▲" : "▼";
+    renderLeaderboard();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Screen E: Side-by-Side Comparator Implementation
+// ---------------------------------------------------------------------------
+const COMP_COLORS = ["#10b981", "#6366f1", "#f59e0b", "#f43f5e"];
+
+function populateComparatorPicker() {
+  const picker = $("comp-repo-picker");
+  picker.innerHTML = '<option value="">-- Add repository to comparison --</option>';
+  for (const r of state.allRepos) {
+    if (!state.selectedForCompare.includes(r.repo_id)) {
+      const opt = document.createElement("option");
+      opt.value = r.repo_id;
+      opt.textContent = `${r.repo_id} (${r.matrix_quadrant} · CVI ${Number(r.overall_cvi).toFixed(1)})`;
+      picker.appendChild(opt);
+    }
+  }
+}
+
+$("comp-add-repo-btn").addEventListener("click", () => {
+  const picker = $("comp-repo-picker");
+  const val = picker.value;
+  if (!val) return;
+  if (state.selectedForCompare.length >= 4) {
+    alert("Maximum 4 repositories can be compared simultaneously.");
+    return;
+  }
+  state.selectedForCompare.push(val);
+  populateComparatorPicker();
+  renderComparator();
+  updateCompareButtonState();
+});
+
+function removeCompareRepo(repoId) {
+  state.selectedForCompare = state.selectedForCompare.filter(x => x !== repoId);
+  populateComparatorPicker();
+  renderComparator();
+  updateCompareButtonState();
+}
+
+async function renderComparator() {
+  const chipsWrap = $("comp-chips");
+  chipsWrap.innerHTML = "";
+  $("comp-count-label").textContent = String(state.selectedForCompare.length);
+
+  const repos = [];
+  for (const rid of state.selectedForCompare) {
+    let repo = state.allRepos.find(r => r.repo_id === rid);
+    if (!repo) {
+      const parts = rid.split("/");
+      repo = await fetchRepoDetails(parts[0], parts[1]);
+    } else if (!repo.deep_dive) {
+      const parts = rid.split("/");
+      const full = await fetchRepoDetails(parts[0], parts[1]);
+      if (full) repo = full;
+    }
+    if (repo) repos.push(repo);
+  }
+
+  // Render chips
+  repos.forEach((r, idx) => {
+    const chip = document.createElement("div");
+    chip.className = "compare-chip";
+    chip.style.borderColor = COMP_COLORS[idx % COMP_COLORS.length];
+    chip.innerHTML = `
+      <span style="color: ${COMP_COLORS[idx % COMP_COLORS.length]}; font-weight: bold;">●</span>
+      <b>${esc(r.repo_id)}</b>
+      <button type="button" title="Remove" onclick="removeCompareRepo('${esc(r.repo_id)}')">✕</button>
+    `;
+    chipsWrap.appendChild(chip);
+  });
+
+  if (repos.length < 2) {
+    $("comp-diff-tbody").innerHTML = `<tr><td colspan="5" style="text-align: center; padding: 40px 0; color: var(--text-muted);">Please select at least 2 repositories to compare.</td></tr>`;
+    $("comp-radar-container").innerHTML = "";
+    $("comp-verdict-text").textContent = "Select at least 2 repositories to generate comparison verdicts.";
+    return;
+  }
+
+  // Render Superimposed Multi-Radar
+  $("comp-radar-container").innerHTML = renderMultiRadarSvg(repos);
+
+  // Render Radar Legend
+  $("comp-radar-legend").innerHTML = repos.map((r, i) => `
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span style="width: 10px; height: 10px; background: ${COMP_COLORS[i]}; border-radius: 50%;"></span>
+      <b style="color: var(--text-primary);">${esc(r.repo_id)}</b>
+      <span class="mono-num" style="color: var(--text-muted); font-size: 11px;">(CVI: ${Number(r.overall_cvi).toFixed(1)})</span>
+    </div>
+  `).join("");
+
+  // Render 15-Parameter Differential Table
+  renderComparatorDiffTable(repos);
+
+  // Render Synthesized Recommendation Verdict
+  renderComparatorVerdict(repos);
+}
+
+function renderMultiRadarSvg(repos) {
   const keys = ["responsiveness", "criticality", "governance", "rigor", "accessibility"];
-  const labels = ["Resp", "Crit", "Gov", "Rigor", "Access"];
-  const size = 220;
-  const cx = size / 2, cy = size / 2, r = 70, n = keys.length;
+  const labels = ["Resp (P1)", "Crit (P2)", "Gov (P3)", "Rigor (P4)", "Access (P5)"];
+  const size = 300;
+  const cx = size / 2, cy = size / 2, r = 90, n = keys.length;
+
+  const isLight = state.theme === "light";
+  const ringStroke = isLight ? "#cbd5e1" : "#334155";
+  const textFill = isLight ? "#475569" : "#94a3b8";
 
   let ringsSvg = "";
   for (const frac of [0.25, 0.5, 0.75, 1.0]) {
@@ -458,7 +2427,7 @@ function renderRadarSvg(pillars) {
       const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
       pts.push(`${(cx + frac * r * Math.cos(angle)).toFixed(1)},${(cy + frac * r * Math.sin(angle)).toFixed(1)}`);
     }
-    ringsSvg += `<polygon points="${pts.join(" ")}" fill="none" stroke="#334155" stroke-width="1" stroke-dasharray="${frac === 1.0 ? 'none' : '2 2'}" opacity="0.6"/>`;
+    ringsSvg += `<polygon points="${pts.join(" ")}" fill="none" stroke="${ringStroke}" stroke-width="1" stroke-dasharray="${frac === 1.0 ? 'none' : '2 2'}" opacity="0.6"/>`;
   }
 
   let spokesSvg = "";
@@ -467,11 +2436,452 @@ function renderRadarSvg(pillars) {
     const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
     const x = cx + r * Math.cos(angle);
     const y = cy + r * Math.sin(angle);
-    spokesSvg += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#334155" stroke-width="1" opacity="0.6"/>`;
+    spokesSvg += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${ringStroke}" stroke-width="1" opacity="0.6"/>`;
+    const lx = cx + (r + 18) * Math.cos(angle);
+    const ly = cy + (r + 18) * Math.sin(angle);
+    const anchor = Math.abs(Math.cos(angle)) < 0.2 ? "middle" : (Math.cos(angle) > 0 ? "start" : "end");
+    labelsSvg += `<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" fill="${textFill}" font-size="10.5" font-family="var(--font-sans)" font-weight="600" text-anchor="${anchor}">${labels[i]}</text>`;
+  }
+
+  let polygonsSvg = "";
+  repos.forEach((repo, idx) => {
+    const color = COMP_COLORS[idx % COMP_COLORS.length];
+    const pillars = repo.pillar_scores || {};
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const val = Math.max(0, Math.min(100, Number(pillars[keys[i]] || 0)));
+      const frac = val / 100.0;
+      const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+      const px = cx + frac * r * Math.cos(angle);
+      const py = cy + frac * r * Math.sin(angle);
+      pts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
+    }
+    polygonsSvg += `<polygon points="${pts.join(" ")}" fill="${color}" fill-opacity="0.16" stroke="${color}" stroke-width="2.2" />`;
+  });
+
+  return `
+    <svg viewBox="0 0 ${size} ${size}" style="width: 100%; max-width: ${size}px; height: auto; display: block; margin: 0 auto;" aria-label="5-pillar radar chart">
+      ${ringsSvg}
+      ${spokesSvg}
+      ${polygonsSvg}
+      ${labelsSvg}
+    </svg>`;
+}
+
+function renderComparatorDiffTable(repos) {
+  const theadRow = $("comp-table-header-row");
+  theadRow.innerHTML = `<th>Metric Dimension</th>` + repos.map((r, i) => `
+    <th>
+      <span style="color: ${COMP_COLORS[i]};">●</span> ${esc(r.repo_id)}
+    </th>
+  `).join("");
+
+  const rows = [
+    // Category 1: Composite Benchmark
+    { cat: "COMPOSITE BENCHMARK & TIER" },
+    { label: "Overall CVI Score", fn: r => Number(r.overall_cvi || 0).toFixed(2), higherBetter: true, format: "mono" },
+    { label: "Global Rank", fn: r => `#${r.rank || "—"}`, higherBetter: false, valFn: r => r.rank || 9999, format: "mono" },
+    { label: "Benchmark Tier", fn: r => r.rank_tier || "Tier B", format: "badge" },
+    { label: "2D Matrix Quadrant", fn: r => `${QUADRANT_GLYPHS[r.matrix_quadrant] || '●'} ${r.matrix_quadrant || '—'}`, format: "quad" },
+
+    // Category 2: 2D Spatial Positioning
+    { cat: "SPATIAL POSITIONING (LEVERAGE × FRICTION)" },
+    { label: "Leverage Score (Y-axis)", fn: r => Number(r.leverage_score || 0).toFixed(1), higherBetter: true, format: "mono" },
+    { label: "Friction Score (X-axis)", fn: r => Number(r.friction_score || 0).toFixed(1), higherBetter: false, format: "mono" },
+
+    // Category 3: Pillar 1 Responsiveness
+    { cat: "PILLAR 1: MAINTAINER RESPONSIVENESS" },
+    { label: "Responsiveness Score (P1)", fn: r => Number(r.pillar_scores?.responsiveness || r.score_responsiveness || 0).toFixed(1), higherBetter: true, format: "mono" },
+    { label: "Median TTFHR (Hours)", fn: r => r.deep_dive?.raw_metrics?.ttfhr_hours != null ? `${Number(r.deep_dive.raw_metrics.ttfhr_hours).toFixed(1)}h` : "—", higherBetter: false, valFn: r => r.deep_dive?.raw_metrics?.ttfhr_hours ?? 9999, format: "mono" },
+    { label: "First-Timer Merge Rate", fn: r => r.deep_dive?.raw_metrics?.first_timer_merge_rate != null ? `${(r.deep_dive.raw_metrics.first_timer_merge_rate * 100).toFixed(0)}%` : "—", higherBetter: true, valFn: r => r.deep_dive?.raw_metrics?.first_timer_merge_rate ?? 0, format: "mono" },
+    { label: "14-Day PR Ghost Rate", fn: r => r.deep_dive?.raw_metrics?.ghost_rate_14d != null ? `${(r.deep_dive.raw_metrics.ghost_rate_14d * 100).toFixed(1)}%` : "—", higherBetter: false, valFn: r => r.deep_dive?.raw_metrics?.ghost_rate_14d ?? 9999, format: "mono" },
+    { label: "Review Tail Latency (p90)", fn: r => r.deep_dive?.raw_metrics?.tail_merge_latency_days != null ? `${Number(r.deep_dive.raw_metrics.tail_merge_latency_days).toFixed(1)}d` : "—", higherBetter: false, valFn: r => r.deep_dive?.raw_metrics?.tail_merge_latency_days ?? 9999, format: "mono" },
+
+    // Category 4: Pillar 2 Production Impact
+    { cat: "PILLAR 2: PRODUCTION IMPACT & FOOTPRINT" },
+    { label: "Criticality Score (P2)", fn: r => Number(r.pillar_scores?.criticality || r.score_criticality || 0).toFixed(1), higherBetter: true, format: "mono" },
+    { label: "GitHub Stars", fn: r => Number(r.stars || 0).toLocaleString("en-US"), higherBetter: true, valFn: r => r.stars || 0, format: "mono" },
+    { label: "Monthly Downloads", fn: r => Number(r.monthly_downloads || 0).toLocaleString("en-US"), higherBetter: true, valFn: r => r.monthly_downloads || 0, format: "mono" },
+    { label: "Registry Dependents", fn: r => Number(r.dependents_count || 0).toLocaleString("en-US"), higherBetter: true, valFn: r => r.dependents_count || 0, format: "mono" },
+
+    // Category 5: Governance, Rigor & Accessibility
+    { cat: "PILLARS 3, 4 & 5: GOVERNANCE, RIGOR & ON-RAMPS" },
+    { label: "Governance Score (P3)", fn: r => Number(r.pillar_scores?.governance || r.score_governance || 0).toFixed(1), higherBetter: true, format: "mono" },
+    { label: "Elephant Factor", fn: r => `EF ${r.elephant_factor ?? r.deep_dive?.elephant_breakdown?.elephant_factor ?? 1}`, higherBetter: true, valFn: r => r.elephant_factor ?? r.deep_dive?.elephant_breakdown?.elephant_factor ?? 1, format: "mono" },
+    { label: "Legal CLA Regime", fn: r => r.legal_ip_model ?? r.deep_dive?.legal_ip?.model ?? "DCO" },
+    { label: "Engineering Rigor Score (P4)", fn: r => Number(r.pillar_scores?.rigor || r.score_rigor_ai || 0).toFixed(1), higherBetter: true, format: "mono" },
+    { label: "AI Contribution Posture", fn: r => r.ai_posture ?? r.deep_dive?.legal_ip?.ai_policy_posture ?? "AD_HOC" },
+    { label: "Accessibility Score (P5)", fn: r => Number(r.pillar_scores?.accessibility || r.score_accessibility || 0).toFixed(1), higherBetter: true, format: "mono" },
+    { label: "Good First Issues (GFIs)", fn: r => String(r.deep_dive?.good_first_issues?.count ?? 0), higherBetter: true, valFn: r => r.deep_dive?.good_first_issues?.count ?? 0, format: "mono" },
+  ];
+
+  let tbodyHtml = "";
+  for (const item of rows) {
+    if (item.cat) {
+      tbodyHtml += `<tr class="category-row"><td colspan="${repos.length + 1}">${item.cat}</td></tr>`;
+      continue;
+    }
+
+    // Determine winner index if applicable
+    let bestIdx = -1;
+    if (item.higherBetter !== undefined) {
+      let bestVal = item.higherBetter ? -Infinity : Infinity;
+      repos.forEach((r, i) => {
+        const num = item.valFn ? item.valFn(r) : parseFloat(item.fn(r));
+        if (!isNaN(num)) {
+          if (item.higherBetter && num > bestVal) { bestVal = num; bestIdx = i; }
+          else if (!item.higherBetter && num < bestVal) { bestVal = num; bestIdx = i; }
+        }
+      });
+    }
+
+    const cellsHtml = repos.map((r, i) => {
+      const displayVal = item.fn(r);
+      const isWinner = bestIdx === i && repos.length > 1;
+      const winnerClass = isWinner ? 'diff-winner' : '';
+      return `<td class="${item.format === 'mono' ? 'mono-num' : ''}"><span class="${winnerClass}">${esc(displayVal)} ${isWinner ? '👑' : ''}</span></td>`;
+    }).join("");
+
+    tbodyHtml += `<tr><td><b>${esc(item.label)}</b></td>${cellsHtml}</tr>`;
+  }
+
+  $("comp-diff-tbody").innerHTML = tbodyHtml;
+}
+
+function renderComparatorVerdict(repos) {
+  if (repos.length < 2) return;
+  const bestOverall = [...repos].sort((a,b) => Number(b.overall_cvi || 0) - Number(a.overall_cvi || 0))[0];
+  const bestResp = [...repos].sort((a,b) => Number(b.pillar_scores?.responsiveness || 0) - Number(a.pillar_scores?.responsiveness || 0))[0];
+  const bestImpact = [...repos].sort((a,b) => Number(b.stars || 0) - Number(a.stars || 0))[0];
+  const bestGov = [...repos].sort((a,b) => Number(b.elephant_factor || 0) - Number(a.elephant_factor || 0))[0];
+
+  $("comp-verdict-text").innerHTML = `
+    <b>Highest Composite Benchmark:</b> <span style="color: var(--sweet); font-weight: 700;">${esc(bestOverall.repo_id)}</span> (CVI: ${Number(bestOverall.overall_cvi).toFixed(1)}, ${esc(bestOverall.rank_tier)}) delivers the optimal balance of maintainer velocity and downstream production footprint.<br><br>
+    • <b>For First-Time Contributors:</b> Choose <b>${esc(bestResp.repo_id)}</b> — leads in review responsiveness (${Number(bestResp.pillar_scores?.responsiveness || 0).toFixed(0)} P1 score).<br>
+    • <b>For Career Capital & Resume Proof:</b> Choose <b>${esc(bestImpact.repo_id)}</b> — commands the largest production ecosystem footprint (${Number(bestImpact.stars || 0).toLocaleString()} stars).<br>
+    • <b>For Governance & Legal Safety:</b> <b>${esc(bestGov.repo_id)}</b> provides the most decentralized organizational backing (Elephant Factor ${bestGov.elephant_factor ?? 1}).
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Screen C: Scorecard Drawer & Maintainer Improvement Playbook
+// ---------------------------------------------------------------------------
+async function openDeepDive(nodeOrRepo) {
+  state.selectedNodeId = nodeOrRepo.repo_id;
+  renderScatter();
+
+  const drawer = $("drawer");
+  const backdrop = $("drawer-backdrop");
+  drawer.classList.add("open");
+  backdrop.classList.add("open");
+  drawer.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; text-align: center; padding: 40px 0;">Loading repository scorecard…</div>';
+
+  let body = await fetchRepoDetails(nodeOrRepo.owner, nodeOrRepo.name);
+  if (!body) {
+    drawer.innerHTML = `<div class="gated-note">Repository ${esc(nodeOrRepo.repo_id)} not found or API unreachable.</div>`;
+    return;
+  }
+  renderDrawer(body);
+}
+
+function closeDrawer() {
+  $("drawer").classList.remove("open");
+  $("drawer-backdrop").classList.remove("open");
+}
+
+$("drawer-backdrop").addEventListener("click", closeDrawer);
+
+function renderDrawer(body) {
+  const drawer = $("drawer");
+  const deepDive = body.deep_dive || null;
+  const pillars = body.pillar_scores || {};
+  const quadGlyph = QUADRANT_GLYPHS[body.matrix_quadrant] || "●";
+
+  const gatedNote = body.is_stage0_disqualified
+    ? `<div class="gated-note">⛔ Gated at Stage 0 (PR Black Hole): ${esc(body.disqualification_reason || "unanswered PR rate exceeded 50%")}</div>`
+    : "";
+
+  const pillarRows = PILLARS.map((name, i) => {
+    const value = pillars[name] ?? 0;
+    const color = ["#38bdf8", "#fbbf24", "#a78bfa", "#f472b6", "#34d399"][i];
+    return `<div class="pillar">
+      <span class="name">${esc(name)}</span>
+      <div class="bar"><i style="width:${Math.max(0, Math.min(100, value))}%;background:${color}"></i></div>
+      <span class="val">${Number(value).toFixed(1)}</span>
+    </div>`;
+  }).join("");
+
+  // Governance & Legal IP
+  const ef = body.elephant_factor ?? deepDive?.elephant_breakdown?.elephant_factor ?? 1;
+  const isMultiVendor = ef >= 3;
+  const efBadgeClass = isMultiVendor ? "badge sweet" : "badge nursery";
+  const efLabel = isMultiVendor ? `Multi-Vendor (EF ${ef})` : `Single-Vendor Risk (EF ${ef})`;
+
+  const legalModel = body.legal_ip_model ?? deepDive?.legal_ip?.model ?? "DCO";
+  const claHazard = deepDive?.legal_ip?.cla_hazard || (
+    ["DCO", "FOUNDATION_CLA"].includes(legalModel) ? "low" :
+    (legalModel === "CORP_CLA_RECIPROCAL" ? "medium" : "high")
+  );
+  const claBadgeClass = claHazard === "low" ? "badge sweet" : (claHazard === "medium" ? "badge nursery" : "badge graveyard");
+  const claLabel = `Legal CLA: ${esc(legalModel)} [${claHazard.toUpperCase()}]`;
+
+  const aiPosture = body.ai_posture ?? deepDive?.legal_ip?.ai_policy_posture ?? "AD_HOC";
+  const aiBadgeClass = aiPosture === "REGULATED" ? "badge accent" : (aiPosture === "PROSCRIBED" ? "badge graveyard" : "badge");
+
+  const gfiCount = deepDive?.good_first_issues?.count ?? 0;
+  const gfiBadgeClass = gfiCount > 0 ? "badge accent" : "badge";
+
+  // Raw metrics
+  const rawMetrics = deepDive?.raw_metrics || {};
+  const rawMetricsHtml = deepDive?.raw_metrics ? `
+    <div class="metrics-grid">
+      <div class="item"><span>Median TTFHR</span><b>${rawMetrics.ttfhr_hours != null ? Number(rawMetrics.ttfhr_hours).toFixed(1) + "h" : "—"}</b></div>
+      <div class="item"><span>First-Timer Merge</span><b>${rawMetrics.first_timer_merge_rate != null ? (rawMetrics.first_timer_merge_rate * 100).toFixed(0) + "%" : "—"}</b></div>
+      <div class="item"><span>14d Ghost Rate</span><b>${rawMetrics.ghost_rate_14d != null ? (rawMetrics.ghost_rate_14d * 100).toFixed(1) + "%" : "—"}</b></div>
+      <div class="item"><span>Tail Latency (p90)</span><b>${rawMetrics.tail_merge_latency_days != null ? Number(rawMetrics.tail_merge_latency_days).toFixed(1) + "d" : "—"}</b></div>
+    </div>` : "";
+
+  // Improvement Playbook
+  const playbook = generatePlaybook(body);
+  const playbookHtml = `
+    <div class="playbook-container">
+      <div class="playbook-banner">
+        <span>Projected Elevation: ${esc(playbook.currentTier)} (${Number(playbook.currentScore).toFixed(1)}) ➔ ${esc(playbook.nextTier)} (${playbook.projectedScore})</span>
+        <span class="mono-num">+${(playbook.projectedScore - playbook.currentScore).toFixed(1)} pts</span>
+      </div>
+      ${playbook.actions.map(act => `
+        <div class="playbook-action">
+          <div class="playbook-action-header">
+            <span class="playbook-action-title"><span>${act.icon}</span> ${esc(act.title)}</span>
+            <span class="playbook-action-badge">${esc(act.badge)}</span>
+          </div>
+          <p class="playbook-action-desc">${esc(act.description)}</p>
+          <span class="playbook-target">🎯 ${esc(act.target)}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+
+  drawer.innerHTML = `
+    <div class="drawer-header">
+      <div>
+        <h3>${esc(body.owner)}/${esc(body.name)}</h3>
+        <div class="drawer-sub">
+          <span class="badge">${esc(body.ecosystem || 'repo')}</span>
+          <span class="badge sweet">${esc(body.rank_tier || 'Tier B')}</span>
+          <span class="badge" style="color: ${QUADRANT_COLORS[body.matrix_quadrant] || '#94a3b8'};">
+            ${quadGlyph} ${esc(body.matrix_quadrant || '—')}
+          </span>
+          ${body.license ? `<span class="badge">${esc(body.license)}</span>` : ''}
+        </div>
+      </div>
+      <button type="button" class="drawer-close-btn" onclick="closeDrawer()" title="Close (Esc)">✕</button>
+    </div>
+
+    ${gatedNote}
+
+    <div class="kv-grid">
+      <div class="kv-item">
+        <span>CVI Composite Score</span>
+        <b class="cvi-big">${Number(body.overall_cvi).toFixed(2)}</b>
+      </div>
+      <div class="kv-item">
+        <span>Leverage / Friction</span>
+        <b>${Number(body.leverage_score).toFixed(1)} / ${Number(body.friction_score).toFixed(1)}</b>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 8px;">
+      <button type="button" class="btn-primary" style="flex: 1; justify-content: center; padding: 7px 12px;" onclick="addCurrentToCompare('${esc(body.owner)}/${esc(body.name)}')">
+        <span>⚖️</span> Compare in Screen E
+      </button>
+    </div>
+
+    <!-- 5-Pillar Diagnostics -->
+    <div class="drawer-section-title">5-Pillar Diagnostics</div>
+    <div class="radar-box">
+      ${renderRadarSvg(pillars)}
+    </div>
+    <div class="pillar-bars">${pillarRows}</div>
+
+    <!-- Maintainer Improvement Playbook -->
+    <div class="drawer-section-title">🛠️ Maintainer Improvement Playbook</div>
+    <p class="hint" style="margin-top: -2px; margin-bottom: 6px;">How this repository can improve its benchmark score and tier:</p>
+    ${playbookHtml}
+
+    <!-- Kaplan-Meier Survival Curve -->
+    <div class="drawer-section-title">Kaplan-Meier Survival Curve</div>
+    <div class="survival-box">
+      ${renderSurvivalSvg(deepDive?.survival_curve)}
+      ${rawMetricsHtml}
+    </div>
+
+    <!-- Governance, Risk & IP -->
+    <div class="drawer-section-title">Governance, IP &amp; On-Ramps</div>
+    <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+      <span class="${efBadgeClass}" title="CHAOSS Elephant Factor">Elephant Factor: ${efLabel}</span>
+      <span class="${claBadgeClass}" title="Legal CLA Regime">${claLabel}</span>
+      <span class="${aiBadgeClass}" title="AI Contribution Policy">AI: ${esc(aiPosture)}</span>
+      <span class="${gfiBadgeClass}" title="Active Unclaimed Good First Issues">GFIs: <b>${gfiCount}</b></span>
+    </div>
+
+    <!-- Production Footprint -->
+    <div class="drawer-section-title">Production Footprint</div>
+    <div class="kv-grid">
+      <div class="kv-item"><span>Stars</span><b>${Number(body.stars || 0).toLocaleString("en-US")}</b></div>
+      <div class="kv-item"><span>Forks</span><b>${Number(body.forks || 0).toLocaleString("en-US")}</b></div>
+      <div class="kv-item"><span>Downloads / mo</span><b>${Number(body.monthly_downloads || 0).toLocaleString("en-US")}</b></div>
+      <div class="kv-item"><span>Dependents</span><b>${Number(body.dependents_count || 0).toLocaleString("en-US")}</b></div>
+    </div>
+  `;
+}
+
+function addCurrentToCompare(repoId) {
+  if (!state.selectedForCompare.includes(repoId)) {
+    if (state.selectedForCompare.length >= 4) {
+      state.selectedForCompare.pop();
+    }
+    state.selectedForCompare.push(repoId);
+  }
+  closeDrawer();
+  switchScreen("comparator");
+}
+
+// Maintainer Improvement Gap Analysis Engine
+function generatePlaybook(repo) {
+  const pillars = repo.pillar_scores || {};
+  const raw = repo.deep_dive?.raw_metrics || {};
+  const actions = [];
+
+  const respScore = Number(pillars.responsiveness || 0);
+  const ttfhr = raw.ttfhr_hours != null ? Number(raw.ttfhr_hours) : null;
+  const ghostRate = raw.ghost_rate_14d != null ? Number(raw.ghost_rate_14d) : null;
+
+  if (ttfhr != null && ttfhr > 24) {
+    const pts = Math.min(12, (ttfhr - 24) * 0.2 + 2.5).toFixed(1);
+    actions.push({
+      icon: "⚡",
+      badge: `+${pts} pts`,
+      title: `Reduce TTFHR from ${ttfhr.toFixed(1)}h to <24h`,
+      description: `Maintainer first response latency is ${ttfhr.toFixed(1)}h. Adopting triage rotations and notification webhooks to guarantee <24h human response significantly improves contributor retention.`,
+      target: "Target Median TTFHR < 24.0h"
+    });
+  } else if (respScore < 80) {
+    actions.push({
+      icon: "⚡",
+      badge: "+5.2 pts on P1",
+      title: "Establish 24-Hour Review Turnaround SLA",
+      description: "Set up automated reviewer rotation among maintainers to decrease response times and lift P1 Responsiveness score.",
+      target: "Target Responsiveness ≥ 85.0"
+    });
+  }
+
+  if (ghostRate != null && ghostRate > 0.05) {
+    const ghostPct = (ghostRate * 100).toFixed(1);
+    actions.push({
+      icon: "🚨",
+      badge: "+8.0 pts on P1",
+      title: `Eliminate PR Abandonment: current ghost rate ${ghostPct}%`,
+      description: "14-day unanswered PR rate exceeds 5%, risking Stage-0 PR black-hole relegation. Implement automated reminder pings before PRs go stale.",
+      target: "Target 14-day Ghost Rate < 3.0%"
+    });
+  }
+
+  const ef = repo.elephant_factor ?? repo.deep_dive?.elephant_breakdown?.elephant_factor ?? 1;
+  if (ef < 3) {
+    actions.push({
+      icon: "🛡️",
+      badge: "+25.0 pts on P3",
+      title: `Diversify maintainers: current Elephant Factor is ${ef}`,
+      description: `Project depends overwhelmingly on a single organization. Adding active co-maintainers from another org lifts P3 Governance by up to +25 pts and eliminates corporate relicensing rug-pull risks.`,
+      target: "Target Elephant Factor ≥ 3 (Multi-Vendor)"
+    });
+  }
+
+  const gfiCount = repo.deep_dive?.good_first_issues?.count ?? 0;
+  if (gfiCount < 3) {
+    actions.push({
+      icon: "🌱",
+      badge: "+12.0 pts on P5",
+      title: `Tag 3-5 beginner-friendly Good First Issues`,
+      description: `Currently ${gfiCount} active GFIs found. Curating approachable issues with reproduction steps and mentor tags boosts P5 Accessibility and community on-ramp velocity.`,
+      target: "Target GFIs ≥ 5 active"
+    });
+  }
+
+  const rigorScore = Number(pillars.rigor || 0);
+  if (rigorScore < 80) {
+    actions.push({
+      icon: "🔒",
+      badge: "+10.0 pts on P4",
+      title: "Improve branch protection and token permissions",
+      description: "Automate OpenSSF Scorecard checks, restrict token permissions in CI workflows, enforce signed commits, and publish explicit AI contribution guidelines.",
+      target: "Target OpenSSF Scorecard ≥ 8.0"
+    });
+  }
+
+  if (actions.length === 0) {
+    actions.push({
+      icon: "⭐",
+      badge: "S-Tier Status",
+      title: "Maintain Benchmark Leadership",
+      description: "This repository already meets top-tier standards across all 5 evaluation pillars. Continue monitoring review velocity and contributor attribution.",
+      target: "Top 1% Global Open Source Benchmark"
+    });
+  }
+
+  const currentScore = Number(repo.overall_cvi || 0);
+  const potentialBoost = actions.reduce((sum, a) => {
+    const match = a.badge.match(/\+([\d.]+)/);
+    return sum + (match ? parseFloat(match[1]) : 0);
+  }, 0);
+  const projectedScore = Math.min(99.5, currentScore + (potentialBoost * 0.32)).toFixed(1);
+  const currentTier = repo.rank_tier || "Tier B";
+  const nextTier = projectedScore >= 90 ? "Tier S+" : (projectedScore >= 80 ? "Tier S" : (projectedScore >= 65 ? "Tier A" : "Tier B"));
+
+  return { actions, currentScore, projectedScore, currentTier, nextTier };
+}
+
+// 5-Pillar Radar with Benchmark Baseline Polygon
+function renderRadarSvg(pillars) {
+  const keys = ["responsiveness", "criticality", "governance", "rigor", "accessibility"];
+  const labels = ["Resp (P1)", "Crit (P2)", "Gov (P3)", "Rigor (P4)", "Access (P5)"];
+  const size = 240;
+  const cx = size / 2, cy = size / 2, r = 74, n = keys.length;
+
+  const isLight = state.theme === "light";
+  const ringStroke = isLight ? "#cbd5e1" : "#334155";
+  const textFill = isLight ? "#475569" : "#94a3b8";
+
+  let ringsSvg = "";
+  for (const frac of [0.25, 0.5, 0.75, 1.0]) {
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+      pts.push(`${(cx + frac * r * Math.cos(angle)).toFixed(1)},${(cy + frac * r * Math.sin(angle)).toFixed(1)}`);
+    }
+    ringsSvg += `<polygon points="${pts.join(" ")}" fill="none" stroke="${ringStroke}" stroke-width="1" stroke-dasharray="${frac === 1.0 ? 'none' : '2 2'}" opacity="0.6"/>`;
+  }
+
+  let spokesSvg = "";
+  let labelsSvg = "";
+  for (let i = 0; i < n; i++) {
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    const x = cx + r * Math.cos(angle);
+    const y = cy + r * Math.sin(angle);
+    spokesSvg += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${ringStroke}" stroke-width="1" opacity="0.6"/>`;
     const lx = cx + (r + 16) * Math.cos(angle);
     const ly = cy + (r + 16) * Math.sin(angle);
     const anchor = Math.abs(Math.cos(angle)) < 0.2 ? "middle" : (Math.cos(angle) > 0 ? "start" : "end");
-    labelsSvg += `<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" fill="#94a3b8" font-size="10.5" font-family="system-ui, sans-serif" text-anchor="${anchor}">${labels[i]}</text>`;
+    labelsSvg += `<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" fill="${textFill}" font-size="10" font-family="var(--font-sans)" font-weight="600" text-anchor="${anchor}">${labels[i]}</text>`;
+  }
+
+  // Ecosystem median benchmark line (50 baseline)
+  const medianPts = [];
+  for (let i = 0; i < n; i++) {
+    const frac = 0.5;
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    medianPts.push(`${(cx + frac * r * Math.cos(angle)).toFixed(1)},${(cy + frac * r * Math.sin(angle)).toFixed(1)}`);
   }
 
   const dataPts = [];
@@ -483,29 +2893,33 @@ function renderRadarSvg(pillars) {
     const px = cx + frac * r * Math.cos(angle);
     const py = cy + frac * r * Math.sin(angle);
     dataPts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
-    dotsSvg.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.5" fill="#38bdf8" stroke="#0f172a" stroke-width="1.5"><title>${labels[i]}: ${val.toFixed(1)}</title></circle>`);
+    dotsSvg.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.5" fill="var(--accent)" stroke="var(--bg-surface)" stroke-width="1.5"><title>${labels[i]}: ${val.toFixed(1)}</title></circle>`);
   }
 
   return `
     <svg viewBox="0 0 ${size} ${size}" style="width: 100%; max-width: ${size}px; height: auto; display: block; margin: 0 auto;" aria-label="5-pillar radar chart">
       ${ringsSvg}
       ${spokesSvg}
-      <polygon points="${dataPts.join(" ")}" fill="rgba(56, 189, 248, 0.25)" stroke="#38bdf8" stroke-width="2" />
+      <!-- Benchmark baseline dashed polygon -->
+      <polygon points="${medianPts.join(" ")}" fill="none" stroke="${isLight ? '#94a3b8' : '#64748b'}" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.8" />
+      <!-- Repository polygon -->
+      <polygon points="${dataPts.join(" ")}" fill="rgba(56, 189, 248, 0.22)" stroke="var(--accent)" stroke-width="2.2" />
       ${dotsSvg.join("")}
       ${labelsSvg}
     </svg>`;
 }
 
+// Kaplan-Meier Latency Curve
 function renderSurvivalSvg(survivalPoints) {
   if (!survivalPoints || survivalPoints.length < 2) {
     return `
-      <div style="background: #0d1526; border-radius: 6px; padding: 16px; font-size: 12px; color: var(--muted); text-align: center;">
-        Single baseline observation [0.0, 1.0] — streaming events feed pending
+      <div style="background: var(--bg-surface); border-radius: 6px; padding: 16px; font-size: 12px; color: var(--text-muted); text-align: center;">
+        Baseline observation [0.0, 1.0] — streaming events feed pending
       </div>`;
   }
 
-  const w = 360, h = 150;
-  const pad = { left: 42, right: 18, top: 16, bottom: 26 };
+  const w = 380, h = 150;
+  const pad = { left: 40, right: 20, top: 18, bottom: 26 };
   const plotW = w - pad.left - pad.right;
   const plotH = h - pad.top - pad.bottom;
 
@@ -525,20 +2939,25 @@ function renderSurvivalSvg(survivalPoints) {
   const lastT = survivalPoints[survivalPoints.length - 1][0];
   areaD += ` H ${x(lastT).toFixed(1)} L ${x(lastT).toFixed(1)} ${y(0).toFixed(1)} Z`;
 
-  let gridSvg = "";
-  gridSvg += `<line x1="${pad.left}" y1="${y(0.5).toFixed(1)}" x2="${w - pad.right}" y2="${y(0.5).toFixed(1)}" stroke="#334155" stroke-dasharray="3 3" opacity="0.5"/>`;
-  gridSvg += `<line x1="${pad.left}" y1="${y(1.0).toFixed(1)}" x2="${w - pad.right}" y2="${y(1.0).toFixed(1)}" stroke="#334155" stroke-dasharray="3 3" opacity="0.5"/>`;
-  gridSvg += `<text x="${pad.left - 6}" y="${(y(1.0) + 4).toFixed(1)}" fill="#94a3b8" font-size="9.5" text-anchor="end">1.0</text>`;
-  gridSvg += `<text x="${pad.left - 6}" y="${(y(0.5) + 4).toFixed(1)}" fill="#94a3b8" font-size="9.5" text-anchor="end">0.5</text>`;
-  gridSvg += `<text x="${pad.left - 6}" y="${(y(0.0) + 4).toFixed(1)}" fill="#94a3b8" font-size="9.5" text-anchor="end">0.0</text>`;
+  const isLight = state.theme === "light";
+  const axisColor = isLight ? "#475569" : "#94a3b8";
+  const gridStroke = isLight ? "#cbd5e1" : "#334155";
+
+  let gridSvg = `
+    <line x1="${pad.left}" y1="${y(0.5).toFixed(1)}" x2="${w - pad.right}" y2="${y(0.5).toFixed(1)}" stroke="${gridStroke}" stroke-dasharray="3 3" opacity="0.6"/>
+    <line x1="${pad.left}" y1="${y(1.0).toFixed(1)}" x2="${w - pad.right}" y2="${y(1.0).toFixed(1)}" stroke="${gridStroke}" stroke-dasharray="3 3" opacity="0.6"/>
+    <text x="${pad.left - 6}" y="${(y(1.0) + 4).toFixed(1)}" fill="${axisColor}" font-size="9" font-family="var(--font-mono)" text-anchor="end">1.0</text>
+    <text x="${pad.left - 6}" y="${(y(0.5) + 4).toFixed(1)}" fill="${axisColor}" font-size="9" font-family="var(--font-mono)" text-anchor="end">0.5</text>
+    <text x="${pad.left - 6}" y="${(y(0.0) + 4).toFixed(1)}" fill="${axisColor}" font-size="9" font-family="var(--font-mono)" text-anchor="end">0.0</text>
+  `;
 
   let slaSvg = "";
   for (const m of [{ t: 0.5, label: "12h" }, { t: 1.0, label: "24h" }, { t: 2.0, label: "48h" }]) {
     if (m.t <= maxT) {
       const sx = x(m.t).toFixed(1);
       slaSvg += `
-        <line x1="${sx}" y1="${pad.top}" x2="${sx}" y2="${y(0).toFixed(1)}" stroke="#10b981" stroke-dasharray="2 2" opacity="0.7"/>
-        <text x="${sx}" y="${pad.top - 4}" fill="#10b981" font-size="9" text-anchor="middle">${m.label}</text>`;
+        <line x1="${sx}" y1="${pad.top}" x2="${sx}" y2="${y(0).toFixed(1)}" stroke="var(--sweet)" stroke-dasharray="2 2" opacity="0.75"/>
+        <text x="${sx}" y="${pad.top - 4}" fill="var(--sweet)" font-size="9" font-family="var(--font-mono)" text-anchor="middle">${m.label}</text>`;
     }
   }
 
@@ -547,153 +2966,30 @@ function renderSurvivalSvg(survivalPoints) {
   for (let t = 0; t <= maxT; t += tStep) {
     const tx = x(t).toFixed(1);
     xTicksSvg += `
-      <line x1="${tx}" y1="${y(0).toFixed(1)}" x2="${tx}" y2="${(y(0) + 4).toFixed(1)}" stroke="#64748b"/>
-      <text x="${tx}" y="${(y(0) + 16).toFixed(1)}" fill="#94a3b8" font-size="9.5" text-anchor="middle">${t}d</text>`;
+      <line x1="${tx}" y1="${y(0).toFixed(1)}" x2="${tx}" y2="${(y(0) + 4).toFixed(1)}" stroke="${gridStroke}"/>
+      <text x="${tx}" y="${(y(0) + 16).toFixed(1)}" fill="${axisColor}" font-size="9" font-family="var(--font-mono)" text-anchor="middle">${t}d</text>`;
   }
 
   return `
     <svg viewBox="0 0 ${w} ${h}" style="width: 100%; height: auto; display: block;" aria-label="Kaplan-Meier survival curve">
       ${gridSvg}
       ${slaSvg}
-      <line x1="${pad.left}" y1="${y(0).toFixed(1)}" x2="${w - pad.right}" y2="${y(0).toFixed(1)}" stroke="#334155" stroke-width="1"/>
-      <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${y(0).toFixed(1)}" stroke="#334155" stroke-width="1"/>
-      <path d="${areaD}" fill="rgba(16, 185, 129, 0.15)"/>
-      <path d="${pathD}" fill="none" stroke="#10b981" stroke-width="2"/>
+      <line x1="${pad.left}" y1="${y(0).toFixed(1)}" x2="${w - pad.right}" y2="${y(0).toFixed(1)}" stroke="${gridStroke}" stroke-width="1"/>
+      <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${y(0).toFixed(1)}" stroke="${gridStroke}" stroke-width="1"/>
+      <path d="${areaD}" fill="var(--sweet-bg)"/>
+      <path d="${pathD}" fill="none" stroke="var(--sweet)" stroke-width="2"/>
       ${xTicksSvg}
-      <text x="${(pad.left + w - pad.right) / 2}" y="${h - 4}" fill="#94a3b8" font-size="9.5" text-anchor="middle">PR Open Duration (Days) →</text>
-      <text x="12" y="${(pad.top + y(0)) / 2}" fill="#94a3b8" font-size="9.5" text-anchor="middle" transform="rotate(-90 12 ${(pad.top + y(0)) / 2})">P(Open)</text>
+      <text x="${(pad.left + w - pad.right) / 2}" y="${h - 4}" fill="${axisColor}" font-size="9.5" text-anchor="middle">PR Open Duration (Days) →</text>
+      <text x="12" y="${(pad.top + y(0)) / 2}" fill="${axisColor}" font-size="9.5" text-anchor="middle" transform="rotate(-90 12 ${(pad.top + y(0)) / 2})">P(Open)</text>
     </svg>`;
 }
 
 // ---------------------------------------------------------------------------
-// Deep-dive drawer
-// ---------------------------------------------------------------------------
-function renderDrawerPlaceholder() {
-  $("drawer").innerHTML =
-    '<div class="drawer-empty">Click a node for the deep-dive scorecard<br>(<code>GET /v1/cvi/repos/{owner}/{name}</code>).</div>';
-}
-
-async function openDeepDive(node) {
-  state.selected = node.repo_id;
-  renderScatter(); // refresh selection highlight
-  const drawer = $("drawer");
-  drawer.innerHTML = '<div class="drawer-empty">Loading scorecard…</div>';
-  let body;
-  try {
-    const res = await fetch(`/v1/cvi/repos/${encodeURIComponent(node.owner)}/${encodeURIComponent(node.name)}`);
-    if (!res.ok) {
-      if (res.status === 404) {
-        drawer.innerHTML = `<div class="gated-note">Repository ${esc(node.repo_id)} not found (HTTP 404).</div>`;
-        return;
-      }
-      throw new Error("HTTP " + res.status);
-    }
-    body = await res.json();
-  } catch (err) {
-    drawer.innerHTML = `<div class="gated-note">Deep-dive failed: ${esc(err.message)}</div>`;
-    return;
-  }
-
-  const gatedNote = body.is_stage0_disqualified
-    ? `<div class="gated-note">⛔ Gated at Stage 0 (black hole): ${esc(body.disqualification_reason || "no reason")}</div>`
-    : "";
-
-  const deepDive = body.deep_dive || null;
-  const pillars = body.pillar_scores || {};
-  const pillarRows = PILLARS.map((name, i) => {
-    const value = pillars[name] ?? 0;
-    const color = ["#38bdf8", "#fbbf24", "#a78bfa", "#f472b6", "#34d399"][i];
-    return `<div class="pillar">
-      <span class="name">${esc(name)}</span>
-      <div class="bar"><i style="width:${Math.max(0, Math.min(100, value))}%;background:${color}"></i></div>
-      <span class="val">${Number(value).toFixed(1)}</span>
-    </div>`;
-  }).join("");
-
-  // Governance & Legal IP
-  const ef = body.elephant_factor ?? deepDive?.elephant_breakdown?.elephant_factor ?? 1;
-  const isMultiVendor = ef >= 3;
-  const efBadgeClass = isMultiVendor ? "badge sweet" : "badge crucible";
-  const efLabel = isMultiVendor ? `Multi-Vendor (EF ${ef})` : `Single-Vendor Risk (EF ${ef})`;
-
-  const legalModel = body.legal_ip_model ?? deepDive?.legal_ip?.model ?? "DCO";
-  const claHazard = deepDive?.legal_ip?.cla_hazard || (
-    ["DCO", "FOUNDATION_CLA"].includes(legalModel) ? "low" :
-    (legalModel === "CORP_CLA_RECIPROCAL" ? "medium" : "high")
-  );
-  const claBadgeClass = claHazard === "low" ? "badge sweet" : (claHazard === "medium" ? "badge crucible" : "badge graveyard");
-  const claLabel = `CLA: ${esc(legalModel)} [${claHazard.toUpperCase()}]`;
-
-  const aiPosture = body.ai_posture ?? deepDive?.legal_ip?.ai_policy_posture ?? "AD_HOC";
-  const aiBadgeClass = aiPosture === "REGULATED" ? "badge accent" : (aiPosture === "PROSCRIBED" ? "badge graveyard" : "badge");
-
-  const gfiCount = deepDive?.good_first_issues?.count ?? 0;
-  const gfiBadgeClass = gfiCount > 0 ? "badge accent" : "badge";
-
-  // Raw metrics
-  const rawMetrics = deepDive?.raw_metrics || {};
-  const rawMetricsHtml = deepDive?.raw_metrics ? `
-    <div class="metrics-grid">
-      <div class="item"><span>Median TTFHR</span><b>${rawMetrics.ttfhr_hours != null ? Number(rawMetrics.ttfhr_hours).toFixed(1) + "h" : "—"}</b></div>
-      <div class="item"><span>First-Timer Merge</span><b>${rawMetrics.first_timer_merge_rate != null ? (rawMetrics.first_timer_merge_rate * 100).toFixed(0) + "%" : "—"}</b></div>
-      <div class="item"><span>14d Ghost Rate</span><b>${rawMetrics.ghost_rate_14d != null ? (rawMetrics.ghost_rate_14d * 100).toFixed(1) + "%" : "—"}</b></div>
-      <div class="item"><span>Tail Latency (p90)</span><b>${rawMetrics.tail_merge_latency_days != null ? Number(rawMetrics.tail_merge_latency_days).toFixed(1) + "d" : "—"}</b></div>
-    </div>` : "";
-
-  const quadGlyph = QUADRANT_GLYPHS[body.matrix_quadrant] || "●";
-
-  drawer.innerHTML = `
-    <div class="drawer-header">
-      <div>
-        <h3>${esc(body.owner)}/${esc(body.name)}</h3>
-        <div class="sub">
-          <span class="pill">${esc(body.ecosystem)}</span>
-          <span class="pill ok">${esc(body.rank_tier)}</span>
-          <span class="pill">${quadGlyph} ${esc(body.matrix_quadrant)}</span>
-        </div>
-      </div>
-    </div>
-    ${gatedNote}
-    <div class="kv">
-      <div><span>CVI Composite</span><b class="cvi-big">${Number(body.overall_cvi).toFixed(2)}</b></div>
-      <div><span>Lev / Frict</span><b>${Number(body.leverage_score).toFixed(1)} / ${Number(body.friction_score).toFixed(1)}</b></div>
-    </div>
-
-    <h4>5-Pillar Diagnostics</h4>
-    <div class="radar-box">
-      ${renderRadarSvg(pillars)}
-    </div>
-    <div class="pillar-bars">${pillarRows}</div>
-
-    <h4>Kaplan-Meier Survival Curve</h4>
-    <div class="survival-box">
-      ${renderSurvivalSvg(deepDive?.survival_curve)}
-      ${rawMetricsHtml}
-    </div>
-
-    <h4>Governance, IP &amp; On-Ramps</h4>
-    <div class="gov-badges">
-      <span class="${efBadgeClass}" title="CHAOSS Elephant Factor">${efLabel}</span>
-      <span class="${claBadgeClass}" title="Legal CLA Regime">${claLabel}</span>
-      <span class="${aiBadgeClass}" title="AI Contribution Policy">AI: ${esc(aiPosture)}</span>
-      <span class="${gfiBadgeClass}" title="Active Unclaimed Good First Issues">GFIs: <b>${gfiCount}</b></span>
-    </div>
-
-    <h4>Production Footprint</h4>
-    <div class="kv">
-      <div><span>Stars</span><b>${Number(body.stars).toLocaleString("en-US")}</b></div>
-      <div><span>Forks</span><b>${Number(body.forks).toLocaleString("en-US")}</b></div>
-      <div><span>Downloads / mo</span><b>${Number(body.monthly_downloads).toLocaleString("en-US")}</b></div>
-      <div><span>Dependents</span><b>${Number(body.dependents_count).toLocaleString("en-US")}</b></div>
-    </div>`;
-}
-
-// ---------------------------------------------------------------------------
-// Persona re-projection
+// Screen D: Persona Configurator with Sum-to-100% Lock Mechanism
 // ---------------------------------------------------------------------------
 function deltaBadge(delta) {
-  if (delta > 0) return `<span class="delta up">▲ ${delta}</span>`;
-  if (delta < 0) return `<span class="delta down">▼ ${Math.abs(delta)}</span>`;
+  if (delta > 0) return `<span class="delta up">▲ +${delta}</span>`;
+  if (delta < 0) return `<span class="delta down">▼ -${Math.abs(delta)}</span>`;
   return `<span class="delta flat">— 0</span>`;
 }
 
@@ -702,13 +2998,80 @@ function applyPreset(presetKey) {
   if (!p) return;
   for (const name of PILLARS) {
     const input = $("w-" + name);
+    const slider = $("sl-" + name);
     if (input) input.value = p[name].toFixed(2);
+    if (slider) slider.value = Math.round(p[name] * 100);
   }
-  // highlight active preset button
-  document.querySelectorAll(".preset-btn").forEach((btn) => {
+  document.querySelectorAll(".preset-btn").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.preset === presetKey);
   });
+  updateSumIndicator();
   submitReproject();
+}
+
+function updateSumIndicator() {
+  const total = PILLARS.reduce((sum, name) => sum + Number($("w-" + name).value || 0), 0);
+  $("sum-indicator").textContent = `Total weight: ${(total * 100).toFixed(0)}%`;
+  $("sum-indicator").style.color = Math.abs(total - 1.0) < 0.01 ? "var(--sweet)" : "var(--graveyard)";
+}
+
+// Lock buttons
+document.querySelectorAll(".lock-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const pillar = btn.dataset.lock;
+    state.locks[pillar] = !state.locks[pillar];
+    btn.textContent = state.locks[pillar] ? "🔒" : "🔓";
+    btn.classList.toggle("locked", state.locks[pillar]);
+  });
+});
+
+// Sync range sliders and number inputs with dynamic normalization lock
+PILLARS.forEach(pillar => {
+  const range = $("sl-" + pillar);
+  const num = $("w-" + pillar);
+
+  range.addEventListener("input", () => {
+    const newVal = Number(range.value) / 100.0;
+    adjustWeightWithLocks(pillar, newVal);
+  });
+
+  num.addEventListener("input", () => {
+    const newVal = Number(num.value);
+    adjustWeightWithLocks(pillar, newVal);
+  });
+});
+
+function adjustWeightWithLocks(changedPillar, targetValue) {
+  targetValue = Math.max(0, Math.min(1.0, targetValue));
+
+  const lockedSum = PILLARS
+    .filter(p => p !== changedPillar && state.locks[p])
+    .reduce((s, p) => s + Number($("w-" + p).value || 0), 0);
+
+  const available = Math.max(0, 1.0 - lockedSum);
+  const actualValue = Math.min(targetValue, available);
+
+  $("w-" + changedPillar).value = actualValue.toFixed(2);
+  $("sl-" + changedPillar).value = Math.round(actualValue * 100);
+
+  const remaining = available - actualValue;
+  const unlockedPillars = PILLARS.filter(p => p !== changedPillar && !state.locks[p]);
+
+  if (unlockedPillars.length > 0) {
+    const currentUnlockedSum = unlockedPillars.reduce((s, p) => s + Number($("w-" + p).value || 0), 0);
+    unlockedPillars.forEach(p => {
+      let allocated;
+      if (currentUnlockedSum > 0) {
+        allocated = (Number($("w-" + p).value || 0) / currentUnlockedSum) * remaining;
+      } else {
+        allocated = remaining / unlockedPillars.length;
+      }
+      $("w-" + p).value = allocated.toFixed(2);
+      $("sl-" + p).value = Math.round(allocated * 100);
+    });
+  }
+
+  updateSumIndicator();
 }
 
 async function submitReproject() {
@@ -730,8 +3093,8 @@ async function submitReproject() {
     errorEl.hidden = false;
     return;
   }
-  // Normalize to sum to exactly 1.0 (full-precision floats; the server
-  // validates the exact 5-key set and the sum within 1e-6 before touching the store).
+
+  // Exact 1.0 normalization for server validation
   const normalized = {};
   for (const name of PILLARS) normalized[name] = weights[name] / total;
 
@@ -754,22 +3117,146 @@ async function submitReproject() {
   }
 
   $("reproject-results").innerHTML = items.map((item) => `
-    <li>
+    <li onclick="openDeepDive({ owner: '${esc(item.owner)}', name: '${esc(item.name)}', repo_id: '${esc(item.repo_id)}' })">
       <span class="rank">#${item.new_rank}</span>
-      <span class="repo" title="${esc(item.repo_id)} · ${esc(item.quadrant)}">${esc(item.repo_id)}</span>
+      <span class="repo" title="${esc(item.repo_id)} · ${esc(item.quadrant || '')}">${esc(item.repo_id)}</span>
       <span class="move">${item.old_rank} → ${item.new_rank}</span>
       ${deltaBadge(item.delta)}
       <span class="score">${Number(item.new_score).toFixed(2)}</span>
     </li>`).join("");
 }
 
+$("reproject-btn").addEventListener("click", submitReproject);
+
+document.querySelectorAll(".preset-btn").forEach((btn) => {
+  btn.addEventListener("click", () => applyPreset(btn.dataset.preset));
+});
+
 // ---------------------------------------------------------------------------
-// Liveness
+// Global Omnibar & Search Palette (Cmd+K)
+// ---------------------------------------------------------------------------
+function openOmnibar() {
+  $("omnibar-modal").classList.add("open");
+  const inp = $("omnibar-search");
+  inp.value = "";
+  inp.focus();
+  renderOmnibarResults("");
+}
+
+function closeOmnibar() {
+  $("omnibar-modal").classList.remove("open");
+}
+
+$("open-omnibar-btn").addEventListener("click", openOmnibar);
+$("omnibar-modal").addEventListener("click", (e) => {
+  if (e.target === $("omnibar-modal")) closeOmnibar();
+});
+
+$("omnibar-search").addEventListener("input", (e) => {
+  renderOmnibarResults(e.target.value);
+});
+
+function renderOmnibarResults(query) {
+  const list = $("omnibar-results");
+  list.innerHTML = "";
+  const q = query.trim().toLowerCase();
+
+  const commands = [
+    { label: "📊 Go to 2D Discovery Matrix", action: () => switchScreen("matrix") },
+    { label: "🏆 Go to Benchmark Leaderboard", action: () => switchScreen("leaderboard") },
+    { label: "⚖️ Go to Side-by-Side Comparator", action: () => switchScreen("comparator") },
+    { label: "🎛️ Go to Persona Configurator", action: () => switchScreen("configurator") },
+    { label: "🌓 Toggle Light / Dark Mode", action: () => setTheme(state.theme === "dark" ? "light" : "dark") },
+  ];
+
+  const matchedCommands = commands.filter(c => !q || c.label.toLowerCase().includes(q));
+  for (const cmd of matchedCommands) {
+    const li = document.createElement("li");
+    li.className = "omnibar-item";
+    li.innerHTML = `<span>${esc(cmd.label)}</span><kbd>Jump</kbd>`;
+    li.addEventListener("click", () => { closeOmnibar(); cmd.action(); });
+    list.appendChild(li);
+  }
+
+  // Match Repositories
+  const matchedRepos = state.allRepos
+    .filter(r => !q || r.repo_id.toLowerCase().includes(q))
+    .slice(0, 10);
+
+  for (const repo of matchedRepos) {
+    const glyph = QUADRANT_GLYPHS[repo.matrix_quadrant] || "●";
+    const li = document.createElement("li");
+    li.className = "omnibar-item";
+    li.innerHTML = `
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="color: ${QUADRANT_COLORS[repo.matrix_quadrant]}">${glyph}</span>
+        <b>${esc(repo.repo_id)}</b>
+        <span class="badge">${esc(repo.rank_tier || 'Tier B')}</span>
+      </div>
+      <span class="mono-num" style="color: var(--accent);">CVI ${Number(repo.overall_cvi).toFixed(1)}</span>
+    `;
+    li.addEventListener("click", () => {
+      closeOmnibar();
+      openDeepDive(repo);
+    });
+    list.appendChild(li);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard Shortcuts & Global Hotkeys
+// ---------------------------------------------------------------------------
+$("shortcuts-btn").addEventListener("click", () => {
+  $("shortcuts-modal").classList.add("open");
+});
+$("shortcuts-modal").addEventListener("click", (e) => {
+  if (e.target === $("shortcuts-modal")) $("shortcuts-modal").classList.remove("open");
+});
+
+window.addEventListener("keydown", (e) => {
+  const isInput = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName);
+
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    openOmnibar();
+    return;
+  }
+
+  if (e.key === "Escape") {
+    closeDrawer();
+    closeOmnibar();
+    $("shortcuts-modal").classList.remove("open");
+    return;
+  }
+
+  if (!isInput) {
+    if (e.key === "/") {
+      e.preventDefault();
+      openOmnibar();
+    } else if (e.key === "1") {
+      switchScreen("matrix");
+    } else if (e.key === "2") {
+      switchScreen("leaderboard");
+    } else if (e.key === "3") {
+      switchScreen("configurator");
+    } else if (e.key === "4") {
+      switchScreen("comparator");
+    } else if (e.key.toLowerCase() === "t") {
+      setTheme(state.theme === "dark" ? "light" : "dark");
+    } else if (e.key === "?") {
+      $("shortcuts-modal").classList.toggle("open");
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Liveness & App Initialization
 // ---------------------------------------------------------------------------
 async function checkHealth() {
   try {
     const res = await fetch("/healthz");
     if (!res.ok) throw new Error("GET /healthz -> HTTP " + res.status);
+    hideBanner();
   } catch (err) {
     showBanner("API unreachable — is the demo server running? " + err.message);
     renderBadges(null);
@@ -777,18 +3264,11 @@ async function checkHealth() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Wiring
-// ---------------------------------------------------------------------------
 for (const id of ["ecosystem", "min_stars", "exclude_black_holes"]) {
   $(id).addEventListener("change", loadMatrix);
 }
-$("reproject-btn").addEventListener("click", submitReproject);
 
-document.querySelectorAll(".preset-btn").forEach((btn) => {
-  btn.addEventListener("click", () => applyPreset(btn.dataset.preset));
-});
-
+initTheme();
 checkHealth().then(loadMatrix);
 </script>
 </body>
