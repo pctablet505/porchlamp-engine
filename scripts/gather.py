@@ -59,7 +59,8 @@ def _get_json(url: str, headers: Optional[dict] = None) -> Optional[dict]:
         return None
 
 
-def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False) -> dict[str, str]:
+def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
+                skip_pypistats: bool = False) -> dict[str, str]:
     """Fetch every collector for one repo; return {collector: ok|skip|fail}."""
     key = f"{owner}__{name}"
     status: dict[str, str] = {}
@@ -204,7 +205,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False) -> d
     except (json.JSONDecodeError, OSError):  # review-ok: gate-cache — corrupt -> refetch
         dl_monthly = None
     if not (dl_monthly is not None and not force):
-        monthly, src = _downloads(ecosystem, name)
+        monthly, src = _downloads(ecosystem, name, skip_pypistats=skip_pypistats)
         _env("downloads", dl_key, src, {"monthly": monthly})
         status["downloads"] = "ok" if monthly is not None else "fail"
     else:
@@ -233,8 +234,11 @@ def _shape_depsdev(d: Optional[dict]) -> Optional[dict]:
             "scorecard_overall": sc}
 
 
-def _downloads(ecosystem: str, name: str) -> tuple[Optional[int], str]:
+def _downloads(ecosystem: str, name: str,
+               skip_pypistats: bool = False) -> tuple[Optional[int], str]:
     if ecosystem == "pypi":
+        if skip_pypistats:
+            return None, "pypistats-deferred"
         # pypistats 429s arrive as HTTP 200 + HTML body (unparseable -> None).
         # The SLEEP_PYPISTATS pre-call wait is the throttle (4/min < 5/min
         # limit); a transient null is refetched on rerun (nulls are not
