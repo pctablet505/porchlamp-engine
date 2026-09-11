@@ -8,6 +8,10 @@ version = "0.1.0"
 description = "Contributor Value Index (CVI) ranking engine"
 requires-python = ">=3.10"
 
+[project.optional-dependencies]
+server = ["uvicorn>=0.50"]
+dev = ["fastapi>=0.141", "httpx>=0.28", "pytest>=9", "pytest-xdist>=3.8"]
+
 [tool.setuptools]
 packages = ["cvi", "cvi.pillars"]
 
