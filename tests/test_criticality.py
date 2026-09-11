@@ -527,3 +527,32 @@ class TestScoreCriticality:
         assert score_criticality(
             meta, [1.0, 2.0, 3.0], [1.0, 2.0, 3.0]
         ) == pytest.approx(16.6675, abs=1e-9)
+
+
+# --------------------------------------------------------------------------- #
+# 2.1/2.3 log10 target edge cases (gap-closing, mutation batteries)
+# --------------------------------------------------------------------------- #
+class TestLog10TargetEdgeCases:
+    """Non-unit-spaced ECDF buckets and negative-count clamping for the
+    ``log10(max(0, count) + 1)`` target shared by parameters 2.1 and 2.3.
+    """
+
+    def test_plus_one_shift_distinguished_in_non_unit_population(self):
+        # dependents=8 -> log10(8 + 1) = log10(9) ~ 0.95424; the
+        # non-unit-spaced population [1.0, 5.0, 50.0, 500.0, 5000.0] has
+        # no value <= 0.95424 -> 0 of 5 -> 0.0. A log10(c + 2) target would
+        # be log10(10) = 1.0 exactly, which catches the 1.0 bucket ->
+        # 1 of 5 -> 20.0. Pins the +1 shift (the boundary straddles the
+        # c+1 / c+2 targets).
+        population = [1.0, 5.0, 50.0, 500.0, 5000.0]
+        assert score_dependents(8, population) == 0.0
+        assert score_downloads(8, population) == 0.0
+
+    def test_negative_count_clamped_to_zero_not_one(self):
+        # log10(max(0, -5) + 1) = log10(1) = 0.0 -> 1 of 3 values
+        # ([0.0, 0.2, 1.0]) <= 0.0 -> 33.33. A max(1, c) clamp would target
+        # log10(2) ~ 0.301, which also catches 0.2 -> 2 of 3 -> 66.67.
+        # Pins the max(0, c) clamp.
+        population = [0.0, 0.2, 1.0]
+        assert score_dependents(-5, population) == 33.33
+        assert score_downloads(-5, population) == 33.33

@@ -155,3 +155,12 @@ def test_penalty_applied_to_valid_stars_not_recent():
     # int(400 * 0.30) = 120 (penalty scales ValidStars, not RecentStars).
     evs = _events(200, events=1) + _events(400, events=100)
     assert filter_fraudulent_star_velocity(evs, 1, NOW) == 120
+
+
+def test_fork_ratio_exactly_100_reachable_no_penalty():
+    # 600 valid / 6 forks = 100.0 exactly AND 600 > 500 passes the burst
+    # gate (the 500/5 boundary case never reaches the ratio check). Spec
+    # requires strictly > 100.0, so the boundary itself takes no penalty
+    # => 600.
+    evs = _events(600, events=100)
+    assert filter_fraudulent_star_velocity(evs, 6, NOW) == 600
