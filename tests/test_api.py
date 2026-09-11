@@ -453,6 +453,19 @@ class TestReproject:
         assert resp.status_code == 422
         assert "detail" in resp.json()
 
+    def test_sum_outside_tolerance_sub_percent_422(self, reproject_client) -> None:
+        # sums to 1.00001 -> deviation 1e-5, strictly outside 1e-6 tolerance
+        weights = {
+            "responsiveness": 0.25,
+            "criticality": 0.25,
+            "governance": 0.20,
+            "rigor": 0.15,
+            "accessibility": 0.15001,
+        }
+        resp = reproject_client.post("/v1/cvi/reproject", json={"weights": weights})
+        assert resp.status_code == 422
+        assert "detail" in resp.json()
+
     def test_empty_store_returns_empty_array(self) -> None:
         client = open_client(lambda: OperationalStore())
         try:

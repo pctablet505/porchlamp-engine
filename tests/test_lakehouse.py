@@ -10,6 +10,7 @@ Schema source of truth: ``docs/ARCHITECTURE.md`` section 11.2.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 
@@ -505,6 +506,34 @@ def test_matrix_limit_respected_and_top_cvi_first(store):
     assert store.query_matrix(limit=0) == []
 
 
+def test_matrix_default_limit_is_500(store):
+    # Gap-closing: pin the query_matrix default limit (documented as
+    # ``limit: int = 500`` in cvi.lakehouse). Phase 1 seeds more rows than a
+    # 50-row default could return (57); phase 2 grows the store to 501 rows
+    # so the default is pinned to exactly 500.
+    for i in range(57):
+        store.upsert_composite(
+            make_result(
+                owner="bulk", name=f"repo-{i:02d}", overall_cvi=float(100 - i)
+            )
+        )
+    nodes = store.query_matrix()
+    assert len(nodes) == 57
+    assert [n["cvi"] for n in nodes][:3] == [100.0, 99.0, 98.0]
+    assert [n["name"] for n in nodes][-1] == "repo-56"
+
+    for i in range(57, 501):
+        store.upsert_composite(
+            make_result(
+                owner="bulk", name=f"repo-{i:02d}", overall_cvi=float(500 - i)
+            )
+        )
+    nodes = store.query_matrix()
+    assert len(nodes) == 500
+    assert nodes[0]["name"] == "repo-57"  # highest cvi (443.0) stays first
+    assert nodes[0]["cvi"] == 443.0
+
+
 def test_matrix_combined_filters(store):
     _seed_matrix(store)
     nodes = store.query_matrix(
@@ -515,6 +544,13 @@ def test_matrix_combined_filters(store):
 
 def test_matrix_empty_store(store):
     assert store.query_matrix() == []
+
+
+def test_matrix_no_where_path(store):
+    _seed_matrix(store)
+    nodes = store.query_matrix(min_stars=0, exclude_black_holes=False)
+    assert len(nodes) == 5
+    assert [n["name"] for n in nodes] == ["alpha", "beta", "gamma", "delta", "epsilon"]
 
 
 # --------------------------------------------------------------------------- #
@@ -661,3 +697,15 @@ def test_file_backed_store_round_trip(tmp_path):
     row = s2.get_repo("acme", "repo")
     assert row is not None and row["overall_cvi"] == 12.5
     s2.close()
+
+
+def test_upsert_deep_dive_success_and_absent(store):
+    store.upsert_composite(make_result(owner="acme", name="tool"))
+    payload = {"test": 123}
+    assert store.upsert_deep_dive("acme", "tool", payload) == 1
+    row = store.get_repo("acme", "tool")
+    assert row is not None
+    assert json.loads(row["deep_dive_json"]) == payload
+
+    # Absent repo returns 0 rows updated
+    assert store.upsert_deep_dive("nonexistent", "repo", payload) == 0

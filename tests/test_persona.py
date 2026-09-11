@@ -310,3 +310,66 @@ def test_validate_persona_preset_rejects_bad_weights():
                 "accessibility": 0.0,
             }
         )
+
+
+# --------------------------------------------------------------------------- #
+# reproject: weight-sum tolerance boundary at exactly 1e-6 deviation
+# (gap-closing)
+# --------------------------------------------------------------------------- #
+def test_reproject_weight_sum_boundary_at_exactly_1e6_deviation():
+    # Pin the weight-sum tolerance boundary exactly as the current production
+    # code behaves (IEEE-754 asymmetry around 1.0):
+    #   fl(1.0 + 1e-6) = 1.000001   -> |1.000001 - 1.0| = 9.999999999177334e-07
+    #                   <= 1e-6 -> accepted
+    #   fl(1.0 - 1e-6) = 0.999999   -> |0.999999 - 1.0| = 1.0000000000287557e-06
+    #                   >  1e-6 -> rejected (the low-side deviation rounds
+    #                   up past the tolerance)
+    #   fl(1.0 + 1.1e-6) = 1.0000011 -> deviation 1.09999999997612e-06
+    #                   > 1e-6 -> rejected
+    # Each dict carries the whole sum in one key so that
+    # sum(weights.values()) equals the target float exactly.
+    ps = _ps(80, 90, 70, 60, 50)
+
+    def weights_total(total: float) -> dict[str, float]:
+        return {
+            "responsiveness": total,
+            "criticality": 0.0,
+            "governance": 0.0,
+            "rigor": 0.0,
+            "accessibility": 0.0,
+        }
+
+    w_plus = weights_total(1.0 + 1e-6)
+    assert sum(w_plus.values()) == 1.0 + 1e-6
+    # 1.000001 * 80 = 80.00008 -> rounded to 80.0
+    assert reproject(ps, w_plus) == 80.0
+
+    w_minus = weights_total(1.0 - 1e-6)
+    assert sum(w_minus.values()) == 1.0 - 1e-6
+    with pytest.raises(ValueError, match="sum to 1.0"):
+        reproject(ps, w_minus)
+
+    w_plus_1_1 = weights_total(1.0 + 1.1e-6)
+    assert sum(w_plus_1_1.values()) == 1.0 + 1.1e-6
+    with pytest.raises(ValueError, match="sum to 1.0"):
+        reproject(ps, w_plus_1_1)
+
+
+# --------------------------------------------------------------------------- #
+# rank_deltas: old-ranking tie-break (gap-closing)
+# --------------------------------------------------------------------------- #
+def test_rank_deltas_old_ranking_tie_broken_by_before_position_not_name():
+    # Pin the OLD-ranking tie-break in rank_deltas: scores_before contains a
+    # tie (zeta and alpha both 40.0). zeta appears earlier in scores_before
+    # (index 0) than alpha (index 1), yet "alpha" < "zeta" alphabetically,
+    # and the new snapshot breaks the tie (alpha climbs to 45.0). A
+    # name-ordered (or position-ignoring) old ranking would change the
+    # zeta/alpha deltas.
+    before = [("zeta", 40.0), ("alpha", 40.0), ("mid", 80.0)]
+    after = {"zeta": 40.0, "alpha": 45.0, "mid": 80.0}
+    # old ranks: mid=1; the 40.0 tie is broken by position in scores_before:
+    #   zeta (earlier) = 2, alpha = 3.
+    # new ranks: mid=1, alpha=2 (45.0), zeta=3 (40.0).
+    # deltas: zeta 2-3=-1, alpha 3-2=+1, mid 1-1=0.
+    # (a name-order old tie-break would give both zeta and alpha delta 0)
+    assert rank_deltas(before, after) == {"zeta": -1, "alpha": 1, "mid": 0}

@@ -29,6 +29,10 @@ truth and these are resolved in favour of the spec text):
 - ``GET /v1/cvi/repos/{owner}/{name}`` returns the full stored row plus
   a nested ``pillar_scores`` object (the 5 pillar keys) for radar
   charts; 404 with a JSON body when the repo is missing.
+  When the row's optional ``deep_dive_json`` column is populated, a
+  nested ``deep_dive`` object (the spec 12.2 payload, parsed from the
+  column) is included; when the column is absent or NULL the key is
+  omitted. The raw column still rides along in the full-row spread.
 - ``POST /v1/cvi/reproject`` validates the weight vector (exact 5-key
   set, sum == 1.0 within 1e-6) **before** any store access; invalid
   payloads receive a 422 JSON error body. On success it scans the full
@@ -48,6 +52,7 @@ truth and these are resolved in favour of the spec text):
 
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -152,7 +157,7 @@ def create_app(store: Optional[OperationalStore] = None) -> FastAPI:
         name: str,
         store: OperationalStore = Depends(get_store),
     ) -> dict:
-        """Full stored row + nested pillar_scores (spec 12.2)."""
+        """Full stored row + nested pillar_scores (+ deep_dive, spec 12.2)."""
         row = store.get_repo(owner, name)
         if row is None:
             raise HTTPException(
@@ -165,7 +170,11 @@ def create_app(store: Optional[OperationalStore] = None) -> FastAPI:
             "rigor": row["score_rigor_ai"],
             "accessibility": row["score_accessibility"],
         }
-        return {**row, "pillar_scores": pillar_scores}
+        body = {**row, "pillar_scores": pillar_scores}
+        deep_dive_json = row.get("deep_dive_json")
+        if deep_dive_json is not None:
+            body["deep_dive"] = json.loads(deep_dive_json)
+        return body
 
     @app.post("/v1/cvi/reproject")
     async def reproject_endpoint(

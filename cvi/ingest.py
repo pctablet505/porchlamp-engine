@@ -522,7 +522,7 @@ class GHArchiveStreamer:
         """Download one hourly partition; return decompressed NDJSON bytes."""
         url = gharchive_hourly_url(when)
         result = self._client.get(url)
-        if result.status_code != 200:
+        if result.status_code not in (200, 304):
             raise IngestError(
                 f"GHArchive partition fetch failed: HTTP {result.status_code} for {url}"
             )

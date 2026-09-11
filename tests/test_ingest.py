@@ -20,10 +20,13 @@ from cvi.ingest import (
     GITHUB_GRAPHQL_ENDPOINT,
     CachedHttpClient,
     CircuitBreaker,
+    ETagCache,
     GHArchiveStreamer,
     IngestError,
     RateLimitedError,
     TokenBucketRateLimiter,
+    _parse_iso8601,
+    _parse_reset_epoch,
     apply_raw_metrics,
     gharchive_hourly_url,
     ingest_and_score,
@@ -138,6 +141,22 @@ class TestTokenBucketRateLimiter:
         with pytest.raises(ValueError):
             TokenBucketRateLimiter(rate=0.0)
 
+    def test_default_capacity_and_properties(self):
+        limiter = TokenBucketRateLimiter(rate=2.5, capacity=None)
+        assert limiter.capacity == 1.0
+        assert limiter.rate == 2.5
+
+    def test_rejects_non_positive_capacity(self):
+        with pytest.raises(ValueError, match="capacity must be > 0"):
+            TokenBucketRateLimiter(rate=1.0, capacity=0.0)
+        with pytest.raises(ValueError, match="capacity must be > 0"):
+            TokenBucketRateLimiter(rate=1.0, capacity=-0.5)
+
+    def test_custom_rate_and_capacity_properties(self):
+        limiter = TokenBucketRateLimiter(rate=3.5, capacity=7.0)
+        assert limiter.rate == 3.5
+        assert limiter.capacity == 7.0
+
 
 # --------------------------------------------------------------------------- #
 # CircuitBreaker
@@ -171,6 +190,18 @@ class TestCircuitBreaker:
         )
         assert breaker.trip() == pytest.approx(60.0)
         assert breaker.trips == 1
+
+    def test_acquire_no_sleep_when_clock_already_passed_open_until(self):
+        clock_values = iter([10.0, 11.0, 11.0])
+        slept: list[float] = []
+        breaker = CircuitBreaker(
+            clock=lambda: next(clock_values),
+            sleep=lambda dt: slept.append(dt),
+            jitter_fn=lambda: 0.0,
+        )
+        breaker._open_until = 10.5
+        breaker.acquire()
+        assert slept == []
 
 
 # --------------------------------------------------------------------------- #
@@ -271,6 +302,63 @@ def test_circuit_breaker_blocks_until_ratelimit_reset_then_succeeds():
     assert len(transport.requests) == 3
 
 
+def test_etag_cache_etag_lookup_and_len():
+    cache = ETagCache()
+    assert cache.etag("https://example.com/unseen") is None
+    assert len(cache) == 0
+    cache.put("https://example.com/seen", '"abc"', b"content")
+    assert cache.etag("https://example.com/seen") == '"abc"'
+    assert len(cache) == 1
+
+
+def test_cached_http_client_properties_and_304_without_etag():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(304)
+
+    client, clock, transport = make_client(handler, capacity=5.0)
+    assert isinstance(client.rate_limiter, TokenBucketRateLimiter)
+    assert isinstance(client.circuit_breaker, CircuitBreaker)
+    assert isinstance(client.etag_cache, ETagCache)
+
+    with pytest.raises(IngestError, match="without a cached ETag"):
+        client.get("https://example.com/item")
+
+
+def test_parse_reset_epoch_various_headers():
+    # retry-after used when x-ratelimit-reset is missing (hits continue on missing x-ratelimit-reset)
+    assert _parse_reset_epoch({"Retry-After": "123.45"}) == 123.45
+    # missing headers return None
+    assert _parse_reset_epoch({}) is None
+    assert _parse_reset_epoch({"Other-Header": "value"}) is None
+    # invalid headers return None (TypeError / ValueError)
+    assert _parse_reset_epoch({"X-RateLimit-Reset": "invalid"}) is None
+    assert _parse_reset_epoch({"Retry-After": "not-a-number"}) is None
+    assert _parse_reset_epoch({"X-RateLimit-Reset": None}) is None
+    assert _parse_reset_epoch({"X-RateLimit-Reset": object()}) is None
+
+
+def test_cached_http_client_429_with_retry_after_and_invalid_reset_headers():
+    # 429 with Retry-After header
+    client1, _, _ = make_client(
+        lambda req: httpx.Response(429, headers={"Retry-After": "1234.5"}),
+        start=1000.0,
+        jitter=0.0,
+    )
+    with pytest.raises(RateLimitedError) as exc1:
+        client1.get("https://example.com/api")
+    assert exc1.value.retry_at == 1234.5
+
+    # 429 with invalid reset header falls back to default reset seconds
+    client2, _, _ = make_client(
+        lambda req: httpx.Response(429, headers={"X-RateLimit-Reset": "corrupt"}),
+        start=1000.0,
+        jitter=0.0,
+    )
+    with pytest.raises(RateLimitedError) as exc2:
+        client2.get("https://example.com/api")
+    assert exc2.value.retry_at == 1060.0  # 1000 + default 60s
+
+
 # --------------------------------------------------------------------------- #
 # GHArchive mapping + streaming (spec 5, 8)
 # --------------------------------------------------------------------------- #
@@ -362,6 +450,54 @@ def test_map_pull_request_event_returns_none_for_noise_and_unmapped_actions():
     assert map_pull_request_event(missing_created) is None
 
 
+def test_parse_iso8601_variants():
+    # timestamp without Z
+    dt = _parse_iso8601("2026-09-10T12:00:00")
+    assert dt == datetime(2026, 9, 10, 12, 0, 0)
+    # timestamp with lowercase z
+    dt_z = _parse_iso8601("2026-09-10T12:00:00z")
+    assert dt_z == datetime(2026, 9, 10, 12, 0, 0)
+    # invalid date strings return None
+    assert _parse_iso8601("invalid-iso-timestamp") is None
+    assert _parse_iso8601("2026-99-99T99:99:99Z") is None
+    # non-string returns None
+    assert _parse_iso8601(None) is None
+    assert _parse_iso8601(12345) is None
+
+
+def test_map_pull_request_event_invalid_pr_numbers():
+    # non-integer string number
+    rec1 = _pr_record("opened")
+    rec1["payload"]["pull_request"]["number"] = "abc"
+    assert map_pull_request_event(rec1) is None
+
+    # object non-int number
+    rec2 = _pr_record("opened")
+    rec2["payload"]["pull_request"]["number"] = [1, 2]
+    assert map_pull_request_event(rec2) is None
+
+    # pr_number < 1
+    assert map_pull_request_event(_pr_record("opened", number=0)) is None
+    assert map_pull_request_event(_pr_record("opened", number=-5)) is None
+
+
+def test_map_pull_request_event_missing_or_invalid_author():
+    # empty string login
+    assert map_pull_request_event(_pr_record("opened", author="")) is None
+
+    # missing author login in both user and actor
+    rec_missing = _pr_record("opened")
+    rec_missing["payload"]["pull_request"]["user"] = None
+    rec_missing["actor"] = None
+    assert map_pull_request_event(rec_missing) is None
+
+    # non-string login in user
+    rec_non_str = _pr_record("opened")
+    rec_non_str["payload"]["pull_request"]["user"] = {"login": 42}
+    rec_non_str["actor"] = None
+    assert map_pull_request_event(rec_non_str) is None
+
+
 def test_gharchive_hourly_url_formatting():
     assert (
         gharchive_hourly_url(datetime(2026, 9, 10, 3))
@@ -422,6 +558,60 @@ def test_fetch_partition_raises_on_http_error():
     streamer = GHArchiveStreamer(client)
     with pytest.raises(IngestError, match="HTTP 404"):
         streamer.fetch_partition(datetime(2026, 9, 10, 3))
+
+
+def test_fetch_partition_uncompressed_and_cached_304():
+    uncompressed = b'{"id": "1", "type": "Other"}\n'
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if request.headers.get("if-none-match") == '"w1"':
+            return httpx.Response(304, headers={"ETag": '"w1"'})
+        return httpx.Response(
+            200,
+            content=uncompressed,
+            headers={"ETag": '"w1"'},
+        )
+
+    client, clock, transport = make_client(handler, capacity=10.0)
+    streamer = GHArchiveStreamer(client)
+    when = datetime(2026, 9, 10, 3)
+
+    # First fetch: uncompressed bytes (no gzip magic) returns content directly
+    content1 = streamer.fetch_partition(when)
+    assert content1 == uncompressed
+    assert call_count == 1
+
+    # Second fetch: returns 304 Not Modified; uses cached content without error
+    content2 = streamer.fetch_partition(when)
+    assert content2 == uncompressed
+    assert call_count == 2
+
+
+def test_stream_hourly_ndjson_blank_lines_and_non_dict_values():
+    raw_lines = (
+        b"\n"
+        b"   \n"
+        b'{"id": "1", "type": "PullRequestEvent", "payload": {}}\n'
+        b"123\n"
+        b'"just a string"\n'
+        b"[1, 2, 3]\n"
+        b"true\n"
+        b"\n"
+        b'{"id": "2", "type": "CreateRepo"}\n'
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=raw_lines)
+
+    client, clock, transport = make_client(handler, capacity=10.0)
+    streamer = GHArchiveStreamer(client)
+    records = list(streamer.stream_hourly_ndjson(datetime(2026, 9, 10, 3)))
+    assert len(records) == 2
+    assert records[0]["id"] == "1"
+    assert records[1]["id"] == "2"
 
 
 # --------------------------------------------------------------------------- #

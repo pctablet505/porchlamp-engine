@@ -35,6 +35,7 @@ ambiguities resolved in favour of the spec text):
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 from typing import Any, Optional
@@ -215,10 +216,56 @@ class OperationalStore:
         return int(row[0])
 
     # ------------------------------------------------------------------ #
+    # Deep-dive payload (spec 12.2)
+    # ------------------------------------------------------------------ #
+    def ensure_deep_dive_column(self) -> None:
+        """Idempotently add the optional ``deep_dive_json`` TEXT column.
+
+        Spec 12.2's deep-dive payload is stored per-repo in an *additive*
+        column on ``repositories``. SQLite has no ``ADD COLUMN IF NOT
+        EXISTS``, so presence is checked via ``PRAGMA table_info`` first.
+        The column is deliberately NOT part of the spec 11.2 base schema
+        (``_SCHEMA``): a fresh store keeps the exact spec column set, and
+        the column materializes only when a deep-dive payload is stored.
+        """
+        columns = {
+            r[1]
+            for r in self._conn.execute("PRAGMA table_info(repositories)").fetchall()
+        }
+        if "deep_dive_json" not in columns:
+            self._conn.execute(
+                "ALTER TABLE repositories ADD COLUMN deep_dive_json TEXT"
+            )
+            self._conn.commit()
+
+    def upsert_deep_dive(self, owner: str, name: str, payload: dict) -> int:
+        """Store the serialized deep-dive payload (spec 12.2) on a row.
+
+        JSON-serializes ``payload`` (``sort_keys=True`` for stable
+        output) and UPDATEs ``deep_dive_json`` on the ``(owner, name)``
+        row. Returns the number of rows updated: 1 on success, 0 when the
+        repository is absent from the table (no row is created).
+        """
+        self.ensure_deep_dive_column()
+        cur = self._conn.execute(
+            "UPDATE repositories SET deep_dive_json = ? "
+            "WHERE owner = ? AND name = ?",
+            (json.dumps(payload, sort_keys=True), owner, name),
+        )
+        self._conn.commit()
+        return int(cur.rowcount)
+
+    # ------------------------------------------------------------------ #
     # Reads
     # ------------------------------------------------------------------ #
     def get_repo(self, owner: str, name: str) -> Optional[dict]:
-        """Full row for ``(owner, name)`` as a dict, or None if absent."""
+        """Full row for ``(owner, name)`` as a dict, or None if absent.
+
+        The dict is built from the live table description, so when the
+        optional ``deep_dive_json`` column (spec 12.2, materialized by
+        :meth:`upsert_deep_dive` / :meth:`ensure_deep_dive_column`) exists
+        it appears as a key (``None`` when no payload has been stored).
+        """
         cur = self._conn.execute(
             "SELECT * FROM repositories WHERE owner = ? AND name = ?",
             (owner, name),
@@ -252,8 +299,9 @@ class OperationalStore:
         if quadrant is not None:
             where.append("matrix_quadrant = ?")
             params.append(quadrant)
-        where.append("stars >= ?")
-        params.append(int(min_stars))
+        if min_stars > 0:
+            where.append("stars >= ?")
+            params.append(int(min_stars))
         if exclude_black_holes:
             where.append("is_stage0_disqualified = 0")
         sql = (

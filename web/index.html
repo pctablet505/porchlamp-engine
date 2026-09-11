@@ -1,0 +1,795 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CVI — Contributor Value Index</title>
+<style>
+  :root {
+    --bg: #090d16;
+    --card: #0f172a;
+    --card-elevated: #1e293b;
+    --card-border: #1e293b;
+    --card-border-strong: #334155;
+    --text: #f8fafc;
+    --muted: #94a3b8;
+    --subtle: #64748b;
+    --accent: #38bdf8;
+    --error-bg: rgba(239, 68, 68, 0.15);
+    --error-border: #ef4444;
+    --sweet: #10b981;
+    --crucible: #6366f1;
+    --nursery: #f59e0b;
+    --graveyard: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14.5px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 18px 24px; border-bottom: 1px solid var(--card-border);
+    background: #0c1222;
+  }
+  h1 { margin: 0; font-size: 22px; letter-spacing: 0.5px; }
+  h1 span { color: var(--muted); font-weight: 400; font-size: 15px; margin-left: 6px; }
+  .tagline { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .pill {
+    font-size: 12px; padding: 4px 12px; border-radius: 999px;
+    border: 1px solid var(--card-border); color: var(--muted); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .pill.ok { color: var(--sweet); border-color: var(--sweet); }
+  .pill.bad { color: var(--graveyard); border-color: var(--graveyard); }
+  .error-banner {
+    margin: 14px 24px 0; padding: 10px 14px; border-radius: 8px;
+    background: var(--error-bg); border: 1px solid var(--error-border);
+    color: #fecaca; font-size: 14px;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--card-border);
+    border-radius: 10px; padding: 16px 18px; margin: 14px 24px;
+  }
+  h2 { margin: 0 0 10px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  h4 { margin: 14px 0 6px; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; }
+  code { background: #1e293b; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 18px; align-items: end; }
+  .controls label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .controls .check { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 6px; color: var(--text); }
+  select, input[type="number"] {
+    background: #0d1526; color: var(--text); border: 1px solid var(--card-border-strong);
+    border-radius: 6px; padding: 6px 10px; font-size: 14px;
+  }
+  input[type="number"] { width: 92px; }
+  .hint { flex-basis: 100%; }
+  .badges { flex-basis: 100%; display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+    border: 1px solid var(--card-border-strong); border-radius: 999px; padding: 3px 10px; color: var(--muted);
+  }
+  .badge i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .badge b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .badge.sweet { color: var(--sweet); border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.08); }
+  .badge.crucible { color: var(--crucible); border-color: rgba(99, 102, 241, 0.4); background: rgba(99, 102, 241, 0.08); }
+  .badge.nursery { color: var(--nursery); border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.08); }
+  .badge.graveyard { color: var(--graveyard); border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.08); }
+  .badge.accent { color: var(--accent); border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.08); }
+
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 0; align-items: start; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  .scatter-card { margin-right: 0; }
+  .drawer { margin: 14px 24px 14px 0; position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; }
+  @media (max-width: 1100px) { .drawer { margin: 0 24px 14px; position: static; max-height: none; } }
+  .drawer-empty { color: var(--muted); font-size: 13.5px; padding: 24px 8px; text-align: center; }
+  .drawer-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+  .drawer h3 { margin: 0; font-size: 18px; word-break: break-all; }
+  .drawer .sub { color: var(--muted); font-size: 12.5px; margin: 4px 0 10px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-bottom: 12px; }
+  .kv div { background: #0d1526; border: 1px solid var(--card-border); border-radius: 8px; padding: 8px 10px; }
+  .kv span { display: block; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .kv b { font-size: 14px; font-variant-numeric: tabular-nums; }
+  .cvi-big { font-size: 28px; font-weight: 700; color: var(--accent); }
+  .gated-note {
+    background: var(--error-bg); border: 1px solid var(--error-border);
+    border-radius: 8px; padding: 8px 12px; font-size: 12.5px; color: #fecaca; margin-bottom: 12px;
+  }
+  .radar-box { background: #0d1526; border: 1px solid var(--card-border); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+  .pillar-bars { margin-bottom: 12px; }
+  .pillar { display: grid; grid-template-columns: 96px 1fr 40px; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; }
+  .pillar .name { color: var(--muted); }
+  .pillar .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .bar { height: 8px; background: #0d1526; border-radius: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 4px; }
+  .survival-box { background: #0d1526; border: 1px solid var(--card-border); border-radius: 8px; padding: 10px; margin-bottom: 12px; }
+  .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; margin-top: 8px; }
+  .metrics-grid .item { background: #131d33; padding: 6px 8px; border-radius: 6px; font-size: 11.5px; }
+  .metrics-grid .item span { display: block; color: var(--muted); font-size: 10px; }
+  .metrics-grid .item b { font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--text); }
+  .gov-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+
+  #scatter svg { width: 100%; height: auto; display: block; }
+  #scatter g.node { cursor: pointer; }
+  #scatter g.node circle { transition: stroke-width 0.1s, filter 0.1s; }
+  #scatter g.node:hover circle { stroke: #fff; stroke-width: 2; filter: drop-shadow(0 0 6px rgba(255,255,255,0.5)); }
+  #scatter g.node.selected circle { stroke: #fff; stroke-width: 2.5; filter: drop-shadow(0 0 8px var(--accent)); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .legend .hollow { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #9ca3af; display: inline-block; }
+
+  .presets { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .preset-label { font-size: 12.5px; color: var(--muted); font-weight: 500; }
+  .preset-btn {
+    margin: 0; background: #1e293b; color: var(--text); border: 1px solid var(--card-border-strong);
+    border-radius: 6px; padding: 5px 10px; font-size: 12px; font-weight: 500; cursor: pointer;
+  }
+  .preset-btn:hover { background: #334155; }
+  .preset-btn.active { background: var(--accent); color: #090d16; border-color: var(--accent); font-weight: 600; }
+
+  .weights { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .weights label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  button.submit-btn {
+    margin-top: 14px; background: var(--accent); color: #090d16; border: 0; border-radius: 8px;
+    padding: 9px 20px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button.submit-btn:hover { filter: brightness(1.1); }
+  .field-error { color: #fca5a5; font-size: 13px; margin-top: 8px; }
+  #reproject-results { margin: 14px 0 0; padding: 0; list-style: none; max-height: 420px; overflow-y: auto; }
+  #reproject-results li {
+    display: grid; grid-template-columns: 44px minmax(0, 1fr) 92px 74px 70px; gap: 10px;
+    padding: 6px 8px; border-bottom: 1px solid var(--card-border); font-size: 13.5px; align-items: center;
+  }
+  #reproject-results li:nth-child(odd) { background: #0d1526; }
+  #reproject-results .rank { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 600; }
+  #reproject-results .repo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #reproject-results .move { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+  #reproject-results .score { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; }
+  .delta { font-weight: 600; font-size: 12.5px; }
+  .delta.up { color: var(--sweet); }
+  .delta.down { color: var(--graveyard); }
+  .delta.flat { color: var(--muted); font-weight: 400; }
+  footer { color: var(--muted); font-size: 12px; padding: 6px 24px 22px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>CVI <span>Contributor Value Index</span></h1>
+    <p class="tagline">2D discovery matrix · friction × leverage · single-file offline demo (no CDN, no build step)</p>
+  </div>
+  <div id="server-status" class="pill">checking API…</div>
+</header>
+
+<div id="error-banner" class="error-banner" hidden></div>
+
+<section class="card controls">
+  <label>Ecosystem
+    <select id="ecosystem">
+      <option value="">All ecosystems</option>
+      <option value="npm">npm</option>
+      <option value="pypi">pypi</option>
+      <option value="crates">crates</option>
+      <option value="go">go</option>
+      <option value="maven">maven</option>
+      <option value="systems">systems</option>
+    </select>
+  </label>
+  <label>min_stars
+    <input id="min_stars" type="number" min="0" step="1" value="0">
+  </label>
+  <label class="check">
+    <input id="exclude_black_holes" type="checkbox" checked>
+    exclude black holes
+  </label>
+  <p class="hint">Demo default here is <code>min_stars=0</code> so every seeded repo is visible — the API's own default is <code>min_stars=100</code>; type 100 above to see that filter drop the small repos. Filters apply live to <code>GET /v1/cvi/matrix</code>.</p>
+  <div class="badges" id="quadrant-badges"></div>
+</section>
+
+<main>
+  <section class="card scatter-card">
+    <h2>Discovery Matrix <span id="node-count" class="hint"></span></h2>
+    <div id="scatter" aria-label="CVI 2D matrix scatter"></div>
+    <div class="legend">
+      <span><i class="dot" style="background: var(--sweet)"></i><b>♦</b> Sweet Spot — high leverage, low friction</span>
+      <span><i class="dot" style="background: var(--crucible)"></i><b>⬢</b> Crucible — high leverage, high friction</span>
+      <span><i class="dot" style="background: var(--nursery)"></i><b>●</b> Nursery — low leverage, low friction</span>
+      <span><i class="dot" style="background: var(--graveyard)"></i><b>✕</b> Graveyard — low leverage, high friction</span>
+      <span><i class="hollow"></i>gated (black hole) — hollow + X, excluded by default filter</span>
+      <span>node radius ∝ √stars (minimum radius applied)</span>
+    </div>
+  </section>
+  <aside class="card drawer" id="drawer" aria-live="polite">
+    <div class="drawer-empty">Click a node for the deep-dive scorecard<br>(<code>GET /v1/cvi/repos/{owner}/{name}</code>).</div>
+  </aside>
+</main>
+
+<section class="card">
+  <h2>Persona re-projection <span class="hint">— <code>POST /v1/cvi/reproject</code></span></h2>
+  <p class="hint">Weights are normalized to sum to exactly 1.0 on submit and sent as full-precision floats; the server validates the exact 5-key set and the sum (within 1e-6) before touching the store. Rank deltas are <code>old_rank − new_rank</code> (positive = moved up).</p>
+
+  <div class="presets">
+    <span class="preset-label">Persona Presets:</span>
+    <button type="button" class="preset-btn" data-preset="balanced">Balanced Default</button>
+    <button type="button" class="preset-btn" data-preset="first_timer">First-Timer (Nursery)</button>
+    <button type="button" class="preset-btn" data-preset="career">Career Capital (Sweet Spot)</button>
+    <button type="button" class="preset-btn" data-preset="systems">Senior Systems (Crucible)</button>
+    <button type="button" class="preset-btn" data-preset="ai">AI-Assisted</button>
+  </div>
+
+  <div class="weights">
+    <label>responsiveness <input id="w-responsiveness" type="number" min="0" step="0.01" value="0.25"></label>
+    <label>criticality <input id="w-criticality" type="number" min="0" step="0.01" value="0.25"></label>
+    <label>governance <input id="w-governance" type="number" min="0" step="0.01" value="0.20"></label>
+    <label>rigor <input id="w-rigor" type="number" min="0" step="0.01" value="0.15"></label>
+    <label>accessibility <input id="w-accessibility" type="number" min="0" step="0.01" value="0.15"></label>
+  </div>
+  <button id="reproject-btn" class="submit-btn">Re-project leaderboard</button>
+  <p id="reproject-error" class="field-error" hidden></p>
+  <ol id="reproject-results"></ol>
+</section>
+
+<footer>
+  CVI demo · matrix nodes: x = friction (0–100), y = leverage (0–100), boundary at 50 on both axes ·
+  API defaults: <code>min_stars=100</code>, <code>exclude_black_holes=true</code>, <code>persona</code>/<code>domain</code> params reserved no-ops.
+</footer>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Constants + helpers
+// ---------------------------------------------------------------------------
+const PILLARS = ["responsiveness", "criticality", "governance", "rigor", "accessibility"];
+const QUADRANT_COLORS = {
+  "Sweet Spot": "#10b981",
+  "Crucible": "#6366f1",
+  "Nursery": "#f59e0b",
+  "Graveyard": "#ef4444",
+};
+const QUADRANT_GLYPHS = {
+  "Sweet Spot": "♦",
+  "Crucible": "⬢",
+  "Nursery": "●",
+  "Graveyard": "✕",
+};
+// Quadrant cells in data coordinates: x = friction, y = leverage; boundary 50.
+const CELLS = [
+  { name: "Sweet Spot", x0: 0, x1: 50, y0: 50, y1: 100 },
+  { name: "Crucible", x0: 50, x1: 100, y0: 50, y1: 100 },
+  { name: "Nursery", x0: 0, x1: 50, y0: 0, y1: 50 },
+  { name: "Graveyard", x0: 50, x1: 100, y0: 0, y1: 50 },
+];
+
+const PRESETS = {
+  balanced: { responsiveness: 0.25, criticality: 0.25, governance: 0.20, rigor: 0.15, accessibility: 0.15 },
+  first_timer: { responsiveness: 0.35, criticality: 0.10, governance: 0.15, rigor: 0.10, accessibility: 0.30 },
+  career: { responsiveness: 0.20, criticality: 0.35, governance: 0.15, rigor: 0.10, accessibility: 0.20 },
+  systems: { responsiveness: 0.15, criticality: 0.35, governance: 0.25, rigor: 0.20, accessibility: 0.05 },
+  ai: { responsiveness: 0.20, criticality: 0.20, governance: 0.15, rigor: 0.35, accessibility: 0.10 },
+};
+
+const $ = (id) => document.getElementById(id);
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function svgEl(tag, attrs = {}) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  return el;
+}
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function showBanner(message) {
+  const banner = $("error-banner");
+  banner.textContent = message;
+  banner.hidden = false;
+  $("server-status").textContent = "API unreachable";
+  $("server-status").className = "pill bad";
+}
+
+function hideBanner() {
+  $("error-banner").hidden = true;
+  $("server-status").textContent = "API ok";
+  $("server-status").className = "pill ok";
+}
+
+// ---------------------------------------------------------------------------
+// Matrix load + scatter rendering
+// ---------------------------------------------------------------------------
+const state = { nodes: [], selected: null };
+
+async function loadMatrix() {
+  const params = new URLSearchParams();
+  const eco = $("ecosystem").value;
+  if (eco) params.set("ecosystem", eco);
+  let minStars = Number($("min_stars").value);
+  if (!Number.isFinite(minStars) || minStars < 0) minStars = 0;
+  params.set("min_stars", String(minStars));
+  params.set("exclude_black_holes", $("exclude_black_holes").checked ? "true" : "false");
+
+  let body;
+  try {
+    const res = await fetch("/v1/cvi/matrix?" + params.toString());
+    if (!res.ok) throw new Error("GET /v1/cvi/matrix -> HTTP " + res.status);
+    body = await res.json();
+  } catch (err) {
+    state.nodes = [];
+    showBanner("API unreachable — is the demo server running? " + err.message);
+    renderBadges(null);
+    renderScatter();
+    return;
+  }
+  hideBanner();
+  state.nodes = body.nodes || [];
+  state.selected = null;
+  renderBadges(body.quadrant_counts);
+  renderScatter();
+  renderDrawerPlaceholder();
+}
+
+function renderBadges(counts) {
+  const wrap = $("quadrant-badges");
+  wrap.textContent = "";
+  const entries = counts
+    ? CELLS.map((c) => [c.name, counts[c.name] ?? 0])
+    : CELLS.map((c) => [c.name, null]);
+  for (const [name, count] of entries) {
+    const badge = document.createElement("span");
+    const glyph = QUADRANT_GLYPHS[name] || "●";
+    badge.className = "badge";
+    badge.title = "Table total (unfiltered) for " + name;
+    badge.innerHTML =
+      `<i style="background:${QUADRANT_COLORS[name]}"></i>${glyph} ${esc(name)} <b>${count === null ? "—" : count}</b>`;
+    wrap.appendChild(badge);
+  }
+}
+
+// Plot geometry (SVG user units).
+const GEO = { w: 720, h: 600, left: 64, right: 20, top: 30, bottom: 52 };
+function xPx(friction) { return GEO.left + (friction / 100) * (GEO.w - GEO.left - GEO.right); }
+function yPx(leverage) { return GEO.top + ((100 - leverage) / 100) * (GEO.h - GEO.top - GEO.bottom); }
+
+function nodeRadius(size) {
+  // radius proportional to sqrt(stars) with a minimum radius.
+  return Math.min(30, Math.max(4.5, 0.092 * Math.sqrt(Math.max(0, size || 0))));
+}
+
+function renderScatter() {
+  const host = $("scatter");
+  host.textContent = "";
+  const svg = svgEl("svg", { viewBox: `0 0 ${GEO.w} ${GEO.h}`, role: "img" });
+
+  // Quadrant background cells (lightly colored) + labels.
+  for (const cell of CELLS) {
+    const x = xPx(cell.x0), y = yPx(cell.y1);
+    const w = xPx(cell.x1) - x, h = yPx(cell.y0) - y;
+    svg.appendChild(svgEl("rect", { x, y, width: w, height: h, fill: QUADRANT_COLORS[cell.name], opacity: 0.08 }));
+    const label = svgEl("text", {
+      x: x + 12, y: y + 22, fill: QUADRANT_COLORS[cell.name],
+      opacity: 0.85, "font-size": 13, "font-weight": 600,
+    });
+    label.textContent = `${QUADRANT_GLYPHS[cell.name]} ${cell.name.toUpperCase()}`;
+    svg.appendChild(label);
+  }
+
+  // Boundary lines at 50 on both axes.
+  svg.appendChild(svgEl("line", { x1: xPx(50), y1: yPx(100), x2: xPx(50), y2: yPx(0), stroke: "#64748b", "stroke-dasharray": "5 5", opacity: 0.7 }));
+  svg.appendChild(svgEl("line", { x1: xPx(0), y1: yPx(50), x2: xPx(100), y2: yPx(50), stroke: "#64748b", "stroke-dasharray": "5 5", opacity: 0.7 }));
+
+  // Ticks + axis frame.
+  for (let v = 0; v <= 100; v += 20) {
+    const tickX = svgEl("text", { x: xPx(v), y: yPx(0) + 18, fill: "#94a3b8", "font-size": 11, "text-anchor": "middle" });
+    tickX.textContent = String(v);
+    svg.appendChild(tickX);
+    const tickY = svgEl("text", { x: GEO.left - 8, y: yPx(v) + 4, fill: "#94a3b8", "font-size": 11, "text-anchor": "end" });
+    tickY.textContent = String(v);
+    svg.appendChild(tickY);
+  }
+  svg.appendChild(svgEl("rect", { x: xPx(0), y: yPx(100), width: xPx(100) - xPx(0), height: yPx(0) - yPx(100), fill: "none", stroke: "#334155" }));
+  const xAxis = svgEl("text", { x: (xPx(0) + xPx(100)) / 2, y: GEO.h - 8, fill: "#94a3b8", "font-size": 12.5, "text-anchor": "middle" });
+  xAxis.textContent = "Friction (x) → [0: Fast review · 100: PR black hole]";
+  svg.appendChild(xAxis);
+  const yAxis = svgEl("text", {
+    x: 14, y: (yPx(0) + yPx(100)) / 2, fill: "#94a3b8", "font-size": 12.5,
+    "text-anchor": "middle", transform: `rotate(-90 14 ${(yPx(0) + yPx(100)) / 2})`,
+  });
+  yAxis.textContent = "↑ Leverage (y) [0: Small footprint · 100: Critical infra]";
+  svg.appendChild(yAxis);
+
+  // Nodes: gated last (drawn on top), hollow + X marker.
+  const ordered = [...state.nodes].sort((a, b) => (a.is_gated ? 1 : 0) - (b.is_gated ? 1 : 0));
+  for (const node of ordered) {
+    const color = QUADRANT_COLORS[node.quadrant] || "#94a3b8";
+    const cx = xPx(Math.max(0, Math.min(100, node.x)));
+    const cy = yPx(Math.max(0, Math.min(100, node.y)));
+    const r = nodeRadius(node.size);
+    const isSelected = node.repo_id === state.selected;
+    const group = svgEl("g", { class: "node" + (isSelected ? " selected" : ""), tabindex: 0, role: "button" });
+    group.setAttribute("aria-label", `${node.repo_id}: CVI ${node.cvi}, ${node.quadrant}`);
+
+    if (node.is_gated) {
+      group.appendChild(svgEl("circle", { cx, cy, r, fill: "none", stroke: "#ef4444", "stroke-width": 2 }));
+      const d = r * 0.55;
+      group.appendChild(svgEl("line", { x1: cx - d, y1: cy - d, x2: cx + d, y2: cy + d, stroke: "#ef4444", "stroke-width": 2 }));
+      group.appendChild(svgEl("line", { x1: cx - d, y1: cy + d, x2: cx + d, y2: cy - d, stroke: "#ef4444", "stroke-width": 2 }));
+    } else {
+      group.appendChild(svgEl("circle", { cx, cy, r, fill: color, "fill-opacity": 0.85, stroke: isSelected ? "#ffffff" : "#090d16", "stroke-width": isSelected ? 2.5 : 1 }));
+    }
+
+    const title = svgEl("title");
+    title.textContent =
+      `${node.repo_id}  ·  CVI ${node.cvi} (${node.tier})\n` +
+      `friction ${node.x} · leverage ${node.y} · ${node.quadrant}\n` +
+      `stars ${node.size}${node.is_gated ? " · GATED (black hole)" : ""}`;
+    group.appendChild(title);
+
+    const open = () => openDeepDive(node);
+    group.addEventListener("click", open);
+    group.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); }
+    });
+    svg.appendChild(group);
+  }
+
+  host.appendChild(svg);
+  $("node-count").textContent =
+    state.nodes.length ? `— showing ${state.nodes.length} node${state.nodes.length === 1 ? "" : "s"}` : "";
+}
+
+// ---------------------------------------------------------------------------
+// Radar Chart & Kaplan-Meier SVG Renderers
+// ---------------------------------------------------------------------------
+function renderRadarSvg(pillars) {
+  const keys = ["responsiveness", "criticality", "governance", "rigor", "accessibility"];
+  const labels = ["Resp", "Crit", "Gov", "Rigor", "Access"];
+  const size = 220;
+  const cx = size / 2, cy = size / 2, r = 70, n = keys.length;
+
+  let ringsSvg = "";
+  for (const frac of [0.25, 0.5, 0.75, 1.0]) {
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+      pts.push(`${(cx + frac * r * Math.cos(angle)).toFixed(1)},${(cy + frac * r * Math.sin(angle)).toFixed(1)}`);
+    }
+    ringsSvg += `<polygon points="${pts.join(" ")}" fill="none" stroke="#334155" stroke-width="1" stroke-dasharray="${frac === 1.0 ? 'none' : '2 2'}" opacity="0.6"/>`;
+  }
+
+  let spokesSvg = "";
+  let labelsSvg = "";
+  for (let i = 0; i < n; i++) {
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    const x = cx + r * Math.cos(angle);
+    const y = cy + r * Math.sin(angle);
+    spokesSvg += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#334155" stroke-width="1" opacity="0.6"/>`;
+    const lx = cx + (r + 16) * Math.cos(angle);
+    const ly = cy + (r + 16) * Math.sin(angle);
+    const anchor = Math.abs(Math.cos(angle)) < 0.2 ? "middle" : (Math.cos(angle) > 0 ? "start" : "end");
+    labelsSvg += `<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" fill="#94a3b8" font-size="10.5" font-family="system-ui, sans-serif" text-anchor="${anchor}">${labels[i]}</text>`;
+  }
+
+  const dataPts = [];
+  const dotsSvg = [];
+  for (let i = 0; i < n; i++) {
+    const val = Math.max(0, Math.min(100, Number(pillars[keys[i]] || 0)));
+    const frac = val / 100.0;
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    const px = cx + frac * r * Math.cos(angle);
+    const py = cy + frac * r * Math.sin(angle);
+    dataPts.push(`${px.toFixed(1)},${py.toFixed(1)}`);
+    dotsSvg.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.5" fill="#38bdf8" stroke="#0f172a" stroke-width="1.5"><title>${labels[i]}: ${val.toFixed(1)}</title></circle>`);
+  }
+
+  return `
+    <svg viewBox="0 0 ${size} ${size}" style="width: 100%; max-width: ${size}px; height: auto; display: block; margin: 0 auto;" aria-label="5-pillar radar chart">
+      ${ringsSvg}
+      ${spokesSvg}
+      <polygon points="${dataPts.join(" ")}" fill="rgba(56, 189, 248, 0.25)" stroke="#38bdf8" stroke-width="2" />
+      ${dotsSvg.join("")}
+      ${labelsSvg}
+    </svg>`;
+}
+
+function renderSurvivalSvg(survivalPoints) {
+  if (!survivalPoints || survivalPoints.length < 2) {
+    return `
+      <div style="background: #0d1526; border-radius: 6px; padding: 16px; font-size: 12px; color: var(--muted); text-align: center;">
+        Single baseline observation [0.0, 1.0] — streaming events feed pending
+      </div>`;
+  }
+
+  const w = 360, h = 150;
+  const pad = { left: 42, right: 18, top: 16, bottom: 26 };
+  const plotW = w - pad.left - pad.right;
+  const plotH = h - pad.top - pad.bottom;
+
+  const maxT = Math.max(3.0, ...survivalPoints.map(p => p[0])) * 1.05;
+  const x = (t) => pad.left + (Math.max(0, t) / maxT) * plotW;
+  const y = (s) => pad.top + (1.0 - Math.max(0, Math.min(1.0, s))) * plotH;
+
+  let pathD = `M ${x(survivalPoints[0][0]).toFixed(1)} ${y(survivalPoints[0][1]).toFixed(1)}`;
+  let areaD = `M ${x(survivalPoints[0][0]).toFixed(1)} ${y(0).toFixed(1)} L ${x(survivalPoints[0][0]).toFixed(1)} ${y(survivalPoints[0][1]).toFixed(1)}`;
+
+  for (let i = 1; i < survivalPoints.length; i++) {
+    const currT = survivalPoints[i][0];
+    const currS = survivalPoints[i][1];
+    pathD += ` H ${x(currT).toFixed(1)} V ${y(currS).toFixed(1)}`;
+    areaD += ` H ${x(currT).toFixed(1)} V ${y(currS).toFixed(1)}`;
+  }
+  const lastT = survivalPoints[survivalPoints.length - 1][0];
+  areaD += ` H ${x(lastT).toFixed(1)} L ${x(lastT).toFixed(1)} ${y(0).toFixed(1)} Z`;
+
+  let gridSvg = "";
+  gridSvg += `<line x1="${pad.left}" y1="${y(0.5).toFixed(1)}" x2="${w - pad.right}" y2="${y(0.5).toFixed(1)}" stroke="#334155" stroke-dasharray="3 3" opacity="0.5"/>`;
+  gridSvg += `<line x1="${pad.left}" y1="${y(1.0).toFixed(1)}" x2="${w - pad.right}" y2="${y(1.0).toFixed(1)}" stroke="#334155" stroke-dasharray="3 3" opacity="0.5"/>`;
+  gridSvg += `<text x="${pad.left - 6}" y="${(y(1.0) + 4).toFixed(1)}" fill="#94a3b8" font-size="9.5" text-anchor="end">1.0</text>`;
+  gridSvg += `<text x="${pad.left - 6}" y="${(y(0.5) + 4).toFixed(1)}" fill="#94a3b8" font-size="9.5" text-anchor="end">0.5</text>`;
+  gridSvg += `<text x="${pad.left - 6}" y="${(y(0.0) + 4).toFixed(1)}" fill="#94a3b8" font-size="9.5" text-anchor="end">0.0</text>`;
+
+  let slaSvg = "";
+  for (const m of [{ t: 0.5, label: "12h" }, { t: 1.0, label: "24h" }, { t: 2.0, label: "48h" }]) {
+    if (m.t <= maxT) {
+      const sx = x(m.t).toFixed(1);
+      slaSvg += `
+        <line x1="${sx}" y1="${pad.top}" x2="${sx}" y2="${y(0).toFixed(1)}" stroke="#10b981" stroke-dasharray="2 2" opacity="0.7"/>
+        <text x="${sx}" y="${pad.top - 4}" fill="#10b981" font-size="9" text-anchor="middle">${m.label}</text>`;
+    }
+  }
+
+  let xTicksSvg = "";
+  const tStep = maxT <= 6 ? 1 : (maxT <= 15 ? 3 : 7);
+  for (let t = 0; t <= maxT; t += tStep) {
+    const tx = x(t).toFixed(1);
+    xTicksSvg += `
+      <line x1="${tx}" y1="${y(0).toFixed(1)}" x2="${tx}" y2="${(y(0) + 4).toFixed(1)}" stroke="#64748b"/>
+      <text x="${tx}" y="${(y(0) + 16).toFixed(1)}" fill="#94a3b8" font-size="9.5" text-anchor="middle">${t}d</text>`;
+  }
+
+  return `
+    <svg viewBox="0 0 ${w} ${h}" style="width: 100%; height: auto; display: block;" aria-label="Kaplan-Meier survival curve">
+      ${gridSvg}
+      ${slaSvg}
+      <line x1="${pad.left}" y1="${y(0).toFixed(1)}" x2="${w - pad.right}" y2="${y(0).toFixed(1)}" stroke="#334155" stroke-width="1"/>
+      <line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${y(0).toFixed(1)}" stroke="#334155" stroke-width="1"/>
+      <path d="${areaD}" fill="rgba(16, 185, 129, 0.15)"/>
+      <path d="${pathD}" fill="none" stroke="#10b981" stroke-width="2"/>
+      ${xTicksSvg}
+      <text x="${(pad.left + w - pad.right) / 2}" y="${h - 4}" fill="#94a3b8" font-size="9.5" text-anchor="middle">PR Open Duration (Days) →</text>
+      <text x="12" y="${(pad.top + y(0)) / 2}" fill="#94a3b8" font-size="9.5" text-anchor="middle" transform="rotate(-90 12 ${(pad.top + y(0)) / 2})">P(Open)</text>
+    </svg>`;
+}
+
+// ---------------------------------------------------------------------------
+// Deep-dive drawer
+// ---------------------------------------------------------------------------
+function renderDrawerPlaceholder() {
+  $("drawer").innerHTML =
+    '<div class="drawer-empty">Click a node for the deep-dive scorecard<br>(<code>GET /v1/cvi/repos/{owner}/{name}</code>).</div>';
+}
+
+async function openDeepDive(node) {
+  state.selected = node.repo_id;
+  renderScatter(); // refresh selection highlight
+  const drawer = $("drawer");
+  drawer.innerHTML = '<div class="drawer-empty">Loading scorecard…</div>';
+  let body;
+  try {
+    const res = await fetch(`/v1/cvi/repos/${encodeURIComponent(node.owner)}/${encodeURIComponent(node.name)}`);
+    if (!res.ok) {
+      if (res.status === 404) {
+        drawer.innerHTML = `<div class="gated-note">Repository ${esc(node.repo_id)} not found (HTTP 404).</div>`;
+        return;
+      }
+      throw new Error("HTTP " + res.status);
+    }
+    body = await res.json();
+  } catch (err) {
+    drawer.innerHTML = `<div class="gated-note">Deep-dive failed: ${esc(err.message)}</div>`;
+    return;
+  }
+
+  const gatedNote = body.is_stage0_disqualified
+    ? `<div class="gated-note">⛔ Gated at Stage 0 (black hole): ${esc(body.disqualification_reason || "no reason")}</div>`
+    : "";
+
+  const deepDive = body.deep_dive || null;
+  const pillars = body.pillar_scores || {};
+  const pillarRows = PILLARS.map((name, i) => {
+    const value = pillars[name] ?? 0;
+    const color = ["#38bdf8", "#fbbf24", "#a78bfa", "#f472b6", "#34d399"][i];
+    return `<div class="pillar">
+      <span class="name">${esc(name)}</span>
+      <div class="bar"><i style="width:${Math.max(0, Math.min(100, value))}%;background:${color}"></i></div>
+      <span class="val">${Number(value).toFixed(1)}</span>
+    </div>`;
+  }).join("");
+
+  // Governance & Legal IP
+  const ef = body.elephant_factor ?? deepDive?.elephant_breakdown?.elephant_factor ?? 1;
+  const isMultiVendor = ef >= 3;
+  const efBadgeClass = isMultiVendor ? "badge sweet" : "badge crucible";
+  const efLabel = isMultiVendor ? `Multi-Vendor (EF ${ef})` : `Single-Vendor Risk (EF ${ef})`;
+
+  const legalModel = body.legal_ip_model ?? deepDive?.legal_ip?.model ?? "DCO";
+  const claHazard = deepDive?.legal_ip?.cla_hazard || (
+    ["DCO", "FOUNDATION_CLA"].includes(legalModel) ? "low" :
+    (legalModel === "CORP_CLA_RECIPROCAL" ? "medium" : "high")
+  );
+  const claBadgeClass = claHazard === "low" ? "badge sweet" : (claHazard === "medium" ? "badge crucible" : "badge graveyard");
+  const claLabel = `CLA: ${esc(legalModel)} [${claHazard.toUpperCase()}]`;
+
+  const aiPosture = body.ai_posture ?? deepDive?.legal_ip?.ai_policy_posture ?? "AD_HOC";
+  const aiBadgeClass = aiPosture === "REGULATED" ? "badge accent" : (aiPosture === "PROSCRIBED" ? "badge graveyard" : "badge");
+
+  const gfiCount = deepDive?.good_first_issues?.count ?? 0;
+  const gfiBadgeClass = gfiCount > 0 ? "badge accent" : "badge";
+
+  // Raw metrics
+  const rawMetrics = deepDive?.raw_metrics || {};
+  const rawMetricsHtml = deepDive?.raw_metrics ? `
+    <div class="metrics-grid">
+      <div class="item"><span>Median TTFHR</span><b>${rawMetrics.ttfhr_hours != null ? Number(rawMetrics.ttfhr_hours).toFixed(1) + "h" : "—"}</b></div>
+      <div class="item"><span>First-Timer Merge</span><b>${rawMetrics.first_timer_merge_rate != null ? (rawMetrics.first_timer_merge_rate * 100).toFixed(0) + "%" : "—"}</b></div>
+      <div class="item"><span>14d Ghost Rate</span><b>${rawMetrics.ghost_rate_14d != null ? (rawMetrics.ghost_rate_14d * 100).toFixed(1) + "%" : "—"}</b></div>
+      <div class="item"><span>Tail Latency (p90)</span><b>${rawMetrics.tail_merge_latency_days != null ? Number(rawMetrics.tail_merge_latency_days).toFixed(1) + "d" : "—"}</b></div>
+    </div>` : "";
+
+  const quadGlyph = QUADRANT_GLYPHS[body.matrix_quadrant] || "●";
+
+  drawer.innerHTML = `
+    <div class="drawer-header">
+      <div>
+        <h3>${esc(body.owner)}/${esc(body.name)}</h3>
+        <div class="sub">
+          <span class="pill">${esc(body.ecosystem)}</span>
+          <span class="pill ok">${esc(body.rank_tier)}</span>
+          <span class="pill">${quadGlyph} ${esc(body.matrix_quadrant)}</span>
+        </div>
+      </div>
+    </div>
+    ${gatedNote}
+    <div class="kv">
+      <div><span>CVI Composite</span><b class="cvi-big">${Number(body.overall_cvi).toFixed(2)}</b></div>
+      <div><span>Lev / Frict</span><b>${Number(body.leverage_score).toFixed(1)} / ${Number(body.friction_score).toFixed(1)}</b></div>
+    </div>
+
+    <h4>5-Pillar Diagnostics</h4>
+    <div class="radar-box">
+      ${renderRadarSvg(pillars)}
+    </div>
+    <div class="pillar-bars">${pillarRows}</div>
+
+    <h4>Kaplan-Meier Survival Curve</h4>
+    <div class="survival-box">
+      ${renderSurvivalSvg(deepDive?.survival_curve)}
+      ${rawMetricsHtml}
+    </div>
+
+    <h4>Governance, IP &amp; On-Ramps</h4>
+    <div class="gov-badges">
+      <span class="${efBadgeClass}" title="CHAOSS Elephant Factor">${efLabel}</span>
+      <span class="${claBadgeClass}" title="Legal CLA Regime">${claLabel}</span>
+      <span class="${aiBadgeClass}" title="AI Contribution Policy">AI: ${esc(aiPosture)}</span>
+      <span class="${gfiBadgeClass}" title="Active Unclaimed Good First Issues">GFIs: <b>${gfiCount}</b></span>
+    </div>
+
+    <h4>Production Footprint</h4>
+    <div class="kv">
+      <div><span>Stars</span><b>${Number(body.stars).toLocaleString("en-US")}</b></div>
+      <div><span>Forks</span><b>${Number(body.forks).toLocaleString("en-US")}</b></div>
+      <div><span>Downloads / mo</span><b>${Number(body.monthly_downloads).toLocaleString("en-US")}</b></div>
+      <div><span>Dependents</span><b>${Number(body.dependents_count).toLocaleString("en-US")}</b></div>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Persona re-projection
+// ---------------------------------------------------------------------------
+function deltaBadge(delta) {
+  if (delta > 0) return `<span class="delta up">▲ ${delta}</span>`;
+  if (delta < 0) return `<span class="delta down">▼ ${Math.abs(delta)}</span>`;
+  return `<span class="delta flat">— 0</span>`;
+}
+
+function applyPreset(presetKey) {
+  const p = PRESETS[presetKey];
+  if (!p) return;
+  for (const name of PILLARS) {
+    const input = $("w-" + name);
+    if (input) input.value = p[name].toFixed(2);
+  }
+  // highlight active preset button
+  document.querySelectorAll(".preset-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.preset === presetKey);
+  });
+  submitReproject();
+}
+
+async function submitReproject() {
+  const errorEl = $("reproject-error");
+  errorEl.hidden = true;
+  const weights = {};
+  for (const name of PILLARS) {
+    const raw = Number($("w-" + name).value);
+    if (!Number.isFinite(raw) || raw < 0) {
+      errorEl.textContent = `Invalid weight for ${name} (must be a non-negative number).`;
+      errorEl.hidden = false;
+      return;
+    }
+    weights[name] = raw;
+  }
+  const total = PILLARS.reduce((sum, name) => sum + weights[name], 0);
+  if (total <= 0) {
+    errorEl.textContent = "Enter at least one positive weight to normalize against.";
+    errorEl.hidden = false;
+    return;
+  }
+  // Normalize to sum to exactly 1.0 (full-precision floats; the server
+  // validates the exact 5-key set and the sum within 1e-6 before touching the store).
+  const normalized = {};
+  for (const name of PILLARS) normalized[name] = weights[name] / total;
+
+  let items;
+  try {
+    const res = await fetch("/v1/cvi/reproject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weights: normalized }),
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => null);
+      throw new Error("HTTP " + res.status + (detail && detail.detail ? ": " + JSON.stringify(detail.detail) : ""));
+    }
+    items = await res.json();
+  } catch (err) {
+    errorEl.textContent = "Re-projection failed: " + err.message;
+    errorEl.hidden = false;
+    return;
+  }
+
+  $("reproject-results").innerHTML = items.map((item) => `
+    <li>
+      <span class="rank">#${item.new_rank}</span>
+      <span class="repo" title="${esc(item.repo_id)} · ${esc(item.quadrant)}">${esc(item.repo_id)}</span>
+      <span class="move">${item.old_rank} → ${item.new_rank}</span>
+      ${deltaBadge(item.delta)}
+      <span class="score">${Number(item.new_score).toFixed(2)}</span>
+    </li>`).join("");
+}
+
+// ---------------------------------------------------------------------------
+// Liveness
+// ---------------------------------------------------------------------------
+async function checkHealth() {
+  try {
+    const res = await fetch("/healthz");
+    if (!res.ok) throw new Error("GET /healthz -> HTTP " + res.status);
+  } catch (err) {
+    showBanner("API unreachable — is the demo server running? " + err.message);
+    renderBadges(null);
+    renderScatter();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wiring
+// ---------------------------------------------------------------------------
+for (const id of ["ecosystem", "min_stars", "exclude_black_holes"]) {
+  $(id).addEventListener("change", loadMatrix);
+}
+$("reproject-btn").addEventListener("click", submitReproject);
+
+document.querySelectorAll(".preset-btn").forEach((btn) => {
+  btn.addEventListener("click", () => applyPreset(btn.dataset.preset));
+});
+
+checkHealth().then(loadMatrix);
+</script>
+</body>
+</html>

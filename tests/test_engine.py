@@ -397,8 +397,12 @@ def test_all_five_personas_project_distinct_composites() -> None:
     }
     composites = {}
     for persona in Persona:
+        # elephant_factor=3: the SENIOR_SYSTEMS persona now enforces the
+        # spec-4 multi-vendor gate (EF >= 3) at Stage 0; without it this
+        # test's meta would be disqualified before persona projection.
         result = score_repository(
-            make_meta(), [], NOW, persona=persona, pillar_scorers=scorers
+            make_meta(elephant_factor=3), [], NOW, persona=persona,
+            pillar_scorers=scorers,
         )
         composites[persona] = result.overall_cvi
         assert result.overall_cvi == hand_composite(values, persona)
@@ -568,3 +572,32 @@ def test_real_scorers_smoke_black_hole_repo() -> None:
     assert result.overall_cvi == 0.0
     assert result.rank_tier is Tier.D
     assert result.stage0 is not None and result.stage0.is_black_hole is True
+
+
+def test_responsiveness_scorer_receives_engine_now_argument() -> None:
+    # Gap-closing: pin the `now` argument score_repository forwards to the
+    # responsiveness scorer (third positional of the engine's call tuple).
+    # The DI seam captures the argument by identity, and a second call with a
+    # different `now` must flow through unchanged and differently.
+    captured: list[object] = []
+
+    def resp(pr_events, ttm_p90_population, now):
+        captured.append(now)
+        return 50.0
+
+    scorers = {
+        "responsiveness": resp,
+        "criticality": lambda *a, **k: 50.0,
+        "governance": lambda *a, **k: 50.0,
+        "rigor": lambda *a, **k: 50.0,
+        "accessibility": lambda *a, **k: 50.0,
+    }
+    score_repository(make_meta(), [], NOW, pillar_scorers=scorers)
+    assert len(captured) == 1
+    assert captured[0] is NOW, "responsiveness scorer must receive the engine's now"
+
+    other_now = NOW - timedelta(hours=1)
+    score_repository(make_meta(), [], other_now, pillar_scorers=scorers)
+    assert len(captured) == 2
+    assert captured[1] is other_now, "a different now must flow through unchanged"
+    assert captured[1] is not NOW
