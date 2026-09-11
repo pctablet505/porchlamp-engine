@@ -35,6 +35,11 @@ Rather than relying on uncalibrated vanity metrics (stars, raw downloads), the p
 
 ![CVI Custom Priority Configurator](docs/assets/cvi_custom_ranking.svg)
 
+### 4. Deep-Dive Repository Scorecard Drawer
+*Slide-over inspection drawer with 5-pillar radar polygon, Kaplan-Meier response latency survival curve, CHAOSS Elephant Factor breakdown, and active unclaimed GFIs.*
+
+![CVI Scorecard Drawer](docs/assets/cvi_scorecard_drawer.svg)
+
 ---
 
 ## The 2D Contributor Discovery Matrix
@@ -45,19 +50,21 @@ Repositories are evaluated across two orthogonal dimensions and classified into 
 flowchart TB
     subgraph Matrix ["2D Contributor Discovery Matrix"]
         direction TB
-        subgraph TopRow ["High Contributor Leverage (Impact & Prestige & Rigor)"]
+        subgraph TopRow ["High Contributor Leverage: Impact, Prestige and Rigor"]
             direction LR
-            Crucible["The Crucible (High Barrier, Elite Return)<br/>e.g. torvalds/linux, chromium/chromium<br/>&bull; Foundational Systems Entrenchment<br/>&bull; Strict Subsystem Gatekeepers / Patch Workflows"]
-            SweetSpot["The Sweet Spot (Fast Reviews, Huge Impact)<br/>e.g. vllm-project/vllm, duckdb/duckdb<br/>&bull; Verified Multi-Vendor Governance<br/>&bull; High First-Timer Merge & 48h Response"]
+            Crucible["The Crucible (High Barrier, Elite Return)<br/>e.g. torvalds/linux, chromium/chromium<br/>• Foundational Systems Entrenchment<br/>• Strict Subsystem Gatekeepers / Patch Workflows"]
+            SweetSpot["The Sweet Spot (Fast Reviews, Huge Impact)<br/>e.g. vllm-project/vllm, duckdb/duckdb<br/>• Verified Multi-Vendor Governance<br/>• High First-Timer Merge and 48h Response"]
         end
-        subgraph BottomRow ["Low Contributor Leverage (Peripheral or Blocked)"]
+        subgraph BottomRow ["Low Contributor Leverage: Peripheral or Blocked"]
             direction LR
-            Graveyard["The Graveyard (PR Black Hole, Low ROI)<br/>e.g. keras-team/keras-hub<br/>&bull; Single-Vendor Corporate Silo<br/>&bull; External PRs Ghosted (over 50% Ghost Rate)"]
-            Nursery["The Nursery (Safe Starter PRs, Welcoming)<br/>e.g. docs hubs, beginner-friendly devtools<br/>&bull; Pro-Social Onboarding & Curated GFIs<br/>&bull; High Merge Velocity for First PRs"]
+            Graveyard["The Graveyard (PR Black Hole, Low ROI)<br/>e.g. keras-team/keras-hub<br/>• Single-Vendor Corporate Silo<br/>• External PRs Ghosted (over 50% Ghost Rate)"]
+            Nursery["The Nursery (Safe Starter PRs, Welcoming)<br/>e.g. docs hubs, beginner-friendly devtools<br/>• Pro-Social Onboarding and Curated GFIs<br/>• High Merge Velocity for First PRs"]
         end
     end
-    Crucible --- SweetSpot
-    Graveyard --- Nursery
+    Crucible -. "Lower Friction" .-> SweetSpot
+    Graveyard -. "Lower Friction" .-> Nursery
+    Graveyard -. "Higher Leverage" .-> Crucible
+    Nursery -. "Higher Leverage" .-> SweetSpot
 ```
 
 ---
@@ -66,13 +73,13 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    Input["Target Repository Candidate"] --> Phase0{"Phase 0: Elimination-by-Aspects (EBA)<br/>1. Active non-bot commit in trailing 180 days?<br/>2. External PR Ghost Rate GR_14 &le; 50%?<br/>3. Platform-native review workflow present?<br/>4. Persona constraints satisfied (e.g. AI-Ban)?"}
+    Input["Target Repository Candidate"] --> Phase0{"Phase 0: Elimination-by-Aspects (EBA)<br/>1. Active non-bot commit in trailing 180 days?<br/>2. External PR Ghost Rate GR_14 <= 50%?<br/>3. Platform-native review workflow present?<br/>4. Persona constraints satisfied (e.g. AI-Ban)?"}
     
-    Phase0 -- "Fails Gate" --> Relegated["Relegated / Specialized Routing<br/>&bull; Black Hole Flag: Capped at Tier D/C<br/>&bull; Off-Platform Flag: Routed to Specialized Category"]
+    Phase0 -- "Fails Gate" --> Relegated["Relegated / Specialized Routing<br/>• Black Hole Flag: Capped at Tier D/C<br/>• Off-Platform Flag: Routed to Specialized Category"]
     
-    Phase0 -- "Passes Gate" --> Phase1["Phase 1: Ingestion & Anti-Gaming De-Biasing<br/>&bull; Strip automated CI bots & service accounts<br/>&bull; StarScout audit: remove throwaway accounts & burst rings<br/>&bull; Dependency sanitization: count unique root-org dependents"]
+    Phase0 -- "Passes Gate" --> Phase1["Phase 1: Ingestion and Anti-Gaming De-Biasing<br/>• Strip automated CI bots and service accounts<br/>• StarScout audit: remove throwaway accounts and burst rings<br/>• Dependency sanitization: count unique root-org dependents"]
 
-    Phase1 --> Phase2["Phase 2: Within-Ecosystem ECDF Normalization<br/>&bull; Map raw signals to [0, 100] percentiles per ecosystem<br/>&bull; Neutralize npm (fine-grained) vs Crates/Go (monolithic) skew"]
+    Phase1 --> Phase2["Phase 2: Within-Ecosystem ECDF Normalization<br/>• Map raw signals to [0, 100] percentiles per ecosystem<br/>• Neutralize npm (fine-grained) vs Crates/Go (monolithic) skew"]
 
     Phase2 --> P1
     Phase2 --> P2
@@ -82,22 +89,22 @@ flowchart TB
 
     subgraph Phase3 ["Phase 3: Multi-Pillar Scoring Engine (WAM)"]
         direction TB
-        P1["Pillar 1: Responsiveness & Review Lifecycle (Weight: 25%)"]
-        P2["Pillar 2: Production Criticality & Impact (Weight: 25%)"]
-        P3["Pillar 3: Governance, Safety & Path-to-Power (Weight: 20%)"]
-        P4["Pillar 4: Engineering Rigor & AI Alignment (Weight: 15%)"]
-        P5["Pillar 5: Accessibility, DX & Newcomer On-Ramps (Weight: 15%)"]
+        P1["Pillar 1: Responsiveness and Review Lifecycle (Weight: 25%)"]
+        P2["Pillar 2: Production Criticality and Impact (Weight: 25%)"]
+        P3["Pillar 3: Governance, Safety and Path-to-Power (Weight: 20%)"]
+        P4["Pillar 4: Engineering Rigor and AI Alignment (Weight: 15%)"]
+        P5["Pillar 5: Accessibility, DX and Newcomer On-Ramps (Weight: 15%)"]
     end
 
-    P1 --> Phase4["Phase 4: 2D Matrix Coordinate Decomposition<br/>&bull; Leverage = f(Criticality, Rigor, Governance)<br/>&bull; Friction = f(TTFHR, Ghost Rate, Elephant Factor, CLA)"]
+    P1 --> Phase4["Phase 4: 2D Matrix Coordinate Decomposition<br/>• Leverage = f(Criticality, Rigor, Governance)<br/>• Friction = f(TTFHR, Ghost Rate, Elephant Factor, CLA)"]
     P2 --> Phase4
     P3 --> Phase4
     P4 --> Phase4
     P5 --> Phase4
 
-    Phase4 --> Phase5["Phase 5: Persona-Adaptive Leaderboard Projection<br/>&bull; Balanced Default, First-Timer, Career Capital, Senior Systems, AI-Assisted"]
+    Phase4 --> Phase5["Phase 5: Persona-Adaptive Leaderboard Projection<br/>• Balanced Default, First-Timer, Career Capital, Senior Systems, AI-Assisted"]
 
-    Phase5 --> Output["Final CVI Score (0 - 100), Quadrant & Verified Tier"]
+    Phase5 --> Output["Final CVI Score (0 - 100), Quadrant and Verified Tier"]
 ```
 
 ---
@@ -106,11 +113,11 @@ flowchart TB
 
 | Evaluation Pillar & Weight | Validated Parameters & Parameter Weights | Operational Definition & Scope |
 | :--- | :--- | :--- |
-| **Pillar 1: Responsiveness & Review Lifecycle (25%)** | &bull; 1.1 Bot-Filtered Human TTFHR (35%)<br/>&bull; 1.2 First-Timer Merge Rate MR_first (25%)<br/>&bull; 1.3 PR Ghost Rate GR_14 (20%)<br/>&bull; 1.4 PR Merge Latency Tail Risk TTM_p90 (20%) | Median response latency, external merge velocity, 14-day abandonment ceiling, and 90th percentile merge tail risk. |
-| **Pillar 2: Production Criticality & Impact (25%)** | &bull; 2.1 Downstream Registry Dependents (40%)<br/>&bull; 2.2 Canonical OpenSSF Criticality Score (35%)<br/>&bull; 2.3 Filtered Active Monthly Downloads (25%) | Real-world software ecosystem entrenchment, Rob Pike multi-signal criticality, and installer-filtered download volume. |
-| **Pillar 3: Governance, Safety & Path-to-Power (20%)** | &bull; 3.1 Legal IP Regime & Relicensing Safety (35%)<br/>&bull; 3.2 CHAOSS Elephant Factor / Decentralization (35%)<br/>&bull; 3.3 Contributor Promotion Ladder (30%) | IP protection against corporate relicensing traps (DCO vs. CLA), organizational decentralization, and non-sponsor maintainer pathways. |
-| **Pillar 4: Engineering Rigor & AI Alignment (15%)** | &bull; 4.1 OpenSSF Scorecard Pipeline Defenses (40%)<br/>&bull; 4.2 Calibrated AI Policy Posture (35%)<br/>&bull; 4.3 Review Depth & Substantive Guidance (25%) | Automated branch defenses and testing rigor, transparent AI policy governance, and balanced substantive inline code feedback. |
-| **Pillar 5: Accessibility, DX & Newcomer On-Ramps (15%)** | &bull; 5.1 Freshness of Unclaimed GFIs (40%)<br/>&bull; 5.2 90-Day Newcomer Return Rate RR_90 (35%)<br/>&bull; 5.3 Developer Experience & Setup Friction (25%) | Active unclaimed Good First Issues (<30d), newcomer retention velocity, and reproducible devcontainer/CI execution runtime. |
+| **Pillar 1: Responsiveness & Review Lifecycle (25%)** | • 1.1 Bot-Filtered Human TTFHR (35%)<br/>• 1.2 First-Timer Merge Rate MR_first (25%)<br/>• 1.3 PR Ghost Rate GR_14 (20%)<br/>• 1.4 PR Merge Latency Tail Risk TTM_p90 (20%) | Median response latency, external merge velocity, 14-day abandonment ceiling, and 90th percentile merge tail risk. |
+| **Pillar 2: Production Criticality & Impact (25%)** | • 2.1 Downstream Registry Dependents (40%)<br/>• 2.2 Canonical OpenSSF Criticality Score (35%)<br/>• 2.3 Filtered Active Monthly Downloads (25%) | Real-world software ecosystem entrenchment, Rob Pike multi-signal criticality, and installer-filtered download volume. |
+| **Pillar 3: Governance, Safety & Path-to-Power (20%)** | • 3.1 Legal IP Regime & Relicensing Safety (35%)<br/>• 3.2 CHAOSS Elephant Factor / Decentralization (35%)<br/>• 3.3 Contributor Promotion Ladder (30%) | IP protection against corporate relicensing traps (DCO vs. CLA), organizational decentralization, and non-sponsor maintainer pathways. |
+| **Pillar 4: Engineering Rigor & AI Alignment (15%)** | • 4.1 OpenSSF Scorecard Pipeline Defenses (40%)<br/>• 4.2 Calibrated AI Policy Posture (35%)<br/>• 4.3 Review Depth & Substantive Guidance (25%) | Automated branch defenses and testing rigor, transparent AI policy governance, and balanced substantive inline code feedback. |
+| **Pillar 5: Accessibility, DX & Newcomer On-Ramps (15%)** | • 5.1 Freshness of Unclaimed GFIs (40%)<br/>• 5.2 90-Day Newcomer Return Rate RR_90 (35%)<br/>• 5.3 Developer Experience & Setup Friction (25%) | Active unclaimed Good First Issues (< 30d), newcomer retention velocity, and reproducible devcontainer/CI execution runtime. |
 
 ---
 

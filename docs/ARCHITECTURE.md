@@ -21,19 +21,21 @@ Repositories are evaluated across two orthogonal dimensions and classified into 
 flowchart TB
     subgraph Matrix ["2D Contributor Discovery Matrix"]
         direction TB
-        subgraph TopRow ["High Contributor Leverage (Impact & Prestige & Rigor)"]
+        subgraph TopRow ["High Contributor Leverage: Impact, Prestige and Rigor"]
             direction LR
-            Crucible["The Crucible (High Barrier, Elite Return)<br/>e.g. torvalds/linux, chromium/chromium<br/>&bull; Foundational Systems Entrenchment<br/>&bull; Strict Subsystem Gatekeepers / Patch Workflows"]
-            SweetSpot["The Sweet Spot (Fast Reviews, Huge Impact)<br/>e.g. vllm-project/vllm, duckdb/duckdb<br/>&bull; Verified Multi-Vendor Governance<br/>&bull; High First-Timer Merge & 48h Response"]
+            Crucible["The Crucible (High Barrier, Elite Return)<br/>e.g. torvalds/linux, chromium/chromium<br/>• Foundational Systems Entrenchment<br/>• Strict Subsystem Gatekeepers / Patch Workflows"]
+            SweetSpot["The Sweet Spot (Fast Reviews, Huge Impact)<br/>e.g. vllm-project/vllm, duckdb/duckdb<br/>• Verified Multi-Vendor Governance<br/>• High First-Timer Merge and 48h Response"]
         end
-        subgraph BottomRow ["Low Contributor Leverage (Peripheral or Blocked)"]
+        subgraph BottomRow ["Low Contributor Leverage: Peripheral or Blocked"]
             direction LR
-            Graveyard["The Graveyard (PR Black Hole, Low ROI)<br/>e.g. keras-team/keras-hub<br/>&bull; Single-Vendor Corporate Silo<br/>&bull; External PRs Ghosted (over 50% Ghost Rate)"]
-            Nursery["The Nursery (Safe Starter PRs, Welcoming)<br/>e.g. docs hubs, beginner-friendly devtools<br/>&bull; Pro-Social Onboarding & Curated GFIs<br/>&bull; High Merge Velocity for First PRs"]
+            Graveyard["The Graveyard (PR Black Hole, Low ROI)<br/>e.g. keras-team/keras-hub<br/>• Single-Vendor Corporate Silo<br/>• External PRs Ghosted (over 50% Ghost Rate)"]
+            Nursery["The Nursery (Safe Starter PRs, Welcoming)<br/>e.g. docs hubs, beginner-friendly devtools<br/>• Pro-Social Onboarding and Curated GFIs<br/>• High Merge Velocity for First PRs"]
         end
     end
-    Crucible --- SweetSpot
-    Graveyard --- Nursery
+    Crucible -. "Lower Friction" .-> SweetSpot
+    Graveyard -. "Lower Friction" .-> Nursery
+    Graveyard -. "Higher Leverage" .-> Crucible
+    Nursery -. "Higher Leverage" .-> SweetSpot
 ```
 
 - **Leverage Axis (Y):** Real-world ecosystem entrenchment (OpenSSF Criticality, downstream dependents), career mindshare, and architectural rigor.
@@ -47,13 +49,13 @@ To eliminate rank-reversal pathologies, scale distortions across package manager
 
 ```mermaid
 flowchart TB
-    Input["Target Repository Candidate"] --> Phase0{"Phase 0: Elimination-by-Aspects (EBA)<br/>1. Active non-bot commit in trailing 180 days?<br/>2. External PR Ghost Rate GR_14 &le; 50%?<br/>3. Platform-native review workflow present?<br/>4. Persona constraints satisfied (e.g. AI-Ban)?"}
+    Input["Target Repository Candidate"] --> Phase0{"Phase 0: Elimination-by-Aspects (EBA)<br/>1. Active non-bot commit in trailing 180 days?<br/>2. External PR Ghost Rate GR_14 <= 50%?<br/>3. Platform-native review workflow present?<br/>4. Persona constraints satisfied (e.g. AI-Ban)?"}
     
-    Phase0 -- "Fails Gate" --> Relegated["Relegated / Specialized Routing<br/>&bull; Black Hole Flag: Capped at Tier D/C<br/>&bull; Off-Platform Flag: Routed to Specialized Category"]
+    Phase0 -- "Fails Gate" --> Relegated["Relegated / Specialized Routing<br/>• Black Hole Flag: Capped at Tier D/C<br/>• Off-Platform Flag: Routed to Specialized Category"]
     
-    Phase0 -- "Passes Gate" --> Phase1["Phase 1: Ingestion & Anti-Gaming De-Biasing<br/>&bull; Strip automated CI bots & service accounts<br/>&bull; StarScout audit: remove throwaway accounts & burst rings<br/>&bull; Dependency sanitization: count unique root-org dependents"]
+    Phase0 -- "Passes Gate" --> Phase1["Phase 1: Ingestion and Anti-Gaming De-Biasing<br/>• Strip automated CI bots and service accounts<br/>• StarScout audit: remove throwaway accounts and burst rings<br/>• Dependency sanitization: count unique root-org dependents"]
 
-    Phase1 --> Phase2["Phase 2: Within-Ecosystem ECDF Normalization<br/>&bull; Map raw signals to [0, 100] percentiles per ecosystem<br/>&bull; Neutralize npm (fine-grained) vs Crates/Go (monolithic) skew"]
+    Phase1 --> Phase2["Phase 2: Within-Ecosystem ECDF Normalization<br/>• Map raw signals to [0, 100] percentiles per ecosystem<br/>• Neutralize npm (fine-grained) vs Crates/Go (monolithic) skew"]
 
     Phase2 --> P1
     Phase2 --> P2
@@ -63,22 +65,22 @@ flowchart TB
 
     subgraph Phase3 ["Phase 3: Multi-Pillar Scoring Engine (WAM)"]
         direction TB
-        P1["Pillar 1: Responsiveness & Review Lifecycle (Weight: 25%)"]
-        P2["Pillar 2: Production Criticality & Impact (Weight: 25%)"]
-        P3["Pillar 3: Governance, Safety & Path-to-Power (Weight: 20%)"]
-        P4["Pillar 4: Engineering Rigor & AI Alignment (Weight: 15%)"]
-        P5["Pillar 5: Accessibility, DX & Newcomer On-Ramps (Weight: 15%)"]
+        P1["Pillar 1: Responsiveness and Review Lifecycle (Weight: 25%)"]
+        P2["Pillar 2: Production Criticality and Impact (Weight: 25%)"]
+        P3["Pillar 3: Governance, Safety and Path-to-Power (Weight: 20%)"]
+        P4["Pillar 4: Engineering Rigor and AI Alignment (Weight: 15%)"]
+        P5["Pillar 5: Accessibility, DX and Newcomer On-Ramps (Weight: 15%)"]
     end
 
-    P1 --> Phase4["Phase 4: 2D Matrix Coordinate Decomposition<br/>&bull; Leverage = f(Criticality, Rigor, Governance)<br/>&bull; Friction = f(TTFHR, Ghost Rate, Elephant Factor, CLA)"]
+    P1 --> Phase4["Phase 4: 2D Matrix Coordinate Decomposition<br/>• Leverage = f(Criticality, Rigor, Governance)<br/>• Friction = f(TTFHR, Ghost Rate, Elephant Factor, CLA)"]
     P2 --> Phase4
     P3 --> Phase4
     P4 --> Phase4
     P5 --> Phase4
 
-    Phase4 --> Phase5["Phase 5: Persona-Adaptive Leaderboard Projection<br/>&bull; Balanced Default, First-Timer, Career Capital, Senior Systems, AI-Assisted"]
+    Phase4 --> Phase5["Phase 5: Persona-Adaptive Leaderboard Projection<br/>• Balanced Default, First-Timer, Career Capital, Senior Systems, AI-Assisted"]
 
-    Phase5 --> Output["Final CVI Score (0 - 100), Quadrant & Verified Tier"]
+    Phase5 --> Output["Final CVI Score (0 - 100), Quadrant and Verified Tier"]
 ```
 
 ### Phase Details & Mathematical Rationale
@@ -87,7 +89,7 @@ flowchart TB
    - Prior frameworks fail because high vanity scores (e.g. 50,000 GitHub stars) compensate for complete maintainer abandonment.
    - Non-compensatory gating guarantees that repositories failing baseline criteria are eliminated before scoring:
      - **Maintenance Vitality:** At least 1 non-bot commit to default branches within trailing 180 days.
-     - **Responsiveness Ceiling:** External PR ghost rate $GR_{14} \le 50\%$.
+     - **Responsiveness Ceiling:** External PR ghost rate GR_14 <= 50%.
      - **Platform Native Reviews:** Off-platform mailing-list workflows (`torvalds/linux`) are routed to specialized workflows rather than incorrectly penalized as "unresponsive".
      - **Persona Constraint:** Repositories enforcing hard generative AI bans (`gentoo/gentoo`, `qemu/qemu`) are disqualified from AI-assisted persona views.
 
@@ -128,11 +130,11 @@ $$
 
 | Evaluation Pillar & Weight | Validated Parameters & Parameter Weights | Operational Definition & Scope |
 | :--- | :--- | :--- |
-| **Pillar 1: Responsiveness & Review Lifecycle (25%)** | &bull; 1.1 Bot-Filtered Human TTFHR (35%)<br/>&bull; 1.2 First-Timer Merge Rate MR_first (25%)<br/>&bull; 1.3 PR Ghost Rate GR_14 (20%)<br/>&bull; 1.4 PR Merge Latency Tail Risk TTM_p90 (20%) | Median response latency, external merge velocity, 14-day abandonment ceiling, and 90th percentile merge tail risk. |
-| **Pillar 2: Production Criticality & Impact (25%)** | &bull; 2.1 Downstream Registry Dependents (40%)<br/>&bull; 2.2 Canonical OpenSSF Criticality Score (35%)<br/>&bull; 2.3 Filtered Active Monthly Downloads (25%) | Real-world software ecosystem entrenchment, Rob Pike multi-signal criticality, and installer-filtered download volume. |
-| **Pillar 3: Governance, Safety & Path-to-Power (20%)** | &bull; 3.1 Legal IP Regime & Relicensing Safety (35%)<br/>&bull; 3.2 CHAOSS Elephant Factor / Decentralization (35%)<br/>&bull; 3.3 Contributor Promotion Ladder (30%) | IP protection against corporate relicensing traps (DCO vs. CLA), organizational decentralization, and non-sponsor maintainer pathways. |
-| **Pillar 4: Engineering Rigor & AI Alignment (15%)** | &bull; 4.1 OpenSSF Scorecard Pipeline Defenses (40%)<br/>&bull; 4.2 Calibrated AI Policy Posture (35%)<br/>&bull; 4.3 Review Depth & Substantive Guidance (25%) | Automated branch defenses and testing rigor, transparent AI policy governance, and balanced substantive inline code feedback. |
-| **Pillar 5: Accessibility, DX & Newcomer On-Ramps (15%)** | &bull; 5.1 Freshness of Unclaimed GFIs (40%)<br/>&bull; 5.2 90-Day Newcomer Return Rate RR_90 (35%)<br/>&bull; 5.3 Developer Experience & Setup Friction (25%) | Active unclaimed Good First Issues (<30d), newcomer retention velocity, and reproducible devcontainer/CI execution runtime. |
+| **Pillar 1: Responsiveness & Review Lifecycle (25%)** | • 1.1 Bot-Filtered Human TTFHR (35%)<br/>• 1.2 First-Timer Merge Rate MR_first (25%)<br/>• 1.3 PR Ghost Rate GR_14 (20%)<br/>• 1.4 PR Merge Latency Tail Risk TTM_p90 (20%) | Median response latency, external merge velocity, 14-day abandonment ceiling, and 90th percentile merge tail risk. |
+| **Pillar 2: Production Criticality & Impact (25%)** | • 2.1 Downstream Registry Dependents (40%)<br/>• 2.2 Canonical OpenSSF Criticality Score (35%)<br/>• 2.3 Filtered Active Monthly Downloads (25%) | Real-world software ecosystem entrenchment, Rob Pike multi-signal criticality, and installer-filtered download volume. |
+| **Pillar 3: Governance, Safety & Path-to-Power (20%)** | • 3.1 Legal IP Regime & Relicensing Safety (35%)<br/>• 3.2 CHAOSS Elephant Factor / Decentralization (35%)<br/>• 3.3 Contributor Promotion Ladder (30%) | IP protection against corporate relicensing traps (DCO vs. CLA), organizational decentralization, and non-sponsor maintainer pathways. |
+| **Pillar 4: Engineering Rigor & AI Alignment (15%)** | • 4.1 OpenSSF Scorecard Pipeline Defenses (40%)<br/>• 4.2 Calibrated AI Policy Posture (35%)<br/>• 4.3 Review Depth & Substantive Guidance (25%) | Automated branch defenses and testing rigor, transparent AI policy governance, and balanced substantive inline code feedback. |
+| **Pillar 5: Accessibility, DX & Newcomer On-Ramps (15%)** | • 5.1 Freshness of Unclaimed GFIs (40%)<br/>• 5.2 90-Day Newcomer Return Rate RR_90 (35%)<br/>• 5.3 Developer Experience & Setup Friction (25%) | Active unclaimed Good First Issues (<30d), newcomer retention velocity, and reproducible devcontainer/CI execution runtime. |
 
 
 ---
@@ -170,7 +172,7 @@ $$
 \text{Score}_{\text{Ghost}} = \max(0.0, 100.0 - (GR_{14} \times 200.0))
 $$
 
-*(A ghost rate of 0% yields 100 points; $\ge 50\%$ yields 0 points and triggers Stage 0 Black Hole disqualification).*
+*(A ghost rate of 0% yields 100 points; >= 50% yields 0 points and triggers Stage 0 Black Hole disqualification).*
 
 #### 1.4 Pull Request Merge Latency Tail Risk (TTM_p90) (Weight: 20%)
 Ecosystem percentile rank of the 90th percentile Time-to-Merge (in hours):
@@ -197,18 +199,18 @@ $$
 C = \frac{\sum_{i=1}^{10} \alpha_i \cdot S_i^*}{\sum_{i=1}^{10} |\alpha_i|}, \quad S_i^* = \frac{\log(1 + \max(0, S_i))}{\log(1 + \max(S_i, T_i))}
 $$
 
-| Signal ($S_i$) | Weight ($\alpha_i$) | Threshold ($T_i$) | Functional Significance |
+| Signal (S_i) | Weight (α_i) | Threshold (T_i) | Functional Significance |
 |---|---|---|---|
-| `created_since` | $+1.0$ | 120 months | Longitudinal stability and multi-year survival |
-| `updated_since` | $-1.0$ | 120 months | Inverted penalty for abandoned codebases |
-| `contributor_count` | $+2.0$ | 5,000 | Multi-contributor distributed author base |
-| `org_count` | $+1.0$ | 10 | Cross-corporate institutional diversity |
-| `commit_frequency` | $+1.0$ | 1,000 / week | Ongoing development throughput |
+| `created_since` | +1.0 | 120 months | Longitudinal stability and multi-year survival |
+| `updated_since` | -1.0 | 120 months | Inverted penalty for abandoned codebases |
+| `contributor_count` | +2.0 | 5,000 | Multi-contributor distributed author base |
+| `org_count` | +1.0 | 10 | Cross-corporate institutional diversity |
+| `commit_frequency` | +1.0 | 1,000 / week | Ongoing development throughput |
 | `recent_releases_count` | $+0.5$ | 26 / year | Predictable releases reaching downstream users |
 | `closed_issues_count` | $+0.5$ | 5,000 / 90d | Operational engagement with bug reports |
 | `updated_issues_count` | $+0.5$ | 5,000 / 90d | Continuous community issue grooming |
-| `comment_frequency` | $+1.0$ | 15 / issue | Depth of technical discourse |
-| `dependents_count` | $+2.0$ | 500,000 | Direct downstream architectural imports |
+| `comment_frequency` | +1.0 | 15 / issue | Depth of technical discourse |
+| `dependents_count` | +2.0 | 500,000 | Direct downstream architectural imports |
 
 $$
 \text{Score}_{\text{Criticality}} = C \times 100.0
@@ -233,13 +235,13 @@ Protects contributors against unilateral relicensing and corporate enclosure:
 - **10 pts — Unilateral Corporate CLA:** Complete copyright assignment to a single for-profit entity (high historical risk of commercial relicensing, e.g. MongoDB SSPL, Elastic, Redis).
 
 #### 3.2 CHAOSS Elephant Factor / Decentralization (Weight: 35%)
-Minimum number of distinct organizations whose affiliated contributors author $\ge 50\%$ of total commits:
+Minimum number of distinct organizations whose affiliated contributors author >= 50% of total commits:
 
 $$
 \text{Score}_{\text{Decentralization}} = \min(100.0, \text{Elephant\_Factor} \times 25.0)
 $$
 
-*(An Elephant Factor $\ge 4$ achieves the maximum 100 points; 1 single firm dominating $>50\%$ of commits receives 25 points).*
+*(An Elephant Factor $\ge 4$ achieves the maximum 100 points; 1 single firm dominating > 50% of commits receives 25 points).*
 
 #### 3.3 Contributor Promotion Ladder (Weight: 30%)
 Evaluates whether external contributors have documented pathways to triage, review, and maintainer roles:
@@ -306,7 +308,7 @@ flowchart LR
     subgraph Personas ["Adaptive Persona Presets"]
         P_Bal["Balanced Default<br/>Resp 25% / Imp 25% / Gov 20% / Rigor 15% / Access 15%"]
         P_First["First-Time Contributor<br/>Resp 35% / Access 30% / Gov 15% / Imp 10% / Rigor 10%"]
-        P_Resume["Resume & Career Capital<br/>Imp 35% / Resp 20% / Access 20% / Gov 15% / Rigor 10%"]
+        P_Resume["Resume and Career Capital<br/>Imp 35% / Resp 20% / Access 20% / Gov 15% / Rigor 10%"]
         P_Senior["Senior Systems Specialist<br/>Imp 35% / Gov 25% / Rigor 20% / Resp 15% / Access 5%"]
         P_AI["AI-Assisted Contributor<br/>Rigor 35% / Imp 20% / Resp 20% / Gov 15% / Access 10%"]
     end
@@ -329,21 +331,21 @@ flowchart LR
 flowchart TD
     subgraph IngestionSources ["1. Data Ingestion Sources ($0 Overhead)"]
         GHA["data.gharchive.org<br/>Raw Hourly JSON.GZ via HTTPFS<br/>Zero Token Quota Consumed"]
-        BQ["OpenSSF BigQuery Datasets<br/>Canonical Pike Criticality & Scorecards"]
+        BQ["OpenSSF BigQuery Datasets<br/>Canonical Pike Criticality and Scorecards"]
         GQL["GitHub GraphQL API<br/>Token Bucket Rate-Limited (1.2 req/s)<br/>Delta Hydration with ETag Headers"]
     end
 
     subgraph AnalyticalLakehouse ["2. In-Process Analytical Lakehouse Layer"]
         DuckDB[("DuckDB Columnar Engine<br/>In-Process Vectorized Execution")]
         Parquet[("Compacted Parquet Lakehouse<br/>Partitions: /data/lakehouse/year=YYYY/month=MM/")]
-        StarScoutAudit["StarScout Anti-Gaming Audit<br/>Filter Throwaways & Lockstep Rings"]
+        StarScoutAudit["StarScout Anti-Gaming Audit<br/>Filter Throwaways and Lockstep Rings"]
         ECDFEngine["Cross-Sectional ECDF Engine<br/>Per-Ecosystem Percentile Mapping"]
     end
 
-    subgraph OperationalServing ["3. Operational & Serving Layer"]
+    subgraph OperationalServing ["3. Operational and Serving Layer"]
         MetaDB[("Relational Operational Store<br/>SQLite / PostgreSQL Metadata Cache")]
-        APIServer["High-Performance REST & GraphQL Server<br/>FastAPI with In-Memory Response Caching"]
-        WebClient["CVI Discovery Web Client<br/>Interactive 2D Canvas & Real-Time Re-projection"]
+        APIServer["High-Performance REST and GraphQL Server<br/>FastAPI with In-Memory Response Caching"]
+        WebClient["CVI Discovery Web Client<br/>Interactive 2D Canvas and Real-Time Re-projection"]
     end
 
     GHA --> DuckDB
@@ -429,17 +431,17 @@ stateDiagram-v2
     Stage0Evaluation --> IngestionSanitization: Passes Non-Compensatory EBA Gate
     
     IngestionSanitization --> BotStripped: Strip Service Accounts ([bot], cla, stale)
-    BotStripped --> StarScoutAudited: Filter Throwaways & Burst Rings
+    BotStripped --> StarScoutAudited: Filter Throwaways and Burst Rings
     StarScoutAudited --> ECDAPercentileNormalized: Map Raw Values to Ecosystem Percentiles
     
     ECDAPercentileNormalized --> WAMScoring: Apply 15 Empirical Parameter Weights
-    WAMScoring --> CoordinateDecomposition: Compute Leverage (Y) & Friction (X)
-    CoordinateDecomposition --> MaterializedAndCached: Upsert Relational Store & Invalidate Cache
+    WAMScoring --> CoordinateDecomposition: Compute Leverage (Y) and Friction (X)
+    CoordinateDecomposition --> MaterializedAndCached: Upsert Relational Store and Invalidate Cache
     
     Disqualified --> MaterializedAndCached: Capped at Tier D / Black Hole Badge
     SpecializedRouting --> MaterializedAndCached: Flagged for Specialized Evaluation
     
-    MaterializedAndCached --> [*]: Ready for Query & Dynamic Re-projection
+    MaterializedAndCached --> [*]: Ready for Query and Dynamic Re-projection
 ```
 
 ---
@@ -462,14 +464,14 @@ sequenceDiagram
     Cron->>GHA: Execute hourly partition sync (YYYY-MM-DD-H)
     GHA->>Duck: Stream raw JSON.GZ via HTTPFS into pr_events.parquet
     Cron->>Scout: Audit stargazer velocity for target repositories
-    Scout->>Scout: Filter throwaway accounts (under 5 platform events) & lockstep bursts
+    Scout->>Scout: Filter throwaway accounts (under 5 platform events) and lockstep bursts
     Scout-->>Score: Return de-biased organic star velocity
     Cron->>Pike: Fetch precomputed OpenSSF Criticality from BigQuery
     Pike-->>Score: Return Pike Criticality Score C in [0.0, 1.0]
-    Score->>Duck: Execute vectorized TTFHR, MR_first, GR_14 & TTM_p90
+    Score->>Duck: Execute vectorized TTFHR, MR_first, GR_14 and TTM_p90
     Duck-->>Score: Return bot-filtered review telemetry (under 120ms)
     Score->>Score: Calculate ECDF percentiles within language ecosystem
-    Score->>Score: Apply Stage 0 EBA Gates & calculate CVI composite
+    Score->>Score: Apply Stage 0 EBA Gates and calculate CVI composite
     Score->>Meta: Upsert repository record (leverage, friction, CVI, quadrant)
     Meta-->>Cron: Batch sync finished successfully
 ```
@@ -484,22 +486,22 @@ sequenceDiagram
 | :--- | :--- | :---: | :--- | :--- |
 | `repo_owner` | String (ASCII) | No | Length: 1..100 | GitHub organization or user account login |
 | `repo_name` | String (ASCII) | No | Length: 1..100 | GitHub repository slug |
-| `pr_number` | Integer (Unsigned 32) | No | Value $\ge 1$ | Pull request unique index within repository |
+| `pr_number` | Integer (Unsigned 32) | No | Value >= 1 | Pull request unique index within repository |
 | `created_at` | ISO-8601 Timestamp | No | Valid UTC timestamp | Pull request creation instant |
 | `closed_at` | ISO-8601 Timestamp | Yes | `closed_at >= created_at` | Terminal closure instant (merged or rejected) |
 | `merged_at` | ISO-8601 Timestamp | Yes | `merged_at <= closed_at` | Terminal merge instant into default branch |
 | `author_login` | String (ASCII) | No | Length: 1..100 | Contributor handle |
 | `author_association` | Enum | No | `NONE, FIRST_TIME, MEMBER, OWNER` | Contributor affiliation level |
-| `author_prior_merged_commits` | Integer (Unsigned 32) | No | Value $\ge 0$ | Number of prior merged commits in repo |
+| `author_prior_merged_commits` | Integer (Unsigned 32) | No | Value >= 0 | Number of prior merged commits in repo |
 | `is_external` | Boolean | No | True if association in `[NONE, FIRST_TIME]` | Flag isolating community contributions |
 | `ci_status_green` | Boolean | No | Default: True | Whether CI checks passed before maintainer decision |
 | `first_human_review_at` | ISO-8601 Timestamp | Yes | Strictly non-bot actor | Instant of initial substantive maintainer feedback |
-| `response_latency_hours` | Float (64-bit) | Yes | Value $\ge 0.0$ | Elapsed hours between creation and first human response |
-| `maintainer_review_comments` | Integer (Unsigned 32) | No | Value $\ge 0$ | Count of inline review comments by maintainers |
+| `response_latency_hours` | Float (64-bit) | Yes | Value >= 0.0 | Elapsed hours between creation and first human response |
+| `maintainer_review_comments` | Integer (Unsigned 32) | No | Value >= 0 | Count of inline review comments by maintainers |
 
 ### 9.2 Repository Telemetry & Criticality Contract (`OpenSSFSignals`)
 
-| Field Name | Logical Type | Nullable | Normalization Threshold ($T_i$) | Functional Significance |
+| Field Name | Logical Type | Nullable | Normalization Threshold (T_i) | Functional Significance |
 | :--- | :--- | :---: | :--- | :--- |
 | `created_since_months` | Float (64-bit) | No | 120.0 months (10 years) | Project survival and longitudinal stability |
 | `updated_since_months` | Float (64-bit) | No | 120.0 months | Inverted penalty for stale or abandoned codebases |
@@ -519,11 +521,11 @@ sequenceDiagram
 | `owner` | String | -- | -- | Target repository owner namespace |
 | `name` | String | -- | -- | Target repository slug |
 | `ecosystem` | Enum | `npm, pypi, crates, go, maven, systems` | -- | Primary package registry ecosystem |
-| `overall_cvi` | Float (64-bit) | $[0.0, 100.0]$ | 2 decimals | Composite Contributor Value Index |
+| `overall_cvi` | Float (64-bit) | [0.0, 100.0] | 2 decimals | Composite Contributor Value Index |
 | `rank_tier` | Enum | `Tier S+, Tier S, Tier A, Tier B, Tier C, Tier D` | -- | Cardinal prestige and health tier |
 | `matrix_quadrant` | Enum | `Sweet Spot, Crucible, Nursery, Graveyard` | -- | 2D Discovery Matrix classification |
-| `leverage_score` | Float (64-bit) | $[0.0, 100.0]$ | 2 decimals | Composite Y-coordinate (Impact / Rigor) |
-| `friction_score` | Float (64-bit) | $[0.0, 100.0]$ | 2 decimals | Composite X-coordinate (Review / Legal) |
+| `leverage_score` | Float (64-bit) | [0.0, 100.0] | 2 decimals | Composite Y-coordinate (Impact / Rigor) |
+| `friction_score` | Float (64-bit) | [0.0, 100.0] | 2 decimals | Composite X-coordinate (Review / Legal) |
 | `is_stage0_disqualified`| Boolean | True / False | -- | Flag indicating non-compensatory EBA failure |
 | `disqualification_reason`| String | Nullable | -- | Explicit audit reason for gating exclusion |
 
@@ -632,19 +634,19 @@ Stores indexed metadata, pillar evaluations, and 2D matrix coordinates.
 | `forks` | INTEGER | NOT NULL | GitHub fork count |
 | `monthly_downloads` | BIGINT | DEFAULT 0 | Filtered non-bot monthly package downloads |
 | `dependents_count` | INTEGER | DEFAULT 0 | Unique root-org downstream dependents |
-| `openssf_criticality` | REAL | NOT NULL | Canonical Rob Pike Criticality score in $[0.0, 1.0]$ |
+| `openssf_criticality` | REAL | NOT NULL | Canonical Rob Pike Criticality score in [0.0, 1.0] |
 | `elephant_factor` | INTEGER | NOT NULL | CHAOSS Elephant Factor |
 | `legal_ip_model` | VARCHAR(30) | NOT NULL | IP regime (`DCO`, `FOUNDATION_CLA`, `CORP_CLA`) |
 | `ai_posture` | VARCHAR(30) | NOT NULL | Policy classification (`REGULATED`, `PROSCRIBED`, `AD_HOC`)|
-| `score_responsiveness`| REAL | NOT NULL | Calibrated Pillar 1 score in $[0.0, 100.0]$ |
-| `score_criticality` | REAL | NOT NULL | Calibrated Pillar 2 score in $[0.0, 100.0]$ |
-| `score_governance` | REAL | NOT NULL | Calibrated Pillar 3 score in $[0.0, 100.0]$ |
-| `score_rigor_ai` | REAL | NOT NULL | Calibrated Pillar 4 score in $[0.0, 100.0]$ |
-| `score_accessibility` | REAL | NOT NULL | Calibrated Pillar 5 score in $[0.0, 100.0]$ |
-| `leverage_score` | REAL | NOT NULL | 2D Matrix Y-coordinate in $[0.0, 100.0]$ |
-| `friction_score` | REAL | NOT NULL | 2D Matrix X-coordinate in $[0.0, 100.0]$ |
+| `score_responsiveness`| REAL | NOT NULL | Calibrated Pillar 1 score in [0.0, 100.0] |
+| `score_criticality` | REAL | NOT NULL | Calibrated Pillar 2 score in [0.0, 100.0] |
+| `score_governance` | REAL | NOT NULL | Calibrated Pillar 3 score in [0.0, 100.0] |
+| `score_rigor_ai` | REAL | NOT NULL | Calibrated Pillar 4 score in [0.0, 100.0] |
+| `score_accessibility` | REAL | NOT NULL | Calibrated Pillar 5 score in [0.0, 100.0] |
+| `leverage_score` | REAL | NOT NULL | 2D Matrix Y-coordinate in [0.0, 100.0] |
+| `friction_score` | REAL | NOT NULL | 2D Matrix X-coordinate in [0.0, 100.0] |
 | `matrix_quadrant` | VARCHAR(30) | NOT NULL | Discovery quadrant classification |
-| `overall_cvi` | REAL | NOT NULL | Final composite CVI score in $[0.0, 100.0]$ |
+| `overall_cvi` | REAL | NOT NULL | Final composite CVI score in [0.0, 100.0] |
 | `rank_tier` | VARCHAR(30) | NOT NULL | Tier designation (Tier S+, S, A, B, C, D) |
 | `is_stage0_disqualified`| BOOLEAN | DEFAULT FALSE | Stage 0 non-compensatory gating outcome |
 | `disqualification_reason`| TEXT | NULLABLE | Human-readable gating violation detail |
@@ -667,7 +669,7 @@ Stores indexed metadata, pillar evaluations, and 2D matrix coordinates.
   - `min_stars`: Integer (default: 100)
 - **Response Structure:**
   - Array of scatter node objects: `[{ repo_id, owner, name, x: friction_score, y: leverage_score, cvi: overall_cvi, tier, quadrant, size, is_gated }]`
-  - Performance SLA: $< 50\text{ms}$ response time from in-memory operational cache.
+  - Performance SLA: &lt; 50ms response time from in-memory operational cache.
 
 ### 12.2 Repository Deep-Dive Scorecard (`GET /v1/cvi/repos/{owner}/{name}`)
 - **Path Parameters:**
@@ -703,7 +705,7 @@ flowchart LR
     end
 
     Exec --> Resp{"HTTP Status"}
-    Resp -- "200 OK" --> Parse["Parse AST & Ingest"]
+    Resp -- "200 OK" --> Parse["Parse AST and Ingest"]
     Resp -- "304 Not Modified" --> ZeroCost["Zero Quota Consumed"]
     Resp -- "403/429" --> Backoff["Linear Backoff (Reset Window)"]
 ```
@@ -737,38 +739,38 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    Root["CVI User Personas & Mental Models"]
+    Root["CVI User Personas and Mental Models"]
 
     subgraph P1 ["Persona 1: The Explorer (First-Time Contributor)"]
         direction TB
         P1_Goals["Goals: Land first merged PR, find responsive maintainers, avoid stale traps"]
         P1_Friction["Friction: Imposter syndrome, unclear setup docs, silent PR abandonment"]
-        P1_Screen["Primary View: The Nursery & Curated Active GFIs"]
-        P1_Goals --- P1_Friction --- P1_Screen
+        P1_Screen["Primary View: The Nursery and Curated Active GFIs"]
+        P1_Goals --> P1_Friction --> P1_Screen
     end
 
     subgraph P2 ["Persona 2: The Climber (Career Capital Hunter)"]
         direction TB
         P2_Goals["Goals: Build public resume proof, land Tier S/A code, maximize recruiter signal"]
         P2_Friction["Friction: Wasted effort in ghost repos, hostile gatekeeping, zero contributor credit"]
-        P2_Screen["Primary View: The Sweet Spot & Multi-Ecosystem Leaderboard"]
-        P2_Goals --- P2_Friction --- P2_Screen
+        P2_Screen["Primary View: The Sweet Spot and Multi-Ecosystem Leaderboard"]
+        P2_Goals --> P2_Friction --> P2_Screen
     end
 
     subgraph P3 ["Persona 3: The Pragmatist (Senior Systems Engineer)"]
         direction TB
-        P3_Goals["Goals: Target critical infra, audit governance, verify CLA & relicensing risks"]
+        P3_Goals["Goals: Target critical infra, audit governance, verify CLA and relicensing risks"]
         P3_Friction["Friction: Single-vendor corporate silos, unilateral relicensing, vanity toy projects"]
-        P3_Screen["Primary View: The Crucible & Scorecard Elephant Factor / CLA Matrix"]
-        P3_Goals --- P3_Friction --- P3_Screen
+        P3_Screen["Primary View: The Crucible and Scorecard Elephant Factor / CLA Matrix"]
+        P3_Goals --> P3_Friction --> P3_Screen
     end
 
     subgraph P4 ["Persona 4: The Augmenter (AI-Assisted Contributor)"]
         direction TB
         P4_Goals["Goals: Leverage agentic tools, avoid hard AI bans, pass deterministic CI gates"]
         P4_Friction["Friction: Hostile AI witch-hunts, silent bot rejections, flaky test runners"]
-        P4_Screen["Primary View: AI Persona Filter & Scorecard AI Policy Diagnostic"]
-        P4_Goals --- P4_Friction --- P4_Screen
+        P4_Screen["Primary View: AI Persona Filter and Scorecard AI Policy Diagnostic"]
+        P4_Goals --> P4_Friction --> P4_Screen
     end
 
     Root --> P1
@@ -841,19 +843,19 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    subgraph GlobalShell ["Global App Shell (Fixed Header & Omnibar)"]
+    subgraph GlobalShell ["Global App Shell (Fixed Header and Omnibar)"]
         direction TB
         Brand["CVI Engineering Portal HUD"]
         NavRail["Primary Tab Navigation<br/>1. 2D Discovery Matrix (/matrix)<br/>2. Multi-Ecosystem Leaderboard (/leaderboard)<br/>3. Custom Priority Configurator (/persona)<br/>4. Side-by-Side Repo Comparator (/compare)"]
-        Omnibar["Omnibar / Cmd+K Search & Quick Jump"]
+        Omnibar["Omnibar / Cmd+K Search and Quick Jump"]
     end
 
-    GlobalShell --> Tab1["Tab 1: 2D Matrix Canvas<br/>• Spatial Zoom & Pan<br/>• 4 Quadrants & Hover Cards"]
-    GlobalShell --> Tab2["Tab 2: Ranked Leaderboard<br/>• Tabular Ecosystem Sorting<br/>• Stage 0 Black Hole Badges<br/>• Sparklines & Multi-Select"]
+    GlobalShell --> Tab1["Tab 1: 2D Matrix Canvas<br/>• Spatial Zoom and Pan<br/>• 4 Quadrants and Hover Cards"]
+    GlobalShell --> Tab2["Tab 2: Ranked Leaderboard<br/>• Tabular Ecosystem Sorting<br/>• Stage 0 Black Hole Badges<br/>• Sparklines and Multi-Select"]
     GlobalShell --> Tab3["Tab 3: Custom Priority Engine<br/>• 5-Pillar Normalizing Sliders<br/>• Live Delta Indicators (+14 / -4)<br/>• Serializable Preset Sharing"]
     GlobalShell --> Tab4["Tab 4: Side-by-Side Comparator<br/>• Superimposed Dual Radars<br/>• 15-Metric Differential Table"]
 
-    Tab1 -.-> Drawer["Slide-Over Scorecard Drawer<br/>• 5-Pillar Radar Polygon<br/>• Kaplan-Meier Survival Curve<br/>• Elephant Factor & CLA Matrix<br/>• Active Unclaimed GFIs"]
+    Tab1 -.-> Drawer["Slide-Over Scorecard Drawer<br/>• 5-Pillar Radar Polygon<br/>• Kaplan-Meier Survival Curve<br/>• Elephant Factor and CLA Matrix<br/>• Active Unclaimed GFIs"]
     Tab2 -.-> Drawer
     Tab3 -.-> Drawer
     Tab2 -.-> Tab4
@@ -871,22 +873,22 @@ flowchart TD
         direction TB
         subgraph Tier1 ["Tier 1: Ecosystem Scoping Bar"]
             direction LR
-            E1["✓ Python (PyPI)"] --- E2["TypeScript (npm)"] --- E3["Rust (Crates)"] --- E4["Go (pkg.go)"] --- E5["Systems (C/C++)"] --- E6["All Ecosystems"]
+            E1["✓ Python (PyPI)"] ~~~ E2["TypeScript (npm)"] ~~~ E3["Rust (Crates)"] ~~~ E4["Go (pkg.go)"] ~~~ E5["Systems (C/C++)"] ~~~ E6["All Ecosystems"]
         end
         
         subgraph Tier2 ["Tier 2: Quadrant Multi-Toggle Chips"]
             direction LR
-            Q1["● The Sweet Spot (384)"] --- Q2["● The Crucible (210)"] --- Q3["● The Nursery (890)"] --- Q4["● The Graveyard (1,420)"]
+            Q1["● The Sweet Spot (384)"] ~~~ Q2["● The Crucible (210)"] ~~~ Q3["● The Nursery (890)"] ~~~ Q4["● The Graveyard (1,420)"]
         end
 
         subgraph Tier3 ["Tier 3: Non-Compensatory EBA Gating Switches"]
             direction LR
-            G1["[✓] Exclude Black Holes (Ghost > 50%)"] --- G2["[ ] Active Only (< 90d)"] --- G3["[✓] DCO / Permissive Only"] --- G4["[ ] AI-Friendly Governance"]
+            G1["[✓] Exclude Black Holes (Ghost > 50%)"] ~~~ G2["[ ] Active Only (< 90d)"] ~~~ G3["[✓] DCO / Permissive Only"] ~~~ G4["[ ] AI-Friendly Governance"]
         end
 
         subgraph Tier4 ["Tier 4: Numerical Threshold Sliders"]
             direction LR
-            S1["Min Stars: 1,000+"] --- S2["Max TTFHR: < 24h"] --- S3["Elephant Factor: Multi-Vendor (>= 3)"]
+            S1["Min Stars: 1,000+"] ~~~ S2["Max TTFHR: < 24h"] ~~~ S3["Elephant Factor: Multi-Vendor (>= 3)"]
         end
 
         Tier1 --> Tier2 --> Tier3 --> Tier4
@@ -894,9 +896,7 @@ flowchart TD
 
     subgraph FilterSummary ["Active Filter Chips Summary Bar"]
         direction LR
-        Chip1["Ecosystem: Python ✕"] --- Chip2["Quadrant: Sweet Spot ✕"] --- Chip3["No Black Holes ✕"] --- Chip4["TTFHR < 24h ✕"]
-        ClearBtn["[ Clear All Filters ]"]
-        Counter["Matched: 384 of 5,420 Repos (7.1%)"]
+        Chip1["Ecosystem: Python ✕"] ~~~ Chip2["Quadrant: Sweet Spot ✕"] ~~~ Chip3["No Black Holes ✕"] ~~~ Chip4["TTFHR < 24h ✕"] ~~~ ClearBtn["[ Clear All Filters ]"] ~~~ Counter["Matched: 384 of 5,420 Repos (7.1%)"]
     end
 
     FilterToolbar --> FilterSummary
@@ -906,8 +906,8 @@ flowchart TD
 | :--- | :--- | :--- | :--- | :--- |
 | **1. Ecosystem Scoping** | Segmented Pill Bar | `Python (PyPI)`, `TypeScript (npm)`, `Rust (Crates)`, `Go`, `Systems (C/C++)`, `All` | Active Ecosystem | Scopes ECDF percentile distribution to selected registry; re-normalizes metrics |
 | **2. Quadrant Multi-Toggle** | Elevated Indicator Chips | `The Sweet Spot (384)`, `The Crucible (210)`, `The Nursery (890)`, `The Graveyard (1,420)` | All Quadrants ON | Independent multi-select toggles with colored glow dots and live candidate counts |
-| **3. Stage 0 EBA Gates** | High-Contrast Toggle Switches | &bull; Exclude Black Holes ($GR_{14} > 50\%$)<br/>&bull; Active Maintenance Only ($<90$d)<br/>&bull; DCO / Permissive Legal IP Only<br/>&bull; AI-Friendly Governance Only | Black Holes: ON<br/>Active: ON<br/>DCO: OFF<br/>AI: OFF | Non-compensatory hard constraints; instantly prunes disqualified projects |
-| **4. Threshold Sliders** | Stepped Range Knobs | &bull; Min Stars: $100 \dots 50\text{k}+$<br/>&bull; Max TTFHR: $<12\text{h}, <24\text{h}, <48\text{h}, \text{Any}$<br/>&bull; Min Elephant Factor: $1 \dots 5+$ | Unconstrained | Prunes candidates failing minimum quantitative operational thresholds |
+| **3. Stage 0 EBA Gates** | High-Contrast Toggle Switches | • Exclude Black Holes (GR_14 > 50%)<br/>• Active Maintenance Only ($<90$d)<br/>• DCO / Permissive Legal IP Only<br/>• AI-Friendly Governance Only | Black Holes: ON<br/>Active: ON<br/>DCO: OFF<br/>AI: OFF | Non-compensatory hard constraints; instantly prunes disqualified projects |
+| **4. Threshold Sliders** | Stepped Range Knobs | • Min Stars: $100 \dots 50\text{k}+$<br/>• Max TTFHR: $<12\text{h}, <24\text{h}, <48\text{h}, \text{Any}$<br/>• Min Elephant Factor: $1 \dots 5+$ | Unconstrained | Prunes candidates failing minimum quantitative operational thresholds |
 | **5. Active Chips Bar** | Dismissible Micro-Pills | Dismissible tags for each active filter + `[ Clear All ]` trigger + `[ Export CSV ]` | Dynamic State | Real-time visibility and instant single-click removal of active filter criteria |
 
 
@@ -920,7 +920,7 @@ flowchart TD
    - Visual Style: Elevated dark chips with glowing quadrant indicator dots (Emerald, Indigo, Amber, Crimson) and dynamic repository count badges.
    - Behavior: Independent multi-select toggles. Users can inspect "The Sweet Spot" alone or toggle both "The Sweet Spot" and "The Crucible" simultaneously.
 3. **Stage 0 Hard Constraint Switches (Non-Compensatory EBA Gates):**
-   - **Exclude Black Holes (Default: ON):** Eliminates repositories with $>50\%$ PR ghost rate or zero responses in $>14$ days.
+   - **Exclude Black Holes (Default: ON):** Eliminates repositories with > 50% PR ghost rate or zero responses in $>14$ days.
    - **Active Maintenance Only (Default: ON):** Restricts results to codebases with at least one non-bot commit in trailing 90 days.
    - **DCO / Permissive Legal IP Only:** Hides repositories requiring unilateral corporate copyright assignment (preventing relicensing traps).
    - **AI-Friendly Governance Only:** Disqualifies projects enforcing strict bans on LLM-assisted patches.
@@ -950,7 +950,7 @@ flowchart LR
 
     subgraph RealTimeView ["3. Visual Feedback Surface"]
         DeltaBadges["Live Position Badges<br/>▲ +14 Green Up-Arrow<br/>▼ -4 Red Down-Arrow<br/>= 0 Neutral Dash"]
-        URLSync["URL State Serialization<br/>?w_resp=35&w_crit=25..."]
+        URLSync["URL State Serialization<br/>?w_resp=35+w_crit=25..."]
     end
 
     PresetSelect --> Sliders
@@ -962,12 +962,12 @@ flowchart LR
 ```
 
 ### 19.1 Priority Sliders & Lock-and-Normalize Mechanics
-- **Proportional Normalization:** The sum of all 5 pillar weights strictly maintains $\sum w_j = 100\%$. Moving any unlocked slider dynamically redistributes the delta across the remaining unlocked dimensions.
-- **Individual Dimension Locks (🔒):** Clicking the lock icon next to any pillar pins its weight (e.g., pinning Responsiveness at $40\%$), allowing the user to calibrate the remaining $60\%$ across the other 4 pillars without disturbing the pinned value.
+- **Proportional Normalization:** The sum of all 5 pillar weights strictly maintains sum(w_j) = 100%. Moving any unlocked slider dynamically redistributes the delta across the remaining unlocked dimensions.
+- **Individual Dimension Locks (🔒):** Clicking the lock icon next to any pillar pins its weight (e.g., pinning Responsiveness at 40%), allowing the user to calibrate the remaining 60% across the other 4 pillars without disturbing the pinned value.
 - **One-Click Persona Presets:** Selecting a preset automatically reconfigures all 5 sliders and unlocks all dimensions to standardized archetypes.
 
 ### 19.2 Real-Time Re-Ranking Preview & Position Deltas
-- As the user drags a slider, the in-memory analytics engine updates all repository scores in $< 50\text{ms}$.
+- As the user drags a slider, the in-memory analytics engine updates all repository scores in &lt; 50ms.
 - The split-screen preview panel displays repository cards shifting positions with animated spring transitions.
 - Each repository card highlights its net rank shift:
   - `▲ +14` (Glowing Emerald): Repository benefits significantly from the user's customized criteria (e.g. highly responsive projects jump when TTFHR weight is increased).
@@ -987,10 +987,10 @@ Users can bookmark, export, or share their exact ranking criteria with teams and
 
 - **WCAG 2.1 AA Compliance:** Minimum 4.5:1 contrast for normal text and 3:1 for graphical elements. Base text achieves 17.4:1 contrast ratio against `--bg-surface`.
 - **Color-Blind Safe Dual-Encoding:** Scatter points and quadrant badges use distinct geometric shapes in addition to color:
-  - *The Sweet Spot:* Diamond ($\diamond$) + Emerald
-  - *The Crucible:* Hexagon ($\hexagon$) + Indigo
-  - *The Nursery:* Circle ($\bigcirc$) + Amber
-  - *The Graveyard:* Octagon / Cross ($\times$) + Crimson
+  - *The Sweet Spot:* Diamond (◆) + Emerald
+  - *The Crucible:* Hexagon (⬡) + Indigo
+  - *The Nursery:* Circle (●) + Amber
+  - *The Graveyard:* Octagon / Cross (✕) + Crimson
 - **Universal Keyboard Navigation:**
   - `Cmd + K`: Open Omnibar
   - `1`, `2`, `3`, `4`: Toggle Quadrants
@@ -999,9 +999,9 @@ Users can bookmark, export, or share their exact ranking criteria with teams and
   - `J` / `K`: Navigate Leaderboard rows
   - `Esc`: Dismiss drawer or modal
 - **Responsive Breakpoints:**
-  - `Desktop XL` ($\ge 1600\text{px}$): Persistent dual-pane (Canvas + Scorecard Drawer).
-  - `Desktop Standard` ($1200\text{px} - 1599\text{px}$): Slide-over drawer overlay.
-  - `Tablet Landscape` ($992\text{px} - 1199\text{px}$): Collapsed nav rail.
-  - `Tablet Portrait` ($768\text{px} - 991\text{px}$): Stacked layout with sheet drawer.
-  - `Mobile` ($< 768\text{px}$): Full-screen card list with bottom-sheet scorecard modal.
+  - `Desktop XL` (>= 1600px): Persistent dual-pane (Canvas + Scorecard Drawer).
+  - `Desktop Standard` (1200px - 1599px): Slide-over drawer overlay.
+  - `Tablet Landscape` (992px - 1199px): Collapsed nav rail.
+  - `Tablet Portrait` (768px - 991px): Stacked layout with sheet drawer.
+  - `Mobile` (&lt; 768px): Full-screen card list with bottom-sheet scorecard modal.
 

@@ -22,38 +22,38 @@ The user experience is guided by four foundational design tenets:
 
 ```mermaid
 flowchart TD
-    Root["CVI User Personas & Mental Models"]
+    Root["CVI User Personas and Mental Models"]
 
     subgraph P1 ["Persona 1: The Explorer (First-Time Contributor)"]
         direction TB
         P1_Goals["Goals: Land first merged PR, find responsive maintainers, avoid stale traps"]
         P1_Friction["Friction: Imposter syndrome, unclear setup docs, silent PR abandonment"]
-        P1_Screen["Primary View: Screen A (Nursery) & Screen C (Curated GFIs)"]
-        P1_Goals --- P1_Friction --- P1_Screen
+        P1_Screen["Primary View: Screen A (Nursery) and Screen C (Curated GFIs)"]
+        P1_Goals --> P1_Friction --> P1_Screen
     end
 
     subgraph P2 ["Persona 2: The Climber (Career Capital Hunter)"]
         direction TB
         P2_Goals["Goals: Build public resume proof, land Tier S/A code, maximize recruiter signal"]
         P2_Friction["Friction: Wasted effort in ghost repos, hostile gatekeeping, zero contributor credit"]
-        P2_Screen["Primary View: Screen A (Sweet Spot) & Screen B (Ranked Leaderboard)"]
-        P2_Goals --- P2_Friction --- P2_Screen
+        P2_Screen["Primary View: Screen A (Sweet Spot) and Screen B (Ranked Leaderboard)"]
+        P2_Goals --> P2_Friction --> P2_Screen
     end
 
     subgraph P3 ["Persona 3: The Pragmatist (Senior Systems Engineer)"]
         direction TB
-        P3_Goals["Goals: Target critical infra, audit governance, verify CLA & relicensing risks"]
+        P3_Goals["Goals: Target critical infra, audit governance, verify CLA and relicensing risks"]
         P3_Friction["Friction: Single-vendor corporate silos, unilateral relicensing, vanity toy projects"]
-        P3_Screen["Primary View: Screen C (Elephant Factor & CLA) & Screen E (Comparator)"]
-        P3_Goals --- P3_Friction --- P3_Screen
+        P3_Screen["Primary View: Screen C (Elephant Factor and CLA) and Screen E (Comparator)"]
+        P3_Goals --> P3_Friction --> P3_Screen
     end
 
     subgraph P4 ["Persona 4: The Augmenter (AI-Assisted Contributor)"]
         direction TB
         P4_Goals["Goals: Leverage agentic tools, avoid hard AI bans, pass deterministic CI gates"]
         P4_Friction["Friction: Hostile AI witch-hunts, silent bot rejections, flaky test runners"]
-        P4_Screen["Primary View: Screen D (AI Persona Filter) & Screen B (Stage 0 EBA Audit)"]
-        P4_Goals --- P4_Friction --- P4_Screen
+        P4_Screen["Primary View: Screen D (AI Persona Filter) and Screen B (Stage 0 EBA Audit)"]
+        P4_Goals --> P4_Friction --> P4_Screen
     end
 
     Root --> P1
@@ -68,7 +68,7 @@ flowchart TD
 | :--- | :--- | :--- | :--- | :--- |
 | **Archetype** | First-Time Contributor | Career Capital & Resume Hunter | Senior Systems Specialist | AI-Assisted Developer |
 | **Target Quadrant** | **The Nursery** (Low Friction, High Welcoming) | **The Sweet Spot** (High Impact, Low Friction) | **The Crucible** & **Sweet Spot** (Elite Rigor) | **Sweet Spot** & **Nursery** (AI-Permissive) |
-| **Key Metric Priorities** | TTFHR $\le 24\text{h}$, Active GFIs, High Merge Rate | Industry Brand Tier S/A, High Dependents, Release Notes | Elephant Factor $\ge 3$, DCO/Permissive CLA, Scorecard $\ge 8.5$ | Calibrated AI Policy, Deterministic CI, Low Review Churn |
+| **Key Metric Priorities** | TTFHR <= 24h, Active GFIs, High Merge Rate | Industry Brand Tier S/A, High Dependents, Release Notes | Elephant Factor $\ge 3$, DCO/Permissive CLA, Scorecard $\ge 8.5$ | Calibrated AI Policy, Deterministic CI, Low Review Churn |
 | **Primary Anxiety** | "Will maintainers ignore my PR or flame me?" | "Will anyone care that I contributed to this?" | "Will this corporate sponsor pull a Redis/Elastic relicensing rug?" | "Will my PR get instantly closed because I used Cursor/Copilot?" |
 | **Primary Call-to-Action** | "Claim Verified GFI & View Setup Guide" | "Analyze Contributor Attribution & Mindshare" | "Inspect Governance, CLA & Subsystem Ownership" | "Verify Automated Gates & AI Contribution Rules" |
 
@@ -80,11 +80,11 @@ flowchart TD
 flowchart TD
     Start([User Arrives on Platform]) --> ModeSelect{Select Discovery Mode}
     
-    ModeSelect -->|Spatial Exploration| MatrixView["Screen A: 2D Discovery Matrix<br/>• Pan/Zoom Scatter Canvas<br/>• Quadrant Filters & Cluster Peeks"]
+    ModeSelect -->|Spatial Exploration| MatrixView["Screen A: 2D Discovery Matrix<br/>• Pan/Zoom Scatter Canvas<br/>• Quadrant Filters and Cluster Peeks"]
     ModeSelect -->|Structured Search| LeaderboardView["Screen B: Multi-Ecosystem Leaderboard<br/>• Ecosystem Tabs (Python, Rust, Go...)<br/>• Sortable Percentile Metrics"]
     ModeSelect -->|Intent Calibration| ConfiguratorView["Screen D: Persona Configurator<br/>• Weight Sliders with Normalization Lock<br/>• Dynamic Re-projection Preview"]
 
-    MatrixView -->|Click Scatter Point| ScorecardDrawer["Screen C: Repo Scorecard Drawer<br/>• 5-Pillar Radar Polygon<br/>• Kaplan-Meier Latency Curve<br/>• Elephant Factor & CLA Matrix<br/>• Active Unclaimed GFIs"]
+    MatrixView -->|Click Scatter Point| ScorecardDrawer["Screen C: Repo Scorecard Drawer<br/>• 5-Pillar Radar Polygon<br/>• Kaplan-Meier Latency Curve<br/>• Elephant Factor and CLA Matrix<br/>• Active Unclaimed GFIs"]
     LeaderboardView -->|Click Row| ScorecardDrawer
     ConfiguratorView -->|Apply Preset| LeaderboardView
 
@@ -102,9 +102,9 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    subgraph GlobalShell ["App Shell (Fixed Header, Global Context & Nav Rail)"]
+    subgraph GlobalShell ["App Shell (Fixed Header, Global Context and Nav Rail)"]
         direction TB
-        Brand["CVI Logo & Version HUD"]
+        Brand["CVI Logo and Version HUD"]
         NavRail["Primary Nav Rail<br/>• 2D Matrix (/matrix)<br/>• Leaderboard (/leaderboard)<br/>• Configurator (/persona)<br/>• Compare (/compare)"]
         Omnibar["Omnibar / Cmd+K Search<br/>• Fuzzy Repo Search<br/>• Persona Presets<br/>• Quick Jump"]
         ContextStatus["System HUD<br/>• Repos Indexed: 5,420<br/>• GHArchive Sync: Live (Lag under 15m)<br/>• Ecosystem: All"]
@@ -124,29 +124,26 @@ flowchart TD
 
 ### 2.2 Global Layout Grid & Viewport Shell
 
-The shell uses an ultra-responsive three-tier layout optimized for high-density desktop monitors ($1920\times 1080$ and $2560\times 1440$) with graceful degradation down to mobile devices:
+The shell uses an ultra-responsive three-tier layout optimized for high-density desktop monitors (1920x1080 and 2560x1440) with graceful degradation down to mobile devices:
 
-```
-+--------------------------------------------------------------------------------------------------+
-| Top Navigation & Omnibar (Height: 56px, Fixed)                                                  |
-| [ CVI Logo ]  [ Matrix ] [ Leaderboard ] [ Configurator ] [ Compare ]  | [ Cmd+K Search ]  [ HUD ] |
-+----+--------------------------------------------------------------------+------------------------+
-|    | Main Workspace Canvas / Content Zone                                | Context / Inspector    |
-| N  | (Dynamic Flex: 1fr, Min-Width: 720px)                               | Rail (Width: 420px,    |
-| A  |                                                                    | Slide-over on mobile,  |
-| V  | - Screen A: 2D Matrix Canvas with Floating HUD & Minimap           | Persistent on >1600px) |
-|    | - Screen B: Tabular Multi-Ecosystem Leaderboard                    |                        |
-| R  | - Screen D: Interactive Persona Sliders & Live Preview             | - Screen C Scorecard   |
-| A  | - Screen E: Dual-Radar Head-to-Head Comparison View                |   Drawer opens here    |
-| I  |                                                                    |   or as modal          |
-| L  |                                                                    |                        |
-|    |                                                                    |                        |
-| 64 |                                                                    |                        |
-| px |                                                                    |                        |
-+----+--------------------------------------------------------------------+------------------------+
-| Global Status Footer (Height: 28px, Fixed, Tabular Typography)                                   |
-| [ GHArchive Sync: OK ]  [ Active Persona: Balanced Default ]  [ Total Candidates: 5,420 ] [ Zoom ]|
-+--------------------------------------------------------------------------------------------------+
+```mermaid
+flowchart TD
+    subgraph ViewportLayout ["Global Layout Grid and Viewport Architecture"]
+        direction TB
+        TopNav["Top Navigation and Omnibar (Height: 56px, Fixed)<br/>[ CVI Logo ] [ Matrix ] [ Leaderboard ] [ Configurator ] [ Compare ] | [ Cmd+K Search ] [ System HUD ]"]
+        
+        subgraph MiddleZone ["Interactive Workspace Zone"]
+            direction LR
+            NavRail["Nav Rail<br/>(64px)"]
+            MainCanvas["Main Workspace Canvas (Dynamic Flex: 1fr, Min-Width: 720px)<br/>• Screen A: 2D Matrix Canvas with Floating HUD and Minimap<br/>• Screen B: Tabular Multi-Ecosystem Leaderboard<br/>• Screen D: Interactive Persona Sliders and Live Preview<br/>• Screen E: Dual-Radar Head-to-Head Comparison View"]
+            ContextDrawer["Context and Inspector Rail (420px Width)<br/>• Screen C: Deep-Dive Scorecard Drawer<br/>(Slide-over or persistent on >=1600px)"]
+            NavRail --- MainCanvas --- ContextDrawer
+        end
+        
+        Footer["Global Status Footer (Height: 28px, Fixed, Monospace Typography)<br/>[ GHArchive Sync: OK ] [ Active Persona: Balanced Default ] [ Total Candidates: 5,420 ] [ Zoom: 1.0x ]"]
+        
+        TopNav --> MiddleZone --> Footer
+    end
 ```
 
 ### 2.3 Global Command Palette (`Cmd+K`) & Omnibar Specification
@@ -296,34 +293,7 @@ stateDiagram-v2
 
 The 2D Discovery Matrix is the flagship exploratory canvas. It plots repositories along **Leverage ($Y$-axis, 0–100)** versus **Friction ($X$-axis, 0–100)**, partitioned into four distinct quadrants bisected at $(50, 50)$.
 
-```
-+--------------------------------------------------------------------------------------------------+
-| Top Bar: [CVI] [Matrix View (Active)] [Leaderboard] [Configurator] [Compare]  [Q Search (Cmd+K)]  |
-+--------------------------------------------------------------------------------------------------+
-| Filter Strip: [All (5,420)] [* Sweet Spot (384)] [* Crucible (210)] [* Nursery (890)] [* Graveyard (1.4k)]
-|               Ecosystem: [All v]  Min Criticality: [====o===]  Sort: [ROI v]  [ Reset View ]     |
-+--------------------------------------------------------------------------------------------------+
-| 2D MATRIX CANVAS (Pan / Zoom Interactive Surface)                                                |
-|                                                                                                  |
-|  LEVERAGE (Y: 0 - 100)                                                                           |
-|  100 ^                                                                                           |
-|      |         [THE CRUCIBLE]                         [THE SWEET SPOT]                           |
-|      |   o torvalds/linux (L:98, F:62)              * vllm-project/vllm (L:94, F:22)             |
-|      |                                              * duckdb/duckdb (L:91, F:18)                 |
-|      |          o chromium/chromium                 * fastapi/tiangolo                           |
-|   50 +----------------------------------------------+------------------------------------------- |
-|      |         [THE GRAVEYARD]                      | [THE NURSERY]                              |
-|      |   x keras-team/keras-hub (Ghost:64%)         | + astro/docs (L:42, F:12)                  |
-|      |   x dead-enterprise/tool                     | + rust-lang/rustlings                      |
-|      |                                              |                                            |
-|    0 +----------------------------------------------+------------------------------------------> |
-|      0                                             50                                   100      |
-|                                                                                FRICTION (X: 0 - 100) |
-|  [Floating HUD: Cursor (L:74.2, F:31.5) | Zoom: 1.0x]       [Minimap: [  *  ] Canvas Radar]      |
-+--------------------------------------------------------------------------------------------------+
-| Status Footer: 5,420 Repositories Plotted | Engine: DuckDB-Wasm In-Memory | WebGL Acceleration: ON|
-+--------------------------------------------------------------------------------------------------+
-```
+![Screen A: 2D Discovery Matrix Canvas](assets/cvi_platform_matrix.svg)
 
 #### Canvas Architecture & Technical Mechanics
 
@@ -331,7 +301,7 @@ The 2D Discovery Matrix is the flagship exploratory canvas. It plots repositorie
 flowchart TB
     subgraph CanvasEngine ["Screen A: 2D Matrix Engine Architecture"]
         direction TB
-        InputLayer["Viewport Event Handler<br/>• Pan (Pointer Drag / Space+Drag)<br/>• Pinch-to-Zoom & Wheel Scroll<br/>• Sub-pixel Precision Damping"]
+        InputLayer["Viewport Event Handler<br/>• Pan (Pointer Drag / Space+Drag)<br/>• Pinch-to-Zoom and Wheel Scroll<br/>• Sub-pixel Precision Damping"]
         CoordMapper["Coordinate Transformation Engine<br/>• World Space: [0..100, 0..100]<br/>• Screen Space: [0..CanvasWidth, 0..CanvasHeight]<br/>• Dynamic Bisector Lines (50, 50)"]
         SpatialIndex["Spatial QuadTree / k-d Tree<br/>• Real-time Nearest Neighbor Search<br/>• Collision Clustering at Zoom under 0.75x<br/>• Sub-10ms Hover Hit Detection"]
         Renderer["Dual-Layer Renderer<br/>• Background WebGL: Grid, Axis, 5,000+ Scatter Points<br/>• Foreground SVG: Selected Node Halo, Hover Card, Crosshairs"]
@@ -352,28 +322,18 @@ flowchart TB
    - **The Sweet Spot (Top-Right/Friction Inverted or Quadrant IV):** Emerald (`#10B981`) with soft 8px blur halo.
    - **The Crucible (Top-Left):** Indigo (`#6366F1`).
    - **The Nursery (Bottom-Right):** Amber (`#F59E0B`).
-   - **The Graveyard (Bottom-Left):** Crimson (`#EF4444`) with pulsing warning ping if ghost rate $>50\%$.
+   - **The Graveyard (Bottom-Left):** Crimson (`#EF4444`) with pulsing warning ping if ghost rate > 50%.
 4. **Clustering Mechanics:** At zoom levels $< 0.85\times$, points within $14\text{px}$ proximity merge into a glowing cluster bubble showing `+N` count. Clicking or zooming in smoothly explodes the cluster into individual repository nodes.
 
 #### Rich Hover Card Specification
 
-When hovering over any scatter node for $\ge 120\text{ms}$, a rich card anchors to the node:
+When hovering over any scatter node for >= 120ms, a rich card anchors to the node:
 
-```
-+-------------------------------------------------------+
-| [Avatar] vllm-project / vllm           [Tier S+] [CVI 92.4] |
-| High-throughput and memory-efficient LLM serving engine |
-+-------------------------------------------------------+
-| Quadrant: The Sweet Spot (Emerald)                    |
-| * Time-to-First-Review (TTFHR): 11.2h (Top 2% pypi)   |
-| * PR Ghost Rate: 4.1% (Near-Zero Black Hole Risk)     |
-| * OpenSSF Scorecard: 8.8 / 10                         |
-| * Active Unclaimed GFIs: 14 fresh issues              |
-+-------------------------------------------------------+
-| Ecosystem: Python / C++ | Dependents: 14,820 orgs     |
-| [ Click to open full Scorecard Drawer -> ]            |
-+-------------------------------------------------------+
-```
+| Hover Card Component | Interactive Specification & Data State |
+| :--- | :--- |
+| **Repository Header** | **`vllm-project / vllm`** `[ Tier S+ ]` `[ CVI: 94.2 ]`<br/>*High-throughput and memory-efficient LLM serving engine* |
+| **Quadrant & Core Metrics** | **The Sweet Spot (Emerald Diamond)**<br/>• **Time-to-First-Review (TTFHR):** 11.2h (Top 2% PyPI)<br/>• **PR Ghost Rate:** 4.1% (Near-Zero Black Hole Risk)<br/>• **OpenSSF Scorecard:** 8.8 / 10<br/>• **Active Unclaimed GFIs:** 14 fresh issues |
+| **Downstream Footprint & Action** | Python / CUDA • 14,820 Downstream Dependent Orgs<br/>`[ Click point or press Enter to inspect full Scorecard Drawer → ]` |
 
 ---
 
@@ -381,26 +341,7 @@ When hovering over any scatter node for $\ge 120\text{ms}$, a rich card anchors 
 
 Screen B provides a tabular, data-dense view for users who prefer structured sorting, multi-column ranking, and precise numerical comparisons across programming language ecosystems.
 
-```
-+---------------------------------------------------------------------------------------------------------------------+
-| Filter & Viewport Header:                                                                                           |
-| Tabs: [ Python (PyPI) ] [ TypeScript / JS (npm) ] [ Rust (Crates) ] [ Go (pkg.go) ] [ Systems (C/C++/CUDA) ] [ All ] |
-| Controls: Search [ Filter by repo / org... ]  Persona: [ Balanced Default v ]  Density: [ Compact | Default ]       |
-+-----+------+---------------------------+-----+-----------+------------+------------+---------------+----------------+
-| #   | Tier | Repository                | CVI | TTFHR     | Ghost Rate | Dependents | Elephant Fac. | 90d Velocity   |
-+-----+------+---------------------------+-----+-----------+------------+------------+---------------+----------------+
-| 001 | [S+] | [icon] vllm-project/vllm  | 94.2| 11.2h     |  3.8%      | 14.8k orgs | 4 (Multi)     | /\_/\_  +2.4k* |
-| 002 | [S+] | [icon] duckdb/duckdb      | 92.8| 14.1h     |  4.2%      | 28.1k orgs | 3 (Open)      | __/\_   +1.8k* |
-| 003 | [S]  | [icon] fastapi/fastapi    | 89.4| 18.0h     |  8.5%      | 89.2k orgs | 1 (Single)    | _--\_   +1.1k* |
-| 004 | [A]  | [icon] pydantic/pydantic  | 86.1| 24.5h     |  6.1%      | 62.4k orgs | 2 (Dual)      | ---/\   +840*  |
-| ... | ...  | ...                       | ... | ...       |  ...       | ...        | ...           | ...            |
-| 142 | [D]! | [icon] keras-team/hub     | 41.2| 412.0h [!]| 58.4% [!!] | 4.2k orgs  | 1 (Corporate) | \____   -120*  |
-+-----+------+---------------------------+-----+-----------+------------+------------+---------------+----------------+
-| Stage 0 EBA Alert: Row 142 flagged as [ PR Black Hole: Ghost Rate > 50% ]. Relegated from Top-Tier status.         |
-+---------------------------------------------------------------------------------------------------------------------+
-| Pagination / Infinite Scroll: Showing 1 - 50 of 1,240 Python Candidates     [ Export CSV ] [ Compare Selected (0) ]  |
-+---------------------------------------------------------------------------------------------------------------------+
-```
+![Screen B: Multi-Ecosystem Ranked Leaderboard](assets/cvi_leaderboard.svg)
 
 #### Column Hierarchy & Interactive Behaviors
 
@@ -410,8 +351,8 @@ Screen B provides a tabular, data-dense view for users who prefer structured sor
    - Tier D / Disqualified: Flashing red warning outline.
 3. **Repository Identity:** Avatar, verified foundation badge (e.g., Apache, CNCF, PSF feather icon), `owner/name`, and primary license.
 4. **Overall CVI Score (0–100):** Visual mini-progress bar with numerical score overlaid.
-5. **Maintainer Responsiveness (TTFHR):** Bot-filtered median hours. Values $\le 24\text{h}$ styled in emerald; $>168\text{h}$ (1 week) styled in red.
-6. **Pull Request Ghost Rate:** Percentage of PRs unanswered after 14 days. $\ge 50\%$ displays a red warning badge `[STAGE 0 FAIL]`.
+5. **Maintainer Responsiveness (TTFHR):** Bot-filtered median hours. Values <= 24h styled in emerald; > 168h (1 week) styled in red.
+6. **Pull Request Ghost Rate:** Percentage of PRs unanswered after 14 days. >= 50% displays a red warning badge `[STAGE 0 FAIL]`.
 7. **Downstream Footprint:** Unique root-organization dependents derived from package manager indexes.
 8. **CHAOSS Elephant Factor:** Commits contributed by top organizations. Badged as `Multi-Vendor (EF >= 3)` or `Single-Vendor Risk (EF = 1)`.
 9. **90-Day Velocity Sparkline:** Micro-SVG line chart showing 12 weekly data points of merged PR throughput.
@@ -435,7 +376,7 @@ flowchart TB
             SurvivalCurve["Kaplan-Meier Latency Curve<br/>• P(Unanswered PR) vs Time (Days)<br/>• Bot-censored baseline<br/>• 12h, 24h, 48h SLA markers"]
         end
 
-        subgraph GovernanceDuo ["Governance & Risk Row"]
+        subgraph GovernanceDuo ["Governance and Risk Row"]
             direction LR
             ElephantChart["CHAOSS Elephant Factor Donut<br/>• Top 5 Contributing Orgs<br/>• Entropy: 0.84 (Healthy Decentralization)"]
             CLAMatrix["Legal CLA Traffic-Light<br/>• DCO / Permissive [PASS]<br/>• Relicensing Rug-Pull Risk: Low"]
@@ -451,53 +392,13 @@ flowchart TB
 
 #### Detailed Scorecard Section Specifications
 
-```
-+----------------------------------------------------------------------------------------------------+
-| [Drawer Close: X]   vllm-project / vllm                             [ Verified S+ Tier ] [ CVI: 94.2 ] |
-| Primary: Python 74% / CUDA 22% / C++ 4%  | License: Apache-2.0 (DCO Retained)  | Stars: 32.4k      |
-+----------------------------------------------------------------------------------------------------+
-| SECTION 1: 5-PILLAR RADAR & BENCHMARK COMPARISON                                                   |
-|                                                                                                    |
-|             [Pillar 1: Responsiveness: 96/100]                                                     |
-|                           /\                                                                       |
-|                          /  \             Legend:                                                  |
-|  [P5: Access: 88]       /    \       [P2: Impact: 98]   === Repository Score (Cyan Line)          |
-|         \              /  *   \             /          --- Ecosystem Median (Dotted Gray)          |
-|          \            /        \           /                                                       |
-|           \__________/__________\_________/            P1: TTFHR: 11.2h | Merge Rate: 78%          |
-|                     /            \                     P2: Criticality: 0.91 | Orgs: 14.8k         |
-|   [P4: Rigor: 92]  /______________\  [P3: Gov: 86]     P3: Elephant Factor: 4 | DCO Safe           |
-|                                                        P4: Scorecard: 8.8/10 | AI: Welcoming       |
-|                                                        P5: Active GFIs: 14 | Return Rate: 42%      |
-+----------------------------------------------------------------------------------------------------+
-| SECTION 2: KAPLAN-MEIER RESPONSE SURVIVAL CURVE                                                    |
-|  1.0 |========                                                                                     |
-|  0.8 |        \                                                                                    |
-|  0.6 |         \__ (50% answered within 11.2 hours)                                                |
-|  0.4 |            \                                                                                |
-|  0.2 |             \___________ (92% answered within 48 hours)                                     |
-|  0.0 +------+--------+--------+--------+--------+-------->                                         |
-|      0h     12h      24h      48h      7d       14d (Ghost Threshold)                              |
-|      Summary: S-Tier Turnaround. PRs are 8.4x less likely to be ghosted than Python ecosystem avg.|
-+----------------------------------------------------------------------------------------------------+
-| SECTION 3: GOVERNANCE & LEGAL RISK AUDIT                                                            |
-|  [ CHAOSS Elephant Factor: 4 ]                 [ Legal CLA Risk: GREEN ]                           |
-|  - Anyscale: 31%                              - Regime: Permissive Apache-2.0 + DCO               |
-|  - Red Hat: 18%                               - Copyright: Retained by Individual Authors         |
-|  - UC Berkeley: 14%                           - Commercial Relicensing Risk: NEGLIGIBLE (<1%)      |
-|  - Independent / Other: 37%                   - Multi-Vendor Steering Committee: Verified         |
-+----------------------------------------------------------------------------------------------------+
-| SECTION 4: ACTIVE UNCLAIMED GOOD FIRST ISSUES (GFIs) (Updated < 24h ago)                            |
-|  #11204: Add FP8 KV Cache kernel support for ROCm           [GFI] [Help Wanted]  Age: 3d  Msgs: 4  |
-|  #11189: Standardize CLI flags for tensor parallel workers   [GFI] [DX]           Age: 5d  Msgs: 2  |
-|  #11042: Fix documentation typos in benchmark runner        [GFI] [Docs]         Age: 8d  Msgs: 1  |
-|  [ View All 14 GFIs on GitHub -> ]                                                                 |
-+----------------------------------------------------------------------------------------------------+
-```
+![Screen C: Deep-Dive Scorecard Drawer](assets/cvi_scorecard_drawer.svg)
 
 ---
 
 ### 4.4 Screen D: Persona Configurator & Weight Adjuster
+
+![Screen D: Custom Priority Configurator](assets/cvi_custom_ranking.svg)
 
 Screen D empowers contributors to calibrate the platform's multi-criteria evaluation engine to match their personal career goals.
 
@@ -507,7 +408,7 @@ flowchart TD
         direction TB
         PresetSelector["One-Click Persona Presets<br/>• Balanced Default<br/>• First-Time Contributor (Nursery Focus)<br/>• Career Capital Hunter (Sweet Spot Focus)<br/>• Senior Systems Specialist (Crucible Focus)<br/>• AI-Assisted Contributor (AI Posture Focus)"]
         
-        Sliders["5-Pillar Slider Array with Normalization Lock<br/>• Responsiveness: [---o---] 25%<br/>• Criticality:    [-----o-] 35% [LOCK]<br/>• Governance:     [--o----] 15%<br/>• Rigor & AI:     [---o---] 15%<br/>• Accessibility:  [--o----] 10%"]
+        Sliders["5-Pillar Slider Array with Normalization Lock<br/>• Responsiveness: [---o---] 25%<br/>• Criticality:    [-----o-] 35% [LOCK]<br/>• Governance:     [--o----] 15%<br/>• Rigor and AI:     [---o---] 15%<br/>• Accessibility:  [--o----] 10%"]
         
         Normalizer["Axiomatic Normalization Engine<br/>Sum of Unlocked Sliders dynamically scales to maintain Total = 100%"]
         
@@ -521,9 +422,9 @@ flowchart TD
 
 #### Interactive Slider Mechanics & Normalization Model
 
-1. **Sum-to-100% Invariant:** The sum of weights must strictly equal $100\%$:
-   $$\sum_{i=1}^{5} w_i = 100\%$$
-2. **Lock Toggle:** Next to each slider is a padlock button `[Lock]`. When a user locks a pillar (e.g., locking Criticality at $35\%$), adjusting other sliders re-normalizes only the remaining $4$ unlocked pillars.
+1. **Sum-to-100% Invariant:** The sum of weights must strictly equal 100%:
+   $\sum_{i=1}^{5} w_i = 1.0$
+2. **Lock Toggle:** Next to each slider is a padlock button `[Lock]`. When a user locks a pillar (e.g., locking Criticality at 35%), adjusting other sliders re-normalizes only the remaining $4$ unlocked pillars.
 3. **Live Re-Projection Feedback:** As sliders move, the preview table to the right updates at 60fps without server roundtrips, displaying dynamic badge shifts:
    - `vllm-project/vllm`: `#1 -> #1 (0)`
    - `duckdb/duckdb`: `#3 -> #2 (+1)`
@@ -541,47 +442,31 @@ flowchart TD
 
 Screen E enables head-to-head evaluation between two to four repositories, directly comparing their trade-offs across all 15 empirical metrics.
 
-```
-+----------------------------------------------------------------------------------------------------+
-| HEAD-TO-HEAD COMPARISON                                      [ + Add Repository to Compare (Max 4) ] |
-+----------------------------------------------------------------------------------------------------+
-| METRIC DIMENSION                   | REPO A: vllm-project/vllm     | REPO B: keras-team/keras-hub   |
-+------------------------------------+-------------------------------+--------------------------------+
-| Overall CVI Score                  | 94.2 (Tier S+) [WINNER]       | 41.2 (Tier D)                  |
-| 2D Discovery Quadrant              | THE SWEET SPOT (Emerald)      | THE GRAVEYARD (Crimson)        |
-+------------------------------------+-------------------------------+--------------------------------+
-| SUPERIMPOSED RADAR VIEW            | [ Solid Cyan Polygon ]        | [ Dashed Red Polygon ]         |
-|                                    | (Expansive across all 5 axes) | (Collapsed on P1 & P5)         |
-+------------------------------------+-------------------------------+--------------------------------+
-| PILLAR 1: RESPONSIVENESS           |                               |                                |
-| - Bot-Filtered TTFHR               | 11.2 hours [WINNER: 8.4x]     | 94.0 hours                     |
-| - First-Timer Merge Rate           | 78.4%                         | 22.1%                          |
-| - PR Ghost Rate (14-day)           | 3.8% (Near-Zero Risk)         | 58.4% [CRITICAL BLACK HOLE]    |
-| - Review Latency Tail (p90)        | 3.2 days                      | 44.0 days                      |
-+------------------------------------+-------------------------------+--------------------------------+
-| PILLAR 2: PRODUCTION IMPACT        |                               |                                |
-| - Downstream Registry Dependents   | 14,820 orgs                   | 4,210 orgs                     |
-| - OpenSSF Criticality Score        | 0.91                          | 0.68                           |
-| - Filtered Monthly Downloads       | 2.8M                          | 840k                           |
-+------------------------------------+-------------------------------+--------------------------------+
-| PILLAR 3: GOVERNANCE & IP          |                               |                                |
-| - Legal CLA Regime                 | DCO / Individual Copyright    | Google Corporate CLA [RIGID]   |
-| - CHAOSS Elephant Factor           | 4 (Multi-Vendor Consortium)   | 1 (Single-Vendor Silo)         |
-| - Contributor Promotion Ladder     | Documented Committership Path | Closed Internal Reviewers      |
-+------------------------------------+-------------------------------+--------------------------------+
-| PILLAR 4: ENGINEERING RIGOR        |                               |                                |
-| - OpenSSF Scorecard Pipeline       | 8.8 / 10                      | 6.2 / 10                       |
-| - Calibrated AI Policy             | Welcoming with Attribution    | Ambiguous / Unregulated Slop   |
-+------------------------------------+-------------------------------+--------------------------------+
-| PILLAR 5: ACCESSIBILITY & ON-RAMPS |                               |                                |
-| - Active Unclaimed GFIs            | 14 fresh issues               | 0 issues (All stale > 90d)     |
-| - 90-Day Newcomer Return Rate      | 42.1%                         | 8.4%                           |
-+------------------------------------+-------------------------------+--------------------------------+
-| SYNTHESIZED VERDICT                | "Recommended: vllm-project/   | "Avoid: High risk of wasted    |
-|                                    | vllm provides 8x faster review| engineering effort due to 58%  |
-|                                    | turnaround and author DCO."   | unreviewed PR ghosting rate."  |
-+------------------------------------+-------------------------------+--------------------------------+
-```
+| Metric Dimension | Repository A: `vllm-project/vllm` | Repository B: `keras-team/keras-hub` |
+| :--- | :--- | :--- |
+| **Overall CVI Score** | **94.2 (Tier S+) [Recommended]** | **41.2 (Tier D) [High Risk]** |
+| **2D Discovery Quadrant** | **The Sweet Spot** (Emerald Diamond) | **The Graveyard** (Crimson Cross) |
+| **Superimposed Radar View** | Solid Cyan Polygon (Expansive across all 5 axes) | Dashed Red Polygon (Collapsed on P1 and P5) |
+| **Pillar 1: Responsiveness** | | |
+| • Bot-Filtered Human TTFHR | **11.2 hours** [8.4x faster turnaround] | 94.0 hours |
+| • First-Timer Merge Rate | **78.4%** | 22.1% |
+| • PR Ghost Rate (14-day) | **3.8%** (Near-Zero Risk) | **58.4%** [Stage 0 Relegation] |
+| • Review Latency Tail (p90) | **3.2 days** | 44.0 days |
+| **Pillar 2: Production Impact** | | |
+| • Downstream Registry Dependents | **14,820 root orgs** | 4,210 root orgs |
+| • Canonical OpenSSF Criticality | **0.912** | 0.681 |
+| • Filtered Monthly Downloads | **2.8M** | 840k |
+| **Pillar 3: Governance and IP** | | |
+| • Legal CLA Regime | **DCO Retained (Individual Copyright)** | Corporate CLA (Rigid IP Assignment) |
+| • CHAOSS Elephant Factor | **4** (Multi-Vendor Consortium) | **1** (Single-Vendor Silo) |
+| • Contributor Promotion Ladder | Verified Committership Pathway | Closed Internal Gatekeepers |
+| **Pillar 4: Engineering Rigor** | | |
+| • OpenSSF Scorecard Pipeline | **8.8 / 10** | 6.2 / 10 |
+| • Calibrated AI Policy | Structured CI with Attribution | Ambiguous / Silent Rejections |
+| **Pillar 5: Accessibility and On-Ramps** | | |
+| • Active Unclaimed GFIs | **14 fresh issues** (&lt; 30d) | 0 issues (All stale &gt; 90d) |
+| • 90-Day Newcomer Return Rate | **42.1%** | 8.4% |
+| **Synthesized Verdict** | **Recommended:** S-Tier turnaround and verified multi-vendor governance. | **Avoid:** Severe PR ghosting (&gt; 50%) and closed single-vendor silo. |
 
 ---
 
@@ -617,7 +502,7 @@ Screen E enables head-to-head evaluation between two to four repositories, direc
 | `Esc` | Modal / Drawer / Menu | Dismiss active Scorecard Drawer, Popover, or Omnibar |
 | `Arrow Keys` (`↑` `↓` `←` `→`)| Screen A (Canvas) | Pan canvas in 50px increments |
 | `+` / `-` | Screen A (Canvas) | Zoom in / Zoom out around canvas center |
-| `0` | Screen A (Canvas) | Reset zoom level to `1.0x` and center at $(50, 50)$ |
+| `0` | Screen A (Canvas) | Reset zoom level to `1.0x` and center at (50, 50) |
 | `J` / `K` | Screen B (Table) | Select next / previous repository row |
 | `Enter` | Screen B (Table) | Open Scorecard Drawer for selected row |
 | `X` | Screen B (Table) | Toggle selection checkbox for comparison |
