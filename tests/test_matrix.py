@@ -203,3 +203,27 @@ def test_decompose_all_quadrants_reachable():
         Quadrant.NURSERY,
         Quadrant.GRAVEYARD,
     }
+
+
+def test_decompose_by_coordinates():
+    assert decompose(leverage=60.0, friction=40.0) == Quadrant.SWEET_SPOT
+    assert decompose(leverage=60.0, friction=60.0) == Quadrant.CRUCIBLE
+    assert decompose(leverage=40.0, friction=40.0) == Quadrant.NURSERY
+    assert decompose(leverage=40.0, friction=60.0) == Quadrant.GRAVEYARD
+
+
+def test_decompose_no_args_raises_value_error():
+    import pytest
+
+    with pytest.raises(ValueError, match="Must provide either pillar_scores or both"):
+        decompose()
+
+
+def test_decompose_partial_coordinates_raises_value_error():
+    import pytest
+
+    with pytest.raises(ValueError, match="Must provide either pillar_scores or both"):
+        decompose(leverage=60.0)
+    with pytest.raises(ValueError, match="Must provide either pillar_scores or both"):
+        decompose(friction=40.0)
+

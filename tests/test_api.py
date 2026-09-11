@@ -365,6 +365,24 @@ class TestRepoDeepDive:
         assert resp.status_code == 404
         assert "detail" in resp.json()
 
+    def test_existing_repo_includes_parsed_deep_dive_object(self) -> None:
+        def seed():
+            s = seed_matrix_store()
+            s.upsert_deep_dive(
+                "alpha", "omega", {"maintainer_playbook": {"total_point_gain": 4.5}}
+            )
+            return s
+
+        client = open_client(seed)
+        try:
+            resp = client.get("/v1/cvi/repos/alpha/omega")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "deep_dive" in data
+            assert data["deep_dive"]["maintainer_playbook"]["total_point_gain"] == 4.5
+        finally:
+            client.__exit__(None, None, None)
+
 
 # --------------------------------------------------------------------------- #
 # POST /v1/cvi/reproject
@@ -552,7 +570,9 @@ class TestLeaderboard:
         body = resp.json()
         assert body["total"] == 5
         assert body["page"] == 1
-        assert body["limit"] == 100
+        assert body["page_size"] == 50
+        assert body["limit"] == 50
+        assert body["total_pages"] == 1
         items = body["items"]
         assert len(items) == 5
         # Ranks must be 1..5 in order
@@ -564,6 +584,47 @@ class TestLeaderboard:
         # Required keys present on all items
         for item in items:
             assert set(item) >= LEADERBOARD_KEYS
+
+    def test_custom_pagination_page_and_size(self, matrix_client) -> None:
+        # Page 1, page_size 2 -> items 1, 2, total_pages 3
+        p1 = matrix_client.get("/v1/cvi/leaderboard", params={"page": 1, "page_size": 2}).json()
+        assert p1["page"] == 1
+        assert p1["page_size"] == 2
+        assert p1["total_pages"] == 3
+        assert len(p1["items"]) == 2
+        assert [i["rank"] for i in p1["items"]] == [1, 2]
+
+        # Page 2, page_size 2 -> items 3, 4, total_pages 3
+        p2 = matrix_client.get("/v1/cvi/leaderboard", params={"page": 2, "page_size": 2}).json()
+        assert p2["page"] == 2
+        assert p2["page_size"] == 2
+        assert p2["total_pages"] == 3
+        assert len(p2["items"]) == 2
+        assert [i["rank"] for i in p2["items"]] == [3, 4]
+
+        # Page 3, page_size 2 -> item 5, total_pages 3
+        p3 = matrix_client.get("/v1/cvi/leaderboard", params={"page": 3, "page_size": 2}).json()
+        assert p3["page"] == 3
+        assert p3["page_size"] == 2
+        assert p3["total_pages"] == 3
+        assert len(p3["items"]) == 1
+        assert [i["rank"] for i in p3["items"]] == [5]
+
+        # Page 2, page_size 10 -> out of bounds items [], total_pages 1
+        p_custom = matrix_client.get("/v1/cvi/leaderboard", params={"page": 2, "page_size": 10}).json()
+        assert p_custom["page"] == 2
+        assert p_custom["page_size"] == 10
+        assert p_custom["total_pages"] == 1
+        assert p_custom["items"] == []
+
+    def test_invalid_pagination_boundaries(self, matrix_client) -> None:
+        assert matrix_client.get("/v1/cvi/leaderboard", params={"page": 0}).status_code == 422
+        assert matrix_client.get("/v1/cvi/leaderboard", params={"page": -1}).status_code == 422
+        assert matrix_client.get("/v1/cvi/leaderboard", params={"page_size": 0}).status_code == 422
+        assert matrix_client.get("/v1/cvi/leaderboard", params={"page_size": 1001}).status_code == 422
+        assert matrix_client.get("/v1/cvi/leaderboard", params={"limit": 0}).status_code == 422
+        assert matrix_client.get("/v1/cvi/leaderboard", params={"limit": 1001}).status_code == 422
+        assert matrix_client.get("/v1/cvi/leaderboard", params={"offset": -1}).status_code == 422
 
     def test_ecosystem_filter(self, matrix_client) -> None:
         resp = matrix_client.get("/v1/cvi/leaderboard", params={"ecosystem": "pypi"})
@@ -713,6 +774,15 @@ class TestLeaderboard:
         resp = matrix_client.get("/v1/cvi/leaderboard", params={"persona": "invalid_persona"})
         assert resp.status_code == 422
 
+    def test_store_leaderboard_value_error_raises_422(self, monkeypatch, matrix_client) -> None:
+        def mock_leaderboard(*args, **kwargs):
+            raise ValueError("simulated value error")
+        store = matrix_client.app.state.store
+        monkeypatch.setattr(store, "leaderboard", mock_leaderboard)
+        resp = matrix_client.get("/v1/cvi/leaderboard")
+        assert resp.status_code == 422
+        assert "simulated value error" in resp.json()["detail"]
+
     def test_empty_store_returns_empty_paginated_dict(self) -> None:
         client = open_client(lambda: OperationalStore())
         try:
@@ -721,9 +791,57 @@ class TestLeaderboard:
             assert resp.json() == {
                 "total": 0,
                 "page": 1,
-                "limit": 100,
+                "page_size": 50,
+                "limit": 50,
+                "total_pages": 0,
                 "items": [],
             }
         finally:
             client.__exit__(None, None, None)
+
+
+class TestStaticServing:
+    def test_root_serves_index_html(self, matrix_client) -> None:
+        resp = matrix_client.get("/")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+        assert "<!doctype html>" in resp.text.lower()
+
+    def test_index_html_direct(self, matrix_client) -> None:
+        resp = matrix_client.get("/index.html")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+
+    def test_nonexistent_static_file_returns_404(self, matrix_client) -> None:
+        resp = matrix_client.get("/nonexistent_static_file.xyz")
+        assert resp.status_code == 404
+
+    def test_api_routes_not_shadowed(self, matrix_client) -> None:
+        assert matrix_client.get("/healthz").headers["content-type"] == "application/json"
+        assert matrix_client.get("/v1/cvi/matrix").headers["content-type"] == "application/json"
+        assert matrix_client.get("/v1/cvi/leaderboard").headers["content-type"] == "application/json"
+
+    def test_create_app_web_dir_none(self) -> None:
+        app = create_app(web_dir=None)
+        client = TestClient(app)
+        with client:
+            assert client.get("/healthz").status_code == 200
+            assert client.get("/").status_code == 404
+
+    def test_create_app_web_dir_nonexistent(self) -> None:
+        app = create_app(web_dir="/tmp/definitely_nonexistent_dir_12345")
+        client = TestClient(app)
+        with client:
+            assert client.get("/healthz").status_code == 200
+            assert client.get("/").status_code == 404
+
+    def test_create_app_custom_web_dir(self, tmp_path) -> None:
+        custom_file = tmp_path / "index.html"
+        custom_file.write_text("<!doctype html><html><body>Test Custom App</body></html>", encoding="utf-8")
+        app = create_app(web_dir=tmp_path)
+        client = TestClient(app)
+        with client:
+            resp = client.get("/")
+            assert resp.status_code == 200
+            assert "Test Custom App" in resp.text
 

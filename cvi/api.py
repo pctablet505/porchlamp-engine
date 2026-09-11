@@ -54,21 +54,24 @@ truth and these are resolved in favour of the spec text):
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from pathlib import Path
+from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, model_validator
 
-from cvi.engine import assign_tier
 from cvi.lakehouse import OperationalStore
-from cvi.models import AIPosture, Persona, PillarScores, Tier
+from cvi.models import Persona, PillarScores
 from cvi.persona import (
     PILLAR_KEYS,
     WEIGHT_SUM_TOLERANCE,
-    persona_composite,
     rank_deltas,
     reproject,
 )
+
+_REPO_ROOT: Path = Path(__file__).resolve().parent.parent
+_DEFAULT_WEB_DIR: Path = _REPO_ROOT / "web"
 
 __all__ = ["ReprojectRequest", "create_app", "get_store"]
 
@@ -114,11 +117,15 @@ class ReprojectRequest(BaseModel):
         return self
 
 
-def create_app(store: Optional[OperationalStore] = None) -> FastAPI:
-    """Build the CVI API app around ``store``.
+def create_app(
+    store: Optional[OperationalStore] = None,
+    web_dir: Optional[str | Path] = _DEFAULT_WEB_DIR,
+) -> FastAPI:
+    """Build the CVI API app around ``store`` and mount ``web_dir`` at ``/``.
 
     When ``store`` is None a fresh in-memory ``OperationalStore`` is
     created (and owned by the app, for its lifetime).
+    When ``web_dir`` is provided and exists, static files are mounted at ``/``.
     """
     app = FastAPI(title="CVI", version="1.0.0")
     app.state.store = store if store is not None else OperationalStore()
@@ -188,40 +195,47 @@ def create_app(store: Optional[OperationalStore] = None) -> FastAPI:
 
     @app.get("/v1/cvi/leaderboard")
     async def leaderboard_endpoint(
-        ecosystem: Optional[str] = Query(default=None),
-        persona: Persona = Query(default=Persona.BALANCED),
-        min_stars: int = Query(default=0, ge=0),
-        limit: int = Query(default=100, ge=1, le=1000),
-        offset: int = Query(default=0, ge=0),
-        search: Optional[str] = Query(default=None),
+        page: int = Query(default=1, ge=1, description="1-indexed page number"),
+        page_size: Optional[int] = Query(
+            default=None, ge=1, le=1000, description="Items per page (alias for limit)"
+        ),
+        limit: Optional[int] = Query(
+            default=None, ge=1, le=1000, description="Items per page (legacy alias for page_size)"
+        ),
+        offset: Optional[int] = Query(
+            default=None, ge=0, description="Explicit record offset (overrides page if provided)"
+        ),
+        ecosystem: Optional[str] = Query(default=None, description="Ecosystem filter"),
+        persona: Optional[Persona] = Query(
+            default=None, description="Dynamic persona re-projection target"
+        ),
+        search: Optional[str] = Query(default=None, description="Substring search in owner/name"),
+        min_stars: int = Query(default=0, ge=0, description="Minimum stars filter"),
         store: OperationalStore = Depends(get_store),
     ) -> dict:
         """Paginated leaderboard with filtering, fuzzy search, and dynamic persona re-projection."""
-        where: list[str] = []
-        params: list[Any] = []
-        if ecosystem is not None:
-            where.append("LOWER(ecosystem) = LOWER(?)")
-            params.append(ecosystem)
-        if min_stars > 0:
-            where.append("stars >= ?")
-            params.append(min_stars)
-        if search is not None and search.strip():
-            term = f"%{search.strip().lower()}%"
-            where.append(
-                "(LOWER(owner) LIKE ? OR LOWER(name) LIKE ? OR LOWER(owner || '/' || name) LIKE ?)"
+        effective_page_size = page_size if page_size is not None else (limit if limit is not None else 50)
+        if offset is not None:
+            effective_offset = offset
+            effective_page = (offset // effective_page_size) + 1
+        else:
+            effective_page = page
+            effective_offset = (page - 1) * effective_page_size
+
+        try:
+            rows, total = store.leaderboard(
+                ecosystem=ecosystem,
+                persona=persona,
+                search=search,
+                limit=effective_page_size,
+                offset=effective_offset,
+                min_stars=min_stars,
             )
-            params.extend([term, term, term])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-        sql = "SELECT * FROM repositories"
-        if where:
-            sql += f" WHERE {' AND '.join(where)}"
-        cur = store.connection.execute(sql, params)
-        cols = [d[0] for d in cur.description]
-        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-        total = len(rows)
-
-        processed: list[dict[str, Any]] = []
-        for row in rows:
+        items = []
+        for i, row in enumerate(rows):
             pillar_scores = {
                 "responsiveness": float(row["score_responsiveness"]),
                 "criticality": float(row["score_criticality"]),
@@ -229,34 +243,13 @@ def create_app(store: Optional[OperationalStore] = None) -> FastAPI:
                 "rigor": float(row["score_rigor_ai"]),
                 "accessibility": float(row["score_accessibility"]),
             }
-            if persona == Persona.BALANCED:
-                cvi_val = float(row["overall_cvi"])
-                tier_val = str(row["rank_tier"])
-                is_gated_val = int(row["is_stage0_disqualified"])
-            else:
-                ps = PillarScores(
-                    responsiveness=pillar_scores["responsiveness"],
-                    criticality=pillar_scores["criticality"],
-                    governance=pillar_scores["governance"],
-                    rigor=pillar_scores["rigor"],
-                    accessibility=pillar_scores["accessibility"],
-                )
-                if row["is_stage0_disqualified"] or (
-                    persona is Persona.AI_ASSISTED
-                    and row["ai_posture"] == AIPosture.PROSCRIBED.value
-                ) or (
-                    persona is Persona.SENIOR_SYSTEMS
-                    and row["elephant_factor"] < 3
-                ):
-                    cvi_val = 0.0
-                    tier_val = Tier.D.value
-                    is_gated_val = 1
-                else:
-                    cvi_val = persona_composite(ps, persona)
-                    tier_val = assign_tier(cvi_val).value
-                    is_gated_val = 0
+            cvi_val = float(row["overall_cvi"])
+            tier_val = str(row["rank_tier"])
+            is_gated_val = int(row["is_stage0_disqualified"])
+            rank_val = effective_offset + i + 1
 
-            processed.append({
+            items.append({
+                "rank": rank_val,
                 "repo_id": _repo_id(row["owner"], row["name"]),
                 "owner": row["owner"],
                 "name": row["name"],
@@ -278,28 +271,25 @@ def create_app(store: Optional[OperationalStore] = None) -> FastAPI:
                 "score_rigor_ai": pillar_scores["rigor"],
                 "score_accessibility": pillar_scores["accessibility"],
                 "stars": int(row["stars"]),
-                "downloads": int(row["monthly_downloads"]),
-                "monthly_downloads": int(row["monthly_downloads"]),
-                "dependents": int(row["dependents_count"]),
-                "dependents_count": int(row["dependents_count"]),
-                "elephant_factor": int(row["elephant_factor"]),
-                "legal_ip_model": row["legal_ip_model"],
-                "ai_posture": row["ai_posture"],
+                "downloads": int(row.get("monthly_downloads", 0)),
+                "monthly_downloads": int(row.get("monthly_downloads", 0)),
+                "dependents": int(row.get("dependents_count", 0)),
+                "dependents_count": int(row.get("dependents_count", 0)),
+                "elephant_factor": int(row.get("elephant_factor", 0)),
+                "legal_ip_model": row.get("legal_ip_model", ""),
+                "ai_posture": row.get("ai_posture", ""),
                 "license": row.get("license"),
                 "is_gated": is_gated_val,
                 "is_stage0_disqualified": is_gated_val,
             })
 
-        processed.sort(key=lambda r: (-r["cvi"], r["owner"], r["name"]))
-
-        items = processed[offset : offset + limit]
-        for i, item in enumerate(items):
-            item["rank"] = offset + i + 1
-
+        total_pages = (total + effective_page_size - 1) // effective_page_size if total > 0 else 0
         return {
             "total": total,
-            "page": offset // limit + 1,
-            "limit": limit,
+            "page": effective_page,
+            "page_size": effective_page_size,
+            "limit": effective_page_size,
+            "total_pages": total_pages,
             "items": items,
         }
 
@@ -353,5 +343,11 @@ def create_app(store: Optional[OperationalStore] = None) -> FastAPI:
                 }
             )
         return result
+
+    # Static files mounted last so API routes (/healthz, /v1/...) take precedence
+    if web_dir is not None:
+        web_path = Path(web_dir)
+        if web_path.is_dir():
+            app.mount("/", StaticFiles(directory=str(web_path), html=True), name="web")
 
     return app
