@@ -435,7 +435,20 @@ class TestFeedPendingAndMetaSections:
             "elephant_breakdown",
             "legal_ip",
             "good_first_issues",
+            "maintainer_playbook",
         }
+
+    def test_payload_maintainer_playbook_present(self) -> None:
+        payload = build_deep_dive(make_meta(), population(), NOW)
+        playbook = payload["maintainer_playbook"]
+        assert "current_cvi" in playbook
+        assert "current_tier" in playbook
+        assert "current_quadrant" in playbook
+        assert "potential_cvi" in playbook
+        assert "projected_tier" in playbook
+        assert "projected_quadrant" in playbook
+        assert "total_point_gain" in playbook
+        assert "actions" in playbook
 
 
 # --------------------------------------------------------------------------- #

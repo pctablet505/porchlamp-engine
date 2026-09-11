@@ -40,7 +40,20 @@ import sqlite3
 from datetime import datetime
 from typing import Any, Optional
 
-from cvi.models import CVICompositeResult, PillarScores, Quadrant
+from cvi.deepdive import build_deep_dive
+from cvi.engine import assign_tier
+from cvi.matrix import decompose
+from cvi.models import (
+    AIPosture,
+    CVICompositeResult,
+    Ecosystem,
+    Persona,
+    PillarScores,
+    Quadrant,
+    RepoMeta,
+    Tier,
+)
+from cvi.persona import persona_composite
 
 __all__ = ["OperationalStore"]
 
@@ -129,8 +142,12 @@ CREATE TABLE IF NOT EXISTS repositories (
 );
 CREATE INDEX IF NOT EXISTS idx_cvi_ecosystem_rank
     ON repositories (ecosystem, overall_cvi DESC);
+CREATE INDEX IF NOT EXISTS idx_cvi_overall_rank
+    ON repositories (overall_cvi DESC, owner, name);
 CREATE INDEX IF NOT EXISTS idx_cvi_quadrant
     ON repositories (matrix_quadrant, overall_cvi DESC);
+CREATE INDEX IF NOT EXISTS idx_cvi_search
+    ON repositories (LOWER(owner), LOWER(name));
 """
 
 
@@ -255,6 +272,156 @@ class OperationalStore:
         self._conn.commit()
         return int(cur.rowcount)
 
+    def seed_benchmark_catalog(self, repos: list[dict[str, Any]]) -> None:
+        """Bulk insert repository definitions in a single transaction in <2.0s."""
+        self.ensure_deep_dive_column()
+        from .benchmark_data import BENCHMARK_NOW, generate_synthetic_pr_events
+
+        when = BENCHMARK_NOW
+        when_iso = when.isoformat()
+        rows = []
+
+        for item in repos:
+            pillars = item.get("pillars", (50.0, 50.0, 50.0, 50.0, 50.0))
+            is_gated = item.get("is_gated", False)
+
+            if is_gated:
+                cvi = 0.0
+                tier = Tier.D.value
+                quadrant = Quadrant.GRAVEYARD.value
+                lev = 0.0
+                fric = 100.0
+                is_dq = 1
+                dq_reason = "PR ghost rate exceeds 50% ceiling (black hole)"
+                p_scores = (0.0, 0.0, 0.0, 0.0, 0.0)
+                ps = None
+            else:
+                ps = PillarScores(*pillars)
+                lev, fric, quad = decompose(ps)
+                cvi = persona_composite(ps, Persona.BALANCED)
+                tier = assign_tier(cvi).value
+                quadrant = quad.value
+                is_dq = 0
+                dq_reason = None
+                p_scores = pillars
+
+            meta = RepoMeta(
+                owner=item["owner"],
+                name=item["name"],
+                ecosystem=item["ecosystem"],
+                stars=item["stars"],
+                forks=item["forks"],
+                monthly_downloads=item["monthly_downloads"],
+                dependents_count=item["dependents_count"],
+                elephant_factor=item["elephant_factor"],
+                legal_ip_model=item["legal_ip_model"],
+                ai_posture=item["ai_posture"],
+                active_nonbot_commits_180d=item.get("active_nonbot_commits_180d", 100),
+                off_platform_reviews=item.get("off_platform_reviews", False),
+                hard_ai_ban=item.get("hard_ai_ban", False),
+                active_unclaimed_gfis=item.get("active_unclaimed_gfis", 5),
+            )
+            pr_events = generate_synthetic_pr_events(
+                owner=item["owner"],
+                name=item["name"],
+                p1=pillars[0],
+                now=when,
+                is_gated=is_gated,
+            )
+            dd = build_deep_dive(
+                meta,
+                pr_events,
+                when,
+                pillar_scores=ps,
+                overall_cvi=cvi,
+            )
+            dd_str = json.dumps(dd, sort_keys=True)
+
+            eco_str = (
+                item["ecosystem"].value
+                if hasattr(item["ecosystem"], "value")
+                else str(item["ecosystem"])
+            )
+            legal_str = (
+                item["legal_ip_model"].value
+                if hasattr(item["legal_ip_model"], "value")
+                else str(item["legal_ip_model"])
+            )
+            ai_str = (
+                item["ai_posture"].value
+                if hasattr(item["ai_posture"], "value")
+                else str(item["ai_posture"])
+            )
+
+            rows.append((
+                item["owner"],
+                item["name"],
+                eco_str,
+                item.get("domain_category", ""),
+                item["stars"],
+                item["forks"],
+                item["monthly_downloads"],
+                item["dependents_count"],
+                round(pillars[1] / 100.0, 4),
+                item["elephant_factor"],
+                legal_str,
+                ai_str,
+                p_scores[0],
+                p_scores[1],
+                p_scores[2],
+                p_scores[3],
+                p_scores[4],
+                lev,
+                fric,
+                quadrant,
+                cvi,
+                tier,
+                is_dq,
+                dq_reason,
+                when_iso,
+                dd_str,
+            ))
+
+        sql = """
+        INSERT INTO repositories (
+            owner, name, ecosystem, domain_category, stars, forks,
+            monthly_downloads, dependents_count, openssf_criticality,
+            elephant_factor, legal_ip_model, ai_posture,
+            score_responsiveness, score_criticality, score_governance,
+            score_rigor_ai, score_accessibility, leverage_score,
+            friction_score, matrix_quadrant, overall_cvi, rank_tier,
+            is_stage0_disqualified, disqualification_reason, last_indexed_at,
+            deep_dive_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(owner, name) DO UPDATE SET
+            ecosystem = excluded.ecosystem,
+            domain_category = excluded.domain_category,
+            stars = excluded.stars,
+            forks = excluded.forks,
+            monthly_downloads = excluded.monthly_downloads,
+            dependents_count = excluded.dependents_count,
+            openssf_criticality = excluded.openssf_criticality,
+            elephant_factor = excluded.elephant_factor,
+            legal_ip_model = excluded.legal_ip_model,
+            ai_posture = excluded.ai_posture,
+            score_responsiveness = excluded.score_responsiveness,
+            score_criticality = excluded.score_criticality,
+            score_governance = excluded.score_governance,
+            score_rigor_ai = excluded.score_rigor_ai,
+            score_accessibility = excluded.score_accessibility,
+            leverage_score = excluded.leverage_score,
+            friction_score = excluded.friction_score,
+            matrix_quadrant = excluded.matrix_quadrant,
+            overall_cvi = excluded.overall_cvi,
+            rank_tier = excluded.rank_tier,
+            is_stage0_disqualified = excluded.is_stage0_disqualified,
+            disqualification_reason = excluded.disqualification_reason,
+            last_indexed_at = excluded.last_indexed_at,
+            deep_dive_json = excluded.deep_dive_json
+        """
+        with self._conn:
+            self._conn.executemany(sql, rows)
+
     # ------------------------------------------------------------------ #
     # Reads
     # ------------------------------------------------------------------ #
@@ -320,27 +487,106 @@ class OperationalStore:
 
     def leaderboard(
         self,
-        ecosystem: Optional[str] = None,
-        persona: Optional[str] = None,
-        limit: int = 100,
-    ) -> list[dict]:
-        """Full rows ranked by ``overall_cvi DESC`` (spec 12.3 input).
+        ecosystem: Optional[str | Ecosystem] = None,
+        persona: Optional[str | Persona] = None,
+        search: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+        min_stars: int = 0,
+    ) -> tuple[list[dict], int]:
+        """Paginated leaderboard with ecosystem filter, substring search, and persona re-projection.
 
-        ``persona`` is reserved: persona re-projection happens in the API
-        layer (spec 12.3); it is accepted and ignored here.
+        Returns ``(items, total_count)`` where ``items`` is a list of row dicts for the
+        requested slice, and ``total_count`` is the total number of matching repositories
+        before pagination.
         """
+        limit_val = max(0, int(limit))
+        offset_val = max(0, int(offset))
+
+        # Parse persona
+        persona_enum: Optional[Persona] = None
+        if persona is not None:
+            if isinstance(persona, Persona):
+                persona_enum = persona
+            else:
+                try:
+                    persona_enum = Persona(str(persona).lower().strip())
+                except ValueError:
+                    raise ValueError(f"Unknown persona: {persona!r}") from None
+
         where: list[str] = []
         params: list[Any] = []
+
         if ecosystem is not None:
-            where.append("ecosystem = ?")
-            params.append(ecosystem)
-        sql = "SELECT * FROM repositories"
-        if where:
-            sql += f" WHERE {' AND '.join(where)}"
-        sql += " ORDER BY overall_cvi DESC, owner, name LIMIT ?"
-        params.append(int(limit))
-        cur = self._conn.execute(sql, params)
-        return [dict(zip((d[0] for d in cur.description), row)) for row in cur.fetchall()]
+            eco_str = ecosystem.value if hasattr(ecosystem, "value") else str(ecosystem)
+            where.append("LOWER(ecosystem) = LOWER(?)")
+            params.append(eco_str)
+
+        if min_stars > 0:
+            where.append("stars >= ?")
+            params.append(int(min_stars))
+
+        if search is not None and search.strip():
+            term = f"%{search.strip().lower()}%"
+            where.append(
+                "(LOWER(owner) LIKE ? OR LOWER(name) LIKE ? OR LOWER(owner || '/' || name) LIKE ?)"
+            )
+            params.extend([term, term, term])
+
+        where_clause = f" WHERE {' AND '.join(where)}" if where else ""
+
+        # Fast path: Balanced or default ranking (no re-projection needed)
+        if persona_enum is None or persona_enum == Persona.BALANCED:
+            count_sql = f"SELECT COUNT(*) FROM repositories{where_clause}"
+            total_count = int(self._conn.execute(count_sql, params).fetchone()[0])
+
+            query_sql = (
+                f"SELECT * FROM repositories{where_clause} "
+                "ORDER BY overall_cvi DESC, owner, name LIMIT ? OFFSET ?"
+            )
+            query_params = list(params) + [limit_val, offset_val]
+            cur = self._conn.execute(query_sql, query_params)
+            cols = [d[0] for d in cur.description]
+            items = [dict(zip(cols, row)) for row in cur.fetchall()]
+            return items, total_count
+
+        # Persona re-projection path
+        query_sql = f"SELECT * FROM repositories{where_clause}"
+        cur = self._conn.execute(query_sql, params)
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, row)) for row in cur.fetchall()]
+        total_count = len(rows)
+
+        for row in rows:
+            if row["is_stage0_disqualified"] or (
+                persona_enum is Persona.AI_ASSISTED
+                and row["ai_posture"] == AIPosture.PROSCRIBED.value
+            ) or (
+                persona_enum is Persona.SENIOR_SYSTEMS
+                and row["elephant_factor"] < 3
+            ):
+                cvi_val = 0.0
+                tier_val = Tier.D.value
+                is_gated_val = 1
+            else:
+                ps = PillarScores(
+                    responsiveness=float(row["score_responsiveness"]),
+                    criticality=float(row["score_criticality"]),
+                    governance=float(row["score_governance"]),
+                    rigor=float(row["score_rigor_ai"]),
+                    accessibility=float(row["score_accessibility"]),
+                )
+                cvi_val = persona_composite(ps, persona_enum)
+                tier_val = assign_tier(cvi_val).value
+                is_gated_val = 0
+
+            row["overall_cvi"] = cvi_val
+            row["rank_tier"] = tier_val
+            row["is_stage0_disqualified"] = is_gated_val
+
+        rows.sort(key=lambda r: (-r["overall_cvi"], r["owner"], r["name"]))
+        items = rows[offset_val : offset_val + limit_val]
+        return items, total_count
 
     def count_by_quadrant(self, ecosystem: Optional[str] = None) -> dict[str, int]:
         """Quadrant -> repo count, for filter-toolbar count badges.

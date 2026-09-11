@@ -21,24 +21,21 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
 
-from cvi.deepdive import build_deep_dive
-from cvi.engine import PILLAR_NAMES, score_repository
-from cvi.ingest import apply_raw_metrics
+from cvi.engine import PILLAR_NAMES
 from cvi.lakehouse import OperationalStore
 from cvi.models import (
     AIPosture,
     AuthorAssociation,
     Ecosystem,
     LegalIPModel,
-    Persona,
     Quadrant,
     RawPREvent,
-    RepoMeta,
     Tier,
 )
 
 __all__ = [
     "BENCHMARK_NOW",
+    "generate_benchmark_catalog",
     "generate_synthetic_pr_events",
     "get_benchmark_catalog",
     "seed_benchmark_store",
@@ -54,11 +51,11 @@ _PROMINENT_REPOSITORIES: tuple[tuple[Any, ...], ...] = (
     (
         "vllm-project", "vllm", Ecosystem.PYPI, Quadrant.SWEET_SPOT, Tier.S,
         (92.0, 88.0, 90.0, 86.0, 86.0), 38500, 5400, 12000000, 8500, 4,
-        LegalIPModel.FOUNDATION_CLA, AIPosture.REGULATED, False, False, False,
+        LegalIPModel.DCO, AIPosture.REGULATED, False, False, False,
     ),
     (
         "keras-team", "keras-hub", Ecosystem.PYPI, Quadrant.GRAVEYARD, Tier.D,
-        (45.0, 56.2, 40.0, 45.0, 45.0), 11200, 1400, 1800000, 2100, 3,
+        (45.0, 56.2, 40.0, 45.0, 45.0), 11200, 1400, 1800000, 2100, 1,
         LegalIPModel.CORP_CLA_UNILATERAL, AIPosture.AD_HOC, True, False, False,
     ),
     (
@@ -129,7 +126,7 @@ _PROMINENT_REPOSITORIES: tuple[tuple[Any, ...], ...] = (
     # ---- NPM ---------------------------------------------------------------- #
     (
         "facebook", "react", Ecosystem.NPM, Quadrant.SWEET_SPOT, Tier.S_PLUS,
-        (94.0, 96.0, 92.0, 92.0, 91.0), 228000, 46000, 95000000, 240000, 5,
+        (96.0, 98.0, 92.0, 94.0, 92.0), 228000, 46000, 95000000, 240000, 5,
         LegalIPModel.FOUNDATION_CLA, AIPosture.REGULATED, False, False, False,
     ),
     (
@@ -624,6 +621,12 @@ def _generate_synthetic_catalog() -> list[dict[str, Any]]:
             stem = _ECO_STEMS[eco][(gen_idx // len(_ECO_OWNERS[eco])) % len(_ECO_STEMS[eco])]
             suffix = _NAME_SUFFIXES[gen_idx % len(_NAME_SUFFIXES)]
             name = f"{stem}-{suffix}"
+            while (owner, name) in seen:
+                gen_idx += 1
+                owner = _ECO_OWNERS[eco][gen_idx % len(_ECO_OWNERS[eco])]
+                stem = _ECO_STEMS[eco][(gen_idx // len(_ECO_OWNERS[eco])) % len(_ECO_STEMS[eco])]
+                suffix = _NAME_SUFFIXES[gen_idx % len(_NAME_SUFFIXES)]
+                name = f"{stem}-{suffix}"
             gen_idx += 1
             seen.add((owner, name))
 
@@ -700,6 +703,11 @@ _CATALOG: list[dict[str, Any]] = _generate_synthetic_catalog()
 def get_benchmark_catalog(count: int = 1000) -> list[dict[str, Any]]:
     """Return benchmark repository definitions up to ``count`` (default 1000)."""
     return _CATALOG[:count]
+
+
+def generate_benchmark_catalog() -> list[dict[str, Any]]:
+    """Return exactly 1,000 benchmark repository definitions."""
+    return get_benchmark_catalog(1000)
 
 
 def generate_synthetic_pr_events(
@@ -803,63 +811,8 @@ def seed_benchmark_store(
 
     Returns the number of seeded repositories.
     """
-    when = now if now is not None else BENCHMARK_NOW
     catalog = get_benchmark_catalog(count)
-    store.ensure_deep_dive_column()
-
-    for item in catalog:
-        pillars = item["pillars"]
-        p1 = pillars[0]
-        meta = RepoMeta(
-            owner=item["owner"],
-            name=item["name"],
-            ecosystem=item["ecosystem"],
-            stars=item["stars"],
-            forks=item["forks"],
-            monthly_downloads=item["monthly_downloads"],
-            dependents_count=item["dependents_count"],
-            elephant_factor=item["elephant_factor"],
-            legal_ip_model=item["legal_ip_model"],
-            ai_posture=item["ai_posture"],
-            active_nonbot_commits_180d=item["active_nonbot_commits_180d"],
-            off_platform_reviews=item["off_platform_reviews"],
-            hard_ai_ban=item["hard_ai_ban"],
-            active_unclaimed_gfis=item["active_unclaimed_gfis"],
-        )
-        pr_events = generate_synthetic_pr_events(
-            owner=item["owner"],
-            name=item["name"],
-            p1=p1,
-            now=when,
-            is_gated=item.get("is_gated", False),
-        )
-        result = score_repository(
-            meta,
-            pr_events,
-            when,
-            persona=Persona.BALANCED,
-            pillar_scorers=_pinned_scorers(pillars),
-        )
-        store.upsert_composite(
-            result,
-            pillar_scores=result.pillar_scores,
-            last_indexed_at=when,
-        )
-        apply_raw_metrics(
-            store,
-            meta.owner,
-            meta.name,
-            stars=item["stars"],
-            forks=item["forks"],
-            monthly_downloads=item["monthly_downloads"],
-            dependents_count=item["dependents_count"],
-            elephant_factor=item["elephant_factor"],
-            legal_ip_model=item["legal_ip_model"],
-            ai_posture=item["ai_posture"],
-        )
-        deep_dive = build_deep_dive(meta, pr_events, when)
-        store.upsert_deep_dive(meta.owner, meta.name, deep_dive)
-
+    store.seed_benchmark_catalog(catalog)
     return len(catalog)
 
 

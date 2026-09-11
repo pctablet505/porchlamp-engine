@@ -51,8 +51,9 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from .constants import BOT_LOGIN_MARKERS
-from .models import RawPREvent, RepoMeta
+from .models import PillarScores, RawPREvent, RepoMeta
 from .pillars.governance import score_legal_ip
+from .playbook import generate_maintainer_playbook
 
 __all__ = ["build_deep_dive"]
 
@@ -229,12 +230,19 @@ def _cla_hazard(model_value: str, s_legal: float) -> str:
     return "high"
 
 
-def build_deep_dive(meta: RepoMeta, pr_events: list[RawPREvent], now: datetime) -> dict:
+def build_deep_dive(
+    meta: RepoMeta,
+    pr_events: list[RawPREvent],
+    now: datetime,
+    pillar_scores: Optional[PillarScores] = None,
+    overall_cvi: Optional[float] = None,
+) -> dict:
     """Build the spec 12.2 deep-dive payload for one repository.
 
     Pure function of its arguments — deterministic, no I/O, no network.
     Feed-dependent fields (corporate commit-share distribution, curated
     GFI items) are honest placeholders marked ``"source": "pending_feed"``.
+    Includes maintainer_playbook diagnostic gap analysis.
     """
     s_legal = score_legal_ip(meta.legal_ip_model)
     return {
@@ -268,4 +276,11 @@ def build_deep_dive(meta: RepoMeta, pr_events: list[RawPREvent], now: datetime) 
                 "active-unclaimed count is available here."
             ),
         },
+        "maintainer_playbook": generate_maintainer_playbook(
+            meta,
+            pr_events,
+            pillar_scores=pillar_scores,
+            overall_cvi=overall_cvi,
+            now=now,
+        ),
     }

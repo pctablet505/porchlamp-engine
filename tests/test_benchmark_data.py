@@ -77,6 +77,17 @@ def test_tier_distribution_within_quadrants() -> None:
             assert tier in (Tier.C, Tier.D)
 
 
+def test_bell_shaped_tier_distribution() -> None:
+    catalog = get_benchmark_catalog(1000)
+    tier_counts = collections.Counter(r["tier"] for r in catalog)
+    assert tier_counts[Tier.S_PLUS] > 0
+    assert tier_counts[Tier.S] > tier_counts[Tier.S_PLUS]
+    assert tier_counts[Tier.A] > tier_counts[Tier.S]
+    assert tier_counts[Tier.B] > 150
+    assert tier_counts[Tier.C] > 150
+    assert tier_counts[Tier.D] > 50
+
+
 def test_ground_truth_vllm() -> None:
     catalog = get_benchmark_catalog(1000)
     vllm = next(r for r in catalog if r["owner"] == "vllm-project" and r["name"] == "vllm")
@@ -84,6 +95,8 @@ def test_ground_truth_vllm() -> None:
     assert vllm["quadrant"] == Quadrant.SWEET_SPOT
     assert vllm["tier"] == Tier.S
     assert vllm["pillars"] == (92.0, 88.0, 90.0, 86.0, 86.0)
+    assert vllm["legal_ip_model"].value == "DCO"
+    assert vllm["elephant_factor"] >= 4
     assert vllm["is_gated"] is False
 
 
@@ -93,7 +106,27 @@ def test_ground_truth_hub() -> None:
     assert hub["ecosystem"] == Ecosystem.PYPI
     assert hub["quadrant"] == Quadrant.GRAVEYARD
     assert hub["tier"] == Tier.D
+    assert hub["elephant_factor"] == 1
     assert hub["is_gated"] is True
+
+
+def test_ground_truth_react() -> None:
+    catalog = get_benchmark_catalog(1000)
+    react = next(r for r in catalog if r["owner"] == "facebook" and r["name"] == "react")
+    assert react["ecosystem"] == Ecosystem.NPM
+    assert react["quadrant"] == Quadrant.SWEET_SPOT
+    assert react["tier"] == Tier.S_PLUS
+    assert react["dependents_count"] >= 200000
+    assert react["legal_ip_model"].value == "FOUNDATION_CLA"
+
+
+def test_ground_truth_kubernetes() -> None:
+    catalog = get_benchmark_catalog(1000)
+    k8s = next(r for r in catalog if r["owner"] == "kubernetes" and r["name"] == "kubernetes")
+    assert k8s["ecosystem"] == Ecosystem.GO
+    assert k8s["quadrant"] == Quadrant.CRUCIBLE
+    assert k8s["elephant_factor"] >= 4
+    assert k8s["legal_ip_model"].value == "FOUNDATION_CLA"
 
 
 def test_ground_truth_linux() -> None:
@@ -102,6 +135,7 @@ def test_ground_truth_linux() -> None:
     assert linux["ecosystem"] == Ecosystem.SYSTEMS
     assert linux["quadrant"] == Quadrant.CRUCIBLE
     assert linux["off_platform_reviews"] is True
+    assert linux["legal_ip_model"].value == "DCO"
     assert linux["is_gated"] is False
 
 
@@ -112,6 +146,15 @@ def test_ground_truth_gentoo() -> None:
     assert gentoo["hard_ai_ban"] is True
     assert gentoo["ai_posture"].value == "PROSCRIBED"
     assert gentoo["tier"] == Tier.A
+
+
+def test_benchmark_module_exports_and_generate() -> None:
+    from cvi.benchmark import (
+        generate_benchmark_catalog,
+    )
+    cat = generate_benchmark_catalog()
+    assert len(cat) == 1000
+    assert cat[0]["owner"] is not None
 
 
 def test_synthetic_pr_events_gated() -> None:
@@ -173,3 +216,26 @@ def test_build_benchmark_store_helper() -> None:
     store = build_benchmark_store(":memory:", count=15)
     cur = store.connection.execute("SELECT COUNT(*) FROM repositories")
     assert cur.fetchone()[0] == 15
+
+
+def test_pinned_scorers() -> None:
+    from cvi.benchmark_data import _pinned_scorers
+    scorers = _pinned_scorers((10.0, 20.0, 30.0, 40.0, 50.0))
+    assert scorers["responsiveness"]() == 10.0
+    assert scorers["criticality"]() == 20.0
+    assert scorers["governance"]() == 30.0
+    assert scorers["rigor"]() == 40.0
+    assert scorers["accessibility"]() == 50.0
+
+
+def test_synthetic_collision_resolution(monkeypatch) -> None:
+    import cvi.benchmark_data as bd
+    collision_repo = (
+        "py-data", "tensor-opt-core", bd.Ecosystem.PYPI, bd.Quadrant.SWEET_SPOT, bd.Tier.S,
+        (90.0, 90.0, 90.0, 90.0, 90.0), 1000, 100, 1000, 10, 3,
+        bd.LegalIPModel.DCO, bd.AIPosture.AD_HOC, False, False, False
+    )
+    new_prominents = tuple([collision_repo] + list(bd._PROMINENT_REPOSITORIES))
+    monkeypatch.setattr(bd, "_PROMINENT_REPOSITORIES", new_prominents)
+    cat = bd._generate_synthetic_catalog()
+    assert len(cat) == 1000

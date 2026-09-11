@@ -157,7 +157,9 @@ def test_matrix_leaderboard_get_repo_sla_p95_under_50ms() -> None:
         assert row["stars"] == 111, row
         assert len(store.query_matrix(min_stars=100)) > 0
         assert len(store.query_matrix(ecosystem="npm", quadrant="Sweet Spot")) > 0
-        assert len(store.leaderboard(limit=100)) == 100
+        rows, total = store.leaderboard(limit=100)
+        assert len(rows) == 100
+        assert total == N
 
         benchmarks: dict[str, object] = {
             "query_matrix(min_stars=100)": lambda: store.query_matrix(min_stars=100),

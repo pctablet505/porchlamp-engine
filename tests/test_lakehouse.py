@@ -18,8 +18,10 @@ import pytest
 
 from cvi.lakehouse import OperationalStore
 from cvi.models import (
+    AIPosture,
     CVICompositeResult,
     Ecosystem,
+    Persona,
     PillarScores,
     Quadrant,
     Tier,
@@ -561,7 +563,8 @@ def test_leaderboard_desc_ordering_five_distinct_cvi(store):
         [("r1", 10.0), ("r2", 50.0), ("r3", 30.0), ("r4", 90.0), ("r5", 70.0)]
     ):
         store.upsert_composite(make_result(owner=owner, name=f"repo{i}", overall_cvi=cvi))
-    rows = store.leaderboard()
+    rows, total = store.leaderboard()
+    assert total == 5
     assert [r["overall_cvi"] for r in rows] == [90.0, 70.0, 50.0, 30.0, 10.0]
     assert [r["owner"] for r in rows] == ["r4", "r5", "r2", "r3", "r1"]
 
@@ -571,11 +574,33 @@ def test_leaderboard_limit_boundary(store):
         store.upsert_composite(
             make_result(owner=f"o{i}", name=f"n{i}", overall_cvi=float(i * 10))
         )
-    assert len(store.leaderboard(limit=3)) == 3
-    assert [r["overall_cvi"] for r in store.leaderboard(limit=3)] == [40.0, 30.0, 20.0]
-    assert len(store.leaderboard(limit=5)) == 5
-    assert len(store.leaderboard(limit=100)) == 5
-    assert store.leaderboard(limit=0) == []
+    rows3, t3 = store.leaderboard(limit=3)
+    assert len(rows3) == 3 and t3 == 5
+    assert [r["overall_cvi"] for r in rows3] == [40.0, 30.0, 20.0]
+    rows5, t5 = store.leaderboard(limit=5)
+    assert len(rows5) == 5 and t5 == 5
+    rows100, t100 = store.leaderboard(limit=100)
+    assert len(rows100) == 5 and t100 == 5
+    rows0, t0 = store.leaderboard(limit=0)
+    assert rows0 == [] and t0 == 5
+
+
+def test_leaderboard_offset_pagination(store):
+    for i in range(5):
+        store.upsert_composite(
+            make_result(owner=f"o{i}", name=f"n{i}", overall_cvi=float(i * 10))
+        )
+    page1, t1 = store.leaderboard(limit=2, offset=0)
+    assert [r["overall_cvi"] for r in page1] == [40.0, 30.0]
+    assert t1 == 5
+
+    page2, t2 = store.leaderboard(limit=2, offset=2)
+    assert [r["overall_cvi"] for r in page2] == [20.0, 10.0]
+    assert t2 == 5
+
+    page3, t3 = store.leaderboard(limit=2, offset=4)
+    assert [r["overall_cvi"] for r in page3] == [0.0]
+    assert t3 == 5
 
 
 def test_leaderboard_ecosystem_filter(store):
@@ -583,28 +608,134 @@ def test_leaderboard_ecosystem_filter(store):
     store.upsert_composite(
         make_result(owner="n", name="n1", ecosystem=Ecosystem.NPM, overall_cvi=99.0)
     )
-    rows = store.leaderboard(ecosystem="pypi")
+    rows, total_p = store.leaderboard(ecosystem="pypi")
     assert [r["owner"] for r in rows] == ["p"]
-    rows = store.leaderboard(ecosystem="npm")
+    assert total_p == 1
+    rows, total_n = store.leaderboard(ecosystem="npm")
     assert [r["owner"] for r in rows] == ["n"]
+    assert total_n == 1
 
 
-def test_leaderboard_persona_reserved_ignored(store):
-    """persona re-projection happens in the API layer (spec 12.3); the store
-    must accept and ignore it, returning the same balanced ranking."""
-    for i in range(3):
-        store.upsert_composite(
-            make_result(owner=f"o{i}", name=f"n{i}", overall_cvi=float(i * 10))
-        )
-    balanced = store.leaderboard()
-    reprojected = store.leaderboard(persona="first_timer")
-    assert [r["overall_cvi"] for r in reprojected] == [r["overall_cvi"] for r in balanced]
+def test_leaderboard_search(store):
+    store.upsert_composite(make_result(owner="facebook", name="react", overall_cvi=95.0))
+    store.upsert_composite(make_result(owner="pallets", name="flask", overall_cvi=85.0))
+    store.upsert_composite(make_result(owner="tiangolo", name="fastapi", overall_cvi=90.0))
+
+    # Match by owner
+    rows, t = store.leaderboard(search="face")
+    assert [r["name"] for r in rows] == ["react"]
+    assert t == 1
+
+    # Match by name
+    rows, t = store.leaderboard(search="fast")
+    assert [r["name"] for r in rows] == ["fastapi"]
+    assert t == 1
+
+    # Match by owner/name slug
+    rows, t = store.leaderboard(search="pallets/flask")
+    assert [r["name"] for r in rows] == ["flask"]
+    assert t == 1
+
+    # Case insensitivity
+    rows, t = store.leaderboard(search="FLASK")
+    assert [r["name"] for r in rows] == ["flask"]
+    assert t == 1
+
+    # Whitespace ignored
+    rows, t = store.leaderboard(search="   ")
+    assert len(rows) == 3
+    assert t == 3
+
+
+def test_leaderboard_persona_reproject(store):
+    # Repo A: high responsiveness (90), low criticality (10)
+    # Repo B: low responsiveness (10), high criticality (90)
+    p_a = PillarScores(90.0, 10.0, 50.0, 50.0, 50.0)
+    p_b = PillarScores(10.0, 90.0, 50.0, 50.0, 50.0)
+    store.upsert_composite(make_result(owner="o1", name="a", overall_cvi=50.0), pillar_scores=p_a)
+    store.upsert_composite(make_result(owner="o2", name="b", overall_cvi=50.0), pillar_scores=p_b)
+
+    # Under first_timer (resp 0.40, crit 0.10), Repo A scores much higher than Repo B
+    rows, t = store.leaderboard(persona="first_timer")
+    assert t == 2
+    assert rows[0]["name"] == "a"
+    assert rows[1]["name"] == "b"
+    assert rows[0]["overall_cvi"] > rows[1]["overall_cvi"]
+
+
+def test_leaderboard_persona_constraints(store):
+    from cvi.ingest import apply_raw_metrics
+    # Proscribed repo
+    store.upsert_composite(make_result(owner="o1", name="gentoo", overall_cvi=80.0), pillar_scores=PillarScores(80, 80, 80, 80, 80))
+    apply_raw_metrics(store, "o1", "gentoo", stars=100, forks=20, ai_posture=AIPosture.PROSCRIBED)
+
+    # Low EF repo
+    store.upsert_composite(make_result(owner="o2", name="single-firm", overall_cvi=80.0), pillar_scores=PillarScores(80, 80, 80, 80, 80))
+    apply_raw_metrics(store, "o2", "single-firm", stars=100, forks=20, elephant_factor=1)
+
+    # Under AI_ASSISTED, gentoo is gated to Tier D / 0.0
+    rows_ai, _ = store.leaderboard(persona="ai_assisted")
+    gentoo_row = next(r for r in rows_ai if r["name"] == "gentoo")
+    assert gentoo_row["overall_cvi"] == 0.0
+    assert gentoo_row["rank_tier"] == "Tier D"
+    assert gentoo_row["is_stage0_disqualified"] == 1
+
+    # Under SENIOR_SYSTEMS, single-firm (EF=1 < 3) is gated to Tier D / 0.0
+    rows_ss, _ = store.leaderboard(persona="senior_systems")
+    sf_row = next(r for r in rows_ss if r["name"] == "single-firm")
+    assert sf_row["overall_cvi"] == 0.0
+    assert sf_row["rank_tier"] == "Tier D"
+    assert sf_row["is_stage0_disqualified"] == 1
+
+
+def test_leaderboard_invalid_persona_raises(store):
+    with pytest.raises(ValueError, match="Unknown persona"):
+        store.leaderboard(persona="super_hacker")
 
 
 def test_leaderboard_full_row_keys(store):
     store.upsert_composite(make_result())
-    rows = store.leaderboard()
+    rows, total = store.leaderboard()
+    assert total == 1
     assert set(rows[0].keys()) == set(SPEC_COLUMNS)
+
+
+def test_additional_indexes_exist(store):
+    cur = store.connection.execute("PRAGMA index_list('repositories')")
+    names = {row[1] for row in cur.fetchall()}
+    assert "idx_cvi_overall_rank" in names
+    assert "idx_cvi_search" in names
+    assert "idx_cvi_ecosystem_rank" in names
+    assert "idx_cvi_quadrant" in names
+
+
+def test_leaderboard_min_stars_filter(store):
+    from cvi.ingest import apply_raw_metrics
+    store.upsert_composite(make_result(owner="o1", name="small", overall_cvi=80.0))
+    apply_raw_metrics(store, "o1", "small", stars=10, forks=2)
+    store.upsert_composite(make_result(owner="o2", name="big", overall_cvi=70.0))
+    apply_raw_metrics(store, "o2", "big", stars=500, forks=100)
+
+    rows, total = store.leaderboard(min_stars=100)
+    assert total == 1
+    assert rows[0]["name"] == "big"
+
+
+def test_leaderboard_persona_enum_and_disqualified(store):
+    store.upsert_composite(
+        make_result(
+            owner="o1",
+            name="dq",
+            overall_cvi=0.0,
+            is_stage0_disqualified=True,
+            disqualification_reason="black hole",
+        )
+    )
+    rows, total = store.leaderboard(persona=Persona.FIRST_TIMER)
+    assert total == 1
+    assert rows[0]["overall_cvi"] == 0.0
+    assert rows[0]["rank_tier"] == Tier.D.value
+    assert rows[0]["is_stage0_disqualified"] == 1
 
 
 # --------------------------------------------------------------------------- #

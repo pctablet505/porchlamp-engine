@@ -1016,7 +1016,7 @@ class TestStoreAfterIngestion:
         }
 
     def test_leaderboard_order_matches_expected_cvi_order(self, pipeline: Pipeline) -> None:
-        rows = store_access(pipeline, pipeline.store.leaderboard)
+        rows, _ = store_access(pipeline, pipeline.store.leaderboard)
         assert [(r["owner"], r["name"]) for r in rows] == [
             (owner, name) for owner, name, _, _ in EXPECTED_LEADERBOARD
         ]

@@ -311,7 +311,7 @@ def create_app(store: Optional[OperationalStore] = None) -> FastAPI:
         """Re-rank every repo under custom weights (spec 12.3)."""
         weights = body.weights
         # Old ranking: overall_cvi DESC, ties by owner/name (store contract).
-        rows = store.leaderboard(limit=REPROJECT_SCAN_LIMIT)
+        rows, _ = store.leaderboard(limit=REPROJECT_SCAN_LIMIT)
         by_id: dict[str, dict] = {}
         before: list[tuple[str, float]] = []
         for row in rows:
