@@ -1,0 +1,187 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675" style="background:#090D16; font-family:-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, sans-serif;">
+  <defs>
+    <linearGradient id="sweetWash" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#10B981" stop-opacity="0.15"/><stop offset="100%" stop-color="#10B981" stop-opacity="0.02"/></linearGradient>
+    <linearGradient id="crucibleWash" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#6366F1" stop-opacity="0.15"/><stop offset="100%" stop-color="#6366F1" stop-opacity="0.02"/></linearGradient>
+    <linearGradient id="nurseryWash" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F59E0B" stop-opacity="0.15"/><stop offset="100%" stop-color="#F59E0B" stop-opacity="0.02"/></linearGradient>
+    <linearGradient id="graveyardWash" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#EF4444" stop-opacity="0.15"/><stop offset="100%" stop-color="#EF4444" stop-opacity="0.02"/></linearGradient>
+    <filter id="glowGreen" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6" result="blur"/><feComposite in="SourceGraphic" in2="blur" operator="over"/></filter>
+    <filter id="glowIndigo" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6" result="blur"/><feComposite in="SourceGraphic" in2="blur" operator="over"/></filter>
+    <filter id="glowRed" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6" result="blur"/><feComposite in="SourceGraphic" in2="blur" operator="over"/></filter>
+  </defs>
+
+  <!-- Global Navigation Header -->
+  <rect x="0" y="0" width="1200" height="56" fill="#0F172A" stroke="#1E293B" stroke-width="1"/>
+  <circle cx="28" cy="28" r="12" fill="#10B981"/>
+  <text x="24" y="33" fill="#090D16" font-size="14" font-weight="900">C</text>
+  <text x="50" y="33" fill="#F8FAFC" font-size="16" font-weight="700" letter-spacing="-0.02em">Contributor Value Index</text>
+
+  <!-- Nav Tabs -->
+  <g transform="translate(260, 0)">
+    <rect x="0" y="14" width="80" height="28" rx="6" fill="#1E293B"/>
+    <text x="18" y="32" fill="#38BDF8" font-size="13" font-weight="600">Matrix</text>
+    <line x1="10" y1="46" x2="70" y2="46" stroke="#38BDF8" stroke-width="2"/>
+    <text x="100" y="32" fill="#94A3B8" font-size="13" font-weight="500">Leaderboard</text>
+    <text x="200" y="32" fill="#94A3B8" font-size="13" font-weight="500">Configurator</text>
+    <text x="300" y="32" fill="#94A3B8" font-size="13" font-weight="500">Compare</text>
+  </g>
+
+  <!-- Omnibar / Search -->
+  <rect x="740" y="12" width="260" height="32" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="754" y="32" fill="#64748B" font-size="12">Search repos, personas... ⌘K</text>
+
+  <!-- User / Status Badge -->
+  <rect x="1020" y="14" width="150" height="28" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <circle cx="1034" cy="28" r="4" fill="#10B981"/>
+  <text x="1046" y="32" fill="#94A3B8" font-size="11" font-weight="500">Live Sync · 5,420 Repos</text>
+
+  <!-- Main Canvas Area (Left & Center: 2D Matrix) -->
+  <g transform="translate(30, 80)">
+    <!-- Canvas Frame -->
+    <rect x="0" y="0" width="760" height="565" rx="8" fill="#0F172A" stroke="#1E293B" stroke-width="1"/>
+
+    <!-- Quadrant Background Zones -->
+    <!-- Top-Right: The Sweet Spot -->
+    <rect x="380" y="0" width="380" height="282" rx="0" fill="url(#sweetWash)"/>
+    <text x="610" y="30" fill="#10B981" font-size="14" font-weight="700" letter-spacing="0.05em">THE SWEET SPOT</text>
+    <text x="540" y="48" fill="#10B981" opacity="0.8" font-size="11">Fast Reviews · High Impact · Multi-Vendor</text>
+
+    <!-- Top-Left: The Crucible -->
+    <rect x="0" y="0" width="380" height="282" rx="0" fill="url(#crucibleWash)"/>
+    <text x="30" y="30" fill="#6366F1" font-size="14" font-weight="700" letter-spacing="0.05em">THE CRUCIBLE</text>
+    <text x="30" y="48" fill="#6366F1" opacity="0.8" font-size="11">High Barrier · Elite Return · Strict Subsystems</text>
+
+    <!-- Bottom-Left: The Graveyard -->
+    <rect x="0" y="282" width="380" height="283" rx="0" fill="url(#graveyardWash)"/>
+    <text x="30" y="525" fill="#EF4444" font-size="14" font-weight="700" letter-spacing="0.05em">THE GRAVEYARD ⚠</text>
+    <text x="30" y="543" fill="#EF4444" opacity="0.8" font-size="11">PR Black Hole · Single-Corp Silo · High Ghost Rate</text>
+
+    <!-- Bottom-Right: The Nursery -->
+    <rect x="380" y="282" width="380" height="283" rx="0" fill="url(#nurseryWash)"/>
+    <text x="635" y="525" fill="#F59E0B" font-size="14" font-weight="700" letter-spacing="0.05em">THE NURSERY</text>
+    <text x="560" y="543" fill="#F59E0B" opacity="0.8" font-size="11">Welcoming Onboarding · Safe First PRs</text>
+
+    <!-- Bisector Dividing Axes (50, 50) -->
+    <line x1="380" y1="0" x2="380" y2="565" stroke="#334155" stroke-dasharray="4 4" stroke-width="1.5"/>
+    <line x1="0" y1="282" x2="760" y2="282" stroke="#334155" stroke-dasharray="4 4" stroke-width="1.5"/>
+
+    <!-- Axis Labels -->
+    <text x="390" y="555" fill="#94A3B8" font-size="11" font-weight="600">CONTRIBUTOR FRICTION (X) →</text>
+    <text x="12" y="15" fill="#94A3B8" font-size="11" font-weight="600">↑ CONTRIBUTOR LEVERAGE (Y)</text>
+
+    <!-- Scatter Nodes -->
+    <!-- Sweet Spot: vllm-project/vllm (Active Selected Node) -->
+    <circle cx="560" cy="110" r="14" fill="#10B981" fill-opacity="0.3" filter="url(#glowGreen)"/>
+    <circle cx="560" cy="110" r="8" fill="#10B981" stroke="#F8FAFC" stroke-width="2"/>
+    <text x="575" y="114" fill="#F8FAFC" font-size="12" font-weight="700">vllm-project/vllm (88.8)</text>
+
+    <!-- Sweet Spot: duckdb -->
+    <circle cx="490" cy="135" r="7" fill="#10B981" filter="url(#glowGreen)"/>
+    <text x="502" y="139" fill="#94A3B8" font-size="11">duckdb/duckdb</text>
+
+    <!-- Sweet Spot: other nodes -->
+    <circle cx="620" cy="90" r="5" fill="#10B981"/>
+    <circle cx="450" cy="160" r="5" fill="#10B981"/>
+    <circle cx="530" cy="180" r="6" fill="#10B981"/>
+
+    <!-- Crucible: torvalds/linux -->
+    <circle cx="210" cy="65" r="8" fill="#6366F1" filter="url(#glowIndigo)"/>
+    <text x="135" y="55" fill="#F8FAFC" font-size="12" font-weight="600">torvalds/linux (L:98, F:62)</text>
+    <circle cx="160" cy="115" r="6" fill="#6366F1"/>
+    <text x="90" y="120" fill="#94A3B8" font-size="11">chromium</text>
+    <circle cx="260" cy="150" r="5" fill="#6366F1"/>
+
+    <!-- Graveyard: keras-team/keras-hub -->
+    <circle cx="250" cy="420" r="7" fill="#EF4444" filter="url(#glowRed)"/>
+    <text x="160" y="440" fill="#EF4444" font-size="12" font-weight="700">keras-team/keras-hub (Ghost: 58%)</text>
+    <circle cx="180" cy="380" r="5" fill="#EF4444"/>
+    <circle cx="290" cy="460" r="4" fill="#EF4444"/>
+
+    <!-- Nursery: astro/docs -->
+    <circle cx="580" cy="380" r="6" fill="#F59E0B"/>
+    <text x="595" y="384" fill="#F59E0B" font-size="11">astro/docs (GFIs: 24)</text>
+    <circle cx="660" cy="430" r="5" fill="#F59E0B"/>
+    <text x="672" y="434" fill="#94A3B8" font-size="11">rust-lang/rustlings</text>
+
+    <!-- Floating HUD Overlay -->
+    <rect x="15" y="525" width="220" height="28" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+    <text x="25" y="543" fill="#94A3B8" font-family="monospace" font-size="11">HUD: L:94.2, F:22.0 | 1.0x</text>
+  </g>
+
+  <!-- Slide-Over Scorecard Drawer (Right: 370px width) -->
+  <g transform="translate(810, 80)">
+    <rect x="0" y="0" width="360" height="565" rx="8" fill="#0F172A" stroke="#1E293B" stroke-width="1"/>
+
+    <!-- Drawer Header -->
+    <rect x="0" y="0" width="360" height="65" rx="8" fill="#1E293B" stroke="#334155" stroke-width="0.5"/>
+    <circle cx="28" cy="32" r="14" fill="#334155"/>
+    <text x="22" y="37" fill="#F8FAFC" font-size="14">🐙</text>
+    <text x="50" y="28" fill="#F8FAFC" font-size="15" font-weight="700">vllm-project/vllm</text>
+    <text x="50" y="46" fill="#94A3B8" font-size="11">High-throughput LLM serving engine</text>
+    <text x="330" y="25" fill="#64748B" font-size="14" cursor="pointer">✕</text>
+
+    <!-- KPI Score Badges -->
+    <g transform="translate(20, 80)">
+      <rect x="0" y="0" width="150" height="60" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+      <text x="12" y="20" fill="#94A3B8" font-size="10" font-weight="600">CVI SCORE</text>
+      <text x="12" y="48" fill="#10B981" font-family="monospace" font-size="24" font-weight="700">88.8</text>
+      <rect x="80" y="28" width="55" height="20" rx="4" fill="#10B981" fill-opacity="0.2"/>
+      <text x="88" y="42" fill="#10B981" font-size="11" font-weight="700">TIER S+</text>
+
+      <rect x="170" y="0" width="150" height="60" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+      <text x="182" y="20" fill="#94A3B8" font-size="10" font-weight="600">QUADRANT</text>
+      <text x="182" y="42" fill="#10B981" font-size="13" font-weight="700">The Sweet Spot</text>
+      <circle cx="295" cy="38" r="5" fill="#10B981"/>
+    </g>
+
+    <!-- 5-Pillar Radar Chart Placeholder -->
+    <g transform="translate(20, 160)">
+      <rect x="0" y="0" width="320" height="150" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+      <text x="12" y="20" fill="#F8FAFC" font-size="12" font-weight="600">5-Pillar Radar Diagnostic</text>
+      <!-- Radar Pentagon Axes & Shape -->
+      <polygon points="160,35 240,65 210,130 110,130 80,65" fill="none" stroke="#334155" stroke-width="1"/>
+      <polygon points="160,50 220,75 195,120 125,120 100,75" fill="none" stroke="#334155" stroke-width="0.5"/>
+      <!-- Target Repo Shape -->
+      <polygon points="160,40 230,70 190,125 115,115 90,70" fill="#10B981" fill-opacity="0.25" stroke="#10B981" stroke-width="2"/>
+      <!-- Labels -->
+      <text x="145" y="30" fill="#94A3B8" font-size="9">Resp (98)</text>
+      <text x="235" y="70" fill="#94A3B8" font-size="9">Crit (94)</text>
+      <text x="195" y="142" fill="#94A3B8" font-size="9">Gov (85)</text>
+      <text x="90" y="142" fill="#94A3B8" font-size="9">Rigor (90)</text>
+      <text x="55" y="70" fill="#94A3B8" font-size="9">Access (78)</text>
+    </g>
+
+    <!-- Operational Telemetry List -->
+    <g transform="translate(20, 325)">
+      <rect x="0" y="0" width="320" height="155" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+      
+      <!-- Row 1: TTFHR -->
+      <text x="12" y="25" fill="#94A3B8" font-size="11">Time to First Human Response:</text>
+      <text x="240" y="25" fill="#10B981" font-family="monospace" font-size="12" font-weight="700">18.0h (Top 3%)</text>
+      <line x1="12" y1="35" x2="308" y2="35" stroke="#334155" stroke-width="0.5"/>
+
+      <!-- Row 2: Merge Rate -->
+      <text x="12" y="55" fill="#94A3B8" font-size="11">First-Timer Merge Rate:</text>
+      <text x="260" y="55" fill="#10B981" font-family="monospace" font-size="12" font-weight="700">82.4%</text>
+      <line x1="12" y1="65" x2="308" y2="65" stroke="#334155" stroke-width="0.5"/>
+
+      <!-- Row 3: Legal IP -->
+      <text x="12" y="85" fill="#94A3B8" font-size="11">Legal IP Regime:</text>
+      <rect x="215" y="72" width="95" height="18" rx="4" fill="#10B981" fill-opacity="0.2"/>
+      <text x="222" y="85" fill="#10B981" font-size="10" font-weight="700">DCO / Authors</text>
+      <line x1="12" y1="95" x2="308" y2="95" stroke="#334155" stroke-width="0.5"/>
+
+      <!-- Row 4: Elephant Factor -->
+      <text x="12" y="115" fill="#94A3B8" font-size="11">Elephant Factor:</text>
+      <text x="210" y="115" fill="#F8FAFC" font-size="11" font-weight="600">4 (Multi-Vendor)</text>
+      <line x1="12" y1="125" x2="308" y2="125" stroke="#334155" stroke-width="0.5"/>
+
+      <!-- Row 5: AI Policy -->
+      <text x="12" y="145" fill="#94A3B8" font-size="11">AI Contribution Policy:</text>
+      <text x="215" y="145" fill="#38BDF8" font-size="11" font-weight="600">Regulated (Assisted-by)</text>
+    </g>
+
+    <!-- Bottom Action Button -->
+    <rect x="20" y="495" width="320" height="40" rx="6" fill="#10B981"/>
+    <text x="95" y="520" fill="#090D16" font-size="13" font-weight="700">View 14 Unclaimed GFIs →</text>
+  </g>
+</svg>
