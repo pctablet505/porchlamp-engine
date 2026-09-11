@@ -24,7 +24,7 @@ CANDIDATES = DATA / "candidates.jsonl"
 GQL = "https://api.github.com/graphql"
 SLEEP_REST = 0.15
 SLEEP_KEYLESS = 0.35
-SLEEP_PYPISTATS = 6.5  # pypistats.org: ~10 req/min per IP
+SLEEP_PYPISTATS = 15.0  # pypistats.org: ~5 req/min/IP (429 arrives as HTTP 200 + HTML body)
 PR_SAMPLE = 30
 CONTRIB_PAGES = 2
 COMMIT_PAGES = 3
@@ -194,9 +194,16 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False) -> d
         _env(collector, key, url, shaped)
         status[collector] = "ok" if shaped else "fail"
 
-    # downloads (registry per ecosystem)
+    # downloads (registry per ecosystem). A null monthly (rate-limited
+    # pypistats etc.) is NOT complete: reruns refetch it.
     dl_key = f"{ecosystem}__{name}"
-    if not _done("downloads", dl_key, force):
+    dl_p = DATA / "downloads" / f"{dl_key}.json"
+    try:
+        dl_monthly = (json.loads(dl_p.read_text()).get("data") or {}).get("monthly") \
+            if dl_p.is_file() else None
+    except (json.JSONDecodeError, OSError):  # review-ok: gate-cache — corrupt -> refetch
+        dl_monthly = None
+    if not (dl_monthly is not None and not force):
         monthly, src = _downloads(ecosystem, name)
         _env("downloads", dl_key, src, {"monthly": monthly})
         status["downloads"] = "ok" if monthly is not None else "fail"
@@ -228,8 +235,13 @@ def _shape_depsdev(d: Optional[dict]) -> Optional[dict]:
 
 def _downloads(ecosystem: str, name: str) -> tuple[Optional[int], str]:
     if ecosystem == "pypi":
+        # pypistats 429s arrive as HTTP 200 + HTML body (unparseable -> None).
+        # The SLEEP_PYPISTATS pre-call wait is the throttle (4/min < 5/min
+        # limit); a transient null is refetched on rerun (nulls are not
+        # marked complete), so no inline retry (it would waste 45s/repo).
         time.sleep(SLEEP_PYPISTATS)
-        d = _get_json(f"https://pypistats.org/api/packages/{name}/recent")
+        d = _get_json(f"https://pypistats.org/api/packages/{name}/recent",
+                      {"User-Agent": "cvi-research/0.1 (ranking study)"})
         return ((d or {}).get("data") or {}).get("last_month"), "pypistats"
     if ecosystem == "npm":
         d = _get_json(f"https://api.npmjs.org/downloads/point/last-month/{name}")
