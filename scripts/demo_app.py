@@ -34,9 +34,7 @@ from fastapi.staticfiles import StaticFiles
 
 from cvi.api import create_app
 from cvi.benchmark_data import (
-    BENCHMARK_NOW,
     build_benchmark_store,
-    seed_benchmark_store,
 )
 from cvi.deepdive import build_deep_dive
 from cvi.engine import PILLAR_NAMES, score_repository

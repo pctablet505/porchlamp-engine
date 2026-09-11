@@ -12,15 +12,13 @@ Verifies >=5 test cases per core feature:
 
 from __future__ import annotations
 
-import collections
 import re
 import time
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-from cvi.benchmark_data import build_benchmark_store, get_benchmark_catalog
+from cvi.benchmark_data import build_benchmark_store
 from cvi.constants import (
     FRICTION_WEIGHTS,
     LEVERAGE_WEIGHTS,
@@ -28,7 +26,6 @@ from cvi.constants import (
     PILLAR_WEIGHTS,
 )
 from cvi.lakehouse import OperationalStore
-from cvi.models import Ecosystem, Persona, Quadrant, Tier
 
 
 # =========================================================================== #
@@ -94,8 +91,8 @@ class TestBenchmarkCatalogFeature:
         )
         row = cur.fetchone()
         min_stars, max_stars, avg_stars = row[0], row[1], row[2]
-        min_dl, max_dl = row[3], row[4]
-        min_dep, max_dep = row[5], row[6]
+        max_dl = row[4]
+        max_dep = row[6]
 
         assert min_stars >= 0
         assert max_stars >= 50000, f"Max stars {max_stars} should reflect top OSS landmark repos"

@@ -73,5 +73,5 @@ def test_zero_sum_weights_guard_returns_zero():
         comment_frequency=15.0,
         dependents_count=500000,
     )
-    zero_weights = {param: 0.0 for param in OPENSSF_WEIGHTS}
+    zero_weights = dict.fromkeys(OPENSSF_WEIGHTS, 0.0)
     assert calculate_pike_criticality(signals, weights=zero_weights) == 0.0

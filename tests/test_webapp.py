@@ -157,7 +157,7 @@ class TestDemoMatrix:
             params={"min_stars": 0, "exclude_black_holes": "false"},
         ).json()
         ids = {n["repo_id"] for n in body["nodes"]}
-        assert SMALL_REPOS <= ids
+        assert ids >= SMALL_REPOS
         assert len(ids) == EXPECTED_REPO_COUNT
 
     def test_ecosystem_filter(self, client) -> None:
@@ -199,10 +199,7 @@ class TestRepoDeepDive:
         assert body["is_stage0_disqualified"] == 1
         assert "ghost rate" in body["disqualification_reason"]
         # Gate short-circuits: stored pillar columns are the documented 0.0 defaults.
-        assert body["pillar_scores"] == {
-            key: 0.0 for key in
-            ("responsiveness", "criticality", "governance", "rigor", "accessibility")
-        }
+        assert body["pillar_scores"] == dict.fromkeys(("responsiveness", "criticality", "governance", "rigor", "accessibility"), 0.0)
 
     def test_missing_repo_404(self, client) -> None:
         assert client.get("/v1/cvi/repos/nobody/nothing").status_code == 404

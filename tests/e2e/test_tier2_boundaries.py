@@ -21,10 +21,8 @@ from fastapi.testclient import TestClient
 from cvi.engine import assign_tier, score_repository
 from cvi.matrix import decompose
 from cvi.models import (
-    AIPosture,
     AuthorAssociation,
     Ecosystem,
-    LegalIPModel,
     Persona,
     PillarScores,
     Quadrant,
@@ -32,7 +30,6 @@ from cvi.models import (
     RepoMeta,
     Tier,
 )
-from cvi.persona import reproject
 from cvi.stage0 import apply_stage0
 
 NOW = datetime(2026, 9, 11, 12, 0, 0)

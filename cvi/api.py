@@ -241,18 +241,10 @@ def create_app(store: Optional[OperationalStore] = None) -> FastAPI:
                     rigor=pillar_scores["rigor"],
                     accessibility=pillar_scores["accessibility"],
                 )
-                if row["is_stage0_disqualified"]:
-                    cvi_val = 0.0
-                    tier_val = Tier.D.value
-                    is_gated_val = 1
-                elif (
+                if row["is_stage0_disqualified"] or (
                     persona is Persona.AI_ASSISTED
                     and row["ai_posture"] == AIPosture.PROSCRIBED.value
-                ):
-                    cvi_val = 0.0
-                    tier_val = Tier.D.value
-                    is_gated_val = 1
-                elif (
+                ) or (
                     persona is Persona.SENIOR_SYSTEMS
                     and row["elephant_factor"] < 3
                 ):

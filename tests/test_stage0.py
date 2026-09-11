@@ -68,7 +68,7 @@ def _assert_full(result: Stage0Result, **expected) -> None:
     """Assert every Stage0Result field equals the hand-computed expectation."""
     full = dict(
         passed=expected.get("passed", True),
-        reason=expected.get("reason", None),
+        reason=expected.get("reason"),
         is_black_hole=expected.get("is_black_hole", False),
         is_off_platform=expected.get("is_off_platform", False),
         is_ai_ban_disqualified=expected.get("is_ai_ban_disqualified", False),

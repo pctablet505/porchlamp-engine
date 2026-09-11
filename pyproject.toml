@@ -18,3 +18,26 @@ packages = ["cvi", "cvi.pillars"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Real bug-catchers only. UP045/UP037/UP035 (Optional -> X | None, etc.) are
+# disabled: the whole codebase uses Optional[...] consistently (house style).
+select = ["E", "F", "B", "SIM", "C4", "RUF"]
+ignore = [
+    "UP045", "UP037", "UP035",  # keep Optional[...] house style
+    "E501",                     # line length handled by formatter, not lint
+    "B008",                     # FastAPI Depends()/Query() in defaults is idiomatic
+    "RUF022",                   # __all__ ordering not enforced
+    "C408",                     # dict(...) kwargs style used across tests
+    "RUF059",                   # unused unpack targets in tuple swaps (test style)
+    "B905", "RUF007",           # zip without strict / pairwise preference
+    "RUF043",                   # pytest.raises match= patterns with literal metachars
+    "RUF012", "RUF005", "SIM401", "SIM910", "SIM300", "C420",  # cosmetic test style
+]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["E402"]  # sys.path bootstrap before cvi import

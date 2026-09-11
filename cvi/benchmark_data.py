@@ -566,7 +566,7 @@ def _generate_synthetic_catalog() -> list[dict[str, Any]]:
     seen: set[tuple[str, str]] = set()
 
     # Track how many we have per (ecosystem, quadrant)
-    counts: dict[tuple[Ecosystem, Quadrant], int] = {k: 0 for k in _QUAD_ECO_TARGETS}
+    counts: dict[tuple[Ecosystem, Quadrant], int] = dict.fromkeys(_QUAD_ECO_TARGETS, 0)
 
     # 1. Add prominent repos first
     for item in _PROMINENT_REPOSITORIES:

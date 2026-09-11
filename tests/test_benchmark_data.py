@@ -14,17 +14,15 @@ import collections
 import time
 from datetime import datetime
 
-import pytest
 
 from cvi.benchmark_data import (
-    BENCHMARK_NOW,
     build_benchmark_store,
     generate_synthetic_pr_events,
     get_benchmark_catalog,
     seed_benchmark_store,
 )
 from cvi.lakehouse import OperationalStore
-from cvi.models import Ecosystem, Persona, Quadrant, Tier
+from cvi.models import Ecosystem, Quadrant, Tier
 
 
 def test_catalog_total_and_slice() -> None:

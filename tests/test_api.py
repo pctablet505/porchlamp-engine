@@ -203,7 +203,7 @@ def test_create_app_default_store_serves_empty_matrix() -> None:
         assert resp.status_code == 200
         body = resp.json()
         assert body["nodes"] == []
-        assert body["quadrant_counts"] == {key: 0 for key in ALL_QUADRANTS}
+        assert body["quadrant_counts"] == dict.fromkeys(ALL_QUADRANTS, 0)
     finally:
         client.__exit__(None, None, None)
 
@@ -263,7 +263,7 @@ class TestMatrix:
     def test_ecosystem_no_match(self, matrix_client) -> None:
         body = matrix_client.get("/v1/cvi/matrix", params={"ecosystem": "crates"}).json()
         assert body["nodes"] == []
-        assert body["quadrant_counts"] == {key: 0 for key in ALL_QUADRANTS}
+        assert body["quadrant_counts"] == dict.fromkeys(ALL_QUADRANTS, 0)
 
     def test_min_stars_filter_values(self, matrix_client) -> None:
         high = matrix_client.get(
@@ -563,7 +563,7 @@ class TestLeaderboard:
         assert items[0]["tier"] == "Tier S+"
         # Required keys present on all items
         for item in items:
-            assert LEADERBOARD_KEYS <= set(item)
+            assert set(item) >= LEADERBOARD_KEYS
 
     def test_ecosystem_filter(self, matrix_client) -> None:
         resp = matrix_client.get("/v1/cvi/leaderboard", params={"ecosystem": "pypi"})

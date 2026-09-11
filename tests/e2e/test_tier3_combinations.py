@@ -12,10 +12,8 @@ Verifies complex interactions and invariants across multiple features:
 
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
-from cvi.models import Ecosystem, Persona, Quadrant, Tier
 
 
 # =========================================================================== #

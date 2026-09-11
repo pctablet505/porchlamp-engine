@@ -19,7 +19,10 @@ jobs:
           python-version: "3.12"
 
       - name: Install test dependencies
-        run: pip install "pytest==9.1.1" "pytest-xdist==3.8.0" "fastapi==0.141.1" "httpx==0.28.1"
+        run: pip install "pytest==9.1.1" "pytest-xdist==3.8.0" "fastapi==0.141.1" "httpx==0.28.1" "ruff==0.16.7"
+
+      - name: Lint (gate 1, ratchet: must stay clean)
+        run: ruff check cvi/ scripts/ tests/
 
       - name: Run test suite
         run: env -u PYTEST_ADDOPTS python -m pytest tests/ -n auto -p no:cacheprovider

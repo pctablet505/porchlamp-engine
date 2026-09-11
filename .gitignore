@@ -30,3 +30,6 @@ __pycache__/
 ORIGINAL_REQUEST.md
 PROJECT.md
 uv.lock
+
+# Gathered data cache (raw/derived/verified are reproducible artifacts)
+data/
