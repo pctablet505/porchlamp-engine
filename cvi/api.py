@@ -143,6 +143,7 @@ def create_app(store: Optional[OperationalStore] = None) -> FastAPI:
         ),
         min_stars: int = Query(default=100, ge=0),
         exclude_black_holes: bool = Query(default=True),
+        limit: int = Query(default=1000, ge=1, le=5000),
         store: OperationalStore = Depends(get_store),
     ) -> dict:
         """Scatter nodes + quadrant count badges (spec 12.1)."""
@@ -152,6 +153,7 @@ def create_app(store: Optional[OperationalStore] = None) -> FastAPI:
                 ecosystem=ecosystem,
                 min_stars=min_stars,
                 exclude_black_holes=exclude_black_holes,
+                limit=limit,
             )
         ]
         return {

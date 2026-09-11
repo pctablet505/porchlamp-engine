@@ -26,6 +26,8 @@ coordinate of 49.999 that rounds to 50.0 is treated as high.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .constants import FRICTION_WEIGHTS, LEVERAGE_WEIGHTS, QUADRANT_THRESHOLD
 from .models import PillarScores, Quadrant
 
@@ -66,8 +68,17 @@ def _quadrant(leverage: float, friction: float) -> Quadrant:
     return Quadrant.GRAVEYARD
 
 
-def decompose(pillar_scores: PillarScores) -> tuple[float, float, Quadrant]:
-    """Return ``(leverage, friction, quadrant)`` for the given pillar scores."""
-    leverage = leverage_score(pillar_scores)
-    friction = friction_score(pillar_scores)
-    return leverage, friction, _quadrant(leverage, friction)
+def decompose(
+    pillar_scores: PillarScores | None = None,
+    *,
+    leverage: float | None = None,
+    friction: float | None = None,
+) -> Any:
+    """Return ``(leverage, friction, quadrant)`` for pillar scores, or ``quadrant`` for coordinates."""
+    if leverage is not None and friction is not None:
+        return _quadrant(leverage, friction)
+    if pillar_scores is not None:
+        lev = leverage_score(pillar_scores)
+        fric = friction_score(pillar_scores)
+        return lev, fric, _quadrant(lev, fric)
+    raise ValueError("Must provide either pillar_scores or both leverage and friction")
