@@ -33,6 +33,11 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from cvi.api import create_app
+from cvi.benchmark_data import (
+    BENCHMARK_NOW,
+    build_benchmark_store,
+    seed_benchmark_store,
+)
 from cvi.deepdive import build_deep_dive
 from cvi.engine import PILLAR_NAMES, score_repository
 from cvi.ingest import apply_raw_metrics
@@ -418,8 +423,17 @@ def seed_fixture_store(store: OperationalStore) -> int:
     return len(_FIXTURES)
 
 
-def build_fixture_store(db_path: str = ":memory:") -> OperationalStore:
-    """Create a store (in-memory by default) and seed the demo fixtures."""
+def build_fixture_store(
+    db_path: str = ":memory:",
+    count: Optional[int] = None,
+) -> OperationalStore:
+    """Create a store (in-memory by default) and seed repositories.
+
+    If ``count`` is None, seeds the original 26 fixtures for test compatibility;
+    if ``count`` is provided, seeds that many benchmark repositories.
+    """
+    if count is not None and count != 26:
+        return build_benchmark_store(db_path, count=count)
     store = OperationalStore(db_path)
     seed_fixture_store(store)
     return store
@@ -428,10 +442,13 @@ def build_fixture_store(db_path: str = ":memory:") -> OperationalStore:
 # --------------------------------------------------------------------------- #
 # App + entry point
 # --------------------------------------------------------------------------- #
-def create_demo_app(store: Optional[OperationalStore] = None) -> FastAPI:
+def create_demo_app(
+    store: Optional[OperationalStore] = None,
+    count: int = 1000,
+) -> FastAPI:
     """CVI API + the offline web UI mounted at ``/`` (API routes win)."""
     if store is None:
-        store = build_fixture_store()
+        store = build_benchmark_store(count=count)
     app = create_app(store=store)
     app.mount("/", StaticFiles(directory=_WEB_DIR, html=True), name="web")
     return app
@@ -445,15 +462,21 @@ def main(argv: Optional[list[str]] = None) -> None:
         help="SQLite path for the OperationalStore (default: in-memory).",
     )
     parser.add_argument(
+        "--count",
+        type=int,
+        default=1000,
+        help="Number of benchmark repositories to seed (default: 1000).",
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=int(os.environ.get("PORT", 8000)),
         help="Port to serve on (default: $PORT or 8000).",
     )
     args = parser.parse_args(argv)
-    store = build_fixture_store(args.db)
-    app = create_demo_app(store)
-    print(f"CVI demo: seeded {len(_FIXTURES)} fixture repos (db={args.db!r})")
+    store = build_benchmark_store(args.db, count=args.count)
+    app = create_demo_app(store, count=args.count)
+    print(f"CVI demo: seeded {args.count} benchmark repos (db={args.db!r})")
     print(f"CVI demo: serving http://127.0.0.1:{args.port}/ (API under /v1, /healthz)")
     uvicorn.run(app, host="127.0.0.1", port=args.port)
 

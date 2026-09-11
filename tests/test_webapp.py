@@ -301,6 +301,58 @@ class TestDeepDivePayloadVerification:
         assert raw["first_timer_merge_rate"] is not None
         assert raw["ghost_rate_14d"] == 0.0
 
+    def test_page_includes_elevated_ui_spec_features(self, client) -> None:
+        html = client.get("/").text
+        # Top Navigation Tabs
+        assert 'id="nav-matrix"' in html
+        assert 'id="nav-leaderboard"' in html
+        assert 'id="nav-comparator"' in html
+        assert 'id="nav-configurator"' in html
+
+        # Screen B: Benchmark Leaderboard Table
+        assert 'id="leaderboard-table"' in html
+        assert 'id="lb-search-input"' in html
+        assert 'id="lb-quadrant-filter"' in html
+        assert 'id="lb-compare-btn"' in html
+        assert "Benchmark Leaderboard" in html
+
+        # Screen E: Side-by-Side Comparator
+        assert 'id="comp-repo-picker"' in html
+        assert 'id="comp-diff-table"' in html
+        assert 'id="comp-verdict-box"' in html
+        assert "Side-by-Side Repository Comparator" in html
+
+        # Screen C: Maintainer Improvement Playbook
+        assert "Maintainer Improvement Playbook" in html
+
+        # Theme toggle (Light/Dark mode)
+        assert 'id="theme-toggle-btn"' in html
+        assert 'data-theme="dark"' in html
+        assert 'data-theme="light"' in html
+
+        # Omnibar & keyboard shortcuts
+        assert 'id="open-omnibar-btn"' in html
+        assert 'id="omnibar-modal"' in html
+        assert 'id="shortcuts-modal"' in html
+
+    def test_leaderboard_endpoint(self, client) -> None:
+        resp = client.get("/v1/cvi/leaderboard")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "total" in data and "items" in data
+        items = data["items"]
+        assert len(items) == EXPECTED_REPO_COUNT
+        assert items[0]["rank"] == 1
+        assert "pillar_scores" in items[0]
+        assert "cvi" in items[0]
+        # Filter by ecosystem
+        resp_pypi = client.get("/v1/cvi/leaderboard", params={"ecosystem": "pypi"})
+        assert resp_pypi.status_code == 200
+        data_pypi = resp_pypi.json()
+        pypi_items = data_pypi["items"]
+        assert len(pypi_items) == 7
+        assert all(item["ecosystem"] == "pypi" for item in pypi_items)
+
 
 class TestDemoAppCLI:
     def test_create_demo_app_default_store(self, demo) -> None:

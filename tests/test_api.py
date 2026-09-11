@@ -474,3 +474,256 @@ class TestReproject:
             assert resp.json() == []
         finally:
             client.__exit__(None, None, None)
+
+
+# --------------------------------------------------------------------------- #
+# GET /v1/cvi/leaderboard
+# --------------------------------------------------------------------------- #
+LEADERBOARD_KEYS = {
+    "rank",
+    "repo_id",
+    "owner",
+    "name",
+    "ecosystem",
+    "cvi",
+    "tier",
+    "quadrant",
+    "x",
+    "y",
+    "pillar_scores",
+    "stars",
+    "downloads",
+    "dependents",
+    "elephant_factor",
+    "legal_ip_model",
+    "ai_posture",
+    "is_gated",
+}
+
+
+def seed_persona_constraint_store() -> OperationalStore:
+    store = OperationalStore()
+    # 1. AI proscribed repo with EF=4
+    store.upsert_composite(
+        make_result("ai", "proscribed", 75.0, Tier.A, Quadrant.SWEET_SPOT, 70.0, 30.0),
+        pillar_scores=make_pillars(80, 80, 70, 80, 60),
+    )
+    store.connection.execute(
+        "UPDATE repositories SET ai_posture = 'PROSCRIBED', elephant_factor = 4, stars = 500 WHERE owner = 'ai' AND name = 'proscribed'"
+    )
+    # 2. Solo dev repo with EF=1 (low EF)
+    store.upsert_composite(
+        make_result("solo", "dev", 75.0, Tier.A, Quadrant.SWEET_SPOT, 70.0, 30.0),
+        pillar_scores=make_pillars(80, 80, 70, 80, 60),
+    )
+    store.connection.execute(
+        "UPDATE repositories SET ai_posture = 'AD_HOC', elephant_factor = 1, stars = 500 WHERE owner = 'solo' AND name = 'dev'"
+    )
+    # 3. Foundation repo with EF=5
+    store.upsert_composite(
+        make_result("found", "core", 80.0, Tier.S, Quadrant.SWEET_SPOT, 80.0, 20.0),
+        pillar_scores=make_pillars(85, 85, 80, 80, 80),
+    )
+    store.connection.execute(
+        "UPDATE repositories SET ai_posture = 'REGULATED', elephant_factor = 5, stars = 1000 WHERE owner = 'found' AND name = 'core'"
+    )
+    # 4. Gated repo
+    store.upsert_composite(
+        make_result("gated", "repo", 0.0, Tier.D, Quadrant.GRAVEYARD, 0.0, 100.0, is_stage0_disqualified=True),
+        pillar_scores=make_pillars(0, 0, 0, 0, 0),
+    )
+    store.connection.commit()
+    return store
+
+
+@pytest.fixture()
+def persona_constraint_client() -> TestClient:
+    client = open_client(seed_persona_constraint_store)
+    try:
+        yield client
+    finally:
+        client.__exit__(None, None, None)
+
+
+class TestLeaderboard:
+    def test_default_params_balanced_pagination(self, matrix_client) -> None:
+        resp = matrix_client.get("/v1/cvi/leaderboard")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 5
+        assert body["page"] == 1
+        assert body["limit"] == 100
+        items = body["items"]
+        assert len(items) == 5
+        # Ranks must be 1..5 in order
+        assert [i["rank"] for i in items] == [1, 2, 3, 4, 5]
+        # Highest overall_cvi is alpha/omega (92.5)
+        assert items[0]["repo_id"] == "alpha/omega"
+        assert items[0]["cvi"] == 92.5
+        assert items[0]["tier"] == "Tier S+"
+        # Required keys present on all items
+        for item in items:
+            assert LEADERBOARD_KEYS <= set(item)
+
+    def test_ecosystem_filter(self, matrix_client) -> None:
+        resp = matrix_client.get("/v1/cvi/leaderboard", params={"ecosystem": "pypi"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 4
+        assert all(i["ecosystem"] == "pypi" for i in body["items"])
+
+        # Case-insensitive match
+        resp_upper = matrix_client.get("/v1/cvi/leaderboard", params={"ecosystem": "PYPI"})
+        assert resp_upper.status_code == 200
+        assert resp_upper.json()["total"] == 4
+
+        # Non-matching ecosystem
+        resp_empty = matrix_client.get("/v1/cvi/leaderboard", params={"ecosystem": "crates"})
+        assert resp_empty.status_code == 200
+        assert resp_empty.json()["total"] == 0
+        assert resp_empty.json()["items"] == []
+
+    def test_min_stars_filter(self, matrix_client) -> None:
+        # beta has stars=99, alpha=150, delta=100, gamma=500, gated=1000
+        resp = matrix_client.get("/v1/cvi/leaderboard", params={"min_stars": 100})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 4
+        assert "beta/omega" not in [i["repo_id"] for i in body["items"]]
+
+        resp_high = matrix_client.get("/v1/cvi/leaderboard", params={"min_stars": 500})
+        assert resp_high.status_code == 200
+        assert resp_high.json()["total"] == 2
+
+        # Negative min_stars rejected
+        resp_bad = matrix_client.get("/v1/cvi/leaderboard", params={"min_stars": -1})
+        assert resp_bad.status_code == 422
+
+    def test_pagination_offsets(self, matrix_client) -> None:
+        # Page 1: limit 2, offset 0
+        p1 = matrix_client.get("/v1/cvi/leaderboard", params={"limit": 2, "offset": 0}).json()
+        assert p1["page"] == 1
+        assert p1["limit"] == 2
+        assert p1["total"] == 5
+        assert len(p1["items"]) == 2
+        assert [i["rank"] for i in p1["items"]] == [1, 2]
+
+        # Page 2: limit 2, offset 2
+        p2 = matrix_client.get("/v1/cvi/leaderboard", params={"limit": 2, "offset": 2}).json()
+        assert p2["page"] == 2
+        assert p2["limit"] == 2
+        assert len(p2["items"]) == 2
+        assert [i["rank"] for i in p2["items"]] == [3, 4]
+
+        # Page 3: limit 2, offset 4
+        p3 = matrix_client.get("/v1/cvi/leaderboard", params={"limit": 2, "offset": 4}).json()
+        assert p3["page"] == 3
+        assert len(p3["items"]) == 1
+        assert [i["rank"] for i in p3["items"]] == [5]
+
+        # Beyond total
+        p4 = matrix_client.get("/v1/cvi/leaderboard", params={"limit": 2, "offset": 10}).json()
+        assert p4["page"] == 6
+        assert p4["items"] == []
+
+        # Validation errors
+        assert matrix_client.get("/v1/cvi/leaderboard", params={"limit": 0}).status_code == 422
+        assert matrix_client.get("/v1/cvi/leaderboard", params={"limit": 1001}).status_code == 422
+        assert matrix_client.get("/v1/cvi/leaderboard", params={"offset": -1}).status_code == 422
+
+    def test_fuzzy_search(self, matrix_client) -> None:
+        # By owner
+        r1 = matrix_client.get("/v1/cvi/leaderboard", params={"search": "alpha"}).json()
+        assert r1["total"] == 1
+        assert r1["items"][0]["repo_id"] == "alpha/omega"
+
+        # By name
+        r2 = matrix_client.get("/v1/cvi/leaderboard", params={"search": "omega"}).json()
+        assert r2["total"] == 5
+
+        # By full id
+        r3 = matrix_client.get("/v1/cvi/leaderboard", params={"search": "gamma/omega"}).json()
+        assert r3["total"] == 1
+        assert r3["items"][0]["repo_id"] == "gamma/omega"
+
+        # Whitespace-only search is treated as no search
+        r4 = matrix_client.get("/v1/cvi/leaderboard", params={"search": "   "}).json()
+        assert r4["total"] == 5
+
+        # No match
+        r5 = matrix_client.get("/v1/cvi/leaderboard", params={"search": "nonexistent"}).json()
+        assert r5["total"] == 0
+        assert r5["items"] == []
+
+    def test_persona_reproject_ordering(self, reproject_client) -> None:
+        # Test dynamic persona projection on the reproject fixture repos
+        resp_ft = reproject_client.get(
+            "/v1/cvi/leaderboard", params={"persona": "first_timer"}
+        )
+        assert resp_ft.status_code == 200
+        items_ft = resp_ft.json()["items"]
+        assert len(items_ft) == 4
+        # First-timer weights: resp .40, crit .05, gov .15, rigor .10, acc .30
+        # Check that scores are reprojected and ranks updated
+        assert items_ft[0]["rank"] == 1
+        assert items_ft[0]["cvi"] > 0.0
+
+    def test_persona_constraints_ai_and_senior_systems(self, persona_constraint_client) -> None:
+        # 1. Under BALANCED: all 3 non-gated score normally
+        bal = persona_constraint_client.get(
+            "/v1/cvi/leaderboard", params={"persona": "balanced"}
+        ).json()["items"]
+        by_id_bal = {i["repo_id"]: i for i in bal}
+        assert by_id_bal["ai/proscribed"]["cvi"] == 75.0
+        assert by_id_bal["ai/proscribed"]["is_gated"] == 0
+        assert by_id_bal["solo/dev"]["cvi"] == 75.0
+        assert by_id_bal["solo/dev"]["is_gated"] == 0
+        assert by_id_bal["found/core"]["cvi"] == 80.0
+        assert by_id_bal["found/core"]["is_gated"] == 0
+        assert by_id_bal["gated/repo"]["cvi"] == 0.0
+        assert by_id_bal["gated/repo"]["is_gated"] == 1
+
+        # 2. Under AI_ASSISTED: ai/proscribed is hard-disqualified (cvi=0, Tier D, is_gated=1)
+        ai_resp = persona_constraint_client.get(
+            "/v1/cvi/leaderboard", params={"persona": "ai_assisted"}
+        ).json()["items"]
+        by_id_ai = {i["repo_id"]: i for i in ai_resp}
+        assert by_id_ai["ai/proscribed"]["cvi"] == 0.0
+        assert by_id_ai["ai/proscribed"]["tier"] == "Tier D"
+        assert by_id_ai["ai/proscribed"]["is_gated"] == 1
+        # solo/dev and found/core are not proscribed, so they score > 0
+        assert by_id_ai["solo/dev"]["cvi"] > 0.0
+        assert by_id_ai["found/core"]["cvi"] > 0.0
+
+        # 3. Under SENIOR_SYSTEMS: solo/dev (EF=1 < 3) is hard-disqualified (cvi=0, Tier D, is_gated=1)
+        ss_resp = persona_constraint_client.get(
+            "/v1/cvi/leaderboard", params={"persona": "senior_systems"}
+        ).json()["items"]
+        by_id_ss = {i["repo_id"]: i for i in ss_resp}
+        assert by_id_ss["solo/dev"]["cvi"] == 0.0
+        assert by_id_ss["solo/dev"]["tier"] == "Tier D"
+        assert by_id_ss["solo/dev"]["is_gated"] == 1
+        # found/core (EF=5 >= 3) and ai/proscribed (EF=4 >= 3) pass EF constraint
+        assert by_id_ss["found/core"]["cvi"] > 0.0
+        assert by_id_ss["found/core"]["is_gated"] == 0
+        assert by_id_ss["ai/proscribed"]["cvi"] > 0.0
+        assert by_id_ss["ai/proscribed"]["is_gated"] == 0
+
+    def test_invalid_persona_422(self, matrix_client) -> None:
+        resp = matrix_client.get("/v1/cvi/leaderboard", params={"persona": "invalid_persona"})
+        assert resp.status_code == 422
+
+    def test_empty_store_returns_empty_paginated_dict(self) -> None:
+        client = open_client(lambda: OperationalStore())
+        try:
+            resp = client.get("/v1/cvi/leaderboard")
+            assert resp.status_code == 200
+            assert resp.json() == {
+                "total": 0,
+                "page": 1,
+                "limit": 100,
+                "items": [],
+            }
+        finally:
+            client.__exit__(None, None, None)
+
