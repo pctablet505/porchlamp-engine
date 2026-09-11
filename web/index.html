@@ -246,6 +246,13 @@
     gap: 8px;
   }
 
+  /* The `display: flex` above beats the UA `[hidden] { display: none }`
+     (higher specificity), so the banner would show as an empty bar until an
+     error fires. Re-assert hidden so it stays gone until showBanner(). */
+  .error-banner[hidden] {
+    display: none;
+  }
+
   /* Main Workspace Area */
   main.workspace {
     flex: 1;
@@ -1597,7 +1604,7 @@
 
 
 <footer class="app-footer">
-  CVI demo · matrix nodes: x = friction (0–100), y = leverage (0–100), boundary at 50 on both axes ·
+  CVI · matrix nodes: x = friction (0–100), y = leverage (0–100), boundary at 50 on both axes ·
   API defaults: <code>min_stars=100</code>, <code>exclude_black_holes=true</code>, <code>persona</code>/<code>domain</code> params reserved no-ops.
 </footer>
 
@@ -1768,7 +1775,7 @@ async function loadMatrix() {
     body = await res.json();
   } catch (err) {
     state.nodes = [];
-    showBanner("API unreachable — is the demo server running? " + err.message);
+    showBanner("API unreachable — is the API server running? " + err.message);
     renderBadges(null);
     renderScatter();
     return;
@@ -3258,7 +3265,7 @@ async function checkHealth() {
     if (!res.ok) throw new Error("GET /healthz -> HTTP " + res.status);
     hideBanner();
   } catch (err) {
-    showBanner("API unreachable — is the demo server running? " + err.message);
+    showBanner("API unreachable — is the API server running? " + err.message);
     renderBadges(null);
     renderScatter();
   }

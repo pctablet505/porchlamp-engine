@@ -15,7 +15,6 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
-
 # =========================================================================== #
 # Combination 1: Multi-Filter Search & Pagination
 # =========================================================================== #
@@ -46,9 +45,7 @@ class TestMultiFilterSearchPaginationCombination:
             assert "cvi" in item
             assert 0.0 <= item["cvi"] <= 100.0
 
-    def test_pagination_monotonic_rank_sequence_across_pages(
-        self, client: TestClient
-    ) -> None:
+    def test_pagination_monotonic_rank_sequence_across_pages(self, client: TestClient) -> None:
         """Sequential pages have strictly increasing, gapless ranks with zero duplicate repos."""
         page_size = 15
         seen_ids: set[str] = set()
@@ -65,7 +62,9 @@ class TestMultiFilterSearchPaginationCombination:
 
             for item in items:
                 repo_id = item["repo_id"]
-                assert repo_id not in seen_ids, f"Duplicate repo {repo_id} appeared on page {page+1}"
+                assert repo_id not in seen_ids, (
+                    f"Duplicate repo {repo_id} appeared on page {page + 1}"
+                )
                 seen_ids.add(repo_id)
 
                 assert item["rank"] == expected_rank, (
@@ -87,7 +86,7 @@ class TestMultiFilterSearchPaginationCombination:
             for i in range(len(scores) - 1):
                 assert scores[i] >= scores[i + 1], (
                     f"Leaderboard under persona {persona} not sorted: "
-                    f"{scores[i]} < {scores[i+1]} at index {i}"
+                    f"{scores[i]} < {scores[i + 1]} at index {i}"
                 )
 
 
@@ -204,7 +203,7 @@ class TestReprojectVsPersonaConsistency:
 
         for i in range(10):
             assert reprojected[i]["repo_id"] == leaderboard[i]["repo_id"], (
-                f"Mismatch at rank {i+1}: reprojected {reprojected[i]['repo_id']} "
+                f"Mismatch at rank {i + 1}: reprojected {reprojected[i]['repo_id']} "
                 f"vs leaderboard {leaderboard[i]['repo_id']}"
             )
 
@@ -251,13 +250,9 @@ class TestGatedBlackHoleConsistencyAcrossSurfaces:
         assert node["y"] == 0.0
 
         # Surface 3: GET /v1/cvi/leaderboard
-        lb_resp = client.get(
-            "/v1/cvi/leaderboard", params={"search": "keras-hub"}
-        ).json()
+        lb_resp = client.get("/v1/cvi/leaderboard", params={"search": "keras-hub"}).json()
         assert lb_resp["total"] >= 1
-        lb_item = next(
-            i for i in lb_resp["items"] if i["repo_id"] == "keras-team/keras-hub"
-        )
+        lb_item = next(i for i in lb_resp["items"] if i["repo_id"] == "keras-team/keras-hub")
         assert lb_item["is_gated"] == 1
         assert lb_item["cvi"] == 0.0
         assert lb_item["tier"] == "Tier D"
@@ -269,9 +264,7 @@ class TestGatedBlackHoleConsistencyAcrossSurfaces:
 class TestMatrixCombinedFiltering:
     """Multiple simultaneous filter parameters on GET /v1/cvi/matrix."""
 
-    def test_matrix_ecosystem_min_stars_and_gating_combined(
-        self, client: TestClient
-    ) -> None:
+    def test_matrix_ecosystem_min_stars_and_gating_combined(self, client: TestClient) -> None:
         """Filter by ecosystem=crates, min_stars=5000, and exclude_black_holes=true simultaneously."""
         resp = client.get(
             "/v1/cvi/matrix",

@@ -328,9 +328,7 @@ class TestZeroPREventsHandling:
         )
         assert result is not None
         assert 0.0 <= result.overall_cvi <= 100.0
-        assert result.rank_tier in (
-            Tier.S_PLUS, Tier.S, Tier.A, Tier.B, Tier.C, Tier.D
-        )
+        assert result.rank_tier in (Tier.S_PLUS, Tier.S, Tier.A, Tier.B, Tier.C, Tier.D)
         assert 0.0 <= result.leverage_score <= 100.0
         assert 0.0 <= result.friction_score <= 100.0
 

@@ -14,7 +14,6 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
-
 # =========================================================================== #
 # Landmark 1: vllm-project/vllm (Sweet Spot Benchmark)
 # =========================================================================== #
@@ -45,14 +44,10 @@ class TestLandmarkVLLMScenario:
 
     def test_vllm_leaderboard_positioning(self, client: TestClient) -> None:
         """vllm appears in the top tier on the PyPI leaderboard."""
-        resp = client.get(
-            "/v1/cvi/leaderboard", params={"ecosystem": "pypi", "limit": 20}
-        )
+        resp = client.get("/v1/cvi/leaderboard", params={"ecosystem": "pypi", "limit": 20})
         assert resp.status_code == 200
         items = resp.json()["items"]
-        vllm_item = next(
-            (item for item in items if item["repo_id"] == "vllm-project/vllm"), None
-        )
+        vllm_item = next((item for item in items if item["repo_id"] == "vllm-project/vllm"), None)
         assert vllm_item is not None
         assert vllm_item["quadrant"] == "Sweet Spot"
         assert vllm_item["rank"] <= 15
@@ -84,9 +79,7 @@ class TestLandmarkLinuxScenario:
 
     def test_linux_systems_leaderboard_presence(self, client: TestClient) -> None:
         """torvalds/linux is discoverable on the Systems ecosystem leaderboard."""
-        resp = client.get(
-            "/v1/cvi/leaderboard", params={"ecosystem": "systems", "search": "linux"}
-        )
+        resp = client.get("/v1/cvi/leaderboard", params={"ecosystem": "systems", "search": "linux"})
         assert resp.status_code == 200
         items = resp.json()["items"]
         assert len(items) >= 1
@@ -159,14 +152,10 @@ class TestLandmarkReactScenario:
 
     def test_react_leads_npm_leaderboard(self, client: TestClient) -> None:
         """facebook/react is among the top 5 repos on the npm leaderboard."""
-        resp = client.get(
-            "/v1/cvi/leaderboard", params={"ecosystem": "npm", "limit": 10}
-        )
+        resp = client.get("/v1/cvi/leaderboard", params={"ecosystem": "npm", "limit": 10})
         assert resp.status_code == 200
         items = resp.json()["items"]
-        react_item = next(
-            (item for item in items if item["repo_id"] == "facebook/react"), None
-        )
+        react_item = next((item for item in items if item["repo_id"] == "facebook/react"), None)
         assert react_item is not None
         assert react_item["rank"] <= 5
         assert react_item["tier"] == "Tier S+"
@@ -178,9 +167,7 @@ class TestLandmarkReactScenario:
 class TestLandmarkKubernetesScenario:
     """kubernetes/kubernetes: Go ecosystem foundation with multi-vendor CNCF governance."""
 
-    def test_kubernetes_crucible_and_multi_vendor_governance(
-        self, client: TestClient
-    ) -> None:
+    def test_kubernetes_crucible_and_multi_vendor_governance(self, client: TestClient) -> None:
         """kubernetes/kubernetes is a high-leverage Crucible project with Elephant Factor >= 4."""
         resp = client.get("/v1/cvi/repos/kubernetes/kubernetes")
         assert resp.status_code == 200
@@ -199,14 +186,10 @@ class TestLandmarkKubernetesScenario:
 
     def test_kubernetes_on_go_leaderboard(self, client: TestClient) -> None:
         """kubernetes is ranked in the top tier of Go projects."""
-        resp = client.get(
-            "/v1/cvi/leaderboard", params={"ecosystem": "go", "search": "kubernetes"}
-        )
+        resp = client.get("/v1/cvi/leaderboard", params={"ecosystem": "go", "search": "kubernetes"})
         assert resp.status_code == 200
         items = resp.json()["items"]
-        k8s = next(
-            item for item in items if item["repo_id"] == "kubernetes/kubernetes"
-        )
+        k8s = next(item for item in items if item["repo_id"] == "kubernetes/kubernetes")
         assert k8s["is_gated"] == 0
         assert k8s["quadrant"] == "Crucible"
 
@@ -230,9 +213,7 @@ class TestLandmarkGentooScenario:
         assert gentoo["cvi"] >= 70.0
         assert gentoo["tier"] in ("Tier A", "Tier S")
 
-    def test_gentoo_disqualified_under_ai_assisted_persona(
-        self, client: TestClient
-    ) -> None:
+    def test_gentoo_disqualified_under_ai_assisted_persona(self, client: TestClient) -> None:
         """gentoo/gentoo is disqualified under Persona.AI_ASSISTED due to its hard AI contribution ban."""
         resp = client.get(
             "/v1/cvi/leaderboard",

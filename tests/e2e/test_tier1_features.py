@@ -55,9 +55,7 @@ class TestBenchmarkCatalogFeature:
     def test_catalog_quadrant_dispersion(self, store: OperationalStore) -> None:
         """Requirement R1: Catalog spans all 4 quadrants (Sweet Spot, Crucible, Nursery, Graveyard)."""
         counts = store.count_by_quadrant()
-        assert set(counts.keys()) == {
-            "Sweet Spot", "Crucible", "Nursery", "Graveyard"
-        }
+        assert set(counts.keys()) == {"Sweet Spot", "Crucible", "Nursery", "Graveyard"}
         for quad, count in counts.items():
             assert count >= 100, f"Quadrant {quad} under-represented with {count} repos"
         assert sum(counts.values()) == 1000
@@ -138,9 +136,7 @@ class TestCanonicalWeightsFeature:
             "FROM repositories WHERE is_stage0_disqualified = 0 LIMIT 50"
         )
         for p1, p2, p3, p4, p5, stored_cvi in cur.fetchall():
-            expected_cvi = (
-                0.25 * p1 + 0.25 * p2 + 0.20 * p3 + 0.15 * p4 + 0.15 * p5
-            )
+            expected_cvi = 0.25 * p1 + 0.25 * p2 + 0.20 * p3 + 0.15 * p4 + 0.15 * p5
             assert stored_cvi == pytest.approx(expected_cvi, abs=0.15)
 
     def test_leverage_formula_decomposition(self, store: OperationalStore) -> None:
@@ -315,9 +311,12 @@ class TestAPIEndpointsFeature:
         assert "nodes" in data and "quadrant_counts" in data
         assert len(data["nodes"]) > 0
         assert set(data["quadrant_counts"].keys()) == {
-            "Sweet Spot", "Crucible", "Nursery", "Graveyard"
+            "Sweet Spot",
+            "Crucible",
+            "Nursery",
+            "Graveyard",
         }
-        assert elapsed < 0.05, f"Matrix query took {elapsed*1000:.1f}ms (exceeds 50ms SLA)"
+        assert elapsed < 0.05, f"Matrix query took {elapsed * 1000:.1f}ms (exceeds 50ms SLA)"
 
     def test_api_repo_deep_dive_scorecard_200_and_404(self, client: TestClient) -> None:
         """Scorecard query GET /v1/cvi/repos/{owner}/{name} returns full payload or 404."""
@@ -344,7 +343,7 @@ class TestAPIEndpointsFeature:
         assert data["total"] == 1000
         assert len(data["items"]) == 25
         assert data["items"][0]["rank"] == 1
-        assert elapsed < 0.05, f"Leaderboard query took {elapsed*1000:.1f}ms (exceeds 50ms SLA)"
+        assert elapsed < 0.05, f"Leaderboard query took {elapsed * 1000:.1f}ms (exceeds 50ms SLA)"
 
     def test_api_persona_reproject_endpoint(self, client: TestClient) -> None:
         """POST /v1/cvi/reproject re-ranks all repositories under custom 5-pillar weights."""
@@ -363,7 +362,7 @@ class TestAPIEndpointsFeature:
         assert len(items) == 1000
         assert items[0]["new_rank"] == 1
         assert "delta" in items[0]
-        assert elapsed < 0.10, f"Reproject took {elapsed*1000:.1f}ms"
+        assert elapsed < 0.10, f"Reproject took {elapsed * 1000:.1f}ms"
 
 
 # =========================================================================== #
@@ -396,6 +395,7 @@ class TestDualThemeEngineFeature:
 
     def test_dual_theme_wcag_21_contrast_ratios(self) -> None:
         """WCAG 2.1 AA contrast compliance (>4.5:1 for normal text)."""
+
         # Luminance calculator for sRGB hex values
         def lum(hex_code: str) -> float:
             c = hex_code.lstrip("#")
