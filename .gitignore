@@ -17,3 +17,10 @@ Thumbs.db
 # Temporary & Cache files
 *.tmp
 *.bak
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
