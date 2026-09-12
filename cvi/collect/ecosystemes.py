@@ -2,10 +2,14 @@
 
 Fallback source when deps.dev has no usable figure for a package:
 ``GET https://packages.ecosyste.ms/api/v1/registries/{registry}/packages/
-{package}`` -> ``dependent_packages_count``. Measured 2026-09-12 (packet
-W1-2 handoff): for pypi/flask this exact URL answered HTTP 404
-``{"error": "not found"}``, so the parser must treat a recorded not-found
-payload as "source absent" (None) and never as a zero.
+{package}`` -> ``dependent_packages_count``. ``{registry}`` is the
+registry name in the ecosyste.ms database (``pypi.org``, ``npmjs.org``,
+``crates.io``, ``proxy.golang.org``, ``repo1.maven.org``), not the
+ecosystem slug: the W1-2 probe with ``pypi`` answered HTTP 404
+``{"error": "not found"}`` for pypi/flask (recorded), and the corrected
+URL answered HTTP 200 with ``dependent_packages_count`` 2451 (measured
+2026-09-12, packets W1-2 and W1-2f, keyless). A recorded not-found
+payload must be treated as "source absent" (None) and never as a zero.
 
 Keyless and unauthenticated. This module owns only the fallback URL shape
 and the response parse; :mod:`cvi.collect.depsdev` owns the
@@ -19,19 +23,21 @@ from typing import Optional
 #: Base URL of the public ecosyste.ms REST API.
 ECOSYSTEMES_API: str = "https://packages.ecosyste.ms/api/v1"
 
-#: CVI ecosystem -> ecosyste.ms registry identifier. Absent = no fallback
-#: registry (the systems ecosystem has no package registry at all).
+#: CVI ecosystem -> ecosyste.ms registry name (the value the Packages API
+#: routes on, e.g. ``pypi.org``; the ecosystem slug ``pypi`` is not a
+#: registry name and answers 404). Absent = no fallback registry (the
+#: systems ecosystem has no package registry at all).
 REGISTRY_FOR_ECOSYSTEM: dict[str, str] = {
-    "pypi": "pypi",
-    "npm": "npm",
-    "crates": "crates",
-    "go": "go",
-    "maven": "maven",
+    "pypi": "pypi.org",
+    "npm": "npmjs.org",
+    "crates": "crates.io",
+    "go": "proxy.golang.org",
+    "maven": "repo1.maven.org",
 }
 
 
 def registry_for_ecosystem(ecosystem: str) -> Optional[str]:
-    """Ecosyste.ms registry identifier for a CVI ecosystem, or None."""
+    """Ecosyste.ms registry name for a CVI ecosystem, or None."""
     return REGISTRY_FOR_ECOSYSTEM.get(ecosystem)
 
 

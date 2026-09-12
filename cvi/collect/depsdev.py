@@ -19,8 +19,8 @@ two candidate shapes (2026-09-12, keyless, recorded responses under
 So the package-level count is the dependents count of the package's
 ``isDefault`` (latest) version. Fallback when deps.dev has no figure:
 :mod:`cvi.collect.ecosystemes`
-(``dependent_packages_count``; measured 2026-09-12: the pypi/flask URL
-answered HTTP 404, recorded).
+(``dependent_packages_count``; the W1-2 404 on the pypi/flask URL was a
+registry-name error -- corrected in W1-2f, see that module).
 
 Repo -> package name mapping: the universe's ``selected_by`` fixes the
 ecosystem; the repo manifest is the registry namespace itself, so in the
