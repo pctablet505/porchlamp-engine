@@ -233,3 +233,37 @@ def _pr_events() -> list[RawPREvent]:
             )
         )
     return out
+
+
+def test_ingest_exemption_covers_only_the_monotonic_defaults() -> None:
+    """W0-gate P-01: the ``cvi/ingest.py`` exemption is only for the two
+    ``time.monotonic`` rate-limiter defaults, and that is pinned here.
+
+    (1) No line of the module today matches the wall-clock scanner, so the
+    exemption currently removes nothing from the scan.
+    (2) The two ``time.monotonic`` lines are the only clock tokens in the
+    module: the exemption's actual scope.
+    (3) The scanner's own predicate (``CLOCK_RE`` over the module lines, the
+    same operation ``_offenders`` performs on every scanned file) fails on a
+    copy of the module with one ``datetime.now()`` added: any wall-clock call
+    in an exempt module is caught by the guard, so the exemption cannot
+    silently rot into a blind spot.
+    """
+    source = (CVI_PKG / "ingest.py").read_text(encoding="utf-8")
+    wall_clock_lines = [line for line in source.splitlines() if CLOCK_RE.search(line)]
+    assert wall_clock_lines == []
+    monotonic_lines = [
+        line for line in source.splitlines() if "time.monotonic" in line
+    ]
+    assert len(monotonic_lines) == 2
+    assert all("clock if clock is not None else time.monotonic" in line
+               for line in monotonic_lines)
+
+    probe = source + (
+        "\n"
+        "\n"
+        "def _wall_clock_probe() -> float:\n"
+        "    return datetime.now().timestamp()\n"
+    )
+    probe_lines = [line for line in probe.splitlines() if CLOCK_RE.search(line)]
+    assert probe_lines == ["    return datetime.now().timestamp()"]

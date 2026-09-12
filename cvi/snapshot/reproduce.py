@@ -35,6 +35,7 @@ from cvi.snapshot.manifest import (
     load_manifest,
     merkle_root,
     snapshot_dir,
+    UNREADABLE_ENVELOPE_ERRORS,
 )
 
 #: Decimal places used for every float in the canonical dump. Fixed, so a
@@ -57,6 +58,13 @@ class EnvelopeCheck:
     value, ``missing`` the ones that are gone, ``unexpected`` the ones added
     after the freeze. Keys are ``<collector>/<key>``, the same form the manifest
     uses in ``backfilled_keys``.
+
+    ``invalid_json`` (W0-gate P-09) names the files the reader can no longer
+    parse as envelopes -- a frozen envelope whose bytes rotted into
+    non-JSON, or a file added after the freeze that is not readable JSON.
+    ``stale_native_hashes`` (W0-gate P-07b) repeats the frozen manifest's
+    ``hash_mismatches``: envelopes whose recorded native ``sha256`` did not
+    describe their ``data`` when the snapshot was taken.
     """
 
     root: str
@@ -64,11 +72,20 @@ class EnvelopeCheck:
     mismatched: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
     unexpected: list[str] = field(default_factory=list)
+    invalid_json: list[str] = field(default_factory=list)
+    stale_native_hashes: list[str] = field(default_factory=list)
 
     @property
     def clean(self) -> bool:
-        """True when the data dir still holds exactly the frozen envelopes."""
-        return not (self.mismatched or self.missing or self.unexpected)
+        """True when the data dir still holds exactly the frozen envelopes
+        and the frozen manifest recorded no stale native hash."""
+        return not (
+            self.mismatched
+            or self.missing
+            or self.unexpected
+            or self.invalid_json
+            or self.stale_native_hashes
+        )
 
 
 @dataclass(frozen=True)
@@ -177,31 +194,43 @@ def check_envelopes(data_dir: Path, manifest: dict[str, Any]) -> EnvelopeCheck:
     """Re-hash the frozen envelopes and report every difference by key."""
     mismatched: list[str] = []
     missing: list[str] = []
+    invalid_json: list[str] = []
     matched = 0
     for entry in manifest["envelopes"]:
         key = f"{entry['collector']}/{entry['key']}"
         try:
             envelope = read_envelope(Path(data_dir) / entry["path"])
-        except (FileNotFoundError, ValueError):
+        except FileNotFoundError:
             missing.append(key)
-            continue
-        if envelope.computed_sha256 == entry["sha256"]:
-            matched += 1
+        except UNREADABLE_ENVELOPE_ERRORS:
+            invalid_json.append(key)
         else:
-            mismatched.append(key)
-    current = envelope_entries(data_dir)
+            if envelope.computed_sha256 == entry["sha256"]:
+                matched += 1
+            else:
+                mismatched.append(key)
+    scan = envelope_entries(data_dir)
     frozen = {f"{entry['collector']}/{entry['key']}" for entry in manifest["envelopes"]}
     unexpected = sorted(
         f"{entry['collector']}/{entry['key']}"
-        for entry in current
+        for entry in scan.entries
         if f"{entry['collector']}/{entry['key']}" not in frozen
     )
+    # A corrupt file that is not a frozen envelope has not been named yet.
+    for item in scan.invalid_json:
+        key = f"{item['collector']}/{item['key']}"
+        if key not in invalid_json:
+            invalid_json.append(key)
+    invalid_json.sort()
+    stale_native_hashes = sorted({str(key) for key in manifest.get("hash_mismatches", [])})
     return EnvelopeCheck(
-        root=merkle_root([entry_leaf(entry) for entry in current]),
+        root=merkle_root([entry_leaf(entry) for entry in scan.entries]),
         matched=matched,
         mismatched=mismatched,
         missing=missing,
         unexpected=unexpected,
+        invalid_json=invalid_json,
+        stale_native_hashes=stale_native_hashes,
     )
 
 

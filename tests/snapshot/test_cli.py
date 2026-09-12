@@ -109,3 +109,90 @@ def test_reproduce_of_a_flipped_envelope_exits_one_and_names_the_key(
     assert code == 1
     assert "github_meta/org__alpha" in printed
     assert "MISMATCH" in printed
+
+
+# ---------------------------------------------------------------------------
+# W0-3f: gate findings P-09 (corrupt-JSON envelope) and P-07b (stale native
+# hash recorded in the frozen manifest)
+# ---------------------------------------------------------------------------
+
+
+def _corrupt(path: Path) -> None:
+    """Break the JSON in place: the first '}' becomes 'x' (the W0-gate P-09 repro)."""
+    text = path.read_text(encoding="utf-8")
+    i = text.index("}")
+    path.write_text(text[:i] + "x" + text[i + 1:], encoding="utf-8")
+
+
+def test_reproduce_of_a_corrupt_envelope_exits_one_and_names_it(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """P-09: a corrupt-JSON envelope is reported as INVALID_JSON, exit 1."""
+    main(["freeze", "--data-dir", str(data_dir), "--as-of", AS_OF, "--code-commit", COMMIT])
+    snapshot_id = _only_snapshot(data_dir)
+    _corrupt(data_dir / "raw/github_meta/org__alpha.json")
+    capsys.readouterr()
+    code = main(["reproduce", snapshot_id, "--data-dir", str(data_dir)])
+    printed = capsys.readouterr().out
+    assert code == 1
+    assert "INVALID_JSON github_meta/org__alpha" in printed
+    assert "MISMATCH" in printed
+    assert "Traceback" not in printed
+
+
+def test_freeze_of_a_dir_with_a_corrupt_envelope_completes_and_reports(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """P-09: freeze completes over the readable envelopes, names the corrupt
+    key, records it in the manifest, and exits non-zero."""
+    root = tmp_path / "data"
+    _legacy(root, "github_meta", "org__alpha", META)
+    _legacy(root, "pr_events", "org__alpha", [])
+    _corrupt(_legacy(root, "downloads", "pypi__alpha", {"monthly": 4000}))
+    (root / "manifest.json").write_text(
+        json.dumps({"repos": [{"repo": "org/alpha", "ecosystem": "pypi"}]}), encoding="utf-8"
+    )
+    code = main(["freeze", "--data-dir", str(root), "--as-of", AS_OF, "--code-commit", COMMIT])
+    printed = capsys.readouterr().out
+    assert code == 1
+    assert "INVALID_JSON downloads/pypi__alpha" in printed
+    snapshot_id = _only_snapshot(root)
+    manifest = load_manifest(root, snapshot_id)
+    assert manifest["envelope_count"] == 2
+    assert manifest["invalid_json"] == ["downloads/pypi__alpha"]
+    assert manifest["merkle_root"] in printed
+
+
+def test_reproduce_of_a_stale_native_hash_exits_one_and_names_the_key(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """P-07b: a non-empty hash_mismatches in the frozen manifest cannot
+    produce MATCH / exit 0."""
+    root = tmp_path / "data"
+    _legacy(root, "github_meta", "org__alpha", META)
+    _legacy(root, "pr_events", "org__alpha", [])
+    (root / "manifest.json").write_text(
+        json.dumps({"repos": [{"repo": "org/alpha", "ecosystem": "pypi"}]}), encoding="utf-8"
+    )
+    path = root / "raw/downloads/pypi__alpha.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "fetched_at": FETCHED_AT, "source": "github-rest:downloads",
+            "sha256": "0" * 64, "http_status": 200, "collector_version": "test/1",
+            "data": {"monthly": 4000},
+        }),
+        encoding="utf-8",
+    )
+    capsys.readouterr()
+    code = main(["freeze", "--data-dir", str(root), "--as-of", AS_OF, "--code-commit", COMMIT])
+    assert code == 0
+    snapshot_id = _only_snapshot(root)
+    manifest = load_manifest(root, snapshot_id)
+    assert manifest["hash_mismatches"] == ["downloads/pypi__alpha"]
+    capsys.readouterr()
+    code = main(["reproduce", snapshot_id, "--data-dir", str(root)])
+    printed = capsys.readouterr().out
+    assert code == 1
+    assert "STALE_HASH downloads/pypi__alpha" in printed
+    assert "MISMATCH" in printed

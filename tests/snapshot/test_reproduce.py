@@ -138,7 +138,7 @@ def test_resolve_ecosystems_uses_the_sample_manifest_then_candidates(
 
 
 def test_check_envelopes_names_the_flipped_envelope(data_dir: Path) -> None:
-    entries = envelope_entries(data_dir)
+    entries = envelope_entries(data_dir).entries
     manifest = build_manifest(
         entries, as_of=AS_OF, code_commit=COMMIT, canonical_dump_hash="x"
     )
@@ -158,7 +158,7 @@ def test_check_envelopes_names_the_flipped_envelope(data_dir: Path) -> None:
 
 def test_check_envelopes_reports_missing_and_added_envelopes(data_dir: Path) -> None:
     manifest = build_manifest(
-        envelope_entries(data_dir), as_of=AS_OF, code_commit=COMMIT,
+        envelope_entries(data_dir).entries, as_of=AS_OF, code_commit=COMMIT,
         canonical_dump_hash="x",
     )
     (data_dir / "raw/github_meta/org__alpha.json").unlink()
@@ -176,7 +176,7 @@ def test_check_envelopes_reports_missing_and_added_envelopes(data_dir: Path) -> 
 
 def test_rebuild_promotes_the_repo_and_is_repeatable(data_dir: Path) -> None:
     manifest = build_manifest(
-        envelope_entries(data_dir), as_of=AS_OF, code_commit=COMMIT,
+        envelope_entries(data_dir).entries, as_of=AS_OF, code_commit=COMMIT,
         canonical_dump_hash="x",
     )
     first = rebuild(data_dir, manifest, data_dir / "work-a")
@@ -190,7 +190,7 @@ def test_rebuild_promotes_the_repo_and_is_repeatable(data_dir: Path) -> None:
 
 def test_rebuild_output_moves_when_an_envelope_byte_moves(data_dir: Path) -> None:
     manifest = build_manifest(
-        envelope_entries(data_dir), as_of=AS_OF, code_commit=COMMIT,
+        envelope_entries(data_dir).entries, as_of=AS_OF, code_commit=COMMIT,
         canonical_dump_hash="x",
     )
     before = canonical_dump_hash(rebuild(data_dir, manifest, data_dir / "work-a"))
@@ -202,7 +202,7 @@ def test_rebuild_output_moves_when_an_envelope_byte_moves(data_dir: Path) -> Non
 
 
 def test_reproduce_reports_a_matching_snapshot(data_dir: Path) -> None:
-    entries = envelope_entries(data_dir)
+    entries = envelope_entries(data_dir).entries
     manifest = build_manifest(
         entries, as_of=AS_OF, code_commit=COMMIT, canonical_dump_hash="pending"
     )
@@ -219,7 +219,7 @@ def test_reproduce_reports_a_matching_snapshot(data_dir: Path) -> None:
 
 
 def test_reproduce_names_the_key_of_a_flipped_envelope(data_dir: Path) -> None:
-    entries = envelope_entries(data_dir)
+    entries = envelope_entries(data_dir).entries
     manifest = build_manifest(
         entries, as_of=AS_OF, code_commit=COMMIT, canonical_dump_hash="pending"
     )
@@ -240,7 +240,7 @@ def test_reproduce_names_the_key_of_a_flipped_envelope(data_dir: Path) -> None:
 
 def test_reproduce_reuses_the_frozen_envelope_set(data_dir: Path) -> None:
     """An envelope added after the freeze is reported, not silently scored."""
-    entries = envelope_entries(data_dir)
+    entries = envelope_entries(data_dir).entries
     manifest = build_manifest(
         entries, as_of=AS_OF, code_commit=COMMIT, canonical_dump_hash="pending"
     )
@@ -258,3 +258,128 @@ def test_reproduce_reuses_the_frozen_envelope_set(data_dir: Path) -> None:
     report = reproduce(data_dir, manifest["snapshot_id"])
     assert report.ok is False
     assert report.envelope_check.unexpected == ["gfi/org__alpha"]
+
+
+# ---------------------------------------------------------------------------
+# W0-3f: gate findings P-09 (corrupt-JSON envelope) and P-07b (stale native
+# hash in the frozen manifest)
+# ---------------------------------------------------------------------------
+
+
+def _corrupt(path: Path) -> None:
+    """Break the JSON in place: the first '}' becomes 'x' (the W0-gate P-09 repro)."""
+    text = path.read_text(encoding="utf-8")
+    i = text.index("}")
+    path.write_text(text[:i] + "x" + text[i + 1:], encoding="utf-8")
+
+
+def _stale_native(data_dir: Path, collector: str, key: str, data: Any) -> Path:
+    """An envelope whose recorded ``sha256`` no longer describes its ``data``."""
+    path = data_dir / "raw" / collector / f"{key}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "fetched_at": FETCHED_AT, "source": f"github-rest:{collector}",
+            "sha256": "0" * 64, "http_status": 200, "collector_version": "test/1",
+            "data": data,
+        }),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _freeze(data_dir: Path, entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Freeze ``entries`` under ``data_dir`` with the real rebuilt dump hash."""
+    pending = build_manifest(
+        entries, as_of=AS_OF, code_commit=COMMIT, canonical_dump_hash="pending"
+    )
+    db = rebuild(data_dir, pending, data_dir / "work")
+    manifest = build_manifest(
+        entries, as_of=AS_OF, code_commit=COMMIT,
+        canonical_dump_hash=canonical_dump_hash(db),
+    )
+    write_manifest(data_dir, manifest)
+    return manifest
+
+
+def test_check_envelopes_names_a_corrupt_envelope_invalid_json(data_dir: Path) -> None:
+    """P-09: an envelope that is no longer valid JSON is reported, not fatal."""
+    manifest = _freeze(data_dir, envelope_entries(data_dir).entries)
+    _corrupt(data_dir / "raw/github_meta/org__alpha.json")
+    report = check_envelopes(data_dir, manifest)
+    assert report.invalid_json == ["github_meta/org__alpha"]
+    assert report.missing == []
+    assert report.mismatched == []
+    assert report.matched == 3
+    assert report.clean is False
+    assert report.root != manifest["merkle_root"]
+
+
+def test_check_envelopes_names_a_corrupt_file_added_after_freeze(data_dir: Path) -> None:
+    """P-09: a new unreadable file is INVALID_JSON, not UNEXPECTED."""
+    manifest = _freeze(data_dir, envelope_entries(data_dir).entries)
+    (data_dir / "raw/gfi").mkdir(parents=True, exist_ok=True)
+    corrupt = data_dir / "raw/gfi/org__alpha.json"
+    corrupt.write_text('{"fetched_at": "2026-09-11", "data": {BROKEN', encoding="utf-8")
+    report = check_envelopes(data_dir, manifest)
+    assert report.invalid_json == ["gfi/org__alpha"]
+    assert report.unexpected == []
+    assert report.missing == []
+    assert report.clean is False
+
+
+def test_check_envelopes_names_a_flipped_and_a_missing_envelope_still(
+    data_dir: Path,
+) -> None:
+    """Over-correction guard: P-06 (byte flip) and P-08 (deletion) keep their
+    categories when a third envelope becomes corrupt JSON at the same time."""
+    manifest = _freeze(data_dir, envelope_entries(data_dir).entries)
+    path = data_dir / "raw/github_meta/org__alpha.json"
+    path.write_text(path.read_text(encoding="utf-8").replace('"stars": 1000', '"stars": 9000'),
+                    encoding="utf-8")
+    (data_dir / "raw/pr_events/org__alpha.json").unlink()
+    _corrupt(data_dir / "raw/downloads/pypi__alpha.json")
+    report = check_envelopes(data_dir, manifest)
+    assert report.mismatched == ["github_meta/org__alpha"]
+    assert report.missing == ["pr_events/org__alpha"]
+    assert report.invalid_json == ["downloads/pypi__alpha"]
+    assert report.matched == 1
+    assert report.clean is False
+
+
+def test_reproduce_survives_a_corrupt_envelope_and_names_it(data_dir: Path) -> None:
+    """P-09: reproduce completes over the other envelopes and names the key."""
+    manifest = _freeze(data_dir, envelope_entries(data_dir).entries)
+    _corrupt(data_dir / "raw/github_meta/org__alpha.json")
+    report = reproduce(data_dir, manifest["snapshot_id"])
+    assert report.ok is False
+    assert report.envelope_check.invalid_json == ["github_meta/org__alpha"]
+    assert report.envelope_check.missing == []
+    assert report.envelope_check.mismatched == []
+    assert report.dump_hash != manifest["canonical_dump_hash"]
+
+
+def test_check_envelopes_names_a_stale_native_hash_from_the_frozen_manifest(
+    data_dir: Path,
+) -> None:
+    """P-07b: the frozen manifest's hash_mismatches make the check unclean."""
+    _stale_native(data_dir, "gfi", "org__alpha", [])
+    manifest = _freeze(data_dir, envelope_entries(data_dir).entries)
+    assert manifest["hash_mismatches"] == ["gfi/org__alpha"]
+    check = check_envelopes(data_dir, manifest)
+    assert check.stale_native_hashes == ["gfi/org__alpha"]
+    assert check.mismatched == []
+    assert check.matched == 5
+    assert check.clean is False
+
+
+def test_reproduce_fails_when_the_frozen_manifest_records_a_stale_hash(
+    data_dir: Path,
+) -> None:
+    """P-07b: reproduce cannot report MATCH while hash_mismatches is non-empty."""
+    _stale_native(data_dir, "gfi", "org__alpha", [])
+    manifest = _freeze(data_dir, envelope_entries(data_dir).entries)
+    report = reproduce(data_dir, manifest["snapshot_id"])
+    assert report.ok is False
+    assert report.envelope_check.stale_native_hashes == ["gfi/org__alpha"]
+    assert report.dump_hash == manifest["canonical_dump_hash"]

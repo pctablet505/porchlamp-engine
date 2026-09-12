@@ -228,3 +228,59 @@ def test_gated_repos_are_excluded_from_the_rated_set(tmp_path: Path) -> None:
     for plain, extra in zip(base_report.rows, with_gated.rows):
         assert extra.tau_b == pytest.approx(plain.tau_b, abs=1e-15)
 
+
+
+# ---------------------------------------------------------------------------
+# W0-3f: gate finding P-10c — tau-b on an all-tied composite is 0/0 when the
+# perturbation breaks the tie, and must be UNDECIDED (None), not 1.0.
+# ---------------------------------------------------------------------------
+
+TIED_COMPOSITE_DB = (
+    # Every row carries overall_cvi = 75.0: the canonical composite is tied.
+    ("aaa/r1", 0.0, 100.0, 100.0, 100.0, 100.0, 75.0, "Tier A"),
+    ("bbb/r2", 100.0, 0.0, 100.0, 100.0, 100.0, 75.0, "Tier A"),
+    ("ccc/r3", 100.0, 100.0, 50.0, 0.0, 100.0, 75.0, "Tier B"),
+    ("ddd/r4", 0.0, 100.0, 100.0, 100.0, 100.0, 75.0, "Tier B"),
+)
+
+
+def test_kendall_tau_b_all_tied_on_one_side_is_undefined() -> None:
+    """P-10c: every x tied, the perturbation breaks the tie in y -> 0/0 -> None."""
+    assert kendall_tau_b([75.0, 75.0, 75.0, 75.0],
+                         [70.0, 76.67, 76.67, 70.0]) is None
+    # Symmetric: every y tied, x broken -> 0/0 -> None as well.
+    assert kendall_tau_b([70.0, 76.67, 76.67, 70.0],
+                         [75.0, 75.0, 75.0, 75.0]) is None
+
+
+def test_kendall_tau_b_tied_in_both_vectors_stays_one() -> None:
+    """Over-correction guard: every pair tied in BOTH vectors is the identity
+    ranking and keeps the documented 1.0 (the pp=0 guard relies on it)."""
+    assert kendall_tau_b([5.0, 5.0, 5.0], [5.0, 5.0, 5.0]) == 1.0
+    assert kendall_tau_b([1.0, 2.0, 2.0, 4.0], [1.0, 2.0, 2.0, 4.0]) == 1.0
+
+
+def test_all_tied_composite_reports_undecided_not_perfect(tmp_path: Path) -> None:
+    """P-10c end-to-end: the W0-gate 4-repo DB. The canonical composite is
+    tied (75.0 for all rows). Eight of the ten +/-5 pp perturbations break
+    the tie -> 0/0-undefined: None with a reason. Accessibility +/-5 keeps
+    the composite all-tied -> the documented identical-ranking 1.0. Either
+    way all_pass is False and the rendered report says UNDECIDED for the
+    broken rows instead of perfect agreement."""
+    from cvi.audit.sensitivity import format_sensitivity_report
+
+    db = _make_db(tmp_path / "tied.db", TIED_COMPOSITE_DB)
+    report = sensitivity_report(db, pp=5)
+    assert report.rated == 4
+    assert len(report.rows) == 10
+    for row in report.rows:
+        if row.pillar == "accessibility":
+            assert row.tau_b == 1.0, (row.pillar, row.delta_pp)
+            assert row.reason is None
+        else:
+            assert row.tau_b is None, (row.pillar, row.delta_pp)
+            assert row.reason == "UNDECIDED/TAU_B_UNDEFINED"
+    assert report.all_pass is False
+    text = format_sensitivity_report(report)
+    assert "UNDECIDED" in text
+    assert "release gate: FAIL" in text

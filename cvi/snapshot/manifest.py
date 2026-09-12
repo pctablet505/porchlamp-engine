@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from dataclasses import dataclass, field
 from cvi import __version__ as BENCHMARK_VERSION
 from cvi import constants as _constants
 from cvi.collect.envelope import canonical_json, envelope_hash, read_envelope, sha256_hex
@@ -37,8 +38,38 @@ PENDING_DUMP_HASH = "pending"
 _ROOT_PREFIX = 12
 _UNSAFE = re.compile(r"[^0-9A-Za-z]+")
 
+#: Reason code (R-5) for a ``*.json`` under ``raw/`` that the reader cannot
+#: parse as an envelope: malformed JSON, undecodable bytes, or a JSON
+#: document that is not an envelope object.
+REASON_INVALID_JSON = "INVALID_JSON"
 
-def envelope_entries(data_dir: Path) -> list[dict[str, Any]]:
+#: What makes a present file "not a readable envelope" for the scan: the
+#: decode failures :func:`cvi.collect.envelope.read_envelope` can raise
+#: (``JSONDecodeError`` is a ``ValueError``; a non-object document reaches
+#: ``.get`` and raises ``AttributeError``/``TypeError``).
+UNREADABLE_ENVELOPE_ERRORS = (
+    json.JSONDecodeError,
+    UnicodeDecodeError,
+    AttributeError,
+    TypeError,
+)
+
+
+@dataclass(frozen=True)
+class EnvelopeScan:
+    """One scan of ``<data_dir>/raw``: the readable envelopes and the rest.
+
+    ``entries`` are the hashable envelopes, sorted by ``(collector, key)``.
+    ``invalid_json`` are the ``*.json`` files the reader could not parse as
+    envelopes; each carries its path and the :data:`REASON_INVALID_JSON`
+    code. The two are disjoint: a scan never drops a file silently.
+    """
+
+    entries: list[dict[str, Any]] = field(default_factory=list)
+    invalid_json: list[dict[str, Any]] = field(default_factory=list)
+
+
+def envelope_entries(data_dir: Path) -> EnvelopeScan:
     """Hash every envelope under ``<data_dir>/raw/<collector>/<key>.json``.
 
     Entries come back sorted by ``(collector, key)``, each carrying its hash
@@ -53,14 +84,31 @@ def envelope_entries(data_dir: Path) -> list[dict[str, Any]]:
     ``hash_mismatches`` (packet W0-3 read-time backfill rule). Envelopes written before
     packet W0-3 carry no ``sha256`` field: their ``data`` field is hashed here,
     at read time, and the entry is reported as ``backfilled``.
+
+    A ``*.json`` file the reader cannot parse (W0-gate P-09) is not a readable
+    envelope: it is reported in ``invalid_json`` with the
+    :data:`REASON_INVALID_JSON` code, and the scan completes over every other
+    file instead of aborting.
     """
     root = Path(data_dir)
     raw = root / "raw"
     collectors = sorted((path for path in raw.iterdir() if path.is_dir())) if raw.is_dir() else []
     entries: list[dict[str, Any]] = []
+    invalid: list[dict[str, Any]] = []
     for collector_dir in collectors:
         for path in sorted(collector_dir.glob("*.json")):
-            envelope = read_envelope(path)
+            try:
+                envelope = read_envelope(path)
+            except UNREADABLE_ENVELOPE_ERRORS:
+                invalid.append(
+                    {
+                        "collector": collector_dir.name,
+                        "key": path.stem,
+                        "path": str(path.relative_to(root)),
+                        "reason": REASON_INVALID_JSON,
+                    }
+                )
+                continue
             entries.append(
                 {
                     "collector": collector_dir.name,
@@ -72,7 +120,8 @@ def envelope_entries(data_dir: Path) -> list[dict[str, Any]]:
                     "hash_matches_data": envelope.hash_matches_data,
                 }
             )
-    return sorted(entries, key=lambda entry: (entry["collector"], entry["key"]))
+    entries.sort(key=lambda entry: (entry["collector"], entry["key"]))
+    return EnvelopeScan(entries=entries, invalid_json=invalid)
 
 
 def entry_leaf(entry: dict[str, Any]) -> str:
@@ -140,6 +189,7 @@ def build_manifest(
     as_of: str,
     code_commit: str,
     canonical_dump_hash: str,
+    invalid_json: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Assemble the manifest for ``entries`` at ``as_of``.
 
@@ -147,6 +197,9 @@ def build_manifest(
     inside the manifest: a reader can see which hashes the collector recorded and
     which packet W0-3 reconstructed. ``hash_mismatches`` names the envelopes
     whose recorded ``sha256`` no longer describes their ``data`` field.
+    ``invalid_json`` (W0-gate P-09) names the files the freeze could not read as
+    envelopes; they carry no hash, so they are excluded from the Merkle root and
+    recorded here instead of silently dropped.
     """
     keys = [f"{entry['collector']}/{entry['key']}" for entry in entries]
     root = merkle_root([entry_leaf(entry) for entry in entries])
@@ -160,6 +213,7 @@ def build_manifest(
         "canonical_dump_hash": canonical_dump_hash,
         "merkle_root": root,
         "envelope_count": len(entries),
+        "invalid_json": sorted(invalid_json),
         "hash_origins": {
             "native": sum(entry["hash_origin"] == "native" for entry in entries),
             "backfilled": sum(entry["hash_origin"] == "backfilled" for entry in entries),

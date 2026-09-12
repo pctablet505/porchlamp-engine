@@ -65,7 +65,7 @@ PILLAR_COLUMNS: tuple[str, ...] = (
 
 
 
-def kendall_tau_b(x: Sequence[float], y: Sequence[float]) -> float:
+def kendall_tau_b(x: Sequence[float], y: Sequence[float]) -> Optional[float]:
     """Kendall's tau-b between two equal-length score vectors.
 
     Counts concordant pairs (``n1``), discordant pairs (``n2``), pairs
@@ -76,6 +76,12 @@ def kendall_tau_b(x: Sequence[float], y: Sequence[float]) -> float:
 
     Returns 1.0 when every pair is tied in both vectors (identical
     rankings).  O(n**2) in the number of items; deterministic.
+
+    Returns ``None`` (UNDECIDED) when the statistic is the 0/0 of a
+    degenerate input: every value of one vector is tied while the other
+    vector is not (W0-gate P-10c).  That case is not "perfect
+    agreement" -- a perturbation demonstrably moved the ranking -- so it
+    must not read as 1.0.
 
     Raises
     ------
@@ -107,7 +113,9 @@ def kendall_tau_b(x: Sequence[float], y: Sequence[float]) -> float:
                 n2 += 1
     denominator = math.sqrt((n1 + n2 + n_x) * (n1 + n2 + n_y))
     if denominator == 0.0:
-        return 1.0
+        if n1 + n2 + n_x + n_y == 0:
+            return 1.0
+        return None
     return (n1 - n2) / denominator
 
 
@@ -152,11 +160,16 @@ class PerturbationResult:
     tau_b:
         Kendall's tau-b between the canonical and perturbed composites
         of the rated repos.
+    reason:
+        ``None`` when ``tau_b`` carries a value; the
+        ``UNDECIDED/TAU_B_UNDEFINED`` code when ``tau_b`` is ``None``
+        (the 0/0 degenerate case of :func:`kendall_tau_b`).
     """
 
     pillar: str
     delta_pp: int
-    tau_b: float
+    tau_b: Optional[float]
+    reason: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -183,8 +196,11 @@ class SensitivityReport:
 
     @property
     def all_pass(self) -> bool:
-        """True when every perturbation meets the release threshold."""
-        return all(row.tau_b >= self.threshold for row in self.rows)
+        """True when every perturbation meets the release threshold; an
+        UNDECIDED row (``tau_b is None``) is a failed gate, not a pass."""
+        return all(
+            row.tau_b is not None and row.tau_b >= self.threshold for row in self.rows
+        )
 
 
 def _fetch_rated(db_path: str | Path) -> tuple[list[list[float]], list[float]]:
@@ -246,14 +262,17 @@ def sensitivity_report(
                 )
                 for value in pillars
             ]
-            rows.append(
-                PerturbationResult(pillar, delta, kendall_tau_b(canonical, perturbed))
-            )
+            tau = kendall_tau_b(canonical, perturbed)
+            reason = None if tau is not None else "UNDECIDED/TAU_B_UNDEFINED"
+            rows.append(PerturbationResult(pillar, delta, tau, reason))
     return SensitivityReport(rated=rated, pp=pp, threshold=TAU_RELEASE_THRESHOLD, rows=tuple(rows))
 
 
 def format_sensitivity_report(report: SensitivityReport) -> str:
     """Render the sensitivity report as plain text."""
+    def cell(tau: Optional[float]) -> str:
+        return "UNDECIDED" if tau is None else f"{tau:.4f}"
+
     lines = [
         "CVI sensitivity audit (D-AGG-3)",
         f"rated repos: {report.rated} | perturbation: +/- {report.pp} pp | "
@@ -262,7 +281,7 @@ def format_sensitivity_report(report: SensitivityReport) -> str:
     ]
     for index in range(0, len(report.rows), 2):
         up, down = report.rows[index], report.rows[index + 1]
-        lines.append(f"{up.pillar:<16} {up.tau_b:>9.4f}   {down.tau_b:>9.4f}")
+        lines.append(f"{up.pillar:<16} {cell(up.tau_b):>9}   {cell(down.tau_b):>9}")
     gate = "PASS" if report.all_pass else "FAIL"
     lines.append(
         f"release gate: {gate} "

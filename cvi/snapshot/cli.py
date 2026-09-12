@@ -42,20 +42,23 @@ def _freeze(args: argparse.Namespace) -> int:
         print(f"--as-of is not an ISO-8601 timestamp: {args.as_of!r}")
         return 2
     commit = args.code_commit or code_commit(_CODE_ROOT) or "unknown"
-    entries = envelope_entries(data_dir)
+    scan = envelope_entries(data_dir)
+    invalid_keys = [f"{item['collector']}/{item['key']}" for item in scan.invalid_json]
     frozen = build_manifest(
-        entries,
+        scan.entries,
         as_of=as_of.isoformat(),
         code_commit=commit,
         canonical_dump_hash=PENDING_DUMP_HASH,
+        invalid_json=invalid_keys,
     )
     work = snapshot_dir(data_dir, frozen["snapshot_id"]) / "build"
     dump_hash = canonical_dump_hash(rebuild(data_dir, frozen, work))
     manifest = build_manifest(
-        entries,
+        scan.entries,
         as_of=as_of.isoformat(),
         code_commit=commit,
         canonical_dump_hash=dump_hash,
+        invalid_json=invalid_keys,
     )
     path = write_manifest(data_dir, manifest)
     print(f"snapshot {manifest['snapshot_id']}")
@@ -67,7 +70,9 @@ def _freeze(args: argparse.Namespace) -> int:
     )
     print(f"dump_hash {manifest['canonical_dump_hash']}")
     print(f"manifest {path}")
-    return 0
+    for key in invalid_keys:
+        print(f"INVALID_JSON {key}")
+    return 1 if invalid_keys else 0
 
 
 def _reproduce(args: argparse.Namespace) -> int:
@@ -76,13 +81,19 @@ def _reproduce(args: argparse.Namespace) -> int:
     check = report.envelope_check
     print(f"snapshot {report.snapshot_id}")
     print(f"envelopes {check.matched} match, {len(check.mismatched)} mismatched, "
-          f"{len(check.missing)} missing, {len(check.unexpected)} unexpected")
+          f"{len(check.missing)} missing, {len(check.unexpected)} unexpected, "
+          f"{len(check.invalid_json)} invalid, "
+          f"{len(check.stale_native_hashes)} stale-hash")
     for key in check.mismatched:
         print(f"MISMATCHED {key}")
     for key in check.missing:
         print(f"MISSING {key}")
     for key in check.unexpected:
         print(f"UNEXPECTED {key}")
+    for key in check.invalid_json:
+        print(f"INVALID_JSON {key}")
+    for key in check.stale_native_hashes:
+        print(f"STALE_HASH {key}")
     print(f"dump_hash {report.dump_hash}")
     print(f"frozen_dump_hash {report.frozen_dump_hash}")
     print("MATCH" if report.ok else "MISMATCH")
