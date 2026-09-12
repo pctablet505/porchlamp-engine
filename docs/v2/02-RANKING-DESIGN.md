@@ -136,9 +136,9 @@ cites, and with a 180-day window it has enough samples (F4).
 
 | Id | Parameter | Definition | w | global | min n | Curve | Class |
 |---|---|---|---|---|---|---|---|
-| 2.1 | Dependents | count of dependent packages, deduplicated by root organisation, excluding dependents owned by the repo's own org | .40 | 10.0 | – | `ECDF_mid(log10(1+d))` | TP |
+| 2.1 | Dependents | count of dependent packages, deduplicated by root organisation, excluding dependents owned by the repo's own org | .40 | 10.0 | – | `ECDF_mid(d)` on raw counts (a monotone transform such as log10 is inert under a mid-rank ECDF; ruling 2026-09-12) | TP |
 | 2.2 | OpenSSF criticality | Pike score computed locally from the 10 signals (all derivable: age, last update, contributors, org count from email domains, commit frequency, releases/yr, closed and updated issues 90 d, comments per issue, dependents) | .35 | 8.75 | signals complete | `100·C` | TP (only if a signal is missing) |
-| 2.3 | Downloads | monthly registry downloads | .25 | 6.25 | – | `ECDF_mid(log10(1+m))` | TP (maven, systems: unmeasured) |
+| 2.3 | Downloads | monthly registry downloads | .25 | 6.25 | – | `ECDF_mid(m)` on raw counts (transform inert, as 2.1) | TP (maven, systems: unmeasured) |
 
 Systems ecosystem: dependents and downloads have no registry. Packet W1-2
 measures repology package-count as a proxy; until measured, criticality for
@@ -192,7 +192,9 @@ contributor" over its domain. A property test asserts it for every parameter
 **D-MISS-1 Taxonomy.** Every parameter value is one of:
 - `Measured(value, n, window_start, window_end, method, source_url, fetched_at)`
 - `Unmeasured(reason)` with `reason ∈ {third_party_gap, collector_failure,
-  insufficient_n, not_applicable}`.
+  insufficient_n, not_applicable, no_population}` (`no_population`: an ECDF
+  parameter with no rated, measured repository in its ecosystem or globally at
+  this snapshot; added 2026-09-12).
 
 Repo-controlled absences are **measured zeros**: no newcomer labels → 5.1 = 0;
 no CI workflows → CI pass rate 0; no policy file → AD_HOC. Third-party gaps
@@ -229,7 +231,7 @@ is measured, at the same snapshot; frozen and stored with the snapshot
 (`populations` table). Minimum population 30, else fall back to the global
 population and flag `population_fallback`.
 
-**D-NORM-3 Parameters normalised by ECDF.** 1.5, 2.1, 2.3 only. All others use
+**D-NORM-3 Parameters normalised by ECDF.** 1.5, 2.1, 2.3 only. Populations store and are queried with raw values; no transform is applied on either side (one definition per fact; lead ruling 2026-09-12 after the W2-5 review). All others use
 absolute calibrated curves (a maintainer target that does not move when the
 universe changes).
 
