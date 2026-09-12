@@ -1,74 +1,270 @@
-"""Tests for scripts/verify.py cross-source verification logic."""
+"""Tests for scripts/verify.py cross-source verification logic.
+
+Provenance is part of verification (packet W0-4, `03` §5): a field that claims
+``verified`` must name an envelope whose hash recomputes, so ``data_dir`` is an
+argument of every check here rather than an ambient global.
+"""
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+from typing import Any, Optional
+
+import pytest
+
+from cvi.collect.envelope import envelope_hash, write_envelope
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("verify", ROOT / "scripts" / "verify.py")
 verify = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(verify)
 
+OWNER, NAME = "rust-lang", "serde"
+KEY = f"{OWNER}__{NAME}"
+FETCHED_AT = "2026-09-11T19:49:51.804283+00:00"
+ENVELOPE_DATA = {"stars": 1000, "forks": 50}
+#: The flag `03` §5 names for provenance that cannot be re-checked.
+UNVERIFIABLE = "unverifiable_provenance"
 
-def bundle(stars=1000, forks=50, score=8.0, conf=None):
+
+def envelope_path(data_dir: Path) -> Path:
+    """Path of the envelope the fixture bundle's provenance points at."""
+    return data_dir / "raw" / "github_meta" / f"{KEY}.json"
+
+
+def envelope_provenance(data_dir: Path) -> dict[str, Any]:
+    """stars/forks provenance pointing at the recorded envelope."""
+    entry = {"source": str(envelope_path(data_dir)), "fetched_at": FETCHED_AT}
+    return {"stars": dict(entry), "forks": dict(entry)}
+
+
+@pytest.fixture
+def data_dir(tmp_path: Path) -> Path:
+    """Data dir holding one envelope whose collector recorded its hash."""
+    write_envelope(envelope_path(tmp_path), "github:repository", ENVELOPE_DATA, FETCHED_AT)
+    return tmp_path
+
+
+def bundle(prov: Optional[dict] = None, conf: Optional[dict] = None,
+           stars=1000, forks=50, score=8.0):
     return {"meta": {"stars": stars, "forks": forks, "scorecard_score": score},
-            "confidence": conf or {"stars": "verified", "forks": "verified"}}
+            "confidence": conf or {"stars": "verified", "forks": "verified"},
+            "provenance": prov or {}}
 
 
-def test_clean_bundle():
-    r = verify.verify_bundle(bundle(), {"stars": 995, "forks": 50,
-                                        "scorecard_overall": 8.2})
+def test_clean_bundle(data_dir):
+    r = verify.verify_bundle(bundle(envelope_provenance(data_dir)),
+                             {"stars": 995, "forks": 50, "scorecard_overall": 8.2},
+                             data_dir=data_dir)
     assert r["clean"] and r["flags"] == []
 
 
-def test_stars_cache_lag_ok():
+def test_stars_cache_lag_ok(data_dir):
     # deps.dev below GitHub is expected cache staleness on a growing repo
     # (stars are monotonic), so it must NOT gate.
-    r = verify.verify_bundle(bundle(stars=1000), {"stars": 700})
+    r = verify.verify_bundle(bundle(envelope_provenance(data_dir), stars=1000),
+                             {"stars": 700}, data_dir=data_dir)
     assert r["clean"]
 
 
-def test_stars_cache_above_live_flags():
+def test_stars_cache_above_live_flags(data_dir):
     # The impossible direction: a cached count ABOVE the live count means the
     # sources genuinely disagree (wrong repo mapping / corrupt data).
-    r = verify.verify_bundle(bundle(stars=1000), {"stars": 1400})
+    r = verify.verify_bundle(bundle(envelope_provenance(data_dir), stars=1000),
+                             {"stars": 1400}, data_dir=data_dir)
     assert not r["clean"] and "stars" in r["flags"]
 
 
-def test_scorecard_mismatch_is_advisory_not_gating():
+def test_scorecard_mismatch_is_advisory_not_gating(data_dir):
     # deps.dev's scorecard_overall is a cached copy of the same OpenSSF tool the
     # bundle already uses, so a disagreement is cache-refresh drift, not a
     # two-source contradiction. It must be recorded for visibility but must NOT
     # flip clean->False on its own.
-    r = verify.verify_bundle(bundle(score=9.0), {"scorecard_overall": 6.0})
+    r = verify.verify_bundle(bundle(envelope_provenance(data_dir), score=9.0),
+                             {"scorecard_overall": 6.0}, data_dir=data_dir)
     assert r["clean"] and r["flags"] == []
     rec = [c for c in r["checks"] if c["field"] == "scorecard"]
     assert rec and rec[0]["ok"] is False  # recorded as a failing check...
     assert "scorecard" not in r["flags"]  # ...but excluded from the gate
 
 
-def test_independent_source_mismatch_still_gates():
+def test_independent_source_mismatch_still_gates(data_dir):
     # Contrast: a deps.dev fork count ABOVE the live GitHub count is impossible
     # for a monotonic counter, so it still flags even when stars agree.
-    r = verify.verify_bundle(bundle(stars=1000, forks=50),
-                             {"stars": 1000, "forks": 500, "scorecard_overall": 8.0})
+    r = verify.verify_bundle(bundle(envelope_provenance(data_dir), stars=1000, forks=50),
+                             {"stars": 1000, "forks": 500, "scorecard_overall": 8.0},
+                             data_dir=data_dir)
     assert not r["clean"] and "forks" in r["flags"]
 
 
-def test_missing_required_confidence_flags():
-    r = verify.verify_bundle(bundle(conf={"stars": "derived", "forks": "verified"}), {})
+def test_missing_required_confidence_flags(data_dir):
+    r = verify.verify_bundle(bundle(envelope_provenance(data_dir),
+                                    conf={"stars": "derived", "forks": "verified"}),
+                             {}, data_dir=data_dir)
     assert not r["clean"] and "required:stars" in r["flags"]
 
 
-def test_single_source_depsdev_absent_ok():
-    r = verify.verify_bundle(bundle(), {})
+def test_single_source_depsdev_absent_ok(data_dir):
+    r = verify.verify_bundle(bundle(envelope_provenance(data_dir)), {}, data_dir=data_dir)
     assert r["clean"]
 
 
-def test_license_cross_check():
-    b = bundle()
-    r = verify.verify_bundle(b, {"license": "MIT"}, gh_meta={"license_spdx": "Apache-2.0"})
+def test_license_cross_check(data_dir):
+    b = bundle(envelope_provenance(data_dir))
+    r = verify.verify_bundle(b, {"license": "MIT"}, gh_meta={"license_spdx": "Apache-2.0"},
+                             data_dir=data_dir)
     assert not r["clean"] and "license" in r["flags"]
     r2 = verify.verify_bundle(b, {"license": "Apache-2.0"},
-                              gh_meta={"license_spdx": "Apache-2.0"})
+                              gh_meta={"license_spdx": "Apache-2.0"}, data_dir=data_dir)
     assert r2["clean"]
+
+
+# --------------------------------------------------------------------------- #
+# Unforgeable provenance (`03` §5, R-4): a field that claims `verified` must
+# name an envelope path whose hash recomputes.
+# --------------------------------------------------------------------------- #
+
+
+def test_vocabulary_provenance_flags(data_dir):
+    # The deleted LLM-curation path labelled invented telemetry
+    # "ecosystem-intelligence"; a word is not an envelope path.
+    word = {"source": "ecosystem-intelligence", "fetched_at": FETCHED_AT}
+    r = verify.verify_bundle(bundle({"stars": dict(word), "forks": dict(word)}),
+                             {"stars": 1000, "forks": 50}, data_dir=data_dir)
+    assert r["clean"] is False
+    assert r["flags"] == ["unverifiable_provenance"]
+    offenders = [c for c in r["checks"]
+                 if c["field"] == UNVERIFIABLE and not c["ok"]]
+    assert len(offenders) == 2
+    assert "ecosystem-intelligence" in offenders[0]["detail"]
+
+
+def test_verified_field_without_provenance_flags(data_dir):
+    r = verify.verify_bundle(bundle(), {}, data_dir=data_dir)
+    assert r["clean"] is False and r["flags"] == [UNVERIFIABLE]
+
+
+def test_url_provenance_for_verified_field_flags(data_dir):
+    # R-4: provenance is an envelope path plus a hash, or (03 §5) an http(s)
+    # URL that itself carries a recorded hash. A bare URL with no hash is a
+    # claim about a fetch, not the fetch, so it still flags.
+    prov = envelope_provenance(data_dir)
+    prov["stars"] = {"source": "https://api.github.com/repos/rust-lang/serde",
+                     "fetched_at": FETCHED_AT}
+    r = verify.verify_bundle(bundle(prov), {}, data_dir=data_dir)
+    assert r["clean"] is False and r["flags"] == [UNVERIFIABLE]
+
+
+def test_url_provenance_with_recorded_hash_is_accepted(data_dir):
+    # 03 §5: the second acceptable provenance form is an http(s) URL with a
+    # recorded sha256 (a fetch hashed at collection time with no local
+    # envelope file archived) — the guard above covers the same URL WITHOUT
+    # a hash, which must still flag.
+    prov = envelope_provenance(data_dir)
+    prov["stars"] = {"source": "https://api.github.com/repos/rust-lang/serde",
+                     "fetched_at": FETCHED_AT, "sha256": "a" * 64}
+    r = verify.verify_bundle(bundle(prov), {}, data_dir=data_dir)
+    assert r["clean"] is True and r["flags"] == []
+
+
+def test_missing_envelope_flags(data_dir):
+    prov = envelope_provenance(data_dir)
+    prov["stars"] = {"source": str(data_dir / "raw" / "github_meta" / "absent.json"),
+                     "fetched_at": FETCHED_AT}
+    r = verify.verify_bundle(bundle(prov), {}, data_dir=data_dir)
+    assert r["clean"] is False and r["flags"] == [UNVERIFIABLE]
+
+
+def test_provenance_outside_raw_flags(data_dir):
+    # A file that exists but is not an envelope: anything outside raw/ can be
+    # rewritten without leaving a trace.
+    elsewhere = data_dir / "derived" / f"{KEY}.json"
+    elsewhere.parent.mkdir(parents=True)
+    elsewhere.write_text(json.dumps(ENVELOPE_DATA), encoding="utf-8")
+    prov = envelope_provenance(data_dir)
+    prov["stars"] = {"source": str(elsewhere), "fetched_at": FETCHED_AT}
+    r = verify.verify_bundle(bundle(prov), {}, data_dir=data_dir)
+    assert r["clean"] is False and r["flags"] == [UNVERIFIABLE]
+
+
+def test_hash_recorded_in_provenance_must_match(data_dir):
+    prov = envelope_provenance(data_dir)
+    prov["stars"]["sha256"] = "0" * 64
+    r = verify.verify_bundle(bundle(prov), {}, data_dir=data_dir)
+    assert r["clean"] is False and r["flags"] == [UNVERIFIABLE]
+    offender = next(c for c in r["checks"]
+                    if c["field"] == UNVERIFIABLE and not c["ok"])
+    assert offender["detail"].startswith("field=stars")
+
+
+def test_envelope_hash_not_matching_its_data_flags(data_dir):
+    # Tamper: the envelope still asserts the hash its collector wrote while its
+    # data field has changed underneath it.
+    path = envelope_path(data_dir)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc["data"]["stars"] = 9999999
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    r = verify.verify_bundle(bundle(envelope_provenance(data_dir)), {}, data_dir=data_dir)
+    assert r["clean"] is False and r["flags"] == [UNVERIFIABLE]
+
+
+def test_backfilled_envelope_hash_is_verifiable(data_dir):
+    # Envelopes written before packet W0-3 recorded no hash: the reader hashes
+    # their data field (the W0-3 read-time rule), so the provenance is verifiable.
+    path = envelope_path(data_dir)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    del doc["sha256"]
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    r = verify.verify_bundle(bundle(envelope_provenance(data_dir)), {}, data_dir=data_dir)
+    assert r["clean"] is True and r["flags"] == []
+
+
+def test_path_and_hash_form_is_accepted(data_dir):
+    # The canonical provenance string of packet W0-3: "<path>#<sha256>".
+    prov = envelope_provenance(data_dir)
+    prov["stars"] = {"source": f"{envelope_path(data_dir)}#{envelope_hash(ENVELOPE_DATA)}",
+                     "fetched_at": FETCHED_AT}
+    r = verify.verify_bundle(bundle(prov), {}, data_dir=data_dir)
+    assert r["clean"] is True and r["flags"] == []
+
+
+def test_copied_data_dir_resolves_by_raw_tail(tmp_path):
+    # A copied sample keeps the absolute paths it was collected with; the tail
+    # from raw/ onward resolves inside the copy (the same reason a manifest
+    # stores paths relative to its data dir).
+    collected_under = Path("/elsewhere/original/data")
+    write_envelope(envelope_path(tmp_path), "github:repository", ENVELOPE_DATA, FETCHED_AT)
+    prov = envelope_provenance(tmp_path)
+    prov["stars"] = {"source": str(collected_under / "raw/github_meta" / f"{KEY}.json"),
+                     "fetched_at": FETCHED_AT}
+    r = verify.verify_bundle(bundle(prov), {}, data_dir=tmp_path)
+    assert r["clean"] is True and r["flags"] == []
+
+
+def test_provenance_checked_only_for_verified_fields(data_dir):
+    # Over-correction guard: `derived`/`missing` fields make no verification
+    # claim, so a URL, a bare word or no source at all must not flag.
+    prov = {**envelope_provenance(data_dir),
+            "ai_posture": {"source": "https://raw.githubusercontent.com/rust-lang/serde/HEAD/README.md",
+                           "fetched_at": None},
+            "ecosystem": {"source": "cli", "fetched_at": None},
+            "dependents_count": {"source": None, "fetched_at": None}}
+    conf = {"stars": "verified", "forks": "verified", "ai_posture": "derived",
+            "ecosystem": "derived", "dependents_count": "missing"}
+    r = verify.verify_bundle(bundle(prov, conf=conf), {}, data_dir=data_dir)
+    assert r["clean"] is True and r["flags"] == []
+
+
+def test_verify_repo_records_unverifiable_provenance(tmp_path):
+    # End-to-end through the promotion gate: the report written into verified/
+    # is what scripts/promote.py filters on, so it must say not-clean.
+    word = {"source": "ecosystem-intelligence", "fetched_at": FETCHED_AT}
+    (tmp_path / "derived").mkdir(parents=True)
+    (tmp_path / "derived" / f"{KEY}.json").write_text(
+        json.dumps(bundle({"stars": dict(word), "forks": dict(word)})), encoding="utf-8")
+    report = verify.verify_repo(OWNER, NAME, tmp_path)
+    assert report["clean"] is False
+    assert report["flags"] == [UNVERIFIABLE]
+    written = json.loads((tmp_path / "verified" / f"{KEY}.json").read_text(encoding="utf-8"))
+    assert written["report"]["clean"] is False

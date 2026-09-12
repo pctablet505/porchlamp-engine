@@ -44,6 +44,10 @@ These rules bind every change here, human or agent.
 - No fabricated repos: every row in a universe/dataset must trace to a
   `candidates.jsonl` criterion or a fetched envelope. The old synthetic
   `cvi/benchmark_data.py` is test fixture only — never a ranking source.
+- Provenance is unforgeable: a field may claim `verified` only with a `data/raw/`
+  envelope path whose hash recomputes (`verify` flags `unverifiable_provenance`),
+  and `serve.py` refuses a database with `benchmark_data` fixture rows or no
+  snapshot identity.
 - Hedge words (`should`, `likely`, `appears`) are banned in evidence blocks.
 
 ## 4. Review pipeline (CODE_REVIEW, adapted)
