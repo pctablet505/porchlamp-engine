@@ -57,7 +57,10 @@ def crates_top(limit: int) -> list[dict[str, Any]]:
         if "github.com/" in repo:
             parts = repo.split("github.com/")[1].strip("/").split("/")
             if len(parts) >= 2:
-                hits.append({"owner": parts[0], "name": parts[1],
+                # crates.io repository URLs sometimes carry a trailing ".git"
+                # (e.g. github.com/fizyk20/generic-array.git); the GitHub API
+                # 404s on that name, so strip it before it becomes a candidate.
+                hits.append({"owner": parts[0], "name": parts[1].removesuffix(".git"),
                              "stars": int(c.get("downloads") or 0)})
     return hits
 

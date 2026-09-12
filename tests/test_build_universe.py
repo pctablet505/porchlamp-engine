@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 from pathlib import Path
 
@@ -78,3 +79,25 @@ def test_resume_merges_existing_candidates(sandbox, monkeypatch):
     bu.build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0)
     rows = [json.loads(line) for line in (sandbox / "candidates.jsonl").read_text().splitlines()]
     assert {r["name"] for r in rows} == {"me", "one"}
+
+
+def test_crates_top_strips_git_suffix(monkeypatch):
+    # crates.io repository URLs sometimes end in ".git"; the GitHub API 404s on
+    # that name, so crates_top must strip it (github.com/fizyk20/generic-array.git).
+    payload = {"crates": [
+        {"repository": "https://github.com/fizyk20/generic-array.git", "downloads": 10},
+        {"repository": "https://github.com/foo/bar", "downloads": 5},
+        {"repository": "https://github.com/baz/qux/", "downloads": 1},
+    ]}
+
+    class _Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(bu.urllib.request, "urlopen",
+                        lambda req, timeout=None: _Resp(json.dumps(payload).encode()))
+    hits = bu.crates_top(10)
+    assert [h["name"] for h in hits] == ["generic-array", "bar", "qux"]
