@@ -176,7 +176,7 @@ def test_schema_defaults(store):
     assert defaults["monthly_downloads"] == "0"
     assert defaults["dependents_count"] == "0"
     assert defaults["is_stage0_disqualified"] == "FALSE"
-    assert defaults["last_indexed_at"] == "CURRENT_TIMESTAMP"
+    assert defaults["last_indexed_at"] is None  # no SQL-side clock default (D-VER-3)
 
 
 def test_spec_indexes_exist(store):
@@ -374,12 +374,11 @@ def test_upsert_raw_metric_defaults_documented(store):
     assert row["ai_posture"] == "AD_HOC"
 
 
-def test_upsert_last_indexed_at_none_insert_uses_db_default(store):
+def test_upsert_last_indexed_at_none_insert_stores_null(store):
+    """No SQL-side clock default: an insert without a timestamp stores NULL."""
     store.upsert_composite(make_result())
     row = store.get_repo("acme", "repo")
-    assert row["last_indexed_at"] is not None
-    # Must be parseable as a timestamp (CURRENT_TIMESTAMP -> 'YYYY-MM-DD HH:MM:SS').
-    datetime.fromisoformat(row["last_indexed_at"].replace(" ", "T"))
+    assert row["last_indexed_at"] is None
 
 
 def test_upsert_last_indexed_at_none_update_preserves_existing(store):

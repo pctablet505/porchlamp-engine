@@ -1,5 +1,10 @@
 """D-VER-3 / 04 §8: the scoring core owns no clock; callers pass the time in.
 
+Scanned twice: the wall-clock regex over the non-exempt modules, and a
+SQL-clock scan (``CURRENT_TIMESTAMP``, ``datetime('now')``) over every
+``cvi/`` module, because a DDL default reads the database's clock on the
+module's behalf (W0-2b).
+
 Fail-before proof for packet W0-2. Before the change ``cvi/playbook.py``
 defined its own ``BENCHMARK_NOW`` and defaulted ``now`` to it, so a scoring
 call that omitted the reference time silently scored against a frozen date
@@ -45,10 +50,8 @@ CLOCK_RE = re.compile(r"datetime\.now|utcnow|time\.time|BENCHMARK_NOW")
 EXCLUDED_DIRS = {"collect", "serve"}
 EXCLUDED_MODULES = {
     "ingest.py": "collect path: GitHub client and rate limiter",
-    "provenance.py": "collect path: stamps fetched_at on raw envelopes",
     "benchmark_data.py": "single definition of the fixture clock (R-2)",
     "benchmark.py": "re-exports the fixture clock",
-    "lakehouse.py": "store; seeds the demo catalog from the fixture clock",
 }
 
 NOW = datetime(2026, 9, 11, 12, 0, 0)
@@ -76,6 +79,41 @@ def _offenders(paths: list[Path]) -> list[str]:
     ]
 
 
+# W0-2b gap 2: a clock the database reads on the module's behalf (a DDL
+# default or a SQL clock function) is invisible to the wall-clock regex
+# above, so it is scanned separately. The scan covers every file in the
+# package: no store-side clock exists that the collect/serve exemption
+# could legitimately cover.
+SQL_CLOCK_RE = re.compile(
+    r"CURRENT_TIMESTAMP|datetime\(\s*['\"]now['\"]\s*\)", re.IGNORECASE
+)
+
+
+def _sql_offenders() -> list[str]:
+    """``path:line`` for each line that reads a clock inside SQL."""
+    return [
+        f"{path.relative_to(CVI_PKG.parent)}:{number}"
+        for path in sorted(CVI_PKG.rglob("*.py"))
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        )
+        if SQL_CLOCK_RE.search(line)
+    ]
+
+
+def test_cvi_modules_own_no_sql_clock() -> None:
+    """No SQL-side clock anywhere in ``cvi/``: no DDL timestamp default,
+    no SQL NOW() reader (D-VER-3: the database is a pure function of the
+    times its callers pass in)."""
+    assert _sql_offenders() == []
+
+
+def test_sql_clock_pattern_sees_both_clock_forms() -> None:
+    """Anti-vacuity for the SQL scan: the pattern catches both forms."""
+    assert SQL_CLOCK_RE.search("last_indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,")
+    assert SQL_CLOCK_RE.search("SELECT datetime('now') FROM sqlite_master LIMIT 1;")
+
+
 def test_cvi_scoring_modules_own_no_clock() -> None:
     """No wall-clock read and no module-owned reference time in the core."""
     assert _offenders(_sources()) == []
@@ -93,8 +131,6 @@ def test_exempt_modules_actually_own_a_clock() -> None:
     assert {hit.rsplit(":", 1)[0] for hit in _offenders(paths)} == {
         "cvi/benchmark.py",
         "cvi/benchmark_data.py",
-        "cvi/lakehouse.py",
-        "cvi/provenance.py",
     }
 
 

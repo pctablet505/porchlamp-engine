@@ -55,9 +55,15 @@ __all__ = [
 ]
 
 
-def utc_now_iso() -> str:
-    """Current UTC time as an ISO-8601 string (seconds precision)."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def utc_now_iso(now: datetime) -> str:
+    """``now`` as an ISO-8601 UTC string (seconds precision).
+
+    The caller passes the reference time explicitly (D-VER-3): a naive
+    ``now`` is treated as UTC, an aware one is converted to UTC.
+    """
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def sha256_of(raw: bytes | str) -> str:
@@ -99,10 +105,13 @@ class FieldRecord:
         value: Any,
         source: str,
         raw: bytes | str | None = None,
+        *,
+        fetched_at: str,
     ) -> "FieldRecord":
-        """Convenience constructor: stamps time + checksums the raw response."""
+        """Convenience constructor: the caller stamps ``fetched_at``; this
+        method checksums the raw response."""
         digest = sha256_of(raw) if raw is not None else ""
-        return cls(value=value, source=source, fetched_at=utc_now_iso(), raw_sha256=digest)
+        return cls(value=value, source=source, fetched_at=fetched_at, raw_sha256=digest)
 
 
 @dataclass
@@ -111,7 +120,7 @@ class RepoEnvelope:
 
     repo: str  # "owner/name"
     collector: str  # e.g. "github_meta", "pr_events", "registries", "openssf"
-    collected_at: str = field(default_factory=utc_now_iso)
+    collected_at: str
     fields: dict[str, FieldRecord] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

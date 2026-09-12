@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import re
+from datetime import datetime, timezone, timedelta
 
 from cvi.provenance import (
     DATA_DIR,
@@ -23,11 +23,14 @@ def test_constants():
     assert VERIFIED_DIR == DATA_DIR / "verified"
 
 
-def test_utc_now_iso():
-    ts = utc_now_iso()
-    assert isinstance(ts, str)
-    # Must match YYYY-MM-DDTHH:MM:SSZ
-    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", ts)
+def test_utc_now_iso_requires_an_explicit_time():
+    """The formatter takes the reference time in; no wall-clock read."""
+    aware = datetime(2026, 9, 12, 10, 30, 45, tzinfo=timezone.utc)
+    assert utc_now_iso(aware) == "2026-09-12T10:30:45Z"
+    naive = datetime(2026, 9, 12, 10, 30, 45)
+    assert utc_now_iso(naive) == "2026-09-12T10:30:45Z"
+    offset = aware.replace(tzinfo=timezone(timedelta(hours=5)))
+    assert utc_now_iso(offset) == "2026-09-12T05:30:45Z"
 
 
 def test_sha256_of_str_and_bytes():
@@ -58,19 +61,26 @@ def test_field_record_to_and_from_dict():
 
 
 def test_field_record_convenience_constructor():
-    # 1. With raw payload
+    # 1. With raw payload; the caller stamps fetched_at
     raw_content = '{"stars": 42}'
-    rec1 = FieldRecord.record(value=42, source="gh api", raw=raw_content)
+    rec1 = FieldRecord.record(
+        value=42, source="gh api", raw=raw_content,
+        fetched_at="2026-09-12T10:00:00Z",
+    )
     assert rec1.value == 42
     assert rec1.source == "gh api"
     assert rec1.raw_sha256 == sha256_of(raw_content)
-    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", rec1.fetched_at)
+    assert rec1.fetched_at == "2026-09-12T10:00:00Z"
 
     # 2. Without raw payload (raw=None)
-    rec2 = FieldRecord.record(value=None, source="missing endpoint", raw=None)
+    rec2 = FieldRecord.record(
+        value=None, source="missing endpoint", raw=None,
+        fetched_at="2026-09-12T10:00:01Z",
+    )
     assert rec2.value is None
     assert rec2.source == "missing endpoint"
     assert rec2.raw_sha256 == ""
+    assert rec2.fetched_at == "2026-09-12T10:00:01Z"
 
 
 def test_raw_path():
@@ -79,7 +89,9 @@ def test_raw_path():
 
 
 def test_repo_envelope_to_and_from_dict():
-    f1 = FieldRecord.record(value=100, source="test source")
+    f1 = FieldRecord.record(
+        value=100, source="test source", fetched_at="2026-09-12T11:59:59Z"
+    )
     envelope = RepoEnvelope(
         repo="owner/repo",
         collector="github_meta",
@@ -103,10 +115,13 @@ def test_repo_envelope_to_and_from_dict():
 def test_repo_envelope_save_and_load(tmp_path, monkeypatch):
     monkeypatch.setattr("cvi.provenance.RAW_DIR", tmp_path)
 
-    f1 = FieldRecord.record(value=999, source="test", raw="payload")
+    f1 = FieldRecord.record(
+        value=999, source="test", raw="payload", fetched_at="2026-09-12T11:00:00Z"
+    )
     envelope = RepoEnvelope(
         repo="org/project",
         collector="test_collector",
+        collected_at="2026-09-12T11:00:00Z",
         fields={"stars": f1},
     )
 

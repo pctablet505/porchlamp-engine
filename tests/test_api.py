@@ -346,7 +346,7 @@ class TestRepoDeepDive:
         assert body["friction_score"] == 20.0
         assert body["is_stage0_disqualified"] == 0
         assert body["disqualification_reason"] is None
-        assert body["last_indexed_at"]  # DB default timestamp applied
+        assert body["last_indexed_at"] is None  # no SQL-side clock: NULL unless passed explicitly
         assert body["pillar_scores"] == {
             "responsiveness": 90.0,
             "criticality": 80.0,

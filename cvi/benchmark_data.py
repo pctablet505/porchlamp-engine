@@ -812,7 +812,7 @@ def seed_benchmark_store(
     Returns the number of seeded repositories.
     """
     catalog = get_benchmark_catalog(count)
-    store.seed_benchmark_catalog(catalog)
+    store.seed_benchmark_catalog(catalog, now or BENCHMARK_NOW)
     return len(catalog)
 
 

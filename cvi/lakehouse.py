@@ -22,9 +22,9 @@ ambiguities resolved in favour of the spec text):
   ``legal_ip_model="DCO"``, ``ai_posture="AD_HOC"``. The ingestion layer
   is expected to update those columns directly (or a future upsert
   variant will accept them).
-- ``last_indexed_at=None``: on INSERT the DB default
-  (``CURRENT_TIMESTAMP``) applies; on conflict-update the existing value
-  is preserved.
+- ``last_indexed_at=None``: on INSERT the column stores NULL (no SQL-side
+  clock default, D-VER-3); on conflict-update the existing value is
+  preserved.
 - ``leaderboard(persona=...)``: persona re-projection happens in the API
   layer (spec 12.3); the parameter is accepted and ignored here.
 - ``count_by_quadrant`` always returns all four quadrants (0 when absent)
@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS repositories (
     rank_tier VARCHAR(30) NOT NULL,
     is_stage0_disqualified BOOLEAN DEFAULT FALSE,
     disqualification_reason TEXT,
-    last_indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_indexed_at TIMESTAMP,
     UNIQUE(owner, name)
 );
 CREATE INDEX IF NOT EXISTS idx_cvi_ecosystem_rank
@@ -183,7 +183,7 @@ class OperationalStore:
         last write wins). Pillar columns come from the ``pillar_scores``
         argument (NOT from ``result.pillar_scores``) and default to 0.0
         when it is None. ``last_indexed_at`` is stored as an ISO string;
-        when None the DB default applies on insert and the stored value is
+        when None the column stores NULL on insert and the stored value is
         preserved on update.
         """
         values: dict[str, Any] = {
@@ -272,12 +272,18 @@ class OperationalStore:
         self._conn.commit()
         return int(cur.rowcount)
 
-    def seed_benchmark_catalog(self, repos: list[dict[str, Any]]) -> None:
-        """Bulk insert repository definitions in a single transaction in <2.0s."""
-        self.ensure_deep_dive_column()
-        from .benchmark_data import BENCHMARK_NOW, generate_synthetic_pr_events
+    def seed_benchmark_catalog(
+        self, repos: list[dict[str, Any]], now: datetime
+    ) -> None:
+        """Bulk insert repository definitions in a single transaction in <2.0s.
 
-        when = BENCHMARK_NOW
+        ``now`` is the explicit reference time for the synthetic PR events
+        and the ``last_indexed_at`` stamp (D-VER-3): the store owns no clock.
+        """
+        self.ensure_deep_dive_column()
+        from .benchmark_data import generate_synthetic_pr_events
+
+        when = now
         when_iso = when.isoformat()
         rows = []
 

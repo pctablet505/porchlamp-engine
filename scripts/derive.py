@@ -127,7 +127,7 @@ def _body(data_dir: Path, owner: str, name: str, fname: str,
             text = r.read().decode("utf-8", "replace")
     except Exception:  # review-ok: gate-network — any fetch failure caches None body
         text = None
-    at = utc_now_iso()
+    at = utc_now_iso(datetime.now(timezone.utc))
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({"fetched_at": at, "source": url,
                              "data": {"body": text}}), encoding="utf-8")
