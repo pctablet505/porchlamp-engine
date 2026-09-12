@@ -53,12 +53,18 @@ def verify_bundle(bundle: dict, depsdev: Optional[dict],
         checks.append({"field": field, "ok": ok, "detail": detail})
 
     dd = depsdev or {}
-    for field, dd_key, tol in (("stars", "stars", STARS_TOL),
-                               ("forks", "forks", STARS_TOL)):
+    # Stars/forks are monotonically non-decreasing. GitHub is the live primary;
+    # deps.dev is a periodically-refreshed cache, so a cached value BELOW the
+    # live one is expected staleness on a growing repo (observed: 13/14
+    # mismatches, all viral repos like iptv-org/iptv 45,903 -> 138,350). Only
+    # the impossible direction — cache ABOVE live by > tol — means the two
+    # sources genuinely disagree (wrong repo mapping / corrupt data).
+    for field, dd_key in (("stars", "stars"), ("forks", "forks")):
         a, b = m.get(field), dd.get(dd_key)
         if a and b:
             rel = abs(a - b) / max(a, b)
-            check(field, rel <= tol, f"github={a} depsdev={b} rel={rel:.3f}")
+            ok = rel <= STARS_TOL or b < a
+            check(field, ok, f"github={a} depsdev={b} rel={rel:.3f}")
         else:
             check(field, True, "single-source (deps.dev value absent)")
     lic, dlic = gh_meta.get("license_spdx"), dd.get("license")

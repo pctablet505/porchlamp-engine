@@ -21,8 +21,17 @@ def test_clean_bundle():
     assert r["clean"] and r["flags"] == []
 
 
-def test_stars_mismatch_flags():
+def test_stars_cache_lag_ok():
+    # deps.dev below GitHub is expected cache staleness on a growing repo
+    # (stars are monotonic), so it must NOT gate.
     r = verify.verify_bundle(bundle(stars=1000), {"stars": 700})
+    assert r["clean"]
+
+
+def test_stars_cache_above_live_flags():
+    # The impossible direction: a cached count ABOVE the live count means the
+    # sources genuinely disagree (wrong repo mapping / corrupt data).
+    r = verify.verify_bundle(bundle(stars=1000), {"stars": 1400})
     assert not r["clean"] and "stars" in r["flags"]
 
 
@@ -39,9 +48,10 @@ def test_scorecard_mismatch_is_advisory_not_gating():
 
 
 def test_independent_source_mismatch_still_gates():
-    # Contrast: stars/forks ARE independent counters, so a mismatch still flags.
+    # Contrast: a deps.dev fork count ABOVE the live GitHub count is impossible
+    # for a monotonic counter, so it still flags even when stars agree.
     r = verify.verify_bundle(bundle(stars=1000, forks=50),
-                             {"stars": 1000, "forks": 5, "scorecard_overall": 8.0})
+                             {"stars": 1000, "forks": 500, "scorecard_overall": 8.0})
     assert not r["clean"] and "forks" in r["flags"]
 
 
