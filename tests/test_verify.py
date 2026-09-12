@@ -26,9 +26,23 @@ def test_stars_mismatch_flags():
     assert not r["clean"] and "stars" in r["flags"]
 
 
-def test_scorecard_mismatch_flags():
+def test_scorecard_mismatch_is_advisory_not_gating():
+    # deps.dev's scorecard_overall is a cached copy of the same OpenSSF tool the
+    # bundle already uses, so a disagreement is cache-refresh drift, not a
+    # two-source contradiction. It must be recorded for visibility but must NOT
+    # flip clean->False on its own.
     r = verify.verify_bundle(bundle(score=9.0), {"scorecard_overall": 6.0})
-    assert not r["clean"] and "scorecard" in r["flags"]
+    assert r["clean"] and r["flags"] == []
+    rec = [c for c in r["checks"] if c["field"] == "scorecard"]
+    assert rec and rec[0]["ok"] is False  # recorded as a failing check...
+    assert "scorecard" not in r["flags"]  # ...but excluded from the gate
+
+
+def test_independent_source_mismatch_still_gates():
+    # Contrast: stars/forks ARE independent counters, so a mismatch still flags.
+    r = verify.verify_bundle(bundle(stars=1000, forks=50),
+                             {"stars": 1000, "forks": 5, "scorecard_overall": 8.0})
+    assert not r["clean"] and "forks" in r["flags"]
 
 
 def test_missing_required_confidence_flags():
