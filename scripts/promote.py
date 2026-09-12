@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from cvi.engine import score_repository
+from cvi.deepdive import build_deep_dive
 from cvi.ingest import apply_raw_metrics
 from cvi.lakehouse import OperationalStore
 from cvi.models import (
@@ -142,10 +143,12 @@ def promote(bundles: list[dict[str, Any]], db_path: str) -> int:
     store = OperationalStore(db_path)
     n = 0
     try:
+        store.ensure_deep_dive_column()
         for _key, (meta, events, _p90v) in metas.items():
             eco = meta.ecosystem.value
+            now = datetime.now(timezone.utc)
             result = score_repository(
-                meta, events, datetime.now(timezone.utc),
+                meta, events, now,
                 ttm_p90_population=ttm_pop.get(eco, []),
                 dependents_population=deps_pop.get(eco, []),
                 downloads_population=dl_pop.get(eco, []),
@@ -157,6 +160,14 @@ def promote(bundles: list[dict[str, Any]], db_path: str) -> int:
                 dependents_count=meta.dependents_count,
                 elephant_factor=meta.elephant_factor,
                 legal_ip_model=meta.legal_ip_model, ai_posture=meta.ai_posture)
+            # Materialize the spec 12.2 deep-dive so the UI's raw-metrics table,
+            # survival curve, and maintainer playbook render on real data
+            # (without this the repo-detail endpoint degrades to pillars only).
+            store.upsert_deep_dive(
+                meta.owner, meta.name,
+                build_deep_dive(meta, events, now,
+                                pillar_scores=result.pillar_scores,
+                                overall_cvi=result.overall_cvi))
             n += 1
     finally:
         store.close()
