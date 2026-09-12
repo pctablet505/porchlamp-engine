@@ -584,6 +584,18 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         else:
             b.set(field, value, gov_src, gov_prov_at, conf)
 
+    # --- W1-4 (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3): author-history
+    # cohorts — DR_90, MR_first, newcomer conversion, RR_90 (raw and D-IN-3
+    # eligibility+cap-adjusted). Self-contained on the author_history
+    # envelope alone (its 365-d window covers the decision cohort's
+    # [270 d, 90 d] span, so the pr_window envelope above is not needed
+    # here; see the module note in cvi.collect.github_graphql). ---
+    from cvi.collect import github_graphql as cohort_mod
+    ah, ah_at = _load(data_dir, "author_history", key)
+    ah_src = src("author_history", key) if ah is not None else None
+    for field, (value, conf) in cohort_mod.derive_cohort_fields(ah).items():
+        b.set(field, value, ah_src, ah_at, conf)
+
     meta = {k: _jsonable(v) for k, v in b.meta.items()}
     if b.meta.get("openssf_signals") is not None:
         meta["openssf_signals"] = asdict(b.meta["openssf_signals"])

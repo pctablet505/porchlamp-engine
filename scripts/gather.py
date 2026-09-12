@@ -330,6 +330,16 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["governance"] = "fail"
             print(f"  WARN governance {owner}/{name}: {e}")
+    # W1-4 (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3): author history + cohorts
+    if _done("author_history", key, force):
+        status["author_history"] = "skip"
+    else:
+        from cvi.collect import github_graphql as cohort_mod
+        try:
+            status["author_history"] = cohort_mod.collect_author_history(DATA, owner, name)
+        except Exception as e:  # review-ok: gate-network — retry on rerun
+            status["author_history"] = "fail"
+            print(f"  WARN author_history {owner}/{name}: {e}")
     return status
 
 
