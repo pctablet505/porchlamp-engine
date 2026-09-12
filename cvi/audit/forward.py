@@ -15,8 +15,11 @@ CLI (``python -m cvi.audit.forward`` until `cvi/audit/__init__.py` wires the
 ``forward`` subcommand): plan ``--snapshot S0``; dry run
 ``--snapshot S0 --collect --dry-run`` (``--offline`` skips live meta calls,
 ``--repos`` targets explicitly, ``--as-of`` fixes T without a snapshot);
-collect ``--snapshot S0 --collect``. The library never writes outside
-``--out``; :func:`main` is the only place that touches stdout.
+collect ``--snapshot S0 --collect --fetched-at <ISO-8601 UTC>``
+(``--fetched-at`` is required for real collection and unused for plan and
+dry run; D-VER-3: the module owns no wall-clock default). The library
+never writes outside ``--out``; :func:`main` is the only place that
+touches stdout.
 """
 
 from __future__ import annotations
@@ -517,14 +520,16 @@ def collect_forward(
     token: Optional[str],
     snapshot_id: Optional[str],
     prereg_hash: Optional[str],
+    fetched_at: datetime,
 ) -> dict[str, Any]:
     """Collect PRs for every repo, write envelopes and the receipt.
 
     One envelope per repo under ``<out>/raw/fwd_prs/`` holding the in-window
-    PR items exactly as fetched, plus ``<out>/forward_receipt.json``.
+    PR items exactly as fetched, plus ``<out>/forward_receipt.json``. The
+    stamp is the explicit ``fetched_at`` time (D-VER-3): the caller passes
+    the time, the module owns no clock.
     """
-    # The collect path owns the clock (test_no_clock exemption: provenance.py).
-    collected_at = utc_now_iso()
+    collected_at = utc_now_iso(fetched_at)
     rows: list[dict[str, Any]] = []
     total = 0
     for repo in repos:
@@ -603,6 +608,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--offline", action="store_true", help="dry-run without live meta calls")
     parser.add_argument("--out", default=None, help="output dir (default: <data-dir>/forward)")
     parser.add_argument("--prereg", default=None, help="path to PREREG.md (default: docs/v2/validation/PREREG.md)")
+    parser.add_argument("--fetched-at", default=None,
+                        help="ISO-8601 UTC fetch stamp; required for --collect, unused for "
+                             "plan and --collect --dry-run (no wall-clock default)")
     args = parser.parse_args(list(argv) if argv is not None else None)
     if args.dry_run and not args.collect:
         return _fail("--dry-run requires --collect")
@@ -617,6 +625,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _fail("no T: pass --snapshot, or --as-of with --repos in dry-run mode")
     if ref is not None and args.as_of is not None:
         print("note: --as-of ignored, the snapshot manifest defines T", file=sys.stderr)
+    fetched_at: Optional[datetime] = None
+    if args.collect and not args.dry_run:
+        if args.fetched_at is None:
+            return _fail("--collect requires --fetched-at <ISO-8601 UTC>: the envelope and "
+                        "receipt stamps are explicit (D-VER-3), never a wall-clock default")
+        fetched_at = _parse_ts(args.fetched_at)
+        if fetched_at is None:
+            return _fail(f"--fetched-at is not an ISO-8601 timestamp: {args.fetched_at!r}")
     scores: Optional[list[ScoreRow]] = None
     if ref is not None and (snap_db := sorted((ref.snap_dir / "build").glob("*.db"))):
         try:
@@ -660,7 +676,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
     if args.collect:
         receipt = collect_forward(repos, as_of, out_dir, token,
-                                  ref.snapshot_id if ref is not None else None, prereg_hash)
+                                  ref.snapshot_id if ref is not None else None,
+                                  prereg_hash, fetched_at)
         for row in receipt["repos"]:
             print(f"repo {row['repo']}: {row['status']} ({row['prs']} PRs, {row['points']} points)")
         collected = sum(1 for row in receipt["repos"] if row["status"] == "collected")

@@ -41,6 +41,7 @@ from cvi.audit.forward import (
 from cvi.collect.envelope import read_envelope, write_envelope
 
 T0 = datetime(2026, 7, 1, tzinfo=timezone.utc)
+FETCHED_AT = "2026-09-29T12:00:00Z"  # T0 + 90 d, the pre-registered collect time
 
 
 def _pr(
@@ -606,6 +607,8 @@ def test_collect_writes_envelopes_and_receipt(
             str(tmp_path / "snapshots" / "s0" / "manifest.json"),
             "--repos",
             "octo/a",
+            "--fetched-at",
+            FETCHED_AT,
             "--out",
             str(out),
         ]
@@ -615,15 +618,98 @@ def test_collect_writes_envelopes_and_receipt(
     assert envelope_path.is_file()
     envelope = read_envelope(envelope_path)
     assert envelope.hash_origin == "native"
+    assert envelope.fetched_at == FETCHED_AT
     assert [item["number"] for item in envelope.data] == [3, 2, 1]
     receipt = json.loads((out / "forward_receipt.json").read_text(encoding="utf-8"))
     assert receipt["snapshot_id"] == manifest["snapshot_id"]
+    assert receipt["collected_at"] == FETCHED_AT
     assert receipt["repos"][0]["status"] == "collected"
     assert receipt["repos"][0]["points"] == 4  # 1 meta + 3 pages (end page confirms)
     assert receipt["total_points"] == 4
     prs = load_pr_envelopes(out)
     assert [pr.number for pr in prs] == [3, 2, 1]
     assert prs[2].author == "carol"
+
+
+def test_collect_without_fetched_at_fails(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    snapshot_dir = tmp_path / "snapshots" / "s0"
+    _write_manifest(snapshot_dir / "manifest.json", T0)
+    code = main(
+        [
+            "--collect",
+            "--snapshot",
+            str(snapshot_dir / "manifest.json"),
+            "--repos",
+            "octo/a",
+            "--out",
+            str(tmp_path / "forward"),
+        ]
+    )
+    assert code == 2
+    assert "--fetched-at" in capsys.readouterr().err
+    assert not (tmp_path / "forward").exists()
+
+
+def test_collect_rejects_unparseable_fetched_at(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    snapshot_dir = tmp_path / "snapshots" / "s0"
+    _write_manifest(snapshot_dir / "manifest.json", T0)
+    code = main(
+        [
+            "--collect",
+            "--snapshot",
+            str(snapshot_dir / "manifest.json"),
+            "--repos",
+            "octo/a",
+            "--fetched-at",
+            "not-a-timestamp",
+            "--out",
+            str(tmp_path / "forward"),
+        ]
+    )
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "not an ISO-8601 timestamp" in err
+    assert "not-a-timestamp" in err
+
+
+def test_plan_and_dry_run_run_without_fetched_at(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    snapshot_dir = tmp_path / "snapshots" / "s0"
+    _write_manifest(snapshot_dir / "manifest.json", T0)
+    out = tmp_path / "forward"
+    code = main(
+        [
+            "--snapshot",
+            str(snapshot_dir / "manifest.json"),
+            "--data-dir",
+            str(tmp_path),
+            "--out",
+            str(out),
+        ]
+    )
+    assert code == 0
+    assert "forward plan" in capsys.readouterr().out
+    code = main(
+        [
+            "--collect",
+            "--dry-run",
+            "--offline",
+            "--repos",
+            "octo/a",
+            "--snapshot",
+            str(snapshot_dir / "manifest.json"),
+            "--data-dir",
+            str(tmp_path),
+            "--out",
+            str(out),
+        ]
+    )
+    assert code == 0
+    assert "dry-run writes nothing" in capsys.readouterr().out
+    assert not out.exists()
 
 
 def test_plan_mode_without_collection(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
