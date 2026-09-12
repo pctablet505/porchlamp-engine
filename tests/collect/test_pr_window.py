@@ -388,6 +388,9 @@ def seed_gather_done(raw: Path) -> None:
                                         "tree_paths_le2": ["pyproject.toml"],
                                         "tree_truncated": False,
                                         "offplatform_paths": []})
+    # W1-6 postdates this file and is not under test here; marking it done
+    # avoids live check-run/file-body calls for "acme/widget" below.
+    write_env(raw, "governance", KEY, {})
 
 
 def test_gather_repo_pr_window_status_ok(tmp_path, monkeypatch):

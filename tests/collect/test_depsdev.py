@@ -328,6 +328,11 @@ GATHER_DONE = {
     "commits_180d": [],
     "depsdev": None,
     "scorecard": None,
+    # W1-9/W1-5/W1-3/W1-6: these ``gather_repo`` hooks postdate this file and
+    # are not under test here; marking them done keeps the real repo
+    # "pallets/flask" used below from taking live check-run/file-body calls
+    # (repos with a large real PR history make this collector-count matter).
+    "repo_object": {}, "commits_365d": [], "pr_window": {}, "governance": {},
 }
 
 

@@ -314,6 +314,18 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status[collector] = "fail"
             print(f"  WARN {collector} {owner}/{name}: {e}")
+    # --- W1-6 (02 §4 3.1/3.3/4.2): governance evidence envelope — check
+    # names on the 20 newest merged PRs, 365 d sign-off commits and the
+    # GOVERNANCE/MAINTAINERS/CONTRIBUTING/SECURITY + AI-policy files. ---
+    if _done("governance", key, force):
+        status["governance"] = "skip"
+    else:
+        from cvi.collect import governance as gov_mod
+        try:
+            status["governance"] = gov_mod.collect_governance(DATA, owner, name)
+        except Exception as e:  # review-ok: gate-network — retry on rerun
+            status["governance"] = "fail"
+            print(f"  WARN governance {owner}/{name}: {e}")
     return status
 
 

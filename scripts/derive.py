@@ -503,6 +503,38 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         rel, rel_at, iss, iss_at, rns, rns_at, sc, sc_at, prw, prw_at,
     ).items():
         b.set(field, value, source, at, conf)
+    # --- W1-6 (02 §4 3.1/3.3/4.2): governance evidence — evidence-based
+    # legal IP / promotion ladder / AI posture with an evidence field per
+    # value; NONE/AD_HOC/AD_HOC measured-zero defaults when the relevant
+    # envelope(s) fetched successfully and found nothing, "missing"
+    # confidence (Unmeasured(collector_failure) at the v2 bundle stage,
+    # W1-7 F2 ruling) when the relevant envelope was never fetched or
+    # failed. The governance envelope carries the check names and
+    # policy-file bodies; the Signed-off-by share comes from the c365
+    # (commits_365d) rows already loaded above, not from a second fetch
+    # (cvi.collect.governance module docstring). prw / c365 reuse the
+    # W1-3 / W1-5 envelopes. Source/fetched_at follow the governance
+    # envelope when it exists, else commits_365d, so a value derived from
+    # c365 alone (no governance envelope) still carries real provenance
+    # instead of None; a "missing"-confidence field carries no source
+    # (matches every other b.missing() field in this module).
+    # (foundation-owner fact mirrors the v1 expression above; the list
+    # stays in FOUNDATION_ORGS, one definition per fact.) ---
+    from cvi.collect import governance as gov_mod
+    gov, gov_at = _load(data_dir, "governance", key)
+    if gov is not None:
+        gov_src, gov_prov_at = src("governance", key), gov_at
+    elif c365 is not None:
+        gov_src, gov_prov_at = src("commits_365d", key), c365_at
+    else:
+        gov_src, gov_prov_at = None, None
+    for field, (value, conf) in gov_mod.derive_governance_fields(
+            gov, prw, c365, owner.lower() in FOUNDATION_ORGS
+            or owner.lower().endswith("-foundation")).items():
+        if conf == "missing":
+            b.set(field, value, None, None, conf)
+        else:
+            b.set(field, value, gov_src, gov_prov_at, conf)
 
     meta = {k: _jsonable(v) for k, v in b.meta.items()}
     if b.meta.get("openssf_signals") is not None:

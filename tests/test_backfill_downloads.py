@@ -331,9 +331,11 @@ gather = _load("gather_w18", SCRIPTS / "gather.py")
 def _seed_all_but_downloads(tmp_path: Path) -> None:
     raw = tmp_path / "raw"
     key = "acme__widget"
+    # W1-6 (governance) postdates this file and is not under test here;
+    # marking it done avoids live check-run/file-body calls for "acme/widget".
     for col in ("github_meta", "pr_events", "pr_reviews", "contributors",
                 "commits_180d", "gfi", "actions_runs", "depsdev",
-                "scorecard", "tree", "repo_object"):
+                "scorecard", "tree", "repo_object", "governance"):
         p = raw / col / f"{key}.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({"fetched_at": "2026-09-12T00:00:00+00:00",

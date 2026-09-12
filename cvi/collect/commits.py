@@ -21,6 +21,14 @@ login in :data:`KNOWN_BOT_LOGINS`); substring matching is absent (F12).
 
 W1-5 owns only this module (R-10), so the packet's frozen constants are
 defined here, not in ``cvi/constants.py``.
+
+W1-6 ownership extension (02 section 4 3.1, dispatch-authorized): this
+collector already receives ``commit.message`` in the raw GitHub REST
+response for every window commit (the ``repos/{owner}/{repo}/commits``
+listing) but discarded it when shaping envelope rows. :func:`shape_commit_rows`
+now also records the boolean :data:`SIGNOFF_TRAILER` presence per commit as
+``signed_off`` -- the fact 3.1's Signed-off-by share needs -- and still never
+stores the message text itself, so no new live call is added for 3.1.
 """
 
 from __future__ import annotations
@@ -38,6 +46,10 @@ COMMIT_CAP: int = 1000
 COMMIT_PAGE_SIZE: int = 100
 #: D-GATE-4: vitality counts the trailing 180 d.
 VITALITY_WINDOW_DAYS: int = 180
+#: W1-6 (02 section 4 3.1): the DCO trailer :func:`shape_commit_rows` flags
+#: per commit (case-sensitive, substring match against the raw message,
+#: never stored). The exact convention text per the DCO spec.
+SIGNOFF_TRAILER: str = "Signed-off-by:"
 #: GitHub private-email domain: its local part is an account id (or
 #: ``<id>+<login>``), so the domain maps to the author's login, never to an
 #: org of its own (spec 3.2).
@@ -205,20 +217,25 @@ def author_key(actor: CommitActor) -> Optional[str]:
 def shape_commit_rows(raw_commits: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """Shape raw GitHub REST commit objects into envelope rows.
 
-    Each row is ``{"date", "author_email", "author_login",
-    "author_type"}``: ``date`` and ``author_email`` come from the git commit
+    Each row is ``{"date", "author_email", "author_login", "author_type",
+    "signed_off"}``: ``date`` and ``author_email`` come from the git commit
     author, ``author_login`` and ``author_type`` from the linked GitHub
-    account ("" when the commit has none).
+    account ("" when the commit has none), and ``signed_off`` (W1-6, 02
+    section 4 3.1) is whether :data:`SIGNOFF_TRAILER` occurs in
+    ``commit.message`` -- the message text itself is never kept in the row.
     """
     rows: list[dict[str, Any]] = []
     for commit in raw_commits:
-        git_author = (commit.get("commit") or {}).get("author") or {}
+        git_commit = commit.get("commit") or {}
+        git_author = git_commit.get("author") or {}
         account = commit.get("author") or {}
+        message = git_commit.get("message") or ""
         rows.append({
             "date": git_author.get("date"),
             "author_email": git_author.get("email") or "",
             "author_login": account.get("login") or "",
             "author_type": account.get("type") or "",
+            "signed_off": SIGNOFF_TRAILER in message,
         })
     return rows
 

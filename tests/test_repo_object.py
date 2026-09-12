@@ -380,6 +380,9 @@ GATHER_DONE = {
     "commits_180d": [],
     "depsdev": None,
     "scorecard": None,
+    # W1-6 postdates this file and is not under test here; marking it done
+    # avoids live check-run/file-body calls for "acme/widget" below.
+    "governance": {},
 }
 
 

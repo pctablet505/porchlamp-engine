@@ -194,7 +194,7 @@ def test_collect_stops_at_short_page_and_shapes_rows():
     assert [p for p, _ in calls] == [1, 2, 3]
     assert all(s == (NOW - timedelta(days=365)).isoformat() for _, s in calls)
     assert rows[0] == {"date": "2026-09-01T00:00:00Z", "author_email": "u0@corp.com",
-                       "author_login": "u0", "author_type": "User"}
+                       "author_login": "u0", "author_type": "User", "signed_off": False}
 
 
 def test_collect_caps_at_1000_commits():
@@ -220,8 +220,38 @@ def test_shape_handles_unlinked_and_bot_authors():
              "author": {"login": "dependabot[bot]", "type": "Bot"}}]
     rows = cc.shape_commit_rows(raws)
     assert rows[1] == {"date": "2026-09-02T00:00:00Z", "author_email": "n@corp.com",
-                       "author_login": "", "author_type": ""}
+                       "author_login": "", "author_type": "", "signed_off": False}
     assert rows[2]["author_type"] == "Bot" and rows[2]["author_login"] == "dependabot[bot]"
+
+
+# --- W1-6 ownership extension: signed_off boolean (02 section 4 3.1) --------- #
+
+def test_shape_records_signed_off_true_on_trailer():
+    raws = [{"sha": "s1", "commit": {
+        "author": {"email": "a@corp.com", "date": "2026-09-01T00:00:00Z"},
+        "message": "fix: thing\n\nSigned-off-by: A <a@corp.com>\n"},
+        "author": {"login": "alice", "type": "User"}}]
+    rows = cc.shape_commit_rows(raws)
+    assert rows[0]["signed_off"] is True
+
+
+def test_shape_records_signed_off_false_without_trailer():
+    raws = [{"sha": "s1", "commit": {
+        "author": {"email": "a@corp.com", "date": "2026-09-01T00:00:00Z"},
+        "message": "fix: thing\n"},
+        "author": {"login": "alice", "type": "User"}}]
+    rows = cc.shape_commit_rows(raws)
+    assert rows[0]["signed_off"] is False
+
+
+def test_shape_never_stores_message_text():
+    raws = [{"sha": "s1", "commit": {
+        "author": {"email": "a@corp.com", "date": "2026-09-01T00:00:00Z"},
+        "message": "a very specific secret-looking message body\n"},
+        "author": {"login": "alice", "type": "User"}}]
+    rows = cc.shape_commit_rows(raws)
+    assert "message" not in rows[0]
+    assert all("secret" not in str(v) for v in rows[0].values())
 
 
 def test_records_from_rows_tolerates_missing_fields():
@@ -299,7 +329,11 @@ def test_gather_hook_writes_commits_365d(tmp_path, monkeypatch):
                             ("contributors", []), ("gfi", []),
                             ("actions_runs", []), ("tree", {"paths": []}),
                             ("commits_180d", []),
-                            ("depsdev", {"stars": 1}), ("scorecard", {"score": 5.0})):
+                            ("depsdev", {"stars": 1}), ("scorecard", {"score": 5.0}),
+                            # W1-9/W1-3/W1-6 postdate this file and are not
+                            # under test here; marking them done avoids live
+                            # calls for "acme/widget" below.
+                            ("repo_object", {}), ("pr_window", {}), ("governance", {})):
         _seed_raw(tmp_path, collector, KEY, data)
     _seed_raw(tmp_path, "downloads", f"pypi__{NAME}", {"monthly": 123})
     monkeypatch.setattr(gather, "DATA", tmp_path)
@@ -320,9 +354,9 @@ def test_gather_hook_writes_commits_365d(tmp_path, monkeypatch):
     env = json.loads((tmp_path / "commits_365d" / f"{KEY}.json").read_text())
     assert env["data"] == [
         {"date": "2026-09-01T00:00:00Z", "author_email": "u0@corp.com",
-         "author_login": "u0", "author_type": "User"},
+         "author_login": "u0", "author_type": "User", "signed_off": False},
         {"date": "2026-09-02T00:00:00Z", "author_email": "n@corp.com",
-         "author_login": "", "author_type": ""},
+         "author_login": "", "author_type": "", "signed_off": False},
     ]
     commit_calls = [c for c in calls if c[0] == "repos/acme/widget/commits"]
     assert len(commit_calls) == 1
