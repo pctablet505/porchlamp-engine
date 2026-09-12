@@ -1,4 +1,4 @@
-"""CVI audit tools: coverage (W0-1), anchors, sensitivity and ties (W0-5).
+"""CVI audit tools: coverage (W0-1), anchors, sensitivity and ties (W0-5), forward (W5-1).
 
 Read-only analysis over a data directory or a ``cvi.db`` database.  The
 public names live in the submodules and are re-exported lazily, so
@@ -58,6 +58,41 @@ _LAZY_EXPORTS: dict[str, tuple[str, ...]] = {
         "audit_universe",
         "discover_repos",
         "format_report",
+        "main",
+    ),
+    "cvi.audit.forward": (
+        "GITHUB_API",
+        "PER_PAGE",
+        "COLLECT_DELAY_DAYS",
+        "PR_WINDOW_END_DAYS",
+        "DECISION_WINDOW_DAYS",
+        "MERGE_WINDOW_DAYS",
+        "RESPONSIVENESS_DECISION_RHO_MIN",
+        "COMPOSITE_MERGE_RHO_MIN",
+        "PILLAR_COLUMNS",
+        "COMPOSITE_COLUMN",
+        "SCORE_COLUMNS",
+        "ForwardError",
+        "SnapshotRef",
+        "ScoreRow",
+        "PRRecord",
+        "RepoRates",
+        "PairResult",
+        "CriterionResult",
+        "ForwardReport",
+        "resolve_snapshot",
+        "load_scores",
+        "pr_labels",
+        "filter_eligible",
+        "first_timers_from_s0",
+        "repo_label_rates",
+        "spearman_rho",
+        "roc_auc",
+        "analyze",
+        "live_repo_meta",
+        "dry_run_report",
+        "collect_forward",
+        "load_pr_envelopes",
         "main",
     ),
 }
