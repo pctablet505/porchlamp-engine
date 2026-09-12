@@ -64,7 +64,7 @@ endpoints. Implementation is delegated to local agents through `05-WORK-PLAN.md`
 
 | Wave | State | Landed packets |
 |---|---|---|
-| W0 Freeze & instrument | in progress | W0-1, W0-2 |
+| W0 Freeze & instrument | in progress | W0-1, W0-2, W0-3 |
 | W1 Data truth | not started | – |
 | W2 Scoring v2 | not started | – |
 | W3 Integrity | not started | – |
@@ -79,3 +79,5 @@ The lead updates this table; agents never edit it.
 |---|---|---|---|
 | 2026-09-12 | W0-2 | ACCEPT, `f5f1e4b` | Reproducer PASS on every claim (equal `iterdump` sha256 at fixed `as_of`, differing at base). Guard-scope follow-on: `tests/test_no_clock.py` exempts `lakehouse.py` and `provenance.py` by module basename, and SQL-side clocks (`DEFAULT CURRENT_TIMESTAMP`) are invisible to the regex — tracked as follow-on packet W0-2b. |
 | 2026-09-12 | W0-1 | ACCEPT, `ba3f4c1` | Sample `~/Projects/cvi-scratch/sample-200` (200 repos / 2,579 envelopes) + `cvi audit coverage`. Sample misses the ±2 pp clause on `mean_inline_comments` (+4.6) and `rr_90` (+3.3); the same tool on all 4,145 collected repos matches `01` F8 within 1.0 pp, so the tool's definitions are right and the misses are 200-repo sampling noise. Deviations recorded: size S packet landed 1,392 source lines; `cvi.audit` added to `pyproject.toml` packages by grant to W0-3. Open taxonomy question handed to W1-9/W2-4: candidate-ecosystem strata disagree with the deriver's `meta.ecosystem` for 68 of 200 repos. |
+| 2026-09-12 | W0-3 | ACCEPT, `32bb8b3` | Freeze + reproduce on `sample-200` give the identical canonical dump `4315c2ed…`; a one-byte flip changes the Merkle root (`49814505ca…` -> `080d07fc12…`) and `reproduce` names the key, exit 1. Manifest 685,938 B / 2,181 entries, reproduce 5.26 s on 200 repos, 2,181 hashes `backfilled` / 0 native. Suite 1,046 passed. Deviation: 754 source lines against size class M (<=400) — subtraction deferred, not a blocker; the packet's own CI-fixture and store-column items belong to W3-4 and W4-2. |
+| 2026-09-12 | W0-4 | dispatched | Uses the preserved pre-sweep DB `~/Projects/cvi-scratch/v1-baseline/cvi.db` for the fixture-row test because the running sweep will replace `data/cvi.db`. |
