@@ -42,7 +42,9 @@ from cvi.playbook import generate_maintainer_playbook
 
 CVI_PKG = Path(__file__).resolve().parent.parent / "cvi"
 
-CLOCK_RE = re.compile(r"datetime\.now|utcnow|time\.time|BENCHMARK_NOW")
+CLOCK_RE = re.compile(
+    r"datetime\.now|utcnow|time\.time|BENCHMARK_NOW|datetime\.today|date\.today"
+)
 
 # 04 §8 exempts the collect/serve paths: fetching and rate limiting own the
 # clock. Those are directories in the target layout and do not exist yet, so
@@ -112,6 +114,18 @@ def test_sql_clock_pattern_sees_both_clock_forms() -> None:
     """Anti-vacuity for the SQL scan: the pattern catches both forms."""
     assert SQL_CLOCK_RE.search("last_indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,")
     assert SQL_CLOCK_RE.search("SELECT datetime('now') FROM sqlite_master LIMIT 1;")
+
+
+def test_clock_pattern_sees_the_dot_today_forms() -> None:
+    """Anti-vacuity for the residual gap the INT-W0-3f review found open
+    (Consider 4): ``datetime.today()``/``date.today()`` are wall-clock reads
+    the pre-W0-3g pattern missed entirely; both stayed green on a module with
+    one added. Mutation-proved live (fail-before/restore, W0-3g handoff):
+    injecting ``datetime.today()`` into a scanned module passed
+    ``test_cvi_scoring_modules_own_no_clock`` before this pattern change and
+    fails it after."""
+    assert CLOCK_RE.search("return datetime.today().timestamp()")
+    assert CLOCK_RE.search("return date.today().isoformat()")
 
 
 def test_cvi_scoring_modules_own_no_clock() -> None:

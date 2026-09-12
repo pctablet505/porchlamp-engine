@@ -9,26 +9,49 @@ hashing itself lives in :mod:`cvi.collect.envelope` (one definition per fact).
 from __future__ import annotations
 
 from cvi.snapshot.manifest import (
+    PENDING_DUMP_HASH,
+    REASON_INVALID_JSON,
+    REASON_INVALID_JSON_FROZEN,
+    REASON_STALE_HASH,
+    SNAPSHOTS_DIRNAME,
+    EnvelopeScan,
     build_manifest,
+    code_commit,
     constants_hash,
     envelope_entries,
     load_manifest,
     merkle_root,
+    snapshot_dir,
     snapshot_id,
     write_manifest,
 )
-from cvi.snapshot.reproduce import canonical_dump, canonical_dump_hash, rebuild, reproduce
+from cvi.snapshot.reproduce import (
+    SnapshotError,
+    canonical_dump,
+    canonical_dump_hash,
+    rebuild,
+    reproduce,
+)
 
 __all__ = [
+    "EnvelopeScan",
+    "PENDING_DUMP_HASH",
+    "REASON_INVALID_JSON",
+    "REASON_INVALID_JSON_FROZEN",
+    "REASON_STALE_HASH",
+    "SNAPSHOTS_DIRNAME",
+    "SnapshotError",
     "build_manifest",
     "canonical_dump",
     "canonical_dump_hash",
+    "code_commit",
     "constants_hash",
     "envelope_entries",
     "load_manifest",
     "merkle_root",
     "rebuild",
     "reproduce",
+    "snapshot_dir",
     "snapshot_id",
     "write_manifest",
 ]

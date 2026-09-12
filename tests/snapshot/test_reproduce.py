@@ -383,3 +383,48 @@ def test_reproduce_fails_when_the_frozen_manifest_records_a_stale_hash(
     assert report.ok is False
     assert report.envelope_check.stale_native_hashes == ["gfi/org__alpha"]
     assert report.dump_hash == manifest["canonical_dump_hash"]
+
+
+# ---------------------------------------------------------------------------
+# W0-3g: INT-W0-3f review Warning 1 -- a frozen manifest's own invalid_json
+# must sink reproduce forever, symmetric with P-07b's stale-hash rule, so a
+# snapshot born short a repository stays detectable after the corrupt file
+# is gone (03 section 5: the manifest is the promotion boundary).
+# ---------------------------------------------------------------------------
+
+
+def test_check_envelopes_names_an_invalid_json_frozen_key_from_the_manifest(
+    data_dir: Path,
+) -> None:
+    """The frozen manifest's own invalid_json makes the check unclean, even
+    when the current dir has nothing wrong and no file on disk matches the
+    key (the exact post-deletion state the review measured)."""
+    entries = envelope_entries(data_dir).entries
+    manifest = build_manifest(
+        entries, as_of=AS_OF, code_commit=COMMIT, canonical_dump_hash="dump-hash",
+        invalid_json=["scorecard/org__ghost"],
+    )
+    check = check_envelopes(data_dir, manifest)
+    assert check.invalid_json_frozen == ["scorecard/org__ghost"]
+    assert check.invalid_json == []
+    assert check.mismatched == []
+    assert check.missing == []
+    assert check.matched == 4
+    assert check.clean is False
+
+
+def test_reproduce_fails_when_the_frozen_manifest_records_invalid_json(
+    data_dir: Path,
+) -> None:
+    """Over-correction guard is the untouched-sample tests above staying
+    green with an empty invalid_json. Here: reproduce cannot report MATCH
+    while the frozen invalid_json is non-empty, even though the dump hash
+    still matches and a live rescan finds nothing wrong."""
+    manifest = _freeze(data_dir, envelope_entries(data_dir).entries)
+    degraded = dict(manifest, invalid_json=["github_meta/org__ghost"])
+    write_manifest(data_dir, degraded)
+    report = reproduce(data_dir, degraded["snapshot_id"])
+    assert report.ok is False
+    assert report.envelope_check.invalid_json_frozen == ["github_meta/org__ghost"]
+    assert report.envelope_check.invalid_json == []
+    assert report.dump_hash == degraded["canonical_dump_hash"]

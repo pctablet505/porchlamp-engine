@@ -43,6 +43,18 @@ _UNSAFE = re.compile(r"[^0-9A-Za-z]+")
 #: document that is not an envelope object.
 REASON_INVALID_JSON = "INVALID_JSON"
 
+#: Reason code for an envelope whose recorded native ``sha256`` no longer
+#: described its ``data`` field when the snapshot was taken (W0-gate P-07b).
+REASON_STALE_HASH = "STALE_HASH"
+
+#: Reason code for a key the *frozen manifest itself* recorded as unreadable
+#: (its ``invalid_json`` list, W0-gate P-09). Distinct from
+#: :data:`REASON_INVALID_JSON`, which is a live rescan finding: a frozen
+#: entry keeps this reason long after the corrupt file is fixed or deleted,
+#: because the manifest is the promotion boundary (INT-W0-3f review; `03`
+#: section 5) and a snapshot born short a repository must stay detectable.
+REASON_INVALID_JSON_FROZEN = "INVALID_JSON_FROZEN"
+
 #: What makes a present file "not a readable envelope" for the scan: the
 #: decode failures :func:`cvi.collect.envelope.read_envelope` can raise
 #: (``JSONDecodeError`` is a ``ValueError``; a non-object document reaches

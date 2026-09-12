@@ -159,17 +159,15 @@ class PerturbationResult:
         Signed percentage-point move of the pillar weight.
     tau_b:
         Kendall's tau-b between the canonical and perturbed composites
-        of the rated repos.
-    reason:
-        ``None`` when ``tau_b`` carries a value; the
-        ``UNDECIDED/TAU_B_UNDEFINED`` code when ``tau_b`` is ``None``
-        (the 0/0 degenerate case of :func:`kendall_tau_b`).
+        of the rated repos. ``None`` is the sole UNDECIDED case (the 0/0
+        degenerate input of :func:`kendall_tau_b`); every reader branches
+        on ``tau_b is None`` directly rather than on a separate reason
+        code, since that is the only condition that ever produces one.
     """
 
     pillar: str
     delta_pp: int
     tau_b: Optional[float]
-    reason: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -263,8 +261,7 @@ def sensitivity_report(
                 for value in pillars
             ]
             tau = kendall_tau_b(canonical, perturbed)
-            reason = None if tau is not None else "UNDECIDED/TAU_B_UNDEFINED"
-            rows.append(PerturbationResult(pillar, delta, tau, reason))
+            rows.append(PerturbationResult(pillar, delta, tau))
     return SensitivityReport(rated=rated, pp=pp, threshold=TAU_RELEASE_THRESHOLD, rows=tuple(rows))
 
 

@@ -263,10 +263,10 @@ def test_kendall_tau_b_tied_in_both_vectors_stays_one() -> None:
 def test_all_tied_composite_reports_undecided_not_perfect(tmp_path: Path) -> None:
     """P-10c end-to-end: the W0-gate 4-repo DB. The canonical composite is
     tied (75.0 for all rows). Eight of the ten +/-5 pp perturbations break
-    the tie -> 0/0-undefined: None with a reason. Accessibility +/-5 keeps
-    the composite all-tied -> the documented identical-ranking 1.0. Either
-    way all_pass is False and the rendered report says UNDECIDED for the
-    broken rows instead of perfect agreement."""
+    the tie -> 0/0-undefined: None, not a perfect 1.0. Accessibility +/-5
+    keeps the composite all-tied -> the documented identical-ranking 1.0.
+    Either way all_pass is False and the rendered report says UNDECIDED for
+    the broken rows instead of perfect agreement."""
     from cvi.audit.sensitivity import format_sensitivity_report
 
     db = _make_db(tmp_path / "tied.db", TIED_COMPOSITE_DB)
@@ -276,10 +276,8 @@ def test_all_tied_composite_reports_undecided_not_perfect(tmp_path: Path) -> Non
     for row in report.rows:
         if row.pillar == "accessibility":
             assert row.tau_b == 1.0, (row.pillar, row.delta_pp)
-            assert row.reason is None
         else:
             assert row.tau_b is None, (row.pillar, row.delta_pp)
-            assert row.reason == "UNDECIDED/TAU_B_UNDEFINED"
     assert report.all_pass is False
     text = format_sensitivity_report(report)
     assert "UNDECIDED" in text

@@ -7,6 +7,8 @@ that prints (R-8). The data directory is a synthetic one-repo sample built by
 """
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -143,8 +145,44 @@ def test_reproduce_of_a_corrupt_envelope_exits_one_and_names_it(
 def test_freeze_of_a_dir_with_a_corrupt_envelope_completes_and_reports(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """P-09: freeze completes over the readable envelopes, names the corrupt
-    key, records it in the manifest, and exits non-zero."""
+    """P-09: with --allow-invalid, freeze completes over the readable
+    envelopes, names the corrupt key, records it in the manifest, and exits
+    non-zero (INT-W0-3f review: writing a degraded manifest is now the
+    operator's explicit choice, not the unconditional default)."""
+    root = tmp_path / "data"
+    _legacy(root, "github_meta", "org__alpha", META)
+    _legacy(root, "pr_events", "org__alpha", [])
+    _corrupt(_legacy(root, "downloads", "pypi__alpha", {"monthly": 4000}))
+    (root / "manifest.json").write_text(
+        json.dumps({"repos": [{"repo": "org/alpha", "ecosystem": "pypi"}]}), encoding="utf-8"
+    )
+    code = main([
+        "freeze", "--data-dir", str(root), "--as-of", AS_OF, "--code-commit", COMMIT,
+        "--allow-invalid",
+    ])
+    printed = capsys.readouterr().out
+    assert code == 1
+    assert "INVALID_JSON downloads/pypi__alpha" in printed
+    snapshot_id = _only_snapshot(root)
+    manifest = load_manifest(root, snapshot_id)
+    assert manifest["envelope_count"] == 2
+    assert manifest["invalid_json"] == ["downloads/pypi__alpha"]
+    assert manifest["merkle_root"] in printed
+
+
+# ---------------------------------------------------------------------------
+# W0-3g: INT-W0-3f review Warning 1 -- freeze must refuse a degraded manifest
+# by default, and a frozen invalid_json must sink reproduce forever, even
+# after the corrupt file is gone (03 section 5: the manifest is the
+# promotion boundary).
+# ---------------------------------------------------------------------------
+
+
+def test_freeze_refuses_a_corrupt_envelope_without_the_flag(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Fail-before defect (INT-W0-3f review): without --allow-invalid, freeze
+    must not write any manifest when an envelope is unreadable."""
     root = tmp_path / "data"
     _legacy(root, "github_meta", "org__alpha", META)
     _legacy(root, "pr_events", "org__alpha", [])
@@ -156,11 +194,54 @@ def test_freeze_of_a_dir_with_a_corrupt_envelope_completes_and_reports(
     printed = capsys.readouterr().out
     assert code == 1
     assert "INVALID_JSON downloads/pypi__alpha" in printed
+    assert "refusing to freeze" in printed
+    assert not (root / "snapshots").exists()
+
+
+def test_reproduce_of_a_degraded_snapshot_fails_after_the_corrupt_file_is_gone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The exact INT-W0-3f review sequence: freeze --allow-invalid over one
+    corrupt envelope, delete the corrupt file, then reproduce. On the base
+    version this prints MATCH and exits 0 -- a repository silently dropped
+    from the snapshot with no signal left. Here it must fail, naming the key
+    with INVALID_JSON_FROZEN, because the frozen manifest still records it."""
+    root = tmp_path / "data"
+    _legacy(root, "github_meta", "org__alpha", META)
+    _legacy(root, "pr_events", "org__alpha", [])
+    corrupt_path = _legacy(root, "downloads", "pypi__alpha", {"monthly": 4000})
+    _corrupt(corrupt_path)
+    (root / "manifest.json").write_text(
+        json.dumps({"repos": [{"repo": "org/alpha", "ecosystem": "pypi"}]}), encoding="utf-8"
+    )
+    code = main([
+        "freeze", "--data-dir", str(root), "--as-of", AS_OF, "--code-commit", COMMIT,
+        "--allow-invalid",
+    ])
+    assert code == 1
     snapshot_id = _only_snapshot(root)
-    manifest = load_manifest(root, snapshot_id)
-    assert manifest["envelope_count"] == 2
-    assert manifest["invalid_json"] == ["downloads/pypi__alpha"]
-    assert manifest["merkle_root"] in printed
+    corrupt_path.unlink()
+    capsys.readouterr()
+    code = main(["reproduce", snapshot_id, "--data-dir", str(root)])
+    printed = capsys.readouterr().out
+    assert code == 1
+    assert "INVALID_JSON_FROZEN downloads/pypi__alpha" in printed
+    assert "MISMATCH" in printed
+
+
+def test_every_name_cli_imports_from_the_snapshot_package_is_exported() -> None:
+    """Consider 5 (INT-W0-3f review): a consumer importing from the package
+    root can name every symbol the CLI itself relies on -- EnvelopeScan
+    included, since envelope_entries's return type must be nameable too."""
+    import cvi.snapshot as snapshot_pkg
+
+    source = Path(inspect.getsourcefile(main)).read_text(encoding="utf-8")
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("cvi.snapshot."):
+            imported.update(alias.name for alias in node.names)
+    assert imported  # anti-vacuity: the scan actually found cli.py's two import blocks
+    assert imported <= set(snapshot_pkg.__all__)
 
 
 def test_reproduce_of_a_stale_native_hash_exits_one_and_names_the_key(

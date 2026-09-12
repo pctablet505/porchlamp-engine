@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -344,4 +345,32 @@ def test_build_manifest_records_the_invalid_json_keys(data_dir: Path) -> None:
     write_manifest(data_dir, manifest)
     assert load_manifest(data_dir, manifest["snapshot_id"])["invalid_json"] == [
         "gfi/org__delta"
+    ]
+
+
+# ---------------------------------------------------------------------------
+# W0-3g: INT-W0-3f review Consider 3 (R-2) -- INVALID_JSON, STALE_HASH and
+# INVALID_JSON_FROZEN are each spelled once, as a constant here; every other
+# site imports the constant instead of repeating the literal.
+# ---------------------------------------------------------------------------
+
+
+def test_reason_code_literals_are_spelled_only_at_their_constant_definitions() -> None:
+    """Grep-based, mirroring tests/test_no_clock.py's own scan style: the
+    three reason-code literals appear nowhere in ``cvi/`` except the
+    ``REASON_*`` assignments in this module, so a caller can only reach them
+    by importing the constant (a change to the constant's value moves every
+    reader with it)."""
+    package = Path(__file__).resolve().parents[2] / "cvi"
+    literal_re = re.compile(r"\bINVALID_JSON_FROZEN\b|\bINVALID_JSON\b|\bSTALE_HASH\b")
+    hits = sorted(
+        f"{path.relative_to(package.parent)}: {line.strip()}"
+        for path in package.rglob("*.py")
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if literal_re.search(line)
+    )
+    assert hits == [
+        'cvi/snapshot/manifest.py: REASON_INVALID_JSON = "INVALID_JSON"',
+        'cvi/snapshot/manifest.py: REASON_INVALID_JSON_FROZEN = "INVALID_JSON_FROZEN"',
+        'cvi/snapshot/manifest.py: REASON_STALE_HASH = "STALE_HASH"',
     ]

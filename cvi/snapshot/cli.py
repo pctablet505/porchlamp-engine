@@ -20,7 +20,11 @@ from typing import Optional, Sequence
 
 from cvi.snapshot.manifest import (
     PENDING_DUMP_HASH,
+    REASON_INVALID_JSON,
+    REASON_INVALID_JSON_FROZEN,
+    REASON_STALE_HASH,
     SNAPSHOTS_DIRNAME,
+    EnvelopeScan,
     build_manifest,
     code_commit,
     envelope_entries,
@@ -34,7 +38,14 @@ _CODE_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _freeze(args: argparse.Namespace) -> int:
-    """Freeze ``--data-dir`` at ``--as-of`` and print the snapshot identity."""
+    """Freeze ``--data-dir`` at ``--as-of`` and print the snapshot identity.
+
+    Refuses to write a manifest when the scan finds an unreadable envelope:
+    the manifest is the promotion boundary (`03` section 5), so a snapshot
+    born short a repository must be the operator's explicit choice
+    (``--allow-invalid``), never a silent default that a later ``reproduce``
+    cannot detect once the corrupt file is gone (INT-W0-3f review).
+    """
     data_dir = Path(args.data_dir)
     try:
         as_of = datetime.fromisoformat(args.as_of)
@@ -42,8 +53,16 @@ def _freeze(args: argparse.Namespace) -> int:
         print(f"--as-of is not an ISO-8601 timestamp: {args.as_of!r}")
         return 2
     commit = args.code_commit or code_commit(_CODE_ROOT) or "unknown"
-    scan = envelope_entries(data_dir)
+    scan: EnvelopeScan = envelope_entries(data_dir)
     invalid_keys = [f"{item['collector']}/{item['key']}" for item in scan.invalid_json]
+    if invalid_keys and not args.allow_invalid:
+        for key in invalid_keys:
+            print(f"{REASON_INVALID_JSON} {key}")
+        print(
+            f"refusing to freeze: {len(invalid_keys)} unreadable envelope(s); "
+            "pass --allow-invalid to write a manifest anyway"
+        )
+        return 1
     frozen = build_manifest(
         scan.entries,
         as_of=as_of.isoformat(),
@@ -71,7 +90,7 @@ def _freeze(args: argparse.Namespace) -> int:
     print(f"dump_hash {manifest['canonical_dump_hash']}")
     print(f"manifest {path}")
     for key in invalid_keys:
-        print(f"INVALID_JSON {key}")
+        print(f"{REASON_INVALID_JSON} {key}")
     return 1 if invalid_keys else 0
 
 
@@ -83,7 +102,8 @@ def _reproduce(args: argparse.Namespace) -> int:
     print(f"envelopes {check.matched} match, {len(check.mismatched)} mismatched, "
           f"{len(check.missing)} missing, {len(check.unexpected)} unexpected, "
           f"{len(check.invalid_json)} invalid, "
-          f"{len(check.stale_native_hashes)} stale-hash")
+          f"{len(check.stale_native_hashes)} stale-hash, "
+          f"{len(check.invalid_json_frozen)} invalid-frozen")
     for key in check.mismatched:
         print(f"MISMATCHED {key}")
     for key in check.missing:
@@ -91,9 +111,11 @@ def _reproduce(args: argparse.Namespace) -> int:
     for key in check.unexpected:
         print(f"UNEXPECTED {key}")
     for key in check.invalid_json:
-        print(f"INVALID_JSON {key}")
+        print(f"{REASON_INVALID_JSON} {key}")
     for key in check.stale_native_hashes:
-        print(f"STALE_HASH {key}")
+        print(f"{REASON_STALE_HASH} {key}")
+    for key in check.invalid_json_frozen:
+        print(f"{REASON_INVALID_JSON_FROZEN} {key}")
     print(f"dump_hash {report.dump_hash}")
     print(f"frozen_dump_hash {report.frozen_dump_hash}")
     print("MATCH" if report.ok else "MISMATCH")
@@ -113,6 +135,11 @@ def _parser() -> argparse.ArgumentParser:
     freeze.add_argument("--as-of", required=True, help=_AS_OF_HELP)
     freeze.add_argument("--code-commit", default=None,
                         help="override the recorded commit (tests, out-of-tree builds)")
+    freeze.add_argument(
+        "--allow-invalid", action="store_true",
+        help="write the manifest even when an envelope is unreadable "
+             "(03 section 5: an explicit operator choice, never a silent default)",
+    )
 
     replay = commands.add_parser("reproduce", help="rebuild from raw and compare the dump hash")
     replay.add_argument("snapshot_id", help="snapshot directory name under "

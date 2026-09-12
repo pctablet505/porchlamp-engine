@@ -65,6 +65,10 @@ class EnvelopeCheck:
     ``stale_native_hashes`` (W0-gate P-07b) repeats the frozen manifest's
     ``hash_mismatches``: envelopes whose recorded native ``sha256`` did not
     describe their ``data`` when the snapshot was taken.
+    ``invalid_json_frozen`` (INT-W0-3f review; `03` section 5) repeats the
+    frozen manifest's own ``invalid_json``: a snapshot born short one
+    envelope can never reproduce clean, even once the corrupt file is
+    repaired or deleted and a live rescan finds nothing wrong with the dir.
     """
 
     root: str
@@ -74,17 +78,20 @@ class EnvelopeCheck:
     unexpected: list[str] = field(default_factory=list)
     invalid_json: list[str] = field(default_factory=list)
     stale_native_hashes: list[str] = field(default_factory=list)
+    invalid_json_frozen: list[str] = field(default_factory=list)
 
     @property
     def clean(self) -> bool:
-        """True when the data dir still holds exactly the frozen envelopes
-        and the frozen manifest recorded no stale native hash."""
+        """True when the data dir still holds exactly the frozen envelopes,
+        the frozen manifest recorded no stale native hash, and the frozen
+        manifest recorded no unreadable envelope."""
         return not (
             self.mismatched
             or self.missing
             or self.unexpected
             or self.invalid_json
             or self.stale_native_hashes
+            or self.invalid_json_frozen
         )
 
 
@@ -223,6 +230,7 @@ def check_envelopes(data_dir: Path, manifest: dict[str, Any]) -> EnvelopeCheck:
             invalid_json.append(key)
     invalid_json.sort()
     stale_native_hashes = sorted({str(key) for key in manifest.get("hash_mismatches", [])})
+    invalid_json_frozen = sorted({str(key) for key in manifest.get("invalid_json", [])})
     return EnvelopeCheck(
         root=merkle_root([entry_leaf(entry) for entry in scan.entries]),
         matched=matched,
@@ -231,6 +239,7 @@ def check_envelopes(data_dir: Path, manifest: dict[str, Any]) -> EnvelopeCheck:
         unexpected=unexpected,
         invalid_json=invalid_json,
         stale_native_hashes=stale_native_hashes,
+        invalid_json_frozen=invalid_json_frozen,
     )
 
 
