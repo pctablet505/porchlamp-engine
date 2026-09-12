@@ -35,13 +35,12 @@ from cvi.benchmark import (
     seed_benchmark_store,
 )
 from cvi.lakehouse import OperationalStore
-from cvi.models import Ecosystem, Persona
 
 
 def _calc_p95(samples: list[float]) -> float:
     """Deterministic nearest-rank p95 in milliseconds."""
     ordered = sorted(samples)
-    idx = int(round(0.95 * len(ordered) + 0.5)) - 1
+    idx = round(0.95 * len(ordered) + 0.5) - 1
     return ordered[max(0, min(idx, len(ordered) - 1))]
 
 

@@ -11,17 +11,15 @@ Measures p50, p95, p99, and max latencies across all project SLAs:
 
 from __future__ import annotations
 
-import asyncio
 import concurrent.futures
 from contextlib import closing
 import os
-from pathlib import Path
 import socket
 import statistics
 import tempfile
 import threading
 import time
-from typing import Any, Callable
+from typing import Any
 
 from fastapi.testclient import TestClient
 import httpx
@@ -34,7 +32,6 @@ from cvi.benchmark import (
     seed_benchmark_store,
 )
 from cvi.lakehouse import OperationalStore
-from cvi.models import Ecosystem, Persona, Quadrant, Tier
 
 
 def percentile(samples: list[float], pct: float) -> float:
@@ -42,7 +39,7 @@ def percentile(samples: list[float], pct: float) -> float:
     if not samples:
         return 0.0
     sorted_s = sorted(samples)
-    idx = int(round((pct / 100.0) * len(sorted_s) + 0.5)) - 1
+    idx = round((pct / 100.0) * len(sorted_s) + 0.5) - 1
     return sorted_s[max(0, min(idx, len(sorted_s) - 1))]
 
 
@@ -350,7 +347,9 @@ def benchmark_concurrency_stress() -> dict[str, Any]:
         all_latencies: list[float] = []
         errors: list[str] = []
 
-        def worker_task(worker_id: int) -> list[float]:
+        # B023: bind `errors` as a default arg so the closure captures this
+        # iteration's list rather than whatever `errors` is when it later runs.
+        def worker_task(worker_id: int, errors: list[str] = errors) -> list[float]:
             worker_latencies: list[float] = []
             with httpx.Client(base_url=base_url, timeout=15.0) as client:
                 for i in range(requests_per_worker):

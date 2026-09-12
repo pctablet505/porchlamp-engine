@@ -164,7 +164,7 @@ class ScreenEComparatorOracle:
             {"label": "2D Matrix Quadrant", "fn": lambda r: f"{quadrant_glyphs.get(r.get('matrix_quadrant', ''), '●')} {r.get('matrix_quadrant', '—')}", "format": "quad"},
 
             # Category 2: 2D Spatial Positioning
-            {"cat": "SPATIAL POSITIONING (LEVERAGE × FRICTION)"},
+            {"cat": "SPATIAL POSITIONING (LEVERAGE x FRICTION)"},
             {"label": "Leverage Score (Y-axis)", "fn": lambda r: f"{float(r.get('leverage_score', 0)):.1f}", "higherBetter": True, "format": "mono"},
             {"label": "Friction Score (X-axis)", "fn": lambda r: f"{float(r.get('friction_score', 0)):.1f}", "higherBetter": False, "format": "mono"},
 
@@ -216,10 +216,7 @@ class ScreenEComparatorOracle:
                         num = item["valFn"](r) if "valFn" in item else float(item["fn"](r).replace(",", "").rstrip("h%d"))
                     except (ValueError, TypeError):
                         continue
-                    if item["higherBetter"] and num > best_val:
-                        best_val = num
-                        best_idx = i
-                    elif not item["higherBetter"] and num < best_val:
+                    if (item["higherBetter"] and num > best_val) or (not item["higherBetter"] and num < best_val):
                         best_val = num
                         best_idx = i
 
@@ -229,7 +226,7 @@ class ScreenEComparatorOracle:
                 is_winner = (best_idx == i) and len(repos) > 1
                 winner_class = 'diff-winner' if is_winner else ''
                 crown = ' 👑' if is_winner else ''
-                cells_html += f'<td class="{item.get("format") == "mono" and "mono-num" or ""}"><span class="{winner_class}">{_esc(display_val)}{crown}</span></td>'
+                cells_html += f'<td class="{(item.get("format") == "mono" and "mono-num") or ""}"><span class="{winner_class}">{_esc(display_val)}{crown}</span></td>'
 
             tbody_html += f'<tr><td><b>{_esc(item["label"])}</b></td>{cells_html}</tr>'
             row_evaluations.append({
@@ -439,13 +436,13 @@ class TestScreenEComparatorEmpiricalHarness:
         """3 and 4 repos: multi-column scaling, 4-color superimposed radar."""
         repos_3 = catalog_repos[:3]
         diff_3 = oracle.render_diff_table(repos_3)
-        assert f'<td colspan="4">PILLAR 1: MAINTAINER RESPONSIVENESS</td>' in diff_3["tbody"]
+        assert '<td colspan="4">PILLAR 1: MAINTAINER RESPONSIVENESS</td>' in diff_3["tbody"]
         svg_3 = oracle.render_multi_radar_svg(repos_3)
         assert svg_3.count("<polygon") == 4 + 3
 
         repos_4 = catalog_repos[:4]
         diff_4 = oracle.render_diff_table(repos_4)
-        assert f'<td colspan="5">PILLAR 1: MAINTAINER RESPONSIVENESS</td>' in diff_4["tbody"]
+        assert '<td colspan="5">PILLAR 1: MAINTAINER RESPONSIVENESS</td>' in diff_4["tbody"]
         svg_4 = oracle.render_multi_radar_svg(repos_4)
         assert svg_4.count("<polygon") == 4 + 4
 

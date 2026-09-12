@@ -509,7 +509,7 @@ class TestRankedLeaderboard:
 
 
 class TestRepositoryComparator:
-    """Requirement 4: Screen E Repository Comparator (2–4 repositories)."""
+    """Requirement 4: Screen E Repository Comparator (2-4 repositories)."""
 
     def test_comparator_layout_elements(self, client: TestClient) -> None:
         html = client.get("/").text
