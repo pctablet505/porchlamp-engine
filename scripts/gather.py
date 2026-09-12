@@ -289,6 +289,16 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["pr_window"] = "fail"
             print(f"  WARN pr_window {owner}/{name}: {e}")
+    # W1-8 (F8, D-MISS-1): downloads null is retry-able, not a hard failure:
+    # pypi/npm/crates -> "pending" (pypi via scripts/backfill_downloads.py at
+    # <= 4/min); go (deps.dev dependents only), maven, systems -> "unmeasured".
+    if status.get("downloads") == "fail":
+        try:
+            import backfill_downloads as _bdl
+        except ImportError:
+            from scripts import backfill_downloads as _bdl
+        status["downloads"] = ("pending" if ecosystem in _bdl.RETRYABLE_ECOSYSTEMS
+                               else "unmeasured")
     return status
 
 

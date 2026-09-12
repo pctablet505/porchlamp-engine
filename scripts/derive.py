@@ -430,6 +430,17 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     for field, (value, conf) in prw_mod.derive_pr_window_fields(prw).items():
         b.set(field, value, src("pr_window", key) if prw is not None else None, prw_at, conf)
 
+    # --- W1-8 (F8, D-MISS-1): downloads measurement status per ecosystem ---
+    try:
+        import backfill_downloads as _bdl
+    except ImportError:
+        from scripts import backfill_downloads as _bdl
+    _dl_status = _bdl.downloads_status(ecosystem.value,
+                                       b.conf.get("monthly_downloads") == "verified")
+    b.set("downloads_status", _dl_status,
+          src("downloads", f"{ecosystem.value}__{name}") if _dl_status == "measured" else None,
+          dl_at, "derived")
+
     meta = {k: _jsonable(v) for k, v in b.meta.items()}
     if b.meta.get("openssf_signals") is not None:
         meta["openssf_signals"] = asdict(b.meta["openssf_signals"])
