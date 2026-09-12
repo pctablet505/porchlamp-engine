@@ -230,6 +230,24 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["repo_object"] = "fail"
             print(f"  WARN repo_object {owner}/{name}: {e}")
+
+    # --- W1-1: per-label newcomer-label GFI collection. Supersedes the
+    # AND-label entry in `rest` above: when the gfi envelope is missing or
+    # legacy, fetch the repo's label list once, query each alias-matching
+    # label separately, and rewrite the envelope with labels_matched. ---
+    from cvi.collect import labels as cvi_labels
+
+    gfi_path = DATA / "gfi" / f"{key}.json"
+    if cvi_labels.needs_gather(gfi_path, force):
+        try:
+            result = cvi_labels.collect_newcomer_issues(_gh, owner, name)
+            cvi_labels.write_gfi_envelope(owner, name, result, gfi_path)
+            status["gfi"] = "ok"
+        except Exception as e:  # review-ok: gate-network — retry on rerun
+            status["gfi"] = "fail"
+            print(f"  WARN gfi {owner}/{name}: {e}")
+    else:
+        status["gfi"] = "skip"
     return status
 
 

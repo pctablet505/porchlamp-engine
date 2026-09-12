@@ -388,6 +388,16 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     for field, (value, conf, col) in repo_object_mod.derive_eligibility(ro, gh, tree).items():
         b.set(field, value, src(col, key) if col else None, _ats.get(col), conf)
 
+    # --- W1-1: 5.1 newcomer-issue supply from per-label GFI envelopes.
+    # Supersedes the legacy 30d/AND-label block above for W1-1-format
+    # envelopes; legacy list data keeps the value derived above. Must run
+    # before the meta snapshot below. ---
+    from cvi.collect import labels as cvi_labels
+
+    gfi_51 = cvi_labels.count_newcomer_issues(gfis, gfi_at, now)
+    if gfi_51 is not None:
+        b.set("active_unclaimed_gfis", gfi_51, src("gfi", key), gfi_at, "verified")
+
     meta = {k: _jsonable(v) for k, v in b.meta.items()}
     if b.meta.get("openssf_signals") is not None:
         meta["openssf_signals"] = asdict(b.meta["openssf_signals"])
