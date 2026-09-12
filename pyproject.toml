@@ -13,7 +13,7 @@ server = ["uvicorn>=0.50"]
 dev = ["fastapi>=0.141", "httpx>=0.28", "pytest>=9", "pytest-xdist>=3.8"]
 
 [tool.setuptools]
-packages = ["cvi", "cvi.audit", "cvi.collect", "cvi.pillars", "cvi.snapshot"]
+packages = ["cvi", "cvi.audit", "cvi.collect", "cvi.core", "cvi.derive", "cvi.pillars", "cvi.snapshot"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
