@@ -461,8 +461,9 @@ class OperationalStore:
         where: list[str] = []
         params: list[Any] = []
         if ecosystem is not None:
-            where.append("ecosystem = ?")
-            params.append(ecosystem)
+            eco_str = ecosystem.value if hasattr(ecosystem, "value") else str(ecosystem)
+            where.append("LOWER(ecosystem) = LOWER(?)")
+            params.append(eco_str)
         if quadrant is not None:
             where.append("matrix_quadrant = ?")
             params.append(quadrant)
@@ -597,8 +598,9 @@ class OperationalStore:
         sql = "SELECT matrix_quadrant, COUNT(*) FROM repositories"
         params: list[Any] = []
         if ecosystem is not None:
-            sql += " WHERE ecosystem = ?"
-            params.append(ecosystem)
+            eco_str = ecosystem.value if hasattr(ecosystem, "value") else str(ecosystem)
+            sql += " WHERE LOWER(ecosystem) = LOWER(?)"
+            params.append(eco_str)
         sql += " GROUP BY matrix_quadrant"
         counts = {q.value: 0 for q in Quadrant}
         for quadrant, n in self._conn.execute(sql, params):

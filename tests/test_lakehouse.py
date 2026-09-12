@@ -470,6 +470,23 @@ def test_matrix_ecosystem_filter(store):
     assert store.query_matrix(ecosystem="nope") == []
 
 
+def test_ecosystem_filter_case_insensitive_across_endpoints(store):
+    """The UI sends ONE filter value to matrix + leaderboard + quadrant badges;
+    all three must agree regardless of the caller's casing (stored values are
+    lowercase enum values). Regression: query_matrix/count_by_quadrant used a
+    case-sensitive `ecosystem = ?` while leaderboard used LOWER(), so a value
+    like "PyPI" showed nodes in the scatter but zero in the badges."""
+    _seed_matrix(store)
+    for value in ("pypi", "PyPI", "PYPI", "pYpI"):
+        nodes = {n["name"] for n in store.query_matrix(ecosystem=value)}
+        rows, total = store.leaderboard(ecosystem=value)
+        badges = store.count_by_quadrant(value)
+        assert nodes == {"alpha", "beta"}, value
+        assert total == 2 and {r["name"] for r in rows} == {"alpha", "beta"}, value
+        assert badges == {"Sweet Spot": 1, "Crucible": 1,
+                          "Graveyard": 0, "Nursery": 0}, value
+
+
 def test_matrix_quadrant_filter(store):
     _seed_matrix(store)
     nodes = store.query_matrix(quadrant="Sweet Spot")
