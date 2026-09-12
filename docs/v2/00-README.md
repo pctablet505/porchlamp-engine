@@ -64,7 +64,7 @@ endpoints. Implementation is delegated to local agents through `05-WORK-PLAN.md`
 
 | Wave | State | Landed packets |
 |---|---|---|
-| W0 Freeze & instrument | not started | – |
+| W0 Freeze & instrument | in progress | W0-1, W0-2 |
 | W1 Data truth | not started | – |
 | W2 Scoring v2 | not started | – |
 | W3 Integrity | not started | – |
@@ -72,3 +72,10 @@ endpoints. Implementation is delegated to local agents through `05-WORK-PLAN.md`
 | W5 Validation & release | not started | – |
 
 The lead updates this table; agents never edit it.
+
+### Lead log
+
+| Date | Packet | Decision | Note |
+|---|---|---|---|
+| 2026-09-12 | W0-2 | ACCEPT, `f5f1e4b` | Reproducer PASS on every claim (equal `iterdump` sha256 at fixed `as_of`, differing at base). Guard-scope follow-on: `tests/test_no_clock.py` exempts `lakehouse.py` and `provenance.py` by module basename, and SQL-side clocks (`DEFAULT CURRENT_TIMESTAMP`) are invisible to the regex — tracked as follow-on packet W0-2b. |
+| 2026-09-12 | W0-1 | ACCEPT, `ba3f4c1` | Sample `~/Projects/cvi-scratch/sample-200` (200 repos / 2,579 envelopes) + `cvi audit coverage`. Sample misses the ±2 pp clause on `mean_inline_comments` (+4.6) and `rr_90` (+3.3); the same tool on all 4,145 collected repos matches `01` F8 within 1.0 pp, so the tool's definitions are right and the misses are 200-repo sampling noise. Deviations recorded: size S packet landed 1,392 source lines; `cvi.audit` added to `pyproject.toml` packages by grant to W0-3. Open taxonomy question handed to W1-9/W2-4: candidate-ecosystem strata disagree with the deriver's `meta.ecosystem` for 68 of 200 repos. |
