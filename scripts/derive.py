@@ -25,6 +25,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
+from cvi.collect import commits as commit_domains
 from cvi.constants import BOT_LOGIN_MARKERS
 from cvi.models import (
     AIPosture,
@@ -135,11 +136,12 @@ def _body(data_dir: Path, owner: str, name: str, fname: str,
 
 
 def elephant_factor(contributors: Optional[list[dict]]) -> int:
-    """Spec 3.2: minimum number of distinct organizations whose contributors
-    author >= 50% of total commits. APPROXIMATION: the raw cache carries no
-    org-affiliation data, so each contributor login is treated as its own
-    organization (greedy descending accumulation yields the minimum count).
-    EF >= 1 always (spec floor)."""
+    """Spec 3.2 login-proxy fallback: minimum number of distinct logins whose
+    contributions reach >= 50% of total contributions. W1-5: the primary EF
+    now comes from commit-author email domains (append-only block at the end
+    of derive_repo, via cvi.collect.commits); this approximation is used only
+    when no commits_365d envelope exists. Greedy descending accumulation
+    yields the minimum count; EF >= 1 always (spec floor)."""
     if not contributors:
         return 1
     total = sum(int(c.get("contributions") or 0) for c in contributors)
@@ -397,6 +399,20 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     gfi_51 = cvi_labels.count_newcomer_issues(gfis, gfi_at, now)
     if gfi_51 is not None:
         b.set("active_unclaimed_gfis", gfi_51, src("gfi", key), gfi_at, "verified")
+
+    # --- W1-5: email-domain EF (spec 3.2), bus factor, vitality (D-GATE-4) ---
+    c365, c365_at = _load(data_dir, "commits_365d", key)
+    if c365 is not None:
+        recs = commit_domains.records_from_rows(c365)
+        b.set("elephant_factor", commit_domains.elephant_factor(recs, now),
+              src("commits_365d", key), c365_at, "derived")
+        b.set("bus_factor", commit_domains.bus_factor(recs, now),
+              src("commits_365d", key), c365_at, "derived")
+        b.set("vitality", commit_domains.is_vital(recs, now),
+              src("commits_365d", key), c365_at, "derived")
+    else:
+        b.missing("bus_factor", 1)
+        b.missing("vitality", False)
 
     meta = {k: _jsonable(v) for k, v in b.meta.items()}
     if b.meta.get("openssf_signals") is not None:

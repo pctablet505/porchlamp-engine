@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from cvi.collect.commits import collect_commits_365d
 from cvi.collect.envelope import write_envelope
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "raw"
@@ -248,6 +249,24 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             print(f"  WARN gfi {owner}/{name}: {e}")
     else:
         status["gfi"] = "skip"
+
+    # --- W1-5: commits_365d (365 d, cap 1000; author email/login/type) ---
+    if not _done("commits_365d", key, force):
+        def _page(page: int, since: str) -> list[dict]:
+            time.sleep(SLEEP_REST)
+            return _gh(f"repos/{owner}/{name}/commits", "-X", "GET",
+                       "-f", "per_page=100", "-f", f"since={since}",
+                       "-f", f"page={page}") or []
+
+        try:
+            _env("commits_365d", key, "github-rest:commits",
+                 collect_commits_365d(_page))
+            status["commits_365d"] = "ok"
+        except Exception as e:  # review-ok: gate-network - retry on rerun
+            status["commits_365d"] = "fail"
+            print(f"  WARN commits_365d {owner}/{name}: {e}")
+    else:
+        status["commits_365d"] = "skip"
     return status
 
 
