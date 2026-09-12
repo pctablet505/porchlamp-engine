@@ -424,6 +424,12 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         b.set("dependents_count", int(dep["deduped_count"]),
               src("dependents", key), dep_at, "derived")
 
+    # --- W1-3 (D-IN-2, 02 §4 1.1/4.3): windowed PR responsiveness fields ---
+    from cvi.collect import github_graphql as prw_mod
+    prw, prw_at = _load(data_dir, "pr_window", key)
+    for field, (value, conf) in prw_mod.derive_pr_window_fields(prw).items():
+        b.set(field, value, src("pr_window", key) if prw is not None else None, prw_at, conf)
+
     meta = {k: _jsonable(v) for k, v in b.meta.items()}
     if b.meta.get("openssf_signals") is not None:
         meta["openssf_signals"] = asdict(b.meta["openssf_signals"])

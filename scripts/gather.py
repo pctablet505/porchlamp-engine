@@ -279,6 +279,16 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["dependents"] = "fail"
             print(f"  WARN dependents {owner}/{name}: {e}")
+    # W1-3 (D-IN-1/2/4, 02 §4 1.1/1.4/4.3): windowed PRs, typed actors
+    if _done("pr_window", key, force):
+        status["pr_window"] = "skip"
+    else:
+        from cvi.collect import github_graphql as prw_mod
+        try:
+            status["pr_window"] = prw_mod.collect_pr_window(DATA, owner, name)
+        except Exception as e:  # review-ok: gate-network — retry on rerun
+            status["pr_window"] = "fail"
+            print(f"  WARN pr_window {owner}/{name}: {e}")
     return status
 
 
