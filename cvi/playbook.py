@@ -121,6 +121,12 @@ def generate_maintainer_playbook(
     if pillar_scores is not None and overall_cvi is not None:
         current_cvi = overall_cvi
         if is_black_hole or current_cvi == 0.0:
+            # A gated/black-hole repo's *displayed* CVI is 0 (Stage 0 zeroes
+            # it), matching the forced Tier D / Graveyard below. The black-hole
+            # action's delta (normal_cvi) represents the 0 -> normal recovery,
+            # so the projection baseline must be 0 too; keeping the passed-in
+            # (ungated) overall_cvi here would double-count it into ~2x normal.
+            current_cvi = 0.0
             current_tier = Tier.D.value
             current_quadrant = Quadrant.GRAVEYARD.value
             base_pillars = normal_pillars

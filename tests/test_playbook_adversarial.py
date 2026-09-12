@@ -345,6 +345,43 @@ def test_black_hole_boundary_gr14() -> None:
     assert pb_60["potential_cvi"] > 0.0
 
 
+def test_black_hole_with_passed_overall_cvi_not_double_counted() -> None:
+    """Regression: a black-hole repo whose *stored* overall_cvi is non-zero
+    (scored ungated) must still project from a 0 baseline. Passing a non-zero
+    overall_cvi while forcing Tier D / Graveyard used to keep the ungated CVI as
+    the baseline and then add the black-hole delta (== normal_cvi) on top, so
+    potential_cvi ~= 2x normal. The displayed CVI of a gated repo is 0, so the
+    baseline must be 0 too."""
+    meta = _make_meta()
+    # 3 open ghosts + 2 clean-open = 60% ghost rate -> black hole (>50%).
+    ghosts = [
+        _make_pr(10 + i, 20, merged=False, closed=False,
+                 response_latency_hours=None, comments=0)
+        for i in range(3)
+    ]
+    clean_open = [
+        _make_pr(20, 2, merged=False, closed=False, response_latency_hours=6, comments=2),
+        _make_pr(21, 3, merged=False, closed=False, response_latency_hours=8, comments=2),
+    ]
+    passed_ps = PillarScores(
+        responsiveness=80.0, criticality=70.0, governance=75.0,
+        rigor=65.0, accessibility=60.0,
+    )
+    pb = generate_maintainer_playbook(
+        meta, ghosts + clean_open, pillar_scores=passed_ps, overall_cvi=70.0, now=NOW
+    )
+    bh = [a for a in pb["actions"] if "Stage 0 Black Hole" in a["bottleneck"]]
+    assert len(bh) == 1
+    # Baseline must collapse to 0, not stay at the passed-in 70.
+    assert pb["current_cvi"] == 0.0
+    assert pb["current_tier"] == Tier.D.value
+    assert pb["current_quadrant"] == Quadrant.GRAVEYARD.value
+    # No double count: recovery is 0 -> normal, so potential stays <= 100 and is
+    # not ~2x the ungated 70 (which the old code produced via 70 + normal_cvi).
+    assert pb["potential_cvi"] <= 100.0
+    assert pb["potential_cvi"] < 2 * 70.0
+
+
 # ---------------------------------------------------------------------------
 # Test Suite 3: Signed Friction Change Verification
 # ---------------------------------------------------------------------------
