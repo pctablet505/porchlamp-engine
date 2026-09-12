@@ -1,6 +1,7 @@
 """Gather verified raw data for candidate repos into data/raw/<collector>/.
 
-One envelope per (collector, repo): {"fetched_at","source","data"}.
+One envelope per (collector, repo): {"source","fetched_at","http_status",
+"etag","sha256","collector_version","data"} (the contract in cvi.collect.envelope).
 Existence of the envelope = completed (checkpoint); --force refetches.
 GitHub meta+PRs+first-reviews come from ONE aliased GraphQL request/repo;
 contributors/commits/GFI/actions/tree via REST; deps.dev, OpenSSF scorecard
@@ -19,6 +20,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from cvi.collect.envelope import write_envelope
+
 DATA = Path(__file__).resolve().parent.parent / "data" / "raw"
 CANDIDATES = DATA / "candidates.jsonl"
 GQL = "https://api.github.com/graphql"
@@ -31,12 +34,19 @@ COMMIT_PAGES = 3
 
 
 def _env(collector: str, key: str, source: str, data: Any) -> Path:
-    p = DATA / collector / f"{key}.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
-        "source": source, "data": data}), encoding="utf-8")
-    return p
+    """Write one envelope with its hash, status and collector version (`03` section 5).
+
+    ``http_status=200`` records a fact about the transports used here, not a
+    guess: ``gh api`` exits non-zero and ``urllib`` raises ``HTTPError`` on a
+    non-2xx answer, so a response that reached this function was accepted.
+    """
+    return write_envelope(
+        DATA / collector / f"{key}.json",
+        source=source,
+        data=data,
+        fetched_at=datetime.now(timezone.utc).isoformat(),
+        http_status=200,
+    )
 
 
 def _done(collector: str, key: str, force: bool) -> bool:
