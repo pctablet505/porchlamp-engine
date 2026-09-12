@@ -10,10 +10,19 @@ and carries the ``population_fallback`` flag. ``write_populations`` freezes
 the set to ``populations.json``; ``build_populations_table`` produces the
 plain rows for the store's ``populations`` table -- W4-2 owns that schema and
 its migration, this module never touches ``cvi/store``.
+
+A member's measured value must be finite: ``build_populations`` raises
+``ValueError`` naming the repo key and the param for a NaN or +-infinity
+value, rather than freezing it into a population. Before this check, such a
+value was accepted silently and later scored at exactly the population
+median (``docs/v2/02-RANKING-DESIGN.md`` D-MISS-1: an unmeasurable input is
+``Unmeasured``, never a neutral score). Converting an absence to
+``Unmeasured`` is the caller's job; this module refuses instead of guessing.
 """
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
@@ -114,6 +123,10 @@ def _member_problems(member: PopulationMember) -> list[str]:
             problems.append(
                 f"member {member.key!r}: {param!r} measured value must be numeric, got {type(value).__name__}"
             )
+        elif not math.isfinite(float(value)):
+            problems.append(
+                f"member {member.key!r}: {param!r} measured value must be finite, got {value!r}"
+            )
     return problems
 
 
@@ -126,7 +139,9 @@ def build_populations(members: Sequence[PopulationMember], snapshot_id: str) -> 
     population is the ecosystem's own values when they number at least
     ``MIN_POPULATION`` (30); below that it is the global population (all
     ecosystems combined) with ``fallback=True``. Raises ``ValueError`` for an
-    empty ``snapshot_id``, a duplicate repo key, or an invalid member."""
+    empty ``snapshot_id``, a duplicate repo key, an invalid member, or a
+    member with a non-finite (NaN / infinity) measured value (naming the
+    repo key and the param)."""
     if not isinstance(snapshot_id, str) or not snapshot_id:
         raise ValueError(f"snapshot_id must be a non-empty string, got {snapshot_id!r}")
     problems: list[str] = []

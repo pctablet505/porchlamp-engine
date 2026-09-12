@@ -7,9 +7,19 @@ D-NORM-2 (built by ``cvi.snapshot.populations``) can be queried in O(log N)
 per value. Mid-rank is the tie treatment: the spec's ``<=`` form scores
 every member of an all-tied population 100 (finding F3), the mid-rank form
 scores 50. Pure math: no I/O, no clock, stdlib only (04 section 3 core rule).
+
+Every numeric input (a query value or a population member) must be finite:
+NaN and +-infinity are rejected with ``ValueError`` naming the offending
+value, not silently scored. Before this check, ``mid_rank_ecdf_score(nan,
+population)`` returned exactly 50.0 -- indistinguishable from a genuine
+mid-population score. ``docs/v2/02-RANKING-DESIGN.md`` D-MISS-1 makes an
+unmeasurable input ``Unmeasured``, never a neutral score; converting an
+absence to ``Unmeasured`` is the caller's job, so this module refuses
+non-finite input rather than guessing a score for it.
 """
 from __future__ import annotations
 
+import math
 from bisect import bisect_left, bisect_right
 from typing import Callable, Sequence
 
@@ -17,7 +27,10 @@ from typing import Callable, Sequence
 def _numeric(value: object, what: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{what} must be a number, got {type(value).__name__}")
-    return float(value)
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{what} must be finite, got {value!r}")
+    return number
 
 
 def _checked_values(population: Sequence[float]) -> list[float]:
@@ -39,7 +52,8 @@ def mid_rank_ecdf_score(value: float, population: Sequence[float]) -> float:
     ``R(x) = 100 * (#{x_k < x} + 0.5 * #{x_k = x}) / N`` on the 0-100 scale:
     ties get half credit, so an all-tied population scores 50.0 for every
     member, below-minimum values score 0.0 and above-maximum 100.0.
-    Raises ``ValueError`` for an empty population or non-numeric values."""
+    Raises ``ValueError`` for an empty population, a non-numeric value, or
+    a non-finite (NaN / infinity) ``value`` or population member."""
     return _mid_rank(_numeric(value, "value"), sorted(_checked_values(population)))
 
 
@@ -48,8 +62,10 @@ def mid_rank_ecdf(population: Sequence[float]) -> Callable[[float], float]:
 
     The population is sorted once up front, so each query is O(log N); this
     is the callback shape the W2-3 ECDF-normalised curves (1.5, 2.1, 2.3,
-    D-NORM-3) take. Raises ``ValueError`` for an empty population or
-    non-numeric values."""
+    D-NORM-3) take. Raises ``ValueError`` for an empty population, a
+    non-numeric value, or a non-finite (NaN / infinity) population member
+    at build time, or a non-finite query value when the returned callable
+    is invoked."""
     ordered = sorted(_checked_values(population))
 
     def ecdf(value: float) -> float:

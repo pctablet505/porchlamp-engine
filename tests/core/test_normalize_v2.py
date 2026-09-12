@@ -70,3 +70,34 @@ def test_rejects_non_numeric_values():
 
 def test_integer_values_coerce_to_float():
     assert normalize.mid_rank_ecdf_score(2, [1, 2, 2, 3]) == 50.0
+
+
+def test_rejects_non_finite_query_value():
+    # Fail-before: mid_rank_ecdf_score(nan, [1.0, 2.0]) returned exactly 50.0
+    # (the population median) before this check existed -- see the module
+    # docstring and D-MISS-1 (docs/v2/02-RANKING-DESIGN.md).
+    population = [1.0, 2.0, 3.0]
+    for bad in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="value must be finite"):
+            normalize.mid_rank_ecdf_score(bad, population)
+    ecdf = normalize.mid_rank_ecdf(population)
+    with pytest.raises(ValueError, match="value must be finite"):
+        ecdf(float("nan"))
+
+
+def test_rejects_non_finite_population_values():
+    with pytest.raises(ValueError, match="population value must be finite"):
+        normalize.mid_rank_ecdf_score(1.0, [1.0, float("nan"), 3.0])
+    with pytest.raises(ValueError, match="population value must be finite"):
+        normalize.mid_rank_ecdf([1.0, float("inf")])
+
+
+def test_finite_values_are_unchanged_by_the_finiteness_check():
+    # Over-correction guard for the non-finite rejection: every finite input
+    # from the mixed-ties oracle must keep scoring exactly as before.
+    population = [1.0, 2.0, 2.0, 3.0]
+    assert normalize.mid_rank_ecdf_score(1.0, population) == 12.5
+    assert normalize.mid_rank_ecdf_score(2.0, population) == 50.0
+    assert normalize.mid_rank_ecdf_score(3.0, population) == 87.5
+    ecdf = normalize.mid_rank_ecdf(population)
+    assert ecdf(1.0) == 12.5

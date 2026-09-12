@@ -11,6 +11,9 @@ Every expected value below is hand-computed from the D-NORM-1/2 formulas.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 
 import pytest
 
@@ -22,6 +25,47 @@ from cvi.snapshot import populations
 
 PARAM = "downloads_monthly"
 #: W2-3 registers downloads_monthly as the registry-download input (02 2.3).
+
+#: Child process for TestEmissionOrder.test_written_document_order_is_stable_
+#: across_pythonhashseed: builds a fixed PopulationSet spanning six
+#: ecosystems and two params -- so the (ecosystem, param) set has enough
+#: elements for its unsorted iteration order to be sensitive to string hash
+#: randomization -- and writes the frozen document to the path in argv[1].
+#: Every measured value is computed from plain indices, never from `hash()`,
+#: so PYTHONHASHSEED cannot change the population content, only (absent
+#: `sorted(pairs)`) the emission order.
+_ORDER_PROBE_SCRIPT = """
+import sys
+
+from cvi.core.models import GateResult
+from cvi.snapshot import populations
+
+ECOSYSTEMS = ("crates", "go", "maven", "npm", "pypi", "systems")
+PARAMS = ("param_a", "param_b")
+
+
+def _gate():
+    return GateResult(eligible=True, reason=None, routed=None, undecided=())
+
+
+members = []
+for e_idx, ecosystem in enumerate(ECOSYSTEMS):
+    for i in range(2):
+        measured = {
+            param: float(e_idx * 100 + p_idx * 10 + i)
+            for p_idx, param in enumerate(PARAMS)
+        }
+        members.append(
+            populations.PopulationMember(
+                key=f"{ecosystem}/r{i}", ecosystem=ecosystem,
+                gate=_gate(), rated=True, measured=measured,
+            )
+        )
+
+result = populations.build_populations(members, "hash-seed-probe")
+path = populations.write_populations(result, sys.argv[1])
+sys.stdout.write(path.read_text(encoding="utf-8"))
+"""
 
 
 def _gate(eligible=True, reason=None, routed=None) -> GateResult:
@@ -44,7 +88,7 @@ def _pypi_members(count: int, start: int = 1) -> list[populations.PopulationMemb
 
 
 class TestMinPopulationFallback:
-    def test_nine_below_min_is_flagged(self) -> None:
+    def test_twenty_nine_below_min_is_flagged(self) -> None:
         result = populations.build_populations(_pypi_members(29), "s0")
         pop = result.population("pypi", PARAM)
         assert pop is not None
@@ -121,6 +165,37 @@ class TestMembership:
         assert pop.fallback is False
 
 
+class TestNonFiniteRejection:
+    def test_nan_measured_value_raises_naming_key_and_param(self) -> None:
+        # Fail-before: build_populations accepted this member silently and
+        # froze `nan` into pop.values -- see the module docstring and
+        # D-MISS-1 (docs/v2/02-RANKING-DESIGN.md).
+        bad = _member("org/nan-repo", "pypi", float("nan"))
+        with pytest.raises(ValueError) as excinfo:
+            populations.build_populations(_pypi_members(29) + [bad], "s0")
+        assert "org/nan-repo" in str(excinfo.value)
+        assert PARAM in str(excinfo.value)
+        assert "finite" in str(excinfo.value)
+
+    def test_infinite_measured_value_raises_naming_key_and_param(self) -> None:
+        bad = _member("org/inf-repo", "pypi", float("inf"))
+        with pytest.raises(ValueError) as excinfo:
+            populations.build_populations(_pypi_members(29) + [bad], "s0")
+        assert "org/inf-repo" in str(excinfo.value)
+        assert PARAM in str(excinfo.value)
+        assert "finite" in str(excinfo.value)
+
+    def test_finite_members_are_unchanged_by_the_finiteness_check(self) -> None:
+        # Over-correction guard: an all-finite membership must build exactly
+        # as before -- same effective population, same fallback decision.
+        result = populations.build_populations(_pypi_members(30), "s0")
+        pop = result.population("pypi", PARAM)
+        assert pop is not None
+        assert pop.fallback is False
+        assert pop.n == 30
+        assert pop.values["org/r1"] == 1.0
+
+
 class TestSetIntegrity:
     def test_duplicate_repo_key_raises(self) -> None:
         members = _pypi_members(2) + [_member("org/r1", "pypi", 99.0)]
@@ -168,6 +243,61 @@ class TestSetIntegrity:
         assert populations.build_populations_table(first) == populations.build_populations_table(second)
 
 
+class TestEmissionOrder:
+    _EXPECTED_ORDER = [
+        ("crates", "param_a"), ("crates", "param_b"),
+        ("go", "param_a"), ("go", "param_b"),
+        ("maven", "param_a"), ("maven", "param_b"),
+        ("npm", "param_a"), ("npm", "param_b"),
+        ("pypi", "param_a"), ("pypi", "param_b"),
+        ("systems", "param_a"), ("systems", "param_b"),
+    ]
+
+    def test_population_order_is_the_sorted_ecosystem_param_order(self) -> None:
+        # Members submitted in reverse ecosystem order, and each member's
+        # `measured` mapping keyed in reverse param order too, so neither
+        # list order nor dict insertion order could accidentally look sorted.
+        ecosystems_reverse = ("systems", "pypi", "npm", "maven", "go", "crates")
+        members = [
+            populations.PopulationMember(
+                key=f"{ecosystem}/r{i}",
+                ecosystem=ecosystem,
+                gate=_gate(),
+                rated=True,
+                measured={"param_b": float(i), "param_a": float(i)},
+            )
+            for ecosystem in ecosystems_reverse
+            for i in range(2)
+        ]
+        result = populations.build_populations(members, "s0")
+        assert [(entry.ecosystem, entry.param) for entry in result.populations] == self._EXPECTED_ORDER
+
+    def test_written_document_order_is_stable_across_pythonhashseed(self, tmp_path) -> None:
+        # Fail-before (mutant "remove sorted(pairs)"): with the emission
+        # order taken from raw `set` iteration, the frozen document's
+        # `populations` array order -- and so its bytes -- differs between
+        # PYTHONHASHSEED values, even though every one of these three
+        # subprocesses runs the identical build.
+        raw_by_seed: dict[str, str] = {}
+        for seed in ("1", "2", "3"):
+            env = dict(os.environ)
+            env["PYTHONHASHSEED"] = seed
+            target = tmp_path / f"seed-{seed}.json"
+            completed = subprocess.run(
+                [sys.executable, "-B", "-c", _ORDER_PROBE_SCRIPT, str(target)],
+                env=env, capture_output=True, text=True,
+            )
+            assert completed.returncode == 0, completed.stderr
+            raw_by_seed[seed] = completed.stdout
+
+        for seed, raw in raw_by_seed.items():
+            document = json.loads(raw)
+            order = [(entry["ecosystem"], entry["param"]) for entry in document["populations"]]
+            assert order == self._EXPECTED_ORDER, f"seed {seed}: order {order}"
+
+        assert raw_by_seed["1"] == raw_by_seed["2"] == raw_by_seed["3"]
+
+
 class TestFreeze:
     @pytest.fixture()
     def result(self) -> populations.PopulationSet:
@@ -193,6 +323,24 @@ class TestFreeze:
         assert go["values"] == {f"go/g{i}": float(100 + i) for i in range(40)}
         raw = path.read_text(encoding="utf-8")
         assert raw == json.dumps(document, indent=2, sort_keys=True) + "\n"
+
+    def test_frozen_document_header_fields_are_pinned(self, result, tmp_path) -> None:
+        # Fail-before: neither the document tag nor the version number was
+        # asserted against a literal anywhere in the suite, so
+        # POPULATIONS_DOCUMENT_VERSION 1 -> 2 and "cvi-populations" ->
+        # "cvi-populations-v2" both survived every packet test.
+        path = populations.write_populations(result, tmp_path / "populations.json")
+        document = json.loads(path.read_text(encoding="utf-8"))
+        assert set(document) == {
+            "document", "version", "snapshot_id", "benchmark_version",
+            "constants_hash", "min_population", "populations",
+        }
+        assert document["document"] == "cvi-populations"
+        assert populations.POPULATIONS_DOCUMENT_VERSION == 1
+        assert document["version"] == 1
+        assert document["min_population"] == 30
+        assert document["benchmark_version"] == constants_v2.BENCHMARK_VERSION
+        assert document["constants_hash"] == constants_v2.CONSTANTS_HASH
 
     def test_store_table_rows(self, result) -> None:
         rows = populations.build_populations_table(result)
