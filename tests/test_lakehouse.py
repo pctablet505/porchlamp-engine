@@ -745,6 +745,22 @@ def test_leaderboard_full_row_keys(store):
     assert set(rows[0].keys()) == set(SPEC_COLUMNS)
 
 
+def test_leaderboard_excludes_deep_dive_blob(store):
+    """Once the optional deep_dive_json column exists (production state after
+    promote), the leaderboard must still return exactly the spec columns: the
+    endpoint discards the blob, and the persona re-projection path loads every
+    matching row, so reading a multi-KB blob per row is pure waste."""
+    store.upsert_composite(make_result(owner="o", name="r"))
+    store.ensure_deep_dive_column()
+    store.upsert_deep_dive("o", "r", {"raw_metrics": {}})
+    rows, _ = store.leaderboard()
+    assert "deep_dive_json" not in rows[0]
+    assert set(rows[0].keys()) == set(SPEC_COLUMNS)
+    # persona path too (it re-projects every row)
+    rows_p, _ = store.leaderboard(persona="first_timer")
+    assert "deep_dive_json" not in rows_p[0]
+
+
 def test_additional_indexes_exist(store):
     cur = store.connection.execute("PRAGMA index_list('repositories')")
     names = {row[1] for row in cur.fetchall()}

@@ -546,8 +546,10 @@ class OperationalStore:
             count_sql = f"SELECT COUNT(*) FROM repositories{where_clause}"
             total_count = int(self._conn.execute(count_sql, params).fetchone()[0])
 
+            # Explicit column list (not SELECT *): the leaderboard never serves
+            # the optional deep_dive_json blob, so don't read it for every row.
             query_sql = (
-                f"SELECT * FROM repositories{where_clause} "
+                f"SELECT {', '.join(_COLUMNS)} FROM repositories{where_clause} "
                 "ORDER BY overall_cvi DESC, owner, name LIMIT ? OFFSET ?"
             )
             query_params = list(params) + [limit_val, offset_val]
@@ -557,7 +559,7 @@ class OperationalStore:
             return items, total_count
 
         # Persona re-projection path
-        query_sql = f"SELECT * FROM repositories{where_clause}"
+        query_sql = f"SELECT {', '.join(_COLUMNS)} FROM repositories{where_clause}"
         cur = self._conn.execute(query_sql, params)
         cols = [d[0] for d in cur.description]
         rows = [dict(zip(cols, row)) for row in cur.fetchall()]
