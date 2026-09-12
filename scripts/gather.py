@@ -267,6 +267,18 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             print(f"  WARN commits_365d {owner}/{name}: {e}")
     else:
         status["commits_365d"] = "skip"
+    # W1-2 (F3): package-level dependents — deps.dev primary, ecosyste.ms
+    # fallback; "skip" = no registry mapping for this ecosystem (module
+    # docstring of cvi.collect.depsdev), no envelope, no fetch.
+    if _done("dependents", key, force):
+        status["dependents"] = "skip"
+    else:
+        from cvi.collect import depsdev as depsdev_mod
+        try:
+            status["dependents"] = depsdev_mod.collect_dependents(DATA, owner, name, ecosystem)
+        except Exception as e:  # review-ok: gate-network — retry on rerun
+            status["dependents"] = "fail"
+            print(f"  WARN dependents {owner}/{name}: {e}")
     return status
 
 

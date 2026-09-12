@@ -1,0 +1,60 @@
+"""W1-2: ecosyste.ms fallback for the package-level dependents count (F3).
+
+Fallback source when deps.dev has no usable figure for a package:
+``GET https://packages.ecosyste.ms/api/v1/registries/{registry}/packages/
+{package}`` -> ``dependent_packages_count``. Measured 2026-09-12 (packet
+W1-2 handoff): for pypi/flask this exact URL answered HTTP 404
+``{"error": "not found"}``, so the parser must treat a recorded not-found
+payload as "source absent" (None) and never as a zero.
+
+Keyless and unauthenticated. This module owns only the fallback URL shape
+and the response parse; :mod:`cvi.collect.depsdev` owns the
+primary/fallback flow and the envelope.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+#: Base URL of the public ecosyste.ms REST API.
+ECOSYSTEMES_API: str = "https://packages.ecosyste.ms/api/v1"
+
+#: CVI ecosystem -> ecosyste.ms registry identifier. Absent = no fallback
+#: registry (the systems ecosystem has no package registry at all).
+REGISTRY_FOR_ECOSYSTEM: dict[str, str] = {
+    "pypi": "pypi",
+    "npm": "npm",
+    "crates": "crates",
+    "go": "go",
+    "maven": "maven",
+}
+
+
+def registry_for_ecosystem(ecosystem: str) -> Optional[str]:
+    """Ecosyste.ms registry identifier for a CVI ecosystem, or None."""
+    return REGISTRY_FOR_ECOSYSTEM.get(ecosystem)
+
+
+def package_url(registry: str, package: str) -> str:
+    """The fallback package-lookup URL for one registry package."""
+    return f"{ECOSYSTEMES_API}/registries/{registry}/packages/{package}"
+
+
+def parse_package(payload: Optional[dict]) -> Optional[dict]:
+    """Extract the fallback fields from a recorded package response.
+
+    Returns ``{"name", "registry", "dependent_packages_count"}`` when the
+    payload carries an integral ``dependent_packages_count`` (0 is a real
+    count); None for a missing payload, a recorded 404 body such as
+    ``{"error": "not found"}``, or a non-integral count.
+    """
+    if not isinstance(payload, dict):
+        return None
+    count = payload.get("dependent_packages_count")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        return None
+    return {
+        "name": payload.get("name"),
+        "registry": payload.get("registry"),
+        "dependent_packages_count": count,
+    }

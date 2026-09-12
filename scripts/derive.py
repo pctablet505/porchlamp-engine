@@ -414,6 +414,16 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         b.missing("bus_factor", 1)
         b.missing("vitality", False)
 
+    # --- W1-2 (D-PARAM 2.1 / F3): package-level dependents from the
+    # dependents envelope (deps.dev primary, ecosyste.ms fallback). The v1
+    # usedby_count above is always None (F3); this block overrides it only
+    # when a measured envelope exists. "derived": the value passes the
+    # documented D-PARAM 2.1 dedup, not a raw source figure. ---
+    dep, dep_at = _load(data_dir, "dependents", key)
+    if dep is not None and dep.get("deduped_count") is not None:
+        b.set("dependents_count", int(dep["deduped_count"]),
+              src("dependents", key), dep_at, "derived")
+
     meta = {k: _jsonable(v) for k, v in b.meta.items()}
     if b.meta.get("openssf_signals") is not None:
         meta["openssf_signals"] = asdict(b.meta["openssf_signals"])
