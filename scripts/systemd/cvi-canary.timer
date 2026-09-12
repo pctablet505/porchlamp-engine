@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly schedule for the CVI live re-verification canary (W3-3)
+
+[Timer]
+# 03:00 UTC daily; the randomisation spreads the GitHub load off the top of
+# the hour. Persistent=true runs it once (catch-up) if the machine was off.
+OnCalendar=*-*-* 03:00:00 UTC
+RandomizedDelaySec=15m
+Persistent=true
+Unit=cvi-canary.service
+
+[Install]
+WantedBy=timers.target
