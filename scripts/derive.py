@@ -381,6 +381,13 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # frequency have no collector yet -> None (engine neutral 50). ---
     b.missing("openssf_signals", None)
 
+    # --- W1-9 (D-GATE-1/2/3/6): eligibility markers ---
+    from cvi.collect import repo_object as repo_object_mod
+    ro, ro_at = _load(data_dir, "repo_object", key)
+    _ats = {"repo_object": ro_at, "github_meta": gh_at, "tree": tree_at}
+    for field, (value, conf, col) in repo_object_mod.derive_eligibility(ro, gh, tree).items():
+        b.set(field, value, src(col, key) if col else None, _ats.get(col), conf)
+
     meta = {k: _jsonable(v) for k, v in b.meta.items()}
     if b.meta.get("openssf_signals") is not None:
         meta["openssf_signals"] = asdict(b.meta["openssf_signals"])

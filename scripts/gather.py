@@ -220,6 +220,16 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         status["downloads"] = "ok" if monthly is not None else "fail"
     else:
         status["downloads"] = "skip"
+    # W1-9 (D-GATE-1/2/3/6): repo-object eligibility envelope
+    if _done("repo_object", key, force):
+        status["repo_object"] = "skip"
+    else:
+        from cvi.collect.repo_object import collect_repo_object
+        try:
+            status["repo_object"] = collect_repo_object(DATA, owner, name, branch)
+        except Exception as e:  # review-ok: gate-network — retry on rerun
+            status["repo_object"] = "fail"
+            print(f"  WARN repo_object {owner}/{name}: {e}")
     return status
 
 
