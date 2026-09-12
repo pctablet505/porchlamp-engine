@@ -28,6 +28,7 @@ from cvi.core.models import (
     Cohorts,
     FeatureBundle,
     Measured,
+    ParamScore,
     PillarScore,
     PRWindow,
     PRWindowEvent,
@@ -138,14 +139,13 @@ class EligibleFixture:
     every member -> ecdf=0 -> 100-0=100).
       pillar = 100.0, coverage = 1.0
 
-    Criticality (all 100.0): dependents 999999 -> log10(1e6)=6.0 against the
-    *log-space* population [0,1,2,3] (above every member -> ecdf=100 --
-    see the integration note in cvi/core/engine.py's module docstring: the
-    dependents/downloads curves query ecdf(log10(1+raw)), so their
-    populations must hold log10(1+raw) values, not raw counts, for the
-    ranking to mean anything); OpenSSF criticality 1.0 -> 100*1=100;
-    downloads 999999999 -> log10(1e9)~=9.0 against log-space population
-    [0,1,2] (above every member -> 100).
+    Criticality (all 100.0): dependents 999999 queried raw against the
+    population [0,1,2,3] (above every member -> ecdf=100 -- D-NORM-3: the
+    dependents/downloads curves query the raw measured value, and
+    ``build_populations`` freezes raw values too, so the two sides rank the
+    same quantity); OpenSSF criticality 1.0 -> 100*1=100; downloads
+    999999999 queried raw against population [0,1,2] (above every member ->
+    100).
       pillar = 100.0, coverage = 1.0
 
     Governance (all 100.0): legal_ip DCO=100; elephant_factor 4.0 ->
@@ -364,7 +364,12 @@ def test_unrated_repo_has_no_composite_or_tier_but_keeps_params_and_coverage() -
     (responsiveness's ttm_p90, criticality's dependents/downloads) are all
     Unmeasured here, so an empty ``PopulationSet`` must not be consulted
     (regression guard for the eager-ecdf-fetch bug: calling ``.ecdf`` on an
-    empty set would raise ``LookupError``)."""
+    empty set would raise ``LookupError``).
+
+    W2-5f (W-1): the stage-0 ``gate`` stays exactly as ``evaluate_gates``
+    returned it (``eligible=True`` -- this repo passed every stage-0 gate);
+    the stage-3 D-EVID-1 outcome lives in ``rated``/``unrated_reason``
+    instead of overwriting it."""
     inputs: dict[str, Measured | Unmeasured] = {
         input_id: Unmeasured(reason="collector_failure") for input_id in constants_v2.PARAM_INPUT_IDS
     }
@@ -385,9 +390,12 @@ def test_unrated_repo_has_no_composite_or_tier_but_keeps_params_and_coverage() -
 
     record = score(bundle, empty_populations, snapshot)
 
-    assert record.gate.eligible is False
-    assert record.gate.reason == "unrated: insufficient_evidence"
+    assert record.gate.eligible is True
+    assert record.gate.reason is None
     assert record.gate.undecided == ("D-GATE-5",)
+    assert record.rated is False
+    assert record.unrated_reason == "unrated: insufficient_evidence"
+    assert record.tier_ceiling is None
     assert record.coverage == pytest.approx(0.15)
     assert record.pillars["accessibility"].score == pytest.approx(100.0)
     assert record.pillars["responsiveness"].score is None
@@ -396,6 +404,8 @@ def test_unrated_repo_has_no_composite_or_tier_but_keeps_params_and_coverage() -
     assert record.leverage is None
     assert record.friction is None
     assert record.quadrant is None
+    assert record.leverage_coverage == pytest.approx(0.0)
+    assert record.friction_coverage == pytest.approx(0.0)
     assert len(record.params) == 18
 
 
@@ -460,3 +470,166 @@ def test_quadrant_boundary_50_counts_as_high_on_both_axes() -> None:
     assert matrix.quadrant(49.99, 50.0) == matrix.QUADRANT_GRAVEYARD
     assert matrix.quadrant(50.0, 49.99) == matrix.QUADRANT_SWEET_SPOT
     assert matrix.quadrant(49.99, 49.99) == matrix.QUADRANT_NURSERY
+
+
+def test_coordinates_rounds_leverage_and_friction_before_the_quadrant_comparison() -> None:
+    """W2-5f mutant guard (review section 7, M13): matrix.py's own module
+    docstring names this the deliberate v1-kept exception -- the quadrant
+    compares *rounded* leverage/friction, not the raw pre-round values.
+    criticality .50, rigor/governance 0.0 -> leverage_raw = .50*99.998 =
+    49.999, which rounds to 50.0 (high); responsiveness/accessibility 100.0,
+    governance 0.0 -> friction_raw = .30*(100-0) = 30.0 (unambiguously low,
+    no rounding boundary involved). A mutant that quadrants on the raw
+    (49.999, 30.0) pair would call leverage low and land on Nursery instead
+    of Sweet Spot."""
+    pillars = {
+        "responsiveness": PillarScore(score=100.0, coverage=1.0),
+        "criticality": PillarScore(score=99.998, coverage=1.0),
+        "governance": PillarScore(score=0.0, coverage=1.0),
+        "rigor": PillarScore(score=0.0, coverage=1.0),
+        "accessibility": PillarScore(score=100.0, coverage=1.0),
+    }
+    lev_raw, _ = matrix.leverage(pillars)
+    fric_raw, _ = matrix.friction(pillars)
+    assert lev_raw == pytest.approx(49.999)
+    assert fric_raw == pytest.approx(30.0)
+
+    coords = matrix.coordinates(pillars)
+
+    assert coords.leverage == pytest.approx(50.0)
+    assert coords.friction == pytest.approx(30.0)
+    assert coords.quadrant == matrix.QUADRANT_SWEET_SPOT
+
+
+# --------------------------------------------------------------------------- #
+# W2-5f mutant guards (review section 7, M10/M12): the engine's stored
+# ``composite`` is the rounded display value, but ``tier`` is derived from
+# the unrounded ``composite_raw`` (04 section 8) -- and this is the one case
+# where the two diverge across a tier cutoff.
+# --------------------------------------------------------------------------- #
+
+
+def test_engine_derives_tier_from_the_unrounded_composite_not_the_rounded_display_value() -> None:
+    """Every EligibleFixture pillar stays as documented except criticality's
+    openssf_criticality, tuned so the criticality pillar lands at 70.784 and
+    the composite at 89.996 (coverage 1.0, no ceiling):
+    composite_raw = .25*100 + .25*70.784 + .20*100 + .15*82 + .15*100
+                  = 25 + 17.696 + 20 + 12.3 + 15 = 89.996
+    criticality = .40*100(dependents) + .35*100*C(openssf) + .25*100(downloads)
+                = 65 + 35*C = 70.784 -> C = 5.784/35 = 0.16525714285714263
+
+    89.996 rounds to 90.0, the S/S+ cutoff: ``tier_from_score(89.996) ==
+    "S"`` but ``tier_from_score(90.0) == "S+"``. A correct engine stores
+    ``composite=90.0`` (the rounded value, M12's target) with ``tier="S"``
+    (derived from the unrounded 89.996, M10's target) -- both wrong in the
+    mutant, in opposite directions, so one bundle kills both mutants."""
+    inputs = dict(EligibleFixture.inputs())
+    inputs["openssf_criticality"] = _m(0.16525714285714263, n=0)
+    bundle = make_bundle(inputs)
+
+    record = score(bundle, EligibleFixture.populations(), EligibleFixture.snapshot())
+
+    assert record.coverage == pytest.approx(1.0)
+    assert record.tier_ceiling is None
+    assert record.composite == pytest.approx(90.0)
+    assert record.tier == "S"
+
+
+# --------------------------------------------------------------------------- #
+# W2-5f (W-1): a stage-0 gate failure and a stage-3 evidence failure must be
+# distinguishable from the record alone.
+# --------------------------------------------------------------------------- #
+
+
+def test_gated_and_unrated_records_are_distinguishable() -> None:
+    gated_bundle = make_bundle(
+        {input_id: Unmeasured(reason="collector_failure") for input_id in constants_v2.PARAM_INPUT_IDS},
+        archived=True,
+    )
+    snapshot = Snapshot(snapshot_id="snap-1", as_of=NOW, gate_evidence=healthy_evidence())
+    gated = score(gated_bundle, EligibleFixture.populations(), snapshot)
+    assert gated.gate.eligible is False
+    assert gated.gate.reason == "archived"
+    assert gated.rated is False
+    assert gated.unrated_reason is None
+    assert gated.tier_ceiling is None
+
+    unrated_inputs: dict[str, Measured | Unmeasured] = {
+        input_id: Unmeasured(reason="collector_failure") for input_id in constants_v2.PARAM_INPUT_IDS
+    }
+    unrated_inputs.update(
+        {
+            "newcomer_issue_supply": _m(10.0, n=0),
+            "newcomer_conversion": _m(0.5, n=5),
+            "rr90_return_rate": _m(0.5, n=5),
+            "dx": _m(100.0, n=5),
+        }
+    )
+    unrated_bundle = make_bundle(unrated_inputs)
+    empty_populations = PopulationSet(
+        snapshot_id="snap-1", benchmark_version=constants_v2.BENCHMARK_VERSION,
+        constants_hash=constants_v2.CONSTANTS_HASH, populations=(),
+    )
+    unrated = score(unrated_bundle, empty_populations, snapshot)
+    assert unrated.gate.eligible is True
+    assert unrated.gate.reason is None
+    assert unrated.rated is False
+    assert unrated.unrated_reason == "unrated: insufficient_evidence"
+
+
+# --------------------------------------------------------------------------- #
+# W2-5f (W-1): raw_hash is the caller's own value; provenance_hash is kept.
+# --------------------------------------------------------------------------- #
+
+
+def test_score_defaults_raw_hash_to_bundle_provenance_hash_when_omitted() -> None:
+    record = score(EligibleFixture.bundle(), EligibleFixture.populations(), EligibleFixture.snapshot())
+    assert record.raw_hash == _HASH64
+    assert record.provenance_hash == _HASH64
+
+
+def test_score_accepts_a_caller_supplied_raw_hash_distinct_from_provenance_hash() -> None:
+    custom_hash = "c" * 64
+    record = score(
+        EligibleFixture.bundle(), EligibleFixture.populations(), EligibleFixture.snapshot(), raw_hash=custom_hash
+    )
+    assert record.raw_hash == custom_hash
+    assert record.provenance_hash == _HASH64
+
+
+# --------------------------------------------------------------------------- #
+# W2-5f (W-3): a Measured ECDF input with no frozen population is
+# Unmeasured(reason="no_population"), never an escaping LookupError.
+# --------------------------------------------------------------------------- #
+
+
+def test_ecdf_params_missing_population_are_no_population_not_a_crash() -> None:
+    """Fail-before: on the base engine, ``populations.ecdf(...)`` is called
+    eagerly for every Measured ECDF input regardless of population
+    existence, so this raises ``LookupError`` instead of returning (recorded
+    verbatim in the handoff). ``ttm_p90_hours`` is Unmeasured here (its own
+    D-MISS-1 reason must pass through, and the missing population must never
+    even be consulted for it -- the eager-ecdf-fetch guard already proves
+    that path); ``dependents_deduped``/``downloads_monthly`` are Measured
+    with no population in an empty ``PopulationSet``, so both come back
+    ``no_population`` with the real sample size preserved."""
+    inputs = dict(EligibleFixture.inputs())
+    inputs["ttm_p90_hours"] = Unmeasured(reason="third_party_gap")
+    inputs["dependents_deduped"] = _m(999999.0, n=42)
+    bundle = make_bundle(inputs)
+    empty_populations = PopulationSet(
+        snapshot_id="snap-1", benchmark_version=constants_v2.BENCHMARK_VERSION,
+        constants_hash=constants_v2.CONSTANTS_HASH, populations=(),
+    )
+
+    record = score(bundle, empty_populations, EligibleFixture.snapshot())
+
+    assert record.params["ttm_p90_hours"] == ParamScore(
+        score=None, measured=False, reason="third_party_gap", n=0, method=None
+    )
+    assert record.params["dependents_deduped"] == ParamScore(
+        score=None, measured=False, reason="no_population", n=42, method=None
+    )
+    assert record.params["downloads_monthly"] == ParamScore(
+        score=None, measured=False, reason="no_population", n=0, method=None
+    )

@@ -10,6 +10,7 @@ Every expected value below is hand-computed from the D-NORM-1/2 formulas.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import subprocess
@@ -18,9 +19,11 @@ import sys
 import pytest
 
 from cvi.core import constants_v2
+from cvi.core import engine
 from cvi.core import gates
 from cvi.core import models
-from cvi.core.models import GateResult
+from cvi.core.gates import GateEvidence
+from cvi.core.models import GateResult, ParamScore
 from cvi.snapshot import populations
 
 PARAM = "downloads_monthly"
@@ -359,3 +362,100 @@ class TestFreeze:
             assert values_hash == models.sha256_hex(values_json)
         assert by_eco["pypi"][3] == 69 and by_eco["pypi"][4] is True
         assert by_eco["go"][3] == 40 and by_eco["go"][4] is False
+
+
+# --------------------------------------------------------------------------- #
+# W2-5f additive (W2-5 review W-2, LENS-TQ-14): build_populations ->
+# cvi.core.engine.score end-to-end, on raw values -- the production path,
+# not a hand-built Population double. D-NORM-3's dependents/downloads
+# curves must rank the same quantity ``build_populations`` freezes: the raw
+# measured value, no transform on either side.
+# --------------------------------------------------------------------------- #
+
+_E2E_NOW = datetime.datetime(2026, 9, 12, 0, 0, tzinfo=datetime.timezone.utc)
+_E2E_HASH64 = "d" * 64
+
+
+def _e2e_measured(value: float, n: int = 0) -> models.Measured:
+    return models.Measured(
+        value=value, n=n, window_start=None, window_end=None,
+        method="primary", source="test://fixture", source_hash=_E2E_HASH64,
+        fetched_at=_E2E_NOW.isoformat(),
+    )
+
+
+def _e2e_snapshot() -> engine.Snapshot:
+    evidence = GateEvidence(manifest_found=True, vitality_commits_180d=5)
+    return engine.Snapshot(snapshot_id="snap-e2e", as_of=_E2E_NOW, gate_evidence=evidence)
+
+
+def _bundle_with_dependents(value: float) -> models.FeatureBundle:
+    """A gate-eligible bundle whose only measured input is
+    ``dependents_deduped`` -- every other of the 18 is Unmeasured
+    (``not_applicable``), which is enough to isolate the one curve under
+    test without needing a fully-rated bundle (this test only reads
+    ``record.params``, populated regardless of the composite-coverage
+    outcome)."""
+    inputs: dict[str, models.Measured | models.Unmeasured] = {
+        input_id: models.Unmeasured(reason="not_applicable") for input_id in constants_v2.PARAM_INPUT_IDS
+    }
+    inputs["dependents_deduped"] = _e2e_measured(value)
+    bundle = models.FeatureBundle(
+        schema_version=constants_v2.SCHEMA_VERSION,
+        repo=models.RepoIdentity(
+            owner="org", name="scored", ecosystem="pypi", archived=False,
+            mirror_url=None, fork=False, license_spdx="MIT", default_branch="main",
+        ),
+        inputs=inputs,
+        pr_window=models.PRWindow(start=None, end=None, truncated=False, events=()),
+        cohorts=models.Cohorts(decision_pr_numbers=(), newcomer_authors=()),
+        provenance_hash=_E2E_HASH64,
+    )
+    bundle.validate()
+    return bundle
+
+
+class TestEngineRawPopulationIntegration:
+    """Fail-before (W-2): with ``cvi.core.params.criticality`` still querying
+    ``ecdf(log10(1 + value))`` against a population ``build_populations``
+    froze from raw counts, the repo below queries
+    ``ecdf(log10(1 + 50000)) = ecdf(4.69897...)`` against the raw population
+    ``{10.0, 100.0, 1000.0, 10000.0}`` -- below every member -- and scores
+    0.0, not 100.0 (paste verbatim in the handoff)."""
+
+    @staticmethod
+    def _population() -> populations.PopulationSet:
+        members = [
+            populations.PopulationMember(
+                key=f"org/pkg{i}", ecosystem="pypi",
+                gate=GateResult(eligible=True, reason=None, routed=None, undecided=()),
+                rated=True, measured={"dependents_deduped": value},
+            )
+            for i, value in enumerate([10.0, 100.0, 1000.0, 10000.0])
+        ]
+        return populations.build_populations(members, "snap-e2e")
+
+    def test_the_most_depended_on_package_scores_100(self) -> None:
+        """A repo whose dependents count (50000) exceeds every member of the
+        frozen population ranks at the top of the raw ECDF: 100.0."""
+        popset = self._population()
+        bundle = _bundle_with_dependents(50000.0)
+
+        record = engine.score(bundle, popset, _e2e_snapshot())
+
+        assert record.params["dependents_deduped"] == ParamScore(
+            score=100.0, measured=True, reason=None, n=0, method="primary"
+        )
+
+    def test_mid_rank_arithmetic_on_a_mixed_population_is_unchanged(self) -> None:
+        """Over-correction guard: a value inside the population (not just
+        the top) still gets its exact D-NORM-1 mid-rank percentile over
+        [10, 100, 1000, 10000] -- proves deleting the log transform did not
+        also disturb ordinary raw ranking. R(1000.0): below=2 (10, 100),
+        tied=1 (1000) -> 100*(2 + 0.5)/4 = 62.5."""
+        popset = self._population()
+        bundle = _bundle_with_dependents(1000.0)
+
+        record = engine.score(bundle, popset, _e2e_snapshot())
+
+        assert record.params["dependents_deduped"].score == pytest.approx(62.5)

@@ -2,23 +2,27 @@
 
 Each function takes the FeatureBundle input for its parameter
 (``bundle.inputs[<input id>]``) and returns the calibrated ParamScore.
-2.1 Dependents and 2.3 Downloads are ECDF-normalised (D-NORM-3) over
-``log10(1 + x)``: the second argument is the frozen-population mid-rank ECDF
-(D-NORM-1, 0-100 scale). 2.2 OpenSSF criticality is the absolute linear
-calibration ``100 * C``. None of the three has a minimum-n rule; a missing
-signal or missing registry is an ``Unmeasured`` third-party gap.
+2.1 Dependents and 2.3 Downloads are ECDF-normalised (D-NORM-3): the second
+argument is the frozen-population mid-rank ECDF (D-NORM-1, 0-100 scale),
+queried on the raw measured value -- no transform on either side (D-NORM-3,
+lead ruling 2026-09-12 after the W2-5 review: ``cvi.snapshot.populations``
+freezes and stores raw values, so the curve must query raw too, or the two
+sides rank different quantities). 2.2 OpenSSF criticality is the absolute
+linear calibration ``100 * C``. None of the three has a minimum-n rule; a
+missing signal or missing registry is an ``Unmeasured`` third-party gap.
 """
 from __future__ import annotations
 
-import math
 from typing import Callable, Tuple
 
 from cvi.core.models import ParamScore, ParamValue
 from cvi.core.params.curves import KIND_ECDF, KIND_NUMERIC, ParamDef, _apply
 
 
-def _log_population_score(value: float, ecdf: Callable[[float], float]) -> float:
-    return ecdf(math.log10(1.0 + value))
+def _population_score(value: float, ecdf: Callable[[float], float]) -> float:
+    """D-NORM-3: the raw measured value queried directly against the
+    frozen-population mid-rank ECDF -- no transform (see module docstring)."""
+    return ecdf(value)
 
 
 def _pike_score(criticality: float) -> float:
@@ -30,7 +34,7 @@ _DEPENDENTS = ParamDef(
     pillar="criticality",
     weight=0.40,
     kind=KIND_ECDF,
-    score=_log_population_score,
+    score=_population_score,
     domain=(0.0, 1e6),
     higher_is_better=True,
 )
@@ -48,7 +52,7 @@ _DOWNLOADS = ParamDef(
     pillar="criticality",
     weight=0.25,
     kind=KIND_ECDF,
-    score=_log_population_score,
+    score=_population_score,
     domain=(0.0, 1e9),
     higher_is_better=True,
 )
@@ -60,9 +64,9 @@ DEFS: Tuple[ParamDef, ...] = (_DEPENDENTS, _OPENSF, _DOWNLOADS)
 def dependents(value: ParamValue, ecdf: Callable[[float], float]) -> ParamScore:
     """2.1 Dependents — deduplicated dependent packages, registry ECDF.
 
-    Curve ``ECDF_mid(log10(1 + d))`` with the frozen-population mid-rank ECDF
-    (D-NORM-1, 0-100 scale) as second argument; no minimum sample. Takes the
-    bundle input ``dependents_deduped``."""
+    Curve ``ECDF_mid(d)`` on the raw count, with the frozen-population
+    mid-rank ECDF (D-NORM-1, 0-100 scale) as second argument; no minimum
+    sample. Takes the bundle input ``dependents_deduped``."""
     return _apply(_DEPENDENTS, value, ecdf=ecdf)
 
 
@@ -78,7 +82,8 @@ def openssf_criticality(value: ParamValue) -> ParamScore:
 def downloads(value: ParamValue, ecdf: Callable[[float], float]) -> ParamScore:
     """2.3 Downloads — monthly registry downloads, registry ECDF.
 
-    Curve ``ECDF_mid(log10(1 + m))`` with the frozen-population mid-rank ECDF
-    (D-NORM-1, 0-100 scale) as second argument; no minimum sample. Takes the
-    bundle input ``downloads_monthly``."""
+    Curve ``ECDF_mid(m)`` on the raw monthly count, with the
+    frozen-population mid-rank ECDF (D-NORM-1, 0-100 scale) as second
+    argument; no minimum sample. Takes the bundle input
+    ``downloads_monthly``."""
     return _apply(_DOWNLOADS, value, ecdf=ecdf)

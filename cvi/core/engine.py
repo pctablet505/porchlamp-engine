@@ -11,7 +11,12 @@ D-ORDER-1 stage order, as far as this module goes:
   functions (``cvi.core.params``, W2-3) is applied to the bundle's inputs,
   using the frozen-population mid-rank ECDF (``cvi.snapshot.populations``,
   W2-4) for the three D-NORM-3 ECDF-normalised parameters (1.5 ttm_p90,
-  2.1 dependents, 2.3 downloads).
+  2.1 dependents, 2.3 downloads) -- queried on the raw measured value, with
+  no transform on either the curve or the population side (D-NORM-3
+  amendment, 02 section 6, lead ruling 2026-09-12). A ``Measured`` ECDF
+  input whose (ecosystem, param) has no frozen population at all comes back
+  as a ``ParamScore(measured=False, reason="no_population")`` (D-MISS-1's
+  ``no_population`` reason) rather than raising: see :func:`_score_params`.
 - Stage 3 (evidence gate), 5 (pillar aggregation), 6 (composite/ceiling):
   ``cvi.core.aggregate`` (D-MISS-2/3, D-AGG-2).
 - Stage 7 (coordinates): ``cvi.core.matrix`` (D-MAT-1/2).
@@ -35,20 +40,19 @@ import from a real one). ``PopulationLookup`` below is a local structural
 runtime, imported only from outside ``cvi.core`` (callers, and this
 packet's own tests).
 
-Integration finding (W2-3 x W2-4, first wired here): the three D-NORM-3
-curves query their ecdf with a *transformed* value --
-``ttm_p90`` queries ``ecdf(p90_hours)`` directly, but ``dependents`` and
-``downloads`` query ``ecdf(log10(1 + raw_value))`` (``cvi/core/params/
-criticality.py``). ``cvi.snapshot.populations.PopulationMember.measured``
-is documented as "the raw measured value"; for the ECDF built from it to
-rank the same quantity the curve queries with, whoever builds the
-dependents/downloads *populations* must insert ``log10(1 + raw_value)``,
-not the raw count -- ``ttm_p90``'s population is the one parameter of the
-three where "raw" and "queried" coincide. This module does not build
-populations (it receives an already-frozen ``PopulationLookup``), so it
-cannot enforce this; it is recorded here for whoever writes the real
-population-building driver, and both this module's own test and the W2-5
-Measure step build the dependents/downloads populations in log space.
+Integration finding, resolved (W2-3 x W2-4, first wired here; W2-5 review
+W-2): the three D-NORM-3 curves used to query their ecdf with a
+*transformed* value for two of the three parameters -- ``dependents`` and
+``downloads`` queried ``ecdf(log10(1 + raw_value))`` while
+``cvi.snapshot.populations`` freezes and stores raw values, and
+``log10(1+x)`` is strictly monotone and so contributes nothing to a
+mid-rank ECDF except a catastrophic collapse when the two sides disagree
+(every repo scoring 0.0 on the parameter). The transform was deleted from
+``cvi/core/params/criticality.py``: all three ECDF-normalised curves now
+query their raw measured value, matching what ``build_populations`` freezes
+(D-NORM-3 amendment, 02 section 6, lead ruling 2026-09-12) -- one definition
+of the quantity being ranked, not a convention two modules had to agree on
+by narration.
 """
 from __future__ import annotations
 
@@ -58,17 +62,22 @@ from typing import Callable, Protocol
 
 from cvi.core import aggregate, constants_v2, matrix
 from cvi.core import params as param_fns
-from cvi.core.gates import GateEvidence, evaluate_gates
+from cvi.core.gates import REASON_INSUFFICIENT_EVIDENCE, GateEvidence, evaluate_gates
 from cvi.core.models import FeatureBundle, GateResult, Measured, ParamScore, PillarScore, ScoreRecord
 from cvi.core.params.curves import KIND_ECDF
 
 
 class PopulationLookup(Protocol):
-    """Structural type for the one method this module needs from a frozen
-    population set (``cvi.snapshot.populations.PopulationSet.ecdf``, W2-4).
-    Kept local rather than imported: see the module docstring's import-graph
-    note."""
+    """Structural type for the two methods this module needs from a frozen
+    population set (``cvi.snapshot.populations.PopulationSet``, W2-4). Kept
+    local rather than imported: see the module docstring's import-graph
+    note. ``population`` returns ``None`` (a plain, non-raising existence
+    check -- W2-5 review W-3) rather than raising when the snapshot has no
+    population for the pair; its element type is opaque here (``object``)
+    since this module never reads a population's fields, only whether one
+    exists."""
 
+    def population(self, ecosystem: str, param: str) -> object | None: ...
     def ecdf(self, ecosystem: str, param: str) -> Callable[[float], float]: ...
 
 
@@ -140,20 +149,42 @@ def _unused_ecdf(_value: float) -> float:
     return 0.0
 
 
+#: D-MISS-1 reason for a Measured ECDF-kind input whose (ecosystem, param)
+#: has no frozen population at all (W2-5 review W-3; 02 section 5 D-MISS-1,
+#: added 2026-09-12). Distinct from ``_unused_ecdf``'s case: here the input
+#: *was* measured, but the snapshot has nothing to rank it against.
+_REASON_NO_POPULATION = "no_population"
+
+
 def _score_params(bundle: FeatureBundle, populations: PopulationLookup) -> dict[str, ParamScore]:
     """Stage 2: apply each of the 18 registered curves to the bundle's
-    inputs, in frozen input-id order. A population is fetched only for a
-    measured ECDF-kind input (see :func:`_unused_ecdf`)."""
+    inputs, in frozen input-id order.
+
+    A population is fetched only for a measured ECDF-kind input (see
+    :func:`_unused_ecdf` for the unmeasured case); an existence check
+    (``PopulationLookup.population``) runs first, so a measured ECDF input
+    whose (ecosystem, param) has no frozen population comes back
+    ``ParamScore(measured=False, reason="no_population")`` instead of
+    letting ``PopulationSet.ecdf``'s ``LookupError`` escape this (documented
+    pure) function -- W2-5 review W-3. ``n`` is kept from the measurement:
+    the value itself was measured, only the population is missing."""
     ecosystem = bundle.repo.ecosystem
     scores: dict[str, ParamScore] = {}
     for input_id in constants_v2.PARAM_INPUT_IDS:
         value = bundle.inputs[input_id]
         function = _PARAM_FUNCTIONS[input_id]
-        if input_id in _ECDF_INPUT_IDS:
-            ecdf = populations.ecdf(ecosystem, input_id) if isinstance(value, Measured) else _unused_ecdf
-            scores[input_id] = function(value, ecdf)
-        else:
+        if input_id not in _ECDF_INPUT_IDS:
             scores[input_id] = function(value)
+            continue
+        if not isinstance(value, Measured):
+            scores[input_id] = function(value, _unused_ecdf)
+            continue
+        if populations.population(ecosystem, input_id) is None:
+            scores[input_id] = ParamScore(
+                score=None, measured=False, reason=_REASON_NO_POPULATION, n=value.n, method=None
+            )
+            continue
+        scores[input_id] = function(value, populations.ecdf(ecosystem, input_id))
     return scores
 
 
@@ -165,15 +196,23 @@ def _bare_record(
     params: dict[str, ParamScore],
     pillars: dict[str, PillarScore],
     coverage: float,
+    rated: bool,
+    unrated_reason: str | None,
+    tier_ceiling: str | None,
+    raw_hash: str,
 ) -> ScoreRecord:
     """The common no-rank/no-tier shape shared by a stage-0 gate failure and
-    a stage-3 (D-EVID-1) unrated outcome. Stages 8-9 (personas, tie-breaks,
-    rank) are out of scope here (W2-6, W2-7): left empty/None."""
+    a stage-3 (D-EVID-1) unrated outcome. ``gate`` is passed through
+    unchanged in both cases (W2-5 review W-1): a stage-0 gate failure and a
+    stage-3 evidence failure are told apart by ``rated``/``unrated_reason``,
+    never by overwriting the stage-0 ``GateResult``. Stages 8-9 (personas,
+    tie-breaks, rank) are out of scope here (W2-6, W2-7): left empty/None."""
     return ScoreRecord(
         snapshot_id=snapshot.snapshot_id,
         benchmark_version=constants_v2.BENCHMARK_VERSION,
         constants_hash=constants_v2.CONSTANTS_HASH,
-        raw_hash=bundle.provenance_hash,
+        raw_hash=raw_hash,
+        provenance_hash=bundle.provenance_hash,
         gate=gate,
         params=params,
         pillars=pillars,
@@ -183,6 +222,11 @@ def _bare_record(
         leverage=None,
         friction=None,
         quadrant=None,
+        rated=rated,
+        unrated_reason=unrated_reason,
+        tier_ceiling=tier_ceiling,
+        leverage_coverage=0.0,
+        friction_coverage=0.0,
         persona_gates={},
         persona_composites={},
         tie_key=(),
@@ -192,7 +236,12 @@ def _bare_record(
     )
 
 
-def score(bundle: FeatureBundle, populations: PopulationLookup, snapshot: Snapshot) -> ScoreRecord:
+def score(
+    bundle: FeatureBundle,
+    populations: PopulationLookup,
+    snapshot: Snapshot,
+    raw_hash: str | None = None,
+) -> ScoreRecord:
     """Score one repo at one snapshot (04 section 4: pure -- no I/O, no
     clock; needs only ``bundle``, ``populations`` and ``snapshot``).
 
@@ -201,30 +250,48 @@ def score(bundle: FeatureBundle, populations: PopulationLookup, snapshot: Snapsh
     no tier: the parameter functions are never called (see the module
     docstring). Otherwise every parameter is scored (stage 2), pillars are
     aggregated and the composite coverage computed (stages 3, 5); below the
-    D-EVID-1 threshold the repo is ``unrated: insufficient_evidence`` with
-    its params/pillars/coverage populated but no composite or tier. A rated
+    D-EVID-1 threshold the repo is ``rated=False``,
+    ``unrated_reason="unrated: insufficient_evidence"`` with its
+    params/pillars/coverage populated but no composite or tier. A rated
     repo gets its D-AGG-2 composite, D-MAT-2 tier (capped by the D-MISS-3
-    ceiling) and D-MAT-1 coordinates. ``routed``/``undecided`` from the
-    stage-0 gate are preserved in the final ``GateResult`` in every case."""
+    ceiling) and D-MAT-1 coordinates. The stage-0 ``gate`` (eligible,
+    reason, routed, undecided) is returned exactly as
+    :func:`cvi.core.gates.evaluate_gates` computed it in every case --
+    ``rated``/``unrated_reason``/``tier_ceiling`` carry the later stages'
+    outcome as their own fields, so a gated repo (``gate.eligible=False``)
+    and an unrated repo (``gate.eligible=True``, ``rated=False``) are always
+    distinguishable from the record alone (W2-5 review W-1).
+
+    ``raw_hash`` is supplied by the caller and stored as-is: this module
+    does not compute it (the recommended value is a hash of the whole
+    bundle document, once a deriver computes one -- W2-5 review W-1; a
+    bundle-level hash cannot be computed inside ``cvi.core`` without
+    importing ``cvi.derive``). When omitted it defaults to
+    ``bundle.provenance_hash`` (hash of the referenced envelope hashes
+    only), which is also always stored separately as ``provenance_hash`` so
+    the two facts -- "which envelopes" and "which whole bundle" -- are never
+    conflated under one field."""
+    resolved_raw_hash = bundle.provenance_hash if raw_hash is None else raw_hash
     gate = evaluate_gates(bundle, snapshot.gate_evidence, snapshot.as_of)
     if not gate.eligible:
-        return _bare_record(snapshot, bundle, gate, params={}, pillars={}, coverage=0.0)
+        return _bare_record(
+            snapshot, bundle, gate, params={}, pillars={}, coverage=0.0,
+            rated=False, unrated_reason=None, tier_ceiling=None, raw_hash=resolved_raw_hash,
+        )
 
     param_scores = _score_params(bundle, populations)
     pillars = aggregate.aggregate_pillars(param_scores)
     coverage = aggregate.composite_coverage(pillars)
     rated, ceiling = aggregate.coverage_status(coverage)
-    final_gate = GateResult(
-        eligible=rated,
-        reason=None if rated else "unrated: insufficient_evidence",
-        routed=gate.routed,
-        undecided=gate.undecided,
-    )
     if not rated:
-        return _bare_record(snapshot, bundle, final_gate, params=param_scores, pillars=pillars, coverage=coverage)
+        return _bare_record(
+            snapshot, bundle, gate, params=param_scores, pillars=pillars, coverage=coverage,
+            rated=False, unrated_reason=REASON_INSUFFICIENT_EVIDENCE, tier_ceiling=ceiling,
+            raw_hash=resolved_raw_hash,
+        )
 
     composite_raw = aggregate.composite_score_raw(pillars)
-    composite = None if composite_raw is None else round(composite_raw, 2)
+    composite = aggregate.composite_score(pillars)
     tier = None if composite_raw is None else aggregate.apply_ceiling(aggregate.tier_from_score(composite_raw), ceiling)
     coords = matrix.coordinates(pillars)
 
@@ -232,8 +299,9 @@ def score(bundle: FeatureBundle, populations: PopulationLookup, snapshot: Snapsh
         snapshot_id=snapshot.snapshot_id,
         benchmark_version=constants_v2.BENCHMARK_VERSION,
         constants_hash=constants_v2.CONSTANTS_HASH,
-        raw_hash=bundle.provenance_hash,
-        gate=final_gate,
+        raw_hash=resolved_raw_hash,
+        provenance_hash=bundle.provenance_hash,
+        gate=gate,
         params=param_scores,
         pillars=pillars,
         composite=composite,
@@ -242,6 +310,11 @@ def score(bundle: FeatureBundle, populations: PopulationLookup, snapshot: Snapsh
         leverage=coords.leverage,
         friction=coords.friction,
         quadrant=coords.quadrant,
+        rated=True,
+        unrated_reason=None,
+        tier_ceiling=ceiling,
+        leverage_coverage=coords.leverage_coverage,
+        friction_coverage=coords.friction_coverage,
         persona_gates={},
         persona_composites={},
         tie_key=(),

@@ -2,9 +2,11 @@
 
 Fail-before (R-1): on the base commit ``cvi.core.params`` does not exist, so
 every test in this module fails at import. 2.1 and 2.3 are the
-ECDF-normalised curves of D-NORM-3 (mid-rank ECDF of ``log10(1 + x)``);
-2.2 is the absolute linear calibration ``100 * C``. None of the three has a
-minimum-n rule; missing signals are an ``Unmeasured`` third-party gap.
+ECDF-normalised curves of D-NORM-3 (mid-rank ECDF of the raw measured
+value, no transform on either side -- D-NORM-3 amendment, lead ruling
+2026-09-12 after the W2-5 review); 2.2 is the absolute linear calibration
+``100 * C``. None of the three has a minimum-n rule; missing signals are an
+``Unmeasured`` third-party gap.
 """
 from __future__ import annotations
 
@@ -46,16 +48,16 @@ def _mid_rank_ecdf(sample: list[float]) -> Callable[[float], float]:
     return ecdf
 
 
-# 2.1 Dependents: ECDF_mid(log10(1 + d))
+# 2.1 Dependents: ECDF_mid(d), raw
 
 
 def test_dependents_oracle() -> None:
     ecdf = _mid_rank_ecdf([0.0, 1.0, 2.0, 3.0, 4.0])
     cases = [
-        (0, 10.0),        # log10(1) = 0: mid-rank (0 + 0.5) / 5
-        (9, 30.0),        # log10(10) = 1: mid-rank (1 + 0.5) / 5
-        (99, 50.0),       # log10(100) = 2
-        (9999, 90.0),     # log10(10000) = 4
+        (0, 10.0),        # d=0: mid-rank (0 + 0.5) / 5, tied with the 0.0 member
+        (1, 30.0),        # d=1: mid-rank (1 + 0.5) / 5, tied with the 1.0 member
+        (2, 50.0),        # d=2: mid-rank (2 + 0.5) / 5
+        (4, 90.0),        # d=4: mid-rank (4 + 0.5) / 5, tied with the top member
         (10**6, 100.0),   # above the whole population
     ]
     for count, expected in cases:
@@ -88,15 +90,15 @@ def test_openssf_criticality_unmeasured_when_a_signal_is_missing() -> None:
     assert result == ParamScore(score=None, measured=False, reason="third_party_gap", n=0, method=None)
 
 
-# 2.3 Downloads: ECDF_mid(log10(1 + m))
+# 2.3 Downloads: ECDF_mid(m), raw
 
 
 def test_downloads_oracle() -> None:
     ecdf = _mid_rank_ecdf([0.0, 1.0, 2.0, 3.0, 4.0])
     cases = [
-        (0, 10.0),        # log10(1) = 0
-        (9, 30.0),        # log10(10) = 1
-        (999, 70.0),      # log10(1000) = 3: (3 + 0.5) / 5
+        (0, 10.0),        # m=0: tied with the 0.0 member
+        (1, 30.0),        # m=1: tied with the 1.0 member
+        (3, 70.0),        # m=3: mid-rank (3 + 0.5) / 5, tied with the 3.0 member
         (10**9, 100.0),   # above the whole population
     ]
     for monthly, expected in cases:

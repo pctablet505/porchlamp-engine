@@ -144,9 +144,21 @@ class Unmeasured:
 
     Repo-controlled absences are measured zeros, not Unmeasured; Unmeasured
     means a third-party gap, a collector failure, a sample below the minimum
-    n, or a parameter that does not apply to this repo."""
+    n, a parameter that does not apply to this repo, or (added 2026-09-12)
+    an ECDF-normalised parameter with no rated, measured repository to build
+    a population from in its ecosystem or globally at this snapshot --
+    ``reason="no_population"``. ``no_population`` is not produced by this
+    module's own validation (a value that reaches this dataclass was never
+    measured in the first place, regardless of populations); the scoring
+    engine (``cvi.core.engine``, stage 2) is the one caller that assigns it,
+    to a stage-2 ``ParamScore`` rather than to an input-stage ``Unmeasured``
+    -- listed in ``constants_v2.UNMEASURED_REASONS`` when that module's own
+    frozen vocabulary is next revised (R-2: kept here only in this type's
+    documented taxonomy, per 02 section 5's D-MISS-1 amendment)."""
 
-    reason: Literal["third_party_gap", "collector_failure", "insufficient_n", "not_applicable"]
+    reason: Literal[
+        "third_party_gap", "collector_failure", "insufficient_n", "not_applicable", "no_population"
+    ]
     detail: str = ""
 
     def __post_init__(self) -> None:
@@ -453,7 +465,27 @@ class ScoreRecord:
 
     ``benchmark_version`` plus ``constants_hash`` let any reader re-derive
     which benchmark a row came from (D-VER-2/D-VER-3); field validation lands
-    with the packets that populate each stage (W2-2, W2-5, W2-6, W2-7)."""
+    with the packets that populate each stage (W2-2, W2-5, W2-6, W2-7).
+
+    ``gate`` is always the unmodified stage-0 :class:`GateResult` (04
+    section 3): whether the repo went on to be rated is carried by
+    ``rated``/``unrated_reason`` instead, so a stage-0 gate failure
+    (``gate.eligible=False``) and a stage-3 D-EVID-1 evidence failure
+    (``gate.eligible=True``, ``rated=False``) are always distinguishable
+    from the record alone, matching the store schema's separate
+    ``eligible``/``gate_reason``/``rated``/``unrated_reason`` columns (04
+    section 5; W2-5 review W-1). ``tier_ceiling`` is the D-MISS-3 coverage
+    ceiling (``None``, ``"B"`` or ``"A"``) that capped -- or would have
+    capped -- ``tier``; ``leverage_coverage``/``friction_coverage`` are each
+    D-MAT-1 coordinate's own measured-weight share, additive alongside
+    ``leverage``/``friction`` (04 section 3 names no such fields, but
+    ``cvi.core.matrix.Coordinates`` already carries them -- W2-5 review
+    W-1(c)). ``raw_hash`` is whatever the caller of
+    :func:`cvi.core.engine.score` supplied (recommended: a hash of the
+    whole bundle document); ``provenance_hash`` is always
+    ``FeatureBundle.provenance_hash`` (hash of the referenced envelope
+    hashes only) kept as its own fact so the two are never conflated
+    (W2-5 review W-1)."""
 
     snapshot_id: str
     benchmark_version: str
@@ -474,3 +506,9 @@ class ScoreRecord:
     tie_group: int | None
     rank: int | None
     suspicion: list[str]
+    rated: bool = False
+    unrated_reason: str | None = None
+    tier_ceiling: str | None = None
+    leverage_coverage: float = 0.0
+    friction_coverage: float = 0.0
+    provenance_hash: str = ""
