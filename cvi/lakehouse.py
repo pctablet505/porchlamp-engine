@@ -528,9 +528,14 @@ class OperationalStore:
             params.append(int(min_stars))
 
         if search is not None and search.strip():
-            term = f"%{search.strip().lower()}%"
+            # Escape LIKE wildcards so a literal '%' or '_' in user input is not
+            # treated as a wildcard (e.g. searching "100%" must not match every
+            # repo). Backslash is the escape char, declared via ESCAPE below.
+            raw = search.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            term = f"%{raw}%"
             where.append(
-                "(LOWER(owner) LIKE ? OR LOWER(name) LIKE ? OR LOWER(owner || '/' || name) LIKE ?)"
+                "(LOWER(owner) LIKE ? ESCAPE '\\' OR LOWER(name) LIKE ? ESCAPE '\\'"
+                " OR LOWER(owner || '/' || name) LIKE ? ESCAPE '\\')"
             )
             params.extend([term, term, term])
 

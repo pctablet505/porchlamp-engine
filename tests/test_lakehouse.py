@@ -664,6 +664,34 @@ def test_leaderboard_search(store):
     assert t == 3
 
 
+def test_leaderboard_search_escapes_like_wildcards(store):
+    """A literal '%' or '_' in the search box must be matched literally, not as
+    a LIKE wildcard. Regression: the term was interpolated without escaping, so
+    searching "100%" (or just "%") matched every repo."""
+    store.upsert_composite(make_result(owner="acme", name="100%", overall_cvi=95.0))
+    store.upsert_composite(make_result(owner="acme", name="1000", overall_cvi=85.0))
+    store.upsert_composite(make_result(owner="acme", name="a_b", overall_cvi=90.0))
+    store.upsert_composite(make_result(owner="acme", name="axb", overall_cvi=80.0))
+
+    # "100%" is a literal percent: matches only the repo literally named "100%",
+    # not "1000" (which an unescaped "%" wildcard would also match).
+    rows, t = store.leaderboard(search="100%")
+    assert [r["name"] for r in rows] == ["100%"]
+    assert t == 1
+
+    # A bare "%" is a literal percent, not "match everything": only the one repo
+    # whose name contains a literal '%'.
+    rows, t = store.leaderboard(search="%")
+    assert [r["name"] for r in rows] == ["100%"]
+    assert t == 1
+
+    # "_" is a single-char wildcard unless escaped: "a_b" must match the literal
+    # "a_b" only, not "axb" (which an unescaped "_" wildcard would match).
+    rows, t = store.leaderboard(search="a_b")
+    assert [r["name"] for r in rows] == ["a_b"]
+    assert t == 1
+
+
 def test_leaderboard_persona_reproject(store):
     # Repo A: high responsiveness (90), low criticality (10)
     # Repo B: low responsiveness (10), high criticality (90)
