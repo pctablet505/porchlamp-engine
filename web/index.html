@@ -1236,7 +1236,7 @@
     <button type="button" class="omnibar-btn" id="open-omnibar-btn" title="Quick Search (Cmd+K)">
       <span>🔍</span> Search repos… <kbd>⌘K</kbd>
     </button>
-    <button type="button" class="theme-toggle-btn" id="theme-toggle-btn" title="Toggle Light/Dark Theme">
+    <button type="button" class="theme-toggle-btn" id="theme-toggle-btn" title="Toggle Light/Dark Theme" aria-label="Toggle Light/Dark Theme">
       <span id="theme-icon">🌙</span>
     </button>
     <button type="button" class="icon-btn" id="shortcuts-btn" title="Keyboard Shortcuts (?)">?</button>
@@ -1385,6 +1385,7 @@
               <option value="25" selected>25</option>
               <option value="50">50</option>
               <option value="100">100</option>
+              <option value="1000">1000 (All)</option>
             </select>
           </label>
           <button type="button" class="page-btn" id="lb-prev-page">Previous</button>
@@ -2511,13 +2512,19 @@ function renderComparatorDiffTable(repos) {
     { label: "Monthly Downloads", fn: r => Number(r.monthly_downloads || 0).toLocaleString("en-US"), higherBetter: true, valFn: r => r.monthly_downloads || 0, format: "mono" },
     { label: "Registry Dependents", fn: r => Number(r.dependents_count || 0).toLocaleString("en-US"), higherBetter: true, valFn: r => r.dependents_count || 0, format: "mono" },
 
-    // Category 5: Governance, Rigor & Accessibility
-    { cat: "PILLARS 3, 4 & 5: GOVERNANCE, RIGOR & ON-RAMPS" },
+    // Category 5: Pillar 3 Governance & IP
+    { cat: "PILLAR 3: GOVERNANCE & IP" },
     { label: "Governance Score (P3)", fn: r => Number(r.pillar_scores?.governance || r.score_governance || 0).toFixed(1), higherBetter: true, format: "mono" },
     { label: "Elephant Factor", fn: r => `EF ${r.elephant_factor ?? r.deep_dive?.elephant_breakdown?.elephant_factor ?? 1}`, higherBetter: true, valFn: r => r.elephant_factor ?? r.deep_dive?.elephant_breakdown?.elephant_factor ?? 1, format: "mono" },
     { label: "Legal CLA Regime", fn: r => r.legal_ip_model ?? r.deep_dive?.legal_ip?.model ?? "DCO" },
+
+    // Category 6: Pillar 4 Engineering Rigor & AI
+    { cat: "PILLAR 4: ENGINEERING RIGOR & AI" },
     { label: "Engineering Rigor Score (P4)", fn: r => Number(r.pillar_scores?.rigor || r.score_rigor_ai || 0).toFixed(1), higherBetter: true, format: "mono" },
     { label: "AI Contribution Posture", fn: r => r.ai_posture ?? r.deep_dive?.legal_ip?.ai_policy_posture ?? "AD_HOC" },
+
+    // Category 7: Pillar 5 Accessibility & On-Ramps
+    { cat: "PILLAR 5: ACCESSIBILITY & ON-RAMPS" },
     { label: "Accessibility Score (P5)", fn: r => Number(r.pillar_scores?.accessibility || r.score_accessibility || 0).toFixed(1), higherBetter: true, format: "mono" },
     { label: "Good First Issues (GFIs)", fn: r => String(r.deep_dive?.good_first_issues?.count ?? 0), higherBetter: true, valFn: r => r.deep_dive?.good_first_issues?.count ?? 0, format: "mono" },
   ];

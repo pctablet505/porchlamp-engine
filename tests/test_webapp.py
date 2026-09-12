@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import re
 
 import pytest
 from fastapi.staticfiles import StaticFiles
@@ -368,4 +369,293 @@ class TestDemoAppCLI:
         demo.main(["--port", "8765", "--db", ":memory:"])
         assert called["host"] == "127.0.0.1"
         assert called["port"] == 8765
+
+
+# --------------------------------------------------------------------------- #
+# Milestone 3: Modern Dual-Theme Engineering UI Verification
+# --------------------------------------------------------------------------- #
+class TestDualThemeSystem:
+    """Requirement 1: Dual Theme System (Dark Obsidian & Light Canvas, LocalStorage, WCAG 2.1 AA)."""
+
+    def test_dark_mode_tokens(self, client: TestClient) -> None:
+        html = client.get("/").text
+        # Dark mode obsidian canvas #090D16, #0F172A surface, #1E293B border, #38BDF8 accent, #F8FAFC text
+        assert "#090d16" in html.lower()
+        assert "#0f172a" in html.lower()
+        assert "#1e293b" in html.lower()
+        assert "#38bdf8" in html.lower()
+        assert "#f8fafc" in html.lower()
+
+    def test_light_mode_tokens(self, client: TestClient) -> None:
+        html = client.get("/").text
+        # Light mode #F8FAFC base, #FFFFFF surface, #E2E8F0 border, #0284C7 accent, #0F172A text
+        assert 'data-theme="light"' in html
+        assert "#ffffff" in html.lower()
+        assert "#e2e8f0" in html.lower()
+        assert "#0284c7" in html.lower()
+
+    def test_persistent_theme_toggle(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert 'id="theme-toggle-btn"' in html
+        assert 'id="theme-icon"' in html
+        assert "setTheme(" in html
+        assert "localStorage.getItem" in html
+        assert "localStorage.setItem" in html
+
+    def test_wcag_21_aa_contrast_ratios(self) -> None:
+        def lum(hex_code: str) -> float:
+            c = hex_code.lstrip("#")
+            rgb = [int(c[i : i + 2], 16) / 255.0 for i in (0, 2, 4)]
+            adj = [v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4 for v in rgb]
+            return 0.2126 * adj[0] + 0.7152 * adj[1] + 0.0722 * adj[2]
+
+        def contrast(c1: str, c2: str) -> float:
+            l1, l2 = lum(c1), lum(c2)
+            return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+
+        # Dark theme text contrast > 4.5:1 (WCAG AA requirement)
+        cr_dark_text = contrast("#F8FAFC", "#090D16")
+        assert cr_dark_text >= 4.5
+        assert cr_dark_text >= 15.0  # Actually achieves AAA
+
+        # Light theme text contrast > 4.5:1 (WCAG AA requirement)
+        cr_light_text = contrast("#0F172A", "#F8FAFC")
+        assert cr_light_text >= 4.5
+        assert cr_light_text >= 14.0  # Actually achieves AAA
+
+        # UI Graphical accents contrast > 3.0:1 (WCAG AA requirement for UI components)
+        cr_dark_accent = contrast("#38BDF8", "#090D16")
+        assert cr_dark_accent >= 3.0
+
+        cr_light_accent = contrast("#0284C7", "#F8FAFC")
+        assert cr_light_accent >= 3.0
+
+    def test_chart_theme_adaptation(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert 'state.theme === "light"' in html
+
+
+class TestNavigationShell:
+    """Requirement 2: Top-Level 4-Tab Navigation Shell."""
+
+    def test_four_navigation_tabs_exist(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert 'id="nav-matrix"' in html
+        assert 'id="nav-leaderboard"' in html
+        assert 'id="nav-comparator"' in html
+        assert 'id="nav-configurator"' in html
+
+    def test_four_screen_containers_exist(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert 'id="screen-matrix"' in html
+        assert 'id="screen-leaderboard"' in html
+        assert 'id="screen-comparator"' in html
+        assert 'id="screen-configurator"' in html
+
+    def test_view_switching_without_reload(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "switchScreen(" in html
+        assert 'document.querySelectorAll(".nav-tab")' in html
+        assert 'document.querySelectorAll(".screen-view")' in html
+
+    def test_keyboard_shortcuts_mapped(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert 'id="shortcuts-modal"' in html
+        assert 'switchScreen("matrix")' in html
+        assert 'switchScreen("leaderboard")' in html
+        assert 'switchScreen("comparator")' in html
+        assert 'switchScreen("configurator")' in html
+
+
+class TestRankedLeaderboard:
+    """Requirement 3: Screen B Ranked Leaderboard."""
+
+    def test_leaderboard_table_structure(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert 'id="leaderboard-table"' in html
+        assert 'id="leaderboard-tbody"' in html
+        assert 'id="lb-search-input"' in html
+        assert 'id="lb-quadrant-filter"' in html
+
+    def test_page_size_options_include_all(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert 'id="lb-page-size"' in html
+        assert 'value="1000"' in html
+
+    def test_ecosystem_filter_pills(self, client: TestClient) -> None:
+        html = client.get("/").text
+        for eco in ("", "pypi", "npm", "crates", "go", "maven", "systems"):
+            assert f'data-eco="{eco}"' in html
+
+    def test_monospace_tabular_numbers(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "tabular-nums" in html
+        assert ".mono-num" in html
+
+    def test_tier_badges_and_quadrant_indicators(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "QUADRANT_GLYPHS" in html
+        assert "QUADRANT_COLORS" in html
+        assert "mini-bar-track" in html
+        assert "mini-bar-fill" in html
+
+    def test_comparison_selection_checkboxes(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "lb-row-cb" in html
+        assert 'id="lb-compare-btn"' in html
+        assert 'id="lb-selected-count"' in html
+        assert "selectedForCompare" in html
+        assert "Maximum 4 repositories" in html
+
+
+class TestRepositoryComparator:
+    """Requirement 4: Screen E Repository Comparator (2–4 repositories)."""
+
+    def test_comparator_layout_elements(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert 'id="comp-repo-picker"' in html
+        assert 'id="comp-diff-table"' in html
+        assert 'id="comp-radar-container"' in html
+        assert 'id="comp-verdict-box"' in html
+        assert 'id="comp-chips"' in html
+
+    def test_superimposed_radar_chart(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "renderMultiRadarSvg" in html
+        assert "COMP_COLORS" in html
+        for color in ("#10b981", "#6366f1", "#f59e0b", "#f43f5e"):
+            assert color in html.lower()
+
+    def test_differential_table_15_parameters_grouped(self, client: TestClient) -> None:
+        html = client.get("/").text
+        # Grouped under the 5 canonical pillars
+        assert "PILLAR 1: MAINTAINER RESPONSIVENESS" in html
+        assert "PILLAR 2: PRODUCTION IMPACT & FOOTPRINT" in html
+        assert "PILLAR 3: GOVERNANCE & IP" in html
+        assert "PILLAR 4: ENGINEERING RIGOR & AI" in html
+        assert "PILLAR 5: ACCESSIBILITY & ON-RAMPS" in html
+
+        # Differential parameters
+        for param in (
+            "Overall CVI Score",
+            "Global Rank",
+            "Benchmark Tier",
+            "Leverage Score (Y-axis)",
+            "Friction Score (X-axis)",
+            "Responsiveness Score (P1)",
+            "Median TTFHR",
+            "First-Timer Merge Rate",
+            "14-Day PR Ghost Rate",
+            "Review Tail Latency",
+            "Criticality Score (P2)",
+            "GitHub Stars",
+            "Monthly Downloads",
+            "Registry Dependents",
+            "Governance Score (P3)",
+            "Elephant Factor",
+            "Legal CLA Regime",
+            "Engineering Rigor Score (P4)",
+            "AI Contribution Posture",
+            "Accessibility Score (P5)",
+            "Good First Issues",
+        ):
+            assert param in html, f"Missing differential parameter {param}"
+
+    def test_winning_badges_logic(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "diff-winner" in html
+        assert "👑" in html
+        assert "higherBetter" in html
+
+    def test_synthesized_recommendation_verdict(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "renderComparatorVerdict" in html
+        assert "Highest Composite Benchmark" in html
+        assert "For First-Time Contributors" in html
+        assert "For Career Capital & Resume Proof" in html
+        assert "For Governance & Legal Safety" in html
+
+    def test_comparator_minimum_selection_prompt(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "Please select at least 2 repositories to compare" in html
+
+
+class TestScorecardDrawerPlaybook:
+    """Requirement 5: Scorecard Drawer Maintainer Improvement Playbook UI (Screen C)."""
+
+    def test_slide_over_drawer_structure(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert 'id="drawer"' in html
+        assert 'id="drawer-backdrop"' in html
+        assert "openDeepDive" in html
+        assert "closeDrawer" in html
+
+    def test_projected_elevation_banner(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "playbook-banner" in html
+        assert "Projected Elevation:" in html
+        assert "➔" in html
+
+    def test_diagnostic_friction_bottleneck_cards(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "playbook-container" in html
+        assert "playbook-action" in html
+        assert "playbook-action-header" in html
+        assert "playbook-action-title" in html
+        assert "playbook-action-badge" in html
+        assert "playbook-target" in html
+
+    def test_playbook_diagnostic_rules(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "Reduce TTFHR" in html
+        assert "Eliminate PR Abandonment" in html
+        assert "Diversify maintainers: current Elephant Factor is" in html
+        assert "Tag 3-5 beginner-friendly Good First Issues" in html
+        assert "Improve branch protection and token permissions" in html
+        assert "Maintain Benchmark Leadership" in html
+
+
+class TestMatrixCanvasSVG:
+    """Requirement 6: Screen A 2D Matrix SVG."""
+
+    def test_matrix_canvas_and_bisectors(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert 'id="scatter"' in html
+        assert "renderScatter" in html
+        assert "xPx(50)" in html
+        assert "yPx(50)" in html
+
+    def test_matrix_quadrant_labels(self, client: TestClient) -> None:
+        html = client.get("/").text
+        for quad in ("Sweet Spot", "Crucible", "Nursery", "Graveyard"):
+            assert quad in html
+        assert "cell.name.toUpperCase()" in html
+
+    def test_matrix_node_interactions(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert 'id="matrix-hover-card"' in html
+        assert "showHoverCard" in html
+        assert "hideHoverCard" in html
+        assert "openDeepDive(node)" in html
+
+
+class TestZeroCDNAssurance:
+    """Requirement 7: Zero-CDN Architecture (100% self-contained)."""
+
+    def test_no_external_scripts(self, client: TestClient) -> None:
+        html = client.get("/").text
+        for src in re.findall(r'<script\s+[^>]*src=["\']([^"\']+)["\']', html, re.I):
+            assert not src.startswith("http://") and not src.startswith("https://")
+
+    def test_no_external_stylesheets(self, client: TestClient) -> None:
+        html = client.get("/").text
+        for href in re.findall(r'<link\s+[^>]*href=["\']([^"\']+)["\']', html, re.I):
+            assert not href.startswith("http://") and not href.startswith("https://")
+
+    def test_no_external_fonts(self, client: TestClient) -> None:
+        html = client.get("/").text
+        assert "@import" not in html
+        assert "fonts.googleapis.com" not in html
+        assert "fonts.gstatic.com" not in html
+
 
