@@ -64,12 +64,12 @@ endpoints. Implementation is delegated to local agents through `05-WORK-PLAN.md`
 
 | Wave | State | Landed packets |
 |---|---|---|
-| W0 Freeze & instrument | in progress | W0-1, W0-2, W0-3 |
-| W1 Data truth | not started | – |
-| W2 Scoring v2 | not started | – |
-| W3 Integrity | not started | – |
+| W0 Freeze & instrument | in progress | W0-1, W0-2, W0-2b, W0-3, W0-5 (W0-4 in flight) |
+| W1 Data truth | in progress | W1-1, W1-2, W1-5, W1-9 (W1-3 in integration; W1-4/6/7, W1-8 queued behind it) |
+| W2 Scoring v2 | in progress | W2-1 (W2-2, W2-3 in flight) |
+| W3 Integrity | in progress | – (W3-3 in flight) |
 | W4 Store / API / architecture | not started | – |
-| W5 Validation & release | not started | – |
+| W5 Validation & release | in progress | W5-1 (code ahead of snapshot; W5-2 pending) |
 
 The lead updates this table; agents never edit it.
 
@@ -81,3 +81,13 @@ The lead updates this table; agents never edit it.
 | 2026-09-12 | W0-1 | ACCEPT, `ba3f4c1` | Sample `~/Projects/cvi-scratch/sample-200` (200 repos / 2,579 envelopes) + `cvi audit coverage`. Sample misses the ±2 pp clause on `mean_inline_comments` (+4.6) and `rr_90` (+3.3); the same tool on all 4,145 collected repos matches `01` F8 within 1.0 pp, so the tool's definitions are right and the misses are 200-repo sampling noise. Deviations recorded: size S packet landed 1,392 source lines; `cvi.audit` added to `pyproject.toml` packages by grant to W0-3. Open taxonomy question handed to W1-9/W2-4: candidate-ecosystem strata disagree with the deriver's `meta.ecosystem` for 68 of 200 repos. |
 | 2026-09-12 | W0-3 | ACCEPT, `32bb8b3` | Freeze + reproduce on `sample-200` give the identical canonical dump `4315c2ed…`; a one-byte flip changes the Merkle root (`49814505ca…` -> `080d07fc12…`) and `reproduce` names the key, exit 1. Manifest 685,938 B / 2,181 entries, reproduce 5.26 s on 200 repos, 2,181 hashes `backfilled` / 0 native. Suite 1,046 passed. Deviation: 754 source lines against size class M (<=400) — subtraction deferred, not a blocker; the packet's own CI-fixture and store-column items belong to W3-4 and W4-2. |
 | 2026-09-12 | W0-4 | dispatched | Uses the preserved pre-sweep DB `~/Projects/cvi-scratch/v1-baseline/cvi.db` for the fixture-row test because the running sweep will replace `data/cvi.db`. |
+| 2026-09-12 | W0-2b | ACCEPT, `7945e99` | Guard-scope follow-on: `tests/test_no_clock.py` now scans `lakehouse.py`/`provenance.py` and catches SQL-side clocks (`DEFAULT CURRENT_TIMESTAMP`); `utc_now_iso(now)` requires the explicit time. Suite green. |
+| 2026-09-12 | W0-5 | ACCEPT, `3f6c5e0` | Anchor relations, sensitivity τ, tie report (`cvi/audit/` owns its wiring). Baseline: τ ≥ 0.957 on every pillar; ties: 118 distinct values / 981 rows. |
+| 2026-09-12 | W1-9 | ACCEPT, `cf41a58` | Eligibility metadata and software classification (archived/mirror/fork, license spdx, PRs-enabled, tree paths; `non_software`/`mirror`/`archived`/`fork`/`unlicensed`/`off_platform` markers). |
+| 2026-09-12 | W2-1 | ACCEPT, `5c13054` | Core types: Measured/Unmeasured contracts, FeatureBundle v2, frozen constants (19 schema inputs). Size deviation: 1,258 lines vs M — subtraction deferred. Packaging fix `39952ca` (pyproject packages) landed with it. |
+| 2026-09-12 | W1-1 | ACCEPT, `8252a8c` | Per-label GFI collector (label list once → per-label queries → union by issue number, `labels_matched`); rebased onto current main. Live: vscode=7, flask=0 (all flask issues closed — recorded, not a defect). |
+| 2026-09-12 | W5-1 | ACCEPT, `56d3cbb` | Forward-validation pre-registration + analysis (`cvi/audit/forward.py`, `docs/v2/validation/PREREG.md`); real snapshot S0 waits on W5-2. Size deviation: 707 lines vs M — subtraction deferred. `forward` registry wiring was an OWNERSHIP REQUEST → dispatched as W5-1f. |
+| 2026-09-12 | W5-1c | ACCEPT, `b19a015` | Explicit `--fetched-at` for forward collect after W0-2b (no wall-clock reads on the forward path). |
+| 2026-09-12 | W1-5 | ACCEPT, `ea59caf` | Commit email domains, real EF, bus factor, vitality; rebased. EF mean on sample 2.47 → 1.75. One-time exception: re-gathered commits live for all 200 sample repos to execute its Measure line (exceeds the 5-live-repo bound) — adjudicated allowed once; the bound is re-asserted in every subsequent dispatch. `github.com` added to PERSONAL_DOMAINS (accepted). |
+| 2026-09-12 | W1-2 | ACCEPT, `bc01e21` | Package-level dependents (deps.dev primary, ecosyste.ms fallback, root-org dedup) + derive hook; stacked by integrator (W1-2b) after the W1-5 hooks in both monoliths; full suite 1,227 passed. Adjudications: package-level `dependentCount` = default-version endpoint (flask 12,698); repology keyless 403 → `UNDECIDED/U-ENV`; ecosyste.ms fallback URL 404 live → follow-up W1-2f; sample missing-rate stays 1.00 until re-sweep. |
+| 2026-09-12 | dispatch wave | 7 agents dispatched | After W1-2: W1-3 integrator (critical path for W1-4/W1-6/W1-7), W2-2 gates, W2-3 parameter functions, W3-3 canary (5-vs-10 live-repo deviation recorded), W0 wave-gate adversarial pass on landed W0-1/2/2b/3/5, W1-2f ecosyste.ms endpoint check, W5-1f audit `forward` registry wiring. W0-4 (Hubble) still in flight. |
