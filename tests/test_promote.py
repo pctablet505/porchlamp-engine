@@ -63,7 +63,7 @@ def _deep_dive_json(db_path: str, owner: str, name: str):
 
 def test_promote_materializes_deep_dive(tmp_path):
     db = str(tmp_path / "cvi.db")
-    n = promote.promote([_bundle()], db)
+    n = promote.promote([_bundle()], db, NOW, tmp_path)
     assert n == 1
     dd = _deep_dive_json(db, "acme", "widget")
     assert dd is not None, "promote must populate deep_dive_json for the UI"
@@ -85,8 +85,19 @@ def test_promote_deep_dive_survives_empty_pr_events(tmp_path):
     b = _bundle(owner="quiet", name="library")
     b["pr_events"] = []
     db = str(tmp_path / "cvi.db")
-    assert promote.promote([b], db) == 1
+    assert promote.promote([b], db, NOW, tmp_path) == 1
     dd = _deep_dive_json(db, "quiet", "library")
     assert dd is not None
     # Kaplan-Meier baseline: with no events the curve is the single t=0, S=1 point.
     assert dd["survival_curve"] == [[0.0, 1.0]]
+
+
+def test_missing_created_at_falls_back_to_as_of_not_the_wall_clock():
+    """An event with no usable created_at is anchored to the snapshot time."""
+    row = {
+        "repo_owner": "acme", "repo_name": "widget", "pr_number": 7,
+        "created_at": "", "author_login": "dev",
+    }
+    assert promote._pr_events([row], NOW)[0].created_at == NOW
+    earlier = NOW - timedelta(days=1)
+    assert promote._pr_events([row], earlier)[0].created_at == earlier

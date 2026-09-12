@@ -8,7 +8,13 @@ upserts composites + raw metrics into data/cvi.db.
 Two passes: (1) load all clean bundles, build per-ecosystem populations
 (log10 dependents/downloads, per-repo TTM p90); (2) score + write.
 
+Scoring is deterministic: the reference time is ``--as-of`` (D-VER-3) and is
+threaded into every scoring call. Without ``--as-of`` the wall clock is read
+once, here at the script boundary, and that value is used for the whole run --
+never inside the scoring loop.
+
 Usage: .venv/bin/python scripts/promote.py [--db data/cvi.db]
+                                         [--data-dir data] [--as-of 2026-09-12T00:00:00Z]
 """
 from __future__ import annotations
 
@@ -35,7 +41,6 @@ from cvi.models import (
 )
 
 DATA = Path(__file__).resolve().parent.parent / "data"
-PROMOTED = DATA / "promoted.json"
 
 
 def _dt(s: Any) -> Optional[datetime]:
@@ -84,12 +89,12 @@ def _repo_meta(m: dict[str, Any]) -> RepoMeta:
     )
 
 
-def _pr_events(rows: list[dict[str, Any]]) -> list[RawPREvent]:
+def _pr_events(rows: list[dict[str, Any]], as_of: datetime) -> list[RawPREvent]:
     out = []
     for e in rows:
         out.append(RawPREvent(
             repo_owner=e["repo_owner"], repo_name=e["repo_name"],
-            pr_number=int(e["pr_number"]), created_at=_dt(e["created_at"]) or datetime.now(timezone.utc),
+            pr_number=int(e["pr_number"]), created_at=_dt(e["created_at"]) or as_of,
             author_login=e.get("author_login", ""),
             author_association=AuthorAssociation(e.get("author_association", "NONE")),
             author_prior_merged_commits=int(e.get("author_prior_merged_commits", 0)),
@@ -121,8 +126,24 @@ def load_clean(data_dir: Path = DATA) -> list[dict[str, Any]]:
     return out
 
 
-def promote(bundles: list[dict[str, Any]], db_path: str) -> int:
-    """Score clean bundles against verified populations; write to SQLite."""
+def promote(
+    bundles: list[dict[str, Any]],
+    db_path: str,
+    as_of: Optional[datetime] = None,
+    data_dir: Path = DATA,
+) -> int:
+    """Score clean bundles against verified populations; write to SQLite.
+
+    ``as_of`` is the snapshot reference time that every scoring call receives.
+    When it is omitted the wall clock is read once, here, and reused for every
+    repository, so a run is a pure function of ``(bundles, as_of)``.
+    ``last_indexed_at`` takes ``as_of`` too: left to the column default the
+    store stamps SQLite's ``CURRENT_TIMESTAMP`` and the database stops being
+    reproducible (D-VER-3). ``data_dir`` is where the run's ``promoted.json``
+    receipt is written.
+    """
+    if as_of is None:
+        as_of = datetime.now(timezone.utc)
     # pass 1: per-ecosystem populations from the verified universe itself
     deps_pop: dict[str, list[float]] = {}
     dl_pop: dict[str, list[float]] = {}
@@ -132,7 +153,7 @@ def promote(bundles: list[dict[str, Any]], db_path: str) -> int:
         m = b["meta"]
         eco = m["ecosystem"]
         meta = _repo_meta(m)
-        events = _pr_events(b.get("pr_events", []))
+        events = _pr_events(b.get("pr_events", []), as_of)
         p90 = _ttm_p90(events)
         deps_pop.setdefault(eco, []).append(_log1p(meta.dependents_count))
         dl_pop.setdefault(eco, []).append(_log1p(meta.monthly_downloads))
@@ -146,14 +167,14 @@ def promote(bundles: list[dict[str, Any]], db_path: str) -> int:
         store.ensure_deep_dive_column()
         for _key, (meta, events, _p90v) in metas.items():
             eco = meta.ecosystem.value
-            now = datetime.now(timezone.utc)
             result = score_repository(
-                meta, events, now,
+                meta, events, as_of,
                 ttm_p90_population=ttm_pop.get(eco, []),
                 dependents_population=deps_pop.get(eco, []),
                 downloads_population=dl_pop.get(eco, []),
             )
-            store.upsert_composite(result, pillar_scores=result.pillar_scores)
+            store.upsert_composite(
+                result, pillar_scores=result.pillar_scores, last_indexed_at=as_of)
             apply_raw_metrics(
                 store, meta.owner, meta.name, stars=meta.stars, forks=meta.forks,
                 monthly_downloads=meta.monthly_downloads,
@@ -165,14 +186,15 @@ def promote(bundles: list[dict[str, Any]], db_path: str) -> int:
             # (without this the repo-detail endpoint degrades to pillars only).
             store.upsert_deep_dive(
                 meta.owner, meta.name,
-                build_deep_dive(meta, events, now,
+                build_deep_dive(meta, events, as_of,
                                 pillar_scores=result.pillar_scores,
                                 overall_cvi=result.overall_cvi))
             n += 1
     finally:
         store.close()
-    PROMOTED.write_text(json.dumps(
-        {"promoted_at": datetime.now(timezone.utc).isoformat(),
+    (data_dir / "promoted.json").write_text(json.dumps(
+        {"as_of": as_of.isoformat(),
+         "promoted_at": datetime.now(timezone.utc).isoformat(),
          "count": n, "repos": sorted(metas)}, indent=2), encoding="utf-8")
     return n
 
@@ -180,13 +202,21 @@ def promote(bundles: list[dict[str, Any]], db_path: str) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--db", default=str(DATA / "cvi.db"))
+    ap.add_argument("--data-dir", type=Path, default=DATA,
+                    help="directory holding verified/ and receiving promoted.json")
+    ap.add_argument("--as-of", metavar="ISO-8601", default=None,
+                    help="snapshot reference time for scoring (default: now, read once)")
     a = ap.parse_args()
-    bundles = load_clean()
+    as_of = _dt(a.as_of) if a.as_of else None
+    if a.as_of and as_of is None:
+        print(f"--as-of is not an ISO-8601 timestamp: {a.as_of!r}")
+        return 2
+    bundles = load_clean(a.data_dir)
     if not bundles:
         print("no clean verified bundles to promote; run verify.py first")
         return 1
-    n = promote(bundles, a.db)
-    print(f"promoted {n} verified repos -> {a.db}")
+    n = promote(bundles, a.db, as_of, a.data_dir)
+    print(f"promoted {n} verified repos as of {as_of.isoformat() if as_of else 'now'} -> {a.db}")
     return 0
 
 

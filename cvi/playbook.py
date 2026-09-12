@@ -45,8 +45,6 @@ from .pillars.rigor import score_pipeline, score_rigor
 
 from .stage0 import _ghost_rate_14
 
-BENCHMARK_NOW: datetime = datetime(2026, 9, 11, 12, 0, 0)
-
 
 def _is_bot(login: str) -> bool:
     """True if login matches any bot marker."""
@@ -87,24 +85,26 @@ def _compute_normal_pillars(
 def generate_maintainer_playbook(
     meta: RepoMeta,
     pr_events: list[RawPREvent],
+    now: datetime,
     pillar_scores: Optional[PillarScores] = None,
     overall_cvi: Optional[float] = None,
-    now: Optional[datetime] = None,
 ) -> dict[str, Any]:
     """Diagnose maintainer friction bottlenecks and compute actionable upgrade ROI.
 
     Detects the 8 canonical friction bottlenecks, ranks remediation actions descending
     by CVI point gain, and projects potential CVI score, tier, and quadrant upgrades.
-    """
-    ref_time = now if now is not None else BENCHMARK_NOW
 
+    ``now`` is the snapshot's ``as_of`` (D-VER-3): every age, window and
+    right-censoring bound is measured against it, so it is required and this
+    module reads no clock of its own.
+    """
     # Evaluate Stage 0 gating status and un-gated normal pillars
-    normal_pillars = _compute_normal_pillars(meta, pr_events, ref_time)
+    normal_pillars = _compute_normal_pillars(meta, pr_events, now)
     normal_cvi = persona_composite(normal_pillars, Persona.BALANCED)
     normal_lev, normal_fric, normal_quad = decompose(normal_pillars)
 
     # Determine baseline state
-    is_black_hole = _ghost_rate_14(pr_events, ref_time) > 0.50
+    is_black_hole = _ghost_rate_14(pr_events, now) > 0.50
     external_prs = [p for p in pr_events if p.is_external]
     gr_14 = 0.0
     if external_prs:
@@ -113,7 +113,7 @@ def generate_maintainer_playbook(
             1
             for p in external_prs
             if p.closed_at is None
-            and (ref_time - p.created_at) > window
+            and (now - p.created_at) > window
             and p.maintainer_review_comments == 0
         )
         gr_14 = ghosts / len(external_prs)
@@ -136,7 +136,7 @@ def generate_maintainer_playbook(
             current_quadrant = quad.value
             base_pillars = pillar_scores
     else:
-        scored = score_repository(meta, pr_events, ref_time, persona=Persona.BALANCED)
+        scored = score_repository(meta, pr_events, now, persona=Persona.BALANCED)
         current_cvi = scored.overall_cvi
         current_tier = scored.rank_tier.value
         current_quadrant = scored.matrix_quadrant.value
@@ -178,7 +178,7 @@ def generate_maintainer_playbook(
 
     # 2. PR Ghost Rate (GR_14 > 10%)
     if external_prs and gr_14 > 0.10:
-        p_curr = score_ghost_rate(pr_events, ref_time)
+        p_curr = score_ghost_rate(pr_events, now)
         delta_p = 100.0 - p_curr
         delta_cvi = 0.25 * 0.20 * delta_p
         delta_fric = -0.50 * 0.20 * delta_p
