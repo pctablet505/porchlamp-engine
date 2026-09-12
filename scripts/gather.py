@@ -299,6 +299,21 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             from scripts import backfill_downloads as _bdl
         status["downloads"] = ("pending" if ecosystem in _bdl.RETRYABLE_ECOSYSTEMS
                                else "unmeasured")
+    # --- W1-7 (02 §4 2.2 / 4.1): releases, issues search counts, CI runs ---
+    from cvi.collect import pike_signals as w17_pike
+    for collector, call in (
+        ("releases", lambda: w17_pike.collect_releases(DATA, owner, name)),
+        ("issues_counts", lambda: w17_pike.collect_issue_counts(DATA, owner, name)),
+        ("runs", lambda: w17_pike.collect_runs(DATA, owner, name, branch)),
+    ):
+        if _done(collector, key, force):
+            status[collector] = "skip"
+            continue
+        try:
+            status[collector] = call()
+        except Exception as e:  # review-ok: gate-network — retry on rerun
+            status[collector] = "fail"
+            print(f"  WARN {collector} {owner}/{name}: {e}")
     return status
 
 

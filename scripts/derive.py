@@ -441,6 +441,19 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
           src("downloads", f"{ecosystem.value}__{name}") if _dl_status == "measured" else None,
           dl_at, "derived")
 
+    # --- W1-7 (02 §4 2.2 / 4.1, D-MISS-4): locally-derived Pike signals
+    # (all ten or nothing) and the pipeline defenses (scorecard five-check
+    # mean or the review/CI proxy; the method is stored). ---
+    from cvi.collect import pike_signals as pike_mod
+    rel, rel_at = _load(data_dir, "releases", key)
+    iss, iss_at = _load(data_dir, "issues_counts", key)
+    rns, rns_at = _load(data_dir, "runs", key)
+    for field, (value, source, at, conf) in pike_mod.derive_w17_fields(
+        data_dir, key, now, gh, gh_at, c365, c365_at, dep, dep_at,
+        rel, rel_at, iss, iss_at, rns, rns_at, sc, sc_at, prw, prw_at,
+    ).items():
+        b.set(field, value, source, at, conf)
+
     meta = {k: _jsonable(v) for k, v in b.meta.items()}
     if b.meta.get("openssf_signals") is not None:
         meta["openssf_signals"] = asdict(b.meta["openssf_signals"])
