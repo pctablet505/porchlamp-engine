@@ -1,10 +1,17 @@
 """Run the full verified-data pipeline over the candidate universe.
 
 Chains, per candidate repo: gather (raw cache) -> derive (feature bundle) ->
-verify (cross-source). Then promotes all CLEAN bundles into SQLite once.
-Checkpointed via the raw cache (existing envelopes are skipped), so reruns
-resume. --skip-downloads runs a fast pass (GitHub + deps.dev + scorecard +
-npm/crates) and defers pypistats (4/min) to a later backfill.
+verify (cross-source). Then freezes a snapshot manifest and promotes all CLEAN
+bundles into SQLite once. Checkpointed via the raw cache (existing envelopes
+are skipped), so reruns resume. --skip-downloads runs a fast pass (GitHub +
+deps.dev + scorecard + npm/crates) and defers pypistats (4/min) to a later
+backfill.
+
+Round 2 (`03` §5, Blocker-3, Warning-2): promotion now requires a frozen
+snapshot (``scripts/promote.py --snapshot-id``), so the documented pipeline
+gains a freeze step between verify and promote -- gather -> derive -> verify
+-> freeze -> promote -> serve -- rather than leaving that step to be
+discovered only from ``scripts/serve.py``'s own refusal message.
 
 Usage:
   .venv/bin/python scripts/run_all.py --limit 50 --skip-downloads
@@ -16,7 +23,11 @@ import argparse
 import importlib.util
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+
+from cvi.lakehouse import repositories_dump_hash
+from cvi.snapshot import cli as snapshot_cli
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -80,9 +91,18 @@ def main() -> int:
             print(f"[{i}/{len(repos)}] {owner}/{name} {eco}: {result} | {tally}")
     print(f"sweep done: {tally}")
     if not a.skip_downloads:
+        data_dir = gather.DATA.parent
+        as_of = datetime.now(timezone.utc)
+        freeze_rc = snapshot_cli.main(
+            ["freeze", "--data-dir", str(data_dir), "--as-of", as_of.isoformat()])
+        if freeze_rc != 0:
+            print(f"freeze failed (exit {freeze_rc}); not promoting")
+            return freeze_rc
+        manifest = promote.resolve_manifest(data_dir)
         bundles = promote.load_clean()
-        n = promote.promote(bundles, a.db)
-        print(f"promoted {n} verified repos -> {a.db}")
+        n = promote.promote(bundles, a.db, as_of, data_dir)
+        promote.write_snapshot_meta(a.db, manifest, repositories_dump_hash(a.db))
+        print(f"promoted {n} verified repos -> {a.db} (snapshot {manifest['snapshot_id']})")
     return 0
 
 

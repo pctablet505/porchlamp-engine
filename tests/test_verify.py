@@ -1,8 +1,12 @@
 """Tests for scripts/verify.py cross-source verification logic.
 
 Provenance is part of verification (packet W0-4, `03` §5): a field that claims
-``verified`` must name an envelope whose hash recomputes, so ``data_dir`` is an
-argument of every check here rather than an ambient global.
+``verified`` must name an envelope under ``raw/<collector>/<owner>__<name>.json``
+whose hash matches the sha256 recorded in the bundle's own provenance at
+derive time (round 2, Blocker-1) -- and that envelope must belong to THIS
+bundle's own key and, where the field's collector is known, that collector
+too (round 2, Blocker-2). ``data_dir`` is an argument of every check here
+rather than an ambient global.
 """
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ _spec = importlib.util.spec_from_file_location("verify", ROOT / "scripts" / "ver
 verify = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(verify)
 
-OWNER, NAME = "rust-lang", "serde"
+OWNER, NAME, ECOSYSTEM = "rust-lang", "serde", "crates"
 KEY = f"{OWNER}__{NAME}"
 FETCHED_AT = "2026-09-11T19:49:51.804283+00:00"
 ENVELOPE_DATA = {"stars": 1000, "forks": 50}
@@ -28,14 +32,16 @@ ENVELOPE_DATA = {"stars": 1000, "forks": 50}
 UNVERIFIABLE = "unverifiable_provenance"
 
 
-def envelope_path(data_dir: Path) -> Path:
+def envelope_path(data_dir: Path, collector: str = "github_meta", key: str = KEY) -> Path:
     """Path of the envelope the fixture bundle's provenance points at."""
-    return data_dir / "raw" / "github_meta" / f"{KEY}.json"
+    return data_dir / "raw" / collector / f"{key}.json"
 
 
 def envelope_provenance(data_dir: Path) -> dict[str, Any]:
-    """stars/forks provenance pointing at the recorded envelope."""
-    entry = {"source": str(envelope_path(data_dir)), "fetched_at": FETCHED_AT}
+    """stars/forks provenance exactly as ``scripts/derive.py`` records it now:
+    the envelope path plus the envelope's own hash (round 2, Blocker-1)."""
+    digest = envelope_hash(ENVELOPE_DATA)
+    entry = {"source": str(envelope_path(data_dir)), "fetched_at": FETCHED_AT, "sha256": digest}
     return {"stars": dict(entry), "forks": dict(entry)}
 
 
@@ -47,8 +53,10 @@ def data_dir(tmp_path: Path) -> Path:
 
 
 def bundle(prov: Optional[dict] = None, conf: Optional[dict] = None,
-           stars=1000, forks=50, score=8.0):
-    return {"meta": {"stars": stars, "forks": forks, "scorecard_score": score},
+           stars=1000, forks=50, score=8.0,
+           owner: Any = OWNER, name: Any = NAME, ecosystem: Any = ECOSYSTEM):
+    return {"meta": {"owner": owner, "name": name, "ecosystem": ecosystem,
+                     "stars": stars, "forks": forks, "scorecard_score": score},
             "confidence": conf or {"stars": "verified", "forks": "verified"},
             "provenance": prov or {}}
 
@@ -122,7 +130,8 @@ def test_license_cross_check(data_dir):
 
 # --------------------------------------------------------------------------- #
 # Unforgeable provenance (`03` §5, R-4): a field that claims `verified` must
-# name an envelope path whose hash recomputes.
+# name an envelope path -- belonging to THIS bundle's key and collector --
+# whose hash matches the sha256 the provenance itself records.
 # --------------------------------------------------------------------------- #
 
 
@@ -146,9 +155,8 @@ def test_verified_field_without_provenance_flags(data_dir):
 
 
 def test_url_provenance_for_verified_field_flags(data_dir):
-    # R-4: provenance is an envelope path plus a hash, or (03 §5) an http(s)
-    # URL that itself carries a recorded hash. A bare URL with no hash is a
-    # claim about a fetch, not the fetch, so it still flags.
+    # Round 2 (`03` §5 owner ruling, W1): provenance is an envelope path
+    # only. A bare URL is not a path under raw/, hash or no hash.
     prov = envelope_provenance(data_dir)
     prov["stars"] = {"source": "https://api.github.com/repos/rust-lang/serde",
                      "fetched_at": FETCHED_AT}
@@ -156,16 +164,15 @@ def test_url_provenance_for_verified_field_flags(data_dir):
     assert r["clean"] is False and r["flags"] == [UNVERIFIABLE]
 
 
-def test_url_provenance_with_recorded_hash_is_accepted(data_dir):
-    # 03 §5: the second acceptable provenance form is an http(s) URL with a
-    # recorded sha256 (a fetch hashed at collection time with no local
-    # envelope file archived) — the guard above covers the same URL WITHOUT
-    # a hash, which must still flag.
+def test_url_provenance_with_recorded_hash_still_flags(data_dir):
+    # Round 1 accepted an http(s) URL carrying a recorded sha256 without ever
+    # recomputing it (Warning-1: any 64-hex string passed). Round 2 deletes
+    # that branch entirely -- this guards against it being reintroduced.
     prov = envelope_provenance(data_dir)
     prov["stars"] = {"source": "https://api.github.com/repos/rust-lang/serde",
                      "fetched_at": FETCHED_AT, "sha256": "a" * 64}
     r = verify.verify_bundle(bundle(prov), {}, data_dir=data_dir)
-    assert r["clean"] is True and r["flags"] == []
+    assert r["clean"] is False and r["flags"] == [UNVERIFIABLE]
 
 
 def test_missing_envelope_flags(data_dir):
@@ -196,6 +203,21 @@ def test_hash_recorded_in_provenance_must_match(data_dir):
     offender = next(c for c in r["checks"]
                     if c["field"] == UNVERIFIABLE and not c["ok"])
     assert offender["detail"].startswith("field=stars")
+
+
+def test_provenance_without_recorded_hash_flags(data_dir):
+    # Round 2 (Blocker-1): a bundle derived BEFORE this change recorded no
+    # hash at all -- round 1's bug treated "nothing to compare" as passing,
+    # which verified file existence, not content. It must flag instead, and
+    # stay flagged until the bundle is re-derived.
+    prov = envelope_provenance(data_dir)
+    del prov["stars"]["sha256"]
+    r = verify.verify_bundle(bundle(prov), {}, data_dir=data_dir)
+    assert r["clean"] is False and r["flags"] == [UNVERIFIABLE]
+    offender = next(c for c in r["checks"]
+                    if c["field"] == UNVERIFIABLE and not c["ok"])
+    assert offender["detail"].startswith("field=stars")
+    assert "no sha256" in offender["detail"]
 
 
 def test_envelope_hash_not_matching_its_data_flags(data_dir):
@@ -237,7 +259,7 @@ def test_copied_data_dir_resolves_by_raw_tail(tmp_path):
     write_envelope(envelope_path(tmp_path), "github:repository", ENVELOPE_DATA, FETCHED_AT)
     prov = envelope_provenance(tmp_path)
     prov["stars"] = {"source": str(collected_under / "raw/github_meta" / f"{KEY}.json"),
-                     "fetched_at": FETCHED_AT}
+                     "fetched_at": FETCHED_AT, "sha256": envelope_hash(ENVELOPE_DATA)}
     r = verify.verify_bundle(bundle(prov), {}, data_dir=tmp_path)
     assert r["clean"] is True and r["flags"] == []
 
@@ -268,3 +290,97 @@ def test_verify_repo_records_unverifiable_provenance(tmp_path):
     assert report["flags"] == [UNVERIFIABLE]
     written = json.loads((tmp_path / "verified" / f"{KEY}.json").read_text(encoding="utf-8"))
     assert written["report"]["clean"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Bound provenance (round 2, Blocker-2): an envelope must belong to THIS
+# bundle's own repository key and, where known, its field's own collector.
+# --------------------------------------------------------------------------- #
+
+
+def test_envelope_for_a_different_repository_flags(data_dir):
+    # numpy's stars provenance pointing at PythonRobotics' github_meta
+    # envelope: same collector, wrong key.
+    foreign_data = {"stars": 1, "forks": 1}
+    foreign = data_dir / "raw" / "github_meta" / "AtsushiSakai__PythonRobotics.json"
+    write_envelope(foreign, "github:repository", foreign_data, FETCHED_AT)
+    prov = envelope_provenance(data_dir)
+    prov["stars"] = {"source": str(foreign), "fetched_at": FETCHED_AT,
+                     "sha256": envelope_hash(foreign_data)}
+    r = verify.verify_bundle(bundle(prov), {}, data_dir=data_dir)
+    assert r["clean"] is False and r["flags"] == [UNVERIFIABLE]
+    offender = next(c for c in r["checks"] if c["field"] == UNVERIFIABLE and not c["ok"])
+    assert offender["detail"].startswith("field=stars")
+    assert "does not match this bundle's own" in offender["detail"]
+
+
+def test_envelope_from_wrong_collector_flags(data_dir):
+    # numpy's stars provenance pointing at numpy's OWN gfi envelope: same
+    # key, wrong collector -- the key check alone would miss this.
+    gfi_data = {"count": 3}
+    gfi_path = data_dir / "raw" / "gfi" / f"{KEY}.json"
+    write_envelope(gfi_path, "gfi:list", gfi_data, FETCHED_AT)
+    prov = envelope_provenance(data_dir)
+    prov["stars"] = {"source": str(gfi_path), "fetched_at": FETCHED_AT,
+                     "sha256": envelope_hash(gfi_data)}
+    r = verify.verify_bundle(bundle(prov), {}, data_dir=data_dir)
+    assert r["clean"] is False and r["flags"] == [UNVERIFIABLE]
+    offender = next(c for c in r["checks"] if c["field"] == UNVERIFIABLE and not c["ok"])
+    assert offender["detail"].startswith("field=stars")
+    assert "is not one of" in offender["detail"]
+
+
+def test_downloads_field_keys_on_ecosystem_not_owner(tmp_path):
+    # Blocker-2's one explicit exception: scripts/derive.py's downloads
+    # collector keys on <ecosystem>__<name>, not <owner>__<name>.
+    write_envelope(envelope_path(tmp_path), "github:repository", ENVELOPE_DATA, FETCHED_AT)
+    dl_data = {"monthly": 500}
+    dl_path = tmp_path / "raw" / "downloads" / f"{ECOSYSTEM}__{NAME}.json"
+    write_envelope(dl_path, "downloads:pkg", dl_data, FETCHED_AT)
+    prov = envelope_provenance(tmp_path)
+    prov["monthly_downloads"] = {"source": str(dl_path), "fetched_at": FETCHED_AT,
+                                 "sha256": envelope_hash(dl_data)}
+    conf = {"stars": "verified", "forks": "verified", "monthly_downloads": "verified"}
+    r = verify.verify_bundle(bundle(prov, conf=conf), {}, data_dir=tmp_path)
+    assert r["clean"] is True and r["flags"] == []
+
+    # Over-correction guard: keying it on OWNER instead (the bug Blocker-2
+    # would reintroduce for this one field) must flag.
+    wrong_key_path = tmp_path / "raw" / "downloads" / f"{OWNER}__{NAME}.json"
+    write_envelope(wrong_key_path, "downloads:pkg", dl_data, FETCHED_AT)
+    prov2 = dict(prov)
+    prov2["monthly_downloads"] = {"source": str(wrong_key_path), "fetched_at": FETCHED_AT,
+                                  "sha256": envelope_hash(dl_data)}
+    r2 = verify.verify_bundle(bundle(prov2, conf=conf), {}, data_dir=tmp_path)
+    assert r2["clean"] is False and r2["flags"] == [UNVERIFIABLE]
+
+
+def test_list_valued_provenance_checked_elementwise(data_dir):
+    # Blocker-2: a list-valued source (pr_events/pr_reviews-shaped, e.g.
+    # mean_inline_comments) is checked element by element, not accepted on
+    # the strength of its first item alone. "mean_inline_comments" carries
+    # no FIELD_COLLECTORS entry, so only the key (not the collector) binds.
+    field = "mean_inline_comments"
+    second_data = {"n": 1}
+    second = data_dir / "raw" / "pr_reviews" / f"{KEY}.json"
+    write_envelope(second, "reviews:list", second_data, FETCHED_AT)
+    good = str(envelope_path(data_dir))
+    prov = envelope_provenance(data_dir)
+    prov[field] = {
+        "source": [good, str(second)],
+        "fetched_at": [FETCHED_AT, FETCHED_AT],
+        "sha256": [envelope_hash(ENVELOPE_DATA), envelope_hash(second_data)],
+    }
+    conf = {"stars": "verified", "forks": "verified", field: "verified"}
+    r = verify.verify_bundle(bundle(prov, conf=conf), {}, data_dir=data_dir)
+    assert r["clean"] is True and r["flags"] == []
+
+    # Swap the SECOND element for a foreign repository's envelope: the first
+    # element alone must not carry the whole field clean.
+    foreign = data_dir / "raw" / "pr_reviews" / "torvalds__linux.json"
+    write_envelope(foreign, "reviews:list", second_data, FETCHED_AT)
+    prov[field]["source"] = [good, str(foreign)]
+    r2 = verify.verify_bundle(bundle(prov, conf=conf), {}, data_dir=data_dir)
+    assert r2["clean"] is False and r2["flags"] == [UNVERIFIABLE]
+    offender = next(c for c in r2["checks"] if c["field"] == UNVERIFIABLE and not c["ok"])
+    assert offender["detail"].startswith(f"field={field}")

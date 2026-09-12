@@ -6,6 +6,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from cvi.collect.envelope import envelope_hash
+
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("derive", ROOT / "scripts" / "derive.py")
 derive = importlib.util.module_from_spec(_spec)
@@ -109,6 +111,39 @@ def test_full_bundle(tmp_path):
     # openssf_signals stays None until all 10 PIKE fields have collectors
     # (partial signals would bias criticality toward 0, not neutral)
     assert m["openssf_signals"] is None
+
+
+def test_provenance_records_envelope_sha256_for_verified_field(tmp_path):
+    # Round 2 (Blocker-1): a verified field's provenance must carry the
+    # envelope's own hash -- computed with the same function
+    # cvi.snapshot.manifest's freeze uses (native when the envelope carries
+    # one, otherwise the backfilled canonical hash of its data) -- so
+    # scripts/verify.py has something real to recompute against, not just a
+    # path that happens to exist.
+    seed_full(tmp_path)
+    out = run(tmp_path)
+    envelope_data = json.loads(
+        (tmp_path / "raw" / "github_meta" / f"{OWNER}__{NAME}.json").read_text(encoding="utf-8")
+    )["data"]
+    expected = envelope_hash(envelope_data)
+    assert out["confidence"]["stars"] == "verified"
+    assert out["provenance"]["stars"]["sha256"] == expected
+    assert out["confidence"]["forks"] == "verified"
+    assert out["provenance"]["forks"]["sha256"] == expected
+
+
+def test_provenance_omits_sha256_for_non_envelope_source(tmp_path):
+    # Over-correction guard: a URL/heuristic source is never an envelope
+    # under raw/, so it must not gain a fabricated hash -- the absence of
+    # "sha256" is the honest signal scripts/verify.py's unverifiable_
+    # provenance rule reads for a non-path source.
+    seed_full(tmp_path)
+    out = run(tmp_path)
+    assert out["confidence"]["ai_posture"] == "derived"
+    assert out["provenance"]["ai_posture"]["source"].startswith("https://")
+    assert "sha256" not in out["provenance"]["ai_posture"]
+    assert out["provenance"]["owner"]["source"] == "cli"
+    assert "sha256" not in out["provenance"]["owner"]
 
 
 def test_pr_event_mapping(tmp_path):

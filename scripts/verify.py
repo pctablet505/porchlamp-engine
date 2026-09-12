@@ -8,11 +8,20 @@ clean repos into the OperationalStore (data/cvi.db) scored against the
 verified-universe ECDF populations.
 
 Provenance is part of verification (`03` §5, R-4): every field whose confidence
-says ``verified`` must name either an envelope under ``raw/`` whose hash
-recomputes with the packet W0-3 helper, or an ``http(s)://`` URL with a
-recorded sha256. A source that is a word (``ecosystem-intelligence``), a bare
-URL with no hash, or nothing at all is not re-checkable and flags
-``unverifiable_provenance``, which blocks promotion.
+says ``verified`` must name an envelope under ``raw/<collector>/<key>.json``
+where ``key`` is the bundle's own ``<owner>__<name>`` (``<ecosystem>__<name>``
+for the downloads collector) and, for fields whose collector
+``scripts/derive.py`` fixes statically, ``collector`` matches that field.
+The envelope's hash must also be recomputed and compared against the sha256
+``scripts/derive.py`` records into the provenance entry at derive time
+(round 2: a missing recorded hash is unverifiable, not merely unusual — a
+bundle derived before this change stays flagged until it is re-derived).
+A source that is a word (``ecosystem-intelligence``), a URL, an envelope for a
+different repository or collector, or one with no recorded hash is not
+re-checkable and flags ``unverifiable_provenance``, which blocks promotion.
+Round 2 (`03` §5 owner ruling): a bare ``http(s)://`` URL is never accepted —
+provenance is an envelope path only; a URL lives inside an envelope's own
+``source`` field, never as the provenance pointer itself.
 
 Usage: .venv/bin/python scripts/verify.py [--all | --repo owner name] [--promote]
                                          [--data-dir data]
@@ -52,6 +61,42 @@ ENVELOPE_DIRNAME = "raw"
 
 #: Length of a SHA-256 hex digest, so a ``#`` in a path is not read as a hash.
 SHA256_HEX_LENGTH = 64
+
+#: field -> the ``raw/<collector>/`` directory name(s) ``scripts/derive.py``
+#: statically fixes for that field's ``verified`` confidence (Blocker-2, `03`
+#: §5). Exhaustive over every ``b.set(field, ..., "verified")`` /
+#: ``derive_eligibility`` / ``derive_pr_window_fields`` call in
+#: ``scripts/derive.py`` and the modules it calls (``cvi/collect/repo_object.py``,
+#: ``cvi/collect/github_graphql.py``) as of this packet. ``archived`` and
+#: ``unlicensed`` accept two collectors: ``repo_object`` when the richer
+#: envelope exists, ``github_meta`` as the fallback (``primary or
+#: "github_meta"`` in ``derive_eligibility``). A field absent from this mapping
+#: is not collector-checked (only key-checked): the rule stays additive as new
+#: collectors land.
+FIELD_COLLECTORS: dict[str, frozenset[str]] = {
+    "stars": frozenset({"github_meta"}),
+    "forks": frozenset({"github_meta"}),
+    "monthly_downloads": frozenset({"downloads"}),
+    "dependents_count": frozenset({"depsdev"}),
+    "active_nonbot_commits_180d": frozenset({"commits_180d"}),
+    "dx_ci_minutes": frozenset({"actions_runs"}),
+    "active_unclaimed_gfis": frozenset({"gfi"}),
+    "scorecard_score": frozenset({"scorecard"}),
+    "archived": frozenset({"repo_object", "github_meta"}),
+    "mirror": frozenset({"repo_object"}),
+    "fork": frozenset({"repo_object"}),
+    "unlicensed": frozenset({"repo_object", "github_meta"}),
+    "no_prs_ever": frozenset({"repo_object"}),
+    "pr_window_count": frozenset({"pr_window"}),
+    "pr_window_truncated": frozenset({"pr_window"}),
+    "pr_window_cost_points": frozenset({"pr_window"}),
+}
+
+#: Fields keyed by ``<ecosystem>__<name>`` rather than ``<owner>__<name>``:
+#: ``scripts/derive.py``'s downloads block reads the registry-keyed envelope
+#: ``raw/downloads/<ecosystem>__<name>.json`` (one per package name per
+#: ecosystem, not per GitHub owner).
+ECOSYSTEM_KEYED_FIELDS = frozenset({"monthly_downloads"})
 
 
 def _load(p: Path) -> Optional[dict]:
@@ -95,46 +140,79 @@ def _envelope_path(source: str, data_dir: Path) -> Optional[Path]:
     return None
 
 
-def _claimed_hash(entry: Any, source: str) -> Optional[str]:
+def _claimed_hash(source: str, hash_hint: Any) -> Optional[str]:
     """Hash the provenance repeats for ``source``, in either W0-3 form.
 
-    :attr:`cvi.collect.envelope.Envelope.provenance` writes ``"<path>#<sha256>"``;
-    :func:`scripts.derive` writes a ``sha256`` key. Either way the value must be
-    the hash of the envelope's ``data`` field; ``None`` means the provenance
-    repeats no hash, so the envelope's own (recorded or read-time backfilled)
-    hash is the one the chain carries.
+    ``hash_hint`` is the already-extracted ``sha256`` value for this source
+    item (a provenance dict's ``sha256`` key, or one element of it for a
+    list-valued source — see :func:`_source_items`); a ``<path>#<sha256>``
+    suffix on ``source`` itself is the other W0-3 form
+    (:attr:`cvi.collect.envelope.Envelope.provenance`). ``None`` means the
+    provenance repeats no hash at all: round 2 (Blocker-1) treats that as
+    unverifiable rather than as "nothing to compare".
     """
-    if isinstance(entry, dict):
-        recorded = entry.get("sha256")
-        if isinstance(recorded, str) and len(recorded) == SHA256_HEX_LENGTH:
-            return recorded
+    if isinstance(hash_hint, str) and len(hash_hint) == SHA256_HEX_LENGTH:
+        return hash_hint
     path, separator, digest = source.rpartition("#")
     if separator and path and len(digest) == SHA256_HEX_LENGTH:
         return digest
     return None
 
 
-def provenance_offender(field: str, entry: Any, data_dir: Path = DATA) -> Optional[str]:
-    """Return why ``field``'s provenance cannot be re-checked, or ``None``.
+def _source_items(entry: Any) -> list[tuple[Any, Any]]:
+    """``(source, hash_hint)`` pairs from a provenance entry, one per source item.
 
-    The detail names the field and what was found, so a flagged bundle says
-    which field is unverifiable and where its provenance pointed. `03` §5
-    accepts two forms: an envelope path under ``raw/`` whose hash recomputes,
-    or an ``http(s)://`` URL with a recorded sha256 (a fetch the pipeline
-    hashed at collection time without archiving a full envelope file).
+    A scalar entry (the common case) yields one pair. A list-valued ``source``
+    (``scripts/derive.py``'s ``pr_events``/``mean_inline_comments``, each
+    naming two envelopes) is checked element-wise (Blocker-2): each source item
+    pairs with the same-index element of a list-valued ``sha256``, or with
+    ``None`` when ``sha256`` is absent or a different length.
     """
     source = entry.get("source") if isinstance(entry, dict) else entry
+    hint = entry.get("sha256") if isinstance(entry, dict) else None
+    if isinstance(source, list):
+        hints = hint if isinstance(hint, list) and len(hint) == len(source) else [None] * len(source)
+        return list(zip(source, hints)) or [(None, None)]
+    return [(source, hint)]
+
+
+def _expected_key(field: str, owner: Any, name: Any, ecosystem: Any) -> str:
+    """The ``<...>__<name>`` stem ``field``'s envelope must carry (Blocker-2).
+
+    Every field keys on the bundle's own ``owner``/``name`` except the
+    downloads collector, which keys on the registry ``ecosystem`` instead
+    (:data:`ECOSYSTEM_KEYED_FIELDS`) — ``scripts/derive.py`` fetches downloads
+    once per package name per ecosystem, not per GitHub owner.
+    """
+    prefix = ecosystem if field in ECOSYSTEM_KEYED_FIELDS else owner
+    return f"{prefix}__{name}"
+
+
+def _path_offender(field: str, source: Any, hash_hint: Any, data_dir: Path,
+                   owner: Any, name: Any, ecosystem: Any) -> Optional[str]:
+    """Why one provenance source item cannot be re-checked, or ``None``.
+
+    Order: is it a non-empty string at all; does it resolve to a file under
+    ``raw/``; does that file's key/collector belong to *this* bundle and field
+    (Blocker-2); is the file a readable, internally-consistent envelope; does
+    a hash exist in the provenance to compare, and does it match the envelope's
+    current hash (Blocker-1). Any failure returns a detail naming the field and
+    what was found; passing every gate returns ``None``.
+    """
     if not isinstance(source, str) or not source:
         return f"field={field} source={source!r} is not an envelope path"
-    if source.startswith(("http://", "https://")):
-        if _claimed_hash(entry, source):
-            return None
-        return (f"field={field} source={source!r} is an http(s) URL with no "
-                "recorded sha256, so it is not re-checkable")
     path = _envelope_path(source, data_dir)
     if path is None:
         return (f"field={field} source={source!r} is not an envelope under "
                 f"{Path(data_dir) / ENVELOPE_DIRNAME}")
+    expected_key = _expected_key(field, owner, name, ecosystem)
+    if owner is None or name is None or path.stem != expected_key:
+        return (f"field={field} envelope={path} key={path.stem!r} does not "
+                f"match this bundle's own {expected_key!r}")
+    collectors = FIELD_COLLECTORS.get(field)
+    if collectors is not None and path.parent.name not in collectors:
+        return (f"field={field} envelope={path} collector={path.parent.name!r} "
+                f"is not one of {sorted(collectors)} for this field")
     try:
         envelope = read_envelope(path)
     except (json.JSONDecodeError, OSError) as error:
@@ -142,10 +220,29 @@ def provenance_offender(field: str, entry: Any, data_dir: Path = DATA) -> Option
     if not envelope.hash_matches_data:
         return (f"field={field} envelope={path} records sha256="
                 f"{envelope.recorded_sha256} whose data hashes to {envelope.computed_sha256}")
-    claimed = _claimed_hash(entry, source)
-    if claimed and claimed != envelope.sha256:
-        return (f"field={field} provenance sha256={claimed} but {path} hashes to "
-                f"{envelope.sha256}")
+    claimed = _claimed_hash(source, hash_hint)
+    if claimed is None:
+        return (f"field={field} envelope={path} provenance records no sha256, "
+                "so its hash was never compared (re-derive to record one)")
+    if claimed != envelope.sha256:
+        return (f"field={field} provenance sha256={claimed} but {path} currently "
+                f"hashes to {envelope.sha256}")
+    return None
+
+
+def provenance_offender(field: str, entry: Any, data_dir: Path = DATA, *,
+                        owner: Any = None, name: Any = None,
+                        ecosystem: Any = None) -> Optional[str]:
+    """Return why ``field``'s provenance cannot be re-checked, or ``None``.
+
+    Multi-source fields are checked element-wise (:func:`_source_items`); the
+    first offending item's detail is returned, so a flagged bundle says which
+    field — and which source item — is unverifiable and why.
+    """
+    for source, hash_hint in _source_items(entry):
+        detail = _path_offender(field, source, hash_hint, data_dir, owner, name, ecosystem)
+        if detail:
+            return detail
     return None
 
 
@@ -155,15 +252,22 @@ def provenance_checks(bundle: dict, data_dir: Path = DATA) -> list[dict[str, Any
     Only fields that claim ``verified`` are checked: ``derived`` and ``missing``
     fields make no verification claim, so a URL, a bare word or no source at all
     is what they legitimately carry (``ecosystem`` comes from the collector's
-    arguments, ``ai_posture`` from a README URL read by hand).
+    arguments, ``ai_posture`` from a README URL read by hand). ``owner``,
+    ``name`` and ``ecosystem`` come from the bundle's own ``meta`` (every real
+    ``scripts/derive.py`` bundle sets all three unconditionally) rather than a
+    new parameter, so this function's signature — and every caller's — is
+    unchanged (Blocker-2: the key/collector check needs the bundle's identity).
     """
     provenance = bundle.get("provenance") or {}
     confidence = bundle.get("confidence") or {}
+    meta = bundle.get("meta") or {}
+    owner, name, ecosystem = meta.get("owner"), meta.get("name"), meta.get("ecosystem")
     checks: list[dict[str, Any]] = []
     for field, level in sorted(confidence.items()):
         if level != "verified":
             continue
-        detail = provenance_offender(field, provenance.get(field), data_dir)
+        detail = provenance_offender(field, provenance.get(field), data_dir,
+                                     owner=owner, name=name, ecosystem=ecosystem)
         if detail:
             checks.append({"field": UNVERIFIABLE_PROVENANCE, "ok": False, "detail": detail})
     return checks

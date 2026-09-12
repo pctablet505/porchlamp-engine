@@ -9,8 +9,14 @@ from __future__ import annotations
 import importlib.util
 import json
 import sqlite3
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
+
+from cvi.lakehouse import repositories_dump_hash
+from cvi.snapshot.manifest import build_manifest, write_manifest
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("promote", ROOT / "scripts" / "promote.py")
@@ -101,3 +107,119 @@ def test_missing_created_at_falls_back_to_as_of_not_the_wall_clock():
     assert promote._pr_events([row], NOW)[0].created_at == NOW
     earlier = NOW - timedelta(days=1)
     assert promote._pr_events([row], earlier)[0].created_at == earlier
+
+
+# --------------------------------------------------------------------------- #
+# Round 2 (Blocker-3, Warning-2): promotion requires a frozen snapshot and
+# binds the promoted database's content to it via a ``snapshot_meta`` row.
+# --------------------------------------------------------------------------- #
+
+
+def _freeze(data_dir: Path, as_of: str = NOW.isoformat()) -> dict:
+    """Freeze ``data_dir`` with cvi.snapshot's own writer; return the manifest."""
+    manifest = build_manifest([], as_of=as_of, code_commit="unknown",
+                              canonical_dump_hash="pending")
+    write_manifest(data_dir, manifest)
+    return manifest
+
+
+def test_resolve_manifest_without_a_freeze_names_the_freeze_command(tmp_path):
+    with pytest.raises(SystemExit) as excinfo:
+        promote.resolve_manifest(tmp_path)
+    assert "cvi.snapshot freeze" in str(excinfo.value)
+    assert str(tmp_path) in str(excinfo.value)
+
+
+def test_resolve_manifest_defaults_to_the_newest(tmp_path):
+    first = _freeze(tmp_path, as_of="2026-09-12T00:00:00+00:00")
+    second = _freeze(tmp_path, as_of="2026-09-12T01:00:00+00:00")
+    assert first["snapshot_id"] != second["snapshot_id"]
+    resolved = promote.resolve_manifest(tmp_path)
+    assert resolved["snapshot_id"] == second["snapshot_id"]
+
+
+def test_resolve_manifest_with_explicit_snapshot_id(tmp_path):
+    first = _freeze(tmp_path, as_of="2026-09-12T00:00:00+00:00")
+    _freeze(tmp_path, as_of="2026-09-12T01:00:00+00:00")  # newer; must be ignored below
+    resolved = promote.resolve_manifest(tmp_path, snapshot_id=first["snapshot_id"])
+    assert resolved["snapshot_id"] == first["snapshot_id"]
+
+
+def test_resolve_manifest_with_unknown_snapshot_id_names_the_freeze_command(tmp_path):
+    _freeze(tmp_path)
+    with pytest.raises(SystemExit) as excinfo:
+        promote.resolve_manifest(tmp_path, snapshot_id="does-not-exist")
+    assert "cvi.snapshot freeze" in str(excinfo.value)
+
+
+def test_write_snapshot_meta_records_the_bound_identity(tmp_path):
+    db = str(tmp_path / "cvi.db")
+    promote.promote([_bundle()], db, NOW, tmp_path)
+    manifest = _freeze(tmp_path)
+    dump_hash = repositories_dump_hash(db)
+    promote.write_snapshot_meta(db, manifest, dump_hash)
+
+    conn = sqlite3.connect(db)
+    try:
+        row = conn.execute(
+            "SELECT snapshot_id, as_of, benchmark_version, constants_hash, "
+            "manifest_root, canonical_dump_hash, promoted_at FROM snapshot_meta"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row[0] == manifest["snapshot_id"]
+    assert row[2] == manifest["benchmark_version"]
+    assert row[3] == manifest["constants_hash"]
+    assert row[4] == manifest["merkle_root"]
+    assert row[5] == dump_hash
+    assert row[1] == row[6] == manifest["as_of"]
+
+
+def test_write_snapshot_meta_hash_ignores_its_own_row(tmp_path):
+    # The circularity round 2 must avoid: snapshot_meta lives in the same
+    # database file it is recording a hash about, so the hash it stores must
+    # not include its own row -- otherwise every promoted-then-served
+    # database would invalidate itself the instant the row is written.
+    db = str(tmp_path / "cvi.db")
+    promote.promote([_bundle()], db, NOW, tmp_path)
+    manifest = _freeze(tmp_path)
+    before = repositories_dump_hash(db)
+    promote.write_snapshot_meta(db, manifest, before)
+    after = repositories_dump_hash(db)
+    assert after == before
+
+
+def test_main_refuses_promotion_without_a_frozen_snapshot(tmp_path, monkeypatch):
+    (tmp_path / "verified").mkdir()
+    (tmp_path / "verified" / "acme__widget.json").write_text(
+        json.dumps({"bundle": _bundle(), "report": {"clean": True}}), encoding="utf-8")
+    db = str(tmp_path / "cvi.db")
+    monkeypatch.setattr(sys, "argv", [
+        "promote.py", "--db", db, "--data-dir", str(tmp_path), "--as-of", NOW.isoformat()])
+    with pytest.raises(SystemExit) as excinfo:
+        promote.main()
+    assert "cvi.snapshot freeze" in str(excinfo.value)
+    assert not Path(db).exists()
+
+
+def test_main_promotes_and_binds_after_a_freeze(tmp_path, monkeypatch):
+    (tmp_path / "verified").mkdir()
+    (tmp_path / "verified" / "acme__widget.json").write_text(
+        json.dumps({"bundle": _bundle(), "report": {"clean": True}}), encoding="utf-8")
+    db = str(tmp_path / "cvi.db")
+    manifest = _freeze(tmp_path)
+    monkeypatch.setattr(sys, "argv", [
+        "promote.py", "--db", db, "--data-dir", str(tmp_path), "--as-of", NOW.isoformat()])
+    assert promote.main() == 0
+
+    conn = sqlite3.connect(db)
+    try:
+        snap = conn.execute("SELECT snapshot_id, canonical_dump_hash FROM snapshot_meta").fetchone()
+        n = conn.execute("SELECT COUNT(*) FROM repositories").fetchone()[0]
+    finally:
+        conn.close()
+    assert snap is not None
+    assert snap[0] == manifest["snapshot_id"]
+    assert snap[1] == repositories_dump_hash(db)
+    assert n == 1

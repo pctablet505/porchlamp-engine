@@ -8,13 +8,24 @@ that passed ``scripts/verify.py`` — and serves the CVI REST API
 ``web/index.html`` mounted at ``/``. No seeding happens here: an empty DB
 serves an empty (but honest) dashboard.
 
-The guard of packet W0-4 (`03` §5, F1) runs before the server starts and
-refuses, naming the row that broke it:
+The guard of packet W0-4 (`03` §5, F1) runs before the server starts. Round 1
+keyed it on ``(owner, name) == (stars, forks)`` equality against the
+``cvi/benchmark_data.py`` fixture catalog, which a single ``UPDATE
+repositories SET owner = owner || '-inc'`` defeated (Blocker-3, round 2): the
+whole synthetic catalog then had no matching name and served anyway. Round 2
+binds identity to the database's own content instead: ``scripts/promote.py``
+writes one ``snapshot_meta`` row per promotion carrying the frozen manifest's
+identity plus a canonical dump hash
+(:func:`cvi.lakehouse.repositories_dump_hash`) computed over the
+just-written ``repositories`` table. This refuses unless RECOMPUTING that hash
+over the database's CURRENT content still matches a stored row:
 
-* a row whose telemetry equals a ``cvi/benchmark_data.py`` fixture row (the
-  synthetic catalog is test fixture only, never a ranking source);
-* a DB with no snapshot identity — the ``manifest.json`` that
-  ``python -m cvi.snapshot freeze`` writes under ``<db dir>/snapshots/``.
+* no ``snapshot_meta`` row at all (never promoted against a frozen snapshot —
+  this is what refuses the synthetic ``cvi/benchmark_data.py`` catalog: it was
+  never promoted, so the table is empty);
+* the recomputed hash matches no stored row (the database was edited after
+  promotion, by any statement, not only ones a name-based check happens to
+  catch).
 
 Run:
     .venv/bin/python scripts/serve.py                        # data/cvi.db, port 8000
@@ -25,7 +36,6 @@ Run:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 from typing import Optional
@@ -35,9 +45,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from cvi.api import create_app
-from cvi.benchmark_data import get_benchmark_catalog
-from cvi.lakehouse import OperationalStore
-from cvi.snapshot.manifest import MANIFEST_FILENAME, SNAPSHOTS_DIRNAME
+from cvi.lakehouse import OperationalStore, repositories_dump_hash
 
 _REPO_ROOT: Path = Path(__file__).resolve().parent.parent
 _WEB_DIR: Path = _REPO_ROOT / "web"
@@ -50,61 +58,51 @@ def count_repos(store: OperationalStore) -> int:
     return int(row[0])
 
 
-def _fixture_metrics() -> dict[tuple[str, str], tuple[int, int]]:
-    """``(owner, name) -> (stars, forks)`` for every ``benchmark_data`` fixture."""
-    return {(row["owner"], row["name"]): (int(row["stars"]), int(row["forks"]))
-            for row in get_benchmark_catalog()}
+def _snapshot_meta_rows(store: OperationalStore) -> list[tuple[str, str]]:
+    """``(snapshot_id, canonical_dump_hash)`` for every promotion on record."""
+    return store.connection.execute(
+        "SELECT snapshot_id, canonical_dump_hash FROM snapshot_meta"
+    ).fetchall()
 
 
-def _snapshots_dir(db_path: str) -> Path:
-    """Snapshot directory of the data dir ``db_path`` lives in."""
-    return Path(db_path).resolve().parent / SNAPSHOTS_DIRNAME
+def matching_snapshot_id(store: OperationalStore, db_path: str) -> Optional[str]:
+    """The ``snapshot_meta`` row whose hash still matches ``db_path``, or ``None``.
 
-
-def snapshot_identity(db_path: str) -> Optional[str]:
-    """Newest snapshot id frozen beside ``db_path``, or ``None``.
-
-    Snapshot directories are named ``<as_of><merkle prefix>``, so the sorted
-    last one is the most recent freeze. A database with no freeze has no
-    identity: nothing says which envelopes and constants produced its rows.
+    Recomputes :func:`cvi.lakehouse.repositories_dump_hash` over
+    ``db_path``'s CURRENT content — the same function ``scripts/promote.py``
+    uses to write the stored value — and looks for a stored row that still
+    agrees. A database edited after promotion (any statement: rename an
+    owner, nudge a counter, seed a wholly synthetic catalog with no
+    promotion at all) recomputes to a different hash, so it matches nothing.
     """
-    manifests = sorted(_snapshots_dir(db_path).glob(f"*/{MANIFEST_FILENAME}"))
-    if not manifests:
-        return None
-    return str(json.loads(manifests[-1].read_text(encoding="utf-8"))["snapshot_id"])
+    current = repositories_dump_hash(db_path)
+    for snapshot_id, stored_hash in _snapshot_meta_rows(store):
+        if stored_hash == current:
+            return str(snapshot_id)
+    return None
 
 
 def refusal_reasons(store: OperationalStore, db_path: str) -> list[str]:
     """Why ``db_path`` must not be served, one sentence per broken rule; [] to serve.
 
-    Every sentence names a row, so the operator can point at the data instead
-    of guessing which of the 1,000 rows caused the refusal.
-
-    A fixture is recognised by its counters, not by its name: real
-    repositories share names with the prominent repositories the fixtures
-    imitate (``numpy/numpy`` is one of the 199 sample repos), and a real row
-    carrying a fixture name must still serve.
+    Round 2 (Blocker-3, `03` §5): identity is bound to the database's own
+    content via :func:`matching_snapshot_id`, not to a per-row heuristic
+    (round 1's owner/telemetry equality) that one ``UPDATE`` statement
+    defeated — renaming every owner, or nudging every star count by one, left
+    the round-1 guard with zero reasons while all 1,000 fabricated rows still
+    served.
     """
-    rows = store.connection.execute(
-        "SELECT id, owner, name, stars, forks FROM repositories ORDER BY id"
-    ).fetchall()
-    fixtures = _fixture_metrics()
-    fabricated = [row for row in rows if fixtures.get((row[1], row[2])) == (row[3], row[4])]
-    reasons: list[str] = []
-    if fabricated:
-        _id, owner, name, stars, forks = fabricated[0]
-        reasons.append(
-            f"{len(fabricated)} of {len(rows)} rows are cvi/benchmark_data.py fixtures: "
-            f"row {_id} {owner}/{name} (stars={stars}, forks={forks}) is fabricated "
-            "telemetry, which is a test fixture and never a ranking source")
-    if snapshot_identity(db_path) is None:
-        subject = f"row {rows[0][0]} {rows[0][1]}/{rows[0][2]}" if rows else db_path
-        reasons.append(
-            f"{subject} carries no snapshot identity: no {MANIFEST_FILENAME} under "
-            f"{_snapshots_dir(db_path)} — freeze the data dir first with "
-            f"`python -m cvi.snapshot freeze --data-dir "
-            f"{Path(db_path).resolve().parent} --as-of <ISO-8601>`")
-    return reasons
+    rows = _snapshot_meta_rows(store)
+    if not rows:
+        return [f"{db_path} has no snapshot_meta row: promote against a frozen "
+                "snapshot first (`python -m cvi.snapshot freeze --data-dir <dir> "
+                "--as-of <ISO-8601>` then `scripts/promote.py --snapshot-id <id> "
+                "--db <db> --data-dir <dir>`)"]
+    if matching_snapshot_id(store, db_path) is None:
+        return [f"{db_path}'s current content matches none of its {len(rows)} "
+                "recorded snapshot_meta row(s) -- the database was modified "
+                "after promotion, or copied beside a foreign snapshot"]
+    return []
 
 
 def create_serve_app(store: OperationalStore) -> FastAPI:
@@ -145,7 +143,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     if reasons:
         raise SystemExit(f"CVI serve refused for {args.db!r}:\n  "
                          + "\n  ".join(reasons))
-    snapshot = snapshot_identity(args.db)
+    snapshot = matching_snapshot_id(store, args.db)
     n = count_repos(store)
     app = create_serve_app(store)
     print(f"CVI serve: {n} verified repos from {args.db!r} (snapshot {snapshot})")

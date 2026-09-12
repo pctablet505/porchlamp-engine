@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from cvi.collect import commits as commit_domains
+from cvi.collect.envelope import read_envelope
 from cvi.constants import BOT_LOGIN_MARKERS
 from cvi.models import (
     AIPosture,
@@ -83,18 +84,67 @@ def _label_names(labels: Any) -> set[str]:
     return out
 
 
+def _envelope_sha256(source: Any, cache: dict[str, Optional[str]]) -> Optional[str]:
+    """Attested sha256 of the envelope at ``source`` (memoized), or ``None``.
+
+    Round 2, Blocker-1 (`03` §5): ``scripts/verify.py`` can only compare a
+    hash if one is recorded; before this, no provenance entry ever carried
+    one, so the rule verified file existence, not content. The hash recorded
+    here is :attr:`cvi.collect.envelope.Envelope.sha256` — native when the
+    envelope carries one, otherwise the same backfilled canonical hash of its
+    ``data`` field that :func:`cvi.snapshot.manifest.envelope_entries` uses —
+    so derive and verify agree on what "the envelope's hash" means without a
+    second definition (R-2).
+
+    ``source`` is whatever one call site passed: usually a ``src(collector,
+    key)`` envelope path, sometimes a literal like ``"cli"`` or a raw URL,
+    sometimes ``None``. Anything that is not a readable envelope path yields
+    ``None`` silently, exactly as a non-path ``source`` is silently
+    unverifiable downstream — this function only ever adds information, never
+    changes what ``source`` itself records.
+    """
+    if not isinstance(source, str) or not source:
+        return None
+    if source not in cache:
+        try:
+            cache[source] = read_envelope(source).sha256
+        except (OSError, json.JSONDecodeError):
+            cache[source] = None
+    return cache[source]
+
+
 class Bundle:
-    """Accumulates meta / provenance / confidence maps."""
+    """Accumulates meta / provenance / confidence maps.
+
+    Round 2 (Blocker-1): every provenance entry whose ``source`` (or, for a
+    list-valued ``source``, any element of it) resolves to a readable envelope
+    also records that envelope's hash under ``"sha256"``, so
+    ``scripts/verify.py`` has something to compare instead of only a path that
+    exists. This is the one place in the file that needs to change for every
+    field: every ``b.set(...)`` call across the collector blocks below funnels
+    through here unmodified (R-10 — the hook chain those blocks own is not
+    touched by this packet).
+    """
 
     def __init__(self) -> None:
         self.meta: dict[str, Any] = {}
         self.prov: dict[str, Any] = {}
         self.conf: dict[str, str] = {}
+        self._hash_cache: dict[str, Optional[str]] = {}
 
     def set(self, field: str, value: Any, source: Optional[str],
             fetched_at: Optional[str], confidence: str) -> None:
         self.meta[field] = value
-        self.prov[field] = {"source": source, "fetched_at": fetched_at}
+        entry: dict[str, Any] = {"source": source, "fetched_at": fetched_at}
+        if isinstance(source, list):
+            hashes = [_envelope_sha256(item, self._hash_cache) for item in source]
+            if any(h is not None for h in hashes):
+                entry["sha256"] = hashes
+        else:
+            digest = _envelope_sha256(source, self._hash_cache)
+            if digest is not None:
+                entry["sha256"] = digest
+        self.prov[field] = entry
         self.conf[field] = confidence
 
     def missing(self, field: str, default: Any) -> None:

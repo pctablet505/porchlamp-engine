@@ -31,13 +31,32 @@ ambiguities resolved in favour of the spec text):
   so the filter toolbar can render every badge.
 - ``query_matrix`` / ``leaderboard`` order by ``overall_cvi DESC`` with
   ``(owner, name)`` as a deterministic tie-breaker.
+- ``snapshot_meta`` (packet W0-4 round 2, `03` §5 F10, Blocker-3) binds a
+  promotion to the frozen snapshot it was scored against: ``scripts/promote.py``
+  writes one row per promotion carrying the manifest's identity plus
+  :func:`repositories_dump_hash`, recomputed over the just-written
+  ``repositories`` table. ``scripts/serve.py`` recomputes that hash at
+  startup and refuses unless it still matches a stored row, so an ``UPDATE``
+  after promotion (renaming an owner, nudging a counter) invalidates every
+  row's claim instead of being invisible to a name-based check.
+  :func:`repositories_dump_hash` scopes
+  :func:`cvi.snapshot.reproduce.canonical_dump_hash` to the ``repositories``
+  table alone (on a scratch copy, via ``DROP TABLE``) rather than calling it
+  on ``db_path`` directly: ``snapshot_meta`` itself lives in the same
+  database file, so a hash over the whole file would describe a state
+  (with no ``snapshot_meta`` row yet) that no longer exists the instant the
+  row recording that hash is written -- every promoted-then-served database
+  would refuse itself.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional
 
 from cvi.deepdive import build_deep_dive
@@ -54,8 +73,9 @@ from cvi.models import (
     Tier,
 )
 from cvi.persona import persona_composite
+from cvi.snapshot.reproduce import canonical_dump_hash
 
-__all__ = ["OperationalStore"]
+__all__ = ["OperationalStore", "repositories_dump_hash"]
 
 # Ordered column list of the repositories table (spec 11.2).
 _COLUMNS: tuple[str, ...] = (
@@ -148,7 +168,54 @@ CREATE INDEX IF NOT EXISTS idx_cvi_quadrant
     ON repositories (matrix_quadrant, overall_cvi DESC);
 CREATE INDEX IF NOT EXISTS idx_cvi_search
     ON repositories (LOWER(owner), LOWER(name));
+CREATE TABLE IF NOT EXISTS snapshot_meta (
+    snapshot_id VARCHAR(200) PRIMARY KEY,
+    as_of TIMESTAMP NOT NULL,
+    benchmark_version VARCHAR(50) NOT NULL,
+    constants_hash VARCHAR(64) NOT NULL,
+    manifest_root VARCHAR(64) NOT NULL,
+    canonical_dump_hash VARCHAR(64) NOT NULL,
+    promoted_at TIMESTAMP NOT NULL
+);
 """
+
+#: Tables :func:`repositories_dump_hash` keeps out of its identity hash: the
+#: bookkeeping table that records the hash cannot also be an input to it.
+_DUMP_HASH_EXCLUDED_TABLES = frozenset({"snapshot_meta"})
+
+
+def repositories_dump_hash(db_path: str) -> str:
+    """:func:`cvi.snapshot.reproduce.canonical_dump_hash` of the ``repositories``
+    table alone (packet W0-4 round 2, Blocker-3).
+
+    ``db_path`` may carry other tables (today, just ``snapshot_meta``) that
+    are bookkeeping about the promotion, not promoted content; hashing them
+    in would make the value ``write_snapshot_meta`` stores describe a
+    database state that stops existing the instant that very row is
+    written, so every promoted-then-served database would fail its own
+    check. This scopes the SAME hash function (R-2, no second
+    implementation) to a scratch copy with every excluded table dropped, so
+    ``scripts/promote.py`` (writing the value) and ``scripts/serve.py``
+    (checking it) always compute over identical content.
+    """
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        copy_path = Path(tmp_dir) / "repositories_dump.db"
+        shutil.copyfile(db_path, copy_path)
+        conn = sqlite3.connect(copy_path)
+        try:
+            tables = [
+                row[0] for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            ]
+            for table in tables:
+                if table in _DUMP_HASH_EXCLUDED_TABLES:
+                    conn.execute(f'DROP TABLE "{table}"')
+            conn.commit()
+        finally:
+            conn.close()
+        return canonical_dump_hash(copy_path)
 
 
 class OperationalStore:
