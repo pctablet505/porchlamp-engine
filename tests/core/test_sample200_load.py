@@ -136,10 +136,27 @@ def test_unmeasured_inputs_have_documented_reasons(bundle: Any) -> None:
     )
     assert bundle.inputs["ttfhr_hours"].reason == "collector_failure"
     assert bundle.inputs["dr90_decision_rate"].reason == "collector_failure"
-    assert bundle.inputs["dependents_deduped"].reason == "collector_failure"
+    # W2-9f, W1: dependents_count confidence "missing" for this repo (2.1 is
+    # class TP) is now third_party_gap, not collector_failure.
+    assert bundle.inputs["dependents_deduped"] == Unmeasured(
+        reason="third_party_gap", detail="deps.dev/ecosyste.ms returned no dependents data",
+    )
     assert bundle.inputs["ai_posture"].reason == "collector_failure"
     assert "not an envelope" in bundle.inputs["ai_posture"].detail
     assert bundle.inputs["promotion_ladder"].reason == "collector_failure"
+    # W2-9f, W3: this repo's derived document predates W1-7 (openssf_signals
+    # confidence "missing", pipeline_defenses confidence key absent) -- both
+    # now map to their real rows instead of falling to the two false
+    # "W1-7 not yet landed" constants.
+    assert bundle.inputs["openssf_criticality"] == Unmeasured(
+        reason="third_party_gap",
+        detail="one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+    )
+    assert bundle.inputs["pipeline_defenses"] == Unmeasured(
+        reason="third_party_gap",
+        detail="no scorecard envelope with a usable check subset and no pr_window/runs envelopes to "
+               "derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+    )
 
 
 def test_pr_window_values(bundle: Any) -> None:

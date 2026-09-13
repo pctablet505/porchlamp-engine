@@ -5,15 +5,15 @@ Each test builds a hand-controlled v1 derived-file document (see
 and asserts the exact ``Measured``/``Unmeasured`` value produced for that one
 v2 input id -- every field pinned, nothing left to shape-only assertions.
 
-Ten rows have a real resolver with both a positive (Measured) and at least
-one negative (Unmeasured) path: ``ttfhr_hours``, ``ttm_p90_hours``,
-``dependents_deduped``, ``downloads_monthly``, ``legal_ip``,
-``elephant_factor``, ``promotion_ladder``, ``ai_posture``,
-``substantive_review_rate``, ``newcomer_issue_supply``. Eight rows have no
+Twelve rows have a real resolver with both a positive (Measured) and at
+least one negative (Unmeasured) path: ``ttfhr_hours``, ``ttm_p90_hours``,
+``dependents_deduped``, ``openssf_criticality`` (W1-7, W2-9f),
+``downloads_monthly``, ``legal_ip``, ``elephant_factor``,
+``promotion_ladder``, ``pipeline_defenses`` (W1-7, W2-9f), ``ai_posture``,
+``substantive_review_rate``, ``newcomer_issue_supply``. Six rows have no
 landed producer yet and are a constant ``Unmeasured(collector_failure, ...)``
 regardless of document content: ``dr90_decision_rate``, ``mr_first_rate``,
-``gr14_ghost_rate``, ``openssf_criticality``, ``pipeline_defenses``,
-``newcomer_conversion``, ``rr90_return_rate``, ``dx``.
+``gr14_ghost_rate``, ``newcomer_conversion``, ``rr90_return_rate``, ``dx``.
 """
 from __future__ import annotations
 
@@ -188,6 +188,29 @@ def test_substantive_review_rate(tmp_path: Path) -> None:
     )
 
 
+def test_substantive_review_rate_excludes_internal_reviews_from_n(tmp_path: Path) -> None:
+    """W2-9f, W2 (Opus review mutant M12): ``n`` counts decided PRs that are
+    BOTH external AND decided, not decided alone. 12 internal (is_external
+    False) decided PRs plus 4 external decided PRs is 16 decided PRs total
+    but only 4 decided-EXTERNAL PRs -- below min n 10, so Unmeasured
+    (insufficient_n). Dropping the ``is_external`` half of the filter (the
+    review's mutant) would count all 16 and wrongly yield
+    Measured(value=0.5, n=12) on a related 6/6 fixture; this one pins the
+    correct n so that mutant cannot survive."""
+    internal_decided = [{"is_external": False, "decided": True} for _ in range(12)]
+    external_decided = [{"is_external": True, "decided": True} for _ in range(4)]
+    data = pr_window_data(derived=internal_decided + external_decided)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__mixed", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(
+        meta={"pr_window_substantive_review_rate": 0.5},
+        provenance={"pr_window_count": prov("pr_window", key="acme__mixed")},
+    )
+    bundle = load(tmp_path, doc, key="acme__mixed")
+    assert bundle.inputs["substantive_review_rate"] == Unmeasured(
+        reason="insufficient_n", detail="4 decided external PRs, need >= 10",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 2.1 dependents_deduped                                                      #
 # --------------------------------------------------------------------------- #
@@ -221,11 +244,15 @@ def test_dependents_deduped(tmp_path: Path) -> None:
                "organisation (v2 2.1 needs the W1-2 'dependents' collector)",
     )
 
-    # Negative 2: v1 deriver recorded nothing at all.
+    # Negative 2 (W2-9f, W1): v1 deriver recorded nothing at all -- 2.1 is
+    # class TP (02 section 4 row 2.1), so a deps.dev/ecosyste.ms absence is
+    # third_party_gap, exactly like 2.3 downloads_monthly's equivalent
+    # branch, not collector_failure (that stays reserved for a local-side
+    # fault, e.g. Negative 1 above's "wrong collector ran" case).
     missing_doc = base_document(confidence={"dependents_count": "missing"})
     missing_bundle = load(tmp_path, missing_doc, key="acme__missing-deps")
     assert missing_bundle.inputs["dependents_deduped"] == Unmeasured(
-        reason="collector_failure", detail="v1 deriver recorded no value",
+        reason="third_party_gap", detail="deps.dev/ecosyste.ms returned no dependents data",
     )
 
 
@@ -298,9 +325,12 @@ def test_legal_ip(tmp_path: Path) -> None:
         reason="collector_failure", detail="v1 deriver recorded no value",
     )
 
-    # Negative 2: an unrecognized v1 enum spelling is a data-corruption signal
-    # that rejects the WHOLE bundle (pre-W2-9 behaviour, unchanged) -- not a
-    # soft per-field Unmeasured.
+    # Negative 2 (W2-9f, W5): an unrecognized v1 enum spelling is THIS ROW's
+    # own gap, not a whole-bundle rejection -- even when the envelope is
+    # otherwise perfectly resolvable (pre-W2-9f: this raised
+    # BundleValidationError and lost the whole repo's 17 other, perfectly
+    # good inputs over one bad enum in a row that was going to be Unmeasured
+    # regardless).
     bogus_data = {"legal_ip_model": "BOGUS_REGIME"}
     write_envelope(tmp_path / "raw", "tree", "acme__bogus-legal", bogus_data, "2026-09-01T00:05:00+00:00")
     bogus_doc = base_document(
@@ -308,8 +338,42 @@ def test_legal_ip(tmp_path: Path) -> None:
         provenance={"legal_ip_model": prov("tree", key="acme__bogus-legal")},
         confidence={"legal_ip_model": "verified"},
     )
-    with pytest.raises(BundleValidationError, match="BOGUS_REGIME"):
-        load(tmp_path, bogus_doc, key="acme__bogus-legal")
+    bogus_bundle = load(tmp_path, bogus_doc, key="acme__bogus-legal")  # must not raise
+    assert bogus_bundle.inputs["legal_ip"] == Unmeasured(
+        reason="collector_failure",
+        detail="v1 value 'BOGUS_REGIME' for 'legal_ip_model' has no v2 vocabulary mapping",
+    )
+
+    # Negative 3 (W2-9f, W5, the review's exact scenario): the same bogus
+    # enum PLUS an unresolvable (URL) source -- the real shape of 199 of 199
+    # sample-200 documents' legal_ip_model/promotion_ladder provenance. The
+    # envelope-resolution failure wins the detail message (the enum was
+    # never reachable either way); the bundle still loads.
+    url_bogus_doc = base_document(
+        meta={"legal_ip_model": "BOGUS_REGIME"},
+        provenance={"legal_ip_model": {
+            "source": "https://raw.githubusercontent.com/acme/widget/HEAD/CONTRIBUTING.md",
+            "fetched_at": "2026-09-01T00:05:00+00:00",
+        }},
+        confidence={"legal_ip_model": "verified"},
+    )
+    url_bogus_bundle = load(tmp_path, url_bogus_doc, key="acme__url-bogus-legal")  # must not raise
+    assert url_bogus_bundle.inputs["legal_ip"] == Unmeasured(
+        reason="collector_failure",
+        detail="v1 source is not an envelope: "
+               "'https://raw.githubusercontent.com/acme/widget/HEAD/CONTRIBUTING.md'",
+    )
+
+
+def test_legal_ip_unmappable_enum_over_correction_guard(tmp_path: Path) -> None:
+    """Over-correction guard for W5: the row-scoped fix does not disable
+    whole-bundle rejection generally -- a genuinely malformed bundle (no
+    parseable ``owner/name`` repo identity) is still rejected, even when it
+    also carries the same unmappable enum used above."""
+    doc = base_document(repo="not-a-valid-repo-string", meta={"legal_ip_model": "BOGUS_REGIME"},
+                        confidence={"legal_ip_model": "verified"})
+    with pytest.raises(BundleValidationError, match="owner/name"):
+        load(tmp_path, doc, key="acme__malformed-repo")
 
 
 # --------------------------------------------------------------------------- #
@@ -363,6 +427,8 @@ def test_promotion_ladder(tmp_path: Path) -> None:
         reason="collector_failure", detail="v1 deriver recorded no value",
     )
 
+    # W2-9f, W5: same row-scoped fix as legal_ip -- an unmappable enum never
+    # rejects the whole bundle.
     bogus_data = {"promotion_ladder": "ROGUE_RUNG"}
     write_envelope(tmp_path / "raw", "tree", "acme__bogus-ladder", bogus_data, "2026-09-01T00:05:00+00:00")
     bogus_doc = base_document(
@@ -370,8 +436,11 @@ def test_promotion_ladder(tmp_path: Path) -> None:
         provenance={"promotion_ladder": prov("tree", key="acme__bogus-ladder")},
         confidence={"promotion_ladder": "verified"},
     )
-    with pytest.raises(BundleValidationError, match="ROGUE_RUNG"):
-        load(tmp_path, bogus_doc, key="acme__bogus-ladder")
+    bogus_bundle = load(tmp_path, bogus_doc, key="acme__bogus-ladder")  # must not raise
+    assert bogus_bundle.inputs["promotion_ladder"] == Unmeasured(
+        reason="collector_failure",
+        detail="v1 value 'ROGUE_RUNG' for 'promotion_ladder' has no v2 vocabulary mapping",
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -403,6 +472,27 @@ def test_ai_posture(tmp_path: Path) -> None:
     )
 
 
+def test_ai_posture_rejects_an_out_of_set_value(tmp_path: Path) -> None:
+    """W2-9f, W4: ai_posture validates against constants_v2.AI_POSTURE_VALUES
+    -- an out-of-set value is Unmeasured(collector_failure) with the bad
+    value in detail, never Measured, even with an otherwise perfectly
+    resolvable envelope (pre-W2-9f: the non-validating scalar resolver
+    passed any string through as a Measured value)."""
+    data = {"ai_posture": "NOT_A_POSTURE"}
+    write_envelope(tmp_path / "raw", "governance", "acme__bad-posture", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(
+        meta={"ai_posture": "NOT_A_POSTURE"},
+        provenance={"ai_posture": prov("governance", key="acme__bad-posture")},
+        confidence={"ai_posture": "derived"},
+    )
+    bundle = load(tmp_path, doc, key="acme__bad-posture")
+    assert bundle.inputs["ai_posture"] == Unmeasured(
+        reason="collector_failure",
+        detail="v1 value 'NOT_A_POSTURE' for 'ai_posture' has no v2 vocabulary mapping",
+    )
+    assert isinstance(bundle.inputs["ai_posture"], Unmeasured)  # never Measured on a bad value
+
+
 # --------------------------------------------------------------------------- #
 # 5.1 newcomer_issue_supply                                                   #
 # --------------------------------------------------------------------------- #
@@ -430,7 +520,169 @@ def test_newcomer_issue_supply(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The eight rows with no landed producer: a constant Unmeasured regardless of #
+# 2.2 openssf_criticality (W1-7, W2-9f)                                       #
+# --------------------------------------------------------------------------- #
+
+#: The ten Pike signals (cvi.models.OpenSSFSignals field names), a plausible
+#: mid-sized repo's values -- matches the module docstring's signal table.
+_OPENSSF_SIGNALS = {
+    "created_since_months": 48.0,
+    "updated_since_months": 0.5,
+    "contributor_count": 12,
+    "org_count": 3,
+    "commit_frequency_weekly": 8.0,
+    "recent_releases_count": 6,
+    "closed_issues_count_90d": 40,
+    "updated_issues_count_90d": 55,
+    "comment_frequency": 2.5,
+    "dependents_count": 120,
+}
+_OPENSSF_PROV_COLLECTORS = ("github_meta", "commits_365d", "releases", "issues_counts", "dependents")
+
+
+def _write_openssf_envelopes(tmp_path: Path, key: str) -> None:
+    for collector in _OPENSSF_PROV_COLLECTORS:
+        write_envelope(tmp_path / "raw", collector, key, {"placeholder": collector}, "2026-09-01T00:05:00+00:00")
+
+
+def test_openssf_criticality(tmp_path: Path) -> None:
+    from cvi.models import OpenSSFSignals
+    from cvi.openssf import calculate_pike_criticality
+
+    key = "acme__pike"
+    _write_openssf_envelopes(tmp_path, key)
+    doc = base_document(
+        meta={"openssf_signals": dict(_OPENSSF_SIGNALS)},
+        provenance={"openssf_signals": {
+            "source": [f"/original-data-dir/raw/{c}/{key}.json" for c in _OPENSSF_PROV_COLLECTORS],
+            "fetched_at": "2026-09-01T00:05:00+00:00",
+        }},
+        confidence={"openssf_signals": "derived"},
+    )
+    bundle = load(tmp_path, doc, key=key)
+    value = bundle.inputs["openssf_criticality"]
+    assert isinstance(value, Measured)
+    # Oracle: cvi.openssf.calculate_pike_criticality itself (independent of
+    # cvi.derive.bundle's mirrored, cvi.core-only reimplementation), not the
+    # code under test.
+    expected = round(calculate_pike_criticality(OpenSSFSignals(**_OPENSSF_SIGNALS)), 4)
+    assert value == Measured(
+        value=expected, n=0, window_start=None, window_end=None, method="primary",
+        source=str(tmp_path / "raw" / "github_meta" / f"{key}.json"),
+        source_hash=expected_hash({"placeholder": "github_meta"}),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+    assert 0.0 <= value.value <= 1.0
+
+
+def test_openssf_criticality_missing_signal_names_it(tmp_path: Path) -> None:
+    """W2-9f, W3: a partial openssf_signals dict (defensive -- production's
+    derive_pike_signals never emits one) is the whole-2.2-Unmeasured rule,
+    with the missing signal named in detail."""
+    key = "acme__pike-partial"
+    _write_openssf_envelopes(tmp_path, key)
+    partial_signals = dict(_OPENSSF_SIGNALS)
+    del partial_signals["org_count"]
+    doc = base_document(
+        meta={"openssf_signals": partial_signals},
+        provenance={"openssf_signals": {
+            "source": [f"/original-data-dir/raw/{c}/{key}.json" for c in _OPENSSF_PROV_COLLECTORS],
+            "fetched_at": "2026-09-01T00:05:00+00:00",
+        }},
+        confidence={"openssf_signals": "derived"},
+    )
+    bundle = load(tmp_path, doc, key=key)
+    assert bundle.inputs["openssf_criticality"] == Unmeasured(
+        reason="third_party_gap",
+        detail="openssf_signals missing signal 'org_count' (02 section 4 2.2: never a partial score)",
+    )
+
+
+def test_openssf_criticality_absence_is_third_party_gap(tmp_path: Path) -> None:
+    """02 section 4 row 2.2: class TP "only if a signal is missing" -- the
+    real-world case (scripts/derive.py's ``b.missing("openssf_signals",
+    None)`` placeholder) is confidence "missing", not an absent key."""
+    doc = base_document(confidence={"openssf_signals": "missing"})
+    bundle = load(tmp_path, doc, key="acme__pike-missing")
+    assert bundle.inputs["openssf_criticality"] == Unmeasured(
+        reason="third_party_gap",
+        detail="one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 4.1 pipeline_defenses (W1-7, W2-9f)                                         #
+# --------------------------------------------------------------------------- #
+
+def test_pipeline_defenses_primary_method(tmp_path: Path) -> None:
+    """Scorecard subset mean: method "primary", n=0 (a scalar)."""
+    key = "acme__scorecard"
+    write_envelope(tmp_path / "raw", "scorecard", key, {"score": 5, "checks": {}}, "2026-09-01T00:05:00+00:00")
+    doc = base_document(
+        meta={"pipeline_defenses": 32.5, "pipeline_defenses_method": "primary"},
+        provenance={"pipeline_defenses": {
+            "source": [f"/original-data-dir/raw/scorecard/{key}.json"],
+            "fetched_at": "2026-09-01T00:05:00+00:00",
+        }},
+        confidence={"pipeline_defenses": "derived"},
+    )
+    bundle = load(tmp_path, doc, key=key)
+    assert bundle.inputs["pipeline_defenses"] == Measured(
+        value=32.5, n=0, window_start=None, window_end=None, method="primary",
+        source=str(tmp_path / "raw" / "scorecard" / f"{key}.json"),
+        source_hash=expected_hash({"score": 5, "checks": {}}), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
+def test_pipeline_defenses_proxy_method_counts_merged_prs(tmp_path: Path) -> None:
+    """proxy:review_ci: n is the merged-PR count (the code_review_rate
+    denominator), read from the pr_window envelope's own prs list -- 3
+    merged of 5 recorded PRs here, none of which is the min-n gate's
+    concern (that lives in cvi.core.params.rigor, not this loader)."""
+    key = "acme__proxy-pd"
+    prs = [
+        {"number": 1, "mergedAt": "2026-08-01T00:00:00+00:00"},
+        {"number": 2, "mergedAt": "2026-08-02T00:00:00+00:00"},
+        {"number": 3, "mergedAt": None},
+        {"number": 4, "mergedAt": "2026-08-04T00:00:00+00:00"},
+        {"number": 5, "mergedAt": None},
+    ]
+    pr_window_env = pr_window_data(prs=prs)
+    write_envelope(tmp_path / "raw", "pr_window", key, pr_window_env, "2026-09-01T00:05:00+00:00")
+    write_envelope(tmp_path / "raw", "runs", key, {"runs": []}, "2026-09-01T00:03:00+00:00")
+    doc = base_document(
+        meta={"pipeline_defenses": 18.0, "pipeline_defenses_method": "proxy:review_ci"},
+        provenance={"pipeline_defenses": {
+            "source": [f"/original-data-dir/raw/pr_window/{key}.json", f"/original-data-dir/raw/runs/{key}.json"],
+            "fetched_at": "2026-09-01T00:05:00+00:00",
+        }},
+        confidence={"pipeline_defenses": "derived"},
+    )
+    bundle = load(tmp_path, doc, key=key)
+    assert bundle.inputs["pipeline_defenses"] == Measured(
+        value=18.0, n=3, window_start=None, window_end=None, method="proxy:review_ci",
+        source=str(tmp_path / "raw" / "pr_window" / f"{key}.json"),
+        source_hash=expected_hash(pr_window_env), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
+def test_pipeline_defenses_absence_is_third_party_gap(tmp_path: Path) -> None:
+    """W2-9f, W3: scripts/derive.py never calls Bundle.missing for this
+    field -- when neither method is measurable its confidence key is simply
+    absent (base_document()'s empty confidence dict), which must be treated
+    the same as an explicit "missing" (02 section 4 row 4.1: "TP with
+    proxy")."""
+    doc = base_document()
+    bundle = load(tmp_path, doc, key="acme__pd-absent")
+    assert bundle.inputs["pipeline_defenses"] == Unmeasured(
+        reason="third_party_gap",
+        detail="no scorecard envelope with a usable check subset and no pr_window/runs envelopes to "
+               "derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The six rows with no landed producer: a constant Unmeasured regardless of  #
 # document content. Two very different documents (empty, and one carrying    #
 # unrelated data for every other row) land on the exact same value, proving  #
 # these rows do not branch on anything in the fixture.                       #
@@ -446,12 +698,6 @@ _UNMAPPED_ROWS = {
         "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no "
         "as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) "
         "-- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership"
-    ),
-    "openssf_criticality": (
-        "v1 leaves the ten OpenSSF signals uncollected; v2 2.2 needs all ten (W1-7 not yet landed)"
-    ),
-    "pipeline_defenses": (
-        "v2 4.1 scores Scorecard checks or a proxy; v1 stores only the composite score (W1-7 not yet landed)"
     ),
     "newcomer_conversion": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
     "rr90_return_rate": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",

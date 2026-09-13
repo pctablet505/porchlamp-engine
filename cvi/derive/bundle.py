@@ -1,4 +1,4 @@
-"""Load, validate and dump FeatureBundle v2 documents (packet W2-1; W2-9).
+"""Load, validate and dump FeatureBundle v2 documents (packet W2-1; W2-9; W2-9f).
 
 A v2 document (``data/derived/<key>.json``, ``schema_version = 2``) is the
 JSON shape of :class:`cvi.core.models.FeatureBundle`:
@@ -21,6 +21,15 @@ wires a newly-landed collector by replacing its one row, not by re-reading
 this whole module. See the module's own docstring comments beside each row
 for which derived-file field(s) it reads and the D-MISS-1 reason emitted
 when they are absent.
+
+W2-9f (Opus review follow-up, see ``.agents/W2-9f/handoff.md``) wires the
+now-landed W1-7 rows (``openssf_criticality``, ``pipeline_defenses``),
+fixes ``dependents_deduped``'s absence reason to ``third_party_gap`` (it is
+class TP, like ``downloads_monthly``), adds vocabulary validation to
+``ai_posture``, and stops an unmappable ``legal_ip``/``promotion_ladder``
+enum from rejecting the whole bundle: the mapping is now row-scoped
+everywhere (:func:`_map_v1_value` no longer appends to the bundle-wide
+``problems`` list).
 """
 from __future__ import annotations
 
@@ -473,14 +482,17 @@ class _V1Ctx:
 InputResolver = Callable[[_V1Ctx], "Measured | Unmeasured"]
 
 
-def _map_v1_value(input_id: str, value: Any, problems: list[str], vocab: Mapping[str, str]) -> Any:
-    """Map a v1 enum spelling through ``vocab``; ``None`` and a ``problems``
-    entry for an unrecognized value (a data-corruption signal that rejects
-    the whole bundle, not a soft per-field gap — pre-W2-9 behaviour)."""
-    if value in vocab:
-        return vocab[value]
-    problems.append(f"{input_id}: v1 value {value!r} has no v2 vocabulary mapping")
-    return None
+def _map_v1_value(value: Any, vocab: Mapping[str, str]) -> Any:
+    """Map a v1 enum spelling through ``vocab``; ``None`` for an unrecognized
+    value. W2-9f (W5): this never touches the bundle-wide ``problems`` list
+    -- an unmappable enum is this one row's own gap (the caller returns a
+    row-scoped ``Unmeasured``), not a whole-bundle-rejecting data-corruption
+    signal (the pre-W2-9f behaviour: a single bad enum in a row the loader
+    was already about to discard -- e.g. every real sample-200 document's
+    ``raw.githubusercontent.com`` source for ``legal_ip``/``promotion_ladder``,
+    which can never resolve to an envelope regardless of the enum -- lost
+    the entire repo's 17 other, perfectly good inputs)."""
+    return vocab.get(value)
 
 
 def _plain_scalar_resolver(
@@ -491,8 +503,10 @@ def _plain_scalar_resolver(
 ) -> InputResolver:
     """Resolver for a v1 meta field carried through unchanged: an int or str
     value, no enum mapping, ``n=0`` (a scalar, not a sample). Covers
-    ``elephant_factor``, ``ai_posture`` and (W2-9) ``newcomer_issue_supply``.
-    """
+    ``elephant_factor`` and (W2-9) ``newcomer_issue_supply`` -- not
+    ``ai_posture`` (W2-9f, W4: it moved to :func:`_vocab_scalar_resolver`
+    with an identity vocab, so an out-of-set value is validated rather than
+    passed through as a Measured)."""
 
     def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
         confidence_value = ctx.confidence.get(v1_field)
@@ -519,10 +533,14 @@ def _plain_scalar_resolver(
     return resolve
 
 
-def _vocab_scalar_resolver(v1_field: str, input_id: str, vocab: Mapping[str, str]) -> InputResolver:
+def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputResolver:
     """Resolver for an enum-valued v1 field mapped through a fixed
-    v1-spelling -> v2-spelling vocabulary (``legal_ip``, ``promotion_ladder``).
-    """
+    v1-spelling -> v2-spelling vocabulary (``legal_ip``, ``promotion_ladder``;
+    W2-9f: also ``ai_posture``, whose v1 spelling already is the v2 spelling
+    -- an identity ``{v: v for v in constants_v2.AI_POSTURE_VALUES}`` vocab
+    both validates and passes it through unchanged, W4). An unmappable value
+    is this row's own gap (:func:`_map_v1_value`), never a whole-bundle
+    rejection (W5)."""
 
     def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
         confidence_value = ctx.confidence.get(v1_field)
@@ -533,7 +551,7 @@ def _vocab_scalar_resolver(v1_field: str, input_id: str, vocab: Mapping[str, str
         value_ok = isinstance(value, (int, str)) and not isinstance(value, bool)
         if confidence_value in ("verified", "derived", "flag") and value_ok:
             path = _resolve_envelope(source, ctx.raw_root)
-            mapped = _map_v1_value(input_id, value, ctx.problems, vocab)
+            mapped = _map_v1_value(value, vocab)
             if path is not None and isinstance(fetched_at, str) and fetched_at and mapped is not None:
                 source_hash = _envelope_hash(path)
                 ctx.referenced[str(path)] = source_hash
@@ -599,6 +617,13 @@ def _resolve_dependents_deduped(ctx: _V1Ctx) -> Measured | Unmeasured:
     hook's root-organisation-deduplicated count (``"derived"``). Only the
     ``"derived"`` value is D-PARAM 2.1's dependents_deduped; the raw count is
     never exposed under this input id, deduplicated or not.
+
+    2.1 is class TP (02 section 4 row 2.1): ``confidence == "missing"`` means
+    deps.dev/ecosyste.ms returned no ``usedByCount`` at all for this package
+    -- a third-party gap, exactly like 2.3 downloads_monthly's equivalent
+    branch (W2-9f, W1) -- not ``collector_failure`` (reserved here for a
+    genuine local-side fault: an unresolvable envelope, or a value the W1-2
+    hook wrote in a shape this loader cannot parse).
     """
     confidence_value = ctx.confidence.get("dependents_count")
     if confidence_value != "derived":
@@ -609,7 +634,7 @@ def _resolve_dependents_deduped(ctx: _V1Ctx) -> Measured | Unmeasured:
                        "organisation (v2 2.1 needs the W1-2 'dependents' collector)",
             )
         if confidence_value == "missing":
-            return Unmeasured(reason="collector_failure", detail="v1 deriver recorded no value")
+            return Unmeasured(reason="third_party_gap", detail="deps.dev/ecosyste.ms returned no dependents data")
         return Unmeasured(reason="collector_failure",
                            detail=f"v1 confidence {confidence_value!r} for 'dependents_count' is not recognized")
     value = ctx.meta.get("dependents_count")
@@ -785,6 +810,185 @@ def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
                      fetched_at=fetched_at)
 
 
+def _resolved_source_paths(source_field: Any, raw_root: Union[Path, str, None]) -> list[Path]:
+    """Resolve a provenance ``source`` *list* to the subset of entries that
+    exist as envelopes; ``[]`` when ``source_field`` is not a non-empty list.
+
+    ``openssf_signals`` and ``pipeline_defenses`` (W2-9f, W1-7) are the only
+    two rows whose W1-7 derive hook (``cvi.collect.pike_signals.
+    derive_w17_fields``) records more than one contributing envelope path
+    under one provenance entry -- every other row's ``source`` is a single
+    string (:func:`_first_source`)."""
+    if not isinstance(source_field, list) or not source_field:
+        return []
+    return [path for path in (_resolve_envelope(s, raw_root) for s in source_field) if path is not None]
+
+
+#: cvi.openssf.calculate_pike_criticality's weights/thresholds (spec 2.2,
+#: 10.1), mirrored (not imported: ``cvi.derive`` imports ``cvi.core`` and
+#: stdlib only, 04 section 3 -- ``tests/core/test_import_graph.py`` enforces
+#: it) so :func:`_resolve_openssf_criticality` can compute the criticality
+#: score C in [0, 1] locally from the ten raw signals the W1-7 hook writes
+#: to ``meta.openssf_signals``; v1 never stores the computed score itself,
+#: only the raw signals. See the ownership request in the handoff: like the
+#: min-n constants (W2-9's own ownership request 1), this is a second
+#: definition of a fact cvi.openssf already owns (R-2).
+_OPENSSF_WEIGHTS: dict[str, float] = {
+    "created_since": 1.0, "updated_since": -1.0, "contributor_count": 2.0,
+    "org_count": 1.0, "commit_frequency": 1.0, "recent_releases_count": 0.5,
+    "closed_issues_count": 0.5, "updated_issues_count": 0.5,
+    "comment_frequency": 1.0, "dependents_count": 2.0,
+}
+_OPENSSF_THRESHOLDS: dict[str, float] = {
+    "created_since": 120.0, "updated_since": 120.0, "contributor_count": 5000.0,
+    "org_count": 10.0, "commit_frequency": 1000.0, "recent_releases_count": 26.0,
+    "closed_issues_count": 5000.0, "updated_issues_count": 5000.0,
+    "comment_frequency": 15.0, "dependents_count": 500000.0,
+}
+#: ``cvi.models.OpenSSFSignals`` field name -> the short key
+#: ``calculate_pike_criticality`` weighs it under (``cvi.openssf.
+#: _signals_to_raw``). Iteration order here is the ten-signal completeness
+#: check's order (module docstring table order, cvi/collect/pike_signals.py).
+_OPENSSF_SIGNAL_FIELDS: dict[str, str] = {
+    "created_since_months": "created_since",
+    "updated_since_months": "updated_since",
+    "contributor_count": "contributor_count",
+    "org_count": "org_count",
+    "commit_frequency_weekly": "commit_frequency",
+    "recent_releases_count": "recent_releases_count",
+    "closed_issues_count_90d": "closed_issues_count",
+    "updated_issues_count_90d": "updated_issues_count",
+    "comment_frequency": "comment_frequency",
+    "dependents_count": "dependents_count",
+}
+
+
+def _pike_criticality_score(signals: Mapping[str, Any]) -> float:
+    """``cvi.openssf.calculate_pike_criticality``, mirrored (see
+    :data:`_OPENSSF_WEIGHTS`): the Rob Pike criticality score C in [0, 1]
+    from a ``meta.openssf_signals``-shaped mapping already verified to carry
+    all ten numeric fields."""
+    denominator = sum(abs(weight) for weight in _OPENSSF_WEIGHTS.values())
+    numerator = 0.0
+    for doc_field, short in _OPENSSF_SIGNAL_FIELDS.items():
+        value = float(signals[doc_field])
+        alpha = _OPENSSF_WEIGHTS[short]
+        threshold = _OPENSSF_THRESHOLDS[short]
+        non_negative = max(0.0, value)
+        saturation_denom = max(value, threshold)
+        normalized = (0.0 if saturation_denom <= 0
+                      else math.log(1.0 + non_negative) / math.log(1.0 + saturation_denom))
+        numerator += alpha * normalized
+    return max(0.0, min(1.0, numerator / denominator))
+
+
+def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """2.2 OpenSSF criticality (W1-7, W2-9f). Reads the W1-7
+    ``meta.openssf_signals`` dict (``cvi.collect.pike_signals.
+    derive_w17_fields``: the ten raw Pike signals, written with confidence
+    ``"derived"`` only when all ten source envelopes were available --
+    D-MISS-1/02 section 4 row 2.2: never a partial score, class TP "only if
+    a signal is missing") and computes C in [0, 1] locally
+    (:func:`_pike_criticality_score`, since ``cvi.derive`` may not import
+    ``cvi.openssf``). A ``meta.openssf_signals`` dict missing (or non-
+    numeric) one of the ten fields is defensive: production's
+    ``derive_pike_signals`` never emits a partial dict, but a hand-built or
+    corrupted document might, and 2.2's whole-set-or-nothing rule must hold
+    for it too -- the first missing field is named in the detail."""
+    confidence_value = ctx.confidence.get("openssf_signals")
+    signals = ctx.meta.get("openssf_signals")
+    entry = ctx.provenance.get("openssf_signals")
+    source_field = entry.get("source") if isinstance(entry, Mapping) else None
+    fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+    if confidence_value == "derived":
+        if not isinstance(signals, Mapping):
+            return Unmeasured(reason="collector_failure", detail=f"openssf_signals is not a mapping: {signals!r}")
+        missing = [field for field in _OPENSSF_SIGNAL_FIELDS if signals.get(field) is None]
+        if missing:
+            return Unmeasured(
+                reason="third_party_gap",
+                detail=f"openssf_signals missing signal {missing[0]!r} (02 section 4 2.2: never a partial score)",
+            )
+        bad = [field for field in _OPENSSF_SIGNAL_FIELDS
+               if isinstance(signals[field], bool) or not isinstance(signals[field], (int, float))]
+        if bad:
+            return Unmeasured(reason="collector_failure",
+                               detail=f"openssf_signals[{bad[0]!r}] is not numeric: {signals[bad[0]]!r}")
+        paths = _resolved_source_paths(source_field, ctx.raw_root)
+        if not paths or not isinstance(fetched_at, str) or not fetched_at:
+            detail = (f"v1 source is not a resolvable envelope list: {source_field!r}" if not paths
+                      else "v1 provenance for 'openssf_signals' has no fetched_at")
+            return Unmeasured(reason="collector_failure", detail=detail)
+        for path in paths:
+            ctx.referenced[str(path)] = _envelope_hash(path)
+        return Measured(value=round(_pike_criticality_score(signals), 4), n=0, window_start=None,
+                         window_end=None, method=constants_v2.METHOD_PRIMARY, source=str(paths[0]),
+                         source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
+    if confidence_value == "missing":
+        return Unmeasured(
+            reason="third_party_gap",
+            detail="one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+        )
+    return Unmeasured(reason="collector_failure",
+                       detail=f"v1 confidence {confidence_value!r} for 'openssf_signals' is not recognized")
+
+
+#: ``cvi.collect.pike_signals.METHOD_PROXY``, mirrored (04 section 3: same
+#: import restriction as :data:`_OPENSSF_WEIGHTS`) -- the review/CI proxy
+#: method string 4.1 stores when no scorecard subset is usable.
+_PIPELINE_DEFENSES_PROXY_METHOD: str = "proxy:review_ci"
+
+
+def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """4.1 Pipeline defenses (W1-7, W2-9f). Reads the pre-computed W1-7
+    ``meta.pipeline_defenses`` / ``meta.pipeline_defenses_method`` fields
+    (``cvi.collect.pike_signals.pipeline_defenses``): method ``"primary"``
+    (Scorecard 5-check mean, one scorecard envelope, n=0 -- a scalar) or
+    ``"proxy:review_ci"`` (0.6·review-rate + 0.4·CI-pass-rate, the pr_window
+    and runs envelopes). ``n`` for the proxy method is the merged-PR count
+    backing the review-rate denominator (``cvi.collect.pike_signals.
+    code_review_rate``), read from the pr_window envelope's own ``prs`` list
+    -- 02 section 4 row 4.1's 10-merged-PR minimum sample applies to the
+    proxy method only (``cvi.core.params.rigor._PIPELINE.proxy_min_n``).
+
+    Unlike every other v1 field, ``scripts/derive.py`` never calls
+    ``Bundle.missing`` for this one: when 4.1 is unmeasurable by either
+    method, its confidence key is simply absent from the v1 document (not
+    the string ``"missing"``) -- both are treated as the same TP absence
+    here (02 section 4 row 4.1: "TP with proxy")."""
+    confidence_value = ctx.confidence.get("pipeline_defenses")
+    value = ctx.meta.get("pipeline_defenses")
+    method = ctx.meta.get("pipeline_defenses_method")
+    entry = ctx.provenance.get("pipeline_defenses")
+    source_field = entry.get("source") if isinstance(entry, Mapping) else None
+    fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+    value_ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+    method_ok = method in (constants_v2.METHOD_PRIMARY, _PIPELINE_DEFENSES_PROXY_METHOD)
+    if confidence_value in ("verified", "derived", "flag") and value_ok and method_ok:
+        paths = _resolved_source_paths(source_field, ctx.raw_root)
+        if not paths or not isinstance(fetched_at, str) or not fetched_at:
+            detail = (f"v1 source is not a resolvable envelope list: {source_field!r}" if not paths
+                      else "v1 provenance for 'pipeline_defenses' has no fetched_at")
+            return Unmeasured(reason="collector_failure", detail=detail)
+        for path in paths:
+            ctx.referenced[str(path)] = _envelope_hash(path)
+        n = 0
+        if method == _PIPELINE_DEFENSES_PROXY_METHOD:
+            data = _envelope_data(paths[0])
+            prs = data.get("prs") if isinstance(data, Mapping) else None
+            n = sum(1 for pr in (prs or []) if isinstance(pr, Mapping) and pr.get("mergedAt") is not None)
+        return Measured(value=float(value), n=n, window_start=None, window_end=None, method=method,
+                         source=str(paths[0]), source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
+    if confidence_value in (None, "missing"):
+        return Unmeasured(
+            reason="third_party_gap",
+            detail="no scorecard envelope with a usable check subset and no pr_window/runs envelopes to "
+                   "derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+        )
+    return Unmeasured(reason="collector_failure",
+                       detail=f"v1 confidence {confidence_value!r} for 'pipeline_defenses' is not recognized")
+
+
 def _unmapped(detail: str) -> InputResolver:
     """A v2 input with no landed producer yet (or one whose landed collector
     cannot supply it — see each row's ``detail``): constant
@@ -806,14 +1010,14 @@ def _unmapped(detail: str) -> InputResolver:
 #: | mr_first_rate | (none landed) | collector_failure: needs W1-4 author history |
 #: | gr14_ghost_rate | (none landed) | collector_failure: needs a snapshot as_of the v1-to-v2 loader is never given (04 section 8) |
 #: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number (W1-3) | no envelope -> collector_failure; n<5 -> insufficient_n |
-#: | dependents_deduped | meta.dependents_count when confidence=="derived" (W1-2 dependents hook) | confidence verified/missing -> collector_failure (raw usedByCount is not deduped) |
-#: | openssf_criticality | (none landed) | collector_failure: W1-7 not landed |
+#: | dependents_deduped | meta.dependents_count when confidence=="derived" (W1-2 dependents hook) | confidence verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap (W2-9f) |
+#: | openssf_criticality | meta.openssf_signals, ten raw Pike signals (W1-7); C computed locally (mirrored, 04 section 3) | confidence missing, or any signal absent -> third_party_gap (never a partial score) |
 #: | downloads_monthly | meta.monthly_downloads; meta.downloads_status (W1-8) refines the Unmeasured detail | third_party_gap, detail per downloads_status |
-#: | legal_ip | meta.legal_ip_model, vocab-mapped | collector_failure |
+#: | legal_ip | meta.legal_ip_model, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection (W2-9f, W5) |
 #: | elephant_factor | meta.elephant_factor (W1-5 override already lands here) | collector_failure |
-#: | promotion_ladder | meta.promotion_ladder, vocab-mapped | collector_failure |
-#: | pipeline_defenses | (none landed) | collector_failure: W1-7 not landed |
-#: | ai_posture | meta.ai_posture | collector_failure |
+#: | promotion_ladder | meta.promotion_ladder, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection (W2-9f, W5) |
+#: | pipeline_defenses | meta.pipeline_defenses + .pipeline_defenses_method (W1-7): "primary" (scorecard) or "proxy:review_ci" (n = merged PRs) | confidence absent or missing -> third_party_gap (TP with proxy) |
+#: | ai_posture | meta.ai_posture, vocab-validated against constants_v2.AI_POSTURE_VALUES (identity map, W2-9f, W4) | collector_failure; an out-of-set value is collector_failure too, never Measured |
 #: | substantive_review_rate | meta.pr_window_substantive_review_rate (W1-3); n from the raw envelope | no envelope -> collector_failure; n<10 -> insufficient_n |
 #: | newcomer_issue_supply | meta.active_unclaimed_gfis (W1-1 recount already lands here) | collector_failure |
 #: | newcomer_conversion | (none landed) | collector_failure: needs the W1-4 newcomer cohort |
@@ -833,17 +1037,13 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     ),
     "ttm_p90_hours": _resolve_ttm_p90_hours,
     "dependents_deduped": _resolve_dependents_deduped,
-    "openssf_criticality": _unmapped(
-        "v1 leaves the ten OpenSSF signals uncollected; v2 2.2 needs all ten (W1-7 not yet landed)"
-    ),
+    "openssf_criticality": _resolve_openssf_criticality,
     "downloads_monthly": _resolve_downloads_monthly,
-    "legal_ip": _vocab_scalar_resolver("legal_ip_model", "legal_ip", V1_LEGAL_IP_VALUES),
+    "legal_ip": _vocab_scalar_resolver("legal_ip_model", V1_LEGAL_IP_VALUES),
     "elephant_factor": _plain_scalar_resolver("elephant_factor"),
-    "promotion_ladder": _vocab_scalar_resolver("promotion_ladder", "promotion_ladder", V1_LADDER_VALUES),
-    "pipeline_defenses": _unmapped(
-        "v2 4.1 scores Scorecard checks or a proxy; v1 stores only the composite score (W1-7 not yet landed)"
-    ),
-    "ai_posture": _plain_scalar_resolver("ai_posture"),
+    "promotion_ladder": _vocab_scalar_resolver("promotion_ladder", V1_LADDER_VALUES),
+    "pipeline_defenses": _resolve_pipeline_defenses,
+    "ai_posture": _vocab_scalar_resolver("ai_posture", {value: value for value in constants_v2.AI_POSTURE_VALUES}),
     "substantive_review_rate": _resolve_substantive_review_rate,
     "newcomer_issue_supply": _plain_scalar_resolver("active_unclaimed_gfis"),
     "newcomer_conversion": _unmapped("needs the W1-4 newcomer cohort; the v1 pipeline collected none"),
