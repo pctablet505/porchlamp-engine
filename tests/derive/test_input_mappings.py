@@ -5,15 +5,17 @@ Each test builds a hand-controlled v1 derived-file document (see
 and asserts the exact ``Measured``/``Unmeasured`` value produced for that one
 v2 input id -- every field pinned, nothing left to shape-only assertions.
 
-Thirteen rows have a real resolver with both a positive (Measured) and at
+Sixteen rows have a real resolver with both a positive (Measured) and at
 least one negative (Unmeasured) path: ``ttfhr_hours``, ``dr90_decision_rate``
-(W2-12), ``ttm_p90_hours``, ``dependents_deduped``, ``openssf_criticality``
+(W2-12; W3-1f adds the D-IN-3 per-author cap and eligibility-gate join),
+``mr_first_rate``, ``newcomer_conversion``, ``rr90_return_rate`` (W3-1f,
+read-through of the ``author_history``-derived D-IN-3-adjusted cohort
+rates), ``ttm_p90_hours``, ``dependents_deduped``, ``openssf_criticality``
 (W1-7, W2-9f), ``downloads_monthly``, ``legal_ip``, ``elephant_factor``,
 ``promotion_ladder``, ``pipeline_defenses`` (W1-7, W2-9f), ``ai_posture``,
-``substantive_review_rate``, ``newcomer_issue_supply``. Five rows have no
+``substantive_review_rate``, ``newcomer_issue_supply``. Two rows have no
 landed producer yet and are a constant ``Unmeasured(collector_failure, ...)``
-regardless of document content: ``mr_first_rate``, ``gr14_ghost_rate``,
-``newcomer_conversion``, ``rr90_return_rate``, ``dx``.
+regardless of document content: ``gr14_ghost_rate``, ``dx``.
 """
 from __future__ import annotations
 
@@ -22,7 +24,15 @@ from typing import Any
 
 import pytest
 
-from _fixtures import base_document, expected_hash, load, pr_window_data, prov, write_envelope
+from _fixtures import (
+    author_history_data,
+    base_document,
+    expected_hash,
+    load,
+    pr_window_data,
+    prov,
+    write_envelope,
+)
 
 from cvi.core import constants_v2
 from cvi.core.models import BundleValidationError, Measured, Unmeasured
@@ -1253,14 +1263,11 @@ def test_pipeline_defenses_n_feeds_the_rigor_min_n_gate(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 _UNMAPPED_ROWS = {
-    "mr_first_rate": "needs W1-4 author history; the v1 pipeline collected none",
     "gr14_ghost_rate": (
         "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no "
         "as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) "
         "-- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership"
     ),
-    "newcomer_conversion": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
-    "rr90_return_rate": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
     "dx": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
 }
 
@@ -1292,6 +1299,181 @@ def test_unmapped_row_is_constant(tmp_path: Path, input_id: str, detail: str) ->
 
 
 # --------------------------------------------------------------------------- #
+# 1.3 mr_first_rate / 5.2 newcomer_conversion / 5.3 rr90_return_rate (W3-1f,  #
+# review W-4/F-004/C1e) -- read-through of author_history's own D-IN-3-      #
+# adjusted cohort rates via _author_history_rate_resolver. Full path         #
+# coverage lives on mr_first_rate (the shared factory code); the other two   #
+# rows only need proving their own field names are wired correctly.         #
+# --------------------------------------------------------------------------- #
+
+def test_mr_first_rate(tmp_path: Path) -> None:
+    ah_data = author_history_data()
+    write_envelope(tmp_path / "raw", "author_history", "acme__mrfirst", ah_data, "2026-09-01T00:06:00+00:00")
+    doc = base_document(
+        meta={"mr_first_rate": 0.6, "mr_first_pr_count": 5},
+        provenance={"mr_first_rate": prov("author_history", fetched_at="2026-09-01T00:06:00+00:00",
+                                          key="acme__mrfirst")},
+        confidence={"mr_first_rate": "derived"},
+    )
+    bundle = load(tmp_path, doc, key="acme__mrfirst")
+    assert bundle.inputs["mr_first_rate"] == Measured(
+        value=0.6, n=5, window_start=None, window_end=None, method="primary",
+        source=str(tmp_path / "raw" / "author_history" / "acme__mrfirst.json"),
+        source_hash=expected_hash(ah_data), fetched_at="2026-09-01T00:06:00+00:00",
+    )
+
+
+def test_mr_first_rate_insufficient_n(tmp_path: Path) -> None:
+    """A real, "derived" value with a count below PARAM_MIN_N (5, per
+    constants_v2.PARAM_MIN_N['mr_first_rate']) is insufficient_n, not
+    Measured on too little evidence and not collector_failure (the
+    collector did its job; there just were not enough authors)."""
+    ah_data = author_history_data()
+    write_envelope(tmp_path / "raw", "author_history", "acme__mrfirst-low-n", ah_data, "2026-09-01T00:06:00+00:00")
+    doc = base_document(
+        meta={"mr_first_rate": 1.0, "mr_first_pr_count": 3},
+        provenance={"mr_first_rate": prov("author_history", fetched_at="2026-09-01T00:06:00+00:00",
+                                          key="acme__mrfirst-low-n")},
+        confidence={"mr_first_rate": "derived"},
+    )
+    bundle = load(tmp_path, doc, key="acme__mrfirst-low-n")
+    assert bundle.inputs["mr_first_rate"] == Unmeasured(
+        reason="insufficient_n", detail="3 authors in the D-IN-3-adjusted cohort, need >= 5",
+    )
+
+
+def test_mr_first_rate_zero_cohort_is_insufficient_n_not_collector_failure(tmp_path: Path) -> None:
+    """derive_cohort_fields' own ``_ratio`` returns ``None`` for a
+    zero-denominator cohort even under a "derived" (gate-not-fired)
+    confidence -- this must read as insufficient_n (a real, checked, empty
+    cohort), not collector_failure (which would wrongly suggest the
+    collector itself malfunctioned)."""
+    doc = base_document(
+        meta={"mr_first_rate": None, "mr_first_pr_count": 0},
+        provenance={"mr_first_rate": prov("author_history", key="acme__mrfirst-zero")},
+        confidence={"mr_first_rate": "derived"},
+    )
+    bundle = load(tmp_path, doc, key="acme__mrfirst-zero")
+    assert bundle.inputs["mr_first_rate"] == Unmeasured(
+        reason="insufficient_n", detail="0 authors in the D-IN-3-adjusted cohort, need >= 5",
+    )
+
+
+def test_mr_first_rate_collector_failure_gate_fired(tmp_path: Path) -> None:
+    """confidence "missing" (derive_cohort_fields' AUTHOR_UNMEASURED_MAX_FRACTION
+    gate fired): Unmeasured(collector_failure) with the REAL, dynamic detail
+    from meta.cohort_unmeasured_detail -- never the static unset_detail,
+    which would hide that a collector FAILURE (not an absent collector) is
+    why this row has no value (review C1e)."""
+    doc = base_document(
+        meta={"mr_first_rate": None, "mr_first_pr_count": None,
+              "cohort_unmeasured_detail": "12 of 20 authors unmeasured"},
+        provenance={"mr_first_rate": prov("author_history", key="acme__mrfirst-gated")},
+        confidence={"mr_first_rate": "missing"},
+    )
+    bundle = load(tmp_path, doc, key="acme__mrfirst-gated")
+    assert bundle.inputs["mr_first_rate"] == Unmeasured(
+        reason="collector_failure", detail="12 of 20 authors unmeasured",
+    )
+
+
+def test_mr_first_rate_unset_when_no_author_history_collected(tmp_path: Path) -> None:
+    """No confidence entry at all (derive_cohort_fields returned {} because
+    no author_history envelope was ever collected for this repo, or a v1
+    run predates W1-4): the STATIC unset_detail, matching the old
+    _unmapped(...) behavior byte for byte (an over-correction guard: this
+    row must not start reporting collector_failure with an EMPTY detail,
+    or crash, just because the field is genuinely absent)."""
+    bundle = load(tmp_path, base_document(), key="acme__mrfirst-unset")
+    assert bundle.inputs["mr_first_rate"] == Unmeasured(
+        reason="collector_failure",
+        detail="needs W1-4 author history; the v1 pipeline collected none",
+    )
+
+
+def test_mr_first_rate_unrecognized_confidence(tmp_path: Path) -> None:
+    doc = base_document(
+        meta={"mr_first_rate": 0.5, "mr_first_pr_count": 5},
+        confidence={"mr_first_rate": "verified"},
+    )
+    bundle = load(tmp_path, doc, key="acme__mrfirst-bad-conf")
+    assert bundle.inputs["mr_first_rate"] == Unmeasured(
+        reason="collector_failure",
+        detail="v1 confidence 'verified' for 'mr_first_rate' is not recognized",
+    )
+
+
+def test_newcomer_conversion(tmp_path: Path) -> None:
+    ah_data = author_history_data()
+    write_envelope(tmp_path / "raw", "author_history", "acme__newconv", ah_data, "2026-09-01T00:06:00+00:00")
+    doc = base_document(
+        meta={"newcomer_conversion": 0.25, "newcomer_conversion_author_count": 8},
+        provenance={"newcomer_conversion": prov("author_history", fetched_at="2026-09-01T00:06:00+00:00",
+                                                key="acme__newconv")},
+        confidence={"newcomer_conversion": "derived"},
+    )
+    bundle = load(tmp_path, doc, key="acme__newconv")
+    assert bundle.inputs["newcomer_conversion"] == Measured(
+        value=0.25, n=8, window_start=None, window_end=None, method="primary",
+        source=str(tmp_path / "raw" / "author_history" / "acme__newconv.json"),
+        source_hash=expected_hash(ah_data), fetched_at="2026-09-01T00:06:00+00:00",
+    )
+
+    # Same "missing"-gate wiring, its OWN detail field (newcomer_unmeasured_detail).
+    gated_doc = base_document(
+        meta={"newcomer_conversion": None, "newcomer_conversion_author_count": None,
+              "newcomer_unmeasured_detail": "9 of 15 newcomer authors unmeasured"},
+        confidence={"newcomer_conversion": "missing"},
+    )
+    gated_bundle = load(tmp_path, gated_doc, key="acme__newconv-gated")
+    assert gated_bundle.inputs["newcomer_conversion"] == Unmeasured(
+        reason="collector_failure", detail="9 of 15 newcomer authors unmeasured",
+    )
+
+    unset_bundle = load(tmp_path, base_document(), key="acme__newconv-unset")
+    assert unset_bundle.inputs["newcomer_conversion"] == Unmeasured(
+        reason="collector_failure",
+        detail="needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+    )
+
+
+def test_rr90_return_rate(tmp_path: Path) -> None:
+    ah_data = author_history_data()
+    write_envelope(tmp_path / "raw", "author_history", "acme__rr90", ah_data, "2026-09-01T00:06:00+00:00")
+    doc = base_document(
+        meta={"rr90_return_rate": 0.75, "rr90_return_author_count": 12},
+        provenance={"rr90_return_rate": prov("author_history", fetched_at="2026-09-01T00:06:00+00:00",
+                                             key="acme__rr90")},
+        confidence={"rr90_return_rate": "derived"},
+    )
+    bundle = load(tmp_path, doc, key="acme__rr90")
+    assert bundle.inputs["rr90_return_rate"] == Measured(
+        value=0.75, n=12, window_start=None, window_end=None, method="primary",
+        source=str(tmp_path / "raw" / "author_history" / "acme__rr90.json"),
+        source_hash=expected_hash(ah_data), fetched_at="2026-09-01T00:06:00+00:00",
+    )
+
+    # rr90_return_rate shares newcomer_conversion's own "missing"-gate detail
+    # field (both rows are gated on the SAME sampled-newcomer-roster fraction
+    # in derive_cohort_fields, so this is the correct field, not a typo).
+    gated_doc = base_document(
+        meta={"rr90_return_rate": None, "rr90_return_author_count": None,
+              "newcomer_unmeasured_detail": "9 of 15 newcomer authors unmeasured"},
+        confidence={"rr90_return_rate": "missing"},
+    )
+    gated_bundle = load(tmp_path, gated_doc, key="acme__rr90-gated")
+    assert gated_bundle.inputs["rr90_return_rate"] == Unmeasured(
+        reason="collector_failure", detail="9 of 15 newcomer authors unmeasured",
+    )
+
+    unset_bundle = load(tmp_path, base_document(), key="acme__rr90-unset")
+    assert unset_bundle.inputs["rr90_return_rate"] == Unmeasured(
+        reason="collector_failure",
+        detail="v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+    )
+
+
+# --------------------------------------------------------------------------- #
 # 1.2 dr90_decision_rate (W2-12, D-IN-4 amendment 2026-09-13)                 #
 #                                                                              #
 # All fixtures share the same pr_window envelope anchor as the ttfhr/ttm_p90  #
@@ -1303,10 +1485,13 @@ def test_unmapped_row_is_constant(tmp_path: Path, input_id: str, detail: str) ->
 
 _DR90_WINDOW_START = "2026-03-05T00:00:00+00:00"
 _DR90_WINDOW_END = "2026-06-03T00:00:00+00:00"
-#: "primary", not a longer descriptive string -- cvi.core.models.measured_
-#: problems rejects any Measured.method other than "primary" or a
-#: "proxy:"-prefixed one (see cvi/derive/bundle.py's _DR90_METHOD comment).
-_DR90_METHOD = "primary"
+#: "proxy:din3_unapplied" when no author_history envelope was collected
+#: for the repo (D-IN-3's eligibility gate needs the per-author event
+#: count pr_window alone does not carry, W3-1f review W-1/W-2); "primary"
+#: once an author_history envelope makes the gate applicable too. See
+#: cvi/derive/bundle.py's _DR90_METHOD_PRIMARY/_DR90_METHOD_GATE_UNAPPLIED.
+_DR90_METHOD = "proxy:din3_unapplied"
+_DR90_METHOD_GATED = "primary"
 
 #: Ten external PRs opened 100-109 d before the anchor (comfortably inside
 #: the cohort, away from every boundary tested separately below). Decision
@@ -1429,4 +1614,261 @@ def test_dr90_decision_rate_malformed_created_at_excluded_and_named(tmp_path: Pa
         reason="insufficient_n",
         detail="8 external PRs in the decision cohort, need >= 10 "
                "(2 excluded: malformed or missing createdAt)",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 1.2 dr90_decision_rate -- D-IN-3 per-author cap (W3-1f review W-1)          #
+# --------------------------------------------------------------------------- #
+
+#: The reviewer's own sock-puppet oracle (W3-1-review.md C2b): a single
+#: login files 6 of a 10-PR cohort, all 6 fast-merged (self-approved), the
+#: other 4 honest single-PR authors are all still open. Uncapped this
+#: reads r=0.6 -- a throwaway account can buy an arbitrarily high DR_90 by
+#: flooding its own trivially-fast-merged PRs. The D-IN-3 cap
+#: (``AUTHOR_CAP_FRACTION=0.20``) keeps only the sock's 2 OLDEST of 6 PRs
+#: (``floor(0.20 * 10) == 2``); both are still decided, the 4 honest ones
+#: are not, so the capped population is 6 (2 sock + 4 honest) with 2
+#: decided: r = 2/6 = 0.3333, not 0.6. This is also the test that pins
+#: PARAM_MIN_N being checked against the RAW 10-PR cohort, not the capped
+#: 6 -- checking it post-cap would wrongly report Unmeasured(insufficient_n)
+#: for a cohort with plenty of raw evidence.
+_DR90_SOCK_PRS = [
+    # The sock puppet's 6 PRs, oldest first; only the oldest 2 survive the
+    # cap. All 6 are fast-merged (5 d) so an off-by-one that kept a 3rd
+    # would also change the decided count, not just n.
+    {"number": 200, "createdAt": "2026-03-10T00:00:00+00:00", "mergedAt": "2026-03-15T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    {"number": 201, "createdAt": "2026-03-15T00:00:00+00:00", "mergedAt": "2026-03-20T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    {"number": 202, "createdAt": "2026-03-20T00:00:00+00:00", "mergedAt": "2026-03-25T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    {"number": 203, "createdAt": "2026-03-25T00:00:00+00:00", "mergedAt": "2026-03-30T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    {"number": 204, "createdAt": "2026-03-30T00:00:00+00:00", "mergedAt": "2026-04-04T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    {"number": 205, "createdAt": "2026-04-05T00:00:00+00:00", "mergedAt": "2026-04-10T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    # Four honest, distinct single-PR authors, all still open (not decided).
+    {"number": 206, "createdAt": "2026-04-10T00:00:00+00:00", "author": {"login": "honest-a"}},
+    {"number": 207, "createdAt": "2026-04-15T00:00:00+00:00", "author": {"login": "honest-b"}},
+    {"number": 208, "createdAt": "2026-04-20T00:00:00+00:00", "author": {"login": "honest-c"}},
+    {"number": 209, "createdAt": "2026-04-25T00:00:00+00:00", "author": {"login": "honest-d"}},
+]
+_DR90_SOCK_DERIVED = [{"number": n, "is_external": True} for n in range(200, 210)]
+
+
+def test_dr90_decision_rate_author_cap_sock_puppet(tmp_path: Path) -> None:
+    data = pr_window_data(prs=_DR90_SOCK_PRS, derived=_DR90_SOCK_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__sock", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__sock")})
+    bundle = load(tmp_path, doc, key="acme__sock")
+    assert bundle.inputs["dr90_decision_rate"] == Measured(
+        value=0.3333, n=6, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
+        method=_DR90_METHOD, source=str(tmp_path / "raw" / "pr_window" / "acme__sock.json"),
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
+#: Same 10-PR shape as above but the dominant login holds exactly
+#: ``allowed + 1`` (3, one over the ``floor(0.20 * 10) == 2`` cap) instead
+#: of 6: proves the cap drops the SINGLE excess PR (most recent first),
+#: not zero and not two, and that it is evaluated over the exact `n` of
+#: THIS cohort (an off-by-one on the floor -- e.g. rounding instead of
+#: truncating -- would keep all 3 and produce a different rate).
+_DR90_CAP_BOUNDARY_PRS = [
+    {"number": 210, "createdAt": "2026-03-10T00:00:00+00:00", "mergedAt": "2026-03-15T00:00:00+00:00",
+     "author": {"login": "over-cap"}},          # oldest of the 3 -- kept, decided
+    {"number": 211, "createdAt": "2026-03-15T00:00:00+00:00",
+     "author": {"login": "over-cap"}},          # 2nd oldest -- kept, NOT decided
+    {"number": 212, "createdAt": "2026-03-20T00:00:00+00:00", "mergedAt": "2026-03-25T00:00:00+00:00",
+     "author": {"login": "over-cap"}},          # most recent -- dropped by the cap
+    {"number": 213, "createdAt": "2026-04-01T00:00:00+00:00", "author": {"login": "honest-1"}},
+    {"number": 214, "createdAt": "2026-04-05T00:00:00+00:00", "author": {"login": "honest-2"}},
+    {"number": 215, "createdAt": "2026-04-10T00:00:00+00:00", "author": {"login": "honest-3"}},
+    {"number": 216, "createdAt": "2026-04-15T00:00:00+00:00", "author": {"login": "honest-4"}},
+    {"number": 217, "createdAt": "2026-04-20T00:00:00+00:00", "author": {"login": "honest-5"}},
+    {"number": 218, "createdAt": "2026-04-25T00:00:00+00:00", "author": {"login": "honest-6"}},
+    {"number": 219, "createdAt": "2026-04-30T00:00:00+00:00", "author": {"login": "honest-7"}},
+]
+_DR90_CAP_BOUNDARY_DERIVED = [{"number": n, "is_external": True} for n in range(210, 220)]
+
+
+def test_dr90_decision_rate_author_cap_boundary(tmp_path: Path) -> None:
+    """10 raw PRs, ``allowed = floor(0.20 * 10) == 2``: the dominant
+    author's 3rd (most recent) PR is dropped, its oldest 2 survive, so the
+    capped cohort is 9 (2 + 7 honest), not 10 and not 8. Only 1 of the
+    kept PRs is decided (the dominant author's oldest): r = 1/9 = 0.1111.
+    A cap that kept all 3 would report n=10, r=2/10=0.2 (the dropped PR
+    #212 is decided); a cap that dropped both would report n=8, r=0/8=0.0."""
+    data = pr_window_data(prs=_DR90_CAP_BOUNDARY_PRS, derived=_DR90_CAP_BOUNDARY_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__cap-boundary", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__cap-boundary")})
+    bundle = load(tmp_path, doc, key="acme__cap-boundary")
+    assert bundle.inputs["dr90_decision_rate"] == Measured(
+        value=0.1111, n=9, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
+        method=_DR90_METHOD, source=str(tmp_path / "raw" / "pr_window" / "acme__cap-boundary.json"),
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 1.2 dr90_decision_rate -- D-IN-3 eligibility gate join against            #
+# author_history (W3-1f review W-1/W-2): present vs. absent for the same    #
+# 14-PR cohort, pinning both the value AND the "method" tag each case gets. #
+# --------------------------------------------------------------------------- #
+
+#: 14 distinct single-PR authors (the cap is a no-op here -- nobody has
+#: more than 1 PR -- so this fixture isolates the GATE's effect from the
+#: cap's). 10 are genuinely D-IN-3-eligible (account >= 90 d old at PR
+#: creation, >= 5 public events); 4 are not (2 too-new accounts, 2 with
+#: too few events), and ALL FOUR of those ineligible authors' PRs are
+#: fast-merged -- a throwaway-account flood that only the eligibility gate
+#: (not the cap) can catch, since no single one of them holds more than
+#: its own 1 PR. Of the 10 eligible authors, 4 are decided and 6 are not.
+_DR90_GATE_PRS = [
+    {"number": 300, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
+     "author": {"login": "eligible-1"}},
+    {"number": 301, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
+     "author": {"login": "eligible-2"}},
+    {"number": 302, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
+     "author": {"login": "eligible-3"}},
+    {"number": 303, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
+     "author": {"login": "eligible-4"}},
+    {"number": 304, "createdAt": "2026-04-01T00:00:00+00:00", "author": {"login": "eligible-5"}},
+    {"number": 305, "createdAt": "2026-04-01T00:00:00+00:00", "author": {"login": "eligible-6"}},
+    {"number": 306, "createdAt": "2026-04-01T00:00:00+00:00", "author": {"login": "eligible-7"}},
+    {"number": 307, "createdAt": "2026-04-01T00:00:00+00:00", "author": {"login": "eligible-8"}},
+    {"number": 308, "createdAt": "2026-04-01T00:00:00+00:00", "author": {"login": "eligible-9"}},
+    {"number": 309, "createdAt": "2026-04-01T00:00:00+00:00", "author": {"login": "eligible-10"}},
+    {"number": 310, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
+     "author": {"login": "too-new-1"}},
+    {"number": 311, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
+     "author": {"login": "too-new-2"}},
+    {"number": 312, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
+     "author": {"login": "few-events-1"}},
+    {"number": 313, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
+     "author": {"login": "few-events-2"}},
+]
+_DR90_GATE_DERIVED = [{"number": n, "is_external": True} for n in range(300, 314)]
+
+_DR90_GATE_AUTHOR_RECORDS = [
+    *[{"login": f"eligible-{i}", "account_created_at": "2025-12-01T00:00:00+00:00",
+       "public_event_count": 10, "eligibility_unmeasured": False} for i in range(1, 11)],
+    {"login": "too-new-1", "account_created_at": "2026-03-25T00:00:00+00:00",
+     "public_event_count": 10, "eligibility_unmeasured": False},
+    {"login": "too-new-2", "account_created_at": "2026-03-25T00:00:00+00:00",
+     "public_event_count": 10, "eligibility_unmeasured": False},
+    {"login": "few-events-1", "account_created_at": "2025-01-01T00:00:00+00:00",
+     "public_event_count": 2, "eligibility_unmeasured": False},
+    {"login": "few-events-2", "account_created_at": "2025-01-01T00:00:00+00:00",
+     "public_event_count": 2, "eligibility_unmeasured": False},
+]
+
+
+def test_dr90_decision_rate_eligibility_gate_applied_with_author_history(tmp_path: Path) -> None:
+    """author_history IS collected for this repo: the gate keeps only the
+    10 D-IN-3-eligible authors (the 4 too-new/too-few-events ones are
+    dropped even though each holds only 1 PR, below the cap), raw=capped=10
+    (the cap is a no-op -- one PR per surviving author). 4 of the 10 kept
+    are decided: r = 4/10 = 0.4. ``method`` is "primary": both the cap AND
+    the gate applied."""
+    data = pr_window_data(prs=_DR90_GATE_PRS, derived=_DR90_GATE_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__gated", data, "2026-09-01T00:05:00+00:00")
+    ah_data = author_history_data(author_records=_DR90_GATE_AUTHOR_RECORDS)
+    write_envelope(tmp_path / "raw", "author_history", "acme__gated", ah_data, "2026-09-01T00:06:00+00:00")
+    doc = base_document(
+        provenance={
+            "pr_window_count": prov("pr_window", key="acme__gated"),
+            "author_history_cost_points": prov("author_history", fetched_at="2026-09-01T00:06:00+00:00",
+                                               key="acme__gated"),
+        },
+    )
+    bundle = load(tmp_path, doc, key="acme__gated")
+    assert bundle.inputs["dr90_decision_rate"] == Measured(
+        value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
+        method=_DR90_METHOD_GATED, source=str(tmp_path / "raw" / "pr_window" / "acme__gated.json"),
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
+def test_dr90_decision_rate_eligibility_gate_unapplied_without_author_history(tmp_path: Path) -> None:
+    """Identical 14-PR ``pr_window`` data as the previous test, but NO
+    ``author_history`` envelope was collected for this repo (the W1-4 hook
+    never ran here): the eligibility gate cannot be applied (``pr_window``
+    alone carries no public-event count), so all 14 PRs count. The cap is
+    still a no-op (one PR per author). All 4 "throwaway" authors' PRs are
+    decided in addition to the 4 real ones: r = 8/14 = 0.5714, n=14 --
+    both DIFFERENT from the gated test above, proving the gate (not just
+    the cap) changes the reported rate. ``method`` is
+    "proxy:din3_unapplied"."""
+    data = pr_window_data(prs=_DR90_GATE_PRS, derived=_DR90_GATE_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__ungated", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__ungated")})
+    bundle = load(tmp_path, doc, key="acme__ungated")
+    assert bundle.inputs["dr90_decision_rate"] == Measured(
+        value=0.5714, n=14, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
+        method=_DR90_METHOD, source=str(tmp_path / "raw" / "pr_window" / "acme__ungated.json"),
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
+#: One eleventh cohort author's ``author_history`` record has a failed
+#: fetch (``eligibility_unmeasured``); D-IN-3 tri-state discipline (B-3/
+#: F-3) says this must be excluded from BOTH numerator and denominator,
+#: never read as either eligible or confirmed-ineligible. Ten OTHER
+#: authors are cleanly eligible, so the gated (post-exclusion) cohort is
+#: exactly 10 -- still >= PARAM_MIN_N -- proving the unmeasured exclusion
+#: is folded into the count :func:`_resolve_dr90_decision_rate` checks
+#: ``min_n`` against, not silently ignored (a bug here would either count
+#: 11 raw PRs, or read the unmeasured author as ineligible and still
+#: report 10 by coincidence but with the wrong decided count if that
+#: author's own PR were merged, which it is here).
+def _clean_author_pr(i: int) -> dict[str, Any]:
+    pr: dict[str, Any] = {"number": 400 + i, "createdAt": "2026-04-01T00:00:00+00:00",
+                          "author": {"login": f"clean-{i}"}}
+    if i < 5:
+        pr["mergedAt"] = "2026-04-06T00:00:00+00:00"
+    return pr
+
+
+_DR90_UNMEASURED_PRS = [
+    *[_clean_author_pr(i) for i in range(10)],
+    {"number": 410, "createdAt": "2026-04-01T00:00:00+00:00", "mergedAt": "2026-04-06T00:00:00+00:00",
+     "author": {"login": "flaky-fetch"}},
+]
+_DR90_UNMEASURED_DERIVED = [{"number": n, "is_external": True} for n in range(400, 411)]
+
+_DR90_UNMEASURED_AUTHOR_RECORDS = [
+    *[{"login": f"clean-{i}", "account_created_at": "2025-12-01T00:00:00+00:00",
+       "public_event_count": 10, "eligibility_unmeasured": False} for i in range(10)],
+    {"login": "flaky-fetch", "account_created_at": "2025-12-01T00:00:00+00:00",
+     "public_event_count": 10, "eligibility_unmeasured": True},
+]
+
+
+def test_dr90_decision_rate_eligibility_unmeasured_author_excluded(tmp_path: Path) -> None:
+    """11 raw PRs; the gate drops the 1 ``eligibility_unmeasured`` author
+    (fast-merged, so a bug that kept it would also change the decided
+    count, not just n), leaving exactly 10 clean authors -- still
+    Measured, not Unmeasured(insufficient_n), pinning that the exclusion
+    is counted BEFORE the min_n check, not after. 5 of the 10 kept are
+    decided: r = 5/10 = 0.5."""
+    data = pr_window_data(prs=_DR90_UNMEASURED_PRS, derived=_DR90_UNMEASURED_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__unmeasured-author", data, "2026-09-01T00:05:00+00:00")
+    ah_data = author_history_data(author_records=_DR90_UNMEASURED_AUTHOR_RECORDS)
+    write_envelope(tmp_path / "raw", "author_history", "acme__unmeasured-author", ah_data,
+                    "2026-09-01T00:06:00+00:00")
+    doc = base_document(
+        provenance={
+            "pr_window_count": prov("pr_window", key="acme__unmeasured-author"),
+            "author_history_cost_points": prov("author_history", fetched_at="2026-09-01T00:06:00+00:00",
+                                               key="acme__unmeasured-author"),
+        },
+    )
+    bundle = load(tmp_path, doc, key="acme__unmeasured-author")
+    assert bundle.inputs["dr90_decision_rate"] == Measured(
+        value=0.5, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
+        method=_DR90_METHOD_GATED, source=str(tmp_path / "raw" / "pr_window" / "acme__unmeasured-author.json"),
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )

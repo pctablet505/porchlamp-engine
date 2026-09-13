@@ -195,10 +195,15 @@ def _measured_n(record: ScoreRecord, input_id: str) -> Optional[int]:
 @dataclass(frozen=True)
 class NewcomerAccountSample:
     """One first-timer-cohort account, for the ``newcomer_burst`` lockstep
-    rule (03 section 4): the fact the current ``Cohorts``/``NewcomerAuthor``
-    schema does not carry is ``account_created_at`` (see the module
-    docstring's ownership request) -- this dataclass is this packet's own
-    named carrier for it until that schema gains the field."""
+    rule (03 section 4). ``NewcomerAuthor`` now carries
+    ``account_created_at`` too (CLOSED, packet W3-1 -- see the module
+    docstring); this dataclass is kept as the detector's own input shape
+    rather than replaced by ``NewcomerAuthor`` itself, because
+    ``all_prs_merged`` is a fact this detector DERIVES from a cohort's raw
+    PR list, not one any stored schema carries directly --
+    :func:`newcomer_accounts_from_cohorts` is what builds real instances
+    of this dataclass from a landed ``FeatureBundle.cohorts.
+    newcomer_authors``."""
 
     login: str
     #: ISO-8601 datetime the GitHub account was created.

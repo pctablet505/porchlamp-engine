@@ -1132,8 +1132,8 @@ def test_dr90_unaffected_by_search_cap(tmp_path):
     fields = gql.derive_cohort_fields(d)
     assert fields["dr90_decision_pr_count_raw"] == (60, "derived")
     assert fields["dr90_decision_rate_raw"] == (1.0, "derived")
-    assert fields["dr90_decision_pr_count"] == (60, "derived")
-    assert fields["dr90_decision_rate"] == (1.0, "derived")
+    assert fields["dr90_decision_pr_count_author_history_cohort"] == (60, "derived")
+    assert fields["dr90_decision_rate_author_history_cohort"] == (1.0, "derived")
 
 
 # --- round 3: GhCliTransport parses the body on rc != 0 (B-1) --------------
@@ -1418,8 +1418,8 @@ def test_decision_cohort_oracle_raw_vs_capped_and_roster():
         ([200, 201, 202, 203, 204, 205, 206], "derived")
     assert fields["dr90_decision_rate_raw"] == (0.5714, "derived")
     assert fields["dr90_decision_pr_count_raw"] == (7, "derived")
-    assert fields["dr90_decision_rate"] == (0.6667, "derived")
-    assert fields["dr90_decision_pr_count"] == (6, "derived")
+    assert fields["dr90_decision_rate_author_history_cohort"] == (0.6667, "derived")
+    assert fields["dr90_decision_pr_count_author_history_cohort"] == (6, "derived")
     assert fields["mr_first_rate_raw"] == (0.4, "derived")
     assert fields["mr_first_pr_count_raw"] == (5, "derived")
     assert fields["mr_first_rate"] == (0.5, "derived")
@@ -1446,8 +1446,8 @@ def test_dr90_cap_binds_six_of_ten_capped_to_two():
     fields = gql.derive_cohort_fields(_w4_ah_data(prs, records))
     assert fields["dr90_decision_rate_raw"] == (0.6, "derived")
     assert fields["dr90_decision_pr_count_raw"] == (10, "derived")
-    assert fields["dr90_decision_rate"] == (1.0, "derived")
-    assert fields["dr90_decision_pr_count"] == (6, "derived")
+    assert fields["dr90_decision_rate_author_history_cohort"] == (1.0, "derived")
+    assert fields["dr90_decision_pr_count_author_history_cohort"] == (6, "derived")
 
 
 def test_apply_author_cap_six_of_ten_capped_to_two():
@@ -1566,8 +1566,8 @@ def test_derive_cohort_fields_unmeasured_threshold_exactly_20_percent_not_gated(
     fields = gql.derive_cohort_fields(data)
     assert fields["authors_total"] == (10, "verified")
     assert fields["authors_excluded_unmeasured"] == (2, "verified")
-    assert fields["dr90_decision_rate"] == (1.0, "derived")
-    assert fields["dr90_decision_pr_count"] == (6, "derived")
+    assert fields["dr90_decision_rate_author_history_cohort"] == (1.0, "derived")
+    assert fields["dr90_decision_pr_count_author_history_cohort"] == (6, "derived")
     assert fields["mr_first_rate"][1] == "derived"
 
 
@@ -1581,8 +1581,8 @@ def test_derive_cohort_fields_unmeasured_threshold_just_above_20_percent_gated()
     fields = gql.derive_cohort_fields(data)
     assert fields["authors_total"] == (100, "verified")
     assert fields["authors_excluded_unmeasured"] == (21, "verified")
-    assert fields["dr90_decision_rate"] == (None, "missing")
-    assert fields["dr90_decision_pr_count"] == (None, "missing")
+    assert fields["dr90_decision_rate_author_history_cohort"] == (None, "missing")
+    assert fields["dr90_decision_pr_count_author_history_cohort"] == (None, "missing")
     assert fields["mr_first_rate"] == (None, "missing")
     assert fields["mr_first_pr_count"] == (None, "missing")
     assert fields["cohort_unmeasured_detail"] == ("21 of 100 authors unmeasured", "verified")
@@ -1607,7 +1607,7 @@ def test_derive_cohort_fields_round2_pytest_repro_yields_unmeasured_not_a_rate()
     assert fields["authors_excluded_unmeasured"] == (45, "verified")
     assert fields["mr_first_rate"] == (None, "missing")
     assert fields["mr_first_pr_count"] == (None, "missing")
-    assert fields["dr90_decision_rate"] == (None, "missing")
+    assert fields["dr90_decision_rate_author_history_cohort"] == (None, "missing")
 
 
 def test_author_status_unmeasured_takes_priority_over_unsampled():
@@ -1640,8 +1640,8 @@ def test_derive_cohort_fields_unmeasured_and_unsampled_overlap_still_gates():
     assert fields["authors_excluded_unmeasured"] == (10, "verified")
     assert fields["authors_excluded_unsampled"] == (0, "verified")
     assert fields["dr90_decision_rate_raw"] == (0.5, "derived")
-    assert fields["dr90_decision_rate"] == (None, "missing")
-    assert fields["dr90_decision_pr_count"] == (None, "missing")
+    assert fields["dr90_decision_rate_author_history_cohort"] == (None, "missing")
+    assert fields["dr90_decision_pr_count_author_history_cohort"] == (None, "missing")
 
 
 def test_derive_cohort_fields_unsampled_only_author_counted_separately():
@@ -1675,8 +1675,8 @@ def test_eligible_call_site_excludes_unmeasured_below_gate_threshold():
                "prs": [], "eligibility_unmeasured": True} for i in range(3)]
     fields = gql.derive_cohort_fields(_w4_ah_data(prs, records))
     assert fields["authors_excluded_unmeasured"] == (3, "verified")  # 3/20 = 0.15, under the gate
-    assert fields["dr90_decision_rate"] == (1.0, "derived")
-    assert fields["dr90_decision_pr_count"] == (17, "derived")
+    assert fields["dr90_decision_rate_author_history_cohort"] == (1.0, "derived")
+    assert fields["dr90_decision_pr_count_author_history_cohort"] == (17, "derived")
 
 
 def test_derive_cohort_fields_newcomer_conversion_gated_not_zero():
@@ -1837,18 +1837,18 @@ def test_derive_repo_cohort_fields(tmp_path):
     bundle = derive.derive_repo("acme", "widget", derive.Ecosystem.PYPI, data_dir,
                                 fetch=False, now=NOW)
     meta = bundle["meta"]
-    assert meta["dr90_decision_rate"] == 0.6667
-    assert meta["dr90_decision_pr_count"] == 6
+    assert meta["dr90_decision_rate_author_history_cohort"] == 0.6667
+    assert meta["dr90_decision_pr_count_author_history_cohort"] == 6
     assert meta["mr_first_rate"] == 0.5
     assert meta["mr_first_pr_count"] == 4
     assert meta["cohort_decision_pr_numbers"] == [200, 201, 202, 203, 204, 205, 206]
     assert meta["newcomer_cohort_author_count"] == 0
     assert meta["author_history_cost_points"] == 77
-    assert bundle["confidence"]["dr90_decision_rate"] == "derived"
+    assert bundle["confidence"]["dr90_decision_rate_author_history_cohort"] == "derived"
     assert bundle["confidence"]["author_history_cost_points"] == "verified"
     ah_path = str(data_dir / "raw" / "author_history" / "acme__widget.json")
-    assert bundle["provenance"]["dr90_decision_rate"]["source"] == ah_path
-    assert bundle["provenance"]["dr90_decision_rate"]["fetched_at"] == NOW.isoformat()
+    assert bundle["provenance"]["dr90_decision_rate_author_history_cohort"]["source"] == ah_path
+    assert bundle["provenance"]["dr90_decision_rate_author_history_cohort"]["fetched_at"] == NOW.isoformat()
 
 
 def test_derive_repo_without_author_history_envelope_no_cohort_fields(tmp_path):

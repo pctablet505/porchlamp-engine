@@ -19,7 +19,7 @@ the first items, in the order the coordinator gave them.
  cvi/derive/bundle.py                            |   4 +-
  cvi/verify/detectors.py                         |  64 +++++--
  docs/v2/rfcs/CHANGELOG.md                       |   1 +
- docs/v2/rfcs/RFC-0002-din3-hygiene-constants.md |  65 ++++++++ (new file)
+ docs/v2/rfcs/RFC-0004-din3-hygiene-constants.md |  65 ++++++++ (new file)
  tests/collect/test_pr_window.py                 | 138 +++++++++++++++-
  tests/core/test_frozen.py                       |  15 +-
  tests/core/test_hygiene.py                      | 105 ++++++++++++ (new file)
@@ -182,7 +182,7 @@ substantive review is still a real, measurable maintainer action,
 unaffected by the author's eligibility. No change needed; confirmed by
 reading D-IN-3's exact text, not inferred.
 
-**Constants relocated (RFC-0002)**: `MIN_ACCOUNT_AGE_DAYS`,
+**Constants relocated (RFC-0004)**: `MIN_ACCOUNT_AGE_DAYS`,
 `MIN_PUBLIC_EVENTS`, `AUTHOR_CAP_FRACTION` moved from
 `cvi.collect.github_graphql` into `cvi.core.constants_v2`, alongside the
 new `cvi.core.hygiene` module (`is_eligible_account`, `account_eligibility`
@@ -264,15 +264,18 @@ All 5 killed. `diff -q` against the pre-mutation backup confirmed clean
 ## RFC / hash
 
 Two RFCs land in this packet (RFC-0001 was written in the prior packet
-round; its hash below is the "before" for RFC-0002's own before/after,
+round; its hash below is the "before" for RFC-0004's own before/after,
 unchanged by this packet):
 
-- `docs/v2/rfcs/RFC-0002-din3-hygiene-constants.md`: relocates
+- `docs/v2/rfcs/RFC-0004-din3-hygiene-constants.md`: relocates
   `MIN_ACCOUNT_AGE_DAYS` / `MIN_PUBLIC_EVENTS` / `AUTHOR_CAP_FRACTION`.
   No `BENCHMARK_VERSION` bump (no scoring-path consumer yet, same
-  reasoning as RFC-0001).
-- `CONSTANTS_HASH`: `d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e`
-  -> `6610ed066b40681844a83b90df1d0969c6e5cd84574e44e2ae565d1eb2851ee0`.
+  reasoning as RFC-0001). Renumbered from RFC-0002 to RFC-0004 during
+  this packet's rebases onto main: RFC-0002 landed as W1-10's own
+  StarScout relocation and RFC-0003 as W2-13's not-applicable rules,
+  both ahead of this packet in landing order.
+- `CONSTANTS_HASH`: `419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9`
+  -> `748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b`.
 - `tests/core/test_frozen.py`: `FROZEN_CONSTANTS_HASH` and `_FROZEN_TABLE`
   updated (three new rows) in the same commit as the constants change.
 - `tests/fixtures/snapshot_50/{manifest,populations,expected}.json`

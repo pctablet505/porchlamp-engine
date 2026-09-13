@@ -124,3 +124,22 @@ def pr_window_data(
         "prs": prs or [],
         "derived": derived or [],
     }
+
+
+def author_history_data(
+    *,
+    author_records: list[dict[str, Any]] | None = None,
+    cost_points: int = 0,
+) -> dict[str, Any]:
+    """The raw ``author_history`` envelope ``data`` shape (W1-4,
+    ``cvi.collect.github_graphql.collect_author_history``): only the
+    ``author_records`` list (``login``, ``account_created_at``,
+    ``public_event_count``, ``eligibility_unmeasured``,
+    ``history_unmeasured``) is read by the W3-1f DR_90 eligibility join
+    (``cvi.derive.bundle._author_history_envelope`` /
+    ``_dr90_author_eligible``); the rest of the real envelope shape
+    (``sampled_authors``, rate-limit accounting) is not needed here."""
+    return {
+        "cost_points": cost_points,
+        "author_records": author_records or [],
+    }

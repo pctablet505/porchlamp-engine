@@ -1167,7 +1167,7 @@ AUTHOR_HISTORY_BUNDLE_FIELDS: tuple[str, ...] = (
     "authors_excluded_unmeasured", "authors_excluded_ineligible",
     "cohort_unmeasured_detail",
     "dr90_decision_rate_raw", "dr90_decision_pr_count_raw",
-    "dr90_decision_rate", "dr90_decision_pr_count",
+    "dr90_decision_rate_author_history_cohort", "dr90_decision_pr_count_author_history_cohort",
     "mr_first_rate_raw", "mr_first_pr_count_raw",
     "mr_first_rate", "mr_first_pr_count",
     "newcomer_cohort_author_count", "cohort_newcomer_authors",
@@ -1192,6 +1192,23 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     for DR_90, MR_first, newcomer conversion and RR_90 (module note). Empty
     dict when ``ah`` is None: without the author_history envelope no cohort
     quantity is measurable.
+
+    W3-1f (review notes item 4, "one name, two values"): the D-IN-3-adjusted
+    DR_90 fields computed here are named ``dr90_decision_rate_author_
+    history_cohort``/``dr90_decision_pr_count_author_history_cohort`` --
+    NOT the bare ``dr90_decision_rate`` the v2 scored input id also uses --
+    because they are a genuinely DIFFERENT number from that scored input:
+    this decision cohort spans :data:`DECISION_COHORT_START_DAYS` (270)
+    down to 90 days back from THIS envelope's own ``window_anchor``, while
+    ``cvi.derive.bundle``'s
+    ``dr90_decision_rate`` resolver (W2-12's D-IN-4 amendment) computes an
+    independent, narrower [anchor-180d, anchor-90d) cohort straight from
+    the ``pr_window`` envelope and never reads these two fields at all.
+    Renaming them (rather than making that resolver read them) preserves
+    both: the resolver keeps the cheaper, already-wired pr_window-only
+    computation D-IN-4 chose, and these two fields stay available, under
+    an unambiguous name, for any future consumer that specifically wants
+    the wider author_history-cohort figure.
 
     Round 3 (B-3/B-2): ``authors_total``/``authors_excluded_unsampled``/
     ``authors_excluded_unmeasured``/``authors_excluded_ineligible`` account
@@ -1286,16 +1303,16 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         # so the D-IN-3-adjusted rate is unmeasured rather than computed on
         # what is left. F-004: "missing" is the documented confidence value.
         detail = f"{authors_excluded_unmeasured} of {authors_total} authors unmeasured"
-        out["dr90_decision_rate"] = (None, "missing")
-        out["dr90_decision_pr_count"] = (None, "missing")
+        out["dr90_decision_rate_author_history_cohort"] = (None, "missing")
+        out["dr90_decision_pr_count_author_history_cohort"] = (None, "missing")
         out["mr_first_rate"] = (None, "missing")
         out["mr_first_pr_count"] = (None, "missing")
         out["cohort_unmeasured_detail"] = (detail, "verified")
     else:
         dr90_kept = _cap_prs([pr for pr in cohort_prs if _eligible(pr, records) is True])
         dr90_decided = sum(1 for pr in dr90_kept if _decided_within_days(pr, DECISION_WINDOW_DAYS))
-        out["dr90_decision_rate"] = (_ratio(dr90_decided, len(dr90_kept)), "derived")
-        out["dr90_decision_pr_count"] = (len(dr90_kept), "derived")
+        out["dr90_decision_rate_author_history_cohort"] = (_ratio(dr90_decided, len(dr90_kept)), "derived")
+        out["dr90_decision_pr_count_author_history_cohort"] = (len(dr90_kept), "derived")
 
         mr_kept = _cap_prs([pr for pr in mr_candidates if _eligible(pr, records) is True])
         mr_decided = [pr for pr in mr_kept if pr.get("closedAt") is not None]

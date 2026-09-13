@@ -59,7 +59,7 @@ from datetime import timezone as _utc_timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Union
 
-from cvi.core import commit_domains, constants_v2, models, openssf
+from cvi.core import commit_domains, constants_v2, hygiene, models, openssf
 from cvi.core.models import (
     BundleValidationError,
     Cohorts,
@@ -1110,6 +1110,35 @@ def _pr_window_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapping[s
     return result
 
 
+def _author_history_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapping[str, Any]], Optional[str]]:
+    """Resolve and read the raw ``author_history`` envelope (W1-4) once per
+    bundle load, memoized on ``ctx.cache`` (W3-1f: the D-IN-3 eligibility
+    join for 1.2 DR_90, plus whichever of 1.3/5.2/5.3 read it directly).
+
+    Keyed off the ``author_history_cost_points`` provenance entry:
+    ``cvi.collect.github_graphql.derive_cohort_fields`` sets it (confidence
+    ``"verified"``) unconditionally whenever the W1-4 hook had an envelope
+    to read, mirroring :func:`_pr_window_envelope`'s own key. Returns
+    ``(None, None, None)`` when the hook never ran for this repo, or when
+    ``raw_root`` cannot resolve the recorded source to a readable file --
+    the caller reads this as "author_history was never collected", not as
+    an error.
+    """
+    if "author_history" in ctx.cache:
+        return ctx.cache["author_history"]
+    entry = ctx.provenance.get("author_history_cost_points")
+    source = _first_source(entry)
+    fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+    path = _resolve_envelope(source, ctx.raw_root)
+    data = _envelope_data(path) if path is not None else None
+    if path is not None and isinstance(data, Mapping) and isinstance(fetched_at, str) and fetched_at:
+        result: tuple[Optional[Path], Optional[Mapping[str, Any]], Optional[str]] = (path, data, fetched_at)
+    else:
+        result = (None, None, None)
+    ctx.cache["author_history"] = result
+    return result
+
+
 def _pr_window_bounds(data: Optional[Mapping[str, Any]]) -> tuple[Optional[str], Optional[str]]:
     """The pr_window envelope's own ``(start, end)`` as ISO strings, derived
     from its recorded ``window_anchor``/``window_days`` — not a live clock
@@ -1162,48 +1191,115 @@ _DR90_COHORT_START_DAYS = 180
 _DR90_COHORT_END_DAYS = 90
 _DR90_DECISION_WINDOW_DAYS = 90
 
-#: 1.2 DR_90's ``method``: ``"primary"``, like the other pr_window-derived
-#: rows (:func:`_resolve_ttfhr_hours`, :func:`_resolve_ttm_p90_hours`,
-#: :func:`_resolve_substantive_review_rate`) -- this is the row's one and
-#: only defined methodology (D-MISS-4 reserves ``"proxy:<name>"`` for a
-#: *documented alternate* methodology such as 4.1's review/CI proxy; this
-#: cohort computation over the real, collected pr_window envelope is not
-#: that, it is the primary and only measurement 1.2 has). The packet
-#: (W2-12) that authored this row specified a longer descriptive ``method``
-#: string naming the cohort interval and the D-IN-3 caveat directly, but
-#: ``Measured.__post_init__`` (``cvi.core.models.measured_problems``)
-#: rejects any ``method`` other than exactly ``"primary"`` or a
-#: ``"proxy:"``-prefixed one -- a whole-codebase invariant, not something
-#: this row can special-case. The caveat that matters (author eligibility,
-#: D-IN-3, is not applied yet -- every external author counts, pending
-#: W3-1) is preserved here and on :func:`_resolve_dr90_decision_rate`
-#: instead of in the method string.
-_DR90_METHOD = constants_v2.METHOD_PRIMARY
+#: 1.2 DR_90's ``method`` (W3-1f, review W-2): ``"primary"`` once BOTH the
+#: D-IN-3 per-author cap and the eligibility gate apply; ``"proxy:
+#: din3_unapplied"`` when the eligibility gate could not be applied (no
+#: ``author_history`` envelope for this repo -- ``pr_window`` alone carries
+#: no public-event count, so ``is_eligible_account`` would read every
+#: author ineligible and collapse the cohort to n=0; review §3.2). The cap
+#: itself needs only ``(login, createdAt)``, both present on every
+#: ``pr_window`` PR node, so it is UNCONDITIONAL -- applied whether or not
+#: the gate is (review W-1: "the stated reason does not cover [the cap]").
+#: D-MISS-4 reserves ``"proxy:<name>"`` for a documented alternate
+#: methodology (4.1's review/CI proxy is the precedent); an eligibility-
+#: unapplied DR_90 is exactly that: a real, computed rate under a weaker
+#: method than the row's primary definition, and this tag is what lets a
+#: consumer tell the two apart -- the caveat used to live only in a
+#: docstring (review W-2), which nothing downstream could read.
+_DR90_METHOD_PRIMARY = constants_v2.METHOD_PRIMARY
+_DR90_METHOD_GATE_UNAPPLIED = constants_v2.PROXY_METHOD_PREFIX + "din3_unapplied"
+
+
+def _dr90_author_eligible(
+    author_records: Mapping[str, Mapping[str, Any]], login: str, pr_created_at: str
+) -> Optional[bool]:
+    """D-IN-3 tri-state eligibility for one DR_90 cohort PR's author,
+    joined against the ``author_history`` envelope's ``author_records``
+    (W1-4) by ``login``. ``None`` (unknown, excluded from the gated
+    population) when the login has no author_history record at all (the
+    two envelopes' decision-cohort windows do not perfectly coincide -- the
+    W1-4 365 d window's cohort is a superset of pr_window's narrower 1.2
+    band, so a genuine miss should be rare but is not impossible) or when
+    its eligibility fetch failed (``eligibility_unmeasured``); otherwise
+    ``cvi.core.hygiene.is_eligible_account`` on the record's own
+    ``account_created_at``/``public_event_count`` against THIS PR's
+    ``createdAt`` (D-IN-3: age is measured at PR creation, not "now").
+
+    ``measured`` combines BOTH of the collector's failure flags --
+    ``eligibility_unmeasured`` and ``history_unmeasured`` -- the same pair
+    ``cvi.collect.github_graphql._account_eligibility`` treats as one
+    signal (F-001's "one D-IN-3 mechanism"); checking only one of the two
+    would silently read the other kind of fetch failure as a confirmed
+    ``True``/``False`` instead of ``None``.
+
+    Unlike that collector-side helper, a login entirely ABSENT from
+    ``author_records`` is treated as unknown (``None``) here rather than
+    falling back to the PR node's own ``author.createdAt`` with a zero
+    event count (which would read as a confirmed ``False``): this join
+    crosses two independently-windowed envelopes (``author_history``'s
+    365 d cohort vs. this PR's own ``pr_window`` position), so a genuine
+    membership miss is expected and must not be silently scored as
+    "confirmed ineligible" on data that was simply never fetched."""
+    record = author_records.get(login)
+    if record is None:
+        return None
+    measured = not (record.get("eligibility_unmeasured") or record.get("history_unmeasured"))
+    return hygiene.account_eligibility(
+        record.get("account_created_at"), pr_created_at, record.get("public_event_count"), measured=measured,
+    )
 
 
 def _dr90_decision_cohort(
-    data: Mapping[str, Any], anchor: datetime.datetime
-) -> tuple[int, int, int]:
-    """1.2 DR_90's cohort and decision count over the raw pr_window envelope.
+    data: Mapping[str, Any],
+    anchor: datetime.datetime,
+    author_records: Optional[Mapping[str, Mapping[str, Any]]] = None,
+) -> tuple[int, int, int, int, bool]:
+    """1.2 DR_90's cohort and decision count over the raw pr_window envelope,
+    D-IN-3-adjusted (W3-1f).
 
-    Joins ``derived[].is_external`` with ``prs[].{createdAt,mergedAt,closedAt}``
-    by PR ``number`` -- the same by-number join :func:`_merged_external_latency_hours`
-    uses for 1.5. The cohort is every external PR whose ``createdAt`` falls
-    in the half-open interval ``[anchor - 180d, anchor - 90d)``: the lower
-    bound is inclusive (a PR opened exactly 180 d ago is still inside the
-    W1-3 collector's trailing window), the upper bound is exclusive (a PR
-    opened exactly 90 d ago has not yet had the full 90 d every cohort
-    member is owed to be decided, so it is left for a later snapshot rather
-    than measured early -- this is the amendment's whole point). A cohort
-    member is decided when ``mergedAt`` or ``closedAt`` is no more than
-    90 d after its own ``createdAt``, inclusive (exactly 90 d counts as
-    decided). A PR whose ``createdAt`` is missing or does not parse as
-    ISO-8601 cannot be windowed at all and is dropped from the cohort,
-    counted separately (``malformed``) so the caller can name it in an
-    ``insufficient_n`` detail instead of silently shrinking ``n`` with no
-    explanation.
+    Joins ``derived[].is_external`` with ``prs[].{createdAt,mergedAt,closedAt,
+    author}`` by PR ``number`` -- the same by-number join
+    :func:`_merged_external_latency_hours` uses for 1.5. The cohort is every
+    external PR whose ``createdAt`` falls in the half-open interval
+    ``[anchor - 180d, anchor - 90d)``: the lower bound is inclusive (a PR
+    opened exactly 180 d ago is still inside the W1-3 collector's trailing
+    window), the upper bound is exclusive (a PR opened exactly 90 d ago has
+    not yet had the full 90 d every cohort member is owed to be decided, so
+    it is left for a later snapshot rather than measured early -- this is
+    the amendment's whole point). A PR whose ``createdAt`` is missing or
+    does not parse as ISO-8601 cannot be windowed at all and is dropped
+    from the cohort, counted separately (``malformed``) so the caller can
+    name it in an ``insufficient_n`` detail instead of silently shrinking
+    ``n`` with no explanation.
 
-    Returns ``(decided_count, cohort_size, malformed_count)``.
+    D-IN-3 (review W-1): when ``author_records`` is given (an
+    ``author_history`` envelope was collected for this repo), each cohort
+    PR's author is checked with :func:`_dr90_author_eligible`, keeping only
+    the ``True`` ones (a ``None`` -- unmeasured or unmatched -- is excluded
+    from the population entirely, never assumed eligible, the same
+    principle ``cvi.collect.github_graphql`` applies throughout W1-4).
+    Whether or not the gate is applied, the survivors are then run through
+    :func:`cvi.core.hygiene.apply_author_cap` keyed on ``(login,
+    createdAt)`` -- both present on every ``pr_window`` node regardless of
+    ``author_history`` -- so one author's PRs count for at most
+    ``AUTHOR_CAP_FRACTION`` of the (possibly gate-reduced) cohort,
+    excess dropped most recent first. A cohort member is decided when
+    ``mergedAt`` or ``closedAt`` is no more than 90 d after its own
+    ``createdAt``, inclusive (exactly 90 d counts as decided), evaluated
+    over the CAPPED population.
+
+    Returns ``(decided_count, capped_cohort_size, raw_cohort_size,
+    malformed_count, gate_applied)``. ``raw_cohort_size`` is the population
+    AFTER the date window and (if applied) the eligibility gate but BEFORE
+    the cap -- this is what ``PARAM_MIN_N`` must be checked against, since
+    the cap's job is to bound one author's SHARE of an already-sufficient
+    population, not to decide whether enough evidence exists at all: a
+    population of exactly 3 independent single-PR authors is capped to 0
+    by :func:`cvi.core.hygiene.apply_author_cap`'s "populations under 5
+    have a cap of 0" rule even though there is no sock puppet to guard
+    against, and reporting that as "0 external PRs" would be false.
+    ``capped_cohort_size`` is the (gated and) capped count the decision
+    rate is actually computed over.
     """
     classified = {
         entry.get("number"): entry
@@ -1213,8 +1309,7 @@ def _dr90_decision_cohort(
     cohort_start = anchor - timedelta(days=_DR90_COHORT_START_DAYS)
     cohort_end = anchor - timedelta(days=_DR90_COHORT_END_DAYS)
     decision_window = timedelta(days=_DR90_DECISION_WINDOW_DAYS)
-    decided = 0
-    cohort = 0
+    entries: list[tuple[str, datetime.datetime, Mapping[str, Any]]] = []
     malformed = 0
     for pr in data.get("prs") or []:
         if not isinstance(pr, Mapping):
@@ -1228,24 +1323,57 @@ def _dr90_decision_cohort(
             continue
         if not (cohort_start <= created < cohort_end):
             continue
-        cohort += 1
+        # A PR node with no recorded author (missing/legacy pr_window data)
+        # must not be lumped into one giant shared "author" by the cap --
+        # that would treat every such PR as the SAME sock puppet. Each
+        # missing-author PR is its own singleton instead.
+        raw_login = str((pr.get("author") or {}).get("login") or "").lower()
+        login = raw_login or f"__no_author_pr_{pr.get('number')}"
+        entries.append((login, created, pr))
+
+    gate_applied = author_records is not None
+    if gate_applied:
+        entries = [
+            (login, created, pr) for login, created, pr in entries
+            if _dr90_author_eligible(author_records, login, pr.get("createdAt")) is True
+        ]
+
+    kept_idx = hygiene.apply_author_cap([(login, created) for login, created, _pr in entries])
+    kept = [entries[i] for i in kept_idx]
+
+    decided = 0
+    for _login, created, pr in kept:
         merged = _parse_iso_or_none(pr.get("mergedAt"))
         closed = _parse_iso_or_none(pr.get("closedAt"))
         decided_by_merge = merged is not None and merged >= created and merged - created <= decision_window
         decided_by_close = closed is not None and closed >= created and closed - created <= decision_window
         if decided_by_merge or decided_by_close:
             decided += 1
-    return decided, cohort, malformed
+    return decided, len(kept), len(entries), malformed, gate_applied
 
 
 def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """1.2 DR_90 decision rate (D-IN-4 amendment, 2026-09-13). No v1 summary
-    field exists for this cohort (the v1 pipeline never computed it): both
-    the value and ``n`` are computed here from the raw pr_window envelope
-    via :func:`_dr90_decision_cohort`. Author eligibility (D-IN-3) is not
-    yet applied -- packet W3-1 -- so today every external author counts;
-    see :data:`_DR90_METHOD` for why that caveat lives in this docstring
-    and not in the ``Measured.method`` value itself."""
+    """1.2 DR_90 decision rate (D-IN-4 amendment, 2026-09-13; D-IN-3
+    per-author cap and eligibility gate, W3-1f). No v1 summary field
+    exists for this cohort (the v1 pipeline never computed it): both the
+    value and ``n`` are computed here from the raw pr_window envelope via
+    :func:`_dr90_decision_cohort`, D-IN-3-adjusted against the
+    ``author_history`` envelope (W1-4) when one was collected for this
+    repo; see :data:`_DR90_METHOD_PRIMARY`/:data:`_DR90_METHOD_GATE_UNAPPLIED`
+    for how the two cases are told apart downstream.
+
+    Note (review N-3, resolved W3-1f notes item 4): ``cvi.collect.
+    github_graphql.derive_cohort_fields`` computes a DIFFERENT number over
+    the ``author_history`` envelope's wider (270 d) decision-cohort
+    definition, now named ``meta["dr90_decision_rate_author_history_
+    cohort"]`` specifically so it can never be confused with THIS row
+    (picked over making this resolver read that field instead: the two
+    are genuinely different cohorts, not two computations of the same
+    one). This resolver does not read that field: it recomputes the cap
+    and gate directly against ``pr_window``'s narrower (180 d,
+    D-IN-4-amended) cohort, which is the row this packet's own oracle 1 is
+    written against and the one W2-12 wired live.
+    """
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
@@ -1255,10 +1383,18 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
             reason="collector_failure",
             detail=f"pr_window envelope has no parseable window_anchor: {data.get('window_anchor')!r}",
         )
-    decided, cohort, malformed = _dr90_decision_cohort(data, anchor)
+    _ah_path, ah_data, _ah_fetched_at = _author_history_envelope(ctx)
+    author_records: Optional[Mapping[str, Mapping[str, Any]]] = None
+    if ah_data is not None:
+        author_records = {
+            str(record.get("login") or "").lower(): record
+            for record in ah_data.get("author_records") or []
+            if isinstance(record, Mapping)
+        }
+    decided, cohort, raw_cohort, malformed, gate_applied = _dr90_decision_cohort(data, anchor, author_records)
     min_n = constants_v2.PARAM_MIN_N["dr90_decision_rate"]
-    if cohort < min_n:
-        detail = f"{cohort} external PRs in the decision cohort, need >= {min_n}"
+    if raw_cohort < min_n:
+        detail = f"{raw_cohort} external PRs in the decision cohort, need >= {min_n}"
         if malformed:
             detail += f" ({malformed} excluded: malformed or missing createdAt)"
         return Unmeasured(reason="insufficient_n", detail=detail)
@@ -1266,9 +1402,10 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     window_end = (anchor - timedelta(days=_DR90_COHORT_END_DAYS)).isoformat()
     source_hash = _envelope_hash(path)
     ctx.referenced[str(path)] = source_hash
+    method = _DR90_METHOD_PRIMARY if gate_applied else _DR90_METHOD_GATE_UNAPPLIED
     return Measured(
         value=round(decided / cohort, 4), n=cohort, window_start=window_start, window_end=window_end,
-        method=_DR90_METHOD, source=str(path), source_hash=source_hash, fetched_at=fetched_at,
+        method=method, source=str(path), source_hash=source_hash, fetched_at=fetched_at,
     )
 
 
@@ -1593,6 +1730,91 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
                        detail=f"v1 confidence {confidence_value!r} for 'pipeline_defenses' is not recognized")
 
 
+def _author_history_rate_resolver(
+    rate_field: str, count_field: str, detail_field: str, *, unset_detail: str,
+) -> InputResolver:
+    """W3-1f (review W-4/F-004/C1e): read-through resolver for the three
+    D-IN-3-adjusted cohort rates ``cvi.collect.github_graphql.
+    derive_cohort_fields`` (W1-4/W3-1) computes straight from the
+    ``author_history`` envelope -- ``mr_first_rate``, ``newcomer_conversion``,
+    ``rr90_return_rate`` -- the same way :func:`_plain_scalar_resolver`
+    reads every other v1-precomputed scalar (unlike ``dr90_decision_rate``,
+    none of these three has its own live pr_window-based resolver yet, so
+    there is no "one name two values" ambiguity here to resolve).
+
+    - confidence ``"derived"`` (the collector's own unmeasured-fraction
+      gate did not fire): ``Measured`` from ``meta[rate_field]``, ``n``
+      from ``meta[count_field]``, gated by this input's own
+      ``PARAM_MIN_N`` -- including the ``count == 0`` case (``_ratio``
+      returns ``None`` for a zero-size cohort even under a "derived"
+      confidence), which reads as ``insufficient_n``, never
+      ``collector_failure``: a real, checked, empty cohort is not a
+      collector defect.
+    - confidence ``"missing"`` (the gate DID fire: too many cohort/
+      newcomer authors have no eligibility data to trust the adjusted
+      rate): ``Unmeasured(collector_failure, ...)`` with the REAL,
+      dynamic, per-repo detail carried in ``meta[detail_field]`` (F-004:
+      "k of n authors unmeasured") -- never the static ``unset_detail``,
+      which would hide that a collector FAILURE, not an absent collector,
+      is why this row has no value (review C1e: this mapping did not
+      exist at all before W3-1f, so ``collector_failure`` was never
+      emitted for this gate).
+    - confidence absent entirely (no ``author_history`` envelope was
+      collected for this repo -- ``derive_cohort_fields`` returned ``{}``
+      -- or a v1 run predating W1-4): ``Unmeasured(collector_failure,
+      unset_detail)``, the STATIC message identifying the missing
+      collector itself.
+    - any other confidence value: the same "not recognized" fallback
+      :func:`_plain_scalar_resolver` uses.
+    """
+
+    def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
+        confidence_value = ctx.confidence.get(rate_field)
+        if confidence_value == "derived":
+            value = ctx.meta.get(rate_field)
+            count = ctx.meta.get(count_field)
+            count_ok = isinstance(count, int) and not isinstance(count, bool)
+            min_n = constants_v2.PARAM_MIN_N.get(rate_field)
+            if count_ok and min_n is not None and count < min_n:
+                return Unmeasured(
+                    reason="insufficient_n",
+                    detail=f"{count} authors in the D-IN-3-adjusted cohort, need >= {min_n}",
+                )
+            value_ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+            if value_ok and count_ok:
+                entry = ctx.provenance.get(rate_field)
+                source = _first_source(entry)
+                fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+                path = _resolve_envelope(source, ctx.raw_root)
+                if path is not None and isinstance(fetched_at, str) and fetched_at:
+                    source_hash = _envelope_hash(path)
+                    ctx.referenced[str(path)] = source_hash
+                    return Measured(
+                        value=value, n=count, window_start=None, window_end=None, method="primary",
+                        source=str(path), source_hash=source_hash, fetched_at=fetched_at,
+                    )
+                detail = (f"v1 source is not an envelope: {source!r}" if path is None
+                          else f"v1 provenance for {rate_field!r} has no fetched_at")
+                return Unmeasured(reason="collector_failure", detail=detail)
+            return Unmeasured(
+                reason="collector_failure",
+                detail=f"v1 deriver recorded {rate_field}={value!r}, {count_field}={count!r}: not a usable pair",
+            )
+        if confidence_value == "missing":
+            detail = ctx.meta.get(detail_field)
+            if not isinstance(detail, str) or not detail:
+                detail = f"{rate_field} unavailable: author_history unmeasured-fraction gate fired with no detail recorded"
+            return Unmeasured(reason="collector_failure", detail=detail)
+        if confidence_value is None:
+            return Unmeasured(reason="collector_failure", detail=unset_detail)
+        return Unmeasured(
+            reason="collector_failure",
+            detail=f"v1 confidence {confidence_value!r} for {rate_field!r} is not recognized",
+        )
+
+    return resolve
+
+
 def _unmapped(detail: str) -> InputResolver:
     """A v2 input with no landed producer yet (or one whose landed collector
     cannot supply it — see each row's ``detail``): constant
@@ -1611,7 +1833,7 @@ def _unmapped(detail: str) -> InputResolver:
 #: |---|---|---|
 #: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count (W1-3) | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
 #: | dr90_decision_rate | raw pr_window envelope: derived[].is_external joined with prs[].{createdAt,mergedAt,closedAt} by number, cohort [anchor-180d,anchor-90d) (W2-12, D-IN-4 amendment) | no envelope -> collector_failure; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
-#: | mr_first_rate | (none landed) | collector_failure: needs W1-4 author history |
+#: | mr_first_rate | meta.mr_first_rate + .mr_first_pr_count (D-IN-3-adjusted, W1-4/W3-1f) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
 #: | gr14_ghost_rate | (none landed) | collector_failure: needs a snapshot as_of the v1-to-v2 loader is never given (04 section 8) |
 #: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number (W1-3) | no envelope -> collector_failure; n<5 -> insufficient_n |
 #: | dependents_deduped | meta.dependents_count when confidence=="derived" (W1-2 dependents hook); meta.ecosystem gates it (W1-2f) | ecosystem=="systems" -> not_applicable (D-MISS-5); verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap, maven detail names the uncollected pom.xml, unmapped ecosystem detail names it (W2-9f, W1-2f) |
@@ -1624,13 +1846,16 @@ def _unmapped(detail: str) -> InputResolver:
 #: | ai_posture | meta.ai_posture, vocab-validated against constants_v2.AI_POSTURE_VALUES (identity map, W2-9f, W4) | collector_failure; an out-of-set value is collector_failure too, never Measured |
 #: | substantive_review_rate | meta.pr_window_substantive_review_rate (W1-3); n from the raw envelope | no envelope -> collector_failure; n<10 -> insufficient_n |
 #: | newcomer_issue_supply | meta.active_unclaimed_gfis (W1-1 recount already lands here) | collector_failure |
-#: | newcomer_conversion | (none landed) | collector_failure: needs the W1-4 newcomer cohort |
-#: | rr90_return_rate | (none landed) | collector_failure: needs the W1-4 newcomer cohort |
+#: | newcomer_conversion | meta.newcomer_conversion + .newcomer_conversion_author_count (D-IN-3-adjusted, W1-4/W3-1f) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
+#: | rr90_return_rate | meta.rr90_return_rate + .rr90_return_author_count (D-IN-3-adjusted, W1-4/W3-1f) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
 #: | dx | (none landed) | collector_failure: v1 has CI runtime only, not the setup-signal half |
 INPUT_MAPPINGS: dict[str, InputResolver] = {
     "ttfhr_hours": _resolve_ttfhr_hours,
     "dr90_decision_rate": _resolve_dr90_decision_rate,
-    "mr_first_rate": _unmapped("needs W1-4 author history; the v1 pipeline collected none"),
+    "mr_first_rate": _author_history_rate_resolver(
+        "mr_first_rate", "mr_first_pr_count", "cohort_unmeasured_detail",
+        unset_detail="needs W1-4 author history; the v1 pipeline collected none",
+    ),
     "gr14_ghost_rate": _unmapped(
         "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no "
         "as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) "
@@ -1671,8 +1896,14 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     "ai_posture": _vocab_scalar_resolver("ai_posture", {value: value for value in constants_v2.AI_POSTURE_VALUES}),
     "substantive_review_rate": _resolve_substantive_review_rate,
     "newcomer_issue_supply": _plain_scalar_resolver("active_unclaimed_gfis"),
-    "newcomer_conversion": _unmapped("needs the W1-4 newcomer cohort; the v1 pipeline collected none"),
-    "rr90_return_rate": _unmapped("v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps"),
+    "newcomer_conversion": _author_history_rate_resolver(
+        "newcomer_conversion", "newcomer_conversion_author_count", "newcomer_unmeasured_detail",
+        unset_detail="needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+    ),
+    "rr90_return_rate": _author_history_rate_resolver(
+        "rr90_return_rate", "rr90_return_author_count", "newcomer_unmeasured_detail",
+        unset_detail="v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+    ),
     "dx": _unmapped("v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only"),
 }
 
