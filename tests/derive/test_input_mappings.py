@@ -361,64 +361,55 @@ def test_downloads_monthly(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 def test_legal_ip(tmp_path: Path) -> None:
-    data = {"legal_ip_model": "CORP_CLA_RECIPROCAL"}
-    write_envelope(tmp_path / "raw", "tree", "acme__widget", data, "2026-09-01T00:05:00+00:00")
+    """W1-6 BB3: this row now reads the packet's own bare "legal_ip" field
+    (a "governance" envelope) as an identity vocab over
+    constants_v2.LEGAL_IP_VALUES -- never "legal_ip_model" (the v1 regex
+    heuristic W1-6 was built to replace; deleted from this row entirely, so
+    a document that only ever wrote the old field is indistinguishable from
+    one that never ran the collector at all -- both are Unmeasured, Negative
+    1 below). Mirrors test_ai_posture's shape exactly (same envelope,
+    same identity-vocab pattern, already correct before this round)."""
+    data = {"legal_ip": "CORP_CLA"}
+    write_envelope(tmp_path / "raw", "governance", "acme__widget", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(
-        meta={"legal_ip_model": "CORP_CLA_RECIPROCAL"},
-        provenance={"legal_ip_model": prov("tree")},
-        confidence={"legal_ip_model": "verified"},
+        meta={"legal_ip": "CORP_CLA"},
+        provenance={"legal_ip": prov("governance")},
+        confidence={"legal_ip": "derived"},
     )
     bundle = load(tmp_path, doc)
     assert bundle.inputs["legal_ip"] == Measured(
         value="CORP_CLA", n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "tree" / "acme__widget.json"),
+        source=str(tmp_path / "raw" / "governance" / "acme__widget.json"),
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
-    # Negative 1: v1 deriver recorded nothing.
-    missing = base_document(confidence={"legal_ip_model": "missing"})
+    # Negative 1: v1 deriver recorded nothing (no governance envelope, or
+    # the collector failed -- W1-6 B2's "missing" confidence).
+    missing = base_document(confidence={"legal_ip": "missing"})
     missing_bundle = load(tmp_path, missing, key="acme__missing-legal")
     assert missing_bundle.inputs["legal_ip"] == Unmeasured(
         reason="collector_failure", detail="v1 deriver recorded no value",
     )
 
-    # Negative 2 (W2-9f, W5): an unrecognized v1 enum spelling is THIS ROW's
-    # own gap, not a whole-bundle rejection -- even when the envelope is
-    # otherwise perfectly resolvable (pre-W2-9f: this raised
-    # BundleValidationError and lost the whole repo's 17 other, perfectly
-    # good inputs over one bad enum in a row that was going to be Unmeasured
-    # regardless).
-    bogus_data = {"legal_ip_model": "BOGUS_REGIME"}
-    write_envelope(tmp_path / "raw", "tree", "acme__bogus-legal", bogus_data, "2026-09-01T00:05:00+00:00")
+    # Negative 2 (W2-9f, W5): an unrecognized value is THIS ROW's own gap,
+    # not a whole-bundle rejection -- even when the envelope is otherwise
+    # perfectly resolvable (pre-W2-9f: this raised BundleValidationError and
+    # lost the whole repo's 17 other, perfectly good inputs over one bad
+    # value in a row that was going to be Unmeasured regardless). W1-6's own
+    # classify_legal_ip never emits an out-of-vocabulary value, so this
+    # scenario is a defensive guard against a malformed/hand-edited document,
+    # not a reachable collector output.
+    bogus_data = {"legal_ip": "BOGUS_REGIME"}
+    write_envelope(tmp_path / "raw", "governance", "acme__bogus-legal", bogus_data, "2026-09-01T00:05:00+00:00")
     bogus_doc = base_document(
-        meta={"legal_ip_model": "BOGUS_REGIME"},
-        provenance={"legal_ip_model": prov("tree", key="acme__bogus-legal")},
-        confidence={"legal_ip_model": "verified"},
+        meta={"legal_ip": "BOGUS_REGIME"},
+        provenance={"legal_ip": prov("governance", key="acme__bogus-legal")},
+        confidence={"legal_ip": "derived"},
     )
     bogus_bundle = load(tmp_path, bogus_doc, key="acme__bogus-legal")  # must not raise
     assert bogus_bundle.inputs["legal_ip"] == Unmeasured(
         reason="collector_failure",
-        detail="v1 value 'BOGUS_REGIME' for 'legal_ip_model' has no v2 vocabulary mapping",
-    )
-
-    # Negative 3 (W2-9f, W5, the review's exact scenario): the same bogus
-    # enum PLUS an unresolvable (URL) source -- the real shape of 199 of 199
-    # sample-200 documents' legal_ip_model/promotion_ladder provenance. The
-    # envelope-resolution failure wins the detail message (the enum was
-    # never reachable either way); the bundle still loads.
-    url_bogus_doc = base_document(
-        meta={"legal_ip_model": "BOGUS_REGIME"},
-        provenance={"legal_ip_model": {
-            "source": "https://raw.githubusercontent.com/acme/widget/HEAD/CONTRIBUTING.md",
-            "fetched_at": "2026-09-01T00:05:00+00:00",
-        }},
-        confidence={"legal_ip_model": "verified"},
-    )
-    url_bogus_bundle = load(tmp_path, url_bogus_doc, key="acme__url-bogus-legal")  # must not raise
-    assert url_bogus_bundle.inputs["legal_ip"] == Unmeasured(
-        reason="collector_failure",
-        detail="v1 source is not an envelope: "
-               "'https://raw.githubusercontent.com/acme/widget/HEAD/CONTRIBUTING.md'",
+        detail="v1 value 'BOGUS_REGIME' for 'legal_ip' has no v2 vocabulary mapping",
     )
 
 

@@ -968,3 +968,73 @@ Found 4 errors.   # all four in scripts/curate_dataset_llm.py, pre-existing, unt
 real `collect_governance` with a fully stubbed `StubApi` transport and a
 stubbed `fetch_file` callable (zero network, per-call count logged and
 pasted above).
+
+---
+
+# Round 3b (lead-authorized test updates)
+
+Lead authorization: update the three out-of-ownership tests that asserted
+the old `legal_ip_model` wiring, to the new contract. One commit on top of
+`563afa0`.
+
+## `tests/derive/test_input_mappings.py::test_legal_ip`
+
+Rewritten to mirror `test_ai_posture`'s own shape exactly (same envelope,
+same identity-vocab pattern): writes a `governance` envelope with a bare
+`legal_ip` field, asserts `Measured` from it. Two negative cases kept
+(`confidence="missing"` -> Unmeasured; an out-of-vocabulary value -> the
+row-scoped W2-9f Unmeasured, never a whole-bundle rejection). The third
+negative case (a `raw.githubusercontent.com` URL source) is dropped: it
+was specifically about `legal_ip_model`'s old real-world provenance shape,
+which the new governance-envelope-sourced field can never produce (its
+source is always a local `governance/`/`commits_365d/` envelope path, never
+a raw GitHub URL) -- `test_ai_posture`, on the identical pattern, was never
+written with that case either, so this is parity, not a lost guard.
+
+## `tests/core/test_sample200_load.py`
+
+Both fixed against the SAME pinned fixture (`EvanLi__Github-Ranking`),
+which predates the governance collector -- the frozen document carries
+`legal_ip_model` (old) but never wrote `legal_ip` (new), so its confidence
+for the new field is genuinely absent, not merely "missing":
+
+* `test_measured_inputs_carry_envelope_provenance`: the `legal_ip` block
+  (previously asserting `Measured('DCO', source=.../tree/...)`) moved to
+  `test_unmeasured_inputs_have_documented_reasons`, where it now asserts
+  `Unmeasured(reason="collector_failure", detail="v1 confidence None for
+  'legal_ip' is not recognized")` -- the literal value `INPUT_MAPPINGS`
+  produces for this fixture, verified by direct interpreter reproduction
+  before writing the assertion (`cvi-scratch/W1-6-r3/` session output).
+  **Old -> new: Measured inputs on this fixture go from 3 to 2**
+  (`elephant_factor`, `newcomer_issue_supply` remain; `legal_ip` is why).
+* `test_provenance_hash_matches_independent_recomputation`: the referenced-
+  envelope list now excludes `"tree"` (one line, `if collector != "tree"`),
+  with a docstring note explaining why. Recomputation method (`json.dumps`
+  with `sort_keys=True`, `sha256` over the same `ENVELOPE_HASHES` pins) is
+  byte-for-byte unchanged, per instruction -- only the SET of envelopes
+  fed into it changed, because `"tree"` was referenced only via the deleted
+  `legal_ip_model` read. Verified independently before writing the
+  assertion: recomputing with `"tree"` excluded reproduces
+  `bundle.provenance_hash` exactly; including it does not.
+  **Old -> new: 6 referenced envelopes -> 5** (`ENVELOPE_HASHES` itself is
+  untouched -- it still pins `"tree"`'s hash for documentation, just no
+  longer feeds the recomputed payload).
+
+## Full suite (real output, exit code, twice)
+
+```
+$ pytest tests -p no:cacheprovider -n 4
+1833 passed, 12 warnings in 8.65s
+$ pytest tests -p no:cacheprovider -n 4   # re-run, stability check
+1833 passed, 12 warnings in 8.71s
+```
+
+0 failed, both runs, exit 0. `cvi-scratch/sample-200` was present (not
+renamed) for both runs.
+
+## Ruff
+
+```
+$ ruff check tests/derive/test_input_mappings.py tests/core/test_sample200_load.py
+All checks passed!
+```

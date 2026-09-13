@@ -108,12 +108,12 @@ def test_measured_inputs_carry_envelope_provenance(bundle: Any, sample: dict[str
     assert elephant.source_hash == ENVELOPE_HASHES["contributors"]
     assert elephant.fetched_at == "2026-09-12T01:10:41.191668+00:00"
 
-    legal_ip = bundle.inputs["legal_ip"]
-    assert isinstance(legal_ip, Measured)
-    assert legal_ip.value == "DCO"
-    assert legal_ip.source == str(sample["raw"] / "tree" / f"{KEY}.json")
-    assert legal_ip.source_hash == ENVELOPE_HASHES["tree"]
-    assert legal_ip.fetched_at == "2026-09-12T01:10:44.983176+00:00"
+    # legal_ip is no longer Measured here (W1-6 BB3): INPUT_MAPPINGS["legal_ip"]
+    # now reads this packet's own bare "legal_ip" field (the governance
+    # envelope's classification, never the abandoned v1 "legal_ip_model"
+    # heuristic this frozen document was pinned against) -- see
+    # test_unmeasured_inputs_have_documented_reasons for its Unmeasured
+    # assertion, since sample-200 predates the governance collector.
 
     # W2-9: active_unclaimed_gfis (confidence "verified", value 0 -- a
     # measured zero, D-MISS-1: a repo-controlled absence, not a gap) now
@@ -140,6 +140,18 @@ def test_unmeasured_inputs_have_documented_reasons(bundle: Any) -> None:
     # class TP) is now third_party_gap, not collector_failure.
     assert bundle.inputs["dependents_deduped"] == Unmeasured(
         reason="third_party_gap", detail="deps.dev/ecosyste.ms returned no dependents data",
+    )
+    # W1-6 BB3: legal_ip now reads this packet's own bare "legal_ip" field
+    # (a governance envelope), never the v1 "legal_ip_model" heuristic; the
+    # frozen sample-200 document predates the governance collector, so
+    # neither the field nor its confidence was ever written for it -- old
+    # -> new: this input moved from Measured('DCO', source=.../tree/...) to
+    # Unmeasured(collector_failure) when the wiring stopped following
+    # legal_ip_model (the count of Measured inputs on this fixture drops by
+    # one, from 3 to 2: elephant_factor and newcomer_issue_supply remain).
+    assert bundle.inputs["legal_ip"] == Unmeasured(
+        reason="collector_failure",
+        detail="v1 confidence None for 'legal_ip' is not recognized",
     )
     assert bundle.inputs["ai_posture"].reason == "collector_failure"
     assert "not an envelope" in bundle.inputs["ai_posture"].detail
@@ -195,11 +207,19 @@ def test_cohorts_are_empty_for_v1_data(bundle: Any) -> None:
 def test_provenance_hash_matches_independent_recomputation(bundle: Any, sample: dict[str, Path]) -> None:
     """04 section 3: provenance_hash is the hash of all referenced envelope
     hashes. Recomputed here from the pinned content hashes of the five
-    referenced envelopes, independently of the loader's hashing code path."""
+    referenced envelopes, independently of the loader's hashing code path.
+
+    W1-6 BB3: "tree" drops out of the referenced set (old -> new: 6 -> 5
+    envelopes) -- it was referenced only via the old legal_ip_model wiring,
+    which INPUT_MAPPINGS["legal_ip"] no longer reads (see
+    test_unmeasured_inputs_have_documented_reasons); every other envelope's
+    pinned hash and recomputation method are unchanged.
+    """
     raw = sample["raw"]
     referenced = [
         {"source": str(raw / collector / f"{KEY}.json"), "source_hash": digest}
         for collector, digest in ENVELOPE_HASHES.items()
+        if collector != "tree"
     ]
     payload = json.dumps(referenced, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     expected = hashlib.sha256(payload.encode("utf-8")).hexdigest()
