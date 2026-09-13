@@ -10,7 +10,7 @@
   ],
   "as_of": "2026-09-12T05:26:57.089407+00:00",
   "benchmark_version": "2.0.0-rc1",
-  "constants_hash": "419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9",
+  "constants_hash": "748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b",
   "document": "cvi-fixture-snapshot-manifest",
   "population_fallback_params": [],
   "repo_count": 50,
