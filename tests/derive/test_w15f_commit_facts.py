@@ -34,6 +34,7 @@ from cvi.derive.bundle import (
     LastNonBotCommitMeasured,
     TopEmailDomainShareMeasured,
     last_non_bot_commit_at,
+    load_bundle,
     top_email_domain_share,
 )
 
@@ -83,6 +84,27 @@ def test_last_non_bot_commit_at_measured_from_commits_365d(tmp_path: Path) -> No
     fact = last_non_bot_commit_at(bundle)
     assert isinstance(fact, LastNonBotCommitMeasured)
     assert fact.value == "2026-06-01T00:00:00Z"
+
+
+def test_last_non_bot_commit_at_resolves_via_raw_root_with_no_provenance_entry(tmp_path: Path) -> None:
+    """The real sample-200 corpus's v1 documents key ``provenance`` by meta
+    field name (``elephant_factor``, ``active_nonbot_commits_180d``, ...),
+    never by the literal collector name ``"commits_365d"``/
+    ``"commits_180d"`` -- so a resolver that only looked those two strings
+    up in ``provenance`` would never find anything there (empirically
+    confirmed against the corpus before writing the fix). The envelope
+    must resolve from ``raw_root/commits_365d/<key>.json`` directly,
+    with no provenance entry naming it at all."""
+    rows = _rows(30) + [_row("latest", "latest@corp.com", "2026-06-01T00:00:00Z")]
+    _write(tmp_path, "commits_365d", rows)
+    doc = _doc(commits_365d=rows, commits_365d_prov=False)
+    assert "commits_365d" not in doc["provenance"]  # sanity: truly no provenance entry
+    bundle = load(tmp_path, doc)
+
+    fact = last_non_bot_commit_at(bundle)
+    assert isinstance(fact, LastNonBotCommitMeasured)
+    assert fact.value == "2026-06-01T00:00:00Z"
+    assert fact.source_hash == expected_hash(rows)
     assert fact.method == "measured:commits_365d"
     assert fact.source_hash == expected_hash(rows)
     assert fact.fetched_at
@@ -293,3 +315,61 @@ def test_top_email_domain_share_tie_breaks_alphabetically_first(tmp_path: Path) 
     assert isinstance(fact, TopEmailDomainShareMeasured)
     assert fact.top_domain == "aaa.com"
     assert fact.value == pytest.approx(0.5)
+
+
+# --------------------------------------------------------------------------- #
+# Round-trip: both sidecar facts survive dump_bundle -> write_bundle ->     #
+# load_bundle (validate_bundle's own docstring explains why this matters -- #
+# last_non_bot_commit_at feeds tie_key, so losing it on reload would        #
+# silently change records_hash between the snapshot that produced a frozen  #
+# fixture's expected.json and any later reproduction of it from the         #
+# committed bundle files, e.g. tests/fixtures/snapshot_50).                #
+# --------------------------------------------------------------------------- #
+
+def test_both_sidecar_facts_survive_a_dump_reload_round_trip(tmp_path: Path) -> None:
+    from cvi.derive.bundle import write_bundle
+
+    rows = _rows(20, domain="corp.com") + _rows(10, domain="other.com", start_day=21) + [
+        _row("latest", "latest@corp.com", "2026-06-01T00:00:00Z"),
+    ]
+    _write(tmp_path, "commits_365d", rows)
+    bundle = load(tmp_path, _doc(commits_365d=rows))
+    original_last_commit = last_non_bot_commit_at(bundle)
+    original_domain_share = top_email_domain_share(bundle)
+    assert isinstance(original_last_commit, LastNonBotCommitMeasured)
+    assert isinstance(original_domain_share, TopEmailDomainShareMeasured)
+
+    dumped_path = write_bundle(bundle, tmp_path / "dumped.json")
+    reloaded = load_bundle(dumped_path)
+
+    assert last_non_bot_commit_at(reloaded) == original_last_commit
+    assert top_email_domain_share(reloaded) == original_domain_share
+
+
+def test_sidecar_facts_default_when_v2_document_has_neither_optional_key(tmp_path: Path) -> None:
+    """A v2 document with no ``last_non_bot_commit_at``/
+    ``top_email_domain_share`` key at all (an older document, or one
+    written before this packet) is still valid -- both facts fall back
+    to their unset default, never a validation error."""
+    import json as _json
+
+    from cvi.derive.bundle import dump_bundle
+
+    rows = _rows(30)
+    _write(tmp_path, "commits_365d", rows)
+    bundle = load(tmp_path, _doc(commits_365d=rows))
+    doc = dump_bundle(bundle)
+    del doc["last_non_bot_commit_at"]
+    del doc["top_email_domain_share"]
+    path = tmp_path / "no_sidecar.json"
+    path.write_text(_json.dumps(doc), encoding="utf-8")
+
+    reloaded = load_bundle(path)
+    assert last_non_bot_commit_at(reloaded) == Unmeasured(
+        reason="collector_failure",
+        detail="no commits_365d or commits_180d envelope resolvable for this bundle",
+    )
+    assert top_email_domain_share(reloaded) == Unmeasured(
+        reason="collector_failure",
+        detail="no commits_365d or commits_180d envelope resolvable for this bundle",
+    )
