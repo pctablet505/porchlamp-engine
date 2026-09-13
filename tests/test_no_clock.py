@@ -54,7 +54,6 @@ CLOCK_RE = re.compile(
 EXCLUDED_DIRS = {"collect", "serve"}
 EXCLUDED_MODULES = {
     "benchmark_data.py": "single definition of the fixture clock (R-2)",
-    "benchmark.py": "re-exports the fixture clock",
 }
 
 NOW = datetime(2026, 9, 11, 12, 0, 0)
@@ -144,7 +143,6 @@ def test_exempt_modules_actually_own_a_clock() -> None:
         CVI_PKG / name for name in sorted(EXCLUDED_MODULES) if (CVI_PKG / name).is_file()
     ]
     assert {hit.rsplit(":", 1)[0] for hit in _offenders(paths)} == {
-        "cvi/benchmark.py",
         "cvi/benchmark_data.py",
     }
 

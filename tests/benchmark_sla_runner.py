@@ -26,7 +26,7 @@ import httpx
 import uvicorn
 
 from cvi.api import create_app
-from cvi.benchmark import (
+from cvi.benchmark_data import (
     build_benchmark_store,
     generate_benchmark_catalog,
     seed_benchmark_store,

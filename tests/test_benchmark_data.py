@@ -149,7 +149,7 @@ def test_ground_truth_gentoo() -> None:
 
 
 def test_benchmark_module_exports_and_generate() -> None:
-    from cvi.benchmark import (
+    from cvi.benchmark_data import (
         generate_benchmark_catalog,
     )
     cat = generate_benchmark_catalog()
