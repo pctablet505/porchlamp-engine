@@ -4,7 +4,7 @@ Base: `W4-5a` tip `026bb32` at dispatch time; rebased onto `main` tip `d112aa2`
 (W4-5a landed with its fix rounds) partway through — see "Rebase" below.
 Branch: `W4-5b`. Worktree: `~/Projects/cvi-wt-W4-5b`.
 
-Commits (in order, all on `W4-5b`, HEAD `e5856d1`):
+Commits (in order, all on `W4-5b`, HEAD `2fd21aa`):
 
 1. `733284d` — `feat(serve,scripts): W4-5b backend — matrix/methodology/reproject fixture endpoints`
 2. `58a3618` — `feat(web/v2): W4-5b shared plumbing — primary nav, state/api/copy additions, app.js wiring`
@@ -14,9 +14,35 @@ Commits (in order, all on `W4-5b`, HEAD `e5856d1`):
 6. `a3193a1` — `feat(web/v2): W4-5b Screen F — Methodology and snapshot (zero hardcoded numbers)`
 7. `b2f85a1` — `fix(serve): W4-5b post-rebase — rank_delta for reprojected rows`
 8. `e5856d1` — `fix(web/v2): W4-5b live-browser verification fixes (Matrix/Configure/Methodology)`
+9. `b1a8715` — `docs(W4-5b): handoff — screens B/D/E/F, rebase, live-browser fixes, COULD NOT VERIFY`
+10. `2fd21aa` — `fix(web/v2,serve): W4-4 review addendum — surface the API's error detail`
 
-Base sha: `d112aa2` (main, post-rebase). Diffstat `d112aa2..HEAD`: **22 files
-changed, 4546 insertions(+), 20 deletions(-)**.
+Base sha: `d112aa2` (main, post-rebase). Diffstat `d112aa2..HEAD`: **23 files
+changed, ~4700 insertions(+), ~56 deletions(-)** (commit 10 landed after
+this file's own commit 9, hence the slight recount).
+
+## Addendum (post-handoff): W4-4 review — API error `detail`
+
+The W4-4 review found `web/v2/api.js` never read the real API's structured
+error body (`{"error": {endpoint, status, detail}}`), discarding `detail`
+entirely. Folded in as commit `2fd21aa`: `scripts/serve_ui_fixtures.py`'s
+`_send_error_json` now sends that exact nested shape; `api.js` parses it
+(`ApiError.detail`, tolerating a bare-string `error` too) for both `getJson`
+and `postReproject`, and also treats a 2xx response with a non-JSON
+Content-Type as an error naming the endpoint; every `copy.js` error-text
+function gained an optional `detail` argument rendered as its own sentence
+after the endpoint+status, wired through every banner/drawer call site
+(leaderboard/notranked/drawer — a third argument on an existing call,
+"wiring" per the dispatch's own restriction — plus matrix/configure/
+compare/methodology, all mine). New test:
+`tests/test_serve_ui_fixtures_w4_5b.py::TestErrorBodyShape` (3 tests,
+including a real `--fail snapshot` 500 asserting the detail text appears).
+Live-browser verified: a monkey-patched 503 with a synthetic detail
+rendered exactly as expected in Screen B's error banner. Also confirmed
+(no change needed): `views/configure.js`'s client-side sort already used
+the exact `sort=p_<pillar>`/`-p_<pillar>`, `rank/cvi/coverage/tier`-with-`-`
+-for-ascending-of-score encoding, since it imports and reuses
+`components/table.js::SORTABLE_COLUMNS` rather than redeclaring it.
 
 ## Rebase (mid-packet)
 
