@@ -27,12 +27,14 @@ from cvi.core.gates import GateEvidence
 from cvi.core.models import (
     Cohorts,
     FeatureBundle,
+    GateResult,
     Measured,
     ParamScore,
     PillarScore,
     PRWindow,
     PRWindowEvent,
     RepoIdentity,
+    ScoreRecord,
     Unmeasured,
 )
 from cvi.snapshot.populations import Population, PopulationSet
@@ -230,8 +232,10 @@ class EligibleFixture:
 
 
 def test_engine_end_to_end_every_field() -> None:
-    record = score(EligibleFixture.bundle(), EligibleFixture.populations(), EligibleFixture.snapshot())
+    bundle = EligibleFixture.bundle()
+    record = score(bundle, EligibleFixture.populations(), EligibleFixture.snapshot())
 
+    assert record.repo == bundle.repo
     assert record.snapshot_id == "snap-1"
     assert record.benchmark_version == constants_v2.BENCHMARK_VERSION
     assert record.constants_hash == constants_v2.CONSTANTS_HASH
@@ -313,6 +317,7 @@ def test_gated_repo_never_calls_the_parameter_functions(monkeypatch: pytest.Monk
 
     record = engine.score(bundle, _PoisonPopulations(), snapshot)
 
+    assert record.repo == bundle.repo
     assert calls == []
     assert record.gate.eligible is False
     assert record.gate.reason == "archived"
@@ -390,6 +395,7 @@ def test_unrated_repo_has_no_composite_or_tier_but_keeps_params_and_coverage() -
 
     record = score(bundle, empty_populations, snapshot)
 
+    assert record.repo == bundle.repo
     assert record.gate.eligible is True
     assert record.gate.reason is None
     assert record.gate.undecided == ("D-GATE-5",)
@@ -633,3 +639,99 @@ def test_ecdf_params_missing_population_are_no_population_not_a_crash() -> None:
     assert record.params["downloads_monthly"] == ParamScore(
         score=None, measured=False, reason="no_population", n=0, method=None
     )
+
+
+# --------------------------------------------------------------------------- #
+# W2-10 acceptance: ScoreRecord carries its own repo identity (04 section 3).
+# --------------------------------------------------------------------------- #
+
+
+def _bare_score_record_fields() -> dict[str, Any]:
+    """Every ``ScoreRecord`` field except ``repo`` -- a minimal gated shape,
+    reused by the fail-before/after proof below."""
+    return dict(
+        snapshot_id="snap-1",
+        benchmark_version=constants_v2.BENCHMARK_VERSION,
+        constants_hash=constants_v2.CONSTANTS_HASH,
+        raw_hash=_HASH64,
+        gate=GateResult(eligible=True, reason=None, routed=None, undecided=()),
+        params={},
+        pillars={},
+        composite=None,
+        coverage=0.0,
+        tier=None,
+        leverage=None,
+        friction=None,
+        quadrant=None,
+        persona_gates={},
+        persona_composites={},
+        tie_key=(),
+        tie_group=None,
+        rank=None,
+        suspicion=[],
+    )
+
+
+def test_score_record_requires_repo() -> None:
+    """Fail-before: on the base ``cvi.core.models``, ``ScoreRecord`` has no
+    ``repo`` field at all, so ``ScoreRecord(**_bare_score_record_fields())``
+    is accepted outright (recorded verbatim in the handoff). After this
+    packet ``repo`` is a required field with no default, so the same call
+    (still omitting it) raises ``TypeError`` naming it as missing."""
+    with pytest.raises(TypeError, match="repo"):
+        ScoreRecord(**_bare_score_record_fields())  # type: ignore[call-arg]
+
+    # Supplying it is the only difference -- proves the rejection is
+    # specifically about the missing field, not some other regression.
+    record = ScoreRecord(repo=make_repo(), **_bare_score_record_fields())
+    assert record.repo == make_repo()
+
+
+def test_engine_repo_is_bundle_repo_on_every_path() -> None:
+    """``record.repo`` equals the scored bundle's ``repo`` on all three
+    shapes :func:`score` can return: gated (stage-0 ``eligible=False``),
+    unrated (D-EVID-1 insufficient coverage) and rated. A distinct
+    ``owner``/``name`` per bundle (rather than reusing ``EligibleFixture``'s
+    default ``org/alpha`` for all three) is the mutant guard named by the
+    packet: an engine that hard-codes a constant ``RepoIdentity``, or copies
+    a *different* bundle's ``repo``, would pass a same-identity check but
+    fail this one."""
+    snapshot = Snapshot(snapshot_id="snap-1", as_of=NOW, gate_evidence=healthy_evidence())
+
+    gated_bundle = make_bundle(
+        {input_id: Unmeasured(reason="collector_failure") for input_id in constants_v2.PARAM_INPUT_IDS},
+        owner="gated-owner", name="gated-repo", archived=True,
+    )
+    gated = score(gated_bundle, _PoisonPopulations(), snapshot)
+    assert gated.repo == gated_bundle.repo
+    assert gated.repo.owner == "gated-owner"
+    assert gated.repo.name == "gated-repo"
+
+    unrated_inputs: dict[str, Measured | Unmeasured] = {
+        input_id: Unmeasured(reason="collector_failure") for input_id in constants_v2.PARAM_INPUT_IDS
+    }
+    unrated_inputs.update(
+        {
+            "newcomer_issue_supply": _m(10.0, n=0),
+            "newcomer_conversion": _m(0.5, n=5),
+            "rr90_return_rate": _m(0.5, n=5),
+            "dx": _m(100.0, n=5),
+        }
+    )
+    unrated_bundle = make_bundle(unrated_inputs, owner="unrated-owner", name="unrated-repo")
+    empty_populations = PopulationSet(
+        snapshot_id="snap-1", benchmark_version=constants_v2.BENCHMARK_VERSION,
+        constants_hash=constants_v2.CONSTANTS_HASH, populations=(),
+    )
+    unrated = score(unrated_bundle, empty_populations, snapshot)
+    assert unrated.repo == unrated_bundle.repo
+    assert unrated.rated is False
+    assert unrated.repo.owner == "unrated-owner"
+    assert unrated.repo.name == "unrated-repo"
+
+    rated_bundle = make_bundle(EligibleFixture.inputs(), owner="rated-owner", name="rated-repo")
+    rated = score(rated_bundle, EligibleFixture.populations(), snapshot)
+    assert rated.repo == rated_bundle.repo
+    assert rated.rated is True
+    assert rated.repo.owner == "rated-owner"
+    assert rated.repo.name == "rated-repo"

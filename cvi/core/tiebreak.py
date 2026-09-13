@@ -107,6 +107,14 @@ class TieBreakInput:
             problems.append(f"owner must be a non-empty string, got {self.owner!r}")
         if not isinstance(self.name, str) or not self.name:
             problems.append(f"name must be a non-empty string, got {self.name!r}")
+        if isinstance(self.record, ScoreRecord) and (self.owner, self.name) != (
+            self.record.repo.owner,
+            self.record.repo.name,
+        ):
+            problems.append(
+                f"owner/name ({self.owner!r}, {self.name!r}) does not match "
+                f"record.repo identity ({self.record.repo.owner!r}, {self.record.repo.name!r})"
+            )
         if problems:
             raise ValueError("; ".join(problems))
 

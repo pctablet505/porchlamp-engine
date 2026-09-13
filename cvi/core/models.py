@@ -484,6 +484,9 @@ class PersonaComposite:
 class ScoreRecord:
     """The pure scoring output for one repo at one snapshot (04 section 3).
 
+    ``repo`` is copied from the scored ``FeatureBundle.repo`` by
+    :func:`cvi.core.engine.score` (04 section 3).
+
     ``benchmark_version`` plus ``constants_hash`` let any reader re-derive
     which benchmark a row came from (D-VER-2/D-VER-3); field validation lands
     with the packets that populate each stage (W2-2, W2-5, W2-6, W2-7).
@@ -508,6 +511,7 @@ class ScoreRecord:
     hashes only) kept as its own fact so the two are never conflated
     (W2-5 review W-1)."""
 
+    repo: RepoIdentity
     snapshot_id: str
     benchmark_version: str
     constants_hash: str

@@ -208,6 +208,7 @@ def _bare_record(
     never by overwriting the stage-0 ``GateResult``. Stages 8-9 (personas,
     tie-breaks, rank) are out of scope here (W2-6, W2-7): left empty/None."""
     return ScoreRecord(
+        repo=bundle.repo,
         snapshot_id=snapshot.snapshot_id,
         benchmark_version=constants_v2.BENCHMARK_VERSION,
         constants_hash=constants_v2.CONSTANTS_HASH,
@@ -296,6 +297,7 @@ def score(
     coords = matrix.coordinates(pillars)
 
     return ScoreRecord(
+        repo=bundle.repo,
         snapshot_id=snapshot.snapshot_id,
         benchmark_version=constants_v2.BENCHMARK_VERSION,
         constants_hash=constants_v2.CONSTANTS_HASH,

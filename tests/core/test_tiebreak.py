@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from cvi.core.models import GateResult, PillarScore, PRWindow, PRWindowEvent, ScoreRecord
+from cvi.core.models import GateResult, PillarScore, PRWindow, PRWindowEvent, RepoIdentity, ScoreRecord
 from cvi.core.tiebreak import (
     TieBreakInput,
     _commit_epoch,
@@ -42,15 +42,28 @@ from cvi.core.tiebreak import (
 _PILLARS = ("responsiveness", "criticality", "governance", "rigor", "accessibility")
 
 
-def make_record(label: str, **overrides: object) -> ScoreRecord:
+def make_record(label: str, *, owner: str = "acme", name: str | None = None, **overrides: object) -> ScoreRecord:
     """A fully-measured, internally consistent ``ScoreRecord``. ``label`` is
     stashed in ``raw_hash`` purely so tests can recover row identity after
     :func:`~cvi.core.tiebreak.assign_ranks` rebuilds the record (see the
-    module docstring); it plays no role in any tie-break comparison."""
+    module docstring); it plays no role in any tie-break comparison.
+    ``owner``/``name`` (defaulting to ``"acme"``/``label``, matching
+    :func:`make_entry`'s own defaults) build ``repo`` so a record built here
+    always agrees with the ``TieBreakInput`` a caller wraps it in."""
     responsiveness_score = overrides.pop("responsiveness_score", 80.0)
     pillars = {name: PillarScore(score=80.0, coverage=1.0) for name in _PILLARS}
     pillars["responsiveness"] = PillarScore(score=responsiveness_score, coverage=1.0)  # type: ignore[arg-type]
     base = dict(
+        repo=RepoIdentity(
+            owner=owner,
+            name=name if name is not None else label,
+            ecosystem="pypi",
+            archived=False,
+            mirror_url=None,
+            fork=False,
+            license_spdx=None,
+            default_branch=None,
+        ),
         snapshot_id="snap-1",
         benchmark_version="2.0.0-dev",
         constants_hash="c" * 64,
@@ -86,10 +99,11 @@ def make_entry(
     downloads: int | None = None,
     **record_overrides: object,
 ) -> TieBreakInput:
+    resolved_name = name if name is not None else label
     return TieBreakInput(
-        record=make_record(label, **record_overrides),
+        record=make_record(label, owner=owner, name=resolved_name, **record_overrides),
         owner=owner,
-        name=name if name is not None else label,
+        name=resolved_name,
         ttfhr_p75_hours=ttfhr_p75_hours,
         last_non_bot_commit_at=last_non_bot_commit_at,
         stars=stars,
@@ -479,6 +493,29 @@ def test_tiebreak_input_rejects_empty_owner_or_name() -> None:
         TieBreakInput(record=make_record("x"), owner="", name="widget")
     with pytest.raises(ValueError, match="name"):
         TieBreakInput(record=make_record("x"), owner="acme", name="")
+
+
+def test_tiebreak_input_rejects_owner_name_mismatch_with_record_repo() -> None:
+    """W2-10 (04 section 3): ``owner``/``name`` must agree with
+    ``record.repo`` -- one source of identity, validated. The message must
+    name both sides so a caller can see which one is wrong."""
+    record = make_record("x", owner="real-owner", name="real-repo")
+    with pytest.raises(ValueError) as excinfo:
+        TieBreakInput(record=record, owner="wrong-owner", name="real-repo")
+    assert "wrong-owner" in str(excinfo.value)
+    assert "real-owner" in str(excinfo.value)
+
+    with pytest.raises(ValueError) as excinfo:
+        TieBreakInput(record=record, owner="real-owner", name="wrong-repo")
+    assert "wrong-repo" in str(excinfo.value)
+    assert "real-repo" in str(excinfo.value)
+
+
+def test_tiebreak_input_accepts_a_matching_owner_name_pair() -> None:
+    record = make_record("x", owner="real-owner", name="real-repo")
+    entry = TieBreakInput(record=record, owner="real-owner", name="real-repo")
+    assert entry.owner == "real-owner"
+    assert entry.name == "real-repo"
 
 
 # ---------------------------------------------------------------------------

@@ -25,7 +25,16 @@ from __future__ import annotations
 import pytest
 
 from cvi.core import constants_v2
-from cvi.core.models import GateResult, Measured, ParamValue, PersonaComposite, PillarScore, ScoreRecord, Unmeasured
+from cvi.core.models import (
+    GateResult,
+    Measured,
+    ParamValue,
+    PersonaComposite,
+    PillarScore,
+    RepoIdentity,
+    ScoreRecord,
+    Unmeasured,
+)
 from cvi.core.persona import (
     CAREER_CAPITAL_MIN_COVERAGE,
     CAREER_CAPITAL_MIN_CRITICALITY,
@@ -54,6 +63,16 @@ from cvi.core.persona import (
 
 _HASH64 = "a" * 64
 _ISO_NOW = "2026-09-12T00:00:00+00:00"
+_REPO = RepoIdentity(
+    owner="org",
+    name="alpha",
+    ecosystem="pypi",
+    archived=False,
+    mirror_url=None,
+    fork=False,
+    license_spdx="MIT",
+    default_branch="main",
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -107,6 +126,7 @@ def _record(
     gate: GateResult | None = None,
 ) -> ScoreRecord:
     return ScoreRecord(
+        repo=_REPO,
         snapshot_id="snap-1",
         benchmark_version=constants_v2.BENCHMARK_VERSION,
         constants_hash=constants_v2.CONSTANTS_HASH,
