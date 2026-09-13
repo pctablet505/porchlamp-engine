@@ -13,7 +13,14 @@ import assert from "node:assert/strict";
 
 import { decidingTieLevel, SORTABLE_COLUMNS } from "../components/table.js";
 import { KEY_ACTIONS, actionForKeyEvent } from "../components/keymap.js";
-import { defaultState, reduce, parseSearch, serializeSearch, countRankChanges } from "../state.js";
+import {
+  defaultState,
+  reduce,
+  parseSearch,
+  serializeSearch,
+  countRankChanges,
+  resolveOpenTargetKey,
+} from "../state.js";
 import * as copy from "../copy.js";
 
 // --------------------------------------------------------------------- U-5
@@ -96,6 +103,39 @@ test("actionForKeyEvent: letter shortcuts are suppressed while a text input is f
   assert.equal(actionForKeyEvent({ key: "Escape" }, { isInputFocused: true }), "close-overlay");
   assert.equal(actionForKeyEvent({ key: "Enter" }, { isInputFocused: true }), "open-selected");
   assert.equal(actionForKeyEvent({ key: "z" }, { isInputFocused: false }), null);
+});
+
+// U-18/§5 (lead-reported defect, 2026-09-13, on c52ab45): a row reached by
+// Tab or a direct `.focus()` call — never having gone through the J/K
+// cursor's SET_CURSOR — must still open on Enter. This is the full
+// key-handler state transition the fix depends on: actionForKeyEvent
+// resolves "Enter" to "open-selected" regardless of how focus got there,
+// and resolveOpenTargetKey must prefer DOM focus over a stale/absent
+// cursor when deciding WHICH row that opens.
+test("Enter on a focused row with no J/K cursor set resolves to that row, not nothing", () => {
+  // No cursor has ever been set (fresh page load, or focus reached the row
+  // via Tab rather than J/K).
+  const noCursor = null;
+  const focusedRow = "owner-x/repo-y";
+  assert.equal(actionForKeyEvent({ key: "Enter" }, { isInputFocused: false }), "open-selected");
+  assert.equal(resolveOpenTargetKey(noCursor, focusedRow), focusedRow);
+});
+
+test("resolveOpenTargetKey prefers DOM focus over a stale J/K cursor", () => {
+  // The cursor still points at a PREVIOUSLY selected row, but focus has
+  // since moved (Tab, or a click elsewhere) to a DIFFERENT row — DOM focus
+  // must win, or Enter would silently reopen the wrong repo.
+  assert.equal(resolveOpenTargetKey("owner-a/repo-a", "owner-b/repo-b"), "owner-b/repo-b");
+});
+
+test("resolveOpenTargetKey falls back to the J/K cursor when focus is not on any row", () => {
+  // Focus is elsewhere (e.g. a header control); the cursor from the last
+  // J/K move is the closest thing to a "current" row.
+  assert.equal(resolveOpenTargetKey("owner-a/repo-a", null), "owner-a/repo-a");
+});
+
+test("resolveOpenTargetKey returns null when neither a cursor nor a focused row exists", () => {
+  assert.equal(resolveOpenTargetKey(null, null), null);
 });
 
 // ------------------------------------------------------------- U-16 (state.js)

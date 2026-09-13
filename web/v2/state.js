@@ -141,6 +141,20 @@ export function shouldRestoreFocusAfterRebuild(isOpen, focusWasInside) {
 }
 
 /**
+ * U-18/§5: "Enter opens the FOCUSED row, whether focus came from J/K, Tab,
+ * or a click" (lead-reported defect, 2026-09-13, on `c52ab45`): the Enter
+ * handler previously consulted ONLY the J/K cursor (`selectedRepoKey`),
+ * so a row reached by Tab or a direct `.focus()` call — never having gone
+ * through SET_CURSOR — opened nothing. DOM focus is the ground truth
+ * whenever it is actually on a row; the J/K cursor is the fallback for
+ * when focus is elsewhere (e.g. a header control) but a row was
+ * previously selected.
+ */
+export function resolveOpenTargetKey(cursorKey, focusedRowKey) {
+  return focusedRowKey || cursorKey || null;
+}
+
+/**
  * U-16's push-vs-replace policy, as one pure decision function app.js
  * actually calls (not a parallel re-implementation kept only for tests —
  * that was the reviewer's W-5 criticism of a different file in this

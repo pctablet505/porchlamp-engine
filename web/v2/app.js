@@ -35,6 +35,7 @@ import {
   writePersistedTheme,
   countRankChanges,
   shouldRestoreFocusAfterRebuild,
+  resolveOpenTargetKey,
   urlSyncMode,
   PAGE_SIZES,
   DEFAULT_PAGE_SIZE,
@@ -708,8 +709,17 @@ export function boot(win = window, doc = document) {
       }
       case "open-selected": {
         if (isInputFocused || s.repo || s.keymapOpen) return;
+        // U-18/§5 (lead-reported defect on c52ab45): resolve the target
+        // from DOM focus FIRST — a row reached by Tab or a direct
+        // `.focus()` call never went through SET_CURSOR, so consulting
+        // only the J/K cursor opened nothing for it. The cursor is the
+        // fallback for when focus is elsewhere but a row was previously
+        // selected.
+        const focusedRow = doc.activeElement?.closest?.("[data-owner][data-name]") ?? null;
+        const focusedKey = focusedRow ? `${focusedRow.dataset.owner}/${focusedRow.dataset.name}` : null;
+        const targetKey = resolveOpenTargetKey(s.selectedRepoKey, focusedKey);
         const rows = s.leaderboard ? s.leaderboard.rows : [];
-        const row = rows.find((r) => rowKey(r) === s.selectedRepoKey);
+        const row = rows.find((r) => rowKey(r) === targetKey);
         if (row) openRepo(row.owner, row.name);
         break;
       }
