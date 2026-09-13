@@ -277,6 +277,32 @@ OPENSSF_THRESHOLDS: dict[str, float] = {
     "dependents_count": 500000.0,
 }
 
+#: D-IN-5 / spec 10.3 Algorithm 3: the StarScout universe-entry star-velocity
+#: filter's five thresholds (``cvi.starscout.audit_star_velocity``).
+#: Relocated from ``cvi.constants`` by packet W1-10 (RFC-0002,
+#: ``docs/v2/rfcs/RFC-0002-starscout-constants-relocation.md``): stars never
+#: enter the composite (D-IN-5 -- "Stars never enter the composite"), so
+#: this relocation moves zero scored `ScoreRecord` fields for any repo
+#: (the same "no bump" reasoning RFC-0001 used for
+#: ``AUTHOR_UNMEASURED_MAX_FRACTION``, a constant with no scoring-path
+#: consumer either); it is hashed anyway because ``CONSTANTS_HASH``'s
+#: contract is "every constant the v2 core computes with lives in this one
+#: module" (``docs/v2/rfcs/README.md``), and a universe-entry gate that
+#: decides whether a repository is even eligible is exactly the kind of
+#: value an unreviewed edit must not be able to move silently. Values
+#: unchanged from ``cvi.constants``' originals (not an RFC to *change* a
+#: threshold, only to move where it is registered and enforced).
+STARS_SCOUT_WINDOW_DAYS: int = 90
+#: Below this many total platform events, a stargazer is a throwaway account.
+STARS_SCOUT_MIN_EVENTS: int = 5
+#: Above this star-to-fork ratio (with the burst count also over threshold),
+#: the recent-star pattern is a lockstep burst ring.
+STARS_SCOUT_FORK_RATIO: float = 100.0
+#: Recent-star count that must be exceeded before the fork-ratio check runs.
+STARS_SCOUT_BURST_THRESHOLD: int = 500
+#: Fraction of valid stars kept when the lockstep penalty fires.
+STARS_SCOUT_LOCKSTEP_PENALTY: float = 0.30
+
 
 #: Per-parameter within-pillar weight, keyed by the 18 frozen input ids
 #: (02 section 4). Relocated from the ``ParamDef`` call sites in
@@ -543,6 +569,11 @@ def constants_dict() -> dict[str, object]:
         "SCHEMA_VERSION": SCHEMA_VERSION,
         "SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR": SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR,
         "SIGNAL_FIELDS": SIGNAL_FIELDS,
+        "STARS_SCOUT_BURST_THRESHOLD": STARS_SCOUT_BURST_THRESHOLD,
+        "STARS_SCOUT_FORK_RATIO": STARS_SCOUT_FORK_RATIO,
+        "STARS_SCOUT_LOCKSTEP_PENALTY": STARS_SCOUT_LOCKSTEP_PENALTY,
+        "STARS_SCOUT_MIN_EVENTS": STARS_SCOUT_MIN_EVENTS,
+        "STARS_SCOUT_WINDOW_DAYS": STARS_SCOUT_WINDOW_DAYS,
         "SUPPLY_SLOPE": SUPPLY_SLOPE,
         "TIER_CUTOFFS": TIER_CUTOFFS,
         "TIER_ORDER": TIER_ORDER,

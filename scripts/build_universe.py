@@ -2,9 +2,22 @@
 
 Criteria: top-N per ecosystem by GitHub stars (search API) plus registry
 top-lists where free. Output line: {"owner","name","ecosystem",
-"selected_by":[...],"stars_at_selection":int,"added_at":iso}.
+"selected_by":[...],"stars_at_selection":int,"added_at":iso,
+"star_velocity_flag":bool,"star_velocity":{...},"stars_audited":int} (the
+last three per D-IN-5 / packet W1-10 -- see below).
 Dedup by (owner,name) lowercased, merging selected_by; cap --max-total.
 Checkpoint: data/raw/universe_checkpoint.json (rerun skips completed pages).
+
+W1-10 (D-IN-5, `docs/v2/03-ANTI-MANIPULATION.md` section 6 `star_burst`):
+every candidate that makes the final `--max-total` cut is audited through
+`cvi.collect.universe.star_velocity_evidence` (`cvi.starscout`'s StarScout
+lockstep filter, spec 10.3) before `candidates.jsonl` is written -- the
+universe manifest this module writes IS the "universe manifest" packet
+W1-10 owns. `star_velocity_flag`/`star_velocity`/`stars_audited` are never
+a silent `False`/`0`/absent: a failed star-history fetch marks the
+candidate `{"measured": false, "reason": "collector_failure", ...}`
+instead (D-MISS-1). See `cvi/collect/universe.py`'s module docstring for
+why `STAR_HISTORY_TRANSPORT` (the live fetch) is not yet implemented.
 """
 from __future__ import annotations
 
@@ -17,9 +30,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from cvi.collect.universe import Transport, default_star_history_transport, star_velocity_evidence
+
 DATA = Path(__file__).resolve().parent.parent / "data" / "raw"
 CHECKPOINT = DATA / "universe_checkpoint.json"
 CANDIDATES = DATA / "candidates.jsonl"
+
+#: The star-history transport `build()` uses (module attribute, not a
+#: default argument, so a test can `monkeypatch.setattr(bu,
+#: "STAR_HISTORY_TRANSPORT", fake)` exactly like `gh_search`/`crates_top`
+#: above). No live implementation yet (`cvi.collect.universe`'s docstring):
+#: a real run reports every candidate `Unmeasured(collector_failure)` until
+#: a future packet replaces this one attribute.
+STAR_HISTORY_TRANSPORT: Transport = default_star_history_transport
 
 # ecosystem -> GitHub search language queries (page count at 100/page)
 SEARCH_CRITERIA: dict[str, list[tuple[str, int]]] = {
@@ -78,8 +101,17 @@ def _save_ckpt(ck: dict[str, Any]) -> None:
 
 def build(max_per_criterion: int = 1000, max_total: int = 10000,
           only: Optional[str] = None, dry_run: bool = False,
-          sleep_s: float = 2.0) -> int:
-    """Run the universe build; return candidate count written."""
+          sleep_s: float = 2.0, now: Optional[datetime] = None) -> int:
+    """Run the universe build; return candidate count written.
+
+    ``now`` is the D-IN-5 star-velocity audit's reference clock -- an
+    explicit parameter (never read from inside the audit itself) so the
+    derived `star_velocity_flag`/`star_velocity`/`stars_audited` fields
+    stay reproducible from a fixed timestamp, resolved once here (a
+    script's own I/O boundary, not a derived-value computation) when the
+    caller does not supply one.
+    """
+    now = now or datetime.now(timezone.utc)
     ck = _load_ckpt()
     found: dict[tuple[str, str], dict[str, Any]] = {}
     if CANDIDATES.is_file():
@@ -131,6 +163,21 @@ def build(max_per_criterion: int = 1000, max_total: int = 10000,
 
     rows = sorted(found.values(), key=lambda r: -r["stars_at_selection"])[:max_total]
     if not dry_run:
+        # D-IN-5 / W1-10: audit every candidate that makes the cut for
+        # fraudulent star velocity before it becomes part of the universe
+        # manifest -- "universe entry" is exactly this point (a candidate
+        # short of the cap never enters the universe, so it is never
+        # fetched or charged for). A row already carrying a prior audit
+        # (a resumed/merged candidates.jsonl) keeps it: the audit does not
+        # depend on selected_by/stars_at_selection, so re-running it would
+        # only repeat the same fetch (`star_velocity_evidence`'s own
+        # envelope-checkpoint already skips that).
+        for row in rows:
+            evidence = star_velocity_evidence(
+                DATA, row["owner"], row["name"], now, STAR_HISTORY_TRANSPORT,
+                now.isoformat(),
+            )
+            row.update(evidence.to_json())
         CANDIDATES.parent.mkdir(parents=True, exist_ok=True)
         CANDIDATES.write_text("".join(json.dumps(r) + "\n" for r in rows))
         print(f"wrote {len(rows)} candidates -> {CANDIDATES}")

@@ -1211,6 +1211,96 @@ assert set(INPUT_MAPPINGS) == set(constants_v2.PARAM_INPUT_IDS), (
 )
 
 
+# --------------------------------------------------------------------------- #
+# W1-10: universe-entry star-velocity pass-through (D-IN-5, `03` section 6). #
+#                                                                              #
+# star_velocity_flag/stars_audited are NOT one of the 18 v2 parameter        #
+# inputs -- D-IN-5 states plainly "Stars never enter the composite", and     #
+# INPUT_MAPPINGS' own assert above closes `FeatureBundle.inputs` at exactly  #
+# `constants_v2.PARAM_INPUT_IDS`, so these two facts can never be a row      #
+# there. Nor is `cvi.core.models.RepoIdentity` (or any other FeatureBundle   #
+# field) extended to carry them: `cvi/core/models.py` is out of this        #
+# packet's ownership. This table is the "meta pass-through" a caller reads  #
+# instead -- same _V1Ctx-based resolver shape as INPUT_MAPPINGS, built from #
+# the identical v1 meta/provenance/confidence dicts `scripts/derive.py`'s   #
+# universe hook writes into (`cvi.collect.universe.star_velocity_evidence`  #
+# via `scripts/build_universe.py`, `star_velocity_flag`/`stars_audited`).   #
+# `cvi.verify.detectors.DetectorInputs.star_lockstep_penalty_applied` (the  #
+# `star_burst` detector's only input) and `cvi.store.writer`'s              #
+# `stars_audited` column (G-006) are its two consumers -- see              #
+# `resolve_universe_meta_facts` below for the public entry point a future  #
+# packet (W4-4) calls alongside `load_bundle` for the same document.        #
+# --------------------------------------------------------------------------- #
+
+
+def _resolve_star_velocity_flag(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """D-IN-5's StarScout lockstep-penalty flag. ``Measured.value`` cannot
+    hold a ``bool`` (``measured_problems`` rejects it, D-VER-2's
+    int/float/str contract), so the flag is encoded as ``1``/``0``; a
+    caller reads ``bool(value.value)``. Mirrors ``_plain_scalar_resolver``'s
+    confidence-first check (``verified``/``missing``/anything else) but
+    cannot reuse it directly because that helper's own ``value_ok`` check
+    explicitly excludes ``bool``."""
+    confidence_value = ctx.confidence.get("star_velocity_flag")
+    value = ctx.meta.get("star_velocity_flag")
+    entry = ctx.provenance.get("star_velocity_flag")
+    source = _first_source(entry)
+    fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+    if confidence_value == "verified" and isinstance(value, bool):
+        path = _resolve_envelope(source, ctx.raw_root)
+        if path is not None and isinstance(fetched_at, str) and fetched_at:
+            source_hash = _envelope_hash(path)
+            ctx.referenced[str(path)] = source_hash
+            return Measured(value=1 if value else 0, n=0, window_start=None, window_end=None,
+                             method="primary", source=str(path), source_hash=source_hash,
+                             fetched_at=fetched_at)
+        detail = (f"v1 source is not an envelope: {source!r}" if path is None
+                  else "v1 provenance for 'star_velocity_flag' has no fetched_at")
+        return Unmeasured(reason="collector_failure", detail=detail)
+    if confidence_value == "missing":
+        return Unmeasured(
+            reason="collector_failure",
+            detail="universe entry never audited star velocity for this repo "
+                   "(star-history fetch failed, cvi.collect.universe)",
+        )
+    return Unmeasured(reason="collector_failure",
+                       detail=f"v1 confidence {confidence_value!r} for 'star_velocity_flag' is not recognized")
+
+
+#: The two universe-entry facts, keyed exactly like INPUT_MAPPINGS but kept
+#: in a separate table so INPUT_MAPPINGS' own 18-row assert stays exact.
+UNIVERSE_META_MAPPINGS: dict[str, InputResolver] = {
+    "star_velocity_flag": _resolve_star_velocity_flag,
+    "stars_audited": _plain_scalar_resolver(
+        "stars_audited",
+        missing_reason="collector_failure",
+        missing_detail="universe entry never audited star velocity for this repo "
+                        "(star-history fetch failed, cvi.collect.universe)",
+    ),
+}
+
+
+def resolve_universe_meta_facts(
+    document: Mapping[str, Any], raw_root: Union[Path, str, None] = None
+) -> dict[str, Measured | Unmeasured]:
+    """Resolve :data:`UNIVERSE_META_MAPPINGS` over a v1 derived document --
+    the same document :func:`load_bundle` reads, but returning the two
+    universe-entry star-velocity facts instead of a
+    :class:`~cvi.core.models.FeatureBundle` (they are not part of its
+    closed ``inputs`` schema; see the module comment above). Raises
+    :class:`BundleValidationError` for a document missing
+    ``meta``/``provenance``/``confidence``, exactly like ``_load_v1``.
+    """
+    meta = document.get("meta")
+    provenance = document.get("provenance")
+    confidence = document.get("confidence")
+    if not all(isinstance(doc, Mapping) for doc in (meta, provenance, confidence)):
+        raise BundleValidationError(["v1 bundle meta/provenance/confidence must be mappings"])
+    ctx = _V1Ctx(meta=meta, provenance=provenance, confidence=confidence, raw_root=raw_root,
+                 problems=[], referenced={})
+    return {input_id: resolver(ctx) for input_id, resolver in UNIVERSE_META_MAPPINGS.items()}
+
+
 def _pr_event_or_none(
     entry: Mapping[str, Any], index: int, problems: list[str]
 ) -> Optional[PRWindowEvent]:

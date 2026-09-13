@@ -27,6 +27,7 @@ from typing import Any, Optional
 
 from cvi.collect import commits as commit_domains
 from cvi.collect.envelope import raw_envelope_path, read_envelope
+from cvi.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
 from cvi.constants import BOT_LOGIN_MARKERS
 from cvi.models import (
     AIPosture,
@@ -297,6 +298,32 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
             b.set(f, int(gh[gk]), src("github_meta", key), gh_at, "verified")
         else:
             b.missing(f, 0)
+
+    # --- W1-10 (D-IN-5): universe-entry star-velocity audit pass-through ---
+    # cvi.collect.universe.star_velocity_evidence (scripts/build_universe.py)
+    # writes one UNIVERSE_ENTRY_COLLECTOR envelope per repo regardless of
+    # whether the audit succeeded (its own `record.to_json()`, which is
+    # exactly the shape a failed fetch also serializes -- {"measured":
+    # false, "reason": "collector_failure", ...}). "missing" here (never a
+    # silent True/False/0 default) means confidence, not the meta value
+    # itself: cvi.derive.bundle.UNIVERSE_META_MAPPINGS checks confidence
+    # first and never trusts the None placeholder.
+    uni_doc, uni_at = _load(data_dir, UNIVERSE_ENTRY_COLLECTOR, key)
+    uni_record: Optional[StarVelocityRecord] = None
+    if isinstance(uni_doc, dict):
+        try:
+            uni_record = StarVelocityRecord.from_json(uni_doc)
+        except (ValueError, KeyError, TypeError):
+            uni_record = None
+    if uni_record is not None and uni_record.measured:
+        uni_src = src(UNIVERSE_ENTRY_COLLECTOR, key)
+        b.set("star_velocity_flag", bool(uni_record.star_velocity_flag), uni_src, uni_at, "verified")
+        b.set("stars_audited", int(uni_record.stars_audited), uni_src, uni_at, "verified")
+        b.set("star_velocity", dict(uni_record.star_velocity or {}), uni_src, uni_at, "verified")
+    else:
+        b.missing("star_velocity_flag", None)
+        b.missing("stars_audited", None)
+        b.missing("star_velocity", None)
 
     # --- monthly_downloads (null -> 0, confidence missing) ---
     monthly = (dl or {}).get("monthly")

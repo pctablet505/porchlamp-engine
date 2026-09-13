@@ -44,8 +44,14 @@ from cvi.core.models import BundleValidationError, Unmeasured, canonical_json
 #: cvi.collect.github_graphql per the W1-4 round-3 dispatch closing the
 #: census escape it was found in; no scored value changed, since this
 #: constant has no scoring-path consumer yet -- W2-9's bundle.py wiring is
-#: unlanded, docs/v2/rfcs/RFC-0001-author-unmeasured-max-fraction.md).
-FROZEN_CONSTANTS_HASH = "d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e"
+#: unlanded, docs/v2/rfcs/RFC-0001-author-unmeasured-max-fraction.md) ->
+#: `446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0`
+#: (packet W1-10, RFC-0002: the five STARS_SCOUT_* thresholds relocated
+#: from the unhashed `cvi.constants` into this module -- values unchanged,
+#: `cvi.starscout`'s only import site updated to match; no scored
+#: `ScoreRecord` field moves, since D-IN-5 excludes stars from the
+#: composite entirely).
+FROZEN_CONSTANTS_HASH = "446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -185,6 +191,13 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     # RFC-0001: the W1-4 round-3 census closure -- relocated out of
     # cvi.collect.github_graphql, where it lived outside the freeze.
     ("AUTHOR_UNMEASURED_MAX_FRACTION", constants_v2.AUTHOR_UNMEASURED_MAX_FRACTION, 0.20),
+    # W1-10 (RFC-0002): the five StarScout universe-entry thresholds,
+    # relocated from cvi.constants -- values unchanged (spec 10.3).
+    ("STARS_SCOUT_WINDOW_DAYS", constants_v2.STARS_SCOUT_WINDOW_DAYS, 90),
+    ("STARS_SCOUT_MIN_EVENTS", constants_v2.STARS_SCOUT_MIN_EVENTS, 5),
+    ("STARS_SCOUT_FORK_RATIO", constants_v2.STARS_SCOUT_FORK_RATIO, 100.0),
+    ("STARS_SCOUT_BURST_THRESHOLD", constants_v2.STARS_SCOUT_BURST_THRESHOLD, 500),
+    ("STARS_SCOUT_LOCKSTEP_PENALTY", constants_v2.STARS_SCOUT_LOCKSTEP_PENALTY, 0.30),
 )
 
 

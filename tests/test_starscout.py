@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from cvi.models import StargazerEvent
-from cvi.starscout import filter_fraudulent_star_velocity
+from cvi.starscout import StarVelocityAudit, audit_star_velocity, filter_fraudulent_star_velocity
 
 NOW = datetime(2026, 9, 11, 12, 0, 0)
 
@@ -164,3 +164,88 @@ def test_fork_ratio_exactly_100_reachable_no_penalty():
     # => 600.
     evs = _events(600, events=100)
     assert filter_fraudulent_star_velocity(evs, 6, NOW) == 600
+
+
+# --------------------------------------------------------------------------- #
+# W1-10: audit_star_velocity -- the full audit behind the plain int above.   #
+# Over-correction guard: every test above (filter_fraudulent_star_velocity)  #
+# is untouched and still pins the same integers -- the wrapper's contract   #
+# did not change.                                                            #
+# --------------------------------------------------------------------------- #
+
+
+def test_audit_matches_filter_for_every_scenario_above():
+    """The wrapper's own contract: audit_star_velocity(...).valid_stars ==
+    filter_fraudulent_star_velocity(...) for a representative sample of the
+    scenarios above (no burst, burst no penalty, burst with penalty)."""
+    cases = [
+        ([], 0),
+        (_events(1), 0),
+        (_events(500, events=100), 0),
+        (_events(501, events=100), 1),
+        (_events(501, events=100), 6),
+        (_events(301, events=1) + _events(200, events=100), 1),
+    ]
+    for evs, forks in cases:
+        assert audit_star_velocity(evs, forks, NOW).valid_stars == filter_fraudulent_star_velocity(evs, forks, NOW)
+
+
+def test_audit_no_burst_penalty_not_applied_fork_ratio_none():
+    # 500 recent stars: burst gate needs > 500, so it never opens. The
+    # ratio is never computed (None, not 0.0 or skipped-but-truthy).
+    evs = _events(500, events=100)
+    audit = audit_star_velocity(evs, 0, NOW)
+    assert audit == StarVelocityAudit(valid_stars=500, recent_stars=500, fork_ratio=None, penalty_applied=False)
+
+
+def test_audit_burst_gate_opens_ratio_at_or_below_threshold_no_penalty():
+    # 501 > 500 opens the gate; 501 valid / 6 forks = 83.5 <= 100 => no
+    # penalty, but fork_ratio is now a real computed value, not None.
+    evs = _events(501, events=100)
+    audit = audit_star_velocity(evs, 6, NOW)
+    assert audit == StarVelocityAudit(
+        valid_stars=501, recent_stars=501, fork_ratio=501 / 6, penalty_applied=False,
+    )
+
+
+def test_audit_penalty_fired_true_and_fork_ratio_recorded():
+    # 501 recent, 1 fork => ratio 501 > 100 => penalty fires.
+    evs = _events(501, events=100)
+    audit = audit_star_velocity(evs, 1, NOW)
+    assert audit == StarVelocityAudit(
+        valid_stars=150, recent_stars=501, fork_ratio=501.0, penalty_applied=True,
+    )
+
+
+def test_audit_recent_stars_counts_throwaways_too():
+    # recent_stars is len(RecentStars) BEFORE the throwaway filter: 100
+    # throwaway + 5 valid => recent_stars=105, valid_stars=5, no burst gate.
+    evs = _events(100, events=2) + _events(5, events=100)
+    audit = audit_star_velocity(evs, 0, NOW)
+    assert audit.recent_stars == 105
+    assert audit.valid_stars == 5
+    assert audit.penalty_applied is False
+    assert audit.fork_ratio is None
+
+
+def test_audit_same_returned_count_distinguishable_only_by_penalty_applied():
+    # Two repos both give filter_fraudulent_star_velocity(...) == 100 --
+    # the ambiguity audit_star_velocity exists to resolve. Repo A: 100
+    # real stars, no burst -- clean growth, no penalty. Repo B: 334
+    # burst-inflated valid stars (534 recent, forks=1 => ratio 334 > 100)
+    # knocked down by the lockstep penalty: int(334 * 0.30) == 100.
+    clean = _events(100, events=100)
+    audit_clean = audit_star_velocity(clean, 0, NOW)
+    assert audit_clean.valid_stars == 100
+    assert audit_clean.penalty_applied is False
+
+    burst = _events(200, events=1) + _events(334, events=100)  # 534 recent, 334 valid
+    audit_burst = audit_star_velocity(burst, 1, NOW)
+    assert audit_burst.valid_stars == 100  # same int filter_fraudulent_star_velocity would return
+    assert audit_burst.penalty_applied is True
+    assert audit_burst.recent_stars == 534
+    assert audit_burst.fork_ratio == 334.0
+    # The plain wrapper is genuinely blind to the difference:
+    assert filter_fraudulent_star_velocity(clean, 0, NOW) == filter_fraudulent_star_velocity(burst, 1, NOW) == 100
+    # Only the audit tells the two apart.
+    assert audit_clean.penalty_applied != audit_burst.penalty_applied
