@@ -142,12 +142,18 @@ def test_provenance_omits_sha256_for_non_envelope_source(tmp_path):
     # Over-correction guard: a URL/heuristic source is never an envelope
     # under raw/, so it must not gain a fabricated hash -- the absence of
     # "sha256" is the honest signal scripts/verify.py's unverifiable_
-    # provenance rule reads for a non-path source.
+    # provenance rule reads for a non-path source. Target field
+    # "legal_ip_model" (not "ai_posture" -- W1-6 rounds 2-4: ai_posture is
+    # now sourced from the governance envelope, W7's bare-field rename, and
+    # this fixture never seeds one, so its provenance is no longer a URL at
+    # all). legal_ip_model takes the URL branch precisely when
+    # "CONTRIBUTING.md" is present in the tree envelope's recorded paths
+    # (seed_full's own tree fixture already lists it).
     seed_full(tmp_path)
     out = run(tmp_path)
-    assert out["confidence"]["ai_posture"] == "derived"
-    assert out["provenance"]["ai_posture"]["source"].startswith("https://")
-    assert "sha256" not in out["provenance"]["ai_posture"]
+    assert out["confidence"]["legal_ip_model"] == "derived"
+    assert out["provenance"]["legal_ip_model"]["source"].startswith("https://")
+    assert "sha256" not in out["provenance"]["legal_ip_model"]
     assert out["provenance"]["owner"]["source"] == "cli"
     assert "sha256" not in out["provenance"]["owner"]
 
