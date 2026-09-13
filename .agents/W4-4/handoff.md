@@ -292,3 +292,28 @@ Same protocol as round 1: plain `cp` backup (never `git stash`/`checkout --`), s
 - Everything round 1 already flagged as deferred (raw_hash fixture-blocked on `LeaderboardRow`; matrix `axis_coverage_caption` needs a contract change, W4-5b's; `/not-ranked` has no server-side paging by contract design) is UNCHANGED by this round.
 - **Not mine this round** (per the coordinator's explicit scope): W-2 (`web/v2/api.js` never reads the error body) is W4-5b's; the store-CLI / rated-fixture follow-ups the review's own "Verdict" section names are not in the bounded rework list and were not attempted.
 - `run_guard`'s v2 guard (`_v1_fixture_reasons`/`_v1_hash_tamper_reasons`) now duplicates part of what `refusal_reasons`/`_fixture_marker_rows`/`matching_snapshot_id` already check (generalised to also read `legacy_repositories`) — a deliberate defense-in-depth overlap (R4's mutation proved it: swallowing `open_or_exit`'s own `SystemExit` is STILL caught by the v2 guard for a fixture-marked or tampered v1 database, just not for the narrower "no `snapshot_meta` row at all" case). Flagging the duplication itself in case a future packet wants to fold the v1 checks' "any table with this shape" generalisation back into `refusal_reasons` directly rather than parallel logic in `v2_refusal_reasons`.
+
+## Second rebase within round 2 (main advanced again, mid-fix)
+
+`main` advanced from `08c1502` to `930e596` while this round was in
+progress (packet W4-6: a real `python -m cvi.snapshot store` CLI +
+`finalize_snapshot_hash` wiring, plus a real-data fixture). Rebase was
+clean, no conflicts. One required follow-up: W4-6 left a deliberately
+self-upgrading test, `tests/snapshot/test_store_cli.py::
+test_served_db_guard_accepts_this_db`, whose own docstring says it
+"fails loudly (not silently)" once `cvi/serve/guard.py` exists, with an
+explicit HANDOFF note asking for a real assertion against this module's
+guard function. Updated it (`guard.v2_refusal_reasons`/`run_guard`
+against the store CLI's real, finalised output) — 0 refusal reasons, no
+v1 shape, exactly as expected. A second self-upgrading test in the same
+file, `test_create_app_serves_snapshot_and_not_ranked_if_w4_4_has_landed`,
+needed NO edit — it self-upgraded automatically (its own `try: from
+cvi.serve.app import create_app except ImportError: skip` pattern) and
+its real body now passes end-to-end against the same store-CLI fixture,
+independently confirming `/v1/cvi/snapshot` and `/v1/cvi/not-ranked`
+both serve correctly off real, CLI-written data.
+
+Final suite: `2541 passed, 1 skipped` (up from `2531` — one test file
+gained coverage from this fix, plus whatever W4-6 itself added). `ruff
+check cvi/ tests/ scripts/`: All checks passed. Branch is current with
+`main` tip `930e596` as of this handoff.
