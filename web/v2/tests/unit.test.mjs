@@ -739,12 +739,85 @@ test("findRow + classifyKind: the real (flat) shape round-trips through renderDr
   assert.ok(html.includes(FLAT_RATED_DETAIL.raw_hash.slice(0, 16)), "the integrity section must render raw_hash");
 });
 
-test("findRow + classifyKind: a GATED repo renders ONLY the identity/gate-status section (no composite/pillar/persona/integrity)", () => {
+// --------------------------------------------------------------------- //
+// W4-5d (2026-09-14): the gated branch used to render ONLY the identity/
+// gate-status section (test above this comment, now superseded/rewritten)
+// -- "the reason sentence and nothing else above the fold" (06 §3 C) was
+// implemented as "nothing else, period", losing the pillar/persona/
+// integrity sections a gated repo genuinely has data for (measured/
+// unmeasured evidence rows, a repo-level raw_hash/snapshot_id). Fixed:
+// the gate sentence still renders first and alone above the fold, but
+// three COLLAPSED `<details>` sections now sit below it; the composite
+// section is OMITTED (no CVI/tier/quadrant ever existed for a gated
+// repo -- see copy.js's comment above DRAWER_SECTION_COMPOSITE for the
+// documented "omit, don't placeholder" choice).
+// --------------------------------------------------------------------- //
+
+test("findRow + classifyKind: a GATED repo renders the gate sentence first, then Pillars/Persona/Integrity collapsed, with Composite omitted", () => {
   const state = stateWithRepoDetail(FLAT_GATED_DETAIL);
   assert.equal(classifyKind(FLAT_GATED_DETAIL), "gated");
   const html = renderDrawer(state);
   assert.ok(html.includes("repo-mirror-0"));
-  assert.ok(!html.includes("cell-numeric"), "no composite/pillar/integrity numeric cells for a gated repo");
+
+  const gateSentence = copy.gateReasonText(FLAT_GATED_DETAIL.gate_reason);
+  const gateSentenceIndex = html.indexOf(gateSentence);
+  const firstDetailsIndex = html.indexOf("<details");
+  assert.ok(gateSentenceIndex >= 0, "the gate reason sentence must render");
+  assert.ok(firstDetailsIndex >= 0, "at least one <details> section must render");
+  assert.ok(gateSentenceIndex < firstDetailsIndex, "the gate sentence must render before any <details> section (nothing else above the fold)");
+
+  // Composite is omitted entirely -- no CVI/tier/quadrant was ever computed.
+  assert.ok(!html.includes(copy.DRAWER_SECTION_COMPOSITE), "no Composite section for a gated repo");
+  // Playbook is omitted too -- nothing to recommend for a disqualified repo.
+  assert.ok(!html.includes(copy.DRAWER_SECTION_PLAYBOOK), "no Playbook section for a gated repo");
+
+  // Exactly three <details> sections, every one collapsed (no `open`
+  // attribute) so the fold shows only the gate sentence.
+  const detailsTags = html.match(/<details[^>]*>/g) || [];
+  assert.equal(detailsTags.length, 3, `expected exactly 3 <details> sections for gated, got ${detailsTags.length}`);
+  for (const tag of detailsTags) {
+    assert.ok(!/\bopen\b/.test(tag), `every gated section must be collapsed, found: ${tag}`);
+  }
+  assert.ok(html.includes(copy.DRAWER_SECTION_PILLARS));
+  assert.ok(html.includes(copy.DRAWER_SECTION_PERSONAS));
+  assert.ok(html.includes(copy.DRAWER_SECTION_INTEGRITY));
+
+  // Persona view: every known persona listed against the SAME repo-level
+  // gate reason (persona_gates/persona_composites are both {} on the wire
+  // for a gated repo -- disqualification happens before any persona lens
+  // is ever applied).
+  for (const personaName of Object.values(copy.PERSONA_NAMES)) {
+    assert.ok(html.includes(personaName), `persona "${personaName}" must be listed in the Persona view`);
+  }
+  const gateSentenceOccurrences = html.split(gateSentence).length - 1;
+  assert.equal(
+    gateSentenceOccurrences,
+    1 + Object.keys(copy.PERSONA_NAMES).length,
+    "the gate sentence must appear once in the identity banner plus once per persona row"
+  );
+
+  // Integrity: raw_hash/snapshot_id still render -- both present on the
+  // wire for a gated repo (a synthetic raw_hash stands in server-side,
+  // scripts/serve_ui_fixtures.py::_synthetic_raw_hash).
+  assert.ok(html.includes(FLAT_GATED_DETAIL.raw_hash.slice(0, 16)));
+  assert.ok(html.includes(FLAT_GATED_DETAIL.snapshot_id));
+});
+
+test("findRow + classifyKind: a GATED repo's Pillars section renders its real evidence rows once loaded (openRepo does not skip evidence for gated)", () => {
+  const detail = FLAT_GATED_DETAIL;
+  const key = `${detail.owner}/${detail.name}`;
+  // Mirrors tests/fixtures/ui/evidence-gated-org__repo-archived-1.json --
+  // a real gated repo's real evidence fixture (one unmeasured governance
+  // parameter).
+  const evidenceRow = {
+    param_id: "archived_flag", pillar: "governance", value: null, score: null, n: null,
+    window_start: null, window_end: null, method: null, source: null, source_sha256: null,
+    fetched_at: null, measured: false, unmeasured_reason: "not_applicable",
+  };
+  const state = { ...stateWithRepoDetail(detail), evidenceByRepo: { [key]: [evidenceRow] } };
+  const html = renderDrawer(state);
+  assert.ok(html.includes(copy.PILLAR_NAMES.governance), "the governance pillar heading must render inside Pillars and evidence");
+  assert.ok(html.includes(copy.missingValueReason("not_applicable")), "the unmeasured-reason text must render for the evidence row");
 });
 
 test("findRow + classifyKind: an UNRATED repo renders its evidence table, not a crash on missing composite fields", () => {
@@ -754,4 +827,19 @@ test("findRow + classifyKind: an UNRATED repo renders its evidence table, not a 
   // old `{kind, row}` shape once the real API's flat response arrived).
   const html = renderDrawer(state);
   assert.ok(html.includes("repo-insufficient_evidence-0"));
+
+  // W4-5d regression guard: the shared `renderEvidenceOnlyPillarSection`
+  // extraction (used by both "unrated" and the new "gated" branch) must
+  // leave "unrated" byte-for-byte the same shape it always was -- exactly
+  // one <details>, still OPEN (unlike gated's now-collapsed three), and no
+  // persona/integrity sections (an unrated repo's `persona_composites`/
+  // `raw_hash` are real fields but this screen has never shown them, and
+  // this packet's scope is gated only -- dispatch: "an unrated repo
+  // unchanged").
+  const detailsTags = html.match(/<details[^>]*>/g) || [];
+  assert.equal(detailsTags.length, 1, "unrated must still render exactly one <details> section");
+  assert.ok(/\bopen\b/.test(detailsTags[0]), "unrated's single section must stay open, unchanged");
+  assert.ok(!html.includes(copy.DRAWER_SECTION_PERSONAS), "no Persona view section for unrated (unchanged)");
+  assert.ok(!html.includes(copy.DRAWER_SECTION_INTEGRITY), "no Integrity section for unrated (unchanged)");
+  assert.ok(!html.includes(copy.DRAWER_SECTION_COMPOSITE), "no Composite section for unrated (unchanged)");
 });

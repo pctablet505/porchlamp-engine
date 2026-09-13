@@ -265,6 +265,16 @@ export const KEYMAP_ENTRIES = Object.freeze([
 
 export const DRAWER_TITLE = "Why this score";
 export const DRAWER_SECTION_IDENTITY = "Identity and gate status";
+// W4-5d (2026-09-14, packet ruling — "pick one, document in copy.js"): a
+// GATED repository was disqualified before scoring and has no CVI/tier/
+// quadrant at all (`RepoDetailResponse.cvi` etc. are `None`, never a
+// fabricated value) — the chosen behaviour is to OMIT the composite
+// `<details>` entirely for `kind === "gated"` (`views/drawer.js::
+// renderDrawer`) rather than render it with a "no composite" placeholder
+// sentence. The other three post-identity sections (pillars/evidence,
+// persona view, integrity) still render, collapsed, below the gate
+// sentence (06 §3 C: "the reason sentence and nothing else ABOVE THE
+// FOLD" — collapsed sections below the fold are fine).
 export const DRAWER_SECTION_COMPOSITE = "Composite";
 export const DRAWER_SECTION_PILLARS = "Pillars and evidence";
 export const DRAWER_SECTION_PERSONAS = "Persona view";

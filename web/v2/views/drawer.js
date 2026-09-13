@@ -2,13 +2,25 @@
 // fixed by D-DEF-2 and never reordered: (1) identity + gate status, (2)
 // composite, (3) pillar/evidence table, (4) persona view, (5) integrity,
 // (6) playbook (stubbed). A gated repository (`gate_reason` set) renders
-// ONLY section 1 — "the reason sentence and nothing else above the fold"
-// (06 §3 C) — because a gated repository was disqualified before scoring
-// and has no composite/pillar/persona/integrity data to show. An unrated
-// repository (`unrated_reason` set, `06` §4: NotRankedRow carries no
-// pillar/persona/integrity fields at all) still shows its evidence table
-// (section 3) since individual parameters may be partially measured even
-// though composite coverage fell below the 0.60 floor.
+// section 1 (identity + the reason sentence) same as always, and — W4-5d
+// (2026-09-14) — sections 3/4/5 (pillars/evidence, persona view,
+// integrity) below it, all COLLAPSED (`<details>` with no `open`
+// attribute) so "the reason sentence and nothing else above the fold" (06
+// §3 C) still holds visually while the data is one click away instead of
+// simply absent. Section 2 (composite) is OMITTED for a gated repo — no
+// CVI/tier/quadrant was ever computed (`RepoDetailResponse.cvi` etc. are
+// `None`); see `copy.js`'s comment above `DRAWER_SECTION_COMPOSITE` for
+// the documented choice. Section 6 (playbook) is also omitted for gated —
+// an action-recommendation stub has nothing to recommend for a repository
+// disqualified before scoring. The persona section for a gated repo lists
+// every known persona against the SAME repo-level gate reason (a gated
+// repo has no per-persona `persona_composites`/`persona_gates` at all —
+// `{}` on the wire — because disqualification happens before any persona
+// lens is ever applied). An unrated repository (`unrated_reason` set)
+// still shows only its evidence table (section 3), UNCHANGED by W4-5d,
+// since individual parameters may be partially measured even though
+// composite coverage fell below the 0.60 floor and this packet's scope is
+// gated only (dispatch: "an unrated repo unchanged").
 //
 // Focus trap and Esc-to-close-and-restore-focus are DOM concerns handled by
 // app.js; this module only produces markup.
@@ -158,6 +170,51 @@ function renderPillarSection(row, evidenceRows, evidenceError) {
   );
 }
 
+/**
+ * Shared by the "unrated" branch (unchanged by W4-5d — always `open`) and
+ * the "gated" branch (W4-5d — always collapsed): neither kind has any
+ * `p_<pillar>`/`c_<pillar>` score to summarise (`RepoDetailResponse`
+ * returns `None` for both — a gated/unrated repo never reaches
+ * `cvi.core.engine`'s pillar computation), so unlike `renderPillarSection`
+ * above (the "rated" case) this never calls `renderPillarSummary` — only
+ * the evidence table, which is populated independently of `kind`
+ * (individual parameters may still be measured/unmeasured with reasons).
+ */
+function renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, open) {
+  return (
+    `<details${open ? " open" : ""}>` +
+    `<summary>${escapeHtml(copy.DRAWER_SECTION_PILLARS)}</summary>` +
+    renderEvidenceTable(evidenceRows, evidenceError) +
+    `</details>`
+  );
+}
+
+/**
+ * W4-5d: a gated repository's `persona_gates`/`persona_composites` are
+ * both `{}` on the wire (disqualification happens before ANY persona lens
+ * is ever applied, so no per-persona gate code was ever computed) — the
+ * dispatch's own wording for this section is "all personas gated with the
+ * gate reason", so this lists every known persona (`copy.PERSONA_NAMES`)
+ * against the repo's own `gate_reason` sentence rather than reusing
+ * `renderPersonaSection`'s per-persona `persona_gates` lookup, which would
+ * render zero rows here.
+ */
+function renderPersonaSectionAllGated(row) {
+  const reasonText = copy.gateReasonText(row.gate_reason);
+  const rows = Object.keys(copy.PERSONA_NAMES)
+    .map((persona) => {
+      const name = copy.PERSONA_NAMES[persona];
+      return `<tr><td>${escapeHtml(name)}</td><td colspan="3">${escapeHtml(reasonText)}</td></tr>`;
+    })
+    .join("");
+  return (
+    `<details>` +
+    `<summary>${escapeHtml(copy.DRAWER_SECTION_PERSONAS)}</summary>` +
+    `<div class="table-scroll"><table class="evidence-table"><thead><tr><th>Persona</th><th>CVI</th><th>Tier</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>` +
+    `</details>`
+  );
+}
+
 function renderPersonaSection(row) {
   const rows = Object.entries(row.persona_composites || {})
     .map(([persona, composite]) => {
@@ -250,21 +307,34 @@ export function renderDrawer(state) {
   const closeButton = `<button type="button" class="icon-button" data-drawer-close="true">${escapeHtml(copy.DRAWER_CLOSE_LABEL)}</button>`;
   const identity = renderIdentity(kind, row);
 
+  const evidenceRows = state.evidenceByRepo[state.repo];
+  const evidenceError = evidenceRows ? null : state.evidenceError;
+
   if (kind === "gated") {
+    // W4-5d: the gate sentence (in `identity` above) stays "the reason
+    // sentence and nothing else above the fold" (06 §3 C) — every section
+    // below is collapsed (`open` omitted) so nothing but the summary text
+    // shows without a click. Evidence is fetched for a gated repo exactly
+    // as for any other kind (`app.js::openRepo` calls `loadEvidence`
+    // unconditionally, never gated on `kind`), so `evidenceRows` here is
+    // the real fetched-or-loading-or-error state, same as every other
+    // branch.
+    const sections =
+      renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, false) +
+      renderPersonaSectionAllGated(row) +
+      renderIntegritySection(row);
     return (
       `<div class="drawer-backdrop" data-drawer-backdrop="true">` +
       `<div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">` +
       `<div class="drawer-header">${identity}${closeButton}</div>` +
+      sections +
       `</div></div>`
     );
   }
 
-  const evidenceRows = state.evidenceByRepo[state.repo];
-  const evidenceError = evidenceRows ? null : state.evidenceError;
-
   let sections;
   if (kind === "unrated") {
-    sections = `<details open><summary>${escapeHtml(copy.DRAWER_SECTION_PILLARS)}</summary>${renderEvidenceTable(evidenceRows, evidenceError)}</details>`;
+    sections = renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, true);
   } else {
     sections = (
       renderComposite(row) +

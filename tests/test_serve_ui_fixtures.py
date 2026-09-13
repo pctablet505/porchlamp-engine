@@ -355,3 +355,66 @@ class TestRepoDetailEndpoint:
     def test_malformed_path_is_404_not_a_500(self, server_url: str) -> None:
         resp = httpx.get(f"{server_url}/v1/cvi/repos/just-one-segment")
         assert resp.status_code == 404
+
+
+class TestGatedRepoDrawerSections:
+    """W4-5d (2026-09-14): the drawer's gated branch used to render ONLY
+    the identity/gate-status section — "the reason sentence and nothing
+    else above the fold" (06 §3 C) was implemented client-side
+    (`views/drawer.js::renderDrawer`) as "nothing else, period", so a
+    gated repo's real pillar-evidence, persona, and integrity facts were
+    never reachable at all, even by clicking. Fixed: those three sections
+    now render collapsed below the gate sentence; the composite section is
+    omitted (no CVI/tier/quadrant was ever computed for a gated repo).
+
+    This is the fixture-server half of that fix: it proves the SAME two
+    calls `app.js::openRepo` makes for ANY kind — `GET /v1/cvi/repos/{o}/
+    {n}` and `GET /v1/cvi/repos/{o}/{n}/evidence` — both succeed for a
+    GATED repo (i.e. evidence is fetched for gated repos exactly as for
+    unrated/rated ones, never skipped on `kind`), and that the evidence
+    payload actually carries rows for the drawer's now-reachable "Pillars
+    and evidence" section to render once expanded — the render side of
+    this same fixture repo is exercised live in a real browser (dynamic
+    `import('/views/drawer.js')` against this same server, documented in
+    this packet's handoff) since Node is not available on this box to run
+    `web/v2/tests/unit.test.mjs` directly.
+    """
+
+    def test_gated_repo_with_a_real_evidence_fixture_is_fully_fetchable(self, server_url: str) -> None:
+        # gated-org/repo-archived-1 is one of only 3 repos with a real
+        # `evidence-*.json` fixture file (the other 2 are rated repos) —
+        # deliberately chosen so this test exercises real evidence rows,
+        # not a 404-tolerated empty set.
+        detail_resp = httpx.get(f"{server_url}/v1/cvi/repos/gated-org/repo-archived-1")
+        assert detail_resp.status_code == 200
+        detail = RepoDetailResponse.model_validate(detail_resp.json())
+        assert detail.eligible is False, "repo-archived-1 must classify as gated (classifyKind: !eligible)"
+        assert detail.gate_reason == "archived"
+
+        evidence_resp = httpx.get(f"{server_url}/v1/cvi/repos/gated-org/repo-archived-1/evidence")
+        assert evidence_resp.status_code == 200, (
+            "evidence must be fetchable for a gated repo exactly as for any other kind "
+            "(app.js::openRepo calls loadEvidence unconditionally, never gated on `kind`)"
+        )
+        rows = evidence_resp.json()
+        assert rows, "the Pillars and evidence section has nothing to render without this"
+        assert rows[0]["pillar"] == "governance"
+        assert rows[0]["unmeasured_reason"] == "not_applicable"
+
+    def test_every_gated_fixture_repo_validates_with_no_composite_facts(self, server_url: str) -> None:
+        # Every gated repo in the fixture (not just repo-archived-1) must
+        # carry no CVI/tier/quadrant — the contract-level reason the
+        # drawer's Composite section is omitted for `kind === "gated"`.
+        notranked = json.loads((FIXTURES_DIR / "notranked.json").read_text())
+        gated_repos = notranked["gated"]
+        assert len(gated_repos) >= 5, "expected the full set of gated fixture repos"
+        for row in gated_repos:
+            resp = httpx.get(f"{server_url}/v1/cvi/repos/{row['owner']}/{row['name']}")
+            assert resp.status_code == 200
+            detail = RepoDetailResponse.model_validate(resp.json())
+            assert detail.eligible is False
+            assert detail.cvi is None
+            assert detail.tier is None
+            assert detail.quadrant is None
+            assert detail.persona_composites == {}
+            assert detail.persona_gates == {}
