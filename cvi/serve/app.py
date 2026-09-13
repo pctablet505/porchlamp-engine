@@ -113,6 +113,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError as PydanticValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from cvi.audit.methodology_history import methodology_with_history
@@ -130,8 +131,10 @@ from cvi.serve.contract import (
     ReprojectRequest,
     ReprojectResponse,
     RepoDetailResponse,
+    SnapshotCounts,
     SnapshotSummary,
 )
+from cvi.serve.guard import run_guard
 from cvi.store import queries, reader
 
 __all__ = ["create_app"]
@@ -157,6 +160,13 @@ def _error_body(request: Request, status_code: int, detail: str) -> dict:
     return {"error": {"endpoint": request.url.path, "status": status_code, "detail": detail}}
 
 
+def _internal_error_response(request: Request) -> JSONResponse:
+    """W-7: every unhandled server fault uses the SAME `{"error": ...}`
+    shape as a 404/422/503, with a non-leaking detail (never the raw
+    exception text -- that could expose internal schema/state)."""
+    return JSONResponse(status_code=500, content=_error_body(request, 500, "internal server error"))
+
+
 def _register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def _http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
@@ -172,7 +182,26 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(ValueError)
     async def _value_error(request: Request, exc: ValueError) -> JSONResponse:
+        # Blocker B-3: `pydantic.ValidationError` IS a `ValueError`
+        # subclass, so it would otherwise reach this handler too --
+        # relabelling a SERVER fault (a stored value the contract cannot
+        # represent, e.g. an out-of-Literal `quadrant`, or an evidence row
+        # whose `param_id` is unknown to `PARAMS`) as a client 422. The
+        # ruling stands: that is a 500 (`_internal_error_response`), never
+        # a 422 -- only a genuine caller-input problem (persona/sort/
+        # paging/weights, all plain `ValueError`s raised by `cvi.store.
+        # queries`' own validators) gets 422 here.
+        if isinstance(exc, PydanticValidationError):
+            return _internal_error_response(request)
         return JSONResponse(status_code=422, content=_error_body(request, 422, str(exc)))
+
+    @app.exception_handler(Exception)
+    async def _unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+        # W-7: a generic catch-all so ANY fault this module did not
+        # anticipate (not an HTTPException, not a ValueError/
+        # ValidationError, not a RequestValidationError) still reports the
+        # same shape instead of Starlette's own plain-text 500.
+        return _internal_error_response(request)
 
 
 # --------------------------------------------------------------------------- #
@@ -186,9 +215,18 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
 
 def _current_snapshot_id(conn: sqlite3.Connection) -> Optional[str]:
-    row = conn.execute(
-        "SELECT id FROM snapshots WHERE promoted_at IS NOT NULL ORDER BY promoted_at DESC, id DESC LIMIT 1"
-    ).fetchone()
+    # Blocker B-1: a v1-shaped database (no `snapshots` table at all) used
+    # to raise an uncaught `sqlite3.OperationalError` here, escaping every
+    # handler as Starlette's own plain-text 500 (W-7's reproduction). No
+    # `snapshots` table is exactly the same "nothing to serve yet" fact as
+    # an EMPTY one -- both resolve to `None`, and the caller's existing
+    # 503 (`_require_snapshot`) already covers it correctly.
+    try:
+        row = conn.execute(
+            "SELECT id FROM snapshots WHERE promoted_at IS NOT NULL ORDER BY promoted_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
     if row is not None:
         return row[0]
     row = conn.execute("SELECT id FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 1").fetchone()
@@ -196,9 +234,29 @@ def _current_snapshot_id(conn: sqlite3.Connection) -> Optional[str]:
 
 
 def _require_snapshot(conn: sqlite3.Connection) -> str:
+    """Every endpoint that touches a snapshot funnels through here, so
+    this is the ONE place `03` section 5 / Warning W-6's policy lives:
+    no snapshot at all, OR a snapshot that exists but has not been
+    FINALISED yet (`canonical_dump_hash IS NULL` -- `cvi.store.writer.
+    finalize_snapshot_hash` has not run) both 503, identically, on EVERY
+    snapshot-touching endpoint (`/methodology` is the one endpoint that
+    is not -- it needs no snapshot at all). Before this fix, finalisation
+    was checked only by the three endpoints that happened to call
+    `_require_snapshot_summary` for `counts`; `/matrix`, `/repos/{o}/{n}`
+    and `/repos/{o}/{n}/evidence` served an unfinalised snapshot's data
+    while `/leaderboard`/`/not-ranked`/`/snapshot` 503'd on the exact
+    same database."""
     snapshot_id = _current_snapshot_id(conn)
     if snapshot_id is None:
         raise HTTPException(status_code=503, detail="no snapshot has been written to this database yet")
+    canonical_dump_hash = conn.execute(
+        "SELECT canonical_dump_hash FROM snapshots WHERE id = ?", (snapshot_id,)
+    ).fetchone()[0]
+    if canonical_dump_hash is None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"snapshot {snapshot_id!r} has not been finalised (no canonical_dump_hash yet)",
+        )
     return snapshot_id
 
 
@@ -455,23 +513,23 @@ def _matrix_point(point: Mapping[str, Any]) -> Optional[MatrixPoint]:
 _SORT_BASE = ("rank", "cvi", "coverage", "tier")
 
 
-def _translate_sort(sort: Optional[str]) -> Optional[str]:
-    """Bridge item 7: the store's `ALLOWED_SORT_FIELDS` are bare
-    (`rank`/`cvi`/`coverage`/`tier`/`<pillar>`); the API additionally
-    accepts `p_<pillar>` (translated to `<pillar>`) and an optional
-    leading `-` for direction (lead ruling). The `-` is accepted and
-    stripped, never rejected -- but `cvi.store.queries._build_order_by`
-    has no ascending form at all (every branch is hard-coded `DESC`), so
-    today `-cvi` and `cvi` order identically; this is a `cvi.store.
-    queries` gap this module cannot close without editing that file (out
-    of this packet's scope), named in the handoff, not silently hidden."""
+def _translate_sort(sort: Optional[str]) -> tuple:
+    """Bridge item 7 / Warning W-3 (fixed, W4-4 REWORK item-06): the
+    store's `ALLOWED_SORT_FIELDS` are bare (`rank`/`cvi`/`coverage`/
+    `tier`/`<pillar>`); the API additionally accepts `p_<pillar>`
+    (translated to `<pillar>`) and an optional leading `-` for direction.
+    Returns `(field, descending)` -- `cvi.store.queries.list_ranked` now
+    has a `descending` parameter (this packet's own `cvi/store/queries.py`
+    change, lead-authorised) that actually reverses the promoted sort
+    level, so the stripped `-` is threaded through rather than discarded."""
     if sort is None:
-        return None
+        return None, True
+    descending = not sort.startswith("-")
     raw = sort[1:] if sort.startswith("-") else sort
     if raw in _SORT_BASE:
-        return raw
+        return raw, descending
     if raw.startswith("p_") and raw[2:] in _PILLARS:
-        return raw[2:]
+        return raw[2:], descending
     raise ValueError(
         f"sort must be one of {_SORT_BASE + tuple(f'p_{p}' for p in _PILLARS)} "
         f"(optionally prefixed with '-'); got {sort!r}"
@@ -483,52 +541,40 @@ def _paging(page: int, page_size: int) -> tuple:
 
 
 def _require_snapshot_summary(conn: sqlite3.Connection, snapshot_id: str) -> dict:
+    """`snapshot_id` has already cleared `_require_snapshot`'s existence
+    and finalisation check (Warning W-6: one policy, applied once, before
+    any handler calls this) -- this is a plain fetch, not a second gate."""
     summary = queries.snapshot_summary(conn, snapshot_id)
     if summary is None:  # pragma: no cover - snapshot_id came from this same conn moments ago
         raise HTTPException(status_code=503, detail=f"snapshot {snapshot_id!r} disappeared mid-request")
-    if summary["canonical_dump_hash"] is None:
-        raise HTTPException(
-            status_code=503,
-            detail=f"snapshot {snapshot_id!r} has not been finalised (no canonical_dump_hash yet)",
-        )
     return summary
 
 
 # --------------------------------------------------------------------------- #
-# Served-DB guard (rule 2): reuse `scripts.serve`'s existing v1 guard
-# (`open_or_exit`, itself a thin wrapper this module asked `scripts/
-# serve.py` to factor out of `main()` around the identical inline check --
-# zero behavioural change for `main()`'s own callers/tests) rather than a
-# second implementation. A database that has never held v1 data at all (no
-# `cvi.lakehouse.OperationalStore`-shaped `repositories` columns, e.g. every
-# database this packet's OWN tests build -- a fresh v2 schema names its
-# `repositories` table's columns after `04-ARCHITECTURE.md` section 5, not
-# v1's) cannot carry the specific v1 failures that guard checks for (a
-# fixture-marked row, a tampered content hash -- both require the v1
-# shape to even ask the question), and `OperationalStore.__init__` itself
-# -- not just a later query -- raises `sqlite3.OperationalError` against
-# one (its own schema script references v1-only columns unconditionally;
-# confirmed directly: constructing one against a bare v2 schema fails at
-# `_conn.executescript(_SCHEMA)`, before any guard check runs at all).
-# There is therefore no `OperationalStore` to hand `/legacy` for such a
-# database -- :func:`create_app` mounts nothing at `/legacy` rather than
-# retry a construction already proven impossible. A genuine v1-shaped
-# refusal still raises `SystemExit` with the exact message
-# `scripts.serve.main` always has (that failure surfaces from
-# `refusal_reasons`, deep inside a successfully-constructed store, never
-# from construction itself, so it is never caught here).
+# Served-DB guard (rule 2; W4-4 REWORK Blocker B-4 / Warning W-5): both the
+# v1 and the v2 guard now live in `cvi.serve.guard` -- this module no
+# longer reaches BACKWARDS into `scripts.serve` at all (the reverse import
+# `tests/core/test_import_graph.py`'s new `cvi/serve` edge rule forbids).
+# `cvi.serve.guard.run_guard` runs the v2 guard unconditionally (refuses a
+# tampered or fixture-marked v2-shaped database, `SystemExit`, regardless
+# of whether a v1 shape is even present) and the v1 guard only if the
+# database has a v1 shape at all -- `None` (no `/legacy` to mount) is the
+# correct, non-error return for a v2-only database.
 # --------------------------------------------------------------------------- #
 
 
-def _run_served_db_guard(db_path: str):
-    """Returns the guarded v1 `OperationalStore` to mount at `/legacy`, or
-    `None` when `db_path` has no v1 shape to guard or mount at all."""
-    from scripts.serve import open_or_exit  # lazy: scripts.serve imports this module at its own top level
-
-    try:
-        return open_or_exit(db_path)
-    except sqlite3.OperationalError:
-        return None
+#: Blocker B-2 (W4-4 REWORK): paths this mount must NEVER SPA-fallback,
+#: because `Mount("/", StaticFiles(...))` gives a FULL routing match for
+#: ANY GET/HEAD request path -- including one under a reserved API prefix
+#: that no real route recognises, or one where a real route exists under
+#: a DIFFERENT method (StaticFiles only ever handles GET/HEAD, so a
+#: method mismatch on a real endpoint, e.g. `GET /v1/cvi/reproject`
+#: against a POST-only route, reaches this mount too and used to resolve
+#: to a false 200 HTML page via the SPA fallback below). `/healthz` is
+#: bare, not a prefix -- packet W4-4 defines no top-level route by that
+#: name (only `/legacy/healthz`, v1's own).
+_API_RESERVED_PREFIXES = ("v1/", "legacy/")
+_API_RESERVED_EXACT = ("v1", "legacy", "healthz")
 
 
 class _SPAStaticFiles(StaticFiles):
@@ -537,11 +583,25 @@ class _SPAStaticFiles(StaticFiles):
     one page (`?persona=&eco=&q=&sort=&page=&repo=&tab=`), but a future
     path-based route or a bookmark to a sub-path must still resurface
     `index.html` rather than a static 404, standard SPA-hosting practice.
-    API routes (`/v1/cvi/*`) and `/legacy/*` are registered on the app
-    BEFORE this mount, so Starlette's first-match routing never reaches
-    this class for them regardless."""
+
+    Registered LAST (after the API router and the `/legacy` mount), so a
+    real route always wins by Starlette's first-full-match routing --
+    that precedence was never the bug (Blocker B-2's own reproduction:
+    registered routes DO win). The bug was this mount treating a MISS
+    under `/v1/` or `/legacy/` (an unknown path, or a real path under the
+    wrong HTTP method) exactly like a miss under any app-owned path,
+    silently substituting `index.html` -- indistinguishable, to a caller,
+    from a working page. `_API_RESERVED_PREFIXES`/`_API_RESERVED_EXACT`
+    are excluded from the SPA fallback entirely: a miss there is a
+    genuine API 404, in this module's own `{"error": ...}` shape (raising
+    `HTTPException` here still reaches `_register_exception_handlers`'s
+    `StarletteHTTPException` handler -- a `Mount`'s inner ASGI app does
+    not install its own exception middleware, so the exception propagates
+    to the outer `FastAPI` app's)."""
 
     async def get_response(self, path: str, scope):
+        if path in _API_RESERVED_EXACT or path.startswith(_API_RESERVED_PREFIXES):
+            raise HTTPException(status_code=404, detail=f"no route matches '/{path}'")
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
@@ -568,10 +628,11 @@ def _build_router() -> APIRouter:
         page_size: int = Query(DEFAULT_PAGE_SIZE),
     ) -> LeaderboardResponse:
         snapshot_id = _require_snapshot(conn)
-        store_sort = _translate_sort(sort)
+        store_sort, descending = _translate_sort(sort)
         limit, offset = _paging(page, page_size)
         rows, total = queries.list_ranked(
-            conn, snapshot_id, persona=persona, ecosystem=eco, q=q, sort=store_sort, limit=limit, offset=offset
+            conn, snapshot_id, persona=persona, ecosystem=eco, q=q, sort=store_sort,
+            descending=descending, limit=limit, offset=offset,
         )
         summary = _require_snapshot_summary(conn, snapshot_id)
         return LeaderboardResponse(
@@ -604,7 +665,12 @@ def _build_router() -> APIRouter:
         )
         gated, unrated, persona_hidden = _split_not_ranked(rows, persona=persona)
         summary = _require_snapshot_summary(conn, snapshot_id)
-        return NotRankedResponse(gated=gated, unrated=unrated, persona_hidden=persona_hidden, counts=summary["counts"])
+        rated = summary["persona_visible_counts"][persona]
+        counts = SnapshotCounts(
+            rated=rated, gated=len(gated), unrated=len(unrated) + len(persona_hidden),
+            total=rated + len(gated) + len(unrated) + len(persona_hidden),
+        )
+        return NotRankedResponse(gated=gated, unrated=unrated, persona_hidden=persona_hidden, counts=counts)
 
     @router.get("/matrix", response_model=MatrixResponse)
     async def get_matrix(
@@ -704,7 +770,7 @@ def create_app(db_path, *, web_dir) -> FastAPI:
     section 10's strangler migration: v1 stays reachable until W4-1
     deletes it) whenever `db_path` has a v1 shape for it to read (a
     v2-only database, e.g. every one this packet's own tests build, mounts
-    no `/legacy` at all -- see :func:`_run_served_db_guard`); `web_dir`
+    no `/legacy` at all -- see `cvi.serve.guard.run_guard`); `web_dir`
     (typically `web/v2/`) is mounted at `/` with an `index.html` SPA
     fallback. Route registration order is API router, then `/legacy` (if
     any), then the static mount -- Starlette matches in registration
@@ -715,7 +781,7 @@ def create_app(db_path, *, web_dir) -> FastAPI:
     serve.py`'s `main` lets it exit the process, matching today's
     behaviour) if the served-DB guard refuses `db_path` (rule 2)."""
     db_path = str(db_path)
-    legacy_store = _run_served_db_guard(db_path)
+    legacy_store = run_guard(db_path)
 
     conn = _open_v2_connection(db_path)
 
