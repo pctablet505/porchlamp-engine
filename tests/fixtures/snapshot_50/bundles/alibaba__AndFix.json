@@ -10,9 +10,9 @@
       "reason": "collector_failure"
     },
     "dependents_deduped": {
-      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "detail": "D-MISS-5: ecosystem == systems has no package registry (2.1 is undefined)",
       "kind": "unmeasured",
-      "reason": "third_party_gap"
+      "reason": "not_applicable"
     },
     "downloads_monthly": {
       "detail": "registry returned no downloads data",

@@ -10,7 +10,7 @@
       "reason": "collector_failure"
     },
     "dependents_deduped": {
-      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "detail": "root pom.xml contents not collected (tree envelope carries paths only; a later fetch must add one raw-content call per maven repo)",
       "kind": "unmeasured",
       "reason": "third_party_gap"
     },
