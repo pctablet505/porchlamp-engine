@@ -559,7 +559,7 @@ def test_error_body_shape_is_consistent_across_404_422_503(tmp_path, api):
 
 
 def test_create_app_refuses_a_fixture_marked_v1_database(tmp_path):
-    from cvi.benchmark_data import BENCHMARK_NOW, get_benchmark_catalog
+    from cvi.benchmark_data import BENCHMARK_NOW, get_benchmark_catalog, seed_benchmark_catalog
     from cvi.lakehouse import OperationalStore, repositories_dump_hash
     from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest
     import importlib.util
@@ -572,7 +572,7 @@ def test_create_app_refuses_a_fixture_marked_v1_database(tmp_path):
     db_path = tmp_path / "cvi.db"
     store = OperationalStore(str(db_path))
     rows = get_benchmark_catalog(3)
-    store.seed_benchmark_catalog(rows, BENCHMARK_NOW)
+    seed_benchmark_catalog(store, rows, BENCHMARK_NOW)
     store.close()
 
     sample_raw = root / "tests" / "fixtures" / "numpy-envelopes"

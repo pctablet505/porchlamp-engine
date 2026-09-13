@@ -36,9 +36,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from cvi.api import create_app
-from cvi.benchmark_data import BENCHMARK_NOW, get_benchmark_catalog
-from cvi.lakehouse import apply_raw_metrics
-from cvi.lakehouse import OperationalStore, repositories_dump_hash
+from cvi.benchmark_data import BENCHMARK_NOW, get_benchmark_catalog, seed_benchmark_catalog
+from cvi.lakehouse import OperationalStore, apply_raw_metrics, repositories_dump_hash
 from cvi.models import CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
 from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest
 from scripts import serve
@@ -182,7 +181,7 @@ def _promote_snapshot(data_dir: Path, db: Path) -> dict:
 def _fixture_rows(store: OperationalStore, count: int) -> list[dict]:
     """Seed ``count`` synthetic benchmark rows, exactly as ``demo_app`` does."""
     rows = get_benchmark_catalog(count)
-    store.seed_benchmark_catalog(rows, BENCHMARK_NOW)
+    seed_benchmark_catalog(store, rows, BENCHMARK_NOW)
     return rows
 
 

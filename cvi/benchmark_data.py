@@ -18,26 +18,34 @@ Fast initialization: seeding all 1,000 repos into OperationalStore completes in 
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
 
-from cvi.engine import PILLAR_NAMES
+from cvi.deepdive import build_deep_dive
+from cvi.engine import PILLAR_NAMES, assign_tier
 from cvi.lakehouse import OperationalStore
+from cvi.matrix import decompose
 from cvi.models import (
     AIPosture,
     AuthorAssociation,
     Ecosystem,
     LegalIPModel,
+    Persona,
+    PillarScores,
     Quadrant,
     RawPREvent,
+    RepoMeta,
     Tier,
 )
+from cvi.persona import persona_composite
 
 __all__ = [
     "BENCHMARK_NOW",
     "generate_benchmark_catalog",
     "generate_synthetic_pr_events",
     "get_benchmark_catalog",
+    "seed_benchmark_catalog",
     "seed_benchmark_store",
     "build_benchmark_store",
 ]
@@ -802,6 +810,171 @@ def _pinned_scorers(pillars: tuple[float, ...]) -> dict[str, Callable[..., float
     return {name: fixed(by_name[name]) for name in PILLAR_NAMES}
 
 
+def seed_benchmark_catalog(
+    store: OperationalStore, repos: list[dict[str, Any]], now: datetime
+) -> None:
+    """Bulk insert repository definitions in a single transaction in <2.0s.
+
+    W4-1: moved verbatim from ``cvi.lakehouse.OperationalStore.
+    seed_benchmark_catalog`` -- a production module (``cvi/lakehouse.py``)
+    generating synthetic PR events and seeding a fabricated catalog is
+    exactly the "production import of the fixture" this repo's
+    non-negotiables forbid (synthetic data is a test fixture only). This
+    is now a free function here instead, operating on ``store`` through
+    its public API (``ensure_deep_dive_column()``, ``connection``) rather
+    than living as a method on the class itself.
+
+    ``now`` is the explicit reference time for the synthetic PR events
+    and the ``last_indexed_at`` stamp (D-VER-3): the store owns no clock.
+    """
+    store.ensure_deep_dive_column()
+
+    when = now
+    when_iso = when.isoformat()
+    rows = []
+
+    for item in repos:
+        pillars = item.get("pillars", (50.0, 50.0, 50.0, 50.0, 50.0))
+        is_gated = item.get("is_gated", False)
+
+        if is_gated:
+            cvi = 0.0
+            tier = Tier.D.value
+            quadrant = Quadrant.GRAVEYARD.value
+            lev = 0.0
+            fric = 100.0
+            is_dq = 1
+            dq_reason = "PR ghost rate exceeds 50% ceiling (black hole)"
+            p_scores = (0.0, 0.0, 0.0, 0.0, 0.0)
+            ps = None
+        else:
+            ps = PillarScores(*pillars)
+            lev, fric, quad = decompose(ps)
+            cvi = persona_composite(ps, Persona.BALANCED)
+            tier = assign_tier(cvi).value
+            quadrant = quad.value
+            is_dq = 0
+            dq_reason = None
+            p_scores = pillars
+
+        meta = RepoMeta(
+            owner=item["owner"],
+            name=item["name"],
+            ecosystem=item["ecosystem"],
+            stars=item["stars"],
+            forks=item["forks"],
+            monthly_downloads=item["monthly_downloads"],
+            dependents_count=item["dependents_count"],
+            elephant_factor=item["elephant_factor"],
+            legal_ip_model=item["legal_ip_model"],
+            ai_posture=item["ai_posture"],
+            active_nonbot_commits_180d=item.get("active_nonbot_commits_180d", 100),
+            off_platform_reviews=item.get("off_platform_reviews", False),
+            hard_ai_ban=item.get("hard_ai_ban", False),
+            active_unclaimed_gfis=item.get("active_unclaimed_gfis", 5),
+        )
+        pr_events = generate_synthetic_pr_events(
+            owner=item["owner"],
+            name=item["name"],
+            p1=pillars[0],
+            now=when,
+            is_gated=is_gated,
+        )
+        dd = build_deep_dive(
+            meta,
+            pr_events,
+            when,
+            pillar_scores=ps,
+            overall_cvi=cvi,
+        )
+        dd_str = json.dumps(dd, sort_keys=True)
+
+        eco_str = (
+            item["ecosystem"].value
+            if hasattr(item["ecosystem"], "value")
+            else str(item["ecosystem"])
+        )
+        legal_str = (
+            item["legal_ip_model"].value
+            if hasattr(item["legal_ip_model"], "value")
+            else str(item["legal_ip_model"])
+        )
+        ai_str = (
+            item["ai_posture"].value
+            if hasattr(item["ai_posture"], "value")
+            else str(item["ai_posture"])
+        )
+
+        rows.append((
+            item["owner"],
+            item["name"],
+            eco_str,
+            item.get("domain_category", ""),
+            item["stars"],
+            item["forks"],
+            item["monthly_downloads"],
+            item["dependents_count"],
+            round(pillars[1] / 100.0, 4),
+            item["elephant_factor"],
+            legal_str,
+            ai_str,
+            p_scores[0],
+            p_scores[1],
+            p_scores[2],
+            p_scores[3],
+            p_scores[4],
+            lev,
+            fric,
+            quadrant,
+            cvi,
+            tier,
+            is_dq,
+            dq_reason,
+            when_iso,
+            dd_str,
+        ))
+
+    sql = """
+    INSERT INTO repositories (
+        owner, name, ecosystem, domain_category, stars, forks,
+        monthly_downloads, dependents_count, openssf_criticality,
+        elephant_factor, legal_ip_model, ai_posture,
+        score_responsiveness, score_criticality, score_governance,
+        score_rigor_ai, score_accessibility, leverage_score,
+        friction_score, matrix_quadrant, overall_cvi, rank_tier,
+        is_stage0_disqualified, disqualification_reason, last_indexed_at,
+        deep_dive_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(owner, name) DO UPDATE SET
+        ecosystem = excluded.ecosystem,
+        domain_category = excluded.domain_category,
+        stars = excluded.stars,
+        forks = excluded.forks,
+        monthly_downloads = excluded.monthly_downloads,
+        dependents_count = excluded.dependents_count,
+        openssf_criticality = excluded.openssf_criticality,
+        elephant_factor = excluded.elephant_factor,
+        legal_ip_model = excluded.legal_ip_model,
+        ai_posture = excluded.ai_posture,
+        score_responsiveness = excluded.score_responsiveness,
+        score_criticality = excluded.score_criticality,
+        score_governance = excluded.score_governance,
+        score_rigor_ai = excluded.score_rigor_ai,
+        score_accessibility = excluded.score_accessibility,
+        leverage_score = excluded.leverage_score,
+        friction_score = excluded.friction_score,
+        matrix_quadrant = excluded.matrix_quadrant,
+        overall_cvi = excluded.overall_cvi,
+        rank_tier = excluded.rank_tier,
+        is_stage0_disqualified = excluded.is_stage0_disqualified,
+        disqualification_reason = excluded.disqualification_reason,
+        last_indexed_at = excluded.last_indexed_at,
+        deep_dive_json = excluded.deep_dive_json
+    """
+    with store.connection:
+        store.connection.executemany(sql, rows)
+
+
 def seed_benchmark_store(
     store: OperationalStore,
     count: int = 1000,
@@ -812,7 +985,7 @@ def seed_benchmark_store(
     Returns the number of seeded repositories.
     """
     catalog = get_benchmark_catalog(count)
-    store.seed_benchmark_catalog(catalog, now or BENCHMARK_NOW)
+    seed_benchmark_catalog(store, catalog, now or BENCHMARK_NOW)
     return len(catalog)
 
 

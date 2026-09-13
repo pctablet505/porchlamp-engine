@@ -949,3 +949,17 @@ def test_apply_raw_metrics_stores_enum_values_as_strings(store):
 
 def test_apply_raw_metrics_noop_for_unknown_repo(store):
     assert apply_raw_metrics(store, "ghost", "repo", stars=5, forks=0) == 0
+
+
+def test_operational_store_has_no_synthetic_catalog_seeder():
+    """W4-1: OperationalStore.seed_benchmark_catalog (production code
+    generating a synthetic PR-event catalog, importing the test fixture
+    module to do it) was deleted -- the equivalent logic is now a free
+    function in the fixture module itself
+    (cvi.benchmark_data.seed_benchmark_catalog / its successor at
+    tests/fixtures/synthetic_catalog.py), operating on a store through
+    its public API instead of living as one of its methods. Pinned so
+    the method is never silently re-added, re-opening the production ->
+    fixture import this packet closed.
+    """
+    assert not hasattr(OperationalStore, "seed_benchmark_catalog")

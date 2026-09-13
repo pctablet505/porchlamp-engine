@@ -700,11 +700,11 @@ class TestPaginationMonotonicityUnderAllPersonas:
 
     @pytest.mark.parametrize("persona", list(Persona))
     def test_persona_leaderboard_monotonicity(self, persona: Persona) -> None:
-        from cvi.benchmark_data import BENCHMARK_NOW, generate_benchmark_catalog
+        from cvi.benchmark_data import BENCHMARK_NOW, generate_benchmark_catalog, seed_benchmark_catalog
 
         store = OperationalStore(":memory:")
         catalog = generate_benchmark_catalog()
-        store.seed_benchmark_catalog(catalog, BENCHMARK_NOW)
+        seed_benchmark_catalog(store, catalog, BENCHMARK_NOW)
 
         # Iterate through pages 0..1000 with limit 100
         all_items = []
@@ -737,12 +737,12 @@ class TestConcurrentPersonaReprojectionStress:
     def test_concurrent_persona_deep_offsets(self) -> None:
         import concurrent.futures
         import tempfile
-        from cvi.benchmark_data import BENCHMARK_NOW, generate_benchmark_catalog
+        from cvi.benchmark_data import BENCHMARK_NOW, generate_benchmark_catalog, seed_benchmark_catalog
 
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             init_store = OperationalStore(tmp.name)
             catalog = generate_benchmark_catalog()
-            init_store.seed_benchmark_catalog(catalog, BENCHMARK_NOW)
+            seed_benchmark_catalog(init_store, catalog, BENCHMARK_NOW)
             init_store.close()
 
             personas = list(Persona)
