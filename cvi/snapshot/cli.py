@@ -1,14 +1,21 @@
-"""``cvi snapshot freeze`` and ``cvi snapshot reproduce`` (packet W0-3).
+"""``cvi snapshot freeze``, ``cvi snapshot reproduce`` (packet W0-3) and
+``cvi snapshot store`` (packet W4-6).
 
 The CLI layer owns the wall clock and every ``print`` in the packet; the modules
 behind it are pure. ``--data-dir`` is a data directory (or a copied sample) with
 ``raw/`` under it; ``--as-of`` is the snapshot reference time (D-VER-3) that both
 deriving and scoring are pinned to.
 
+``store`` has no wall clock of its own either: every timestamp it writes
+(``as_of``/``created_at``/``promoted_at``) comes from the snapshot
+directory's own ``manifest.json``, via ``cvi.snapshot.store_cmd`` (that
+module's own docstring).
+
 Invocation before ``cvi/cli.py`` exists::
 
     .venv/bin/python -m cvi.snapshot freeze --as-of 2026-09-12T00:00:00+00:00
     .venv/bin/python -m cvi.snapshot reproduce <snapshot-id>
+    .venv/bin/python -m cvi.snapshot store <snapshot-dir> --db data/cvi.db
 """
 
 from __future__ import annotations
@@ -32,6 +39,9 @@ from cvi.snapshot.manifest import (
     write_manifest,
 )
 from cvi.snapshot.reproduce import SnapshotError, canonical_dump_hash, rebuild, reproduce
+from cvi.snapshot.store_cmd import VerificationError, score_snapshot_dir, verify_expected, write_scored_snapshot
+from cvi.store.migrations import apply_migrations
+from cvi.store.schema import connect as connect_store
 
 _AS_OF_HELP = "snapshot reference time, ISO-8601 (D-VER-3): what windows are measured against"
 _CODE_ROOT = Path(__file__).resolve().parents[2]
@@ -122,6 +132,60 @@ def _reproduce(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def _store(args: argparse.Namespace) -> int:
+    """Score ``args.snapshot_dir`` for real and write it into the v2 store
+    at ``args.db`` (packet W4-6), printing counts and the reproducibility
+    hashes. Every timestamp comes from the directory's own manifest -- see
+    the module docstring.
+
+    Exit 1 with a one-line message (no traceback) for every failure this
+    command can name and explain to an operator: the directory is missing
+    a required file (``FileNotFoundError``), its ``expected.json``
+    disagrees with the freshly computed ``records_hash``
+    (:class:`~cvi.snapshot.store_cmd.VerificationError`, skipped entirely
+    when ``--no-verify`` is passed), or ``--db`` already holds this
+    snapshot id (``cvi.store.writer.write_records``'s immutability
+    ``ValueError`` -- 03 section 5: a snapshot id is immutable, never
+    upserted, never replaced). Anything else is a programming error and is
+    left to propagate with its traceback, same as ``_freeze``/``_reproduce``."""
+    snapshot_path = Path(args.snapshot_dir)
+    db_path = Path(args.db)
+    previous_path = Path(args.previous) if args.previous else None
+
+    try:
+        scored, frozen = score_snapshot_dir(snapshot_path, previous_dir=previous_path)
+    except FileNotFoundError as error:
+        print(f"{type(error).__name__}: {error}")
+        return 1
+
+    if not args.no_verify:
+        try:
+            verify_expected(frozen, scored)
+        except VerificationError as error:
+            print(str(error))
+            return 1
+
+    commit = args.code_commit or code_commit(_CODE_ROOT) or "unknown"
+    conn = connect_store(db_path)
+    try:
+        apply_migrations(conn, applied_at=frozen.as_of.isoformat())
+        dump_hash = write_scored_snapshot(conn, db_path, scored, frozen, code_commit=commit)
+    except ValueError as error:
+        print(f"{type(error).__name__}: {error}")
+        return 1
+    finally:
+        conn.close()
+
+    print(f"snapshot {scored.snapshot_id}")
+    print(
+        f"rated {scored.counts.rated} gated {scored.counts.gated} unrated {scored.counts.unrated}"
+    )
+    print(f"records_hash {scored.records_hash}")
+    print(f"constants_hash {scored.constants_hash}")
+    print(f"snapshot_dump_hash {dump_hash}")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     """Build the ``freeze`` / ``reproduce`` argument parser."""
     parser = argparse.ArgumentParser(
@@ -145,6 +209,26 @@ def _parser() -> argparse.ArgumentParser:
     replay.add_argument("snapshot_id", help="snapshot directory name under "
                         f"{SNAPSHOTS_DIRNAME}/")
     replay.add_argument("--data-dir", default="data", help="data dir with raw/ under it")
+
+    store = commands.add_parser(
+        "store", help="score a snapshot directory (packet W2-8b's shape) and write it into a v2 store"
+    )
+    store.add_argument(
+        "snapshot_dir",
+        help="snapshot directory: bundles/*.json, populations.json, manifest.json[, expected.json]",
+    )
+    store.add_argument("--db", required=True, help="v2 store SQLite path (created if it does not exist)")
+    store.add_argument(
+        "--previous", default=None,
+        help="a previous snapshot directory, scored to feed the cross-snapshot param_jump detector",
+    )
+    store.add_argument(
+        "--no-verify", action="store_true",
+        help="skip the expected.json records_hash check (03 section 5's fixture pin), if the "
+             "directory has one",
+    )
+    store.add_argument("--code-commit", default=None,
+                        help="override the recorded commit (tests, out-of-tree builds)")
     return parser
 
 
@@ -155,7 +239,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command is None:
         parser.print_usage()
         return 2
-    handlers = {"freeze": _freeze, "reproduce": _reproduce}
+    handlers = {"freeze": _freeze, "reproduce": _reproduce, "store": _store}
     try:
         return handlers[str(args.command)](args)
     except (SnapshotError, FileNotFoundError) as error:

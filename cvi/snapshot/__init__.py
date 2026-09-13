@@ -32,6 +32,12 @@ from cvi.snapshot.reproduce import (
     rebuild,
     reproduce,
 )
+from cvi.snapshot.store_cmd import (
+    VerificationError,
+    score_snapshot_dir,
+    verify_expected,
+    write_scored_snapshot,
+)
 
 __all__ = [
     "EnvelopeScan",
@@ -41,6 +47,7 @@ __all__ = [
     "REASON_STALE_HASH",
     "SNAPSHOTS_DIRNAME",
     "SnapshotError",
+    "VerificationError",
     "build_manifest",
     "canonical_dump",
     "canonical_dump_hash",
@@ -51,7 +58,10 @@ __all__ = [
     "merkle_root",
     "rebuild",
     "reproduce",
+    "score_snapshot_dir",
     "snapshot_dir",
     "snapshot_id",
+    "verify_expected",
     "write_manifest",
+    "write_scored_snapshot",
 ]

@@ -61,7 +61,7 @@ from cvi.core.models import (
 )
 from cvi.core.pipeline import RepoKey, ScoredSnapshot, repo_key, score_snapshot
 from cvi.derive.bundle import dump_bundle, load_bundle, write_bundle
-from cvi.snapshot.populations import Population, PopulationMember, PopulationSet, build_populations, write_populations
+from cvi.snapshot.populations import PopulationMember, PopulationSet, build_populations, write_populations
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SAMPLE_ROOT = Path.home() / "Projects" / "cvi-scratch" / "sample-200"
@@ -420,57 +420,17 @@ def write_fixture(result: FixtureBuildResult, out_dir: Path) -> None:
     )
 
 
-@dataclass(frozen=True)
-class FrozenFixture:
-    """A previously-written fixture, read back from disk (the counterpart
-    to :func:`write_fixture`): everything a test needs to call
-    ``cvi.core.pipeline.score_snapshot`` again without touching the
-    read-only sample corpus or re-running the two-pass population
-    bootstrap -- the fixture's own ``populations.json`` is already the
-    frozen, final answer."""
-
-    snapshot_id: str
-    as_of: datetime
-    bundles: list[FeatureBundle]
-    populations: PopulationSet
-    gate_evidence: dict[RepoKey, GateEvidence]
-    raw_hashes: dict[RepoKey, str]
-    expected: dict[str, Any]
-
-
-def load_frozen_fixture(out_dir: Path) -> FrozenFixture:
-    """Read back a fixture :func:`write_fixture` wrote: bundles, the frozen
-    ``PopulationSet``, gate evidence and raw hashes from ``manifest.json``,
-    and ``expected.json`` for a caller to compare against. Pure I/O, no
-    scoring -- the caller (a test) calls ``score_snapshot`` itself."""
-    manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
-    expected = json.loads((out_dir / "expected.json").read_text(encoding="utf-8"))
-    as_of = datetime.fromisoformat(manifest["as_of"])
-
-    bundles: list[FeatureBundle] = []
-    gate_evidence: dict[RepoKey, GateEvidence] = {}
-    raw_hashes: dict[RepoKey, str] = {}
-    for entry in manifest["repos"]:
-        bundle = load_bundle(out_dir / entry["bundle_file"])
-        bundles.append(bundle)
-        key = f"{entry['owner']}/{entry['name']}"
-        gate_evidence[key] = GateEvidence(**entry["gate_evidence"])
-        raw_hashes[key] = entry["raw_hash"]
-
-    pop_doc = json.loads((out_dir / "populations.json").read_text(encoding="utf-8"))
-    populations = PopulationSet(
-        snapshot_id=pop_doc["snapshot_id"],
-        benchmark_version=pop_doc["benchmark_version"],
-        constants_hash=pop_doc["constants_hash"],
-        populations=tuple(
-            Population(entry["ecosystem"], entry["param"], entry["n"], entry["fallback"], entry["values"])
-            for entry in pop_doc["populations"]
-        ),
-    )
-    return FrozenFixture(
-        snapshot_id=manifest["snapshot_id"], as_of=as_of, bundles=bundles, populations=populations,
-        gate_evidence=gate_evidence, raw_hashes=raw_hashes, expected=expected,
-    )
+#: Moved to :mod:`cvi.snapshot.fixture_io` (packet W4-6, R-2: one
+#: definition per fact) so ``cvi.snapshot.store_cmd`` -- the ``cvi.snapshot
+#: store`` CLI's driver -- can read a snapshot directory back without
+#: importing this script. Re-exported here under their original names:
+#: every existing caller of this module (``tests/snapshot/
+#: test_reproduce_fixture.py``, ``tests/audit/test_anchors_fixture.py``,
+#: ``tests/audit/test_sensitivity_fixture.py``, all of which load this file
+#: by path via ``importlib`` rather than a normal package import) keeps
+#: working unchanged against ``build_script.load_frozen_fixture``/
+#: ``FrozenFixture``.
+from cvi.snapshot.fixture_io import FrozenFixture, load_frozen_fixture  # noqa: F401
 
 
 def main(argv: Sequence[str] | None = None) -> int:
