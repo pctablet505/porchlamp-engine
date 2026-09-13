@@ -22,6 +22,16 @@ login in :data:`KNOWN_BOT_LOGINS`); substring matching is absent (F12).
 W1-5 owns only this module (R-10), so the packet's frozen constants are
 defined here, not in ``cvi/constants.py``.
 
+W1-5f relocation note: ``CommitActor``, ``CommitRecord``, the three domain
+tables (``NOREPLY_DOMAIN``, ``PERSONAL_DOMAINS``, ``KNOWN_BOT_LOGINS``),
+``is_bot``, ``org_key``, ``author_key``, ``_parse_dt`` and
+``records_from_rows`` now live in ``cvi.core.commit_domains`` (stdlib
+only, importable from ``cvi.derive.bundle`` -- this module cannot be,
+``tests/core/test_import_graph.py``) and are re-exported here unchanged
+so every existing caller of this module keeps working verbatim. See that
+module's docstring for why (D-TIE-1 item 7's ``last_non_bot_commit_at``
+and 03 section 6's ``top_email_domain_share`` also live there now).
+
 W1-6 ownership extension (02 section 4 3.1, dispatch-authorized): this
 collector already receives ``commit.message`` in the raw GitHub REST
 response for every window commit (the ``repos/{owner}/{repo}/commits``
@@ -34,9 +44,26 @@ stores the message text itself, so no new live call is added for 3.1.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping, Optional, Sequence
+
+#: Relocated to ``cvi.core.commit_domains`` (W1-5f, see the module
+#: docstring); re-exported here unchanged so every existing caller of this
+#: module (``commits.CommitActor``, ``commits.is_bot`` etc.) keeps working
+#: verbatim. ``cvi.derive.bundle`` (W1-5f) reads the same symbols directly
+#: from ``cvi.core.commit_domains`` -- the one place this logic is defined.
+from cvi.core.commit_domains import (
+    KNOWN_BOT_LOGINS,
+    NOREPLY_DOMAIN,
+    PERSONAL_DOMAINS,
+    CommitActor,
+    CommitRecord,
+    _parse_dt,
+    author_key,
+    is_bot,
+    org_key,
+    records_from_rows,
+)
 
 #: 05-W1-5: EF and bus factor are computed over the trailing 365 d.
 COMMIT_WINDOW_DAYS: int = 365
@@ -50,168 +77,6 @@ VITALITY_WINDOW_DAYS: int = 180
 #: per commit (case-sensitive, substring match against the raw message,
 #: never stored). The exact convention text per the DCO spec.
 SIGNOFF_TRAILER: str = "Signed-off-by:"
-#: GitHub private-email domain: its local part is an account id (or
-#: ``<id>+<login>``), so the domain maps to the author's login, never to an
-#: org of its own (spec 3.2).
-NOREPLY_DOMAIN: str = "users.noreply.github.com"
-
-#: Personal email providers: each author on one of these domains counts as
-#: their own one-person org, not the provider as an org (spec 3.2, the
-#: "gmail, outlook, proton, users.noreply..." family; ``github.com`` is
-#: included because every ``<login>@github.com`` commit address belongs to
-#: one individual). Exact domain match only (no wildcards, no substring
-#: matching -- F12).
-PERSONAL_DOMAINS: frozenset[str] = frozenset({
-    "126.com",
-    "163.com",
-    "aol.com",
-    "att.net",
-    "attmail.com",
-    "charter.net",
-    "fastmail.com",
-    "gmx.com",
-    "gmx.de",
-    "gmx.net",
-    "github.com",
-    "gmail.com",
-    "googlemail.com",
-    "hey.com",
-    "hotmail.com",
-    "icloud.com",
-    "live.com",
-    "mac.com",
-    "mail.com",
-    "me.com",
-    "msn.com",
-    "outlook.com",
-    "outlook.es",
-    "outlook.fr",
-    "pm.me",
-    "posteo.de",
-    "posteo.net",
-    "proton.me",
-    "protonmail.com",
-    "qq.com",
-    "rocketmail.com",
-    "sbcglobal.net",
-    "sina.cn",
-    "sina.com",
-    "sohu.com",
-    "verizon.net",
-    "web.de",
-    "yahoo.com",
-    "yahoo.co.uk",
-    "yahoo.com.au",
-    "ymail.com",
-    "yandex.com",
-    "yandex.ru",
-    "zoho.com",
-})
-
-#: D-IN-1 exact-match bot logins (compared after lowercasing the recorded
-#: login; the ``[bot]`` suffix rule is separate, see :func:`is_bot`).
-KNOWN_BOT_LOGINS: frozenset[str] = frozenset({
-    "allcontributors",
-    "cla-bot",
-    "claude",
-    "codecov",
-    "copilot",
-    "dependabot",
-    "easycla",
-    "github-actions",
-    "google-cla",
-    "greenkeeper",
-    "imgbot",
-    "mergify",
-    "netlify",
-    "pre-commit-ci",
-    "renovate",
-    "semantic-release",
-    "snyk-bot",
-    "sonarcloud",
-    "stale",
-    "vercel",
-})
-
-
-@dataclass(frozen=True)
-class CommitActor:
-    """One commit author with the three typed fields the collector records.
-
-    ``login`` is the linked GitHub account ("" when the commit has no linked
-    account), ``email`` is the git commit-author email, and ``actor_type``
-    is the GitHub actor type ("" when unlinked).
-    """
-
-    login: str
-    email: str
-    actor_type: str
-
-
-@dataclass(frozen=True)
-class CommitRecord:
-    """One window commit: a typed actor plus its git author date (UTC).
-
-    ``date`` is None when the envelope row recorded no author date.
-    """
-
-    actor: CommitActor
-    date: Optional[datetime]
-
-
-def _parse_dt(value: Any) -> Optional[datetime]:
-    """Parse an ISO-8601 author date; naive values are taken as UTC."""
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-
-
-def is_bot(actor: CommitActor) -> bool:
-    """D-IN-1: True when the actor is a bot.
-
-    ``actor_type == "Bot"``, a login ending in ``[bot]``, or an exact-match
-    login in :data:`KNOWN_BOT_LOGINS`. No substring matching (F12).
-    """
-    if actor.actor_type == "Bot":
-        return True
-    login = actor.login.lower()
-    return login.endswith("[bot]") or login in KNOWN_BOT_LOGINS
-
-
-def org_key(actor: CommitActor) -> Optional[str]:
-    """The org a commit author's commits count toward (spec 3.2).
-
-    Corporate domains count as one org per domain.
-    ``users.noreply.github.com`` maps to the author's login (the domain is
-    never an org of its own; None when the commit has no linked login).
-    Personal domains count as one org per author (the login, else the
-    lowercased email address). None when no email is recorded.
-    """
-    email = actor.email.strip().lower()
-    if "@" not in email:
-        return None
-    domain = email.rsplit("@", 1)[1]
-    if not domain:
-        return None
-    if domain == NOREPLY_DOMAIN:
-        return actor.login.strip() or None
-    if domain in PERSONAL_DOMAINS:
-        return actor.login.strip() or email
-    return domain
-
-
-def author_key(actor: CommitActor) -> Optional[str]:
-    """The individual an author commit belongs to: the login if recorded,
-    else the lowercased email address; None when neither is recorded."""
-    login = actor.login.strip()
-    if login:
-        return login
-    email = actor.email.strip().lower()
-    return email or None
 
 
 def shape_commit_rows(raw_commits: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -263,21 +128,6 @@ def collect_commits_365d(
         if len(raw) < COMMIT_PAGE_SIZE or len(rows) >= COMMIT_CAP:
             break
     return rows[:COMMIT_CAP]
-
-
-def records_from_rows(rows: Sequence[Mapping[str, Any]]) -> list[CommitRecord]:
-    """Parse ``commits_365d`` envelope rows into typed :class:`CommitRecord`."""
-    records: list[CommitRecord] = []
-    for row in rows:
-        records.append(CommitRecord(
-            actor=CommitActor(
-                login=str(row.get("author_login") or ""),
-                email=str(row.get("author_email") or ""),
-                actor_type=str(row.get("author_type") or ""),
-            ),
-            date=_parse_dt(row.get("date")),
-        ))
-    return records
 
 
 def _human_window(records: Sequence[CommitRecord], now: datetime,

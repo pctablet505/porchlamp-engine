@@ -58,7 +58,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Union
 
-from cvi.core import constants_v2, models, openssf
+from cvi.core import commit_domains, constants_v2, models, openssf
 from cvi.core.models import (
     BundleValidationError,
     Cohorts,
@@ -225,6 +225,229 @@ def dropped_event_count(bundle: FeatureBundle) -> int:
 
 def _set_dropped_event_count(bundle: FeatureBundle, count: int) -> None:
     setattr(bundle, _DROPPED_EVENT_COUNT_ATTR, count)
+
+
+# --------------------------------------------------------------------------- #
+# W1-5f: last_non_bot_commit_at (D-TIE-1 item 7) and top_email_domain_share  #
+# (the ef_domain_mismatch detector's input, 03 section 6). Neither is one of #
+# constants_v2.PARAM_INPUT_IDS's 18 scored parameters, so FeatureBundle.     #
+# inputs (04 section 3: closed to exactly those 18 keys, enforced by        #
+# FeatureBundle.validate()) cannot carry them. They live as bundle-instance  #
+# sidecar attributes instead -- the same convention dropped_event_count/     #
+# _w2_9_dropped_event_count established above for a fact cvi/core/models.py  #
+# (out of this packet's ownership too) has no declared field for.           #
+#                                                                             #
+# Unmeasured (04 section 3) is reused as-is for the "no usable envelope" /   #
+# "insufficient sample" outcomes below: it has no constraint either of this  #
+# packet's absence reasons trips. Measured cannot be reused the same way --  #
+# its method field is pinned to "primary"/"proxy:<name>" (cvi.core.models.  #
+# measured_problems) and would reject this packet's                         #
+# "measured:no_non_bot_commit_365d" sentinel and a None value -- both real,  #
+# spec-mandated outcomes here (docs/v2 D-MISS-1 F2 ruling) -- so a           #
+# purpose-built "measured" shape replaces Measured for these two facts       #
+# specifically.                                                              #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class LastNonBotCommitMeasured:
+    """``last_non_bot_commit_at``, measured (02 section 10 D-TIE-1 item 7).
+
+    ``value`` is the ISO-8601 UTC date/datetime of the max non-bot commit
+    (an explicit trailing ``Z`` -- ``cvi.core.tiebreak._commit_epoch`` reads
+    it as UTC either way, but this module writes it unambiguously), or
+    ``None`` for the measured-absence outcome (docs/v2 D-MISS-1 F2 ruling:
+    "no non-bot commit in the window" is a measured absence, not an
+    ``Unmeasured`` value -- distinct from a missing/failed envelope, which
+    is ``Unmeasured(reason="collector_failure")`` instead, see
+    :func:`last_non_bot_commit_at`)."""
+
+    value: Optional[str]
+    method: str
+    source: str
+    source_hash: str
+    fetched_at: str
+
+
+@dataclass(frozen=True)
+class TopEmailDomainShareMeasured:
+    """``top_email_domain_share``, measured: the ``ef_domain_mismatch``
+    detector's input (03 section 6). ``value`` is the top org's share of
+    ``n`` non-bot commits in ``[0, 1]``; ``top_domain`` is the org key
+    itself (:func:`cvi.core.commit_domains.org_key` -- a literal email
+    domain for a corporate address, but the author's login for a
+    ``users.noreply.github.com`` or personal-domain address, exactly
+    mirroring 3.2 elephant_factor's own grouping so the two facts can never
+    disagree about who counts as "one entity"); ``n`` is the non-bot commit
+    count the share was computed over."""
+
+    value: float
+    top_domain: str
+    n: int
+    method: str
+    source: str
+    source_hash: str
+    fetched_at: str
+
+
+#: A W1-5f commit-derived fact is either one of the two purpose-built
+#: "measured" shapes above, or ``Unmeasured`` (missing/failed envelope,
+#: or -- ``top_email_domain_share`` only -- an insufficient sample).
+LastNonBotCommitValue = Union[LastNonBotCommitMeasured, Unmeasured]
+TopEmailDomainShareValue = Union[TopEmailDomainShareMeasured, Unmeasured]
+
+_LAST_NON_BOT_COMMIT_ATTR = "_w1_5f_last_non_bot_commit_at"
+_TOP_EMAIL_DOMAIN_SHARE_ATTR = "_w1_5f_top_email_domain_share"
+
+#: getattr default for a bundle this module never set the sidecar attribute
+#: on (a native v2 document, e.g. -- see the module docstring's "these two
+#: facts are only sourced from the v1-style raw provenance" scoping note).
+_NO_COMMIT_FACT = Unmeasured(
+    reason="collector_failure",
+    detail="no commits_365d or commits_180d envelope resolvable for this bundle",
+)
+
+#: W1-5f: reuse the exact minimum sample size 3.2 elephant_factor uses
+#: (constants_v2.PARAM_MIN_N["elephant_factor"] -- 30 non-bot commits) for
+#: top_email_domain_share's insufficient_n gate. Not a new tunable
+#: (docs/v2/00-README.md: "No new numeric tunable outside
+#: cvi.core.constants_v2" -- this reads the existing registered one).
+_TOP_DOMAIN_SHARE_MIN_N: int = constants_v2.PARAM_MIN_N["elephant_factor"]
+
+#: The two envelope keys :func:`_resolve_commit_window_envelope` tries, in
+#: order (D-IN-4: 365 d is the EF/last-commit window; 180 d is the
+#: vitality window -- still a usable narrower slice of the same commit
+#: history when 365 d was never collected, which is the case for every
+#: repo in the current sample corpus, not merely a hypothetical gap).
+_COMMIT_ENVELOPE_KEYS: tuple[str, str] = ("commits_365d", "commits_180d")
+
+_COMMIT_FACT_METHOD_365D: str = "measured:commits_365d"
+_COMMIT_FACT_METHOD_180D_FALLBACK: str = "measured:commits_180d_fallback"
+#: D-MISS-1 F2 ruling's exact method sentinel for "no non-bot commit in the
+#: 365 d window" -- a measured absence, never Unmeasured (see
+#: LastNonBotCommitMeasured's docstring). The 180d-fallback sibling below is
+#: this module's own documented extension of that ruling to the narrower
+#: window: when only commits_180d was ever collected, the strongest claim
+#: this module can make is "no non-bot commit in the 180 d this bundle
+#: actually has", not the full 365 d the ruling's wording describes.
+_COMMIT_FACT_METHOD_NO_NON_BOT_365D: str = "measured:no_non_bot_commit_365d"
+_COMMIT_FACT_METHOD_NO_NON_BOT_180D_FALLBACK: str = "measured:no_non_bot_commit_180d_fallback"
+
+
+def last_non_bot_commit_at(bundle: FeatureBundle) -> LastNonBotCommitValue:
+    """D-TIE-1 item 7's fact for one bundle (W1-5f). ``Unmeasured(reason=
+    "collector_failure")`` (:data:`_NO_COMMIT_FACT`) for a bundle this
+    module never set the sidecar attribute on."""
+    return getattr(bundle, _LAST_NON_BOT_COMMIT_ATTR, _NO_COMMIT_FACT)
+
+
+def top_email_domain_share(bundle: FeatureBundle) -> TopEmailDomainShareValue:
+    """The ``ef_domain_mismatch`` detector's input for one bundle (W1-5f).
+    ``Unmeasured(reason="collector_failure")`` (:data:`_NO_COMMIT_FACT`) for
+    a bundle this module never set the sidecar attribute on."""
+    return getattr(bundle, _TOP_EMAIL_DOMAIN_SHARE_ATTR, _NO_COMMIT_FACT)
+
+
+def _set_last_non_bot_commit_at(bundle: FeatureBundle, value: LastNonBotCommitValue) -> None:
+    setattr(bundle, _LAST_NON_BOT_COMMIT_ATTR, value)
+
+
+def _set_top_email_domain_share(bundle: FeatureBundle, value: TopEmailDomainShareValue) -> None:
+    setattr(bundle, _TOP_EMAIL_DOMAIN_SHARE_ATTR, value)
+
+
+def _resolve_commit_window_envelope(ctx: "_V1Ctx") -> Optional[tuple[Path, str, bool]]:
+    """Resolve the ``commits_365d`` envelope, falling back to
+    ``commits_180d`` when the first is absent. Returns ``(path, fetched_at,
+    used_fallback)``, or ``None`` when neither envelope resolves to a
+    readable file with a recorded ``fetched_at``.
+
+    "Absent" means the envelope itself does not resolve (no provenance
+    entry, or the path/fetched_at do not check out) -- an envelope that
+    resolves but carries an empty ``data: []`` is a real, measured "0
+    commits in that window", not a reason to fall back to the narrower
+    one (that would silently conflate "we have no 365 d data" with "we
+    measured zero commits in 365 d", two different facts)."""
+    for index, envelope_key in enumerate(_COMMIT_ENVELOPE_KEYS):
+        entry = ctx.provenance.get(envelope_key)
+        source = _first_source(entry)
+        path = _resolve_envelope(source, ctx.raw_root)
+        fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+        if path is not None and isinstance(fetched_at, str) and fetched_at:
+            return path, fetched_at, index == 1
+    return None
+
+
+def _iso_utc_z(value: datetime.datetime) -> str:
+    """``value`` as an ISO-8601 UTC string with an explicit trailing ``Z``
+    (never ``+00:00``) -- D-TIE-1 item 7's own required format, and what
+    lets two equal instants recorded under different source offsets
+    serialize identically."""
+    return value.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _resolve_commit_facts(ctx: "_V1Ctx") -> tuple[LastNonBotCommitValue, TopEmailDomainShareValue]:
+    """Build both W1-5f commit-derived facts from one envelope read (the
+    ``commits_365d`` envelope, or ``commits_180d`` when the first is absent
+    -- :func:`_resolve_commit_window_envelope`). Bot exclusion reuses the
+    landed typed-actor classification (:func:`cvi.core.commit_domains.
+    is_bot`) exactly -- a commit with no author login but a non-noreply
+    email is not a bot by that rule (none of its three conditions read the
+    email at all) and counts as human, same as everywhere else this rule
+    applies."""
+    resolved = _resolve_commit_window_envelope(ctx)
+    if resolved is None:
+        detail = "no commits_365d or commits_180d envelope with a resolvable path and fetched_at"
+        return (
+            Unmeasured(reason="collector_failure", detail=detail),
+            Unmeasured(reason="collector_failure", detail=detail),
+        )
+    path, fetched_at, used_fallback = resolved
+    data = _envelope_data(path)
+    if not isinstance(data, list):
+        detail = f"envelope at {path} has no list-shaped 'data' field"
+        return (
+            Unmeasured(reason="collector_failure", detail=detail),
+            Unmeasured(reason="collector_failure", detail=detail),
+        )
+    source_hash = _envelope_hash(path)
+    ctx.referenced[str(path)] = source_hash
+    records = commit_domains.records_from_rows(data)
+    window_method = _COMMIT_FACT_METHOD_180D_FALLBACK if used_fallback else _COMMIT_FACT_METHOD_365D
+
+    last_commit = commit_domains.last_non_bot_commit_at(records)
+    last_value = _iso_utc_z(last_commit) if last_commit is not None else None
+    last_method = window_method if last_commit is not None else (
+        _COMMIT_FACT_METHOD_NO_NON_BOT_180D_FALLBACK if used_fallback else _COMMIT_FACT_METHOD_NO_NON_BOT_365D
+    )
+    last_fact = LastNonBotCommitMeasured(
+        value=last_value, method=last_method, source=str(path), source_hash=source_hash, fetched_at=fetched_at,
+    )
+
+    domain = commit_domains.top_domain_share(records)
+    domain_fact: TopEmailDomainShareValue
+    if domain.n < _TOP_DOMAIN_SHARE_MIN_N:
+        domain_fact = Unmeasured(
+            reason="insufficient_n",
+            detail=f"{domain.n} non-bot commits, minimum {_TOP_DOMAIN_SHARE_MIN_N}",
+        )
+    elif domain.top_domain == "":
+        # n cleared the minimum but not one non-bot commit carried an
+        # attributable org (cvi.core.commit_domains.org_key needs an
+        # "@"-bearing email; this sample corpus's commits_180d rows carry
+        # none at all) -- a real collector gap, distinct from "too few
+        # commits" (insufficient_n) and worth its own detail.
+        domain_fact = Unmeasured(
+            reason="collector_failure",
+            detail=f"{domain.n} non-bot commits but none carry an author_email "
+                   "cvi.core.commit_domains.org_key could resolve to an org",
+        )
+    else:
+        domain_fact = TopEmailDomainShareMeasured(
+            value=domain.share, top_domain=domain.top_domain, n=domain.n, method=window_method,
+            source=str(path), source_hash=source_hash, fetched_at=fetched_at,
+        )
+    return last_fact, domain_fact
 
 
 def _pr_ref_doc(ref: PRRef) -> dict[str, Any]:
@@ -1478,6 +1701,11 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
     inputs: dict[str, Measured | Unmeasured] = {
         input_id: INPUT_MAPPINGS[input_id](ctx) for input_id in constants_v2.PARAM_INPUT_IDS
     }
+    # W1-5f: computed here (not via an INPUT_MAPPINGS row -- neither fact is
+    # one of the 18 scored inputs) so the commits envelope it reads is
+    # resolved, hashed and folded into ctx.referenced before provenance_hash
+    # is computed below from that same dict.
+    last_commit_fact, top_domain_fact = _resolve_commit_facts(ctx)
 
     raw_events = document.get("pr_events")
     events: list[PRWindowEvent] = []
@@ -1548,4 +1776,6 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
     )
     bundle.validate()
     _set_dropped_event_count(bundle, dropped_ghost_author_count)
+    _set_last_non_bot_commit_at(bundle, last_commit_fact)
+    _set_top_email_domain_share(bundle, top_domain_fact)
     return bundle
