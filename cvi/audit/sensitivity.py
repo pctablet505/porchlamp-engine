@@ -45,8 +45,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from cvi.constants import PILLAR_WEIGHTS
-from cvi.core import constants_v2
-from cvi.core.models import PillarScore, ScoreRecord
+from cvi.core import aggregate, constants_v2
+from cvi.core.models import ScoreRecord
 from cvi.core.pipeline import ScoredSnapshot
 from cvi.core.tiebreak import TieBreakInput, assign_ranks
 
@@ -354,38 +354,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 # pillar-to-composite weights, and a pillar's *own* within-pillar
 # renormalised score is stage 5's fact, computed before stage 6 ever sees a
 # weight vector at all. So :func:`_perturbed_tie_break_input` only ever
-# replaces ``composite``/``coverage`` on a copy of the record; TTFHR p75 and
-# the last-commit date are recovered from the *canonical* ``ScoreRecord.
-# tie_key`` (:func:`_decode_measured_asc`/:func:`_decode_measured_desc`,
-# the exact inverse of ``cvi.core.tiebreak._measured_asc``/``_measured_desc``)
-# rather than needing the original ``FeatureBundle`` again -- ``sensitivity_
-# v2``'s own signature (``snapshot`` only, no bundles) does not carry one.
+# replaces ``composite``/``coverage`` on a copy of the record -- via
+# ``cvi.core.aggregate.composite_score_raw``/``composite_coverage``'s
+# ``weights`` keyword (packet W2-11, R-3), not a private reduction kept
+# here: this module used to carry its own ``_weighted_composite_raw``/
+# ``_weighted_coverage`` (the ownership request W2-8b's docstring flagged,
+# unresolved at that packet's base commit) because the two ``aggregate``
+# functions hard-coded the balanced weights with no parameter; W2-11 added
+# that parameter and deleted both private copies (this one and
+# ``cvi.core.persona``'s), so this module now calls ``aggregate`` directly.
+# TTFHR p75 and the last-commit date are recovered from the *canonical*
+# ``ScoreRecord.tie_key`` (:func:`_decode_measured_asc`/
+# :func:`_decode_measured_desc`, the exact inverse of ``cvi.core.tiebreak.
+# _measured_asc``/``_measured_desc``) rather than needing the original
+# ``FeatureBundle`` again -- ``sensitivity_v2``'s own signature (``snapshot``
+# only, no bundles) does not carry one.
 # =========================================================================== #
-
-
-def _weighted_composite_raw(pillars: Mapping[str, PillarScore], weights: Mapping[str, float]) -> Optional[float]:
-    """D-AGG-2's reduction generalised to an arbitrary weight vector --
-    ``cvi.core.aggregate.composite_score_raw`` hard-codes the balanced
-    weights with no parameter, so it cannot be called with a perturbed
-    vector (the same gap ``cvi.core.persona.persona_composite``'s own
-    docstring already names and works around identically, flagged there as
-    an ownership request to W2-8; not resolved as of this packet's base
-    commit, so reproduced here rather than imported, R-2's "define once and
-    flag" clause)."""
-    measured = [
-        (weights[name], pillars[name].score) for name in constants_v2.PILLAR_NAMES if pillars[name].score is not None
-    ]
-    total_weight = sum(weight for weight, _ in measured)
-    if total_weight <= 0.0:
-        return None
-    return sum(weight * value for weight, value in measured) / total_weight
-
-
-def _weighted_coverage(pillars: Mapping[str, PillarScore], weights: Mapping[str, float]) -> float:
-    """D-MISS-3's ``C = Sum(W_p * c_p)`` generalised the same way (see
-    :func:`_weighted_composite_raw`); never renormalised (an unmeasured
-    pillar's own coverage is already 0.0)."""
-    return sum(weights[name] * pillars[name].coverage for name in constants_v2.PILLAR_NAMES)
 
 
 def _decode_measured_asc(pair: tuple) -> Optional[float]:
@@ -412,9 +396,9 @@ def _perturbed_tie_break_input(record: ScoreRecord, weights: Mapping[str, float]
     rated row) -- this function is only ever called on the ``snapshot.
     records`` entries already filtered to ``rank is not None`` by
     :func:`sensitivity_v2`."""
-    composite_raw = _weighted_composite_raw(record.pillars, weights)
+    composite_raw = aggregate.composite_score_raw(record.pillars, weights=weights)
     composite = None if composite_raw is None else round(composite_raw, 2)
-    coverage = _weighted_coverage(record.pillars, weights)
+    coverage = aggregate.composite_coverage(record.pillars, weights=weights)
     perturbed_record = dataclasses.replace(record, composite=composite, coverage=coverage)
 
     ttfhr_p75_hours = _decode_measured_asc(record.tie_key[5])

@@ -59,8 +59,8 @@ def test_roundtrip_rated_gated_unrated(tmp_path) -> None:
         pillar_scores={"responsiveness": 90.0, "criticality": 85.0, "governance": 80.0,
                         "rigor": 92.0, "accessibility": 87.0},
         params={
-            "ttfhr_hours": ParamScore(score=95.0, measured=True, reason=None, n=50, method="primary"),
-            "dependents_deduped": ParamScore(score=None, measured=False, reason="insufficient_n", n=2, method=None),
+            "ttfhr_hours": ParamScore(value=95.0, score=95.0, measured=True, reason=None, n=50, window_start=None, window_end=None, method="primary", source="test", fetched_at="2026-09-01T00:00:00+00:00"),
+            "dependents_deduped": ParamScore(value=None, score=None, measured=False, reason="insufficient_n", n=2, window_start=None, window_end=None, method=None, source=None, fetched_at=None),
         },
         tier="A",
         tier_ceiling=None,
@@ -109,7 +109,7 @@ def test_roundtrip_rated_gated_unrated(tmp_path) -> None:
         repo=unrated_repo,
         raw_hash="u" * 64,
         coverage=0.12,
-        params={"ttfhr_hours": ParamScore(score=None, measured=False, reason="third_party_gap", n=0, method=None)},
+        params={"ttfhr_hours": ParamScore(value=None, score=None, measured=False, reason="third_party_gap", n=0, window_start=None, window_end=None, method=None, source=None, fetched_at=None)},
         tier_ceiling="B",
     )
     unrated_item = make_repo_write(unrated_record, inputs={})

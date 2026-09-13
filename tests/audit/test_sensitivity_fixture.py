@@ -157,8 +157,13 @@ def test_weighted_composite_and_coverage_hand_computed() -> None:
     coverage = .35+.10+.15+.10 (unmeasured pillar contributes 0) = 0.70
     composite_raw = (.35*91 + .10*84 + .15*77 + .10*41) / 0.70
                   = 55.90 / 0.70 = 79.857142857...
+
+    Packet W2-11 (R-3) deleted this module's own private
+    ``_weighted_composite_raw``/``_weighted_coverage`` and gave
+    ``cvi.core.aggregate.composite_score_raw``/``composite_coverage`` a
+    ``weights`` keyword instead -- this test now exercises those directly.
     """
-    from cvi.audit.sensitivity import _weighted_composite_raw, _weighted_coverage
+    from cvi.core.aggregate import composite_coverage, composite_score_raw
     from cvi.core.models import PillarScore
 
     pillars = {
@@ -172,14 +177,14 @@ def test_weighted_composite_and_coverage_hand_computed() -> None:
         "responsiveness": 0.35, "criticality": 0.10, "governance": 0.15,
         "rigor": 0.10, "accessibility": 0.30,
     }
-    assert _weighted_coverage(pillars, weights) == pytest.approx(0.70)
-    assert _weighted_composite_raw(pillars, weights) == pytest.approx(79.857142857142857)
+    assert composite_coverage(pillars, weights=weights) == pytest.approx(0.70)
+    assert composite_score_raw(pillars, weights=weights) == pytest.approx(79.857142857142857)
 
 
 def test_weighted_composite_raw_is_none_when_every_pillar_unmeasured() -> None:
-    from cvi.audit.sensitivity import _weighted_composite_raw
+    from cvi.core.aggregate import composite_score_raw
     from cvi.core.models import PillarScore
 
     pillars = {name: PillarScore(None, 0.0) for name in ("responsiveness", "criticality", "governance", "rigor", "accessibility")}
     weights = {"responsiveness": 0.35, "criticality": 0.10, "governance": 0.15, "rigor": 0.10, "accessibility": 0.30}
-    assert _weighted_composite_raw(pillars, weights) is None
+    assert composite_score_raw(pillars, weights=weights) is None

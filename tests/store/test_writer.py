@@ -98,8 +98,8 @@ def test_write_records_round_trips_repo_params_and_populations(tmp_path) -> None
     _write_one_snapshot(conn)
 
     param_scores = {
-        "ttfhr_hours": ParamScore(score=88.0, measured=True, reason=None, n=42, method="primary"),
-        "dependents_deduped": ParamScore(score=None, measured=False, reason="insufficient_n", n=3, method=None),
+        "ttfhr_hours": ParamScore(value=88.0, score=88.0, measured=True, reason=None, n=42, window_start=None, window_end=None, method="primary", source="test", fetched_at="2026-09-01T00:00:00+00:00"),
+        "dependents_deduped": ParamScore(value=None, score=None, measured=False, reason="insufficient_n", n=3, window_start=None, window_end=None, method=None, source=None, fetched_at=None),
     }
     record = make_rated_record("snap-1", params=param_scores)
     item = make_repo_write(
@@ -273,7 +273,7 @@ def test_write_records_params_loop_failure_leaves_zero_repositories_rows(tmp_pat
     _write_one_snapshot(conn)
     record = make_rated_record(
         "snap-1", owner="acme", name="demo",
-        params={"ttfhr_hours": ParamScore(score=88.0, measured=True, reason=None, n=10, method="primary")},
+        params={"ttfhr_hours": ParamScore(value=88.0, score=88.0, measured=True, reason=None, n=10, window_start=None, window_end=None, method="primary", source="test", fetched_at="2026-09-01T00:00:00+00:00")},
     )
     item = make_repo_write(record, inputs={"ttfhr_hours": make_measured(3.0, n=10)})
 
@@ -304,7 +304,7 @@ def test_write_snapshot_and_write_records_compose_into_one_transaction(tmp_path,
     conn = _fresh_db(db_path)
     record = make_rated_record(
         "snap-1", owner="acme", name="demo",
-        params={"ttfhr_hours": ParamScore(score=88.0, measured=True, reason=None, n=10, method="primary")},
+        params={"ttfhr_hours": ParamScore(value=88.0, score=88.0, measured=True, reason=None, n=10, window_start=None, window_end=None, method="primary", source="test", fetched_at="2026-09-01T00:00:00+00:00")},
     )
     item = make_repo_write(record, inputs={"ttfhr_hours": make_measured(3.0, n=10)})
 
@@ -355,7 +355,7 @@ def test_foreign_key_check_is_empty_after_a_full_write(tmp_path) -> None:
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
     record = make_rated_record(
-        "snap-1", params={"ttfhr_hours": ParamScore(score=88.0, measured=True, reason=None, n=10, method="primary")},
+        "snap-1", params={"ttfhr_hours": ParamScore(value=88.0, score=88.0, measured=True, reason=None, n=10, window_start=None, window_end=None, method="primary", source="test", fetched_at="2026-09-01T00:00:00+00:00")},
     )
     write_records(conn, "snap-1", [make_repo_write(record, inputs={"ttfhr_hours": make_measured(3.0, n=10)})])
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -560,7 +560,7 @@ def test_snapshot_dump_hash_covers_params_and_populations_rows(tmp_path) -> None
     )
     record_a = make_rated_record(
         "snap-A", owner="acme", name="a-repo", composite=50.0,
-        params={"ttfhr_hours": ParamScore(score=88.0, measured=True, reason=None, n=10, method="primary")},
+        params={"ttfhr_hours": ParamScore(value=88.0, score=88.0, measured=True, reason=None, n=10, window_start=None, window_end=None, method="primary", source="test", fetched_at="2026-09-01T00:00:00+00:00")},
     )
     write_records(
         conn, "snap-A", [make_repo_write(record_a, inputs={"ttfhr_hours": make_measured(4.0, n=10)})],
@@ -572,7 +572,7 @@ def test_snapshot_dump_hash_covers_params_and_populations_rows(tmp_path) -> None
     )
     record_b = make_rated_record(
         "snap-B", owner="acme", name="b-repo", composite=60.0,
-        params={"ttfhr_hours": ParamScore(score=70.0, measured=True, reason=None, n=8, method="primary")},
+        params={"ttfhr_hours": ParamScore(value=70.0, score=70.0, measured=True, reason=None, n=8, window_start=None, window_end=None, method="primary", source="test", fetched_at="2026-09-01T00:00:00+00:00")},
     )
     write_records(
         conn, "snap-B", [make_repo_write(record_b, inputs={"ttfhr_hours": make_measured(3.0, n=8)})],

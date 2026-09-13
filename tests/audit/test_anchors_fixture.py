@@ -195,7 +195,10 @@ def test_linux_dco_fails_on_a_measured_contradicting_value() -> None:
     """Oracle (kept): a *measured* ``legal_ip`` of ``FOUNDATION_CLA``
     (score 75.0, not 100.0) genuinely contradicts "legal = DCO" -- FAIL,
     not SKIPPED. This is the case the dispatch fix must never touch."""
-    param = ParamScore(score=75.0, measured=True, reason=None, n=0, method="primary")
+    param = ParamScore(
+        value="FOUNDATION_CLA", score=75.0, measured=True, reason=None, n=0,
+        window_start=None, window_end=None, method="primary", source="test", fetched_at="2026-09-01T00:00:00+00:00",
+    )
     record = _linux_record_with_legal_ip(param)
     snapshot = _snapshot_of(record)
     by_relation = {result.relation: result for result in evaluate_anchors_v2(snapshot)}
@@ -209,7 +212,10 @@ def test_linux_dco_is_skipped_not_failed_when_legal_ip_is_unmeasured() -> None:
     the real reason, never FAIL. Reproduces the real defect measured on
     ``tests/fixtures/snapshot_50`` after W1-6 landed (legal_ip started
     reading the governance envelope, absent there)."""
-    param = ParamScore(score=None, measured=False, reason="collector_failure", n=0, method=None)
+    param = ParamScore(
+        value=None, score=None, measured=False, reason="collector_failure", n=0,
+        window_start=None, window_end=None, method=None, source=None, fetched_at=None,
+    )
     record = _linux_record_with_legal_ip(param)
     snapshot = _snapshot_of(record)
     by_relation = {result.relation: result for result in evaluate_anchors_v2(snapshot)}
@@ -225,7 +231,10 @@ def test_mutant_reverting_unmeasured_skip_to_fail_is_red() -> None:
     ``test_linux_dco_is_skipped_not_failed_when_legal_ip_is_unmeasured`` --
     reproduced directly here (without touching the source file) so this
     stands as a permanent regression guard."""
-    param = ParamScore(score=None, measured=False, reason="collector_failure", n=0, method=None)
+    param = ParamScore(
+        value=None, score=None, measured=False, reason="collector_failure", n=0,
+        window_start=None, window_end=None, method=None, source=None, fetched_at=None,
+    )
     _linux_record_with_legal_ip(param)  # shape check only; the assertion below is the guard
 
     # The old (pre-fix) behaviour, inlined: any Unmeasured legal_ip was FAIL.

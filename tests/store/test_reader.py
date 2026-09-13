@@ -45,7 +45,7 @@ def test_get_row_get_evidence_get_snapshot(tmp_path) -> None:
     conn = _fresh_db(tmp_path / "db.sqlite")
     record = make_rated_record(
         "snap-1",
-        params={"ttfhr_hours": ParamScore(score=90.0, measured=True, reason=None, n=10, method="primary")},
+        params={"ttfhr_hours": ParamScore(value=90.0, score=90.0, measured=True, reason=None, n=10, window_start=None, window_end=None, method="primary", source="test", fetched_at="2026-09-01T00:00:00+00:00")},
         persona_gates={"ai_assisted": "hard_ban"},
         persona_composites={"balanced": PersonaComposite(cvi=82.5, coverage=0.9, tier="B", rated=True)},
         suspicion=["lockstep_review"],
