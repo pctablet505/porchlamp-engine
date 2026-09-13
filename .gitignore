@@ -32,3 +32,6 @@ uv.lock
 
 # Gathered data cache (raw/derived/verified are reproducible artifacts)
 data/
+
+# local Claude Code launch/config (per-machine)
+.claude/
