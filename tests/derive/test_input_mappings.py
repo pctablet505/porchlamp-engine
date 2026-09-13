@@ -491,6 +491,43 @@ def test_promotion_ladder(tmp_path: Path) -> None:
     )
 
 
+def test_promotion_ladder_accepts_both_v2_identity_and_legacy_v1_spellings(tmp_path: Path) -> None:
+    """W1-6 BB3 pin (round-3 review CW1 / round-3 review mutant M8):
+    INPUT_MAPPINGS["promotion_ladder"] merges the v2 identity vocabulary
+    (VERIFIED/DOCUMENTED/AD_HOC/CLOSED -- what W1-6's own
+    classify_promotion_ladder writes into this same bare field) with the
+    legacy V1_LADDER_VALUES fallback (VERIFIED_PROMOTION/DOCUMENTED_PATHWAY/
+    AD_HOC/CLOSED_SINGLE_FIRM). M8 (revert the row to the v1-only vocabulary
+    -- the exact round-2 Blocker state) makes every v2-spelling case below
+    go red while every legacy-spelling case keeps passing; this is what
+    catches that revert (test_promotion_ladder above does not: it only ever
+    feeds legacy v1 spellings in)."""
+    pairs = (
+        ("VERIFIED", "VERIFIED"),
+        ("VERIFIED_PROMOTION", "VERIFIED"),
+        ("DOCUMENTED", "DOCUMENTED"),
+        ("DOCUMENTED_PATHWAY", "DOCUMENTED"),
+        ("AD_HOC", "AD_HOC"),
+        ("CLOSED", "CLOSED"),
+        ("CLOSED_SINGLE_FIRM", "CLOSED"),
+    )
+    for i, (written, expected) in enumerate(pairs):
+        key = f"acme__ladder-pair-{i}"
+        data = {"promotion_ladder": written}
+        write_envelope(tmp_path / "raw", "governance", key, data, "2026-09-01T00:05:00+00:00")
+        doc = base_document(
+            meta={"promotion_ladder": written},
+            provenance={"promotion_ladder": prov("governance", key=key)},
+            confidence={"promotion_ladder": "derived"},
+        )
+        bundle = load(tmp_path, doc, key=key)
+        assert bundle.inputs["promotion_ladder"] == Measured(
+            value=expected, n=0, window_start=None, window_end=None, method="primary",
+            source=str(tmp_path / "raw" / "governance" / f"{key}.json"),
+            source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+        ), f"{written!r} -> expected Measured({expected!r})"
+
+
 # --------------------------------------------------------------------------- #
 # 4.2 ai_posture                                                              #
 # --------------------------------------------------------------------------- #

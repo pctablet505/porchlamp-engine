@@ -1038,3 +1038,172 @@ renamed) for both runs.
 $ ruff check tests/derive/test_input_mappings.py tests/core/test_sample200_load.py
 All checks passed!
 ```
+
+---
+
+# Round 4 — De-scope
+
+Base: rebased branch `W1-6s` from `e7f0120` onto main tip `3bbbc01` (>= the
+dispatched `91fed25`), clean, no conflicts. Review:
+`/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adbe955a4084/scratchpad/reviews/W1-6-r3-review.md`,
+item records in `.agents/W1-6/review/round3/`.
+
+Lead decision (per the reviewer's own recommendation): PROSCRIBED detection
+in `classify_ai_posture` is structurally unsound after three rounds of
+pattern/table tuning (each fixed one false-positive class while
+introducing another of the opposite polarity — round 3's own root-cause
+finding: co-occurrence of an AI token and a negation/ban token cannot
+separate "Do not submit AI-generated code" from "Do not worry if you used
+AI", nor "AI is prohibited" from "undisclosed AI use is prohibited"; both
+need the ban's *object*, never bound in any round). De-scoped by
+subtraction, not reworked a fourth time. PROSCRIBED detection is re-planned
+as packet **W1-6b**: a corpus sampled and hand-labelled from real
+`CONTRIBUTING.md`/`AGENTS.md`/`AI.md` bodies already in the raw store (not
+invented sentences — round 3's review Note NT1), a rule binding the ban
+expression to its object, a sentence-driven REGULATED path (NT2: today
+REGULATED is file-presence-only; zero sentences drive it), and a
+parametrized row-deletion sweep as the standing gate (CR3: round 3's own
+corpus pinned only 7 of 19 table rows).
+
+Also fixed before the de-scope work (unrelated pre-existing collision,
+surfaced only by rebasing onto a newer main tip):
+`tests/test_derive.py::test_provenance_omits_sha256_for_non_envelope_source`
+asserted `ai_posture`'s URL provenance, which the packet's own already-
+accepted B2/W7 changes overwrite; retargeted to `legal_ip_model`, a field
+this packet never touches, on the same fixture (committed separately,
+`4659099`, before the de-scope commit below).
+
+## What was deleted (`cvi/collect/governance.py`)
+
+* `BAN_TABLE` (11 rows), `PERMISSION_TABLE` (8 rows) — the entire
+  round-3 table-driven ban-detection scheme.
+* `AI_REFERENCE_PATTERN`, `_split_sentences` (used by nothing else —
+  swept the whole tree, confirmed), `_proscribed_sentence`, `_ban_match`.
+* The `"ban"` key from `classify_ai_posture`'s evidence dict (nothing
+  computes a ban anymore, so there is nothing to report there).
+* Every module-docstring paragraph and comment block describing the
+  ban-detection design (round 1 through round 3's table redesign),
+  replaced with one paragraph naming the de-scope, its reason, the
+  `ai_assisted` persona consequence, and the W1-6b pointer.
+
+`classify_ai_posture` is now REGULATED (an `AI_POLICY_FILES` entry present)
+else AD_HOC — never PROSCRIBED; no code path returns it.
+`cvi.core.constants_v2.AI_POSTURE_VALUES` is untouched (still
+`REGULATED`/`PROSCRIBED`/`AD_HOC`) — only the producer is narrowed, per the
+dispatch ("the vocabulary stays").
+
+**Net diff, `cvi/collect/governance.py`: 35 insertions, 143 deletions
+(-108 lines).**
+
+## Tests (`tests/collect/test_governance_w16.py`)
+
+Deleted: `test_ai_posture_proscribed_ban_in_contributing`,
+`_proscribed_ban_in_ai_policy_file`, `_proscribed_beats_policy_file`
+(round 1); `_files_with_contributing_body` and its four round-2 B3 tests
+(`_no_ai_policy_yet_does_not_derive_proscribed`,
+`_do_not_ban_ai_contributions_does_not_derive_proscribed`,
+`_nothing_forbids_ai_does_not_derive_proscribed`,
+`_negation_does_not_blind_a_real_ban_in_the_same_document`); the entire
+round-3 corpus block (`PROSCRIBED_CORPUS`,
+`test_proscribed_corpus_size_and_balance`, `test_proscribed_sentence_corpus`,
+`test_proscribed_corpus_dies_when_a_ban_table_row_is_deleted`,
+`test_proscribed_corpus_dies_when_a_permission_table_row_is_deleted`).
+
+Kept unchanged: `test_ai_posture_regulated_policy_file_present` (REGULATED
+via file presence — the path the reviewer confirmed exists and is
+exercised). Fixed: `test_ai_posture_ad_hoc_default` (dropped the
+now-nonexistent `ev["ban"]` key, asserted `"ban" not in ev` instead).
+
+Added, per the dispatch's item 2:
+
+* `test_ai_posture_ordinary_contributing_prose_is_ad_hoc_never_proscribed`
+  — parametrized over the round-3 review's own nine CONTRIBUTING.md
+  sentences (item 1, section 2.3: seven of nine had mis-derived PROSCRIBED
+  under the deleted scheme). **All nine now yield AD_HOC** — none is
+  REGULATED, because CONTRIBUTING.md is not in `AI_POLICY_FILES` and
+  REGULATED no longer reads body content at all, only file presence.
+* `test_ai_posture_explicit_ai_policy_section_is_regulated` — a real
+  `AI_POLICY.md` (a genuine `AI_POLICY_FILES` member) with an explicit "AI
+  usage policy" section yields REGULATED.
+* `test_ai_posture_never_proscribed_over_all_twelve_files` — all
+  `GOVERNANCE_FILES + AI_POLICY_FILES` (12 files) present at once, each
+  carrying one of the nine cycled sentences: asserts `!= "PROSCRIBED"`
+  (structurally unreachable) and `== "REGULATED"` (the `AI_POLICY_FILES`
+  entries' presence, exactly as it would for any other body text).
+
+```
+$ pytest -p no:cacheprovider tests/collect/test_governance_w16.py
+........................................................................ [ 94%]
+....                                                                     [100%]
+76 passed in 0.08s
+```
+
+Net diff: 68 insertions, 164 deletions.
+
+## M8 pin (`tests/derive/test_input_mappings.py`)
+
+Added `test_promotion_ladder_accepts_both_v2_identity_and_legacy_v1_spellings`:
+seven cases (each of the four v2 spellings VERIFIED/DOCUMENTED/AD_HOC/CLOSED
+plus three of the four legacy v1 spellings VERIFIED_PROMOTION/
+DOCUMENTED_PATHWAY/CLOSED_SINGLE_FIRM — AD_HOC needs no separate legacy
+case, both vocabularies spell it identically) written into the v1
+`promotion_ladder` field and loaded through `INPUT_MAPPINGS`, asserting the
+exact `Measured` value, source and hash. `test_promotion_ladder` (the
+pre-existing test) only ever feeds legacy v1 spellings, so it cannot catch
+M8 by itself — this new test is what does.
+
+**M8 re-injected and re-run (red):**
+
+```
+$ python3 -c "... replace the two-vocab merge with _vocab_scalar_resolver('promotion_ladder', V1_LADDER_VALUES) ..."   # M8, re-injected
+$ pytest -p no:cacheprovider "tests/derive/test_input_mappings.py::test_promotion_ladder_accepts_both_v2_identity_and_legacy_v1_spellings"
+FAILED tests/derive/test_input_mappings.py::test_promotion_ladder_accepts_both_v2_identity_and_legacy_v1_spellings
+AssertionError: 'VERIFIED' -> expected Measured('VERIFIED')
+assert Unmeasured(reason='collector_failure', detail="v1 value 'VERIFIED' for
+  'promotion_ladder' has no v2 vocabulary mapping") == Measured(value='VERIFIED', ...)
+1 failed in 0.05s
+```
+
+Restored (`git diff --stat cvi/derive/bundle.py` empty afterward); re-run
+green, `32 passed`.
+
+## Full suite, ruff (real output, twice, both exit 0)
+
+```
+$ pytest tests -p no:cacheprovider -n 4
+1856 passed, 12 warnings in 9.31s
+$ pytest tests -p no:cacheprovider -n 4   # re-run, stability check
+1856 passed, 12 warnings in 9.30s (line varies by ~0.01s; count identical)
+```
+
+```
+$ ruff check cvi/collect/governance.py tests/collect/test_governance_w16.py tests/derive/test_input_mappings.py
+All checks passed!
+```
+
+## Diffstat, this round (three files)
+
+```
+ cvi/collect/governance.py            |  35 insertions(+), 143 deletions(-)
+ tests/collect/test_governance_w16.py |  68 insertions(+), 164 deletions(-)
+ tests/derive/test_input_mappings.py  |  37 insertions(+),   0 deletions(-)
+```
+
+## Re-plan pointer
+
+**Packet W1-6b** (4.2 `ai_posture` PROSCRIBED detection, standalone unit):
+corpus sampled and hand-labelled from real `CONTRIBUTING.md`/`AGENTS.md`/
+`AI.md` bodies already in the raw store; a rule binding the ban expression
+to the AI reference as its grammatical object (not bare co-occurrence); a
+sentence-driven REGULATED path so a disclosure requirement has somewhere to
+land; a parametrized row-deletion sweep as the standing gate, run over
+every row of whatever table replaces this round's deleted ones. Until
+W1-6b lands, the `ai_assisted` persona's hard-ban gate cannot fire — no
+repository can score the PROSCRIBED regime through this collector.
+
+## COULD NOT VERIFY (round 4)
+
+* Round-3's remaining Warnings not named in this round's dispatch (CW3
+  undiagnostic Unmeasured detail, CW4 no legal_ip URL-provenance negative,
+  CW5/CW6/CW7 = round-2's WW4/WW5/WW6 carried forward unchanged) —
+  untouched, not part of this round's scope.

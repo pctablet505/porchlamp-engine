@@ -23,13 +23,31 @@ and derives them with ``NONE`` / ``AD_HOC`` / ``AD_HOC`` defaults:
   ``commits_365d`` envelope (W1-5). DOCUMENTED reads the collected
   GOVERNANCE.md / MAINTAINERS.md / CONTRIBUTING.md bodies.
 * **4.2 AI policy posture** — presence of an AI-policy file (the
-  :data:`AI_POLICY_FILES` family) and explicit ban sentences in the
-  collected governance/AI-policy file bodies. The commit-trailer
-  convention path of ``02`` section 4 4.2 ("Assisted-by"/"AI-generated")
-  needs commit message text; this packet's collection scope (05-WORK-PLAN
-  W1-6 goal) is check names, the sign-off share, governance-file text and
-  PR associations only, so that path is not evaluated here (recorded as a
-  scope decision in the W1-6 handoff, not a defect).
+  :data:`AI_POLICY_FILES` family) only. **PROSCRIBED detection is
+  de-scoped as of round 4** (three rounds of pattern/table tuning each
+  fixed one false-positive class while introducing another of the
+  opposite polarity -- round 3's review named the root cause: bare
+  co-occurrence of a negation/ban token and the word "AI" cannot
+  distinguish "Do not submit AI-generated code" from "Do not worry if you
+  used AI", nor "AI is prohibited" from "undisclosed AI use is
+  prohibited"; both need the ban's *object*, which this module never
+  bound). ``classify_ai_posture`` now returns REGULATED on AI-policy-file
+  presence, else AD_HOC, and never PROSCRIBED -- until PROSCRIBED
+  detection is re-planned as its own unit (packet **W1-6b**: a corpus
+  sampled and hand-labelled from real ``CONTRIBUTING.md``/``AGENTS.md``/
+  ``AI.md`` bodies already in the raw store, a rule binding the ban
+  expression to its object, a sentence-driven REGULATED path, and a
+  parametrized row-deletion sweep as the standing gate), **the
+  ``ai_assisted`` persona's hard-ban gate cannot fire** -- no repository
+  can score the PROSCRIBED regime (25 for that persona) through this
+  collector. :data:`cvi.core.constants_v2.AI_POSTURE_VALUES` keeps all
+  three spellings (REGULATED/PROSCRIBED/AD_HOC): only the producer here is
+  narrowed, not the vocabulary. The commit-trailer convention path of
+  ``02`` section 4 4.2 ("Assisted-by"/"AI-generated") needs commit message
+  text; this packet's collection scope (05-WORK-PLAN W1-6 goal) is check
+  names, the sign-off share, governance-file text and PR associations
+  only, so that path is not evaluated here either (recorded as a scope
+  decision in the W1-6 handoff, not a defect).
 
 Per ``03`` section 3, documents are not 3.1 evidence: the regime comes from
 check/status names and the sign-off share only. Classification constants
@@ -48,8 +66,8 @@ Priority, highest first (documented decision, ``02`` §4 + ``03`` §3):
   no external merges) > DOCUMENTED (nomination text) > AD_HOC. CLOSED
   outranks DOCUMENTED so a closed repo cannot buy 75 by writing docs
   (``03`` §3: the cheapest fake for 3.3).
-* 4.2: PROSCRIBED (explicit ban sentence) > REGULATED (policy file present)
-  > AD_HOC.
+* 4.2: REGULATED (policy file present) > AD_HOC. PROSCRIBED is de-scoped
+  (see above) and never emitted by this module.
 """
 
 from __future__ import annotations
@@ -146,114 +164,6 @@ NOMINATION_PATTERN: re.Pattern = re.compile(
     r"path to (maintainer(ship)?|membership|core)|"
     r"how to (become|apply)",
     re.IGNORECASE)
-
-# Note: 02 §4 4.2's "Assisted-by"/"AI-generated" commit-trailer convention
-# path is not evaluated by this module -- it needs commit message text,
-# outside this packet's collection scope (module docstring).
-#
-# 02 §4 4.2 PROSCRIBED, round-3 table-driven redesign (Blockers BB1/BB2).
-# Round 2's line-level "any negation + any ban verb -> skip the whole line"
-# guard was too coarse: it swallowed genuine active-voice bans that merely
-# *contain* a negation token and a ban-verb-shaped word without the negation
-# actually modifying that verb (BB1: "AI-generated pull requests are banned;
-# do not open them." was skipped because "do" + "not" + "banned" co-occur on
-# one line, even though nothing there is negated). Round 3 evaluates one
-# SENTENCE at a time (split on ``.`` ``;`` ``:`` and newlines -- the round-3
-# dispatch's own unit) against two small tables:
-#
-#   PROSCRIBED iff the sentence contains an AI reference AND at least one
-#   BAN_TABLE row matches AND no PERMISSION_TABLE row matches.
-#
-# BAN_TABLE (a ban expression, active or passive form):
-#   banned / forbidden / prohibited / disallowed / rejected (bare polarity
-#   words); "not allowed" / "not accepted" / "not permitted" (a negated
-#   permission word IS a ban); "must not" / "do not" / "never" (bare active
-#   ban verbs -- the sentence-level co-occurrence with an AI reference is
-#   the whole test, matching the dispatch's own rule); "will be closed";
-#   and the passive "<must|shall|may|can> not be <generated|written|
-#   authored|created|produced> <by|with|using> AI" (BB2's own example).
-#
-# PERMISSION_TABLE (a permission expression that cancels a same-sentence
-# ban): a negator (not/never/nothing/do not/does not/don't/doesn't) within
-# a few words of a BAN_TABLE polarity verb (ban/forbid/prohibit/disallow/
-# reject) -- this is the general form of round 2's three named false
-# positives ("we do NOT BAN...", "NOTHING here FORBIDS...", "AI tools are
-# NOT BANNED") -- plus the bare positive words allowed/permitted/accepted/
-# welcome/encouraged/"may use"/"no ... required" (excluding a bare
-# allowed/permitted/accepted immediately after "not"/"never", since that
-# exact phrase is itself one of the BAN_TABLE rows, not a permission one).
-AI_REFERENCE_PATTERN: re.Pattern = re.compile(
-    r"\b(ai|llm|gpt|copilot|chatgpt|machine[- ]generated|artificial[- ]intelligence)\b",
-    re.IGNORECASE)
-
-#: One row per named ban expression (02 §4 4.2 / Blocker BB1 / BB2); a
-#: mutant deleting any one row must fail the labelled corpus test.
-BAN_TABLE: tuple[tuple[str, re.Pattern], ...] = tuple(
-    (name, re.compile(pattern, re.IGNORECASE)) for name, pattern in (
-        ("banned", r"\b(ban|bans|banned|banning)\b"),
-        ("forbidden", r"\b(forbid|forbids|forbidden|forbidding)\b"),
-        ("prohibited", r"\b(prohibit|prohibits|prohibited|prohibiting)\b"),
-        ("disallowed", r"\b(disallow|disallows|disallowed|disallowing)\b"),
-        ("rejected", r"\b(reject|rejects|rejected|rejecting)\b"),
-        ("negated_permission",
-         r"\bnot\s+(allowed|accepted|permitted|welcome|encouraged)\b"),
-        ("must_not", r"\bmust\s+not\b"),
-        ("do_not", r"\b(do|does)\s+not\b|\bdon'?t\b|\bdoesn'?t\b"),
-        ("never", r"\bnever\b"),
-        ("will_be_closed", r"\bwill\s+be\s+closed\b"),
-        # BB2: the passive form the dispatch names verbatim, e.g.
-        # "contributions must not be generated by AI".
-        ("passive_generated_by_ai",
-         r"\b(must|shall|may|can)\s+not\s+be\s+"
-         r"(generated|written|authored|created|produced)\s+(by|with|using)\b"),
-    ))
-#: One row per named permission expression; a mutant deleting any one row
-#: must fail the labelled corpus test.
-PERMISSION_TABLE: tuple[tuple[str, re.Pattern], ...] = tuple(
-    (name, re.compile(pattern, re.IGNORECASE)) for name, pattern in (
-        # A negator within a few words of a ban-polarity verb: "we do NOT
-        # BAN...", "NOTHING here FORBIDS...", "AI tools are NOT BANNED".
-        # Up to 3 filler words between the negator and the ban-verb, but
-        # never crossing a coordinating conjunction ("and"/"but"/"or") --
-        # that boundary is what tells "nothing in this document BANS ..."
-        # (one clause, cancels) apart from "... is not permitted AND is
-        # BANNED." (two clauses; the second is its own, un-negated ban).
-        ("negated_ban_verb",
-         r"\b(not|never|nothing|no|no\s+one|do\s+not|does\s+not|don'?t|doesn'?t)\b"
-         r"(?:\s+(?!(?:and|but|or)\b)\w+){0,3}\s+"
-         r"(ban|bans|banned|banning|forbid|forbids|forbidden|"
-         r"forbidding|prohibit|prohibits|prohibited|prohibiting|disallow|disallows|"
-         r"disallowed|disallowing|reject|rejects|rejected|rejecting)\b"),
-        # Bare positive words -- excluded right after "not"/"never" since
-        # that exact two-word phrase is a BAN_TABLE row, not a permission one.
-        ("allowed", r"(?<!not\s)(?<!never\s)\ballowed\b"),
-        ("permitted", r"(?<!not\s)(?<!never\s)\bpermitted\b"),
-        ("accepted", r"(?<!not\s)(?<!never\s)\baccepted\b"),
-        ("welcome", r"(?<!not\s)(?<!never\s)\bwelcome\b"),
-        ("encouraged", r"(?<!not\s)(?<!never\s)\bencouraged\b"),
-        ("may_use", r"\bmay\s+use\b"),
-        ("no_x_required", r"\bno\b(?:\s+\w+){0,4}\s+required\b"),
-    ))
-
-
-def _split_sentences(body: str) -> list[str]:
-    """Split ``body`` into sentences on ``.`` ``;`` ``:`` and newlines (the
-    unit :data:`BAN_TABLE` / :data:`PERMISSION_TABLE` are evaluated over)."""
-    return [s.strip() for s in re.split(r"[.;:\n]", body) if s.strip()]
-
-
-def _proscribed_sentence(sentence: str) -> Optional[str]:
-    """The name of the first :data:`BAN_TABLE` row matched, or ``None``,
-    when ``sentence`` has an AI reference, a ban expression and no
-    same-sentence :data:`PERMISSION_TABLE` match."""
-    if not AI_REFERENCE_PATTERN.search(sentence):
-        return None
-    ban_hit = next((name for name, pattern in BAN_TABLE if pattern.search(sentence)), None)
-    if ban_hit is None:
-        return None
-    if any(pattern.search(sentence) for _name, pattern in PERMISSION_TABLE):
-        return None
-    return ban_hit
 
 
 # --------------------------------------------------------------------------- #
@@ -660,41 +570,23 @@ def classify_promotion_ladder(prw: Optional[Mapping[str, Any]],
     return "AD_HOC", {**evidence, "rule": "no_evidence"}
 
 
-def _ban_match(files: Mapping[str, Optional[Mapping[str, Any]]]
-               ) -> Optional[dict[str, str]]:
-    """The first PROSCRIBED sentence in a collected governance/AI file
-    (Blocker BB1/BB2 round 3: table-driven, per :func:`_proscribed_sentence`
-    -- a genuine ban in one sentence is never shadowed by a denial stated
-    in a different sentence of the same document)."""
-    for fname in (*GOVERNANCE_FILES, *AI_POLICY_FILES):
-        entry = files.get(fname)
-        if not entry:
-            continue
-        for sentence in _split_sentences(str(entry.get("body") or "")):
-            if _proscribed_sentence(sentence) is not None:
-                return {"file": fname, "line": sentence[:200]}
-    return None
-
-
 def classify_ai_posture(files: Mapping[str, Optional[Mapping[str, Any]]]
                         ) -> tuple[str, dict[str, Any]]:
     """02 §4 4.2: the AI policy posture.
 
     ``files`` are the recorded governance/AI-policy file entries. Returns
     ``(value, evidence)`` with ``value`` in
-    :data:`cvi.core.constants_v2.AI_POSTURE_VALUES``; priority is
-    PROSCRIBED > REGULATED > AD_HOC (module docstring). The commit-trailer
-    REGULATED path of ``02`` §4 4.2 is not evaluated (module docstring:
-    outside this packet's collection scope).
+    :data:`cvi.core.constants_v2.AI_POSTURE_VALUES``; priority is REGULATED
+    (an :data:`AI_POLICY_FILES` entry is present) > AD_HOC. PROSCRIBED is
+    de-scoped as of round 4 and never returned here (module docstring: three
+    rounds of ban-detection schemes each traded one false-positive class for
+    another; re-planned as packet W1-6b). The commit-trailer REGULATED path
+    of ``02`` §4 4.2 is not evaluated either (module docstring: outside this
+    packet's collection scope).
     """
     present = sorted(fname for fname, entry in (files or {}).items() if entry)
     ai_policy_present = [f for f in present if f in AI_POLICY_FILES]
-    evidence: dict[str, Any] = {
-        "ban": _ban_match(files or {}),
-        "ai_policy_files_present": ai_policy_present,
-    }
-    if evidence["ban"]:
-        return "PROSCRIBED", {**evidence, "rule": "proscribed_ban"}
+    evidence: dict[str, Any] = {"ai_policy_files_present": ai_policy_present}
     if ai_policy_present:
         return "REGULATED", {**evidence, "rule": "ai_policy_file"}
     return "AD_HOC", {**evidence, "rule": "no_evidence"}
