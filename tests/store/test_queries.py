@@ -293,6 +293,112 @@ def test_list_ranked_sort_by_pillar(tmp_path) -> None:
     assert [row["name"] for row in rows] == ["hi-resp", "lo-resp"]
 
 
+def _is_monotonic_nulls_last(values: list, *, increasing: bool) -> bool:
+    """Every non-``None`` value in ``values`` is in non-decreasing
+    (``increasing``) or non-increasing (else) order, and every ``None``
+    comes after every non-``None`` (D-TIE-1's missingness rule -- an
+    unmeasured value sorts last regardless of direction)."""
+    non_null = [v for v in values if v is not None]
+    if increasing:
+        if not all(a <= b for a, b in zip(non_null, non_null[1:])):
+            return False
+    else:
+        if not all(a >= b for a, b in zip(non_null, non_null[1:])):
+            return False
+    seen_null = False
+    for v in values:
+        if v is None:
+            seen_null = True
+        elif seen_null:
+            return False
+    return True
+
+
+def test_list_ranked_descending_flag_reverses_only_the_promoted_level(tmp_path) -> None:
+    """W4-4 REWORK item-06 (Warning W-3): the API's `-` sort-direction
+    prefix used to be silently discarded -- `descending` did not exist at
+    all before this fix. For every allowed `sort` value: `descending=False`
+    gives a genuinely different order from the default `descending=True`
+    (never equal) over the SAME set of rows; NULLs at the promoted level
+    sort last in BOTH directions (D-TIE-1's missingness rule is about
+    absence, not direction); and `rank`/`tie_group` -- a FIXED fact about
+    the visible set, D-TIE-2 -- are IDENTICAL regardless of direction
+    (the tail after the promoted level, and the window functions that
+    compute rank/tie_group, are never reversed)."""
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    rng = random.Random(4242)
+    dataset = _build_null_bearing_dataset(rng)
+    items = []
+    for i, row in enumerate(dataset):
+        composite = round(sum(BALANCED_WEIGHTS[p] * row["pillars"][p] for p in PILLARS), 2)
+        # Varied, deterministic per-row coverage (never the uniform 0.9
+        # every other fixture in this file uses) -- sort=coverage needs
+        # real variation to prove direction actually changes the order;
+        # a constant coverage would make ascending and descending
+        # indistinguishable through no fault of `_build_order_by`.
+        coverage = round(0.6 + 0.4 * ((i * 37) % 100) / 100, 3)
+        # Same reasoning for tier: `make_rated_record`'s default `tier="B"`
+        # is uniform across every row, which would make sort=tier
+        # direction-blind for the same reason coverage was.
+        tier = ("D", "C", "B", "A", "S", "S+")[i % 6]
+        rec = make_rated_record(
+            "snap-1", owner="acme", name=row["name"],
+            raw_hash=hashlib.sha256(row["name"].encode()).hexdigest(),
+            composite=composite, coverage=coverage, pillar_scores=row["pillars"],
+            friction=row["friction"], leverage=row["leverage"], tier=tier,
+        )
+        items.append(make_repo_write(rec))
+    write_records(conn, "snap-1", items)
+
+    field_by_sort = {
+        None: "cvi", "rank": "cvi", "cvi": "cvi", "coverage": "coverage", "tier": "tier",
+        **{p: f"p_{p}" for p in PILLARS},
+    }
+    for sort in (None, "rank", "cvi", "coverage", "tier", *PILLARS):
+        rows_desc, total_desc = queries.list_ranked(conn, "snap-1", sort=sort, limit=1000)
+        rows_asc, total_asc = queries.list_ranked(conn, "snap-1", sort=sort, descending=False, limit=1000)
+        assert total_desc == total_asc == len(dataset), sort
+        names_desc = [r["name"] for r in rows_desc]
+        names_asc = [r["name"] for r in rows_asc]
+        assert set(names_desc) == set(names_asc), sort
+        assert names_desc != names_asc, f"sort={sort!r}: descending=False produced the identical order"
+
+        field = field_by_sort[sort]
+        if field == "tier":
+            index = {tier: i for i, tier in enumerate(("D", "C", "B", "A", "S", "S+"))}
+            desc_values = [index.get(r["tier"]) if r["tier"] is not None else None for r in rows_desc]
+            asc_values = [index.get(r["tier"]) if r["tier"] is not None else None for r in rows_asc]
+        else:
+            desc_values = [r[field] for r in rows_desc]
+            asc_values = [r[field] for r in rows_asc]
+        assert _is_monotonic_nulls_last(desc_values, increasing=False), f"sort={sort!r} descending"
+        assert _is_monotonic_nulls_last(asc_values, increasing=True), f"sort={sort!r} ascending"
+
+        ranks_desc = {r["name"]: (r["rank"], r["tie_group"]) for r in rows_desc}
+        ranks_asc = {r["name"]: (r["rank"], r["tie_group"]) for r in rows_asc}
+        assert ranks_desc == ranks_asc, f"sort={sort!r}: rank/tie_group changed with direction"
+
+
+def test_list_ranked_offset_paging_is_deterministic_under_descending_false(tmp_path) -> None:
+    """The existing pagination-determinism test's own shape
+    (`test_list_ranked_pagination_is_a_total_deterministic_order`),
+    re-run under `descending=False` -- offset paging must stay a correct
+    partition of the total order in either direction."""
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    items = [
+        make_repo_write(make_rated_record("snap-1", owner="acme", name=f"r{i:02d}", composite=float(100 - i), coverage=0.95))
+        for i in range(10)
+    ]
+    write_records(conn, "snap-1", items)
+    page1, total = queries.list_ranked(conn, "snap-1", descending=False, limit=4, offset=0)
+    page2, _ = queries.list_ranked(conn, "snap-1", descending=False, limit=4, offset=4)
+    page3, _ = queries.list_ranked(conn, "snap-1", descending=False, limit=4, offset=8)
+    assert total == 10
+    names = [row["name"] for row in page1 + page2 + page3]
+    assert names == [f"r{9 - i:02d}" for i in range(10)]  # ascending: r09 first
+    assert len(set(names)) == 10
+
+
 def test_list_ranked_rank_is_sort_invariant_for_balanced_and_every_persona(tmp_path) -> None:
     """W4-3 review Blocker B-2: rank/rank_p are D-TIE-2's "strict 1..N
     after tie-breaking" -- a FIXED fact about the visible set. Before this

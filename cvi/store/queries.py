@@ -223,7 +223,7 @@ def _tier_index_sql(tier_expr: str) -> str:
 
 
 def _build_order_by(
-    sort: Optional[str], composite_expr: str, coverage_expr: str, tier_expr: str
+    sort: Optional[str], composite_expr: str, coverage_expr: str, tier_expr: str, *, descending: bool = True
 ) -> str:
     """`06` section 3 A: sort only on rank, CVI, coverage, tier or a pillar
     (:data:`ALLOWED_SORT_FIELDS`); anything else raises ``ValueError``
@@ -234,16 +234,29 @@ def _build_order_by(
     pillar name promote that field ahead of the full D-TIE-1 chain, which
     still runs after it -- so the result is always a *total* order (offset
     paging is deterministic under every ``sort`` value, `04` section 6:
-    "offset paging is deterministic because the ORDER BY is total")."""
+    "offset paging is deterministic because the ORDER BY is total").
+
+    ``descending`` (W4-4 REWORK, item-06: the API's ``-`` sort-direction
+    prefix was accepted and silently discarded -- W-3) applies ONLY to the
+    PROMOTED level (the column ``sort`` names, or the composite itself when
+    ``sort`` is ``None``/``"rank"``/``"cvi"``); the D-TIE-1 TAIL after it
+    (:data:`_TIE_TAIL_SQL`, via ``default``) is never reversed -- reversing
+    the tie-break levels too would make ``rank``/``tie_group`` (a FIXED
+    fact about the visible set, D-TIE-2) depend on display direction, the
+    exact bug B-2 (W4-3 review) already fixed for ``sort``. ``NULLS LAST``
+    stays on the ascending branch as well: an unmeasured value sorts last
+    regardless of direction (D-TIE-1's rule is about missingness, not
+    direction)."""
     default = _order_by_sql(composite_expr, coverage_expr)
     if sort is None or sort in ("rank", "cvi"):
-        return default
+        return default if descending else f"{composite_expr} ASC NULLS LAST, {default}"
+    direction = "DESC" if descending else "ASC"
     if sort == "coverage":
-        return f"{coverage_expr} DESC NULLS LAST, {default}"
+        return f"{coverage_expr} {direction} NULLS LAST, {default}"
     if sort == "tier":
-        return f"{_tier_index_sql(tier_expr)} DESC NULLS LAST, {default}"
+        return f"{_tier_index_sql(tier_expr)} {direction} NULLS LAST, {default}"
     if sort in _PILLAR_SORT_FIELDS:
-        return f"p_{sort} DESC NULLS LAST, {default}"
+        return f"p_{sort} {direction} NULLS LAST, {default}"
     raise ValueError(f"sort must be one of {ALLOWED_SORT_FIELDS} or None; got {sort!r}")
 
 
@@ -369,6 +382,7 @@ def list_ranked(
     ecosystem: Optional[str] = None,
     q: Optional[str] = None,
     sort: Optional[str] = None,
+    descending: bool = True,
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
 ) -> Tuple[List[Dict[str, Any]], int]:
@@ -422,6 +436,12 @@ def list_ranked(
     B-2: before this fix, ``sort="coverage"`` on a persona view could
     change up to 241 of 242 rows' ``rank_p``).
 
+    ``descending`` (W4-4 REWORK item-06, W-3): applies only to the
+    PROMOTED sort level, never to ``rank``/``tie_group``/``rank_p``/
+    ``tie_group_p`` (still the fixed D-TIE-1/D-TIE-2 order regardless --
+    see :func:`_build_order_by`) nor to the D-TIE-1 tail after it, so
+    offset paging stays deterministic under either direction.
+
     ``limit``: 1..1000 inclusive (`06` U-13's page-size menu tops out at
     1000; owner ruling 2026-09-13); ``ValueError`` naming the max above
     that, or below 1. ``offset``: >= 0, ``ValueError`` otherwise. The
@@ -437,7 +457,7 @@ def list_ranked(
     extra_params = [*eco_params, *q_params]
 
     if persona == "balanced":
-        order_expr = _build_order_by(sort, "ROUND(cvi, 2)", "coverage", "tier")
+        order_expr = _build_order_by(sort, "ROUND(cvi, 2)", "coverage", "tier", descending=descending)
         where = f"r.snapshot_id = ? AND r.rated = 1{extra_where}"
         params = [snapshot_id, *extra_params]
 
@@ -480,7 +500,7 @@ def list_ranked(
     # rank_p (SQLite computes window functions before the final ORDER BY,
     # so this split is exactly what makes the two independent).
     rank_order_expr = _order_by_sql("ROUND(cvi_p, 2)", "coverage_p")
-    display_order_expr = _build_order_by(sort, "ROUND(cvi_p, 2)", "coverage_p", "tier_p")
+    display_order_expr = _build_order_by(sort, "ROUND(cvi_p, 2)", "coverage_p", "tier_p", descending=descending)
     sql = f"""
         WITH visible AS ({proj_select})
         SELECT *,
