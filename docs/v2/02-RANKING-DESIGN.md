@@ -284,6 +284,15 @@ balanced score.
 The two previously undefined gates now have concrete semantics; they are
 filters (D-PERS-1), so a wrong threshold hides rather than zeroes.
 
+**D-PERS-3 (ruling 2026-09-13).** `senior_systems` and `ai_assisted` are
+exclusion gates: they fire only on measured evidence (an unmeasured EF or
+posture never gates). `first_timer` and `career_capital` are inclusion gates:
+a repository appears under that lens only when the evidence satisfies the
+condition, so an unmeasured input does not satisfy it. When an inclusion gate
+fires because an input is unmeasured, the reason code is
+`insufficient_evidence:<input id>` (rendered as "not enough evidence to show
+under this lens"), never a substantive reason such as a low merge rate.
+
 ## 10. Ordering and tie-breakers (stage 9)
 
 **D-TIE-1.** Rated repos are ordered by composite (2 decimals) descending, then

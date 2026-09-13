@@ -131,8 +131,8 @@ class ScoreRecord:
     coverage: float
     tier: str | None            # after ceiling
     leverage: float | None; friction: float | None; quadrant: str | None
-    persona_gates: dict[str, str]
-    persona_composites: dict[str, float]
+    persona_gates: dict[str, str]        # reason codes; unmeasured-driven gating uses insufficient_evidence:<input>
+    persona_composites: dict[str, PersonaComposite]   # PersonaComposite(cvi, coverage, tier, rated) per persona (ruling 2026-09-13)
     tie_key: tuple; tie_group: int | None; rank: int | None
     suspicion: list[str]
 ```
@@ -240,6 +240,13 @@ between this query and `cvi.core.tiebreak.tie_key` must include NULLs at more
 than one tie level. The store also needs `RANK()` to yield strict ranks after
 the full key, so `ROW_NUMBER()` over the same ORDER BY is used for `rank` and
 a separate `DENSE_RANK() OVER (ORDER BY ROUND(cvi_p,2) DESC)` for `tie_group`.
+
+Per-persona rating (ruling 2026-09-13 after the W2-7 review): `rated` under a
+persona is recomputed from the persona-weighted coverage (D-MISS-3 applies
+under the active weights), never copied from the balanced `rated` flag; the
+query above therefore filters on `cvi_p IS NOT NULL AND coverage_p >= 0.60`
+where `coverage_p` is computed from the pillar coverages with the persona
+weights, and applies the tier ceiling from `coverage_p`.
 
 No Python loop over all rows for any endpoint.
 
