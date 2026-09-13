@@ -69,7 +69,12 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
     "fe49557ca04b2de7a4b1518d6a3a45d68e1ffcc1139a80e43aa9f375eb58aed4"
 )
-_SNAPSHOT_50_EXPECTED_COUNTS = {"rated": 0, "gated": 35, "unrated": 15}
+# NB-1 (lead ruling 2026-09-14, U-2): gated/unrated reflect cvi.core.
+# pipeline.not_ranked_class's display classification (one 
+# "unrated: no_external_workflow"-gated repo in this real fixture counts
+# as unrated, not gated) -- was {"gated": 35, "unrated": 15} under the
+# raw engine eligible flag before that fix.
+_SNAPSHOT_50_EXPECTED_COUNTS = {"rated": 0, "gated": 31, "unrated": 19}
 
 #: A curated-anchor, empty-PR-window ``GateEvidence`` that clears D-GATE-1..6
 #: eligibility regardless of the repo's other facts (module docstring of
@@ -175,7 +180,7 @@ def test_store_snapshot_50_counts_and_hashes(tmp_path, capsys) -> None:
     assert code == 0, out
 
     assert "snapshot snapshot_50" in out
-    assert "rated 0 gated 35 unrated 15" in out
+    assert "rated 0 gated 31 unrated 19" in out
     assert f"records_hash {_SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS}" in out
     assert "constants_hash " in out
     assert "snapshot_dump_hash " in out

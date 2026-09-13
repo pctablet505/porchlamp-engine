@@ -1,6 +1,6 @@
 {
   "counts": {
-    "gated": 35,
+    "gated": 31,
     "persona_visible": {
       "ai_assisted": 0,
       "balanced": 0,
@@ -9,7 +9,7 @@
       "senior_systems": 0
     },
     "rated": 0,
-    "unrated": 15
+    "unrated": 19
   },
   "document": "cvi-fixture-snapshot-expected",
   "rank_order": [

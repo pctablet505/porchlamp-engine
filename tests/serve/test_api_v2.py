@@ -1101,9 +1101,6 @@ def test_no_ceiling_or_band_assigns_a_and_b_correctly_via_reproject(api):
 
 
 def test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture(tmp_path):
-    import cvi.snapshot  # noqa: F401 -- import before cvi.store.writer: pre-existing
-    # cvi.store.writer <-> cvi.snapshot circular import (W4-6f is fixing it on
-    # main separately; not this packet's file to touch -- see the handoff).
     from cvi.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
     from cvi.store import schema
     from cvi.store.migrations import apply_migrations
