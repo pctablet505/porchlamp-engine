@@ -286,13 +286,13 @@ def test_ratelimit_directory_exemption_covers_only_the_monotonic_defaults() -> N
     assert probe_lines == ["    return datetime.now().timestamp()"]
 
 
-def test_ingest_module_needs_no_wall_clock_exemption() -> None:
-    """W4-1: after the rate limiter moved out, ``cvi/ingest.py`` has zero
-    clock tokens of its own -- it no longer needs (and no longer has) a
-    per-module entry in ``EXCLUDED_MODULES``. Pinned so a future addition
-    to this file that reads a wall clock is caught by the *default*,
-    non-exempt scan path rather than silently relying on a stale
-    exemption nobody re-added."""
+def test_ingest_module_is_gone_and_needs_no_exemption() -> None:
+    """W4-1: ``cvi/ingest.py`` is fully deleted (its content moved to
+    ``cvi.collect.ratelimit``/``cvi.lakehouse`` or removed as dead code;
+    the one-release deprecation shim itself was then deleted, per the
+    inventory's own instruction, once the grep sweep showed no in-repo
+    caller remained). It never needs a per-module entry in
+    ``EXCLUDED_MODULES`` again -- pinned here so a stale exemption is
+    never silently re-added for a module that does not exist."""
     assert "ingest.py" not in EXCLUDED_MODULES
-    source = (CVI_PKG / "ingest.py").read_text(encoding="utf-8")
-    assert [line for line in source.splitlines() if CLOCK_RE.search(line)] == []
+    assert not (CVI_PKG / "ingest.py").exists()
