@@ -513,3 +513,216 @@ Fixture server kept on **port 8902** throughout, restarted after each
 batch of changes; final live pass (fresh tab, zero prior state) confirms
 zero console errors on load and correct rendering of all five primary
 tabs.
+
+## Round 3 (final, bounded to exactly three items)
+
+Base at dispatch: `adfec73` (round-2 tip, rebased onto `3ed230f`). Read
+first: the round-2 review (`/tmp/.../scratchpad/reviews/W4-5b-r2-review.md`
+plus `.agents/W4-5b/review/round2/R2-01..R2-04`, committed this round in
+`bea2806` — they were sitting untracked in the worktree since round 2).
+Delivered exactly the three items the round-2 review scoped: **NB-1**
+(Blocker), **N1**, **N3** — plus one unplanned, unavoidable item the
+mandatory main-rebase surfaced (below).
+
+### NB-1 (Blocker) — Compare's per-keystroke `main.innerHTML` — commit `897d322`
+
+`compareQuery` was baked into the Compare shell's rendered HTML, so
+`app.js::syncView`'s `html !== currentCompareShape` string-compare fired
+on every keystroke and destroyed/recreated the focused search `<input>`
+(06 §6.1 U-12's exact prohibition). Fixed in `views/compare.js`:
+`renderPickerShell` (the `<input>` + an empty `[data-compare-results-host]`
+container, rendered only as part of the shell) is now separate from
+`renderPickerResults` (the query-dependent results list, patched into that
+host on every keystroke); `shellKey(state)` — the new rebuild-decision
+function — is deliberately a pure function of ONLY `shellShape` and
+`compareRepos`, never `compareQuery`/`compareSearchResults`/
+`compareDataByRepo`. The comparison TABLE moved out of the inline shell
+string into its own `[data-compare-table-host]`, patched by `patchTable`,
+so a per-repo data fetch landing doesn't force a shell rebuild either.
+`app.js::syncView`'s compare branch now compares `shellKey` (matching
+every other screen's shape-string pattern) instead of the rendered HTML
+string.
+
+**Live-verified** (Chromium via the Claude Browser tool, fixture server on
+8902, real `computer{action:"type"}` keystrokes plus direct DOM
+inspection): tagged the search input with a marker attribute, typed 3
+characters — marker survived every keystroke (same node, never
+recreated); set the caret to a mid-string position (`setSelectionRange(1,
+1)`) and typed one more character — it inserted AT the caret (`"riv"` ->
+`"rXiv"`) with the caret landing right after it, not appended at the end.
+Contrast case also verified: adding a chip DOES swap in a new input node
+(shell rebuild, as intended) and resets the query. Full add-two-repos ->
+table + verdict sequence re-verified working through `patchTable`.
+
+### N1 — ship an executable guard for the B-1 normaliser fix — commits `6c35a5a`, part of `979baa6`
+
+`web/v2/package.json` (`{"type": "module"}`) — the missing piece blocking
+`node --test web/v2/tests` for three rounds (the `.js` SOURCE files'
+bare `import`/`export` need a package.json declaring ESM somewhere up the
+tree; `.mjs` test files are unaffected by this but their imports aren't).
+`web/v2/tests/cases/normalize_weights.json` — 6 `normalizeWeights` + 3
+`applyPresetRespectingLocks` EXACT-VALUE cases (not just properties)
+covering every branch (full-lock snap-back = the exact B-1 repro, plain
+proportional split, the overflow correction, the free-pillars-at-0 equal
+split, both clamp directions) — asserted identically by BOTH
+`web/v2/tests/unit.test.mjs` (the real JS) and the new
+`tests/test_ui_weights_port.py` (a faithful, docstring-annotated Python
+port, plus the round-2 reviewer's own lock-subset/random-walk property
+test folded in, plus a fail-before self-test proving the four-locked case
+is actually load-bearing). **Live-verified in a real V8 engine** (not just
+Python): dynamic `import('/views/configure.js')` + `fetch('/tests/cases/
+normalize_weights.json')` against the running fixture server (Node itself
+still absent) — all 6 + 3 cases produce zero failures against the REAL
+implementation, not just the port.
+
+### N3 — repo-detail 404 path untested (and dead-coded) — commits `7e71d3e`, part of `979baa6`
+
+`tests/test_serve_ui_fixtures.py::TestRepoDetailEndpoint` (new): a known
+repo resolves, an unknown one is a genuine 404 with the nested error body,
+a malformed path is 404 not 500. Writing the RENDER-side test surfaced a
+real bug the 404 test alone wouldn't have: `views/drawer.js::renderDrawer`
+routed EVERY `repoDetailError` — a 404 included, since `api.js`/
+`app.js::loadRepoDetail` treat every non-2xx the same way — through the
+retry-error banner, making `copy.DRAWER_NOT_FOUND_TEXT` dead code for the
+one case it names. Fixed: the not-found branch now checks
+`status !== 404` before choosing the retry banner. **Live-verified**: `GET
+/v1/cvi/repos/nobody/nothing` returns 404 with the expected body; `?repo=
+nobody%2Fnothing` renders the drawer with exactly the not-found copy and
+no retry button (real Chromium tab, real navigation, `#app-drawer-root`
+inspected directly); all three `renderDrawer` cases (404 / non-404 /
+loading) also re-run against the real module via dynamic `import()`.
+
+### Live-execution technique used across all three items (worth noting for future rounds)
+
+Node remains absent on this box, but `web/v2/views/*.js` and
+`web/v2/api.js`/`state.js`/`copy.js` carry NO `node:`-prefixed imports —
+only `web/v2/tests/*.test.mjs` does (`node:test`, `node:assert/strict`).
+That means the real application modules ARE plain, dependency-free ES
+modules the fixture server already serves as static files, so dynamic
+`import('/views/compare.js')` (etc.) inside a live Chromium tab (via the
+Claude Browser tool's `javascript_tool`) executes the REAL, unmodified
+source in a real engine — strictly stronger evidence than a hand-trace,
+and closes a real gap the round-2 review's own N1 finding named (an
+unexecuted test proves nothing about a live regression). This does not
+make `unit.test.mjs` itself executable (its `node:*` imports still need
+real Node, hence N1's `package.json` fix for whenever that exists) — it's
+a verification technique for THIS session, not a new CI capability.
+`tests/fakedom.mjs` (W4-5a's hand-built minimal DOM) was considered for a
+real DOM-level NB-1 test but does not parse `innerHTML` strings into
+elements at all (confirmed by reading its source) — it only backs the
+keyed-patch tests earlier in `unit.test.mjs`, so it cannot exercise
+`main.innerHTML = ...` diffing; the live-Chromium technique above is what
+actually closed that gap for this round's evidence.
+
+### Unplanned item: rebase fallout — two branches' independent contract.py changes collided silently — commit `28f6783`
+
+Rebasing onto main (`752d5ec` -> current tip, per the dispatch's "752d5ec
+or later" — pulled in W4-4's real `cvi/serve/app.py`/`guard.py` for the
+FIRST time onto this branch) succeeded with **zero textual conflicts**
+across all 18 commits. That silence was misleading: `tests/serve/
+test_api_v2.py` (main's own 50-test suite for the real API) went from
+50 passed to 7 failed the moment this branch's own contract.py commits
+landed on top, because the merge auto-combined two independently-designed
+additions to `cvi/serve/contract.py` with no textual overlap but a real
+semantic collision. Diagnosed (pristine `main` in a scratch worktree
+confirmed 50/50 passing — this was NOT a pre-existing failure) and fixed
+all three root causes, none touching `cvi/store/**` or any of this
+round's three dispatched items:
+
+1. **Duplicate `class RepoDetailResponse`** in `contract.py`: W4-4's own
+   (a flat, all-nullable model matching its real served response) and
+   this branch's (a `{kind, row}` discriminated union, never actually
+   imported/validated against anywhere — the fixture server builds that
+   shape as a plain dict) shared the same name. Python binds whichever
+   definition is LATER in the file, so `app.py`'s real route validated
+   against the WRONG one and 500'd on every `/repos/{owner}/{name}` call.
+   Renamed this branch's to `RepoDetailFixtureResponse` (kept as
+   documentation of the fixture/frontend's current shape, not deleted);
+   fixed the resulting duplicate `__all__` entry; updated `web/v2/api.js`'s
+   doc comment.
+2. **`/matrix`'s stale `axis_coverage_caption` kwarg** in `app.py`: this
+   branch's own round-2 B-2 fix renamed the field to
+   `axis_coverage: dict[str, MatrixAxisCoverage]`; `app.py`'s
+   `get_matrix()` (written before that fix existed, per its OWN docstring
+   item 11 explicitly handing the numbers field to W4-5b) still passed the
+   old name, and `StrictModel`'s `extra="forbid"` turned that into a 500.
+   Fixed the kwarg name; the VALUE stays `{}` (an honest gap, documented —
+   `cvi.store.queries.matrix_points` only returns one combined count/share,
+   not the per-axis/per-pillar breakdown `MatrixAxisCoverage` needs; wiring
+   a real value needs that query extended, out of this round's scope).
+3. **`_reproject_row` returned a bare `LeaderboardRow`** where
+   `ReprojectRow` (a `LeaderboardRow` SUBCLASS this branch added) was
+   required — a parent-class instance never satisfies a subclass-typed
+   field, so every `/reproject` call 500'd on the four missing
+   `balanced_tie_group`/`balanced_cvi`/`balanced_coverage`/`balanced_tier`
+   fields (which `cvi.store.queries.reproject` already returns on
+   `record` — just never wired through). Fixed by widening the shared
+   `_project_leaderboard_row` result into a real `ReprojectRow`.
+
+Also fixed the one adjacent test-scope gap the rebase surfaced:
+`test_ui_fixtures_validate_against_the_api_contract_models` (main's own
+fixture/contract drift guard) had no mapping for `methodology.json` (a
+fixture that didn't exist when that test was written) — added, validated
+against `MethodologyResponse`.
+
+**Live end-to-end verification** against a real `create_app()` instance
+(not the fixture server): `/v1/cvi/matrix` (200), `POST /v1/cvi/reproject`
+(200, full `ReprojectRow` with all five balanced_* fields), `GET /v1/cvi/
+repos/{owner}/{name}` (200 known repo, 404 unknown repo with the nested
+error body) — script and output in this round's commit message.
+
+### Suite, ruff, rebase
+
+Rebased onto `main` tip `1e88a85` (a descendant of the dispatch's
+`752d5ec`) via `git rebase --onto main 3ed230f W4-5b` — 18 commits, zero
+conflicts (the semantic collision above was invisible to git, only to the
+test suite). Full suite: `env -u PYTEST_ADDOPTS PYTHONPATH=$PWD
+/home/pctablet505/Projects/contributor-value-index/.venv/bin/python -B -m
+pytest tests -p no:cacheprovider -n 4` -> **2602 passed, 1 skipped**
+(main's pre-rebase count was 2521 passed, 2 skipped; +11 new tests this
+round, +7 fixed-and-now-passing from the reconciliation, and one
+pre-existing "waiting on W4-4" skip now runs for real since W4-4 has
+landed). Ruff clean on every file touched (`ruff check .` — whole repo).
+
+### Rules followed
+
+`PYTHONPATH=$PWD` for every Python command. Never started a server on
+8899/8902/8791 for ad-hoc testing (a spare smoke-test script ran in-process
+via `TestClient`, no server at all); 8902 was already running this
+worktree's tree (pid confirmed via `readlink /proc/<pid>/cwd`) throughout
+this round's editing, then explicitly restarted at the very end from this
+commit (below) so it serves the final, committed state. Never `git stash`/
+`git checkout --`. Never touched `data/` or main's working tree. No
+network, no CDN.
+
+### Final state
+
+Commit `28f6783` (HEAD), base `1e88a85` (main). Diffstat `1e88a85..HEAD`
+(this round's own 6 commits, on top of the 12 pre-existing ones this
+branch already carried through the rebase):
+
+```
+ 9 files changed, ~900 insertions(+), ~30 deletions(-)
+```
+
+(`.agents/W4-5b/review/round2/*` (4 files, docs), `cvi/serve/app.py`,
+`cvi/serve/contract.py`, `tests/serve/test_api_v2.py`,
+`tests/test_serve_ui_fixtures.py`, `tests/test_ui_weights_port.py` (new),
+`web/v2/api.js`, `web/v2/app.js`, `web/v2/package.json` (new),
+`web/v2/tests/cases/normalize_weights.json` (new), `web/v2/tests/
+unit.test.mjs`, `web/v2/views/compare.js`, `web/v2/views/drawer.js`.)
+
+Suite: **2602 passed, 1 skipped**. Ruff: clean. Fixture server: **port
+8902**, restarted from this exact committed tree after the final commit
+(see the command in this handoff's own "Live-browser verification"
+section above — same invocation, same port).
+
+**COULD NOT VERIFY** (unchanged from round 2, still genuinely needing a
+real desktop browser): real mouse-hover-driven highlighting (this
+sandbox's synthetic hover still doesn't fire a native `mouseover`);
+real click-and-drag on the weight sliders; `?perfmatrix=` canvas rendering
+at real 1x DPI; below-768px mobile layout; dark/light theme toggle's
+visual appearance on the four new screens specifically. NB-1's own
+caret/node-identity claim, previously in this list, is now RESOLVED (see
+above) — the one item round 2 asked to close by this exact criterion is
+no longer a COULD-NOT-VERIFY.
