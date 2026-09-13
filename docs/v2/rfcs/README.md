@@ -62,6 +62,52 @@ packet W5-2), constants may still change — but only through this same
 procedure. There is no "still in development, skip the RFC" exception: the
 hash test does not know the difference, and neither should reviewers.
 
+## Pre-release version bump (resolved by packet W5-1a)
+
+`BENCHMARK_VERSION` is frozen at `"2.0.0-rc1"` (packet W2-8). The final
+`"2.0.0-rc1"` -> `"2.0.0"` bump is **not** an RFC of this directory's kind —
+it carries no constant change of its own, it is the release itself — and
+happens in the W5-2 release RFC alongside the full-universe run and the
+D-VAL-1 forward-validation setup.
+
+Between now and that release, step 3 of the procedure above ("bump
+`BENCHMARK_VERSION` per D-VER-1") still applies to every RFC that changes a
+constant, using the pre-release tag's own suffix rather than the final
+number: a minor-class change (a weight or curve-constant edit) bumps the
+`-rcN` suffix (`"2.0.0-rc1"` -> `"2.0.0-rc2"`), and a major-class change
+(parameter set, gates or missingness policy) would restart the line
+(`"2.0.0-rc1"` -> `"2.1.0-rc1"`) the same way D-VER-1 already requires post-release.
+The rule that decides which pre-release constants trigger a bump and which
+do not: **a constant that gains a scored consumer bumps the minor
+pre-release tag in its own RFC.** ("Gains a scored consumer" — the constant
+starts being read by a live parameter, gate, aggregation or tie-break
+computation that did not read it before, e.g. RFC-0001's
+`AUTHOR_UNMEASURED_MAX_FRACTION` did *not* bump the tag because it had no
+scoring-path consumer yet; the RFC that later wires it into
+`cvi.collect.github_graphql.derive_cohort_fields` would.) A constant added
+purely for documentation, relocation, or a not-yet-wired guard is exempt
+until the RFC that gives it a real consumer.
+
+## `UNDETERMINED_SPDX`: not hashed (ruling, packet W5-1a)
+
+`UNDETERMINED_SPDX` (`cvi/core/gates.py`) is **not** a member of
+`constants_v2.constants_dict()`, and stays that way. It is three sentinel
+strings meaning "no usable SPDX id was recorded" (`None`, `"NOASSERTION"`,
+`"OTHER"`) that make D-GATE-3 fall back to a `LICENSE*` file search — a
+fixed, closed vocabulary describing an *absence*, not a licence vocabulary
+that itself has members added or removed the way `OSI_APPROVED_LICENSES`
+does. Changing what "undetermined" means would be a change to the D-GATE-3
+*algorithm* (what counts as "no SPDX id"), reviewed as ordinary code, not a
+tunable value an RFC retargets. This matches `cvi/core/gates.py`'s own
+module docstring, written when `OSI_APPROVED_LICENSES` was relocated in the
+opposite direction (W2-8 round 2): "`UNDETERMINED_SPDX` stays defined in
+this module: ... not a license vocabulary that could itself drift." The
+W2-8 round-2 review flagged this as an internal inconsistency in its own
+census (listed once as "excluded-with-reason", once as "UNDECIDED") rather
+than a substantive disagreement; this ruling closes it. If a future reader
+disagrees, `docs/v2/rfcs/README.md`'s procedure — an RFC — is how to
+reopen it, not a silent edit.
+
 ### RFC class: upstream vocabulary refresh
 
 `OSI_APPROVED_LICENSES` is not a weight or curve parameter, but D-GATE-3

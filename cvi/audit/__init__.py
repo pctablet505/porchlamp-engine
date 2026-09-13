@@ -18,6 +18,10 @@ ties
 detectors_report
     Cross-snapshot manipulation-detector counts, 03 section 6
     (``python -m cvi.audit.detectors_report``).
+methodology_history
+    Extended v2 methodology document -- ``cvi.core.methodology`` plus
+    detectors, not-hashed process constants and the RFC changelog (packet
+    W5-1a, `06` section 3 F).
 """
 
 from __future__ import annotations
@@ -106,6 +110,10 @@ _LAZY_EXPORTS: dict[str, tuple[str, ...]] = {
         "build_report",
         "format_report",
         "main",
+    ),
+    "cvi.audit.methodology_history": (
+        "parse_changelog",
+        "methodology_with_history",
     ),
 }
 
