@@ -1,0 +1,435 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/defunkt/jquery-pjax/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "fetched_at": "2026-09-11T23:25:03.264276+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/downloads/npm__jquery-pjax.json",
+      "source_hash": "90f7567d4c617eb467b19f4c993b9c7d942a382ef536b32fc3ddcb136c39a016",
+      "value": 122974,
+      "window_end": null,
+      "window_start": null
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T23:24:58.606514+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/defunkt__jquery-pjax.json",
+      "source_hash": "f544308fafe6b8e6db1b06bcdf5dc1e21620ff8b0becef9ebb85c481d7ef2463",
+      "value": 2,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/defunkt/jquery-pjax/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T23:24:59.215668+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/defunkt__jquery-pjax.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/defunkt/jquery-pjax/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2023-02-22T10:17:12+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2022-11-30T22:59:41+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 739
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2022-05-27T17:57:03+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 737
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2022-11-30T22:59:45+00:00",
+        "created_at": "2022-05-03T21:16:10+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 736
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2022-05-27T17:57:08+00:00",
+        "created_at": "2019-12-20T00:54:35+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 720
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2019-10-14T02:23:58+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 719
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2019-10-14T02:23:45+00:00",
+        "first_human_review_at": "2025-05-05T14:59:56+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 718
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2019-12-20T00:54:39+00:00",
+        "created_at": "2019-10-14T02:20:32+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 717
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ysafarov",
+        "closed_at": "2022-10-21T09:15:42+00:00",
+        "created_at": "2018-08-31T13:01:25+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 707
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "bscheshirwork",
+        "closed_at": null,
+        "created_at": "2018-08-01T09:53:11+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 706
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "bscheshirwork",
+        "closed_at": null,
+        "created_at": "2018-07-26T09:29:46+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 703
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "csalmeida",
+        "closed_at": "2018-02-21T14:14:13+00:00",
+        "created_at": "2018-02-21T13:49:17+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 697
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "tyson90",
+        "closed_at": null,
+        "created_at": "2018-02-13T15:08:13+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 696
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "staabm",
+        "closed_at": "2018-02-21T14:31:03+00:00",
+        "created_at": "2018-01-21T20:04:07+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 695
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "iplanwebsites",
+        "closed_at": null,
+        "created_at": "2017-11-02T19:35:34+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 688
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "McArrow",
+        "closed_at": null,
+        "created_at": "2017-07-13T10:41:38+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 684
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "yakatz",
+        "closed_at": null,
+        "created_at": "2017-07-03T18:21:53+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 682
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "kronkm",
+        "closed_at": "2017-05-20T18:39:14+00:00",
+        "created_at": "2017-03-24T18:52:43+00:00",
+        "first_human_review_at": "2017-04-15T13:14:17+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 673
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "emil2k",
+        "closed_at": "2017-05-20T17:15:40+00:00",
+        "created_at": "2017-03-17T17:18:37+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 672
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "eriktiekstra",
+        "closed_at": "2023-02-22T10:17:12+00:00",
+        "created_at": "2017-03-01T13:26:08+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 670
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "olemoign",
+        "closed_at": "2017-05-19T18:26:35+00:00",
+        "created_at": "2017-01-22T22:05:30+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 665
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "nickelfault",
+        "closed_at": null,
+        "created_at": "2017-01-07T21:10:18+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 660
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "tdhooper",
+        "closed_at": null,
+        "created_at": "2016-12-12T15:17:45+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 655
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "orischwartz",
+        "closed_at": null,
+        "created_at": "2016-11-02T17:58:45+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 653
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "smit-000",
+        "closed_at": "2017-05-20T17:17:12+00:00",
+        "created_at": "2016-06-14T23:10:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 631
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Argelbargel",
+        "closed_at": "2017-05-20T18:39:14+00:00",
+        "created_at": "2016-04-28T10:19:26+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 625
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "novemb3r",
+        "closed_at": "2017-08-06T19:27:57+00:00",
+        "created_at": "2016-04-05T01:54:02+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 618
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "CupOfTea696",
+        "closed_at": "2017-05-20T17:28:17+00:00",
+        "created_at": "2016-01-21T18:20:15+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 607
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "lehni",
+        "closed_at": null,
+        "created_at": "2016-01-18T19:06:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 605
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Jaskey",
+        "closed_at": "2017-05-20T16:44:25+00:00",
+        "created_at": "2015-12-04T08:26:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 599
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "baoshan",
+        "closed_at": null,
+        "created_at": "2015-12-02T15:19:03+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 597
+      }
+    ],
+    "start": "2015-12-02T15:19:03+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "921e87220db18e8aca7a679862caa4974e7ef374865b7a4baa0bcb27417e61c4",
+  "repo": {
+    "archived": false,
+    "default_branch": "master",
+    "ecosystem": "npm",
+    "fork": false,
+    "license_spdx": "MIT",
+    "mirror_url": null,
+    "name": "jquery-pjax",
+    "owner": "defunkt"
+  },
+  "schema_version": 2
+}

@@ -1,0 +1,429 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T02:53:20.884653+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/cloudnative-pg__cloudnative-pg.json",
+      "source_hash": "f65dcf5a0f2f69559655555956678f25375ae8891fd170cde4d40bc24b722bf3",
+      "value": 5,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T02:53:21.536939+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/cloudnative-pg__cloudnative-pg.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2026-09-11T09:03:47+00:00",
+    "events": [
+      {
+        "author_association": "MEMBER",
+        "author_login": "litaocdl",
+        "closed_at": null,
+        "created_at": "2026-09-11T09:03:47+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 11472
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "litaocdl",
+        "closed_at": "2026-09-10T00:37:33+00:00",
+        "created_at": "2026-09-09T12:01:44+00:00",
+        "first_human_review_at": "2026-09-09T14:54:32+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-10T00:37:33+00:00",
+        "pr_number": 11471
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "baurmatt",
+        "closed_at": "2026-09-09T07:54:22+00:00",
+        "created_at": "2026-09-09T07:53:29+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 11468
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "baurmatt",
+        "closed_at": "2026-09-09T07:52:42+00:00",
+        "created_at": "2026-09-09T06:57:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 11467
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "JamesatStarling",
+        "closed_at": null,
+        "created_at": "2026-09-08T13:27:33+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 11466
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "armru",
+        "closed_at": null,
+        "created_at": "2026-09-08T10:12:29+00:00",
+        "first_human_review_at": "2026-09-10T09:44:27+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 11464
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-08T12:09:16+00:00",
+        "created_at": "2026-09-08T09:57:25+00:00",
+        "first_human_review_at": "2026-09-08T10:48:14+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 11463
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "mnencia",
+        "closed_at": "2026-09-08T12:08:26+00:00",
+        "created_at": "2026-09-08T07:33:34+00:00",
+        "first_human_review_at": "2026-09-08T08:42:01+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-08T12:08:26+00:00",
+        "pr_number": 11461
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "litaocdl",
+        "closed_at": "2026-09-08T16:07:53+00:00",
+        "created_at": "2026-09-08T06:33:09+00:00",
+        "first_human_review_at": "2026-09-08T12:41:53+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-08T16:07:53+00:00",
+        "pr_number": 11460
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "litaocdl",
+        "closed_at": "2026-09-08T12:38:18+00:00",
+        "created_at": "2026-09-08T02:34:32+00:00",
+        "first_human_review_at": "2026-09-08T12:15:06+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-08T12:38:18+00:00",
+        "pr_number": 11457
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "gbartolini",
+        "closed_at": "2026-09-08T01:26:08+00:00",
+        "created_at": "2026-09-07T15:48:27+00:00",
+        "first_human_review_at": "2026-09-07T16:25:44+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-08T01:26:08+00:00",
+        "pr_number": 11454
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "mnencia",
+        "closed_at": "2026-09-07T15:41:37+00:00",
+        "created_at": "2026-09-07T15:25:48+00:00",
+        "first_human_review_at": "2026-09-07T15:37:09+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-07T15:41:37+00:00",
+        "pr_number": 11452
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "mnencia",
+        "closed_at": "2026-09-07T15:14:46+00:00",
+        "created_at": "2026-09-07T14:37:14+00:00",
+        "first_human_review_at": "2026-09-07T14:48:05+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-07T15:14:46+00:00",
+        "pr_number": 11451
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "mnencia",
+        "closed_at": "2026-09-09T11:36:35+00:00",
+        "created_at": "2026-09-07T13:44:15+00:00",
+        "first_human_review_at": "2026-09-08T09:22:44+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-09T11:36:35+00:00",
+        "pr_number": 11450
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "armru",
+        "closed_at": null,
+        "created_at": "2026-09-07T11:40:48+00:00",
+        "first_human_review_at": "2026-09-10T06:56:21+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 11447
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": null,
+        "created_at": "2026-09-07T02:55:22+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 11444
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "cnpg-bot",
+        "closed_at": null,
+        "created_at": "2026-09-07T01:11:29+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 11443
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": null,
+        "created_at": "2026-09-06T00:46:58+00:00",
+        "first_human_review_at": "2026-09-08T10:49:22+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 11439
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "willmurnane",
+        "closed_at": null,
+        "created_at": "2026-09-05T02:06:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 11437
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": null,
+        "created_at": "2026-09-04T22:11:05+00:00",
+        "first_human_review_at": "2026-09-08T10:48:44+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 11435
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": null,
+        "created_at": "2026-09-04T14:10:38+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 11432
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-04T16:54:20+00:00",
+        "created_at": "2026-09-04T12:55:08+00:00",
+        "first_human_review_at": "2026-09-04T14:17:05+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-04T16:54:20+00:00",
+        "pr_number": 11428
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-04T16:46:03+00:00",
+        "created_at": "2026-09-04T12:53:56+00:00",
+        "first_human_review_at": "2026-09-04T12:56:32+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-04T16:46:03+00:00",
+        "pr_number": 11426
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "mnencia",
+        "closed_at": "2026-09-04T08:51:38+00:00",
+        "created_at": "2026-09-04T08:39:46+00:00",
+        "first_human_review_at": "2026-09-04T08:44:46+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-04T08:51:38+00:00",
+        "pr_number": 11425
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-04T12:32:20+00:00",
+        "created_at": "2026-09-04T08:31:21+00:00",
+        "first_human_review_at": "2026-09-04T09:08:34+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-04T12:32:20+00:00",
+        "pr_number": 11423
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-04T12:08:13+00:00",
+        "created_at": "2026-09-04T08:31:11+00:00",
+        "first_human_review_at": "2026-09-04T09:30:12+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-04T12:08:13+00:00",
+        "pr_number": 11422
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-04T12:49:52+00:00",
+        "created_at": "2026-09-04T08:30:36+00:00",
+        "first_human_review_at": "2026-09-04T09:10:52+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-04T12:49:52+00:00",
+        "pr_number": 11421
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-04T12:51:47+00:00",
+        "created_at": "2026-09-04T08:30:30+00:00",
+        "first_human_review_at": "2026-09-04T09:11:09+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-04T12:51:47+00:00",
+        "pr_number": 11420
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-04T12:52:10+00:00",
+        "created_at": "2026-09-04T08:30:24+00:00",
+        "first_human_review_at": "2026-09-04T09:11:44+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-04T12:52:10+00:00",
+        "pr_number": 11419
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-04T12:50:58+00:00",
+        "created_at": "2026-09-04T08:30:18+00:00",
+        "first_human_review_at": "2026-09-04T09:11:57+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-04T12:50:58+00:00",
+        "pr_number": 11418
+      }
+    ],
+    "start": "2026-09-04T08:30:18+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "187c475d857a06dbb44610d7bb115689d839dca9cb8d881040d99f7c7630b961",
+  "repo": {
+    "archived": false,
+    "default_branch": "main",
+    "ecosystem": "go",
+    "fork": false,
+    "license_spdx": "Apache-2.0",
+    "mirror_url": null,
+    "name": "cloudnative-pg",
+    "owner": "cloudnative-pg"
+  },
+  "schema_version": 2
+}

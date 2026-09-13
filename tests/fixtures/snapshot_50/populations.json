@@ -1,0 +1,9 @@
+{
+  "benchmark_version": "2.0.0-dev",
+  "constants_hash": "9cc0048e0a19443b62024630bfdc289b86de9168be064d360af6b0daa1b533e4",
+  "document": "cvi-populations",
+  "min_population": 30,
+  "populations": [],
+  "snapshot_id": "snapshot_50",
+  "version": 1
+}

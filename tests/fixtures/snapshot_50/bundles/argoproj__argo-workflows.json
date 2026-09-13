@@ -1,0 +1,429 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/argoproj/argo-workflows/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T23:18:49.995525+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/argoproj__argo-workflows.json",
+      "source_hash": "92b64cf21c9c0d2d583990b557e67eaca13a4792d2076e6cf4a829696800d79f",
+      "value": 6,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/argoproj/argo-workflows/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T23:18:50.606543+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/argoproj__argo-workflows.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/argoproj/argo-workflows/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2026-09-11T16:39:52+00:00",
+    "events": [
+      {
+        "author_association": "MEMBER",
+        "author_login": "Joibel",
+        "closed_at": null,
+        "created_at": "2026-09-11T16:39:52+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 16946
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "Joibel",
+        "closed_at": null,
+        "created_at": "2026-09-11T14:23:47+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 16945
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "argo-cd-cherry-pick-bot",
+        "closed_at": null,
+        "created_at": "2026-09-11T14:03:39+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 16944
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": null,
+        "created_at": "2026-09-11T13:11:06+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 16943
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": null,
+        "created_at": "2026-09-11T13:10:40+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 16942
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "github-actions",
+        "closed_at": "2026-09-11T12:44:43+00:00",
+        "created_at": "2026-09-11T11:21:16+00:00",
+        "first_human_review_at": "2026-09-11T12:41:40+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-11T12:44:43+00:00",
+        "pr_number": 16941
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-11T13:08:09+00:00",
+        "created_at": "2026-09-11T10:01:18+00:00",
+        "first_human_review_at": "2026-09-11T12:46:31+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-11T13:08:09+00:00",
+        "pr_number": 16940
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-11T12:46:22+00:00",
+        "created_at": "2026-09-11T10:00:53+00:00",
+        "first_human_review_at": "2026-09-11T12:46:11+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-11T12:46:22+00:00",
+        "pr_number": 16939
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "Joibel",
+        "closed_at": null,
+        "created_at": "2026-09-11T09:56:28+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 16938
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "Joibel",
+        "closed_at": "2026-09-11T09:25:48+00:00",
+        "created_at": "2026-09-11T08:20:04+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-09-11T09:25:48+00:00",
+        "pr_number": 16937
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-11T09:57:12+00:00",
+        "created_at": "2026-09-11T08:18:11+00:00",
+        "first_human_review_at": "2026-09-11T09:57:03+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-11T09:57:12+00:00",
+        "pr_number": 16936
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "Joibel",
+        "closed_at": null,
+        "created_at": "2026-09-11T08:05:55+00:00",
+        "first_human_review_at": "2026-09-11T08:20:56+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 16935
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "Joibel",
+        "closed_at": "2026-09-11T08:46:38+00:00",
+        "created_at": "2026-09-11T07:57:20+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-09-11T08:46:38+00:00",
+        "pr_number": 16934
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "argo-cd-cherry-pick-bot",
+        "closed_at": "2026-09-11T08:15:02+00:00",
+        "created_at": "2026-09-11T07:39:44+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-11T08:15:02+00:00",
+        "pr_number": 16933
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-11T09:57:38+00:00",
+        "created_at": "2026-09-11T07:39:02+00:00",
+        "first_human_review_at": "2026-09-11T09:57:35+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-11T09:57:38+00:00",
+        "pr_number": 16932
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": null,
+        "created_at": "2026-09-11T07:38:50+00:00",
+        "first_human_review_at": "2026-09-11T12:47:11+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 16931
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "argo-cd-cherry-pick-bot",
+        "closed_at": "2026-09-11T08:27:43+00:00",
+        "created_at": "2026-09-11T07:38:46+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-11T08:27:43+00:00",
+        "pr_number": 16930
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ishanupadhyay",
+        "closed_at": null,
+        "created_at": "2026-09-10T16:23:39+00:00",
+        "first_human_review_at": "2026-09-10T16:34:01+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 16929
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "mikebryant",
+        "closed_at": "2026-09-11T07:39:08+00:00",
+        "created_at": "2026-09-10T14:59:41+00:00",
+        "first_human_review_at": "2026-09-11T07:38:52+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-11T07:39:08+00:00",
+        "pr_number": 16928
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Nepoxx",
+        "closed_at": null,
+        "created_at": "2026-09-10T14:02:57+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 16926
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "longxiucai",
+        "closed_at": null,
+        "created_at": "2026-09-10T08:08:05+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 16925
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "agaudreault",
+        "closed_at": null,
+        "created_at": "2026-09-09T19:00:45+00:00",
+        "first_human_review_at": "2026-09-09T21:43:23+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 16923
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "emagana",
+        "closed_at": null,
+        "created_at": "2026-09-09T17:13:54+00:00",
+        "first_human_review_at": "2026-09-09T17:29:28+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 16922
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "Joibel",
+        "closed_at": null,
+        "created_at": "2026-09-09T10:58:43+00:00",
+        "first_human_review_at": "2026-09-11T08:36:28+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 16920
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": null,
+        "created_at": "2026-09-09T10:35:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 16919
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-09T10:32:53+00:00",
+        "created_at": "2026-09-09T10:04:50+00:00",
+        "first_human_review_at": "2026-09-09T10:15:16+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-09T10:32:53+00:00",
+        "pr_number": 16918
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-11T07:36:05+00:00",
+        "created_at": "2026-09-09T09:47:51+00:00",
+        "first_human_review_at": "2026-09-09T09:59:15+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-11T07:36:05+00:00",
+        "pr_number": 16917
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-09T14:02:04+00:00",
+        "created_at": "2026-09-09T09:44:17+00:00",
+        "first_human_review_at": "2026-09-09T10:15:21+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-09T14:02:04+00:00",
+        "pr_number": 16916
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "renovate",
+        "closed_at": "2026-09-09T10:18:18+00:00",
+        "created_at": "2026-09-09T09:44:09+00:00",
+        "first_human_review_at": "2026-09-09T10:15:25+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-09T10:18:18+00:00",
+        "pr_number": 16915
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "Joibel",
+        "closed_at": null,
+        "created_at": "2026-09-09T09:19:40+00:00",
+        "first_human_review_at": "2026-09-09T10:17:49+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 16914
+      }
+    ],
+    "start": "2026-09-09T09:19:40+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "2fc26fbc2453984c9739a1742055f9fb1560e3b2c183c26a0d8773bbb21c2d40",
+  "repo": {
+    "archived": false,
+    "default_branch": "main",
+    "ecosystem": "go",
+    "fork": false,
+    "license_spdx": "Apache-2.0",
+    "mirror_url": null,
+    "name": "argo-workflows",
+    "owner": "argoproj"
+  },
+  "schema_version": 2
+}

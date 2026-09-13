@@ -43,11 +43,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sqlite3
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
+
+from cvi.core.aggregate import TIER_ORDER as _V2_TIER_ORDER
+from cvi.core.pipeline import ScoredSnapshot
 
 __version__ = "1.0.0"
 
@@ -349,6 +353,234 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     else:
         print(format_anchor_report(results, total, rated))
     return 0
+
+
+# =========================================================================== #
+# W2-8b: D-VER-4 anchors over v2 ScoredSnapshot records.
+#
+# Same nine relations (:data:`ANCHOR_RELATIONS`), same D-VER-4 semantics, now
+# read from ``cvi.core.pipeline.ScoredSnapshot.records`` instead of the v1
+# ``repositories`` table -- the v1 functions above are untouched (this
+# section is purely additive). Two differences from the v1 reading, both
+# consequences of the v2 contract shape rather than a change in what D-VER-4
+# means:
+#
+# - v1's "repo not present in DB" is a FAIL (a full v1 database should
+#   contain every real GitHub repo it was ever asked about); a v2
+#   ``ScoredSnapshot`` is commonly a small fixture slice of the universe
+#   (this packet's own ``tests/fixtures/snapshot_50``) that may legitimately
+#   never have collected ``gcc-mirror/gcc``, ``kubernetes/kubernetes``,
+#   ``vllm-project/vllm`` or ``keras-team/keras-hub`` at all. Absence of one
+#   of these four *identity* anchors is therefore :data:`SKIPPED` with a
+#   named reason -- not a silent pass (there is nothing to vacuously pass:
+#   the relation was never evaluated) and not a FAIL (a FAIL should mean the
+#   ranking got the relation wrong, not that the fixture is small).
+#   ``archived_repo_gated`` and ``awesome_non_software`` are *not* tied to
+#   one repo identity (the v1 relation is "at least one repo of this kind
+#   exists and is gated correctly"), so their absence is still a real FAIL,
+#   matching v1's own ``_check_archived``/``_check_awesome`` behaviour.
+# - ``newcomer_label_5_1`` compares the v1 5.1 score against an
+#   *independent* raw newcomer-label count carried in a separate
+#   ``deep_dive_json`` field the v1 schema stores alongside (not derived
+#   from) the score. ``cvi.core.models.ParamScore`` (04 section 3) carries
+#   only ``score``/``measured``/``reason``/``n``/``method`` -- no raw
+#   measured *value* survives past stage 2 into the record at all, for any
+#   parameter, so no independent cross-check is possible from a
+#   ``ScoredSnapshot`` alone (an already-known contract gap: 04 section 7's
+#   own `/evidence` endpoint promises a "value" the stored shape has nowhere
+#   to keep -- flagged again in the handoff). :func:`_check_newcomer_v2`
+#   therefore also reports :data:`SKIPPED`, naming this exact reason, rather
+#   than fabricating a same-source "check" that could never fail
+#   independently of the curve it is supposedly verifying.
+# =========================================================================== #
+
+#: A relation this snapshot has no way to evaluate: the identity anchor it
+#: names is absent from the snapshot, or (``newcomer_label_5_1``) the v2
+#: ``ScoreRecord`` contract does not carry the fact the relation needs.
+#: Distinct from :data:`FAIL` (the relation was evaluated and did not hold)
+#: and from :data:`REPORT` (evaluated, never fails by design) -- a
+#: :data:`SKIPPED` relation was not evaluated at all.
+SKIPPED = "SKIPPED"
+
+
+def _records_by_identity(snapshot: ScoredSnapshot) -> dict[tuple[str, str], Any]:
+    """``{(owner, name): ScoreRecord}`` over ``snapshot.records`` -- every
+    record carries its own ``repo`` (W2-10), so no separate bundle lookup is
+    needed the way the v1 SQL reader needed a join."""
+    return {(record.repo.owner, record.repo.name): record for record in snapshot.records}
+
+
+def _check_routed_v2(records: Mapping[tuple[str, str], Any], relation_id: str, owner: str, name: str, routed: str) -> AnchorResult:
+    """D-GATE-6 routing (``linux_off_platform``): ``gate.routed`` is a
+    separate field from ``gate.reason`` -- a routed repo stays
+    ``gate.eligible = True`` (02 section 2: "Off-platform -> routed, scored
+    with responsiveness unmeasured"), so this is never a gated-reason check."""
+    record = records.get((owner, name))
+    if record is None:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], f"{owner}/{name} not present in the snapshot", SKIPPED)
+    if record.gate.eligible and record.gate.routed == routed:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], f"routed: {record.gate.routed}", PASS)
+    observed = f"gated: {record.gate.reason}" if not record.gate.eligible else f"routed: {record.gate.routed}"
+    return AnchorResult(relation_id, _EXPECTED[relation_id], observed, FAIL)
+
+
+def _check_gated_reason_v2(records: Mapping[tuple[str, str], Any], relation_id: str, owner: str, name: str, reason: str) -> AnchorResult:
+    """A stage-0 D-GATE-2/3 failure with the exact frozen ``gate.reason``
+    string (``gcc_mirror_gated``): an exact-match check, not the v1
+    substring-in-free-text search -- ``cvi.core.gates``' reason vocabulary
+    is a small frozen enum of exact strings (02 section 2), not free text."""
+    record = records.get((owner, name))
+    if record is None:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], f"{owner}/{name} not present in the snapshot", SKIPPED)
+    if not record.gate.eligible and record.gate.reason == reason:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], f"gated: {record.gate.reason}", PASS)
+    observed = f"gated: {record.gate.reason}" if not record.gate.eligible else "present, eligible"
+    return AnchorResult(relation_id, _EXPECTED[relation_id], observed, FAIL)
+
+
+def _check_archived_v2(snapshot: ScoredSnapshot) -> AnchorResult:
+    relation_id = "archived_repo_gated"
+    matches = sorted(
+        f"{r.repo.owner}/{r.repo.name}" for r in snapshot.records if not r.gate.eligible and r.gate.reason == "archived"
+    )
+    if matches:
+        noun = "repo" if len(matches) == 1 else "repos"
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], f"{len(matches)} gated {noun} with reason 'archived': {', '.join(matches)}", PASS,
+        )
+    return AnchorResult(relation_id, _EXPECTED[relation_id], "no gated repo with reason 'archived'", FAIL)
+
+
+def _check_awesome_v2(snapshot: ScoredSnapshot) -> AnchorResult:
+    relation_id = "awesome_non_software"
+    rows = sorted(
+        (f"{r.repo.owner}/{r.repo.name}", not r.gate.eligible and r.gate.reason == "non_software")
+        for r in snapshot.records
+        if r.repo.name.lower().startswith("awesome")
+    )
+    if not rows:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], "0 awesome-* repos in the snapshot", FAIL)
+    gated_as_list = [key for key, ok in rows if ok]
+    plural = "repo" if len(rows) == 1 else "repos"
+    if len(gated_as_list) == len(rows):
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id],
+            f"{len(rows)} awesome-* {plural} present, all gated non_software: {', '.join(key for key, _ in rows)}", PASS,
+        )
+    gated_text = "none gated non_software" if not gated_as_list else f"{len(gated_as_list)} gated non_software"
+    return AnchorResult(relation_id, _EXPECTED[relation_id], f"{len(rows)} awesome-* {plural} present, {gated_text}", FAIL)
+
+
+def _tier_rank_v2(tier: Optional[str]) -> int:
+    """v2 tier order (bare letters -- ``cvi.core.aggregate.TIER_ORDER``, not
+    v1's ``"Tier A"``-prefixed :data:`TIER_ORDER` above; reused, not
+    redefined, R-2)."""
+    return _V2_TIER_ORDER.index(tier) if tier in _V2_TIER_ORDER else -1
+
+
+def _check_rated_v2(records: Mapping[tuple[str, str], Any], owner: str, name: str) -> AnchorResult:
+    relation_id = "kubernetes_rated" if (owner, name) == _KUBERNETES else "vllm_rated"
+    record = records.get((owner, name))
+    if record is None:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], f"{owner}/{name} not present in the snapshot", SKIPPED)
+    if not record.gate.eligible:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], f"gated: {record.gate.reason}", FAIL)
+    if not record.rated:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], f"coverage {record.coverage:.2f} (< 0.60), unrated", FAIL)
+    minimum_tier_rank = _V2_TIER_ORDER.index("A")
+    if record.coverage < MIN_COVERAGE:
+        observed = f"coverage {record.coverage:.2f} (< {MIN_COVERAGE:.2f}), tier {record.tier}, rated"
+    elif _tier_rank_v2(record.tier) < minimum_tier_rank:
+        observed = f"coverage {record.coverage:.2f}, tier {record.tier} (< A), rated"
+    else:
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], f"coverage {record.coverage:.2f}, tier {record.tier}, rated", PASS,
+        )
+    return AnchorResult(relation_id, _EXPECTED[relation_id], observed, FAIL)
+
+
+def _check_dco_v2(records: Mapping[tuple[str, str], Any]) -> AnchorResult:
+    """``legal_ip == "DCO"``: ``ScoreRecord.params`` carries only the
+    *scored* value (04 section 3's ``ParamScore`` has no raw-value field --
+    see the module docstring), so this reads the score instead. Safe by
+    construction: ``cvi.core.params.governance.LEGAL_IP_SCORES`` maps
+    ``DCO -> 100.0``, ``NONE -> 85.0``, ``FOUNDATION_CLA -> 75.0``,
+    ``CORP_CLA -> 25.0`` -- four *distinct* scores, so ``score == 100.0``
+    on a ``measured`` parameter is recoverable evidence of ``DCO`` and
+    nothing else, not a guess."""
+    relation_id = "linux_dco"
+    record = records.get(_LINUX)
+    if record is None:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], "torvalds/linux not present in the snapshot", SKIPPED)
+    param = record.params.get("legal_ip") if record.gate.eligible else None
+    if param is None:
+        observed = "gated (no params scored)" if not record.gate.eligible else "legal_ip not in params"
+        return AnchorResult(relation_id, _EXPECTED[relation_id], observed, FAIL)
+    if not param.measured:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], f"legal_ip unmeasured: {param.reason}", FAIL)
+    verdict = PASS if param.score is not None and math.isclose(param.score, 100.0, abs_tol=1e-9) else FAIL
+    observed = f"legal_ip score = {param.score} (DCO <=> 100.0)"
+    return AnchorResult(relation_id, _EXPECTED[relation_id], observed, verdict)
+
+
+def _check_newcomer_v2(relation_id: str = "newcomer_label_5_1") -> AnchorResult:
+    """See the module docstring: ``ScoreRecord`` carries no independent raw
+    newcomer-label count distinct from the already-curved 5.1 score, so this
+    relation cannot be cross-checked from a ``ScoredSnapshot`` alone."""
+    return AnchorResult(
+        relation_id, _EXPECTED[relation_id],
+        "ScoreRecord.params carries only the curved score, no independent raw "
+        "newcomer-label count to cross-check it against (04 section 3 gap)",
+        SKIPPED,
+    )
+
+
+def _check_keras_v2(records: Mapping[tuple[str, str], Any]) -> AnchorResult:
+    relation_id = "keras_hub_gate_reported"
+    record = records.get(_KERAS)
+    if record is None:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], "repo not present in the snapshot", REPORT)
+    observed = f"gated: {record.gate.reason}" if not record.gate.eligible else "present, eligible"
+    return AnchorResult(relation_id, _EXPECTED[relation_id], observed, REPORT)
+
+
+def evaluate_anchors_v2(snapshot: ScoredSnapshot) -> list[AnchorResult]:
+    """Evaluate every D-VER-4 relation (:data:`ANCHOR_RELATIONS`) against a
+    v2 :class:`cvi.core.pipeline.ScoredSnapshot`, in the same order
+    :func:`evaluate_anchors` uses for the v1 database. Never raises for a
+    relation this particular snapshot cannot evaluate -- see :data:`SKIPPED`
+    in the module-level docstring section above."""
+    records = _records_by_identity(snapshot)
+    return [
+        _check_routed_v2(records, "linux_off_platform", *_LINUX, "off_platform"),
+        _check_gated_reason_v2(records, "gcc_mirror_gated", *_GCC, "mirror"),
+        _check_archived_v2(snapshot),
+        _check_awesome_v2(snapshot),
+        _check_rated_v2(records, *_KUBERNETES),
+        _check_rated_v2(records, *_VLLM),
+        _check_dco_v2(records),
+        _check_newcomer_v2(),
+        _check_keras_v2(records),
+    ]
+
+
+def format_anchor_report_v2(results: Sequence[AnchorResult], repo_count: int) -> str:
+    """Render the v2 anchor report as plain text (mirrors
+    :func:`format_anchor_report`'s shape for the v1 report)."""
+    lines = [
+        "CVI anchor audit (D-VER-4, v2 ScoredSnapshot)",
+        f"repos in snapshot: {repo_count}",
+    ]
+    for result in results:
+        lines.append(f"{result.verdict:<7} {result.relation:<24} {result.expected}")
+        lines.append(f"{'':<7} observed: {result.observed}")
+    counts = {verdict: 0 for verdict in (PASS, FAIL, REPORT, SKIPPED)}
+    for result in results:
+        counts[result.verdict] += 1
+    lines.append(
+        f"summary: {counts[PASS]} {PASS}, {counts[FAIL]} {FAIL}, {counts[REPORT]} {REPORT}, {counts[SKIPPED]} {SKIPPED}"
+    )
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":  # pragma: no cover

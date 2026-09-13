@@ -33,16 +33,22 @@ tau-b
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import math
 import sqlite3
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from cvi.constants import PILLAR_WEIGHTS
+from cvi.core import constants_v2
+from cvi.core.models import PillarScore, ScoreRecord
+from cvi.core.pipeline import ScoredSnapshot
+from cvi.core.tiebreak import TieBreakInput, assign_ranks
 
 __version__ = "1.0.0"
 
@@ -320,6 +326,154 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     else:
         print(format_sensitivity_report(report))
     return 0
+
+
+
+# =========================================================================== #
+# W2-8b: D-AGG-3 sensitivity over a v2 ScoredSnapshot.
+#
+# ``sensitivity_report`` above compares raw composite *values* via tau-b --
+# adequate for v1, where the store recomputes a perturbed composite directly
+# from stored pillar columns and nothing else about the ranking (tie-breaks,
+# rank) exists yet. v2 has a full D-TIE-1 tie-break/rank pipeline
+# (``cvi.core.tiebreak``, W2-6/W2-8b); the packet's own instruction is to
+# "recompute composites through aggregate from the records' pillar scores +
+# coverages, then re-rank through the same tiebreak path" -- so
+# :func:`sensitivity_v2` compares Kendall tau-b between the *canonical rank
+# order* (``ScoreRecord.rank``, already a strict, unique 1..N total order --
+# see ``cvi.core.tiebreak.assign_ranks``) and the rank order recomputed
+# under each perturbed pillar-weight vector, not the raw composite values.
+#
+# A pillar-weight perturbation changes exactly two of the seven D-TIE-1 tie
+# levels: the composite (D-AGG-2, level 1) and the coverage (D-MISS-3's
+# ``C = Sum(W_p * c_p)``, level 2) -- both are direct functions of the
+# active pillar weights. The other five levels (responsiveness pillar
+# score, friction, leverage, TTFHR p75, last non-bot commit date) do not:
+# ``cvi.core.matrix``'s leverage/friction coefficients (.50/.30/.20 etc.)
+# are D-MAT-1's own fixed constants, entirely independent of D-AGG-1's
+# pillar-to-composite weights, and a pillar's *own* within-pillar
+# renormalised score is stage 5's fact, computed before stage 6 ever sees a
+# weight vector at all. So :func:`_perturbed_tie_break_input` only ever
+# replaces ``composite``/``coverage`` on a copy of the record; TTFHR p75 and
+# the last-commit date are recovered from the *canonical* ``ScoreRecord.
+# tie_key`` (:func:`_decode_measured_asc`/:func:`_decode_measured_desc`,
+# the exact inverse of ``cvi.core.tiebreak._measured_asc``/``_measured_desc``)
+# rather than needing the original ``FeatureBundle`` again -- ``sensitivity_
+# v2``'s own signature (``snapshot`` only, no bundles) does not carry one.
+# =========================================================================== #
+
+
+def _weighted_composite_raw(pillars: Mapping[str, PillarScore], weights: Mapping[str, float]) -> Optional[float]:
+    """D-AGG-2's reduction generalised to an arbitrary weight vector --
+    ``cvi.core.aggregate.composite_score_raw`` hard-codes the balanced
+    weights with no parameter, so it cannot be called with a perturbed
+    vector (the same gap ``cvi.core.persona.persona_composite``'s own
+    docstring already names and works around identically, flagged there as
+    an ownership request to W2-8; not resolved as of this packet's base
+    commit, so reproduced here rather than imported, R-2's "define once and
+    flag" clause)."""
+    measured = [
+        (weights[name], pillars[name].score) for name in constants_v2.PILLAR_NAMES if pillars[name].score is not None
+    ]
+    total_weight = sum(weight for weight, _ in measured)
+    if total_weight <= 0.0:
+        return None
+    return sum(weight * value for weight, value in measured) / total_weight
+
+
+def _weighted_coverage(pillars: Mapping[str, PillarScore], weights: Mapping[str, float]) -> float:
+    """D-MISS-3's ``C = Sum(W_p * c_p)`` generalised the same way (see
+    :func:`_weighted_composite_raw`); never renormalised (an unmeasured
+    pillar's own coverage is already 0.0)."""
+    return sum(weights[name] * pillars[name].coverage for name in constants_v2.PILLAR_NAMES)
+
+
+def _decode_measured_asc(pair: tuple) -> Optional[float]:
+    """Inverse of ``cvi.core.tiebreak._measured_asc``: ``(1, 0.0)`` was
+    "unmeasured" (``None``); ``(0, value)`` keeps its value unnegated."""
+    flag, value = pair
+    return None if flag == 1 else float(value)
+
+
+def _decode_measured_desc(pair: tuple) -> Optional[float]:
+    """Inverse of ``cvi.core.tiebreak._measured_desc``: ``(1, 0.0)`` was
+    "unmeasured" (``None``); ``(0, -value)`` negates back to the original."""
+    flag, value = pair
+    return None if flag == 1 else -float(value)
+
+
+def _perturbed_tie_break_input(record: ScoreRecord, weights: Mapping[str, float]) -> TieBreakInput:
+    """One rated record's :class:`~cvi.core.tiebreak.TieBreakInput` under a
+    perturbed pillar-weight vector: ``composite``/``coverage`` replaced
+    (never mutated -- ``dataclasses.replace``), every other D-TIE-1 level
+    carried over unchanged from the canonical ``tie_key`` (module docstring
+    section above). ``record.tie_key`` must be the canonical, non-empty key
+    a rated record always carries (``assign_ranks`` populates it for every
+    rated row) -- this function is only ever called on the ``snapshot.
+    records`` entries already filtered to ``rank is not None`` by
+    :func:`sensitivity_v2`."""
+    composite_raw = _weighted_composite_raw(record.pillars, weights)
+    composite = None if composite_raw is None else round(composite_raw, 2)
+    coverage = _weighted_coverage(record.pillars, weights)
+    perturbed_record = dataclasses.replace(record, composite=composite, coverage=coverage)
+
+    ttfhr_p75_hours = _decode_measured_asc(record.tie_key[5])
+    commit_epoch = _decode_measured_desc(record.tie_key[6])
+    last_non_bot_commit_at = (
+        None if commit_epoch is None else datetime.fromtimestamp(commit_epoch, tz=timezone.utc).isoformat()
+    )
+    return TieBreakInput(
+        record=perturbed_record, owner=record.repo.owner, name=record.repo.name,
+        ttfhr_p75_hours=ttfhr_p75_hours, last_non_bot_commit_at=last_non_bot_commit_at,
+    )
+
+
+def sensitivity_v2(snapshot: ScoredSnapshot, perturbation_pp: float = DEFAULT_PERTURBATION_PP) -> SensitivityReport:
+    """D-AGG-3 sensitivity report over a v2 :class:`~cvi.core.pipeline.
+    ScoredSnapshot`: Kendall tau-b between the canonical rank order and the
+    rank order under each +/- ``perturbation_pp`` single-pillar perturbation
+    of :data:`cvi.core.constants_v2.PILLAR_WEIGHTS`, re-ranked through
+    :func:`cvi.core.tiebreak.assign_ranks` (module docstring section above)
+    -- 5 pillars x 2 directions = 10 rows, in the same
+    (:data:`cvi.core.constants_v2.PILLAR_NAMES` order, positive sign first)
+    layout :func:`sensitivity_report` uses for v1.
+
+    Only rated records (``record.rank is not None``) enter the comparison
+    (D-AGG-3: "among rated repos"); the *set* of rated records is fixed to
+    the canonical one at every perturbation -- this mirrors
+    :func:`sensitivity_report`'s own v1 behaviour (fetching only the rows
+    already rated under the stored, unperturbed weights) rather than
+    letting a perturbation additionally re-gate a repo in or out of the
+    rated set through a shifted D-MISS-3 coverage threshold, which would
+    conflate "how much does the *order* move" with "how many repos would
+    even be rated" -- two different questions.
+
+    Raises ``ValueError`` when fewer than 2 records are rated (the same
+    guard :func:`sensitivity_report` applies, R-2 -- reused, not
+    reimplemented): a ranking comparison needs at least two items."""
+    rated = [record for record in snapshot.records if record.rank is not None]
+    if len(rated) < 2:
+        raise ValueError(f"need at least 2 rated repos for a ranking comparison, got {len(rated)}")
+
+    canonical_rank = {(record.repo.owner, record.repo.name): float(record.rank) for record in rated}
+    keys = sorted(canonical_rank)
+    canonical_vector = [canonical_rank[key] for key in keys]
+
+    rows: list[PerturbationResult] = []
+    for pillar in constants_v2.PILLAR_NAMES:
+        for delta in (perturbation_pp, -perturbation_pp):
+            weights = perturb_pillar_weight(constants_v2.PILLAR_WEIGHTS, pillar, delta)
+            entries = [_perturbed_tie_break_input(record, weights) for record in rated]
+            ranked = assign_ranks(entries)
+            perturbed_rank = {
+                (rec.repo.owner, rec.repo.name): float(rank)
+                for rec, rank, _tie_group in ranked
+                if rank is not None
+            }
+            perturbed_vector = [perturbed_rank[key] for key in keys]
+            tau = kendall_tau_b(canonical_vector, perturbed_vector)
+            rows.append(PerturbationResult(pillar, delta, tau))
+    return SensitivityReport(rated=len(rated), pp=perturbation_pp, threshold=TAU_RELEASE_THRESHOLD, rows=tuple(rows))
 
 
 if __name__ == "__main__":  # pragma: no cover

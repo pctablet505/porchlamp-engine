@@ -1,0 +1,598 @@
+"""W2-8b acceptance: the snapshot scoring pipeline
+(``cvi.core.pipeline.score_snapshot``, D-ORDER-1 stages 0-9 over a whole
+population; 02 sections 1, 9, 10; 04 sections 3, 4, 8; 03 section 5).
+
+Fail-before: before this packet ``cvi.core.pipeline`` does not exist, so
+every test below fails on ``ModuleNotFoundError`` (the same convention
+``tests/core/test_engine_v2.py`` and ``tests/core/test_persona_v2.py``
+already document for their own packets).
+
+``_Fixture12`` builds twelve repos through the real ``FeatureBundle``
+constructor:
+
+- two gated (``archived``, ``unlicensed``) -- stage-0 D-GATE-2/3 failures;
+- two unrated (D-EVID-1 coverage < 0.60), one with zero measured inputs and
+  one with a single measured ``legal_ip`` (RC, contributes some coverage,
+  still below 0.60);
+- eight rated, all built from ``_HI_INPUTS`` (a copy of
+  ``tests/core/test_engine_v2.py::EligibleFixture``'s hand-verified
+  composite-97.3 bundle -- every value chosen so every intermediate lands on
+  a clean part of its curve) with only ``dr90_decision_rate`` varied per
+  repo. ``dr90``'s curve is ``min(100, 125*r)`` for ``r < 0.8``, strictly
+  monotone and never saturating below that boundary, and it feeds only
+  pillar 1 (responsiveness) with within-pillar weight .25 -- so distinct
+  ``r`` values 0.05 spaced apart necessarily give composites at least
+  ``0.25 * 0.25 * 125 * 0.05 = 0.390...`` apart, far more than the 2-decimal
+  rounding this design compares on. Two repos (``tiea/x``, ``tieb/y``) share
+  the exact same ``r`` (0.5) and therefore the exact same composite by
+  construction, not by a coincidental rounding -- the deliberate D-TIE-1 tie.
+  One repo (``persona/proscribed``) additionally sets ``ai_posture`` to
+  ``PROSCRIBED`` (Measured): D-PERS-2's hard AI ban gates it from the
+  ``ai_assisted`` persona lens while every other persona (including
+  ``balanced``, which is never a gate target) sees it exactly as scored --
+  the "one repo whose persona gate differs from its balanced gate" the
+  packet asks for.
+"""
+from __future__ import annotations
+
+import copy
+import dataclasses
+import datetime
+from typing import Any
+
+import pytest
+
+from cvi.core import constants_v2, persona
+from cvi.core.gates import GateEvidence
+from cvi.core.models import (
+    Cohorts,
+    FeatureBundle,
+    Measured,
+    PRWindow,
+    PRWindowEvent,
+    RepoIdentity,
+    Unmeasured,
+)
+from cvi.core.pipeline import (
+    RepoKey,
+    ScoredSnapshot,
+    build_snapshot_counts,
+    canonical_records_json,
+    records_hash_of,
+    repo_key,
+    score_bundle_stage_8_persona,
+    score_bundle_stage_9_tie_input,
+    score_bundle_stages_0_7,
+    score_snapshot,
+)
+from cvi.snapshot.populations import Population, PopulationSet
+
+NOW = datetime.datetime(2026, 9, 12, 0, 0, tzinfo=datetime.timezone.utc)
+_HASH64 = "c" * 64
+_SNAPSHOT_ID = "snap-w2-8b"
+
+
+def _iso(value: datetime.datetime) -> str:
+    return value.isoformat()
+
+
+def _m(value: Any, *, n: int = 0) -> Measured:
+    return Measured(
+        value=value, n=n, window_start=None, window_end=None, method="primary",
+        source="test://fixture", source_hash=_HASH64, fetched_at=_iso(NOW),
+    )
+
+
+def _u(reason: str = "not_applicable") -> Unmeasured:
+    return Unmeasured(reason=reason)
+
+
+#: A copy of ``tests/core/test_engine_v2.py::EligibleFixture.inputs()``:
+#: every one of the 18 inputs Measured on a clean part of its curve, giving
+#: composite 97.3 / tier "S+" / coverage 1.0 unchanged. Reproduced here
+#: rather than imported (test files in this codebase are self-contained --
+#: ``tests/core/test_persona_v2.py`` follows the same convention with its
+#: own local ``_pillar``/``_record`` helpers instead of importing another
+#: test module's).
+def _hi_inputs(*, dr90: float, ai_posture: str = "AD_HOC") -> dict[str, Measured]:
+    return {
+        "ttfhr_hours": _m(12.0, n=10),
+        "dr90_decision_rate": _m(dr90, n=10),
+        "mr_first_rate": _m(0.8, n=5),
+        "gr14_ghost_rate": _m(0.0, n=10),
+        "ttm_p90_hours": _m(1.0, n=5),
+        "dependents_deduped": _m(999999.0, n=0),
+        "openssf_criticality": _m(1.0, n=0),
+        "downloads_monthly": _m(999999999.0, n=0),
+        "legal_ip": _m("DCO", n=0),
+        "elephant_factor": _m(4.0, n=30),
+        "promotion_ladder": _m("VERIFIED", n=0),
+        "pipeline_defenses": _m(100.0, n=0),
+        "ai_posture": _m(ai_posture, n=0),
+        "substantive_review_rate": _m(0.8, n=10),
+        "newcomer_issue_supply": _m(10.0, n=0),
+        "newcomer_conversion": _m(0.5, n=5),
+        "rr90_return_rate": _m(0.5, n=5),
+        "dx": _m(100.0, n=5),
+    }
+
+
+def _repo(owner: str, name: str, *, archived: bool = False, license_spdx: str | None = "MIT") -> RepoIdentity:
+    return RepoIdentity(
+        owner=owner, name=name, ecosystem="pypi", archived=archived, mirror_url=None,
+        fork=False, license_spdx=license_spdx, default_branch="main",
+    )
+
+
+def _decided_event() -> PRWindowEvent:
+    """One external, merged PR 30 d old (D-GATE-6 passes cleanly; D-GATE-5's
+    population of 1 is below its minimum n of 10, so D-GATE-5 lands
+    UNDECIDED, matching ``EligibleFixture``'s own convention) -- also the
+    one external event with a recorded first human response
+    ``ttfhr_p75_from_pr_window`` needs to return a real (non-``None``)
+    value."""
+    created = NOW - datetime.timedelta(days=30)
+    return PRWindowEvent(
+        pr_number=1, created_at=_iso(created), closed_at=None,
+        merged_at=_iso(created + datetime.timedelta(days=2)), author_login="contributor",
+        author_association="NONE", is_external=True,
+        first_human_review_at=_iso(created + datetime.timedelta(days=1)),
+    )
+
+
+def _bundle(repo: RepoIdentity, inputs: dict[str, Measured | Unmeasured], *, events: tuple = ()) -> FeatureBundle:
+    bundle = FeatureBundle(
+        schema_version=constants_v2.SCHEMA_VERSION, repo=repo, inputs=inputs,
+        pr_window=PRWindow(
+            start=_iso(NOW - datetime.timedelta(days=180)) if events else None,
+            end=_iso(NOW) if events else None, truncated=False, events=events,
+        ),
+        cohorts=Cohorts(decision_pr_numbers=(), newcomer_authors=()), provenance_hash=_HASH64,
+    )
+    bundle.validate()
+    return bundle
+
+
+def _full_inputs(measured: dict[str, Measured | Unmeasured] | None = None) -> dict[str, Measured | Unmeasured]:
+    """Every one of the 18 inputs ``Unmeasured("not_applicable")`` except
+    the overrides in ``measured``."""
+    inputs: dict[str, Measured | Unmeasured] = {key: _u() for key in constants_v2.PARAM_INPUT_IDS}
+    inputs.update(measured or {})
+    return inputs
+
+
+_HEALTHY_EVIDENCE = GateEvidence(
+    manifest_found=True, is_curated_anchor=False, license_file_present=None,
+    fork_parent_in_universe=None, vitality_commits_180d=5, off_platform_marker=None,
+)
+
+
+class _Fixture12:
+    """Twelve repos: 2 gated, 2 unrated, 8 rated (module docstring)."""
+
+    # -- gated -------------------------------------------------------- #
+    GATED_ARCHIVED = "gated/archived-repo"
+    GATED_UNLICENSED = "gated/unlicensed-repo"
+    # -- unrated -------------------------------------------------------- #
+    UNRATED_EMPTY = "unrated/empty-repo"
+    UNRATED_PARTIAL = "unrated/partial-repo"
+    # -- rated: dr90 value per repo key (see module docstring) -------- #
+    RATED_DR90: dict[str, float] = {
+        "rated-hi/repo": 0.8,
+        "rated-a2/repo": 0.65,
+        "tiea/x": 0.5,
+        "tieb/y": 0.5,
+        "persona/proscribed": 0.4,
+        "rated-mid/repo": 0.3,
+        "rated-c/repo": 0.15,
+        "rated-low/repo": 0.05,
+    }
+    PERSONA_DIFF_KEY = "persona/proscribed"
+
+    @classmethod
+    def bundles(cls) -> list[FeatureBundle]:
+        out: list[FeatureBundle] = []
+
+        owner, name = cls.GATED_ARCHIVED.split("/")
+        out.append(_bundle(_repo(owner, name, archived=True), _full_inputs()))
+
+        owner, name = cls.GATED_UNLICENSED.split("/")
+        out.append(_bundle(_repo(owner, name, license_spdx=None), _full_inputs()))
+
+        owner, name = cls.UNRATED_EMPTY.split("/")
+        out.append(_bundle(_repo(owner, name), _full_inputs()))
+
+        owner, name = cls.UNRATED_PARTIAL.split("/")
+        out.append(_bundle(_repo(owner, name), _full_inputs({"legal_ip": _m("DCO", n=0)})))
+
+        for key, dr90 in cls.RATED_DR90.items():
+            owner, name = key.split("/")
+            ai_posture = "PROSCRIBED" if key == cls.PERSONA_DIFF_KEY else "AD_HOC"
+            out.append(_bundle(_repo(owner, name), _hi_inputs(dr90=dr90, ai_posture=ai_posture), events=(_decided_event(),)))
+        return out
+
+    @classmethod
+    def gate_evidence(cls, bundles: list[FeatureBundle]) -> dict[RepoKey, GateEvidence]:
+        result: dict[RepoKey, GateEvidence] = {}
+        for bundle in bundles:
+            key = repo_key(bundle)
+            if key == cls.GATED_ARCHIVED:
+                # archived alone is enough to gate at D-GATE-2; other gates
+                # do not need to be cleared for the reason to come out
+                # "archived" (D-GATE-2 has a lower id than every gate a
+                # missing manifest_found=None would otherwise leave
+                # UNDECIDED at).
+                result[key] = GateEvidence(manifest_found=True, vitality_commits_180d=5)
+            elif key == cls.GATED_UNLICENSED:
+                # manifest_found=True keeps D-GATE-1 from also firing (it
+                # would win over D-GATE-3 as the lower-id reason otherwise);
+                # license_file_present=False is what makes D-GATE-3 fail.
+                result[key] = GateEvidence(
+                    manifest_found=True, license_file_present=False, vitality_commits_180d=5,
+                )
+            else:
+                result[key] = _HEALTHY_EVIDENCE
+        return result
+
+    @classmethod
+    def raw_hashes(cls, bundles: list[FeatureBundle]) -> dict[RepoKey, str]:
+        return {repo_key(bundle): _HASH64 for bundle in bundles}
+
+    @staticmethod
+    def populations() -> PopulationSet:
+        """Same three ECDF populations ``EligibleFixture`` uses (module
+        docstring): every rated repo's dependents/downloads/ttm_p90 sit
+        above every population member, so all three ECDF curves score
+        100.0 regardless of which repo -- the ``dr90`` lever is the only
+        thing that varies their composite."""
+        return PopulationSet(
+            snapshot_id=_SNAPSHOT_ID, benchmark_version=constants_v2.BENCHMARK_VERSION,
+            constants_hash=constants_v2.CONSTANTS_HASH,
+            populations=(
+                Population("pypi", "ttm_p90_hours", 4, False, {"a": 5.0, "b": 10.0, "c": 20.0, "d": 30.0}),
+                Population("pypi", "dependents_deduped", 4, False, {"a": 0.0, "b": 1.0, "c": 2.0, "d": 3.0}),
+                Population("pypi", "downloads_monthly", 3, False, {"a": 0.0, "b": 1.0, "c": 2.0}),
+            ),
+        )
+
+    @classmethod
+    def score(cls) -> ScoredSnapshot:
+        bundles = cls.bundles()
+        return score_snapshot(
+            bundles, cls.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+            gate_evidence=cls.gate_evidence(bundles), raw_hashes=cls.raw_hashes(bundles),
+        )
+
+
+def _by_key(snapshot: ScoredSnapshot) -> dict[RepoKey, Any]:
+    return {f"{r.repo.owner}/{r.repo.name}": r for r in snapshot.records}
+
+
+# --------------------------------------------------------------------------- #
+# (a) 12-repo fixture: rank strictness, tie_group sharing, persona fields
+#     populated on every record, gated/unrated rank None, persona-gate
+#     divergence from the balanced view.
+# --------------------------------------------------------------------------- #
+def test_twelve_repo_fixture_shape() -> None:
+    snapshot = _Fixture12.score()
+    assert len(snapshot.records) == 12
+    by_key = _by_key(snapshot)
+    assert set(by_key) == {
+        _Fixture12.GATED_ARCHIVED, _Fixture12.GATED_UNLICENSED,
+        _Fixture12.UNRATED_EMPTY, _Fixture12.UNRATED_PARTIAL,
+        *_Fixture12.RATED_DR90,
+    }
+
+    gated_and_unrated = [
+        _Fixture12.GATED_ARCHIVED, _Fixture12.GATED_UNLICENSED,
+        _Fixture12.UNRATED_EMPTY, _Fixture12.UNRATED_PARTIAL,
+    ]
+    for key in gated_and_unrated:
+        record = by_key[key]
+        assert record.rank is None, key
+        assert record.tie_group is None, key
+        assert record.tie_key == (), key
+        assert record.composite is None, key
+        # every record -- gated or not -- carries persona_gates/composites,
+        # stage 8 having run on all twelve (module docstring).
+        assert set(record.persona_gates) == set(persona.GATED_PERSONAS), key
+
+    assert by_key[_Fixture12.GATED_ARCHIVED].gate.eligible is False
+    assert by_key[_Fixture12.GATED_ARCHIVED].gate.reason == "archived"
+    assert by_key[_Fixture12.GATED_UNLICENSED].gate.reason == "unlicensed"
+    assert by_key[_Fixture12.UNRATED_EMPTY].gate.eligible is True
+    assert by_key[_Fixture12.UNRATED_EMPTY].rated is False
+    assert by_key[_Fixture12.UNRATED_EMPTY].unrated_reason == "unrated: insufficient_evidence"
+
+    rated_keys = list(_Fixture12.RATED_DR90)
+    ranks = [by_key[key].rank for key in rated_keys]
+    assert all(rank is not None for rank in ranks)
+    assert sorted(ranks) == list(range(1, 9)), "ranks must be strict 1..8 over the 8 rated repos"
+
+    for key in rated_keys:
+        record = by_key[key]
+        assert record.composite is not None, key
+        assert set(record.persona_composites) == set(persona.PERSONA_PRESETS), key
+        assert record.persona_composites[persona.PERSONA_BALANCED].cvi == pytest.approx(record.composite)
+
+
+def test_tie_pair_shares_tie_group_and_ranks_by_name() -> None:
+    by_key = _by_key(_Fixture12.score())
+    tie_a, tie_b = by_key["tiea/x"], by_key["tieb/y"]
+    assert tie_a.composite == pytest.approx(tie_b.composite)
+    assert tie_a.tie_group is not None
+    assert tie_a.tie_group == tie_b.tie_group
+    # 'tiea/x' sorts before 'tieb/y' lower-cased -> the lower rank number.
+    assert tie_a.rank < tie_b.rank
+    assert tie_b.rank == tie_a.rank + 1
+
+
+def test_rated_ranks_strictly_follow_decreasing_composite() -> None:
+    snapshot = _Fixture12.score()
+    rated = sorted((r for r in snapshot.records if r.rank is not None), key=lambda r: r.rank)
+    composites = [r.composite for r in rated]
+    assert composites == sorted(composites, reverse=True)
+    assert len({round(c, 2) for c in composites}) == 7, "7 distinct composites among 8 rated repos (one tie pair)"
+
+
+def test_persona_gate_differs_from_balanced_view() -> None:
+    """D-PERS-1/2: the ai_assisted lens hides the PROSCRIBED repo; every
+    other persona -- balanced included -- shows it exactly as scored."""
+    record = _by_key(_Fixture12.score())[_Fixture12.PERSONA_DIFF_KEY]
+    assert persona.PERSONA_AI_ASSISTED in record.persona_gates
+    assert record.persona_gates[persona.PERSONA_AI_ASSISTED] == "ai_hard_ban"
+    for other in persona.GATED_PERSONAS:
+        if other == persona.PERSONA_AI_ASSISTED:
+            continue
+        assert other not in record.persona_gates, other
+    # the balanced score itself is untouched by the ai_assisted gate
+    # (D-PERS-1: gates are filters, never a rewrite of the stored score).
+    assert record.composite is not None
+    assert record.persona_composites[persona.PERSONA_BALANCED].cvi == pytest.approx(record.composite)
+
+
+def test_gated_and_unrated_records_state_the_balanced_reason_on_every_persona() -> None:
+    """The packet's own overriding rule (module docstring of
+    ``cvi.core.pipeline``): a gated or unrated record's ``persona_gates``
+    names the *balanced* gate/unrated reason for every gated persona, not
+    whatever ``persona.persona_gates`` would say from raw evidence alone."""
+    by_key = _by_key(_Fixture12.score())
+    archived = by_key[_Fixture12.GATED_ARCHIVED]
+    for name in persona.GATED_PERSONAS:
+        assert archived.persona_gates[name] == "archived"
+    assert archived.persona_composites == {}
+
+    unrated = by_key[_Fixture12.UNRATED_EMPTY]
+    for name in persona.GATED_PERSONAS:
+        assert unrated.persona_gates[name] == "unrated: insufficient_evidence"
+    # unrated (unlike gated) has a full 5-name pillar dict, so
+    # persona_composite can run for every preset without raising.
+    assert set(unrated.persona_composites) == set(persona.PERSONA_PRESETS)
+    assert all(not composite.rated for composite in unrated.persona_composites.values())
+
+
+# --------------------------------------------------------------------------- #
+# (b) purity: bundles/populations deep-equal before and after.
+# --------------------------------------------------------------------------- #
+def test_score_snapshot_does_not_mutate_bundles_or_populations() -> None:
+    bundles = _Fixture12.bundles()
+    populations = _Fixture12.populations()
+    gate_evidence = _Fixture12.gate_evidence(bundles)
+    raw_hashes = _Fixture12.raw_hashes(bundles)
+
+    bundles_before = copy.deepcopy(bundles)
+    populations_before = copy.deepcopy(populations)
+
+    score_snapshot(
+        bundles, populations, snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=gate_evidence, raw_hashes=raw_hashes,
+    )
+
+    assert bundles == bundles_before
+    assert populations == populations_before
+
+
+# --------------------------------------------------------------------------- #
+# (c) determinism: shuffled input order -> byte-identical records_hash and
+#     identical rank order.
+# --------------------------------------------------------------------------- #
+def test_shuffled_bundle_order_gives_identical_hash_and_rank_order() -> None:
+    bundles = _Fixture12.bundles()
+    populations = _Fixture12.populations()
+    gate_evidence = _Fixture12.gate_evidence(bundles)
+    raw_hashes = _Fixture12.raw_hashes(bundles)
+
+    forward = score_snapshot(
+        bundles, populations, snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=gate_evidence, raw_hashes=raw_hashes,
+    )
+    reversed_bundles = list(reversed(bundles))
+    backward = score_snapshot(
+        reversed_bundles, populations, snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=gate_evidence, raw_hashes=raw_hashes,
+    )
+    shuffled_bundles = bundles[6:] + bundles[:6]
+    shuffled = score_snapshot(
+        shuffled_bundles, populations, snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=gate_evidence, raw_hashes=raw_hashes,
+    )
+
+    assert forward.records_hash == backward.records_hash == shuffled.records_hash
+    forward_order = [(r.repo.owner, r.repo.name) for r in forward.records]
+    backward_order = [(r.repo.owner, r.repo.name) for r in backward.records]
+    shuffled_order = [(r.repo.owner, r.repo.name) for r in shuffled.records]
+    assert forward_order == backward_order == shuffled_order
+
+
+# --------------------------------------------------------------------------- #
+# (d) the hash changes when any one record field changes.
+# --------------------------------------------------------------------------- #
+_MUTATION_CASES = [
+    ("composite", 55.0),
+    ("tier", "D"),
+    ("rank", 999),
+    ("persona_composites", {}),
+]
+
+
+@pytest.mark.parametrize("field, new_value", _MUTATION_CASES)
+def test_records_hash_changes_when_one_record_field_changes(field: str, new_value: Any) -> None:
+    snapshot = _Fixture12.score()
+    original_hash = records_hash_of(snapshot.records)
+    assert original_hash == snapshot.records_hash
+
+    records = list(snapshot.records)
+    # first record with a non-None value for the field under test so the
+    # replacement is an actual change, not a no-op.
+    target_index = next(
+        index for index, record in enumerate(records) if getattr(record, field) != new_value
+    )
+    records[target_index] = dataclasses.replace(records[target_index], **{field: new_value})
+
+    mutated_hash = records_hash_of(records)
+    assert mutated_hash != original_hash, field
+
+
+def test_records_hash_unaffected_by_dict_or_field_insertion_order() -> None:
+    """Over-correction guard for :func:`canonical_records_json`: two records
+    differing only in the *construction* order of a dict field (never in
+    content) must hash identically -- ``cvi.core.models.canonical_json``
+    sorts dict keys; this proves the pipeline's own recursive converter
+    does not defeat that by, say, building an ordered list of pairs."""
+    snapshot = _Fixture12.score()
+    # the gated-archived record's persona_gates carries all four
+    # GATED_PERSONAS keys (module docstring: the balanced gate/unrated
+    # reason is stated on every one of them) -- reversing a dict with a
+    # single key (or none) is a no-op regardless of serialisation order,
+    # so this must be a record with a genuinely reorderable multi-key dict.
+    record = next(r for r in snapshot.records if len(r.persona_gates) > 1)
+    reordered_gates = dict(reversed(list(record.persona_gates.items())))
+    assert reordered_gates == record.persona_gates  # same content
+    assert list(reordered_gates) != list(record.persona_gates), "construction order must actually differ"
+    reordered_record = dataclasses.replace(record, persona_gates=reordered_gates)
+
+    assert canonical_records_json([record]) == canonical_records_json([reordered_record])
+
+
+# --------------------------------------------------------------------------- #
+# Stage-function unit tests (each stage testable alone, R-1).
+# --------------------------------------------------------------------------- #
+def test_score_bundle_stages_0_7_is_engine_score() -> None:
+    """Fail-before / wiring guard: stages 0-7 return exactly what
+    ``cvi.core.engine.score`` would for the same arguments -- this function
+    must never reimplement or shortcut any of D-ORDER-1's stages 0-7."""
+    from cvi.core.engine import Snapshot, score
+
+    bundle = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
+    populations = _Fixture12.populations()
+    via_engine = score(bundle, populations, Snapshot(snapshot_id=_SNAPSHOT_ID, as_of=NOW, gate_evidence=_HEALTHY_EVIDENCE), _HASH64)
+    via_pipeline = score_bundle_stages_0_7(
+        bundle, populations, snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=_HEALTHY_EVIDENCE, raw_hash=_HASH64,
+    )
+    assert via_pipeline == via_engine
+
+
+def test_score_bundle_stage_8_persona_raises_nothing_on_gated_record() -> None:
+    """Fail-before for the specific hazard the module docstring documents:
+    calling ``persona.persona_composite`` on a gate-ineligible record
+    (``pillars == {}``) raises ``ValueError`` by that module's own design;
+    this stage function must route around it, never let it escape."""
+    bundle = _bundle(_repo("org", "gated"), _full_inputs())
+    record = score_bundle_stages_0_7(
+        bundle, _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=GateEvidence(manifest_found=False), raw_hash=_HASH64,
+    )
+    assert record.gate.eligible is False
+    result = score_bundle_stage_8_persona(record, bundle)
+    assert result.persona_composites == {}
+    assert set(result.persona_gates) == set(persona.GATED_PERSONAS)
+
+
+def test_score_bundle_stage_9_tie_input_reads_ttfhr_p75_and_identity_from_record() -> None:
+    bundle = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
+    record = score_bundle_stages_0_7(
+        bundle, _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=_HEALTHY_EVIDENCE, raw_hash=_HASH64,
+    )
+    entry = score_bundle_stage_9_tie_input(record, bundle)
+    assert entry.owner == "org" and entry.name == "alpha"
+    assert entry.owner == record.repo.owner and entry.name == record.repo.name
+    assert entry.ttfhr_p75_hours == pytest.approx(24.0)  # the one event's response was 24h after creation
+    assert entry.last_non_bot_commit_at is None  # COULD NOT VERIFY: no such field exists yet (see handoff)
+
+
+def test_build_snapshot_counts_matches_hand_count() -> None:
+    snapshot = _Fixture12.score()
+    counts = build_snapshot_counts(snapshot.records)
+    assert counts.gated == 2
+    assert counts.unrated == 2
+    assert counts.rated == 8
+    assert counts.persona_visible[persona.PERSONA_BALANCED] == 8
+    # ai_assisted hides exactly the one PROSCRIBED repo among the 8 rated.
+    assert counts.persona_visible[persona.PERSONA_AI_ASSISTED] == 7
+
+
+# --------------------------------------------------------------------------- #
+# score_snapshot input validation.
+# --------------------------------------------------------------------------- #
+def test_score_snapshot_rejects_duplicate_repo_key() -> None:
+    bundle = _bundle(_repo("org", "dup"), _full_inputs())
+    with pytest.raises(ValueError, match="duplicate repo key"):
+        score_snapshot(
+            [bundle, bundle], _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+            gate_evidence={"org/dup": GateEvidence(manifest_found=False)},
+            raw_hashes={"org/dup": _HASH64},
+        )
+
+
+def test_score_snapshot_rejects_missing_gate_evidence_or_raw_hash() -> None:
+    bundle = _bundle(_repo("org", "solo"), _full_inputs())
+    with pytest.raises(ValueError, match="gate_evidence missing"):
+        score_snapshot(
+            [bundle], _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+            gate_evidence={}, raw_hashes={"org/solo": _HASH64},
+        )
+    with pytest.raises(ValueError, match="raw_hashes missing"):
+        score_snapshot(
+            [bundle], _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+            gate_evidence={"org/solo": GateEvidence(manifest_found=False)}, raw_hashes={},
+        )
+
+
+def test_score_snapshot_rejects_empty_snapshot_id() -> None:
+    bundle = _bundle(_repo("org", "solo"), _full_inputs())
+    with pytest.raises(ValueError, match="snapshot_id"):
+        score_snapshot(
+            [bundle], _Fixture12.populations(), snapshot_id="", as_of=NOW,
+            gate_evidence={"org/solo": GateEvidence(manifest_found=False)},
+            raw_hashes={"org/solo": _HASH64},
+        )
+
+
+# --------------------------------------------------------------------------- #
+# Mutation-battery guard: stage 8 replaces, never mutates, the record.
+# --------------------------------------------------------------------------- #
+def test_score_bundle_stage_8_persona_replaces_never_mutates() -> None:
+    """A mutant that swaps ``dataclasses.replace`` for an in-place
+    ``object.__setattr__`` on the frozen record would still produce the
+    right *values* on the returned object (this specific record is never
+    read again by anything else in this process), so a values-only
+    assertion cannot tell the two apart. Object identity can:
+    ``score_bundle_stage_8_persona`` must always return a *new*
+    ``ScoreRecord``, and the record it was given must still show its
+    pre-call, untouched ``persona_gates``/``persona_composites`` afterwards
+    (W2-7f's purity test is the model this repeats at this packet's own
+    composition point, D-PERS-1)."""
+    bundle = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
+    record = score_bundle_stages_0_7(
+        bundle, _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=_HEALTHY_EVIDENCE, raw_hash=_HASH64,
+    )
+    assert record.persona_gates == {} and record.persona_composites == {}
+
+    result = score_bundle_stage_8_persona(record, bundle)
+
+    assert result is not record
+    assert record.persona_gates == {} and record.persona_composites == {}, "input record must stay untouched"
+    assert result.persona_gates != {} or result.persona_composites != {}

@@ -27,6 +27,14 @@ jobs:
       - name: Run test suite
         run: env -u PYTEST_ADDOPTS python -m pytest tests/ -n auto -p no:cacheprovider
 
+      - name: Anchors, sensitivity, reproduce (fixture snapshot)
+        run: >
+          env -u PYTEST_ADDOPTS python -m pytest
+          tests/audit/test_anchors_fixture.py
+          tests/audit/test_sensitivity_fixture.py
+          tests/snapshot/test_reproduce_fixture.py
+          -p no:cacheprovider
+
   package:
     name: Build sdist
     runs-on: ubuntu-latest

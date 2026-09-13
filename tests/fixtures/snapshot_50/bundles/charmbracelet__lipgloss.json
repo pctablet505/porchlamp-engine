@@ -1,0 +1,435 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/charmbracelet/lipgloss/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T01:20:34.160341+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/charmbracelet__lipgloss.json",
+      "source_hash": "a826d0d4304cb109ff35814aaf8946615f0e4c555cd443cab2a6076c7770db95",
+      "value": 2,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "fetched_at": "2026-09-12T01:20:36.898542+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/charmbracelet__lipgloss.json",
+      "source_hash": "96d397be4dc248edf500e350f028f99ec6d0a88794412658e56513e8470f68d1",
+      "value": "DCO",
+      "window_end": null,
+      "window_start": null
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T01:20:34.773432+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/charmbracelet__lipgloss.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/charmbracelet/lipgloss/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2026-09-11T12:38:33+00:00",
+    "events": [
+      {
+        "author_association": "MEMBER",
+        "author_login": "andrinoff",
+        "closed_at": "2026-09-11T12:38:33+00:00",
+        "created_at": "2026-09-11T12:34:27+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-09-11T12:38:33+00:00",
+        "pr_number": 739
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Charlie-Wang-03",
+        "closed_at": null,
+        "created_at": "2026-09-03T10:59:53+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 738
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "taciturnaxolotl",
+        "closed_at": "2026-09-01T23:45:41+00:00",
+        "created_at": "2026-09-01T02:35:18+00:00",
+        "first_human_review_at": "2026-09-01T06:48:27+00:00",
+        "is_external": false,
+        "merged_at": "2026-09-01T23:45:41+00:00",
+        "pr_number": 737
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "nityanand123gupta",
+        "closed_at": null,
+        "created_at": "2026-08-29T20:51:16+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 736
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "beltagyy",
+        "closed_at": "2026-08-24T11:22:30+00:00",
+        "created_at": "2026-08-24T09:17:14+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 735
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "beltagyy",
+        "closed_at": null,
+        "created_at": "2026-08-23T16:36:10+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 734
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "beltagyy",
+        "closed_at": null,
+        "created_at": "2026-08-22T16:41:02+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 733
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "QuentinouLeTwist",
+        "closed_at": null,
+        "created_at": "2026-08-18T14:04:34+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 732
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "TheRodzz",
+        "closed_at": null,
+        "created_at": "2026-08-17T03:47:57+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 730
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "charmcli",
+        "closed_at": "2026-08-12T20:36:36+00:00",
+        "created_at": "2026-08-12T20:28:23+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-08-12T20:36:36+00:00",
+        "pr_number": 728
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "bunlongheng",
+        "closed_at": null,
+        "created_at": "2026-08-11T18:02:55+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 727
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "andrinoff",
+        "closed_at": "2026-08-11T17:16:08+00:00",
+        "created_at": "2026-08-11T17:07:13+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-08-11T17:16:08+00:00",
+        "pr_number": 726
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-10T09:04:25+00:00",
+        "created_at": "2026-08-10T09:03:09+00:00",
+        "first_human_review_at": "2026-08-10T09:04:23+00:00",
+        "is_external": true,
+        "merged_at": "2026-08-10T09:04:25+00:00",
+        "pr_number": 725
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "AyushBhosale",
+        "closed_at": null,
+        "created_at": "2026-08-03T17:15:10+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 724
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "vignesh2027",
+        "closed_at": null,
+        "created_at": "2026-08-03T10:59:59+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 723
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ZviBaratz",
+        "closed_at": null,
+        "created_at": "2026-08-02T07:23:02+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 722
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "sifhg",
+        "closed_at": null,
+        "created_at": "2026-07-23T16:13:45+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 719
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-20T09:04:37+00:00",
+        "created_at": "2026-07-20T09:03:00+00:00",
+        "first_human_review_at": "2026-07-20T09:04:35+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-20T09:04:37+00:00",
+        "pr_number": 716
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "winklemad",
+        "closed_at": null,
+        "created_at": "2026-07-17T16:11:10+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 715
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-13T09:05:18+00:00",
+        "created_at": "2026-07-13T09:03:21+00:00",
+        "first_human_review_at": "2026-07-13T09:05:15+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-13T09:05:18+00:00",
+        "pr_number": 714
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "willemkokke",
+        "closed_at": null,
+        "created_at": "2026-07-12T18:49:23+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 713
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "c-tonneslan",
+        "closed_at": null,
+        "created_at": "2026-07-08T14:01:05+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 711
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "upuddu",
+        "closed_at": null,
+        "created_at": "2026-07-07T17:12:29+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 710
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "meowgorithm",
+        "closed_at": "2026-07-03T02:05:40+00:00",
+        "created_at": "2026-07-03T01:49:24+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-07-03T02:05:40+00:00",
+        "pr_number": 709
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "larrasket",
+        "closed_at": null,
+        "created_at": "2026-07-02T16:01:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 708
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "syf2211",
+        "closed_at": null,
+        "created_at": "2026-06-25T21:06:39+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 707
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "sueun-dev",
+        "closed_at": null,
+        "created_at": "2026-06-25T08:24:00+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 706
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "xbrxr03",
+        "closed_at": "2026-06-29T18:16:27+00:00",
+        "created_at": "2026-06-22T14:58:53+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 705
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "xbrxr03",
+        "closed_at": "2026-06-29T18:16:25+00:00",
+        "created_at": "2026-06-22T14:56:34+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 704
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-06-22T09:04:52+00:00",
+        "created_at": "2026-06-22T09:02:51+00:00",
+        "first_human_review_at": "2026-06-22T09:04:49+00:00",
+        "is_external": true,
+        "merged_at": "2026-06-22T09:04:52+00:00",
+        "pr_number": 703
+      }
+    ],
+    "start": "2026-06-22T09:02:51+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "c07f782a206a586c6278cd45620e46bbff45e7e3985c4f616ec51ff1a46b21c4",
+  "repo": {
+    "archived": false,
+    "default_branch": "main",
+    "ecosystem": "go",
+    "fork": false,
+    "license_spdx": "MIT",
+    "mirror_url": null,
+    "name": "lipgloss",
+    "owner": "charmbracelet"
+  },
+  "schema_version": 2
+}

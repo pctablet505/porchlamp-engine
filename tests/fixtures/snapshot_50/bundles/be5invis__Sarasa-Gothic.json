@@ -1,0 +1,405 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/be5invis/Sarasa-Gothic/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T00:50:34.477243+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/be5invis__Sarasa-Gothic.json",
+      "source_hash": "cff87b39390682ea19b9cd6bf030d2d8bd990a8e9376d1248ea4d3cb281e9be6",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "fetched_at": "2026-09-12T00:50:37.437744+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/be5invis__Sarasa-Gothic.json",
+      "source_hash": "cec0754ad9660903885faafce27c455a739e3e25d884bd746e2bd9eee23bf292",
+      "value": "DCO",
+      "window_end": null,
+      "window_start": null
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T00:50:35.123268+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/be5invis__Sarasa-Gothic.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/be5invis/Sarasa-Gothic/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2026-06-20T14:27:53+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-06-20T14:27:53+00:00",
+        "created_at": "2026-06-20T08:21:02+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 469
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "letsky192",
+        "closed_at": "2026-05-15T01:20:29+00:00",
+        "created_at": "2026-05-14T15:44:35+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-05-15T01:20:29+00:00",
+        "pr_number": 467
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-04-11T05:23:52+00:00",
+        "created_at": "2026-04-10T03:27:03+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 464
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-03-21T19:39:17+00:00",
+        "created_at": "2026-03-21T10:29:45+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 463
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-02-28T18:41:20+00:00",
+        "created_at": "2026-02-28T04:03:20+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-02-28T18:41:20+00:00",
+        "pr_number": 462
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-01-22T11:53:19+00:00",
+        "created_at": "2026-01-21T23:46:03+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-01-22T11:53:19+00:00",
+        "pr_number": 459
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2025-11-22T01:03:30+00:00",
+        "created_at": "2025-11-21T22:03:23+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2025-11-22T01:03:30+00:00",
+        "pr_number": 453
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2025-11-15T19:48:57+00:00",
+        "created_at": "2025-11-15T10:39:33+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2025-11-15T19:48:57+00:00",
+        "pr_number": 450
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Zenvie",
+        "closed_at": "2024-03-24T22:49:12+00:00",
+        "created_at": "2024-03-24T15:25:33+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2024-03-24T22:49:12+00:00",
+        "pr_number": 383
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "XHXIAIEIN",
+        "closed_at": "2024-03-18T23:06:49+00:00",
+        "created_at": "2024-03-18T17:01:41+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2024-03-18T23:06:49+00:00",
+        "pr_number": 377
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Cwindblows",
+        "closed_at": "2024-03-12T21:50:47+00:00",
+        "created_at": "2024-03-12T15:51:11+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2024-03-12T21:50:47+00:00",
+        "pr_number": 373
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "XHXIAIEIN",
+        "closed_at": "2023-04-25T16:00:32+00:00",
+        "created_at": "2023-04-25T15:40:33+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2023-04-25T16:00:32+00:00",
+        "pr_number": 326
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "XHXIAIEIN",
+        "closed_at": "2023-04-25T15:39:08+00:00",
+        "created_at": "2023-04-25T15:34:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 325
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "XHXIAIEIN",
+        "closed_at": "2023-04-25T15:09:02+00:00",
+        "created_at": "2023-04-25T09:02:12+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 324
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "jonz94",
+        "closed_at": "2023-01-28T07:16:24+00:00",
+        "created_at": "2023-01-28T04:07:24+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2023-01-28T07:16:24+00:00",
+        "pr_number": 313
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "CyanoHao",
+        "closed_at": "2021-10-09T04:56:28+00:00",
+        "created_at": "2021-10-08T23:38:36+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2021-10-09T04:56:28+00:00",
+        "pr_number": 263
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "yaoge123",
+        "closed_at": "2021-08-22T00:29:05+00:00",
+        "created_at": "2021-08-21T23:42:11+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2021-08-22T00:29:05+00:00",
+        "pr_number": 258
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "yaoge123",
+        "closed_at": "2021-08-21T23:34:17+00:00",
+        "created_at": "2021-08-21T23:21:44+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 257
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Aa787",
+        "closed_at": "2020-11-09T16:56:10+00:00",
+        "created_at": "2020-11-09T15:56:54+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 204
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Aa787",
+        "closed_at": "2020-11-09T15:22:12+00:00",
+        "created_at": "2020-11-09T15:21:44+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 203
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Aa787",
+        "closed_at": "2020-11-09T16:55:58+00:00",
+        "created_at": "2020-11-09T15:21:12+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 202
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Aa787",
+        "closed_at": "2020-11-09T16:56:18+00:00",
+        "created_at": "2020-11-09T14:43:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 200
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "CyanoHao",
+        "closed_at": "2019-10-15T03:45:57+00:00",
+        "created_at": "2019-10-15T03:45:00+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2019-10-15T03:45:57+00:00",
+        "pr_number": 117
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "mrymtsk",
+        "closed_at": "2019-04-24T07:27:53+00:00",
+        "created_at": "2019-04-24T01:27:55+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 96
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "syimyuzya",
+        "closed_at": "2018-03-26T05:03:15+00:00",
+        "created_at": "2018-03-25T04:23:09+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2018-03-26T05:03:15+00:00",
+        "pr_number": 20
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "boltomli",
+        "closed_at": "2018-03-19T15:14:59+00:00",
+        "created_at": "2018-03-19T15:13:19+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2018-03-19T15:14:59+00:00",
+        "pr_number": 18
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "wdhwg001",
+        "closed_at": "2017-10-28T05:41:40+00:00",
+        "created_at": "2017-10-26T01:23:45+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 4
+      }
+    ],
+    "start": "2017-10-26T01:23:45+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "c5f9adbf48e7903cafd2f1283d6c368ac7159c37e01720c068a85092b5442f1d",
+  "repo": {
+    "archived": false,
+    "default_branch": "main",
+    "ecosystem": "npm",
+    "fork": false,
+    "license_spdx": "NOASSERTION",
+    "mirror_url": null,
+    "name": "Sarasa-Gothic",
+    "owner": "be5invis"
+  },
+  "schema_version": 2
+}

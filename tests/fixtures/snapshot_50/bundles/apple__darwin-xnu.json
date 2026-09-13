@@ -1,0 +1,425 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/apple/darwin-xnu/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T01:37:43.940446+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/apple__darwin-xnu.json",
+      "source_hash": "3f495e39c94c1519fe83fc8e5897a2951c3d6ebce551a282dcb764b9eb4a46bd",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "fetched_at": "2026-09-12T01:37:47.304942+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/apple__darwin-xnu.json",
+      "source_hash": "3b920ccd7be68c1a99c0cfa16daa15de70919ade4c822a2557b14a74a368486a",
+      "value": "DCO",
+      "window_end": null,
+      "window_start": null
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T01:37:44.622577+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/apple__darwin-xnu.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/apple/darwin-xnu/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2023-01-06T14:57:29+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "LIJI32",
+        "closed_at": null,
+        "created_at": "2022-08-02T17:32:42+00:00",
+        "first_human_review_at": "2022-08-22T23:58:27+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 31
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "jessiejs",
+        "closed_at": null,
+        "created_at": "2022-06-20T23:29:17+00:00",
+        "first_human_review_at": "2022-11-07T19:47:46+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 30
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ashly1111111",
+        "closed_at": null,
+        "created_at": "2022-01-12T02:25:18+00:00",
+        "first_human_review_at": "2022-05-22T23:02:01+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 29
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "AZero13",
+        "closed_at": "2021-06-07T01:07:19+00:00",
+        "created_at": "2021-06-07T00:45:02+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 28
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "AZero13",
+        "closed_at": "2021-07-06T19:02:11+00:00",
+        "created_at": "2021-06-06T23:40:33+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 27
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "JJPMaster",
+        "closed_at": "2021-07-06T19:02:19+00:00",
+        "created_at": "2021-05-17T20:34:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 26
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "IanButterworth",
+        "closed_at": "2021-07-06T19:03:07+00:00",
+        "created_at": "2021-01-19T00:28:53+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 25
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "mchoo7",
+        "closed_at": "2021-04-06T11:43:55+00:00",
+        "created_at": "2020-12-28T01:08:39+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 24
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "MrCull",
+        "closed_at": "2021-07-06T19:03:24+00:00",
+        "created_at": "2020-12-19T16:12:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 23
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "vegerot",
+        "closed_at": "2021-07-06T19:03:35+00:00",
+        "created_at": "2020-07-10T21:10:43+00:00",
+        "first_human_review_at": "2020-10-14T01:58:31+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 22
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "AustinConlon",
+        "closed_at": "2021-07-06T18:59:09+00:00",
+        "created_at": "2020-05-14T11:52:38+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 21
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "byaruhaf",
+        "closed_at": "2020-03-20T09:33:52+00:00",
+        "created_at": "2019-11-18T11:57:29+00:00",
+        "first_human_review_at": "2020-01-05T20:55:36+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 20
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "benfed",
+        "closed_at": "2021-07-06T19:04:05+00:00",
+        "created_at": "2019-07-08T10:15:33+00:00",
+        "first_human_review_at": "2019-09-02T04:23:09+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 19
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "benfed",
+        "closed_at": "2021-07-06T19:04:20+00:00",
+        "created_at": "2019-07-08T09:06:57+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 18
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ilqvya",
+        "closed_at": "2021-07-06T19:04:28+00:00",
+        "created_at": "2019-03-14T16:03:19+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 17
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "userlandkernel",
+        "closed_at": "2018-12-12T21:40:40+00:00",
+        "created_at": "2018-11-09T18:34:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 16
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ricardo2197",
+        "closed_at": "2021-07-06T19:04:36+00:00",
+        "created_at": "2018-09-14T14:51:20+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 15
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "glaukommatos",
+        "closed_at": "2021-02-02T04:10:24+00:00",
+        "created_at": "2018-07-06T14:22:18+00:00",
+        "first_human_review_at": "2019-09-21T12:53:05+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 14
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "onlynone",
+        "closed_at": "2021-07-06T19:05:18+00:00",
+        "created_at": "2018-05-15T20:53:24+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 13
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "mcculley",
+        "closed_at": "2021-07-06T19:05:27+00:00",
+        "created_at": "2018-04-10T16:02:10+00:00",
+        "first_human_review_at": "2018-04-11T21:35:17+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 12
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "christianloopp",
+        "closed_at": "2018-10-02T15:21:22+00:00",
+        "created_at": "2018-01-15T18:37:18+00:00",
+        "first_human_review_at": "2018-02-08T15:43:30+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 11
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "yep",
+        "closed_at": "2021-07-06T19:05:35+00:00",
+        "created_at": "2018-01-08T16:57:03+00:00",
+        "first_human_review_at": "2020-01-18T16:28:12+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 10
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "copumpkin",
+        "closed_at": "2021-07-06T19:05:43+00:00",
+        "created_at": "2017-11-15T01:58:18+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 9
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "copumpkin",
+        "closed_at": "2021-07-06T19:05:50+00:00",
+        "created_at": "2017-11-15T01:50:57+00:00",
+        "first_human_review_at": "2017-11-29T19:44:20+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 8
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "alex-kostadinov",
+        "closed_at": "2021-07-06T19:05:58+00:00",
+        "created_at": "2017-10-02T13:13:09+00:00",
+        "first_human_review_at": "2017-10-24T00:02:50+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 7
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "kpwn",
+        "closed_at": "2021-07-06T19:06:27+00:00",
+        "created_at": "2017-10-01T17:23:43+00:00",
+        "first_human_review_at": "2017-10-01T18:06:04+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 6
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Kezii",
+        "closed_at": "2021-02-02T04:10:24+00:00",
+        "created_at": "2017-10-01T16:17:56+00:00",
+        "first_human_review_at": "2017-10-01T16:49:08+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 5
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "nrebhun",
+        "closed_at": "2021-07-06T19:06:46+00:00",
+        "created_at": "2017-09-30T20:46:58+00:00",
+        "first_human_review_at": "2017-10-30T20:21:05+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 4
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "nrebhun",
+        "closed_at": "2021-07-06T19:06:54+00:00",
+        "created_at": "2017-09-30T16:54:39+00:00",
+        "first_human_review_at": "2017-10-30T20:20:49+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 3
+      }
+    ],
+    "start": "2017-09-30T16:54:39+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "f545bb5c1a6310080a3d2f61f7dd4bf31b7c02fad3b779b126c08788d09646d1",
+  "repo": {
+    "archived": true,
+    "default_branch": "main",
+    "ecosystem": "systems",
+    "fork": false,
+    "license_spdx": "NOASSERTION",
+    "mirror_url": null,
+    "name": "darwin-xnu",
+    "owner": "apple"
+  },
+  "schema_version": 2
+}

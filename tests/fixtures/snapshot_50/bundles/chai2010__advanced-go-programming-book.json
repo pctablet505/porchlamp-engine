@@ -1,0 +1,435 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/chai2010/advanced-go-programming-book/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T22:48:32.216414+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/chai2010__advanced-go-programming-book.json",
+      "source_hash": "32571a84ca14c610b99cc320a0d803d9512efe38ae05080b23acdc2d01767e1e",
+      "value": 2,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "fetched_at": "2026-09-11T22:48:34.133160+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/chai2010__advanced-go-programming-book.json",
+      "source_hash": "cc2b01983447d68829a362fd0c64f6debf39f5a8efa87e2c518673f293a03e58",
+      "value": "DCO",
+      "window_end": null,
+      "window_start": null
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T22:48:32.855891+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/chai2010__advanced-go-programming-book.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/chai2010/advanced-go-programming-book/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2025-10-07T01:08:59+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "chehan01",
+        "closed_at": "2025-10-07T01:07:16+00:00",
+        "created_at": "2025-10-06T15:52:39+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2025-10-07T01:07:16+00:00",
+        "pr_number": 657
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ch3ny4ng",
+        "closed_at": "2025-10-07T01:08:59+00:00",
+        "created_at": "2025-08-20T17:39:37+00:00",
+        "first_human_review_at": "2025-10-06T14:56:22+00:00",
+        "is_external": true,
+        "merged_at": "2025-10-07T01:08:59+00:00",
+        "pr_number": 656
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "qloog",
+        "closed_at": "2025-03-22T03:33:42+00:00",
+        "created_at": "2024-09-13T14:06:06+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2025-03-22T03:33:42+00:00",
+        "pr_number": 650
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "MGMCN",
+        "closed_at": "2023-07-22T12:30:02+00:00",
+        "created_at": "2023-07-19T15:09:26+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2023-07-22T12:30:02+00:00",
+        "pr_number": 635
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "PaiGack",
+        "closed_at": "2024-08-05T23:28:26+00:00",
+        "created_at": "2023-04-24T13:08:11+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 628
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "PaiGack",
+        "closed_at": "2023-04-23T15:19:05+00:00",
+        "created_at": "2023-04-23T12:22:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2023-04-23T15:19:05+00:00",
+        "pr_number": 626
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "PaiGack",
+        "closed_at": "2023-04-09T04:53:28+00:00",
+        "created_at": "2023-03-26T11:20:41+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2023-04-09T04:53:28+00:00",
+        "pr_number": 623
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "frankxjkuang",
+        "closed_at": "2022-12-01T04:25:25+00:00",
+        "created_at": "2022-12-01T02:11:25+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-12-01T04:25:24+00:00",
+        "pr_number": 612
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "frankxjkuang",
+        "closed_at": "2023-02-23T03:15:15+00:00",
+        "created_at": "2022-11-30T07:26:20+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2023-02-23T03:15:15+00:00",
+        "pr_number": 611
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "erhuabushuo",
+        "closed_at": "2022-09-25T07:55:21+00:00",
+        "created_at": "2022-09-25T07:51:20+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-09-25T07:55:21+00:00",
+        "pr_number": 603
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "handyson",
+        "closed_at": "2022-09-16T14:57:38+00:00",
+        "created_at": "2022-09-16T12:38:37+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-09-16T14:57:38+00:00",
+        "pr_number": 600
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "wscrlhs",
+        "closed_at": "2022-08-31T10:37:36+00:00",
+        "created_at": "2022-08-31T05:06:46+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-08-31T10:37:36+00:00",
+        "pr_number": 597
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "iGmainC",
+        "closed_at": "2022-08-31T04:23:16+00:00",
+        "created_at": "2022-08-18T04:26:22+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 593
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "hopehook",
+        "closed_at": "2022-08-13T03:45:51+00:00",
+        "created_at": "2022-08-13T02:22:00+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-08-13T03:45:51+00:00",
+        "pr_number": 592
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "hopehook",
+        "closed_at": "2022-08-13T02:00:57+00:00",
+        "created_at": "2022-08-13T01:39:18+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-08-13T02:00:57+00:00",
+        "pr_number": 591
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "hopehook",
+        "closed_at": "2022-08-13T02:01:58+00:00",
+        "created_at": "2022-08-13T01:27:06+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-08-13T02:01:58+00:00",
+        "pr_number": 590
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "iGmainC",
+        "closed_at": "2022-08-10T15:59:58+00:00",
+        "created_at": "2022-08-10T15:37:03+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-08-10T15:59:58+00:00",
+        "pr_number": 588
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "iGmainC",
+        "closed_at": "2022-08-10T10:16:48+00:00",
+        "created_at": "2022-08-10T06:35:10+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 587
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "mstmdev",
+        "closed_at": "2022-08-03T22:22:00+00:00",
+        "created_at": "2022-07-20T17:18:22+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-08-03T22:22:00+00:00",
+        "pr_number": 582
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "mstmdev",
+        "closed_at": "2022-08-03T22:23:14+00:00",
+        "created_at": "2022-07-20T16:40:52+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-08-03T22:23:14+00:00",
+        "pr_number": 581
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "mstmdev",
+        "closed_at": "2022-07-20T03:51:15+00:00",
+        "created_at": "2022-07-14T18:11:01+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-07-20T03:51:15+00:00",
+        "pr_number": 580
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "mstmdev",
+        "closed_at": "2022-07-13T23:46:54+00:00",
+        "created_at": "2022-07-13T17:58:39+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-07-13T23:46:54+00:00",
+        "pr_number": 579
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "songzhibin97",
+        "closed_at": "2022-02-28T00:08:14+00:00",
+        "created_at": "2022-02-25T10:30:02+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-02-28T00:08:14+00:00",
+        "pr_number": 574
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "songzhibin97",
+        "closed_at": "2022-02-25T10:25:43+00:00",
+        "created_at": "2022-02-25T10:23:49+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 573
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "songzhibin97",
+        "closed_at": "2022-02-25T10:25:36+00:00",
+        "created_at": "2022-02-25T10:18:49+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 572
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "gongqij",
+        "closed_at": "2022-08-10T16:02:18+00:00",
+        "created_at": "2022-02-21T09:28:09+00:00",
+        "first_human_review_at": "2022-02-28T00:11:07+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 571
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "iGmainC",
+        "closed_at": "2022-02-04T22:08:05+00:00",
+        "created_at": "2022-01-24T08:32:03+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-02-04T22:08:05+00:00",
+        "pr_number": 569
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "iGmainC",
+        "closed_at": "2022-01-17T22:58:38+00:00",
+        "created_at": "2022-01-10T06:30:55+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-01-17T22:58:38+00:00",
+        "pr_number": 568
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "iGmainC",
+        "closed_at": "2022-01-06T00:22:32+00:00",
+        "created_at": "2022-01-04T06:15:06+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-01-06T00:22:32+00:00",
+        "pr_number": 567
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "hopehook",
+        "closed_at": "2022-01-05T20:17:02+00:00",
+        "created_at": "2022-01-01T03:50:37+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-01-05T20:17:02+00:00",
+        "pr_number": 566
+      }
+    ],
+    "start": "2022-01-01T03:50:37+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "3824087af2268f60161989fd1653ffaf16b15ebe40d2d023cf5aed08f16d87bb",
+  "repo": {
+    "archived": false,
+    "default_branch": "master",
+    "ecosystem": "go",
+    "fork": false,
+    "license_spdx": "BSD-2-Clause",
+    "mirror_url": null,
+    "name": "advanced-go-programming-book",
+    "owner": "chai2010"
+  },
+  "schema_version": 2
+}

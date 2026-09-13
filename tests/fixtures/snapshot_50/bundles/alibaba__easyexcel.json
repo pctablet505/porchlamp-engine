@@ -1,0 +1,429 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/alibaba/easyexcel/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T21:33:21.847127+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/alibaba__easyexcel.json",
+      "source_hash": "3c5930c931f1a1d9dc4f389e3a5fc65c35aae7b6640c21767368d2dc77512a96",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/alibaba/easyexcel/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T21:33:22.477753+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/alibaba__easyexcel.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/alibaba/easyexcel/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2025-07-20T18:02:02+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "DepUpdater",
+        "closed_at": null,
+        "created_at": "2025-07-20T18:02:02+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 4123
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "cxbiao",
+        "closed_at": null,
+        "created_at": "2025-03-14T02:57:37+00:00",
+        "first_human_review_at": "2025-07-04T06:12:03+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 4093
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "icoco",
+        "closed_at": null,
+        "created_at": "2025-03-08T07:20:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 4092
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "zhuangjiaju",
+        "closed_at": "2024-10-29T06:07:07+00:00",
+        "created_at": "2024-10-29T06:06:57+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-10-29T06:07:07+00:00",
+        "pr_number": 4039
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "zhuangjiaju",
+        "closed_at": "2024-09-11T12:36:08+00:00",
+        "created_at": "2024-09-11T12:35:05+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-09-11T12:36:08+00:00",
+        "pr_number": 3986
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "wyctxwd1",
+        "closed_at": null,
+        "created_at": "2024-09-02T09:42:35+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 3967
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "721806280",
+        "closed_at": "2025-02-27T06:05:21+00:00",
+        "created_at": "2024-08-23T07:18:46+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 3949
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "WT-AHA",
+        "closed_at": "2024-11-25T02:48:15+00:00",
+        "created_at": "2024-08-12T09:05:11+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 3926
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "psxjoy",
+        "closed_at": "2024-08-06T12:41:53+00:00",
+        "created_at": "2024-08-06T12:05:27+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 3920
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "zhuangjiaju",
+        "closed_at": "2024-08-06T10:40:45+00:00",
+        "created_at": "2024-08-06T10:40:37+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-08-06T10:40:45+00:00",
+        "pr_number": 3919
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "zhuangjiaju",
+        "closed_at": "2024-08-06T09:54:05+00:00",
+        "created_at": "2024-08-06T09:53:58+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-08-06T09:54:05+00:00",
+        "pr_number": 3918
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "zhuangjiaju",
+        "closed_at": "2024-08-06T09:51:20+00:00",
+        "created_at": "2024-08-06T09:51:09+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-08-06T09:51:20+00:00",
+        "pr_number": 3917
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "zhuangjiaju",
+        "closed_at": "2024-08-06T09:36:52+00:00",
+        "created_at": "2024-08-06T09:36:43+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-08-06T09:36:52+00:00",
+        "pr_number": 3916
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "psxjoy",
+        "closed_at": null,
+        "created_at": "2024-08-06T03:21:27+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 3915
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "zhuangjiaju",
+        "closed_at": "2024-07-09T09:04:05+00:00",
+        "created_at": "2024-07-09T09:03:57+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-07-09T09:04:05+00:00",
+        "pr_number": 3875
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "721806280",
+        "closed_at": "2025-01-12T04:09:05+00:00",
+        "created_at": "2024-07-05T01:01:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 3864
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "psxjoy",
+        "closed_at": null,
+        "created_at": "2024-07-03T13:55:33+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 3861
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "zhuangjiaju",
+        "closed_at": "2024-06-18T11:18:17+00:00",
+        "created_at": "2024-06-18T11:18:09+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-06-18T11:18:17+00:00",
+        "pr_number": 3844
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "zhuangjiaju",
+        "closed_at": "2024-06-18T01:45:08+00:00",
+        "created_at": "2024-06-18T01:44:40+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-06-18T01:45:08+00:00",
+        "pr_number": 3840
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "zhuangjiaju",
+        "closed_at": "2024-06-17T12:05:34+00:00",
+        "created_at": "2024-06-17T12:05:24+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-06-17T12:05:34+00:00",
+        "pr_number": 3838
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "tomalloc",
+        "closed_at": null,
+        "created_at": "2024-06-16T04:45:01+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 3835
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Tooi6",
+        "closed_at": null,
+        "created_at": "2024-06-14T06:35:02+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 3833
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Tooi6",
+        "closed_at": "2024-06-14T06:32:32+00:00",
+        "created_at": "2024-06-14T06:31:04+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 3832
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "psxjoy",
+        "closed_at": null,
+        "created_at": "2024-06-12T12:20:59+00:00",
+        "first_human_review_at": "2024-06-17T06:11:20+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 3829
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "psxjoy",
+        "closed_at": null,
+        "created_at": "2024-06-04T02:47:33+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 3820
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "psxjoy",
+        "closed_at": null,
+        "created_at": "2024-05-24T09:05:38+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 3810
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "Chat2DB-Pro",
+        "closed_at": "2024-05-24T04:13:29+00:00",
+        "created_at": "2024-05-24T04:13:21+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-05-24T04:13:29+00:00",
+        "pr_number": 3808
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "Chat2DB-Pro",
+        "closed_at": "2024-05-24T04:12:48+00:00",
+        "created_at": "2024-05-24T04:12:38+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-05-24T04:12:48+00:00",
+        "pr_number": 3807
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "When-Jay",
+        "closed_at": null,
+        "created_at": "2024-05-23T09:27:29+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 3805
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "psxjoy",
+        "closed_at": null,
+        "created_at": "2024-05-22T07:40:14+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 3802
+      }
+    ],
+    "start": "2024-05-22T07:40:14+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "c6377b3794602ac16494cee35cb34f8ea79883b3140b1f782a819a00961a0cad",
+  "repo": {
+    "archived": true,
+    "default_branch": "master",
+    "ecosystem": "maven",
+    "fork": false,
+    "license_spdx": "Apache-2.0",
+    "mirror_url": null,
+    "name": "easyexcel",
+    "owner": "alibaba"
+  },
+  "schema_version": 2
+}

@@ -1,0 +1,429 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/AtsushiSakai/PythonRobotics/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T21:52:43.730927+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/AtsushiSakai__PythonRobotics.json",
+      "source_hash": "b59b3b7edf0c58e5ebc0f9f7f85e6633f8a46ea556e7018c3693c2cb25589c8b",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/AtsushiSakai/PythonRobotics/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T21:52:44.355163+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/AtsushiSakai__PythonRobotics.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/AtsushiSakai/PythonRobotics/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2026-09-07T20:02:51+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-09-07T20:02:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1427
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-09-02T05:28:43+00:00",
+        "created_at": "2026-08-31T20:02:57+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-02T05:28:43+00:00",
+        "pr_number": 1425
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-09-02T05:31:11+00:00",
+        "created_at": "2026-08-31T20:02:49+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-02T05:31:11+00:00",
+        "pr_number": 1424
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-09-02T05:34:57+00:00",
+        "created_at": "2026-08-31T19:14:25+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-09-02T05:34:57+00:00",
+        "pr_number": 1423
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "huxiaoyi-ovo",
+        "closed_at": null,
+        "created_at": "2026-08-31T15:46:10+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1422
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "huxiaoyi-ovo",
+        "closed_at": null,
+        "created_at": "2026-08-31T15:43:01+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1421
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "huxiaoyi-ovo",
+        "closed_at": null,
+        "created_at": "2026-08-31T15:35:04+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1420
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "huxiaoyi-ovo",
+        "closed_at": null,
+        "created_at": "2026-08-31T15:32:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1419
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "huxiaoyi-ovo",
+        "closed_at": null,
+        "created_at": "2026-08-31T15:24:55+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1418
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-08-24T20:02:53+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1417
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-31T20:02:53+00:00",
+        "created_at": "2026-08-24T20:02:49+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1416
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-31T19:14:29+00:00",
+        "created_at": "2026-08-24T19:15:36+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1415
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "tandede",
+        "closed_at": null,
+        "created_at": "2026-08-24T09:46:34+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1414
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-24T20:02:53+00:00",
+        "created_at": "2026-08-17T20:03:06+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1413
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-08-17T20:02:55+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1412
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-24T19:15:40+00:00",
+        "created_at": "2026-08-17T19:33:07+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1411
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-17T20:03:08+00:00",
+        "created_at": "2026-08-10T20:02:58+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1410
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-17T19:33:11+00:00",
+        "created_at": "2026-08-10T19:15:37+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1409
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "yasumorishima",
+        "closed_at": null,
+        "created_at": "2026-08-10T05:50:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1408
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "tianrking",
+        "closed_at": null,
+        "created_at": "2026-08-09T19:22:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1407
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-08T18:45:33+00:00",
+        "created_at": "2026-08-03T20:02:47+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-08-08T18:45:33+00:00",
+        "pr_number": 1406
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-08T18:46:39+00:00",
+        "created_at": "2026-08-03T19:13:50+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-08-08T18:46:39+00:00",
+        "pr_number": 1405
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-03T20:02:50+00:00",
+        "created_at": "2026-07-27T20:03:19+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1404
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-07-20T20:02:52+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1403
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-27T20:03:21+00:00",
+        "created_at": "2026-07-20T20:02:48+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1402
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-07-20T19:12:57+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1401
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-20T20:02:51+00:00",
+        "created_at": "2026-07-13T20:02:51+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1400
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-24T20:02:56+00:00",
+        "created_at": "2026-07-13T20:02:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1399
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-17T20:02:58+00:00",
+        "created_at": "2026-07-06T20:02:52+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1398
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-13T20:02:55+00:00",
+        "created_at": "2026-06-29T20:02:45+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1397
+      }
+    ],
+    "start": "2026-06-29T20:02:45+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "c3fdfb46f02c3f0422764d03fda961f0da277dda95249b5f95d19c48b3775b74",
+  "repo": {
+    "archived": false,
+    "default_branch": "master",
+    "ecosystem": "pypi",
+    "fork": false,
+    "license_spdx": "NOASSERTION",
+    "mirror_url": null,
+    "name": "PythonRobotics",
+    "owner": "AtsushiSakai"
+  },
+  "schema_version": 2
+}

@@ -1,0 +1,159 @@
+"""W2-8b acceptance: D-VER-4 anchors over the v2 fixture snapshot
+(``cvi.audit.anchors.evaluate_anchors_v2``, ``docs/v2/02-RANKING-DESIGN.md``
+section 11).
+
+Fail-before: before this packet ``evaluate_anchors_v2`` does not exist, so
+every test below fails on ``AttributeError``/``ImportError``.
+
+Every anchor this fixture *can* evaluate must PASS (or REPORT, for
+``keras_hub_gate_reported``, which never fails by design); an anchor this
+50-repo fixture has no way to evaluate (its identity repo is absent, or --
+``newcomer_label_5_1`` -- the v2 ``ScoreRecord`` contract itself cannot
+supply the independent fact the relation needs) is asserted SKIPPED WITH
+REASON, per the packet's own instruction, never silently passed.
+"""
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+
+import pytest
+
+from cvi.audit.anchors import (
+    ANCHOR_RELATIONS,
+    FAIL,
+    PASS,
+    REPORT,
+    SKIPPED,
+    evaluate_anchors_v2,
+    format_anchor_report_v2,
+)
+from cvi.core.pipeline import score_snapshot
+
+FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
+SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "build_fixture_snapshot.py"
+
+#: Anchors this 50-repo fixture can actually evaluate (identity repo
+#: present, or a broad relation with at least one matching repo) -- must
+#: PASS. Everything else in :data:`ANCHOR_RELATIONS` must come back
+#: SKIPPED (absent identity / no independent fact to check) or REPORT
+#: (``keras_hub_gate_reported``, which never fails).
+_EXPECT_PASS = {"linux_off_platform", "archived_repo_gated", "awesome_non_software", "linux_dco"}
+_EXPECT_SKIPPED = {"gcc_mirror_gated", "kubernetes_rated", "vllm_rated", "newcomer_label_5_1"}
+_EXPECT_REPORT = {"keras_hub_gate_reported"}
+
+assert _EXPECT_PASS | _EXPECT_SKIPPED | _EXPECT_REPORT == {relation for relation, _ in ANCHOR_RELATIONS}
+
+
+def _load_build_script():
+    spec = importlib.util.spec_from_file_location("build_fixture_snapshot", SCRIPT_PATH)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["build_fixture_snapshot"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="module")
+def snapshot():
+    build_script = _load_build_script()
+    frozen = build_script.load_frozen_fixture(FIXTURE_DIR)
+    return score_snapshot(
+        frozen.bundles, frozen.populations, snapshot_id=frozen.snapshot_id, as_of=frozen.as_of,
+        gate_evidence=frozen.gate_evidence, raw_hashes=frozen.raw_hashes,
+    )
+
+
+@pytest.fixture(scope="module")
+def results(snapshot):
+    return evaluate_anchors_v2(snapshot)
+
+
+def test_every_relation_is_evaluated_exactly_once(results) -> None:
+    assert [result.relation for result in results] == [relation for relation, _ in ANCHOR_RELATIONS]
+
+
+def test_evaluable_anchors_pass(results) -> None:
+    by_relation = {result.relation: result for result in results}
+    failures = [
+        f"{relation}: verdict={by_relation[relation].verdict} observed={by_relation[relation].observed!r}"
+        for relation in _EXPECT_PASS
+        if by_relation[relation].verdict != PASS
+    ]
+    assert failures == [], "\n".join(failures)
+
+
+def test_absent_identity_anchors_are_skipped_with_reason(results) -> None:
+    by_relation = {result.relation: result for result in results}
+    for relation in _EXPECT_SKIPPED:
+        result = by_relation[relation]
+        assert result.verdict == SKIPPED, (relation, result.verdict, result.observed)
+        assert result.observed, f"{relation} SKIPPED with no reason"
+
+
+def test_keras_hub_is_report_only(results) -> None:
+    by_relation = {result.relation: result for result in results}
+    assert by_relation["keras_hub_gate_reported"].verdict == REPORT
+
+
+def test_no_relation_ever_returns_fail_on_this_fixture(results) -> None:
+    """Over-correction guard: nothing here is vacuously easy to pass by
+    construction -- if a relation this fixture *can* evaluate ever
+    genuinely contradicts the ranking, that must show up as FAIL, not be
+    silently absorbed into SKIPPED. This fixture's real, measured anchors
+    all hold (the summary below is pasted in the handoff), so today's
+    expected count is zero; a future change to the fixture or the gates
+    that breaks a real anchor must fail this test, not be missed by it."""
+    failing = [result for result in results if result.verdict == FAIL]
+    assert failing == [], [(result.relation, result.observed) for result in failing]
+
+
+def test_print_anchor_table(results, snapshot) -> None:
+    """Not an assertion -- prints the anchor table for the handoff (``-s``
+    to see it; harmless without)."""
+    print(format_anchor_report_v2(results, len(snapshot.records)))
+
+
+# --------------------------------------------------------------------------- #
+# Mutation-battery oracle: a hand-built snapshot where the broad relations
+# (archived/awesome) must FAIL, independent of what the real 50-repo
+# fixture happens to contain (this fixture's own repos are all correctly
+# gated, so a comparison-operator mutant that always reports PASS would
+# not be caught by the tests above alone).
+# --------------------------------------------------------------------------- #
+def _minimal_gated_record(owner: str, name: str, *, eligible: bool, reason):
+    from cvi.core.models import GateResult, RepoIdentity, ScoreRecord
+
+    repo = RepoIdentity(
+        owner=owner, name=name, ecosystem="pypi", archived=False, mirror_url=None,
+        fork=False, license_spdx="MIT", default_branch="main",
+    )
+    gate = GateResult(eligible=eligible, reason=reason, routed=None, undecided=())
+    return ScoreRecord(
+        repo=repo, snapshot_id="s", benchmark_version="2.0.0-dev", constants_hash="x", raw_hash="x",
+        gate=gate, params={}, pillars={}, composite=None, coverage=0.0, tier=None, leverage=None,
+        friction=None, quadrant=None, persona_gates={}, persona_composites={}, tie_key=(), tie_group=None,
+        rank=None, suspicion=[],
+    )
+
+
+def test_awesome_and_archived_relations_fail_when_not_actually_gated() -> None:
+    """Oracle: an ``awesome*`` repo left eligible (not gated non_software)
+    and no archived-gated repo anywhere -- both broad D-VER-4 relations
+    must FAIL, not PASS. Kills a comparison-operator mutant in
+    ``_check_awesome_v2``/``_check_archived_v2`` that a vacuously-true
+    condition (e.g. ``len(gated_as_list) >= 0``) would let slip through as
+    an always-PASS."""
+    from cvi.core.pipeline import ScoredSnapshot, SnapshotCounts
+
+    records = (
+        _minimal_gated_record("someone", "awesome-not-gated", eligible=True, reason=None),
+        _minimal_gated_record("someone", "plain-repo", eligible=True, reason=None),
+    )
+    snapshot = ScoredSnapshot(
+        snapshot_id="s", benchmark_version="2.0.0-dev", constants_hash="x", records=records,
+        counts=SnapshotCounts(rated=0, gated=0, unrated=2, persona_visible={}), records_hash="x",
+    )
+    by_relation = {result.relation: result for result in evaluate_anchors_v2(snapshot)}
+    assert by_relation["awesome_non_software"].verdict == FAIL
+    assert by_relation["archived_repo_gated"].verdict == FAIL

@@ -1,0 +1,435 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/claudiodangelis/qrcp/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T02:05:07.145646+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/claudiodangelis__qrcp.json",
+      "source_hash": "e869ca441d31afc1b6aa2a8b16175969636815294a1c1d47079a2ac450aed74c",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "fetched_at": "2026-09-12T02:05:10.633922+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/claudiodangelis__qrcp.json",
+      "source_hash": "765621c2727c304c608f39d9569f44d8b74593834258fce43d235672584965b0",
+      "value": "DCO",
+      "window_end": null,
+      "window_start": null
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T02:05:08.182423+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/claudiodangelis__qrcp.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/claudiodangelis/qrcp/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2026-05-27T20:06:54+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "spencer-scw",
+        "closed_at": null,
+        "created_at": "2026-05-27T20:06:54+00:00",
+        "first_human_review_at": "2026-06-13T17:38:52+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 382
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": null,
+        "created_at": "2026-05-18T20:41:01+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 381
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": null,
+        "created_at": "2026-05-17T11:02:07+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 380
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": "2026-05-18T20:42:03+00:00",
+        "created_at": "2026-04-03T13:27:45+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 378
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2025-12-04T03:06:25+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 377
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2025-09-09T03:06:27+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 375
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2025-12-04T03:06:27+00:00",
+        "created_at": "2025-09-02T21:57:41+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 374
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2025-09-09T03:06:29+00:00",
+        "created_at": "2025-03-27T03:22:25+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 372
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": "2025-06-19T21:01:37+00:00",
+        "created_at": "2025-03-26T13:01:02+00:00",
+        "first_human_review_at": "2025-06-19T20:58:08+00:00",
+        "is_external": false,
+        "merged_at": "2025-06-19T21:01:37+00:00",
+        "pr_number": 371
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2025-03-18T10:12:01+00:00",
+        "created_at": "2025-03-18T03:35:18+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2025-03-18T10:12:01+00:00",
+        "pr_number": 370
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": "2025-03-17T19:30:03+00:00",
+        "created_at": "2025-03-17T17:00:52+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-03-17T19:30:03+00:00",
+        "pr_number": 369
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": "2025-03-17T19:30:32+00:00",
+        "created_at": "2025-03-16T12:03:13+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-03-17T19:30:32+00:00",
+        "pr_number": 366
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": "2025-03-16T11:47:45+00:00",
+        "created_at": "2025-03-16T11:45:07+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-03-16T11:47:45+00:00",
+        "pr_number": 365
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": "2025-03-16T11:14:23+00:00",
+        "created_at": "2025-03-16T11:13:24+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-03-16T11:14:23+00:00",
+        "pr_number": 364
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": "2025-03-16T10:37:55+00:00",
+        "created_at": "2025-03-16T10:37:18+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-03-16T10:37:55+00:00",
+        "pr_number": 363
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": "2025-03-16T10:08:19+00:00",
+        "created_at": "2025-02-28T19:33:12+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-03-16T10:08:19+00:00",
+        "pr_number": 359
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "madmini",
+        "closed_at": "2025-03-16T09:55:15+00:00",
+        "created_at": "2025-02-26T11:35:40+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2025-03-16T09:55:15+00:00",
+        "pr_number": 357
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2025-02-28T19:05:53+00:00",
+        "created_at": "2025-02-17T03:24:53+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2025-02-28T19:05:53+00:00",
+        "pr_number": 355
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Dragon1573",
+        "closed_at": "2025-01-29T13:04:02+00:00",
+        "created_at": "2025-01-07T15:22:35+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 353
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "kianmeng",
+        "closed_at": "2024-12-27T20:16:52+00:00",
+        "created_at": "2024-12-27T20:06:00+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2024-12-27T20:16:52+00:00",
+        "pr_number": 350
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2024-12-27T15:52:56+00:00",
+        "created_at": "2024-12-27T15:36:18+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2024-12-27T15:52:56+00:00",
+        "pr_number": 349
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": "2024-12-27T15:35:06+00:00",
+        "created_at": "2024-12-27T15:32:43+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-12-27T15:35:05+00:00",
+        "pr_number": 348
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": "2024-12-27T15:25:47+00:00",
+        "created_at": "2024-12-27T15:24:31+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-12-27T15:25:47+00:00",
+        "pr_number": 347
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "claudiodangelis",
+        "closed_at": "2024-12-27T15:15:25+00:00",
+        "created_at": "2024-12-27T15:02:32+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-12-27T15:15:25+00:00",
+        "pr_number": 346
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ianfixes",
+        "closed_at": "2024-12-27T15:26:35+00:00",
+        "created_at": "2024-12-22T17:25:31+00:00",
+        "first_human_review_at": "2024-12-27T15:25:59+00:00",
+        "is_external": true,
+        "merged_at": "2024-12-27T15:26:35+00:00",
+        "pr_number": 345
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "magik6k",
+        "closed_at": "2025-03-16T10:32:59+00:00",
+        "created_at": "2024-11-21T15:08:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2025-03-16T10:32:59+00:00",
+        "pr_number": 344
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "0WN463",
+        "closed_at": "2024-12-27T15:21:52+00:00",
+        "created_at": "2024-10-05T03:59:22+00:00",
+        "first_human_review_at": "2024-10-28T19:05:34+00:00",
+        "is_external": true,
+        "merged_at": "2024-12-27T15:21:52+00:00",
+        "pr_number": 342
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "0WN463",
+        "closed_at": null,
+        "created_at": "2024-10-05T03:35:06+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 341
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "0WN463",
+        "closed_at": null,
+        "created_at": "2024-09-28T04:04:54+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 339
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "tiaoxizhan",
+        "closed_at": "2024-12-27T15:28:19+00:00",
+        "created_at": "2024-09-13T08:52:39+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2024-12-27T15:28:19+00:00",
+        "pr_number": 338
+      }
+    ],
+    "start": "2024-09-13T08:52:39+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "9a3a08e21b82476d40785d052c519989b007a4e6772afef161ad2f631644a197",
+  "repo": {
+    "archived": false,
+    "default_branch": "main",
+    "ecosystem": "go",
+    "fork": false,
+    "license_spdx": "MIT",
+    "mirror_url": null,
+    "name": "qrcp",
+    "owner": "claudiodangelis"
+  },
+  "schema_version": 2
+}

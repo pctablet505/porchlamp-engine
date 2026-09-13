@@ -1,0 +1,441 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cerebroapp/cerebro/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "fetched_at": "2026-09-12T03:29:02.183868+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/downloads/npm__cerebro.json",
+      "source_hash": "40adbc7d531ae83387fcd12f24a09a6dd2e455f4fca6dc2366f484576ea3c9c8",
+      "value": 426,
+      "window_end": null,
+      "window_start": null
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-12T03:28:55.308563+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/cerebroapp__cerebro.json",
+      "source_hash": "ca1821169a52e3eed1fc5e8b599c3743224ae815fcfb3113ceee0998e5edbe9d",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "fetched_at": "2026-09-12T03:28:58.390829+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/cerebroapp__cerebro.json",
+      "source_hash": "a20d30b45969b3b674f22867e97402e216f2ce91a01eb473cf65e327a2900ff2",
+      "value": "DCO",
+      "window_end": null,
+      "window_start": null
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-12T03:28:56.001675+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/cerebroapp__cerebro.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cerebroapp/cerebro/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2026-09-11T01:26:42+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "TianHengZhuang",
+        "closed_at": null,
+        "created_at": "2026-09-11T01:26:42+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 755
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-09-10T07:09:21+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 754
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-09-03T15:57:43+00:00",
+        "first_human_review_at": "2026-09-04T18:29:27+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 753
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-09-03T15:56:50+00:00",
+        "created_at": "2026-09-02T22:46:13+00:00",
+        "first_human_review_at": "2026-09-03T15:56:44+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-03T15:56:50+00:00",
+        "pr_number": 752
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-09-03T15:56:24+00:00",
+        "created_at": "2026-09-02T20:28:28+00:00",
+        "first_human_review_at": "2026-09-03T15:56:12+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-03T15:56:24+00:00",
+        "pr_number": 751
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-11T18:24:44+00:00",
+        "created_at": "2026-08-11T16:35:05+00:00",
+        "first_human_review_at": "2026-08-11T18:24:35+00:00",
+        "is_external": true,
+        "merged_at": "2026-08-11T18:24:44+00:00",
+        "pr_number": 749
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-08-05T16:33:38+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 748
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-09-07T18:00:42+00:00",
+        "created_at": "2026-08-05T16:33:26+00:00",
+        "first_human_review_at": "2026-08-05T18:33:55+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-07T18:00:42+00:00",
+        "pr_number": 747
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-05T16:32:11+00:00",
+        "created_at": "2026-08-05T15:50:34+00:00",
+        "first_human_review_at": "2026-08-05T16:32:04+00:00",
+        "is_external": true,
+        "merged_at": "2026-08-05T16:32:11+00:00",
+        "pr_number": 746
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-26T14:48:38+00:00",
+        "created_at": "2026-07-25T12:49:44+00:00",
+        "first_human_review_at": "2026-07-26T14:19:51+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-26T14:48:38+00:00",
+        "pr_number": 745
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-25T12:07:50+00:00",
+        "created_at": "2026-07-25T08:58:22+00:00",
+        "first_human_review_at": "2026-07-25T12:07:41+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-25T12:07:50+00:00",
+        "pr_number": 744
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-25T11:59:26+00:00",
+        "created_at": "2026-07-25T08:58:17+00:00",
+        "first_human_review_at": "2026-07-25T11:59:20+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-25T11:59:26+00:00",
+        "pr_number": 743
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-09-07T18:03:21+00:00",
+        "created_at": "2026-07-25T08:58:06+00:00",
+        "first_human_review_at": "2026-09-07T18:00:37+00:00",
+        "is_external": true,
+        "merged_at": "2026-09-07T18:03:21+00:00",
+        "pr_number": 742
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-25T12:47:53+00:00",
+        "created_at": "2026-07-25T08:57:56+00:00",
+        "first_human_review_at": "2026-07-25T12:04:01+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-25T12:47:53+00:00",
+        "pr_number": 741
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-25T08:56:49+00:00",
+        "created_at": "2026-07-25T07:41:18+00:00",
+        "first_human_review_at": "2026-07-25T08:56:36+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-25T08:56:49+00:00",
+        "pr_number": 740
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-06-29T16:03:53+00:00",
+        "created_at": "2026-06-28T18:09:27+00:00",
+        "first_human_review_at": "2026-06-29T16:03:38+00:00",
+        "is_external": true,
+        "merged_at": "2026-06-29T16:03:53+00:00",
+        "pr_number": 739
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-06-23T01:53:46+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 738
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-06-10T15:18:59+00:00",
+        "created_at": "2026-06-10T03:44:12+00:00",
+        "first_human_review_at": "2026-06-10T15:18:51+00:00",
+        "is_external": true,
+        "merged_at": "2026-06-10T15:18:59+00:00",
+        "pr_number": 737
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "PeterDaveHello",
+        "closed_at": null,
+        "created_at": "2026-05-09T16:42:03+00:00",
+        "first_human_review_at": "2026-05-09T16:45:27+00:00",
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 735
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-05-09T16:59:17+00:00",
+        "created_at": "2026-05-09T10:31:29+00:00",
+        "first_human_review_at": "2026-05-09T16:52:41+00:00",
+        "is_external": true,
+        "merged_at": "2026-05-09T16:59:17+00:00",
+        "pr_number": 734
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-05-09T16:31:06+00:00",
+        "created_at": "2026-05-09T06:21:52+00:00",
+        "first_human_review_at": "2026-05-09T16:30:28+00:00",
+        "is_external": true,
+        "merged_at": "2026-05-09T16:31:06+00:00",
+        "pr_number": 733
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-05-09T10:30:27+00:00",
+        "created_at": "2026-05-09T02:18:27+00:00",
+        "first_human_review_at": "2026-05-09T10:30:16+00:00",
+        "is_external": true,
+        "merged_at": "2026-05-09T10:30:27+00:00",
+        "pr_number": 732
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-05-09T16:34:30+00:00",
+        "created_at": "2026-05-08T20:40:33+00:00",
+        "first_human_review_at": "2026-05-09T16:28:32+00:00",
+        "is_external": true,
+        "merged_at": "2026-05-09T16:34:30+00:00",
+        "pr_number": 731
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-04-10T19:48:30+00:00",
+        "created_at": "2026-04-10T03:26:12+00:00",
+        "first_human_review_at": "2026-04-10T15:56:53+00:00",
+        "is_external": true,
+        "merged_at": "2026-04-10T19:48:30+00:00",
+        "pr_number": 730
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-05T16:33:42+00:00",
+        "created_at": "2026-04-07T17:18:32+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 729
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-04-07T17:18:35+00:00",
+        "created_at": "2026-04-03T04:16:21+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 728
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-03-26T15:12:22+00:00",
+        "created_at": "2026-03-25T22:13:33+00:00",
+        "first_human_review_at": "2026-03-26T15:12:16+00:00",
+        "is_external": true,
+        "merged_at": "2026-03-26T15:12:22+00:00",
+        "pr_number": 727
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-03-20T18:45:44+00:00",
+        "created_at": "2026-03-19T17:45:50+00:00",
+        "first_human_review_at": "2026-03-20T18:36:27+00:00",
+        "is_external": true,
+        "merged_at": "2026-03-20T18:45:44+00:00",
+        "pr_number": 726
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-02-20T17:15:54+00:00",
+        "created_at": "2026-02-20T08:01:15+00:00",
+        "first_human_review_at": "2026-02-20T13:24:21+00:00",
+        "is_external": true,
+        "merged_at": "2026-02-20T17:15:54+00:00",
+        "pr_number": 725
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-02-22T16:14:48+00:00",
+        "created_at": "2026-02-07T06:17:52+00:00",
+        "first_human_review_at": "2026-02-07T13:59:50+00:00",
+        "is_external": true,
+        "merged_at": "2026-02-22T16:14:48+00:00",
+        "pr_number": 723
+      }
+    ],
+    "start": "2026-02-07T06:17:52+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "15b0daf36493f432e71750cbac0571151f1fa9cbcfedf43d951e4601c3eb6393",
+  "repo": {
+    "archived": false,
+    "default_branch": "master",
+    "ecosystem": "npm",
+    "fork": false,
+    "license_spdx": "MIT",
+    "mirror_url": null,
+    "name": "cerebro",
+    "owner": "cerebroapp"
+  },
+  "schema_version": 2
+}

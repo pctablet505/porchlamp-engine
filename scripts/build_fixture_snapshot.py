@@ -1,0 +1,499 @@
+#!/usr/bin/env python3
+"""Build ``tests/fixtures/snapshot_50``: a frozen v2 fixture snapshot of 50
+repositories, derived from the read-only ``~/Projects/cvi-scratch/sample-200``
+corpus (packet W2-8b, ``docs/v2/05-WORK-PLAN.md`` W2-8/W3-4).
+
+Deterministic and reproducible byte-for-byte: no wall clock, no random
+choice, no live network. ``as_of`` is read from the sample's own
+``manifest.json`` (``generated_at`` -- the sample-build tool's own frozen
+timestamp, never ``datetime.now()``). Repo selection is a pure function of
+the sample's manifest content (sorted repo keys plus the D-VER-4 anchor
+repos that are present in the sample); scoring is
+``cvi.core.pipeline.score_snapshot``, itself pure. The only I/O this script
+performs is reading the sample corpus and writing the fixture's own output
+files -- re-running it against the same sample produces byte-identical
+output (``tests/snapshot/test_reproduce_fixture.py`` and this packet's own
+``test_build_fixture_snapshot.py``-style rebuild-and-compare check assert
+that).
+
+Gate evidence (``cvi.core.gates.GateEvidence``) is not part of the
+FeatureBundle v2 contract (04 section 3) and no landed collector wires it
+yet (W1-9, ``docs/v2/05-WORK-PLAN.md``, is unimplemented as of this
+packet's base commit -- ``grep -rn "GateEvidence(" cvi/`` before this
+script returns nothing outside test files). This script therefore derives
+it itself, once, directly from the sample's raw envelopes
+(``raw/tree``, ``raw/commits_180d``, ``raw/github_meta``) -- a
+fixture-only, non-authoritative deriver kept local to this script (never
+added to ``cvi/derive`` or ``cvi/collect``, both out of this packet's
+ownership). See :func:`gate_evidence_for` for the exact, documented
+heuristics and their known limitations (recorded again in the handoff as
+COULD NOT VERIFY lines).
+
+Populations (D-NORM-2/3, stage 4) are frozen from the 50 selected repos
+only, via a two-pass bootstrap :func:`cvi.snapshot.populations.
+build_populations` needs but ``cvi.core.pipeline.score_snapshot`` does not
+provide (that function consumes an already-frozen ``PopulationSet`` -- see
+its own docstring): pass 1 scores every bundle against an *empty*
+population set purely to learn each bundle's stage-0/3 gate/rated status
+and its raw ECDF-input values (``cvi.core.engine``'s own documented,
+non-raising ``no_population`` fallback makes this safe); pass 2 builds the
+real ``PopulationSet`` from pass 1's rated, gate-eligible repos and scores
+every bundle again, for real, through ``score_snapshot``. See
+:func:`build_fixture`.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+from cvi.collect.commits import CommitActor, is_bot
+from cvi.core import constants_v2
+from cvi.core.gates import GateEvidence
+from cvi.core.models import (
+    FeatureBundle,
+    Measured,
+    canonical_json,
+    sha256_hex,
+)
+from cvi.core.pipeline import RepoKey, ScoredSnapshot, repo_key, score_snapshot
+from cvi.derive.bundle import dump_bundle, load_bundle, write_bundle
+from cvi.snapshot.populations import Population, PopulationMember, PopulationSet, build_populations, write_populations
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SAMPLE_ROOT = Path.home() / "Projects" / "cvi-scratch" / "sample-200"
+DEFAULT_OUT_DIR = REPO_ROOT / "tests" / "fixtures" / "snapshot_50"
+FIXTURE_SIZE = 50
+SNAPSHOT_ID = "snapshot_50"
+
+#: D-VER-4 anchor repos (``cvi/audit/anchors.py``'s ``ANCHOR_RELATIONS``):
+#: force-included whenever present in the sample, ahead of the plain
+#: alphabetical fill, so the anchor tests can state which anchors this
+#: fixture actually carries (the packet's own instruction).
+ANCHOR_REPO_KEYS: tuple[RepoKey, ...] = (
+    "torvalds/linux",
+    "gcc-mirror/gcc",
+    "kubernetes/kubernetes",
+    "vllm-project/vllm",
+    "keras-team/keras-hub",
+)
+
+#: The three D-NORM-3 ECDF-normalised input ids (02 section 4, 1.5/2.1/2.3).
+ECDF_INPUT_IDS: tuple[str, ...] = ("ttm_p90_hours", "dependents_deduped", "downloads_monthly")
+
+#: D-GATE-1 recognised build/package manifests (02 section 2), exact
+#: basename match plus the two suffix rules the design text also names.
+RECOGNIZED_MANIFEST_BASENAMES: frozenset[str] = frozenset({
+    "pyproject.toml", "setup.py", "setup.cfg", "package.json", "Cargo.toml",
+    "go.mod", "pom.xml", "CMakeLists.txt", "Makefile", "meson.build",
+    "configure.ac", "mix.exs", "Gemfile",
+})
+#: D-GATE-1 depth bound: at most this many "/" separators from the repo root.
+MANIFEST_MAX_DEPTH = 2
+
+
+def _has_recognized_manifest(paths: Sequence[str]) -> bool:
+    """D-GATE-1: a recognised manifest at tree depth <= 2 anywhere in
+    ``paths`` (a flat list of repo-relative file paths, as the sample's
+    ``raw/tree`` envelopes record them)."""
+    for path in paths:
+        if path.count("/") > MANIFEST_MAX_DEPTH:
+            continue
+        base = path.rsplit("/", 1)[-1]
+        if base in RECOGNIZED_MANIFEST_BASENAMES or base.endswith(".cabal") or base.startswith("build.gradle"):
+            return True
+    return False
+
+
+def _has_license_file(paths: Sequence[str]) -> bool:
+    """D-GATE-3's "look for a LICENSE* file" fallback, root-level only.
+
+    Recognises both the literal ``LICENSE*`` pattern the design text names
+    and the extremely common ``COPYING`` synonym (the file GNU-licensed
+    projects -- ``torvalds/linux`` included -- use instead): this is this
+    script's own documented interpretation, since ``cvi.core.gates`` takes
+    the bool as a caller-supplied fact and defines no file-detection rule of
+    its own to import. Flagged as a finding: a landed W1-9 collector should
+    codify (or explicitly reject) this ``COPYING`` inclusion, not leave it
+    to each caller to decide independently."""
+    for path in paths:
+        if "/" in path:
+            continue
+        upper = path.upper()
+        if upper.startswith("LICENSE") or upper.startswith("COPYING"):
+            return True
+    return False
+
+
+#: D-GATE-6 off-platform marker (02 section 2): only the tree-path signal is
+#: checked here (``Documentation/process/submitting-patches*``). The
+#: design's other two markers ("MAINTAINERS with L: mailing-list lines",
+#: "README says patches go to a list/Gerrit/Phabricator") need file
+#: *content*, which the sample's ``raw/tree`` envelope does not carry (path
+#: listings only) -- COULD NOT VERIFY, recorded in the handoff, not guessed.
+def _has_off_platform_marker(paths: Sequence[str]) -> bool:
+    return any("documentation/process/submitting-patches" in path.lower() for path in paths)
+
+
+def _tree_paths(raw_root: Path, basename: str) -> list[str]:
+    path = raw_root / "tree" / f"{basename}.json"
+    if not path.is_file():
+        return []
+    document = json.loads(path.read_text(encoding="utf-8"))
+    data = document.get("data") if isinstance(document, Mapping) else None
+    paths = data.get("paths") if isinstance(data, Mapping) else None
+    return [p for p in paths if isinstance(p, str)] if isinstance(paths, list) else []
+
+
+def _vitality_commit_count(raw_root: Path, basename: str) -> int | None:
+    """D-GATE-4: non-bot commit count over the sample's own ``commits_180d``
+    envelope (already the trailing-180-day window -- D-IN-4's own window for
+    this gate). ``None`` (UNDECIDED, never a guessed 0) when the envelope is
+    absent."""
+    path = raw_root / "commits_180d" / f"{basename}.json"
+    if not path.is_file():
+        return None
+    document = json.loads(path.read_text(encoding="utf-8"))
+    data = document.get("data") if isinstance(document, Mapping) else None
+    if not isinstance(data, list):
+        return None
+    count = 0
+    for entry in data:
+        if not isinstance(entry, Mapping):
+            continue
+        login = entry.get("author_login") or ""
+        actor = CommitActor(login=str(login), email="", actor_type="")
+        if not is_bot(actor):
+            count += 1
+    return count
+
+
+def gate_evidence_for(raw_root: Path, basename: str) -> GateEvidence:
+    """Derive one repo's :class:`~cvi.core.gates.GateEvidence` from the
+    sample's raw ``tree``/``commits_180d`` envelopes (module docstring:
+    fixture-only, not a landed collector). ``fork_parent_in_universe`` stays
+    ``None`` (undecided): every v1-loaded bundle's ``RepoIdentity.fork`` is
+    hardcoded ``False`` by ``cvi.derive.bundle._load_v1`` (that loader never
+    observes a real fork flag), so D-GATE-2's fork branch never reads this
+    field for any repo this script scores -- ``None`` is correct, not a
+    stand-in for missing data."""
+    paths = _tree_paths(raw_root, basename)
+    return GateEvidence(
+        manifest_found=_has_recognized_manifest(paths) if paths else None,
+        is_curated_anchor=False,
+        license_file_present=_has_license_file(paths) if paths else None,
+        fork_parent_in_universe=None,
+        vitality_commits_180d=_vitality_commit_count(raw_root, basename),
+        off_platform_marker=_has_off_platform_marker(paths) if paths else None,
+    )
+
+
+def _basename_for(manifest_repo_entry: Mapping[str, Any]) -> str | None:
+    derived = manifest_repo_entry.get("files", {}).get("derived")
+    if not isinstance(derived, Mapping):
+        return None
+    path = derived.get("path")
+    if not isinstance(path, str):
+        return None
+    return Path(path).stem  # "<owner>__<name>"
+
+
+def _first_awesome_repo(all_keys: Sequence[RepoKey]) -> list[RepoKey]:
+    """D-VER-4's ``awesome_non_software`` relation names no single repo
+    identity (``cvi.audit.anchors._check_awesome`` scans every repo whose
+    name starts with "awesome" broadly) -- but it is still one of the
+    :data:`~cvi.audit.anchors.ANCHOR_RELATIONS` this fixture should give a
+    fair chance to pass rather than fail it by omission alone. The
+    alphabetically-first ``awesome*`` repo the sample contains (if any) is
+    force-included the same way the five identity anchors are."""
+    matches = [key for key in all_keys if key.rsplit("/", 1)[-1].lower().startswith("awesome")]
+    return matches[:1]
+
+
+def select_fixture_repo_keys(manifest: Mapping[str, Any], size: int = FIXTURE_SIZE) -> list[RepoKey]:
+    """Pick ``size`` repo keys deterministically (sorted lowercase
+    ``owner/name``), force-including every :data:`ANCHOR_REPO_KEYS` entry
+    present in the sample plus one ``awesome*`` repo (:func:`_first_awesome_repo`)
+    ahead of the plain alphabetical fill, so the fixture always exercises
+    every D-VER-4 anchor the sample corpus can possibly supply (the
+    packet's own instruction)."""
+    all_keys = sorted(
+        (entry["repo"] for entry in manifest["repos"] if _basename_for(entry) is not None),
+        key=str.lower,
+    )
+    present_anchors = [key for key in ANCHOR_REPO_KEYS if key in all_keys] + _first_awesome_repo(all_keys)
+    selected: list[RepoKey] = list(present_anchors)
+    seen = set(selected)
+    for key in all_keys:
+        if len(selected) >= size:
+            break
+        if key in seen:
+            continue
+        selected.append(key)
+        seen.add(key)
+    return sorted(selected, key=str.lower)
+
+
+def _bundle_raw_hash(bundle: FeatureBundle) -> str:
+    """sha256 of the whole bundle document (03 section 5's ``raw_hash``:
+    "hash of its bundle" -- distinct from ``FeatureBundle.provenance_hash``,
+    which covers only the referenced envelope hashes; ``cvi.core.engine.
+    score``'s own docstring recommends exactly this)."""
+    return sha256_hex(canonical_json(dump_bundle(bundle)))
+
+
+def _empty_populations(snapshot_id: str) -> PopulationSet:
+    return PopulationSet(
+        snapshot_id=snapshot_id, benchmark_version=constants_v2.BENCHMARK_VERSION,
+        constants_hash=constants_v2.CONSTANTS_HASH, populations=(),
+    )
+
+
+def _population_member(bundle: FeatureBundle, pass1_gate, pass1_rated: bool) -> PopulationMember:
+    measured: dict[str, float] = {}
+    for input_id in ECDF_INPUT_IDS:
+        value = bundle.inputs[input_id]
+        if isinstance(value, Measured) and isinstance(value.value, (int, float)) and not isinstance(value.value, bool):
+            measured[input_id] = float(value.value)
+    return PopulationMember(
+        key=repo_key(bundle), ecosystem=bundle.repo.ecosystem, gate=pass1_gate, rated=pass1_rated, measured=measured,
+    )
+
+
+@dataclass(frozen=True)
+class FixtureBuildResult:
+    """Everything :func:`build_fixture` computed, for the caller (``main``
+    or a test) to inspect and/or write out."""
+
+    as_of: datetime
+    bundles: list[FeatureBundle]
+    gate_evidence: dict[RepoKey, GateEvidence]
+    raw_hashes: dict[RepoKey, str]
+    populations: PopulationSet
+    population_fallback_params: list[str]
+    snapshot: ScoredSnapshot
+    anchors_present: list[RepoKey]
+    anchors_absent: list[RepoKey]
+
+
+def build_fixture(sample_root: Path, *, size: int = FIXTURE_SIZE, snapshot_id: str = SNAPSHOT_ID) -> FixtureBuildResult:
+    """Select, load, gate, freeze populations for, and score the fixture --
+    everything short of writing files (kept separate so a test can call
+    this once and compare two independent runs without touching disk)."""
+    manifest = json.loads((sample_root / "manifest.json").read_text(encoding="utf-8"))
+    as_of = datetime.fromisoformat(str(manifest["generated_at"]).replace("Z", "+00:00"))
+
+    selected_keys = select_fixture_repo_keys(manifest, size)
+    entries_by_key = {entry["repo"]: entry for entry in manifest["repos"]}
+
+    bundles: list[FeatureBundle] = []
+    gate_evidence: dict[RepoKey, GateEvidence] = {}
+    raw_hashes: dict[RepoKey, str] = {}
+    for key in selected_keys:
+        entry = entries_by_key[key]
+        basename = _basename_for(entry)
+        assert basename is not None, key  # select_fixture_repo_keys already filtered these out
+        derived_path = sample_root / entry["files"]["derived"]["path"]
+        bundle = load_bundle(derived_path, raw_root=sample_root / "raw")
+        bundles.append(bundle)
+        gate_evidence[key] = gate_evidence_for(sample_root / "raw", basename)
+        raw_hashes[key] = _bundle_raw_hash(bundle)
+
+    # Pass 1: population-free scoring, purely to learn gate/rated status and
+    # each bundle's raw ECDF-input values (module docstring).
+    pass1 = score_snapshot(
+        bundles, _empty_populations(snapshot_id), snapshot_id=snapshot_id, as_of=as_of,
+        gate_evidence=gate_evidence, raw_hashes=raw_hashes,
+    )
+    pass1_by_key = {repo_key_of(record): record for record in pass1.records}
+    members = [
+        _population_member(bundle, pass1_by_key[repo_key(bundle)].gate, pass1_by_key[repo_key(bundle)].rated)
+        for bundle in bundles
+    ]
+    populations = build_populations(members, snapshot_id)
+    fallback_params = sorted({entry.param for entry in populations.populations if entry.fallback})
+
+    # Pass 2: the real, final scoring with frozen populations.
+    snapshot = score_snapshot(
+        bundles, populations, snapshot_id=snapshot_id, as_of=as_of,
+        gate_evidence=gate_evidence, raw_hashes=raw_hashes,
+    )
+
+    anchors_present = [key for key in ANCHOR_REPO_KEYS if key in selected_keys]
+    anchors_absent = [key for key in ANCHOR_REPO_KEYS if key not in selected_keys]
+
+    return FixtureBuildResult(
+        as_of=as_of, bundles=bundles, gate_evidence=gate_evidence, raw_hashes=raw_hashes,
+        populations=populations, population_fallback_params=fallback_params, snapshot=snapshot,
+        anchors_present=anchors_present, anchors_absent=anchors_absent,
+    )
+
+
+def repo_key_of(record: Any) -> RepoKey:
+    return f"{record.repo.owner}/{record.repo.name}"
+
+
+def _tier_or_none(record: Any) -> str | None:
+    return record.tier
+
+
+def write_fixture(result: FixtureBuildResult, out_dir: Path) -> None:
+    """Write the fixture's on-disk shape: ``bundles/<owner>__<name>.json``,
+    ``populations.json``, ``manifest.json``, ``expected.json``."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    bundles_dir = out_dir / "bundles"
+    bundles_dir.mkdir(parents=True, exist_ok=True)
+    for bundle in result.bundles:
+        basename = f"{bundle.repo.owner}__{bundle.repo.name}.json"
+        write_bundle(bundle, bundles_dir / basename)
+
+    write_populations(result.populations, out_dir / "populations.json")
+
+    repos_manifest = [
+        {
+            "owner": bundle.repo.owner,
+            "name": bundle.repo.name,
+            "ecosystem": bundle.repo.ecosystem,
+            "bundle_file": f"bundles/{bundle.repo.owner}__{bundle.repo.name}.json",
+            "raw_hash": result.raw_hashes[repo_key(bundle)],
+            "gate_evidence": {
+                "manifest_found": result.gate_evidence[repo_key(bundle)].manifest_found,
+                "is_curated_anchor": result.gate_evidence[repo_key(bundle)].is_curated_anchor,
+                "license_file_present": result.gate_evidence[repo_key(bundle)].license_file_present,
+                "fork_parent_in_universe": result.gate_evidence[repo_key(bundle)].fork_parent_in_universe,
+                "vitality_commits_180d": result.gate_evidence[repo_key(bundle)].vitality_commits_180d,
+                "off_platform_marker": result.gate_evidence[repo_key(bundle)].off_platform_marker,
+            },
+        }
+        for bundle in sorted(result.bundles, key=lambda b: (b.repo.owner.lower(), b.repo.name.lower()))
+    ]
+    manifest_doc = {
+        "document": "cvi-fixture-snapshot-manifest",
+        "version": 1,
+        "snapshot_id": result.snapshot.snapshot_id,
+        "as_of": result.as_of.isoformat(),
+        "benchmark_version": result.snapshot.benchmark_version,
+        "constants_hash": result.snapshot.constants_hash,
+        "repo_count": len(result.bundles),
+        "anchors_present": result.anchors_present,
+        "anchors_absent": result.anchors_absent,
+        "population_fallback_params": result.population_fallback_params,
+        "repos": repos_manifest,
+    }
+    (out_dir / "manifest.json").write_text(
+        json.dumps(manifest_doc, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    expected_doc = {
+        "document": "cvi-fixture-snapshot-expected",
+        "version": 1,
+        "records_hash": result.snapshot.records_hash,
+        "counts": {
+            "rated": result.snapshot.counts.rated,
+            "gated": result.snapshot.counts.gated,
+            "unrated": result.snapshot.counts.unrated,
+            "persona_visible": dict(result.snapshot.counts.persona_visible),
+        },
+        "rank_order": [f"{r.repo.owner}/{r.repo.name}" for r in result.snapshot.records],
+        "records": [
+            {
+                "repo": f"{r.repo.owner}/{r.repo.name}",
+                "eligible": r.gate.eligible,
+                "gate_reason": r.gate.reason,
+                "routed": r.gate.routed,
+                "rated": r.rated,
+                "unrated_reason": r.unrated_reason,
+                "composite": r.composite,
+                "coverage": round(r.coverage, 6),
+                "tier": _tier_or_none(r),
+                "rank": r.rank,
+                "tie_group": r.tie_group,
+            }
+            for r in result.snapshot.records
+        ],
+    }
+    (out_dir / "expected.json").write_text(
+        json.dumps(expected_doc, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+@dataclass(frozen=True)
+class FrozenFixture:
+    """A previously-written fixture, read back from disk (the counterpart
+    to :func:`write_fixture`): everything a test needs to call
+    ``cvi.core.pipeline.score_snapshot`` again without touching the
+    read-only sample corpus or re-running the two-pass population
+    bootstrap -- the fixture's own ``populations.json`` is already the
+    frozen, final answer."""
+
+    snapshot_id: str
+    as_of: datetime
+    bundles: list[FeatureBundle]
+    populations: PopulationSet
+    gate_evidence: dict[RepoKey, GateEvidence]
+    raw_hashes: dict[RepoKey, str]
+    expected: dict[str, Any]
+
+
+def load_frozen_fixture(out_dir: Path) -> FrozenFixture:
+    """Read back a fixture :func:`write_fixture` wrote: bundles, the frozen
+    ``PopulationSet``, gate evidence and raw hashes from ``manifest.json``,
+    and ``expected.json`` for a caller to compare against. Pure I/O, no
+    scoring -- the caller (a test) calls ``score_snapshot`` itself."""
+    manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
+    expected = json.loads((out_dir / "expected.json").read_text(encoding="utf-8"))
+    as_of = datetime.fromisoformat(manifest["as_of"])
+
+    bundles: list[FeatureBundle] = []
+    gate_evidence: dict[RepoKey, GateEvidence] = {}
+    raw_hashes: dict[RepoKey, str] = {}
+    for entry in manifest["repos"]:
+        bundle = load_bundle(out_dir / entry["bundle_file"])
+        bundles.append(bundle)
+        key = f"{entry['owner']}/{entry['name']}"
+        gate_evidence[key] = GateEvidence(**entry["gate_evidence"])
+        raw_hashes[key] = entry["raw_hash"]
+
+    pop_doc = json.loads((out_dir / "populations.json").read_text(encoding="utf-8"))
+    populations = PopulationSet(
+        snapshot_id=pop_doc["snapshot_id"],
+        benchmark_version=pop_doc["benchmark_version"],
+        constants_hash=pop_doc["constants_hash"],
+        populations=tuple(
+            Population(entry["ecosystem"], entry["param"], entry["n"], entry["fallback"], entry["values"])
+            for entry in pop_doc["populations"]
+        ),
+    )
+    return FrozenFixture(
+        snapshot_id=manifest["snapshot_id"], as_of=as_of, bundles=bundles, populations=populations,
+        gate_evidence=gate_evidence, raw_hashes=raw_hashes, expected=expected,
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sample-root", type=Path, default=DEFAULT_SAMPLE_ROOT)
+    parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
+    parser.add_argument("--size", type=int, default=FIXTURE_SIZE)
+    parser.add_argument("--snapshot-id", default=SNAPSHOT_ID)
+    args = parser.parse_args(argv)
+
+    result = build_fixture(args.sample_root, size=args.size, snapshot_id=args.snapshot_id)
+    write_fixture(result, args.out_dir)
+
+    print(f"wrote {len(result.bundles)} bundles to {args.out_dir}")
+    print(f"as_of: {result.as_of.isoformat()}")
+    print(f"anchors present: {result.anchors_present}")
+    print(f"anchors absent: {result.anchors_absent}")
+    print(f"population_fallback params: {result.population_fallback_params}")
+    print(f"counts: rated={result.snapshot.counts.rated} gated={result.snapshot.counts.gated} "
+          f"unrated={result.snapshot.counts.unrated}")
+    print(f"records_hash: {result.snapshot.records_hash}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

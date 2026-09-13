@@ -1,0 +1,771 @@
+{
+  "anchors_absent": [
+    "gcc-mirror/gcc",
+    "kubernetes/kubernetes",
+    "vllm-project/vllm",
+    "keras-team/keras-hub"
+  ],
+  "anchors_present": [
+    "torvalds/linux"
+  ],
+  "as_of": "2026-09-12T05:26:57.089407+00:00",
+  "benchmark_version": "2.0.0-dev",
+  "constants_hash": "9cc0048e0a19443b62024630bfdc289b86de9168be064d360af6b0daa1b533e4",
+  "document": "cvi-fixture-snapshot-manifest",
+  "population_fallback_params": [],
+  "repo_count": 50,
+  "repos": [
+    {
+      "bundle_file": "bundles/0voice__interview_internal_reference.json",
+      "ecosystem": "pypi",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": false,
+        "manifest_found": false,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "interview_internal_reference",
+      "owner": "0voice",
+      "raw_hash": "cb17512e9a6a984cfa1e3d444daaf9736f886b0f953c44eb84abbf40de48d93f"
+    },
+    {
+      "bundle_file": "bundles/1995parham__github-do-not-ban-us.json",
+      "ecosystem": "npm",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": false,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "github-do-not-ban-us",
+      "owner": "1995parham",
+      "raw_hash": "e174c209041bd669298af8cc85858197aed04e816d499cb56263e10fa29e6e2f"
+    },
+    {
+      "bundle_file": "bundles/a-h__templ.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 44
+      },
+      "name": "templ",
+      "owner": "a-h",
+      "raw_hash": "02006c036eedb0411c1c2c805be0a95028eb66144ab5813a4e964c0ef825ee8d"
+    },
+    {
+      "bundle_file": "bundles/abel533__Mapper.json",
+      "ecosystem": "maven",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 2
+      },
+      "name": "Mapper",
+      "owner": "abel533",
+      "raw_hash": "bb8d268ccfb727f0ef27634f853d05413d00e0c24e56087d58e1c63db288d4cc"
+    },
+    {
+      "bundle_file": "bundles/abiosoft__colima.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 25
+      },
+      "name": "colima",
+      "owner": "abiosoft",
+      "raw_hash": "7fe2cb3b5638022219fb4b3f35d1fc7db74eda2c3f838aa994ce42daa50d8f73"
+    },
+    {
+      "bundle_file": "bundles/aFarkas__html5shiv.json",
+      "ecosystem": "npm",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": false,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "html5shiv",
+      "owner": "aFarkas",
+      "raw_hash": "6251d26653851ce71b74d7b288aa64698b49533007dea39ab8f57067f8652fbc"
+    },
+    {
+      "bundle_file": "bundles/ai-dynamo__dynamo.json",
+      "ecosystem": "crates",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 299
+      },
+      "name": "dynamo",
+      "owner": "ai-dynamo",
+      "raw_hash": "2e9f798eef70043c9e7bf76201cf5bb181a6b238a7cbce48dde0191945cbfcf3"
+    },
+    {
+      "bundle_file": "bundles/airbnb__epoxy.json",
+      "ecosystem": "maven",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "epoxy",
+      "owner": "airbnb",
+      "raw_hash": "7945b5f6f17c609cb020eabc98d0608b3b4893b9e94fa8b898d29ff9f36e3392"
+    },
+    {
+      "bundle_file": "bundles/aleju__imgaug.json",
+      "ecosystem": "pypi",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "imgaug",
+      "owner": "aleju",
+      "raw_hash": "8ae9daf112f577217048bce31d70547b5db1c52c31a7fc29a6608a6e2c8cb351"
+    },
+    {
+      "bundle_file": "bundles/alexellis__k3sup.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 2
+      },
+      "name": "k3sup",
+      "owner": "alexellis",
+      "raw_hash": "77143f032bd3bef944ea926086e3d6b31b00ee6d3e164a2d4ec3b8dcc1e7b2ee"
+    },
+    {
+      "bundle_file": "bundles/alibaba__AndFix.json",
+      "ecosystem": "systems",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "AndFix",
+      "owner": "alibaba",
+      "raw_hash": "1689cbde31f645362d2600a0c0bd7146dcbf08fabad3193f6e56f22c3399e809"
+    },
+    {
+      "bundle_file": "bundles/alibaba__canal.json",
+      "ecosystem": "maven",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 12
+      },
+      "name": "canal",
+      "owner": "alibaba",
+      "raw_hash": "48c8339dfd39ff039bd2c1f4c9bf1984fd1407141fc5f15bf27b95b66ff761f0"
+    },
+    {
+      "bundle_file": "bundles/alibaba__easyexcel.json",
+      "ecosystem": "maven",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "easyexcel",
+      "owner": "alibaba",
+      "raw_hash": "e177bf216247191b3551a04e904f531bc3d6fe2dc1b30dcdfa427b668fc17033"
+    },
+    {
+      "bundle_file": "bundles/angular__angular.json",
+      "ecosystem": "npm",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 300
+      },
+      "name": "angular",
+      "owner": "angular",
+      "raw_hash": "ac3d4956a488494e2f6180b8856afc3abd94dd000c82da5fca95e5b0cd028a30"
+    },
+    {
+      "bundle_file": "bundles/anthropics__claude-code.json",
+      "ecosystem": "pypi",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": false,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 206
+      },
+      "name": "claude-code",
+      "owner": "anthropics",
+      "raw_hash": "3c939ba02e8a79ecc84044b263b4dae706eda823e227dc68aee94d4bfc1de359"
+    },
+    {
+      "bundle_file": "bundles/anthropics__skills.json",
+      "ecosystem": "pypi",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": false,
+        "manifest_found": false,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 32
+      },
+      "name": "skills",
+      "owner": "anthropics",
+      "raw_hash": "c4a6dc96ffa92ca96fdd56e141f7e4b1683b3fb2775ed49998cb287890f07e30"
+    },
+    {
+      "bundle_file": "bundles/apache__cassandra.json",
+      "ecosystem": "maven",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 300
+      },
+      "name": "cassandra",
+      "owner": "apache",
+      "raw_hash": "9fa2bf8288aa96a0fd9343b257e8e42c17d6cce6be848ec190f89ed16d502fca"
+    },
+    {
+      "bundle_file": "bundles/apache__datafusion.json",
+      "ecosystem": "crates",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 281
+      },
+      "name": "datafusion",
+      "owner": "apache",
+      "raw_hash": "8de221f3944ec96c7e06d4cdef17aa7f8c42d79ef10af21fe03fce7ac6eb76e9"
+    },
+    {
+      "bundle_file": "bundles/apache__thrift.json",
+      "ecosystem": "systems",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 273
+      },
+      "name": "thrift",
+      "owner": "apache",
+      "raw_hash": "188609b5d027630d2fed8979d7d5002a3df697eaa71da993f70272381a36f016"
+    },
+    {
+      "bundle_file": "bundles/apple__darwin-xnu.json",
+      "ecosystem": "systems",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "darwin-xnu",
+      "owner": "apple",
+      "raw_hash": "2481bedafde5b41b7ac8adff238eb8544b052ce32ad17e2718dac7931ca5f65a"
+    },
+    {
+      "bundle_file": "bundles/argoproj__argo-workflows.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 126
+      },
+      "name": "argo-workflows",
+      "owner": "argoproj",
+      "raw_hash": "5220c65f1fb2d997e564535676d4cbf3a0c5f01f9b858eb5fedc60baadff735d"
+    },
+    {
+      "bundle_file": "bundles/asdf-vm__asdf.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 34
+      },
+      "name": "asdf",
+      "owner": "asdf-vm",
+      "raw_hash": "0179db800e41f802d406eab0207b8f538d0e9f59c25b0797bda1f262d9a78547"
+    },
+    {
+      "bundle_file": "bundles/AtsushiSakai__PythonRobotics.json",
+      "ecosystem": "pypi",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "PythonRobotics",
+      "owner": "AtsushiSakai",
+      "raw_hash": "c1471a300dfb4c42ea823f2e1c12d898a6700a0fa25f753606f0d49bd2cd5153"
+    },
+    {
+      "bundle_file": "bundles/babysor__MockingBird.json",
+      "ecosystem": "pypi",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "MockingBird",
+      "owner": "babysor",
+      "raw_hash": "0120b584a22ea366b21ee3cfee5317a612a26bef5541a7771db5be8c8241b4bb"
+    },
+    {
+      "bundle_file": "bundles/be5invis__Sarasa-Gothic.json",
+      "ecosystem": "npm",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 17
+      },
+      "name": "Sarasa-Gothic",
+      "owner": "be5invis",
+      "raw_hash": "bee01bbd8a02aff45deab86989702c059b903449bbaf8337bd4606be66f2d23a"
+    },
+    {
+      "bundle_file": "bundles/blender__blender.json",
+      "ecosystem": "systems",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 300
+      },
+      "name": "blender",
+      "owner": "blender",
+      "raw_hash": "5ef6e8019a651fddab80397be60783c59077c30176d12fbff88b72f7d188c9a6"
+    },
+    {
+      "bundle_file": "bundles/boyter__scc.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 111
+      },
+      "name": "scc",
+      "owner": "boyter",
+      "raw_hash": "0d20feb2f62ae8eee6011f2ac627251360363df009e8565093a95775f2e95e68"
+    },
+    {
+      "bundle_file": "bundles/brunodev85__winlator.json",
+      "ecosystem": "systems",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 16
+      },
+      "name": "winlator",
+      "owner": "brunodev85",
+      "raw_hash": "04424171a2be94e633f869c2d7b6f763a2d831e5c4282e1a0bc62b4a5e603794"
+    },
+    {
+      "bundle_file": "bundles/bytecodealliance__rustix.json",
+      "ecosystem": "crates",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 8
+      },
+      "name": "rustix",
+      "owner": "bytecodealliance",
+      "raw_hash": "a9b5661fd8907883c1886d877e343abb5403aa3f7fda36b902e2cb3116c339bb"
+    },
+    {
+      "bundle_file": "bundles/cadence-workflow__cadence.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 297
+      },
+      "name": "cadence",
+      "owner": "cadence-workflow",
+      "raw_hash": "6224aa533d6439bfb6f00020816afbc174d4748b11e22d900911fc8af539bc51"
+    },
+    {
+      "bundle_file": "bundles/ceph__ceph.json",
+      "ecosystem": "systems",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 300
+      },
+      "name": "ceph",
+      "owner": "ceph",
+      "raw_hash": "520e92a64790115c2cb8dda5ee27fab3ea78bc42bffef67335521bd26985d666"
+    },
+    {
+      "bundle_file": "bundles/cerebroapp__cerebro.json",
+      "ecosystem": "npm",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 2
+      },
+      "name": "cerebro",
+      "owner": "cerebroapp",
+      "raw_hash": "2cfdeee044adb4bb828dcf9576ac46e14861e02bc9ed3599f719dd900ebb80be"
+    },
+    {
+      "bundle_file": "bundles/cft0808__edict.json",
+      "ecosystem": "pypi",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 71
+      },
+      "name": "edict",
+      "owner": "cft0808",
+      "raw_hash": "0b389e17d48322a344c59a8523cc2e4faf186736f2eb801526bd8ac81f80cd07"
+    },
+    {
+      "bundle_file": "bundles/chai2010__advanced-go-programming-book.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "advanced-go-programming-book",
+      "owner": "chai2010",
+      "raw_hash": "3f5db71710cdbc40c6611a74965434f57de8dfcaf354622044754bdafb662e0a"
+    },
+    {
+      "bundle_file": "bundles/charmbracelet__lipgloss.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 16
+      },
+      "name": "lipgloss",
+      "owner": "charmbracelet",
+      "raw_hash": "f7b2fefa035decd5ae8563eca6039896188c5646b8caa2c382227e4e7e195e7c"
+    },
+    {
+      "bundle_file": "bundles/chillzhuang__SpringBlade.json",
+      "ecosystem": "maven",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 6
+      },
+      "name": "SpringBlade",
+      "owner": "chillzhuang",
+      "raw_hash": "2e223dc7b21158085ebaca893a6a1849b4a62dfe3e6e7571da4119bf69751ddb"
+    },
+    {
+      "bundle_file": "bundles/claudiodangelis__qrcp.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "qrcp",
+      "owner": "claudiodangelis",
+      "raw_hash": "35eebe693707baa84f55540278258551415404c04045cbe31ffb6cbf3cbce80c"
+    },
+    {
+      "bundle_file": "bundles/cloudnative-pg__cloudnative-pg.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 214
+      },
+      "name": "cloudnative-pg",
+      "owner": "cloudnative-pg",
+      "raw_hash": "0731f578791c1d3de7caa5c53958ddfc1bacc0cb37aabb10f7f90b57ba3516f0"
+    },
+    {
+      "bundle_file": "bundles/cockroachdb__cockroach.json",
+      "ecosystem": "go",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 196
+      },
+      "name": "cockroach",
+      "owner": "cockroachdb",
+      "raw_hash": "0b1a6a6127db04f1b7a67f45cd32cccf4796fed15e9d6057c074b03b091762f8"
+    },
+    {
+      "bundle_file": "bundles/cymcsg__UltimateRecyclerView.json",
+      "ecosystem": "maven",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "UltimateRecyclerView",
+      "owner": "cymcsg",
+      "raw_hash": "99e0b6dab47980791a1a9fd6af6c152a8c4744792269afc87e753134afb61002"
+    },
+    {
+      "bundle_file": "bundles/daniulive__SmarterStreaming.json",
+      "ecosystem": "maven",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": false,
+        "manifest_found": false,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 1
+      },
+      "name": "SmarterStreaming",
+      "owner": "daniulive",
+      "raw_hash": "4f0ad8c8c6563344e656ef53f0fd014f3fb63474bd6b64a4d9175259c3a01048"
+    },
+    {
+      "bundle_file": "bundles/deeplethe__utopia.json",
+      "ecosystem": "crates",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 300
+      },
+      "name": "utopia",
+      "owner": "deeplethe",
+      "raw_hash": "204e3300bcc9d78eeb970d8dd03ddd7edb776f30ebc6fa0cfa727aed97eb87e1"
+    },
+    {
+      "bundle_file": "bundles/defunkt__jquery-pjax.json",
+      "ecosystem": "npm",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 0
+      },
+      "name": "jquery-pjax",
+      "owner": "defunkt",
+      "raw_hash": "8ec26c18e8d2934783110a81074f2b5a151c656cd072a6f0726ed8431082a425"
+    },
+    {
+      "bundle_file": "bundles/drogonframework__drogon.json",
+      "ecosystem": "systems",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 56
+      },
+      "name": "drogon",
+      "owner": "drogonframework",
+      "raw_hash": "0af4041dda5f2bf068395ae9479486579280567647aca826c3993f0f890cb410"
+    },
+    {
+      "bundle_file": "bundles/dtolnay__anyhow.json",
+      "ecosystem": "crates",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 13
+      },
+      "name": "anyhow",
+      "owner": "dtolnay",
+      "raw_hash": "826537ba4b195714c6e9a1c4b48a6fcdbc0a6a52d357129ca0e7c3a6b83f4a3d"
+    },
+    {
+      "bundle_file": "bundles/dtolnay__ryu.json",
+      "ecosystem": "crates",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 4
+      },
+      "name": "ryu",
+      "owner": "dtolnay",
+      "raw_hash": "efa1db3ff001c73c411b2979728be5dc01fd544f05b39462b24ce5f5e732128a"
+    },
+    {
+      "bundle_file": "bundles/duckdb__duckdb.json",
+      "ecosystem": "systems",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 300
+      },
+      "name": "duckdb",
+      "owner": "duckdb",
+      "raw_hash": "6b07301c705e4622461e46e742e9b46da9193692f99b8f17e3906376ae53c387"
+    },
+    {
+      "bundle_file": "bundles/electron__electron.json",
+      "ecosystem": "systems",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 232
+      },
+      "name": "electron",
+      "owner": "electron",
+      "raw_hash": "df5546abcd2ebd5eb38cc156e4f742774b1202fbd3e666671130b0b9acbe00ed"
+    },
+    {
+      "bundle_file": "bundles/EvoLinkAI__awesome-gpt-image-2-API-and-Prompts.json",
+      "ecosystem": "pypi",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": false,
+        "off_platform_marker": false,
+        "vitality_commits_180d": 151
+      },
+      "name": "awesome-gpt-image-2-API-and-Prompts",
+      "owner": "EvoLinkAI",
+      "raw_hash": "5904f7f3bd219ca79f6173ca0ef1abd33a35f2408c98737d272125b366874218"
+    },
+    {
+      "bundle_file": "bundles/torvalds__linux.json",
+      "ecosystem": "systems",
+      "gate_evidence": {
+        "fork_parent_in_universe": null,
+        "is_curated_anchor": false,
+        "license_file_present": true,
+        "manifest_found": true,
+        "off_platform_marker": true,
+        "vitality_commits_180d": 300
+      },
+      "name": "linux",
+      "owner": "torvalds",
+      "raw_hash": "65cd29d3cc27815b2046eede54ab147a033968d0a3810212507fe1928999747c"
+    }
+  ],
+  "snapshot_id": "snapshot_50",
+  "version": 1
+}

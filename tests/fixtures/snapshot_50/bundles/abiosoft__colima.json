@@ -1,0 +1,435 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/abiosoft/colima/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T21:50:34.083282+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/abiosoft__colima.json",
+      "source_hash": "e1e2722c1a9c8c48d0c7fc0e566d66f29ccd4ae9cb2ece680658d977798ce7d1",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "fetched_at": "2026-09-11T21:50:36.814835+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/abiosoft__colima.json",
+      "source_hash": "09bb09c519a2ce18137b1d246fc4fb4cf835cb48cd2ac3c497e1ef3754f1fbb3",
+      "value": "DCO",
+      "window_end": null,
+      "window_start": null
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T21:50:34.659602+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/abiosoft__colima.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/abiosoft/colima/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2026-09-11T17:22:35+00:00",
+    "events": [
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-09-11T17:22:35+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1634
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "johnp789",
+        "closed_at": null,
+        "created_at": "2026-09-09T01:24:39+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1633
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ousamabenyounes",
+        "closed_at": null,
+        "created_at": "2026-09-07T22:34:13+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1630
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-08-31T17:22:30+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1629
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "stek29",
+        "closed_at": null,
+        "created_at": "2026-08-26T19:08:59+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1628
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-31T17:22:33+00:00",
+        "created_at": "2026-08-24T17:22:34+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1626
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "joearasin",
+        "closed_at": null,
+        "created_at": "2026-08-20T23:56:00+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1625
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-08-24T17:22:37+00:00",
+        "created_at": "2026-08-17T18:51:36+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1623
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ekalinin",
+        "closed_at": null,
+        "created_at": "2026-08-16T19:55:58+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1622
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "YuriNachos",
+        "closed_at": null,
+        "created_at": "2026-08-09T08:11:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1620
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "YuriNachos",
+        "closed_at": null,
+        "created_at": "2026-08-09T00:54:37+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1619
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "YuriNachos",
+        "closed_at": "2026-08-13T18:08:52+00:00",
+        "created_at": "2026-08-08T18:43:47+00:00",
+        "first_human_review_at": "2026-08-13T18:08:00+00:00",
+        "is_external": true,
+        "merged_at": "2026-08-13T18:08:52+00:00",
+        "pr_number": 1618
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "reneleonhardt",
+        "closed_at": null,
+        "created_at": "2026-08-08T17:11:29+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1617
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "YuriNachos",
+        "closed_at": "2026-08-08T18:07:16+00:00",
+        "created_at": "2026-08-08T09:16:05+00:00",
+        "first_human_review_at": "2026-08-08T17:39:07+00:00",
+        "is_external": true,
+        "merged_at": "2026-08-08T18:07:16+00:00",
+        "pr_number": 1616
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "YuriNachos",
+        "closed_at": null,
+        "created_at": "2026-08-08T08:32:17+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1615
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "jasonthird",
+        "closed_at": null,
+        "created_at": "2026-07-28T17:51:18+00:00",
+        "first_human_review_at": "2026-07-28T21:30:16+00:00",
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1610
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Kit09K",
+        "closed_at": "2026-07-24T14:13:00+00:00",
+        "created_at": "2026-07-24T07:03:56+00:00",
+        "first_human_review_at": "2026-07-24T12:02:59+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-24T14:13:00+00:00",
+        "pr_number": 1609
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-07-20T17:23:06+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1606
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-07-20T17:22:58+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1605
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": null,
+        "created_at": "2026-07-20T17:22:35+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1604
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "pszypowicz",
+        "closed_at": "2026-07-13T10:02:30+00:00",
+        "created_at": "2026-07-13T08:57:47+00:00",
+        "first_human_review_at": "2026-07-13T09:46:06+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-13T10:02:30+00:00",
+        "pr_number": 1603
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-08T20:14:18+00:00",
+        "created_at": "2026-07-08T17:22:30+00:00",
+        "first_human_review_at": "2026-07-08T17:26:35+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-08T20:14:18+00:00",
+        "pr_number": 1602
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-07-01T17:50:37+00:00",
+        "created_at": "2026-07-01T17:22:26+00:00",
+        "first_human_review_at": "2026-07-01T17:24:14+00:00",
+        "is_external": true,
+        "merged_at": "2026-07-01T17:50:37+00:00",
+        "pr_number": 1601
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-06-30T05:45:22+00:00",
+        "created_at": "2026-06-29T17:22:53+00:00",
+        "first_human_review_at": "2026-06-30T05:45:14+00:00",
+        "is_external": true,
+        "merged_at": "2026-06-30T05:45:22+00:00",
+        "pr_number": 1600
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-06-29T17:43:57+00:00",
+        "created_at": "2026-06-29T17:22:47+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2026-06-29T17:43:57+00:00",
+        "pr_number": 1599
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ghyghoo8",
+        "closed_at": "2026-06-24T09:00:09+00:00",
+        "created_at": "2026-06-24T03:41:15+00:00",
+        "first_human_review_at": "2026-06-24T04:13:48+00:00",
+        "is_external": true,
+        "merged_at": "2026-06-24T09:00:09+00:00",
+        "pr_number": 1598
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ghyghoo8",
+        "closed_at": "2026-06-24T03:35:21+00:00",
+        "created_at": "2026-06-24T03:29:15+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1597
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "dependabot",
+        "closed_at": "2026-06-29T18:31:05+00:00",
+        "created_at": "2026-06-22T17:22:44+00:00",
+        "first_human_review_at": "2026-06-29T18:30:58+00:00",
+        "is_external": true,
+        "merged_at": "2026-06-29T18:31:05+00:00",
+        "pr_number": 1596
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ekalinin",
+        "closed_at": "2026-06-19T06:28:50+00:00",
+        "created_at": "2026-06-17T19:34:28+00:00",
+        "first_human_review_at": "2026-06-19T06:28:31+00:00",
+        "is_external": true,
+        "merged_at": "2026-06-19T06:28:50+00:00",
+        "pr_number": 1594
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ekalinin",
+        "closed_at": "2026-06-17T20:05:20+00:00",
+        "created_at": "2026-06-17T18:33:02+00:00",
+        "first_human_review_at": "2026-06-17T18:37:02+00:00",
+        "is_external": true,
+        "merged_at": "2026-06-17T20:05:20+00:00",
+        "pr_number": 1593
+      }
+    ],
+    "start": "2026-06-17T18:33:02+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "ef8968abb24902cda16949c3baeaf4954a024db483ad4a5bce62dcb24eb0c317",
+  "repo": {
+    "archived": false,
+    "default_branch": "main",
+    "ecosystem": "go",
+    "fork": false,
+    "license_spdx": "MIT",
+    "mirror_url": null,
+    "name": "colima",
+    "owner": "abiosoft"
+  },
+  "schema_version": 2
+}

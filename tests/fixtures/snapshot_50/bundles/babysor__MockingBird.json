@@ -1,0 +1,435 @@
+{
+  "cohorts": {
+    "decision_pr_numbers": [],
+    "newcomer_authors": []
+  },
+  "inputs": {
+    "ai_posture": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/babysor/MockingBird/HEAD/README.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dependents_deduped": {
+      "detail": "deps.dev/ecosyste.ms returned no dependents data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "downloads_monthly": {
+      "detail": "registry returned no downloads data",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "dr90_decision_rate": {
+      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "dx": {
+      "detail": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "elephant_factor": {
+      "fetched_at": "2026-09-11T21:17:51.000246+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/babysor__MockingBird.json",
+      "source_hash": "cf4a3420a3e3d6c7ad406ee0e3bd7172ae5beed806aab462de0ed6ad0ae117be",
+      "value": 1,
+      "window_end": null,
+      "window_start": null
+    },
+    "gr14_ghost_rate": {
+      "detail": "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) -- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "legal_ip": {
+      "fetched_at": "2026-09-11T21:17:53.104416+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/babysor__MockingBird.json",
+      "source_hash": "25d2f710abcaa5f697ac2c4b6b3bcc4711101b558b0652ed83bf3029a6270f60",
+      "value": "DCO",
+      "window_end": null,
+      "window_start": null
+    },
+    "mr_first_rate": {
+      "detail": "needs W1-4 author history; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_conversion": {
+      "detail": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "newcomer_issue_supply": {
+      "fetched_at": "2026-09-11T21:17:51.648256+00:00",
+      "kind": "measured",
+      "method": "primary",
+      "n": 0,
+      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/babysor__MockingBird.json",
+      "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "value": 0,
+      "window_end": null,
+      "window_start": null
+    },
+    "openssf_criticality": {
+      "detail": "one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "pipeline_defenses": {
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "kind": "unmeasured",
+      "reason": "third_party_gap"
+    },
+    "promotion_ladder": {
+      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/babysor/MockingBird/HEAD/CONTRIBUTING.md'",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "rr90_return_rate": {
+      "detail": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "substantive_review_rate": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttfhr_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    },
+    "ttm_p90_hours": {
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
+    }
+  },
+  "pr_window": {
+    "end": "2026-01-07T10:21:08+00:00",
+    "events": [
+      {
+        "author_association": "OWNER",
+        "author_login": "babysor",
+        "closed_at": "2026-01-07T10:21:08+00:00",
+        "created_at": "2026-01-07T10:20:57+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2026-01-07T10:21:08+00:00",
+        "pr_number": 1030
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "babysor",
+        "closed_at": "2025-11-13T02:03:29+00:00",
+        "created_at": "2025-11-13T02:03:15+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2025-11-13T02:03:28+00:00",
+        "pr_number": 1028
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "BartoszBLL",
+        "closed_at": null,
+        "created_at": "2025-03-18T19:30:19+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1023
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "BartoszBLL",
+        "closed_at": "2025-02-26T23:34:06+00:00",
+        "created_at": "2025-02-26T23:30:18+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1022
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "babysor",
+        "closed_at": "2024-11-15T05:00:29+00:00",
+        "created_at": "2024-11-15T05:00:19+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-11-15T05:00:29+00:00",
+        "pr_number": 1011
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "babysor",
+        "closed_at": "2024-11-01T04:57:10+00:00",
+        "created_at": "2024-11-01T04:57:03+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-11-01T04:57:10+00:00",
+        "pr_number": 1009
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "babysor",
+        "closed_at": "2024-10-16T14:48:15+00:00",
+        "created_at": "2024-10-16T14:48:08+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2024-10-16T14:48:15+00:00",
+        "pr_number": 1005
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "FawenYo",
+        "closed_at": null,
+        "created_at": "2024-09-30T08:50:41+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 1004
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "1044690543",
+        "closed_at": "2024-07-06T02:12:07+00:00",
+        "created_at": "2024-02-28T06:53:33+00:00",
+        "first_human_review_at": "2024-07-06T02:12:02+00:00",
+        "is_external": true,
+        "merged_at": "2024-07-06T02:12:07+00:00",
+        "pr_number": 989
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "1044690543",
+        "closed_at": "2024-07-06T02:12:36+00:00",
+        "created_at": "2024-02-28T03:03:00+00:00",
+        "first_human_review_at": "2024-03-16T14:36:16+00:00",
+        "is_external": true,
+        "merged_at": "2024-07-06T02:12:36+00:00",
+        "pr_number": 988
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "babysor",
+        "closed_at": "2023-08-31T03:42:15+00:00",
+        "created_at": "2023-08-31T03:42:08+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2023-08-31T03:42:15+00:00",
+        "pr_number": 953
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "JethroChow",
+        "closed_at": "2023-08-31T03:41:10+00:00",
+        "created_at": "2023-08-30T05:20:03+00:00",
+        "first_human_review_at": "2023-08-30T05:53:17+00:00",
+        "is_external": false,
+        "merged_at": "2023-08-31T03:41:10+00:00",
+        "pr_number": 952
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "JethroChow",
+        "closed_at": "2023-08-30T05:17:21+00:00",
+        "created_at": "2023-08-30T04:23:39+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 951
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "babysor",
+        "closed_at": "2023-09-05T15:15:04+00:00",
+        "created_at": "2023-08-29T11:27:58+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2023-09-05T15:15:04+00:00",
+        "pr_number": 950
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "FawenYo",
+        "closed_at": "2023-08-11T14:02:42+00:00",
+        "created_at": "2023-08-11T06:33:07+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2023-08-11T14:02:42+00:00",
+        "pr_number": 947
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "babysor",
+        "closed_at": "2023-08-10T07:54:23+00:00",
+        "created_at": "2023-08-10T07:54:16+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2023-08-10T07:54:23+00:00",
+        "pr_number": 945
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "babysor",
+        "closed_at": "2023-08-10T07:53:53+00:00",
+        "created_at": "2023-08-10T07:53:45+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2023-08-10T07:53:53+00:00",
+        "pr_number": 944
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "cloudxu",
+        "closed_at": "2023-06-15T09:39:15+00:00",
+        "created_at": "2023-06-15T09:02:43+00:00",
+        "first_human_review_at": "2023-06-15T09:39:09+00:00",
+        "is_external": false,
+        "merged_at": "2023-06-15T09:39:15+00:00",
+        "pr_number": 914
+      },
+      {
+        "author_association": "MEMBER",
+        "author_login": "cloudxu",
+        "closed_at": "2023-06-15T09:08:07+00:00",
+        "created_at": "2023-06-15T08:34:40+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 913
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "0warning0error",
+        "closed_at": "2023-06-10T02:24:40+00:00",
+        "created_at": "2023-06-02T16:08:52+00:00",
+        "first_human_review_at": "2023-06-10T02:24:30+00:00",
+        "is_external": true,
+        "merged_at": "2023-06-10T02:24:40+00:00",
+        "pr_number": 908
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "FawenYo",
+        "closed_at": "2023-06-10T02:25:05+00:00",
+        "created_at": "2023-05-06T06:38:13+00:00",
+        "first_human_review_at": "2023-06-10T02:24:59+00:00",
+        "is_external": true,
+        "merged_at": "2023-06-10T02:25:05+00:00",
+        "pr_number": 892
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "jessemoe",
+        "closed_at": "2023-03-30T08:47:21+00:00",
+        "created_at": "2023-03-28T18:22:28+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": null,
+        "pr_number": 860
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "babysor",
+        "closed_at": "2023-02-04T06:37:49+00:00",
+        "created_at": "2023-02-04T06:22:17+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": "2023-02-04T06:37:49+00:00",
+        "pr_number": 822
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "KagurazakaNyaa",
+        "closed_at": "2022-12-16T03:16:26+00:00",
+        "created_at": "2022-12-15T03:07:10+00:00",
+        "first_human_review_at": "2022-12-16T03:16:18+00:00",
+        "is_external": true,
+        "merged_at": "2022-12-16T03:16:25+00:00",
+        "pr_number": 802
+      },
+      {
+        "author_association": "OWNER",
+        "author_login": "babysor",
+        "closed_at": "2023-02-04T06:14:09+00:00",
+        "created_at": "2022-12-03T08:54:51+00:00",
+        "first_human_review_at": null,
+        "is_external": false,
+        "merged_at": null,
+        "pr_number": 795
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "kslz",
+        "closed_at": "2022-11-30T07:32:52+00:00",
+        "created_at": "2022-11-30T07:13:23+00:00",
+        "first_human_review_at": null,
+        "is_external": true,
+        "merged_at": "2022-11-30T07:32:52+00:00",
+        "pr_number": 790
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "Nier-Y",
+        "closed_at": "2023-03-07T08:41:49+00:00",
+        "created_at": "2022-11-17T16:42:50+00:00",
+        "first_human_review_at": "2022-11-21T03:05:59+00:00",
+        "is_external": true,
+        "merged_at": "2023-03-07T08:41:49+00:00",
+        "pr_number": 782
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "maxoyed",
+        "closed_at": "2022-10-15T03:44:25+00:00",
+        "created_at": "2022-09-26T15:58:54+00:00",
+        "first_human_review_at": "2022-10-15T03:44:19+00:00",
+        "is_external": true,
+        "merged_at": "2022-10-15T03:44:25+00:00",
+        "pr_number": 751
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ibb233",
+        "closed_at": "2022-10-15T03:44:44+00:00",
+        "created_at": "2022-09-25T08:47:34+00:00",
+        "first_human_review_at": "2022-10-15T03:44:39+00:00",
+        "is_external": true,
+        "merged_at": "2022-10-15T03:44:44+00:00",
+        "pr_number": 748
+      },
+      {
+        "author_association": "NONE",
+        "author_login": "ibb233",
+        "closed_at": "2024-08-22T07:06:40+00:00",
+        "created_at": "2022-09-25T08:36:56+00:00",
+        "first_human_review_at": "2022-10-15T03:45:00+00:00",
+        "is_external": true,
+        "merged_at": "2024-08-22T07:06:40+00:00",
+        "pr_number": 747
+      }
+    ],
+    "start": "2022-09-25T08:36:56+00:00",
+    "truncated": false
+  },
+  "provenance_hash": "5196459de005632b16ea174605c5390b9ebec4693260eab656cfacd11b966f65",
+  "repo": {
+    "archived": false,
+    "default_branch": "main",
+    "ecosystem": "pypi",
+    "fork": false,
+    "license_spdx": "NOASSERTION",
+    "mirror_url": null,
+    "name": "MockingBird",
+    "owner": "babysor"
+  },
+  "schema_version": 2
+}
