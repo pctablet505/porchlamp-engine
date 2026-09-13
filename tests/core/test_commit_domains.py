@@ -209,6 +209,30 @@ def test_is_bot_and_org_key_still_behave_after_relocation() -> None:
     assert org_key(_actor("alice", "")) is None
 
 
+def test_org_key_folds_email_case_for_corporate_personal_and_noreply_domains() -> None:
+    """F-002 (W1-5f REWORK, mutant R3): pins the ``.lower()`` case fold
+    ``org_key`` applies to the recorded email before matching
+    ``NOREPLY_DOMAIN``/``PERSONAL_DOMAINS`` (both stored lowercase).
+    Without it, an upper-case domain never matches either table and falls
+    through to the generic "return the literal domain" branch -- the lead
+    review's own repro: 40 distinct authors on
+    ``...@USERS.NOREPLY.GITHUB.COM`` would collapse into one org named
+    ``"USERS.NOREPLY.GITHUB.COM"`` instead of staying 40 distinct
+    individuals, moving ``top_email_domain_share`` from 0.025 to 1.000 and
+    firing ``ef_domain_mismatch`` on a repo with no dominant contributor at
+    all."""
+    # Corporate: the returned domain itself must be lower-cased, not the
+    # verbatim recorded case.
+    assert org_key(_actor("Alice", "Alice@CORP.COM")) == "corp.com"
+    # Personal: an upper-case gmail.com must still match PERSONAL_DOMAINS
+    # (stored lowercase) and resolve to the login, not fall through to the
+    # literal upper-case domain string.
+    assert org_key(_actor("Bob", "Bob@GMAIL.COM")) == "Bob"
+    # Noreply: an upper-case users.noreply.github.com must still match
+    # NOREPLY_DOMAIN and resolve to the login, never the literal domain.
+    assert org_key(_actor("Carol", "1+Carol@USERS.NOREPLY.GITHUB.COM")) == "Carol"
+
+
 # --------------------------------------------------------------------------- #
 # last_non_bot_commit_at bundle-level sidecar (accessor/setter)             #
 # --------------------------------------------------------------------------- #

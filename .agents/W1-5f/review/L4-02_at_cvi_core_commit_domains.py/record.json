@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "2026-09-13-w1-5f-1",
+  "item_id": "L4-02@cvi/core/commit_domains.py",
+  "checklist_id": "L4-02",
+  "level": "L4",
+  "lens": null,
+  "target": {
+    "path": "cvi/core/commit_domains.py",
+    "symbol": null,
+    "line_start": 1,
+    "line_end": 378
+  },
+  "agent": {
+    "name": "opus-lead-reviewer-W1-5f",
+    "model": "claude-opus-5[1m]",
+    "role": "item_agent",
+    "tier": "T3"
+  },
+  "worktree": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree",
+  "interpreter_probe": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree/cvi/__init__.py",
+  "budget": {
+    "lines_cap": 4000,
+    "lines_actual": 400,
+    "refused": false
+  },
+  "input": {
+    "file": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree/cvi/core/commit_domains.py",
+    "sha256": "3ab04faccb962cc321f2bd0c7bf11bceb5b1ae48959dca0986dc44fb5e98e4d3",
+    "n_lines": 378,
+    "extracted_from_sha": "6efb9a0aa798c03480d6e0215e101ddf5839e7be"
+  },
+  "dispatched_at": "2026-09-13T19:55:00+05:30",
+  "started_at": "2026-09-13T19:55:00+05:30",
+  "completed_at": "2026-09-13T20:49:22+05:30",
+  "at_source": "date -Is on workstation (single capture at record-writing time; per-command start times were not individually stamped -- see not_checked)",
+  "verdict": "PASS",
+  "pass_condition": "Every one of the ten relocated symbols has an AST-identical body at 6efb9a0's cvi/core/commit_domains.py and 5f5350a's cvi/collect/commits.py (one docstring differs, no code does); none is still defined in cvi/collect/commits.py; every public one is re-exported as the SAME object and listed in __all__; all six in-tree callers and the three scripts still import; and planting `from cvi.collect import commits` in cvi/derive/bundle.py turns the layering gate red.",
+  "evidence": [
+    {
+      "record_id": "E-6a",
+      "command": "env -u PYTEST_ADDOPTS PYTHONPATH=$PWD /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -B /home/pctablet505/Projects/cvi-scratch/W1-5f-review/check6_relocation.py",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree",
+      "interpreter": "/home/pctablet505/Projects/contributor-value-index/.venv/bin/python",
+      "interpreter_probe": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree/cvi/__init__.py",
+      "tree_sha": "6efb9a0aa798c03480d6e0215e101ddf5839e7be",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/out-check6.txt",
+      "output_sha256": "4ba7de7df4ef304a8040665fe7a1f93e2ac57fc18a2abcd2bcab0fcfe055f401",
+      "output_lines_total": 46,
+      "started_at": "2026-09-13T19:55:00+05:30",
+      "at": "2026-09-13T20:49:22+05:30",
+      "at_source": "date -Is on workstation (single capture at record-writing time; per-command start times were not individually stamped -- see not_checked)",
+      "scanned_items": 10
+    },
+    {
+      "record_id": "E-6b",
+      "command": "python -B mutants.py (mutant R7: `from cvi.collect import commits as _planted` added to cvi/derive/bundle.py)",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review",
+      "interpreter": "/home/pctablet505/Projects/contributor-value-index/.venv/bin/python",
+      "interpreter_probe": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree/cvi/__init__.py",
+      "tree_sha": "6efb9a0aa798c03480d6e0215e101ddf5839e7be",
+      "tree_dirty": false,
+      "exit_code": 1,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/mutants/R7.txt",
+      "output_sha256": "bdce33bf68d3bcd0df6a48cfe13f9cb7075d25120e75815d7bcaea34af00cee1",
+      "output_lines_total": 73,
+      "started_at": "2026-09-13T19:55:00+05:30",
+      "at": "2026-09-13T20:49:22+05:30",
+      "at_source": "date -Is on workstation (single capture at record-writing time; per-command start times were not individually stamped -- see not_checked)",
+      "scanned_items": 2257
+    }
+  ],
+  "findings": [],
+  "observations": [
+    "records_from_rows' docstring gained an explanation of the older envelope shape; its code is AST-identical to the base's."
+  ],
+  "not_checked": [
+    {
+      "category": "out_of_scope",
+      "statement": "cvi/collect/commits.py's own remaining functions (shape_commit_rows, collect_commits_365d, _human_window, elephant_factor, bus_factor, is_vital) were read but not re-verified against W1-5's acceptance; they are unchanged by this packet."
+    },
+    {
+      "category": "not_automated",
+      "statement": "No gate forbids a future re-definition of a relocated symbol in cvi/collect/commits.py; the one-definition property was checked by hand here.",
+      "manual_check": "AST symbol-table comparison of both modules at 6efb9a0"
+    }
+  ],
+  "measurement_integrity": false,
+  "money_path": false,
+  "security": false,
+  "judgement": false,
+  "shown_able_to_fail": true,
+  "reproduction": {
+    "mode": "self_blind"
+  },
+  "provenance_floor": "T3",
+  "pass_evidence": {
+    "quoted": "  PASS  org_key: reachable and IS the same object",
+    "evidence_record": "E-6a",
+    "source": "command_output"
+  },
+  "counter_check": {
+    "text": "Plant the forbidden import on a throwaway copy at 6efb9a0 and run the suite; the gate must go red on test_derive_bundle_imports_only_core_and_stdlib.",
+    "run": true,
+    "result": "held",
+    "evidence_record": "E-6b",
+    "command_differs_from_item": true
+  }
+}

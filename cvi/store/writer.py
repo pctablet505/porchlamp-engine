@@ -12,12 +12,18 @@ ruling, REWORK round 1): identity comes from ``record.repo`` (W2-10);
 ordering is already baked into ``record.tie_key``/``record.rank``/
 ``record.tie_group`` by the time a record reaches this module, and TTFHR
 p75 is recomputed from ``bundle.pr_window`` (:func:`cvi.core.tiebreak.
-ttfhr_p75_from_pr_window`). ``stars_audited``, ``forks`` (count) and
-``last_human_commit_at`` have no producer anywhere in the current
-``FeatureBundle``/``GateEvidence`` contract (the same gap
-``cvi.core.tiebreak``'s own module docstring names for the commit date);
-written ``NULL`` until a future packet wires a real source -- not a new
-gap this rework introduces.
+ttfhr_p75_from_pr_window`). ``stars_audited`` and ``forks`` (count) still
+have no producer anywhere in the current ``FeatureBundle``/``GateEvidence``
+contract, written ``NULL`` until a future packet wires a real source.
+``last_human_commit_at`` (W1-5f REWORK, F-001) is no longer one of those:
+:func:`_last_human_commit_at` reads the ``last_non_bot_commit_at`` bundle
+sidecar fact (``cvi.core.commit_domains``, D-TIE-1 item 7) the same way
+``cvi.core.pipeline.score_bundle_stage_9_tie_input`` already does for
+``TieBreakInput``, normalised through :func:`_normalize_utc_z`. Before
+this fix ``cvi/store/reader.py``'s SQL ``ORDER BY`` (``last_human_commit_at
+DESC NULLS LAST`` at D-TIE-1 level 7) silently disagreed with the ``rank``
+column stored right beside it, because the column was always ``NULL``
+while ``ScoreRecord.rank``/``tie_key`` were computed from the real date.
 
 A snapshot id is immutable (03 section 5, F-003): once ``repositories``
 carries any row for a ``snapshot_id``, a later :func:`write_records` call
@@ -43,7 +49,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Sequence
 
-from cvi.core import constants_v2
+from cvi.core import commit_domains, constants_v2
+from cvi.core.commit_domains import LastNonBotCommitMeasured
 from cvi.core.models import FeatureBundle, Measured, ScoreRecord, canonical_json
 from cvi.core.tiebreak import ttfhr_p75_from_pr_window
 from cvi.snapshot.populations import PopulationSet, build_populations_table
@@ -201,6 +208,20 @@ _PILLAR_NAMES = constants_v2.PILLAR_NAMES
 _PARAM_INPUT_IDS = constants_v2.PARAM_INPUT_IDS
 
 
+def _last_human_commit_at(bundle: FeatureBundle) -> Optional[str]:
+    """W1-5f (F-001): the real ``last_non_bot_commit_at`` bundle-level
+    sidecar fact (D-TIE-1 item 7, ``cvi.core.commit_domains`` -- the same
+    accessor ``cvi.core.pipeline.score_bundle_stage_9_tie_input`` already
+    reads for ``TieBreakInput``), normalised through :func:`_normalize_utc_z`
+    so the stored column compares correctly as TEXT in
+    ``cvi/store/reader.py``'s ``ORDER BY ... last_human_commit_at DESC
+    NULLS LAST``. ``None`` for a measured absence (no non-bot commit in the
+    window) or an unset/``Unmeasured`` fact -- never a guess."""
+    fact = commit_domains.last_non_bot_commit_at(bundle)
+    value = fact.value if isinstance(fact, LastNonBotCommitMeasured) else None
+    return _normalize_utc_z(value)
+
+
 def _repo_row(snapshot_id: str, item: RepoWrite) -> tuple:
     record = item.record
     repo = record.repo
@@ -244,7 +265,7 @@ def _repo_row(snapshot_id: str, item: RepoWrite) -> tuple:
         record.rank,
         record.tie_group,
         ttfhr_p75_from_pr_window(item.bundle.pr_window),
-        _normalize_utc_z(None),  # last_human_commit_at: no producer yet
+        _last_human_commit_at(item.bundle),  # last_human_commit_at (W1-5f, F-001)
         canonical_json(record.persona_gates),
         persona_composites_json,
         canonical_json(record.suspicion),

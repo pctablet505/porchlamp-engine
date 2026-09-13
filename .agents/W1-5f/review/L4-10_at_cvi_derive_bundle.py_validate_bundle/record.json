@@ -1,0 +1,128 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "2026-09-13-w1-5f-1",
+  "item_id": "L4-10@cvi/derive/bundle.py:validate_bundle",
+  "checklist_id": "L4-10",
+  "level": "L4",
+  "lens": null,
+  "target": {
+    "path": "cvi/derive/bundle.py",
+    "symbol": "validate_bundle",
+    "line_start": 100,
+    "line_end": 156,
+    "hunk_header": "@@ -101,12 +102,30 @@"
+  },
+  "agent": {
+    "name": "opus-lead-reviewer-W1-5f",
+    "model": "claude-opus-5[1m]",
+    "role": "item_agent",
+    "tier": "T3"
+  },
+  "worktree": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree",
+  "interpreter_probe": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree/cvi/__init__.py",
+  "budget": {
+    "lines_cap": 4000,
+    "lines_actual": 400,
+    "refused": false
+  },
+  "input": {
+    "file": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree/cvi/derive/bundle.py",
+    "sha256": "6f8b5613262fc36d75c9c9c2b73fb753e99a3bffbe468013049f9dfe8659ff81",
+    "n_lines": 1930,
+    "extracted_from_sha": "6efb9a0aa798c03480d6e0215e101ddf5839e7be"
+  },
+  "dispatched_at": "2026-09-13T19:55:00+05:30",
+  "started_at": "2026-09-13T19:55:00+05:30",
+  "completed_at": "2026-09-13T20:49:22+05:30",
+  "at_source": "date -Is on workstation (single capture at record-writing time; per-command start times were not individually stamped -- see not_checked)",
+  "verdict": "PASS",
+  "pass_condition": "_W1_5F_OPTIONAL_TOP_LEVEL_KEYS holds exactly the two new names and neither is in TOP_LEVEL_KEYS (so neither is required); a third, planted top-level key is still refused by the strict-key check (BundleValidationError naming it), a dropped required key is still refused; dump->load->dump is byte-identical, write_bundle's file bytes equal the committed fixture's, a measured top_email_domain_share also survives, provenance_hash is carried through unchanged, and raw_hash (by construction sha256 of canonical_json(dump_bundle)) moves with the date.",
+  "evidence": [
+    {
+      "record_id": "E-5a",
+      "command": "env -u PYTEST_ADDOPTS PYTHONPATH=$PWD /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -B /home/pctablet505/Projects/cvi-scratch/W1-5f-review/check5_roundtrip.py",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree",
+      "interpreter": "/home/pctablet505/Projects/contributor-value-index/.venv/bin/python",
+      "interpreter_probe": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree/cvi/__init__.py",
+      "tree_sha": "6efb9a0aa798c03480d6e0215e101ddf5839e7be",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/out-check5.txt",
+      "output_sha256": "a1d23c48c9a7744026480712664725255541fe19d1330ef207cae5dbd01f95f3",
+      "output_lines_total": 33,
+      "started_at": "2026-09-13T19:55:00+05:30",
+      "at": "2026-09-13T20:49:22+05:30",
+      "at_source": "date -Is on workstation (single capture at record-writing time; per-command start times were not individually stamped -- see not_checked)",
+      "scanned_items": 20
+    },
+    {
+      "record_id": "E-5b",
+      "command": "python -B mutants.py (mutant R4: strict-key whitelist widened so unknown top-level keys are accepted)",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review",
+      "interpreter": "/home/pctablet505/Projects/contributor-value-index/.venv/bin/python",
+      "interpreter_probe": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/tree/cvi/__init__.py",
+      "tree_sha": "6efb9a0aa798c03480d6e0215e101ddf5839e7be",
+      "tree_dirty": false,
+      "exit_code": 1,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W1-5f-review/mutants/R4.txt",
+      "output_sha256": "d5dc2bb64fa1c0cfda5e985d654767c4365193fddd27cdc74784e466ca4cb1bc",
+      "output_lines_total": 72,
+      "started_at": "2026-09-13T19:55:00+05:30",
+      "at": "2026-09-13T20:49:22+05:30",
+      "at_source": "date -Is on workstation (single capture at record-writing time; per-command start times were not individually stamped -- see not_checked)",
+      "scanned_items": 2257
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "F-004",
+      "severity": "Warning:",
+      "statement": "A present-but-malformed last_non_bot_commit_at key degrades silently to the unset default, moving tie_key and therefore records_hash with no error raised anywhere.",
+      "file": "cvi/derive/bundle.py",
+      "line": 400,
+      "quoted_line": "    if not isinstance(doc, Mapping):",
+      "failure_scenario": "A committed bundle whose last_non_bot_commit_at is truncated to {\"kind\": \"measured\"} (no method/source/...) loads without complaint as Unmeasured(collector_failure); the repo then sorts after every measured one at D-TIE-1 level 7 and records_hash changes, with the only signal being a hash mismatch far downstream in tests/snapshot/test_reproduce_fixture.py.",
+      "evidence_record": "E-5a",
+      "lens": "LENS-PROV",
+      "category": "silent_fallback",
+      "measurement_integrity": true
+    }
+  ],
+  "observations": [
+    "A malformed optional key degrades silently to the unset default, which moves tie_key and therefore records_hash with no error raised anywhere (finding F-004)."
+  ],
+  "not_checked": [
+    {
+      "category": "out_of_scope",
+      "statement": "The v2-document schema is not versioned by a schema file; compatibility with an older consumer that rejects unknown top-level keys was not tested (no such consumer exists in-tree)."
+    },
+    {
+      "category": "time_bounded",
+      "statement": "Only four malformed shapes of the optional keys were exercised; the tolerant reader's full input space was not enumerated."
+    }
+  ],
+  "measurement_integrity": false,
+  "money_path": false,
+  "security": false,
+  "judgement": false,
+  "shown_able_to_fail": true,
+  "reproduction": {
+    "mode": "self_blind"
+  },
+  "provenance_floor": "T3",
+  "pass_evidence": {
+    "quoted": "  PASS  rejected with the unexpected-key message   unexpected top-level key 'reviewer_planted_key'",
+    "evidence_record": "E-5a",
+    "source": "command_output",
+    "line_number": 7
+  },
+  "counter_check": {
+    "text": "Plant a mutant that removes the unexpected-key check entirely (R4) and run the full suite: if the strict-key rejection were untested, the suite would stay green.",
+    "run": true,
+    "result": "held",
+    "evidence_record": "E-5b",
+    "command_differs_from_item": true
+  }
+}

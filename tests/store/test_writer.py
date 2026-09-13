@@ -743,9 +743,18 @@ def test_ttfhr_p75_is_none_with_no_qualifying_event(tmp_path) -> None:
     assert ttfhr is None
 
 
-def test_stars_forks_last_commit_are_null_no_producer(tmp_path) -> None:
+def test_stars_forks_are_null_no_producer(tmp_path) -> None:
     """Documents, rather than hides, the current gap (module docstring):
-    no ``FeatureBundle``/``GateEvidence`` field carries these yet."""
+    no ``FeatureBundle``/``GateEvidence`` field carries ``stars_audited``/
+    ``forks`` yet. ``last_human_commit_at`` is deliberately NOT asserted
+    here any more (W1-5f REWORK, F-001): it DOES have a real producer now
+    (:func:`cvi.store.writer._last_human_commit_at`) -- it is only NULL in
+    this fixture because ``make_repo_write``'s bundle never had the
+    ``last_non_bot_commit_at`` sidecar fact set, not because the column is
+    unproducible. See ``test_last_human_commit_at_is_produced_from_the_
+    bundle_sidecar_fact`` below for the positive case, and its
+    ``NULL``-on-unset sibling for why this fixture's own NULL is still
+    correct."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
     write_records(conn, "snap-1", [make_repo_write(make_rated_record("snap-1"))])
@@ -753,3 +762,122 @@ def test_stars_forks_last_commit_are_null_no_producer(tmp_path) -> None:
         "SELECT stars_audited, forks, last_human_commit_at FROM repositories WHERE snapshot_id='snap-1'"
     ).fetchone()
     assert row == (None, None, None)
+
+
+# --------------------------------------------------------------------- #
+# last_human_commit_at produced from the bundle sidecar fact (W1-5f      #
+# REWORK, F-001): the lead's review found the writer still hardcoded    #
+# NULL after this fact gained a real producer, so cvi/store/reader.py's #
+# SQL D-TIE-1 ORDER BY (level 7) silently disagreed with the stored     #
+# `rank` column. These write through the REAL writer -- no post-write   #
+# UPDATE stamp -- which is exactly what tests/store/test_reader.py's    #
+# own `_write_and_rank` helper could not catch (it always overwrites    #
+# the column itself, "as the writer would if it had a real producer").  #
+# --------------------------------------------------------------------- #
+
+def test_last_human_commit_at_is_produced_from_the_bundle_sidecar_fact(tmp_path) -> None:
+    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    _write_one_snapshot(conn)
+    record = make_rated_record("snap-1")
+    item = make_repo_write(record)
+    set_last_non_bot_commit_at(item.bundle, LastNonBotCommitMeasured(
+        value="2026-06-01T00:00:00Z", method="measured:commits_365d",
+        source="raw/commits_365d/acme__demo.json", source_hash="a" * 64,
+        fetched_at="2026-09-01T00:00:00Z",
+    ))
+    write_records(conn, "snap-1", [item])
+    stored = conn.execute(
+        "SELECT last_human_commit_at FROM repositories WHERE snapshot_id='snap-1'"
+    ).fetchone()[0]
+    assert stored == "2026-06-01T00:00:00Z"
+
+
+def test_last_human_commit_at_normalizes_a_non_utc_offset_through_the_real_writer(tmp_path) -> None:
+    """The sidecar fact is already ``Z``-formatted by ``cvi.derive.bundle``
+    in practice, but the writer's own ``_normalize_utc_z`` pass must not be
+    a no-op that merely trusts the input -- a non-UTC-offset value must
+    still normalize correctly when it flows through the real writer path,
+    not just the ``_write_and_rank`` UPDATE-stamp fixtures."""
+    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    _write_one_snapshot(conn)
+    record = make_rated_record("snap-1")
+    item = make_repo_write(record)
+    set_last_non_bot_commit_at(item.bundle, LastNonBotCommitMeasured(
+        value="2026-06-01T20:00:00-05:00", method="measured:commits_365d",
+        source="s", source_hash="a" * 64, fetched_at="2026-09-01T00:00:00Z",
+    ))
+    write_records(conn, "snap-1", [item])
+    stored = conn.execute(
+        "SELECT last_human_commit_at FROM repositories WHERE snapshot_id='snap-1'"
+    ).fetchone()[0]
+    assert stored == "2026-06-02T01:00:00Z"
+
+
+def test_last_human_commit_at_is_null_for_a_measured_absence(tmp_path) -> None:
+    """A ``LastNonBotCommitMeasured(value=None, ...)`` measured absence
+    (D-MISS-1 F2 ruling) must store ``NULL``, not the sentinel string --
+    same as an unset/``Unmeasured`` fact, distinguishing "the column has
+    no evidence" from "we measured zero non-bot commits" only at the
+    ``params``/detail level, never in this ordering column."""
+    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    _write_one_snapshot(conn)
+    record = make_rated_record("snap-1")
+    item = make_repo_write(record)
+    set_last_non_bot_commit_at(item.bundle, LastNonBotCommitMeasured(
+        value=None, method="measured:no_non_bot_commit_365d",
+        source="s", source_hash="a" * 64, fetched_at="2026-09-01T00:00:00Z",
+    ))
+    write_records(conn, "snap-1", [item])
+    stored = conn.execute(
+        "SELECT last_human_commit_at FROM repositories WHERE snapshot_id='snap-1'"
+    ).fetchone()[0]
+    assert stored is None
+
+
+def test_sql_rank_order_agrees_with_python_when_writer_produces_the_commit_date(tmp_path) -> None:
+    """F-001's own repro (lead review §4.5), closed: two repos tied through
+    D-TIE-1 level 6, differing only by ``last_non_bot_commit_at`` --
+    ``assign_ranks`` (Python) and ``reader.ranked_order_sql`` (SQL) must
+    agree once the WRITER produces the column for real, with no UPDATE
+    stamp anywhere in this test. Before the fix this reproduced the
+    review's exact inversion (SQL: aaa-old, zzz-new; Python: zzz-new,
+    aaa-old)."""
+    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+    from cvi.core.tiebreak import TieBreakInput, assign_ranks
+    from cvi.store import reader
+
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    _write_one_snapshot(conn)
+
+    older = make_rated_record("snap-1", owner="acme", name="aaa-old", raw_hash="h-old", composite=70.0, coverage=1.0)
+    newer = make_rated_record("snap-1", owner="acme", name="zzz-new", raw_hash="h-new", composite=70.0, coverage=1.0)
+    commit_dates = {"aaa-old": "2026-01-01T00:00:00Z", "zzz-new": "2026-06-01T00:00:00Z"}
+    entries = [
+        TieBreakInput(older, "acme", "aaa-old", last_non_bot_commit_at=commit_dates["aaa-old"]),
+        TieBreakInput(newer, "acme", "zzz-new", last_non_bot_commit_at=commit_dates["zzz-new"]),
+    ]
+    ranked = assign_ranks(entries)
+    python_order = [(record.repo.owner, record.repo.name) for record, _rank, _tie_group in ranked]
+    # The later commit (zzz-new) outranks the earlier one (aaa-old) even
+    # though 'aaa-old' sorts first alphabetically -- proves level 7, not
+    # the level-8 name fallback, decided this order.
+    assert python_order == [("acme", "zzz-new"), ("acme", "aaa-old")]
+
+    items = []
+    for record, _rank, _tie_group in ranked:
+        item = make_repo_write(record)
+        set_last_non_bot_commit_at(item.bundle, LastNonBotCommitMeasured(
+            value=commit_dates[record.repo.name], method="measured:commits_365d",
+            source="s", source_hash="a" * 64, fetched_at="2026-09-01T00:00:00Z",
+        ))
+        items.append(item)
+    write_records(conn, "snap-1", items)
+
+    sql_order = [(row[0], row[1]) for row in reader.ranked_order_sql(conn, "snap-1")]
+    assert sql_order == python_order
