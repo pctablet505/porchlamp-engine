@@ -278,3 +278,62 @@ class TestMethodologyEndpoint:
 
         resp = httpx.get(f"{server_url}/v1/cvi/methodology")
         MethodologyResponse.model_validate(resp.json())
+
+
+@pytest.fixture(scope="module")
+def server_url_failing_snapshot() -> Iterator[str]:
+    """A second server instance with `--fail snapshot` wired (the existing
+    NB-2 mechanism, `make_handler`'s `fail_endpoints`), used to exercise the
+    W4-4-review error-body shape end to end against a REAL failure, not
+    just a 400 from bad input."""
+    httpd = serve_ui_fixtures.serve(
+        host="127.0.0.1", port=0, web_dir=WEB_DIR, fixtures_dir=FIXTURES_DIR, fail_endpoints=frozenset({"snapshot"})
+    )
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    port = httpd.server_address[1]
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+
+class TestErrorBodyShape:
+    """W4-4 review addendum (2026-09-13): the real API's error body is
+    `{"error": {endpoint, status, detail}}`, not a bare string —
+    `web/v2/api.js` was found to never read `detail` at all. This class
+    proves the fixture server actually sends that shape (so `api.js`'s
+    `extractErrorDetail` has something real to parse) for both an
+    input-validation 400 and a genuine `--fail`-simulated 500.
+    """
+
+    def test_400_error_body_is_the_nested_shape(self, server_url: str) -> None:
+        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"page_size": 37})
+        assert resp.status_code == 400
+        body = resp.json()
+        assert set(body.keys()) == {"error"}
+        error = body["error"]
+        assert error["status"] == 400
+        assert error["endpoint"] == "/v1/cvi/leaderboard"
+        assert isinstance(error["detail"], str) and error["detail"]
+
+    def test_fail_snapshot_returns_the_nested_shape_with_a_real_detail(
+        self, server_url_failing_snapshot: str
+    ) -> None:
+        resp = httpx.get(f"{server_url_failing_snapshot}/v1/cvi/snapshot")
+        assert resp.status_code == 500
+        error = resp.json()["error"]
+        assert error["status"] == 500
+        assert error["endpoint"] == "/v1/cvi/snapshot"
+        assert "simulated snapshot failure" in error["detail"]
+        assert "--fail snapshot" in error["detail"]
+
+    def test_query_string_is_stripped_from_the_endpoint_field(self, server_url: str) -> None:
+        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"page_size": 999999})
+        assert resp.status_code == 400
+        # The endpoint name must be the bare path, not `path?page_size=999999`
+        # (api.js names failures by endpoint for the U-15 banner; a query
+        # string baked in would make every distinct query its own "endpoint").
+        assert resp.json()["error"]["endpoint"] == "/v1/cvi/leaderboard"

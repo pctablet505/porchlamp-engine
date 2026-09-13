@@ -25,7 +25,7 @@ export function renderSkeleton(rowCount = 8) {
 }
 
 export function renderErrorBanner(error) {
-  return `<div class="error-banner" role="alert">${escapeHtml(copy.errorBannerText(error.endpoint, error.status))}</div>`;
+  return `<div class="error-banner" role="alert">${escapeHtml(copy.errorBannerText(error.endpoint, error.status, error.detail))}</div>`;
 }
 
 function renderReasonChip(row) {
@@ -154,7 +154,7 @@ export function patchNotRankedBody(root, state) {
   if (errBanner) {
     if (state.notRankedError) {
       errBanner.hidden = false;
-      errBanner.textContent = copy.errorBannerText(state.notRankedError.endpoint, state.notRankedError.status);
+      errBanner.textContent = copy.errorBannerText(state.notRankedError.endpoint, state.notRankedError.status, state.notRankedError.detail);
     } else {
       errBanner.hidden = true;
     }

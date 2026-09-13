@@ -303,7 +303,12 @@ export function resolveOpenTargetKey(cursorKey, focusedRowKey) {
  */
 export function footerFieldsFor(state) {
   if (state.snapshotError) {
-    return { kind: "error", endpoint: state.snapshotError.endpoint, status: state.snapshotError.status };
+    return {
+      kind: "error",
+      endpoint: state.snapshotError.endpoint,
+      status: state.snapshotError.status,
+      detail: state.snapshotError.detail,
+    };
   }
   if (state.snapshot) {
     return { kind: "ok", snapshot: state.snapshot };

@@ -150,7 +150,7 @@ function renderPicker(state) {
 function repoIdentityCell(key, data) {
   if (!data || data.loading) return `<td>${escapeHtml(copy.COMPARE_LOADING_TEXT)}</td>`;
   if (data.error) {
-    return `<td class="error-banner" role="alert">${escapeHtml(copy.compareErrorText(data.error.endpoint, data.error.status))}</td>`;
+    return `<td class="error-banner" role="alert">${escapeHtml(copy.compareErrorText(data.error.endpoint, data.error.status, data.error.detail))}</td>`;
   }
   return `<td><span class="repo-name">${escapeHtml(key)}</span></td>`;
 }

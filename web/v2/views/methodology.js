@@ -222,7 +222,7 @@ export function renderShell(state) {
   const heading = `<h1 class="view-heading">${escapeHtml(copy.METHODOLOGY_HEADING)}</h1>`;
   if (shape === "loading") return heading + `<div class="empty-state" aria-busy="true">${escapeHtml(copy.METHODOLOGY_LOADING_TEXT)}</div>`;
   if (shape === "error") {
-    return heading + `<div class="error-banner" role="alert">${escapeHtml(copy.methodologyErrorText(state.methodologyError.endpoint, state.methodologyError.status))}</div>`;
+    return heading + `<div class="error-banner" role="alert">${escapeHtml(copy.methodologyErrorText(state.methodologyError.endpoint, state.methodologyError.status, state.methodologyError.detail))}</div>`;
   }
   if (shape === "empty") return heading + `<div class="empty-state">${escapeHtml(copy.METHODOLOGY_EMPTY_TEXT)}</div>`;
 

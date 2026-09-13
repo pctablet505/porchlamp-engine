@@ -47,7 +47,7 @@ export function renderSkeleton(rowCount = 12) {
 }
 
 export function renderErrorBanner(error) {
-  return `<div class="error-banner" role="alert">${escapeHtml(copy.errorBannerText(error.endpoint, error.status))}</div>`;
+  return `<div class="error-banner" role="alert">${escapeHtml(copy.errorBannerText(error.endpoint, error.status, error.detail))}</div>`;
 }
 
 export function renderEmptyState(gatedCount, unratedCount) {

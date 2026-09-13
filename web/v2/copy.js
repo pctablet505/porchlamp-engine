@@ -187,8 +187,18 @@ export function emptyLeaderboardText(gatedCount, unratedCount) {
   return `No rated repositories match. ${gatedCount} gated and ${unratedCount} unrated are listed under Not ranked.`;
 }
 
-export function errorBannerText(endpoint, status) {
-  return `Could not reach ${endpoint} (status ${status}). Showing the last good data below.`;
+// W4-4 review addendum (2026-09-13): the API's error body carries a
+// `detail` string (`{"error": {endpoint, status, detail}}`) explaining
+// WHAT went wrong, not just that it did — appended after the endpoint and
+// status wherever it is available (`ApiError.detail`, `web/v2/api.js`).
+function appendSentence(text) {
+  const trimmed = text.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+export function errorBannerText(endpoint, status, detail) {
+  const base = `Could not reach ${endpoint} (status ${status}).`;
+  const withDetail = detail ? `${base} ${appendSentence(detail)}` : base;
+  return `${withDetail} Showing the last good data below.`;
 }
 
 export const MISSING_VALUE = "—";
@@ -265,8 +275,9 @@ export const PLAYBOOK_STUB_TEXT =
   "Action recommendations are not computed by this snapshot yet.";
 export const DRAWER_CLOSE_LABEL = "Close";
 export const DRAWER_LOADING_TEXT = "Loading evidence…";
-export function drawerErrorText(endpoint, status) {
-  return `Could not load evidence from ${endpoint} (status ${status}).`;
+export function drawerErrorText(endpoint, status, detail) {
+  const base = `Could not load evidence from ${endpoint} (status ${status}).`;
+  return detail ? `${base} ${appendSentence(detail)}` : base;
 }
 // Shared by every retryable fetch banner (evidence 404, snapshot
 // 5xx/timeout — U-15: every request has an error state, and every
@@ -353,8 +364,9 @@ export function matrixSvgAriaLabel(xLabel, yLabel) {
 }
 export const MATRIX_LOADING_TEXT = "Loading the matrix…";
 export const MATRIX_EMPTY_TEXT = "No rated repositories to plot.";
-export function matrixErrorText(endpoint, status) {
-  return `Could not load the matrix from ${endpoint} (status ${status}).`;
+export function matrixErrorText(endpoint, status, detail) {
+  const base = `Could not load the matrix from ${endpoint} (status ${status}).`;
+  return detail ? `${base} ${appendSentence(detail)}` : base;
 }
 export function matrixExcludedCaption(excludedCount) {
   return `${excludedCount} gated ${excludedCount === 1 ? "repository" : "repositories"} excluded.`;
@@ -394,8 +406,9 @@ export function configureDeltaText(row) {
 }
 export const CONFIGURE_LOADING_TEXT = "Re-projecting…";
 export const CONFIGURE_EMPTY_TEXT = "No repositories are rated under this weight vector.";
-export function configureErrorText(endpoint, status) {
-  return `Could not reproject from ${endpoint} (status ${status}).`;
+export function configureErrorText(endpoint, status, detail) {
+  const base = `Could not reproject from ${endpoint} (status ${status}).`;
+  return detail ? `${base} ${appendSentence(detail)}` : base;
 }
 export const CONFIGURE_RETRY_LABEL = "Retry";
 
@@ -411,8 +424,9 @@ export const COMPARE_EMPTY_TEXT = "Add 2 to 4 repositories to compare them side 
 export const COMPARE_MIN_TEXT = "Add at least one more repository (2 minimum).";
 export const COMPARE_MAX_TEXT = "You can compare up to 4 repositories at a time.";
 export const COMPARE_LOADING_TEXT = "Loading comparison…";
-export function compareErrorText(endpoint, status) {
-  return `Could not load a compared repository from ${endpoint} (status ${status}).`;
+export function compareErrorText(endpoint, status, detail) {
+  const base = `Could not load a compared repository from ${endpoint} (status ${status}).`;
+  return detail ? `${base} ${appendSentence(detail)}` : base;
 }
 export const COMPARE_BETTER_MARK = "★";
 export function compareBetterTitle(paramLabel) {
@@ -447,8 +461,9 @@ export const COMPARE_RATED_STATUS = "Rated";
 // --------------------------------------------------------------------- //
 export const METHODOLOGY_HEADING = "Methodology and snapshot";
 export const METHODOLOGY_LOADING_TEXT = "Loading the methodology…";
-export function methodologyErrorText(endpoint, status) {
-  return `Could not load the methodology from ${endpoint} (status ${status}).`;
+export function methodologyErrorText(endpoint, status, detail) {
+  const base = `Could not load the methodology from ${endpoint} (status ${status}).`;
+  return detail ? `${base} ${appendSentence(detail)}` : base;
 }
 export const METHODOLOGY_EMPTY_TEXT = "No methodology document is available for this snapshot.";
 export const METHODOLOGY_SECTION_PILLARS = "Pillars";

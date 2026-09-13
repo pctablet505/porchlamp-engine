@@ -270,7 +270,7 @@ export function renderShell(state) {
     return (
       heading +
       controls +
-      `<div class="error-banner" role="alert">${escapeHtml(copy.configureErrorText(state.reprojectError.endpoint, state.reprojectError.status))}` +
+      `<div class="error-banner" role="alert">${escapeHtml(copy.configureErrorText(state.reprojectError.endpoint, state.reprojectError.status, state.reprojectError.detail))}` +
       ` <button type="button" class="icon-button" data-configure-retry="true">${escapeHtml(copy.CONFIGURE_RETRY_LABEL)}</button></div>`
     );
   }

@@ -8,15 +8,45 @@
 const DEFAULT_TIMEOUT_MS = 5000;
 
 export class ApiError extends Error {
-  constructor(endpoint, status, message) {
+  constructor(endpoint, status, message, detail) {
     super(message || `request to ${endpoint} failed with status ${status}`);
     this.name = "ApiError";
     this.endpoint = endpoint;
     // 0: network-level failure (no response at all).
     // "timeout": exceeded DEFAULT_TIMEOUT_MS with no response.
     this.status = status;
+    // W4-4 review addendum (2026-09-13): the real API's error body is
+    // `{"error": {endpoint, status, detail}}` (mirrored exactly by
+    // scripts/serve_ui_fixtures.py's `_send_error_json`) — `detail` is that
+    // body's own explanation of what went wrong, shown to the user AFTER
+    // the endpoint+status (`copy.errorBannerText`'s third argument),
+    // distinct from `message` (this Error's own summary, used for
+    // `Error.prototype.toString()`/logging, never rendered directly).
+    this.detail = detail;
   }
 }
+
+/**
+ * Extracts `detail` from a non-2xx response body, per the real API's
+ * `{"error": {endpoint, status, detail}}` shape. Never throws: a body that
+ * isn't JSON, or doesn't have the expected shape, yields `undefined` and
+ * the caller falls back to a bare endpoint+status message.
+ */
+async function extractErrorDetail(response) {
+  try {
+    const body = await response.clone().json();
+    const err = body && body.error;
+    if (err && typeof err === "object") return typeof err.detail === "string" ? err.detail : undefined;
+    // Tolerate a bare-string `{"error": "..."}` body too (the shape every
+    // OTHER structured-error caller before this addendum assumed) rather
+    // than only ever recognising the new nested form.
+    return typeof err === "string" ? err : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const JSON_CONTENT_TYPE_RE = /\bapplication\/json\b/i;
 
 async function getJson(endpoint, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -34,13 +64,23 @@ async function getJson(endpoint, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
     if (timer) clearTimeout(timer);
   }
   if (!response.ok) {
-    return { ok: false, error: new ApiError(endpoint, response.status) };
+    const detail = await extractErrorDetail(response);
+    return { ok: false, error: new ApiError(endpoint, response.status, detail, detail) };
+  }
+  // A 2xx response whose Content-Type is not JSON is itself an error (a
+  // misconfigured proxy, an HTML error page served with a 200, etc.) --
+  // checked BEFORE attempting to parse, so the failure is named precisely
+  // rather than surfacing as a generic "invalid JSON" parse error.
+  const contentType = response.headers.get("content-type") || "";
+  if (!JSON_CONTENT_TYPE_RE.test(contentType)) {
+    const detail = `expected application/json, got ${contentType || "(no content-type)"}`;
+    return { ok: false, error: new ApiError(endpoint, response.status, detail, detail) };
   }
   try {
     const data = await response.json();
     return { ok: true, data };
   } catch (parseError) {
-    return { ok: false, error: new ApiError(endpoint, response.status, parseError.message) };
+    return { ok: false, error: new ApiError(endpoint, response.status, parseError.message, parseError.message) };
   }
 }
 
@@ -117,18 +157,18 @@ export async function postReproject(weights, { timeoutMs = DEFAULT_TIMEOUT_MS } 
     if (timer) clearTimeout(timer);
   }
   if (!response.ok) {
-    let message;
-    try {
-      message = (await response.json())?.error;
-    } catch {
-      // no JSON error body; fall through with the bare status
-    }
-    return { ok: false, error: new ApiError(endpoint, response.status, message) };
+    const detail = await extractErrorDetail(response);
+    return { ok: false, error: new ApiError(endpoint, response.status, detail, detail) };
+  }
+  const contentType = response.headers.get("content-type") || "";
+  if (!JSON_CONTENT_TYPE_RE.test(contentType)) {
+    const detail = `expected application/json, got ${contentType || "(no content-type)"}`;
+    return { ok: false, error: new ApiError(endpoint, response.status, detail, detail) };
   }
   try {
     const data = await response.json();
     return { ok: true, data };
   } catch (parseError) {
-    return { ok: false, error: new ApiError(endpoint, response.status, parseError.message) };
+    return { ok: false, error: new ApiError(endpoint, response.status, parseError.message, parseError.message) };
   }
 }

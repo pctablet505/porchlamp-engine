@@ -109,7 +109,7 @@ export function renderLoading() {
 }
 
 export function renderError(error) {
-  return `<div class="error-banner" role="alert">${escapeHtml(copy.matrixErrorText(error.endpoint, error.status))}</div>`;
+  return `<div class="error-banner" role="alert">${escapeHtml(copy.matrixErrorText(error.endpoint, error.status, error.detail))}</div>`;
 }
 
 export function renderEmpty() {

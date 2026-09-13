@@ -186,7 +186,7 @@ export function boot(win = window, doc = document) {
       const fields = footerFieldsFor(state);
       const text =
         fields.kind === "error"
-          ? copy.errorBannerText(fields.endpoint, fields.status)
+          ? copy.errorBannerText(fields.endpoint, fields.status, fields.detail)
           : fields.kind === "ok"
             ? `${fields.snapshot.snapshot_id} · ${fields.snapshot.benchmark_version}`
             : copy.LOADING_LABEL;
@@ -223,7 +223,7 @@ export function boot(win = window, doc = document) {
       if (el2 && el2.textContent !== text) el2.textContent = text;
     };
     if (fields.kind === "error") {
-      set("[data-footer-snapshot]", copy.errorBannerText(fields.endpoint, fields.status));
+      set("[data-footer-snapshot]", copy.errorBannerText(fields.endpoint, fields.status, fields.detail));
       set("[data-footer-version]", "");
       set("[data-footer-hash]", "");
       set("[data-footer-manifest]", "");
@@ -336,7 +336,7 @@ export function boot(win = window, doc = document) {
     if (errBanner) {
       if (state.leaderboardError) {
         errBanner.hidden = false;
-        errBanner.textContent = copy.errorBannerText(state.leaderboardError.endpoint, state.leaderboardError.status);
+        errBanner.textContent = copy.errorBannerText(state.leaderboardError.endpoint, state.leaderboardError.status, state.leaderboardError.detail);
       } else {
         errBanner.hidden = true;
       }

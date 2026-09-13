@@ -471,7 +471,15 @@ def make_handler(
             self.wfile.write(body)
 
         def _send_error_json(self, status: int, message: str) -> None:
-            self._send_json(status, {"error": message})
+            # W4-4 review addendum (2026-09-13): the real API's error body is
+            # `{"error": {endpoint, status, detail}}`, not a bare string --
+            # this fixture server mirrors that shape exactly so `api.js`'s
+            # error handling is exercised against the real contract before
+            # W4-4 lands. `endpoint` is the request path with any query
+            # string stripped (matching how `web/v2/api.js`'s `ApiError`
+            # already names an endpoint).
+            endpoint = self.path.split("?", 1)[0]
+            self._send_json(status, {"error": {"endpoint": endpoint, "status": status, "detail": message}})
 
         def _serve_static(self, path: str) -> None:
             rel = path.lstrip("/") or "index.html"
