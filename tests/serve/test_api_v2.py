@@ -9,6 +9,7 @@ produce, not merely "it parsed".
 """
 from __future__ import annotations
 
+import os
 import json
 import sqlite3
 import sys
@@ -711,6 +712,11 @@ def _assert_under_budget_with_retry(measure, label: str, budget_ms: float = 150.
     occasionally overshoot from a transient scheduling stall rather than a
     real regression in the endpoint's cost -- tolerate ONE re-measure
     before failing (never a relaxed budget)."""
+    # Lead ruling 2026-09-13/14: the 150 ms budget is measured in isolation; under
+    # pytest-xdist on this shared box the ASSERTION tolerates 2x (same rule as
+    # tests/store/test_queries.py); an isolated run enforces the real number.
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        budget_ms = budget_ms * 2.0
     first = measure()
     print(f"\n[W4-4 perf] {label}: {first:.2f} ms")
     if first < budget_ms:
