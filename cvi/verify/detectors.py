@@ -32,22 +32,26 @@ a false accusation either. Every ``detect_*`` docstring below repeats which
 of its own inputs this applies to, and ``tests/verify/test_detectors.py``
 has one dedicated case per input proving the unmeasured value does not fire.
 
-**Named inputs this packet cannot source yet (ownership requests).** Three
-of the nine detectors need a raw fact no landed collector or bundle field
-currently carries. Rather than approximate them from something else, each
-reads its own explicitly named :class:`DetectorInputs` field that defaults
-to ``None`` (never fires) until the fact exists:
+**Named inputs this packet cannot source yet (ownership requests).** Two
+of the nine detectors still need a raw fact no landed collector or bundle
+field currently carries (a third, ``newcomer_burst``, was closed by packet
+W3-1 — kept in this list for its history). Rather than approximate a
+missing fact from something else, each open one reads its own explicitly
+named :class:`DetectorInputs` field that defaults to ``None`` (never
+fires) until the fact exists:
 
-* ``newcomer_burst`` needs each first-timer-cohort account's *account
-  creation date* (``DetectorInputs.newcomer_accounts``). The current
-  ``Cohorts``/``NewcomerAuthor`` schema (``cvi/core/models.py``) records
-  each sampled newcomer's first PR and follow-up PRs, but not when their
-  GitHub account was created -- the one fact the ``03`` section 4 lockstep
-  rule keys on. Ownership request: add ``account_created_at`` to
-  ``NewcomerAuthor`` (04 section 3) and a mapped input id in
-  ``cvi/derive/bundle.py`` (W2-9's mapping table) so a real caller can build
-  ``NewcomerAccountSample`` tuples from the bundle instead of this packet's
-  parallel dataclass.
+* ``newcomer_burst`` — CLOSED (packet W3-1). ``NewcomerAuthor`` now carries
+  ``account_created_at`` (``cvi/core/models.py``), threaded through from
+  the collector's already-fetched per-author ``user.createdAt``
+  (``cvi.collect.github_graphql``) and ``cvi.derive.bundle``'s
+  load/dump round-trip. :func:`newcomer_accounts_from_cohorts` builds real
+  :class:`NewcomerAccountSample` tuples straight from a landed
+  ``FeatureBundle.cohorts.newcomer_authors`` — this dataclass is kept as
+  the detector's own input shape (not replaced by ``NewcomerAuthor``
+  itself) because the detector's ``all_prs_merged`` fact is a derived
+  boolean, not a stored one; wiring ``newcomer_accounts_from_cohorts``'s
+  output into ``DetectorInputs`` at a real call site is still W2-8/W2-9's
+  wiring request (this module's ``run_detectors`` is pure, R-10).
 * ``star_burst`` needs whether the StarScout lockstep penalty
   (``cvi/starscout.py``, v1) was applied to this repo at universe entry
   (``DetectorInputs.star_lockstep_penalty_applied``). No v2 schema field
@@ -75,7 +79,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Callable, Optional
 
-from cvi.core.models import PRWindow, ScoreRecord
+from cvi.core.models import Cohorts, PRWindow, ScoreRecord
 
 # --------------------------------------------------------------------------- #
 # Detector names (03 section 6 table, in table order)                         #
@@ -291,6 +295,32 @@ def closed_unread_share_from_pr_window(pr_window: PRWindow) -> tuple[Optional[fl
         and event.first_human_review_at is None
     )
     return numerator / n, n
+
+
+def newcomer_accounts_from_cohorts(cohorts: Cohorts) -> tuple[NewcomerAccountSample, ...]:
+    """The ``newcomer_burst`` detector's real input, straight from a landed
+    ``FeatureBundle.cohorts.newcomer_authors`` (W3-1, closing the ownership
+    request the module docstring names — ``NewcomerAuthor`` now carries
+    ``account_created_at``).
+
+    An author whose account creation date was never measured (``None`` —
+    the collector's search or eligibility fetch failed for them, W1-4
+    round 3) is skipped entirely, not guessed at: the unmeasured-never-
+    fires rule applies here exactly as it does to every other
+    :class:`DetectorInputs` field. ``all_prs_merged`` is true iff every PR
+    this account is recorded as having opened (its first PR and every
+    follow-up) has a ``merged_at``.
+    """
+    samples: list[NewcomerAccountSample] = []
+    for author in cohorts.newcomer_authors:
+        if author.account_created_at is None:
+            continue
+        all_prs = (author.first_pr, *author.followups)
+        all_merged = all(pr.merged_at is not None for pr in all_prs)
+        samples.append(NewcomerAccountSample(
+            login=author.login, account_created_at=author.account_created_at,
+            all_prs_merged=all_merged))
+    return tuple(samples)
 
 
 # --------------------------------------------------------------------------- #

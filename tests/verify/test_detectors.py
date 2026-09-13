@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from cvi.core.models import GateResult, ParamScore, PRWindow, PRWindowEvent, RepoIdentity, ScoreRecord
+from cvi.core.models import Cohorts, GateResult, NewcomerAuthor, ParamScore, PRRef, PRWindow, PRWindowEvent, RepoIdentity, ScoreRecord
 from cvi.verify.detectors import (
     _measured_n,
     _measured_score,
@@ -56,6 +56,7 @@ from cvi.verify.detectors import (
     detect_source_drift,
     detect_speed_without_decisions,
     detect_star_burst,
+    newcomer_accounts_from_cohorts,
     run_detectors,
 )
 
@@ -494,6 +495,87 @@ def test_newcomer_burst_excludes_accounts_with_unmerged_prs() -> None:
 
 def test_newcomer_burst_empty_never_fires() -> None:
     assert detect_newcomer_burst(_record(), None, DetectorInputs()) is False
+
+
+# --- W3-1: newcomer_accounts_from_cohorts, the real-bundle bridge ----------
+
+def test_newcomer_accounts_from_cohorts_skips_unmeasured_account() -> None:
+    """Unmeasured-never-fires at the bridge layer: an author whose account
+    creation date was never resolved (None) is skipped entirely, not
+    guessed at."""
+    measured = tuple(
+        NewcomerAuthor(login=f"n{i}",
+                       first_pr=PRRef(number=i + 1, created_at=_iso(BASE), merged_at=_iso(BASE)),
+                       followups=(), account_created_at=_iso(BASE + timedelta(days=i)))
+        for i in range(4)
+    )
+    unmeasured = NewcomerAuthor(login="n4", first_pr=PRRef(number=99, created_at=_iso(BASE), merged_at=_iso(BASE)),
+                                followups=(), account_created_at=None)
+    cohorts = Cohorts(decision_pr_numbers=(), newcomer_authors=measured + (unmeasured,))
+    samples = newcomer_accounts_from_cohorts(cohorts)
+    assert len(samples) == 4
+    assert all(sample.login != "n4" for sample in samples)
+
+
+def test_newcomer_accounts_from_cohorts_all_prs_merged_considers_followups() -> None:
+    """all_prs_merged is False when ANY of an author's PRs (first or a
+    follow-up) has no merged_at — not just the first PR."""
+    all_merged = NewcomerAuthor(
+        login="allmerged", first_pr=PRRef(number=1, created_at=_iso(BASE), merged_at=_iso(BASE)),
+        followups=(PRRef(number=2, created_at=_iso(BASE), merged_at=_iso(BASE)),),
+        account_created_at=_iso(BASE))
+    partial = NewcomerAuthor(
+        login="partial", first_pr=PRRef(number=3, created_at=_iso(BASE), merged_at=_iso(BASE)),
+        followups=(PRRef(number=4, created_at=_iso(BASE), merged_at=None),),
+        account_created_at=_iso(BASE))
+    cohorts = Cohorts(decision_pr_numbers=(), newcomer_authors=(all_merged, partial))
+    samples = {sample.login: sample for sample in newcomer_accounts_from_cohorts(cohorts)}
+    assert samples["allmerged"].all_prs_merged is True
+    assert samples["partial"].all_prs_merged is False
+
+
+def test_newcomer_burst_fires_through_run_detectors_on_a_real_bundle() -> None:
+    """W3-1: the ownership request the module docstring named is closed —
+    5 real NewcomerAuthor objects (as cvi.derive.bundle loads them from a
+    stored FeatureBundle), all created within a 1-day span and all merged,
+    converted via newcomer_accounts_from_cohorts, must fire newcomer_burst
+    through run_detectors — not just through this file's hand-built
+    NewcomerAccountSample tuples."""
+    authors = tuple(
+        NewcomerAuthor(
+            login=f"newcomer{i}",
+            first_pr=PRRef(number=100 + i, created_at=_iso(BASE + timedelta(hours=i)),
+                           merged_at=_iso(BASE + timedelta(hours=i, minutes=30))),
+            followups=(),
+            account_created_at=_iso(BASE + timedelta(hours=i)),
+        )
+        for i in range(5)
+    )
+    cohorts = Cohorts(decision_pr_numbers=(), newcomer_authors=authors)
+    inputs = DetectorInputs(newcomer_accounts=newcomer_accounts_from_cohorts(cohorts))
+    flags = run_detectors(_record(), None, inputs)
+    assert "newcomer_burst" in flags
+
+
+def test_newcomer_burst_does_not_fire_through_run_detectors_when_unmeasured() -> None:
+    """Over-correction guard: the same 5-account real bundle, but with
+    account_created_at unresolved for all of them, must NOT fire —
+    proving the bridge (not just the detector) respects unmeasured-never-
+    fires."""
+    authors = tuple(
+        NewcomerAuthor(
+            login=f"newcomer{i}",
+            first_pr=PRRef(number=100 + i, created_at=_iso(BASE + timedelta(hours=i)),
+                           merged_at=_iso(BASE + timedelta(hours=i, minutes=30))),
+            followups=(),
+            account_created_at=None,
+        )
+        for i in range(5)
+    )
+    cohorts = Cohorts(decision_pr_numbers=(), newcomer_authors=authors)
+    inputs = DetectorInputs(newcomer_accounts=newcomer_accounts_from_cohorts(cohorts))
+    flags = run_detectors(_record(), None, inputs)
+    assert "newcomer_burst" not in flags
 
 
 # --------------------------------------------------------------------------- #

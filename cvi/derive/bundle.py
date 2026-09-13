@@ -187,6 +187,7 @@ def dump_bundle(bundle: FeatureBundle) -> dict[str, Any]:
                     "login": author.login,
                     "first_pr": _pr_ref_doc(author.first_pr),
                     "followups": [_pr_ref_doc(ref) for ref in author.followups],
+                    "account_created_at": author.account_created_at,
                 }
                 for author in bundle.cohorts.newcomer_authors
             ],
@@ -379,7 +380,8 @@ def _cohorts_from(doc: Any, problems: list[str]) -> Cohorts | None:
         try:
             refs = [PRRef(**{key: ref[key] for key in ("number", "created_at", "merged_at")}) for ref in followups]
             first = PRRef(**{key: entry["first_pr"][key] for key in ("number", "created_at", "merged_at")})
-            authors.append(NewcomerAuthor(login=entry["login"], first_pr=first, followups=tuple(refs)))
+            authors.append(NewcomerAuthor(login=entry["login"], first_pr=first, followups=tuple(refs),
+                                          account_created_at=entry.get("account_created_at")))
         except (KeyError, BundleValidationError) as error:
             problems.extend(f"cohorts.newcomer_authors[{index}]: {error!s}")
     if problems:

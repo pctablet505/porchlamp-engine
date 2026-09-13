@@ -1581,10 +1581,10 @@ def test_derive_cohort_fields_unmeasured_threshold_just_above_20_percent_gated()
     fields = gql.derive_cohort_fields(data)
     assert fields["authors_total"] == (100, "verified")
     assert fields["authors_excluded_unmeasured"] == (21, "verified")
-    assert fields["dr90_decision_rate"] == (None, "unmeasured")
-    assert fields["dr90_decision_pr_count"] == (None, "unmeasured")
-    assert fields["mr_first_rate"] == (None, "unmeasured")
-    assert fields["mr_first_pr_count"] == (None, "unmeasured")
+    assert fields["dr90_decision_rate"] == (None, "missing")
+    assert fields["dr90_decision_pr_count"] == (None, "missing")
+    assert fields["mr_first_rate"] == (None, "missing")
+    assert fields["mr_first_pr_count"] == (None, "missing")
     assert fields["cohort_unmeasured_detail"] == ("21 of 100 authors unmeasured", "verified")
     # the RAW rates are unaffected by the gate — they never depended on
     # per-author eligibility in the first place.
@@ -1605,9 +1605,133 @@ def test_derive_cohort_fields_round2_pytest_repro_yields_unmeasured_not_a_rate()
     fields = gql.derive_cohort_fields(data)
     assert fields["authors_total"] == (62, "verified")
     assert fields["authors_excluded_unmeasured"] == (45, "verified")
-    assert fields["mr_first_rate"] == (None, "unmeasured")
-    assert fields["mr_first_pr_count"] == (None, "unmeasured")
-    assert fields["dr90_decision_rate"] == (None, "unmeasured")
+    assert fields["mr_first_rate"] == (None, "missing")
+    assert fields["mr_first_pr_count"] == (None, "missing")
+    assert fields["dr90_decision_rate"] == (None, "missing")
+
+
+def test_author_status_unmeasured_takes_priority_over_unsampled():
+    """F-002 (review C2b): an author outside the search-cap sample AND
+    with a failed fetch is 'unmeasured', not 'unsampled' — the bug tested
+    ``history_unsampled`` first, undercounting real failures (the round-2
+    pytest envelope's true 45 failures read as 38 under the old order)."""
+    both_history = {"history_unsampled": True, "history_unmeasured": True,
+                    "account_created_at": None, "public_event_count": None}
+    assert gql._author_status(both_history, NOW) == "unmeasured"
+    both_eligibility = {"history_unsampled": True, "eligibility_unmeasured": True,
+                        "account_created_at": None, "public_event_count": None}
+    assert gql._author_status(both_eligibility, NOW) == "unmeasured"
+
+
+def test_derive_cohort_fields_unmeasured_and_unsampled_overlap_still_gates():
+    """F-002 oracle: 10 of 20 authors have BOTH a failed eligibility fetch
+    AND fall outside the search-cap sample; authors_excluded_unmeasured
+    must count all 10 (not 0, review C2b's constructed case), and the gate
+    must fire — the true (raw) picture is 0.5, not the ungated 1.0 on
+    n=10 the pre-fix bucket order produced."""
+    prs = [w4_days(i, 150, f"e{i}", closed_after=5) for i in range(10)] + \
+         [w4_days(100 + i, 150, f"u{i}") for i in range(10)]  # open (not decided)
+    records = [w4_rec(f"e{i}") for i in range(10)] + \
+             [{"login": f"u{i}", "account_created_at": None, "public_event_count": None,
+               "prs": [], "eligibility_unmeasured": True, "history_unsampled": True}
+              for i in range(10)]
+    fields = gql.derive_cohort_fields(_w4_ah_data(prs, records))
+    assert fields["authors_total"] == (20, "verified")
+    assert fields["authors_excluded_unmeasured"] == (10, "verified")
+    assert fields["authors_excluded_unsampled"] == (0, "verified")
+    assert fields["dr90_decision_rate_raw"] == (0.5, "derived")
+    assert fields["dr90_decision_rate"] == (None, "missing")
+    assert fields["dr90_decision_pr_count"] == (None, "missing")
+
+
+def test_derive_cohort_fields_unsampled_only_author_counted_separately():
+    """R8 guard (review §3.2): an author who is ONLY outside the search-cap
+    sample (no failed fetch) is counted in authors_excluded_unsampled, not
+    folded into authors_excluded_unmeasured or silently dropped — a
+    mutant that makes ``_author_status`` skip the unsampled branch
+    entirely must move this count."""
+    prs = [w4_days(i, 150, f"e{i}", closed_after=5) for i in range(8)] + \
+         [w4_days(100, 150, "s0")]
+    records = [w4_rec(f"e{i}") for i in range(8)] + \
+             [{"login": "s0", "account_created_at": None, "public_event_count": None,
+               "prs": [], "history_unsampled": True}]
+    fields = gql.derive_cohort_fields(_w4_ah_data(prs, records))
+    assert fields["authors_total"] == (9, "verified")
+    assert fields["authors_excluded_unsampled"] == (1, "verified")
+    assert fields["authors_excluded_unmeasured"] == (0, "verified")
+
+
+def test_eligible_call_site_excludes_unmeasured_below_gate_threshold():
+    """F-003 (review C3b, mutant R4): ``_eligible(...) is True`` must
+    exclude a None (unmeasured) author even when the population is well
+    under the 20% gate threshold — an ``is not False`` call site would
+    silently read None as eligible. 3 of 20 (0.15) unmeasured authors
+    whose PRs were never decided: correctly excluded gives dr90 1.0/n=17;
+    wrongly included (the R4 mutant) gives 0.85/n=20."""
+    prs = [w4_days(i, 150, f"e{i}", closed_after=5) for i in range(17)] + \
+         [w4_days(100 + i, 150, f"u{i}") for i in range(3)]  # open (not decided)
+    records = [w4_rec(f"e{i}") for i in range(17)] + \
+             [{"login": f"u{i}", "account_created_at": None, "public_event_count": None,
+               "prs": [], "eligibility_unmeasured": True} for i in range(3)]
+    fields = gql.derive_cohort_fields(_w4_ah_data(prs, records))
+    assert fields["authors_excluded_unmeasured"] == (3, "verified")  # 3/20 = 0.15, under the gate
+    assert fields["dr90_decision_rate"] == (1.0, "derived")
+    assert fields["dr90_decision_pr_count"] == (17, "derived")
+
+
+def test_derive_cohort_fields_newcomer_conversion_gated_not_zero():
+    """F-001 (review C2c): rows 5.2/5.3 get the same tri-state gate as
+    1.2/1.3, over the newcomer roster's own fraction. 9 of 20 newcomer
+    authors have a failed eligibility fetch — and those 9 are exactly the
+    ones whose first PR really did convert (merged within 180 d); the
+    round-2 bug called ``is_eligible_account`` directly, read their
+    missing data as ineligible, excluded them from the eligible pool, and
+    scored 0/11 = 0.0 on the 11 remaining (measured, non-converting)
+    authors, against a true raw rate of 0.45."""
+    prs: list = []
+    records: list = []
+    for i in range(9):
+        login = f"conv{i}"
+        prs.append(w4_days(700 + i, 200, login, merged_after=20))  # converts within 180d
+        records.append({"login": login, "account_created_at": None, "public_event_count": None,
+                        "prs": [], "eligibility_unmeasured": True})
+    for i in range(11):
+        login = f"stay{i}"
+        prs.append(w4_days(800 + i, 200, login))  # never merged: does not convert
+        records.append(w4_rec(login))
+    sampled = [f"conv{i}" for i in range(9)] + [f"stay{i}" for i in range(11)]
+    fields = gql.derive_cohort_fields(_w4_ah_data(prs, records, sampled=sampled))
+    assert fields["newcomer_cohort_author_count"] == (20, "derived")
+    assert fields["newcomer_conversion_raw"] == (0.45, "derived")
+    assert fields["newcomer_conversion_raw_author_count"] == (20, "derived")
+    assert fields["newcomer_conversion"] == (None, "missing")
+    assert fields["newcomer_conversion_author_count"] == (None, "missing")
+    assert fields["newcomer_unmeasured_detail"] == ("9 of 20 newcomer authors unmeasured", "verified")
+
+
+def test_derive_cohort_fields_newcomer_conversion_not_gated_below_threshold():
+    """Over-correction guard: when the newcomer roster's unmeasured
+    fraction is at/under 0.20, 5.2/5.3 compute normally (not gated), and
+    an unmeasured author is simply excluded from the eligible pool — the
+    behaviour the round-2 code already had for a SMALL failure share."""
+    prs: list = []
+    records: list = []
+    for i in range(2):
+        login = f"conv{i}"
+        prs.append(w4_days(700 + i, 200, login, merged_after=20))
+        records.append({"login": login, "account_created_at": None, "public_event_count": None,
+                        "prs": [], "eligibility_unmeasured": True})
+    for i in range(8):
+        login = f"stay{i}"
+        prs.append(w4_days(800 + i, 200, login, merged_after=20))  # also converts
+        records.append(w4_rec(login))
+    sampled = [f"conv{i}" for i in range(2)] + [f"stay{i}" for i in range(8)]
+    fields = gql.derive_cohort_fields(_w4_ah_data(prs, records, sampled=sampled))
+    assert fields["newcomer_cohort_author_count"] == (10, "derived")
+    assert fields["newcomer_conversion_raw"] == (1.0, "derived")  # all 10 convert
+    assert fields["newcomer_conversion"][1] == "derived"          # not gated: 2/10 = 0.20
+    assert fields["newcomer_conversion"] == (1.0, "derived")      # the 8 measured all convert too
+    assert fields["newcomer_conversion_author_count"] == (8, "derived")  # 2 unmeasured excluded
 
 
 def test_decision_cohort_coverage_gap_when_truncated():

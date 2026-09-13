@@ -404,6 +404,21 @@ PIPELINE_DEFENSES_PROXY_MIN_N: int = 10
 #: fields``.
 AUTHOR_UNMEASURED_MAX_FRACTION: float = 0.20
 
+#: D-IN-3: for rate parameters (merge, decision, conversion, return) a PR
+#: author counts only if the account is at least this many days old at PR
+#: creation, mirroring StarScout's throwaway rule. Relocated from
+#: ``cvi.collect.github_graphql`` by packet W3-1 (RFC, R-2) into
+#: ``cvi.core.hygiene``, the shared D-IN-3 mechanism every rate
+#: parameter's derivation uses.
+MIN_ACCOUNT_AGE_DAYS: int = 90
+#: D-IN-3: and has at least this many public events.
+MIN_PUBLIC_EVENTS: int = 5
+#: D-IN-3 per-author cap: one author contributes at most this fraction of
+#: any rate's numerator and denominator (excess PRs from one author are
+#: dropped, most recent first). Relocated alongside the two constants
+#: above (W3-1).
+AUTHOR_CAP_FRACTION: float = 0.20
+
 #: Pillar names and frozen pillar weights (02 section 4; O-2: unchanged at
 #: 25/25/20/15/15). Defined here (ahead of its alphabetical neighbours)
 #: because ``PERSONA_PRESETS`` below needs ``PILLAR_WEIGHTS`` already bound.
@@ -549,6 +564,7 @@ def constants_dict() -> dict[str, object]:
     return {
         "AI_POSTURE_SCORES": AI_POSTURE_SCORES,
         "AI_POSTURE_VALUES": AI_POSTURE_VALUES,
+        "AUTHOR_CAP_FRACTION": AUTHOR_CAP_FRACTION,
         "AUTHOR_UNMEASURED_MAX_FRACTION": AUTHOR_UNMEASURED_MAX_FRACTION,
         "BENCHMARK_VERSION": BENCHMARK_VERSION,
         "CAREER_CAPITAL_MIN_COVERAGE": CAREER_CAPITAL_MIN_COVERAGE,
@@ -574,7 +590,9 @@ def constants_dict() -> dict[str, object]:
         "LEGAL_IP_VALUES": LEGAL_IP_VALUES,
         "LEVERAGE_WEIGHTS": LEVERAGE_WEIGHTS,
         "METHOD_PRIMARY": METHOD_PRIMARY,
+        "MIN_ACCOUNT_AGE_DAYS": MIN_ACCOUNT_AGE_DAYS,
         "MIN_POPULATION": MIN_POPULATION,
+        "MIN_PUBLIC_EVENTS": MIN_PUBLIC_EVENTS,
         "MONO_TOLERANCE": MONO_TOLERANCE,
         "NOT_APPLICABLE_RULES": NOT_APPLICABLE_RULES,
         "NO_CEILING_MIN_COVERAGE": NO_CEILING_MIN_COVERAGE,

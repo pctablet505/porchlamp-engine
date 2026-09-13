@@ -56,8 +56,16 @@ from cvi.core.models import BundleValidationError, Unmeasured, canonical_json
 #: WINDOW_STALENESS_DAYS -- the last relocated from
 #: cvi.collect.pike_signals -- added to constants_dict() per W2-13; no
 #: previously-scored value changed, since every added constant's re-bound
-#: value at its consumer module is unchanged).
-FROZEN_CONSTANTS_HASH = "419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9"
+#: value at its consumer module is unchanged) ->
+#: `748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b`
+#: (RFC-0004: AUTHOR_CAP_FRACTION = 0.20 / MIN_ACCOUNT_AGE_DAYS = 90 /
+#: MIN_PUBLIC_EVENTS = 5 added, relocated out of cvi.collect.github_graphql
+#: into cvi.core.hygiene per packet W3-1; no scored value changed, same
+#: no-consumer-yet reasoning as RFC-0001, docs/v2/rfcs/
+#: RFC-0004-din3-hygiene-constants.md; RFC numbering serialised by landing
+#: order -- this constants change was originally authored as RFC-0002
+#: before W1-10's own RFC-0002 landed first on main).
+FROZEN_CONSTANTS_HASH = "748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -213,6 +221,11 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     ),
     ("OPENSSF_PROXY_MIN_SIGNALS", constants_v2.OPENSSF_PROXY_MIN_SIGNALS, 8),
     ("WINDOW_STALENESS_DAYS", constants_v2.WINDOW_STALENESS_DAYS, 14),
+    # RFC-0004 (W3-1): D-IN-3's own three constants, relocated out of
+    # cvi.collect.github_graphql into cvi.core.hygiene.
+    ("AUTHOR_CAP_FRACTION", constants_v2.AUTHOR_CAP_FRACTION, 0.20),
+    ("MIN_ACCOUNT_AGE_DAYS", constants_v2.MIN_ACCOUNT_AGE_DAYS, 90),
+    ("MIN_PUBLIC_EVENTS", constants_v2.MIN_PUBLIC_EVENTS, 5),
 )
 
 

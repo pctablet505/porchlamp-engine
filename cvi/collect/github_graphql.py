@@ -37,6 +37,11 @@ from typing import Any, Optional, Protocol
 
 from cvi.collect.envelope import write_envelope
 from cvi.core.constants_v2 import AUTHOR_UNMEASURED_MAX_FRACTION
+from cvi.core.hygiene import (
+    account_eligibility as _hygiene_account_eligibility,
+    apply_author_cap,
+    is_eligible_account,
+)
 
 # --------------------------------------------------------------------------- #
 # D-IN-4 / D-IN-2 / 02 §4 constants (docs/v2/02-RANKING-DESIGN.md)            #
@@ -490,13 +495,10 @@ DECISION_COHORT_START_DAYS: int = 270
 #: the same fact from two angles: a cohort PR has had exactly this long to
 #: be decided (D-IN-4's stated rationale for the cohort's near boundary).
 DECISION_WINDOW_DAYS: int = 90
-#: D-IN-3: the account must be at least 90 days old at PR creation.
-MIN_ACCOUNT_AGE_DAYS: int = 90
-#: D-IN-3: the account must have at least 5 public events.
-MIN_PUBLIC_EVENTS: int = 5
-#: D-IN-3: one author counts for at most floor(20% * n) of any rate's
-#: numerator and denominator.
-AUTHOR_CAP_FRACTION: float = 0.20
+#: D-IN-3 (account age, event count, per-author cap): MIN_ACCOUNT_AGE_DAYS,
+#: MIN_PUBLIC_EVENTS and AUTHOR_CAP_FRACTION are imported from
+#: cvi.core.constants_v2 (W3-1, RFC-0002) — this module's own D-IN-4
+#: constants stay here pending W2-1's broader relocation (R-2).
 #: 5.2: the first PR converted when merged within 180 d of opening.
 NEWCOMER_CONVERT_WINDOW_DAYS: int = 180
 #: 5.3: a return needs a second PR within 90 d after the first PR's merge.
@@ -926,41 +928,9 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     return "ok"
 
 
-def is_eligible_account(account_created_at: Optional[str],
-                        pr_created_at: Optional[str],
-                        public_event_count: Optional[int]) -> bool:
-    """D-IN-3: the account is at least 90 days old at PR creation and has at
-    least 5 public events. ``False`` whenever a recorded input is missing —
-    an absent input never reads as success."""
-    created = _parse_iso(account_created_at)
-    pr = _parse_iso(pr_created_at)
-    if created is None or pr is None or pr < created:
-        return False
-    if pr - created < timedelta(days=MIN_ACCOUNT_AGE_DAYS):
-        return False
-    return (public_event_count is not None
-            and public_event_count >= MIN_PUBLIC_EVENTS)
-
-
-def apply_author_cap(items: Sequence[tuple[str, datetime]]) -> tuple[int, ...]:
-    """D-IN-3 per-author cap: the indices of the items that survive.
-
-    ``items`` are ``(author_login, created_at)`` pairs of one rate's
-    population; each author keeps at most ``floor(0.2 * len(items))`` of
-    them, the most recent dropped first (the oldest kept). Populations
-    under 5 have a cap of 0 and lose every item.
-    """
-    allowed = int(AUTHOR_CAP_FRACTION * len(items))
-    if allowed <= 0:
-        return ()
-    slots: dict[str, list[int]] = {}
-    for idx, (login, _created) in enumerate(items):
-        slots.setdefault(login, []).append(idx)
-    kept: list[int] = []
-    for idxs in slots.values():
-        idxs.sort(key=lambda i: items[i][1])  # oldest first
-        kept.extend(idxs[:allowed])
-    return tuple(sorted(kept))
+#: D-IN-3: ``is_eligible_account``/``apply_author_cap`` are imported from
+#: :mod:`cvi.core.hygiene` (W3-1, RFC-0002) — the module note above
+#: explains why those two, and only those two, moved.
 
 
 def _cap_prs(prs: Sequence[dict]) -> list[dict]:
@@ -1002,41 +972,67 @@ def _author_pr_history(window_prs: Sequence[dict],
     return list(seen.values())
 
 
-def _eligible(pr: dict, records: dict[str, dict]) -> Optional[bool]:
-    """D-IN-3 eligibility of one PR's author, tri-state (round 3, B-3):
-    ``True`` (eligible), ``False`` (confirmed ineligible on real data), or
-    ``None`` (unknown — this author's eligibility lookup or prior-merge
-    search failed: ``eligibility_unmeasured`` or ``history_unmeasured``).
-    Round-2's defect: an unmeasured author read as ineligible, which is
+def _account_eligibility(record: Optional[dict], pr_created_at: Optional[str],
+                         fallback_account_at: Optional[str] = None) -> Optional[bool]:
+    """D-IN-3 eligibility of one author, tri-state (round 3, B-3; shared
+    core, F-001 round W3-1): ``True`` (eligible), ``False`` (confirmed
+    ineligible on real data), or ``None`` (unknown — this author's
+    eligibility lookup or prior-merge search failed:
+    ``eligibility_unmeasured`` or ``history_unmeasured``). Round-2's
+    defect: an unmeasured author read as ineligible, which is
     indistinguishable at the derivation layer from a genuinely event-free
     account (review B-3). A ``None`` here must be excluded from a rate's
-    numerator AND denominator by the caller, the same principle
-    :func:`_no_prior_merged` already applies (B2)."""
+    numerator AND denominator by the caller — pinned with ``is True``, not
+    truthiness (review F-3: an ``is not False`` call site would silently
+    read ``None`` as eligible).
+
+    F-001 (W3-1, review C2c): this is the ONE tri-state check every D-IN-3
+    rate uses — rows 1.2/1.3 via :func:`_eligible` and rows 5.2/5.3 via
+    :func:`_newcomer_cohort_authors` both call this, instead of 5.2/5.3
+    calling :func:`is_eligible_account` directly and re-introducing the
+    round-2 conflation on the same records three lines away.
+    """
+    record = record or {}
+    measured = not (record.get("eligibility_unmeasured") or record.get("history_unmeasured"))
+    account_at = record.get("account_created_at") or fallback_account_at
+    events = record.get("public_event_count")
+    return _hygiene_account_eligibility(account_at, pr_created_at, events, measured=measured)
+
+
+def _eligible(pr: dict, records: dict[str, dict]) -> Optional[bool]:
+    """D-IN-3 eligibility of one PR's author — :func:`_account_eligibility`
+    keyed by this PR's own author and ``createdAt``, falling back to the
+    PR node's own ``author.createdAt`` when no per-author record exists at
+    all (never for public events — a PR node carries no event count)."""
     login = _login_of(pr)
-    record = records.get(login)
-    if record is not None and (record.get("eligibility_unmeasured")
-                               or record.get("history_unmeasured")):
-        return None
-    account_at = (record or {}).get("account_created_at")
-    if not account_at:
-        account_at = (pr.get("author") or {}).get("createdAt")
-    events = (record or {}).get("public_event_count")
-    return is_eligible_account(account_at, pr.get("createdAt"), events)
+    fallback_account_at = (pr.get("author") or {}).get("createdAt")
+    return _account_eligibility(records.get(login), pr.get("createdAt"), fallback_account_at)
 
 
 def _author_status(record: dict, anchor: datetime) -> str:
     """One author's status for the round-3 accounting fields (B-3/B-2):
-    ``"unsampled"`` (the designed :data:`AUTHOR_SEARCH_CAP` sample, counted
-    separately so a large repo does not look broken), ``"unmeasured"`` (a
-    search or eligibility fetch failed for this author), ``"ineligible"``
-    (real data, D-IN-3 thresholds not met) or ``"eligible"``. Uses the
-    window anchor as the reference time (a per-repo summary, not the exact
-    per-PR gate :func:`_eligible` applies for the scored rates themselves,
-    which compares each PR's own ``createdAt``)."""
-    if record.get("history_unsampled"):
-        return "unsampled"
+    ``"unmeasured"`` (a search or eligibility fetch failed for this
+    author), ``"unsampled"`` (the designed :data:`AUTHOR_SEARCH_CAP`
+    sample, counted separately so a large repo does not look broken),
+    ``"ineligible"`` (real data, D-IN-3 thresholds not met) or
+    ``"eligible"``. Uses the window anchor as the reference time (a
+    per-repo summary, not the exact per-PR gate :func:`_eligible` applies
+    for the scored rates themselves, which compares each PR's own
+    ``createdAt``).
+
+    F-002 (W3-1, review C2b): a failed fetch is tested BEFORE the search-
+    cap sample, not after. An author can be both outside the sample and
+    have a failed fetch (the cap and the fetch are independent); testing
+    ``history_unsampled`` first counted that author as a designed
+    exclusion, so ``authors_excluded_unmeasured`` undercounted real
+    failures and the round-3 gate (:data:`AUTHOR_UNMEASURED_MAX_FRACTION`)
+    could not fire on them -- reproduced on the round-2 pytest-dev/pytest
+    envelope, where the true failure count (45) read as 38 under the old
+    order."""
     if record.get("history_unmeasured") or record.get("eligibility_unmeasured"):
         return "unmeasured"
+    if record.get("history_unsampled"):
+        return "unsampled"
     if is_eligible_account(record.get("account_created_at"), anchor.isoformat(),
                            record.get("public_event_count")):
         return "eligible"
@@ -1136,15 +1132,19 @@ def _newcomer_cohort_authors(window_prs: Sequence[dict], records: dict[str, dict
             for pr in followups)
         authors.append({
             "login": login,
+            # W3-1 (03 §4 lockstep / newcomer_burst): the account's own
+            # creation date, carried through to cvi.core.models.
+            # NewcomerAuthor so cvi.verify.detectors can read it; None
+            # when the eligibility fetch for this author never resolved
+            # it (unmeasured, not guessed).
+            "account_created_at": record.get("account_created_at"),
             "first_pr": {"number": first_pr.get("number"),
                          "created_at": first_pr.get("createdAt"),
                          "merged_at": first_pr.get("mergedAt")},
             "followups": [{"number": pr.get("number"),
                            "created_at": pr.get("createdAt"),
                            "merged_at": pr.get("mergedAt")} for pr in followups],
-            "_eligible": is_eligible_account(record.get("account_created_at"),
-                                             first_pr.get("createdAt"),
-                                             record.get("public_event_count")),
+            "_eligible": _account_eligibility(record, first_pr.get("createdAt")),
             "_first_created": first_created,
             "_first_merged": first_merged,
             "_converted": converted,
@@ -1175,6 +1175,7 @@ AUTHOR_HISTORY_BUNDLE_FIELDS: tuple[str, ...] = (
     "newcomer_conversion", "newcomer_conversion_author_count",
     "rr90_return_rate_raw", "rr90_return_raw_author_count",
     "rr90_return_rate", "rr90_return_author_count",
+    "newcomer_unmeasured_detail",
 )
 
 
@@ -1197,10 +1198,27 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     for every author in the union once. When more than
     :data:`AUTHOR_UNMEASURED_MAX_FRACTION` of them are ``unmeasured``, DR_90
     and MR_first's D-IN-3-adjusted (capped) rate and count are reported
-    ``(None, "unmeasured")`` with a ``cohort_unmeasured_detail`` string,
+    ``(None, "missing")`` with a ``cohort_unmeasured_detail`` string,
     instead of computed on a collapsed population — a collector failure
     (batch errors, review B-1) must not silently rewrite a scored parameter
     (review B-2). The RAW rates are unaffected by this gate.
+
+    W3-1 (F-001, review C2c): rows 5.2/5.3 get the identical treatment,
+    gated on the fraction of the SAMPLED NEWCOMER ROSTER (not the 1.2/1.3
+    union) that is unmeasured, with its own ``newcomer_unmeasured_detail``
+    string — the round-2 conflation (``is_eligible_account`` called
+    directly, bypassing the tri-state) was present on these two rows
+    specifically, three lines from the fixed 1.2/1.3 code.
+
+    F-004 (W3-1): the gate's confidence value is the documented ``"missing"``
+    (``scripts/derive.py``'s existing verified/derived/missing/flag
+    vocabulary), never an invented fifth value — D-MISS-1's own
+    ``collector_failure`` reason belongs to ``Unmeasured`` objects that
+    only ``cvi.derive.bundle`` constructs, which this collector module
+    never builds directly. The real, per-repo failure detail is carried in
+    ``cohort_unmeasured_detail``/``newcomer_unmeasured_detail`` (confidence
+    ``"verified"``, since the count itself is a real, checked fact) for
+    whichever future ``cvi.derive.bundle`` resolver reads it.
     """
     if not ah:
         return {}
@@ -1266,12 +1284,12 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         # AUTHOR_UNMEASURED_MAX_FRACTION of this repo's cohort authors have
         # no eligibility/history data (a collector failure, not a sample),
         # so the D-IN-3-adjusted rate is unmeasured rather than computed on
-        # what is left.
+        # what is left. F-004: "missing" is the documented confidence value.
         detail = f"{authors_excluded_unmeasured} of {authors_total} authors unmeasured"
-        out["dr90_decision_rate"] = (None, "unmeasured")
-        out["dr90_decision_pr_count"] = (None, "unmeasured")
-        out["mr_first_rate"] = (None, "unmeasured")
-        out["mr_first_pr_count"] = (None, "unmeasured")
+        out["dr90_decision_rate"] = (None, "missing")
+        out["dr90_decision_pr_count"] = (None, "missing")
+        out["mr_first_rate"] = (None, "missing")
+        out["mr_first_pr_count"] = (None, "missing")
         out["cohort_unmeasured_detail"] = (detail, "verified")
     else:
         dr90_kept = _cap_prs([pr for pr in cohort_prs if _eligible(pr, records) is True])
@@ -1294,20 +1312,37 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         _ratio(sum(1 for a in authors if a["_converted"]), len(authors)), "derived")
     out["newcomer_conversion_raw_author_count"] = (len(authors), "derived")
 
-    eligible_authors = [a for a in authors if a["_eligible"]]
-    conv_kept = _cap_authors(eligible_authors, "_first_created")
-    out["newcomer_conversion"] = (
-        _ratio(sum(1 for a in conv_kept if a["_converted"]), len(conv_kept)), "derived")
-    out["newcomer_conversion_author_count"] = (len(conv_kept), "derived")
+    # F-001 (W3-1, review C2c): the same collector-failure gate as 1.2/1.3,
+    # taken over THIS roster (the sampled newcomer authors), not the 1.2/1.3
+    # union — a repo can fail eligibility fetches for its newcomer sample
+    # independently of its decision cohort.
+    newcomer_total = len(authors)
+    newcomer_unmeasured = sum(1 for a in authors if a["_eligible"] is None)
+    newcomer_fraction = (newcomer_unmeasured / newcomer_total) if newcomer_total else 0.0
+    newcomer_collector_failed = newcomer_fraction > AUTHOR_UNMEASURED_MAX_FRACTION
+
+    eligible_authors = [a for a in authors if a["_eligible"] is True]
+    if newcomer_collector_failed:
+        detail = f"{newcomer_unmeasured} of {newcomer_total} newcomer authors unmeasured"
+        out["newcomer_conversion"] = (None, "missing")
+        out["newcomer_conversion_author_count"] = (None, "missing")
+        out["rr90_return_rate"] = (None, "missing")
+        out["rr90_return_author_count"] = (None, "missing")
+        out["newcomer_unmeasured_detail"] = (detail, "verified")
+    else:
+        conv_kept = _cap_authors(eligible_authors, "_first_created")
+        out["newcomer_conversion"] = (
+            _ratio(sum(1 for a in conv_kept if a["_converted"]), len(conv_kept)), "derived")
+        out["newcomer_conversion_author_count"] = (len(conv_kept), "derived")
+
+        merged_first_eligible = [a for a in eligible_authors if a["_first_merged"] is not None]
+        rr_kept = _cap_authors(merged_first_eligible, "_first_merged")
+        out["rr90_return_rate"] = (
+            _ratio(sum(1 for a in rr_kept if a["_returned"]), len(rr_kept)), "derived")
+        out["rr90_return_author_count"] = (len(rr_kept), "derived")
 
     merged_first_all = [a for a in authors if a["_first_merged"] is not None]
     out["rr90_return_rate_raw"] = (
         _ratio(sum(1 for a in merged_first_all if a["_returned"]), len(merged_first_all)), "derived")
     out["rr90_return_raw_author_count"] = (len(merged_first_all), "derived")
-
-    merged_first_eligible = [a for a in eligible_authors if a["_first_merged"] is not None]
-    rr_kept = _cap_authors(merged_first_eligible, "_first_merged")
-    out["rr90_return_rate"] = (
-        _ratio(sum(1 for a in rr_kept if a["_returned"]), len(rr_kept)), "derived")
-    out["rr90_return_author_count"] = (len(rr_kept), "derived")
     return out

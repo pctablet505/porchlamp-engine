@@ -336,11 +336,20 @@ class PRRef:
 
 @dataclass(frozen=True)
 class NewcomerAuthor:
-    """One sampled newcomer-cohort author with their PR history (04 section 3)."""
+    """One sampled newcomer-cohort author with their PR history (04 section 3).
+
+    ``account_created_at`` (W3-1): the account's own GitHub creation date,
+    ISO-8601 — the fact ``cvi.verify.detectors``' ``newcomer_burst``
+    lockstep rule (``03`` section 4) keys on. ``None`` on a bundle built
+    before this field existed, or when the collector's per-author fetch
+    never resolved it (unmeasured, D-MISS-1) — a detector must never guess
+    a burst from a missing account age (the unmeasured-never-fires rule).
+    """
 
     login: str
     first_pr: PRRef
     followups: tuple[PRRef, ...]
+    account_created_at: str | None = None
 
     def __post_init__(self) -> None:
         problems: list[str] = []
@@ -350,6 +359,8 @@ class NewcomerAuthor:
             problems.append("newcomer_author.first_pr must be a PRRef")
         if not isinstance(self.followups, tuple) or not all(isinstance(p, PRRef) for p in self.followups):
             problems.append("newcomer_author.followups must be a tuple of PRRef")
+        if self.account_created_at is not None and not _is_iso(self.account_created_at):
+            problems.append("newcomer_author.account_created_at must be an ISO datetime or null")
         if problems:
             raise BundleValidationError(problems)
 
