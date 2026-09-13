@@ -24,7 +24,7 @@ logic is copied verbatim from the landed W1-5 module, not rewritten (the
 packet's own "reuse the existing normalisation, do not re-implement it"
 instruction).
 
-W1-5f additions: :func:`last_non_bot_commit_at` (D-TIE-1 item 7 -- the max
+W1-5f additions: :func:`last_non_bot_commit_date` (D-TIE-1 item 7 -- the max
 commit date among non-bot, dated commits) and :func:`top_domain_share`
 (the raw ``(share, n, top_domain)`` behind ``top_email_domain_share``).
 Both are pure functions over an already-collected ``Sequence[
@@ -35,13 +35,27 @@ as-is; neither re-slices it by a fresh cutoff), matching the repo-wide
 "no wall clock in derived values" rule even more strictly than
 :func:`cvi.collect.commits.elephant_factor` (which does take a ``now``
 to re-slice a possibly-oversized envelope to its nominal window).
+
+W1-5f also puts the ``last_non_bot_commit_at`` *bundle-level* sidecar fact
+(``LastNonBotCommitMeasured``/:func:`last_non_bot_commit_at`/
+:func:`set_last_non_bot_commit_at``) here rather than in
+``cvi.derive.bundle`` (where ``cvi.derive.bundle._resolve_commit_facts``
+actually builds it, reading the raw commits envelope): ``cvi.core.
+pipeline`` -- itself restricted to ``cvi.core`` + stdlib -- needs to read
+this fact back for D-TIE-1 item 7's tie-break wiring
+(``score_bundle_stage_9_tie_input``) and cannot import ``cvi.derive.
+bundle`` to get it. ``top_email_domain_share``'s matching sidecar fact has
+no such reader inside ``cvi.core`` (only ``cvi/verify/pipeline_hook.py``,
+unrestricted, needs it) and stays defined in ``cvi.derive.bundle`` itself.
 """
 from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence, Union
+
+from cvi.core.models import FeatureBundle, Unmeasured
 
 #: GitHub private-email domain: its local part is an account id (or
 #: ``<id>+<login>``), so the domain maps to the author's login, never to an
@@ -227,13 +241,16 @@ def records_from_rows(rows: Sequence[Mapping[str, Any]]) -> list[CommitRecord]:
     return records
 
 
-def last_non_bot_commit_at(records: Sequence[CommitRecord]) -> Optional[datetime]:
+def last_non_bot_commit_date(records: Sequence[CommitRecord]) -> Optional[datetime]:
     """W1-5f, D-TIE-1 item 7: the max commit-author date among non-bot
     commits that carry a recorded date, or ``None`` when there is no such
     commit -- the D-MISS-1 F2 ruling's measured-absence outcome
     (``cvi.derive.bundle`` decides how that maps to a Measured/Unmeasured
     bundle-level fact; this function only ever returns a ``datetime`` or
-    ``None``, never raises and never guesses a placeholder).
+    ``None``, never raises and never guesses a placeholder). Named
+    "``_date``", distinct from :func:`last_non_bot_commit_at` below (the
+    *bundle*-level accessor, D-TIE-1's own field name) -- this one takes
+    the raw records, that one takes a ``FeatureBundle``.
 
     Comparison is exact regardless of the source records' UTC-offset
     spellings (:func:`_parse_dt` always returns a tz-aware value, so two
@@ -288,3 +305,74 @@ def top_domain_share(records: Sequence[CommitRecord]) -> TopDomainShare:
         return TopDomainShare(share=0.0, n=n, top_domain="")
     top_domain, top_count = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0]
     return TopDomainShare(share=top_count / n, n=n, top_domain=top_domain)
+
+
+# --------------------------------------------------------------------------- #
+# last_non_bot_commit_at: the FeatureBundle-level sidecar fact (D-TIE-1     #
+# item 7). Not one of constants_v2.PARAM_INPUT_IDS's 18 scored parameters,  #
+# so FeatureBundle.inputs (04 section 3: closed to exactly those 18 keys,   #
+# enforced by FeatureBundle.validate()) cannot carry it -- it lives as a    #
+# bundle-instance attribute instead, the same convention cvi.derive.       #
+# bundle's dropped_event_count/_w2_9_dropped_event_count established for a  #
+# fact cvi/core/models.py (out of this packet's ownership) has no declared  #
+# field for. Defined here, not in cvi.derive.bundle (which is where it is   #
+# actually built, in _resolve_commit_facts), so cvi.core.pipeline -- itself #
+# restricted to cvi.core + stdlib -- can read it back for D-TIE-1 item 7's  #
+# tie-break wiring without importing cvi.derive.bundle.                    #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class LastNonBotCommitMeasured:
+    """``last_non_bot_commit_at``, measured (02 section 10 D-TIE-1 item 7).
+
+    ``value`` is the ISO-8601 UTC date/datetime of the max non-bot commit
+    (an explicit trailing ``Z`` -- ``cvi.core.tiebreak._commit_epoch`` reads
+    it as UTC either way, but ``cvi.derive.bundle`` writes it unambiguously),
+    or ``None`` for the measured-absence outcome (docs/v2 D-MISS-1 F2
+    ruling: "no non-bot commit in the window" is a measured absence, not an
+    ``Unmeasured`` value -- distinct from a missing/failed envelope, which
+    is ``Unmeasured(reason="collector_failure")`` instead)."""
+
+    value: Optional[str]
+    method: str
+    source: str
+    source_hash: str
+    fetched_at: str
+
+
+#: A W1-5f last-commit fact is either the purpose-built "measured" shape
+#: above (``Measured`` itself cannot represent it -- its ``method`` field
+#: is pinned to "primary"/"proxy:<name>", ``cvi.core.models.
+#: measured_problems``, and would reject both a ``None`` value and this
+#: packet's "measured:no_non_bot_commit_365d" method sentinel), or
+#: ``Unmeasured`` (a missing/failed envelope -- ``Unmeasured`` needed no
+#: such replacement; it has no constraint this outcome trips).
+LastNonBotCommitValue = Union[LastNonBotCommitMeasured, Unmeasured]
+
+_LAST_NON_BOT_COMMIT_ATTR = "_w1_5f_last_non_bot_commit_at"
+
+#: getattr default for a bundle ``cvi.derive.bundle`` never set the sidecar
+#: attribute on (a native v2 document, e.g. -- these facts are only sourced
+#: from the v1-style raw provenance ``cvi.derive.bundle._load_v1`` reads).
+_NO_COMMIT_FACT: Unmeasured = Unmeasured(
+    reason="collector_failure",
+    detail="no commits_365d or commits_180d envelope resolvable for this bundle",
+)
+
+
+def last_non_bot_commit_at(bundle: FeatureBundle) -> LastNonBotCommitValue:
+    """D-TIE-1 item 7's fact for one bundle (W1-5f). ``Unmeasured(reason=
+    "collector_failure")`` (:data:`_NO_COMMIT_FACT`) for a bundle
+    ``cvi.derive.bundle`` never set the sidecar attribute on."""
+    return getattr(bundle, _LAST_NON_BOT_COMMIT_ATTR, _NO_COMMIT_FACT)
+
+
+def set_last_non_bot_commit_at(bundle: FeatureBundle, value: LastNonBotCommitValue) -> None:
+    """``cvi.derive.bundle._resolve_commit_facts`` (W1-5f) is this
+    setter's only caller. Defined here rather than as a same-module
+    private helper because :func:`last_non_bot_commit_at` above must live
+    in ``cvi.core`` (see the module docstring); a setter with no matching
+    reader in the same module would be an odd asymmetry, so both live
+    together."""
+    setattr(bundle, _LAST_NON_BOT_COMMIT_ATTR, value)

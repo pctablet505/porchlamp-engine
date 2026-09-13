@@ -238,6 +238,13 @@ def _set_dropped_event_count(bundle: FeatureBundle, count: int) -> None:
 # _w2_9_dropped_event_count established above for a fact cvi/core/models.py  #
 # (out of this packet's ownership too) has no declared field for.           #
 #                                                                             #
+# last_non_bot_commit_at's dataclass/attribute-name/accessor/setter live in  #
+# cvi.core.commit_domains, not here: cvi.core.pipeline (D-TIE-1 item 7's     #
+# tie-break wiring) needs to read the fact back and may only import         #
+# cvi.core + stdlib, so it cannot reach an accessor defined in this module.  #
+# top_email_domain_share has no such cvi.core reader (only                  #
+# cvi/verify/pipeline_hook.py, unrestricted, needs it) and stays here.       #
+#                                                                             #
 # Unmeasured (04 section 3) is reused as-is for the "no usable envelope" /   #
 # "insufficient sample" outcomes below: it has no constraint either of this  #
 # packet's absence reasons trips. Measured cannot be reused the same way --  #
@@ -245,29 +252,16 @@ def _set_dropped_event_count(bundle: FeatureBundle, count: int) -> None:
 # measured_problems) and would reject this packet's                         #
 # "measured:no_non_bot_commit_365d" sentinel and a None value -- both real,  #
 # spec-mandated outcomes here (docs/v2 D-MISS-1 F2 ruling) -- so a           #
-# purpose-built "measured" shape replaces Measured for these two facts       #
-# specifically.                                                              #
+# purpose-built "measured" shape (cvi.core.commit_domains.                  #
+# LastNonBotCommitMeasured) replaces Measured for that fact; the same       #
+# replacement is needed for top_email_domain_share below.                   #
 # --------------------------------------------------------------------------- #
 
-
-@dataclass(frozen=True)
-class LastNonBotCommitMeasured:
-    """``last_non_bot_commit_at``, measured (02 section 10 D-TIE-1 item 7).
-
-    ``value`` is the ISO-8601 UTC date/datetime of the max non-bot commit
-    (an explicit trailing ``Z`` -- ``cvi.core.tiebreak._commit_epoch`` reads
-    it as UTC either way, but this module writes it unambiguously), or
-    ``None`` for the measured-absence outcome (docs/v2 D-MISS-1 F2 ruling:
-    "no non-bot commit in the window" is a measured absence, not an
-    ``Unmeasured`` value -- distinct from a missing/failed envelope, which
-    is ``Unmeasured(reason="collector_failure")`` instead, see
-    :func:`last_non_bot_commit_at`)."""
-
-    value: Optional[str]
-    method: str
-    source: str
-    source_hash: str
-    fetched_at: str
+#: Re-exported from cvi.core.commit_domains (see above) so this module's own
+#: _resolve_commit_facts/_load_v1 can build and store the fact without a
+#: second import elsewhere in this file.
+LastNonBotCommitMeasured = commit_domains.LastNonBotCommitMeasured
+LastNonBotCommitValue = commit_domains.LastNonBotCommitValue
 
 
 @dataclass(frozen=True)
@@ -291,18 +285,19 @@ class TopEmailDomainShareMeasured:
     fetched_at: str
 
 
-#: A W1-5f commit-derived fact is either one of the two purpose-built
-#: "measured" shapes above, or ``Unmeasured`` (missing/failed envelope,
-#: or -- ``top_email_domain_share`` only -- an insufficient sample).
-LastNonBotCommitValue = Union[LastNonBotCommitMeasured, Unmeasured]
+#: A W1-5f top_email_domain_share fact is either the purpose-built
+#: "measured" shape above, or ``Unmeasured`` (missing/failed envelope, or an
+#: insufficient sample).
 TopEmailDomainShareValue = Union[TopEmailDomainShareMeasured, Unmeasured]
 
-_LAST_NON_BOT_COMMIT_ATTR = "_w1_5f_last_non_bot_commit_at"
 _TOP_EMAIL_DOMAIN_SHARE_ATTR = "_w1_5f_top_email_domain_share"
 
 #: getattr default for a bundle this module never set the sidecar attribute
 #: on (a native v2 document, e.g. -- see the module docstring's "these two
 #: facts are only sourced from the v1-style raw provenance" scoping note).
+#: Same value as cvi.core.commit_domains's own default for
+#: last_non_bot_commit_at -- both facts are unmeasured for the exact same
+#: cause when neither commits envelope resolves.
 _NO_COMMIT_FACT = Unmeasured(
     reason="collector_failure",
     detail="no commits_365d or commits_180d envelope resolvable for this bundle",
@@ -334,12 +329,12 @@ _COMMIT_FACT_METHOD_180D_FALLBACK: str = "measured:commits_180d_fallback"
 _COMMIT_FACT_METHOD_NO_NON_BOT_365D: str = "measured:no_non_bot_commit_365d"
 _COMMIT_FACT_METHOD_NO_NON_BOT_180D_FALLBACK: str = "measured:no_non_bot_commit_180d_fallback"
 
-
-def last_non_bot_commit_at(bundle: FeatureBundle) -> LastNonBotCommitValue:
-    """D-TIE-1 item 7's fact for one bundle (W1-5f). ``Unmeasured(reason=
-    "collector_failure")`` (:data:`_NO_COMMIT_FACT`) for a bundle this
-    module never set the sidecar attribute on."""
-    return getattr(bundle, _LAST_NON_BOT_COMMIT_ATTR, _NO_COMMIT_FACT)
+#: Public re-export: :func:`cvi.core.commit_domains.last_non_bot_commit_at`
+#: is D-TIE-1 item 7's own bundle-level accessor (see above for why it
+#: lives there); exposed under this module's namespace too so a caller of
+#: ``cvi.derive.bundle`` need not know the split.
+last_non_bot_commit_at = commit_domains.last_non_bot_commit_at
+_set_last_non_bot_commit_at = commit_domains.set_last_non_bot_commit_at
 
 
 def top_email_domain_share(bundle: FeatureBundle) -> TopEmailDomainShareValue:
@@ -347,10 +342,6 @@ def top_email_domain_share(bundle: FeatureBundle) -> TopEmailDomainShareValue:
     ``Unmeasured(reason="collector_failure")`` (:data:`_NO_COMMIT_FACT`) for
     a bundle this module never set the sidecar attribute on."""
     return getattr(bundle, _TOP_EMAIL_DOMAIN_SHARE_ATTR, _NO_COMMIT_FACT)
-
-
-def _set_last_non_bot_commit_at(bundle: FeatureBundle, value: LastNonBotCommitValue) -> None:
-    setattr(bundle, _LAST_NON_BOT_COMMIT_ATTR, value)
 
 
 def _set_top_email_domain_share(bundle: FeatureBundle, value: TopEmailDomainShareValue) -> None:
@@ -424,7 +415,7 @@ def _resolve_commit_facts(ctx: "_V1Ctx") -> tuple[LastNonBotCommitValue, TopEmai
     records = commit_domains.records_from_rows(data)
     window_method = _COMMIT_FACT_METHOD_180D_FALLBACK if used_fallback else _COMMIT_FACT_METHOD_365D
 
-    last_commit = commit_domains.last_non_bot_commit_at(records)
+    last_commit = commit_domains.last_non_bot_commit_date(records)
     last_value = _iso_utc_z(last_commit) if last_commit is not None else None
     last_method = window_method if last_commit is not None else (
         _COMMIT_FACT_METHOD_NO_NON_BOT_180D_FALLBACK if used_fallback else _COMMIT_FACT_METHOD_NO_NON_BOT_365D
