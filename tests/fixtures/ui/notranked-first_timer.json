@@ -1,0 +1,131 @@
+{
+  "counts": {
+    "gated": 7,
+    "rated": 73,
+    "total": 84,
+    "unrated": 4
+  },
+  "gated": [
+    {
+      "coverage": 0.0,
+      "ecosystem": "maven",
+      "gate_reason": "mirror",
+      "name": "repo-mirror-0",
+      "owner": "gated-org",
+      "persona_gate_reason": null,
+      "unrated_reason": null
+    },
+    {
+      "coverage": 0.42,
+      "ecosystem": "cargo",
+      "gate_reason": "archived",
+      "name": "repo-archived-1",
+      "owner": "gated-org",
+      "persona_gate_reason": null,
+      "unrated_reason": null
+    },
+    {
+      "coverage": 0.55,
+      "ecosystem": "maven",
+      "gate_reason": "unlicensed",
+      "name": "repo-unlicensed-2",
+      "owner": "gated-org",
+      "persona_gate_reason": null,
+      "unrated_reason": null
+    },
+    {
+      "coverage": 0.3,
+      "ecosystem": "go",
+      "gate_reason": "stale",
+      "name": "repo-stale-3",
+      "owner": "gated-org",
+      "persona_gate_reason": null,
+      "unrated_reason": null
+    },
+    {
+      "coverage": 0.61,
+      "ecosystem": "pypi",
+      "gate_reason": "black_hole",
+      "name": "repo-black_hole-4",
+      "owner": "gated-org",
+      "persona_gate_reason": null,
+      "unrated_reason": null
+    },
+    {
+      "coverage": null,
+      "ecosystem": "pypi",
+      "gate_reason": "non_software",
+      "name": "repo-non_software-5",
+      "owner": "gated-org",
+      "persona_gate_reason": null,
+      "unrated_reason": null
+    },
+    {
+      "coverage": 0.71,
+      "ecosystem": "npm",
+      "gate_reason": "fork",
+      "name": "repo-fork-6",
+      "owner": "gated-org",
+      "persona_gate_reason": null,
+      "unrated_reason": null
+    }
+  ],
+  "persona_hidden": [
+    {
+      "coverage": 0.9033,
+      "ecosystem": "pypi",
+      "gate_reason": null,
+      "name": "cli-tools",
+      "owner": "greyfox",
+      "persona_gate_reason": "low_barrier_not_met",
+      "unrated_reason": null
+    },
+    {
+      "coverage": 0.9143,
+      "ecosystem": "pypi",
+      "gate_reason": null,
+      "name": "api-gateway-67",
+      "owner": "elmstead",
+      "persona_gate_reason": "insufficient_evidence:decided_first_timer_prs",
+      "unrated_reason": null
+    }
+  ],
+  "unrated": [
+    {
+      "coverage": 0.42,
+      "ecosystem": "npm",
+      "gate_reason": null,
+      "name": "repo-insufficient_evidence-0",
+      "owner": "unrated-org",
+      "persona_gate_reason": null,
+      "unrated_reason": "unrated: insufficient_evidence"
+    },
+    {
+      "coverage": 0.18,
+      "ecosystem": "go",
+      "gate_reason": null,
+      "name": "repo-insufficient_evidence-1",
+      "owner": "unrated-org",
+      "persona_gate_reason": null,
+      "unrated_reason": "unrated: insufficient_evidence"
+    },
+    {
+      "coverage": null,
+      "ecosystem": "pypi",
+      "gate_reason": null,
+      "name": "repo-no_external_workflow-2",
+      "owner": "unrated-org",
+      "persona_gate_reason": null,
+      "unrated_reason": "no_external_workflow"
+    },
+    {
+      "coverage": null,
+      "ecosystem": "npm",
+      "gate_reason": null,
+      "name": "repo-off_platform_routed-3",
+      "owner": "unrated-org",
+      "persona_gate_reason": null,
+      "unrated_reason": "off_platform_routed"
+    }
+  ]
+}

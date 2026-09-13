@@ -1,0 +1,17 @@
+[
+  {
+    "fetched_at": null,
+    "measured": false,
+    "method": null,
+    "n": null,
+    "param_id": "archived_flag",
+    "pillar": "governance",
+    "score": null,
+    "source": null,
+    "source_sha256": null,
+    "unmeasured_reason": "not_applicable",
+    "value": null,
+    "window_end": null,
+    "window_start": null
+  }
+]

@@ -1,0 +1,29 @@
+{
+  "as_of": "2026-09-13T00:00:00Z",
+  "benchmark_version": "2.0.0-fixture",
+  "canonical_dump_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "code_commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "constants_hash": "cccccccccccccccccccccccccccccccccccccccc",
+  "counts": {
+    "gated": 7,
+    "rated": 73,
+    "total": 84,
+    "unrated": 4
+  },
+  "detector_summary": {
+    "lockstep_authors": 1,
+    "lull_then_burst": 1,
+    "reused_bio_across_orgs": 1,
+    "star_velocity_anomaly": 1
+  },
+  "manifest_root": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "persona_visible_counts": {
+    "ai_assisted": 72,
+    "balanced": 73,
+    "career_capital": 72,
+    "first_timer": 71,
+    "senior_systems": 72
+  },
+  "reproduce_command": "cvi reproduce --snapshot snap-2026-09-13-fixture --data-dir data/snapshots/snap-2026-09-13-fixture",
+  "snapshot_id": "snap-2026-09-13-fixture"
+}

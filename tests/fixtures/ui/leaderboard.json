@@ -1,0 +1,4674 @@
+{
+  "counts": {
+    "gated": 7,
+    "rated": 73,
+    "total": 84,
+    "unrated": 4
+  },
+  "ecosystem": null,
+  "page": 1,
+  "page_size": 73,
+  "persona": "balanced",
+  "rows": [
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 98.34,
+      "ecosystem": "pypi",
+      "friction": 1.96,
+      "friction_coverage": 1.0,
+      "leverage": 98.09,
+      "leverage_coverage": 1.0,
+      "name": "httpkit",
+      "owner": "riverline",
+      "p_accessibility": 100.0,
+      "p_criticality": 98.37,
+      "p_governance": 94.54,
+      "p_responsiveness": 99.36,
+      "p_rigor": 100.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 98.34,
+          "rated": true,
+          "tier": "S"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 98.34,
+          "rated": true,
+          "tier": "S"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 98.34,
+          "rated": true,
+          "tier": "S"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 98.34,
+          "rated": true,
+          "tier": "S"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 98.34,
+          "rated": true,
+          "tier": "S"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 1,
+      "raw_hash": "ee5b578988fd06b9d1b86b0cf35f8868d99127ce62ae1186e13f073ac59dae14",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 16282,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "S",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.816,
+      "c_criticality": 0.901,
+      "c_governance": 0.915,
+      "c_responsiveness": 0.853,
+      "c_rigor": 0.89,
+      "coverage": 0.8774,
+      "cvi": 95.94,
+      "ecosystem": "maven",
+      "friction": 1.97,
+      "friction_coverage": 0.8642,
+      "leverage": 93.2,
+      "leverage_coverage": 0.9005,
+      "name": "feature-flags",
+      "owner": "driftbay",
+      "p_accessibility": 100.0,
+      "p_criticality": 98.41,
+      "p_governance": 93.42,
+      "p_responsiveness": 100.0,
+      "p_rigor": 84.38,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8774,
+          "cvi": 95.94,
+          "rated": true,
+          "tier": "A"
+        },
+        "balanced": {
+          "coverage": 0.8774,
+          "cvi": 95.94,
+          "rated": true,
+          "tier": "A"
+        },
+        "career_capital": {
+          "coverage": 0.8774,
+          "cvi": 95.94,
+          "rated": true,
+          "tier": "A"
+        },
+        "first_timer": {
+          "coverage": 0.8774,
+          "cvi": 95.94,
+          "rated": true,
+          "tier": "A"
+        },
+        "senior_systems": {
+          "coverage": 0.8774,
+          "cvi": 95.94,
+          "rated": true,
+          "tier": "A"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 2,
+      "raw_hash": "db5abb998e1d2cf42a9ae63a4ef3cb246f21c96d41f34c46365f175c9c107e50",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 4412,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "A",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.923,
+      "c_criticality": 0.936,
+      "c_governance": 0.84,
+      "c_responsiveness": 0.809,
+      "c_rigor": 0.858,
+      "coverage": 0.8714,
+      "cvi": 93.77,
+      "ecosystem": "npm",
+      "friction": 10.47,
+      "friction_coverage": 0.8411,
+      "leverage": 97.02,
+      "leverage_coverage": 0.8934,
+      "name": "async-io",
+      "owner": "solarcell",
+      "p_accessibility": 100.0,
+      "p_criticality": 100.0,
+      "p_governance": 90.12,
+      "p_responsiveness": 84.98,
+      "p_rigor": 96.66,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8714,
+          "cvi": 93.77,
+          "rated": true,
+          "tier": "A"
+        },
+        "balanced": {
+          "coverage": 0.8714,
+          "cvi": 93.77,
+          "rated": true,
+          "tier": "A"
+        },
+        "career_capital": {
+          "coverage": 0.8714,
+          "cvi": 93.77,
+          "rated": true,
+          "tier": "A"
+        },
+        "first_timer": {
+          "coverage": 0.8714,
+          "cvi": 93.77,
+          "rated": true,
+          "tier": "A"
+        },
+        "senior_systems": {
+          "coverage": 0.8714,
+          "cvi": 93.77,
+          "rated": true,
+          "tier": "A"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 3,
+      "raw_hash": "aba10e13e01a78872537b71f240b8a16106cb1b2189cd8eb8d7fb8575e25d962",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 14267,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "A",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.839,
+      "c_criticality": 0.828,
+      "c_governance": 0.879,
+      "c_responsiveness": 0.915,
+      "c_rigor": 0.833,
+      "coverage": 0.8623,
+      "cvi": 93.31,
+      "ecosystem": "maven",
+      "friction": 10.32,
+      "friction_coverage": 0.889,
+      "leverage": 96.83,
+      "leverage_coverage": 0.8397,
+      "name": "chart-render",
+      "owner": "harborlight",
+      "p_accessibility": 92.46,
+      "p_criticality": 97.15,
+      "p_governance": 91.25,
+      "p_responsiveness": 87.62,
+      "p_rigor": 100.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8623,
+          "cvi": 93.31,
+          "rated": true,
+          "tier": "A"
+        },
+        "balanced": {
+          "coverage": 0.8623,
+          "cvi": 93.31,
+          "rated": true,
+          "tier": "A"
+        },
+        "career_capital": {
+          "coverage": 0.8623,
+          "cvi": 93.31,
+          "rated": true,
+          "tier": "A"
+        },
+        "first_timer": {
+          "coverage": 0.8623,
+          "cvi": 93.31,
+          "rated": true,
+          "tier": "A"
+        },
+        "senior_systems": {
+          "coverage": 0.8623,
+          "cvi": 93.31,
+          "rated": true,
+          "tier": "A"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 4,
+      "raw_hash": "89d1075a747c5e2b08eb66f069b90b0eab8a7367e43c1147dd439fe7b159f9a0",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 12893,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "A",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 91.99,
+      "ecosystem": "maven",
+      "friction": 13.66,
+      "friction_coverage": 1.0,
+      "leverage": 96.78,
+      "leverage_coverage": 1.0,
+      "name": "audit-log",
+      "owner": "greywatch",
+      "p_accessibility": 92.54,
+      "p_criticality": 100.0,
+      "p_governance": 83.9,
+      "p_responsiveness": 85.32,
+      "p_rigor": 100.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 91.99,
+          "rated": true,
+          "tier": "S"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 91.99,
+          "rated": true,
+          "tier": "S"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 91.99,
+          "rated": true,
+          "tier": "S"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 91.99,
+          "rated": true,
+          "tier": "S"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 91.99,
+          "rated": true,
+          "tier": "S"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 5,
+      "raw_hash": "6fe578b22c9a34212b5d5e44bba0719a6f24fb5c5af4ea1afdbdc9921bfedb68",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 14205,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "S",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.891,
+      "c_criticality": 0.917,
+      "c_governance": 0.931,
+      "c_responsiveness": 0.806,
+      "c_rigor": 0.875,
+      "coverage": 0.8819,
+      "cvi": 91.6,
+      "ecosystem": "npm",
+      "friction": 9.97,
+      "friction_coverage": 0.8605,
+      "leverage": 93.01,
+      "leverage_coverage": 0.9072,
+      "name": "secrets-vault",
+      "owner": "glassford",
+      "p_accessibility": 93.61,
+      "p_criticality": 100.0,
+      "p_governance": 91.87,
+      "p_responsiveness": 87.49,
+      "p_rigor": 82.11,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8819,
+          "cvi": 91.6,
+          "rated": true,
+          "tier": "A"
+        },
+        "balanced": {
+          "coverage": 0.8819,
+          "cvi": 91.6,
+          "rated": true,
+          "tier": "A"
+        },
+        "career_capital": {
+          "coverage": 0.8819,
+          "cvi": 91.6,
+          "rated": true,
+          "tier": "A"
+        },
+        "first_timer": {
+          "coverage": 0.8819,
+          "cvi": 91.6,
+          "rated": true,
+          "tier": "A"
+        },
+        "senior_systems": {
+          "coverage": 0.8819,
+          "cvi": 91.6,
+          "rated": true,
+          "tier": "A"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 6,
+      "raw_hash": "988e3fd3993129da5a8c566f957e7e3738b6252c81b41aab7536e708d26bc701",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 3437,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "A",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 90.96,
+      "ecosystem": "pypi",
+      "friction": 5.7,
+      "friction_coverage": 1.0,
+      "leverage": 87.62,
+      "leverage_coverage": 1.0,
+      "name": "task-runner",
+      "owner": "blue-forge",
+      "p_accessibility": 100.0,
+      "p_criticality": 83.65,
+      "p_governance": 100.0,
+      "p_responsiveness": 88.59,
+      "p_rigor": 86.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 90.96,
+          "rated": true,
+          "tier": "S"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 90.96,
+          "rated": true,
+          "tier": "S"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 90.96,
+          "rated": true,
+          "tier": "S"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 90.96,
+          "rated": true,
+          "tier": "S"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 90.96,
+          "rated": true,
+          "tier": "S"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 7,
+      "raw_hash": "dd1e5d1763e1872465f8775d5f567a41b7ffdcef503c45b4aa58759803a6d6fc",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 506,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "S",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 89.89,
+      "ecosystem": "pypi",
+      "friction": 8.55,
+      "friction_coverage": 1.0,
+      "leverage": 88.06,
+      "leverage_coverage": 1.0,
+      "name": "log-shipper",
+      "owner": "fernwood",
+      "p_accessibility": 91.96,
+      "p_criticality": 83.14,
+      "p_governance": 89.27,
+      "p_responsiveness": 92.56,
+      "p_rigor": 95.47,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 89.89,
+          "rated": true,
+          "tier": "A"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 89.89,
+          "rated": true,
+          "tier": "A"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 89.89,
+          "rated": true,
+          "tier": "A"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 89.89,
+          "rated": true,
+          "tier": "A"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 89.89,
+          "rated": true,
+          "tier": "A"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 8,
+      "raw_hash": "faa24556925a93a804f05cdfcdf098b089d9a609a71d668428235f6d433a05d2",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 13194,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "A",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.625,
+      "c_criticality": 0.682,
+      "c_governance": 0.714,
+      "c_responsiveness": 0.756,
+      "c_rigor": 0.627,
+      "coverage": 0.6901,
+      "cvi": 87.76,
+      "ecosystem": "maven",
+      "friction": 11.72,
+      "friction_coverage": 0.7172,
+      "leverage": 86.9,
+      "leverage_coverage": 0.6719,
+      "name": "serde-ext",
+      "owner": "ironcrate",
+      "p_accessibility": 91.56,
+      "p_criticality": 88.39,
+      "p_governance": 88.2,
+      "p_responsiveness": 87.01,
+      "p_rigor": 83.55,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.6901,
+          "cvi": 87.76,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.6901,
+          "cvi": 87.76,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.6901,
+          "cvi": 87.76,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.6901,
+          "cvi": 87.76,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.6901,
+          "cvi": 87.76,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 9,
+      "raw_hash": "5cf9b8410da53279a3c80a449db3eaf6f3955b7afcdc600b7bf48c595e7eae3e",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 5516,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.605,
+      "c_criticality": 0.777,
+      "c_governance": 0.753,
+      "c_responsiveness": 0.739,
+      "c_rigor": 0.77,
+      "coverage": 0.7359,
+      "cvi": 85.38,
+      "ecosystem": "go",
+      "friction": 18.33,
+      "friction_coverage": 0.7164,
+      "leverage": 88.79,
+      "leverage_coverage": 0.7701,
+      "name": "config-schema",
+      "owner": "crownridge",
+      "p_accessibility": 88.37,
+      "p_criticality": 97.03,
+      "p_governance": 85.44,
+      "p_responsiveness": 76.73,
+      "p_rigor": 77.3,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.7359,
+          "cvi": 85.38,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.7359,
+          "cvi": 85.38,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.7359,
+          "cvi": 85.38,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.7359,
+          "cvi": 85.38,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.7359,
+          "cvi": 85.38,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 10,
+      "raw_hash": "bcb8ab14a5bb0c23a019f3d10503f3f6cda421e13aebcff0fd21188577f9ab23",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 1320,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.609,
+      "c_criticality": 0.771,
+      "c_governance": 0.625,
+      "c_responsiveness": 0.764,
+      "c_rigor": 0.721,
+      "coverage": 0.7083,
+      "cvi": 82.98,
+      "ecosystem": "go",
+      "friction": 14.28,
+      "friction_coverage": 0.6913,
+      "leverage": 79.78,
+      "leverage_coverage": 0.7268,
+      "name": "search-index",
+      "owner": "slatehouse",
+      "p_accessibility": 81.22,
+      "p_criticality": 76.75,
+      "p_governance": 76.7,
+      "p_responsiveness": 92.93,
+      "p_rigor": 86.89,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.7083,
+          "cvi": 82.98,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.7083,
+          "cvi": 82.98,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.7083,
+          "cvi": 82.98,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.7083,
+          "cvi": 82.98,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.7083,
+          "cvi": 82.98,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 11,
+      "raw_hash": "fe0d5f03136ea743243c643af938e3fe666c3a95c91d9eeaa4c49ab3f0db1f7f",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 19015,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.764,
+      "c_criticality": 0.645,
+      "c_governance": 0.746,
+      "c_responsiveness": 0.711,
+      "c_rigor": 0.709,
+      "coverage": 0.7091,
+      "cvi": 79.13,
+      "ecosystem": "pypi",
+      "friction": 23.24,
+      "friction_coverage": 0.7321,
+      "leverage": 81.25,
+      "leverage_coverage": 0.6844,
+      "name": "cache-layer",
+      "owner": "copperline",
+      "p_accessibility": 80.46,
+      "p_criticality": 84.73,
+      "p_governance": 77.99,
+      "p_responsiveness": 74.55,
+      "p_rigor": 77.61,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.7091,
+          "cvi": 79.13,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.7091,
+          "cvi": 79.13,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.7091,
+          "cvi": 79.13,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.7091,
+          "cvi": 79.13,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.7091,
+          "cvi": 79.13,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 12,
+      "raw_hash": "d345b45f3a2314e769cf0e18c0754d22498447a8bc9fb74f5d993cd51cb9e899",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 19738,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 77.09,
+      "ecosystem": "go",
+      "friction": 27.5,
+      "friction_coverage": 1.0,
+      "leverage": 81.69,
+      "leverage_coverage": 1.0,
+      "name": "test-harness",
+      "owner": "cinderworks",
+      "p_accessibility": 75.0,
+      "p_criticality": 85.37,
+      "p_governance": 75.0,
+      "p_responsiveness": 70.0,
+      "p_rigor": 80.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 77.09,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 77.09,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 77.09,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 77.09,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 77.09,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 13,
+      "raw_hash": "4c0e1d8dbf2206816ed4f0d824c542b4e6f3dcf9150d79557cdc4ecff4561424",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 13570,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 77.0,
+      "ecosystem": "pypi",
+      "friction": 24.5,
+      "friction_coverage": 1.0,
+      "leverage": 80.0,
+      "leverage_coverage": 1.0,
+      "name": "db-migrate",
+      "owner": "mapleworks",
+      "p_accessibility": 60.0,
+      "p_criticality": 88.0,
+      "p_governance": 75.0,
+      "p_responsiveness": 82.0,
+      "p_rigor": 70.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 14,
+      "raw_hash": "452fbc13a6a75585fd7b4403e7744fe41a951f89b7a1731e47b51adbcf4bf4fa",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 4681,
+      "suspicion": [],
+      "tie_group": 1,
+      "tier": "B",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 0.9,
+      "c_rigor": 1.0,
+      "coverage": 0.975,
+      "cvi": 77.0,
+      "ecosystem": "npm",
+      "friction": 24.5,
+      "friction_coverage": 0.95,
+      "leverage": 80.0,
+      "leverage_coverage": 1.0,
+      "name": "vector-clock",
+      "owner": "windmere",
+      "p_accessibility": 60.0,
+      "p_criticality": 88.0,
+      "p_governance": 75.0,
+      "p_responsiveness": 82.0,
+      "p_rigor": 70.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.975,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.975,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.975,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.975,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.975,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 15,
+      "raw_hash": "30c414906d9652c9bbbcb56451c3d71b7104b22910d466454fdfaff6579ac331",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 2503,
+      "suspicion": [],
+      "tie_group": 1,
+      "tier": "B",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 0.8,
+      "c_rigor": 1.0,
+      "coverage": 0.95,
+      "cvi": 77.0,
+      "ecosystem": "cargo",
+      "friction": 24.5,
+      "friction_coverage": 0.9,
+      "leverage": 80.0,
+      "leverage_coverage": 1.0,
+      "name": "batch-runner",
+      "owner": "emberline",
+      "p_accessibility": 60.0,
+      "p_criticality": 88.0,
+      "p_governance": 75.0,
+      "p_responsiveness": 82.0,
+      "p_rigor": 70.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.95,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.95,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.95,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.95,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.95,
+          "cvi": 77.0,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 16,
+      "raw_hash": "8ab3f1149be78233c6cf7cbadb858a0748111cd76005aed6873429f13ce096e1",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 1326,
+      "suspicion": [],
+      "tie_group": 1,
+      "tier": "B",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.811,
+      "c_criticality": 0.895,
+      "c_governance": 0.882,
+      "c_responsiveness": 0.859,
+      "c_rigor": 0.851,
+      "coverage": 0.8642,
+      "cvi": 76.74,
+      "ecosystem": "maven",
+      "friction": 24.91,
+      "friction_coverage": 0.8563,
+      "leverage": 79.92,
+      "leverage_coverage": 0.8792,
+      "name": "retry-lib",
+      "owner": "ferncrest",
+      "p_accessibility": 72.04,
+      "p_criticality": 80.72,
+      "p_governance": 87.39,
+      "p_responsiveness": 68.94,
+      "p_rigor": 73.61,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8642,
+          "cvi": 76.74,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.8642,
+          "cvi": 76.74,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.8642,
+          "cvi": 76.74,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.8642,
+          "cvi": 76.74,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.8642,
+          "cvi": 76.74,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 17,
+      "raw_hash": "fc66411d8fecb2cb195ce9b55aeded70ea14ea6fbe6db48387c3475528cae3f8",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 19259,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.861,
+      "c_criticality": 0.89,
+      "c_governance": 0.899,
+      "c_responsiveness": 0.85,
+      "c_rigor": 0.887,
+      "coverage": 0.877,
+      "cvi": 76.61,
+      "ecosystem": "go",
+      "friction": 19.74,
+      "friction_coverage": 0.8669,
+      "leverage": 72.77,
+      "leverage_coverage": 0.8909,
+      "name": "db-migrate-64",
+      "owner": "mapleworks",
+      "p_accessibility": 81.04,
+      "p_criticality": 71.44,
+      "p_governance": 79.01,
+      "p_responsiveness": 80.69,
+      "p_rigor": 70.81,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.877,
+          "cvi": 76.61,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.877,
+          "cvi": 76.61,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.877,
+          "cvi": 76.61,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.877,
+          "cvi": 76.61,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {
+        "career_capital": "brand_tier_not_met"
+      },
+      "quadrant": "Sweet Spot",
+      "rank": 18,
+      "raw_hash": "cd2b5bde7725fa0785758e341ec7a0bcb54cd7eb53809df801fd09cfa3177fb0",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 18695,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 75.86,
+      "ecosystem": "npm",
+      "friction": 22.99,
+      "friction_coverage": 1.0,
+      "leverage": 73.56,
+      "leverage_coverage": 1.0,
+      "name": "job-scheduler",
+      "owner": "stonepath",
+      "p_accessibility": 80.23,
+      "p_criticality": 72.06,
+      "p_governance": 68.8,
+      "p_responsiveness": 80.64,
+      "p_rigor": 79.24,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 75.86,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 75.86,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 75.86,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 75.86,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 75.86,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 19,
+      "raw_hash": "80f707606cab54268738c731a8544aaf9228add4314ff45072311aa0446df60d",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 6916,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.916,
+      "c_criticality": 0.89,
+      "c_governance": 0.927,
+      "c_responsiveness": 0.862,
+      "c_rigor": 0.95,
+      "coverage": 0.9033,
+      "cvi": 75.73,
+      "ecosystem": "pypi",
+      "friction": 24.23,
+      "friction_coverage": 0.8923,
+      "leverage": 77.05,
+      "leverage_coverage": 0.9154,
+      "name": "cli-tools",
+      "owner": "greyfox",
+      "p_accessibility": 62.81,
+      "p_criticality": 81.82,
+      "p_governance": 76.46,
+      "p_responsiveness": 80.55,
+      "p_rigor": 69.5,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.9033,
+          "cvi": 75.73,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.9033,
+          "cvi": 75.73,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.9033,
+          "cvi": 75.73,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.9033,
+          "cvi": 75.73,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {
+        "first_timer": "low_barrier_not_met"
+      },
+      "quadrant": "Sweet Spot",
+      "rank": 20,
+      "raw_hash": "cb444c8ecc6acb06cd52c1656717146a85d7859ef0c53598211b19eab5501cb9",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 1567,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 75.53,
+      "ecosystem": "cargo",
+      "friction": 30.73,
+      "friction_coverage": 1.0,
+      "leverage": 80.67,
+      "leverage_coverage": 1.0,
+      "name": "ui-kit",
+      "owner": "brightloom",
+      "p_accessibility": 76.51,
+      "p_criticality": 88.41,
+      "p_governance": 65.39,
+      "p_responsiveness": 68.7,
+      "p_rigor": 77.96,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 75.53,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 75.53,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 75.53,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 75.53,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 75.53,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 21,
+      "raw_hash": "0cd0e195817e25419d5ce4b8e61b6521ff5694c6a12e473aefb2152865905971",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": null,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.899,
+      "c_criticality": 0.9,
+      "c_governance": 0.936,
+      "c_responsiveness": 0.906,
+      "c_rigor": 0.938,
+      "coverage": 0.9143,
+      "cvi": 75.41,
+      "ecosystem": "pypi",
+      "friction": 24.4,
+      "friction_coverage": 0.9136,
+      "leverage": 74.39,
+      "leverage_coverage": 0.9186,
+      "name": "api-gateway-67",
+      "owner": "elmstead",
+      "p_accessibility": 78.93,
+      "p_criticality": 79.64,
+      "p_governance": 70.68,
+      "p_responsiveness": 77.22,
+      "p_rigor": 68.1,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.9143,
+          "cvi": 75.41,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.9143,
+          "cvi": 75.41,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.9143,
+          "cvi": 75.41,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.9143,
+          "cvi": 75.41,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {
+        "first_timer": "insufficient_evidence:decided_first_timer_prs"
+      },
+      "quadrant": "Sweet Spot",
+      "rank": 22,
+      "raw_hash": "2c51db8dc14455678374625d79ac05e1c2de29e261a6208487f7781aec00c02f",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 10816,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.743,
+      "c_criticality": 0.613,
+      "c_governance": 0.637,
+      "c_responsiveness": 0.664,
+      "c_rigor": 0.639,
+      "coverage": 0.654,
+      "cvi": 74.91,
+      "ecosystem": "pypi",
+      "friction": 21.53,
+      "friction_coverage": 0.6717,
+      "leverage": 70.47,
+      "leverage_coverage": 0.6256,
+      "name": "config-validator",
+      "owner": "wrenforge",
+      "p_accessibility": 78.9,
+      "p_criticality": 73.61,
+      "p_governance": 70.04,
+      "p_responsiveness": 83.35,
+      "p_rigor": 65.52,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.654,
+          "cvi": 74.91,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.654,
+          "cvi": 74.91,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.654,
+          "cvi": 74.91,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.654,
+          "cvi": 74.91,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.654,
+          "cvi": 74.91,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 23,
+      "raw_hash": "1f7bab3647a7d5bf80cd91bb6e959b1f5c3c69f1052a24a5ef08ab339a4537bd",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 10753,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 74.65,
+      "ecosystem": "pypi",
+      "friction": 30.1,
+      "friction_coverage": 1.0,
+      "leverage": 80.7,
+      "leverage_coverage": 1.0,
+      "name": "aaa-deep",
+      "owner": "deeptie",
+      "p_accessibility": 55.0,
+      "p_criticality": 91.0,
+      "p_governance": 68.0,
+      "p_responsiveness": 77.0,
+      "p_rigor": 72.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 74.65,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 74.65,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 74.65,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 74.65,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 74.65,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 24,
+      "raw_hash": "a74283dd3dfa129682df0931b7d3456bfe419e0ff6f114bbaf42cfe9013d53e7",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 1200,
+      "suspicion": [],
+      "tie_group": 2,
+      "tier": "B",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 74.65,
+      "ecosystem": "pypi",
+      "friction": 30.1,
+      "friction_coverage": 1.0,
+      "leverage": 80.7,
+      "leverage_coverage": 1.0,
+      "name": "zzz-deep",
+      "owner": "deeptie",
+      "p_accessibility": 55.0,
+      "p_criticality": 91.0,
+      "p_governance": 68.0,
+      "p_responsiveness": 77.0,
+      "p_rigor": 72.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 74.65,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 74.65,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 74.65,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 74.65,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 74.65,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 25,
+      "raw_hash": "899a559829ddff3c47ec1c02aa09c24497dd89ae65d5962fc1e3f73b4a5cdb3d",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 1200,
+      "suspicion": [],
+      "tie_group": 2,
+      "tier": "B",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.924,
+      "c_criticality": 0.904,
+      "c_governance": 0.844,
+      "c_responsiveness": 0.836,
+      "c_rigor": 0.815,
+      "coverage": 0.8647,
+      "cvi": 73.14,
+      "ecosystem": "go",
+      "friction": 26.56,
+      "friction_coverage": 0.856,
+      "leverage": 74.32,
+      "leverage_coverage": 0.8653,
+      "name": "shell-runner",
+      "owner": "foxglove-oss",
+      "p_accessibility": 66.04,
+      "p_criticality": 69.75,
+      "p_governance": 80.71,
+      "p_responsiveness": 72.03,
+      "p_rigor": 77.67,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8647,
+          "cvi": 73.14,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.8647,
+          "cvi": 73.14,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.8647,
+          "cvi": 73.14,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.8647,
+          "cvi": 73.14,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.8647,
+          "cvi": 73.14,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 26,
+      "raw_hash": "87af0a64136bf6860621aa2c61176a4fe0c694a2e211e8522b5254914984ac79",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 14136,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.852,
+      "c_criticality": 0.85,
+      "c_governance": 0.947,
+      "c_responsiveness": 0.872,
+      "c_rigor": 0.942,
+      "coverage": 0.889,
+      "cvi": 71.38,
+      "ecosystem": "cargo",
+      "friction": 25.24,
+      "friction_coverage": 0.8905,
+      "leverage": 69.69,
+      "leverage_coverage": 0.897,
+      "name": "batch-runner-66",
+      "owner": "emberline",
+      "p_accessibility": 63.01,
+      "p_criticality": 69.4,
+      "p_governance": 80.02,
+      "p_responsiveness": 76.31,
+      "p_rigor": 63.28,
+      "persona_composites": {
+        "balanced": {
+          "coverage": 0.889,
+          "cvi": 71.38,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.889,
+          "cvi": 71.38,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.889,
+          "cvi": 71.38,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.889,
+          "cvi": 71.38,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {
+        "ai_assisted": "hard_ai_ban"
+      },
+      "quadrant": "Sweet Spot",
+      "rank": 27,
+      "raw_hash": "45222dc89ccd58f348c0b5d4cdcc2de51963fadc5d688ef7bd0ee66c4d6884d2",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 2661,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.832,
+      "c_criticality": 0.811,
+      "c_governance": 0.878,
+      "c_responsiveness": 0.853,
+      "c_rigor": 0.824,
+      "coverage": 0.84,
+      "cvi": 70.96,
+      "ecosystem": "npm",
+      "friction": 26.87,
+      "friction_coverage": 0.8563,
+      "leverage": 68.71,
+      "leverage_coverage": 0.8283,
+      "name": "web-router",
+      "owner": "lumen-oss",
+      "p_accessibility": 68.14,
+      "p_criticality": 73.07,
+      "p_governance": 67.28,
+      "p_responsiveness": 78.63,
+      "p_rigor": 62.4,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.84,
+          "cvi": 70.96,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.84,
+          "cvi": 70.96,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.84,
+          "cvi": 70.96,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.84,
+          "cvi": 70.96,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.84,
+          "cvi": 70.96,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 28,
+      "raw_hash": "9e2fb10247e278606c6d97dfa2297d706983c74c222c5bf970f1327183f0c40e",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 19830,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 70.82,
+      "ecosystem": "pypi",
+      "friction": 31.79,
+      "friction_coverage": 1.0,
+      "leverage": 71.99,
+      "leverage_coverage": 1.0,
+      "name": "vector-db",
+      "owner": "openlantern",
+      "p_accessibility": 81.09,
+      "p_criticality": 69.52,
+      "p_governance": 66.68,
+      "p_responsiveness": 63.97,
+      "p_rigor": 79.65,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 70.82,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 70.82,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 70.82,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 70.82,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 70.82,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 29,
+      "raw_hash": "eff67208e1abb30524af33fc42d267b94ee8cc5e3c87ad1139c6b24e9e26d3c3",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 9341,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 70.59,
+      "ecosystem": "pypi",
+      "friction": 29.64,
+      "friction_coverage": 1.0,
+      "leverage": 70.9,
+      "leverage_coverage": 1.0,
+      "name": "api-gateway",
+      "owner": "elmstead",
+      "p_accessibility": 67.77,
+      "p_criticality": 71.38,
+      "p_governance": 68.55,
+      "p_responsiveness": 72.48,
+      "p_rigor": 71.67,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 70.59,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 70.59,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 70.59,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 70.59,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 70.59,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 30,
+      "raw_hash": "c04eb03f9e6c3525603636d1789a48eed61af99ad9e4830c1444ae475d231895",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 18010,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.87,
+      "c_criticality": 0.841,
+      "c_governance": 0.888,
+      "c_responsiveness": 0.817,
+      "c_rigor": 0.868,
+      "coverage": 0.8528,
+      "cvi": 70.39,
+      "ecosystem": "go",
+      "friction": 26.9,
+      "friction_coverage": 0.8489,
+      "leverage": 66.37,
+      "leverage_coverage": 0.8585,
+      "name": "graph-store",
+      "owner": "basaltdev",
+      "p_accessibility": 85.35,
+      "p_criticality": 65.72,
+      "p_governance": 72.36,
+      "p_responsiveness": 68.65,
+      "p_rigor": 63.46,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8528,
+          "cvi": 70.39,
+          "rated": true,
+          "tier": "B"
+        },
+        "balanced": {
+          "coverage": 0.8528,
+          "cvi": 70.39,
+          "rated": true,
+          "tier": "B"
+        },
+        "career_capital": {
+          "coverage": 0.8528,
+          "cvi": 70.39,
+          "rated": true,
+          "tier": "B"
+        },
+        "first_timer": {
+          "coverage": 0.8528,
+          "cvi": 70.39,
+          "rated": true,
+          "tier": "B"
+        },
+        "senior_systems": {
+          "coverage": 0.8528,
+          "cvi": 70.39,
+          "rated": true,
+          "tier": "B"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 31,
+      "raw_hash": "73e7b40543fa1371d7a1e315a5e54a11424ea7a583be2cc06683172214b0031d",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 14718,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "B",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.0,
+      "c_criticality": 0.916,
+      "c_governance": 0.926,
+      "c_responsiveness": 0.919,
+      "c_rigor": 0.926,
+      "coverage": 0.7829,
+      "cvi": 69.92,
+      "ecosystem": "go",
+      "friction": 56.41,
+      "friction_coverage": 0.7373,
+      "leverage": 70.76,
+      "leverage_coverage": 0.921,
+      "name": "template-cli-71",
+      "owner": "ivywood",
+      "p_accessibility": null,
+      "p_criticality": 69.78,
+      "p_governance": 67.73,
+      "p_responsiveness": 69.11,
+      "p_rigor": 74.4,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.7829,
+          "cvi": 69.92,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.7829,
+          "cvi": 69.92,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.7829,
+          "cvi": 69.92,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.7829,
+          "cvi": 69.92,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.7829,
+          "cvi": 69.92,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Crucible",
+      "rank": 32,
+      "raw_hash": "2122b3fe7352dec26e16c11435ccbfddb42c18f27ca3e90a2ee202b2f8c79ee1",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 17960,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.641,
+      "c_criticality": 0.735,
+      "c_governance": 0.673,
+      "c_responsiveness": 0.778,
+      "c_rigor": 0.764,
+      "coverage": 0.7236,
+      "cvi": 69.41,
+      "ecosystem": "npm",
+      "friction": 31.5,
+      "friction_coverage": 0.7191,
+      "leverage": 70.82,
+      "leverage_coverage": 0.7313,
+      "name": "queue-worker",
+      "owner": "duskmoor",
+      "p_accessibility": 73.0,
+      "p_criticality": 71.55,
+      "p_governance": 78.03,
+      "p_responsiveness": 60.99,
+      "p_rigor": 64.81,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.7236,
+          "cvi": 69.41,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.7236,
+          "cvi": 69.41,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.7236,
+          "cvi": 69.41,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.7236,
+          "cvi": 69.41,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.7236,
+          "cvi": 69.41,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 33,
+      "raw_hash": "4d366f104bad82db80ca78316406ebc28e33e87996abdf977a2b6fa13f760e35",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 18364,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.881,
+      "c_criticality": 0.899,
+      "c_governance": 0.837,
+      "c_responsiveness": 0.823,
+      "c_rigor": 0.846,
+      "coverage": 0.8569,
+      "cvi": 69.29,
+      "ecosystem": "pypi",
+      "friction": 27.52,
+      "friction_coverage": 0.8388,
+      "leverage": 64.7,
+      "leverage_coverage": 0.8707,
+      "name": "logging-fmt",
+      "owner": "pinehollow",
+      "p_accessibility": 76.06,
+      "p_criticality": 62.93,
+      "p_governance": 61.98,
+      "p_responsiveness": 77.35,
+      "p_rigor": 69.45,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8569,
+          "cvi": 69.29,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.8569,
+          "cvi": 69.29,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.8569,
+          "cvi": 69.29,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.8569,
+          "cvi": 69.29,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.8569,
+          "cvi": 69.29,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 34,
+      "raw_hash": "b5075fd55b943a37d6f992c5630b22e0de52955818fc1c70c039e29d1372b87b",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 19703,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.611,
+      "c_criticality": 0.629,
+      "c_governance": 0.601,
+      "c_responsiveness": 0.766,
+      "c_rigor": 0.601,
+      "coverage": 0.6507,
+      "cvi": 68.94,
+      "ecosystem": "maven",
+      "friction": 33.83,
+      "friction_coverage": 0.6855,
+      "leverage": 70.58,
+      "leverage_coverage": 0.615,
+      "name": "cert-manager",
+      "owner": "junipergate",
+      "p_accessibility": 72.77,
+      "p_criticality": 70.23,
+      "p_governance": 61.47,
+      "p_responsiveness": 66.34,
+      "p_rigor": 77.24,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.6507,
+          "cvi": 68.94,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.6507,
+          "cvi": 68.94,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.6507,
+          "cvi": 68.94,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.6507,
+          "cvi": 68.94,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.6507,
+          "cvi": 68.94,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 35,
+      "raw_hash": "f1dab97bb6b976c5bf7bcf739192a02813b3efff26b87bf8ae75edb8f64ed8b9",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 2731,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.87,
+      "c_criticality": 0.917,
+      "c_governance": 0.874,
+      "c_responsiveness": 0.877,
+      "c_rigor": 0.875,
+      "coverage": 0.8851,
+      "cvi": 66.46,
+      "ecosystem": "pypi",
+      "friction": 32.59,
+      "friction_coverage": 0.8747,
+      "leverage": 64.34,
+      "leverage_coverage": 0.8958,
+      "name": "vector-clock-65",
+      "owner": "windmere",
+      "p_accessibility": 73.96,
+      "p_criticality": 65.8,
+      "p_governance": 62.22,
+      "p_responsiveness": 67.9,
+      "p_rigor": 63.31,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8851,
+          "cvi": 66.46,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.8851,
+          "cvi": 66.46,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.8851,
+          "cvi": 66.46,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.8851,
+          "cvi": 66.46,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {
+        "senior_systems": "single_vendor"
+      },
+      "quadrant": "Sweet Spot",
+      "rank": 36,
+      "raw_hash": "867292088cd6d2e9d2e574ce90b86de5c7fcee775fd911962890a9a43f3c775c",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 1683,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.711,
+      "c_criticality": 0.775,
+      "c_governance": 0.674,
+      "c_responsiveness": 0.629,
+      "c_rigor": 0.669,
+      "coverage": 0.6928,
+      "cvi": 64.9,
+      "ecosystem": "pypi",
+      "friction": 34.25,
+      "friction_coverage": 0.6589,
+      "leverage": 63.59,
+      "leverage_coverage": 0.723,
+      "name": "stream-proc",
+      "owner": "tidalworks",
+      "p_accessibility": 66.46,
+      "p_criticality": 70.61,
+      "p_governance": 61.9,
+      "p_responsiveness": 67.78,
+      "p_rigor": 53.01,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.6928,
+          "cvi": 64.9,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.6928,
+          "cvi": 64.9,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.6928,
+          "cvi": 64.9,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.6928,
+          "cvi": 64.9,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.6928,
+          "cvi": 64.9,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 37,
+      "raw_hash": "1d901d3c97871d3471da04390cb18e50087f87621479ed24343c962786af7a99",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 2596,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 64.16,
+      "ecosystem": "cargo",
+      "friction": 41.11,
+      "friction_coverage": 1.0,
+      "leverage": 68.48,
+      "leverage_coverage": 1.0,
+      "name": "email-sender",
+      "owner": "clovertown",
+      "p_accessibility": 70.21,
+      "p_criticality": 75.47,
+      "p_governance": 60.8,
+      "p_responsiveness": 53.22,
+      "p_rigor": 61.96,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 64.16,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 64.16,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 64.16,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 64.16,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 64.16,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 38,
+      "raw_hash": "469d3c1975a592caae767025e4771c9d689dde96a86fb8717116be93e5aa4bf7",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 9996,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.924,
+      "c_criticality": 0.801,
+      "c_governance": 0.896,
+      "c_responsiveness": 0.918,
+      "c_rigor": 0.83,
+      "coverage": 0.872,
+      "cvi": 64.13,
+      "ecosystem": "npm",
+      "friction": 33.43,
+      "friction_coverage": 0.9126,
+      "leverage": 60.35,
+      "leverage_coverage": 0.8287,
+      "name": "cli-parser",
+      "owner": "saltmarsh",
+      "p_accessibility": 74.08,
+      "p_criticality": 60.57,
+      "p_governance": 60.75,
+      "p_responsiveness": 67.06,
+      "p_rigor": 59.71,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.872,
+          "cvi": 64.13,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.872,
+          "cvi": 64.13,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.872,
+          "cvi": 64.13,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.872,
+          "cvi": 64.13,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.872,
+          "cvi": 64.13,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 39,
+      "raw_hash": "dceb23f97490ce61c6202df8b31c72e6252a2910b93b67943060bec42ed6bc82",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 8592,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.892,
+      "c_criticality": 0.89,
+      "c_governance": 0.837,
+      "c_responsiveness": 0.924,
+      "c_rigor": 0.873,
+      "coverage": 0.8857,
+      "cvi": 63.55,
+      "ecosystem": "go",
+      "friction": 36.24,
+      "friction_coverage": 0.8915,
+      "leverage": 63.59,
+      "leverage_coverage": 0.8743,
+      "name": "job-runner",
+      "owner": "lanternhill",
+      "p_accessibility": 63.87,
+      "p_criticality": 67.67,
+      "p_governance": 66.45,
+      "p_responsiveness": 62.1,
+      "p_rigor": 54.89,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8857,
+          "cvi": 63.55,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.8857,
+          "cvi": 63.55,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.8857,
+          "cvi": 63.55,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.8857,
+          "cvi": 63.55,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.8857,
+          "cvi": 63.55,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 40,
+      "raw_hash": "12a57ee0e295d7a6a144ccd1d9689a0a078cb610163755796f9bb398f88b1b3b",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 16930,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.878,
+      "c_criticality": 0.806,
+      "c_governance": 0.821,
+      "c_responsiveness": 0.846,
+      "c_rigor": 0.898,
+      "coverage": 0.8436,
+      "cvi": 62.47,
+      "ecosystem": "npm",
+      "friction": 41.33,
+      "friction_coverage": 0.8449,
+      "leverage": 65.3,
+      "leverage_coverage": 0.8366,
+      "name": "form-validate-69",
+      "owner": "wildbrook",
+      "p_accessibility": 69.99,
+      "p_criticality": 67.44,
+      "p_governance": 60.32,
+      "p_responsiveness": 53.15,
+      "p_rigor": 65.05,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8436,
+          "cvi": 62.47,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.8436,
+          "cvi": 62.47,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.8436,
+          "cvi": 62.47,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.8436,
+          "cvi": 62.47,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.8436,
+          "cvi": 62.47,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 41,
+      "raw_hash": "4a3da3e8c0883f8025a4b9f701758dc826a5df0c1c2edae6bd6626d2634e4147",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 683,
+      "suspicion": [
+        "lull_then_burst",
+        "star_velocity_anomaly"
+      ],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.765,
+      "c_criticality": 0.785,
+      "c_governance": 0.891,
+      "c_responsiveness": 0.803,
+      "c_rigor": 0.853,
+      "coverage": 0.8179,
+      "cvi": 61.93,
+      "ecosystem": "npm",
+      "friction": 43.09,
+      "friction_coverage": 0.8218,
+      "leverage": 66.19,
+      "leverage_coverage": 0.8266,
+      "name": "rate-limiter-68",
+      "owner": "hollowreef",
+      "p_accessibility": 59.15,
+      "p_criticality": 75.5,
+      "p_governance": 51.6,
+      "p_responsiveness": 59.21,
+      "p_rigor": 60.41,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8179,
+          "cvi": 61.93,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.8179,
+          "cvi": 61.93,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.8179,
+          "cvi": 61.93,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.8179,
+          "cvi": 61.93,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.8179,
+          "cvi": 61.93,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 42,
+      "raw_hash": "c42b0e11e2d52d74871c47cf7e872ae3152bed9118dce408285606135383a975",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 6405,
+      "suspicion": [
+        "lockstep_authors"
+      ],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.776,
+      "c_criticality": 0.756,
+      "c_governance": 0.69,
+      "c_responsiveness": 0.702,
+      "c_rigor": 0.611,
+      "coverage": 0.7106,
+      "cvi": 61.39,
+      "ecosystem": "pypi",
+      "friction": 32.02,
+      "friction_coverage": 0.7132,
+      "leverage": 54.74,
+      "leverage_coverage": 0.6993,
+      "name": "orm-lite",
+      "owner": "granitebyte",
+      "p_accessibility": 69.49,
+      "p_criticality": 49.59,
+      "p_governance": 68.87,
+      "p_responsiveness": 66.84,
+      "p_rigor": 53.89,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.7106,
+          "cvi": 61.39,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.7106,
+          "cvi": 61.39,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.7106,
+          "cvi": 61.39,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.7106,
+          "cvi": 61.39,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.7106,
+          "cvi": 61.39,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 43,
+      "raw_hash": "2520a5f6031735d10dc0cc149e827bbb3af9bf08510b2c1a849511935390602d",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 12250,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.758,
+      "c_criticality": 0.879,
+      "c_governance": 0.807,
+      "c_responsiveness": 0.84,
+      "c_rigor": 0.769,
+      "coverage": 0.8202,
+      "cvi": 60.6,
+      "ecosystem": "maven",
+      "friction": 40.82,
+      "friction_coverage": 0.8137,
+      "leverage": 64.63,
+      "leverage_coverage": 0.8316,
+      "name": "audit-log-70",
+      "owner": "greywatch",
+      "p_accessibility": 50.63,
+      "p_criticality": 64.47,
+      "p_governance": 76.75,
+      "p_responsiveness": 52.05,
+      "p_rigor": 56.81,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8202,
+          "cvi": 60.6,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.8202,
+          "cvi": 60.6,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.8202,
+          "cvi": 60.6,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.8202,
+          "cvi": 60.6,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.8202,
+          "cvi": 60.6,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 44,
+      "raw_hash": "c27090228946a7b6adc3c1469f08bb21aff34420466c13cc3999812ce053bddb",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 14721,
+      "suspicion": [
+        "reused_bio_across_orgs"
+      ],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.667,
+      "c_criticality": 0.671,
+      "c_governance": 0.734,
+      "c_responsiveness": 0.665,
+      "c_rigor": 0.612,
+      "coverage": 0.6726,
+      "cvi": 59.74,
+      "ecosystem": "npm",
+      "friction": 37.05,
+      "friction_coverage": 0.6861,
+      "leverage": 56.42,
+      "leverage_coverage": 0.6659,
+      "name": "session-store",
+      "owner": "thistledev",
+      "p_accessibility": 72.77,
+      "p_criticality": 53.51,
+      "p_governance": 71.64,
+      "p_responsiveness": 53.8,
+      "p_rigor": 51.13,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.6726,
+          "cvi": 59.74,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.6726,
+          "cvi": 59.74,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.6726,
+          "cvi": 59.74,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.6726,
+          "cvi": 59.74,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.6726,
+          "cvi": 59.74,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 45,
+      "raw_hash": "48eab0df1399ed63a166a56afe8124e80c152a98f47bb0444ee582e64bbf0075",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 15103,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 58.35,
+      "ecosystem": "maven",
+      "friction": 37.55,
+      "friction_coverage": 1.0,
+      "leverage": 54.06,
+      "leverage_coverage": 1.0,
+      "name": "http-client",
+      "owner": "brookline",
+      "p_accessibility": 61.03,
+      "p_criticality": 55.71,
+      "p_governance": 59.05,
+      "p_responsiveness": 65.05,
+      "p_rigor": 47.97,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 58.35,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 58.35,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 58.35,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 58.35,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 58.35,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 46,
+      "raw_hash": "f3b2d5e79cce8dfbc5b288f7366d1133391c5df32dc581f0dbb03fd8bb9a6706",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 7900,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.862,
+      "c_criticality": 0.815,
+      "c_governance": 0.881,
+      "c_responsiveness": 0.897,
+      "c_rigor": 0.932,
+      "coverage": 0.8733,
+      "cvi": 56.71,
+      "ecosystem": "cargo",
+      "friction": 41.59,
+      "friction_coverage": 0.8852,
+      "leverage": 56.47,
+      "leverage_coverage": 0.8633,
+      "name": "template-engine",
+      "owner": "mossgarden",
+      "p_accessibility": 47.5,
+      "p_criticality": 48.38,
+      "p_governance": 62.23,
+      "p_responsiveness": 60.49,
+      "p_rigor": 66.12,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8733,
+          "cvi": 56.71,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.8733,
+          "cvi": 56.71,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.8733,
+          "cvi": 56.71,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.8733,
+          "cvi": 56.71,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.8733,
+          "cvi": 56.71,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 47,
+      "raw_hash": "6c19497d2497faf01400ac11c53fe427781c04dca3b9026f5bfdf529b6a69267",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 9769,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.85,
+      "c_criticality": 0.919,
+      "c_governance": 0.93,
+      "c_responsiveness": 0.827,
+      "c_rigor": 0.82,
+      "coverage": 0.873,
+      "cvi": 55.54,
+      "ecosystem": "npm",
+      "friction": 43.59,
+      "friction_coverage": 0.8625,
+      "leverage": 55.4,
+      "leverage_coverage": 0.8915,
+      "name": "schema-gen",
+      "owner": "quietport",
+      "p_accessibility": 59.52,
+      "p_criticality": 49.08,
+      "p_governance": 66.82,
+      "p_responsiveness": 48.92,
+      "p_rigor": 58.32,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.873,
+          "cvi": 55.54,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 0.873,
+          "cvi": 55.54,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 0.873,
+          "cvi": 55.54,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 0.873,
+          "cvi": 55.54,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 0.873,
+          "cvi": 55.54,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 48,
+      "raw_hash": "8046ae00923fbcd90d4348ec9e749591f09e63166e36cab1b1161258751bd78b",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 9045,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 55.0,
+      "ecosystem": "npm",
+      "friction": 66.0,
+      "friction_coverage": 1.0,
+      "leverage": 81.5,
+      "leverage_coverage": 1.0,
+      "name": "flag-store",
+      "owner": "aldergate",
+      "p_accessibility": 20.0,
+      "p_criticality": 85.0,
+      "p_governance": 75.0,
+      "p_responsiveness": 15.0,
+      "p_rigor": 80.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 55.0,
+          "rated": true,
+          "tier": "C"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 55.0,
+          "rated": true,
+          "tier": "C"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 55.0,
+          "rated": true,
+          "tier": "C"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 55.0,
+          "rated": true,
+          "tier": "C"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 55.0,
+          "rated": true,
+          "tier": "C"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Crucible",
+      "rank": 49,
+      "raw_hash": "acb8d565af25ef561e7cb88a0ac20bb40d9480f7f796496a723f1d6eabcd0aba",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 14091,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "C",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.927,
+      "c_criticality": 0.932,
+      "c_governance": 0.815,
+      "c_responsiveness": 0.891,
+      "c_rigor": 0.901,
+      "coverage": 0.893,
+      "cvi": 53.89,
+      "ecosystem": "go",
+      "friction": 43.85,
+      "friction_coverage": 0.8754,
+      "leverage": 51.7,
+      "leverage_coverage": 0.8993,
+      "name": "asset-pipeline",
+      "owner": "sablecreek",
+      "p_accessibility": 58.02,
+      "p_criticality": 55.92,
+      "p_governance": 58.74,
+      "p_responsiveness": 53.84,
+      "p_rigor": 39.97,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.893,
+          "cvi": 53.89,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 0.893,
+          "cvi": 53.89,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 0.893,
+          "cvi": 53.89,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 0.893,
+          "cvi": 53.89,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 0.893,
+          "cvi": 53.89,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Sweet Spot",
+      "rank": 50,
+      "raw_hash": "47607dcefbf869c36f9a768b8b1be24b861e608446ec0c437c3b59b967caeb80",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 7039,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.879,
+      "c_criticality": 0.928,
+      "c_governance": 0.833,
+      "c_responsiveness": 0.903,
+      "c_rigor": 0.844,
+      "coverage": 0.8828,
+      "cvi": 53.31,
+      "ecosystem": "pypi",
+      "friction": 43.57,
+      "friction_coverage": 0.8772,
+      "leverage": 48.23,
+      "leverage_coverage": 0.8838,
+      "name": "compression",
+      "owner": "cedarpoint",
+      "p_accessibility": 63.53,
+      "p_criticality": 47.06,
+      "p_governance": 44.04,
+      "p_responsiveness": 61.03,
+      "p_rigor": 52.97,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8828,
+          "cvi": 53.31,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 0.8828,
+          "cvi": 53.31,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 0.8828,
+          "cvi": 53.31,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 0.8828,
+          "cvi": 53.31,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 0.8828,
+          "cvi": 53.31,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Nursery",
+      "rank": 51,
+      "raw_hash": "7c896cb3ddb5ceba53ab6b3f5424b445c1475216797249db47262109112adf86",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 2585,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 52.59,
+      "ecosystem": "npm",
+      "friction": 40.55,
+      "friction_coverage": 1.0,
+      "leverage": 46.94,
+      "leverage_coverage": 1.0,
+      "name": "geo-index",
+      "owner": "larkspur",
+      "p_accessibility": 49.72,
+      "p_criticality": 44.1,
+      "p_governance": 61.73,
+      "p_responsiveness": 61.98,
+      "p_rigor": 41.8,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 52.59,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 52.59,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 52.59,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 52.59,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 52.59,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Nursery",
+      "rank": 52,
+      "raw_hash": "eff24d59a028fa53cf36b0739e8fd3fc60ecd04c31d085b75414536afaa6d25d",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 3354,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 50.16,
+      "ecosystem": "npm",
+      "friction": 49.14,
+      "friction_coverage": 1.0,
+      "leverage": 48.41,
+      "leverage_coverage": 1.0,
+      "name": "config-lib",
+      "owner": "driftworks",
+      "p_accessibility": 60.52,
+      "p_criticality": 42.78,
+      "p_governance": 49.98,
+      "p_responsiveness": 47.52,
+      "p_rigor": 56.75,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 50.16,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 50.16,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 50.16,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 50.16,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 50.16,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Nursery",
+      "rank": 53,
+      "raw_hash": "2a1a3fef3fae720c3854e9ef1bbc0a27aea7508084ec9902a9119d4cb7f2d60e",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 900,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.787,
+      "c_criticality": 0.767,
+      "c_governance": 0.7,
+      "c_responsiveness": 0.718,
+      "c_rigor": 0.753,
+      "coverage": 0.7422,
+      "cvi": 50.07,
+      "ecosystem": "go",
+      "friction": 51.16,
+      "friction_coverage": 0.7264,
+      "leverage": 51.85,
+      "leverage_coverage": 0.7494,
+      "name": "diff-tool",
+      "owner": "goldenrod",
+      "p_accessibility": 50.47,
+      "p_criticality": 48.8,
+      "p_governance": 56.1,
+      "p_responsiveness": 43.84,
+      "p_rigor": 54.11,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.7422,
+          "cvi": 50.07,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 0.7422,
+          "cvi": 50.07,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 0.7422,
+          "cvi": 50.07,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 0.7422,
+          "cvi": 50.07,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 0.7422,
+          "cvi": 50.07,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Crucible",
+      "rank": 54,
+      "raw_hash": "1d7cb242068df5ff3345f069804c25fd7cbadaa6e1224f95c3cff471757abe8a",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 1392,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 48.28,
+      "ecosystem": "go",
+      "friction": 50.03,
+      "friction_coverage": 1.0,
+      "leverage": 48.02,
+      "leverage_coverage": 1.0,
+      "name": "cron-lib",
+      "owner": "mistvale",
+      "p_accessibility": 35.93,
+      "p_criticality": 45.63,
+      "p_governance": 50.19,
+      "p_responsiveness": 55.45,
+      "p_rigor": 50.54,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 48.28,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 48.28,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 48.28,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 48.28,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 48.28,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 55,
+      "raw_hash": "4797ee019d335e98ec5225da9c2ef8ed4aa5f091ede32a5def0e3479bdee4589",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 18328,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 48.11,
+      "ecosystem": "npm",
+      "friction": 50.27,
+      "friction_coverage": 1.0,
+      "leverage": 47.83,
+      "leverage_coverage": 1.0,
+      "name": "i18n-loader",
+      "owner": "frostwick",
+      "p_accessibility": 48.02,
+      "p_criticality": 40.83,
+      "p_governance": 61.34,
+      "p_responsiveness": 43.44,
+      "p_rigor": 50.49,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 48.11,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 48.11,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 48.11,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 48.11,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 48.11,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 56,
+      "raw_hash": "189f13e647c58e99bd02cc9eb70f1438e544eda904b220dc04b7df33869695f0",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 14671,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 48.0,
+      "ecosystem": "cargo",
+      "friction": 37.0,
+      "friction_coverage": 1.0,
+      "leverage": 26.5,
+      "leverage_coverage": 1.0,
+      "name": "state-machine",
+      "owner": "hawkline",
+      "p_accessibility": 85.0,
+      "p_criticality": 30.0,
+      "p_governance": 20.0,
+      "p_responsiveness": 80.0,
+      "p_rigor": 25.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 48.0,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 48.0,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 48.0,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 48.0,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 48.0,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Nursery",
+      "rank": 57,
+      "raw_hash": "c5692c03eecad02a3ee07789e7d590ce88b865d579eadbb0715e214572357f21",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 678,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.85,
+      "c_criticality": 0.882,
+      "c_governance": 0.918,
+      "c_responsiveness": 0.852,
+      "c_rigor": 0.885,
+      "coverage": 0.8774,
+      "cvi": 47.4,
+      "ecosystem": "maven",
+      "friction": 51.3,
+      "friction_coverage": 0.8714,
+      "leverage": 48.3,
+      "leverage_coverage": 0.8901,
+      "name": "tree-sitter-ext",
+      "owner": "marrowdeep",
+      "p_accessibility": 40.6,
+      "p_criticality": 42.61,
+      "p_governance": 62.51,
+      "p_responsiveness": 43.65,
+      "p_rigor": 48.31,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8774,
+          "cvi": 47.4,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 0.8774,
+          "cvi": 47.4,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 0.8774,
+          "cvi": 47.4,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 0.8774,
+          "cvi": 47.4,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 0.8774,
+          "cvi": 47.4,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 58,
+      "raw_hash": "4e8d7cc3c653ea67aa69f38273259197333ac3d47b6db319554c074ce806747a",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 6990,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.903,
+      "c_criticality": 0.871,
+      "c_governance": 0.915,
+      "c_responsiveness": 0.878,
+      "c_rigor": 0.911,
+      "coverage": 0.8923,
+      "cvi": 47.19,
+      "ecosystem": "pypi",
+      "friction": 51.05,
+      "friction_coverage": 0.8941,
+      "leverage": 45.38,
+      "leverage_coverage": 0.8918,
+      "name": "metrics-sdk",
+      "owner": "kelvinlabs",
+      "p_accessibility": 56.04,
+      "p_criticality": 37.73,
+      "p_governance": 55.6,
+      "p_responsiveness": 42.13,
+      "p_rigor": 51.32,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8923,
+          "cvi": 47.19,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 0.8923,
+          "cvi": 47.19,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 0.8923,
+          "cvi": 47.19,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 0.8923,
+          "cvi": 47.19,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 0.8923,
+          "cvi": 47.19,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 59,
+      "raw_hash": "2562455a254f1fc911cd5d7b0f06c991b64a33551a32179bbaaa683e85e5fedc",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 4586,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 47.15,
+      "ecosystem": "pypi",
+      "friction": 53.15,
+      "friction_coverage": 1.0,
+      "leverage": 47.09,
+      "leverage_coverage": 1.0,
+      "name": "notif-service",
+      "owner": "amberfield",
+      "p_accessibility": 42.06,
+      "p_criticality": 51.86,
+      "p_governance": 38.41,
+      "p_responsiveness": 53.84,
+      "p_rigor": 44.91,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 47.15,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 47.15,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 47.15,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 47.15,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 47.15,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 60,
+      "raw_hash": "d6bb431d11ea455646efb3cdfeaa526f24b4affd831b69074bb7c02fd461dfa6",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 7163,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.634,
+      "c_criticality": 0.707,
+      "c_governance": 0.738,
+      "c_responsiveness": 0.667,
+      "c_rigor": 0.745,
+      "coverage": 0.698,
+      "cvi": 46.12,
+      "ecosystem": "go",
+      "friction": 58.52,
+      "friction_coverage": 0.6817,
+      "leverage": 50.3,
+      "leverage_coverage": 0.7246,
+      "name": "auth-middleware",
+      "owner": "palegate",
+      "p_accessibility": 42.63,
+      "p_criticality": 50.2,
+      "p_governance": 37.97,
+      "p_responsiveness": 43.12,
+      "p_rigor": 58.68,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.698,
+          "cvi": 46.12,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 0.698,
+          "cvi": 46.12,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 0.698,
+          "cvi": 46.12,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 0.698,
+          "cvi": 46.12,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 0.698,
+          "cvi": 46.12,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Crucible",
+      "rank": 61,
+      "raw_hash": "cd1a4ea4d34dff770ce0b30ee533692cf31316c8d4520f84becd0b9a1f336767",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 5819,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 45.82,
+      "ecosystem": "maven",
+      "friction": 54.21,
+      "friction_coverage": 1.0,
+      "leverage": 45.16,
+      "leverage_coverage": 1.0,
+      "name": "plugin-host",
+      "owner": "thornbury",
+      "p_accessibility": 53.32,
+      "p_criticality": 47.14,
+      "p_governance": 46.38,
+      "p_responsiveness": 42.43,
+      "p_rigor": 41.04,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 45.82,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 45.82,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 45.82,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 45.82,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 45.82,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 62,
+      "raw_hash": "9b61300b011186314ef2270e9d53c45422ed9831488e9cb94f2ff8a8411af036",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 17572,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.931,
+      "c_criticality": 0.939,
+      "c_governance": 0.838,
+      "c_responsiveness": 0.931,
+      "c_rigor": 0.827,
+      "coverage": 0.8988,
+      "cvi": 42.91,
+      "ecosystem": "maven",
+      "friction": 55.46,
+      "friction_coverage": 0.9031,
+      "leverage": 43.45,
+      "leverage_coverage": 0.8852,
+      "name": "event-bus",
+      "owner": "hazelrun",
+      "p_accessibility": 35.72,
+      "p_criticality": 36.98,
+      "p_governance": 57.47,
+      "p_responsiveness": 40.31,
+      "p_rigor": 44.88,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8988,
+          "cvi": 42.91,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 0.8988,
+          "cvi": 42.91,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 0.8988,
+          "cvi": 42.91,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 0.8988,
+          "cvi": 42.91,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 0.8988,
+          "cvi": 42.91,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 63,
+      "raw_hash": "c39a8670c1aade7ae026c3b064818341916eefd7a0a8f75ca2df70588696a0dc",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 16978,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.823,
+      "c_criticality": 0.846,
+      "c_governance": 0.81,
+      "c_responsiveness": 0.936,
+      "c_rigor": 0.814,
+      "coverage": 0.853,
+      "cvi": 42.8,
+      "ecosystem": "go",
+      "friction": 58.41,
+      "friction_coverage": 0.8756,
+      "leverage": 44.45,
+      "leverage_coverage": 0.8292,
+      "name": "task-queue",
+      "owner": "ravenwood",
+      "p_accessibility": 29.93,
+      "p_criticality": 45.77,
+      "p_governance": 34.28,
+      "p_responsiveness": 50.63,
+      "p_rigor": 49.03,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.853,
+          "cvi": 42.8,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 0.853,
+          "cvi": 42.8,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 0.853,
+          "cvi": 42.8,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 0.853,
+          "cvi": 42.8,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 0.853,
+          "cvi": 42.8,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 64,
+      "raw_hash": "c6debc423accf77d060c691f37947001f015ce16848182b34d0913d803c98310",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 12229,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.682,
+      "c_criticality": 0.663,
+      "c_governance": 0.774,
+      "c_responsiveness": 0.671,
+      "c_rigor": 0.74,
+      "coverage": 0.7016,
+      "cvi": 42.77,
+      "ecosystem": "go",
+      "friction": 50.66,
+      "friction_coverage": 0.7041,
+      "leverage": 37.58,
+      "leverage_coverage": 0.7083,
+      "name": "build-pipeline",
+      "owner": "cobalt-run",
+      "p_accessibility": 39.38,
+      "p_criticality": 34.69,
+      "p_governance": 53.11,
+      "p_responsiveness": 51.07,
+      "p_rigor": 32.03,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.7016,
+          "cvi": 42.77,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 0.7016,
+          "cvi": 42.77,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 0.7016,
+          "cvi": 42.77,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 0.7016,
+          "cvi": 42.77,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 0.7016,
+          "cvi": 42.77,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 65,
+      "raw_hash": "9752bbf02d25ea87316a95b450c10f19aebaa64d446d89082e89fc916893c2f1",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 18344,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 41.17,
+      "ecosystem": "maven",
+      "friction": 60.7,
+      "friction_coverage": 1.0,
+      "leverage": 45.27,
+      "leverage_coverage": 1.0,
+      "name": "ws-gateway",
+      "owner": "stormcrest",
+      "p_accessibility": 31.47,
+      "p_criticality": 41.09,
+      "p_governance": 53.69,
+      "p_responsiveness": 33.79,
+      "p_rigor": 46.62,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 41.17,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 41.17,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 41.17,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 41.17,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 41.17,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 66,
+      "raw_hash": "b6902f2be467c499c5e24c83ac718452ba4eed1075c04ccbb89ed40d17cd1263",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 1923,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.709,
+      "c_criticality": 0.603,
+      "c_governance": 0.787,
+      "c_responsiveness": 0.742,
+      "c_rigor": 0.714,
+      "coverage": 0.7071,
+      "cvi": 41.01,
+      "ecosystem": "npm",
+      "friction": 56.88,
+      "friction_coverage": 0.7489,
+      "leverage": 39.66,
+      "leverage_coverage": 0.6731,
+      "name": "queue-core",
+      "owner": "northbeam",
+      "p_accessibility": 35.0,
+      "p_criticality": 38.05,
+      "p_governance": 42.49,
+      "p_responsiveness": 46.74,
+      "p_rigor": 40.45,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.7071,
+          "cvi": 41.01,
+          "rated": true,
+          "tier": "D"
+        },
+        "balanced": {
+          "coverage": 0.7071,
+          "cvi": 41.01,
+          "rated": true,
+          "tier": "D"
+        },
+        "career_capital": {
+          "coverage": 0.7071,
+          "cvi": 41.01,
+          "rated": true,
+          "tier": "D"
+        },
+        "first_timer": {
+          "coverage": 0.7071,
+          "cvi": 41.01,
+          "rated": true,
+          "tier": "D"
+        },
+        "senior_systems": {
+          "coverage": 0.7071,
+          "cvi": 41.01,
+          "rated": true,
+          "tier": "D"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 67,
+      "raw_hash": "f0853e7beb9dc2802ab0bf89d94bc4835d7215c52ad071a908089e288030a9a7",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 15891,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "D",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.929,
+      "c_criticality": 0.839,
+      "c_governance": 0.936,
+      "c_responsiveness": 0.906,
+      "c_rigor": 0.815,
+      "coverage": 0.8851,
+      "cvi": 39.12,
+      "ecosystem": "maven",
+      "friction": 62.89,
+      "friction_coverage": 0.9196,
+      "leverage": 41.86,
+      "leverage_coverage": 0.8512,
+      "name": "packet-parse",
+      "owner": "kestrelbyte",
+      "p_accessibility": 33.63,
+      "p_criticality": 49.3,
+      "p_governance": 40.82,
+      "p_responsiveness": 36.28,
+      "p_rigor": 30.14,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.8851,
+          "cvi": 39.12,
+          "rated": true,
+          "tier": "F"
+        },
+        "balanced": {
+          "coverage": 0.8851,
+          "cvi": 39.12,
+          "rated": true,
+          "tier": "F"
+        },
+        "career_capital": {
+          "coverage": 0.8851,
+          "cvi": 39.12,
+          "rated": true,
+          "tier": "F"
+        },
+        "first_timer": {
+          "coverage": 0.8851,
+          "cvi": 39.12,
+          "rated": true,
+          "tier": "F"
+        },
+        "senior_systems": {
+          "coverage": 0.8851,
+          "cvi": 39.12,
+          "rated": true,
+          "tier": "F"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 68,
+      "raw_hash": "f057224b00499fcc098df1cf8e1841497b022048e376dae365664b6b3de66749",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 13744,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "F",
+      "tier_ceiling": "A"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 37.36,
+      "ecosystem": "maven",
+      "friction": 63.67,
+      "friction_coverage": 1.0,
+      "leverage": 37.7,
+      "leverage_coverage": 1.0,
+      "name": "template-cli",
+      "owner": "ivywood",
+      "p_accessibility": 41.12,
+      "p_criticality": 33.77,
+      "p_governance": 34.22,
+      "p_responsiveness": 35.68,
+      "p_rigor": 46.56,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 37.36,
+          "rated": true,
+          "tier": "F"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 37.36,
+          "rated": true,
+          "tier": "F"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 37.36,
+          "rated": true,
+          "tier": "F"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 37.36,
+          "rated": true,
+          "tier": "F"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 37.36,
+          "rated": true,
+          "tier": "F"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 69,
+      "raw_hash": "adbf98e15a05f70cd553bfe1f5d5f3b36e335281f50a9c40a83c24155f030e27",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 8821,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "F",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 0.773,
+      "c_criticality": 0.701,
+      "c_governance": 0.69,
+      "c_responsiveness": 0.781,
+      "c_rigor": 0.683,
+      "coverage": 0.7269,
+      "cvi": 37.21,
+      "ecosystem": "cargo",
+      "friction": 62.99,
+      "friction_coverage": 0.7521,
+      "leverage": 37.42,
+      "leverage_coverage": 0.6934,
+      "name": "pubsub-lib",
+      "owner": "birchfield",
+      "p_accessibility": 46.39,
+      "p_criticality": 32.28,
+      "p_governance": 46.41,
+      "p_responsiveness": 27.61,
+      "p_rigor": 40.01,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 0.7269,
+          "cvi": 37.21,
+          "rated": true,
+          "tier": "F"
+        },
+        "balanced": {
+          "coverage": 0.7269,
+          "cvi": 37.21,
+          "rated": true,
+          "tier": "F"
+        },
+        "career_capital": {
+          "coverage": 0.7269,
+          "cvi": 37.21,
+          "rated": true,
+          "tier": "F"
+        },
+        "first_timer": {
+          "coverage": 0.7269,
+          "cvi": 37.21,
+          "rated": true,
+          "tier": "F"
+        },
+        "senior_systems": {
+          "coverage": 0.7269,
+          "cvi": 37.21,
+          "rated": true,
+          "tier": "F"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 70,
+      "raw_hash": "fd6b165344e2ae98a6f84995301ce2e1bbfcd32725719fb63f52beeefc757a86",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 15948,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "F",
+      "tier_ceiling": "B"
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 35.55,
+      "ecosystem": "npm",
+      "friction": 67.68,
+      "friction_coverage": 1.0,
+      "leverage": 38.81,
+      "leverage_coverage": 1.0,
+      "name": "rate-limiter",
+      "owner": "hollowreef",
+      "p_accessibility": 26.89,
+      "p_criticality": 46.64,
+      "p_governance": 27.18,
+      "p_responsiveness": 37.57,
+      "p_rigor": 33.52,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 35.55,
+          "rated": true,
+          "tier": "F"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 35.55,
+          "rated": true,
+          "tier": "F"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 35.55,
+          "rated": true,
+          "tier": "F"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 35.55,
+          "rated": true,
+          "tier": "F"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 35.55,
+          "rated": true,
+          "tier": "F"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 71,
+      "raw_hash": "94ba834033dbca0e15fac8150d1f0cde0fd7e6dcfde38abf9b473d29fb2c96c7",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 15883,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "F",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 31.3,
+      "ecosystem": "maven",
+      "friction": 66.46,
+      "friction_coverage": 1.0,
+      "leverage": 29.23,
+      "leverage_coverage": 1.0,
+      "name": "form-validate",
+      "owner": "wildbrook",
+      "p_accessibility": 35.22,
+      "p_criticality": 28.93,
+      "p_governance": 36.91,
+      "p_responsiveness": 30.84,
+      "p_rigor": 24.61,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 31.3,
+          "rated": true,
+          "tier": "F"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 31.3,
+          "rated": true,
+          "tier": "F"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 31.3,
+          "rated": true,
+          "tier": "F"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 31.3,
+          "rated": true,
+          "tier": "F"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 31.3,
+          "rated": true,
+          "tier": "F"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 72,
+      "raw_hash": "1455ec0757530d43ab13be6ed7bb3f83a8a1f4d975cce0d5d94d4fe91462e2e9",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 12512,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "F",
+      "tier_ceiling": null
+    },
+    {
+      "benchmark_version": "2.0.0-fixture",
+      "c_accessibility": 1.0,
+      "c_criticality": 1.0,
+      "c_governance": 1.0,
+      "c_responsiveness": 1.0,
+      "c_rigor": 1.0,
+      "coverage": 1.0,
+      "cvi": 19.0,
+      "ecosystem": "cargo",
+      "friction": 84.0,
+      "friction_coverage": 1.0,
+      "leverage": 21.5,
+      "leverage_coverage": 1.0,
+      "name": "media-transcode",
+      "owner": "dunehaven",
+      "p_accessibility": 20.0,
+      "p_criticality": 25.0,
+      "p_governance": 15.0,
+      "p_responsiveness": 15.0,
+      "p_rigor": 20.0,
+      "persona_composites": {
+        "ai_assisted": {
+          "coverage": 1.0,
+          "cvi": 19.0,
+          "rated": true,
+          "tier": "F"
+        },
+        "balanced": {
+          "coverage": 1.0,
+          "cvi": 19.0,
+          "rated": true,
+          "tier": "F"
+        },
+        "career_capital": {
+          "coverage": 1.0,
+          "cvi": 19.0,
+          "rated": true,
+          "tier": "F"
+        },
+        "first_timer": {
+          "coverage": 1.0,
+          "cvi": 19.0,
+          "rated": true,
+          "tier": "F"
+        },
+        "senior_systems": {
+          "coverage": 1.0,
+          "cvi": 19.0,
+          "rated": true,
+          "tier": "F"
+        }
+      },
+      "persona_gates": {},
+      "quadrant": "Graveyard",
+      "rank": 73,
+      "raw_hash": "0b932a0c3b7c12a668126099495ab90525d04d61ca34efddc102db163b28eb11",
+      "snapshot_id": "snap-2026-09-13-fixture",
+      "stars_audited": 3265,
+      "suspicion": [],
+      "tie_group": null,
+      "tier": "F",
+      "tier_ceiling": null
+    }
+  ],
+  "total": 73
+}
