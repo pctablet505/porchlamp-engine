@@ -12,18 +12,25 @@ ruling, REWORK round 1): identity comes from ``record.repo`` (W2-10);
 ordering is already baked into ``record.tie_key``/``record.rank``/
 ``record.tie_group`` by the time a record reaches this module, and TTFHR
 p75 is recomputed from ``bundle.pr_window`` (:func:`cvi.core.tiebreak.
-ttfhr_p75_from_pr_window`). ``stars_audited`` and ``forks`` (count) still
-have no producer anywhere in the current ``FeatureBundle``/``GateEvidence``
-contract, written ``NULL`` until a future packet wires a real source.
-``last_human_commit_at`` (W1-5f REWORK, F-001) is no longer one of those:
-:func:`_last_human_commit_at` reads the ``last_non_bot_commit_at`` bundle
-sidecar fact (``cvi.core.commit_domains``, D-TIE-1 item 7) the same way
+ttfhr_p75_from_pr_window`). ``forks`` (count) still has no producer
+anywhere in the current ``FeatureBundle``/``GateEvidence`` contract,
+written ``NULL`` until a future packet wires a real source. Two other
+columns that used to be in the same boat now have one each:
+``last_human_commit_at`` (W1-5f REWORK, F-001) -- :func:`_last_human_commit_at`
+reads the ``last_non_bot_commit_at`` bundle sidecar fact
+(``cvi.core.commit_domains``, D-TIE-1 item 7) the same way
 ``cvi.core.pipeline.score_bundle_stage_9_tie_input`` already does for
 ``TieBreakInput``, normalised through :func:`_normalize_utc_z`. Before
 this fix ``cvi/store/reader.py``'s SQL ``ORDER BY`` (``last_human_commit_at
 DESC NULLS LAST`` at D-TIE-1 level 7) silently disagreed with the ``rank``
 column stored right beside it, because the column was always ``NULL``
 while ``ScoreRecord.rank``/``tie_key`` were computed from the real date.
+``stars_audited`` (W4-4, G-006) -- :func:`_repo_row` reads a
+``"stars_audited"`` key off ``bundle.inputs`` if present (a future
+promote-pipeline packet's job to populate, from
+``cvi.derive.bundle.resolve_universe_meta_facts`` -- see
+``.agents/W1-10/handoff.md``'s "Store writer one-liner"), written ``NULL``
+when absent or ``Unmeasured`` -- never a raw, unaudited star count.
 
 A snapshot id is immutable (03 section 5, F-003): once ``repositories``
 carries any row for a ``snapshot_id``, a later :func:`write_records` call
@@ -240,7 +247,17 @@ def _repo_row(snapshot_id: str, item: RepoWrite) -> tuple:
         repo.ecosystem,
         record.raw_hash,
         record.constants_hash,
-        None,  # stars_audited: no producer yet (see module docstring)
+        # stars_audited (W1-10/G-006, W4-4): read from the bundle's universe
+        # meta -- `FeatureBundle.inputs` has no `__post_init__` validation
+        # (only the separate, never-called-here `.validate()` method), so a
+        # `"stars_audited"` key placed there by a future promote-pipeline
+        # packet (alongside the closed 18-parameter set `.validate()` checks
+        # for) round-trips here without touching `RepoWrite`'s two-field
+        # shape. NULL when absent (every bundle built before this producer
+        # exists) or Unmeasured (StarScout's audit failed for this repo) --
+        # never the raw, unaudited stars count under this column's
+        # audited-sounding name.
+        (audited.value if isinstance(audited := item.bundle.inputs.get("stars_audited"), Measured) else None),
         None,  # forks (count): no producer yet
         repo.license_spdx,
         int(repo.archived),
