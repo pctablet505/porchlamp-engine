@@ -20,6 +20,7 @@ import {
   serializeSearch,
   countRankChanges,
   resolveOpenTargetKey,
+  footerFieldsFor,
 } from "../state.js";
 import * as copy from "../copy.js";
 
@@ -251,4 +252,39 @@ test("copy.js: tierLabel appends '(capped)' only when the ceiling is the binding
   assert.equal(copy.tierLabel("S", "A"), "S"); // score already exceeds the ceiling tier -> ceiling isn't binding here
   assert.equal(copy.tierLabel("B", null), "B");
   assert.equal(copy.tierLabel(null, null), copy.MISSING_VALUE);
+});
+
+// -------------------------------------------------------------- NB-2/W-4
+// U-15/U-7 (review 2026-09-13): a snapshot fetch failure previously left
+// the footer/chip resting on a fabricated "Loading..." forever —
+// SNAPSHOT_ERROR was reduced into state and read by nothing.
+// footerFieldsFor is the single decision app.js's syncFooter and the
+// header chip both read.
+test("footerFieldsFor: error takes priority over a stale/absent snapshot", () => {
+  const errored = { ...defaultState(), snapshotError: { endpoint: "/v1/cvi/snapshot", status: 500 } };
+  assert.deepEqual(footerFieldsFor(errored), {
+    kind: "error",
+    endpoint: "/v1/cvi/snapshot",
+    status: 500,
+  });
+});
+
+test("footerFieldsFor: ok once a snapshot has loaded and there is no error", () => {
+  const snapshot = { snapshot_id: "s1", benchmark_version: "v1", constants_hash: "c", manifest_root: "m" };
+  const loaded = { ...defaultState(), snapshot };
+  assert.deepEqual(footerFieldsFor(loaded), { kind: "ok", snapshot });
+});
+
+test("footerFieldsFor: loading is the ONLY resting state before either resolves", () => {
+  assert.deepEqual(footerFieldsFor(defaultState()), { kind: "loading" });
+});
+
+test("footerFieldsFor: an error set alongside a stale snapshot still reports error (never silently reverts to ok)", () => {
+  const snapshot = { snapshot_id: "s1", benchmark_version: "v1", constants_hash: "c", manifest_root: "m" };
+  const state = {
+    ...defaultState(),
+    snapshot,
+    snapshotError: { endpoint: "/v1/cvi/snapshot", status: 500 },
+  };
+  assert.equal(footerFieldsFor(state).kind, "error");
 });

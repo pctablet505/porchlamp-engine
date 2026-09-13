@@ -198,7 +198,16 @@ def _query_params(path: str) -> tuple[str, dict[str, str]]:
     return parsed.path, params
 
 
-def make_handler(store: FixtureStore, web_dir: Path) -> type[BaseHTTPRequestHandler]:
+def make_handler(
+    store: FixtureStore, web_dir: Path, fail_endpoints: frozenset[str] = frozenset()
+) -> type[BaseHTTPRequestHandler]:
+    """`fail_endpoints`: endpoint names (currently only "snapshot" is wired)
+    that unconditionally return 500 — lets a test or a manual UI check
+    exercise U-15's error-state requirement for the ONE fetch
+    (`GET /v1/cvi/snapshot`) that, before this fix, had no error rendering
+    at all (review 2026-09-13, NB-2/W-4: the footer/snapshot chip rested on
+    a literal "Loading..." forever on any snapshot failure)."""
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "CVIUIFixtureServer/1.0"
 
@@ -283,6 +292,9 @@ def make_handler(store: FixtureStore, web_dir: Path) -> type[BaseHTTPRequestHand
                 return
 
             if path == "/v1/cvi/snapshot":
+                if "snapshot" in fail_endpoints:
+                    self._send_error_json(500, "simulated snapshot failure (--fail snapshot)")
+                    return
                 self._send_json(200, store.snapshot)
                 return
 
@@ -309,9 +321,11 @@ def make_handler(store: FixtureStore, web_dir: Path) -> type[BaseHTTPRequestHand
     return Handler
 
 
-def serve(*, host: str, port: int, web_dir: Path, fixtures_dir: Path) -> ThreadingHTTPServer:
+def serve(
+    *, host: str, port: int, web_dir: Path, fixtures_dir: Path, fail_endpoints: frozenset[str] = frozenset()
+) -> ThreadingHTTPServer:
     store = FixtureStore(fixtures_dir)
-    handler = make_handler(store, web_dir)
+    handler = make_handler(store, web_dir, fail_endpoints)
     httpd = ThreadingHTTPServer((host, port), handler)
     return httpd
 
@@ -322,9 +336,20 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--port", type=int, default=8899, help="0 for an OS-assigned free port")
     parser.add_argument("--web-dir", type=Path, default=DEFAULT_WEB_DIR)
     parser.add_argument("--fixtures-dir", type=Path, default=DEFAULT_FIXTURES_DIR)
+    parser.add_argument(
+        "--fail",
+        action="append",
+        default=[],
+        metavar="ENDPOINT",
+        help="force ENDPOINT to return 500 (repeatable); currently only 'snapshot' is wired — "
+        "for manually checking the U-15 error-state UI without editing a fixture",
+    )
     args = parser.parse_args(argv)
 
-    httpd = serve(host=args.host, port=args.port, web_dir=args.web_dir, fixtures_dir=args.fixtures_dir)
+    httpd = serve(
+        host=args.host, port=args.port, web_dir=args.web_dir, fixtures_dir=args.fixtures_dir,
+        fail_endpoints=frozenset(args.fail),
+    )
     actual_port = httpd.server_address[1]
     print(f"CVI UI fixture server: http://{args.host}:{actual_port}/ "
           f"(web={args.web_dir}, fixtures={args.fixtures_dir})")

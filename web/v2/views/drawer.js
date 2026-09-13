@@ -78,7 +78,7 @@ function renderEvidenceTable(evidenceRows, evidenceError) {
     if (evidenceError) {
       return (
         `<div class="error-banner" role="alert">${escapeHtml(copy.drawerErrorText(evidenceError.endpoint, evidenceError.status))}` +
-        ` <button type="button" class="icon-button" data-evidence-retry="true">${escapeHtml(copy.EVIDENCE_RETRY_LABEL)}</button></div>`
+        ` <button type="button" class="icon-button" data-evidence-retry="true">${escapeHtml(copy.RETRY_LABEL)}</button></div>`
       );
     }
     return `<p>${escapeHtml(copy.DRAWER_LOADING_TEXT)}</p>`;

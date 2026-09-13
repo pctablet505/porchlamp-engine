@@ -33,6 +33,15 @@
   border: 1px solid var(--border-subtle);
 }
 
+/* NB-2: a failed snapshot fetch (U-15) — the chip must be visibly
+ * distinct from its normal "id · version" state, never a silent
+ * "Loading..." that never resolves. */
+.snapshot-chip.error-chip {
+  color: var(--text-primary);
+  background: var(--quad-graveyard-wash);
+  border-color: var(--quad-graveyard);
+}
+
 .header-controls {
   display: flex;
   align-items: center;

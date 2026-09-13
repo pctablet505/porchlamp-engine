@@ -155,6 +155,26 @@ export function resolveOpenTargetKey(cursorKey, focusedRowKey) {
 }
 
 /**
+ * NB-2 (U-15/U-7, review 2026-09-13): the footer/snapshot-chip strip
+ * carries U-6's reproducibility claim, so it must never rest on a
+ * fabricated "Loading..." forever when the snapshot fetch actually
+ * failed. Returns which of the three states applies (never DOES the
+ * string formatting itself — that stays in app.js/copy.js, same
+ * separation as `computeHiddenCount`/`renderCountsStrip` in
+ * views/leaderboard.js) so the state-selection decision is unit-testable
+ * without importing copy.js into this otherwise copy-free module.
+ */
+export function footerFieldsFor(state) {
+  if (state.snapshotError) {
+    return { kind: "error", endpoint: state.snapshotError.endpoint, status: state.snapshotError.status };
+  }
+  if (state.snapshot) {
+    return { kind: "ok", snapshot: state.snapshot };
+  }
+  return { kind: "loading" };
+}
+
+/**
  * U-16's push-vs-replace policy, as one pure decision function app.js
  * actually calls (not a parallel re-implementation kept only for tests —
  * that was the reviewer's W-5 criticism of a different file in this

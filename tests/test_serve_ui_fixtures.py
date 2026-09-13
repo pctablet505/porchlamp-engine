@@ -47,6 +47,27 @@ def server_url() -> Iterator[str]:
         thread.join(timeout=5)
 
 
+@pytest.fixture(scope="module")
+def failing_snapshot_server_url() -> Iterator[str]:
+    """A second server instance with `--fail snapshot` behaviour baked in —
+    review 2026-09-13 NB-2/W-4: SNAPSHOT_ERROR was reduced into the
+    front-end's state but rendered nowhere, so this is what a real 500
+    from this exact endpoint looks like on the wire."""
+    httpd = serve_ui_fixtures.serve(
+        host="127.0.0.1", port=0, web_dir=WEB_DIR, fixtures_dir=FIXTURES_DIR,
+        fail_endpoints=frozenset({"snapshot"}),
+    )
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    port = httpd.server_address[1]
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+
 class TestHealthAndStatic:
     def test_healthz(self, server_url: str) -> None:
         resp = httpx.get(f"{server_url}/healthz")
@@ -192,6 +213,20 @@ class TestSnapshotEndpoint:
         assert resp.status_code == 200
         expected = json.loads((FIXTURES_DIR / "snapshot.json").read_text())
         assert resp.json() == expected
+
+    def test_fail_snapshot_switch_returns_500(self, failing_snapshot_server_url: str) -> None:
+        # Review 2026-09-13 NB-2/W-4: this is the exact response shape the
+        # front end's footer/snapshot chip must stop treating as
+        # "Loading..." forever (state.footerFieldsFor / app.js syncFooter).
+        resp = httpx.get(f"{failing_snapshot_server_url}/v1/cvi/snapshot")
+        assert resp.status_code == 500
+        assert "error" in resp.json()
+
+    def test_fail_snapshot_switch_does_not_affect_other_endpoints(self, failing_snapshot_server_url: str) -> None:
+        resp = httpx.get(f"{failing_snapshot_server_url}/v1/cvi/leaderboard")
+        assert resp.status_code == 200
+        resp2 = httpx.get(f"{failing_snapshot_server_url}/healthz")
+        assert resp2.status_code == 200
 
 
 class TestEvidenceEndpoint:

@@ -140,6 +140,14 @@ export function patchNotRankedBody(root, state) {
   if (!container) return;
   const flat = flattenGroups(state.notRanked);
   const html = renderPageRows(flat, state.notRankedPage, state.notRankedPageSize);
+  // W-3 (round-2 review, ruled non-blocking): this is a whole-body innerHTML
+  // replacement, not the keyed patchRows() diff the leaderboard table uses.
+  // Safe today because no interaction here holds DOM focus on a row while a
+  // page rebuild can land under it (the client only ever paginates a
+  // preloaded, already-fetched page of the not-ranked list). It becomes a
+  // real correctness/focus concern once this list is server-paged like the
+  // leaderboard (prefetch-next-page, page-size-change-preserves-row, etc.) —
+  // at that point switch this to patchRows()-style keyed diffing too.
   if (container.innerHTML !== html) container.innerHTML = html;
   syncPager(root, state.notRankedPage, state.notRankedPageSize, flat.length, "notranked-pager");
   const errBanner = root.querySelector("[data-notranked-error]");

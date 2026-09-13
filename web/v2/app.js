@@ -36,6 +36,7 @@ import {
   countRankChanges,
   shouldRestoreFocusAfterRebuild,
   resolveOpenTargetKey,
+  footerFieldsFor,
   urlSyncMode,
   PAGE_SIZES,
   DEFAULT_PAGE_SIZE,
@@ -124,9 +125,19 @@ export function boot(win = window, doc = document) {
     if (searchInput && doc.activeElement !== searchInput && searchInput.value !== state.query) {
       searchInput.value = state.query;
     }
-    if (snapshotChip && state.snapshot) {
-      const text = `${state.snapshot.snapshot_id} · ${state.snapshot.benchmark_version}`;
+    if (snapshotChip) {
+      // NB-2 (U-15/U-7, review 2026-09-13): a snapshot fetch failure must
+      // not leave "Loading..." forever on the chip that carries U-6's
+      // reproducibility claim.
+      const fields = footerFieldsFor(state);
+      const text =
+        fields.kind === "error"
+          ? copy.errorBannerText(fields.endpoint, fields.status)
+          : fields.kind === "ok"
+            ? `${fields.snapshot.snapshot_id} · ${fields.snapshot.benchmark_version}`
+            : copy.LOADING_LABEL;
       if (snapshotChip.textContent !== text) snapshotChip.textContent = text;
+      snapshotChip.classList.toggle("error-chip", fields.kind === "error");
     }
   }
 
@@ -137,26 +148,45 @@ export function boot(win = window, doc = document) {
       `<span data-footer-version="true"></span>` +
       `<span data-footer-hash="true"></span>` +
       `<span data-footer-manifest="true"></span>` +
+      `<button type="button" class="icon-button" data-footer-retry="true" hidden>${escapeHtml(copy.RETRY_LABEL)}</button>` +
       `<a href="#methodology" data-footer-verify="true">${escapeHtml(copy.FOOTER_VERIFY_LABEL)}</a>`;
   }
 
+  /**
+   * NB-2 (U-15/U-7, review 2026-09-13): `SNAPSHOT_ERROR` was reduced into
+   * state but read by nothing, so a 404/5xx/timeout left the literal
+   * "Loading..." in the footer forever — a fabricated resting state on
+   * the one strip carrying U-6's reproducibility claim (§8 item 6).
+   * Extracted as a pure function (state -> the 4 label strings + whether
+   * the retry button shows) so the decision itself is unit-testable
+   * without a DOM, matching shouldRestoreFocusAfterRebuild/urlSyncMode/
+   * resolveOpenTargetKey earlier in this same fix round.
+   */
   function syncFooter(state) {
-    const snap = state.snapshot;
+    const fields = footerFieldsFor(state);
     const set = (sel, text) => {
       const el2 = footer.querySelector(sel);
       if (el2 && el2.textContent !== text) el2.textContent = text;
     };
-    if (!snap) {
+    if (fields.kind === "error") {
+      set("[data-footer-snapshot]", copy.errorBannerText(fields.endpoint, fields.status));
+      set("[data-footer-version]", "");
+      set("[data-footer-hash]", "");
+      set("[data-footer-manifest]", "");
+    } else if (fields.kind === "ok") {
+      const snap = fields.snapshot;
+      set("[data-footer-snapshot]", `${copy.FOOTER_SNAPSHOT_LABEL}: ${snap.snapshot_id}`);
+      set("[data-footer-version]", `${copy.FOOTER_VERSION_LABEL}: ${snap.benchmark_version}`);
+      set("[data-footer-hash]", `${copy.FOOTER_CONSTANTS_HASH_LABEL}: ${snap.constants_hash.slice(0, 12)}…`);
+      set("[data-footer-manifest]", `${copy.FOOTER_MANIFEST_ROOT_LABEL}: ${snap.manifest_root.slice(0, 12)}…`);
+    } else {
       set("[data-footer-snapshot]", copy.LOADING_LABEL);
       set("[data-footer-version]", "");
       set("[data-footer-hash]", "");
       set("[data-footer-manifest]", "");
-      return;
     }
-    set("[data-footer-snapshot]", `${copy.FOOTER_SNAPSHOT_LABEL}: ${snap.snapshot_id}`);
-    set("[data-footer-version]", `${copy.FOOTER_VERSION_LABEL}: ${snap.benchmark_version}`);
-    set("[data-footer-hash]", `${copy.FOOTER_CONSTANTS_HASH_LABEL}: ${snap.constants_hash.slice(0, 12)}…`);
-    set("[data-footer-manifest]", `${copy.FOOTER_MANIFEST_ROOT_LABEL}: ${snap.manifest_root.slice(0, 12)}…`);
+    const retryBtn = footer.querySelector("[data-footer-retry]");
+    if (retryBtn) retryBtn.hidden = fields.kind !== "error";
   }
 
   // --------------------------------------------------------------- Viewport
@@ -508,6 +538,11 @@ export function boot(win = window, doc = document) {
       applyTheme(next, doc);
       writePersistedTheme(win.localStorage, next);
     }
+  });
+
+  // NB-2: the footer's retry button (shown only while snapshotError is set).
+  footer.addEventListener("click", (evt) => {
+    if (evt.target.closest("[data-footer-retry]")) loadSnapshot();
   });
 
   function openRepo(owner, name) {

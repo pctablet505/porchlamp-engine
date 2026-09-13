@@ -263,7 +263,10 @@ export const DRAWER_LOADING_TEXT = "Loading evidence…";
 export function drawerErrorText(endpoint, status) {
   return `Could not load evidence from ${endpoint} (status ${status}).`;
 }
-export const EVIDENCE_RETRY_LABEL = "Retry";
+// Shared by every retryable fetch banner (evidence 404, snapshot
+// 5xx/timeout — U-15: every request has an error state, and every
+// error state offers a way back).
+export const RETRY_LABEL = "Retry";
 export const RAW_HASH_LABEL = "Raw hash";
 export const SNAPSHOT_ID_LABEL = "Snapshot";
 export const SUSPICION_NONE_TEXT = "No suspicion flags on this repository.";
