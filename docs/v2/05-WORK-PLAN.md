@@ -530,18 +530,34 @@ for every persona on the sample; p95 latency measured (report, no SLA edits).
 **Depends.** W4-2, W2-6. **Size.** M.
 
 ### W4-4 API v2 fields, evidence and snapshot endpoints
-**Goal.** `04` §7. **Owns.** `cvi/api.py`, `tests/test_api.py`.
-**Acceptance.** Contract tests for every new field; evidence endpoint returns
-the params rows with source URL and hash; `unrated` endpoint lists reasons.
-**Depends.** W4-2. **Size.** M.
+**Goal.** `04` §7 and the row contract in `06-UX-DESIGN.md` §4: every field the
+UI consumes comes from the API (no client-side derivation). Endpoints:
+leaderboard (rated, with rank/tie_group/coverage/tier_ceiling/persona
+deltas), `not-ranked` (gated + unrated with reasons and copy keys), `matrix`,
+`repos/{o}/{n}` (row + pillars + persona gates + suspicion), `repos/{o}/{n}/evidence`
+(params long rows), `snapshot`, `reproject` (SQL path from W4-3).
+**Owns.** `cvi/serve/api.py` (or `cvi/api.py` until W4-1 moves it), `tests/test_api.py`.
+**Acceptance.** Contract tests for every field in `06` §4; the four UI states
+have API-level fixtures (empty, error, partial); p95 latencies within `06` §7 on
+a 10k-row synthetic store; no Python full scans (grep test).
+**Depends.** W4-2, W4-3. **Size.** M.
 
-### W4-5 UI: coverage badge, tie marks, evidence drawer
-**Goal.** Additive UI: coverage badge and ceiling on rows, `=` tie marks,
-"why this score" drawer from `/evidence`, gated/unrated section with reasons.
-**Owns.** `web/index.html`, `tests/test_webapp.py`.
-**Acceptance.** DOM-level tests (not string matching) for the three elements
-against a served sample DB; no CDN calls (existing test).
-**Depends.** W4-4. **Size.** M.
+### W4-5 UI v2 (rebuild to `06-UX-DESIGN.md`)
+**Goal.** Rebuild the web UI to the brief: principles U-1..U-8, the seven
+screens and their states (`06` §3), keymap and accessibility (`06` §5), the
+module architecture (`06` §6: vanilla ES modules, zero CDN, zero build step,
+windowed leaderboard, inline-SVG charts, token-based dual theme), performance
+budgets (`06` §7). The v1 single-file page is replaced, not patched.
+**Owns.** `web/` (new layout), `tests/test_webapp.py` (+ fixtures), the
+static-mount lines in the API module.
+**Acceptance.** The 10-item checklist in `06` §8, each as a test against a
+served fixture store; every user-facing sentence lives in `web/copy.js`; the
+gate/unrated reason map is one object; zero external requests (existing
+test); the existing v1 UI tests are replaced with v2 equivalents, not deleted
+without replacement.
+**Depends.** W4-4. **Size.** L (may be split into W4-5a shell+leaderboard+
+not-ranked, W4-5b drawer+evidence+matrix, W4-5c configure+compare+methodology
+once W4-4 lands; each part keeps the checklist items it owns).
 
 ---
 
