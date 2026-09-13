@@ -238,11 +238,16 @@ export const KEYMAP_TITLE = "Keyboard shortcuts";
 export const KEYMAP_CLOSE_LABEL = "Close";
 export const KEYMAP_ENTRIES = Object.freeze([
   { keys: "/", action: "Focus search" },
-  { keys: "J / K", action: "Move to next / previous row" },
-  { keys: "Enter", action: "Open the selected row's drawer" },
+  { keys: "J / K", action: "Move to next / previous row or marker" },
+  { keys: "Enter", action: "Open the selected row's or marker's drawer" },
   { keys: "Esc", action: "Close the drawer or an overlay" },
   { keys: "] / [", action: "Next / previous page" },
-  { keys: "1 – 4", action: "Toggle a matrix quadrant (W4-5b)" },
+  { keys: "1 – 4", action: "Toggle a matrix quadrant (Sweet Spot / Crucible / Nursery / Graveyard)" },
+  { keys: "R", action: "Reset the matrix zoom/pan view" },
+  { keys: "↑ ↓ ← →", action: "On the matrix: move focus to the nearest marker in that direction" },
+  { keys: "C", action: "Go to Compare" },
+  { keys: "W", action: "Go to Configure weights" },
+  { keys: "M", action: "Go to Methodology" },
   { keys: "P", action: "Open the persona menu" },
   { keys: "T", action: "Toggle light/dark theme" },
   { keys: "?", action: "Open this keyboard shortcuts overlay" },
@@ -283,6 +288,220 @@ export const FOOTER_MANIFEST_ROOT_LABEL = "Manifest root";
 export const SKIP_LINK_LABEL = "Skip to main content";
 export const MAIN_LANDMARK_LABEL = "CVI leaderboard and repository detail";
 
+
+export function methodologyPercentText(fraction) {
+  if (fraction === null || fraction === undefined) return MISSING_VALUE;
+  return `${Math.round(fraction * 100)}%`;
+}
+export function methodologyIntText(value) {
+  return value === null || value === undefined ? MISSING_VALUE : String(value);
+}
+export function methodologyWindowDaysText(windowDays) {
+  return windowDays === null || windowDays === undefined ? MISSING_VALUE : `${windowDays} days`;
+}
+export function methodologyDomainRangeText(domain) {
+  if (!domain || (domain.kind !== "numeric" && domain.kind !== "ecdf")) return "";
+  const direction = domain.higher_is_better ? "higher is better" : "lower is better";
+  return `[${domain.domain_min}, ${domain.domain_max}] · ${direction}`;
+}
+export function methodologyEnumOrderText(domain) {
+  if (!domain || domain.kind !== "enum") return "";
+  if (domain.values_worst_to_best) return `worst → best: ${domain.values_worst_to_best.join(" → ")}`;
+  if (domain.persona_orders) {
+    return Object.entries(domain.persona_orders)
+      .map(([persona, order]) => `${persona}: worst → best: ${order.join(" → ")}`)
+      .join("; ");
+  }
+  return "";
+}
+
+
+export const METHODOLOGY_MANIFEST_ROOT_LABEL = "Manifest root";
+export const METHODOLOGY_CONSTANTS_HASH_LABEL = "Constants hash";
+export const METHODOLOGY_CODE_COMMIT_LABEL = "Code commit";
+export const METHODOLOGY_CANONICAL_DUMP_HASH_LABEL = "Canonical dump hash";
+export function methodologyTieBreakDecimalsText(decimals) {
+  return `Composite rounded to ${methodologyIntText(decimals)} decimal place(s) before comparison.`;
+}
+export const METHODOLOGY_OPENSSF_PROXY_MIN_SIGNALS_LABEL = "OpenSSF proxy minimum signals";
+
 export function apiErrorAnnouncement(endpoint, status) {
   return errorBannerText(endpoint, status);
+}
+
+// --------------------------------------------------------------------- //
+// W4-5b: primary navigation (06 §2 — "Primary tabs: Leaderboard (A) ·
+// Matrix (B) · Compare (E) · Configure weights (D) · Methodology (F)").
+// Distinct from TAB_RANKED/TAB_NOT_RANKED above, which are the
+// Leaderboard screen's own Ranked/Not-ranked SUB-tabs.
+// --------------------------------------------------------------------- //
+export const PRIMARY_NAV_LEADERBOARD = "Leaderboard";
+export const PRIMARY_NAV_MATRIX = "Matrix";
+export const PRIMARY_NAV_COMPARE = "Compare";
+export const PRIMARY_NAV_CONFIGURE = "Configure weights";
+export const PRIMARY_NAV_METHODOLOGY = "Methodology";
+export const PRIMARY_NAV_LABEL = "Primary";
+
+// --------------------------------------------------------------------- //
+// Screen B: Matrix
+// --------------------------------------------------------------------- //
+export const MATRIX_HEADING = "Matrix";
+export const MATRIX_AXIS_X_LABEL = "Friction";
+export const MATRIX_AXIS_Y_LABEL = "Leverage";
+export function matrixSvgAriaLabel(xLabel, yLabel) {
+  return `${xLabel}/${yLabel} matrix`;
+}
+export const MATRIX_LOADING_TEXT = "Loading the matrix…";
+export const MATRIX_EMPTY_TEXT = "No rated repositories to plot.";
+export function matrixErrorText(endpoint, status) {
+  return `Could not load the matrix from ${endpoint} (status ${status}).`;
+}
+export function matrixExcludedCaption(excludedCount) {
+  return `${excludedCount} gated ${excludedCount === 1 ? "repository" : "repositories"} excluded.`;
+}
+export const MATRIX_UNAUDITED_STARS_NOTE = "Repositories with no audited-star figure are drawn at a default marker size (unaudited).";
+export const MATRIX_RESET_VIEW_LABEL = "Reset view";
+export const MATRIX_ZOOM_IN_LABEL = "Zoom in";
+export const MATRIX_ZOOM_OUT_LABEL = "Zoom out";
+export function matrixQuadrantToggleLabel(quadrantName) {
+  return `Toggle ${quadrantName}`;
+}
+export const MATRIX_CANVAS_FALLBACK_NOTE =
+  "Rendering on canvas above 2,000 markers, with an SVG overlay for the focused or hovered marker only.";
+export const MATRIX_OPEN_HINT = "Press Enter to view why this score";
+
+// --------------------------------------------------------------------- //
+// Screen D: Configure weights
+// --------------------------------------------------------------------- //
+export const CONFIGURE_HEADING = "Configure weights";
+// U-11: a custom weight vector is labelled "custom" everywhere it is
+// applied and is NEVER called a persona.
+export const CONFIGURE_CUSTOM_LABEL = "Custom";
+export const CONFIGURE_LOCK_LABEL = "Lock";
+const CONFIGURE_SUM_LABEL = "Sum"; // private: only configureSumText needs the literal
+export function configureSumText(sum) {
+  return `${CONFIGURE_SUM_LABEL}: ${(sum * 100).toFixed(0)}%`;
+}
+export const CONFIGURE_PRESETS_LABEL = "Start from a persona preset";
+export const CONFIGURE_DELTA_HEADING = "Rank deltas vs balanced";
+export const CONFIGURE_DELTA_EMPTY = "No re-projection yet — adjust a slider to see rank deltas.";
+export const CONFIGURE_TOP_MOVERS_UP = "Top movers up";
+export const CONFIGURE_TOP_MOVERS_DOWN = "Top movers down";
+export function configureDeltaText(row) {
+  const delta = row.balanced_rank - row.rank;
+  const sign = delta > 0 ? "▲" : delta < 0 ? "▼" : "•";
+  return `${sign} ${row.owner}/${row.name}: ${row.balanced_rank} → ${row.rank}`;
+}
+export const CONFIGURE_LOADING_TEXT = "Re-projecting…";
+export const CONFIGURE_EMPTY_TEXT = "No repositories are rated under this weight vector.";
+export function configureErrorText(endpoint, status) {
+  return `Could not reproject from ${endpoint} (status ${status}).`;
+}
+export const CONFIGURE_RETRY_LABEL = "Retry";
+
+// --------------------------------------------------------------------- //
+// Screen E: Compare
+// --------------------------------------------------------------------- //
+export const COMPARE_HEADING = "Compare";
+export const COMPARE_SEARCH_PLACEHOLDER = "Add a repository (owner/repo)…";
+export const COMPARE_SEARCH_LABEL = "Search repositories to compare";
+export const COMPARE_ADD_LABEL = "Add to comparison";
+export const COMPARE_REMOVE_LABEL = "Remove from comparison";
+export const COMPARE_EMPTY_TEXT = "Add 2 to 4 repositories to compare them side by side.";
+export const COMPARE_MIN_TEXT = "Add at least one more repository (2 minimum).";
+export const COMPARE_MAX_TEXT = "You can compare up to 4 repositories at a time.";
+export const COMPARE_LOADING_TEXT = "Loading comparison…";
+export function compareErrorText(endpoint, status) {
+  return `Could not load a compared repository from ${endpoint} (status ${status}).`;
+}
+export const COMPARE_BETTER_MARK = "★";
+export function compareBetterTitle(paramLabel) {
+  return `Better ${paramLabel}`;
+}
+export function compareEvidenceSourceTitle(source, fetchedAt) {
+  if (!source) return missingValueReason();
+  return fetchedAt ? `${source} (fetched ${fetchedAt})` : source;
+}
+export const COMPARE_VERDICT_HEADING = "Verdict";
+export function compareVerdictText(winnerKey, measuredCount, totalParams) {
+  return `Based on ${measuredCount} of ${totalParams} parameters measured on every compared repository, ${winnerKey} leads.`;
+}
+export function compareVerdictTieText(measuredCount, totalParams) {
+  return `Based on ${measuredCount} of ${totalParams} parameters measured on every compared repository, the comparison is tied.`;
+}
+export function compareVerdictNoDataText() {
+  return "No parameter is measured on every compared repository — a verdict cannot be computed.";
+}
+export function compareUnmeasuredNote(paramLabels) {
+  if (paramLabels.length === 0) return "";
+  return `Not compared (unmeasured on at least one repository): ${paramLabels.join(", ")}.`;
+}
+export const COMPARE_ROW_IDENTITY = "Repository";
+export const COMPARE_ROW_GATE_STATUS = "Gate status";
+export const COMPARE_ROW_COMPOSITE = "CVI";
+export const COMPARE_ROW_COVERAGE = "Coverage";
+export const COMPARE_RATED_STATUS = "Rated";
+
+// --------------------------------------------------------------------- //
+// Screen F: Methodology and snapshot
+// --------------------------------------------------------------------- //
+export const METHODOLOGY_HEADING = "Methodology and snapshot";
+export const METHODOLOGY_LOADING_TEXT = "Loading the methodology…";
+export function methodologyErrorText(endpoint, status) {
+  return `Could not load the methodology from ${endpoint} (status ${status}).`;
+}
+export const METHODOLOGY_EMPTY_TEXT = "No methodology document is available for this snapshot.";
+export const METHODOLOGY_SECTION_PILLARS = "Pillars";
+export const METHODOLOGY_SECTION_PARAMETERS = "Parameters";
+export const METHODOLOGY_SECTION_GATES = "Gates";
+export const METHODOLOGY_SECTION_MISSINGNESS = "Missingness";
+export const METHODOLOGY_SECTION_TIE_BREAK = "Tie-breakers";
+export const METHODOLOGY_SECTION_PERSONAS = "Personas";
+export const METHODOLOGY_SECTION_DETECTORS = "Detectors";
+export const METHODOLOGY_SECTION_PROCESS_CONSTANTS = "Process constants";
+export const METHODOLOGY_SECTION_RFC_LOG = "Change log";
+export const METHODOLOGY_SECTION_SNAPSHOT = "Snapshot";
+export const METHODOLOGY_COL_WEIGHT = "Weight";
+export const METHODOLOGY_COL_MIN_N = "Min n";
+export const METHODOLOGY_COL_WINDOW = "Window (days)";
+export const METHODOLOGY_COL_CURVE = "Curve";
+export const METHODOLOGY_COL_PILLAR = "Pillar";
+export const METHODOLOGY_COL_CRITERION = "Criterion";
+export const METHODOLOGY_COL_REASONS = "Reasons";
+export const METHODOLOGY_COL_FIELD = "Field";
+export const METHODOLOGY_COL_DIRECTION = "Direction";
+export const METHODOLOGY_COL_NOTE = "Note";
+export const METHODOLOGY_COL_TRIGGER = "Trigger";
+export const METHODOLOGY_COL_MODULE = "Module";
+export const METHODOLOGY_COL_VALUE = "Value";
+export const METHODOLOGY_COL_GATES = "Gates";
+export const METHODOLOGY_COL_DATE = "Date";
+export const METHODOLOGY_COL_RFC = "RFC";
+export const METHODOLOGY_COL_SUMMARY = "Summary";
+export const METHODOLOGY_COL_HASH_CHANGE = "Hash change";
+export const METHODOLOGY_COL_ID = "ID";
+export const METHODOLOGY_COL_NAME = "Name";
+export const METHODOLOGY_COL_DOMAIN = "Domain";
+export const METHODOLOGY_COL_PROXY = "Proxy";
+export const METHODOLOGY_COL_CUTOFFS = "Cutoffs";
+export const METHODOLOGY_COL_THRESHOLDS = "Thresholds";
+export const METHODOLOGY_COL_PERSONA = "Persona";
+export const METHODOLOGY_REPRODUCE_LABEL = "Reproduce command";
+export const METHODOLOGY_COPY_LABEL = "Copy";
+export const METHODOLOGY_COPIED_LABEL = "Copied";
+export function methodologyBenchmarkLine(benchmarkVersion, constantsHash, schemaVersion) {
+  return `Benchmark ${benchmarkVersion} · schema ${schemaVersion} · constants hash ${constantsHash.slice(0, 12)}…`;
+}
+export function methodologySnapshotLine(snapshotId, asOf) {
+  return `${snapshotId} · as of ${asOf}`;
+}
+export function methodologyCountsLine(counts) {
+  return `${counts.rated} rated · ${counts.gated} gated · ${counts.unrated} unrated · ${counts.total} total`;
+}
+export const METHODOLOGY_NO_PROXY_TEXT = "No proxy path.";
+export function methodologyProxyText(proxy) {
+  const parts = [];
+  if (typeof proxy.proxy_min_n === "number") parts.push(`min n ${proxy.proxy_min_n}`);
+  if (typeof proxy.proxy_min_signals === "number") parts.push(`min signals ${proxy.proxy_min_signals}`);
+  return parts.length ? parts.join(", ") : METHODOLOGY_NO_PROXY_TEXT;
 }

@@ -23,6 +23,86 @@ const PERSISTED_THEME_KEY = "cvi-v2-theme";
 export const PAGE_SIZES = Object.freeze([20, 50, 100, 500, 1000]);
 export const DEFAULT_PAGE_SIZE = 20;
 
+// --------------------------------------------------------------------- //
+// W4-5b additions: `tab` grows three new primary-screen values
+// ("matrix" | "compare" | "configure" | "methodology", alongside the
+// existing "ranked" | "notranked" Leaderboard sub-tabs — the "Primary
+// tabs" bar (06 §2) treats "ranked"/"notranked" as both belonging to one
+// "Leaderboard" tab). `w=` and `cmp=` are the two new URL-owned fields.
+// --------------------------------------------------------------------- //
+
+//: The five pillars, in the fixed D-AGG-1 order — also the order `w=` uses.
+export const PILLAR_IDS = Object.freeze(["responsiveness", "criticality", "governance", "rigor", "accessibility"]);
+//: D-AGG-1's balanced weights — Configure's own starting point/reset target.
+export const BALANCED_WEIGHTS = Object.freeze({
+  responsiveness: 0.25,
+  criticality: 0.25,
+  governance: 0.2,
+  rigor: 0.15,
+  accessibility: 0.15,
+});
+//: The five persona presets (`cvi.core.constants_v2.PERSONA_PRESETS`,
+//: transcribed — Configure's preset BUTTONS start a custom vector from one
+//: of these, but the result is immediately relabelled "custom" (U-11): a
+//: preset button is a starting point, not a mode switch back to a persona).
+export const PERSONA_PRESET_WEIGHTS = Object.freeze({
+  balanced: BALANCED_WEIGHTS,
+  first_timer: Object.freeze({ responsiveness: 0.35, criticality: 0.1, governance: 0.15, rigor: 0.1, accessibility: 0.3 }),
+  career_capital: Object.freeze({ responsiveness: 0.2, criticality: 0.35, governance: 0.15, rigor: 0.1, accessibility: 0.2 }),
+  senior_systems: Object.freeze({ responsiveness: 0.15, criticality: 0.35, governance: 0.25, rigor: 0.2, accessibility: 0.05 }),
+  ai_assisted: Object.freeze({ responsiveness: 0.2, criticality: 0.2, governance: 0.15, rigor: 0.35, accessibility: 0.1 }),
+});
+//: The four quadrant ids Matrix's `1`-`4` keys toggle, in that key order.
+export const MATRIX_QUADRANTS = Object.freeze(["Sweet Spot", "Crucible", "Nursery", "Graveyard"]);
+//: Screen E: 2..4 repositories may be compared at once (06 §3 E).
+export const COMPARE_MIN = 2;
+export const COMPARE_MAX = 4;
+
+/**
+ * `w=` URL serialisation (documented choice — 06 §3 D leaves the exact
+ * shape to this packet): five comma-separated fractions in
+ * `PILLAR_IDS` order, e.g. `w=0.3,0.2,0.2,0.2,0.1`. Returns `null` for a
+ * malformed or wrong-length value (the caller falls back to
+ * `BALANCED_WEIGHTS`) — never throws on a hand-edited URL.
+ */
+export function parseWeightsParam(value) {
+  if (!value) return null;
+  const parts = value.split(",").map(Number);
+  if (parts.length !== PILLAR_IDS.length || parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
+  const sum = parts.reduce((a, b) => a + b, 0);
+  if (Math.abs(sum - 1) > 1e-6) return null;
+  const weights = {};
+  PILLAR_IDS.forEach((pillar, i) => {
+    weights[pillar] = parts[i];
+  });
+  return weights;
+}
+
+export function serializeWeightsParam(weights) {
+  return PILLAR_IDS.map((p) => {
+    const n = weights[p];
+    // Trim float noise (e.g. 0.30000000000000004) without losing precision
+    // real proportional normalisation needs — 8 significant decimals is
+    // far below where two DIFFERENT weight vectors could ever collide.
+    return Math.round(n * 1e8) / 1e8;
+  }).join(",");
+}
+
+/**
+ * `cmp=` URL serialisation: comma-separated `owner/name` pairs (06 §3 E:
+ * "URL `cmp=a/b,c/d`"). `/` inside an owner or repo name is vanishingly
+ * rare on GitHub and not defended against further here (same class of
+ * simplification `repo=owner/name` already makes above).
+ */
+export function parseCompareParam(value) {
+  if (!value) return [];
+  return value.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+export function serializeCompareParam(repos) {
+  return repos.join(",");
+}
+
 export function defaultState() {
   return {
     persona: "balanced",
@@ -31,9 +111,41 @@ export function defaultState() {
     sort: "rank",
     page: 1,
     pageSize: DEFAULT_PAGE_SIZE,
-    tab: "ranked", // "ranked" | "notranked"
+    tab: "ranked", // "ranked" | "notranked" | "matrix" | "compare" | "configure" | "methodology"
     repo: null, // "owner/name" | null
     theme: "system", // "system" | "light" | "dark"
+
+    // ---------------------------------------------------- W4-5b: Matrix (B)
+    matrix: null, // the MatrixResponse
+    matrixLoading: false,
+    matrixError: null,
+    // All four quadrants visible by default; `1`-`4` toggle one off/on.
+    matrixQuadrantsHidden: {}, // { [quadrantName]: true } for a HIDDEN quadrant
+    matrixView: { x: 0, y: 0, scale: 1 }, // pan/zoom transform (SVG viewBox offset + scale)
+    matrixFocusedKey: null, // "owner/name" — keyboard focus / hover, drives the hover card
+    matrixHoveredKey: null,
+
+    // ------------------------------------------- W4-5b: Configure weights (D)
+    weights: { ...BALANCED_WEIGHTS },
+    weightLocks: { responsiveness: false, criticality: false, governance: false, rigor: false, accessibility: false },
+    reproject: null, // the ReprojectResponse for the CURRENT `weights`
+    reprojectLoading: false, // true only before the FIRST reproject response for this weight vector lands
+    reprojectRefetching: false, // true while a slider drag is debounced/in-flight and stale rows are shown greyed
+    reprojectError: null,
+    configurePage: 1,
+    configurePageSize: DEFAULT_PAGE_SIZE,
+    configureSort: "rank", // client-side only (the whole reproject result is already in memory) — not URL-persisted
+
+    // ------------------------------------------------------ W4-5b: Compare (E)
+    compareRepos: [], // ["owner/name", ...], 2..COMPARE_MAX, order = display/chip order
+    compareQuery: "", // the picker's search text
+    compareSearchResults: [], // [{ owner, name, ecosystem, kind: "rated"|"gated"|"unrated" }]
+    compareDataByRepo: {}, // "owner/name" -> { kind, row, evidence, loading, error }
+
+    // -------------------------------------------- W4-5b: Methodology (F)
+    methodology: null,
+    methodologyLoading: false,
+    methodologyError: null,
 
     leaderboard: null, // the CURRENT page's LeaderboardResponse
     leaderboardLoading: false, // true only when there is NO data yet (skeleton)
@@ -83,9 +195,24 @@ export function parseSearch(search) {
     if (PAGE_SIZES.includes(n)) out.pageSize = n;
   }
   if (qs.has("repo")) out.repo = qs.get("repo") || null;
-  if (qs.has("tab")) out.tab = qs.get("tab") === "notranked" ? "notranked" : "ranked";
+  if (qs.has("tab")) {
+    const tab = qs.get("tab");
+    out.tab = VALID_TABS.includes(tab) ? tab : "ranked";
+  }
+  if (qs.has("w")) {
+    const weights = parseWeightsParam(qs.get("w"));
+    if (weights) out.weights = weights;
+  }
+  if (qs.has("cmp")) {
+    out.compareRepos = parseCompareParam(qs.get("cmp")).slice(0, COMPARE_MAX);
+  }
   return out;
 }
+
+//: Every value `tab=` may legitimately hold (06 §2's primary tabs, plus the
+//: Leaderboard screen's own Ranked/Not-ranked sub-tabs) — an unrecognised
+//: value in a hand-edited URL falls back to "ranked", never a blank screen.
+const VALID_TABS = Object.freeze(["ranked", "notranked", "matrix", "compare", "configure", "methodology"]);
 
 /** Serialize the URL-relevant slice of state back into a "?..." string ("" when every param is default). */
 export function serializeSearch(state) {
@@ -98,8 +225,18 @@ export function serializeSearch(state) {
   if (state.pageSize && state.pageSize !== DEFAULT_PAGE_SIZE) qs.set("page_size", String(state.pageSize));
   if (state.repo) qs.set("repo", state.repo);
   if (state.tab && state.tab !== "ranked") qs.set("tab", state.tab);
+  if (state.weights && !weightsEqual(state.weights, BALANCED_WEIGHTS)) {
+    qs.set("w", serializeWeightsParam(state.weights));
+  }
+  if (state.compareRepos && state.compareRepos.length > 0) {
+    qs.set("cmp", serializeCompareParam(state.compareRepos));
+  }
   const s = qs.toString();
   return s ? `?${s}` : "";
+}
+
+function weightsEqual(a, b) {
+  return PILLAR_IDS.every((p) => Math.abs((a[p] ?? 0) - (b[p] ?? 0)) < 1e-9);
 }
 
 /** The exact key identifying which request a leaderboard payload answers — used to validate the prefetch cache and to detect a stale in-flight response. */
@@ -259,6 +396,85 @@ export function reduce(state, action) {
       };
     case "EVIDENCE_ERROR":
       return { ...state, evidenceLoading: false, evidenceError: action.error };
+
+    // --------------------------------------------------- W4-5b: Matrix (B)
+    case "MATRIX_LOADING":
+      return { ...state, matrixLoading: true, matrixError: null };
+    case "MATRIX_OK":
+      return { ...state, matrixLoading: false, matrix: action.data, matrixError: null };
+    case "MATRIX_ERROR":
+      return { ...state, matrixLoading: false, matrixError: action.error };
+    case "MATRIX_TOGGLE_QUADRANT": {
+      const hidden = { ...state.matrixQuadrantsHidden };
+      if (hidden[action.quadrant]) delete hidden[action.quadrant];
+      else hidden[action.quadrant] = true;
+      return { ...state, matrixQuadrantsHidden: hidden };
+    }
+    case "MATRIX_SET_VIEW":
+      return { ...state, matrixView: action.view };
+    case "MATRIX_RESET_VIEW":
+      return { ...state, matrixView: { x: 0, y: 0, scale: 1 } };
+    case "MATRIX_SET_FOCUS":
+      return { ...state, matrixFocusedKey: action.key };
+    case "MATRIX_SET_HOVER":
+      return { ...state, matrixHoveredKey: action.key };
+
+    // ----------------------------------------- W4-5b: Configure weights (D)
+    case "SET_WEIGHTS":
+      return { ...state, weights: action.weights, configurePage: 1 };
+    case "TOGGLE_WEIGHT_LOCK":
+      return { ...state, weightLocks: { ...state.weightLocks, [action.pillar]: !state.weightLocks[action.pillar] } };
+    case "SET_CONFIGURE_SORT":
+      return { ...state, configureSort: action.sort, configurePage: 1 };
+    case "SET_CONFIGURE_PAGE":
+      return { ...state, configurePage: action.page };
+    case "SET_CONFIGURE_PAGE_SIZE":
+      return { ...state, configurePageSize: action.pageSize, configurePage: action.page ?? 1 };
+    case "REPROJECT_LOADING":
+      return { ...state, reprojectLoading: !state.reproject, reprojectRefetching: !!state.reproject, reprojectError: null };
+    case "REPROJECT_OK":
+      return { ...state, reprojectLoading: false, reprojectRefetching: false, reproject: action.data, reprojectError: null };
+    case "REPROJECT_ERROR":
+      return { ...state, reprojectLoading: false, reprojectRefetching: false, reprojectError: action.error };
+
+    // ---------------------------------------------------- W4-5b: Compare (E)
+    case "COMPARE_SET_QUERY":
+      return { ...state, compareQuery: action.query };
+    case "COMPARE_SET_RESULTS":
+      return { ...state, compareSearchResults: action.results };
+    case "COMPARE_ADD_REPO":
+      if (state.compareRepos.includes(action.key) || state.compareRepos.length >= COMPARE_MAX) return state;
+      return { ...state, compareRepos: [...state.compareRepos, action.key], compareQuery: "", compareSearchResults: [] };
+    case "COMPARE_REMOVE_REPO":
+      return {
+        ...state,
+        compareRepos: state.compareRepos.filter((k) => k !== action.key),
+        compareDataByRepo: Object.fromEntries(Object.entries(state.compareDataByRepo).filter(([k]) => k !== action.key)),
+      };
+    case "COMPARE_REPO_LOADING":
+      return {
+        ...state,
+        compareDataByRepo: { ...state.compareDataByRepo, [action.key]: { ...(state.compareDataByRepo[action.key] || {}), loading: true, error: null } },
+      };
+    case "COMPARE_REPO_OK":
+      return {
+        ...state,
+        compareDataByRepo: { ...state.compareDataByRepo, [action.key]: { ...action.data, loading: false, error: null } },
+      };
+    case "COMPARE_REPO_ERROR":
+      return {
+        ...state,
+        compareDataByRepo: { ...state.compareDataByRepo, [action.key]: { ...(state.compareDataByRepo[action.key] || {}), loading: false, error: action.error } },
+      };
+
+    // ------------------------------------------------ W4-5b: Methodology (F)
+    case "METHODOLOGY_LOADING":
+      return { ...state, methodologyLoading: true, methodologyError: null };
+    case "METHODOLOGY_OK":
+      return { ...state, methodologyLoading: false, methodology: action.data, methodologyError: null };
+    case "METHODOLOGY_ERROR":
+      return { ...state, methodologyLoading: false, methodologyError: action.error };
+
     default:
       return state;
   }

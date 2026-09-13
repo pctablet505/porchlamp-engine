@@ -53,3 +53,358 @@
   font-size: var(--text-h1);
   margin: 0 0 var(--space-sm);
 }
+
+/* ---- Screen B: Matrix (06 §3 B) ---- */
+.matrix-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-sm);
+}
+
+.matrix-legend {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.matrix-legend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 4px var(--space-sm);
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+}
+
+.matrix-legend-chip[aria-pressed="false"] {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.matrix-axis-labels {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  margin-bottom: var(--space-2xs);
+}
+
+.matrix-stage {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.matrix-stage:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.matrix-svg,
+.matrix-canvas-wrap {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.matrix-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.matrix-focus-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.matrix-wash-quad-sweet-spot { fill: var(--quad-sweet-spot-wash); }
+.matrix-wash-quad-crucible { fill: var(--quad-crucible-wash); }
+.matrix-wash-quad-nursery { fill: var(--quad-nursery-wash); }
+.matrix-wash-quad-graveyard { fill: var(--quad-graveyard-wash); }
+
+.matrix-axis-line {
+  stroke: var(--border-strong);
+  stroke-width: 0.3;
+  stroke-dasharray: 1.5 1.5;
+}
+
+.matrix-marker {
+  cursor: pointer;
+}
+
+.matrix-marker.quad-sweet-spot { fill: var(--quad-sweet-spot); color: var(--quad-sweet-spot); }
+.matrix-marker.quad-crucible { fill: var(--quad-crucible); color: var(--quad-crucible); }
+.matrix-marker.quad-nursery { fill: var(--quad-nursery); color: var(--quad-nursery); }
+.matrix-marker.quad-graveyard { fill: var(--quad-graveyard); stroke: var(--quad-graveyard); color: var(--quad-graveyard); }
+
+.matrix-marker:focus,
+.matrix-marker:focus-visible {
+  outline: none;
+}
+
+.matrix-marker.marker-focused,
+.matrix-marker:focus-visible {
+  stroke: var(--border-focus);
+  stroke-width: 1;
+}
+
+.matrix-hover-card {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm);
+  box-shadow: var(--shadow-popover);
+  max-width: 220px;
+  font-size: var(--text-body-md);
+}
+
+.matrix-hover-card .hint {
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  margin: var(--space-2xs) 0 0;
+}
+
+.matrix-caption {
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  margin: var(--space-2xs) 0;
+}
+
+.matrix-caption-muted {
+  color: var(--text-muted);
+}
+
+/* ---- Screen D: Configure weights (06 §3 D) ---- */
+.weight-controls {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.weight-sliders {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.weight-slider-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 56px auto;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.weight-slider {
+  width: 100%;
+}
+
+.weight-slider-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.weight-lock-toggle {
+  padding: 4px var(--space-xs);
+}
+
+.weight-presets {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  margin-top: var(--space-md);
+}
+
+.weight-sum {
+  font-family: var(--font-mono);
+  margin-top: var(--space-sm);
+  color: var(--text-secondary);
+}
+
+.weight-sum-warning {
+  color: var(--accent-warning);
+}
+
+.custom-label-note {
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+}
+
+.configure-layout {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: var(--space-md);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .configure-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.configure-delta-col {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm) var(--space-md);
+  position: sticky;
+  top: calc(var(--header-height) + var(--space-md));
+}
+
+.delta-list h3 {
+  font-size: var(--text-body-md);
+  margin: var(--space-sm) 0 var(--space-2xs);
+}
+
+.delta-list ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+}
+
+.delta-list li {
+  padding: 2px 0;
+}
+
+/* ---- Screen E: Compare (06 §3 E) ---- */
+.compare-chips {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-sm);
+}
+
+.compare-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 4px var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+}
+
+.compare-chip button {
+  color: var(--text-secondary);
+  font-size: var(--text-body-lg);
+  line-height: 1;
+}
+
+.compare-picker {
+  position: relative;
+  margin-bottom: var(--space-md);
+  max-width: 360px;
+}
+
+.compare-picker input {
+  width: 100%;
+}
+
+.compare-results {
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  list-style: none;
+  margin: var(--space-2xs) 0 0;
+  padding: var(--space-2xs) 0;
+  max-height: 240px;
+  overflow-y: auto;
+  box-shadow: var(--shadow-popover);
+}
+
+.compare-results button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--text-primary);
+}
+
+.compare-results button:hover {
+  background: var(--bg-surface-hover);
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.compare-table th,
+.compare-table td {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+}
+
+.compare-table thead th {
+  position: sticky;
+  top: var(--header-height);
+  background: var(--bg-surface);
+}
+
+.compare-better-mark {
+  color: var(--accent-success);
+}
+
+.compare-better-cell {
+  background: var(--quad-sweet-spot-wash);
+}
+
+.compare-verdict {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+/* ---- Screen F: Methodology and snapshot (06 §3 F) ---- */
+.app-main > details {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-sm) 0;
+}
+
+.app-main > details summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--text-h2);
+}
+
+.reproduce-command {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  padding: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

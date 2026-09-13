@@ -95,6 +95,7 @@ a {
 }
 
 .app-header,
+.app-primary-nav,
 .app-footer {
   flex: none;
 }

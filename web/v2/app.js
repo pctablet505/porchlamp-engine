@@ -40,6 +40,10 @@ import {
   urlSyncMode,
   PAGE_SIZES,
   DEFAULT_PAGE_SIZE,
+  PILLAR_IDS,
+  BALANCED_WEIGHTS,
+  PERSONA_PRESET_WEIGHTS,
+  MATRIX_QUADRANTS,
 } from "./state.js";
 import {
   renderShell,
@@ -59,6 +63,26 @@ import { renderDrawer } from "./views/drawer.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
 import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel } from "./components/table.js";
 import { synthesizeRows } from "./perf-fixtures.js";
+import { renderPrimaryNav, syncPrimaryNav } from "./components/primarynav.js";
+import {
+  renderShell as renderMatrixShell,
+  shellShape as matrixShellShape,
+  syncViewBox as syncMatrixViewBox,
+  syncMatrixHover,
+  zoomView,
+  panView,
+  nearestMarkerInDirection,
+  DEFAULT_VIEW as MATRIX_DEFAULT_VIEW,
+} from "./views/matrix.js";
+import { pointKey as matrixPointKey } from "./components/scatter.js";
+import {
+  renderShell as renderConfigureShell,
+  shellShape as configureShellShape,
+  patchConfigureTable,
+  normalizeWeights,
+} from "./views/configure.js";
+import { renderShell as renderCompareShell, shellShape as compareShellShape } from "./views/compare.js";
+import { renderShell as renderMethodologyShell, shellShape as methodologyShellShape } from "./views/methodology.js";
 
 const PERSONAS = ["balanced", "first_timer", "career_capital", "senior_systems", "ai_assisted"];
 
@@ -77,17 +101,25 @@ export function boot(win = window, doc = document) {
   const liveRegion = doc.getElementById("app-live-region");
   const drawerRoot = doc.getElementById("app-drawer-root");
   const keymapRoot = doc.getElementById("app-keymap-root");
+  const primaryNav = doc.getElementById("app-primary-nav");
 
   // --- Structural bookkeeping (never re-derived from the DOM: these are
   // the "did the SHAPE change" flags that decide shell-rebuild vs patch). ---
   let currentTab = null;
   let currentShellShape = null;
   let currentNotRankedShape = null;
+  let currentMatrixShape = null;
+  let currentConfigureShape = null;
+  let currentCompareShape = null;
+  let currentMethodologyShape = null;
   let scrollPatchScheduled = false;
   let wasDrawerOpen = false;
   let wasKeymapOpen = false;
   let searchDebounce = null;
+  let compareSearchDebounce = null;
+  let reprojectDebounce = null;
   let inFlightSignature = null; // guards against a stale response clobbering a newer one
+  let reprojectInFlightSignature = null;
 
   function announce(text) {
     store.dispatch({ type: "ANNOUNCE", text });
@@ -113,6 +145,27 @@ export function boot(win = window, doc = document) {
       `<input class="control" type="search" data-search-input="true" placeholder="${escapeHtml(copy.SEARCH_PLACEHOLDER)}" aria-label="${escapeHtml(copy.SEARCH_LABEL)}">` +
       `<button type="button" class="icon-button" data-theme-toggle="true" aria-label="${escapeHtml(copy.THEME_TOGGLE_LABEL)}">◐</button>` +
       `</div>`;
+  }
+
+  // ------------------------------------------------------ W4-5b: primary nav
+  function buildPrimaryNavOnce() {
+    primaryNav.innerHTML = renderPrimaryNav(store.getState().tab);
+  }
+
+  /** Fetches whatever `tab` needs that has not already loaded — called on boot, a primary-nav click, popstate, and the footer "verify" link. Idempotent: never re-fetches data that is already present. */
+  function loadDataForTab(tab) {
+    const state = store.getState();
+    if (tab === "ranked" && !state.leaderboard && !state.leaderboardLoading) loadLeaderboard();
+    if (tab === "matrix" && !state.matrix && !state.matrixLoading) loadMatrix();
+    if (tab === "configure" && !state.reproject && !state.reprojectLoading) runReproject();
+    if (tab === "methodology" && !state.methodology && !state.methodologyLoading) loadMethodology();
+    if (tab === "compare") {
+      if (!state.methodology && !state.methodologyLoading) loadMethodology();
+      for (const key of state.compareRepos) {
+        if (!state.compareDataByRepo[key]) loadCompareRepo(key);
+      }
+    }
+    if (tab === "notranked" && !state.notRanked) loadNotRanked();
   }
 
   function syncHeaderControls(state) {
@@ -291,6 +344,16 @@ export function boot(win = window, doc = document) {
     if (scrollable) scrollable.classList.toggle("stale-table", !!(state.leaderboardRefetching || state.leaderboardError));
   }
 
+  /** Resets every OTHER screen's "current shape" tracker so returning to it later always rebuilds its shell (mirrors the pre-existing ranked/notranked pattern, generalised to 6 tabs). */
+  function forgetOtherShapes(keep) {
+    if (keep !== "ranked") currentShellShape = null;
+    if (keep !== "notranked") currentNotRankedShape = null;
+    if (keep !== "matrix") currentMatrixShape = null;
+    if (keep !== "configure") currentConfigureShape = null;
+    if (keep !== "compare") currentCompareShape = null;
+    if (keep !== "methodology") currentMethodologyShape = null;
+  }
+
   function syncView(state) {
     if (state.tab === "notranked") {
       const key = notRankedRebuildKey(state);
@@ -298,9 +361,69 @@ export function boot(win = window, doc = document) {
         main.innerHTML = renderNotRankedShell(state);
         currentTab = "notranked";
         currentNotRankedShape = key;
-        currentShellShape = null;
+        forgetOtherShapes("notranked");
       }
       if (notRankedShellShape(state) === "table") patchNotRankedBody(main, state);
+      return;
+    }
+
+    if (state.tab === "matrix") {
+      const shape = matrixShellShape(state);
+      if (currentTab !== "matrix" || shape !== currentMatrixShape) {
+        main.innerHTML = renderMatrixShell(state);
+        currentTab = "matrix";
+        currentMatrixShape = shape;
+        forgetOtherShapes("matrix");
+      }
+      if (shape === "body") {
+        syncMatrixViewBox(main, state.matrixView);
+        syncMatrixHover(main, state);
+      }
+      return;
+    }
+
+    if (state.tab === "configure") {
+      const shape = configureShellShape(state);
+      if (currentTab !== "configure" || shape !== currentConfigureShape) {
+        main.innerHTML = renderConfigureShell(state);
+        currentTab = "configure";
+        currentConfigureShape = shape;
+        forgetOtherShapes("configure");
+      }
+      syncConfigureControls(state);
+      if (shape === "body") patchConfigureTable(main, doc, state);
+      return;
+    }
+
+    if (state.tab === "compare") {
+      // Compare's table/chip content is small and re-fetched infrequently
+      // (adding/removing a chip, or a per-repo fetch landing) — a full
+      // re-render of `main` on every such change is well within budget
+      // (never on scroll/resize, so U-12's "never on scroll" holds) and
+      // keeps this screen's logic simple; the shape check still avoids
+      // rebuilding when nothing observable changed.
+      const shape = compareShellShape(state);
+      const html = renderCompareShell(state);
+      if (currentTab !== "compare" || html !== currentCompareShape) {
+        const searchHadFocus = doc.activeElement && doc.activeElement.matches("[data-compare-search]");
+        main.innerHTML = html;
+        if (searchHadFocus) main.querySelector("[data-compare-search]")?.focus();
+        currentTab = "compare";
+        currentCompareShape = html;
+        forgetOtherShapes("compare");
+      }
+      void shape;
+      return;
+    }
+
+    if (state.tab === "methodology") {
+      const shape = methodologyShellShape(state);
+      if (currentTab !== "methodology" || shape !== currentMethodologyShape) {
+        main.innerHTML = renderMethodologyShell(state);
+        currentTab = "methodology";
+        currentMethodologyShape = shape;
+        forgetOtherShapes("methodology");
+      }
       return;
     }
 
@@ -310,9 +433,42 @@ export function boot(win = window, doc = document) {
       main.innerHTML = renderShell(state, viewport);
       currentTab = "ranked";
       currentShellShape = shape;
-      currentNotRankedShape = null;
+      forgetOtherShapes("ranked");
     }
     if (shape.startsWith("table")) patchLeaderboardBody(state);
+  }
+
+  /** Configure's slider/preset/sum controls render in EVERY shape (loading/error/empty/body — 06 §3 D: the controls stay visible while re-projecting), so a weight/lock change never rebuilds the shell; this syncs the five sliders' value/output/lock state plus the sum display. Also called from `syncView`'s non-"body" branch, since the controls exist there too. */
+  function syncConfigureControls(state) {
+    for (const pillar of PILLAR_IDS) {
+      const slider = main.querySelector(`[data-weight-slider="${pillar}"]`);
+      const locked = !!state.weightLocks[pillar];
+      if (slider) {
+        const value = String(state.weights[pillar]);
+        if (slider.value !== value) slider.value = value;
+        if (slider.disabled !== locked) slider.disabled = locked;
+        const pct = `${Math.round(state.weights[pillar] * 1000) / 10}%`;
+        if (slider.getAttribute("aria-valuetext") !== pct) slider.setAttribute("aria-valuetext", pct);
+        const output = slider.nextElementSibling;
+        if (output && output.classList.contains("weight-slider-value") && output.textContent !== pct) {
+          output.textContent = pct;
+        }
+      }
+      const lockBtn = main.querySelector(`[data-weight-lock="${pillar}"]`);
+      if (lockBtn) {
+        const pressed = String(locked);
+        if (lockBtn.getAttribute("aria-pressed") !== pressed) lockBtn.setAttribute("aria-pressed", pressed);
+        const glyph = locked ? "🔒" : "🔓";
+        if (lockBtn.textContent !== glyph) lockBtn.textContent = glyph;
+      }
+    }
+    const sumEl = main.querySelector("[data-weight-sum]");
+    if (sumEl) {
+      const sum = PILLAR_IDS.reduce((s, p) => s + state.weights[p], 0);
+      const text = copy.configureSumText(sum);
+      if (sumEl.textContent !== text) sumEl.textContent = text;
+      sumEl.classList.toggle("weight-sum-warning", Math.abs(sum - 1) > 0.005);
+    }
   }
 
   // ------------------------------------------------------------- URL sync
@@ -366,6 +522,124 @@ export function boot(win = window, doc = document) {
         return;
       }
       store.dispatch({ type: "EVIDENCE_OK", repo: key, data: result.data });
+    });
+  }
+
+  // --------------------------------------------------- W4-5b: Matrix (B)
+  function loadMatrix() {
+    store.dispatch({ type: "MATRIX_LOADING" });
+    return api.fetchMatrix().then((result) => {
+      if (!result.ok) {
+        store.dispatch({ type: "MATRIX_ERROR", error: result.error });
+        return;
+      }
+      store.dispatch({ type: "MATRIX_OK", data: result.data });
+    });
+  }
+
+  // ------------------------------------------- W4-5b: Methodology (F)
+  function loadMethodology() {
+    store.dispatch({ type: "METHODOLOGY_LOADING" });
+    return api.fetchMethodology().then((result) => {
+      if (!result.ok) {
+        store.dispatch({ type: "METHODOLOGY_ERROR", error: result.error });
+        return;
+      }
+      store.dispatch({ type: "METHODOLOGY_OK", data: result.data });
+    });
+  }
+
+  // ----------------------------------------- W4-5b: Configure weights (D)
+  /** Debounced to <= 150ms while dragging a slider (06 §3 D); the greyed-table pattern (U-14) keeps stale rows visible with a progress indicator until the new payload lands. */
+  function scheduleReproject() {
+    clearTimeout(reprojectDebounce);
+    reprojectDebounce = setTimeout(runReproject, 120);
+  }
+
+  function runReproject() {
+    const state = store.getState();
+    const signature = JSON.stringify(state.weights);
+    reprojectInFlightSignature = signature;
+    store.dispatch({ type: "REPROJECT_LOADING" });
+    const body = {};
+    for (const pillar of PILLAR_IDS) body[`weight_${pillar}`] = state.weights[pillar];
+    return api.postReproject(body).then((result) => {
+      if (reprojectInFlightSignature !== signature) return; // superseded by a newer drag
+      if (!result.ok) {
+        store.dispatch({ type: "REPROJECT_ERROR", error: result.error });
+        return;
+      }
+      store.dispatch({ type: "REPROJECT_OK", data: result.data });
+    });
+  }
+
+  // ------------------------------------------------------ W4-5b: Compare (E)
+  function searchCompare(query) {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      store.dispatch({ type: "COMPARE_SET_RESULTS", results: [] });
+      return Promise.resolve();
+    }
+    const alreadyAdded = new Set(store.getState().compareRepos);
+    return Promise.all([
+      api.fetchLeaderboard({ q: trimmed, page_size: 20 }),
+      api.fetchNotRanked({ persona: "balanced" }),
+    ]).then(([leaderboardResult, notRankedResult]) => {
+      const results = [];
+      if (leaderboardResult.ok) {
+        for (const r of leaderboardResult.data.rows) {
+          results.push({ owner: r.owner, name: r.name, ecosystem: r.ecosystem, kind: "rated" });
+        }
+      }
+      if (notRankedResult.ok) {
+        const qLower = trimmed.toLowerCase();
+        for (const group of ["gated", "unrated"]) {
+          for (const r of notRankedResult.data[group]) {
+            if (`${r.owner}/${r.name}`.toLowerCase().includes(qLower)) {
+              results.push({ owner: r.owner, name: r.name, ecosystem: r.ecosystem, kind: group === "gated" ? "gated" : "unrated" });
+            }
+          }
+        }
+      }
+      const deduped = results.filter((r) => !alreadyAdded.has(`${r.owner}/${r.name}`));
+      store.dispatch({ type: "COMPARE_SET_RESULTS", results: deduped.slice(0, 8) });
+    });
+  }
+
+  function loadCompareRepo(key) {
+    const [owner, name] = key.split("/");
+    store.dispatch({ type: "COMPARE_REPO_LOADING", key });
+
+    return Promise.all([
+      api.fetchLeaderboard({ q: key, page_size: 1000 }),
+      api.fetchNotRanked({ persona: "balanced" }),
+    ]).then(([leaderboardResult, notRankedResult]) => {
+      if (!store.getState().compareRepos.includes(key)) return; // removed while in flight
+      let kind = null;
+      let row = null;
+      if (leaderboardResult.ok) {
+        row = leaderboardResult.data.rows.find((r) => r.owner === owner && r.name === name);
+        if (row) kind = "rated";
+      }
+      if (!row && notRankedResult.ok) {
+        row = notRankedResult.data.gated.find((r) => r.owner === owner && r.name === name);
+        if (row) kind = "gated";
+        if (!row) {
+          row = notRankedResult.data.unrated.find((r) => r.owner === owner && r.name === name);
+          if (row) kind = "unrated";
+        }
+      }
+      if (!row) {
+        store.dispatch({ type: "COMPARE_REPO_ERROR", key, error: { endpoint: "/v1/cvi/leaderboard", status: 404 } });
+        return;
+      }
+      return api.fetchEvidence(owner, name).then((evidenceResult) => {
+        store.dispatch({
+          type: "COMPARE_REPO_OK",
+          key,
+          data: { kind, row, evidence: evidenceResult.ok ? evidenceResult.data : [] },
+        });
+      });
     });
   }
 
@@ -477,6 +751,7 @@ export function boot(win = window, doc = document) {
     const state = store.getState();
     syncHeaderControls(state);
     syncFooter(state);
+    syncPrimaryNav(primaryNav, state.tab);
     syncView(state);
     renderDrawerAndKeymap(state);
   }
@@ -540,9 +815,29 @@ export function boot(win = window, doc = document) {
     }
   });
 
-  // NB-2: the footer's retry button (shown only while snapshotError is set).
+  function goToTab(tab) {
+    store.dispatch({ type: "SET_TAB", tab });
+    pushUrl(store.getState());
+    loadDataForTab(tab);
+  }
+
+  primaryNav.addEventListener("click", (evt) => {
+    const btn = evt.target.closest("[data-primary-tab]");
+    if (btn) goToTab(btn.dataset.primaryTab);
+  });
+
+  // NB-2: the footer's retry button (shown only while snapshotError is set)
+  // and (W4-5b) the "verify" link, which routes to the Methodology screen
+  // instead of a bare same-page anchor jump.
   footer.addEventListener("click", (evt) => {
-    if (evt.target.closest("[data-footer-retry]")) loadSnapshot();
+    if (evt.target.closest("[data-footer-retry]")) {
+      loadSnapshot();
+      return;
+    }
+    if (evt.target.closest("[data-footer-verify]")) {
+      evt.preventDefault();
+      goToTab("methodology");
+    }
   });
 
   function openRepo(owner, name) {
@@ -600,6 +895,33 @@ export function boot(win = window, doc = document) {
       store.dispatch({ type: "SET_NOTRANKED_PAGE_SIZE", pageSize: parseInt(evt.target.value, 10), page: 1 });
       patchNotRankedBody(main, store.getState());
       void state;
+    } else if (evt.target.matches("[data-configure-pager-size-select]")) {
+      store.dispatch({ type: "SET_CONFIGURE_PAGE_SIZE", pageSize: parseInt(evt.target.value, 10), page: 1 });
+      patchConfigureTable(main, doc, store.getState());
+    }
+  });
+
+  main.addEventListener("input", (evt) => {
+    const slider = evt.target.closest("[data-weight-slider]");
+    if (slider) {
+      const pillar = slider.dataset.weightSlider;
+      const state = store.getState();
+      const next = normalizeWeights(state.weights, state.weightLocks, pillar, parseFloat(slider.value));
+      store.dispatch({ type: "SET_WEIGHTS", weights: next });
+      syncConfigureControls(store.getState());
+      clearTimeout(reprojectDebounce);
+      // 06 §3 D: "debounce reproject calls <= 150ms while dragging".
+      reprojectDebounce = setTimeout(() => {
+        pushUrl(store.getState());
+        runReproject();
+      }, 120);
+      return;
+    }
+    if (evt.target.matches("[data-compare-search]")) {
+      const query = evt.target.value;
+      store.dispatch({ type: "COMPARE_SET_QUERY", query });
+      clearTimeout(compareSearchDebounce);
+      compareSearchDebounce = setTimeout(() => searchCompare(query), 100);
     }
   });
 
@@ -615,6 +937,18 @@ export function boot(win = window, doc = document) {
     const sortHeader = evt.target.closest("[data-sort-field]");
     if (sortHeader) {
       const field = sortHeader.dataset.sortField;
+      const currentTabValue = store.getState().tab;
+      if (currentTabValue === "configure") {
+        // Configure's table reuses the SAME header component but the whole
+        // result set is already in memory (scripts/serve_ui_fixtures.py's
+        // /reproject has no server-side sort/paging fields) — sorting it
+        // is a pure, instant, client-side re-slice, never a fetch.
+        const current = store.getState().configureSort;
+        const next = current === field ? `-${field}` : field;
+        store.dispatch({ type: "SET_CONFIGURE_SORT", sort: next });
+        return;
+      }
+      if (currentTabValue !== "ranked") return; // the header is only ever meaningfully sortable on these two tabs
       const current = store.getState().sort;
       const next = current === field ? `-${field}` : field;
       changeParamsAndFetch({ sort: next });
@@ -638,6 +972,88 @@ export function boot(win = window, doc = document) {
       const totalPages = Math.max(1, Math.ceil(flat.length / s.notRankedPageSize));
       return goToNotRankedPage(totalPages);
     }
+    // ------------------------------------------------- W4-5b: Configure (D)
+    if (evt.target.closest("[data-configure-pager-prev]")) {
+      store.dispatch({ type: "SET_CONFIGURE_PAGE", page: Math.max(1, store.getState().configurePage - 1) });
+      patchConfigureTable(main, doc, store.getState());
+      return;
+    }
+    if (evt.target.closest("[data-configure-pager-next]")) {
+      store.dispatch({ type: "SET_CONFIGURE_PAGE", page: store.getState().configurePage + 1 });
+      patchConfigureTable(main, doc, store.getState());
+      return;
+    }
+    if (evt.target.closest("[data-configure-retry]")) {
+      runReproject();
+      return;
+    }
+    const lockBtn = evt.target.closest("[data-weight-lock]");
+    if (lockBtn) {
+      store.dispatch({ type: "TOGGLE_WEIGHT_LOCK", pillar: lockBtn.dataset.weightLock });
+      return;
+    }
+    const presetBtn = evt.target.closest("[data-weight-preset]");
+    if (presetBtn) {
+      // U-11: a preset button is a STARTING POINT — the vector it sets is
+      // immediately "custom" (Configure never re-labels itself a persona).
+      store.dispatch({ type: "SET_WEIGHTS", weights: { ...PERSONA_PRESET_WEIGHTS[presetBtn.dataset.weightPreset] } });
+      pushUrl(store.getState());
+      runReproject();
+      return;
+    }
+
+    // ---------------------------------------------------- W4-5b: Compare (E)
+    const addBtn = evt.target.closest("[data-compare-add]");
+    if (addBtn) {
+      const key = addBtn.dataset.compareAdd;
+      store.dispatch({ type: "COMPARE_ADD_REPO", key });
+      pushUrl(store.getState());
+      if (!store.getState().compareDataByRepo[key]) loadCompareRepo(key);
+      if (!store.getState().methodology && !store.getState().methodologyLoading) loadMethodology();
+      return;
+    }
+    const removeBtn = evt.target.closest("[data-compare-remove]");
+    if (removeBtn) {
+      store.dispatch({ type: "COMPARE_REMOVE_REPO", key: removeBtn.dataset.compareRemove });
+      pushUrl(store.getState());
+      return;
+    }
+
+    // ----------------------------------------------------- W4-5b: Matrix (B)
+    const quadrantToggle = evt.target.closest("[data-matrix-quadrant-toggle]");
+    if (quadrantToggle) {
+      store.dispatch({ type: "MATRIX_TOGGLE_QUADRANT", quadrant: quadrantToggle.dataset.matrixQuadrantToggle });
+      return;
+    }
+    if (evt.target.closest("[data-matrix-reset-view]")) {
+      store.dispatch({ type: "MATRIX_RESET_VIEW", view: MATRIX_DEFAULT_VIEW });
+      return;
+    }
+    if (evt.target.closest("[data-matrix-zoom-in]")) {
+      store.dispatch({ type: "MATRIX_SET_VIEW", view: zoomView(store.getState().matrixView, 1.5) });
+      return;
+    }
+    if (evt.target.closest("[data-matrix-zoom-out]")) {
+      store.dispatch({ type: "MATRIX_SET_VIEW", view: zoomView(store.getState().matrixView, 1 / 1.5) });
+      return;
+    }
+
+    // ------------------------------------------------ W4-5b: Methodology (F)
+    if (evt.target.closest("[data-methodology-copy]")) {
+      const pre = main.querySelector("[data-reproduce-command]");
+      const btn = evt.target.closest("[data-methodology-copy]");
+      if (pre && win.navigator.clipboard) {
+        win.navigator.clipboard.writeText(pre.textContent).then(() => {
+          const original = btn.textContent;
+          btn.textContent = copy.METHODOLOGY_COPIED_LABEL;
+          win.setTimeout(() => {
+            btn.textContent = original;
+          }, 1200);
+        });
+      }
+      return;
+    }
+
     const row = evt.target.closest("[data-owner][data-name]");
     if (row) openRepo(row.dataset.owner, row.dataset.name);
   });
@@ -665,6 +1081,39 @@ export function boot(win = window, doc = document) {
     },
     { passive: true }
   );
+
+  // -------------------------------------------------------- W4-5b: Matrix
+  // interactions: wheel zoom, hover card, keyboard focus between markers.
+  main.addEventListener(
+    "wheel",
+    (evt) => {
+      if (store.getState().tab !== "matrix") return;
+      const stage = evt.target.closest(".matrix-stage");
+      if (!stage) return;
+      evt.preventDefault();
+      const factor = evt.deltaY < 0 ? 1.15 : 1 / 1.15;
+      store.dispatch({ type: "MATRIX_SET_VIEW", view: zoomView(store.getState().matrixView, factor) });
+    },
+    { passive: false }
+  );
+
+  main.addEventListener("mouseover", (evt) => {
+    if (store.getState().tab !== "matrix") return;
+    const marker = evt.target.closest(".matrix-marker");
+    if (marker) store.dispatch({ type: "MATRIX_SET_HOVER", key: marker.dataset.key });
+  });
+  main.addEventListener("mouseout", (evt) => {
+    if (store.getState().tab !== "matrix") return;
+    const marker = evt.target.closest(".matrix-marker");
+    if (marker && !evt.relatedTarget?.closest(".matrix-marker")) {
+      store.dispatch({ type: "MATRIX_SET_HOVER", key: null });
+    }
+  });
+  main.addEventListener("focusin", (evt) => {
+    if (store.getState().tab !== "matrix") return;
+    const marker = evt.target.closest(".matrix-marker");
+    if (marker) store.dispatch({ type: "MATRIX_SET_FOCUS", key: marker.dataset.key });
+  });
 
   drawerRoot.addEventListener("click", (evt) => {
     if (evt.target.closest("[data-drawer-close]") || evt.target.matches("[data-drawer-backdrop]")) {
@@ -724,6 +1173,17 @@ export function boot(win = window, doc = document) {
         if (s.repo || s.keymapOpen) return;
         if (isInputFocused) return;
         evt.preventDefault();
+        if (s.tab === "matrix") {
+          const points = s.matrix ? s.matrix.points : [];
+          if (points.length === 0) return;
+          const curIdx = points.findIndex((p) => matrixPointKey(p) === s.matrixFocusedKey);
+          const delta = action === "cursor-down" ? 1 : -1;
+          const nextIdx = Math.min(Math.max((curIdx === -1 ? -1 : curIdx) + delta, 0), points.length - 1);
+          const key = matrixPointKey(points[nextIdx]);
+          store.dispatch({ type: "MATRIX_SET_FOCUS", key });
+          main.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus();
+          return;
+        }
         const rows = s.leaderboard ? s.leaderboard.rows : [];
         if (rows.length === 0) return;
         const curIdx = rows.findIndex((r) => rowKey(r) === s.selectedRepoKey);
@@ -742,6 +1202,55 @@ export function boot(win = window, doc = document) {
         focusRowByKey(nextKey);
         break;
       }
+      case "matrix-focus-up":
+      case "matrix-focus-down":
+      case "matrix-focus-left":
+      case "matrix-focus-right": {
+        if (s.tab !== "matrix" || !s.matrix) return;
+        const direction = action.replace("matrix-focus-", "");
+        const markerFocused = doc.activeElement?.classList.contains("matrix-marker");
+        if (!markerFocused) {
+          // The stage itself (not a marker) has focus: arrow keys PAN
+          // (module doc's reconciliation of "zoom/pan by wheel and keys"
+          // vs. "focus moves between markers (Tab/arrow keys)").
+          evt.preventDefault();
+          const pan = { up: [0, -8], down: [0, 8], left: [-8, 0], right: [8, 0] }[direction];
+          store.dispatch({ type: "MATRIX_SET_VIEW", view: panView(s.matrixView, pan[0], pan[1]) });
+          return;
+        }
+        const next = nearestMarkerInDirection(s.matrix.points, s.matrixFocusedKey, direction);
+        if (!next) return;
+        evt.preventDefault();
+        const key = matrixPointKey(next);
+        store.dispatch({ type: "MATRIX_SET_FOCUS", key });
+        main.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus();
+        break;
+      }
+      case "matrix-toggle-1":
+      case "matrix-toggle-2":
+      case "matrix-toggle-3":
+      case "matrix-toggle-4": {
+        if (s.tab !== "matrix") return;
+        const index = Number(action.slice(-1)) - 1;
+        store.dispatch({ type: "MATRIX_TOGGLE_QUADRANT", quadrant: MATRIX_QUADRANTS[index] });
+        break;
+      }
+      case "matrix-reset-view":
+        if (s.tab !== "matrix") return;
+        store.dispatch({ type: "MATRIX_RESET_VIEW" });
+        break;
+      case "nav-compare":
+        if (isInputFocused) return;
+        goToTab("compare");
+        break;
+      case "nav-configure":
+        if (isInputFocused) return;
+        goToTab("configure");
+        break;
+      case "nav-methodology":
+        if (isInputFocused) return;
+        goToTab("methodology");
+        break;
       case "open-selected": {
         if (isInputFocused || s.repo || s.keymapOpen) return;
         // U-18/§5 (lead-reported defect on c52ab45): resolve the target
@@ -810,6 +1319,7 @@ export function boot(win = window, doc = document) {
     const defaults = {
       persona: "balanced", ecosystem: "", query: "", sort: "rank",
       page: 1, pageSize: DEFAULT_PAGE_SIZE, tab: "ranked", repo: null,
+      weights: { ...BALANCED_WEIGHTS }, compareRepos: [],
     };
     store.dispatch({ type: "SET_PARAMS", payload: { ...defaults, ...parseSearch(win.location.search) } });
     const s = store.getState();
@@ -822,7 +1332,9 @@ export function boot(win = window, doc = document) {
       const [owner, name] = s.repo.split("/");
       loadEvidence(owner, name);
     }
-    if (s.tab === "notranked" && !s.notRanked) loadNotRanked();
+    const weightsChanged = PILLAR_IDS.some((p) => s.weights[p] !== previousState.weights[p]);
+    if (weightsChanged || (s.tab === "configure" && !s.reproject)) runReproject();
+    loadDataForTab(s.tab);
   });
 
   win.addEventListener("resize", () => {
@@ -845,6 +1357,7 @@ export function boot(win = window, doc = document) {
 
   buildHeaderOnce();
   buildFooterOnce();
+  buildPrimaryNavOnce();
 
   const persisted = readPersistedTheme(win.localStorage);
   store.dispatch({ type: "SET_THEME", theme: persisted });
@@ -879,14 +1392,33 @@ export function boot(win = window, doc = document) {
       // eslint-disable-next-line no-console
       console.log(`[perf] initial windowed patch of ${n} rows: ${(t3 - t2).toFixed(1)}ms`);
     });
+  } else if (new URLSearchParams(win.location.search).get("perfmatrix")) {
+    // Dev-only harness (06 §7: "matrix render < 150ms for 10k markers"):
+    // reuses `synthesizeRows` (its rows already carry leverage/friction/
+    // quadrant/stars_audited — a superset of `MatrixPoint`) so no second
+    // synthetic-data generator is needed for this budget.
+    const n = parseInt(new URLSearchParams(win.location.search).get("perfmatrix"), 10) || 10000;
+    const t0 = win.performance.now();
+    const points = synthesizeRows(n);
+    store.dispatch({ type: "SET_TAB", tab: "matrix" });
+    store.dispatch({ type: "MATRIX_OK", data: { points, excluded_count: 0, axis_coverage_caption: {} } });
+    const t1 = win.performance.now();
+    // eslint-disable-next-line no-console
+    console.log(`[perf] synthesized ${n} matrix points in ${(t1 - t0).toFixed(1)}ms`);
+    const t2 = win.performance.now();
+    render();
+    const t3 = win.performance.now();
+    // eslint-disable-next-line no-console
+    console.log(`[perf] matrix render of ${n} points: ${(t3 - t2).toFixed(1)}ms`);
   } else {
     render();
-    loadLeaderboard();
-    if (store.getState().tab === "notranked") loadNotRanked();
+    const initialTab = store.getState().tab;
+    if (initialTab === "ranked" || initialTab === "notranked") loadLeaderboard();
+    loadDataForTab(initialTab);
   }
   loadSnapshot();
 
-  return { store, render, patchLeaderboardBody, loadLeaderboard };
+  return { store, render, patchLeaderboardBody, loadLeaderboard, loadMatrix, loadMethodology, runReproject, goToTab };
 }
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {

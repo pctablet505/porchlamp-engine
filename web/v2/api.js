@@ -75,3 +75,60 @@ export function fetchSnapshot() {
 }
 
 export { DEFAULT_TIMEOUT_MS };
+
+/**
+ * W4-5b Screen B (Matrix): `GET /v1/cvi/matrix` -> `MatrixResponse`
+ * (`cvi.serve.contract.MatrixResponse`).
+ */
+export function fetchMatrix() {
+  return getJson("/v1/cvi/matrix");
+}
+
+/**
+ * W4-5b Screen F (Methodology): `GET /v1/cvi/methodology` ->
+ * `MethodologyResponse` (`cvi.serve.contract.MethodologyResponse`).
+ */
+export function fetchMethodology() {
+  return getJson("/v1/cvi/methodology");
+}
+
+/**
+ * W4-5b Screen D (Configure weights): `POST /v1/cvi/reproject` with a
+ * five-pillar weight vector (`ReprojectRequest`) -> `ReprojectResponse`.
+ * Shares `getJson`'s timeout/typed-error contract (U-15) via a small POST
+ * variant rather than a second, drifting error-handling path.
+ */
+export async function postReproject(weights, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  const endpoint = "/v1/cvi/reproject";
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(weights),
+      signal: controller ? controller.signal : undefined,
+    });
+  } catch (networkError) {
+    const timedOut = networkError && networkError.name === "AbortError";
+    return { ok: false, error: new ApiError(endpoint, timedOut ? "timeout" : 0, networkError.message) };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  if (!response.ok) {
+    let message;
+    try {
+      message = (await response.json())?.error;
+    } catch {
+      // no JSON error body; fall through with the bare status
+    }
+    return { ok: false, error: new ApiError(endpoint, response.status, message) };
+  }
+  try {
+    const data = await response.json();
+    return { ok: true, data };
+  } catch (parseError) {
+    return { ok: false, error: new ApiError(endpoint, response.status, parseError.message) };
+  }
+}

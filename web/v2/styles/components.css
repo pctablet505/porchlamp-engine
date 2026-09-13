@@ -77,7 +77,37 @@ input.control {
   background: var(--bg-surface-hover);
 }
 
-/* ---- Tabs ---- */
+/* ---- Primary nav (06 §2 Leaderboard/Matrix/Compare/Configure/Methodology) ---- */
+.primary-tabs {
+  position: sticky;
+  top: var(--header-height);
+  z-index: 19;
+  display: flex;
+  gap: var(--space-xs);
+  padding: 0 var(--space-md);
+  background: var(--bg-base);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+}
+
+.primary-tab {
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.primary-tab:hover {
+  color: var(--text-primary);
+}
+
+.primary-tab[aria-selected="true"] {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-violet);
+}
+
+/* ---- Tabs (Leaderboard's own Ranked/Not-ranked sub-tabs) ---- */
 .tabs {
   display: flex;
   gap: var(--space-xs);
