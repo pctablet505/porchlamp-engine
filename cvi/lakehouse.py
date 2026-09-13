@@ -237,23 +237,6 @@ class OperationalStore:
     # ------------------------------------------------------------------ #
     # Writes
     # ------------------------------------------------------------------ #
-    def truncate_repositories(self) -> None:
-        """Delete every row from ``repositories`` (round 3, Blocker-1, `03` §5).
-
-        ``scripts/promote.py`` calls this before writing anything: a
-        promotion is a pure function of ``(manifest-covered bundles, as_of)``,
-        so the table must never carry rows from a prior run, a seeded demo
-        catalog, or any other write this promotion did not just perform.
-        Round 2 upserted without ever deleting, so seeding
-        ``cvi/benchmark_data.py``'s synthetic catalog and then promoting on
-        top served the union of both -- 995 fabricated rows survived
-        alongside the real ones. ``snapshot_meta`` is untouched: it is
-        addressed by ``snapshot_id``, not by table membership, and its own
-        accumulation behaviour is out of this method's scope.
-        """
-        self._conn.execute("DELETE FROM repositories")
-        self._conn.commit()
-
     def upsert_composite(
         self,
         result: CVICompositeResult,

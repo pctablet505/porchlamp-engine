@@ -24,9 +24,12 @@ _spec.loader.exec_module(run_all)
 
 from cvi.snapshot.manifest import build_manifest, write_manifest  # noqa: E402
 
-#: A real repository from the read-only sample, used so the freeze this test
-#: runs covers a genuine, non-empty envelope set (round 3, Warning-3).
-_SAMPLE_RAW = Path("/home/pctablet505/Projects/cvi-scratch/sample-200/raw")
+#: A real repository's envelopes, used so the freeze this test runs covers
+#: a genuine, non-empty envelope set (round 3, Warning-3). Round 4
+#: (Blocker-2): committed under ``tests/fixtures/`` rather than read from
+#: ``~/Projects/cvi-scratch/sample-200``, absent on any machine but this
+#: one, CI included.
+_SAMPLE_RAW = Path(__file__).resolve().parent / "fixtures" / "numpy-envelopes"
 _SAMPLE_KEY = "numpy__numpy"
 _SAMPLE_OWNER, _SAMPLE_NAME, _SAMPLE_ECO = "numpy", "numpy", "pypi"
 

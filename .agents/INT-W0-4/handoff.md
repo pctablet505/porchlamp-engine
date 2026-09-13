@@ -839,3 +839,299 @@ changed on `main`). Rebased onto `main` parent `0f3f1de` (main's tip at
 rebase time); the final commit sha is reported in the reply to this
 dispatch, not repeated here (editing this file after committing changes
 the sha it would name).
+
+---
+
+# Round 4 (final: REWORK bounded to Blocker-1, Blocker-2, W-002/W-003, W-001)
+
+Round 3's review (`INT-W0-4-r3-review.md`, reviewed at `c2f412c`) confirmed
+both round-2 Blockers genuinely closed on real data and all twelve prior
+findings from rounds 1-2 still closed. It found two mechanical defects
+introduced by round 3 itself (an import crash in the deployed layout, and
+tests that cannot run off the reviewer's own machine) plus two live mutation
+survivors that restore round-2's Blocker-2 and let a tampered database
+serve, and named one new hazard (a failed promotion could leave the served
+db rewritten and unservable). Round 4 is SUBTRACTIVE and bounded to exactly
+these four items.
+
+## R4.1 Item 1 (Blocker-1) — import crash in the deployed layout
+
+`scripts/promote.py`'s round-3 `from scripts.verify import ...` needed the
+repo root on `sys.path`; `scripts/` is not a package, so the module's own
+`Usage:` line and `scripts/serve.py`'s own refusal message both named a
+command that crashed. Fixed with the same `ROOT`/`sys.path.insert(0, ...)`
+two-line bootstrap `scripts/run_all.py` already uses, placed before the
+`scripts.verify` import.
+
+Fail-before, reproduced on the round-3 source with `cvi` importable
+(via a symlink to this worktree's `cvi/`, so the failure is the import
+crash itself, not a stale `cvi` from a different checkout) but the repo
+root NOT on `sys.path`:
+```
+$ PYTHONPATH=<dir containing only a cvi/ symlink> .venv/bin/python -B \
+  scripts/promote.py --help          # cwd elsewhere entirely
+Traceback (most recent call last):
+  File ".../scripts/promote.py", line 72, in <module>
+    from scripts.verify import _claimed_hash, _envelope_path, _source_items
+ModuleNotFoundError: No module named 'scripts'
+exit=1
+```
+Fixed, same setup:
+```
+$ PYTHONPATH=<dir containing only a cvi/ symlink> .venv/bin/python -B \
+  scripts/promote.py --help
+usage: promote.py [-h] ...
+exit=0
+```
+Automated as `tests/test_promote.py::test_promote_help_runs_from_a_temp_cwd_with_only_cvi_importable`
+(a real `subprocess.run`, `cwd` a fresh temp dir, `PYTHONPATH` pointing at a
+constructed dir holding only a `cvi` symlink): fails with the exact
+traceback above on the round-3 source, passes after the fix.
+
+## R4.2 Item 2 (Blocker-2) — tests hardcoded a machine-local path
+
+`tests/test_{promote,serve,run_all}.py` all read
+`/home/pctablet505/Projects/cvi-scratch/sample-200/raw` with no guard, and
+every one of their sample-dependent tests only ever used ONE repository's
+envelopes from it (`numpy/numpy`, copying just that key out of the full
+199-repo sample). Rather than adding a `skipif` around a dependency that
+was never actually needed at that scale, the dependency itself is
+eliminated: `numpy/numpy`'s 10 envelope files (32,721 bytes total, under
+the 200 KB bound) are committed at `tests/fixtures/numpy-envelopes/` and
+all three files' `SAMPLE_RAW`/`_SAMPLE_RAW` constants now point there
+(`Path(__file__).resolve().parent / "fixtures" / "numpy-envelopes"`)
+instead of the external path. This is the stronger of the two options the
+dispatch offered ("where a test only needs a handful of envelopes, copy
+them into `tests/fixtures/`... so those tests run everywhere") applied to
+every sample-dependent test in the packet, since none needed more than
+that handful — so no `pytest.mark.skipif` guard is needed on top of it
+(nothing in these three files reads the external path any more; the
+`tests/core/test_sample200_load.py` convention remains in place for
+tests that genuinely need the full 199-repo sample, unaffected by this
+packet).
+
+Verification: the external sample renamed to `sample-200.RENAMED` (i.e.
+absent, matching any machine but this one, CI included) and the packet's
+own three test files run in full:
+```
+$ mv ~/Projects/cvi-scratch/sample-200 ~/Projects/cvi-scratch/sample-200.RENAMED
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest \
+  tests/test_promote.py tests/test_serve.py tests/test_run_all.py -p no:cacheprovider -v
+tests/test_promote.py .........................                          [ 59%]
+tests/test_serve.py ...............                                      [ 95%]
+tests/test_run_all.py ..                                                 [100%]
+42 passed, 2 warnings in 0.61s
+```
+**42 passed, 0 failed, 0 skipped.** (Renaming it back afterward restored
+the machine to its prior state.) The full suite with the sample renamed
+also ran clean: `1685 passed, 8 skipped` (the 8 skips are the pre-existing,
+unrelated `tests/core/test_sample200_load.py`-style guards for tests that
+genuinely need the full sample; none of them are this packet's).
+
+## R4.3 Item 3 — pinned the two live mutation survivors (M9, M12)
+
+**M9** (`scripts/promote.py`, `_covered_by_manifest`): the coverage
+predicate's missing-hash arm (`claimed is not None and ...`) had no test
+that exercised a resolvable-but-unhashed provenance reference specifically;
+mutating it to `claimed is None or ...` restored round 2's Blocker-2 live
+(a HOLLOW manifest promoting the whole universe) with the suite green.
+New test `tests/test_promote.py::test_bundle_without_a_recorded_hash_is_not_covered_by_any_manifest`:
+a real clean bundle with `sha256` stripped from one (of two) verified
+provenance entries, checked against the manifest that DOES cover it,
+must still be reported `not_in_manifest`.
+
+```
+$ sed -i 's/claimed is not None and manifest_index.get((collector, key)) == claimed/claimed is None or manifest_index.get((collector, key)) == claimed/' scripts/promote.py
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest \
+  tests/test_promote.py::test_bundle_without_a_recorded_hash_is_not_covered_by_any_manifest -p no:cacheprovider -v
+FAILED tests/test_promote.py::test_bundle_without_a_recorded_hash_is_not_covered_by_any_manifest
+AssertionError: assert [{'repo': 'numpy/numpy', ...}] == []
+1 failed in 0.09s
+```
+Restored (`diff -q` byte-identical), re-run green.
+
+**M12** (`scripts/serve.py`, `matching_snapshot_id`): the full-hash equality
+`stored_hash == current` had no test proving the comparison uses every hex
+digit; mutated to `stored_hash[:1] == current[:1]` (also tried `[:8]`, M6),
+a tampered database served with the suite green. New test
+`tests/test_serve.py::test_a_stored_hash_sharing_every_digit_but_the_last_is_still_refused`:
+constructs the strongest possible near-miss deterministically (no brute
+force) — a stored hash identical to the real recomputed one in all 63
+leading hex digits, differing only in the last — and asserts refusal.
+
+```
+$ sed -i 's/if stored_hash == current:/if stored_hash[:1] == current[:1]:/' scripts/serve.py
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest \
+  "tests/test_serve.py::test_a_stored_hash_sharing_every_digit_but_the_last_is_still_refused" -p no:cacheprovider -v
+FAILED tests/test_serve.py::test_a_stored_hash_sharing_every_digit_but_the_last_is_still_refused
+AssertionError: assert 0 == 1
+1 failed in 0.19s
+```
+Also verified this same test kills the `[:8]` variant (M6), as a bonus, not
+required this round. Restored (`diff -q` byte-identical), re-run green.
+
+## R4.4 Item 4 (W-001) — promotion is now atomic
+
+Round 3's `OperationalStore.truncate_repositories()` (an in-place `DELETE
+FROM repositories` before writing) made a promotion PURE but not ATOMIC: a
+failure between the truncate and the finished write left the live database
+rewritten and unservable, with no rollback. Subtracted entirely (the
+method deleted from `cvi/lakehouse.py`; its call site removed from
+`scripts/promote.py`'s `promote()`).
+
+New `scripts/promote.py::promote_atomically(bundles, db_path, as_of,
+data_dir, manifest)`: builds the whole promotion (scoring rows +
+`snapshot_meta`) into `<db_path>.tmp-<snapshot_id>`, a brand-new file next
+to the served one; re-runs `scripts/serve.py`'s own `refusal_reasons`
+(fixture-row check, identity-hash check) against that temp file as a
+self-check; and only then `os.replace()`s it onto `db_path` -- one
+filesystem rename, atomic on POSIX. On any failure (a scoring exception, a
+malformed manifest, a failed self-check) the temp file is removed via a
+`try/finally` and `db_path` is never opened for writing at all. `main()`
+and `run_all.py`'s `freeze_and_promote()` both call it instead of the
+former separate `promote()` + `write_snapshot_meta()` pair.
+
+Real CLI reproduction of the review's exact W-001 scenario (a manifest
+missing `benchmark_version`, `NOKEY`), against a previously-good, servable
+database:
+```
+$ .venv/bin/python scripts/promote.py --db atomic.db --data-dir <data> \
+  --snapshot-id <real> --as-of 2026-09-13T00:00:00Z
+promoted 1 verified repos ... -> atomic.db (snapshot ...)      exit=0
+BEFORE = dc7ff1c9a68094bf7c62889638586cbfdab6835a896695d427abfdc574d767e0
+
+$ .venv/bin/python scripts/promote.py --db atomic.db --data-dir <data> \
+  --snapshot-id NOKEY --as-of 2026-09-13T00:00:00Z
+Traceback (most recent call last):
+  ...
+  File ".../scripts/promote.py", line 454, in promote_atomically
+    write_snapshot_meta(tmp_path, manifest, repositories_dump_hash(tmp_path))
+  File ".../scripts/promote.py", line 332, in write_snapshot_meta
+    (manifest["snapshot_id"], manifest["as_of"], manifest["benchmark_version"], ...
+KeyError: 'benchmark_version'
+exit=1
+
+AFTER  = dc7ff1c9a68094bf7c62889638586cbfdab6835a896695d427abfdc574d767e0
+MATCH: YES
+$ ls atomic.db*
+atomic.db                    # no .tmp-NOKEY left behind
+$ .venv/bin/python scripts/serve.py --db atomic.db --port 18950   # still serves
+CVI serve: 1 verified repos from 'atomic.db' (snapshot ...)
+GET /healthz -> {"status":"ok"}  HTTP=200
+```
+The failure happens AFTER `promote(bundles, tmp_path, ...)` already wrote
+every row into the temp file (it fails inside the subsequent
+`write_snapshot_meta` call) -- exactly "a failure injected after the
+[row-writing] step" -- and the served file's sha256 is unchanged.
+
+Automated: `tests/test_promote.py::test_promote_atomically_leaves_the_served_db_untouched_on_failure`
+(forces the self-check to fail via `monkeypatch`, asserts sha256
+before == after and the temp file is gone) and
+`test_promote_atomically_cleans_up_a_stale_temp_file_from_a_prior_failure`
+(a stale temp file from an earlier crash does not block or corrupt the
+next attempt).
+
+## R4.5 Test fallout from subtracting the in-place truncate
+
+`promote()` (the low-level scoring function) no longer guarantees purity
+by itself -- that moved to `promote_atomically`'s temp-file swap. Two
+round-3 tests that relied on `promote()`'s own truncate were updated to
+exercise `promote_atomically` instead, proving the SAME property a
+different way:
+- `test_promote_truncates_a_stray_row_before_writing` ->
+  `test_promote_atomically_replaces_a_stray_row_not_merges_with_it`
+  (`tests/test_promote.py`)
+- `test_seed_then_promote_serves_only_the_real_rows`
+  (`tests/test_serve.py`) -- same name, body now calls
+  `promote.promote_atomically(...)` instead of `promote.promote(...)` +
+  `write_snapshot_meta(...)`.
+
+No assertion was weakened: both tests assert the identical end state
+(exactly the new content survives, the stray/seeded content does not).
+
+## R4.6 Diffstat (vs round 3's rebased tip)
+
+```
+ cvi/lakehouse.py                                   |  17 ---
+ scripts/promote.py                                 |  98 ++++++++++++--
+ scripts/run_all.py                                 |   4 +-
+ scripts/serve.py                                   |   8 +-
+ tests/fixtures/numpy-envelopes/*/*.json (10 files)  |  10 +
+ tests/test_promote.py                              | 143 +++++++++++++++++++--
+ tests/test_run_all.py                              |   9 +-
+ tests/test_serve.py                                |  66 +++++++---
+ 17 files changed, 292 insertions(+), 63 deletions(-)
+```
+
+Ownership: unchanged from round 3 (`cvi/lakehouse.py`, `scripts/run_all.py`
+still pending the lead's ratification); new `tests/fixtures/` directory,
+owned by this packet's test files only.
+
+## R4.7 Ruff and full suite
+
+```
+$ .venv/bin/python -m ruff check cvi/ scripts/ tests/
+All checks passed!
+
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/ -n 4 -p no:cacheprovider
+1697 passed, 12 warnings in 64.81s
+exit=0
+```
+1692 (round 3, post-rebase) + 5 net new this round (test_promote.py +4:
+subprocess-help, M9, two atomicity tests; test_serve.py +1: M12) = 1697.
+Matches.
+
+## R4.8 COULD NOT VERIFY
+
+- `COULD NOT VERIFY: CI actually running these tests on a GitHub runner` --
+  verified the mechanism (renamed the external path, ran the exact three
+  files, 42 passed / 0 failed / 0 skipped) but did not push a branch to
+  trigger `.github/workflows/ci.yml` itself; the round-3 review measured
+  CI's own invocation (`python -m pytest tests/ -n auto`) turning red with
+  the un-renamed setup, and this fix removes the dependency that caused
+  it, but the CI run itself was not re-triggered from this worktree.
+- Carried forward, explicitly out of round 4's bounded scope per the
+  dispatch (deferred to a follow-up packet, not relitigated here): W-004
+  (the manifest binds envelope references, not bundle values -- a design
+  question for the lead), W-005 (`constants_hash` unchecked at serve time),
+  W-006 (`resolve_manifest` tracebacks on a malformed manifest instead of
+  refusing -- reproduced live in §R4.4's own W-001 repro, `KeyError`, and
+  left as-is since fixing it was not one of the four items), Notes 1-7 from
+  the round-3 review (denylist-vs-allowlist naming, double hash per serve
+  startup, exit-code drift on a malformed `--as-of`, the "not in manifest"
+  message wording, the `promoted.json` receipt's own wall-clock read, the
+  two `canonical_dump_hash` quantities sharing one name, and
+  `run_all.freeze_and_promote` duplicating `main`'s coverage-and-refuse
+  block).
+
+## R4.9 Rebase onto main
+
+Rebased onto `main`'s tip at dispatch time (`9bb1c22`, past the coordinator's
+named `31adc2b`). `git diff --name-only` between the pre-rebase merge-base
+and `main` touched none of this packet's owned or depended-on files
+(`cvi/lakehouse.py`, `scripts/{promote,run_all,serve,verify,derive}.py`,
+`tests/{test_promote,test_serve,test_run_all}.py`, `tests/fixtures/`,
+`.agents/INT-W0-4/handoff.md`) — empty diff, zero overlap. Rebase applied
+with zero conflicts (`git rebase 9bb1c22` -> "Successfully rebased",
+`git status --short` empty apart from the reviewer's own untracked
+`.agents/INT-W0-4/review/` artifacts, left alone). Post-rebase
+re-verification:
+
+```
+$ .venv/bin/python -m ruff check cvi/ scripts/ tests/
+All checks passed!
+
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest \
+  tests/test_promote.py tests/test_serve.py tests/test_run_all.py -p no:cacheprovider -v
+42 passed, 2 warnings in 0.64s
+
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/ -n 4 -p no:cacheprovider
+1776 passed, 12 warnings in 59.36s
+exit=0
+```
+
+1776 (not 1697, §R4.7's pre-rebase count) because other packets landed
+tests on `main` between round 3's rebase and this one; this packet's own
+42 named tests are unaffected. Final commit sha and base sha are reported
+in the reply to this dispatch (not repeated here, to avoid the same
+editing-changes-the-sha issue noted in §R3.9).

@@ -51,14 +51,16 @@ _spec.loader.exec_module(promote)
 
 AS_OF = "2026-09-12T00:00:00+00:00"
 
-#: A real repository from the read-only sample, used to build genuine,
-#: non-placeholder manifests (round 3, Warning-3): ``build_manifest([], ...)``
-#: covered zero envelopes, the exact shape that hid Blocker-2 from every test
-#: that used it. serve.py's own checks never consult manifest envelope
-#: content, so this repo need not relate to whatever rows a given test
-#: writes into ``repositories`` -- only :func:`_promote_snapshot`'s content
-#: hash does that.
-_SAMPLE_RAW = Path("/home/pctablet505/Projects/cvi-scratch/sample-200/raw")
+#: A real repository's envelopes, used to build genuine, non-placeholder
+#: manifests (round 3, Warning-3): ``build_manifest([], ...)`` covered zero
+#: envelopes, the exact shape that hid Blocker-2 from every test that used
+#: it. serve.py's own checks never consult manifest envelope content, so
+#: this repo need not relate to whatever rows a given test writes into
+#: ``repositories`` -- only :func:`_promote_snapshot`'s content hash does
+#: that. Round 4 (Blocker-2): committed under ``tests/fixtures/`` rather
+#: than read from ``~/Projects/cvi-scratch/sample-200``, absent on any
+#: machine but this one, CI included.
+_SAMPLE_RAW = Path(__file__).resolve().parent / "fixtures" / "numpy-envelopes"
 _SAMPLE_KEY = "numpy__numpy"
 
 
@@ -365,6 +367,38 @@ def test_nudging_telemetry_after_promotion_is_refused(tmp_path, served):
     assert "matches none of its" in reasons[0]
 
 
+def test_a_stored_hash_sharing_every_digit_but_the_last_is_still_refused(tmp_path, served):
+    # Round 4, W-003 (mutants M6/M12): the comparison must be full-hash
+    # equality, not a truncated prefix check. M12 mutated `stored_hash ==
+    # current` to `stored_hash[:1] == current[:1]` (M6: `[:8]`) and the
+    # suite stayed green while a tampered database served. Construct the
+    # strongest near-miss possible: a stored value identical to the real
+    # current hash in every hex digit except the last -- any comparison
+    # truncated to fewer than 64 characters accepts it.
+    db = tmp_path / "cvi.db"
+    store = _store_at(db)
+    _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
+    store.close()
+    _promote_snapshot(tmp_path, db)
+
+    current = repositories_dump_hash(str(db))
+    near_miss = current[:-1] + ("0" if current[-1] != "0" else "1")
+    assert near_miss != current
+    assert near_miss[:-1] == current[:-1]
+
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE snapshot_meta SET canonical_dump_hash = ?", (near_miss,))
+    conn.commit()
+    conn.close()
+
+    reasons = serve.refusal_reasons(OperationalStore(str(db)), str(db))
+    assert len(reasons) == 1
+    assert "matches none of its" in reasons[0]
+    with pytest.raises(SystemExit):
+        serve.main(["--db", str(db)])
+    assert served.ports == []
+
+
 def test_manifest_copied_beside_a_foreign_database_is_refused(tmp_path, served):
     # Warning-3 (round 1): snapshot identity accepted ANY manifest.json
     # sitting beside the db file, with no check that it described that
@@ -401,8 +435,11 @@ def test_manifest_copied_beside_a_foreign_database_is_refused(tmp_path, served):
 def test_seed_then_promote_serves_only_the_real_rows(tmp_path, served):
     # Seed the synthetic catalog, THEN promote a real bundle on top (round
     # 2's exact ordering accident: promote upserted but never deleted, so
-    # 995 fabricated rows served alongside the real ones). Fix #1 (promote
-    # truncates repositories first) means only the promoted row survives.
+    # 995 fabricated rows served alongside the real ones). Fix #1 (round 4:
+    # promote_atomically builds a fresh temp file and os.replace()s it onto
+    # the served path -- there is no old content left to coexist with,
+    # because the old file is never opened at all) means only the promoted
+    # row survives.
     db = tmp_path / "cvi.db"
     store = _store_at(db)
     _fixture_rows(store, 1000)
@@ -424,9 +461,8 @@ def test_seed_then_promote_serves_only_the_real_rows(tmp_path, served):
         "pr_events": [],
     }
     as_of = datetime(2026, 9, 13, tzinfo=timezone.utc)
-    promote.promote([bundle], str(db), as_of, tmp_path)
     manifest = _freeze_real(tmp_path, as_of=as_of.isoformat())
-    promote.write_snapshot_meta(str(db), manifest, repositories_dump_hash(str(db)))
+    promote.promote_atomically([bundle], str(db), as_of, tmp_path, manifest)
 
     store2 = OperationalStore(str(db))
     assert count_repos(store2) == 1  # not 1001 -- the seed did not survive
@@ -435,9 +471,9 @@ def test_seed_then_promote_serves_only_the_real_rows(tmp_path, served):
     assert served.ports == [8125]
 
     # Fix #2, proven independently: reintroduce a fixture row some OTHER way
-    # (a bug that skipped the truncate, a manual INSERT). The marker guard
-    # does not depend on fix #1 having run -- it is a second, independent
-    # control, and it must still catch this.
+    # (a bug that bypassed the atomic swap, a manual INSERT). The marker
+    # guard does not depend on fix #1 having run -- it is a second,
+    # independent control, and it must still catch this.
     conn = sqlite3.connect(db)
     row = get_benchmark_catalog(1)[0]
     conn.execute(

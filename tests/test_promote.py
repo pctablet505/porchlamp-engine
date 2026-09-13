@@ -6,10 +6,13 @@ data (the repo-detail endpoint degrades to pillars-only without it).
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -35,11 +38,16 @@ _derive_spec.loader.exec_module(derive)
 
 NOW = datetime(2026, 9, 12, 12, 0, 0, tzinfo=timezone.utc)
 
-#: A real repository from the read-only sample used to build genuine,
-#: non-placeholder manifests (round 3, Warning-3): round 2's
-#: ``build_manifest([], ...)`` covered zero envelopes, which is exactly the
-#: shape that hid Blocker-2 from every test that used it.
-SAMPLE_RAW = Path("/home/pctablet505/Projects/cvi-scratch/sample-200/raw")
+#: A real repository's envelopes, used to build genuine, non-placeholder
+#: manifests (round 3, Warning-3): round 2's ``build_manifest([], ...)``
+#: covered zero envelopes, which is exactly the shape that hid Blocker-2
+#: from every test that used it. Round 4 (Blocker-2): these are committed
+#: under ``tests/fixtures/`` (32,721 bytes, numpy/numpy's own envelopes
+#: copied verbatim from the read-only sample) rather than read from
+#: ``~/Projects/cvi-scratch/sample-200``, which is absent on any machine but
+#: this one -- including CI -- and turned 20 of this file's tests from
+#: FAIL to a clean run everywhere.
+SAMPLE_RAW = Path(__file__).resolve().parent / "fixtures" / "numpy-envelopes"
 SAMPLE_OWNER, SAMPLE_NAME, SAMPLE_ECO = "numpy", "numpy", "pypi"
 SAMPLE_KEY = f"{SAMPLE_OWNER}__{SAMPLE_NAME}"
 
@@ -128,15 +136,52 @@ def test_missing_created_at_falls_back_to_as_of_not_the_wall_clock():
 
 
 # --------------------------------------------------------------------------- #
+# Round 4, Blocker-1: `scripts/` is not a package. Running promote.py by path
+# (as its own Usage line and scripts/serve.py's own refusal message both tell
+# an operator to) must not depend on the repo root already being on
+# sys.path -- that is exactly the layout a fresh `python scripts/promote.py`
+# invocation has.
+# --------------------------------------------------------------------------- #
+
+
+def test_promote_help_runs_from_a_temp_cwd_with_only_cvi_importable(tmp_path):
+    # Simulates the deployed layout: `cvi` is importable (however it got
+    # there -- an editable install, in this worktree's case a symlink built
+    # here so the test does not depend on which checkout the venv's
+    # editable install happens to point at), but the repo root/`scripts` is
+    # NOT separately on sys.path. Before the fix, `from scripts.verify
+    # import ...` crashed here with "ModuleNotFoundError: No module named
+    # 'scripts'" -- reproduced below on the round-3 source, byte for byte.
+    only_cvi = tmp_path / "only_cvi_on_path"
+    only_cvi.mkdir()
+    (only_cvi / "cvi").symlink_to(ROOT / "cvi")
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["PYTHONPATH"] = str(only_cvi)
+
+    result = subprocess.run(
+        [sys.executable, "-B", str(ROOT / "scripts" / "promote.py"), "--help"],
+        cwd=str(cwd), env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
+    assert "usage: promote.py" in result.stdout
+
+
+# --------------------------------------------------------------------------- #
 # Round 3 (Blocker-1, `03` §5): promotion is a pure function of its inputs --
 # the repositories table is truncated first, so no prior write survives it.
 # --------------------------------------------------------------------------- #
 
 
-def test_promote_truncates_a_stray_row_before_writing(tmp_path):
-    # Round 2 regression: promote upserted without ever deleting, so a row
-    # from a prior write (a seeded demo catalog, a stray manual insert)
-    # coexisted with whatever the next promotion wrote.
+def test_promote_atomically_replaces_a_stray_row_not_merges_with_it(tmp_path):
+    # Round 2 regression, now proven at the atomic-swap level (round 4
+    # subtracted promote()'s own in-place truncate -- W-001): a row from a
+    # prior write (a seeded demo catalog, a stray manual insert) must not
+    # coexist with what this promotion writes. The temp file
+    # promote_atomically builds starts empty and REPLACES the old file
+    # outright, so purity no longer depends on an in-place DELETE.
     db = str(tmp_path / "cvi.db")
     store = OperationalStore(db)
     store.connection.execute(
@@ -150,7 +195,8 @@ def test_promote_truncates_a_stray_row_before_writing(tmp_path):
     store.connection.commit()
     store.close()
 
-    n = promote.promote([_bundle()], db, NOW, tmp_path)
+    manifest = _freeze_real(tmp_path)
+    n = promote.promote_atomically([_bundle()], db, NOW, tmp_path, manifest)
     assert n == 1
 
     conn = sqlite3.connect(db)
@@ -389,6 +435,26 @@ def test_manifest_with_one_altered_hash_drops_exactly_that_bundle(tmp_path):
     assert not_in_manifest_ok == []
 
 
+def test_bundle_without_a_recorded_hash_is_not_covered_by_any_manifest(tmp_path):
+    # Round 4, W-002 (mutant M9): a provenance entry naming a real envelope
+    # path that the manifest DOES list, but carrying no recorded sha256
+    # ("claimed is None"), must fail closed -- there is nothing to compare,
+    # which is not the same as a match. M9 mutated the coverage predicate
+    # from `claimed is not None and manifest_index.get(...) == claimed` to
+    # `claimed is None or manifest_index.get(...) == claimed`, which treats
+    # a missing hash as an automatic match; with the suite otherwise green
+    # that mutant let a HOLLOW manifest promote the whole universe again
+    # (round 2's Blocker-2, restored) -- this bundle's "forks" reference
+    # still resolves and matches, so ONLY the missing-hash arm is exercised.
+    bundle = _real_clean_bundle(tmp_path)
+    manifest = _freeze_real(tmp_path)
+    del bundle["provenance"]["stars"]["sha256"]
+
+    covered, not_in_manifest = promote.split_by_manifest([bundle], tmp_path, manifest)
+    assert covered == []
+    assert not_in_manifest == [bundle]
+
+
 def test_manifest_covering_one_of_two_bundles_drops_only_that_one(tmp_path, monkeypatch, capsys):
     numpy_bundle = _real_clean_bundle(tmp_path)
     acme_bundle = _synthetic_clean_bundle(tmp_path, "acme", "widget")
@@ -478,3 +544,60 @@ def test_main_defaults_as_of_to_the_manifest_when_omitted(tmp_path, monkeypatch)
         conn.close()
     assert last_indexed_at == manifest["as_of"]
     assert promoted_at == manifest["as_of"]
+
+
+# --------------------------------------------------------------------------- #
+# Round 4, item 4 (W-001, `03` §5): promotion is atomic -- it never rewrites
+# the served file in place, so a failure leaves it byte-identical.
+# --------------------------------------------------------------------------- #
+
+
+def test_promote_atomically_leaves_the_served_db_untouched_on_failure(tmp_path, monkeypatch):
+    # Round 3's in-place `DELETE FROM repositories` (subtracted this round)
+    # made a promotion PURE but not ATOMIC: a failure between the truncate
+    # and the finished write left the live database rewritten and
+    # unservable, with no rollback (W-001). promote_atomically builds into
+    # a temp file and only os.replace()s it once every check -- including
+    # this self-check, the LAST gate before the swap -- passes. Forcing the
+    # self-check to fail proves every write up to that point (rows,
+    # snapshot_meta) still leaves the SERVED file untouched.
+    bundle = _real_clean_bundle(tmp_path)
+    manifest = _freeze_real(tmp_path)
+    db = tmp_path / "cvi.db"
+    n = promote.promote_atomically([bundle], str(db), NOW, tmp_path, manifest)
+    assert n == 1
+    before = hashlib.sha256(db.read_bytes()).hexdigest()
+
+    def _boom(store, db_path):
+        return ["forced failure for the atomicity test"]
+
+    monkeypatch.setattr(promote, "_serve_refusal_reasons", _boom)
+    with pytest.raises(RuntimeError, match="forced failure"):
+        promote.promote_atomically([bundle], str(db), NOW, tmp_path, manifest)
+
+    after = hashlib.sha256(db.read_bytes()).hexdigest()
+    assert after == before, "a failed promotion rewrote the served database"
+    tmp_file = tmp_path / f"cvi.db.tmp-{manifest['snapshot_id']}"
+    assert not tmp_file.exists(), "the failed attempt's temp file was not cleaned up"
+
+
+def test_promote_atomically_cleans_up_a_stale_temp_file_from_a_prior_failure(tmp_path):
+    # A temp file left behind by an earlier crash (before Python's own
+    # finally block could run, or a killed process) must not be mistaken
+    # for a completed promotion or block the next attempt.
+    bundle = _real_clean_bundle(tmp_path)
+    manifest = _freeze_real(tmp_path)
+    db = tmp_path / "cvi.db"
+    stale = tmp_path / f"cvi.db.tmp-{manifest['snapshot_id']}"
+    stale.write_text("not a real database", encoding="utf-8")
+
+    n = promote.promote_atomically([bundle], str(db), NOW, tmp_path, manifest)
+    assert n == 1
+    assert not stale.exists()  # replaced by a fresh build, then moved onto db
+
+    conn = sqlite3.connect(db)
+    try:
+        rows = conn.execute("SELECT owner, name FROM repositories").fetchall()
+    finally:
+        conn.close()
+    assert rows == [(SAMPLE_OWNER, SAMPLE_NAME)]

@@ -29,9 +29,11 @@ independent checks now run, because they catch different things:
   content-hash check cannot see: it catches a fixture row regardless of
   when it arrived relative to a legitimate promotion, and survives renaming
   every owner (round 1's exact bypass) because it does not read ``owner``
-  at all. ``scripts/promote.py`` (round 3) also truncates ``repositories``
-  before writing, so this ordering accident no longer occurs by
-  construction either -- the two fixes are independent and both required.
+  at all. ``scripts/promote.py`` (round 4) also promotes into a fresh temp
+  file and only ``os.replace``s it onto the served path once every check
+  passes (:func:`scripts.promote.promote_atomically`), so this ordering
+  accident no longer occurs by construction either -- the two fixes are
+  independent and both required.
 * the content-hash identity (round 2, unchanged): ``scripts/promote.py``
   writes one ``snapshot_meta`` row per promotion carrying the frozen
   manifest's identity plus :func:`cvi.lakehouse.repositories_dump_hash`

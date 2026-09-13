@@ -34,7 +34,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cvi.lakehouse import repositories_dump_hash
 from cvi.snapshot import cli as snapshot_cli
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -115,8 +114,7 @@ def freeze_and_promote(db: str, data_dir: Path, as_of: datetime) -> int:
     if not_in_manifest:
         print(f"{len(not_in_manifest)} of {len(bundles)} clean bundles not in manifest "
               f"{manifest['snapshot_id']}: not promoted")
-    n = promote.promote(covered, db, as_of, data_dir)
-    promote.write_snapshot_meta(db, manifest, repositories_dump_hash(db))
+    n = promote.promote_atomically(covered, db, as_of, data_dir, manifest)
     print(f"promoted {n} verified repos -> {db} (snapshot {manifest['snapshot_id']})")
     return 0
 

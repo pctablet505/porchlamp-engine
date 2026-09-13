@@ -37,10 +37,26 @@ with the bound manifest's own ``as_of`` -- one snapshot names one reference
 time; :func:`resolved_as_of` refuses a mismatch instead of letting
 ``snapshot_meta`` record a value nothing scored against.
 
-Round 3 (Blocker-1): :meth:`cvi.lakehouse.OperationalStore.truncate_repositories`
-is called before any row is written, so a promotion's output is exactly its
-manifest-covered bundles -- never rows a prior seed (``cvi/benchmark_data.py``,
-``scripts/demo_app.py``) left behind.
+Round 3 (Blocker-1): a promotion's output was made pure -- exactly its
+manifest-covered bundles, never rows a prior seed (``cvi/benchmark_data.py``,
+``scripts/demo_app.py``) left behind -- via an in-place
+``DELETE FROM repositories`` before any row was written.
+
+Round 4 (Blocker-1): the ``from scripts.verify import ...`` below needs the
+repo root on ``sys.path`` -- ``scripts/`` is not a package, so running this
+file directly (as the Usage line and ``scripts/serve.py``'s own refusal
+message both tell an operator to) put only ``.../scripts`` on
+``sys.path[0]`` and crashed with ``ModuleNotFoundError: No module named
+'scripts'``. Bootstrapped exactly as ``scripts/run_all.py`` already does.
+
+Round 4 (W-001): the in-place truncate above is SUBTRACTED. It solved
+purity but not atomicity -- a promotion that raised after truncating and
+before finishing left the live database rewritten and unservable, with no
+rollback. :func:`promote_atomically` now builds into a fresh
+``<db>.tmp-<snapshot_id>`` file, re-runs ``scripts/serve.py``'s own refusal
+checks against it, and only then ``os.replace``s it onto the served path --
+one atomic filesystem rename. On any failure the temp file is discarded and
+the served database is untouched, byte-identical to before the call.
 
 Usage: .venv/bin/python scripts/promote.py --db data/cvi.db --data-dir data
                                          --snapshot-id <id> [--as-of 2026-09-12T00:00:00Z]
@@ -50,9 +66,14 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 from cvi.engine import score_repository
 from cvi.deepdive import build_deep_dive
@@ -69,6 +90,7 @@ from cvi.models import (
     RepoMeta,
 )
 from cvi.snapshot.manifest import MANIFEST_FILENAME, SNAPSHOTS_DIRNAME
+from scripts.serve import refusal_reasons as _serve_refusal_reasons
 from scripts.verify import _claimed_hash, _envelope_path, _source_items
 
 DATA = Path(__file__).resolve().parent.parent / "data"
@@ -330,11 +352,18 @@ def promote(
     ``last_indexed_at`` takes ``as_of`` too: left to the column default the
     store stamps SQLite's ``CURRENT_TIMESTAMP`` and the database stops being
     reproducible (D-VER-3). ``data_dir`` is where the run's ``promoted.json``
-    receipt is written. ``repositories`` is truncated before anything is
-    written (round 3, Blocker-1): a promotion's output is exactly
-    ``bundles``, never rows a prior seed or run left behind (upserting alone
-    let a seeded ``cvi/benchmark_data.py`` catalog and a real promotion
-    coexist).
+    receipt is written.
+
+    This function upserts into ``db_path`` as given -- it does not by
+    itself guarantee purity against prior content. Round 3 added an
+    in-place ``DELETE FROM repositories`` here for that; round 4 subtracts
+    it (W-001): a promotion that failed AFTER truncating and before
+    finishing left the live database rewritten and unservable with no
+    rollback. Purity is now the caller's job -- :func:`promote_atomically`
+    builds into a fresh temp file (nothing to truncate: the file did not
+    exist) and only swaps it onto the served path once every check passes.
+    Call this function directly only against a path you already know is
+    disposable (a fresh temp file, a test's own ``tmp_path``).
     """
     if as_of is None:
         as_of = datetime.now(timezone.utc)
@@ -359,7 +388,6 @@ def promote(
     n = 0
     try:
         store.ensure_deep_dive_column()
-        store.truncate_repositories()
         for _key, (meta, events, _p90v) in metas.items():
             eco = meta.ecosystem.value
             result = score_repository(
@@ -394,6 +422,53 @@ def promote(
     return n
 
 
+def promote_atomically(bundles: list[dict[str, Any]], db_path: str, as_of: datetime,
+                       data_dir: Path, manifest: dict[str, Any]) -> int:
+    """Promote ``bundles`` into ``db_path`` without ever rewriting the live
+    file until every check passes (round 4, W-001, `03` §5).
+
+    Builds the whole promotion -- scoring, ``snapshot_meta`` -- into
+    ``<db_path>.tmp-<snapshot_id>``, a brand-new file next to ``db_path``,
+    never the served file itself. Purity against prior content (round 3's
+    Blocker-1) is then a property of never having opened the old file at
+    all, not of an in-place ``DELETE``: round 3's ``truncate_repositories``
+    is subtracted (it solved the wrong half of the problem -- a promotion
+    that failed AFTER truncating and before finishing left the live
+    database rewritten and unservable with no rollback).
+
+    Before the swap, re-runs :func:`scripts.serve.refusal_reasons` -- the
+    same fixture-row and identity-hash checks ``scripts/serve.py`` runs at
+    startup -- against the TEMP file, so a bug that produced an
+    inconsistent promotion is caught here, not at the next ``serve.py``
+    launch. Only then does ``os.replace`` move the temp file onto
+    ``db_path``: one filesystem rename, atomic on POSIX. On any failure
+    (a scoring exception, a self-check failure) the temp file is removed
+    and ``db_path`` is left exactly as it was -- byte-identical, not
+    partially rewritten.
+    """
+    tmp_path = f"{db_path}.tmp-{manifest['snapshot_id']}"
+    Path(tmp_path).unlink(missing_ok=True)
+    ready = False
+    try:
+        n = promote(bundles, tmp_path, as_of, data_dir)
+        write_snapshot_meta(tmp_path, manifest, repositories_dump_hash(tmp_path))
+        store = OperationalStore(tmp_path)
+        try:
+            reasons = _serve_refusal_reasons(store, tmp_path)
+        finally:
+            store.close()
+        if reasons:
+            raise RuntimeError(
+                f"promotion self-check failed for {tmp_path}: " + "; ".join(reasons))
+        ready = True
+    finally:
+        if ready:
+            os.replace(tmp_path, db_path)
+        else:
+            Path(tmp_path).unlink(missing_ok=True)
+    return n
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--db", default=str(DATA / "cvi.db"))
@@ -419,8 +494,7 @@ def main() -> int:
     if not_in_manifest:
         print(f"{len(not_in_manifest)} of {len(bundles)} clean bundles not in manifest "
               f"{manifest['snapshot_id']}: not promoted")
-    n = promote(covered, a.db, as_of, a.data_dir)
-    write_snapshot_meta(a.db, manifest, repositories_dump_hash(a.db))
+    n = promote_atomically(covered, a.db, as_of, a.data_dir, manifest)
     print(f"promoted {n} verified repos as of {as_of.isoformat()} "
           f"-> {a.db} (snapshot {manifest['snapshot_id']})")
     return 0
