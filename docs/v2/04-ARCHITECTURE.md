@@ -138,7 +138,7 @@ class ScoreRecord:
 ```
 
 Rules: `core/` never imports `collect/`, `derive/`, `store/`; `derive/`
-imports `core.models` only; `store/` imports `core` for enums and the tie key
+imports `core.models` only; `store/` imports `core` (enums, records, the tie key) and `snapshot` (manifest, canonical hashes; amended 2026-09-13, W4-2)
 and nothing else. A test enforces the import graph.
 
 ## 4. Data flow
