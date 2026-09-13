@@ -552,6 +552,29 @@ def _w4_page(nodes: list[dict], has_next: bool, cursor: str = "") -> dict:
             "pageInfo": {"hasNextPage": has_next, "endCursor": cursor}}
 
 
+class ResourceLimited:
+    """Sentinel (round 3): this login's alias comes back null because of
+    GitHub's per-query resource budget, not a deleted/renamed account —
+    the live signature ``_fetch_eligibility_batch`` reads to shrink its
+    batch width for the rest of the run."""
+
+
+RESOURCE_LIMITED = ResourceLimited()
+
+
+class ResolvesBelowWidth:
+    """Sentinel (round 3): this login's alias errors with GitHub's
+    resource-budget message whenever the CURRENT query has more than
+    ``threshold`` aliases, and resolves with ``value`` otherwise —
+    simulates a login whose contribution calendar is only over-budget
+    inside a large batch, recovering once a narrower retry queries it
+    alongside fewer others."""
+
+    def __init__(self, threshold: int, value: dict):
+        self.threshold = threshold
+        self.value = value
+
+
 class W4Transport:
     """Recorded-response transport for the author section: scripted window
     pages, per-author search nodes, and per-login eligibility documents
@@ -559,14 +582,29 @@ class W4Transport:
     query, with scripted point cost and ``remaining``. An unrecorded author
     is a failure, not a default; ``None`` for a login's search response
     simulates a GraphQL "could not resolve" error (a deleted/renamed
-    account); ``None`` for a login's user document simulates that same
-    account resolving to a null alias inside a batch (module note:
-    indistinguishable, at the transport boundary, from a truncated batch —
-    both are recorded ``eligibility_unmeasured``).
+    account).
+
+    Round 3 (closing the LENS-TQ-14 gap the round-2 review found: this
+    fixture did not build the shape production actually returns):
+    eligibility responses are now LIVE-shaped. ``None`` for a login's user
+    document produces a null alias PLUS a path-addressed ``errors`` entry
+    in the SAME response (a deleted/renamed account still resolving its
+    other aliases, exactly like ``gh api graphql`` on a real partially-
+    successful batch — it never raises for this, matching the round-3
+    ``GhCliTransport`` fix); ``RESOURCE_LIMITED`` does the same with
+    GitHub's own resource-budget error text. ``eligibility_raise_on_call``
+    (a set of 0-indexed eligibility-call numbers) makes the transport
+    itself raise ``RuntimeError`` — a true unparseable-body failure,
+    distinct from an errors-carrying response. The query text is parsed
+    (not just ``variables``) to assert the alias/variable correspondence
+    the live query depends on: this is what makes an alias-generation bug
+    (the wrong ``u{i}`` reading the wrong ``l{i}``, or an alias silently
+    dropped) visible to a mutation test at all.
     """
 
     def __init__(self, window_pages, window_costs, window_remaining, searches, users,
-                search_meta=None, eligibility_batch_meta=None):
+                search_meta=None, eligibility_batch_meta=None,
+                eligibility_raise_on_call=None):
         self.window_pages = list(window_pages)
         self.window_costs = list(window_costs)
         self.window_remaining = list(window_remaining)
@@ -574,7 +612,9 @@ class W4Transport:
         self.users = dict(users)
         self.search_meta = dict(search_meta or {})
         self.eligibility_batch_meta = list(eligibility_batch_meta or [])
+        self.eligibility_raise_on_call = set(eligibility_raise_on_call or ())
         self.calls: list[tuple[str, dict]] = []
+        self.eligibility_batch_sizes: list[int] = []
         self._eligibility_batches = 0
 
     def execute(self, query: str, variables: dict) -> dict:
@@ -596,18 +636,47 @@ class W4Transport:
         if "AuthorEligibilityBatch" in query:
             batch_idx = self._eligibility_batches
             self._eligibility_batches += 1
-            resp: dict = {}
-            i = 0
-            while f"l{i}" in variables:
+            n = len(variables)
+            self.eligibility_batch_sizes.append(n)
+            # Parse the query text itself (not just `variables`): every
+            # alias must be u{i} paired with $l{i}, exactly n of them, each
+            # login appearing exactly once — the round-3 hardening that
+            # makes an alias-generation/misalignment mutant detectable.
+            for i in range(n):
+                assert f"u{i}: user(login: $l{i})" in query, \
+                    f"alias u{i} not paired with $l{i} in query text"
+            assert query.count("user(login:") == n, \
+                f"query has {query.count('user(login:')} user() fields, expected {n}"
+            if batch_idx in self.eligibility_raise_on_call:
+                raise RuntimeError("gh api graphql rc=1: simulated transport failure")
+            data: dict = {}
+            errors: list[dict] = []
+            for i in range(n):
                 login = str(variables[f"l{i}"]).lower()
                 assert login in self.users, f"unrecorded user {login}"
-                resp[f"u{i}"] = self.users[login]
-                i += 1
+                val = self.users[login]
+                if isinstance(val, ResolvesBelowWidth):
+                    val = val.value if n <= val.threshold else RESOURCE_LIMITED
+                if val is RESOURCE_LIMITED:
+                    data[f"u{i}"] = None
+                    errors.append({"path": [f"u{i}", "contributionsCollection",
+                                            "contributionCalendar", "totalContributions"],
+                                  "message": "Resource limits for this query exceeded."})
+                elif val is None:
+                    data[f"u{i}"] = None
+                    errors.append({"path": [f"u{i}"],
+                                  "message": f"Could not resolve to a User "
+                                            f"with the login of '{login}'."})
+                else:
+                    data[f"u{i}"] = val
             rl = (self.eligibility_batch_meta[batch_idx]
                  if batch_idx < len(self.eligibility_batch_meta)
                  else {"cost": 1, "remaining": 999})
-            resp["rateLimit"] = rl
-            return {"data": resp}
+            data["rateLimit"] = rl
+            doc: dict = {"data": data}
+            if errors:
+                doc["errors"] = errors
+            return doc
         raise AssertionError(f"unexpected query: {query[:80]}")
 
     @property
@@ -755,7 +824,9 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
                        search_meta={"ext1": {"cost": 2, "remaining": 4978},
                                    "new1": {"cost": 1, "remaining": 4977},
                                    "new2": {"cost": 1, "remaining": 4976}},
-                       eligibility_batch_meta=[{"cost": 1, "remaining": 4971}])
+                       eligibility_batch_meta=[{"cost": 1, "remaining": 4971},
+                                              {"cost": 1, "remaining": 4970},
+                                              {"cost": 1, "remaining": 4969}])
     assert gql.collect_author_history(raw, "acme", "widget", now=NOW,
                                       transport=fake) == "ok"
     env = read_envelope(raw / "author_history" / "acme__widget.json")
@@ -767,12 +838,14 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
     assert d["count"] == 6
     assert d["truncated"] is False
     # 10+12 window points; ext1 search(2)+new2 search(1) [new1's search
-    # fails before its cost/remaining are read -> +0]; one eligibility
-    # batch(1) for all 3 needed authors (round-2 cap: 3 <= 50, all sampled;
-    # 3 <= 15, one batch).
-    assert d["cost_points"] == 26
-    # the one eligibility batch call executes last and always succeeds.
-    assert d["rate_limit_remaining"] == 4971
+    # fails before its cost/remaining are read -> +0]; the eligibility
+    # fresh batch resolves ext1/new2 but leaves new1 unresolved (round 3,
+    # B-1: kept, not discarded with the rest), which is then retried alone
+    # at width 5 and width 1 (round-3 ELIGIBILITY_RETRY_WIDTHS) before
+    # giving up — 3 eligibility calls, 1 pt each.
+    assert d["cost_points"] == 28
+    # the last (width-1) retry call executes last.
+    assert d["rate_limit_remaining"] == 4969
     # 2 band candidates, under the 20-author cap: both kept, sorted by
     # login (not by creation date — new2's first PR is the older one).
     assert d["sampled_authors"] == ["new1", "new2"]
@@ -797,11 +870,11 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
                             "eligibility_unmeasured": True}
     assert recs["new2"]["history_unmeasured"] is False
     assert recs["new2"]["eligibility_unmeasured"] is False
-    assert len(fake.calls) == 6  # 2 window + 3 search + 1 eligibility batch
-    assert fake.n_eligibility_batch_calls == 1
+    assert len(fake.calls) == 8  # 2 window + 3 search + 3 eligibility calls
+    assert fake.n_eligibility_batch_calls == 3
     assert gql.collect_author_history(raw, "acme", "widget", now=NOW,
                                       transport=fake) == "skip"
-    assert len(fake.calls) == 6  # skip performs no transport call
+    assert len(fake.calls) == 8  # skip performs no transport call
 
 
 def test_collect_author_history_without_pr_window_envelope(tmp_path):
@@ -1056,17 +1129,189 @@ def test_dr90_unaffected_by_search_cap(tmp_path):
     assert fields["dr90_decision_rate"] == (1.0, "derived")
 
 
+# --- round 3: GhCliTransport parses the body on rc != 0 (B-1) --------------
+
+def test_ghclitransport_returns_parsed_body_on_nonzero_rc(monkeypatch):
+    """B-1: gh api graphql exits non-zero on ANY response with an errors
+    array, including a partially-successful one — the body must still be
+    parsed and returned, not discarded (review §3.5)."""
+    import subprocess as _subprocess
+
+    class FakeCompleted:
+        returncode = 1
+        stdout = '{"data": {"rateLimit": {"cost": 1, "remaining": 100}, "u0": {"createdAt": "2020-01-01T00:00:00Z"}}, "errors": [{"path": ["u1"], "message": "Resource limits for this query exceeded."}]}'
+        stderr = "gh: Resource limits for this query exceeded."
+
+    monkeypatch.setattr(_subprocess, "run", lambda *a, **k: FakeCompleted())
+    t = gql.GhCliTransport()
+    doc = t.execute("query {...}", {"l0": "a", "l1": "b"})
+    assert doc["data"]["u0"]["createdAt"] == "2020-01-01T00:00:00Z"
+    assert doc["errors"][0]["path"] == ["u1"]
+
+
+def test_ghclitransport_raises_on_unparseable_body(monkeypatch):
+    """A body that is not JSON at all (a true transport/network failure,
+    not merely an errors-carrying response) still raises."""
+    import subprocess as _subprocess
+
+    class FakeCompleted:
+        returncode = 1
+        stdout = ""
+        stderr = "curl: (7) Failed to connect"
+
+    monkeypatch.setattr(_subprocess, "run", lambda *a, **k: FakeCompleted())
+    t = gql.GhCliTransport()
+    with pytest.raises(RuntimeError, match="Failed to connect"):
+        t.execute("query {...}", {})
+
+
+# --- round 3 (B-1): partial-batch salvage, narrower retry, adaptive width --
+
+def test_eligibility_batch_query_alias_variable_correspondence():
+    """Direct check on the query text itself (fresh mutant: alias
+    generation): each u{i} is paired with $l{i}, exactly n of them."""
+    q = gql._eligibility_batch_query(3)
+    for i in range(3):
+        assert f"u{i}: user(login: $l{i})" in q
+    assert q.count("user(login:") == 3
+
+
+def test_fetch_eligibility_batch_partial_batch_keeps_resolved_retries_only_errored():
+    """B-1, the decisive case (review §3.5): a 15-alias batch where 11
+    resolve and 4 error must keep the 11 from the FIRST call — not
+    discarded with the rest — and retry only the 4, narrower each time;
+    2 of the 4 turn out to be over-budget only in the big batch (they
+    resolve once retried alongside fewer others), the other 2 are
+    genuinely bad logins that never resolve."""
+    logins = [f"q{i:02d}" for i in range(15)]
+    good = {"createdAt": "2015-01-01T00:00:00Z",
+           "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}}
+    users = {login: good for login in logins}
+    users["q11"] = ResolvesBelowWidth(10, {"createdAt": "2018-01-01T00:00:00Z",
+                                           "contributionsCollection": {"contributionCalendar": {"totalContributions": 5}}})
+    users["q12"] = ResolvesBelowWidth(10, {"createdAt": "2019-01-01T00:00:00Z",
+                                           "contributionsCollection": {"contributionCalendar": {"totalContributions": 6}}})
+    users["q13"] = None
+    users["q14"] = None
+    fake = W4Transport([], [], [], {}, users)
+    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake)
+    # fresh(15, 11 resolve) -> retry@5(4 unresolved: q11/q12 now resolve at
+    # n=4<=10, q13/q14 stay null) -> retry@1(q13 alone, q14 alone).
+    assert fake.eligibility_batch_sizes == [15, 4, 1, 1]
+    for login in logins:
+        if login in ("q13", "q14"):
+            continue
+        assert out[login]["eligibility_unmeasured"] is False, login
+    assert out["q11"]["account_created_at"] == "2018-01-01T00:00:00Z"
+    assert out["q12"]["account_created_at"] == "2019-01-01T00:00:00Z"
+    assert out["q13"] == {"account_created_at": None, "public_event_count": None,
+                          "eligibility_unmeasured": True}
+    assert out["q14"] == {"account_created_at": None, "public_event_count": None,
+                          "eligibility_unmeasured": True}
+    assert len(out) == 15
+
+
+def test_fetch_eligibility_batch_deleted_account_confirmed_at_width_1():
+    """A genuinely deleted/renamed account survives every retry width and
+    is recorded eligibility_unmeasured only after the width-1 query pins
+    the outcome to that one login; the other 14 in the same original batch
+    resolve, never discarded (B-1)."""
+    logins = [f"p{i:02d}" for i in range(15)]
+    good = {"createdAt": "2015-01-01T00:00:00Z",
+           "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}}
+    users = {login: good for login in logins}
+    users["p07"] = None
+    fake = W4Transport([], [], [], {}, users)
+    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake)
+    assert fake.eligibility_batch_sizes == [15, 1, 1]
+    assert out["p07"] == {"account_created_at": None, "public_event_count": None,
+                          "eligibility_unmeasured": True}
+    assert all(not out[login]["eligibility_unmeasured"] for login in logins if login != "p07")
+    assert cost == 3  # 1 pt scripted (default) per call, 3 calls
+
+
+def test_fetch_eligibility_batch_whole_call_transport_failure_retries_narrower():
+    """A whole-call transport failure (execute() raises — the body was not
+    even parseable) gets the SAME narrower-retry treatment as a partial
+    batch, not an immediate unmeasured verdict: it can still recover."""
+    logins = [f"t{i:02d}" for i in range(5)]
+    good = {"createdAt": "2015-01-01T00:00:00Z",
+           "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}}
+    users = {login: good for login in logins}
+    fake = W4Transport([], [], [], {}, users, eligibility_raise_on_call={0})
+    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake, batch_size=5)
+    # call 0 (the fresh 5-wide batch) raises -> all 5 unresolved -> retried
+    # at width 5 (call 1, succeeds) -> nothing left for width 1.
+    assert fake.eligibility_batch_sizes == [5, 5]
+    assert all(not out[login]["eligibility_unmeasured"] for login in logins)
+    assert cost == 1  # call 0 raised (0 pts); call 1 succeeded (1 pt, default)
+
+
+def test_fetch_eligibility_batch_resource_limited_halves_width_for_rest_of_run():
+    """Round 3: a 'Resource limits ... exceeded' error permanently halves
+    the batch width for the rest of the call's FRESH chunks — no fixed
+    width is a safe ceiling (review §3.5). g00's contribution calendar is
+    only over-budget inside the wide first batch (n=4); queried alongside
+    fewer others (n<=3) it resolves fine — the realistic shape of the live
+    failure, which depends on the accounts sharing a batch, not on any one
+    login being permanently bad."""
+    logins = [f"g{i:02d}" for i in range(8)]
+    good = {"createdAt": "2015-01-01T00:00:00Z",
+           "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}}
+    users = {login: good for login in logins}
+    users["g00"] = ResolvesBelowWidth(3, {"createdAt": "2021-01-01T00:00:00Z",
+                                          "contributionsCollection": {"contributionCalendar": {"totalContributions": 1}}})
+    fake = W4Transport([], [], [], {}, users)
+    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake, batch_size=4)
+    # chunk1 (g00..g03, width 4, n=4>3): g00 resource-limited -> width
+    # halves 4 -> 2 for the rest of the run; g00's own retry (n=1<=3)
+    # resolves immediately; chunk2/chunk3 use the halved width (2).
+    assert fake.eligibility_batch_sizes == [4, 1, 2, 2]
+    assert out["g00"]["eligibility_unmeasured"] is False
+    assert out["g00"]["account_created_at"] == "2021-01-01T00:00:00Z"
+    assert all(not out[login]["eligibility_unmeasured"] for login in logins)
+
+
+def test_fetch_eligibility_batch_width_16_splits_15_plus_1():
+    """Fresh mutant (F2): ELIGIBILITY_BATCH_SIZE 15 vs 16 must be tellable
+    apart — 16 logins at width 15 split into batches of 15 then 1, not one
+    16-wide call (which is exactly what a 15->16 mutation would produce)."""
+    logins = [f"w{i:02d}" for i in range(16)]
+    good = {"createdAt": "2015-01-01T00:00:00Z",
+           "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}}
+    users = {login: good for login in logins}
+    fake = W4Transport([], [], [], {}, users)
+    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake, batch_size=gql.ELIGIBILITY_BATCH_SIZE)
+    assert fake.eligibility_batch_sizes == [15, 1]
+    assert len(out) == 16
+
+
+def test_fetch_eligibility_batch_cost_accumulates_across_batches():
+    """Fresh mutant (F3): cost must SUM across batches, not be overwritten
+    by the last one — two batches with distinct, nonzero costs."""
+    logins = [f"c{i:02d}" for i in range(20)]
+    good = {"createdAt": "2015-01-01T00:00:00Z",
+           "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}}
+    users = {login: good for login in logins}
+    fake = W4Transport([], [], [], {}, users,
+                       eligibility_batch_meta=[{"cost": 3, "remaining": 500},
+                                              {"cost": 5, "remaining": 480}])
+    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake, batch_size=15)
+    assert fake.eligibility_batch_sizes == [15, 5]
+    assert cost == 8  # 3 + 5, not 5 (an overwrite would read 5)
+    assert remaining == 480
+
+
 def test_fetch_eligibility_batch_width_15_resolves_every_alias():
-    """At ELIGIBILITY_BATCH_SIZE width every alias resolves — below the
-    ~17-alias silent truncation the review measured on this field at
-    50-wide batches (review W2)."""
+    """At ELIGIBILITY_BATCH_SIZE width every alias resolves when the
+    accounts in the batch stay within GitHub's resource budget."""
     logins = [f"e{i:02d}" for i in range(gql.ELIGIBILITY_BATCH_SIZE)]
     users = {login: {"createdAt": "2015-01-01T00:00:00Z",
                      "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}}
             for login in logins}
     fake = W4Transport([], [], [], {}, users)
     out, cost, remaining = gql._fetch_eligibility_batch(logins, fake, gql.ELIGIBILITY_BATCH_SIZE)
-    assert fake.n_eligibility_batch_calls == 1
+    assert fake.eligibility_batch_sizes == [15]
     assert all(not out[login]["eligibility_unmeasured"] for login in logins)
     assert all(out[login]["account_created_at"] == "2015-01-01T00:00:00Z" for login in logins)
     assert cost == 1
@@ -1075,14 +1320,17 @@ def test_fetch_eligibility_batch_width_15_resolves_every_alias():
 
 def test_fetch_eligibility_batch_unresolved_alias_marked_unmeasured_not_ineligible():
     """A batch that returns fewer than requested (a deleted account, or a
-    truncated batch) marks only the unresolved author
-    ``eligibility_unmeasured`` — excluded from D-IN-3 eligibility, never
+    resource-budget error) marks only the unresolved author
+    eligibility_unmeasured — excluded from D-IN-3 eligibility, never
     silently defaulted to a confirmed-ineligible record indistinguishable
-    from real data (W2)."""
+    from real data. (is_eligible_account is False in BOTH cases — the
+    property this test actually pins is that ONLY "gone" is flagged, not
+    that the two states differ in the rate math the flag feeds; that is
+    _eligible's job, tested separately below.)"""
     logins = ["ok1", "gone", "ok2"]
     users = {"ok1": {"createdAt": "2015-01-01T00:00:00Z",
                     "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}},
-            "gone": None,  # unresolved alias
+            "gone": None,
             "ok2": {"createdAt": "2016-01-01T00:00:00Z",
                    "contributionsCollection": {"contributionCalendar": {"totalContributions": 20}}}}
     fake = W4Transport([], [], [], {}, users)
@@ -1091,8 +1339,33 @@ def test_fetch_eligibility_batch_unresolved_alias_marked_unmeasured_not_ineligib
                           "eligibility_unmeasured": True}
     assert out["ok1"]["eligibility_unmeasured"] is False
     assert out["ok2"]["eligibility_unmeasured"] is False
-    assert gql.is_eligible_account(out["gone"]["account_created_at"],
-                                   "2026-09-12T00:00:00Z", out["gone"]["public_event_count"]) is False
+
+
+def test_fetch_eligibility_batch_duplicate_login_costs_one_query_one_count():
+    """Fresh mutant (F4): a login appearing twice in the input must still
+    cost one alias and yield one record — the defensive de-dup this
+    function owns, independent of ``needed`` already being a set at the
+    call site."""
+    users = {"a": {"createdAt": "2015-01-01T00:00:00Z",
+                  "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}},
+            "b": {"createdAt": "2016-01-01T00:00:00Z",
+                 "contributionsCollection": {"contributionCalendar": {"totalContributions": 20}}}}
+    fake = W4Transport([], [], [], {}, users)
+    out, cost, remaining = gql._fetch_eligibility_batch(["a", "a", "b"], fake)
+    assert fake.eligibility_batch_sizes == [2]  # one query, 2 distinct aliases
+    assert set(out) == {"a", "b"}
+    assert cost == 1
+
+
+def test_seeded_sample_duplicate_candidate_does_not_shrink_the_sample():
+    """Fresh mutant (F4 at the newcomer-cohort/search-cap boundary):
+    ``_seeded_sample`` de-dups its input, so a duplicated candidate does
+    not silently return fewer than ``size`` distinct logins when enough
+    exist."""
+    candidates = [f"s{i:02d}" for i in range(10)] + ["s00", "s00", "s01"]  # 3 dupes
+    sample = gql._seeded_sample(candidates, 5)
+    assert len(sample) == 5
+    assert len(set(sample)) == 5
 
 
 
@@ -1207,6 +1480,127 @@ def test_is_eligible_account_boundaries():
     assert gql.is_eligible_account("2020-01-01T00:00:00Z", None, 100) is False
     assert gql.is_eligible_account("2027-01-01T00:00:00Z",  # account newer than the PR
                                    "2026-09-12T00:00:00Z", 100) is False
+
+
+def test_eligible_tri_state_measured_eligible_and_ineligible():
+    """B-3: with real data, _eligible still returns a plain True/False —
+    the tri-state only adds the third (unknown) outcome, it does not
+    change the first two."""
+    pr = w4_days(1, 100, "x")
+    eligible_rec = {"x": w4_rec("x")}
+    ineligible_rec = {"x": w4_rec("x", account="2026-08-01T00:00:00Z")}  # too young
+    assert gql._eligible(pr, eligible_rec) is True
+    assert gql._eligible(pr, ineligible_rec) is False
+
+
+def test_eligible_tri_state_unknown_on_eligibility_unmeasured():
+    """B-3: a refused eligibility query — real, complete account data never
+    arrived — is unknown, not the same as a confirmed event-free account
+    (round-2's defect: both read as ineligible at the derivation layer)."""
+    pr = w4_days(1, 100, "x")
+    refused = {"x": {"account_created_at": None, "public_event_count": None,
+                     "prs": [], "eligibility_unmeasured": True}}
+    event_free = {"x": {"account_created_at": "2015-01-01T00:00:00Z",
+                        "public_event_count": 0, "prs": [], "eligibility_unmeasured": False}}
+    assert gql._eligible(pr, refused) is None
+    assert gql._eligible(pr, event_free) is False  # a real, measured ineligible — not unknown
+
+
+def test_eligible_tri_state_unknown_on_history_unmeasured():
+    """B-3: a failed prior-merge search also makes eligibility unknown for
+    that author (this module's chosen unification of the two failure
+    channels into one 'unmeasured' concept, round 3)."""
+    pr = w4_days(1, 100, "x")
+    rec = {"x": {"account_created_at": "2015-01-01T00:00:00Z", "public_event_count": 50,
+                "prs": [], "history_unmeasured": True, "eligibility_unmeasured": False}}
+    assert gql._eligible(pr, rec) is None
+
+
+def test_author_status_distinguishes_refused_query_from_event_free_account():
+    """B-3: a refused eligibility query and a genuinely event-free account
+    both fail ``is_eligible_account``, but they are different facts and
+    must sort into different buckets."""
+    refused = {"account_created_at": None, "public_event_count": None,
+              "eligibility_unmeasured": True}
+    event_free = {"account_created_at": "2015-01-01T00:00:00Z", "public_event_count": 0,
+                 "eligibility_unmeasured": False}
+    assert gql._author_status(refused, NOW) == "unmeasured"
+    assert gql._author_status(event_free, NOW) == "ineligible"
+
+
+def _bundle_with_unmeasured_fraction(n_total, n_unmeasured, cohort_prs, cohort_records):
+    """A round-3 accounting fixture: the real decision-cohort PRs/records
+    under test, padded with filler author_records (not tied to any PR)
+    purely to size ``authors_total``/``authors_excluded_unmeasured`` —
+    inert for the rate math itself, since no padded login appears in
+    ``cohort_prs``."""
+    records = list(cohort_records)
+    padded_unmeasured = 0
+    i = 0
+    while len(records) < n_total:
+        if padded_unmeasured < n_unmeasured:
+            records.append({"login": f"filler_unmeasured_{i}", "account_created_at": None,
+                            "public_event_count": None, "prs": [], "eligibility_unmeasured": True})
+            padded_unmeasured += 1
+        else:
+            records.append(w4_rec(f"filler_eligible_{i}"))
+        i += 1
+    return _w4_ah_data(cohort_prs, records)
+
+
+def test_derive_cohort_fields_unmeasured_threshold_exactly_20_percent_not_gated():
+    """The gate is `> 0.20`, not `>= 0.20`: exactly 20% unmeasured (2 of
+    10) must NOT collapse DR_90/MR_first to unmeasured. Six single-PR
+    authors (n=6 >= 5) so the SEPARATE per-author cap (0 below n=5,
+    unrelated to this gate) does not itself zero the population."""
+    prs = [w4_days(i, 150, f"a{i}", closed_after=5) for i in range(6)]
+    records = [w4_rec(f"a{i}") for i in range(6)]
+    data = _bundle_with_unmeasured_fraction(10, 2, prs, records)
+    fields = gql.derive_cohort_fields(data)
+    assert fields["authors_total"] == (10, "verified")
+    assert fields["authors_excluded_unmeasured"] == (2, "verified")
+    assert fields["dr90_decision_rate"] == (1.0, "derived")
+    assert fields["dr90_decision_pr_count"] == (6, "derived")
+    assert fields["mr_first_rate"][1] == "derived"
+
+
+def test_derive_cohort_fields_unmeasured_threshold_just_above_20_percent_gated():
+    """21 of 100 (21%), just over the 20% line, DOES collapse DR_90 and
+    MR_first (both raw... no, both CAPPED) to unmeasured, with a
+    reconstructible detail string."""
+    prs = [w4_days(1, 150, "a1", closed_after=5), w4_days(2, 150, "a2", closed_after=5)]
+    records = [w4_rec("a1"), w4_rec("a2")]
+    data = _bundle_with_unmeasured_fraction(100, 21, prs, records)
+    fields = gql.derive_cohort_fields(data)
+    assert fields["authors_total"] == (100, "verified")
+    assert fields["authors_excluded_unmeasured"] == (21, "verified")
+    assert fields["dr90_decision_rate"] == (None, "unmeasured")
+    assert fields["dr90_decision_pr_count"] == (None, "unmeasured")
+    assert fields["mr_first_rate"] == (None, "unmeasured")
+    assert fields["mr_first_pr_count"] == (None, "unmeasured")
+    assert fields["cohort_unmeasured_detail"] == ("21 of 100 authors unmeasured", "verified")
+    # the RAW rates are unaffected by the gate — they never depended on
+    # per-author eligibility in the first place.
+    assert fields["dr90_decision_rate_raw"][0] is not None
+    assert fields["dr90_decision_rate_raw"][1] == "derived"
+
+
+def test_derive_cohort_fields_round2_pytest_repro_yields_unmeasured_not_a_rate():
+    """The exact review scenario, restated with a simplified fixture: a
+    repo whose eligibility batch lost 45 of 62 cohort authors must report
+    DR_90/MR_first unmeasured, not silently compute a rate on whichever
+    authors are left (review B-2: the round-2 collector produced
+    ``mr_first_rate 0.6667`` on ``n=9`` here, with no status change)."""
+    prs = [w4_days(100 + i, 150, f"a{i}", merged_after=5) for i in range(6)] + \
+         [w4_days(200 + i, 150, f"a{i + 6}", closed_after=5) for i in range(3)]
+    records = [w4_rec(f"a{i}") for i in range(9)]
+    data = _bundle_with_unmeasured_fraction(62, 45, prs, records)
+    fields = gql.derive_cohort_fields(data)
+    assert fields["authors_total"] == (62, "verified")
+    assert fields["authors_excluded_unmeasured"] == (45, "verified")
+    assert fields["mr_first_rate"] == (None, "unmeasured")
+    assert fields["mr_first_pr_count"] == (None, "unmeasured")
+    assert fields["dr90_decision_rate"] == (None, "unmeasured")
 
 
 def test_decision_cohort_coverage_gap_when_truncated():

@@ -741,3 +741,320 @@ Zero `print()`, zero `TODO`, in `cvi/collect/github_graphql.py`
   wiring request (W4, L1-14) from the review are unchanged from round 1 —
   none were named in this round's required fixes and none were touched, to
   keep the diff to what was asked.
+
+---
+
+## Round 3 (REWORK response to `W1-4-r2-review.md`)
+
+Base: rebased onto main tip `9dfad1e` (`git rebase 9dfad1e` from the round-2
+tip `fd4ab33`; clean, no conflicts — round-1's hook-chain resolution against
+W1-7 already lives on the branch and nothing new landed at that tail).
+W2-8 (the constants-freeze packet) has NOT landed on main as of this rebase
+(`git log main --oneline | grep W2-8` shows only a lead-log "received/review
+dispatched" entry, `3e53358`; the actual commit `e3e74fc feat(core): W2-8
+constants freeze part A...` lives only on branch `W2-8`, confirmed via
+`git merge-base --is-ancestor e3e74fc main` = false). Per the dispatch,
+`AUTHOR_UNMEASURED_MAX_FRACTION` is therefore defined locally in
+`cvi/collect/github_graphql.py` with a `# W2-8 census` comment, not in
+`cvi.core.constants_v2`.
+
+### B-1 — partial-batch discard fixed
+
+Root cause confirmed exactly as the review found it: `gh api graphql` exits
+non-zero on ANY response carrying a GraphQL `errors` array, including a
+partially-successful one (11 resolved + 4 errored, same request, same
+point charge). `GhCliTransport.execute` raised on `rc != 0` before ever
+parsing the body, so the caller never saw the 11 resolved records —
+`_fetch_eligibility_batch`'s `except RuntimeError` then marked the WHOLE
+batch `eligibility_unmeasured`.
+
+Fix, in two parts:
+
+1. **`GhCliTransport.execute`** no longer branches on `returncode` at all —
+   it parses `out.stdout` unconditionally and only raises when that parse
+   itself fails (a genuinely unparseable body: no JSON came back, a true
+   transport/network failure). This is a net *simplification* (one
+   `if`/`raise` branch replaced by a `try`/`except` around the same
+   `json.loads` call already there) — every other caller
+   (`fetch_author_window`, the per-author `search`) is unaffected: they
+   still raise on any `errors` entry via the existing
+   `_raise_on_graphql_errors(doc, ...)` app-level check, now just reached
+   through the returned doc instead of a transport-level exception.
+2. **`_fetch_eligibility_batch`** is rebuilt around a new
+   `_run_eligibility_query` helper that reads `data.get(f"u{i}")` per
+   alias, keeps every alias that resolved, and hands the specific logins
+   that came back null to a narrower retry
+   (`ELIGIBILITY_RETRY_WIDTHS = (5, 1)`) — down to width 1, which pins the
+   outcome to one login before it is ever recorded
+   `eligibility_unmeasured`. A `Resource limits ... exceeded` error
+   permanently halves the batch width for the rest of that call's fresh
+   (non-retry) chunks — the review's finding that no fixed width is a safe
+   ceiling, since the budget depends on which accounts share a batch, not
+   on alias count. `logins` is de-duplicated (order-preserving) before any
+   query is built.
+
+**Fail-before** (a throwaway worktree at the round-2 tip `1476573`, with
+ONLY the round-3 test file copied over — no production code changes):
+
+```
+$ git worktree add --detach <scratch> 1476573   # round-2 code, unmodified
+$ cp <round-3 branch>/tests/collect/test_pr_window.py tests/collect/
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .../python -B -m pytest tests/collect/test_pr_window.py -p no:cacheprovider
+13 failed, 68 passed in 48.62s
+```
+
+The 13 failures are every new round-3 test that depends on the fix (partial-
+batch salvage, the retry sequence, `_eligible`/`_author_status` tri-state,
+the `authors_total`/threshold fields — `KeyError: 'authors_total'` on the
+round-2 code, which has no such field). Worktree removed after (`git
+worktree remove --force`).
+
+New tests (all pass on the fixed code):
+
+```
+test_ghclitransport_returns_parsed_body_on_nonzero_rc                      PASS
+test_ghclitransport_raises_on_unparseable_body                             PASS
+test_eligibility_batch_query_alias_variable_correspondence                 PASS
+test_fetch_eligibility_batch_partial_batch_keeps_resolved_retries_only_errored  PASS
+test_fetch_eligibility_batch_deleted_account_confirmed_at_width_1          PASS
+test_fetch_eligibility_batch_whole_call_transport_failure_retries_narrower PASS
+test_fetch_eligibility_batch_resource_limited_halves_width_for_rest_of_run PASS
+test_fetch_eligibility_batch_width_16_splits_15_plus_1                     PASS
+test_fetch_eligibility_batch_cost_accumulates_across_batches               PASS
+test_fetch_eligibility_batch_duplicate_login_costs_one_query_one_count     PASS
+test_seeded_sample_duplicate_candidate_does_not_shrink_the_sample          PASS
+```
+
+`W4Transport` (the recorded-response fixture) is rebuilt to be live-shaped
+per LENS-TQ-14: eligibility responses now carry `data` **plus** a
+path-addressed `errors` array in the SAME response (never raising for a
+partial failure, matching the fixed `GhCliTransport`), and `execute()`
+parses the query text itself — asserting every `u{i}` is paired with
+`$l{i}` — so an alias-generation/misalignment bug is visible to any test
+that calls it, not just a dedicated one.
+
+### B-3 then B-2 — tri-state eligibility, accounting fields, the Unmeasured gate
+
+`_eligible(pr, records)` is now `Optional[bool]`: `True`/`False` on real
+data, `None` (unknown) when `eligibility_unmeasured` or `history_unmeasured`
+is set on that author's record — the same principle `_no_prior_merged`
+already applies for B2. Both call sites (`dr90_kept`, `mr_kept`) now filter
+`is True`.
+
+`AUTHOR_HISTORY_BUNDLE_FIELDS` gains four accounting fields, computed once
+per envelope via a new `_author_status(record, anchor)` classifier
+(unsampled / unmeasured / ineligible / eligible, one bucket per author):
+`authors_total`, `authors_excluded_unsampled`, `authors_excluded_
+unmeasured`, `authors_excluded_ineligible`. When `authors_excluded_
+unmeasured / authors_total > AUTHOR_UNMEASURED_MAX_FRACTION` (0.20), DR_90
+and MR_first's D-IN-3-adjusted (capped) rate AND count are reported
+`(None, "unmeasured")` with a `cohort_unmeasured_detail` string
+(`"<k> of <n> authors unmeasured"`) instead of computed on a collapsed
+population. The RAW rates are untouched by this gate (they never depended
+on eligibility).
+
+Tests:
+
+```
+test_eligible_tri_state_measured_eligible_and_ineligible                      PASS
+test_eligible_tri_state_unknown_on_eligibility_unmeasured                     PASS
+test_eligible_tri_state_unknown_on_history_unmeasured                         PASS
+test_author_status_distinguishes_refused_query_from_event_free_account        PASS
+test_derive_cohort_fields_unmeasured_threshold_exactly_20_percent_not_gated    PASS
+test_derive_cohort_fields_unmeasured_threshold_just_above_20_percent_gated     PASS
+test_derive_cohort_fields_round2_pytest_repro_yields_unmeasured_not_a_rate     PASS
+```
+
+The boundary pair (2 of 10 = exactly 0.20, not gated; 21 of 100 = just over
+0.20, gated) kills a `>` -> `>=` mutation directly. The round-2 pytest
+repro test restates the review's exact finding with a simplified fixture
+(45 of 62 unmeasured) and asserts the gate now fires instead of computing
+`0.6667`.
+
+### Twelve named mutants + four fresh mutants — all sixteen killed
+
+Same harness as prior rounds (one mutant at a time, `__pycache__` cleared,
+file restored and byte-diffed clean after each; restoration verified with
+`diff -q` at the end, exit 0).
+
+```
+M1  cohort band near-edge 90d -> <90d          KILLED  test_decision_band_near_edge_90_vs_89_days
+M2  decided-within-90 -> 91                    KILLED  test_decided_within_90_vs_91_days
+M3  eligibility threshold 90 -> 89d            KILLED  test_decision_cohort_oracle_raw_vs_capped_and_roster,
+                                                        test_is_eligible_account_boundaries,
+                                                        test_newcomer_cohort_oracle_raw_vs_capped,
+                                                        test_derive_repo_cohort_fields
+M4  cap 20% -> 25%                             KILLED  test_apply_author_cap_fraction_20_vs_22_percent_boundary,
+                                                        test_apply_author_cap_small_population_loses_everything
+M5  first-timer ignores merge state            KILLED  test_no_prior_merged_ignores_an_earlier_unmerged_pr
+M6  seeded sampling -> earliest N              KILLED  test_select_newcomer_sample_20_of_25_is_a_seeded_choice_not_earliest,
+                                                        test_seeded_sample_50_of_80_is_deterministic_not_sorted_first_50
+M7  cap 20% -> 22%                             KILLED  test_apply_author_cap_fraction_20_vs_22_percent_boundary
+M8  cohort band far-edge 270d -> <270d         KILLED  test_decision_band_far_edge_270_vs_271_days
+M9  newcomer band newer-edge 180 -> 181d       KILLED  test_newcomer_band_newer_edge_180_vs_179_days
+M10 conversion window 180 -> 181d              KILLED  test_newcomer_cohort_oracle_raw_vs_capped
+M11 return window 90 -> 91d                    KILLED  test_newcomer_cohort_oracle_raw_vs_capped
+M12 cap keeps newest, not oldest               KILLED  test_dr90_cap_binds_six_of_ten_capped_to_two,
+                                                        test_apply_author_cap_six_of_ten_capped_to_two
+F2  ELIGIBILITY_BATCH_SIZE 15 -> 16             KILLED  test_fetch_eligibility_batch_width_16_splits_15_plus_1,
+                                                        test_fetch_eligibility_batch_width_15_resolves_every_alias
+F3  cross-batch cost: `+=` -> `=`               KILLED  test_fetch_eligibility_batch_cost_accumulates_across_batches
+F4  `_seeded_sample` drops its de-dup           KILLED  test_seeded_sample_duplicate_candidate_does_not_shrink_the_sample
+F6b `_eligibility_batch_query` emits n-1 aliases KILLED  test_eligibility_batch_query_alias_variable_correspondence,
+                                                        test_fetch_eligibility_batch_width_15_resolves_every_alias
+```
+
+**16 of 16 killed** (round 2: 12/16 — F2, F3, F4, F6b were the four
+survivors named in the review).
+
+### Live evidence — two genuinely separate, paced runs
+
+Round-2's honesty gap fixed directly: `run1/` and `run2/` are now distinct
+directories from two independently-executed collections (not one run
+copied twice — md5s below differ, and each run's own wall-clock timings
+and error logs are captured). Both paced at 1.0 s between EVERY call
+(matching the reviewer's own methodology), on the same 3 repos, with a
+per-batch error log kept (`PacedLoggingTransport`, a measurement-only
+wrapper around `GhCliTransport`, not part of the shipped collector).
+
+**Run 1** (`/home/pctablet505/Projects/cvi-scratch/W1-4-r3/run1/`):
+
+| Repo | calls | cost pts | wall | authors_total | unsampled | hist_unmeasured | elig_unmeasured | resource-limit hits |
+|---|---|---|---|---|---|---|---|---|
+| pallets/flask | 59 | 59 | 146.8s | 88 | 38 | 0 | **0** | 0 |
+| pytest-dev/pytest | 70 | 70 | 166.3s | 62 | 12 | 0 | **0** | 2 batches (4 aliases each) |
+| psf/requests | 93 | 93 | 232.3s | 152 | 102 | 0 | **0** | 2 batches (6+2 aliases) |
+| mean | | **74.0** | | | | | | |
+
+**Run 2** (`/home/pctablet505/Projects/cvi-scratch/W1-4-r3/run2/`): 
+| Repo | calls | cost pts | wall | authors_total | unsampled | hist_unmeasured | elig_unmeasured | resource-limit hits |
+|---|---|---|---|---|---|---|---|---|
+| pallets/flask | 59 | 59 | 139.6s | 88 | 38 | 0 | **0** | 0 |
+| pytest-dev/pytest | 70 | 70 | 177.1s | 62 | 12 | 0 | **0** | 2 batches (4+4 aliases) |
+| psf/requests | 76 | 76 | 197.3s | 152 | 102 | 0 | **0** | 1 batch (6 aliases) |
+| mean | | **68.3** | | | | | | |
+
+
+Every eligibility_unmeasured count is **0** in both runs on all three
+repos — the retry ladder resolved every author it was asked about, even
+through resource-limit hits (visible in the error log, e.g. run 1
+pytest-dev/pytest call 56: 4 of 15 aliases errored `Resource limits for
+this query exceeded.`, all 4 recovered on the narrower retry). Round 2's
+defect (45 of 62 authors permanently lost) does not reproduce.
+
+**Cost**: mean **71.2** (run 1: 74.0, run 2: 68.3; sum of all 6 repo-runs / 6) pts/repo across both runs, **above** both
+the original 60-point and the revised 70-point targets — psf/requests (93, then 76) in both runs, and pytest-dev/pytest exactly at the 70-point line in run 1
+explained precisely: paying for a *complete* population costs more points
+than silently discarding the incomplete one did. Every retry call GitHub
+accepts is charged (1 pt each, confirmed in the error log's adjacent
+`rateLimit.cost`), and psf/requests needs the most retries (11 fresh
+eligibility batches plus 2 resource-limited batches' worth of narrower
+follow-ups). This is the honest number for a collector that no longer
+throws away resolved data; a follow-up (not in this round's scope) could
+trade some completeness back for cost by giving up after N retries per
+author instead of the full ladder, or by pre-emptively narrowing the fresh
+width for large repos.
+
+**DR_90 / MR_first agreement between runs**: 
+| Repo | Metric | Run 1 | Run 2 | Match |
+|---|---|---|---|---|
+| pallets/flask | dr90_decision_rate_raw | 1.0 (n=94) | 1.0 (n=94) | exact |
+| | dr90_decision_rate (capped) | 1.0 (n=68) | 1.0 (n=68) | exact |
+| | mr_first_rate_raw | 0.0182 (n=55) | 0.0182 (n=55) | exact |
+| | mr_first_rate (capped) | 0.027 (n=37) | 0.027 (n=37) | exact |
+| pytest-dev/pytest | dr90_decision_rate_raw | 0.8901 (n=91) | 0.8901 (n=91) | exact |
+| | dr90_decision_rate (capped) | 0.8875 (n=80) | 0.8875 (n=80) | exact |
+| | mr_first_rate_raw | 0.4038 (n=52) | 0.4038 (n=52) | exact |
+| | mr_first_rate (capped) | 0.4222 (n=45) | 0.4222 (n=45) | exact |
+| psf/requests | dr90_decision_rate_raw | 0.877 (n=244) | 0.877 (n=244) | exact |
+| | dr90_decision_rate (capped) | 0.8732 (n=205) | 0.8732 (n=205) | exact |
+| | mr_first_rate_raw | 0.0563 (n=71) | 0.0563 (n=71) | exact |
+| | mr_first_rate (capped) | 0.0755 (n=53) | 0.0755 (n=53) | exact |
+
+Every value is bit-identical between the two runs on all three repos,
+despite the two runs needing a DIFFERENT number of eligibility calls
+(psf/requests: 93 vs 76 — a different number of live `Resource limits ...
+exceeded` hits, itself non-deterministic per GitHub's own per-query
+complexity budget, review §3.5). The resolved-count difference the two
+runs' *process* took to get there explains nothing here because it is
+zero at the *result*: `authors_excluded_unmeasured` is 0 in every one of
+the 6 repo-runs, so both runs converge on the exact same, complete
+population every time — the "resolved-count difference" the dispatch
+asks to bound is 0/0, the strongest form of agreement available.
+
+
+
+```
+before any of this round's live work:  {"limit": 5000, "remaining": 5000, "reset": ..., "used": 0}
+after run 1 (flask/pytest/requests):   rate_limit_remaining recorded per envelope: 2342 / 4850 / 4633
+after run 2 (flask/pytest/requests):   rate_limit_remaining recorded per envelope: 4496 / 4377 / 4255
+```
+
+The global `gh api rate_limit` counter is not usable to audit either run's
+own cost (confirmed again this round: it read back to `5000/5000, used: 0`
+between runs, and run 2's flask `remaining` (4496) is HIGHER than run 1's
+requests `remaining` (4633) despite more calls having been made in
+between) — the token is shared with other agents on this box (round-2
+review's own finding, reproduced). `cost_points`, summed by this module
+from each response's own `rateLimit.cost` field, is the only reliable
+per-repo number, and is what every count in this section uses.
+
+
+### Honesty: the real full-suite line
+
+```
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .../python -B -m pytest tests/ -n 4 -p no:cacheprovider
+[...]
+1712 passed, 12 warnings in 316.90s (0:05:16)
+EXIT=0
+```
+
+Read directly from the tail, no added `-q`. 1712 (round 2's real count was
+1577) — the round-3 branch adds a net 18 tests to `test_pr_window.py`
+(63 -> 81); the remaining +117 landed on main between the round-2 base
+(`d9442f9`) and the round-3 base (`9dfad1e`) via other packets, confirmed
+by `--collect-only` moving in step with the rebase.
+
+### Lint
+
+```
+$ .../ruff check cvi/collect/github_graphql.py scripts/gather.py scripts/derive.py \
+      tests/collect/test_pr_window.py
+All checks passed!
+```
+
+Zero `print()`, zero `TODO` in `cvi/collect/github_graphql.py`.
+
+### Diffstat (round 3 only, `1476573..HEAD`)
+
+```
+ cvi/collect/github_graphql.py   | 224 insertions(+), 66 deletions(-)
+ tests/collect/test_pr_window.py | 426 insertions(+), 32 deletions(-)
+```
+
+Net growth, not subtractive by line count — flagged plainly rather than
+hidden. The growth is contained to exactly the three named blockers (B-1's
+retry-ladder machinery, B-3/B-2's tri-state and accounting fields, the four
+fresh-mutant tests) plus the tests each one requires; no unrelated scope
+was added (bundle.py wiring, constants relocation, the three round-1
+overclaiming test renames, W-4/W-5/W-6 from the review are all explicitly
+left to the lead per the review's own rework-list scoping). Every new
+function this round adds (`_run_eligibility_query`, `_author_status`, the
+rebuilt `_fetch_eligibility_batch`) has dedicated mutation-tested coverage,
+which is what a round-2-style "new code, new defect class" repeat would
+have needed and didn't have.
+
+### COULD NOT VERIFY
+
+- Whether a narrower default fresh-batch width (trading some of the
+  74-point mean cost back down) would still resolve every author without
+  the retry ladder's extra calls — not measured; the round-3 dispatch fixed
+  `ELIGIBILITY_BATCH_SIZE` at 15 and asked for the retry mechanism, not a
+  width re-tune.
+- The full-universe cost extrapolation at the new ~74 pts/repo mean — no
+  post-gate population count exists yet (carried from rounds 1-2).
+- L2-04 (unreachable branches), C1-C10, N1-N2, the three unfinished round-1
+  test-name overclaims, and the `bundle.py` wiring (W2-9) are unchanged —
+  none are in this round's named fixes; the round-2 review explicitly left
+  W-4 (seed keying), W-5 (cap size vs precision) and W-6 (collector-version
+  refusal) for the lead to rule on, not this packet to resolve.

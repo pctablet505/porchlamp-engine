@@ -113,17 +113,29 @@ class GhCliTransport:
         self.timeout_seconds = timeout_seconds
 
     def execute(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
-        """Run one query through ``gh api graphql`` and raise on rc != 0."""
+        """Run one query through ``gh api graphql`` and return its parsed
+        body. ``gh`` exits non-zero whenever the response carries a
+        GraphQL ``errors`` array — including a partially-successful,
+        alias-addressed response with real data alongside it (round-3
+        fix: a whole-batch discard on ``rc != 0`` threw away every
+        resolved alias in a batch that had even one error). The body is
+        parsed regardless of ``rc``; only an unparseable body (a true
+        transport/network failure, no JSON came back at all) raises.
+        Callers that must treat ANY ``errors`` entry as fatal for the
+        whole call still do, via :func:`_raise_on_graphql_errors` on the
+        returned doc.
+        """
         cmd: list[str] = ["gh", "api", "graphql", "-f", f"query={query}"]
         for key, value in variables.items():
             flag = "-F" if isinstance(value, int) and not isinstance(value, bool) else "-f"
             cmd += [flag, f"{key}={value}"]
         out = subprocess.run(cmd, capture_output=True, text=True,
                              timeout=self.timeout_seconds)
-        if out.returncode != 0:
+        try:
+            return json.loads(out.stdout)
+        except (json.JSONDecodeError, ValueError) as e:
             raise RuntimeError(
-                f"gh api graphql rc={out.returncode}: {out.stderr[:160]}")
-        return json.loads(out.stdout)
+                f"gh api graphql rc={out.returncode}: {out.stderr[:160] or e}") from e
 
 
 # --------------------------------------------------------------------------- #
@@ -494,11 +506,33 @@ RETURN_WINDOW_DAYS: int = 90
 #: author outside the sample is ``history_unsampled`` (module note below).
 AUTHOR_SEARCH_CAP: int = 50
 #: Round-2 cost cap: the D-IN-3 eligibility lookup (account age, event
-#: count) is batched via aliased ``user(login:)`` queries at this many
-#: authors per request — below the ~17-alias silent-truncation threshold
-#: measured on the ``contributionsCollection`` field (review W2), so every
-#: alias in a full-width batch resolves.
+#: count) is batched via aliased ``user(login:)`` queries at up to this many
+#: authors per request. Round 3 correction: this is NOT a safe ceiling —
+#: round-2 review §3.5 measured only 11 of 15 aliases resolving in a live
+#: batch (``Resource limits for this query exceeded``, GitHub's per-query
+#: complexity budget on ``contributionsCollection``, which depends on the
+#: specific accounts in the batch, not on alias count). No fixed width is
+#: safe; :func:`_fetch_eligibility_batch` keeps every alias that DOES
+#: resolve and retries only the rest, narrower each time
+#: (:data:`ELIGIBILITY_RETRY_WIDTHS`), which is what actually makes this
+#: width workable rather than the width itself.
 ELIGIBILITY_BATCH_SIZE: int = 15
+#: Round-3 (B-1): narrower retry widths for the aliases a batch left
+#: unresolved, tried in order until one resolves or a width of 1 pins the
+#: outcome to a single login.
+ELIGIBILITY_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
+#: Round-3 (B-3/B-2): above this fraction of a repo's cohort authors being
+#: unmeasured (search or eligibility failure, not the designed search-cap
+#: sample), row 1.2 (DR_90) and row 1.3 (MR_first)'s D-IN-3-adjusted rate
+#: are reported unmeasured rather than computed on a collapsed population
+#: (review B-2: DR_90 capped n 81 -> 22, MR_first capped 0.3818 -> 0.6667 on
+#: n 55 -> 9, silently, on pytest-dev/pytest). W2-8 census: this constant
+#: belongs in ``cvi.core.constants_v2`` once that packet lands (unlanded on
+#: main as of this round — ``git log main --oneline | grep W2-8`` shows only
+#: a lead-log entry, not the constants-freeze commit itself); defined here
+#: in the meantime, matching this module's existing R-2 deferral for its
+#: other 17 D-IN constants.
+AUTHOR_UNMEASURED_MAX_FRACTION: float = 0.20
 
 #: The 365-d window query: PRs in all three states, newest first, light
 #: fields (no reviews/comments — the author section does not derive
@@ -528,13 +562,11 @@ AUTHOR_PRS_SEARCH_QUERY: str = (
 
 def _eligibility_batch_query(n: int) -> str:
     """D-IN-3 eligibility batch query for ``n`` logins: aliased
-    ``user(login:)`` nodes ``u0``..``u{n-1}`` (variables ``l0``..``l{n-1}``),
-    each carrying ``createdAt`` and the public-event proxy
+    ``user(login:)`` nodes ``u0``..``u{n-1}`` (variables ``l0``..``l{n-1}``,
+    ``u{i}`` always paired with ``l{i}``), each carrying ``createdAt`` and
+    the public-event proxy
     (``contributionsCollection.contributionCalendar.totalContributions`` —
     module note above: GitHub's own default ~1 y contribution window).
-    Round-2 cost cap: called at :data:`ELIGIBILITY_BATCH_SIZE` logins per
-    request, below the ~17-alias silent-truncation threshold measured on
-    this exact field (review W2) at 50-wide batches.
     """
     var_decls = " ".join(f"$l{i}: String!" for i in range(n))
     aliases = " ".join(
@@ -694,51 +726,109 @@ def _decision_cohort_logins(prs: Sequence[dict], anchor: datetime) -> tuple[str,
     return tuple(sorted(logins))
 
 
+def _run_eligibility_query(logins: Sequence[str], transport: GraphqlTransport,
+                           ) -> tuple[dict[str, dict], list[str], int, Optional[int], bool]:
+    """One ``AuthorEligibilityBatch`` call over exactly ``logins``.
+
+    Returns ``(resolved, unresolved, cost, remaining, resource_limited)``.
+    ``resolved`` maps a login to its eligibility record for every alias
+    that carried data in the response; ``unresolved`` lists the logins
+    whose alias was null — round 3 (B-1): kept for a narrower retry by the
+    caller, never discarded along with the rest of a partially-successful
+    batch. A whole-call transport failure (``execute`` raises — the body
+    was not even parseable, not merely error-carrying) is treated the same
+    way: every login in ``logins`` comes back unresolved rather than
+    immediately unmeasured, so it too gets a narrower retry first.
+    ``resource_limited`` is True when an error names GitHub's per-query
+    resource budget — the caller's signal to shrink its width for the rest
+    of the run (review §3.5: no fixed width is a safe ceiling).
+    """
+    query = _eligibility_batch_query(len(logins))
+    variables = {f"l{i}": login for i, login in enumerate(logins)}
+    try:
+        doc = transport.execute(query, variables)
+    except RuntimeError:
+        return {}, list(logins), 0, None, False
+    data = doc.get("data") or {}
+    rl = data.get("rateLimit") or {}
+    cost = int(rl.get("cost") or 0)
+    remaining = int(rl["remaining"]) if rl.get("remaining") is not None else None
+    resource_limited = any("resource limit" in str(e.get("message") or "").lower()
+                           for e in (doc.get("errors") or []))
+    resolved: dict[str, dict] = {}
+    unresolved: list[str] = []
+    for i, login in enumerate(logins):
+        node = data.get(f"u{i}")
+        if node is not None:
+            resolved[login] = {
+                "account_created_at": node.get("createdAt"),
+                "public_event_count": ((node.get("contributionsCollection") or {})
+                                       .get("contributionCalendar") or {}).get("totalContributions"),
+                "eligibility_unmeasured": False,
+            }
+        else:
+            unresolved.append(login)
+    return resolved, unresolved, cost, remaining, resource_limited
+
+
 def _fetch_eligibility_batch(logins: Sequence[str], transport: GraphqlTransport,
                              batch_size: int = ELIGIBILITY_BATCH_SIZE,
                              ) -> tuple[dict[str, dict], int, Optional[int]]:
-    """D-IN-3 account age / event count for every author in ``logins``, via
-    aliased ``user(login:)`` batches of at most ``batch_size`` (round-2 cost
-    cap; W2: below the measured ~17-alias silent truncation on
-    ``contributionsCollection``). An alias with no data in the response —
-    a deleted/renamed account, or (only if ``batch_size`` exceeded the safe
-    width) a truncated batch — is recorded ``eligibility_unmeasured`` rather
-    than silently defaulted to ineligible-with-real-data; a whole-batch
-    transport failure marks every login in that batch the same way. Every
-    login in ``logins`` gets exactly one entry in the returned dict.
+    """D-IN-3 account age / event count for every author in ``logins``.
+
+    Round-3 fix (B-1): ``gh api graphql`` exits non-zero on ANY response
+    carrying an ``errors`` array, including a partially-successful one
+    (review §3.5: 11 of 15 aliases resolved, GitHub still charged the
+    point, and the pre-fix code discarded all 15). Every alias that DOES
+    resolve is kept immediately; only the specific logins whose alias came
+    back null are retried at a narrower width
+    (:data:`ELIGIBILITY_RETRY_WIDTHS`), until a width of 1 pins the outcome
+    to one login — recorded ``eligibility_unmeasured`` only then, never
+    assumed ineligible. A ``Resource limits ... exceeded`` error (GitHub's
+    per-query complexity budget, not an alias-count ceiling — no fixed
+    width is safe) permanently halves ``batch_size`` for the rest of this
+    call's fresh (non-retry) chunks. ``logins`` is de-duplicated
+    (order-preserving) before any query is built, so a login appearing
+    twice costs one alias and yields one record. Every distinct login in
+    ``logins`` gets exactly one entry in the returned dict.
     """
     out: dict[str, dict] = {}
     cost = 0
     remaining: Optional[int] = None
-    ordered = list(logins)
-    for start in range(0, len(ordered), batch_size):
-        batch = ordered[start:start + batch_size]
-        query = _eligibility_batch_query(len(batch))
-        variables = {f"l{i}": login for i, login in enumerate(batch)}
-        try:
-            doc = transport.execute(query, variables)
-        except RuntimeError:
-            for login in batch:
-                out[login] = {"account_created_at": None, "public_event_count": None,
-                              "eligibility_unmeasured": True}
-            continue
-        data = doc.get("data") or {}
-        rl = data.get("rateLimit") or {}
-        cost += int(rl.get("cost") or 0)
-        if rl.get("remaining") is not None:
-            remaining = int(rl["remaining"])
-        for i, login in enumerate(batch):
-            node = data.get(f"u{i}")
-            if node is None:
-                out[login] = {"account_created_at": None, "public_event_count": None,
-                              "eligibility_unmeasured": True}
-            else:
-                out[login] = {
-                    "account_created_at": node.get("createdAt"),
-                    "public_event_count": ((node.get("contributionsCollection") or {})
-                                           .get("contributionCalendar") or {}).get("totalContributions"),
-                    "eligibility_unmeasured": False,
-                }
+    width = batch_size
+    fresh = list(dict.fromkeys(logins))  # de-dup, first-seen order
+
+    def _settle(pool: list[str]) -> None:
+        nonlocal cost, remaining, width
+        for retry_width in ELIGIBILITY_RETRY_WIDTHS:
+            if not pool:
+                return
+            next_pool: list[str] = []
+            for start in range(0, len(pool), retry_width):
+                sub = pool[start:start + retry_width]
+                sub_resolved, sub_unresolved, c, r, limited = _run_eligibility_query(sub, transport)
+                out.update(sub_resolved)
+                cost += c
+                if r is not None:
+                    remaining = r
+                if limited:
+                    width = max(1, width // 2)
+                next_pool.extend(sub_unresolved)
+            pool = next_pool
+        for login in pool:
+            out[login] = {"account_created_at": None, "public_event_count": None,
+                          "eligibility_unmeasured": True}
+
+    while fresh:
+        chunk, fresh = fresh[:width], fresh[width:]
+        resolved, unresolved, c, r, limited = _run_eligibility_query(chunk, transport)
+        out.update(resolved)
+        cost += c
+        if r is not None:
+            remaining = r
+        if limited:
+            width = max(1, width // 2)
+        _settle(unresolved)
     return out, cost, remaining
 
 
@@ -912,18 +1002,45 @@ def _author_pr_history(window_prs: Sequence[dict],
     return list(seen.values())
 
 
-def _eligible(pr: dict, records: dict[str, dict]) -> bool:
-    """D-IN-3 eligibility of one PR's author: the fetched account record when
-    one exists, else the PR node's own ``author.createdAt`` for account age
-    (never for public events — a PR node carries no event count, so the
-    absence of a record reads as ineligible, the D-IN-3 default)."""
+def _eligible(pr: dict, records: dict[str, dict]) -> Optional[bool]:
+    """D-IN-3 eligibility of one PR's author, tri-state (round 3, B-3):
+    ``True`` (eligible), ``False`` (confirmed ineligible on real data), or
+    ``None`` (unknown — this author's eligibility lookup or prior-merge
+    search failed: ``eligibility_unmeasured`` or ``history_unmeasured``).
+    Round-2's defect: an unmeasured author read as ineligible, which is
+    indistinguishable at the derivation layer from a genuinely event-free
+    account (review B-3). A ``None`` here must be excluded from a rate's
+    numerator AND denominator by the caller, the same principle
+    :func:`_no_prior_merged` already applies (B2)."""
     login = _login_of(pr)
     record = records.get(login)
+    if record is not None and (record.get("eligibility_unmeasured")
+                               or record.get("history_unmeasured")):
+        return None
     account_at = (record or {}).get("account_created_at")
     if not account_at:
         account_at = (pr.get("author") or {}).get("createdAt")
     events = (record or {}).get("public_event_count")
     return is_eligible_account(account_at, pr.get("createdAt"), events)
+
+
+def _author_status(record: dict, anchor: datetime) -> str:
+    """One author's status for the round-3 accounting fields (B-3/B-2):
+    ``"unsampled"`` (the designed :data:`AUTHOR_SEARCH_CAP` sample, counted
+    separately so a large repo does not look broken), ``"unmeasured"`` (a
+    search or eligibility fetch failed for this author), ``"ineligible"``
+    (real data, D-IN-3 thresholds not met) or ``"eligible"``. Uses the
+    window anchor as the reference time (a per-repo summary, not the exact
+    per-PR gate :func:`_eligible` applies for the scored rates themselves,
+    which compares each PR's own ``createdAt``)."""
+    if record.get("history_unsampled"):
+        return "unsampled"
+    if record.get("history_unmeasured") or record.get("eligibility_unmeasured"):
+        return "unmeasured"
+    if is_eligible_account(record.get("account_created_at"), anchor.isoformat(),
+                           record.get("public_event_count")):
+        return "eligible"
+    return "ineligible"
 
 
 def _no_prior_merged(pr: dict, window_prs: Sequence[dict],
@@ -1046,6 +1163,9 @@ AUTHOR_HISTORY_BUNDLE_FIELDS: tuple[str, ...] = (
     "author_history_cost_points", "author_history_truncated",
     "author_history_rate_limit_remaining", "newcomer_sampled_author_count",
     "decision_cohort_coverage_gap_days", "cohort_decision_pr_numbers",
+    "authors_total", "authors_excluded_unsampled",
+    "authors_excluded_unmeasured", "authors_excluded_ineligible",
+    "cohort_unmeasured_detail",
     "dr90_decision_rate_raw", "dr90_decision_pr_count_raw",
     "dr90_decision_rate", "dr90_decision_pr_count",
     "mr_first_rate_raw", "mr_first_pr_count_raw",
@@ -1071,6 +1191,16 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     for DR_90, MR_first, newcomer conversion and RR_90 (module note). Empty
     dict when ``ah`` is None: without the author_history envelope no cohort
     quantity is measurable.
+
+    Round 3 (B-3/B-2): ``authors_total``/``authors_excluded_unsampled``/
+    ``authors_excluded_unmeasured``/``authors_excluded_ineligible`` account
+    for every author in the union once. When more than
+    :data:`AUTHOR_UNMEASURED_MAX_FRACTION` of them are ``unmeasured``, DR_90
+    and MR_first's D-IN-3-adjusted (capped) rate and count are reported
+    ``(None, "unmeasured")`` with a ``cohort_unmeasured_detail`` string,
+    instead of computed on a collapsed population — a collector failure
+    (batch errors, review B-1) must not silently rewrite a scored parameter
+    (review B-2). The RAW rates are unaffected by this gate.
     """
     if not ah:
         return {}
@@ -1097,6 +1227,21 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         gap_days = (covered_since - requested_start).days
     out["decision_cohort_coverage_gap_days"] = (gap_days, "derived")
 
+    # --- Round-3 (B-3/B-2) author accounting: every author record sorted
+    # into exactly one bucket, so a large excluded-for-failure share is a
+    # recorded count, not a silently collapsed denominator (review B-2). ---
+    statuses = [_author_status(r, anchor) for r in records.values()]
+    authors_total = len(statuses)
+    authors_excluded_unsampled = statuses.count("unsampled")
+    authors_excluded_unmeasured = statuses.count("unmeasured")
+    authors_excluded_ineligible = statuses.count("ineligible")
+    out["authors_total"] = (authors_total, "verified")
+    out["authors_excluded_unsampled"] = (authors_excluded_unsampled, "verified")
+    out["authors_excluded_unmeasured"] = (authors_excluded_unmeasured, "verified")
+    out["authors_excluded_ineligible"] = (authors_excluded_ineligible, "verified")
+    unmeasured_fraction = (authors_excluded_unmeasured / authors_total) if authors_total else 0.0
+    collector_failed = unmeasured_fraction > AUTHOR_UNMEASURED_MAX_FRACTION
+
     # --- 1.2 DR_90 / 1.3 MR_first: the decision cohort ----------------------
     cohort_prs = [pr for pr in window_prs if _in_decision_band(pr, anchor) and _is_external_nonbot(pr)]
     out["cohort_decision_pr_numbers"] = (
@@ -1105,11 +1250,6 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     raw_decided = sum(1 for pr in cohort_prs if _decided_within_days(pr, DECISION_WINDOW_DAYS))
     out["dr90_decision_rate_raw"] = (_ratio(raw_decided, len(cohort_prs)), "derived")
     out["dr90_decision_pr_count_raw"] = (len(cohort_prs), "derived")
-
-    dr90_kept = _cap_prs([pr for pr in cohort_prs if _eligible(pr, records)])
-    dr90_decided = sum(1 for pr in dr90_kept if _decided_within_days(pr, DECISION_WINDOW_DAYS))
-    out["dr90_decision_rate"] = (_ratio(dr90_decided, len(dr90_kept)), "derived")
-    out["dr90_decision_pr_count"] = (len(dr90_kept), "derived")
 
     # Only a *known* first-timer counts (B2/round-2 cap): an author whose
     # prior-merge history is unmeasured or unsampled is excluded from the
@@ -1121,11 +1261,29 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     out["mr_first_rate_raw"] = (_ratio(raw_mr_merged, len(raw_mr_decided)), "derived")
     out["mr_first_pr_count_raw"] = (len(raw_mr_decided), "derived")
 
-    mr_kept = _cap_prs([pr for pr in mr_candidates if _eligible(pr, records)])
-    mr_decided = [pr for pr in mr_kept if pr.get("closedAt") is not None]
-    mr_merged = sum(1 for pr in mr_decided if pr.get("mergedAt") is not None)
-    out["mr_first_rate"] = (_ratio(mr_merged, len(mr_decided)), "derived")
-    out["mr_first_pr_count"] = (len(mr_decided), "derived")
+    if collector_failed:
+        # Round 3 (B-2): a collapsed population is not a rate — more than
+        # AUTHOR_UNMEASURED_MAX_FRACTION of this repo's cohort authors have
+        # no eligibility/history data (a collector failure, not a sample),
+        # so the D-IN-3-adjusted rate is unmeasured rather than computed on
+        # what is left.
+        detail = f"{authors_excluded_unmeasured} of {authors_total} authors unmeasured"
+        out["dr90_decision_rate"] = (None, "unmeasured")
+        out["dr90_decision_pr_count"] = (None, "unmeasured")
+        out["mr_first_rate"] = (None, "unmeasured")
+        out["mr_first_pr_count"] = (None, "unmeasured")
+        out["cohort_unmeasured_detail"] = (detail, "verified")
+    else:
+        dr90_kept = _cap_prs([pr for pr in cohort_prs if _eligible(pr, records) is True])
+        dr90_decided = sum(1 for pr in dr90_kept if _decided_within_days(pr, DECISION_WINDOW_DAYS))
+        out["dr90_decision_rate"] = (_ratio(dr90_decided, len(dr90_kept)), "derived")
+        out["dr90_decision_pr_count"] = (len(dr90_kept), "derived")
+
+        mr_kept = _cap_prs([pr for pr in mr_candidates if _eligible(pr, records) is True])
+        mr_decided = [pr for pr in mr_kept if pr.get("closedAt") is not None]
+        mr_merged = sum(1 for pr in mr_decided if pr.get("mergedAt") is not None)
+        out["mr_first_rate"] = (_ratio(mr_merged, len(mr_decided)), "derived")
+        out["mr_first_pr_count"] = (len(mr_decided), "derived")
 
     # --- 5.2 / 5.3: the sampled newcomer cohort -----------------------------
     authors = _newcomer_cohort_authors(window_prs, records, sampled, anchor)
