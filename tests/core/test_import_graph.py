@@ -16,6 +16,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CORE_DIR = REPO_ROOT / "cvi" / "core"
 DERIVE_BUNDLE = REPO_ROOT / "cvi" / "derive" / "bundle.py"
 STORE_DIR = REPO_ROOT / "cvi" / "store"
+SERVE_DIR = REPO_ROOT / "cvi" / "serve"
+
+#: `cvi/serve` is the outermost layer -- it legitimately reads any other
+#: `cvi.*` package (core, store, audit) -- plus the web framework it is
+#: built on. What it may NEVER import is `scripts.*` (W4-4 REWORK,
+#: Warning W-5): `cvi/serve/app.py` used to do
+#: `from scripts.serve import open_or_exit`, a package reaching backwards
+#: into a script through a `scripts` namespace package with no
+#: `__init__.py` -- invisible to this file before this rule existed,
+#: since nothing here policed `cvi/serve` at all.
+_SERVE_ALLOWED_THIRD_PARTY = ("fastapi", "starlette", "pydantic")
 
 
 def imported_modules(path: Path) -> list[str]:
@@ -81,6 +92,33 @@ def test_store_imports_only_core_snapshot_or_stdlib() -> None:
             assert allowed, (
                 f"{path.relative_to(REPO_ROOT)} imports {name!r} outside "
                 f"cvi.core/cvi.snapshot/cvi.store + stdlib"
+            )
+
+
+def test_serve_imports_only_cvi_fastapi_pydantic_or_stdlib() -> None:
+    """W4-4 REWORK (Blocker B-4 / Warning W-5): `cvi/serve` may import any
+    `cvi.*` package plus the standard library and the web-framework
+    packages it is built on (`fastapi`, `starlette`, `pydantic`) -- never
+    `scripts.*`. The guard's pure logic (v1 and v2) now lives in
+    `cvi/serve/guard.py`; `scripts/serve.py` imports FROM `cvi.serve`, the
+    correct direction, and re-exports what `tests/test_serve.py` needs."""
+    assert SERVE_DIR.is_dir(), "cvi/serve package missing"
+    for path in sorted(SERVE_DIR.rglob("*.py")):
+        for name in imported_modules(path):
+            top = name.split(".")[0]
+            assert top != "scripts", (
+                f"{path.relative_to(REPO_ROOT)} imports {name!r} -- "
+                "cvi/serve must never import scripts.* (the reverse of the "
+                "allowed direction)"
+            )
+            allowed = (
+                top in sys.stdlib_module_names
+                or name.startswith("cvi.")
+                or top in _SERVE_ALLOWED_THIRD_PARTY
+            )
+            assert allowed, (
+                f"{path.relative_to(REPO_ROOT)} imports {name!r} outside "
+                f"cvi.* + stdlib + {_SERVE_ALLOWED_THIRD_PARTY}"
             )
 
 
