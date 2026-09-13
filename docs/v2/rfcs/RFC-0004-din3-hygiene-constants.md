@@ -60,6 +60,22 @@ applies identically.
 
 ## Reviewer
 
-Not yet reviewed independently — this RFC accompanies packet W3-1 and is
-submitted for review alongside it, following RFC-0001's precedent (its
-own Reviewer section was filled by the lead at W1-4's acceptance).
+Reviewed by the W3-1 Opus review agent (`opus-review-W3-1`), 2026-09-13 —
+**ACCEPT_WITH_FOLLOWUP**. The relocation is value-preserving and verified:
+`CONSTANTS_HASH` recomputed independently with `cvi.core.models.canonical_json`
+equals the pinned `748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b`,
+and removing the three keys from `constants_dict()` reproduces this RFC's
+"before" hash `419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9`
+exactly; all three constants are registered in `constants_dict()` and carry
+`_FROZEN_TABLE` rows (`tests/core/test_frozen.py:226-228`); the fixture re-pin is
+metadata-only (3 files, 1 line each) with every bundle byte-identical. The
+no-`BENCHMARK_VERSION`-bump is correct here on stronger grounds than RFC-0001's:
+this RFC changes no value and adds no gate, so D-VER-1's missingness-policy
+clause is not engaged at all.
+
+Follow-up recorded against the packet, not against this RFC: two in-source
+citations still read "RFC-0002" (the StarScout relocation) where they mean this
+RFC — `cvi/collect/github_graphql.py:500` and `:932`.
+
+Full review: `scratchpad/reviews/W3-1-review.md`; item records:
+`.agents/W3-1/review/`.
