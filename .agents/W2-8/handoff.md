@@ -322,3 +322,164 @@ instruction not to touch that file).
   relocated" section) — if a future packet decides these should also be
   hash-covered, that is a scope decision for the lead, not a defect in
   this one.
+
+---
+
+# Round 2 (REWORK, bounded to 5) — census additions
+
+Review: 52 PASS / 16 FAIL / 3 UNDECIDED, every claim reproduced (see
+`/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adbe955a4084/scratchpad/reviews/W2-8-review.md`
+and `.agents/W2-8/review/item-0{1..9}-*.md`). Central finding: 10 scoring
+tunables were readable but not in `CONSTANTS_HASH`; two of them (tier
+cutoffs, OpenSSF Pike weights) move real scored values with the hash
+unchanged.
+
+**Rebase history this round**: round-1 commits were replayed onto
+`9bb1c22` (`a626289` feat, `4f6ae94` handoff — content-identical to
+round 1's `e3e74fc`/`7529818`, only the parent changed), then round 2's
+commit `6c8619a` landed on top, then rebased once more onto the final
+main tip `097142a` (W0-4's LLM-curation-script deletion + INT-W0-4 +
+several docs-only lead-log commits — zero file overlap with anything
+this packet touches, verified with `git diff --stat` before rebasing;
+clean, no conflicts). **Final commits**: `a626289` (feat, round 1), `4f6ae94` (docs, round-1
+handoff), `6c8619a` (fix, round 2 — this section). **Final base: `097142a`.**
+
+## Completed census table
+
+| Symbol | Module | Round-1 status | Round-2 disposition |
+|---|---|---|---|
+| `TIER_CUTOFFS` | `cvi/core/aggregate.py` | uncovered, MUST ADD | **covered** — moved to `constants_v2`, re-bound; `_FROZEN_TABLE` row added (★) |
+| `TIER_ORDER` | `cvi/core/aggregate.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
+| `OPENSSF_WEIGHTS` | `cvi/core/openssf.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
+| `OPENSSF_THRESHOLDS` | `cvi/core/openssf.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
+| `SIGNAL_FIELDS` | `cvi/core/openssf.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
+| `TTFHR_MIN_N` | `cvi/derive/bundle.py` | duplicate of `PARAM_MIN_N`, uncovered | **deleted** — value (10) confirmed identical to `PARAM_MIN_N["ttfhr_hours"]` (10), no divergence; call site now reads `constants_v2.PARAM_MIN_N["ttfhr_hours"]` directly |
+| `SUBSTANTIVE_REVIEW_MIN_N` | `cvi/derive/bundle.py` | duplicate, uncovered | **deleted** — value (10) confirmed identical to `PARAM_MIN_N["substantive_review_rate"]` (10); call site reads the registry directly |
+| `TTM_P90_MIN_N` | `cvi/derive/bundle.py` | duplicate, uncovered | **deleted** — value (5) confirmed identical to `PARAM_MIN_N["ttm_p90_hours"]` (5); call site reads the registry directly |
+| `OSI_APPROVED_LICENSES` | `cvi/core/gates.py` | uncovered, SHOULD ADD | **covered** — moved to `constants_v2` (as `tuple(sorted(...))` for JSON-native hashing; kept as `frozenset` at the gate call site for O(1) membership), re-bound; not in `_FROZEN_TABLE` (not ★-marked) |
+| `MIN_COVERAGE` | `cvi/audit/anchors.py` | REPORT (W2-8b's code, 1 of 3 UNDECIDED) | **not-hashed-by-ruling** — a release gate, not a scored value; left in place; documented in `docs/v2/rfcs/README.md`'s new "Process constants" section; still RFC-gated |
+| `TAU_RELEASE_THRESHOLD` | `cvi/audit/sensitivity.py` | REPORT | **not-hashed-by-ruling** — same treatment |
+| `DEFAULT_PERTURBATION_PP` | `cvi/audit/sensitivity.py` | REPORT | **not-hashed-by-ruling** — same treatment |
+| `UNDETERMINED_SPDX` | `cvi/core/gates.py` | 1 of 3 UNDECIDED (review's own census summary calls it "correctly excluded" elsewhere, contradicting its UNDECIDED list) | **excluded-with-reason, not addressed this round** — not in the coordinator's round-2 task list; three sentinel strings meaning "no SPDX id recorded" (`None`/`"NOASSERTION"`/`"OTHER"`), not itself a vocabulary that can drift the way `OSI_APPROVED_LICENSES` can; flagged for the lead to resolve the review's internal inconsistency |
+| `TIER_FLOOR` | `cvi/core/aggregate.py` | correctly excluded (label, no threshold) | **unchanged** — stays in `aggregate.py` |
+| `ParamDef.domain` ×18, `_REFERENCE_SAMPLE`, `better_order`, `persona_orders` | `cvi/core/params/*` | correctly excluded (verified: read only by the monotonicity probe/validation, never by `_apply`) | **unchanged** |
+| `GATE_*`, `REASON_*`, `ROUTED_OFF_PLATFORM`, `QUADRANT_*`, `PERSONA_*`, `INPUT_*`, `KIND_*`, `CEILING_A`/`CEILING_B` | various | correctly excluded (identifier strings) | **unchanged** |
+
+**M4 guard** (`tests/core/test_frozen.py::test_every_module_level_constant_is_hashed_or_declared_not_hashed`
++ `test_m4_fail_before_an_unregistered_constant_is_caught`): every
+module-level `UPPER_CASE` name in `constants_v2.py` not starting with `_`
+must be a `constants_dict()` key or in the new `_NOT_HASHED` tuple.
+`_NOT_HASHED = ("CONSTANTS_HASH",)` — the only member; `BENCHMARK_VERSION`
+is deliberately *not* exempted (documented decision: D-VER-1 ties a version
+bump to a constants change, so hashing it too is correct, not redundant).
+
+**M12** (a call site reverted to a same-value literal survives) is
+documented as an enforcement limit in `docs/v2/rfcs/README.md`'s new
+"Enforcement limits" section — not built as a linter, per the coordinator's
+instruction.
+
+## Re-run verification (all against the branch before the final rebase to
+`097142a`; hash and full-suite count re-confirmed identical after)
+
+**Drift proof, item 1** (`TIER_CUTOFFS` A cutoff `70.0 -> 60.0`):
+```
+FAILED tests/core/test_frozen.py::test_constants_hash_is_pinned
+FAILED tests/core/test_frozen.py::test_frozen_table[TIER_CUTOFFS]
+  AssertionError: TIER_CUTOFFS moved: ((90.0, 'S+'), (80.0, 'S'), (60.0, 'A'), (55.0, 'B'), (40.0, 'C'))
+                  != ((90.0, 'S+'), (80.0, 'S'), (70.0, 'A'), (55.0, 'B'), (40.0, 'C'))
+2 failed, 25 passed
+```
+
+**Drift proof, item 2** (`OPENSSF_WEIGHTS["contributor_count"]` `2.0 -> 3.0`):
+```
+FAILED tests/core/test_frozen.py::test_constants_hash_is_pinned
+FAILED tests/core/test_frozen.py::test_frozen_table[OPENSSF_WEIGHTS]
+  AssertionError: OPENSSF_WEIGHTS moved: {..., 'contributor_count': 3.0, ...} != {..., 'contributor_count': 2.0, ...}
+2 failed, 25 passed
+```
+
+**Drift proof, item 4** (`OSI_APPROVED_LICENSES`: remove `"MIT"`):
+```
+MIT in set: False (156 members, was 157)
+FAILED tests/core/test_frozen.py::test_constants_hash_is_pinned
+1 failed, 26 passed
+```
+(Not `_FROZEN_TABLE`-named per the coordinator's ★-only scoping for that
+table; the hash-pin test still catches it — the requirement was inclusion
+in `constants_dict()`, not a named row.)
+
+**Round-1 three-value proof, re-run** (`PERSONA_PRESETS["first_timer"]["responsiveness"]`
+`0.35->0.36`, `MIN_POPULATION` `30->31`, `CEILING_A_MIN_COVERAGE` `0.80->0.81`):
+```
+FAILED tests/core/test_frozen.py::test_constants_hash_is_pinned
+FAILED tests/core/test_frozen.py::test_frozen_table[CEILING_A_MIN_COVERAGE]
+  AssertionError: CEILING_A_MIN_COVERAGE moved: 0.81 != 0.8
+FAILED tests/core/test_frozen.py::test_frozen_table[MIN_POPULATION]
+  AssertionError: MIN_POPULATION moved: 31 != 30
+FAILED tests/core/test_frozen.py::test_frozen_table[PERSONA_PRESETS.first_timer]
+  AssertionError: PERSONA_PRESETS.first_timer moved: {'responsiveness': 0.36, ...} != {'responsiveness': 0.35, ...}
+4 failed, 23 passed
+```
+Identical to round 1's reproduction (same four failures, same names).
+
+**M4 add/register/remove cycle** (file-level, not just the in-process test):
+added `DUMMY_UNREGISTERED_CONSTANT: int = 999` to `constants_v2.py` ->
+`test_every_module_level_constant_is_hashed_or_declared_not_hashed` FAILS
+naming it (`module-level constants not registered ...: ['DUMMY_UNREGISTERED_CONSTANT']`)
+and the mutant is caught in the full suite (2 failed / 1748 passed, vs 0
+failed at baseline); added a `"DUMMY_UNREGISTERED_CONSTANT": ...` line to
+`constants_dict()` -> the same test PASSES; both edits reverted, file
+restored byte-identical (`diff -q` confirmed).
+
+Each mutation applied via a saved-copy `cp`/restore cycle — never
+`git checkout -- <path>` / `git stash` — with `diff -q` confirming
+byte-identical restoration after every one.
+
+**200-repo score-dump comparison** (reviewer's own script,
+`score_identity.py`, copied verbatim from
+`/home/pctablet505/Projects/cvi-scratch/W2-8-review/`): run against a
+detached worktree at the round-1 landed commit (`db295bd`, "base") and the
+round-2 working tree ("branch"). `diff -q scores_base_round1.json
+scores_branch_round2.json` -> **identical** (both 35,049 lines). Confirms
+round 2 changed no scored value for any repo — every census addition is a
+relocation of an already-in-use value, not a value change.
+
+**`test_frozen.py` old -> new pinned hash**:
+```
+fb48552cbf13aececaccbb74c83967f7d594211bfad9f7b32f0d8d90945c4c2a
+  -> 391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8
+```
+
+**Full suite, final** (branch rebased onto `097142a`):
+```
+1805 passed, 12 warnings in 71.58s
+```
+(1743 at the round-1 merge trial + 7 round-2 additions [5 `_FROZEN_TABLE`
+rows + 2 M4 tests] = 1750 on the round-2 tree before this final rebase;
+main's own commits between `9bb1c22` and `097142a` — W0-4's LLM-curation
+deletion, INT-W0-4, several docs-only lead-log entries — added the
+remaining 55 independently, none overlapping this packet's files.)
+
+**ruff** `cvi/ scripts/ tests/`: **all checks passed** (the 4 previously
+pre-existing `F401`s in `scripts/curate_dataset_llm.py` are moot — W0-4
+deleted that file in the commits this round rebased onto).
+
+## Findings not addressed this round (out of the coordinator's explicit scope)
+
+- Review findings 9 ("procedure step 3 is unusable before release"), 10
+  (no genesis `CHANGELOG.md` row), 11 (`2.0.0-rc1` divergence from the
+  written packet goal / unrecorded lead ruling) were Warnings in the
+  round-1 report but were not named in the round-2 dispatch's explicit
+  task list (census items 1-5, the M4 guard, M12 documentation, and the
+  RFC README premise sentence). Not fixed; flagged here so the lead can
+  decide whether they belong in a round 3 or are accepted as-is.
+- The review's own UNDECIDED list and its census summary disagree on
+  `UNDETERMINED_SPDX` (see the census table above) — flagged, not resolved,
+  since it wasn't in the round-2 task list either.
+
+## COULD NOT VERIFY (round 2, in addition to round 1's list)
+
+- Whether `cvi/audit/anchors.py`/`sensitivity.py` will need a code comment
+  pointing back at `docs/v2/rfcs/README.md`'s new "Process constants"
+  section — not this packet's file to touch (W2-8b/W2-13 territory per the
+  work-plan's packet ownership).
