@@ -209,6 +209,99 @@ class LeaderboardRow(StrictModel):
         return self
 
 
+class RepoDetailResponse(StrictModel):
+    """`GET /v1/cvi/repos/{owner}/{name}` (W4-4 addition, 2026-09-13): one
+    repository's stored record plus its persona view, for the "Why this
+    score" drawer (`06-UX-DESIGN.md` Screen C) -- which must open for a
+    GATED or UNRATED repo too ("(1) identity strip and gate status (if
+    gated: the reason sentence and nothing else above the fold)"). No
+    existing contract model fits: `LeaderboardRow` requires a real
+    `rank >= 1` and is built only for rows `list_ranked` actually returns
+    (rated ones). This model carries the same facts with `rank`/`tie_group`/
+    `cvi` relaxed to `None` and adds `eligible`/`gate_reason`/`rated`/
+    `unrated_reason` so the drawer's gate-status section has what it needs
+    without a second request. Independent of the W4-5a-review contract
+    bridge table (not one of its twelve items): that table never asked for
+    a repo-detail model at all, so this is W4-4's own addition, reviewed by
+    neither agent yet.
+
+    Field sources are identical to `LeaderboardRow` (`04-ARCHITECTURE.md`
+    §3/§5); the OVERALL `coverage` is always a float (D-MISS-3's `C`,
+    reportable even at 0.0 -- `repositories.coverage` is `NOT NULL`) while
+    `cvi` is `None` exactly when the repo was never scored (gated at stage
+    0). PER-PILLAR `c_<pillar>` is `float | None`, unlike `LeaderboardRow`'s
+    non-null version of the same field: a GATED repo's `cvi.core.engine`
+    never builds a `PillarScore` for any pillar at all (`record.pillars`
+    is `{}`), so `cvi.store.writer` stores SQL `NULL`, not a fabricated
+    `0.0` (`repositories.c_<pillar>` has no `NOT NULL` constraint,
+    matching this). `LeaderboardRow` never hits this because
+    `cvi.store.queries.list_ranked` only ever returns `rated=1` rows,
+    which always have every pillar computed; this model is built for
+    gated/unrated repos too, so it cannot share that assumption.
+
+    `gate_reason` is a plain `str`, not the shared `GateReason` Literal:
+    the W4-5a-review contract bridge table item 3 ruling (map
+    `"unrated: no_external_workflow"` -- a stage-6 GATE despite the
+    spelling -- onto `NotRankedRow.unrated_reason`, not `GateReason`) is
+    a `NotRankedRow`-shaped decision about which UI GROUP a row belongs
+    to; this model has no group, only "the repo's own record", so it
+    passes `cvi.core.gates.GateResult.reason` through verbatim rather
+    than repeat that same translation with no group to translate it
+    into."""
+
+    owner: str
+    name: str
+    ecosystem: str
+    snapshot_id: str
+    benchmark_version: str
+    raw_hash: str
+
+    eligible: bool
+    gate_reason: str | None = None
+    rated: bool
+    unrated_reason: UnratedReason | None = None
+
+    rank: int | None
+    tie_group: int | None
+    cvi: float | None
+    coverage: float
+    tier: str | None
+    tier_ceiling: str | None
+    quadrant: Literal["Sweet Spot", "Crucible", "Nursery", "Graveyard"] | None
+    leverage: float | None
+    friction: float | None
+    leverage_coverage: float | None
+    friction_coverage: float | None
+
+    p_responsiveness: float | None
+    c_responsiveness: float | None
+    p_criticality: float | None
+    c_criticality: float | None
+    p_governance: float | None
+    c_governance: float | None
+    p_rigor: float | None
+    c_rigor: float | None
+    p_accessibility: float | None
+    c_accessibility: float | None
+
+    persona_gates: dict[str, str] = {}
+    persona_composites: dict[str, PersonaComposite] = {}
+    suspicion: list[str] = []
+    stars_audited: int | None
+
+    @model_validator(mode="after")
+    def _rank_requires_rated_and_coverage_is_bounded(self) -> "RepoDetailResponse":
+        if self.rated and self.rank is None:
+            raise ValueError(f"{self.owner}/{self.name}: rated=True but rank is None")
+        if not (0.0 <= self.coverage <= 1.0):
+            raise ValueError(f"coverage must be in [0, 1], got {self.coverage}")
+        for pillar in PILLARS:
+            c = getattr(self, f"c_{pillar}")
+            if c is not None and not (0.0 <= c <= 1.0):
+                raise ValueError(f"c_{pillar} must be in [0, 1], got {c}")
+        return self
+
+
 class NotRankedRow(StrictModel):
     """A repository absent from the RANKED list, as `GET /v1/cvi/not-ranked`
     returns it — for three distinct reasons (W4-3 store-queries review,
@@ -488,6 +581,7 @@ __all__ = [
     "StrictModel",
     "PersonaComposite",
     "LeaderboardRow",
+    "RepoDetailResponse",
     "NotRankedRow",
     "EvidenceRow",
     "SnapshotCounts",
