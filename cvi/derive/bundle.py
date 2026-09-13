@@ -78,16 +78,6 @@ V1_LADDER_VALUES: dict[str, str] = {
     "CLOSED_SINGLE_FIRM": "CLOSED",
 }
 
-#: 02 section 4 minimum sample sizes for the N-class rows this module
-#: resolves directly from PR-window data. Mirrored from (not imported from)
-#: ``cvi.core.params`` — ``cvi.derive`` is documented to import only
-#: ``cvi.core.models`` (04 section 3); see the W2-9 handoff's ownership
-#: request to move min-n thresholds into the frozen constants registry so
-#: both packets read one definition.
-TTFHR_MIN_N: int = 10
-SUBSTANTIVE_REVIEW_MIN_N: int = 10
-TTM_P90_MIN_N: int = 5
-
 
 def validate_bundle(document: Mapping[str, Any]) -> FeatureBundle:
     """Validate a strict v2 document (schema_version 2) and build the bundle.
@@ -748,9 +738,10 @@ def _resolve_ttfhr_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
     n_value = ctx.meta.get("pr_window_external_measured_latency_count")
     n = n_value if isinstance(n_value, int) and not isinstance(n_value, bool) else 0
-    if n < TTFHR_MIN_N:
+    min_n = constants_v2.PARAM_MIN_N["ttfhr_hours"]
+    if n < min_n:
         return Unmeasured(reason="insufficient_n",
-                           detail=f"{n} external PRs with a measured TTFHR, need >= {TTFHR_MIN_N}")
+                           detail=f"{n} external PRs with a measured TTFHR, need >= {min_n}")
     value = ctx.meta.get("pr_window_ttfhr_median_hours")
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return Unmeasured(reason="collector_failure",
@@ -775,9 +766,10 @@ def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
         if isinstance(entry, Mapping) and entry.get("is_external") and entry.get("decided")
     ]
     n = len(decided_external)
-    if n < SUBSTANTIVE_REVIEW_MIN_N:
+    min_n = constants_v2.PARAM_MIN_N["substantive_review_rate"]
+    if n < min_n:
         return Unmeasured(reason="insufficient_n",
-                           detail=f"{n} decided external PRs, need >= {SUBSTANTIVE_REVIEW_MIN_N}")
+                           detail=f"{n} decided external PRs, need >= {min_n}")
     value = ctx.meta.get("pr_window_substantive_review_rate")
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return Unmeasured(reason="collector_failure",
@@ -799,9 +791,10 @@ def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
     latencies = _merged_external_latency_hours(data)
     n = len(latencies)
-    if n < TTM_P90_MIN_N:
+    min_n = constants_v2.PARAM_MIN_N["ttm_p90_hours"]
+    if n < min_n:
         return Unmeasured(reason="insufficient_n",
-                           detail=f"{n} merged external PRs with recorded latency, need >= {TTM_P90_MIN_N}")
+                           detail=f"{n} merged external PRs with recorded latency, need >= {min_n}")
     window_start, window_end = _pr_window_bounds(data)
     source_hash = _envelope_hash(path)
     ctx.referenced[str(path)] = source_hash

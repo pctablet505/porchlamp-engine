@@ -99,6 +99,33 @@ FRICTION_WEIGHTS: dict[str, float] = {
 }
 QUADRANT_THRESHOLD: float = 50.0
 
+#: D-MAT-2 tier cutoffs (kept, O-5), worst to best; below the last cutoff is
+#: the floor tier ``"D"`` (``cvi.core.aggregate.TIER_FLOOR`` -- a bare label
+#: with no accompanying threshold, correctly excluded from the hash per the
+#: W2-8 round-1 review's own census). A score exactly at a cutoff belongs to
+#: the higher tier (``>=``), matching the v1 convention these cutoffs are
+#: kept from. Relocated from ``cvi.core.aggregate`` by packet W2-8 round 2
+#: (R-2): a cutoff or an ordering change moves ``ScoreRecord.tier`` for
+#: rated repos exactly like a weight change does, so it belongs in the hash
+#: the same way (round-1 review Blocker 1: an A-cutoff 70.0 -> 60.0 re-tiered
+#: 7 of 89 rated repos on the sample with the hash unchanged).
+TIER_CUTOFFS: tuple[tuple[float, str], ...] = (
+    (90.0, "S+"),
+    (80.0, "S"),
+    (70.0, "A"),
+    (55.0, "B"),
+    (40.0, "C"),
+)
+
+#: Every tier and ceiling label, worst to best, for ``apply_ceiling``'s
+#: ``min(tier_by_score, ceiling)`` (D-MAT-2). Relocated from
+#: ``cvi.core.aggregate`` by packet W2-8 round 2 (R-2): reordering this
+#: tuple changes ``apply_ceiling``'s comparison outcome (round-1 review
+#: Blocker 1's reproduction: reordering it turns ``apply_ceiling("B","A")``
+#: from ``"B"`` into ``"A"``).
+TIER_ORDER: tuple[str, ...] = ("D", "C", "B", "A", "S", "S+")
+
+
 #: 02 section 4 curve-shape parameters. Relocated from ``cvi.core.params.*``
 #: by packet W2-8 (R-2).
 #: Float tolerance for the D-PARAM-MONO check (``cvi.core.params.curves``).
@@ -142,6 +169,114 @@ AI_POSTURE_SCORES: dict[str, dict[str, float]] = {
     "PROSCRIBED": {"human": 85.0, "ai": 25.0},
     "AD_HOC": {"human": 40.0, "ai": 40.0},
 }
+
+#: D-GATE-3 OSI-approved SPDX ids (the union of the SPDX license-list-data
+#: ``isOsiApproved`` flag and the opensource.org approved-licences table,
+#: fetched 2026-09-12 -- see ``cvi.core.gates``'s original module docstring
+#: for the exact sources). Relocated from ``cvi.core.gates`` by packet W2-8
+#: round 2 (R-2), per the round-1 review's Warning 5: this is not a bare
+#: identifier vocabulary like ``GATE_1..6`` -- D-GATE-3 *interprets* it as a
+#: predicate (membership decides eligible vs ``REASON_UNLICENSED``), so
+#: removing one id silently regates every repo under that license
+#: ``unlicensed`` with the hash unchanged (reproduced: removing ``"MIT"``
+#: leaves ``CONSTANTS_HASH`` untouched). An upstream SPDX/OSI list refresh
+#: is therefore itself an RFC-worthy event (``docs/v2/rfcs/README.md``'s new
+#: "upstream vocabulary refresh" class), not a silent data update.
+#: Kept as a ``frozenset`` here for O(1) gate-time membership; hashed as
+#: ``tuple(sorted(OSI_APPROVED_LICENSES))`` in ``constants_dict()`` (a
+#: ``frozenset`` is not JSON-native -- ``_canonical_json`` operates on the
+#: JSON-native subset of ``cvi.core.models.canonical_json``, per this
+#: module's own docstring).
+OSI_APPROVED_LICENSES: frozenset[str] = frozenset({
+    "0BSD",     "AAL",     "AFL-1.1",     "AFL-1.2",
+    "AFL-2.0",     "AFL-2.1",     "AFL-3.0",     "AGPL-3.0",
+    "AGPL-3.0-only",     "AGPL-3.0-or-later",     "ALGLIB-Documentation",     "APL-1.0",
+    "APSL-1.0",     "APSL-1.1",     "APSL-1.2",     "APSL-2.0",
+    "Apache-1.1",     "Apache-2.0",     "Artistic-1.0",     "Artistic-1.0-Perl",
+    "Artistic-1.0-cl8",     "Artistic-2.0",     "BSD-1-Clause",     "BSD-2-Clause",
+    "BSD-2-Clause-Patent",     "BSD-3-Clause",     "BSD-3-Clause-LBNL",     "BSD-3-Clause-Open-MPI",
+    "BSD-ask-to-endorse",     "BSL-1.0",     "BlueOak-1.0.0",     "CAL-1.0",
+    "CAL-1.0-Combined-Work-Exception",     "CATOSL-1.1",     "CDDL-1.0",     "CDDL-1.1",
+    "CECILL-2.1",     "CERN-OHL-P-2.0",     "CERN-OHL-S-2.0",     "CERN-OHL-W-2.0",
+    "CNRI-Python",     "CNRI-Python-GPL-Compatible",     "CPAL-1.0",     "CPL-1.0",
+    "CUA-OPL-1.0",     "ECL-1.0",     "ECL-2.0",     "EFL-1.0",
+    "EFL-2.0",     "EPL-1.0",     "EPL-2.0",     "EUDatagrid",
+    "EUPL-1.1",     "EUPL-1.2",     "Entessa",     "Fair",
+    "Frameworx-1.0",     "GPL-1.0",     "GPL-2.0",     "GPL-2.0+",
+    "GPL-2.0-only",     "GPL-2.0-or-later",     "GPL-3.0",     "GPL-3.0+",
+    "GPL-3.0-only",     "GPL-3.0-or-later",     "GPL-3.0-with-GCC-exception",     "HPND",
+    "ICU",     "IPA",     "IPL-1.0",     "ISC",
+    "Intel",     "Jam",     "LGPL-2.0",     "LGPL-2.0+",
+    "LGPL-2.0-only",     "LGPL-2.0-or-later",     "LGPL-2.1",     "LGPL-2.1+",
+    "LGPL-2.1-only",     "LGPL-2.1-or-later",     "LGPL-3.0",     "LGPL-3.0+",
+    "LGPL-3.0-only",     "LGPL-3.0-or-later",     "LPL-1.0",     "LPL-1.02",
+    "LPPL-1.3c",     "LiLiQ-P-1.1",     "LiLiQ-R-1.1",     "LiLiQ-Rplus-1.1",
+    "MIT",     "MIT-0",     "MIT-Modern-Variant",     "MPL-1.0",
+    "MPL-1.1",     "MPL-2.0",     "MPL-2.0-no-copyleft-exception",     "MS-PL",
+    "MS-RL",     "MirOS",     "Motosoto",     "MulanPSL-2.0",
+    "Multics",     "NASA-1.3",     "NCSA",     "NGPL",
+    "NIST-Software",     "NPOSL-3.0",     "NTP",     "Naumen",
+    "Nokia",     "OCLC-2.0",     "OFL-1.1",     "OFL-1.1-RFN",
+    "OFL-1.1-no-RFN",     "OGTSL",     "OLDAP-2.8",     "OLFL-1.3",
+    "OSC-1.0",     "OSET-PL-2.1",     "OSL-1.0",     "OSL-2.0",
+    "OSL-2.1",     "OSL-3.0",     "PHP-3.0",     "PHP-3.01",
+    "PostgreSQL",     "Python-2.0",     "Python-2.0.1",     "QPL-1.0",
+    "RPL-1.1",     "RPL-1.5",     "RPSL-1.0",     "RSCPL",
+    "SISSL",     "SPL-1.0",     "SimPL-2.0",     "Sleepycat",
+    "UCL-1.0",     "UPL-1.0",     "Unicode-3.0",     "Unicode-DFS-2016",
+    "Unlicense",     "VSL-1.0",     "W3C",     "W3C-20150513",
+    "Watcom-1.0",     "WordNet",     "Xnet",     "ZPL-2.0",
+    "ZPL-2.1",     "Zlib",     "curl",     "eCos-2.0",
+    "wxWindows",})
+
+#: OpenSSF/Pike criticality (input 2.2, ``cvi.core.openssf``): the
+#: ``cvi.models.OpenSSFSignals`` field name -> the alpha_i/T_i key (spec
+#: 2.2, 10.1). Relocated from ``cvi.core.openssf`` by packet W2-8 round 2
+#: (R-2), per the round-1 review's Blocker 2 and that module's own
+#: docstring ("W2-8's constants-freeze work should decide whether/how they
+#: join that registry"): a weight, threshold or field-mapping change moves
+#: input 2.2's score exactly like any other curve parameter (reproduced:
+#: ``OPENSSF_WEIGHTS["contributor_count"]`` 2.0 -> 3.0 moved the Pike score
+#: 62.107555 -> 62.533452 with the hash unchanged).
+SIGNAL_FIELDS: dict[str, str] = {
+    "created_since_months": "created_since",
+    "updated_since_months": "updated_since",
+    "contributor_count": "contributor_count",
+    "org_count": "org_count",
+    "commit_frequency_weekly": "commit_frequency",
+    "recent_releases_count": "recent_releases_count",
+    "closed_issues_count_90d": "closed_issues_count",
+    "updated_issues_count_90d": "updated_issues_count",
+    "comment_frequency": "comment_frequency",
+    "dependents_count": "dependents_count",
+}
+
+#: Default signal weights (alpha_i) and thresholds (T_i) -- spec 2.2, 10.1.
+OPENSSF_WEIGHTS: dict[str, float] = {
+    "created_since": 1.0,
+    "updated_since": -1.0,
+    "contributor_count": 2.0,
+    "org_count": 1.0,
+    "commit_frequency": 1.0,
+    "recent_releases_count": 0.5,
+    "closed_issues_count": 0.5,
+    "updated_issues_count": 0.5,
+    "comment_frequency": 1.0,
+    "dependents_count": 2.0,
+}
+OPENSSF_THRESHOLDS: dict[str, float] = {
+    "created_since": 120.0,
+    "updated_since": 120.0,
+    "contributor_count": 5000.0,
+    "org_count": 10.0,
+    "commit_frequency": 1000.0,
+    "recent_releases_count": 26.0,
+    "closed_issues_count": 5000.0,
+    "updated_issues_count": 5000.0,
+    "comment_frequency": 15.0,
+    "dependents_count": 500000.0,
+}
+
 
 #: Per-parameter within-pillar weight, keyed by the 18 frozen input ids
 #: (02 section 4). Relocated from the ``ParamDef`` call sites in
@@ -371,6 +506,9 @@ def constants_dict() -> dict[str, object]:
         "MIN_POPULATION": MIN_POPULATION,
         "MONO_TOLERANCE": MONO_TOLERANCE,
         "NO_CEILING_MIN_COVERAGE": NO_CEILING_MIN_COVERAGE,
+        "OPENSSF_THRESHOLDS": OPENSSF_THRESHOLDS,
+        "OPENSSF_WEIGHTS": OPENSSF_WEIGHTS,
+        "OSI_APPROVED_LICENSES": tuple(sorted(OSI_APPROVED_LICENSES)),
         "PARAM_INPUT_IDS": PARAM_INPUT_IDS,
         "PARAM_MIN_N": PARAM_MIN_N,
         "PARAM_WEIGHTS": PARAM_WEIGHTS,
@@ -388,13 +526,32 @@ def constants_dict() -> dict[str, object]:
         "REPO_IDENTITY_FIELDS": REPO_IDENTITY_FIELDS,
         "SCHEMA_VERSION": SCHEMA_VERSION,
         "SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR": SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR,
+        "SIGNAL_FIELDS": SIGNAL_FIELDS,
         "SUPPLY_SLOPE": SUPPLY_SLOPE,
+        "TIER_CUTOFFS": TIER_CUTOFFS,
+        "TIER_ORDER": TIER_ORDER,
         "TTFHR_KNEE_HOURS": TTFHR_KNEE_HOURS,
         "TTFHR_SLOPE_PER_DOUBLING": TTFHR_SLOPE_PER_DOUBLING,
         "UNMEASURED_REASONS": UNMEASURED_REASONS,
         "WEIGHT_SUM_TOLERANCE": WEIGHT_SUM_TOLERANCE,
     }
 
+
+#: Module-level UPPER_CASE names that are deliberately NOT part of
+#: ``constants_dict()`` (packet W2-8 round 2, review Warning 6 / mutant M4:
+#: a new constant added here but never registered in ``constants_dict()``
+#: survived the full suite, since nothing checked completeness).
+#: ``CONSTANTS_HASH`` is the only member: it is a hash *of* the dict, so it
+#: cannot also be *in* the dict (self-reference). Every other module-level
+#: UPPER_CASE name -- ``BENCHMARK_VERSION`` included -- is a real key of
+#: ``constants_dict()``; ``BENCHMARK_VERSION`` is deliberately hashed
+#: (not carved out here) because D-VER-1 ties a version bump to a
+#: constants change in the first place, so the two moving together is the
+#: correct behaviour, not a redundancy to break apart.
+#: ``tests/core/test_frozen.py::test_every_module_level_constant_is_hashed_or_declared_not_hashed``
+#: enforces that this tuple plus ``constants_dict()`` between them account
+#: for every module-level UPPER_CASE name -- the M4 guard.
+_NOT_HASHED: tuple[str, ...] = ("CONSTANTS_HASH",)
 
 CONSTANTS_HASH: str = hashlib.sha256(
     _canonical_json(constants_dict()).encode("utf-8")

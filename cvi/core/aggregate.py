@@ -12,12 +12,13 @@ balanced composite, renormalised over measured pillars, rounded once at the
 end (04 section 8). ``tier_from_score`` and ``apply_ceiling`` are D-MAT-2:
 absolute cutoffs capped by the coverage ceiling.
 
-The 0.80/0.95 ceiling bands were relocated to ``cvi.core.constants_v2`` by
-packet W2-8 (R-2); re-bound here under the original names. The 90/80/70/55/40
-tier cutoffs stay defined in this module (see :data:`TIER_CUTOFFS` below):
-they are D-MAT-2's ordered (cutoff, label) pairs, not a bare numeric
-tunable, so relocating them would mean either splitting the pairing across
-two modules or moving the labels too -- deferred, flagged again below.
+The 0.80/0.95 ceiling bands, the 90/80/70/55/40 tier cutoffs and their
+ordering were relocated to ``cvi.core.constants_v2`` by packet W2-8 (round 1
+for the ceiling bands, round 2 for :data:`TIER_CUTOFFS`/:data:`TIER_ORDER`
+per the round-1 review's Blocker 1); re-bound here under the original names.
+``TIER_FLOOR`` stays defined in this module: it is a bare label with no
+accompanying threshold (the round-1 review's own census: "correctly
+excluded"), unlike ``TIER_CUTOFFS``'s (cutoff, label) pairs.
 """
 from __future__ import annotations
 
@@ -42,18 +43,15 @@ CEILING_A: str = "A"
 #: D-MAT-2 tier cutoffs (kept, O-5), worst to best; below the last cutoff is
 #: ``TIER_FLOOR``. A score exactly at a cutoff belongs to the higher tier
 #: (``>=``), matching the v1 convention these cutoffs are kept from.
-TIER_CUTOFFS: tuple[tuple[float, str], ...] = (
-    (90.0, "S+"),
-    (80.0, "S"),
-    (70.0, "A"),
-    (55.0, "B"),
-    (40.0, "C"),
-)
+#: Relocated to ``constants_v2`` by packet W2-8 round 2 (R-2); re-bound here
+#: under the original name.
+TIER_CUTOFFS: tuple[tuple[float, str], ...] = constants_v2.TIER_CUTOFFS
 TIER_FLOOR: str = "D"
 
 #: Every tier and ceiling label, worst to best, for ``apply_ceiling``'s
-#: ``min(tier_by_score, ceiling)`` (D-MAT-2).
-TIER_ORDER: tuple[str, ...] = ("D", "C", "B", "A", "S", "S+")
+#: ``min(tier_by_score, ceiling)`` (D-MAT-2). Relocated to ``constants_v2``
+#: by packet W2-8 round 2 (R-2).
+TIER_ORDER: tuple[str, ...] = constants_v2.TIER_ORDER
 
 
 def _pillar_problems(params: Mapping[str, ParamScore]) -> list[str]:

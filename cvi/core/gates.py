@@ -16,14 +16,16 @@ passes, routes to the off-platform workflow, or reports
 coverage C (D-MISS-3; computed by W2-5): C >= 0.60 is rated, below is
 ``unrated: insufficient_evidence`` (listed, not ranked).
 
-Packet W2-8 (constants freeze) relocated the seven numeric gate thresholds
-below into ``cvi.core.constants_v2``, imported back here under their
-original names (R-2). The D-GATE-3 OSI set (``OSI_APPROVED_LICENSES``) and
-``UNDETERMINED_SPDX`` stay defined in this module: they are license-id
-vocabularies sourced from an external standard (SPDX/OSI), not scoring
-thresholds -- the constants freeze's RFC procedure (03 section 7) is for a
-tunable that changes what the ranking rewards, not for tracking upstream
-license-list updates.
+Packet W2-8 round 1 relocated the seven numeric gate thresholds below into
+``cvi.core.constants_v2``, imported back here under their original names
+(R-2). Packet W2-8 round 2 additionally relocated ``OSI_APPROVED_LICENSES``
+(round-1 review Warning 5: it is not a bare identifier vocabulary -- D-GATE-3
+*interprets* it as a predicate deciding eligible vs ``REASON_UNLICENSED``, so
+an upstream-list update is itself a ranking-changing event and belongs in
+the hash / RFC procedure the same as any other tunable). ``UNDETERMINED_SPDX``
+stays defined in this module: it is three sentinel strings meaning "no SPDX
+id recorded" (``None``, ``"NOASSERTION"``, ``"OTHER"``), not a license
+vocabulary that could itself drift.
 """
 from __future__ import annotations
 
@@ -76,48 +78,10 @@ EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = constants_v2.EVIDENCE_GATE_MIN_COM
 #: ``D_GATE3_UNLICENSED_SPDX``; the frozen-constants module is owned by W2-1.
 UNDETERMINED_SPDX: frozenset[str | None] = frozenset({None, "NOASSERTION", "OTHER"})
 
-#: D-GATE-3: OSI-approved SPDX ids (see module docstring for the source).
-OSI_APPROVED_LICENSES: frozenset[str] = frozenset({
-    "0BSD",     "AAL",     "AFL-1.1",     "AFL-1.2",
-    "AFL-2.0",     "AFL-2.1",     "AFL-3.0",     "AGPL-3.0",
-    "AGPL-3.0-only",     "AGPL-3.0-or-later",     "ALGLIB-Documentation",     "APL-1.0",
-    "APSL-1.0",     "APSL-1.1",     "APSL-1.2",     "APSL-2.0",
-    "Apache-1.1",     "Apache-2.0",     "Artistic-1.0",     "Artistic-1.0-Perl",
-    "Artistic-1.0-cl8",     "Artistic-2.0",     "BSD-1-Clause",     "BSD-2-Clause",
-    "BSD-2-Clause-Patent",     "BSD-3-Clause",     "BSD-3-Clause-LBNL",     "BSD-3-Clause-Open-MPI",
-    "BSD-ask-to-endorse",     "BSL-1.0",     "BlueOak-1.0.0",     "CAL-1.0",
-    "CAL-1.0-Combined-Work-Exception",     "CATOSL-1.1",     "CDDL-1.0",     "CDDL-1.1",
-    "CECILL-2.1",     "CERN-OHL-P-2.0",     "CERN-OHL-S-2.0",     "CERN-OHL-W-2.0",
-    "CNRI-Python",     "CNRI-Python-GPL-Compatible",     "CPAL-1.0",     "CPL-1.0",
-    "CUA-OPL-1.0",     "ECL-1.0",     "ECL-2.0",     "EFL-1.0",
-    "EFL-2.0",     "EPL-1.0",     "EPL-2.0",     "EUDatagrid",
-    "EUPL-1.1",     "EUPL-1.2",     "Entessa",     "Fair",
-    "Frameworx-1.0",     "GPL-1.0",     "GPL-2.0",     "GPL-2.0+",
-    "GPL-2.0-only",     "GPL-2.0-or-later",     "GPL-3.0",     "GPL-3.0+",
-    "GPL-3.0-only",     "GPL-3.0-or-later",     "GPL-3.0-with-GCC-exception",     "HPND",
-    "ICU",     "IPA",     "IPL-1.0",     "ISC",
-    "Intel",     "Jam",     "LGPL-2.0",     "LGPL-2.0+",
-    "LGPL-2.0-only",     "LGPL-2.0-or-later",     "LGPL-2.1",     "LGPL-2.1+",
-    "LGPL-2.1-only",     "LGPL-2.1-or-later",     "LGPL-3.0",     "LGPL-3.0+",
-    "LGPL-3.0-only",     "LGPL-3.0-or-later",     "LPL-1.0",     "LPL-1.02",
-    "LPPL-1.3c",     "LiLiQ-P-1.1",     "LiLiQ-R-1.1",     "LiLiQ-Rplus-1.1",
-    "MIT",     "MIT-0",     "MIT-Modern-Variant",     "MPL-1.0",
-    "MPL-1.1",     "MPL-2.0",     "MPL-2.0-no-copyleft-exception",     "MS-PL",
-    "MS-RL",     "MirOS",     "Motosoto",     "MulanPSL-2.0",
-    "Multics",     "NASA-1.3",     "NCSA",     "NGPL",
-    "NIST-Software",     "NPOSL-3.0",     "NTP",     "Naumen",
-    "Nokia",     "OCLC-2.0",     "OFL-1.1",     "OFL-1.1-RFN",
-    "OFL-1.1-no-RFN",     "OGTSL",     "OLDAP-2.8",     "OLFL-1.3",
-    "OSC-1.0",     "OSET-PL-2.1",     "OSL-1.0",     "OSL-2.0",
-    "OSL-2.1",     "OSL-3.0",     "PHP-3.0",     "PHP-3.01",
-    "PostgreSQL",     "Python-2.0",     "Python-2.0.1",     "QPL-1.0",
-    "RPL-1.1",     "RPL-1.5",     "RPSL-1.0",     "RSCPL",
-    "SISSL",     "SPL-1.0",     "SimPL-2.0",     "Sleepycat",
-    "UCL-1.0",     "UPL-1.0",     "Unicode-3.0",     "Unicode-DFS-2016",
-    "Unlicense",     "VSL-1.0",     "W3C",     "W3C-20150513",
-    "Watcom-1.0",     "WordNet",     "Xnet",     "ZPL-2.0",
-    "ZPL-2.1",     "Zlib",     "curl",     "eCos-2.0",
-    "wxWindows",})
+#: D-GATE-3: OSI-approved SPDX ids. Relocated to ``constants_v2`` by packet
+#: W2-8 round 2 (R-2); re-bound here under the original name (see the
+#: module docstring for the source and the round-1 review finding).
+OSI_APPROVED_LICENSES: frozenset[str] = constants_v2.OSI_APPROVED_LICENSES
 
 
 def _parse_iso(value: str) -> datetime:

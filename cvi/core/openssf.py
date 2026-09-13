@@ -26,58 +26,31 @@ it could not previously call ``cvi.openssf`` directly. Both now call this
 one function; see ``cvi/openssf.py`` for the ``OpenSSFSignals``-typed public
 wrapper v1 code keeps using.
 
-The weights/thresholds below are tunables, not frozen v2 constants: they are
-not owned by this module's "one definition" claim in the same sense
-``cvi.core.constants_v2`` owns the v2 ranking constants (CONSTANTS_HASH does
-not cover them). W2-8's constants-freeze work should decide whether/how they
-join that registry; this packet does not move them there.
+The weights/thresholds/field-mapping below were tunables outside
+``cvi.core.constants_v2``'s "one definition" claim when this module first
+landed (CONSTANTS_HASH did not cover them). Packet W2-8 round 2 relocated
+all three into ``constants_v2`` per the round-1 review's Blocker 2
+(``OPENSSF_WEIGHTS["contributor_count"]`` 2.0 -> 3.0 moved input 2.2's score
+with the hash unchanged); re-bound here under the original names so every
+existing caller keeps resolving ``cvi.core.openssf.<NAME>``.
 """
 from __future__ import annotations
 
 import math
 from typing import Mapping, Optional
 
+from cvi.core import constants_v2
+
 #: ``cvi.models.OpenSSFSignals`` field name -> the alpha_i / T_i key (spec
 #: 2.2, 10.1). Iteration order matches the module docstring's signal table
-#: in ``cvi/collect/pike_signals.py``.
-SIGNAL_FIELDS: dict[str, str] = {
-    "created_since_months": "created_since",
-    "updated_since_months": "updated_since",
-    "contributor_count": "contributor_count",
-    "org_count": "org_count",
-    "commit_frequency_weekly": "commit_frequency",
-    "recent_releases_count": "recent_releases_count",
-    "closed_issues_count_90d": "closed_issues_count",
-    "updated_issues_count_90d": "updated_issues_count",
-    "comment_frequency": "comment_frequency",
-    "dependents_count": "dependents_count",
-}
+#: in ``cvi/collect/pike_signals.py``. Relocated to ``constants_v2`` by
+#: packet W2-8 round 2 (R-2).
+SIGNAL_FIELDS: dict[str, str] = constants_v2.SIGNAL_FIELDS
 
 #: Default signal weights (alpha_i) and thresholds (T_i) — spec 2.2, 10.1.
-OPENSSF_WEIGHTS: dict[str, float] = {
-    "created_since": 1.0,
-    "updated_since": -1.0,
-    "contributor_count": 2.0,
-    "org_count": 1.0,
-    "commit_frequency": 1.0,
-    "recent_releases_count": 0.5,
-    "closed_issues_count": 0.5,
-    "updated_issues_count": 0.5,
-    "comment_frequency": 1.0,
-    "dependents_count": 2.0,
-}
-OPENSSF_THRESHOLDS: dict[str, float] = {
-    "created_since": 120.0,
-    "updated_since": 120.0,
-    "contributor_count": 5000.0,
-    "org_count": 10.0,
-    "commit_frequency": 1000.0,
-    "recent_releases_count": 26.0,
-    "closed_issues_count": 5000.0,
-    "updated_issues_count": 5000.0,
-    "comment_frequency": 15.0,
-    "dependents_count": 500000.0,
-}
+#: Relocated to ``constants_v2`` by packet W2-8 round 2 (R-2).
+OPENSSF_WEIGHTS: dict[str, float] = constants_v2.OPENSSF_WEIGHTS
+OPENSSF_THRESHOLDS: dict[str, float] = constants_v2.OPENSSF_THRESHOLDS
 
 
 def calculate_pike_criticality(
