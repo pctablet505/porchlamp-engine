@@ -1,0 +1,18 @@
+# R2-01 Item-by-item verification at `adfec73`
+
+| Item | Verdict | Evidence |
+|---|---|---|
+| **B-1** `normalizeWeights` four-locks branch | **FIXED** | The `free.length === 0` branch now always re-pins the dragged slider (`next[changedPillar] = Math.max(0, 1 - lockedSum)`), exactly the one-line change the round-1 report specified. I re-ran MY OWN independent property port (`scratch/W4-5b-review/weights_property_r2.py`: 32 lock subsets × 6 values, 4,000 randomised 6-step walks, presets under every subset): **40 failures → 0**. The round-1 minimal repro now returns `.25/.25/.20/.15/.15` (sum 1.0) instead of sum 0.87. **But see R2-02 N1: no EXECUTABLE test guards it.** |
+| **B-2** matrix axis caption | **FIXED** | `MatrixAxisCoverage{pillar, axis_partial_count, axis_partial_share}` with a range validator replaces `dict[str,str]`; the sentence is composed in `copy.matrixAxisCoverageCaption` from `PILLAR_NAMES[entry.pillar]` + the share; `views/matrix.js:178` iterates `matrix.axis_coverage` and calls the composer. The shape now matches what `cvi/store/queries.py::matrix_points` already returns, so W4-4 has nothing to re-implement. Fail-before: mutant N2 (share pinned to 0.0) KILLED. Residual N-1 below. |
+| **B-3** drawer parity | **FIXED** | `findRow` is now `state.repoDetailByKey[key] \|\| null` — every screen resolves the drawer through the same `GET /v1/cvi/repos/{o}/{n}` record, so parity is structural rather than best-effort. `openRepo` dispatches `loadRepoDetail` + `loadEvidence`; `repoToLoadFromState` covers the `?repo=` boot and popstate paths. The not-found branch now distinguishes loading / error-with-retry / genuine not-found via a new `DRAWER_NOT_FOUND_TEXT` — which also closes round-1 N-5 (`emptyLeaderboardText(0, 0)` misused as a repo-not-found sentence). **But see R2-02 N3: the 404 path itself is untested.** |
+| lead-1 Enter on a focused marker | FIXED | opens by key, same `resolveOpenTargetKey`-style focus-first resolution the leaderboard uses. |
+| lead-3 marker radius | FIXED | `MIN_RADIUS_PX 4` / `MAX_RADIUS_PX 12` / `DEFAULT_RADIUS_PX 6`, converted to viewBox units against `REFERENCE_PLOT_WIDTH_PX = 720`; the legend note states the px range and the unaudited default. |
+| lead-4 slider labelling | FIXED | `<label for>` + explicit `aria-label` + `aria-labelledby` + pillar-named `aria-valuetext` ("Responsiveness: 25%"), so both a screen reader and an attribute-only audit find the name. |
+| (a) live reproject validated | FIXED | `test_live_response_with_shifted_ranks_validates_with_correct_rank_delta_sign` POSTs a vector that actually moves ranks and validates the response against `ReprojectResponse`, whose inherited `rank_delta == balanced_rank - rank` validator is the assertion. Fail-before proven twice: my M7 (round-1 survivor) and the new N4 (sign flip on the live response) are now **both KILLED**. |
+| (b) canvas-mode interaction | FIXED | `hitTestPoint` (nearest point within a domain-unit tolerance) drives click-to-open above the SVG budget, plus virtual-index keyboard navigation — round-1 W-3's "markers lose all interaction above 2,000" is addressed. |
+| M3 / M6 test gaps | FIXED | Both mutants now KILLED (unplottable rows excluded; a parity vector that crosses the 0.60 rating floor). |
+| W-5 Compare enum ranking | FIXED | a value absent from `values_worst_to_best` is treated as unknown rather than "worse than the worst". |
+| N-1 / N-2 (round 1) | FIXED | the `+`/`-` docstring claim and the focus-overlay radius. |
+
+Suite: **2,521 passed, 2 skipped** — the claim is exact. Both skips predate this packet
+(`test_reproduce_fixture.py:110` run-by-hand; `test_store_cli.py:290` waiting on W4-4).
