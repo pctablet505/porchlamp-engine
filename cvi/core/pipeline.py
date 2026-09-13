@@ -39,8 +39,16 @@ that):
   TTFHR p75, last non-bot commit date); ranking itself
   (:func:`cvi.core.tiebreak.assign_ranks`) runs once, over the whole
   population, inside :func:`score_snapshot`.
+- :func:`apply_suspicion` -- stage 10 (W3-2f, ``03`` section 6): folds a
+  caller-supplied ``detectors`` callable's per-repo flag names onto
+  ``ScoreRecord.suspicion``, run after stage 9's ``assign_ranks`` so
+  suspicion can never influence rank/tie_key. ``cvi.core`` cannot import
+  ``cvi.verify.detectors`` (``tests/core/test_import_graph.py``), so this
+  module never runs a detector itself -- see :data:`DetectorsCallable` and
+  ``cvi/verify/pipeline_hook.py`` for where the real composition lives.
 - :func:`build_snapshot_counts` -- rated/gated/unrated counts plus
-  per-persona visible counts, over the final ranked records.
+  per-persona visible counts and a per-detector ``suspicion_counts``
+  histogram, over the final ranked records.
 - :func:`canonical_records_json` / :func:`records_hash_of` -- the
   reproducibility handle (03 section 5, W3-4): a canonical JSON
   serialisation of the final record tuple (sorted keys, tuples as lists,
@@ -104,9 +112,9 @@ module's ``persona_gates`` field.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, is_dataclass, replace
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from datetime import datetime
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from cvi.core import constants_v2, persona
 from cvi.core.engine import PopulationLookup, Snapshot, score
@@ -129,10 +137,20 @@ from cvi.core.tiebreak import TieBreakInput, assign_ranks, ttfhr_p75_from_pr_win
 RepoKey = str
 
 
-def repo_key(bundle: FeatureBundle) -> RepoKey:
+def repo_key(carrier: "FeatureBundle | ScoreRecord") -> RepoKey:
     """The repository key a caller's ``gate_evidence``/``raw_hashes``
-    mappings (and this module's own :class:`SnapshotCounts`) are keyed by."""
-    return f"{bundle.repo.owner}/{bundle.repo.name}"
+    mappings (and this module's own :class:`SnapshotCounts`) are keyed by.
+
+    Accepts either a :class:`~cvi.core.models.FeatureBundle` or a
+    :class:`~cvi.core.models.ScoreRecord` (W3-2f: the ``detectors``
+    composition seam needs to key *records*, not just bundles, by the same
+    identity -- one definition per fact, R-2, rather than a second
+    ``_record_repo_key`` restating ``f"{x.repo.owner}/{x.repo.name}"``).
+    Both types carry a ``repo: RepoIdentity`` field, and ``ScoreRecord.repo``
+    is always copied from the bundle it was scored from
+    (``cvi.core.engine.score``), so the two never disagree for the same
+    repository."""
+    return f"{carrier.repo.owner}/{carrier.repo.name}"
 
 
 # --------------------------------------------------------------------------- #
@@ -232,12 +250,23 @@ class SnapshotCounts:
     records for which that persona is absent from ``persona_gates`` *and*
     that persona's own :class:`~cvi.core.models.PersonaComposite` is
     ``rated`` (04 section 6's per-persona-rated ruling: a persona's
-    visibility is never read off the balanced ``rated`` flag)."""
+    visibility is never read off the balanced ``rated`` flag).
+
+    ``suspicion_counts`` (W3-2f) is a per-detector-name histogram over every
+    record's final ``suspicion`` list: ``{name: number of records carrying
+    that name}``. Built generically from whatever names actually appear
+    (``cvi.core`` cannot import ``cvi.verify.detectors.DETECTOR_NAMES`` --
+    see ``score_snapshot``'s ``detectors`` seam docstring -- so this is not
+    a fixed nine-key dict; a name no record carries is simply absent, not
+    zero-filled). Defaults to ``{}`` so the pre-W3-2f construction site in
+    ``tests/audit/test_anchors_fixture.py`` (a known, separately-tracked
+    failure -- see that file) keeps working unchanged."""
 
     rated: int
     gated: int
     unrated: int
     persona_visible: Mapping[str, int]
+    suspicion_counts: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -280,7 +309,14 @@ def build_snapshot_counts(records: Sequence[ScoreRecord]) -> SnapshotCounts:
             and record.persona_composites.get(name) is not None
             and record.persona_composites[name].rated
         )
-    return SnapshotCounts(rated=rated, gated=gated, unrated=unrated, persona_visible=visible)
+    suspicion_counts: dict[str, int] = {}
+    for record in records:
+        for name in record.suspicion:
+            suspicion_counts[name] = suspicion_counts.get(name, 0) + 1
+    return SnapshotCounts(
+        rated=rated, gated=gated, unrated=unrated, persona_visible=visible,
+        suspicion_counts=suspicion_counts,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -345,6 +381,84 @@ def _validated_keys(
     return keys
 
 
+#: The composition seam :func:`score_snapshot` uses to populate
+#: ``ScoreRecord.suspicion`` (W3-2f, ``03`` section 6). ``cvi.core`` may not
+#: import ``cvi.verify`` (``tests/core/test_import_graph.py`` restricts
+#: every ``cvi/core/*.py`` module to ``cvi.core`` + stdlib), so the real
+#: detector logic (``cvi.verify.detectors.run_detectors``) cannot be called
+#: from here directly -- the lead's preferred "plain import" option the
+#: packet dispatch names is unavailable, confirmed against that test rather
+#: than assumed. Instead the caller supplies a callable of this shape;
+#: ``cvi/verify/pipeline_hook.py`` (outside ``cvi.core``, free to import
+#: both ``cvi.core`` and ``cvi.verify``) is the one place that builds the
+#: real one, adapting each current bundle to the
+#: ``cvi.verify.detectors.DetectorInputs`` a bare ``ScoreRecord`` cannot
+#: supply on its own (elephant_factor, newcomer_issue_supply, the
+#: closed-unread share/n) and closing over them so the returned callable
+#: only needs ``(records, previous)``.
+DetectorsCallable = Callable[
+    [Sequence[ScoreRecord], "ScoredSnapshot | None"], Mapping[RepoKey, Sequence[str]]
+]
+
+
+def apply_suspicion(
+    records: Sequence[ScoreRecord],
+    previous: "ScoredSnapshot | None",
+    detectors: DetectorsCallable | None,
+) -> tuple[ScoreRecord, ...]:
+    """Fold ``detectors``'s per-repo flag lists onto ``records`` (W3-2f
+    stage 10, run after stage 9's ranks are assigned -- see
+    :func:`score_snapshot`'s own docstring for why suspicion must never
+    feed back into rank/tie_key).
+
+    Every record's ``suspicion`` becomes the sorted, de-duplicated list of
+    names ``detectors`` returned for its repo key (:func:`repo_key`) --
+    sorted/de-duplicated *here*, not trusted from the callable:
+    ``DetectorsCallable`` is a caller-supplied interface with no contract of
+    its own about order or duplicates, so this is the one place that
+    guarantees ``cvi.core.models.ScoreRecord.suspicion``'s own documented
+    shape regardless of which composition supplied the raw mapping (a
+    record's own repo key missing from the mapping is simply "no detector
+    fired", matching :func:`~cvi.verify.detectors.run_detectors`'s own
+    "sorted and de-duplicated" contract without depending on any particular
+    implementation of it).
+
+    No detector runs at all -- every record keeps whatever ``suspicion`` it
+    already carried (``[]``, set by ``cvi.core.engine.score``) -- when
+    either ``previous`` is ``None`` (``03`` section 6: this whole apparatus
+    is *cross-snapshot*; the very first snapshot has nothing to compare
+    against, so this wiring point deliberately does not engage even the
+    detectors that do not themselves read ``previous``) or ``detectors`` is
+    ``None`` (no composition wired in -- ``cvi.core`` alone never knows how
+    to build one). This is a stricter gate than any individual detector's
+    own ``previous is None`` handling (``cvi.verify.detectors.
+    detect_param_jump`` is the only one of the nine that actually reads
+    ``previous``): ``tests/verify/test_detectors.py`` already covers each
+    detector's own, more permissive, ``previous=None`` behaviour when
+    ``run_detectors`` is called directly (as ``cvi/audit/
+    detectors_report.py`` does); this function's coarser rule is specific
+    to the ``score_snapshot`` wiring point, not a restatement of
+    ``run_detectors``'s own contract.
+
+    A repo present in ``records`` but absent from ``previous.records``
+    still reaches ``detectors`` (with whatever ``previous`` object the
+    caller passed) -- ``detectors`` itself is the one responsible for
+    resolving that per repo (``cvi/verify/pipeline_hook.py``'s composition
+    passes ``previous_record=None`` for such a repo, so only the
+    single-snapshot detectors can fire for it).
+
+    Never mutates ``records`` (``ScoreRecord`` is frozen; ``dataclasses.
+    replace`` per record, the same convention every other stage function in
+    this module follows)."""
+    if previous is None or detectors is None:
+        return tuple(records)
+    suspicion_by_key = detectors(records, previous)
+    return tuple(
+        replace(record, suspicion=sorted(set(suspicion_by_key.get(repo_key(record), ()))))
+        for record in records
+    )
+
+
 def score_snapshot(
     bundles: Sequence[FeatureBundle],
     populations: PopulationLookup,
@@ -353,8 +467,11 @@ def score_snapshot(
     as_of: datetime,
     gate_evidence: Mapping[RepoKey, GateEvidence],
     raw_hashes: Mapping[RepoKey, str],
+    previous: "ScoredSnapshot | None" = None,
+    detectors: DetectorsCallable | None = None,
 ) -> ScoredSnapshot:
-    """Score a whole snapshot: D-ORDER-1 stages 0-9 over every bundle.
+    """Score a whole snapshot: D-ORDER-1 stages 0-9 over every bundle, then
+    stage 10 (W3-2f): fold cross-snapshot detector flags onto ``suspicion``.
 
     Pure (no I/O, no clock): ``populations`` must already be frozen (stage 4
     -- built by the caller, typically via ``cvi.snapshot.populations.
@@ -378,8 +495,23 @@ def score_snapshot(
     stages 0-7 per bundle (:func:`score_bundle_stages_0_7`), stage 8 per
     record (:func:`score_bundle_stage_8_persona`), stage 9 tie-break input
     per record (:func:`score_bundle_stage_9_tie_input`) then one call to
-    :func:`cvi.core.tiebreak.assign_ranks` over the whole population,
+    :func:`cvi.core.tiebreak.assign_ranks` over the whole population, stage
+    10 (:func:`apply_suspicion`, W3-2f) over the ranked population,
     :func:`build_snapshot_counts`, then :func:`records_hash_of`.
+
+    ``previous`` (W3-2f) is the prior snapshot's own :class:`ScoredSnapshot`
+    -- ``None`` for the first snapshot ever, or whenever a caller has none
+    to compare against -- and ``detectors`` is the optional composition
+    that turns ``(records, previous)`` into each repo's fired detector
+    names; see :func:`apply_suspicion` and :data:`DetectorsCallable` for the
+    full contract, including why both must be supplied (not just
+    ``detectors``) for anything to fire. Stage 10 runs strictly after stage
+    9's ``assign_ranks`` call: ``rank``/``tie_group``/``tie_key`` are
+    already fixed on every record by then, so ``suspicion`` can never feed
+    back into ranking or tie-breaking (``03`` section 6: flags are
+    "displayed... never silent penalties") -- two snapshots that differ
+    only in ``previous`` (and therefore in which flags fire) always agree
+    on every record's ``rank``/``tie_group``.
 
     Raises ``ValueError`` for a duplicate repo key across ``bundles``, or a
     ``gate_evidence``/``raw_hashes`` mapping missing a key some bundle needs
@@ -405,6 +537,7 @@ def score_snapshot(
 
     ranked = assign_ranks(entries)
     records = tuple(record for record, _rank, _tie_group in ranked)
+    records = apply_suspicion(records, previous, detectors)
     counts = build_snapshot_counts(records)
 
     return ScoredSnapshot(

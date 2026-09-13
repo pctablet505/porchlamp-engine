@@ -59,6 +59,7 @@ from cvi.core.models import (
 from cvi.core.pipeline import (
     RepoKey,
     ScoredSnapshot,
+    apply_suspicion,
     build_snapshot_counts,
     canonical_records_json,
     records_hash_of,
@@ -539,6 +540,7 @@ _MUTATION_CASES = [
     ("tier", "D"),
     ("rank", 999),
     ("persona_composites", {}),
+    ("suspicion", ["param_jump"]),
 ]
 
 
@@ -703,3 +705,202 @@ def test_score_bundle_stage_8_persona_replaces_never_mutates() -> None:
     assert result is not record
     assert record.persona_gates == {} and record.persona_composites == {}, "input record must stay untouched"
     assert result.persona_gates != {} or result.persona_composites != {}
+
+
+# --------------------------------------------------------------------------- #
+# W3-2f: score_snapshot(previous=..., detectors=...) -- the suspicion-wiring
+# composition seam. These tests exercise ``apply_suspicion``/``score_snapshot``
+# with hand-written ``detectors`` stubs, never the real
+# ``cvi.verify.detectors``/``cvi.verify.pipeline_hook`` (``cvi.core`` cannot
+# import ``cvi.verify`` -- see ``cvi.core.pipeline.DetectorsCallable``'s own
+# docstring; the real end-to-end wiring through real bundles/detectors is
+# ``tests/verify/test_pipeline_hook.py``). A stub lets each test isolate one
+# fact about the seam without needing a real cross-snapshot fixture.
+# --------------------------------------------------------------------------- #
+def _two_minimal_bundles() -> tuple[FeatureBundle, FeatureBundle]:
+    """Two gate-eligible, otherwise-empty bundles, deliberately named so
+    D-TIE-2's name order (``aaa/first`` before ``zzz/second``) is opposite
+    the order a *reversed* ``detectors`` mapping insertion would suggest --
+    see :func:`test_score_snapshot_wires_suspicion_by_repo_key_not_position`."""
+    return (
+        _bundle(_repo("zzz", "second"), _full_inputs()),
+        _bundle(_repo("aaa", "first"), _full_inputs()),
+    )
+
+
+def _score_two_minimal(
+    *, previous: ScoredSnapshot | None = None, detectors: Any = None
+) -> ScoredSnapshot:
+    bundles = list(_two_minimal_bundles())
+    return score_snapshot(
+        bundles, _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence={repo_key(b): _HEALTHY_EVIDENCE for b in bundles},
+        raw_hashes={repo_key(b): _HASH64 for b in bundles},
+        previous=previous, detectors=detectors,
+    )
+
+
+def test_apply_suspicion_is_identity_when_previous_or_detectors_is_none() -> None:
+    """Direct unit test of :func:`apply_suspicion` itself (not through
+    ``score_snapshot``): a ``detectors`` callable that *would* fire on every
+    repo must still leave every record's ``suspicion`` untouched when either
+    half of the seam is missing -- ``previous is None`` (nothing to compare
+    against yet) or ``detectors is None`` (no composition wired in)."""
+    baseline = _Fixture12.score()
+    records = baseline.records
+    always_fires: Any = lambda recs, prev: {repo_key(r): ["param_jump"] for r in recs}  # noqa: E731
+
+    assert apply_suspicion(records, None, always_fires) == records
+    assert apply_suspicion(records, baseline, None) == records
+
+
+def test_score_snapshot_previous_none_leaves_all_suspicion_empty() -> None:
+    """The literal W3-2f acceptance case: ``previous=None`` -> every
+    record's ``suspicion`` is ``[]``, even with a ``detectors`` callable
+    wired in that would otherwise fire on both repos. This is a stricter
+    gate than any individual detector's own ``previous is None`` handling
+    (see :func:`apply_suspicion`'s docstring) -- deliberate for this
+    specific wiring point, not a claim about ``run_detectors`` itself."""
+    always_fires: Any = lambda recs, prev: {repo_key(r): ["closed_unread"] for r in recs}  # noqa: E731
+    snapshot = _score_two_minimal(previous=None, detectors=always_fires)
+    assert all(record.suspicion == [] for record in snapshot.records)
+
+
+def test_score_snapshot_wires_suspicion_by_repo_key_not_position() -> None:
+    """A ``detectors`` mapping built in an order different from
+    ``score_snapshot``'s final (name-sorted, both repos unrated) record
+    order must still land on the right repo: this fails under a mutant that
+    zips ``records`` against the mapping's ``.values()`` positionally
+    instead of looking each one up by :func:`repo_key`."""
+    reordered_mapping: Any = {"zzz/second": ["label_spam"], "aaa/first": ["star_burst"]}
+    detectors: Any = lambda recs, prev: reordered_mapping  # noqa: E731
+    dummy_previous = _score_two_minimal()  # any non-None ScoredSnapshot; ignored by the stub
+
+    snapshot = _score_two_minimal(previous=dummy_previous, detectors=detectors)
+
+    by_key = {repo_key(r): r for r in snapshot.records}
+    assert by_key["aaa/first"].suspicion == ["star_burst"]
+    assert by_key["zzz/second"].suspicion == ["label_spam"]
+
+
+def test_score_snapshot_sorts_and_dedupes_detector_names() -> None:
+    """``score_snapshot``/``apply_suspicion`` must sort and de-duplicate the
+    ``detectors`` callable's own output, not just trust it -- the callable
+    is a caller-supplied interface with no contract of its own about order
+    or duplicates (only ``cvi.verify.detectors.run_detectors`` happens to
+    already return sorted, deduplicated names; this test proves the
+    guarantee holds even when the callable does not)."""
+    unsorted_with_dupes: Any = {
+        "zzz/second": ["star_burst", "closed_unread", "closed_unread"],
+        "aaa/first": [],
+    }
+    detectors: Any = lambda recs, prev: unsorted_with_dupes  # noqa: E731
+    dummy_previous = _score_two_minimal()
+
+    snapshot = _score_two_minimal(previous=dummy_previous, detectors=detectors)
+
+    by_key = {repo_key(r): r for r in snapshot.records}
+    assert by_key["zzz/second"].suspicion == ["closed_unread", "star_burst"]
+    assert by_key["aaa/first"].suspicion == []
+
+
+def test_score_snapshot_suspicion_never_affects_rank_or_tie_group() -> None:
+    """03 section 6: flags are "displayed... never silent penalties" --
+    ``rank``/``tie_group`` (and the ``tie_key`` that produces them) must be
+    identical between two snapshots that differ only in the detector flags
+    that fired. Deliberately targets the one pair the fixture can actually
+    tie on (``tiea/x``/``tieb/y``, identical composite/coverage/pillars):
+    the alphabetically-earlier repo (``tiea/x``, which must rank first by
+    name, D-TIE-2's own last-resort key) is given the "larger" suspicion
+    list (``["param_jump"] > []``) -- a mutant that folds ``suspicion`` into
+    ``tie_key`` ahead of the name tiebreak would flip their relative order,
+    which this test would catch; one that folds it in *after* the name
+    tiebreak would not change the order at all (name already disambiguates
+    the pair uniquely) -- ``test_score_snapshot_wires_suspicion_by_repo_key_not_position``
+    and the module docstring's own account of this mutant class cover that
+    variant instead."""
+    baseline = _Fixture12.score()
+
+    def _varied(records: Any, previous: Any) -> dict[str, list[str]]:
+        result: dict[str, list[str]] = {}
+        for record in records:
+            key = repo_key(record)
+            if key == "tiea/x":
+                result[key] = ["param_jump"]
+            elif key == "tieb/y":
+                result[key] = []
+            else:
+                result[key] = ["closed_unread"]
+        return result
+
+    bundles = _Fixture12.bundles()
+    detectored = score_snapshot(
+        bundles, _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=_Fixture12.gate_evidence(bundles), raw_hashes=_Fixture12.raw_hashes(bundles),
+        previous=baseline, detectors=_varied,
+    )
+
+    baseline_by_key = _by_key(baseline)
+    detectored_by_key = _by_key(detectored)
+    assert set(baseline_by_key) == set(detectored_by_key)
+    for key in baseline_by_key:
+        assert detectored_by_key[key].rank == baseline_by_key[key].rank, key
+        assert detectored_by_key[key].tie_group == baseline_by_key[key].tie_group, key
+
+    # non-vacuous: the flags actually differ, and the tie pair still ranks
+    # by name (tiea/x before tieb/y), unaffected by the opposite-direction
+    # suspicion each was given.
+    assert detectored_by_key["tiea/x"].suspicion == ["param_jump"]
+    assert detectored_by_key["tieb/y"].suspicion == []
+    assert detectored_by_key["tiea/x"].rank < detectored_by_key["tieb/y"].rank
+    assert baseline_by_key["tiea/x"].suspicion == []  # baseline: no detectors wired at all
+
+
+def test_records_hash_changes_when_a_detector_fires() -> None:
+    """Deliverable #1's own explicit ask: a fired detector (a non-empty
+    ``suspicion``) must change ``records_hash`` -- proof that
+    ``ScoreRecord.suspicion`` genuinely participates in
+    ``canonical_records_json`` (it already did before W3-2f:
+    ``_to_plain`` walks every dataclass field generically), not just that
+    the field exists."""
+    snapshot = _Fixture12.score()
+    baseline_hash = snapshot.records_hash
+    assert all(record.suspicion == [] for record in snapshot.records)
+
+    records = list(snapshot.records)
+    records[0] = dataclasses.replace(records[0], suspicion=["param_jump"])
+
+    assert records_hash_of(records) != baseline_hash
+
+
+def test_build_snapshot_counts_suspicion_histogram() -> None:
+    """``SnapshotCounts.suspicion_counts`` (W3-2f): a per-detector-name
+    histogram built generically from whatever names appear on the final
+    records -- a name no record carries is simply absent, not zero-filled
+    (``cvi.core`` has no fixed nine-name universe to zero-fill from; see
+    the field's own docstring)."""
+    baseline = _Fixture12.score()
+
+    def _three_flagged(records: Any, previous: Any) -> dict[str, list[str]]:
+        result: dict[str, list[str]] = {}
+        for index, record in enumerate(records):
+            key = repo_key(record)
+            if index == 0:
+                result[key] = ["param_jump"]
+            elif index == 1:
+                result[key] = ["param_jump", "closed_unread"]
+            else:
+                result[key] = []
+        return result
+
+    bundles = _Fixture12.bundles()
+    detectored = score_snapshot(
+        bundles, _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=_Fixture12.gate_evidence(bundles), raw_hashes=_Fixture12.raw_hashes(bundles),
+        previous=baseline, detectors=_three_flagged,
+    )
+
+    counts = build_snapshot_counts(detectored.records)
+    assert counts.suspicion_counts == {"param_jump": 2, "closed_unread": 1}
+    # baseline (no detectors wired) never populates the histogram.
+    assert build_snapshot_counts(baseline.records).suspicion_counts == {}
