@@ -63,7 +63,7 @@ from typing import Callable, Protocol
 from cvi.core import aggregate, constants_v2, matrix
 from cvi.core import params as param_fns
 from cvi.core.gates import REASON_INSUFFICIENT_EVIDENCE, GateEvidence, evaluate_gates
-from cvi.core.models import FeatureBundle, GateResult, Measured, ParamScore, PillarScore, ScoreRecord
+from cvi.core.models import FeatureBundle, GateResult, Measured, ParamScore, PillarScore, ScoreRecord, Unmeasured
 from cvi.core.params.curves import KIND_ECDF
 
 
@@ -161,6 +161,36 @@ def _unused_ecdf(_value: float) -> float:
 #: lacked it).
 _REASON_NO_POPULATION = constants_v2.REASON_NO_POPULATION
 
+#: D-MISS-5's "bundle fact" resolvers, keyed by the fact name used in
+#: ``constants_v2.NOT_APPLICABLE_RULES`` (today only ``"ecosystem"``). Kept
+#: local (not a bundle method) since the rule list itself is data, and this
+#: module is the one place that closes the loop between a rule's fact name
+#: and where it actually lives on a :class:`FeatureBundle`.
+_BUNDLE_FACT_RESOLVERS: dict[str, Callable[[FeatureBundle], object]] = {
+    "ecosystem": lambda bundle: bundle.repo.ecosystem,
+}
+
+
+def _not_applicable_is_permitted(input_id: str, bundle: FeatureBundle) -> bool:
+    """D-MISS-5 guard (02 section 5, 03 section 4, W2-13): ``True`` only when
+    ``(input_id, fact, value)`` matches a row of the closed
+    ``constants_v2.NOT_APPLICABLE_RULES`` list against the bundle's own
+    recorded fact. A rule naming a fact this module has no resolver for
+    never matches (fails closed, not open)."""
+    for rule_param, fact_name, expected_value in constants_v2.NOT_APPLICABLE_RULES:
+        if rule_param != input_id:
+            continue
+        resolver = _BUNDLE_FACT_RESOLVERS.get(fact_name)
+        if resolver is not None and resolver(bundle) == expected_value:
+            return True
+    return False
+
+
+#: D-MISS-5/03 section 4 (W2-13): the detail an illegitimate ``not_applicable``
+#: claim is downgraded with -- named so the engine's decision is
+#: distinguishable in the record from a genuine collector failure.
+_NOT_APPLICABLE_OUTSIDE_RULE_LIST_DETAIL = "not_applicable claimed outside the rule list"
+
 
 def _score_params(bundle: FeatureBundle, populations: PopulationLookup) -> dict[str, ParamScore]:
     """Stage 2: apply each of the 18 registered curves to the bundle's
@@ -178,6 +208,17 @@ def _score_params(bundle: FeatureBundle, populations: PopulationLookup) -> dict[
     scores: dict[str, ParamScore] = {}
     for input_id in constants_v2.PARAM_INPUT_IDS:
         value = bundle.inputs[input_id]
+        if (
+            isinstance(value, Unmeasured)
+            and value.reason == "not_applicable"
+            and not _not_applicable_is_permitted(input_id, bundle)
+        ):
+            # D-MISS-5 guard (03 section 4): a bundle or collector can never
+            # assert not_applicable on its own -- only the closed rule list
+            # may. Downgraded to collector_failure (a retry can still
+            # measure it) rather than silently trusted or rejecting the
+            # whole bundle.
+            value = Unmeasured(reason="collector_failure", detail=_NOT_APPLICABLE_OUTSIDE_RULE_LIST_DETAIL)
         function = _PARAM_FUNCTIONS[input_id]
         if input_id not in _ECDF_INPUT_IDS:
             scores[input_id] = function(value)

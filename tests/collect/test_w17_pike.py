@@ -458,7 +458,7 @@ _PIKE_EXPECTED_C = (
 
 
 def test_derive_pike_signals_oracle_hand_built():
-    signals = pike.derive_pike_signals(
+    result = pike.derive_pike_signals(
         {"created_at": (NOW - timedelta(days=3650)).isoformat()},
         _commit_rows(),
         {"source": "releases", "releases": [
@@ -468,21 +468,25 @@ def test_derive_pike_signals_oracle_hand_built():
                  "2026-04-01T00:00:00Z", "2026-05-01T00:00:00Z"])]},
         {"closed_90d": 42, "updated_90d": 120, "comments_per_issue": 4.0},
         {"deduped_count": 1000}, NOW)
-    assert signals is not None
-    assert signals.created_since_months == 120.0        # 3650 d / (365/12)
-    assert signals.updated_since_months == 12.0         # 365 d at the window edge
-    assert signals.contributor_count == 100
-    assert signals.org_count == 4
-    assert signals.commit_frequency_weekly == 10.0     # 520 / 52
-    assert signals.recent_releases_count == 5          # the out-of-window v0 dropped
-    assert signals.closed_issues_count_90d == 42
-    assert signals.updated_issues_count_90d == 120
-    assert signals.comment_frequency == 4.0
-    assert signals.dependents_count == 1000
+    assert result is not None
+    signals, missing = result
+    assert missing == frozenset()          # all ten present (W2-13 shape)
+    assert signals["created_since_months"] == 120.0        # 3650 d / (365/12)
+    assert signals["updated_since_months"] == 12.0         # 365 d at the window edge
+    assert signals["contributor_count"] == 100
+    assert signals["org_count"] == 4
+    assert signals["commit_frequency_weekly"] == 10.0     # 520 / 52
+    assert signals["recent_releases_count"] == 5          # the out-of-window v0 dropped
+    assert signals["closed_issues_count_90d"] == 42
+    assert signals["updated_issues_count_90d"] == 120
+    assert signals["comment_frequency"] == 4.0
+    assert signals["dependents_count"] == 1000
     # Independent hand-computation of spec 10.1 for these raw values
     # (weights +1,-1,+2,+1,+1,+0.5,+0.5,+0.5,+1,+2; sum|alpha| = 10.5):
-    assert calculate_pike_criticality(signals) == pytest.approx(_PIKE_EXPECTED_C, abs=1e-12)
-    assert score_openssf_criticality(signals) == pytest.approx(_PIKE_EXPECTED_C * 100.0, abs=1e-9)
+    assert calculate_pike_criticality(OpenSSFSignals(**signals)) == pytest.approx(_PIKE_EXPECTED_C, abs=1e-12)
+    from cvi.core.openssf import calculate_pike_criticality as core_calculate
+    assert core_calculate(signals) == pytest.approx(_PIKE_EXPECTED_C, abs=1e-12)
+    assert score_openssf_criticality(OpenSSFSignals(**signals)) == pytest.approx(_PIKE_EXPECTED_C * 100.0, abs=1e-9)
 
 
 def test_derive_pike_signals_missing_any_source_is_none():
@@ -497,7 +501,6 @@ def test_derive_pike_signals_missing_any_source_is_none():
     assert pike.derive_pike_signals(args[0], None, *args[2:], NOW) is None
     assert pike.derive_pike_signals(args[0], args[1], None, *args[3:], NOW) is None
     assert pike.derive_pike_signals(*args[:3], None, args[4], NOW) is None
-    assert pike.derive_pike_signals(*args[:4], None, NOW) is None
     # commits envelope present but empty (a real, recorded zero-commit repo)
     # AND github_meta carries no pushed_at: the F2 fallback (W1-7f item 2,
     # test_derive_pike_signals_zero_commits_is_measured_zero_via_pushed_at
@@ -505,6 +508,29 @@ def test_derive_pike_signals_missing_any_source_is_none():
     # still None -- this is the one case an empty commits envelope stays
     # unmeasured, not the general rule.
     assert pike.derive_pike_signals(args[0], [], *args[2:], NOW) is None
+
+
+def test_derive_pike_signals_missing_dependents_is_a_nine_signal_partial():
+    """W2-13 (D-MISS-5 consequence for 2.2): dep is no longer hard-required
+    -- unlike the four groups above, its absence returns the other nine
+    signals plus {"dependents_count"} in the missing set, not None."""
+    args = (
+        {"created_at": (NOW - timedelta(days=3650)).isoformat()},
+        _commit_rows(),
+        {"source": "releases", "releases": []},
+        {"closed_90d": 42, "updated_90d": 120, "comments_per_issue": 4.0},
+    )
+    result = pike.derive_pike_signals(*args, None, NOW)
+    assert result is not None
+    signals, missing = result
+    assert missing == frozenset({"dependents_count"})
+    assert "dependents_count" not in signals
+    assert signals["created_since_months"] == 120.0
+    assert signals["contributor_count"] == 100
+
+    # Same result whether dep is entirely absent or present with a null count.
+    result_null_count = pike.derive_pike_signals(*args, {"deduped_count": None}, NOW)
+    assert result_null_count == result
 
 
 def test_derive_pike_signals_zero_commits_is_measured_zero_via_pushed_at():
@@ -517,18 +543,20 @@ def test_derive_pike_signals_zero_commits_is_measured_zero_via_pushed_at():
     third-party gap)."""
     gh = {"created_at": (NOW - timedelta(days=3650)).isoformat(),
          "pushed_at": (NOW - timedelta(days=30)).isoformat()}
-    signals = pike.derive_pike_signals(
+    result = pike.derive_pike_signals(
         gh, [],
         {"source": "releases", "releases": []},
         {"closed_90d": 0, "updated_90d": 0, "comments_per_issue": 0.0},
         {"deduped_count": 0}, NOW)
-    assert signals is not None
-    assert signals.contributor_count == 0
-    assert signals.org_count == 0
-    assert signals.commit_frequency_weekly == 0.0
-    assert signals.updated_since_months == round(
+    assert result is not None
+    signals, missing = result
+    assert missing == frozenset()
+    assert signals["contributor_count"] == 0
+    assert signals["org_count"] == 0
+    assert signals["commit_frequency_weekly"] == 0.0
+    assert signals["updated_since_months"] == round(
         pike.months_between(pike.parse_iso(gh["pushed_at"]), NOW), 4)
-    assert signals.updated_since_months == pytest.approx(30.0 * 12.0 / 365.0, abs=1e-4)
+    assert signals["updated_since_months"] == pytest.approx(30.0 * 12.0 / 365.0, abs=1e-4)
 
 
 def test_derive_pike_signals_missing_commits_envelope_is_still_unmeasured():
@@ -618,8 +646,15 @@ def test_derive_repo_partial_signals_leaves_openssf_missing(tmp_path):
 
 
 def test_derive_repo_missing_dependents_leaves_openssf_missing(tmp_path):
-    """One prerequisite (W1-2 dependents) absent -> the whole set is missing,
-    never a nine-of-ten partial score (D-MISS-1)."""
+    """One prerequisite (W1-2 dependents) absent -> the ten-signal
+    ``openssf_signals`` (v1's field) stays at its "missing" placeholder,
+    unchanged (D-MISS-1: the other nine still hard-require everything).
+
+    W2-13 (D-MISS-5 consequence for 2.2): the nine present signals are no
+    longer thrown away -- they land in the additive ``openssf_signals_partial``
+    / ``openssf_signals_partial_missing`` fields for
+    ``cvi.derive.bundle``'s ``proxy:no_dependents_signal`` path, while v1
+    (which only ever reads ``openssf_signals``) is unaffected."""
     raw = tmp_path / "raw"
     _seed_pike_inputs(raw)
     (raw / "dependents" / f"{KEY}.json").unlink()
@@ -627,6 +662,15 @@ def test_derive_repo_missing_dependents_leaves_openssf_missing(tmp_path):
                                 fetch=False, now=NOW)
     assert bundle["meta"]["openssf_signals"] is None
     assert bundle["confidence"]["openssf_signals"] == "missing"
+    partial = bundle["meta"]["openssf_signals_partial"]
+    assert bundle["confidence"]["openssf_signals_partial"] == "derived"
+    assert "dependents_count" not in partial
+    assert partial["created_since_months"] == 120.0
+    assert bundle["meta"]["openssf_signals_partial_missing"] == ["dependents_count"]
+    assert bundle["provenance"]["openssf_signals_partial"]["source"] == [
+        str(tmp_path / "raw" / c / f"{KEY}.json")
+        for c in ("github_meta", "commits_365d", "releases", "issues_counts")
+    ]
 
 
 def test_derive_repo_no_ci_runs_scores_zero_in_proxy(tmp_path):

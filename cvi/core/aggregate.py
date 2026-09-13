@@ -71,17 +71,30 @@ def _pillar_problems(params: Mapping[str, ParamScore]) -> list[str]:
     return problems
 
 
+def _is_not_applicable(score: ParamScore) -> bool:
+    """D-MISS-5: an ``Unmeasured(not_applicable)`` stage-2 score. The engine
+    (``cvi.core.engine``) is the only place ``not_applicable`` may be
+    assigned from (the closed rule list guard); this module trusts the
+    reason it is handed, one source per fact."""
+    return not score.measured and score.reason == "not_applicable"
+
+
 def aggregate_pillars(params: Mapping[str, ParamScore]) -> dict[str, PillarScore]:
-    """D-MISS-2: renormalised pillar score and pillar coverage.
+    """D-MISS-2/D-MISS-5: renormalised pillar score and pillar coverage.
 
     ``params`` must carry exactly the 18 frozen input ids
     (``constants_v2.PARAM_INPUT_IDS``), each already a stage-2
     :class:`~cvi.core.models.ParamScore` (curve applied, ``measured`` set by
-    the min-n rule). For each pillar: score is ``Sum(w_i * s_i) / Sum(w_i)``
-    over measured parameters in the pillar; coverage is
-    ``Sum(w_i measured) / Sum(w_i all)``. A pillar with no measured
-    parameter has ``score=None`` and ``coverage=0.0``: it drops out of the
-    composite under the same renormalisation (D-MISS-2). Raises
+    the min-n rule). For each pillar: ``Unmeasured(not_applicable)``
+    parameters (D-MISS-5) are excluded from BOTH sides of the coverage ratio
+    first -- score is ``Sum(w_i * s_i) / Sum(w_i)`` over measured parameters
+    among the applicable ones; coverage is ``Sum(w_i measured) / Sum(w_i
+    applicable)``. A pillar with no measured parameter has ``score=None``
+    (drops out of the composite under the same renormalisation, D-MISS-2,
+    regardless of why); a pillar whose parameters are ALL not_applicable is
+    additionally ``applicable=False`` (D-MISS-5: itself undefined for this
+    repo, not merely 0% covered) and :func:`composite_coverage` excludes it
+    from its own denominator, not just from the composite. Raises
     ``ValueError`` if ``params`` does not carry exactly the 18 ids."""
     problems = _pillar_problems(params)
     if problems:
@@ -95,15 +108,16 @@ def aggregate_pillars(params: Mapping[str, ParamScore]) -> dict[str, PillarScore
     result: dict[str, PillarScore] = {}
     for pillar in constants_v2.PILLAR_NAMES:
         entries = by_pillar[pillar]
-        total_weight = sum(weight for weight, _ in entries)
-        measured_weight = sum(weight for weight, score in entries if score.measured)
+        applicable_entries = [(weight, score) for weight, score in entries if not _is_not_applicable(score)]
+        total_weight = sum(weight for weight, _ in applicable_entries)
+        measured_weight = sum(weight for weight, score in applicable_entries if score.measured)
         coverage = measured_weight / total_weight if total_weight > 0.0 else 0.0
         if measured_weight > 0.0:
-            weighted_sum = sum(weight * score.score for weight, score in entries if score.measured)
+            weighted_sum = sum(weight * score.score for weight, score in applicable_entries if score.measured)
             pillar_score = weighted_sum / measured_weight
         else:
             pillar_score = None
-        result[pillar] = PillarScore(score=pillar_score, coverage=coverage)
+        result[pillar] = PillarScore(score=pillar_score, coverage=coverage, applicable=total_weight > 0.0)
     return result
 
 
@@ -134,19 +148,33 @@ def validate_pillar_weights(weights: Mapping[str, float]) -> None:
 def composite_coverage(
     pillars: Mapping[str, PillarScore], *, weights: Mapping[str, float] = constants_v2.PILLAR_WEIGHTS
 ) -> float:
-    """D-MISS-3: composite coverage ``C = Sum_p(W_p * c_p)`` under
-    ``weights`` (D-AGG-1; defaults to the frozen balanced weights).
-    ``pillars`` must carry all five frozen pillar names
-    (``constants_v2.PILLAR_NAMES``); ``weights`` must too, and must sum to
-    1.0 within tolerance (:func:`validate_pillar_weights`, raised from
-    here) -- with a valid weight vector ``C`` lands directly in ``[0, 1]``.
+    """D-MISS-3/D-MISS-5: composite coverage ``C = Sum_p(W_p * c_p) /
+    Sum_p(W_p)`` over APPLICABLE pillars, under ``weights`` (D-AGG-1;
+    defaults to the frozen balanced weights). ``pillars`` must carry all
+    five frozen pillar names (``constants_v2.PILLAR_NAMES``); ``weights``
+    must too, and must sum to 1.0 within tolerance
+    (:func:`validate_pillar_weights`, raised from here).
+
+    D-MISS-5: a pillar whose parameters are all ``not_applicable``
+    (``PillarScore.applicable is False``, set by :func:`aggregate_pillars`)
+    is itself not applicable and leaves this sum's denominator entirely,
+    the same renormalisation D-MISS-2 applies to a measured/unmeasured
+    split -- so a repo with every other pillar fully measured now reaches
+    ``C = 1.00`` instead of being capped below the ceiling for a fact about
+    the world (02 section 5). With every pillar applicable (the pre-W2-13
+    case, and every other Unmeasured reason today), the denominator is 1.0
+    and this is exactly the old ``Sum_p(W_p * c_p)`` -- unchanged.
 
     ``weights`` generalises this beyond the balanced composite so a persona
     projection (``cvi.core.persona.persona_composite``) can call it with a
     preset vector instead of reimplementing the same reduction (packet
     W2-11, R-3)."""
     validate_pillar_weights(weights)
-    return sum(weights[pillar] * pillars[pillar].coverage for pillar in constants_v2.PILLAR_NAMES)
+    applicable = [pillar for pillar in constants_v2.PILLAR_NAMES if pillars[pillar].applicable]
+    denominator = sum(weights[pillar] for pillar in applicable)
+    if denominator <= 0.0:
+        return 0.0
+    return sum(weights[pillar] * pillars[pillar].coverage for pillar in applicable) / denominator
 
 
 def composite_score_raw(

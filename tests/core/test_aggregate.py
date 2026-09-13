@@ -61,6 +61,13 @@ def _unmeasured(reason: str = "insufficient_n") -> ParamScore:
     )
 
 
+def _not_applicable() -> ParamScore:
+    """D-MISS-5: a stage-2 score this module trusts as ``not_applicable``
+    (the closed-list guard that may only assign this reason lives in
+    ``cvi.core.engine``, upstream of ``aggregate_pillars``)."""
+    return _unmeasured(reason="not_applicable")
+
+
 def full_params(overrides: dict[str, ParamScore] | None = None) -> dict[str, ParamScore]:
     """All 18 params measured at score 50.0, with ``overrides`` applied.
     A neutral baseline the pillar-level oracles override selectively."""
@@ -114,6 +121,50 @@ def test_pillar_with_nothing_measured_is_unmeasured_and_drops_out() -> None:
     assert pillars["rigor"].coverage == pytest.approx(0.0)
 
 
+def test_pillar_not_applicable_parameter_excluded_from_both_sides() -> None:
+    """D-MISS-5: dependents_deduped (w=.40) not_applicable, the other two
+    criticality params (openssf_criticality w=.35, downloads_monthly w=.25)
+    measured at 50.0. Coverage excludes the not_applicable weight from BOTH
+    sides: coverage = 0.60 / 0.60 = 1.00 (not 0.60 / 1.00), and the pillar
+    is still applicable=True (2 of 3 params are)."""
+    params = full_params({"dependents_deduped": _not_applicable()})
+    pillars = aggregate_pillars(params)
+    criticality = pillars["criticality"]
+    assert criticality.coverage == pytest.approx(1.0)
+    assert criticality.score == pytest.approx(50.0)
+    assert criticality.applicable is True
+
+
+def test_pillar_third_party_gap_is_unchanged_from_not_applicable() -> None:
+    """Over-correction guard / D-MISS-5's "other four reasons unchanged":
+    third_party_gap (unlike not_applicable) still counts fully against
+    coverage -- 0.60 / 1.00 = 0.60, exactly the pre-W2-13 arithmetic."""
+    params = full_params({"dependents_deduped": _unmeasured(reason="third_party_gap")})
+    pillars = aggregate_pillars(params)
+    criticality = pillars["criticality"]
+    assert criticality.coverage == pytest.approx(0.60)
+    assert criticality.applicable is True
+
+
+def test_pillar_wholly_not_applicable_is_itself_not_applicable() -> None:
+    """D-MISS-5: when every parameter in a pillar is not_applicable, the
+    pillar itself is inapplicable (not merely 0% covered) -- score is None
+    (as any wholly-unmeasured pillar already was) but applicable is now
+    False, so composite_coverage excludes it from its own denominator
+    rather than counting it as 0 coverage against the pillar's full weight.
+    (Hypothetical: today's only NOT_APPLICABLE_RULES row assigns
+    not_applicable to a single parameter, 2.1; this exercises the
+    aggregate-level mechanism independent of which/how many parameters a
+    future rule might cover.)"""
+    criticality_ids = [input_id for input_id, defn in PARAMS.items() if defn.pillar == "criticality"]
+    assert len(criticality_ids) == 3
+    params = full_params({input_id: _not_applicable() for input_id in criticality_ids})
+    pillars = aggregate_pillars(params)
+    assert pillars["criticality"].score is None
+    assert pillars["criticality"].coverage == pytest.approx(0.0)
+    assert pillars["criticality"].applicable is False
+
+
 def test_aggregate_pillars_requires_exactly_the_eighteen_ids() -> None:
     params = full_params()
     del params["dx"]
@@ -143,6 +194,46 @@ def test_composite_coverage_arithmetic() -> None:
         "accessibility": PillarScore(score=None, coverage=0.0),
     }
     assert composite_coverage(pillars) == pytest.approx(0.655)
+
+
+def test_composite_coverage_systems_repo_end_to_end_reaches_one() -> None:
+    """D-MISS-5 acceptance oracle (W2-13 packet text): a systems repo with
+    everything else measured reaches C = 1.00, no ceiling -- before this
+    packet it was < 0.95 (0.90: criticality pillar coverage 0.60/1.00,
+    C = .25*1+.25*0.60+.20*1+.15*1+.15*1 = 0.90). Full pipeline through
+    aggregate_pillars, not a hand-built PillarScore mapping."""
+    params = full_params({"dependents_deduped": _not_applicable()})
+    pillars = aggregate_pillars(params)
+    assert composite_coverage(pillars) == pytest.approx(1.00)
+
+
+def test_composite_coverage_third_party_gap_end_to_end_unchanged() -> None:
+    """The other oracle: a pypi repo with a deps.dev third_party_gap keeps
+    the gap counted -- C is exactly the pre-W2-13 0.90, unchanged."""
+    params = full_params({"dependents_deduped": _unmeasured(reason="third_party_gap")})
+    pillars = aggregate_pillars(params)
+    assert composite_coverage(pillars) == pytest.approx(0.90)
+
+
+def test_composite_coverage_excludes_wholly_not_applicable_pillar_from_denominator() -> None:
+    """D-MISS-5: one whole pillar not_applicable (criticality, W=.25) ->
+    composite coverage is computed over the remaining four pillars, weights
+    renormalised: C = (.25*1 + .20*1 + .15*1 + .15*1) / (.25+.20+.15+.15)
+    = 0.75 / 0.75 = 1.00 (every remaining pillar fully covered), not
+    0.75 (which is what the pre-W2-13 unconditional Sum_p(W_p*c_p) would
+    give by treating the excluded pillar as 0 coverage against its weight)."""
+    criticality_ids = [input_id for input_id, defn in PARAMS.items() if defn.pillar == "criticality"]
+    params = full_params({input_id: _not_applicable() for input_id in criticality_ids})
+    pillars = aggregate_pillars(params)
+    assert pillars["criticality"].applicable is False
+    assert composite_coverage(pillars) == pytest.approx(1.00)
+
+
+def test_composite_coverage_all_pillars_not_applicable_is_zero() -> None:
+    """Defensive floor: every pillar inapplicable (a construction no real
+    rule list produces today) returns 0.0 rather than dividing by zero."""
+    pillars = {pillar: PillarScore(score=None, coverage=0.0, applicable=False) for pillar in constants_v2.PILLAR_NAMES}
+    assert composite_coverage(pillars) == 0.0
 
 
 # --------------------------------------------------------------------------- #

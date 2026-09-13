@@ -50,8 +50,14 @@ from cvi.core.models import BundleValidationError, Unmeasured, canonical_json
 #: from the unhashed `cvi.constants` into this module -- values unchanged,
 #: `cvi.starscout`'s only import site updated to match; no scored
 #: `ScoreRecord` field moves, since D-IN-5 excludes stars from the
-#: composite entirely).
-FROZEN_CONSTANTS_HASH = "446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0"
+#: composite entirely) ->
+#: `419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9`
+#: (RFC-0003: NOT_APPLICABLE_RULES, OPENSSF_PROXY_MIN_SIGNALS and
+#: WINDOW_STALENESS_DAYS -- the last relocated from
+#: cvi.collect.pike_signals -- added to constants_dict() per W2-13; no
+#: previously-scored value changed, since every added constant's re-bound
+#: value at its consumer module is unchanged).
+FROZEN_CONSTANTS_HASH = "419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -198,6 +204,15 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     ("STARS_SCOUT_FORK_RATIO", constants_v2.STARS_SCOUT_FORK_RATIO, 100.0),
     ("STARS_SCOUT_BURST_THRESHOLD", constants_v2.STARS_SCOUT_BURST_THRESHOLD, 500),
     ("STARS_SCOUT_LOCKSTEP_PENALTY", constants_v2.STARS_SCOUT_LOCKSTEP_PENALTY, 0.30),
+    # W2-13 (D-MISS-5 coverage exclusion, the criticality proxy): the closed
+    # not-applicable rule list and the two relocated/new constants.
+    (
+        "NOT_APPLICABLE_RULES",
+        constants_v2.NOT_APPLICABLE_RULES,
+        (("dependents_deduped", "ecosystem", "systems"),),
+    ),
+    ("OPENSSF_PROXY_MIN_SIGNALS", constants_v2.OPENSSF_PROXY_MIN_SIGNALS, 8),
+    ("WINDOW_STALENESS_DAYS", constants_v2.WINDOW_STALENESS_DAYS, 14),
 )
 
 

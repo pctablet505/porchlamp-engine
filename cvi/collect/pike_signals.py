@@ -27,17 +27,33 @@ issue-activity search counts, default-branch CI runs) newly collected here:
   dependents_count          dependents        the W1-2 deduped count
 
 D-MISS-1 applies: a repo-controlled absence is a measured zero (a repo with
-no releases records 0), but a missing envelope is unmeasured -- the signal
-set is emitted only when all ten sources are present, because the Pike
-engine scores a missing signal as 0.0 in the numerator against the full
-denominator, which would bias a partial signal set toward 0 instead of the
-engine's documented neutral 50 for absent telemetry (``cvi.pillars.
-criticality``). The caller (``scripts/derive.py``) leaves ``openssf_signals``
-at its ``missing`` placeholder when :func:`derive_pike_signals` returns
-None; ``scripts/promote.py`` already reconstructs an ``OpenSSFSignals`` from
-a non-null ``meta.openssf_signals`` and ``cvi.pillars.criticality.
-score_openssf_criticality`` already feeds it to ``calculate_pike_criticality``
--- this module's job stops at producing the ten-signal set or nothing.
+no releases records 0), but a missing envelope is unmeasured -- nine of the
+ten sources are still whole-set-or-nothing, because the Pike engine scores
+a missing signal as 0.0 in the numerator against the full denominator,
+which would bias a partial signal set toward 0 instead of the engine's
+documented neutral 50 for absent telemetry (``cvi.pillars.criticality``).
+The caller (``scripts/derive.py``) leaves ``openssf_signals`` at its
+``missing`` placeholder when :func:`derive_w17_fields` cannot build a
+complete ten-signal set; ``scripts/promote.py`` already reconstructs an
+``OpenSSFSignals`` from a non-null ``meta.openssf_signals`` and
+``cvi.pillars.criticality.score_openssf_criticality`` already feeds it to
+``calculate_pike_criticality`` -- this module's ``openssf_signals`` output
+stops at producing the complete ten-signal set or nothing, exactly as
+before.
+
+W2-13 (D-MISS-5 consequence for 2.2, ``02`` section 5): ``dependents_count``
+is the one exception -- when it alone is unmeasurable (the same fact 2.1
+``dependents_deduped`` reads), :func:`derive_pike_signals` now returns the
+other nine plus which one is missing, and :func:`derive_w17_fields` records
+them under the additive ``openssf_signals_partial`` /
+``openssf_signals_partial_missing`` fields (``openssf_signals`` itself stays
+at the v1 "missing" placeholder, so v1's scoring is unaffected). Only
+``cvi.derive.bundle._resolve_openssf_criticality``'s
+``proxy:no_dependents_signal`` path reads them, renormalising over the nine
+present signals' weights via ``cvi.core.openssf.calculate_pike_criticality``'s
+``missing`` kwarg instead of biasing toward 0 -- the bias this module's own
+whole-set-or-nothing rule exists to avoid, generalised to the one signal a
+design-level fact (not a collector outcome) can legitimately explain away.
 
 02 section 4 4.1 pipeline defenses, D-MISS-4: when a scorecard envelope
 carries at least one of the five named checks, the value is the mean of the
@@ -66,6 +82,7 @@ import subprocess
 from cvi.collect import commits as commit_domains
 from cvi.collect.envelope import raw_envelope_path, write_envelope
 from cvi.collect.github_graphql import is_bot_actor
+from cvi.core import constants_v2
 from cvi.models import OpenSSFSignals
 
 # --------------------------------------------------------------------------- #
@@ -408,7 +425,11 @@ def months_between(start: datetime, now: datetime) -> float:
 #: W1-7f item 3 (F5): a fetch-time windowed count's ``window_anchor`` must be
 #: within this many days of derive-time ``now`` or the count no longer
 #: describes "now" and 2.2 is unmeasured rather than silently stale.
-WINDOW_STALENESS_DAYS: int = 14
+#: Relocated into the constants freeze by W2-13 (it was a scoring-behaviour
+#: tunable outside CONSTANTS_HASH's coverage); imported back here under the
+#: original name so every existing call site keeps resolving
+#: ``pike_signals.WINDOW_STALENESS_DAYS``.
+WINDOW_STALENESS_DAYS: int = constants_v2.WINDOW_STALENESS_DAYS
 
 
 def window_anchor_stale(anchor_iso: Optional[str], now: datetime,
@@ -472,15 +493,29 @@ def derive_pike_signals(
     iss: Optional[Mapping[str, Any]],
     dep: Optional[Mapping[str, Any]],
     now: datetime,
-) -> Optional[OpenSSFSignals]:
-    """The 10-signal :class:`OpenSSFSignals`, or None when any is unmeasured.
+) -> Optional[tuple[dict[str, Union[int, float]], frozenset[str]]]:
+    """The Pike signals present, plus which of the ten are missing.
 
     ``gh`` is the github_meta envelope data (``created_at``), ``c365`` the
     commits_365d rows, ``rel`` the releases envelope data, ``iss`` the
     issues_counts envelope data, ``dep`` the dependents envelope data. Each
-    argument maps to exactly one signal group (module docstring table); the
-    first one absent is why the whole set comes back None (D-MISS-1: never
-    a partial score).
+    of ``gh``/``c365``/``rel``/``iss`` still maps to a hard-required signal
+    group (module docstring table): the first one absent is why the whole
+    call returns ``None``.
+
+    W2-13 (D-MISS-5 consequence for 2.2): ``dep``/``dep["deduped_count"]``
+    is no longer hard-required -- when it is absent, ``"dependents_count"``
+    is named in the returned ``frozenset`` and omitted from the returned
+    dict, letting :func:`cvi.core.openssf.calculate_pike_criticality`'s
+    ``missing`` kwarg renormalise the score over the other nine
+    (``cvi.derive.bundle._resolve_openssf_criticality``'s
+    ``proxy:no_dependents_signal`` path) instead of the whole set being
+    unmeasured. Returns ``(signals, frozenset())`` when all ten are present
+    -- the pre-W2-13 shape's information content, restated as a dict instead
+    of an :class:`OpenSSFSignals` (the caller, :func:`derive_w17_fields`,
+    is the one place that still constructs an ``OpenSSFSignals`` when the
+    set is complete, so v1's ``asdict``/``OpenSSFSignals(**sig)`` round trip
+    through ``scripts/derive.py``/``scripts/promote.py`` is unaffected).
     """
     if not isinstance(gh, Mapping):
         return None
@@ -515,21 +550,23 @@ def derive_pike_signals(
         return None
     if iss is None or iss.get("comments_per_issue") is None:
         return None
-    if not isinstance(dep, Mapping) or dep.get("deduped_count") is None:
-        return None
-    return OpenSSFSignals(
-        created_since_months=round(months_between(created_at, now), 4),
-        updated_since_months=round(
-            months_between(stats["last_commit_at"], now), 4),
-        contributor_count=stats["contributors"],
-        org_count=stats["orgs"],
-        commit_frequency_weekly=round(stats["commits"] / WEEKS_PER_YEAR, 4),
-        recent_releases_count=recent,
-        closed_issues_count_90d=int(iss.get("closed_90d") or 0),
-        updated_issues_count_90d=int(iss.get("updated_90d") or 0),
-        comment_frequency=float(iss["comments_per_issue"]),
-        dependents_count=int(dep["deduped_count"]),
-    )
+    signals: dict[str, Union[int, float]] = {
+        "created_since_months": round(months_between(created_at, now), 4),
+        "updated_since_months": round(months_between(stats["last_commit_at"], now), 4),
+        "contributor_count": stats["contributors"],
+        "org_count": stats["orgs"],
+        "commit_frequency_weekly": round(stats["commits"] / WEEKS_PER_YEAR, 4),
+        "recent_releases_count": recent,
+        "closed_issues_count_90d": int(iss.get("closed_90d") or 0),
+        "updated_issues_count_90d": int(iss.get("updated_90d") or 0),
+        "comment_frequency": float(iss["comments_per_issue"]),
+    }
+    if isinstance(dep, Mapping) and dep.get("deduped_count") is not None:
+        signals["dependents_count"] = int(dep["deduped_count"])
+        missing: frozenset[str] = frozenset()
+    else:
+        missing = frozenset({"dependents_count"})
+    return signals, missing
 
 
 # --------------------------------------------------------------------------- #
@@ -648,6 +685,12 @@ def derive_w17_fields(
     placeholder (D-MISS-1: partial signal sets and absent envelopes are
     unmeasured, not zeros). Source is the list of envelope paths used;
     fetched_at is the newest of the used sources' recorded times.
+
+    W2-13: when exactly the dependents signal is missing (D-MISS-5
+    consequence for 2.2), ``openssf_signals`` stays unemitted (unchanged)
+    but ``openssf_signals_partial`` (the other nine, dict-shaped) and
+    ``openssf_signals_partial_missing`` (``["dependents_count"]``) are
+    emitted instead, for ``cvi.derive.bundle``'s proxy path to read.
     """
     out: dict[str, tuple[Any, Any, Any, str]] = {}
 
@@ -674,18 +717,38 @@ def derive_w17_fields(
         out["openssf_signals"] = (None, None, None, "collector_failure")
         out["openssf_signals_detail"] = (stale_detail, None, None, "derived")
     else:
-        signals = derive_pike_signals(gh, c365, rel, iss, dep, now)
-        if signals is not None:
-            sources = [env_path(col) for col in ("github_meta", "commits_365d",
-                                                 "releases", "issues_counts",
-                                                 "dependents")]
+        result = derive_pike_signals(gh, c365, rel, iss, dep, now)
+        if result is not None:
+            signals, missing = result
             # F1 (item 1): guarded like the pipeline_defenses `at` below --
             # every recorded envelope carries fetched_at, but a hand-built
             # or legacy-shaped one might not, and losing the whole bundle to
             # a ValueError over one optional timestamp (this line used to
             # call bare `max(ats)`) is out of proportion to what it costs.
-            ats = [a for a in (gh_at, c365_at, rel_at, iss_at, dep_at) if a]
-            out["openssf_signals"] = (signals, sources, max(ats) if ats else None, "derived")
+            if not missing:
+                # All ten present: unchanged from pre-W2-13 -- an
+                # OpenSSFSignals instance under "openssf_signals" so v1's
+                # asdict()/OpenSSFSignals(**sig) round trip
+                # (scripts/derive.py, scripts/promote.py) is untouched.
+                sources = [env_path(col) for col in ("github_meta", "commits_365d",
+                                                     "releases", "issues_counts",
+                                                     "dependents")]
+                ats = [a for a in (gh_at, c365_at, rel_at, iss_at, dep_at) if a]
+                out["openssf_signals"] = (OpenSSFSignals(**signals), sources,
+                                           max(ats) if ats else None, "derived")
+            else:
+                # W2-13 (D-MISS-5 consequence for 2.2): only the dependents
+                # signal is missing. "openssf_signals" itself is left
+                # unemitted (v1 sees exactly the pre-W2-13 "missing"
+                # placeholder); these two new fields are additive and read
+                # only by cvi.derive.bundle._resolve_openssf_criticality's
+                # proxy path.
+                sources = [env_path(col) for col in ("github_meta", "commits_365d",
+                                                     "releases", "issues_counts")]
+                ats = [a for a in (gh_at, c365_at, rel_at, iss_at) if a]
+                at = max(ats) if ats else None
+                out["openssf_signals_partial"] = (signals, sources, at, "derived")
+                out["openssf_signals_partial_missing"] = (sorted(missing), None, at, "derived")
 
     prs = prw.get("prs") if isinstance(prw, Mapping) else None
     runs = rns.get("runs") if isinstance(rns, Mapping) else None

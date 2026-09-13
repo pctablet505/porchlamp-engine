@@ -648,22 +648,27 @@ def _resolve_dependents_deduped(ctx: _V1Ctx) -> Measured | Unmeasured:
     ``Unmeasured(not_applicable)`` here, ahead of the confidence check --
     the fact is about the ecosystem (recorded on the bundle at universe
     entry, ``ctx.meta["ecosystem"]``), never about what
-    ``cvi.collect.depsdev.collect_dependents`` happened to fetch, per
-    D-MISS-5's guard that this reason is assigned only by a design-level
-    rule keyed on a universe fact. ``maven`` gets a more specific
-    ``third_party_gap`` detail when nothing was measured: today's gap is
-    that the root ``pom.xml`` was never fetched (the tree envelope carries
-    file paths only, not contents), not that deps.dev/ecosyste.ms lack the
-    package. Any ecosystem outside D-MISS-5's closed rule list and this
-    packet's known mappings still falls to the generic ``third_party_gap``,
-    named, never ``not_applicable``.
+    ``cvi.collect.depsdev.collect_dependents`` happened to fetch. W2-13:
+    this row now reads ``constants_v2.NOT_APPLICABLE_RULES`` (the closed,
+    hashed list) instead of an inline check -- one source for "which
+    (parameter, fact, value) triples may assign not_applicable", shared with
+    ``cvi.core.engine``'s guard that downgrades any claim outside it.
+    ``maven`` gets a more specific ``third_party_gap`` detail when nothing
+    was measured: today's gap is that the root ``pom.xml`` was never
+    fetched (the tree envelope carries file paths only, not contents), not
+    that deps.dev/ecosyste.ms lack the package. Any ecosystem outside the
+    rule list and this packet's known mappings still falls to the generic
+    ``third_party_gap``, named, never ``not_applicable``.
     """
     ecosystem = ctx.meta.get("ecosystem")
-    if ecosystem == "systems":
-        return Unmeasured(
-            reason="not_applicable",
-            detail="D-MISS-5: ecosystem == systems has no package registry (2.1 is undefined)",
-        )
+    for rule_param, fact_name, expected_value in constants_v2.NOT_APPLICABLE_RULES:
+        if rule_param != "dependents_deduped" or fact_name != "ecosystem":
+            continue
+        if ecosystem == expected_value:
+            return Unmeasured(
+                reason="not_applicable",
+                detail=f"D-MISS-5: ecosystem == {expected_value} has no package registry (2.1 is undefined)",
+            )
     confidence_value = ctx.confidence.get("dependents_count")
     if confidence_value != "derived":
         if confidence_value == "verified":
@@ -995,6 +1000,82 @@ def _resolved_source_paths(source_field: Any, raw_root: Union[Path, str, None]) 
     return [path for path in (_resolve_envelope(s, raw_root) for s in source_field) if path is not None]
 
 
+#: D-MISS-5 consequence for 2.2 (02 section 5, W2-13): the method string when
+#: the Pike score is computed without a dependents signal, renormalised.
+_OPENSSF_PROXY_METHOD: str = "proxy:no_dependents_signal"
+
+
+def _resolve_openssf_criticality_proxy(ctx: _V1Ctx) -> Optional["Measured | Unmeasured"]:
+    """D-MISS-5 consequence for 2.2 (02 section 5, W2-13): the
+    ``proxy:no_dependents_signal`` path, tried when the full ten-signal set
+    was never emitted (``_resolve_openssf_criticality``'s caller only
+    reaches here when ``confidence["openssf_signals"]`` is not
+    ``"derived"``).
+
+    Reuses :func:`_resolve_dependents_deduped`'s own resolution of the
+    dependents fact -- one source for "why is the dependents signal
+    unusable" -- rather than a second copy of its ecosystem/confidence
+    branching: the two rows read the identical underlying collector fact
+    (module docstring's "dependents_count | dependents | the W1-2 deduped
+    count", ``02`` section 5). Returns ``None`` (fall through to the
+    caller's generic gap) when dependents was actually measured (this row's
+    ``openssf_signals_partial`` companion could then only be a hand-built or
+    corrupted document, never production output) or when its own reason
+    (e.g. an ``insufficient_n`` D-MISS-1 doesn't define for 2.1) offers
+    nothing to explain.
+    """
+    dependents = _resolve_dependents_deduped(ctx)
+    if isinstance(dependents, Measured):
+        return None
+    if dependents.reason == "collector_failure":
+        # A retry can still measure it -- never fabricate a proxy over a
+        # signal that is merely temporarily unmeasured, unlike a fact about
+        # the world (not_applicable) or a genuine third-party gap.
+        return Unmeasured(
+            reason="collector_failure",
+            detail="dependents signal is collector_failure; a retry can still measure openssf_criticality",
+        )
+    if dependents.reason not in ("not_applicable", "third_party_gap"):
+        return None
+
+    partial_signals = ctx.meta.get("openssf_signals_partial")
+    missing_field_names = ctx.meta.get("openssf_signals_partial_missing")
+    if not isinstance(partial_signals, Mapping) or not isinstance(missing_field_names, list):
+        return Unmeasured(reason="collector_failure", detail="openssf_signals_partial is malformed")
+    missing_short_names = frozenset(
+        openssf.SIGNAL_FIELDS[name] for name in missing_field_names if name in openssf.SIGNAL_FIELDS
+    )
+    present_count = len(openssf.SIGNAL_FIELDS) - len(missing_short_names)
+    if present_count < constants_v2.OPENSSF_PROXY_MIN_SIGNALS:
+        return Unmeasured(reason="insufficient_n", detail=f"{present_count} of 10 signals")
+
+    bad = [
+        field for field in openssf.SIGNAL_FIELDS
+        if field not in missing_field_names
+        and (isinstance(partial_signals.get(field), bool) or not isinstance(partial_signals.get(field), (int, float)))
+    ]
+    if bad:
+        return Unmeasured(
+            reason="collector_failure",
+            detail=f"openssf_signals_partial[{bad[0]!r}] is not numeric: {partial_signals.get(bad[0])!r}",
+        )
+
+    entry = ctx.provenance.get("openssf_signals_partial")
+    source_field = entry.get("source") if isinstance(entry, Mapping) else None
+    fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+    paths = _resolved_source_paths(source_field, ctx.raw_root)
+    if not paths or not isinstance(fetched_at, str) or not fetched_at:
+        detail = (f"v1 source is not a resolvable envelope list: {source_field!r}" if not paths
+                  else "v1 provenance for 'openssf_signals_partial' has no fetched_at")
+        return Unmeasured(reason="collector_failure", detail=detail)
+    for path in paths:
+        ctx.referenced[str(path)] = _envelope_hash(path)
+    score = openssf.calculate_pike_criticality(partial_signals, missing=missing_short_names)
+    return Measured(value=round(score, 4), n=0, window_start=None, window_end=None,
+                     method=_OPENSSF_PROXY_METHOD, source=str(paths[0]),
+                     source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
+
+
 def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
     """2.2 OpenSSF criticality (W1-7, W2-9f). Reads the W1-7
     ``meta.openssf_signals`` dict (``cvi.collect.pike_signals.
@@ -1009,7 +1090,16 @@ def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
     numeric) one of the ten fields is defensive: production's
     ``derive_pike_signals`` never emits a partial dict, but a hand-built or
     corrupted document might, and 2.2's whole-set-or-nothing rule must hold
-    for it too -- the first missing field is named in the detail."""
+    for it too -- the first missing field is named in the detail.
+
+    W2-13 (D-MISS-5 consequence for 2.2, 02 section 5): when the full set
+    was never emitted, :func:`_resolve_openssf_criticality_proxy` is tried
+    before the generic gap below -- when the dependents signal specifically
+    (``not_applicable``/``third_party_gap``) is why, and at least
+    ``constants_v2.OPENSSF_PROXY_MIN_SIGNALS`` of the ten are present, this
+    row is ``Measured(method="proxy:no_dependents_signal")`` instead of
+    Unmeasured; a dependents ``collector_failure`` still leaves 2.2
+    ``Unmeasured(collector_failure)`` (a retry can still measure it)."""
     confidence_value = ctx.confidence.get("openssf_signals")
     signals = ctx.meta.get("openssf_signals")
     entry = ctx.provenance.get("openssf_signals")
@@ -1039,11 +1129,6 @@ def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
         return Measured(value=round(openssf.calculate_pike_criticality(signals), 4), n=0, window_start=None,
                          window_end=None, method=constants_v2.METHOD_PRIMARY, source=str(paths[0]),
                          source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
-    if confidence_value == "missing":
-        return Unmeasured(
-            reason="third_party_gap",
-            detail="one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
-        )
     if confidence_value == "collector_failure":
         # W1-7f items 1 and 3: cvi.collect.pike_signals.derive_w17_fields
         # (crashed, or found a windowed count's own fetch-time window_anchor
@@ -1055,6 +1140,15 @@ def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
         detail = ctx.meta.get("openssf_signals_detail")
         return Unmeasured(reason="collector_failure",
                            detail=detail if isinstance(detail, str) and detail else "pike_signals collector failed")
+    if ctx.confidence.get("openssf_signals_partial") == "derived":
+        proxy_result = _resolve_openssf_criticality_proxy(ctx)
+        if proxy_result is not None:
+            return proxy_result
+    if confidence_value == "missing":
+        return Unmeasured(
+            reason="third_party_gap",
+            detail="one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
+        )
     return Unmeasured(reason="collector_failure",
                        detail=f"v1 confidence {confidence_value!r} for 'openssf_signals' is not recognized")
 

@@ -32,6 +32,35 @@ PR_WINDOW_DAYS: int = 180
 #: has no frozen population at all (``cvi.core.engine``, added 2026-09-12).
 REASON_NO_POPULATION: str = "no_population"
 
+#: D-MISS-5 (02 section 5, added 2026-09-13): the closed list of
+#: ``(parameter_id, bundle_fact, value)`` triples that MAY assign
+#: ``Unmeasured(not_applicable)`` to a parameter input. Assignable only by a
+#: design-level rule keyed on a fact recorded at universe entry -- never by a
+#: collector outcome and never by repo-authored text (03 section 4).
+#: ``cvi.derive.bundle._resolve_dependents_deduped`` reads this list instead
+#: of an inline ``ecosystem == "systems"`` check (one source); ``cvi.core.
+#: engine`` downgrades any ``not_applicable`` claim whose
+#: ``(parameter, fact, value)`` is not in this list to
+#: ``Unmeasured(collector_failure)`` (W2-13) -- a bundle or collector can
+#: never assert ``not_applicable`` on its own.
+NOT_APPLICABLE_RULES: tuple[tuple[str, str, str], ...] = (
+    ("dependents_deduped", "ecosystem", "systems"),
+)
+
+#: D-MISS-5 consequence for 2.2 (OpenSSF criticality, 02 section 5, W2-13):
+#: the minimum count of the ten Pike signals that must be present for the
+#: no-dependents-signal proxy (``method="proxy:no_dependents_signal"``) to
+#: fire when the dependents signal is ``not_applicable``/``third_party_gap``;
+#: fewer is ``Unmeasured(insufficient_n)``.
+OPENSSF_PROXY_MIN_SIGNALS: int = 8
+
+#: W1-7f follow-up (relocated from ``cvi.collect.pike_signals`` by W2-13,
+#: imported back there): a windowed count's own fetch-time ``window_anchor``
+#: more than this many days from the derive clock means ``openssf_
+#: criticality`` is ``Unmeasured(collector_failure)`` rather than silently
+#: stale (F5 ruling).
+WINDOW_STALENESS_DAYS: int = 14
+
 #: Unmeasured.reason vocabulary (D-MISS-1). ``REASON_NO_POPULATION`` was
 #: added 2026-09-12 (an ECDF-normalised parameter with no rated, measured
 #: repository to build a population from, in its ecosystem or globally, at
@@ -547,7 +576,9 @@ def constants_dict() -> dict[str, object]:
         "METHOD_PRIMARY": METHOD_PRIMARY,
         "MIN_POPULATION": MIN_POPULATION,
         "MONO_TOLERANCE": MONO_TOLERANCE,
+        "NOT_APPLICABLE_RULES": NOT_APPLICABLE_RULES,
         "NO_CEILING_MIN_COVERAGE": NO_CEILING_MIN_COVERAGE,
+        "OPENSSF_PROXY_MIN_SIGNALS": OPENSSF_PROXY_MIN_SIGNALS,
         "OPENSSF_THRESHOLDS": OPENSSF_THRESHOLDS,
         "OPENSSF_WEIGHTS": OPENSSF_WEIGHTS,
         "OSI_APPROVED_LICENSES": tuple(sorted(OSI_APPROVED_LICENSES)),
@@ -581,6 +612,7 @@ def constants_dict() -> dict[str, object]:
         "TTFHR_SLOPE_PER_DOUBLING": TTFHR_SLOPE_PER_DOUBLING,
         "UNMEASURED_REASONS": UNMEASURED_REASONS,
         "WEIGHT_SUM_TOLERANCE": WEIGHT_SUM_TOLERANCE,
+        "WINDOW_STALENESS_DAYS": WINDOW_STALENESS_DAYS,
     }
 
 

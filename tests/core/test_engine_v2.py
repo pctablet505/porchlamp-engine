@@ -367,6 +367,40 @@ def test_eligible_repo_calls_every_parameter_function_exactly_once(monkeypatch: 
 
 
 # --------------------------------------------------------------------------- #
+# D-MISS-5 guard (W2-13): not_applicable is assignable only from the closed
+# NOT_APPLICABLE_RULES list; the engine downgrades any other claim.
+# --------------------------------------------------------------------------- #
+
+
+def test_not_applicable_permitted_by_rule_list_passes_through() -> None:
+    """The one rule NOT_APPLICABLE_RULES names today: dependents_deduped
+    not_applicable on a systems-ecosystem bundle is trusted as-is -- the
+    ParamScore keeps reason="not_applicable", not downgraded."""
+    inputs = dict(EligibleFixture.inputs())
+    inputs["dependents_deduped"] = Unmeasured(reason="not_applicable", detail="D-MISS-5: ecosystem == systems")
+    bundle = make_bundle(inputs, ecosystem="systems")
+    record = score(bundle, EligibleFixture.populations(), EligibleFixture.snapshot())
+    assert record.params["dependents_deduped"].measured is False
+    assert record.params["dependents_deduped"].reason == "not_applicable"
+
+
+def test_not_applicable_outside_rule_list_is_downgraded_to_collector_failure() -> None:
+    """03 section 4 / D-MISS-5: a bundle or collector can never assert
+    not_applicable on its own. Two ways to be "outside the rule list":
+    (a) the fact does not hold (ecosystem is pypi, not systems) even though
+    the CLAIMED parameter is the one the rule names; (b) the rule names a
+    different parameter entirely (openssf_criticality has no
+    NOT_APPLICABLE_RULES row at all). Both are downgraded identically."""
+    for input_id, ecosystem in (("dependents_deduped", "pypi"), ("openssf_criticality", "systems")):
+        inputs = dict(EligibleFixture.inputs())
+        inputs[input_id] = Unmeasured(reason="not_applicable", detail="a collector/bundle asserting it directly")
+        bundle = make_bundle(inputs, ecosystem=ecosystem)
+        record = score(bundle, EligibleFixture.populations(), EligibleFixture.snapshot())
+        assert record.params[input_id].measured is False, input_id
+        assert record.params[input_id].reason == "collector_failure", input_id
+
+
+# --------------------------------------------------------------------------- #
 # D-EVID-1 acceptance oracle: insufficient composite coverage is unrated.
 # --------------------------------------------------------------------------- #
 

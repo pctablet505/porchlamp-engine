@@ -896,6 +896,231 @@ def test_openssf_criticality_collector_failure_without_detail_still_names_the_re
 
 
 # --------------------------------------------------------------------------- #
+# 2.2 openssf_criticality proxy: proxy:no_dependents_signal (W2-13,           #
+# D-MISS-5 consequence for 2.2)                                              #
+# --------------------------------------------------------------------------- #
+
+_OPENSSF_PARTIAL_PROV_COLLECTORS = ("github_meta", "commits_365d", "releases", "issues_counts")
+
+
+def _write_openssf_partial_envelopes(tmp_path: Path, key: str) -> None:
+    for collector in _OPENSSF_PARTIAL_PROV_COLLECTORS:
+        write_envelope(tmp_path / "raw", collector, key, {"placeholder": collector}, "2026-09-01T00:05:00+00:00")
+
+
+def _openssf_partial_provenance(key: str) -> dict:
+    return {
+        "source": [f"/original-data-dir/raw/{c}/{key}.json" for c in _OPENSSF_PARTIAL_PROV_COLLECTORS],
+        "fetched_at": "2026-09-01T00:05:00+00:00",
+    }
+
+
+def test_openssf_criticality_proxy_when_dependents_not_applicable(tmp_path: Path) -> None:
+    """D-MISS-5: a systems repo (2.1 not_applicable) with the other nine Pike
+    signals present gets the renormalised proxy, method
+    proxy:no_dependents_signal, provenance derived (D-MISS-4)."""
+    key = "acme__pike-proxy-systems"
+    _write_openssf_partial_envelopes(tmp_path, key)
+    partial_signals = dict(_OPENSSF_SIGNALS)
+    del partial_signals["dependents_count"]
+    doc = base_document(
+        ecosystem="systems",
+        meta={
+            "openssf_signals_partial": partial_signals,
+            "openssf_signals_partial_missing": ["dependents_count"],
+        },
+        provenance={"openssf_signals_partial": _openssf_partial_provenance(key)},
+        confidence={"openssf_signals_partial": "derived"},
+    )
+    bundle = load(tmp_path, doc, key=key)
+    value = bundle.inputs["openssf_criticality"]
+    assert isinstance(value, Measured)
+    assert value.method == "proxy:no_dependents_signal"
+    from cvi.core.openssf import calculate_pike_criticality as core_calculate
+
+    expected = round(core_calculate(partial_signals, missing=frozenset({"dependents_count"})), 4)
+    assert value.value == expected
+    assert 0.0 <= value.value <= 1.0
+    assert value.source == str(tmp_path / "raw" / "github_meta" / f"{key}.json")
+
+
+def test_openssf_criticality_proxy_when_dependents_third_party_gap(tmp_path: Path) -> None:
+    """D-MISS-5: a pypi repo whose 2.1 is a deps.dev third_party_gap (not
+    not_applicable) still qualifies for the same proxy."""
+    key = "acme__pike-proxy-gap"
+    _write_openssf_partial_envelopes(tmp_path, key)
+    partial_signals = dict(_OPENSSF_SIGNALS)
+    del partial_signals["dependents_count"]
+    doc = base_document(
+        ecosystem="pypi",
+        meta={
+            "openssf_signals_partial": partial_signals,
+            "openssf_signals_partial_missing": ["dependents_count"],
+        },
+        provenance={"openssf_signals_partial": _openssf_partial_provenance(key)},
+        confidence={
+            "dependents_count": "missing",
+            "openssf_signals_partial": "derived",
+        },
+    )
+    bundle = load(tmp_path, doc, key=key)
+    value = bundle.inputs["openssf_criticality"]
+    assert isinstance(value, Measured)
+    assert value.method == "proxy:no_dependents_signal"
+
+
+def test_openssf_criticality_proxy_hand_computed_oracle(tmp_path: Path) -> None:
+    """Independent oracle (mirrors test_openssf_criticality_at_threshold_
+    matches_hand_computed_score's arithmetic): every present signal exactly
+    at its threshold collapses each S_i* to 1.0, so the renormalised score
+    is sum(alpha_i excl. dependents) / sum(|alpha_i| excl. dependents) =
+    6.5 / 8.5 = 0.7647058... -> 0.7647. A mutated default weight or a
+    renormalisation that forgets to shrink the denominator changes this."""
+    key = "acme__pike-proxy-hand-computed"
+    _write_openssf_partial_envelopes(tmp_path, key)
+    partial_signals = dict(_OPENSSF_AT_THRESHOLD_SIGNALS)
+    del partial_signals["dependents_count"]
+    doc = base_document(
+        ecosystem="systems",
+        meta={
+            "openssf_signals_partial": partial_signals,
+            "openssf_signals_partial_missing": ["dependents_count"],
+        },
+        provenance={"openssf_signals_partial": _openssf_partial_provenance(key)},
+        confidence={"openssf_signals_partial": "derived"},
+    )
+    bundle = load(tmp_path, doc, key=key)
+    value = bundle.inputs["openssf_criticality"]
+    assert isinstance(value, Measured)
+    assert value.value == round(6.5 / 8.5, 4) == 0.7647
+
+
+def test_openssf_criticality_proxy_dependents_collector_failure_stays_unmeasured(tmp_path: Path) -> None:
+    """D-MISS-5 consequence, negative case: a dependents collector_failure
+    (a retry can still measure it) never gets the proxy, unlike
+    not_applicable/third_party_gap."""
+    key = "acme__pike-proxy-collector-failure"
+    _write_openssf_partial_envelopes(tmp_path, key)
+    partial_signals = dict(_OPENSSF_SIGNALS)
+    del partial_signals["dependents_count"]
+    doc = base_document(
+        ecosystem="pypi",
+        meta={
+            "openssf_signals_partial": partial_signals,
+            "openssf_signals_partial_missing": ["dependents_count"],
+        },
+        provenance={"openssf_signals_partial": _openssf_partial_provenance(key)},
+        confidence={
+            # "verified" (raw usedByCount) resolves 2.1 to collector_failure.
+            "dependents_count": "verified",
+            "openssf_signals_partial": "derived",
+        },
+    )
+    bundle = load(tmp_path, doc, key=key)
+    assert bundle.inputs["openssf_criticality"] == Unmeasured(
+        reason="collector_failure",
+        detail="dependents signal is collector_failure; a retry can still measure openssf_criticality",
+    )
+
+
+def test_openssf_criticality_proxy_insufficient_signals(tmp_path: Path) -> None:
+    """Fewer than OPENSSF_PROXY_MIN_SIGNALS (8) present -> insufficient_n,
+    naming the count -- a hand-built shape (production's derive_pike_signals
+    only ever omits dependents_count alone) proving the general guard, not
+    just the one-missing-field case."""
+    key = "acme__pike-proxy-insufficient"
+    _write_openssf_partial_envelopes(tmp_path, key)
+    missing_fields = ["dependents_count", "org_count", "comment_frequency"]
+    partial_signals = {k: v for k, v in _OPENSSF_SIGNALS.items() if k not in missing_fields}
+    doc = base_document(
+        ecosystem="systems",
+        meta={
+            "openssf_signals_partial": partial_signals,
+            "openssf_signals_partial_missing": missing_fields,
+        },
+        provenance={"openssf_signals_partial": _openssf_partial_provenance(key)},
+        confidence={"openssf_signals_partial": "derived"},
+    )
+    bundle = load(tmp_path, doc, key=key)
+    assert bundle.inputs["openssf_criticality"] == Unmeasured(
+        reason="insufficient_n", detail="7 of 10 signals",
+    )
+
+
+def test_openssf_criticality_proxy_not_reached_when_dependents_measured(tmp_path: Path) -> None:
+    """Over-correction guard: a hand-built/corrupted document carrying both
+    a genuinely measured dependents_count AND an (inconsistent)
+    openssf_signals_partial companion must not be short-circuited into the
+    proxy -- falls through to the ordinary confidence-based branches."""
+    key = "acme__pike-proxy-not-reached"
+    _write_openssf_partial_envelopes(tmp_path, key)
+    write_envelope(tmp_path / "raw", "dependents", key, {"deduped_count": 42}, "2026-09-01T00:05:00+00:00")
+    partial_signals = dict(_OPENSSF_SIGNALS)
+    del partial_signals["dependents_count"]
+    doc = base_document(
+        ecosystem="pypi",
+        meta={
+            "dependents_count": 42,
+            "openssf_signals_partial": partial_signals,
+            "openssf_signals_partial_missing": ["dependents_count"],
+        },
+        provenance={
+            "dependents_count": prov("dependents", key=key),
+            "openssf_signals_partial": _openssf_partial_provenance(key),
+        },
+        confidence={
+            "dependents_count": "derived",
+            "openssf_signals_partial": "derived",
+        },
+    )
+    bundle = load(tmp_path, doc, key=key)
+    # dependents_deduped is Measured; the proxy helper returns None and the
+    # generic "confidence not recognized" path applies (no "openssf_signals"
+    # confidence was ever set in this hand-built doc).
+    assert bundle.inputs["openssf_criticality"] == Unmeasured(
+        reason="collector_failure",
+        detail="v1 confidence None for 'openssf_signals' is not recognized",
+    )
+
+
+def test_openssf_criticality_pike_signals_and_openssf_containers_agree(tmp_path: Path) -> None:
+    """"Both containers agree" (W2-13 packet text): cvi.collect.pike_signals'
+    own derive_pike_signals output, fed through cvi.core.openssf.
+    calculate_pike_criticality's missing kwarg, matches the bundle-derived
+    proxy value end to end -- not two independent reimplementations that
+    could silently drift apart."""
+    from datetime import datetime, timezone
+
+    from cvi.collect import pike_signals as pike
+    from cvi.core.openssf import calculate_pike_criticality as core_calculate
+
+    now = datetime(2026, 9, 12, 0, 0, 0, tzinfo=timezone.utc)
+    gh = {"created_at": "2016-09-14T00:00:00+00:00"}
+    c365 = [{"date": "2025-09-12T00:00:00Z", "author_email": "dev@a.com",
+             "author_login": "", "author_type": "User"}] * 12
+    rel = {"source": "releases", "releases": []}
+    iss = {"closed_90d": 42, "updated_90d": 120, "comments_per_issue": 4.0}
+    result = pike.derive_pike_signals(gh, c365, rel, iss, None, now)
+    assert result is not None
+    signals, missing = result
+    assert missing == frozenset({"dependents_count"})
+    pike_side = core_calculate(signals, missing=missing)
+
+    key = "acme__pike-parity-containers"
+    _write_openssf_partial_envelopes(tmp_path, key)
+    doc = base_document(
+        ecosystem="systems",
+        meta={"openssf_signals_partial": signals, "openssf_signals_partial_missing": sorted(missing)},
+        provenance={"openssf_signals_partial": _openssf_partial_provenance(key)},
+        confidence={"openssf_signals_partial": "derived"},
+    )
+    bundle = load(tmp_path, doc, key=key)
+    value = bundle.inputs["openssf_criticality"]
+    assert isinstance(value, Measured)
+    assert value.value == round(pike_side, 4)
+
+
+# --------------------------------------------------------------------------- #
 # 4.1 pipeline_defenses (W1-7, W2-9f)                                         #
 # --------------------------------------------------------------------------- #
 

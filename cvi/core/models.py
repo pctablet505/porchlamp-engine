@@ -474,10 +474,20 @@ class ParamScore:
 
 @dataclass(frozen=True)
 class PillarScore:
-    """One scored pillar (04 section 3): renormalised score and coverage."""
+    """One scored pillar (04 section 3): renormalised score and coverage.
+
+    ``applicable`` (D-MISS-5, W2-13) is ``False`` only when every parameter
+    in the pillar is ``Unmeasured(not_applicable)`` -- the pillar is itself
+    undefined for this repo (a fact about the world, not an evidence gap),
+    so it leaves the composite-coverage denominator entirely
+    (:func:`cvi.core.aggregate.composite_coverage`) rather than counting as
+    0 coverage against the pillar's full weight. Defaults to ``True`` so
+    every pre-W2-13 construction site (none of whose fixtures carry
+    ``not_applicable``) is unaffected."""
 
     score: float | None
     coverage: float
+    applicable: bool = True
 
 
 @dataclass(frozen=True)

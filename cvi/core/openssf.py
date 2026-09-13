@@ -57,27 +57,41 @@ def calculate_pike_criticality(
     signals: Mapping[str, float],
     weights: Optional[dict[str, float]] = None,
     thresholds: Optional[dict[str, float]] = None,
+    *,
+    missing: Optional[frozenset[str]] = None,
 ) -> float:
     """Return the Rob Pike criticality score in [0.0, 1.0] (spec 10.1).
 
     ``signals`` is a mapping keyed by the ten ``OpenSSFSignals`` field names
     (see :data:`SIGNAL_FIELDS`) — ``dataclasses.asdict(OpenSSFSignals(...))``
     or an equivalent plain dict (e.g. a derived document's
-    ``meta.openssf_signals``); every field must be present and numeric,
-    which the caller is responsible for having already verified (this
-    function raises ``KeyError`` on a missing one, same as the pre-W2-9g
-    ``OpenSSFSignals``-typed callers would have on a malformed dataclass).
+    ``meta.openssf_signals``); every field not named in ``missing`` must be
+    present and numeric, which the caller is responsible for having already
+    verified (this function raises ``KeyError`` on a missing one, same as
+    the pre-W2-9g ``OpenSSFSignals``-typed callers would have on a malformed
+    dataclass).
+
+    ``missing`` (W2-13, D-MISS-5 consequence for 2.2) names alpha_i/T_i keys
+    (:data:`SIGNAL_FIELDS` values, e.g. ``"dependents_count"``) to exclude
+    from both the numerator and the denominator -- the score renormalises
+    over the *present* signals' weights instead of treating an absent one as
+    0.0 against the full denominator (which would bias toward 0 instead of
+    neutral). ``None``/empty (the default) is the pre-W2-13 behaviour,
+    unchanged: every signal in ``weights`` contributes.
     """
     weights = weights if weights is not None else OPENSSF_WEIGHTS
     thresholds = thresholds if thresholds is not None else OPENSSF_THRESHOLDS
-    raw = {short: signals[field] for field, short in SIGNAL_FIELDS.items()}
+    missing = missing if missing is not None else frozenset()
+    raw = {short: signals[field] for field, short in SIGNAL_FIELDS.items() if short not in missing}
 
-    denominator = sum(abs(alpha) for alpha in weights.values())
+    denominator = sum(abs(alpha) for param, alpha in weights.items() if param not in missing)
     if denominator == 0:
         return 0.0
 
     numerator = 0.0
     for param, alpha in weights.items():
+        if param in missing:
+            continue
         value = raw.get(param, 0.0)
         threshold = thresholds.get(param, 0.0)
         non_negative = max(0.0, value)
