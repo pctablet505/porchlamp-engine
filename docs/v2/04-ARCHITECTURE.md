@@ -17,9 +17,17 @@
 
 ## 2. Target layout
 
+**Updated to reality by W4-1** (`.agents/W4-1/inventory.md`): most of this
+tree already exists at its target path, built directly in place by
+W0–W4-6 rather than written under an old tree and moved later. Rows below
+are the real, current file names; a trailing note flags anywhere the
+original target (still visible in git history) named something that was
+never built, or that got built under a different, better name.
+
 ```
 cvi/
-  core/                 pure, stdlib only, no I/O, no clock
+  core/                 pure, stdlib only, no I/O, no clock (enforced by
+                         tests/core/test_import_graph.py)
     models.py           Measured/Unmeasured, ParamValue, GateResult, ScoreRecord, enums
     constants_v2.py     frozen constants + CONSTANTS_HASH + BENCHMARK_VERSION
     gates.py            D-GATE-1..6, D-EVID-1
@@ -30,53 +38,128 @@ cvi/
     matrix.py           coordinates, quadrant
     persona.py          presets, persona gates, projection weights
     tiebreak.py         D-TIE-1 key, tie groups
+    commit_domains.py   commit-domain classification shared by collect/derive
+    methodology.py      rendered-methodology support (scripts/render_methodology.py)
+    pipeline.py         core.pipeline orchestration incl. not_ranked_class (NB-1)
     engine.py           score(bundle, populations, snapshot) -> ScoreRecord
-  collect/              network only; every function returns an Envelope
+  collect/              network + rate-limiting; every collector function
+                         returns an Envelope (envelope.py's contract)
     envelope.py         Envelope contract, write/read, hashing
     github_graphql.py   windowed PR query, author history, label list, actor types
-    github_rest.py      repo object (archived, mirror_url, fork, license), commits w/ emails, issues, runs, tree, check-runs
+    repo_object.py      repo object (archived, mirror_url, fork, license)
+    commits.py          commits w/ emails, commit-domain classification
+    labels.py           issue/PR label collection
+    pike_signals.py     OpenSSF-signal-shaped collection (not a scorecard API
+                         call -- see cvi.core.openssf for the scoring side)
     depsdev.py          dependents (package level), project metadata
-    scorecard.py        OpenSSF scorecard
-    registries.py       npm, crates, pypistats (throttled), BigQuery (optional)
-    ratelimit.py        token bucket, ETag cache, circuit breaker (port from ingest.py, then delete it)
-    checkpoint.py       envelope-exists-is-done + null-is-not-done
+    ecosystemes.py      per-ecosystem registry helpers (npm/crates/pypi/...)
+    universe.py         candidate universe filtering; owns envelope-checkpoint
+                         logic inline (no separate checkpoint.py)
+    governance.py        governance-signal collection
+    ratelimit.py        token bucket, ETag cache, circuit breaker -- moved
+                         from cvi/ingest.py verbatim (W4-1); stdlib + httpx
+                         only, no cvi.* imports (tests/core/test_import_graph.py)
+    (not built: `github_rest.py` as a single file -- split across
+    repo_object.py/commits.py/labels.py/pike_signals.py instead, each
+    independently tested; `scorecard.py`, `registries.py`, `checkpoint.py`
+    -- no dedicated collector module exists for these, W1-10 lead-log row)
   derive/
-    bundle.py           FeatureBundle (schema_version=2), load/dump/validate
-    features/           one deriver per parameter input; each states its missingness class
+    bundle.py           FeatureBundle (schema_version=2), load/dump/validate,
+                         every INPUT_MAPPINGS resolver (2000+ lines --
+                         `features/` per-parameter split not done; W4-1
+                         flagged this out of its own scope, real but larger
+                         than a "package move")
   verify/
-    crosscheck.py       second-source checks (monotone counters, licence)
-    provenance.py       envelope hash checks, unverifiable-provenance rule
-    live_sample.py      nightly canary
     detectors.py        §6 of 03-ANTI-MANIPULATION
-    report.py           VerificationReport
+    live_sample.py      nightly canary (tests-only: no script/cron wired yet)
+    pipeline_hook.py     wires verify into core.pipeline (tests-only: no
+                         script calls the v2 pipeline yet)
+    (not built: `crosscheck.py`, `provenance.py`, `report.py` -- the v1
+    crosscheck logic this doc anticipated moving here still lives inline
+    in scripts/verify.py, the real, still-necessary v1 bridge)
   snapshot/
     manifest.py         freeze, Merkle root, manifest.json
     populations.py      build + freeze ECDF populations
     reproduce.py        rebuild + canonical dump hash compare
+    store_cmd.py         W4-6: `python -m cvi.snapshot store` -- score a
+                         frozen snapshot into cvi.store
+    cli.py, __main__.py  `python -m cvi.snapshot` entry point
   store/
     schema.py           DDL v2
-    migrations/         0001_init_v2.sql, ... (numbered, forward-only, tested)
+    migrations/         0001_init_v2.sql, 0002_indexes.sql (numbered,
+                         forward-only, tested; declared as package data)
     writer.py           upsert rows, params (long), populations, snapshots
-    reader.py           leaderboard/matrix/repo/evidence queries; SQL persona projection with window functions
+    reader.py           leaderboard/matrix/repo/evidence queries
+    queries.py          shared SQL/decoding (ORDER_BY_SQL, row_to_dict) --
+                         reader.py and writer.py both reuse this (R-2)
   serve/
-    api.py              FastAPI app (existing endpoints + v2 fields + /evidence + /snapshot)
-    static/             web UI (unchanged for now)
+    app.py              FastAPI app (`cvi.serve.app.create_app`) -- v2 at
+                         `/`, v1 at `/legacy/` when a v1 shape exists,
+                         `/healthz` (named `api.py` in the original target;
+                         built as `app.py` instead)
+    contract.py         response/request pydantic models (leaderboard,
+                         matrix, evidence, snapshot, methodology, ...)
+    guard.py            the served-DB guard (v1 fixture-clock + hash check,
+                         v2 tamper check) -- not in the original target at
+                         all; W4-4 REWORK moved it here from scripts/serve.py
+                         so cvi/serve never imports scripts.* (enforced by
+                         tests/core/test_import_graph.py)
+    (web UI lives at the repo-root `web/` directory, not `cvi/serve/static/`)
   audit/
     coverage.py         missingness/coverage report (the table in 01-FINDINGS)
-    sensitivity.py      D-AGG-3 report
+    sensitivity.py      D-AGG-3 report (imports cvi.constants.PILLAR_WEIGHTS,
+                         a v1 table with no v2 equivalent yet -- flagged,
+                         W4-1 inventory section 7)
     anchors.py          D-VER-4 relational anchors
     ties.py             tie statistics
-  cli.py                cvi universe|gather|derive|verify|snapshot|score|promote|serve|audit|reproduce
+    detectors_report.py  W4-6-era reporting module (tests-only: waits on a
+                         `cvi.cli audit` subcommand that does not exist)
+    forward.py           forward-looking audit report (tests-only, same wait)
+    methodology_history.py  methodology-version history for the audit trail
+  (cli.py does NOT exist and is not being built: the "scripts become thin
+  shims calling cvi.cli" plan is DESCOPED, lead ruling 2026-09-13 -- every
+  scripts/*.py file holds 5-18 real top-level functions, not "argparse +
+  one call into a library"; scripts stay entry points, see below)
 tests/
   core/ collect/ derive/ verify/ snapshot/ store/ serve/ audit/   (mirrors cvi/)
-  fixtures/synthetic_catalog.py   (ex cvi/benchmark_data.py; never importable from cvi/)
+  fixtures/synthetic_catalog.py   (ex cvi/benchmark_data.py, moved W4-1;
+                                    never importable from cvi/ OR scripts/,
+                                    enforced by tests/core/test_import_graph.py)
   fixtures/snapshot_50/           (committed raw envelopes for reproduce-in-CI)
-scripts/                thin shims calling cvi.cli (kept one release for compatibility, then removed)
+  helpers/demo_app.py             (ex scripts/demo_app.py, moved W4-1)
+scripts/                real entry points (NOT thin shims -- see the cli.py
+                         note above): gather.py, derive.py, verify.py,
+                         promote.py, run_all.py, serve.py, build_universe.py,
+                         backfill_downloads.py, render_methodology.py,
+                         make_sample.py, plus the dev-only
+                         build_fixture_snapshot.py. demo_app.py is now a
+                         one-release deprecation shim (W4-1) over
+                         tests/helpers/demo_app.py; serve_ui_fixtures.py is
+                         an explicit W4-4 stand-in scheduled for retirement
+                         once the lead verifies v2 end-to-end on the real
+                         API (in flight on a concurrent packet as of W4-1 --
+                         not touched here).
 ```
 
-Deleted: `cvi/ingest.py` (after `ratelimit.py` absorbs the limiter),
-`cvi/benchmark.py`, `scripts/demo_app.py` (folded into a test helper),
-`scripts/curate_dataset_llm.py`, `HANDOFF-DATASET-CURATION-AGENT.md`.
+Deleted (W4-1, landed): `cvi/ingest.py` (rate limiter moved to
+`cvi/collect/ratelimit.py`, `apply_raw_metrics` moved to
+`cvi/lakehouse.py`, the GHArchive stack and `ingest_and_score` were dead
+code with no successor -- deleted outright; a one-release deprecation
+shim held the module path briefly, then was deleted once the inventory
+confirmed no in-repo caller remained), `cvi/benchmark.py` (a pure
+re-export shim over `cvi/benchmark_data.py`), `cvi/benchmark_data.py`
+(moved to `tests/fixtures/synthetic_catalog.py`).
+
+Not deleted, still v1, per `04` §10 step 3 ("old engine keeps serving the
+v1 DB until W5-2"): `cvi/models.py`, `cvi/constants.py`, `cvi/stage0.py`,
+`cvi/starscout.py`, `cvi/normalize.py`, `cvi/openssf.py`, `cvi/pillars/*`,
+`cvi/matrix.py`, `cvi/persona.py`, `cvi/engine.py`, `cvi/lakehouse.py`,
+`cvi/api.py`, `cvi/deepdive.py`, `cvi/playbook.py`, `web/index.html` --
+these are the only live v1 scoring/serving path (`scripts/promote.py`,
+`scripts/serve.py` still import them) and retire together at W5-2, not
+piecemeal. `cvi/provenance.py`/`cvi/paths.py` are shared utilities used by
+both v1 and v2 code and are not v1-specific despite living at the `cvi/`
+top level.
 
 ## 3. Core contracts
 
