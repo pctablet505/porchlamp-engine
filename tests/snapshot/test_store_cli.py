@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
@@ -49,7 +48,6 @@ from cvi.core import constants_v2
 from cvi.core.gates import GateEvidence
 from cvi.core.models import FeatureBundle, Unmeasured, canonical_json, sha256_hex
 from cvi.derive.bundle import dump_bundle, write_bundle
-from cvi.lakehouse import OperationalStore
 from cvi.snapshot import cli
 from cvi.snapshot.populations import PopulationSet, write_populations
 from cvi.store import queries, schema
@@ -228,52 +226,21 @@ def test_served_db_guard_accepts_this_db(tmp_path) -> None:
     """`03` section 5 / the packet dispatch: the served-DB guard must not
     refuse this command's real output.
 
-    As of THIS base commit (checked again immediately before finishing
-    this packet: main tip `08c1502`, ``cvi-wt-W4-4`` tip `f6a398c`)
-    ``cvi/serve/guard.py`` does not exist anywhere yet -- W4-4's REWORK
-    round 1 (lead ruling, 00-README.md 2026-09-13) names it as the future
-    home of a real v2 guard ("recompute snapshot_dump_hash, refuse
-    non-finalised with 503 everywhere, refuse fixture-clock rows"), but
-    that module has not been delivered on any branch this worktree can
-    read. This test therefore runs the v2-aware check when
-    ``cvi.serve.guard`` becomes importable (self-upgrading: no edit
-    needed once it lands) and otherwise falls back to demonstrating the
-    ONLY guard that exists right now -- ``scripts.serve.refusal_reasons``/
-    ``cvi.lakehouse.OperationalStore``, the v1-only mechanism -- does not
-    misfire against a v2-only database.
+    ``cvi/serve/guard.py`` has now landed (W4-4 REWORK, Blocker B-4) --
+    this test calls its real ``v2_refusal_reasons`` against the database
+    this command just wrote and finalised (``store_cmd.py`` calls
+    ``finalize_snapshot_hash`` itself, ``promoted_at=as_of_text`` -- no
+    wall clock), and asserts it accepts a clean, real, freshly-written
+    store: no fixture-clock stamp (this command never writes one), no
+    hash tamper (nothing has touched the file since ``finalize_snapshot_
+    hash`` ran)."""
+    from cvi.serve import guard
 
-    v1 fallback reasoning: a v2-only database (this command's own output,
-    never touched by ``cvi.lakehouse``) has no v1-shaped ``repositories``
-    table for that guard to even ask its fixture-clock/content-hash
-    questions about -- ``OperationalStore.__init__`` executes ITS OWN v1
-    schema script unconditionally, which references v1-only columns
-    (``overall_cvi``, ...) absent from the v2 table this command already
-    created, and fails at that executescript before any refusal check
-    ever runs (confirmed directly below) -- exactly the failure
-    ``cvi/serve/app.py``'s ``_run_served_db_guard`` (branch W4-4) already
-    catches to mean 'nothing v1-shaped here to refuse': it mounts
-    ``/v1/cvi/*`` off this same v2 connection with no ``SystemExit``,
-    never a false 'this looks like the fabricated catalogue' rejection of
-    real, verified repos.
-
-    HANDOFF: once ``cvi/serve/guard.py`` lands, replace the ``except
-    ImportError`` branch below with a real assertion against its exposed
-    function (name unknown at the time this test was written)."""
     db_path = tmp_path / "cvi.db"
     assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)]) == 0
 
-    try:
-        import cvi.serve.guard  # noqa: F401  -- presence probe only, see docstring
-    except ImportError:
-        with pytest.raises(sqlite3.OperationalError):
-            OperationalStore(str(db_path))
-        return
-
-    pytest.fail(
-        "cvi/serve/guard.py now exists -- update this test to call its real guard "
-        "function against db_path and assert it accepts this finalised, real-data DB "
-        "(see the HANDOFF note in this test's docstring)"
-    )
+    assert guard.v2_refusal_reasons(str(db_path)) == []
+    assert guard.run_guard(str(db_path)) is None  # no v1 shape in a store-CLI-written db
 
 
 def test_create_app_serves_snapshot_and_not_ranked_if_w4_4_has_landed(tmp_path) -> None:
