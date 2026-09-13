@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T21:55:51.236065+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/alibaba__canal.json",
+    "source_hash": "65c4e7d69641fb7ede8716ac843cd440582d33f524f9216ef9bd1cae7a4db1fe",
+    "value": "2026-07-30T07:38:12Z"
+  },
   "pr_window": {
     "end": "2026-09-08T09:21:55+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2025-10-10T07:03:04+00:00",
     "truncated": false
   },
-  "provenance_hash": "dea50d9552ef58044b520edea0336896f165dd462656f44262a8e54cbda0a548",
+  "provenance_hash": "640a8700111ccee83dad072339d1eecaaa08a19895308f843256767234228ef9",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -425,5 +433,10 @@
     "name": "canal",
     "owner": "alibaba"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "12 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

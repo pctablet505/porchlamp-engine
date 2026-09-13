@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T23:18:55.628109+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/argoproj__argo-workflows.json",
+    "source_hash": "bb9f695fa076081075a7ceff160e961745585cd20b85d0485af3baaad42df38a",
+    "value": "2026-09-11T07:39:07Z"
+  },
   "pr_window": {
     "end": "2026-09-11T16:39:52+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-09-09T09:19:40+00:00",
     "truncated": false
   },
-  "provenance_hash": "2fc26fbc2453984c9739a1742055f9fb1560e3b2c183c26a0d8773bbb21c2d40",
+  "provenance_hash": "c3e08da5225c7910b6434d64642f8120bee9ecb2d19a9847011fcdcebe7c852b",
   "repo": {
     "archived": false,
     "default_branch": "main",
@@ -425,5 +433,10 @@
     "name": "argo-workflows",
     "owner": "argoproj"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "126 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

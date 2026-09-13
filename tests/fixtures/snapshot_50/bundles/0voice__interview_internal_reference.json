@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T21:16:05.228173+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/0voice__interview_internal_reference.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
   "pr_window": {
     "end": "2024-05-19T04:13:41+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2019-09-01T12:48:27+00:00",
     "truncated": false
   },
-  "provenance_hash": "ba5bda984d5f401c08b23a36adb8352da64d80b0c290e86efc42c9375f85faf5",
+  "provenance_hash": "5c775a271bae6153fbf6ebecb745a7e54b1cdf9e90ecd82ebd621f68a4bcb1f0",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -425,5 +433,10 @@
     "name": "interview_internal_reference",
     "owner": "0voice"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

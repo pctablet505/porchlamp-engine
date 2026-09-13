@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T21:40:30.964644+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/cockroachdb__cockroach.json",
+    "source_hash": "329ad7195e9cbfa7f70fd2e00eaa2f7a4cd99fce120e0a8540a81925821b7d32",
+    "value": "2026-08-07T17:28:36Z"
+  },
   "pr_window": {
     "end": "2026-09-10T15:52:26+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-09-04T08:09:26+00:00",
     "truncated": false
   },
-  "provenance_hash": "9fe13eca8b75db4b91b37cdb72c15996ef0950f768ef49ddfb2e5051b2961add",
+  "provenance_hash": "7a28a2e5aaecd06db20001d73a71f5f3b041451e1e031eadae6f2b115cfc8b6b",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -425,5 +433,10 @@
     "name": "cockroach",
     "owner": "cockroachdb"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "196 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

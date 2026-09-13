@@ -107,13 +107,21 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T22:47:44.862028+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/blender__blender.json",
+    "source_hash": "72e7bffa8f47d21a57d3ba5993553145d73a59590ba0f2043027ce8b8e9d5c4c",
+    "value": "2026-09-11T21:09:16Z"
+  },
   "pr_window": {
     "end": null,
     "events": [],
     "start": null,
     "truncated": false
   },
-  "provenance_hash": "d06bd0f728d865688192f8669cc982fd1a7df7a7ae120ba20ef70ce7a4c2ccd4",
+  "provenance_hash": "fc1732bff5a4f11bead6124fbdebe007349aeebea40ee3c2bfb56630f5addec4",
   "repo": {
     "archived": false,
     "default_branch": "main",
@@ -124,5 +132,10 @@
     "name": "blender",
     "owner": "blender"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "300 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

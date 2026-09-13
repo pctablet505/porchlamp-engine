@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T02:03:34.625869+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/a-h__templ.json",
+    "source_hash": "712005e3c381c8abba483e95c9a56a0a269e07f24f008e5c737f2d9685febbdc",
+    "value": "2026-07-15T13:04:23Z"
+  },
   "pr_window": {
     "end": "2026-09-04T18:33:52+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-05-25T09:23:51+00:00",
     "truncated": false
   },
-  "provenance_hash": "4fab76a5ca74f75b131479b7abe3d69482e0d9ff6a9f4743036cdc9cab24fa17",
+  "provenance_hash": "65092efe22452f3df397944d70b565707af3ba70b548f1a7a90dea2e55d9c8ba",
   "repo": {
     "archived": false,
     "default_branch": "main",
@@ -425,5 +433,10 @@
     "name": "templ",
     "owner": "a-h"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "44 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

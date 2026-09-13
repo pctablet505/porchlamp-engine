@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T21:01:02.942815+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/duckdb__duckdb.json",
+    "source_hash": "9ed56ec17e8a0861383b75812195c85b9278a5fb1c381bd1b441cf123c53a360",
+    "value": "2026-09-11T19:14:29Z"
+  },
   "pr_window": {
     "end": "2026-09-11T19:58:43+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-09-10T22:19:50+00:00",
     "truncated": false
   },
-  "provenance_hash": "9d6196387b69438e96a3ecd5cc5bc631e5f5c7719c0be6ecdd6cecf2eaadf962",
+  "provenance_hash": "1055a319661829025bde116514c5e224c78ef9f8db77f0bdb4cbec94be75e931",
   "repo": {
     "archived": false,
     "default_branch": "v2.0-cyanoptera",
@@ -425,5 +433,10 @@
     "name": "duckdb",
     "owner": "duckdb"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "300 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

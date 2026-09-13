@@ -113,6 +113,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T03:28:59.366679+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/cerebroapp__cerebro.json",
+    "source_hash": "3a9e6f64224161005af91b8fe2da294f5c649022ab0226280935f04bc2003b5c",
+    "value": "2026-04-26T23:36:25Z"
+  },
   "pr_window": {
     "end": "2026-09-11T01:26:42+00:00",
     "events": [
@@ -420,7 +428,7 @@
     "start": "2026-02-07T06:17:52+00:00",
     "truncated": false
   },
-  "provenance_hash": "24e491ce1af3569f65e15a6c038f344fc9261b027928acc413f380f22d8ae5d3",
+  "provenance_hash": "3fdc38d9e57a4ae91516ac1779c424145c2612d62ec7436ffbb569647eaf0634",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -431,5 +439,10 @@
     "name": "cerebro",
     "owner": "cerebroapp"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "2 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

@@ -107,13 +107,21 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T19:59:41.231387+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/electron__electron.json",
+    "source_hash": "f95bd05aa68d719ac5d3e1d90213873a207b31dd5f4da83ae9bc121374d5a635",
+    "value": "2026-09-11T15:41:45Z"
+  },
   "pr_window": {
     "end": null,
     "events": [],
     "start": null,
     "truncated": false
   },
-  "provenance_hash": "e10e1cdd176c5a30976e231ea760f0a80eb308d164d9a7f757357e732889a1a3",
+  "provenance_hash": "579ff8a51e780387acb65f799fa547e77e7b28f3ffd68c6759de573e88cfb2ed",
   "repo": {
     "archived": false,
     "default_branch": null,
@@ -124,5 +132,10 @@
     "name": "electron",
     "owner": "electron"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "232 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

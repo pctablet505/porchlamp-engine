@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T05:08:35.434323+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/chillzhuang__SpringBlade.json",
+    "source_hash": "234e163793327fce3a595720380df524909e1c6bdb5ba8e1d24954a7a1846089",
+    "value": "2026-08-11T13:59:28Z"
+  },
   "pr_window": {
     "end": "2024-11-07T11:58:04+00:00",
     "events": [
@@ -164,7 +172,7 @@
     "start": "2019-07-02T13:52:01+00:00",
     "truncated": false
   },
-  "provenance_hash": "8403c335f2c907c6f992c45333f0ec021607a7786288a9dbc2b73ad857d0e7e1",
+  "provenance_hash": "fd877274273b510b59d15ee715845e00f0d7052a5424bd01b63eff9656e01a2c",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -175,5 +183,10 @@
     "name": "SpringBlade",
     "owner": "chillzhuang"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "6 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

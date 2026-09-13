@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T21:52:47.005902+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/AtsushiSakai__PythonRobotics.json",
+    "source_hash": "81ec57f8974b154a675b96a11c189bc3d0ad741d4a93d211fc8ffe355710cd54",
+    "value": null
+  },
   "pr_window": {
     "end": "2026-09-07T20:02:51+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-06-29T20:02:45+00:00",
     "truncated": false
   },
-  "provenance_hash": "c3fdfb46f02c3f0422764d03fda961f0da277dda95249b5f95d19c48b3775b74",
+  "provenance_hash": "b3efa8a431b26031989a885479d4704385d2294d698ed7d8fe5319cca1a66741",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -425,5 +433,10 @@
     "name": "PythonRobotics",
     "owner": "AtsushiSakai"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

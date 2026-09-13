@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T03:29:19.866372+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/airbnb__epoxy.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
   "pr_window": {
     "end": "2026-01-27T06:51:03+00:00",
     "events": [
@@ -404,7 +412,7 @@
     "start": "2022-08-09T00:31:17+00:00",
     "truncated": false
   },
-  "provenance_hash": "065ab28bac2927d023324168209d7b85d78941248d73fce251797d209c05a69a",
+  "provenance_hash": "cc536ee3133bd99be404353079c3a4182f73d4721ae552068bf9e313c5837b65",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -415,5 +423,10 @@
     "name": "epoxy",
     "owner": "airbnb"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

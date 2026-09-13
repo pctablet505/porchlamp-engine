@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T22:16:41.348893+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/asdf-vm__asdf.json",
+    "source_hash": "7d67bab46084c6ecbf567a15794c359ccc2c2e9878e9f03937021e35e351da26",
+    "value": "2026-09-03T13:48:24Z"
+  },
   "pr_window": {
     "end": "2026-09-04T13:00:17+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-06-03T10:22:49+00:00",
     "truncated": false
   },
-  "provenance_hash": "8c52b274b0b93f197ebdd18f7a03f977bac9f626a11fd2d6c13844040678326b",
+  "provenance_hash": "851054a52d4af9955b7f92d0199492a452b57122ccef084a8f5f564ec2024a14",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -425,5 +433,10 @@
     "name": "asdf",
     "owner": "asdf-vm"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "34 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

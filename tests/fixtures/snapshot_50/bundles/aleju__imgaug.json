@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T23:59:08.356709+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/aleju__imgaug.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
   "pr_window": {
     "end": "2026-09-11T11:22:21+00:00",
     "events": [
@@ -404,7 +412,7 @@
     "start": "2020-10-19T12:23:21+00:00",
     "truncated": false
   },
-  "provenance_hash": "776aa4326c12f2fdacb358a07568ae69ea2fe83bea52c484edb43afd63579f84",
+  "provenance_hash": "d383c539169c91b8382f0d826918ccdd718c6c6faa99e0379710831a7e4fa003",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -415,5 +423,10 @@
     "name": "imgaug",
     "owner": "aleju"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T04:57:34.976376+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/cymcsg__UltimateRecyclerView.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
   "pr_window": {
     "end": "2019-06-29T19:14:40+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2016-04-04T05:30:17+00:00",
     "truncated": false
   },
-  "provenance_hash": "f3b4668658cb553806e3716d964d94c1cb8a7b099a2622403549fcbc41989267",
+  "provenance_hash": "6eb757048304b335945ae740f364661974e349f416690f432eabda0d756377bf",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -425,5 +433,10 @@
     "name": "UltimateRecyclerView",
     "owner": "cymcsg"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

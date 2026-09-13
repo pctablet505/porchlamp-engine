@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T00:50:38.210673+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/be5invis__Sarasa-Gothic.json",
+    "source_hash": "48f30022e71851028ebceaa329c113d0f54eb56119200f517719ab6d3c9fb4aa",
+    "value": "2026-08-22T16:18:45Z"
+  },
   "pr_window": {
     "end": "2026-06-20T14:27:53+00:00",
     "events": [
@@ -384,7 +392,7 @@
     "start": "2017-10-26T01:23:45+00:00",
     "truncated": false
   },
-  "provenance_hash": "e1e5a751c59ee16af757ec3a4bb25b10d8605c7dd28655a1c4ceff7217c6668c",
+  "provenance_hash": "6635e16304d7e2a716e43f005bc2031a2624c04384da518f11f89cc0c54a1cbc",
   "repo": {
     "archived": false,
     "default_branch": "main",
@@ -395,5 +403,10 @@
     "name": "Sarasa-Gothic",
     "owner": "be5invis"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "17 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T04:45:21.931447+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/alexellis__k3sup.json",
+    "source_hash": "6b114bd0274497737d117db1f59d6217b89ecc8bfca162f93ccac767676d8d51",
+    "value": "2026-09-03T06:37:48Z"
+  },
   "pr_window": {
     "end": "2026-08-17T15:05:43+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2021-12-29T23:07:44+00:00",
     "truncated": false
   },
-  "provenance_hash": "8e04020190fbf7e6f783027d11aef7d4538bcde72104c85f768525990384aa19",
+  "provenance_hash": "2ffcd34000beb6e03f0bd442405829192903a95c4a51cbb22d153da611d6ab30",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -425,5 +433,10 @@
     "name": "k3sup",
     "owner": "alexellis"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "2 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

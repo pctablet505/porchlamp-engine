@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T02:05:11.266054+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/claudiodangelis__qrcp.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
   "pr_window": {
     "end": "2026-05-27T20:06:54+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2024-09-13T08:52:39+00:00",
     "truncated": false
   },
-  "provenance_hash": "0d3ab7e8e88dd32b312cb8751c0f31367fedaef560df3b4da3f28b757264e453",
+  "provenance_hash": "90aaf2c15fd6d1dba549667176d42ea5b04b561109df4d0fb52b8e5a10bb4403",
   "repo": {
     "archived": false,
     "default_branch": "main",
@@ -425,5 +433,10 @@
     "name": "qrcp",
     "owner": "claudiodangelis"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

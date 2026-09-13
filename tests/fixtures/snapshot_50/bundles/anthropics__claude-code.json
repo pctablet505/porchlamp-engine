@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T19:55:59.592091+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/anthropics__claude-code.json",
+    "source_hash": "b7833247d50dda3384e009fb13bb854a6c2ab9de94d9bb7404dd94ec63714c5b",
+    "value": "2026-09-11T19:17:47Z"
+  },
   "pr_window": {
     "end": "2026-09-10T19:16:10+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-08-05T11:21:16+00:00",
     "truncated": false
   },
-  "provenance_hash": "940505650dec2658897c409e5074fdd5544259ad9e76e1cf06be1cd5acdd3701",
+  "provenance_hash": "cb8b917de297f58046b612fbec1e9baf3779e1ca31dc3f2ace3ac2574106b747",
   "repo": {
     "archived": false,
     "default_branch": "main",
@@ -425,5 +433,10 @@
     "name": "claude-code",
     "owner": "anthropics"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "206 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

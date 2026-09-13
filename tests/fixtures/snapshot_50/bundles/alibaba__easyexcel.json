@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T21:33:24.748748+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/alibaba__easyexcel.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
   "pr_window": {
     "end": "2025-07-20T18:02:02+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2024-05-22T07:40:14+00:00",
     "truncated": false
   },
-  "provenance_hash": "c6377b3794602ac16494cee35cb34f8ea79883b3140b1f782a819a00961a0cad",
+  "provenance_hash": "2adf13be9479bf1e83a4d14c3dfe38910c8c96daca2863e50dc7d238ec8ff72c",
   "repo": {
     "archived": true,
     "default_branch": "master",
@@ -425,5 +433,10 @@
     "name": "easyexcel",
     "owner": "alibaba"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

@@ -113,6 +113,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T23:25:00.997812+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/defunkt__jquery-pjax.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
   "pr_window": {
     "end": "2023-02-22T10:17:12+00:00",
     "events": [
@@ -420,7 +428,7 @@
     "start": "2015-12-02T15:19:03+00:00",
     "truncated": false
   },
-  "provenance_hash": "921e87220db18e8aca7a679862caa4974e7ef374865b7a4baa0bcb27417e61c4",
+  "provenance_hash": "8265a10cf57d05c775c11bca27087e8a2c6dd85268c8c0681874ede3a972f8c3",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -431,5 +439,10 @@
     "name": "jquery-pjax",
     "owner": "defunkt"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

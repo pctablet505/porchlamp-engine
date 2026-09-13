@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T02:20:10.680019+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/apache__cassandra.json",
+    "source_hash": "05095465c316307aa3a6fcfe89a290297ef96a08b481966838ea6fb32330d5f7",
+    "value": "2026-09-11T08:33:04Z"
+  },
   "pr_window": {
     "end": "2026-09-11T22:50:03+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-09-09T02:57:32+00:00",
     "truncated": false
   },
-  "provenance_hash": "a5d02e505b0e4e66a8a2489aab8a1c1ea2e2690a86273096d46bcb7479848901",
+  "provenance_hash": "e6d340313516ce9005be8476bf462716b2255357344bcf6b0ebf7c8c43122763",
   "repo": {
     "archived": false,
     "default_branch": "trunk",
@@ -425,5 +433,10 @@
     "name": "cassandra",
     "owner": "apache"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "300 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

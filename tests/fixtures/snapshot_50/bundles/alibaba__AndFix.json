@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T05:07:21.033056+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/alibaba__AndFix.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
   "pr_window": {
     "end": "2025-10-01T11:44:01+00:00",
     "events": [
@@ -214,7 +222,7 @@
     "start": "2015-09-15T13:43:30+00:00",
     "truncated": false
   },
-  "provenance_hash": "19ab29cc8da5f6567a928f28c4b9ba82b54bc3bc7b9a8049b817a49b98da219f",
+  "provenance_hash": "bcb3d9bb469e4668a5733e7e3d3c1aed7466aad5a1c32b43f25cb1eef8e94e6f",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -225,5 +233,10 @@
     "name": "AndFix",
     "owner": "alibaba"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

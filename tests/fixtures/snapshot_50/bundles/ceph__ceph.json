@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T23:18:19.881665+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/ceph__ceph.json",
+    "source_hash": "7e947a0d5b771b1a894e51d90a7604166b38018f033895dc78476b2b0ba5ef24",
+    "value": "2026-09-11T18:22:54Z"
+  },
   "pr_window": {
     "end": "2026-09-11T22:58:42+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-09-11T03:16:38+00:00",
     "truncated": false
   },
-  "provenance_hash": "9c90bc4bf5fd44f97b8f55456a95ee7e985fa9505fc268b87c2c9e400595a2be",
+  "provenance_hash": "3d3c629e0956ecdeffbd04270a4d1978ab9558f336560f65c3e6643625ebf598",
   "repo": {
     "archived": false,
     "default_branch": "main",
@@ -425,5 +433,10 @@
     "name": "ceph",
     "owner": "ceph"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "300 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

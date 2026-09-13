@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T23:16:30.158387+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/EvoLinkAI__awesome-gpt-image-2-API-and-Prompts.json",
+    "source_hash": "142a22e59e815a1f5da59fc23c7b63a97927eaa59630502fde58f68c22e53740",
+    "value": "2026-07-18T06:22:14Z"
+  },
   "pr_window": {
     "end": "2026-04-26T15:59:30+00:00",
     "events": [
@@ -124,7 +132,7 @@
     "start": "2026-04-26T15:55:42+00:00",
     "truncated": false
   },
-  "provenance_hash": "cb1101c9b3c18cca7309fe78d28e01330cd8dc03bde8659a57df08c6c0ed0f8f",
+  "provenance_hash": "7f059a3624745e500d6209f1268a6f0b9244ea93a36ba859551f6080ca1d1b40",
   "repo": {
     "archived": false,
     "default_branch": "main",
@@ -135,5 +143,10 @@
     "name": "awesome-gpt-image-2-API-and-Prompts",
     "owner": "EvoLinkAI"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "151 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

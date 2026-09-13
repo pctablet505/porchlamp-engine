@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T01:23:04.275797+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/1995parham__github-do-not-ban-us.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
   "pr_window": {
     "end": "2019-08-01T17:11:18+00:00",
     "events": [
@@ -404,7 +412,7 @@
     "start": "2019-08-01T05:52:21+00:00",
     "truncated": false
   },
-  "provenance_hash": "dd382630394094fbc887e14410d182c7a15f9a2b2edf4f1fd0d3a940cb696043",
+  "provenance_hash": "57363f3a5cc9cf582dee862308c8513c5c0faeab047e61b93ea4f0e06d0d42e1",
   "repo": {
     "archived": true,
     "default_branch": "master",
@@ -415,5 +423,10 @@
     "name": "github-do-not-ban-us",
     "owner": "1995parham"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

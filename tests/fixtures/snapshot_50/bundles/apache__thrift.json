@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T01:50:42.896045+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/apache__thrift.json",
+    "source_hash": "10bbedb822d8cead46cd8cdfdf32d9dae7951bfe81725d568f77c55734c5599d",
+    "value": "2026-09-11T12:57:22Z"
+  },
   "pr_window": {
     "end": "2026-09-11T21:25:19+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-09-08T09:08:44+00:00",
     "truncated": false
   },
-  "provenance_hash": "b44f398cc3c7fcb390270bddc721fd809b71864b53db79a0843ec797ed6a0fb2",
+  "provenance_hash": "3e298754cbd8e01d143382588f9b9163ad6f66cc236f59815ad9830929398d53",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -425,5 +433,10 @@
     "name": "thrift",
     "owner": "apache"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "273 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

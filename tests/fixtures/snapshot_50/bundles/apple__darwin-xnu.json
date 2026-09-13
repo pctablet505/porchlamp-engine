@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T01:37:47.943426+00:00",
+    "kind": "measured",
+    "method": "measured:no_non_bot_commit_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/apple__darwin-xnu.json",
+    "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "value": null
+  },
   "pr_window": {
     "end": "2023-01-06T14:57:29+00:00",
     "events": [
@@ -404,7 +412,7 @@
     "start": "2017-09-30T16:54:39+00:00",
     "truncated": false
   },
-  "provenance_hash": "13d674fafc1570bd546ff1b4e98dd228c837f107b79a7932308a6c42ecf104b7",
+  "provenance_hash": "4d0b269a768c52ec780e6ea9fe91e2acad42990a27bdd3f4ece5027eec064c8d",
   "repo": {
     "archived": true,
     "default_branch": "main",
@@ -415,5 +423,10 @@
     "name": "darwin-xnu",
     "owner": "apple"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "0 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

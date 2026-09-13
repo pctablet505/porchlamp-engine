@@ -113,6 +113,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T19:44:52.571324+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/dtolnay__anyhow.json",
+    "source_hash": "34553325c31c9c5c9e8ea622f183b15a5aaedd6594ce40c01e4c62cbdc73cea6",
+    "value": "2026-08-22T02:43:38Z"
+  },
   "pr_window": {
     "end": "2026-08-25T16:48:26+00:00",
     "events": [
@@ -420,7 +428,7 @@
     "start": "2024-12-22T11:22:22+00:00",
     "truncated": false
   },
-  "provenance_hash": "44a286cad1290c65b0dbba103ad0f515de499f5a4f037b745f6d46bef2003786",
+  "provenance_hash": "1bd19becc237af6c1ed054225bdb8d0b39d2e2d3e7df109b9b420ad3e910cfb2",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -431,5 +439,10 @@
     "name": "anyhow",
     "owner": "dtolnay"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "13 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

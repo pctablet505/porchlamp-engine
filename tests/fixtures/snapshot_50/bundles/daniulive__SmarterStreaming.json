@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T01:42:27.772642+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/daniulive__SmarterStreaming.json",
+    "source_hash": "db525408ecd6df4ed87d5290bc62d0dfbd0f363d7d446aab163057438dd9360e",
+    "value": "2026-04-15T02:18:59Z"
+  },
   "pr_window": {
     "end": "2017-06-06T06:28:21+00:00",
     "events": [
@@ -124,7 +132,7 @@
     "start": "2017-06-06T06:26:55+00:00",
     "truncated": false
   },
-  "provenance_hash": "eaaed3de4b5918bdcf310664583baab097578c06f0a9b254b64ddc3bfe8eb47a",
+  "provenance_hash": "f5b6e5291e5b26b79b33e93cb76b457671a3c6ab173476e4117571d6804c0c9c",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -135,5 +143,10 @@
     "name": "SmarterStreaming",
     "owner": "daniulive"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "1 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

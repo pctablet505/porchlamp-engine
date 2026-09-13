@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T02:46:16.256350+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/cadence-workflow__cadence.json",
+    "source_hash": "b5e9b657867341da86dbfabe1b85899d89d90c3eb6db0ccd6adbcbbe302944dc",
+    "value": "2026-09-11T23:03:31Z"
+  },
   "pr_window": {
     "end": "2026-09-11T23:03:32+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-09-02T07:15:01+00:00",
     "truncated": false
   },
-  "provenance_hash": "3fd3860b92ec2c330a3724b39e5d80f8436286630662b3f642c262a1561a1c1f",
+  "provenance_hash": "c6ae5cd7ada79965385a61d5a840435330f9e35fce23e476c8a95477a535c967",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -425,5 +433,10 @@
     "name": "cadence",
     "owner": "cadence-workflow"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "297 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

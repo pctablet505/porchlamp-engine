@@ -113,6 +113,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T20:03:29.478770+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/angular__angular.json",
+    "source_hash": "2e6d1a2f51ee247febb23e16678399161117c9c276a32084bb9a9a54903b124a",
+    "value": "2026-09-11T19:41:15Z"
+  },
   "pr_window": {
     "end": "2026-09-11T19:54:51+00:00",
     "events": [
@@ -420,7 +428,7 @@
     "start": "2026-09-10T15:38:54+00:00",
     "truncated": false
   },
-  "provenance_hash": "378b55e98de4c865f42935d51e80bd87cca0e00cd8d6b4ad52cd9ea7f40d1751",
+  "provenance_hash": "12d47e48461db4006816bc54a2ae8a984ab137a85404dd0804de1c6945b7bca2",
   "repo": {
     "archived": false,
     "default_branch": "main",
@@ -431,5 +439,10 @@
     "name": "angular",
     "owner": "angular"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "300 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

@@ -107,6 +107,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-12T00:11:46.279684+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/drogonframework__drogon.json",
+    "source_hash": "7ddde2932b44756d737095e7443b1bc8cefe47abd22f960d22dc638c40c835c2",
+    "value": "2026-09-09T01:17:26Z"
+  },
   "pr_window": {
     "end": "2026-09-09T09:06:26+00:00",
     "events": [
@@ -414,7 +422,7 @@
     "start": "2026-07-15T17:08:07+00:00",
     "truncated": false
   },
-  "provenance_hash": "bcec8625db70cdcd60d1be3ba9a531045c79f4e347da057bfab3b10ac75321be",
+  "provenance_hash": "223765830a986e534f961f916d080c81219f9b752db13665edb2c79f9fe35a5d",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -425,5 +433,10 @@
     "name": "drogon",
     "owner": "drogonframework"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "56 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

@@ -113,6 +113,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T19:42:40.857247+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/bytecodealliance__rustix.json",
+    "source_hash": "5e7fb301e21f6cc2f03a0e839c198c108c88b74746f5feccbecd8e7136396889",
+    "value": "2026-08-25T22:38:04Z"
+  },
   "pr_window": {
     "end": "2026-09-09T19:44:56+00:00",
     "events": [
@@ -420,7 +428,7 @@
     "start": "2026-06-15T18:22:51+00:00",
     "truncated": false
   },
-  "provenance_hash": "be9b6a709ee367822d09b494d2d4678a5a572cb76e8f0230587e4bc328d9d59f",
+  "provenance_hash": "375e152c327ca1c43006cfde4da7df252ce379fba1eea7fe3b0eb3f47a59c392",
   "repo": {
     "archived": false,
     "default_branch": "main",
@@ -431,5 +439,10 @@
     "name": "rustix",
     "owner": "bytecodealliance"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "8 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

@@ -113,6 +113,14 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T19:42:49.282513+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/dtolnay__ryu.json",
+    "source_hash": "5e48f2765e2268933125029d60546d1c94ac7999408d44847e6020229cb4c354",
+    "value": "2026-08-06T04:58:23Z"
+  },
   "pr_window": {
     "end": "2026-03-13T22:18:27+00:00",
     "events": [
@@ -410,7 +418,7 @@
     "start": "2019-11-02T09:53:10+00:00",
     "truncated": false
   },
-  "provenance_hash": "3d6c00f741cda456e44e5245c9c6ca0d46b86894b346e0ae795f86984d086956",
+  "provenance_hash": "b3e1a24bfc70174b24e98390e86e72c69c5d9fe1ec00a863a2dfdfdf0319207f",
   "repo": {
     "archived": false,
     "default_branch": "master",
@@ -421,5 +429,10 @@
     "name": "ryu",
     "owner": "dtolnay"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "4 non-bot commits, minimum 30",
+    "kind": "unmeasured",
+    "reason": "insufficient_n"
+  }
 }

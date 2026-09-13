@@ -107,13 +107,21 @@
       "reason": "collector_failure"
     }
   },
+  "last_non_bot_commit_at": {
+    "fetched_at": "2026-09-11T19:54:32.055623+00:00",
+    "kind": "measured",
+    "method": "measured:commits_180d_fallback",
+    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/anthropics__skills.json",
+    "source_hash": "bfb729a3f8dd9c762949e025e1dbd1afe9a17ef695b6e18effd534da80f37081",
+    "value": "2026-09-10T19:44:08Z"
+  },
   "pr_window": {
     "end": null,
     "events": [],
     "start": null,
     "truncated": false
   },
-  "provenance_hash": "fd4fc3af7ec027ad115eed4ece0579afd96c561f4df09435441be36902dc404d",
+  "provenance_hash": "a0552eff7a5e96557d411fef6259242260a1ec7b9197148a5e682ed1aa69b986",
   "repo": {
     "archived": false,
     "default_branch": null,
@@ -124,5 +132,10 @@
     "name": "skills",
     "owner": "anthropics"
   },
-  "schema_version": 2
+  "schema_version": 2,
+  "top_email_domain_share": {
+    "detail": "32 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "kind": "unmeasured",
+    "reason": "collector_failure"
+  }
 }

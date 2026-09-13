@@ -102,12 +102,30 @@ def validate_bundle(document: Mapping[str, Any]) -> FeatureBundle:
 
     Raises :class:`BundleValidationError` listing every violation found.
     Raises the same error for a document whose ``schema_version`` is not 2.
+
+    W1-5f: ``last_non_bot_commit_at``/``top_email_domain_share`` are read
+    back from the two OPTIONAL top-level keys of the same name when
+    present (see :data:`_W1_5F_OPTIONAL_TOP_LEVEL_KEYS` and
+    :func:`dump_bundle`, which always writes them) -- neither is a
+    ``FeatureBundle`` dataclass field (``cvi/core/models.py`` is out of
+    this packet's ownership), so they are not in :data:`TOP_LEVEL_KEYS`
+    and are never required; a document without them simply leaves the
+    bundle-instance sidecar fact at its unset default. This is what makes
+    the two facts survive a ``dump_bundle``/``write_bundle``/``load_bundle``
+    round trip -- without it, ``last_non_bot_commit_at`` would reset to
+    ``None`` every time a bundle assembled by ``_load_v1`` (real commits
+    envelope in hand) got dumped and reloaded (e.g. ``scripts/
+    build_fixture_snapshot.py``'s frozen fixture), silently changing
+    D-TIE-1 item 7's tie-break input -- and therefore ``records_hash`` --
+    between the snapshot that was scored to produce ``expected.json`` and
+    any later reproduction of it from the committed fixture files.
     """
     if not isinstance(document, Mapping):
         raise BundleValidationError([f"document must be a mapping, got {type(document).__name__}"])
     doc_keys = set(document)
+    known_keys = set(TOP_LEVEL_KEYS) | _W1_5F_OPTIONAL_TOP_LEVEL_KEYS
     problems = [f"missing top-level key {key!r}" for key in TOP_LEVEL_KEYS if key not in doc_keys]
-    problems += [f"unexpected top-level key {key!r}" for key in sorted(doc_keys - set(TOP_LEVEL_KEYS))]
+    problems += [f"unexpected top-level key {key!r}" for key in sorted(doc_keys - known_keys)]
     if problems:
         raise BundleValidationError(problems)
 
@@ -131,6 +149,10 @@ def validate_bundle(document: Mapping[str, Any]) -> FeatureBundle:
         provenance_hash=document["provenance_hash"],
     )
     bundle.validate()
+    if _LAST_NON_BOT_COMMIT_DOC_KEY in document:
+        _set_last_non_bot_commit_at(bundle, _last_non_bot_commit_at_from_doc(document[_LAST_NON_BOT_COMMIT_DOC_KEY]))
+    if _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY in document:
+        _set_top_email_domain_share(bundle, _top_email_domain_share_from_doc(document[_TOP_EMAIL_DOMAIN_SHARE_DOC_KEY]))
     return bundle
 
 
@@ -194,6 +216,13 @@ def dump_bundle(bundle: FeatureBundle) -> dict[str, Any]:
             ],
         },
         "provenance_hash": bundle.provenance_hash,
+        # W1-5f: OPTIONAL top-level keys (not FeatureBundle dataclass fields
+        # -- see validate_bundle's docstring) that carry the two
+        # bundle-instance sidecar facts across this dump/reload round trip;
+        # always written (even the unset default) so a re-derive is never
+        # needed just to see them again.
+        _LAST_NON_BOT_COMMIT_DOC_KEY: _last_non_bot_commit_at_doc(commit_domains.last_non_bot_commit_at(bundle)),
+        _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY: _top_email_domain_share_doc(top_email_domain_share(bundle)),
     }
 
 
@@ -348,24 +377,144 @@ def _set_top_email_domain_share(bundle: FeatureBundle, value: TopEmailDomainShar
     setattr(bundle, _TOP_EMAIL_DOMAIN_SHARE_ATTR, value)
 
 
-def _resolve_commit_window_envelope(ctx: "_V1Ctx") -> Optional[tuple[Path, str, bool]]:
+# --------------------------------------------------------------------------- #
+# Round-trip serialisation: the two OPTIONAL v2-document top-level keys      #
+# validate_bundle/dump_bundle use to carry the sidecar facts across a real   #
+# dump/reload (see validate_bundle's own docstring for why this matters --   #
+# last_non_bot_commit_at feeds tie_key, so losing it on reload would         #
+# silently change records_hash for any reproduction of a snapshot from       #
+# dumped bundle files, e.g. tests/fixtures/snapshot_50).                    #
+# --------------------------------------------------------------------------- #
+
+_LAST_NON_BOT_COMMIT_DOC_KEY = "last_non_bot_commit_at"
+_TOP_EMAIL_DOMAIN_SHARE_DOC_KEY = "top_email_domain_share"
+_W1_5F_OPTIONAL_TOP_LEVEL_KEYS = frozenset({_LAST_NON_BOT_COMMIT_DOC_KEY, _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY})
+
+
+def _last_non_bot_commit_at_doc(value: LastNonBotCommitValue) -> dict[str, Any]:
+    if isinstance(value, LastNonBotCommitMeasured):
+        return {"kind": "measured", "value": value.value, "method": value.method, "source": value.source,
+                "source_hash": value.source_hash, "fetched_at": value.fetched_at}
+    return {"kind": "unmeasured", "reason": value.reason, "detail": value.detail}
+
+
+def _last_non_bot_commit_at_from_doc(doc: Any) -> LastNonBotCommitValue:
+    """Inverse of :func:`_last_non_bot_commit_at_doc`. Never raises: a
+    malformed or unrecognised document falls back to :data:`_NO_COMMIT_FACT`
+    (the same "no evidence" default an absent key already gets) rather than
+    rejecting the whole bundle over an optional, non-authoritative field."""
+    if not isinstance(doc, Mapping):
+        return _NO_COMMIT_FACT
+    if doc.get("kind") == "measured":
+        try:
+            return LastNonBotCommitMeasured(
+                value=doc.get("value"), method=str(doc["method"]), source=str(doc["source"]),
+                source_hash=str(doc["source_hash"]), fetched_at=str(doc["fetched_at"]),
+            )
+        except KeyError:
+            return _NO_COMMIT_FACT
+    if doc.get("kind") == "unmeasured":
+        try:
+            return Unmeasured(reason=doc.get("reason", "collector_failure"), detail=doc.get("detail", ""))
+        except BundleValidationError:
+            return _NO_COMMIT_FACT
+    return _NO_COMMIT_FACT
+
+
+def _top_email_domain_share_doc(value: TopEmailDomainShareValue) -> dict[str, Any]:
+    if isinstance(value, TopEmailDomainShareMeasured):
+        return {"kind": "measured", "value": value.value, "top_domain": value.top_domain, "n": value.n,
+                "method": value.method, "source": value.source, "source_hash": value.source_hash,
+                "fetched_at": value.fetched_at}
+    return {"kind": "unmeasured", "reason": value.reason, "detail": value.detail}
+
+
+def _top_email_domain_share_from_doc(doc: Any) -> TopEmailDomainShareValue:
+    """Inverse of :func:`_top_email_domain_share_doc`; same never-raises
+    fallback rule as :func:`_last_non_bot_commit_at_from_doc`."""
+    if not isinstance(doc, Mapping):
+        return _NO_COMMIT_FACT
+    if doc.get("kind") == "measured":
+        try:
+            return TopEmailDomainShareMeasured(
+                value=float(doc["value"]), top_domain=str(doc["top_domain"]), n=int(doc["n"]),
+                method=str(doc["method"]), source=str(doc["source"]), source_hash=str(doc["source_hash"]),
+                fetched_at=str(doc["fetched_at"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return _NO_COMMIT_FACT
+    if doc.get("kind") == "unmeasured":
+        try:
+            return Unmeasured(reason=doc.get("reason", "collector_failure"), detail=doc.get("detail", ""))
+        except BundleValidationError:
+            return _NO_COMMIT_FACT
+    return _NO_COMMIT_FACT
+
+
+def _commit_envelope_path(ctx: "_V1Ctx", key: str, envelope_key: str) -> Optional[Path]:
+    """Resolve one commit envelope's path for ``key`` (``"<owner>__<name>"``).
+
+    Primary: the real, physical raw-data-dir layout
+    (``raw_root/<envelope_key>/<key>.json`` -- the same convention
+    ``scripts/build_fixture_snapshot.py``'s own ``_vitality_commit_count``
+    already uses to read this exact envelope, and ``scripts/derive.py``'s
+    ``src()``/``raw_envelope_path`` write it under). This is the only path
+    that resolves against the real sample-200 corpus: its v1 documents key
+    ``provenance`` by *meta field* name (``elephant_factor``,
+    ``active_nonbot_commits_180d``, ...), never by the collector name
+    ``"commits_365d"``/``"commits_180d"`` themselves, so a provenance-dict
+    lookup under either literal string never finds anything there
+    (verified against the corpus before writing this: ``grep -l
+    '"commits_365d"' ~/Projects/cvi-scratch/sample-200/derived/*.json``
+    returns nothing).
+
+    Fallback: a v1 provenance entry keyed by the collector name itself (a
+    hand-built or future document that does adopt that convention) --
+    ``_resolve_envelope``'s own ``raw_root`` handling still applies to
+    whatever path it recorded, so this only matters when ``raw_root`` is
+    ``None`` and the direct path above cannot be tried at all.
+    """
+    if ctx.raw_root is not None:
+        candidate = Path(ctx.raw_root) / envelope_key / f"{key}.json"
+        if candidate.is_file():
+            return candidate
+    entry = ctx.provenance.get(envelope_key)
+    return _resolve_envelope(_first_source(entry), ctx.raw_root)
+
+
+def _envelope_fetched_at(path: Path) -> Optional[str]:
+    """The envelope's own recorded ``fetched_at`` (the ``Envelope`` contract
+    field, ``cvi/collect/envelope.py``) -- read straight from the file
+    rather than from a v1 provenance entry, so this never depends on a
+    provenance dict key existing at all (see :func:`_commit_envelope_path`).
+    ``None`` for an unreadable or malformed file, or one recording no
+    ``fetched_at``."""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    fetched_at = document.get("fetched_at") if isinstance(document, Mapping) else None
+    return fetched_at if isinstance(fetched_at, str) and fetched_at else None
+
+
+def _resolve_commit_window_envelope(ctx: "_V1Ctx", key: str) -> Optional[tuple[Path, str, bool]]:
     """Resolve the ``commits_365d`` envelope, falling back to
     ``commits_180d`` when the first is absent. Returns ``(path, fetched_at,
     used_fallback)``, or ``None`` when neither envelope resolves to a
     readable file with a recorded ``fetched_at``.
 
-    "Absent" means the envelope itself does not resolve (no provenance
-    entry, or the path/fetched_at do not check out) -- an envelope that
+    "Absent" means the envelope itself does not resolve (no file at the
+    expected path, and no provenance entry either) -- an envelope that
     resolves but carries an empty ``data: []`` is a real, measured "0
     commits in that window", not a reason to fall back to the narrower
     one (that would silently conflate "we have no 365 d data" with "we
     measured zero commits in 365 d", two different facts)."""
     for index, envelope_key in enumerate(_COMMIT_ENVELOPE_KEYS):
-        entry = ctx.provenance.get(envelope_key)
-        source = _first_source(entry)
-        path = _resolve_envelope(source, ctx.raw_root)
-        fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
-        if path is not None and isinstance(fetched_at, str) and fetched_at:
+        path = _commit_envelope_path(ctx, key, envelope_key)
+        if path is None:
+            continue
+        fetched_at = _envelope_fetched_at(path)
+        if fetched_at is not None:
             return path, fetched_at, index == 1
     return None
 
@@ -386,16 +535,18 @@ def _iso_utc_z(value: datetime.datetime) -> str:
     return value.astimezone(_utc_timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _resolve_commit_facts(ctx: "_V1Ctx") -> tuple[LastNonBotCommitValue, TopEmailDomainShareValue]:
+def _resolve_commit_facts(ctx: "_V1Ctx", key: str) -> tuple[LastNonBotCommitValue, TopEmailDomainShareValue]:
     """Build both W1-5f commit-derived facts from one envelope read (the
     ``commits_365d`` envelope, or ``commits_180d`` when the first is absent
-    -- :func:`_resolve_commit_window_envelope`). Bot exclusion reuses the
-    landed typed-actor classification (:func:`cvi.core.commit_domains.
-    is_bot`) exactly -- a commit with no author login but a non-noreply
-    email is not a bot by that rule (none of its three conditions read the
-    email at all) and counts as human, same as everywhere else this rule
-    applies."""
-    resolved = _resolve_commit_window_envelope(ctx)
+    -- :func:`_resolve_commit_window_envelope`). ``key`` is ``"<owner>__
+    <name>"`` (the same basename ``scripts/derive.py``/``scripts/
+    build_fixture_snapshot.py`` use for every raw envelope file). Bot
+    exclusion reuses the landed typed-actor classification
+    (:func:`cvi.core.commit_domains.is_bot`) exactly -- a commit with no
+    author login but a non-noreply email is not a bot by that rule (none
+    of its three conditions read the email at all) and counts as human,
+    same as everywhere else this rule applies."""
+    resolved = _resolve_commit_window_envelope(ctx, key)
     if resolved is None:
         detail = "no commits_365d or commits_180d envelope with a resolvable path and fetched_at"
         return (
@@ -1705,7 +1856,7 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
     # one of the 18 scored inputs) so the commits envelope it reads is
     # resolved, hashed and folded into ctx.referenced before provenance_hash
     # is computed below from that same dict.
-    last_commit_fact, top_domain_fact = _resolve_commit_facts(ctx)
+    last_commit_fact, top_domain_fact = _resolve_commit_facts(ctx, f"{owner}__{name}")
 
     raw_events = document.get("pr_events")
     events: list[PRWindowEvent] = []
