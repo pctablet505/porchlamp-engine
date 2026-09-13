@@ -554,23 +554,28 @@ def _w4_page(nodes: list[dict], has_next: bool, cursor: str = "") -> dict:
 
 class W4Transport:
     """Recorded-response transport for the author section: scripted window
-    pages, per-author search nodes and per-author user documents, with
-    scripted point cost and ``remaining``. An unrecorded author is a
-    failure, not a default; ``None`` for a login's search/user response
+    pages, per-author search nodes, and per-login eligibility documents
+    served through the round-2 batched ``AuthorEligibilityBatch`` alias
+    query, with scripted point cost and ``remaining``. An unrecorded author
+    is a failure, not a default; ``None`` for a login's search response
     simulates a GraphQL "could not resolve" error (a deleted/renamed
-    account) instead of a scripted document.
+    account); ``None`` for a login's user document simulates that same
+    account resolving to a null alias inside a batch (module note:
+    indistinguishable, at the transport boundary, from a truncated batch —
+    both are recorded ``eligibility_unmeasured``).
     """
 
     def __init__(self, window_pages, window_costs, window_remaining, searches, users,
-                search_meta=None, user_meta=None):
+                search_meta=None, eligibility_batch_meta=None):
         self.window_pages = list(window_pages)
         self.window_costs = list(window_costs)
         self.window_remaining = list(window_remaining)
         self.searches = dict(searches)
         self.users = dict(users)
         self.search_meta = dict(search_meta or {})
-        self.user_meta = dict(user_meta or {})
+        self.eligibility_batch_meta = list(eligibility_batch_meta or [])
         self.calls: list[tuple[str, dict]] = []
+        self._eligibility_batches = 0
 
     def execute(self, query: str, variables: dict) -> dict:
         self.calls.append((query, dict(variables)))
@@ -588,19 +593,34 @@ class W4Transport:
                                               f"with the login of '{login}'."}]}
             return {"data": {"rateLimit": self.search_meta.get(login, {"cost": 1, "remaining": 999}),
                             "s": self.searches[login]}}
-        if "user(login" in query:
-            login = str(variables["login"]).lower()
-            assert login in self.users, f"unrecorded user {login}"
-            if self.users[login] is None:
-                return {"errors": [{"message": f"Could not resolve to a User "
-                                              f"with the login of '{login}'."}]}
-            return {"data": {"rateLimit": self.user_meta.get(login, {"cost": 1, "remaining": 999}),
-                            "u": self.users[login]}}
+        if "AuthorEligibilityBatch" in query:
+            batch_idx = self._eligibility_batches
+            self._eligibility_batches += 1
+            resp: dict = {}
+            i = 0
+            while f"l{i}" in variables:
+                login = str(variables[f"l{i}"]).lower()
+                assert login in self.users, f"unrecorded user {login}"
+                resp[f"u{i}"] = self.users[login]
+                i += 1
+            rl = (self.eligibility_batch_meta[batch_idx]
+                 if batch_idx < len(self.eligibility_batch_meta)
+                 else {"cost": 1, "remaining": 999})
+            resp["rateLimit"] = rl
+            return {"data": resp}
         raise AssertionError(f"unexpected query: {query[:80]}")
 
     @property
     def n_window_calls(self) -> int:
         return sum(1 for q, _ in self.calls if "pullRequests(states" in q)
+
+    @property
+    def n_search_calls(self) -> int:
+        return sum(1 for q, _ in self.calls if "search(query" in q)
+
+    @property
+    def n_eligibility_batch_calls(self) -> int:
+        return sum(1 for q, _ in self.calls if "AuthorEligibilityBatch" in q)
 
 
 # --- fetch_author_window: 365-d boundary, cap, cost, remaining ---------------
@@ -727,7 +747,7 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
     users = {
         "ext1": {"createdAt": "2019-05-05T00:00:00Z",
                 "contributionsCollection": {"contributionCalendar": {"totalContributions": 40}}},
-        "new1": None,  # deleted/renamed account: user fails too
+        "new1": None,  # unresolved alias inside the batch: eligibility_unmeasured
         "new2": {"createdAt": "2015-03-03T00:00:00Z",
                 "contributionsCollection": {"contributionCalendar": {"totalContributions": 200}}},
     }
@@ -735,9 +755,7 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
                        search_meta={"ext1": {"cost": 2, "remaining": 4978},
                                    "new1": {"cost": 1, "remaining": 4977},
                                    "new2": {"cost": 1, "remaining": 4976}},
-                       user_meta={"ext1": {"cost": 3, "remaining": 4973},
-                                 "new1": {"cost": 1, "remaining": 4972},
-                                 "new2": {"cost": 1, "remaining": 4971}})
+                       eligibility_batch_meta=[{"cost": 1, "remaining": 4971}])
     assert gql.collect_author_history(raw, "acme", "widget", now=NOW,
                                       transport=fake) == "ok"
     env = read_envelope(raw / "author_history" / "acme__widget.json")
@@ -748,26 +766,42 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
     assert d["cap"] == 500
     assert d["count"] == 6
     assert d["truncated"] is False
-    # 10+12 window points; ext1 search(2)+user(3); new2 search(1)+user(1);
-    # new1's two calls fail before their cost/remaining are read -> +0.
-    assert d["cost_points"] == 29
-    # the last SUCCESSFUL call's remaining (new2's user, after new1 fails).
+    # 10+12 window points; ext1 search(2)+new2 search(1) [new1's search
+    # fails before its cost/remaining are read -> +0]; one eligibility
+    # batch(1) for all 3 needed authors (round-2 cap: 3 <= 50, all sampled;
+    # 3 <= 15, one batch).
+    assert d["cost_points"] == 26
+    # the one eligibility batch call executes last and always succeeds.
     assert d["rate_limit_remaining"] == 4971
     # 2 band candidates, under the 20-author cap: both kept, sorted by
     # login (not by creation date — new2's first PR is the older one).
     assert d["sampled_authors"] == ["new1", "new2"]
     recs = {r["login"]: r for r in d["author_records"]}
     assert set(recs) == {"ext1", "new1", "new2"}  # bob/bot never fetched
-    assert recs["ext1"]["account_created_at"] == "2019-05-05T00:00:00Z"
-    assert recs["ext1"]["public_event_count"] == 40
-    assert [p["number"] for p in recs["ext1"]["prs"]] == [100, 103]
-    # new1's account/search both failed: degraded to no history, not a crash.
+    assert recs["ext1"] == {"login": "ext1", "account_created_at": "2019-05-05T00:00:00Z",
+                            "public_event_count": 40,
+                            "prs": [{"number": 100, "createdAt": "2026-06-01T00:00:00Z",
+                                    "closedAt": "2026-06-05T00:00:00Z", "mergedAt": None,
+                                    "state": "CLOSED"},
+                                   {"number": 103, "createdAt": "2026-05-15T00:00:00Z",
+                                    "closedAt": None, "mergedAt": None, "state": "OPEN"}],
+                            "history_unmeasured": False, "history_unsampled": False,
+                            "eligibility_unmeasured": False}
+    # new1's search failed (history_unmeasured) and its eligibility alias
+    # came back unresolved (eligibility_unmeasured) — degraded to no
+    # history/account, not a crash, and distinct from the sock-puppet
+    # "eligible first-timer" default the old design produced (B2).
     assert recs["new1"] == {"login": "new1", "account_created_at": None,
-                            "public_event_count": None, "prs": []}
-    assert len(fake.calls) == 8  # 2 window + 3 search + 3 user
+                            "public_event_count": None, "prs": [],
+                            "history_unmeasured": True, "history_unsampled": False,
+                            "eligibility_unmeasured": True}
+    assert recs["new2"]["history_unmeasured"] is False
+    assert recs["new2"]["eligibility_unmeasured"] is False
+    assert len(fake.calls) == 6  # 2 window + 3 search + 1 eligibility batch
+    assert fake.n_eligibility_batch_calls == 1
     assert gql.collect_author_history(raw, "acme", "widget", now=NOW,
                                       transport=fake) == "skip"
-    assert len(fake.calls) == 8  # skip performs no transport call
+    assert len(fake.calls) == 6  # skip performs no transport call
 
 
 def test_collect_author_history_without_pr_window_envelope(tmp_path):
@@ -789,6 +823,277 @@ def test_collect_author_history_without_pr_window_envelope(tmp_path):
     d = read_envelope(raw / "author_history" / "acme__widget.json").data
     assert d["sampled_authors"] == ["new1", "new2"]
     assert {r["login"] for r in d["author_records"]} == {"ext1", "new1", "new2"}
+
+
+# --- round 2 rework: B1 first-timer merge-time predicate, B2 unmeasured-
+# author exclusion, the AUTHOR_SEARCH_CAP sample, batched eligibility, and
+# the six named-mutant boundaries (review W1-4-review.md §5/§8/§9) --------
+
+def test_no_prior_merged_prior_pr_merged_after_this_pr_created_still_first_timer():
+    """B1: an earlier-CREATED PR that merges AFTER this PR's ``createdAt``
+    does not disqualify — the predicate is merge time, not creation time.
+    The pre-fix body tested ``other_created < created`` instead, which
+    wrongly excludes this case (review-measured effect: pytest-dev/pytest
+    raw MR_first 0.3279 -> 0.3594, a 3.2 pp shift)."""
+    earlier_created_later_merged = w4_pr(1, "2026-01-01T00:00:00Z", "x",
+                                        merged="2026-09-01T00:00:00Z")
+    this_pr = w4_pr(2, "2026-03-01T00:00:00Z", "x")
+    assert gql._no_prior_merged(this_pr, [earlier_created_later_merged, this_pr], {}) is True
+
+
+def test_no_prior_merged_prior_pr_merged_before_this_pr_created_excluded():
+    """B1's other side: a PR merged strictly before this PR's ``createdAt``
+    correctly disqualifies."""
+    earlier_merged = w4_pr(1, "2026-01-01T00:00:00Z", "x", merged="2026-02-01T00:00:00Z")
+    this_pr = w4_pr(2, "2026-03-01T00:00:00Z", "x")
+    assert gql._no_prior_merged(this_pr, [earlier_merged, this_pr], {}) is False
+
+
+def test_no_prior_merged_ignores_an_earlier_unmerged_pr():
+    """B3 boundary #3 / mutant M5: an earlier PR that was never merged must
+    not disqualify a first-timer, even though it was created earlier —
+    dropping the ``mergedAt is not None`` conjunct would disqualify on
+    creation order alone."""
+    earlier_unmerged = w4_days(1, 200, "x", closed_after=5)  # closed, not merged
+    this_pr = w4_days(2, 100, "x")
+    assert gql._no_prior_merged(this_pr, [earlier_unmerged, this_pr], {}) is True
+
+
+def test_no_prior_merged_excludes_history_unmeasured_author():
+    """B2: a failed per-author search (``history_unmeasured``) must return
+    None (unknown), never True (first-timer) — the pre-fix body left
+    ``record["prs"] == []`` indistinguishable from real absence and
+    silently counted the author as a first-timer."""
+    this_pr = w4_days(1, 150, "vet")
+    records = {"vet": {"prs": [], "history_unmeasured": True, "history_unsampled": False}}
+    assert gql._no_prior_merged(this_pr, [this_pr], records) is None
+
+
+def test_no_prior_merged_excludes_history_unsampled_author():
+    """Round-2 cost cap: an author outside the AUTHOR_SEARCH_CAP sample is
+    equally unknown, not a first-timer default."""
+    this_pr = w4_days(1, 150, "vet")
+    records = {"vet": {"prs": [], "history_unmeasured": False, "history_unsampled": True}}
+    assert gql._no_prior_merged(this_pr, [this_pr], records) is None
+
+
+def _b2_repro_prs():
+    """B2's exact review repro, restated: a veteran ('vet') with a merged
+    PR outside the 365-d window (recorded only via the per-author search)
+    plus one merged in-cohort PR, and 9 single-PR authors decided-not-
+    merged in the decision band."""
+    vet_cohort = w4_days(901, 150, "vet", merged_after=3)
+    others = [w4_days(902 + i, 150 + i, f"g{i}", closed_after=5) for i in range(9)]
+    return [vet_cohort] + others
+
+
+def test_b2_veteran_prior_merge_measured_excludes_from_mr_first():
+    """Measured baseline: vet's search finds their real, older merged PR
+    (outside the 365-d window, recorded only via the search), so vet is
+    correctly excluded from the first-timer candidate pool: 0/9, not the
+    10-PR population a first-timer default would produce."""
+    prs = _b2_repro_prs()
+    vet_record = w4_rec("vet", prs=[w4_spr(900, (NOW - timedelta(days=500)).isoformat(),
+                                          merged=(NOW - timedelta(days=495)).isoformat())])
+    records = [vet_record] + [w4_rec(f"g{i}") for i in range(9)]
+    fields = gql.derive_cohort_fields(_w4_ah_data(prs, records))
+    assert fields["mr_first_rate_raw"] == (0.0, "derived")
+    assert fields["mr_first_pr_count_raw"] == (9, "derived")
+
+
+def test_b2_veteran_history_fetch_failure_does_not_flip_mr_first():
+    """Fail-before (this exact review repro): pre-fix, a failed search left
+    ``prs: []`` and vet's own merged in-cohort PR was wrongly counted as a
+    first-timer merge, flipping MR_first from 0.0/9 to 0.1/10 (review B2).
+    Fixed: ``history_unmeasured`` excludes vet's PR from the population
+    entirely — the same 0.0/9 as the measured case above, never defaulted
+    to "first-timer"."""
+    prs = _b2_repro_prs()
+    vet_record = {"login": "vet", "account_created_at": "2015-01-01T00:00:00Z",
+                 "public_event_count": 50, "prs": [], "history_unmeasured": True}
+    records = [vet_record] + [w4_rec(f"g{i}") for i in range(9)]
+    fields = gql.derive_cohort_fields(_w4_ah_data(prs, records))
+    assert fields["mr_first_rate_raw"] == (0.0, "derived")
+    assert fields["mr_first_pr_count_raw"] == (9, "derived")
+
+
+def test_b2_dr90_unaffected_by_history_unmeasured():
+    """DR_90 does not read per-author search history at all (review §4.4):
+    the same envelope's DR_90 is identical whether vet's search succeeded
+    or failed."""
+    prs = _b2_repro_prs()
+    measured = [w4_rec("vet", prs=[w4_spr(900, (NOW - timedelta(days=500)).isoformat(),
+                                         merged=(NOW - timedelta(days=495)).isoformat())])] + \
+              [w4_rec(f"g{i}") for i in range(9)]
+    unmeasured = [{"login": "vet", "account_created_at": "2015-01-01T00:00:00Z",
+                  "public_event_count": 50, "prs": [], "history_unmeasured": True}] + \
+                [w4_rec(f"g{i}") for i in range(9)]
+    dr90_measured = gql.derive_cohort_fields(_w4_ah_data(prs, measured))["dr90_decision_rate_raw"]
+    dr90_unmeasured = gql.derive_cohort_fields(_w4_ah_data(prs, unmeasured))["dr90_decision_rate_raw"]
+    assert dr90_measured == dr90_unmeasured
+    assert dr90_measured == (1.0, "derived")
+
+
+# --- B3: six named-mutant boundaries (review §8 rework list item 3) --------
+
+def test_decision_band_near_edge_90_vs_89_days():
+    """Mutant M1: a PR opened exactly 90 d ago is IN the decision band; 89 d
+    ago is not yet (age < DECISION_WINDOW_DAYS)."""
+    pr90 = w4_days(1, 90, "x")
+    pr89 = w4_days(2, 89, "x")
+    assert gql._in_decision_band(pr90, NOW) is True
+    assert gql._in_decision_band(pr89, NOW) is False
+
+
+def test_decision_band_far_edge_270_vs_271_days():
+    """Mutant M8: a PR opened exactly 270 d ago is still IN the decision
+    band; 271 d ago is outside it."""
+    pr270 = w4_days(1, 270, "x")
+    pr271 = w4_days(2, 271, "x")
+    assert gql._in_decision_band(pr270, NOW) is True
+    assert gql._in_decision_band(pr271, NOW) is False
+
+
+def test_decided_within_90_vs_91_days():
+    """Mutant M2: a PR closed exactly 90 d after opening counts as decided
+    within the DR_90 window; 91 d does not."""
+    pr90 = w4_days(1, 200, "x", closed_after=90)
+    pr91 = w4_days(2, 200, "x", closed_after=91)
+    assert gql._decided_within_days(pr90, gql.DECISION_WINDOW_DAYS) is True
+    assert gql._decided_within_days(pr91, gql.DECISION_WINDOW_DAYS) is False
+
+
+def test_newcomer_band_newer_edge_180_vs_179_days():
+    """Mutant M9: a first PR opened exactly 180 d ago is IN the newcomer
+    band; 179 d ago (more recent than the band's newer edge) is not."""
+    pr180 = [w4_days(1, 180, "n180")]
+    pr179 = [w4_days(2, 179, "n179")]
+    assert gql._select_newcomer_sample(pr180, NOW, truncated=False) == ("n180",)
+    assert gql._select_newcomer_sample(pr179, NOW, truncated=False) == ()
+
+
+def test_apply_author_cap_fraction_20_vs_22_percent_boundary():
+    """Mutant M7: floor(0.20*54) = 10 but floor(0.22*54) = 11 — a population
+    size where the two cap fractions diverge, unlike
+    ``test_apply_author_cap_small_population_loses_everything`` above,
+    which is 0 for every fraction under 0.25 and so cannot tell 20% from
+    22% apart."""
+    items = [("sock", NOW - timedelta(days=d)) for d in range(1, 31)] + \
+            [(f"g{i}", NOW - timedelta(days=100 + i)) for i in range(24)]
+    assert len(items) == 54
+    kept = gql.apply_author_cap(items)
+    assert len(kept) == 34  # sock capped to its 10 oldest + 24 singles
+    assert sum(1 for i in kept if items[i][0] == "sock") == 10
+
+
+# --- round 2 cost cap: AUTHOR_SEARCH_CAP sampling and the batched
+# eligibility fetch (review §4, W1/W2/W3) -----------------------------------
+
+def test_seeded_sample_returns_all_when_at_or_under_size():
+    assert gql._seeded_sample(["b", "a", "c"], 5) == ("a", "b", "c")
+
+
+def test_seeded_sample_50_of_80_is_deterministic_not_sorted_first_50():
+    """Reused by the round-2 search cap: reproducible (same input, same
+    output), and not simply the sorted-first 50 — the same seeded-choice
+    property :func:`_select_newcomer_sample` already relies on, now via
+    this shared helper."""
+    candidates = [f"u{i:03d}" for i in range(80)]
+    sample = gql._seeded_sample(candidates, 50)
+    again = gql._seeded_sample(candidates, 50)
+    assert sample == again
+    assert len(sample) == 50
+    assert list(sample) == sorted(sample)
+    assert sample != tuple(f"u{i:03d}" for i in range(50))
+
+
+def test_collect_author_history_search_cap_marks_unsampled_authors(tmp_path):
+    """Round-2 cost cap: when the union of decision-cohort + newcomer-
+    sample authors exceeds AUTHOR_SEARCH_CAP, only the deterministic sample
+    is searched — every other needed author is ``history_unsampled``
+    (never searched, cost 0), not defaulted to "no history"."""
+    raw = tmp_path / "raw"
+    # 60 decision-cohort authors (one PR each, 150 d ago) push ``needed``
+    # to 60, above the 50-author search cap.
+    prs = [w4_days(1000 + i, 150, f"d{i:03d}") for i in range(60)]
+    fake_window = _w4_page(prs, False)
+    users = {f"d{i:03d}": {"createdAt": "2015-01-01T00:00:00Z",
+                          "contributionsCollection": {"contributionCalendar": {"totalContributions": 50}}}
+            for i in range(60)}
+    searches = {f"d{i:03d}": {"nodes": []} for i in range(60)}
+    fake = W4Transport([fake_window], [3], [4990], searches, users)
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
+    d = read_envelope(raw / "author_history" / "acme__widget.json").data
+    recs = {r["login"]: r for r in d["author_records"]}
+    assert len(recs) == 60
+    sampled = [login for login, r in recs.items() if not r["history_unsampled"]]
+    unsampled = [login for login, r in recs.items() if r["history_unsampled"]]
+    assert len(sampled) == 50
+    assert len(unsampled) == 10
+    assert fake.n_search_calls == 50  # only the sampled authors are searched
+    assert set(sampled) == set(gql._seeded_sample(sorted(recs), gql.AUTHOR_SEARCH_CAP))
+    assert fake.n_eligibility_batch_calls == 4  # ceil(60 / 15): every author, uncapped
+
+
+def test_dr90_unaffected_by_search_cap(tmp_path):
+    """The 10 authors excluded from the search sample above still get a
+    full, decided DR_90 cohort: eligibility (not search) drives DR_90, and
+    eligibility is never sampled."""
+    raw = tmp_path / "raw"
+    prs = [w4_days(1000 + i, 150, f"d{i:03d}", closed_after=5) for i in range(60)]
+    fake_window = _w4_page(prs, False)
+    users = {f"d{i:03d}": {"createdAt": "2015-01-01T00:00:00Z",
+                          "contributionsCollection": {"contributionCalendar": {"totalContributions": 50}}}
+            for i in range(60)}
+    searches = {f"d{i:03d}": {"nodes": []} for i in range(60)}
+    fake = W4Transport([fake_window], [3], [4990], searches, users)
+    gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
+    d = read_envelope(raw / "author_history" / "acme__widget.json").data
+    fields = gql.derive_cohort_fields(d)
+    assert fields["dr90_decision_pr_count_raw"] == (60, "derived")
+    assert fields["dr90_decision_rate_raw"] == (1.0, "derived")
+    assert fields["dr90_decision_pr_count"] == (60, "derived")
+    assert fields["dr90_decision_rate"] == (1.0, "derived")
+
+
+def test_fetch_eligibility_batch_width_15_resolves_every_alias():
+    """At ELIGIBILITY_BATCH_SIZE width every alias resolves — below the
+    ~17-alias silent truncation the review measured on this field at
+    50-wide batches (review W2)."""
+    logins = [f"e{i:02d}" for i in range(gql.ELIGIBILITY_BATCH_SIZE)]
+    users = {login: {"createdAt": "2015-01-01T00:00:00Z",
+                     "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}}
+            for login in logins}
+    fake = W4Transport([], [], [], {}, users)
+    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake, gql.ELIGIBILITY_BATCH_SIZE)
+    assert fake.n_eligibility_batch_calls == 1
+    assert all(not out[login]["eligibility_unmeasured"] for login in logins)
+    assert all(out[login]["account_created_at"] == "2015-01-01T00:00:00Z" for login in logins)
+    assert cost == 1
+    assert remaining == 999
+
+
+def test_fetch_eligibility_batch_unresolved_alias_marked_unmeasured_not_ineligible():
+    """A batch that returns fewer than requested (a deleted account, or a
+    truncated batch) marks only the unresolved author
+    ``eligibility_unmeasured`` — excluded from D-IN-3 eligibility, never
+    silently defaulted to a confirmed-ineligible record indistinguishable
+    from real data (W2)."""
+    logins = ["ok1", "gone", "ok2"]
+    users = {"ok1": {"createdAt": "2015-01-01T00:00:00Z",
+                    "contributionsCollection": {"contributionCalendar": {"totalContributions": 10}}},
+            "gone": None,  # unresolved alias
+            "ok2": {"createdAt": "2016-01-01T00:00:00Z",
+                   "contributionsCollection": {"contributionCalendar": {"totalContributions": 20}}}}
+    fake = W4Transport([], [], [], {}, users)
+    out, cost, remaining = gql._fetch_eligibility_batch(logins, fake)
+    assert out["gone"] == {"account_created_at": None, "public_event_count": None,
+                          "eligibility_unmeasured": True}
+    assert out["ok1"]["eligibility_unmeasured"] is False
+    assert out["ok2"]["eligibility_unmeasured"] is False
+    assert gql.is_eligible_account(out["gone"]["account_created_at"],
+                                   "2026-09-12T00:00:00Z", out["gone"]["public_event_count"]) is False
+
 
 
 # --- derive_cohort_fields: hand-computed oracles ------------------------------

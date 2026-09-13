@@ -406,18 +406,28 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
 #   (D-IN-4); at most 20 are sampled per repo — sorted by login, then a
 #   fixed-seed random draw over that sorted list (the packet's own words),
 #   not the chronologically earliest 20 (see :func:`_select_newcomer_sample`);
-# * per sampled author, and per external decision-cohort author: one search
-#   (the author's newest 30 PRs in the repo, ``repo:o/n is:pr
-#   author:login``) and one user record (``createdAt``, and
-#   ``contributionsCollection.contributionCalendar.totalContributions`` as
-#   the public-event proxy — GitHub's profile "public events" count has no
-#   current API; this is the closest available aggregate, GitHub's own
-#   default window of roughly the trailing year). A search or user lookup
-#   that fails with a GraphQL error (a deleted or renamed account is the
-#   expected case) degrades that one author to no recorded history/account
-#   rather than failing the whole repo's collection — D-IN-3 then reads
-#   them as ineligible (an absent input never reads as success), which is
-#   the correct, conservative default rather than a defect;
+# * D-IN-3 eligibility (account age, event count) is fetched for EVERY
+#   author in the union (sampled newcomers + external decision-cohort
+#   authors), via aliased ``user(login:)`` batches of
+#   :data:`ELIGIBILITY_BATCH_SIZE` (round-2 cost cap: below the ~17-alias
+#   silent-truncation threshold measured on
+#   ``contributionsCollection.contributionCalendar.totalContributions`` at
+#   50-wide batches — GitHub's profile "public events" count has no current
+#   API, so this contribution-calendar aggregate, GitHub's own default
+#   window of roughly the trailing year, is the closest available proxy).
+#   An alias with no data in the response — a deleted/renamed account, or a
+#   truncated batch — is recorded ``eligibility_unmeasured`` rather than a
+#   silent ineligible default;
+# * the per-author ``search`` (the author's newest 30 PRs in the repo,
+#   ``repo:o/n is:pr author:login`` — prior-merge history for MR_first) is
+#   capped at :data:`AUTHOR_SEARCH_CAP` per repo, deterministically sampled
+#   (:func:`_seeded_sample`) from the union when it is larger. A search that
+#   fails with a GraphQL error (``history_unmeasured``) or that fell outside
+#   the sample (``history_unsampled``) degrades that one author to no
+#   recorded history rather than failing the whole repo's collection — and,
+#   per B2 (round 2), excludes that author from MR_first's population
+#   entirely (:func:`_no_prior_merged` returns ``None``), never assumed a
+#   first-timer;
 # * derivation (``derive_cohort_fields``, pure over the recorded envelope):
 #   for each of DR_90 (1.2), MR_first (1.3), newcomer conversion (5.2) and
 #   RR_90 (5.3) both a RAW rate (over the identified cohort, no D-IN-3
@@ -427,13 +437,16 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
 #   generalizes D-IN-3 application to every rate parameter and may
 #   supersede the capped fields here with a shared implementation.
 #
-# Documented approximations (R-5): "no previously merged PR" (MR_first) is a
+# Documented approximations (R-5): "no previously merged PR" (MR_first, B1
+# fix round 2 — the predicate is merge time, not creation time) is a
 # statement about the recorded history only — the 365-d window plus the
-# per-author newest-30 search — an author with more than 30 total PRs may
-# have an older merged PR neither source reached; a truncated newcomer band
-# excludes candidates whose oldest recorded PR sits within
-# ``TRUNCATION_MARGIN_DAYS`` of the truncation floor, since an even older,
-# unrecorded PR would misclassify them as a newcomer.
+# sampled per-author newest-30 search — an author with more than 30 total
+# PRs, or outside the round-2 search sample, may have an older merged PR no
+# recorded source reached (module note above: excluded from MR_first rather
+# than assumed); a truncated newcomer band excludes candidates whose oldest
+# recorded PR sits within ``TRUNCATION_MARGIN_DAYS`` of the truncation
+# floor, since an even older, unrecorded PR would misclassify them as a
+# newcomer.
 #
 # The D-IN constants below are the single definition until W2-1's frozen
 # constants module takes over (R-2), mirroring the W1-3 constants above.
@@ -475,6 +488,17 @@ AUTHOR_CAP_FRACTION: float = 0.20
 NEWCOMER_CONVERT_WINDOW_DAYS: int = 180
 #: 5.3: a return needs a second PR within 90 d after the first PR's merge.
 RETURN_WINDOW_DAYS: int = 90
+#: Round-2 cost cap: at most this many per-author ``search`` calls per repo,
+#: deterministically sampled (:func:`_seeded_sample`) from the union of the
+#: decision cohort and the newcomer sample when that union is larger. An
+#: author outside the sample is ``history_unsampled`` (module note below).
+AUTHOR_SEARCH_CAP: int = 50
+#: Round-2 cost cap: the D-IN-3 eligibility lookup (account age, event
+#: count) is batched via aliased ``user(login:)`` queries at this many
+#: authors per request — below the ~17-alias silent-truncation threshold
+#: measured on the ``contributionsCollection`` field (review W2), so every
+#: alias in a full-width batch resolves.
+ELIGIBILITY_BATCH_SIZE: int = 15
 
 #: The 365-d window query: PRs in all three states, newest first, light
 #: fields (no reviews/comments — the author section does not derive
@@ -502,15 +526,22 @@ AUTHOR_PRS_SEARCH_QUERY: str = (
     " } }"
 )
 
-#: Per-author account record: creation date and the public-event proxy
-#: (module note above: GitHub's own default ~1 y contribution window).
-AUTHOR_USER_QUERY: str = (
-    "query AuthorUser($login: String!) {"
-    " rateLimit { cost remaining }"
-    " u: user(login: $login) {"
-    " createdAt"
-    " contributionsCollection { contributionCalendar { totalContributions } } } }"
-)
+def _eligibility_batch_query(n: int) -> str:
+    """D-IN-3 eligibility batch query for ``n`` logins: aliased
+    ``user(login:)`` nodes ``u0``..``u{n-1}`` (variables ``l0``..``l{n-1}``),
+    each carrying ``createdAt`` and the public-event proxy
+    (``contributionsCollection.contributionCalendar.totalContributions`` —
+    module note above: GitHub's own default ~1 y contribution window).
+    Round-2 cost cap: called at :data:`ELIGIBILITY_BATCH_SIZE` logins per
+    request, below the ~17-alias silent-truncation threshold measured on
+    this exact field (review W2) at 50-wide batches.
+    """
+    var_decls = " ".join(f"$l{i}: String!" for i in range(n))
+    aliases = " ".join(
+        f"u{i}: user(login: $l{i}) {{ createdAt "
+        "contributionsCollection { contributionCalendar { totalContributions } } }"
+        for i in range(n))
+    return f"query AuthorEligibilityBatch({var_decls}) {{ rateLimit {{ cost remaining }} {aliases} }}"
 
 
 def _raise_on_graphql_errors(doc: dict[str, Any], context: str) -> None:
@@ -596,17 +627,28 @@ def fetch_author_window(owner: str, name: str, now: datetime,
                                cost, remaining, tuple(prs))
 
 
+def _seeded_sample(candidates: Sequence[str], size: int) -> tuple[str, ...]:
+    """Deterministic sample shared by the newcomer cohort (D-IN-4, the
+    packet's own words: "sorted login, then a seeded choice") and the
+    round-2 per-author search cap: sort the candidate logins, then draw at
+    most ``size`` of them with a fixed-seed
+    ``random.Random(NEWCOMER_SAMPLE_SEED).sample`` — not the earliest
+    ``size``, which would sample only one slice of the population every
+    time. Pure function of the candidate set: the same candidates always
+    yield the same sample, in the same run or a different one.
+    """
+    sorted_candidates = sorted(set(candidates))
+    if len(sorted_candidates) <= size:
+        return tuple(sorted_candidates)
+    chosen = random.Random(NEWCOMER_SAMPLE_SEED).sample(sorted_candidates, size)
+    return tuple(sorted(chosen))
+
+
 def _select_newcomer_sample(prs: Sequence[dict], anchor: datetime,
                             truncated: bool) -> tuple[str, ...]:
-    """Deterministic newcomer sample (the packet's own words: "sorted login,
-    then a seeded choice"): external, non-bot authors whose first recorded
-    PR in ``prs`` was opened in [anchor-365 d, anchor-180 d], sorted by
-    login, then reduced to at most 20 by a fixed-seed
-    ``random.Random(NEWCOMER_SAMPLE_SEED).sample`` draw over that sorted
-    population (D-IN-4) — not the oldest 20, which would sample only the
-    band's earliest slice every time and never its later months. The draw
-    is a pure function of the candidate set: the same candidates always
-    yield the same sample, in the same run or a different one.
+    """Deterministic newcomer sample: external, non-bot authors whose first
+    recorded PR in ``prs`` was opened in [anchor-365 d, anchor-180 d],
+    reduced to at most 20 by :func:`_seeded_sample` (D-IN-4).
 
     When the window is truncated, an author whose oldest recorded PR sits
     within :data:`TRUNCATION_MARGIN_DAYS` of the recorded window floor is
@@ -632,11 +674,7 @@ def _select_newcomer_sample(prs: Sequence[dict], anchor: datetime,
         floor = min(oldest.values())
         candidates = {login for login in candidates
                      if oldest[login] >= floor + timedelta(days=TRUNCATION_MARGIN_DAYS)}
-    sorted_candidates = sorted(candidates)
-    if len(sorted_candidates) <= NEWCOMER_SAMPLE_SIZE:
-        return tuple(sorted_candidates)
-    chosen = random.Random(NEWCOMER_SAMPLE_SEED).sample(sorted_candidates, NEWCOMER_SAMPLE_SIZE)
-    return tuple(sorted(chosen))
+    return _seeded_sample(sorted(candidates), NEWCOMER_SAMPLE_SIZE)
 
 
 def _in_decision_band(pr: dict, anchor: datetime) -> bool:
@@ -656,6 +694,54 @@ def _decision_cohort_logins(prs: Sequence[dict], anchor: datetime) -> tuple[str,
     return tuple(sorted(logins))
 
 
+def _fetch_eligibility_batch(logins: Sequence[str], transport: GraphqlTransport,
+                             batch_size: int = ELIGIBILITY_BATCH_SIZE,
+                             ) -> tuple[dict[str, dict], int, Optional[int]]:
+    """D-IN-3 account age / event count for every author in ``logins``, via
+    aliased ``user(login:)`` batches of at most ``batch_size`` (round-2 cost
+    cap; W2: below the measured ~17-alias silent truncation on
+    ``contributionsCollection``). An alias with no data in the response —
+    a deleted/renamed account, or (only if ``batch_size`` exceeded the safe
+    width) a truncated batch — is recorded ``eligibility_unmeasured`` rather
+    than silently defaulted to ineligible-with-real-data; a whole-batch
+    transport failure marks every login in that batch the same way. Every
+    login in ``logins`` gets exactly one entry in the returned dict.
+    """
+    out: dict[str, dict] = {}
+    cost = 0
+    remaining: Optional[int] = None
+    ordered = list(logins)
+    for start in range(0, len(ordered), batch_size):
+        batch = ordered[start:start + batch_size]
+        query = _eligibility_batch_query(len(batch))
+        variables = {f"l{i}": login for i, login in enumerate(batch)}
+        try:
+            doc = transport.execute(query, variables)
+        except RuntimeError:
+            for login in batch:
+                out[login] = {"account_created_at": None, "public_event_count": None,
+                              "eligibility_unmeasured": True}
+            continue
+        data = doc.get("data") or {}
+        rl = data.get("rateLimit") or {}
+        cost += int(rl.get("cost") or 0)
+        if rl.get("remaining") is not None:
+            remaining = int(rl["remaining"])
+        for i, login in enumerate(batch):
+            node = data.get(f"u{i}")
+            if node is None:
+                out[login] = {"account_created_at": None, "public_event_count": None,
+                              "eligibility_unmeasured": True}
+            else:
+                out[login] = {
+                    "account_created_at": node.get("createdAt"),
+                    "public_event_count": ((node.get("contributionsCollection") or {})
+                                           .get("contributionCalendar") or {}).get("totalContributions"),
+                    "eligibility_unmeasured": False,
+                }
+    return out, cost, remaining
+
+
 def collect_author_history(raw_dir: Path, owner: str, name: str,
                            now: Optional[datetime] = None,
                            transport: Optional[GraphqlTransport] = None,
@@ -667,20 +753,20 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     whose ``data`` carries the 365-d window metadata (``window_anchor``,
     ``window_days``, ``cap``, ``count``, ``truncated``, ``cost_points``,
     ``rate_limit_remaining``), the recorded PR nodes, the deterministic
-    ``sampled_authors`` list, and the per-author ``author_records`` (account
-    record plus the search's newest-30 PRs) for the union of the sampled
-    newcomer authors and the external decision-cohort authors identified in
-    the same window. Returns ``"ok"``, or ``"skip"`` when the envelope
-    already exists and ``force`` is False.
+    ``sampled_authors`` list, and the per-author ``author_records`` for the
+    union of the sampled newcomer authors and the external decision-cohort
+    authors identified in the same window. Returns ``"ok"``, or ``"skip"``
+    when the envelope already exists and ``force`` is False.
 
-    A search or user lookup that fails with a GraphQL error (module note:
-    the expected case is a deleted or renamed account) degrades that one
-    author's record to no history / no account facts rather than raising —
-    one bad login does not lose the whole repo's collection. A sustained
-    failure (for example rate-limiting reached partway through the author
-    loop) surfaces the same way; ``cost_points`` and ``rate_limit_remaining``
-    in the same envelope make that operationally distinguishable from
-    genuine ineligibility.
+    Round-2 cost cap (review §4): D-IN-3 eligibility (account age, event
+    count) is fetched for EVERY author in the union via
+    :func:`_fetch_eligibility_batch` — never sampled, so DR_90 keeps its
+    full cohort. The per-author ``search`` (prior-merge history for
+    MR_first) is capped at :data:`AUTHOR_SEARCH_CAP` and deterministically
+    sampled (:func:`_seeded_sample`) when the union exceeds it; an author
+    outside the sample is ``history_unsampled`` and, like a failed search
+    (``history_unmeasured``), excluded from MR_first's population entirely
+    (:func:`_no_prior_merged`) rather than assumed a first-timer.
     """
     key = f"{owner}__{name}"
     target = raw_dir / "author_history" / f"{key}.json"
@@ -693,45 +779,46 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     remaining = window.remaining
     sample = _select_newcomer_sample(window.prs, now, window.truncated)
     needed = sorted(set(_decision_cohort_logins(window.prs, now)) | set(sample))
+    search_sample = set(_seeded_sample(needed, AUTHOR_SEARCH_CAP))
+
     author_records: list[dict] = []
     for login in needed:
-        record: dict[str, Any] = {"login": login, "account_created_at": None,
-                                  "public_event_count": None, "prs": []}
-        try:
-            search_doc = t.execute(
-                AUTHOR_PRS_SEARCH_QUERY,
-                {"q": f"repo:{owner}/{name} is:pr author:{login}",
-                 "first": AUTHOR_SEARCH_FIRST})
-            _raise_on_graphql_errors(search_doc, f"search {owner}/{name} {login}")
-            sdata = search_doc.get("data") or {}
-            rl = sdata.get("rateLimit") or {}
-            cost += int(rl.get("cost") or 0)
-            if rl.get("remaining") is not None:
-                remaining = int(rl["remaining"])
-            record["prs"] = [
-                {"number": raw.get("number"), "createdAt": raw.get("createdAt"),
-                 "closedAt": raw.get("closedAt"), "mergedAt": raw.get("mergedAt"),
-                 "state": raw.get("state")}
-                for raw in ((sdata.get("s") or {}).get("nodes") or [])
-            ]
-        except RuntimeError:
-            pass  # deleted/renamed account or a transient search failure: no history recorded
-        try:
-            user_doc = t.execute(AUTHOR_USER_QUERY, {"login": login})
-            _raise_on_graphql_errors(user_doc, f"user {owner}/{name} {login}")
-            udata = user_doc.get("data") or {}
-            rl = udata.get("rateLimit") or {}
-            cost += int(rl.get("cost") or 0)
-            if rl.get("remaining") is not None:
-                remaining = int(rl["remaining"])
-            u = udata.get("u") or {}
-            record["account_created_at"] = u.get("createdAt")
-            record["public_event_count"] = (
-                (u.get("contributionsCollection") or {}).get("contributionCalendar") or {}
-            ).get("totalContributions")
-        except RuntimeError:
-            pass  # deleted/renamed account: eligibility falls back to no record (ineligible)
+        record: dict[str, Any] = {
+            "login": login, "account_created_at": None, "public_event_count": None,
+            "prs": [], "history_unmeasured": False, "history_unsampled": False,
+            "eligibility_unmeasured": False,
+        }
+        if login not in search_sample:
+            record["history_unsampled"] = True
+        else:
+            try:
+                search_doc = t.execute(
+                    AUTHOR_PRS_SEARCH_QUERY,
+                    {"q": f"repo:{owner}/{name} is:pr author:{login}",
+                     "first": AUTHOR_SEARCH_FIRST})
+                _raise_on_graphql_errors(search_doc, f"search {owner}/{name} {login}")
+                sdata = search_doc.get("data") or {}
+                rl = sdata.get("rateLimit") or {}
+                cost += int(rl.get("cost") or 0)
+                if rl.get("remaining") is not None:
+                    remaining = int(rl["remaining"])
+                record["prs"] = [
+                    {"number": raw.get("number"), "createdAt": raw.get("createdAt"),
+                     "closedAt": raw.get("closedAt"), "mergedAt": raw.get("mergedAt"),
+                     "state": raw.get("state")}
+                    for raw in ((sdata.get("s") or {}).get("nodes") or [])
+                ]
+            except RuntimeError:
+                record["history_unmeasured"] = True  # deleted/renamed account or a transient failure
         author_records.append(record)
+
+    elig, elig_cost, elig_remaining = _fetch_eligibility_batch(needed, t, ELIGIBILITY_BATCH_SIZE)
+    cost += elig_cost
+    if elig_remaining is not None:
+        remaining = elig_remaining
+    for record in author_records:
+        record.update(elig[record["login"]])
+
     data: dict[str, Any] = {
         "window_anchor": now.isoformat(),
         "window_days": AUTHOR_WINDOW_DAYS,
@@ -839,19 +926,33 @@ def _eligible(pr: dict, records: dict[str, dict]) -> bool:
     return is_eligible_account(account_at, pr.get("createdAt"), events)
 
 
-def _no_prior_merged(pr: dict, window_prs: Sequence[dict], records: dict[str, dict]) -> bool:
-    """1.3 MR_first: the author had no other recorded PR, merged before this
-    one's ``createdAt``, in the union of the window and the author's search
-    history (module note: a documented approximation of "ever")."""
+def _no_prior_merged(pr: dict, window_prs: Sequence[dict],
+                     records: dict[str, dict]) -> Optional[bool]:
+    """1.3 MR_first: the author had no other recorded PR MERGED strictly
+    before this one's ``createdAt`` (B1 fix, round 2 — the predicate is
+    merge time, not creation time: an earlier-created PR that merges AFTER
+    this one's ``createdAt`` does not disqualify), in the union of the
+    window and the author's search history (module note: a documented
+    approximation of "ever").
+
+    Returns ``None`` — unknown, not "no prior merge" — when the author's
+    prior-merge history was not measured for this repo: the search failed
+    (``history_unmeasured``, B2) or the author fell outside the round-2
+    search cap (``history_unsampled``). Callers must exclude a ``None``
+    result from MR_first's population entirely, never read it as True.
+    """
     login = _login_of(pr)
+    record = records.get(login)
+    if record is not None and (record.get("history_unmeasured")
+                               or record.get("history_unsampled")):
+        return None
     created = _parse_iso(pr.get("createdAt"))
     if created is None:
         return False
-    history = _author_pr_history(window_prs, records.get(login), login)
+    history = _author_pr_history(window_prs, record, login)
     return not any(
-        _parse_iso(other.get("mergedAt")) is not None
-        and (other_created := _parse_iso(other.get("createdAt"))) is not None
-        and other_created < created
+        (other_merged := _parse_iso(other.get("mergedAt"))) is not None
+        and other_merged < created
         for other in history
         if other.get("number") != pr.get("number")
     )
@@ -1010,7 +1111,11 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     out["dr90_decision_rate"] = (_ratio(dr90_decided, len(dr90_kept)), "derived")
     out["dr90_decision_pr_count"] = (len(dr90_kept), "derived")
 
-    mr_candidates = [pr for pr in cohort_prs if _no_prior_merged(pr, window_prs, records)]
+    # Only a *known* first-timer counts (B2/round-2 cap): an author whose
+    # prior-merge history is unmeasured or unsampled is excluded from the
+    # MR_first population entirely, not defaulted to "no prior merge".
+    mr_candidates = [pr for pr in cohort_prs
+                     if _no_prior_merged(pr, window_prs, records) is True]
     raw_mr_decided = [pr for pr in mr_candidates if pr.get("closedAt") is not None]
     raw_mr_merged = sum(1 for pr in raw_mr_decided if pr.get("mergedAt") is not None)
     out["mr_first_rate_raw"] = (_ratio(raw_mr_merged, len(raw_mr_decided)), "derived")
