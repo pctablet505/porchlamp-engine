@@ -56,3 +56,31 @@ jobs:
 
       - name: Show dist output
         run: ls -l dist/
+
+      - name: sdist contains the store migrations
+        run: tar tzf dist/*.tar.gz | grep -q 'cvi/store/migrations/.*\.sql'
+
+      - name: Non-editable install (W4-1: package move must survive a real install)
+        run: |
+          python -m venv /tmp/cvi-install-check
+          /tmp/cvi-install-check/bin/pip install --quiet "$(ls dist/*.tar.gz)[server]"
+
+      - name: Non-editable install finds the moved/serving modules + migrations
+        run: |
+          /tmp/cvi-install-check/bin/python -c "
+          import os
+          import cvi
+          import cvi.serve.app
+          import cvi.snapshot.store_cmd
+          import cvi.collect.ratelimit
+          import cvi.store.migrations as m
+          mdir = os.path.dirname(m.__file__)
+          sql_files = sorted(f for f in os.listdir(mdir) if f.endswith('.sql'))
+          assert sql_files, f'no .sql migrations found in installed {mdir}'
+          print('migrations found:', sql_files)
+          cvi_dir = os.path.dirname(cvi.__file__)
+          for gone in ('benchmark_data.py', 'ingest.py', 'benchmark.py'):
+              path = os.path.join(cvi_dir, gone)
+              assert not os.path.exists(path), f'{gone} should not exist in the installed package'
+          print('ALL CHECKS PASSED')
+          "

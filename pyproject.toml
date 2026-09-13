@@ -9,7 +9,13 @@ description = "Contributor Value Index (CVI) ranking engine"
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-server = ["uvicorn>=0.50"]
+# W4-1 packaging fix: `cvi.serve.app`/`cvi.api`/`cvi.serve.contract` import
+# fastapi + pydantic directly, and `cvi.collect.ratelimit` (moved from
+# cvi/ingest.py, which had the same gap before it) imports httpx -- none
+# of the three were declared here, so `pip install .[server]` could not
+# actually import cvi.serve.app (ModuleNotFoundError: fastapi), confirmed
+# by the non-editable install check this packet's inventory asked for.
+server = ["fastapi>=0.141", "httpx>=0.28", "pydantic>=2.0", "uvicorn>=0.50"]
 dev = ["fastapi>=0.141", "httpx>=0.28", "pytest>=9", "pytest-xdist>=3.8"]
 
 [tool.setuptools]
