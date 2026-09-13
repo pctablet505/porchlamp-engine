@@ -317,3 +317,101 @@ Final suite: `2541 passed, 1 skipped` (up from `2531` — one test file
 gained coverage from this fix, plus whatever W4-6 itself added). `ruff
 check cvi/ tests/ scripts/`: All checks passed. Branch is current with
 `main` tip `930e596` as of this handoff.
+
+---
+
+# Round 3 (lead verification on the real fixture store) — NB-1, NB-2
+
+Lead verified the branch end to end via `scripts/serve.py --db <real fixture
+store>` on port 8791. Two items, both fixed:
+
+## NB-1 — counts classification unified (U-2)
+
+`/v1/cvi/snapshot.counts` (`gated=35/unrated=15`, the raw engine `eligible`
+flag) disagreed with `/v1/cvi/not-ranked` (`gated=31/unrated=19`, `06`
+section 3 A2's classification — `no_external_workflow`/`off_platform_routed`
+are evidence outcomes, not disqualifications). Fixed in the ONE place the
+lead named, `cvi/core/pipeline.py` (lead-authorised edit, otherwise out of
+this packet's scope):
+
+- New `DISPLAY_UNRATED_GATE_REASONS` (frozen set, today just
+  `cvi.core.gates.REASON_NO_EXTERNAL_WORKFLOW`) and `not_ranked_class(record)`
+  — `"rated"`/`"gated"`/`"unrated"` per `06`'s classification. `record.gate.
+  eligible`/`.reason` are read, never changed (`03` section 5: that flag
+  stays exactly what `evaluate_gates` computed, as provenance).
+  `build_snapshot_counts` now uses it.
+- `cvi/store/queries.py::snapshot_summary`: the `gated` SQL `COUNT(*)` now
+  excludes `DISPLAY_UNRATED_GATE_REASONS` via one `NOT IN (...)` clause
+  built from the same frozen constant — still zero Python loop over rows.
+- `cvi/serve/app.py::_classify_not_ranked`: replaced its own hardcoded
+  `"unrated: no_external_workflow"` string literal with a membership check
+  against the same constant.
+
+New test `test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture`
+scores `tests/fixtures/snapshot_50` for real (`cvi.snapshot.store_cmd.
+score_snapshot_dir`/`write_scored_snapshot`, not a synthetic fixture) and
+asserts all three layers — `ScoredSnapshot.counts`, `snapshot_summary`, and
+this API's `/not-ranked` split — independently compute `gated=31`/
+`unrated=19`, matching the lead's own real-store numbers exactly. Two
+existing synthetic-fixture tests were updated from the old (now-fixed)
+off-by-one comparison to the correct equality; `tests/fixtures/snapshot_50/
+expected.json` was regenerated (`scripts/build_fixture_snapshot.py`,
+sample corpus available in this environment) — only `counts.gated`/
+`counts.unrated` changed (35→31, 15→19); `records_hash`, `rank_order` and
+every `bundles/*.json` file are byte-identical, confirmed via diff before
+committing. `tests/snapshot/test_store_cli.py`'s hardcoded expectations
+updated to match.
+
+## NB-2 — `/healthz` and `/legacy` 404 clarity
+
+- `GET /healthz` now exists (was excluded from the SPA fallback per Blocker
+  B-2 but had no route, so it 404'd): returns `200 {"status": "ok",
+  "snapshot_id": ...}`. Always 200 once the process is up on any database
+  shape — the served-DB guard already passed (`SystemExit` otherwise,
+  before `create_app` returns) by the time any request reaches a route at
+  all; `snapshot_id` is `None`, never fabricated, when nothing has been
+  promoted into the v2 store yet.
+- `GET /legacy/{path:path}` is registered whenever `/legacy` is NOT mounted
+  (a v2-only database), returning an explanatory 404 (`"/legacy is not
+  mounted: this database has no v1 shape..."`) instead of the bare "no
+  route matches" the SPA-fallback exclusion alone would give.
+
+Two existing tests updated (both used to assert 404 for what is now
+legitimately 200 / a more specific 404 message). Re-verified the existing
+Blocker B-2 mutant (remove `_SPAStaticFiles`'s reserved-prefix exclusion)
+still kills `test_unmatched_api_path_is_a_json_404_not_the_spa_shell` (the
+`/v1/*` cases depend on nothing else) even with the new `/healthz`/`/legacy`
+routes in place, which now pass independently of that exclusion — defense
+in depth, not a regression.
+
+## Division of labour: the `cvi.store.writer` <-> `cvi.snapshot` circular import
+
+NOT this packet's to fix — packet W4-6f fixed it separately on `main`
+(`cvi/snapshot/__init__.py` lazy names + a subprocess import-order test),
+landing at `916de17`. This branch rebased onto it and the one temporary
+`import cvi.snapshot` workaround added to the new NB-1 test was removed
+once confirmed fixed.
+
+## Mutation re-run (NB-1/NB-2, same protocol: plain `cp` backup, single
+mutation, restore, byte-identical diff)
+
+| # | Mutant | File | Killing test | Result |
+|---|---|---|---|---|
+| NB1-A | `not_ranked_class` drops the `DISPLAY_UNRATED_GATE_REASONS` check | `cvi/core/pipeline.py` | `test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture` | KILLED |
+| NB1-B | `snapshot_summary`'s `gated` count drops the `NOT IN` clause | `cvi/store/queries.py` | same + `test_snapshot_counts_match_the_display_classification` | KILLED (both) |
+| NB1-C | `_classify_not_ranked` drops the reclassification | `cvi/serve/app.py` | same + `test_not_ranked_no_external_workflow_gate_is_translated_to_unrated` | KILLED (both; the second via a `ValidationError` — the raw gate string isn't a valid `GateReason`) |
+| NB2-A | `/healthz` route removed entirely | `cvi/serve/app.py` | `test_bare_healthz_returns_200_with_the_snapshot_id` | KILLED |
+| B-2 (re-check) | reserved-prefix exclusion removed, WITH the new `/healthz`/`/legacy` routes present | `cvi/serve/app.py` | `test_unmatched_api_path_is_a_json_404_not_the_spa_shell` | KILLED (unchanged; the two new routes pass on their own regardless, confirmed not masking this one) |
+
+## Suite / ruff
+
+```
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/ -p no:cacheprovider -n 4
+2547 passed, 1 skipped, 12 warnings in ~14s
+exit=0
+
+$ ruff check cvi/ tests/ scripts/
+All checks passed!
+```
+
+Branch current with `main` tip `752d5ec` as of this handoff.
