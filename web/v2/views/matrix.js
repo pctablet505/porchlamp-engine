@@ -192,7 +192,19 @@ export function shellShape(state) {
   if (state.matrixLoading && !state.matrix) return "loading";
   if (state.matrixError && !state.matrix) return "error";
   if (state.matrix && state.matrix.points.length === 0) return "empty";
-  if (state.matrix) return "body";
+  if (state.matrix) {
+    // A quadrant toggle changes WHICH markers `renderMatrixBody` includes
+    // (filtered before rendering, not hidden after the fact) — folding the
+    // hidden set into the shape key is what makes `syncView` rebuild the
+    // SVG/canvas surface on `1`-`4` instead of the toggle silently doing
+    // nothing to the already-rendered markers (a real bug caught during
+    // live-browser verification, see the handoff). This is a deliberate,
+    // infrequent, discrete action (never a per-frame one like scroll), so
+    // a full rebuild here does not touch U-12's actual target (hover/
+    // scroll-driven churn), which stays on `syncMatrixHover`/`syncViewBox`.
+    const hiddenKey = Object.keys(state.matrixQuadrantsHidden).sort().join(",");
+    return `body:${hiddenKey}`;
+  }
   return "loading";
 }
 

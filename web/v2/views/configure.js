@@ -95,6 +95,28 @@ export function sortReprojectRows(rows, sort) {
   return sorted;
 }
 
+/**
+ * Applies a persona PRESET (a starting point only, U-11) while respecting
+ * any locked pillar: locked pillars keep their CURRENT value untouched,
+ * and the preset's proportions among the free pillars are rescaled so the
+ * five weights still sum to exactly 1 — the same invariant
+ * `normalizeWeights` holds for a single-slider drag, generalised to a
+ * preset that can change every free pillar at once. With no locks at all
+ * this reduces to the preset exactly (lockedSum=0, remaining=1, and the
+ * preset's own weights already sum to 1).
+ */
+export function applyPresetRespectingLocks(weights, locks, preset) {
+  const lockedSum = PILLAR_IDS.filter((p) => locks[p]).reduce((s, p) => s + weights[p], 0);
+  const free = PILLAR_IDS.filter((p) => !locks[p]);
+  const remaining = Math.max(0, 1 - lockedSum);
+  const presetFreeSum = free.reduce((s, p) => s + preset[p], 0);
+  const next = { ...weights };
+  for (const p of free) {
+    next[p] = presetFreeSum > 0 ? (preset[p] / presetFreeSum) * remaining : remaining / free.length;
+  }
+  return next;
+}
+
 export function weightsSum(weights) {
   return PILLAR_IDS.reduce((s, p) => s + (weights[p] || 0), 0);
 }

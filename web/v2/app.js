@@ -74,12 +74,13 @@ import {
   nearestMarkerInDirection,
   DEFAULT_VIEW as MATRIX_DEFAULT_VIEW,
 } from "./views/matrix.js";
-import { pointKey as matrixPointKey } from "./components/scatter.js";
+import { pointKey as matrixPointKey, drawMatrixCanvas } from "./components/scatter.js";
 import {
   renderShell as renderConfigureShell,
   shellShape as configureShellShape,
   patchConfigureTable,
   normalizeWeights,
+  applyPresetRespectingLocks,
 } from "./views/configure.js";
 import { renderShell as renderCompareShell, shellShape as compareShellShape } from "./views/compare.js";
 import { renderShell as renderMethodologyShell, shellShape as methodologyShellShape } from "./views/methodology.js";
@@ -354,6 +355,35 @@ export function boot(win = window, doc = document) {
     if (keep !== "methodology") currentMethodologyShape = null;
   }
 
+  /**
+   * Above `SVG_MARKER_BUDGET` markers (06 §3 B's documented SVG/canvas
+   * switch, `components/scatter.js`), `renderMatrixBody` renders a bare
+   * `<canvas>` with nothing drawn on it — the actual paint call needs
+   * real resolved colours (canvas cannot read `var(--x)`/`currentColor`
+   * itself), which only app.js can resolve via `getComputedStyle`. A
+   * no-op when the SVG path is showing (the real fixture's 73 points
+   * never cross the budget; this only fires under the `?perfmatrix=`
+   * dev harness).
+   */
+  function drawMatrixCanvasIfPresent(state) {
+    const canvas = main.querySelector("[data-matrix-canvas]");
+    if (!canvas || !state.matrix) return;
+    const rect = canvas.getBoundingClientRect();
+    const width = Math.max(1, Math.round(rect.width)) || canvas.width;
+    const height = Math.max(1, Math.round(rect.height)) || canvas.height;
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+    const styles = win.getComputedStyle(doc.documentElement);
+    const colors = {
+      "Sweet Spot": styles.getPropertyValue("--quad-sweet-spot").trim(),
+      Crucible: styles.getPropertyValue("--quad-crucible").trim(),
+      Nursery: styles.getPropertyValue("--quad-nursery").trim(),
+      Graveyard: styles.getPropertyValue("--quad-graveyard").trim(),
+    };
+    const ctx = canvas.getContext("2d");
+    drawMatrixCanvas(ctx, state.matrix.points, { quadrantsHidden: state.matrixQuadrantsHidden, colors, width, height });
+  }
+
   function syncView(state) {
     if (state.tab === "notranked") {
       const key = notRankedRebuildKey(state);
@@ -375,9 +405,10 @@ export function boot(win = window, doc = document) {
         currentMatrixShape = shape;
         forgetOtherShapes("matrix");
       }
-      if (shape === "body") {
+      if (shape.startsWith("body")) {
         syncMatrixViewBox(main, state.matrixView);
         syncMatrixHover(main, state);
+        drawMatrixCanvasIfPresent(state);
       }
       return;
     }
@@ -996,7 +1027,10 @@ export function boot(win = window, doc = document) {
     if (presetBtn) {
       // U-11: a preset button is a STARTING POINT — the vector it sets is
       // immediately "custom" (Configure never re-labels itself a persona).
-      store.dispatch({ type: "SET_WEIGHTS", weights: { ...PERSONA_PRESET_WEIGHTS[presetBtn.dataset.weightPreset] } });
+      const state = store.getState();
+      const preset = PERSONA_PRESET_WEIGHTS[presetBtn.dataset.weightPreset];
+      const next = applyPresetRespectingLocks(state.weights, state.weightLocks, preset);
+      store.dispatch({ type: "SET_WEIGHTS", weights: next });
       pushUrl(store.getState());
       runReproject();
       return;
@@ -1043,13 +1077,22 @@ export function boot(win = window, doc = document) {
       const pre = main.querySelector("[data-reproduce-command]");
       const btn = evt.target.closest("[data-methodology-copy]");
       if (pre && win.navigator.clipboard) {
-        win.navigator.clipboard.writeText(pre.textContent).then(() => {
-          const original = btn.textContent;
-          btn.textContent = copy.METHODOLOGY_COPIED_LABEL;
-          win.setTimeout(() => {
-            btn.textContent = original;
-          }, 1200);
-        });
+        win.navigator.clipboard
+          .writeText(pre.textContent)
+          .then(() => {
+            const original = btn.textContent;
+            btn.textContent = copy.METHODOLOGY_COPIED_LABEL;
+            win.setTimeout(() => {
+              btn.textContent = original;
+            }, 1200);
+          })
+          .catch(() => {
+            // Clipboard permission denied/unavailable (a real possibility,
+            // not just this sandbox's own restriction): leave the button
+            // text alone rather than an unhandled rejection — the
+            // reproduce command is still fully selectable/copyable by hand
+            // from the visible <pre> block.
+          });
       }
       return;
     }

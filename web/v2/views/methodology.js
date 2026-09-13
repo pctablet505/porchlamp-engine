@@ -207,7 +207,14 @@ export function shellShape(state) {
   if (state.methodologyLoading && !state.methodology) return "loading";
   if (state.methodologyError && !state.methodology) return "error";
   if (!state.methodology) return "empty";
-  return "body";
+  // The Snapshot section only has content once `state.snapshot` itself has
+  // loaded (a SEPARATE fetch, kicked off by app.js independently of
+  // methodology's own) -- appending its presence to the shape key is what
+  // makes `syncView` rebuild the shell when it lands after the methodology
+  // payload already did, instead of the two payloads racing and the
+  // snapshot section silently never appearing (a real bug caught during
+  // live-browser verification, see the handoff).
+  return `body:${state.snapshot ? "snap" : "nosnap"}`;
 }
 
 export function renderShell(state) {
