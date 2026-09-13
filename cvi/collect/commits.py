@@ -24,13 +24,15 @@ defined here, not in ``cvi/constants.py``.
 
 W1-5f relocation note: ``CommitActor``, ``CommitRecord``, the three domain
 tables (``NOREPLY_DOMAIN``, ``PERSONAL_DOMAINS``, ``KNOWN_BOT_LOGINS``),
-``is_bot``, ``org_key``, ``author_key``, ``_parse_dt`` and
+``is_bot``, ``org_key``, ``author_key``, ``_parse_dt`` (kept private, not
+re-exported -- no caller outside ``cvi.core.commit_domains`` uses it) and
 ``records_from_rows`` now live in ``cvi.core.commit_domains`` (stdlib
 only, importable from ``cvi.derive.bundle`` -- this module cannot be,
-``tests/core/test_import_graph.py``) and are re-exported here unchanged
-so every existing caller of this module keeps working verbatim. See that
-module's docstring for why (D-TIE-1 item 7's ``last_non_bot_commit_at``
-and 03 section 6's ``top_email_domain_share`` also live there now).
+``tests/core/test_import_graph.py``); every symbol with an existing
+caller is re-exported here unchanged so that caller keeps working
+verbatim (``__all__`` below lists them). See that module's docstring for
+why (D-TIE-1 item 7's ``last_non_bot_commit_at`` and 03 section 6's
+``top_email_domain_share`` also live there now).
 
 W1-6 ownership extension (02 section 4 3.1, dispatch-authorized): this
 collector already receives ``commit.message`` in the raw GitHub REST
@@ -58,12 +60,39 @@ from cvi.core.commit_domains import (
     PERSONAL_DOMAINS,
     CommitActor,
     CommitRecord,
-    _parse_dt,
     author_key,
     is_bot,
     org_key,
     records_from_rows,
 )
+
+#: Declares the relocated names above (F401: unused-import) as this
+#: module's own public re-exports, matching the convention ``cvi/
+#: openssf.py``'s own W2-9g relocation set (``__all__ = [...]``) -- plus
+#: this module's locally-defined public names, so ``__all__`` stays the
+#: complete list rather than a partial one that would misleadingly imply
+#: the rest are private.
+__all__ = [
+    "COMMIT_WINDOW_DAYS",
+    "COMMIT_CAP",
+    "COMMIT_PAGE_SIZE",
+    "VITALITY_WINDOW_DAYS",
+    "SIGNOFF_TRAILER",
+    "KNOWN_BOT_LOGINS",
+    "NOREPLY_DOMAIN",
+    "PERSONAL_DOMAINS",
+    "CommitActor",
+    "CommitRecord",
+    "author_key",
+    "is_bot",
+    "org_key",
+    "records_from_rows",
+    "shape_commit_rows",
+    "collect_commits_365d",
+    "elephant_factor",
+    "bus_factor",
+    "is_vital",
+]
 
 #: 05-W1-5: EF and bus factor are computed over the trailing 365 d.
 COMMIT_WINDOW_DAYS: int = 365

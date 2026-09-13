@@ -628,7 +628,93 @@ def test_score_bundle_stage_9_tie_input_reads_ttfhr_p75_and_identity_from_record
     assert entry.owner == "org" and entry.name == "alpha"
     assert entry.owner == record.repo.owner and entry.name == record.repo.name
     assert entry.ttfhr_p75_hours == pytest.approx(24.0)  # the one event's response was 24h after creation
-    assert entry.last_non_bot_commit_at is None  # COULD NOT VERIFY: no such field exists yet (see handoff)
+    # W1-5f: this hand-built bundle never had the last_non_bot_commit_at
+    # sidecar attribute set (cvi.derive.bundle._load_v1 is the only setter),
+    # so cvi.core.commit_domains.last_non_bot_commit_at(bundle) returns its
+    # Unmeasured(collector_failure) default -- correctly collapsed to None
+    # here, not because the field does not exist (see the next test for the
+    # positive wiring path).
+    assert entry.last_non_bot_commit_at is None
+
+
+def test_score_bundle_stage_9_tie_input_reads_last_non_bot_commit_at_from_bundle_sidecar() -> None:
+    """W1-5f positive wiring: when a bundle carries the
+    ``last_non_bot_commit_at`` sidecar fact (set the way
+    ``cvi.derive.bundle._load_v1`` sets it), stage 9 prep reads the real
+    value through -- not the hardcoded ``None`` this module returned before
+    this packet."""
+    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+
+    bundle = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
+    set_last_non_bot_commit_at(bundle, LastNonBotCommitMeasured(
+        value="2026-06-01T00:00:00Z", method="measured:commits_365d",
+        source="raw/commits_365d/org__alpha.json", source_hash="a" * 64, fetched_at="2026-09-01T00:00:00Z",
+    ))
+    record = score_bundle_stages_0_7(
+        bundle, _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=_HEALTHY_EVIDENCE, raw_hash=_HASH64,
+    )
+    entry = score_bundle_stage_9_tie_input(record, bundle)
+    assert entry.last_non_bot_commit_at == "2026-06-01T00:00:00Z"
+
+
+def test_score_bundle_stage_9_tie_input_measured_absence_is_none() -> None:
+    """A ``LastNonBotCommitMeasured(value=None, ...)`` measured absence
+    also collapses to ``None`` for tie-break purposes -- the same as an
+    unset/Unmeasured fact, since D-TIE-1 item 7 has nothing to rank a
+    genuine absence above or below any other unmeasured entry by."""
+    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+
+    bundle = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
+    set_last_non_bot_commit_at(bundle, LastNonBotCommitMeasured(
+        value=None, method="measured:no_non_bot_commit_365d",
+        source="raw/commits_365d/org__alpha.json", source_hash="a" * 64, fetched_at="2026-09-01T00:00:00Z",
+    ))
+    record = score_bundle_stages_0_7(
+        bundle, _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+        gate_evidence=_HEALTHY_EVIDENCE, raw_hash=_HASH64,
+    )
+    entry = score_bundle_stage_9_tie_input(record, bundle)
+    assert entry.last_non_bot_commit_at is None
+
+
+def test_score_bundle_stage_9_tie_input_last_non_bot_commit_at_orders_per_level_7() -> None:
+    """Packet deliverable: a record whose only difference is the commit
+    date orders per D-TIE-1 level 7 -- proved end to end through this
+    module's own ``assign_ranks`` wiring, not just ``cvi.core.tiebreak``'s
+    unit tests (which already covered the tie-break *rule*; this is the
+    *wiring* through score_bundle_stage_9_tie_input, W1-5f's own delivery)."""
+    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+    from cvi.core.tiebreak import assign_ranks
+
+    bundle_a = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
+    bundle_b = _bundle(_repo("org", "beta"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
+    set_last_non_bot_commit_at(bundle_a, LastNonBotCommitMeasured(
+        value="2026-01-01T00:00:00Z", method="measured:commits_365d",
+        source="s", source_hash="a" * 64, fetched_at="2026-09-01T00:00:00Z",
+    ))
+    set_last_non_bot_commit_at(bundle_b, LastNonBotCommitMeasured(
+        value="2026-06-01T00:00:00Z", method="measured:commits_365d",
+        source="s", source_hash="a" * 64, fetched_at="2026-09-01T00:00:00Z",
+    ))
+    populations = _Fixture12.populations()
+    record_a = score_bundle_stages_0_7(
+        bundle_a, populations, snapshot_id=_SNAPSHOT_ID, as_of=NOW, gate_evidence=_HEALTHY_EVIDENCE, raw_hash=_HASH64,
+    )
+    record_b = score_bundle_stages_0_7(
+        bundle_b, populations, snapshot_id=_SNAPSHOT_ID, as_of=NOW, gate_evidence=_HEALTHY_EVIDENCE, raw_hash=_HASH64,
+    )
+    # Identical composite/coverage/pillars/friction/leverage/ttfhr_p75 by
+    # construction (same inputs, same events) -- the only difference that
+    # can break the tie is D-TIE-1 level 7, the last-non-bot-commit date.
+    assert record_a.composite == record_b.composite
+    entry_a = score_bundle_stage_9_tie_input(record_a, bundle_a)
+    entry_b = score_bundle_stage_9_tie_input(record_b, bundle_b)
+    ranked = assign_ranks([entry_a, entry_b])
+    by_owner_name = {(record.repo.owner, record.repo.name): rank for record, rank, _ in ranked}
+    # beta's later commit date (2026-06) outranks alpha's earlier one
+    # (2026-01) -- D-TIE-1 item 7 is descending.
+    assert by_owner_name[("org", "beta")] < by_owner_name[("org", "alpha")]
 
 
 def test_build_snapshot_counts_matches_hand_count() -> None:

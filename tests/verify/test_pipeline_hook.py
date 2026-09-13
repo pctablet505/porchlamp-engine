@@ -220,12 +220,63 @@ def test_detector_inputs_from_bundle_reads_measured_bundle_facts() -> None:
     assert inputs.elephant_factor == 3.0
     assert inputs.closed_unread_share == 1.0
     assert inputs.closed_unread_n == 1
-    # the three ownership-request fields and the canary field: never sourced
-    # from a bundle (module docstring) -- always the "not collected" default.
+    # top_email_domain_share is None here because this hand-built bundle
+    # never had the W1-5f sidecar fact set (cvi.derive.bundle._load_v1 is
+    # the only setter) -- not because it is an unsourceable field; see
+    # test_detector_inputs_from_bundle_reads_top_email_domain_share_sidecar
+    # below for the positive path. The remaining two ownership-request
+    # fields and the canary field are never sourced from a bundle at all
+    # (module docstring) -- always the "not collected" default.
     assert inputs.top_email_domain_share is None
     assert inputs.newcomer_accounts == ()
     assert inputs.star_lockstep_penalty_applied is None
     assert inputs.source_drift_held is None
+
+
+def test_detector_inputs_from_bundle_reads_top_email_domain_share_sidecar() -> None:
+    """W1-5f positive wiring: when a bundle carries the
+    ``top_email_domain_share`` sidecar fact (set the way ``cvi.derive.
+    bundle._load_v1`` sets it), the adapter reads the real share through."""
+    from cvi.derive.bundle import TopEmailDomainShareMeasured, _set_top_email_domain_share
+
+    bundle = _bundle(_repo("org", "alpha"), _full_inputs({"elephant_factor": _m(4.0, n=30)}))
+    _set_top_email_domain_share(bundle, TopEmailDomainShareMeasured(
+        value=0.75, top_domain="corp.com", n=30, method="measured:commits_365d",
+        source="s", source_hash="a" * 64, fetched_at=_iso(NOW),
+    ))
+    inputs = detector_inputs_from_bundle(bundle)
+    assert inputs.top_email_domain_share == 0.75
+
+
+def test_detector_inputs_from_bundle_top_email_domain_share_unmeasured_is_none() -> None:
+    from cvi.core.models import Unmeasured as _Unmeasured
+    from cvi.derive.bundle import _set_top_email_domain_share
+
+    bundle = _bundle(_repo("org", "alpha"), _full_inputs())
+    _set_top_email_domain_share(bundle, _Unmeasured(reason="insufficient_n"))
+    inputs = detector_inputs_from_bundle(bundle)
+    assert inputs.top_email_domain_share is None
+
+
+def test_ef_domain_mismatch_fires_through_the_real_composition() -> None:
+    """End-to-end: ``ef_domain_mismatch`` (top_email_domain_share >= 0.5 and
+    elephant_factor >= 4) fires through the real ``build_detectors`` ->
+    ``run_detectors`` composition when a bundle carries both the scored
+    ``elephant_factor`` input and the W1-5f ``top_email_domain_share``
+    sidecar fact -- not merely at the unit level
+    (``tests/verify/test_detectors.py``)."""
+    from cvi.derive.bundle import TopEmailDomainShareMeasured, _set_top_email_domain_share
+
+    owner, name = "mismatch", "repo"
+    bundle = _bundle(_repo(owner, name), _full_inputs({"elephant_factor": _m(6.0, n=30)}))
+    _set_top_email_domain_share(bundle, TopEmailDomainShareMeasured(
+        value=0.9, top_domain="corp.com", n=30, method="measured:commits_365d",
+        source="s", source_hash="a" * 64, fetched_at=_iso(NOW),
+    ))
+    detectors = build_detectors([bundle])
+    snapshot = _score([bundle], "snap-ef-domain", previous=None, detectors=detectors)
+    record = _by_key(snapshot)[repo_key(bundle)]
+    assert "ef_domain_mismatch" in record.suspicion
 
 
 def test_detector_inputs_from_bundle_unmeasured_never_fires() -> None:
