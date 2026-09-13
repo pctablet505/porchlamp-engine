@@ -80,13 +80,29 @@ def apply_author_cap(items: Sequence[tuple[str, datetime]]) -> tuple[int, ...]:
 
     ``items`` are ``(author_login, created_at)`` pairs of one rate's
     population; each author keeps at most
-    ``floor(AUTHOR_CAP_FRACTION * len(items))`` of them, the most recent
-    dropped first (the oldest kept). A population small enough that the
-    floor is 0 loses every item.
+    ``max(1, floor(AUTHOR_CAP_FRACTION * len(items)))`` of them, the most
+    recent dropped first (the oldest kept).
+
+    W3-1f (review B-1): a small population -- ``floor(AUTHOR_CAP_FRACTION *
+    len(items))`` is 0 below 5 items -- KEEPS EVERYTHING until the cap can
+    actually bind, rather than losing every item outright. "The cap can
+    bind" means some author's own share exceeds the per-author allowance;
+    the ``max(1, ...)`` floor guarantees every author always keeps at
+    least their oldest item, so a population of several *independent*
+    single-item authors (nobody dominating) is never zeroed just because
+    it is small, while a population genuinely dominated by one login (up
+    to and including ALL of it) is still capped down to that one
+    allowance -- the cap still binds on concentration, it just never
+    manufactures a false "no evidence at all" out of an ordinary small,
+    undominated sample. (The prior rule -- ``allowed <= 0`` drops
+    everything -- read a cohort of 3 unrelated single-PR authors, capped
+    to 0 for having no 20%-sized bucket to sit in, as "0 PRs of
+    evidence", which is false: D-IN-3's cap bounds one author's SHARE, it
+    is not itself a sample-size floor -- that job belongs to each rate's
+    own ``PARAM_MIN_N``, applied by the caller against this function's
+    OWN return value, not against some other pre-cap count (review B-1).)
     """
-    allowed = int(AUTHOR_CAP_FRACTION * len(items))
-    if allowed <= 0:
-        return ()
+    allowed = max(1, int(AUTHOR_CAP_FRACTION * len(items)))
     slots: dict[str, list[int]] = {}
     for idx, (login, _created) in enumerate(items):
         slots.setdefault(login, []).append(idx)

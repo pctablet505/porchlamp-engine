@@ -100,6 +100,24 @@ def test_apply_author_cap_keeps_oldest_not_newest():
     assert items[kept[0]][1] == NOW - timedelta(days=5)  # the oldest
 
 
-def test_apply_author_cap_small_population_loses_everything():
-    assert apply_author_cap([("a", NOW)] * 4) == ()
+def test_apply_author_cap_small_population_binds_when_one_author_dominates():
+    """W3-1f (review B-1): a population entirely owned by one login is
+    still capped down to its allowance (``max(1, floor(0.20*4)) == 1``,
+    the oldest survives) -- the cap DOES bind on real concentration even
+    in a small population; it is the "nobody dominates" case below that
+    must not be zeroed."""
+    items = [("a", NOW - timedelta(days=d)) for d in (1, 2, 3, 4)]
+    kept = apply_author_cap(items)
+    assert len(kept) == 1
+    assert items[kept[0]][1] == NOW - timedelta(days=4)  # the oldest
     assert apply_author_cap([]) == ()
+
+
+def test_apply_author_cap_small_population_keeps_everything_when_nobody_dominates():
+    """W3-1f (review B-1): three INDEPENDENT single-PR authors in a
+    population of 3 -- ``floor(0.20*3) == 0`` -- keep everything: nobody
+    exceeds even a floor-of-1 allowance, so the cap has nothing to bind
+    on. The old rule zeroed this population outright (0 kept), reading an
+    ordinary small sample with no sock puppet in it as "no evidence"."""
+    items = [("a", NOW), ("b", NOW - timedelta(days=1)), ("c", NOW - timedelta(days=2))]
+    assert apply_author_cap(items) == (0, 1, 2)

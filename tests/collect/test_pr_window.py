@@ -1463,10 +1463,18 @@ def test_apply_author_cap_six_of_ten_capped_to_two():
     assert sum(1 for i in kept if items[i][0].startswith("g")) == 4
 
 
-def test_apply_author_cap_small_population_loses_everything():
-    """Populations under 5 have a cap of 0 (floor(0.2*4) == 0): every item
-    is dropped, not just the excess."""
-    assert gql.apply_author_cap([("a", NOW)] * 4) == ()
+def test_apply_author_cap_small_population_binds_when_one_author_dominates():
+    """W3-1f (review round 2, B-1): a population entirely owned by one
+    login is still capped down to its allowance
+    (``max(1, floor(0.20*4)) == 1``, the oldest survives) even though the
+    population is small -- ``cvi.core.hygiene.apply_author_cap`` no
+    longer zeroes a small population outright (see
+    ``tests/core/test_hygiene.py`` for the full oracle, including the
+    "nobody dominates" case that must NOT be zeroed)."""
+    items = [("a", NOW - timedelta(days=d)) for d in (1, 2, 3, 4)]
+    kept = gql.apply_author_cap(items)
+    assert len(kept) == 1
+    assert items[kept[0]][1] == NOW - timedelta(days=4)  # the oldest
     assert gql.apply_author_cap([]) == ()
 
 

@@ -1225,12 +1225,19 @@ def _dr90_author_eligible(
     ``account_created_at``/``public_event_count`` against THIS PR's
     ``createdAt`` (D-IN-3: age is measured at PR creation, not "now").
 
-    ``measured`` combines BOTH of the collector's failure flags --
-    ``eligibility_unmeasured`` and ``history_unmeasured`` -- the same pair
-    ``cvi.collect.github_graphql._account_eligibility`` treats as one
-    signal (F-001's "one D-IN-3 mechanism"); checking only one of the two
-    would silently read the other kind of fetch failure as a confirmed
-    ``True``/``False`` instead of ``None``.
+    ``measured`` reads ONLY ``eligibility_unmeasured`` (W3-1f review X8,
+    decided, not merely tested): DR_90's gate needs exactly the account's
+    age and public-event count, both of which come from the per-author
+    eligibility fetch. ``cvi.collect.github_graphql._account_eligibility``
+    ORs in ``history_unmeasured`` too, but that flag means the author's
+    PRIOR-MERGE SEARCH failed -- a fact 1.3 (MR_first's "no prior merged
+    PR") needs and DR_90 does not. Coupling the two here would exclude an
+    author whose eligibility data is perfectly good from DR_90's
+    population solely because an unrelated MR_first-only fetch failed for
+    them, which is over-strict for this row specifically (the collector's
+    shared helper is correct for ITS OWN use: one call site there serves
+    both 1.2 and 1.3 at once, so it must OR every flag either row cares
+    about; this join serves 1.2 alone).
 
     Unlike that collector-side helper, a login entirely ABSENT from
     ``author_records`` is treated as unknown (``None``) here rather than
@@ -1243,7 +1250,7 @@ def _dr90_author_eligible(
     record = author_records.get(login)
     if record is None:
         return None
-    measured = not (record.get("eligibility_unmeasured") or record.get("history_unmeasured"))
+    measured = not record.get("eligibility_unmeasured")
     return hygiene.account_eligibility(
         record.get("account_created_at"), pr_created_at, record.get("public_event_count"), measured=measured,
     )
@@ -1291,15 +1298,27 @@ def _dr90_decision_cohort(
     Returns ``(decided_count, capped_cohort_size, raw_cohort_size,
     malformed_count, gate_applied)``. ``raw_cohort_size`` is the population
     AFTER the date window and (if applied) the eligibility gate but BEFORE
-    the cap -- this is what ``PARAM_MIN_N`` must be checked against, since
-    the cap's job is to bound one author's SHARE of an already-sufficient
-    population, not to decide whether enough evidence exists at all: a
-    population of exactly 3 independent single-PR authors is capped to 0
-    by :func:`cvi.core.hygiene.apply_author_cap`'s "populations under 5
-    have a cap of 0" rule even though there is no sock puppet to guard
-    against, and reporting that as "0 external PRs" would be false.
-    ``capped_cohort_size`` is the (gated and) capped count the decision
-    rate is actually computed over.
+    the cap; ``capped_cohort_size`` is the (gated and) capped count.
+
+    W3-1f (review B-1, corrected): ``PARAM_MIN_N`` is checked against
+    ``capped_cohort_size`` -- the SAME number the ``Measured.n`` this
+    packet reports carries, and therefore the same number
+    ``cvi.core.params.curves._apply`` re-checks against its own
+    ``min_n`` when the record is scored. Checking a DIFFERENT number
+    (``raw_cohort_size``) at the resolver than the record itself reports
+    let a Measured value through here that the param layer immediately
+    re-rejected as ``insufficient_n`` anyway -- with no detail, since
+    ``ParamScore`` carries none -- silently converting the very
+    manipulation this cap exists to correct back into missing data. The
+    degenerate case that motivated the split (a small, undominated
+    population reading as "0 PRs") is fixed at its source instead, in
+    :func:`cvi.core.hygiene.apply_author_cap` (small populations keep
+    everything until the cap actually binds on real concentration).
+    ``raw_cohort_size`` is kept in this return value only so the caller
+    can name it, alongside the capped count, in an ``insufficient_n``
+    detail -- diagnostic value for a human reading the bundle, since a
+    capped rate below the floor is often a small population made smaller
+    by a real cap bind, and the two numbers together say which.
     """
     classified = {
         entry.get("number"): entry
@@ -1393,8 +1412,11 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
         }
     decided, cohort, raw_cohort, malformed, gate_applied = _dr90_decision_cohort(data, anchor, author_records)
     min_n = constants_v2.PARAM_MIN_N["dr90_decision_rate"]
-    if raw_cohort < min_n:
-        detail = f"{raw_cohort} external PRs in the decision cohort, need >= {min_n}"
+    if cohort < min_n:
+        detail = (
+            f"{cohort} external PRs in the decision cohort ({raw_cohort} before the D-IN-3 "
+            f"per-author cap), need >= {min_n}"
+        )
         if malformed:
             detail += f" ({malformed} excluded: malformed or missing createdAt)"
         return Unmeasured(reason="insufficient_n", detail=detail)
@@ -1731,7 +1753,7 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
 
 
 def _author_history_rate_resolver(
-    rate_field: str, count_field: str, detail_field: str, *, unset_detail: str,
+    rate_field: str, count_field: str, detail_field: str, *, unset_detail: str, count_unit: str = "authors",
 ) -> InputResolver:
     """W3-1f (review W-4/F-004/C1e): read-through resolver for the three
     D-IN-3-adjusted cohort rates ``cvi.collect.github_graphql.
@@ -1766,6 +1788,12 @@ def _author_history_rate_resolver(
       collector itself.
     - any other confidence value: the same "not recognized" fallback
       :func:`_plain_scalar_resolver` uses.
+
+    ``count_unit`` (W3-1f review N-2) names what ``count_field`` counts in
+    the ``insufficient_n`` detail -- ``"authors"`` for ``newcomer_
+    conversion``/``rr90_return_rate`` (``02``'s own unit for 5.2/5.3), but
+    ``mr_first_rate``'s ``mr_first_pr_count`` counts PRs, not authors, so
+    that row passes ``count_unit="PRs"``.
     """
 
     def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
@@ -1778,7 +1806,7 @@ def _author_history_rate_resolver(
             if count_ok and min_n is not None and count < min_n:
                 return Unmeasured(
                     reason="insufficient_n",
-                    detail=f"{count} authors in the D-IN-3-adjusted cohort, need >= {min_n}",
+                    detail=f"{count} {count_unit} in the D-IN-3-adjusted cohort, need >= {min_n}",
                 )
             value_ok = isinstance(value, (int, float)) and not isinstance(value, bool)
             if value_ok and count_ok:
@@ -1855,6 +1883,7 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     "mr_first_rate": _author_history_rate_resolver(
         "mr_first_rate", "mr_first_pr_count", "cohort_unmeasured_detail",
         unset_detail="needs W1-4 author history; the v1 pipeline collected none",
+        count_unit="PRs",
     ),
     "gr14_ghost_rate": _unmapped(
         "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no "

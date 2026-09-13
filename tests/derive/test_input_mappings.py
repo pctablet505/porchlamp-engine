@@ -35,7 +35,8 @@ from _fixtures import (
 )
 
 from cvi.core import constants_v2
-from cvi.core.models import BundleValidationError, Measured, Unmeasured
+from cvi.core.models import BundleValidationError, Measured, Unmeasured, feature_provenance_hash
+from cvi.core.params import dr90
 from cvi.derive.bundle import INPUT_MAPPINGS
 
 #: Copied verbatim from cvi/derive/bundle.py's ``_PR_WINDOW_UNRESOLVABLE_DETAIL``
@@ -1321,6 +1322,14 @@ def test_mr_first_rate(tmp_path: Path) -> None:
         source=str(tmp_path / "raw" / "author_history" / "acme__mrfirst.json"),
         source_hash=expected_hash(ah_data), fetched_at="2026-09-01T00:06:00+00:00",
     )
+    # X11 (W3-1f review round 2): this is the ONE measured field in this
+    # minimal document, so provenance_hash must fold exactly this one
+    # author_history envelope -- proving the resolver's ctx.referenced[...]
+    # write actually reaches FeatureBundle.provenance_hash, not just the
+    # resolver's own return value.
+    assert bundle.provenance_hash == feature_provenance_hash({
+        str(tmp_path / "raw" / "author_history" / "acme__mrfirst.json"): expected_hash(ah_data),
+    })
 
 
 def test_mr_first_rate_insufficient_n(tmp_path: Path) -> None:
@@ -1338,7 +1347,7 @@ def test_mr_first_rate_insufficient_n(tmp_path: Path) -> None:
     )
     bundle = load(tmp_path, doc, key="acme__mrfirst-low-n")
     assert bundle.inputs["mr_first_rate"] == Unmeasured(
-        reason="insufficient_n", detail="3 authors in the D-IN-3-adjusted cohort, need >= 5",
+        reason="insufficient_n", detail="3 PRs in the D-IN-3-adjusted cohort, need >= 5",
     )
 
 
@@ -1355,7 +1364,7 @@ def test_mr_first_rate_zero_cohort_is_insufficient_n_not_collector_failure(tmp_p
     )
     bundle = load(tmp_path, doc, key="acme__mrfirst-zero")
     assert bundle.inputs["mr_first_rate"] == Unmeasured(
-        reason="insufficient_n", detail="0 authors in the D-IN-3-adjusted cohort, need >= 5",
+        reason="insufficient_n", detail="0 PRs in the D-IN-3-adjusted cohort, need >= 5",
     )
 
 
@@ -1418,6 +1427,9 @@ def test_newcomer_conversion(tmp_path: Path) -> None:
         source=str(tmp_path / "raw" / "author_history" / "acme__newconv.json"),
         source_hash=expected_hash(ah_data), fetched_at="2026-09-01T00:06:00+00:00",
     )
+    assert bundle.provenance_hash == feature_provenance_hash({
+        str(tmp_path / "raw" / "author_history" / "acme__newconv.json"): expected_hash(ah_data),
+    })
 
     # Same "missing"-gate wiring, its OWN detail field (newcomer_unmeasured_detail).
     gated_doc = base_document(
@@ -1452,6 +1464,9 @@ def test_rr90_return_rate(tmp_path: Path) -> None:
         source=str(tmp_path / "raw" / "author_history" / "acme__rr90.json"),
         source_hash=expected_hash(ah_data), fetched_at="2026-09-01T00:06:00+00:00",
     )
+    assert bundle.provenance_hash == feature_provenance_hash({
+        str(tmp_path / "raw" / "author_history" / "acme__rr90.json"): expected_hash(ah_data),
+    })
 
     # rr90_return_rate shares newcomer_conversion's own "missing"-gate detail
     # field (both rows are gated on the SAME sampled-newcomer-roster fraction
@@ -1581,7 +1596,8 @@ def test_dr90_decision_rate_cohort_window_boundaries(tmp_path: Path) -> None:
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__boundary")})
     bundle = load(tmp_path, doc, key="acme__boundary")
     assert bundle.inputs["dr90_decision_rate"] == Unmeasured(
-        reason="insufficient_n", detail="3 external PRs in the decision cohort, need >= 10",
+        reason="insufficient_n",
+        detail="3 external PRs in the decision cohort (3 before the D-IN-3 per-author cap), need >= 10",
     )
 
 
@@ -1612,7 +1628,7 @@ def test_dr90_decision_rate_malformed_created_at_excluded_and_named(tmp_path: Pa
     bundle = load(tmp_path, doc, key="acme__malformed")
     assert bundle.inputs["dr90_decision_rate"] == Unmeasured(
         reason="insufficient_n",
-        detail="8 external PRs in the decision cohort, need >= 10 "
+        detail="8 external PRs in the decision cohort (8 before the D-IN-3 per-author cap), need >= 10 "
                "(2 excluded: malformed or missing createdAt)",
     )
 
@@ -1621,41 +1637,62 @@ def test_dr90_decision_rate_malformed_created_at_excluded_and_named(tmp_path: Pa
 # 1.2 dr90_decision_rate -- D-IN-3 per-author cap (W3-1f review W-1)          #
 # --------------------------------------------------------------------------- #
 
-#: The reviewer's own sock-puppet oracle (W3-1-review.md C2b): a single
-#: login files 6 of a 10-PR cohort, all 6 fast-merged (self-approved), the
-#: other 4 honest single-PR authors are all still open. Uncapped this
-#: reads r=0.6 -- a throwaway account can buy an arbitrarily high DR_90 by
-#: flooding its own trivially-fast-merged PRs. The D-IN-3 cap
-#: (``AUTHOR_CAP_FRACTION=0.20``) keeps only the sock's 2 OLDEST of 6 PRs
-#: (``floor(0.20 * 10) == 2``); both are still decided, the 4 honest ones
-#: are not, so the capped population is 6 (2 sock + 4 honest) with 2
-#: decided: r = 2/6 = 0.3333, not 0.6. This is also the test that pins
-#: PARAM_MIN_N being checked against the RAW 10-PR cohort, not the capped
-#: 6 -- checking it post-cap would wrongly report Unmeasured(insufficient_n)
-#: for a cohort with plenty of raw evidence.
+#: The reviewer's own sock-puppet oracle (W3-1-review.md C2b), resized
+#: (W3-1f review round 2, B-1) so the CAPPED population clears
+#: PARAM_MIN_N=10: a single login files 12 of a 20-PR cohort, all 12
+#: fast-merged (self-approved); the other 8 honest single-PR authors are
+#: all still open. Uncapped this reads r=0.6 -- a throwaway account can
+#: buy an arbitrarily high DR_90 by flooding its own trivially-fast-merged
+#: PRs. The D-IN-3 cap (``AUTHOR_CAP_FRACTION=0.20``) keeps only the
+#: sock's 4 OLDEST of 12 PRs (``floor(0.20 * 20) == 4``); all 4 are still
+#: decided, the 8 honest ones are not, so the capped population is 12
+#: (4 sock + 8 honest) with 4 decided: r = 4/12 = 0.3333, not 0.6. This is
+#: also the test that pins PARAM_MIN_N being checked against the CAPPED
+#: 12-PR population (review B-1: the SAME number ``Measured.n`` reports,
+#: and therefore the same number ``cvi.core.params.curves._apply``
+#: re-checks when the record is scored) -- not the raw 20, and not zero
+#: (the pre-round-2 bug would have checked min_n against the raw cohort
+#: while reporting the capped n, so the record here and the param-layer
+#: re-check would have used different numbers).
 _DR90_SOCK_PRS = [
-    # The sock puppet's 6 PRs, oldest first; only the oldest 2 survive the
-    # cap. All 6 are fast-merged (5 d) so an off-by-one that kept a 3rd
-    # would also change the decided count, not just n.
-    {"number": 200, "createdAt": "2026-03-10T00:00:00+00:00", "mergedAt": "2026-03-15T00:00:00+00:00",
+    # The sock puppet's 12 PRs, oldest first; only the oldest 4 survive
+    # the cap. All 12 are fast-merged (5 d) so an off-by-one that kept a
+    # 5th would also change the decided count, not just n.
+    {"number": 500, "createdAt": "2026-03-06T00:00:00+00:00", "mergedAt": "2026-03-11T00:00:00+00:00",
      "author": {"login": "sock"}},
-    {"number": 201, "createdAt": "2026-03-15T00:00:00+00:00", "mergedAt": "2026-03-20T00:00:00+00:00",
+    {"number": 501, "createdAt": "2026-03-08T00:00:00+00:00", "mergedAt": "2026-03-13T00:00:00+00:00",
      "author": {"login": "sock"}},
-    {"number": 202, "createdAt": "2026-03-20T00:00:00+00:00", "mergedAt": "2026-03-25T00:00:00+00:00",
+    {"number": 502, "createdAt": "2026-03-10T00:00:00+00:00", "mergedAt": "2026-03-15T00:00:00+00:00",
      "author": {"login": "sock"}},
-    {"number": 203, "createdAt": "2026-03-25T00:00:00+00:00", "mergedAt": "2026-03-30T00:00:00+00:00",
+    {"number": 503, "createdAt": "2026-03-12T00:00:00+00:00", "mergedAt": "2026-03-17T00:00:00+00:00",
      "author": {"login": "sock"}},
-    {"number": 204, "createdAt": "2026-03-30T00:00:00+00:00", "mergedAt": "2026-04-04T00:00:00+00:00",
+    {"number": 504, "createdAt": "2026-03-14T00:00:00+00:00", "mergedAt": "2026-03-19T00:00:00+00:00",
      "author": {"login": "sock"}},
-    {"number": 205, "createdAt": "2026-04-05T00:00:00+00:00", "mergedAt": "2026-04-10T00:00:00+00:00",
+    {"number": 505, "createdAt": "2026-03-16T00:00:00+00:00", "mergedAt": "2026-03-21T00:00:00+00:00",
      "author": {"login": "sock"}},
-    # Four honest, distinct single-PR authors, all still open (not decided).
-    {"number": 206, "createdAt": "2026-04-10T00:00:00+00:00", "author": {"login": "honest-a"}},
-    {"number": 207, "createdAt": "2026-04-15T00:00:00+00:00", "author": {"login": "honest-b"}},
-    {"number": 208, "createdAt": "2026-04-20T00:00:00+00:00", "author": {"login": "honest-c"}},
-    {"number": 209, "createdAt": "2026-04-25T00:00:00+00:00", "author": {"login": "honest-d"}},
+    {"number": 506, "createdAt": "2026-03-18T00:00:00+00:00", "mergedAt": "2026-03-23T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    {"number": 507, "createdAt": "2026-03-20T00:00:00+00:00", "mergedAt": "2026-03-25T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    {"number": 508, "createdAt": "2026-03-22T00:00:00+00:00", "mergedAt": "2026-03-27T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    {"number": 509, "createdAt": "2026-03-24T00:00:00+00:00", "mergedAt": "2026-03-29T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    {"number": 510, "createdAt": "2026-03-26T00:00:00+00:00", "mergedAt": "2026-03-31T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    {"number": 511, "createdAt": "2026-03-28T00:00:00+00:00", "mergedAt": "2026-04-02T00:00:00+00:00",
+     "author": {"login": "sock"}},
+    # Eight honest, distinct single-PR authors, all still open (not decided).
+    {"number": 512, "createdAt": "2026-04-01T00:00:00+00:00", "author": {"login": "honest-a"}},
+    {"number": 513, "createdAt": "2026-04-05T00:00:00+00:00", "author": {"login": "honest-b"}},
+    {"number": 514, "createdAt": "2026-04-09T00:00:00+00:00", "author": {"login": "honest-c"}},
+    {"number": 515, "createdAt": "2026-04-13T00:00:00+00:00", "author": {"login": "honest-d"}},
+    {"number": 516, "createdAt": "2026-04-17T00:00:00+00:00", "author": {"login": "honest-e"}},
+    {"number": 517, "createdAt": "2026-04-21T00:00:00+00:00", "author": {"login": "honest-f"}},
+    {"number": 518, "createdAt": "2026-04-25T00:00:00+00:00", "author": {"login": "honest-g"}},
+    {"number": 519, "createdAt": "2026-04-29T00:00:00+00:00", "author": {"login": "honest-h"}},
 ]
-_DR90_SOCK_DERIVED = [{"number": n, "is_external": True} for n in range(200, 210)]
+_DR90_SOCK_DERIVED = [{"number": n, "is_external": True} for n in range(500, 520)]
 
 
 def test_dr90_decision_rate_author_cap_sock_puppet(tmp_path: Path) -> None:
@@ -1664,52 +1701,109 @@ def test_dr90_decision_rate_author_cap_sock_puppet(tmp_path: Path) -> None:
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__sock")})
     bundle = load(tmp_path, doc, key="acme__sock")
     assert bundle.inputs["dr90_decision_rate"] == Measured(
-        value=0.3333, n=6, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
+        value=0.3333, n=12, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
         method=_DR90_METHOD, source=str(tmp_path / "raw" / "pr_window" / "acme__sock.json"),
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
+    # The engine's own scoring path, not just this bundle-layer resolver
+    # (review B-1: "the tests that prove W-1 must assert the ParamScore,
+    # not the resolver's return value" -- this is what let the original
+    # bug ship). fill_rate_score(0.3333) = min(100, 125*0.3333) = 41.6625.
+    scored = dr90(bundle.inputs["dr90_decision_rate"])
+    assert scored.measured is True
+    assert scored.reason is None
+    assert scored.n == 12
+    assert scored.score == round(min(100.0, 125.0 * 0.3333), 4)
 
 
-#: Same 10-PR shape as above but the dominant login holds exactly
-#: ``allowed + 1`` (3, one over the ``floor(0.20 * 10) == 2`` cap) instead
-#: of 6: proves the cap drops the SINGLE excess PR (most recent first),
-#: not zero and not two, and that it is evaluated over the exact `n` of
-#: THIS cohort (an off-by-one on the floor -- e.g. rounding instead of
-#: truncating -- would keep all 3 and produce a different rate).
+#: Same 20-PR shape as above but the dominant login holds exactly
+#: ``allowed + 1`` (5, one over the ``floor(0.20 * 20) == 4`` cap) instead
+#: of 12: proves the cap drops the SINGLE excess PR (most recent first),
+#: not zero and not all five, and that it is evaluated over the exact `n`
+#: of THIS cohort (an off-by-one on the floor -- e.g. rounding instead of
+#: truncating -- would keep all 5 and produce a different rate).
 _DR90_CAP_BOUNDARY_PRS = [
-    {"number": 210, "createdAt": "2026-03-10T00:00:00+00:00", "mergedAt": "2026-03-15T00:00:00+00:00",
-     "author": {"login": "over-cap"}},          # oldest of the 3 -- kept, decided
-    {"number": 211, "createdAt": "2026-03-15T00:00:00+00:00",
-     "author": {"login": "over-cap"}},          # 2nd oldest -- kept, NOT decided
-    {"number": 212, "createdAt": "2026-03-20T00:00:00+00:00", "mergedAt": "2026-03-25T00:00:00+00:00",
-     "author": {"login": "over-cap"}},          # most recent -- dropped by the cap
-    {"number": 213, "createdAt": "2026-04-01T00:00:00+00:00", "author": {"login": "honest-1"}},
-    {"number": 214, "createdAt": "2026-04-05T00:00:00+00:00", "author": {"login": "honest-2"}},
-    {"number": 215, "createdAt": "2026-04-10T00:00:00+00:00", "author": {"login": "honest-3"}},
-    {"number": 216, "createdAt": "2026-04-15T00:00:00+00:00", "author": {"login": "honest-4"}},
-    {"number": 217, "createdAt": "2026-04-20T00:00:00+00:00", "author": {"login": "honest-5"}},
-    {"number": 218, "createdAt": "2026-04-25T00:00:00+00:00", "author": {"login": "honest-6"}},
-    {"number": 219, "createdAt": "2026-04-30T00:00:00+00:00", "author": {"login": "honest-7"}},
+    {"number": 520, "createdAt": "2026-03-06T00:00:00+00:00", "mergedAt": "2026-03-11T00:00:00+00:00",
+     "author": {"login": "over-cap"}},          # oldest of the 5 -- kept, decided
+    {"number": 521, "createdAt": "2026-03-08T00:00:00+00:00",
+     "author": {"login": "over-cap"}},          # kept, NOT decided
+    {"number": 522, "createdAt": "2026-03-10T00:00:00+00:00",
+     "author": {"login": "over-cap"}},          # kept, NOT decided
+    {"number": 523, "createdAt": "2026-03-12T00:00:00+00:00",
+     "author": {"login": "over-cap"}},          # kept, NOT decided
+    {"number": 524, "createdAt": "2026-03-14T00:00:00+00:00", "mergedAt": "2026-03-19T00:00:00+00:00",
+     "author": {"login": "over-cap"}},          # most recent -- dropped by the cap, decided
+    {"number": 525, "createdAt": "2026-04-01T00:00:00+00:00", "author": {"login": "honest-1"}},
+    {"number": 526, "createdAt": "2026-04-03T00:00:00+00:00", "author": {"login": "honest-2"}},
+    {"number": 527, "createdAt": "2026-04-05T00:00:00+00:00", "author": {"login": "honest-3"}},
+    {"number": 528, "createdAt": "2026-04-07T00:00:00+00:00", "author": {"login": "honest-4"}},
+    {"number": 529, "createdAt": "2026-04-09T00:00:00+00:00", "author": {"login": "honest-5"}},
+    {"number": 530, "createdAt": "2026-04-11T00:00:00+00:00", "author": {"login": "honest-6"}},
+    {"number": 531, "createdAt": "2026-04-13T00:00:00+00:00", "author": {"login": "honest-7"}},
+    {"number": 532, "createdAt": "2026-04-15T00:00:00+00:00", "author": {"login": "honest-8"}},
+    {"number": 533, "createdAt": "2026-04-17T00:00:00+00:00", "author": {"login": "honest-9"}},
+    {"number": 534, "createdAt": "2026-04-19T00:00:00+00:00", "author": {"login": "honest-10"}},
+    {"number": 535, "createdAt": "2026-04-21T00:00:00+00:00", "author": {"login": "honest-11"}},
+    {"number": 536, "createdAt": "2026-04-23T00:00:00+00:00", "author": {"login": "honest-12"}},
+    {"number": 537, "createdAt": "2026-04-25T00:00:00+00:00", "author": {"login": "honest-13"}},
+    {"number": 538, "createdAt": "2026-04-27T00:00:00+00:00", "author": {"login": "honest-14"}},
+    {"number": 539, "createdAt": "2026-04-29T00:00:00+00:00", "author": {"login": "honest-15"}},
 ]
-_DR90_CAP_BOUNDARY_DERIVED = [{"number": n, "is_external": True} for n in range(210, 220)]
+_DR90_CAP_BOUNDARY_DERIVED = [{"number": n, "is_external": True} for n in range(520, 540)]
 
 
 def test_dr90_decision_rate_author_cap_boundary(tmp_path: Path) -> None:
-    """10 raw PRs, ``allowed = floor(0.20 * 10) == 2``: the dominant
-    author's 3rd (most recent) PR is dropped, its oldest 2 survive, so the
-    capped cohort is 9 (2 + 7 honest), not 10 and not 8. Only 1 of the
-    kept PRs is decided (the dominant author's oldest): r = 1/9 = 0.1111.
-    A cap that kept all 3 would report n=10, r=2/10=0.2 (the dropped PR
-    #212 is decided); a cap that dropped both would report n=8, r=0/8=0.0."""
+    """20 raw PRs, ``allowed = floor(0.20 * 20) == 4``: the dominant
+    author's 5th (most recent) PR is dropped, its oldest 4 survive, so the
+    capped cohort is 19 (4 + 15 honest), not 20 and not 15. Only 1 of the
+    kept PRs is decided (the dominant author's oldest): r = 1/19 = 0.0526.
+    A cap that kept all 5 would report n=20, r=2/20=0.1 (the dropped PR
+    #524 is decided); a cap that dropped all 5 would report n=15, r=0/15=0.0."""
     data = pr_window_data(prs=_DR90_CAP_BOUNDARY_PRS, derived=_DR90_CAP_BOUNDARY_DERIVED)
     write_envelope(tmp_path / "raw", "pr_window", "acme__cap-boundary", data, "2026-09-01T00:05:00+00:00")
     doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__cap-boundary")})
     bundle = load(tmp_path, doc, key="acme__cap-boundary")
     assert bundle.inputs["dr90_decision_rate"] == Measured(
-        value=0.1111, n=9, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
+        value=0.0526, n=19, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
         method=_DR90_METHOD, source=str(tmp_path / "raw" / "pr_window" / "acme__cap-boundary.json"),
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
+    scored = dr90(bundle.inputs["dr90_decision_rate"])
+    assert scored.measured is True
+    assert scored.reason is None
+    assert scored.n == 19
+
+
+#: A REAL sock puppet large enough to dominate even after the cap floor
+#: (review B-1: "insufficient_n keeps a detail naming raw and capped
+#: counts"): 12 raw PRs, one login holds 9 of them. ``floor(0.20*12)==2``,
+#: so the cap keeps 2 (that login) + 3 honest = 5, still below
+#: PARAM_MIN_N=10 -- a genuinely insufficient capped population, not the
+#: degenerate "nobody dominates" case ``apply_author_cap`` no longer
+#: zeroes. The detail names BOTH the capped 5 and the raw 12, so a human
+#: reading the bundle can tell a real cap bind from a merely small sample.
+_DR90_CAP_INSUFFICIENT_PRS = [
+    *[{"number": 540 + i, "createdAt": f"2026-03-{6 + i:02d}T00:00:00+00:00",
+       "author": {"login": "mega-sock"}} for i in range(9)],
+    {"number": 549, "createdAt": "2026-04-01T00:00:00+00:00", "author": {"login": "honest-1"}},
+    {"number": 550, "createdAt": "2026-04-05T00:00:00+00:00", "author": {"login": "honest-2"}},
+    {"number": 551, "createdAt": "2026-04-09T00:00:00+00:00", "author": {"login": "honest-3"}},
+]
+_DR90_CAP_INSUFFICIENT_DERIVED = [{"number": n, "is_external": True} for n in range(540, 552)]
+
+
+def test_dr90_decision_rate_cap_reduces_below_min_n(tmp_path: Path) -> None:
+    data = pr_window_data(prs=_DR90_CAP_INSUFFICIENT_PRS, derived=_DR90_CAP_INSUFFICIENT_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__cap-insufficient", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__cap-insufficient")})
+    bundle = load(tmp_path, doc, key="acme__cap-insufficient")
+    assert bundle.inputs["dr90_decision_rate"] == Unmeasured(
+        reason="insufficient_n",
+        detail="5 external PRs in the decision cohort (12 before the D-IN-3 per-author cap), need >= 10",
+    )
+    scored = dr90(bundle.inputs["dr90_decision_rate"])
+    assert scored.measured is False
+    assert scored.reason == "insufficient_n"
 
 
 # --------------------------------------------------------------------------- #
@@ -1872,3 +1966,51 @@ def test_dr90_decision_rate_eligibility_unmeasured_author_excluded(tmp_path: Pat
         method=_DR90_METHOD_GATED, source=str(tmp_path / "raw" / "pr_window" / "acme__unmeasured-author.json"),
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
+
+#: X8 (W3-1f review round 2): 10 clean eligible authors (each 1 PR), one
+#: of whom ALSO has ``history_unmeasured=True`` -- their MR_first-only
+#: prior-merge search failed, but their OWN account age/event count are
+#: perfectly good. DR_90's gate reads ONLY ``eligibility_unmeasured``, so
+#: this author is NOT excluded: capped n stays 10, not 9. Decoupled
+#: (docstring decision) from ``cvi.collect.github_graphql.
+#: _account_eligibility``'s OR of both flags, which is correct for ITS
+#: OWN shared 1.2+1.3 call site but wrong here, where only 1.2 is scored.
+_DR90_HISTORY_ONLY_PRS = [
+    *[{"number": 600 + i, "createdAt": "2026-04-01T00:00:00+00:00",
+       "mergedAt": "2026-04-06T00:00:00+00:00" if i < 4 else None,
+       "author": {"login": f"clean-{i}"}} for i in range(10)],
+]
+_DR90_HISTORY_ONLY_DERIVED = [{"number": n, "is_external": True} for n in range(600, 610)]
+
+_DR90_HISTORY_ONLY_AUTHOR_RECORDS = [
+    *[{"login": f"clean-{i}", "account_created_at": "2025-12-01T00:00:00+00:00",
+       "public_event_count": 10, "eligibility_unmeasured": False,
+       # Only "clean-3" has a failed prior-merge SEARCH; its own
+       # eligibility fetch (age/events, above) succeeded and is genuinely
+       # good data.
+       "history_unmeasured": (i == 3)} for i in range(10)],
+]
+
+
+def test_dr90_decision_rate_ignores_history_unmeasured_when_eligibility_is_measured(tmp_path: Path) -> None:
+    data = pr_window_data(prs=_DR90_HISTORY_ONLY_PRS, derived=_DR90_HISTORY_ONLY_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__history-only", data, "2026-09-01T00:05:00+00:00")
+    ah_data = author_history_data(author_records=_DR90_HISTORY_ONLY_AUTHOR_RECORDS)
+    write_envelope(tmp_path / "raw", "author_history", "acme__history-only", ah_data, "2026-09-01T00:06:00+00:00")
+    doc = base_document(
+        provenance={
+            "pr_window_count": prov("pr_window", key="acme__history-only"),
+            "author_history_cost_points": prov("author_history", fetched_at="2026-09-01T00:06:00+00:00",
+                                               key="acme__history-only"),
+        },
+    )
+    bundle = load(tmp_path, doc, key="acme__history-only")
+    # n=10 (not 9): clean-3 is kept despite history_unmeasured=True. 4 of
+    # the 10 are decided (i < 4): r = 4/10 = 0.4, same as if
+    # history_unmeasured were absent entirely.
+    assert bundle.inputs["dr90_decision_rate"] == Measured(
+        value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
+        method=_DR90_METHOD_GATED, source=str(tmp_path / "raw" / "pr_window" / "acme__history-only.json"),
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+

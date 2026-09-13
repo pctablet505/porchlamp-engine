@@ -224,3 +224,45 @@ of the branch pointer once this packet's own commit lands (see §6 for the resul
   main's pre-packet 2,234 passed / 1 skipped by the net +10 tests this packet adds: +5 dr90,
   +6 mr_first_rate, +1 newcomer_conversion, +1 rr90_return_rate, -3 from shrinking the
   `_UNMAPPED_ROWS` parametrization from 5 to 2 rows).
+
+## Round 2 — REWORK (Opus review, 16 PASS / 3 FAIL, bounded to B-1, X8, X11)
+
+Review read: `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adbe955a4084/scratchpad/reviews/W3-1f-review.md`. Items, records under `.agents/W3-1f/review/`.
+
+### B-1 (Blocker) — checked one number, reported another
+
+Round 1's fix checked `PARAM_MIN_N` against `raw_cohort` but reported `Measured(n=capped)`; `cvi.core.params.curves._apply` re-applies the *same* `min_n` against the reported `n`, so both cap oracles (sock-puppet `r=0.3333 n=6`, boundary `r=0.1111 n=9`) scored `insufficient_n` end to end — the anti-manipulation cap converted a manipulated repo into missing data instead of a corrected rate, exactly reversing what D-IN-3 is for.
+
+**Ruling taken (the review's recommended option (a)):** check and report the SAME number — the CAPPED population — and fix the degenerate case at its source:
+
+- `cvi/core/hygiene.py::apply_author_cap`: `allowed = max(1, int(AUTHOR_CAP_FRACTION * len(items)))`, dropping the old `if allowed <= 0: return ()` branch entirely. A small population now keeps everything **until the cap actually binds on real concentration** — three independent single-PR authors (nobody dominating) keep all three; four PRs all from one login are still capped down to that login's one-item allowance. Fail-before: `test_apply_author_cap_small_population_binds_when_one_author_dominates` (new) and the pre-existing `..._loses_everything` test (renamed/re-pointed) both failed against the pre-fix code with the exact wrong values quoted above; both pass now.
+- `cvi/derive/bundle.py::_resolve_dr90_decision_rate`: `min_n` is checked against `cohort` (the capped size, the SAME number `Measured.n` reports), not `raw_cohort`. The detail string for the `insufficient_n` path now names BOTH numbers (`"{cohort} external PRs in the decision cohort ({raw_cohort} before the D-IN-3 per-author cap), need >= {min_n}"`) — diagnostic value for a human reading the bundle, since a capped rate below the floor is a real cap bind, not silently mistaken for "no evidence at all". `raw_cohort` is otherwise dead as a gate; it survives in the return tuple only to be named there.
+- The two round-1 cap oracles are RESIZED so the capped population clears `PARAM_MIN_N=10`, per the review's own instruction: sock-puppet is now 20 raw PRs (12 sock, 8 honest; `floor(0.20*20)=4` capped, same 0.3333/0.6 pair as before at 2x scale); cap-boundary is now 20 raw PRs (dominant holds `allowed+1=5`, 15 honest; capped 19, `r=0.0526`).
+- **New:** `test_dr90_decision_rate_cap_reduces_below_min_n` — a REAL sock puppet (9 of 12 raw PRs from one login) where the capped population (5) genuinely falls below `min_n` even after the fix — proves the safe failure direction still exists for an actually-too-small capped population, with the dual-count detail.
+- **New, per the review's own instruction ("assert the ParamScore, not the resolver's return value"):** both cap-oracle tests now also call `cvi.core.params.dr90(bundle.inputs["dr90_decision_rate"])` directly and assert `measured=True`, `reason=None`, `n=<capped>` — the end-to-end path through the param layer the round-1 tests never exercised, which is exactly what let the original bug ship.
+
+Mutants (backup/mutate/rerun/restore, `diff -q` byte-identical after every restore):
+- Reintroduce the `raw_cohort` check → `test_dr90_decision_rate_cap_reduces_below_min_n` fails (reports `Measured(0.0, n=5)` where `Unmeasured(insufficient_n)` is correct) — this is precisely the round-1 bug's own failure mode, now caught.
+- Reintroduce `apply_author_cap`'s old `allowed <= 0: return ()` branch → both new `test_hygiene.py` cap tests fail, plus the pre-existing `test_dr90_decision_rate_cohort_window_boundaries` (its 3-independent-author cohort would read `0 external PRs` instead of `3`).
+
+### X8 — the `eligibility_unmeasured` / `history_unmeasured` coupling, decided
+
+**Decision (relax it for DR_90):** `_dr90_author_eligible`'s `measured` now reads ONLY `eligibility_unmeasured`. DR_90's gate needs exactly the account's age and public-event count, both from the per-author eligibility fetch; `history_unmeasured` means the author's PRIOR-MERGE SEARCH failed, a fact only 1.3 (MR_first's "no prior merged PR") needs. `cvi.collect.github_graphql._account_eligibility` is correct to OR both flags — its one call site serves 1.2 AND 1.3 at once — but this bundle-side join serves 1.2 alone, so coupling in `history_unmeasured` was over-strict: it would exclude an author with perfectly good eligibility data from DR_90's population solely because an unrelated MR_first-only fetch failed for them.
+
+New test: `test_dr90_decision_rate_ignores_history_unmeasured_when_eligibility_is_measured` — 10 clean eligible authors, one with `history_unmeasured=True` but `eligibility_unmeasured=False` and genuinely good account data; capped `n` stays 10 (not 9), proving the author is kept. Mutant (re-couple the two flags) → this test fails (`n=9`, `Unmeasured(insufficient_n)` instead of `Measured(n=10)`).
+
+### X11 — the `ctx.referenced` provenance registration, pinned
+
+Added one `bundle.provenance_hash == feature_provenance_hash({<envelope path>: <envelope hash>})` assertion to each of the three new resolvers' own Measured-path test (`test_mr_first_rate`, `test_newcomer_conversion`, `test_rr90_return_rate`) — each fixture's document has exactly one measured field with a real envelope, so the expected hash is computable independently and exactly. Mutant (drop `ctx.referenced[str(path)] = source_hash` in `_author_history_rate_resolver`) → all three assertions fail with a different `provenance_hash`.
+
+### Notes riding along (cheap, explicitly sanctioned by the review's §10)
+
+- **N-1** (stale handoff numbers): this file's suite line below is the freshly-measured one.
+- **N-2** (wrong unit in the shared `insufficient_n` detail): `_author_history_rate_resolver` gained a `count_unit` parameter (default `"authors"`, matching 5.2/5.3's own unit); `mr_first_rate`'s wiring passes `count_unit="PRs"` (`mr_first_pr_count` counts PRs, not authors). The two `mr_first_rate` tests naming the old "authors" wording are updated to "PRs".
+
+### Verification (round 2)
+
+- `tests/core/test_hygiene.py`, `tests/derive/test_input_mappings.py`, `tests/collect/test_pr_window.py`, `tests/verify/` — all pass; `tests/derive/ tests/core/ tests/collect/ tests/verify/` together: **879 passed**.
+- Ruff (`cvi/ scripts/ tests/`): `All checks passed!`
+- Full suite (`tests/ -n 4 -p no:cacheprovider`): **2338 passed, 1 skipped, 12 warnings** on a quiet run. One noisy run showed `tests/store/test_queries.py::test_performance_list_ranked_and_reproject_p95_under_100ms_for_10k_rows` fail once under concurrent load (isolated: `1 passed in 4.06s`) — the SAME U-LOAD SLA-latency flakiness the review's own N-4 already recorded, not attributable to this packet.
+- Fixture: unaffected by round 2 as well (no round-2 change touches `sample-200`'s own data path; the resized fixtures are unit-test-only).
