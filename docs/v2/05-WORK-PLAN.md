@@ -476,6 +476,48 @@ numbers; if below, open an RFC rather than tuning).
 
 ---
 
+### W2-8b Snapshot scoring pipeline, fixture snapshot, anchors/sensitivity v2, reproduce-in-CI (split from W2-8, 2026-09-13)
+**Goal.** `cvi/core/pipeline.py::score_snapshot(bundles, populations, …) -> ScoredSnapshot`
+composing stages 8–9 (persona lens; tie-breaks, rank, tie groups) over a whole
+population on top of `engine.score`; `tests/fixtures/snapshot_50/` built from
+real sample repos and byte-reproducible by `scripts/build_fixture_snapshot.py`;
+`evaluate_anchors_v2` / `sensitivity_v2` over records; a reproduce test pinning
+`records_hash`; a CI step. Absorbs W3-4.
+**Owns.** `cvi/core/pipeline.py`, `tests/fixtures/snapshot_50/**`,
+`cvi/audit/{anchors,sensitivity}.py` (additive), the three fixture tests, `ci.yml`.
+**Acceptance.** As W2-8 (anchors pass; τ ≥ 0.90 per ±5 pp perturbation on the
+fixture; a changed constant makes the reproduce test red).
+**Depends.** W2-6, W2-7f, W2-10. **Size.** M.
+
+### W2-8c Fixture refresh on the landed collectors (added 2026-09-13)
+**Goal.** Rebuild `snapshot_50` from a fresh gather + derive of its 50 repos on
+the collectors on main (the sample-200 copy is v1-format and rates 0 of 50).
+Phase 1: a data-root override so the gather never touches `data/`; live
+gather into `~/Projects/cvi-scratch/W2-8c/data` under a points cap; derive;
+the 18-input Measured table new vs old; coverage histogram and rated count.
+Phase 2 (after W2-8b lands): rebuild the fixture from that root, re-pin
+`expected.json`, run anchors/sensitivity for real.
+**Acceptance.** ≥ 30 of 50 rated, or a named per-input reason why not.
+**Depends.** W2-8b, W2-9. **Size.** S + live time.
+
+### W2-10 ScoreRecord carries RepoIdentity (added 2026-09-13; landed `8e89d03`)
+`ScoreRecord.repo: RepoIdentity` required first field, set by the engine from
+the bundle; `TieBreakInput` rejects an owner/name that differs from it.
+
+### W2-11 ParamScore carries its raw value; aggregate takes weights (added 2026-09-13)
+**Goal.** `ParamScore.value` (the measured raw value, `float | str | None`)
+set by every param function so 06 §4's evidence rows and the newcomer-label
+anchor have their fact; `aggregate.composite_score_raw`/`composite_coverage`
+take a `weights` parameter and the copies in `persona.py` and
+`sensitivity.py` are deleted.
+**Owns.** `cvi/core/models.py`, `cvi/core/params/*.py` (value pass-through),
+`cvi/core/aggregate.py`, `cvi/core/persona.py`, `cvi/audit/sensitivity.py`, tests.
+**Acceptance.** Every Measured ParamScore on the fixture has a non-None value
+equal to the bundle input; a property test shows the three composite paths
+were arithmetically identical before deletion. **Depends.** W2-8, W2-8b. **Size.** S.
+
+---
+
 ### W3-1 Author eligibility, per-author caps, lockstep detector
 **Goal.** D-IN-3 applied in derivation of every rate parameter;
 `newcomer_burst` detector.
