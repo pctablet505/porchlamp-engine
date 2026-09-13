@@ -224,11 +224,22 @@ s AS (
     / NULLIF((CASE WHEN p_responsiveness IS NULL THEN 0 ELSE wr END)+ ... ,0) AS cvi_p
   FROM repositories r, w WHERE r.snapshot_id=:sid AND r.rated=1
     AND json_extract(r.persona_gates, '$.' || :persona) IS NULL)
-SELECT s.*, RANK() OVER (ORDER BY ROUND(cvi_p,2) DESC, coverage DESC, p_responsiveness DESC,
-                         friction ASC, leverage DESC, ttfhr_p75 ASC, last_human_commit_at DESC,
+SELECT s.*, RANK() OVER (ORDER BY ROUND(cvi_p,2) DESC NULLS LAST, coverage DESC NULLS LAST,
+                         p_responsiveness DESC NULLS LAST, friction ASC NULLS LAST,
+                         leverage DESC NULLS LAST, ttfhr_p75 ASC NULLS LAST,
+                         last_human_commit_at DESC NULLS LAST,
                          lower(owner||'/'||name) ASC) AS rank_p
 FROM s LIMIT :limit OFFSET :offset;
 ```
+
+`NULLS LAST` on every tie-break column is mandatory (ruling 2026-09-13 after the
+W2-6 review): SQLite sorts NULL first under `ASC` by default, which would put a
+repository with an *unmeasured* friction ahead of every measured one — the
+inverse of D-TIE-1. SQLite ≥ 3.30 is required for the syntax; the parity test
+between this query and `cvi.core.tiebreak.tie_key` must include NULLs at more
+than one tie level. The store also needs `RANK()` to yield strict ranks after
+the full key, so `ROW_NUMBER()` over the same ORDER BY is used for `rank` and
+a separate `DENSE_RANK() OVER (ORDER BY ROUND(cvi_p,2) DESC)` for `tie_group`.
 
 No Python loop over all rows for any endpoint.
 
