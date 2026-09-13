@@ -740,30 +740,47 @@ def _score_two_minimal(
     )
 
 
-def test_apply_suspicion_is_identity_when_previous_or_detectors_is_none() -> None:
+def test_apply_suspicion_is_identity_only_when_detectors_is_none() -> None:
     """Direct unit test of :func:`apply_suspicion` itself (not through
-    ``score_snapshot``): a ``detectors`` callable that *would* fire on every
-    repo must still leave every record's ``suspicion`` untouched when either
-    half of the seam is missing -- ``previous is None`` (nothing to compare
-    against yet) or ``detectors is None`` (no composition wired in)."""
+    ``score_snapshot``): every record's ``suspicion`` stays untouched only
+    when ``detectors is None`` (no composition wired in). ``previous is
+    None`` is **not**, by itself, a reason to skip anything -- lead ruling
+    correcting this function's first draft ("``previous=None`` -> all
+    ``suspicion == []``" in the dispatch meant the cross-snapshot detectors
+    only): a ``detectors`` callable that fires regardless of ``previous``
+    (as every single-snapshot detector does) must still fire when
+    ``previous`` is ``None``."""
     baseline = _Fixture12.score()
     records = baseline.records
     always_fires: Any = lambda recs, prev: {repo_key(r): ["param_jump"] for r in recs}  # noqa: E731
 
-    assert apply_suspicion(records, None, always_fires) == records
-    assert apply_suspicion(records, baseline, None) == records
+    assert apply_suspicion(records, baseline, None) == records  # detectors=None: identity
+    result = apply_suspicion(records, None, always_fires)  # previous=None: NOT identity
+    assert all(record.suspicion == ["param_jump"] for record in result)
 
 
-def test_score_snapshot_previous_none_leaves_all_suspicion_empty() -> None:
-    """The literal W3-2f acceptance case: ``previous=None`` -> every
-    record's ``suspicion`` is ``[]``, even with a ``detectors`` callable
-    wired in that would otherwise fire on both repos. This is a stricter
-    gate than any individual detector's own ``previous is None`` handling
-    (see :func:`apply_suspicion`'s docstring) -- deliberate for this
-    specific wiring point, not a claim about ``run_detectors`` itself."""
-    always_fires: Any = lambda recs, prev: {repo_key(r): ["closed_unread"] for r in recs}  # noqa: E731
-    snapshot = _score_two_minimal(previous=None, detectors=always_fires)
-    assert all(record.suspicion == [] for record in snapshot.records)
+def test_score_snapshot_previous_none_still_applies_single_snapshot_flags() -> None:
+    """The corrected W3-2f acceptance rule (lead ruling): ``previous=None``
+    does not blanket-suppress detection -- it is forwarded to ``detectors``
+    like any other call, so a callable that fires independently of
+    ``previous`` (every single-snapshot detector) still fires on the very
+    first snapshot ever. Only a callable that itself withholds flags when
+    ``previous is None`` (modelling ``param_jump``, the one detector that
+    actually needs a previous record) yields nothing -- proving
+    ``score_snapshot``/``apply_suspicion`` impose no additional gate of
+    their own beyond whatever the callable decides."""
+    single_snapshot_style: Any = lambda recs, prev: {repo_key(r): ["closed_unread"] for r in recs}  # noqa: E731
+
+    def fires_only_with_previous(recs: Any, prev: Any) -> dict[str, list[str]]:
+        if prev is None:
+            return {}
+        return {repo_key(r): ["param_jump"] for r in recs}
+
+    fired = _score_two_minimal(previous=None, detectors=single_snapshot_style)
+    assert all(record.suspicion == ["closed_unread"] for record in fired.records)
+
+    silent = _score_two_minimal(previous=None, detectors=fires_only_with_previous)
+    assert all(record.suspicion == [] for record in silent.records)
 
 
 def test_score_snapshot_wires_suspicion_by_repo_key_not_position() -> None:

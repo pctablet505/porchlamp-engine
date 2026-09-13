@@ -30,6 +30,19 @@ four can ever fire through this composition regardless of bundle content):
 * ``healthy/one``, ``healthy/two``, ``healthy/three``: nothing measured (or,
   for one of them, healthy values only) -- the over-correction guard that
   nothing fires on unremarkable data.
+
+The same six-repo ``current_bundles`` are also scored with ``previous=None``
+outright (:func:`test_previous_none_still_fires_single_snapshot_detectors`)
+-- lead ruling, correcting this packet's first draft: ``previous=None``
+suppresses only the *cross-snapshot* detectors (``param_jump`` here; none
+of the other three ownership-request detectors can fire through this
+adapter regardless, so they are not a live case in this fixture), never the
+single-snapshot ones. With no previous snapshot at all, ``jump/repo``
+therefore fires nothing (there is no previous ``dr90`` to jump from), while
+``closed/repo`` and ``spam/repo`` fire exactly as they do with a real
+``previous`` -- the presence or absence of a *specific* previous record
+(whole snapshot missing, or just this one repo new to it) is the only thing
+that changes ``param_jump``'s own answer.
 """
 from __future__ import annotations
 
@@ -260,6 +273,31 @@ def test_repo_absent_from_previous_suppresses_only_param_jump() -> None:
     record = _by_key(current_snapshot)[KEY_CLOSED_UNREAD]
     assert "param_jump" not in record.suspicion
     assert "closed_unread" in record.suspicion
+
+
+def test_previous_none_still_fires_single_snapshot_detectors() -> None:
+    """Lead ruling (corrects this packet's first draft): ``previous=None``
+    -- no baseline snapshot at all, not just one repo missing from it --
+    still fires every single-snapshot detector normally through the real
+    ``build_detectors`` composition. Only ``param_jump`` (the one detector
+    that reads ``previous``) yields nothing, on every repo, since there is
+    no previous record anywhere to compare against."""
+    current_bundles = _current_bundles()
+    detectors = build_detectors(current_bundles)
+    snapshot = _score(current_bundles, _SNAPSHOT_CURRENT, previous=None, detectors=detectors)
+    by_key = _by_key(snapshot)
+
+    assert by_key[KEY_CLOSED_UNREAD].suspicion == ["closed_unread"]
+    assert by_key[KEY_LABEL_SPAM].suspicion == ["label_spam"]
+    # jump/repo's only measured fact is the dr90 jump itself -- with no
+    # previous record anywhere, param_jump cannot fire and nothing else does.
+    assert by_key[KEY_PARAM_JUMP].suspicion == []
+    for key in KEY_HEALTHY:
+        assert by_key[key].suspicion == [], key
+
+    fired = {name for record in snapshot.records for name in record.suspicion}
+    assert fired == {"closed_unread", "label_spam"}
+    assert "param_jump" not in fired
 
 
 # --------------------------------------------------------------------------- #

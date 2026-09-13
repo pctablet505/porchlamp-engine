@@ -424,33 +424,36 @@ def apply_suspicion(
     implementation of it).
 
     No detector runs at all -- every record keeps whatever ``suspicion`` it
-    already carried (``[]``, set by ``cvi.core.engine.score``) -- when
-    either ``previous`` is ``None`` (``03`` section 6: this whole apparatus
-    is *cross-snapshot*; the very first snapshot has nothing to compare
-    against, so this wiring point deliberately does not engage even the
-    detectors that do not themselves read ``previous``) or ``detectors`` is
-    ``None`` (no composition wired in -- ``cvi.core`` alone never knows how
-    to build one). This is a stricter gate than any individual detector's
-    own ``previous is None`` handling (``cvi.verify.detectors.
-    detect_param_jump`` is the only one of the nine that actually reads
-    ``previous``): ``tests/verify/test_detectors.py`` already covers each
-    detector's own, more permissive, ``previous=None`` behaviour when
-    ``run_detectors`` is called directly (as ``cvi/audit/
-    detectors_report.py`` does); this function's coarser rule is specific
-    to the ``score_snapshot`` wiring point, not a restatement of
-    ``run_detectors``'s own contract.
-
-    A repo present in ``records`` but absent from ``previous.records``
-    still reaches ``detectors`` (with whatever ``previous`` object the
-    caller passed) -- ``detectors`` itself is the one responsible for
-    resolving that per repo (``cvi/verify/pipeline_hook.py``'s composition
-    passes ``previous_record=None`` for such a repo, so only the
-    single-snapshot detectors can fire for it).
+    already carried (``[]``, set by ``cvi.core.engine.score``) -- only when
+    ``detectors`` is ``None`` (no composition wired in -- ``cvi.core`` alone
+    never knows how to build one). **``previous`` being ``None`` is not, by
+    itself, a reason to run nothing** (lead ruling, correcting this
+    function's first draft: "``previous=None`` -> all ``suspicion == []``"
+    in the dispatch meant the *cross-snapshot* detectors only). ``previous``
+    is simply forwarded to ``detectors`` unchanged, exactly like any other
+    call -- ``detectors(records, previous)`` -- so which detectors actually
+    fire on a first-ever snapshot (``previous is None``) is entirely up to
+    the callable's own semantics, never decided here. For the real
+    composition (``cvi/verify/pipeline_hook.py``'s ``build_detectors``, over
+    ``cvi.verify.detectors.run_detectors``), that means: every detector that
+    reads only the current record/inputs (``closed_unread``,
+    ``label_spam``, ``speed_without_decisions``, ``merges_without_return``,
+    ``newcomer_burst``, ``ef_domain_mismatch``, ``star_burst`` when its
+    input exists) fires normally with ``previous is None``, exactly as it
+    would for a repo present in ``records`` but absent from
+    ``previous.records`` (both cases reach ``detectors`` with
+    ``previous_record=None`` for that repo -- one because the whole
+    snapshot has no baseline yet, the other because this one repo is new;
+    ``cvi.verify.detectors.run_detectors`` treats them identically, as it
+    should); only ``param_jump`` (the one detector of the nine that
+    actually reads ``previous`` -- see ``cvi.verify.detectors.
+    detect_param_jump``'s own ``previous is None`` early return) yields
+    nothing in either case, since there is nothing to compare against.
 
     Never mutates ``records`` (``ScoreRecord`` is frozen; ``dataclasses.
     replace`` per record, the same convention every other stage function in
     this module follows)."""
-    if previous is None or detectors is None:
+    if detectors is None:
         return tuple(records)
     suspicion_by_key = detectors(records, previous)
     return tuple(
@@ -504,14 +507,20 @@ def score_snapshot(
     to compare against -- and ``detectors`` is the optional composition
     that turns ``(records, previous)`` into each repo's fired detector
     names; see :func:`apply_suspicion` and :data:`DetectorsCallable` for the
-    full contract, including why both must be supplied (not just
-    ``detectors``) for anything to fire. Stage 10 runs strictly after stage
-    9's ``assign_ranks`` call: ``rank``/``tie_group``/``tie_key`` are
-    already fixed on every record by then, so ``suspicion`` can never feed
-    back into ranking or tie-breaking (``03`` section 6: flags are
-    "displayed... never silent penalties") -- two snapshots that differ
-    only in ``previous`` (and therefore in which flags fire) always agree
-    on every record's ``rank``/``tie_group``.
+    full contract. Only ``detectors is None`` skips stage 10 entirely --
+    ``previous is None`` does **not**, by itself, suppress anything: it is
+    forwarded to ``detectors`` like any other call, so whether a first-ever
+    snapshot fires the single-snapshot detectors (``closed_unread``,
+    ``label_spam``, etc.) is the callable's own decision, and the real
+    composition's answer is "yes" (only ``param_jump`` needs a genuine
+    previous record to compare against -- lead ruling correcting this
+    function's first draft). Stage 10 runs strictly after stage 9's
+    ``assign_ranks`` call: ``rank``/``tie_group``/``tie_key`` are already
+    fixed on every record by then, so ``suspicion`` can never feed back into
+    ranking or tie-breaking (``03`` section 6: flags are "displayed...
+    never silent penalties") -- two snapshots that differ only in
+    ``previous`` (and therefore in which flags fire) always agree on every
+    record's ``rank``/``tie_group``.
 
     Raises ``ValueError`` for a duplicate repo key across ``bundles``, or a
     ``gate_evidence``/``raw_hashes`` mapping missing a key some bundle needs
