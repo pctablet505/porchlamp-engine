@@ -456,3 +456,25 @@ def test_validate_pillar_weights_rejects_an_extra_pillar() -> None:
     extra["extra_pillar"] = 0.0
     with pytest.raises(ValueError, match="must cover exactly"):
         validate_pillar_weights(extra)
+
+
+def test_validate_pillar_weights_rejects_a_negative_weight_even_if_the_sum_is_1(tmp_path=None) -> None:
+    """W4-3 review Blocker B-1: a negative weight offset by a larger
+    positive one can still sum to exactly 1.0 -- must still raise, naming
+    the offending pillar, not just check the sum."""
+    negative = dict(constants_v2.PILLAR_WEIGHTS)
+    negative["responsiveness"] = -0.5
+    negative["criticality"] = negative["criticality"] + 0.5 + constants_v2.PILLAR_WEIGHTS["responsiveness"]
+    assert abs(sum(negative.values()) - 1.0) < 1e-9  # sanity: the sum check alone would not catch this
+    with pytest.raises(ValueError, match="non-negative"):
+        validate_pillar_weights(negative)
+
+
+def test_validate_pillar_weights_accepts_a_zero_weight() -> None:
+    """Over-correction guard: zero is not negative -- a pillar dropped to
+    zero weight (never scored under this vector) must still validate."""
+    zeroed = dict(constants_v2.PILLAR_WEIGHTS)
+    dropped = zeroed.pop("accessibility")
+    zeroed["accessibility"] = 0.0
+    zeroed["responsiveness"] = zeroed["responsiveness"] + dropped
+    validate_pillar_weights(zeroed)  # must not raise

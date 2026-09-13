@@ -51,13 +51,37 @@ Import-graph note (`04` section 3, amended for W4-2's R-B; enforced by
 ``tests/core/test_import_graph.py``): this module imports only ``cvi.core``
 (enums, frozen constants, the pillar/param registries) plus the standard
 library -- no ``cvi.collect``, ``cvi.derive`` or ``cvi.serve``. It does NOT
-import ``cvi.core.persona`` or ``cvi.core.aggregate``: those modules compute
-a :class:`~cvi.core.models.ScoreRecord`'s pillars from *raw parameters*,
-which this module never sees (only the store's own already-aggregated
-columns) -- pulling them in would be a second, unused definition of logic
-this module's SQL reimplements at the column level for :func:`reproject`
-only, one time, deliberately (the docstring above explains why that one
-function cannot instead read a precomputed JSON value).
+import ``cvi.core.persona``, and imports exactly ONE name from
+``cvi.core.aggregate``: :func:`~cvi.core.aggregate.validate_pillar_weights`
+(a pure, no-SQL, called-once-per-call validation function -- W4-3 review
+Blocker B-1: :func:`reproject`'s ``_validate_weights`` delegates to it
+rather than carrying a second, drifting copy of the non-negativity/sum
+check ``cvi.core.persona``'s presets are already validated by). Neither
+``cvi.core.persona`` nor ``cvi.core.aggregate``'s WEIGHTED-REDUCTION
+functions (``composite_score_raw``/``composite_coverage``) are imported:
+those compute a :class:`~cvi.core.models.ScoreRecord`'s pillars from *raw
+parameters*, which this module never sees (only the store's own
+already-aggregated columns) -- pulling them in for the reduction itself
+would be a second, unused definition of logic this module's SQL
+reimplements at the column level for :func:`reproject` only, one time,
+deliberately (the docstring above explains why that one function cannot
+instead read a precomputed JSON value).
+
+``tie_group``/``tie_group_p`` are an OPAQUE, EQUALITY-ONLY label within
+one response (lead ruling after the review's R-1 probe): two rows in the
+SAME response sharing a non-``None`` ``tie_group`` tie on the composite;
+the numeric VALUE itself carries no meaning and is never comparable
+across two different calls or two different lenses on the same call.
+SQL's ``DENSE_RANK()`` (:func:`_tie_group_sql`, used by the persona
+branch of :func:`list_ranked` and by :func:`reproject`) numbers a new
+group for every distinct composite value it visits, tied or not, while
+``cvi.core.tiebreak.assign_ranks``' own counter only advances for
+composite values that actually recur -- balanced ``list_ranked`` reads
+the STORED ``tie_group`` column (``assign_ranks``' numbering) verbatim,
+so a persona row can carry a ``tie_group`` (balanced, low ids) and a
+``tie_group_p`` (DENSE_RANK, ids that can run into the hundreds) side by
+side that never agree numerically yet both correctly group the same set
+of tied rows. Compare group MEMBERSHIP, never the raw id.
 """
 from __future__ import annotations
 
@@ -66,6 +90,7 @@ import sqlite3
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from cvi.core import constants_v2
+from cvi.core.aggregate import validate_pillar_weights
 from cvi.core.gates import REASON_INSUFFICIENT_EVIDENCE
 from cvi.core.params import PARAMS
 
@@ -73,6 +98,8 @@ __all__ = [
     "ORDER_BY_SQL",
     "ALLOWED_SORT_FIELDS",
     "CUSTOM_WEIGHT_LABEL",
+    "DEFAULT_LIMIT",
+    "MAX_LIMIT",
     "row_to_dict",
     "BOOL_COLUMNS",
     "JSON_OBJECT_COLUMNS",
@@ -97,7 +124,6 @@ _NO_CEILING_MIN_COVERAGE: float = constants_v2.NO_CEILING_MIN_COVERAGE
 _RATED_MIN_COVERAGE: float = constants_v2.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE
 _WEIGHT_SUM_TOLERANCE: float = constants_v2.WEIGHT_SUM_TOLERANCE
 _PERSONA_PRESETS: Dict[str, Dict[str, float]] = constants_v2.PERSONA_PRESETS
-_COMPOSITE_DECIMALS: int = constants_v2.COMPOSITE_DECIMALS
 
 #: U-11: a custom weight vector is labelled "custom" everywhere it is
 #: applied and is never called a persona.
@@ -106,6 +132,15 @@ CUSTOM_WEIGHT_LABEL: str = "custom"
 #: `06` section 3 A / D-TIE-1: the only columns a leaderboard may sort on --
 #: vanity fields (stars, forks, downloads) are never sortable (U-3).
 ALLOWED_SORT_FIELDS: Tuple[str, ...] = ("rank", "cvi", "coverage", "tier") + _PILLAR_NAMES
+
+#: `06` U-13 (owner instruction 2026-09-13, paginated leaderboard): the
+#: page-size menu is 20 (default)/50/100/500/1000 -- 1000 is the largest a
+#: caller may request, and the module owns this bound itself (`04` section
+#: 6: it already owns paging determinism) rather than trusting SQLite's own
+#: "a negative LIMIT means unlimited" behaviour (W4-3 review Warning W-5:
+#: ``limit=-1`` used to silently return the entire set).
+DEFAULT_LIMIT: int = 20
+MAX_LIMIT: int = 1000
 
 # --------------------------------------------------------------------------- #
 # Row decoding (moved here from ``cvi.store.reader`` this packet, R-2: one
@@ -233,19 +268,33 @@ def _validate_persona(persona: str) -> None:
         raise ValueError(f"unknown persona {persona!r}; expected one of {sorted(_PERSONA_PRESETS)}")
 
 
+def _validate_paging(limit: int, offset: int) -> None:
+    """`06` U-13 / W4-3 review W-5: ``limit`` must be ``1..MAX_LIMIT``
+    (the page-size menu's largest option, 1000) and ``offset`` must be
+    ``>= 0``. SQLite itself treats a negative ``LIMIT`` as "no limit" and
+    silently floors a negative ``OFFSET`` to 0 -- both are surprises this
+    module's own callers (W4-4) should get as a loud ``ValueError``
+    instead, naming the bound that was violated."""
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > MAX_LIMIT:
+        raise ValueError(f"limit must be an integer in 1..{MAX_LIMIT}; got {limit!r}")
+    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+        raise ValueError(f"offset must be a non-negative integer; got {offset!r}")
+
+
 def _validate_weights(weights: Mapping[str, float]) -> None:
     """U-11 / `02` D-AGG-1: a reprojection weight vector must cover exactly
-    the 5 frozen pillars and sum to 1.0 within
-    :data:`~cvi.core.constants_v2.WEIGHT_SUM_TOLERANCE` -- the same check
-    ``cvi.core.persona._validate_preset`` runs for a preset, generalised to
-    an arbitrary caller-supplied vector."""
-    missing = sorted(set(_PILLAR_NAMES) - set(weights))
-    extra = sorted(set(weights) - set(_PILLAR_NAMES))
-    if missing or extra:
-        raise ValueError(f"weights must cover exactly {_PILLAR_NAMES}; missing={missing}, extra={extra}")
-    total = sum(weights.values())
-    if abs(total - 1.0) > _WEIGHT_SUM_TOLERANCE:
-        raise ValueError(f"weights must sum to 1.0 within {_WEIGHT_SUM_TOLERANCE}; got {total!r}")
+    the 5 frozen pillars, every weight must be non-negative, and they must
+    sum to 1.0 within :data:`~cvi.core.constants_v2.WEIGHT_SUM_TOLERANCE`.
+
+    Delegates entirely to :func:`cvi.core.aggregate.validate_pillar_weights`
+    (W4-3 review Blocker B-1: this module no longer carries its own copy of
+    the check -- a negative weight can still sum to exactly 1.0, offset by
+    a larger positive one elsewhere, which the sum check alone never
+    caught; e.g. ``{responsiveness: -0.5, criticality: 1.5, rest: 0.0}``
+    summed to 1.0 and returned ``cvi=147.5, tier='S+'`` on a real stored
+    row before this fix). One definition, reused by
+    ``cvi.core.persona``'s own preset validation too."""
+    validate_pillar_weights(weights)
 
 
 def _search_filter(q: Optional[str]) -> Tuple[str, List[str]]:
@@ -320,7 +369,7 @@ def list_ranked(
     ecosystem: Optional[str] = None,
     q: Optional[str] = None,
     sort: Optional[str] = None,
-    limit: int = 50,
+    limit: int = DEFAULT_LIMIT,
     offset: int = 0,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """`04` section 6 / `06` section 3 A: the ranked leaderboard page.
@@ -347,12 +396,41 @@ def list_ranked(
     be persona-rated while balanced-unrated, `04` section 6's ruling, so
     this module does not require ``rated = 1`` in the persona branch).
 
+    ``rated_p`` documentation (W4-3 review Warning W-4a): on any row this
+    function actually RETURNS, ``rated_p`` is always ``True`` -- the
+    visibility filter (:func:`_persona_visible_where_sql`) already
+    requires ``coverage_p >= 0.60``, which is the exact same threshold
+    ``cvi.core.persona.persona_composite`` used to set the STORED
+    ``rated`` flag in the first place, so the two can never disagree on a
+    row that clears the filter. The field is kept (not dropped) for shape
+    symmetry with :class:`~cvi.core.models.PersonaComposite` (``cvi``,
+    ``coverage``, ``tier``, ``rated``) and because it is read from real
+    storage rather than hardcoded -- a forged ``persona_composites`` JSON
+    with ``rated=False`` under a coverage that clears 0.60 (never produced
+    by the real engine, but not physically impossible in the column) is
+    still surfaced faithfully as ``False``, never silently overwritten to
+    ``True``.
+
     ``ecosystem``: exact match. ``q``: case-insensitive owner/name substring
     (`06` section 2). ``sort``: :func:`_build_order_by` (``ValueError`` on
     an unknown value, naming :data:`ALLOWED_SORT_FIELDS` -- U-3, vanity
-    fields are never sortable and are not even a valid input here).
+    fields are never sortable and are not even a valid input here). ``sort``
+    changes PAGE ORDER only -- ``rank``/``tie_group`` (balanced, the stored
+    columns) and ``rank_p``/``tie_group_p`` (persona, computed here) are
+    D-TIE-2's fixed "strict 1..N after tie-breaking" fact about the visible
+    set and never renumber under a different ``sort`` (W4-3 review Blocker
+    B-2: before this fix, ``sort="coverage"`` on a persona view could
+    change up to 241 of 242 rows' ``rank_p``).
+
+    ``limit``: 1..1000 inclusive (`06` U-13's page-size menu tops out at
+    1000; owner ruling 2026-09-13); ``ValueError`` naming the max above
+    that, or below 1. ``offset``: >= 0, ``ValueError`` otherwise. The
+    module owns paging determinism (the ORDER BY is total, `04` section 6),
+    so it owns this bound too rather than trusting SQLite's own
+    negative-LIMIT-means-unlimited behaviour.
     """
     _validate_persona(persona)
+    _validate_paging(limit, offset)
     eco_sql, eco_params = _ecosystem_filter(ecosystem)
     q_sql, q_params = _search_filter(q)
     extra_where = eco_sql + q_sql
@@ -392,14 +470,24 @@ def list_ranked(
 
     total = conn.execute(f"SELECT COUNT(*) FROM ({proj_select})", proj_select_params).fetchone()[0]
 
-    order_expr = _build_order_by(sort, "ROUND(cvi_p, 2)", "coverage_p", "tier_p")
+    # B-2 (W4-3 review Blocker): rank_p/tie_group_p are D-TIE-2's "strict
+    # 1..N after tie-breaking" -- a FIXED fact about the visible set, never
+    # a function of which column the caller asked to sort the PAGE by.
+    # `rank_order_expr` (always the plain D-TIE-1 order) feeds the window
+    # functions; `display_order_expr` (sort-aware) governs only the outer
+    # ORDER BY/paging. Before this fix both used the same sort-aware
+    # expression, so `sort="coverage"` renumbered up to 241 of 242 rows'
+    # rank_p (SQLite computes window functions before the final ORDER BY,
+    # so this split is exactly what makes the two independent).
+    rank_order_expr = _order_by_sql("ROUND(cvi_p, 2)", "coverage_p")
+    display_order_expr = _build_order_by(sort, "ROUND(cvi_p, 2)", "coverage_p", "tier_p")
     sql = f"""
         WITH visible AS ({proj_select})
         SELECT *,
-            ROW_NUMBER() OVER (ORDER BY {order_expr}) AS rank_p,
+            ROW_NUMBER() OVER (ORDER BY {rank_order_expr}) AS rank_p,
             {_tie_group_sql("cvi_p")} AS tie_group_p
         FROM visible
-        ORDER BY {order_expr}
+        ORDER BY {display_order_expr}
         LIMIT ? OFFSET ?
     """
     columns, raw_rows = _fetch(conn, sql, [*proj_select_params, limit, offset])
@@ -418,14 +506,33 @@ def list_not_ranked(
     persona: str = "balanced",
     ecosystem: Optional[str] = None,
     q: Optional[str] = None,
-) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    limit: int = DEFAULT_LIMIT,
+    offset: int = 0,
+) -> Tuple[List[Dict[str, Any]], Dict[str, int], int]:
     """`06` section 3 A2 / D-TIE-2: the "Not ranked" tab -- every row
     :func:`list_ranked` excludes at ``snapshot_id``, each with the reason it
     is missing, ordered by lowercase ``owner/name``. Returns ``(rows,
-    counts)`` where ``counts`` tallies ``rows`` by reason (never a second,
-    independently-filtered query -- the two cannot disagree, `06` section 8
-    acceptance item 2: "Gated and unrated counts are visible ... and match
-    the Not-ranked tab").
+    counts, total)``: ``counts`` tallies EVERY matching row by reason
+    (never just the current page -- `06` section 8 acceptance item 2:
+    "Gated and unrated counts are visible ... and match the Not-ranked
+    tab", which the badge on the Ranked tab needs regardless of which page
+    of the Not-ranked tab is open); ``total`` is the same full-set count
+    :func:`list_ranked` returns, so ``sum(counts.values()) == total``
+    always (W4-3 review Warning W-4c: a mutant that double-counted a
+    persona-gated row went undetected until this invariant had a test).
+
+    ``limit``/``offset`` (`06` U-13, W4-3 review W-5): 1..``MAX_LIMIT``
+    and >= 0 respectively (``_validate_paging``, ``ValueError`` otherwise),
+    applied to ``rows`` only -- ``counts``/``total`` are always over the
+    FULL not-ranked set. Implemented by paging the already-fetched,
+    already-ordered Python list rather than a second SQL query: this
+    table's own rows are the MINORITY of a snapshot's universe (gated +
+    unrated repos), and fetching every one of them measured 1.92ms p95 on
+    a 10,000-row synthetic snapshot even unpaginated -- restructuring the
+    two branches below into a SQL-level LIMIT/OFFSET plus a separate
+    GROUP-BY-reason COUNT would not measurably help and would risk the
+    rows/counts disagreeing (the two would then be two queries, not one
+    filtered list read twice).
 
     ``persona="balanced"``: two reasons -- stage-0 gated (``eligible=0``,
     reason = ``gate_reason``) and balanced-unrated (``eligible=1,
@@ -442,6 +549,7 @@ def list_not_ranked(
     balanced path uses for the same underlying fact, generalised to a
     persona's own coverage).
     """
+    _validate_paging(limit, offset)
     eco_sql, eco_params = _ecosystem_filter(ecosystem)
     q_sql, q_params = _search_filter(q)
     extra_where = eco_sql + q_sql
@@ -455,7 +563,7 @@ def list_not_ranked(
             ORDER BY lower(r.owner || '/' || r.name) ASC
         """
         columns, raw_rows = _fetch(conn, sql, [snapshot_id, *extra_params])
-        rows = []
+        all_rows = []
         counts: Dict[str, int] = {}
         for raw in raw_rows:
             record = row_to_dict(columns, raw)
@@ -463,9 +571,9 @@ def list_not_ranked(
             record["reason"] = reason
             record["rank"] = None
             record["tie_group"] = None
-            rows.append(record)
+            all_rows.append(record)
             counts[reason] = counts.get(reason, 0) + 1
-        return rows, counts
+        return all_rows[offset : offset + limit], counts, len(all_rows)
 
     _validate_persona(persona)
     paths = _persona_paths(persona)
@@ -489,7 +597,7 @@ def list_not_ranked(
         *extra_params,
     ]
     columns, raw_rows = _fetch(conn, sql, params)
-    rows = []
+    all_rows = []
     counts: Dict[str, int] = {}
     for raw in raw_rows:
         record = row_to_dict(columns, raw)
@@ -502,9 +610,9 @@ def list_not_ranked(
         record["reason"] = reason
         record["rank"] = None
         record["tie_group"] = None
-        rows.append(record)
+        all_rows.append(record)
         counts[reason] = counts.get(reason, 0) + 1
-    return rows, counts
+    return all_rows[offset : offset + limit], counts, len(all_rows)
 
 
 def snapshot_summary(conn: sqlite3.Connection, snapshot_id: str) -> Optional[Dict[str, Any]]:
@@ -754,7 +862,7 @@ def reproject(
     snapshot_id: str,
     weights: Mapping[str, float],
     *,
-    limit: int = 50,
+    limit: int = DEFAULT_LIMIT,
     offset: int = 0,
 ) -> Tuple[List[Dict[str, Any]], int]:
     """`04` section 7 / `06` section 3 D: ``POST /v1/cvi/reproject``, the
@@ -797,8 +905,13 @@ def reproject(
     status itself never changes under a reprojection (D-PERS-1's
     separation, generalised: a custom weight vector reweights pillars, it
     does not un-gate a mirror or an archived repo).
+
+    ``limit``/``offset``: same 1..``MAX_LIMIT``/``>= 0`` bound as
+    :func:`list_ranked` (:func:`_validate_paging`, `06` U-13, W4-3 review
+    W-5).
     """
     _validate_weights(weights)
+    _validate_paging(limit, offset)
 
     num_terms = []
     den_terms = []
@@ -847,11 +960,29 @@ def reproject(
 
     total = conn.execute(f"SELECT COUNT(*) FROM ({visible_sql})", proj_full_params).fetchone()[0]
 
-    order_expr = _order_by_sql("ROUND(composite_raw, 2)", "coverage_custom")
+    # W-2 (W4-3 review): SQLite's ROUND() is round-half-away-from-zero;
+    # Python's round() is round-half-to-even (banker's). The two disagree
+    # at an exact 2-dp half (composite_raw=82.125 -> SQL 82.13, Python
+    # 82.12) -- before this fix the ORDER BY/tie_group used SQL's ROUND()
+    # while the RETURNED cvi used Python's round(), so two rows sharing a
+    # tie_group (SQL's rounding says they tie) could display two different
+    # CVIs. `cvi_display` is computed ONCE, in SQL, and is what ordering,
+    # grouping AND the returned value all use -- one rounding rule.
+    #
+    # (A `COUNT(*) OVER ()` window folded into the main query below was
+    # tried, to avoid this separate COUNT re-evaluating the same per-pillar
+    # CASE expressions -- measured SLOWER, not faster: the window forces
+    # SQLite to keep every projected column of the WHOLE visible set live
+    # through the sort/window pass, while a bare `COUNT(*)` subquery can
+    # avoid materialising values it never returns. Reverted; kept as two
+    # queries.)
+    cvi_display_sql = "ROUND(composite_raw, 2)"
+    order_expr = _order_by_sql(cvi_display_sql, "coverage_custom")
     tier_label = _tier_label_case_sql("MIN(score_tier_index, ceiling_index)")
     sql = f"""
         WITH visible AS ({visible_sql})
         SELECT *,
+            {cvi_display_sql} AS cvi_display,
             {tier_label} AS tier_custom,
             ROW_NUMBER() OVER (ORDER BY {order_expr}) AS rank_custom,
             {_tie_group_sql("composite_raw")} AS tie_group_custom
@@ -869,7 +1000,8 @@ def reproject(
         record["balanced_cvi"] = record.pop("cvi")
         record["balanced_coverage"] = record.pop("coverage")
         record["balanced_tier"] = record.pop("tier")
-        record["cvi"] = round(record.pop("composite_raw"), _COMPOSITE_DECIMALS)
+        record.pop("composite_raw", None)
+        record["cvi"] = record.pop("cvi_display")
         record["coverage"] = record.pop("coverage_custom")
         record["tier"] = record.pop("tier_custom")
         record["rated"] = True

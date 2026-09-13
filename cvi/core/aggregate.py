@@ -123,21 +123,39 @@ def aggregate_pillars(params: Mapping[str, ParamScore]) -> dict[str, PillarScore
 
 def validate_pillar_weights(weights: Mapping[str, float]) -> None:
     """Raise ``ValueError`` unless ``weights`` covers exactly the 5 frozen
-    pillar names (``constants_v2.PILLAR_NAMES``) and sums to 1.0 within
+    pillar names (``constants_v2.PILLAR_NAMES``), every weight is
+    non-negative, and they sum to 1.0 within
     :data:`cvi.core.constants_v2.WEIGHT_SUM_TOLERANCE`.
 
     D-AGG-1's weight-vector contract, generalised beyond the balanced
     preset so :func:`composite_score_raw`/:func:`composite_coverage` can
-    validate an arbitrary (e.g. persona) weight vector. Moved here from
-    ``cvi.core.persona``'s private ``_validate_preset`` (packet W2-11, R-3):
-    one definition, reused by that module to validate each persona preset
-    too, rather than two copies of the same check drifting apart."""
+    validate an arbitrary (e.g. persona, or a caller-supplied W4-3
+    reprojection) weight vector. Moved here from ``cvi.core.persona``'s
+    private ``_validate_preset`` (packet W2-11, R-3): one definition,
+    reused by that module to validate each persona preset too, rather
+    than two copies of the same check drifting apart.
+
+    Non-negativity (W4-3 review Blocker B-1, added after the frozen
+    presets and the sum check both already existed): a vector with a
+    negative weight can still sum to exactly 1.0 (a positive weight on
+    one pillar offsetting a negative one elsewhere), which is not a
+    weighted AVERAGE any more -- D-AGG-1/D-AGG-2 describe pillars being
+    combined, never one pillar's score being subtracted from another's.
+    Left unchecked, ``cvi.store.queries.reproject`` (the one caller that
+    accepts an arbitrary, non-preset vector -- U-11) could return a
+    composite outside ``[0, 100]`` and a tier the cutoffs never intended
+    (reproduced by the review: ``{responsiveness: -0.5, criticality: 1.5,
+    rest: 0.0}`` summed to 1.0 and returned ``cvi=147.5, tier='S+'`` on a
+    real stored row)."""
     missing = sorted(set(constants_v2.PILLAR_NAMES) - set(weights))
     extra = sorted(set(weights) - set(constants_v2.PILLAR_NAMES))
     if missing or extra:
         raise ValueError(
             f"pillar weights must cover exactly {constants_v2.PILLAR_NAMES}; missing={missing}, extra={extra}"
         )
+    negative = sorted(pillar for pillar, weight in weights.items() if weight < 0.0)
+    if negative:
+        raise ValueError(f"pillar weights must be non-negative; negative weight(s) for {negative}: {[weights[p] for p in negative]!r}")
     total = sum(weights.values())
     if abs(total - 1.0) > constants_v2.WEIGHT_SUM_TOLERANCE:
         raise ValueError(
