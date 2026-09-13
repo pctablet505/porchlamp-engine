@@ -29,13 +29,28 @@ from cvi.derive.bundle import load_bundle, write_bundle
 
 SAMPLE = Path.home() / "Projects" / "cvi-scratch" / "sample-200"
 KEY = "EvanLi__Github-Ranking"
-COLLECTORS = ("contributors", "github_meta", "pr_events", "pr_reviews", "tree")
+#: W2-9 adds "gfi": active_unclaimed_gfis (confidence "verified" for this
+#: repo) now maps to the newcomer_issue_supply input, so its envelope is
+#: referenced too. It must be copied into the isolated raw_root like every
+#: other collector here — without it, cvi.derive.bundle._resolve_envelope's
+#: absolute-path fallback would resolve the source recorded in the frozen
+#: document straight to the live main checkout's data/raw/gfi/ (a tree an
+#: in-flight sweep is writing, per docs/v2/00-README.md), which is both
+#: wrong (the test must never depend on the live tree) and unstable.
+COLLECTORS = ("contributors", "github_meta", "gfi", "pr_events", "pr_reviews", "tree")
 
 
 #: 03 section 5 content hashes of the frozen sample-200 envelopes for
 #: EvanLi/Github-Ranking, computed from the envelope data fields.
+#: Insertion order here is alphabetical by collector name on purpose: the
+#: provenance-hash test below builds its expected payload straight from
+#: ``.items()`` without re-sorting, and it must land in the same order
+#: ``feature_provenance_hash`` produces by sorting on the full source path
+#: (which, for this fixture, differs only by collector name -- "gfi" sorts
+#: before "github_meta").
 ENVELOPE_HASHES: dict[str, str] = {
     "contributors": "f99f93d0d2cf108b62e4ba485e186811fc71a116fc2bb1087a0105b382f8d835",
+    "gfi": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "github_meta": "8b27b7e399dbf701817141a01d72c432dd22c5d67c75e2891b81436c09b61c8e",
     "pr_events": "9db9d324c7d131ca6069b567fd41031f09aac121964b96f24d93b357d37477af",
     "pr_reviews": "9e50348456702dabbbd088e03c5ee6a4e5b70794fc592dac6fa10e20bd2a8720",
@@ -99,6 +114,20 @@ def test_measured_inputs_carry_envelope_provenance(bundle: Any, sample: dict[str
     assert legal_ip.source == str(sample["raw"] / "tree" / f"{KEY}.json")
     assert legal_ip.source_hash == ENVELOPE_HASHES["tree"]
     assert legal_ip.fetched_at == "2026-09-12T01:10:44.983176+00:00"
+
+    # W2-9: active_unclaimed_gfis (confidence "verified", value 0 -- a
+    # measured zero, D-MISS-1: a repo-controlled absence, not a gap) now
+    # maps to newcomer_issue_supply instead of falling to collector_failure.
+    supply = bundle.inputs["newcomer_issue_supply"]
+    assert isinstance(supply, Measured)
+    assert supply.value == 0
+    assert supply.n == 0
+    assert supply.method == "primary"
+    assert supply.window_start is None
+    assert supply.window_end is None
+    assert supply.source == str(sample["raw"] / "gfi" / f"{KEY}.json")
+    assert supply.source_hash == ENVELOPE_HASHES["gfi"]
+    assert supply.fetched_at == "2026-09-12T01:10:41.825329+00:00"
 
 
 def test_unmeasured_inputs_have_documented_reasons(bundle: Any) -> None:

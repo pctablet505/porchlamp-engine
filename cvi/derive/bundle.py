@@ -1,4 +1,4 @@
-"""Load, validate and dump FeatureBundle v2 documents (packet W2-1).
+"""Load, validate and dump FeatureBundle v2 documents (packet W2-1; W2-9).
 
 A v2 document (``data/derived/<key>.json``, ``schema_version = 2``) is the
 JSON shape of :class:`cvi.core.models.FeatureBundle`:
@@ -13,14 +13,24 @@ missing inputs with silent defaults (``Bundle.missing(field, default)``); the
 v2 mapping does not. Envelope-backed v1 fields become Measured values whose
 provenance is the envelope path plus ``sha256`` of the envelope's ``data``
 field (R-4); everything else becomes Unmeasured with a documented reason.
+
+W2-9 replaces the fixed ``V1_FIELD_TO_INPUT`` dict of the original five
+mappings with :data:`INPUT_MAPPINGS`: one resolver per v2 input id (18 rows,
+matching ``constants_v2.PARAM_INPUT_IDS`` one-for-one) so a later packet
+wires a newly-landed collector by replacing its one row, not by re-reading
+this whole module. See the module's own docstring comments beside each row
+for which derived-file field(s) it reads and the D-MISS-1 reason emitted
+when they are absent.
 """
 from __future__ import annotations
 
 import datetime
 import json
-from dataclasses import fields
+import math
+from dataclasses import dataclass, field, fields
+from datetime import timedelta
 from pathlib import Path
-from typing import Any, Mapping, Union
+from typing import Any, Callable, Mapping, Optional, Union
 
 from cvi.core import constants_v2, models
 from cvi.core.models import (
@@ -43,15 +53,6 @@ EVENT_KEYS: tuple[str, ...] = tuple(field.name for field in fields(PRWindowEvent
 MEASURED_DOC_KEYS: tuple[str, ...] = ("kind",) + tuple(field.name for field in fields(Measured))
 UNMEASURED_DOC_KEYS: tuple[str, ...] = ("kind", "reason", "detail")
 
-#: v1 meta fields whose value and provenance match a v2 input definition.
-V1_FIELD_TO_INPUT: dict[str, str] = {
-    "elephant_factor": "elephant_factor",
-    "legal_ip_model": "legal_ip",
-    "promotion_ladder": "promotion_ladder",
-    "ai_posture": "ai_posture",
-    "monthly_downloads": "downloads_monthly",
-}
-
 #: v1 enum spellings -> v2 3.1 regimes.
 V1_LEGAL_IP_VALUES: dict[str, str] = {
     "DCO": "DCO",
@@ -68,22 +69,15 @@ V1_LADDER_VALUES: dict[str, str] = {
     "CLOSED_SINGLE_FIRM": "CLOSED",
 }
 
-#: The 13 v2 inputs no v1 collector produced, with the factual reason.
-NO_V2_COLLECTOR: dict[str, str] = {
-    "ttfhr_hours": "v1 deriver does not compute TTFHR over the PR window",
-    "dr90_decision_rate": "v2 parameter; the v1 pipeline collected no decision cohort",
-    "mr_first_rate": "needs W1-4 author history; the v1 pipeline collected none",
-    "gr14_ghost_rate": "v2 parameter; the v1 pipeline collected no ghost window",
-    "ttm_p90_hours": "v2 parameter; the v1 pipeline collected no merge-latency distribution",
-    "dependents_deduped": "v1 dependents_count is not deduplicated by root organisation (v2 2.1)",
-    "openssf_criticality": "v1 leaves the ten OpenSSF signals uncollected; v2 2.2 needs all ten",
-    "pipeline_defenses": "v2 4.1 scores Scorecard checks or a proxy; v1 stores only the composite score",
-    "substantive_review_rate": "v2 4.3 needs review threads; v1 stores comment totals only",
-    "newcomer_issue_supply": "v2 5.1 uses a 90-day window and alias labels; v1 counts 30-day GFI issues",
-    "newcomer_conversion": "needs the W1-4 newcomer cohort; the v1 pipeline collected none",
-    "rr90_return_rate": "v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
-    "dx": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
-}
+#: 02 section 4 minimum sample sizes for the N-class rows this module
+#: resolves directly from PR-window data. Mirrored from (not imported from)
+#: ``cvi.core.params`` — ``cvi.derive`` is documented to import only
+#: ``cvi.core.models`` (04 section 3); see the W2-9 handoff's ownership
+#: request to move min-n thresholds into the frozen constants registry so
+#: both packets read one definition.
+TTFHR_MIN_N: int = 10
+SUBSTANTIVE_REVIEW_MIN_N: int = 10
+TTM_P90_MIN_N: int = 5
 
 
 def validate_bundle(document: Mapping[str, Any]) -> FeatureBundle:
@@ -191,6 +185,29 @@ def write_bundle(bundle: FeatureBundle, path: Union[Path, str]) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(dump_bundle(bundle), indent=2, sort_keys=True), encoding="utf-8")
     return target
+
+
+#: Instance attribute name backing :func:`dropped_event_count` (W2-9). Not a
+#: declared FeatureBundle field (cvi/core/models.py is out of this packet's
+#: ownership; see the handoff's ownership request) and not serialized by
+#: :func:`dump_bundle` — a dump/reload round trip loses the count.
+_DROPPED_EVENT_COUNT_ATTR = "_w2_9_dropped_event_count"
+
+
+def dropped_event_count(bundle: FeatureBundle) -> int:
+    """Number of ``pr_events`` dropped from ``bundle.pr_window.events`` (W2-9)
+    because the recorded ``author_login`` was empty — a deleted/ghost GitHub
+    account, which GitHub's API reports with no login. ``PRWindowEvent``
+    requires a non-empty ``author_login`` (it is an author-keyed record), so
+    such an event cannot be represented there; it is dropped from author-based
+    metrics but its timestamps still count toward ``pr_window.start``/``end``
+    (author-irrelevant). Always 0 for a bundle whose loader never filtered
+    events (native v2 documents, or a v1 bundle with none to drop)."""
+    return getattr(bundle, _DROPPED_EVENT_COUNT_ATTR, 0)
+
+
+def _set_dropped_event_count(bundle: FeatureBundle, count: int) -> None:
+    setattr(bundle, _DROPPED_EVENT_COUNT_ATTR, count)
 
 
 def _pr_ref_doc(ref: PRRef) -> dict[str, Any]:
@@ -401,16 +418,471 @@ def _first_source(entry: Any) -> str | None:
     return None
 
 
-def _map_v1_value(input_id: str, value: Any, problems: list[str]) -> Any:
-    table = V1_LEGAL_IP_VALUES if input_id == "legal_ip" else (
-        V1_LADDER_VALUES if input_id == "promotion_ladder" else None
-    )
-    if table is None:
-        return value
-    if value in table:
-        return table[value]
+def _parse_iso_or_none(value: Any) -> Optional[datetime.datetime]:
+    """Parse an ISO-8601 timestamp; ``None`` for absent or unparseable input.
+
+    Never reads a live clock (04 section 8): it only parses a string already
+    recorded in an envelope or a derived document."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _valid_iso_string(value: Any) -> Optional[str]:
+    """``value`` unchanged when it parses as ISO-8601, else ``None``."""
+    return value if _parse_iso_or_none(value) is not None else None
+
+
+# --------------------------------------------------------------------------- #
+# W2-9: the declarative v2 input mapping table.                               #
+#                                                                              #
+# One resolver per v2 input id (18 rows total, one-for-one with               #
+# constants_v2.PARAM_INPUT_IDS). Each resolver reads the v1 derived           #
+# document's meta/provenance/confidence dicts (plus, for the three           #
+# pr_window-derived rows, the raw pr_window envelope) and returns exactly    #
+# one Measured or Unmeasured value. A later packet wires a newly-landed      #
+# collector output by replacing its row in INPUT_MAPPINGS; nothing else in   #
+# this module needs to change.                                               #
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class _V1Ctx:
+    """Shared read-only-ish context every row resolver receives.
+
+    ``problems`` and ``referenced`` are the same list/dict objects
+    ``_load_v1`` uses for the whole bundle: appending to ``problems`` (an
+    unrecognized enum value, 3.1/3.3's pre-W2-9 behaviour) rejects the whole
+    bundle; writing to ``referenced`` folds an envelope hash into the
+    bundle's ``provenance_hash``. ``cache`` memoizes the pr_window envelope
+    read across the three rows that share it.
+    """
+
+    meta: Mapping[str, Any]
+    provenance: Mapping[str, Any]
+    confidence: Mapping[str, Any]
+    raw_root: Union[Path, str, None]
+    problems: list[str]
+    referenced: dict[str, str]
+    cache: dict[str, Any] = field(default_factory=dict)
+
+
+InputResolver = Callable[[_V1Ctx], "Measured | Unmeasured"]
+
+
+def _map_v1_value(input_id: str, value: Any, problems: list[str], vocab: Mapping[str, str]) -> Any:
+    """Map a v1 enum spelling through ``vocab``; ``None`` and a ``problems``
+    entry for an unrecognized value (a data-corruption signal that rejects
+    the whole bundle, not a soft per-field gap — pre-W2-9 behaviour)."""
+    if value in vocab:
+        return vocab[value]
     problems.append(f"{input_id}: v1 value {value!r} has no v2 vocabulary mapping")
     return None
+
+
+def _plain_scalar_resolver(
+    v1_field: str,
+    *,
+    missing_reason: str = "collector_failure",
+    missing_detail: str = "v1 deriver recorded no value",
+) -> InputResolver:
+    """Resolver for a v1 meta field carried through unchanged: an int or str
+    value, no enum mapping, ``n=0`` (a scalar, not a sample). Covers
+    ``elephant_factor``, ``ai_posture`` and (W2-9) ``newcomer_issue_supply``.
+    """
+
+    def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
+        confidence_value = ctx.confidence.get(v1_field)
+        value = ctx.meta.get(v1_field)
+        entry = ctx.provenance.get(v1_field)
+        source = _first_source(entry)
+        fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+        value_ok = isinstance(value, (int, str)) and not isinstance(value, bool)
+        if confidence_value in ("verified", "derived", "flag") and value_ok:
+            path = _resolve_envelope(source, ctx.raw_root)
+            if path is not None and isinstance(fetched_at, str) and fetched_at:
+                source_hash = _envelope_hash(path)
+                ctx.referenced[str(path)] = source_hash
+                return Measured(value=value, n=0, window_start=None, window_end=None, method="primary",
+                                 source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+            detail = (f"v1 source is not an envelope: {source!r}" if path is None
+                      else f"v1 provenance for {v1_field!r} has no fetched_at")
+            return Unmeasured(reason="collector_failure", detail=detail)
+        if confidence_value == "missing":
+            return Unmeasured(reason=missing_reason, detail=missing_detail)
+        return Unmeasured(reason="collector_failure",
+                           detail=f"v1 confidence {confidence_value!r} for {v1_field!r} is not recognized")
+
+    return resolve
+
+
+def _vocab_scalar_resolver(v1_field: str, input_id: str, vocab: Mapping[str, str]) -> InputResolver:
+    """Resolver for an enum-valued v1 field mapped through a fixed
+    v1-spelling -> v2-spelling vocabulary (``legal_ip``, ``promotion_ladder``).
+    """
+
+    def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
+        confidence_value = ctx.confidence.get(v1_field)
+        value = ctx.meta.get(v1_field)
+        entry = ctx.provenance.get(v1_field)
+        source = _first_source(entry)
+        fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+        value_ok = isinstance(value, (int, str)) and not isinstance(value, bool)
+        if confidence_value in ("verified", "derived", "flag") and value_ok:
+            path = _resolve_envelope(source, ctx.raw_root)
+            mapped = _map_v1_value(input_id, value, ctx.problems, vocab)
+            if path is not None and isinstance(fetched_at, str) and fetched_at and mapped is not None:
+                source_hash = _envelope_hash(path)
+                ctx.referenced[str(path)] = source_hash
+                return Measured(value=mapped, n=0, window_start=None, window_end=None, method="primary",
+                                 source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+            if path is None:
+                detail = f"v1 source is not an envelope: {source!r}"
+            elif not isinstance(fetched_at, str) or not fetched_at:
+                detail = f"v1 provenance for {v1_field!r} has no fetched_at"
+            else:
+                detail = f"v1 value {value!r} for {v1_field!r} has no v2 vocabulary mapping"
+            return Unmeasured(reason="collector_failure", detail=detail)
+        if confidence_value == "missing":
+            return Unmeasured(reason="collector_failure", detail="v1 deriver recorded no value")
+        return Unmeasured(reason="collector_failure",
+                           detail=f"v1 confidence {confidence_value!r} for {v1_field!r} is not recognized")
+
+    return resolve
+
+
+def _resolve_downloads_monthly(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """2.3 Downloads. Reads v1 ``monthly_downloads``, unchanged from pre-W2-9
+    behaviour for the Measured path and the "old-format, no W1-8 hook" gap
+    (over-correction guard). W2-9 adds: when W1-8's ``downloads_status`` meta
+    field is present, its "pending" (ecosystem is retryable, not yet
+    backfilled) vs "unmeasured" (no registry for this ecosystem) distinction
+    replaces the generic detail text — same reason (``third_party_gap``,
+    D-MISS-1 class TP), a more precise ``detail``.
+    """
+    confidence_value = ctx.confidence.get("monthly_downloads")
+    value = ctx.meta.get("monthly_downloads")
+    entry = ctx.provenance.get("monthly_downloads")
+    source = _first_source(entry)
+    fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+    value_ok = isinstance(value, int) and not isinstance(value, bool)
+    if confidence_value in ("verified", "derived", "flag") and value_ok:
+        path = _resolve_envelope(source, ctx.raw_root)
+        if path is not None and isinstance(fetched_at, str) and fetched_at:
+            source_hash = _envelope_hash(path)
+            ctx.referenced[str(path)] = source_hash
+            return Measured(value=value, n=0, window_start=None, window_end=None, method="primary",
+                             source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+        detail = (f"v1 source is not an envelope: {source!r}" if path is None
+                  else "v1 provenance for 'monthly_downloads' has no fetched_at")
+        return Unmeasured(reason="collector_failure", detail=detail)
+    if confidence_value == "missing":
+        status = ctx.meta.get("downloads_status")
+        if status == "pending":
+            return Unmeasured(reason="third_party_gap",
+                               detail="W1-8 downloads_status=pending: ecosystem is retryable, not yet backfilled")
+        if status == "unmeasured":
+            return Unmeasured(reason="third_party_gap",
+                               detail="W1-8 downloads_status=unmeasured: ecosystem has no downloads registry")
+        return Unmeasured(reason="third_party_gap", detail="registry returned no downloads data")
+    return Unmeasured(reason="collector_failure",
+                       detail=f"v1 confidence {confidence_value!r} for 'monthly_downloads' is not recognized")
+
+
+def _resolve_dependents_deduped(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """2.1 Dependents. v1's ``dependents_count`` carries two unrelated facts
+    under the same key, distinguished only by ``confidence`` (W1-2): the raw,
+    non-deduplicated deps.dev ``usedByCount`` (``"verified"``) or the W1-2
+    hook's root-organisation-deduplicated count (``"derived"``). Only the
+    ``"derived"`` value is D-PARAM 2.1's dependents_deduped; the raw count is
+    never exposed under this input id, deduplicated or not.
+    """
+    confidence_value = ctx.confidence.get("dependents_count")
+    if confidence_value != "derived":
+        if confidence_value == "verified":
+            return Unmeasured(
+                reason="collector_failure",
+                detail="dependents_count is the raw deps.dev usedByCount, not deduplicated by root "
+                       "organisation (v2 2.1 needs the W1-2 'dependents' collector)",
+            )
+        if confidence_value == "missing":
+            return Unmeasured(reason="collector_failure", detail="v1 deriver recorded no value")
+        return Unmeasured(reason="collector_failure",
+                           detail=f"v1 confidence {confidence_value!r} for 'dependents_count' is not recognized")
+    value = ctx.meta.get("dependents_count")
+    if not isinstance(value, int) or isinstance(value, bool):
+        return Unmeasured(reason="collector_failure", detail=f"dependents_count (derived) is not an int: {value!r}")
+    entry = ctx.provenance.get("dependents_count")
+    source = _first_source(entry)
+    fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+    path = _resolve_envelope(source, ctx.raw_root)
+    if path is None:
+        return Unmeasured(reason="collector_failure", detail=f"v1 source is not an envelope: {source!r}")
+    if not isinstance(fetched_at, str) or not fetched_at:
+        return Unmeasured(reason="collector_failure", detail="v1 provenance for 'dependents_count' has no fetched_at")
+    source_hash = _envelope_hash(path)
+    ctx.referenced[str(path)] = source_hash
+    return Measured(value=value, n=0, window_start=None, window_end=None, method="primary",
+                     source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+
+
+def _pr_window_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapping[str, Any]], Optional[str]]:
+    """Resolve and read the raw ``pr_window`` envelope (W1-3) once per bundle
+    load, memoized on ``ctx.cache`` since three rows share it.
+
+    Keyed off the ``pr_window_count`` provenance entry: ``derive_pr_window_fields``
+    sets it (confidence ``"verified"``) unconditionally whenever the W1-3 hook
+    had an envelope to read, so its absence means the hook never ran for this
+    repo. Returns ``(None, None, None)`` in that case, or when ``raw_root``
+    cannot resolve the recorded source to a readable file.
+    """
+    if "pr_window" in ctx.cache:
+        return ctx.cache["pr_window"]
+    entry = ctx.provenance.get("pr_window_count")
+    source = _first_source(entry)
+    fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+    path = _resolve_envelope(source, ctx.raw_root)
+    data = _envelope_data(path) if path is not None else None
+    if path is not None and isinstance(data, Mapping) and isinstance(fetched_at, str) and fetched_at:
+        result: tuple[Optional[Path], Optional[Mapping[str, Any]], Optional[str]] = (path, data, fetched_at)
+    else:
+        result = (None, None, None)
+    ctx.cache["pr_window"] = result
+    return result
+
+
+def _pr_window_bounds(data: Optional[Mapping[str, Any]]) -> tuple[Optional[str], Optional[str]]:
+    """The pr_window envelope's own ``(start, end)`` as ISO strings, derived
+    from its recorded ``window_anchor``/``window_days`` — not a live clock
+    read (04 section 8): both are values the W1-3 collector already stored
+    at its own collection time."""
+    if not isinstance(data, Mapping):
+        return None, None
+    anchor = data.get("window_anchor")
+    days = data.get("window_days")
+    anchor_dt = _parse_iso_or_none(anchor)
+    if anchor_dt is None or not isinstance(days, int) or isinstance(days, bool):
+        return None, None
+    start_dt = anchor_dt - timedelta(days=days)
+    return start_dt.isoformat(), anchor
+
+
+def _merged_external_latency_hours(data: Mapping[str, Any]) -> list[float]:
+    """Merge latency in hours for merged, external PRs (1.5 TTM_p90).
+
+    Joins the raw pr_window envelope's ``derived`` classifications
+    (``is_external``, ``merged``) with its ``prs`` raw nodes (``createdAt``,
+    ``mergedAt``) by PR ``number``: the W1-3 collector records them in two
+    separate lists, neither alone carries both facts.
+    """
+    classified = {
+        entry.get("number"): entry
+        for entry in (data.get("derived") or [])
+        if isinstance(entry, Mapping) and entry.get("number") is not None
+    }
+    out: list[float] = []
+    for pr in data.get("prs") or []:
+        if not isinstance(pr, Mapping):
+            continue
+        info = classified.get(pr.get("number"))
+        if not info or not info.get("is_external") or not info.get("merged"):
+            continue
+        created = _parse_iso_or_none(pr.get("createdAt"))
+        merged = _parse_iso_or_none(pr.get("mergedAt"))
+        if created is None or merged is None or merged < created:
+            continue
+        out.append((merged - created).total_seconds() / 3600.0)
+    return out
+
+
+def _nearest_rank_p90(values: list[float]) -> float:
+    """Nearest-rank p90 (``ceil(0.9N)``, 1-indexed) over ``values`` (D-NORM,
+    1.5 TTM_p90)."""
+    ordered = sorted(values)
+    rank = max(1, math.ceil(0.9 * len(ordered)))
+    return ordered[rank - 1]
+
+
+_PR_WINDOW_UNRESOLVABLE_DETAIL = (
+    "pr_window envelope not resolvable (W1-3 hook did not run for this repo, "
+    "or raw_root cannot resolve the recorded source to a file)"
+)
+
+
+def _resolve_ttfhr_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """1.1 TTFHR. Reads the W1-3 ``pr_window_ttfhr_median_hours`` /
+    ``pr_window_external_measured_latency_count`` summary fields the derive
+    hook already writes (``cvi.collect.github_graphql.derive_pr_window_fields``);
+    no raw-envelope join needed for the value or ``n``, only to resolve
+    provenance."""
+    path, data, fetched_at = _pr_window_envelope(ctx)
+    if path is None:
+        return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
+    n_value = ctx.meta.get("pr_window_external_measured_latency_count")
+    n = n_value if isinstance(n_value, int) and not isinstance(n_value, bool) else 0
+    if n < TTFHR_MIN_N:
+        return Unmeasured(reason="insufficient_n",
+                           detail=f"{n} external PRs with a measured TTFHR, need >= {TTFHR_MIN_N}")
+    value = ctx.meta.get("pr_window_ttfhr_median_hours")
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return Unmeasured(reason="collector_failure",
+                           detail=f"pr_window_ttfhr_median_hours is not numeric: {value!r}")
+    window_start, window_end = _pr_window_bounds(data)
+    source_hash = _envelope_hash(path)
+    ctx.referenced[str(path)] = source_hash
+    return Measured(value=float(value), n=n, window_start=window_start, window_end=window_end,
+                     method="primary", source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+
+
+def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """4.3 Substantive review rate. The rate itself is the W1-3
+    ``pr_window_substantive_review_rate`` summary field; ``n`` (decided
+    external PRs) has no summary field and is counted from the raw
+    envelope's ``derived`` classifications."""
+    path, data, fetched_at = _pr_window_envelope(ctx)
+    if path is None:
+        return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
+    decided_external = [
+        entry for entry in (data.get("derived") or [])
+        if isinstance(entry, Mapping) and entry.get("is_external") and entry.get("decided")
+    ]
+    n = len(decided_external)
+    if n < SUBSTANTIVE_REVIEW_MIN_N:
+        return Unmeasured(reason="insufficient_n",
+                           detail=f"{n} decided external PRs, need >= {SUBSTANTIVE_REVIEW_MIN_N}")
+    value = ctx.meta.get("pr_window_substantive_review_rate")
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return Unmeasured(reason="collector_failure",
+                           detail=f"pr_window_substantive_review_rate is not numeric: {value!r}")
+    window_start, window_end = _pr_window_bounds(data)
+    source_hash = _envelope_hash(path)
+    ctx.referenced[str(path)] = source_hash
+    return Measured(value=float(value), n=n, window_start=window_start, window_end=window_end,
+                     method="primary", source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+
+
+def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """1.5 TTM_p90. No v1 summary field exists at all (unlike TTFHR and the
+    review rate): both the value and ``n`` are computed here from the raw
+    pr_window envelope's merged-external-PR latencies
+    (:func:`_merged_external_latency_hours`)."""
+    path, data, fetched_at = _pr_window_envelope(ctx)
+    if path is None:
+        return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
+    latencies = _merged_external_latency_hours(data)
+    n = len(latencies)
+    if n < TTM_P90_MIN_N:
+        return Unmeasured(reason="insufficient_n",
+                           detail=f"{n} merged external PRs with recorded latency, need >= {TTM_P90_MIN_N}")
+    window_start, window_end = _pr_window_bounds(data)
+    source_hash = _envelope_hash(path)
+    ctx.referenced[str(path)] = source_hash
+    return Measured(value=round(_nearest_rank_p90(latencies), 4), n=n, window_start=window_start,
+                     window_end=window_end, method="primary", source=str(path), source_hash=source_hash,
+                     fetched_at=fetched_at)
+
+
+def _unmapped(detail: str) -> InputResolver:
+    """A v2 input with no landed producer yet (or one whose landed collector
+    cannot supply it — see each row's ``detail``): constant
+    ``Unmeasured(collector_failure)``."""
+
+    def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
+        return Unmeasured(reason="collector_failure", detail=detail)
+
+    return resolve
+
+
+#: The v2 input mapping table (W2-9): one resolver per
+#: ``constants_v2.PARAM_INPUT_IDS`` entry, in the same pillar order.
+#:
+#: | Input id | Reads | When absent |
+#: |---|---|---|
+#: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count (W1-3) | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
+#: | dr90_decision_rate | (none landed) | collector_failure: needs [now-270d,now-90d], outside the 180d window W1-3 collects |
+#: | mr_first_rate | (none landed) | collector_failure: needs W1-4 author history |
+#: | gr14_ghost_rate | (none landed) | collector_failure: needs a snapshot as_of the v1-to-v2 loader is never given (04 section 8) |
+#: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number (W1-3) | no envelope -> collector_failure; n<5 -> insufficient_n |
+#: | dependents_deduped | meta.dependents_count when confidence=="derived" (W1-2 dependents hook) | confidence verified/missing -> collector_failure (raw usedByCount is not deduped) |
+#: | openssf_criticality | (none landed) | collector_failure: W1-7 not landed |
+#: | downloads_monthly | meta.monthly_downloads; meta.downloads_status (W1-8) refines the Unmeasured detail | third_party_gap, detail per downloads_status |
+#: | legal_ip | meta.legal_ip_model, vocab-mapped | collector_failure |
+#: | elephant_factor | meta.elephant_factor (W1-5 override already lands here) | collector_failure |
+#: | promotion_ladder | meta.promotion_ladder, vocab-mapped | collector_failure |
+#: | pipeline_defenses | (none landed) | collector_failure: W1-7 not landed |
+#: | ai_posture | meta.ai_posture | collector_failure |
+#: | substantive_review_rate | meta.pr_window_substantive_review_rate (W1-3); n from the raw envelope | no envelope -> collector_failure; n<10 -> insufficient_n |
+#: | newcomer_issue_supply | meta.active_unclaimed_gfis (W1-1 recount already lands here) | collector_failure |
+#: | newcomer_conversion | (none landed) | collector_failure: needs the W1-4 newcomer cohort |
+#: | rr90_return_rate | (none landed) | collector_failure: needs the W1-4 newcomer cohort |
+#: | dx | (none landed) | collector_failure: v1 has CI runtime only, not the setup-signal half |
+INPUT_MAPPINGS: dict[str, InputResolver] = {
+    "ttfhr_hours": _resolve_ttfhr_hours,
+    "dr90_decision_rate": _unmapped(
+        "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], "
+        "outside the landed W1-3 collector's trailing-180d window"
+    ),
+    "mr_first_rate": _unmapped("needs W1-4 author history; the v1 pipeline collected none"),
+    "gr14_ghost_rate": _unmapped(
+        "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no "
+        "as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) "
+        "-- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership"
+    ),
+    "ttm_p90_hours": _resolve_ttm_p90_hours,
+    "dependents_deduped": _resolve_dependents_deduped,
+    "openssf_criticality": _unmapped(
+        "v1 leaves the ten OpenSSF signals uncollected; v2 2.2 needs all ten (W1-7 not yet landed)"
+    ),
+    "downloads_monthly": _resolve_downloads_monthly,
+    "legal_ip": _vocab_scalar_resolver("legal_ip_model", "legal_ip", V1_LEGAL_IP_VALUES),
+    "elephant_factor": _plain_scalar_resolver("elephant_factor"),
+    "promotion_ladder": _vocab_scalar_resolver("promotion_ladder", "promotion_ladder", V1_LADDER_VALUES),
+    "pipeline_defenses": _unmapped(
+        "v2 4.1 scores Scorecard checks or a proxy; v1 stores only the composite score (W1-7 not yet landed)"
+    ),
+    "ai_posture": _plain_scalar_resolver("ai_posture"),
+    "substantive_review_rate": _resolve_substantive_review_rate,
+    "newcomer_issue_supply": _plain_scalar_resolver("active_unclaimed_gfis"),
+    "newcomer_conversion": _unmapped("needs the W1-4 newcomer cohort; the v1 pipeline collected none"),
+    "rr90_return_rate": _unmapped("v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps"),
+    "dx": _unmapped("v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only"),
+}
+
+assert set(INPUT_MAPPINGS) == set(constants_v2.PARAM_INPUT_IDS), (
+    "INPUT_MAPPINGS must carry exactly one row per v2 input id"
+)
+
+
+def _pr_event_or_none(
+    entry: Mapping[str, Any], index: int, problems: list[str]
+) -> Optional[PRWindowEvent]:
+    """One ``PRWindowEvent`` from a raw v1 ``pr_events`` entry, or ``None``
+    for a ghost/deleted-account event (W2-9): GitHub returns an empty
+    ``author_login`` for these and ``PRWindowEvent`` requires a non-empty one
+    (it is an author-keyed record). Other malformed events still append to
+    ``problems`` (pre-W2-9 behaviour, unchanged: the whole bundle is
+    rejected) and also return ``None``; the caller tells the two apart by
+    checking ``author_login`` itself.
+    """
+    if not entry.get("author_login"):
+        return None
+    try:
+        return PRWindowEvent(
+            pr_number=entry["pr_number"],
+            created_at=entry["created_at"],
+            closed_at=entry.get("closed_at"),
+            merged_at=entry.get("merged_at"),
+            author_login=entry["author_login"],
+            author_association=entry.get("author_association", "NONE"),
+            is_external=bool(entry.get("is_external")),
+            first_human_review_at=entry.get("first_human_review_at"),
+        )
+    except (KeyError, BundleValidationError) as error:
+        problems.append(f"v1 pr_events[{index}]: {error!s}")
+        return None
 
 
 def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> FeatureBundle:
@@ -460,73 +932,48 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
             [f"v1 repo identity invalid: {problem}" for problem in error.problems]
         ) from error
 
+    ctx = _V1Ctx(meta=meta, provenance=provenance, confidence=confidence, raw_root=raw_root,
+                 problems=problems, referenced=referenced)
     inputs: dict[str, Measured | Unmeasured] = {
-        input_id: Unmeasured(reason="collector_failure", detail=NO_V2_COLLECTOR[input_id])
-        for input_id in constants_v2.PARAM_INPUT_IDS
-        if input_id not in V1_FIELD_TO_INPUT.values()
+        input_id: INPUT_MAPPINGS[input_id](ctx) for input_id in constants_v2.PARAM_INPUT_IDS
     }
-    for v1_field, input_id in V1_FIELD_TO_INPUT.items():
-        confidence_value = confidence.get(v1_field)
-        value = meta.get(v1_field)
-        entry = provenance.get(v1_field)
-        source = _first_source(entry)
-        fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
-        value_ok = isinstance(value, (int, str)) and not isinstance(value, bool)
-        if confidence_value in ("verified", "derived", "flag") and value_ok:
-            path = _resolve_envelope(source, raw_root)
-            mapped = _map_v1_value(input_id, value, problems)
-            if path is not None and isinstance(fetched_at, str) and fetched_at and mapped is not None:
-                source_hash = _envelope_hash(path)
-                referenced[str(path)] = source_hash
-                inputs[input_id] = Measured(
-                    value=mapped, n=0, window_start=None, window_end=None, method="primary",
-                    source=str(path), source_hash=source_hash, fetched_at=fetched_at,
-                )
-                continue
-            if path is None:
-                detail = f"v1 source is not an envelope: {source!r}"
-            elif not isinstance(fetched_at, str) or not fetched_at:
-                detail = f"v1 provenance for {v1_field!r} has no fetched_at"
-            else:
-                detail = f"v1 value {value!r} for {v1_field!r} has no v2 vocabulary mapping"
-            inputs[input_id] = Unmeasured(reason="collector_failure", detail=detail)
-        elif confidence_value == "missing":
-            if input_id == "downloads_monthly":
-                inputs[input_id] = Unmeasured(
-                    reason="third_party_gap", detail="registry returned no downloads data"
-                )
-            else:
-                inputs[input_id] = Unmeasured(
-                    reason="collector_failure", detail="v1 deriver recorded no value"
-                )
-        else:
-            inputs[input_id] = Unmeasured(
-                reason="collector_failure",
-                detail=f"v1 confidence {confidence_value!r} for {v1_field!r} is not recognized",
-            )
 
     raw_events = document.get("pr_events")
     events: list[PRWindowEvent] = []
+    dropped_ghost_author_count = 0
+    all_created: list[str] = []
+    all_timestamps: list[str] = []
     if isinstance(raw_events, list):
         for index, entry in enumerate(raw_events):
             if not isinstance(entry, Mapping):
                 problems.append(f"v1 pr_events[{index}] is not a mapping")
                 continue
-            try:
-                events.append(
-                    PRWindowEvent(
-                        pr_number=entry["pr_number"],
-                        created_at=entry["created_at"],
-                        closed_at=entry.get("closed_at"),
-                        merged_at=entry.get("merged_at"),
-                        author_login=entry.get("author_login", ""),
-                        author_association=entry.get("author_association", "NONE"),
-                        is_external=bool(entry.get("is_external")),
-                        first_human_review_at=entry.get("first_human_review_at"),
-                    )
-                )
-            except (KeyError, BundleValidationError) as error:
-                problems.append(f"v1 pr_events[{index}]: {error!s}")
+            was_ghost_author = not entry.get("author_login")
+            event = _pr_event_or_none(entry, index, problems)
+            if event is not None:
+                events.append(event)
+                bound_source: Mapping[str, Any] = entry
+            elif was_ghost_author:
+                # Window bounds are author-irrelevant (W2-9): a ghost-account
+                # event still marks calendar coverage even though it cannot
+                # become an author-keyed PRWindowEvent. A genuinely malformed
+                # (non-ghost) entry is excluded from bounds entirely, same as
+                # pre-W2-9 (its problems() entry, appended above, rejects the
+                # whole bundle) -- folding its unparsed timestamps in here
+                # would let a single-event bundle's PRWindow invariant fire
+                # before that more informative per-event error is reported.
+                dropped_ghost_author_count += 1
+                bound_source = entry
+            else:
+                continue
+            created_ts = _valid_iso_string(bound_source.get("created_at"))
+            if created_ts is not None:
+                all_created.append(created_ts)
+                all_timestamps.append(created_ts)
+            for ts_field in ("closed_at", "merged_at"):
+                ts = _valid_iso_string(bound_source.get(ts_field))
+                if ts is not None:
+                    all_timestamps.append(ts)
     for source in (
         provenance.get("pr_events", {}).get("source", [])
         if isinstance(provenance.get("pr_events"), Mapping)
@@ -539,12 +986,8 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
     def iso(ts: str) -> datetime.datetime:
         return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
-    created = [event.created_at for event in events]
-    all_timestamps = [
-        ts for event in events for ts in (event.created_at, event.closed_at, event.merged_at) if ts
-    ]
     window = PRWindow(
-        start=min(created, key=iso) if created else None,
+        start=min(all_created, key=iso) if all_created else None,
         end=max(all_timestamps, key=iso) if all_timestamps else None,
         truncated=False,  # the v1 document carries no truncation marker
         events=tuple(events),
@@ -563,4 +1006,5 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
         provenance_hash=models.feature_provenance_hash(referenced),
     )
     bundle.validate()
+    _set_dropped_event_count(bundle, dropped_ghost_author_count)
     return bundle
