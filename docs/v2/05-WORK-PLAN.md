@@ -301,6 +301,25 @@ live: `torvalds/linux` → DCO (Signed-off-by share ≥ 0.5, paste the share);
 **Measure.** Distribution of 3.1 / 3.3 / 4.2 on the sample before/after.
 **Depends.** W1-3 (associations), W1-5 (sign-off share). **Size.** L.
 
+### W1-6b PROSCRIBED AI-posture detection, re-planned (added 2026-09-13)
+**Why re-planned.** Three W1-6 rounds (negation guard; pattern pile; per-sentence
+ban/permission tables) failed the same way: sentence-level co-occurrence
+cannot bind a ban verb to its object, so ordinary sentences ("Do not worry if
+you used AI") read as bans and qualified bans ("We prohibit undisclosed AI
+use", which is REGULATED) read as bans. The corpus was invented prose that
+pinned 7 of 19 rules. W1-6 landed with PROSCRIBED de-scoped (never emitted).
+**Constraints for the unit.** (1) Evidence is section-scoped and structured:
+a heading or list item whose subject is AI contributions, within a
+CONTRIBUTING/policy file, with the ban stated in that section — free
+sentences elsewhere are not evidence. (2) The corpus is real: ≥ 40 governance
+files from real repos, hand-labelled (REGULATED / PROSCRIBED / AD_HOC) by
+two independent readers with disagreements recorded, stored as fixtures with
+their envelope hashes; no invented sentences. (3) Acceptance is precision-first:
+zero false PROSCRIBED on the corpus, recall reported; a rule nothing in the
+corpus pins is deleted. (4) Persona `ai_assisted`'s hard-ban gate starts
+firing only when this lands. **Owns.** `cvi/collect/governance.py` (the
+PROSCRIBED path), fixtures, tests. **Depends.** W1-6. **Size.** M.
+
 ### W1-7 OpenSSF signals computed locally; scorecard subset; review/CI proxies
 **Goal.** Derive the 10 Pike signals from collected data (age, months since
 last human commit, contributor count from commits, org count from W1-5,
