@@ -1,0 +1,159 @@
+"""CVI v2 store reader basics (`04` sections 5, 6; packet W4-2 deliverable 4).
+
+Only the single-row/evidence/snapshot getters and the ordering helper the
+SQL persona-projection query (W4-3) builds on; the persona re-projection
+query itself (weighted pillar re-combination, per-persona gate filter) is
+W4-3's (`04` section 6 names it explicitly as a separate query over the
+same ordering).
+
+``_ORDER_BY_SQL`` is `04` section 6's amended ``ORDER BY`` (ruling
+2026-09-13: ``NULLS LAST`` on every tie-break column, because SQLite sorts
+NULL first under plain ``ASC`` -- the exact inversion the W2-6 review found)
+applied directly to the *stored, un-reprojected* ``cvi``/pillar columns
+(the balanced view); W4-3 reuses this same constant for its ``cvi_p``
+projection so the ordering clause is defined once (R-2).
+"""
+from __future__ import annotations
+
+import json
+import sqlite3
+from typing import Any, Dict, List, Optional
+
+#: `04` section 6's amended D-TIE-1 ORDER BY, `NULLS LAST` on every level
+#: (mandatory ruling 2026-09-13). Column names are this store's own
+#: (``cvi`` not ``cvi_p``): the balanced, non-reprojected ordering.
+_ORDER_BY_SQL = (
+    "ROUND(cvi, 2) DESC NULLS LAST, "
+    "coverage DESC NULLS LAST, "
+    "p_responsiveness DESC NULLS LAST, "
+    "friction ASC NULLS LAST, "
+    "leverage DESC NULLS LAST, "
+    "ttfhr_p75 ASC NULLS LAST, "
+    "last_human_commit_at DESC NULLS LAST, "
+    "lower(owner || '/' || name) ASC"
+)
+
+#: `04` section 6: `` DENSE_RANK() OVER (ORDER BY ROUND(cvi_p,2) DESC)`` for
+#: ``tie_group`` -- the first ordering level only.
+_TIE_GROUP_ORDER_BY_SQL = "ROUND(cvi, 2) DESC NULLS LAST"
+
+#: Columns stored as 0/1 that round-trip to Python ``bool``.
+_BOOL_COLUMNS = ("eligible", "archived", "mirror", "fork", "rated")
+
+#: Columns stored as canonical JSON text.
+_JSON_OBJECT_COLUMNS = ("persona_gates", "persona_composites")
+_JSON_LIST_COLUMNS = ("suspicion",)
+
+
+def _row_to_dict(columns: List[str], row: tuple) -> Dict[str, Any]:
+    record = dict(zip(columns, row))
+    for column in _BOOL_COLUMNS:
+        if column in record and record[column] is not None:
+            record[column] = bool(record[column])
+    for column in _JSON_OBJECT_COLUMNS + _JSON_LIST_COLUMNS:
+        if column in record and record[column] is not None:
+            record[column] = json.loads(record[column])
+    return record
+
+
+def get_snapshot(conn: sqlite3.Connection, snapshot_id: str) -> Optional[Dict[str, Any]]:
+    """The ``snapshots`` row for ``snapshot_id``, or ``None``."""
+    cursor = conn.execute("SELECT * FROM snapshots WHERE id = ?", (snapshot_id,))
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    columns = [description[0] for description in cursor.description]
+    return dict(zip(columns, row))
+
+
+def get_row(conn: sqlite3.Connection, snapshot_id: str, owner: str, name: str) -> Optional[Dict[str, Any]]:
+    """One repo's ``repositories`` row at ``snapshot_id``, joined with its
+    snapshot's ``benchmark_version`` (`04` section 5: not duplicated onto
+    ``repositories`` -- one definition per fact, see ``schema.py``), or
+    ``None`` if no such row exists. Boolean and JSON columns are decoded
+    back to their Python shapes (`06` section 4 row contract)."""
+    cursor = conn.execute(
+        """
+        SELECT r.*, s.benchmark_version AS benchmark_version
+        FROM repositories r JOIN snapshots s ON r.snapshot_id = s.id
+        WHERE r.snapshot_id = ? AND r.owner = ? AND r.name = ?
+        """,
+        (snapshot_id, owner, name),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    columns = [description[0] for description in cursor.description]
+    return _row_to_dict(columns, row)
+
+
+def get_evidence(conn: sqlite3.Connection, snapshot_id: str, owner: str, name: str) -> List[Dict[str, Any]]:
+    """The ``params`` long rows for one repo at ``snapshot_id`` (value,
+    score, measured, reason, n, window, method, source, source_hash,
+    fetched_at), ordered by ``param_id``. Empty for a gated repo (never
+    scored) or an unknown repo -- both indistinguishable from this call
+    alone; use :func:`get_row` first to tell them apart."""
+    cursor = conn.execute(
+        """
+        SELECT p.* FROM params p
+        JOIN repositories r ON p.repo_id = r.id
+        WHERE r.snapshot_id = ? AND r.owner = ? AND r.name = ?
+        ORDER BY p.param_id
+        """,
+        (snapshot_id, owner, name),
+    )
+    rows = cursor.fetchall()
+    columns = [description[0] for description in cursor.description]
+    evidence = []
+    for row in rows:
+        record = dict(zip(columns, row))
+        if record.get("measured") is not None:
+            record["measured"] = bool(record["measured"])
+        if record.get("raw_value") is not None:
+            record["raw_value"] = json.loads(record["raw_value"])
+        evidence.append(record)
+    return evidence
+
+
+def list_not_ranked(conn: sqlite3.Connection, snapshot_id: str) -> List[Dict[str, Any]]:
+    """Gated (``eligible=0``) and unrated (``eligible=1``, ``rated=0``)
+    repos at ``snapshot_id`` with their reasons (D-TIE-2: listed after
+    every rated row, unranked, ordered by lowercase ``owner/name``)."""
+    cursor = conn.execute(
+        """
+        SELECT r.*, s.benchmark_version AS benchmark_version
+        FROM repositories r JOIN snapshots s ON r.snapshot_id = s.id
+        WHERE r.snapshot_id = ? AND (r.eligible = 0 OR r.rated = 0)
+        ORDER BY lower(r.owner || '/' || r.name) ASC
+        """,
+        (snapshot_id,),
+    )
+    rows = cursor.fetchall()
+    columns = [description[0] for description in cursor.description]
+    return [_row_to_dict(columns, row) for row in rows]
+
+
+def ranked_order_sql(conn: sqlite3.Connection, snapshot_id: str) -> List[tuple]:
+    """The SQL-computed D-TIE-1 order for rated rows at ``snapshot_id``:
+    ``(owner, name, sql_rank, sql_tie_group)`` in final display order.
+
+    ``sql_rank`` is ``ROW_NUMBER() OVER (ORDER BY <_ORDER_BY_SQL>)`` (strict
+    1..N, `04` section 6); ``sql_tie_group`` is ``DENSE_RANK() OVER (ORDER
+    BY ROUND(cvi,2) DESC NULLS LAST)`` (`04` section 6's own choice of
+    ``DENSE_RANK`` over just the first key level -- unlike
+    ``cvi.core.tiebreak.assign_ranks``, this does not null out a singleton
+    group's id; a consumer that needs that refinement, as the UI's "tied
+    with N others" marker does, is W4-3's to add). This function computes
+    the order fresh from stored columns for parity testing against
+    :func:`cvi.core.tiebreak.tie_key`; it does not read or write the stored
+    ``rank``/``tie_group`` columns (those are the writer's job, from the
+    already-ranked ``ScoreRecord``)."""
+    sql = f"""
+        SELECT owner, name,
+               ROW_NUMBER() OVER (ORDER BY {_ORDER_BY_SQL}) AS sql_rank,
+               DENSE_RANK() OVER (ORDER BY {_TIE_GROUP_ORDER_BY_SQL}) AS sql_tie_group
+        FROM repositories
+        WHERE snapshot_id = ? AND rated = 1
+        ORDER BY sql_rank
+    """
+    return conn.execute(sql, (snapshot_id,)).fetchall()
