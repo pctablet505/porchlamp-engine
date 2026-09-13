@@ -70,13 +70,23 @@ addendum ruling on it:
     None` in `queries.repo_evidence`'s output) is deliberately left to
     fail `EvidenceRow`'s non-null `Literal` -- a 500, per the lead's
     ruling, never silently coerced to a null the contract forbids.
-11. `MatrixResponse.axis_coverage_caption` is left empty (`{}`): the lead's
-    ruling picked "the contract carries the raw numbers, the UI renders
-    the sentence" over "render the caption server-side" -- but the
-    NUMBERS field (`axis_partial_count`/`axis_partial_share`,
-    `cvi.store.queries.matrix_points` already returns them) does not
-    exist on `MatrixResponse` yet. Handed to W4-5b in the handoff rather
-    than added here (not this packet's call per the addendum).
+11. `MatrixResponse.axis_coverage` is left empty (`{}`): the lead's ruling
+    picked "the contract carries the raw numbers, the UI renders the
+    sentence" over "render the caption server-side." W4-5b (this field's
+    own packet) landed `axis_coverage: dict[str, MatrixAxisCoverage]` --
+    ONE entry per axis naming its worst-missing CONTRIBUTING PILLAR, not
+    the single combined `axis_partial_count`/`axis_partial_share` figure
+    `cvi.store.queries.matrix_points` returns today -- so this endpoint
+    still cannot populate it correctly from that query's current return
+    shape (which pillar, and which of the two axes, is not broken out at
+    all). Left empty rather than guessed; wiring a real value needs
+    `cvi.store.queries.matrix_points` itself extended to break the count
+    down per axis/pillar, which is out of this round's scope (round-3
+    rebase note, 2026-09-14 -- fixed the field NAME here, since the old
+    `axis_coverage_caption` kwarg no longer exists on the contract at all
+    and 500'd every call, but left the actual computation as this same
+    known gap, now flagged for whichever packet touches `matrix_points`
+    next).
 12. `raw_hash` stays on `LeaderboardRow` (required there) AND is also on
     the new `RepoDetailResponse` (`cvi/serve/contract.py`, this packet's
     own addition) -- the lead's ruling was to MOVE it to the detail
@@ -131,6 +141,7 @@ from cvi.serve.contract import (
     NotRankedRow,
     ReprojectRequest,
     ReprojectResponse,
+    ReprojectRow,
     RepoDetailResponse,
     SnapshotCounts,
     SnapshotSummary,
@@ -367,19 +378,35 @@ def _leaderboard_row(record: Mapping[str, Any], *, persona: str) -> LeaderboardR
     )
 
 
-def _reproject_row(record: Mapping[str, Any]) -> LeaderboardRow:
+def _reproject_row(record: Mapping[str, Any]) -> ReprojectRow:
     """`queries.reproject`'s row already carries the custom projection
     under the plain `rank`/`cvi`/`coverage`/`tier`/`tie_group` names (its
     own docstring: "reprojection IS the view being asked for") plus
-    `balanced_rank`/`balanced_cvi`/`balanced_coverage`/`balanced_tier` for
-    the comparison -- this module reuses `balanced_rank` for the SAME
-    `rank_delta` semantics :func:`_leaderboard_row` gives a persona view,
-    and recomputes `tier_ceiling` (see :func:`_no_ceiling_or_band`) since
-    the row's own `tier_ceiling` column is the stale balanced value."""
+    `balanced_rank`/`balanced_tie_group`/`balanced_cvi`/`balanced_coverage`/
+    `balanced_tier` for the comparison -- this module reuses `balanced_rank`
+    for the SAME `rank_delta` semantics :func:`_leaderboard_row` gives a
+    persona view, and recomputes `tier_ceiling` (see
+    :func:`_no_ceiling_or_band`) since the row's own `tier_ceiling` column
+    is the stale balanced value.
+
+    Round-3 rebase note (2026-09-14): `ReprojectRow` (a `LeaderboardRow`
+    SUBCLASS adding the four `balanced_tie_group`/`balanced_cvi`/
+    `balanced_coverage`/`balanced_tier` fields -- Screen D's "live side
+    list of rank deltas vs balanced" needs all five balanced figures from
+    one response, not just `balanced_rank`) landed on this branch's own
+    `cvi/serve/contract.py` (`ReprojectResponse.rows: list[ReprojectRow]`)
+    independently of this module, which still built a bare `LeaderboardRow`
+    here -- a plain parent-class instance does not satisfy a subclass-typed
+    field, so every `/reproject` call 500'd on a pydantic ValidationError
+    for the four missing fields. Fixed by building the shared
+    `LeaderboardRow` fields once (`_project_leaderboard_row`, still used
+    unchanged by :func:`_leaderboard_row`) and widening into a
+    `ReprojectRow` with the four extra fields `queries.reproject` already
+    provides on `record`."""
     balanced_rank = record["balanced_rank"]
     rank = record["rank"]
     rank_delta = (balanced_rank - rank) if balanced_rank is not None else None
-    return _project_leaderboard_row(
+    leaderboard_fields = _project_leaderboard_row(
         record,
         rank=rank,
         tie_group=record["tie_group"],
@@ -389,6 +416,13 @@ def _reproject_row(record: Mapping[str, Any]) -> LeaderboardRow:
         tier_ceiling=_no_ceiling_or_band(record["coverage"]),
         balanced_rank=balanced_rank,
         rank_delta=rank_delta,
+    )
+    return ReprojectRow(
+        **leaderboard_fields.model_dump(),
+        balanced_tie_group=record["balanced_tie_group"],
+        balanced_cvi=record["balanced_cvi"],
+        balanced_coverage=record["balanced_coverage"],
+        balanced_tier=record["balanced_tier"],
     )
 
 
@@ -695,7 +729,7 @@ def _build_router() -> APIRouter:
                 excluded += 1
             else:
                 points.append(point)
-        return MatrixResponse(points=points, excluded_count=excluded, axis_coverage_caption={})
+        return MatrixResponse(points=points, excluded_count=excluded, axis_coverage={})
 
     @router.get("/repos/{owner}/{name}", response_model=RepoDetailResponse)
     async def get_repo(

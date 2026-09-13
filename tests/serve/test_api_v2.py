@@ -607,6 +607,7 @@ def test_ui_fixtures_validate_against_the_api_contract_models():
 
     from cvi.serve.contract import EvidenceRow as _EvidenceRow
     from cvi.serve.contract import LeaderboardResponse as _LeaderboardResponse
+    from cvi.serve.contract import MethodologyResponse as _MethodologyResponse
     from cvi.serve.contract import NotRankedResponse as _NotRankedResponse
     from cvi.serve.contract import SnapshotSummary as _SnapshotSummary
 
@@ -622,6 +623,19 @@ def test_ui_fixtures_validate_against_the_api_contract_models():
             _SnapshotSummary(**payload)
         elif path.name.startswith("evidence"):
             evidence_adapter.validate_python(payload)
+        elif path.name == "methodology.json":
+            # W4-5b addition (round-3 rebase note, 2026-09-14): this
+            # fixture did not exist when this drift guard was written on
+            # the W4-4 branch. `MethodologyResponse` (not `app.py`'s own
+            # `MethodologyDocument`, a plain TypedDict from `cvi.core.
+            # methodology` with no pydantic validation at all) is this
+            # file's contract-side mirror -- `tests/test_ui_fixtures_w4_5b.
+            # py::TestMethodologyFixtureValidatesAgainstContract` already
+            # validates the same fixture against it with exact-value
+            # checks; this branch just needs the SHAPE-only mapping so this
+            # drift guard covers every fixture file rather than failing on
+            # one it does not recognise.
+            _MethodologyResponse(**payload)
         else:
             pytest.fail(f"unrecognised UI fixture, add a mapping: {path.name}")
         checked += 1
