@@ -8,31 +8,31 @@ Two fixture shapes feed these tests:
   proves the CLI on real data: counts, ``list_ranked``/``list_not_ranked``,
   ``snapshot_summary``, the served-DB guard, and (real-data bonus) that
   ``build_detectors`` genuinely fires on unmodified data (12 of 50 repos
-  trip ``closed_unread`` -- see :data:`_SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS`
-  below for why this file's own pinned hash is NOT
-  ``tests/fixtures/snapshot_50/expected.json``'s ``records_hash``).
+  trip ``closed_unread``).
 * A small, hand-built synthetic directory (:func:`_write_snapshot_dir`) --
   proves the ``previous``/``param_jump`` wiring and the ``expected.json``
   verify/``--no-verify`` contract without depending on real fixture
   content.
 
-Note on ``tests/fixtures/snapshot_50/expected.json`` (read, never written,
-by this file): it was pinned by ``scripts/build_fixture_snapshot.py``,
-which -- like ``tests/snapshot/test_reproduce_fixture.py``'s own
-"permanent, always-on gate" (that test's docstring) -- scores the fixture
-with NO detectors wired (``score_snapshot(..., detectors=None)``, that
-test's own call). This command's whole job (packet W4-6, item 1) is to
-wire ``cvi.verify.pipeline_hook.build_detectors`` in -- and 12 of the 50
-real fixture repos genuinely trip ``closed_unread`` (verified directly:
-zero suspicion with ``detectors=None``, ``closed_unread`` on those 12
-with it), which changes ``records_hash`` (it hashes every field of every
-``ScoreRecord``, ``suspicion`` included). Regenerating that shared
-fixture's ``expected.json`` is out of this packet's scope (`04`
-section 2's ``tests/fixtures/`` is W2-8b/W3-2f's; the reproduce-in-CI gate
-is explicitly, permanently the no-detector computation) and would break
-that permanent gate outright, so this file does not touch it: the
-snapshot_50 tests here run with ``--no-verify`` and pin the actual,
-independently-verified WITH-detectors hash as their own constant instead.
+History (lead ruling, 2026-09-14): ``tests/fixtures/snapshot_50/
+expected.json`` was originally pinned by ``scripts/build_fixture_snapshot.py``
+scoring with NO detectors wired, which disagreed with what this command
+(detectors always wired -- packet W4-6, item 1) computes on the identical
+directory. Ruling: "the reproduce pin must reflect the real pipeline,
+detectors included" -- ``scripts/build_fixture_snapshot.py``'s pass-2
+scoring and ``cvi.snapshot.store_cmd.score_snapshot_dir`` now share ONE
+function (``cvi.snapshot.store_cmd.score_snapshot_with_detectors``), the
+fixture's ``expected.json`` was regenerated once (bundles/manifest/
+populations came out byte-identical -- detectors run strictly after
+ranking, `03` section 6, and touch no field ``expected.json`` records
+besides the top-level ``records_hash`` scalar), and ``tests/snapshot/
+test_reproduce_fixture.py``'s own permanent CI gate now scores with
+detectors too. Every test below that stores ``tests/fixtures/snapshot_50``
+therefore verifies against its real ``expected.json`` with NO
+``--no-verify`` needed; the flag is exercised exactly once
+(:func:`test_expected_json_mismatch_bypassed_by_no_verify`), against a
+deliberately corrupted synthetic ``expected.json``, to prove the flag
+itself still works.
 """
 from __future__ import annotations
 
@@ -59,13 +59,15 @@ from tests.store.helpers import make_bundle, make_measured
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 
-#: The real fixture's records_hash WITH ``build_detectors`` wired in
-#: (verified independently, outside this suite, against this base commit:
-#: ``score_snapshot(..., detectors=build_detectors(frozen.bundles))`` over
-#: ``tests/fixtures/snapshot_50`` -- 12 repos trip ``closed_unread``, 0
-#: trip anything else on a first-ever snapshot with no ``previous``). See
-#: the module docstring for why this differs from that fixture's own
-#: ``expected.json``.
+#: ``tests/fixtures/snapshot_50/expected.json``'s own pinned ``records_hash``
+#: (regenerated 2026-09-14, module docstring): 12 of the 50 real repos
+#: genuinely trip ``closed_unread``, 0 trip anything else on a first-ever
+#: snapshot with no ``previous``. Restated here as a named constant so a
+#: silent, unnoticed drift in that shared fixture file shows up as a
+#: mismatch against ITS OWN expectation (this suite's own store calls
+#: verify against ``expected.json`` directly -- see the module docstring
+#: -- so this constant is redundant with that check by design, a second,
+#: independent assertion of the same fact).
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
     "fe49557ca04b2de7a4b1518d6a3a45d68e1ffcc1139a80e43aa9f375eb58aed4"
 )
@@ -170,7 +172,7 @@ def _file_sha256(path: Path) -> str:
 
 def test_store_snapshot_50_counts_and_hashes(tmp_path, capsys) -> None:
     db_path = tmp_path / "cvi.db"
-    code = cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path), "--no-verify"])
+    code = cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)])
     out = capsys.readouterr().out
     assert code == 0, out
 
@@ -196,7 +198,7 @@ def test_store_snapshot_50_counts_and_hashes(tmp_path, capsys) -> None:
 
 def test_store_snapshot_50_list_ranked_and_not_ranked(tmp_path) -> None:
     db_path = tmp_path / "cvi.db"
-    assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path), "--no-verify"]) == 0
+    assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)]) == 0
     conn = schema.connect(db_path)
 
     rows, total = queries.list_ranked(conn, "snapshot_50")
@@ -211,10 +213,10 @@ def test_store_snapshot_50_list_ranked_and_not_ranked(tmp_path) -> None:
 
 def test_store_twice_is_immutability_error_and_db_unchanged(tmp_path, capsys) -> None:
     db_path = tmp_path / "cvi.db"
-    assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path), "--no-verify"]) == 0
+    assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)]) == 0
     hash_after_first = _file_sha256(db_path)
 
-    code = cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path), "--no-verify"])
+    code = cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)])
     out = capsys.readouterr().out
     assert code == 1
     assert "already has repositories rows" in out or "immutable" in out
@@ -258,7 +260,7 @@ def test_served_db_guard_accepts_this_db(tmp_path) -> None:
     ImportError`` branch below with a real assertion against its exposed
     function (name unknown at the time this test was written)."""
     db_path = tmp_path / "cvi.db"
-    assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path), "--no-verify"]) == 0
+    assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)]) == 0
 
     try:
         import cvi.serve.guard  # noqa: F401  -- presence probe only, see docstring
@@ -290,7 +292,7 @@ def test_create_app_serves_snapshot_and_not_ranked_if_w4_4_has_landed(tmp_path) 
         return
 
     db_path = tmp_path / "cvi.db"
-    assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path), "--no-verify"]) == 0
+    assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)]) == 0
 
     from starlette.testclient import TestClient
 

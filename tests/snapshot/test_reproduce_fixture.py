@@ -1,11 +1,20 @@
 """W2-8b / W3-4 acceptance: reproduce ``tests/fixtures/snapshot_50`` in CI
 (``03`` section 5, ``04`` section 9).
 
-Scoring the frozen fixture through ``cvi.core.pipeline.score_snapshot``
-reproduces ``expected.json``'s ``records_hash`` exactly -- the
-reproducibility handle this packet's own ``ScoredSnapshot`` defines. This
-is the CI gate ``.github/workflows/ci.yml``'s "Anchors, sensitivity,
-reproduce (fixture snapshot)" step runs.
+Scoring the frozen fixture through ``cvi.snapshot.store_cmd.
+score_snapshot_with_detectors`` (packet W4-6, lead ruling 2026-09-14: "the
+reproduce pin must reflect the real pipeline, detectors included" --
+``previous=None`` here, a fixture has no previous snapshot, but the
+single-snapshot detectors still fire: ``closed_unread`` genuinely finds 12
+of these 50 real repos) reproduces ``expected.json``'s ``records_hash``
+exactly -- the reproducibility handle this packet's own ``ScoredSnapshot``
+defines. This is the CI gate ``.github/workflows/ci.yml``'s "Anchors,
+sensitivity, reproduce (fixture snapshot)" step runs. Before 2026-09-14
+this test scored with no detectors at all (``score_snapshot(...,
+detectors=None)``), which is why the pinned ``records_hash`` changed when
+this was fixed (was ``b4177bf2…``, now ``fe49557c…`` -- see ``.agents/
+W4-6/handoff.md`` for the full before/after and the mutant proofs that
+detector wiring is real, not decorative).
 
 ``test_a_constant_change_makes_the_gate_fail`` is not a permanent guard: it
 is this packet's own required demonstration that the gate is real (paste
@@ -52,18 +61,22 @@ def test_fixture_is_present() -> None:
 
 
 def test_reproduce_matches_expected_hash() -> None:
-    """The permanent CI gate: score the frozen fixture, compare hashes."""
-    from cvi.core.pipeline import score_snapshot
+    """The permanent CI gate: score the frozen fixture through the real
+    pipeline (detectors included -- module docstring), compare hashes."""
+    from cvi.snapshot.store_cmd import score_snapshot_with_detectors
 
     build_script = _load_build_script()
     frozen = build_script.load_frozen_fixture(FIXTURE_DIR)
-    snapshot = score_snapshot(
+    snapshot = score_snapshot_with_detectors(
         frozen.bundles, frozen.populations, snapshot_id=frozen.snapshot_id, as_of=frozen.as_of,
         gate_evidence=frozen.gate_evidence, raw_hashes=frozen.raw_hashes,
     )
     assert snapshot.records_hash == frozen.expected["records_hash"]
     assert snapshot.snapshot_id == frozen.expected.get("snapshot_id", snapshot.snapshot_id) or True
     assert [f"{r.repo.owner}/{r.repo.name}" for r in snapshot.records] == frozen.expected["rank_order"]
+    # detectors are really wired here, not decorative: real evidence on
+    # real data (12 of these 50 repos genuinely trip closed_unread).
+    assert snapshot.counts.suspicion_counts == {"closed_unread": 12}
 
 
 def test_fixture_rebuild_is_byte_identical(tmp_path: Path) -> None:

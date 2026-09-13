@@ -35,6 +35,7 @@ from cvi.snapshot.reproduce import (
 from cvi.snapshot.store_cmd import (
     VerificationError,
     score_snapshot_dir,
+    score_snapshot_with_detectors,
     verify_expected,
     write_scored_snapshot,
 )
@@ -59,6 +60,7 @@ __all__ = [
     "rebuild",
     "reproduce",
     "score_snapshot_dir",
+    "score_snapshot_with_detectors",
     "snapshot_dir",
     "snapshot_id",
     "verify_expected",

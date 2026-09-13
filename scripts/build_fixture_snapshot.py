@@ -62,6 +62,7 @@ from cvi.core.models import (
 from cvi.core.pipeline import RepoKey, ScoredSnapshot, repo_key, score_snapshot
 from cvi.derive.bundle import dump_bundle, load_bundle, write_bundle
 from cvi.snapshot.populations import PopulationMember, PopulationSet, build_populations, write_populations
+from cvi.snapshot.store_cmd import score_snapshot_with_detectors
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SAMPLE_ROOT = Path.home() / "Projects" / "cvi-scratch" / "sample-200"
@@ -316,8 +317,16 @@ def build_fixture(sample_root: Path, *, size: int = FIXTURE_SIZE, snapshot_id: s
     populations = build_populations(members, snapshot_id)
     fallback_params = sorted({entry.param for entry in populations.populations if entry.fallback})
 
-    # Pass 2: the real, final scoring with frozen populations.
-    snapshot = score_snapshot(
+    # Pass 2: the real, final scoring with frozen populations -- the same
+    # score_snapshot_with_detectors() cvi.snapshot store's own driver calls
+    # (cvi.snapshot.store_cmd), so detectors are wired here exactly the
+    # same way (lead ruling 2026-09-14: one scoring function, used by
+    # both, never a second copy that can drift on whether/how detectors
+    # are wired). previous=None (this script has no previous-snapshot
+    # concept of its own): the single-snapshot detectors (closed_unread,
+    # label_spam, ...) still fire -- only detect_param_jump needs a real
+    # previous record.
+    snapshot = score_snapshot_with_detectors(
         bundles, populations, snapshot_id=snapshot_id, as_of=as_of,
         gate_evidence=gate_evidence, raw_hashes=raw_hashes,
     )

@@ -1,17 +1,26 @@
 # W4-6 handoff — `cvi.snapshot store`: score a snapshot directory into a v2 store
 
-Base: `08c1502` (main tip at rebase time). Commit: `e781e55` on branch
-`W4-6` (worktree `~/Projects/cvi-wt-W4-6`). Diffstat base→HEAD:
+Base (final rebase): `4005d7d` (main tip). Two commits on branch `W4-6`
+(worktree `~/Projects/cvi-wt-W4-6`): the original delivery, and a
+follow-up implementing the lead's 2026-09-14 detector-pin ruling (see
+that section below). Diffstat, final base → final HEAD:
 
 ```
- cvi/snapshot/__init__.py          |  10 +
- cvi/snapshot/cli.py               |  88 +++++++-
- cvi/snapshot/fixture_io.py        |  91 ++++++++
- cvi/snapshot/store_cmd.py         | 206 ++++++++++++++++++
- scripts/build_fixture_snapshot.py |  64 +-----
- tests/snapshot/test_store_cli.py  | 445 ++++++++++++++++++++++++++++++++++++++
- 6 files changed, 850 insertions(+), 54 deletions(-)
+ .agents/W4-6/handoff.md                  | 334 +++++++++++++++++++++++
+ cvi/snapshot/__init__.py                 |  12 +
+ cvi/snapshot/cli.py                      |  88 +++++-
+ cvi/snapshot/fixture_io.py               |  91 +++++++
+ cvi/snapshot/store_cmd.py                | 251 +++++++++++++++++
+ scripts/build_fixture_snapshot.py        |  77 ++----
+ tests/fixtures/snapshot_50/expected.json |   2 +-
+ tests/snapshot/test_reproduce_fixture.py |  29 +-
+ tests/snapshot/test_store_cli.py         | 447 +++++++++++++++++++++++++++++++
+ 9 files changed, 1266 insertions(+), 65 deletions(-)
 ```
+
+(Exact commit shas are in the caller's own report of this handoff, since
+amending this file to embed its own commit's sha is circular; `git log
+--oneline -3` on branch `W4-6` names them.)
 
 ## What was delivered
 
@@ -79,41 +88,62 @@ the Merkle root of every bundle's own `raw_hash` in the snapshot, the
 closest real analogue this directory shape has to "which inputs this
 snapshot covers".
 
-## A real, load-bearing finding: `tests/fixtures/snapshot_50/expected.json` predates detector wiring
+## Follow-up commit (2026-09-14): the detector-pin ruling, resolved
 
-`scripts/build_fixture_snapshot.py` (unmodified by this packet, besides the
-loader move) scores its fixture with `detectors=None` — so does `tests/
-snapshot/test_reproduce_fixture.py`'s own "permanent, always-on gate"
-(`test_reproduce_matches_expected_hash`, that test's own docstring). This
-packet's whole job (item 1) is to wire `build_detectors` in, and doing so
-genuinely changes the fixture's `records_hash`: **verified directly**, 12 of
-the 50 real fixture repos trip `closed_unread` (0 with `detectors=None`, 12
-with it — nothing else fires on a first-ever snapshot with no `previous`).
-`records_hash` hashes every field of every `ScoreRecord`, `suspicion`
-included, so this is a real, correct divergence, not a bug.
+The first commit (`b55a3f4`) found and reported that `tests/fixtures/
+snapshot_50/expected.json` was pinned with `detectors=None`, so this
+command's records_hash (detectors always wired) genuinely disagreed with
+it. Lead ruling: **"the reproduce pin must reflect the real pipeline,
+detectors included (with `previous=None` the single-snapshot detectors
+fire; `closed_unread` on 12/50 is real evidence, not noise)."** This
+follow-up commit implements that ruling in full:
 
-Consequence: `tests/fixtures/snapshot_50/expected.json`'s pinned
-`records_hash` is now stale relative to what `cvi.snapshot store` correctly
-computes on that exact directory. I did **not** touch that shared fixture
-file — it is W2-8b/W3-2f's, referenced by three other test files and by the
-CI "reproduce (fixture snapshot)" step, and regenerating it would silently
-flip that permanent no-detector gate's own comparison out from under it.
-Instead: `tests/snapshot/test_store_cli.py`'s own snapshot_50 tests run with
-`--no-verify` and pin the actual, independently-verified WITH-detectors hash
-(`fe49557c…`) as their own constant, with the full reasoning in both the
-module docstring and each test's docstring.
-
-**Recommendation for the lead**: once every packet that touches detector
-wiring on this fixture has landed, regenerate `tests/fixtures/snapshot_50/
-expected.json` via `scripts/build_fixture_snapshot.py` with `detectors=
-build_detectors(bundles)` wired into its own scoring calls (currently it
-still calls `score_snapshot` with no `detectors=` in both its pass-1 and
-pass-2 calls) — and then update `test_reproduce_matches_expected_hash`'s own
-call to match, so the "permanent gate" and the real, fully-wired pipeline
-stop disagreeing by construction. I left this alone deliberately: it is a
-cross-cutting decision for the fixture's owners (W2-8b/W3-2f), not a W4-6
-call, and touching it here would have broken tests outside this packet's
-ownership.
+1. **Shared code path**: `cvi/snapshot/store_cmd.py` gained
+   `score_snapshot_with_detectors(bundles, populations, *, snapshot_id,
+   as_of, gate_evidence, raw_hashes, previous=None) -> ScoredSnapshot` --
+   the ONE function that calls `build_detectors(bundles)` then
+   `score_snapshot(..., detectors=detectors)`. `score_snapshot_dir` now
+   calls it (dropped its own inline `build_detectors`/`score_snapshot`
+   pair); `scripts/build_fixture_snapshot.py`'s pass-2 "real" scoring now
+   imports and calls the SAME function instead of a bare `score_snapshot`
+   (pass-1, the population-free bootstrap that only learns gate/rated
+   status, is untouched -- detectors there would be wasted work, nothing
+   downstream reads that pass's `suspicion`). The two producers of a
+   scored snapshot can no longer independently drift on whether/how
+   detectors run -- re-verified by mutating the shared function's
+   `detectors=` line to `None` and confirming 7 tests across BOTH
+   `tests/snapshot/test_store_cli.py` and `tests/snapshot/
+   test_reproduce_fixture.py` go red (pasted below), then restored the
+   single line by hand (this file was mid-edit relative to the last
+   commit, so `git show HEAD:<path>` would have reverted the whole
+   refactor -- reverted just the mutated line instead, verified against a
+   clean `git diff` afterward).
+2. **`tests/snapshot/test_reproduce_fixture.py`**: `test_reproduce_matches_expected_hash`
+   (the module's own "permanent, always-on gate") now imports
+   `score_snapshot_with_detectors` instead of bare `score_snapshot`, and
+   additionally asserts `snapshot.counts.suspicion_counts ==
+   {"closed_unread": 12}` -- the gate now proves detectors fired, not just
+   that they didn't crash anything.
+3. **Fixture regenerated once**: `python scripts/build_fixture_snapshot.py`
+   (default `--sample-root`/`--out-dir`, i.e. `tests/fixtures/snapshot_50`
+   from `~/Projects/cvi-scratch/sample-200`) printed `records_hash
+   fe49557ca04b2de7a4b1518d6a3a45d68e1ffcc1139a80e43aa9f375eb58aed4` --
+   exactly the hash predicted in the first commit. `git status` afterward
+   showed exactly ONE changed file: `expected.json`, and its own diff is
+   exactly one line (the `records_hash` scalar) -- `manifest.json`,
+   `populations.json` and every file under `bundles/` came out
+   byte-identical, confirming detectors touch nothing `expected.json`
+   records besides that top-level scalar (they run at stage 10, strictly
+   after ranking, `03` section 6).
+4. **This packet's own tests verify for real**: every `tests/snapshot/
+   test_store_cli.py` call that stores `tests/fixtures/snapshot_50` now
+   omits `--no-verify` entirely -- the directory's own `expected.json` is
+   correct again, so `verify_expected` passes on the real, unmodified file.
+   `--no-verify` is exercised exactly once now
+   (`test_expected_json_mismatch_bypassed_by_no_verify`), against a
+   deliberately corrupted SYNTHETIC `expected.json` this suite builds
+   itself -- proving the flag still works, never masking a real check
+   against real data.
 
 ## Coordinator addendum, addressed
 
@@ -141,10 +171,12 @@ ownership.
 
 `tests/snapshot/test_store_cli.py` (10 tests):
 
-- `test_store_snapshot_50_counts_and_hashes` — real fixture, `--no-verify`;
-  printed counts/hashes; `snapshot_summary` counts/as_of/benchmark_version/
-  constants_hash match the manifest; `canonical_dump_hash` non-null
-  (finalized); `detector_summary == {"closed_unread": 12}`.
+- `test_store_snapshot_50_counts_and_hashes` — real fixture, verified
+  against its real `expected.json` (no `--no-verify` needed, since the
+  fixture regeneration below); printed counts/hashes; `snapshot_summary`
+  counts/as_of/benchmark_version/constants_hash match the manifest;
+  `canonical_dump_hash` non-null (finalized); `detector_summary ==
+  {"closed_unread": 12}`.
 - `test_store_snapshot_50_list_ranked_and_not_ranked` — `list_ranked` 0
   rows/0 total; `list_not_ranked` 50 rows, every reason non-empty,
   `sum(counts.values()) == 50`.
@@ -168,15 +200,21 @@ ownership.
   `write_records` to raise after `write_snapshot` has already run inside
   one call; asserts zero `snapshots` rows survive.
 
-Suite (full, `-n 4`, from `cvi-wt-W4-6`, base `08c1502`):
+Suite (full, `-n 4`, from `cvi-wt-W4-6`, final rebase base — see top of
+this file for the exact sha):
 
 ```
 $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -B -m pytest -n 4 -p no:cacheprovider; echo exit=$?
-2477 passed, 2 skipped in 11.91s
+2477 passed, 2 skipped in 11.66s
 exit=0
 ```
 
 Ruff: `python -m ruff check cvi/ scripts/ tests/snapshot/` → `All checks passed!`
+
+Every count above is unchanged from the first commit (10 tests, 2477/2 in
+the full suite) -- the follow-up commit changed WHAT is being verified
+(against the real, regenerated `expected.json` instead of `--no-verify`),
+not how many tests exist.
 
 ## Printed hashes for snapshot_50 (this base commit)
 
@@ -195,6 +233,19 @@ pinned elsewhere, since nothing wrote a v2 store from this fixture before
 this packet existed.)
 
 ## Mutants (each: red, output pasted below, restored via `git show HEAD:<path> > <path>` — never stash/checkout--)
+
+Below are the original 5 mutants from the first commit (`b55a3f4`,
+`detectors=detectors` → `detectors=None` inside what was then
+`score_snapshot_dir`'s own inline call). Since the follow-up commit moved
+that exact line into the new shared function `score_snapshot_with_detectors`,
+I re-ran mutant M1 against its new location (**M1-recheck** below) rather
+than trust that a refactor left it equivalent: it now kills 7 tests across
+two files instead of 2, because BOTH producers of a scored snapshot go
+through the one function. Restored the single mutated line by hand
+(`git show HEAD:<path>` would have reverted the whole in-progress refactor,
+since this file was mid-edit relative to the last commit) and confirmed a
+clean `git diff` afterward. Full output:
+`~/Projects/cvi-scratch/W4-6/mutants/M1-recheck-shared-function.txt`.
 
 **M1 — detectors not wired** (`store_cmd.score_snapshot_dir`: `detectors=detectors` → `detectors=None`):
 ```

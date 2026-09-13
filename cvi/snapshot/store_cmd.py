@@ -13,8 +13,13 @@ This module is the pure-ish driver behind ``cvi.snapshot store <dir> --db
    ``previous_dir``) via :func:`cvi.snapshot.fixture_io.load_frozen_fixture`,
    score ``previous_dir`` for real (only its records' ``params`` feed
    ``detect_param_jump`` downstream -- see :func:`_score_previous`), then
-   score ``snapshot_dir`` for real with the real detector composition
-   (:func:`cvi.verify.pipeline_hook.build_detectors`) wired in.
+   score ``snapshot_dir`` for real via :func:`score_snapshot_with_detectors`
+   -- the ONE function (lead ruling, 2026-09-14: "share the code path")
+   that wires the real detector composition
+   (:func:`cvi.verify.pipeline_hook.build_detectors`) in, also called by
+   ``scripts/build_fixture_snapshot.py``'s own pass-2 scoring so the two
+   producers of a scored snapshot can never independently drift on
+   whether/how detectors run.
 2. :func:`verify_expected` -- compares the freshly computed ``records_hash``
    against ``snapshot_dir``'s optional ``expected.json``.
 3. :func:`write_scored_snapshot` -- opens one transaction spanning BOTH
@@ -49,6 +54,7 @@ from cvi.verify.pipeline_hook import build_detectors
 __all__ = [
     "VerificationError",
     "score_snapshot_dir",
+    "score_snapshot_with_detectors",
     "verify_expected",
     "manifest_root_of",
     "write_scored_snapshot",
@@ -83,25 +89,65 @@ def _score_previous(previous_dir: Path) -> ScoredSnapshot:
     )
 
 
+def score_snapshot_with_detectors(
+    bundles,
+    populations,
+    *,
+    snapshot_id: str,
+    as_of,
+    gate_evidence,
+    raw_hashes,
+    previous: "ScoredSnapshot | None" = None,
+) -> ScoredSnapshot:
+    """The ONE function that scores a bundle set for real with the real
+    detector composition wired in (lead ruling, 2026-09-14: "the reproduce
+    pin must reflect the real pipeline, detectors included"; "share the
+    code path -- one function that scores a snapshot directory, used by
+    both").
+
+    ``cvi.snapshot.store_cmd.score_snapshot_dir`` (this command's own
+    driver) and ``scripts/build_fixture_snapshot.py``'s pass-2 "real"
+    scoring (its own module docstring: pass 1 is population-free and
+    exists only to learn gate/rated status -- it stays undecorated,
+    detectors would be wasted work there) both call this and nothing else,
+    so the two can never independently drift on whether/how detectors are
+    wired. ``detectors=build_detectors(bundles)`` is built fresh from
+    THESE bundles every call (:func:`cvi.verify.pipeline_hook.
+    build_detectors`'s own contract: it closes over the current
+    snapshot's bundles) -- ``previous=None`` (the default, and what a
+    fixture/first-ever snapshot always passes) does not suppress the
+    single-snapshot detectors (``closed_unread``, ``label_spam``, ...):
+    only ``detect_param_jump`` needs a genuine previous record
+    (``cvi.core.pipeline.apply_suspicion``'s own docstring)."""
+    detectors = build_detectors(bundles)
+    return score_snapshot(
+        bundles,
+        populations,
+        snapshot_id=snapshot_id,
+        as_of=as_of,
+        gate_evidence=gate_evidence,
+        raw_hashes=raw_hashes,
+        previous=previous,
+        detectors=detectors,
+    )
+
+
 def score_snapshot_dir(
     snapshot_dir: Path,
     *,
     previous_dir: Optional[Path] = None,
 ) -> tuple[ScoredSnapshot, FrozenFixture]:
-    """Load and score ``snapshot_dir`` for real, detectors wired in.
+    """Load and score ``snapshot_dir`` for real, detectors wired in
+    (:func:`score_snapshot_with_detectors` -- the same function ``scripts/
+    build_fixture_snapshot.py``'s pass-2 scoring calls).
 
     ``previous_dir`` (optional): scored the same way (:func:`_score_previous`)
-    and passed as ``score_snapshot``'s ``previous=`` so the cross-snapshot
-    detector (``param_jump``) has something to compare against; ``None``
-    when omitted, exactly like a snapshot's first-ever run -- forwarded to
-    ``score_snapshot`` unchanged, which is itself the only place that
-    decides what ``previous is None`` does or does not suppress (that
-    function's own docstring: only ``param_jump`` needs a genuine previous
-    record)."""
+    and passed as ``previous=`` so the cross-snapshot detector
+    (``param_jump``) has something to compare against; ``None`` when
+    omitted, exactly like a snapshot's first-ever run."""
     frozen = load_frozen_fixture(snapshot_dir)
     previous = _score_previous(previous_dir) if previous_dir is not None else None
-    detectors = build_detectors(frozen.bundles)
-    scored = score_snapshot(
+    scored = score_snapshot_with_detectors(
         frozen.bundles,
         frozen.populations,
         snapshot_id=frozen.snapshot_id,
@@ -109,7 +155,6 @@ def score_snapshot_dir(
         gate_evidence=frozen.gate_evidence,
         raw_hashes=frozen.raw_hashes,
         previous=previous,
-        detectors=detectors,
     )
     return scored, frozen
 
