@@ -1,0 +1,185 @@
+/* Design tokens — CVI v2 UI.
+ *
+ * Source of truth: docs/UI_UX_SPECIFICATION.md §3 (color, type, spacing,
+ * radius, elevation, motion), overridden by docs/v2/06-UX-DESIGN.md where
+ * the two disagree (06 wins on interaction semantics; it does not restate
+ * these token values, so the spec's numbers stand).
+ *
+ * One deliberate deviation from the spec, required by this packet's rules
+ * (no external resources, fonts included): the spec's "Inter" / "JetBrains
+ * Mono" font stacks are replaced by system font stacks. Every fallback
+ * already listed in the spec's own stack is kept; only the two named
+ * webfonts are dropped.
+ *
+ * Dark is the product's default aesthetic (spec §3: "Dark-Mode First
+ * Engineering Aesthetic"), so the dark palette lives on bare :root and the
+ * light palette overrides it — under prefers-color-scheme for users who
+ * have not chosen explicitly, and under [data-theme] so the in-app toggle
+ * (T) wins in both directions. --text-muted in both themes is tuned to
+ * clear WCAG AA 4.5:1 against every surface token, including the lightest
+ * (elevated) one — the spec's own muted value fails that on measurement,
+ * see tests/test_ui_contrast.py.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Canvas & surfaces */
+  --bg-base: #090d16;
+  --bg-surface: #0f172a;
+  --bg-surface-elevated: #1e293b;
+  --bg-surface-hover: #334155;
+  --border-subtle: #1e293b;
+  --border-strong: #334155;
+  --border-focus: #38bdf8;
+
+  /* Text */
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #8896aa;
+  --text-on-accent: #0b1220;
+
+  /* Quadrants (dual-encoded with glyphs in copy.js; never color-only) */
+  --quad-sweet-spot: #10b981;
+  --quad-crucible: #6366f1;
+  --quad-nursery: #f59e0b;
+  --quad-graveyard: #ef4444;
+  --quad-sweet-spot-wash: rgba(16, 185, 129, 0.1);
+  --quad-crucible-wash: rgba(99, 102, 241, 0.1);
+  --quad-nursery-wash: rgba(245, 158, 11, 0.1);
+  --quad-graveyard-wash: rgba(239, 68, 68, 0.1);
+
+  /* Coverage bands */
+  --coverage-full: #22c55e;
+  --coverage-a: #06b6d4;
+  --coverage-b: #f59e0b;
+  --coverage-below: #ef4444;
+
+  /* Functional accents */
+  --accent-cyan: #06b6d4;
+  --accent-violet: #8b5cf6;
+  --accent-warning: #dc2626;
+  --accent-success: #22c55e;
+
+  /* Tie-row band */
+  --tie-row-band: rgba(56, 189, 248, 0.08);
+
+  /* Typography */
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  --text-display: 2rem;
+  --text-h1: 1.5rem;
+  --text-h2: 1.125rem;
+  --text-body-lg: 0.9375rem;
+  --text-body-md: 0.8125rem;
+  --text-caption: 0.6875rem;
+  --metric-lg: 1.75rem;
+  --metric-md: 0.875rem;
+  --metric-pill: 0.625rem;
+
+  /* Spacing scale */
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 12px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* The sticky app header's rendered height (approximate: it wraps its
+   * controls at narrow widths, so this is a floor, not an exact match —
+   * see the handoff's COULD NOT VERIFY note on multi-row header widths).
+   * The table's `thead` sticks just below this. */
+  --header-height: 60px;
+
+  /* Radius */
+  --radius-badge: 4px;
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-pill: 9999px;
+
+  /* Elevation */
+  --shadow-popover: 0 10px 25px -5px rgba(0, 0, 0, 0.6);
+  --shadow-drawer: -15px 0 40px rgba(0, 0, 0, 0.8);
+
+  /* Motion (U-8 / 06 §5: <= 200ms, disabled under reduced motion below) */
+  --motion-duration: 200ms;
+  --motion-duration-fast: 120ms;
+  --motion-easing: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --bg-base: #f8fafc;
+    --bg-surface: #ffffff;
+    --bg-surface-elevated: #f1f5f9;
+    --bg-surface-hover: #e2e8f0;
+    --border-subtle: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --border-focus: #0284c7;
+
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #5b6472;
+    --text-on-accent: #f8fafc;
+
+    --quad-sweet-spot: #059669;
+    --quad-crucible: #4f46e5;
+    --quad-nursery: #b45309;
+    --quad-graveyard: #dc2626;
+    --quad-sweet-spot-wash: rgba(5, 150, 105, 0.08);
+    --quad-crucible-wash: rgba(79, 70, 229, 0.08);
+    --quad-nursery-wash: rgba(180, 83, 9, 0.08);
+    --quad-graveyard-wash: rgba(220, 38, 38, 0.08);
+
+    --coverage-full: #16a34a;
+    --coverage-a: #0891b2;
+    --coverage-b: #b45309;
+    --coverage-below: #dc2626;
+
+    --tie-row-band: rgba(2, 132, 199, 0.08);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-base: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #f1f5f9;
+  --bg-surface-hover: #e2e8f0;
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --border-focus: #0284c7;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #5b6472;
+  --text-on-accent: #f8fafc;
+
+  --quad-sweet-spot: #059669;
+  --quad-crucible: #4f46e5;
+  --quad-nursery: #b45309;
+  --quad-graveyard: #dc2626;
+  --quad-sweet-spot-wash: rgba(5, 150, 105, 0.08);
+  --quad-crucible-wash: rgba(79, 70, 229, 0.08);
+  --quad-nursery-wash: rgba(180, 83, 9, 0.08);
+  --quad-graveyard-wash: rgba(220, 38, 38, 0.08);
+
+  --coverage-full: #16a34a;
+  --coverage-a: #0891b2;
+  --coverage-b: #b45309;
+  --coverage-below: #dc2626;
+
+  --tie-row-band: rgba(2, 132, 199, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration: 0ms;
+    --motion-duration-fast: 0ms;
+  }
+}

@@ -1,0 +1,628 @@
+/* Reusable component styles: header, badges, table, sparkbars, keymap
+ * overlay, drawer, banners, skeletons. */
+
+/* ---- Header ---- */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: wrap;
+}
+
+.brand {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--text-h2);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.snapshot-chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  background: var(--bg-surface-elevated);
+  border-radius: var(--radius-pill);
+  padding: 2px var(--space-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.field-label {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  margin-right: var(--space-2xs);
+}
+
+select.control,
+input.control {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  padding: 6px var(--space-sm);
+  color: var(--text-primary);
+}
+
+.icon-button {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  padding: 6px var(--space-sm);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+
+.icon-button:hover {
+  background: var(--bg-surface-hover);
+}
+
+/* ---- Tabs ---- */
+.tabs {
+  display: flex;
+  gap: var(--space-xs);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-md);
+}
+
+.tab {
+  padding: var(--space-xs) var(--space-md);
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.tab[aria-selected="true"] {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-cyan);
+}
+
+.tab .count {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-left: var(--space-2xs);
+}
+
+/* ---- Counts strip (always visible; U-2) ---- */
+.counts-strip {
+  display: flex;
+  gap: var(--space-md);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  padding: var(--space-2xs) 0 var(--space-sm);
+}
+
+/* ---- Badges ---- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-badge);
+  font-family: var(--font-mono);
+  font-size: var(--metric-pill);
+  font-weight: 600;
+}
+
+.badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.badge-coverage-full .badge-dot {
+  background: var(--coverage-full);
+}
+
+.badge-coverage-a .badge-dot {
+  background: var(--coverage-a);
+}
+
+.badge-coverage-b .badge-dot {
+  background: var(--coverage-b);
+}
+
+.tier-pill {
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.tier-capped {
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.quadrant-glyph {
+  font-size: 1rem;
+  margin-right: var(--space-2xs);
+}
+
+.quad-sweet-spot {
+  color: var(--quad-sweet-spot);
+}
+
+.quad-crucible {
+  color: var(--quad-crucible);
+}
+
+.quad-nursery {
+  color: var(--quad-nursery);
+}
+
+.quad-graveyard {
+  color: var(--quad-graveyard);
+}
+
+.suspicion-icon {
+  color: var(--accent-warning);
+  cursor: default;
+}
+
+.tie-mark {
+  color: var(--accent-cyan);
+  font-weight: 700;
+  margin-left: var(--space-2xs);
+  cursor: default;
+}
+
+/* ---- Sparkbars (five-pillar mini bars) ---- */
+.sparkbar-group {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 20px;
+}
+
+.sparkbar {
+  width: 6px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent-cyan);
+  position: relative;
+}
+
+.sparkbar[data-unmeasured="true"] {
+  background: var(--bg-surface-hover);
+  border: 1px dashed var(--border-strong);
+}
+
+/* ---- Table ---- */
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-body-md);
+}
+
+/* Owner instruction 2026-09-13: "the page itself scrolls with a sticky
+ * header row." The document/window scrolls now (not a bounded `main` box),
+ * so the thead sticks relative to the viewport, offset by the also-sticky
+ * app header's height so the two never overlap. */
+.leaderboard-table thead th {
+  position: sticky;
+  top: var(--header-height);
+  z-index: 2;
+  background: var(--bg-surface);
+}
+
+.leaderboard-table th {
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--text-secondary);
+  font-weight: 500;
+  font-size: var(--text-caption);
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.leaderboard-table th[data-sortable="true"] {
+  cursor: pointer;
+}
+
+.leaderboard-table th[data-sortable="true"]:hover {
+  color: var(--text-primary);
+}
+
+.leaderboard-table td {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+/* Fixed row height so the DOM's real rendered height matches
+ * components/table.js's ROW_HEIGHT_PX exactly — the windowing spacers'
+ * inline heights are computed from that same constant, and any drift
+ * between the two would misalign the scrollbar against the real content. */
+.leaderboard-table tbody tr:not([aria-hidden="true"]) {
+  height: 40px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.leaderboard-table tbody tr:not([aria-hidden="true"]) td {
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.leaderboard-table tbody tr:hover,
+.leaderboard-table tbody tr.row-selected {
+  background: var(--bg-surface-hover);
+}
+
+.leaderboard-table tbody tr.row-tied {
+  background: var(--tie-row-band);
+}
+
+/* Windowing spacers (components/table.js createSpacerElement): no border,
+ * no padding, no hover/cursor styling — only their inline `height` counts. */
+.leaderboard-table tbody tr[aria-hidden="true"] {
+  cursor: default;
+  border: 0;
+}
+
+.leaderboard-table tbody tr[aria-hidden="true"] td {
+  padding: 0;
+  border: 0;
+}
+
+.leaderboard-cards > div[aria-hidden="true"] {
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.cell-numeric {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.cell-missing {
+  color: var(--text-muted);
+  cursor: help;
+}
+
+.repo-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.repo-owner {
+  color: var(--text-secondary);
+}
+
+.eco-chip {
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  background: var(--bg-surface-elevated);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-xs);
+  margin-left: var(--space-xs);
+}
+
+.delta-up {
+  color: var(--accent-success);
+}
+
+.delta-down {
+  color: var(--accent-warning);
+}
+
+.delta-flat {
+  color: var(--text-muted);
+}
+
+/* ---- Card list (< 768px leaderboard) ---- */
+/* No flex `gap` here: each real card's own `margin-bottom` supplies the
+ * spacing, so a card's total vertical footprint (content + margin) is one
+ * fixed number that matches components/table.js's CARD_HEIGHT_PX exactly —
+ * the same fixed-height contract the desktop table's rows keep, needed for
+ * the windowing spacers' inline heights to line up with real content. */
+.leaderboard-cards {
+  display: block;
+}
+
+.leaderboard-card {
+  height: 156px;
+  box-sizing: border-box;
+  overflow: hidden;
+  margin-bottom: 12px; /* 156 + 12 = components/table.js CARD_HEIGHT_PX (168) */
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm);
+}
+
+.leaderboard-card.row-tied {
+  background: var(--tie-row-band);
+}
+
+.leaderboard-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+/* ---- Reason chips (Not ranked) ---- */
+.reason-chip {
+  display: inline-block;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.notranked-group {
+  margin-bottom: var(--space-lg);
+}
+
+.notranked-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+}
+
+.notranked-row:hover {
+  background: var(--bg-surface-hover);
+}
+
+/* ---- States: skeleton / empty / error / partial ---- */
+.skeleton-row {
+  height: 32px;
+  border-radius: var(--radius-control);
+  background: linear-gradient(
+    90deg,
+    var(--bg-surface-elevated) 25%,
+    var(--bg-surface-hover) 50%,
+    var(--bg-surface-elevated) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  margin-bottom: var(--space-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-row {
+    animation: none;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.empty-state,
+.error-banner {
+  padding: var(--space-md);
+  border-radius: var(--radius-card);
+  margin-bottom: var(--space-md);
+}
+
+.empty-state {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.error-banner {
+  background: var(--quad-graveyard-wash);
+  border: 1px solid var(--quad-graveyard);
+  color: var(--text-primary);
+}
+
+.stale-table {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Ruling C: persona refetch keeps the old table visible+greyed (via
+ * .stale-table above) with this thin indeterminate progress bar, instead
+ * of a full-page skeleton. */
+.refetch-progress {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  height: 2px;
+  overflow: hidden;
+  background: var(--bg-surface-elevated);
+}
+
+.refetch-progress::before {
+  content: "";
+  display: block;
+  height: 100%;
+  width: 40%;
+  background: var(--accent-cyan);
+  animation: refetch-progress-sweep 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refetch-progress::before {
+    animation: none;
+    width: 100%;
+  }
+}
+
+@keyframes refetch-progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+/* ---- Keymap overlay ---- */
+.keymap-overlay-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.keymap-overlay {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+  padding: var(--space-lg);
+  max-width: 480px;
+  width: 90%;
+  box-shadow: var(--shadow-popover);
+}
+
+.keymap-overlay table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-sm);
+}
+
+.keymap-overlay td {
+  padding: var(--space-2xs) var(--space-xs);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.keymap-overlay kbd {
+  font-family: var(--font-mono);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-badge);
+  padding: 1px 6px;
+}
+
+/* ---- Drawer ---- */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 90;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.drawer {
+  width: 420px;
+  max-width: 100%;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-drawer);
+  overflow-y: auto;
+  padding: var(--space-md);
+  transition: transform var(--motion-duration) var(--motion-easing);
+}
+
+@media (max-width: 767px) {
+  .drawer-backdrop {
+    align-items: flex-end;
+  }
+
+  .drawer {
+    width: 100%;
+    max-height: 90vh;
+    border-left: none;
+    border-top: 1px solid var(--border-strong);
+  }
+}
+
+.drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-md);
+}
+
+.drawer h1 {
+  font-size: var(--text-h1);
+  margin: 0 0 var(--space-2xs);
+}
+
+.drawer-kicker {
+  font-size: var(--text-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2xs);
+}
+
+.drawer details {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-sm) 0;
+}
+
+.drawer summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--text-h2);
+}
+
+.evidence-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-caption);
+  margin-top: var(--space-xs);
+}
+
+.evidence-table th,
+.evidence-table td {
+  text-align: left;
+  padding: var(--space-2xs) var(--space-xs);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.gate-banner {
+  background: var(--quad-graveyard-wash);
+  border: 1px solid var(--quad-graveyard);
+  border-radius: var(--radius-card);
+  padding: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.playbook-disclaimer {
+  font-style: italic;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+}
+
+/* ---- Footer ---- */
+.app-footer {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.app-live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}

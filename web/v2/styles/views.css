@@ -1,0 +1,55 @@
+/* View-level layout: leaderboard toolbar/paging, not-ranked groups. */
+
+.view-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.view-toolbar .spacer {
+  flex: 1;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.pager button {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  padding: 4px var(--space-sm);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+}
+
+.pager button:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+}
+
+.pager button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pager [data-pager-status],
+.pager [data-notranked-pager-status] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.view-heading {
+  font-size: var(--text-h1);
+  margin: 0 0 var(--space-sm);
+}
