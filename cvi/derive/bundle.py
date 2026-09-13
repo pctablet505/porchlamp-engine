@@ -39,6 +39,14 @@ row reads straight off ``ctx.meta``, never from what the collector fetched
 when nothing was measured (the root ``pom.xml`` was never fetched), and any
 ecosystem outside the closed rule list plus this packet's known mappings
 still falls to a named ``third_party_gap``, never ``not_applicable``.
+
+W2-12 (D-IN-4 amendment, 2026-09-13, ``docs/v2/02-RANKING-DESIGN.md`` D-IN-4)
+wires ``dr90_decision_rate``: the decision-rate cohort is external PRs
+opened in the older half of the W1-3 180 d window, ``[anchor-180d,
+anchor-90d)``, computed from the raw pr_window envelope's own
+``window_anchor`` (never a live clock, 04 section 8) -- no second fetch, no
+new collector. See :func:`_resolve_dr90_decision_rate` and its helper
+:func:`_dr90_decision_cohort` for the exact boundary rules.
 """
 from __future__ import annotations
 
@@ -765,6 +773,124 @@ def _merged_external_latency_hours(data: Mapping[str, Any]) -> list[float]:
     return out
 
 
+#: D-IN-4 amendment (2026-09-13, ``docs/v2/02-RANKING-DESIGN.md`` D-IN-4):
+#: the decision-rate cohort is the older half of the W1-3 180 d window, not
+#: a second fetch beyond it -- every PR in it has had a full 90 d to be
+#: decided by the time the envelope's own ``window_anchor`` was recorded.
+_DR90_COHORT_START_DAYS = 180
+_DR90_COHORT_END_DAYS = 90
+_DR90_DECISION_WINDOW_DAYS = 90
+
+#: 1.2 DR_90's ``method``: ``"primary"``, like the other pr_window-derived
+#: rows (:func:`_resolve_ttfhr_hours`, :func:`_resolve_ttm_p90_hours`,
+#: :func:`_resolve_substantive_review_rate`) -- this is the row's one and
+#: only defined methodology (D-MISS-4 reserves ``"proxy:<name>"`` for a
+#: *documented alternate* methodology such as 4.1's review/CI proxy; this
+#: cohort computation over the real, collected pr_window envelope is not
+#: that, it is the primary and only measurement 1.2 has). The packet
+#: (W2-12) that authored this row specified a longer descriptive ``method``
+#: string naming the cohort interval and the D-IN-3 caveat directly, but
+#: ``Measured.__post_init__`` (``cvi.core.models.measured_problems``)
+#: rejects any ``method`` other than exactly ``"primary"`` or a
+#: ``"proxy:"``-prefixed one -- a whole-codebase invariant, not something
+#: this row can special-case. The caveat that matters (author eligibility,
+#: D-IN-3, is not applied yet -- every external author counts, pending
+#: W3-1) is preserved here and on :func:`_resolve_dr90_decision_rate`
+#: instead of in the method string.
+_DR90_METHOD = constants_v2.METHOD_PRIMARY
+
+
+def _dr90_decision_cohort(
+    data: Mapping[str, Any], anchor: datetime.datetime
+) -> tuple[int, int, int]:
+    """1.2 DR_90's cohort and decision count over the raw pr_window envelope.
+
+    Joins ``derived[].is_external`` with ``prs[].{createdAt,mergedAt,closedAt}``
+    by PR ``number`` -- the same by-number join :func:`_merged_external_latency_hours`
+    uses for 1.5. The cohort is every external PR whose ``createdAt`` falls
+    in the half-open interval ``[anchor - 180d, anchor - 90d)``: the lower
+    bound is inclusive (a PR opened exactly 180 d ago is still inside the
+    W1-3 collector's trailing window), the upper bound is exclusive (a PR
+    opened exactly 90 d ago has not yet had the full 90 d every cohort
+    member is owed to be decided, so it is left for a later snapshot rather
+    than measured early -- this is the amendment's whole point). A cohort
+    member is decided when ``mergedAt`` or ``closedAt`` is no more than
+    90 d after its own ``createdAt``, inclusive (exactly 90 d counts as
+    decided). A PR whose ``createdAt`` is missing or does not parse as
+    ISO-8601 cannot be windowed at all and is dropped from the cohort,
+    counted separately (``malformed``) so the caller can name it in an
+    ``insufficient_n`` detail instead of silently shrinking ``n`` with no
+    explanation.
+
+    Returns ``(decided_count, cohort_size, malformed_count)``.
+    """
+    classified = {
+        entry.get("number"): entry
+        for entry in (data.get("derived") or [])
+        if isinstance(entry, Mapping) and entry.get("number") is not None
+    }
+    cohort_start = anchor - timedelta(days=_DR90_COHORT_START_DAYS)
+    cohort_end = anchor - timedelta(days=_DR90_COHORT_END_DAYS)
+    decision_window = timedelta(days=_DR90_DECISION_WINDOW_DAYS)
+    decided = 0
+    cohort = 0
+    malformed = 0
+    for pr in data.get("prs") or []:
+        if not isinstance(pr, Mapping):
+            continue
+        info = classified.get(pr.get("number"))
+        if not info or not info.get("is_external"):
+            continue
+        created = _parse_iso_or_none(pr.get("createdAt"))
+        if created is None:
+            malformed += 1
+            continue
+        if not (cohort_start <= created < cohort_end):
+            continue
+        cohort += 1
+        merged = _parse_iso_or_none(pr.get("mergedAt"))
+        closed = _parse_iso_or_none(pr.get("closedAt"))
+        decided_by_merge = merged is not None and merged >= created and merged - created <= decision_window
+        decided_by_close = closed is not None and closed >= created and closed - created <= decision_window
+        if decided_by_merge or decided_by_close:
+            decided += 1
+    return decided, cohort, malformed
+
+
+def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """1.2 DR_90 decision rate (D-IN-4 amendment, 2026-09-13). No v1 summary
+    field exists for this cohort (the v1 pipeline never computed it): both
+    the value and ``n`` are computed here from the raw pr_window envelope
+    via :func:`_dr90_decision_cohort`. Author eligibility (D-IN-3) is not
+    yet applied -- packet W3-1 -- so today every external author counts;
+    see :data:`_DR90_METHOD` for why that caveat lives in this docstring
+    and not in the ``Measured.method`` value itself."""
+    path, data, fetched_at = _pr_window_envelope(ctx)
+    if path is None:
+        return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
+    anchor = _parse_iso_or_none(data.get("window_anchor"))
+    if anchor is None:
+        return Unmeasured(
+            reason="collector_failure",
+            detail=f"pr_window envelope has no parseable window_anchor: {data.get('window_anchor')!r}",
+        )
+    decided, cohort, malformed = _dr90_decision_cohort(data, anchor)
+    min_n = constants_v2.PARAM_MIN_N["dr90_decision_rate"]
+    if cohort < min_n:
+        detail = f"{cohort} external PRs in the decision cohort, need >= {min_n}"
+        if malformed:
+            detail += f" ({malformed} excluded: malformed or missing createdAt)"
+        return Unmeasured(reason="insufficient_n", detail=detail)
+    window_start = (anchor - timedelta(days=_DR90_COHORT_START_DAYS)).isoformat()
+    window_end = (anchor - timedelta(days=_DR90_COHORT_END_DAYS)).isoformat()
+    source_hash = _envelope_hash(path)
+    ctx.referenced[str(path)] = source_hash
+    return Measured(
+        value=round(decided / cohort, 4), n=cohort, window_start=window_start, window_end=window_end,
+        method=_DR90_METHOD, source=str(path), source_hash=source_hash, fetched_at=fetched_at,
+    )
+
+
 def _nearest_rank_p90(values: list[float]) -> float:
     """Nearest-rank p90 (``ceil(0.9N)``, 1-indexed) over ``values`` (D-NORM,
     1.5 TTM_p90)."""
@@ -1014,7 +1140,7 @@ def _unmapped(detail: str) -> InputResolver:
 #: | Input id | Reads | When absent |
 #: |---|---|---|
 #: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count (W1-3) | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
-#: | dr90_decision_rate | (none landed) | collector_failure: needs [now-270d,now-90d], outside the 180d window W1-3 collects |
+#: | dr90_decision_rate | raw pr_window envelope: derived[].is_external joined with prs[].{createdAt,mergedAt,closedAt} by number, cohort [anchor-180d,anchor-90d) (W2-12, D-IN-4 amendment) | no envelope -> collector_failure; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
 #: | mr_first_rate | (none landed) | collector_failure: needs W1-4 author history |
 #: | gr14_ghost_rate | (none landed) | collector_failure: needs a snapshot as_of the v1-to-v2 loader is never given (04 section 8) |
 #: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number (W1-3) | no envelope -> collector_failure; n<5 -> insufficient_n |
@@ -1033,10 +1159,7 @@ def _unmapped(detail: str) -> InputResolver:
 #: | dx | (none landed) | collector_failure: v1 has CI runtime only, not the setup-signal half |
 INPUT_MAPPINGS: dict[str, InputResolver] = {
     "ttfhr_hours": _resolve_ttfhr_hours,
-    "dr90_decision_rate": _unmapped(
-        "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], "
-        "outside the landed W1-3 collector's trailing-180d window"
-    ),
+    "dr90_decision_rate": _resolve_dr90_decision_rate,
     "mr_first_rate": _unmapped("needs W1-4 author history; the v1 pipeline collected none"),
     "gr14_ghost_rate": _unmapped(
         "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no "

@@ -5,15 +5,15 @@ Each test builds a hand-controlled v1 derived-file document (see
 and asserts the exact ``Measured``/``Unmeasured`` value produced for that one
 v2 input id -- every field pinned, nothing left to shape-only assertions.
 
-Twelve rows have a real resolver with both a positive (Measured) and at
-least one negative (Unmeasured) path: ``ttfhr_hours``, ``ttm_p90_hours``,
-``dependents_deduped``, ``openssf_criticality`` (W1-7, W2-9f),
-``downloads_monthly``, ``legal_ip``, ``elephant_factor``,
+Thirteen rows have a real resolver with both a positive (Measured) and at
+least one negative (Unmeasured) path: ``ttfhr_hours``, ``dr90_decision_rate``
+(W2-12), ``ttm_p90_hours``, ``dependents_deduped``, ``openssf_criticality``
+(W1-7, W2-9f), ``downloads_monthly``, ``legal_ip``, ``elephant_factor``,
 ``promotion_ladder``, ``pipeline_defenses`` (W1-7, W2-9f), ``ai_posture``,
-``substantive_review_rate``, ``newcomer_issue_supply``. Six rows have no
+``substantive_review_rate``, ``newcomer_issue_supply``. Five rows have no
 landed producer yet and are a constant ``Unmeasured(collector_failure, ...)``
-regardless of document content: ``dr90_decision_rate``, ``mr_first_rate``,
-``gr14_ghost_rate``, ``newcomer_conversion``, ``rr90_return_rate``, ``dx``.
+regardless of document content: ``mr_first_rate``, ``gr14_ghost_rate``,
+``newcomer_conversion``, ``rr90_return_rate``, ``dx``.
 """
 from __future__ import annotations
 
@@ -1021,17 +1021,13 @@ def test_pipeline_defenses_n_feeds_the_rigor_min_n_gate(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# The six rows with no landed producer: a constant Unmeasured regardless of  #
+# The five rows with no landed producer: a constant Unmeasured regardless of #
 # document content. Two very different documents (empty, and one carrying    #
 # unrelated data for every other row) land on the exact same value, proving  #
 # these rows do not branch on anything in the fixture.                       #
 # --------------------------------------------------------------------------- #
 
 _UNMAPPED_ROWS = {
-    "dr90_decision_rate": (
-        "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], "
-        "outside the landed W1-3 collector's trailing-180d window"
-    ),
     "mr_first_rate": "needs W1-4 author history; the v1 pipeline collected none",
     "gr14_ghost_rate": (
         "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no "
@@ -1068,3 +1064,144 @@ def test_unmapped_row_is_constant(tmp_path: Path, input_id: str, detail: str) ->
         write_envelope(tmp_path / "raw", collector, "acme__busy", data, "2026-09-01T00:05:00+00:00")
     busy_bundle = load(tmp_path, busy_doc, key="acme__busy")
     assert busy_bundle.inputs[input_id] == Unmeasured(reason="collector_failure", detail=detail)
+
+
+# --------------------------------------------------------------------------- #
+# 1.2 dr90_decision_rate (W2-12, D-IN-4 amendment 2026-09-13)                 #
+#                                                                              #
+# All fixtures share the same pr_window envelope anchor as the ttfhr/ttm_p90  #
+# fixtures above ("2026-09-01T00:00:00+00:00", ``pr_window_data``'s default), #
+# so the cohort bounds are fixed throughout: cohort_start = anchor-180d =     #
+# "2026-03-05T00:00:00+00:00" (the same window_start ttfhr pins above) and    #
+# cohort_end = anchor-90d = "2026-06-03T00:00:00+00:00".                      #
+# --------------------------------------------------------------------------- #
+
+_DR90_WINDOW_START = "2026-03-05T00:00:00+00:00"
+_DR90_WINDOW_END = "2026-06-03T00:00:00+00:00"
+#: "primary", not a longer descriptive string -- cvi.core.models.measured_
+#: problems rejects any Measured.method other than "primary" or a
+#: "proxy:"-prefixed one (see cvi/derive/bundle.py's _DR90_METHOD comment).
+_DR90_METHOD = "primary"
+
+#: Ten external PRs opened 100-109 d before the anchor (comfortably inside
+#: the cohort, away from every boundary tested separately below). Decision
+#: outcomes are chosen to exercise every path _dr90_decision_cohort branches
+#: on: #100 decided by mergedAt (20 d, well inside 90), #101 decided by
+#: closedAt ALONE (mergedAt absent -- kills an "ignores closedAt" mutant),
+#: #102 decided at exactly 90 d (the decision-window's own inclusive
+#: boundary), #103 NOT decided at 91 d (one day over), #104 decided at 30 d,
+#: #105-107 still open (no mergedAt/closedAt at all), #108 eventually merged
+#: but 200 d later (long past the 90 d decision window -- a late merge is
+#: not a fast decision), #109 still open. Decided: 100, 101, 102, 104 = 4 of
+#: 10, r = 0.4.
+_DR90_PRS = [
+    {"number": 100, "createdAt": "2026-05-24T00:00:00+00:00", "mergedAt": "2026-06-13T00:00:00+00:00"},
+    {"number": 101, "createdAt": "2026-05-23T00:00:00+00:00", "closedAt": "2026-06-07T00:00:00+00:00"},
+    {"number": 102, "createdAt": "2026-05-22T00:00:00+00:00", "mergedAt": "2026-08-20T00:00:00+00:00"},
+    {"number": 103, "createdAt": "2026-05-21T00:00:00+00:00", "mergedAt": "2026-08-20T00:00:00+00:00"},
+    {"number": 104, "createdAt": "2026-05-20T00:00:00+00:00", "mergedAt": "2026-06-19T00:00:00+00:00"},
+    {"number": 105, "createdAt": "2026-05-19T00:00:00+00:00"},
+    {"number": 106, "createdAt": "2026-05-18T00:00:00+00:00"},
+    {"number": 107, "createdAt": "2026-05-17T00:00:00+00:00"},
+    {"number": 108, "createdAt": "2026-05-16T00:00:00+00:00", "mergedAt": "2026-12-02T00:00:00+00:00"},
+    {"number": 109, "createdAt": "2026-05-15T00:00:00+00:00"},
+]
+_DR90_DERIVED = [{"number": n, "is_external": True} for n in range(100, 110)]
+
+
+def test_dr90_decision_rate(tmp_path: Path) -> None:
+    data = pr_window_data(prs=_DR90_PRS, derived=_DR90_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__widget", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(provenance={"pr_window_count": prov("pr_window")})
+    bundle = load(tmp_path, doc)
+    assert bundle.inputs["dr90_decision_rate"] == Measured(
+        value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
+        method=_DR90_METHOD, source=str(tmp_path / "raw" / "pr_window" / "acme__widget.json"),
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+    # Negative: no pr_window envelope at all (W1-3 hook never ran here).
+    no_envelope_bundle = load(tmp_path, base_document(), key="acme__no-window")
+    assert no_envelope_bundle.inputs["dr90_decision_rate"] == Unmeasured(
+        reason="collector_failure", detail=PR_WINDOW_UNRESOLVABLE_DETAIL,
+    )
+
+
+#: The cohort-membership boundary fixture: PRs opened 89/90/91/179/180/181 d
+#: before the anchor, all external, plus an internal PR opened 150 d before
+#: the anchor (inside the date range but must be excluded by is_external)
+#: and an external PR opened 250 d before the anchor (well outside either
+#: edge). Only 91/179/180 fall in the half-open cohort window
+#: [anchor-180d, anchor-90d): 89 and 90 are too recent (not yet owed a full
+#: 90 d to be decided), 181 is older than the collected 180 d window, 150's
+#: internal author excludes it regardless of its in-range date, and 250 is
+#: far outside either edge. Decision outcomes are irrelevant here (left
+#: open) since n=3 is below PARAM_MIN_N and never surfaces r.
+_DR90_BOUNDARY_PRS = [
+    {"number": 89, "createdAt": "2026-06-04T00:00:00+00:00"},
+    {"number": 90, "createdAt": "2026-06-03T00:00:00+00:00"},
+    {"number": 91, "createdAt": "2026-06-02T00:00:00+00:00"},
+    {"number": 179, "createdAt": "2026-03-06T00:00:00+00:00"},
+    {"number": 180, "createdAt": "2026-03-05T00:00:00+00:00"},
+    {"number": 181, "createdAt": "2026-03-04T00:00:00+00:00"},
+    {"number": 150, "createdAt": "2026-04-04T00:00:00+00:00"},  # internal, in-range date
+    {"number": 250, "createdAt": "2025-12-25T00:00:00+00:00"},  # external, far outside
+]
+_DR90_BOUNDARY_DERIVED = [
+    {"number": 89, "is_external": True},
+    {"number": 90, "is_external": True},
+    {"number": 91, "is_external": True},
+    {"number": 179, "is_external": True},
+    {"number": 180, "is_external": True},
+    {"number": 181, "is_external": True},
+    {"number": 150, "is_external": False},
+    {"number": 250, "is_external": True},
+]
+
+
+def test_dr90_decision_rate_cohort_window_boundaries(tmp_path: Path) -> None:
+    """Pins the half-open cohort interval's exact edges and the is_external
+    filter in one fixture: only PR numbers 91, 179 and 180 (opened 91/179/
+    180 d before the anchor) belong to the cohort, so n=3, below
+    PARAM_MIN_N=10 -- an off-by-one on either edge, or a dropped
+    is_external check (which would additionally admit the internal #150),
+    changes the exact count named in this Unmeasured detail."""
+    data = pr_window_data(prs=_DR90_BOUNDARY_PRS, derived=_DR90_BOUNDARY_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__boundary", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__boundary")})
+    bundle = load(tmp_path, doc, key="acme__boundary")
+    assert bundle.inputs["dr90_decision_rate"] == Unmeasured(
+        reason="insufficient_n", detail="3 external PRs in the decision cohort, need >= 10",
+    )
+
+
+#: Eight valid, comfortably in-cohort external PRs plus one external PR with
+#: no createdAt at all and one with a createdAt that does not parse as
+#: ISO-8601 -- both must be dropped from the cohort (n=8, not 10) and both
+#: counted in the insufficient_n detail, not silently absorbed into a wrong
+#: n.
+_DR90_MALFORMED_PRS = [
+    {"number": 100, "createdAt": "2026-05-24T00:00:00+00:00"},
+    {"number": 101, "createdAt": "2026-05-23T00:00:00+00:00"},
+    {"number": 102, "createdAt": "2026-05-22T00:00:00+00:00"},
+    {"number": 103, "createdAt": "2026-05-21T00:00:00+00:00"},
+    {"number": 104, "createdAt": "2026-05-20T00:00:00+00:00"},
+    {"number": 105, "createdAt": "2026-05-19T00:00:00+00:00"},
+    {"number": 106, "createdAt": "2026-05-18T00:00:00+00:00"},
+    {"number": 107, "createdAt": "2026-05-17T00:00:00+00:00"},
+    {"number": 900, "createdAt": None},
+    {"number": 901, "createdAt": "not-a-timestamp"},
+]
+_DR90_MALFORMED_DERIVED = [{"number": n, "is_external": True} for n in (100, 101, 102, 103, 104, 105, 106, 107, 900, 901)]
+
+
+def test_dr90_decision_rate_malformed_created_at_excluded_and_named(tmp_path: Path) -> None:
+    data = pr_window_data(prs=_DR90_MALFORMED_PRS, derived=_DR90_MALFORMED_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__malformed", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__malformed")})
+    bundle = load(tmp_path, doc, key="acme__malformed")
+    assert bundle.inputs["dr90_decision_rate"] == Unmeasured(
+        reason="insufficient_n",
+        detail="8 external PRs in the decision cohort, need >= 10 "
+               "(2 excluded: malformed or missing createdAt)",
+    )

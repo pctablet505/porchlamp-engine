@@ -26,7 +26,7 @@
       "window_start": null
     },
     "dr90_decision_rate": {
-      "detail": "v2 parameter; D-IN-4's decision-rate cohort is PRs opened in [now-270d, now-90d], outside the landed W1-3 collector's trailing-180d window",
+      "detail": "pr_window envelope not resolvable (W1-3 hook did not run for this repo, or raw_root cannot resolve the recorded source to a file)",
       "kind": "unmeasured",
       "reason": "collector_failure"
     },
