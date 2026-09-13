@@ -27,13 +27,13 @@ or neither:
   `snapshot_meta`, over `cvi.lakehouse.OperationalStore`.
 
   `_FIXTURE_CLOCK_SENTINEL` is a LITERAL, frozen here rather than imported
-  from `cvi.benchmark_data.BENCHMARK_NOW` (the `.agents/W4-1/inventory.md`
-  recommendation, §5: `cvi/benchmark_data.py` is scheduled to move under
-  `tests/fixtures/synthetic_catalog.py`, "never importable from `cvi/`",
-  and this guard's whole security property is a stamp only the FIXTURE
-  seeder ever writes -- a production module importing the fixture module,
-  in either direction, is exactly backwards). `tests/serve/
-  test_guard.py::test_fixture_clock_sentinel_matches_benchmark_data`
+  from `tests.fixtures.synthetic_catalog.BENCHMARK_NOW` (W4-1 moved
+  `cvi/benchmark_data.py` there per the `.agents/W4-1/inventory.md`
+  recommendation, §5: "never importable from `cvi/`", since this guard's
+  whole security property is a stamp only the FIXTURE seeder ever writes
+  -- a production module importing the fixture module, in either
+  direction, is exactly backwards). `tests/serve/
+  test_guard.py::test_fixture_clock_sentinel_matches_synthetic_catalog`
   asserts the two values stay byte-identical so they can never silently
   drift apart.
 
@@ -80,7 +80,7 @@ __all__ = [
     "run_guard",
 ]
 
-#: `cvi.benchmark_data.BENCHMARK_NOW`'s value, frozen as a literal here --
+#: `tests.fixtures.synthetic_catalog.BENCHMARK_NOW`'s value, frozen as a literal here --
 #: see the module docstring for why this is not an import.
 _FIXTURE_CLOCK_SENTINEL: datetime = datetime(2026, 9, 11, 12, 0, 0)
 _FIXTURE_MARKER: str = _FIXTURE_CLOCK_SENTINEL.isoformat()
@@ -153,7 +153,7 @@ def refusal_reasons(store: OperationalStore, db_path: str) -> List[str]:
         total = count_repos(store)
         _id, owner, name = fixtures[0]
         reasons.append(
-            f"{len(fixtures)} of {total} rows carry the cvi/benchmark_data.py "
+            f"{len(fixtures)} of {total} rows carry the tests/fixtures/synthetic_catalog.py "
             f"fixture clock (last_indexed_at={_FIXTURE_MARKER}): row {_id} "
             f"{owner}/{name} is fabricated telemetry, which is a test fixture "
             "and never a ranking source")
@@ -240,7 +240,7 @@ def _v1_fixture_reasons(conn: sqlite3.Connection) -> List[str]:
         total = conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
         row_id, owner, name = rows[0]
         reasons.append(
-            f"{len(rows)} of {total} rows in {table!r} carry the cvi/benchmark_data.py "
+            f"{len(rows)} of {total} rows in {table!r} carry the tests/fixtures/synthetic_catalog.py "
             f"fixture clock (last_indexed_at={_FIXTURE_MARKER}): row {row_id} "
             f"{owner}/{name} is fabricated telemetry, which is a test fixture "
             "and never a ranking source")

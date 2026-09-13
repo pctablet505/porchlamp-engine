@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
 from cvi.api import create_app
-from cvi.benchmark_data import build_benchmark_store
+from tests.fixtures.synthetic_catalog import build_benchmark_store
 from cvi.lakehouse import OperationalStore
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent

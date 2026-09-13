@@ -1,4 +1,6 @@
-"""Tests for cvi.benchmark_data: Top 1,000 benchmark dataset and seeder.
+"""Tests for tests.fixtures.synthetic_catalog (W4-1: moved from
+cvi/benchmark_data.py -- never importable from cvi/, per
+04-ARCHITECTURE.md section 2): Top 1,000 benchmark dataset and seeder.
 
 Verifies:
 - Exactly 1,000 repositories across 6 ecosystems (pypi, npm, crates, go, maven, systems).
@@ -14,15 +16,14 @@ import collections
 import time
 from datetime import datetime
 
-
-from cvi.benchmark_data import (
+from cvi.lakehouse import OperationalStore
+from cvi.models import Ecosystem, Quadrant, Tier
+from tests.fixtures.synthetic_catalog import (
     build_benchmark_store,
     generate_synthetic_pr_events,
     get_benchmark_catalog,
     seed_benchmark_store,
 )
-from cvi.lakehouse import OperationalStore
-from cvi.models import Ecosystem, Quadrant, Tier
 
 
 def test_catalog_total_and_slice() -> None:
@@ -149,7 +150,7 @@ def test_ground_truth_gentoo() -> None:
 
 
 def test_benchmark_module_exports_and_generate() -> None:
-    from cvi.benchmark_data import (
+    from tests.fixtures.synthetic_catalog import (
         generate_benchmark_catalog,
     )
     cat = generate_benchmark_catalog()
@@ -219,7 +220,7 @@ def test_build_benchmark_store_helper() -> None:
 
 
 def test_pinned_scorers() -> None:
-    from cvi.benchmark_data import _pinned_scorers
+    from tests.fixtures.synthetic_catalog import _pinned_scorers
     scorers = _pinned_scorers((10.0, 20.0, 30.0, 40.0, 50.0))
     assert scorers["responsiveness"]() == 10.0
     assert scorers["criticality"]() == 20.0
@@ -229,7 +230,7 @@ def test_pinned_scorers() -> None:
 
 
 def test_synthetic_collision_resolution(monkeypatch) -> None:
-    import cvi.benchmark_data as bd
+    import tests.fixtures.synthetic_catalog as bd
     collision_repo = (
         "py-data", "tensor-opt-core", bd.Ecosystem.PYPI, bd.Quadrant.SWEET_SPOT, bd.Tier.S,
         (90.0, 90.0, 90.0, 90.0, 90.0), 1000, 100, 1000, 10, 3,

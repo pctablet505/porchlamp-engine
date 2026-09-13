@@ -700,7 +700,7 @@ class TestPaginationMonotonicityUnderAllPersonas:
 
     @pytest.mark.parametrize("persona", list(Persona))
     def test_persona_leaderboard_monotonicity(self, persona: Persona) -> None:
-        from cvi.benchmark_data import BENCHMARK_NOW, generate_benchmark_catalog, seed_benchmark_catalog
+        from tests.fixtures.synthetic_catalog import BENCHMARK_NOW, generate_benchmark_catalog, seed_benchmark_catalog
 
         store = OperationalStore(":memory:")
         catalog = generate_benchmark_catalog()
@@ -737,7 +737,7 @@ class TestConcurrentPersonaReprojectionStress:
     def test_concurrent_persona_deep_offsets(self) -> None:
         import concurrent.futures
         import tempfile
-        from cvi.benchmark_data import BENCHMARK_NOW, generate_benchmark_catalog, seed_benchmark_catalog
+        from tests.fixtures.synthetic_catalog import BENCHMARK_NOW, generate_benchmark_catalog, seed_benchmark_catalog
 
         with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
             init_store = OperationalStore(tmp.name)

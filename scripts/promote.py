@@ -38,9 +38,10 @@ time; :func:`resolved_as_of` refuses a mismatch instead of letting
 ``snapshot_meta`` record a value nothing scored against.
 
 Round 3 (Blocker-1): a promotion's output was made pure -- exactly its
-manifest-covered bundles, never rows a prior seed (``cvi/benchmark_data.py``,
-``scripts/demo_app.py``) left behind -- via an in-place
-``DELETE FROM repositories`` before any row was written.
+manifest-covered bundles, never rows a prior seed
+(``tests/fixtures/synthetic_catalog.py``, ``scripts/demo_app.py``) left
+behind -- via an in-place ``DELETE FROM repositories`` before any row was
+written.
 
 Round 4 (Blocker-1): the ``from scripts.verify import ...`` below needs the
 repo root on ``sys.path`` -- ``scripts/`` is not a package, so running this

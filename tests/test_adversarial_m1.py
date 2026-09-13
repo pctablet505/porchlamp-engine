@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from cvi.benchmark_data import (
+from tests.fixtures.synthetic_catalog import (
     build_benchmark_store,
     generate_benchmark_catalog,
     seed_benchmark_store,

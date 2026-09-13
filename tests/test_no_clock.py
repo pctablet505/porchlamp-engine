@@ -51,10 +51,15 @@ CLOCK_RE = re.compile(
 # the rate limiter's ``time.monotonic`` defaults there from ``cvi/
 # ingest.py``, which no longer needs an exemption at all -- it has zero
 # clock tokens of its own left, see ``_sources()``'s directory filter).
+#
+# EXCLUDED_MODULES is empty as of W4-1: ``benchmark_data.py`` (the fixture
+# clock's single definition, R-2) moved to ``tests/fixtures/
+# synthetic_catalog.py`` -- outside ``CVI_PKG`` entirely, so ``_sources()``
+# never sees it and it needs no per-module entry any more than any other
+# test file does. The mechanism stays in place for a future module that
+# legitimately needs it.
 EXCLUDED_DIRS = {"collect", "serve"}
-EXCLUDED_MODULES = {
-    "benchmark_data.py": "single definition of the fixture clock (R-2)",
-}
+EXCLUDED_MODULES: dict[str, str] = {}
 
 NOW = datetime(2026, 9, 11, 12, 0, 0)
 
@@ -138,13 +143,16 @@ def test_exempt_modules_actually_own_a_clock() -> None:
 
     If a module below stops owning a clock this test goes red, which forces a
     re-read of the exemption instead of letting it rot into a blind spot.
+
+    W4-1: EXCLUDED_MODULES is now empty (its one entry, benchmark_data.py,
+    moved out of cvi/ entirely) -- this assertion is correctly vacuous
+    until a future module needs a per-module exemption again; the loop
+    below still runs so a re-added entry is immediately checked.
     """
     paths = [
         CVI_PKG / name for name in sorted(EXCLUDED_MODULES) if (CVI_PKG / name).is_file()
     ]
-    assert {hit.rsplit(":", 1)[0] for hit in _offenders(paths)} == {
-        "cvi/benchmark_data.py",
-    }
+    assert {hit.rsplit(":", 1)[0] for hit in _offenders(paths)} == set()
 
 
 @pytest.mark.parametrize(

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -32,10 +33,15 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+# W4-1: build_benchmark_store now lives under tests/fixtures/ (never
+# importable from cvi/, per 04-ARCHITECTURE.md section 2 -- synthetic
+# data is a test fixture only). `tests` is not installed, so the repo
+# root goes on sys.path here the same way scripts/promote.py already
+# does, keeping `.venv/bin/python scripts/demo_app.py` runnable standalone
+# without requiring PYTHONPATH=$PWD.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from cvi.api import create_app
-from cvi.benchmark_data import (
-    build_benchmark_store,
-)
 from cvi.deepdive import build_deep_dive
 from cvi.engine import PILLAR_NAMES, score_repository
 from cvi.lakehouse import OperationalStore, apply_raw_metrics
@@ -48,6 +54,7 @@ from cvi.models import (
     RawPREvent,
     RepoMeta,
 )
+from tests.fixtures.synthetic_catalog import build_benchmark_store
 
 #: Fixed "now" for the demo: keeps ghost-rate math and last_indexed_at
 #: deterministic across runs.
@@ -61,7 +68,7 @@ _WEB_DIR: Path = _REPO_ROOT / "web"
 # --------------------------------------------------------------------------- #
 # 26 deterministic repos. Each entry pins the five pillar scores (P1
 # responsiveness, P2 criticality, P3 governance, P4 rigor, P5 accessibility)
-# plus the raw metrics hydrated via cvi.ingest.apply_raw_metrics.
+# plus the raw metrics hydrated via cvi.lakehouse.apply_raw_metrics.
 #
 # Quadrant spread (boundary 50, >= counts as high):
 #   Sweet Spot  (10): high leverage, low friction   — e.g. atlas-core (91.5, 11.9)

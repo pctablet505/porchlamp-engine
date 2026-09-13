@@ -36,7 +36,7 @@ from typing import Any
 
 import pytest
 
-from cvi.benchmark_data import build_benchmark_store, generate_benchmark_catalog
+from tests.fixtures.synthetic_catalog import build_benchmark_store, generate_benchmark_catalog
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WEB_INDEX_HTML = REPO_ROOT / "web" / "index.html"

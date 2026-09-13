@@ -36,12 +36,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from cvi.api import create_app
-from cvi.benchmark_data import BENCHMARK_NOW, get_benchmark_catalog, seed_benchmark_catalog
 from cvi.lakehouse import OperationalStore, apply_raw_metrics, repositories_dump_hash
 from cvi.models import CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
 from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest
 from scripts import serve
 from scripts.serve import count_repos, create_serve_app
+from tests.fixtures.synthetic_catalog import BENCHMARK_NOW, get_benchmark_catalog, seed_benchmark_catalog
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("promote", ROOT / "scripts" / "promote.py")
@@ -231,7 +231,7 @@ def test_fixture_database_is_refused_naming_the_row(tmp_path, served):
     assert len(reasons) == 1
     offending = f"{rows[0]['owner']}/{rows[0]['name']}"
     assert offending in reasons[0]
-    assert "benchmark_data" in reasons[0]
+    assert "synthetic_catalog" in reasons[0]
 
     with pytest.raises(SystemExit) as excinfo:
         serve.main(["--db", str(db)])
@@ -255,7 +255,7 @@ def test_renaming_fixture_owners_does_not_evade_the_marker(tmp_path, served):
     conn.close()
 
     reasons = serve.refusal_reasons(OperationalStore(str(db)), str(db))
-    assert any("benchmark_data" in r for r in reasons)
+    assert any("synthetic_catalog" in r for r in reasons)
     with pytest.raises(SystemExit):
         serve.main(["--db", str(db)])
     assert served.ports == []
@@ -488,7 +488,7 @@ def test_seed_then_promote_serves_only_the_real_rows(tmp_path, served):
     conn.close()
 
     reasons = serve.refusal_reasons(OperationalStore(str(db)), str(db))
-    assert any("benchmark_data" in r for r in reasons)
+    assert any("synthetic_catalog" in r for r in reasons)
     offending = f"{row['owner']}/{row['name']}"
     assert any(offending in r for r in reasons)
     with pytest.raises(SystemExit):

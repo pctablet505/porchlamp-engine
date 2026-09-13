@@ -3,8 +3,9 @@
 The v1 guard's OWN behaviour (fixture-clock, content-hash, message format)
 is already pinned by `tests/test_serve.py` through `scripts.serve`'s
 re-exports -- this file adds only what moved/is new: the frozen fixture-
-clock sentinel never drifting from `cvi.benchmark_data.BENCHMARK_NOW`, and
-the v2 guard (Blocker B-4) itself.
+clock sentinel never drifting from
+`tests.fixtures.synthetic_catalog.BENCHMARK_NOW` (W4-1: moved from
+`cvi/benchmark_data.py`), and the v2 guard (Blocker B-4) itself.
 """
 from __future__ import annotations
 
@@ -22,12 +23,13 @@ from cvi.store.writer import finalize_snapshot_hash
 from serve.helpers import SNAPSHOT_ID, build_snapshot, fresh_db
 
 
-def test_fixture_clock_sentinel_matches_benchmark_data():
+def test_fixture_clock_sentinel_matches_synthetic_catalog():
     """`.agents/W4-1/inventory.md` §5's recommendation: the guard freezes
-    its own literal rather than importing `cvi.benchmark_data.
-    BENCHMARK_NOW` across the production/test boundary -- this test is
-    the only thing standing between that literal and silent drift."""
-    from cvi.benchmark_data import BENCHMARK_NOW
+    its own literal rather than importing
+    `tests.fixtures.synthetic_catalog.BENCHMARK_NOW` across the
+    production/test boundary -- this test is the only thing standing
+    between that literal and silent drift."""
+    from tests.fixtures.synthetic_catalog import BENCHMARK_NOW
 
     assert guard._FIXTURE_CLOCK_SENTINEL == BENCHMARK_NOW
     assert guard._FIXTURE_MARKER == BENCHMARK_NOW.isoformat()

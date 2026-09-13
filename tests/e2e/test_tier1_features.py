@@ -18,7 +18,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from cvi.benchmark_data import build_benchmark_store
+from tests.fixtures.synthetic_catalog import build_benchmark_store
 from cvi.constants import (
     FRICTION_WEIGHTS,
     LEVERAGE_WEIGHTS,

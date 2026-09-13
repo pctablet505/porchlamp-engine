@@ -620,7 +620,7 @@ def test_all_1000_benchmark_repositories_playbooks() -> None:
     """Verify invariants hold across all 1,000 seeded benchmark catalog repositories."""
     import json
     from cvi.lakehouse import OperationalStore
-    from cvi.benchmark_data import seed_benchmark_store
+    from tests.fixtures.synthetic_catalog import seed_benchmark_store
 
     store = OperationalStore()
     seed_benchmark_store(store, count=1000)
@@ -670,7 +670,7 @@ def test_landmark_repositories_playbook_recovery() -> None:
     """Verify specific landmark projects exhibit correct playbook projections."""
     import json
     from cvi.lakehouse import OperationalStore
-    from cvi.benchmark_data import seed_benchmark_store
+    from tests.fixtures.synthetic_catalog import seed_benchmark_store
 
     store = OperationalStore()
     seed_benchmark_store(store, count=1000)

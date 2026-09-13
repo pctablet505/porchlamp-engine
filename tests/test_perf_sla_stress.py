@@ -29,7 +29,7 @@ import pytest
 import uvicorn
 
 from cvi.api import create_app
-from cvi.benchmark_data import (
+from tests.fixtures.synthetic_catalog import (
     build_benchmark_store,
     generate_benchmark_catalog,
     seed_benchmark_store,
