@@ -26,22 +26,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
+from cvi.core import constants_v2
 from cvi.core.models import PillarScore
 
-#: D-MAT-1 leverage weights (kept from v1's LEVERAGE_WEIGHTS).
-LEVERAGE_WEIGHTS: dict[str, float] = {
-    "criticality": 0.50,
-    "rigor": 0.30,
-    "governance": 0.20,
-}
-#: D-MAT-1 friction weights (kept from v1's FRICTION_WEIGHTS).
-FRICTION_WEIGHTS: dict[str, float] = {
-    "responsiveness": 0.50,
-    "governance": 0.30,
-    "accessibility": 0.20,
-}
+#: D-MAT-1 leverage weights (kept from v1's LEVERAGE_WEIGHTS). Relocated to
+#: ``constants_v2`` by packet W2-8 (R-2); re-bound here under the original
+#: name.
+LEVERAGE_WEIGHTS: dict[str, float] = constants_v2.LEVERAGE_WEIGHTS
+#: D-MAT-1 friction weights (kept from v1's FRICTION_WEIGHTS). Relocated to
+#: ``constants_v2`` by packet W2-8 (R-2).
+FRICTION_WEIGHTS: dict[str, float] = constants_v2.FRICTION_WEIGHTS
 #: D-MAT-1 quadrant boundary; a coordinate exactly at the threshold is high.
-QUADRANT_THRESHOLD: float = 50.0
+#: Relocated to ``constants_v2`` by packet W2-8 (R-2).
+QUADRANT_THRESHOLD: float = constants_v2.QUADRANT_THRESHOLD
 
 #: D-MAT-1 quadrant labels (kept from v1's Quadrant enum values).
 QUADRANT_SWEET_SPOT: str = "Sweet Spot"

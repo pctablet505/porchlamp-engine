@@ -33,10 +33,9 @@ from cvi.core.normalize import mid_rank_ecdf
 
 #: D-NORM-2: minimum population per ecosystem; below it the population falls
 #: back to the global population and carries ``population_fallback``.
-#: ``cvi.core.constants_v2`` is owned by W2-1 and frozen by W2-8, so this
-#: module is the single definition of the threshold until that freeze
-#: relocates it (R-2, flagged for W2-8).
-MIN_POPULATION: int = 30
+#: Relocated to ``cvi.core.constants_v2.MIN_POPULATION`` by packet W2-8
+#: (R-2); re-bound here under the original name.
+MIN_POPULATION: int = constants_v2.MIN_POPULATION
 
 #: Version of the ``populations.json`` document (frozen snapshot artifact).
 POPULATIONS_DOCUMENT_VERSION: int = 1

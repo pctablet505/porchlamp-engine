@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Dict, Tuple
 
+from cvi.core import constants_v2
 from cvi.core.models import ParamScore, ParamValue
 from cvi.core.params.curves import (
     KIND_ENUM,
@@ -23,11 +24,9 @@ from cvi.core.params.curves import (
 )
 
 #: 4.2 posture scores, persona-conditional (02 section 4, spec v1 table).
-AI_POSTURE_SCORES: Dict[str, Dict[str, float]] = {
-    "REGULATED": {"human": 95.0, "ai": 95.0},
-    "PROSCRIBED": {"human": 85.0, "ai": 25.0},
-    "AD_HOC": {"human": 40.0, "ai": 40.0},
-}
+#: Relocated to ``constants_v2`` by packet W2-8 (R-2); re-bound here under
+#: the original name.
+AI_POSTURE_SCORES: Dict[str, Dict[str, float]] = constants_v2.AI_POSTURE_SCORES
 
 
 def _ai_posture_score(posture: str, persona: str) -> float:
@@ -40,17 +39,17 @@ def _ai_posture_score(posture: str, persona: str) -> float:
 _PIPELINE = ParamDef(
     input_id="pipeline_defenses",
     pillar="rigor",
-    weight=0.40,
+    weight=constants_v2.PARAM_WEIGHTS["pipeline_defenses"],
     kind=KIND_NUMERIC,
     score=clamped_identity,
-    proxy_min_n=10,
+    proxy_min_n=constants_v2.PIPELINE_DEFENSES_PROXY_MIN_N,
     domain=(0.0, 100.0),
     higher_is_better=True,
 )
 _AI_POSTURE = ParamDef(
     input_id="ai_posture",
     pillar="rigor",
-    weight=0.30,
+    weight=constants_v2.PARAM_WEIGHTS["ai_posture"],
     kind=KIND_ENUM,
     score=_ai_posture_score,
     persona_orders={
@@ -61,10 +60,10 @@ _AI_POSTURE = ParamDef(
 _SRR = ParamDef(
     input_id="substantive_review_rate",
     pillar="rigor",
-    weight=0.30,
+    weight=constants_v2.PARAM_WEIGHTS["substantive_review_rate"],
     kind=KIND_NUMERIC,
     score=fill_rate_score,
-    min_n=10,
+    min_n=constants_v2.PARAM_MIN_N["substantive_review_rate"],
     domain=(0.0, 1.0),
     higher_is_better=True,
 )

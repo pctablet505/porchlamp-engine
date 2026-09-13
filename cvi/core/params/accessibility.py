@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Tuple
 
+from cvi.core import constants_v2
 from cvi.core.models import ParamScore, ParamValue
 from cvi.core.params.curves import (
     KIND_NUMERIC,
@@ -21,8 +22,9 @@ from cvi.core.params.curves import (
 )
 
 #: 5.1 supply cap points: full marks at 10 open, unassigned, up-to-date
-#: newcomer issues.
-SUPPLY_SLOPE: float = 10.0
+#: newcomer issues. Relocated to ``constants_v2`` by packet W2-8 (R-2);
+#: re-bound here under the original name.
+SUPPLY_SLOPE: float = constants_v2.SUPPLY_SLOPE
 
 
 def _supply_score(count: float) -> float:
@@ -32,7 +34,7 @@ def _supply_score(count: float) -> float:
 _SUPPLY = ParamDef(
     input_id="newcomer_issue_supply",
     pillar="accessibility",
-    weight=0.35,
+    weight=constants_v2.PARAM_WEIGHTS["newcomer_issue_supply"],
     kind=KIND_NUMERIC,
     score=_supply_score,
     domain=(0.0, 20.0),
@@ -41,30 +43,30 @@ _SUPPLY = ParamDef(
 _CONVERSION = ParamDef(
     input_id="newcomer_conversion",
     pillar="accessibility",
-    weight=0.35,
+    weight=constants_v2.PARAM_WEIGHTS["newcomer_conversion"],
     kind=KIND_NUMERIC,
     score=cohort_rate_score,
-    min_n=5,
+    min_n=constants_v2.PARAM_MIN_N["newcomer_conversion"],
     domain=(0.0, 1.0),
     higher_is_better=True,
 )
 _RR90 = ParamDef(
     input_id="rr90_return_rate",
     pillar="accessibility",
-    weight=0.15,
+    weight=constants_v2.PARAM_WEIGHTS["rr90_return_rate"],
     kind=KIND_NUMERIC,
     score=cohort_rate_score,
-    min_n=5,
+    min_n=constants_v2.PARAM_MIN_N["rr90_return_rate"],
     domain=(0.0, 1.0),
     higher_is_better=True,
 )
 _DX = ParamDef(
     input_id="dx",
     pillar="accessibility",
-    weight=0.15,
+    weight=constants_v2.PARAM_WEIGHTS["dx"],
     kind=KIND_NUMERIC,
     score=clamped_identity,
-    min_n=5,
+    min_n=constants_v2.PARAM_MIN_N["dx"],
     domain=(0.0, 100.0),
     higher_is_better=True,
 )

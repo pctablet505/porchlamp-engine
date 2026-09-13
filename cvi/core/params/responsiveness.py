@@ -11,16 +11,18 @@ from __future__ import annotations
 import math
 from typing import Callable, Tuple
 
+from cvi.core import constants_v2
 from cvi.core.models import ParamScore, ParamValue
 from cvi.core.params.curves import KIND_ECDF, KIND_NUMERIC, ParamDef, _apply, fill_rate_score
 
 #: 1.1 TTFHR knee (02 section 4): full marks at 12 h or less of median
-#: opening-to-first-substantive-response time.
-TTFHR_KNEE_HOURS: float = 12.0
+#: opening-to-first-substantive-response time. Relocated to ``constants_v2``
+#: by packet W2-8 (R-2); re-bound here under the original name.
+TTFHR_KNEE_HOURS: float = constants_v2.TTFHR_KNEE_HOURS
 #: 1.1 TTFHR decay: points lost per doubling of the median past the knee.
-TTFHR_SLOPE_PER_DOUBLING: float = 25.0
+TTFHR_SLOPE_PER_DOUBLING: float = constants_v2.TTFHR_SLOPE_PER_DOUBLING
 #: 1.4 GR_14: points lost per unit of ghost rate.
-GHOST_RATE_SLOPE: float = 200.0
+GHOST_RATE_SLOPE: float = constants_v2.GHOST_RATE_SLOPE
 
 
 def _ttfhr_score(hours: float) -> float:
@@ -40,50 +42,50 @@ def _ttm_p90_score(p90_hours: float, ecdf: Callable[[float], float]) -> float:
 _TTFHR = ParamDef(
     input_id="ttfhr_hours",
     pillar="responsiveness",
-    weight=0.30,
+    weight=constants_v2.PARAM_WEIGHTS["ttfhr_hours"],
     kind=KIND_NUMERIC,
     score=_ttfhr_score,
-    min_n=10,
+    min_n=constants_v2.PARAM_MIN_N["ttfhr_hours"],
     domain=(0.0, 256.0),
     higher_is_better=False,
 )
 _DR90 = ParamDef(
     input_id="dr90_decision_rate",
     pillar="responsiveness",
-    weight=0.25,
+    weight=constants_v2.PARAM_WEIGHTS["dr90_decision_rate"],
     kind=KIND_NUMERIC,
     score=fill_rate_score,
-    min_n=10,
+    min_n=constants_v2.PARAM_MIN_N["dr90_decision_rate"],
     domain=(0.0, 1.0),
     higher_is_better=True,
 )
 _MR_FIRST = ParamDef(
     input_id="mr_first_rate",
     pillar="responsiveness",
-    weight=0.20,
+    weight=constants_v2.PARAM_WEIGHTS["mr_first_rate"],
     kind=KIND_NUMERIC,
     score=fill_rate_score,
-    min_n=5,
+    min_n=constants_v2.PARAM_MIN_N["mr_first_rate"],
     domain=(0.0, 1.0),
     higher_is_better=True,
 )
 _GR14 = ParamDef(
     input_id="gr14_ghost_rate",
     pillar="responsiveness",
-    weight=0.15,
+    weight=constants_v2.PARAM_WEIGHTS["gr14_ghost_rate"],
     kind=KIND_NUMERIC,
     score=_ghost_rate_score,
-    min_n=10,
+    min_n=constants_v2.PARAM_MIN_N["gr14_ghost_rate"],
     domain=(0.0, 1.0),
     higher_is_better=False,
 )
 _TTM_P90 = ParamDef(
     input_id="ttm_p90_hours",
     pillar="responsiveness",
-    weight=0.10,
+    weight=constants_v2.PARAM_WEIGHTS["ttm_p90_hours"],
     kind=KIND_ECDF,
     score=_ttm_p90_score,
-    min_n=5,
+    min_n=constants_v2.PARAM_MIN_N["ttm_p90_hours"],
     domain=(0.0, 1000.0),
     higher_is_better=False,
 )

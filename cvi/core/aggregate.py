@@ -12,10 +12,12 @@ balanced composite, renormalised over measured pillars, rounded once at the
 end (04 section 8). ``tier_from_score`` and ``apply_ceiling`` are D-MAT-2:
 absolute cutoffs capped by the coverage ceiling.
 
-The 0.80/0.95 ceiling bands and the 90/80/70/55/40 tier cutoffs are not yet
-in ``cvi.core.constants_v2``; they are defined once here and flagged for
-W2-8 to relocate (R-2: "constants that belong in the frozen module: use them
-from there if present; otherwise define once and flag").
+The 0.80/0.95 ceiling bands were relocated to ``cvi.core.constants_v2`` by
+packet W2-8 (R-2); re-bound here under the original names. The 90/80/70/55/40
+tier cutoffs stay defined in this module (see :data:`TIER_CUTOFFS` below):
+they are D-MAT-2's ordered (cutoff, label) pairs, not a bare numeric
+tunable, so relocating them would mean either splitting the pairing across
+two modules or moving the labels too -- deferred, flagged again below.
 """
 from __future__ import annotations
 
@@ -27,9 +29,10 @@ from cvi.core.models import ParamScore, PillarScore
 from cvi.core.params import PARAMS
 
 #: D-MISS-3 ceiling bands, above the D-EVID-1 rated threshold (0.60, owned by
-#: cvi.core.gates.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE).
-CEILING_A_MIN_COVERAGE: float = 0.80
-NO_CEILING_MIN_COVERAGE: float = 0.95
+#: cvi.core.gates.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE). Relocated to
+#: ``constants_v2`` by packet W2-8 (R-2).
+CEILING_A_MIN_COVERAGE: float = constants_v2.CEILING_A_MIN_COVERAGE
+NO_CEILING_MIN_COVERAGE: float = constants_v2.NO_CEILING_MIN_COVERAGE
 
 #: D-MISS-3 ceiling labels (bare letters: the design text writes "ceiling B" /
 #: "ceiling A", never "Tier B"). ``None`` means no cap (coverage >= 0.95).

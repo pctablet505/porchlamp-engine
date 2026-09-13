@@ -10,25 +10,20 @@ from __future__ import annotations
 
 from typing import Dict, Tuple
 
+from cvi.core import constants_v2
 from cvi.core.models import ParamScore, ParamValue
 from cvi.core.params.curves import KIND_ENUM, KIND_NUMERIC, ParamDef, _apply
 
-#: 3.1 regime scores (02 section 4, owner decision O-1: NONE 85).
-LEGAL_IP_SCORES: Dict[str, float] = {
-    "DCO": 100.0,
-    "NONE": 85.0,
-    "FOUNDATION_CLA": 75.0,
-    "CORP_CLA": 25.0,
-}
-#: 3.3 rung scores (02 section 4).
-PROMOTION_LADDER_SCORES: Dict[str, float] = {
-    "VERIFIED": 100.0,
-    "DOCUMENTED": 75.0,
-    "AD_HOC": 40.0,
-    "CLOSED": 10.0,
-}
-#: 3.2 EF slope (02 section 4): points per organisation at the 50% commit share.
-ELEPHANT_SLOPE: float = 25.0
+#: 3.1 regime scores (02 section 4, owner decision O-1: NONE 85). Relocated
+#: to ``constants_v2`` by packet W2-8 (R-2); re-bound here under the
+#: original name.
+LEGAL_IP_SCORES: Dict[str, float] = constants_v2.LEGAL_IP_SCORES
+#: 3.3 rung scores (02 section 4). Relocated to ``constants_v2`` by packet
+#: W2-8 (R-2).
+PROMOTION_LADDER_SCORES: Dict[str, float] = constants_v2.PROMOTION_LADDER_SCORES
+#: 3.2 EF slope (02 section 4): points per organisation at the 50% commit
+#: share. Relocated to ``constants_v2`` by packet W2-8 (R-2).
+ELEPHANT_SLOPE: float = constants_v2.ELEPHANT_SLOPE
 
 
 def _lookup(table: Dict[str, float], input_id: str, value: str) -> float:
@@ -53,7 +48,7 @@ def _promotion_ladder_score(rung: str) -> float:
 _LEGAL_IP = ParamDef(
     input_id="legal_ip",
     pillar="governance",
-    weight=0.35,
+    weight=constants_v2.PARAM_WEIGHTS["legal_ip"],
     kind=KIND_ENUM,
     score=_legal_ip_score,
     better_order=("CORP_CLA", "FOUNDATION_CLA", "NONE", "DCO"),
@@ -61,17 +56,17 @@ _LEGAL_IP = ParamDef(
 _ELEPHANT = ParamDef(
     input_id="elephant_factor",
     pillar="governance",
-    weight=0.35,
+    weight=constants_v2.PARAM_WEIGHTS["elephant_factor"],
     kind=KIND_NUMERIC,
     score=_elephant_score,
-    min_n=30,
+    min_n=constants_v2.PARAM_MIN_N["elephant_factor"],
     domain=(1.0, 10.0),
     higher_is_better=True,
 )
 _LADDER = ParamDef(
     input_id="promotion_ladder",
     pillar="governance",
-    weight=0.30,
+    weight=constants_v2.PARAM_WEIGHTS["promotion_ladder"],
     kind=KIND_ENUM,
     score=_promotion_ladder_score,
     better_order=("CLOSED", "AD_HOC", "DOCUMENTED", "VERIFIED"),

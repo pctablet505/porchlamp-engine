@@ -94,28 +94,25 @@ persona-weighted reduction into ``cvi.core.aggregate`` (an optional
 ``weights`` parameter, defaulting to ``constants_v2.PILLAR_WEIGHTS``) so
 this module can call it instead of duplicating it -- flagged for W2-8.
 
-One-definition-per-constant (R-2). The ``"balanced"`` preset is not
-duplicated: it is read directly off ``constants_v2.PILLAR_WEIGHTS`` (the one
-frozen definition). The other four preset vectors have no v2 home yet:
-``cvi.core``'s import-graph test
-(``tests/core/test_import_graph.py::test_core_imports_nothing_outside_core_and_stdlib``)
-forbids this module from importing ``cvi.constants.PERSONA_PRESETS`` (v1,
-outside ``cvi.core``), and this packet does not own
-``cvi/core/constants_v2.py`` to add them there (W2-7 owns only
-``cvi/core/persona.py``, R-10). They are therefore transcribed once, below,
-and pinned byte-equal to v1's values by
-``tests/core/test_persona_v2.py::test_non_balanced_presets_match_v1_constants_exactly`` -- an
-over-correction guard standing in for the cross-package import the
-architecture does not allow. Ownership request: W2-8 (constants freeze)
-should relocate all five preset vectors into ``constants_v2.py`` and delete
-both this module's copy and ``cvi/constants.py``'s, leaving one definition.
-
-Gate thresholds (3, 5, 0.40, 3, 60, 0.80) and the gate reason strings have no
-v2 home either (the same R-10 reasoning); following the precedent
-``cvi.core.gates`` already sets for its own not-yet-relocated thresholds
-(its module docstring: "The gate thresholds ... live in this module ...
-until the constants freeze relocates them"), they are defined once, below,
-and flagged for W2-8.
+One-definition-per-constant (R-2). Packet W2-8 (constants freeze) relocated
+``PERSONA_PRESETS`` (all five preset vectors, ``"balanced"`` included -- it
+is still ``constants_v2.PILLAR_WEIGHTS`` itself, just assembled inside
+``constants_v2`` now instead of here), ``GATED_PERSONAS``,
+``WEIGHT_SUM_TOLERANCE`` and the six gate thresholds
+(``SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR``, ``FIRST_TIMER_MIN_DECIDED_PRS``,
+``FIRST_TIMER_MIN_MR_FIRST``, ``FIRST_TIMER_MIN_NEWCOMER_ISSUES``,
+``CAREER_CAPITAL_MIN_CRITICALITY``, ``CAREER_CAPITAL_MIN_COVERAGE``) into
+``cvi.core.constants_v2``, imported back here so every existing name still
+resolves as ``cvi.core.persona.<NAME>`` (``tests/core/test_persona_v2.py``
+is unchanged). Before this packet the five preset vectors and the six gate
+thresholds had no v2 home: ``cvi.core``'s import-graph test forbade this
+module from importing v1's ``cvi.constants.PERSONA_PRESETS``, and W2-7
+did not own ``constants_v2.py`` to add them there, so they were transcribed
+here and pinned byte-equal to v1 by
+``tests/core/test_persona_v2.py::test_non_balanced_presets_match_v1_constants_exactly``
+-- that test is unchanged, since the values themselves did not move, only
+their one true definition. This module still transcribes v1's byte-equal
+check and the preset-sum validation below.
 """
 from __future__ import annotations
 
@@ -137,54 +134,30 @@ PERSONA_AI_ASSISTED: str = "ai_assisted"
 
 #: Every persona this module knows how to gate. ``PERSONA_BALANCED`` is
 #: deliberately excluded: the balanced view is the ungated default, never a
-#: gate target (D-PERS-1).
-GATED_PERSONAS: tuple[str, ...] = (
+#: gate target (D-PERS-1). Relocated to ``constants_v2.GATED_PERSONAS`` by
+#: packet W2-8 (R-2); re-bound here under the original name so every
+#: existing caller/test keeps resolving ``persona.GATED_PERSONAS``. The
+#: string values there match the ``PERSONA_*`` identifiers below by content
+#: (constants_v2 cannot import this module -- persona.py already imports
+#: constants_v2 -- so it holds the literal strings, not these names).
+GATED_PERSONAS: tuple[str, ...] = constants_v2.GATED_PERSONAS
+assert GATED_PERSONAS == (
     PERSONA_AI_ASSISTED,
     PERSONA_SENIOR_SYSTEMS,
     PERSONA_FIRST_TIMER,
     PERSONA_CAREER_CAPITAL,
 )
 
-#: Tolerance for the preset weight-sum check (matches v1
-#: ``cvi.persona.WEIGHT_SUM_TOLERANCE``).
-WEIGHT_SUM_TOLERANCE: float = 1e-6
+#: Tolerance for the preset weight-sum check. Relocated to
+#: ``constants_v2.WEIGHT_SUM_TOLERANCE`` by packet W2-8 (R-2).
+WEIGHT_SUM_TOLERANCE: float = constants_v2.WEIGHT_SUM_TOLERANCE
 
-#: D-PERS-2 preset weight vectors, transcribed from ``cvi/constants.py``'s
-#: ``PERSONA_PRESETS`` (spec section 4; see the module docstring's
-#: one-definition-per-constant note for why this module cannot import that
-#: dict directly). ``"balanced"`` is not transcribed -- it is
-#: ``constants_v2.PILLAR_WEIGHTS`` itself, the single frozen definition.
-PERSONA_PRESETS: dict[str, dict[str, float]] = {
-    PERSONA_BALANCED: dict(constants_v2.PILLAR_WEIGHTS),
-    PERSONA_FIRST_TIMER: {
-        "responsiveness": 0.35,
-        "criticality": 0.10,
-        "governance": 0.15,
-        "rigor": 0.10,
-        "accessibility": 0.30,
-    },
-    PERSONA_CAREER_CAPITAL: {
-        "responsiveness": 0.20,
-        "criticality": 0.35,
-        "governance": 0.15,
-        "rigor": 0.10,
-        "accessibility": 0.20,
-    },
-    PERSONA_SENIOR_SYSTEMS: {
-        "responsiveness": 0.15,
-        "criticality": 0.35,
-        "governance": 0.25,
-        "rigor": 0.20,
-        "accessibility": 0.05,
-    },
-    PERSONA_AI_ASSISTED: {
-        "responsiveness": 0.20,
-        "criticality": 0.20,
-        "governance": 0.15,
-        "rigor": 0.35,
-        "accessibility": 0.10,
-    },
-}
+#: D-PERS-2 preset weight vectors (spec section 4). Relocated to
+#: ``constants_v2.PERSONA_PRESETS`` by packet W2-8 (R-2) -- the freeze this
+#: module's own docstring flagged as an ownership request. ``"balanced"`` is
+#: still ``constants_v2.PILLAR_WEIGHTS`` itself, assembled inside
+#: ``constants_v2`` now instead of here.
+PERSONA_PRESETS: dict[str, dict[str, float]] = constants_v2.PERSONA_PRESETS
 
 
 def _validate_preset(persona: str, weights: Mapping[str, float]) -> None:
@@ -225,14 +198,15 @@ REASON_LOW_CRITICALITY: str = "criticality_below_threshold"
 REASON_INSUFFICIENT_EVIDENCE_PREFIX: str = "insufficient_evidence:"
 
 # --------------------------------------------------------------------------- #
-# D-PERS-2 gate thresholds (no v2 home yet; see module docstring).
+# D-PERS-2 gate thresholds. Relocated to ``constants_v2`` by packet W2-8
+# (R-2); re-bound here under the original names.
 # --------------------------------------------------------------------------- #
-SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR: float = 3.0
-FIRST_TIMER_MIN_DECIDED_PRS: int = 5
-FIRST_TIMER_MIN_MR_FIRST: float = 0.40
-FIRST_TIMER_MIN_NEWCOMER_ISSUES: float = 3.0
-CAREER_CAPITAL_MIN_CRITICALITY: float = 60.0
-CAREER_CAPITAL_MIN_COVERAGE: float = 0.80
+SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR: float = constants_v2.SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR
+FIRST_TIMER_MIN_DECIDED_PRS: int = constants_v2.FIRST_TIMER_MIN_DECIDED_PRS
+FIRST_TIMER_MIN_MR_FIRST: float = constants_v2.FIRST_TIMER_MIN_MR_FIRST
+FIRST_TIMER_MIN_NEWCOMER_ISSUES: float = constants_v2.FIRST_TIMER_MIN_NEWCOMER_ISSUES
+CAREER_CAPITAL_MIN_CRITICALITY: float = constants_v2.CAREER_CAPITAL_MIN_CRITICALITY
+CAREER_CAPITAL_MIN_COVERAGE: float = constants_v2.CAREER_CAPITAL_MIN_COVERAGE
 
 #: The bundle input ids this module reads directly (``FeatureBundle.inputs``
 #: keys, ``constants_v2.PARAM_INPUT_IDS``).

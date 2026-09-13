@@ -20,19 +20,25 @@ KIND_NUMERIC: str = "numeric"
 KIND_ECDF: str = "ecdf"
 KIND_ENUM: str = "enum"
 
-#: Float tolerance for the D-PARAM-MONO check.
-MONO_TOLERANCE: float = 1e-9
+#: Float tolerance for the D-PARAM-MONO check. Relocated to ``constants_v2``
+#: by packet W2-8 (R-2); re-bound here under the original name.
+MONO_TOLERANCE: float = constants_v2.MONO_TOLERANCE
 
-#: Fixed probe sample for :func:`reference_ecdf`: 0.0 through 32.0.
+#: Fixed probe sample for :func:`reference_ecdf`: 0.0 through 32.0. Not
+#: relocated (packet W2-8): this is the D-PARAM-MONO property-test probe
+#: population, not a per-snapshot frozen population or a scoring input --
+#: see the docstring of :func:`reference_ecdf` below.
 _REFERENCE_SAMPLE: Tuple[float, ...] = tuple(float(i) for i in range(33))
 
 #: Shared 02 section 4 rate calibration (1.2 DR_90, 1.3 MR_first, 4.3
 #: substantive review rate): full marks at an 80% rate, linear below.
-RATE_SLOPE: float = 125.0
+#: Relocated to ``constants_v2`` by packet W2-8 (R-2).
+RATE_SLOPE: float = constants_v2.RATE_SLOPE
 
 #: Shared 02 section 4 cohort-rate calibration (5.2 conversion, 5.3 RR_90):
-#: full marks at a 50% cohort rate, linear below.
-COHORT_RATE_SLOPE: float = 200.0
+#: full marks at a 50% cohort rate, linear below. Relocated to
+#: ``constants_v2`` by packet W2-8 (R-2).
+COHORT_RATE_SLOPE: float = constants_v2.COHORT_RATE_SLOPE
 
 
 @dataclass(frozen=True)

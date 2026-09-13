@@ -18,7 +18,14 @@ def _recompute(constants: dict) -> str:
 
 
 def test_benchmark_version_value() -> None:
-    assert constants_v2.BENCHMARK_VERSION == "2.0.0-dev"
+    """W2-8 A2 freeze (lead ruling 2026-09-12): the dev series ends here.
+
+    "2.0.0" itself is flipped by W5-2 at release; until then constants may
+    still change, but only through the RFC procedure in
+    ``docs/v2/rfcs/README.md`` (root-cause note for updating this pinned
+    value, R-5/process-controls: not a weakened test, a version bump the
+    packet was dispatched to make)."""
+    assert constants_v2.BENCHMARK_VERSION == "2.0.0-rc1"
 
 
 def test_constants_hash_is_sha256_hex() -> None:
@@ -82,11 +89,23 @@ def test_input_ids_are_the_eighteen_parameter_inputs() -> None:
 
 
 def test_unmeasured_reasons_match_d_miss_1() -> None:
+    """Root-cause note for this pin's change (R-5/process-controls): D-MISS-1
+    (``docs/v2/02-RANKING-DESIGN.md`` section 5) was amended 2026-09-12 to add
+    ``no_population`` -- an ECDF-normalised parameter with no rated, measured
+    repository to build a population from, in its ecosystem or globally, at
+    a snapshot. Before packet W2-8 the value was accepted by
+    ``Unmeasured.reason``'s ``Literal`` type hint but rejected by this
+    tuple's own runtime check, so ``Unmeasured("no_population")`` raised
+    ``BundleValidationError`` (fail-before reproduced in
+    ``tests/core/test_frozen.py::test_no_population_is_a_constructible_reason``).
+    This is the five-member vocabulary the amended design text lists, not a
+    weakened assertion."""
     assert constants_v2.UNMEASURED_REASONS == (
         "third_party_gap",
         "collector_failure",
         "insufficient_n",
         "not_applicable",
+        "no_population",
     )
 
 

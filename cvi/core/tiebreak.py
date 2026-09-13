@@ -29,6 +29,15 @@ Stars, forks and downloads are never read by this module at all (D-TIE-1:
 "never tie-breakers -- vanity and gameable"); the acceptance tests attach
 adversarial values for them to :class:`TieBreakInput` to prove it.
 
+Packet W2-8 (constants freeze) relocated the composite-rounding decimal
+count into ``cvi.core.constants_v2.COMPOSITE_DECIMALS``; the three
+``round(..., 2)`` sites (the D-TIE-1 composite level in :func:`tie_key` and
+the two composite-rounding sites in :func:`assign_ranks`) now read it from
+there instead of the literal ``2`` (R-2); the pinned tests
+(``test_tie_key_composite_pinned_at_two_decimals``,
+``test_tie_group_boundary_pinned_at_two_decimals``) are unchanged since the
+value itself did not change.
+
 Ownership request -> W2-8 (recorded here and in the handoff). ``ScoreRecord``
 reserves ``tie_key``/``tie_group``/``rank`` for this packet to populate, but
 the record itself carries none of the following, so this module cannot
@@ -67,6 +76,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Sequence
 
+from cvi.core import constants_v2
 from cvi.core.models import PRWindow, ScoreRecord
 
 #: D-TIE-1 item 3: the pillar name whose score is the tie-break input.
@@ -213,7 +223,7 @@ def tie_key(entry: TieBreakInput) -> tuple:
     pillar = entry.record.pillars.get(_RESPONSIVENESS_PILLAR)
     responsiveness_score = pillar.score if pillar is not None else None
     return (
-        -round(entry.record.composite, 2),
+        -round(entry.record.composite, constants_v2.COMPOSITE_DECIMALS),
         -entry.record.coverage,
         _measured_desc(responsiveness_score),
         _measured_asc(entry.record.friction),
@@ -260,14 +270,14 @@ def assign_ranks(
 
     composite_counts: dict[float, int] = {}
     for entry in rated_sorted:
-        composite = round(entry.record.composite, 2)  # type: ignore[arg-type]
+        composite = round(entry.record.composite, constants_v2.COMPOSITE_DECIMALS)  # type: ignore[arg-type]
         composite_counts[composite] = composite_counts.get(composite, 0) + 1
 
     result: list[tuple[ScoreRecord, int | None, int | None]] = []
     group_ids: dict[float, int] = {}
     next_group_id = 1
     for rank, entry in enumerate(rated_sorted, start=1):
-        composite = round(entry.record.composite, 2)  # type: ignore[arg-type]
+        composite = round(entry.record.composite, constants_v2.COMPOSITE_DECIMALS)  # type: ignore[arg-type]
         tie_group: int | None
         if composite_counts[composite] > 1:
             if composite not in group_ids:

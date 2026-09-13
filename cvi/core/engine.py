@@ -152,8 +152,14 @@ def _unused_ecdf(_value: float) -> float:
 #: D-MISS-1 reason for a Measured ECDF-kind input whose (ecosystem, param)
 #: has no frozen population at all (W2-5 review W-3; 02 section 5 D-MISS-1,
 #: added 2026-09-12). Distinct from ``_unused_ecdf``'s case: here the input
-#: *was* measured, but the snapshot has nothing to rank it against.
-_REASON_NO_POPULATION = "no_population"
+#: *was* measured, but the snapshot has nothing to rank it against. Reads
+#: from ``constants_v2.REASON_NO_POPULATION`` (packet W2-8: the string is
+#: defined once, there, and is now also a member of
+#: ``constants_v2.UNMEASURED_REASONS`` -- previously this module's own
+#: hardcoded literal was the only place the value existed, and constructing
+#: an ``Unmeasured("no_population")`` directly would raise, since the tuple
+#: lacked it).
+_REASON_NO_POPULATION = constants_v2.REASON_NO_POPULATION
 
 
 def _score_params(bundle: FeatureBundle, populations: PopulationLookup) -> dict[str, ParamScore]:

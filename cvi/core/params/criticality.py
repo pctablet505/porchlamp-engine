@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import Callable, Tuple
 
+from cvi.core import constants_v2
 from cvi.core.models import ParamScore, ParamValue
 from cvi.core.params.curves import KIND_ECDF, KIND_NUMERIC, ParamDef, _apply
 
@@ -32,7 +33,7 @@ def _pike_score(criticality: float) -> float:
 _DEPENDENTS = ParamDef(
     input_id="dependents_deduped",
     pillar="criticality",
-    weight=0.40,
+    weight=constants_v2.PARAM_WEIGHTS["dependents_deduped"],
     kind=KIND_ECDF,
     score=_population_score,
     domain=(0.0, 1e6),
@@ -41,7 +42,7 @@ _DEPENDENTS = ParamDef(
 _OPENSF = ParamDef(
     input_id="openssf_criticality",
     pillar="criticality",
-    weight=0.35,
+    weight=constants_v2.PARAM_WEIGHTS["openssf_criticality"],
     kind=KIND_NUMERIC,
     score=_pike_score,
     domain=(0.0, 1.0),
@@ -50,7 +51,7 @@ _OPENSF = ParamDef(
 _DOWNLOADS = ParamDef(
     input_id="downloads_monthly",
     pillar="criticality",
-    weight=0.25,
+    weight=constants_v2.PARAM_WEIGHTS["downloads_monthly"],
     kind=KIND_ECDF,
     score=_population_score,
     domain=(0.0, 1e9),

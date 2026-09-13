@@ -16,19 +16,21 @@ passes, routes to the off-platform workflow, or reports
 coverage C (D-MISS-3; computed by W2-5): C >= 0.60 is rated, below is
 ``unrated: insufficient_evidence`` (listed, not ranked).
 
-The gate thresholds and the D-GATE-3 OSI set live in this module:
-``cvi.core.constants_v2`` is owned by W2-1 and frozen by W2-8, so this module
-is their single definition until the constants freeze relocates them (R-2).
-The OSI set is the union of the SPDX license list's ``isOsiApproved`` flag
-(spdx/license-list-data commit 1dd5767, fetched 2026-09-12) and the current
-OSI approved-licences table (opensource.org/licenses, fetched 2026-09-12),
-whose extra entries are ``GPL-1.0``, ``NIST-Software`` and ``eCos-2.0``.
+Packet W2-8 (constants freeze) relocated the seven numeric gate thresholds
+below into ``cvi.core.constants_v2``, imported back here under their
+original names (R-2). The D-GATE-3 OSI set (``OSI_APPROVED_LICENSES``) and
+``UNDETERMINED_SPDX`` stay defined in this module: they are license-id
+vocabularies sourced from an external standard (SPDX/OSI), not scoring
+thresholds -- the constants freeze's RFC procedure (03 section 7) is for a
+tunable that changes what the ranking rewards, not for tracking upstream
+license-list updates.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
+from cvi.core import constants_v2
 from cvi.core.models import FeatureBundle, GateResult, PRWindowEvent
 
 #: Decision ids recorded in ``GateResult.undecided`` (02 section 2).
@@ -55,19 +57,19 @@ REASON_INSUFFICIENT_EVIDENCE = "unrated: insufficient_evidence"
 ROUTED_OFF_PLATFORM = "off_platform"
 
 #: D-GATE-4: trailing window for non-bot User commits on the default branch.
-GATE4_VITALITY_WINDOW_DAYS: int = 180
+GATE4_VITALITY_WINDOW_DAYS: int = constants_v2.GATE4_VITALITY_WINDOW_DAYS
 #: D-GATE-5: minimum population of external PRs >= 14 d old, else UNDECIDED.
-GATE5_MIN_N: int = 10
+GATE5_MIN_N: int = constants_v2.GATE5_MIN_N
 #: D-GATE-5: a PR is ">= 14 d old" at the snapshot reference time.
-GATE5_MIN_AGE_DAYS: int = 14
+GATE5_MIN_AGE_DAYS: int = constants_v2.GATE5_MIN_AGE_DAYS
 #: D-GATE-5: the substantive-response deadline after opening.
-GATE5_RESPONSE_DEADLINE_DAYS: int = 14
+GATE5_RESPONSE_DEADLINE_DAYS: int = constants_v2.GATE5_RESPONSE_DEADLINE_DAYS
 #: D-GATE-5: pass ceiling on the share with zero substantive response.
-GATE5_MAX_ZERO_RESPONSE_SHARE: float = 0.50
+GATE5_MAX_ZERO_RESPONSE_SHARE: float = constants_v2.GATE5_MAX_ZERO_RESPONSE_SHARE
 #: D-GATE-6: horizon for a decided external PR.
-GATE6_DECISION_WINDOW_DAYS: int = 365
+GATE6_DECISION_WINDOW_DAYS: int = constants_v2.GATE6_DECISION_WINDOW_DAYS
 #: D-EVID-1: composite coverage threshold (D-MISS-3).
-EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = 0.60
+EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = constants_v2.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE
 
 #: D-GATE-3: SPDX states that mean "no usable licence recorded" (the gate then
 #: looks for a ``LICENSE*`` file before failing). Matches W1-9's
