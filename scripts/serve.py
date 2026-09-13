@@ -73,9 +73,15 @@ from fastapi.staticfiles import StaticFiles
 from cvi.api import create_app
 from cvi.benchmark_data import BENCHMARK_NOW
 from cvi.lakehouse import OperationalStore, repositories_dump_hash
+from cvi.serve.app import create_app as create_app_v2
 
 _REPO_ROOT: Path = Path(__file__).resolve().parent.parent
 _WEB_DIR: Path = _REPO_ROOT / "web"
+#: `06` sections 6/6.1: the v2 front end (packet W4-5); does not exist in
+#: every worktree yet (it lands with W4-5a) -- `cvi.serve.app.create_app`
+#: mounts it with ``check_dir=False`` so a not-yet-landed directory never
+#: crashes app construction, only requests for a page it cannot find.
+_WEB_V2_DIR: Path = _REPO_ROOT / "web" / "v2"
 _DEFAULT_DB: str = str(_REPO_ROOT / "data" / "cvi.db")
 
 
@@ -163,6 +169,25 @@ def refusal_reasons(store: OperationalStore, db_path: str) -> list[str]:
     return reasons
 
 
+def open_or_exit(db_path: str) -> OperationalStore:
+    """Open ``db_path`` and enforce the served-DB guard (`03` §5,
+    INT-W0-4 round 3): ``SystemExit`` with every :func:`refusal_reasons`
+    sentence, one per line, if any apply.
+
+    Factored out of :func:`main` (packet W4-4) so a second entrypoint --
+    ``cvi.serve.app.create_app``, the v2 API -- refuses the exact same
+    databases the exact same way instead of a second, drifting message
+    format; this extraction changes no observable behaviour of
+    :func:`main` itself (same store, same guard, same message, same
+    control flow), so it needs no new test of its own here.
+    """
+    store = OperationalStore(db_path)
+    reasons = refusal_reasons(store, db_path)
+    if reasons:
+        raise SystemExit(f"CVI serve refused for {db_path!r}:\n  " + "\n  ".join(reasons))
+    return store
+
+
 def create_serve_app(store: OperationalStore) -> FastAPI:
     """CVI API over ``store`` + the offline web UI mounted at ``/``.
 
@@ -196,18 +221,21 @@ def main(argv: Optional[list[str]] = None) -> None:
             f"No database at {args.db!r}. Run scripts/run_all.py first "
             "(gather -> derive -> verify -> promote)."
         )
-    store = OperationalStore(args.db)
-    reasons = refusal_reasons(store, args.db)
-    if reasons:
-        raise SystemExit(f"CVI serve refused for {args.db!r}:\n  "
-                         + "\n  ".join(reasons))
+    store = open_or_exit(args.db)
     snapshot = matching_snapshot_id(store, args.db)
     n = count_repos(store)
-    app = create_serve_app(store)
+    # Packet W4-4: serve the v2 API + v2 front end (v1 stays reachable,
+    # unchanged, at /legacy -- `04` section 10's strangler migration).
+    # `create_app_v2` re-runs the exact same guard above on `args.db`
+    # itself (`cvi.serve.app._run_served_db_guard`) before it ever touches
+    # the v2 store connection or mounts anything -- belt-and-suspenders,
+    # not a behaviour change: a database refused here never reaches this
+    # line at all.
+    app = create_app_v2(args.db, web_dir=_WEB_V2_DIR)
     print(f"CVI serve: {n} verified repos from {args.db!r} (snapshot {snapshot})")
     if n == 0:
         print("  WARNING: store is empty — dashboard will show no repos.")
-    print(f"CVI serve: http://127.0.0.1:{args.port}/ (API under /v1, /healthz)")
+    print(f"CVI serve: http://127.0.0.1:{args.port}/ (API under /v1/cvi, legacy under /legacy, /healthz)")
     uvicorn.run(app, host="127.0.0.1", port=args.port)
 
 
