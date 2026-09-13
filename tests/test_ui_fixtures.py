@@ -350,6 +350,15 @@ class TestMatrixAndReprojectContractOnly:
             )
 
     def test_reproject_response_lens_is_always_custom(self) -> None:
-        row = load("leaderboard.json")["rows"][0]
+        # W4-5b addition: `ReprojectResponse.rows` is `list[ReprojectRow]`
+        # (`LeaderboardRow` plus the five `balanced_*` comparison fields
+        # `cvi.store.queries.reproject` already returns) — see
+        # `tests/test_ui_fixtures_w4_5b.py` for the dedicated contract tests.
+        row = dict(load("leaderboard.json")["rows"][0])
+        row["balanced_rank"] = row["rank"]
+        row["balanced_tie_group"] = row["tie_group"]
+        row["balanced_cvi"] = row["cvi"]
+        row["balanced_coverage"] = row["coverage"]
+        row["balanced_tier"] = row["tier"]
         response = ReprojectResponse(rows=[row], total=1)
         assert response.lens == "custom"

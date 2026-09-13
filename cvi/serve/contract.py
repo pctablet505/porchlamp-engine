@@ -39,7 +39,7 @@ contract needs concrete types):
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -532,6 +532,15 @@ class MatrixResponse(StrictModel):
     excluded_count: int
     axis_coverage_caption: dict[str, str] = {}
 
+    @model_validator(mode="after")
+    def _excluded_count_is_non_negative(self) -> "MatrixResponse":
+        # W4-5b addition: every other count model in this file
+        # (`SnapshotCounts`, `LeaderboardResponse.page`/`total`) validates
+        # non-negativity; `MatrixResponse` had no such guard.
+        if self.excluded_count < 0:
+            raise ValueError(f"excluded_count must be >= 0, got {self.excluded_count}")
+        return self
+
 
 class ReprojectRequest(StrictModel):
     """`POST /v1/cvi/reproject`: a custom weight vector over the five
@@ -562,13 +571,190 @@ class ReprojectRequest(StrictModel):
         return self
 
 
-class ReprojectResponse(StrictModel):
-    """Rows re-projected under a custom weight vector — same shape as
-    `LeaderboardRow`, `lens` is always the literal `"custom"` (U-11)."""
+class ReprojectRow(LeaderboardRow):
+    """One `ReprojectResponse` row (packet W4-5b addition — no model existed
+    for this before): `LeaderboardRow`'s fields ARE the custom projection
+    (`rank`/`cvi`/`coverage`/`tier`/`tie_group` under the plain names, per
+    U-11 and `cvi.store.queries.reproject`'s own field-naming contract —
+    "this IS the requested view") plus the five stored BALANCED values
+    side by side, exactly as `cvi.store.queries.reproject` already returns
+    them (`record["balanced_rank"] = record.pop("rank")` etc.) — Screen D's
+    "live side list of rank deltas vs balanced" needs both figures from one
+    response, and `ReprojectResponse` had no field for the balanced side
+    until this packet."""
 
-    rows: list[LeaderboardRow]
+    balanced_rank: int | None
+    balanced_tie_group: int | None
+    balanced_cvi: float | None
+    balanced_coverage: float | None
+    balanced_tier: str | None
+
+
+class ReprojectResponse(StrictModel):
+    """Rows re-projected under a custom weight vector — `ReprojectRow`
+    (`LeaderboardRow` plus the balanced-comparison fields), `lens` is
+    always the literal `"custom"` (U-11)."""
+
+    rows: list[ReprojectRow]
     total: int
     lens: Literal["custom"] = "custom"
+
+
+# --------------------------------------------------------------------------- #
+# GET /v1/cvi/methodology (packet W4-5b, `06` §3 F). No model existed for      #
+# this payload before this packet (W4-5a's own docstring lists only the       #
+# leaderboard/not-ranked/evidence/matrix/reproject shapes) -- these mirror,   #
+# field for field, `cvi.core.methodology.MethodologyDocument` (a TypedDict,   #
+# free of pydantic per that module's own `cvi.core` import-boundary rule) and #
+# its extension `cvi.audit.methodology_history.methodology_with_history`,    #
+# so the two can be cross-checked by a parity test without this contract     #
+# ever importing either module (this file stays I/O- and engine-free, per    #
+# its own module docstring). `GET /v1/cvi/snapshot` reuses the existing      #
+# `SnapshotSummary` model above -- the Methodology screen renders both       #
+# payloads, not a third combined one (`06` §3 F).                            #
+# --------------------------------------------------------------------------- #
+
+
+class MethodologyPillar(StrictModel):
+    name: str
+    weight: float
+
+
+class MethodologyProxyInfo(StrictModel):
+    """Present only on a parameter with a documented proxy path (e.g.
+    `openssf_criticality`'s `proxy_min_signals`, `pipeline_defenses`'s
+    `proxy_min_n`) -- both fields are individually optional, never both
+    absent (a `ProxyInfo` block that names neither would carry no
+    information)."""
+
+    proxy_min_n: int | None = None
+    proxy_min_signals: int | None = None
+
+    @model_validator(mode="after")
+    def _at_least_one_field(self) -> "MethodologyProxyInfo":
+        if self.proxy_min_n is None and self.proxy_min_signals is None:
+            raise ValueError("MethodologyProxyInfo must set proxy_min_n and/or proxy_min_signals")
+        return self
+
+
+class MethodologyParameter(StrictModel):
+    input_id: str
+    pillar: Literal["responsiveness", "criticality", "governance", "rigor", "accessibility"]
+    weight_within_pillar: float
+    min_n: int | None = None
+    window_days: int | None = None
+    curve: str
+    #: Free-form per-kind shape (numeric domain bounds, an enum score table,
+    #: or an ECDF description) -- deliberately untyped, mirroring the
+    #: TypedDict's own `dict[str, object]` (`cvi.core.methodology._value_domain`).
+    value_domain: dict[str, Any] = {}
+    proxy: MethodologyProxyInfo | None = None
+
+
+class MethodologyGate(StrictModel):
+    id: str
+    name: str
+    criterion: str
+    reasons: tuple[str, ...] = ()
+    cutoffs: dict[str, Any] = {}
+    license_vocabulary: dict[str, Any] = {}
+
+
+class MethodologyMissingnessReason(StrictModel):
+    reason: str
+    semantics: str
+
+
+class MethodologyNotApplicableRule(StrictModel):
+    parameter: str
+    bundle_fact: str
+    value: str
+
+
+class MethodologyMissingness(StrictModel):
+    reasons: list[MethodologyMissingnessReason]
+    coverage_thresholds: dict[str, float]
+    not_applicable_rules: list[MethodologyNotApplicableRule]
+    openssf_proxy_min_signals: int
+
+
+class MethodologyTieBreakLevel(StrictModel):
+    field: str
+    direction: Literal["ascending", "descending"]
+    note: str | None = None
+
+
+class MethodologyTieBreak(StrictModel):
+    composite_decimals: int
+    levels: list[MethodologyTieBreakLevel]
+
+
+class MethodologyPersonaGate(StrictModel):
+    persona: str
+    description: str
+    thresholds: dict[str, Any] = {}
+
+
+class MethodologyPersonas(StrictModel):
+    presets: dict[str, dict[str, float]]
+    gates: list[MethodologyPersonaGate]
+
+
+class MethodologyDetector(StrictModel):
+    """One row per `cvi.verify.detectors.DETECTOR_NAMES` entry -- present
+    only on the extended document (`methodology_with_history`); the pure
+    `methodology_document()` never populates this list (`cvi.core`'s
+    import boundary keeps `cvi.verify` out of `cvi.core`)."""
+
+    name: str
+    trigger: str
+    direction: Literal["magnitude", "above", "below", "compound", "boolean"]
+    thresholds: dict[str, Any] = {}
+
+
+class MethodologyProcessConstant(StrictModel):
+    """One of the three audit-only release-gate constants
+    (`cvi.audit.anchors`/`cvi.audit.sensitivity`) that `constants_v2` itself
+    excludes from `CONSTANTS_HASH` on purpose (`docs/v2/rfcs/README.md`
+    "Process constants")."""
+
+    name: str
+    module: str
+    value: Any
+    gates: str
+
+
+class MethodologyRfcLogEntry(StrictModel):
+    date: str
+    rfc: str
+    summary: str
+    hash_before: str | None = None
+    hash_after: str | None = None
+
+
+class MethodologyResponse(StrictModel):
+    """`GET /v1/cvi/methodology`: the full extended document
+    (`methodology_with_history`'s shape) -- pillars, parameters, gates,
+    missingness, tie-break levels and personas are always present;
+    `detectors`, `not_hashed_process_constants` and `rfc_log` are the three
+    additions the extended document carries beyond the pure
+    `methodology_document()` (`06` §3 F: "the published methodology
+    ... rendered from the frozen constants module so it cannot drift from
+    the code", plus the detector/process-constant/RFC-log facts that live
+    just outside `cvi.core`'s import boundary)."""
+
+    benchmark_version: str
+    schema_version: int
+    constants_hash: str
+    pillars: list[MethodologyPillar]
+    parameters: list[MethodologyParameter]
+    gates: list[MethodologyGate]
+    missingness: MethodologyMissingness
+    tie_break_levels: MethodologyTieBreak
+    personas: MethodologyPersonas
+    detectors: list[MethodologyDetector] = []
+    not_hashed_process_constants: list[MethodologyProcessConstant] = []
+    rfc_log: list[MethodologyRfcLogEntry] = []
 
 
 __all__ = [
@@ -591,5 +777,21 @@ __all__ = [
     "MatrixPoint",
     "MatrixResponse",
     "ReprojectRequest",
+    "ReprojectRow",
     "ReprojectResponse",
+    "MethodologyPillar",
+    "MethodologyProxyInfo",
+    "MethodologyParameter",
+    "MethodologyGate",
+    "MethodologyMissingnessReason",
+    "MethodologyNotApplicableRule",
+    "MethodologyMissingness",
+    "MethodologyTieBreakLevel",
+    "MethodologyTieBreak",
+    "MethodologyPersonaGate",
+    "MethodologyPersonas",
+    "MethodologyDetector",
+    "MethodologyProcessConstant",
+    "MethodologyRfcLogEntry",
+    "MethodologyResponse",
 ]
