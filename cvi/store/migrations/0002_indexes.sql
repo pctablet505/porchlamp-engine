@@ -1,0 +1,27 @@
+-- 0002_indexes.sql -- W4-3 read-path indexes (04 section 6/7; 06 section 7
+-- performance budgets). EXPLAIN QUERY PLAN on a 10,000-row synthetic
+-- snapshot showed every list_ranked/reproject predicate already resolves
+-- through an existing index EXCEPT the persona/custom-weight base filter
+-- (`snapshot_id = ? AND eligible = 1`, cvi/store/queries.py's
+-- `_persona_visible_where_sql` and `reproject`): idx_rank and idx_eco both
+-- key on `rated`/`ecosystem` instead of `eligible`, so that filter fell
+-- back to a snapshot_id-only index seek plus a per-row `eligible` check.
+-- Adding this index measured about 30% faster on the 10,000-row benchmark
+-- (34ms -> 24ms p95 for the base SELECT alone; see .agents/W4-3/handoff.md
+-- for the full numbers).
+--
+-- Documented, not addressed here: the persona projection's own predicates
+-- (json_extract(persona_composites, '$.' || :persona || '.cvi') ...) and
+-- the custom-weight reprojection's per-pillar CASE expressions cannot be
+-- indexed. A JSON-path expression index in SQLite must be a FIXED
+-- expression at CREATE INDEX time, but :persona varies per call (five
+-- preset names today, and this module deliberately never special-cases any
+-- one of them), so no expression index can match every call's path.
+-- Building one index per known preset would help only those four presets
+-- and never a future one, and the measured cost (see the packet's own
+-- performance test) is JSON parsing per matching row, not the seek to find
+-- those rows in the first place -- an index narrows which rows are
+-- visited, it cannot skip evaluating a function against the rows it does
+-- visit.
+
+CREATE INDEX IF NOT EXISTS idx_eligible ON repositories(snapshot_id, eligible);

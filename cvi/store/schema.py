@@ -147,6 +147,12 @@ SCHEMA_STATEMENTS: Tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_rank ON repositories(snapshot_id, rated, cvi DESC, coverage DESC)",
     "CREATE INDEX IF NOT EXISTS idx_eco ON repositories(snapshot_id, ecosystem, cvi DESC)",
     "CREATE INDEX IF NOT EXISTS idx_name ON repositories(owner, name)",
+    # W4-3 / migration 0002_indexes.sql: the persona-projection and custom-
+    # reprojection base filter is `snapshot_id = ? AND eligible = 1`, which
+    # idx_rank/idx_eco do not key on (they key on rated/ecosystem); see that
+    # migration file's own comment for the measured effect and for why the
+    # JSON-path predicates themselves cannot be indexed.
+    "CREATE INDEX IF NOT EXISTS idx_eligible ON repositories(snapshot_id, eligible)",
 )
 
 

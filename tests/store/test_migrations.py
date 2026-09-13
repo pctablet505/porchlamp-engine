@@ -49,16 +49,19 @@ def _build_minimal_v1_db(path: Path) -> None:
     conn.close()
 
 
-def test_discover_migrations_finds_0001() -> None:
+def test_discover_migrations_finds_0001_and_0002() -> None:
+    """W4-3 added ``0002_indexes.sql`` (F-013/the packet's indexing
+    deliverable); renamed from ``test_discover_migrations_finds_0001``,
+    which asserted the pre-W4-3 single-file state."""
     files = discover_migrations()
-    assert [path.name for path in files] == ["0001_init_v2.sql"]
+    assert [path.name for path in files] == ["0001_init_v2.sql", "0002_indexes.sql"]
 
 
 def test_apply_migrations_on_empty_db_matches_schema_py(tmp_path) -> None:
     db_path = tmp_path / "empty.db"
     conn = sqlite3.connect(db_path)
     applied = apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
-    assert applied == [1]
+    assert applied == [1, 2]
 
     reference = sqlite3.connect(":memory:")
     schema.create_schema(reference)
@@ -66,7 +69,7 @@ def test_apply_migrations_on_empty_db_matches_schema_py(tmp_path) -> None:
     assert schema.introspect_schema(conn) == schema.introspect_schema(reference)
 
     versions = conn.execute("SELECT version, applied_at FROM schema_migrations").fetchall()
-    assert versions == [(1, "2026-09-13T00:00:00Z")]
+    assert versions == [(1, "2026-09-13T00:00:00Z"), (2, "2026-09-13T00:00:00Z")]
 
 
 def test_apply_migrations_is_idempotent(tmp_path) -> None:
@@ -74,10 +77,10 @@ def test_apply_migrations_is_idempotent(tmp_path) -> None:
     conn = sqlite3.connect(db_path)
     first = apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
     second = apply_migrations(conn, applied_at="2026-09-13T01:00:00Z")
-    assert first == [1]
+    assert first == [1, 2]
     assert second == []  # already applied, no-op, not re-recorded
     count = conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]
-    assert count == 1
+    assert count == 2
 
 
 def test_apply_migrations_requires_explicit_applied_at(tmp_path) -> None:
@@ -193,7 +196,7 @@ def test_v1_shaped_database_migration_preserves_legacy_rows_synthetic(tmp_path) 
 
     conn = sqlite3.connect(db_path)
     applied = apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
-    assert applied == [1]
+    assert applied == [1, 2]
 
     legacy_row_count = conn.execute("SELECT COUNT(*) FROM legacy_repositories").fetchone()[0]
     assert legacy_row_count == 3
@@ -231,7 +234,7 @@ def test_v1_database_migration_preserves_legacy_rows_real_db_extra(tmp_path) -> 
 
     conn = sqlite3.connect(copy_path)
     applied = apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
-    assert applied == [1]
+    assert applied == [1, 2]
 
     legacy_row_count = conn.execute("SELECT COUNT(*) FROM legacy_repositories").fetchone()[0]
     assert legacy_row_count == pre_row_count
@@ -304,7 +307,7 @@ def test_migrating_a_create_schema_built_v2_db_is_a_noop_for_rename(tmp_path) ->
     conn.commit()
 
     applied = apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
-    assert applied == [1]
+    assert applied == [1, 2]
 
     tables = {
         row[0]

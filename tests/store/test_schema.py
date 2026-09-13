@@ -74,6 +74,11 @@ def test_snapshots_is_a_superset_of_int_w0_4_snapshot_meta() -> None:
 
 
 def test_indexes_match_04_section_5() -> None:
+    """W4-3 added ``idx_eligible`` (migration ``0002_indexes.sql``, F-013's
+    indexing deliverable): the persona-projection/custom-reprojection base
+    filter (``snapshot_id = ? AND eligible = 1``) that ``idx_rank``/
+    ``idx_eco`` do not key on. See that migration file's own comment for
+    the measured effect."""
     conn = sqlite3.connect(":memory:")
     schema.create_schema(conn)
     names = {
@@ -82,7 +87,7 @@ def test_indexes_match_04_section_5() -> None:
             "SELECT name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
     }
-    assert names == {"idx_rank", "idx_eco", "idx_name"}
+    assert names == {"idx_rank", "idx_eco", "idx_name", "idx_eligible"}
 
 
 def test_introspect_schema_catches_a_missing_column() -> None:

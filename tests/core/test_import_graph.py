@@ -56,7 +56,18 @@ def test_store_imports_only_core_snapshot_or_stdlib() -> None:
     packet (R-B) to let ``cvi/store`` import ``cvi.core`` (enums, the tie
     key) and ``cvi.snapshot`` (the frozen-population table builder, the
     canonical dump hash) in addition to the standard library -- nothing
-    else. Before this test, that amended rule was prose only."""
+    else. Before this test, that amended rule was prose only.
+
+    W4-3 widens this check one step further: a module INSIDE ``cvi/store``
+    may import another module inside ``cvi/store`` (``cvi.store.queries``,
+    R-2's "one definition" -- ``cvi/store/reader.py`` reuses
+    ``cvi.store.queries.ORDER_BY_SQL``/``row_to_dict`` rather than a second,
+    drifting copy of the same SQL/decoding logic). This is not a widening of
+    what ``store/`` may reach OUTSIDE itself -- the rule 04 section 3 states
+    ("store/ imports core ... and snapshot ... and nothing else") is about
+    crossing the package boundary, and an intra-``cvi.store`` import never
+    does that; every import a ``cvi/store/*.py`` file names is still exactly
+    one of stdlib, ``cvi.core.*``, ``cvi.snapshot.*`` or ``cvi.store.*``."""
     assert STORE_DIR.is_dir(), "cvi/store package missing"
     for path in sorted(STORE_DIR.rglob("*.py")):
         for name in imported_modules(path):
@@ -65,10 +76,11 @@ def test_store_imports_only_core_snapshot_or_stdlib() -> None:
                 top in sys.stdlib_module_names
                 or name.startswith("cvi.core")
                 or name.startswith("cvi.snapshot")
+                or name.startswith("cvi.store")
             )
             assert allowed, (
                 f"{path.relative_to(REPO_ROOT)} imports {name!r} outside "
-                f"cvi.core/cvi.snapshot + stdlib"
+                f"cvi.core/cvi.snapshot/cvi.store + stdlib"
             )
 
 

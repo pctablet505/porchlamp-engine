@@ -11,8 +11,12 @@ leaves open) is W4-3's.
 2026-09-13: ``NULLS LAST`` on every tie-break column, because SQLite sorts
 NULL first under plain ``ASC`` -- the exact inversion the W2-6 review found)
 applied directly to the *stored, un-reprojected* ``cvi``/pillar columns
-(the balanced view); W4-3 reuses this same constant for its ``cvi_p``
-projection so the ordering clause is defined once (R-2).
+(the balanced view); W4-3's ``cvi.store.queries`` reuses this same constant
+(``queries.ORDER_BY_SQL``, this module's own name re-bound to it, R-2 --
+one definition) for its ``cvi_p``/custom-weight projections so the ordering
+clause is defined once. The full read-path surface F-013 asked for (ranked/
+not-ranked listings, snapshot summary, matrix, evidence, reprojection) lives
+in ``cvi.store.queries``; this module keeps only what W4-2 built.
 """
 from __future__ import annotations
 
@@ -20,37 +24,15 @@ import json
 import sqlite3
 from typing import Any, Dict, List, Optional
 
-#: `04` section 6's amended D-TIE-1 ORDER BY, `NULLS LAST` on every level
-#: (mandatory ruling 2026-09-13). Column names are this store's own
-#: (``cvi`` not ``cvi_p``): the balanced, non-reprojected ordering.
-_ORDER_BY_SQL = (
-    "ROUND(cvi, 2) DESC NULLS LAST, "
-    "coverage DESC NULLS LAST, "
-    "p_responsiveness DESC NULLS LAST, "
-    "friction ASC NULLS LAST, "
-    "leverage DESC NULLS LAST, "
-    "ttfhr_p75 ASC NULLS LAST, "
-    "last_human_commit_at DESC NULLS LAST, "
-    "lower(owner || '/' || name) ASC"
-)
+from cvi.store.queries import ORDER_BY_SQL as _ORDER_BY_SQL, row_to_dict as _row_to_dict
 
-#: Columns stored as 0/1 that round-trip to Python ``bool``.
-_BOOL_COLUMNS = ("eligible", "archived", "mirror", "fork", "rated")
-
-#: Columns stored as canonical JSON text.
-_JSON_OBJECT_COLUMNS = ("persona_gates", "persona_composites")
-_JSON_LIST_COLUMNS = ("suspicion", "gate_undecided")
-
-
-def _row_to_dict(columns: List[str], row: tuple) -> Dict[str, Any]:
-    record = dict(zip(columns, row))
-    for column in _BOOL_COLUMNS:
-        if column in record and record[column] is not None:
-            record[column] = bool(record[column])
-    for column in _JSON_OBJECT_COLUMNS + _JSON_LIST_COLUMNS:
-        if column in record and record[column] is not None:
-            record[column] = json.loads(record[column])
-    return record
+__all__ = [
+    "get_snapshot",
+    "get_row",
+    "get_evidence",
+    "list_not_ranked",
+    "ranked_order_sql",
+]
 
 
 def get_snapshot(conn: sqlite3.Connection, snapshot_id: str) -> Optional[Dict[str, Any]]:

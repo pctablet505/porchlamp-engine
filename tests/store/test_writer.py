@@ -462,7 +462,7 @@ def test_migrating_a_create_schema_built_v2_db_renames_nothing(tmp_path) -> None
     conn.commit()
 
     applied = apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
-    assert applied == [1]
+    assert applied == [1, 2]
 
     tables = {
         row[0]
