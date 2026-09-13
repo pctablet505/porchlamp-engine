@@ -166,6 +166,20 @@ class LeaderboardRow(StrictModel):
     #: leaderboard row is the only place left for the drawer to get it.
     raw_hash: str
 
+    #: Review Blocker B-6 (2026-09-13): the persona delta column (`06` §3
+    #: Screen A, §8 checklist item 4) has no data to render without these.
+    #: `balanced_rank` is this repo's `rank` under the balanced lens;
+    #: `rank_delta = balanced_rank - rank` (positive means the row ranks
+    #: BETTER — a lower rank NUMBER — under the active persona than under
+    #: balanced; the UI shows that as "▲"). Both are `None` under the
+    #: balanced lens itself (there is nothing to compare against) and both
+    #: set together under every other persona. W4-4 already computes the
+    #: store-side equivalent (`reproject()`'s `balanced_rank`); it need
+    #: only subtract to get `rank_delta`, per `04-ARCHITECTURE.md` §6's
+    #: persona projection query (`rank_p` there is this row's `rank` here).
+    balanced_rank: int | None = None
+    rank_delta: int | None = None
+
     @model_validator(mode="after")
     def _rank_and_coverage_are_positive(self) -> "LeaderboardRow":
         if self.rank < 1:
@@ -176,6 +190,22 @@ class LeaderboardRow(StrictModel):
             c = getattr(self, f"c_{pillar}")
             if not (0.0 <= c <= 1.0):
                 raise ValueError(f"c_{pillar} must be in [0, 1], got {c}")
+        return self
+
+    @model_validator(mode="after")
+    def _balanced_rank_and_delta_are_consistent(self) -> "LeaderboardRow":
+        has_balanced_rank = self.balanced_rank is not None
+        has_delta = self.rank_delta is not None
+        if has_balanced_rank != has_delta:
+            raise ValueError(
+                f"{self.owner}/{self.name}: balanced_rank and rank_delta must both be set or both be null "
+                f"(got balanced_rank={self.balanced_rank!r}, rank_delta={self.rank_delta!r})"
+            )
+        if has_balanced_rank and self.rank_delta != self.balanced_rank - self.rank:
+            raise ValueError(
+                f"{self.owner}/{self.name}: rank_delta={self.rank_delta} must equal "
+                f"balanced_rank({self.balanced_rank}) - rank({self.rank}) = {self.balanced_rank - self.rank}"
+            )
         return self
 
 

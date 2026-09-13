@@ -80,17 +80,29 @@ export function renderPageRows(flat, page, pageSize) {
 
 export function shellShape(state) {
   const { notRankedLoading, notRankedError, notRanked } = state;
-  // The shape includes whether the leaderboard's counts have arrived yet:
-  // the shell embeds the Ranked/Not-ranked tabs (with their counts) so a
-  // rebuild is needed once they show up, even though notRanked's own data
-  // shape did not change.
-  const countsSuffix = state.leaderboard ? "-counted" : "";
-  if (notRankedLoading && !notRanked) return `loading${countsSuffix}`;
-  if (notRankedError && !notRanked) return `error${countsSuffix}`;
+  if (notRankedLoading && !notRanked) return "loading";
+  if (notRankedError && !notRanked) return "error";
   if (!notRanked || (notRanked.gated.length === 0 && notRanked.unrated.length === 0 && (!notRanked.persona_hidden || notRanked.persona_hidden.length === 0))) {
-    return `empty${countsSuffix}`;
+    return "empty";
   }
-  return `table${countsSuffix}`;
+  return "table";
+}
+
+/**
+ * The shell also embeds the Ranked/Not-ranked tabs (with their counts), so
+ * a rebuild is needed once `state.leaderboard` first arrives even though
+ * `shellShape`'s own return value did not change. Kept as a SEPARATE
+ * function (rather than folded into `shellShape`'s return string, which a
+ * prior version of this file did) specifically so every `shellShape(state)
+ * === "..."` equality check in this module and in app.js keeps working —
+ * that prior version silently broke exactly those checks (a real,
+ * lead-reported defect: clicking the Not-ranked tab threw
+ * "Cannot read properties of null (reading 'gated')" and never rendered,
+ * because `renderShell`'s `shape === "empty"` checks stopped matching
+ * `"empty-counted"`).
+ */
+export function rebuildKey(state) {
+  return `${shellShape(state)}${state.leaderboard ? "-counted" : ""}`;
 }
 
 export function renderShell(state) {

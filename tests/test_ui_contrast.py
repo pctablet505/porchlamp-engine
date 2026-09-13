@@ -144,6 +144,18 @@ class TestTextContrastMeetsAA:
                 failures.append(f"{theme_name}: --{text_tok} on --{bg_tok} = {ratio:.2f} (< 4.5)")
         assert not failures, "AA text-contrast failures:\n" + "\n".join(failures)
 
+    def test_4_5_is_a_real_load_bearing_threshold_not_a_number_nothing_ever_fails(self) -> None:
+        # Mutation-battery follow-up (M16, survived): every REAL token pair
+        # in tokens.css clears 4.5:1 with enough margin that weakening the
+        # threshold to 2.0 changed no test outcome. This pins the boundary
+        # itself with a synthetic pair whose ratio is independently known
+        # to sit strictly between 2.0 and 4.5, so a future weakening of
+        # either the threshold OR contrast_ratio's own math is caught here
+        # even though no real design token happens to be marginal today.
+        synthetic_ratio = contrast_ratio("#949494", "#FFFFFF")
+        assert 2.0 < synthetic_ratio < 4.5, f"test fixture assumption broke: ratio was {synthetic_ratio}"
+        assert not (synthetic_ratio >= 4.5), "a pair below AA must not be reported as passing"
+
 
 class TestGraphicContrastMeets3to1:
     def test_every_graphic_pair_clears_3_to_1(self) -> None:

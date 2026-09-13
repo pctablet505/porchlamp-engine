@@ -24,6 +24,31 @@ export const SORTABLE_COLUMNS = new Set([
   "p_accessibility",
 ]);
 
+/**
+ * The sort-encoding contract (lead-mandated 2026-09-13, documented here,
+ * in copy.js, and in scripts/serve_ui_fixtures.py's module docstring — all
+ * three MUST agree): `sort=<field>` means that field's "best first"
+ * direction — DESCENDING for every score/coverage-like field (higher is
+ * better), ASCENDING for `rank`/`tier` (rank 1 and tier S are already
+ * "best"). A leading `-` (`sort=-<field>`) reverses that default. Clicking
+ * an unsorted column header applies the field's default (best-first)
+ * direction; clicking the ALREADY-active column's header toggles the `-`
+ * prefix. This one function is the single source of truth for what
+ * direction a given `sort` value actually produces, so the `aria-sort`
+ * label rendered on the header can never disagree with the real order —
+ * lead-reported defect: `?sort=coverage` correctly sorted descending
+ * (100% first) but the header claimed `aria-sort="ascending"`, because the
+ * old code read the direction off the `-` prefix alone without accounting
+ * for which fields default to descending.
+ */
+export function sortDirectionLabel(sortField) {
+  const field = sortField.startsWith("-") ? sortField.slice(1) : sortField;
+  const reversed = sortField.startsWith("-");
+  const bestFirstAscending = field === "rank" || field === "tier";
+  const effectiveDescending = bestFirstAscending ? reversed : !reversed;
+  return effectiveDescending ? "descending" : "ascending";
+}
+
 export const ROW_HEIGHT_PX = 40;
 
 const COLUMNS = [
@@ -89,8 +114,7 @@ export function renderColumnHeader(sortField, showPersonaDelta) {
         return `<th${tooltip}>${escapeHtml(col.label)}</th>`;
       }
       const isActive = sortField.replace(/^-/, "") === col.key;
-      const dir = sortField.startsWith("-") ? "descending" : "ascending";
-      const ariaSort = isActive ? ` aria-sort="${dir}"` : "";
+      const ariaSort = isActive ? ` aria-sort="${sortDirectionLabel(sortField)}"` : "";
       return (
         `<th data-sortable="true" data-sort-field="${col.key}" tabindex="0" role="button"` +
         `${ariaSort}>${escapeHtml(col.label)}</th>`

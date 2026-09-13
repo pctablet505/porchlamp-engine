@@ -38,7 +38,11 @@ real one):
   A allows sorting on — U-3 vanity columns are never sortable, and this
   server rejects any other value with 400). A leading `-` reverses the
   field's natural "best first" direction. Default `rank` (ascending — rank 1
-  first). `tier` sorts by tier ordinal S > A > B > C > D > F.
+  first). `tier` sorts by tier ordinal S > A > B > C > D > F. This encoding
+  (lead-mandated 2026-09-13) is mirrored EXACTLY by
+  `web/v2/components/table.js`'s `sortDirectionLabel` (the header's
+  `aria-sort` label) and `web/v2/app.js`'s click-to-toggle handler — all
+  three must agree on which fields default to descending vs ascending.
 - `page`, `page_size`: 1-based page, `page_size` one of
   `cvi.serve.contract.LEADERBOARD_PAGE_SIZES` (20, 50, 100, 500, 1000;
   owner instruction 2026-09-13, default 20). `total` and `counts` always
@@ -108,14 +112,26 @@ class FixtureStore:
 
     @staticmethod
     def _parse_evidence_filename(filename: str) -> tuple[str, str]:
-        # "evidence-<owner>-<name>.json"; owner/name may themselves contain
-        # dashes, so this is a best-effort split good enough for the fixture
-        # set actually shipped (tests assert the mapping is unambiguous for
-        # every fixture file present).
+        # "evidence-<owner>__<name>.json" — double underscore, unambiguous
+        # because neither a GitHub owner nor a repo name may contain one.
+        #
+        # Review Blocker B-7 (2026-09-13): the previous encoding was
+        # "evidence-<owner>-<name>.json" split by "guess the midpoint word",
+        # which silently mis-parsed any owner/name pair not evenly
+        # word-balanced (ivywood/template-cli-71, 1 owner word vs. 3 name
+        # words, split into "ivywood-template" / "cli-71") — 404ing a real
+        # row's evidence forever. `TestEvidenceEndpoint::
+        # test_every_evidence_fixture_file_is_reachable_at_200` in
+        # tests/test_serve_ui_fixtures.py is the regression test this
+        # encoding change exists to make pass (the module docstring
+        # previously claimed that test existed; it did not).
         stem = filename[len("evidence-"):-len(".json")]
-        parts = stem.split("-")
-        mid = len(parts) // 2
-        return "-".join(parts[:mid]), "-".join(parts[mid:])
+        owner, sep, name = stem.partition("__")
+        if not sep:
+            raise ValueError(
+                f"evidence fixture filename {filename!r} has no '__' owner/name separator"
+            )
+        return owner, name
 
     def rows_for_persona(self, persona: str) -> list[dict[str, Any]]:
         if persona == "first_timer":

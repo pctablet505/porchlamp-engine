@@ -11,6 +11,7 @@
   "persona": "balanced",
   "rows": [
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -66,6 +67,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 1,
+      "rank_delta": null,
       "raw_hash": "ee5b578988fd06b9d1b86b0cf35f8868d99127ce62ae1186e13f073ac59dae14",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 16282,
@@ -75,6 +77,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.816,
       "c_criticality": 0.901,
@@ -130,6 +133,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 2,
+      "rank_delta": null,
       "raw_hash": "db5abb998e1d2cf42a9ae63a4ef3cb246f21c96d41f34c46365f175c9c107e50",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 4412,
@@ -139,6 +143,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.923,
       "c_criticality": 0.936,
@@ -194,6 +199,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 3,
+      "rank_delta": null,
       "raw_hash": "aba10e13e01a78872537b71f240b8a16106cb1b2189cd8eb8d7fb8575e25d962",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 14267,
@@ -203,6 +209,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.839,
       "c_criticality": 0.828,
@@ -258,6 +265,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 4,
+      "rank_delta": null,
       "raw_hash": "89d1075a747c5e2b08eb66f069b90b0eab8a7367e43c1147dd439fe7b159f9a0",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 12893,
@@ -267,6 +275,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -322,6 +331,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 5,
+      "rank_delta": null,
       "raw_hash": "6fe578b22c9a34212b5d5e44bba0719a6f24fb5c5af4ea1afdbdc9921bfedb68",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 14205,
@@ -331,6 +341,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.891,
       "c_criticality": 0.917,
@@ -386,6 +397,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 6,
+      "rank_delta": null,
       "raw_hash": "988e3fd3993129da5a8c566f957e7e3738b6252c81b41aab7536e708d26bc701",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 3437,
@@ -395,6 +407,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -408,8 +421,8 @@
       "friction_coverage": 1.0,
       "leverage": 87.62,
       "leverage_coverage": 1.0,
-      "name": "task-runner",
-      "owner": "blue-forge",
+      "name": "Task-Runner",
+      "owner": "Blue-Forge",
       "p_accessibility": 100.0,
       "p_criticality": 83.65,
       "p_governance": 100.0,
@@ -450,7 +463,8 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 7,
-      "raw_hash": "dd1e5d1763e1872465f8775d5f567a41b7ffdcef503c45b4aa58759803a6d6fc",
+      "rank_delta": null,
+      "raw_hash": "b9ad5ef886905170070ed65e2604086b5238aa19f7fe5af74b1a28fd2dd391b3",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 506,
       "suspicion": [],
@@ -459,6 +473,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -514,6 +529,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 8,
+      "rank_delta": null,
       "raw_hash": "faa24556925a93a804f05cdfcdf098b089d9a609a71d668428235f6d433a05d2",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 13194,
@@ -523,6 +539,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.625,
       "c_criticality": 0.682,
@@ -578,6 +595,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 9,
+      "rank_delta": null,
       "raw_hash": "5cf9b8410da53279a3c80a449db3eaf6f3955b7afcdc600b7bf48c595e7eae3e",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 5516,
@@ -587,6 +605,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.605,
       "c_criticality": 0.777,
@@ -642,6 +661,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 10,
+      "rank_delta": null,
       "raw_hash": "bcb8ab14a5bb0c23a019f3d10503f3f6cda421e13aebcff0fd21188577f9ab23",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 1320,
@@ -651,6 +671,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.609,
       "c_criticality": 0.771,
@@ -706,6 +727,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 11,
+      "rank_delta": null,
       "raw_hash": "fe0d5f03136ea743243c643af938e3fe666c3a95c91d9eeaa4c49ab3f0db1f7f",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 19015,
@@ -715,6 +737,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.764,
       "c_criticality": 0.645,
@@ -770,6 +793,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 12,
+      "rank_delta": null,
       "raw_hash": "d345b45f3a2314e769cf0e18c0754d22498447a8bc9fb74f5d993cd51cb9e899",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 19738,
@@ -779,6 +803,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -834,6 +859,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 13,
+      "rank_delta": null,
       "raw_hash": "4c0e1d8dbf2206816ed4f0d824c542b4e6f3dcf9150d79557cdc4ecff4561424",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 13570,
@@ -843,6 +869,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -898,6 +925,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 14,
+      "rank_delta": null,
       "raw_hash": "452fbc13a6a75585fd7b4403e7744fe41a951f89b7a1731e47b51adbcf4bf4fa",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 4681,
@@ -907,6 +935,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -962,6 +991,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 15,
+      "rank_delta": null,
       "raw_hash": "30c414906d9652c9bbbcb56451c3d71b7104b22910d466454fdfaff6579ac331",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 2503,
@@ -971,6 +1001,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -1026,6 +1057,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 16,
+      "rank_delta": null,
       "raw_hash": "8ab3f1149be78233c6cf7cbadb858a0748111cd76005aed6873429f13ce096e1",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 1326,
@@ -1035,6 +1067,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.811,
       "c_criticality": 0.895,
@@ -1090,6 +1123,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 17,
+      "rank_delta": null,
       "raw_hash": "fc66411d8fecb2cb195ce9b55aeded70ea14ea6fbe6db48387c3475528cae3f8",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 19259,
@@ -1099,6 +1133,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.861,
       "c_criticality": 0.89,
@@ -1146,10 +1181,11 @@
         }
       },
       "persona_gates": {
-        "career_capital": "brand_tier_not_met"
+        "career_capital": "criticality_below_threshold"
       },
       "quadrant": "Sweet Spot",
       "rank": 18,
+      "rank_delta": null,
       "raw_hash": "cd2b5bde7725fa0785758e341ec7a0bcb54cd7eb53809df801fd09cfa3177fb0",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 18695,
@@ -1159,6 +1195,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -1214,6 +1251,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 19,
+      "rank_delta": null,
       "raw_hash": "80f707606cab54268738c731a8544aaf9228add4314ff45072311aa0446df60d",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 6916,
@@ -1223,6 +1261,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.916,
       "c_criticality": 0.89,
@@ -1270,10 +1309,11 @@
         }
       },
       "persona_gates": {
-        "first_timer": "low_barrier_not_met"
+        "first_timer": "high_barrier_to_entry"
       },
       "quadrant": "Sweet Spot",
       "rank": 20,
+      "rank_delta": null,
       "raw_hash": "cb444c8ecc6acb06cd52c1656717146a85d7859ef0c53598211b19eab5501cb9",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 1567,
@@ -1283,6 +1323,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -1338,6 +1379,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 21,
+      "rank_delta": null,
       "raw_hash": "0cd0e195817e25419d5ce4b8e61b6521ff5694c6a12e473aefb2152865905971",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": null,
@@ -1347,6 +1389,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.899,
       "c_criticality": 0.9,
@@ -1398,6 +1441,7 @@
       },
       "quadrant": "Sweet Spot",
       "rank": 22,
+      "rank_delta": null,
       "raw_hash": "2c51db8dc14455678374625d79ac05e1c2de29e261a6208487f7781aec00c02f",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 10816,
@@ -1407,6 +1451,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.743,
       "c_criticality": 0.613,
@@ -1462,6 +1507,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 23,
+      "rank_delta": null,
       "raw_hash": "1f7bab3647a7d5bf80cd91bb6e959b1f5c3c69f1052a24a5ef08ab339a4537bd",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 10753,
@@ -1471,6 +1517,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -1526,6 +1573,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 24,
+      "rank_delta": null,
       "raw_hash": "a74283dd3dfa129682df0931b7d3456bfe419e0ff6f114bbaf42cfe9013d53e7",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 1200,
@@ -1535,6 +1583,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -1590,6 +1639,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 25,
+      "rank_delta": null,
       "raw_hash": "899a559829ddff3c47ec1c02aa09c24497dd89ae65d5962fc1e3f73b4a5cdb3d",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 1200,
@@ -1599,6 +1649,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.924,
       "c_criticality": 0.904,
@@ -1654,6 +1705,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 26,
+      "rank_delta": null,
       "raw_hash": "87af0a64136bf6860621aa2c61176a4fe0c694a2e211e8522b5254914984ac79",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 14136,
@@ -1663,6 +1715,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.852,
       "c_criticality": 0.85,
@@ -1710,10 +1763,11 @@
         }
       },
       "persona_gates": {
-        "ai_assisted": "hard_ai_ban"
+        "ai_assisted": "ai_hard_ban"
       },
       "quadrant": "Sweet Spot",
       "rank": 27,
+      "rank_delta": null,
       "raw_hash": "45222dc89ccd58f348c0b5d4cdcc2de51963fadc5d688ef7bd0ee66c4d6884d2",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 2661,
@@ -1723,6 +1777,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.832,
       "c_criticality": 0.811,
@@ -1778,6 +1833,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 28,
+      "rank_delta": null,
       "raw_hash": "9e2fb10247e278606c6d97dfa2297d706983c74c222c5bf970f1327183f0c40e",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 19830,
@@ -1787,6 +1843,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -1842,6 +1899,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 29,
+      "rank_delta": null,
       "raw_hash": "eff67208e1abb30524af33fc42d267b94ee8cc5e3c87ad1139c6b24e9e26d3c3",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 9341,
@@ -1851,6 +1909,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -1906,6 +1965,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 30,
+      "rank_delta": null,
       "raw_hash": "c04eb03f9e6c3525603636d1789a48eed61af99ad9e4830c1444ae475d231895",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 18010,
@@ -1915,6 +1975,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.87,
       "c_criticality": 0.841,
@@ -1970,6 +2031,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 31,
+      "rank_delta": null,
       "raw_hash": "73e7b40543fa1371d7a1e315a5e54a11424ea7a583be2cc06683172214b0031d",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 14718,
@@ -1979,6 +2041,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.0,
       "c_criticality": 0.916,
@@ -2034,6 +2097,7 @@
       "persona_gates": {},
       "quadrant": "Crucible",
       "rank": 32,
+      "rank_delta": null,
       "raw_hash": "2122b3fe7352dec26e16c11435ccbfddb42c18f27ca3e90a2ee202b2f8c79ee1",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 17960,
@@ -2043,6 +2107,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.641,
       "c_criticality": 0.735,
@@ -2098,6 +2163,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 33,
+      "rank_delta": null,
       "raw_hash": "4d366f104bad82db80ca78316406ebc28e33e87996abdf977a2b6fa13f760e35",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 18364,
@@ -2107,6 +2173,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.881,
       "c_criticality": 0.899,
@@ -2162,6 +2229,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 34,
+      "rank_delta": null,
       "raw_hash": "b5075fd55b943a37d6f992c5630b22e0de52955818fc1c70c039e29d1372b87b",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 19703,
@@ -2171,6 +2239,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.611,
       "c_criticality": 0.629,
@@ -2226,6 +2295,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 35,
+      "rank_delta": null,
       "raw_hash": "f1dab97bb6b976c5bf7bcf739192a02813b3efff26b87bf8ae75edb8f64ed8b9",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 2731,
@@ -2235,6 +2305,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.87,
       "c_criticality": 0.917,
@@ -2282,10 +2353,11 @@
         }
       },
       "persona_gates": {
-        "senior_systems": "single_vendor"
+        "senior_systems": "elephant_factor_below_3"
       },
       "quadrant": "Sweet Spot",
       "rank": 36,
+      "rank_delta": null,
       "raw_hash": "867292088cd6d2e9d2e574ce90b86de5c7fcee775fd911962890a9a43f3c775c",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 1683,
@@ -2295,6 +2367,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.711,
       "c_criticality": 0.775,
@@ -2350,6 +2423,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 37,
+      "rank_delta": null,
       "raw_hash": "1d901d3c97871d3471da04390cb18e50087f87621479ed24343c962786af7a99",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 2596,
@@ -2359,6 +2433,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -2414,6 +2489,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 38,
+      "rank_delta": null,
       "raw_hash": "469d3c1975a592caae767025e4771c9d689dde96a86fb8717116be93e5aa4bf7",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 9996,
@@ -2423,6 +2499,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.924,
       "c_criticality": 0.801,
@@ -2478,6 +2555,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 39,
+      "rank_delta": null,
       "raw_hash": "dceb23f97490ce61c6202df8b31c72e6252a2910b93b67943060bec42ed6bc82",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 8592,
@@ -2487,6 +2565,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.892,
       "c_criticality": 0.89,
@@ -2542,6 +2621,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 40,
+      "rank_delta": null,
       "raw_hash": "12a57ee0e295d7a6a144ccd1d9689a0a078cb610163755796f9bb398f88b1b3b",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 16930,
@@ -2551,6 +2631,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.878,
       "c_criticality": 0.806,
@@ -2606,6 +2687,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 41,
+      "rank_delta": null,
       "raw_hash": "4a3da3e8c0883f8025a4b9f701758dc826a5df0c1c2edae6bd6626d2634e4147",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 683,
@@ -2618,6 +2700,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.765,
       "c_criticality": 0.785,
@@ -2673,6 +2756,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 42,
+      "rank_delta": null,
       "raw_hash": "c42b0e11e2d52d74871c47cf7e872ae3152bed9118dce408285606135383a975",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 6405,
@@ -2684,6 +2768,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.776,
       "c_criticality": 0.756,
@@ -2739,6 +2824,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 43,
+      "rank_delta": null,
       "raw_hash": "2520a5f6031735d10dc0cc149e827bbb3af9bf08510b2c1a849511935390602d",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 12250,
@@ -2748,6 +2834,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.758,
       "c_criticality": 0.879,
@@ -2803,6 +2890,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 44,
+      "rank_delta": null,
       "raw_hash": "c27090228946a7b6adc3c1469f08bb21aff34420466c13cc3999812ce053bddb",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 14721,
@@ -2814,6 +2902,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.667,
       "c_criticality": 0.671,
@@ -2869,6 +2958,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 45,
+      "rank_delta": null,
       "raw_hash": "48eab0df1399ed63a166a56afe8124e80c152a98f47bb0444ee582e64bbf0075",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 15103,
@@ -2878,6 +2968,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -2933,6 +3024,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 46,
+      "rank_delta": null,
       "raw_hash": "f3b2d5e79cce8dfbc5b288f7366d1133391c5df32dc581f0dbb03fd8bb9a6706",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 7900,
@@ -2942,6 +3034,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.862,
       "c_criticality": 0.815,
@@ -2997,6 +3090,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 47,
+      "rank_delta": null,
       "raw_hash": "6c19497d2497faf01400ac11c53fe427781c04dca3b9026f5bfdf529b6a69267",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 9769,
@@ -3006,6 +3100,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.85,
       "c_criticality": 0.919,
@@ -3061,6 +3156,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 48,
+      "rank_delta": null,
       "raw_hash": "8046ae00923fbcd90d4348ec9e749591f09e63166e36cab1b1161258751bd78b",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 9045,
@@ -3070,6 +3166,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -3125,6 +3222,7 @@
       "persona_gates": {},
       "quadrant": "Crucible",
       "rank": 49,
+      "rank_delta": null,
       "raw_hash": "acb8d565af25ef561e7cb88a0ac20bb40d9480f7f796496a723f1d6eabcd0aba",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 14091,
@@ -3134,6 +3232,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.927,
       "c_criticality": 0.932,
@@ -3189,6 +3288,7 @@
       "persona_gates": {},
       "quadrant": "Sweet Spot",
       "rank": 50,
+      "rank_delta": null,
       "raw_hash": "47607dcefbf869c36f9a768b8b1be24b861e608446ec0c437c3b59b967caeb80",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 7039,
@@ -3198,6 +3298,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.879,
       "c_criticality": 0.928,
@@ -3253,6 +3354,7 @@
       "persona_gates": {},
       "quadrant": "Nursery",
       "rank": 51,
+      "rank_delta": null,
       "raw_hash": "7c896cb3ddb5ceba53ab6b3f5424b445c1475216797249db47262109112adf86",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 2585,
@@ -3262,6 +3364,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -3317,6 +3420,7 @@
       "persona_gates": {},
       "quadrant": "Nursery",
       "rank": 52,
+      "rank_delta": null,
       "raw_hash": "eff24d59a028fa53cf36b0739e8fd3fc60ecd04c31d085b75414536afaa6d25d",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 3354,
@@ -3326,6 +3430,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -3381,6 +3486,7 @@
       "persona_gates": {},
       "quadrant": "Nursery",
       "rank": 53,
+      "rank_delta": null,
       "raw_hash": "2a1a3fef3fae720c3854e9ef1bbc0a27aea7508084ec9902a9119d4cb7f2d60e",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 900,
@@ -3390,6 +3496,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.787,
       "c_criticality": 0.767,
@@ -3445,6 +3552,7 @@
       "persona_gates": {},
       "quadrant": "Crucible",
       "rank": 54,
+      "rank_delta": null,
       "raw_hash": "1d7cb242068df5ff3345f069804c25fd7cbadaa6e1224f95c3cff471757abe8a",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 1392,
@@ -3454,6 +3562,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -3509,6 +3618,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 55,
+      "rank_delta": null,
       "raw_hash": "4797ee019d335e98ec5225da9c2ef8ed4aa5f091ede32a5def0e3479bdee4589",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 18328,
@@ -3518,6 +3628,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -3573,6 +3684,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 56,
+      "rank_delta": null,
       "raw_hash": "189f13e647c58e99bd02cc9eb70f1438e544eda904b220dc04b7df33869695f0",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 14671,
@@ -3582,6 +3694,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -3637,6 +3750,7 @@
       "persona_gates": {},
       "quadrant": "Nursery",
       "rank": 57,
+      "rank_delta": null,
       "raw_hash": "c5692c03eecad02a3ee07789e7d590ce88b865d579eadbb0715e214572357f21",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 678,
@@ -3646,6 +3760,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.85,
       "c_criticality": 0.882,
@@ -3701,6 +3816,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 58,
+      "rank_delta": null,
       "raw_hash": "4e8d7cc3c653ea67aa69f38273259197333ac3d47b6db319554c074ce806747a",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 6990,
@@ -3710,6 +3826,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.903,
       "c_criticality": 0.871,
@@ -3765,6 +3882,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 59,
+      "rank_delta": null,
       "raw_hash": "2562455a254f1fc911cd5d7b0f06c991b64a33551a32179bbaaa683e85e5fedc",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 4586,
@@ -3774,6 +3892,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -3829,6 +3948,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 60,
+      "rank_delta": null,
       "raw_hash": "d6bb431d11ea455646efb3cdfeaa526f24b4affd831b69074bb7c02fd461dfa6",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 7163,
@@ -3838,6 +3958,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.634,
       "c_criticality": 0.707,
@@ -3893,6 +4014,7 @@
       "persona_gates": {},
       "quadrant": "Crucible",
       "rank": 61,
+      "rank_delta": null,
       "raw_hash": "cd1a4ea4d34dff770ce0b30ee533692cf31316c8d4520f84becd0b9a1f336767",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 5819,
@@ -3902,6 +4024,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -3957,6 +4080,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 62,
+      "rank_delta": null,
       "raw_hash": "9b61300b011186314ef2270e9d53c45422ed9831488e9cb94f2ff8a8411af036",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 17572,
@@ -3966,6 +4090,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.931,
       "c_criticality": 0.939,
@@ -4021,6 +4146,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 63,
+      "rank_delta": null,
       "raw_hash": "c39a8670c1aade7ae026c3b064818341916eefd7a0a8f75ca2df70588696a0dc",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 16978,
@@ -4030,6 +4156,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.823,
       "c_criticality": 0.846,
@@ -4085,6 +4212,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 64,
+      "rank_delta": null,
       "raw_hash": "c6debc423accf77d060c691f37947001f015ce16848182b34d0913d803c98310",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 12229,
@@ -4094,6 +4222,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.682,
       "c_criticality": 0.663,
@@ -4149,6 +4278,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 65,
+      "rank_delta": null,
       "raw_hash": "9752bbf02d25ea87316a95b450c10f19aebaa64d446d89082e89fc916893c2f1",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 18344,
@@ -4158,6 +4288,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -4213,6 +4344,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 66,
+      "rank_delta": null,
       "raw_hash": "b6902f2be467c499c5e24c83ac718452ba4eed1075c04ccbb89ed40d17cd1263",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 1923,
@@ -4222,6 +4354,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.709,
       "c_criticality": 0.603,
@@ -4277,6 +4410,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 67,
+      "rank_delta": null,
       "raw_hash": "f0853e7beb9dc2802ab0bf89d94bc4835d7215c52ad071a908089e288030a9a7",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 15891,
@@ -4286,6 +4420,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.929,
       "c_criticality": 0.839,
@@ -4341,6 +4476,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 68,
+      "rank_delta": null,
       "raw_hash": "f057224b00499fcc098df1cf8e1841497b022048e376dae365664b6b3de66749",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 13744,
@@ -4350,6 +4486,7 @@
       "tier_ceiling": "A"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -4405,6 +4542,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 69,
+      "rank_delta": null,
       "raw_hash": "adbf98e15a05f70cd553bfe1f5d5f3b36e335281f50a9c40a83c24155f030e27",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 8821,
@@ -4414,6 +4552,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 0.773,
       "c_criticality": 0.701,
@@ -4469,6 +4608,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 70,
+      "rank_delta": null,
       "raw_hash": "fd6b165344e2ae98a6f84995301ce2e1bbfcd32725719fb63f52beeefc757a86",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 15948,
@@ -4478,6 +4618,7 @@
       "tier_ceiling": "B"
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -4533,6 +4674,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 71,
+      "rank_delta": null,
       "raw_hash": "94ba834033dbca0e15fac8150d1f0cde0fd7e6dcfde38abf9b473d29fb2c96c7",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 15883,
@@ -4542,6 +4684,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -4597,6 +4740,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 72,
+      "rank_delta": null,
       "raw_hash": "1455ec0757530d43ab13be6ed7bb3f83a8a1f4d975cce0d5d94d4fe91462e2e9",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 12512,
@@ -4606,6 +4750,7 @@
       "tier_ceiling": null
     },
     {
+      "balanced_rank": null,
       "benchmark_version": "2.0.0-fixture",
       "c_accessibility": 1.0,
       "c_criticality": 1.0,
@@ -4661,6 +4806,7 @@
       "persona_gates": {},
       "quadrant": "Graveyard",
       "rank": 73,
+      "rank_delta": null,
       "raw_hash": "0b932a0c3b7c12a668126099495ab90525d04d61ca34efddc102db163b28eb11",
       "snapshot_id": "snap-2026-09-13-fixture",
       "stars_audited": 3265,

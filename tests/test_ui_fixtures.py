@@ -26,9 +26,11 @@ from cvi.serve.contract import (
     MatrixPoint,
     MatrixResponse,
     NotRankedResponse,
+    NotRankedRow,
     PILLARS,
     ReprojectRequest,
     ReprojectResponse,
+    SnapshotCounts,
     SnapshotSummary,
 )
 
@@ -214,18 +216,114 @@ class TestNotRankedFixture:
 
 class TestEvidenceFixtures:
     def test_full_repo_evidence_has_no_unmeasured_reasons(self) -> None:
-        data = load("evidence-riverline-httpkit.json")
+        data = load("evidence-riverline__httpkit.json")
         assert len(data) >= 5
         assert all(row["unmeasured_reason"] is None and row["measured"] is True for row in data)
 
     def test_partial_repo_evidence_covers_every_unmeasured_reason(self) -> None:
-        path = next(FIXTURES_DIR.glob("evidence-ivywood-*.json"))
+        path = FIXTURES_DIR / "evidence-ivywood__template-cli-71.json"
+        assert path.exists(), (
+            "review Blocker B-7: this exact file was 404ing under the old "
+            "hyphen-split filename encoding — it must exist verbatim at the "
+            "owner__name the leaderboard fixture actually names"
+        )
         data = json.loads(path.read_text())
         reasons = {row["unmeasured_reason"] for row in data if row["unmeasured_reason"]}
         assert reasons == {"third_party_gap", "collector_failure", "insufficient_n", "not_applicable", "no_population"}
         assert any(row["unmeasured_reason"] is None for row in data), "partial fixture must also have SOME measured rows"
         for row in data:
             assert row["measured"] == (row["unmeasured_reason"] is None)
+
+    def test_every_evidence_filename_round_trips_through_the_server_parser(self) -> None:
+        # Review Blocker B-7 regression guard, at the contract-fixture
+        # level (tests/test_serve_ui_fixtures.py has the live-HTTP version
+        # of this same check): every "evidence-<owner>__<name>.json" file
+        # must split back into EXACTLY the owner/name the leaderboard
+        # fixture uses — the encoding is unambiguous (a double underscore
+        # never appears inside a real owner or repo name), unlike the
+        # previous "split the hyphens in half" heuristic.
+        balanced_keys = {(r["owner"], r["name"]) for r in load("leaderboard.json")["rows"]}
+        for path in sorted(FIXTURES_DIR.glob("evidence-*.json")):
+            stem = path.name[len("evidence-") : -len(".json")]
+            owner, sep, name = stem.partition("__")
+            assert sep, f"{path.name}: missing the '__' owner/name separator"
+            if (owner, name) != ("gated-org", "repo-archived-1"):  # the one gated (not on the leaderboard) fixture
+                assert (owner, name) in balanced_keys, f"{path.name}: {owner}/{name} is not a real leaderboard row"
+
+
+class TestBalancedRankAndDelta:
+    """Review Blocker B-6 (2026-09-13): the persona delta column (`06` §3
+    Screen A, §8 checklist item 4) needs `balanced_rank`/`rank_delta` on
+    every persona-projected row, and NEITHER on the balanced fixture
+    itself (there is nothing to delta against there)."""
+
+    def test_balanced_fixture_has_no_rank_delta(self, rows: list[dict]) -> None:
+        for r in rows:
+            assert r["balanced_rank"] is None
+            assert r["rank_delta"] is None
+
+    def test_first_timer_fixture_has_rank_delta_matching_the_formula(self) -> None:
+        ft_rows = load("leaderboard-first_timer.json")["rows"]
+        assert ft_rows, "first_timer fixture is empty"
+        nonzero = 0
+        for r in ft_rows:
+            assert r["balanced_rank"] is not None
+            assert r["rank_delta"] is not None
+            assert r["rank_delta"] == r["balanced_rank"] - r["rank"]
+            if r["rank_delta"] != 0:
+                nonzero += 1
+        assert nonzero >= len(ft_rows) // 2, "expected most rows to have a genuine non-zero delta"
+
+    def test_persona_composites_agree_with_the_top_level_reprojected_score(self) -> None:
+        # Review Warning W-1: the table (top-level cvi/coverage/tier) and
+        # the drawer's Persona section (persona_composites[persona]) must
+        # never disagree about the SAME repo under the SAME lens.
+        ft_rows = load("leaderboard-first_timer.json")["rows"]
+        checked = 0
+        for r in ft_rows:
+            composite = r["persona_composites"].get("first_timer")
+            if composite is None or composite["cvi"] is None:
+                continue
+            assert composite["cvi"] == r["cvi"], f"{r['owner']}/{r['name']}: drawer cvi {composite['cvi']} != table cvi {r['cvi']}"
+            checked += 1
+        assert checked >= len(ft_rows) // 2
+
+
+class TestContractValidatorsRejectBadInput:
+    """Mutation-battery follow-up (review 2026-09-13): each of these
+    validators had a survivor because only the ACCEPT path was tested.
+    One `pytest.raises` per validator, so removing/weakening the check
+    itself now fails a test instead of surviving silently."""
+
+    def test_snapshot_counts_rejects_a_total_that_does_not_match_the_sum(self) -> None:
+        with pytest.raises(ValidationError):
+            SnapshotCounts(rated=1, gated=1, unrated=1, total=999)
+
+    def test_reproject_request_rejects_a_negative_weight_even_if_the_sum_is_still_one(self) -> None:
+        # A weight below zero paired with a compensating value elsewhere
+        # can still sum to 1.0 — the "sums to 1" check alone would miss it.
+        with pytest.raises(ValidationError):
+            ReprojectRequest(
+                weight_responsiveness=-0.1, weight_criticality=0.35, weight_governance=0.35,
+                weight_rigor=0.2, weight_accessibility=0.2,
+            )
+
+    def test_not_ranked_row_rejects_no_reason_at_all(self) -> None:
+        with pytest.raises(ValidationError):
+            NotRankedRow(owner="a", name="b", ecosystem="pypi")
+
+    def test_evidence_row_rejects_measured_false_with_no_unmeasured_reason(self) -> None:
+        with pytest.raises(ValidationError):
+            EvidenceRow(param_id="x", pillar="governance", measured=False)
+
+    def test_leaderboard_response_rejects_a_page_size_over_the_max(self) -> None:
+        base_row = load("leaderboard.json")["rows"][0]
+        with pytest.raises(ValidationError):
+            LeaderboardResponse(
+                rows=[base_row], total=1,
+                counts=SnapshotCounts(rated=1, gated=0, unrated=0, total=1),
+                page=1, page_size=99999, persona="balanced",
+            )
 
 
 class TestMatrixAndReprojectContractOnly:

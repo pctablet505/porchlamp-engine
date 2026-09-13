@@ -77,7 +77,7 @@
       "gate_reason": null,
       "name": "cli-tools",
       "owner": "greyfox",
-      "persona_gate_reason": "low_barrier_not_met",
+      "persona_gate_reason": "high_barrier_to_entry",
       "unrated_reason": null
     },
     {

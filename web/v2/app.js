@@ -34,6 +34,8 @@ import {
   readPersistedTheme,
   writePersistedTheme,
   countRankChanges,
+  shouldRestoreFocusAfterRebuild,
+  urlSyncMode,
   PAGE_SIZES,
   DEFAULT_PAGE_SIZE,
 } from "./state.js";
@@ -47,12 +49,13 @@ import {
 import {
   renderShell as renderNotRankedShell,
   shellShape as notRankedShellShape,
+  rebuildKey as notRankedRebuildKey,
   patchNotRankedBody,
   flattenGroups,
 } from "./views/notranked.js";
 import { renderDrawer } from "./views/drawer.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
-import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX } from "./components/table.js";
+import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel } from "./components/table.js";
 import { synthesizeRows } from "./perf-fixtures.js";
 
 const PERSONAS = ["balanced", "first_timer", "career_capital", "senior_systems", "ai_assisted"];
@@ -178,7 +181,11 @@ export function boot(win = window, doc = document) {
         if (th.hasAttribute("aria-sort")) th.removeAttribute("aria-sort");
         continue;
       }
-      const dir = state.sort.startsWith("-") ? "descending" : "ascending";
+      // sortDirectionLabel is the single source of truth for the
+      // effective direction (see components/table.js) — a field's
+      // "best first" convention (descending for scores, ascending for
+      // rank/tier) is not simply "no '-' prefix = ascending".
+      const dir = sortDirectionLabel(state.sort);
       if (th.getAttribute("aria-sort") !== dir) th.setAttribute("aria-sort", dir);
     }
   }
@@ -255,14 +262,14 @@ export function boot(win = window, doc = document) {
 
   function syncView(state) {
     if (state.tab === "notranked") {
-      const shape = notRankedShellShape(state);
-      if (currentTab !== "notranked" || shape !== currentNotRankedShape) {
+      const key = notRankedRebuildKey(state);
+      if (currentTab !== "notranked" || key !== currentNotRankedShape) {
         main.innerHTML = renderNotRankedShell(state);
         currentTab = "notranked";
-        currentNotRankedShape = shape;
+        currentNotRankedShape = key;
         currentShellShape = null;
       }
-      if (shape.startsWith("table")) patchNotRankedBody(main, state);
+      if (notRankedShellShape(state) === "table") patchNotRankedBody(main, state);
       return;
     }
 
@@ -278,10 +285,17 @@ export function boot(win = window, doc = document) {
   }
 
   // ------------------------------------------------------------- URL sync
-  function pushUrl(state) {
+  // U-16: persona/eco/sort/page/page_size/tab/repo changes are each a real
+  // navigation step (pushState); `q` while TYPING is not — every debounced
+  // keystroke uses replaceState, and only an explicit commit (Enter, or
+  // blurring the search field) turns the current query into one pushState
+  // entry (reviewer-found Blocker B-5: `replaceUrl` was defined but never
+  // called, so every debounce window pushed a fresh history entry).
+  function pushUrl(state, opts = {}) {
     const search = serializeSearch(state);
     const target = `${win.location.pathname}${search}`;
-    if (`${win.location.pathname}${win.location.search}` !== target) {
+    const current = `${win.location.pathname}${win.location.search}`;
+    if (opts.force || target !== current) {
       win.history.pushState(null, "", target);
     }
   }
@@ -395,13 +409,32 @@ export function boot(win = window, doc = document) {
   function renderDrawerAndKeymap(state) {
     const drawerHtml = renderDrawer(state);
     if (drawerRoot.dataset.lastHtml !== drawerHtml) {
+      // A content-only update (e.g. evidence arriving after the drawer is
+      // ALREADY open) still replaces drawerRoot's innerHTML wholesale — the
+      // drawer isn't on the keyed-patch path components/table.js uses.
+      // That destroys whatever element currently holds focus if focus is
+      // inside the drawer, and browsers fall back to <body> when a focused
+      // node is removed. Bug found by the lead's live probe ("opening via
+      // click leaves focus on body"): the OPEN transition itself focused
+      // the close button correctly, but the evidence fetch resolving a
+      // moment later re-rendered the drawer's innerHTML and silently
+      // dropped focus to <body>. Fix: if focus was inside the drawer
+      // before this rebuild, restore it to the close button afterward.
+      const focusWasInDrawer = drawerRoot.contains(doc.activeElement);
       drawerRoot.innerHTML = drawerHtml;
       drawerRoot.dataset.lastHtml = drawerHtml;
+      if (shouldRestoreFocusAfterRebuild(state.repo, focusWasInDrawer)) {
+        drawerRoot.querySelector("[data-drawer-close]")?.focus();
+      }
     }
     const keymapHtml = state.keymapOpen ? renderKeymapOverlay() : "";
     if (keymapRoot.dataset.lastHtml !== keymapHtml) {
+      const focusWasInKeymap = keymapRoot.contains(doc.activeElement);
       keymapRoot.innerHTML = keymapHtml;
       keymapRoot.dataset.lastHtml = keymapHtml;
+      if (shouldRestoreFocusAfterRebuild(state.keymapOpen, focusWasInKeymap)) {
+        keymapRoot.querySelector("[data-keymap-close]")?.focus();
+      }
     }
     if (state.keymapOpen && !wasKeymapOpen) keymapRoot.querySelector("[data-keymap-close]")?.focus();
     if (state.repo && !wasDrawerOpen) drawerRoot.querySelector("[data-drawer-close]")?.focus();
@@ -439,12 +472,32 @@ export function boot(win = window, doc = document) {
     if (evt.target.matches("[data-search-input]")) {
       // The state update (and the fetch it triggers) is debounced to
       // <= 100ms so a fast typist does not fire a request per keystroke —
-      // the input's own displayed text needs no JS to update.
+      // the input's own displayed text needs no JS to update. U-16: this
+      // is a replaceState, not a pushState — typing must not spam history
+      // (a single query commits to history separately, see below).
       const query = evt.target.value;
       clearTimeout(searchDebounce);
-      searchDebounce = setTimeout(() => changeParamsAndFetch({ query }), 80);
+      searchDebounce = setTimeout(() => {
+        store.dispatch({ type: "SET_PARAMS", payload: { query, page: 1 } });
+        urlSyncMode("type") === "replace" ? replaceUrl(store.getState()) : pushUrl(store.getState());
+        loadLeaderboard();
+      }, 80);
     }
   });
+  header.addEventListener("keydown", (evt) => {
+    if (evt.target.matches("[data-search-input]") && evt.key === "Enter") {
+      if (urlSyncMode("commit") === "push") pushUrl(store.getState(), { force: true });
+    }
+  });
+  header.addEventListener(
+    "blur",
+    (evt) => {
+      if (evt.target.matches && evt.target.matches("[data-search-input]")) {
+        if (urlSyncMode("commit") === "push") pushUrl(store.getState(), { force: true });
+      }
+    },
+    true
+  );
 
   header.addEventListener("click", (evt) => {
     if (evt.target.closest("[data-theme-toggle]")) {
@@ -633,6 +686,8 @@ export function boot(win = window, doc = document) {
       case "cursor-down":
       case "cursor-up": {
         if (s.repo || s.keymapOpen) return;
+        if (isInputFocused) return;
+        evt.preventDefault();
         const rows = s.leaderboard ? s.leaderboard.rows : [];
         if (rows.length === 0) return;
         const curIdx = rows.findIndex((r) => rowKey(r) === s.selectedRepoKey);
@@ -640,8 +695,15 @@ export function boot(win = window, doc = document) {
         const nextIdx = Math.min(Math.max((curIdx === -1 ? -1 : curIdx) + delta, 0), rows.length - 1);
         const nextKey = rowKey(rows[nextIdx]);
         store.dispatch({ type: "SET_CURSOR", key: nextKey });
-        patchLeaderboardBody(store.getState());
+        // Scroll BEFORE the second patch so a row that was outside the
+        // windowed buffer actually exists in the DOM by the time we try to
+        // focus it (U-18: keyboard focus must move with the cursor, not
+        // just an internal "selected" flag and a CSS class — lead-reported
+        // defect: j/k updated state but never moved document.activeElement,
+        // so a keyboard user (and any test reading focus) saw nothing move).
         scrollRowIntoView(nextIdx);
+        patchLeaderboardBody(store.getState());
+        focusRowByKey(nextKey);
         break;
       }
       case "open-selected": {
@@ -685,6 +747,13 @@ export function boot(win = window, doc = document) {
     const bottom = top + ROW_HEIGHT_PX;
     if (top < win.scrollY) win.scrollTo(0, top);
     else if (bottom > win.scrollY + win.innerHeight) win.scrollTo(0, bottom - win.innerHeight);
+  }
+
+  /** Moves DOM focus to the row/card for `key` (U-18: focus must track the J/K cursor, not just internal state + a CSS class). No-op if the row is not currently rendered (should not happen: callers patch the DOM for the target row's index first). */
+  function focusRowByKey(key) {
+    if (!key) return;
+    const [owner, name] = key.split("/");
+    main.querySelector(`[data-owner="${CSS.escape(owner)}"][data-name="${CSS.escape(name)}"]`)?.focus();
   }
 
   win.addEventListener("popstate", () => {

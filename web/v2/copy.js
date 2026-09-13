@@ -3,7 +3,7 @@
 // and components import names from this module and interpolate data into
 // the templates defined here, never write new prose inline.
 //
-// tests/test_ui_copy.py enumerates every exported name in this file (via a
+// tests/test_ui_copy_usage.py enumerates every exported name in this file (via a
 // source-level parse, not execution — Node is not available on this box,
 // see .agents/W4-5a/handoff.md) and asserts each one is referenced
 // somewhere under web/v2/, so no string here is dead/orphaned copy.
@@ -137,13 +137,17 @@ export const NOT_RANKED_EMPTY = "No gated or unrated repositories to show.";
 
 // Persona gate reasons (02-RANKING-DESIGN.md D-PERS-2/3), reused by the
 // leaderboard's persona-hidden disclosure and the drawer's persona section.
+// Engine vocabulary (cvi/core/persona.py:185-188; review Warning W-2,
+// 2026-09-13 — these keys previously did not match any real gate code the
+// store could ever send, so every actual gate would have fallen through
+// to personaGateReason's `|| code` and shown the raw code to a user).
 const PERSONA_GATE_COPY = Object.freeze({
-  hard_ai_ban: "This repository has an explicit ban on AI-assisted contributions.",
-  single_vendor:
+  ai_hard_ban: "This repository has an explicit ban on AI-assisted contributions.",
+  elephant_factor_below_3:
     "Fewer than 3 organizations account for most commits (not multi-vendor).",
-  low_barrier_not_met:
+  high_barrier_to_entry:
     "This repository does not show a low enough barrier for a first-time contributor.",
-  brand_tier_not_met:
+  criticality_below_threshold:
     "This repository's production-criticality signal is not yet high enough for career-capital ranking.",
 });
 // D-PERS-3's exact rendering for any inclusion-gate "unmeasured input"
@@ -219,6 +223,13 @@ export function pagerStatusText(page, totalPages, totalRows) {
 export function reprojectedAnnouncement(personaName, count) {
   return `Re-projected under ${personaName}: ${count} rows moved.`;
 }
+// Sort encoding contract (lead-mandated 2026-09-13; mirrored exactly by
+// components/table.js's sortDirectionLabel and
+// scripts/serve_ui_fixtures.py's docstring): `sort=<field>` means that
+// field's own "best first" direction — descending for every score/
+// coverage-like field, ascending for rank/tier. A leading "-" reverses it.
+// First click on an unsorted column applies the default; a second click
+// on the SAME column toggles the "-" prefix.
 export function sortedAnnouncement(columnLabel) {
   return `Sorted by ${columnLabel}.`;
 }

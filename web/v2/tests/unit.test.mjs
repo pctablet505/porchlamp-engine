@@ -189,8 +189,12 @@ test("copy.js: gate and unrated reason text covers every code the fixtures use",
     copy.personaGateReason("insufficient_evidence:decided_first_timer_prs"),
     "Not enough evidence to show under this lens."
   );
-  const hardBan = copy.personaGateReason("hard_ai_ban");
-  assert.notEqual(hardBan, "hard_ai_ban", "no persona gate copy for hard_ai_ban");
+  // Engine vocabulary (cvi/core/persona.py:185-188; review Warning W-2).
+  const hardBan = copy.personaGateReason("ai_hard_ban");
+  assert.notEqual(hardBan, "ai_hard_ban", "no persona gate copy for ai_hard_ban");
+  for (const code of ["elephant_factor_below_3", "high_barrier_to_entry", "criticality_below_threshold"]) {
+    assert.notEqual(copy.personaGateReason(code), code, `no persona gate copy for ${code}`);
+  }
 });
 
 test("copy.js: coverage band boundaries match D-MISS-3 exactly (>=0.95 full, [0.80,0.95) A, [0.60,0.80) B)", () => {

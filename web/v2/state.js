@@ -125,6 +125,37 @@ export function countRankChanges(previousRows, nextRows) {
 }
 
 /**
+ * Lead-reported defect fix (2026-09-13): opening the drawer/keymap via
+ * click correctly focused the close button, but a LATER content-only
+ * rebuild (e.g. the evidence fetch resolving a moment after the drawer
+ * opened) replaced the dialog's innerHTML wholesale — destroying whatever
+ * element held focus — and browsers fall back to `<body>` when a focused
+ * node is removed from the document. The fix: only restore focus into the
+ * dialog after such a rebuild when focus was ALREADY inside it before the
+ * rebuild (never steal focus from elsewhere, e.g. the header) AND the
+ * dialog is still meant to be open. Extracted as a pure predicate so the
+ * decision itself — not the DOM plumbing around it — is unit-testable.
+ */
+export function shouldRestoreFocusAfterRebuild(isOpen, focusWasInside) {
+  return !!isOpen && !!focusWasInside;
+}
+
+/**
+ * U-16's push-vs-replace policy, as one pure decision function app.js
+ * actually calls (not a parallel re-implementation kept only for tests —
+ * that was the reviewer's W-5 criticism of a different file in this
+ * packet, and this fix does not repeat it). Every debounced `q` keystroke
+ * ("type") must not spam history; every other leaderboard-affecting
+ * change, and a `q` COMMIT (Enter or blur), is a real navigation step.
+ * Bug this exists to prevent (reviewer Blocker B-5): `replaceUrl` was
+ * defined but never called, so typing pushed one history entry per
+ * debounce window.
+ */
+export function urlSyncMode(trigger) {
+  return trigger === "type" ? "replace" : "push";
+}
+
+/**
  * Pure reducer: given the current state and an action, returns the next
  * state. Kept separate from the store so it is unit-testable without a
  * fetch/DOM environment.

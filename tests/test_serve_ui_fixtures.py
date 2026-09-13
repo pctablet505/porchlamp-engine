@@ -119,6 +119,19 @@ class TestLeaderboardEndpoint:
         assert body["rows"]
         assert all("riverline" in f"{r['owner']}/{r['name']}".lower() for r in body["rows"])
 
+    def test_q_filter_is_case_insensitive_on_the_ROW_side_too(self, server_url: str) -> None:
+        # Mutation-battery follow-up (M3, survived): every fixture repo
+        # used to be all-lowercase, so a mutant that removes the ROW
+        # side's `.lower()` (leaving only the query lowercased) could not
+        # be caught — a query already matched every row's raw casing.
+        # tests/fixtures/ui/leaderboard.json now carries one mixed-case
+        # repo ("Blue-Forge/Task-Runner") specifically so a lowercase
+        # query against it only matches if the row side is ALSO lowered.
+        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"q": "blue-forge", "page_size": 1000})
+        body = resp.json()
+        assert body["rows"], "lowercase query must still match the mixed-case fixture row"
+        assert any(r["owner"] == "Blue-Forge" for r in body["rows"])
+
     def test_sort_cvi_is_descending_by_default(self, server_url: str) -> None:
         resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"sort": "cvi", "page_size": 1000})
         cvis = [r["cvi"] for r in resp.json()["rows"]]
@@ -185,9 +198,34 @@ class TestEvidenceEndpoint:
     def test_known_repo_returns_its_evidence_fixture(self, server_url: str) -> None:
         resp = httpx.get(f"{server_url}/v1/cvi/repos/riverline/httpkit/evidence")
         assert resp.status_code == 200
-        expected = json.loads((FIXTURES_DIR / "evidence-riverline-httpkit.json").read_text())
+        expected = json.loads((FIXTURES_DIR / "evidence-riverline__httpkit.json").read_text())
         assert resp.json() == expected
 
     def test_unknown_repo_is_404(self, server_url: str) -> None:
         resp = httpx.get(f"{server_url}/v1/cvi/repos/nobody/nothing/evidence")
         assert resp.status_code == 404
+
+    def test_every_evidence_fixture_file_is_reachable_at_200(self, server_url: str) -> None:
+        # Review Blocker B-7 regression test: the module docstring claimed
+        # this test existed before it actually did, while
+        # `evidence-ivywood-template-cli-71.json`'s owner/name were
+        # silently mis-split (`ivywood-template` / `cli-71`) by the old
+        # hyphen-guessing decoder, 404ing a REAL leaderboard row's
+        # evidence forever. Every fixture file now round-trips at 200,
+        # for owner/name pairs of every word-length combination present.
+        evidence_files = sorted(FIXTURES_DIR.glob("evidence-*.json"))
+        assert len(evidence_files) >= 3
+        for path in evidence_files:
+            stem = path.name[len("evidence-") : -len(".json")]
+            owner, _, name = stem.partition("__")
+            resp = httpx.get(f"{server_url}/v1/cvi/repos/{owner}/{name}/evidence")
+            assert resp.status_code == 200, f"{path.name} ({owner}/{name}) did not resolve to 200"
+            assert resp.json() == json.loads(path.read_text())
+
+    def test_ivywood_template_cli_71_specifically_is_not_404(self, server_url: str) -> None:
+        # The exact repo the review's live probe found broken (1 owner
+        # word, 3 name words — the case the old "split hyphens in half"
+        # heuristic got wrong).
+        resp = httpx.get(f"{server_url}/v1/cvi/repos/ivywood/template-cli-71/evidence")
+        assert resp.status_code == 200
+        assert resp.json(), "expected non-empty evidence rows"
