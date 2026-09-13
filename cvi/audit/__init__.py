@@ -1,4 +1,4 @@
-"""CVI audit tools: coverage (W0-1), anchors, sensitivity and ties (W0-5), forward (W5-1).
+"""CVI audit tools: coverage (W0-1), anchors, sensitivity and ties (W0-5), forward (W5-1), detectors (W3-2).
 
 Read-only analysis over a data directory or a ``cvi.db`` database.  The
 public names live in the submodules and are re-exported lazily, so
@@ -15,6 +15,9 @@ sensitivity
     (``python -m cvi.audit.sensitivity``).
 ties
     Distinct composite values and tie-group sizes (``python -m cvi.audit.ties``).
+detectors_report
+    Cross-snapshot manipulation-detector counts, 03 section 6
+    (``python -m cvi.audit.detectors_report``).
 """
 
 from __future__ import annotations
@@ -93,6 +96,15 @@ _LAZY_EXPORTS: dict[str, tuple[str, ...]] = {
         "dry_run_report",
         "collect_forward",
         "load_pr_envelopes",
+        "main",
+    ),
+    "cvi.audit.detectors_report": (
+        "ROW_PARAM_IDS",
+        "DetectorRow",
+        "DetectorReport",
+        "load_rows",
+        "build_report",
+        "format_report",
         "main",
     ),
 }
