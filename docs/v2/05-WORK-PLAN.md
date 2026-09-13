@@ -357,6 +357,23 @@ if the fields exist there (they do not today; report).
 
 ---
 
+### W1-8 Universe entry: star-velocity filter applied and recorded (added 2026-09-13)
+**Goal.** `scripts/build_universe.py` applies `filter_fraudulent_star_velocity`
+(D-IN-5) at universe entry and records, per repo, whether the penalty fired
+(`star_velocity_flag`, with the window and the velocity) in the universe
+manifest; W2-9's mapping carries it into the bundle so the `star_burst`
+detector (03 §6) has evidence. Found by the W3-2 review: the filter exists
+but nothing calls it and nothing reports whether it fired.
+**Why.** D-IN-5, `03` §4 (StarScout lockstep), `03` §6 `star_burst`.
+**Owns.** `scripts/build_universe.py`, `cvi/collect/universe.py` (if split
+out), the universe manifest schema, one `INPUT_MAPPINGS` row, tests.
+**Acceptance.** A fixture repo with lockstep star bursts is flagged at entry
+and carries the flag through derive; a normal repo carries `False`; the flag
+is Unmeasured(collector_failure) when the star history fetch failed, never
+silently `False`.
+**Measure.** Flag count on the sample universe.
+**Depends.** W1-2, W2-9. **Size.** S.
+
 ### W2-1 Core types: Measured/Unmeasured, bundle schema v2, frozen constants
 **Goal.** `cvi/core/models.py` with the contracts in `04` §3; `FeatureBundle`
 v2 load/validate/dump; `cvi/core/constants_v2.py` with every v2 constant,
