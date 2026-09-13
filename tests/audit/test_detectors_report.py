@@ -254,6 +254,37 @@ def test_build_report_repo_absent_from_previous_still_scores(tmp_path: Path) -> 
     assert report.counts["param_jump"] == 0
 
 
+def _param_row(key: str, input_id: str, score: float, n: int) -> dict:
+    return {"key": key, "params": {input_id: {"score": score, "measured": True, "n": n}}}
+
+
+def test_build_report_param_jump_fires_through_a_real_previous_snapshot(tmp_path: Path) -> None:
+    """(M42, REWORK round 1) ``build_report``'s one cross-snapshot
+    capability, exercised with an actually-different previous row -- every
+    other report test either omits ``previous`` or supplies one identical
+    to ``current``, so a mutant that always calls ``run_detectors(...,
+    None, ...)`` left the whole suite green."""
+    current = _write_rows(tmp_path, "current.json", [_param_row("org/jumped", "ttfhr_hours", 100.0, 20)])
+    previous = _write_rows(tmp_path, "previous.json", [_param_row("org/jumped", "ttfhr_hours", 50.0, 20)])
+    report = build_report(load_rows(current), load_rows(previous))
+    assert report.counts["param_jump"] == 1
+    assert report.flagged["param_jump"] == ("org/jumped",)
+
+
+def test_build_report_flagged_tuple_is_sorted_by_key(tmp_path: Path) -> None:
+    """(M43, REWORK round 1) Two repos that both trigger the same detector,
+    written to the row file in reverse-alphabetical order -- the fixtures
+    in every other report test flag at most one repo per detector, so a
+    mutant that drops ``sorted(current)`` for dict/insertion order left the
+    whole suite green."""
+    current = _write_rows(tmp_path, "current.json", [
+        _speed_row("org/zzz", 95.0, 10.0),
+        _speed_row("org/aaa", 95.0, 10.0),
+    ])
+    report = build_report(load_rows(current), {})
+    assert report.flagged["speed_without_decisions"] == ("org/aaa", "org/zzz")
+
+
 def test_main_current_only_exits_zero_and_prints_report(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     current_path, _ = _six_record_fixture(tmp_path)
     exit_code = main(["--current", str(current_path)])

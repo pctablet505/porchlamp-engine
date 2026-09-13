@@ -291,3 +291,239 @@ caller has that `LiveSampleReport` in hand.
   unbuilt, W4-x "not started"). Reported as context only, not relied on by
   any detector (all 9 read `ScoreRecord.params`, which is populated
   identically whether or not the repo ends up `rated`).
+
+---
+
+# Round 2 (REWORK response)
+
+Review verdict: REWORK round 1 (Opus), bounded to 3 items — 44 PASS / 13
+FAIL / 4 UNDECIDED, 45 mutants (39 killed, 6 survived). No logic defect: all
+nine predicates matched the 03 section 6 table, the histogram reproduced
+exactly. Report: `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adbe955a4084/scratchpad/reviews/W3-2-review.md`.
+Base before this round: `9a6662b` (post-rebase; the lead had committed the
+round-1 diff as `67a7361` + `9a31c9f`-lineage handoff `d0a59cb`, both since
+rebased onto current main).
+
+## B1 — rebase onto current main; fix both `RepoIdentity` construction sites
+
+Rebased `W3-2` onto `main` (tip `d0a5ba2`, past the named `913ae2c`):
+`git rebase main` — clean, no conflicts (`Successfully rebased and updated
+refs/heads/W3-2.`). New base: `d0a5ba2`.
+
+W2-10 (`8e89d03`, landed on main after this packet's original base) made
+`repo: RepoIdentity` the first, required field of `ScoreRecord`. Fixed both
+construction sites the review named:
+
+- `cvi/audit/detectors_report.py::_minimal_score_record` now takes a
+  `repo: RepoIdentity` parameter. New `_repo_identity_from_key(key: str) ->
+  RepoIdentity` parses the row's `"owner/name"` key (already the
+  documented format) into a real `RepoIdentity`, raising `ValueError`
+  naming the key when it is not exactly one `"/"` (R-1: assert values, not
+  shapes). The other `RepoIdentity` fields (`ecosystem`, `archived`, ...)
+  stay placeholders — no detector reads `ScoreRecord.repo` (confirmed by
+  the round-1 purity check), so only `owner`/`name` need to be real.
+- `tests/verify/test_detectors.py::_record` now passes a module-level
+  `_REPO` constant, built the same way W2-10 updated
+  `tests/core/test_persona_v2.py`'s own `_record()` fixture (`owner="org",
+  name="alpha", ecosystem="pypi", ...`).
+
+```
+$ git rebase main
+Rebasing (1/2)Rebasing (2/2)Successfully rebased and updated refs/heads/W3-2.
+
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest \
+    tests/verify/test_detectors.py tests/audit/test_detectors_report.py -p no:cacheprovider
+................................................................         [100%]
+64 passed in 0.07s
+
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/ -n 4 -p no:cacheprovider
+... (exit code captured separately, see below)
+1716 passed, 12 warnings in 63.37s (0:01:03)
+$ echo $?
+0
+```
+(1716 is the real, measured full-suite count on the rebased branch —
+higher than the review's 1653-on-a-merge-trial figure because main
+advanced further, past `d0a5ba2`, adding its own tests in the interim;
+not derived or reconciled against that number, just reproduced fresh.)
+
+## B2 — pin the `measured=False` guard (kills M37, M39)
+
+Added two tests to `tests/verify/test_detectors.py`:
+- `test_measured_score_and_measured_n_ignore_a_scored_but_unmeasured_param`
+  — `ParamScore(score=95.0, measured=False, reason="collector_failure",
+  n=30, method=None)` must make both `_measured_score` and `_measured_n`
+  return `None` (both private helpers imported directly, matching this
+  repo's existing precedent — `cvi.benchmark_data._pinned_scorers`,
+  `cvi.deepdive._survival_curve` are tested the same way).
+- `test_speed_without_decisions_scored_but_unmeasured_ttfhr_never_fires` —
+  the same scored-but-unmeasured TTFHR paired with a qualifying DR_90 must
+  not fire `detect_speed_without_decisions`.
+
+This shape is reachable today, not hypothetical: `cvi.audit.detectors_report
+.load_rows`'s `_param_score_from_json` reads `"score"` and `"measured"`
+independently from the row JSON with no cross-check, so
+`{"score": 95.0, "measured": false, ...}` produces exactly this
+`ParamScore`.
+
+Mutation proof (`_measured_score`'s and `_measured_n`'s `not param.measured`
+guards deleted together, matching M37+M39):
+```
+$ sed -n '166,183p' cvi/verify/detectors.py   # before
+    if param is None or not param.measured or param.score is None:   # _measured_score
+    if param is None or not param.measured:                          # _measured_n
+
+# mutated: both "not param.measured" clauses removed
+$ env -u PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/verify/test_detectors.py \
+    -p no:cacheprovider -k "scored_but_unmeasured or measured_score_and_measured_n"
+FF
+FAILED test_measured_score_and_measured_n_ignore_a_scored_but_unmeasured_param
+    AssertionError: assert 95.0 is None
+FAILED test_speed_without_decisions_scored_but_unmeasured_ttfhr_never_fires
+    AssertionError: assert True is False
+2 failed, 52 deselected in 0.05s
+
+# reverted (diff against pre-mutation copy: empty)
+$ env -u PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/verify/test_detectors.py -p no:cacheprovider
+......................................................                   [100%]
+54 passed in 0.04s
+```
+
+## B3 — pin the `is_external` population filter (kills M21)
+
+Generalised the fixture helper (`_external_event` -> `_pr_event(...,
+is_external: bool, ...)`) and added a 5th event to
+`test_closed_unread_share_from_pr_window_counts_closed_unmerged_unanswered`:
+an **internal** (`is_external=False`) event that otherwise matches "closed,
+unmerged, unanswered." The oracle still asserts `(0.25, 4)` — proving the
+internal event is excluded from both the numerator and the denominator,
+not just uncounted in the numerator.
+
+Mutation proof (the `if event.is_external` filter dropped, matching M21):
+```
+$ sed -i 's/external = \[event for event in pr_window.events if event.is_external\]/external = list(pr_window.events)/' cvi/verify/detectors.py
+$ env -u PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/verify/test_detectors.py \
+    -p no:cacheprovider -k closed_unread_share_from_pr_window
+F.
+FAILED test_closed_unread_share_from_pr_window_counts_closed_unmerged_unanswered
+    assert (0.4, 5) == (0.25, 4)
+1 failed, 1 passed, 52 deselected in 0.04s
+
+# reverted (diff against pre-mutation copy: empty)
+$ env -u PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/verify/test_detectors.py -p no:cacheprovider
+......................................................                   [100%]
+54 passed in 0.04s
+```
+Matches the review's real-data finding exactly (`KeygraphHQ/shannon`
+5/7=0.7143 with the filter vs 7/30=0.2333 without it) — same mechanism, a
+smaller fixture.
+
+## The other three survivors (M16, M42, M43)
+
+None are equivalent mutants — each is a real, observable behavioural
+difference that the round-1 suite happened not to exercise. Added one
+literal-valued oracle per survivor rather than declaring equivalence.
+
+**M16** (add an `n >= 10` floor to `MR_first` in `merges_without_return`) —
+`test_merges_without_return_mr_first_has_no_n_floor`: `mr_first` scored
+90.0 at `n=1`, conversion qualifying at `n=10`, asserts the detector still
+fires. This pins the current U-1 interpretation (the floor binds the
+triggering side only) as a deliberate, visible choice pending the lead's
+ruling — documented in the test's own docstring as undecided, not settled.
+```
+$ # mutant: add `if mr_first_n is None or mr_first_n < MERGES_WITHOUT_RETURN_MIN_N: return False`
+$ env -u PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/verify/test_detectors.py -p no:cacheprovider -k merges_without_return
+........F                                                                [100%]
+FAILED test_merges_without_return_mr_first_has_no_n_floor
+    AssertionError: assert False is True
+1 failed, 8 passed, 46 deselected in 0.04s
+# reverted: diff empty; full packet suite green after
+```
+
+**M42** (`build_report` always passes `previous=None`) —
+`test_build_report_param_jump_fires_through_a_real_previous_snapshot`: a
+`current`/`previous` pair for the same key with a genuine 50-point TTFHR
+move (both `n=20`) must produce `counts["param_jump"] == 1`.
+```
+$ # mutant: previous_record = None  (unconditional)
+$ env -u PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/audit/test_detectors_report.py -p no:cacheprovider -k param_jump
+F
+FAILED test_build_report_param_jump_fires_through_a_real_previous_snapshot
+    assert 0 == 1
+1 failed, 13 deselected in 0.03s
+# reverted: diff empty
+```
+
+**M43** (`build_report` drops `sorted(current)` for dict/insertion order) —
+`test_build_report_flagged_tuple_is_sorted_by_key`: two repos
+(`org/zzz`, `org/aaa`, written to the row file in that, reverse-alphabetical,
+order) both trigger `speed_without_decisions`; asserts
+`flagged["speed_without_decisions"] == ("org/aaa", "org/zzz")`.
+```
+$ # mutant: for key in current:  (drops sorted())
+$ env -u PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/audit/test_detectors_report.py -p no:cacheprovider -k sorted_by_key
+F
+FAILED test_build_report_flagged_tuple_is_sorted_by_key
+    assert ('org/zzz', 'org/aaa') == ('org/aaa', 'org/zzz')
+1 failed, 13 deselected in 0.03s
+# reverted: diff empty
+```
+
+## Six-mutant summary (all now killed)
+
+| id | mutation | round 1 | round 2 |
+|---|---|---|---|
+| M16 | `merges_without_return`: add an `n >= 10` floor to MR_first | SURVIVED | KILLED — `test_merges_without_return_mr_first_has_no_n_floor` |
+| M21 | `closed_unread_share_from_pr_window`: drop the `is_external` filter | SURVIVED | KILLED — internal event added to the existing oracle |
+| M37 | `_measured_score`: drop the `not param.measured` guard | SURVIVED | KILLED — `test_measured_score_and_measured_n_ignore_a_scored_but_unmeasured_param` |
+| M39 | `_measured_n`: drop the `not param.measured` guard | SURVIVED | KILLED — same test (both assertions) |
+| M42 | `build_report`: always pass `previous=None` | SURVIVED | KILLED — `test_build_report_param_jump_fires_through_a_real_previous_snapshot` |
+| M43 | `build_report`: drop `sorted(current)` | SURVIVED | KILLED — `test_build_report_flagged_tuple_is_sorted_by_key` |
+
+## Diffstat (round 2, against the rebased `9a6662b`)
+
+```
+$ git diff --stat
+ cvi/audit/detectors_report.py        | 43 ++++++++++++++++---
+ tests/audit/test_detectors_report.py | 31 ++++++++++++++
+ tests/verify/test_detectors.py       | 82 +++++++++++++++++++++++++++++++++---
+ 3 files changed, 144 insertions(+), 12 deletions(-)
+```
+No new file, no new module-level public surface beyond the one production
+helper B1 required (`_repo_identity_from_key`, private). Subtractive per
+R-6: every other line is a test or a fixture change.
+
+## Full suite, ruff (round 2, final)
+
+```
+$ .venv/bin/ruff check cvi/verify/detectors.py cvi/audit/detectors_report.py \
+    tests/verify/test_detectors.py tests/audit/test_detectors_report.py
+All checks passed!
+
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest \
+    tests/verify/test_detectors.py tests/audit/test_detectors_report.py -p no:cacheprovider
+.....................................................................    [100%]
+69 passed in 0.07s
+
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/ -n 4 -p no:cacheprovider
+1721 passed, 12 warnings in 61.86s (0:01:01)
+$ echo $?
+0
+```
+
+## Not touched this round (left for the lead / follow-up packets, per the review)
+
+U-1 (MR_first's n-floor placement), U-2 (closed_unread denominator), U-3
+(the 7-day half-open boundary), U-4 (score vs raw rate) remain UNDECIDED —
+this round pins the *current* implementation's tested behaviour for U-1
+only (M16's fix), it does not resolve any of the four rulings. W1 (report
+`--data-dir` mode), W6 (thresholds into `constants_v2`), W7 (the
+`cvi.core.pipeline` injection point), W1-5f (top-domain share), and the new
+StarScout-boolean packet are all out of scope for a bounded 3-item rework
+and remain open per the review's recommendation.
+
+`.agents/W3-2/review/` (the reviewer's item records) is left untracked,
+matching the repo's actual precedent: `git ls-files .agents/` shows 13
+tracked files, all `handoff.md`, no packet's `review/` subdirectory
+committed by any prior packet despite the `.gitignore` chore's commit
+message — the lead's call, not this round's.

@@ -54,7 +54,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
-from cvi.core.models import GateResult, ParamScore, ScoreRecord
+from cvi.core.models import GateResult, ParamScore, RepoIdentity, ScoreRecord
 from cvi.verify.detectors import DETECTOR_NAMES, DetectorInputs, NewcomerAccountSample, run_detectors
 
 __version__ = "1.0.0"
@@ -98,10 +98,43 @@ def _param_score_from_json(payload: Mapping[str, Any]) -> ParamScore:
     )
 
 
-def _minimal_score_record(params: Mapping[str, ParamScore]) -> ScoreRecord:
-    """A ``ScoreRecord`` carrying only ``params`` meaningfully; every other
-    field is a neutral placeholder (see :class:`DetectorRow`)."""
+#: Placeholder ``RepoIdentity`` fields the interim row format does not
+#: carry (ecosystem/archived/mirror/fork/license/branch): none of the nine
+#: detectors read ``ScoreRecord.repo`` (see ``cvi.verify.detectors``'s
+#: module docstring -- every predicate reads only ``.params`` and the
+#: separate ``DetectorInputs``), so only ``owner``/``name`` need to be
+#: real. W2-10 made ``repo`` a required ``ScoreRecord`` field.
+_PLACEHOLDER_ECOSYSTEM = "unknown"
+
+
+def _repo_identity_from_key(key: str) -> RepoIdentity:
+    """Build a real ``RepoIdentity`` from a row's ``"owner/name"`` key.
+
+    Raises ``ValueError`` naming the key when it does not contain exactly
+    the one ``"/"`` the documented row format requires (R-1: assert
+    values, not shapes -- a malformed key must not silently become a
+    single-part owner or name)."""
+    parts = key.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError(f'row key must be "owner/name", got {key!r}')
+    owner, name = parts
+    return RepoIdentity(
+        owner=owner,
+        name=name,
+        ecosystem=_PLACEHOLDER_ECOSYSTEM,
+        archived=False,
+        mirror_url=None,
+        fork=False,
+        license_spdx=None,
+        default_branch=None,
+    )
+
+
+def _minimal_score_record(repo: RepoIdentity, params: Mapping[str, ParamScore]) -> ScoreRecord:
+    """A ``ScoreRecord`` carrying a real ``repo`` and ``params``; every
+    other field is a neutral placeholder (see :class:`DetectorRow`)."""
     return ScoreRecord(
+        repo=repo,
         snapshot_id="",
         benchmark_version="",
         constants_hash=_HASH64_PLACEHOLDER,
@@ -153,7 +186,7 @@ def _row_from_json(payload: Mapping[str, Any]) -> DetectorRow:
         star_lockstep_penalty_applied=payload.get("star_lockstep_penalty_applied"),
         source_drift_held=payload.get("source_drift_held"),
     )
-    return DetectorRow(key=key, record=_minimal_score_record(params), inputs=inputs)
+    return DetectorRow(key=key, record=_minimal_score_record(_repo_identity_from_key(key), params), inputs=inputs)
 
 
 def load_rows(path: "Path | str") -> dict[str, DetectorRow]:

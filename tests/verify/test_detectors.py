@@ -25,8 +25,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from cvi.core.models import GateResult, ParamScore, PRWindow, PRWindowEvent, ScoreRecord
+from cvi.core.models import GateResult, ParamScore, PRWindow, PRWindowEvent, RepoIdentity, ScoreRecord
 from cvi.verify.detectors import (
+    _measured_n,
+    _measured_score,
     CLOSED_UNREAD_SHARE_MIN,
     DETECTOR_NAMES,
     DetectorInputs,
@@ -58,6 +60,16 @@ from cvi.verify.detectors import (
 )
 
 _HASH64 = "a" * 64
+_REPO = RepoIdentity(
+    owner="org",
+    name="alpha",
+    ecosystem="pypi",
+    archived=False,
+    mirror_url=None,
+    fork=False,
+    license_spdx="MIT",
+    default_branch="main",
+)
 
 
 def test_frozen_thresholds_match_03_section_6() -> None:
@@ -89,6 +101,7 @@ def _record(params: dict[str, ParamScore] | None = None) -> ScoreRecord:
     detector in this module reads ``.params`` (and nothing else off a
     ``ScoreRecord``), so the surrounding fields are neutral placeholders."""
     return ScoreRecord(
+        repo=_REPO,
         snapshot_id="s0",
         benchmark_version="2.0.0-dev",
         constants_hash=_HASH64,
@@ -218,6 +231,37 @@ def test_speed_without_decisions_unmeasured_dr90_never_fires() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# B2 (REWORK round 1): the measured=False guard must hold even when a       #
+# scored-but-unmeasured ParamScore carries a real score. Every fixture      #
+# above pairs measured=False with score=None, so a mutant that deletes the  #
+# ``not param.measured`` guard in _measured_score/_measured_n (leaving only #
+# the None-score check) survived undetected -- and this shape is reachable #
+# today: cvi.audit.detectors_report.load_rows builds exactly              #
+# ParamScore(score=95.0, measured=False, ...) straight from a JSON row     #
+# {"score": 95.0, "measured": false, ...} (_param_score_from_json reads    #
+# "score" and "measured" independently, with no cross-check between them). #
+# --------------------------------------------------------------------------- #
+
+
+def test_measured_score_and_measured_n_ignore_a_scored_but_unmeasured_param() -> None:
+    scored_but_unmeasured = ParamScore(score=95.0, measured=False, reason="collector_failure", n=30, method=None)
+    current = _record({"ttfhr_hours": scored_but_unmeasured})
+    assert _measured_score(current, "ttfhr_hours") is None
+    assert _measured_n(current, "ttfhr_hours") is None
+
+
+def test_speed_without_decisions_scored_but_unmeasured_ttfhr_never_fires() -> None:
+    """Same shape as ``test_speed_without_decisions_unmeasured_ttfhr_never_fires``
+    but with a real, qualifying score attached to the unmeasured TTFHR --
+    the ``measured`` flag, not the score, must be what stops the fire."""
+    current = _record({
+        "ttfhr_hours": ParamScore(score=95.0, measured=False, reason="collector_failure", n=30, method=None),
+        "dr90_decision_rate": _param(40.0),
+    })
+    assert detect_speed_without_decisions(current, None, DetectorInputs()) is False
+
+
+# --------------------------------------------------------------------------- #
 # merges_without_return: literal MR_first >= 90, conversion/return <= 20,     #
 # n >= 10                                                                      #
 # --------------------------------------------------------------------------- #
@@ -295,6 +339,22 @@ def test_merges_without_return_unmeasured_conversion_and_return_never_fires() ->
     assert detect_merges_without_return(current, None, DetectorInputs()) is False
 
 
+def test_merges_without_return_mr_first_has_no_n_floor() -> None:
+    """(REWORK round 1, U-1) The 03 section 6 row's "with n >= 10" is
+    implemented as binding the *triggering* side (conversion or return)
+    only, never MR_first itself -- MR_first's own n can be arbitrarily
+    small and the detector still fires. Pins the current interpretation so
+    a change either way is a visible, deliberate diff pending a lead
+    ruling on U-1; genuinely undecided, not equivalent (a future ruling
+    that binds MR_first too changes this test's expected result)."""
+    current = _record({
+        "mr_first_rate": _param(90.0, n=1),
+        "newcomer_conversion": _param(20.0, n=10),
+        "rr90_return_rate": _param(100.0, n=10),
+    })
+    assert detect_merges_without_return(current, None, DetectorInputs()) is True
+
+
 # --------------------------------------------------------------------------- #
 # closed_unread: literal share >= 0.30                                        #
 # --------------------------------------------------------------------------- #
@@ -315,7 +375,7 @@ def test_closed_unread_unmeasured_never_fires() -> None:
     assert detect_closed_unread(_record(), None, inputs) is False
 
 
-def _external_event(pr_number: int, *, closed: bool, merged: bool, responded: bool) -> PRWindowEvent:
+def _pr_event(pr_number: int, *, is_external: bool, closed: bool, merged: bool, responded: bool) -> PRWindowEvent:
     created = BASE
     return PRWindowEvent(
         pr_number=pr_number,
@@ -324,17 +384,25 @@ def _external_event(pr_number: int, *, closed: bool, merged: bool, responded: bo
         merged_at=_iso(created + timedelta(days=1)) if merged else None,
         author_login=f"author{pr_number}",
         author_association="NONE",
-        is_external=True,
+        is_external=is_external,
         first_human_review_at=_iso(created + timedelta(hours=1)) if responded else None,
     )
 
 
 def test_closed_unread_share_from_pr_window_counts_closed_unmerged_unanswered() -> None:
+    """(B3, REWORK round 1) The population is external PRs only: a 5th,
+    internal event that would ALSO match "closed, unmerged, unanswered" is
+    included here specifically to prove ``is_external`` filters it out of
+    both the numerator and the denominator -- dropping that filter (M21)
+    would change this fixture's result from (0.25, 4) to (0.4, 5), and on
+    the real sample changes 22 of 51 flagged repos' shares (one,
+    ``KeygraphHQ/shannon``, flips 0.7143 fired -> 0.2333 not fired)."""
     events = (
-        _external_event(1, closed=True, merged=False, responded=False),  # counts
-        _external_event(2, closed=True, merged=False, responded=True),   # answered: not counted
-        _external_event(3, closed=True, merged=True, responded=False),   # merged: not counted
-        _external_event(4, closed=False, merged=False, responded=False),  # still open: not counted
+        _pr_event(1, is_external=True, closed=True, merged=False, responded=False),  # counts
+        _pr_event(2, is_external=True, closed=True, merged=False, responded=True),   # answered: not counted
+        _pr_event(3, is_external=True, closed=True, merged=True, responded=False),   # merged: not counted
+        _pr_event(4, is_external=True, closed=False, merged=False, responded=False),  # still open: not counted
+        _pr_event(5, is_external=False, closed=True, merged=False, responded=False),  # internal: excluded entirely
     )
     window = PRWindow(start=_iso(BASE), end=_iso(BASE + timedelta(days=180)), truncated=False, events=events)
     share, n = closed_unread_share_from_pr_window(window)
