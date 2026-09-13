@@ -139,23 +139,69 @@ def test_provenance_records_envelope_sha256_for_verified_field(tmp_path):
 
 
 def test_provenance_omits_sha256_for_non_envelope_source(tmp_path):
-    # Over-correction guard: a URL/heuristic source is never an envelope
-    # under raw/, so it must not gain a fabricated hash -- the absence of
-    # "sha256" is the honest signal scripts/verify.py's unverifiable_
-    # provenance rule reads for a non-path source. Target field
-    # "legal_ip_model" (not "ai_posture" -- W1-6 rounds 2-4: ai_posture is
-    # now sourced from the governance envelope, W7's bare-field rename, and
-    # this fixture never seeds one, so its provenance is no longer a URL at
-    # all). legal_ip_model takes the URL branch precisely when
-    # "CONTRIBUTING.md" is present in the tree envelope's recorded paths
-    # (seed_full's own tree fixture already lists it).
+    # Over-correction guard: a genuinely non-envelope source (the CLI-supplied
+    # "owner"/"name"/"ecosystem" fields) must not gain a fabricated hash --
+    # the absence of "sha256" is the honest signal scripts/verify.py's
+    # unverifiable_provenance rule reads for a non-path source. Neither
+    # "ai_posture" (W1-6: now sourced from the governance envelope) nor
+    # "legal_ip_model" (W1-7f item 6: now sourced from the local bodies
+    # cache, see test_body_cache_provenance_one_cached_one_missing below)
+    # is a URL-sourced exemplar of this any more -- "owner" is the one
+    # field left with a source no envelope could ever back.
+    seed_full(tmp_path)
+    out = run(tmp_path)
+    assert out["provenance"]["owner"]["source"] == "cli"
+    assert "sha256" not in out["provenance"]["owner"]
+
+
+def test_legal_ip_model_provenance_is_the_local_body_cache_not_a_url(tmp_path):
+    # W1-7f item 6: seed_full() caches a real CONTRIBUTING.md body --
+    # legal_ip_model's provenance must point at that cache file (a real,
+    # hashable envelope under raw/), never the raw.githubusercontent.com
+    # URL it can never resolve to on the cvi.derive.bundle side (every real
+    # legal_ip_model value was silently unverifiable before this fix,
+    # regardless of caching). ai_posture/promotion_ladder are NOT asserted
+    # here any more: W1-6's governance block (landed on main after this
+    # fix was written) unconditionally supersedes both v1 fields with its
+    # own evidence-based values and provenance, so legal_ip_model -- the
+    # one W1-7-owned field the governance block does not touch (it reads
+    # bare "legal_ip", not "legal_ip_model") -- is the sole survivor this
+    # fix still matters for, and it also drives the live v1 scoring sweep
+    # (cvi.collect.governance module docstring).
     seed_full(tmp_path)
     out = run(tmp_path)
     assert out["confidence"]["legal_ip_model"] == "derived"
-    assert out["provenance"]["legal_ip_model"]["source"].startswith("https://")
-    assert "sha256" not in out["provenance"]["legal_ip_model"]
-    assert out["provenance"]["owner"]["source"] == "cli"
-    assert "sha256" not in out["provenance"]["owner"]
+    assert out["provenance"]["legal_ip_model"]["source"] == str(
+        tmp_path / "raw" / "bodies" / f"{OWNER}__{NAME}__CONTRIBUTING.md.json")
+    assert "sha256" in out["provenance"]["legal_ip_model"]
+
+
+def test_legal_ip_model_provenance_one_cached_one_missing(tmp_path):
+    """W1-7f item 6, the two sides of the fix: CONTRIBUTING.md cached ->
+    legal_ip_model resolves to that real, hashable envelope; not cached ->
+    it falls back to the tree envelope (still real and hashable, never the
+    broken raw-URL literal)."""
+    k = f"{OWNER}__{NAME}"
+    base_gh = {"stars": 1, "forks": 0, "pushed_at": "2026-09-01T00:00:00Z", "archived": False,
+              "license_spdx": "MIT", "default_branch": "main"}
+    contrib_path = tmp_path / "raw" / "bodies" / f"{k}__CONTRIBUTING.md.json"
+
+    # Cached side.
+    write(tmp_path, "github_meta", k, base_gh)
+    write(tmp_path, "tree", k, {"paths": ["CONTRIBUTING.md"]})
+    body(tmp_path, "CONTRIBUTING.md", "Please sign off your commits (DCO).")
+    out = run(tmp_path)
+    assert out["provenance"]["legal_ip_model"]["source"] == str(contrib_path)
+    assert "sha256" in out["provenance"]["legal_ip_model"]
+
+    # Missing side: a different repo, no CONTRIBUTING.md ever fetched.
+    other = tmp_path / "other"
+    write(other, "github_meta", k, base_gh)
+    write(other, "tree", k, {"paths": ["CONTRIBUTING.md"]})
+    out2 = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, other, fetch=False, now=NOW)
+    tree_path = other / "raw" / "tree" / f"{k}.json"
+    assert out2["provenance"]["legal_ip_model"]["source"] == str(tree_path)
+    assert "sha256" in out2["provenance"]["legal_ip_model"]
 
 
 def test_pr_event_mapping(tmp_path):

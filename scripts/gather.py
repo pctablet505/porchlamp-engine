@@ -22,12 +22,15 @@ from typing import Any, Optional
 
 from cvi.collect.commits import collect_commits_365d
 from cvi.collect.envelope import write_envelope
+# W1-7f (R-2): SLEEP_REST used to duplicate cvi.collect.pike_signals'
+# SLEEP_CORE_SECONDS (both 0.15, the same GitHub core-API rate limit) --
+# one definition now, imported under this file's existing name.
+from cvi.collect.pike_signals import SLEEP_CORE_SECONDS as SLEEP_REST
 from cvi.paths import data_root
 
 DATA = data_root() / "raw"
 CANDIDATES = DATA / "candidates.jsonl"
 GQL = "https://api.github.com/graphql"
-SLEEP_REST = 0.15
 SLEEP_KEYLESS = 0.35
 SLEEP_PYPISTATS = 15.0  # pypistats.org: ~5 req/min/IP (429 arrives as HTTP 200 + HTML body)
 PR_SAMPLE = 30

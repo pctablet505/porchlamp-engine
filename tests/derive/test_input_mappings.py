@@ -18,6 +18,7 @@ regardless of document content: ``dr90_decision_rate``, ``mr_first_rate``,
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -863,6 +864,37 @@ def test_openssf_criticality_absence_is_third_party_gap(tmp_path: Path) -> None:
     )
 
 
+def test_openssf_criticality_collector_failure_carries_the_companion_detail(tmp_path: Path) -> None:
+    """W1-7f items 1 and 3: scripts/derive.py records confidence
+    "collector_failure" (a pike_signals crash, or a stale window_anchor)
+    with the specific reason in the companion "openssf_signals_detail" meta
+    key -- this row must surface that exact detail, not the generic
+    "confidence not recognized" fallback message a bare unrecognized string
+    gets."""
+    doc = base_document(
+        meta={"openssf_signals_detail": "pike_signals.derive_w17_fields raised RuntimeError: boom"},
+        confidence={"openssf_signals": "collector_failure"},
+    )
+    bundle = load(tmp_path, doc, key="acme__pike-crashed")
+    assert bundle.inputs["openssf_criticality"] == Unmeasured(
+        reason="collector_failure",
+        detail="pike_signals.derive_w17_fields raised RuntimeError: boom",
+    )
+
+
+def test_openssf_criticality_collector_failure_without_detail_still_names_the_reason(
+    tmp_path: Path,
+) -> None:
+    """Over-correction guard: a missing/blank companion detail must not
+    crash the resolver or silently swallow the reason -- it falls back to a
+    short, still-truthful message."""
+    doc = base_document(confidence={"openssf_signals": "collector_failure"})
+    bundle = load(tmp_path, doc, key="acme__pike-crashed-no-detail")
+    assert bundle.inputs["openssf_criticality"] == Unmeasured(
+        reason="collector_failure", detail="pike_signals collector failed",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 4.1 pipeline_defenses (W1-7, W2-9f)                                         #
 # --------------------------------------------------------------------------- #
@@ -932,6 +964,60 @@ def test_pipeline_defenses_absence_is_third_party_gap(tmp_path: Path) -> None:
         detail="no scorecard envelope with a usable check subset and no pr_window/runs envelopes to "
                "derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
     )
+
+
+def test_pipeline_defenses_collector_failure_carries_the_companion_detail(tmp_path: Path) -> None:
+    """W1-7f item 1: the same collector_failure sentinel as
+    openssf_criticality, keyed off "pipeline_defenses_detail" instead."""
+    doc = base_document(
+        meta={"pipeline_defenses_detail": "pike_signals.derive_w17_fields raised RuntimeError: boom"},
+        confidence={"pipeline_defenses": "collector_failure"},
+    )
+    bundle = load(tmp_path, doc, key="acme__pd-crashed")
+    assert bundle.inputs["pipeline_defenses"] == Unmeasured(
+        reason="collector_failure",
+        detail="pike_signals.derive_w17_fields raised RuntimeError: boom",
+    )
+
+
+def test_pipeline_defenses_n_feeds_the_rigor_min_n_gate(tmp_path: Path) -> None:
+    """W1-7f item 5 (02 section 4.1, F7): the proxy method's recorded n
+    (merged-PR count) must not just exist but actually reach
+    cvi.core.params.rigor's registered 10-merged-PR floor. n genuinely
+    changes with the fixture (9 vs 10 merged PRs, one extra open PR that
+    never counts either way) and 9 falls below the floor while 10 clears
+    it -- proving the wiring from bundle.py's loader through to the curve
+    module that reads ``value.n``, not merely that a number is stored."""
+    from cvi.core.params.rigor import pipeline_defenses as rigor_pipeline_defenses
+
+    def make(n_merged: int, key: str) -> Any:
+        prs = [{"number": i, "mergedAt": "2026-08-01T00:00:00+00:00"} for i in range(n_merged)]
+        prs.append({"number": 999, "mergedAt": None})  # one open PR: never counted either way
+        pr_window_env = pr_window_data(prs=prs)
+        write_envelope(tmp_path / "raw", "pr_window", key, pr_window_env, "2026-09-01T00:05:00+00:00")
+        write_envelope(tmp_path / "raw", "runs", key, {"runs": []}, "2026-09-01T00:03:00+00:00")
+        doc = base_document(
+            meta={"pipeline_defenses": 18.0, "pipeline_defenses_method": "proxy:review_ci"},
+            provenance={"pipeline_defenses": {
+                "source": [f"/original-data-dir/raw/pr_window/{key}.json",
+                           f"/original-data-dir/raw/runs/{key}.json"],
+                "fetched_at": "2026-09-01T00:05:00+00:00",
+            }},
+            confidence={"pipeline_defenses": "derived"},
+        )
+        return load(tmp_path, doc, key=key).inputs["pipeline_defenses"]
+
+    below = make(9, "acme__pd-n-below-floor")
+    at_floor = make(10, "acme__pd-n-at-floor")
+
+    assert below.n == 9 and at_floor.n == 10  # n changes with the fixture
+
+    below_score = rigor_pipeline_defenses(below)
+    at_floor_score = rigor_pipeline_defenses(at_floor)
+    assert below_score.measured is False and below_score.reason == "insufficient_n"
+    assert below_score.n == 9
+    assert at_floor_score.measured is True and at_floor_score.reason is None
+    assert at_floor_score.score == 18.0
 
 
 # --------------------------------------------------------------------------- #

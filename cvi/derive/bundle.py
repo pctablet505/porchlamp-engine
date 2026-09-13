@@ -918,6 +918,17 @@ def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
             reason="third_party_gap",
             detail="one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
         )
+    if confidence_value == "collector_failure":
+        # W1-7f items 1 and 3: cvi.collect.pike_signals.derive_w17_fields
+        # (crashed, or found a windowed count's own fetch-time window_anchor
+        # more than WINDOW_STALENESS_DAYS from as_of) recorded this sentinel
+        # itself, with the specific reason in the companion detail field --
+        # the generic "not recognized" fallback message below would discard
+        # that reason and read as if the confidence value were unexpected
+        # rather than deliberately set.
+        detail = ctx.meta.get("openssf_signals_detail")
+        return Unmeasured(reason="collector_failure",
+                           detail=detail if isinstance(detail, str) and detail else "pike_signals collector failed")
     return Unmeasured(reason="collector_failure",
                        detail=f"v1 confidence {confidence_value!r} for 'openssf_signals' is not recognized")
 
@@ -974,6 +985,14 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
             detail="no scorecard envelope with a usable check subset and no pr_window/runs envelopes to "
                    "derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
         )
+    if confidence_value == "collector_failure":
+        # W1-7f item 1: pike_signals.derive_w17_fields crashed before it
+        # could report either method for this repo -- the companion detail
+        # field names the exception (set alongside this sentinel; see
+        # _resolve_openssf_criticality's identical branch).
+        detail = ctx.meta.get("pipeline_defenses_detail")
+        return Unmeasured(reason="collector_failure",
+                           detail=detail if isinstance(detail, str) and detail else "pike_signals collector failed")
     return Unmeasured(reason="collector_failure",
                        detail=f"v1 confidence {confidence_value!r} for 'pipeline_defenses' is not recognized")
 

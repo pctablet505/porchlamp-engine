@@ -64,7 +64,7 @@ import json
 import subprocess
 
 from cvi.collect import commits as commit_domains
-from cvi.collect.envelope import write_envelope
+from cvi.collect.envelope import raw_envelope_path, write_envelope
 from cvi.collect.github_graphql import is_bot_actor
 from cvi.models import OpenSSFSignals
 
@@ -77,7 +77,9 @@ from cvi.models import OpenSSFSignals
 # ``RestTransport`` is the boundary the unit tests fake.
 # --------------------------------------------------------------------------- #
 
-#: Inter-call sleep for core-API transports (matches the sweep's SLEEP_REST).
+#: Inter-call sleep for core-API transports. The one definition (R-2):
+#: ``scripts/gather.py`` imports this as ``SLEEP_REST`` rather than keeping
+#: its own second ``0.15`` literal (W1-7f).
 SLEEP_CORE_SECONDS: float = 0.15
 #: Inter-call sleep for search transports (30 req/min authenticated ceiling).
 SLEEP_SEARCH_SECONDS: float = 2.1
@@ -403,6 +405,27 @@ def months_between(start: datetime, now: datetime) -> float:
     return (now - start).total_seconds() / (DAYS_PER_MONTH * 86400.0)
 
 
+#: W1-7f item 3 (F5): a fetch-time windowed count's ``window_anchor`` must be
+#: within this many days of derive-time ``now`` or the count no longer
+#: describes "now" and 2.2 is unmeasured rather than silently stale.
+WINDOW_STALENESS_DAYS: int = 14
+
+
+def window_anchor_stale(anchor_iso: Optional[str], now: datetime,
+                        max_days: int = WINDOW_STALENESS_DAYS) -> bool:
+    """True when a recorded ``window_anchor`` is more than ``max_days`` from ``now``.
+
+    A missing/unparseable anchor is not "stale" -- it carries no dating
+    information to be stale with, so the caller's ordinary presence checks
+    (envelope absent -> unmeasured) apply instead; this only fires when an
+    anchor is recorded and it disagrees with the current derive-time clock.
+    """
+    anchor = parse_iso(anchor_iso)
+    if anchor is None:
+        return False
+    return abs((now - anchor).total_seconds()) > max_days * 86400.0
+
+
 def human_commit_stats(
     rows: Sequence[Mapping[str, Any]], now: datetime,
 ) -> Optional[dict[str, Union[int, datetime]]]:
@@ -464,11 +487,24 @@ def derive_pike_signals(
     created_at = parse_iso(gh.get("created_at"))
     if created_at is None:
         return None
-    if not c365:
+    if c365 is None:
         return None
-    stats = human_commit_stats(c365, now)
-    if stats is None:
-        return None
+    if c365:
+        stats = human_commit_stats(c365, now)
+        if stats is None:
+            return None
+    else:
+        # W1-7f item 2 (F2 ruling): an empty commits envelope from a
+        # SUCCESSFUL fetch (c365 == [], not None) is a measured zero, not
+        # unmeasured -- the repo genuinely made zero non-bot commits in the
+        # window. contributor_count/org_count/commit_frequency_weekly are
+        # then correctly zero; updated_since_months has no commit to date
+        # itself from, so it falls back to github_meta.pushed_at (the
+        # nearest real "last activity" fact this envelope set carries).
+        pushed_at = parse_iso(gh.get("pushed_at"))
+        if pushed_at is None:
+            return None
+        stats = {"contributors": 0, "orgs": 0, "commits": 0, "last_commit_at": pushed_at}
     if rel is None:
         return None
     if rel.get("source") == "releases":
@@ -616,15 +652,40 @@ def derive_w17_fields(
     out: dict[str, tuple[Any, Any, Any, str]] = {}
 
     def env_path(col: str) -> str:
-        return str(data_dir / "raw" / col / f"{key}.json")
+        # W1-7f item 4 (R-2): the one envelope-path formula, shared with
+        # scripts/derive.py's src() closure via cvi.collect.envelope.
+        return raw_envelope_path(data_dir, col, key)
 
-    signals = derive_pike_signals(gh, c365, rel, iss, dep, now)
-    if signals is not None:
-        sources = [env_path(col) for col in ("github_meta", "commits_365d",
-                                             "releases", "issues_counts",
-                                             "dependents")]
-        ats = [a for a in (gh_at, c365_at, rel_at, iss_at, dep_at) if a]
-        out["openssf_signals"] = (signals, sources, max(ats), "derived")
+    # W1-7f item 3 (F5 ruling): a windowed count's own fetch-time anchor
+    # more than WINDOW_STALENESS_DAYS from this derive's `now` means the
+    # count no longer describes "now" -- the whole ten-signal set is
+    # unmeasured (never partial, same D-MISS-1 rule as an absent source),
+    # tagged distinctly from a plain absence so the caller can record
+    # collector_failure with which window and which two clocks disagreed.
+    stale_detail: Optional[str] = None
+    if isinstance(rel, Mapping) and window_anchor_stale(rel.get("window_anchor"), now):
+        stale_detail = (f"releases window anchored at {rel.get('window_anchor')}, "
+                        f"as_of {now.isoformat()}")
+    elif isinstance(iss, Mapping) and window_anchor_stale(iss.get("window_anchor"), now):
+        stale_detail = (f"issues_counts window anchored at {iss.get('window_anchor')}, "
+                        f"as_of {now.isoformat()}")
+
+    if stale_detail is not None:
+        out["openssf_signals"] = (None, None, None, "collector_failure")
+        out["openssf_signals_detail"] = (stale_detail, None, None, "derived")
+    else:
+        signals = derive_pike_signals(gh, c365, rel, iss, dep, now)
+        if signals is not None:
+            sources = [env_path(col) for col in ("github_meta", "commits_365d",
+                                                 "releases", "issues_counts",
+                                                 "dependents")]
+            # F1 (item 1): guarded like the pipeline_defenses `at` below --
+            # every recorded envelope carries fetched_at, but a hand-built
+            # or legacy-shaped one might not, and losing the whole bundle to
+            # a ValueError over one optional timestamp (this line used to
+            # call bare `max(ats)`) is out of proportion to what it costs.
+            ats = [a for a in (gh_at, c365_at, rel_at, iss_at, dep_at) if a]
+            out["openssf_signals"] = (signals, sources, max(ats) if ats else None, "derived")
 
     prs = prw.get("prs") if isinstance(prw, Mapping) else None
     runs = rns.get("runs") if isinstance(rns, Mapping) else None

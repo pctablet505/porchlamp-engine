@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from cvi.collect import commits as commit_domains
-from cvi.collect.envelope import read_envelope
+from cvi.collect.envelope import raw_envelope_path, read_envelope
 from cvi.constants import BOT_LOGIN_MARKERS
 from cvi.models import (
     AIPosture,
@@ -164,10 +164,17 @@ def _load(data_dir: Path, collector: str, key: str) -> tuple[Optional[Any], Opti
     return env.get("data"), env.get("fetched_at") or env.get("collected_at")
 
 
+def _body_cache_path(data_dir: Path, owner: str, name: str, fname: str) -> Path:
+    """The bodies-cache envelope path for one governance file (W1-7f item 6:
+    the one place this formula is written, so the provenance fix below and
+    :func:`_body` itself can never disagree about where a body is cached)."""
+    return data_dir / "raw" / "bodies" / f"{owner}__{name}__{fname}.json"
+
+
 def _body(data_dir: Path, owner: str, name: str, fname: str,
           fetch: bool) -> tuple[Optional[str], Optional[str]]:
     """File body from the bodies cache, optionally fetched + cached."""
-    p = data_dir / "raw" / "bodies" / f"{owner}__{name}__{fname}.json"
+    p = _body_cache_path(data_dir, owner, name, fname)
     if p.is_file():
         env = json.loads(p.read_text(encoding="utf-8"))
         return (env.get("data") or {}).get("body"), env.get("fetched_at")
@@ -280,7 +287,9 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     dl, dl_at = _load(data_dir, "downloads", f"{ecosystem.value}__{name}")
 
     def src(c: str, k: str) -> str:
-        return str(data_dir / "raw" / c / f"{k}.json")
+        # W1-7f item 4 (R-2): the one envelope-path formula, shared with
+        # cvi.collect.pike_signals's env_path() via cvi.collect.envelope.
+        return raw_envelope_path(data_dir, c, k)
 
     # --- stars / forks (github_meta primary; deps.dev is the verify step) ---
     for f, gk in (("stars", "stars"), ("forks", "forks")):
@@ -407,22 +416,38 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         b.missing("scorecard_score", 0.0)
 
     # --- body-driven governance heuristics (cached under raw/bodies/) ---
-    paths = set((tree or {}).get("paths") or [])
     contrib_body, contrib_body_at = _body(data_dir, owner, name, "CONTRIBUTING.md", fetch)
-    coc_body, _ = _body(data_dir, owner, name, "CODE_OF_CONDUCT.md", fetch)
-    corpus = "\n".join(filter(None, [
-        _body(data_dir, owner, name, "README.md", fetch)[0], contrib_body,
-        _body(data_dir, owner, name, "AGENTS.md", fetch)[0],
-        _body(data_dir, owner, name, "CLAUDE.md", fetch)[0],
-    ]))
-    body_src = f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/CONTRIBUTING.md"
+    coc_body, coc_body_at = _body(data_dir, owner, name, "CODE_OF_CONDUCT.md", fetch)
+    readme_body, readme_body_at = _body(data_dir, owner, name, "README.md", fetch)
+    agents_body, _ = _body(data_dir, owner, name, "AGENTS.md", fetch)
+    claude_body, _ = _body(data_dir, owner, name, "CLAUDE.md", fetch)
+    corpus = "\n".join(filter(None, [readme_body, contrib_body, agents_body, claude_body]))
+
+    # W1-7f item 6: the source must be the LOCAL bodies-cache envelope this
+    # function just read (a real path under raw/, hashable), never the raw
+    # GitHub URL it was originally fetched from -- a URL is not a path under
+    # raw/ and cvi.derive.bundle._resolve_envelope can never resolve it, so
+    # every legal_ip_model/ai_posture/promotion_ladder value was silently
+    # unverifiable (no sha256) regardless of whether the body was cached.
+    # Falls back to the tree envelope (still a real, hashable source) only
+    # when the relevant body was never fetched at all.
+    contrib_path = _body_cache_path(data_dir, owner, name, "CONTRIBUTING.md")
+    coc_path = _body_cache_path(data_dir, owner, name, "CODE_OF_CONDUCT.md")
+    readme_path = _body_cache_path(data_dir, owner, name, "README.md")
+
+    legal_source = str(contrib_path) if contrib_path.is_file() else src("tree", key)
     b.set("legal_ip_model", _legal_ip(contrib_body, str(gh.get("license_spdx") or ""), owner),
-          body_src if "CONTRIBUTING.md" in paths else src("tree", key),
-          contrib_body_at or tree_at, "derived")
-    b.set("ai_posture", _ai_posture(corpus),
-          f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/README.md", None, "derived")
+          legal_source, contrib_body_at or tree_at, "derived")
+    ai_source = str(readme_path) if readme_path.is_file() else src("tree", key)
+    b.set("ai_posture", _ai_posture(corpus), ai_source, readme_body_at or tree_at, "derived")
+    if contrib_path.is_file():
+        ladder_source, ladder_at = str(contrib_path), contrib_body_at
+    elif coc_path.is_file():
+        ladder_source, ladder_at = str(coc_path), coc_body_at
+    else:
+        ladder_source, ladder_at = src("tree", key), tree_at
     b.set("promotion_ladder", _promotion_ladder(f"{contrib_body or ''}\n{coc_body or ''}"),
-          body_src, contrib_body_at or tree_at, "derived")
+          ladder_source, ladder_at, "derived")
     b.set("off_platform_reviews", False, src("tree", key), tree_at, "derived")  # no LKML evidence source
     b.set("hard_ai_ban", b.meta["ai_posture"] is AIPosture.PROSCRIBED,
           "derived from ai_posture", None, "derived")
@@ -499,11 +524,26 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     rel, rel_at = _load(data_dir, "releases", key)
     iss, iss_at = _load(data_dir, "issues_counts", key)
     rns, rns_at = _load(data_dir, "runs", key)
-    for field, (value, source, at, conf) in pike_mod.derive_w17_fields(
-        data_dir, key, now, gh, gh_at, c365, c365_at, dep, dep_at,
-        rel, rel_at, iss, iss_at, rns, rns_at, sc, sc_at, prw, prw_at,
-    ).items():
-        b.set(field, value, source, at, conf)
+    try:
+        w17_fields = pike_mod.derive_w17_fields(
+            data_dir, key, now, gh, gh_at, c365, c365_at, dep, dep_at,
+            rel, rel_at, iss, iss_at, rns, rns_at, sc, sc_at, prw, prw_at,
+        )
+    except Exception as e:  # review-ok: gate-crash — W1-7f item 1: one repo's
+        # Pike-signal derivation must never abort the whole bundle (or, in a
+        # sweep, the rest of the run) -- every field this hook could have
+        # emitted becomes a recorded collector_failure naming the exception
+        # type, and derive_repo carries on with everything computed above
+        # and below (including the W1-6 governance block right after)
+        # unaffected.
+        detail = f"pike_signals.derive_w17_fields raised {type(e).__name__}: {e}"
+        b.set("openssf_signals", None, None, None, "collector_failure")
+        b.set("openssf_signals_detail", detail, None, None, "derived")
+        b.set("pipeline_defenses", None, None, None, "collector_failure")
+        b.set("pipeline_defenses_detail", detail, None, None, "derived")
+    else:
+        for field, (value, source, at, conf) in w17_fields.items():
+            b.set(field, value, source, at, conf)
     # --- W1-6 (02 §4 3.1/3.3/4.2): governance evidence — evidence-based
     # legal IP / promotion ladder / AI posture with an evidence field per
     # value; NONE/AD_HOC/AD_HOC measured-zero defaults when the relevant

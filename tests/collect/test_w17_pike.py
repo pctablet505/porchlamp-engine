@@ -20,6 +20,7 @@ Oracle summary (02 §4 2.2, 4.1; D-MISS-4):
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
 import sys
 from datetime import datetime, timedelta, timezone
@@ -497,9 +498,52 @@ def test_derive_pike_signals_missing_any_source_is_none():
     assert pike.derive_pike_signals(args[0], args[1], None, *args[3:], NOW) is None
     assert pike.derive_pike_signals(*args[:3], None, args[4], NOW) is None
     assert pike.derive_pike_signals(*args[:4], None, NOW) is None
-    # commits envelope present but empty (a real, recorded zero-commit repo):
-    # the last-commit date is undefined, so the whole set is still None.
+    # commits envelope present but empty (a real, recorded zero-commit repo)
+    # AND github_meta carries no pushed_at: the F2 fallback (W1-7f item 2,
+    # test_derive_pike_signals_zero_commits_is_measured_zero_via_pushed_at
+    # below) has nothing to date itself from either, so the whole set is
+    # still None -- this is the one case an empty commits envelope stays
+    # unmeasured, not the general rule.
     assert pike.derive_pike_signals(args[0], [], *args[2:], NOW) is None
+
+
+def test_derive_pike_signals_zero_commits_is_measured_zero_via_pushed_at():
+    """W1-7f item 2 (F2 ruling): an empty commits_365d envelope from a
+    SUCCESSFUL fetch (c365 == [], not None -- the envelope's own absent-vs-
+    recorded-zero convention, matching pipeline_defenses' documented
+    None/[] split) is a measured zero for contributor_count/org_count/
+    commit_frequency_weekly; updated_since_months falls back to
+    github_meta.pushed_at (D-MISS-1: a repo-controlled absence, not a
+    third-party gap)."""
+    gh = {"created_at": (NOW - timedelta(days=3650)).isoformat(),
+         "pushed_at": (NOW - timedelta(days=30)).isoformat()}
+    signals = pike.derive_pike_signals(
+        gh, [],
+        {"source": "releases", "releases": []},
+        {"closed_90d": 0, "updated_90d": 0, "comments_per_issue": 0.0},
+        {"deduped_count": 0}, NOW)
+    assert signals is not None
+    assert signals.contributor_count == 0
+    assert signals.org_count == 0
+    assert signals.commit_frequency_weekly == 0.0
+    assert signals.updated_since_months == round(
+        pike.months_between(pike.parse_iso(gh["pushed_at"]), NOW), 4)
+    assert signals.updated_since_months == pytest.approx(30.0 * 12.0 / 365.0, abs=1e-4)
+
+
+def test_derive_pike_signals_missing_commits_envelope_is_still_unmeasured():
+    """The other side of the F2 distinction: c365 is None (no envelope at
+    all -- a collector failure, not a repo-controlled zero) stays
+    unmeasured even with pushed_at present, proving the fallback triggers
+    only on a genuinely EMPTY successful fetch, never on an absent one."""
+    gh = {"created_at": (NOW - timedelta(days=3650)).isoformat(),
+         "pushed_at": (NOW - timedelta(days=30)).isoformat()}
+    signals = pike.derive_pike_signals(
+        gh, None,
+        {"source": "releases", "releases": []},
+        {"closed_90d": 0, "updated_90d": 0, "comments_per_issue": 0.0},
+        {"deduped_count": 0}, NOW)
+    assert signals is None
 
 
 def test_derive_repo_pike_signals_from_envelopes(tmp_path):
@@ -606,6 +650,156 @@ def test_derive_repo_without_inputs_leaves_w17_fields_absent(tmp_path):
     assert bundle["confidence"]["openssf_signals"] == "missing"
 
 
+# --- W1-7f item 1 (F1): the unguarded max(ats) crash path -----------------------
+
+def test_derive_repo_pike_signals_survive_envelopes_with_no_fetched_at(tmp_path):
+    """F1: `max(ats)` at the openssf_signals branch used to raise ValueError
+    on an all-empty `ats` list, exactly like the sibling pipeline_defenses
+    branch already guarded 13 lines below it -- reproduced here by stripping
+    fetched_at/collected_at from all five 2.2 prerequisite envelopes."""
+    raw = tmp_path / "raw"
+    _seed_pike_inputs(raw)
+    for collector in ("github_meta", "commits_365d", "releases", "issues_counts", "dependents"):
+        p = raw / collector / f"{KEY}.json"
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        doc.pop("fetched_at", None)
+        doc.pop("collected_at", None)
+        p.write_text(json.dumps(doc), encoding="utf-8")
+    bundle = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path,
+                                fetch=False, now=NOW)
+    assert bundle["meta"]["openssf_signals"] is not None
+    assert bundle["confidence"]["openssf_signals"] == "derived"
+    assert bundle["provenance"]["openssf_signals"]["fetched_at"] is None
+
+
+# --- W1-7f item 1: the hook-level crash guard -----------------------------------
+
+def test_derive_repo_pike_hook_crash_is_collector_failure_not_a_lost_bundle(tmp_path, monkeypatch):
+    """The collector must never let one repo's failure abort the sweep: a
+    crash anywhere inside derive_w17_fields (not just F1's specific line)
+    becomes a recorded Unmeasured(collector_failure) naming the exception
+    type, and derive_repo returns the REST of the bundle -- computed both
+    before (stars) and would-be-after this hook -- completely unaffected."""
+    _seed_pike_inputs(tmp_path / "raw")
+
+    def boom(*a: Any, **k: Any) -> Any:
+        raise RuntimeError("simulated pike_signals crash")
+
+    monkeypatch.setattr(pike, "derive_w17_fields", boom)
+    bundle = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path,
+                                fetch=False, now=NOW)
+    assert bundle["confidence"]["openssf_signals"] == "collector_failure"
+    assert "RuntimeError" in bundle["meta"]["openssf_signals_detail"]
+    assert bundle["confidence"]["pipeline_defenses"] == "collector_failure"
+    assert "RuntimeError" in bundle["meta"]["pipeline_defenses_detail"]
+    # the rest of the bundle is untouched by the crash.
+    assert bundle["meta"]["stars"] == 100 and bundle["confidence"]["stars"] == "verified"
+    assert bundle["meta"]["dependents_count"] == 1000
+
+
+def test_gather_sweep_continues_after_one_repo_w17_collector_crash(monkeypatch, tmp_path):
+    """The gather-side half of the same rule: a fake transport that raises
+    on the SECOND of three repos must not stop the third from being
+    collected. gather_repo's existing per-collector try/except already
+    isolates a crash to one repo's own status dict; this pins that it holds
+    across a real sequence of repos, not just within a single call."""
+    gather.DATA = tmp_path / "raw"
+    for repo_name in ("repo1", "repo2fail", "repo3"):
+        seed_gather_done(gather.DATA, key=f"acme__{repo_name}")
+
+    class SelectiveFailTransport:
+        def get(self, path: str, **params: Any) -> Any:
+            # collect_issue_counts embeds owner/name in the search query
+            # (params["q"]), not in `path` itself -- check both.
+            haystack = " ".join([path, *(str(v) for v in params.values())])
+            if "repo2fail" in haystack:
+                raise RuntimeError("simulated transport failure")
+            return {}
+
+    shared = SelectiveFailTransport()
+    monkeypatch.setattr(pike, "GhRestTransport", lambda *a, **k: shared)
+
+    statuses = {}
+    for repo_name in ("repo1", "repo2fail", "repo3"):
+        statuses[repo_name] = gather.gather_repo("acme", repo_name, "pypi")
+
+    for collector in ("releases", "issues_counts", "runs"):
+        assert statuses["repo1"][collector] == "ok"
+        assert statuses["repo2fail"][collector] == "fail"
+        assert statuses["repo3"][collector] == "ok"          # <- the third still collected
+        assert (gather.DATA / collector / "acme__repo1.json").is_file()
+        assert (gather.DATA / collector / "acme__repo3.json").is_file()
+
+
+# --- W1-7f item 3 (F5): windowed-count staleness --------------------------------
+
+def _stale_check_args(anchor_days_ago: float) -> tuple:
+    anchor = (NOW - timedelta(days=anchor_days_ago)).isoformat()
+    return (
+        Path("/unused"), KEY, NOW,
+        {"created_at": (NOW - timedelta(days=3650)).isoformat()}, "2026-01-01T00:00:00Z",
+        _commit_rows(), "2026-01-01T00:00:00Z",
+        {"deduped_count": 1000}, "2026-01-01T00:00:00Z",
+        {"source": "releases", "releases": [], "window_anchor": anchor}, "2026-01-01T00:00:00Z",
+        {"closed_90d": 0, "updated_90d": 0, "comments_per_issue": 0.0}, "2026-01-01T00:00:00Z",
+        None, None, None, None, None, None,
+    )
+
+
+def test_derive_w17_fields_releases_window_13_days_is_fresh():
+    out = pike.derive_w17_fields(*_stale_check_args(13))
+    assert out["openssf_signals"][3] == "derived"
+    assert "openssf_signals_detail" not in out
+
+
+def test_derive_w17_fields_releases_window_exactly_14_days_is_still_fresh():
+    """Boundary: '> 14 days' is the rule, not '>= 14 days' -- kills a
+    >= mutant on the comparison that 13/15-day tests alone would not."""
+    out = pike.derive_w17_fields(*_stale_check_args(14))
+    assert out["openssf_signals"][3] == "derived"
+    assert "openssf_signals_detail" not in out
+
+
+def test_derive_w17_fields_releases_window_15_days_is_stale():
+    out = pike.derive_w17_fields(*_stale_check_args(15))
+    assert out["openssf_signals"] == (None, None, None, "collector_failure")
+    detail = out["openssf_signals_detail"][0]
+    assert "releases window anchored at" in detail
+    assert "as_of" in detail
+
+
+# --- W1-7f item 4 (R-2): src()/env_path() share one path formula ---------------
+
+def test_src_and_env_path_share_one_definition():
+    from cvi.collect import envelope as envelope_mod
+
+    assert derive.raw_envelope_path is envelope_mod.raw_envelope_path
+    assert pike.raw_envelope_path is envelope_mod.raw_envelope_path
+
+
+def test_src_and_env_path_both_route_through_the_shared_function(tmp_path, monkeypatch):
+    """A behavioural guard, not just an identity check: patches the name
+    BOTH modules import and proves scripts/derive.py's src() (a
+    derive.py-only collector, "tree") and cvi.collect.pike_signals'
+    env_path() (an openssf_signals-only collector, "dependents") each
+    actually call through it -- neither closure kept its own inline
+    '<data_dir>/raw/<collector>/<key>.json' formula."""
+    calls: list[tuple[str, str, str]] = []
+    real = derive.raw_envelope_path
+
+    def spy(data_dir: Any, collector: str, key: str) -> str:
+        calls.append((str(data_dir), collector, key))
+        return real(data_dir, collector, key)
+
+    monkeypatch.setattr(derive, "raw_envelope_path", spy)
+    monkeypatch.setattr(pike, "raw_envelope_path", spy)
+    _seed_pike_inputs(tmp_path / "raw")
+    derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path, fetch=False, now=NOW)
+    collectors_seen = {c for (_, c, _) in calls}
+    assert "tree" in collectors_seen            # src()-only site
+    assert "dependents" in collectors_seen      # env_path()-only site (openssf_signals)
+
+
 # --- the append-only gather hook ------------------------------------------------
 
 GATHER_DONE = {
@@ -631,16 +825,27 @@ GATHER_DONE = {
 }
 
 
-def seed_gather_done(raw: Path) -> None:
+def seed_gather_done(raw: Path, key: str = KEY) -> None:
+    name = key.split("__", 1)[1] if "__" in key else NAME
     for collector, data in GATHER_DONE.items():
-        write_env(raw, collector, KEY, data)
-    write_env(raw, "downloads", "pypi__widget", {"monthly": 10})
-    write_env(raw, "repo_object", KEY, {"archived": False, "mirror_url": None,
+        write_env(raw, collector, key, data)
+    write_env(raw, "downloads", f"pypi__{name}", {"monthly": 10})
+    write_env(raw, "repo_object", key, {"archived": False, "mirror_url": None,
                                         "fork": False, "license_spdx_id": "MIT",
                                         "pull_requests_total": 12,
                                         "tree_paths_le2": ["pyproject.toml"],
                                         "tree_truncated": False,
                                         "offplatform_paths": []})
+    # W1-7f: these three are collected by unrelated blocks earlier in
+    # gather_repo (W1-5 commits_365d, W1-2 dependents, W1-3 pr_window); a
+    # missing envelope makes gather_repo try a REAL fetch through those
+    # collectors' own transports, which have nothing to do with this
+    # module's fakes -- pre-seeding them keeps every test that shares this
+    # helper (old and new) at 0 live-network attempts.
+    write_env(raw, "commits_365d", key, [])
+    write_env(raw, "dependents", key, {"deduped_count": 0})
+    write_env(raw, "pr_window", key, {"window_anchor": "2026-01-01T00:00:00Z",
+                                      "window_days": 180, "prs": [], "derived": []})
 
 
 def test_gather_repo_w17_collectors_ok(tmp_path, monkeypatch, block_live_network):

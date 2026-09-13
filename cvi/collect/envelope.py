@@ -105,6 +105,17 @@ def envelope_hash(data: Any) -> str:
     return sha256_hex(canonical_json(data))
 
 
+def raw_envelope_path(data_dir: Union[Path, str], collector: str, key: str) -> str:
+    """The one envelope-path formula (R-2): ``<data_dir>/raw/<collector>/<key>.json``.
+
+    W1-7f: this used to be defined twice -- ``scripts/derive.py``'s ``src()``
+    closure and ``cvi.collect.pike_signals``'s ``env_path()`` closure inside
+    ``derive_w17_fields`` -- with nothing to stop the two from drifting.
+    Both now call this one function.
+    """
+    return str(Path(data_dir) / "raw" / collector / f"{key}.json")
+
+
 @dataclass(frozen=True)
 class Envelope:
     """One raw fetch as read from disk, with the hash the reader attests.
