@@ -47,10 +47,13 @@ from cvi.core.gates import GateEvidence
 from cvi.core.models import (
     Cohorts,
     FeatureBundle,
+    GateResult,
     Measured,
+    PillarScore,
     PRWindow,
     PRWindowEvent,
     RepoIdentity,
+    ScoreRecord,
     Unmeasured,
 )
 from cvi.core.pipeline import (
@@ -351,24 +354,128 @@ def test_persona_gate_differs_from_balanced_view() -> None:
     assert record.persona_composites[persona.PERSONA_BALANCED].cvi == pytest.approx(record.composite)
 
 
-def test_gated_and_unrated_records_state_the_balanced_reason_on_every_persona() -> None:
-    """The packet's own overriding rule (module docstring of
-    ``cvi.core.pipeline``): a gated or unrated record's ``persona_gates``
-    names the *balanced* gate/unrated reason for every gated persona, not
-    whatever ``persona.persona_gates`` would say from raw evidence alone."""
+def test_gated_records_state_the_balanced_gate_reason_on_every_persona() -> None:
+    """R-1 (lead ruling, W2-8b review): a gate-ineligible record is gated
+    under every persona with the balanced ``gate.reason`` -- unconditional,
+    since D-ORDER-1 decides eligibility at stage 0, strictly before any
+    persona lens exists."""
     by_key = _by_key(_Fixture12.score())
     archived = by_key[_Fixture12.GATED_ARCHIVED]
     for name in persona.GATED_PERSONAS:
         assert archived.persona_gates[name] == "archived"
     assert archived.persona_composites == {}
 
+
+def test_unrated_record_reports_insufficient_evidence_coverage_per_persona() -> None:
+    """R-1: unlike the gated case, a balanced-unrated record is *not*
+    universally hidden -- ``UNRATED_EMPTY`` has zero measured inputs, so
+    every persona's own re-weighted coverage is also 0.0 (clearly below
+    0.60), and every persona reports the *coverage-level*
+    ``insufficient_evidence:coverage`` reason (not the old, now-wrong,
+    ``record.unrated_reason`` string) for the right cause: its own
+    coverage gate, not a copy of the balanced record's."""
+    by_key = _by_key(_Fixture12.score())
     unrated = by_key[_Fixture12.UNRATED_EMPTY]
     for name in persona.GATED_PERSONAS:
-        assert unrated.persona_gates[name] == "unrated: insufficient_evidence"
+        assert unrated.persona_gates[name] == f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}coverage"
     # unrated (unlike gated) has a full 5-name pillar dict, so
     # persona_composite can run for every preset without raising.
     assert set(unrated.persona_composites) == set(persona.PERSONA_PRESETS)
     assert all(not composite.rated for composite in unrated.persona_composites.values())
+
+
+def _hand_built_bundle_for_persona_divergence() -> FeatureBundle:
+    """A bundle whose only role is to supply ``persona.persona_gates``'s
+    raw-evidence inputs for :func:`_hand_built_unrated_divergent_record`'s
+    hand-built record -- elephant_factor Measured >= 3 (so the
+    senior_systems *evidence* gate does not itself fire once its coverage
+    clears 0.60) and ai_posture left Unmeasured (not PROSCRIBED)."""
+    inputs = _full_inputs({"elephant_factor": _m(5.0, n=30)})
+    return _bundle(_repo("persona-divergence", "repo"), inputs)
+
+
+def _hand_built_unrated_divergent_record(bundle: FeatureBundle) -> ScoreRecord:
+    """A record unrated under the *balanced* weights (coverage 0.495) but
+    rated under ``senior_systems``'s weights (coverage 0.66) -- criticality
+    and governance fully measured, rigor 30% measured, responsiveness and
+    accessibility wholly unmeasured. Hand-built directly (not derived
+    through ``engine.score``) so the coverage numbers are exact literals,
+    not exposed to real-curve floating-point boundary risk near 0.60.
+
+    Per-persona coverage (``Sum(w_p * c_p)`` over the five pillars):
+      balanced       .25*1 + .20*1 + .15*0.3                    = 0.495  (< 0.60)
+      senior_systems .35*1 + .25*1 + .20*0.3                    = 0.66   (>= 0.60)
+      career_capital .35*1 + .15*1 + .10*0.3                    = 0.53   (< 0.60)
+      ai_assisted    .20*1 + .15*1 + .35*0.3                    = 0.455  (< 0.60)
+      first_timer    .10*1 + .15*1 + .10*0.3                    = 0.28   (< 0.60)
+    """
+    pillars = {
+        "responsiveness": PillarScore(None, 0.0),
+        "criticality": PillarScore(70.0, 1.0),
+        "governance": PillarScore(70.0, 1.0),
+        "rigor": PillarScore(70.0, 0.3),
+        "accessibility": PillarScore(None, 0.0),
+    }
+    gate = GateResult(eligible=True, reason=None, routed=None, undecided=())
+    return ScoreRecord(
+        repo=bundle.repo, snapshot_id=_SNAPSHOT_ID, benchmark_version=constants_v2.BENCHMARK_VERSION,
+        constants_hash=constants_v2.CONSTANTS_HASH, raw_hash=_HASH64, gate=gate, params={},
+        pillars=pillars, composite=None, coverage=0.495, tier=None, leverage=None, friction=None,
+        quadrant=None, persona_gates={}, persona_composites={}, tie_key=(), tie_group=None, rank=None,
+        suspicion=[], rated=False, unrated_reason="unrated: insufficient_evidence",
+    )
+
+
+def test_unrated_record_can_be_rated_under_one_persona_and_not_another() -> None:
+    """R-1's whole point, the case the packet dispatch's literal wording
+    (universal override) got wrong: a record unrated at balanced weights
+    can be genuinely *rated* under a persona whose weights favour the
+    pillars it did measure (``senior_systems`` here, coverage 0.66 >=
+    0.60) -- that persona must be open (or gated by its own D-PERS-2 rule,
+    not by a copied balanced reason), while a persona whose own coverage
+    stays below 0.60 (``career_capital``, ``ai_assisted``, ``first_timer``)
+    reports ``insufficient_evidence:coverage``, not the balanced
+    ``unrated_reason`` string and not a substantive D-PERS-2 reason it
+    never had enough evidence to justify."""
+    bundle = _hand_built_bundle_for_persona_divergence()
+    record = _hand_built_unrated_divergent_record(bundle)
+
+    result = score_bundle_stage_8_persona(record, bundle)
+
+    # senior_systems: own coverage 0.66 >= 0.60 -> rated under this persona;
+    # its own D-PERS-2 evidence gate (elephant_factor >= 3, Measured) does
+    # not fire either, so it is simply absent from persona_gates -- open.
+    assert result.persona_composites[persona.PERSONA_SENIOR_SYSTEMS].rated is True
+    assert persona.PERSONA_SENIOR_SYSTEMS not in result.persona_gates
+
+    for name in (persona.PERSONA_CAREER_CAPITAL, persona.PERSONA_AI_ASSISTED, persona.PERSONA_FIRST_TIMER):
+        assert result.persona_composites[name].rated is False, name
+        assert result.persona_gates[name] == f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}coverage", name
+
+    # balanced itself is never a gate target and carries no entry either way.
+    assert persona.PERSONA_BALANCED not in result.persona_gates
+
+
+def test_mutant_reverting_to_universal_unrated_override_is_red() -> None:
+    """Fail-before for R-1 itself: the literal-dispatch behaviour this
+    packet shipped before the review (state ``record.unrated_reason`` on
+    every persona unconditionally) must fail
+    ``test_unrated_record_can_be_rated_under_one_persona_and_not_another``
+    -- reproduced here directly, without touching the source file, so this
+    test is itself a permanent regression guard against reintroducing the
+    literal behaviour."""
+    bundle = _hand_built_bundle_for_persona_divergence()
+    record = _hand_built_unrated_divergent_record(bundle)
+
+    # The old (R-1-noncompliant) behaviour, inlined:
+    old_gates = {p: record.unrated_reason for p in persona.GATED_PERSONAS}
+    assert old_gates[persona.PERSONA_SENIOR_SYSTEMS] == "unrated: insufficient_evidence"
+    # A persona whose own coverage actually clears 0.60 (senior_systems,
+    # 0.66) would be wrongly hidden by the literal override -- exactly the
+    # defect R-1 corrects.
+    composites = {p: persona.persona_composite(record, p) for p in persona.PERSONA_PRESETS}
+    assert composites[persona.PERSONA_SENIOR_SYSTEMS].rated is True
+    assert old_gates[persona.PERSONA_SENIOR_SYSTEMS] != ""  # the old code hides it regardless of `rated`
 
 
 # --------------------------------------------------------------------------- #

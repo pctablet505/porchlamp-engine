@@ -49,49 +49,58 @@ that):
   dataclass becomes a ``{field name: value}`` dict, and
   ``cvi.core.models.canonical_json`` sorts every dict's keys).
 
-Stage 8 on a gated or unrated record (D-PERS-1/2/3, ``02`` section 9). Two
-cases ``persona.py``'s own contract does not let a caller treat like a
-normal rated record, both handled by :func:`score_bundle_stage_8_persona`:
+Stage 8 on a gated or unrated record (D-PERS-1/2/3, ``02`` section 9;
+**lead ruling R-1**, following the W2-8b review
+-- ``.agents/W2-8b/review/R-rulings-compliance.md``). Two cases
+``persona.py``'s own contract does not let a caller treat like a normal
+rated record, both handled by :func:`score_bundle_stage_8_persona`:
 
-- ``record.gate.eligible is False`` (a stage-0 gate failure): ``pillars`` is
-  ``{}`` (``cvi.core.engine._bare_record``), and
+- ``record.gate.eligible is False`` (a stage-0 gate failure): ``pillars``
+  is ``{}`` (``cvi.core.engine._bare_record``), and
   ``persona.persona_composite`` *raises* ``ValueError`` on an incomplete
   pillar set by design (``tests/core/test_persona_v2.py::
   test_persona_composite_raises_when_pillars_incomplete``: "no balanced
   score exists to reproject, so this is a programming error to catch
   loudly, not a silent (None, 0.0, None)"). ``persona_composites`` is
   therefore ``{}`` here, matching what ``cvi.core.engine`` itself already
-  leaves on a gated record.
-- ``record.gate.eligible is True`` and ``record.rated is False`` (a stage-3
-  D-EVID-1 evidence failure): ``pillars`` *is* the full five-name dict
-  (``cvi.core.aggregate.aggregate_pillars`` always returns one), so
+  leaves on a gated record. **R-1: a gated repo is gated under every
+  persona**, with the balanced ``gate.reason`` -- D-ORDER-1 decides
+  eligibility at stage 0, strictly before any persona lens exists, so
+  nothing about a persona's own weights can undo it.
+- ``record.gate.eligible is True`` and ``record.rated is False`` (a
+  stage-3 D-EVID-1 evidence failure): ``pillars`` *is* the full five-name
+  dict (``cvi.core.aggregate.aggregate_pillars`` always returns one), so
   ``persona.persona_composite`` can be called for every preset without
-  raising, and is.
+  raising, and is. **R-1: unlike the gated case, this is not universal.**
+  ``04`` section 6's own ruling is that a persona's ``rated`` flag is
+  recomputed from *that persona's own* re-weighted coverage, never copied
+  from the balanced record -- a repo the balanced weights left unrated can
+  still be rated under a persona whose weights happen to favour the
+  pillars this repo *did* measure. So for each of the four
+  :data:`~cvi.core.persona.GATED_PERSONAS`: if that persona's own
+  ``PersonaComposite.rated`` is ``False`` (its own weighted coverage is
+  below 0.60), the reason is
+  ``f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}coverage"``
+  (``"insufficient_evidence:coverage"`` -- a coverage-level sibling of
+  D-PERS-3's per-input ``insufficient_evidence:<input id>`` reasons,
+  naming the persona-weighted coverage gate itself rather than one
+  parameter); otherwise the persona is gated (or not) exactly as
+  ``persona.persona_gates`` already computes it from raw evidence -- same
+  as a rated record. A persona clearing both bars is simply absent from
+  ``persona_gates``, which is what makes the repo visible under that lens,
+  the same rule a rated record already follows.
 
-In both cases this packet's own instructions (not ``persona.py``'s, which
-never mentions the global gate/unrated status at all -- it only ever
-computes the four D-PERS-2 evidence-based reasons) require
-``persona_gates`` to state the *balanced* gate/unrated reason for every one
-of the four :data:`~cvi.core.persona.GATED_PERSONAS`, overriding whatever
-``persona.persona_gates`` would have said from raw evidence alone. Why: a
-repository with no rank and no tier (02 section 2: "listed, not ranked") has
-nothing for *any* persona lens to rank either, and a persona-specific
-evidence reason can actively mislead here -- an archived repo with a
-healthy, ``Measured`` elephant factor >= 3 would otherwise get *no* entry
-for ``senior_systems`` in ``persona.persona_gates``'s literal output (it
-only rejects on a low measured EF), which would wrongly suggest that lens
-shows it. Stating the one shared reason on all four keeps this consistent
-with D-ORDER-1 (gate/evidence status is decided at stages 0/3, strictly
-before stage 8) and reuses a fact the record already carries (R-2) instead
-of inventing new vocabulary. This is a deliberate design choice this
-packet's dispatch mandated in those exact words ("persona_gates must state
-the balanced gate/unrated reason for them"); it is flagged again in the
-handoff because it interacts with `04` section 6's store-layer ruling that a
-persona's own re-weighted coverage may rate a repository the *balanced*
-weights left unrated -- that SQL projection (W4-3) is free to recompute its
-own per-persona ``rated`` flag independently of this module's
-``persona_gates`` override, which only ever governs this Python
-composition's own ``ScoreRecord.persona_gates`` field.
+An earlier version of this module stated the balanced unrated reason on
+all four personas unconditionally (the packet dispatch's literal wording).
+The W2-8b review measured this against the 12-repo fixture:
+``unrated/partial-repo``'s four persona coverages (0.052-0.087) were
+already below 0.60, so the universal override happened to produce the
+right *answer* there, but not from the right *rule* -- a repo unrated at
+balanced weights while genuinely rated under one persona's own weights
+would have been wrongly hidden from that lens too. Corrected per the R-1
+ruling above; `04` section 6's SQL projection (W4-3) needs no change, since
+it already recomputes per-persona ``rated`` independently of this
+module's ``persona_gates`` field.
 """
 from __future__ import annotations
 
@@ -152,15 +161,21 @@ def score_bundle_stage_8_persona(record: ScoreRecord, bundle: FeatureBundle) -> 
     """Stage 8 for one already stage-0-7-scored record: fold in
     ``persona_gates``/``persona_composites`` via ``dataclasses.replace``
     (``ScoreRecord`` is frozen; never mutated -- see the module docstring
-    for the two gated/unrated cases and why their ``persona_gates`` state
-    the balanced reason rather than calling ``persona.persona_gates``
-    as-is)."""
+    for the gated-vs-unrated distinction R-1 draws and why the unrated
+    branch recomputes each persona's own coverage rather than stating one
+    shared reason)."""
     if not record.gate.eligible:
         gates = {p: record.gate.reason for p in persona.GATED_PERSONAS}
         composites: dict[str, PersonaComposite] = {}
     elif not record.rated:
-        gates = {p: record.unrated_reason for p in persona.GATED_PERSONAS}
         composites = {p: persona.persona_composite(record, p) for p in persona.PERSONA_PRESETS}
+        own_gates = persona.persona_gates(record, bundle.inputs)
+        gates = {}
+        for name in persona.GATED_PERSONAS:
+            if not composites[name].rated:
+                gates[name] = f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}coverage"
+            elif name in own_gates:
+                gates[name] = own_gates[name]
     else:
         gates = persona.persona_gates(record, bundle.inputs)
         composites = {p: persona.persona_composite(record, p) for p in persona.PERSONA_PRESETS}
