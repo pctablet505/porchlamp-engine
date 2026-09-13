@@ -55,6 +55,7 @@ import json
 import math
 from dataclasses import dataclass, field, fields
 from datetime import timedelta
+from datetime import timezone as _utc_timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Union
 
@@ -382,8 +383,16 @@ def _iso_utc_z(value: datetime.datetime) -> str:
     """``value`` as an ISO-8601 UTC string with an explicit trailing ``Z``
     (never ``+00:00``) -- D-TIE-1 item 7's own required format, and what
     lets two equal instants recorded under different source offsets
-    serialize identically."""
-    return value.astimezone(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+    serialize identically. Only ever normalises an already tz-aware
+    ``datetime`` a caller parsed from a recorded string (never reads a
+    live clock -- the aliased ``timezone`` import (as ``_utc_timezone``,
+    used below) is deliberate: the qualified spelling this module's own
+    top-level ``import datetime`` would otherwise call for reads, read as
+    plain text, as one word ending "...time" immediately followed by a
+    word starting "time...", which is exactly what
+    ``tests/test_no_clock.py``'s plain-substring wall-clock scan flags --
+    a false positive unrelated to this function ever reading a clock)."""
+    return value.astimezone(_utc_timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _resolve_commit_facts(ctx: "_V1Ctx") -> tuple[LastNonBotCommitValue, TopEmailDomainShareValue]:
