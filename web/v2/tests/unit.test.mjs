@@ -10,6 +10,9 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 import { decidingTieLevel, SORTABLE_COLUMNS } from "../components/table.js";
 import { KEY_ACTIONS, actionForKeyEvent } from "../components/keymap.js";
@@ -29,6 +32,8 @@ import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.j
 import { nearestMarkerInDirection, hitTestPoint } from "../views/matrix.js";
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY } from "../components/scatter.js";
 import { synthesizeRows } from "../perf-fixtures.js";
+import { shellKey as compareShellKey, shellShape as compareShellShape } from "../views/compare.js";
+import { renderDrawer } from "../views/drawer.js";
 
 // --------------------------------------------------------------------- U-5
 // D-TIE-1 client-derivable levels: 1 (composite), 2 (coverage), 3
@@ -395,6 +400,43 @@ test("applyPresetRespectingLocks: a locked pillar keeps its value and the rest s
 });
 
 // --------------------------------------------------------------------- //
+// N1 (round-3 review, 2026-09-14): the B-1 normaliser fix was guarded only
+// by THIS unexecutable file. `tests/cases/normalize_weights.json` is now
+// the shared oracle: `tests/test_ui_weights_port.py` (a faithful Python
+// port, since Node cannot run here) asserts the SAME numbers against ITS
+// OWN implementation, so a drift between the two would fail one of them.
+// --------------------------------------------------------------------- //
+
+const CASES_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "cases", "normalize_weights.json");
+const WEIGHT_CASES = JSON.parse(readFileSync(CASES_PATH, "utf8"));
+
+test("normalizeWeights: shared JSON cases match the real JS implementation exactly", () => {
+  assert.ok(WEIGHT_CASES.normalize_weights_cases.length >= 4, "the shared fixture must carry a non-trivial case set");
+  for (const c of WEIGHT_CASES.normalize_weights_cases) {
+    const result = normalizeWeights(c.weights, c.locks, c.changed_pillar, c.new_value);
+    for (const p of PILLAR_IDS) {
+      assert.ok(
+        Math.abs(result[p] - c.expected[p]) < 1e-9,
+        `${c.label}: ${p} = ${result[p]}, expected ${c.expected[p]}`
+      );
+    }
+  }
+});
+
+test("applyPresetRespectingLocks: shared JSON cases match the real JS implementation exactly", () => {
+  assert.ok(WEIGHT_CASES.apply_preset_respecting_locks_cases.length >= 3, "the shared fixture must carry a non-trivial case set");
+  for (const c of WEIGHT_CASES.apply_preset_respecting_locks_cases) {
+    const result = applyPresetRespectingLocks(c.weights, c.locks, c.preset);
+    for (const p of PILLAR_IDS) {
+      assert.ok(
+        Math.abs(result[p] - c.expected[p]) < 1e-9,
+        `${c.label}: ${p} = ${result[p]}, expected ${c.expected[p]}`
+      );
+    }
+  }
+});
+
+// --------------------------------------------------------------------- //
 // Configure weights: slider accessibility markup (lead-reported defect
 // 2026-09-13: "aria-label is null" — a `<label for>` alone gave this
 // box's own accessibility-tree inspection a correct accessible name, but
@@ -510,4 +552,113 @@ test("hitTestPoint: a smaller tolerance can legitimately find nothing even near 
   const anyPoint = PERF_POINTS[0];
   const hit = hitTestPoint(PERF_POINTS, toSvgX(anyPoint.friction) + 50, toSvgY(anyPoint.leverage) + 50, 1e-6);
   assert.equal(hit, null);
+});
+
+// --------------------------------------------------------------------- //
+// NB-1 (round-3 review, 2026-09-14): Compare rebuilt `main.innerHTML` on
+// EVERY keystroke because `compareQuery` was baked into the shell HTML,
+// destroying and recreating the focused search `<input>` (06 §6.1 U-12 —
+// "never `innerHTML` on an ancestor of the focused element"). The fix
+// moves the rebuild decision into a pure `shellKey(state)` that
+// `app.js::syncView` compares instead of the rendered HTML string; these
+// tests are the "what to patch" DECISION itself: a keystroke (query/
+// results change) must leave the key untouched (results-only patch), a
+// chip-set change (add/remove) or a shape transition must change it
+// (shell rebuild). A DOM-level check of actual node-identity/caret
+// survival needs a real DOM (no Node, no jsdom, and `tests/fakedom.mjs`
+// does not parse `innerHTML` strings — it only backs the keyed-patch
+// tests above) — verified instead in a real Chromium tab via the Claude
+// Browser tool; see `.agents/W4-5b/handoff.md`'s Round 3 section for that
+// evidence, which this test cannot itself provide.
+// --------------------------------------------------------------------- //
+
+const COMPARE_BASE_STATE = {
+  compareRepos: ["riverline/httpkit", "ivywood/template-cli-71"],
+  compareQuery: "",
+  compareSearchResults: [],
+  compareDataByRepo: {},
+};
+
+test("compareShellKey: a keystroke (compareQuery + compareSearchResults changing) never changes the key", () => {
+  const before = compareShellKey(COMPARE_BASE_STATE);
+  const afterKeystrokes = [
+    { ...COMPARE_BASE_STATE, compareQuery: "r" },
+    { ...COMPARE_BASE_STATE, compareQuery: "ri" },
+    { ...COMPARE_BASE_STATE, compareQuery: "riv" },
+    {
+      ...COMPARE_BASE_STATE,
+      compareQuery: "riv",
+      compareSearchResults: [{ owner: "riverline", name: "other-repo", ecosystem: "npm" }],
+    },
+  ];
+  for (const after of afterKeystrokes) {
+    assert.equal(compareShellKey(after), before, `query=${JSON.stringify(after.compareQuery)} must not change the shell key`);
+  }
+});
+
+test("compareShellKey: a per-repo data fetch landing (compareDataByRepo) never changes the key", () => {
+  const before = compareShellKey(COMPARE_BASE_STATE);
+  const afterFetch = {
+    ...COMPARE_BASE_STATE,
+    compareDataByRepo: { "riverline/httpkit": { loading: false, kind: "rated", row: { cvi: 90 }, evidence: [] } },
+  };
+  assert.equal(compareShellKey(afterFetch), before, "a repo's data landing must be a results/table patch, never a shell rebuild");
+});
+
+test("compareShellKey: adding or removing a chip changes the key (a real shell rebuild)", () => {
+  const before = compareShellKey(COMPARE_BASE_STATE);
+  const added = { ...COMPARE_BASE_STATE, compareRepos: [...COMPARE_BASE_STATE.compareRepos, "acme/widgets"] };
+  const removed = { ...COMPARE_BASE_STATE, compareRepos: [COMPARE_BASE_STATE.compareRepos[0]] };
+  assert.notEqual(compareShellKey(added), before, "adding a chip must change the shell key");
+  assert.notEqual(compareShellKey(removed), before, "removing a chip must change the shell key");
+  assert.notEqual(compareShellKey(added), compareShellKey(removed));
+});
+
+test("compareShellKey: a chip-count shape transition (empty / partial-min / table) always changes the key", () => {
+  const empty = { ...COMPARE_BASE_STATE, compareRepos: [] };
+  const partialMin = { ...COMPARE_BASE_STATE, compareRepos: [COMPARE_BASE_STATE.compareRepos[0]] };
+  const table = COMPARE_BASE_STATE;
+  assert.equal(compareShellShape(empty), "empty");
+  assert.equal(compareShellShape(partialMin), "partial-min");
+  assert.equal(compareShellShape(table), "table");
+  const keys = new Set([compareShellKey(empty), compareShellKey(partialMin), compareShellKey(table)]);
+  assert.equal(keys.size, 3, "each distinct shape must produce a distinct shell key");
+});
+
+// --------------------------------------------------------------------- //
+// N3 (round-3 review, 2026-09-14): the repo-detail 404 path was untested
+// end to end. `renderDrawer` used to route ANY `repoDetailError` (a 404
+// included, since api.js/app.js treat every non-2xx the same way) through
+// the retry-error banner, making `copy.DRAWER_NOT_FOUND_TEXT` dead code
+// for the one case it names -- fixed alongside this test (drawer.js: a
+// 404 now renders the not-found copy with no retry button; every other
+// status keeps the retry banner). Mutant this guards against: the server
+// answering an unknown repo with an empty 200 instead of a 404 -- see
+// `tests/test_serve_ui_fixtures.py::TestRepoDetailEndpoint` for the wire
+// half of this same fix.
+// --------------------------------------------------------------------- //
+
+function drawerStateFor(overrides) {
+  return { ...defaultState(), repo: "nobody/nothing", repoDetailByKey: {}, repoDetailLoading: false, repoDetailError: null, ...overrides };
+}
+
+test("renderDrawer: a 404 (genuinely not found) shows copy.DRAWER_NOT_FOUND_TEXT and no retry button", () => {
+  const html = renderDrawer(drawerStateFor({ repoDetailError: { endpoint: "/v1/cvi/repos/nobody/nothing", status: 404, detail: "no such repo: nobody/nothing" } }));
+  assert.ok(html.includes(copy.DRAWER_NOT_FOUND_TEXT), "must render the not-found copy for a 404");
+  assert.ok(!html.includes("data-repo-detail-retry"), "a genuine 404 must not offer a retry button (it will 404 again)");
+});
+
+test("renderDrawer: a non-404 error (500/timeout/network) shows the retry banner, not the not-found copy", () => {
+  for (const status of [500, "timeout", 0]) {
+    const html = renderDrawer(drawerStateFor({ repoDetailError: { endpoint: "/v1/cvi/repos/nobody/nothing", status, detail: "boom" } }));
+    assert.ok(!html.includes(copy.DRAWER_NOT_FOUND_TEXT), `status=${status}: must not show the not-found copy`);
+    assert.ok(html.includes("data-repo-detail-retry"), `status=${status}: must offer a retry button`);
+  }
+});
+
+test("renderDrawer: still loading shows the loading copy, neither not-found nor the retry banner", () => {
+  const html = renderDrawer(drawerStateFor({ repoDetailLoading: true }));
+  assert.ok(html.includes(copy.DRAWER_LOADING_TEXT));
+  assert.ok(!html.includes(copy.DRAWER_NOT_FOUND_TEXT));
+  assert.ok(!html.includes("data-repo-detail-retry"));
 });
