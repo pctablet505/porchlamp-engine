@@ -39,6 +39,26 @@ export function findRow(state, owner, name) {
   return (state.repoDetailByKey && state.repoDetailByKey[key]) || null;
 }
 
+/**
+ * W4-5c (2026-09-14): `GET /v1/cvi/repos/{owner}/{name}` no longer sends
+ * `kind` on the wire at all -- the REAL API (`cvi/serve/contract.py`'s
+ * `RepoDetailResponse`, packet W4-4) never did, and the UI fixture server
+ * used to invent a `{kind, row}` wrapper that diverged from it (a real
+ * TypeError in the drawer once the frontend was pointed at the real API:
+ * `row` was `undefined`). The contract is the truth: `found` IS the flat
+ * row now, and `kind` is computed client-side from the same two fields
+ * the real store's own rule uses (`cvi.store.queries.list_not_ranked`'s
+ * docstring: "Gated (eligible=0) and unrated (eligible=1, rated=0)") --
+ * `!eligible` is gated (disqualified before scoring, never rated),
+ * `eligible && !rated` is unrated (passed eligibility, failed the
+ * coverage floor), anything else is rated.
+ */
+export function classifyKind(found) {
+  if (!found.eligible) return "gated";
+  if (!found.rated) return "unrated";
+  return "rated";
+}
+
 function renderIdentity(kind, row) {
   const heading =
     `<div aria-label="${escapeHtml(copy.DRAWER_SECTION_IDENTITY)}">` +
@@ -220,7 +240,13 @@ export function renderDrawer(state) {
     );
   }
 
-  const { kind, row } = found;
+  // W4-5c: `found` IS the flat `RepoDetailResponse` now -- `kind` is
+  // derived, `row` is just a local alias so every render helper below
+  // (already written against a LeaderboardRow/NotRankedRow-shaped
+  // object, a strict SUBSET of this flat shape's fields) needs no
+  // further change.
+  const kind = classifyKind(found);
+  const row = found;
   const closeButton = `<button type="button" class="icon-button" data-drawer-close="true">${escapeHtml(copy.DRAWER_CLOSE_LABEL)}</button>`;
   const identity = renderIdentity(kind, row);
 

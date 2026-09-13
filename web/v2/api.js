@@ -111,15 +111,16 @@ export function fetchEvidence(owner, name) {
 }
 
 /**
- * `GET /v1/cvi/repos/{owner}/{name}` -> `RepoDetailFixtureResponse`
- * (`{kind, row}` — lead ruling 2026-09-13, the drawer-content-parity fix):
- * the drawer's record fetch, independent of which screen opened it. Named
- * `RepoDetailFixtureResponse` in `cvi/serve/contract.py` (round-3 rebase,
- * 2026-09-14) to distinguish it from the REAL API's differently-shaped
- * `RepoDetailResponse` (`cvi/serve/app.py`, packet W4-4) on this same
- * path — this frontend still talks to `scripts/serve_ui_fixtures.py`
- * (the `{kind, row}` shape), not the real API, so nothing here changes
- * until a future packet switches it over.
+ * `GET /v1/cvi/repos/{owner}/{name}` -> `RepoDetailResponse` (the flat
+ * shape, `cvi/serve/contract.py`) — the drawer's record fetch,
+ * independent of which screen opened it. W4-5c (2026-09-14): both
+ * producers of this endpoint (the real API, `cvi/serve/app.py`, and the
+ * UI fixture stand-in, `scripts/serve_ui_fixtures.py`) now send this SAME
+ * shape — `scripts/serve_ui_fixtures.py` used to invent its own `{kind,
+ * row}` wrapper, which broke the drawer the moment this frontend was
+ * pointed at the real API instead. `views/drawer.js::classifyKind`
+ * derives `kind` client-side from `eligible`/`rated`; it is not on the
+ * wire at all.
  */
 export function fetchRepoDetail(owner, name) {
   return getJson(`/v1/cvi/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);

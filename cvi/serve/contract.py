@@ -629,56 +629,6 @@ class ReprojectResponse(StrictModel):
     lens: Literal["custom"] = "custom"
 
 
-class RepoDetailFixtureResponse(StrictModel):
-    """`GET /v1/cvi/repos/{owner}/{name}` AS `scripts/serve_ui_fixtures.py`
-    (the stand-in fixture server, not the real API) SHAPES IT -- packet
-    W4-5b addition, lead ruling 2026-09-13 on the Matrix-vs-Leaderboard
-    drawer-content-parity finding: the SAME record `findRow` used to
-    search for only in whatever state slice happened to already be loaded
-    (`06` §3 Screen C) -- now the single, tab-independent source every
-    entry point into the drawer (Leaderboard, Matrix, Compare, Configure)
-    fetches, so the drawer renders identically regardless of which screen
-    opened it.
-
-    `kind="rated"` carries a `LeaderboardRow`; `kind in ("gated",
-    "unrated")` carries a `NotRankedRow` (`06` §4's own two row shapes) --
-    a discriminated union rather than a third, redundant shape.
-
-    Round-3 rebase note (2026-09-14): renamed from `RepoDetailResponse`
-    on this same endpoint -- W4-4 landed its OWN, differently-shaped
-    `RepoDetailResponse` (a flat `LeaderboardRow`-like model with every
-    field nullable, matching `cvi/serve/app.py::_repo_detail`'s REAL,
-    served response) on `main` while this branch still carried this one
-    under the identical name; the rebase auto-merged both class bodies
-    into the file with no textual conflict (they sit in different
-    locations), silently shadowing W4-4's actual, imported-and-used model
-    with this dead one (nothing had ever imported this class by name --
-    `scripts/serve_ui_fixtures.py` builds `{"kind": ..., "row": ...}` as a
-    plain dict and JSON-serialises it without validating against any
-    pydantic model at all) and breaking every real `/repos/{owner}/{name}`
-    call with a 500 (a `LeaderboardRow`/`NotRankedRow`-shaped kwarg dict
-    failing THIS class's very different required fields). This class is
-    kept, renamed, purely as documentation of the shape the fixture
-    server/frontend (`web/v2/views/drawer.js`) currently use while the UI
-    has not yet switched from the fixture server to the real API -- it
-    validates nothing at runtime today, same as before the rename."""
-
-    kind: Literal["rated", "gated", "unrated"]
-    row: LeaderboardRow | NotRankedRow
-
-    @model_validator(mode="after")
-    def _kind_matches_row_shape(self) -> "RepoDetailFixtureResponse":
-        if self.kind == "rated" and not isinstance(self.row, LeaderboardRow):
-            raise ValueError("kind='rated' must carry a LeaderboardRow")
-        if self.kind in ("gated", "unrated") and not isinstance(self.row, NotRankedRow):
-            raise ValueError(f"kind={self.kind!r} must carry a NotRankedRow")
-        if self.kind == "gated" and self.row.gate_reason is None:
-            raise ValueError("kind='gated' row must carry a gate_reason")
-        if self.kind == "unrated" and self.row.unrated_reason is None:
-            raise ValueError("kind='unrated' row must carry an unrated_reason")
-        return self
-
-
 # --------------------------------------------------------------------------- #
 # GET /v1/cvi/methodology (packet W4-5b, `06` §3 F). No model existed for      #
 # this payload before this packet (W4-5a's own docstring lists only the       #
@@ -859,7 +809,6 @@ __all__ = [
     "ReprojectRequest",
     "ReprojectRow",
     "ReprojectResponse",
-    "RepoDetailFixtureResponse",
     "MethodologyPillar",
     "MethodologyProxyInfo",
     "MethodologyParameter",

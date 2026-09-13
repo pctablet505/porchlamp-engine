@@ -33,7 +33,7 @@ import { nearestMarkerInDirection, hitTestPoint } from "../views/matrix.js";
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY } from "../components/scatter.js";
 import { synthesizeRows } from "../perf-fixtures.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape } from "../views/compare.js";
-import { renderDrawer } from "../views/drawer.js";
+import { renderDrawer, classifyKind, findRow } from "../views/drawer.js";
 
 // --------------------------------------------------------------------- U-5
 // D-TIE-1 client-derivable levels: 1 (composite), 2 (coverage), 3
@@ -661,4 +661,97 @@ test("renderDrawer: still loading shows the loading copy, neither not-found nor 
   assert.ok(html.includes(copy.DRAWER_LOADING_TEXT));
   assert.ok(!html.includes(copy.DRAWER_NOT_FOUND_TEXT));
   assert.ok(!html.includes("data-repo-detail-retry"));
+});
+
+// --------------------------------------------------------------------- //
+// W4-5c (2026-09-14): `GET /v1/cvi/repos/{owner}/{name}` has two
+// producers -- the real API and the UI fixture stand-in
+// (`scripts/serve_ui_fixtures.py`) -- and used to disagree: the fixture
+// server invented a `{kind, row}` wrapper the real API never sent,
+// crashing the drawer (`TypeError: Cannot read properties of undefined
+// (reading 'owner')`) the moment it was pointed at the real API. The
+// contract is the truth: `found` is now the flat `RepoDetailResponse`
+// itself, and `classifyKind` derives `kind` client-side from
+// `eligible`/`rated` (see `tests/test_repo_detail_cross_check.py` for the
+// Python-side two-producer parity test this fix is bound to).
+// --------------------------------------------------------------------- //
+
+test("classifyKind: ineligible (gated at stage 0) is 'gated' regardless of rated", () => {
+  assert.equal(classifyKind({ eligible: false, rated: false }), "gated");
+});
+
+test("classifyKind: eligible but not rated (below the coverage floor) is 'unrated'", () => {
+  assert.equal(classifyKind({ eligible: true, rated: false }), "unrated");
+});
+
+test("classifyKind: eligible and rated is 'rated'", () => {
+  assert.equal(classifyKind({ eligible: true, rated: true }), "rated");
+});
+
+const FLAT_RATED_DETAIL = {
+  owner: "riverline", name: "httpkit", ecosystem: "pypi",
+  snapshot_id: "snap-test", benchmark_version: "2.0.0-test", raw_hash: "a".repeat(64),
+  eligible: true, gate_reason: null, rated: true, unrated_reason: null,
+  rank: 1, tie_group: null, cvi: 98.34, coverage: 1.0, tier: "S", tier_ceiling: null,
+  quadrant: "Sweet Spot", leverage: 90, friction: 5, leverage_coverage: 1.0, friction_coverage: 1.0,
+  p_responsiveness: 95, c_responsiveness: 1.0, p_criticality: 90, c_criticality: 1.0,
+  p_governance: 92, c_governance: 1.0, p_rigor: 88, c_rigor: 1.0, p_accessibility: 91, c_accessibility: 1.0,
+  persona_gates: {}, persona_composites: {}, suspicion: [], stars_audited: 16282,
+};
+
+const FLAT_GATED_DETAIL = {
+  owner: "gated-org", name: "repo-mirror-0", ecosystem: "cargo",
+  snapshot_id: "snap-test", benchmark_version: "2.0.0-test", raw_hash: "b".repeat(64),
+  eligible: false, gate_reason: "mirror", rated: false, unrated_reason: null,
+  rank: null, tie_group: null, cvi: null, coverage: 0.0, tier: null, tier_ceiling: null,
+  quadrant: null, leverage: null, friction: null, leverage_coverage: null, friction_coverage: null,
+  p_responsiveness: null, c_responsiveness: null, p_criticality: null, c_criticality: null,
+  p_governance: null, c_governance: null, p_rigor: null, c_rigor: null, p_accessibility: null, c_accessibility: null,
+  persona_gates: {}, persona_composites: {}, suspicion: [], stars_audited: null,
+};
+
+const FLAT_UNRATED_DETAIL = {
+  ...FLAT_GATED_DETAIL,
+  owner: "unrated-org", name: "repo-insufficient_evidence-0", ecosystem: "npm",
+  eligible: true, gate_reason: null, unrated_reason: "unrated: insufficient_evidence", coverage: 0.42,
+};
+
+function stateWithRepoDetail(detail) {
+  const key = `${detail.owner}/${detail.name}`;
+  return {
+    ...defaultState(),
+    repo: key,
+    repoDetailByKey: { [key]: detail },
+    repoDetailLoading: false,
+    repoDetailError: null,
+    evidenceByRepo: {},
+    evidenceError: null,
+  };
+}
+
+test("findRow + classifyKind: the real (flat) shape round-trips through renderDrawer for a RATED repo (composite/pillar/persona/integrity sections)", () => {
+  const state = stateWithRepoDetail(FLAT_RATED_DETAIL);
+  assert.deepEqual(findRow(state, "riverline", "httpkit"), FLAT_RATED_DETAIL);
+  assert.equal(classifyKind(FLAT_RATED_DETAIL), "rated");
+  const html = renderDrawer(state);
+  assert.ok(html.includes("riverline"));
+  assert.ok(html.includes("98.34"), "the composite CVI must render");
+  assert.ok(html.includes(FLAT_RATED_DETAIL.raw_hash.slice(0, 16)), "the integrity section must render raw_hash");
+});
+
+test("findRow + classifyKind: a GATED repo renders ONLY the identity/gate-status section (no composite/pillar/persona/integrity)", () => {
+  const state = stateWithRepoDetail(FLAT_GATED_DETAIL);
+  assert.equal(classifyKind(FLAT_GATED_DETAIL), "gated");
+  const html = renderDrawer(state);
+  assert.ok(html.includes("repo-mirror-0"));
+  assert.ok(!html.includes("cell-numeric"), "no composite/pillar/integrity numeric cells for a gated repo");
+});
+
+test("findRow + classifyKind: an UNRATED repo renders its evidence table, not a crash on missing composite fields", () => {
+  const state = stateWithRepoDetail(FLAT_UNRATED_DETAIL);
+  assert.equal(classifyKind(FLAT_UNRATED_DETAIL), "unrated");
+  // Must not throw (the exact regression: `row` was `undefined` under the
+  // old `{kind, row}` shape once the real API's flat response arrived).
+  const html = renderDrawer(state);
+  assert.ok(html.includes("repo-insufficient_evidence-0"));
 });

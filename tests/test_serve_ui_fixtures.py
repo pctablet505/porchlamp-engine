@@ -17,6 +17,8 @@ from pathlib import Path
 import httpx
 import pytest
 
+from cvi.serve.contract import RepoDetailResponse
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "serve_ui_fixtures.py"
 WEB_DIR = REPO_ROOT / "web" / "v2"
@@ -277,15 +279,65 @@ class TestRepoDetailEndpoint:
     an empty `200 {}` would leave the drawer silently rendering nothing
     useful instead. `test_unknown_repo_is_404` is written to fail red
     against exactly that mutant.
-    """
 
-    def test_known_rated_repo_returns_its_leaderboard_row(self, server_url: str) -> None:
+    W4-5c (2026-09-14): the success-path assertions below were rewritten
+    for the flat `RepoDetailResponse` shape (this endpoint's OTHER
+    producer, the real API, never sent `{kind, row}` — this server's own
+    invented wrapper broke the drawer once pointed at the real API; see
+    `tests/test_repo_detail_cross_check.py` for the two-producer parity
+    test this defect's fix is bound to). Every success case here validates
+    the actual response against `RepoDetailResponse` itself, not just a
+    couple of hand-picked keys, since a shape-only check is exactly the
+    class of defect that shipped unnoticed before."""
+
+    def test_known_rated_repo_validates_and_carries_the_expected_facts(self, server_url: str) -> None:
         resp = httpx.get(f"{server_url}/v1/cvi/repos/riverline/httpkit")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["kind"] == "rated"
-        assert body["row"]["owner"] == "riverline"
-        assert body["row"]["name"] == "httpkit"
+        detail = RepoDetailResponse.model_validate(body)
+        assert detail.owner == "riverline"
+        assert detail.name == "httpkit"
+        assert detail.eligible is True
+        assert detail.rated is True
+        assert detail.gate_reason is None
+        assert detail.unrated_reason is None
+        assert detail.rank is not None
+        assert detail.cvi is not None
+
+    def test_known_gated_repo_validates_and_carries_the_expected_facts(self, server_url: str) -> None:
+        resp = httpx.get(f"{server_url}/v1/cvi/repos/gated-org/repo-mirror-0")
+        assert resp.status_code == 200
+        detail = RepoDetailResponse.model_validate(resp.json())
+        assert detail.eligible is False
+        assert detail.rated is False
+        assert detail.gate_reason == "mirror"
+        assert detail.rank is None
+        assert detail.cvi is None
+        assert detail.c_responsiveness is None
+        # `coverage` is NOT NULL on the real store even for a never-scored
+        # repo (`RepoDetailResponse`'s own docstring) — this fixture row's
+        # own `coverage` (0.0) carries straight through, never fabricated.
+        assert detail.coverage == 0.0
+
+    def test_known_unrated_repo_validates_and_carries_the_expected_facts(self, server_url: str) -> None:
+        resp = httpx.get(f"{server_url}/v1/cvi/repos/unrated-org/repo-insufficient_evidence-0")
+        assert resp.status_code == 200
+        detail = RepoDetailResponse.model_validate(resp.json())
+        assert detail.eligible is True
+        assert detail.rated is False
+        assert detail.unrated_reason == "unrated: insufficient_evidence"
+        assert detail.gate_reason is None
+        assert detail.rank is None
+
+    def test_a_gated_repo_with_no_fixture_coverage_defaults_to_zero_not_null(self, server_url: str) -> None:
+        # `tests/fixtures/ui/notranked.json`'s "repo-non_software-5" has
+        # `"coverage": null` — `RepoDetailResponse.coverage` is a required
+        # `float`, never `None`, so this must default to 0.0 rather than
+        # 500 on a validation error or silently omit the field.
+        resp = httpx.get(f"{server_url}/v1/cvi/repos/gated-org/repo-non_software-5")
+        assert resp.status_code == 200
+        detail = RepoDetailResponse.model_validate(resp.json())
+        assert detail.coverage == 0.0
 
     def test_unknown_repo_is_404_with_the_nested_error_body(self, server_url: str) -> None:
         # Mutant this kills: the handler answering an unknown repo with an

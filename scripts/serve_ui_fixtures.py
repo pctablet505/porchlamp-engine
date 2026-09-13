@@ -100,6 +100,7 @@ gap (two D-TIE-1 levels the API row contract does not carry at all).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import sys
@@ -111,7 +112,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from cvi.serve.contract import DEFAULT_PAGE_SIZE, LEADERBOARD_PAGE_SIZES, PILLARS, ReprojectRequest
+from cvi.serve.contract import (
+    DEFAULT_PAGE_SIZE,
+    LEADERBOARD_PAGE_SIZES,
+    PILLARS,
+    ReprojectRequest,
+    RepoDetailResponse,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_WEB_DIR = REPO_ROOT / "web" / "v2"
@@ -341,6 +348,20 @@ def reproject_rows(rows: list[dict[str, Any]], weights: dict[str, float]) -> lis
     return out
 
 
+def _synthetic_raw_hash(owner: str, name: str) -> str:
+    """W4-5c: a deterministic, clearly-synthetic stand-in for a gated/
+    unrated repo's `raw_hash` -- real per-repo data (`repositories.
+    raw_hash TEXT NOT NULL`, computed at ingestion before gating even
+    happens) that `tests/fixtures/ui/notranked.json`'s sparser
+    `NotRankedRow`-shaped rows never carried, because nothing needed it
+    until `RepoDetailResponse` required it on every repo. Deterministic
+    (same owner/name always yields the same value) so a fixture-vs-fixture
+    diff across runs is never spurious; namespaced with a `"fixture-"`
+    prefix in the pre-image so nobody mistakes this for a real hash of
+    anything -- it hashes nothing but the repo's own identity."""
+    return hashlib.sha256(f"fixture-raw-hash:{owner}/{name}".encode()).hexdigest()
+
+
 class FixtureStore:
     """Loads `tests/fixtures/ui/*.json` once and answers the v2 endpoints."""
 
@@ -409,22 +430,111 @@ class FixtureStore:
         return self.notranked_by_persona.get(persona, self.notranked)
 
     def find_repo_detail(self, owner: str, name: str) -> dict[str, Any] | None:
-        """`GET /v1/cvi/repos/{owner}/{name}` (lead ruling 2026-09-13, the
-        Matrix-vs-Leaderboard drawer-content-parity fix): the SAME record
-        regardless of which screen asks for it -- balanced leaderboard rows
-        first (rated), then the balanced not-ranked lists (gated/unrated),
-        `None` if the repo is in neither (a genuine 404, not a "the caller
-        forgot to load a page" symptom)."""
+        """`GET /v1/cvi/repos/{owner}/{name}` -- the SAME record regardless
+        of which screen asks for it (lead ruling 2026-09-13, the
+        Matrix-vs-Leaderboard drawer-content-parity fix): balanced
+        leaderboard rows first (rated), then the balanced not-ranked lists
+        (gated/unrated), `None` if the repo is in neither (a genuine 404,
+        not a "the caller forgot to load a page" symptom).
+
+        W4-5c (2026-09-14): this used to return `{"kind": ..., "row":
+        {...}}` -- a shape this server invented, never matching the REAL
+        API's `RepoDetailResponse` (`cvi/serve/contract.py`, packet W4-4,
+        landed independently of this endpoint) at all. `views/drawer.js`
+        was built against THIS shape, so opening the drawer against the
+        real API served from `scripts/serve.py` threw `TypeError: Cannot
+        read properties of undefined (reading 'owner')` -- the real
+        response has no `row` key. Ruling: the contract is the truth.
+        This now returns the EXACT flat `RepoDetailResponse` shape (built
+        through the model itself, `model_dump()` below, so a future
+        contract change that this method fails to track is a loud
+        `ValidationError` here, not a silent wire mismatch discovered in a
+        browser) -- `kind` is no longer part of the wire shape at all; the
+        client derives it from `eligible`/`rated` (`views/drawer.js::
+        classifyKind`), matching the real API exactly since IT never sent
+        `kind` either."""
         for row in self.leaderboard["rows"]:
             if row["owner"] == owner and row["name"] == name:
-                return {"kind": "rated", "row": row}
+                return self._repo_detail_from_rated_row(row)
         for row in self.notranked["gated"]:
             if row["owner"] == owner and row["name"] == name:
-                return {"kind": "gated", "row": row}
+                return self._repo_detail_from_not_ranked_row(row, eligible=False)
         for row in self.notranked["unrated"]:
             if row["owner"] == owner and row["name"] == name:
-                return {"kind": "unrated", "row": row}
+                return self._repo_detail_from_not_ranked_row(row, eligible=True)
         return None
+
+    def _repo_detail_from_rated_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        """A rated row (`tests/fixtures/ui/leaderboard.json`, `LeaderboardRow`-
+        shaped) already carries every fact `RepoDetailResponse` needs
+        except the four eligibility/rating fields, which are simple,
+        non-derived constants for anything that reached the leaderboard at
+        all: eligible (passed every stage-0 gate), rated (cleared the
+        coverage floor), and so carries neither a gate nor an unrated
+        reason. `balanced_rank`/`rank_delta` are dropped: `LeaderboardRow`-
+        only fields (the persona-delta column) `RepoDetailResponse` has no
+        room for (`StrictModel`'s `extra="forbid"` -- confirmed by diffing
+        `RepoDetailResponse.model_fields` against `LeaderboardRow.model_
+        fields` rather than guessed)."""
+        fields = {k: v for k, v in row.items() if k not in ("balanced_rank", "rank_delta")}
+        fields["eligible"] = True
+        fields["rated"] = True
+        fields["gate_reason"] = None
+        fields["unrated_reason"] = None
+        return RepoDetailResponse(**fields).model_dump()
+
+    def _repo_detail_from_not_ranked_row(self, row: dict[str, Any], *, eligible: bool) -> dict[str, Any]:
+        """A gated/unrated row (`tests/fixtures/ui/notranked.json`) is a
+        `NotRankedRow` -- much sparser than `RepoDetailResponse` requires,
+        matching the real store's own asymmetry (`cvi/store/schema.py`:
+        every `repositories` column always exists per row, but only a
+        RATED row ever has `rank`/`cvi`/pillar scores/etc. computed at
+        all -- a gated/unrated repo genuinely has `NULL` for every one of
+        them, per `RepoDetailResponse`'s own docstring). `eligible` comes
+        from WHICH not-ranked group this row was found in (the real
+        store's own rule, `cvi.store.queries.list_not_ranked`'s docstring:
+        "Gated (eligible=0) and unrated (eligible=1, rated=0)"), never
+        guessed per-row. `coverage` defaults to 0.0 when this fixture
+        row's own is `None` (`repositories.coverage` is NOT NULL in the
+        real store -- "reportable even at 0.0", `RepoDetailResponse`'s own
+        docstring). The one field genuinely absent from this fixture data
+        with no real source at all is `raw_hash` (per-repo in the real
+        store, computed at ingestion before gating -- `NotRankedRow` never
+        carried it because nothing needed it until this endpoint): a
+        deterministic synthetic placeholder, clearly namespaced, stands in
+        for it here -- this whole store is already synthetic test data
+        (see `tests/fixtures/ui/leaderboard.json`'s own `raw_hash` values)."""
+        fields: dict[str, Any] = {
+            "owner": row["owner"],
+            "name": row["name"],
+            "ecosystem": row["ecosystem"],
+            "snapshot_id": self.snapshot["snapshot_id"],
+            "benchmark_version": self.snapshot["benchmark_version"],
+            "raw_hash": _synthetic_raw_hash(row["owner"], row["name"]),
+            "eligible": eligible,
+            "gate_reason": row.get("gate_reason"),
+            "rated": False,
+            "unrated_reason": row.get("unrated_reason"),
+            "rank": None,
+            "tie_group": None,
+            "cvi": None,
+            "coverage": row["coverage"] if row.get("coverage") is not None else 0.0,
+            "tier": None,
+            "tier_ceiling": None,
+            "quadrant": None,
+            "leverage": None,
+            "friction": None,
+            "leverage_coverage": None,
+            "friction_coverage": None,
+            "persona_gates": {},
+            "persona_composites": {},
+            "suspicion": [],
+            "stars_audited": None,
+        }
+        for pillar in PILLARS:
+            fields[f"p_{pillar}"] = None
+            fields[f"c_{pillar}"] = None
+        return RepoDetailResponse(**fields).model_dump()
 
     def leaderboard_page(
         self, *, persona: str, eco: str | None, q: str | None, sort: str, page: int, page_size: int

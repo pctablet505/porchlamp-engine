@@ -177,7 +177,7 @@ export function defaultState() {
     // screen (Leaderboard/Matrix/Compare/Configure) opened it -- the
     // single source `views/drawer.js::findRow` now consults, replacing
     // the old "search whatever state slice happens to be loaded" logic.
-    repoDetailByKey: {}, // "owner/name" -> { kind, row }
+    repoDetailByKey: {}, // "owner/name" -> the flat RepoDetailResponse (W4-5c: no longer {kind, row} -- kind is derived client-side, views/drawer.js::classifyKind)
     repoDetailLoading: false,
     repoDetailError: null, // { endpoint, status, detail } for the CURRENTLY open repo, if it failed
 
