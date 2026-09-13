@@ -497,7 +497,7 @@ DECISION_COHORT_START_DAYS: int = 270
 DECISION_WINDOW_DAYS: int = 90
 #: D-IN-3 (account age, event count, per-author cap): MIN_ACCOUNT_AGE_DAYS,
 #: MIN_PUBLIC_EVENTS and AUTHOR_CAP_FRACTION are imported from
-#: cvi.core.constants_v2 (W3-1, RFC-0002) — this module's own D-IN-4
+#: cvi.core.constants_v2 (W3-1, RFC-0004) — this module's own D-IN-4
 #: constants stay here pending W2-1's broader relocation (R-2).
 #: 5.2: the first PR converted when merged within 180 d of opening.
 NEWCOMER_CONVERT_WINDOW_DAYS: int = 180
@@ -929,7 +929,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
 
 
 #: D-IN-3: ``is_eligible_account``/``apply_author_cap`` are imported from
-#: :mod:`cvi.core.hygiene` (W3-1, RFC-0002) — the module note above
+#: :mod:`cvi.core.hygiene` (W3-1, RFC-0004) — the module note above
 #: explains why those two, and only those two, moved.
 
 
