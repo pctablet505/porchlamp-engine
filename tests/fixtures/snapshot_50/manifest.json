@@ -9,8 +9,8 @@
     "torvalds/linux"
   ],
   "as_of": "2026-09-12T05:26:57.089407+00:00",
-  "benchmark_version": "2.0.0-dev",
-  "constants_hash": "9cc0048e0a19443b62024630bfdc289b86de9168be064d360af6b0daa1b533e4",
+  "benchmark_version": "2.0.0-rc1",
+  "constants_hash": "391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8",
   "document": "cvi-fixture-snapshot-manifest",
   "population_fallback_params": [],
   "repo_count": 50,
