@@ -976,9 +976,33 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     "dependents_deduped": _resolve_dependents_deduped,
     "openssf_criticality": _resolve_openssf_criticality,
     "downloads_monthly": _resolve_downloads_monthly,
-    "legal_ip": _vocab_scalar_resolver("legal_ip_model", V1_LEGAL_IP_VALUES),
+    # W1-6 round 3 (Blocker BB3): "legal_ip" now reads W1-6's own bare
+    # "legal_ip" field (identity vocab -- classify_legal_ip already returns
+    # exactly constants_v2.LEGAL_IP_VALUES spellings), never the v1
+    # "legal_ip_model" regex heuristic it was built to replace -- a repo
+    # W1-6 measured FOUNDATION_CLA must not publish to v2 as Measured('DCO')
+    # from the abandoned heuristic. No legacy fallback: "legal_ip_model"'s
+    # CORP_CLA_RECIPROCAL/CORP_CLA_UNILATERAL split has no v2 counterpart to
+    # fall back to (tests/derive/test_input_mappings.py::test_legal_ip and
+    # ::test_legal_ip_unmappable_enum_over_correction_guard assert the old
+    # "legal_ip_model" wiring and now fail by design -- reported, not fixed
+    # here; W1_LEGAL_IP_VALUES above is unused as of this row and is left
+    # for that packet to retire).
+    "legal_ip": _vocab_scalar_resolver(
+        "legal_ip", {value: value for value in constants_v2.LEGAL_IP_VALUES}),
     "elephant_factor": _plain_scalar_resolver("elephant_factor"),
-    "promotion_ladder": _vocab_scalar_resolver("promotion_ladder", V1_LADDER_VALUES),
+    # W1-6 round 3 (Blocker BB3): "promotion_ladder" now accepts BOTH the v2
+    # vocabulary as identity (VERIFIED/DOCUMENTED/AD_HOC/CLOSED -- what
+    # W1-6's classify_promotion_ladder actually writes into this same bare
+    # field) and the legacy v1 spellings via V1_LADDER_VALUES (a fallback
+    # for any document not yet re-derived under W1-6 -- e.g. an old v1-only
+    # spelling VERIFIED_PROMOTION/DOCUMENTED_PATHWAY/CLOSED_SINGLE_FIRM).
+    # Before this row, VERIFIED/DOCUMENTED (genuine evidence) resolved to
+    # Unmeasured while AD_HOC (no evidence) alone resolved Measured, purely
+    # because the two vocabularies happen to spell "AD_HOC" the same way.
+    "promotion_ladder": _vocab_scalar_resolver(
+        "promotion_ladder",
+        {**V1_LADDER_VALUES, **{value: value for value in constants_v2.PROMOTION_LADDER_VALUES}}),
     "pipeline_defenses": _resolve_pipeline_defenses,
     "ai_posture": _vocab_scalar_resolver("ai_posture", {value: value for value in constants_v2.AI_POSTURE_VALUES}),
     "substantive_review_rate": _resolve_substantive_review_rate,

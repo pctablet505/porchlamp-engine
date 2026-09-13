@@ -643,3 +643,328 @@ Found 4 errors.   # all four in scripts/curate_dataset_llm.py, a file this packe
 envelopes (`/home/pctablet505/Projects/cvi-scratch/W1-6s/raw/`), with the
 network patched to raise, proving no live call happened during
 recomputation.
+
+---
+
+# Round 3 (REWORK response)
+
+Base: rebased branch `W1-6s` from `f924b90` onto main tip `3e53358` (clean, no
+conflicts), then again onto `1f8e428` before the final commit (see below).
+Review: `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adbe955a4084/scratchpad/reviews/W1-6-r2-review.md`,
+item records in `.agents/W1-6/review/round2/` (untracked, left as delivered).
+
+Diffstat (round-3 content only):
+
+```
+ cvi/collect/governance.py            | 181 ++++++++++++++++++++---------------
+ cvi/derive/bundle.py                 |  28 +++++-
+ tests/collect/test_governance_w16.py | 156 +++++++++++++++++++++++++++++-
+ tests/collect/test_w17_pike.py       |  13 ++-
+ 4 files changed, 294 insertions(+), 84 deletions(-)
+```
+
+## BB1 + BB2 — table-driven ai_posture, corpus-driven, no ad hoc regex
+
+**Deleted**: the round-2 line-level `_is_negated_ban_line` guard and its three
+helper patterns (`NEGATION_PATTERN`, `_AI_TERM_PATTERN`, `_BAN_VERB_PATTERN`),
+and the six-pattern `AI_BAN_PATTERNS` pile entirely (including the bare
+`\b(no|not|never|without)\s+<AI>` alternation, which had no ban-verb
+requirement at all -- round 2 had already half-fixed this by removing one
+bad clause; round 3
+removes the whole mechanism).
+
+**Replaced with**: `classify_ai_posture` now evaluates one SENTENCE at a time
+(`_split_sentences`: split on `.` `;` `:` and newlines) against two small,
+named tables (documented in the module docstring, `governance.py:162-192`):
+
+* `BAN_TABLE` (11 rows): `banned`, `forbidden`, `prohibited`, `disallowed`,
+  `rejected` (bare polarity words, active or passive inflection);
+  `negated_permission` (`not allowed/accepted/permitted/welcome/encouraged`
+  -- a negated permission word IS a ban); `must_not`; `do_not`; `never`;
+  `will_be_closed`; `passive_generated_by_ai` (BB2's own example: `<must|
+  shall|may|can> not be <generated|written|authored|created|produced> <by|
+  with|using> AI`).
+* `PERMISSION_TABLE` (8 rows): `negated_ban_verb` (a negator -- not/never/
+  nothing/no/do not/does not/don't/doesn't -- within up to 3 words of a
+  ban-polarity verb, never crossing "and"/"but"/"or" -- this is the general
+  form of round 2's three named false positives, generalized so it also
+  catches "nothing in this document BANS..." and "there is no rule
+  FORBIDDING..." without also swallowing "...is not permitted AND is
+  BANNED." two-clause sentences); bare `allowed`/`permitted`/`accepted`/
+  `welcome`/`encouraged` (excluded right after `not`/`never`, since that
+  exact two-word phrase is itself a BAN_TABLE row); `may_use`; `no_x_required`.
+
+PROSCRIBED iff the sentence has an AI reference, a BAN_TABLE match, and no
+PERMISSION_TABLE match (`_proscribed_sentence`). `_ban_match` now returns
+the first PROSCRIBED sentence across all governance/AI-policy files, so a
+ban in one sentence is never shadowed by a denial in a different sentence.
+
+**34-sentence labelled corpus** (`PROSCRIBED_CORPUS`, `tests/collect/
+test_governance_w16.py`), 18 positive / 16 negative, containing verbatim:
+round 1's three negated-ban false positives; the dispatch's passive-voice
+positive control and four extra named probes; BB1's five round-1-correct
+sentences round 2 regressed; the round-2 review's own five-a-side probe
+corpus; and real sentences already used as governance/AI-policy fixture
+bodies elsewhere in this file (CONTRIBUTING.md/AI.md/AGENTS.md prose this
+packet already ships).
+
+```
+$ pytest -p no:cacheprovider "tests/collect/test_governance_w16.py::test_proscribed_corpus_size_and_balance" "tests/collect/test_governance_w16.py::test_proscribed_sentence_corpus"
+..................................                                       [100%]
+34 passed in 0.06s
+```
+
+**Row-deletion mutants, each demonstrated two ways** -- a standing test in
+the file (runtime `gov.BAN_TABLE`/`gov.PERMISSION_TABLE` monkeypatch,
+restored in a `finally`) and a real source-edit-and-restore against the
+full parametrized corpus test (pasted below, `git status --short` empty
+after every restore):
+
+```
+$ sed -i '/("banned", r"\\b(ban|bans|banned|banning)\\b"),/d' cvi/collect/governance.py
+$ pytest -p no:cacheprovider "tests/collect/test_governance_w16.py::test_proscribed_sentence_corpus" -v
+tests/collect/test_governance_w16.py::test_proscribed_sentence_corpus[AI contributions are banned.-True] FAILED
+AssertionError: 'AI contributions are banned.': expected proscribed=True, got False
+1 failed, 33 passed in 0.08s
+```
+
+```
+$ sed -i '221,226d' cvi/collect/governance.py   # the negated_ban_verb permission row
+$ pytest -p no:cacheprovider "tests/collect/test_governance_w16.py::test_proscribed_sentence_corpus" -v
+9 failed, 24 passed in 0.13s
+  ...[We do not ban AI-generated contributions.-False]
+  ...[Nothing here forbids using AI tooling.-False]
+  ...[AI tools are not banned-False]
+  ...[we never reject AI-assisted work-False]
+  ...[AI usage is not restricted here, and we do not ban Copilot.-False]
+  ...[There is no rule forbidding AI-assisted commits.-False]
+  ...[We have never prohibited AI tooling.-False]
+  ...[Nothing in this document bans LLM usage.-False]
+  ...[AI is not a banned topic in discussions.-False]
+```
+
+**Round-2 -> round-3 re-derivation over the full 34-sentence corpus**
+(`classify_ai_posture` on a one-file `CONTRIBUTING.md` body per sentence;
+round-2 module loaded standalone via `git show c5af7f1:...`):
+
+| sentence | round 2 | round 3 | expected |
+|---|---|---|---|
+| This project has no AI policy yet. | AD_HOC | AD_HOC | not proscribed |
+| We do not ban AI-generated contributions. | AD_HOC | AD_HOC | not proscribed |
+| Nothing here forbids using AI tooling. | AD_HOC | AD_HOC | not proscribed |
+| contributions must not be generated by AI | AD_HOC | **PROSCRIBED** | proscribed |
+| AI tools are not banned | AD_HOC | AD_HOC | not proscribed |
+| no AI disclosure required | AD_HOC | AD_HOC | not proscribed |
+| we never reject AI-assisted work | AD_HOC | AD_HOC | not proscribed |
+| We do not accept AI-generated PRs | PROSCRIBED | PROSCRIBED | proscribed |
+| AI-generated pull requests are banned; do not open them. | AD_HOC | **PROSCRIBED** | proscribed |
+| Do not submit AI-generated code; such contributions are prohibited. | AD_HOC | **PROSCRIBED** | proscribed |
+| AI-generated code is not permitted and is banned. | AD_HOC | **PROSCRIBED** | proscribed |
+| Do not submit AI code; AI is prohibited. | AD_HOC | **PROSCRIBED** | proscribed |
+| AI contributions are never accepted and are forbidden. | AD_HOC | **PROSCRIBED** | proscribed |
+| AI-generated pull requests will be closed. | AD_HOC | **PROSCRIBED** | proscribed |
+| (remaining 20 corpus sentences) | unchanged | unchanged | matches |
+
+7 of 34 flip AD_HOC -> PROSCRIBED (exactly BB1's five regressions + BB2's
+named miss + the new `will_be_closed` row); the other 27 are unchanged --
+zero new false positives introduced. `probe_b3_round1.out` (reviewer's
+scratch) independently confirms the same round-1/round-2 deltas on the
+5-sentence BB1 subset.
+
+**"12 fixtures"**: no artifact named "12 fixture repos" exists in this
+project (searched the review, its item records, and its scratch outputs);
+`GOVERNANCE_FILES + AI_POLICY_FILES` is the only literal "12" in this
+packet, so the corpus above draws on real bodies from that file set instead
+(disclosed, not a COULD-NOT-VERIFY -- the corpus and the five-sample-repo
+table below jointly satisfy the "re-derive and paste before/after" ask).
+
+**Five sample repos** -- their integration table is under BB3 below (the
+scenario bodies are governance-file text, not ban-detection edge cases, so
+none of the five changes classification between round 2 and round 3).
+
+## BB3 — wire the three parameters into the v2 scorer
+
+Edited only the three named `INPUT_MAPPINGS` rows in `cvi/derive/bundle.py`
+(970-1010 range):
+
+* `ai_posture` -- unchanged (already correct: an identity vocab over the
+  bare `ai_posture` field).
+* `promotion_ladder` -- now `_vocab_scalar_resolver("promotion_ladder",
+  {**V1_LADDER_VALUES, **{v: v for v in constants_v2.PROMOTION_LADDER_VALUES}})`:
+  accepts the v2 vocabulary (VERIFIED/DOCUMENTED/AD_HOC/CLOSED) as identity
+  AND keeps `V1_LADDER_VALUES` as a legacy fallback for any not-yet-re-derived
+  v1-only document.
+* `legal_ip` -- now `_vocab_scalar_resolver("legal_ip", {v: v for v in
+  constants_v2.LEGAL_IP_VALUES})`: reads THIS packet's own bare `legal_ip`
+  field (envelope path + sha256 provenance already correct, B2), with no
+  fallback to `legal_ip_model` -- deleted that read from the row entirely,
+  per the dispatch. `V1_LEGAL_IP_VALUES` (bundle.py:66) is now unused by
+  this row; left defined (edit scope was "only the three rows").
+
+**Consequence, measured and reported, not silently patched**: three tests
+outside this packet's ownership assert the OLD `legal_ip_model` wiring and
+now fail --
+
+```
+FAILED tests/derive/test_input_mappings.py::test_legal_ip
+  assert Unmeasured(reason='collector_failure',
+    detail="v1 confidence None for 'legal_ip' is not recognized")
+  == Measured(value='CORP_CLA', ...)   # asserted the v1 legal_ip_model wiring
+FAILED tests/core/test_sample200_load.py::test_measured_inputs_carry_envelope_provenance
+  assert isinstance(Unmeasured(...), Measured)   # same root cause
+FAILED tests/core/test_sample200_load.py::test_provenance_hash_matches_independent_recomputation
+  assert '83b52939...' == '9d03c1ad...'          # provenance_hash shifts because legal_ip's
+                                                  # referenced envelope changed
+```
+
+`test_promotion_ladder` (same file) is unaffected -- the merge is additive,
+so the v1 spellings it exercises (`VERIFIED_PROMOTION`, `ROGUE_RUNG`) still
+resolve exactly as before. `test_ai_posture*` is untouched (no row change).
+All three failures trace to one root cause (the deleted `legal_ip_model`
+fallback) and are the direct, intended, and dispatch-authorized consequence
+of BB3 ("that is a finding to report, not a reason to keep it") -- not
+touched here; they belong to W2-9/INT-W0-4's ownership.
+
+**Integration proof, real collector + stubbed transports, zero network**
+(`cvi-scratch/W1-6-r3/integration_with_governance.py`, adapted from the
+reviewer's own script, same five `sample-200` repos by github_meta-key
+order, same five scenarios):
+
+| repo / scenario | before (round 2) | after (round 3) |
+|---|---|---|
+| `0voice__interview_internal_reference` (DCO + nomination doc) | legal_ip Unmeasured(collector_failure); **promotion_ladder Unmeasured** (`'DOCUMENTED' has no v2 vocabulary mapping`); ai_posture Measured('AD_HOC') | legal_ip **Measured('DCO')**; promotion_ladder **Measured('DOCUMENTED')**; ai_posture Measured('AD_HOC') |
+| `1995parham__github-do-not-ban-us` (EasyCLA + REGULATED) | legal_ip Unmeasured; promotion_ladder Measured('AD_HOC'); ai_posture Measured('REGULATED') | legal_ip **Measured('FOUNDATION_CLA')**; promotion_ladder Measured('AD_HOC'); ai_posture Measured('REGULATED') |
+| `AtsushiSakai__PythonRobotics` (corp CLA + ban) | legal_ip Unmeasured; promotion_ladder Measured('AD_HOC'); ai_posture Measured('PROSCRIBED') | legal_ip **Measured('CORP_CLA')**; promotion_ladder Measured('AD_HOC'); ai_posture Measured('PROSCRIBED') |
+| `EpicGames__lore` (no evidence) | legal_ip Unmeasured; promotion_ladder Measured('AD_HOC'); ai_posture Measured('AD_HOC') | legal_ip **Measured('NONE')**; promotion_ladder Measured('AD_HOC'); ai_posture Measured('AD_HOC') |
+| `EvanLi__Github-Ranking` (observed transition) | legal_ip Unmeasured; **promotion_ladder Unmeasured** (`'VERIFIED' has no v2 vocabulary mapping`); ai_posture Measured('AD_HOC') | legal_ip **Measured('DCO')**; promotion_ladder **Measured('VERIFIED')**; ai_posture Measured('AD_HOC') |
+
+**The FOUNDATION_CLA repo (`1995parham__github-do-not-ban-us`) now shows
+`Measured('FOUNDATION_CLA')`, not `Measured('DCO')`** -- the exact defect
+named in the dispatch. Per-file sha256 recomputed independently over the
+five scenarios' bodies: `files checked=4 mismatches=0`.
+
+sample-200's own 197-repo census is unaffected either way (`legal_ip` 109/88,
+`promotion_ladder` 0/197, `ai_posture` 0/197, identical before/after): the
+raw tree predates `governance`/`pr_window`/`commits_365d` entirely, so every
+row is `Unmeasured(collector_failure)` regardless of the wiring fix -- this
+matches the round-2 review's own finding and needs live collection to move
+(out of scope this round; **note**: `/home/pctablet505/Projects/cvi-scratch/sample-200`
+was found renamed to `sample-200.RENAMED` partway through this round by
+another concurrent process in this shared environment, not by this
+packet -- it reappeared before the final full-suite run below).
+
+## B4 leaks (WW2) + W6 (item 5 residual)
+
+**WW2** -- `test_governance_w16.py`'s own three `gather_repo` tests now
+request `block_live_network` and seed `releases`/`issues_counts`/`runs`
+(W1-7) with the correct new-shape `gfi` record (the old bare `[]` fails
+`is_new_gfi_envelope` and re-triggers a live `labels` call).
+
+**WW3** -- `test_w17_pike.py`'s three `gather_repo` tests now request
+`block_live_network` and seed `commits_365d`/`dependents`/`pr_window`/
+`governance` (all four leaks measured empirically before the fix, not just
+W1-6's own new `…/pulls` one -- the dispatch asked for 0 across both files,
+not only the newly-introduced leak).
+
+Per-file attempt counts, plain pytest, guard-only (no external harness):
+
+```
+$ pytest -p no:cacheprovider tests/collect/test_governance_w16.py::test_gather_repo_governance_status_ok tests/collect/test_governance_w16.py::test_gather_repo_governance_status_skip tests/collect/test_governance_w16.py::test_gather_repo_governance_status_fail
+...                                                                       [100%]
+3 passed in 0.07s        (0 attempts)
+
+$ pytest -p no:cacheprovider tests/collect/test_w17_pike.py::test_gather_repo_w17_collectors_ok tests/collect/test_w17_pike.py::test_gather_repo_w17_collectors_skip tests/collect/test_w17_pike.py::test_gather_repo_w17_collectors_fail
+...                                                                       [100%]
+3 passed in 0.06s        (0 attempts)
+
+$ pytest -p no:cacheprovider tests/collect/test_governance_w16.py   # whole file
+........................................................................ [ 66%]
+.....................................                                    [100%]
+109 passed in 0.09s
+
+$ pytest -p no:cacheprovider tests/collect/test_w17_pike.py         # whole file
+.................................                                        [100%]
+33 passed in 0.09s
+```
+
+(Reproduced the empirical leak set before fixing: 5 attempts per
+`test_w17_pike.py` gather_repo test -- `…/commits`, `api.deps.dev`,
+`packages.ecosyste.ms`, `gh api graphql`, `…/pulls` -- matching the
+review's count of 4 pre-existing + 1 new.)
+
+## W6 (item 5 residual)
+
+Added `test_collect_governance_per_file_sha256_matches_independent_recomputation`:
+12 distinct fixture bodies (all of `GOVERNANCE_FILES + AI_POLICY_FILES`),
+sha256 recomputed via a plain `hashlib.sha256` call (never importing the
+collector's own `sha256_hex`, so a bug shared by both sides could not cancel
+out). Mutant M8 (`sha256_hex(body)` -> `sha256_hex(fname)`) now dies:
+
+```
+$ sed -i 's/sha256_hex(body)/sha256_hex(fname)/' cvi/collect/governance.py
+$ pytest -p no:cacheprovider tests/collect/test_governance_w16.py
+FAILED tests/collect/test_governance_w16.py::test_collect_governance_per_file_sha256_matches_independent_recomputation
+AssertionError: GOVERNANCE.md
+assert 'b60c6a93e9f7...' == 'ff6dbb0409c9...'
+1 failed, 71 passed
+```
+(restored; `git status --short` empty)
+
+## Full suite, ruff, rebase
+
+```
+$ git -C /home/pctablet505/Projects/contributor-value-index log --oneline -1
+fb1f30b docs(v2): lead log — W2-8b received with rulings R-1..R-3; fixture is unrated end to end (W2-8c to refresh)
+$ git rebase fb1f30b          # two hops, both clean: 3e53358 -> 1f8e428 -> fb1f30b
+Successfully rebased and updated refs/heads/W1-6s.   (clean, no conflicts, no manual resolution)
+
+$ pytest tests -p no:cacheprovider -n 4
+FAILED tests/core/test_sample200_load.py::test_measured_inputs_carry_envelope_provenance
+FAILED tests/core/test_sample200_load.py::test_provenance_hash_matches_independent_recomputation
+FAILED tests/derive/test_input_mappings.py::test_legal_ip
+3 failed, 1830 passed, 12 warnings in 10.98s
+```
+
+All three failures are the single, dispatch-authorized BB3 consequence
+above; the total grew from 1761 to 1830 across the rebase hops purely from
+other packets landing on main in the interim (nothing in this packet's own
+diff), and the same 3-failure signature reproduced immediately after the
+final rebase. During the round, `cvi-scratch/sample-200` was twice observed
+renamed to `sample-200.RENAMED` by an unrelated concurrent process in this
+shared environment, which makes the two `test_sample200_load.py` failures
+above read as 8 skips instead ("sample-200 not present at ...", that file's
+own pre-existing marker) -- external, not a regression from this packet;
+it had reappeared by the time of the final rebase run pasted above.
+
+```
+$ ruff check cvi/collect/governance.py cvi/derive/bundle.py tests/conftest.py \
+    tests/collect/test_governance_w16.py tests/collect/test_w17_pike.py
+All checks passed!
+$ ruff check cvi/ scripts/ tests/
+Found 4 errors.   # all four in scripts/curate_dataset_llm.py, pre-existing, untouched
+```
+
+## COULD NOT VERIFY (round 3)
+
+* The literal "12 fixture repos" artifact named in the dispatch -- not
+  found anywhere in this project (repo, review, or scratch); interpreted as
+  the 12 `GOVERNANCE_FILES + AI_POLICY_FILES` file-name set and covered via
+  the 34-sentence corpus instead (disclosed above).
+* Whether `cvi/lakehouse.py`'s v1 ingest path (flagged NOT CHECKED by the
+  round-2 review) reads the new `promotion_ladder` v2 spellings correctly --
+  out of this packet's owned files, not swept this round either.
+* `hard_ai_ban` (WW6, `scripts/derive.py:377`, computed from the v1 enum
+  before the W1-6 block overwrites `ai_posture`) -- unresolved; not named in
+  this round's dispatch, left for a future round or the lead's ruling on
+  WW6 (also ties to the `cvi/models.py:196` `promotion_ladder: PromotionLadder`
+  type-vocabulary question).
+* Round-1/round-2's carried-over open items (WW4 pr_window-failure-still-
+  measured, WW5 evidence-richness, the sample-200 manifest gap) -- unchanged,
+  not named in this round's dispatch.
+
+## Live-call budget (round 3)
+
+0 live repositories used. The five-sample-repo integration proof used the
+real `collect_governance` with a fully stubbed `StubApi` transport and a
+stubbed `fetch_file` callable (zero network, per-call count logged and
+pasted above).

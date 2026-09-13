@@ -621,6 +621,13 @@ GATHER_DONE = {
     "commits_180d": [],
     "depsdev": None,
     "scorecard": None,
+    # W1-5/W1-2/W1-3/W1-6 postdate this file and are not under test here;
+    # marking them done avoids live commits/deps.dev/ecosyste.ms/graphql/gh
+    # api calls for "acme/widget" below (Warning WW3 round 3: W1-6's own
+    # `_merged_prs` "…/pulls" call was the 5th, newly-added leak on top of
+    # 4 pre-existing ones -- all 4 collectors are seeded here together so
+    # the shared block_live_network guard records 0 attempts).
+    "commits_365d": [], "dependents": {}, "pr_window": {}, "governance": {},
 }
 
 
@@ -636,7 +643,7 @@ def seed_gather_done(raw: Path) -> None:
                                         "offplatform_paths": []})
 
 
-def test_gather_repo_w17_collectors_ok(tmp_path, monkeypatch):
+def test_gather_repo_w17_collectors_ok(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
     monkeypatch.setattr(pike, "collect_releases", lambda *a, **k: "ok")
@@ -649,7 +656,7 @@ def test_gather_repo_w17_collectors_ok(tmp_path, monkeypatch):
     assert status["github_meta"] == "skip"
 
 
-def test_gather_repo_w17_collectors_skip(tmp_path, monkeypatch):
+def test_gather_repo_w17_collectors_skip(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
     for collector in ("releases", "issues_counts", "runs"):
@@ -667,7 +674,7 @@ def test_gather_repo_w17_collectors_skip(tmp_path, monkeypatch):
     assert status["runs"] == "skip"
 
 
-def test_gather_repo_w17_collectors_fail(tmp_path, monkeypatch):
+def test_gather_repo_w17_collectors_fail(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
 

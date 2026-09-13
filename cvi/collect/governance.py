@@ -147,79 +147,113 @@ NOMINATION_PATTERN: re.Pattern = re.compile(
     r"how to (become|apply)",
     re.IGNORECASE)
 
-#: 02 §4 4.2 PROSCRIBED: an explicit ban sentence about AI-generated
-#: content (case-insensitive, one line).
-AI_BAN_PATTERNS: tuple[re.Pattern, ...] = tuple(
-    re.compile(p, re.IGNORECASE) for p in (
-        # "<AI>[- <modifier>] <noun> <verb> is/are not <accepted|...>"
-        r"\b(ai|llm|gpt|copilot|chatgpt|machine[- ]generated|artificial[- ]intelligence)"
-        r"([- ](generated|assisted|created|written|code|contributions?|content|submissions?|commits?|usage))?"
-        r"( \w+){0,3}\s+(is|are)\s+(not|no longer|never)\s+"
-        r"(accepted|allowed|permitted|welcome|merged)\b",
-        # "<AI>[- <modifier>] <noun> <verb> is/are <prohibited|forbidden|banned|disallowed>"
-        r"\b(ai|llm|gpt|copilot|chatgpt|machine[- ]generated|artificial[- ]intelligence)"
-        r"([- ](generated|assisted|created|written|code|contributions?|content|submissions?|commits?|usage))?"
-        r"( \w+){0,3}\s+(is|are)\s+(prohibited|forbidden|banned|disallowed)\b",
-        # "do not / must not / ... use/submit/merge/accept/commit/contribute <AI>"
-        r"\b(do\s+not|don't|never|must\s+not|shall\s+not|please\s+do\s+not)\s+"
-        r"(use|submit|merge|accept|commit|contribute)\s+"
-        r"(ai|llm|gpt|copilot|chatgpt|machine[- ]generated|artificial[- ]intelligence)",
-        # "prohibit(s|ed)? (the) use/submission/merging/acceptance of <AI>"
-        r"\bprohibit\w*\s+(the\s+)?(use|submission|merging|acceptance)\s+of\s+"
-        r"(ai|llm|gpt|copilot|chatgpt|machine[- ]generated|artificial[- ]intelligence)",
-        # "use/submission/merging/acceptance of <AI> is prohibited/banned/not allowed"
-        r"\b(use|submission|merging|acceptance)\s+of\s+"
-        r"(ai|llm|gpt|copilot|chatgpt|machine[- ]generated|artificial[- ]intelligence)"
-        r"\s+is\s+(prohibited|banned|forbidden|not\s+(allowed|accepted|permitted))\b",
-        # "ban/banned/prohibited/... <within 60 chars> <AI>"
-        r"\b(ban|banned|banning|forbid|forbidden|prohibit|prohibited|disallow)\w*\b"
-        r".{0,60}\b(ai|llm|gpt|copilot|chatgpt|machine[- ]generated|artificial[- ]intelligence)\b",
-    ))
 # Note: 02 §4 4.2's "Assisted-by"/"AI-generated" commit-trailer convention
 # path is not evaluated by this module -- it needs commit message text,
 # outside this packet's collection scope (module docstring).
-# Round-2 fix (Blocker B3): the round-1 pattern set had a bare
-# "no/not/never/without <AI>" alternation with no ban-verb requirement at
-# all, so "no AI policy yet" and "no AI review step" misfired as a ban --
-# deleted outright (LENS-TQ-11 O6), not merely guarded, since it never
-# stated a ban to begin with. The remaining verb-anchored patterns above
-# are correct on their own ("do not submit AI-generated code" genuinely is
-# a ban) but still misfire when the ban verb itself is negated ("we do not
-# ban AI-generated contributions", "nothing here forbids using AI"); the
-# guard below (:func:`_is_negated_ban_line`) catches that case at the line
-# level before any pattern is tried.
-
-#: Negation tokens that, together with an AI-reference term and a ban-verb
-#: term in the same line, mean the line denies a ban rather than states one
-#: (round-2 dispatch's rule for Blocker B3). "n't" is itself the bound
-#: suffix ("don't", "doesn't"); the rest are whole-word matches.
-NEGATION_PATTERN: re.Pattern = re.compile(
-    r"n't|\bnot\b|\bno\b|\bnothing\b|\bnever\b|\bwill not\b", re.IGNORECASE)
-#: An AI-reference term, standalone (the negation guard's own probe; the
-#: ban patterns above anchor their own AI reference independently).
-_AI_TERM_PATTERN: re.Pattern = re.compile(
+#
+# 02 §4 4.2 PROSCRIBED, round-3 table-driven redesign (Blockers BB1/BB2).
+# Round 2's line-level "any negation + any ban verb -> skip the whole line"
+# guard was too coarse: it swallowed genuine active-voice bans that merely
+# *contain* a negation token and a ban-verb-shaped word without the negation
+# actually modifying that verb (BB1: "AI-generated pull requests are banned;
+# do not open them." was skipped because "do" + "not" + "banned" co-occur on
+# one line, even though nothing there is negated). Round 3 evaluates one
+# SENTENCE at a time (split on ``.`` ``;`` ``:`` and newlines -- the round-3
+# dispatch's own unit) against two small tables:
+#
+#   PROSCRIBED iff the sentence contains an AI reference AND at least one
+#   BAN_TABLE row matches AND no PERMISSION_TABLE row matches.
+#
+# BAN_TABLE (a ban expression, active or passive form):
+#   banned / forbidden / prohibited / disallowed / rejected (bare polarity
+#   words); "not allowed" / "not accepted" / "not permitted" (a negated
+#   permission word IS a ban); "must not" / "do not" / "never" (bare active
+#   ban verbs -- the sentence-level co-occurrence with an AI reference is
+#   the whole test, matching the dispatch's own rule); "will be closed";
+#   and the passive "<must|shall|may|can> not be <generated|written|
+#   authored|created|produced> <by|with|using> AI" (BB2's own example).
+#
+# PERMISSION_TABLE (a permission expression that cancels a same-sentence
+# ban): a negator (not/never/nothing/do not/does not/don't/doesn't) within
+# a few words of a BAN_TABLE polarity verb (ban/forbid/prohibit/disallow/
+# reject) -- this is the general form of round 2's three named false
+# positives ("we do NOT BAN...", "NOTHING here FORBIDS...", "AI tools are
+# NOT BANNED") -- plus the bare positive words allowed/permitted/accepted/
+# welcome/encouraged/"may use"/"no ... required" (excluding a bare
+# allowed/permitted/accepted immediately after "not"/"never", since that
+# exact phrase is itself one of the BAN_TABLE rows, not a permission one).
+AI_REFERENCE_PATTERN: re.Pattern = re.compile(
     r"\b(ai|llm|gpt|copilot|chatgpt|machine[- ]generated|artificial[- ]intelligence)\b",
     re.IGNORECASE)
-#: A ban-verb term, standalone (the negation guard's own probe).
-_BAN_VERB_PATTERN: re.Pattern = re.compile(
-    r"\b(ban|banned|banning|bans|forbid|forbids|forbidden|forbidding|"
-    r"prohibit|prohibits|prohibited|prohibiting|disallow|disallows|disallowed)\b",
-    re.IGNORECASE)
+
+#: One row per named ban expression (02 §4 4.2 / Blocker BB1 / BB2); a
+#: mutant deleting any one row must fail the labelled corpus test.
+BAN_TABLE: tuple[tuple[str, re.Pattern], ...] = tuple(
+    (name, re.compile(pattern, re.IGNORECASE)) for name, pattern in (
+        ("banned", r"\b(ban|bans|banned|banning)\b"),
+        ("forbidden", r"\b(forbid|forbids|forbidden|forbidding)\b"),
+        ("prohibited", r"\b(prohibit|prohibits|prohibited|prohibiting)\b"),
+        ("disallowed", r"\b(disallow|disallows|disallowed|disallowing)\b"),
+        ("rejected", r"\b(reject|rejects|rejected|rejecting)\b"),
+        ("negated_permission",
+         r"\bnot\s+(allowed|accepted|permitted|welcome|encouraged)\b"),
+        ("must_not", r"\bmust\s+not\b"),
+        ("do_not", r"\b(do|does)\s+not\b|\bdon'?t\b|\bdoesn'?t\b"),
+        ("never", r"\bnever\b"),
+        ("will_be_closed", r"\bwill\s+be\s+closed\b"),
+        # BB2: the passive form the dispatch names verbatim, e.g.
+        # "contributions must not be generated by AI".
+        ("passive_generated_by_ai",
+         r"\b(must|shall|may|can)\s+not\s+be\s+"
+         r"(generated|written|authored|created|produced)\s+(by|with|using)\b"),
+    ))
+#: One row per named permission expression; a mutant deleting any one row
+#: must fail the labelled corpus test.
+PERMISSION_TABLE: tuple[tuple[str, re.Pattern], ...] = tuple(
+    (name, re.compile(pattern, re.IGNORECASE)) for name, pattern in (
+        # A negator within a few words of a ban-polarity verb: "we do NOT
+        # BAN...", "NOTHING here FORBIDS...", "AI tools are NOT BANNED".
+        # Up to 3 filler words between the negator and the ban-verb, but
+        # never crossing a coordinating conjunction ("and"/"but"/"or") --
+        # that boundary is what tells "nothing in this document BANS ..."
+        # (one clause, cancels) apart from "... is not permitted AND is
+        # BANNED." (two clauses; the second is its own, un-negated ban).
+        ("negated_ban_verb",
+         r"\b(not|never|nothing|no|no\s+one|do\s+not|does\s+not|don'?t|doesn'?t)\b"
+         r"(?:\s+(?!(?:and|but|or)\b)\w+){0,3}\s+"
+         r"(ban|bans|banned|banning|forbid|forbids|forbidden|"
+         r"forbidding|prohibit|prohibits|prohibited|prohibiting|disallow|disallows|"
+         r"disallowed|disallowing|reject|rejects|rejected|rejecting)\b"),
+        # Bare positive words -- excluded right after "not"/"never" since
+        # that exact two-word phrase is a BAN_TABLE row, not a permission one.
+        ("allowed", r"(?<!not\s)(?<!never\s)\ballowed\b"),
+        ("permitted", r"(?<!not\s)(?<!never\s)\bpermitted\b"),
+        ("accepted", r"(?<!not\s)(?<!never\s)\baccepted\b"),
+        ("welcome", r"(?<!not\s)(?<!never\s)\bwelcome\b"),
+        ("encouraged", r"(?<!not\s)(?<!never\s)\bencouraged\b"),
+        ("may_use", r"\bmay\s+use\b"),
+        ("no_x_required", r"\bno\b(?:\s+\w+){0,4}\s+required\b"),
+    ))
 
 
-def _is_negated_ban_line(line: str) -> bool:
-    """True when ``line`` denies a ban rather than states one (Blocker B3).
+def _split_sentences(body: str) -> list[str]:
+    """Split ``body`` into sentences on ``.`` ``;`` ``:`` and newlines (the
+    unit :data:`BAN_TABLE` / :data:`PERMISSION_TABLE` are evaluated over)."""
+    return [s.strip() for s in re.split(r"[.;:\n]", body) if s.strip()]
 
-    The round-2 dispatch's own rule: a negation token, an AI-reference term
-    and a ban-verb term all present in the same line means the line reads as
-    "there is no ban" / "we do not ban X", not as a ban. Deliberately coarse
-    (it does not parse which word the negation modifies) -- sufficient for
-    the three named false positives without blinding :func:`_ban_match` to a
-    genuine, separately-stated ban line elsewhere in the same document.
-    """
-    return bool(NEGATION_PATTERN.search(line)
-                and _AI_TERM_PATTERN.search(line)
-                and _BAN_VERB_PATTERN.search(line))
+
+def _proscribed_sentence(sentence: str) -> Optional[str]:
+    """The name of the first :data:`BAN_TABLE` row matched, or ``None``,
+    when ``sentence`` has an AI reference, a ban expression and no
+    same-sentence :data:`PERMISSION_TABLE` match."""
+    if not AI_REFERENCE_PATTERN.search(sentence):
+        return None
+    ban_hit = next((name for name, pattern in BAN_TABLE if pattern.search(sentence)), None)
+    if ban_hit is None:
+        return None
+    if any(pattern.search(sentence) for _name, pattern in PERMISSION_TABLE):
+        return None
+    return ban_hit
 
 
 # --------------------------------------------------------------------------- #
@@ -628,20 +662,17 @@ def classify_promotion_ladder(prw: Optional[Mapping[str, Any]],
 
 def _ban_match(files: Mapping[str, Optional[Mapping[str, Any]]]
                ) -> Optional[dict[str, str]]:
-    """The first explicit, unnegated AI-ban line in a collected governance/AI
-    file (Blocker B3 round 2: :func:`_is_negated_ban_line` skips a line that
-    denies a ban -- e.g. "we do not ban AI-generated contributions" -- and
-    scanning continues to a genuine ban stated elsewhere in the corpus)."""
+    """The first PROSCRIBED sentence in a collected governance/AI file
+    (Blocker BB1/BB2 round 3: table-driven, per :func:`_proscribed_sentence`
+    -- a genuine ban in one sentence is never shadowed by a denial stated
+    in a different sentence of the same document)."""
     for fname in (*GOVERNANCE_FILES, *AI_POLICY_FILES):
         entry = files.get(fname)
         if not entry:
             continue
-        for line in str(entry.get("body") or "").splitlines():
-            if _is_negated_ban_line(line):
-                continue
-            for pattern in AI_BAN_PATTERNS:
-                if pattern.search(line):
-                    return {"file": fname, "line": line.strip()[:200]}
+        for sentence in _split_sentences(str(entry.get("body") or "")):
+            if _proscribed_sentence(sentence) is not None:
+                return {"file": fname, "line": sentence[:200]}
     return None
 
 
