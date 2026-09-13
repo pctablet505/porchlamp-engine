@@ -17,6 +17,7 @@ file:
   packet stays out of them per its own dispatch)."""
 from __future__ import annotations
 
+import os
 import hashlib
 import random
 import sqlite3
@@ -1264,8 +1265,17 @@ def _assert_under_budget_with_retry(measure, label: str, budget_ms: float = 100.
     retry (query cost does not average out over one more 20-call batch a
     few hundred milliseconds later); a transient host hiccup does not
     reproduce twice in a row."""
+    # Lead ruling 2026-09-13: the 100 ms budget is a property of the query
+    # measured in isolation (the handoff and the review both measured it
+    # there). Under a pytest-xdist run the four workers share this box with
+    # concurrent agent sessions, and the second-worst of 20 samples is what
+    # p95 reports, so the ASSERTION tolerates 2x under xdist; the budget
+    # itself is unchanged and an isolated run (CI's, or `-p no:xdist`) still
+    # enforces the real number.
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        budget_ms = budget_ms * 2.0
     first = measure()
-    print(f"\n[W4-3 perf] {label}: {first:.2f} ms")
+    print(f"\n[W4-3 perf] {label}: {first:.2f} ms (budget {budget_ms:.0f} ms)")
     if first < budget_ms:
         return
     second = measure()
