@@ -222,6 +222,19 @@ dependents are excluded.
 repology feasibility (mappable / 20).
 **Depends.** W0-1. **Size.** M.
 
+### W1-2f Dependents for Go and Maven; systems → not_applicable (added 2026-09-13)
+**Goal.** `cvi/collect/depsdev.py` maps `go` to the deps.dev GO system with
+the module path `github.com/<owner>/<name>` (multi-module repos: the root
+`go.mod` module line from the tree envelope, if present) and `maven` to
+`groupId:artifactId` parsed from the root `pom.xml`; `systems` (no registry)
+yields `Unmeasured(not_applicable)` per D-MISS-5 instead of "skip" with no
+envelope. Found by W2-8c: 30 of the 50 fixture repos (go 12, systems 10,
+maven 8) structurally could not measure 2.1 or 2.2.
+**Acceptance.** Fixture envelopes for one Go, one Maven, one systems repo;
+identifier derivation pinned; deps.dev absence still `third_party_gap`.
+**Measure.** Measured share of 2.1 per ecosystem on the fixture.
+**Depends.** W1-2. **Size.** S.
+
 ### W1-3 Windowed PR collection with typed actors and review threads
 **Goal.** GraphQL: PRs opened in the trailing 180 d (paginate, cap 500, set
 `truncated`), fields: number, createdAt, closedAt, mergedAt, state,
@@ -550,6 +563,19 @@ in `method`.
 89/90/91 days pins every boundary; mutants on each boundary die; the W2-8c
 data shows a non-zero Measured count. **Depends.** W1-7f, W1-6 (both edit
 `bundle.py`; land first). **Size.** XS.
+
+### W2-13 D-MISS-5 coverage exclusion and the criticality proxy (added 2026-09-13)
+**Goal.** `aggregate` pillar/composite coverage exclude `not_applicable`
+from both sides of the ratio; the engine assigns `not_applicable` only from
+the rule list `NOT_APPLICABLE_RULES` in `constants_v2` (hashed); 2.2 runs
+as `proxy:no_dependents_signal` with renormalised weights when dependents is
+`not_applicable`/`third_party_gap` and ≥ 8 of 10 signals are present
+(`OPENSSF_PROXY_MIN_SIGNALS`, hashed).
+**Acceptance.** A systems repo with everything else measured reaches
+C = 1.00 (was < 0.95); a pypi repo with a deps.dev gap keeps the gap counted;
+a repo-authored "not applicable" claim has no effect; proxy method and
+`derived` provenance visible on the record; mutants on the ratio and the
+rule key die. **Depends.** W2-8 (constants), W2-11. **Size.** S.
 
 ### W3-1 Author eligibility, per-author caps, lockstep detector
 **Goal.** D-IN-3 applied in derivation of every rate parameter;

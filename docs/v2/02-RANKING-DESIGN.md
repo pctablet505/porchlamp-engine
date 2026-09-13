@@ -220,6 +220,29 @@ a reason to close the gap.
 `method` field records which was used; proxies never mark `Measured` as
 `verified` in provenance, they are `derived`.
 
+**D-MISS-5 Not-applicable parameters leave the ratio (added 2026-09-13).**
+`Unmeasured(not_applicable)` is excluded from both the numerator and the
+denominator of pillar coverage (D-MISS-2) and therefore of composite coverage
+(D-MISS-3); the other four reasons count against coverage as before. Why: a
+parameter that is undefined for a repository class (2.1 dependents for a
+`systems` repository with no package registry) is not an evidence gap anyone
+can close, and counting it capped every such repository at ceiling B for a
+fact about the world, not about the repository. Guard: `not_applicable` may be
+assigned only by a design-level rule keyed on a bundle fact recorded at
+universe entry (today: `ecosystem == "systems"` → 2.1), never by a collector
+outcome and never by repo-authored text; the rule list lives in
+`constants_v2` and is part of the constants hash. Cost to fake: changing the
+ecosystem classification means removing the package manifests the
+classification is derived from (03 §4).
+
+Consequence for 2.2 (OpenSSF criticality): when the dependents signal is
+`not_applicable` or `third_party_gap`, the Pike score is computed over the
+remaining signals with weights renormalised over those present
+(`method = "proxy:no_dependents_signal"`, provenance `derived`, D-MISS-4),
+provided at least 8 of the 10 signals are present; a dependents
+`collector_failure` leaves 2.2 `Unmeasured(collector_failure)` because a
+retry can still measure it.
+
 ## 6. Normalization (stage 4)
 
 **D-NORM-1 Mid-rank ECDF.** `R(x) = 100 · (#{x_k < x} + 0.5·#{x_k = x}) / N`.
