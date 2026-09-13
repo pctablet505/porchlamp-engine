@@ -31,16 +31,21 @@ Two things :func:`cvi.verify.detectors.run_detectors` needs that a bare
   ``detect_param_jump`` needs a real previous record; every other detector
   ignores ``previous`` entirely).
 
-Three of :class:`~cvi.verify.detectors.DetectorInputs`' seven fields have no
-landed collector yet (``top_email_domain_share``, ``newcomer_accounts``,
-``star_lockstep_penalty_applied`` -- see that module's own module docstring,
-"Named inputs this packet cannot source yet") and a fourth
-(``source_drift_held``) is the W3-3 live-sample canary's own per-run output,
-not a bundle field. :func:`detector_inputs_from_bundle` leaves all four at
-their ``DetectorInputs`` default (``None``/``()``\\ ) -- "not collected for
-this repo", the same unmeasured-never-fires rule
-:mod:`cvi.verify.detectors` already documents for every other field, rather
-than inventing a value this packet has no evidence for.
+Two of :class:`~cvi.verify.detectors.DetectorInputs`' seven fields have no
+landed collector yet (``newcomer_accounts``, ``star_lockstep_penalty_applied``
+-- see that module's own module docstring, "Named inputs this packet cannot
+source yet") and a third (``source_drift_held``) is the W3-3 live-sample
+canary's own per-run output, not a bundle field. ``top_email_domain_share``
+(W1-5f) is sourced from ``bundle`` via
+:func:`cvi.derive.bundle.top_email_domain_share`, the bundle-instance
+sidecar fact ``cvi.derive.bundle._load_v1`` sets (neither
+``FeatureBundle.inputs`` nor any other declared field carries it -- it is
+not one of the 18 scored parameters). :func:`detector_inputs_from_bundle`
+leaves the three fields with no landed source at their ``DetectorInputs``
+default (``None``/``()``\\ ) -- "not collected for this repo", the same
+unmeasured-never-fires rule :mod:`cvi.verify.detectors` already documents
+for every other field, rather than inventing a value this packet has no
+evidence for.
 """
 from __future__ import annotations
 
@@ -48,6 +53,7 @@ from typing import Mapping, Sequence
 
 from cvi.core.models import FeatureBundle, Measured, ScoreRecord
 from cvi.core.pipeline import DetectorsCallable, RepoKey, ScoredSnapshot, repo_key
+from cvi.derive.bundle import TopEmailDomainShareMeasured, top_email_domain_share as bundle_top_email_domain_share
 from cvi.verify.detectors import DetectorInputs, closed_unread_share_from_pr_window, run_detectors
 
 #: ``bundle.inputs`` keys this adapter reads a raw ``Measured`` value from
@@ -71,16 +77,28 @@ def _measured_bundle_value(bundle: FeatureBundle, input_id: str) -> float | None
     return float(value.value)
 
 
+def _top_email_domain_share(bundle: FeatureBundle) -> float | None:
+    """W1-5f: ``top_email_domain_share``'s raw share, or ``None`` when the
+    bundle-level fact is ``Unmeasured`` (missing/failed commits envelope,
+    or an insufficient non-bot commit sample -- both collapse to "no
+    evidence", the same unmeasured-never-fires rule every other
+    :class:`~cvi.verify.detectors.DetectorInputs` field already follows)."""
+    fact = bundle_top_email_domain_share(bundle)
+    return fact.value if isinstance(fact, TopEmailDomainShareMeasured) else None
+
+
 def detector_inputs_from_bundle(bundle: FeatureBundle) -> DetectorInputs:
     """Build the one :class:`~cvi.verify.detectors.DetectorInputs` a real
     ``FeatureBundle`` can source today (module docstring): raw
     ``elephant_factor`` and ``newcomer_issue_supply`` values when measured,
-    plus the closed-unread share/n computed from ``bundle.pr_window`` --
-    every other field stays at its documented "not collected" default."""
+    the closed-unread share/n computed from ``bundle.pr_window``, and
+    (W1-5f) ``top_email_domain_share`` from the bundle's own sidecar fact
+    -- every other field stays at its documented "not collected" default."""
     share, n = closed_unread_share_from_pr_window(bundle.pr_window)
     return DetectorInputs(
         newcomer_issue_count=_measured_bundle_value(bundle, _NEWCOMER_ISSUE_SUPPLY_INPUT_ID),
         elephant_factor=_measured_bundle_value(bundle, _ELEPHANT_FACTOR_INPUT_ID),
+        top_email_domain_share=_top_email_domain_share(bundle),
         closed_unread_share=share,
         closed_unread_n=n,
     )

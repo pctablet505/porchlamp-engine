@@ -116,7 +116,8 @@ from dataclasses import dataclass, field, fields, is_dataclass, replace
 from datetime import datetime
 from typing import Any, Callable, Mapping, Sequence
 
-from cvi.core import constants_v2, persona
+from cvi.core import commit_domains, constants_v2, persona
+from cvi.core.commit_domains import LastNonBotCommitMeasured
 from cvi.core.engine import PopulationLookup, Snapshot, score
 from cvi.core.gates import GateEvidence
 from cvi.core.models import (
@@ -216,20 +217,28 @@ def score_bundle_stage_9_tie_input(record: ScoreRecord, bundle: FeatureBundle) -
     used because it is the field the current ``TieBreakInput`` contract
     actually validates against. ``ttfhr_p75_hours`` is computed for real from
     ``bundle.pr_window`` via :func:`cvi.core.tiebreak.
-    ttfhr_p75_from_pr_window`. ``last_non_bot_commit_at`` is always ``None``:
-    neither ``FeatureBundle`` nor ``GateEvidence`` carries a dated last-commit
-    field anywhere (04 section 3 has no such field; W1-5's
-    ``GateEvidence.vitality_commits_180d`` is a trailing-180-day *count*, not
-    a date) -- ``tiebreak.py``'s own docstring already names this as an
-    ownership request to W2-8, unresolved as of this packet's base commit;
-    recorded again as a COULD NOT VERIFY line in the handoff, not invented
-    here."""
+    ttfhr_p75_from_pr_window`. ``last_non_bot_commit_at`` (W1-5f, D-TIE-1
+    item 7) is read from ``bundle`` via
+    :func:`cvi.core.commit_domains.last_non_bot_commit_at` -- ``None`` when
+    that fact is ``Unmeasured`` (a missing/failed commits envelope) or a
+    measured absence (no non-bot commit in the window), the same
+    "unmeasured -> None" collapse this module already applies to
+    ``ttfhr_p75_hours``; ``tiebreak.py``'s own D-TIE-1 ordering already
+    treats a ``None`` value as sorting after every measured one at this
+    level regardless. Neither ``FeatureBundle`` nor ``GateEvidence``
+    declares a field for this fact (04 section 3 has none; W1-5's
+    ``GateEvidence.vitality_commits_180d`` is a trailing-180-day *count*,
+    not a date) -- ``cvi.derive.bundle._load_v1`` sets it as a bundle
+    instance sidecar attribute instead, which is why this function reads
+    it through an accessor rather than a declared field."""
+    last_commit = commit_domains.last_non_bot_commit_at(bundle)
+    last_commit_at = last_commit.value if isinstance(last_commit, LastNonBotCommitMeasured) else None
     return TieBreakInput(
         record=record,
         owner=record.repo.owner,
         name=record.repo.name,
         ttfhr_p75_hours=ttfhr_p75_from_pr_window(bundle.pr_window),
-        last_non_bot_commit_at=None,
+        last_non_bot_commit_at=last_commit_at,
     )
 
 
