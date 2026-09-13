@@ -149,6 +149,63 @@ def test_ttm_p90_hours(tmp_path: Path) -> None:
     )
 
 
+_TTM_MIXED_PRS = [
+    # 201: internal (is_external False), merged, a very long latency -- must
+    # be excluded by the is_external filter, not counted toward n or p90.
+    {"number": 201, "createdAt": "2026-07-01T00:00:00+00:00", "mergedAt": "2026-08-10T00:00:00+00:00"},
+    # 202: external, derived.merged False, but its raw record still carries
+    # a parseable mergedAt (isolates the "merged" flag guard from the
+    # separate "raw mergedAt is null" guard the resolver also has -- a null
+    # mergedAt would be excluded either way and could not kill a mutant that
+    # only drops the "merged" flag check). Its ~524h latency would corrupt
+    # the p90 below if wrongly counted.
+    {"number": 202, "createdAt": "2026-08-06T00:00:00+00:00", "mergedAt": "2026-08-27T20:00:00+00:00"},
+    # 203: external, merged, but mergedAt < createdAt (clock skew / bad
+    # data) -- excluded by the merged-before-created guard, not the two
+    # flags; included here so the fixture exercises all three exclusions
+    # at once.
+    {"number": 203, "createdAt": "2026-08-10T00:00:00+00:00", "mergedAt": "2026-08-09T00:00:00+00:00"},
+    # 204-208: external, merged, valid latencies 6/12/18/24/30h -- the only
+    # PRs that should contribute to n and the p90.
+    {"number": 204, "createdAt": "2026-08-01T00:00:00+00:00", "mergedAt": "2026-08-01T06:00:00+00:00"},
+    {"number": 205, "createdAt": "2026-08-02T00:00:00+00:00", "mergedAt": "2026-08-02T12:00:00+00:00"},
+    {"number": 206, "createdAt": "2026-08-03T00:00:00+00:00", "mergedAt": "2026-08-03T18:00:00+00:00"},
+    {"number": 207, "createdAt": "2026-08-04T00:00:00+00:00", "mergedAt": "2026-08-05T00:00:00+00:00"},
+    {"number": 208, "createdAt": "2026-08-05T00:00:00+00:00", "mergedAt": "2026-08-06T06:00:00+00:00"},
+]
+_TTM_MIXED_DERIVED = [
+    {"number": 201, "is_external": False, "merged": True},
+    {"number": 202, "is_external": True, "merged": False},
+    {"number": 203, "is_external": True, "merged": True},
+    {"number": 204, "is_external": True, "merged": True},
+    {"number": 205, "is_external": True, "merged": True},
+    {"number": 206, "is_external": True, "merged": True},
+    {"number": 207, "is_external": True, "merged": True},
+    {"number": 208, "is_external": True, "merged": True},
+]
+
+
+def test_ttm_p90_hours_excludes_internal_unmerged_and_backwards_time_prs(tmp_path: Path) -> None:
+    """W2-9g: 1.5 TTM_p90 must count only PRs that are external AND merged
+    AND have mergedAt >= createdAt. The fixture carries one PR failing each
+    of the three guards (201 internal, 202 unmerged, 203 backwards-time)
+    alongside 5 clean external-merged PRs (204-208, latencies 6/12/18/24/30h)
+    -- proving n and the p90 come from the 5 clean PRs alone, not 8."""
+    data = pr_window_data(prs=_TTM_MIXED_PRS, derived=_TTM_MIXED_DERIVED)
+    write_envelope(tmp_path / "raw", "pr_window", "acme__mixed-ttm", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(provenance={"pr_window_count": prov("pr_window", key="acme__mixed-ttm")})
+    bundle = load(tmp_path, doc, key="acme__mixed-ttm")
+    # Nearest-rank p90 of [6, 12, 18, 24, 30] (ceil(0.9*5)=5th smallest) is
+    # the max, 30.0 -- the same value the excluded PR 201's ~960h latency
+    # would grossly distort if it were wrongly counted.
+    assert bundle.inputs["ttm_p90_hours"] == Measured(
+        value=30.0, n=5, window_start="2026-03-05T00:00:00+00:00",
+        window_end="2026-09-01T00:00:00+00:00", method="primary",
+        source=str(tmp_path / "raw" / "pr_window" / "acme__mixed-ttm.json"),
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 4.3 substantive_review_rate                                                 #
 # --------------------------------------------------------------------------- #
@@ -573,6 +630,82 @@ def test_openssf_criticality(tmp_path: Path) -> None:
         fetched_at="2026-09-01T00:05:00+00:00",
     )
     assert 0.0 <= value.value <= 1.0
+
+
+#: Three signal vectors spanning the formula's interesting regions: every
+#: field at zero, a plausible mid-sized repo, and every field pinned exactly
+#: at its OPENSSF_THRESHOLDS saturation point (cvi.core.openssf.
+#: OPENSSF_THRESHOLDS values) -- the boundary where the log-ratio's
+#: denominator equals its numerator's cap.
+_OPENSSF_ALL_ZERO_SIGNALS = {
+    "created_since_months": 0.0, "updated_since_months": 0.0, "contributor_count": 0,
+    "org_count": 0, "commit_frequency_weekly": 0.0, "recent_releases_count": 0,
+    "closed_issues_count_90d": 0, "updated_issues_count_90d": 0,
+    "comment_frequency": 0.0, "dependents_count": 0,
+}
+_OPENSSF_AT_THRESHOLD_SIGNALS = {
+    "created_since_months": 120.0, "updated_since_months": 120.0, "contributor_count": 5000,
+    "org_count": 10, "commit_frequency_weekly": 1000.0, "recent_releases_count": 26,
+    "closed_issues_count_90d": 5000, "updated_issues_count_90d": 5000,
+    "comment_frequency": 15.0, "dependents_count": 500000,
+}
+
+
+@pytest.mark.parametrize(
+    "signals",
+    [_OPENSSF_ALL_ZERO_SIGNALS, _OPENSSF_SIGNALS, _OPENSSF_AT_THRESHOLD_SIGNALS],
+    ids=["all-zero", "mid-vector", "at-threshold"],
+)
+def test_openssf_criticality_matches_core_openssf_directly(tmp_path: Path, signals: dict) -> None:
+    """W2-9g wiring proof: the bundle-derived value equals
+    cvi.core.openssf.calculate_pike_criticality(signals) called directly --
+    not cvi.derive.bundle's own reimplementation (there is none any more)
+    and not cvi.openssf's OpenSSFSignals-typed wrapper (a second hop this
+    test does not take), across three regions of the formula: every signal
+    at zero, a mid-sized repo, and every signal exactly at its threshold."""
+    from cvi.core.openssf import calculate_pike_criticality
+
+    key = f"acme__pike-parity-{hash(frozenset(signals.items())) & 0xffff:x}"
+    _write_openssf_envelopes(tmp_path, key)
+    doc = base_document(
+        meta={"openssf_signals": dict(signals)},
+        provenance={"openssf_signals": {
+            "source": [f"/original-data-dir/raw/{c}/{key}.json" for c in _OPENSSF_PROV_COLLECTORS],
+            "fetched_at": "2026-09-01T00:05:00+00:00",
+        }},
+        confidence={"openssf_signals": "derived"},
+    )
+    bundle = load(tmp_path, doc, key=key)
+    value = bundle.inputs["openssf_criticality"]
+    assert isinstance(value, Measured)
+    assert value.value == round(calculate_pike_criticality(signals), 4)
+
+
+def test_openssf_criticality_at_threshold_matches_hand_computed_score(tmp_path: Path) -> None:
+    """Independent oracle (W2-9g): unlike the parity test above (which
+    compares two calls to the SAME cvi.core.openssf.calculate_pike_
+    criticality and so cannot detect a wrong default weight or threshold --
+    both sides would drift together), this asserts against a value derived
+    by hand, calling no CVI code at all. At every signal exactly at its
+    threshold, saturation_denom == value for every term, so every
+    normalized S_i* is exactly log(1+T)/log(1+T) = 1.0 regardless of T's
+    magnitude; the score collapses to sum(alpha_i) / sum(|alpha_i|) = 8.5 /
+    10.5 (the module docstrings' own cited constants) = 0.809523... ->
+    0.8095. A single mutated default weight changes this ratio."""
+    key = "acme__pike-hand-computed"
+    _write_openssf_envelopes(tmp_path, key)
+    doc = base_document(
+        meta={"openssf_signals": dict(_OPENSSF_AT_THRESHOLD_SIGNALS)},
+        provenance={"openssf_signals": {
+            "source": [f"/original-data-dir/raw/{c}/{key}.json" for c in _OPENSSF_PROV_COLLECTORS],
+            "fetched_at": "2026-09-01T00:05:00+00:00",
+        }},
+        confidence={"openssf_signals": "derived"},
+    )
+    bundle = load(tmp_path, doc, key=key)
+    value = bundle.inputs["openssf_criticality"]
+    assert isinstance(value, Measured)
+    assert value.value == round(8.5 / 10.5, 4) == 0.8095
 
 
 def test_openssf_criticality_missing_signal_names_it(tmp_path: Path) -> None:

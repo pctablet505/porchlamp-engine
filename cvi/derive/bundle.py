@@ -41,7 +41,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Union
 
-from cvi.core import constants_v2, models
+from cvi.core import constants_v2, models, openssf
 from cvi.core.models import (
     BundleValidationError,
     Cohorts,
@@ -824,73 +824,17 @@ def _resolved_source_paths(source_field: Any, raw_root: Union[Path, str, None]) 
     return [path for path in (_resolve_envelope(s, raw_root) for s in source_field) if path is not None]
 
 
-#: cvi.openssf.calculate_pike_criticality's weights/thresholds (spec 2.2,
-#: 10.1), mirrored (not imported: ``cvi.derive`` imports ``cvi.core`` and
-#: stdlib only, 04 section 3 -- ``tests/core/test_import_graph.py`` enforces
-#: it) so :func:`_resolve_openssf_criticality` can compute the criticality
-#: score C in [0, 1] locally from the ten raw signals the W1-7 hook writes
-#: to ``meta.openssf_signals``; v1 never stores the computed score itself,
-#: only the raw signals. See the ownership request in the handoff: like the
-#: min-n constants (W2-9's own ownership request 1), this is a second
-#: definition of a fact cvi.openssf already owns (R-2).
-_OPENSSF_WEIGHTS: dict[str, float] = {
-    "created_since": 1.0, "updated_since": -1.0, "contributor_count": 2.0,
-    "org_count": 1.0, "commit_frequency": 1.0, "recent_releases_count": 0.5,
-    "closed_issues_count": 0.5, "updated_issues_count": 0.5,
-    "comment_frequency": 1.0, "dependents_count": 2.0,
-}
-_OPENSSF_THRESHOLDS: dict[str, float] = {
-    "created_since": 120.0, "updated_since": 120.0, "contributor_count": 5000.0,
-    "org_count": 10.0, "commit_frequency": 1000.0, "recent_releases_count": 26.0,
-    "closed_issues_count": 5000.0, "updated_issues_count": 5000.0,
-    "comment_frequency": 15.0, "dependents_count": 500000.0,
-}
-#: ``cvi.models.OpenSSFSignals`` field name -> the short key
-#: ``calculate_pike_criticality`` weighs it under (``cvi.openssf.
-#: _signals_to_raw``). Iteration order here is the ten-signal completeness
-#: check's order (module docstring table order, cvi/collect/pike_signals.py).
-_OPENSSF_SIGNAL_FIELDS: dict[str, str] = {
-    "created_since_months": "created_since",
-    "updated_since_months": "updated_since",
-    "contributor_count": "contributor_count",
-    "org_count": "org_count",
-    "commit_frequency_weekly": "commit_frequency",
-    "recent_releases_count": "recent_releases_count",
-    "closed_issues_count_90d": "closed_issues_count",
-    "updated_issues_count_90d": "updated_issues_count",
-    "comment_frequency": "comment_frequency",
-    "dependents_count": "dependents_count",
-}
-
-
-def _pike_criticality_score(signals: Mapping[str, Any]) -> float:
-    """``cvi.openssf.calculate_pike_criticality``, mirrored (see
-    :data:`_OPENSSF_WEIGHTS`): the Rob Pike criticality score C in [0, 1]
-    from a ``meta.openssf_signals``-shaped mapping already verified to carry
-    all ten numeric fields."""
-    denominator = sum(abs(weight) for weight in _OPENSSF_WEIGHTS.values())
-    numerator = 0.0
-    for doc_field, short in _OPENSSF_SIGNAL_FIELDS.items():
-        value = float(signals[doc_field])
-        alpha = _OPENSSF_WEIGHTS[short]
-        threshold = _OPENSSF_THRESHOLDS[short]
-        non_negative = max(0.0, value)
-        saturation_denom = max(value, threshold)
-        normalized = (0.0 if saturation_denom <= 0
-                      else math.log(1.0 + non_negative) / math.log(1.0 + saturation_denom))
-        numerator += alpha * normalized
-    return max(0.0, min(1.0, numerator / denominator))
-
-
 def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
     """2.2 OpenSSF criticality (W1-7, W2-9f). Reads the W1-7
     ``meta.openssf_signals`` dict (``cvi.collect.pike_signals.
     derive_w17_fields``: the ten raw Pike signals, written with confidence
     ``"derived"`` only when all ten source envelopes were available --
     D-MISS-1/02 section 4 row 2.2: never a partial score, class TP "only if
-    a signal is missing") and computes C in [0, 1] locally
-    (:func:`_pike_criticality_score`, since ``cvi.derive`` may not import
-    ``cvi.openssf``). A ``meta.openssf_signals`` dict missing (or non-
+    a signal is missing") and computes C in [0, 1] via
+    :func:`cvi.core.openssf.calculate_pike_criticality` (W2-9g: the one
+    definition of the formula; ``cvi.derive`` imports ``cvi.core`` and
+    stdlib only, and this module is itself both). A ``meta.openssf_signals``
+    dict missing (or non-
     numeric) one of the ten fields is defensive: production's
     ``derive_pike_signals`` never emits a partial dict, but a hand-built or
     corrupted document might, and 2.2's whole-set-or-nothing rule must hold
@@ -903,13 +847,13 @@ def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
     if confidence_value == "derived":
         if not isinstance(signals, Mapping):
             return Unmeasured(reason="collector_failure", detail=f"openssf_signals is not a mapping: {signals!r}")
-        missing = [field for field in _OPENSSF_SIGNAL_FIELDS if signals.get(field) is None]
+        missing = [field for field in openssf.SIGNAL_FIELDS if signals.get(field) is None]
         if missing:
             return Unmeasured(
                 reason="third_party_gap",
                 detail=f"openssf_signals missing signal {missing[0]!r} (02 section 4 2.2: never a partial score)",
             )
-        bad = [field for field in _OPENSSF_SIGNAL_FIELDS
+        bad = [field for field in openssf.SIGNAL_FIELDS
                if isinstance(signals[field], bool) or not isinstance(signals[field], (int, float))]
         if bad:
             return Unmeasured(reason="collector_failure",
@@ -921,7 +865,7 @@ def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
             return Unmeasured(reason="collector_failure", detail=detail)
         for path in paths:
             ctx.referenced[str(path)] = _envelope_hash(path)
-        return Measured(value=round(_pike_criticality_score(signals), 4), n=0, window_start=None,
+        return Measured(value=round(openssf.calculate_pike_criticality(signals), 4), n=0, window_start=None,
                          window_end=None, method=constants_v2.METHOD_PRIMARY, source=str(paths[0]),
                          source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
     if confidence_value == "missing":

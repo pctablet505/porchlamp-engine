@@ -75,3 +75,30 @@ def test_zero_sum_weights_guard_returns_zero():
     )
     zero_weights = dict.fromkeys(OPENSSF_WEIGHTS, 0.0)
     assert calculate_pike_criticality(signals, weights=zero_weights) == 0.0
+
+
+def test_at_threshold_default_weights_score_matches_hand_computation():
+    # W2-9g: the suite above never actually asserts a value against the
+    # real default OPENSSF_WEIGHTS/OPENSSF_THRESHOLDS -- every other test
+    # here isolates a guard branch (the saturation floor, the clamp, the
+    # zero-weights early return) that is, by construction, invariant to the
+    # exact tunable magnitudes, so none of them can catch a wrong default
+    # weight or threshold. At every signal exactly at its threshold,
+    # saturation_denom == value for every term, so every normalized S_i* is
+    # exactly log(1+T)/log(1+T) = 1.0 regardless of T; the score collapses
+    # to sum(alpha_i) / sum(|alpha_i|) = 8.5 / 10.5 (this file's own cited
+    # constants, see test_zero_sum_weights_guard_returns_zero's comment) =
+    # 0.809523... -> a value computed by hand, not by calling any CVI code.
+    signals = make_signals(
+        created_since_months=120.0,
+        updated_since_months=120.0,
+        contributor_count=5000,
+        org_count=10,
+        commit_frequency_weekly=1000.0,
+        recent_releases_count=26,
+        closed_issues_count_90d=5000,
+        updated_issues_count_90d=5000,
+        comment_frequency=15.0,
+        dependents_count=500000,
+    )
+    assert round(calculate_pike_criticality(signals), 6) == round(8.5 / 10.5, 6)
