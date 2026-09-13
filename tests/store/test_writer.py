@@ -15,12 +15,13 @@ import pytest
 
 from cvi.core.models import ParamScore, PersonaComposite, PRWindow, PRWindowEvent
 from cvi.snapshot.populations import Population, PopulationSet
+from cvi.store import schema
 from cvi.store.migrations import apply_migrations
 from cvi.store.writer import (
     RepoWrite,
     _normalize_utc_z,
     finalize_snapshot_hash,
-    repositories_snapshot_dump_hash,
+    snapshot_dump_hash,
     write_records,
     write_snapshot,
 )
@@ -36,7 +37,7 @@ from .helpers import (
 
 
 def _fresh_db(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
+    conn = schema.connect(path)  # G-004: PRAGMA foreign_keys=ON
     apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
     return conn
 
@@ -178,7 +179,7 @@ def test_write_records_rejects_a_second_write_to_the_same_snapshot(tmp_path) -> 
     five = [make_repo_write(make_rated_record("snap-1", owner="acme", name=f"r{i}", composite=float(i))) for i in range(5)]
     write_records(conn, "snap-1", five)
     conn.commit()
-    hash_before = repositories_snapshot_dump_hash(db_path, "snap-1")
+    hash_before = snapshot_dump_hash(db_path, "snap-1")
 
     two = [make_repo_write(make_rated_record("snap-1", owner="other", name=f"x{i}", composite=float(i))) for i in range(2)]
     with pytest.raises(ValueError, match="immutable"):
@@ -188,7 +189,7 @@ def test_write_records_rejects_a_second_write_to_the_same_snapshot(tmp_path) -> 
     assert count == 5
     names = {row[0] for row in conn.execute("SELECT name FROM repositories WHERE snapshot_id='snap-1'").fetchall()}
     assert names == {"r0", "r1", "r2", "r3", "r4"}
-    hash_after = repositories_snapshot_dump_hash(db_path, "snap-1")
+    hash_after = snapshot_dump_hash(db_path, "snap-1")
     assert hash_after == hash_before
 
 
@@ -258,6 +259,151 @@ def test_write_records_rolls_back_on_failure_leaving_zero_rows_after_a_later_com
 
 
 # --------------------------------------------------------------------- #
+# G-002 (REWORK round 3): the transaction boundary, closing mutant N1
+# --------------------------------------------------------------------- #
+
+def test_write_records_params_loop_failure_leaves_zero_repositories_rows(tmp_path, monkeypatch) -> None:
+    """G-002 closes mutant N1 (a moved transaction boundary survived the
+    round-2 battery): fail specifically in the PARAMS loop, AFTER the
+    repositories loop has already run within the same call, and confirm
+    ZERO repositories rows remain -- not just zero params rows."""
+    import cvi.store.writer as writer_module
+
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    _write_one_snapshot(conn)
+    record = make_rated_record(
+        "snap-1", owner="acme", name="demo",
+        params={"ttfhr_hours": ParamScore(score=88.0, measured=True, reason=None, n=10, method="primary")},
+    )
+    item = make_repo_write(record, inputs={"ttfhr_hours": make_measured(3.0, n=10)})
+
+    with monkeypatch.context() as m:
+        m.setattr(writer_module, "_PARAM_INSERT_SQL", "INSERT INTO params (repo_id) VALUES (?)")
+        with pytest.raises(sqlite3.ProgrammingError):
+            write_records(conn, "snap-1", [item])
+
+    conn.execute("SELECT 1")
+    conn.commit()  # a later, unrelated commit must not resurrect anything
+    assert conn.execute("SELECT COUNT(*) FROM repositories WHERE snapshot_id='snap-1'").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM params").fetchone()[0] == 0
+
+    # And the retry (same id, now that nothing committed) succeeds.
+    counts = write_records(conn, "snap-1", [item])
+    assert counts == (1, 1, 0)
+
+
+def test_write_snapshot_and_write_records_compose_into_one_transaction(tmp_path, monkeypatch) -> None:
+    """G-002's fuller guarantee: a caller wraps :func:`write_snapshot` and
+    :func:`write_records` in ONE outer transaction (enabled by G-005's
+    join-if-open guard); a failure while writing params leaves NOTHING for
+    the id -- not even the ``snapshots`` row -- and a retry with the SAME
+    id succeeds."""
+    import cvi.store.writer as writer_module
+
+    db_path = tmp_path / "db.sqlite"
+    conn = _fresh_db(db_path)
+    record = make_rated_record(
+        "snap-1", owner="acme", name="demo",
+        params={"ttfhr_hours": ParamScore(score=88.0, measured=True, reason=None, n=10, method="primary")},
+    )
+    item = make_repo_write(record, inputs={"ttfhr_hours": make_measured(3.0, n=10)})
+
+    with monkeypatch.context() as m:
+        m.setattr(writer_module, "_PARAM_INSERT_SQL", "INSERT INTO params (repo_id) VALUES (?)")
+        conn.execute("BEGIN")
+        try:
+            write_snapshot(
+                conn, id="snap-1", as_of="2026-09-13", benchmark_version="2.0.0-dev",
+                constants_hash="c" * 64, code_commit="deadbeef", manifest_root="root",
+                created_at="2026-09-13T00:00:00Z",
+            )
+            write_records(conn, "snap-1", [item])
+            conn.commit()
+            pytest.fail("expected the params write to fail")
+        except sqlite3.ProgrammingError:
+            conn.rollback()
+
+    assert conn.execute("SELECT COUNT(*) FROM snapshots WHERE id='snap-1'").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM repositories WHERE snapshot_id='snap-1'").fetchone()[0] == 0
+
+    _write_one_snapshot(conn)
+    counts = write_records(conn, "snap-1", [item])
+    assert counts == (1, 1, 0)
+
+
+# --------------------------------------------------------------------- #
+# G-004 (REWORK round 3): PRAGMA foreign_keys = ON
+# --------------------------------------------------------------------- #
+
+def test_orphan_params_row_is_rejected(tmp_path) -> None:
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO params (repo_id, param_id, measured) VALUES (999999, 'ttfhr_hours', 0)")
+
+
+def test_orphan_repositories_row_is_rejected(tmp_path) -> None:
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO repositories (snapshot_id, owner, name, ecosystem, raw_hash, constants_hash, "
+            "eligible, rated, coverage) VALUES ('snap-GHOST', 'acme', 'ghost', 'python', ?, ?, 1, 1, 0.9)",
+            ("h" * 64, "c" * 64),
+        )
+
+
+def test_foreign_key_check_is_empty_after_a_full_write(tmp_path) -> None:
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    _write_one_snapshot(conn)
+    record = make_rated_record(
+        "snap-1", params={"ttfhr_hours": ParamScore(score=88.0, measured=True, reason=None, n=10, method="primary")},
+    )
+    write_records(conn, "snap-1", [make_repo_write(record, inputs={"ttfhr_hours": make_measured(3.0, n=10)})])
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+# --------------------------------------------------------------------- #
+# G-005 (REWORK round 3): join an already-open transaction
+# --------------------------------------------------------------------- #
+
+def test_write_snapshot_joins_an_already_open_transaction(tmp_path) -> None:
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    conn.execute("BEGIN")
+    write_snapshot(  # must NOT raise "cannot start a transaction within a transaction"
+        conn, id="snap-1", as_of="2026-09-13", benchmark_version="2.0.0-dev",
+        constants_hash="c" * 64, code_commit="deadbeef", manifest_root="root",
+        created_at="2026-09-13T00:00:00Z",
+    )
+    assert conn.in_transaction  # write_snapshot must not have committed the OUTER transaction
+    conn.commit()
+    assert conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 1
+
+
+def test_write_snapshot_joined_transaction_still_rolls_back(tmp_path) -> None:
+    """Rollback semantics still hold when write_snapshot only joins an
+    ambient transaction: an outer rollback undoes its insert too."""
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    conn.execute("BEGIN")
+    write_snapshot(
+        conn, id="snap-1", as_of="2026-09-13", benchmark_version="2.0.0-dev",
+        constants_hash="c" * 64, code_commit="deadbeef", manifest_root="root",
+        created_at="2026-09-13T00:00:00Z",
+    )
+    conn.rollback()
+    assert conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 0
+
+
+def test_write_records_joins_an_already_open_transaction(tmp_path) -> None:
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    _write_one_snapshot(conn)
+    conn.execute("BEGIN")
+    counts = write_records(conn, "snap-1", [make_repo_write(make_rated_record("snap-1"))])
+    assert conn.in_transaction
+    conn.commit()
+    assert counts == (1, 0, 0)
+    assert conn.execute("SELECT COUNT(*) FROM repositories").fetchone()[0] == 1
+
+
+# --------------------------------------------------------------------- #
 # F-006 mutation-battery survivors: dedicated kill tests
 # --------------------------------------------------------------------- #
 
@@ -304,8 +450,6 @@ def test_migrating_a_create_schema_built_v2_db_renames_nothing(tmp_path) -> None
     via ``schema.create_schema`` (v2-shaped, no ``schema_migrations`` rows)
     must survive ``apply_migrations`` with its ``repositories`` rows
     intact and no ``legacy_repositories`` table created."""
-    from cvi.store import schema
-
     db_path = tmp_path / "v2_from_scratch.db"
     conn = sqlite3.connect(db_path)
     schema.create_schema(conn)
@@ -335,7 +479,7 @@ def test_migrating_a_create_schema_built_v2_db_renames_nothing(tmp_path) -> None
 # F-007: allow-list dump hash
 # --------------------------------------------------------------------- #
 
-def test_repositories_snapshot_dump_hash_ignores_other_snapshots(tmp_path) -> None:
+def test_snapshot_dump_hash_ignores_other_snapshots(tmp_path) -> None:
     db_path = tmp_path / "db.sqlite"
     conn = _fresh_db(db_path)
     write_snapshot(
@@ -349,10 +493,10 @@ def test_repositories_snapshot_dump_hash_ignores_other_snapshots(tmp_path) -> No
         created_at="2026-09-13T00:00:00Z",
     )
     write_records(conn, "snap-A", [make_repo_write(make_rated_record("snap-A", owner="acme", name="a-repo", composite=50.0))])
-    hash_before = repositories_snapshot_dump_hash(db_path, "snap-A")
+    hash_before = snapshot_dump_hash(db_path, "snap-A")
 
     write_records(conn, "snap-B", [make_repo_write(make_rated_record("snap-B", owner="acme", name="b-repo", composite=99.0))])
-    hash_after = repositories_snapshot_dump_hash(db_path, "snap-A")
+    hash_after = snapshot_dump_hash(db_path, "snap-A")
     assert hash_before == hash_after  # snap-B's write must not change snap-A's hash
 
     # Sensitivity control: a genuinely different snapshot's hash differs.
@@ -362,11 +506,11 @@ def test_repositories_snapshot_dump_hash_ignores_other_snapshots(tmp_path) -> No
         created_at="2026-09-13T00:00:00Z",
     )
     write_records(conn, "snap-C", [make_repo_write(make_rated_record("snap-C", owner="acme", name="a-repo", composite=51.0))])
-    hash_c = repositories_snapshot_dump_hash(db_path, "snap-C")
+    hash_c = snapshot_dump_hash(db_path, "snap-C")
     assert hash_c != hash_before
 
 
-def test_repositories_snapshot_dump_hash_ignores_legacy_repositories(tmp_path) -> None:
+def test_snapshot_dump_hash_ignores_legacy_repositories(tmp_path) -> None:
     """F-007: a fixed exclude-list would hash a migrated v1 DB's
     ``legacy_repositories`` (1,000 rows) into every v2 snapshot's identity.
     The allow-list (keep ``repositories`` only) must be immune to it."""
@@ -375,26 +519,96 @@ def test_repositories_snapshot_dump_hash_ignores_legacy_repositories(tmp_path) -
     _write_one_snapshot(conn)
     write_records(conn, "snap-1", [make_repo_write(make_rated_record("snap-1", owner="acme", name="demo"))])
     conn.commit()
-    hash_before = repositories_snapshot_dump_hash(db_path, "snap-1")
+    hash_before = snapshot_dump_hash(db_path, "snap-1")
 
     conn.execute(
         "CREATE TABLE legacy_repositories (id INTEGER PRIMARY KEY, owner TEXT, name TEXT, overall_cvi REAL)"
     )
     conn.execute("INSERT INTO legacy_repositories (owner, name, overall_cvi) VALUES ('v1co','repo',71.5)")
     conn.commit()
-    hash_with_legacy = repositories_snapshot_dump_hash(db_path, "snap-1")
+    hash_with_legacy = snapshot_dump_hash(db_path, "snap-1")
     assert hash_with_legacy == hash_before  # legacy content must not move the v2 hash
 
     conn.execute("UPDATE legacy_repositories SET overall_cvi = 99.9 WHERE owner='v1co'")
     conn.commit()
-    hash_after_legacy_edit = repositories_snapshot_dump_hash(db_path, "snap-1")
+    hash_after_legacy_edit = snapshot_dump_hash(db_path, "snap-1")
     assert hash_after_legacy_edit == hash_before  # editing legacy content still must not move it
 
     # Sensitivity control: editing the ACTUAL v2 row DOES move the hash.
     conn.execute("UPDATE repositories SET cvi = 12.0 WHERE snapshot_id='snap-1' AND name='demo'")
     conn.commit()
-    hash_after_v2_edit = repositories_snapshot_dump_hash(db_path, "snap-1")
+    hash_after_v2_edit = snapshot_dump_hash(db_path, "snap-1")
     assert hash_after_v2_edit != hash_before
+
+
+def test_snapshot_dump_hash_covers_params_and_populations_rows(tmp_path) -> None:
+    """G-001 (REWORK round 3): the identity hash must cover the snapshot's
+    OWN ``params`` and ``populations`` rows, not just ``repositories`` --
+    rewriting a param's score/raw_value/source_hash, or a population's
+    values, must move the hash; another snapshot's rows must not."""
+    db_path = tmp_path / "db.sqlite"
+    conn = _fresh_db(db_path)
+    write_snapshot(
+        conn, id="snap-A", as_of="2026-09-13", benchmark_version="2.0.0-dev",
+        constants_hash="c" * 64, code_commit="deadbeef", manifest_root="r",
+        created_at="2026-09-13T00:00:00Z",
+    )
+    write_snapshot(
+        conn, id="snap-B", as_of="2026-09-13", benchmark_version="2.0.0-dev",
+        constants_hash="c" * 64, code_commit="deadbeef", manifest_root="r",
+        created_at="2026-09-13T00:00:00Z",
+    )
+    record_a = make_rated_record(
+        "snap-A", owner="acme", name="a-repo", composite=50.0,
+        params={"ttfhr_hours": ParamScore(score=88.0, measured=True, reason=None, n=10, method="primary")},
+    )
+    write_records(
+        conn, "snap-A", [make_repo_write(record_a, inputs={"ttfhr_hours": make_measured(4.0, n=10)})],
+        populations=PopulationSet(
+            snapshot_id="snap-A", benchmark_version="2.0.0-dev", constants_hash="c" * 64,
+            populations=(Population(ecosystem="python", param="ttfhr_hours", n=2, fallback=False,
+                                     values={"a/b": 1.0, "c/d": 2.0}),),
+        ),
+    )
+    record_b = make_rated_record(
+        "snap-B", owner="acme", name="b-repo", composite=60.0,
+        params={"ttfhr_hours": ParamScore(score=70.0, measured=True, reason=None, n=8, method="primary")},
+    )
+    write_records(
+        conn, "snap-B", [make_repo_write(record_b, inputs={"ttfhr_hours": make_measured(3.0, n=8)})],
+        populations=PopulationSet(
+            snapshot_id="snap-B", benchmark_version="2.0.0-dev", constants_hash="c" * 64,
+            populations=(Population(ecosystem="python", param="ttfhr_hours", n=2, fallback=False,
+                                     values={"e/f": 5.0, "g/h": 6.0}),),
+        ),
+    )
+    conn.commit()
+
+    baseline_a = snapshot_dump_hash(db_path, "snap-A")
+    baseline_b = snapshot_dump_hash(db_path, "snap-B")
+
+    # (1) rewriting snap-A's params row (score, raw_value, source_hash) moves
+    # snap-A's hash and leaves snap-B's alone.
+    conn.execute(
+        "UPDATE params SET score=1.0, raw_value='999', source_hash=? "
+        "WHERE repo_id = (SELECT id FROM repositories WHERE snapshot_id='snap-A' AND name='a-repo') "
+        "AND param_id='ttfhr_hours'",
+        ("d" * 64,),
+    )
+    conn.commit()
+    assert snapshot_dump_hash(db_path, "snap-A") != baseline_a
+    assert snapshot_dump_hash(db_path, "snap-B") == baseline_b
+
+    # (2) rewriting snap-B's populations row moves snap-B's hash and leaves
+    # a THIRD, fresh baseline of snap-A's (still-mutated) hash alone.
+    baseline_a_after_params_edit = snapshot_dump_hash(db_path, "snap-A")
+    conn.execute(
+        "UPDATE populations SET n=999, values_json='[]', values_hash=? WHERE snapshot_id='snap-B'",
+        ("f" * 64,),
+    )
+    conn.commit()
+    assert snapshot_dump_hash(db_path, "snap-B") != baseline_b
+    assert snapshot_dump_hash(db_path, "snap-A") == baseline_a_after_params_edit
 
 
 def test_finalize_snapshot_hash_stamps_hash_and_promoted_at(tmp_path) -> None:
@@ -404,7 +618,7 @@ def test_finalize_snapshot_hash_stamps_hash_and_promoted_at(tmp_path) -> None:
     record = make_rated_record("snap-1")
     write_records(conn, "snap-1", [make_repo_write(record)])
 
-    expected_hash = repositories_snapshot_dump_hash(db_path, "snap-1")
+    expected_hash = snapshot_dump_hash(db_path, "snap-1")
     returned_hash = finalize_snapshot_hash(conn, db_path, "snap-1", promoted_at="2026-09-13T02:00:00Z")
     assert returned_hash == expected_hash
 

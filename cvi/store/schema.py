@@ -20,6 +20,13 @@ No ``RETURNING`` clause anywhere in this module or the migrations (`04`
 section 5: avoided so SQLite >= 3.35 is not required); a grep-style test in
 ``tests/store/test_schema.py`` enforces it over ``cvi/store`` (docstring
 prose mentioning the word, like this one, is excluded from that check).
+
+G-006 ruling (REWORK round 3): ``repositories.stars_audited`` has no v2
+producer yet -- W1-10 owns the StarScout-audited value that will fill it.
+The writer stores ``NULL`` there, never a raw, unaudited star count under
+this column's audited-sounding name (that would be fabrication, not a
+placeholder); the column stays nullable for exactly that reason, and the
+UI renders "--" for it per `06` U-7 until W1-10 lands.
 """
 from __future__ import annotations
 
@@ -141,6 +148,25 @@ SCHEMA_STATEMENTS: Tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_eco ON repositories(snapshot_id, ecosystem, cvi DESC)",
     "CREATE INDEX IF NOT EXISTS idx_name ON repositories(owner, name)",
 )
+
+
+def connect(path) -> sqlite3.Connection:
+    """The one place a caller should open a connection to a v2 store
+    database (G-004, REWORK round 3): sets ``PRAGMA foreign_keys = ON``
+    before returning it. SQLite disables foreign-key enforcement by
+    default, so every ``REFERENCES`` clause in this schema
+    (``params.repo_id``, ``repositories.snapshot_id``) is decorative on a
+    plain ``sqlite3.connect()`` -- an orphan row is silently accepted and
+    only ``PRAGMA foreign_key_check`` would ever find it. Deliberately NOT
+    used by ``cvi.store.writer.snapshot_dump_hash``'s internal scratch
+    copy: that helper's whole job is a destructive ``DELETE``/``DROP``
+    scoping of a throwaway copy, and ``DROP TABLE snapshots`` while
+    ``repositories`` rows still reference it fails under FK enforcement
+    (verified) -- enforcing integrity on a copy being intentionally torn
+    apart for hashing would break the very operation, not protect it."""
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
 
 def create_schema(conn: sqlite3.Connection) -> None:

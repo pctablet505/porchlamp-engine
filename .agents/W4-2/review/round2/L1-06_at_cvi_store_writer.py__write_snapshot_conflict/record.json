@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "2026-09-13-w4-2-store-2",
+  "item_id": "L1-06@cvi/store/writer.py::write_snapshot#conflict",
+  "checklist_id": "L1-06",
+  "level": "L1",
+  "target": {
+    "path": "cvi/store/writer.py",
+    "symbol": "write_snapshot"
+  },
+  "agent": {
+    "name": "opus5-w4-2-reviewer-r2",
+    "model": "claude-opus-5[1m]",
+    "role": "item_agent",
+    "tier": "T1"
+  },
+  "worktree": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/tree",
+  "interpreter_probe": "/home/pctablet505/Projects/contributor-value-index/.venv/bin/python (PYTHONPATH=/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/tree)",
+  "budget": {
+    "lines_cap": 6000,
+    "lines_actual": 3613,
+    "refused": false
+  },
+  "input": {
+    "file": "cvi/store (1016 source lines) + tests/store + tests/core/test_import_graph.py",
+    "sha256": "9c91dd845627e05a11842be421ad0a734e5026fc4073f28f1df0fe6aa288105a",
+    "n_lines": 3613,
+    "extracted_from_sha": "34694dd"
+  },
+  "dispatched_at": "2026-09-13T18:40:00+05:30",
+  "started_at": "2026-09-13T18:40:00+05:30",
+  "completed_at": "2026-09-13T19:05:00+05:30",
+  "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+  "verdict": "PASS",
+  "pass_condition": "F-004 closed: a differing snapshot definition raises; a byte-equal one is ignored.",
+  "evidence": [
+    {
+      "record_id": "EV2-c2_writer",
+      "command": "python -B harness/c2_writer.py",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/tree",
+      "tree_sha": "34694dd",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/evidence/c2_writer.txt",
+      "output_sha256": "085e0157f5f59ae0187a71a5686019941c8effa029709f391aeb08e121deed70",
+      "output_lines_total": 21,
+      "started_at": "2026-09-13T18:40:00+05:30",
+      "at": "2026-09-13T19:05:00+05:30",
+      "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+      "scanned_items": 12
+    },
+    {
+      "record_id": "EV2-packet_tests",
+      "command": "env -u PYTEST_ADDOPTS PYTHONPATH=<tree> python -B -m pytest -p no:cacheprovider tests/store/ tests/test_no_clock.py tests/core/test_import_graph.py",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/tree",
+      "tree_sha": "34694dd",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/evidence/packet_tests.txt",
+      "output_sha256": "91f463ef342470c2c1530331e46aac5e9634e7bf9ca22a66ad257cf15cfd1870",
+      "output_lines_total": 2,
+      "started_at": "2026-09-13T18:40:00+05:30",
+      "at": "2026-09-13T19:05:00+05:30",
+      "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+      "scanned_items": 70
+    }
+  ],
+  "findings": [],
+  "observations": [
+    "All six identity fields individually detected. A byte-equal repeat is a silent no-op with one snapshots row.",
+    "After finalize_snapshot_hash, a later plain write_snapshot keeps the stamped hash and promoted_at -- the deliberate exclusion works as documented."
+  ],
+  "not_checked": [
+    {
+      "category": "out_of_scope",
+      "statement": "F-013 (list_ranked/snapshot_summary/matrix) is explicitly W4-3's and was not re-checked as a packet defect."
+    }
+  ],
+  "measurement_integrity": false,
+  "security": false,
+  "judgement": false,
+  "pass_evidence": {
+    "quoted": "per-field conflict detection: [('as_of', 'raised'), ('benchmark_version', 'raised'), ('constants_hash', 'raised'), ('code_commit', 'raised'), ('manifest_root', 'raised'), ('created_at', 'raised')]",
+    "evidence_record": "EV2-c2_writer",
+    "source": "command_output"
+  },
+  "counter_check": {
+    "text": "Confirm the exclusion of canonical_dump_hash/promoted_at does not turn a normal pre-finalize re-write into a false conflict, and does not rewind a stamped hash.",
+    "run": true,
+    "result": "held",
+    "evidence_record": "EV2-packet_tests",
+    "command_differs_from_item": true
+  }
+}

@@ -1,8 +1,9 @@
-"""CVI v2 store writer (`04` sections 3, 5; packet W4-2, REWORK round 1).
+"""CVI v2 store writer (`04` sections 3, 5; packet W4-2, REWORK round 3).
 
-Full ownership-request/deviation history is in
-``.agents/W4-2/handoff.md``; kept here only what a reader of this module
-needs to trust its behaviour.
+Full ownership-request/deviation history, including G-001's
+lakehouse-delegation answer and G-007's noted-not-fixed splitter risk, is
+in ``.agents/W4-2/handoff.md``; kept here only what a reader of this
+module needs to trust its behaviour.
 
 ``RepoWrite`` is ``(record: ScoreRecord, bundle: FeatureBundle)`` (lead
 ruling, REWORK round 1): identity comes from ``record.repo`` (W2-10);
@@ -53,7 +54,7 @@ __all__ = [
     "write_snapshot",
     "write_records",
     "finalize_snapshot_hash",
-    "repositories_snapshot_dump_hash",
+    "snapshot_dump_hash",
 ]
 
 
@@ -83,6 +84,32 @@ class RepoWrite:
 _SNAPSHOT_IDENTITY_FIELDS = ("as_of", "benchmark_version", "constants_hash", "code_commit", "manifest_root", "created_at")
 
 
+def _begin(conn: sqlite3.Connection) -> bool:
+    """Start a transaction unless one is already open (G-005, REWORK round
+    3): returns whether THIS call started it. Only the call that started a
+    transaction may end it -- so a caller who already has one open (to
+    wrap :func:`write_snapshot` and :func:`write_records` together in one
+    transaction, G-002) never hits ``OperationalError: cannot start a
+    transaction within a transaction``, and never has that outer
+    transaction committed or rolled back early by an inner call that
+    merely joined it."""
+    if conn.in_transaction:
+        return False
+    conn.execute("BEGIN")
+    return True
+
+
+def _end(conn: sqlite3.Connection, owns: bool, *, ok: bool) -> None:
+    """Commit or roll back only if THIS call owns the transaction (paired
+    with :func:`_begin`); a no-op when it merely joined an ambient one."""
+    if not owns:
+        return
+    if ok:
+        conn.commit()
+    else:
+        conn.rollback()
+
+
 def write_snapshot(
     conn: sqlite3.Connection,
     *,
@@ -108,7 +135,12 @@ def write_snapshot(
     are :func:`finalize_snapshot_hash`'s to fill in later, so a call that
     omits them (the normal, pre-finalize shape) must not be treated as a
     conflict with a row a prior :func:`finalize_snapshot_hash` already
-    stamped. ``created_at`` is an explicit argument, never the wall clock."""
+    stamped. ``created_at`` is an explicit argument, never the wall clock.
+
+    G-005 (REWORK round 3): joins ``conn``'s transaction if one is already
+    open (:func:`_begin`/:func:`_end`) rather than always issuing its own
+    ``BEGIN`` -- a caller may wrap this together with :func:`write_records`
+    in one outer transaction (G-002) without an ``OperationalError``."""
     for field_name, value in (
         ("id", id),
         ("as_of", as_of),
@@ -121,7 +153,7 @@ def write_snapshot(
         if not isinstance(value, str) or not value:
             raise ValueError(f"snapshot {field_name} must be a non-empty string, got {value!r}")
     incoming = (as_of, benchmark_version, constants_hash, code_commit, manifest_root, created_at)
-    conn.execute("BEGIN")
+    owns = _begin(conn)
     try:
         existing = conn.execute(
             "SELECT as_of, benchmark_version, constants_hash, code_commit, manifest_root, created_at "
@@ -132,7 +164,7 @@ def write_snapshot(
             if tuple(existing) != incoming:
                 mismatch = dict(zip(_SNAPSHOT_IDENTITY_FIELDS, zip(existing, incoming)))
                 raise ValueError(f"snapshot {id!r} already exists with a different definition: {mismatch}")
-            conn.rollback()
+            _end(conn, owns, ok=True)  # byte-equal: nothing written, still ends OUR OWN transaction if any
             return
         conn.execute(
             """
@@ -145,9 +177,9 @@ def write_snapshot(
              canonical_dump_hash, created_at, promoted_at),
         )
     except Exception:
-        conn.rollback()
+        _end(conn, owns, ok=False)
         raise
-    conn.commit()
+    _end(conn, owns, ok=True)
 
 
 def _normalize_utc_z(value: Optional[str]) -> Optional[str]:
@@ -296,10 +328,16 @@ def write_records(
     legitimate retry of the same id is one whose PRIOR attempt never
     committed (see the transaction guarantee below), or a fresh id.
 
-    F-002: the whole call is one transaction (explicit ``BEGIN`` /
-    ``rollback()`` on any exception, ``commit()`` only at the very end) --
-    a failure partway through leaves zero rows for this snapshot, even
-    after a later, unrelated ``commit()`` on the same connection.
+    F-002: the whole call is one transaction (``rollback()`` on any
+    exception, ``commit()`` only at the very end) -- a failure partway
+    through leaves zero rows for this snapshot, even after a later,
+    unrelated ``commit()`` on the same connection (G-002, REWORK round 3:
+    a params-loop failure specifically leaves zero ``repositories`` rows
+    too -- tested directly, closing mutant N1). G-005: joins ``conn``'s
+    transaction if the caller already has one open (:func:`_begin`), so
+    wrapping this together with :func:`write_snapshot` in one outer
+    transaction (G-002's fuller guarantee: nothing for the id exists at
+    all, not just no ``params`` rows) is the caller's to compose.
 
     ``params`` rows for a gated repo (``record.params`` is empty at stage 0
     -- `04` section 3, ``cvi.core.engine`` never scores a gated repo's
@@ -323,7 +361,7 @@ def write_records(
             f"once written (03 section 5) -- mint a new snapshot id to retry"
         )
 
-    conn.execute("BEGIN")
+    owns = _begin(conn)
     try:
         repos_written = 0
         for item in items:
@@ -349,30 +387,61 @@ def write_records(
                 conn.execute(_POPULATION_UPSERT_SQL, row)
                 populations_written += 1
     except Exception:
-        conn.rollback()
+        _end(conn, owns, ok=False)
         raise
-    conn.commit()
+    _end(conn, owns, ok=True)
     return (repos_written, params_written, populations_written)
 
 
-def repositories_snapshot_dump_hash(db_path: Path, snapshot_id: str) -> str:
-    """``cvi.snapshot.reproduce.canonical_dump_hash`` scoped to one
-    snapshot's rows of the ``repositories`` table (see the handoff's
-    ownership request: no second hash implementation, R-2).
+#: G-001 (REWORK round 3): the snapshot's identity covers every v2 table
+#: that carries evidence for it -- not just membership (``repositories``)
+#: but "why this score" (``params``) and the frozen normalisation inputs
+#: (``populations``). A narrower allow-list let a `params` row (score, raw
+#: value, source_hash) or a `populations` row be rewritten with the
+#: identity hash unchanged -- 03 section 5's guard certifying evidence it
+#: never actually covered.
+_SNAPSHOT_DUMP_TABLES = ("repositories", "params", "populations")
 
-    F-007: an ALLOW-list (keep only ``repositories``), not a fixed exclude-
-    list -- a fixed exclude-list silently hashed ``legacy_repositories``
-    into every v2 snapshot's identity on a migrated v1 database. Copies
-    ``db_path`` to a scratch file, deletes every ``repositories`` row not
-    in ``snapshot_id``, drops every table that is not named
-    ``repositories`` (whatever it is called, including a legacy or a
-    future table), then hashes the result."""
+
+def snapshot_dump_hash(db_path: Path, snapshot_id: str) -> str:
+    """``cvi.snapshot.reproduce.canonical_dump_hash`` scoped to one
+    snapshot's own rows of ``repositories``, ``params`` and ``populations``
+    (see the handoff's ownership request: no second hash implementation,
+    R-2). Renamed from ``repositories_snapshot_dump_hash`` (G-001): the old
+    name was an accurate description of the too-narrow behaviour it had.
+
+    An ALLOW-list of tables (keep only the three above), not a fixed
+    exclude-list -- a fixed exclude-list silently hashed
+    ``legacy_repositories`` into every v2 snapshot's identity on a migrated
+    v1 database (F-007). Copies ``db_path`` to a scratch file, then, in FK-
+    safe child-before-parent order: deletes every ``params`` row whose
+    ``repo_id`` belongs to a repository OUTSIDE ``snapshot_id`` (``params``
+    has no ``snapshot_id`` column of its own), deletes every
+    ``repositories`` row not in ``snapshot_id``, deletes every
+    ``populations`` row not in ``snapshot_id``, drops every table that is
+    not one of the three (whatever it is called, including a legacy or a
+    future table), then hashes the result.
+
+    This scratch connection deliberately does NOT use
+    :func:`cvi.store.schema.connect` (no ``PRAGMA foreign_keys = ON``):
+    the final ``DROP TABLE`` of ``snapshots`` (and anything else) would
+    fail under FK enforcement while ``repositories`` rows still reference
+    it -- verified directly. Enforcing integrity on a copy being
+    intentionally, selectively torn apart for hashing would break the
+    operation, not protect real data (G-004's guarantee is about
+    connections that write real data; this one only reads and discards)."""
     with tempfile.TemporaryDirectory() as tmp_dir:
-        copy_path = Path(tmp_dir) / "repositories_dump.db"
+        copy_path = Path(tmp_dir) / "snapshot_dump.db"
         shutil.copyfile(db_path, copy_path)
         scratch = sqlite3.connect(copy_path)
         try:
+            scratch.execute(
+                "DELETE FROM params WHERE repo_id IN "
+                "(SELECT id FROM repositories WHERE snapshot_id != ?)",
+                (snapshot_id,),
+            )
             scratch.execute("DELETE FROM repositories WHERE snapshot_id != ?", (snapshot_id,))
+            scratch.execute("DELETE FROM populations WHERE snapshot_id != ?", (snapshot_id,))
             tables = [
                 row[0]
                 for row in scratch.execute(
@@ -380,7 +449,7 @@ def repositories_snapshot_dump_hash(db_path: Path, snapshot_id: str) -> str:
                 ).fetchall()
             ]
             for table in tables:
-                if table != "repositories":
+                if table not in _SNAPSHOT_DUMP_TABLES:
                     scratch.execute(f'DROP TABLE IF EXISTS "{table}"')
             scratch.commit()
         finally:
@@ -394,9 +463,9 @@ def finalize_snapshot_hash(
     snapshot_id: str,
     promoted_at: str,
 ) -> str:
-    """Compute :func:`repositories_snapshot_dump_hash` over ``db_path`` (a
-    file ``conn``'s writes have already been committed to) and stamp it
-    plus ``promoted_at`` onto the snapshot row.
+    """Compute :func:`snapshot_dump_hash` over ``db_path`` (a file
+    ``conn``'s writes have already been committed to) and stamp it plus
+    ``promoted_at`` onto the snapshot row.
 
     Split from :func:`write_records` because the hash covers rows that
     must already exist on disk -- a connection's own uncommitted writes are
@@ -404,7 +473,7 @@ def finalize_snapshot_hash(
     computed hash."""
     if not isinstance(promoted_at, str) or not promoted_at:
         raise ValueError(f"promoted_at must be a non-empty string, got {promoted_at!r}")
-    dump_hash = repositories_snapshot_dump_hash(db_path, snapshot_id)
+    dump_hash = snapshot_dump_hash(db_path, snapshot_id)
     conn.execute(
         "UPDATE snapshots SET canonical_dump_hash=?, promoted_at=? WHERE id=?",
         (dump_hash, promoted_at, snapshot_id),

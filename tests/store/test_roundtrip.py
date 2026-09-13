@@ -19,7 +19,7 @@ import sqlite3
 from pathlib import Path
 
 from cvi.core.models import ParamScore, PersonaComposite, PRWindow, PRWindowEvent
-from cvi.store import reader
+from cvi.store import reader, schema
 from cvi.store.migrations import apply_migrations
 from cvi.store.writer import write_records, write_snapshot
 
@@ -34,7 +34,7 @@ from .helpers import (
 
 
 def _fresh_db(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
+    conn = schema.connect(path)  # G-004: PRAGMA foreign_keys=ON
     apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
     write_snapshot(
         conn, id="snap-1", as_of="2026-09-13", benchmark_version="2.0.0-dev",

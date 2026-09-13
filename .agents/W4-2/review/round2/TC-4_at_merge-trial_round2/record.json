@@ -1,0 +1,98 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "2026-09-13-w4-2-store-2",
+  "item_id": "TC-4@merge-trial#round2",
+  "checklist_id": "TC-4",
+  "level": "L3",
+  "target": {
+    "path": "cvi/store",
+    "symbol": "merge trial"
+  },
+  "agent": {
+    "name": "opus5-w4-2-reviewer-r2",
+    "model": "claude-opus-5[1m]",
+    "role": "item_agent",
+    "tier": "T1"
+  },
+  "worktree": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/tree",
+  "interpreter_probe": "/home/pctablet505/Projects/contributor-value-index/.venv/bin/python (PYTHONPATH=/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/tree)",
+  "budget": {
+    "lines_cap": 6000,
+    "lines_actual": 3613,
+    "refused": false
+  },
+  "input": {
+    "file": "cvi/store (1016 source lines) + tests/store + tests/core/test_import_graph.py",
+    "sha256": "9c91dd845627e05a11842be421ad0a734e5026fc4073f28f1df0fe6aa288105a",
+    "n_lines": 3613,
+    "extracted_from_sha": "34694dd"
+  },
+  "dispatched_at": "2026-09-13T18:40:00+05:30",
+  "started_at": "2026-09-13T18:40:00+05:30",
+  "completed_at": "2026-09-13T19:05:00+05:30",
+  "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+  "verdict": "PASS",
+  "pass_condition": "Cherry-picking ff7b049 and 34694dd onto the current main tip leaves a green full suite.",
+  "evidence": [
+    {
+      "record_id": "EV2-merge_suite",
+      "command": "env -u PYTEST_ADDOPTS PYTHONPATH=<merge> python -B -m pytest -p no:cacheprovider -n 4",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/merge",
+      "tree_sha": "34694dd",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/evidence/merge_suite.txt",
+      "output_sha256": "75d0eafcbba4c4284cf3d563abe3ae25ad355f5dbfdc0b36616aa4ddfc3bf47e",
+      "output_lines_total": 52,
+      "started_at": "2026-09-13T18:40:00+05:30",
+      "at": "2026-09-13T19:05:00+05:30",
+      "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+      "scanned_items": 1777
+    },
+    {
+      "record_id": "EV2-packet_tests",
+      "command": "env -u PYTEST_ADDOPTS PYTHONPATH=<tree> python -B -m pytest -p no:cacheprovider tests/store/ tests/test_no_clock.py tests/core/test_import_graph.py",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/tree",
+      "tree_sha": "34694dd",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/r2/evidence/packet_tests.txt",
+      "output_sha256": "91f463ef342470c2c1530331e46aac5e9634e7bf9ca22a66ad257cf15cfd1870",
+      "output_lines_total": 2,
+      "started_at": "2026-09-13T18:40:00+05:30",
+      "at": "2026-09-13T19:05:00+05:30",
+      "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+      "scanned_items": 70
+    }
+  ],
+  "findings": [],
+  "observations": [
+    "Base 9bb1c22. Both commits applied with no conflict hunk; git status --porcelain empty after the pick.",
+    "Round 1's two merge blockers are gone: the fixtures build repo=RepoIdentity and real PersonaComposite values.",
+    "ruff check cvi/store tests/store tests/core/test_import_graph.py -> All checks passed!",
+    "Suite grew 1,675 (round-1 resolved trial) -> 1,777."
+  ],
+  "not_checked": [
+    {
+      "category": "out_of_scope",
+      "statement": "F-013 (list_ranked/snapshot_summary/matrix) is explicitly W4-3's and was not re-checked as a packet defect."
+    }
+  ],
+  "measurement_integrity": false,
+  "security": false,
+  "judgement": false,
+  "pass_evidence": {
+    "quoted": "1777 passed, 12 warnings in 68.24s (0:01:08)",
+    "evidence_record": "EV2-merge_suite",
+    "source": "command_output"
+  },
+  "counter_check": {
+    "text": "Run ruff over the packet's own files on the merged tree, since a green suite does not prove lint cleanliness.",
+    "run": true,
+    "result": "held",
+    "evidence_record": "EV2-packet_tests",
+    "command_differs_from_item": true
+  }
+}

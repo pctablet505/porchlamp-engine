@@ -336,3 +336,258 @@ EXIT:1
  13 files changed, 1104 insertions(+), 366 deletions(-)
 ```
 Plus `.agents/W4-2/review/` (26 review item-record files, committed alongside per the project's `.agents/` convention).
+
+---
+
+# REWORK round 2 (context for round 3)
+
+Round-2 review: 21 items, 14 PASS / 7 FAIL, 1 Blocker (G-001) + 3 one-line
+hardening items (G-002 warning, G-004 warning, G-005 warning), 18/20 mutants
+killed (M1-M14 + N1-N6), all 5 round-1 Blockers independently re-verified
+closed, merge trial `1777 passed`. Full report:
+`/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adbe955a4084/scratchpad/reviews/W4-2-r2-review.md`.
+Round-2 review records: `.agents/W4-2/review/round2/` (committed this round).
+
+---
+
+# REWORK round 3
+
+Review: `.../W4-2-r2-review.md` (same file as above); dispatch covered
+G-001, G-002, G-004, G-005, G-006. Not this round (explicitly deferred):
+G-003 (size, state honestly), G-007 (`_split_statements` string-literal
+risk, note only).
+
+## Step 0 — rebase
+
+`git rebase localmain/main` on branch `W4-2`: two commits replayed onto
+main tip `4e917e1` → `bea2e06` with no conflicts (new heads `358ab11`,
+`3ccf7c9`). Picked up for free: INT-W0-4 rounds 3-4 (landed on main,
+`cvi.lakehouse.repositories_dump_hash`/`snapshot_meta` now real), the
+`.agents/<packet>/review/` commit convention ratified.
+
+## G-001 (Blocker) — widen the identity hash
+
+`repositories_snapshot_dump_hash` renamed `snapshot_dump_hash`; the
+allow-list is now `("repositories", "params", "populations")`, all three
+scoped to the snapshot: `params` via `repo_id IN (SELECT id FROM
+repositories WHERE snapshot_id != ?)` (deleted first -- `params` has no
+`snapshot_id` of its own, and this must run before the `repositories`
+delete or `PRAGMA foreign_keys` on a normal connection would block it),
+`repositories` via `snapshot_id != ?`, `populations` via `snapshot_id !=
+?`. Every other table is dropped. Tests: `test_snapshot_dump_hash_covers_params_and_populations_rows`
+(rewriting a params row -- score, raw_value, source_hash -- moves exactly
+that snapshot's hash and not another's; same for a populations row --
+n, values_json, values_hash); the two existing F-007 tests
+(`..._ignores_other_snapshots`, `..._ignores_legacy_repositories`) still
+pass unchanged, proving repositories-level scoping and legacy isolation
+both survived the widening.
+
+**Lakehouse-delegation answer (asked, not to be implemented):**
+`cvi.lakehouse.repositories_dump_hash` (now real, landed with INT-W0-4)
+and `cvi.store.writer.snapshot_dump_hash` should NOT delegate to each
+other. They already share the one thing that should be shared -- both
+call `cvi.snapshot.reproduce.canonical_dump_hash` on a scratch copy
+(R-2, one canonicalisation) -- but their table-scoping orchestration is
+genuinely different: v1's `repositories` is a single flat table with no
+`snapshot_id` (the whole table IS one implicit snapshot, hence a plain
+exclude-list of `{"snapshot_meta"}` is correct there), while v2 spans
+three related tables that all need a `WHERE snapshot_id = ?` filter
+because the same database holds every snapshot at once. Unifying them
+into one function would need a parameter switching between "hash the
+whole table" and "hash three tables scoped by a key", which is not one
+function doing one thing -- keeping two thin, table-shape-specific
+callers of the one shared primitive is the R-2-compliant design, not a
+violation of it.
+
+## G-002 — the transaction boundary, closing mutant N1
+
+Round 2's mutation report found mutant N1 (moving `write_records`'
+`commit()` to before the params loop) SURVIVED with the production code
+already correct -- the gap was that no test observed it, and the new
+immutability rule (F-003) makes that gap worse: a caller who hit it would
+be permanently locked out of retrying under the same id. Fixed on two
+levels:
+1. `test_write_records_params_loop_failure_leaves_zero_repositories_rows`:
+   monkeypatches `_PARAM_INSERT_SQL` to a malformed statement so the
+   failure lands specifically in the params loop, AFTER the repositories
+   loop already ran in the same call; asserts zero `repositories` rows
+   even after a later, unrelated `commit()`, then that a retry with the
+   same id succeeds.
+2. The coordinator's fuller guarantee -- "nothing for that id exists" (not
+   just no `params` rows, no `snapshots` row either): enabled by G-005's
+   join-if-open guard (`_begin`/`_end`), so a caller can wrap
+   `write_snapshot` and `write_records` in ONE outer transaction.
+   `test_write_snapshot_and_write_records_compose_into_one_transaction`
+   does exactly that, injects the same params-loop failure, and asserts
+   the `snapshots` row is also gone before a fresh attempt with the same
+   id succeeds.
+
+## G-004 — `PRAGMA foreign_keys = ON`
+
+New `cvi.store.schema.connect(path)`: the one place a caller should open a
+v2 store connection; sets the pragma before returning it. Every `tests/
+store` fixture that exercises the writer (`test_writer.py`,
+`test_reader.py`, `test_roundtrip.py`) now opens its connection through
+it. `tests/store/test_migrations.py`'s connections are untouched --
+migration-runner tests are about schema shape and atomicity, not the
+writer's referential integrity, and several of them (deliberately) build
+minimal test tables with no FK relationships at all.
+
+Deliberately NOT applied to `snapshot_dump_hash`'s internal scratch
+connection: verified directly that `DROP TABLE snapshots` fails with
+`FOREIGN KEY constraint failed` under enforcement while `repositories`
+rows still reference it, which is exactly what that function's cleanup
+step needs to do. Documented in both `schema.connect`'s and
+`snapshot_dump_hash`'s docstrings.
+
+Tests: `test_orphan_params_row_is_rejected`, `test_orphan_repositories_row_is_rejected`
+(both raise `sqlite3.IntegrityError` now, `pytest.raises` proves it),
+`test_foreign_key_check_is_empty_after_a_full_write` (a normal write
+leaves `PRAGMA foreign_key_check` empty -- **honestly noted**: this third
+test does NOT actually depend on FK enforcement being on, since the
+writer's own repo_id lookup never produces an orphan regardless; it
+survived mutant O3 (FK pragma dropped) while the other two killed it. Kept
+anyway because it is still a real, useful invariant to assert, just not
+one that isolates this specific fix).
+
+## G-005 — join an already-open transaction
+
+`_begin(conn) -> bool` / `_end(conn, owns, *, ok)` replace the unconditional
+`conn.execute("BEGIN")` + `conn.commit()`/`conn.rollback()` pairs in both
+`write_snapshot` and `write_records`: `_begin` returns whether THIS call
+started the transaction (`False` if one was already open), and only the
+call that started it may end it. This directly implements the
+coordinator's named option ("a guard... or `with conn:`") and is what
+makes G-002's fuller composition possible without inventing new public
+surface -- no new orchestration function was added; composing the two
+existing functions under one transaction is the caller's to do, and three
+tests prove it works (`test_write_snapshot_joins_an_already_open_transaction`,
+`test_write_snapshot_joined_transaction_still_rolls_back`,
+`test_write_records_joins_an_already_open_transaction`).
+
+## G-006 ruling — `stars_audited`
+
+Documented in `schema.py`'s module docstring (not code behaviour change --
+the column was already `NULL`, already nullable, already tested via
+`test_stars_forks_last_commit_are_null_no_producer`): W1-10 owns the
+StarScout-audited value; this packet writes `NULL`, never a raw,
+unaudited count under the audited-sounding column name.
+
+## Not this round (per dispatch)
+
+- **G-003 (size).** Stated honestly below, not cut further.
+- **G-007.** `_split_statements` splits on every `;` and strips from every
+  `--` regardless of string literals; safe for this schema's actual DDL
+  (verified: the only string literals are `DEFAULT '{}'`/`'[]'`, neither
+  containing `;` or `--`) but not defensively safe against a future
+  migration that embeds either inside a string. Noted, not fixed --
+  `sqlite3.complete_statement`-based accumulation is the named
+  alternative if a future migration needs a literal containing `;`.
+
+## Size (G-003, stated honestly)
+
+```
+cvi/store/__init__.py                      11
+cvi/store/migrations/0001_init_v2.sql     109
+cvi/store/migrations/__init__.py          139
+cvi/store/reader.py                       151
+cvi/store/schema.py                       219  (was 193; +26: connect() + its docstring, G-006 note)
+cvi/store/writer.py                       482  (was 413; +69: _begin/_end, widened snapshot_dump_hash + its docstring)
+cvi/store TOTAL: 1111 | L class cap 800 | round 2 was 1016 | delta +95
+```
+Still over cap; the deviation is now three rounds deep and each round's
+growth has been real, required correctness work (atomicity, immutability,
+allow-list widening, FK enforcement, transaction composability) rather
+than padding -- recommend ratifying the deviation at this point rather
+than continuing to ask for cuts against a size class this packet's own
+subject matter (three tables' worth of atomic, integrity-checked writes
+plus a migration runner) does not comfortably fit.
+
+## Mutation re-run: all 20 round-2 mutants + 4 new (round 3)
+
+Baseline `tests/store/` + `tests/test_no_clock.py` + `tests/core/test_import_graph.py`:
+**79 passed** (was 70 in round 2; +9 for the new G-002/G-004/G-005 tests).
+`__pycache__` cleared before every run; every file restored from a
+pre-mutation backup copy (never `git stash`/`checkout --`) and the
+79-test baseline re-confirmed green after each restore and once more at
+the end.
+
+| # | Mutant | Round 2 | Round 3 |
+|---|---|---|---|
+| M1 | writer: drop `friction_coverage` from the INSERT list | KILLED | KILLED (1 failed) |
+| M2 | writer: swap leverage/friction values | KILLED | KILLED (1 failed) |
+| M3 | writer: not-ranked row gets `rank = 1` | KILLED | KILLED (1 failed) |
+| M4 | writer: non-canonical JSON | KILLED | KILLED (1 failed) |
+| M5 | writer: skip the final commit/`_end` | KILLED | KILLED (1 failed -- now via `test_snapshot_dump_hash_ignores_other_snapshots`, since writes never land on disk) |
+| M6 | writer: `params.measured` always 1 | KILLED | KILLED (2 failed) |
+| M7 | writer: swap `p_`/`c_` pillar order | KILLED | KILLED (1 failed) |
+| M8 | writer: drop the `snapshot_id` guard | KILLED | KILLED (1 failed) |
+| M9 | migrations: skip the version bump | KILLED | KILLED (4 failed) |
+| M10 | migrations: unconditional legacy rename | KILLED | KILLED (2 failed) |
+| M11 | reader: drop `NULLS LAST` at the friction level | KILLED | KILLED (1 failed) |
+| M12 | reader: remove the leverage `ORDER BY` level | KILLED | KILLED (1 failed) |
+| M13 | reader: `list_not_ranked` drops the unrated branch | KILLED | KILLED (2 failed) |
+| M14 | reader: `ROW_NUMBER` -> `RANK` | equivalent | **SURVIVED — equivalent** (0 failed; level 8 owner/name unique) |
+| N1 | writer: transaction boundary moved (commit before params loop) | SURVIVED | **KILLED** (3 failed: the two new G-002 tests plus `test_write_records_joins_an_already_open_transaction`) |
+| N2 | hash: include-list gains `legacy_repositories` back | KILLED | KILLED (1 failed) |
+| N3 | writer: immutability keyed on `snapshots`, not `repositories` | KILLED | KILLED (27 failed) |
+| N4 | writer: `asdict` dropped for one persona | KILLED | KILLED (4 failed) |
+| N5 | migrations: `rollback()` dropped (bare re-raise) | KILLED | KILLED (1 failed) |
+| N6 | writer: `rollback()`/`_end(...ok=False)` dropped in `write_records` | KILLED | KILLED (2 failed) |
+| O1 | writer: `_SNAPSHOT_DUMP_TABLES` reverted to `("repositories",)` (G-001 undone) | -- | **KILLED** (1 failed: `test_snapshot_dump_hash_covers_params_and_populations_rows`) |
+| O2 | (same code change as N1 -- G-002's fix and N1's kill are the same mutant) | -- | see N1 |
+| O3 | `schema.connect` no longer sets `PRAGMA foreign_keys=ON` (G-004 undone) | -- | **KILLED** (2 failed: the two orphan-rejection tests; `test_foreign_key_check_is_empty_after_a_full_write` survives this one, noted above) |
+| O4 | `_begin` guard removed, always unconditional `BEGIN` (G-005 undone) | -- | **KILLED** (4 failed: all three join-transaction tests plus the composed G-002 test) |
+
+**23/24 killed, 1 equivalent, 0 real survivors.**
+
+## Verification (round 3)
+
+```
+$ pytest tests/store/ -p no:cacheprovider
+................................................................         [100%]
+64 passed in 0.12s
+EXIT:0
+
+$ pytest tests/store/ tests/test_no_clock.py tests/core/test_import_graph.py -p no:cacheprovider
+(mutation baseline)
+79 passed in 0.22s
+
+$ ruff check cvi/store tests/store tests/core/test_import_graph.py
+All checks passed!
+
+$ ruff check cvi/ scripts/ tests/
+All checks passed!
+EXIT:0
+```
+(The `scripts/curate_dataset_llm.py` F401 findings noted in rounds 1-2 are
+gone -- that file has since been fixed/removed upstream on main; ruff is
+now clean over the WHOLE tree, not just this packet's files.)
+
+```
+$ pytest tests/ -n 4 -p no:cacheprovider
+1841 passed, 12 warnings in 76.01s (0:01:16)
+EXIT:0
+```
+
+## Diffstat (round 3, on top of rebased `3ccf7c9`)
+
+```
+ cvi/store/schema.py           |  26 +++++
+ cvi/store/writer.py           | 137 +++++++++++++++++------
+ tests/store/test_reader.py    |   4 +-
+ tests/store/test_roundtrip.py |   4 +-
+ tests/store/test_writer.py    | 246 +++++++++++++++++++++++++++++++++++++++---
+ 5 files changed, 363 insertions(+), 54 deletions(-)
+```
+Plus `.agents/W4-2/review/round2/` (21 review item-record files, committed
+this round per the ratified convention).
+
+## COULD NOT VERIFY / ownership requests, round 3
+
+- (carried forward) `stars_audited`/`forks`(count)/`last_human_commit_at`
+  still have no v2 producer; G-006 formalises this for `stars_audited`
+  specifically. No new information this round beyond the schema docstring
+  update.
+- G-007 is a genuine, if currently inert, robustness gap in
+  `_split_statements` -- flagged, not fixed, per the dispatch.
