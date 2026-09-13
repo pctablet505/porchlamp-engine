@@ -134,7 +134,15 @@ function renderChips(compareRepos) {
   return `<div class="compare-chips" data-compare-chips="true">${chips}</div>`;
 }
 
-function renderPicker(state) {
+/**
+ * NB-1 (2026-09-14 round-3 review): the query-dependent PART of the picker
+ * only — the results `<ul>` and/or the "max reached" caption. Deliberately
+ * excludes the `<input>` itself, so this can be patched into
+ * `[data-compare-results-host]` (a SIBLING of the input, never an
+ * ancestor) on every keystroke without the input ever being touched. See
+ * `patchResults` / `shellKey` below and 06 §6.1 (U-12).
+ */
+function renderPickerResults(state) {
   const atMax = state.compareRepos.length >= COMPARE_MAX;
   const results = state.compareSearchResults
     .map((r) => {
@@ -146,14 +154,47 @@ function renderPicker(state) {
     })
     .join("");
   return (
+    (atMax ? `<p class="matrix-caption">${escapeHtml(copy.COMPARE_MAX_TEXT)}</p>` : "") +
+    (results ? `<ul class="compare-results" data-compare-results="true">${results}</ul>` : "")
+  );
+}
+
+/**
+ * The STATIC part of the picker: the search `<input>` itself plus an
+ * empty results-host container. Rendered only as part of the shell (see
+ * `shellKey`/`renderShell`) — NEVER re-rendered while the input has focus,
+ * per U-12 and the NB-1 fix: `value="${state.compareQuery}"` is read from
+ * state only at shell-CREATION time (tab entry or a chip added/removed,
+ * both of which reset or intentionally replace the query — see
+ * `state.js::COMPARE_ADD_REPO`), never on every keystroke. The input owns
+ * its own value/caret thereafter; state follows the input via the
+ * `COMPARE_SET_QUERY` dispatch on its own `input` event, not the reverse.
+ */
+function renderPickerShell(state) {
+  const atMax = state.compareRepos.length >= COMPARE_MAX;
+  return (
     `<div class="compare-picker">` +
     `<input type="search" class="control" data-compare-search="true" value="${escapeHtml(state.compareQuery)}" ` +
     `placeholder="${escapeHtml(copy.COMPARE_SEARCH_PLACEHOLDER)}" aria-label="${escapeHtml(copy.COMPARE_SEARCH_LABEL)}" ` +
     `${atMax ? "disabled" : ""}>` +
-    (atMax ? `<p class="matrix-caption">${escapeHtml(copy.COMPARE_MAX_TEXT)}</p>` : "") +
-    (results ? `<ul class="compare-results" data-compare-results="true">${results}</ul>` : "") +
+    `<div data-compare-results-host="true">${renderPickerResults(state)}</div>` +
     `</div>`
   );
+}
+
+/** Patches ONLY the results/suggestions list — the keystroke path. Never
+ * touches `main.innerHTML` or any ancestor of `[data-compare-search]`. */
+export function patchResults(main, state) {
+  const host = main.querySelector("[data-compare-results-host]");
+  if (host) host.innerHTML = renderPickerResults(state);
+}
+
+/** Patches ONLY the comparison table host — a per-repo-data-change path,
+ * also never touching the picker/input. No-op when the shell shape isn't
+ * "table" (the host doesn't exist in the empty/partial-min shapes). */
+export function patchTable(main, state) {
+  const host = main.querySelector("[data-compare-table-host]");
+  if (host) host.innerHTML = renderTable(state);
 }
 
 function repoIdentityCell(key, data) {
@@ -246,10 +287,28 @@ export function shellShape(state) {
   return "table";
 }
 
+/**
+ * NB-1: the shell-REBUILD decision key — deliberately depends on ONLY
+ * `shellShape` (which is itself a pure function of `compareRepos.length`)
+ * and `compareRepos` itself (order/membership, for the chip row). It must
+ * NEVER depend on `compareQuery` or `compareSearchResults` (a keystroke)
+ * or on `compareDataByRepo` (a per-repo fetch landing) — both of those are
+ * patched into their own host containers (`patchResults`/`patchTable`)
+ * without ever touching `main.innerHTML`, so a change to either must never
+ * be reflected in this key or the focused search input would be destroyed
+ * and recreated on every keystroke (06 §6.1 U-12; the exact defect this
+ * fixes). This is the "what to patch" decision: unchanged key on a
+ * keystroke -> patch results only; changed key (a chip added/removed, or
+ * entering the tab) -> rebuild the shell.
+ */
+export function shellKey(state) {
+  return `${shellShape(state)}:${state.compareRepos.join(",")}`;
+}
+
 export function renderShell(state) {
   const heading = `<h1 class="view-heading">${escapeHtml(copy.COMPARE_HEADING)}</h1>`;
   const chips = renderChips(state.compareRepos);
-  const picker = renderPicker(state);
+  const picker = renderPickerShell(state);
   const shape = shellShape(state);
   if (shape === "empty") {
     return heading + chips + picker + `<div class="empty-state">${escapeHtml(copy.COMPARE_EMPTY_TEXT)}</div>`;
@@ -257,5 +316,10 @@ export function renderShell(state) {
   if (shape === "partial-min") {
     return heading + chips + picker + `<div class="empty-state">${escapeHtml(copy.COMPARE_MIN_TEXT)}</div>`;
   }
-  return heading + chips + picker + `<div data-compare-table-host="true">${renderTable(state)}</div>`;
+  // Empty host: content is patched in immediately after by `patchTable`
+  // (called unconditionally right after every shell (re)build, in
+  // addition to every subsequent state change) — never embedded inline
+  // here, so a table-only data change (a per-repo fetch landing) never
+  // needs to touch this function or the picker/input above it.
+  return heading + chips + picker + `<div data-compare-table-host="true"></div>`;
 }

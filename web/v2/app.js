@@ -84,7 +84,13 @@ import {
   normalizeWeights,
   applyPresetRespectingLocks,
 } from "./views/configure.js";
-import { renderShell as renderCompareShell, shellShape as compareShellShape } from "./views/compare.js";
+import {
+  renderShell as renderCompareShell,
+  shellShape as compareShellShape,
+  shellKey as compareShellKey,
+  patchResults as patchCompareResults,
+  patchTable as patchCompareTable,
+} from "./views/compare.js";
 import { renderShell as renderMethodologyShell, shellShape as methodologyShellShape } from "./views/methodology.js";
 
 const PERSONAS = ["balanced", "first_timer", "career_capital", "senior_systems", "ai_assisted"];
@@ -429,23 +435,26 @@ export function boot(win = window, doc = document) {
     }
 
     if (state.tab === "compare") {
-      // Compare's table/chip content is small and re-fetched infrequently
-      // (adding/removing a chip, or a per-repo fetch landing) — a full
-      // re-render of `main` on every such change is well within budget
-      // (never on scroll/resize, so U-12's "never on scroll" holds) and
-      // keeps this screen's logic simple; the shape check still avoids
-      // rebuilding when nothing observable changed.
+      // NB-1 (round-3 review): the shell (heading/chips/search input) is
+      // rebuilt ONLY when `shellKey` changes -- tab entry or the chip set
+      // changing -- NEVER on a keystroke (`compareShellKey` deliberately
+      // excludes `compareQuery`/`compareSearchResults`/`compareDataByRepo`,
+      // see its own docstring). The results list and the comparison table
+      // are SIBLINGS of the search input, patched into their own host
+      // containers on every relevant state change without ever touching
+      // `main.innerHTML` or the input itself (06 §6.1 U-12).
       const shape = compareShellShape(state);
-      const html = renderCompareShell(state);
-      if (currentTab !== "compare" || html !== currentCompareShape) {
+      const key = compareShellKey(state);
+      if (currentTab !== "compare" || key !== currentCompareShape) {
         const searchHadFocus = doc.activeElement && doc.activeElement.matches("[data-compare-search]");
-        main.innerHTML = html;
+        main.innerHTML = renderCompareShell(state);
         if (searchHadFocus) main.querySelector("[data-compare-search]")?.focus();
         currentTab = "compare";
-        currentCompareShape = html;
+        currentCompareShape = key;
         forgetOtherShapes("compare");
       }
-      void shape;
+      patchCompareResults(main, state);
+      if (shape === "table") patchCompareTable(main, state);
       return;
     }
 
