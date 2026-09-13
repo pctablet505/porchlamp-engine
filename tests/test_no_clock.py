@@ -47,11 +47,12 @@ CLOCK_RE = re.compile(
 )
 
 # 04 §8 exempts the collect/serve paths: fetching and rate limiting own the
-# clock. Those are directories in the target layout and do not exist yet, so
-# the modules that play those roles today are named here with their reason.
+# clock. ``cvi/collect/`` is the real target-layout directory (W4-1 moved
+# the rate limiter's ``time.monotonic`` defaults there from ``cvi/
+# ingest.py``, which no longer needs an exemption at all -- it has zero
+# clock tokens of its own left, see ``_sources()``'s directory filter).
 EXCLUDED_DIRS = {"collect", "serve"}
 EXCLUDED_MODULES = {
-    "ingest.py": "collect path: GitHub client and rate limiter",
     "benchmark_data.py": "single definition of the fixture clock (R-2)",
     "benchmark.py": "re-exports the fixture clock",
 }
@@ -249,21 +250,23 @@ def _pr_events() -> list[RawPREvent]:
     return out
 
 
-def test_ingest_exemption_covers_only_the_monotonic_defaults() -> None:
-    """W0-gate P-01: the ``cvi/ingest.py`` exemption is only for the two
-    ``time.monotonic`` rate-limiter defaults, and that is pinned here.
+def test_ratelimit_directory_exemption_covers_only_the_monotonic_defaults() -> None:
+    """W0-gate P-01 (W4-1: re-pinned to ``cvi/collect/ratelimit.py``, where
+    the rate limiter's ``time.monotonic`` defaults now live -- they moved
+    out of ``cvi/ingest.py``, which no longer needs any exemption at all).
 
     (1) No line of the module today matches the wall-clock scanner, so the
-    exemption currently removes nothing from the scan.
+    directory exemption currently removes nothing THIS module needs from
+    the scan.
     (2) The two ``time.monotonic`` lines are the only clock tokens in the
     module: the exemption's actual scope.
     (3) The scanner's own predicate (``CLOCK_RE`` over the module lines, the
     same operation ``_offenders`` performs on every scanned file) fails on a
     copy of the module with one ``datetime.now()`` added: any wall-clock call
-    in an exempt module is caught by the guard, so the exemption cannot
-    silently rot into a blind spot.
+    in this exempt module is caught by the guard, so the ``collect``
+    directory exemption cannot silently rot into a blind spot for it.
     """
-    source = (CVI_PKG / "ingest.py").read_text(encoding="utf-8")
+    source = (CVI_PKG / "collect" / "ratelimit.py").read_text(encoding="utf-8")
     wall_clock_lines = [line for line in source.splitlines() if CLOCK_RE.search(line)]
     assert wall_clock_lines == []
     monotonic_lines = [
@@ -281,3 +284,15 @@ def test_ingest_exemption_covers_only_the_monotonic_defaults() -> None:
     )
     probe_lines = [line for line in probe.splitlines() if CLOCK_RE.search(line)]
     assert probe_lines == ["    return datetime.now().timestamp()"]
+
+
+def test_ingest_module_needs_no_wall_clock_exemption() -> None:
+    """W4-1: after the rate limiter moved out, ``cvi/ingest.py`` has zero
+    clock tokens of its own -- it no longer needs (and no longer has) a
+    per-module entry in ``EXCLUDED_MODULES``. Pinned so a future addition
+    to this file that reads a wall clock is caught by the *default*,
+    non-exempt scan path rather than silently relying on a stale
+    exemption nobody re-added."""
+    assert "ingest.py" not in EXCLUDED_MODULES
+    source = (CVI_PKG / "ingest.py").read_text(encoding="utf-8")
+    assert [line for line in source.splitlines() if CLOCK_RE.search(line)] == []

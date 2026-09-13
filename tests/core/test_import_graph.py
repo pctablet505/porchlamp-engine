@@ -17,6 +17,7 @@ CORE_DIR = REPO_ROOT / "cvi" / "core"
 DERIVE_BUNDLE = REPO_ROOT / "cvi" / "derive" / "bundle.py"
 STORE_DIR = REPO_ROOT / "cvi" / "store"
 SERVE_DIR = REPO_ROOT / "cvi" / "serve"
+RATELIMIT_MODULE = REPO_ROOT / "cvi" / "collect" / "ratelimit.py"
 
 #: `cvi/serve` is the outermost layer -- it legitimately reads any other
 #: `cvi.*` package (core, store, audit) -- plus the web framework it is
@@ -120,6 +121,26 @@ def test_serve_imports_only_cvi_fastapi_pydantic_or_stdlib() -> None:
                 f"{path.relative_to(REPO_ROOT)} imports {name!r} outside "
                 f"cvi.* + stdlib + {_SERVE_ALLOWED_THIRD_PARTY}"
             )
+
+
+def test_collect_ratelimit_imports_only_stdlib_or_httpx() -> None:
+    """W4-1: ``cvi/collect/ratelimit.py`` (moved from ``cvi/ingest.py``) is a
+    generic HTTP-primitives module -- token bucket, ETag cache, circuit
+    breaker -- with no CVI-domain knowledge at all, unlike its
+    ``cvi.collect`` siblings (which read/write :class:`~cvi.collect.
+    envelope.Envelope` and so import ``cvi.core``/``cvi.models``). It
+    imports nothing but the standard library and ``httpx``, and this is
+    worth enforcing precisely because a future edit could otherwise wire
+    ``cvi.models``/``cvi.lakehouse`` into what is supposed to stay a
+    reusable, domain-free primitive.
+    """
+    assert RATELIMIT_MODULE.is_file(), "cvi/collect/ratelimit.py missing"
+    for name in imported_modules(RATELIMIT_MODULE):
+        top = name.split(".")[0]
+        allowed = top in sys.stdlib_module_names or top == "httpx"
+        assert allowed, (
+            f"cvi/collect/ratelimit.py imports {name!r} outside stdlib + httpx"
+        )
 
 
 def test_importing_core_loads_no_other_cvi_package() -> None:

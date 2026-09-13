@@ -54,12 +54,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from cvi.api import create_app
+from cvi.collect.ratelimit import CachedHttpClient, CircuitBreaker, TokenBucketRateLimiter
 from cvi.engine import score_repository
 from cvi.ingest import (
-    CachedHttpClient,
-    CircuitBreaker,
     GHArchiveStreamer,
-    TokenBucketRateLimiter,
     apply_raw_metrics,
     gharchive_hourly_url,
     ingest_and_score,
