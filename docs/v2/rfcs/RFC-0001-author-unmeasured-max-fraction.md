@@ -84,3 +84,6 @@ Not yet reviewed independently — this RFC accompanies the W1-4 round-3
 constants-freeze-compliance fix (dispatched directly by the lead, closing
 the escape the freeze's own census exists to prevent) and is submitted for
 review alongside the packet's next round.
+
+Reviewed by the lead (Fable 5.1) on 2026-09-13 at landing (`fbe435d`). Ruling on the declined `BENCHMARK_VERSION` bump: accepted — the changelog header exempts constants that gain a value without a scoring consumer; the bump happens when W3-1 wires these fields into a scored parameter, in that RFC.
+
