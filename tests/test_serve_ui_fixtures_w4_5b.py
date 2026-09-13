@@ -142,6 +142,12 @@ WEIGHT_VECTORS: list[dict[str, float]] = [
     {"weight_responsiveness": 0.35, "weight_criticality": 0.10, "weight_governance": 0.15, "weight_rigor": 0.10, "weight_accessibility": 0.30},
     {"weight_responsiveness": 0.15, "weight_criticality": 0.35, "weight_governance": 0.25, "weight_rigor": 0.20, "weight_accessibility": 0.05},
     {"weight_responsiveness": 0.20, "weight_criticality": 0.20, "weight_governance": 0.15, "weight_rigor": 0.35, "weight_accessibility": 0.10},
+    # Opus code review M6 (2026-09-13): every OTHER vector here still rates
+    # all 73 fixture rows, so a mutant that skips the 0.60 coverage floor
+    # entirely (RATED_MIN_COVERAGE -> 0.0) survives every one of them. This
+    # one genuinely drops exactly one row on the real fixture (72 of 73;
+    # verified live against the running server before being hardcoded here).
+    {"weight_responsiveness": 0.05, "weight_criticality": 0.35, "weight_governance": 0.05, "weight_rigor": 0.05, "weight_accessibility": 0.50},
 ]
 
 
@@ -174,6 +180,16 @@ class TestReprojectParityAgainstHandOracle:
         assert body["lens"] == "custom"
         ranks = [r["rank"] for r in body["rows"]]
         assert ranks == sorted(ranks) == list(range(1, len(ranks) + 1))
+
+    def test_a_tilted_vector_genuinely_drops_a_row_below_the_rating_floor(self, server_url: str) -> None:
+        """Opus code review M6: proves the 0.60 floor is actually enforced
+        under reprojection, not just under the balanced/persona paths —
+        the vector itself is WEIGHT_VECTORS[-1], asserted by identity so
+        this test breaks loudly if that vector's own coverage-crossing
+        property is ever lost to an edit."""
+        balanced_total = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"page_size": 1000}).json()["total"]
+        resp = httpx.post(f"{server_url}/v1/cvi/reproject", json=WEIGHT_VECTORS[-1])
+        assert resp.json()["total"] < balanced_total
 
     def test_balanced_weights_reproduce_the_stored_balanced_ranking(self, server_url: str) -> None:
         # D-AGG-1: the balanced weight vector IS `PILLAR_WEIGHTS`.
@@ -208,6 +224,37 @@ class TestReprojectParityAgainstHandOracle:
         resp = httpx.post(f"{server_url}/v1/cvi/reproject", json=WEIGHT_VECTORS[0])
         ReprojectResponse.model_validate(resp.json())
 
+    def test_live_response_with_shifted_ranks_validates_with_correct_rank_delta_sign(
+        self, server_url: str
+    ) -> None:
+        """Opus code review (2026-09-13): the balanced weight vector alone
+        never exercises `rank_delta` (every row's rank is unchanged, so
+        `rank_delta == 0` everywhere — a SIGN-FLIPPED implementation would
+        pass just as well). A skewed weight vector genuinely reorders rows,
+        so this both validates the LIVE response through
+        `cvi.serve.contract.ReprojectResponse` (LeaderboardRow's own
+        `rank_delta == balanced_rank - rank` validator, which raises on a
+        wrong value) AND asserts the sign against an independent
+        recomputation, so a hypothetical `rank - balanced_rank` mutant
+        would fail both the contract validator and this assertion.
+        """
+        from cvi.serve.contract import ReprojectResponse
+
+        # Pure-responsiveness: skewed enough from balanced to move ranks
+        # (WEIGHT_VECTORS[1] in this file's own oracle-parity table).
+        resp = httpx.post(f"{server_url}/v1/cvi/reproject", json=WEIGHT_VECTORS[1])
+        assert resp.status_code == 200
+        body = resp.json()
+        response = ReprojectResponse.model_validate(body)  # raises if any row's rank_delta is inconsistent
+
+        shifted = [r for r in response.rows if r.rank_delta is not None and r.rank_delta != 0]
+        assert shifted, "the skewed weight vector must move at least one row's rank for this test to mean anything"
+        for row in shifted:
+            assert row.rank_delta == row.balanced_rank - row.rank, (
+                f"{row.owner}/{row.name}: rank_delta={row.rank_delta} must equal "
+                f"balanced_rank({row.balanced_rank}) - rank({row.rank})"
+            )
+
 
 class TestMatrixEndpoint:
     def test_excludes_gated_repos_and_reports_the_count(self, server_url: str) -> None:
@@ -226,6 +273,25 @@ class TestMatrixEndpoint:
         body = httpx.get(f"{server_url}/v1/cvi/matrix").json()
         assert all(p["quadrant"] is not None for p in body["points"])
 
+    def test_matrix_points_for_excludes_a_row_with_unmeasured_coordinates(self) -> None:
+        """Opus code review M3 (2026-09-13): the fixture happens to have no
+        null-quadrant row today, so `test_every_point_carries_a_quadrant`
+        above passes whether or not the exclusion filter actually exists —
+        this constructs one directly, proving matrix_points_for's own
+        `if r.get("quadrant") is not None` filter really excludes it."""
+        base = dict(
+            owner="x", name="y", ecosystem="pypi", leverage=50.0, friction=50.0,
+            leverage_coverage=0.0, friction_coverage=0.0, stars_audited=None,
+            cvi=50.0, coverage=0.6, tier="B",
+        )
+        rows = [
+            {**base, "quadrant": None},  # every contributing pillar unmeasured -- cannot be plotted
+            {**base, "name": "plottable", "quadrant": "Sweet Spot"},
+        ]
+        points = serve_ui_fixtures.matrix_points_for(rows)
+        assert len(points) == 1
+        assert points[0]["name"] == "plottable"
+
     def test_response_validates_against_the_contract(self, server_url: str) -> None:
         from cvi.serve.contract import MatrixResponse
 
@@ -233,15 +299,23 @@ class TestMatrixEndpoint:
         MatrixResponse.model_validate(resp.json())
 
 
-class TestAxisCoverageCaptions:
-    def test_no_caption_when_every_contributing_pillar_is_well_measured(self) -> None:
+class TestAxisCoverage:
+    """Opus code review B-2 (2026-09-13): this used to compose the caption
+    SENTENCE in Python and send it verbatim (a `06` §6 violation); now it
+    sends the raw pillar/count/share numbers and `copy.js` composes the
+    sentence — these tests check the numbers, `tests/test_ui_copy_usage.py`
+    (via the exported-name check) covers the new copy.js function's own
+    reachability, and the number/sentence combination is live-browser
+    verified (`.agents/W4-5b/handoff.md`)."""
+
+    def test_no_entry_when_every_contributing_pillar_is_well_measured(self) -> None:
         rows = [
             {"p_responsiveness": 1.0, "p_governance": 1.0, "p_accessibility": 1.0, "p_criticality": 1.0, "p_rigor": 1.0}
             for _ in range(20)
         ]
-        assert serve_ui_fixtures.axis_coverage_captions(rows) == {}
+        assert serve_ui_fixtures.axis_coverage(rows) == {}
 
-    def test_caption_names_the_worst_missing_pillar_above_threshold(self) -> None:
+    def test_names_the_worst_missing_pillar_above_threshold_with_exact_numbers(self) -> None:
         rows = []
         for i in range(20):
             rows.append(
@@ -254,16 +328,24 @@ class TestAxisCoverageCaptions:
                     "p_rigor": 1.0,
                 }
             )
-        captions = serve_ui_fixtures.axis_coverage_captions(rows)
-        assert "friction" in captions
-        assert "accessibility" in captions["friction"]
-        assert "30%" in captions["friction"]
-        assert "leverage" not in captions
+        coverage = serve_ui_fixtures.axis_coverage(rows)
+        assert coverage["friction"] == {"pillar": "accessibility", "axis_partial_count": 6, "axis_partial_share": 0.3}
+        assert "leverage" not in coverage
 
-    def test_below_threshold_produces_no_caption(self) -> None:
+    def test_below_threshold_produces_no_entry(self) -> None:
         rows = [{"p_responsiveness": 1.0, "p_governance": 1.0, "p_accessibility": None if i == 0 else 1.0, "p_criticality": 1.0, "p_rigor": 1.0} for i in range(100)]
         # 1/100 = 1%, below the 5% threshold.
-        assert serve_ui_fixtures.axis_coverage_captions(rows) == {}
+        assert serve_ui_fixtures.axis_coverage(rows) == {}
+
+    def test_response_conforms_to_the_contract(self) -> None:
+        from cvi.serve.contract import MatrixAxisCoverage
+
+        rows = [
+            {"p_responsiveness": 1.0, "p_governance": 1.0, "p_accessibility": None if i < 6 else 1.0, "p_criticality": 1.0, "p_rigor": 1.0}
+            for i in range(20)
+        ]
+        coverage = serve_ui_fixtures.axis_coverage(rows)
+        MatrixAxisCoverage.model_validate(coverage["friction"])
 
 
 class TestMethodologyEndpoint:

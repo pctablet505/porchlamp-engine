@@ -110,6 +110,15 @@ export function fetchEvidence(owner, name) {
   return getJson(`/v1/cvi/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/evidence`);
 }
 
+/**
+ * `GET /v1/cvi/repos/{owner}/{name}` -> `RepoDetailResponse`
+ * (`{kind, row}` — lead ruling 2026-09-13, the drawer-content-parity fix):
+ * the drawer's record fetch, independent of which screen opened it.
+ */
+export function fetchRepoDetail(owner, name) {
+  return getJson(`/v1/cvi/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+}
+
 export function fetchSnapshot() {
   return getJson("/v1/cvi/snapshot");
 }

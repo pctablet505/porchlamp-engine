@@ -37,6 +37,7 @@ import {
   shouldRestoreFocusAfterRebuild,
   resolveOpenTargetKey,
   footerFieldsFor,
+  repoToLoadFromState,
   urlSyncMode,
   PAGE_SIZES,
   DEFAULT_PAGE_SIZE,
@@ -72,9 +73,10 @@ import {
   zoomView,
   panView,
   nearestMarkerInDirection,
+  hitTestPoint,
   DEFAULT_VIEW as MATRIX_DEFAULT_VIEW,
 } from "./views/matrix.js";
-import { pointKey as matrixPointKey, drawMatrixCanvas } from "./components/scatter.js";
+import { pointKey as matrixPointKey, drawMatrixCanvas, SVG_MARKER_BUDGET } from "./components/scatter.js";
 import {
   renderShell as renderConfigureShell,
   shellShape as configureShellShape,
@@ -479,7 +481,12 @@ export function boot(win = window, doc = document) {
         if (slider.value !== value) slider.value = value;
         if (slider.disabled !== locked) slider.disabled = locked;
         const pct = `${Math.round(state.weights[pillar] * 1000) / 10}%`;
-        if (slider.getAttribute("aria-valuetext") !== pct) slider.setAttribute("aria-valuetext", pct);
+        // Matches views/configure.js::renderSlider's own format — a
+        // screen reader must hear WHICH pillar changed, not just the new
+        // percentage, when arrow-keying through the value (lead-reported
+        // defect 2026-09-13).
+        const valueText = `${copy.PILLAR_NAMES[pillar]}: ${pct}`;
+        if (slider.getAttribute("aria-valuetext") !== valueText) slider.setAttribute("aria-valuetext", valueText);
         const output = slider.nextElementSibling;
         if (output && output.classList.contains("weight-slider-value") && output.textContent !== pct) {
           output.textContent = pct;
@@ -553,6 +560,27 @@ export function boot(win = window, doc = document) {
         return;
       }
       store.dispatch({ type: "EVIDENCE_OK", repo: key, data: result.data });
+    });
+  }
+
+  /**
+   * Lead ruling 2026-09-13 (drawer-content-parity fix): the drawer's
+   * record fetch (`GET /v1/cvi/repos/{o}/{n}`) — called by `openRepo`
+   * regardless of which screen it was opened from, so the drawer never
+   * again depends on whatever state slice a particular screen happens to
+   * keep in memory (Matrix's own point list, Compare's per-chip cache,
+   * etc.). Cached per repo, same pattern as `loadEvidence`.
+   */
+  function loadRepoDetail(owner, name) {
+    const key = `${owner}/${name}`;
+    if (store.getState().repoDetailByKey[key]) return Promise.resolve();
+    store.dispatch({ type: "REPO_DETAIL_LOADING" });
+    return api.fetchRepoDetail(owner, name).then((result) => {
+      if (!result.ok) {
+        store.dispatch({ type: "REPO_DETAIL_ERROR", error: result.error });
+        return;
+      }
+      store.dispatch({ type: "REPO_DETAIL_OK", repo: key, data: result.data });
     });
   }
 
@@ -876,6 +904,7 @@ export function boot(win = window, doc = document) {
     store.dispatch({ type: "SET_CURSOR", key });
     store.dispatch({ type: "OPEN_REPO", repo: key });
     pushUrl(store.getState());
+    loadRepoDetail(owner, name);
     loadEvidence(owner, name);
   }
 
@@ -957,6 +986,32 @@ export function boot(win = window, doc = document) {
   });
 
   main.addEventListener("click", (evt) => {
+    // Opus code review (2026-09-13): above SVG_MARKER_BUDGET markers the
+    // matrix falls back to a single <canvas> with no per-marker DOM node
+    // for the browser's own click hit-testing to use at all — this is
+    // the replacement (nearest-point-within-tolerance, hitTestPoint).
+    const canvas = evt.target.closest("[data-matrix-canvas]");
+    if (canvas) {
+      const s = store.getState();
+      if (s.tab === "matrix" && s.matrix) {
+        const rect = canvas.getBoundingClientRect();
+        const domainX = ((evt.clientX - rect.left) / rect.width) * 100;
+        const domainY = ((evt.clientY - rect.top) / rect.height) * 100;
+        // A click within ~15 real screen pixels of a point's centre counts
+        // as hitting it — converted to domain units at THIS canvas's own
+        // rendered width, so the tolerance is consistent regardless of
+        // plot size (same reasoning as components/scatter.js's radius
+        // pixel-anchoring).
+        const toleranceDomainUnits = (15 / rect.width) * 100;
+        const visiblePoints = s.matrix.points.filter((p) => !s.matrixQuadrantsHidden[p.quadrant]);
+        const hit = hitTestPoint(visiblePoints, domainX, domainY, toleranceDomainUnits);
+        if (hit) {
+          store.dispatch({ type: "MATRIX_SET_FOCUS", key: matrixPointKey(hit) });
+          openRepo(hit.owner, hit.name);
+        }
+      }
+      return;
+    }
     const tabBtn = evt.target.closest("[data-tab]");
     if (tabBtn) {
       const tab = tabBtn.dataset.tab;
@@ -1169,6 +1224,14 @@ export function boot(win = window, doc = document) {
       const [owner, name] = repo.split("/");
       store.dispatch({ type: "EVIDENCE_LOADING" });
       loadEvidence(owner, name);
+      return;
+    }
+    if (evt.target.closest("[data-repo-detail-retry]")) {
+      const repo = store.getState().repo;
+      if (!repo) return;
+      const [owner, name] = repo.split("/");
+      store.dispatch({ type: "REPO_DETAIL_LOADING" });
+      loadRepoDetail(owner, name);
     }
   });
 
@@ -1251,8 +1314,17 @@ export function boot(win = window, doc = document) {
       case "matrix-focus-right": {
         if (s.tab !== "matrix" || !s.matrix) return;
         const direction = action.replace("matrix-focus-", "");
-        const markerFocused = doc.activeElement?.classList.contains("matrix-marker");
-        if (!markerFocused) {
+        // Opus code review (2026-09-13): above SVG_MARKER_BUDGET markers
+        // there is no per-marker DOM node at all (the canvas fallback,
+        // components/scatter.js) — arrow keys ALWAYS navigate a VIRTUAL
+        // marker index in that mode (there is nothing else they could
+        // usefully do; panning stays available via wheel + the +/-
+        // buttons). Below the budget, the original SVG disambiguation
+        // still applies: the stage itself (not a marker) having focus
+        // means PAN, a focused marker means navigate.
+        const usesCanvas = s.matrix.points.length > SVG_MARKER_BUDGET;
+        const markerFocused = !usesCanvas && doc.activeElement?.classList.contains("matrix-marker");
+        if (!usesCanvas && !markerFocused) {
           // The stage itself (not a marker) has focus: arrow keys PAN
           // (module doc's reconciliation of "zoom/pan by wheel and keys"
           // vs. "focus moves between markers (Tab/arrow keys)").
@@ -1266,7 +1338,10 @@ export function boot(win = window, doc = document) {
         evt.preventDefault();
         const key = matrixPointKey(next);
         store.dispatch({ type: "MATRIX_SET_FOCUS", key });
-        main.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus();
+        // Only the SVG path has a real DOM node per marker to move real
+        // focus onto; the canvas path's "focus" is purely the state key
+        // driving the SVG overlay ring (renderFocusOverlaySvg).
+        if (!usesCanvas) main.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus();
         break;
       }
       case "matrix-toggle-1":
@@ -1301,13 +1376,29 @@ export function boot(win = window, doc = document) {
         // `.focus()` call never went through SET_CURSOR, so consulting
         // only the J/K cursor opened nothing for it. The cursor is the
         // fallback for when focus is elsewhere but a row was previously
-        // selected.
+        // selected. `[data-owner][data-name]` matches both a leaderboard
+        // `<tr>` AND a Matrix `.matrix-marker` `<g>` (both carry the same
+        // two data attributes) — resolving the key is enough to call
+        // `openRepo` directly; it no longer needs a pre-loaded `row`
+        // object (lead-reported defect 2026-09-13: requiring
+        // `s.leaderboard.rows.find(...)` to succeed meant Enter on a
+        // Tab-/`.focus()`-reached MATRIX marker opened nothing at all,
+        // since the matrix tab never loads `state.leaderboard`).
         const focusedRow = doc.activeElement?.closest?.("[data-owner][data-name]") ?? null;
-        const focusedKey = focusedRow ? `${focusedRow.dataset.owner}/${focusedRow.dataset.name}` : null;
+        // Above the canvas budget a marker has no DOM node at all to
+        // resolve via `[data-owner][data-name]` — `matrixFocusedKey`
+        // (the virtual index arrow keys move, Opus code review 2026-09-13)
+        // is the fallback specifically for that case ("click AND Enter
+        // open the drawer", 06 §3 B).
+        const matrixVirtualKey = s.tab === "matrix" ? s.matrixFocusedKey : null;
+        const focusedKey = focusedRow
+          ? `${focusedRow.dataset.owner}/${focusedRow.dataset.name}`
+          : matrixVirtualKey;
         const targetKey = resolveOpenTargetKey(s.selectedRepoKey, focusedKey);
-        const rows = s.leaderboard ? s.leaderboard.rows : [];
-        const row = rows.find((r) => rowKey(r) === targetKey);
-        if (row) openRepo(row.owner, row.name);
+        if (targetKey) {
+          const [owner, name] = targetKey.split("/");
+          openRepo(owner, name);
+        }
         break;
       }
       case "close-overlay":
@@ -1371,9 +1462,10 @@ export function boot(win = window, doc = document) {
       s.query !== previousState.query || s.sort !== previousState.sort ||
       s.page !== previousState.page || s.pageSize !== previousState.pageSize;
     if (paramsChanged) loadLeaderboard();
-    if (s.repo) {
-      const [owner, name] = s.repo.split("/");
-      loadEvidence(owner, name);
+    const repoToLoad = repoToLoadFromState(s);
+    if (repoToLoad) {
+      loadRepoDetail(repoToLoad.owner, repoToLoad.name);
+      loadEvidence(repoToLoad.owner, repoToLoad.name);
     }
     const weightsChanged = PILLAR_IDS.some((p) => s.weights[p] !== previousState.weights[p]);
     if (weightsChanged || (s.tab === "configure" && !s.reproject)) runReproject();
@@ -1444,7 +1536,7 @@ export function boot(win = window, doc = document) {
     const t0 = win.performance.now();
     const points = synthesizeRows(n);
     store.dispatch({ type: "SET_TAB", tab: "matrix" });
-    store.dispatch({ type: "MATRIX_OK", data: { points, excluded_count: 0, axis_coverage_caption: {} } });
+    store.dispatch({ type: "MATRIX_OK", data: { points, excluded_count: 0, axis_coverage: {} } });
     const t1 = win.performance.now();
     // eslint-disable-next-line no-console
     console.log(`[perf] synthesized ${n} matrix points in ${(t1 - t0).toFixed(1)}ms`);
@@ -1455,9 +1547,26 @@ export function boot(win = window, doc = document) {
     console.log(`[perf] matrix render of ${n} points: ${(t3 - t2).toFixed(1)}ms`);
   } else {
     render();
-    const initialTab = store.getState().tab;
+    const initialState = store.getState();
+    const initialTab = initialState.tab;
     if (initialTab === "ranked" || initialTab === "notranked") loadLeaderboard();
     loadDataForTab(initialTab);
+    // U-7/U-15/U-16 (lead-reported defect 2026-09-13): a drawer opened
+    // straight from a URL (?repo=owner/name, no click ever happened) must
+    // fetch the same record+evidence a click-opened one does — see
+    // repoToLoadFromState's own docstring. `openRepo` is not reused here
+    // because the URL is already authoritative (repo/cursor/history are
+    // already correct); only the two fetches are missing.
+    // `renderDrawerAndKeymap` (called inside the `render()` just above)
+    // already focuses the drawer's close button for a URL-hydrated
+    // `state.repo` on this very first render (`wasDrawerOpen` starts
+    // `false`) — only the two fetches were missing.
+    const bootRepoToLoad = repoToLoadFromState(initialState);
+    if (bootRepoToLoad) {
+      store.dispatch({ type: "SET_CURSOR", key: initialState.repo });
+      loadRepoDetail(bootRepoToLoad.owner, bootRepoToLoad.name);
+      loadEvidence(bootRepoToLoad.owner, bootRepoToLoad.name);
+    }
   }
   loadSnapshot();
 

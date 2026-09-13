@@ -7,9 +7,14 @@
 //   Graveyard -> cross ("x"). Colour from the SAME --quad-* tokens the
 //   leaderboard's quadrant glyph already uses (styles/tokens.css).
 // Marker SIZE = `stars_audited` (sqrt-scaled area, so the visual size
-// difference reflects the actual magnitude ratio) — a `null` value (no
-// v2 producer yet, W1-10 gap) draws at DEFAULT_RADIUS and is counted for
-// the "unaudited" legend note the view renders alongside this component.
+// difference reflects the actual magnitude ratio), radius 4-12 real
+// screen pixels (`MIN_RADIUS_PX`/`MAX_RADIUS_PX`) regardless of the
+// plot's rendered width (lead ruling 2026-09-13, replacing an earlier
+// viewBox-unit radius that rendered 18-49px diameters on a 710px plot —
+// a solid blob) — a `null` value (no v2 producer yet, W1-10 gap) draws at
+// `DEFAULT_RADIUS_PX` (6px) and is counted for the "unaudited" legend
+// note (`views/matrix.js`'s `MATRIX_UNAUDITED_STARS_NOTE`, which also
+// documents this 4-12px scale itself).
 //
 // Performance switch (06 §7 "matrix render < 150ms for 10k markers"):
 // `SVG_MARKER_BUDGET` markers or fewer render as real SVG `<*>` elements
@@ -27,12 +32,29 @@ export const DOMAIN_MIN = 0;
 export const DOMAIN_MAX = 100;
 export const QUADRANT_THRESHOLD = 50;
 export const SVG_MARKER_BUDGET = 2000;
-// Radii are in VIEWBOX USER UNITS (the plot area is a 100x100 domain,
-// module docstring) -- NOT screen pixels; the browser scales the whole
-// <svg> up to the `.matrix-stage` element's actual rendered size.
-export const DEFAULT_RADIUS = 1.6;
-const MIN_RADIUS = 1.1;
-const MAX_RADIUS = 3.6;
+
+// Lead ruling 2026-09-13 (a 710px-wide plot measured 18-49px marker
+// DIAMETERS, median 31 -- turning the Sweet Spot cluster into a solid
+// blob): marker RADIUS is 4-12 screen pixels on a sqrt scale of
+// `stars_audited`, `null` -> 6px, REGARDLESS of the plot's rendered
+// width. These three are real CSS pixels, documented in the legend
+// (views/matrix.js's MATRIX_UNAUDITED_STARS_NOTE neighbour).
+export const MIN_RADIUS_PX = 4;
+export const MAX_RADIUS_PX = 12;
+export const DEFAULT_RADIUS_PX = 6;
+
+//: `.matrix-stage`'s own CSS `max-width` (styles/views.css) -- the
+//: WORST-CASE (largest) width the SVG viewBox ever actually scales up to;
+//: `radiusForStars` converts a target pixel radius into viewBox (domain)
+//: units against this fixed reference, so at this width (or any narrower
+//: one -- the stage never renders WIDER) the on-screen radius is exactly
+//: the intended 4-12px, never more. A narrower viewport renders every
+//: marker proportionally SMALLER, which still satisfies the "<=12px at
+//: any plot width" requirement (it is a ceiling, not an exact target).
+export const REFERENCE_PLOT_WIDTH_PX = 720;
+
+/** Backward-compatible viewBox-unit constants (SVG path only) — kept for callers/tests that still want the domain-unit equivalents at the reference width. */
+export const DEFAULT_RADIUS = (DEFAULT_RADIUS_PX / REFERENCE_PLOT_WIDTH_PX) * (DOMAIN_MAX - DOMAIN_MIN);
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -53,15 +75,31 @@ export function toSvgY(leverage) {
 }
 
 /**
- * Sqrt-scaled radius so a marker's AREA (not its diameter) is proportional
- * to `starsAudited` — the perceptually correct scale for a size encoding.
- * `null`/`undefined` -> :data:`DEFAULT_RADIUS` (the "unaudited" case).
+ * Sqrt-scaled radius, in real CSS PIXELS (`MIN_RADIUS_PX`..`MAX_RADIUS_PX`,
+ * `DEFAULT_RADIUS_PX` for a null/undefined `starsAudited`), so a marker's
+ * AREA (not its diameter) is proportional to `starsAudited` — the
+ * perceptually correct scale for a size encoding. This is the single
+ * source of truth for the mapping; both rendering paths below derive
+ * their own coordinate system's radius from it.
+ */
+export function radiusPxForStars(starsAudited, domainMin, domainMax) {
+  if (starsAudited === null || starsAudited === undefined) return DEFAULT_RADIUS_PX;
+  if (!(domainMax > domainMin)) return DEFAULT_RADIUS_PX;
+  const t = Math.sqrt(Math.max(0, starsAudited - domainMin) / (domainMax - domainMin));
+  return MIN_RADIUS_PX + t * (MAX_RADIUS_PX - MIN_RADIUS_PX);
+}
+
+/**
+ * `radiusPxForStars`, converted to SVG VIEWBOX (domain) units against
+ * `REFERENCE_PLOT_WIDTH_PX` — the value `renderScatterSvg`'s markers use,
+ * since their coordinate system is the 0..100 domain, not screen pixels.
+ * The canvas path (`drawMatrixCanvas`) uses `radiusPxForStars` directly
+ * instead (its coordinates are already real pixels) — see that function's
+ * own docstring for why it does NOT go through this conversion.
  */
 export function radiusForStars(starsAudited, domainMin, domainMax) {
-  if (starsAudited === null || starsAudited === undefined) return DEFAULT_RADIUS;
-  if (!(domainMax > domainMin)) return DEFAULT_RADIUS;
-  const t = Math.sqrt(Math.max(0, starsAudited - domainMin) / (domainMax - domainMin));
-  return MIN_RADIUS + t * (MAX_RADIUS - MIN_RADIUS);
+  const px = radiusPxForStars(starsAudited, domainMin, domainMax);
+  return (px / REFERENCE_PLOT_WIDTH_PX) * (DOMAIN_MAX - DOMAIN_MIN);
 }
 
 export function starsDomain(points) {
@@ -157,10 +195,17 @@ export function renderScatterSvg(points, { quadrantsHidden = {}, focusedKey = nu
  * module docstring). Same shape/colour encoding as `renderScatterSvg`'s
  * per-marker fragment.
  */
-export function renderFocusOverlaySvg(point) {
+export function renderFocusOverlaySvg(point, domainMin = 0, domainMax = 0) {
   if (!point) return "";
   const cls = QUAD_CLASS[point.quadrant] || "quad-nursery";
-  const r = DEFAULT_RADIUS + 0.8; // slightly larger so the focus ring is visible over the canvas layer
+  // Review R-01 N-2 (2026-09-13): this used to always draw at
+  // `DEFAULT_RADIUS + 0.8` regardless of the marker's own stars-scaled
+  // size, so above the canvas budget the highlighted marker visibly
+  // changed size on focus/hover. `domainMin`/`domainMax` (the caller's
+  // `starsDomain(points)`) let this match the REAL marker's own radius,
+  // with a small constant bump so the focus ring stays visible over the
+  // canvas layer regardless of size.
+  const r = radiusForStars(point.stars_audited, domainMin, domainMax) + 0.8;
   return (
     `<svg class="matrix-svg matrix-focus-overlay" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">` +
     `<g class="matrix-marker ${cls} marker-focused" transform="translate(${toSvgX(point.friction)},${toSvgY(point.leverage)})">` +
@@ -174,6 +219,12 @@ export function renderFocusOverlaySvg(point) {
  * per-marker DOM node. `colors` maps quadrant name -> a resolved CSS colour
  * string (canvas cannot read `var(--x)`/`currentColor` itself — the caller
  * resolves the tokens once via `getComputedStyle` and passes plain colours).
+ * Radius uses `radiusPxForStars` DIRECTLY (real pixels, never multiplied
+ * by `sx`/`sy`) — canvas coordinates here are already real pixels, so
+ * going through the domain-unit `radiusForStars` and re-scaling by the
+ * canvas's OWN width/height would let a canvas wider than
+ * `REFERENCE_PLOT_WIDTH_PX` exceed the 4-12px guarantee (lead ruling
+ * 2026-09-13); this way the cap holds regardless of canvas size.
  */
 export function drawMatrixCanvas(ctx, points, { quadrantsHidden = {}, colors, width, height }) {
   ctx.clearRect(0, 0, width, height);
@@ -184,7 +235,7 @@ export function drawMatrixCanvas(ctx, points, { quadrantsHidden = {}, colors, wi
   for (const p of visible) {
     const x = toSvgX(p.friction) * sx;
     const y = toSvgY(p.leverage) * sy;
-    const r = radiusForStars(p.stars_audited, starsMin, starsMax) * Math.min(sx, sy);
+    const r = radiusPxForStars(p.stars_audited, starsMin, starsMax);
     ctx.fillStyle = colors[p.quadrant] || colors.Nursery;
     ctx.beginPath();
     if (p.quadrant === "Sweet Spot") {

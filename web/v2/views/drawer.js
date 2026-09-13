@@ -23,17 +23,20 @@ function escapeHtml(value) {
   ));
 }
 
-/** Locates a repo's row across every place the store might hold it. */
+/**
+ * Locates a repo's record. Lead ruling 2026-09-13 (drawer-content-parity
+ * fix, reproducing 0-evidence-rows-from-Matrix): the drawer's ONLY source
+ * is now `state.repoDetailByKey` — the result of `GET /v1/cvi/repos/{o}/
+ * {n}` (`app.js::loadRepoDetail`, called by `openRepo` regardless of which
+ * screen opened it) — never the ad-hoc "search whatever state slice
+ * happens to already be loaded" this function used before, which gave
+ * different (often EMPTY) content depending on entry point (Matrix's own
+ * point list, a Compare chip's cache, and the paginated leaderboard's
+ * CURRENT PAGE are three different, partial views of a repo's data).
+ */
 export function findRow(state, owner, name) {
-  const inLeaderboard = state.leaderboard && state.leaderboard.rows.find((r) => r.owner === owner && r.name === name);
-  if (inLeaderboard) return { kind: "rated", row: inLeaderboard };
-  if (state.notRanked) {
-    const gated = state.notRanked.gated.find((r) => r.owner === owner && r.name === name);
-    if (gated) return { kind: "gated", row: gated };
-    const unrated = state.notRanked.unrated.find((r) => r.owner === owner && r.name === name);
-    if (unrated) return { kind: "unrated", row: unrated };
-  }
-  return null;
+  const key = `${owner}/${name}`;
+  return (state.repoDetailByKey && state.repoDetailByKey[key]) || null;
 }
 
 function renderIdentity(kind, row) {
@@ -188,12 +191,23 @@ export function renderDrawer(state) {
   const found = findRow(state, owner, name);
 
   if (!found) {
+    let body;
+    if (state.repoDetailLoading) {
+      body = `<p>${escapeHtml(copy.DRAWER_LOADING_TEXT)}</p>`;
+    } else if (state.repoDetailError) {
+      const err = state.repoDetailError;
+      body =
+        `<div class="error-banner" role="alert">${escapeHtml(copy.drawerErrorText(err.endpoint, err.status, err.detail))}` +
+        ` <button type="button" class="icon-button" data-repo-detail-retry="true">${escapeHtml(copy.EVIDENCE_RETRY_LABEL)}</button></div>`;
+    } else {
+      body = `<div class="empty-state">${escapeHtml(copy.DRAWER_NOT_FOUND_TEXT)}</div>`;
+    }
     return (
       `<div class="drawer-backdrop" data-drawer-backdrop="true">` +
       `<div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">` +
       `<div class="drawer-header"><h1 id="drawer-title">${escapeHtml(owner)}/${escapeHtml(name)}</h1>` +
       `<button type="button" class="icon-button" data-drawer-close="true">${escapeHtml(copy.DRAWER_CLOSE_LABEL)}</button></div>` +
-      (state.evidenceLoading ? `<p>${escapeHtml(copy.DRAWER_LOADING_TEXT)}</p>` : `<div class="empty-state">${escapeHtml(copy.emptyLeaderboardText(0, 0))}</div>`) +
+      body +
       `</div></div>`
     );
   }

@@ -73,13 +73,13 @@ class TestMatrixContract:
             "cvi": row["cvi"], "coverage": row["coverage"], "tier": row["tier"],
         }
         response = MatrixResponse.model_validate(
-            {"points": [point], "excluded_count": leaderboard["counts"]["gated"], "axis_coverage_caption": {}}
+            {"points": [point], "excluded_count": leaderboard["counts"]["gated"], "axis_coverage": {}}
         )
         assert response.points[0].owner == row["owner"]
 
     def test_excluded_count_cannot_be_negative(self) -> None:
         with pytest.raises(ValidationError):
-            MatrixResponse.model_validate({"points": [], "excluded_count": -1, "axis_coverage_caption": {}})
+            MatrixResponse.model_validate({"points": [], "excluded_count": -1, "axis_coverage": {}})
 
 
 class TestReprojectContract:

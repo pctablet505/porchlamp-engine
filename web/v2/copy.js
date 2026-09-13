@@ -275,6 +275,7 @@ export const PLAYBOOK_STUB_TEXT =
   "Action recommendations are not computed by this snapshot yet.";
 export const DRAWER_CLOSE_LABEL = "Close";
 export const DRAWER_LOADING_TEXT = "Loading evidence…";
+export const DRAWER_NOT_FOUND_TEXT = "This repository could not be found in the current snapshot.";
 export function drawerErrorText(endpoint, status, detail) {
   const base = `Could not load evidence from ${endpoint} (status ${status}).`;
   return detail ? `${base} ${appendSentence(detail)}` : base;
@@ -371,7 +372,22 @@ export function matrixErrorText(endpoint, status, detail) {
 export function matrixExcludedCaption(excludedCount) {
   return `${excludedCount} gated ${excludedCount === 1 ? "repository" : "repositories"} excluded.`;
 }
-export const MATRIX_UNAUDITED_STARS_NOTE = "Repositories with no audited-star figure are drawn at a default marker size (unaudited).";
+
+// Opus code review B-2 (2026-09-13): the fixture server used to compose
+// this caption SENTENCE itself and send it verbatim — a `06` §6 violation
+// ("every sentence in copy.js") that the real API cannot match either (it
+// carries `axis_partial_count`/`axis_partial_share` numbers, never
+// prose). `axisName` is "leverage"/"friction"; `entry` is one
+// `MatrixResponse.axis_coverage` value (`{pillar, axis_partial_count,
+// axis_partial_share}`) or `undefined`/`null` (no caption needed).
+export function matrixAxisCoverageCaption(axisName, entry) {
+  if (!entry) return null;
+  const pillarLabel = PILLAR_NAMES[entry.pillar] || entry.pillar;
+  const pct = Math.round(entry.axis_partial_share * 100);
+  return `${axisName} computed without ${pillarLabel} for ${pct}% of plotted repositories.`;
+}
+export const MATRIX_UNAUDITED_STARS_NOTE =
+  "Marker size is audited stars, radius 4\u201312px on a square-root scale; repositories with no audited-star figure are drawn at a default 6px marker (unaudited).";
 export const MATRIX_RESET_VIEW_LABEL = "Reset view";
 export const MATRIX_ZOOM_IN_LABEL = "Zoom in";
 export const MATRIX_ZOOM_OUT_LABEL = "Zoom out";

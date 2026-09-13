@@ -10,9 +10,17 @@
 // moves between markers (Tab/arrow keys)" — the two are reconciled here,
 // documented since 06 does not spell out the disambiguation): Tab cycles
 // DOM order; an arrow key moves focus to the nearest marker in that
-// direction WHEN a marker currently has focus; `+`/`-` zoom (paired with
-// the wheel); arrow keys pan the view only when the SVG container itself
-// (not a marker) has focus. `1`-`4` toggle a quadrant; `R` resets the view.
+// direction WHEN a marker currently has focus (or, above SVG_MARKER_BUDGET,
+// always — there is no per-marker DOM node in canvas mode to check focus
+// on, Opus code review 2026-09-13); arrow keys pan the view (wheel-only
+// otherwise) when the SVG container itself — not a marker — has focus and
+// the SVG path is active. Zoom itself is wheel + the on-screen `+`/`−`
+// BUTTONS (`[data-matrix-zoom-in/out]`) — NOT keyboard shortcuts (an
+// earlier draft of this comment wrongly implied `+`/`-` keys existed;
+// R-01 N-1 review finding, corrected). `1`-`4` toggle a quadrant; `R`
+// resets the view; Enter opens the drawer for the focused/virtually-
+// focused marker; canvas-mode clicks are hit-tested (hitTestPoint) since
+// there is no per-marker DOM node for the browser's own click targeting.
 
 import * as copy from "../copy.js";
 import { renderCoverageBadge, renderTierCell } from "../components/badge.js";
@@ -22,6 +30,7 @@ import {
   pointKey,
   toSvgX,
   toSvgY,
+  starsDomain,
   SVG_MARKER_BUDGET,
   DOMAIN_MIN,
   DOMAIN_MAX,
@@ -104,6 +113,33 @@ export function nearestMarkerInDirection(points, currentKey, direction) {
   return best;
 }
 
+/**
+ * Finds the point nearest a CLICK on the canvas surface (Opus code review
+ * 2026-09-13: above `SVG_MARKER_BUDGET` markers have no per-marker DOM
+ * node, so the browser's own click hit-testing has nothing to land on —
+ * this is the fixture-server-free replacement, a simple nearest-point
+ * search within `toleranceDomainUnits` of the click). `domainX`/`domainY`
+ * are already-converted domain (0..100) coordinates, matching
+ * `toSvgX`/`toSvgY`'s own space; the caller converts the raw pixel click
+ * offset before calling this (see `app.js`'s canvas click handler).
+ * Returns `null` when nothing is within tolerance (a click on empty
+ * space is not an accidental open).
+ */
+export function hitTestPoint(points, domainX, domainY, toleranceDomainUnits) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const p of points) {
+    const dx = toSvgX(p.friction) - domainX;
+    const dy = toSvgY(p.leverage) - domainY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= toleranceDomainUnits && dist < bestDist) {
+      bestDist = dist;
+      best = p;
+    }
+  }
+  return best;
+}
+
 export function renderLoading() {
   return `<div class="empty-state" aria-busy="true">${escapeHtml(copy.MATRIX_LOADING_TEXT)}</div>`;
 }
@@ -139,8 +175,9 @@ function renderLegend(quadrantsHidden) {
 
 function renderCaptions(matrix) {
   const parts = [`<p class="matrix-caption">${escapeHtml(copy.matrixExcludedCaption(matrix.excluded_count))}</p>`];
-  for (const text of Object.values(matrix.axis_coverage_caption || {})) {
-    parts.push(`<p class="matrix-caption">${escapeHtml(text)}</p>`);
+  for (const [axisName, entry] of Object.entries(matrix.axis_coverage || {})) {
+    const text = copy.matrixAxisCoverageCaption(axisName, entry);
+    if (text) parts.push(`<p class="matrix-caption">${escapeHtml(text)}</p>`);
   }
   parts.push(`<p class="matrix-caption matrix-caption-muted">${escapeHtml(copy.MATRIX_UNAUDITED_STARS_NOTE)}</p>`);
   return parts.join("");
@@ -167,8 +204,9 @@ export function renderMatrixBody(state) {
   const points = matrix.points;
   const usesCanvas = points.length > SVG_MARKER_BUDGET;
   const focused = points.find((p) => pointKey(p) === (state.matrixFocusedKey || state.matrixHoveredKey));
+  const { min: overlayStarsMin, max: overlayStarsMax } = starsDomain(points);
   const surface = usesCanvas
-    ? `<div class="matrix-canvas-wrap"><canvas class="matrix-canvas" data-matrix-canvas="true" width="800" height="800"></canvas>${renderFocusOverlaySvg(focused)}` +
+    ? `<div class="matrix-canvas-wrap"><canvas class="matrix-canvas" data-matrix-canvas="true" width="800" height="800"></canvas>${renderFocusOverlaySvg(focused, overlayStarsMin, overlayStarsMax)}` +
       `<p class="matrix-caption">${escapeHtml(copy.MATRIX_CANVAS_FALLBACK_NOTE)}</p></div>`
     : renderScatterSvg(points, {
         quadrantsHidden: state.matrixQuadrantsHidden,
@@ -248,7 +286,8 @@ export function syncMatrixHover(main, state) {
   if (overlayHost) {
     const existingOverlay = overlayHost.querySelector(".matrix-focus-overlay");
     if (existingOverlay) existingOverlay.remove();
-    const nextOverlay = renderFocusOverlaySvg(point);
+    const { min: overlayStarsMin, max: overlayStarsMax } = starsDomain(points);
+    const nextOverlay = renderFocusOverlaySvg(point, overlayStarsMin, overlayStarsMax);
     if (nextOverlay) overlayHost.insertAdjacentHTML("beforeend", nextOverlay);
   }
 }

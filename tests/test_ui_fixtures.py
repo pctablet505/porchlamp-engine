@@ -339,7 +339,11 @@ class TestMatrixAndReprojectContractOnly:
             leverage_coverage=1.0, friction_coverage=1.0, quadrant="Sweet Spot",
             stars_audited=None, cvi=90.0, coverage=0.97, tier="S",
         )
-        response = MatrixResponse(points=[point], excluded_count=3, axis_coverage_caption={"friction": "computed without accessibility for 12%"})
+        response = MatrixResponse(
+            points=[point],
+            excluded_count=3,
+            axis_coverage={"friction": {"pillar": "accessibility", "axis_partial_count": 9, "axis_partial_share": 0.12}},
+        )
         assert response.points[0].stars_audited is None
 
     def test_reproject_request_rejects_weights_not_summing_to_one(self) -> None:

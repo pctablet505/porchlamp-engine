@@ -172,6 +172,15 @@ export function defaultState() {
     evidenceLoading: false,
     evidenceError: null, // { endpoint, status } for the CURRENTLY open repo's evidence, if it failed
 
+    // Lead ruling 2026-09-13 (drawer-content-parity fix): the drawer's
+    // record fetch (GET /v1/cvi/repos/{o}/{n}), independent of which
+    // screen (Leaderboard/Matrix/Compare/Configure) opened it -- the
+    // single source `views/drawer.js::findRow` now consults, replacing
+    // the old "search whatever state slice happens to be loaded" logic.
+    repoDetailByKey: {}, // "owner/name" -> { kind, row }
+    repoDetailLoading: false,
+    repoDetailError: null, // { endpoint, status, detail } for the CURRENTLY open repo, if it failed
+
     selectedRepoKey: null, // "owner/name" — J/K cursor; survives patches (keyed, not index-based)
     announcement: "", // aria-live polite text
     keymapOpen: false,
@@ -292,6 +301,24 @@ export function resolveOpenTargetKey(cursorKey, focusedRowKey) {
 }
 
 /**
+ * U-7/U-15/U-16 (lead-reported defect 2026-09-13): a drawer opened from a
+ * URL (`?repo=owner/name`, at boot OR restored by `popstate`) must fetch
+ * exactly what a click-opened one does (the record via `GET /v1/cvi/repos/
+ * {o}/{n}` and its evidence) — before this, only `app.js::openRepo` (the
+ * click/Enter path) triggered either fetch, so a URL-hydrated drawer
+ * showed the header and an empty pillar table with "Loading evidence…"
+ * stuck forever (nothing ever dispatched the load). `owner`/`name` are
+ * `null` when there is nothing to load (`state.repo` is falsy or
+ * malformed), so the caller can `if (parsed)` without a second check.
+ */
+export function repoToLoadFromState(state) {
+  if (!state.repo) return null;
+  const parts = state.repo.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  return { owner: parts[0], name: parts[1] };
+}
+
+/**
  * NB-2 (U-15/U-7, review 2026-09-13): the footer/snapshot-chip strip
  * carries U-6's reproducibility claim, so it must never rest on a
  * fabricated "Loading..." forever when the snapshot fetch actually
@@ -351,9 +378,9 @@ export function reduce(state, action) {
     case "SET_NOTRANKED_PAGE_SIZE":
       return { ...state, notRankedPageSize: action.pageSize, notRankedPage: action.page ?? state.notRankedPage };
     case "OPEN_REPO":
-      return { ...state, repo: action.repo, evidenceError: null };
+      return { ...state, repo: action.repo, evidenceError: null, repoDetailError: null };
     case "CLOSE_DRAWER":
-      return { ...state, repo: null, evidenceError: null };
+      return { ...state, repo: null, evidenceError: null, repoDetailError: null };
     case "SET_THEME":
       return { ...state, theme: action.theme };
     case "SET_CURSOR":
@@ -401,6 +428,19 @@ export function reduce(state, action) {
       };
     case "EVIDENCE_ERROR":
       return { ...state, evidenceLoading: false, evidenceError: action.error };
+
+    // ------------------------------------ drawer-content-parity fix (Screen C)
+    case "REPO_DETAIL_LOADING":
+      return { ...state, repoDetailLoading: true, repoDetailError: null };
+    case "REPO_DETAIL_OK":
+      return {
+        ...state,
+        repoDetailLoading: false,
+        repoDetailError: null,
+        repoDetailByKey: { ...state.repoDetailByKey, [action.repo]: action.data },
+      };
+    case "REPO_DETAIL_ERROR":
+      return { ...state, repoDetailLoading: false, repoDetailError: action.error };
 
     // --------------------------------------------------- W4-5b: Matrix (B)
     case "MATRIX_LOADING":

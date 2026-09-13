@@ -42,10 +42,15 @@ export function normalizeWeights(weights, locks, changedPillar, newValue) {
   const free = PILLAR_IDS.filter((p) => !fixed.has(p));
 
   if (free.length === 0) {
-    if (fixedSum > 1) {
-      const lockedSum = fixedSum - next[changedPillar];
-      next[changedPillar] = Math.max(0, 1 - lockedSum);
-    }
+    // Every OTHER pillar is locked: the dragged one has no freedom at all
+    // -- its value is fully determined by the four locked ones (whatever
+    // remains of the sum-to-1 budget), never the user's raw drag value.
+    // Review B-1 (2026-09-13): this used to only correct on OVERFLOW
+    // (`fixedSum > 1`), so a value the user dragged DOWN (four locks
+    // summing to 0.85, dragged the fifth 0.15 -> 0.02) left the total at
+    // 0.87 instead of snapping back to the one value that keeps it at 1.
+    const lockedSum = fixedSum - next[changedPillar];
+    next[changedPillar] = Math.max(0, 1 - lockedSum);
     return next;
   }
 
@@ -131,15 +136,24 @@ export function topMovers(rows, limit = 5) {
 
 function renderSlider(pillar, weights, locks) {
   const pct = Math.round(weights[pillar] * 1000) / 10;
+  const pillarLabel = escapeHtml(copy.PILLAR_NAMES[pillar]);
   return (
     `<div class="weight-slider-row">` +
-    `<label class="weight-slider-label" for="weight-${pillar}">${escapeHtml(copy.PILLAR_NAMES[pillar])}</label>` +
+    // Lead-reported defect 2026-09-13 ("aria-label is null"): the
+    // `<label for>` association alone gave the input an accessible name
+    // in this box's own accessibility-tree inspection, but a screen
+    // reader / automated audit checking the `aria-label` ATTRIBUTE
+    // directly (not just the computed accessible name) found nothing —
+    // both a `<label for>` AND an explicit `aria-label` are set now, so
+    // either check finds the pillar name; `aria-valuetext` still carries
+    // the live percentage a screen reader announces on every value change.
+    `<label class="weight-slider-label" for="weight-${pillar}" id="weight-${pillar}-label">${pillarLabel}</label>` +
     `<input type="range" id="weight-${pillar}" class="weight-slider" min="0" max="1" step="0.01" ` +
     `value="${weights[pillar]}" data-weight-slider="${pillar}" ${locks[pillar] ? "disabled" : ""} ` +
-    `aria-valuetext="${pct}%">` +
+    `aria-label="${pillarLabel}" aria-labelledby="weight-${pillar}-label" aria-valuetext="${pillarLabel}: ${pct}%">` +
     `<output class="weight-slider-value" for="weight-${pillar}">${pct}%</output>` +
     `<button type="button" class="icon-button weight-lock-toggle" data-weight-lock="${pillar}" ` +
-    `aria-pressed="${!!locks[pillar]}" aria-label="${escapeHtml(copy.CONFIGURE_LOCK_LABEL)} ${escapeHtml(copy.PILLAR_NAMES[pillar])}">` +
+    `aria-pressed="${!!locks[pillar]}" aria-label="${escapeHtml(copy.CONFIGURE_LOCK_LABEL)} ${pillarLabel}">` +
     `${locks[pillar] ? "🔒" : "🔓"}</button>` +
     `</div>`
   );

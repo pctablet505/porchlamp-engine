@@ -21,8 +21,14 @@ import {
   countRankChanges,
   resolveOpenTargetKey,
   footerFieldsFor,
+  repoToLoadFromState,
 } from "../state.js";
 import * as copy from "../copy.js";
+import { normalizeWeights, applyPresetRespectingLocks, renderControls } from "../views/configure.js";
+import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
+import { nearestMarkerInDirection, hitTestPoint } from "../views/matrix.js";
+import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY } from "../components/scatter.js";
+import { synthesizeRows } from "../perf-fixtures.js";
 
 // --------------------------------------------------------------------- U-5
 // D-TIE-1 client-derivable levels: 1 (composite), 2 (coverage), 3
@@ -266,6 +272,7 @@ test("footerFieldsFor: error takes priority over a stale/absent snapshot", () =>
     kind: "error",
     endpoint: "/v1/cvi/snapshot",
     status: 500,
+    detail: undefined,
   });
 });
 
@@ -287,4 +294,220 @@ test("footerFieldsFor: an error set alongside a stale snapshot still reports err
     snapshotError: { endpoint: "/v1/cvi/snapshot", status: 500 },
   };
   assert.equal(footerFieldsFor(state).kind, "error");
+});
+
+// --------------------------------------------------------------------- //
+// Configure weights: normalizeWeights / applyPresetRespectingLocks
+// (Opus code review B-1, 2026-09-13: locking four pillars and dragging
+// the fifth DOWN left the sum at 0.87, not 1 — `free.length === 0` only
+// corrected an OVERFLOW, never a shortfall. Property test shape per the
+// reviewer's own request: lock subsets x values, plus randomised walks.)
+// --------------------------------------------------------------------- //
+
+function sumOf(weights) {
+  return PILLAR_IDS.reduce((s, p) => s + weights[p], 0);
+}
+
+function assertValidDistribution(weights, locks, before, label) {
+  const sum = sumOf(weights);
+  assert.ok(Math.abs(sum - 1) < 1e-9, `${label}: sum ${sum} must be 1 (±1e-9)`);
+  for (const p of PILLAR_IDS) {
+    assert.ok(weights[p] >= 0, `${label}: ${p}=${weights[p]} must not be negative`);
+    if (locks[p]) {
+      assert.equal(weights[p], before[p], `${label}: locked pillar ${p} must not change`);
+    }
+  }
+}
+
+// Deterministic LCG (same shape as perf-fixtures.js's) so a "randomised"
+// walk is reproducible.
+function makeRng(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+test("normalizeWeights: every subset of 0-4 locked pillars keeps the sum at 1", () => {
+  const base = { ...BALANCED_WEIGHTS };
+  // All 32 subsets of the 5 pillars, excluding the full set (a slider that
+  // is itself locked is never draggable in the UI — this function is only
+  // ever called with `changedPillar` NOT among the locked ones).
+  for (let mask = 0; mask < 32; mask++) {
+    const locks = {};
+    PILLAR_IDS.forEach((p, i) => {
+      locks[p] = (mask & (1 << i)) !== 0;
+    });
+    const freePillars = PILLAR_IDS.filter((p) => !locks[p]);
+    if (freePillars.length === 0) continue; // nothing to drag
+    const changed = freePillars[0];
+    for (const target of [0, 0.02, 0.15, 0.5, 1]) {
+      const next = normalizeWeights(base, locks, changed, target);
+      assertValidDistribution(next, locks, base, `mask=${mask} changed=${changed} target=${target}`);
+    }
+  }
+});
+
+test("normalizeWeights: the exact reviewer repro (four locked, fifth dragged down) snaps to the only valid value", () => {
+  const locks = { responsiveness: true, criticality: true, governance: true, accessibility: true };
+  const next = normalizeWeights(BALANCED_WEIGHTS, locks, "rigor", 0.02);
+  assertValidDistribution(next, locks, BALANCED_WEIGHTS, "four-locked repro");
+  // 0.25 + 0.25 + 0.20 + 0.15 (the four locked pillars) = 0.85, so rigor
+  // MUST be 0.15 regardless of the 0.02 drag target.
+  assert.ok(Math.abs(next.rigor - 0.15) < 1e-9);
+});
+
+test("normalizeWeights: randomised walk of locks + drags never breaks the invariant", () => {
+  const rng = makeRng(20260913);
+  let weights = { ...BALANCED_WEIGHTS };
+  let locks = { responsiveness: false, criticality: false, governance: false, rigor: false, accessibility: false };
+  for (let step = 0; step < 500; step++) {
+    // Occasionally flip a lock (never locking every pillar at once).
+    if (rng() < 0.3) {
+      const p = PILLAR_IDS[Math.floor(rng() * PILLAR_IDS.length)];
+      const wouldLockAll = !locks[p] && PILLAR_IDS.every((q) => q === p || locks[q]);
+      if (!wouldLockAll) locks = { ...locks, [p]: !locks[p] };
+    }
+    const freePillars = PILLAR_IDS.filter((p) => !locks[p]);
+    if (freePillars.length === 0) continue;
+    const changed = freePillars[Math.floor(rng() * freePillars.length)];
+    const target = rng();
+    const before = weights;
+    weights = normalizeWeights(weights, locks, changed, target);
+    assertValidDistribution(weights, locks, before, `step=${step}`);
+  }
+});
+
+test("applyPresetRespectingLocks: with no locks, reduces to the preset exactly", () => {
+  for (const preset of Object.values(PERSONA_PRESET_WEIGHTS)) {
+    const locks = { responsiveness: false, criticality: false, governance: false, rigor: false, accessibility: false };
+    const next = applyPresetRespectingLocks(BALANCED_WEIGHTS, locks, preset);
+    for (const p of PILLAR_IDS) assert.ok(Math.abs(next[p] - preset[p]) < 1e-9);
+  }
+});
+
+test("applyPresetRespectingLocks: a locked pillar keeps its value and the rest still sum to 1", () => {
+  const weights = { ...BALANCED_WEIGHTS };
+  const locks = { responsiveness: false, criticality: false, governance: false, rigor: true, accessibility: false };
+  const next = applyPresetRespectingLocks(weights, locks, PERSONA_PRESET_WEIGHTS.career_capital);
+  assertValidDistribution(next, locks, weights, "preset with one lock");
+});
+
+// --------------------------------------------------------------------- //
+// Configure weights: slider accessibility markup (lead-reported defect
+// 2026-09-13: "aria-label is null" — a `<label for>` alone gave this
+// box's own accessibility-tree inspection a correct accessible name, but
+// an audit checking the `aria-label` ATTRIBUTE directly found nothing).
+// Hand-traced against `renderControls`'s own HTML string output (no DOM
+// needed) since Node is absent — see the file's own top-of-file note.
+// --------------------------------------------------------------------- //
+
+test("renderControls: every slider carries aria-label, a matching aria-labelledby target, and a pillar-named aria-valuetext", () => {
+  const state = { weights: { ...BALANCED_WEIGHTS }, weightLocks: { responsiveness: false, criticality: false, governance: false, rigor: false, accessibility: false } };
+  const html = renderControls(state);
+  for (const pillar of PILLAR_IDS) {
+    const label = copy.PILLAR_NAMES[pillar];
+    assert.ok(html.includes(`id="weight-${pillar}-label"`), `${pillar}: missing the label element's own id`);
+    assert.ok(html.includes(`aria-label="${label}"`), `${pillar}: missing aria-label="${label}"`);
+    assert.ok(html.includes(`aria-labelledby="weight-${pillar}-label"`), `${pillar}: aria-labelledby must point at the label id`);
+    assert.ok(html.includes(`for="weight-${pillar}"`), `${pillar}: <label for> must still target the input's id too (belt-and-suspenders)`);
+    // aria-valuetext must carry BOTH the pillar name and a percentage —
+    // never just the bare number (a screen reader arrow-keying through
+    // values must hear WHICH slider changed, not just the new value).
+    const valuetextMatch = html.match(new RegExp(`data-weight-slider="${pillar}"[^>]*aria-valuetext="([^"]*)"`));
+    assert.ok(valuetextMatch, `${pillar}: no aria-valuetext found on the slider`);
+    assert.ok(valuetextMatch[1].startsWith(`${label}:`), `${pillar}: aria-valuetext "${valuetextMatch[1]}" must start with the pillar name`);
+    assert.ok(/%$/.test(valuetextMatch[1]), `${pillar}: aria-valuetext "${valuetextMatch[1]}" must end with a percentage`);
+  }
+});
+
+// --------------------------------------------------------------------- //
+// repoToLoadFromState: the URL->actions mapping for a drawer opened
+// straight from a URL (lead-reported defect 2026-09-13: a `?repo=owner/
+// name` URL rendered the drawer's header but never dispatched the
+// evidence/record fetch, since only the click path (app.js::openRepo)
+// triggered either — "Loading evidence..." stuck forever).
+// --------------------------------------------------------------------- //
+
+test("repoToLoadFromState: a full URL round-trip finds the repo to load", () => {
+  const parsed = parseSearch("?repo=riverline%2Fhttpkit&tab=matrix");
+  const state = { ...defaultState(), ...parsed };
+  assert.deepEqual(repoToLoadFromState(state), { owner: "riverline", name: "httpkit" });
+});
+
+test("repoToLoadFromState: repo= with no tab= at all still resolves (06 §3: 'with or without tab=')", () => {
+  const parsed = parseSearch("?repo=riverline%2Fhttpkit");
+  const state = { ...defaultState(), ...parsed };
+  assert.deepEqual(repoToLoadFromState(state), { owner: "riverline", name: "httpkit" });
+});
+
+test("repoToLoadFromState: no repo in the URL loads nothing", () => {
+  assert.equal(repoToLoadFromState(defaultState()), null);
+});
+
+test("repoToLoadFromState: a malformed repo (no slash) loads nothing rather than throwing", () => {
+  assert.equal(repoToLoadFromState({ ...defaultState(), repo: "not-a-valid-key" }), null);
+});
+
+// --------------------------------------------------------------------- //
+// Matrix: virtual-index keyboard navigation and canvas hit-testing above
+// SVG_MARKER_BUDGET (Opus code review 2026-09-13: "above the 2,000-marker
+// canvas threshold markers have no DOM, so Tab and click stop working").
+// Exercised on the 5,000-point perf fixture, as the reviewer asked.
+// --------------------------------------------------------------------- //
+
+const PERF_POINTS = synthesizeRows(5000);
+
+test("perf-fixtures generates enough points to exceed SVG_MARKER_BUDGET (the canvas path this suite exercises)", () => {
+  assert.ok(PERF_POINTS.length > SVG_MARKER_BUDGET);
+});
+
+test("nearestMarkerInDirection: a full virtual-index walk on 5,000 points always lands on a real, distinct point", () => {
+  let key = null;
+  const visited = new Set();
+  for (let i = 0; i < 50; i++) {
+    const next = nearestMarkerInDirection(PERF_POINTS, key, "down");
+    if (!next) break; // ran off the edge of the domain — a legitimate stop, not a failure
+    const nextKey = pointKey(next);
+    assert.ok(!visited.has(nextKey) || nextKey === key, "must not orbit the same point forever");
+    visited.add(nextKey);
+    key = nextKey;
+  }
+  assert.ok(visited.size > 1, "the walk must actually move across multiple points");
+});
+
+test("nearestMarkerInDirection: with no current key, falls back to the first point (a valid starting focus)", () => {
+  const next = nearestMarkerInDirection(PERF_POINTS, null, "down");
+  assert.equal(pointKey(next), pointKey(PERF_POINTS[0]));
+});
+
+test("hitTestPoint: an exact click on a point's own domain position finds it (or a genuinely closer neighbour, never nothing)", () => {
+  const target = PERF_POINTS[42];
+  const domainX = toSvgX(target.friction);
+  const domainY = toSvgY(target.leverage);
+  const hit = hitTestPoint(PERF_POINTS, domainX, domainY, 5);
+  assert.ok(hit, "a click exactly at a point's own position must hit something within a 5-unit tolerance");
+  // The hit must be AT LEAST as close as the target itself — with 5,000
+  // densely-packed synthetic points a different point can legitimately be
+  // marginally closer to the exact click coordinate than the "intended"
+  // one (verified live against the real fixture server, see the handoff);
+  // the correctness property is "closest within tolerance", not "always
+  // the specific point a human eye would guess".
+  const distTo = (p) => Math.hypot(toSvgX(p.friction) - domainX, toSvgY(p.leverage) - domainY);
+  assert.ok(distTo(hit) <= distTo(target) + 1e-9);
+});
+
+test("hitTestPoint: a click far from every point finds nothing (never opens the wrong repo on empty space)", () => {
+  // (250, 250) is far outside the 0..100 domain entirely.
+  assert.equal(hitTestPoint(PERF_POINTS, 250, 250, 5), null);
+});
+
+test("hitTestPoint: a smaller tolerance can legitimately find nothing even near real points", () => {
+  // An essentially-zero tolerance only hits a point sitting EXACTLY on the
+  // queried coordinate — vanishingly unlikely across floating-point
+  // leverage/friction values, so this must normally return null.
+  const anyPoint = PERF_POINTS[0];
+  const hit = hitTestPoint(PERF_POINTS, toSvgX(anyPoint.friction) + 50, toSvgY(anyPoint.leverage) + 50, 1e-6);
+  assert.equal(hit, null);
 });

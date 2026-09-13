@@ -69,8 +69,10 @@ count (`06` §3 B: "gated repos are not plotted; a caption states how many
 are excluded" — unrated rows carry no coordinate fields at all in the
 `NotRankedRow` contract, so they were never plottable to begin with, and
 the doc's own caption wording only ever names gated repos).
-`axis_coverage_caption` is computed by :func:`axis_coverage_caption_for`
-below.
+`axis_coverage` (pillar id, missing count, missing share per axis --
+never pre-rendered prose, Opus code review B-2 2026-09-13) is computed
+by :func:`axis_coverage` below; `web/v2/copy.js` composes the caption
+sentence client-side from those numbers.
 
 `GET /v1/cvi/methodology` serves `tests/fixtures/ui/methodology.json`
 verbatim. That file is not hand-typed: it is the genuine output of
@@ -169,28 +171,38 @@ def matrix_points_for(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def axis_coverage_captions(rows: list[dict[str, Any]]) -> dict[str, str]:
-    """One caption per axis (`leverage`/`friction`) whose worst-missing
+def axis_coverage(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """One entry per axis (`leverage`/`friction`) whose worst-missing
     contributing pillar is unmeasured for
-    :data:`AXIS_CAPTION_MIN_MISSING_FRACTION` or more of `rows` — `06` §3
-    B's "friction computed without accessibility for 12%" style caption.
+    :data:`AXIS_CAPTION_MIN_MISSING_FRACTION` or more of `rows` --
+    `cvi.serve.contract.MatrixAxisCoverage`-shaped dicts (`pillar`,
+    `axis_partial_count`, `axis_partial_share`). Opus code review B-2
+    (2026-09-13): this used to compose the CAPTION SENTENCE here in
+    Python and send it verbatim -- a `06` §6 violation ("every sentence
+    in copy.js") the real API cannot match either (it sends these same
+    raw numbers, never prose) -- `copy.js`'s `matrixAxisCoverageCaption`
+    now does the composing, client-side, from exactly these three fields.
     Empty when every contributing pillar is well-measured on every axis."""
-    captions: dict[str, str] = {}
+    coverage: dict[str, dict[str, Any]] = {}
     n = len(rows)
     if n == 0:
-        return captions
+        return coverage
     for axis, weights in (("leverage", LEVERAGE_AXIS_WEIGHTS), ("friction", FRICTION_AXIS_WEIGHTS)):
         worst_pillar = None
+        worst_count = 0
         worst_fraction = 0.0
         for pillar in weights:
             missing = sum(1 for r in rows if r.get(f"p_{pillar}") is None)
             fraction = missing / n
             if fraction > worst_fraction:
-                worst_fraction, worst_pillar = fraction, pillar
+                worst_fraction, worst_pillar, worst_count = fraction, pillar, missing
         if worst_pillar is not None and worst_fraction >= AXIS_CAPTION_MIN_MISSING_FRACTION:
-            pct = round(worst_fraction * 100)
-            captions[axis] = f"{axis} computed without {worst_pillar} for {pct}% of plotted repositories."
-    return captions
+            coverage[axis] = {
+                "pillar": worst_pillar,
+                "axis_partial_count": worst_count,
+                "axis_partial_share": worst_fraction,
+            }
+    return coverage
 
 
 # --------------------------------------------------------------------------- #
@@ -396,6 +408,24 @@ class FixtureStore:
         # rows_for_persona above).
         return self.notranked_by_persona.get(persona, self.notranked)
 
+    def find_repo_detail(self, owner: str, name: str) -> dict[str, Any] | None:
+        """`GET /v1/cvi/repos/{owner}/{name}` (lead ruling 2026-09-13, the
+        Matrix-vs-Leaderboard drawer-content-parity fix): the SAME record
+        regardless of which screen asks for it -- balanced leaderboard rows
+        first (rated), then the balanced not-ranked lists (gated/unrated),
+        `None` if the repo is in neither (a genuine 404, not a "the caller
+        forgot to load a page" symptom)."""
+        for row in self.leaderboard["rows"]:
+            if row["owner"] == owner and row["name"] == name:
+                return {"kind": "rated", "row": row}
+        for row in self.notranked["gated"]:
+            if row["owner"] == owner and row["name"] == name:
+                return {"kind": "gated", "row": row}
+        for row in self.notranked["unrated"]:
+            if row["owner"] == owner and row["name"] == name:
+                return {"kind": "unrated", "row": row}
+        return None
+
     def leaderboard_page(
         self, *, persona: str, eco: str | None, q: str | None, sort: str, page: int, page_size: int
     ) -> dict[str, Any]:
@@ -566,7 +596,7 @@ def make_handler(
                     {
                         "points": points,
                         "excluded_count": store.leaderboard["counts"]["gated"],
-                        "axis_coverage_caption": axis_coverage_captions(rows),
+                        "axis_coverage": axis_coverage(rows),
                     },
                 )
                 return
@@ -583,6 +613,23 @@ def make_handler(
                     self._send_error_json(404, f"no evidence fixture for {owner}/{name}")
                     return
                 self._send_json(200, rows)
+                return
+
+            if path.startswith("/v1/cvi/repos/"):
+                # Lead ruling 2026-09-13: the drawer's record fetch,
+                # independent of the `/evidence` sub-resource above and of
+                # whichever screen opened it (06 §3 Screen C).
+                remainder = path[len("/v1/cvi/repos/"):]
+                parts = remainder.split("/")
+                if len(parts) != 2:
+                    self._send_error_json(404, f"malformed repo path: {path}")
+                    return
+                owner, name = parts
+                detail = store.find_repo_detail(owner, name)
+                if detail is None:
+                    self._send_error_json(404, f"no such repo: {owner}/{name}")
+                    return
+                self._send_json(200, detail)
                 return
 
             if path.startswith("/v1/"):

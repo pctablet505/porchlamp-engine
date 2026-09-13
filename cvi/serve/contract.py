@@ -522,15 +522,41 @@ class MatrixPoint(StrictModel):
     tier: str | None
 
 
+class MatrixAxisCoverage(StrictModel):
+    """One axis's (`leverage`/`friction`) worst-missing contributing pillar
+    and the raw numbers behind it — Opus code review B-2 (2026-09-13): the
+    original `axis_coverage_caption: dict[str, str]` composed the SENTENCE
+    server-side (a `06` §6 violation: "every sentence in copy.js") and
+    could never match the real API, which carries these numbers, not
+    prose. `axis_partial_count`/`axis_partial_share` name the fraction of
+    PLOTTED rows where `pillar` was unmeasured (so the axis coordinate for
+    that row is itself only partially measured)."""
+
+    pillar: Literal["responsiveness", "criticality", "governance", "rigor", "accessibility"]
+    axis_partial_count: int
+    axis_partial_share: float
+
+    @model_validator(mode="after")
+    def _share_and_count_are_sane(self) -> "MatrixAxisCoverage":
+        if self.axis_partial_count < 0:
+            raise ValueError(f"axis_partial_count must be >= 0, got {self.axis_partial_count}")
+        if not (0.0 <= self.axis_partial_share <= 1.0):
+            raise ValueError(f"axis_partial_share must be in [0, 1], got {self.axis_partial_share}")
+        return self
+
+
 class MatrixResponse(StrictModel):
     """`GET /v1/cvi/matrix`. `excluded_count`: gated repositories are never
-    plotted (`06` §3 B); `axis_coverage_caption`, one entry per axis whose
-    coverage-affecting pillar was unmeasured for enough rows to need the
-    "friction computed without accessibility for 12%" style caption."""
+    plotted (`06` §3 B). `axis_coverage`: one entry per axis (`leverage`/
+    `friction`) whose worst-missing contributing pillar clears the
+    fixture server's own documented threshold — the UI (`copy.js`)
+    composes the "friction computed without accessibility for 12%" style
+    caption from these numbers plus the pillar's display name; this
+    contract never carries pre-rendered prose (B-2)."""
 
     points: list[MatrixPoint]
     excluded_count: int
-    axis_coverage_caption: dict[str, str] = {}
+    axis_coverage: dict[str, MatrixAxisCoverage] = {}
 
     @model_validator(mode="after")
     def _excluded_count_is_non_negative(self) -> "MatrixResponse":
@@ -539,6 +565,9 @@ class MatrixResponse(StrictModel):
         # non-negativity; `MatrixResponse` had no such guard.
         if self.excluded_count < 0:
             raise ValueError(f"excluded_count must be >= 0, got {self.excluded_count}")
+        for axis in self.axis_coverage:
+            if axis not in ("leverage", "friction"):
+                raise ValueError(f"axis_coverage key must be 'leverage' or 'friction', got {axis!r}")
         return self
 
 
@@ -598,6 +627,35 @@ class ReprojectResponse(StrictModel):
     rows: list[ReprojectRow]
     total: int
     lens: Literal["custom"] = "custom"
+
+
+class RepoDetailResponse(StrictModel):
+    """`GET /v1/cvi/repos/{owner}/{name}` (packet W4-5b addition, lead
+    ruling 2026-09-13 on the Matrix-vs-Leaderboard drawer-content-parity
+    finding): the SAME record `findRow` used to search for only in
+    whatever state slice happened to already be loaded (`06` §3 Screen C)
+    -- now the single, tab-independent source every entry point into the
+    drawer (Leaderboard, Matrix, Compare, Configure) fetches, so the
+    drawer renders identically regardless of which screen opened it.
+
+    `kind="rated"` carries a `LeaderboardRow`; `kind in ("gated",
+    "unrated")` carries a `NotRankedRow` (`06` §4's own two row shapes) --
+    a discriminated union rather than a third, redundant shape."""
+
+    kind: Literal["rated", "gated", "unrated"]
+    row: LeaderboardRow | NotRankedRow
+
+    @model_validator(mode="after")
+    def _kind_matches_row_shape(self) -> "RepoDetailResponse":
+        if self.kind == "rated" and not isinstance(self.row, LeaderboardRow):
+            raise ValueError("kind='rated' must carry a LeaderboardRow")
+        if self.kind in ("gated", "unrated") and not isinstance(self.row, NotRankedRow):
+            raise ValueError(f"kind={self.kind!r} must carry a NotRankedRow")
+        if self.kind == "gated" and self.row.gate_reason is None:
+            raise ValueError("kind='gated' row must carry a gate_reason")
+        if self.kind == "unrated" and self.row.unrated_reason is None:
+            raise ValueError("kind='unrated' row must carry an unrated_reason")
+        return self
 
 
 # --------------------------------------------------------------------------- #
@@ -775,10 +833,12 @@ __all__ = [
     "LeaderboardResponse",
     "NotRankedResponse",
     "MatrixPoint",
+    "MatrixAxisCoverage",
     "MatrixResponse",
     "ReprojectRequest",
     "ReprojectRow",
     "ReprojectResponse",
+    "RepoDetailResponse",
     "MethodologyPillar",
     "MethodologyProxyInfo",
     "MethodologyParameter",

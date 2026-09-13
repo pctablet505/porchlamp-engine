@@ -50,14 +50,23 @@ export function parameterDirection(paramEntry, persona) {
  */
 export function betterRepoKey(paramEntry, valuesByRepoKey, persona) {
   const direction = parameterDirection(paramEntry, persona);
-  const measured = Object.entries(valuesByRepoKey).filter(([, v]) => v !== null && v !== undefined);
+  let measured = Object.entries(valuesByRepoKey).filter(([, v]) => v !== null && v !== undefined);
   if (measured.length < 2 || !direction) return null;
 
   let rank;
   if (direction === "higher") rank = (v) => v;
   else if (direction === "lower") rank = (v) => -v;
-  else if (direction.kind === "enum-order") rank = (v) => direction.order.indexOf(v);
-  else return null;
+  else if (direction.kind === "enum-order") {
+    rank = (v) => direction.order.indexOf(v);
+    // Review W-5 (2026-09-13): a value absent from the enum's own
+    // worst-to-best order (`indexOf` returns -1) is UNKNOWN, not "worse
+    // than the worst" — ranking it as -1 would silently mark every OTHER
+    // repo's real (known) value as "better" purely because this one
+    // couldn't be placed on the scale. Treated the same as an unmeasured
+    // value: excluded from the comparison entirely.
+    measured = measured.filter(([, v]) => rank(v) !== -1);
+    if (measured.length < 2) return null;
+  } else return null;
 
   measured.sort((a, b) => rank(b[1]) - rank(a[1]));
   const bestRank = rank(measured[0][1]);
