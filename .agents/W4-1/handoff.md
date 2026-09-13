@@ -13,8 +13,19 @@ packet executes).
 - Rate limiter / ETag cache / circuit breaker (`TokenBucketRateLimiter`,
   `ETagCache`, `FetchResult`, `CircuitBreaker`, `_parse_reset_epoch`,
   `CachedHttpClient`, `IngestError`, `RateLimitedError`) moved **verbatim**
-  to `cvi/collect/ratelimit.py`, with tests moved verbatim to
-  `tests/collect/test_ratelimit.py`.
+  to `cvi/collect/ratelimit.py` (source byte-identical for 7 of 8 symbols;
+  `CachedHttpClient` differs by one docstring word, no code change).
+  **Correction (W4-1f, review W-1): the tests were NOT moved verbatim** —
+  17 of 23 carried-over test definitions were hand-rewritten (only the
+  shared `FakeClock` fixture is byte-identical), and three assertions
+  were silently dropped in the process: the `capacity=-0.5` rejection
+  case, `assert breaker.trips == 1`, and the `trip()` return value for an
+  already-passed reset. The review proved this mattered with a live
+  mutant (`if capacity <= 0` → `if capacity == 0`: survived the rewritten
+  file, killed by the original assertion). All three were restored
+  verbatim from `git show 130ed0f:tests/test_ingest.py` in `tests/collect/
+  test_ratelimit.py`, W4-1f; the mutant now dies against the restored
+  file too (re-verified).
 - `apply_raw_metrics`/`_enum_value` moved to `cvi/lakehouse.py` (its only
   argument type, `OperationalStore`, already lives there). Every caller
   (`scripts/promote.py`, `scripts/demo_app.py`, 5 test files) re-pointed
@@ -24,9 +35,30 @@ packet executes).
   `ingest_and_score` were **Tier A dead code** (zero production callers,
   no relocation target named anywhere in `04-ARCHITECTURE.md`) — deleted
   outright. `tests/test_ingestion_integration.py` (1,222 lines) was
-  deleted in full: its entire premise was this deleted pipeline, and its
-  incidental `query_matrix`/`apply_raw_metrics` coverage is independently
-  duplicated in `tests/test_lakehouse.py` (verified before deleting).
+  deleted in full.
+  **Correction (W4-1f, review W-2): the original justification here
+  understated what this file covered.** Only about 5 of its 20 tests
+  actually concerned the deleted GHArchive/`ingest_and_score` stack; the
+  other ~15 exercised **live v1 surface** through that pipeline used as a
+  fixture — `cvi.api.create_app` (persona reprojection, deep-dive,
+  the matrix endpoint, leaderboard order), `cvi.engine.score_repository`,
+  `query_matrix`, `count_by_quadrant`, off-platform routing, black-hole
+  gating, pillar-score distinctness. Every one of those areas does have
+  independent surviving coverage (`tests/test_api.py`,
+  `tests/test_deepdive.py`, `tests/test_performance.py`,
+  `tests/test_lakehouse.py`, `tests/test_engine.py`,
+  `tests/test_stage0.py`) — the deletion is safe — but what is genuinely
+  gone, and was not called out plainly enough here originally, is the
+  **single end-to-end path**: nothing in the suite now exercises the v1
+  raw-events → `score_repository` → `OperationalStore` → `cvi.api`
+  pipeline as one continuous flow through a live server the way this
+  file did. Piecemeal coverage of every step is not the same guarantee
+  as one test proving the steps compose correctly end to end, and no
+  replacement for that end-to-end shape was written as part of this
+  packet (it was out of scope: rebuilding an equivalent end-to-end test
+  around only `apply_raw_metrics`'s surviving half, without
+  `ingest_and_score` to drive it, would be new test design, not a
+  "package move").
 - `cvi/ingest.py` then became a one-release deprecation shim (re-exporting
   the `cvi.collect.ratelimit` names with a `DeprecationWarning`), per the
   task's instruction — then **deleted** in the next commit: grep sweep
@@ -234,3 +266,58 @@ after rebase:
   venv would be fooled by it. Two-level-deep submodules
   (`cvi.collect.ratelimit`) are unaffected (the finder declines and lets
   the normal, correct `PathFinder` handle them).
+
+## W4-1f — review follow-up round (XS)
+
+Base main (post W4-1 landing, carrying `099cc8e` "W4-1 landed with
+follow-ups"). Addresses the review's four Warnings (no Blockers were
+raised); the six Notes (N-1..N-6) are left for a separate follow-up per
+the coordinator's scope for this round.
+
+- **W-1** (see the corrected paragraph above): restored the three dropped
+  assertions in `tests/collect/test_ratelimit.py` verbatim from
+  `git show 130ed0f:tests/test_ingest.py`. Re-verified the
+  `if capacity <= 0` → `if capacity == 0` mutant: survived before the
+  fix, dies after (manual mutant run, not committed; restored before
+  commit).
+- **W-2** (see the corrected paragraph above): corrected the
+  `tests/test_ingestion_integration.py` deletion justification and
+  recorded explicitly that the v1 raw→`score_repository`→
+  `OperationalStore`→`cvi.api` path has no single end-to-end test
+  anymore, only piecemeal per-step coverage.
+- **W-3**: replaced the (never-committed, only narrated) finder-trap
+  observation with an actual regression test,
+  `tests/core/test_import_graph.py::
+  test_no_cvi_module_resolves_outside_the_repo_root`. It walks every
+  `cvi/**/*.py` module that exists on disk today (must import
+  successfully and resolve inside the repo root) **plus** the exact
+  three names this packet deleted (`cvi.ingest`, `cvi.benchmark`,
+  `cvi.benchmark_data` — must raise `ModuleNotFoundError` naming that
+  exact module, or resolve inside root if somehow still importable).
+  Passes today. Proved it "would have caught the trap" with a full
+  sandboxed reproduction (not touching the real main checkout or the
+  shared venv, per the standing rule against touching main's working
+  tree): a throwaway venv editable-installed from a copy of the tree
+  with the three files restored (simulating "main hasn't caught up
+  yet"), checked against a second copy with the files genuinely absent
+  (simulating this worktree) — the test's own check script correctly
+  flagged all three names as resolving outside the checked root. Also
+  tightened the exception handling while building this proof: catching
+  bare `ModuleNotFoundError` would silently swallow a resurrected
+  module's OWN missing sub-dependency (observed with `httpx` while
+  reproducing the trap for `cvi.ingest` in a bare venv) as if the target
+  module were simply absent; narrowed to `exc.name == name` so only a
+  genuinely-missing target module is treated as an acceptable outcome.
+- **W-4**: widened the `cvi/` arm of
+  `test_no_production_import_of_the_synthetic_catalog_fixture` from
+  "reject only `tests.fixtures.synthetic_catalog`" to "reject any
+  `tests.` import" (no legitimate reason for `cvi/` to import anything
+  under `tests/`); kept the narrow, name-specific rule for `scripts/` so
+  `scripts/demo_app.py`'s shim import of `tests.helpers.demo_app` stays
+  legal. Reproduced the review's exact planted violation
+  (`from tests.helpers.demo_app import DEMO_NOW` in `cvi/lakehouse.py`):
+  green before this fix, red after (manual plant, not committed;
+  restored before commit).
+
+Suite and lint after this round: see the commit message for the exact
+line. N-1..N-6 (the Notes) are explicitly out of scope for this round.

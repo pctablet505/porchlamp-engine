@@ -138,6 +138,8 @@ class TestTokenBucketRateLimiter:
     def test_rejects_non_positive_capacity(self):
         with pytest.raises(ValueError, match="capacity must be > 0"):
             TokenBucketRateLimiter(capacity=0.0)
+        with pytest.raises(ValueError, match="capacity must be > 0"):
+            TokenBucketRateLimiter(rate=1.0, capacity=-0.5)
 
     def test_custom_rate_and_capacity_properties(self):
         limiter = TokenBucketRateLimiter(rate=5.0, capacity=10.0)
@@ -165,7 +167,7 @@ class TestCircuitBreaker:
     def test_reset_in_the_past_closes_immediately(self):
         clock = FakeClock(start=1000.0)
         breaker = CircuitBreaker(clock=clock, sleep=clock.advance, jitter_fn=lambda: 0.0)
-        breaker.trip(reset_epoch=500.0)  # already passed
+        assert breaker.trip(reset_epoch=500.0) == pytest.approx(1000.0)  # already passed
         assert not breaker.is_open
         breaker.acquire()
         assert clock.now == 1000.0
@@ -178,6 +180,7 @@ class TestCircuitBreaker:
         )
         open_until = breaker.trip(reset_epoch=None)
         assert open_until == pytest.approx(1030.0)
+        assert breaker.trips == 1
 
     def test_acquire_no_sleep_when_clock_already_passed_open_until(self):
         clock = FakeClock(start=1000.0)

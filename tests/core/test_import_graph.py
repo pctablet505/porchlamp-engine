@@ -8,6 +8,7 @@ the standard library, and ``cvi.derive.bundle`` imports nothing outside
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -155,21 +156,116 @@ def test_no_production_import_of_the_synthetic_catalog_fixture() -> None:
     writes) is what ``cvi/serve/guard.py``'s independently frozen
     ``_FIXTURE_CLOCK_SENTINEL`` exists to avoid depending on.
 
+    W4-1f (review W-4): the ORIGINAL rule only named
+    ``tests.fixtures.synthetic_catalog`` explicitly, so planting
+    ``from tests.helpers.demo_app import DEMO_NOW`` in ``cvi/lakehouse.py``
+    left this suite green -- a name-specific rule, not a layer rule.
+    ``cvi/`` (unlike ``scripts/``) has no legitimate reason to import
+    ANYTHING under ``tests.*``, so its arm is now widened to reject every
+    ``tests.`` import, not just the one fixture module.
+
     ``scripts/demo_app.py`` is the one script allowed to import a
     ``tests.*`` name at all -- but only its OWN relocated helper
     (``tests.helpers.demo_app``), never the fixture module directly; the
     fixture import now lives one hop further in, inside
     ``tests/helpers/demo_app.py`` itself, which is under ``tests/`` and
-    so is not scanned here.
+    so is not scanned here. ``scripts/`` therefore keeps the NARROW rule
+    (only the fixture module is forbidden), so the shim's own
+    ``tests.helpers.demo_app`` import stays legal.
     """
-    for base in (CVI_DIR, SCRIPTS_DIR):
-        for path in sorted(base.rglob("*.py")):
-            for name in imported_modules(path):
-                assert not name.startswith("tests.fixtures.synthetic_catalog"), (
-                    f"{path.relative_to(REPO_ROOT)} imports {name!r} -- "
-                    "production code (cvi/ or scripts/) must never import "
-                    "the test fixture tests/fixtures/synthetic_catalog.py"
-                )
+    for path in sorted(CVI_DIR.rglob("*.py")):
+        for name in imported_modules(path):
+            assert not name.startswith("tests."), (
+                f"{path.relative_to(REPO_ROOT)} imports {name!r} -- "
+                "cvi/ must never import anything under tests. (no exception: "
+                "unlike scripts/demo_app.py, no cvi/ module needs a test helper)"
+            )
+    for path in sorted(SCRIPTS_DIR.rglob("*.py")):
+        for name in imported_modules(path):
+            assert not name.startswith("tests.fixtures.synthetic_catalog"), (
+                f"{path.relative_to(REPO_ROOT)} imports {name!r} -- "
+                "scripts/ must never import the test fixture "
+                "tests/fixtures/synthetic_catalog.py (tests.helpers.demo_app "
+                "remains legal for the demo_app shim)"
+            )
+
+
+def test_no_cvi_module_resolves_outside_the_repo_root() -> None:
+    """W4-1f (review W-3, replacing a proposed guard that does not work).
+
+    The naive guard -- ``Path(cvi.__file__).is_relative_to(ROOT)`` --
+    does NOT catch a real hazard in this project's shared dev venv: its
+    editable install (``__editable___cvi_0_1_0_finder.py``) hardcodes the
+    MAIN CHECKOUT's path for any ``cvi.<leaf>`` submodule import (a
+    direct child of ``cvi``, e.g. ``cvi.ingest``), regardless of what
+    ``cvi.__path__`` actually resolved to -- while the standard
+    ``PathFinder``, checked first, already shadows this correctly for
+    anything that still exists on disk where ``PYTHONPATH`` points. The
+    top-level ``cvi`` package resolved correctly (inside the worktree)
+    during the W4-1 review even while ``cvi.ingest``/``cvi.benchmark``/
+    ``cvi.benchmark_data`` -- already deleted from that worktree -- each
+    "imported successfully" from the sibling main checkout instead of
+    raising ``ModuleNotFoundError``, because a module ABSENT from disk
+    is exactly the one case the standard ``PathFinder`` cannot shadow.
+
+    This test checks BOTH directions in one pass: every ``cvi/**/*.py``
+    module that exists on disk today (walked fresh, so it can't go
+    stale) MUST import successfully and resolve inside this repo root;
+    PLUS the exact three module names W4-1 deleted, which must EITHER
+    raise ``ModuleNotFoundError`` (correct, once truly gone everywhere)
+    OR -- if something still manages to import them -- resolve inside
+    this root too. A module that raises ``ModuleNotFoundError`` is
+    accepted; one that "imports fine" from outside the root is not. This
+    passes on main today (every deleted name now raises
+    ``ModuleNotFoundError`` everywhere) and would have failed during the
+    W4-1 review, when the trap made the three deleted names resolve
+    successfully from the sibling main checkout instead.
+    """
+    on_disk: list[str] = []
+    for path in sorted(REPO_ROOT.joinpath("cvi").rglob("*.py")):
+        parts = path.relative_to(REPO_ROOT).with_suffix("").parts
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        if parts:
+            on_disk.append(".".join(parts))
+    assert on_disk, "no cvi/**/*.py modules found to check"
+
+    #: W4-1's own deletions -- included explicitly (not just "whatever is
+    #: on disk today") so this test would have caught the historical trap
+    #: even though none of these three names are on disk to be walked.
+    deleted_by_w4_1 = ["cvi.ingest", "cvi.benchmark", "cvi.benchmark_data"]
+    names = sorted(set(on_disk) | set(deleted_by_w4_1))
+
+    check_script = """
+import importlib
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+names = sys.argv[2:]
+outside = []
+for name in names:
+    try:
+        mod = importlib.import_module(name)
+    except ModuleNotFoundError as exc:
+        if exc.name == name:
+            continue  # genuinely gone -- the correct state for a deletion
+        raise  # a real dependency of an existing module is missing -- do not mask it
+    file_ = getattr(mod, "__file__", None)
+    if file_ is None or not pathlib.Path(file_).resolve().is_relative_to(root):
+        outside.append((name, file_))
+assert not outside, outside
+print("clean:", len(names), "names checked")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", check_script, str(REPO_ROOT), *names],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        env={**os.environ, "PYTHONPATH": str(REPO_ROOT)},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "clean:" in result.stdout
 
 
 def test_importing_core_loads_no_other_cvi_package() -> None:
