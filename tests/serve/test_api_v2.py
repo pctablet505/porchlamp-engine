@@ -286,15 +286,52 @@ def test_not_ranked_balanced_has_no_persona_hidden_group(api):
     assert body.persona_hidden == []
 
 
-def test_not_ranked_counts_match_snapshot_summary(api):
+def test_snapshot_counts_match_the_raw_store_triage(api):
     client, fx, _db = api
-    not_ranked = NotRankedResponse(**client.get("/v1/cvi/not-ranked").json())
     snapshot = SnapshotSummary(**client.get("/v1/cvi/snapshot").json())
-    assert not_ranked.counts == snapshot.counts
     assert snapshot.counts.rated == len(fx.rated_names)
     assert snapshot.counts.gated == len(fx.gated)
     assert snapshot.counts.unrated == len(fx.unrated)
     assert snapshot.counts.total == snapshot.counts.rated + snapshot.counts.gated + snapshot.counts.unrated
+
+
+def test_not_ranked_counts_derived_from_the_split_balanced(api):
+    """W-1 fix (W4-4 REWORK): `NotRankedResponse.counts` must match the
+    ACTUAL groups this same response carries -- not `snapshot_summary`'s
+    raw stage-0/stage-3 triage, which disagrees whenever a row is
+    reclassified (bridge item 3: a stage-6 `gate_reason` moved into the
+    `unrated` group). This fixture has exactly one such row, so
+    `counts.gated` is 1 LESS than `snapshot.counts.gated` and
+    `counts.unrated` is 1 MORE -- proving the two are not simply copied
+    from each other."""
+    client, fx, _db = api
+    body = NotRankedResponse(**client.get("/v1/cvi/not-ranked").json())
+    snapshot = SnapshotSummary(**client.get("/v1/cvi/snapshot").json())
+    assert body.counts.gated == len(body.gated)
+    assert body.counts.unrated == len(body.unrated) + len(body.persona_hidden)
+    assert body.counts.total == body.counts.rated + body.counts.gated + body.counts.unrated
+    assert body.persona_hidden == []
+    assert body.counts.rated == len(fx.rated_names)
+    # The reclassification (bridge item 3) makes this genuinely differ:
+    assert body.counts.gated == snapshot.counts.gated - 1
+    assert body.counts.unrated == snapshot.counts.unrated + 1
+    assert body.counts.total == snapshot.counts.total
+
+
+def test_not_ranked_counts_derived_from_the_split_persona(api):
+    client, fx, _db = api
+    persona = fx.persona_gate_persona
+    body = NotRankedResponse(**client.get(f"/v1/cvi/not-ranked?persona={persona}").json())
+    snapshot = SnapshotSummary(**client.get("/v1/cvi/snapshot").json())
+    assert body.counts.gated == len(body.gated)
+    assert body.counts.unrated == len(body.unrated) + len(body.persona_hidden)
+    assert body.counts.total == body.counts.rated + body.counts.gated + body.counts.unrated
+    # persona-visible rated matches the leaderboard's own total under the
+    # SAME persona -- the exact equality the review found broken
+    # (counts.rated=64 vs leaderboard.total=58) before this fix.
+    leaderboard = LeaderboardResponse(**client.get(f"/v1/cvi/leaderboard?persona={persona}&page_size=1000").json())
+    assert body.counts.rated == leaderboard.total == snapshot.persona_visible_counts[persona]
+    assert body.counts.total == snapshot.counts.total
 
 
 # --------------------------------------------------------------------------- #
@@ -688,3 +725,352 @@ def test_performance_leaderboard_and_reproject_p95_under_150ms_for_10k_rows(tmp_
             lambda limit=limit: _p95(_time_calls(lambda: client.post(f"/v1/cvi/reproject?page_size={limit}", json=_WEIGHTS))),
             f"POST /reproject page_size={limit} p95 over 15 calls",
         )
+
+
+# --------------------------------------------------------------------------- #
+# Blocker B-1 (W4-4 REWORK): `scripts/serve.py`'s `main()` must start on a
+# v2-only database, from a foreign cwd, and serve `/v1/cvi/*` without a
+# bare 500 -- tested through a REAL subprocess (`create_app` alone does
+# not exercise `main()`'s own guard/banner code path, which is exactly
+# what the review found broken).
+# --------------------------------------------------------------------------- #
+
+import contextlib  # noqa: E402
+import socket  # noqa: E402
+import subprocess  # noqa: E402
+import time as _time_mod  # noqa: E402
+
+import httpx  # noqa: E402
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _wait_for_http(url: str, timeout: float = 15.0) -> httpx.Response:
+    deadline = _time_mod.monotonic() + timeout
+    last_exc = None
+    while _time_mod.monotonic() < deadline:
+        try:
+            return httpx.get(url, timeout=1.0)
+        except httpx.HTTPError as exc:
+            last_exc = exc
+            _time_mod.sleep(0.2)
+    raise TimeoutError(f"{url} never came up within {timeout}s") from last_exc
+
+
+def test_main_starts_on_a_v2_database_from_a_foreign_cwd(tmp_path):
+    db_path = tmp_path / "db.sqlite"
+    conn = fresh_db(db_path)
+    fx = build_snapshot(conn, db_path, n_rated=5)
+    finalize(conn, db_path)
+    conn.close()
+
+    repo_root = Path(__file__).resolve().parents[2]
+    port = _free_port()
+    foreign_cwd = tmp_path / "elsewhere"
+    foreign_cwd.mkdir()
+
+    proc = subprocess.Popen(
+        [sys.executable, str(repo_root / "scripts" / "serve.py"), "--db", str(db_path), "--port", str(port)],
+        cwd=str(foreign_cwd),
+        env={**__import__("os").environ, "PYTHONPATH": str(repo_root)},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        resp = _wait_for_http(f"http://127.0.0.1:{port}/v1/cvi/leaderboard")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["total"] == len(fx.rated_names)
+    finally:
+        proc.terminate()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=5)
+        if proc.poll() is None:
+            proc.kill()
+
+
+def test_main_v1_endpoints_do_not_500_on_a_v2_only_database(tmp_path):
+    """Blocker B-1's second reproduction: on a v2-only database, `main()`
+    used to start (once the first crash was worked around) but then
+    500 on every `/v1/cvi/*` call because `_current_snapshot_id` raised
+    an uncaught `sqlite3.OperationalError`. Both are now fixed at once:
+    `main()` starts AND every `/v1/cvi/*` endpoint responds normally."""
+    db_path = tmp_path / "db.sqlite"
+    conn = fresh_db(db_path)
+    build_snapshot(conn, db_path, n_rated=5)
+    finalize(conn, db_path)
+    conn.close()
+
+    repo_root = Path(__file__).resolve().parents[2]
+    port = _free_port()
+    proc = subprocess.Popen(
+        [sys.executable, str(repo_root / "scripts" / "serve.py"), "--db", str(db_path), "--port", str(port)],
+        cwd=str(tmp_path),
+        env={**__import__("os").environ, "PYTHONPATH": str(repo_root)},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        for path in ("/v1/cvi/leaderboard", "/v1/cvi/snapshot", "/v1/cvi/not-ranked", "/v1/cvi/matrix"):
+            resp = _wait_for_http(f"http://127.0.0.1:{port}{path}")
+            assert resp.status_code in (200, 503), f"{path}: {resp.status_code} {resp.text}"
+            assert resp.headers["content-type"].startswith("application/json"), path
+    finally:
+        proc.terminate()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.wait(timeout=5)
+        if proc.poll() is None:
+            proc.kill()
+
+
+# --------------------------------------------------------------------------- #
+# Blocker B-2: the SPA fallback must never swallow an unmatched API path
+# or a method mismatch on a real one.
+# --------------------------------------------------------------------------- #
+
+
+def test_unmatched_api_path_is_a_json_404_not_the_spa_shell(api):
+    client, _fx, _db = api
+    for path in ("/v1/cvi/bogus", "/v1/cvi/leaderboard/extra", "/v1/cvi/"):
+        resp = client.get(path)
+        assert resp.status_code == 404, path
+        assert resp.headers["content-type"].startswith("application/json"), path
+        body = resp.json()
+        assert set(body.keys()) == {"error"}
+        assert set(body["error"].keys()) == {"endpoint", "status", "detail"}
+
+
+def test_method_mismatch_on_a_real_endpoint_is_not_the_spa_shell(api):
+    client, _fx, _db = api
+    resp = client.get("/v1/cvi/reproject")  # POST-only
+    assert resp.status_code != 200 or resp.headers["content-type"].startswith("application/json")
+    assert not resp.headers["content-type"].startswith("text/html")
+
+
+def test_bare_healthz_is_not_the_spa_shell(api):
+    client, _fx, _db = api
+    resp = client.get("/healthz")
+    assert resp.status_code == 404
+    assert resp.headers["content-type"].startswith("application/json")
+
+
+def test_legacy_prefix_unmounted_is_a_json_404_not_the_spa_shell(api):
+    """No v1 shape in this fixture's database -- `/legacy` is not mounted
+    at all, and a request under that prefix must still get a JSON 404,
+    never the SPA shell."""
+    client, _fx, _db = api
+    resp = client.get("/legacy/healthz")
+    assert resp.status_code == 404
+    assert resp.headers["content-type"].startswith("application/json")
+
+
+def test_create_app_serves_v1_cvi_endpoints_as_503_not_500_on_a_legitimate_v1_db(tmp_path):
+    """Blocker B-1's per-request half, at the `create_app` layer directly
+    (the subprocess tests above exercise it through `main()`; this proves
+    the SAME fix on a database that is a LEGITIMATE, promoted v1 store --
+    not fixture-marked, not tampered -- which must start cleanly, mount
+    `/legacy` with real v1 data, and answer every `/v1/cvi/*` call with a
+    clean 503 (no `snapshots` table at all) rather than a bare 500."""
+    import importlib.util
+
+    from cvi.lakehouse import OperationalStore, repositories_dump_hash
+    from cvi.models import CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
+    from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest
+
+    root = Path(__file__).resolve().parent.parent.parent
+    spec = importlib.util.spec_from_file_location("promote_probe2", root / "scripts" / "promote.py")
+    promote = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(promote)
+
+    db_path = tmp_path / "cvi.db"
+    store = OperationalStore(str(db_path))
+    store.upsert_composite(
+        CVICompositeResult(
+            owner="tokio-rs", name="tokio", ecosystem=Ecosystem.CRATES, overall_cvi=70.31,
+            rank_tier=Tier.A, matrix_quadrant=Quadrant.SWEET_SPOT, leverage_score=72.0,
+            friction_score=30.0, is_stage0_disqualified=False, disqualification_reason=None,
+        ),
+        pillar_scores=PillarScores(70, 80, 60, 65, 55),
+    )
+    store.close()
+
+    sample_raw = root / "tests" / "fixtures" / "numpy-envelopes"
+    for collector_dir in sorted(p for p in sample_raw.iterdir() if p.is_dir()):
+        src = collector_dir / "numpy__numpy.json"
+        if src.is_file():
+            dest = tmp_path / "raw" / collector_dir.name / "numpy__numpy.json"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(src.read_bytes())
+    scan = envelope_entries(tmp_path)
+    manifest = build_manifest(scan.entries, as_of="2026-09-13T00:00:00+00:00", code_commit="unknown", canonical_dump_hash="pending")
+    write_manifest(tmp_path, manifest)
+    promote.write_snapshot_meta(str(db_path), manifest, repositories_dump_hash(str(db_path)))
+
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<html></html>")
+
+    app = create_app(str(db_path), web_dir=web_dir)  # must NOT raise
+    client = TestClient(app)
+
+    legacy = client.get("/legacy/healthz")
+    assert legacy.status_code == 200 and legacy.json() == {"status": "ok"}
+
+    for path in ("/v1/cvi/leaderboard", "/v1/cvi/snapshot", "/v1/cvi/not-ranked"):
+        resp = client.get(path)
+        assert resp.status_code == 503, f"{path}: {resp.status_code} {resp.text}"
+        assert resp.headers["content-type"].startswith("application/json"), path
+        assert set(resp.json().keys()) == {"error"}
+
+
+def test_real_api_paths_and_the_spa_fallback_both_still_work(api):
+    """Over-correction guard: the B-2 fix must not break the cases that
+    were already correct -- a real endpoint still 200s, and a genuine
+    app-owned path still falls back to the SPA shell."""
+    client, _fx, _db = api
+    ok = client.get("/v1/cvi/leaderboard")
+    assert ok.status_code == 200
+    index = client.get("/")
+    assert index.status_code == 200 and index.headers["content-type"].startswith("text/html")
+    fallback = client.get("/some/deep/app/route")
+    assert fallback.status_code == 200 and fallback.text == index.text
+
+
+# --------------------------------------------------------------------------- #
+# Blocker B-3: a contract-model failure inside a handler is a SERVER
+# fault (500 with the {"error": ...} body), never a 422.
+# --------------------------------------------------------------------------- #
+
+
+def test_a_stored_out_of_literal_quadrant_is_a_500_not_a_422(tmp_path):
+    db_path = tmp_path / "db.sqlite"
+    conn = fresh_db(db_path)
+    build_snapshot(conn, db_path, n_rated=5)
+    # Corrupt a stored value the contract cannot represent BEFORE
+    # finalising -- simulating a data-integrity defect that predates
+    # promotion (a bad writer, a hand-edited fixture), not a tamper AFTER
+    # the fact (Blocker B-4's own guard correctly refuses THAT case, and
+    # would otherwise mask this test's own scenario behind a 503/SystemExit
+    # instead of reaching the handler this test means to exercise).
+    conn.execute("UPDATE repositories SET quadrant = 'Nowhere' WHERE snapshot_id = ?", (SNAPSHOT_ID,))
+    conn.commit()
+    finalize(conn, db_path)
+    conn.close()
+
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<html></html>")
+    app = create_app(str(db_path), web_dir=web_dir)
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/v1/cvi/leaderboard")
+    assert resp.status_code == 500
+    body = resp.json()
+    assert set(body.keys()) == {"error"}
+    assert set(body["error"].keys()) == {"endpoint", "status", "detail"}
+    assert body["error"]["status"] == 500
+    assert "Literal" not in body["error"]["detail"]  # non-leaking (W-7)
+    assert "Nowhere" not in body["error"]["detail"]
+
+
+def test_a_genuine_caller_input_error_is_still_422_not_500(api):
+    """Over-correction guard: narrowing the `ValueError` handler must not
+    turn a real caller-input problem into a 500 -- `cvi.store.queries`'
+    own validators still 422 exactly as before."""
+    client, _fx, _db = api
+    resp = client.get("/v1/cvi/leaderboard?persona=nonexistent")
+    assert resp.status_code == 422
+    assert resp.json()["error"]["status"] == 422
+
+
+# --------------------------------------------------------------------------- #
+# Blocker B-4, through the API: a tampered v2 store is refused by
+# `create_app` itself (`cvi.serve.guard` is exercised directly in
+# `tests/serve/test_guard.py`; this proves the wiring, not the logic).
+# --------------------------------------------------------------------------- #
+
+
+def test_create_app_refuses_a_tampered_v2_store(tmp_path):
+    db_path = tmp_path / "db.sqlite"
+    conn = fresh_db(db_path)
+    build_snapshot(conn, db_path, n_rated=5)
+    finalize(conn, db_path)
+    conn.close()
+
+    tamper = sqlite3.connect(db_path)
+    tamper.execute("UPDATE repositories SET cvi = 100.0 WHERE snapshot_id = ?", (SNAPSHOT_ID,))
+    tamper.commit()
+    tamper.close()
+
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<html></html>")
+    with pytest.raises(SystemExit) as excinfo:
+        create_app(str(db_path), web_dir=web_dir)
+    assert SNAPSHOT_ID in str(excinfo.value)
+
+
+# --------------------------------------------------------------------------- #
+# Warning W-4: two real detection gaps the review's mutants found
+# untested (RX2, RX3).
+# --------------------------------------------------------------------------- #
+
+
+def test_matrix_excludes_a_point_whose_quadrant_is_null_even_with_coordinates(tmp_path):
+    """RX2: `_matrix_point`'s `quadrant is None` branch, independent of
+    the leverage/friction-null case the OTHER matrix test already covers
+    -- a row with both coordinates present but no quadrant computed must
+    still be excluded, not plotted with a `None` quadrant."""
+    from cvi.core.tiebreak import TieBreakInput, assign_ranks
+    from cvi.store.writer import write_records
+    from store.helpers import make_rated_record, make_repo_write
+
+    db_path = tmp_path / "db.sqlite"
+    conn = fresh_db(db_path)
+    rec = make_rated_record(
+        SNAPSHOT_ID, owner="acme", name="no-quadrant", composite=80.0, coverage=0.9,
+        leverage=50.0, friction=50.0, quadrant=None,
+    )
+    ranked = assign_ranks([TieBreakInput(rec, rec.repo.owner, rec.repo.name)])
+    rec = ranked[0][0]
+    write_records(conn, SNAPSHOT_ID, [make_repo_write(rec)])
+    finalize(conn, db_path)
+    conn.close()
+
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<html></html>")
+    app = create_app(str(db_path), web_dir=web_dir)
+    client = TestClient(app)
+    resp = client.get("/v1/cvi/matrix")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["points"] == []
+    assert body["excluded_count"] == 1
+
+
+def test_no_ceiling_or_band_assigns_a_and_b_correctly_via_reproject(api):
+    """RX3: `_no_ceiling_or_band`'s A/B bands (`cvi.core.constants_v2.
+    CEILING_A_MIN_COVERAGE`=0.80, `NO_CEILING_MIN_COVERAGE`=0.95) -- the
+    one arithmetic `cvi/serve/app.py` performs itself, per its own
+    docstring's "the one exception". Uses `/reproject` with a custom
+    weight vector chosen so the resulting coverage lands in each band."""
+    from cvi.core import constants_v2
+
+    client, _fx, _db = api
+    # Every rated row in this fixture has uniform per-pillar coverage 0.9
+    # (`tests/store/helpers.make_rated_record`'s default), so ANY weight
+    # vector summing to 1 gives every row coverage_custom == 0.9 -- squarely
+    # inside ceiling band A ([0.80, 0.95)), never B or "no ceiling".
+    resp = client.post("/v1/cvi/reproject?page_size=1000", json=_WEIGHTS)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["rows"], "reproject returned no rows"
+    for row in body["rows"]:
+        assert 0.80 <= row["coverage"] < 0.95
+        assert row["tier_ceiling"] == "A"
+    assert 0.80 <= 0.9 < constants_v2.NO_CEILING_MIN_COVERAGE  # sanity on the fixture's own assumption
