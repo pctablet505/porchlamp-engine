@@ -331,20 +331,35 @@ gather = _load("gather_w18", SCRIPTS / "gather.py")
 def _seed_all_but_downloads(tmp_path: Path) -> None:
     raw = tmp_path / "raw"
     key = "acme__widget"
-    # W1-6 (governance) postdates this file and is not under test here;
-    # marking it done avoids live check-run/file-body calls for "acme/widget".
+    # W1-9/W1-5/W1-2/W1-3/W1-7/W1-6 postdate this file and are not under
+    # test here; marking them done avoids live check-run/file-body/commits/
+    # deps.dev/ecosyste.ms/graphql/gh api calls for "acme/widget" below
+    # (Blocker B4 round 2).
     for col in ("github_meta", "pr_events", "pr_reviews", "contributors",
-                "commits_180d", "gfi", "actions_runs", "depsdev",
-                "scorecard", "tree", "repo_object", "governance"):
+                "commits_180d", "actions_runs", "depsdev",
+                "scorecard", "tree", "repo_object", "governance",
+                "commits_365d", "dependents", "pr_window",
+                "releases", "issues_counts", "runs"):
         p = raw / col / f"{key}.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({"fetched_at": "2026-09-12T00:00:00+00:00",
                                  "source": "test",
                                  "data": {"default_branch": "main"}}),
                      encoding="utf-8")
+    # W1-1's per-label gfi collector treats a bare/legacy-shaped envelope as
+    # needing re-gather (needs_gather); the new shape's metadata-first
+    # record is what actually marks it done.
+    gfi_p = raw / "gfi" / f"{key}.json"
+    gfi_p.parent.mkdir(parents=True, exist_ok=True)
+    gfi_p.write_text(json.dumps({"fetched_at": "2026-09-12T00:00:00+00:00",
+                                 "source": "test",
+                                 "data": [{"gfi_newcomer_v2": True,
+                                           "labels_matched": [], "queries": [],
+                                           "truncated": False}]}),
+                     encoding="utf-8")
 
 
-def test_gather_pypi_null_is_pending_not_fail(tmp_path, monkeypatch):
+def test_gather_pypi_null_is_pending_not_fail(tmp_path, monkeypatch, block_live_network):
     _seed_all_but_downloads(tmp_path)
     monkeypatch.setattr(gather, "DATA", tmp_path / "raw")
     monkeypatch.setattr(gather.time, "sleep", lambda s: None)
@@ -355,7 +370,7 @@ def test_gather_pypi_null_is_pending_not_fail(tmp_path, monkeypatch):
     assert monthly_of(tmp_path, "widget") is None  # null envelope kept
 
 
-def test_gather_maven_is_unmeasured(tmp_path, monkeypatch):
+def test_gather_maven_is_unmeasured(tmp_path, monkeypatch, block_live_network):
     _seed_all_but_downloads(tmp_path)
     monkeypatch.setattr(gather, "DATA", tmp_path / "raw")
     monkeypatch.setattr(gather.time, "sleep", lambda s: None)
@@ -363,7 +378,7 @@ def test_gather_maven_is_unmeasured(tmp_path, monkeypatch):
     assert st["downloads"] == "unmeasured"
 
 
-def test_gather_pypi_ok_path_unchanged(tmp_path, monkeypatch):
+def test_gather_pypi_ok_path_unchanged(tmp_path, monkeypatch, block_live_network):
     """Over-correction guard: a successful pypistats answer stays "ok"."""
     _seed_all_but_downloads(tmp_path)
     monkeypatch.setattr(gather, "DATA", tmp_path / "raw")

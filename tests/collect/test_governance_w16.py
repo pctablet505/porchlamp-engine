@@ -7,7 +7,7 @@ GOVERNANCE/MAINTAINERS/CONTRIBUTING/SECURITY + AI-policy file bodies), the
 ``cvi.collect.commits`` (a per-commit ``signed_off`` boolean, no message
 text), and the append-only hooks at the end of ``scripts/gather.py`` (the
 ``governance`` status entry) and ``scripts/derive.py`` (the six ``legal_ip``
-/ ``promotion_ladder_v2`` / ``ai_posture_v2`` value + evidence fields).
+/ ``promotion_ladder`` / ``ai_posture`` value + evidence fields).
 Recorded-response oracles at the REST transport boundary (no live calls)
 assert the exact classification value and evidence for every path, including
 the no-evidence ``NONE``/``AD_HOC``/``AD_HOC`` defaults. The Signed-off-by
@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+
+import pytest
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -354,6 +356,69 @@ def test_legal_ip_none_without_any_evidence():
     assert ev["signoff"] is None
 
 
+# --- Blocker B1 round 2: a bare foundation-name substring is never a CLA --- #
+
+#: The six check names the round-1 matcher wrongly derived FOUNDATION_CLA
+#: from (O2 in the review): common CI/build/license-badge job names on an
+#: Apache/Eclipse/CNCF/ASF-licensed repo, none of which is a CLA check.
+FOUNDATION_SUBSTRING_FALSE_POSITIVES: tuple[str, ...] = (
+    "license/apache-2.0", "apache-rat", "asf-jenkins-build",
+    "cncf-conformance-e2e", "build (eclipse-temurin-17)", "test-on-apache-spark",
+)
+
+
+def test_legal_ip_foundation_substrings_alone_derive_none():
+    """None of the six false-positive names is CLA evidence by itself."""
+    for name in FOUNDATION_SUBSTRING_FALSE_POSITIVES:
+        value, ev = gov.classify_legal_ip([name], None)
+        assert value == "NONE", f"{name!r} wrongly derived {value!r}"
+        assert ev["rule"] == "no_evidence"
+
+
+@pytest.mark.parametrize("name", FOUNDATION_SUBSTRING_FALSE_POSITIVES)
+def test_legal_ip_foundation_substrings_never_shadow_a_real_dco_check(name):
+    """B1: each false-positive name alongside a real DCO check -- DCO must
+    win, not the bare foundation-name substring (round-1 defect: DCO 100 ->
+    FOUNDATION_CLA 75 on a mis-read build-job name)."""
+    value, ev = gov.classify_legal_ip([name, "DCO"], None)
+    assert value == "DCO", f"{name!r} alongside DCO wrongly derived {value!r}"
+    assert ev["rule"] == "dco_check"
+
+
+def test_legal_ip_foundation_branded_cla_checks_still_derive_foundation_cla():
+    """Over-correction guard: a genuine foundation-branded CLA check (not
+    just EasyCLA) must still classify FOUNDATION_CLA after the B1 tightening."""
+    for name in ("ASF CLA", "apache-cla", "cncf-cla", "eclipse-cla/validation"):
+        value, ev = gov.classify_legal_ip([name], None)
+        assert value == "FOUNDATION_CLA", f"{name!r} derived {value!r}"
+        assert ev["rule"] == "foundation_cla_check"
+
+
+def test_legal_ip_generic_cla_bot_names_derive_corp_cla():
+    """Positive control: a real (non-foundation) CLA check name still
+    classifies CORP_CLA after the B1 tightening."""
+    for name in ("EasyCLA", "cla-assistant"):
+        value, _ = gov.classify_legal_ip([name], None)
+        assert value in ("FOUNDATION_CLA", "CORP_CLA")
+    value, ev = gov.classify_legal_ip(["cla-assistant"], None)
+    assert value == "CORP_CLA" and ev["rule"] == "corp_cla_check"
+    value, ev = gov.classify_legal_ip(["EasyCLA"], None)
+    assert value == "FOUNDATION_CLA" and ev["rule"] == "foundation_cla_check"
+
+
+# --- W1: SIGNOFF_THRESHOLD must actually be read ---------------------------- #
+
+def test_legal_ip_signoff_threshold_is_read_from_the_constant(monkeypatch):
+    """The lead's named mutant ("drop the sign-off threshold to 0.0") must be
+    caught by a test that changes the *constant*, not the inline literal."""
+    monkeypatch.setattr(gov, "SIGNOFF_THRESHOLD", 0.9)
+    value, _ = gov.classify_legal_ip([], {"count": 81, "total": 100, "share": 0.81})
+    assert value == "NONE"  # 0.81 no longer clears the raised 0.9 threshold
+    monkeypatch.setattr(gov, "SIGNOFF_THRESHOLD", 0.0)
+    value, _ = gov.classify_legal_ip([], {"count": 0, "total": 100, "share": 0.0})
+    assert value == "DCO"  # a lowered threshold now accepts zero sign-off
+
+
 # --- 3.3 promotion ladder oracles ----------------------------------------------- #
 
 def _prw(prs: list[dict]) -> dict:
@@ -555,10 +620,79 @@ def test_ai_posture_ad_hoc_default():
     assert ev["ai_policy_files_present"] == []
 
 
+# --- Blocker B3 round 2: negation-aware AI-ban detection --------------------- #
+
+def _files_with_contributing_body(body: str) -> dict:
+    return {"CONTRIBUTING.md": {"present": True, "sha256": "h", "body": body}}
+
+
+def test_ai_posture_no_ai_policy_yet_does_not_derive_proscribed():
+    files = _files_with_contributing_body("This project has no AI policy yet.\n")
+    value, ev = gov.classify_ai_posture(files)
+    assert value != "PROSCRIBED"
+    assert ev["ban"] is None
+
+
+def test_ai_posture_do_not_ban_ai_contributions_does_not_derive_proscribed():
+    files = _files_with_contributing_body(
+        "We do not ban AI-generated contributions.\n")
+    value, ev = gov.classify_ai_posture(files)
+    assert value != "PROSCRIBED"
+    assert ev["ban"] is None
+
+
+def test_ai_posture_nothing_forbids_ai_does_not_derive_proscribed():
+    files = _files_with_contributing_body(
+        "Nothing here forbids using AI tooling.\n")
+    value, ev = gov.classify_ai_posture(files)
+    assert value != "PROSCRIBED"
+    assert ev["ban"] is None
+
+
+def test_ai_posture_negation_does_not_blind_a_real_ban_in_the_same_document():
+    """Positive control: a genuine, unnegated ban line in the SAME corpus as
+    a negated one must still correctly derive PROSCRIBED -- the negation
+    exclusion is per-line, not per-document."""
+    files = _files_with_contributing_body(
+        "We do not ban AI-generated contributions.\n"
+        "Do not submit AI-generated code.\n")
+    value, ev = gov.classify_ai_posture(files)
+    assert value == "PROSCRIBED"
+    assert ev["rule"] == "proscribed_ban"
+    assert "Do not submit AI-generated code" in ev["ban"]["line"]
+
+
+# --- W8: c365 must be a row sequence, never a bare mapping ------------------- #
+
+def test_orgs_by_login_dict_shaped_c365_does_not_crash():
+    """O8: a dict-shaped c365 iterates over its keys, not row mappings; must
+    be treated as no usable rows, never crash with AttributeError."""
+    assert gov._orgs_by_login({"bob": "acme.com"}) == {}
+
+
+def test_signoff_share_dict_shaped_c365_does_not_crash():
+    assert gov.signoff_share({"bob": "acme.com"}) is None
+
+
+def test_promotion_ladder_dict_shaped_c365_does_not_crash():
+    value, ev = gov.classify_promotion_ladder(None, {}, {"bob": "acme.com"})
+    assert value == "AD_HOC"
+    assert ev["merged_author_orgs"] is None
+
+
+def test_derive_governance_fields_dict_shaped_c365_does_not_crash():
+    result = gov.derive_governance_fields(
+        None, None, {"bob": "acme.com"}, foundation_owner=False)
+    assert result["promotion_ladder"] == ("AD_HOC", "missing")
+
+
 # --- derive_repo integration ------------------------------------------------------ #
 
 def test_derive_repo_no_governance_evidence_defaults_none_ad_hoc_ad_hoc(tmp_path):
-    """02 §4 3.1/3.3/4.2: no evidence at all derives NONE/AD_HOC/AD_HOC.
+    """02 §4 3.1/3.3/4.2: no evidence at all is Unmeasured, not a measured
+    NONE/AD_HOC/AD_HOC (Blocker B2 round 2: a collector failure must not
+    score better than the truth -- confidence ``"missing"`` is this
+    v1-format document's spelling of Unmeasured(collector_failure)).
 
     Fail-before: pre-change ``derive_repo`` carries no ``legal_ip`` field and
     the legacy default ``legal_ip_model`` is DCO, so the first assert fails
@@ -568,19 +702,29 @@ def test_derive_repo_no_governance_evidence_defaults_none_ad_hoc_ad_hoc(tmp_path
                                 fetch=False, now=NOW)
     m = bundle["meta"]
     assert m.get("legal_ip", m.get("legal_ip_model")) == "NONE"
-    assert m.get("promotion_ladder_v2", m.get("promotion_ladder")) == "AD_HOC"
-    assert m.get("ai_posture_v2", m.get("ai_posture")) == "AD_HOC"
-    assert m["legal_ip_evidence"] == {"reason": "no governance envelope"}
-    assert m["promotion_ladder_v2_evidence"] == {"reason": "no governance envelope"}
-    assert m["ai_posture_v2_evidence"] == {"reason": "no governance envelope"}
-    for field in ("legal_ip", "legal_ip_evidence", "promotion_ladder_v2",
-                  "promotion_ladder_v2_evidence", "ai_posture_v2",
-                  "ai_posture_v2_evidence"):
-        assert bundle["confidence"][field] == "derived"
+    assert m.get("promotion_ladder", m.get("promotion_ladder")) == "AD_HOC"
+    assert m.get("ai_posture", m.get("ai_posture")) == "AD_HOC"
+    assert m["legal_ip_evidence"] == {"reason": "no governance or commits_365d envelope"}
+    assert m["promotion_ladder_evidence"] == {"reason": "no pr_window or governance envelope"}
+    assert m["ai_posture_evidence"] == {"reason": "no governance envelope"}
+    for field in ("legal_ip", "legal_ip_evidence", "promotion_ladder",
+                  "promotion_ladder_evidence", "ai_posture",
+                  "ai_posture_evidence"):
+        assert bundle["confidence"][field] == "missing"
 
 
 def test_derive_repo_v1_governance_fields_unchanged(tmp_path):
-    """Over-correction guard: the v1 heuristic fields keep their values."""
+    """Over-correction guard: ``legal_ip_model`` is a genuinely separate v1
+    field (distinct name from the v2 ``legal_ip``) and this packet must
+    never touch it. ``promotion_ladder`` / ``ai_posture`` are bare v2 names
+    (W7) that deliberately supersede the v1 regex heuristic of the same
+    name -- in this no-evidence fixture the heuristic's own default and the
+    evidence-based Unmeasured default both spell AD_HOC, so the value is
+    unchanged, but the source is not: it is the W1-6 classifier now, not
+    the CONTRIBUTING/CODE_OF_CONDUCT regex (see
+    test_derive_repo_no_governance_evidence_defaults_none_ad_hoc_ad_hoc for
+    the confidence proof).
+    """
     bundle = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path,
                                 fetch=False, now=NOW)
     m = bundle["meta"]
@@ -610,14 +754,14 @@ def test_derive_repo_governance_evidence_fields(tmp_path):
     m = bundle["meta"]
     assert m["legal_ip"] == "FOUNDATION_CLA"
     assert m["legal_ip_evidence"]["rule"] == "foundation_cla_check"
-    assert m["promotion_ladder_v2"] == "VERIFIED"
-    assert m["promotion_ladder_v2_evidence"]["promoted_accounts"] == [
+    assert m["promotion_ladder"] == "VERIFIED"
+    assert m["promotion_ladder_evidence"]["promoted_accounts"] == [
         {"login": "alice", "from": "NONE", "to": "MEMBER"}]
-    assert m["ai_posture_v2"] == "AD_HOC"
-    assert m["ai_posture_v2_evidence"]["rule"] == "no_evidence"
-    for field in ("legal_ip", "legal_ip_evidence", "promotion_ladder_v2",
-                  "promotion_ladder_v2_evidence", "ai_posture_v2",
-                  "ai_posture_v2_evidence"):
+    assert m["ai_posture"] == "AD_HOC"
+    assert m["ai_posture_evidence"]["rule"] == "no_evidence"
+    for field in ("legal_ip", "legal_ip_evidence", "promotion_ladder",
+                  "promotion_ladder_evidence", "ai_posture",
+                  "ai_posture_evidence"):
         assert bundle["confidence"][field] == "derived"
         assert bundle["provenance"][field]["source"] == \
             str(raw / "governance" / f"{KEY}.json")
@@ -636,9 +780,9 @@ def test_derive_repo_governance_envelope_without_pr_window(tmp_path):
     m = bundle["meta"]
     assert m["legal_ip"] == "NONE"
     assert m["legal_ip_evidence"]["rule"] == "no_evidence"
-    assert m["promotion_ladder_v2"] == "DOCUMENTED"
-    assert m["promotion_ladder_v2_evidence"]["pr_window_envelope"] is False
-    assert m["ai_posture_v2"] == "AD_HOC"
+    assert m["promotion_ladder"] == "DOCUMENTED"
+    assert m["promotion_ladder_evidence"]["pr_window_envelope"] is False
+    assert m["ai_posture"] == "AD_HOC"
 
 
 def test_derive_repo_signoff_share_alone_without_governance_envelope(tmp_path):
@@ -662,9 +806,66 @@ def test_derive_repo_signoff_share_alone_without_governance_envelope(tmp_path):
     assert m["legal_ip_evidence"]["signoff"] == {"count": 50, "total": 100, "share": 0.5}
     assert bundle["provenance"]["legal_ip"]["source"] == \
         str(raw / "commits_365d" / f"{KEY}.json")
-    # no governance envelope -> no file/check evidence for the other two:
-    assert m["promotion_ladder_v2"] == "AD_HOC"
-    assert m["ai_posture_v2"] == "AD_HOC"
+    # no governance envelope -> no file/check evidence for the other two,
+    # and both are Unmeasured (B2: neither prw nor gov exists for the
+    # ladder; gov alone is absent for posture):
+    assert m["promotion_ladder"] == "AD_HOC"
+    assert m["ai_posture"] == "AD_HOC"
+    assert bundle["confidence"]["legal_ip"] == "derived"
+    assert bundle["confidence"]["promotion_ladder"] == "missing"
+    assert bundle["confidence"]["ai_posture"] == "missing"
+
+
+# --- Blocker B2 round 2: Unmeasured(collector_failure) vs measured zero --- #
+
+def test_legal_ip_unmeasured_when_both_envelopes_absent():
+    """Fetch failure (neither envelope exists) -> Unmeasured ("missing")."""
+    result = gov.derive_governance_fields(None, None, None, foundation_owner=False)
+    assert result["legal_ip"] == ("NONE", "missing")
+    assert result["legal_ip_evidence"][1] == "missing"
+
+
+def test_legal_ip_measured_zero_when_governance_envelope_fetched_empty():
+    """Fetch success + no evidence -> measured zero ("derived"), NOT
+    Unmeasured -- a governance envelope that genuinely found no checks."""
+    gov_data = _gov_data(merged_prs=[], checks=[], check_names=[], files={})
+    result = gov.derive_governance_fields(gov_data, None, None, foundation_owner=False)
+    assert result["legal_ip"] == ("NONE", "derived")
+    assert result["legal_ip_evidence"][0]["rule"] == "no_evidence"
+
+
+def test_promotion_ladder_unmeasured_when_pr_window_and_governance_absent():
+    """Fetch failure (neither pr_window nor governance exists) -> Unmeasured."""
+    result = gov.derive_governance_fields(None, None, None, foundation_owner=False)
+    assert result["promotion_ladder"] == ("AD_HOC", "missing")
+    assert result["promotion_ladder_evidence"][1] == "missing"
+
+
+def test_promotion_ladder_measured_zero_when_pr_window_fetched_empty():
+    """Fetch success + no evidence -> measured zero: an empty pr_window
+    envelope genuinely found no PRs, so AD_HOC is a real answer."""
+    result = gov.derive_governance_fields(None, _prw([]), None, foundation_owner=False)
+    assert result["promotion_ladder"] == ("AD_HOC", "derived")
+    assert result["promotion_ladder_evidence"][0]["rule"] == "no_evidence"
+
+
+def test_ai_posture_unmeasured_when_governance_envelope_absent():
+    """Fetch failure (governance envelope, the only file source, is absent)
+    -> Unmeasured, even when other envelopes (prw/c365) exist."""
+    result = gov.derive_governance_fields(
+        None, _prw([]), [_c365_row("a", "a@corp.com")], foundation_owner=False)
+    assert result["ai_posture"] == ("AD_HOC", "missing")
+    assert result["ai_posture_evidence"][1] == "missing"
+
+
+def test_ai_posture_measured_zero_when_governance_envelope_fetched_empty():
+    """Fetch success + no evidence -> measured zero: a governance envelope
+    that genuinely found no policy files is a real AD_HOC, not a guess."""
+    gov_data = _gov_data(merged_prs=[], checks=[], check_names=[],
+                         files={f: None for f in gov.GOVERNANCE_FILES + gov.AI_POLICY_FILES})
+    result = gov.derive_governance_fields(gov_data, None, None, foundation_owner=False)
+    assert result["ai_posture"] == ("AD_HOC", "derived")
+    assert result["ai_posture_evidence"][0]["rule"] == "no_evidence"
 
 
 # --- the append-only gather hook --------------------------------------------------- #

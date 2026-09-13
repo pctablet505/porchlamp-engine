@@ -374,15 +374,22 @@ GATHER_DONE = {
     "pr_events": [],
     "pr_reviews": {},
     "contributors": [],
-    "gfi": [],
+    # W1-1's per-label gfi collector treats a bare list as legacy and
+    # re-fetches (needs_gather); the new shape's metadata-first record is
+    # what actually marks it done.
+    "gfi": [{"gfi_newcomer_v2": True, "labels_matched": [], "queries": [],
+             "truncated": False}],
     "actions_runs": [],
     "tree": {"paths": ["pyproject.toml"], "truncated": False},
     "commits_180d": [],
     "depsdev": None,
     "scorecard": None,
-    # W1-6 postdates this file and is not under test here; marking it done
-    # avoids live check-run/file-body calls for "acme/widget" below.
-    "governance": {},
+    # W1-6/W1-5/W1-2/W1-3/W1-7 postdate this file and are not under test
+    # here; marking them done avoids live check-run/file-body/commits/
+    # deps.dev/ecosyste.ms/graphql/gh api calls for "acme/widget" below
+    # (Blocker B4 round 2).
+    "governance": {}, "commits_365d": [], "dependents": {}, "pr_window": {},
+    "releases": {}, "issues_counts": {}, "runs": {},
 }
 
 
@@ -395,7 +402,7 @@ def seed_gather_done(raw: Path) -> None:
                              "data": {"monthly": 10}}), encoding="utf-8")
 
 
-def test_gather_repo_repo_object_status_ok(tmp_path, monkeypatch):
+def test_gather_repo_repo_object_status_ok(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
     monkeypatch.setattr(ro_mod, "collect_repo_object", lambda *a, **k: "ok")
@@ -404,7 +411,7 @@ def test_gather_repo_repo_object_status_ok(tmp_path, monkeypatch):
     assert status["github_meta"] == "skip"
 
 
-def test_gather_repo_repo_object_status_skip(tmp_path, monkeypatch):
+def test_gather_repo_repo_object_status_skip(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
     write_env(gather.DATA, "repo_object", KEY, ro_data())

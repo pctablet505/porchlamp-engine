@@ -363,12 +363,21 @@ GATHER_DONE = {
     "pr_events": [],
     "pr_reviews": {},
     "contributors": [],
-    "gfi": [],
+    # W1-1's per-label gfi collector treats a bare list as legacy and
+    # re-fetches (needs_gather); the new shape's metadata-first record is
+    # what actually marks it done.
+    "gfi": [{"gfi_newcomer_v2": True, "labels_matched": [], "queries": [],
+             "truncated": False}],
     "actions_runs": [],
     "tree": {"paths": ["pyproject.toml"], "truncated": False},
     "commits_180d": [],
     "depsdev": None,
     "scorecard": None,
+    # W1-5/W1-2/W1-7 postdate this file and are not under test here; marking
+    # them done avoids live commits/deps.dev/ecosyste.ms/gh api calls for
+    # "acme/widget" below (Blocker B4 round 2).
+    "commits_365d": [], "dependents": {},
+    "releases": {}, "issues_counts": {}, "runs": {},
 }
 
 
@@ -393,7 +402,7 @@ def seed_gather_done(raw: Path) -> None:
     write_env(raw, "governance", KEY, {})
 
 
-def test_gather_repo_pr_window_status_ok(tmp_path, monkeypatch):
+def test_gather_repo_pr_window_status_ok(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
     monkeypatch.setattr(gql, "collect_pr_window", lambda *a, **k: "ok")
@@ -403,7 +412,7 @@ def test_gather_repo_pr_window_status_ok(tmp_path, monkeypatch):
     assert status["repo_object"] == "skip"
 
 
-def test_gather_repo_pr_window_status_skip(tmp_path, monkeypatch):
+def test_gather_repo_pr_window_status_skip(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
     write_env(gather.DATA, "pr_window", KEY, {"count": 0, "truncated": False,
@@ -418,7 +427,7 @@ def test_gather_repo_pr_window_status_skip(tmp_path, monkeypatch):
     assert status["pr_window"] == "skip"
 
 
-def test_gather_repo_pr_window_status_fail(tmp_path, monkeypatch):
+def test_gather_repo_pr_window_status_fail(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
 

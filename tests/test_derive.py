@@ -99,8 +99,14 @@ def test_full_bundle(tmp_path):
     assert m["active_nonbot_commits_180d"] == 3
     assert m["scorecard_score"] == 9.0 and c["scorecard_score"] == "verified"  # |9.0-8.8| <= 0.5
     assert m["legal_ip_model"] == "DCO" and c["legal_ip_model"] == "derived"
-    assert m["ai_posture"] == "REGULATED"
-    assert m["promotion_ladder"] == "DOCUMENTED_PATHWAY"
+    # W1-6 (02 §4 3.1/3.3/4.2) supersedes the v1 regex-heuristic ai_posture /
+    # promotion_ladder with evidence-based classification (bare field names,
+    # W7): this fixture seeds no governance/pr_window/commits_365d envelope,
+    # so both are Unmeasured(collector_failure) -- confidence "missing" --
+    # and correctly report the AD_HOC default rather than the heuristic's
+    # regex guess over the README/CONTRIBUTING body text.
+    assert m["ai_posture"] == "AD_HOC" and c["ai_posture"] == "missing"
+    assert m["promotion_ladder"] == "AD_HOC" and c["promotion_ladder"] == "missing"
     assert m["hard_ai_ban"] is False and m["off_platform_reviews"] is False
     assert m["dx_ci_minutes"] == 15.0
     assert m["active_unclaimed_gfis"] == 2

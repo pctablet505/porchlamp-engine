@@ -519,7 +519,14 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # instead of None; a "missing"-confidence field carries no source
     # (matches every other b.missing() field in this module).
     # (foundation-owner fact mirrors the v1 expression above; the list
-    # stays in FOUNDATION_ORGS, one definition per fact.) ---
+    # stays in FOUNDATION_ORGS, one definition per fact.) Field names are
+    # bare (W7 round 2, matching cvi.core.constants_v2.PARAM_INPUT_IDS
+    # exactly): promotion_ladder / ai_posture already name the v1 regex
+    # heuristic set above (legal_ip_model is the only v1 field with a
+    # distinct name), so this block's b.set() calls deliberately supersede
+    # those heuristic values with the evidence-based ones -- that
+    # replacement, not addition, is this packet's purpose (02 §4 3.3/4.2
+    # ask for evidence-based classification). ---
     from cvi.collect import governance as gov_mod
     gov, gov_at = _load(data_dir, "governance", key)
     if gov is not None:

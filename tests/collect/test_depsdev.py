@@ -322,7 +322,11 @@ GATHER_DONE = {
     "pr_events": [],
     "pr_reviews": {},
     "contributors": [],
-    "gfi": [],
+    # W1-1's per-label gfi collector treats a bare list as legacy and
+    # re-fetches (needs_gather); the new shape's metadata-first record is
+    # what actually marks it done.
+    "gfi": [{"gfi_newcomer_v2": True, "labels_matched": [], "queries": [],
+             "truncated": False}],
     "actions_runs": [],
     "tree": {"paths": ["pyproject.toml"], "truncated": False},
     "commits_180d": [],
@@ -333,6 +337,10 @@ GATHER_DONE = {
     # "pallets/flask" used below from taking live check-run/file-body calls
     # (repos with a large real PR history make this collector-count matter).
     "repo_object": {}, "commits_365d": [], "pr_window": {}, "governance": {},
+    # W1-7 (Blocker B4 round 2): releases/issues_counts/runs also postdate
+    # this file; unseeded they made 9 live gh api calls under the
+    # block_live_network guard (3 tests x 3 calls each).
+    "releases": {}, "issues_counts": {}, "runs": {},
 }
 
 
@@ -345,7 +353,7 @@ def seed_gather_done(raw: Path) -> None:
                              "data": {"monthly": 10}}), encoding="utf-8")
 
 
-def test_gather_repo_dependents_status_ok(tmp_path, monkeypatch):
+def test_gather_repo_dependents_status_ok(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
     monkeypatch.setattr(dd, "_get_json", _replay)
@@ -355,7 +363,7 @@ def test_gather_repo_dependents_status_ok(tmp_path, monkeypatch):
     assert (gather.DATA / "dependents" / f"{KEY}.json").is_file()
 
 
-def test_gather_repo_dependents_status_skip(tmp_path, monkeypatch):
+def test_gather_repo_dependents_status_skip(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
     write_env(gather.DATA, "dependents", KEY,
@@ -372,7 +380,7 @@ def test_gather_repo_dependents_status_skip(tmp_path, monkeypatch):
     assert status["dependents"] == "skip"
 
 
-def test_gather_repo_dependents_systems_skip(tmp_path, monkeypatch):
+def test_gather_repo_dependents_systems_skip(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
 

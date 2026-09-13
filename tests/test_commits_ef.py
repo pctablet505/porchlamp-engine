@@ -323,7 +323,7 @@ def _seed_raw(tmp: Path, collector: str, key: str, data) -> None:
                     "data": data}), encoding="utf-8")
 
 
-def test_gather_hook_writes_commits_365d(tmp_path, monkeypatch):
+def test_gather_hook_writes_commits_365d(tmp_path, monkeypatch, block_live_network):
     for collector, data in (("github_meta", {"default_branch": "main", "stars": 1}),
                             ("pr_events", []), ("pr_reviews", {}),
                             ("contributors", []), ("gfi", []),
@@ -332,8 +332,15 @@ def test_gather_hook_writes_commits_365d(tmp_path, monkeypatch):
                             ("depsdev", {"stars": 1}), ("scorecard", {"score": 5.0}),
                             # W1-9/W1-3/W1-6 postdate this file and are not
                             # under test here; marking them done avoids live
-                            # calls for "acme/widget" below.
-                            ("repo_object", {}), ("pr_window", {}), ("governance", {})):
+                            # calls for "acme/widget" below. "dependents"
+                            # (W1-2) and "releases"/"issues_counts"/"runs"
+                            # (W1-7) are the same: unseeded, they made 5 live
+                            # calls (api.deps.dev, packages.ecosyste.ms, 3x
+                            # gh api) under the block_live_network guard
+                            # (Blocker B4 round 2).
+                            ("repo_object", {}), ("pr_window", {}), ("governance", {}),
+                            ("dependents", {}), ("releases", {}),
+                            ("issues_counts", {}), ("runs", {})):
         _seed_raw(tmp_path, collector, KEY, data)
     _seed_raw(tmp_path, "downloads", f"pypi__{NAME}", {"monthly": 123})
     monkeypatch.setattr(gather, "DATA", tmp_path)

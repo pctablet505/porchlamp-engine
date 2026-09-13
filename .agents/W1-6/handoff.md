@@ -328,3 +328,318 @@ an honest missing-evidence default, per D-VER/O-1.
 
 2 of 2 live repositories used (torvalds/linux, kubernetes/kubernetes), per
 the packet's dispatch cap. All other tests use recorded-response fakes.
+
+---
+
+# Round 2 (REWORK response)
+
+Base: rebased branch `W1-6s` from `3844e79` onto main tip `a789466` (W1-7
+landed in the interim). Rebase conflicts at the tail of `scripts/gather.py`
+and `scripts/derive.py` resolved as instructed: W1-7's block kept first,
+W1-6's block appended after, both hook chains intact.
+
+Review: `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adbe955a4084/scratchpad/reviews/W1-6-review.md`.
+All four Blockers and W1/W6/W7/W8 fixed. Diffstat:
+
+```
+ cvi/collect/governance.py            | 233 ++++++++++++++++++++++++--------
+ scripts/derive.py                    |   9 +-
+ tests/collect/test_depsdev.py        |  16 ++-
+ tests/collect/test_governance_w16.py | 251 +++++++++++++++++++++++++++++++----
+ tests/collect/test_pr_window.py      |  17 ++-
+ tests/conftest.py                    | 120 +++++++++++++++++
+ tests/test_backfill_downloads.py     |  29 +++-
+ tests/test_commits_ef.py             |  13 +-
+ tests/test_derive.py                 |  10 +-
+ tests/test_repo_object.py            |  19 ++-
+ 10 files changed, 607 insertions(+), 110 deletions(-)
+```
+
+## B1 — narrow CLA matching
+
+Replaced the bare `FOUNDATION_CHECK_PATTERNS` (`easycla`, `\basf\b`, `apache`,
+`cncf`, `eclipse`) with a shared `CLA_CHECK_PATTERNS` gate (`easycla`,
+`cla-assistant`, `cla-check`, `license/cla`, `cla/`, a bare `cla` token
+bounded by non-alphanumerics) that both the foundation and corp branches now
+require. `FOUNDATION_CHECK_PATTERNS` is now `easycla` or
+`(asf|apache|cncf|eclipse)[\s_/-]*cla` — every alternative already satisfies
+`CLA_CHECK_PATTERNS`, so a bare foundation-name substring never matches
+anywhere. `foundation_owner` stays a fully independent branch (unaffected,
+so `test_legal_ip_foundation_owner_without_checks` is unchanged).
+
+Six-case test (parametrized, DCO must win alongside each false positive):
+
+```
+$ pytest -p no:cacheprovider "tests/collect/test_governance_w16.py::test_legal_ip_foundation_substrings_never_shadow_a_real_dco_check"
+......                                                                   [100%]
+6 passed in 0.06s
+```
+
+Positive/over-correction controls (EasyCLA, cla-assistant, ASF CLA,
+apache-cla, cncf-cla, eclipse-cla/validation, foundation-owner-alone):
+
+```
+$ pytest -p no:cacheprovider tests/collect/test_governance_w16.py -k foundation
+..........                                                               [100%]
+10 passed, 61 deselected in 0.06s
+```
+
+Live-repo recomputation from the round-1 stored envelopes
+(`/home/pctablet505/Projects/cvi-scratch/W1-6s/raw/`), network patched to
+raise (`cvi-scratch/W1-6-r2/recheck_live.py`):
+
+```
+torvalds__linux
+  legal_ip='DCO' conf='derived' rule='signoff_share' signoff={'count': 924, 'total': 1000, 'share': 0.924}
+kubernetes__kubernetes
+  legal_ip='FOUNDATION_CLA' conf='derived' rule='foundation_cla_check' check_names=[...31 names incl. 'EasyCLA'...]
+  ai_posture='REGULATED' conf='derived'
+NO NETWORK WAS USED (connect/Popen patched to raise)
+```
+
+Same outputs as round 1 (DCO 924/1000; kubernetes FOUNDATION_CLA via
+EasyCLA) under the tightened matcher — over-correction guard holds.
+
+## B2 — Unmeasured(collector_failure) vs measured zero
+
+`derive_governance_fields` now computes confidence per parameter instead of
+one blanket `"derived"`: `"missing"` (this v1-format document's spelling of
+Unmeasured — `cvi.derive.bundle._load_v1` maps a `"missing"` confidence to
+`Unmeasured(reason="collector_failure")`, the W1-7 F2 template) fires only
+when the relevant envelope(s) were never fetched:
+
+* `legal_ip`: `"missing"` iff `gov is None and c365 is None`.
+* `promotion_ladder`: `"missing"` iff `prw is None and gov is None`
+  (VERIFIED/CLOSED both need `prw`; DOCUMENTED alone needs `gov`'s files).
+* `ai_posture`: `"missing"` iff `gov is None` (its only file source).
+
+Six-case test (fetch-failure -> Unmeasured, fetch-success+no-evidence ->
+measured, for all three parameters):
+
+```
+$ pytest -p no:cacheprovider tests/collect/test_governance_w16.py -k "unmeasured or measured_zero"
+......                                                                   [100%]
+6 passed, 65 deselected in 0.06s
+```
+
+`test_derive_repo_no_governance_evidence_defaults_none_ad_hoc_ad_hoc` was
+updated (round 1 asserted `confidence == "derived"` for the no-envelope
+case, which was precisely the bug) to assert `confidence == "missing"` and
+the richer per-parameter reason strings.
+
+## B3 — negation-aware AI-ban detection
+
+Deleted the bare `\b(no|not|never|without)\s+(ai|...)` pattern outright (no
+ban verb at all — the direct source of two of the three misfires). Added a
+line-level negation guard (`_is_negated_ban_line`): a negation token
+(`not`, `n't`, `no`, `nothing`, `never`, `will not`) plus an AI-reference
+term plus a ban-verb term (`ban`/`forbid`/`prohibit`/`disallow` family) in
+the same line means the line denies a ban, not states one; `_ban_match`
+skips such a line and keeps scanning the rest of the corpus.
+
+Four-case test (three repros must NOT derive PROSCRIBED, one positive
+control for a genuine ban in the same corpus as a negated line):
+
+```
+$ pytest -p no:cacheprovider tests/collect/test_governance_w16.py -k "does_not_derive_proscribed or negation_does_not_blind"
+....                                                                     [100%]
+4 passed, 67 deselected in 0.06s
+```
+
+Existing positive-ban tests (`...proscribed_ban_in_contributing` = "We do
+not accept AI-generated code.", `...proscribed_beats_policy_file` = "...are
+not permitted.") still pass unchanged: neither contains a ban-verb term
+from the negation guard's own vocabulary, so the guard never fires on them.
+
+## B4 — structural network guard
+
+(a) `collect_governance`'s `api=`/`fetch_file=` injectable transports
+already existed (round 1); no change needed there.
+(b) Added `block_live_network`, one shared opt-in fixture in
+`tests/conftest.py` (not autouse — a file changes nothing unless a test
+requests it). It patches `socket.socket.connect`/`connect_ex`/
+`create_connection` and `subprocess.Popen.__init__` to raise on any
+non-loopback target, **and records every blocked attempt, asserting zero at
+teardown** — this second half is load-bearing: `gather_repo`'s per-collector
+`except Exception` swallows the raise and records `status[c]="fail"`, so a
+test that never asserts that status would otherwise still pass with the
+call blocked and unnoticed (verified by an actual negative control, below).
+`@pytest.mark.live_network` opts a test back into real access; none needed
+it.
+
+Replaced the four/five ad hoc local patches: extended each of
+`tests/collect/test_depsdev.py`, `tests/collect/test_pr_window.py`,
+`tests/test_repo_object.py`, `tests/test_backfill_downloads.py`,
+`tests/test_commits_ef.py`'s existing "mark collectors done" seed
+dicts/tuples to cover every collector `gather_repo` invokes (`dependents`,
+`commits_365d`, `pr_window`, `releases`/`issues_counts`/`runs`, and the
+W1-1 `gfi` new-shape record so `needs_gather` doesn't re-trigger a live
+`labels` call) — the same technique round 1 already used for `governance`,
+applied completely instead of partially — and added `block_live_network`
+to the 12 `gather_repo`-calling test functions across those five files.
+
+Zero-live-calls proof (plain pytest, fixture-only, no external harness):
+
+```
+$ pytest -p no:cacheprovider tests/collect/test_depsdev.py tests/collect/test_pr_window.py tests/test_repo_object.py tests/test_backfill_downloads.py tests/test_commits_ef.py
+........................................................................ [ 66%]
+.....................................                                    [100%]
+109 passed in 6.55s
+```
+
+**Live-call count: 0, down from 40** (the review's measured baseline,
+`test_depsdev.py` 3 + `test_pr_window.py` 12 + `test_repo_object.py` 10 +
+`test_backfill_downloads.py` 13 + `test_commits_ef.py` 2). Zero attempts
+were recorded by `block_live_network` across all 12 guarded tests; the
+guard's assert-on-leftover-attempts fired on nothing.
+
+**Negative control (guard detection power, genuinely re-executed):**
+removed the `"dependents"` seed line from `test_commits_ef.py`'s hook test
+and re-ran it alone:
+
+```
+E   AssertionError: 5 live network attempt(s) blocked during this test (caught
+    internally, so no other assertion saw it): ["socket.create_connection
+    ('api.deps.dev', 443)", "socket.create_connection ('packages.ecosyste.ms',
+    443)", ...3 more gh api attempts...]
+1 passed, 1 error in 2.60s
+```
+
+The test itself (`assert st["commits_365d"] == "ok"`) still passed — proving
+the exact structural gap B4 names (a swallowed leak is otherwise invisible)
+— but the fixture's teardown assertion failed the run anyway. File
+restored; `git status --short` printed nothing extra. This negative control
+also caught a genuine gap of my own first pass (the `releases`/
+`issues_counts`/`runs` W1-7 collectors were not yet seeded in
+`test_commits_ef.py`), which is now fixed and included in the 0-count
+above.
+
+## W6 — governance envelope now writes sha256
+
+`collect_governance` now records `files[fname] = {"present": True,
+"sha256": sha256_hex(body), "body": body}` (imports `sha256_hex` from
+`cvi.collect.envelope`, the same helper every other per-item hash in this
+codebase would use). Verified directly against a live collector run:
+production keys now equal the fixture keys exactly, `['body', 'present',
+'sha256']`, closing the LENS-TQ-14 field-delta the review measured. No test
+changes needed — the ten pre-existing tests that assert a `sha256` key were
+already correct.
+
+## W7 — bare field names matching PARAM_INPUT_IDS
+
+Renamed `promotion_ladder_v2`/`promotion_ladder_v2_evidence`/
+`ai_posture_v2`/`ai_posture_v2_evidence` to `promotion_ladder`/
+`promotion_ladder_evidence`/`ai_posture`/`ai_posture_evidence`. Verified:
+
+```
+written fields: ['ai_posture', 'ai_posture_evidence', 'legal_ip',
+'legal_ip_evidence', 'promotion_ladder', 'promotion_ladder_evidence']
+promotion_ladder in PARAM_INPUT_IDS: True
+ai_posture in PARAM_INPUT_IDS: True
+legal_ip in PARAM_INPUT_IDS: True
+any _v2 suffix left: False
+```
+
+**Consequence swept, not deferred:** `promotion_ladder`/`ai_posture` are
+*also* the exact names of the pre-existing v1 regex-heuristic fields
+(`scripts/derive.py:371-373`, computed earlier in `derive_repo`'s hook
+chain). This packet's block runs at the tail and, writing to the same bare
+keys, deliberately supersedes those heuristic values — that replacement,
+not addition, is what 02 §4 3.3/4.2 (evidence-based classification) asks
+for; `legal_ip_model` is the only v1 field with a genuinely distinct name
+and is untouched. Measured blast radius of the rename, empirically (full
+suite before/after): **exactly one test outside this packet**,
+`tests/test_derive.py::test_full_bundle`, which asserted the old heuristic
+values `REGULATED`/`DOCUMENTED_PATHWAY` for a fixture that seeds no
+governance/pr_window/commits_365d envelope. Updated its two assertions to
+the correct post-fix behavior: `AD_HOC` with confidence `"missing"` (B2)
+for both, since no governance evidence exists for this fixture. Also
+updated `test_derive_repo_v1_governance_fields_unchanged`'s docstring
+(unchanged assertions — the heuristic default and the Unmeasured default
+both happen to spell `AD_HOC` in that no-evidence fixture) to state
+accurately that the source is now the evidence-based classifier, not the
+regex heuristic. Grepped the whole tree for every other reader of the old
+`_v2`-suffixed names: none found outside historical `docs/v2/00-README.md`
+lead-log prose (left untouched — it is a record of what was found/
+dispatched, not a code reader).
+
+## W8 — c365 type/crash fix
+
+`_orgs_by_login` and `classify_promotion_ladder`'s `c365` parameter
+retyped `Optional[Sequence[Mapping[str, Any]]]` (was `Optional[Mapping]`/
+`Optional[Any]`). Added `_row_sequence()`: a dict-shaped `c365` (iterates
+over its keys, not row mappings) is now treated as "no rows" everywhere
+(`_orgs_by_login`, `signoff_share`, and transitively `classify_promotion_ladder`
+and `derive_governance_fields`) instead of raising `AttributeError` on the
+first `row.get(...)`.
+
+```
+$ pytest -p no:cacheprovider tests/collect/test_governance_w16.py -k dict_shaped
+....                                                                     [100%]
+4 passed, 67 deselected in 0.06s
+```
+
+## W1 — SIGNOFF_THRESHOLD actually read
+
+`count * 2 >= total` replaced with `(count / total) >= SIGNOFF_THRESHOLD`
+(guarded by the existing `total > 0` check). Test changes the constant
+itself via `monkeypatch.setattr(gov, "SIGNOFF_THRESHOLD", ...)`, not the
+per-value inputs, so the lead's named mutant ("drop the threshold to 0.0")
+is now caught by construction:
+
+```
+$ pytest -p no:cacheprovider tests/collect/test_governance_w16.py -k signoff_threshold_is_read
+.                                                                        [100%]
+1 passed, 70 deselected in 0.06s
+```
+
+## Full suite (real output, twice, both exit 0)
+
+```
+$ pytest tests/ -n 4 -p no:cacheprovider
+1609 passed, 12 warnings in 14.59s
+$ pytest tests/ -n 4 -p no:cacheprovider   # re-run, stability check
+1609 passed, 12 warnings in 14.43s
+```
+
+(1585 passed on the same command immediately after the rebase, before any
+round-2 fix; +24 net new tests added this round.)
+
+## Ruff
+
+```
+$ ruff check cvi/collect/governance.py cvi/collect/commits.py scripts/derive.py \
+    scripts/gather.py tests/conftest.py tests/collect/test_governance_w16.py \
+    tests/collect/test_depsdev.py tests/collect/test_pr_window.py \
+    tests/test_repo_object.py tests/test_backfill_downloads.py \
+    tests/test_commits_ef.py tests/test_derive.py
+All checks passed!
+$ ruff check cvi/ scripts/ tests/
+Found 4 errors.   # all four in scripts/curate_dataset_llm.py, a file this packet never touches (pre-existing, same as round 1's Nit N3)
+```
+
+## COULD NOT VERIFY (round 2)
+
+* Whether a `_row_sequence`-style guard is also warranted on other
+  `commits_365d` consumers outside this packet (`cvi/collect/commits.py`
+  itself, `cvi/pillars/`); not swept, since W8's scope is this packet's own
+  `governance.py` functions.
+* `cvi/derive/bundle.py`'s `V1_FIELD_TO_INPUT` table reads `legal_ip_model`
+  (the v1 heuristic), not `legal_ip`, for the `legal_ip` v2 input id: this
+  packet's own `legal_ip` field is still orphaned from that specific wiring
+  path even after W7, because `legal_ip` has no bare-name collision with a
+  v1 field to resolve by superseding (unlike `promotion_ladder`/
+  `ai_posture`), so W7's literal instruction did not reach it. Whether the
+  table gets a third mapping entry is a decision for whichever packet wires
+  the v2 scorer, matching round 1's existing COULD-NOT-VERIFY on the same
+  open question.
+* The two items carried over unresolved from round 1 (the one `sample-200`
+  manifest gap, and the `kubernetes/kubernetes` `pr_window` default-page-size
+  GraphQL error) — unchanged, not part of round 2's dispatch.
+
+## Live-call budget (round 2)
+
+0 live repositories used. Both live-repo checks reused round 1's stored
+envelopes (`/home/pctablet505/Projects/cvi-scratch/W1-6s/raw/`), with the
+network patched to raise, proving no live call happened during
+recomputation.

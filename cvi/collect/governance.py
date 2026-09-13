@@ -66,7 +66,7 @@ from typing import Any, Optional, Protocol
 
 from cvi.collect import commits as commit_domains
 from cvi.collect import github_graphql as pr_window
-from cvi.collect.envelope import write_envelope
+from cvi.collect.envelope import sha256_hex, write_envelope
 # --------------------------------------------------------------------------- #
 # 02 §4 / packet W1-6 constants (single definition until W2-1 moves them)     #
 # --------------------------------------------------------------------------- #
@@ -92,17 +92,46 @@ AI_POLICY_FILES: tuple[str, ...] = (
     ".github/AI.md", ".github/copilot-instructions.md", "AGENTS.md",
     "CLAUDE.md")
 
-#: Check names / status contexts that evidence a foundation CLA (02 §4 3.1:
-#: "EasyCLA/ASF/Eclipse/CNCF CLA check"). Case-insensitive substrings;
-#: matched before the corp patterns so "EasyCLA" never falls into "cla".
+#: A genuine CLA check/status name -- the shared "is this even a CLA check"
+#: test both branches below require (Blocker B1 round 2: a bare
+#: foundation-name substring with no CLA marker at all -- "license/apache-2.0",
+#: "apache-rat", "build (eclipse-temurin-17)", "asf-jenkins-build",
+#: "cncf-conformance-e2e", "test-on-apache-spark" -- must never match
+#: anywhere in this module). Matches an explicit CLA-bot name, a "license/cla"
+#: or "cla/..." status-context spelling, or a bare "cla" token bounded by
+#: non-alphanumeric characters (so "easycla"/"cncf-cla" still match via their
+#: own named alternative, but "clarity-check" or "declarative" do not).
+CLA_CHECK_PATTERNS: tuple[re.Pattern, ...] = tuple(
+    re.compile(p, re.IGNORECASE) for p in (
+        r"easycla",
+        r"cla[-_ ]?assistant",
+        r"cla[-_ ]?check",
+        r"license/cla",
+        r"cla/",
+        r"(?<![a-z0-9])cla(?![a-z0-9])",
+    ))
+#: Check names / status contexts that evidence a foundation-branded CLA
+#: (02 §4 3.1: "EasyCLA/ASF/Eclipse/CNCF CLA check"). Every alternative here
+#: also satisfies :data:`CLA_CHECK_PATTERNS` (EasyCLA is CNCF's bot; ASF/
+#: Eclipse/CNCF run a named "<foundation>-cla" bot or status context), so a
+#: bare foundation-name substring with no CLA marker never matches here --
+#: the round-1 defect (Blocker B1) matched "apache"/"asf"/"cncf"/"eclipse" on
+#: their own, which is what shadowed a real DCO check on six common
+#: non-CLA build-job names.
 FOUNDATION_CHECK_PATTERNS: tuple[re.Pattern, ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (r"easycla", r"\basf\b", r"apache", r"cncf", r"eclipse"))
+    re.compile(p, re.IGNORECASE) for p in (
+        r"easycla",
+        r"\b(asf|apache)[\s_/-]*cla\b",
+        r"\bcncf[\s_/-]*cla\b",
+        r"\beclipse[\s_/-]*cla\b",
+    ))
 #: Check names / status contexts that evidence a corporate CLA bot
-#: (02 §4 3.1: "cla-assistant/google-cla/other CLA bot present").
-CORP_CLA_CHECK_PATTERNS: tuple[re.Pattern, ...] = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (r"cla[- ]?assistant", r"google[- ]?cla", r"\bcla\b"))
+#: (02 §4 3.1: "cla-assistant/google-cla/other CLA bot present"). A corp CLA
+#: is, definitionally, any genuine CLA check that is not foundation-branded
+#: (checked in that order in :func:`classify_legal_ip`); "google-cla" is
+#: already a bare "cla" token bounded by "-", so it is covered by
+#: :data:`CLA_CHECK_PATTERNS` with no separate pattern needed.
+CORP_CLA_CHECK_PATTERNS: tuple[re.Pattern, ...] = CLA_CHECK_PATTERNS
 #: A DCO check run (02 §4 3.1: "DCO check run on recent PRs").
 DCO_CHECK_PATTERN: re.Pattern = re.compile(r"dco", re.IGNORECASE)
 
@@ -131,9 +160,6 @@ AI_BAN_PATTERNS: tuple[re.Pattern, ...] = tuple(
         r"\b(ai|llm|gpt|copilot|chatgpt|machine[- ]generated|artificial[- ]intelligence)"
         r"([- ](generated|assisted|created|written|code|contributions?|content|submissions?|commits?|usage))?"
         r"( \w+){0,3}\s+(is|are)\s+(prohibited|forbidden|banned|disallowed)\b",
-        # "no / not / never / without <AI>[- <modifier>]"
-        r"\b(no|not|never|without)\s+(ai|llm|gpt|copilot|chatgpt|machine[- ]generated|artificial[- ]intelligence)"
-        r"([- ](generated|assisted|created|written|code|contributions?|content|submissions?))?",
         # "do not / must not / ... use/submit/merge/accept/commit/contribute <AI>"
         r"\b(do\s+not|don't|never|must\s+not|shall\s+not|please\s+do\s+not)\s+"
         r"(use|submit|merge|accept|commit|contribute)\s+"
@@ -152,6 +178,48 @@ AI_BAN_PATTERNS: tuple[re.Pattern, ...] = tuple(
 # Note: 02 §4 4.2's "Assisted-by"/"AI-generated" commit-trailer convention
 # path is not evaluated by this module -- it needs commit message text,
 # outside this packet's collection scope (module docstring).
+# Round-2 fix (Blocker B3): the round-1 pattern set had a bare
+# "no/not/never/without <AI>" alternation with no ban-verb requirement at
+# all, so "no AI policy yet" and "no AI review step" misfired as a ban --
+# deleted outright (LENS-TQ-11 O6), not merely guarded, since it never
+# stated a ban to begin with. The remaining verb-anchored patterns above
+# are correct on their own ("do not submit AI-generated code" genuinely is
+# a ban) but still misfire when the ban verb itself is negated ("we do not
+# ban AI-generated contributions", "nothing here forbids using AI"); the
+# guard below (:func:`_is_negated_ban_line`) catches that case at the line
+# level before any pattern is tried.
+
+#: Negation tokens that, together with an AI-reference term and a ban-verb
+#: term in the same line, mean the line denies a ban rather than states one
+#: (round-2 dispatch's rule for Blocker B3). "n't" is itself the bound
+#: suffix ("don't", "doesn't"); the rest are whole-word matches.
+NEGATION_PATTERN: re.Pattern = re.compile(
+    r"n't|\bnot\b|\bno\b|\bnothing\b|\bnever\b|\bwill not\b", re.IGNORECASE)
+#: An AI-reference term, standalone (the negation guard's own probe; the
+#: ban patterns above anchor their own AI reference independently).
+_AI_TERM_PATTERN: re.Pattern = re.compile(
+    r"\b(ai|llm|gpt|copilot|chatgpt|machine[- ]generated|artificial[- ]intelligence)\b",
+    re.IGNORECASE)
+#: A ban-verb term, standalone (the negation guard's own probe).
+_BAN_VERB_PATTERN: re.Pattern = re.compile(
+    r"\b(ban|banned|banning|bans|forbid|forbids|forbidden|forbidding|"
+    r"prohibit|prohibits|prohibited|prohibiting|disallow|disallows|disallowed)\b",
+    re.IGNORECASE)
+
+
+def _is_negated_ban_line(line: str) -> bool:
+    """True when ``line`` denies a ban rather than states one (Blocker B3).
+
+    The round-2 dispatch's own rule: a negation token, an AI-reference term
+    and a ban-verb term all present in the same line means the line reads as
+    "there is no ban" / "we do not ban X", not as a ban. Deliberately coarse
+    (it does not parse which word the negation modifies) -- sufficient for
+    the three named false positives without blinding :func:`_ban_match` to a
+    genuine, separately-stated ban line elsewhere in the same document.
+    """
+    return bool(NEGATION_PATTERN.search(line)
+                and _AI_TERM_PATTERN.search(line)
+                and _BAN_VERB_PATTERN.search(line))
 
 
 # --------------------------------------------------------------------------- #
@@ -336,6 +404,20 @@ def _check_evidence(api: RestTransport, owner: str, name: str,
     return checks
 
 
+def _row_sequence(rows: Optional[Any]) -> Optional[Sequence[Mapping[str, Any]]]:
+    """Defend the ``c365`` (commits_365d) contract: a sequence of row
+    mappings, never a bare mapping itself (Warning W8 round 2 -- a
+    dict-shaped ``c365`` iterates over its *keys*, not its rows, and the
+    first ``row.get(...)`` then raises ``AttributeError`` on a plain string).
+    Returns ``None`` for ``None`` or a malformed (bare-``Mapping``) input, so
+    every caller below treats it exactly like "no rows" instead of crashing
+    ``derive_repo``.
+    """
+    if rows is None or isinstance(rows, Mapping):
+        return None
+    return rows
+
+
 def signoff_share(c365_rows: Optional[Sequence[Mapping[str, Any]]]) -> Optional[dict[str, Any]]:
     """02 §4 3.1: the ``Signed-off-by`` share over the non-bot commits (D-IN-1).
 
@@ -345,11 +427,13 @@ def signoff_share(c365_rows: Optional[Sequence[Mapping[str, Any]]]) -> Optional[
     ownership extension of :func:`cvi.collect.commits.shape_commit_rows`.
     Returns ``None`` when no ``commits_365d`` envelope was collected at all
     (as opposed to an envelope with zero rows, which returns a share of
-    ``None`` inside a real ``{"count": 0, "total": 0, "share": None}``).
+    ``None`` inside a real ``{"count": 0, "total": 0, "share": None}``), and
+    also when ``c365_rows`` is a malformed (bare-mapping) shape (W8).
     """
-    if c365_rows is None:
+    rows_seq = _row_sequence(c365_rows)
+    if rows_seq is None:
         return None
-    rows = list(c365_rows)
+    rows = list(rows_seq)
     non_bot = [row for row in rows if not _is_bot_row(row)]
     total = len(non_bot)
     count = sum(1 for row in non_bot if row.get("signed_off"))
@@ -389,7 +473,7 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
     files: dict[str, Optional[dict[str, Any]]] = {}
     for fname in (*GOVERNANCE_FILES, *AI_POLICY_FILES):
         body = fetch_file(fname)
-        files[fname] = None if body is None else {"present": True, "body": body}
+        files[fname] = None if body is None else {"present": True, "sha256": sha256_hex(body), "body": body}
     data: dict[str, Any] = {
         "pulls_available": pulls_available,
         "merged_pr_cap": MERGED_PR_CAP,
@@ -435,15 +519,19 @@ def classify_legal_ip(check_names: Sequence[str], signoff: Optional[Mapping[str,
     if any(DCO_CHECK_PATTERN.search(n) for n in lowered):
         return "DCO", {**evidence, "rule": "dco_check"}
     if signoff and int(signoff.get("total") or 0) > 0 and \
-            int(signoff.get("count") or 0) * 2 >= int(signoff["total"]):
+            (int(signoff.get("count") or 0) / int(signoff["total"])) >= SIGNOFF_THRESHOLD:
         return "DCO", {**evidence, "rule": "signoff_share"}
     return "NONE", {**evidence, "rule": "no_evidence"}
 
 
-def _orgs_by_login(c365: Optional[Mapping[str, Any]]) -> dict[str, str]:
-    """author_login -> email-domain org over the commits_365d envelope rows."""
+def _orgs_by_login(c365: Optional[Sequence[Mapping[str, Any]]]) -> dict[str, str]:
+    """author_login -> email-domain org over the commits_365d envelope rows.
+
+    ``c365`` must be a row sequence (W8); a malformed bare-mapping shape is
+    treated as no rows via :func:`_row_sequence`, never crashed on.
+    """
     orgs: dict[str, str] = {}
-    for row in (c365 or []):
+    for row in (_row_sequence(c365) or []):
         login = str(row.get("author_login") or "").strip()
         if not login or login in orgs:
             continue
@@ -470,7 +558,8 @@ def _nomination_match(files: Mapping[str, Optional[Mapping[str, Any]]]
 
 def classify_promotion_ladder(prw: Optional[Mapping[str, Any]],
                               files: Mapping[str, Optional[Mapping[str, Any]]],
-                              c365: Optional[Any]) -> tuple[str, dict[str, Any]]:
+                              c365: Optional[Sequence[Mapping[str, Any]]]
+                              ) -> tuple[str, dict[str, Any]]:
     """02 §4 3.3: the promotion ladder rung.
 
     ``prw`` is the recorded ``pr_window`` envelope data (W1-3; None when
@@ -539,12 +628,17 @@ def classify_promotion_ladder(prw: Optional[Mapping[str, Any]],
 
 def _ban_match(files: Mapping[str, Optional[Mapping[str, Any]]]
                ) -> Optional[dict[str, str]]:
-    """The first explicit AI-ban line in a collected governance/AI file."""
+    """The first explicit, unnegated AI-ban line in a collected governance/AI
+    file (Blocker B3 round 2: :func:`_is_negated_ban_line` skips a line that
+    denies a ban -- e.g. "we do not ban AI-generated contributions" -- and
+    scanning continues to a genuine ban stated elsewhere in the corpus)."""
     for fname in (*GOVERNANCE_FILES, *AI_POLICY_FILES):
         entry = files.get(fname)
         if not entry:
             continue
         for line in str(entry.get("body") or "").splitlines():
+            if _is_negated_ban_line(line):
+                continue
             for pattern in AI_BAN_PATTERNS:
                 if pattern.search(line):
                     return {"file": fname, "line": line.strip()[:200]}
@@ -585,46 +679,69 @@ def derive_governance_fields(gov: Optional[Mapping[str, Any]],
     ``gov`` is the ``governance`` envelope data (W1-6; checks + files),
     ``prw`` the ``pr_window`` envelope data (W1-3), ``c365`` the
     ``commits_365d`` envelope rows (W1-5, now carrying ``signed_off`` --
-    see :func:`signoff_share`). Returns ``{field: (value, confidence)}``
-    for the six fields written by the ``scripts/derive.py`` hook:
-    ``legal_ip`` / ``legal_ip_evidence``, ``promotion_ladder_v2`` /
-    ``promotion_ladder_v2_evidence`` and ``ai_posture_v2`` /
-    ``ai_posture_v2_evidence`` (the ``_v2`` suffix marks the v2 vocabulary
+    see :func:`signoff_share`). Returns ``{field: (value, confidence)}`` for
+    the six fields written by the ``scripts/derive.py`` hook: ``legal_ip`` /
+    ``legal_ip_evidence``, ``promotion_ladder`` /
+    ``promotion_ladder_evidence`` and ``ai_posture`` /
+    ``ai_posture_evidence`` (the ``_v2`` suffix marks the v2 vocabulary
     where the v1 bundle already carries a same-named v1-enum field driving
     the live v1 scoring sweep -- 00-README non-negotiable: never change a
-    running sweep). All values are ``derived``: the envelope facts are
-    verified, the classification is a documented rule over them.
+    running sweep).
 
-    The RC defaults ``NONE``/``AD_HOC``/``AD_HOC`` (02 §4 class RC:
-    repo-controlled, measured zero) apply only when **neither** a
-    governance envelope nor a commits_365d envelope exists -- i.e. nothing
-    has been collected for this repository yet. When one of the two
-    exists (e.g. a governance-collector failure with commits_365d still
-    present, or vice versa), the classifiers below already treat the
-    missing side as "no evidence on that path" and derive a real value
-    from whichever evidence is present.
+    Confidence, per field, per Blocker B2 round 2 (the W1-7 F2 template: an
+    envelope absent or failed to fetch is Unmeasured(collector_failure); an
+    envelope that fetched successfully and found nothing is a measured
+    zero, D-MISS-1) -- ``"missing"`` is this v1-format document's spelling
+    of Unmeasured (:func:`cvi.derive.bundle._load_v1` maps a ``"missing"``
+    confidence to ``Unmeasured(reason="collector_failure")``), ``"derived"``
+    a real measured value:
+
+    * ``legal_ip``: ``"missing"`` only when **both** the governance-check
+      envelope and the commits_365d envelope are absent -- either one alone
+      still lets :func:`classify_legal_ip` derive a real value (checks or
+      the sign-off share).
+    * ``promotion_ladder``: ``"missing"`` only when **both** the
+      pr_window envelope and the governance-file envelope are absent --
+      VERIFIED/CLOSED both need ``prs`` from pr_window, DOCUMENTED needs
+      only the governance files, so either source alone still lets
+      :func:`classify_promotion_ladder` derive a real rung.
+    * ``ai_posture``: ``"missing"`` when the governance-file envelope is
+      absent -- it is the only source of file bodies.
+
+    A previously-collected envelope that is simply empty (zero checks, zero
+    files) is not "absent": it is passed to the classifier as usual and
+    genuinely measures the RC default (NONE/AD_HOC/AD_HOC).
     """
-    no_envelope: dict[str, Any] = {"reason": "no governance envelope"}
-    if gov is None and c365 is None:
-        return {
-            "legal_ip": ("NONE", "derived"),
-            "legal_ip_evidence": (no_envelope, "derived"),
-            "promotion_ladder_v2": ("AD_HOC", "derived"),
-            "promotion_ladder_v2_evidence": (no_envelope, "derived"),
-            "ai_posture_v2": ("AD_HOC", "derived"),
-            "ai_posture_v2_evidence": (no_envelope, "derived"),
-        }
     files = (gov or {}).get("files") or {}
     check_names = (gov or {}).get("check_names") or []
     signoff = signoff_share(c365)
-    legal, legal_ev = classify_legal_ip(check_names, signoff, foundation_owner)
-    ladder, ladder_ev = classify_promotion_ladder(prw, files, c365)
-    posture, posture_ev = classify_ai_posture(files)
+
+    if gov is None and c365 is None:
+        legal, legal_ev, legal_conf = (
+            "NONE", {"reason": "no governance or commits_365d envelope"}, "missing")
+    else:
+        legal, legal_ev = classify_legal_ip(check_names, signoff, foundation_owner)
+        legal_conf = "derived"
+
+    if prw is None and gov is None:
+        ladder, ladder_ev, ladder_conf = (
+            "AD_HOC", {"reason": "no pr_window or governance envelope"}, "missing")
+    else:
+        ladder, ladder_ev = classify_promotion_ladder(prw, files, c365)
+        ladder_conf = "derived"
+
+    if gov is None:
+        posture, posture_ev, posture_conf = (
+            "AD_HOC", {"reason": "no governance envelope"}, "missing")
+    else:
+        posture, posture_ev = classify_ai_posture(files)
+        posture_conf = "derived"
+
     return {
-        "legal_ip": (legal, "derived"),
-        "legal_ip_evidence": (legal_ev, "derived"),
-        "promotion_ladder_v2": (ladder, "derived"),
-        "promotion_ladder_v2_evidence": (ladder_ev, "derived"),
-        "ai_posture_v2": (posture, "derived"),
-        "ai_posture_v2_evidence": (posture_ev, "derived"),
+        "legal_ip": (legal, legal_conf),
+        "legal_ip_evidence": (legal_ev, legal_conf),
+        "promotion_ladder": (ladder, ladder_conf),
+        "promotion_ladder_evidence": (ladder_ev, ladder_conf),
+        "ai_posture": (posture, posture_conf),
+        "ai_posture_evidence": (posture_ev, posture_conf),
     }
