@@ -119,6 +119,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from cvi.audit.methodology_history import methodology_with_history
 from cvi.core import constants_v2
 from cvi.core.methodology import MethodologyDocument
+from cvi.core.pipeline import DISPLAY_UNRATED_GATE_REASONS
 from cvi.serve.contract import (
     DEFAULT_PAGE_SIZE,
     EvidenceRow,
@@ -432,10 +433,17 @@ def _classify_not_ranked(record: Mapping[str, Any], *, persona: str) -> tuple:
     `cvi.store.queries.list_not_ranked`'s own, plus the two translations
     the review flagged):
 
-    1. Stage-0 ineligible (`eligible=0`): `"unrated: no_external_workflow"`
-       (a GATE reason despite the spelling) becomes the UNRATED group with
-       the bare `unrated_reason="no_external_workflow"`; every other
-       `gate_reason` stays in the GATED group unchanged.
+    1. Stage-0 ineligible (`eligible=0`): a `gate_reason` in
+       `cvi.core.pipeline.DISPLAY_UNRATED_GATE_REASONS` (today: just
+       `"unrated: no_external_workflow"` -- a GATE reason despite the
+       spelling) becomes the UNRATED group with the bare
+       `unrated_reason` (the `"unrated: "` prefix stripped for the wire);
+       every other `gate_reason` stays in the GATED group unchanged. This
+       is the SAME classification `cvi.core.pipeline.not_ranked_class`
+       applies per-record to build `SnapshotCounts` and
+       `cvi.store.queries.snapshot_summary` applies in SQL -- one
+       constant, three call sites, so `/snapshot`'s counts and this
+       endpoint's group sizes always agree (lead ruling 2026-09-14, U-2).
     2. Eligible but excluded by the ACTIVE persona's own gate
        (`persona_gate_reason` is set, only possible when `persona !=
        "balanced"`): `"persona_hidden"`.
@@ -446,8 +454,8 @@ def _classify_not_ranked(record: Mapping[str, Any], *, persona: str) -> tuple:
        computed as `record["reason"]` (insufficient evidence, under the
        balanced or the active persona's own coverage)."""
     if not record["eligible"]:
-        if record["gate_reason"] == "unrated: no_external_workflow":
-            return "unrated", "no_external_workflow"
+        if record["gate_reason"] in DISPLAY_UNRATED_GATE_REASONS:
+            return "unrated", record["gate_reason"].removeprefix("unrated: ")
         return "gated", record["gate_reason"]
     if persona != "balanced" and record.get("persona_gate_reason") is not None:
         return "persona_hidden", record["persona_gate_reason"]
@@ -791,10 +799,33 @@ def create_app(db_path, *, web_dir) -> FastAPI:
     _register_exception_handlers(app)
     app.include_router(_build_router())
 
+    @app.get("/healthz")
+    async def healthz(conn: sqlite3.Connection = Depends(_get_conn)) -> dict:
+        # NB-2 (lead ruling 2026-09-14): a bare liveness route -- by the
+        # time any request reaches here the served-DB guard has already
+        # passed (a refusal is a SystemExit before create_app ever
+        # returns), so this is always 200 once the process is up, on
+        # EITHER database shape (v1-only, v2-only, or both). `snapshot_id`
+        # is `None` on a v2-only database with nothing promoted yet --
+        # honest, never fabricated.
+        return {"status": "ok", "snapshot_id": _current_snapshot_id(conn)}
+
     if legacy_store is not None:
         from cvi.api import create_app as _create_legacy_app
 
         app.mount("/legacy", _create_legacy_app(store=legacy_store))
+    else:
+        @app.get("/legacy/{path:path}")
+        async def legacy_not_mounted(path: str) -> None:
+            # NB-2: `/legacy` mounts the v1 API only when `db_path` carries
+            # a v1 shape (`cvi.serve.guard.run_guard` returned a store) --
+            # a v2-only database explains itself here instead of falling
+            # through to `_SPAStaticFiles`'s generic "no route matches"
+            # (still excluded from the SPA fallback either way, Blocker B-2).
+            raise HTTPException(
+                status_code=404,
+                detail="/legacy is not mounted: this database has no v1 shape for the legacy API to read",
+            )
 
     app.mount("/", _SPAStaticFiles(directory=str(web_dir), html=True, check_dir=False), name="web")
 

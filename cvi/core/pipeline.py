@@ -119,7 +119,7 @@ from typing import Any, Callable, Mapping, Sequence
 from cvi.core import commit_domains, constants_v2, persona
 from cvi.core.commit_domains import LastNonBotCommitMeasured
 from cvi.core.engine import PopulationLookup, Snapshot, score
-from cvi.core.gates import GateEvidence
+from cvi.core.gates import GateEvidence, REASON_NO_EXTERNAL_WORKFLOW
 from cvi.core.models import (
     FeatureBundle,
     PersonaComposite,
@@ -301,11 +301,52 @@ class ScoredSnapshot:
     records_hash: str
 
 
+#: `06-UX-DESIGN.md` section 3 A2's user-facing classification lists
+#: "no external workflow" under UNRATED (an evidence outcome, alongside
+#: "insufficient evidence" and "off-platform routed"), never under GATED
+#: (the six universal disqualifications: mirror/archived/unlicensed/
+#: stale/black_hole/non_software, plus fork). The ENGINE nonetheless
+#: gates it at stage 0 (`cvi.core.gates.REASON_NO_EXTERNAL_WORKFLOW`,
+#: D-GATE-6: `eligible=False`) -- that raw flag is `03` section 5's
+#: provenance and stays exactly as `evaluate_gates` computed it, never
+#: rewritten. This frozen set is the ONE place the two classifications'
+#: difference is named, reused by :func:`not_ranked_class` (this module),
+#: `cvi.store.queries.snapshot_summary` and `cvi.serve.app`'s not-ranked
+#: split, so every count on every screen agrees (lead ruling 2026-09-14,
+#: U-2: a real-fixture served store showed `/snapshot` reporting
+#: gated=35/unrated=15 while `/not-ranked` reported 31/19).
+DISPLAY_UNRATED_GATE_REASONS: frozenset[str] = frozenset({REASON_NO_EXTERNAL_WORKFLOW})
+
+
+def not_ranked_class(record: ScoreRecord) -> str:
+    """`06-UX-DESIGN.md` section 3 A2's user-facing classification of one
+    record: ``"rated"``, ``"gated"`` or ``"unrated"`` -- distinct from the
+    raw engine ``record.gate.eligible`` flag, which this function reads
+    but never changes (`03` section 5: that flag is provenance).
+
+    - ``"rated"``: ``record.rated`` is ``True``.
+    - ``"gated"``: not rated, ``eligible`` is ``False``, and
+      ``record.gate.reason`` is NOT one of
+      :data:`DISPLAY_UNRATED_GATE_REASONS` -- one of the six universal
+      06 section 3 A2 Gated reasons, or fork.
+    - ``"unrated"``: everything else -- an evidence-floor unrated repo
+      (D-EVID-1, ``eligible=True`` but composite coverage below 0.60), OR
+      an engine-gated repo whose reason IS in
+      :data:`DISPLAY_UNRATED_GATE_REASONS` (06's own classification
+      overrides the engine's stage-0 bucket for display/counting only).
+    """
+    if record.rated:
+        return "rated"
+    if not record.gate.eligible and record.gate.reason not in DISPLAY_UNRATED_GATE_REASONS:
+        return "gated"
+    return "unrated"
+
+
 def build_snapshot_counts(records: Sequence[ScoreRecord]) -> SnapshotCounts:
     """:class:`SnapshotCounts` over a final, ranked record sequence."""
     rated = sum(1 for record in records if record.rated)
-    gated = sum(1 for record in records if not record.gate.eligible)
-    unrated = sum(1 for record in records if record.gate.eligible and not record.rated)
+    gated = sum(1 for record in records if not_ranked_class(record) == "gated")
+    unrated = sum(1 for record in records if not_ranked_class(record) == "unrated")
     visible: dict[str, int] = {}
     for name in persona.PERSONA_PRESETS:
         if name == persona.PERSONA_BALANCED:

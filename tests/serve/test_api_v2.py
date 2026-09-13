@@ -286,24 +286,33 @@ def test_not_ranked_balanced_has_no_persona_hidden_group(api):
     assert body.persona_hidden == []
 
 
-def test_snapshot_counts_match_the_raw_store_triage(api):
+def test_snapshot_counts_match_the_display_classification(api):
+    """NB-1 (lead ruling 2026-09-14, U-2): `/snapshot`'s counts apply
+    `cvi.core.pipeline`'s user-facing classification
+    (`DISPLAY_UNRATED_GATE_REASONS`), not the raw engine `eligible` flag
+    -- this fixture's one `"unrated: no_external_workflow"`-gated row
+    (bridge item 3) is counted as unrated here, same as everywhere else."""
+    from cvi.core.pipeline import DISPLAY_UNRATED_GATE_REASONS
+
     client, fx, _db = api
+    reclassified = sum(1 for reason in fx.gated.values() if reason in DISPLAY_UNRATED_GATE_REASONS)
+    assert reclassified == 1, "fixture assumption: exactly one gated reason is display-reclassified"
     snapshot = SnapshotSummary(**client.get("/v1/cvi/snapshot").json())
     assert snapshot.counts.rated == len(fx.rated_names)
-    assert snapshot.counts.gated == len(fx.gated)
-    assert snapshot.counts.unrated == len(fx.unrated)
+    assert snapshot.counts.gated == len(fx.gated) - reclassified
+    assert snapshot.counts.unrated == len(fx.unrated) + reclassified
     assert snapshot.counts.total == snapshot.counts.rated + snapshot.counts.gated + snapshot.counts.unrated
 
 
 def test_not_ranked_counts_derived_from_the_split_balanced(api):
-    """W-1 fix (W4-4 REWORK): `NotRankedResponse.counts` must match the
-    ACTUAL groups this same response carries -- not `snapshot_summary`'s
-    raw stage-0/stage-3 triage, which disagrees whenever a row is
-    reclassified (bridge item 3: a stage-6 `gate_reason` moved into the
-    `unrated` group). This fixture has exactly one such row, so
-    `counts.gated` is 1 LESS than `snapshot.counts.gated` and
-    `counts.unrated` is 1 MORE -- proving the two are not simply copied
-    from each other."""
+    """NB-1 (lead ruling 2026-09-14, U-2): `NotRankedResponse.counts` must
+    match the ACTUAL groups this same response carries, AND must now
+    equal `/snapshot`'s counts exactly -- both derive from the SAME
+    `cvi.core.pipeline.DISPLAY_UNRATED_GATE_REASONS` classification
+    (`cvi.store.queries.snapshot_summary` applies it in SQL,
+    `cvi.serve.app._classify_not_ranked` applies it per-row), so a
+    stage-6-gated-but-display-unrated row (bridge item 3) is counted the
+    same way on both screens -- no more off-by-one between them."""
     client, fx, _db = api
     body = NotRankedResponse(**client.get("/v1/cvi/not-ranked").json())
     snapshot = SnapshotSummary(**client.get("/v1/cvi/snapshot").json())
@@ -312,10 +321,7 @@ def test_not_ranked_counts_derived_from_the_split_balanced(api):
     assert body.counts.total == body.counts.rated + body.counts.gated + body.counts.unrated
     assert body.persona_hidden == []
     assert body.counts.rated == len(fx.rated_names)
-    # The reclassification (bridge item 3) makes this genuinely differ:
-    assert body.counts.gated == snapshot.counts.gated - 1
-    assert body.counts.unrated == snapshot.counts.unrated + 1
-    assert body.counts.total == snapshot.counts.total
+    assert body.counts == snapshot.counts
 
 
 def test_not_ranked_counts_derived_from_the_split_persona(api):
@@ -852,21 +858,28 @@ def test_method_mismatch_on_a_real_endpoint_is_not_the_spa_shell(api):
     assert not resp.headers["content-type"].startswith("text/html")
 
 
-def test_bare_healthz_is_not_the_spa_shell(api):
-    client, _fx, _db = api
+def test_bare_healthz_returns_200_with_the_snapshot_id(api):
+    """NB-2 (lead ruling 2026-09-14): a real liveness route, not the SPA
+    shell and not a 404 -- by the time a request reaches it the served-DB
+    guard has already passed, so it is always 200 once the process is up."""
+    client, fx, _db = api
     resp = client.get("/healthz")
-    assert resp.status_code == 404
+    assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("application/json")
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["snapshot_id"] == SNAPSHOT_ID
 
 
 def test_legacy_prefix_unmounted_is_a_json_404_not_the_spa_shell(api):
-    """No v1 shape in this fixture's database -- `/legacy` is not mounted
-    at all, and a request under that prefix must still get a JSON 404,
-    never the SPA shell."""
+    """No v1 shape in this fixture's database -- `/legacy` mounts no real
+    v1 app, but NB-2 registers an explanatory 404 route in its place (never
+    the SPA shell, never the bare "no route matches" fallback)."""
     client, _fx, _db = api
     resp = client.get("/legacy/healthz")
     assert resp.status_code == 404
     assert resp.headers["content-type"].startswith("application/json")
+    assert "v1 shape" in resp.json()["error"]["detail"]
 
 
 def test_create_app_serves_v1_cvi_endpoints_as_503_not_500_on_a_legitimate_v1_db(tmp_path):
@@ -1074,3 +1087,69 @@ def test_no_ceiling_or_band_assigns_a_and_b_correctly_via_reproject(api):
         assert 0.80 <= row["coverage"] < 0.95
         assert row["tier_ceiling"] == "A"
     assert 0.80 <= 0.9 < constants_v2.NO_CEILING_MIN_COVERAGE  # sanity on the fixture's own assumption
+
+
+# --------------------------------------------------------------------------- #
+# NB-1 (lead ruling 2026-09-14, U-2): the pipeline's own counts, the
+# store's snapshot_summary, and this API's not-ranked split must all
+# agree -- a real served fixture showed /snapshot reporting
+# gated=35/unrated=15 (the raw engine eligible flag) while /not-ranked
+# reported 31/19 (06 section 3 A2's classification, already correct at
+# the API layer). cvi.core.pipeline.not_ranked_class/
+# DISPLAY_UNRATED_GATE_REASONS is now the one shared rule.
+# --------------------------------------------------------------------------- #
+
+
+def test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture(tmp_path):
+    import cvi.snapshot  # noqa: F401 -- import before cvi.store.writer: pre-existing
+    # cvi.store.writer <-> cvi.snapshot circular import (W4-6f is fixing it on
+    # main separately; not this packet's file to touch -- see the handoff).
+    from cvi.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
+    from cvi.store import schema
+    from cvi.store.migrations import apply_migrations
+
+    fixture_dir = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
+    scored, frozen = score_snapshot_dir(fixture_dir)
+
+    # Layer 1: the pipeline's own SnapshotCounts (cvi.core.pipeline.
+    # build_snapshot_counts, using not_ranked_class per record).
+    assert scored.counts.gated == 31, scored.counts.gated
+    assert scored.counts.unrated == 19, scored.counts.unrated
+    assert scored.counts.rated + scored.counts.gated + scored.counts.unrated == len(scored.records)
+
+    # Layer 2: cvi.store.queries.snapshot_summary (SQL, same
+    # DISPLAY_UNRATED_GATE_REASONS constant).
+    db_path = tmp_path / "db.sqlite"
+    conn = schema.connect(db_path)
+    apply_migrations(conn, applied_at=frozen.as_of.isoformat())
+    write_scored_snapshot(conn, db_path, scored, frozen, code_commit="test-nb1")
+    conn.close()
+
+    raw_conn = sqlite3.connect(db_path)
+    summary = queries.snapshot_summary(raw_conn, scored.snapshot_id)
+    raw_conn.close()
+    assert summary["counts"]["gated"] == 31, summary["counts"]
+    assert summary["counts"]["unrated"] == 19, summary["counts"]
+    assert summary["counts"]["rated"] == scored.counts.rated
+
+    # Layer 3: this API's /not-ranked split and /snapshot counts.
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<html></html>")
+    app = create_app(str(db_path), web_dir=web_dir)
+    client = TestClient(app)
+
+    not_ranked = client.get("/v1/cvi/not-ranked")
+    assert not_ranked.status_code == 200, not_ranked.text
+    body = not_ranked.json()
+    assert len(body["gated"]) == 31, len(body["gated"])
+    assert len(body["unrated"]) + len(body["persona_hidden"]) == 19
+    assert body["counts"]["gated"] == 31
+    assert body["counts"]["unrated"] == 19
+
+    snapshot_resp = client.get("/v1/cvi/snapshot")
+    assert snapshot_resp.status_code == 200, snapshot_resp.text
+    snap_counts = snapshot_resp.json()["counts"]
+    assert snap_counts["gated"] == 31, snap_counts
+    assert snap_counts["unrated"] == 19, snap_counts
+    assert snap_counts == body["counts"]

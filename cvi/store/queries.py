@@ -92,6 +92,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 from cvi.core import constants_v2
 from cvi.core.aggregate import validate_pillar_weights
 from cvi.core.gates import REASON_INSUFFICIENT_EVIDENCE
+from cvi.core.pipeline import DISPLAY_UNRATED_GATE_REASONS
 from cvi.core.params import PARAMS
 
 __all__ = [
@@ -640,12 +641,20 @@ def snapshot_summary(conn: sqlite3.Connection, snapshot_id: str) -> Optional[Dic
     manifest summary. ``None`` if ``snapshot_id`` does not exist.
 
     ``counts``: balanced rated/gated/unrated/total (exhaustive and mutually
-    exclusive: ``gated`` is stage-0 ``eligible=0``; ``rated`` is
-    ``eligible=1 AND rated=1``; ``unrated`` is the remainder). Note this
-    module never divides by a stale cached count: nothing here reads the
-    balanced counts and the not-ranked-listing counts from different
-    queries then hopes they agree -- ``snapshot_summary`` recomputes both
-    from ``repositories`` directly, every call.
+    exclusive: ``rated`` is ``eligible=1 AND rated=1``; ``gated`` is
+    stage-0 ``eligible=0`` MINUS any row whose ``gate_reason`` is in
+    ``cvi.core.pipeline.DISPLAY_UNRATED_GATE_REASONS`` (lead ruling
+    2026-09-14, U-2: ``06`` section 3 A2 classifies "no external
+    workflow" as an Unrated evidence outcome, not a Gated
+    disqualification, even though the ENGINE gates it at stage 0 --
+    :func:`cvi.core.pipeline.not_ranked_class` is the same rule applied
+    per-record by the scoring pipeline and by :mod:`cvi.serve.app`'s
+    not-ranked split, so this count agrees with both); ``unrated`` is the
+    remainder, which therefore already absorbs those reclassified rows.
+    Note this module never divides by a stale cached count: nothing here
+    reads the balanced counts and the not-ranked-listing counts from
+    different queries then hopes they agree -- ``snapshot_summary``
+    recomputes both from ``repositories`` directly, every call.
 
     ``persona_visible_counts``: for every preset in
     ``cvi.core.constants_v2.PERSONA_PRESETS`` (``"balanced"`` included, so
@@ -673,8 +682,11 @@ def snapshot_summary(conn: sqlite3.Connection, snapshot_id: str) -> Optional[Dic
     total = conn.execute(
         "SELECT COUNT(*) FROM repositories WHERE snapshot_id = ?", (snapshot_id,)
     ).fetchone()[0]
+    unrated_gate_placeholders = ", ".join("?" for _ in DISPLAY_UNRATED_GATE_REASONS)
     gated = conn.execute(
-        "SELECT COUNT(*) FROM repositories WHERE snapshot_id = ? AND eligible = 0", (snapshot_id,)
+        f"SELECT COUNT(*) FROM repositories WHERE snapshot_id = ? AND eligible = 0 "
+        f"AND gate_reason NOT IN ({unrated_gate_placeholders})",
+        (snapshot_id, *DISPLAY_UNRATED_GATE_REASONS),
     ).fetchone()[0]
     rated = conn.execute(
         "SELECT COUNT(*) FROM repositories WHERE snapshot_id = ? AND eligible = 1 AND rated = 1", (snapshot_id,)
