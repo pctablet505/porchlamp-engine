@@ -224,3 +224,71 @@ unchanged (`rank_delta == balanced_rank - rank`, matching this packet's
 Full suite green after both rebases: `2502 passed, 1 skipped` (up from
 `2359` — `main`'s own landings added tests along the way). Branch is
 current with `main` tip `d112aa2` as of this handoff.
+
+---
+
+# Round 2 (REWORK, Opus review) — the four Blockers + W-1/W-3/W-4
+
+Review: `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adbe955a4084/scratchpad/reviews/W4-4-review.md`, records under `.agents/W4-4/review/`. Verdict: REWORK bounded to four Blockers (6 PASS / 2 PASS-with-findings / 3 FAIL, 17/20 mutants). Rebased onto `main` tip `08c1502` (>= the named `9d364cc`) before starting — clean, no conflicts (only doc/inventory commits landed in between).
+
+## What changed
+
+1. **`cvi/serve/guard.py`** (new file) — both guards now live here (Blocker B-4, folding in Warning W-5):
+   - The v1 guard (`count_repos`/`matching_snapshot_id`/`refusal_reasons`/`open_or_exit`) moved VERBATIM from `scripts/serve.py` — same logic, same messages. `_FIXTURE_CLOCK_SENTINEL` is a frozen literal (`datetime(2026, 9, 11, 12, 0, 0)`), not an import of `cvi.benchmark_data.BENCHMARK_NOW` — per `.agents/W4-1/inventory.md` §5's explicit recommendation (that module is scheduled to move under `tests/fixtures/synthetic_catalog.py`, "never importable from `cvi/`"); `tests/serve/test_guard.py::test_fixture_clock_sentinel_matches_benchmark_data` pins the two values byte-identical.
+   - The v2 guard (`v2_refusal_reasons`, new): recomputes `cvi.store.writer.snapshot_dump_hash` for `served_snapshot_id` (most-recently-promoted, else most-recently-created) and refuses on a mismatch against the stored `canonical_dump_hash` — but ONLY for a snapshot that IS finalised (`canonical_dump_hash IS NOT NULL`); an unfinalised one is a normal, temporary state (Warning W-6, see below), not a startup refusal. Also checks the fixture-clock stamp against whichever table carries the v1 shape today (`repositories` unmigrated, `legacy_repositories` after `04` §10's migration renames it).
+   - `run_guard(db_path)`: the ONE function both entrypoints call — v2 guard first (unconditional), then the v1 guard only if the database has a v1 shape at all (`OperationalError` -> `None`, not an error).
+   - `cvi/serve/app.py` no longer imports `scripts.serve` at all (the reverse-import Warning W-5 flagged); `scripts/serve.py` now imports FROM `cvi.serve.guard` and re-exports the v1 names so `tests/test_serve.py` keeps resolving `scripts.serve.refusal_reasons` etc. unchanged (15/15 still pass, unmodified).
+   - `tests/core/test_import_graph.py` gained a `cvi/serve` edge rule (stdlib + any `cvi.*` + `fastapi`/`starlette`/`pydantic`; `scripts.*` forbidden and asserted so explicitly).
+
+2. **Blocker B-1** (`scripts/serve.py` couldn't serve the v2 app on any database): `main()` now calls `cvi.serve.guard.run_guard` (the SAME function `create_app` calls) instead of the v1-only `open_or_exit` unconditionally — a v2-only database no longer crashes with an uncaught `sqlite3.OperationalError` before `uvicorn` starts; the v1 banner is skipped gracefully (`store is None`) rather than computed against a nonexistent shape. Separately, `cvi/serve/app.py::_current_snapshot_id` now catches `sqlite3.OperationalError` (no `snapshots` table at all, a v1-shaped database) and returns `None` — the SAME "nothing to serve yet" fact an empty `snapshots` table already produced, flowing into the existing 503 instead of escaping as a bare `500 Internal Server Error`. Tested through `main()` via a REAL subprocess (`test_main_starts_on_a_v2_database_from_a_foreign_cwd`, `test_main_v1_endpoints_do_not_500_on_a_v2_only_database` — foreign cwd, real port, real HTTP calls, not just `create_app` in-process) and directly at the `create_app` layer against a LEGITIMATE (non-fixture-marked, non-tampered) promoted v1 database (`test_create_app_serves_v1_cvi_endpoints_as_503_not_500_on_a_legitimate_v1_db`).
+
+3. **Blocker B-2** (the `Mount("/")` SPA fallback swallowed unmatched API paths and method mismatches): `_SPAStaticFiles.get_response` now raises a JSON 404 immediately for any path under `_API_RESERVED_PREFIXES` (`v1/`, `legacy/`) or `_API_RESERVED_EXACT` (`v1`, `legacy`, `healthz`), before ever attempting to resolve or fall back to a static file — a method mismatch on a real endpoint (`GET /v1/cvi/reproject`, POST-only) reaches this same mount (StaticFiles only ever handles GET/HEAD) and is caught by the SAME prefix check. Five new tests cover unmatched paths, the method mismatch, bare `/healthz`, an unmounted `/legacy/*`, and an over-correction guard proving real endpoints and the genuine SPA fallback (`/some/deep/app/route`) still work.
+
+4. **Blocker B-3** (the blanket `ValueError` handler misclassified server faults as 422): the handler now checks `isinstance(exc, pydantic.ValidationError)` and routes that case to a NEW generic 500 response (`_internal_error_response`, Warning W-7) instead of 422 — a stored `quadrant='Nowhere'` or any other contract-model failure inside a handler is now a 500 with a non-leaking `"internal server error"` detail, never raw pydantic text. A separate `@app.exception_handler(Exception)` catches anything else unanticipated with the SAME shape (W-7's "every fault uses that shape"). Genuine caller-input `ValueError`s (persona/sort/paging/weights, from `cvi.store.queries`'s own validators) are UNCHANGED — still 422 (over-correction guard test included).
+
+5. **Warning W-6** (inconsistent finalisation policy): folded into the SAME change as B-1's `_require_snapshot` — every snapshot-touching endpoint now checks BOTH existence and `canonical_dump_hash IS NOT NULL` in the one place (`_require_snapshot`), so `/matrix`, `/repos/{o}/{n}` and `/repos/{o}/{n}/evidence` 503 on an unfinalised snapshot exactly like `/leaderboard`/`/not-ranked`/`/snapshot` always did (`test_snapshot_not_finalised_is_503` extended). `_require_snapshot_summary` no longer duplicates the finalisation check.
+
+6. **Warning W-1** (not-ranked counts contradicted the groups): `/not-ranked`'s `counts` are now derived from the SAME three-way split the response itself carries (`gated=len(gated)`, `unrated=len(unrated)+len(persona_hidden)`, `rated=persona_visible_counts[persona]`) instead of `snapshot_summary`'s raw stage-0/stage-3 triage — the two genuinely disagree whenever bridge item 3's reclassification applies (my own fixture reproduces the exact review pattern: `counts.gated` one less, `counts.unrated` one more, than the raw store counts). Three tests: the raw store triage (still correct on its own terms, renamed off the old, now-wrong test name), the balanced split, and the persona split (`counts.rated == leaderboard.total` under the same persona — the exact equality the review found broken at 64 vs 58).
+
+7. **Warning W-3 / item-06** (the `-` sort direction was inert): `cvi/store/queries.py` (lead-authorised, out-of-scope-normally change) — `_build_order_by` gained `descending: bool = True`, applied ONLY to the promoted level (never the D-TIE-1 tail, never `rank`/`tie_group`/`rank_p`/`tie_group_p`); `list_ranked` threads it through. `cvi/serve/app.py::_translate_sort` now returns `(field, descending)` instead of discarding the stripped `-`. Two new `tests/store/test_queries.py` tests: every allowed `sort` value gives a genuinely different, NULLs-last-in-both-directions order under `descending=False` with `rank`/`tie_group` unchanged; offset paging re-verified deterministic under `descending=False` too. 56/56 `test_queries.py` tests pass.
+
+8. **Warning W-4** (two real detection gaps, RX2/RX3): one test each — `_matrix_point`'s independent `quadrant is None` check (a row with real leverage/friction but no quadrant, excluded, not plotted with a null); `_no_ceiling_or_band`'s A/B bands, via `/reproject` on this fixture's uniform 0.9 per-pillar coverage (always squarely inside band A).
+
+## Suite / ruff
+
+```
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/ -p no:cacheprovider -n 4
+2531 passed, 1 skipped, 12 warnings in ~20s
+exit=0
+
+$ ruff check cvi/ tests/ scripts/
+All checks passed!
+```
+(Re-run twice; stable both times, not attributable to the shared-host contention this suite's own perf tests already document.)
+
+## Mutation re-run: 20 review mutants + 4 Blocker-specific = 24 run, 23 killed, 1 equivalent
+
+Same protocol as round 1: plain `cp` backup (never `git stash`/`checkout --`), single unique-string mutation, run the named test(s), confirm hard failure, restore from backup, `diff` byte-identical.
+
+| # | Mutant | File | Result |
+|---|---|---|---|
+| M1-M10 | (round 1's ten, re-injected against the reworked tree) | `cvi/serve/app.py`, `cvi/store/writer.py` | ALL KILLED (unchanged from round 1) |
+| R1 | persona projection swapped (flat = balanced) | `cvi/serve/app.py` | KILLED |
+| R2 | `rank_delta` sign inverted | `cvi/serve/app.py` | KILLED |
+| R3 | SPA fallback removed entirely | `cvi/serve/app.py` | KILLED |
+| R4 | guard's `SystemExit` swallowed in `run_guard` | `cvi/serve/guard.py` | KILLED (round 1's fixture-marked test alone did not catch it — the v2 guard's OWN fixture-clock check independently refuses that same case; added `test_run_guard_raises_systemexit_for_a_v1_database_with_no_snapshot_meta`, a v1 database with NO fixture stamp and NO tamper, refused only by `open_or_exit`'s "no snapshot_meta row" reason, to distinguish it) |
+| R5 | `_paging` clamps `page_size` so the store never rejects it | `cvi/serve/app.py` | SURVIVED (equivalent, unchanged from round 1 — `LeaderboardResponse._paging_is_sane` bounds it independently) |
+| R6 | error body missing `endpoint` | `cvi/serve/app.py` | KILLED |
+| RX1 | `_classify_not_ranked` drops the `off_platform_routed` branch | `cvi/serve/app.py` | KILLED |
+| RX2 | `_matrix_point` plots a NULL-`quadrant` point | `cvi/serve/app.py` | KILLED (new test added this round) |
+| RX3 | `_no_ceiling_or_band` bands swapped (A <-> B) | `cvi/serve/app.py` | KILLED (new test added this round) |
+| B-1 | `_current_snapshot_id`'s `OperationalError` tolerance removed | `cvi/serve/app.py` | KILLED |
+| B-2 | `_SPAStaticFiles`'s reserved-prefix exclusion removed | `cvi/serve/app.py` | KILLED |
+| B-3 | `ValidationError` classification removed (blanket 422 restored) | `cvi/serve/app.py` | KILLED |
+| B-4 | v2 guard's hash-mismatch check disabled | `cvi/serve/guard.py` | KILLED |
+
+## COULD NOT VERIFY / still open (unchanged from round 1, or newly noted)
+
+- Everything round 1 already flagged as deferred (raw_hash fixture-blocked on `LeaderboardRow`; matrix `axis_coverage_caption` needs a contract change, W4-5b's; `/not-ranked` has no server-side paging by contract design) is UNCHANGED by this round.
+- **Not mine this round** (per the coordinator's explicit scope): W-2 (`web/v2/api.js` never reads the error body) is W4-5b's; the store-CLI / rated-fixture follow-ups the review's own "Verdict" section names are not in the bounded rework list and were not attempted.
+- `run_guard`'s v2 guard (`_v1_fixture_reasons`/`_v1_hash_tamper_reasons`) now duplicates part of what `refusal_reasons`/`_fixture_marker_rows`/`matching_snapshot_id` already check (generalised to also read `legacy_repositories`) — a deliberate defense-in-depth overlap (R4's mutation proved it: swallowing `open_or_exit`'s own `SystemExit` is STILL caught by the v2 guard for a fixture-marked or tampered v1 database, just not for the narrower "no `snapshot_meta` row at all" case). Flagging the duplication itself in case a future packet wants to fold the v1 checks' "any table with this shape" generalisation back into `refusal_reasons` directly rather than parallel logic in `v2_refusal_reasons`.
