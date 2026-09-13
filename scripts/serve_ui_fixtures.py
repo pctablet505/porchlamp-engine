@@ -320,6 +320,11 @@ def reproject_rows(rows: list[dict[str, Any]], weights: dict[str, float]) -> lis
             current_group += 1
             last_cvi = r["cvi"]
         r["tie_group"] = current_group if counts[r["cvi"]] > 1 else None
+        # W4-5a fix round (Blocker B-6, post-rebase): `LeaderboardRow` now
+        # validates `rank_delta == balanced_rank - rank` whenever
+        # `balanced_rank` is set -- a reprojected row always carries its
+        # prior balanced rank, so `rank_delta` is always set here too.
+        r["rank_delta"] = r["balanced_rank"] - rank
         out.append(r)
     return out
 

@@ -121,6 +121,7 @@ class TestReprojectContract:
         leaderboard = load("leaderboard.json")
         row = dict(leaderboard["rows"][0])
         row["balanced_rank"] = row["rank"]
+        row["rank_delta"] = 0  # LeaderboardRow's own validator: rank_delta == balanced_rank - rank
         row["balanced_tie_group"] = row["tie_group"]
         row["balanced_cvi"] = row["cvi"]
         row["balanced_coverage"] = row["coverage"]
