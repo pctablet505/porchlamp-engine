@@ -726,3 +726,109 @@ visual appearance on the four new screens specifically. NB-1's own
 caret/node-identity claim, previously in this list, is now RESOLVED (see
 above) — the one item round 2 asked to close by this exact criterion is
 no longer a COULD-NOT-VERIFY.
+
+## W4-5c (2026-09-14, on branch `W4-5b`) — repo-detail's two producers reconciled
+
+Bounded follow-up dispatched by the lead's own final browser pass on the
+real API served from `main` (`scripts/serve.py --db <the real fixture
+store>`): opening the drawer for ANY repo threw `TypeError: Cannot read
+properties of undefined (reading 'owner')` and stayed on "Loading
+evidence…". Root cause: `GET /v1/cvi/repos/{owner}/{name}` had two
+independent producers with two different shapes. The real API
+(`cvi/serve/app.py`, packet W4-4) sends the flat `RepoDetailResponse`
+(`cvi/serve/contract.py`); this branch's own `scripts/
+serve_ui_fixtures.py` (packet W4-5b) invented `{"kind": ..., "row":
+{...}}` and `views/drawer.js` read `data.row` — `undefined` against the
+real API's response. Ruling: **the contract is the truth**.
+
+Base: main equalled this branch's own prior work exactly (`git diff
+948a3a1 79535ff` — the round-3 tip and main's landed sha — was empty), so
+`git rebase main` on this worktree correctly SKIPPED all 20 pre-existing
+commits (git recognised them as already-applied by patch-id) and landed
+this branch exactly at main's tip `130ed0f` before any new work started.
+
+**(1) `scripts/serve_ui_fixtures.py`** now returns the EXACT
+`RepoDetailResponse` shape, built THROUGH the pydantic model itself
+(`RepoDetailResponse(**fields).model_dump()`) rather than a hand-assembled
+dict, so a future field this method forgets to track is a loud
+`ValidationError` in dev, never a silent wire mismatch found in a browser
+three packets later:
+- A rated row (`leaderboard.json`) already carries every needed fact
+  except the four eligibility fields (`eligible=True, rated=True,
+  gate_reason=None, unrated_reason=None` — simple constants for anything
+  that reached the leaderboard); `balanced_rank`/`rank_delta` are
+  `LeaderboardRow`-only fields with no room on `RepoDetailResponse` and
+  are stripped (confirmed by diffing `model_fields` between the two
+  models, not guessed).
+- A gated/unrated row (`notranked.json`, much sparser) gets
+  `snapshot_id`/`benchmark_version` threaded from the store's own global
+  `snapshot.json` (a constant, not a derivation), `eligible` from WHICH
+  not-ranked group the row was found in (matching `cvi.store.queries.
+  list_not_ranked`'s own documented rule: "Gated (eligible=0) and unrated
+  (eligible=1, rated=0)"), `coverage` defaulting to 0.0 when this
+  fixture's own is `None` (the real store's `coverage` column is NOT
+  NULL), and every rank/score/pillar field `None` (a gated/unrated repo
+  never has them computed in the real store either — `RepoDetailResponse`'s
+  own docstring). The one genuinely-missing fact is `raw_hash` (per-repo
+  in the real store, computed before gating; `NotRankedRow` never carried
+  it) — a deterministic `_synthetic_raw_hash(owner, name)` (sha256 of a
+  clearly-namespaced pre-image) stands in, consistent with this whole
+  store already being synthetic test data.
+
+**(2) `views/drawer.js`/`state.js`** now consume the flat shape:
+`findRow` is unchanged (still just `state.repoDetailByKey[key]`); a new
+pure `classifyKind(found)` derives `"gated"|"unrated"|"rated"` from
+`eligible`/`rated` (the same rule the fixture-server fix above uses);
+`renderDrawer` computes `kind` this way and aliases `row = found` (every
+existing render helper was already written against a strict SUBSET of the
+flat shape's fields, so no other line needed to change). `state.js`'s
+`repoDetailByKey` doc comment updated; no reducer logic changed.
+
+**(3) Cross-producer binding**: new `tests/test_repo_detail_cross_check.py`
+builds BOTH producers — the real API through `cvi.serve.app.create_app`
+on a synthetic store (`tests/serve/helpers.py`'s `build_snapshot`, the
+SAME builder `tests/serve/test_api_v2.py` uses) and the UI fixture server
+through `scripts/serve_ui_fixtures.py`'s own `serve()` — and asserts, for
+a comparable repo in each of the three `kind`s (rated/gated/unrated), that
+both responses carry the exact same top-level key set AND both
+independently validate as `RepoDetailResponse`. A future edit to either
+producer that breaks parity with the other now fails here first.
+
+**(4) Fail-before**: ran the new cross-check test against the UNFIXED
+fixture server first — 3 of 4 tests failed (the 4th, a standalone proof
+that the OLD `{kind, row}` shape fails `RepoDetailResponse.model_validate`
+at all, passed on its own, confirming the test itself is load-bearing) —
+saved to `~/Projects/cvi-scratch/W4-5b-r3/w45c-fail-before.txt`. All 4
+pass after the fix.
+
+Also updated: `tests/test_serve_ui_fixtures.py::TestRepoDetailEndpoint`'s
+success-path tests rewritten for the flat shape (rated/gated/unrated,
+each validated against `RepoDetailResponse` itself, plus a dedicated test
+for the null-coverage-defaults-to-0.0 case); removed the now-fully-dead
+`RepoDetailFixtureResponse` from `cvi/serve/contract.py` (added in this
+branch's own round-3 rebase-reconciliation commit as a rename, now that
+nothing needs the `{kind, row}` shape at all) and its `__all__` entry;
+`web/v2/api.js`'s doc comment corrected back to the one real
+`RepoDetailResponse`; `web/v2/tests/unit.test.mjs` gained `classifyKind`
+unit tests plus three `renderDrawer` round-trip tests (rated/gated/
+unrated) against hand-built flat-shape fixtures.
+
+**Live-verified** (Chromium via the Claude Browser tool, fixture server
+restarted on port 8902 to pick up the Python change): `GET /v1/cvi/repos/
+riverline/httpkit` returns the flat shape on the wire; `?repo=riverline%2
+Fhttpkit` opens the drawer with the composite/pillar/persona/integrity
+sections rendering correctly (CVI, raw_hash, etc.), zero console errors;
+`?repo=gated-org%2Frepo-mirror-0` renders identity + gate banner only, no
+numeric composite cells; `?repo=unrated-org%2Frepo-insufficient_evidence-0`
+renders identity + unrated banner + evidence section without throwing.
+All three `classifyKind`/`renderDrawer` unit-test assertions additionally
+re-run against the REAL `views/drawer.js` module via dynamic `import()` in
+that same live tab (Node still absent) — all pass.
+
+**Suite**: `env -u PYTEST_ADDOPTS PYTHONPATH=$PWD /home/pctablet505/
+Projects/contributor-value-index/.venv/bin/python -B -m pytest tests -p
+no:cacheprovider -n 4` → **2609 passed, 1 skipped** (up from main's 2602
+passed, 1 skipped — 7 new/rewritten tests). Ruff clean.
+
+Fixture server restarted on **port 8902** from this exact commit after
+the final commit (below), same invocation as every prior round.
