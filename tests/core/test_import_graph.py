@@ -18,6 +18,8 @@ DERIVE_BUNDLE = REPO_ROOT / "cvi" / "derive" / "bundle.py"
 STORE_DIR = REPO_ROOT / "cvi" / "store"
 SERVE_DIR = REPO_ROOT / "cvi" / "serve"
 RATELIMIT_MODULE = REPO_ROOT / "cvi" / "collect" / "ratelimit.py"
+CVI_DIR = REPO_ROOT / "cvi"
+SCRIPTS_DIR = REPO_ROOT / "scripts"
 
 #: `cvi/serve` is the outermost layer -- it legitimately reads any other
 #: `cvi.*` package (core, store, audit) -- plus the web framework it is
@@ -141,6 +143,33 @@ def test_collect_ratelimit_imports_only_stdlib_or_httpx() -> None:
         assert allowed, (
             f"cvi/collect/ratelimit.py imports {name!r} outside stdlib + httpx"
         )
+
+
+def test_no_production_import_of_the_synthetic_catalog_fixture() -> None:
+    """W4-1 (`04-ARCHITECTURE.md` section 2): ``tests/fixtures/
+    synthetic_catalog.py`` (formerly ``cvi/benchmark_data.py``) is "never
+    importable from cvi/" -- and, per `.agents/W4-1/inventory.md` section
+    5's reasoning, the same rule extends to ``scripts/``: a production
+    script importing a test package is exactly backwards, and this
+    fixture's only real property (a stamp nothing but the seeder ever
+    writes) is what ``cvi/serve/guard.py``'s independently frozen
+    ``_FIXTURE_CLOCK_SENTINEL`` exists to avoid depending on.
+
+    ``scripts/demo_app.py`` is the one script allowed to import a
+    ``tests.*`` name at all -- but only its OWN relocated helper
+    (``tests.helpers.demo_app``), never the fixture module directly; the
+    fixture import now lives one hop further in, inside
+    ``tests/helpers/demo_app.py`` itself, which is under ``tests/`` and
+    so is not scanned here.
+    """
+    for base in (CVI_DIR, SCRIPTS_DIR):
+        for path in sorted(base.rglob("*.py")):
+            for name in imported_modules(path):
+                assert not name.startswith("tests.fixtures.synthetic_catalog"), (
+                    f"{path.relative_to(REPO_ROOT)} imports {name!r} -- "
+                    "production code (cvi/ or scripts/) must never import "
+                    "the test fixture tests/fixtures/synthetic_catalog.py"
+                )
 
 
 def test_importing_core_loads_no_other_cvi_package() -> None:
