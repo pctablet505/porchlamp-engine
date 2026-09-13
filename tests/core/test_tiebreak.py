@@ -19,14 +19,19 @@ read by any tie-break logic) and reads it back off the output records.
 """
 from __future__ import annotations
 
+import os
 import random
 import sqlite3
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
 from cvi.core.models import GateResult, PillarScore, PRWindow, PRWindowEvent, ScoreRecord
 from cvi.core.tiebreak import (
     TieBreakInput,
+    _commit_epoch,
     _measured_asc,
     _measured_desc,
     assign_ranks,
@@ -232,6 +237,45 @@ def test_composite_level_one_descending() -> None:
     assert _labels_in_order(ranked) == ["high", "low"]
 
 
+def test_tie_key_composite_pinned_at_two_decimals() -> None:
+    """W2 (round-2 review, M17/M18): D-TIE-1's "composite (2 decimals)"
+    level must round to exactly 2 decimals inside :func:`tie_key`, not 3,
+    and not skip rounding entirely. ``round(91.238, 2) == round(91.24, 2)
+    == 91.24``, so a1 and a2 tie at level 1 and coverage (level 2) decides
+    -- a2's 0.60 beats a1's 0.50. A 3-decimal or unrounded key treats
+    ``91.24 > 91.238`` directly and never reaches coverage, inverting the
+    order to ``['a1', 'a2']``."""
+    a1 = make_entry("a1", composite=91.24, coverage=0.50)
+    a2 = make_entry("a2", composite=91.238, coverage=0.60)
+    ranked = assign_ranks([a1, a2])
+    assert _labels_in_order(ranked) == ["a2", "a1"]
+
+
+def test_tie_group_boundary_pinned_at_two_decimals() -> None:
+    """W3 (round-2 review, M11/M19/M20): D-TIE-2's tie-group boundary must
+    also round to exactly 2 decimals. ``88.004`` rounds to ``88.0`` (same
+    group as an ``88.0`` row); ``88.006`` rounds to ``88.01`` (its own,
+    different group). Asserted by comparing ``tie_group`` *values* for both
+    pairs, never by a crash: the review found the 1-/0-decimal mutants were
+    only "killed" via a ``KeyError`` raised by the module's separately
+    duplicated rounding, which is not evidence this boundary is pinned."""
+    base1 = make_entry("base1", composite=88.0)
+    base2 = make_entry("base2", composite=88.004)
+    other1 = make_entry("other1", composite=88.006)
+    other2 = make_entry("other2", composite=88.006)
+    singleton = make_entry("singleton", composite=70.5)
+
+    ranked = assign_ranks([singleton, other1, base1, other2, base2])
+    tie_group_by_label = {record.raw_hash: tg for record, _rank, tg in ranked}
+
+    assert tie_group_by_label["base1"] == tie_group_by_label["base2"]
+    assert tie_group_by_label["base1"] is not None
+    assert tie_group_by_label["other1"] == tie_group_by_label["other2"]
+    assert tie_group_by_label["other1"] is not None
+    assert tie_group_by_label["base1"] != tie_group_by_label["other1"]
+    assert tie_group_by_label["singleton"] is None
+
+
 # ---------------------------------------------------------------------------
 # Unmeasured sorts after measured at every level 3-7, even when the measured
 # competitor's own value is a "bad" one.
@@ -263,6 +307,81 @@ def test_measured_desc_and_asc_encode_unmeasured_last() -> None:
     assert _measured_desc(50.0) < _measured_desc(10.0)  # descending: higher value sorts first
     assert _measured_asc(None) > _measured_asc(100.0)
     assert _measured_asc(10.0) < _measured_asc(50.0)  # ascending: lower value sorts first
+
+
+# ---------------------------------------------------------------------------
+# B1 (round-2 review): ``_commit_epoch`` must never build a naive datetime.
+#
+# Fail-before, measured on the pre-fix code with ``TZ=Asia/Kolkata``:
+#   _commit_epoch('2026-06-01')             -> 1780252200.0
+#   _commit_epoch('2026-06-01T00:00:00Z')   -> 1780272000.0
+# a 5.5-hour shift from building a naive datetime and letting
+# ``.timestamp()`` read the host's local zone. The same two-row case built
+# below (a-row date-only, b-row explicit ``Z``) then ordered
+# ``['b-row', 'a-row']`` under ``TZ=Asia/Kolkata`` and ``['a-row', 'b-row']``
+# under ``TZ=UTC`` on the pre-fix code -- confirmed by temporarily
+# reintroducing the naive-datetime line and rerunning both subprocesses
+# during this round's work.
+# ---------------------------------------------------------------------------
+
+
+def test_commit_epoch_treats_offsetless_iso_string_as_utc() -> None:
+    """A date-only ISO string and the same instant written with an explicit
+    ``Z`` offset must be the identical epoch: neither is naive, both are
+    UTC. `04` section 3 types the neighbouring ``window_start`` field
+    ``str | None  # ISO date``, so the date-only form is a first-class input
+    this module must accept, not a caller error."""
+    assert _commit_epoch("2026-06-01") == _commit_epoch("2026-06-01T00:00:00Z") == pytest.approx(
+        1780272000.0
+    )
+
+
+def test_commit_epoch_rejects_a_non_iso_string_naming_the_value() -> None:
+    with pytest.raises(ValueError, match="not-a-date"):
+        _commit_epoch("not-a-date")
+
+
+def test_commit_epoch_orders_identically_under_different_host_timezones(
+    tmp_path: Path,
+) -> None:
+    """Runs a two-row ``assign_ranks`` case -- tied on every level except
+    the commit date, where a-row's date is date-only and b-row's is the
+    same instant with an explicit ``Z`` -- in two real subprocesses, one
+    under ``TZ=Asia/Kolkata`` and one under ``TZ=UTC``, and asserts the
+    resulting order is identical. Real subprocesses (not a monkeypatched
+    ``TZ`` in this process) are required because glibc reads ``TZ`` once at
+    process start; the pre-fix code gave ``['b-row', 'a-row']`` under
+    Kolkata and ``['a-row', 'b-row']`` under UTC (see the module note
+    above) -- the fixed code must give the same order both times."""
+    script = tmp_path / "tz_case.py"
+    out_template = str(tmp_path / "order_{tz}.txt")
+    script.write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "from cvi.core.tiebreak import assign_ranks\n"
+        "from tests.core.test_tiebreak import make_entry\n"
+        "a = make_entry('a-row', last_non_bot_commit_at='2026-06-01')\n"
+        "b = make_entry('b-row', last_non_bot_commit_at='2026-06-01T00:00:00Z')\n"
+        "ranked = assign_ranks([b, a])\n"
+        "order = ','.join(r.raw_hash for r, _rank, _tg in ranked)\n"
+        "Path(sys.argv[1]).write_text(order)\n"
+    )
+    repo_root = str(Path(__file__).resolve().parents[2])
+    orders: dict[str, str] = {}
+    for tz in ("Asia/Kolkata", "UTC"):
+        env = dict(os.environ)
+        env["TZ"] = tz
+        env["PYTHONPATH"] = repo_root
+        out_path = out_template.format(tz=tz.replace("/", "-"))
+        subprocess.run(
+            [sys.executable, str(script), out_path],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        orders[tz] = Path(out_path).read_text()
+    assert orders["Asia/Kolkata"] == orders["UTC"] == "a-row,b-row"
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +422,29 @@ def test_gated_and_unrated_are_listed_after_rated_ordered_by_name() -> None:
     assert tie_groups == [None, None, None, None]
     for record, _rank, _tg in ranked[2:]:
         assert record.tie_key == ()
+
+
+def test_unrated_ordering_distinguishes_forward_from_reversed_name() -> None:
+    """C2 (round-2 review, M21): the pair above ('gated-a', 'unrated-z')
+    happens to be invariant under string reversal -- forward and reversed
+    comparison agree on which sorts first -- so a mutated ``_name_key``
+    that reverses the name before comparing (``name.lower()[::-1]``)
+    survives it. 'ax' < 'xa' forward ('a' < 'x' at position 0); reversed,
+    'xa' < 'ax' (the reversed keys are 'xa' and 'ax' respectively, and
+    'ax' < 'xa'), which puts the *other* row first -- a pair that flips
+    order under reversal, unlike the first test's."""
+    forward_first = make_entry(
+        "forward-first", name="ax", composite=None,
+        gate=GateResult(eligible=False, reason="unrated: insufficient_evidence", routed=None, undecided=()),
+        coverage=0.0, tier=None, leverage=None, friction=None, quadrant=None,
+    )
+    reversed_would_win = make_entry(
+        "reversed-would-win", name="xa", composite=None,
+        gate=GateResult(eligible=False, reason="unrated: insufficient_evidence", routed=None, undecided=()),
+        coverage=0.0, tier=None, leverage=None, friction=None, quadrant=None,
+    )
+    ranked = assign_ranks([reversed_would_win, forward_first])
+    assert _labels_in_order(ranked) == ["forward-first", "reversed-would-win"]
 
 
 # ---------------------------------------------------------------------------
@@ -371,54 +513,153 @@ def test_assign_ranks_is_independent_of_input_order() -> None:
 
 
 # ---------------------------------------------------------------------------
-# SQL parity (04 section 6's ORDER BY) on the same 8 rows.
+# SQL parity (04 section 6's ORDER BY).
+#
+# W4 (round-2 review): 04 section 6 now mandates ``NULLS LAST`` on every
+# tie-break column (ruling 2026-09-13, after this review) because SQLite
+# sorts NULL *first* under ``ASC`` by default -- the inverse of D-TIE-1's
+# "unmeasured sorts after measured regardless of direction" for an ASC
+# column (``friction``, ``ttfhr_p75``). The DESC columns agree with the
+# naive clause only by coincidence (SQLite already puts NULLs last under
+# DESC), which is why an all-measured or partially-measured sample can pass
+# a naive parity test and still ship an inverted leaderboard the moment an
+# ASC column goes NULL. ``_CORRECTED_ORDER_BY`` below is transcribed
+# verbatim from 04 section 6; ``_NAIVE_ORDER_BY`` is the pre-ruling clause,
+# kept only as this test's negative control.
 # ---------------------------------------------------------------------------
 
+_SCHEMA_SQL = """
+CREATE TABLE t (
+    owner TEXT, name TEXT, composite REAL, coverage REAL,
+    p_responsiveness REAL, friction REAL, leverage REAL,
+    ttfhr_p75 REAL, last_human_commit_at TEXT
+)
+"""
 
-def test_sql_order_by_agrees_with_tie_key_on_the_eight_row_case() -> None:
-    """Encodes 04 section 6's tie-break clause
-    (``ROUND(cvi_p,2) DESC, coverage DESC, p_responsiveness DESC,
-    friction ASC, leverage DESC, ttfhr_p75 ASC, last_human_commit_at DESC,
-    lower(owner||'/'||name) ASC``) against an in-memory sqlite3 table built
-    from the same 8 rows, and compares row order to :func:`tie_key`'s. All
-    8 rows are fully measured, so this does not exercise SQLite's default
-    NULL-ordering (NULLs first for ASC / last for DESC), which does not
-    match D-TIE-1's "unmeasured sorts after measured regardless of
-    direction" for an ASC column -- 04 section 6's snippet names no
-    ``NULLS FIRST``/``NULLS LAST`` clause, so this is flagged as an
-    ownership note (see the handoff) rather than asserted here."""
-    conn = sqlite3.connect(":memory:")
-    conn.execute(
-        """
-        CREATE TABLE t (
-            owner TEXT, name TEXT, composite REAL, coverage REAL,
-            p_responsiveness REAL, friction REAL, leverage REAL,
-            ttfhr_p75 REAL, last_human_commit_at TEXT
-        )
-        """
-    )
-    for entry in _eight_rows():
-        pillar = entry.record.pillars["responsiveness"]
+_NAIVE_ORDER_BY = """
+SELECT name FROM t ORDER BY
+    round(composite, 2) DESC, coverage DESC, p_responsiveness DESC,
+    friction ASC, leverage DESC, ttfhr_p75 ASC,
+    last_human_commit_at DESC, lower(owner || '/' || name) ASC
+"""
+
+_CORRECTED_ORDER_BY = """
+SELECT name,
+    ROW_NUMBER() OVER (ORDER BY
+        round(composite, 2) DESC NULLS LAST, coverage DESC NULLS LAST,
+        p_responsiveness DESC NULLS LAST, friction ASC NULLS LAST,
+        leverage DESC NULLS LAST, ttfhr_p75 ASC NULLS LAST,
+        last_human_commit_at DESC NULLS LAST,
+        lower(owner || '/' || name) ASC) AS rank_p,
+    DENSE_RANK() OVER (ORDER BY round(composite, 2) DESC) AS tie_group
+FROM t
+ORDER BY rank_p
+"""
+
+
+def _build_sqlite_table(conn: sqlite3.Connection, entries: list[TieBreakInput]) -> None:
+    conn.execute(_SCHEMA_SQL)
+    for entry in entries:
+        pillar = entry.record.pillars.get("responsiveness")
         conn.execute(
             "INSERT INTO t VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 entry.owner, entry.name, entry.record.composite, entry.record.coverage,
-                pillar.score, entry.record.friction, entry.record.leverage,
+                pillar.score if pillar is not None else None,
+                entry.record.friction, entry.record.leverage,
                 entry.ttfhr_p75_hours, entry.last_non_bot_commit_at,
             ),
         )
-    rows = conn.execute(
-        """
-        SELECT name FROM t ORDER BY
-            round(composite, 2) DESC, coverage DESC, p_responsiveness DESC,
-            friction ASC, leverage DESC, ttfhr_p75 ASC,
-            last_human_commit_at DESC, lower(owner || '/' || name) ASC
-        """
-    ).fetchall()
+
+
+def test_sql_order_by_agrees_with_tie_key_on_the_fully_measured_eight_row_case() -> None:
+    """The original 8-row parity case: every field measured, so it cannot
+    exercise NULL-ordering at all (see
+    ``test_sql_order_by_with_nulls_needs_nulls_last_and_matches_tie_key``
+    below for that). Renamed from
+    ``test_sql_order_by_agrees_with_tie_key_on_the_eight_row_case`` (W4):
+    the old name's ``agrees`` claimed general parity, not just parity on an
+    all-measured sample."""
+    conn = sqlite3.connect(":memory:")
+    _build_sqlite_table(conn, _eight_rows())
+    rows = conn.execute(_NAIVE_ORDER_BY).fetchall()
     conn.close()
     sql_order = [row[0] for row in rows]
     python_order = [e.name for e in sorted(_eight_rows(), key=tie_key)]
     assert sql_order == python_order == _EXPECTED_ORDER
+
+
+def _nine_null_bearing_rows() -> list[TieBreakInput]:
+    """9 rows, all composite 88.0 / coverage 0.70 (so levels 3-8 decide
+    everything), with a NULL at four different ASC/DESC tie levels
+    (responsiveness DESC, friction ASC, leverage DESC, ttfhr_p75 ASC) plus
+    one NULL commit date (DESC) -- the multi-level NULL case a
+    single-NULL-column sample cannot exercise. Baseline values are shared
+    by every row except the one field each label calls out; each ``m-``
+    row wins its level outright on a distinctly better measured value, each
+    ``n-`` row is unmeasured at exactly one level and must fall after every
+    measured row at that level regardless of direction."""
+    baseline_responsiveness, baseline_friction = 60.0, 50.0
+    baseline_leverage, baseline_ttfhr = 40.0, 100.0
+    baseline_commit = "2020-01-01T00:00:00Z"
+
+    def row(label: str, **overrides: object) -> TieBreakInput:
+        fields: dict[str, object] = dict(
+            composite=88.0, coverage=0.70,
+            responsiveness_score=baseline_responsiveness, friction=baseline_friction,
+            leverage=baseline_leverage, ttfhr_p75_hours=baseline_ttfhr,
+            last_non_bot_commit_at=baseline_commit,
+        )
+        fields.update(overrides)
+        return make_entry(label, name=label, **fields)  # type: ignore[arg-type]
+
+    return [
+        row("m-resp-hi", responsiveness_score=95.0),
+        row("m-fric-lo", friction=5.0),
+        row("m-lev-hi", leverage=90.0),
+        row("m-ttfhr-lo", ttfhr_p75_hours=10.0),
+        row("n-commit-null", last_non_bot_commit_at=None),
+        row("n-ttfhr-null", ttfhr_p75_hours=None),
+        row("n-lev-null", leverage=None),
+        row("n-fric-null", friction=None),
+        row("n-resp-null", responsiveness_score=None),
+    ]
+
+
+_NINE_NULL_BEARING_EXPECTED_ORDER = [
+    "m-resp-hi", "m-fric-lo", "m-lev-hi", "m-ttfhr-lo",
+    "n-commit-null", "n-ttfhr-null", "n-lev-null", "n-fric-null", "n-resp-null",
+]
+
+
+def test_sql_order_by_with_nulls_needs_nulls_last_and_matches_tie_key() -> None:
+    """W4 (round-2 review): parity on the 9-row NULL-bearing case, plus a
+    negative control proving the ``NULLS LAST`` clause is load-bearing, not
+    decorative. ``_CORRECTED_ORDER_BY`` (04 section 6, current) must
+    reproduce :func:`tie_key`'s order exactly, including ``rank_p`` as a
+    strict ``1..9`` via ``ROW_NUMBER()``; ``_NAIVE_ORDER_BY`` (04 section 6,
+    pre-ruling -- no ``NULLS LAST`` anywhere) must diverge from it, because
+    SQLite's default NULL-first-under-ASC promotes ``n-fric-null`` and
+    ``n-ttfhr-null`` above measured rows at their respective ASC levels."""
+    entries = _nine_null_bearing_rows()
+    python_order = [e.name for e in sorted(entries, key=tie_key)]
+    assert python_order == _NINE_NULL_BEARING_EXPECTED_ORDER
+
+    conn = sqlite3.connect(":memory:")
+    _build_sqlite_table(conn, entries)
+    corrected_rows = conn.execute(_CORRECTED_ORDER_BY).fetchall()
+    naive_rows = conn.execute(_NAIVE_ORDER_BY).fetchall()
+    conn.close()
+
+    corrected_order = [row[0] for row in corrected_rows]
+    corrected_ranks = [row[1] for row in corrected_rows]
+    naive_order = [row[0] for row in naive_rows]
+
+    assert corrected_order == python_order
+    assert corrected_ranks == list(range(1, len(entries) + 1))
+    # Negative control: without NULLS LAST, the SQL order does NOT match --
+    # the defect the corrected clause exists to fix.
+    assert naive_order != python_order
 
 
 # ---------------------------------------------------------------------------
@@ -451,6 +692,26 @@ def test_ttfhr_p75_nearest_rank_over_external_responded_events() -> None:
             _event(2, "2026-01-02T00:00:00Z", "2026-01-02T02:00:00Z"),
             _event(3, "2026-01-03T00:00:00Z", "2026-01-03T03:00:00Z"),
             _event(4, "2026-01-04T00:00:00Z", "2026-01-04T04:00:00Z"),
+        ),
+    )
+    assert ttfhr_p75_from_pr_window(window) == pytest.approx(3.0)
+
+
+def test_ttfhr_p75_nearest_rank_at_n_equals_3_pins_ceil_not_floor() -> None:
+    """W1 (round-2 review, M22): ``N=4`` and ``N=1`` are the only two sample
+    sizes where ``ceil(0.75*N)`` and ``max(1, floor(0.75*N))`` coincide, so
+    neither pins the nearest-rank method. At ``N=3``: ``ceil(0.75*3) =
+    ceil(2.25) = 3`` -> 3rd smallest -> 3.0, while the floor mutant gives
+    ``floor(2.25) = 2`` -> 2nd smallest -> 2.0. Three external, responded
+    events with hours 1, 2, 3."""
+    window = PRWindow(
+        start="2026-01-01T00:00:00Z",
+        end="2026-06-01T00:00:00Z",
+        truncated=False,
+        events=(
+            _event(1, "2026-01-01T00:00:00Z", "2026-01-01T01:00:00Z"),
+            _event(2, "2026-01-02T00:00:00Z", "2026-01-02T02:00:00Z"),
+            _event(3, "2026-01-03T00:00:00Z", "2026-01-03T03:00:00Z"),
         ),
     )
     assert ttfhr_p75_from_pr_window(window) == pytest.approx(3.0)

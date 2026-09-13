@@ -64,7 +64,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Sequence
 
 from cvi.core.models import PRWindow, ScoreRecord
@@ -144,10 +144,27 @@ def _hours_between(start: str, end: str) -> float:
 def _commit_epoch(value: str | None) -> float | None:
     """ISO date/datetime string to a comparable epoch value; ``None`` stays
     ``None`` (unmeasured). No wall clock is read -- this only parses a
-    string a caller supplied."""
+    string a caller supplied.
+
+    Never builds a naive ``datetime``: calling ``.timestamp()`` on a naive
+    value silently reads the host's local timezone, which would make this
+    tie level's order depend on the machine running it rather than on the
+    input alone. An offset-less ISO string -- a bare
+    date like ``'2026-06-01'``, or a ``Z``-suffixed datetime -- is therefore
+    interpreted as UTC, never local time. A value that is not a valid ISO
+    date/datetime raises ``ValueError`` naming the value, rather than
+    propagating whatever message :func:`datetime.fromisoformat` chose."""
     if value is None:
         return None
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(
+            f"last_non_bot_commit_at is not an ISO date/datetime string: {value!r}"
+        ) from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
 
 
 def _measured_desc(value: float | None) -> tuple[int, float]:
