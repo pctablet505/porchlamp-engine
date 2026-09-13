@@ -22,8 +22,9 @@ from typing import Any, Optional
 
 from cvi.collect.commits import collect_commits_365d
 from cvi.collect.envelope import write_envelope
+from cvi.paths import data_root
 
-DATA = Path(__file__).resolve().parent.parent / "data" / "raw"
+DATA = data_root() / "raw"
 CANDIDATES = DATA / "candidates.jsonl"
 GQL = "https://api.github.com/graphql"
 SLEEP_REST = 0.15

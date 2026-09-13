@@ -37,8 +37,9 @@ from cvi.models import (
     RawPREvent,
 )
 from cvi.provenance import utc_now_iso
+from cvi.paths import data_root
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = data_root()
 GFI_WINDOW_DAYS = 30
 RR_WINDOW_DAYS = 90
 COMMITS_WINDOW_DAYS = 180
