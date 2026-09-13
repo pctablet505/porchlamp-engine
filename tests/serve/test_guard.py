@@ -174,7 +174,7 @@ def test_run_guard_raises_systemexit_for_a_v1_database_with_no_snapshot_meta(tmp
     inside `run_guard` is caught here even though it survives against a
     fixture-marked/tampered database (which the v2 guard ALSO independently
     refuses)."""
-    from cvi.ingest import apply_raw_metrics
+    from cvi.lakehouse import apply_raw_metrics
     from cvi.lakehouse import OperationalStore
     from cvi.models import CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
 

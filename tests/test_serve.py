@@ -37,7 +37,7 @@ from fastapi.testclient import TestClient
 
 from cvi.api import create_app
 from cvi.benchmark_data import BENCHMARK_NOW, get_benchmark_catalog
-from cvi.ingest import apply_raw_metrics
+from cvi.lakehouse import apply_raw_metrics
 from cvi.lakehouse import OperationalStore, repositories_dump_hash
 from cvi.models import CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
 from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest

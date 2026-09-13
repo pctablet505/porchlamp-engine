@@ -77,8 +77,7 @@ sys.path.insert(0, str(ROOT))
 
 from cvi.engine import score_repository
 from cvi.deepdive import build_deep_dive
-from cvi.ingest import apply_raw_metrics
-from cvi.lakehouse import OperationalStore, repositories_dump_hash
+from cvi.lakehouse import OperationalStore, apply_raw_metrics, repositories_dump_hash
 from cvi.models import (
     AIPosture,
     AuthorAssociation,

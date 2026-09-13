@@ -38,8 +38,7 @@ from cvi.benchmark_data import (
 )
 from cvi.deepdive import build_deep_dive
 from cvi.engine import PILLAR_NAMES, score_repository
-from cvi.ingest import apply_raw_metrics
-from cvi.lakehouse import OperationalStore
+from cvi.lakehouse import OperationalStore, apply_raw_metrics
 from cvi.models import (
     AIPosture,
     AuthorAssociation,

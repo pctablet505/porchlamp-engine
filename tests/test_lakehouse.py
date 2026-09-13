@@ -16,11 +16,12 @@ from datetime import datetime, timezone
 
 import pytest
 
-from cvi.lakehouse import OperationalStore
+from cvi.lakehouse import OperationalStore, apply_raw_metrics
 from cvi.models import (
     AIPosture,
     CVICompositeResult,
     Ecosystem,
+    LegalIPModel,
     Persona,
     PillarScores,
     Quadrant,
@@ -708,7 +709,7 @@ def test_leaderboard_persona_reproject(store):
 
 
 def test_leaderboard_persona_constraints(store):
-    from cvi.ingest import apply_raw_metrics
+    from cvi.lakehouse import apply_raw_metrics
     # Proscribed repo
     store.upsert_composite(make_result(owner="o1", name="gentoo", overall_cvi=80.0), pillar_scores=PillarScores(80, 80, 80, 80, 80))
     apply_raw_metrics(store, "o1", "gentoo", stars=100, forks=20, ai_posture=AIPosture.PROSCRIBED)
@@ -770,7 +771,7 @@ def test_additional_indexes_exist(store):
 
 
 def test_leaderboard_min_stars_filter(store):
-    from cvi.ingest import apply_raw_metrics
+    from cvi.lakehouse import apply_raw_metrics
     store.upsert_composite(make_result(owner="o1", name="small", overall_cvi=80.0))
     apply_raw_metrics(store, "o1", "small", stars=10, forks=2)
     store.upsert_composite(make_result(owner="o2", name="big", overall_cvi=70.0))
@@ -900,3 +901,51 @@ def test_upsert_deep_dive_success_and_absent(store):
 
     # Absent repo returns 0 rows updated
     assert store.upsert_deep_dive("nonexistent", "repo", payload) == 0
+
+
+# --------------------------------------------------------------------------- #
+# apply_raw_metrics -> query_matrix round-trip (spec 11.2; handoff gotcha)
+#
+# Moved verbatim from tests/test_ingest.py (W4-1: apply_raw_metrics moved
+# from cvi/ingest.py to cvi/lakehouse.py, its only argument type's module).
+# --------------------------------------------------------------------------- #
+def test_apply_raw_metrics_hydrates_stars_for_matrix_queries(store):
+    store.upsert_composite(make_result(owner="acme", name="widget"))
+    assert store.query_matrix(min_stars=100) == []  # stars=0 until ingestion
+
+    updated = apply_raw_metrics(store, "acme", "widget", stars=500, forks=25)
+    assert updated == 1
+    row = store.get_repo("acme", "widget")
+    assert row["stars"] == 500
+    assert row["forks"] == 25
+    nodes = store.query_matrix(min_stars=100)
+    assert [node["size"] for node in nodes] == [500]
+    assert nodes[0]["owner"] == "acme"
+    assert nodes[0]["name"] == "widget"
+    assert store.query_matrix(min_stars=1000) == []
+
+
+def test_apply_raw_metrics_stores_enum_values_as_strings(store):
+    store.upsert_composite(make_result(owner="acme", name="widget"))
+    apply_raw_metrics(
+        store,
+        "acme",
+        "widget",
+        stars=10,
+        forks=1,
+        monthly_downloads=4200,
+        dependents_count=77,
+        elephant_factor=3,
+        legal_ip_model=LegalIPModel.FOUNDATION_CLA,
+        ai_posture=AIPosture.PROSCRIBED,
+    )
+    row = store.get_repo("acme", "widget")
+    assert row["monthly_downloads"] == 4200
+    assert row["dependents_count"] == 77
+    assert row["elephant_factor"] == 3
+    assert row["legal_ip_model"] == "FOUNDATION_CLA"
+    assert row["ai_posture"] == "PROSCRIBED"
+
+
+def test_apply_raw_metrics_noop_for_unknown_repo(store):
+    assert apply_raw_metrics(store, "ghost", "repo", stars=5, forks=0) == 0

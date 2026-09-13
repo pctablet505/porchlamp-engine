@@ -431,7 +431,7 @@ def test_v1_lakehouse_mutates_the_gated_row() -> None:
     returned row* -- there is no way for a caller of
     ``OperationalStore.leaderboard`` to recover the balanced score from a
     gated row under that persona."""
-    from cvi.ingest import apply_raw_metrics
+    from cvi.lakehouse import apply_raw_metrics
     from cvi.lakehouse import OperationalStore
     from cvi.models import AIPosture, CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
 

@@ -56,6 +56,7 @@ import shutil
 import sqlite3
 import tempfile
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
@@ -66,6 +67,7 @@ from cvi.models import (
     AIPosture,
     CVICompositeResult,
     Ecosystem,
+    LegalIPModel,
     Persona,
     PillarScores,
     Quadrant,
@@ -693,3 +695,64 @@ class OperationalStore:
     def close(self) -> None:
         """Close the underlying connection (idempotent)."""
         self._conn.close()
+
+
+# --------------------------------------------------------------------------- #
+# Raw-metric hydration (spec 8, 11.2)
+#
+# Moved verbatim from cvi/ingest.py (W4-1, .agents/W4-1/inventory.md
+# section 4/8): OperationalStore is the only argument type, so this keeps
+# the live v1 pipeline's import one hop, not two, and lets cvi/ingest.py
+# retire once its remaining GHArchive stack (dead code, no successor) is
+# also removed.
+# --------------------------------------------------------------------------- #
+def _enum_value(value: Any) -> str:
+    """Store enums as their ``.value`` strings (lakehouse convention)."""
+    return value.value if isinstance(value, Enum) else str(value)
+
+
+def apply_raw_metrics(
+    store: "OperationalStore",
+    owner: str,
+    name: str,
+    *,
+    stars: int,
+    forks: int,
+    monthly_downloads: int = 0,
+    dependents_count: int = 0,
+    elephant_factor: int = 1,
+    legal_ip_model: "LegalIPModel | str" = LegalIPModel.DCO,
+    ai_posture: "AIPosture | str" = AIPosture.AD_HOC,
+) -> int:
+    """Additively update one repository's raw-metric columns (spec 11.2).
+
+    Runs ``UPDATE repositories SET stars=?, forks=?, monthly_downloads=?,
+    dependents_count=?, elephant_factor=?, legal_ip_model=?, ai_posture=?
+    WHERE owner=? AND name=?`` via ``store.connection`` — the exact column
+    names from this module's own ``CREATE TABLE repositories``. This is
+    what makes ``query_matrix(min_stars=...)`` return rows after
+    ``upsert_composite`` (which stores ``stars=0`` by default). Returns the
+    number of rows updated (0 when the repo is not yet indexed).
+    """
+    sql = (
+        "UPDATE repositories SET "
+        "stars = ?, forks = ?, monthly_downloads = ?, dependents_count = ?, "
+        "elephant_factor = ?, legal_ip_model = ?, ai_posture = ? "
+        "WHERE owner = ? AND name = ?"
+    )
+    cursor = store.connection.execute(
+        sql,
+        (
+            int(stars),
+            int(forks),
+            int(monthly_downloads),
+            int(dependents_count),
+            int(elephant_factor),
+            _enum_value(legal_ip_model),
+            _enum_value(ai_posture),
+            owner,
+            name,
+        ),
+    )
+    store.connection.commit()
+    return cursor.rowcount
