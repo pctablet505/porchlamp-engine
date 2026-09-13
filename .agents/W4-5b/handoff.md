@@ -472,3 +472,44 @@ semantics for the actual Leaderboard screen.
   dedicated new one for the rest of this session's testing, but did not
   investigate further since it is outside this packet's scope; flagged here
   in case it recurs for the lead's own verification pass.
+
+## Addendum 2: follow-on round — lead browser FAILs + Opus code review Blockers
+
+Commits `70b4254`→rebased to `314ce2c`. Rebased onto `main` tip `3ed230f`
+(W4-4/W4-6 landed) — 12-commit rebase, zero conflicts. Full suite post-rebase:
+**2521 passed, 2 skipped**. Ruff clean.
+
+Lead's four live-browser FAIL items, the three Opus review Blockers
+(B-1/B-2/B-3), and review items (a)/(b) are all fixed — see commit
+`314ce2c`'s own message for the complete, itemised account (each item:
+what was wrong, the fix, and how it was verified — live-browser dispatch,
+a hand-traced+live-verified property test, or a mutation-killed Python
+test). Reviewer records are committed at `.agents/W4-5b/review/R-01..R-05`.
+
+Also fixed while addressing the above (found along the way, low-risk):
+a `?repo=owner/name` URL never dispatched the evidence/record fetch at
+boot or via `popstate` restore (only the click path did) — new pure
+`state.js::repoToLoadFromState`, wired into both paths, live-verified.
+Several of the review's non-blocking notes (N-1/N-2 doc + focus-overlay-
+size fixes, W-5's enum-ranking bug in Compare, M3/M6 test-quality gaps)
+were also closed since they were quick and directly adjacent to code
+already being edited.
+
+**Deferred, not fixed this round** (documented as a reasoned scope
+boundary, matching the "REWORK bounded to 3" framing): W-2 (the
+methodology.js no-literal grep guard has two theoretical bypasses —
+braced template expressions, quoted strings — though the file itself is
+clean today); W-4 (Compare's search input still rebuilds `main.innerHTML`
+per keystroke, a U-12 violation the implementer already flagged as
+COULD-NOT-VERIFY; focus-restore is confirmed working, residual risk is
+caret position only); W-6 (`api.js::postReproject` duplicates ~25 lines of
+`getJson`'s request/error-handling shape — a pure refactor, no behavior
+change); W-7 (`methodology.json` is a pre-generated static fixture, not
+diffed against a live `methodology_with_history()` call in CI, so it
+could silently drift — now that the module IS importable in-tree
+post-rebase, this is more feasible than when W4-5b started).
+
+Fixture server kept on **port 8902** throughout, restarted after each
+batch of changes; final live pass (fresh tab, zero prior state) confirms
+zero console errors on load and correct rendering of all five primary
+tabs.
