@@ -604,6 +604,61 @@ def test_persona_composite_equals_aggregate_functions_when_balanced() -> None:
         assert result.rated is rated
 
 
+def test_persona_composite_matches_the_pre_w2_11_inline_formula_bit_for_bit() -> None:
+    """Packet W2-11 deliverable 2's over-correction guard: ``persona_composite``
+    used to carry its own private copy of the weighted pillar-to-composite
+    reduction (``Sum(w_p*pillar_p)/Sum(w_p)`` and ``Sum(w_p*c_p)``) instead
+    of calling ``cvi.core.aggregate.composite_score_raw``/
+    ``composite_coverage`` with a ``weights`` keyword; this test transcribes
+    that old, now-deleted formula verbatim as the oracle and checks 2,000
+    random pillar vectors x the five persona presets against it, bit for
+    bit -- proving the switch to the shared ``aggregate`` functions is not a
+    second, drifting definition of the same arithmetic."""
+    import random
+
+    from cvi.core import aggregate
+
+    rng = random.Random(20260911)  # arbitrary fixed seed, reproducible
+
+    for _ in range(2000):
+        pillars: dict[str, PillarScore] = {}
+        for pillar in constants_v2.PILLAR_NAMES:
+            if rng.random() < 0.2:  # sometimes unmeasured, to exercise renormalisation/dropout
+                pillars[pillar] = _pillar(None, 0.0)
+            else:
+                pillars[pillar] = _pillar(rng.uniform(0.0, 100.0), rng.uniform(0.0, 1.0))
+        record = _record(pillars)
+
+        for persona in sorted(PERSONA_PRESETS):
+            weights = PERSONA_PRESETS[persona]
+
+            # The old private reduction persona.py carried before this
+            # packet -- transcribed here, never calling the new aggregate
+            # functions, so this is a real independent oracle.
+            old_coverage = sum(weights[name] * pillars[name].coverage for name in constants_v2.PILLAR_NAMES)
+            old_measured = [
+                (weights[name], pillars[name].score)
+                for name in constants_v2.PILLAR_NAMES
+                if pillars[name].score is not None
+            ]
+            old_total_weight = sum(weight for weight, _ in old_measured)
+            old_composite_raw = (
+                sum(weight * value for weight, value in old_measured) / old_total_weight
+                if old_total_weight > 0.0
+                else None
+            )
+            old_rated, old_ceiling = aggregate.coverage_status(old_coverage)
+            if not old_rated or old_composite_raw is None:
+                expected = PersonaComposite(cvi=None, coverage=old_coverage, tier=None, rated=False)
+            else:
+                old_composite = round(old_composite_raw, 2)
+                old_tier = aggregate.apply_ceiling(aggregate.tier_from_score(old_composite_raw), old_ceiling)
+                expected = PersonaComposite(cvi=old_composite, coverage=old_coverage, tier=old_tier, rated=True)
+
+            result = persona_composite(record, persona)
+            assert result == expected, (persona, pillars)
+
+
 def test_coverage_under_a_persona_differs_from_balanced_coverage() -> None:
     """Hand-computed: accessibility unmeasured (coverage 0.0), everything
     else measured (coverage 1.0). Balanced weighs accessibility .15,

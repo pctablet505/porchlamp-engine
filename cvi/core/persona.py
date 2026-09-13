@@ -80,19 +80,18 @@ never the within-pillar renormalisation) under one of the five preset
 weight vectors, then applies the *same* D-MISS-3/D-MAT-2 rules the balanced
 composite uses by calling
 ``cvi.core.aggregate.coverage_status``/``tier_from_score``/``apply_ceiling``
-directly -- never re-implemented. Only the weighted pillar-to-composite
-reduction itself (``Sum(w_p * pillar_p) / Sum(w_p)`` and
-``Sum(w_p * c_p)``) is necessarily written again here, one line each:
-``cvi.core.aggregate.composite_score_raw``/``composite_coverage`` hard-code
-the balanced weights (``constants_v2.PILLAR_WEIGHTS``) with no weight
-parameter, so they cannot be called with a persona's weights.
-``tests/core/test_persona_v2.py`` proves the two reductions agree with
-``cvi.core.aggregate`` exactly when the persona is ``"balanced"`` (an
-over-correction guard that the generalisation is not a second, drifting
-definition of the same arithmetic). Ownership request: relocate the
-persona-weighted reduction into ``cvi.core.aggregate`` (an optional
-``weights`` parameter, defaulting to ``constants_v2.PILLAR_WEIGHTS``) so
-this module can call it instead of duplicating it -- flagged for W2-8.
+directly -- never re-implemented. The weighted pillar-to-composite
+reduction itself (``Sum(w_p * pillar_p) / Sum(w_p)`` and ``Sum(w_p * c_p)``)
+is likewise no longer written here: packet W2-11 (R-3) gave
+``cvi.core.aggregate.composite_score_raw``/``composite_coverage`` an
+optional ``weights`` keyword (defaulting to ``constants_v2.PILLAR_WEIGHTS``),
+so :func:`persona_composite` calls those two directly with the persona's
+preset instead of keeping its own copy -- the ownership request this
+docstring used to record here, now closed. ``tests/core/test_persona_v2.py``
+still proves the result agrees with ``cvi.core.aggregate`` exactly when the
+persona is ``"balanced"`` (an over-correction guard that routing through the
+``weights`` keyword is not itself a second, drifting definition of the same
+arithmetic).
 
 One-definition-per-constant (R-2). Packet W2-8 (constants freeze) relocated
 ``PERSONA_PRESETS`` (all five preset vectors, ``"balanced"`` included -- it
@@ -162,17 +161,16 @@ PERSONA_PRESETS: dict[str, dict[str, float]] = constants_v2.PERSONA_PRESETS
 
 def _validate_preset(persona: str, weights: Mapping[str, float]) -> None:
     """Raise ``ValueError`` unless ``weights`` covers exactly the 5 pillar
-    names and sums to 1.0 within :data:`WEIGHT_SUM_TOLERANCE`."""
-    missing = sorted(set(constants_v2.PILLAR_NAMES) - set(weights))
-    extra = sorted(set(weights) - set(constants_v2.PILLAR_NAMES))
-    if missing or extra:
-        raise ValueError(
-            f"persona {persona!r} preset must cover exactly {constants_v2.PILLAR_NAMES}; "
-            f"missing={missing}, extra={extra}"
-        )
-    total = sum(weights.values())
-    if abs(total - 1.0) > WEIGHT_SUM_TOLERANCE:
-        raise ValueError(f"persona {persona!r} preset must sum to 1.0 within 1e-6; got {total!r}")
+    names and sums to 1.0 within :data:`WEIGHT_SUM_TOLERANCE`.
+
+    Delegates to :func:`cvi.core.aggregate.validate_pillar_weights` (packet
+    W2-11, R-3: one definition of the weight-vector contract, reused here
+    rather than a second, drifting copy) and re-raises with the persona
+    name so a bad preset names which one failed."""
+    try:
+        aggregate.validate_pillar_weights(weights)
+    except ValueError as exc:
+        raise ValueError(f"persona {persona!r} preset: {exc}") from exc
 
 
 for _persona, _weights in PERSONA_PRESETS.items():
@@ -371,14 +369,8 @@ def persona_composite(record: ScoreRecord, persona: str) -> PersonaComposite:
             f"record.pillars must carry exactly {constants_v2.PILLAR_NAMES}; missing={missing}, extra={extra}"
         )
 
-    coverage = sum(weights[name] * pillars[name].coverage for name in constants_v2.PILLAR_NAMES)
-    measured = [
-        (weights[name], pillars[name].score)
-        for name in constants_v2.PILLAR_NAMES
-        if pillars[name].score is not None
-    ]
-    total_weight = sum(weight for weight, _ in measured)
-    composite_raw = sum(weight * value for weight, value in measured) / total_weight if total_weight > 0.0 else None
+    coverage = aggregate.composite_coverage(pillars, weights=weights)
+    composite_raw = aggregate.composite_score_raw(pillars, weights=weights)
 
     rated, ceiling = aggregate.coverage_status(coverage)
     if not rated or composite_raw is None:

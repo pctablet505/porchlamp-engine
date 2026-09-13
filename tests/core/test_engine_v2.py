@@ -250,6 +250,14 @@ def test_engine_end_to_end_every_field() -> None:
     for input_id, param_score in record.params.items():
         assert param_score.measured is True, input_id
         assert param_score.reason is None, input_id
+        # W2-11: every Measured ParamScore's ``value`` is the bundle input's
+        # raw Measured.value, verbatim, before any curve.
+        assert param_score.value == bundle.inputs[input_id].value, input_id
+        assert param_score.n == bundle.inputs[input_id].n, input_id
+        assert param_score.window_start == bundle.inputs[input_id].window_start, input_id
+        assert param_score.window_end == bundle.inputs[input_id].window_end, input_id
+        assert param_score.source == bundle.inputs[input_id].source, input_id
+        assert param_score.fetched_at == bundle.inputs[input_id].fetched_at, input_id
     assert record.params["ttfhr_hours"].score == pytest.approx(100.0)
     assert record.params["ai_posture"].score == pytest.approx(40.0)
     assert record.params["ai_posture"].method == "primary"
@@ -413,6 +421,16 @@ def test_unrated_repo_has_no_composite_or_tier_but_keeps_params_and_coverage() -
     assert record.leverage_coverage == pytest.approx(0.0)
     assert record.friction_coverage == pytest.approx(0.0)
     assert len(record.params) == 18
+
+    # W2-11: value is None for every Unmeasured input, and the raw measured
+    # value (verbatim) for every Measured one, regardless of the score/
+    # measured outcome the curve produced.
+    measured_ids = {"newcomer_issue_supply", "newcomer_conversion", "rr90_return_rate", "dx"}
+    for input_id, param_score in record.params.items():
+        if input_id in measured_ids:
+            assert param_score.value == bundle.inputs[input_id].value, input_id
+        else:
+            assert param_score.value is None, input_id
 
 
 # --------------------------------------------------------------------------- #
@@ -631,13 +649,40 @@ def test_ecdf_params_missing_population_are_no_population_not_a_crash() -> None:
     record = score(bundle, empty_populations, EligibleFixture.snapshot())
 
     assert record.params["ttm_p90_hours"] == ParamScore(
-        score=None, measured=False, reason="third_party_gap", n=0, method=None
+        value=None,
+        score=None,
+        measured=False,
+        reason="third_party_gap",
+        n=0,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source=None,
+        fetched_at=None,
     )
     assert record.params["dependents_deduped"] == ParamScore(
-        score=None, measured=False, reason="no_population", n=42, method=None
+        value=999999.0,
+        score=None,
+        measured=False,
+        reason="no_population",
+        n=42,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source="test://fixture",
+        fetched_at=_iso(NOW),
     )
     assert record.params["downloads_monthly"] == ParamScore(
-        score=None, measured=False, reason="no_population", n=0, method=None
+        value=999999999.0,
+        score=None,
+        measured=False,
+        reason="no_population",
+        n=0,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source="test://fixture",
+        fetched_at=_iso(NOW),
     )
 
 

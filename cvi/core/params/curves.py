@@ -116,12 +116,40 @@ def _apply(
     ``Unmeasured`` inputs pass their D-MISS-1 reason through with
     ``measured=False``; a ``Measured`` input below the minimum sample is
     ``insufficient_n`` (the actual ``n`` is reported); otherwise the curve
-    is applied and clamped to [0, 100]."""
+    is applied and clamped to [0, 100]. ``ParamScore.value`` and the other
+    evidence fields (``window_start``/``window_end``/``source``/
+    ``fetched_at``) are copied from the ``Measured`` input whenever one
+    exists -- including ``insufficient_n``, where a real measurement was
+    taken but did not clear the sample-size bar -- and are ``None`` only for
+    an ``Unmeasured`` input, which has no measurement to report (packet
+    W2-11)."""
     if isinstance(value, Unmeasured):
-        return ParamScore(score=None, measured=False, reason=value.reason, n=0, method=None)
+        return ParamScore(
+            value=None,
+            score=None,
+            measured=False,
+            reason=value.reason,
+            n=0,
+            window_start=None,
+            window_end=None,
+            method=None,
+            source=None,
+            fetched_at=None,
+        )
     required = _required_min_n(defn, value.method)
     if required is not None and value.n < required:
-        return ParamScore(score=None, measured=False, reason="insufficient_n", n=value.n, method=None)
+        return ParamScore(
+            value=value.value,
+            score=None,
+            measured=False,
+            reason="insufficient_n",
+            n=value.n,
+            window_start=value.window_start,
+            window_end=value.window_end,
+            method=None,
+            source=value.source,
+            fetched_at=value.fetched_at,
+        )
     raw = value.value
     if defn.kind in (KIND_NUMERIC, KIND_ECDF):
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
@@ -145,11 +173,16 @@ def _apply(
         else:
             score = defn.score(raw)
     return ParamScore(
+        value=value.value,
         score=max(0.0, min(100.0, float(score))),
         measured=True,
         reason=None,
         n=value.n,
+        window_start=value.window_start,
+        window_end=value.window_end,
         method=value.method,
+        source=value.source,
+        fetched_at=value.fetched_at,
     )
 
 

@@ -31,6 +31,54 @@ def measured(value: object, n: int = 0, method: str = "primary") -> Measured:
     )
 
 
+def _scored(value: object, score: float, *, n: int = 0, method: str = "primary") -> ParamScore:
+    """The ``ParamScore`` a param function returns for ``measured(value, n, method)``."""
+    return ParamScore(
+        value=value,
+        score=score,
+        measured=True,
+        reason=None,
+        n=n,
+        window_start=None,
+        window_end=None,
+        method=method,
+        source="raw/openssf_scorecard/org__alpha.json",
+        fetched_at=_FETCHED_AT,
+    )
+
+
+def _insufficient_n(value: object, n: int) -> ParamScore:
+    """The ``ParamScore`` a param function returns for ``measured(value, n)`` below the minimum sample."""
+    return ParamScore(
+        value=value,
+        score=None,
+        measured=False,
+        reason="insufficient_n",
+        n=n,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source="raw/openssf_scorecard/org__alpha.json",
+        fetched_at=_FETCHED_AT,
+    )
+
+
+def _gap(reason: str) -> ParamScore:
+    """The ``ParamScore`` a param function returns for an ``Unmeasured`` input."""
+    return ParamScore(
+        value=None,
+        score=None,
+        measured=False,
+        reason=reason,
+        n=0,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source=None,
+        fetched_at=None,
+    )
+
+
 # 4.1 Pipeline defenses: identity on the 0-100 composite, clamped
 
 
@@ -44,22 +92,22 @@ def test_pipeline_defenses_oracle() -> None:
     ]
     for value, expected in cases:
         result = pipeline_defenses(measured(value))
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=0, method="primary")
+        assert result == _scored(value, expected)
 
 
 def test_pipeline_defenses_scorecard_method_has_no_minimum_n() -> None:
     result = pipeline_defenses(measured(80.0, n=0))
-    assert result == ParamScore(score=80.0, measured=True, reason=None, n=0, method="primary")
+    assert result == _scored(80.0, 80.0, n=0)
 
 
 def test_pipeline_defenses_proxy_method_insufficient_n_one_below_minimum() -> None:
     result = pipeline_defenses(measured(80.0, n=9, method="proxy:ci_review_blend"))
-    assert result == ParamScore(score=None, measured=False, reason="insufficient_n", n=9, method=None)
+    assert result == _insufficient_n(80.0, 9)
 
 
 def test_pipeline_defenses_proxy_method_measured_at_exact_minimum() -> None:
     result = pipeline_defenses(measured(80.0, n=10, method="proxy:ci_review_blend"))
-    assert result == ParamScore(score=80.0, measured=True, reason=None, n=10, method="proxy:ci_review_blend")
+    assert result == _scored(80.0, 80.0, n=10, method="proxy:ci_review_blend")
 
 
 # 4.2 AI posture: persona-conditional lookup
@@ -73,7 +121,7 @@ def test_ai_posture_human_oracle() -> None:
     ]
     for posture, expected in cases:
         result = ai_posture(measured(posture), "human")
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=0, method="primary")
+        assert result == _scored(posture, expected)
 
 
 def test_ai_posture_ai_oracle() -> None:
@@ -84,12 +132,12 @@ def test_ai_posture_ai_oracle() -> None:
     ]
     for posture, expected in cases:
         result = ai_posture(measured(posture), "ai")
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=0, method="primary")
+        assert result == _scored(posture, expected)
 
 
 def test_ai_posture_defaults_to_human() -> None:
     result = ai_posture(measured("PROSCRIBED"))
-    assert result == ParamScore(score=85.0, measured=True, reason=None, n=0, method="primary")
+    assert result == _scored("PROSCRIBED", 85.0)
 
 
 def test_ai_posture_rejects_unknown_persona() -> None:
@@ -114,15 +162,15 @@ def test_substantive_review_rate_oracle() -> None:
     ]
     for rate, expected in cases:
         result = substantive_review_rate(measured(rate, n=15))
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=15, method="primary")
+        assert result == _scored(rate, expected, n=15)
 
 
 def test_substantive_review_rate_insufficient_n_one_below_minimum() -> None:
     result = substantive_review_rate(measured(0.9, n=9))
-    assert result == ParamScore(score=None, measured=False, reason="insufficient_n", n=9, method=None)
+    assert result == _insufficient_n(0.9, 9)
 
 
 def test_substantive_review_rate_unmeasured_passes_through() -> None:
     for reason in constants_v2.UNMEASURED_REASONS:
         result = substantive_review_rate(Unmeasured(reason=reason, detail="x"))
-        assert result == ParamScore(score=None, measured=False, reason=reason, n=0, method=None)
+        assert result == _gap(reason)

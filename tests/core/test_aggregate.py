@@ -25,17 +25,40 @@ from cvi.core.aggregate import (
     composite_score_raw,
     coverage_status,
     tier_from_score,
+    validate_pillar_weights,
 )
 from cvi.core.models import ParamScore, PillarScore
 from cvi.core.params import PARAMS
 
 
 def _measured(score: float, *, n: int = 100, method: str = "primary") -> ParamScore:
-    return ParamScore(score=score, measured=True, reason=None, n=n, method=method)
+    return ParamScore(
+        value=score,
+        score=score,
+        measured=True,
+        reason=None,
+        n=n,
+        window_start=None,
+        window_end=None,
+        method=method,
+        source="test",
+        fetched_at="2026-09-01T00:00:00+00:00",
+    )
 
 
 def _unmeasured(reason: str = "insufficient_n") -> ParamScore:
-    return ParamScore(score=None, measured=False, reason=reason, n=0, method=None)
+    return ParamScore(
+        value=None,
+        score=None,
+        measured=False,
+        reason=reason,
+        n=0,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source=None,
+        fetched_at=None,
+    )
 
 
 def full_params(overrides: dict[str, ParamScore] | None = None) -> dict[str, ParamScore]:
@@ -239,3 +262,106 @@ def test_score_92_with_coverage_085_yields_tier_a() -> None:
 )
 def test_apply_ceiling_takes_the_worse_tier(tier: str, ceiling: str | None, expected: str) -> None:
     assert apply_ceiling(tier, ceiling) == expected
+
+
+# --------------------------------------------------------------------------- #
+# ParamScore.value (packet W2-11): required, no default.
+# --------------------------------------------------------------------------- #
+
+
+def test_param_score_requires_value_no_default() -> None:
+    """A constructor site that forgets ``value`` must fail loudly (packet
+    W2-11 deliverable 1: "No default: make the field required")."""
+    with pytest.raises(TypeError, match="value"):
+        ParamScore(  # type: ignore[call-arg]
+            score=50.0,
+            measured=True,
+            reason=None,
+            n=10,
+            window_start=None,
+            window_end=None,
+            method="primary",
+            source="test",
+            fetched_at="2026-09-01T00:00:00+00:00",
+        )
+
+
+# --------------------------------------------------------------------------- #
+# composite_score_raw / composite_coverage: the ``weights`` keyword (W2-11,
+# lead-log ruling R-3) -- default is the frozen balanced weights (unchanged
+# arithmetic, proved above); a caller-supplied vector must be validated and
+# used instead of the hard-coded balanced weights.
+# --------------------------------------------------------------------------- #
+
+_CUSTOM_WEIGHTS = {
+    "responsiveness": 0.40,
+    "criticality": 0.10,
+    "governance": 0.10,
+    "rigor": 0.10,
+    "accessibility": 0.30,
+}
+
+
+def test_composite_score_raw_honours_a_custom_weight_vector() -> None:
+    """All five pillars measured at a distinct score; hand-computed against
+    ``_CUSTOM_WEIGHTS`` (which sums to 1.0), not the balanced default:
+    raw = .40*10 + .10*20 + .10*30 + .10*40 + .30*50 = 4+2+3+4+15 = 28.0
+    -- the balanced-weight result would be .25*10+.25*20+.20*30+.15*40+.15*50
+    = 2.5+5+6+6+7.5 = 27.0, a different number, so this proves ``weights``
+    is actually used, not silently ignored."""
+    pillars = {
+        "responsiveness": PillarScore(score=10.0, coverage=1.0),
+        "criticality": PillarScore(score=20.0, coverage=1.0),
+        "governance": PillarScore(score=30.0, coverage=1.0),
+        "rigor": PillarScore(score=40.0, coverage=1.0),
+        "accessibility": PillarScore(score=50.0, coverage=1.0),
+    }
+    assert composite_score_raw(pillars) == pytest.approx(27.0)
+    assert composite_score_raw(pillars, weights=_CUSTOM_WEIGHTS) == pytest.approx(28.0)
+
+
+def test_composite_coverage_honours_a_custom_weight_vector() -> None:
+    """Same five pillars, coverage-only: C = .40*1.0+.10*0.5+.10*0.0+.10*1.0+.30*0.0 = 0.55."""
+    pillars = {
+        "responsiveness": PillarScore(score=10.0, coverage=1.0),
+        "criticality": PillarScore(score=20.0, coverage=0.5),
+        "governance": PillarScore(score=30.0, coverage=0.0),
+        "rigor": PillarScore(score=40.0, coverage=1.0),
+        "accessibility": PillarScore(score=50.0, coverage=0.0),
+    }
+    assert composite_coverage(pillars, weights=_CUSTOM_WEIGHTS) == pytest.approx(0.55)
+
+
+def test_composite_score_raw_rejects_weights_not_summing_to_one() -> None:
+    bad_weights = dict(_CUSTOM_WEIGHTS)
+    bad_weights["responsiveness"] = 0.50  # now sums to 1.10
+    pillars = {pillar: PillarScore(score=50.0, coverage=1.0) for pillar in constants_v2.PILLAR_NAMES}
+    with pytest.raises(ValueError, match="must sum to 1.0"):
+        composite_score_raw(pillars, weights=bad_weights)
+
+
+def test_composite_coverage_rejects_weights_not_summing_to_one() -> None:
+    bad_weights = dict(_CUSTOM_WEIGHTS)
+    bad_weights["responsiveness"] = 0.50  # now sums to 1.10
+    pillars = {pillar: PillarScore(score=50.0, coverage=1.0) for pillar in constants_v2.PILLAR_NAMES}
+    with pytest.raises(ValueError, match="must sum to 1.0"):
+        composite_coverage(pillars, weights=bad_weights)
+
+
+def test_composite_score_raw_rejects_weights_missing_a_pillar() -> None:
+    incomplete = {k: v for k, v in _CUSTOM_WEIGHTS.items() if k != "accessibility"}
+    pillars = {pillar: PillarScore(score=50.0, coverage=1.0) for pillar in constants_v2.PILLAR_NAMES}
+    with pytest.raises(ValueError, match="must cover exactly"):
+        composite_score_raw(pillars, weights=incomplete)
+
+
+def test_validate_pillar_weights_accepts_the_frozen_balanced_default() -> None:
+    """No exception -- the balanced weights are always a valid vector."""
+    validate_pillar_weights(constants_v2.PILLAR_WEIGHTS)
+
+
+def test_validate_pillar_weights_rejects_an_extra_pillar() -> None:
+    extra = dict(constants_v2.PILLAR_WEIGHTS)
+    extra["extra_pillar"] = 0.0
+    with pytest.raises(ValueError, match="must cover exactly"):
+        validate_pillar_weights(extra)

@@ -187,7 +187,16 @@ def _score_params(bundle: FeatureBundle, populations: PopulationLookup) -> dict[
             continue
         if populations.population(ecosystem, input_id) is None:
             scores[input_id] = ParamScore(
-                score=None, measured=False, reason=_REASON_NO_POPULATION, n=value.n, method=None
+                value=value.value,
+                score=None,
+                measured=False,
+                reason=_REASON_NO_POPULATION,
+                n=value.n,
+                window_start=value.window_start,
+                window_end=value.window_end,
+                method=None,
+                source=value.source,
+                fetched_at=value.fetched_at,
             )
             continue
         scores[input_id] = function(value, populations.ecdf(ecosystem, input_id))

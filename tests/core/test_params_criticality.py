@@ -36,6 +36,38 @@ def unmeasured(reason: str = "third_party_gap") -> Unmeasured:
     return Unmeasured(reason=reason, detail="registry has no data")
 
 
+def _scored(value: object, score: float) -> ParamScore:
+    """The ``ParamScore`` a param function returns for ``measured(value)``."""
+    return ParamScore(
+        value=value,
+        score=score,
+        measured=True,
+        reason=None,
+        n=0,
+        window_start=None,
+        window_end=None,
+        method="primary",
+        source="raw/depsdev/org__alpha.json",
+        fetched_at=_FETCHED_AT,
+    )
+
+
+def _gap(reason: str) -> ParamScore:
+    """The ``ParamScore`` a param function returns for an ``Unmeasured`` input."""
+    return ParamScore(
+        value=None,
+        score=None,
+        measured=False,
+        reason=reason,
+        n=0,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source=None,
+        fetched_at=None,
+    )
+
+
 def _mid_rank_ecdf(sample: list[float]) -> Callable[[float], float]:
     """D-NORM-1 mid-rank ECDF of ``sample``, on the 0-100 scale."""
     size = len(sample)
@@ -62,12 +94,12 @@ def test_dependents_oracle() -> None:
     ]
     for count, expected in cases:
         result = dependents(measured(count), ecdf)
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=0, method="primary")
+        assert result == _scored(count, expected)
 
 
 def test_dependents_unmeasured_passes_through() -> None:
     result = dependents(unmeasured(), _mid_rank_ecdf([0.0, 1.0]))
-    assert result == ParamScore(score=None, measured=False, reason="third_party_gap", n=0, method=None)
+    assert result == _gap("third_party_gap")
 
 
 # 2.2 OpenSSF criticality: 100 * C
@@ -82,12 +114,12 @@ def test_openssf_criticality_oracle() -> None:
     ]
     for pike, expected in cases:
         result = openssf_criticality(measured(pike))
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=0, method="primary")
+        assert result == _scored(pike, expected)
 
 
 def test_openssf_criticality_unmeasured_when_a_signal_is_missing() -> None:
     result = openssf_criticality(Unmeasured(reason="third_party_gap", detail="commit frequency uncollected"))
-    assert result == ParamScore(score=None, measured=False, reason="third_party_gap", n=0, method=None)
+    assert result == _gap("third_party_gap")
 
 
 # 2.3 Downloads: ECDF_mid(m), raw
@@ -103,9 +135,9 @@ def test_downloads_oracle() -> None:
     ]
     for monthly, expected in cases:
         result = downloads(measured(monthly), ecdf)
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=0, method="primary")
+        assert result == _scored(monthly, expected)
 
 
 def test_downloads_unmeasured_for_systems_ecosystem() -> None:
     result = downloads(unmeasured(), _mid_rank_ecdf([0.0, 1.0]))
-    assert result == ParamScore(score=None, measured=False, reason="third_party_gap", n=0, method=None)
+    assert result == _gap("third_party_gap")

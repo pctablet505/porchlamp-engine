@@ -30,6 +30,54 @@ def measured(value: object, n: int = 0, method: str = "primary") -> Measured:
     )
 
 
+def _scored(value: object, score: float, *, n: int = 0, method: str = "primary") -> ParamScore:
+    """The ``ParamScore`` a param function returns for ``measured(value, n, method)``."""
+    return ParamScore(
+        value=value,
+        score=score,
+        measured=True,
+        reason=None,
+        n=n,
+        window_start=None,
+        window_end=None,
+        method=method,
+        source="raw/legal_ip/org__alpha.json",
+        fetched_at=_FETCHED_AT,
+    )
+
+
+def _insufficient_n(value: object, n: int) -> ParamScore:
+    """The ``ParamScore`` a param function returns for ``measured(value, n)`` below the minimum sample."""
+    return ParamScore(
+        value=value,
+        score=None,
+        measured=False,
+        reason="insufficient_n",
+        n=n,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source="raw/legal_ip/org__alpha.json",
+        fetched_at=_FETCHED_AT,
+    )
+
+
+def _gap(reason: str) -> ParamScore:
+    """The ``ParamScore`` a param function returns for an ``Unmeasured`` input."""
+    return ParamScore(
+        value=None,
+        score=None,
+        measured=False,
+        reason=reason,
+        n=0,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source=None,
+        fetched_at=None,
+    )
+
+
 # 3.1 Legal IP: DCO 100, NONE 85 (owner decision O-1), FOUNDATION_CLA 75, CORP_CLA 25
 
 
@@ -42,7 +90,7 @@ def test_legal_ip_oracle() -> None:
     ]
     for regime, expected in cases:
         result = legal_ip(measured(regime))
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=0, method="primary")
+        assert result == _scored(regime, expected)
 
 
 def test_legal_ip_rejects_a_regime_outside_the_frozen_vocabulary() -> None:
@@ -52,7 +100,7 @@ def test_legal_ip_rejects_a_regime_outside_the_frozen_vocabulary() -> None:
 
 def test_legal_ip_unmeasured_passes_through() -> None:
     result = legal_ip(Unmeasured(reason="collector_failure", detail="legal_ip probe failed"))
-    assert result == ParamScore(score=None, measured=False, reason="collector_failure", n=0, method=None)
+    assert result == _gap("collector_failure")
 
 
 # 3.2 Elephant factor: min(100, 25*EF), minimum n 30 commits
@@ -68,17 +116,17 @@ def test_elephant_factor_oracle() -> None:
     ]
     for ef, expected in cases:
         result = elephant_factor(measured(ef, n=120))
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=120, method="primary")
+        assert result == _scored(ef, expected, n=120)
 
 
 def test_elephant_factor_insufficient_n_one_below_minimum() -> None:
     result = elephant_factor(measured(3, n=29))
-    assert result == ParamScore(score=None, measured=False, reason="insufficient_n", n=29, method=None)
+    assert result == _insufficient_n(3, 29)
 
 
 def test_elephant_factor_measured_at_exact_minimum() -> None:
     result = elephant_factor(measured(2, n=30))
-    assert result == ParamScore(score=50.0, measured=True, reason=None, n=30, method="primary")
+    assert result == _scored(2, 50.0, n=30)
 
 
 # 3.3 Promotion ladder: VERIFIED 100, DOCUMENTED 75, AD_HOC 40, CLOSED 10
@@ -93,7 +141,7 @@ def test_promotion_ladder_oracle() -> None:
     ]
     for rung, expected in cases:
         result = promotion_ladder(measured(rung))
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=0, method="primary")
+        assert result == _scored(rung, expected)
 
 
 def test_promotion_ladder_rejects_a_rung_outside_the_frozen_vocabulary() -> None:
@@ -103,7 +151,7 @@ def test_promotion_ladder_rejects_a_rung_outside_the_frozen_vocabulary() -> None
 
 def test_promotion_ladder_unmeasured_passes_through() -> None:
     result = promotion_ladder(Unmeasured(reason="not_applicable", detail="archived repo"))
-    assert result == ParamScore(score=None, measured=False, reason="not_applicable", n=0, method=None)
+    assert result == _gap("not_applicable")
 
 
 def test_all_frozen_regimes_and_rungs_are_registered() -> None:

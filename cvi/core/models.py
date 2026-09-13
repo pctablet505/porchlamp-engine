@@ -442,13 +442,34 @@ class GateResult:
 
 @dataclass(frozen=True)
 class ParamScore:
-    """One scored parameter (04 section 3): score, measured flag, reason, n, method."""
+    """One scored parameter (04 section 3): score, measured flag, reason, n,
+    method, plus the raw evidence 06 section 4's evidence endpoint (W4-4)
+    needs so it never has to re-fetch the ``FeatureBundle`` (packet W2-11,
+    lead-log ruling R-2/R-3).
 
+    ``value`` is the ``Measured.value`` the scoring param function received,
+    verbatim and before any curve was applied -- ``None`` only when the
+    bundle input was ``Unmeasured`` (no measurement exists to report).
+    Unlike ``method`` (which stays ``None`` whenever no score was computed,
+    since it names the method that produced the *score*), ``value`` and the
+    other evidence fields below persist even when the score itself could not
+    be computed (``insufficient_n``, ``no_population``): the measurement
+    happened and its evidence is real, only the score-worthiness check
+    failed. ``window_start``/``window_end``/``source``/``fetched_at`` are
+    each copied unchanged from that same ``Measured`` input, one definition
+    per fact -- no default on any of these: a constructor site that forgets
+    one fails loudly rather than silently reporting an empty evidence row."""
+
+    value: float | str | None
     score: float | None
     measured: bool
     reason: str | None
     n: int
+    window_start: str | None
+    window_end: str | None
     method: str | None
+    source: str | None
+    fetched_at: str | None
 
 
 @dataclass(frozen=True)

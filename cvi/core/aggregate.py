@@ -12,6 +12,14 @@ balanced composite, renormalised over measured pillars, rounded once at the
 end (04 section 8). ``tier_from_score`` and ``apply_ceiling`` are D-MAT-2:
 absolute cutoffs capped by the coverage ceiling.
 
+``composite_score_raw``/``composite_coverage`` take an optional ``weights``
+keyword (default the frozen balanced weights, ``constants_v2.PILLAR_WEIGHTS``),
+validated by :func:`validate_pillar_weights`; this generalisation (packet
+W2-11, lead-log ruling R-3) is what lets ``cvi.core.persona.persona_composite``
+and ``cvi.audit.sensitivity`` call these two functions directly with a
+persona/perturbed weight vector instead of each keeping its own copy of the
+same reduction.
+
 The 0.80/0.95 ceiling bands, the 90/80/70/55/40 tier cutoffs and their
 ordering were relocated to ``cvi.core.constants_v2`` by packet W2-8 (round 1
 for the ceiling bands, round 2 for :data:`TIER_CUTOFFS`/:data:`TIER_ORDER`
@@ -99,23 +107,66 @@ def aggregate_pillars(params: Mapping[str, ParamScore]) -> dict[str, PillarScore
     return result
 
 
-def composite_coverage(pillars: Mapping[str, PillarScore]) -> float:
-    """D-MISS-3: composite coverage ``C = Sum_p(W_p * c_p)`` under the
-    balanced pillar weights (D-AGG-1). ``pillars`` must carry all five
-    frozen pillar names (``constants_v2.PILLAR_NAMES``); the balanced
-    weights already sum to 1.0, so ``C`` lands directly in ``[0, 1]``."""
-    return sum(constants_v2.PILLAR_WEIGHTS[pillar] * pillars[pillar].coverage for pillar in constants_v2.PILLAR_NAMES)
+def validate_pillar_weights(weights: Mapping[str, float]) -> None:
+    """Raise ``ValueError`` unless ``weights`` covers exactly the 5 frozen
+    pillar names (``constants_v2.PILLAR_NAMES``) and sums to 1.0 within
+    :data:`cvi.core.constants_v2.WEIGHT_SUM_TOLERANCE`.
+
+    D-AGG-1's weight-vector contract, generalised beyond the balanced
+    preset so :func:`composite_score_raw`/:func:`composite_coverage` can
+    validate an arbitrary (e.g. persona) weight vector. Moved here from
+    ``cvi.core.persona``'s private ``_validate_preset`` (packet W2-11, R-3):
+    one definition, reused by that module to validate each persona preset
+    too, rather than two copies of the same check drifting apart."""
+    missing = sorted(set(constants_v2.PILLAR_NAMES) - set(weights))
+    extra = sorted(set(weights) - set(constants_v2.PILLAR_NAMES))
+    if missing or extra:
+        raise ValueError(
+            f"pillar weights must cover exactly {constants_v2.PILLAR_NAMES}; missing={missing}, extra={extra}"
+        )
+    total = sum(weights.values())
+    if abs(total - 1.0) > constants_v2.WEIGHT_SUM_TOLERANCE:
+        raise ValueError(
+            f"pillar weights must sum to 1.0 within {constants_v2.WEIGHT_SUM_TOLERANCE}; got {total!r}"
+        )
 
 
-def composite_score_raw(pillars: Mapping[str, PillarScore]) -> float | None:
+def composite_coverage(
+    pillars: Mapping[str, PillarScore], *, weights: Mapping[str, float] = constants_v2.PILLAR_WEIGHTS
+) -> float:
+    """D-MISS-3: composite coverage ``C = Sum_p(W_p * c_p)`` under
+    ``weights`` (D-AGG-1; defaults to the frozen balanced weights).
+    ``pillars`` must carry all five frozen pillar names
+    (``constants_v2.PILLAR_NAMES``); ``weights`` must too, and must sum to
+    1.0 within tolerance (:func:`validate_pillar_weights`, raised from
+    here) -- with a valid weight vector ``C`` lands directly in ``[0, 1]``.
+
+    ``weights`` generalises this beyond the balanced composite so a persona
+    projection (``cvi.core.persona.persona_composite``) can call it with a
+    preset vector instead of reimplementing the same reduction (packet
+    W2-11, R-3)."""
+    validate_pillar_weights(weights)
+    return sum(weights[pillar] * pillars[pillar].coverage for pillar in constants_v2.PILLAR_NAMES)
+
+
+def composite_score_raw(
+    pillars: Mapping[str, PillarScore], *, weights: Mapping[str, float] = constants_v2.PILLAR_WEIGHTS
+) -> float | None:
     """D-AGG-2 composite before the single final rounding.
 
     ``Sum(W_p * pillar_p) / Sum(W_p)`` over measured pillars (D-MISS-2
-    renormalisation over the balanced weights); ``None`` if every pillar is
-    unmeasured. 04 section 8: gate, ceiling and tier-cutoff comparisons use
-    this unrounded value, never the rounded display value."""
+    renormalisation over ``weights``, defaulting to the frozen balanced
+    weights); ``None`` if every pillar is unmeasured. 04 section 8: gate,
+    ceiling and tier-cutoff comparisons use this unrounded value, never the
+    rounded display value. ``weights`` must sum to 1.0 within tolerance
+    (:func:`validate_pillar_weights`, raised from here); generalised beyond
+    the balanced composite so a persona projection
+    (``cvi.core.persona.persona_composite``) can call it with a preset
+    vector instead of reimplementing the same reduction (packet W2-11,
+    R-3)."""
+    validate_pillar_weights(weights)
     measured = [
-        (constants_v2.PILLAR_WEIGHTS[pillar], pillars[pillar].score)
+        (weights[pillar], pillars[pillar].score)
         for pillar in constants_v2.PILLAR_NAMES
         if pillars[pillar].score is not None
     ]

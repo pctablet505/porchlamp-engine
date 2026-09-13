@@ -139,6 +139,49 @@ def test_load_rows_missing_file_raises() -> None:
         load_rows("/nonexistent/path/rows.json")
 
 
+def test_load_rows_param_evidence_fields_are_optional_and_round_trip(tmp_path: Path) -> None:
+    """Packet W2-11 gave ``ParamScore`` the evidence fields (``value``,
+    ``window_start``, ``window_end``, ``source``, ``fetched_at``); this row
+    format's own docstring says every field but ``key``/``params`` is
+    optional, and no detector reads any of the five, so a row naming none
+    of them (every fixture above) must still parse (already proved by
+    ``test_load_rows_builds_key_to_row_mapping`` passing) -- this test
+    proves the other half: when a row *does* carry them, they reach the
+    ``ParamScore`` unchanged rather than being silently dropped."""
+    path = _write_rows(tmp_path, "current.json", [{
+        "key": "org/a",
+        "params": {
+            "ttfhr_hours": {
+                "score": 95.0,
+                "measured": True,
+                "n": 40,
+                "value": 6.0,
+                "window_start": "2026-03-01T00:00:00+00:00",
+                "window_end": "2026-09-01T00:00:00+00:00",
+                "method": "primary",
+                "source": "raw/pr_events/org__a.json",
+                "fetched_at": "2026-09-01T00:00:00+00:00",
+            },
+        },
+    }])
+    param = load_rows(path)["org/a"].record.params["ttfhr_hours"]
+    assert param.value == 6.0
+    assert param.window_start == "2026-03-01T00:00:00+00:00"
+    assert param.window_end == "2026-09-01T00:00:00+00:00"
+    assert param.source == "raw/pr_events/org__a.json"
+    assert param.fetched_at == "2026-09-01T00:00:00+00:00"
+
+
+def test_load_rows_param_evidence_fields_default_to_none_when_absent(tmp_path: Path) -> None:
+    path = _write_rows(tmp_path, "current.json", [_speed_row("org/a", 95.0, 10.0)])
+    param = load_rows(path)["org/a"].record.params["ttfhr_hours"]
+    assert param.value is None
+    assert param.window_start is None
+    assert param.window_end is None
+    assert param.source is None
+    assert param.fetched_at is None
+
+
 # --------------------------------------------------------------------------- #
 # build_report / format_report: a 6-record fixture                            #
 # --------------------------------------------------------------------------- #

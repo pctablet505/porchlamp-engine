@@ -29,6 +29,54 @@ def measured(value: object, n: int = 0, method: str = "primary") -> Measured:
     )
 
 
+def _scored(value: object, score: float, *, n: int = 0) -> ParamScore:
+    """The ``ParamScore`` a param function returns for ``measured(value, n)``."""
+    return ParamScore(
+        value=value,
+        score=score,
+        measured=True,
+        reason=None,
+        n=n,
+        window_start=None,
+        window_end=None,
+        method="primary",
+        source="raw/gfi_issues/org__alpha.json",
+        fetched_at=_FETCHED_AT,
+    )
+
+
+def _insufficient_n(value: object, n: int) -> ParamScore:
+    """The ``ParamScore`` a param function returns for ``measured(value, n)`` below the minimum sample."""
+    return ParamScore(
+        value=value,
+        score=None,
+        measured=False,
+        reason="insufficient_n",
+        n=n,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source="raw/gfi_issues/org__alpha.json",
+        fetched_at=_FETCHED_AT,
+    )
+
+
+def _gap(reason: str) -> ParamScore:
+    """The ``ParamScore`` a param function returns for an ``Unmeasured`` input."""
+    return ParamScore(
+        value=None,
+        score=None,
+        measured=False,
+        reason=reason,
+        n=0,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source=None,
+        fetched_at=None,
+    )
+
+
 # 5.1 Newcomer-issue supply: min(100, 10*count)
 
 
@@ -42,7 +90,7 @@ def test_newcomer_issue_supply_oracle() -> None:
     ]
     for count, expected in cases:
         result = newcomer_issue_supply(measured(count))
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=0, method="primary")
+        assert result == _scored(count, expected)
 
 
 # 5.2 Newcomer conversion: min(100, 200*r), minimum n 5 authors
@@ -57,17 +105,17 @@ def test_newcomer_conversion_oracle() -> None:
     ]
     for rate, expected in cases:
         result = newcomer_conversion(measured(rate, n=8))
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=8, method="primary")
+        assert result == _scored(rate, expected, n=8)
 
 
 def test_newcomer_conversion_insufficient_n_one_below_minimum() -> None:
     result = newcomer_conversion(measured(1.0, n=4))
-    assert result == ParamScore(score=None, measured=False, reason="insufficient_n", n=4, method=None)
+    assert result == _insufficient_n(1.0, 4)
 
 
 def test_newcomer_conversion_measured_at_exact_minimum() -> None:
     result = newcomer_conversion(measured(0.2, n=5))
-    assert result == ParamScore(score=40.0, measured=True, reason=None, n=5, method="primary")
+    assert result == _scored(0.2, 40.0, n=5)
 
 
 # 5.3 RR_90 return rate: min(100, 200*r), minimum n 5 authors
@@ -82,12 +130,12 @@ def test_rr90_return_rate_oracle() -> None:
     ]
     for rate, expected in cases:
         result = rr90_return_rate(measured(rate, n=6))
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=6, method="primary")
+        assert result == _scored(rate, expected, n=6)
 
 
 def test_rr90_return_rate_insufficient_n_one_below_minimum() -> None:
     result = rr90_return_rate(measured(0.9, n=4))
-    assert result == ParamScore(score=None, measured=False, reason="insufficient_n", n=4, method=None)
+    assert result == _insufficient_n(0.9, 4)
 
 
 # 5.4 DX: identity on the 0-100 composite, 5-run minimum
@@ -102,15 +150,15 @@ def test_dx_oracle() -> None:
     ]
     for value, expected in cases:
         result = dx(measured(value, n=30))
-        assert result == ParamScore(score=expected, measured=True, reason=None, n=30, method="primary")
+        assert result == _scored(value, expected, n=30)
 
 
 def test_dx_insufficient_n_one_below_minimum() -> None:
     result = dx(measured(50.0, n=4))
-    assert result == ParamScore(score=None, measured=False, reason="insufficient_n", n=4, method=None)
+    assert result == _insufficient_n(50.0, 4)
 
 
 def test_dx_unmeasured_when_run_timing_is_absent() -> None:
     for reason in constants_v2.UNMEASURED_REASONS:
         result = dx(Unmeasured(reason=reason, detail="no run_timing"))
-        assert result == ParamScore(score=None, measured=False, reason=reason, n=0, method=None)
+        assert result == _gap(reason)

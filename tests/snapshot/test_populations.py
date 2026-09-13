@@ -444,7 +444,16 @@ class TestEngineRawPopulationIntegration:
         record = engine.score(bundle, popset, _e2e_snapshot())
 
         assert record.params["dependents_deduped"] == ParamScore(
-            score=100.0, measured=True, reason=None, n=0, method="primary"
+            value=50000.0,
+            score=100.0,
+            measured=True,
+            reason=None,
+            n=0,
+            window_start=None,
+            window_end=None,
+            method="primary",
+            source="test://fixture",
+            fetched_at=_E2E_NOW.isoformat(),
         )
 
     def test_mid_rank_arithmetic_on_a_mixed_population_is_unchanged(self) -> None:

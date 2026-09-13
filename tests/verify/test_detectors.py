@@ -93,7 +93,18 @@ def test_frozen_thresholds_match_03_section_6() -> None:
 
 
 def _param(score: float | None, *, measured: bool = True, n: int = 50) -> ParamScore:
-    return ParamScore(score=score, measured=measured, reason=None if measured else "insufficient_n", n=n, method="primary" if measured else None)
+    return ParamScore(
+        value=score,
+        score=score,
+        measured=measured,
+        reason=None if measured else "insufficient_n",
+        n=n,
+        window_start=None,
+        window_end=None,
+        method="primary" if measured else None,
+        source="test" if measured else None,
+        fetched_at="2026-09-01T00:00:00+00:00" if measured else None,
+    )
 
 
 def _record(params: dict[str, ParamScore] | None = None) -> ScoreRecord:
@@ -244,7 +255,18 @@ def test_speed_without_decisions_unmeasured_dr90_never_fires() -> None:
 
 
 def test_measured_score_and_measured_n_ignore_a_scored_but_unmeasured_param() -> None:
-    scored_but_unmeasured = ParamScore(score=95.0, measured=False, reason="collector_failure", n=30, method=None)
+    scored_but_unmeasured = ParamScore(
+        value=95.0,
+        score=95.0,
+        measured=False,
+        reason="collector_failure",
+        n=30,
+        window_start=None,
+        window_end=None,
+        method=None,
+        source="test",
+        fetched_at="2026-09-01T00:00:00+00:00",
+    )
     current = _record({"ttfhr_hours": scored_but_unmeasured})
     assert _measured_score(current, "ttfhr_hours") is None
     assert _measured_n(current, "ttfhr_hours") is None
@@ -255,7 +277,18 @@ def test_speed_without_decisions_scored_but_unmeasured_ttfhr_never_fires() -> No
     but with a real, qualifying score attached to the unmeasured TTFHR --
     the ``measured`` flag, not the score, must be what stops the fire."""
     current = _record({
-        "ttfhr_hours": ParamScore(score=95.0, measured=False, reason="collector_failure", n=30, method=None),
+        "ttfhr_hours": ParamScore(
+            value=95.0,
+            score=95.0,
+            measured=False,
+            reason="collector_failure",
+            n=30,
+            window_start=None,
+            window_end=None,
+            method=None,
+            source="test",
+            fetched_at="2026-09-01T00:00:00+00:00",
+        ),
         "dr90_decision_rate": _param(40.0),
     })
     assert detect_speed_without_decisions(current, None, DetectorInputs()) is False

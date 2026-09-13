@@ -87,14 +87,27 @@ class DetectorRow:
 
 
 def _param_score_from_json(payload: Mapping[str, Any]) -> ParamScore:
+    """One ``params`` entry from the interim JSON row shape (module
+    docstring) into a :class:`~cvi.core.models.ParamScore`. ``value``,
+    ``window_start``, ``window_end``, ``source`` and ``fetched_at`` are
+    optional here too (packet W2-11 gave ``ParamScore`` these evidence
+    fields; no detector reads any of them -- ``cvi.verify.detectors``'s
+    module docstring -- so a row lacking them, as every example in this
+    module's docstring does, still parses; ``payload.get`` defaults each to
+    ``None``, same as every other optional field in this row format)."""
     measured = bool(payload.get("measured", False))
     score = payload.get("score")
     return ParamScore(
+        value=payload.get("value"),
         score=None if score is None else float(score),
         measured=measured,
         reason=payload.get("reason"),
         n=int(payload.get("n", 0)),
+        window_start=payload.get("window_start"),
+        window_end=payload.get("window_end"),
         method=payload.get("method"),
+        source=payload.get("source"),
+        fetched_at=payload.get("fetched_at"),
     )
 
 
