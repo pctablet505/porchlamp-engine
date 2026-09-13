@@ -313,6 +313,98 @@ def test_dependents_deduped(tmp_path: Path) -> None:
     )
 
 
+def test_dependents_deduped_systems_is_not_applicable(tmp_path: Path) -> None:
+    """W1-2f, D-MISS-5: ecosystem == systems always yields
+    Unmeasured(not_applicable), read straight off the bundle's own
+    ecosystem fact -- ahead of, and regardless of, confidence. Checked
+    against every confidence value a real v1 document could carry,
+    including "derived" (a hypothetical collector bug must not be able to
+    smuggle a Measured value past the D-MISS-5 guard)."""
+    for confidence_value in ("missing", "verified", "derived", None):
+        confidence = {} if confidence_value is None else {"dependents_count": confidence_value}
+        meta = {"dependents_count": 7} if confidence_value == "derived" else {}
+        doc = base_document(ecosystem="systems", meta=meta, confidence=confidence)
+        bundle = load(tmp_path, doc, key=f"acme__systems-{confidence_value}")
+        assert bundle.inputs["dependents_deduped"] == Unmeasured(
+            reason="not_applicable",
+            detail="D-MISS-5: ecosystem == systems has no package registry (2.1 is undefined)",
+        )
+
+
+def test_dependents_deduped_maven_missing_names_the_pom_gap(tmp_path: Path) -> None:
+    """W1-2f: maven's third_party_gap detail names the real current gap
+    (pom.xml was never fetched), not the generic deps.dev-absence text."""
+    doc = base_document(ecosystem="maven", confidence={"dependents_count": "missing"})
+    bundle = load(tmp_path, doc, key="acme__maven-missing")
+    assert bundle.inputs["dependents_deduped"] == Unmeasured(
+        reason="third_party_gap",
+        detail="root pom.xml contents not collected (tree envelope carries paths only; "
+               "a later fetch must add one raw-content call per maven repo)",
+    )
+
+
+def test_dependents_deduped_maven_measured_when_derived(tmp_path: Path) -> None:
+    """Over-correction guard: a maven repo whose dependents WERE measured
+    (confidence "derived", e.g. once a later packet adds the pom.xml fetch)
+    is unaffected by the maven-specific missing-branch detail -- it takes
+    the same Measured path as any other ecosystem."""
+    data = {"deduped_count": 3, "package": "org.apache.thrift:libthrift"}
+    write_envelope(tmp_path / "raw", "dependents", "acme__widget", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(
+        ecosystem="maven",
+        meta={"dependents_count": 3},
+        provenance={"dependents_count": prov("dependents")},
+        confidence={"dependents_count": "derived"},
+    )
+    bundle = load(tmp_path, doc)
+    assert bundle.inputs["dependents_deduped"] == Measured(
+        value=3, n=0, window_start=None, window_end=None, method="primary",
+        source=str(tmp_path / "raw" / "dependents" / "acme__widget.json"),
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
+def test_dependents_deduped_go_measured_when_derived(tmp_path: Path) -> None:
+    """Over-correction guard: go's Measured path is unchanged -- W1-2f only
+    touches the missing/not_applicable branches, not the "derived" one."""
+    data = {"deduped_count": 5, "package": "github.com/a-h/templ"}
+    write_envelope(tmp_path / "raw", "dependents", "acme__widget", data, "2026-09-01T00:05:00+00:00")
+    doc = base_document(
+        ecosystem="go",
+        meta={"dependents_count": 5},
+        provenance={"dependents_count": prov("dependents")},
+        confidence={"dependents_count": "derived"},
+    )
+    bundle = load(tmp_path, doc)
+    assert bundle.inputs["dependents_deduped"] == Measured(
+        value=5, n=0, window_start=None, window_end=None, method="primary",
+        source=str(tmp_path / "raw" / "dependents" / "acme__widget.json"),
+        source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+
+def test_dependents_deduped_go_missing_is_generic_third_party_gap(tmp_path: Path) -> None:
+    """W1-2f requirement 4 (unchanged branch): a mapped ecosystem (go) with
+    no measured count stays the generic third_party_gap detail, exactly
+    like pypi/npm/crates -- not the maven-specific wording."""
+    doc = base_document(ecosystem="go", confidence={"dependents_count": "missing"})
+    bundle = load(tmp_path, doc, key="acme__go-missing")
+    assert bundle.inputs["dependents_deduped"] == Unmeasured(
+        reason="third_party_gap", detail="deps.dev/ecosyste.ms returned no dependents data",
+    )
+
+
+def test_dependents_deduped_unmapped_ecosystem_names_it_not_not_applicable(tmp_path: Path) -> None:
+    """D-MISS-5's guard: "the rule list is closed" -- an ecosystem this row
+    has never seen must still fall to third_party_gap, never
+    not_applicable, and its detail names the ecosystem."""
+    doc = base_document(ecosystem="conda", confidence={"dependents_count": "missing"})
+    bundle = load(tmp_path, doc, key="acme__conda-missing")
+    assert bundle.inputs["dependents_deduped"] == Unmeasured(
+        reason="third_party_gap", detail="no dependents mapping for ecosystem 'conda'",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # 2.3 downloads_monthly                                                       #
 # --------------------------------------------------------------------------- #

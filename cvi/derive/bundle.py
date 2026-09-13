@@ -30,6 +30,15 @@ class TP, like ``downloads_monthly``), adds vocabulary validation to
 enum from rejecting the whole bundle: the mapping is now row-scoped
 everywhere (:func:`_map_v1_value` no longer appends to the bundle-wide
 ``problems`` list).
+
+W1-2f (D-MISS-5, ``docs/v2/02-RANKING-DESIGN.md`` section 5) changes only
+``dependents_deduped``: ``ecosystem == "systems"`` yields
+``Unmeasured(not_applicable)`` unconditionally (a universe-entry fact this
+row reads straight off ``ctx.meta``, never from what the collector fetched
+-- D-MISS-5's guard), ``maven`` gets a specific ``third_party_gap`` detail
+when nothing was measured (the root ``pom.xml`` was never fetched), and any
+ecosystem outside the closed rule list plus this packet's known mappings
+still falls to a named ``third_party_gap``, never ``not_applicable``.
 """
 from __future__ import annotations
 
@@ -600,6 +609,18 @@ def _resolve_downloads_monthly(ctx: _V1Ctx) -> Measured | Unmeasured:
                        detail=f"v1 confidence {confidence_value!r} for 'monthly_downloads' is not recognized")
 
 
+#: Ecosystems D-MISS-5 does not name (``02`` section 5: the rule list names
+#: only ``systems`` -> 2.1). Anything outside this set is a mapping gap this
+#: row has never seen, not a fact about the world -- it must still fall to
+#: ``third_party_gap``, never ``not_applicable`` (W1-2f: "the rule list is
+#: closed"). Mirrors :class:`cvi.models.Ecosystem`'s members; not imported
+#: from there because ``cvi.derive`` reads only ``cvi.core.models`` (04
+#: section 3's import rule) and ``cvi.models`` sits outside ``cvi.core``.
+_ECOSYSTEMS_WITH_DEPENDENTS_MAPPING: frozenset[str] = frozenset(
+    {"pypi", "npm", "crates", "go", "maven"}
+)
+
+
 def _resolve_dependents_deduped(ctx: _V1Ctx) -> Measured | Unmeasured:
     """2.1 Dependents. v1's ``dependents_count`` carries two unrelated facts
     under the same key, distinguished only by ``confidence`` (W1-2): the raw,
@@ -614,7 +635,27 @@ def _resolve_dependents_deduped(ctx: _V1Ctx) -> Measured | Unmeasured:
     branch (W2-9f, W1) -- not ``collector_failure`` (reserved here for a
     genuine local-side fault: an unresolvable envelope, or a value the W1-2
     hook wrote in a shape this loader cannot parse).
+
+    W1-2f (D-MISS-5): ``ecosystem == "systems"`` always yields
+    ``Unmeasured(not_applicable)`` here, ahead of the confidence check --
+    the fact is about the ecosystem (recorded on the bundle at universe
+    entry, ``ctx.meta["ecosystem"]``), never about what
+    ``cvi.collect.depsdev.collect_dependents`` happened to fetch, per
+    D-MISS-5's guard that this reason is assigned only by a design-level
+    rule keyed on a universe fact. ``maven`` gets a more specific
+    ``third_party_gap`` detail when nothing was measured: today's gap is
+    that the root ``pom.xml`` was never fetched (the tree envelope carries
+    file paths only, not contents), not that deps.dev/ecosyste.ms lack the
+    package. Any ecosystem outside D-MISS-5's closed rule list and this
+    packet's known mappings still falls to the generic ``third_party_gap``,
+    named, never ``not_applicable``.
     """
+    ecosystem = ctx.meta.get("ecosystem")
+    if ecosystem == "systems":
+        return Unmeasured(
+            reason="not_applicable",
+            detail="D-MISS-5: ecosystem == systems has no package registry (2.1 is undefined)",
+        )
     confidence_value = ctx.confidence.get("dependents_count")
     if confidence_value != "derived":
         if confidence_value == "verified":
@@ -624,6 +665,17 @@ def _resolve_dependents_deduped(ctx: _V1Ctx) -> Measured | Unmeasured:
                        "organisation (v2 2.1 needs the W1-2 'dependents' collector)",
             )
         if confidence_value == "missing":
+            if ecosystem == "maven":
+                return Unmeasured(
+                    reason="third_party_gap",
+                    detail="root pom.xml contents not collected (tree envelope carries paths only; "
+                           "a later fetch must add one raw-content call per maven repo)",
+                )
+            if ecosystem not in _ECOSYSTEMS_WITH_DEPENDENTS_MAPPING:
+                return Unmeasured(
+                    reason="third_party_gap",
+                    detail=f"no dependents mapping for ecosystem {ecosystem!r}",
+                )
             return Unmeasured(reason="third_party_gap", detail="deps.dev/ecosyste.ms returned no dependents data")
         return Unmeasured(reason="collector_failure",
                            detail=f"v1 confidence {confidence_value!r} for 'dependents_count' is not recognized")
@@ -947,7 +999,7 @@ def _unmapped(detail: str) -> InputResolver:
 #: | mr_first_rate | (none landed) | collector_failure: needs W1-4 author history |
 #: | gr14_ghost_rate | (none landed) | collector_failure: needs a snapshot as_of the v1-to-v2 loader is never given (04 section 8) |
 #: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number (W1-3) | no envelope -> collector_failure; n<5 -> insufficient_n |
-#: | dependents_deduped | meta.dependents_count when confidence=="derived" (W1-2 dependents hook) | confidence verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap (W2-9f) |
+#: | dependents_deduped | meta.dependents_count when confidence=="derived" (W1-2 dependents hook); meta.ecosystem gates it (W1-2f) | ecosystem=="systems" -> not_applicable (D-MISS-5); verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap, maven detail names the uncollected pom.xml, unmapped ecosystem detail names it (W2-9f, W1-2f) |
 #: | openssf_criticality | meta.openssf_signals, ten raw Pike signals (W1-7); C computed locally (mirrored, 04 section 3) | confidence missing, or any signal absent -> third_party_gap (never a partial score) |
 #: | downloads_monthly | meta.monthly_downloads; meta.downloads_status (W1-8) refines the Unmeasured detail | third_party_gap, detail per downloads_status |
 #: | legal_ip | meta.legal_ip_model, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection (W2-9f, W5) |

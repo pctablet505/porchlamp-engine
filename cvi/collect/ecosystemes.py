@@ -18,6 +18,7 @@ primary/fallback flow and the envelope.
 
 from __future__ import annotations
 
+import urllib.parse
 from typing import Optional
 
 #: Base URL of the public ecosyste.ms REST API.
@@ -42,8 +43,15 @@ def registry_for_ecosystem(ecosystem: str) -> Optional[str]:
 
 
 def package_url(registry: str, package: str) -> str:
-    """The fallback package-lookup URL for one registry package."""
-    return f"{ECOSYSTEMES_API}/registries/{registry}/packages/{package}"
+    """The fallback package-lookup URL for one registry package.
+
+    ``package`` is percent-encoded (W1-2f): a go module path
+    (``github.com/owner/name``) or a maven ``groupId:artifactId`` is not a
+    single path segment otherwise. A no-op on the plain pypi/npm/crates
+    names this function already covers (``quote(..., safe="")`` never
+    touches letters, digits or ``_.-~``).
+    """
+    return f"{ECOSYSTEMES_API}/registries/{registry}/packages/{urllib.parse.quote(package, safe='')}"
 
 
 def parse_package(payload: Optional[dict]) -> Optional[dict]:

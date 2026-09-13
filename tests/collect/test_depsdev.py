@@ -176,9 +176,11 @@ def test_ecosystem_system_mapping_exact():
     assert dd.system_for_ecosystem("pypi") == "pypi"
     assert dd.system_for_ecosystem("crates") == "crates.io"
     assert dd.system_for_ecosystem("npm") == "npm"
-    assert dd.system_for_ecosystem("go") is None        # module paths, not repo names
-    assert dd.system_for_ecosystem("maven") is None    # groupId:artifactId unknown
-    assert dd.system_for_ecosystem("systems") is None  # no package registry
+    # W1-2f: go/maven now have a deps.dev system (module path / groupId:artifactId
+    # is still a separate question -- package_name_for_repo, below).
+    assert dd.system_for_ecosystem("go") == "go"
+    assert dd.system_for_ecosystem("maven") == "maven"
+    assert dd.system_for_ecosystem("systems") is None  # no package registry (D-MISS-5)
     assert ees.registry_for_ecosystem("pypi") == "pypi.org"
     assert ees.registry_for_ecosystem("npm") == "npmjs.org"
     assert ees.registry_for_ecosystem("crates") == "crates.io"
@@ -192,8 +194,132 @@ def test_package_name_for_repo():
     assert dd.package_name_for_repo("dtolnay", "Anyhow", "crates") == "anyhow"
     assert dd.package_name_for_repo("expressjs", "express", "npm") == "express"
     assert dd.package_name_for_repo("torvalds", "linux", "systems") is None
-    assert dd.package_name_for_repo("grpc", "grpc-go", "go") is None
+
+
+def test_package_name_for_repo_go_default_module_path():
+    """W1-2f: go defaults to github.com/<owner>/<name> -- the tree envelope
+    this codebase writes carries file paths only, not go.mod contents, so
+    this is the only identifier available without a new fetch."""
+    assert dd.package_name_for_repo("grpc", "grpc-go", "go") == "github.com/grpc/grpc-go"
+    assert dd.package_name_for_repo("a-h", "templ", "go") == "github.com/a-h/templ"
+
+
+def test_package_name_for_repo_go_mod_module_override():
+    """W1-2f: when a caller already has the root go.mod's module line (a
+    later packet's fetch, not this one), it wins over the default."""
+    assert dd.package_name_for_repo(
+        "grpc", "grpc-go", "go", go_mod_module="google.golang.org/grpc",
+    ) == "google.golang.org/grpc"
+
+
+def test_package_name_for_repo_maven_needs_parsed_coordinates():
+    """W1-2f: maven has no name-derived default (unlike go) -- a GitHub repo
+    name carries no Maven coordinate -- so it is None until the caller
+    supplies coordinates parsed from a fetched pom.xml (a fetch this packet
+    does not add)."""
     assert dd.package_name_for_repo("apache", "thrift", "maven") is None
+    assert dd.package_name_for_repo(
+        "apache", "thrift", "maven", maven_coordinates=("org.apache.thrift", "libthrift"),
+    ) == "org.apache.thrift:libthrift"
+
+
+# --- W1-2f: maven pom.xml groupId:artifactId parsing (stdlib XML) ---------------
+
+def test_parse_maven_coordinates_own_group_id():
+    pom = """<?xml version="1.0"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.apache.thrift</groupId>
+  <artifactId>libthrift</artifactId>
+  <version>0.20.0</version>
+</project>
+"""
+    assert dd.parse_maven_coordinates(pom) == ("org.apache.thrift", "libthrift")
+
+
+def test_parse_maven_coordinates_no_namespace():
+    pom = """<project>
+  <groupId>com.example</groupId>
+  <artifactId>widget</artifactId>
+</project>
+"""
+    assert dd.parse_maven_coordinates(pom) == ("com.example", "widget")
+
+
+def test_parse_maven_coordinates_parent_group_id_fallback():
+    """The common multi-module convention: a child POM declares no groupId
+    of its own and inherits its parent's."""
+    pom = """<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <parent>
+    <groupId>com.example.parent</groupId>
+    <artifactId>parent-pom</artifactId>
+    <version>1.0.0</version>
+  </parent>
+  <artifactId>widget-core</artifactId>
+</project>
+"""
+    assert dd.parse_maven_coordinates(pom) == ("com.example.parent", "widget-core")
+
+
+def test_parse_maven_coordinates_own_group_id_wins_over_parent():
+    pom = """<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <parent><groupId>com.example.parent</groupId><artifactId>parent-pom</artifactId></parent>
+  <groupId>com.example.child</groupId>
+  <artifactId>widget-core</artifactId>
+</project>
+"""
+    assert dd.parse_maven_coordinates(pom) == ("com.example.child", "widget-core")
+
+
+def test_parse_maven_coordinates_missing_artifact_id():
+    pom = """<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <groupId>com.example</groupId>
+</project>
+"""
+    assert dd.parse_maven_coordinates(pom) is None
+
+
+def test_parse_maven_coordinates_no_group_id_anywhere():
+    pom = """<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <artifactId>widget</artifactId>
+</project>
+"""
+    assert dd.parse_maven_coordinates(pom) is None
+
+
+def test_parse_maven_coordinates_malformed_xml_returns_none():
+    assert dd.parse_maven_coordinates("<project><groupId>com.example</project>") is None
+    assert dd.parse_maven_coordinates("") is None
+    assert dd.parse_maven_coordinates("not xml at all") is None
+
+
+def test_parse_maven_coordinates_non_project_root():
+    assert dd.parse_maven_coordinates(
+        "<settings><groupId>x</groupId><artifactId>y</artifactId></settings>"
+    ) is None
+
+
+# --- W1-2f: URL building percent-encodes slash/colon-bearing identifiers --------
+
+def test_package_url_quotes_go_module_path():
+    assert dd.package_url("go", "github.com/a-h/templ") == \
+        "https://api.deps.dev/v3alpha/systems/go/packages/github.com%2Fa-h%2Ftempl"
+
+
+def test_package_url_quotes_maven_coordinate():
+    assert dd.package_url("maven", "org.apache.thrift:libthrift") == \
+        "https://api.deps.dev/v3alpha/systems/maven/packages/org.apache.thrift%3Alibthrift"
+
+
+def test_package_url_unchanged_for_plain_names():
+    """Quoting is a no-op for the already-tested pypi/npm/crates names."""
+    assert dd.package_url("pypi", "flask") == \
+        "https://api.deps.dev/v3alpha/systems/pypi/packages/flask"
+
+
+def test_ecosystemes_package_url_quotes_go_module_path():
+    assert ees.package_url("proxy.golang.org", "github.com/a-h/templ") == \
+        "https://packages.ecosyste.ms/api/v1/registries/proxy.golang.org/packages/github.com%2Fa-h%2Ftempl"
 
 
 # --- D-PARAM 2.1: root-org dedup + same-org exclusion ----------------------------
@@ -261,11 +387,116 @@ def test_collect_dependents_primary_writes_envelope(tmp_path, monkeypatch):
     }
 
 
-def test_collect_dependents_systems_is_skip_no_envelope(tmp_path, monkeypatch):
+def test_collect_dependents_systems_writes_not_applicable_envelope(tmp_path, monkeypatch, block_live_network):
+    """W1-2f, D-MISS-5: systems now writes an envelope recording the design
+    rule instead of the old silent "skip" -- but still makes zero network
+    calls (the fact is about the ecosystem, never fetched)."""
     def must_not_fetch(url: str):
         raise AssertionError("no registry exists for systems; nothing may be fetched")
     monkeypatch.setattr(dd, "_get_json", must_not_fetch)
-    assert dd.collect_dependents(tmp_path, "torvalds", "linux", "systems") == "skip"
+    status = dd.collect_dependents(tmp_path, "torvalds", "linux", "systems")
+    assert status == "not_applicable"
+    env = read_envelope(tmp_path / "dependents" / "torvalds__linux.json")
+    assert env.source == "design-rule:D-MISS-5"
+    assert env.data == {
+        "ecosystem": "systems", "package": None, "system": None,
+        "version": None, "dependent_count": None,
+        "direct_dependent_count": None, "indirect_dependent_count": None,
+        "deduped_count": None, "dependents": None,
+        "source_used": "not_applicable", "not_applicable_rule": "D-MISS-5",
+    }
+    assert env.sha256 == envelope_hash(env.data)
+
+
+def test_collect_dependents_maven_without_pom_content_is_skip_no_envelope(tmp_path, monkeypatch, block_live_network):
+    """W1-2f: maven has no name-derived default identifier; without a
+    fetched pom.xml (this packet adds no such fetch) nothing can be
+    mapped, so this stays "skip" -- unchanged from pre-W1-2f, zero calls."""
+    def must_not_fetch(url: str):
+        raise AssertionError("no maven coordinates derivable; nothing may be fetched")
+    monkeypatch.setattr(dd, "_get_json", must_not_fetch)
+    assert dd.collect_dependents(tmp_path, "apache", "thrift", "maven") == "skip"
+    assert not (tmp_path / "dependents").is_dir()
+
+
+def test_collect_dependents_unmapped_ecosystem_is_skip_no_envelope(tmp_path, monkeypatch, block_live_network):
+    """Any ecosystem this module has never heard of behaves exactly like
+    the pre-W1-2f go/maven default: "skip", no fetch, no envelope."""
+    def must_not_fetch(url: str):
+        raise AssertionError("no mapping for this ecosystem; nothing may be fetched")
+    monkeypatch.setattr(dd, "_get_json", must_not_fetch)
+    assert dd.collect_dependents(tmp_path, "acme", "widget", "conda") == "skip"
+    assert not (tmp_path / "dependents").is_dir()
+
+
+def test_collect_dependents_go_default_module_path_writes_envelope(tmp_path, monkeypatch):
+    """W1-2f: go's default identifier drives the same primary deps.dev
+    fetch pypi/npm/crates use; the envelope records the derivation method."""
+    def replay(url: str):
+        if url == dd.package_url("go", "github.com/a-h/templ"):
+            return {"packageKey": {"system": "GO", "name": "github.com/a-h/templ"},
+                    "versions": [{"versionKey": {"version": "v0.3.960"}, "isDefault": True}]}
+        if url == dd.version_dependents_url("go", "github.com/a-h/templ", "v0.3.960"):
+            return {"dependentCount": 5, "directDependentCount": 4, "indirectDependentCount": 1}
+        raise AssertionError(f"unexpected URL: {url}")
+    monkeypatch.setattr(dd, "_get_json", replay)
+    status = dd.collect_dependents(tmp_path, "a-h", "templ", "go")
+    assert status == "ok"
+    env = read_envelope(tmp_path / "dependents" / "a-h__templ.json")
+    assert env.data == {
+        "ecosystem": "go", "package": "github.com/a-h/templ", "system": "go",
+        "version": "v0.3.960", "dependent_count": 5,
+        "direct_dependent_count": 4, "indirect_dependent_count": 1,
+        "deduped_count": 5, "dependents": None, "source_used": "deps.dev",
+        "identifier_method": "derived:module_path_default",
+    }
+
+
+def test_collect_dependents_go_mod_module_override_recorded(tmp_path, monkeypatch):
+    def replay(url: str):
+        if url == dd.package_url("go", "google.golang.org/grpc"):
+            return {"versions": [{"versionKey": {"version": "v1.60.0"}, "isDefault": True}]}
+        if url == dd.version_dependents_url("go", "google.golang.org/grpc", "v1.60.0"):
+            return {"dependentCount": 999}
+        raise AssertionError(f"unexpected URL: {url}")
+    monkeypatch.setattr(dd, "_get_json", replay)
+    status = dd.collect_dependents(tmp_path, "grpc", "grpc-go", "go",
+                                   go_mod_module="google.golang.org/grpc")
+    assert status == "ok"
+    env = read_envelope(tmp_path / "dependents" / "grpc__grpc-go.json")
+    assert env.data["package"] == "google.golang.org/grpc"
+    assert env.data["identifier_method"] == "derived:go_mod_module"
+
+
+def test_collect_dependents_maven_with_pom_xml_writes_envelope(tmp_path, monkeypatch):
+    """W1-2f: "if contents are available, ... proceed as for Go" -- a
+    caller-supplied pom.xml body drives the same primary/fallback flow."""
+    pom = """<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <groupId>org.apache.thrift</groupId>
+  <artifactId>libthrift</artifactId>
+</project>
+"""
+    def replay(url: str):
+        if url == dd.package_url("maven", "org.apache.thrift:libthrift"):
+            return {"versions": [{"versionKey": {"version": "0.20.0"}, "isDefault": True}]}
+        if url == dd.version_dependents_url("maven", "org.apache.thrift:libthrift", "0.20.0"):
+            return {"dependentCount": 42}
+        raise AssertionError(f"unexpected URL: {url}")
+    monkeypatch.setattr(dd, "_get_json", replay)
+    status = dd.collect_dependents(tmp_path, "apache", "thrift", "maven", maven_pom_xml=pom)
+    assert status == "ok"
+    env = read_envelope(tmp_path / "dependents" / "apache__thrift.json")
+    assert env.data["package"] == "org.apache.thrift:libthrift"
+    assert env.data["deduped_count"] == 42
+    assert env.data["identifier_method"] == "parsed:pom_xml"
+
+
+def test_collect_dependents_go_no_count_anywhere_is_fail(tmp_path, monkeypatch):
+    """W1-2f requirement 4 (unchanged branch): a mapped package deps.dev
+    (and the ecosyste.ms fallback) has no count for stays "fail", exactly
+    like the existing pypi/npm/crates contract -- not a new reason."""
+    monkeypatch.setattr(dd, "_get_json", lambda url: None)
+    assert dd.collect_dependents(tmp_path, "a-h", "templ", "go") == "fail"
     assert not (tmp_path / "dependents").is_dir()
 
 
@@ -380,7 +611,10 @@ def test_gather_repo_dependents_status_skip(tmp_path, monkeypatch, block_live_ne
     assert status["dependents"] == "skip"
 
 
-def test_gather_repo_dependents_systems_skip(tmp_path, monkeypatch, block_live_network):
+def test_gather_repo_dependents_systems_not_applicable(tmp_path, monkeypatch, block_live_network):
+    """W1-2f: the gather hook now sees "not_applicable" (and a written
+    envelope) for systems, propagated unchanged from collect_dependents --
+    still zero network calls."""
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
 
@@ -388,8 +622,8 @@ def test_gather_repo_dependents_systems_skip(tmp_path, monkeypatch, block_live_n
         raise AssertionError("no registry for systems; nothing may be fetched")
     monkeypatch.setattr(dd, "_get_json", must_not_fetch)
     status = gather.gather_repo("pallets", "flask", "systems")
-    assert status["dependents"] == "skip"
-    assert not (gather.DATA / "dependents").is_dir()
+    assert status["dependents"] == "not_applicable"
+    assert (gather.DATA / "dependents" / "pallets__flask.json").is_file()
 
 
 # --- the append-only derive hook --------------------------------------------------
