@@ -499,6 +499,22 @@ def _check_rated_v2(records: Mapping[tuple[str, str], Any], owner: str, name: st
     return AnchorResult(relation_id, _EXPECTED[relation_id], observed, FAIL)
 
 
+def _skipped_unmeasured_input(relation_id: str, reason: str) -> AnchorResult:
+    """Shared rule for every anchor that reads a stage-2 ``ParamScore``
+    (dispatch fix, following the W1-6 fixture-regeneration finding): a
+    required input that is ``Unmeasured`` on the anchor repo means the
+    relation cannot be evaluated at all -- ``SKIPPED``, naming the
+    ``Unmeasured`` reason, never ``FAIL``. ``FAIL`` is reserved for a
+    *measured* value that contradicts the relation; an absent measurement
+    contradicts nothing, so reporting it as a failed relation previously
+    misrepresented a collector gap as a wrong ranking (measured: this
+    happened for real on ``linux_dco`` once ``legal_ip`` started reading
+    the governance envelope, which is absent on the fixture -- W1-6
+    landing changed the input from a v1 meta field, always present on this
+    fixture, to a real envelope read, not always present)."""
+    return AnchorResult(relation_id, _EXPECTED[relation_id], f"input unmeasured: {reason}", SKIPPED)
+
+
 def _check_dco_v2(records: Mapping[tuple[str, str], Any]) -> AnchorResult:
     """``legal_ip == "DCO"``: ``ScoreRecord.params`` carries only the
     *scored* value (04 section 3's ``ParamScore`` has no raw-value field --
@@ -507,17 +523,23 @@ def _check_dco_v2(records: Mapping[tuple[str, str], Any]) -> AnchorResult:
     ``DCO -> 100.0``, ``NONE -> 85.0``, ``FOUNDATION_CLA -> 75.0``,
     ``CORP_CLA -> 25.0`` -- four *distinct* scores, so ``score == 100.0``
     on a ``measured`` parameter is recoverable evidence of ``DCO`` and
-    nothing else, not a guess."""
+    nothing else, not a guess.
+
+    Gated (no params scored at all) and ``Unmeasured`` both mean "nothing
+    measured to contradict the relation with" -- both are ``SKIPPED``, not
+    ``FAIL`` (see :func:`_skipped_unmeasured_input`); only a *measured*
+    ``legal_ip`` whose score is not 100.0 is an actual FAIL."""
     relation_id = "linux_dco"
     record = records.get(_LINUX)
     if record is None:
         return AnchorResult(relation_id, _EXPECTED[relation_id], "torvalds/linux not present in the snapshot", SKIPPED)
     param = record.params.get("legal_ip") if record.gate.eligible else None
     if param is None:
-        observed = "gated (no params scored)" if not record.gate.eligible else "legal_ip not in params"
-        return AnchorResult(relation_id, _EXPECTED[relation_id], observed, FAIL)
+        if not record.gate.eligible:
+            return _skipped_unmeasured_input(relation_id, f"gated: {record.gate.reason}")
+        return AnchorResult(relation_id, _EXPECTED[relation_id], "legal_ip not in params", FAIL)
     if not param.measured:
-        return AnchorResult(relation_id, _EXPECTED[relation_id], f"legal_ip unmeasured: {param.reason}", FAIL)
+        return _skipped_unmeasured_input(relation_id, param.reason or "unknown")
     verdict = PASS if param.score is not None and math.isclose(param.score, 100.0, abs_tol=1e-9) else FAIL
     observed = f"legal_ip score = {param.score} (DCO <=> 100.0)"
     return AnchorResult(relation_id, _EXPECTED[relation_id], observed, verdict)

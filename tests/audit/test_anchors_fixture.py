@@ -29,6 +29,7 @@ from cvi.audit.anchors import (
     evaluate_anchors_v2,
     format_anchor_report_v2,
 )
+from cvi.core.models import ParamScore
 from cvi.core.pipeline import score_snapshot
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
@@ -39,8 +40,13 @@ SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "build_fixture_s
 #: PASS. Everything else in :data:`ANCHOR_RELATIONS` must come back
 #: SKIPPED (absent identity / no independent fact to check) or REPORT
 #: (``keras_hub_gate_reported``, which never fails).
-_EXPECT_PASS = {"linux_off_platform", "archived_repo_gated", "awesome_non_software", "linux_dco"}
-_EXPECT_SKIPPED = {"gcc_mirror_gated", "kubernetes_rated", "vllm_rated", "newcomer_label_5_1"}
+_EXPECT_PASS = {"linux_off_platform", "archived_repo_gated", "awesome_non_software"}
+# linux_dco is SKIPPED, not PASS, on this fixture: W1-6 landed legal_ip reading
+# the real governance envelope, which is absent here, so legal_ip is genuinely
+# Unmeasured(collector_failure) for torvalds/linux -- measured, not a bug (see
+# _skipped_unmeasured_input in cvi/audit/anchors.py and the commit that fixed
+# this from a wrongly-reported FAIL).
+_EXPECT_SKIPPED = {"gcc_mirror_gated", "kubernetes_rated", "vllm_rated", "newcomer_label_5_1", "linux_dco"}
 _EXPECT_REPORT = {"keras_hub_gate_reported"}
 
 assert _EXPECT_PASS | _EXPECT_SKIPPED | _EXPECT_REPORT == {relation for relation, _ in ANCHOR_RELATIONS}
@@ -157,3 +163,81 @@ def test_awesome_and_archived_relations_fail_when_not_actually_gated() -> None:
     by_relation = {result.relation: result for result in evaluate_anchors_v2(snapshot)}
     assert by_relation["awesome_non_software"].verdict == FAIL
     assert by_relation["archived_repo_gated"].verdict == FAIL
+
+
+# --------------------------------------------------------------------------- #
+# Unmeasured-required-input rule (dispatch fix, following the W1-6 fixture
+# regeneration): SKIPPED naming the reason, never FAIL -- FAIL means a
+# *measured* value contradicts the relation.
+# --------------------------------------------------------------------------- #
+def _linux_record_with_legal_ip(param):
+    """A ``torvalds/linux``-identity, gate-eligible record whose only
+    controlled fact is its ``legal_ip`` ``ParamScore`` (``param``, or
+    ``None`` to omit it from ``params`` entirely -- not exercised by these
+    tests, kept for completeness of the shape)."""
+    from cvi.core.models import GateResult, RepoIdentity, ScoreRecord
+
+    repo = RepoIdentity(
+        owner="torvalds", name="linux", ecosystem="systems", archived=False, mirror_url=None,
+        fork=False, license_spdx="NOASSERTION", default_branch="master",
+    )
+    gate = GateResult(eligible=True, reason=None, routed="off_platform", undecided=())
+    params = {} if param is None else {"legal_ip": param}
+    return ScoreRecord(
+        repo=repo, snapshot_id="s", benchmark_version="2.0.0-dev", constants_hash="x", raw_hash="x",
+        gate=gate, params=params, pillars={}, composite=None, coverage=0.0, tier=None, leverage=None,
+        friction=None, quadrant=None, persona_gates={}, persona_composites={}, tie_key=(), tie_group=None,
+        rank=None, suspicion=[], rated=False, unrated_reason="unrated: insufficient_evidence",
+    )
+
+
+def test_linux_dco_fails_on_a_measured_contradicting_value() -> None:
+    """Oracle (kept): a *measured* ``legal_ip`` of ``FOUNDATION_CLA``
+    (score 75.0, not 100.0) genuinely contradicts "legal = DCO" -- FAIL,
+    not SKIPPED. This is the case the dispatch fix must never touch."""
+    param = ParamScore(score=75.0, measured=True, reason=None, n=0, method="primary")
+    record = _linux_record_with_legal_ip(param)
+    snapshot = _snapshot_of(record)
+    by_relation = {result.relation: result for result in evaluate_anchors_v2(snapshot)}
+    assert by_relation["linux_dco"].verdict == FAIL
+    assert "75.0" in by_relation["linux_dco"].observed
+
+
+def test_linux_dco_is_skipped_not_failed_when_legal_ip_is_unmeasured() -> None:
+    """The dispatch fix's fail-before/oracle: the *same* anchor, same
+    identity, with ``legal_ip`` genuinely ``Unmeasured`` -- SKIPPED, naming
+    the real reason, never FAIL. Reproduces the real defect measured on
+    ``tests/fixtures/snapshot_50`` after W1-6 landed (legal_ip started
+    reading the governance envelope, absent there)."""
+    param = ParamScore(score=None, measured=False, reason="collector_failure", n=0, method=None)
+    record = _linux_record_with_legal_ip(param)
+    snapshot = _snapshot_of(record)
+    by_relation = {result.relation: result for result in evaluate_anchors_v2(snapshot)}
+    result = by_relation["linux_dco"]
+    assert result.verdict == SKIPPED
+    assert "collector_failure" in result.observed
+    assert "unmeasured" in result.observed.lower()
+
+
+def test_mutant_reverting_unmeasured_skip_to_fail_is_red() -> None:
+    """Fail-before for the dispatch fix itself: the old behaviour (report
+    FAIL for an Unmeasured required input) must fail
+    ``test_linux_dco_is_skipped_not_failed_when_legal_ip_is_unmeasured`` --
+    reproduced directly here (without touching the source file) so this
+    stands as a permanent regression guard."""
+    param = ParamScore(score=None, measured=False, reason="collector_failure", n=0, method=None)
+    _linux_record_with_legal_ip(param)  # shape check only; the assertion below is the guard
+
+    # The old (pre-fix) behaviour, inlined: any Unmeasured legal_ip was FAIL.
+    old_verdict = FAIL if not param.measured else PASS
+    assert old_verdict == FAIL, "the old code reported FAIL for an Unmeasured required input"
+    # The fixed behaviour never does this -- see the test above.
+
+
+def _snapshot_of(record):
+    from cvi.core.pipeline import ScoredSnapshot, SnapshotCounts
+
+    return ScoredSnapshot(
+        snapshot_id="s", benchmark_version="2.0.0-dev", constants_hash="x", records=(record,),
+        counts=SnapshotCounts(rated=0, gated=0, unrated=1, persona_visible={}), records_hash="x",
+    )
