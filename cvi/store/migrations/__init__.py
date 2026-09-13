@@ -17,6 +17,13 @@ On an empty database (no pre-existing ``repositories`` table at all) this
 check is a no-op. The check runs once, keyed to migration ``0001``
 specifically (the only migration that could ever collide with the v1
 table name); later migrations never repeat it.
+
+F-001 (REWORK round 1): each migration file's statements -- the legacy
+rename included -- run inside ONE explicit ``BEGIN``/``COMMIT``, with
+``rollback()`` on any exception, so a failure partway through a file
+undoes everything that file did, the rename included; ``executescript()``
+is never used (it commits any pending transaction before it runs, which is
+exactly what made the previous version's failure non-atomic).
 """
 from __future__ import annotations
 
@@ -58,6 +65,23 @@ def _version_of(path: Path) -> int:
     return int(path.name.split("_", 1)[0])
 
 
+def _strip_line_comments(sql_text: str) -> str:
+    """Drop everything from ``--`` to end of line on every line -- a
+    migration file's header comment is prose and may contain a semicolon
+    of its own (this file's does), which a naive split on ``;`` would
+    mistake for a statement boundary."""
+    return "\n".join(line[: line.find("--")] if "--" in line else line for line in sql_text.splitlines())
+
+
+def _split_statements(sql_text: str) -> list[str]:
+    """Split a migration file into individually-executable statements on
+    ``;``, after stripping line comments -- safe for this schema's DDL (no
+    string literal in it contains a semicolon or ``--``; the only string
+    literals are ``DEFAULT '{}'``/``'[]'``)."""
+    stripped = _strip_line_comments(sql_text)
+    return [chunk.strip() for chunk in stripped.split(";") if chunk.strip()]
+
+
 def applied_versions(conn: sqlite3.Connection) -> set[int]:
     """Versions already recorded in ``schema_migrations``; empty set (not an
     error) when the table itself does not exist yet."""
@@ -71,26 +95,45 @@ def apply_migrations(conn: sqlite3.Connection, applied_at: str, migrations_dir: 
 
     ``applied_at`` is required and stored verbatim per migration (no
     wall-clock read in this module, R rules): the caller supplies it, same
-    pattern as a snapshot's ``created_at``. Commits once at the end so a
-    partial failure leaves the database at its pre-call state under
-    SQLite's default transactional DDL.
+    pattern as a snapshot's ``created_at``.
+
+    F-001: each file's statements run inside their OWN explicit
+    transaction (``BEGIN`` ... ``COMMIT``, ``rollback()`` on any
+    exception, then re-raise) -- a failure on the k-th statement of a file
+    leaves the database exactly as it was before that file started
+    (checksummed by the caller's own test), including the legacy rename.
+    Migrations already committed by an earlier file in the same call stay
+    committed (forward-only progress is still made file-by-file).
+
+    F-010: raises ``RuntimeError`` if no migration files are found at all --
+    an empty directory is a packaging/deployment defect, not "nothing to
+    do".
     """
     if not isinstance(applied_at, str) or not applied_at:
         raise ValueError(f"applied_at must be a non-empty string, got {applied_at!r}")
     files = discover_migrations(migrations_dir)
+    if not files:
+        raise RuntimeError(f"no migration files found under {migrations_dir or MIGRATIONS_DIR}")
     done = applied_versions(conn)
     newly_applied: list[int] = []
     for path in files:
         version = _version_of(path)
         if version in done:
             continue
-        if version == _LEGACY_RENAME_VERSION and _table_exists(conn, _LEGACY_TABLE) and _is_v1_shaped(conn):
-            conn.execute(f'ALTER TABLE "{_LEGACY_TABLE}" RENAME TO "{_LEGACY_TABLE_RENAMED}"')
-        conn.executescript(path.read_text(encoding="utf-8"))
-        conn.execute(
-            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-            (version, applied_at),
-        )
+        statements = _split_statements(path.read_text(encoding="utf-8"))
+        conn.execute("BEGIN")
+        try:
+            if version == _LEGACY_RENAME_VERSION and _table_exists(conn, _LEGACY_TABLE) and _is_v1_shaped(conn):
+                conn.execute(f'ALTER TABLE "{_LEGACY_TABLE}" RENAME TO "{_LEGACY_TABLE_RENAMED}"')
+            for statement in statements:
+                conn.execute(statement)
+            conn.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                (version, applied_at),
+            )
+        except Exception:
+            conn.rollback()
+            raise
+        conn.commit()
         newly_applied.append(version)
-    conn.commit()
     return newly_applied

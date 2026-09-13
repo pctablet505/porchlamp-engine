@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "2026-09-13-w4-2-store-1",
+  "item_id": "L3-01@cvi/store#public_surface",
+  "checklist_id": "L3-01",
+  "level": "L3",
+  "target": {
+    "path": "cvi/store/reader.py",
+    "symbol": "module"
+  },
+  "agent": {
+    "name": "opus5-w4-2-reviewer",
+    "model": "claude-opus-5[1m]",
+    "role": "item_agent",
+    "tier": "T1"
+  },
+  "worktree": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree",
+  "interpreter_probe": "/home/pctablet505/Projects/contributor-value-index/.venv/bin/python (PYTHONPATH=/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree)",
+  "budget": {
+    "lines_cap": 4000,
+    "lines_actual": 2046,
+    "refused": false
+  },
+  "input": {
+    "file": "cvi/store (939 source lines) + tests/store (1106 lines)",
+    "sha256": "b91a7ae7296c158801288027b04449699c571be8185eaa0d6ab8fd392ad75a50",
+    "n_lines": 2046,
+    "extracted_from_sha": "8b9d314"
+  },
+  "dispatched_at": "2026-09-13T17:20:00+05:30",
+  "started_at": "2026-09-13T17:20:00+05:30",
+  "completed_at": "2026-09-13T17:36:33+05:30",
+  "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+  "verdict": "FAIL",
+  "pass_condition": "write_records/read_* are the minimal API W4-3 (SQL reprojection) and W4-4 (leaderboard, not-ranked, matrix, repos, evidence, snapshot, reproject) need.",
+  "evidence": [
+    {
+      "record_id": "EV-e10_rowcontract",
+      "command": "python -B harness/e10_rowcontract.py",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree",
+      "tree_sha": "8b9d314",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/evidence/e10_rowcontract.txt",
+      "output_sha256": "401cebae9bddc5ba811dbbba1c2620b75f1970576ccf5651f7cf5dc0ea12f54f",
+      "output_lines_total": 10,
+      "started_at": "2026-09-13T17:20:00+05:30",
+      "at": "2026-09-13T17:36:33+05:30",
+      "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+      "scanned_items": 33
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "F-013",
+      "severity": "Warning:",
+      "statement": "Three of W4-4's seven endpoints have no read path: there is no ranked-rows reader, no snapshot summary, and no matrix query; ranked_order_sql returns only (owner, name, rank, tie_group) and is documented as a parity helper.",
+      "file": "cvi/store/reader.py",
+      "line": 136,
+      "quoted_line": "def ranked_order_sql(conn: sqlite3.Connection, snapshot_id: str) -> List[tuple]:",
+      "failure_scenario": "W4-4's leaderboard endpoint has to return full 06 section 4 rows in rank order with limit/offset; today it can only get owner/name pairs from ranked_order_sql and then call get_row per repo -- a Python loop over all rows, which is exactly what W4-4's acceptance forbids ('no Python full scans').",
+      "evidence_record": "EV-e10_rowcontract",
+      "measurement_integrity": false
+    }
+  ],
+  "observations": [
+    "Present and sufficient: get_row (repos/{o}/{n}), get_evidence (repos/{o}/{n}/evidence), list_not_ranked (not-ranked with gate_reason/unrated_reason), get_snapshot (the snapshots row).",
+    "Missing, named: list_ranked(conn, snapshot_id, limit, offset) returning full rows; snapshot_summary(conn, snapshot_id) with counts of rated/gated/unrated for GET /v1/cvi/snapshot (04 section 7 asks for counts and a detector summary, get_snapshot returns neither); a matrix projection (leverage/friction/quadrant/coverage) for the matrix endpoint.",
+    "_ORDER_BY_SQL is private but its docstring tells W4-3 to reuse it across modules; make it public (and add __all__ to cvi/store/__init__.py, which currently exports nothing)."
+  ],
+  "not_checked": [
+    {
+      "category": "out_of_scope",
+      "statement": "W4-3's persona re-projection SQL and W4-4's endpoints are not in this packet; only the reader helpers they build on were checked."
+    }
+  ],
+  "measurement_integrity": false,
+  "security": false,
+  "judgement": false
+}

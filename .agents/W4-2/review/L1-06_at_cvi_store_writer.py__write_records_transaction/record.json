@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "2026-09-13-w4-2-store-1",
+  "item_id": "L1-06@cvi/store/writer.py::write_records#transaction",
+  "checklist_id": "L1-06",
+  "level": "L1",
+  "target": {
+    "path": "cvi/store/writer.py",
+    "symbol": "write_records"
+  },
+  "agent": {
+    "name": "opus5-w4-2-reviewer",
+    "model": "claude-opus-5[1m]",
+    "role": "item_agent",
+    "tier": "T1"
+  },
+  "worktree": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree",
+  "interpreter_probe": "/home/pctablet505/Projects/contributor-value-index/.venv/bin/python (PYTHONPATH=/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree)",
+  "budget": {
+    "lines_cap": 4000,
+    "lines_actual": 2046,
+    "refused": false
+  },
+  "input": {
+    "file": "cvi/store (939 source lines) + tests/store (1106 lines)",
+    "sha256": "b91a7ae7296c158801288027b04449699c571be8185eaa0d6ab8fd392ad75a50",
+    "n_lines": 2046,
+    "extracted_from_sha": "8b9d314"
+  },
+  "dispatched_at": "2026-09-13T17:20:00+05:30",
+  "started_at": "2026-09-13T17:20:00+05:30",
+  "completed_at": "2026-09-13T17:36:33+05:30",
+  "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+  "verdict": "FAIL",
+  "pass_condition": "One snapshot is one transaction: a kill or a raise mid-write leaves no partial snapshot.",
+  "evidence": [
+    {
+      "record_id": "EV-e3_writer_tx",
+      "command": "python -B harness/e3_writer_tx.py",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree",
+      "tree_sha": "8b9d314",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/evidence/e3_writer_tx.txt",
+      "output_sha256": "4e26e2fd6e0ec6a5e7ca9730dc3bb82326881c4597b7b4210fe1939706fe529a",
+      "output_lines_total": 11,
+      "started_at": "2026-09-13T17:20:00+05:30",
+      "at": "2026-09-13T17:36:33+05:30",
+      "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+      "scanned_items": 4
+    },
+    {
+      "record_id": "EV-e3a_midbatch",
+      "command": "python -B harness/e3a_midbatch.py",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree",
+      "tree_sha": "8b9d314",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/evidence/e3a_midbatch.txt",
+      "output_sha256": "198b50658bb32f12b00d97b96bb8666929032b1d8eee900567a5ffc70c3309e3",
+      "output_lines_total": 5,
+      "started_at": "2026-09-13T17:20:00+05:30",
+      "at": "2026-09-13T17:36:33+05:30",
+      "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+      "scanned_items": 5
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "F-002",
+      "severity": "Blocker:",
+      "statement": "write_records never rolls back: a failure mid-batch leaves the transaction open with the rows already inserted, and the next commit() on that connection makes the partial snapshot durable.",
+      "file": "cvi/store/writer.py",
+      "line": 295,
+      "quoted_line": "    conn.commit()",
+      "failure_scenario": "Five records, the fourth carrying a value canonical_json cannot encode: write_records raises TypeError with in_transaction=True and 3 rows staged; a later write_snapshot(...)+commit() on the same connection persists exactly those 3 rows as snapshot 'snap-1' -- 'PARTIAL snapshot-1 rows durable after a later unrelated commit(): 3'.",
+      "evidence_record": "EV-e3a_midbatch",
+      "measurement_integrity": true
+    }
+  ],
+  "observations": [
+    "SIGKILL mid-write is safe: the child was killed after 200 of 400 rows and the database showed 0 repositories rows (evidence e3_writer_tx, case B). Only the in-process raise path is unguarded.",
+    "Mutant M5 (delete the final conn.commit()) SURVIVES the suite: no test observes the transaction boundary at all."
+  ],
+  "not_checked": [
+    {
+      "category": "out_of_scope",
+      "statement": "W4-3's persona re-projection SQL and W4-4's endpoints are not in this packet; only the reader helpers they build on were checked."
+    }
+  ],
+  "measurement_integrity": true,
+  "security": false,
+  "judgement": false
+}

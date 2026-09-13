@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "2026-09-13-w4-2-store-1",
+  "item_id": "L1-05@cvi/store/reader.py::_ORDER_BY_SQL#level7",
+  "checklist_id": "L1-05",
+  "level": "L1",
+  "target": {
+    "path": "cvi/store/reader.py",
+    "symbol": "_ORDER_BY_SQL"
+  },
+  "agent": {
+    "name": "opus5-w4-2-reviewer",
+    "model": "claude-opus-5[1m]",
+    "role": "item_agent",
+    "tier": "T1"
+  },
+  "worktree": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree",
+  "interpreter_probe": "/home/pctablet505/Projects/contributor-value-index/.venv/bin/python (PYTHONPATH=/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree)",
+  "budget": {
+    "lines_cap": 4000,
+    "lines_actual": 2046,
+    "refused": false
+  },
+  "input": {
+    "file": "cvi/store (939 source lines) + tests/store (1106 lines)",
+    "sha256": "b91a7ae7296c158801288027b04449699c571be8185eaa0d6ab8fd392ad75a50",
+    "n_lines": 2046,
+    "extracted_from_sha": "8b9d314"
+  },
+  "dispatched_at": "2026-09-13T17:20:00+05:30",
+  "started_at": "2026-09-13T17:20:00+05:30",
+  "completed_at": "2026-09-13T17:36:33+05:30",
+  "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+  "verdict": "FAIL",
+  "pass_condition": "Every D-TIE-1 level compares the same way in SQL as in cvi.core.tiebreak.tie_key.",
+  "evidence": [
+    {
+      "record_id": "EV-e6_parity_edges",
+      "command": "python -B harness/e6_parity_edges.py",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree",
+      "tree_sha": "8b9d314",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/evidence/e6_parity_edges.txt",
+      "output_sha256": "ecb1eec8b462f95b2d215d61c176dfba9c47775a07cd4128cf7c4ebf5c44701f",
+      "output_lines_total": 11,
+      "started_at": "2026-09-13T17:20:00+05:30",
+      "at": "2026-09-13T17:36:33+05:30",
+      "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+      "scanned_items": 4
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "F-005",
+      "severity": "Warning:",
+      "statement": "Tie level 7 compares last_human_commit_at as TEXT in SQL but as an epoch in Python, so any commit date carrying a non-Z UTC offset orders differently in the two paths.",
+      "file": "cvi/store/reader.py",
+      "line": 32,
+      "quoted_line": "    \"last_human_commit_at DESC NULLS LAST, \"",
+      "failure_scenario": "Two rows tied through level 6, dated '2026-01-01T20:00:00-05:00' (the later instant) and '2026-01-02T00:00:00Z': assign_ranks puts the offset-bearing row first, ranked_order_sql puts it second -- python ['earlier_text_later_instant', ...] vs sql ['later_text_earlier_instant', ...], PARITY: False.",
+      "evidence_record": "EV-e6_parity_edges",
+      "measurement_integrity": true
+    }
+  ],
+  "observations": [
+    "Latent today: no producer supplies last_non_bot_commit_at yet (cvi.core.tiebreak's own docstring says every caller passes None), which is exactly why it needs pinning before one does.",
+    "This is the same defect class as W2-6 round 1's Blocker, closed on the Python side and still open on the SQL side.",
+    "Fix: normalise the column to UTC 'Z' on write (or store an epoch) and add a mixed-offset row to the parity fixture.",
+    "Separately: SQLite ROUND(82.125,2)=82.13 while Python round(82.125,2)=82.12; inert today because the engine rounds once to 2 dp before the store sees the value."
+  ],
+  "not_checked": [
+    {
+      "category": "out_of_scope",
+      "statement": "W4-3's persona re-projection SQL and W4-4's endpoints are not in this packet; only the reader helpers they build on were checked."
+    }
+  ],
+  "measurement_integrity": true,
+  "security": false,
+  "judgement": false
+}

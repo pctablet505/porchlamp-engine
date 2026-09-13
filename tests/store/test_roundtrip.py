@@ -3,18 +3,34 @@
 Three ``ScoreRecord``s built by hand -- rated, gated, unrated -- written and
 read back; every field (including JSON columns and the ``params`` rows) is
 asserted equal to the value it was built with, not merely "present".
+
+REWORK round 1 (F-011/F-012): rebuilt onto ``repo: RepoIdentity`` and real
+``PersonaComposite`` values. ``stars_audited``/``forks``/``last_human_commit_at``
+assertions are REMOVED (subtractive, named here): the lead ruling dropped
+``TieBreakInput`` from ``RepoWrite``, and nothing else on
+``FeatureBundle``/``GateEvidence`` carries those three facts today (see
+``cvi/store/writer.py``'s module docstring) -- asserting a value nothing
+can produce would be asserting a guess, not a fact. ``ttfhr_p75`` IS still
+asserted: it is genuinely computed from ``bundle.pr_window`` now.
 """
 from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
 
-from cvi.core.models import ParamScore
+from cvi.core.models import ParamScore, PersonaComposite, PRWindow, PRWindowEvent
 from cvi.store import reader
 from cvi.store.migrations import apply_migrations
 from cvi.store.writer import write_records, write_snapshot
 
-from .helpers import make_gated_record, make_measured, make_rated_record, make_repo_write, make_unrated_record
+from .helpers import (
+    make_gated_record,
+    make_measured,
+    make_rated_record,
+    make_repo_identity,
+    make_repo_write,
+    make_unrated_record,
+)
 
 
 def _fresh_db(path: Path) -> sqlite3.Connection:
@@ -31,8 +47,12 @@ def _fresh_db(path: Path) -> sqlite3.Connection:
 def test_roundtrip_rated_gated_unrated(tmp_path) -> None:
     conn = _fresh_db(tmp_path / "db.sqlite")
 
+    rated_repo = make_repo_identity(
+        "kubernetes", "kubernetes", ecosystem="go", archived=False, fork=False, license_spdx="Apache-2.0",
+    )
     rated_record = make_rated_record(
         "snap-1",
+        repo=rated_repo,
         raw_hash="r" * 64,
         composite=88.42,
         coverage=0.95,
@@ -50,44 +70,49 @@ def test_roundtrip_rated_gated_unrated(tmp_path) -> None:
         friction_coverage=1.0,
         quadrant="Sweet Spot",
         persona_gates={"senior_systems": "low_elephant_factor"},
-        persona_composites={"balanced": 88.42, "first_timer": 70.1},
+        persona_composites={
+            "balanced": PersonaComposite(cvi=88.42, coverage=0.95, tier="A", rated=True),
+            "first_timer": PersonaComposite(cvi=70.1, coverage=0.7, tier="C", rated=True),
+        },
         suspicion=["lockstep_review", "source_drift"],
+        gate_undecided=("D-GATE-3",),
+    )
+    rated_pr_window = PRWindow(
+        start="2026-01-01T00:00:00Z", end="2026-09-01T00:00:00Z", truncated=False,
+        events=(
+            PRWindowEvent(
+                pr_number=42, created_at="2026-08-01T00:00:00Z", closed_at=None, merged_at=None,
+                author_login="alice", author_association="NONE", is_external=True,
+                first_human_review_at="2026-08-01T06:15:00Z",  # 6.25 hours later
+            ),
+        ),
     )
     rated_item = make_repo_write(
-        "kubernetes", "kubernetes", rated_record,
-        ecosystem="go",
+        rated_record,
         inputs={
             "ttfhr_hours": make_measured(2.5, n=50, source="data/raw/github_graphql/k8s.json", source_hash="d" * 64),
             "dependents_deduped": make_measured(1200, n=2, method="proxy:package_level"),
         },
-        ttfhr_p75_hours=6.25,
-        last_non_bot_commit_at="2026-09-10T00:00:00Z",
-        stars=100000,
-        forks=38000,
-        archived=False,
-        fork=False,
-        license_spdx="Apache-2.0",
+        pr_window=rated_pr_window,
     )
 
-    gated_record = make_gated_record("snap-1", raw_hash="g" * 64, gate_reason="mirror")
-    gated_item = make_repo_write(
-        "mirror-org", "gcc-mirror", gated_record, ecosystem="c",
-        archived=False, mirror_url="https://gcc.gnu.org/git/gcc.git", fork=False, license_spdx="GPL-3.0",
-        stars=500, forks=200, ttfhr_p75_hours=None, last_non_bot_commit_at=None,
+    gated_repo = make_repo_identity(
+        "mirror-org", "gcc-mirror", ecosystem="c", archived=False,
+        mirror_url="https://gcc.gnu.org/git/gcc.git", fork=False, license_spdx="GPL-3.0",
     )
+    gated_record = make_gated_record("snap-1", repo=gated_repo, raw_hash="g" * 64, gate_reason="mirror")
+    gated_item = make_repo_write(gated_record)
 
+    unrated_repo = make_repo_identity("acme", "tiny-lib", ecosystem="python")
     unrated_record = make_unrated_record(
         "snap-1",
+        repo=unrated_repo,
         raw_hash="u" * 64,
         coverage=0.12,
         params={"ttfhr_hours": ParamScore(score=None, measured=False, reason="third_party_gap", n=0, method=None)},
         tier_ceiling="B",
     )
-    unrated_item = make_repo_write(
-        "acme", "tiny-lib", unrated_record, ecosystem="python",
-        inputs={},
-        ttfhr_p75_hours=None, last_non_bot_commit_at=None, stars=3, forks=0,
-    )
+    unrated_item = make_repo_write(unrated_record, inputs={})
 
     counts = write_records(conn, "snap-1", [rated_item, gated_item, unrated_item])
     # 3 repos; params rows = rated's 2 (ttfhr_hours, dependents_deduped) +
@@ -111,16 +136,17 @@ def test_roundtrip_rated_gated_unrated(tmp_path) -> None:
     assert row["rated"] is True
     assert row["unrated_reason"] is None
     assert row["persona_gates"] == {"senior_systems": "low_elephant_factor"}
-    assert row["persona_composites"] == {"balanced": 88.42, "first_timer": 70.1}
+    assert row["persona_composites"] == {
+        "balanced": {"cvi": 88.42, "coverage": 0.95, "tier": "A", "rated": True},
+        "first_timer": {"cvi": 70.1, "coverage": 0.7, "tier": "C", "rated": True},
+    }
     assert row["suspicion"] == ["lockstep_review", "source_drift"]
-    assert row["stars_audited"] == 100000
-    assert row["forks"] == 38000
+    assert row["gate_undecided"] == ["D-GATE-3"]
     assert row["license_spdx"] == "Apache-2.0"
     assert row["archived"] is False
     assert row["mirror"] is False
     assert row["fork"] is False
     assert row["ttfhr_p75"] == 6.25
-    assert row["last_human_commit_at"] == "2026-09-10T00:00:00Z"
     assert row["p_responsiveness"] == 90.0
     assert row["c_responsiveness"] == 0.9
     assert row["benchmark_version"] == "2.0.0-dev"
@@ -145,6 +171,7 @@ def test_roundtrip_rated_gated_unrated(tmp_path) -> None:
     assert gated_row["cvi"] is None
     assert gated_row["coverage"] == 0.0
     assert gated_row["mirror"] is True
+    assert gated_row["gate_undecided"] == []
     assert reader.get_evidence(conn, "snap-1", "mirror-org", "gcc-mirror") == []
 
     # --- unrated ---

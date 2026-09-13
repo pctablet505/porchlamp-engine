@@ -1,9 +1,15 @@
 """W4-2 acceptance: migrations reach the same schema as ``schema.py`` on an
-empty database, and preserve every v1 row on a copy of the real v1 database
-(`04` sections 5, 10).
+empty database, preserve every v1 row on a v1-shaped database (`04`
+sections 5, 10), and are atomic per file (REWORK round 1, F-001).
+
+F-008: the acceptance test for v1-row preservation is now proven on a
+MINIMAL, always-available synthetic v1-shaped table (no environment gate);
+the 1,000-row real baseline DB is kept as a supplementary, opt-in-by-
+availability extra, not the only proof.
 """
 from __future__ import annotations
 
+import hashlib
 import shutil
 import sqlite3
 from pathlib import Path
@@ -12,9 +18,35 @@ import pytest
 
 from cvi.snapshot.reproduce import canonical_dump
 from cvi.store import schema
-from cvi.store.migrations import apply_migrations, discover_migrations
+from cvi.store.migrations import MIGRATIONS_DIR, apply_migrations, discover_migrations
 
 V1_BASELINE = Path("/home/pctablet505/Projects/cvi-scratch/v1-baseline/cvi.db")
+
+
+def _build_minimal_v1_db(path: Path) -> None:
+    """A minimal v1-shaped ``repositories`` table (no ``snapshot_id``
+    column -- the only fact the runner's legacy check reads) with a
+    handful of rows, so the v1-preservation acceptance test never depends
+    on an external fixture file being present on the machine."""
+    conn = sqlite3.connect(path)
+    conn.execute(
+        """
+        CREATE TABLE repositories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner VARCHAR(100) NOT NULL,
+            name VARCHAR(100) NOT NULL,
+            ecosystem VARCHAR(50) NOT NULL,
+            overall_cvi REAL NOT NULL,
+            UNIQUE(owner, name)
+        )
+        """
+    )
+    conn.executemany(
+        "INSERT INTO repositories (owner, name, ecosystem, overall_cvi) VALUES (?, ?, ?, ?)",
+        [("acme", "one", "python", 71.5), ("acme", "two", "go", 82.0), ("acme", "three", "rust", 55.25)],
+    )
+    conn.commit()
+    conn.close()
 
 
 def test_discover_migrations_finds_0001() -> None:
@@ -56,8 +88,136 @@ def test_apply_migrations_requires_explicit_applied_at(tmp_path) -> None:
         apply_migrations(conn, applied_at="")
 
 
-@pytest.mark.skipif(not V1_BASELINE.exists(), reason="v1 baseline fixture not present in this environment")
-def test_v1_database_migration_preserves_legacy_rows_and_adds_v2_tables(tmp_path) -> None:
+def test_apply_migrations_raises_on_an_empty_migrations_directory(tmp_path) -> None:
+    """F-010: an empty migrations directory is a packaging/deployment
+    defect, not "nothing to do"."""
+    empty_dir = tmp_path / "empty_migrations"
+    empty_dir.mkdir()
+    conn = sqlite3.connect(tmp_path / "x.db")
+    with pytest.raises(RuntimeError, match="no migration files"):
+        apply_migrations(conn, applied_at="2026-09-13T00:00:00Z", migrations_dir=empty_dir)
+
+
+# --------------------------------------------------------------------- #
+# F-001: atomicity
+# --------------------------------------------------------------------- #
+
+def _write_broken_migration(dst_dir: Path, break_after_n_statements: int) -> None:
+    """A copy of ``0001_init_v2.sql`` with a guaranteed syntax error
+    inserted after the ``break_after_n_statements``-th real statement, so
+    the failure point is controlled precisely rather than guessed at by
+    string surgery on the real file."""
+    from cvi.store.migrations import _split_statements
+
+    original = (MIGRATIONS_DIR / "0001_init_v2.sql").read_text(encoding="utf-8")
+    statements = _split_statements(original)
+    broken = statements[:break_after_n_statements] + ["CREATE TABLE BROKEN_SYNTAX ("] + statements[break_after_n_statements:]
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    (dst_dir / "0001_init_v2.sql").write_text(";\n".join(broken) + ";\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize("break_after_n_statements", [0, 2, 7])
+def test_apply_migrations_is_atomic_on_a_v1_database(tmp_path, break_after_n_statements) -> None:
+    """F-001: a migration that fails partway through -- early (before the
+    legacy rename's effects matter), mid-way, or on the very last
+    statement -- leaves the database byte-for-byte as it was before the
+    call, with the v1 rows still reachable under their original name."""
+    db_path = tmp_path / "v1.db"
+    _build_minimal_v1_db(db_path)
+    before_hash = hashlib.sha256(db_path.read_bytes()).hexdigest()
+    before_rows = sqlite3.connect(db_path).execute("SELECT owner, name FROM repositories ORDER BY owner, name").fetchall()
+
+    broken_dir = tmp_path / f"broken_{break_after_n_statements}"
+    _write_broken_migration(broken_dir, break_after_n_statements)
+
+    conn = sqlite3.connect(db_path)
+    with pytest.raises(sqlite3.OperationalError, match="incomplete input|syntax error"):
+        apply_migrations(conn, applied_at="2026-09-13T00:00:00Z", migrations_dir=broken_dir)
+    conn.close()
+
+    after_hash = hashlib.sha256(db_path.read_bytes()).hexdigest()
+    assert after_hash == before_hash
+
+    reopened = sqlite3.connect(db_path)
+    tables = {
+        row[0]
+        for row in reopened.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    }
+    assert tables == {"repositories"}  # the v1 shape, unrenamed -- not even schema_migrations exists
+    rows = reopened.execute("SELECT owner, name FROM repositories ORDER BY owner, name").fetchall()
+    assert rows == before_rows
+
+
+def test_apply_migrations_atomicity_does_not_lose_a_later_migration_file(tmp_path) -> None:
+    """A two-file migrations directory where the SECOND file fails: the
+    first file's changes stay committed (forward-only progress is still
+    file-by-file); the second file's changes are fully rolled back and its
+    version is never recorded."""
+    two_files_dir = tmp_path / "two_files"
+    two_files_dir.mkdir()
+    shutil.copyfile(MIGRATIONS_DIR / "0001_init_v2.sql", two_files_dir / "0001_init_v2.sql")
+    (two_files_dir / "0002_broken.sql").write_text(
+        "CREATE TABLE later_ok (id INTEGER PRIMARY KEY);\nCREATE TABLE BROKEN_SYNTAX (;\n", encoding="utf-8"
+    )
+
+    db_path = tmp_path / "two_files.db"
+    conn = sqlite3.connect(db_path)
+    with pytest.raises(sqlite3.OperationalError):
+        apply_migrations(conn, applied_at="2026-09-13T00:00:00Z", migrations_dir=two_files_dir)
+
+    versions = [row[0] for row in conn.execute("SELECT version FROM schema_migrations").fetchall()]
+    assert versions == [1]  # migration 1 committed; migration 2 never recorded
+    tables = {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    }
+    assert "later_ok" not in tables  # migration 2's own first statement was rolled back too
+
+
+# --------------------------------------------------------------------- #
+# F-008: v1-row preservation -- synthetic primary, real DB as an extra
+# --------------------------------------------------------------------- #
+
+def test_v1_shaped_database_migration_preserves_legacy_rows_synthetic(tmp_path) -> None:
+    """Always runs, on a minimal synthetic v1-shaped table -- this is now
+    the primary proof of the acceptance criterion (`04` sections 5, 10),
+    not the environment-gated real-DB test below."""
+    db_path = tmp_path / "v1.db"
+    _build_minimal_v1_db(db_path)
+
+    pre_dump = sorted(line for line in canonical_dump(db_path) if line.startswith("repositories "))
+
+    conn = sqlite3.connect(db_path)
+    applied = apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
+    assert applied == [1]
+
+    legacy_row_count = conn.execute("SELECT COUNT(*) FROM legacy_repositories").fetchone()[0]
+    assert legacy_row_count == 3
+
+    post_dump_legacy_only = sorted(line for line in canonical_dump(db_path) if line.startswith("legacy_repositories "))
+    renamed_pre_dump = sorted(line.replace("repositories ", "legacy_repositories ", 1) for line in pre_dump)
+    assert post_dump_legacy_only == renamed_pre_dump
+
+    v2_tables = {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    }
+    assert v2_tables == {
+        "schema_migrations", "snapshots", "repositories", "params", "populations", "legacy_repositories",
+    }
+    assert conn.execute("SELECT COUNT(*) FROM repositories").fetchone()[0] == 0
+
+
+@pytest.mark.skipif(not V1_BASELINE.exists(), reason="v1 baseline fixture not present in this environment (opt-in extra)")
+def test_v1_database_migration_preserves_legacy_rows_real_db_extra(tmp_path) -> None:
+    """Supplementary check on the real 1,000-row v1 baseline DB (opt-in by
+    availability -- the synthetic test above is what always runs)."""
     copy_path = tmp_path / "v1-copy.db"
     shutil.copyfile(V1_BASELINE, copy_path)
 
@@ -73,9 +233,6 @@ def test_v1_database_migration_preserves_legacy_rows_and_adds_v2_tables(tmp_path
     applied = apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
     assert applied == [1]
 
-    # Nothing dropped: the v1 `repositories` table survives, renamed, with
-    # every row and every value byte-identical (same canonical dump lines,
-    # `repositories` -> `legacy_repositories` in the table-name column).
     legacy_row_count = conn.execute("SELECT COUNT(*) FROM legacy_repositories").fetchone()[0]
     assert legacy_row_count == pre_row_count
 
@@ -87,7 +244,6 @@ def test_v1_database_migration_preserves_legacy_rows_and_adds_v2_tables(tmp_path
     )
     assert post_dump_legacy_only == renamed_pre_dump
 
-    # v2 tables created alongside, empty, nothing dropped.
     v2_tables = {
         row[0]
         for row in conn.execute(
@@ -104,7 +260,6 @@ def test_v1_database_migration_preserves_legacy_rows_and_adds_v2_tables(tmp_path
     assert schema.introspect_schema(conn)["tables"]["repositories"] == schema.introspect_schema(reference)["tables"]["repositories"]
 
 
-@pytest.mark.skipif(not V1_BASELINE.exists(), reason="v1 baseline fixture not present in this environment")
 def test_v1_migration_is_a_noop_on_an_already_v2_database(tmp_path) -> None:
     """Over-correction guard: the legacy-rename check must not fire (and
     must not raise) once a database already has the v2 shape -- re-running
@@ -130,3 +285,33 @@ def test_v1_migration_is_a_noop_on_an_already_v2_database(tmp_path) -> None:
     }
     assert "legacy_repositories" not in tables
     assert conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 1
+
+
+def test_migrating_a_create_schema_built_v2_db_is_a_noop_for_rename(tmp_path) -> None:
+    """Kills mutant M10 directly at the migrations-module level (the
+    review's own named scenario): a v2 database built via
+    ``schema.create_schema`` with NO ``schema_migrations`` rows yet (so the
+    loop does not simply ``continue`` past version 1) must still not be
+    mistaken for a v1 database -- it already has ``snapshot_id``."""
+    db_path = tmp_path / "from_scratch.db"
+    conn = sqlite3.connect(db_path)
+    schema.create_schema(conn)
+    conn.execute(
+        "INSERT INTO repositories (snapshot_id, owner, name, ecosystem, raw_hash, constants_hash, "
+        "eligible, rated, coverage) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("snap-1", "acme", "kept", "python", "h" * 64, "c" * 64, 1, 1, 0.9),
+    )
+    conn.commit()
+
+    applied = apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
+    assert applied == [1]
+
+    tables = {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    }
+    assert "legacy_repositories" not in tables
+    row = conn.execute("SELECT owner, name FROM repositories WHERE snapshot_id='snap-1'").fetchone()
+    assert row == ("acme", "kept")

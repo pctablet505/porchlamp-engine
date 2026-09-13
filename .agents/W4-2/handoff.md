@@ -210,3 +210,129 @@ explicit `created_at`/`applied_at` string argument (`ValueError` if
 empty). No `print()`, no `TODO`. Ruff clean on owned files. Files touched:
 `cvi/store/**` (new), `tests/store/**` (new), `pyproject.toml` (one line).
 `cvi/lakehouse.py`, `cvi/api.py`, `scripts/` untouched.
+
+---
+
+# REWORK round 1
+
+Review: `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adbe955a4084/scratchpad/reviews/W4-2-review.md` (Opus 5, 26 items, 13 FAIL, 5 Blocker/9 Warning/1 Consider, 9/14 mutants killed). Item records under `.agents/W4-2/review/` (26 files, committed alongside this round). Dispatch covered F-001..F-015 except F-013 (explicitly W4-3's).
+
+## Step 0 — rebase
+
+`git rebase --onto localmain/main 0e666b9` on branch `W4-2`: dropped the three old cherry-picks (`9d15d71`/`c66f08b`/`0e666b9`, superseded on main), kept only the packet commit, replayed cleanly onto main tip `913ae2c` (no conflicts) — new head `ff7b049`. Picked up for free: W2-6 round 2 (UTC-safe `_commit_epoch`), W2-7f (`PersonaComposite`), W2-9f/g, W2-10 (`ScoreRecord.repo: RepoIdentity`, `TieBreakInput` identity validation), W1-6 round 2, W3-2, and `.agents/` no longer gitignored (`db8bb78`).
+
+`RepoWrite` becomes `(record: ScoreRecord, bundle: FeatureBundle)` per the lead ruling: identity is `record.repo`; `__post_init__` raises on a mismatch with `bundle.repo`. `TieBreakInput` is dropped from the writer's own input — it is still how a caller runs `assign_ranks` **upstream** of the writer (tests still use it for that); the writer reads `record.tie_key`/`record.rank`/`record.tie_group` directly. `ttfhr_p75` is genuinely computed from `bundle.pr_window` now (`cvi.core.tiebreak.ttfhr_p75_from_pr_window`, real code path, tested with a real `PRWindowEvent`). `stars_audited`, `forks` (count) and `last_human_commit_at` have **no source anywhere** in the current `FeatureBundle`/`GateEvidence` contract (confirmed by reading both dataclasses on the rebased tree) — written `NULL`, documented in `cvi/store/writer.py`'s module docstring, not silently guessed. This is a real, load-bearing finding, not an assumption: I verified `RepoIdentity` and `GateEvidence` field lists directly before concluding there is no producer.
+
+## Blockers and warnings addressed
+
+**F-001 (migrations atomicity).** `apply_migrations` no longer uses `conn.executescript()` (which commits the pending transaction before running — the root cause). Each migration file's statements now run inside one explicit `BEGIN` … `COMMIT`, `rollback()` on any exception, the legacy rename included. Statement splitting (`_split_statements`) strips `--` line comments first — the header comment in `0001_init_v2.sql` itself contains a semicolon in prose, which a naive split broke on before this fix (caught immediately by the packet's own existing tests, not the mutation battery). Test: `test_apply_migrations_is_atomic_on_a_v1_database` (parametrized, breaking after statement 0/2/7 of 8) — sha256 of the db file before/after a failed migration:
+```
+raised: OperationalError incomplete input
+sha256 before: 3a127ad869e98545704e5e07b90f00215ce7af2c8a562decd012f7240bf4dbe4
+sha256 after : 3a127ad869e98545704e5e07b90f00215ce7af2c8a562decd012f7240bf4dbe4
+MATCH: True
+tables: ['repositories', 'sqlite_sequence']
+rows still under original name: [('acme', 'one'), ('acme', 'three'), ('acme', 'two')]
+```
+Plus `test_apply_migrations_atomicity_does_not_lose_a_later_migration_file`: a two-file directory where file 2 fails leaves file 1's changes committed and file 2's changes (including its own first, otherwise-successful statement) fully rolled back.
+
+**F-002 + F-003 (transaction + immutability).** `write_records` is one transaction (`BEGIN`/`rollback()`/`commit()`); a raise mid-batch leaves zero rows even after a later, unrelated `commit()` on the same connection (in my repro the second write actually raises `OperationalError: cannot start a transaction within a transaction` because the first failed write's rollback never ran to completion the way a bare `except: raise` would — replaced with a real `try/except Exception: conn.rollback(); raise`, verified). Lead ruling (superseding the review's own suggested delete-then-insert fix): **a snapshot id is immutable** — `write_records` raises `ValueError` before writing anything if `repositories` already has any row for that `snapshot_id`; no upsert, no replace flag, no delete-then-insert. A legitimate retry is only possible after a rollback left zero rows (tested: `test_write_records_retry_after_a_rolled_back_failure_succeeds`). Tests: `test_write_records_rejects_a_second_write_to_the_same_snapshot` (5 repos, then 2 more for the same id → raises, still exactly 5, dump hash unchanged), `test_write_records_rejects_rewrite_even_when_shrinking`, `test_write_records_rolls_back_on_failure_leaving_zero_rows_after_a_later_commit`.
+
+**F-004 (snapshot conflict).** `write_snapshot` no longer uses `INSERT OR IGNORE` blindly: on an existing id it compares the six identity fields (`as_of`, `benchmark_version`, `constants_hash`, `code_commit`, `manifest_root`, `created_at`) — byte-equal is a no-op, any difference raises `ValueError` naming both. `canonical_dump_hash`/`promoted_at` are excluded from the comparison on purpose (they are `finalize_snapshot_hash`'s to fill in later; a normal pre-finalize call must not be treated as a conflict with its own later-stamped hash — `test_write_snapshot_never_clobbers_a_finalized_hash` still passes).
+
+**F-005 (UTC normalisation).** New `_normalize_utc_z` (offset-less → UTC by convention, non-`Z` offset converted, `Z` idempotent, `None` passthrough). Applied at the one call site the writer has for `last_human_commit_at` (a no-op today — see the "no producer" note above; four direct unit tests on the function). The reader parity fixture (`test_reader.py`) gained a mixed-UTC-offset pair (`-05:00` vs `Z`) tied down to level 7, and a dedicated `test_last_human_commit_at_mixed_offset_sorts_by_instant_not_text`; both pass, proving normalisation on write is what makes the TEXT-vs-epoch comparison agree.
+
+**F-006 (mutant survivors) + full 14-mutant re-run.** All 14 mutants from the review's §6 table were re-applied by hand to the reworked code (backup/restore via file copy, `git stash`/`checkout --` never used), `__pycache__` cleared before each run, baseline = `tests/store/` + `tests/test_no_clock.py` + `tests/core/test_import_graph.py` (70 passed before each mutant, restored to 70 passed after every restore):
+
+| # | Mutant | Round-1 result | Round-2 result |
+|---|---|---|---|
+| M1 | writer: drop `friction_coverage` from the INSERT column list | SURVIVED→ | **KILLED** (1 failed: `test_roundtrip.py::test_roundtrip_rated_gated_unrated`) |
+| M2 | writer: swap `leverage`/`friction` values | KILLED | **KILLED** (1 failed) |
+| M3 | writer: not-ranked row gets `rank = 1` | SURVIVED | **KILLED** (1 failed: new `test_rank_is_null_whenever_not_rated`) |
+| M4 | writer: non-canonical JSON (`sort_keys=False`) | SURVIVED | **KILLED** (1 failed: new `test_two_dict_orderings_of_the_same_record_write_byte_identical_json`) |
+| M5 | writer: skip the final `conn.commit()` | SURVIVED | **KILLED** (1 failed — the immutability guard's own second-write path now surfaces the missing commit as `OperationalError: cannot start a transaction within a transaction`) |
+| M6 | writer: `params.measured` always 1 | KILLED (2) | **KILLED** (2 failed) |
+| M7 | writer: swap `p_`/`c_` pillar order | KILLED | **KILLED** (1 failed) |
+| M8 | writer: drop the `snapshot_id` mismatch guard | KILLED | **KILLED** (1 failed) |
+| M9 | migrations: skip the `schema_migrations` version bump | KILLED (3) | **KILLED** (4 failed — one more test now depends on idempotency) |
+| M10 | migrations: rename `repositories` unconditionally | SURVIVED | **KILLED** (2 failed: new `test_migrating_a_create_schema_built_v2_db_is_a_noop_for_rename` + `test_writer.py`'s twin) |
+| M11 | reader: drop `NULLS LAST` from the friction level | KILLED | **KILLED** (1 failed) |
+| M12 | reader: remove the leverage `ORDER BY` level | KILLED | **KILLED** (1 failed) |
+| M13 | reader: `list_not_ranked` drops the unrated branch | KILLED (2) | **KILLED** (2 failed) |
+| M14 | reader: `ROW_NUMBER` → `RANK` for rank | SURVIVED (equivalent) | **SURVIVED — equivalent** (0 failed; level 8 lowercase `owner/name` is unique under `UNIQUE(snapshot_id, owner, name)`, so `RANK`/`ROW_NUMBER` can never diverge on this schema) |
+
+**13/14 killed, 1 equivalent, 0 real survivors.** Every file was restored from a pre-mutation backup and the 70-test baseline re-confirmed green after each restore and once more at the end.
+
+**F-007 (dump hash scoping).** `repositories_snapshot_dump_hash` now keeps `repositories` (an **allow-list**) instead of dropping a fixed exclude-list — every other table, named or not, is dropped from the scratch copy. Tests: `test_repositories_snapshot_dump_hash_ignores_legacy_repositories` (creates a real `legacy_repositories` table with a row, edits it, hash unchanged both times; then edits the actual v2 row and confirms the hash *does* move — the sensitivity control the review's own repro used) and `test_repositories_snapshot_dump_hash_ignores_other_snapshots` (unaffected by another snapshot's write; sensitive to its own snapshot's content via a third, genuinely different snapshot).
+
+**F-008 (v1-migration tests skip silently).** New `_build_minimal_v1_db` + `test_v1_shaped_database_migration_preserves_legacy_rows_synthetic` is now the primary, always-running proof; the real 1,000-row baseline test is renamed `..._real_db_extra` and kept `skipif`-gated as a supplementary check, not the only one.
+
+**F-009 (import-graph coverage).** `tests/core/test_import_graph.py` gained `test_store_imports_only_core_snapshot_or_stdlib` (allows `cvi.core`, `cvi.snapshot`, stdlib). This is the one file outside my originally-owned `cvi/store`/`tests/store` I touched, per the coordinator's explicit F-009 instruction.
+
+**F-010 (packaging).** `[tool.setuptools.package-data]` added for `"cvi.store.migrations" = ["*.sql"]`; `apply_migrations` raises `RuntimeError` when `discover_migrations()` is empty (test: `test_apply_migrations_raises_on_an_empty_migrations_directory`).
+
+**F-011 + F-012 (rebase + PersonaComposite).** `tests/store/helpers.py` rebuilt: `make_repo_identity`/`make_bundle`/`make_rated_record`/`make_gated_record`/`make_unrated_record` all take `owner`/`name`/`ecosystem` (or an explicit `repo=`) and build `RepoIdentity` as `ScoreRecord`'s required first field; `persona_composites` parameters are `dict[str, PersonaComposite]`. Writer fix: `_repo_row` serialises `persona_composites` via `{persona: asdict(composite) ...}` before `canonical_json` (a bare `canonical_json(record.persona_composites)` raises `TypeError` on the real dataclass — reproduced directly in `test_writer_raises_a_clear_error_on_the_stale_dict_float_shape`, not just cited from the review's merge trial). Round-trip test: `test_persona_composites_round_trip_via_asdict` reconstructs `PersonaComposite(**stored[persona])` and asserts equality to the original dataclasses.
+
+**F-015 (gate_undecided).** `repositories.gate_undecided TEXT NOT NULL DEFAULT '[]'` added to both `schema.py` and `0001_init_v2.sql` (kept in sync, parity test passes); writer stores `canonical_json(list(record.gate.undecided))`; reader decodes it as a JSON list. Test: `test_gate_undecided_round_trips` + assertions in the round-trip oracle.
+
+**F-014 (size).** Moved the ownership-request/deviation prose out of `writer.py`'s and `schema.py`'s module docstrings into this handoff (kept only a one-line pointer in each); removed `_TIE_GROUP_ORDER_BY_SQL` and the `DENSE_RANK` column from `reader.ranked_order_sql` entirely (handed to W4-3, per the coordinator's ruling), and deleted the test that exercised it (`test_ranked_order_sql_tie_group_dense_rank`) rather than keeping a test for a feature this package no longer has. Net effect: `cvi/store/*` source went from 939 to 1016 lines. **This is a net increase, not the ~855 the review projected** — the F-014 trim alone would have gotten there, but F-001/F-002/F-003/F-004/F-005/F-007/F-012/F-015 are all genuinely new, required logic (atomicity, immutability, conflict detection, UTC normalisation, allow-list scoping, dataclass serialisation, a new column) that the round-1 code did not have. Per-file: `writer.py` 353→413, `migrations/__init__.py` 96→139, `schema.py` 212→193, `reader.py` 159→151, `0001_init_v2.sql` 108→109. Named, not hidden: L-class (≤800) remains exceeded; subtraction deferred once more, this time against a larger, correctness-driven base.
+
+## Not touched (F-013)
+
+`list_ranked`, `snapshot_summary`, matrix projection: not added. `reader.py`'s public surface is unchanged apart from removing the `DENSE_RANK` column (net subtraction).
+
+## Ownership requests (carried forward + new)
+
+1. (carried forward) `cvi.lakehouse.repositories_dump_hash` exists only on INT-W0-4; `repositories_snapshot_dump_hash` still duplicates its scratch-copy shape, now via an allow-list. Unchanged recommendation: one shared helper once INT-W0-4 lands.
+2. (new) `stars_audited`/`forks`(count)/`last_human_commit_at` have no producer anywhere in `FeatureBundle`/`GateEvidence` today (verified directly against the rebased tree, not assumed). Whichever packet wires real values should also revisit `RepoWrite`'s shape — it may need a third, small evidence carrier again, or these facts may land on `RepoIdentity`/a future bundle field.
+3. (new, from the review's own note, not independently re-verified this round) foreign keys are off by default in SQLite and the writer never enables them, so a `write_records` call can target a `snapshot_id` with no `snapshots` row at all. Not one of the coordinator's F-numbered items; recorded as `COULD NOT VERIFY: whether W4-3/W4-4 wants PRAGMA foreign_keys=ON or an explicit existence check` rather than fixed unprompted, per the subtractive-rework instruction to fix exactly the listed items.
+
+## COULD NOT VERIFY
+
+- Whether `PRAGMA foreign_keys=ON` should be enabled on the writer's connection (see ownership request 3) — out of the coordinator's F-list for this round.
+- `deep_dive_json` remains `NULL`/undocumented-further, as round 1 left it (not F-numbered this round).
+
+## Verification (this round)
+
+```
+$ pytest tests/store/ -p no:cacheprovider
+.......................................................                  [100%]
+55 passed in 0.11s
+EXIT:0
+
+$ pytest tests/store/ tests/test_no_clock.py tests/core/test_import_graph.py -p no:cacheprovider
+......................................................................   [100%]
+70 passed in 0.20s (mutation-testing baseline, confirmed after every restore)
+
+$ ruff check cvi/store tests/store tests/core/test_import_graph.py
+All checks passed!
+EXIT:0
+
+$ pytest tests/ -n 4 -p no:cacheprovider
+1708 passed, 12 warnings in 58.06s (0:01:00)
+EXIT:0
+
+$ ruff check cvi/ scripts/ tests/
+... 4 errors, all in scripts/curate_dataset_llm.py (F401, untouched, forbidden, pre-existing since round 1)
+EXIT:1
+```
+
+## Diffstat (round 2, on top of the rebased `ff7b049`)
+
+```
+ cvi/store/migrations/0001_init_v2.sql |   1 +
+ cvi/store/migrations/__init__.py      |  65 ++++-
+ cvi/store/reader.py                   |  30 +--
+ cvi/store/schema.py                   |  49 ++--
+ cvi/store/writer.py                   | 328 ++++++++++++++-----------
+ pyproject.toml                        |   3 +
+ tests/core/test_import_graph.py       |  22 ++
+ tests/store/helpers.py                | 119 ++++++----
+ tests/store/test_migrations.py        | 205 +++++++++++++++-
+ tests/store/test_reader.py            | 128 +++++++---
+ tests/store/test_roundtrip.py         |  79 ++++--
+ tests/store/test_schema.py            |   5 +-
+ tests/store/test_writer.py            | 436 ++++++++++++++++++++++++++++++----
+ 13 files changed, 1104 insertions(+), 366 deletions(-)
+```
+Plus `.agents/W4-2/review/` (26 review item-record files, committed alongside per the project's `.agents/` convention).

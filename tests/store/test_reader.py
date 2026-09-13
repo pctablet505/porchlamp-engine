@@ -1,5 +1,13 @@
 """W4-2 acceptance: reader basics + the SQL/tie_key ordering parity test
-(`04` sections 5, 6; `02` section 10)."""
+(`04` sections 5, 6; `02` section 10). REWORK round 1: rebuilt onto
+``RepoWrite(record, bundle)`` (no ``TieBreakInput`` in the writer's input --
+``TieBreakInput`` is still how a caller runs ``assign_ranks`` upstream of
+the writer); ``ttfhr_p75``/``last_human_commit_at`` are set directly via
+SQL after the write in the ordering fixtures below, since the writer has
+no real producer for them yet (see ``cvi/store/writer.py``'s docstring) --
+this test is about the READER's SQL ordering against stored column values,
+not the writer's (currently absent) sourcing of them.
+"""
 from __future__ import annotations
 
 import sqlite3
@@ -9,10 +17,9 @@ from cvi.core.models import ParamScore
 from cvi.core.tiebreak import TieBreakInput, assign_ranks
 from cvi.store import reader
 from cvi.store.migrations import apply_migrations
-from cvi.store.writer import RepoWrite, write_records, write_snapshot
+from cvi.store.writer import _normalize_utc_z, write_records, write_snapshot
 
 from .helpers import (
-    make_bundle,
     make_gated_record,
     make_measured,
     make_rated_record,
@@ -33,15 +40,17 @@ def _fresh_db(path: Path) -> sqlite3.Connection:
 
 
 def test_get_row_get_evidence_get_snapshot(tmp_path) -> None:
+    from cvi.core.models import PersonaComposite
+
     conn = _fresh_db(tmp_path / "db.sqlite")
     record = make_rated_record(
         "snap-1",
         params={"ttfhr_hours": ParamScore(score=90.0, measured=True, reason=None, n=10, method="primary")},
         persona_gates={"ai_assisted": "hard_ban"},
-        persona_composites={"balanced": 82.5},
+        persona_composites={"balanced": PersonaComposite(cvi=82.5, coverage=0.9, tier="B", rated=True)},
         suspicion=["lockstep_review"],
     )
-    item = make_repo_write("acme", "demo", record, inputs={"ttfhr_hours": make_measured(3.0, n=10)})
+    item = make_repo_write(record, inputs={"ttfhr_hours": make_measured(3.0, n=10)})
     write_records(conn, "snap-1", [item])
 
     row = reader.get_row(conn, "snap-1", "acme", "demo")
@@ -51,8 +60,9 @@ def test_get_row_get_evidence_get_snapshot(tmp_path) -> None:
     assert row["eligible"] is True
     assert row["rated"] is True
     assert row["persona_gates"] == {"ai_assisted": "hard_ban"}
-    assert row["persona_composites"] == {"balanced": 82.5}
+    assert row["persona_composites"] == {"balanced": {"cvi": 82.5, "coverage": 0.9, "tier": "B", "rated": True}}
     assert row["suspicion"] == ["lockstep_review"]
+    assert row["gate_undecided"] == []
 
     assert reader.get_row(conn, "snap-1", "acme", "missing") is None
 
@@ -71,9 +81,9 @@ def test_get_row_get_evidence_get_snapshot(tmp_path) -> None:
 
 def test_list_not_ranked_includes_gated_and_unrated_ordered_by_name(tmp_path) -> None:
     conn = _fresh_db(tmp_path / "db.sqlite")
-    gated = make_repo_write("zzz", "last", make_gated_record("snap-1", gate_reason="archived"))
-    unrated = make_repo_write("aaa", "first", make_unrated_record("snap-1"))
-    rated = make_repo_write("mmm", "middle", make_rated_record("snap-1"))
+    gated = make_repo_write(make_gated_record("snap-1", owner="zzz", name="last", gate_reason="archived"))
+    unrated = make_repo_write(make_unrated_record("snap-1", owner="aaa", name="first"))
+    rated = make_repo_write(make_rated_record("snap-1", owner="mmm", name="middle"))
     write_records(conn, "snap-1", [gated, unrated, rated])
 
     not_ranked = reader.list_not_ranked(conn, "snap-1")
@@ -84,8 +94,13 @@ def test_list_not_ranked_includes_gated_and_unrated_ordered_by_name(tmp_path) ->
 
 
 def _write_and_rank(conn, entries: list[TieBreakInput]) -> list[tuple[str, str]]:
-    """Run ``assign_ranks`` (the Python authority) and write the resulting
-    ranked records; return the (owner, name) order it produced.
+    """Run ``assign_ranks`` (the Python authority), write the resulting
+    ranked records, and directly stamp ``ttfhr_p75``/``last_human_commit_at``
+    (via ``UPDATE``, normalising the commit date exactly as the writer
+    would if it had a real producer -- see the module docstring) with the
+    SAME values fed to each entry's ``TieBreakInput``, so the reader's SQL
+    ordering is compared against the identical evidence ``tie_key`` used.
+    Returns the (owner, name) order ``assign_ranks`` produced.
 
     ``assign_ranks`` returns ``(record, rank, tie_group)`` triples with no
     direct back-pointer to the source ``TieBreakInput``; each fixture below
@@ -98,19 +113,20 @@ def _write_and_rank(conn, entries: list[TieBreakInput]) -> list[tuple[str, str]]
     by_raw_hash = {entry.record.raw_hash: entry for entry in entries}
     python_order: list[tuple[str, str]] = []
     items = []
+    overrides = []
     for record, _rank, _tie_group in ranked:
         source = by_raw_hash[record.raw_hash]
         python_order.append((source.owner, source.name))
-        items.append(RepoWrite(
-            tie=TieBreakInput(
-                record=record, owner=source.owner, name=source.name,
-                ttfhr_p75_hours=source.ttfhr_p75_hours,
-                last_non_bot_commit_at=source.last_non_bot_commit_at,
-                stars=source.stars, forks=source.forks, downloads=source.downloads,
-            ),
-            bundle=make_bundle(source.owner, source.name),
-        ))
+        items.append(make_repo_write(record))
+        overrides.append((source.owner, source.name, source.ttfhr_p75_hours, source.last_non_bot_commit_at))
     write_records(conn, "snap-1", items)
+    for owner, name, ttfhr_p75, last_commit in overrides:
+        conn.execute(
+            "UPDATE repositories SET ttfhr_p75=?, last_human_commit_at=? "
+            "WHERE snapshot_id='snap-1' AND owner=? AND name=?",
+            (ttfhr_p75, _normalize_utc_z(last_commit), owner, name),
+        )
+    conn.commit()
     return python_order
 
 
@@ -118,28 +134,37 @@ def test_ranked_order_sql_parity_with_tie_key_nulls_at_multiple_levels(tmp_path)
     """The W2-6 review finding: a naive ``ORDER BY`` (no ``NULLS LAST``)
     inverts the order when an ASC tie-break column is NULL. This fixture
     puts NULLs at two different tie levels (friction, then leverage) on
-    rows that actually reach those levels, so the parity check is real."""
+    rows that actually reach those levels, so the parity check is real.
+    F-005 adds a mixed-UTC-offset pair at level 7 (last commit)."""
     conn = _fresh_db(tmp_path / "db.sqlite")
 
-    def rec(raw_hash, composite, p_resp, friction, leverage):
+    def rec(raw_hash, owner, name, composite, p_resp, friction, leverage):
         return make_rated_record(
-            "snap-1", raw_hash=raw_hash, composite=composite, coverage=1.0,
+            "snap-1", owner=owner, name=name, raw_hash=raw_hash, composite=composite, coverage=1.0,
             pillar_scores={"responsiveness": p_resp, "criticality": 80.0, "governance": 80.0,
                             "rigor": 80.0, "accessibility": 80.0},
             friction=friction, leverage=leverage,
         )
 
     entries = [
-        TieBreakInput(rec("h1", 90.0, 90.0, 20.0, 80.0), "acme", "r1",
+        TieBreakInput(rec("h1", "acme", "r1", 90.0, 90.0, 20.0, 80.0), "acme", "r1",
                       ttfhr_p75_hours=5.0, last_non_bot_commit_at="2026-01-01T00:00:00Z"),
-        TieBreakInput(rec("h2", 90.0, 90.0, None, 80.0), "acme", "r2",
+        TieBreakInput(rec("h2", "acme", "r2", 90.0, 90.0, None, 80.0), "acme", "r2",
                       ttfhr_p75_hours=5.0, last_non_bot_commit_at="2026-01-01T00:00:00Z"),
-        TieBreakInput(rec("h3", 85.0, 85.0, 10.0, None), "acme", "r3",
+        TieBreakInput(rec("h3", "acme", "r3", 85.0, 85.0, 10.0, None), "acme", "r3",
                       ttfhr_p75_hours=8.0, last_non_bot_commit_at="2026-01-02T00:00:00Z"),
-        TieBreakInput(rec("h4", 85.0, 85.0, 10.0, 50.0), "acme", "r4",
+        TieBreakInput(rec("h4", "acme", "r4", 85.0, 85.0, 10.0, 50.0), "acme", "r4",
                       ttfhr_p75_hours=None, last_non_bot_commit_at="2026-01-03T00:00:00Z"),
-        TieBreakInput(rec("h5", 85.0, 85.0, 10.0, None), "acme", "r5",
+        TieBreakInput(rec("h5", "acme", "r5", 85.0, 85.0, 10.0, None), "acme", "r5",
                       ttfhr_p75_hours=6.0, last_non_bot_commit_at=None),
+        # F-005: tied all the way down to level 7, mixed UTC offsets.
+        # r6's instant (18:00-05:00 = 23:00Z) is LATER than r7's (22:00Z),
+        # so DESC puts r6 first -- exactly the comparison a naive TEXT sort
+        # of the raw (non-normalised) strings would get backwards.
+        TieBreakInput(rec("h6", "acme", "r6", 77.0, 77.0, 15.0, 40.0), "acme", "r6",
+                      ttfhr_p75_hours=9.0, last_non_bot_commit_at="2026-02-01T18:00:00-05:00"),
+        TieBreakInput(rec("h7", "acme", "r7", 77.0, 77.0, 15.0, 40.0), "acme", "r7",
+                      ttfhr_p75_hours=9.0, last_non_bot_commit_at="2026-02-01T22:00:00Z"),
     ]
 
     python_order = _write_and_rank(conn, entries)
@@ -147,8 +172,12 @@ def test_ranked_order_sql_parity_with_tie_key_nulls_at_multiple_levels(tmp_path)
     # Concrete, non-vacuous checks (R-1: assert values, not just "some
     # order"): NULL friction sorts after a measured friction at an
     # otherwise-tied level; among the leverage-tied trio, the measured
-    # leverage wins, then the lower (ASC) ttfhr breaks the remaining tie.
-    assert python_order == [("acme", "r1"), ("acme", "r2"), ("acme", "r4"), ("acme", "r5"), ("acme", "r3")]
+    # leverage wins, then the lower (ASC) ttfhr breaks the remaining tie;
+    # r6 (the later instant, once its offset is normalised) outranks r7.
+    assert python_order == [
+        ("acme", "r1"), ("acme", "r2"), ("acme", "r4"), ("acme", "r5"), ("acme", "r3"),
+        ("acme", "r6"), ("acme", "r7"),
+    ]
 
     sql_order = reader.ranked_order_sql(conn, "snap-1")
     sql_owner_name = [(row[0], row[1]) for row in sql_order]
@@ -168,15 +197,36 @@ def test_ranked_order_sql_parity_with_tie_key_nulls_at_multiple_levels(tmp_path)
     assert naive_order != python_order
 
 
-def test_ranked_order_sql_tie_group_dense_rank(tmp_path) -> None:
+def test_last_human_commit_at_mixed_offset_sorts_by_instant_not_text(tmp_path) -> None:
+    """F-005, isolated: two rows tied on everything through level 6, whose
+    RAW (pre-normalisation) commit strings would sort backwards as TEXT
+    (``'18:00-05:00'`` < ``'22:00Z'`` lexicographically, but the FIRST is
+    the LATER instant) -- proves normalisation, not just NULLS LAST, is
+    exercised."""
     conn = _fresh_db(tmp_path / "db.sqlite")
+    later_instant_earlier_text = "2026-01-01T20:00:00-05:00"  # == 2026-01-02T01:00:00Z
+    earlier_instant_later_text = "2026-01-02T00:00:00Z"
+    # As raw TEXT, "2026-01-02..." > "2026-01-01...": a naive DESC sort by
+    # the unnormalised string would rank `earlier_instant_later_text`
+    # FIRST even though it names the earlier instant -- exactly backwards.
+    assert earlier_instant_later_text > later_instant_earlier_text
+
     entries = [
-        TieBreakInput(make_rated_record("snap-1", raw_hash="g1", composite=80.0), "acme", "a"),
-        TieBreakInput(make_rated_record("snap-1", raw_hash="g2", composite=80.0), "acme", "b"),
-        TieBreakInput(make_rated_record("snap-1", raw_hash="g3", composite=70.0), "acme", "c"),
+        TieBreakInput(
+            make_rated_record("snap-1", owner="acme", name="later-instant", raw_hash="m1", composite=70.0),
+            "acme", "later-instant", ttfhr_p75_hours=1.0, last_non_bot_commit_at=later_instant_earlier_text,
+        ),
+        TieBreakInput(
+            make_rated_record("snap-1", owner="acme", name="earlier-instant", raw_hash="m2", composite=70.0),
+            "acme", "earlier-instant", ttfhr_p75_hours=1.0, last_non_bot_commit_at=earlier_instant_later_text,
+        ),
     ]
-    _write_and_rank(conn, entries)
-    rows = reader.ranked_order_sql(conn, "snap-1")
-    by_name = {row[1]: row[3] for row in rows}
-    assert by_name["a"] == by_name["b"]  # tied composite -> same tie_group
-    assert by_name["c"] != by_name["a"]
+    python_order = _write_and_rank(conn, entries)
+    assert python_order == [("acme", "later-instant"), ("acme", "earlier-instant")]
+
+    sql_order = [(row[0], row[1]) for row in reader.ranked_order_sql(conn, "snap-1")]
+    assert sql_order == python_order
+
+    stored = dict(conn.execute("SELECT name, last_human_commit_at FROM repositories WHERE snapshot_id='snap-1'").fetchall())
+    assert stored["later-instant"] == "2026-01-02T01:00:00Z"
+    assert stored["earlier-instant"] == "2026-01-02T00:00:00Z"

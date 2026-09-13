@@ -2,9 +2,10 @@
 
 Only the single-row/evidence/snapshot getters and the ordering helper the
 SQL persona-projection query (W4-3) builds on; the persona re-projection
-query itself (weighted pillar re-combination, per-persona gate filter) is
-W4-3's (`04` section 6 names it explicitly as a separate query over the
-same ordering).
+query itself (weighted pillar re-combination, per-persona gate filter,
+``tie_group`` via ``DENSE_RANK`` -- F-014, REWORK round 1: handed to W4-3
+in full, including the null-out-a-singleton-group refinement `04` section 6
+leaves open) is W4-3's.
 
 ``_ORDER_BY_SQL`` is `04` section 6's amended ``ORDER BY`` (ruling
 2026-09-13: ``NULLS LAST`` on every tie-break column, because SQLite sorts
@@ -33,16 +34,12 @@ _ORDER_BY_SQL = (
     "lower(owner || '/' || name) ASC"
 )
 
-#: `04` section 6: `` DENSE_RANK() OVER (ORDER BY ROUND(cvi_p,2) DESC)`` for
-#: ``tie_group`` -- the first ordering level only.
-_TIE_GROUP_ORDER_BY_SQL = "ROUND(cvi, 2) DESC NULLS LAST"
-
 #: Columns stored as 0/1 that round-trip to Python ``bool``.
 _BOOL_COLUMNS = ("eligible", "archived", "mirror", "fork", "rated")
 
 #: Columns stored as canonical JSON text.
 _JSON_OBJECT_COLUMNS = ("persona_gates", "persona_composites")
-_JSON_LIST_COLUMNS = ("suspicion",)
+_JSON_LIST_COLUMNS = ("suspicion", "gate_undecided")
 
 
 def _row_to_dict(columns: List[str], row: tuple) -> Dict[str, Any]:
@@ -135,23 +132,18 @@ def list_not_ranked(conn: sqlite3.Connection, snapshot_id: str) -> List[Dict[str
 
 def ranked_order_sql(conn: sqlite3.Connection, snapshot_id: str) -> List[tuple]:
     """The SQL-computed D-TIE-1 order for rated rows at ``snapshot_id``:
-    ``(owner, name, sql_rank, sql_tie_group)`` in final display order.
+    ``(owner, name, sql_rank)`` in final display order.
 
     ``sql_rank`` is ``ROW_NUMBER() OVER (ORDER BY <_ORDER_BY_SQL>)`` (strict
-    1..N, `04` section 6); ``sql_tie_group`` is ``DENSE_RANK() OVER (ORDER
-    BY ROUND(cvi,2) DESC NULLS LAST)`` (`04` section 6's own choice of
-    ``DENSE_RANK`` over just the first key level -- unlike
-    ``cvi.core.tiebreak.assign_ranks``, this does not null out a singleton
-    group's id; a consumer that needs that refinement, as the UI's "tied
-    with N others" marker does, is W4-3's to add). This function computes
-    the order fresh from stored columns for parity testing against
+    1..N, `04` section 6). This function computes the order fresh from
+    stored columns for parity testing against
     :func:`cvi.core.tiebreak.tie_key`; it does not read or write the stored
     ``rank``/``tie_group`` columns (those are the writer's job, from the
-    already-ranked ``ScoreRecord``)."""
+    already-ranked ``ScoreRecord``). ``tie_group`` (``DENSE_RANK`` over the
+    composite level) is W4-3's -- see the module docstring."""
     sql = f"""
         SELECT owner, name,
-               ROW_NUMBER() OVER (ORDER BY {_ORDER_BY_SQL}) AS sql_rank,
-               DENSE_RANK() OVER (ORDER BY {_TIE_GROUP_ORDER_BY_SQL}) AS sql_tie_group
+               ROW_NUMBER() OVER (ORDER BY {_ORDER_BY_SQL}) AS sql_rank
         FROM repositories
         WHERE snapshot_id = ? AND rated = 1
         ORDER BY sql_rank

@@ -1,40 +1,20 @@
 """CVI v2 store schema (04 section 5, extended per 06 section 4).
 
-The canonical, current-state schema as code: :data:`SCHEMA_STATEMENTS` is the
-single Python-side definition of every table and index; :func:`create_schema`
-executes it against a connection (used directly by fixtures/oracle tests, and
-indirectly -- by producing byte-for-byte the same statements -- by
-``cvi/store/migrations/0001_init_v2.sql``, which a forward-only migration
-history must reach independently). ``tests/store/test_migrations.py`` is the
-guard that keeps the two in sync (structural comparison via
-:func:`introspect_schema`, not a string diff, so formatting differences are
-not false positives).
+Deviations from the `04` section 5 draft, and the full rationale for each,
+are recorded in ``.agents/W4-2/handoff.md`` (REWORK round 1, F-014: kept
+out of this docstring to hold the size class). In one line: ``repositories``
+gains ``leverage_coverage``/``friction_coverage``/``persona_composites``/
+``gate_undecided`` (06 section 4 fields the draft omits); ``benchmark_version``
+is joined from ``snapshots``, never duplicated; ``snapshots`` is a superset
+of INT-W0-4's ``snapshot_meta``; ``populations`` matches
+``cvi.snapshot.populations.build_populations_table``'s real row shape.
 
-Deviations from `04` section 5's draft, documented (R-2, one definition per
-fact, no duplicated thresholds/shapes):
-
-- ``repositories`` gains ``leverage_coverage``/``friction_coverage``
-  (D-MAT-1 coordinate coverage, already on ``ScoreRecord`` -- W2-5 review
-  W-1(c)) and ``persona_composites`` (JSON): both are in the `06` section 4
-  UI row contract but missing from the draft table.
-- ``benchmark_version`` is NOT duplicated onto ``repositories``: it lives
-  once on ``snapshots``, joined via ``snapshot_id``
-  (:func:`cvi.store.reader.get_row` performs the join).
-- ``snapshots`` gains ``canonical_dump_hash``/``promoted_at`` so the table
-  is a superset of branch INT-W0-4's v1 ``snapshot_meta`` (same column
-  names; this table's ``id`` plays ``snapshot_meta.snapshot_id``'s role) --
-  so the served-database guard can be repointed here later, unchanged.
-- ``populations`` matches the row shape ``cvi.snapshot.populations.
-  build_populations_table`` (already landed, W2-4/W2-9) actually emits --
-  ``(snapshot_id, ecosystem, param_id, n, fallback, values_json,
-  values_hash)`` -- not the draft's ``sorted_values``-only shape. That
-  function's own docstring says "the schema and the migration are W4-2's";
-  matching its real output, not inventing an incompatible second shape, is
-  the one-definition-per-fact choice.
-
-``schema_migrations`` (version, applied_at) is bookkeeping for the runner
-(``cvi/store/migrations/__init__.py``), not named by `04` section 5, but is
-part of "the schema" for the parity test's purposes (both paths create it).
+:data:`SCHEMA_STATEMENTS` is the single Python-side DDL definition;
+:func:`create_schema` executes it directly (fixtures/oracle tests);
+``cvi/store/migrations/0001_init_v2.sql`` reaches the same schema
+independently (forward-only history), and
+``tests/store/test_migrations.py`` keeps the two in sync via
+:func:`introspect_schema` (structural, not textual, comparison).
 
 No ``RETURNING`` clause anywhere in this module or the migrations (`04`
 section 5: avoided so SQLite >= 3.35 is not required); a grep-style test in
@@ -94,6 +74,7 @@ SCHEMA_STATEMENTS: Tuple[str, ...] = (
         eligible INTEGER NOT NULL,
         gate_reason TEXT,
         routed TEXT,
+        gate_undecided TEXT NOT NULL DEFAULT '[]',
         rated INTEGER NOT NULL,
         unrated_reason TEXT,
         p_responsiveness REAL,

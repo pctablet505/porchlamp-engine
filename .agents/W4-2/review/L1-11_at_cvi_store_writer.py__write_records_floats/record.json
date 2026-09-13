@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "2026-09-13-w4-2-store-1",
+  "item_id": "L1-11@cvi/store/writer.py::write_records#floats",
+  "checklist_id": "L1-11",
+  "level": "L1",
+  "target": {
+    "path": "cvi/store/writer.py",
+    "symbol": "write_records"
+  },
+  "agent": {
+    "name": "opus5-w4-2-reviewer",
+    "model": "claude-opus-5[1m]",
+    "role": "item_agent",
+    "tier": "T1"
+  },
+  "worktree": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree",
+  "interpreter_probe": "/home/pctablet505/Projects/contributor-value-index/.venv/bin/python (PYTHONPATH=/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree)",
+  "budget": {
+    "lines_cap": 4000,
+    "lines_actual": 2046,
+    "refused": false
+  },
+  "input": {
+    "file": "cvi/store (939 source lines) + tests/store (1106 lines)",
+    "sha256": "b91a7ae7296c158801288027b04449699c571be8185eaa0d6ab8fd392ad75a50",
+    "n_lines": 2046,
+    "extracted_from_sha": "8b9d314"
+  },
+  "dispatched_at": "2026-09-13T17:20:00+05:30",
+  "started_at": "2026-09-13T17:20:00+05:30",
+  "completed_at": "2026-09-13T17:36:33+05:30",
+  "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+  "verdict": "PASS",
+  "pass_condition": "Floats are stored without drift; a 2-decimal composite survives a round-trip.",
+  "evidence": [
+    {
+      "record_id": "EV-e7_writer_props",
+      "command": "python -B harness/e7_writer_props.py",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree",
+      "tree_sha": "8b9d314",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/evidence/e7_writer_props.txt",
+      "output_sha256": "672a6d7407b3f0c397943b3ba74e4a1990677d4af97da290aff6d13945f2d42d",
+      "output_lines_total": 14,
+      "started_at": "2026-09-13T17:20:00+05:30",
+      "at": "2026-09-13T17:36:33+05:30",
+      "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+      "scanned_items": 5
+    },
+    {
+      "record_id": "EV-e11_counters",
+      "command": "python -B harness/e11_counters.py",
+      "cwd": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/tree",
+      "tree_sha": "8b9d314",
+      "tree_dirty": false,
+      "exit_code": 0,
+      "exit_code_read": "direct",
+      "output_file": "/home/pctablet505/Projects/cvi-scratch/W4-2-review/evidence/e11_counters.txt",
+      "output_sha256": "f677c2fa56a5bfe7a6d4e0fa87716a75d7d8103dc3aa1388e1776008daa5a3a6",
+      "output_lines_total": 4,
+      "started_at": "2026-09-13T17:20:00+05:30",
+      "at": "2026-09-13T17:36:33+05:30",
+      "at_source": "date -Is on workstation (pctablet505@rtx6000)",
+      "scanned_items": 6
+    }
+  ],
+  "findings": [],
+  "observations": [
+    "Checked with 88.42, 0.95, 1/3, 82.5, 99.995 and 0.1+0.2; every value read back bit-identical."
+  ],
+  "not_checked": [
+    {
+      "category": "out_of_scope",
+      "statement": "W4-3's persona re-projection SQL and W4-4's endpoints are not in this packet; only the reader helpers they build on were checked."
+    }
+  ],
+  "measurement_integrity": false,
+  "security": false,
+  "judgement": false,
+  "pass_evidence": {
+    "quoted": "B: exact round-trip (no drift): True",
+    "evidence_record": "EV-e7_writer_props",
+    "source": "command_output"
+  },
+  "counter_check": {
+    "text": "Sensitivity control: a 0.01 change must change the canonical dump hash, so the equality above is not vacuous.",
+    "run": true,
+    "result": "held",
+    "evidence_record": "EV-e11_counters",
+    "command_differs_from_item": true
+  }
+}

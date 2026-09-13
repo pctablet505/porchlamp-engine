@@ -30,13 +30,16 @@ def test_create_schema_creates_exactly_the_five_tables() -> None:
 def test_repositories_row_contract_columns_present() -> None:
     """`06` section 4's row contract columns that `04` section 5's draft
     was missing (documented in schema.py): ``persona_composites``,
-    ``leverage_coverage``, ``friction_coverage``."""
+    ``leverage_coverage``, ``friction_coverage``. ``gate_undecided`` is
+    F-015 (REWORK round 1): ``GateResult.undecided`` must survive the
+    store boundary."""
     conn = sqlite3.connect(":memory:")
     schema.create_schema(conn)
     columns = {row[1] for row in conn.execute('PRAGMA table_info("repositories")').fetchall()}
     for expected in (
         "persona_composites", "leverage_coverage", "friction_coverage",
         "stars_audited", "tier_ceiling", "unrated_reason", "persona_gates", "suspicion",
+        "gate_undecided",
     ):
         assert expected in columns, f"repositories missing {expected!r}"
 

@@ -1,47 +1,50 @@
-"""CVI v2 store writer (`04` sections 3, 5; packet W4-2 deliverable 3).
+"""CVI v2 store writer (`04` sections 3, 5; packet W4-2, REWORK round 1).
 
-Ownership request 1 (full detail in the handoff): `04` section 3 puts repo
-identity on ``FeatureBundle.repo``, never on ``ScoreRecord`` -- the same gap
-``cvi.core.tiebreak`` names for its own tie-break evidence. Since a
-``repositories`` row also needs the raw per-parameter evidence
-(``raw_value``/``window``/``source_hash``/``fetched_at``) that lives on
-``FeatureBundle.inputs`` (not on ``ScoreRecord.params``, post-scoring only),
-``write_records`` takes ``Sequence[RepoWrite]`` below -- a
-:class:`~cvi.core.tiebreak.TieBreakInput` (record + identity + tie-break
-evidence) paired with the :class:`~cvi.core.models.FeatureBundle` -- rather
-than ``list[ScoreRecord]`` as dispatched (R-2: reuse ``TieBreakInput``, not
-a second identity carrier).
+Full ownership-request/deviation history is in
+``.agents/W4-2/handoff.md``; kept here only what a reader of this module
+needs to trust its behaviour.
 
-Ownership request 2: the packet asks for the canonical dump hash of the
-``repositories`` table via the function branch INT-W0-4 reuses
-(``cvi.lakehouse.repositories_dump_hash``); that function lives only on the
-INT-W0-4 branch, not this tree, and this packet must not touch
-``cvi/lakehouse.py``. Per the packet's own fallback, nothing is vendored:
-:func:`repositories_snapshot_dump_hash` below calls the one primitive that
-IS on this tree, ``cvi.snapshot.reproduce.canonical_dump_hash`` (the same
-function INT-W0-4's helper wraps), scoped to one snapshot's rows via a
-scratch copy. Once INT-W0-4 lands, the lead should consider one shared
-scoping helper instead of two (R-2).
+``RepoWrite`` is ``(record: ScoreRecord, bundle: FeatureBundle)`` (lead
+ruling, REWORK round 1): identity comes from ``record.repo`` (W2-10);
+``__post_init__`` raises if it differs from ``bundle.repo``.
+``TieBreakInput`` is no longer part of the writer's input -- rank/tie_group
+ordering is already baked into ``record.tie_key``/``record.rank``/
+``record.tie_group`` by the time a record reaches this module, and TTFHR
+p75 is recomputed from ``bundle.pr_window`` (:func:`cvi.core.tiebreak.
+ttfhr_p75_from_pr_window`). ``stars_audited``, ``forks`` (count) and
+``last_human_commit_at`` have no producer anywhere in the current
+``FeatureBundle``/``GateEvidence`` contract (the same gap
+``cvi.core.tiebreak``'s own module docstring names for the commit date);
+written ``NULL`` until a future packet wires a real source -- not a new
+gap this rework introduces.
 
-Import-graph note: `04` section 3 says "store/ imports core ... and nothing
-else"; this module also imports ``cvi.snapshot.populations`` and
-``cvi.snapshot.reproduce`` because the packet dispatch explicitly directs
-reuse of their population-table builder and dump-hash function
-(deliverable 3) -- a documentation gap between `04` section 3's prose and
-this packet's own instructions, not a violation worked around silently.
+A snapshot id is immutable (03 section 5, F-003): once ``repositories``
+carries any row for a ``snapshot_id``, a later :func:`write_records` call
+for that same id raises rather than upserting, replacing, or deleting --
+the only way to retry is a transaction that never committed (see
+:func:`write_records`) or a fresh snapshot id. :func:`write_snapshot`
+mirrors this at the snapshot-identity level (F-004): a repeated call with
+the same id is a no-op only when every identity field matches byte-for-
+byte; any difference raises.
+
+Import-graph note: this module imports ``cvi.snapshot.populations`` and
+``cvi.snapshot.reproduce`` in addition to ``cvi.core`` -- `04` section 3
+was amended for this packet (R-B) to allow it; enforced by
+``tests/core/test_import_graph.py``.
 """
 from __future__ import annotations
 
 import shutil
 import sqlite3
 import tempfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Sequence
 
 from cvi.core import constants_v2
-from cvi.core.models import FeatureBundle, Measured, canonical_json
-from cvi.core.tiebreak import TieBreakInput
+from cvi.core.models import FeatureBundle, Measured, ScoreRecord, canonical_json
+from cvi.core.tiebreak import ttfhr_p75_from_pr_window
 from cvi.snapshot.populations import PopulationSet, build_populations_table
 from cvi.snapshot.reproduce import canonical_dump_hash
 
@@ -56,23 +59,28 @@ __all__ = [
 
 @dataclass(frozen=True)
 class RepoWrite:
-    """One repo's write unit: the tie-break evidence (record + identity +
-    TTFHR p75 + last non-bot commit + stars/forks) plus the bundle that
-    carries the remaining repo identity and the raw per-parameter evidence
-    (see module docstring). ``owner``/``name``/the record all live on
-    ``tie``; reading them from two places would be a second definition."""
+    """One repo's write unit: the scored ``record`` and the ``bundle`` that
+    carries the raw per-parameter evidence ``ScoreRecord.params`` does not
+    itself carry (``FeatureBundle.inputs``: ``raw_value``/``window``/
+    ``source``/``source_hash``/``fetched_at``) and, today, TTFHR p75 (via
+    ``bundle.pr_window``). Identity is ``record.repo``; ``bundle.repo``
+    must be identical (dataclass equality) or construction raises."""
 
-    tie: TieBreakInput
+    record: ScoreRecord
     bundle: FeatureBundle
 
     def __post_init__(self) -> None:
+        if not isinstance(self.record, ScoreRecord):
+            raise ValueError(f"record must be a ScoreRecord, got {type(self.record).__name__}")
         if not isinstance(self.bundle, FeatureBundle):
             raise ValueError(f"bundle must be a FeatureBundle, got {type(self.bundle).__name__}")
-        if self.tie.owner != self.bundle.repo.owner or self.tie.name != self.bundle.repo.name:
+        if self.record.repo != self.bundle.repo:
             raise ValueError(
-                f"tie identity {self.tie.owner}/{self.tie.name} does not match "
-                f"bundle identity {self.bundle.repo.owner}/{self.bundle.repo.name}"
+                f"record.repo {self.record.repo!r} does not match bundle.repo {self.bundle.repo!r}"
             )
+
+
+_SNAPSHOT_IDENTITY_FIELDS = ("as_of", "benchmark_version", "constants_hash", "code_commit", "manifest_root", "created_at")
 
 
 def write_snapshot(
@@ -91,10 +99,16 @@ def write_snapshot(
     """Insert one ``snapshots`` row (`04` section 5, extended per the
     packet: superset of INT-W0-4's ``snapshot_meta``).
 
-    Idempotent on ``id``: ``INSERT OR IGNORE`` -- a second call with the
-    same ``id`` is a no-op (it never rewinds a hash/``promoted_at`` a later
-    :func:`finalize_snapshot_hash` call already stamped). ``created_at`` is
-    an explicit argument, never the wall clock (04 section 8; `06`/R rules)."""
+    F-004: a second call with the same ``id`` is a no-op ONLY when every
+    identity field (``as_of``, ``benchmark_version``, ``constants_hash``,
+    ``code_commit``, ``manifest_root``, ``created_at``) matches the stored
+    row byte-for-byte; any difference raises ``ValueError`` instead of
+    silently keeping the first definition. ``canonical_dump_hash``/
+    ``promoted_at`` are deliberately excluded from that comparison -- they
+    are :func:`finalize_snapshot_hash`'s to fill in later, so a call that
+    omits them (the normal, pre-finalize shape) must not be treated as a
+    conflict with a row a prior :func:`finalize_snapshot_hash` already
+    stamped. ``created_at`` is an explicit argument, never the wall clock."""
     for field_name, value in (
         ("id", id),
         ("as_of", as_of),
@@ -106,16 +120,49 @@ def write_snapshot(
     ):
         if not isinstance(value, str) or not value:
             raise ValueError(f"snapshot {field_name} must be a non-empty string, got {value!r}")
-    conn.execute(
-        """
-        INSERT OR IGNORE INTO snapshots
+    incoming = (as_of, benchmark_version, constants_hash, code_commit, manifest_root, created_at)
+    conn.execute("BEGIN")
+    try:
+        existing = conn.execute(
+            "SELECT as_of, benchmark_version, constants_hash, code_commit, manifest_root, created_at "
+            "FROM snapshots WHERE id=?",
+            (id,),
+        ).fetchone()
+        if existing is not None:
+            if tuple(existing) != incoming:
+                mismatch = dict(zip(_SNAPSHOT_IDENTITY_FIELDS, zip(existing, incoming)))
+                raise ValueError(f"snapshot {id!r} already exists with a different definition: {mismatch}")
+            conn.rollback()
+            return
+        conn.execute(
+            """
+            INSERT INTO snapshots
+                (id, as_of, benchmark_version, constants_hash, code_commit, manifest_root,
+                 canonical_dump_hash, created_at, promoted_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
             (id, as_of, benchmark_version, constants_hash, code_commit, manifest_root,
-             canonical_dump_hash, created_at, promoted_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (id, as_of, benchmark_version, constants_hash, code_commit, manifest_root,
-         canonical_dump_hash, created_at, promoted_at),
-    )
+             canonical_dump_hash, created_at, promoted_at),
+        )
+    except Exception:
+        conn.rollback()
+        raise
+    conn.commit()
+
+
+def _normalize_utc_z(value: Optional[str]) -> Optional[str]:
+    """F-005: normalise an ISO datetime to UTC with a literal ``Z`` suffix
+    so ``last_human_commit_at DESC`` compares correctly as TEXT in SQL (the
+    same ordering a caller gets by comparing epochs in Python). ``None``
+    passes through unchanged. Never builds a naive ``datetime`` (an
+    offset-less value is already UTC, this codebase's own convention --
+    see ``cvi.core.tiebreak._commit_epoch``)."""
+    if value is None:
+        return None
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 _PILLAR_NAMES = constants_v2.PILLAR_NAMES
@@ -123,22 +170,25 @@ _PARAM_INPUT_IDS = constants_v2.PARAM_INPUT_IDS
 
 
 def _repo_row(snapshot_id: str, item: RepoWrite) -> tuple:
-    record = item.tie.record
-    repo = item.bundle.repo
+    record = item.record
+    repo = record.repo
     pillar_values: list[object] = []
     for pillar in _PILLAR_NAMES:
         pillar_score = record.pillars.get(pillar)
         pillar_values.append(pillar_score.score if pillar_score is not None else None)
         pillar_values.append(pillar_score.coverage if pillar_score is not None else None)
+    persona_composites_json = canonical_json(
+        {persona: asdict(composite) for persona, composite in record.persona_composites.items()}
+    )
     return (
         snapshot_id,
-        item.tie.owner,
-        item.tie.name,
+        repo.owner,
+        repo.name,
         repo.ecosystem,
         record.raw_hash,
         record.constants_hash,
-        item.tie.stars,
-        item.tie.forks,
+        None,  # stars_audited: no producer yet (see module docstring)
+        None,  # forks (count): no producer yet
         repo.license_spdx,
         int(repo.archived),
         int(repo.mirror_url is not None),
@@ -146,6 +196,7 @@ def _repo_row(snapshot_id: str, item: RepoWrite) -> tuple:
         int(record.gate.eligible),
         record.gate.reason,
         record.gate.routed,
+        canonical_json(list(record.gate.undecided)),
         int(record.rated),
         record.unrated_reason,
         *pillar_values,
@@ -160,10 +211,10 @@ def _repo_row(snapshot_id: str, item: RepoWrite) -> tuple:
         record.quadrant,
         record.rank,
         record.tie_group,
-        item.tie.ttfhr_p75_hours,
-        item.tie.last_non_bot_commit_at,
+        ttfhr_p75_from_pr_window(item.bundle.pr_window),
+        _normalize_utc_z(None),  # last_human_commit_at: no producer yet
         canonical_json(record.persona_gates),
-        canonical_json(record.persona_composites),
+        persona_composites_json,
         canonical_json(record.suspicion),
     )
 
@@ -171,7 +222,7 @@ def _repo_row(snapshot_id: str, item: RepoWrite) -> tuple:
 _REPO_COLUMNS = (
     "snapshot_id", "owner", "name", "ecosystem", "raw_hash", "constants_hash",
     "stars_audited", "forks", "license_spdx", "archived", "mirror", "fork",
-    "eligible", "gate_reason", "routed", "rated", "unrated_reason",
+    "eligible", "gate_reason", "routed", "gate_undecided", "rated", "unrated_reason",
 ) + tuple(
     column for pillar in _PILLAR_NAMES for column in (f"p_{pillar}", f"c_{pillar}")
 ) + (
@@ -181,16 +232,14 @@ _REPO_COLUMNS = (
     "persona_gates", "persona_composites", "suspicion",
 )
 
-_REPO_UPSERT_SQL = (
+_REPO_INSERT_SQL = (
     "INSERT INTO repositories (" + ", ".join(_REPO_COLUMNS) + ") "
-    "VALUES (" + ", ".join("?" for _ in _REPO_COLUMNS) + ") "
-    "ON CONFLICT(snapshot_id, owner, name) DO UPDATE SET "
-    + ", ".join(f"{col}=excluded.{col}" for col in _REPO_COLUMNS if col not in ("snapshot_id", "owner", "name"))
+    "VALUES (" + ", ".join("?" for _ in _REPO_COLUMNS) + ")"
 )
 
 
 def _param_row(repo_id: int, param_id: str, item: RepoWrite) -> tuple:
-    record = item.tie.record
+    record = item.record
     param_score = record.params.get(param_id)
     bundle_value = item.bundle.inputs.get(param_id)
     raw_value = canonical_json(bundle_value.value) if isinstance(bundle_value, Measured) else None
@@ -216,16 +265,11 @@ def _param_row(repo_id: int, param_id: str, item: RepoWrite) -> tuple:
     )
 
 
-_PARAM_UPSERT_SQL = """
+_PARAM_INSERT_SQL = """
     INSERT INTO params
         (repo_id, param_id, raw_value, score, measured, reason, n,
          window_start, window_end, method, source, source_hash, fetched_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(repo_id, param_id) DO UPDATE SET
-        raw_value=excluded.raw_value, score=excluded.score, measured=excluded.measured,
-        reason=excluded.reason, n=excluded.n, window_start=excluded.window_start,
-        window_end=excluded.window_end, method=excluded.method, source=excluded.source,
-        source_hash=excluded.source_hash, fetched_at=excluded.fetched_at
 """
 
 _POPULATION_UPSERT_SQL = """
@@ -246,82 +290,98 @@ def write_records(
     """Write one snapshot's repositories, their long-format ``params``
     evidence, and the frozen ``populations`` for that snapshot.
 
-    Idempotent per ``(snapshot_id, owner, name)`` (`04` section 5's
-    ``UNIQUE`` constraint) via ``INSERT ... ON CONFLICT ... DO UPDATE``: a
-    second call with the same identity updates the row in place rather
-    than raising or duplicating -- the repo keeps its original ``id`` (an
-    ``UPDATE`` never changes it), so ``params`` rows (keyed by that
-    ``repo_id``) stay attached correctly across re-writes. ``params`` rows
-    for a gated repo (``record.params`` is empty at stage 0 -- `04` section
-    3, ``cvi.core.engine`` never scores a gated repo's parameters) are
-    correctly zero: there is nothing to show as evidence for a repo that
-    was never scored. Returns ``(repos_written, params_written,
-    populations_written)`` for the caller's Measure line.
+    F-003: a snapshot id is immutable. If ``repositories`` already carries
+    any row for ``snapshot_id``, this raises ``ValueError`` before writing
+    anything -- no upsert, no replace flag, no delete-then-insert. The only
+    legitimate retry of the same id is one whose PRIOR attempt never
+    committed (see the transaction guarantee below), or a fresh id.
+
+    F-002: the whole call is one transaction (explicit ``BEGIN`` /
+    ``rollback()`` on any exception, ``commit()`` only at the very end) --
+    a failure partway through leaves zero rows for this snapshot, even
+    after a later, unrelated ``commit()`` on the same connection.
+
+    ``params`` rows for a gated repo (``record.params`` is empty at stage 0
+    -- `04` section 3, ``cvi.core.engine`` never scores a gated repo's
+    parameters) are correctly zero. Returns ``(repos_written,
+    params_written, populations_written)`` for the caller's Measure line.
     """
     for item in items:
-        if item.tie.record.snapshot_id != snapshot_id:
+        if item.record.snapshot_id != snapshot_id:
             raise ValueError(
-                f"record for {item.tie.owner}/{item.tie.name} carries "
-                f"snapshot_id {item.tie.record.snapshot_id!r}, does not match "
+                f"record for {item.record.repo.owner}/{item.record.repo.name} carries "
+                f"snapshot_id {item.record.snapshot_id!r}, does not match "
                 f"write_records snapshot_id {snapshot_id!r}"
             )
 
-    repos_written = 0
-    for item in items:
-        conn.execute(_REPO_UPSERT_SQL, _repo_row(snapshot_id, item))
-        repos_written += 1
+    existing = conn.execute(
+        "SELECT 1 FROM repositories WHERE snapshot_id=? LIMIT 1", (snapshot_id,)
+    ).fetchone()
+    if existing is not None:
+        raise ValueError(
+            f"snapshot {snapshot_id!r} already has repositories rows; snapshots are immutable "
+            f"once written (03 section 5) -- mint a new snapshot id to retry"
+        )
 
-    params_written = 0
-    for item in items:
-        repo_id_row = conn.execute(
-            "SELECT id FROM repositories WHERE snapshot_id=? AND owner=? AND name=?",
-            (snapshot_id, item.tie.owner, item.tie.name),
-        ).fetchone()
-        if repo_id_row is None:  # pragma: no cover - defensive, upsert above guarantees the row
-            raise RuntimeError(f"repository row missing after upsert: {item.tie.owner}/{item.tie.name}")
-        repo_id = repo_id_row[0]
-        for param_id in _PARAM_INPUT_IDS:
-            if param_id not in item.tie.record.params:
-                continue
-            conn.execute(_PARAM_UPSERT_SQL, _param_row(repo_id, param_id, item))
-            params_written += 1
+    conn.execute("BEGIN")
+    try:
+        repos_written = 0
+        for item in items:
+            conn.execute(_REPO_INSERT_SQL, _repo_row(snapshot_id, item))
+            repos_written += 1
 
-    populations_written = 0
-    if populations is not None:
-        for row in build_populations_table(populations):
-            conn.execute(_POPULATION_UPSERT_SQL, row)
-            populations_written += 1
+        params_written = 0
+        for item in items:
+            repo_id_row = conn.execute(
+                "SELECT id FROM repositories WHERE snapshot_id=? AND owner=? AND name=?",
+                (snapshot_id, item.record.repo.owner, item.record.repo.name),
+            ).fetchone()
+            repo_id = repo_id_row[0]
+            for param_id in _PARAM_INPUT_IDS:
+                if param_id not in item.record.params:
+                    continue
+                conn.execute(_PARAM_INSERT_SQL, _param_row(repo_id, param_id, item))
+                params_written += 1
 
+        populations_written = 0
+        if populations is not None:
+            for row in build_populations_table(populations):
+                conn.execute(_POPULATION_UPSERT_SQL, row)
+                populations_written += 1
+    except Exception:
+        conn.rollback()
+        raise
     conn.commit()
     return (repos_written, params_written, populations_written)
 
 
-#: Tables excluded from the repositories-only dump hash: bookkeeping tables
-#: that either record the hash itself (self-reference, see
-#: :func:`repositories_snapshot_dump_hash`) or are unrelated to "the
-#: repositories table" the packet names.
-_DUMP_HASH_EXCLUDED_TABLES = ("snapshots", "params", "populations", "schema_migrations")
-
-
 def repositories_snapshot_dump_hash(db_path: Path, snapshot_id: str) -> str:
     """``cvi.snapshot.reproduce.canonical_dump_hash`` scoped to one
-    snapshot's rows of the ``repositories`` table (see module docstring's
+    snapshot's rows of the ``repositories`` table (see the handoff's
     ownership request: no second hash implementation, R-2).
 
-    Copies ``db_path`` to a scratch file, deletes every ``repositories`` row
-    not in ``snapshot_id`` and drops every other table, then hashes the
-    result -- the same "scratch copy + drop unrelated tables" shape
-    ``cvi.lakehouse.repositories_dump_hash`` uses on the v1 (single-
-    snapshot) table, extended with the row-level filter the v2 table needs
-    because it holds every snapshot at once."""
+    F-007: an ALLOW-list (keep only ``repositories``), not a fixed exclude-
+    list -- a fixed exclude-list silently hashed ``legacy_repositories``
+    into every v2 snapshot's identity on a migrated v1 database. Copies
+    ``db_path`` to a scratch file, deletes every ``repositories`` row not
+    in ``snapshot_id``, drops every table that is not named
+    ``repositories`` (whatever it is called, including a legacy or a
+    future table), then hashes the result."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         copy_path = Path(tmp_dir) / "repositories_dump.db"
         shutil.copyfile(db_path, copy_path)
         scratch = sqlite3.connect(copy_path)
         try:
             scratch.execute("DELETE FROM repositories WHERE snapshot_id != ?", (snapshot_id,))
-            for table in _DUMP_HASH_EXCLUDED_TABLES:
-                scratch.execute(f'DROP TABLE IF EXISTS "{table}"')
+            tables = [
+                row[0]
+                for row in scratch.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            ]
+            for table in tables:
+                if table != "repositories":
+                    scratch.execute(f'DROP TABLE IF EXISTS "{table}"')
             scratch.commit()
         finally:
             scratch.close()

@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS repositories (
     eligible INTEGER NOT NULL,
     gate_reason TEXT,
     routed TEXT,
+    gate_undecided TEXT NOT NULL DEFAULT '[]',
     rated INTEGER NOT NULL,
     unrated_reason TEXT,
     p_responsiveness REAL,

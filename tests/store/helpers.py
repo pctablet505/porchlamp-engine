@@ -4,6 +4,11 @@
 ``.validate()`` method, never called here), so a bundle below can carry a
 handful of ``inputs`` rather than the full 18 -- the store writer only
 needs whatever a given test's ``record.params`` actually names.
+
+REWORK round 1 (F-011/F-012): rebuilt onto W2-10's ``ScoreRecord.repo:
+RepoIdentity`` (required first field) and the real
+``PersonaComposite`` dataclass (``persona_composites: dict[str,
+PersonaComposite]``, not ``dict[str, float]``).
 """
 from __future__ import annotations
 
@@ -13,6 +18,7 @@ from cvi.core.models import (
     GateResult,
     Measured,
     ParamScore,
+    PersonaComposite,
     PillarScore,
     PRWindow,
     RepoIdentity,
@@ -25,6 +31,24 @@ PILLARS = ("responsiveness", "criticality", "governance", "rigor", "accessibilit
 
 HEX64 = "a" * 64
 
+_EMPTY_PR_WINDOW = PRWindow(start=None, end=None, truncated=False, events=())
+
+
+def make_repo_identity(
+    owner: str,
+    name: str,
+    ecosystem: str = "python",
+    archived: bool = False,
+    mirror_url: str | None = None,
+    fork: bool = False,
+    license_spdx: str | None = "MIT",
+    default_branch: str | None = "main",
+) -> RepoIdentity:
+    return RepoIdentity(
+        owner=owner, name=name, ecosystem=ecosystem, archived=archived,
+        mirror_url=mirror_url, fork=fork, license_spdx=license_spdx, default_branch=default_branch,
+    )
+
 
 def make_bundle(
     owner: str,
@@ -35,21 +59,17 @@ def make_bundle(
     mirror_url: str | None = None,
     fork: bool = False,
     license_spdx: str | None = "MIT",
+    pr_window: PRWindow | None = None,
+    repo: RepoIdentity | None = None,
 ) -> FeatureBundle:
     return FeatureBundle(
         schema_version=2,
-        repo=RepoIdentity(
-            owner=owner,
-            name=name,
-            ecosystem=ecosystem,
-            archived=archived,
-            mirror_url=mirror_url,
-            fork=fork,
-            license_spdx=license_spdx,
-            default_branch="main",
+        repo=repo or make_repo_identity(
+            owner, name, ecosystem=ecosystem, archived=archived,
+            mirror_url=mirror_url, fork=fork, license_spdx=license_spdx,
         ),
         inputs=dict(inputs or {}),
-        pr_window=PRWindow(start=None, end=None, truncated=False, events=()),
+        pr_window=pr_window or _EMPTY_PR_WINDOW,
         cohorts=Cohorts(decision_pr_numbers=(), newcomer_authors=()),
         provenance_hash=HEX64,
     )
@@ -79,6 +99,10 @@ def make_measured(
 
 def make_rated_record(
     snapshot_id: str,
+    owner: str = "acme",
+    name: str = "demo",
+    ecosystem: str = "python",
+    repo: RepoIdentity | None = None,
     raw_hash: str = HEX64,
     composite: float = 82.5,
     coverage: float = 0.9,
@@ -92,18 +116,20 @@ def make_rated_record(
     friction_coverage: float = 1.0,
     quadrant: str | None = "Sweet Spot",
     persona_gates: dict[str, str] | None = None,
-    persona_composites: dict[str, float] | None = None,
+    persona_composites: dict[str, PersonaComposite] | None = None,
     suspicion: list[str] | None = None,
+    gate_undecided: tuple[str, ...] = (),
 ) -> ScoreRecord:
-    scores = pillar_scores or {name: 80.0 for name in PILLARS}
-    pillars = {name: PillarScore(score=scores.get(name), coverage=0.9) for name in PILLARS}
+    scores = pillar_scores or {n: 80.0 for n in PILLARS}
+    pillars = {n: PillarScore(score=scores.get(n), coverage=0.9) for n in PILLARS}
     return ScoreRecord(
+        repo=repo or make_repo_identity(owner, name, ecosystem=ecosystem),
         snapshot_id=snapshot_id,
         benchmark_version="2.0.0-dev",
         constants_hash="c" * 64,
         raw_hash=raw_hash,
         provenance_hash=HEX64,
-        gate=GateResult(eligible=True, reason=None, routed=None, undecided=()),
+        gate=GateResult(eligible=True, reason=None, routed=None, undecided=gate_undecided),
         params=dict(params or {}),
         pillars=pillars,
         composite=composite,
@@ -126,8 +152,17 @@ def make_rated_record(
     )
 
 
-def make_gated_record(snapshot_id: str, raw_hash: str = HEX64, gate_reason: str = "archived") -> ScoreRecord:
+def make_gated_record(
+    snapshot_id: str,
+    owner: str = "acme",
+    name: str = "old",
+    ecosystem: str = "python",
+    repo: RepoIdentity | None = None,
+    raw_hash: str = HEX64,
+    gate_reason: str = "archived",
+) -> ScoreRecord:
     return ScoreRecord(
+        repo=repo or make_repo_identity(owner, name, ecosystem=ecosystem),
         snapshot_id=snapshot_id,
         benchmark_version="2.0.0-dev",
         constants_hash="c" * 64,
@@ -158,13 +193,18 @@ def make_gated_record(snapshot_id: str, raw_hash: str = HEX64, gate_reason: str 
 
 def make_unrated_record(
     snapshot_id: str,
+    owner: str = "acme",
+    name: str = "tiny-lib",
+    ecosystem: str = "python",
+    repo: RepoIdentity | None = None,
     raw_hash: str = HEX64,
     coverage: float = 0.1,
     params: dict[str, ParamScore] | None = None,
     tier_ceiling: str | None = None,
 ) -> ScoreRecord:
-    pillars = {name: PillarScore(score=None, coverage=0.1) for name in PILLARS}
+    pillars = {n: PillarScore(score=None, coverage=0.1) for n in PILLARS}
     return ScoreRecord(
+        repo=repo or make_repo_identity(owner, name, ecosystem=ecosystem),
         snapshot_id=snapshot_id,
         benchmark_version="2.0.0-dev",
         constants_hash="c" * 64,
@@ -195,18 +235,24 @@ def make_unrated_record(
 
 def make_tie(
     record: ScoreRecord,
-    owner: str,
-    name: str,
+    owner: str | None = None,
+    name: str | None = None,
     ttfhr_p75_hours: float | None = 12.0,
     last_non_bot_commit_at: str | None = "2026-08-01T00:00:00Z",
     stars: int | None = 100,
     forks: int | None = 10,
     downloads: int | None = None,
 ) -> TieBreakInput:
+    """Still needed upstream of the writer: :func:`cvi.core.tiebreak.
+    assign_ranks` takes ``TieBreakInput`` entries to compute ``tie_key``/
+    ``rank``/``tie_group`` on the record BEFORE it ever reaches
+    :class:`~cvi.store.writer.RepoWrite`, which no longer carries one (lead
+    ruling, REWORK round 1). Defaults ``owner``/``name`` to the record's
+    own identity."""
     return TieBreakInput(
         record=record,
-        owner=owner,
-        name=name,
+        owner=owner if owner is not None else record.repo.owner,
+        name=name if name is not None else record.repo.name,
         ttfhr_p75_hours=ttfhr_p75_hours,
         last_non_bot_commit_at=last_non_bot_commit_at,
         stars=stars,
@@ -216,27 +262,20 @@ def make_tie(
 
 
 def make_repo_write(
-    owner: str,
-    name: str,
     record: ScoreRecord,
-    ecosystem: str = "python",
     inputs: dict | None = None,
-    ttfhr_p75_hours: float | None = 12.0,
-    last_non_bot_commit_at: str | None = "2026-08-01T00:00:00Z",
-    stars: int | None = 100,
-    forks: int | None = 10,
-    archived: bool = False,
-    mirror_url: str | None = None,
-    fork: bool = False,
-    license_spdx: str | None = "MIT",
+    pr_window: PRWindow | None = None,
 ) -> RepoWrite:
-    bundle = make_bundle(
-        owner, name, ecosystem=ecosystem, inputs=inputs,
-        archived=archived, mirror_url=mirror_url, fork=fork, license_spdx=license_spdx,
+    """The bundle's ``repo`` is ``record.repo`` itself (not a separately
+    constructed, merely-equal ``RepoIdentity``) so the two can never drift:
+    ``RepoWrite.__post_init__`` requires them equal (lead ruling, REWORK
+    round 1 -- identity now comes from ``record.repo``)."""
+    bundle = FeatureBundle(
+        schema_version=2,
+        repo=record.repo,
+        inputs=dict(inputs or {}),
+        pr_window=pr_window or _EMPTY_PR_WINDOW,
+        cohorts=Cohorts(decision_pr_numbers=(), newcomer_authors=()),
+        provenance_hash=HEX64,
     )
-    tie = make_tie(
-        record, owner, name,
-        ttfhr_p75_hours=ttfhr_p75_hours, last_non_bot_commit_at=last_non_bot_commit_at,
-        stars=stars, forks=forks,
-    )
-    return RepoWrite(tie=tie, bundle=bundle)
+    return RepoWrite(record=record, bundle=bundle)
