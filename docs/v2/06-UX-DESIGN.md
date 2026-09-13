@@ -166,6 +166,48 @@ these is an API change (W4-4), never a client-side derivation.
   Python suite tests the served HTML and the JSON contracts). Every state in
   §3 has a test that renders it from a fixture payload and asserts the copy.
 
+### 6.1 Rendering rules (binding; added 2026-09-13 after the owner's verdict on the first W4-5a build)
+
+The first build rewrote header, table, footer and drawer with `innerHTML` on
+every state change and on every scroll frame. The owner's verdict: "the UI is
+cool, the UX sucks, too slow and unresponsive, and not working properly." The
+lead reproduced it: the table could not be scrolled (each frame recreated the
+container and reset `scrollTop`), focus landed on `<body>` after every change,
+the URL never updated, a 404 left the drawer on "Loading…" forever. These rules
+replace the "subtree replacement" sentence in §6:
+
+- **U-12 Keyed, incremental DOM.** The header, footer and table skeleton render
+  once. Rows are keyed by `owner/name` and patched in place (add, remove, move,
+  update only the cells whose values changed). Never `innerHTML` on an
+  ancestor of the focused element; never a full render on scroll or resize.
+  Focus, the current row and the scroll position survive every state change.
+- **U-13 One virtualised list, no pagination.** The leaderboard fills the
+  viewport below a sticky header; the page scroll drives it; only the visible
+  slice plus a buffer exists in the DOM, with spacers so the scrollbar reflects
+  the whole list. Rows are fetched in pages of 500 ahead of the scroll
+  position (all at once when the total is ≤ 2,000). "Rows per page" does not
+  exist.
+- **U-14 Instant local interactions.** Sort, search and ecosystem filter run
+  client-side over the loaded rows with a visible response under 50 ms
+  (search debounced ≤ 100 ms). A persona switch is a fetch: the current table
+  stays visible and greyed with a thin progress indicator until the new
+  payload lands, then rows are patched; payloads are cached per persona.
+- **U-15 Every request has an error state.** A 404, a 5xx or a 5 s timeout
+  renders the error block naming the endpoint and status, with a retry;
+  "Loading…" is never a resting state.
+- **U-16 URL is the view.** `?persona=&eco=&q=&sort=&repo=&tab=` via
+  `history.pushState` (replaceState for `q` while typing); `popstate` restores;
+  any URL reloads to the same view.
+- **U-17 Announcements are true.** "N rows moved" is the count of rows whose
+  rank differs between the previous and the new payload.
+- **U-18 Keyboard continuity.** After any patch, J/K continue from the current
+  row; Esc returns focus to the row that opened the drawer.
+- **U-19 Measured, not asserted.** A Node test renders 10,000 synthetic rows,
+  simulates 60 scroll steps and asserts no patch exceeds the 16 ms frame
+  budget (3× margin, numbers reported) and that a one-row state change
+  mutates exactly one `<tr>`. The lead verifies U-12..U-18 in a real browser
+  before any acceptance.
+
 ## 7. Performance budgets
 
 | Path | Budget |
