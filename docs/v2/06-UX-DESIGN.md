@@ -54,7 +54,7 @@ five pillar mini-bars with per-pillar coverage, persona delta (only when a
 non-balanced persona is active), suspicion flags (icon with reason list).
 
 Interactions: sort only on rank, CVI, coverage, tier, pillars; search by
-owner/name; ecosystem scope; page size 50/100/200; row click or Enter opens
+owner/name; ecosystem scope; page size 20 (default)/50/100/500/1000 with next/previous page; row click or Enter opens
 the drawer; J/K move; "=" rows share a subtle background band.
 
 States: loading (skeleton rows, no numbers); empty ("No rated repositories
@@ -181,12 +181,19 @@ replace the "subtree replacement" sentence in §6:
   update only the cells whose values changed). Never `innerHTML` on an
   ancestor of the focused element; never a full render on scroll or resize.
   Focus, the current row and the scroll position survive every state change.
-- **U-13 One virtualised list, no pagination.** The leaderboard fills the
-  viewport below a sticky header; the page scroll drives it; only the visible
-  slice plus a buffer exists in the DOM, with spacers so the scrollbar reflects
-  the whole list. Rows are fetched in pages of 500 ahead of the scroll
-  position (all at once when the total is ≤ 2,000). "Rows per page" does not
-  exist.
+- **U-13 Paginated list (owner instruction 2026-09-13, supersedes the
+  earlier "no pagination" draft).** The leaderboard is paginated: default
+  page size 20; a page-size dropdown offering 20, 50, 100, 500 and 1000; a
+  next-page / previous-page control (plus first/last and a page indicator
+  "Page i of N (M rows)"). Page size and page number live in the URL
+  (`&page=&page_size=`). There is no inner scroll box: the page itself
+  scrolls, the header row is sticky, and for page sizes of 500 and 1000
+  only the visible rows plus a buffer are in the DOM (virtualised within
+  the page) so scrolling stays at frame rate. Changing the page size keeps
+  the current first row visible (recompute the page so that row stays on
+  screen). The same controls apply to the Not-ranked list. The API is
+  fetched one page at a time (`limit`/`offset`), with the next page
+  prefetched once the current one renders.
 - **U-14 Instant local interactions.** Sort, search and ecosystem filter run
   client-side over the loaded rows with a visible response under 50 ms
   (search debounced ≤ 100 ms). A persona switch is a fetch: the current table
