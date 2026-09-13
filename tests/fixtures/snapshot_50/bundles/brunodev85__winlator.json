@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-11T22:56:55.676175+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/brunodev85__winlator.json",
-      "source_hash": "97892b8ddcb4473646a9ed2adb9ee965faeb97afe4e82c85f992e38a43a1bcf2",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -420,7 +414,7 @@
     "start": "2025-07-27T15:22:26+00:00",
     "truncated": false
   },
-  "provenance_hash": "4b270afc3c258dc9a95c683a88a5a14699af7c583a30e9cd667ef27001a9d3a4",
+  "provenance_hash": "1607ac3e591fc1320e4b1c69ba4af8299869684982eca67c9c7c4c2c09ff2970",
   "repo": {
     "archived": false,
     "default_branch": "main",

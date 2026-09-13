@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T04:45:21.292839+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/alexellis__k3sup.json",
-      "source_hash": "51603b61e2b4da8ed1a630749ab72dfcda984dfa64d2784b18dd6cefc3beaa50",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -420,7 +414,7 @@
     "start": "2021-12-29T23:07:44+00:00",
     "truncated": false
   },
-  "provenance_hash": "522d904d3a5a192ace2338efdfb9b07e5d698ddad2f1b5a8f6009b04d8098678",
+  "provenance_hash": "8e04020190fbf7e6f783027d11aef7d4538bcde72104c85f768525990384aa19",
   "repo": {
     "archived": false,
     "default_branch": "master",

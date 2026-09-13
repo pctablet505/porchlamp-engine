@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T01:20:36.898542+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/charmbracelet__lipgloss.json",
-      "source_hash": "96d397be4dc248edf500e350f028f99ec6d0a88794412658e56513e8470f68d1",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -420,7 +414,7 @@
     "start": "2026-06-22T09:02:51+00:00",
     "truncated": false
   },
-  "provenance_hash": "c07f782a206a586c6278cd45620e46bbff45e7e3985c4f616ec51ff1a46b21c4",
+  "provenance_hash": "4e0ee2a5a9f15a22f270152473ef3c7993b5e6abeadf5a7eee394b6c7949c2c7",
   "repo": {
     "archived": false,
     "default_branch": "main",

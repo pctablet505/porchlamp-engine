@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-11T19:55:56.670828+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/anthropics__claude-code.json",
-      "source_hash": "162c18303ab354a7f394c538f2e87e8b1c09c8a4267173e9f254df57a99ee146",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -420,7 +414,7 @@
     "start": "2026-08-05T11:21:16+00:00",
     "truncated": false
   },
-  "provenance_hash": "aa5f453ef945d3d62d61d30cda20ba5532f1ef6c5f9e717154d76ce8f5031229",
+  "provenance_hash": "940505650dec2658897c409e5074fdd5544259ad9e76e1cf06be1cd5acdd3701",
   "repo": {
     "archived": false,
     "default_branch": "main",

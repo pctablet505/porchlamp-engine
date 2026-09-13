@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-11T21:50:36.814835+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/abiosoft__colima.json",
-      "source_hash": "09bb09c519a2ce18137b1d246fc4fb4cf835cb48cd2ac3c497e1ef3754f1fbb3",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -420,7 +414,7 @@
     "start": "2026-06-17T18:33:02+00:00",
     "truncated": false
   },
-  "provenance_hash": "ef8968abb24902cda16949c3baeaf4954a024db483ad4a5bce62dcb24eb0c317",
+  "provenance_hash": "cc9c9e27a43b304323073147deee93606d4948c83004afa44144105a6a4612b4",
   "repo": {
     "archived": false,
     "default_branch": "main",

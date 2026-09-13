@@ -52,15 +52,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T03:28:58.390829+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/cerebroapp__cerebro.json",
-      "source_hash": "a20d30b45969b3b674f22867e97402e216f2ce91a01eb473cf65e327a2900ff2",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -426,7 +420,7 @@
     "start": "2026-02-07T06:17:52+00:00",
     "truncated": false
   },
-  "provenance_hash": "15b0daf36493f432e71750cbac0571151f1fa9cbcfedf43d951e4601c3eb6393",
+  "provenance_hash": "24e491ce1af3569f65e15a6c038f344fc9261b027928acc413f380f22d8ae5d3",
   "repo": {
     "archived": false,
     "default_branch": "master",

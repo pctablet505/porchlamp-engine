@@ -46,7 +46,7 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/cadence-workflow/cadence/HEAD/CONTRIBUTING.md'",
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
       "kind": "unmeasured",
       "reason": "collector_failure"
     },

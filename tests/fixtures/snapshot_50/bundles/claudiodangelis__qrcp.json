@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T02:05:10.633922+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/claudiodangelis__qrcp.json",
-      "source_hash": "765621c2727c304c608f39d9569f44d8b74593834258fce43d235672584965b0",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -420,7 +414,7 @@
     "start": "2024-09-13T08:52:39+00:00",
     "truncated": false
   },
-  "provenance_hash": "9a3a08e21b82476d40785d052c519989b007a4e6772afef161ad2f631644a197",
+  "provenance_hash": "0d3ab7e8e88dd32b312cb8751c0f31367fedaef560df3b4da3f28b757264e453",
   "repo": {
     "archived": false,
     "default_branch": "main",

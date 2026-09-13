@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T05:08:34.659516+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/chillzhuang__SpringBlade.json",
-      "source_hash": "3acb3528356529c2400daacf578ccf401cd64e0af02e615cb5c259e6041f2227",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -170,7 +164,7 @@
     "start": "2019-07-02T13:52:01+00:00",
     "truncated": false
   },
-  "provenance_hash": "792e8f836afbbb107b26fe6997a34e91dbdd9a9db44e7f60af63dbed0e0d62f5",
+  "provenance_hash": "8403c335f2c907c6f992c45333f0ec021607a7786288a9dbc2b73ad857d0e7e1",
   "repo": {
     "archived": false,
     "default_branch": "master",

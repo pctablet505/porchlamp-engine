@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T01:23:03.617347+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/1995parham__github-do-not-ban-us.json",
-      "source_hash": "201020d6a184a67f167ec475fed763e638f585568eeb8b0c8d7eb7103f27ca4c",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -410,7 +404,7 @@
     "start": "2019-08-01T05:52:21+00:00",
     "truncated": false
   },
-  "provenance_hash": "c13e33bd2fb88ea44d37d0be9312aa2374a647222161265884265818acbf5b16",
+  "provenance_hash": "dd382630394094fbc887e14410d182c7a15f9a2b2edf4f1fd0d3a940cb696043",
   "repo": {
     "archived": true,
     "default_branch": "master",

@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-11T19:54:31.029028+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/anthropics__skills.json",
-      "source_hash": "e813eb0af48b74dc022fabaa55514afc8622ffdf963965e8b0bf79559045e6e5",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -119,7 +113,7 @@
     "start": null,
     "truncated": false
   },
-  "provenance_hash": "04b358616681b5cc41d7d39c8ca55c648633bc3a757a85bfa018b664531a6183",
+  "provenance_hash": "fd4fc3af7ec027ad115eed4ece0579afd96c561f4df09435441be36902dc404d",
   "repo": {
     "archived": false,
     "default_branch": null,

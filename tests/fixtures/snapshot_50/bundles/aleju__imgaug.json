@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-11T23:59:07.715844+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/aleju__imgaug.json",
-      "source_hash": "c9fa91bbefb7fdf10987d6d7370e173eb6a69bff6b81f732b3e0167130911292",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -410,7 +404,7 @@
     "start": "2020-10-19T12:23:21+00:00",
     "truncated": false
   },
-  "provenance_hash": "ff345eb499348cd598ae020d5b64b437bebb43eeb8cfba3b605a3afbb523e04e",
+  "provenance_hash": "776aa4326c12f2fdacb358a07568ae69ea2fe83bea52c484edb43afd63579f84",
   "repo": {
     "archived": false,
     "default_branch": "master",

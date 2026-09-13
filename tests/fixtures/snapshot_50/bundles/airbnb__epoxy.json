@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T03:29:19.182376+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/airbnb__epoxy.json",
-      "source_hash": "d2dc0b50ddb98fc462aad6c022d1246a55668d50a88f29e2d217b0c7ed89b904",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -410,7 +404,7 @@
     "start": "2022-08-09T00:31:17+00:00",
     "truncated": false
   },
-  "provenance_hash": "2df7d838720a59fe8f84fd4f4a65d0dca6c87bfbf1d4243976e1fcc055b249ed",
+  "provenance_hash": "065ab28bac2927d023324168209d7b85d78941248d73fce251797d209c05a69a",
   "repo": {
     "archived": false,
     "default_branch": "master",

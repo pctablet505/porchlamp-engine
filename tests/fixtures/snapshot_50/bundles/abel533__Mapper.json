@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T04:49:41.992444+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/abel533__Mapper.json",
-      "source_hash": "4bbd8ace9417c1afe6a5b32866a64cc1e2611367cec7c58261eeac73fd866618",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -420,7 +414,7 @@
     "start": "2021-09-03T21:17:07+00:00",
     "truncated": false
   },
-  "provenance_hash": "2f7de85e2befb04fc314e45ca236545357881b1699a8305599d533b26e06a281",
+  "provenance_hash": "e3a48d774c56321b8a252b5c94ca61e83d230007a13c95a6eb973452c5f7746f",
   "repo": {
     "archived": false,
     "default_branch": "master",

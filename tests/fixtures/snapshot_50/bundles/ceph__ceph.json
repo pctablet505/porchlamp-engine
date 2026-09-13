@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-11T23:18:16.903071+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/ceph__ceph.json",
-      "source_hash": "ec876843783af907a78e6219a48ff991b4fa5a5e772cc6d46303448f69d0a54f",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -420,7 +414,7 @@
     "start": "2026-09-11T03:16:38+00:00",
     "truncated": false
   },
-  "provenance_hash": "4c06f621a95060bdefe53c8c6a2ef65d245062caad60b3300c2c813bb8a0de51",
+  "provenance_hash": "9c90bc4bf5fd44f97b8f55456a95ee7e985fa9505fc268b87c2c9e400595a2be",
   "repo": {
     "archived": false,
     "default_branch": "main",

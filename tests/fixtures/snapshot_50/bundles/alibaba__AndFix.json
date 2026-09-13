@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T05:07:20.330942+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/alibaba__AndFix.json",
-      "source_hash": "277ab58c4d8934ff2c8394e5e9bdb266889bde3665496824078c545f0e95096d",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -220,7 +214,7 @@
     "start": "2015-09-15T13:43:30+00:00",
     "truncated": false
   },
-  "provenance_hash": "f9fa0ab1240da1c23cb40b3a78d80ab2fb0b774f84008d03329f440886b210ad",
+  "provenance_hash": "19ab29cc8da5f6567a928f28c4b9ba82b54bc3bc7b9a8049b817a49b98da219f",
   "repo": {
     "archived": false,
     "default_branch": "master",

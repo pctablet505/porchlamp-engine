@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T01:42:27.114442+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/daniulive__SmarterStreaming.json",
-      "source_hash": "22e0d8d1c54017e3ac9d1e3d6774ae1710125352cce0f6fd7c12d890afc58a83",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -130,7 +124,7 @@
     "start": "2017-06-06T06:26:55+00:00",
     "truncated": false
   },
-  "provenance_hash": "c00bc288f599864ad16f0e254d0e16cf7a44afe265ef174117fad9d2114c51cd",
+  "provenance_hash": "eaaed3de4b5918bdcf310664583baab097578c06f0a9b254b64ddc3bfe8eb47a",
   "repo": {
     "archived": false,
     "default_branch": "master",

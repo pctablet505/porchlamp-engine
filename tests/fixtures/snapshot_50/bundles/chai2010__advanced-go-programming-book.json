@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-11T22:48:34.133160+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/chai2010__advanced-go-programming-book.json",
-      "source_hash": "cc2b01983447d68829a362fd0c64f6debf39f5a8efa87e2c518673f293a03e58",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -420,7 +414,7 @@
     "start": "2022-01-01T03:50:37+00:00",
     "truncated": false
   },
-  "provenance_hash": "3824087af2268f60161989fd1653ffaf16b15ebe40d2d023cf5aed08f16d87bb",
+  "provenance_hash": "88601298568c4f4f1811ab21f39abcbf88f5e7982b5af7df0ab33f003f9524f8",
   "repo": {
     "archived": false,
     "default_branch": "master",

@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T00:50:37.437744+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/be5invis__Sarasa-Gothic.json",
-      "source_hash": "cec0754ad9660903885faafce27c455a739e3e25d884bd746e2bd9eee23bf292",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -390,7 +384,7 @@
     "start": "2017-10-26T01:23:45+00:00",
     "truncated": false
   },
-  "provenance_hash": "c5f9adbf48e7903cafd2f1283d6c368ac7159c37e01720c068a85092b5442f1d",
+  "provenance_hash": "e1e5a751c59ee16af757ec3a4bb25b10d8605c7dd28655a1c4ceff7217c6668c",
   "repo": {
     "archived": false,
     "default_branch": "main",

@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T01:37:47.304942+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/apple__darwin-xnu.json",
-      "source_hash": "3b920ccd7be68c1a99c0cfa16daa15de70919ade4c822a2557b14a74a368486a",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -410,7 +404,7 @@
     "start": "2017-09-30T16:54:39+00:00",
     "truncated": false
   },
-  "provenance_hash": "f545bb5c1a6310080a3d2f61f7dd4bf31b7c02fad3b779b126c08788d09646d1",
+  "provenance_hash": "13d674fafc1570bd546ff1b4e98dd228c837f107b79a7932308a6c42ecf104b7",
   "repo": {
     "archived": true,
     "default_branch": "main",

@@ -52,15 +52,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-12T02:28:46.496424+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/aFarkas__html5shiv.json",
-      "source_hash": "cfc791a1132a70c71c3d6caf0965bd975b15ae879292cdab2b59fd5263e63c4f",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -416,7 +410,7 @@
     "start": "2016-02-09T14:46:52+00:00",
     "truncated": false
   },
-  "provenance_hash": "d2c74ad6b0ba5b2e1d0b375bb44ff1ba322f9a6ab4791a58dbf87d5ccd0326b3",
+  "provenance_hash": "ff546359530928d43722b59bdbfafb2676a2a9877673e958ad6c460c6c74ee8f",
   "repo": {
     "archived": false,
     "default_branch": "master",

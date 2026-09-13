@@ -470,7 +470,7 @@
     },
     {
       "composite": null,
-      "coverage": 0.1225,
+      "coverage": 0.0525,
       "eligible": true,
       "gate_reason": null,
       "rank": null,
@@ -522,7 +522,7 @@
     },
     {
       "composite": null,
-      "coverage": 0.1225,
+      "coverage": 0.0525,
       "eligible": true,
       "gate_reason": null,
       "rank": null,
@@ -652,7 +652,7 @@
     },
     {
       "composite": null,
-      "coverage": 0.1225,
+      "coverage": 0.0525,
       "eligible": true,
       "gate_reason": null,
       "rank": null,
@@ -704,7 +704,7 @@
     },
     {
       "composite": null,
-      "coverage": 0.1225,
+      "coverage": 0.0525,
       "eligible": true,
       "gate_reason": null,
       "rank": null,
@@ -716,6 +716,6 @@
       "unrated_reason": "unrated: insufficient_evidence"
     }
   ],
-  "records_hash": "837894486e7ae867eb321d2e3bacafd62703de781decd0286b16ae8025e80066",
+  "records_hash": "ba4df03d2d3b0f6df8ca2b12b9c84f030432249072990059f731ba698d9ba319",
   "version": 1
 }

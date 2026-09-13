@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-11T21:16:04.519534+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/0voice__interview_internal_reference.json",
-      "source_hash": "0e98b30aafdae6ff3fdcc407657663df6a9401f165e697f3d6c9398cf0b190f9",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -420,7 +414,7 @@
     "start": "2019-09-01T12:48:27+00:00",
     "truncated": false
   },
-  "provenance_hash": "8bc4110a575e58d619734f3ed1d1e68a135a39b542ee01e5e432951dd924d7e3",
+  "provenance_hash": "ba5bda984d5f401c08b23a36adb8352da64d80b0c290e86efc42c9375f85faf5",
   "repo": {
     "archived": false,
     "default_branch": "master",

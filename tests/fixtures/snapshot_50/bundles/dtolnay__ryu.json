@@ -52,15 +52,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-11T19:42:48.627926+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/dtolnay__ryu.json",
-      "source_hash": "9463ed6d47761f583a52d13a46d366521d0d57842df0f7fec9f9f6575e9c3c12",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -416,7 +410,7 @@
     "start": "2019-11-02T09:53:10+00:00",
     "truncated": false
   },
-  "provenance_hash": "74d04d3863a37a6ac13f11c90b24e76907b7d6fad3c6532a3fb87639a8918cb6",
+  "provenance_hash": "3d6c00f741cda456e44e5245c9c6ca0d46b86894b346e0ae795f86984d086956",
   "repo": {
     "archived": false,
     "default_branch": "master",

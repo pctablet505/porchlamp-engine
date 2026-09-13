@@ -40,15 +40,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-11T19:51:04.732008+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/torvalds__linux.json",
-      "source_hash": "8c18eccae0a253c38cacb1c7bd5932b29746407b4c444b92279bc621599251f4",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -113,7 +107,7 @@
     "start": null,
     "truncated": false
   },
-  "provenance_hash": "3dbd7123ea45be6e11a7bf288d8e107ac6a2bd30770eb9b2d6921f4dea86f767",
+  "provenance_hash": "74731c74b05c2d0d4294bf2bb43684b8b222925e8238ba07923676da5b5b2ca2",
   "repo": {
     "archived": false,
     "default_branch": "master",

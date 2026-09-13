@@ -46,15 +46,9 @@
       "reason": "collector_failure"
     },
     "legal_ip": {
-      "fetched_at": "2026-09-11T21:17:53.104416+00:00",
-      "kind": "measured",
-      "method": "primary",
-      "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/tree/babysor__MockingBird.json",
-      "source_hash": "25d2f710abcaa5f697ac2c4b6b3bcc4711101b558b0652ed83bf3029a6270f60",
-      "value": "DCO",
-      "window_end": null,
-      "window_start": null
+      "detail": "v1 confidence None for 'legal_ip' is not recognized",
+      "kind": "unmeasured",
+      "reason": "collector_failure"
     },
     "mr_first_rate": {
       "detail": "needs W1-4 author history; the v1 pipeline collected none",
@@ -420,7 +414,7 @@
     "start": "2022-09-25T08:36:56+00:00",
     "truncated": false
   },
-  "provenance_hash": "5196459de005632b16ea174605c5390b9ebec4693260eab656cfacd11b966f65",
+  "provenance_hash": "7fce39d996b90f026077460e3e211fa05577788f5a317cda1029de7618d9f968",
   "repo": {
     "archived": false,
     "default_branch": "main",
