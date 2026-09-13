@@ -557,3 +557,285 @@ test_promote}.py, .agents/INT-W0-4/handoff.md` was touched
 - `COULD NOT VERIFY: the exact prior state of "a copy of this work" that
   hung for 2.5 h` (round 1's item, unchanged this round — still not
   reproduced, still no blocking I/O in the delivered tests).
+
+---
+
+# Round 3 (rework: Blockers B1/B2, Warnings W1/W2/W3)
+
+Round 2's review (`INT-W0-4-r2-review.md`, reviewed at `cac2bcf`) confirmed
+round 1's three Blockers and three Warnings genuinely closed on real data
+(196 clean / 3 flagged of 199; 1,295/1,295 verified fields carry a hash;
+10/10 mutants) and opened two new holes, both in the security core: round 2
+deleted the fixture-row guard while adding the content-hash identity
+(Blocker-1), and the frozen manifest it now requires was never checked
+against what got promoted (Blocker-2), plus manifest-selection (Warning-1),
+snapshot-time (Warning-2) and test-quality (Warning-3) gaps. Round 3 is
+bounded to exactly these five items; nothing else was added.
+
+## R3.0 Correction to Round 2's numbers
+
+The round-2 section above states the re-derived sample as "197 clean, 3
+flagged of **200**". The reviewer measured **196 clean, 3 flagged of 199**
+(the sample holds 199 bundles, not 200) and this round reproduces that
+exactly (§R3.6). The load-bearing claim -- 0 `unverifiable_provenance`
+flags -- was correct in both counts. Left the round-2 text as written above
+(an audit record, not silently rewritten) and record the correction here.
+
+## R3.1 Diffstat (vs round 2's `cac2bcf`)
+
+```
+ cvi/lakehouse.py                |  17 +++
+ docs/v2/03-ANTI-MANIPULATION.md |   6 +-
+ scripts/promote.py              | 212 ++++++++++++++++++++------
+ scripts/run_all.py              |  64 ++++++--
+ scripts/serve.py                | 112 ++++++++++----
+ tests/test_promote.py           | 329 +++++++++++++++++++++++++++++++++++-----
+ tests/test_run_all.py           | 112 ++++++++++++++ (new file)
+ tests/test_serve.py             | 185 +++++++++++++++++-----
+ 8 files changed, 881 insertions(+), 156 deletions(-)
+```
+
+Ownership expansion: none beyond round 2's (`cvi/lakehouse.py`,
+`scripts/run_all.py` already flagged there for the lead to ratify).
+`tests/test_run_all.py` is new: `scripts/run_all.py` had no test file at
+all before this round (recorded as a round-2 `COULD NOT VERIFY`); Warning-1
+required exercising its `--snapshot-id` wiring, so the gap was closed here.
+
+## R3.2 What changed, file by file
+
+- **`cvi/lakehouse.py`**: `OperationalStore.truncate_repositories()`
+  (Blocker-1, fix #1) -- deletes every `repositories` row; `promote()` calls
+  it before writing anything, so a promotion's output is exactly its
+  bundles, never rows a prior seed or run left behind.
+- **`scripts/promote.py`** (Blocker-2, Warning-1, Warning-2):
+  `resolve_manifest` no longer has a "pick the newest" fallback --
+  `snapshot_id` is a required parameter, and the CLI's `--snapshot-id` is
+  `required=True`. New `_manifest_envelope_index` / `_bundle_envelope_refs`
+  / `split_by_manifest`: a clean bundle is promoted only when every
+  `verified` field's envelope reference is in the manifest with a matching
+  sha256 (reuses `scripts.verify`'s own `_envelope_path` / `_source_items` /
+  `_claimed_hash` -- one definition, R-2); `main` refuses with `manifest
+  <id> covers 0 of N clean bundles` when nothing is covered, and reports
+  `K of N clean bundles not in manifest <id>: not promoted` otherwise. New
+  `resolved_as_of`: `--as-of` must equal the bound manifest's own `as_of`
+  (compared as instants); omitted, it defaults to the manifest's `as_of`;
+  disagreement refuses with `SystemExit` BEFORE `promote()` writes anything.
+- **`scripts/run_all.py`** (Warning-1): `main`'s freeze-then-promote tail is
+  extracted into `freeze_and_promote(db, data_dir, as_of)`, which captures
+  the freeze step's own printed `snapshot <id>` line (via
+  `contextlib.redirect_stdout`) and passes THAT id to
+  `promote.resolve_manifest`/`--snapshot-id`, never re-discovering "the
+  newest manifest" by directory name. Also mirrors `split_by_manifest`'s
+  refusal/reporting so both pipeline entry points enforce Blocker-2
+  identically, and fixes Nit-2 (`load_clean(data_dir)` now takes the
+  explicit dir, matching the `promote(...)` call beside it).
+- **`scripts/serve.py`** (Blocker-1, fix #2): `_fixture_marker_rows` /
+  `_FIXTURE_MARKER` restore an INDEPENDENT, rename-proof check keyed on
+  `last_indexed_at == cvi.benchmark_data.BENCHMARK_NOW` (a stamp only the
+  seeded catalog ever writes; `scripts/promote.py` always writes the
+  scoring `as_of` instead). `refusal_reasons` now reports up to two reasons
+  (fixture-clock and content-hash) instead of one masking the other.
+- **`docs/v2/03-ANTI-MANIPULATION.md`** §5: one sentence added stating the
+  served-DB guard's scope -- accidental substitution and unrecomputed
+  edits, not an attacker with write access to the file and the code (lead
+  ratifies).
+- **Tests**: every placeholder `build_manifest([], ...)` in
+  `tests/test_promote.py` and `tests/test_serve.py` replaced with a real
+  frozen manifest built from a copy of the read-only sample's own
+  `numpy/numpy` envelopes (`tests/test_run_all.py` does the same). Restored
+  `test_fixture_database_is_refused_naming_the_row` under its round-1 name
+  with round-1's two original assertions (`"benchmark_data" in reasons[0]`,
+  `offending in reasons[0]`); DELETED round 2's
+  `test_fixture_database_is_refused_for_no_snapshot_meta` rather than
+  renaming it -- once the real fixture test returned, it was a duplicate of
+  `test_database_without_snapshot_meta_is_refused` (both prove "an
+  unpromoted database is refused", which is all its body ever showed,
+  LENS-TQ-08). New tests for B2 (hollow-manifest refusal, real-manifest
+  promotes exactly the covered bundle, one-altered-hash drops exactly that
+  bundle, two-bundle partial coverage with the printed reason), W2 (default,
+  agreeing, and disagreeing `--as-of`), B1 (truncate unit test, the full
+  seed-then-promote sequence with both fixes proven independently), and W1
+  (`freeze_and_promote` uses its own id over a 2027-dated and a
+  `HOLLOW-SNAPSHOT`-named stray manifest).
+
+## R3.3 The B1/B2 sequence outputs (verbatim, real CLI, real sample envelopes)
+
+Setup: `numpy/numpy`'s 10 real envelope files copied from the read-only
+sample into a scratch data dir, derived and verified for real (`CLEAN`),
+frozen (`snapshot 20260913T0000000000-b6e8fd69e810`, 10 envelopes).
+
+```
+$ python scripts/promote.py --db cvi.db --data-dir <dir> --as-of 2026-09-13T00:00:00Z
+usage: promote.py [-h] [--db DB] [--data-dir DATA_DIR] [--as-of ISO-8601]
+                  --snapshot-id SNAPSHOT_ID
+promote.py: error: the following arguments are required: --snapshot-id
+exit=2
+
+$ python scripts/promote.py --db cvi.db --data-dir <dir> --snapshot-id 20260913T0000000000-b6e8fd69e810 --as-of 2026-09-13T00:00:00Z
+promoted 1 verified repos as of 2026-09-13T00:00:00+00:00 -> cvi.db (snapshot 20260913T0000000000-b6e8fd69e810)
+exit=0
+
+$ python scripts/promote.py --db cvi_mismatch.db --data-dir <dir> --snapshot-id 20260913T0000000000-b6e8fd69e810 --as-of 2020-01-01T00:00:00Z
+--as-of 2020-01-01T00:00:00+00:00 does not match manifest '20260913T0000000000-b6e8fd69e810''s as_of 2026-09-13T00:00:00+00:00 -- one snapshot, one reference time
+exit=1   (no db file written)
+
+$ python scripts/promote.py --db cvi_hollow.db --data-dir <dir> --snapshot-id 20260101T0000000000-4f53cda18c2b --as-of 2026-01-01T00:00:00Z   # HOLLOW-SNAPSHOT: 0 envelopes
+manifest 20260101T0000000000-4f53cda18c2b covers 0 of 1 clean bundles
+exit=1   (no db file written)
+```
+
+Seed-then-promote, Blocker-1 (live, before either fix -- reproduced on a
+reverted copy, matching round 2's regression exactly):
+```
+seeded 1000
+promote real sample ON TOP of the seeded db -> exit 0
+total rows now: 1001   (1000 fixtures + 1 real -- both fixes reverted)
+```
+With both fixes applied (current tree):
+```
+seeded 1000
+promote real sample ON TOP of the seeded db -> exit 0
+total rows now: 1   ([('numpy', 'numpy')])   <- fix #1: truncate
+
+$ python scripts/serve.py --db cvi_seed_then_promote.db --port 18901
+CVI serve: 1 verified repos from '.../cvi_seed_then_promote.db' (snapshot 20260913T0000000000-b6e8fd69e810)
+GET /healthz -> {"status":"ok"}   HTTP=200
+
+# reintroduce ONE fixture row after promotion (simulating fix #1 failing some other way)
+now 2 rows
+$ python scripts/serve.py --db cvi_seed_then_promote.db --port 18902
+CVI serve refused for '.../cvi_seed_then_promote.db':
+  1 of 2 rows carry the cvi/benchmark_data.py fixture clock (last_indexed_at=2026-09-11T12:00:00): row 1002 vllm-project/vllm is fabricated telemetry, which is a test fixture and never a ranking source
+  .../cvi_seed_then_promote.db's current content matches none of its 1 recorded snapshot_meta row(s) -- the database was modified after promotion, or copied beside a foreign snapshot
+exit=1   <- fix #2 catches it independently
+```
+
+Rename-proof marker, against round 1's exact bypass:
+```
+$ sqlite3: UPDATE repositories SET owner = owner || '-inc'   (5 fixture rows)
+$ python scripts/serve.py --db cvi_rename_fixture.db --port 18903
+CVI serve refused for '.../cvi_rename_fixture.db':
+  5 of 5 rows carry the cvi/benchmark_data.py fixture clock (last_indexed_at=2026-09-11T12:00:00): row 1 vllm-project-inc/vllm is fabricated telemetry, which is a test fixture and never a ranking source
+  ...has no snapshot_meta row: promote against a frozen snapshot first (...)
+exit=1
+```
+
+`run_all.freeze_and_promote` against a lexically-later stray manifest
+(`2027-01-01`, and a `HOLLOW-SNAPSHOT`-named one) already present under
+`snapshots/`:
+```
+snapshot 20260914T0000000000-b6e8fd69e810
+...
+promoted 1 verified repos -> cvi_runall.db (snapshot 20260914T0000000000-b6e8fd69e810)
+rc= 0
+```
+`snapshot_meta.snapshot_id` bound: `20260914T0000000000-...` -- the run's
+own freeze, not `2027-01-01` or `HOLLOW-SNAPSHOT`.
+
+## R3.4 Named test outputs, exit codes
+
+```
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest \
+  tests/test_verify.py tests/test_serve.py tests/test_derive.py \
+  tests/test_promote.py tests/test_run_all.py tests/test_lakehouse.py \
+  -p no:cacheprovider -v
+tests/test_verify.py ..........................                          [ 21%]
+tests/test_serve.py ..............                                       [ 32%]
+tests/test_derive.py .........                                           [ 39%]
+tests/test_promote.py .....................                              [ 56%]
+tests/test_run_all.py ..                                                 [ 58%]
+tests/test_lakehouse.py ................................................ [ 97%]
+...                                                                      [100%]
+123 passed, exit=0
+```
+
+Net new tests this round: `test_promote.py` 11->21 (+10), `test_serve.py`
+12->14 (+2, after deleting one round-2 test and adding three), new
+`test_run_all.py` (+2). 14 net new tests.
+
+## R3.5 Ruff
+
+```
+$ .venv/bin/python -m ruff check cvi/ scripts/ tests/
+All checks passed!
+exit=0
+```
+
+## R3.6 Mutation kills (TQ-PROC-3: mutate -> red -> restore -> `diff -q` byte-identical)
+
+| # | File | Mutation | Killing test(s) | Result |
+|---|---|---|---|---|
+| M1 | `promote.py` | B2 coverage: `_covered_by_manifest` body -> `return True` | `test_manifest_with_one_altered_hash_drops_exactly_that_bundle`, `test_hollow_manifest_covers_zero_clean_bundles_and_is_refused` | KILLED (both) |
+| M2 | `promote.py` | W2 mismatch check `if as_of != manifest_as_of:` -> `if False:` | `test_resolved_as_of_rejects_a_disagreeing_value`, `test_main_refuses_as_of_disagreeing_with_the_manifest` | KILLED (both) |
+| M3 | `lakehouse.py` | B1 fix #1: `truncate_repositories`'s `DELETE` -> no-op | `test_promote_truncates_a_stray_row_before_writing`, `test_seed_then_promote_serves_only_the_real_rows` | KILLED (both; reproduces round 2's exact 1001-row bug) |
+| M4 | `serve.py` | B1 fix #2: `if fixtures:` -> `if False:` | `test_fixture_database_is_refused_naming_the_row`, `test_renaming_fixture_owners_does_not_evade_the_marker`, `test_seed_then_promote_serves_only_the_real_rows` | KILLED (all three) |
+| M5 | `promote.py` | W1: `--snapshot-id required=True` -> optional | `test_main_requires_snapshot_id_flag` | KILLED |
+
+5 constructed, 5 killed, 0 survivors. Every mutation applied via `sed -i` on
+the actual file, run in isolation with `__pycache__` cleared on both sides,
+restored and verified `diff -q <file> <backup>` byte-identical (not `git
+diff --quiet`, which is meaningless mid-round against an already-uncommitted
+tree).
+
+## R3.7 Full suite
+
+```
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/ -n 4 -p no:cacheprovider
+1493 passed, 12 warnings in 25.37s
+exit=0
+```
+
+1479 (round 2) + 14 net new this round = 1493. Matches.
+
+## R3.8 COULD NOT VERIFY
+
+- `COULD NOT VERIFY: scripts/run_all.py's sweep loop (gather -> derive ->
+  verify per candidate repo) end-to-end` -- it performs live network calls;
+  `tests/test_run_all.py` exercises only the freeze/promote tail `main`
+  runs after the sweep (the part Warning-1 is about), pre-populating
+  `verified/`/`raw/` directly rather than mocking `gather.gather_repo`.
+- `COULD NOT VERIFY: Consider-3 (constants_hash stored and never checked by
+  serve.py)` -- named in the round-2 review as a Consider, not one of this
+  round's five bounded items; left untouched, unrelated to any of
+  B1/B2/W1/W2/W3.
+- `COULD NOT VERIFY: Consider-5 (repositories_dump_hash / matching_snapshot_id
+  computed twice per serve.main() startup)` -- also a round-2 Consider
+  outside this round's five items; the double computation is unchanged.
+- Carried over from round 2, still true: `COULD NOT VERIFY: whether any
+  packet outside W0-4's ownership will ever mark a list-valued-source field
+  as confidence=="verified"` (tested regardless at the verify.py level);
+  `COULD NOT VERIFY: the exact prior state of "a copy of this work" that
+  hung for 2.5 h` (still not reproduced, still no blocking I/O).
+
+## R3.9 Rebase onto main
+
+Rebased onto `main`'s tip at dispatch time (`0f3f1de`) before finalizing.
+`git diff --name-only` between the pre-rebase merge-base and `main` touched
+only `scripts/derive.py` among files this packet reads or owns, confined to
+the bottom hook-chain region this packet never touches (W1-7 Pike signals,
+lines 441+); the rebase applied with zero conflicts
+(`git rebase 0f3f1de` -> "Successfully rebased", `git status --short` empty).
+Post-rebase re-verification (same commands as above, on the rebased tree):
+
+```
+$ .venv/bin/python -m ruff check cvi/ scripts/ tests/
+All checks passed!
+
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest \
+  tests/test_verify.py tests/test_serve.py tests/test_derive.py \
+  tests/test_promote.py tests/test_run_all.py tests/test_lakehouse.py \
+  -p no:cacheprovider -v
+123 passed, exit=0
+
+$ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/ -n 4 -p no:cacheprovider
+1692 passed, 12 warnings in 53.04s
+exit=0
+```
+
+1692 (not 1493, §R3.7's pre-rebase count) because other packets landed
+tests on `main` between round 2 and this rebase; the named-test and
+mutation-kill counts in §R3.4/§R3.6 are unaffected (none of those files
+changed on `main`). Rebased onto `main` parent `0f3f1de` (main's tip at
+rebase time); the final commit sha is reported in the reply to this
+dispatch, not repeated here (editing this file after committing changes
+the sha it would name).

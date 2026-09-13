@@ -103,7 +103,11 @@ row is held from promotion until re-gathered. Runs nightly as a canary.
 
 **Served database guard.** `serve.py` refuses a database whose rows lack
 `snapshot_id` or whose `constants_hash` does not match the running code; the
-synthetic catalog can never be served again by accident (F1).
+synthetic catalog can never be served again by accident (F1). This defends
+against accidental substitution and unrecomputed edits (the wrong database, a
+stale fixture, an ordering mistake), not against an attacker with write
+access to the file and the code, who can recompute the stored hash to match
+whatever they change (round 3 review, INT-W0-4 R2, Consider-1).
 
 ## 6. Detectors (packet W3-2)
 

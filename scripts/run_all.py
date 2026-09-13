@@ -13,6 +13,12 @@ gains a freeze step between verify and promote -- gather -> derive -> verify
 -> freeze -> promote -> serve -- rather than leaving that step to be
 discovered only from ``scripts/serve.py``'s own refusal message.
 
+Round 3 (Warning-1, `03` §5): :func:`freeze_and_promote` passes the id ITS
+OWN freeze call reported straight into ``--snapshot-id``, rather than having
+``promote.resolve_manifest`` re-discover "the newest manifest" by directory
+name -- a forward-dated or stray manifest already under ``snapshots/`` used
+to win that lexical sort over the run's own freeze, silently.
+
 Usage:
   .venv/bin/python scripts/run_all.py --limit 50 --skip-downloads
   .venv/bin/python scripts/run_all.py --all --db data/cvi.db
@@ -20,7 +26,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
+import io
 import json
 import sys
 from datetime import datetime, timezone
@@ -70,6 +78,49 @@ def run_one(owner: str, name: str, eco: str, skip_pypistats: bool) -> str:
     return "CLEAN" if report["clean"] else "FLAG"
 
 
+def freeze_and_promote(db: str, data_dir: Path, as_of: datetime) -> int:
+    """Freeze ``data_dir`` at ``as_of``, then promote CLEAN bundles under the
+    id THAT freeze just reported (round 3, Warning-1, `03` §5) -- never by
+    re-discovering "the newest manifest" (round 2's bug: a forward-dated or
+    stray manifest already under ``snapshots/`` wins that lexical sort over
+    the run's own freeze). ``as_of`` is read once by the caller and reused
+    for both the freeze and the scoring, so :func:`promote.resolved_as_of`'s
+    match-the-manifest check always passes here by construction. Returns the
+    process exit code (0 on success).
+    """
+    captured = io.StringIO()
+    with contextlib.redirect_stdout(captured):
+        freeze_rc = snapshot_cli.main(
+            ["freeze", "--data-dir", str(data_dir), "--as-of", as_of.isoformat()])
+    output = captured.getvalue()
+    print(output, end="")
+    if freeze_rc != 0:
+        print(f"freeze failed (exit {freeze_rc}); not promoting")
+        return freeze_rc
+    snapshot_line = next((line for line in output.splitlines()
+                         if line.startswith("snapshot ")), None)
+    if snapshot_line is None:
+        print("freeze produced no snapshot id; not promoting")
+        return 1
+    snapshot_id = snapshot_line.split(" ", 1)[1]
+    manifest = promote.resolve_manifest(data_dir, snapshot_id)
+    bundles = promote.load_clean(data_dir)
+    if not bundles:
+        print("no clean verified bundles to promote; run verify.py first")
+        return 1
+    covered, not_in_manifest = promote.split_by_manifest(bundles, data_dir, manifest)
+    if not covered:
+        print(f"manifest {manifest['snapshot_id']} covers 0 of {len(bundles)} clean bundles")
+        return 1
+    if not_in_manifest:
+        print(f"{len(not_in_manifest)} of {len(bundles)} clean bundles not in manifest "
+              f"{manifest['snapshot_id']}: not promoted")
+    n = promote.promote(covered, db, as_of, data_dir)
+    promote.write_snapshot_meta(db, manifest, repositories_dump_hash(db))
+    print(f"promoted {n} verified repos -> {db} (snapshot {manifest['snapshot_id']})")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int)
@@ -91,18 +142,7 @@ def main() -> int:
             print(f"[{i}/{len(repos)}] {owner}/{name} {eco}: {result} | {tally}")
     print(f"sweep done: {tally}")
     if not a.skip_downloads:
-        data_dir = gather.DATA.parent
-        as_of = datetime.now(timezone.utc)
-        freeze_rc = snapshot_cli.main(
-            ["freeze", "--data-dir", str(data_dir), "--as-of", as_of.isoformat()])
-        if freeze_rc != 0:
-            print(f"freeze failed (exit {freeze_rc}); not promoting")
-            return freeze_rc
-        manifest = promote.resolve_manifest(data_dir)
-        bundles = promote.load_clean()
-        n = promote.promote(bundles, a.db, as_of, data_dir)
-        promote.write_snapshot_meta(a.db, manifest, repositories_dump_hash(a.db))
-        print(f"promoted {n} verified repos -> {a.db} (snapshot {manifest['snapshot_id']})")
+        return freeze_and_promote(a.db, gather.DATA.parent, datetime.now(timezone.utc))
     return 0
 
 

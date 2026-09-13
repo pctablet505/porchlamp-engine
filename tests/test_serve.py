@@ -10,9 +10,12 @@ its portal thread, so the store is built inside ``client.portal.call`` (the
 same pattern as ``tests/test_api.py::open_client``).
 
 The second half of the file is the served-DB guard of packet W0-4 (`03` §5,
-F1), round 2: identity is bound to the database's OWN content, not to a
-per-row name/telemetry heuristic (round 1's ``(owner, name) == (stars,
-forks)`` equality, which one ``UPDATE`` statement defeated) or to a
+F1). Round 3 restores an independent rename-proof fixture check (Blocker-1:
+round 2 deleted it while adding the content-hash identity, so seeding the
+synthetic catalog and then promoting a real sample on top served fabricated
+rows alongside real ones) alongside identity bound to the database's OWN
+content, not a per-row name/telemetry heuristic (round 1's ``(owner, name)
+== (stars, forks)`` equality, which one ``UPDATE`` statement defeated) or a
 manifest.json that happens to sit beside the db file (round 1's Warning-3).
 ``scripts/promote.py`` writes a ``snapshot_meta`` row carrying a content hash
 of the ``repositories`` table; ``scripts/serve.py`` recomputes that hash at
@@ -26,6 +29,7 @@ import importlib.util
 import shutil
 import sqlite3
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -36,7 +40,7 @@ from cvi.benchmark_data import BENCHMARK_NOW, get_benchmark_catalog
 from cvi.ingest import apply_raw_metrics
 from cvi.lakehouse import OperationalStore, repositories_dump_hash
 from cvi.models import CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
-from cvi.snapshot.manifest import build_manifest, write_manifest
+from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest
 from scripts import serve
 from scripts.serve import count_repos, create_serve_app
 
@@ -46,6 +50,16 @@ promote = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(promote)
 
 AS_OF = "2026-09-12T00:00:00+00:00"
+
+#: A real repository from the read-only sample, used to build genuine,
+#: non-placeholder manifests (round 3, Warning-3): ``build_manifest([], ...)``
+#: covered zero envelopes, the exact shape that hid Blocker-2 from every test
+#: that used it. serve.py's own checks never consult manifest envelope
+#: content, so this repo need not relate to whatever rows a given test
+#: writes into ``repositories`` -- only :func:`_promote_snapshot`'s content
+#: hash does that.
+_SAMPLE_RAW = Path("/home/pctablet505/Projects/cvi-scratch/sample-200/raw")
+_SAMPLE_KEY = "numpy__numpy"
 
 
 def _store_at(db_path: Path) -> OperationalStore:
@@ -130,22 +144,37 @@ def test_healthz_ok():
 # --------------------------------------------------------------------------- #
 
 
-def _freeze(data_dir: Path) -> None:
-    """Freeze ``data_dir`` with cvi.snapshot's own writer."""
-    manifest = build_manifest([], as_of=AS_OF, code_commit="unknown",
+def _copy_sample_envelopes(data_dir: Path) -> None:
+    """Copy one real repo's envelopes from the read-only sample into
+    ``data_dir/raw/`` (round 3, Warning-3)."""
+    for collector_dir in sorted(p for p in _SAMPLE_RAW.iterdir() if p.is_dir()):
+        src = collector_dir / f"{_SAMPLE_KEY}.json"
+        if src.is_file():
+            dest = data_dir / "raw" / collector_dir.name / f"{_SAMPLE_KEY}.json"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest)
+
+
+def _freeze_real(data_dir: Path, as_of: str = AS_OF) -> dict:
+    """A real frozen manifest over ``data_dir``'s own ``raw/`` envelopes."""
+    _copy_sample_envelopes(data_dir)
+    scan = envelope_entries(data_dir)
+    manifest = build_manifest(scan.entries, as_of=as_of, code_commit="unknown",
                               canonical_dump_hash="pending")
     write_manifest(data_dir, manifest)
+    return manifest
 
 
-def _bind_snapshot(data_dir: Path, db: Path) -> None:
-    """Bind ``db``'s current ``repositories`` content to the frozen manifest
-    under ``data_dir``, exactly as ``scripts/promote.py`` does at the end of a
-    real promotion (round 2, Blocker-3): a ``snapshot_meta`` row carrying
+def _promote_snapshot(data_dir: Path, db: Path) -> dict:
+    """Freeze ``data_dir`` (real envelopes) and bind ``db``'s current
+    ``repositories`` content to it, exactly as ``scripts/promote.py`` does at
+    the end of a real promotion (Blocker-3): a ``snapshot_meta`` row carrying
     :func:`cvi.lakehouse.repositories_dump_hash`, not a filesystem manifest
     lookup or a per-row name/telemetry match.
     """
-    manifest = promote.resolve_manifest(data_dir)
+    manifest = _freeze_real(data_dir)
     promote.write_snapshot_meta(str(db), manifest, repositories_dump_hash(str(db)))
+    return manifest
 
 
 def _fixture_rows(store: OperationalStore, count: int) -> list[dict]:
@@ -185,27 +214,50 @@ def served(monkeypatch: pytest.MonkeyPatch) -> _RunRecorder:
     return recorder
 
 
-def test_fixture_database_is_refused_for_no_snapshot_meta(tmp_path, served):
-    # Round 2 (Blocker-3): the synthetic catalog was never promoted against a
-    # frozen snapshot, so it has no snapshot_meta row -- THAT is what refuses
-    # it now (an unpromoted database, of any content), not a per-row
-    # name/telemetry heuristic (round 1's guard, which a bulk UPDATE
-    # defeated -- see the bypass tests below). A snapshot manifest merely
-    # sitting on disk beside the db is not enough either.
+def test_fixture_database_is_refused_naming_the_row(tmp_path, served):
+    # Round 3 (Blocker-1): restored. Round 2 deleted this rule outright
+    # while adding the content-hash identity below, rather than keeping it
+    # as a second, independent guard -- the two catch different things (see
+    # the module docstring). A snapshot is bound here too, so the fixture
+    # rule is isolated: only IT can fire.
     db = tmp_path / "cvi.db"
     store = _store_at(db)
-    _fixture_rows(store, 3)
+    rows = _fixture_rows(store, 3)
     store.close()
-    _freeze(tmp_path)
+    _promote_snapshot(tmp_path, db)
 
     reasons = serve.refusal_reasons(OperationalStore(str(db)), str(db))
     assert len(reasons) == 1
-    assert "no snapshot_meta row" in reasons[0]
+    offending = f"{rows[0]['owner']}/{rows[0]['name']}"
+    assert offending in reasons[0]
+    assert "benchmark_data" in reasons[0]
 
     with pytest.raises(SystemExit) as excinfo:
         serve.main(["--db", str(db)])
-    assert "no snapshot_meta row" in str(excinfo.value)
+    assert offending in str(excinfo.value)
     assert served.ports == []  # the server never started
+
+
+def test_renaming_fixture_owners_does_not_evade_the_marker(tmp_path, served):
+    # The fixture guard is keyed on last_indexed_at, never owner/name, so
+    # round 1's exact bypass of the OLD (owner, name) == (stars, forks) rule
+    # does nothing to it.
+    db = tmp_path / "cvi.db"
+    store = _store_at(db)
+    _fixture_rows(store, 5)
+    store.close()
+    _promote_snapshot(tmp_path, db)
+
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE repositories SET owner = owner || '-inc'")
+    conn.commit()
+    conn.close()
+
+    reasons = serve.refusal_reasons(OperationalStore(str(db)), str(db))
+    assert any("benchmark_data" in r for r in reasons)
+    with pytest.raises(SystemExit):
+        serve.main(["--db", str(db)])
+    assert served.ports == []
 
 
 def test_database_without_snapshot_meta_is_refused(tmp_path, served):
@@ -229,8 +281,7 @@ def test_promoted_database_with_snapshot_identity_serves(tmp_path, served):
     _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
     _promoted_row(store, "tokio-rs", "tokio", stars=33123, forks=3244)
     store.close()
-    _freeze(tmp_path)
-    _bind_snapshot(tmp_path, db)
+    _promote_snapshot(tmp_path, db)
 
     assert serve.refusal_reasons(OperationalStore(str(db)), str(db)) == []
     serve.main(["--db", str(db), "--port", "8123"])
@@ -244,8 +295,7 @@ def test_real_repo_sharing_a_fixture_name_still_serves(tmp_path, served):
     store = _store_at(db)
     _promoted_row(store, "torvalds", "linux", stars=248274, forks=64487)
     store.close()
-    _freeze(tmp_path)
-    _bind_snapshot(tmp_path, db)
+    _promote_snapshot(tmp_path, db)
 
     fixture = next(row for row in get_benchmark_catalog(1000)
                    if (row["owner"], row["name"]) == ("torvalds", "linux"))
@@ -258,8 +308,7 @@ def test_empty_promoted_database_serves(tmp_path, served):
     # binding still names what the (empty) database was promoted against.
     db = tmp_path / "cvi.db"
     OperationalStore(str(db)).close()
-    _freeze(tmp_path)
-    _bind_snapshot(tmp_path, db)
+    _promote_snapshot(tmp_path, db)
 
     assert serve.refusal_reasons(OperationalStore(str(db)), str(db)) == []
     serve.main(["--db", str(db), "--port", "8124"])
@@ -281,8 +330,7 @@ def test_renaming_every_owner_after_promotion_is_refused(tmp_path, served):
     store = _store_at(db)
     _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
     store.close()
-    _freeze(tmp_path)
-    _bind_snapshot(tmp_path, db)
+    _promote_snapshot(tmp_path, db)
     assert serve.refusal_reasons(OperationalStore(str(db)), str(db)) == []
 
     conn = sqlite3.connect(db)
@@ -305,8 +353,7 @@ def test_nudging_telemetry_after_promotion_is_refused(tmp_path, served):
     store = _store_at(db)
     _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
     store.close()
-    _freeze(tmp_path)
-    _bind_snapshot(tmp_path, db)
+    _promote_snapshot(tmp_path, db)
 
     conn = sqlite3.connect(db)
     conn.execute("UPDATE repositories SET stars = stars + 1")
@@ -331,8 +378,7 @@ def test_manifest_copied_beside_a_foreign_database_is_refused(tmp_path, served):
     store = _store_at(db)
     _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
     store.close()
-    _freeze(src_dir)
-    _bind_snapshot(src_dir, db)
+    _promote_snapshot(src_dir, db)
     assert serve.refusal_reasons(OperationalStore(str(db)), str(db)) == []
 
     foreign_dir = tmp_path / "foreign"
@@ -344,3 +390,72 @@ def test_manifest_copied_beside_a_foreign_database_is_refused(tmp_path, served):
     reasons = serve.refusal_reasons(OperationalStore(str(foreign_db)), str(foreign_db))
     assert len(reasons) == 1
     assert "no snapshot_meta row" in reasons[0]
+
+
+# --------------------------------------------------------------------------- #
+# Round 3, Blocker-1 (`03` §5): the review's full seed-then-promote sequence
+# -- two independent fixes, both required.
+# --------------------------------------------------------------------------- #
+
+
+def test_seed_then_promote_serves_only_the_real_rows(tmp_path, served):
+    # Seed the synthetic catalog, THEN promote a real bundle on top (round
+    # 2's exact ordering accident: promote upserted but never deleted, so
+    # 995 fabricated rows served alongside the real ones). Fix #1 (promote
+    # truncates repositories first) means only the promoted row survives.
+    db = tmp_path / "cvi.db"
+    store = _store_at(db)
+    _fixture_rows(store, 1000)
+    store.close()
+    assert count_repos(OperationalStore(str(db))) == 1000
+
+    bundle = {
+        "meta": {
+            "owner": "acme", "name": "widget", "ecosystem": "pypi",
+            "stars": 100, "forks": 10, "monthly_downloads": 0,
+            "dependents_count": 0, "elephant_factor": 3,
+            "legal_ip_model": "DCO", "ai_posture": "AD_HOC",
+            "scorecard_score": 5.0, "active_nonbot_commits_180d": 10,
+            "off_platform_reviews": False, "hard_ai_ban": False,
+            "promotion_ladder": "AD_HOC", "mean_inline_comments": 0.0,
+            "active_unclaimed_gfis": 0, "rr_90": 0.0, "dx_ci_minutes": 0.0,
+            "openssf_signals": None,
+        },
+        "pr_events": [],
+    }
+    as_of = datetime(2026, 9, 13, tzinfo=timezone.utc)
+    promote.promote([bundle], str(db), as_of, tmp_path)
+    manifest = _freeze_real(tmp_path, as_of=as_of.isoformat())
+    promote.write_snapshot_meta(str(db), manifest, repositories_dump_hash(str(db)))
+
+    store2 = OperationalStore(str(db))
+    assert count_repos(store2) == 1  # not 1001 -- the seed did not survive
+    assert serve.refusal_reasons(store2, str(db)) == []
+    serve.main(["--db", str(db), "--port", "8125"])
+    assert served.ports == [8125]
+
+    # Fix #2, proven independently: reintroduce a fixture row some OTHER way
+    # (a bug that skipped the truncate, a manual INSERT). The marker guard
+    # does not depend on fix #1 having run -- it is a second, independent
+    # control, and it must still catch this.
+    conn = sqlite3.connect(db)
+    row = get_benchmark_catalog(1)[0]
+    conn.execute(
+        "INSERT INTO repositories (owner, name, ecosystem, domain_category, "
+        "stars, forks, openssf_criticality, elephant_factor, legal_ip_model, "
+        "ai_posture, score_responsiveness, score_criticality, score_governance, "
+        "score_rigor_ai, score_accessibility, leverage_score, friction_score, "
+        "matrix_quadrant, overall_cvi, rank_tier, last_indexed_at) VALUES "
+        "(?, ?, 'pypi', '', ?, ?, 0, 1, 'DCO', 'AD_HOC', 0, 0, 0, 0, 0, 0, 0, "
+        "'SWEET_SPOT', 0, 'A', ?)",
+        (row["owner"], row["name"], row["stars"], row["forks"], BENCHMARK_NOW.isoformat()))
+    conn.commit()
+    conn.close()
+
+    reasons = serve.refusal_reasons(OperationalStore(str(db)), str(db))
+    assert any("benchmark_data" in r for r in reasons)
+    offending = f"{row['owner']}/{row['name']}"
+    assert any(offending in r for r in reasons)
+    with pytest.raises(SystemExit):
+        serve.main(["--db", str(db)])
+    assert served.ports == [8125]  # unchanged: this second serve.main never started

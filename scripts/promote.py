@@ -21,9 +21,29 @@ promoted-then-edited database from one that still matches what was promoted
 -- a per-row telemetry check cannot survive a bulk ``UPDATE``, a content hash
 of the whole table can.
 
-Usage: .venv/bin/python scripts/promote.py [--db data/cvi.db]
-                                         [--data-dir data] [--as-of 2026-09-12T00:00:00Z]
-                                         [--snapshot-id <id>]
+Round 3 (`03` §5, Blocker-2, Warning-1, Warning-2): a frozen manifest used to
+be a label -- its ``snapshot_id``/``as_of``/hashes were copied into
+``snapshot_meta`` but nothing checked that the manifest actually covered what
+was promoted, so ``--snapshot-id`` naming an empty manifest promoted the
+whole universe anyway. Promotion is now bound to the manifest's own envelope
+set: :func:`split_by_manifest` keeps only clean bundles whose ``verified``
+fields' envelopes are ALL listed in the manifest with a matching sha256
+(:func:`_bundle_envelope_refs` reuses ``scripts/verify.py``'s own path/hash
+resolution -- one definition, R-2); a manifest covering none of the clean
+bundles refuses promotion outright. ``--snapshot-id`` is now required (no
+"pick the lexically-newest manifest" default: a forward-dated or stray
+manifest left in ``snapshots/`` used to win silently). ``--as-of`` must agree
+with the bound manifest's own ``as_of`` -- one snapshot names one reference
+time; :func:`resolved_as_of` refuses a mismatch instead of letting
+``snapshot_meta`` record a value nothing scored against.
+
+Round 3 (Blocker-1): :meth:`cvi.lakehouse.OperationalStore.truncate_repositories`
+is called before any row is written, so a promotion's output is exactly its
+manifest-covered bundles -- never rows a prior seed (``cvi/benchmark_data.py``,
+``scripts/demo_app.py``) left behind.
+
+Usage: .venv/bin/python scripts/promote.py --db data/cvi.db --data-dir data
+                                         --snapshot-id <id> [--as-of 2026-09-12T00:00:00Z]
 """
 from __future__ import annotations
 
@@ -49,6 +69,7 @@ from cvi.models import (
     RepoMeta,
 )
 from cvi.snapshot.manifest import MANIFEST_FILENAME, SNAPSHOTS_DIRNAME
+from scripts.verify import _claimed_hash, _envelope_path, _source_items
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 
@@ -142,31 +163,123 @@ def _no_manifest_message(data_dir: Path, detail: str) -> str:
             f"`python -m cvi.snapshot freeze --data-dir {data_dir} --as-of <ISO-8601>`")
 
 
-def resolve_manifest(data_dir: Path, snapshot_id: Optional[str] = None) -> dict[str, Any]:
-    """Load the frozen manifest this promotion binds its ``snapshot_meta`` row to.
+def resolve_manifest(data_dir: Path, snapshot_id: str) -> dict[str, Any]:
+    """Load the frozen manifest named by ``snapshot_id`` (Warning-1, `03` §5).
 
-    An explicit ``snapshot_id`` names ``<data_dir>/snapshots/<id>/manifest.json``
-    directly; omitted, the lexically-newest manifest under
-    ``<data_dir>/snapshots/`` is used (the same "newest freeze wins" convention
-    ``scripts/serve.py``'s round-1 ``snapshot_identity`` used). Raises
-    ``SystemExit`` naming the freeze command when none exists: promotion without
-    a snapshot has nothing for ``snapshot_meta`` to record, which is exactly the
-    round-1 gap (Warning-2) where a normally promoted database could not be
-    served.
+    ``snapshot_id`` is required, with no "pick a manifest for me" fallback:
+    round 2's default -- the lexically-newest ``<data_dir>/snapshots/*``
+    directory name -- silently preferred a forward-dated or oddly-named
+    manifest over the one a run had just frozen (a directory named
+    ``HOLLOW-SNAPSHOT`` sorts after every real ``YYYYMMDD...`` name).
+    ``scripts/run_all.py`` passes the id its own freeze step reported;
+    ``scripts/promote.py``'s CLI requires ``--snapshot-id`` for the same
+    reason. Raises ``SystemExit`` naming the freeze command when the id
+    names no manifest: promotion without one has nothing for
+    ``snapshot_meta`` to record (round-1 Warning-2's original gap).
     """
-    snapshots_dir = Path(data_dir) / SNAPSHOTS_DIRNAME
-    if snapshot_id:
-        path = snapshots_dir / snapshot_id / MANIFEST_FILENAME
-        if not path.is_file():
-            raise SystemExit(_no_manifest_message(
-                data_dir, f"no manifest for snapshot {snapshot_id!r} at {path}"))
-    else:
-        candidates = sorted(snapshots_dir.glob(f"*/{MANIFEST_FILENAME}"))
-        if not candidates:
-            raise SystemExit(_no_manifest_message(
-                data_dir, f"no frozen manifest under {snapshots_dir}"))
-        path = candidates[-1]
+    path = Path(data_dir) / SNAPSHOTS_DIRNAME / snapshot_id / MANIFEST_FILENAME
+    if not path.is_file():
+        raise SystemExit(_no_manifest_message(
+            data_dir, f"no manifest for snapshot {snapshot_id!r} at {path}"))
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def resolved_as_of(cli_as_of: Optional[str], manifest: dict[str, Any]) -> datetime:
+    """The single reference time this promotion scores against (Warning-2, `03` §5).
+
+    A snapshot names one ``as_of``; promotion must score against exactly
+    that time, not a second, independently-chosen one. Omitted ``--as-of``
+    defaults to the manifest's own ``as_of``. A supplied ``--as-of`` must
+    parse and must equal the manifest's ``as_of`` (compared as instants, not
+    strings, so ``Z`` and ``+00:00`` agree) -- round 2 accepted any value and
+    silently stamped rows with it while ``snapshot_meta`` recorded the
+    manifest's own time regardless, so the two could (and, measured, did by
+    six years) disagree with no refusal.
+    """
+    manifest_as_of = _dt(manifest.get("as_of"))
+    if manifest_as_of is None:
+        raise SystemExit(f"manifest {manifest.get('snapshot_id')!r} has an "
+                          f"unparseable as_of: {manifest.get('as_of')!r}")
+    if not cli_as_of:
+        return manifest_as_of
+    as_of = _dt(cli_as_of)
+    if as_of is None:
+        raise SystemExit(f"--as-of is not an ISO-8601 timestamp: {cli_as_of!r}")
+    if as_of != manifest_as_of:
+        raise SystemExit(
+            f"--as-of {as_of.isoformat()} does not match manifest "
+            f"{manifest['snapshot_id']!r}'s as_of {manifest_as_of.isoformat()} "
+            "-- one snapshot, one reference time")
+    return as_of
+
+
+def _manifest_envelope_index(manifest: dict[str, Any]) -> dict[tuple[str, str], str]:
+    """``(collector, key) -> sha256`` for every envelope ``manifest`` froze."""
+    return {(e["collector"], e["key"]): e["sha256"] for e in manifest.get("envelopes", [])}
+
+
+def _bundle_envelope_refs(bundle: dict[str, Any],
+                          data_dir: Path) -> list[tuple[str, str, Optional[str]]]:
+    """``(collector, key, claimed_sha256)`` for every ``verified`` field's
+    envelope reference in ``bundle`` (Blocker-2, `03` §5: "promotion reads
+    only envelopes in the manifest").
+
+    Restricted to ``verified`` fields -- the same filter
+    ``scripts/verify.py``'s ``provenance_checks`` applies -- because those
+    are the only claims a CLEAN bundle's ``report.clean`` actually vouches
+    for; a list-valued ``derived`` field such as ``pr_events`` carries no
+    hash at all (its provenance is written directly, bypassing
+    ``Bundle.set``) and would make every bundle fail this check if it were
+    included. Resolution reuses ``scripts/verify.py``'s own helpers
+    (:func:`scripts.verify._envelope_path`, :func:`scripts.verify._source_items`,
+    :func:`scripts.verify._claimed_hash`) so there is one definition of what
+    an envelope path is and how its hash is read (R-2).
+    """
+    refs: list[tuple[str, str, Optional[str]]] = []
+    provenance = bundle.get("provenance") or {}
+    confidence = bundle.get("confidence") or {}
+    for field, level in confidence.items():
+        if level != "verified":
+            continue
+        for source, hash_hint in _source_items(provenance.get(field)):
+            if not isinstance(source, str) or not source:
+                continue
+            path = _envelope_path(source, data_dir)
+            if path is None:
+                continue
+            claimed = _claimed_hash(source, hash_hint)
+            refs.append((path.parent.name, path.stem, claimed))
+    return refs
+
+
+def _covered_by_manifest(bundle: dict[str, Any], data_dir: Path,
+                         manifest_index: dict[tuple[str, str], str]) -> bool:
+    """Whether every one of ``bundle``'s envelope references is in ``manifest_index``
+    with a matching sha256. A bundle with zero resolvable references fails
+    closed (``False``): there is nothing to check it against, which is not
+    the same as nothing being wrong."""
+    refs = _bundle_envelope_refs(bundle, data_dir)
+    return bool(refs) and all(
+        claimed is not None and manifest_index.get((collector, key)) == claimed
+        for collector, key, claimed in refs
+    )
+
+
+def split_by_manifest(bundles: list[dict[str, Any]], data_dir: Path,
+                      manifest: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Partition CLEAN ``bundles`` into ``(covered, not_in_manifest)`` against
+    ``manifest`` (Blocker-2, `03` §5): the manifest is the promotion
+    boundary, not a label copied into ``snapshot_meta`` for show. A manifest
+    with zero envelopes (or one missing/altering an entry a bundle depends
+    on) covers zero or fewer bundles; ``main`` refuses outright when
+    ``covered`` is empty rather than silently promoting the whole universe.
+    """
+    index = _manifest_envelope_index(manifest)
+    covered: list[dict[str, Any]] = []
+    not_in_manifest: list[dict[str, Any]] = []
+    for bundle in bundles:
+        (covered if _covered_by_manifest(bundle, data_dir, index) else not_in_manifest).append(bundle)
+    return covered, not_in_manifest
 
 
 def write_snapshot_meta(db_path: str, manifest: dict[str, Any], dump_hash: str) -> None:
@@ -177,13 +290,16 @@ def write_snapshot_meta(db_path: str, manifest: dict[str, Any], dump_hash: str) 
     for -- :func:`cvi.lakehouse.repositories_dump_hash`, never
     :func:`cvi.snapshot.reproduce.canonical_dump_hash` directly (that would
     hash this very table's own row in). ``promoted_at`` mirrors
-    ``manifest["as_of"]`` rather than reading a wall clock (D-VER-3): the
-    reference time this promotion scored against already is the answer to
-    "when". ``scripts/serve.py`` recomputes the same
-    :func:`cvi.lakehouse.repositories_dump_hash` at startup and refuses
-    unless it still matches a stored row -- editing ``repositories`` after
-    promotion (renaming an owner, nudging a counter) changes the recomputed
-    hash, so no stored row matches any more.
+    ``manifest["as_of"]``, which is safe to treat as "the reference time this
+    promotion scored against" ONLY because :func:`resolved_as_of` (Warning-2,
+    `03` §5) already refused any ``--as-of`` that disagreed with the
+    manifest's own -- round 2 recorded ``manifest["as_of"]`` here
+    unconditionally, so a mismatched ``--as-of`` stamped rows with one time
+    while this column silently recorded another. ``scripts/serve.py``
+    recomputes the same :func:`cvi.lakehouse.repositories_dump_hash` at
+    startup and refuses unless it still matches a stored row -- editing
+    ``repositories`` after promotion (renaming an owner, nudging a counter)
+    changes the recomputed hash, so no stored row matches any more.
     """
     store = OperationalStore(db_path)
     try:
@@ -214,7 +330,11 @@ def promote(
     ``last_indexed_at`` takes ``as_of`` too: left to the column default the
     store stamps SQLite's ``CURRENT_TIMESTAMP`` and the database stops being
     reproducible (D-VER-3). ``data_dir`` is where the run's ``promoted.json``
-    receipt is written.
+    receipt is written. ``repositories`` is truncated before anything is
+    written (round 3, Blocker-1): a promotion's output is exactly
+    ``bundles``, never rows a prior seed or run left behind (upserting alone
+    let a seeded ``cvi/benchmark_data.py`` catalog and a real promotion
+    coexist).
     """
     if as_of is None:
         as_of = datetime.now(timezone.utc)
@@ -239,6 +359,7 @@ def promote(
     n = 0
     try:
         store.ensure_deep_dive_column()
+        store.truncate_repositories()
         for _key, (meta, events, _p90v) in metas.items():
             eco = meta.ecosystem.value
             result = score_repository(
@@ -279,23 +400,28 @@ def main() -> int:
     ap.add_argument("--data-dir", type=Path, default=DATA,
                     help="directory holding verified/ and receiving promoted.json")
     ap.add_argument("--as-of", metavar="ISO-8601", default=None,
-                    help="snapshot reference time for scoring (default: now, read once)")
-    ap.add_argument("--snapshot-id", default=None,
-                    help="frozen snapshot to bind snapshot_meta to "
-                         "(default: newest under <data-dir>/snapshots/)")
+                    help="snapshot reference time for scoring (default: the "
+                         "bound manifest's own as_of; must agree with it if given)")
+    ap.add_argument("--snapshot-id", required=True,
+                    help="frozen snapshot to promote from and bind snapshot_meta "
+                         "to (required -- no default, Warning-1)")
     a = ap.parse_args()
-    as_of = _dt(a.as_of) if a.as_of else None
-    if a.as_of and as_of is None:
-        print(f"--as-of is not an ISO-8601 timestamp: {a.as_of!r}")
-        return 2
     manifest = resolve_manifest(a.data_dir, a.snapshot_id)
+    as_of = resolved_as_of(a.as_of, manifest)
     bundles = load_clean(a.data_dir)
     if not bundles:
         print("no clean verified bundles to promote; run verify.py first")
         return 1
-    n = promote(bundles, a.db, as_of, a.data_dir)
+    covered, not_in_manifest = split_by_manifest(bundles, a.data_dir, manifest)
+    if not covered:
+        print(f"manifest {manifest['snapshot_id']} covers 0 of {len(bundles)} clean bundles")
+        return 1
+    if not_in_manifest:
+        print(f"{len(not_in_manifest)} of {len(bundles)} clean bundles not in manifest "
+              f"{manifest['snapshot_id']}: not promoted")
+    n = promote(covered, a.db, as_of, a.data_dir)
     write_snapshot_meta(a.db, manifest, repositories_dump_hash(a.db))
-    print(f"promoted {n} verified repos as of {as_of.isoformat() if as_of else 'now'} "
+    print(f"promoted {n} verified repos as of {as_of.isoformat()} "
           f"-> {a.db} (snapshot {manifest['snapshot_id']})")
     return 0
 

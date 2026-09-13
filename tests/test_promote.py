@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
@@ -15,15 +16,32 @@ from pathlib import Path
 
 import pytest
 
-from cvi.lakehouse import repositories_dump_hash
-from cvi.snapshot.manifest import build_manifest, write_manifest
+from cvi.collect.envelope import write_envelope
+from cvi.lakehouse import OperationalStore, repositories_dump_hash
+from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("promote", ROOT / "scripts" / "promote.py")
 promote = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(promote)
 
+_verify_spec = importlib.util.spec_from_file_location("verify", ROOT / "scripts" / "verify.py")
+verify = importlib.util.module_from_spec(_verify_spec)
+_verify_spec.loader.exec_module(verify)
+
+_derive_spec = importlib.util.spec_from_file_location("derive", ROOT / "scripts" / "derive.py")
+derive = importlib.util.module_from_spec(_derive_spec)
+_derive_spec.loader.exec_module(derive)
+
 NOW = datetime(2026, 9, 12, 12, 0, 0, tzinfo=timezone.utc)
+
+#: A real repository from the read-only sample used to build genuine,
+#: non-placeholder manifests (round 3, Warning-3): round 2's
+#: ``build_manifest([], ...)`` covered zero envelopes, which is exactly the
+#: shape that hid Blocker-2 from every test that used it.
+SAMPLE_RAW = Path("/home/pctablet505/Projects/cvi-scratch/sample-200/raw")
+SAMPLE_OWNER, SAMPLE_NAME, SAMPLE_ECO = "numpy", "numpy", "pypi"
+SAMPLE_KEY = f"{SAMPLE_OWNER}__{SAMPLE_NAME}"
 
 
 def _bundle(owner="acme", name="widget", eco="pypi"):
@@ -110,14 +128,95 @@ def test_missing_created_at_falls_back_to_as_of_not_the_wall_clock():
 
 
 # --------------------------------------------------------------------------- #
-# Round 2 (Blocker-3, Warning-2): promotion requires a frozen snapshot and
-# binds the promoted database's content to it via a ``snapshot_meta`` row.
+# Round 3 (Blocker-1, `03` §5): promotion is a pure function of its inputs --
+# the repositories table is truncated first, so no prior write survives it.
 # --------------------------------------------------------------------------- #
 
 
-def _freeze(data_dir: Path, as_of: str = NOW.isoformat()) -> dict:
-    """Freeze ``data_dir`` with cvi.snapshot's own writer; return the manifest."""
-    manifest = build_manifest([], as_of=as_of, code_commit="unknown",
+def test_promote_truncates_a_stray_row_before_writing(tmp_path):
+    # Round 2 regression: promote upserted without ever deleting, so a row
+    # from a prior write (a seeded demo catalog, a stray manual insert)
+    # coexisted with whatever the next promotion wrote.
+    db = str(tmp_path / "cvi.db")
+    store = OperationalStore(db)
+    store.connection.execute(
+        "INSERT INTO repositories (owner, name, ecosystem, domain_category, "
+        "stars, forks, openssf_criticality, elephant_factor, legal_ip_model, "
+        "ai_posture, score_responsiveness, score_criticality, score_governance, "
+        "score_rigor_ai, score_accessibility, leverage_score, friction_score, "
+        "matrix_quadrant, overall_cvi, rank_tier) VALUES "
+        "('stray', 'row', 'pypi', '', 1, 1, 0, 1, 'DCO', 'AD_HOC', "
+        "0, 0, 0, 0, 0, 0, 0, 'SWEET_SPOT', 0, 'A')")
+    store.connection.commit()
+    store.close()
+
+    n = promote.promote([_bundle()], db, NOW, tmp_path)
+    assert n == 1
+
+    conn = sqlite3.connect(db)
+    try:
+        rows = conn.execute("SELECT owner, name FROM repositories").fetchall()
+    finally:
+        conn.close()
+    assert rows == [("acme", "widget")]  # the stray row is gone, not coexisting
+
+
+# --------------------------------------------------------------------------- #
+# Round 2 (Blocker-3, Warning-2)/Round 3 (Blocker-2, Warning-1, Warning-2):
+# promotion requires a frozen snapshot, is bound to its envelope set, and
+# must agree with its as_of.
+# --------------------------------------------------------------------------- #
+
+
+def _copy_sample_envelopes(data_dir: Path) -> None:
+    """Copy numpy/numpy's real envelopes from the read-only sample into
+    ``data_dir/raw/`` (round 3, Warning-3)."""
+    for collector_dir in sorted(p for p in SAMPLE_RAW.iterdir() if p.is_dir()):
+        src = collector_dir / f"{SAMPLE_KEY}.json"
+        if src.is_file():
+            dest = data_dir / "raw" / collector_dir.name / f"{SAMPLE_KEY}.json"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest)
+
+
+def _real_clean_bundle(data_dir: Path) -> dict:
+    """Derive + verify numpy/numpy for real from a copy of the read-only
+    sample's own envelopes; writes ``derived/`` and ``verified/`` and
+    returns the clean bundle. A manifest frozen from the SAME ``data_dir``
+    covers exactly this bundle's provenance."""
+    _copy_sample_envelopes(data_dir)
+    bundle = derive.derive_repo(SAMPLE_OWNER, SAMPLE_NAME, derive.Ecosystem(SAMPLE_ECO),
+                                data_dir, fetch=False)
+    (data_dir / "derived").mkdir(parents=True, exist_ok=True)
+    (data_dir / "derived" / f"{SAMPLE_KEY}.json").write_text(
+        json.dumps(bundle, sort_keys=True), encoding="utf-8")
+    report = verify.verify_repo(SAMPLE_OWNER, SAMPLE_NAME, data_dir)
+    assert report["clean"], f"sample bundle is not clean: {report['flags']}"
+    return bundle
+
+
+def _synthetic_clean_bundle(data_dir: Path, owner: str, name: str, eco: str = "pypi") -> dict:
+    """Derive + verify a second, unrelated CLEAN bundle from one hand-written
+    ``github_meta`` envelope -- lighter than a sample copy, used only as the
+    SECOND, unaffected repo in a two-bundle manifest test."""
+    key = f"{owner}__{name}"
+    write_envelope(data_dir / "raw" / "github_meta" / f"{key}.json",
+                   "github:repository", {"stars": 42, "forks": 3}, "2026-09-11T00:00:00Z")
+    bundle = derive.derive_repo(owner, name, derive.Ecosystem(eco), data_dir, fetch=False)
+    (data_dir / "derived").mkdir(parents=True, exist_ok=True)
+    (data_dir / "derived" / f"{key}.json").write_text(
+        json.dumps(bundle, sort_keys=True), encoding="utf-8")
+    report = verify.verify_repo(owner, name, data_dir)
+    assert report["clean"], f"synthetic bundle is not clean: {report['flags']}"
+    return bundle
+
+
+def _freeze_real(data_dir: Path, as_of: str = NOW.isoformat()) -> dict:
+    """A real frozen manifest over ``data_dir``'s own ``raw/`` envelopes
+    (round 3, Warning-3): replaces the round-2 ``build_manifest([], ...)``
+    placeholder, the envelope-less shape that hid Blocker-2."""
+    scan = envelope_entries(data_dir)
+    manifest = build_manifest(scan.entries, as_of=as_of, code_commit="unknown",
                               canonical_dump_hash="pending")
     write_manifest(data_dir, manifest)
     return manifest
@@ -125,37 +224,29 @@ def _freeze(data_dir: Path, as_of: str = NOW.isoformat()) -> dict:
 
 def test_resolve_manifest_without_a_freeze_names_the_freeze_command(tmp_path):
     with pytest.raises(SystemExit) as excinfo:
-        promote.resolve_manifest(tmp_path)
+        promote.resolve_manifest(tmp_path, "whatever-id")
     assert "cvi.snapshot freeze" in str(excinfo.value)
     assert str(tmp_path) in str(excinfo.value)
 
 
-def test_resolve_manifest_defaults_to_the_newest(tmp_path):
-    first = _freeze(tmp_path, as_of="2026-09-12T00:00:00+00:00")
-    second = _freeze(tmp_path, as_of="2026-09-12T01:00:00+00:00")
-    assert first["snapshot_id"] != second["snapshot_id"]
-    resolved = promote.resolve_manifest(tmp_path)
-    assert resolved["snapshot_id"] == second["snapshot_id"]
-
-
 def test_resolve_manifest_with_explicit_snapshot_id(tmp_path):
-    first = _freeze(tmp_path, as_of="2026-09-12T00:00:00+00:00")
-    _freeze(tmp_path, as_of="2026-09-12T01:00:00+00:00")  # newer; must be ignored below
-    resolved = promote.resolve_manifest(tmp_path, snapshot_id=first["snapshot_id"])
+    first = _freeze_real(tmp_path, as_of="2026-09-12T00:00:00+00:00")
+    resolved = promote.resolve_manifest(tmp_path, first["snapshot_id"])
     assert resolved["snapshot_id"] == first["snapshot_id"]
 
 
 def test_resolve_manifest_with_unknown_snapshot_id_names_the_freeze_command(tmp_path):
-    _freeze(tmp_path)
+    _freeze_real(tmp_path)
     with pytest.raises(SystemExit) as excinfo:
-        promote.resolve_manifest(tmp_path, snapshot_id="does-not-exist")
+        promote.resolve_manifest(tmp_path, "does-not-exist")
     assert "cvi.snapshot freeze" in str(excinfo.value)
 
 
 def test_write_snapshot_meta_records_the_bound_identity(tmp_path):
+    bundle = _real_clean_bundle(tmp_path)
     db = str(tmp_path / "cvi.db")
-    promote.promote([_bundle()], db, NOW, tmp_path)
-    manifest = _freeze(tmp_path)
+    promote.promote([bundle], db, NOW, tmp_path)
+    manifest = _freeze_real(tmp_path)
     dump_hash = repositories_dump_hash(db)
     promote.write_snapshot_meta(db, manifest, dump_hash)
 
@@ -181,45 +272,209 @@ def test_write_snapshot_meta_hash_ignores_its_own_row(tmp_path):
     # database file it is recording a hash about, so the hash it stores must
     # not include its own row -- otherwise every promoted-then-served
     # database would invalidate itself the instant the row is written.
+    bundle = _real_clean_bundle(tmp_path)
     db = str(tmp_path / "cvi.db")
-    promote.promote([_bundle()], db, NOW, tmp_path)
-    manifest = _freeze(tmp_path)
+    promote.promote([bundle], db, NOW, tmp_path)
+    manifest = _freeze_real(tmp_path)
     before = repositories_dump_hash(db)
     promote.write_snapshot_meta(db, manifest, before)
     after = repositories_dump_hash(db)
     assert after == before
 
 
-def test_main_refuses_promotion_without_a_frozen_snapshot(tmp_path, monkeypatch):
-    (tmp_path / "verified").mkdir()
-    (tmp_path / "verified" / "acme__widget.json").write_text(
-        json.dumps({"bundle": _bundle(), "report": {"clean": True}}), encoding="utf-8")
+def test_main_requires_snapshot_id_flag(monkeypatch, capsys, tmp_path):
+    # Warning-1: --snapshot-id has no default any more.
+    monkeypatch.setattr(sys, "argv", ["promote.py", "--data-dir", str(tmp_path)])
+    with pytest.raises(SystemExit) as excinfo:
+        promote.main()
+    assert excinfo.value.code != 0
+    err = capsys.readouterr().err
+    assert "--snapshot-id" in err
+
+
+def test_main_refuses_promotion_for_an_unknown_snapshot_id(tmp_path, monkeypatch):
+    bundle = _real_clean_bundle(tmp_path)
     db = str(tmp_path / "cvi.db")
     monkeypatch.setattr(sys, "argv", [
-        "promote.py", "--db", db, "--data-dir", str(tmp_path), "--as-of", NOW.isoformat()])
+        "promote.py", "--db", db, "--data-dir", str(tmp_path),
+        "--snapshot-id", "does-not-exist", "--as-of", NOW.isoformat()])
     with pytest.raises(SystemExit) as excinfo:
         promote.main()
     assert "cvi.snapshot freeze" in str(excinfo.value)
     assert not Path(db).exists()
+    del bundle  # only needed to prove a clean bundle existing doesn't matter
 
 
 def test_main_promotes_and_binds_after_a_freeze(tmp_path, monkeypatch):
-    (tmp_path / "verified").mkdir()
-    (tmp_path / "verified" / "acme__widget.json").write_text(
-        json.dumps({"bundle": _bundle(), "report": {"clean": True}}), encoding="utf-8")
+    _real_clean_bundle(tmp_path)
     db = str(tmp_path / "cvi.db")
-    manifest = _freeze(tmp_path)
+    manifest = _freeze_real(tmp_path)
     monkeypatch.setattr(sys, "argv", [
-        "promote.py", "--db", db, "--data-dir", str(tmp_path), "--as-of", NOW.isoformat()])
+        "promote.py", "--db", db, "--data-dir", str(tmp_path),
+        "--snapshot-id", manifest["snapshot_id"], "--as-of", NOW.isoformat()])
     assert promote.main() == 0
 
     conn = sqlite3.connect(db)
     try:
         snap = conn.execute("SELECT snapshot_id, canonical_dump_hash FROM snapshot_meta").fetchone()
-        n = conn.execute("SELECT COUNT(*) FROM repositories").fetchone()[0]
+        rows = conn.execute("SELECT owner, name FROM repositories").fetchall()
     finally:
         conn.close()
     assert snap is not None
     assert snap[0] == manifest["snapshot_id"]
     assert snap[1] == repositories_dump_hash(db)
-    assert n == 1
+    assert rows == [(SAMPLE_OWNER, SAMPLE_NAME)]
+
+
+# --------------------------------------------------------------------------- #
+# Round 3, Blocker-2 (`03` §5): "promotion reads only envelopes in the
+# manifest" -- the manifest is the promotion boundary, not a label.
+# --------------------------------------------------------------------------- #
+
+
+def test_hollow_manifest_covers_zero_clean_bundles_and_is_refused(tmp_path, monkeypatch, capsys):
+    # The review's exact reproduction: a hand-built manifest with ZERO
+    # envelopes must cover nothing and refuse outright, not silently
+    # promote the whole universe.
+    _real_clean_bundle(tmp_path)
+    hollow = build_manifest([], as_of="2026-01-01T00:00:00+00:00",
+                            code_commit="unknown", canonical_dump_hash="pending")
+    write_manifest(tmp_path, hollow)
+    db = str(tmp_path / "cvi.db")
+    monkeypatch.setattr(sys, "argv", [
+        "promote.py", "--db", db, "--data-dir", str(tmp_path),
+        "--snapshot-id", hollow["snapshot_id"], "--as-of", "2026-01-01T00:00:00Z"])
+    rc = promote.main()
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert f"manifest {hollow['snapshot_id']} covers 0 of 1 clean bundles" in out
+    assert not Path(db).exists()
+
+
+def test_real_manifest_promotes_exactly_the_covered_bundle(tmp_path, monkeypatch):
+    bundle = _real_clean_bundle(tmp_path)
+    manifest = _freeze_real(tmp_path)
+    covered, not_in_manifest = promote.split_by_manifest([bundle], tmp_path, manifest)
+    assert covered == [bundle]
+    assert not_in_manifest == []
+
+    db = str(tmp_path / "cvi.db")
+    monkeypatch.setattr(sys, "argv", [
+        "promote.py", "--db", db, "--data-dir", str(tmp_path),
+        "--snapshot-id", manifest["snapshot_id"], "--as-of", NOW.isoformat()])
+    assert promote.main() == 0
+    conn = sqlite3.connect(db)
+    try:
+        rows = conn.execute("SELECT owner, name FROM repositories").fetchall()
+    finally:
+        conn.close()
+    assert rows == [(SAMPLE_OWNER, SAMPLE_NAME)]
+
+
+def test_manifest_with_one_altered_hash_drops_exactly_that_bundle(tmp_path):
+    bundle = _real_clean_bundle(tmp_path)
+    manifest = _freeze_real(tmp_path)
+    tampered = json.loads(json.dumps(manifest))
+    altered = next(e for e in tampered["envelopes"]
+                   if e["collector"] == "github_meta" and e["key"] == SAMPLE_KEY)
+    altered["sha256"] = "0" * 64
+
+    covered, not_in_manifest = promote.split_by_manifest([bundle], tmp_path, tampered)
+    assert covered == []
+    assert not_in_manifest == [bundle]
+
+    # Over-correction guard: the UNALTERED manifest still covers it.
+    covered_ok, not_in_manifest_ok = promote.split_by_manifest([bundle], tmp_path, manifest)
+    assert covered_ok == [bundle]
+    assert not_in_manifest_ok == []
+
+
+def test_manifest_covering_one_of_two_bundles_drops_only_that_one(tmp_path, monkeypatch, capsys):
+    numpy_bundle = _real_clean_bundle(tmp_path)
+    acme_bundle = _synthetic_clean_bundle(tmp_path, "acme", "widget")
+    manifest = _freeze_real(tmp_path)
+
+    manifest_path = tmp_path / "snapshots" / manifest["snapshot_id"] / "manifest.json"
+    tampered = json.loads(manifest_path.read_text(encoding="utf-8"))
+    altered = next(e for e in tampered["envelopes"]
+                   if e["collector"] == "github_meta" and e["key"] == SAMPLE_KEY)
+    altered["sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(tampered), encoding="utf-8")
+
+    covered, not_in_manifest = promote.split_by_manifest(
+        [numpy_bundle, acme_bundle], tmp_path, tampered)
+    assert covered == [acme_bundle]
+    assert not_in_manifest == [numpy_bundle]
+
+    db = str(tmp_path / "cvi.db")
+    monkeypatch.setattr(sys, "argv", [
+        "promote.py", "--db", db, "--data-dir", str(tmp_path),
+        "--snapshot-id", manifest["snapshot_id"], "--as-of", NOW.isoformat()])
+    assert promote.main() == 0
+    out = capsys.readouterr().out
+    assert "1 of 2 clean bundles not in manifest" in out
+    conn = sqlite3.connect(db)
+    try:
+        rows = {r[0] for r in conn.execute("SELECT owner FROM repositories").fetchall()}
+    finally:
+        conn.close()
+    assert rows == {"acme"}  # numpy dropped by the altered hash, acme/widget promoted
+
+
+# --------------------------------------------------------------------------- #
+# Round 3, Warning-2 (`03` §5): one snapshot names one reference time.
+# --------------------------------------------------------------------------- #
+
+
+def test_resolved_as_of_defaults_to_the_manifest(tmp_path):
+    manifest = _freeze_real(tmp_path, as_of="2026-09-13T00:00:00+00:00")
+    assert promote.resolved_as_of(None, manifest) == promote._dt(manifest["as_of"])
+
+
+def test_resolved_as_of_accepts_an_agreeing_value(tmp_path):
+    # "Z" and "+00:00" name the same instant; comparison is by value.
+    manifest = _freeze_real(tmp_path, as_of="2026-09-13T00:00:00+00:00")
+    assert promote.resolved_as_of("2026-09-13T00:00:00Z", manifest) == promote._dt(manifest["as_of"])
+
+
+def test_resolved_as_of_rejects_a_disagreeing_value(tmp_path):
+    manifest = _freeze_real(tmp_path, as_of="2026-09-13T00:00:00+00:00")
+    with pytest.raises(SystemExit) as excinfo:
+        promote.resolved_as_of("2020-01-01T00:00:00Z", manifest)
+    assert "does not match manifest" in str(excinfo.value)
+    assert "one snapshot, one reference time" in str(excinfo.value)
+
+
+def test_main_refuses_as_of_disagreeing_with_the_manifest(tmp_path, monkeypatch):
+    # The review's measured counter-example: --as-of 2020-01-01 bound to a
+    # 2026 manifest used to be accepted, stamping rows with one time while
+    # snapshot_meta silently recorded another, six years apart.
+    _real_clean_bundle(tmp_path)
+    manifest = _freeze_real(tmp_path, as_of="2026-09-13T00:00:00+00:00")
+    db = str(tmp_path / "cvi.db")
+    monkeypatch.setattr(sys, "argv", [
+        "promote.py", "--db", db, "--data-dir", str(tmp_path),
+        "--snapshot-id", manifest["snapshot_id"], "--as-of", "2020-01-01T00:00:00Z"])
+    with pytest.raises(SystemExit) as excinfo:
+        promote.main()
+    assert "does not match manifest" in str(excinfo.value)
+    assert not Path(db).exists()
+
+
+def test_main_defaults_as_of_to_the_manifest_when_omitted(tmp_path, monkeypatch):
+    _real_clean_bundle(tmp_path)
+    manifest = _freeze_real(tmp_path, as_of="2026-09-13T00:00:00+00:00")
+    db = str(tmp_path / "cvi.db")
+    monkeypatch.setattr(sys, "argv", [
+        "promote.py", "--db", db, "--data-dir", str(tmp_path),
+        "--snapshot-id", manifest["snapshot_id"]])
+    assert promote.main() == 0
+    conn = sqlite3.connect(db)
+    try:
+        last_indexed_at = conn.execute(
+            "SELECT last_indexed_at FROM repositories").fetchone()[0]
+        promoted_at = conn.execute("SELECT promoted_at FROM snapshot_meta").fetchone()[0]
+    finally:
+        conn.close()
+    assert last_indexed_at == manifest["as_of"]
+    assert promoted_at == manifest["as_of"]
