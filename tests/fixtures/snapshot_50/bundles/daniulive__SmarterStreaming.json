@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/daniulive__SmarterStreaming.json",
+      "source": "raw/contributors/daniulive__SmarterStreaming.json",
       "source_hash": "ab6e277e3be09b49e47ea8007b84e716e256798cdba3278e5d9acf4ca213930a",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/daniulive__SmarterStreaming.json",
+      "source": "raw/gfi/daniulive__SmarterStreaming.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T01:42:27.772642+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/daniulive__SmarterStreaming.json",
+    "source": "raw/commits_180d/daniulive__SmarterStreaming.json",
     "source_hash": "db525408ecd6df4ed87d5290bc62d0dfbd0f363d7d446aab163057438dd9360e",
     "value": "2026-04-15T02:18:59Z"
   },
@@ -132,7 +132,7 @@
     "start": "2017-06-06T06:26:55+00:00",
     "truncated": false
   },
-  "provenance_hash": "f5b6e5291e5b26b79b33e93cb76b457671a3c6ab173476e4117571d6804c0c9c",
+  "provenance_hash": "11afff187c0046ece59fed9cafa902d0711962162f3c62f736521aa77230eb15",
   "repo": {
     "archived": false,
     "default_branch": "master",

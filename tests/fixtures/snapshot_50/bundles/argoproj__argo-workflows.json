@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/argoproj__argo-workflows.json",
+      "source": "raw/contributors/argoproj__argo-workflows.json",
       "source_hash": "92b64cf21c9c0d2d583990b557e67eaca13a4792d2076e6cf4a829696800d79f",
       "value": 6,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/argoproj__argo-workflows.json",
+      "source": "raw/gfi/argoproj__argo-workflows.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T23:18:55.628109+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/argoproj__argo-workflows.json",
+    "source": "raw/commits_180d/argoproj__argo-workflows.json",
     "source_hash": "bb9f695fa076081075a7ceff160e961745585cd20b85d0485af3baaad42df38a",
     "value": "2026-09-11T07:39:07Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-09-09T09:19:40+00:00",
     "truncated": false
   },
-  "provenance_hash": "c3e08da5225c7910b6434d64642f8120bee9ecb2d19a9847011fcdcebe7c852b",
+  "provenance_hash": "5234ce892f8bef4c5c62c3cd2481c32dd04e3e33e498cea03d56981b5426a37c",
   "repo": {
     "archived": false,
     "default_branch": "main",

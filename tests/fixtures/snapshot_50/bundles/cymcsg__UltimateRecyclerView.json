@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/cymcsg__UltimateRecyclerView.json",
+      "source": "raw/contributors/cymcsg__UltimateRecyclerView.json",
       "source_hash": "81b622f88e2829045ccc235cf66a85fd78e5982615650afc77babe2534d34c69",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/cymcsg__UltimateRecyclerView.json",
+      "source": "raw/gfi/cymcsg__UltimateRecyclerView.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T04:57:34.976376+00:00",
     "kind": "measured",
     "method": "measured:no_non_bot_commit_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/cymcsg__UltimateRecyclerView.json",
+    "source": "raw/commits_180d/cymcsg__UltimateRecyclerView.json",
     "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "value": null
   },
@@ -422,7 +422,7 @@
     "start": "2016-04-04T05:30:17+00:00",
     "truncated": false
   },
-  "provenance_hash": "6eb757048304b335945ae740f364661974e349f416690f432eabda0d756377bf",
+  "provenance_hash": "6dff0a743f8281c6e6eca40e1330a95505f60cfc639adb944b4d985126e1b050",
   "repo": {
     "archived": false,
     "default_branch": "master",

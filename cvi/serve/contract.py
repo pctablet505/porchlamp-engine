@@ -39,9 +39,33 @@ contract needs concrete types):
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
+
+#: Windows drive letter or UNC prefix -- rejected alongside a leading POSIX
+#: ``/`` (W2-14) so `EvidenceRow.source` can never name an absolute path on
+#: any platform. Duplicated from ``cvi.core.models.is_relative_envelope_
+#: source``'s identical check: this module is deliberately free of
+#: ``cvi.core`` imports (module docstring above) so it can be imported by a
+#: stdlib fixture server without pulling in the scoring engine.
+_DRIVE_OR_UNC = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+
+
+def _is_relative_envelope_source(value: str) -> bool:
+    """Whether ``value`` is a safe, portable envelope-provenance path: a
+    non-empty relative POSIX path with no leading ``/``/``\\``, no Windows
+    drive letter or UNC prefix, and no ``..`` path segment (W2-14: provenance
+    must never leak this server's absolute filesystem layout, and must
+    resolve identically against any data root)."""
+    if value == "":
+        return False
+    if value.startswith(("/", "\\")):
+        return False
+    if _DRIVE_OR_UNC.match(value):
+        return False
+    return ".." not in re.split(r"[\\/]+", value)
 
 #: The five pillars, in the fixed order `02-RANKING-DESIGN.md` D-AGG-1 weighs
 #: them (responsiveness .25, criticality .25, governance .20, rigor .15,
@@ -381,6 +405,11 @@ class EvidenceRow(StrictModel):
             raise ValueError(f"{self.param_id}: measured=True but score/method/source/fetched_at are all null")
         if not self.measured and has_measured_fields:
             raise ValueError(f"{self.param_id}: measured=False but carries a measured field")
+        if self.source is not None and not _is_relative_envelope_source(self.source):
+            raise ValueError(
+                f"{self.param_id}: source must be a path relative to the data root "
+                f"(no leading '/', no drive letter, no '..' segment), got {self.source!r}"
+            )
         return self
 
 

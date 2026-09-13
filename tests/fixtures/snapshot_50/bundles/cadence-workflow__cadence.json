@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/cadence-workflow__cadence.json",
+      "source": "raw/contributors/cadence-workflow__cadence.json",
       "source_hash": "586b926ff0cd0d5fb69ae3f188acbe9001d9c0e8d167c6847d75487e6fbb825b",
       "value": 11,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/cadence-workflow__cadence.json",
+      "source": "raw/gfi/cadence-workflow__cadence.json",
       "source_hash": "16c334a2bdaba05f5c1867522b7e3abaa101f014fd0e3d176170a49c209a89ee",
       "value": 2,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T02:46:16.256350+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/cadence-workflow__cadence.json",
+    "source": "raw/commits_180d/cadence-workflow__cadence.json",
     "source_hash": "b5e9b657867341da86dbfabe1b85899d89d90c3eb6db0ccd6adbcbbe302944dc",
     "value": "2026-09-11T23:03:31Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-09-02T07:15:01+00:00",
     "truncated": false
   },
-  "provenance_hash": "c6ae5cd7ada79965385a61d5a840435330f9e35fce23e476c8a95477a535c967",
+  "provenance_hash": "e66afe4a468383e4a46b23731617fc9d095d600ab5c2183bd88b7a2609ade5e8",
   "repo": {
     "archived": false,
     "default_branch": "master",

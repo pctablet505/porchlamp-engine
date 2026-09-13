@@ -126,6 +126,74 @@ def test_write_records_round_trips_repo_params_and_populations(tmp_path) -> None
     ]
 
 
+def test_write_records_nulls_source_for_a_measured_input_with_no_population(tmp_path) -> None:
+    """W2-14 (found while proving the evidence endpoint always serves
+    relative sources on the real fixture): ``reason="no_population"`` is a
+    STAGE-2 outcome (``cvi.core.models.Unmeasured``'s own docstring: the
+    scoring engine assigns it to a ``ParamScore``, never to an input-stage
+    value) -- the underlying bundle input can be genuinely ``Measured`` with
+    a real ``source``/``fetched_at`` even though ``ParamScore.measured`` is
+    ``False``. ``cvi/serve/contract.py``'s ``EvidenceRow`` contract is
+    explicit that an unmeasured row carries no source/fetched_at; before
+    this fix the writer copied them through anyway, so any real repo with a
+    ``no_population`` parameter made ``GET .../evidence`` 500 (the row
+    failed its own contract's validator: ``measured=False`` but ``source``
+    and ``fetched_at`` were set)."""
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    _write_one_snapshot(conn)
+
+    param_scores = {
+        "ttfhr_hours": ParamScore(
+            value=None, score=None, measured=False, reason="no_population", n=0,
+            window_start=None, window_end=None, method=None, source=None, fetched_at=None,
+        ),
+    }
+    record = make_rated_record("snap-1", params=param_scores)
+    item = make_repo_write(record, inputs={"ttfhr_hours": make_measured(4.5, n=42)})
+    write_records(conn, "snap-1", [item], populations=None)
+
+    row = conn.execute(
+        "SELECT measured, reason, raw_value, source, source_hash, fetched_at, method "
+        "FROM params WHERE param_id = 'ttfhr_hours'"
+    ).fetchone()
+    measured, reason, raw_value, source, source_hash, fetched_at, method = row
+    assert measured == 0
+    assert reason == "no_population"
+    # The input-stage value survives as informational context (the contract
+    # does not restrict it), but every measured-only provenance field is
+    # NULL, matching what the row's own `measured=False` promises.
+    assert raw_value == "4.5"
+    assert source is None
+    assert source_hash is None
+    assert fetched_at is None
+    assert method is None
+
+
+def test_param_row_rejects_an_absolute_source(tmp_path) -> None:
+    """W2-14 defense-in-depth: ``cvi.core.models.Measured.__post_init__``
+    already refuses to construct a ``Measured`` with an absolute source, so
+    the only way to reach ``_param_row``'s own guard is a value that became
+    absolute *after* construction (``object.__setattr__`` on the frozen
+    dataclass, standing in for "however a stale/corrupted absolute source
+    got here") -- the store must still refuse to write it, never silently
+    persist an absolute path of this machine as served evidence."""
+    from cvi.store.writer import _param_row
+
+    param_scores = {
+        "ttfhr_hours": ParamScore(
+            value=4.5, score=88.0, measured=True, reason=None, n=42,
+            window_start=None, window_end=None, method="primary",
+            source="raw/pr_window/acme__demo.json", fetched_at="2026-09-01T00:00:00Z",
+        ),
+    }
+    record = make_rated_record("snap-1", params=param_scores)
+    corrupted = make_measured(4.5, n=42)
+    object.__setattr__(corrupted, "source", "/home/someone/cvi-data/raw/pr_window/acme__demo.json")
+    item = make_repo_write(record, inputs={"ttfhr_hours": corrupted})
+    with pytest.raises(ValueError, match="relative to the data root"):
+        _param_row(1, "ttfhr_hours", item)
+
+
 def test_write_records_writes_no_params_for_a_gated_repo(tmp_path) -> None:
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)

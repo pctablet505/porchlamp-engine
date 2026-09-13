@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/AtsushiSakai__PythonRobotics.json",
+      "source": "raw/contributors/AtsushiSakai__PythonRobotics.json",
       "source_hash": "b59b3b7edf0c58e5ebc0f9f7f85e6633f8a46ea556e7018c3693c2cb25589c8b",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/AtsushiSakai__PythonRobotics.json",
+      "source": "raw/gfi/AtsushiSakai__PythonRobotics.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T21:52:47.005902+00:00",
     "kind": "measured",
     "method": "measured:no_non_bot_commit_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/AtsushiSakai__PythonRobotics.json",
+    "source": "raw/commits_180d/AtsushiSakai__PythonRobotics.json",
     "source_hash": "81ec57f8974b154a675b96a11c189bc3d0ad741d4a93d211fc8ffe355710cd54",
     "value": null
   },
@@ -422,7 +422,7 @@
     "start": "2026-06-29T20:02:45+00:00",
     "truncated": false
   },
-  "provenance_hash": "b3efa8a431b26031989a885479d4704385d2294d698ed7d8fe5319cca1a66741",
+  "provenance_hash": "f04061a67b4424acbb875c0f91790be1a80320d4fdfb63135f16cd5eb488a343",
   "repo": {
     "archived": false,
     "default_branch": "master",

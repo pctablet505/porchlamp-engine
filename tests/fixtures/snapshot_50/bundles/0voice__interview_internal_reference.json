@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/0voice__interview_internal_reference.json",
+      "source": "raw/contributors/0voice__interview_internal_reference.json",
       "source_hash": "a37f133ff002aa7fd4f31d3f54b96fa72755d0e5dd3353b1a1d1d3c612fd805f",
       "value": 2,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/0voice__interview_internal_reference.json",
+      "source": "raw/gfi/0voice__interview_internal_reference.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T21:16:05.228173+00:00",
     "kind": "measured",
     "method": "measured:no_non_bot_commit_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/0voice__interview_internal_reference.json",
+    "source": "raw/commits_180d/0voice__interview_internal_reference.json",
     "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "value": null
   },
@@ -422,7 +422,7 @@
     "start": "2019-09-01T12:48:27+00:00",
     "truncated": false
   },
-  "provenance_hash": "5c775a271bae6153fbf6ebecb745a7e54b1cdf9e90ecd82ebd621f68a4bcb1f0",
+  "provenance_hash": "823be18d6bd3cf16285ec26b6aae966d251603f80105737ac9394a87f144bbe1",
   "repo": {
     "archived": false,
     "default_branch": "master",

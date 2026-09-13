@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/chillzhuang__SpringBlade.json",
+      "source": "raw/contributors/chillzhuang__SpringBlade.json",
       "source_hash": "76ff17025c4d601684a358a96d6458536b210ae8b92b3eaef228f14b04788e91",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/chillzhuang__SpringBlade.json",
+      "source": "raw/gfi/chillzhuang__SpringBlade.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T05:08:35.434323+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/chillzhuang__SpringBlade.json",
+    "source": "raw/commits_180d/chillzhuang__SpringBlade.json",
     "source_hash": "234e163793327fce3a595720380df524909e1c6bdb5ba8e1d24954a7a1846089",
     "value": "2026-08-11T13:59:28Z"
   },
@@ -172,7 +172,7 @@
     "start": "2019-07-02T13:52:01+00:00",
     "truncated": false
   },
-  "provenance_hash": "fd877274273b510b59d15ee715845e00f0d7052a5424bd01b63eff9656e01a2c",
+  "provenance_hash": "469bb1c5b623aece1e7a2fc902f7022a096b14ce309d3009a21b2c5df95278ea",
   "repo": {
     "archived": false,
     "default_branch": "master",

@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/apache__cassandra.json",
+      "source": "raw/contributors/apache__cassandra.json",
       "source_hash": "913b97c955b24056b6f79caf91a4b15c6e7aadebc54c19872d97e5177c891175",
       "value": 7,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/apache__cassandra.json",
+      "source": "raw/gfi/apache__cassandra.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T02:20:10.680019+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/apache__cassandra.json",
+    "source": "raw/commits_180d/apache__cassandra.json",
     "source_hash": "05095465c316307aa3a6fcfe89a290297ef96a08b481966838ea6fb32330d5f7",
     "value": "2026-09-11T08:33:04Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-09-09T02:57:32+00:00",
     "truncated": false
   },
-  "provenance_hash": "e6d340313516ce9005be8476bf462716b2255357344bcf6b0ebf7c8c43122763",
+  "provenance_hash": "834f42632023e0367962bbf539d44a97d451e8eef0f70b26148b151e47db4829",
   "repo": {
     "archived": false,
     "default_branch": "trunk",

@@ -116,6 +116,25 @@ def raw_envelope_path(data_dir: Union[Path, str], collector: str, key: str) -> s
     return str(Path(data_dir) / "raw" / collector / f"{key}.json")
 
 
+def relative_envelope_path(root: Union[Path, str], path: Union[Path, str]) -> str:
+    """Express an envelope ``path`` relative to the data ``root``, as a
+    POSIX string (W2-14, docs/v2/00-README.md non-negotiables).
+
+    Provenance is an envelope path plus its content hash, and that path
+    must never be absolute: an absolute path names the machine that
+    derived it, which makes the record non-portable, unreproducible on a
+    different machine, and a filesystem-layout leak. A caller that has
+    ``root`` and ``path`` already joined (for example ``raw_envelope_path
+    (root, collector, key)``) gets the relative form straight back --
+    ``raw/<collector>/<key>.json`` -- so recording the *relative* path
+    costs nothing beyond calling this function instead of ``str(path)``.
+
+    Raises :class:`ValueError` when ``path`` is not ``root`` or a
+    descendant of it: a path outside the data root cannot be recorded as
+    provenance at all (never silently truncated or left absolute)."""
+    return Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
+
+
 @dataclass(frozen=True)
 class Envelope:
     """One raw fetch as read from disk, with the hash the reader attests.

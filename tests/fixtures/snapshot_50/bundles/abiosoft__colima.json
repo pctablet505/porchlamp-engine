@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/abiosoft__colima.json",
+      "source": "raw/contributors/abiosoft__colima.json",
       "source_hash": "e1e2722c1a9c8c48d0c7fc0e566d66f29ccd4ae9cb2ece680658d977798ce7d1",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/abiosoft__colima.json",
+      "source": "raw/gfi/abiosoft__colima.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T21:50:37.783317+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/abiosoft__colima.json",
+    "source": "raw/commits_180d/abiosoft__colima.json",
     "source_hash": "33f7dd6432573abd7b34027729ee77001bb0ceeab0bbbe790d1e7e3542f77110",
     "value": "2026-08-13T18:08:51Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-06-17T18:33:02+00:00",
     "truncated": false
   },
-  "provenance_hash": "a1ac8185f33cb20b58600d7f337e4abdf169828373b161a4afdff49b7581bd79",
+  "provenance_hash": "e3c1fb75a83d3b946f2b81c201661ee88b695573fa2bedba42bd3462a31e65d5",
   "repo": {
     "archived": false,
     "default_branch": "main",

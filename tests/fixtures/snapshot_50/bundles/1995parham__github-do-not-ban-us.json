@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/1995parham__github-do-not-ban-us.json",
+      "source": "raw/contributors/1995parham__github-do-not-ban-us.json",
       "source_hash": "dd83e7512d162f5cc1674a9a40c1b61b0f299698d8a1e92bd376f231c89f8e82",
       "value": 2,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/1995parham__github-do-not-ban-us.json",
+      "source": "raw/gfi/1995parham__github-do-not-ban-us.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T01:23:04.275797+00:00",
     "kind": "measured",
     "method": "measured:no_non_bot_commit_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/1995parham__github-do-not-ban-us.json",
+    "source": "raw/commits_180d/1995parham__github-do-not-ban-us.json",
     "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "value": null
   },
@@ -412,7 +412,7 @@
     "start": "2019-08-01T05:52:21+00:00",
     "truncated": false
   },
-  "provenance_hash": "57363f3a5cc9cf582dee862308c8513c5c0faeab047e61b93ea4f0e06d0d42e1",
+  "provenance_hash": "09342ec47e2aa14e134f720fce51389596f0a281fa8bb087591b4366ec6a5e05",
   "repo": {
     "archived": true,
     "default_branch": "master",

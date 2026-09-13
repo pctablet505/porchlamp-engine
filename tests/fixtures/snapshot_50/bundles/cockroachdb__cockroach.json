@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/cockroachdb__cockroach.json",
+      "source": "raw/contributors/cockroachdb__cockroach.json",
       "source_hash": "670ab4aeef60f4355fde023536c35626139ba4acba6bc9ad01e9f4d62a0019db",
       "value": 8,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/cockroachdb__cockroach.json",
+      "source": "raw/gfi/cockroachdb__cockroach.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T21:40:30.964644+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/cockroachdb__cockroach.json",
+    "source": "raw/commits_180d/cockroachdb__cockroach.json",
     "source_hash": "329ad7195e9cbfa7f70fd2e00eaa2f7a4cd99fce120e0a8540a81925821b7d32",
     "value": "2026-08-07T17:28:36Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-09-04T08:09:26+00:00",
     "truncated": false
   },
-  "provenance_hash": "7a28a2e5aaecd06db20001d73a71f5f3b041451e1e031eadae6f2b115cfc8b6b",
+  "provenance_hash": "3e8cffa6a530635ad93e4c20002c8b9629ca7c7ab502e3ee6f38af34e36ae86f",
   "repo": {
     "archived": false,
     "default_branch": "master",

@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/charmbracelet__lipgloss.json",
+      "source": "raw/contributors/charmbracelet__lipgloss.json",
       "source_hash": "a826d0d4304cb109ff35814aaf8946615f0e4c555cd443cab2a6076c7770db95",
       "value": 2,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/charmbracelet__lipgloss.json",
+      "source": "raw/gfi/charmbracelet__lipgloss.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T01:20:37.755690+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/charmbracelet__lipgloss.json",
+    "source": "raw/commits_180d/charmbracelet__lipgloss.json",
     "source_hash": "c4f10a71f501e03695049d647c0104be6259401257f0d7121fc5b822dcc51c9e",
     "value": "2026-09-11T15:08:16Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-06-22T09:02:51+00:00",
     "truncated": false
   },
-  "provenance_hash": "5d7ebdda51d3cc8f9fec64c81aa20bac372f46f511ba37ff0a1bb7f21587a674",
+  "provenance_hash": "35abcd5c2f197f856fe5def1dd27112a005eaeba048bc24a95ef211e359c0982",
   "repo": {
     "archived": false,
     "default_branch": "main",

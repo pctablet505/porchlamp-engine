@@ -80,6 +80,32 @@ def _optional_nonempty_str(value: Any) -> bool:
     return value is None or _nonempty_str(value)
 
 
+#: Windows drive letter or UNC prefix (``C:\``, ``C:/``, ``\\host\share``) --
+#: rejected alongside a leading POSIX ``/`` so a provenance path can never
+#: name an absolute location on any platform, not just this one (W2-14).
+_DRIVE_OR_UNC = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
+
+
+def is_relative_envelope_source(value: Any) -> bool:
+    """Whether ``value`` is a safe, portable envelope-provenance path.
+
+    W2-14 (docs/v2/00-README.md non-negotiables): provenance is an envelope
+    path plus its content hash, and that path must be relative to the data
+    root (``raw/<collector>/<key>.json``) -- never an absolute path of the
+    machine that derived it, so a bundle reproduces identically from a copy
+    of the same data root on any machine and never leaks this one's
+    filesystem layout. Rejects a non-string, an empty string, a leading
+    ``/`` or ``\\``, a Windows drive letter / UNC prefix, and any ``..``
+    path segment (POSIX or Windows separators)."""
+    if not isinstance(value, str) or value == "":
+        return False
+    if value.startswith(("/", "\\")):
+        return False
+    if _DRIVE_OR_UNC.match(value):
+        return False
+    return ".." not in re.split(r"[\\/]+", value)
+
+
 def measured_problems(value: Measured) -> list[str]:
     """Field-level invariants of one Measured value."""
     problems: list[str] = []
@@ -98,6 +124,11 @@ def measured_problems(value: Measured) -> list[str]:
         problems.append(f"measured.method must be 'primary' or 'proxy:<name>', got {value.method!r}")
     if not _nonempty_str(value.source):
         problems.append("measured.source must be a non-empty envelope path")
+    elif not is_relative_envelope_source(value.source):
+        problems.append(
+            "measured.source must be a path relative to the data root (no leading "
+            f"'/', no drive letter, no '..' segment), got {value.source!r}"
+        )
     if not _HEX64.match(value.source_hash):
         problems.append(f"measured.source_hash must be 64 lowercase hex digits, got {value.source_hash!r}")
     if not _is_iso(value.fetched_at):

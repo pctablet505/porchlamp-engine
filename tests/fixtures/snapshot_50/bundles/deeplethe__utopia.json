@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/deeplethe__utopia.json",
+      "source": "raw/contributors/deeplethe__utopia.json",
       "source_hash": "04f39cfb2602025d91bf9eb5e1e2ef8483dbd2f07d1474d3c8a0879eee80451f",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/deeplethe__utopia.json",
+      "source": "raw/gfi/deeplethe__utopia.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T05:13:08.025458+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/deeplethe__utopia.json",
+    "source": "raw/commits_180d/deeplethe__utopia.json",
     "source_hash": "a6762e159017f672b9e1a3af6fe66d1bd0a2953db9226bf755e4381bec40771d",
     "value": "2026-09-11T06:00:13Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-09-09T16:27:27+00:00",
     "truncated": false
   },
-  "provenance_hash": "6f5394591c068b8a656e2fff228972e741cd26a7f9274e08135eb1482fba4fbe",
+  "provenance_hash": "f114d59f0104dac8dc6567a3e2eb344b30dd153ed486fd47deaa2f1bf92eac84",
   "repo": {
     "archived": false,
     "default_branch": "dev",

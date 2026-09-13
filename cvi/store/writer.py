@@ -58,7 +58,7 @@ from typing import Optional, Sequence
 
 from cvi.core import commit_domains, constants_v2
 from cvi.core.commit_domains import LastNonBotCommitMeasured
-from cvi.core.models import FeatureBundle, Measured, ScoreRecord, canonical_json
+from cvi.core.models import FeatureBundle, Measured, ScoreRecord, canonical_json, is_relative_envelope_source
 from cvi.core.tiebreak import ttfhr_p75_from_pr_window
 from cvi.snapshot.populations import PopulationSet, build_populations_table
 from cvi.snapshot.reproduce import canonical_dump_hash
@@ -315,9 +315,33 @@ def _param_row(repo_id: int, param_id: str, item: RepoWrite) -> tuple:
     raw_value = canonical_json(bundle_value.value) if isinstance(bundle_value, Measured) else None
     window_start = bundle_value.window_start if isinstance(bundle_value, Measured) else None
     window_end = bundle_value.window_end if isinstance(bundle_value, Measured) else None
-    source = bundle_value.source if isinstance(bundle_value, Measured) else None
-    source_hash = bundle_value.source_hash if isinstance(bundle_value, Measured) else None
-    fetched_at = bundle_value.fetched_at if isinstance(bundle_value, Measured) else None
+    # W2-14 (found while proving evidence sources are relative end to end):
+    # `measured` below is the STAGE-2 (scoring) outcome (cvi.core.engine's
+    # ParamScore), which can be False even when the INPUT was genuinely
+    # Measured -- `reason="no_population"` is exactly that case (cvi.core.
+    # models.Unmeasured's own docstring: assigned by the scoring engine to
+    # a ParamScore, never to an input-stage value). `EvidenceRow`'s
+    # contract (`cvi/serve/contract.py`) is explicit that an unmeasured row
+    # carries no score/method/source/fetched_at -- so those four columns
+    # must follow the score-stage `measured` flag, not silently leak the
+    # input-stage envelope reference for a row the API reports as
+    # unmeasured (before this fix, `GET .../evidence` 500'd on any real
+    # repo with a `no_population` parameter: `source`/`fetched_at`
+    # populated alongside `measured=False` failed the contract's own
+    # validator).
+    scored_measured = param_score is not None and param_score.measured
+    source = bundle_value.source if scored_measured and isinstance(bundle_value, Measured) else None
+    if source is not None and not is_relative_envelope_source(source):
+        # cvi.core.models.Measured.__post_init__ already refuses to
+        # construct a Measured with an absolute source, so this should be
+        # unreachable in practice -- but the store is the last stop before
+        # an absolute path of this machine would be served as evidence,
+        # and it must never write one, however it got here.
+        raise ValueError(
+            f"{param_id}: params.source must be a path relative to the data root, got {source!r}"
+        )
+    source_hash = bundle_value.source_hash if scored_measured and isinstance(bundle_value, Measured) else None
+    fetched_at = bundle_value.fetched_at if scored_measured and isinstance(bundle_value, Measured) else None
     return (
         repo_id,
         param_id,

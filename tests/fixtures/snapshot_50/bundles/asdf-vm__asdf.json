@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/asdf-vm__asdf.json",
+      "source": "raw/contributors/asdf-vm__asdf.json",
       "source_hash": "b2cab1476d04f806c54f6fedcb758ef41c33f60a2ee9401632df7d9891a7b42c",
       "value": 2,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/asdf-vm__asdf.json",
+      "source": "raw/gfi/asdf-vm__asdf.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T22:16:41.348893+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/asdf-vm__asdf.json",
+    "source": "raw/commits_180d/asdf-vm__asdf.json",
     "source_hash": "7d67bab46084c6ecbf567a15794c359ccc2c2e9878e9f03937021e35e351da26",
     "value": "2026-09-03T13:48:24Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-06-03T10:22:49+00:00",
     "truncated": false
   },
-  "provenance_hash": "851054a52d4af9955b7f92d0199492a452b57122ccef084a8f5f564ec2024a14",
+  "provenance_hash": "4a1bcd83fecdef0791b9677fe7a0db0ec79e54676a916a9bc879c17d659c3a51",
   "repo": {
     "archived": false,
     "default_branch": "master",

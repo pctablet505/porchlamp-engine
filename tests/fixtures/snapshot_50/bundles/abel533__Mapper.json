@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/abel533__Mapper.json",
+      "source": "raw/contributors/abel533__Mapper.json",
       "source_hash": "8f96c7cc41369925ff3cf1f71a0c5e9006036dbfdd57f57ce61b944754443902",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/abel533__Mapper.json",
+      "source": "raw/gfi/abel533__Mapper.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T04:49:42.662182+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/abel533__Mapper.json",
+    "source": "raw/commits_180d/abel533__Mapper.json",
     "source_hash": "edac9f8c5196e3f80159349a986ae24111843e4af0593691f6efd16eed47bd68",
     "value": "2026-03-24T12:17:15Z"
   },
@@ -422,7 +422,7 @@
     "start": "2021-09-03T21:17:07+00:00",
     "truncated": false
   },
-  "provenance_hash": "cf1c6c92856e7178b0f2515bd98578d57cef3a6ff7901f50bd9676c0b65c7130",
+  "provenance_hash": "e26394cfa92dcbf4adf2f76650c3468c61a9a6e6195662dc7daade48dc6a0a53",
   "repo": {
     "archived": false,
     "default_branch": "master",

@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/claudiodangelis__qrcp.json",
+      "source": "raw/contributors/claudiodangelis__qrcp.json",
       "source_hash": "e869ca441d31afc1b6aa2a8b16175969636815294a1c1d47079a2ac450aed74c",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/claudiodangelis__qrcp.json",
+      "source": "raw/gfi/claudiodangelis__qrcp.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T02:05:11.266054+00:00",
     "kind": "measured",
     "method": "measured:no_non_bot_commit_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/claudiodangelis__qrcp.json",
+    "source": "raw/commits_180d/claudiodangelis__qrcp.json",
     "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "value": null
   },
@@ -422,7 +422,7 @@
     "start": "2024-09-13T08:52:39+00:00",
     "truncated": false
   },
-  "provenance_hash": "90aaf2c15fd6d1dba549667176d42ea5b04b561109df4d0fb52b8e5a10bb4403",
+  "provenance_hash": "43f32f837670876151f2b4cddf05c16cfee38c22af5ff00738852a8e932ead57",
   "repo": {
     "archived": false,
     "default_branch": "main",

@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/alibaba__canal.json",
+      "source": "raw/contributors/alibaba__canal.json",
       "source_hash": "4a8f72d0029bfc54d82eab9fc9ce175dc645898f255f074a80d7d243cf97f4f7",
       "value": 2,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/alibaba__canal.json",
+      "source": "raw/gfi/alibaba__canal.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T21:55:51.236065+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/alibaba__canal.json",
+    "source": "raw/commits_180d/alibaba__canal.json",
     "source_hash": "65c4e7d69641fb7ede8716ac843cd440582d33f524f9216ef9bd1cae7a4db1fe",
     "value": "2026-07-30T07:38:12Z"
   },
@@ -422,7 +422,7 @@
     "start": "2025-10-10T07:03:04+00:00",
     "truncated": false
   },
-  "provenance_hash": "640a8700111ccee83dad072339d1eecaaa08a19895308f843256767234228ef9",
+  "provenance_hash": "eeef635c9f073706ae0a3c72a142bd8381fdacd2cb5412b388bcef35b49e61fa",
   "repo": {
     "archived": false,
     "default_branch": "master",

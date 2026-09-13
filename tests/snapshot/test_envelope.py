@@ -24,7 +24,9 @@ from cvi.collect.envelope import (
     COLLECTOR_VERSION,
     canonical_json,
     envelope_hash,
+    raw_envelope_path,
     read_envelope,
+    relative_envelope_path,
     sha256_hex,
     write_envelope,
 )
@@ -178,3 +180,40 @@ def test_read_envelope_rejects_a_file_that_is_not_json(tmp_path: Path) -> None:
     path.write_text("{not json", encoding="utf-8")
     with pytest.raises(json.JSONDecodeError):
         read_envelope(path)
+
+
+# --------------------------------------------------------------------------- #
+# relative_envelope_path (W2-14): provenance is an envelope path plus its     #
+# hash, and that path must be relative to the data root -- never absolute,   #
+# never a leak of this machine's filesystem layout                           #
+# (docs/v2/00-README.md non-negotiables).                                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_relative_envelope_path_strips_the_data_root(tmp_path: Path) -> None:
+    envelope = raw_envelope_path(tmp_path, "gfi", "torvalds__linux")
+    assert relative_envelope_path(tmp_path, envelope) == "raw/gfi/torvalds__linux.json"
+
+
+def test_relative_envelope_path_is_posix_even_when_root_has_trailing_slash(tmp_path: Path) -> None:
+    envelope = raw_envelope_path(tmp_path, "gfi", "torvalds__linux")
+    assert relative_envelope_path(str(tmp_path) + "/", envelope) == "raw/gfi/torvalds__linux.json"
+
+
+def test_relative_envelope_path_rejects_a_path_outside_the_root(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "other-root" / "raw" / "gfi" / "torvalds__linux.json"
+    with pytest.raises(ValueError):
+        relative_envelope_path(tmp_path, outside)
+
+
+def test_relative_envelope_path_is_stable_across_two_different_data_roots() -> None:
+    """The reproducibility property (W2-14): the same collector/key pair
+    relativises to the identical string under any data root -- two
+    "machines" with the same corpus copied to different absolute locations
+    produce the same provenance, and therefore the same
+    ``feature_provenance_hash``."""
+    machine_a = Path("/home/alice/cvi-data")
+    machine_b = Path("/var/lib/cvi/data-copy")
+    envelope_a = raw_envelope_path(machine_a, "gfi", "torvalds__linux")
+    envelope_b = raw_envelope_path(machine_b, "gfi", "torvalds__linux")
+    assert relative_envelope_path(machine_a, envelope_a) == relative_envelope_path(machine_b, envelope_b)

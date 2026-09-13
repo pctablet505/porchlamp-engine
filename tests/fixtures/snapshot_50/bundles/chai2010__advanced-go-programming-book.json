@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/chai2010__advanced-go-programming-book.json",
+      "source": "raw/contributors/chai2010__advanced-go-programming-book.json",
       "source_hash": "32571a84ca14c610b99cc320a0d803d9512efe38ae05080b23acdc2d01767e1e",
       "value": 2,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/chai2010__advanced-go-programming-book.json",
+      "source": "raw/gfi/chai2010__advanced-go-programming-book.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T22:48:34.725103+00:00",
     "kind": "measured",
     "method": "measured:no_non_bot_commit_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/chai2010__advanced-go-programming-book.json",
+    "source": "raw/commits_180d/chai2010__advanced-go-programming-book.json",
     "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "value": null
   },
@@ -422,7 +422,7 @@
     "start": "2022-01-01T03:50:37+00:00",
     "truncated": false
   },
-  "provenance_hash": "41462d1caa30eeae62d21175970f9ef705bf417d24c9da7d5c34aaf9fc3fa624",
+  "provenance_hash": "2c796be08ee9861c8a4d8def5c0ddf9db6276ed25a6c8f06a7ef89801ddd8c35",
   "repo": {
     "archived": false,
     "default_branch": "master",

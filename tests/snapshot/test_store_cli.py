@@ -66,8 +66,21 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: verify against ``expected.json`` directly -- see the module docstring
 #: -- so this constant is redundant with that check by design, a second,
 #: independent assertion of the same fact).
+#:
+#: Re-pinned again (packet W2-14, 2026-09-14): every bundle's provenance
+#: ``source`` fields were absolute paths of the machine that derived the
+#: sample-200 corpus (docs/v2/00-README.md non-negotiables: provenance must
+#: be relative to the data root); ``cvi.derive.bundle`` now refuses to
+#: build a ``Measured`` with an absolute source and always relativises the
+#: envelope path it resolves, so ``scripts/build_fixture_snapshot.py`` was
+#: re-run against the unchanged sample-200 corpus. All 50 bundles changed
+#: (158 absolute ``source`` strings -> relative, 0 remaining) and every
+#: per-repo ``manifest.json`` ``raw_hash`` moved with them (the path string
+#: is part of what ``feature_provenance_hash`` hashes); no score, tier,
+#: rank, or count changed (``expected.json``'s "records" list is
+#: byte-identical apart from the top-level ``records_hash`` scalar).
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "fe49557ca04b2de7a4b1518d6a3a45d68e1ffcc1139a80e43aa9f375eb58aed4"
+    "55a01ac2c6c139ba283072767a4e8b9d706375529841e6d672d37044b8eced84"
 )
 # NB-1 (lead ruling 2026-09-14, U-2): gated/unrated reflect cvi.core.
 # pipeline.not_ranked_class's display classification (one 

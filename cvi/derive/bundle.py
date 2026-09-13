@@ -562,7 +562,8 @@ def _resolve_commit_facts(ctx: "_V1Ctx", key: str) -> tuple[LastNonBotCommitValu
             Unmeasured(reason="collector_failure", detail=detail),
         )
     source_hash = _envelope_hash(path)
-    ctx.referenced[str(path)] = source_hash
+    source = _relative_source(path, ctx.raw_root)
+    ctx.referenced[source] = source_hash
     records = commit_domains.records_from_rows(data)
     window_method = _COMMIT_FACT_METHOD_180D_FALLBACK if used_fallback else _COMMIT_FACT_METHOD_365D
 
@@ -572,7 +573,7 @@ def _resolve_commit_facts(ctx: "_V1Ctx", key: str) -> tuple[LastNonBotCommitValu
         _COMMIT_FACT_METHOD_NO_NON_BOT_180D_FALLBACK if used_fallback else _COMMIT_FACT_METHOD_NO_NON_BOT_365D
     )
     last_fact = LastNonBotCommitMeasured(
-        value=last_value, method=last_method, source=str(path), source_hash=source_hash, fetched_at=fetched_at,
+        value=last_value, method=last_method, source=source, source_hash=source_hash, fetched_at=fetched_at,
     )
 
     domain = commit_domains.top_domain_share(records)
@@ -596,7 +597,7 @@ def _resolve_commit_facts(ctx: "_V1Ctx", key: str) -> tuple[LastNonBotCommitValu
     else:
         domain_fact = TopEmailDomainShareMeasured(
             value=domain.share, top_domain=domain.top_domain, n=domain.n, method=window_method,
-            source=str(path), source_hash=source_hash, fetched_at=fetched_at,
+            source=source, source_hash=source_hash, fetched_at=fetched_at,
         )
     return last_fact, domain_fact
 
@@ -792,6 +793,41 @@ def _resolve_envelope(source: Any, raw_root: Union[Path, str, None]) -> Path | N
     return None
 
 
+def _relative_source(path: Path, raw_root: Union[Path, str, None]) -> str:
+    """Express a resolved envelope ``path`` as a provenance ``source``
+    relative to the data root (W2-14, docs/v2/00-README.md non-negotiables):
+    never an absolute path of the machine that derived it, so a bundle's
+    provenance is portable and reproduces byte-identically from a copy of
+    the same data root on any machine.
+
+    ``raw_root`` is always ``<data_root>/raw`` -- the one convention this
+    module's own envelope resolution, ``cvi.collect.envelope.
+    raw_envelope_path`` and ``scripts/derive.py``'s ``src()`` all share --
+    so its parent is the data root every recorded source is relativised
+    against, giving exactly ``raw/<collector>/<key>.json``. This duplicates
+    ``cvi.collect.envelope.relative_envelope_path``'s arithmetic rather than
+    importing it: 04 section 3 restricts ``cvi.derive.bundle`` to
+    ``cvi.core`` plus stdlib (the same reason this module keeps its own
+    ``_resolve_envelope``/``_envelope_hash`` instead of importing
+    ``cvi.collect.envelope``'s).
+
+    Raises :class:`BundleValidationError` when ``path`` cannot be expressed
+    as a relative path under a known root: a stale absolute source (for
+    example a v1 document's own recorded path, when no ``raw_root`` was
+    given to relativise it against) must never enter a bundle silently."""
+    if raw_root is not None:
+        try:
+            return path.relative_to(Path(raw_root).parent).as_posix()
+        except ValueError:
+            pass
+    candidate = path.as_posix()
+    if not path.is_absolute() and models.is_relative_envelope_source(candidate):
+        return candidate
+    raise BundleValidationError(
+        [f"envelope source {str(path)!r} is absolute and does not resolve under a known data root"]
+    )
+
+
 def _envelope_data(path: Path) -> Any:
     document = json.loads(path.read_text(encoding="utf-8"))
     return document.get("data") if isinstance(document, Mapping) else None
@@ -902,9 +938,10 @@ def _plain_scalar_resolver(
             path = _resolve_envelope(source, ctx.raw_root)
             if path is not None and isinstance(fetched_at, str) and fetched_at:
                 source_hash = _envelope_hash(path)
-                ctx.referenced[str(path)] = source_hash
+                relative = _relative_source(path, ctx.raw_root)
+                ctx.referenced[relative] = source_hash
                 return Measured(value=value, n=0, window_start=None, window_end=None, method="primary",
-                                 source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+                                 source=relative, source_hash=source_hash, fetched_at=fetched_at)
             detail = (f"v1 source is not an envelope: {source!r}" if path is None
                       else f"v1 provenance for {v1_field!r} has no fetched_at")
             return Unmeasured(reason="collector_failure", detail=detail)
@@ -937,9 +974,10 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
             mapped = _map_v1_value(value, vocab)
             if path is not None and isinstance(fetched_at, str) and fetched_at and mapped is not None:
                 source_hash = _envelope_hash(path)
-                ctx.referenced[str(path)] = source_hash
+                relative = _relative_source(path, ctx.raw_root)
+                ctx.referenced[relative] = source_hash
                 return Measured(value=mapped, n=0, window_start=None, window_end=None, method="primary",
-                                 source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+                                 source=relative, source_hash=source_hash, fetched_at=fetched_at)
             if path is None:
                 detail = f"v1 source is not an envelope: {source!r}"
             elif not isinstance(fetched_at, str) or not fetched_at:
@@ -974,9 +1012,10 @@ def _resolve_downloads_monthly(ctx: _V1Ctx) -> Measured | Unmeasured:
         path = _resolve_envelope(source, ctx.raw_root)
         if path is not None and isinstance(fetched_at, str) and fetched_at:
             source_hash = _envelope_hash(path)
-            ctx.referenced[str(path)] = source_hash
+            relative = _relative_source(path, ctx.raw_root)
+            ctx.referenced[relative] = source_hash
             return Measured(value=value, n=0, window_start=None, window_end=None, method="primary",
-                             source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+                             source=relative, source_hash=source_hash, fetched_at=fetched_at)
         detail = (f"v1 source is not an envelope: {source!r}" if path is None
                   else "v1 provenance for 'monthly_downloads' has no fetched_at")
         return Unmeasured(reason="collector_failure", detail=detail)
@@ -1080,9 +1119,10 @@ def _resolve_dependents_deduped(ctx: _V1Ctx) -> Measured | Unmeasured:
     if not isinstance(fetched_at, str) or not fetched_at:
         return Unmeasured(reason="collector_failure", detail="v1 provenance for 'dependents_count' has no fetched_at")
     source_hash = _envelope_hash(path)
-    ctx.referenced[str(path)] = source_hash
+    relative = _relative_source(path, ctx.raw_root)
+    ctx.referenced[relative] = source_hash
     return Measured(value=value, n=0, window_start=None, window_end=None, method="primary",
-                     source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+                     source=relative, source_hash=source_hash, fetched_at=fetched_at)
 
 
 def _pr_window_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapping[str, Any]], Optional[str]]:
@@ -1423,11 +1463,12 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
     window_start = (anchor - timedelta(days=_DR90_COHORT_START_DAYS)).isoformat()
     window_end = (anchor - timedelta(days=_DR90_COHORT_END_DAYS)).isoformat()
     source_hash = _envelope_hash(path)
-    ctx.referenced[str(path)] = source_hash
+    relative = _relative_source(path, ctx.raw_root)
+    ctx.referenced[relative] = source_hash
     method = _DR90_METHOD_PRIMARY if gate_applied else _DR90_METHOD_GATE_UNAPPLIED
     return Measured(
         value=round(decided / cohort, 4), n=cohort, window_start=window_start, window_end=window_end,
-        method=method, source=str(path), source_hash=source_hash, fetched_at=fetched_at,
+        method=method, source=relative, source_hash=source_hash, fetched_at=fetched_at,
     )
 
 
@@ -1466,9 +1507,10 @@ def _resolve_ttfhr_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
                            detail=f"pr_window_ttfhr_median_hours is not numeric: {value!r}")
     window_start, window_end = _pr_window_bounds(data)
     source_hash = _envelope_hash(path)
-    ctx.referenced[str(path)] = source_hash
+    relative = _relative_source(path, ctx.raw_root)
+    ctx.referenced[relative] = source_hash
     return Measured(value=float(value), n=n, window_start=window_start, window_end=window_end,
-                     method="primary", source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+                     method="primary", source=relative, source_hash=source_hash, fetched_at=fetched_at)
 
 
 def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
@@ -1494,9 +1536,10 @@ def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
                            detail=f"pr_window_substantive_review_rate is not numeric: {value!r}")
     window_start, window_end = _pr_window_bounds(data)
     source_hash = _envelope_hash(path)
-    ctx.referenced[str(path)] = source_hash
+    relative = _relative_source(path, ctx.raw_root)
+    ctx.referenced[relative] = source_hash
     return Measured(value=float(value), n=n, window_start=window_start, window_end=window_end,
-                     method="primary", source=str(path), source_hash=source_hash, fetched_at=fetched_at)
+                     method="primary", source=relative, source_hash=source_hash, fetched_at=fetched_at)
 
 
 def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
@@ -1515,9 +1558,10 @@ def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
                            detail=f"{n} merged external PRs with recorded latency, need >= {min_n}")
     window_start, window_end = _pr_window_bounds(data)
     source_hash = _envelope_hash(path)
-    ctx.referenced[str(path)] = source_hash
+    relative = _relative_source(path, ctx.raw_root)
+    ctx.referenced[relative] = source_hash
     return Measured(value=round(_nearest_rank_p90(latencies), 4), n=n, window_start=window_start,
-                     window_end=window_end, method="primary", source=str(path), source_hash=source_hash,
+                     window_end=window_end, method="primary", source=relative, source_hash=source_hash,
                      fetched_at=fetched_at)
 
 
@@ -1604,10 +1648,10 @@ def _resolve_openssf_criticality_proxy(ctx: _V1Ctx) -> Optional["Measured | Unme
                   else "v1 provenance for 'openssf_signals_partial' has no fetched_at")
         return Unmeasured(reason="collector_failure", detail=detail)
     for path in paths:
-        ctx.referenced[str(path)] = _envelope_hash(path)
+        ctx.referenced[_relative_source(path, ctx.raw_root)] = _envelope_hash(path)
     score = openssf.calculate_pike_criticality(partial_signals, missing=missing_short_names)
     return Measured(value=round(score, 4), n=0, window_start=None, window_end=None,
-                     method=_OPENSSF_PROXY_METHOD, source=str(paths[0]),
+                     method=_OPENSSF_PROXY_METHOD, source=_relative_source(paths[0], ctx.raw_root),
                      source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
 
 
@@ -1660,9 +1704,10 @@ def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
                       else "v1 provenance for 'openssf_signals' has no fetched_at")
             return Unmeasured(reason="collector_failure", detail=detail)
         for path in paths:
-            ctx.referenced[str(path)] = _envelope_hash(path)
+            ctx.referenced[_relative_source(path, ctx.raw_root)] = _envelope_hash(path)
         return Measured(value=round(openssf.calculate_pike_criticality(signals), 4), n=0, window_start=None,
-                         window_end=None, method=constants_v2.METHOD_PRIMARY, source=str(paths[0]),
+                         window_end=None, method=constants_v2.METHOD_PRIMARY,
+                         source=_relative_source(paths[0], ctx.raw_root),
                          source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
     if confidence_value == "collector_failure":
         # W1-7f items 1 and 3: cvi.collect.pike_signals.derive_w17_fields
@@ -1726,14 +1771,15 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
                       else "v1 provenance for 'pipeline_defenses' has no fetched_at")
             return Unmeasured(reason="collector_failure", detail=detail)
         for path in paths:
-            ctx.referenced[str(path)] = _envelope_hash(path)
+            ctx.referenced[_relative_source(path, ctx.raw_root)] = _envelope_hash(path)
         n = 0
         if method == _PIPELINE_DEFENSES_PROXY_METHOD:
             data = _envelope_data(paths[0])
             prs = data.get("prs") if isinstance(data, Mapping) else None
             n = sum(1 for pr in (prs or []) if isinstance(pr, Mapping) and pr.get("mergedAt") is not None)
         return Measured(value=float(value), n=n, window_start=None, window_end=None, method=method,
-                         source=str(paths[0]), source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
+                         source=_relative_source(paths[0], ctx.raw_root),
+                         source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
     if confidence_value in (None, "missing"):
         return Unmeasured(
             reason="third_party_gap",
@@ -1816,10 +1862,11 @@ def _author_history_rate_resolver(
                 path = _resolve_envelope(source, ctx.raw_root)
                 if path is not None and isinstance(fetched_at, str) and fetched_at:
                     source_hash = _envelope_hash(path)
-                    ctx.referenced[str(path)] = source_hash
+                    relative = _relative_source(path, ctx.raw_root)
+                    ctx.referenced[relative] = source_hash
                     return Measured(
                         value=value, n=count, window_start=None, window_end=None, method="primary",
-                        source=str(path), source_hash=source_hash, fetched_at=fetched_at,
+                        source=relative, source_hash=source_hash, fetched_at=fetched_at,
                     )
                 detail = (f"v1 source is not an envelope: {source!r}" if path is None
                           else f"v1 provenance for {rate_field!r} has no fetched_at")
@@ -1980,9 +2027,10 @@ def _resolve_star_velocity_flag(ctx: _V1Ctx) -> Measured | Unmeasured:
         path = _resolve_envelope(source, ctx.raw_root)
         if path is not None and isinstance(fetched_at, str) and fetched_at:
             source_hash = _envelope_hash(path)
-            ctx.referenced[str(path)] = source_hash
+            relative = _relative_source(path, ctx.raw_root)
+            ctx.referenced[relative] = source_hash
             return Measured(value=1 if value else 0, n=0, window_start=None, window_end=None,
-                             method="primary", source=str(path), source_hash=source_hash,
+                             method="primary", source=relative, source_hash=source_hash,
                              fetched_at=fetched_at)
         detail = (f"v1 source is not an envelope: {source!r}" if path is None
                   else "v1 provenance for 'star_velocity_flag' has no fetched_at")
@@ -2094,7 +2142,7 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
             license_spdx = data.get("license_spdx") if isinstance(data.get("license_spdx"), str) else None
             default_branch = data.get("default_branch") if isinstance(data.get("default_branch"), str) else None
         hash_ = _envelope_hash(github_meta)
-        referenced[str(github_meta)] = hash_
+        referenced[_relative_source(github_meta, raw_root)] = hash_
     # fork and mirror_url: not carried by the v1 github_meta envelope; the
     # identity block records them as False/None rather than guessing.
     try:
@@ -2161,7 +2209,7 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
     ):
         path = _resolve_envelope(source, raw_root)
         if path is not None:
-            referenced[str(path)] = _envelope_hash(path)
+            referenced[_relative_source(path, raw_root)] = _envelope_hash(path)
 
     def iso(ts: str) -> datetime.datetime:
         return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))

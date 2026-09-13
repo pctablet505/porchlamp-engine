@@ -420,6 +420,50 @@ def test_evidence_unknown_repo_is_404_with_consistent_body(api):
     assert set(resp.json()["error"].keys()) == {"endpoint", "status", "detail"}
 
 
+def _evidence_row_kwargs(**overrides):
+    fields = dict(
+        param_id="ttfhr_hours",
+        pillar="responsiveness",
+        measured=True,
+        value=4.5,
+        score=88.0,
+        n=42,
+        window_start=None,
+        window_end=None,
+        method="primary",
+        source="raw/pr_window/acme__demo.json",
+        source_sha256="ab" * 32,
+        fetched_at="2026-09-01T00:00:00Z",
+    )
+    fields.update(overrides)
+    return fields
+
+
+@pytest.mark.parametrize(
+    "bad_source",
+    [
+        "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/torvalds__linux.json",
+        "/raw/pr_window/acme__demo.json",
+        "\\raw\\pr_window\\acme__demo.json",
+        "C:\\raw\\pr_window\\acme__demo.json",
+        "raw/pr_window/../../etc/passwd",
+    ],
+)
+def test_evidence_row_rejects_an_absolute_or_unsafe_source(bad_source):
+    """W2-14: `EvidenceRow.source` must be a relative POSIX path with no
+    `..` segment (docs/v2/00-README.md non-negotiables) -- an absolute
+    path, a Windows drive letter, or a `..` escape must never validate."""
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        EvidenceRow(**_evidence_row_kwargs(source=bad_source))
+
+
+def test_evidence_row_accepts_a_relative_source():
+    row = EvidenceRow(**_evidence_row_kwargs())
+    assert row.source == "raw/pr_window/acme__demo.json"
+
+
 # --------------------------------------------------------------------------- #
 # Matrix.
 # --------------------------------------------------------------------------- #
@@ -1170,3 +1214,55 @@ def test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture(tmp_path
     assert snap_counts["gated"] == 31, snap_counts
     assert snap_counts["unrated"] == 19, snap_counts
     assert snap_counts == body["counts"]
+
+
+def test_evidence_sources_are_relative_on_the_real_fixture(tmp_path):
+    """W2-14: the served evidence `source` must never be an absolute path
+    of this machine (docs/v2/00-README.md non-negotiables). Fail-before:
+    before the fix, every one of these 50 real fixture repos served at
+    least one `source` like
+    `/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/....json`.
+
+    `EvidenceRow`'s own pydantic validator (`cvi/serve/contract.py`)
+    already refuses an absolute `source` -- a bad row would make FastAPI's
+    `response_model` raise before this test ever saw JSON. This test adds
+    an independent, content-level check on top: walk the real store built
+    from `tests/fixtures/snapshot_50` end to end (pipeline -> store ->
+    API) and grep every `source` string on every repo's evidence for a
+    leading `/`, a leading `\\`, or a Windows drive letter.
+    """
+    from cvi.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
+    from cvi.store import schema
+    from cvi.store.migrations import apply_migrations
+
+    fixture_dir = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
+    manifest = json.loads((fixture_dir / "manifest.json").read_text(encoding="utf-8"))
+    repos = [(entry["owner"], entry["name"]) for entry in manifest["repos"]]
+    assert len(repos) == 50
+
+    scored, frozen = score_snapshot_dir(fixture_dir)
+    db_path = tmp_path / "db.sqlite"
+    conn = schema.connect(db_path)
+    apply_migrations(conn, applied_at=frozen.as_of.isoformat())
+    write_scored_snapshot(conn, db_path, scored, frozen, code_commit="test-w2-14")
+    conn.close()
+
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<html></html>")
+    app = create_app(str(db_path), web_dir=web_dir)
+    client = TestClient(app)
+
+    checked_sources = 0
+    for owner, name in repos:
+        resp = client.get(f"/v1/cvi/repos/{owner}/{name}/evidence")
+        assert resp.status_code == 200, (owner, name, resp.text)
+        rows = [EvidenceRow(**item) for item in resp.json()]
+        for row in rows:
+            if row.source is None:
+                continue
+            checked_sources += 1
+            assert not row.source.startswith("/"), (owner, name, row.param_id, row.source)
+            assert not row.source.startswith("\\"), (owner, name, row.param_id, row.source)
+            assert not re.match(r"^[A-Za-z]:[\\/]", row.source), (owner, name, row.param_id, row.source)
+    assert checked_sources > 0  # the fixture actually carries measured evidence to check

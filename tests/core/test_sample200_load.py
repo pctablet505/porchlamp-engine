@@ -104,7 +104,7 @@ def test_measured_inputs_carry_envelope_provenance(bundle: Any, sample: dict[str
     assert elephant.method == "primary"
     assert elephant.window_start is None
     assert elephant.window_end is None
-    assert elephant.source == str(sample["raw"] / "contributors" / f"{KEY}.json")
+    assert elephant.source == f"raw/contributors/{KEY}.json"
     assert elephant.source_hash == ENVELOPE_HASHES["contributors"]
     assert elephant.fetched_at == "2026-09-12T01:10:41.191668+00:00"
 
@@ -125,7 +125,7 @@ def test_measured_inputs_carry_envelope_provenance(bundle: Any, sample: dict[str
     assert supply.method == "primary"
     assert supply.window_start is None
     assert supply.window_end is None
-    assert supply.source == str(sample["raw"] / "gfi" / f"{KEY}.json")
+    assert supply.source == f"raw/gfi/{KEY}.json"
     assert supply.source_hash == ENVELOPE_HASHES["gfi"]
     assert supply.fetched_at == "2026-09-12T01:10:41.825329+00:00"
 
@@ -215,9 +215,8 @@ def test_provenance_hash_matches_independent_recomputation(bundle: Any, sample: 
     test_unmeasured_inputs_have_documented_reasons); every other envelope's
     pinned hash and recomputation method are unchanged.
     """
-    raw = sample["raw"]
     referenced = [
-        {"source": str(raw / collector / f"{KEY}.json"), "source_hash": digest}
+        {"source": f"raw/{collector}/{KEY}.json", "source_hash": digest}
         for collector, digest in ENVELOPE_HASHES.items()
         if collector != "tree"
     ]

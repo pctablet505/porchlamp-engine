@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/alexellis__k3sup.json",
+      "source": "raw/contributors/alexellis__k3sup.json",
       "source_hash": "3a1e31b45c8c99b04096015e9901c8e6411327ef31d090f5840b60c91e17d6c1",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/alexellis__k3sup.json",
+      "source": "raw/gfi/alexellis__k3sup.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T04:45:21.931447+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/alexellis__k3sup.json",
+    "source": "raw/commits_180d/alexellis__k3sup.json",
     "source_hash": "6b114bd0274497737d117db1f59d6217b89ecc8bfca162f93ccac767676d8d51",
     "value": "2026-09-03T06:37:48Z"
   },
@@ -422,7 +422,7 @@
     "start": "2021-12-29T23:07:44+00:00",
     "truncated": false
   },
-  "provenance_hash": "2ffcd34000beb6e03f0bd442405829192903a95c4a51cbb22d153da611d6ab30",
+  "provenance_hash": "33bdd898717c0e86f6c3f82578a370d493d953abe9b441f1a17e4a5823b3922b",
   "repo": {
     "archived": false,
     "default_branch": "master",

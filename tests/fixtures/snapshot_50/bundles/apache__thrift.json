@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/apache__thrift.json",
+      "source": "raw/contributors/apache__thrift.json",
       "source_hash": "3743f8dfe3f9e23b20598193e33e2a08614602b20735ce7212bb745c40b10f2f",
       "value": 5,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/apache__thrift.json",
+      "source": "raw/gfi/apache__thrift.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T01:50:42.896045+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/apache__thrift.json",
+    "source": "raw/commits_180d/apache__thrift.json",
     "source_hash": "10bbedb822d8cead46cd8cdfdf32d9dae7951bfe81725d568f77c55734c5599d",
     "value": "2026-09-11T12:57:22Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-09-08T09:08:44+00:00",
     "truncated": false
   },
-  "provenance_hash": "3e298754cbd8e01d143382588f9b9163ad6f66cc236f59815ad9830929398d53",
+  "provenance_hash": "6bd1594326709960346ce77ef9d694fa8f3a88c8e0e24e8456118270c14eab26",
   "repo": {
     "archived": false,
     "default_branch": "master",

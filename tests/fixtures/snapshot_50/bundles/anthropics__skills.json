@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/anthropics__skills.json",
+      "source": "raw/contributors/anthropics__skills.json",
       "source_hash": "8bee093bc8cc89d04f808071d86923ccdc40f23cf1ada4199a88841f56373c9c",
       "value": 2,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/anthropics__skills.json",
+      "source": "raw/gfi/anthropics__skills.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T19:54:32.055623+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/anthropics__skills.json",
+    "source": "raw/commits_180d/anthropics__skills.json",
     "source_hash": "bfb729a3f8dd9c762949e025e1dbd1afe9a17ef695b6e18effd534da80f37081",
     "value": "2026-09-10T19:44:08Z"
   },
@@ -121,7 +121,7 @@
     "start": null,
     "truncated": false
   },
-  "provenance_hash": "a0552eff7a5e96557d411fef6259242260a1ec7b9197148a5e682ed1aa69b986",
+  "provenance_hash": "c04ca0b1d7dbc42fc27e0fd8723bc21c4495af763a5d4d3d65eb1fc9d55084b0",
   "repo": {
     "archived": false,
     "default_branch": null,

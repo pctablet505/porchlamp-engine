@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/apple__darwin-xnu.json",
+      "source": "raw/contributors/apple__darwin-xnu.json",
       "source_hash": "3f495e39c94c1519fe83fc8e5897a2951c3d6ebce551a282dcb764b9eb4a46bd",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/apple__darwin-xnu.json",
+      "source": "raw/gfi/apple__darwin-xnu.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T01:37:47.943426+00:00",
     "kind": "measured",
     "method": "measured:no_non_bot_commit_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/apple__darwin-xnu.json",
+    "source": "raw/commits_180d/apple__darwin-xnu.json",
     "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "value": null
   },
@@ -412,7 +412,7 @@
     "start": "2017-09-30T16:54:39+00:00",
     "truncated": false
   },
-  "provenance_hash": "4d0b269a768c52ec780e6ea9fe91e2acad42990a27bdd3f4ece5027eec064c8d",
+  "provenance_hash": "f849b9bffd2402266578a05dad8b29f02b6afa9d5a9ffd6701c2d51f54d3c9cc",
   "repo": {
     "archived": true,
     "default_branch": "main",

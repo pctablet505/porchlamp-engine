@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/aleju__imgaug.json",
+      "source": "raw/contributors/aleju__imgaug.json",
       "source_hash": "27bffc77f1130a95f248ff694aed04b4b06a7424d138fb84ce7144030c8c3de9",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/aleju__imgaug.json",
+      "source": "raw/gfi/aleju__imgaug.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T23:59:08.356709+00:00",
     "kind": "measured",
     "method": "measured:no_non_bot_commit_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/aleju__imgaug.json",
+    "source": "raw/commits_180d/aleju__imgaug.json",
     "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "value": null
   },
@@ -412,7 +412,7 @@
     "start": "2020-10-19T12:23:21+00:00",
     "truncated": false
   },
-  "provenance_hash": "d383c539169c91b8382f0d826918ccdd718c6c6faa99e0379710831a7e4fa003",
+  "provenance_hash": "fd83203e8cdab16a8b89c4391b8d4cb295ddf3b5e3d2aba12d7b20e0b71421cc",
   "repo": {
     "archived": false,
     "default_branch": "master",

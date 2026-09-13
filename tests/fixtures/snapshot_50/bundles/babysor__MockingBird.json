@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/babysor__MockingBird.json",
+      "source": "raw/contributors/babysor__MockingBird.json",
       "source_hash": "cf4a3420a3e3d6c7ad406ee0e3bd7172ae5beed806aab462de0ed6ad0ae117be",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/babysor__MockingBird.json",
+      "source": "raw/gfi/babysor__MockingBird.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T21:17:53.832628+00:00",
     "kind": "measured",
     "method": "measured:no_non_bot_commit_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/babysor__MockingBird.json",
+    "source": "raw/commits_180d/babysor__MockingBird.json",
     "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "value": null
   },
@@ -422,7 +422,7 @@
     "start": "2022-09-25T08:36:56+00:00",
     "truncated": false
   },
-  "provenance_hash": "2058d9076d6cc7084157f90f17978e7f95caf91471587aabaa4332e80711cdaa",
+  "provenance_hash": "8886264a269b9fe7da5d8a54a78fc84f09c4bd920e31935e6733cd2c8b4db424",
   "repo": {
     "archived": false,
     "default_branch": "main",

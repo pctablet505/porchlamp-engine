@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/airbnb__epoxy.json",
+      "source": "raw/contributors/airbnb__epoxy.json",
       "source_hash": "e24ac2239f4a6433e482c2ff8ac38f486e840ff880da3d5c025373cd8762b972",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/airbnb__epoxy.json",
+      "source": "raw/gfi/airbnb__epoxy.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T03:29:19.866372+00:00",
     "kind": "measured",
     "method": "measured:no_non_bot_commit_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/airbnb__epoxy.json",
+    "source": "raw/commits_180d/airbnb__epoxy.json",
     "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "value": null
   },
@@ -412,7 +412,7 @@
     "start": "2022-08-09T00:31:17+00:00",
     "truncated": false
   },
-  "provenance_hash": "cc536ee3133bd99be404353079c3a4182f73d4721ae552068bf9e313c5837b65",
+  "provenance_hash": "99940638fd5abdc6247b0ef8fa545b745a0313206517e14c629f2196d839718b",
   "repo": {
     "archived": false,
     "default_branch": "master",

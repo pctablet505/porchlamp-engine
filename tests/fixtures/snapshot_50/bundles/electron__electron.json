@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/electron__electron.json",
+      "source": "raw/contributors/electron__electron.json",
       "source_hash": "f83ba447fe665a0a5b9dd38d8c669b861310faaca76884a535c3fd57da65b7ed",
       "value": 4,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/electron__electron.json",
+      "source": "raw/gfi/electron__electron.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T19:59:41.231387+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/electron__electron.json",
+    "source": "raw/commits_180d/electron__electron.json",
     "source_hash": "f95bd05aa68d719ac5d3e1d90213873a207b31dd5f4da83ae9bc121374d5a635",
     "value": "2026-09-11T15:41:45Z"
   },
@@ -121,7 +121,7 @@
     "start": null,
     "truncated": false
   },
-  "provenance_hash": "579ff8a51e780387acb65f799fa547e77e7b28f3ffd68c6759de573e88cfb2ed",
+  "provenance_hash": "5a4bf6566089e0c376c9d29a6c757e500e0353b51a4174dcfae623e1e971077d",
   "repo": {
     "archived": false,
     "default_branch": null,

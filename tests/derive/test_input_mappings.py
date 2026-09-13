@@ -73,7 +73,7 @@ def test_ttfhr_hours(tmp_path: Path) -> None:
     assert value == Measured(
         value=6.5, n=12, window_start="2026-03-05T00:00:00+00:00",
         window_end="2026-09-01T00:00:00+00:00", method="primary",
-        source=str(tmp_path / "raw" / "pr_window" / "acme__widget.json"),
+        source="raw/pr_window/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -141,7 +141,7 @@ def test_ttm_p90_hours(tmp_path: Path) -> None:
     assert bundle.inputs["ttm_p90_hours"] == Measured(
         value=50.0, n=5, window_start="2026-03-05T00:00:00+00:00",
         window_end="2026-09-01T00:00:00+00:00", method="primary",
-        source=str(tmp_path / "raw" / "pr_window" / "acme__widget.json"),
+        source="raw/pr_window/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -213,7 +213,7 @@ def test_ttm_p90_hours_excludes_internal_unmerged_and_backwards_time_prs(tmp_pat
     assert bundle.inputs["ttm_p90_hours"] == Measured(
         value=30.0, n=5, window_start="2026-03-05T00:00:00+00:00",
         window_end="2026-09-01T00:00:00+00:00", method="primary",
-        source=str(tmp_path / "raw" / "pr_window" / "acme__mixed-ttm.json"),
+        source="raw/pr_window/acme__mixed-ttm.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -234,7 +234,7 @@ def test_substantive_review_rate(tmp_path: Path) -> None:
     assert bundle.inputs["substantive_review_rate"] == Measured(
         value=0.4, n=10, window_start="2026-03-05T00:00:00+00:00",
         window_end="2026-09-01T00:00:00+00:00", method="primary",
-        source=str(tmp_path / "raw" / "pr_window" / "acme__widget.json"),
+        source="raw/pr_window/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -295,7 +295,7 @@ def test_dependents_deduped(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc)
     assert bundle.inputs["dependents_deduped"] == Measured(
         value=42, n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "dependents" / "acme__widget.json"),
+        source="raw/dependents/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -371,7 +371,7 @@ def test_dependents_deduped_maven_measured_when_derived(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc)
     assert bundle.inputs["dependents_deduped"] == Measured(
         value=3, n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "dependents" / "acme__widget.json"),
+        source="raw/dependents/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -390,7 +390,7 @@ def test_dependents_deduped_go_measured_when_derived(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc)
     assert bundle.inputs["dependents_deduped"] == Measured(
         value=5, n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "dependents" / "acme__widget.json"),
+        source="raw/dependents/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -432,7 +432,7 @@ def test_downloads_monthly(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc)
     assert bundle.inputs["downloads_monthly"] == Measured(
         value=15000, n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "downloads" / "acme__widget.json"),
+        source="raw/downloads/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -483,7 +483,7 @@ def test_legal_ip(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc)
     assert bundle.inputs["legal_ip"] == Measured(
         value="CORP_CLA", n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "governance" / "acme__widget.json"),
+        source="raw/governance/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -543,7 +543,7 @@ def test_elephant_factor(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc)
     assert bundle.inputs["elephant_factor"] == Measured(
         value=3, n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "contributors" / "acme__widget.json"),
+        source="raw/contributors/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -569,7 +569,7 @@ def test_promotion_ladder(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc)
     assert bundle.inputs["promotion_ladder"] == Measured(
         value="VERIFIED", n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "tree" / "acme__widget.json"),
+        source="raw/tree/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -627,7 +627,7 @@ def test_promotion_ladder_accepts_both_v2_identity_and_legacy_v1_spellings(tmp_p
         bundle = load(tmp_path, doc, key=key)
         assert bundle.inputs["promotion_ladder"] == Measured(
             value=expected, n=0, window_start=None, window_end=None, method="primary",
-            source=str(tmp_path / "raw" / "governance" / f"{key}.json"),
+            source=f"raw/governance/{key}.json",
             source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
         ), f"{written!r} -> expected Measured({expected!r})"
 
@@ -647,7 +647,7 @@ def test_ai_posture(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc)
     assert bundle.inputs["ai_posture"] == Measured(
         value="REGULATED", n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "governance" / "acme__widget.json"),
+        source="raw/governance/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -697,7 +697,7 @@ def test_newcomer_issue_supply(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc)
     assert bundle.inputs["newcomer_issue_supply"] == Measured(
         value=7, n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "gfi" / "acme__widget.json"),
+        source="raw/gfi/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -757,7 +757,7 @@ def test_openssf_criticality(tmp_path: Path) -> None:
     expected = round(calculate_pike_criticality(OpenSSFSignals(**_OPENSSF_SIGNALS)), 4)
     assert value == Measured(
         value=expected, n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "github_meta" / f"{key}.json"),
+        source=f"raw/github_meta/{key}.json",
         source_hash=expected_hash({"placeholder": "github_meta"}),
         fetched_at="2026-09-01T00:05:00+00:00",
     )
@@ -952,7 +952,7 @@ def test_openssf_criticality_proxy_when_dependents_not_applicable(tmp_path: Path
     expected = round(core_calculate(partial_signals, missing=frozenset({"dependents_count"})), 4)
     assert value.value == expected
     assert 0.0 <= value.value <= 1.0
-    assert value.source == str(tmp_path / "raw" / "github_meta" / f"{key}.json")
+    assert value.source == f"raw/github_meta/{key}.json"
 
 
 def test_openssf_criticality_proxy_when_dependents_third_party_gap(tmp_path: Path) -> None:
@@ -1150,7 +1150,7 @@ def test_pipeline_defenses_primary_method(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc, key=key)
     assert bundle.inputs["pipeline_defenses"] == Measured(
         value=32.5, n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "scorecard" / f"{key}.json"),
+        source=f"raw/scorecard/{key}.json",
         source_hash=expected_hash({"score": 5, "checks": {}}), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -1182,7 +1182,7 @@ def test_pipeline_defenses_proxy_method_counts_merged_prs(tmp_path: Path) -> Non
     bundle = load(tmp_path, doc, key=key)
     assert bundle.inputs["pipeline_defenses"] == Measured(
         value=18.0, n=3, window_start=None, window_end=None, method="proxy:review_ci",
-        source=str(tmp_path / "raw" / "pr_window" / f"{key}.json"),
+        source=f"raw/pr_window/{key}.json",
         source_hash=expected_hash(pr_window_env), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -1319,7 +1319,7 @@ def test_mr_first_rate(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc, key="acme__mrfirst")
     assert bundle.inputs["mr_first_rate"] == Measured(
         value=0.6, n=5, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "author_history" / "acme__mrfirst.json"),
+        source="raw/author_history/acme__mrfirst.json",
         source_hash=expected_hash(ah_data), fetched_at="2026-09-01T00:06:00+00:00",
     )
     # X11 (W3-1f review round 2): this is the ONE measured field in this
@@ -1328,7 +1328,7 @@ def test_mr_first_rate(tmp_path: Path) -> None:
     # write actually reaches FeatureBundle.provenance_hash, not just the
     # resolver's own return value.
     assert bundle.provenance_hash == feature_provenance_hash({
-        str(tmp_path / "raw" / "author_history" / "acme__mrfirst.json"): expected_hash(ah_data),
+        "raw/author_history/acme__mrfirst.json": expected_hash(ah_data),
     })
 
 
@@ -1424,11 +1424,11 @@ def test_newcomer_conversion(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc, key="acme__newconv")
     assert bundle.inputs["newcomer_conversion"] == Measured(
         value=0.25, n=8, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "author_history" / "acme__newconv.json"),
+        source="raw/author_history/acme__newconv.json",
         source_hash=expected_hash(ah_data), fetched_at="2026-09-01T00:06:00+00:00",
     )
     assert bundle.provenance_hash == feature_provenance_hash({
-        str(tmp_path / "raw" / "author_history" / "acme__newconv.json"): expected_hash(ah_data),
+        "raw/author_history/acme__newconv.json": expected_hash(ah_data),
     })
 
     # Same "missing"-gate wiring, its OWN detail field (newcomer_unmeasured_detail).
@@ -1461,11 +1461,11 @@ def test_rr90_return_rate(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc, key="acme__rr90")
     assert bundle.inputs["rr90_return_rate"] == Measured(
         value=0.75, n=12, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "author_history" / "acme__rr90.json"),
+        source="raw/author_history/acme__rr90.json",
         source_hash=expected_hash(ah_data), fetched_at="2026-09-01T00:06:00+00:00",
     )
     assert bundle.provenance_hash == feature_provenance_hash({
-        str(tmp_path / "raw" / "author_history" / "acme__rr90.json"): expected_hash(ah_data),
+        "raw/author_history/acme__rr90.json": expected_hash(ah_data),
     })
 
     # rr90_return_rate shares newcomer_conversion's own "missing"-gate detail
@@ -1541,7 +1541,7 @@ def test_dr90_decision_rate(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc)
     assert bundle.inputs["dr90_decision_rate"] == Measured(
         value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
-        method=_DR90_METHOD, source=str(tmp_path / "raw" / "pr_window" / "acme__widget.json"),
+        method=_DR90_METHOD, source="raw/pr_window/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -1702,7 +1702,7 @@ def test_dr90_decision_rate_author_cap_sock_puppet(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc, key="acme__sock")
     assert bundle.inputs["dr90_decision_rate"] == Measured(
         value=0.3333, n=12, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
-        method=_DR90_METHOD, source=str(tmp_path / "raw" / "pr_window" / "acme__sock.json"),
+        method=_DR90_METHOD, source="raw/pr_window/acme__sock.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
     # The engine's own scoring path, not just this bundle-layer resolver
@@ -1765,7 +1765,7 @@ def test_dr90_decision_rate_author_cap_boundary(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc, key="acme__cap-boundary")
     assert bundle.inputs["dr90_decision_rate"] == Measured(
         value=0.0526, n=19, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
-        method=_DR90_METHOD, source=str(tmp_path / "raw" / "pr_window" / "acme__cap-boundary.json"),
+        method=_DR90_METHOD, source="raw/pr_window/acme__cap-boundary.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
     scored = dr90(bundle.inputs["dr90_decision_rate"])
@@ -1881,7 +1881,7 @@ def test_dr90_decision_rate_eligibility_gate_applied_with_author_history(tmp_pat
     bundle = load(tmp_path, doc, key="acme__gated")
     assert bundle.inputs["dr90_decision_rate"] == Measured(
         value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
-        method=_DR90_METHOD_GATED, source=str(tmp_path / "raw" / "pr_window" / "acme__gated.json"),
+        method=_DR90_METHOD_GATED, source="raw/pr_window/acme__gated.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -1902,7 +1902,7 @@ def test_dr90_decision_rate_eligibility_gate_unapplied_without_author_history(tm
     bundle = load(tmp_path, doc, key="acme__ungated")
     assert bundle.inputs["dr90_decision_rate"] == Measured(
         value=0.5714, n=14, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
-        method=_DR90_METHOD, source=str(tmp_path / "raw" / "pr_window" / "acme__ungated.json"),
+        method=_DR90_METHOD, source="raw/pr_window/acme__ungated.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -1963,7 +1963,7 @@ def test_dr90_decision_rate_eligibility_unmeasured_author_excluded(tmp_path: Pat
     bundle = load(tmp_path, doc, key="acme__unmeasured-author")
     assert bundle.inputs["dr90_decision_rate"] == Measured(
         value=0.5, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
-        method=_DR90_METHOD_GATED, source=str(tmp_path / "raw" / "pr_window" / "acme__unmeasured-author.json"),
+        method=_DR90_METHOD_GATED, source="raw/pr_window/acme__unmeasured-author.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
@@ -2010,7 +2010,7 @@ def test_dr90_decision_rate_ignores_history_unmeasured_when_eligibility_is_measu
     # history_unmeasured were absent entirely.
     assert bundle.inputs["dr90_decision_rate"] == Measured(
         value=0.4, n=10, window_start=_DR90_WINDOW_START, window_end=_DR90_WINDOW_END,
-        method=_DR90_METHOD_GATED, source=str(tmp_path / "raw" / "pr_window" / "acme__history-only.json"),
+        method=_DR90_METHOD_GATED, source="raw/pr_window/acme__history-only.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 

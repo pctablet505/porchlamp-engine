@@ -170,6 +170,37 @@ def test_rejects_measured_with_bad_source_hash() -> None:
         validate_bundle(doc)
 
 
+@pytest.mark.parametrize(
+    "bad_source",
+    [
+        "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/torvalds__linux.json",
+        "/raw/gfi/torvalds__linux.json",
+        "C:\\data\\raw\\gfi\\torvalds__linux.json",
+        "raw/gfi/../../etc/passwd",
+        "",
+    ],
+)
+def test_rejects_measured_with_absolute_or_unsafe_source(bad_source: str) -> None:
+    """W2-14: provenance is an envelope path plus its hash, and that path
+    must be relative to the data root (docs/v2/00-README.md non-negotiables)
+    -- an absolute path of the machine that derived a bundle, a Windows
+    drive-letter path, or a ``..`` escape must never enter a bundle
+    silently. Fail-before: this is the exact shape the real fixture store
+    served (an absolute ``sample-200`` path) before the fix."""
+    doc = make_doc()
+    doc["inputs"]["ttfhr_hours"]["source"] = bad_source
+    with pytest.raises(BundleValidationError) as excinfo:
+        validate_bundle(doc)
+    assert "relative to the data root" in str(excinfo.value) or "non-empty envelope path" in str(excinfo.value)
+
+
+def test_accepts_measured_with_relative_source() -> None:
+    doc = make_doc()
+    doc["inputs"]["ttfhr_hours"]["source"] = "raw/pr_window/org__alpha.json"
+    bundle = validate_bundle(doc)
+    assert bundle.inputs["ttfhr_hours"].source == "raw/pr_window/org__alpha.json"
+
+
 def test_rejects_measured_with_negative_n() -> None:
     doc = make_doc()
     doc["inputs"]["ttfhr_hours"]["n"] = -1

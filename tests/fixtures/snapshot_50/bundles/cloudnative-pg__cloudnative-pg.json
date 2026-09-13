@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/cloudnative-pg__cloudnative-pg.json",
+      "source": "raw/contributors/cloudnative-pg__cloudnative-pg.json",
       "source_hash": "f65dcf5a0f2f69559655555956678f25375ae8891fd170cde4d40bc24b722bf3",
       "value": 5,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/cloudnative-pg__cloudnative-pg.json",
+      "source": "raw/gfi/cloudnative-pg__cloudnative-pg.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T02:53:28.145474+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/cloudnative-pg__cloudnative-pg.json",
+    "source": "raw/commits_180d/cloudnative-pg__cloudnative-pg.json",
     "source_hash": "ff09656ea0bd535316c3d4c0738bddc57ba211195741aceb705915068b4a02e3",
     "value": "2026-09-10T00:37:32Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-09-04T08:30:18+00:00",
     "truncated": false
   },
-  "provenance_hash": "bc1ae12f8d7ff5fa492bbadd22ba286b4dd57c74da8d9d691f8ff4f16498ce63",
+  "provenance_hash": "66c547ddbc0ab0f11e39f7584a9e75f74eda44c264325c717917ff73b400b500",
   "repo": {
     "archived": false,
     "default_branch": "main",

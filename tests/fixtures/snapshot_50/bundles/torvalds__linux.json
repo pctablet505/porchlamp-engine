@@ -59,7 +59,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/torvalds__linux.json",
+      "source": "raw/gfi/torvalds__linux.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -105,7 +105,7 @@
     "fetched_at": "2026-09-11T19:51:08.657455+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/torvalds__linux.json",
+    "source": "raw/commits_180d/torvalds__linux.json",
     "source_hash": "a116fca3a143dd488433889bf8f6fbf9dc2982c3a3a57a481b4f6e15f1c85086",
     "value": "2026-09-11T18:56:33Z"
   },
@@ -115,7 +115,7 @@
     "start": null,
     "truncated": false
   },
-  "provenance_hash": "86209cb99c43056b0ccb4e9876b5c0527ebead466a23fb29ad8677317daf5081",
+  "provenance_hash": "0752a0be463b9c160b8c472dbcab84000a475d468d200c70ce3be780ccfa7e07",
   "repo": {
     "archived": false,
     "default_branch": "master",

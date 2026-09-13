@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/duckdb__duckdb.json",
+      "source": "raw/contributors/duckdb__duckdb.json",
       "source_hash": "45edd1ec227ecd459f4e180e7185edcc9f6eebe61bbd1675d03f6a801d87abd9",
       "value": 4,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/duckdb__duckdb.json",
+      "source": "raw/gfi/duckdb__duckdb.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T21:01:02.942815+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/duckdb__duckdb.json",
+    "source": "raw/commits_180d/duckdb__duckdb.json",
     "source_hash": "9ed56ec17e8a0861383b75812195c85b9278a5fb1c381bd1b441cf123c53a360",
     "value": "2026-09-11T19:14:29Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-09-10T22:19:50+00:00",
     "truncated": false
   },
-  "provenance_hash": "1055a319661829025bde116514c5e224c78ef9f8db77f0bdb4cbec94be75e931",
+  "provenance_hash": "c2f4f801d183cafb311abc215dab5a34adc6c0f4833408bd9edbb46bac9342bc",
   "repo": {
     "archived": false,
     "default_branch": "v2.0-cyanoptera",

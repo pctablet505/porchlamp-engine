@@ -45,7 +45,7 @@ def test_star_velocity_flag_measured_true(tmp_path: Path):
     result = resolve_universe_meta_facts(doc, raw_root=tmp_path / "raw")
     assert result["star_velocity_flag"] == Measured(
         value=1, n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "universe_entry" / "acme__widget.json"),
+        source="raw/universe_entry/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
     assert bool(result["star_velocity_flag"].value) is True
@@ -63,7 +63,7 @@ def test_star_velocity_flag_measured_false(tmp_path: Path):
     result = resolve_universe_meta_facts(doc, raw_root=tmp_path / "raw")
     assert result["star_velocity_flag"] == Measured(
         value=0, n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "universe_entry" / "acme__widget.json"),
+        source="raw/universe_entry/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
     assert bool(result["star_velocity_flag"].value) is False
@@ -124,7 +124,7 @@ def test_stars_audited_measured(tmp_path: Path):
     result = resolve_universe_meta_facts(doc, raw_root=tmp_path / "raw")
     assert result["stars_audited"] == Measured(
         value=271, n=0, window_start=None, window_end=None, method="primary",
-        source=str(tmp_path / "raw" / "universe_entry" / "acme__widget.json"),
+        source="raw/universe_entry/acme__widget.json",
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 

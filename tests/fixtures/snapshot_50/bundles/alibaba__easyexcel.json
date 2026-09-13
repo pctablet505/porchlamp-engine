@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/alibaba__easyexcel.json",
+      "source": "raw/contributors/alibaba__easyexcel.json",
       "source_hash": "3c5930c931f1a1d9dc4f389e3a5fc65c35aae7b6640c21767368d2dc77512a96",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/alibaba__easyexcel.json",
+      "source": "raw/gfi/alibaba__easyexcel.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-11T21:33:24.748748+00:00",
     "kind": "measured",
     "method": "measured:no_non_bot_commit_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/alibaba__easyexcel.json",
+    "source": "raw/commits_180d/alibaba__easyexcel.json",
     "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "value": null
   },
@@ -422,7 +422,7 @@
     "start": "2024-05-22T07:40:14+00:00",
     "truncated": false
   },
-  "provenance_hash": "2adf13be9479bf1e83a4d14c3dfe38910c8c96daca2863e50dc7d238ec8ff72c",
+  "provenance_hash": "3bb40f50b7666eb2e0ac36a95604d0e85dd52cb5a0fc11100f6f4bb84e8974f5",
   "repo": {
     "archived": true,
     "default_branch": "master",

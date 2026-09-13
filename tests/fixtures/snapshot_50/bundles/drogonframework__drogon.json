@@ -34,7 +34,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/contributors/drogonframework__drogon.json",
+      "source": "raw/contributors/drogonframework__drogon.json",
       "source_hash": "71fa4bf9c4c8a81516fadf620556ed894be5a19af126145ee485da4e2e29f3e2",
       "value": 1,
       "window_end": null,
@@ -65,7 +65,7 @@
       "kind": "measured",
       "method": "primary",
       "n": 0,
-      "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/drogonframework__drogon.json",
+      "source": "raw/gfi/drogonframework__drogon.json",
       "source_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       "value": 0,
       "window_end": null,
@@ -111,7 +111,7 @@
     "fetched_at": "2026-09-12T00:11:46.279684+00:00",
     "kind": "measured",
     "method": "measured:commits_180d_fallback",
-    "source": "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/commits_180d/drogonframework__drogon.json",
+    "source": "raw/commits_180d/drogonframework__drogon.json",
     "source_hash": "7ddde2932b44756d737095e7443b1bc8cefe47abd22f960d22dc638c40c835c2",
     "value": "2026-09-09T01:17:26Z"
   },
@@ -422,7 +422,7 @@
     "start": "2026-07-15T17:08:07+00:00",
     "truncated": false
   },
-  "provenance_hash": "223765830a986e534f961f916d080c81219f9b752db13665edb2c79f9fe35a5d",
+  "provenance_hash": "97ffbb12e3f52ebb8c69aaddf778f8395b2077cf0a530dd5cfdf683b4bebc882",
   "repo": {
     "archived": false,
     "default_branch": "master",
