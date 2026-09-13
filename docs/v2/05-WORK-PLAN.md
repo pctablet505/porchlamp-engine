@@ -357,7 +357,7 @@ if the fields exist there (they do not today; report).
 
 ---
 
-### W1-8 Universe entry: star-velocity filter applied and recorded (added 2026-09-13)
+### W1-10 Universe entry: star-velocity filter applied and recorded (added 2026-09-13)
 **Goal.** `scripts/build_universe.py` applies `filter_fraudulent_star_velocity`
 (D-IN-5) at universe entry and records, per repo, whether the penalty fired
 (`star_velocity_flag`, with the window and the velocity) in the universe
