@@ -269,3 +269,27 @@ boundaries held).
 - Suite: 2149 passed, 1 skipped; ruff clean
 - Mutants: 7/7 caught (each pasted above, each restored, tree clean after)
 - Fixture: rated=0/gated=35/unrated=15 unchanged; records_hash `bc865a8c409b7562b3e1aa8bef3f69780838f057adbc7bf27421aba073000443`
+
+## Rebase addendum (after W1-10 landed as RFC-0002)
+
+W1-10 landed on `main` (`783656a`/`469d681`) while this packet was in
+review, claiming RFC-0002 for the StarScout `STARS_SCOUT_*` relocation.
+Rebased onto the new `main` tip; `cvi/core/constants_v2.py` and
+`cvi/derive/bundle.py` auto-merged with zero conflicts (row/section
+boundaries held); resolved `tests/core/test_frozen.py` and
+`docs/v2/rfcs/CHANGELOG.md` by hand (kept both sides); renamed this
+packet's RFC file to `RFC-0003-not-applicable-rules-and-criticality-proxy.md`
+(title, hash chain, records_hash reference updated) and re-chained the
+changelog row after RFC-0002 instead of RFC-0001. Fixture regenerated on
+the rebased base by hand (never picked a side on the three metadata
+files) — diff confirmed minimal: only `constants_hash`/`records_hash`
+moved, zero bundle content changed.
+
+- Final commit: `cc5b1d60e35451bb5ecfa41ed92951e09c1cce86` (branch `W2-13`)
+- Rebased base: `469d681` (local `main` tip after W1-10)
+- `CONSTANTS_HASH`: `446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0` (W1-10/RFC-0002) -> `419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9` (this packet, RFC-0003)
+- Fixture `records_hash`: `a0b4df4043cbd398db5036f852a2456be07f50daa79e61237060a5385dd49d2a` (W1-10's) -> `099264a0d53ad847e8b4ad0bdbf4e7c1e8b4e42d56ae46e5beda605463779271`; counts `rated=0, gated=35, unrated=15` unchanged
+- Completeness test (`test_every_module_level_constant_is_hashed_or_declared_not_hashed`): passes
+- All 7 mutants re-run against the rebased HEAD: all 7 still caught, identically (same failing tests, same assertion messages); tree verified clean (`git status --short` empty) after each restoration via `git show HEAD:<path> > <path>`
+- Suite: `2211 passed, 1 skipped in 10.28s`, exit=0
+- Ruff: `All checks passed!`

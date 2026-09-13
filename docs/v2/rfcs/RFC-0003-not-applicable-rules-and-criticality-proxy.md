@@ -90,7 +90,7 @@ line.
   `openssf_signals_partial` field at all -- a fresh `derive_repo` run would
   activate it, per this RFC's own new code path, but that re-derive is out
   of this packet's scope). `records_hash` still moves
-  (`bc865a8c40…` in this packet's own handoff) because
+  (`099264a0d5…` in this packet's own handoff) because
   `cvi.core.models.PillarScore` gains a new field (`applicable: bool`,
   default `True`) that appears in every stored record's `pillars` dump
   structurally, and because `CONSTANTS_HASH` itself moved (stamped per
