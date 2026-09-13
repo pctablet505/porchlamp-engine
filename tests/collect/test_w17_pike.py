@@ -822,6 +822,10 @@ GATHER_DONE = {
     # 4 pre-existing ones -- all 4 collectors are seeded here together so
     # the shared block_live_network guard records 0 attempts).
     "commits_365d": [], "dependents": {}, "pr_window": {}, "governance": {},
+    # W1-4's author_history hook also postdates this file and is not under
+    # test here; marking it done avoids a live AuthorWindow gh api call —
+    # surfaced by W1-6's landed network guard (round-3 fix).
+    "author_history": {},
 }
 
 

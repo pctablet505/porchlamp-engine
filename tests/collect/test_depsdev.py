@@ -572,6 +572,10 @@ GATHER_DONE = {
     # this file; unseeded they made 9 live gh api calls under the
     # block_live_network guard (3 tests x 3 calls each).
     "releases": {}, "issues_counts": {}, "runs": {},
+    # W1-4's author_history hook also postdates this file and is not under
+    # test here; marking it done avoids a live AuthorWindow gh api call —
+    # surfaced by W1-6's landed network guard (round-3 fix).
+    "author_history": {},
 }
 
 

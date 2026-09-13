@@ -947,6 +947,10 @@ GATHER_DONE = {
     # WW2 round 3: these three tests leaked releases/issues_counts/runs/
     # labels for "acme/widget" with no seed and no block_live_network).
     "releases": {}, "issues_counts": {}, "runs": {},
+    # W1-4's author_history hook also postdates this file and is not under
+    # test here; marking it done avoids a live AuthorWindow gh api call —
+    # surfaced by W1-6's landed network guard (round-3 fix).
+    "author_history": {},
 }
 
 

@@ -340,7 +340,11 @@ def test_gather_hook_writes_commits_365d(tmp_path, monkeypatch, block_live_netwo
                             # (Blocker B4 round 2).
                             ("repo_object", {}), ("pr_window", {}), ("governance", {}),
                             ("dependents", {}), ("releases", {}),
-                            ("issues_counts", {}), ("runs", {})):
+                            ("issues_counts", {}), ("runs", {}),
+                            # W1-4's author_history hook also postdates
+                            # this file (round-3 fix, W1-6's landed
+                            # network guard surfaced it).
+                            ("author_history", {})):
         _seed_raw(tmp_path, collector, KEY, data)
     _seed_raw(tmp_path, "downloads", f"pypi__{NAME}", {"monthly": 123})
     monkeypatch.setattr(gather, "DATA", tmp_path)

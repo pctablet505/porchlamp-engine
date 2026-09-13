@@ -1,6 +1,6 @@
 {
   "benchmark_version": "2.0.0-rc1",
-  "constants_hash": "391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8",
+  "constants_hash": "d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e",
   "document": "cvi-populations",
   "min_population": 30,
   "populations": [],

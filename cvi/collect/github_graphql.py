@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from cvi.collect.envelope import write_envelope
+from cvi.core.constants_v2 import AUTHOR_UNMEASURED_MAX_FRACTION
 
 # --------------------------------------------------------------------------- #
 # D-IN-4 / D-IN-2 / 02 §4 constants (docs/v2/02-RANKING-DESIGN.md)            #
@@ -526,13 +527,12 @@ ELIGIBILITY_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
 #: sample), row 1.2 (DR_90) and row 1.3 (MR_first)'s D-IN-3-adjusted rate
 #: are reported unmeasured rather than computed on a collapsed population
 #: (review B-2: DR_90 capped n 81 -> 22, MR_first capped 0.3818 -> 0.6667 on
-#: n 55 -> 9, silently, on pytest-dev/pytest). W2-8 census: this constant
-#: belongs in ``cvi.core.constants_v2`` once that packet lands (unlanded on
-#: main as of this round — ``git log main --oneline | grep W2-8`` shows only
-#: a lead-log entry, not the constants-freeze commit itself); defined here
-#: in the meantime, matching this module's existing R-2 deferral for its
-#: other 17 D-IN constants.
-AUTHOR_UNMEASURED_MAX_FRACTION: float = 0.20
+#: n 55 -> 9, silently, on pytest-dev/pytest). Imported from
+#: :mod:`cvi.core.constants_v2` (RFC-0001) — W2-8's constants freeze has
+#: landed on main; this is the one D-IN constant this module does NOT
+#: define locally, since D-MISS-1 gate thresholds are exactly what the
+#: freeze covers (docs/v2/rfcs/README.md). The module's other 17 D-IN
+#: constants remain here pending W2-1's broader relocation (R-2).
 
 #: The 365-d window query: PRs in all three states, newest first, light
 #: fields (no reviews/comments — the author section does not derive

@@ -334,6 +334,21 @@ PARAM_MIN_N: dict[str, int | None] = {
 #: that defines one.
 PIPELINE_DEFENSES_PROXY_MIN_N: int = 10
 
+#: D-MISS-1 ``collector_failure`` threshold for row 1.2 (DR_90) and row 1.3
+#: (MR_first): above this fraction of a repo's author-history cohort being
+#: unmeasured (a per-author search or eligibility fetch failed -- not the
+#: designed search-cap sample), the D-IN-3-adjusted rate is reported
+#: Unmeasured rather than computed on a collapsed population. This is a
+#: distinct gate from PARAM_MIN_N above: PARAM_MIN_N bounds the FINAL rate's
+#: own sample size after every filter has run; this constant bounds the
+#: COLLECTOR's own failure rate before any rate is computed at all (RFC-0001;
+#: motivated by the W1-4 round-2 review's B-2/B-3: a batch-fetch defect
+#: silently collapsed pytest-dev/pytest's MR_first denominator from 55 to 9
+#: authors with no status change -- 45 of 62 = 73% unmeasured, well above
+#: this threshold). Consumed by ``cvi.collect.github_graphql.derive_cohort_
+#: fields``.
+AUTHOR_UNMEASURED_MAX_FRACTION: float = 0.20
+
 #: Pillar names and frozen pillar weights (02 section 4; O-2: unchanged at
 #: 25/25/20/15/15). Defined here (ahead of its alphabetical neighbours)
 #: because ``PERSONA_PRESETS`` below needs ``PILLAR_WEIGHTS`` already bound.
@@ -479,6 +494,7 @@ def constants_dict() -> dict[str, object]:
     return {
         "AI_POSTURE_SCORES": AI_POSTURE_SCORES,
         "AI_POSTURE_VALUES": AI_POSTURE_VALUES,
+        "AUTHOR_UNMEASURED_MAX_FRACTION": AUTHOR_UNMEASURED_MAX_FRACTION,
         "BENCHMARK_VERSION": BENCHMARK_VERSION,
         "CAREER_CAPITAL_MIN_COVERAGE": CAREER_CAPITAL_MIN_COVERAGE,
         "CAREER_CAPITAL_MIN_CRITICALITY": CAREER_CAPITAL_MIN_CRITICALITY,

@@ -405,6 +405,11 @@ def seed_gather_done(raw: Path) -> None:
 def test_gather_repo_pr_window_status_ok(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
+    # W1-4's author_history hook postdates GATHER_DONE's original authorship
+    # and is not under test here; marking it done avoids a live AuthorWindow
+    # gh api call — surfaced by W1-6's landed network guard (round-3 fix:
+    # seeding, not the guard).
+    write_env(gather.DATA, "author_history", KEY, {})
     monkeypatch.setattr(gql, "collect_pr_window", lambda *a, **k: "ok")
     status = gather.gather_repo("acme", "widget", "pypi")
     assert status["pr_window"] == "ok"
@@ -415,6 +420,7 @@ def test_gather_repo_pr_window_status_ok(tmp_path, monkeypatch, block_live_netwo
 def test_gather_repo_pr_window_status_skip(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
+    write_env(gather.DATA, "author_history", KEY, {})
     write_env(gather.DATA, "pr_window", KEY, {"count": 0, "truncated": False,
                                               "cost_points": 0, "prs": [],
                                               "derived": []})
@@ -430,6 +436,7 @@ def test_gather_repo_pr_window_status_skip(tmp_path, monkeypatch, block_live_net
 def test_gather_repo_pr_window_status_fail(tmp_path, monkeypatch, block_live_network):
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
+    write_env(gather.DATA, "author_history", KEY, {})
 
     def raise_transport_error(*a, **k):
         raise RuntimeError("gh api graphql rc=1: rate limited")

@@ -339,7 +339,10 @@ def _seed_all_but_downloads(tmp_path: Path) -> None:
                 "commits_180d", "actions_runs", "depsdev",
                 "scorecard", "tree", "repo_object", "governance",
                 "commits_365d", "dependents", "pr_window",
-                "releases", "issues_counts", "runs"):
+                "releases", "issues_counts", "runs",
+                # W1-4's author_history hook also postdates this file
+                # (round-3 fix, W1-6's landed network guard surfaced it).
+                "author_history"):
         p = raw / col / f"{key}.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({"fetched_at": "2026-09-12T00:00:00+00:00",

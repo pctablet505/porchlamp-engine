@@ -38,8 +38,14 @@ from cvi.core.models import BundleValidationError, Unmeasured, canonical_json
 #: (round 2: TIER_CUTOFFS, TIER_ORDER, OPENSSF_WEIGHTS, OPENSSF_THRESHOLDS,
 #: SIGNAL_FIELDS, OSI_APPROVED_LICENSES added to constants_dict() per the
 #: round-1 review's census; no scored value changed, since every added
-#: constant's re-bound value at its consumer module is unchanged).
-FROZEN_CONSTANTS_HASH = "391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8"
+#: constant's re-bound value at its consumer module is unchanged) ->
+#: `d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e`
+#: (RFC-0001: AUTHOR_UNMEASURED_MAX_FRACTION = 0.20 added, relocated out of
+#: cvi.collect.github_graphql per the W1-4 round-3 dispatch closing the
+#: census escape it was found in; no scored value changed, since this
+#: constant has no scoring-path consumer yet -- W2-9's bundle.py wiring is
+#: unlanded, docs/v2/rfcs/RFC-0001-author-unmeasured-max-fraction.md).
+FROZEN_CONSTANTS_HASH = "d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -176,6 +182,9 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
             "dependents_count": "dependents_count",
         },
     ),
+    # RFC-0001: the W1-4 round-3 census closure -- relocated out of
+    # cvi.collect.github_graphql, where it lived outside the freeze.
+    ("AUTHOR_UNMEASURED_MAX_FRACTION", constants_v2.AUTHOR_UNMEASURED_MAX_FRACTION, 0.20),
 )
 
 
