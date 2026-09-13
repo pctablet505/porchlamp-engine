@@ -98,7 +98,7 @@ first-timers are the cheapest way to inflate merge and return rates.
 | Input | Window | Cap | Note |
 |---|---|---|---|
 | Pull requests (all states) | opened in trailing 180 d | 500 newest, `truncated` flag stored | uniform window replaces "30 newest" (F4) |
-| Decision-rate cohort | opened in [now−270 d, now−90 d] | – | every PR in the cohort has had 90 d to be decided |
+| Decision-rate cohort | opened in [now−180 d, now−90 d] (amended 2026-09-13: the older half of the W1-3 window; was [now−270 d, now−90 d]) | – | every PR in the cohort has had 90 d to be decided; n is smaller than the original design but the cohort is measurable from the collected 180 d window without a second fetch |
 | Newcomer cohorts | first PR in [now−365 d, now−180 d] | 20 authors sampled per repo | gives 180 d to convert and 90 d to return |
 | Commits | trailing 365 d (EF, bus factor), trailing 180 d (vitality) | 1,000 | email domains collected |
 | Issues with newcomer labels | open, updated in trailing 90 d | 200 | label aliases per repo (D-PARAM 5.1) |

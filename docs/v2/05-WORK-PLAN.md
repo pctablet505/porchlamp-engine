@@ -518,6 +518,20 @@ were arithmetically identical before deletion. **Depends.** W2-8, W2-8b. **Size.
 
 ---
 
+### W2-12 DR_90 from the collected window (added 2026-09-13)
+**Goal.** `INPUT_MAPPINGS["dr90_decision_rate"]` derives 1.2 from the W1-3
+`pr_window` envelope under the amended D-IN-4 cohort: external PRs opened in
+[as_of−180 d, as_of−90 d], decided (merged or closed) within 90 d of opening;
+`n` = cohort size; `insufficient_n` below `PARAM_MIN_N`. Replaces the
+`_unmapped` resolver. Author eligibility (D-IN-3) applies once W1-4 lands
+(W3-1); until then the row is Measured over all external authors and says so
+in `method`.
+**Owns.** the one mapping row + helper in `cvi/derive/bundle.py`, tests.
+**Acceptance.** Fixture with PRs at 89/90/91/179/180/181 days and decided at
+89/90/91 days pins every boundary; mutants on each boundary die; the W2-8c
+data shows a non-zero Measured count. **Depends.** W1-7f, W1-6 (both edit
+`bundle.py`; land first). **Size.** XS.
+
 ### W3-1 Author eligibility, per-author caps, lockstep detector
 **Goal.** D-IN-3 applied in derivation of every rate parameter;
 `newcomer_burst` detector.
