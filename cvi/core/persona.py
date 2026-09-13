@@ -1,4 +1,4 @@
-"""CVI v2 persona gates and persona composites (02 section 9: D-PERS-1/2).
+"""CVI v2 persona gates and persona composites (02 section 9: D-PERS-1/2/3).
 
 D-PERS-1 (separation). The stage-0 :class:`~cvi.core.models.GateResult` is
 persona-independent (``cvi.core.gates``); this module never touches it and
@@ -47,6 +47,30 @@ the record's already pillar-renormalised scores:
   criticality pillar is measured (``score is not None``) with
   ``score >= 60`` and ``coverage >= 0.80``.
 
+D-PERS-3 (ruling 2026-09-13, following the W2-7 review's Warning W-1).
+``ai_assisted`` and ``senior_systems`` above are *exclusion* gates and are
+unchanged by this ruling: they fire only on measured evidence, so their
+reason is always the substantive one. ``first_timer`` and ``career_capital``
+are *inclusion* gates -- a repo appears under that lens only when the
+evidence *satisfies* the condition, so an ``Unmeasured`` input can never
+satisfy it, but firing for that reason is not the same fact as firing
+because a measured value failed the bar. When one of these two gates fires
+because an input is ``Unmeasured``, the reason is
+``f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{input_id}"`` (e.g.
+``"insufficient_evidence:mr_first_rate"``), never
+:data:`REASON_HIGH_BARRIER_TO_ENTRY`/:data:`REASON_LOW_CRITICALITY`; those
+substantive reasons are reserved for the case where every relevant input
+*was* ``Measured`` and still failed to qualify (:func:`_first_timer_reason`,
+:func:`_career_capital_reason`). This matters in practice, not only in
+principle: on the sample-200 fixture every one of the 78 gate-eligible
+records has ``mr_first_rate``/``newcomer_issue_supply``/the criticality
+pillar ``Unmeasured`` (the W1-4 collector that would populate
+``mr_first_rate`` is not wired yet, C-2 in the W2-7 review), so before this
+ruling both gates reported a substantive-sounding reason
+(``high_barrier_to_entry`` / ``criticality_below_threshold``) for 78/78
+repos where the true fact was a collector gap, not a measured judgement
+about the repo.
+
 Persona composites (D-AGG-4: "linear ... no Python full scan" -- this
 function runs once per already-scored record, the shape a per-row SQL
 expression takes). :func:`persona_composite` reprojects the record's
@@ -80,7 +104,7 @@ outside ``cvi.core``), and this packet does not own
 ``cvi/core/constants_v2.py`` to add them there (W2-7 owns only
 ``cvi/core/persona.py``, R-10). They are therefore transcribed once, below,
 and pinned byte-equal to v1's values by
-``tests/core/test_persona_v2.py::test_non_balanced_presets_match_v1`` -- an
+``tests/core/test_persona_v2.py::test_non_balanced_presets_match_v1_constants_exactly`` -- an
 over-correction guard standing in for the cross-package import the
 architecture does not allow. Ownership request: W2-8 (constants freeze)
 should relocate all five preset vectors into ``constants_v2.py`` and delete
@@ -98,7 +122,7 @@ from __future__ import annotations
 from typing import Mapping
 
 from cvi.core import aggregate, constants_v2
-from cvi.core.models import Measured, ParamValue, ScoreRecord
+from cvi.core.models import Measured, ParamValue, PersonaComposite, ScoreRecord
 
 # --------------------------------------------------------------------------- #
 # Persona identifiers (D-PERS-2 table; also the ``ScoreRecord.persona_gates``/
@@ -192,6 +216,14 @@ REASON_LOW_ELEPHANT_FACTOR: str = "elephant_factor_below_3"
 REASON_HIGH_BARRIER_TO_ENTRY: str = "high_barrier_to_entry"
 REASON_LOW_CRITICALITY: str = "criticality_below_threshold"
 
+#: D-PERS-3 (ruling 2026-09-13): the reason prefix an *inclusion* gate
+#: (``first_timer``, ``career_capital``) reports when it fires only because
+#: one of its inputs is ``Unmeasured`` -- never a substantive reason such as
+#: :data:`REASON_HIGH_BARRIER_TO_ENTRY`, which would claim a low measured
+#: value the collector never produced. Rendered ``f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{input_id}"``,
+#: e.g. ``"insufficient_evidence:mr_first_rate"``.
+REASON_INSUFFICIENT_EVIDENCE_PREFIX: str = "insufficient_evidence:"
+
 # --------------------------------------------------------------------------- #
 # D-PERS-2 gate thresholds (no v2 home yet; see module docstring).
 # --------------------------------------------------------------------------- #
@@ -216,6 +248,13 @@ for _input_id in (INPUT_AI_POSTURE, INPUT_ELEPHANT_FACTOR, INPUT_MR_FIRST_RATE, 
     assert _input_id in constants_v2.PARAM_INPUT_IDS
 del _input_id
 
+#: ``career_capital`` reads the already pillar-renormalised
+#: ``record.pillars["criticality"]`` rather than a raw bundle input (D-PERS-2
+#: table); this is the id the D-PERS-3 ``insufficient_evidence:<id>`` reason
+#: names for that gate.
+CRITICALITY_PILLAR: str = "criticality"
+assert CRITICALITY_PILLAR in constants_v2.PILLAR_NAMES
+
 
 def _ai_assisted_gated(bundle_inputs: Mapping[str, ParamValue]) -> bool:
     value = bundle_inputs[INPUT_AI_POSTURE]
@@ -227,26 +266,48 @@ def _senior_systems_gated(bundle_inputs: Mapping[str, ParamValue]) -> bool:
     return isinstance(value, Measured) and value.value < SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR
 
 
-def _first_timer_qualifies(bundle_inputs: Mapping[str, ParamValue]) -> bool:
+def _first_timer_reason(bundle_inputs: Mapping[str, ParamValue]) -> str | None:
+    """D-PERS-3: ``None`` if either branch of D-PERS-2's OR qualifies;
+    otherwise the reason the gate fires.
+
+    Checked in the order the branches are read: if ``mr_first_rate`` is the
+    reason its own branch failed to qualify (``Unmeasured``, not merely a
+    low value), the reason names it; else if ``newcomer_issue_supply`` is
+    the reason its branch failed the same way, the reason names that one
+    instead; only when *both* inputs were ``Measured`` and still failed to
+    qualify is the reason the substantive
+    :data:`REASON_HIGH_BARRIER_TO_ENTRY`."""
     mr_first = bundle_inputs[INPUT_MR_FIRST_RATE]
-    if (
+    mr_qualifies = (
         isinstance(mr_first, Measured)
         and mr_first.n >= FIRST_TIMER_MIN_DECIDED_PRS
         and mr_first.value >= FIRST_TIMER_MIN_MR_FIRST
-    ):
-        return True
-    supply = bundle_inputs[INPUT_NEWCOMER_ISSUE_SUPPLY]
-    return isinstance(supply, Measured) and supply.value >= FIRST_TIMER_MIN_NEWCOMER_ISSUES
-
-
-def _career_capital_qualifies(record: ScoreRecord) -> bool:
-    criticality = record.pillars.get("criticality")
-    if criticality is None or criticality.score is None:
-        return False
-    return (
-        criticality.score >= CAREER_CAPITAL_MIN_CRITICALITY
-        and criticality.coverage >= CAREER_CAPITAL_MIN_COVERAGE
     )
+    supply = bundle_inputs[INPUT_NEWCOMER_ISSUE_SUPPLY]
+    supply_qualifies = isinstance(supply, Measured) and supply.value >= FIRST_TIMER_MIN_NEWCOMER_ISSUES
+    if mr_qualifies or supply_qualifies:
+        return None
+    if not isinstance(mr_first, Measured):
+        return f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{INPUT_MR_FIRST_RATE}"
+    if not isinstance(supply, Measured):
+        return f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{INPUT_NEWCOMER_ISSUE_SUPPLY}"
+    return REASON_HIGH_BARRIER_TO_ENTRY
+
+
+def _career_capital_reason(record: ScoreRecord) -> str | None:
+    """D-PERS-3: ``None`` if the criticality pillar qualifies; otherwise the
+    reason the gate fires. A missing pillar (gate-ineligible record,
+    ``record.pillars == {}``) or a pillar with no measured parameter
+    (``score is None``) is the ``Unmeasured`` case -- reason names the
+    pillar; a pillar with a real ``score`` that still fails the threshold or
+    coverage condition is the substantive :data:`REASON_LOW_CRITICALITY`."""
+    criticality = record.pillars.get(CRITICALITY_PILLAR)
+    score = criticality.score if criticality is not None else None
+    if score is None:
+        return f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{CRITICALITY_PILLAR}"
+    if score >= CAREER_CAPITAL_MIN_CRITICALITY and criticality.coverage >= CAREER_CAPITAL_MIN_COVERAGE:
+        return None
+    return REASON_LOW_CRITICALITY
 
 
 def persona_gates(record: ScoreRecord, bundle_inputs: Mapping[str, ParamValue]) -> dict[str, str]:
@@ -258,7 +319,7 @@ def persona_gates(record: ScoreRecord, bundle_inputs: Mapping[str, ParamValue]) 
     directly, keyed by the 18 frozen input ids (``constants_v2.PARAM_INPUT_IDS``).
     Only the four input ids named in the module docstring are ever looked
     up, so this function works on a gate-ineligible or unrated record too
-    (``record.pillars`` may then be ``{}``; ``_career_capital_qualifies``
+    (``record.pillars`` may then be ``{}``; ``_career_capital_reason``
     treats a missing/unmeasured criticality pillar as not qualifying, never
     as an error).
 
@@ -267,22 +328,36 @@ def persona_gates(record: ScoreRecord, bundle_inputs: Mapping[str, ParamValue]) 
     balanced score is never touched, and neither is any other persona's
     view of it -- the caller shows the repo under that persona's
     :func:`persona_composite` projection unchanged).
+
+    D-PERS-3 (ruling 2026-09-13): ``ai_assisted`` and ``senior_systems`` are
+    *exclusion* gates and are unchanged by this ruling -- they fire only on
+    measured evidence, so their reason is always the substantive one above.
+    ``first_timer`` and ``career_capital`` are *inclusion* gates: a repo
+    appears under that lens only when the evidence satisfies the condition,
+    so an ``Unmeasured`` input does not satisfy it, but the reason then
+    names the evidence gap (``insufficient_evidence:<input id>``,
+    :func:`_first_timer_reason`/:func:`_career_capital_reason`) rather than
+    a substantive reason such as :data:`REASON_HIGH_BARRIER_TO_ENTRY`, which
+    would misreport a real-but-unmeasured cohort as one that was measured
+    and rejected.
     """
     gates: dict[str, str] = {}
     if _ai_assisted_gated(bundle_inputs):
         gates[PERSONA_AI_ASSISTED] = REASON_AI_HARD_BAN
     if _senior_systems_gated(bundle_inputs):
         gates[PERSONA_SENIOR_SYSTEMS] = REASON_LOW_ELEPHANT_FACTOR
-    if not _first_timer_qualifies(bundle_inputs):
-        gates[PERSONA_FIRST_TIMER] = REASON_HIGH_BARRIER_TO_ENTRY
-    if not _career_capital_qualifies(record):
-        gates[PERSONA_CAREER_CAPITAL] = REASON_LOW_CRITICALITY
+    first_timer_reason = _first_timer_reason(bundle_inputs)
+    if first_timer_reason is not None:
+        gates[PERSONA_FIRST_TIMER] = first_timer_reason
+    career_capital_reason = _career_capital_reason(record)
+    if career_capital_reason is not None:
+        gates[PERSONA_CAREER_CAPITAL] = career_capital_reason
     return gates
 
 
-def persona_composite(record: ScoreRecord, persona: str) -> tuple[float | None, float, str | None]:
+def persona_composite(record: ScoreRecord, persona: str) -> PersonaComposite:
     """D-AGG-4: reproject ``record.pillars`` under ``persona``'s preset
-    weights -- ``(composite, coverage, tier)``.
+    weights -- a :class:`~cvi.core.models.PersonaComposite`.
 
     Raises ``ValueError`` if ``persona`` is not one of :data:`PERSONA_PRESETS`
     (the five D-PERS-2/spec-section-4 presets, ``"balanced"`` included), or
@@ -291,19 +366,25 @@ def persona_composite(record: ScoreRecord, persona: str) -> tuple[float | None, 
     ``pillars`` is ``{}``, out of scope for a persona *projection*: there is
     no balanced score to reproject).
 
-    ``coverage`` is ``Sum(w_p * c_p)`` over all 5 pillars (D-MISS-3's ``C``
-    formula, generalised to ``persona``'s weights: unlike the pillar-score
-    reduction below, coverage never renormalises over "measured" pillars --
-    an unmeasured pillar's own coverage is already 0.0, so it contributes
-    nothing and needs no special case). ``composite`` is ``None`` when every
-    pillar is unmeasured (D-AGG-2's renormalisation, generalised the same
-    way) or when ``cvi.core.aggregate.coverage_status`` finds the coverage
-    below the D-EVID-1 rated threshold (mirroring ``cvi.core.engine.score``:
-    an unrated record gets no composite and no tier under any persona,
-    either); otherwise it is rounded to 2 decimals once, at the end, exactly
-    as ``cvi.core.aggregate.composite_score`` does. ``tier`` reuses
+    ``PersonaComposite.coverage`` is ``Sum(w_p * c_p)`` over all 5 pillars
+    (D-MISS-3's ``C`` formula, generalised to ``persona``'s weights: unlike
+    the pillar-score reduction below, coverage never renormalises over
+    "measured" pillars -- an unmeasured pillar's own coverage is already
+    0.0, so it contributes nothing and needs no special case).
+    ``PersonaComposite.rated`` is that same persona-weighted coverage's own
+    D-EVID-1/D-MISS-3 rated outcome (``coverage >= 0.60``, ``04`` section 6's
+    per-persona-rated ruling: never copied from the balanced
+    ``ScoreRecord``, since a repo rated under the balanced weights can be
+    unrated under a persona's, and vice versa). ``cvi`` is ``None`` when
+    unrated, or when every pillar is unmeasured (D-AGG-2's renormalisation,
+    generalised the same way -- this case is itself always unrated, since an
+    all-unmeasured pillar set has coverage 0.0 under any weights); otherwise
+    it is rounded to 2 decimals once, at the end, exactly as
+    ``cvi.core.aggregate.composite_score`` does. ``tier`` is ``None`` under
+    the same unrated/unmeasured conditions; otherwise it reuses
     ``cvi.core.aggregate.tier_from_score``/``apply_ceiling`` verbatim (never
-    re-implemented) on the *unrounded* composite, per 04 section 8.
+    re-implemented) on the *unrounded* composite, per 04 section 8 --
+    tier-cutoff and ceiling-band comparisons never use the rounded ``cvi``.
     """
     if persona not in PERSONA_PRESETS:
         raise ValueError(f"unknown persona {persona!r}; expected one of {sorted(PERSONA_PRESETS)}")
@@ -327,7 +408,7 @@ def persona_composite(record: ScoreRecord, persona: str) -> tuple[float | None, 
 
     rated, ceiling = aggregate.coverage_status(coverage)
     if not rated or composite_raw is None:
-        return None, coverage, None
+        return PersonaComposite(cvi=None, coverage=coverage, tier=None, rated=False)
     composite = round(composite_raw, 2)
     tier = aggregate.apply_ceiling(aggregate.tier_from_score(composite_raw), ceiling)
-    return composite, coverage, tier
+    return PersonaComposite(cvi=composite, coverage=coverage, tier=tier, rated=True)

@@ -25,14 +25,17 @@ from __future__ import annotations
 import pytest
 
 from cvi.core import constants_v2
-from cvi.core.models import GateResult, Measured, ParamValue, PillarScore, ScoreRecord, Unmeasured
+from cvi.core.models import GateResult, Measured, ParamValue, PersonaComposite, PillarScore, ScoreRecord, Unmeasured
 from cvi.core.persona import (
     CAREER_CAPITAL_MIN_COVERAGE,
     CAREER_CAPITAL_MIN_CRITICALITY,
+    CRITICALITY_PILLAR,
     FIRST_TIMER_MIN_DECIDED_PRS,
     FIRST_TIMER_MIN_MR_FIRST,
     FIRST_TIMER_MIN_NEWCOMER_ISSUES,
     GATED_PERSONAS,
+    INPUT_MR_FIRST_RATE,
+    INPUT_NEWCOMER_ISSUE_SUPPLY,
     PERSONA_AI_ASSISTED,
     PERSONA_BALANCED,
     PERSONA_CAREER_CAPITAL,
@@ -41,6 +44,7 @@ from cvi.core.persona import (
     PERSONA_SENIOR_SYSTEMS,
     REASON_AI_HARD_BAN,
     REASON_HIGH_BARRIER_TO_ENTRY,
+    REASON_INSUFFICIENT_EVIDENCE_PREFIX,
     REASON_LOW_CRITICALITY,
     REASON_LOW_ELEPHANT_FACTOR,
     SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR,
@@ -242,12 +246,19 @@ def test_first_timer_not_gated_at_5_decided_prs_and_mr_040() -> None:
 
 
 def test_first_timer_gated_at_4_decided_prs() -> None:
+    """D-PERS-3: ``mr_first_rate`` is ``Measured`` and genuinely fails (n=4),
+    but ``newcomer_issue_supply`` is ``Unmeasured`` -- the gate cannot rule
+    out that the second branch would have rescued it, so the reason names
+    the missing evidence, not the substantive bar."""
     record = _record({})
     inputs = _neutral_inputs(
         mr_first_rate=_measured(FIRST_TIMER_MIN_MR_FIRST, n=FIRST_TIMER_MIN_DECIDED_PRS - 1),
         newcomer_issue_supply=_unmeasured(),
     )
-    assert persona_gates(record, inputs)[PERSONA_FIRST_TIMER] == REASON_HIGH_BARRIER_TO_ENTRY
+    assert (
+        persona_gates(record, inputs)[PERSONA_FIRST_TIMER]
+        == f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{INPUT_NEWCOMER_ISSUE_SUPPLY}"
+    )
 
 
 def test_first_timer_gated_at_mr_039() -> None:
@@ -269,10 +280,28 @@ def test_first_timer_not_gated_at_mr_040() -> None:
 
 
 def test_first_timer_gated_at_2_newcomer_issues() -> None:
-    """Isolate the second branch: mr_first unmeasured."""
+    """Isolate the second branch: mr_first unmeasured. D-PERS-3: since
+    ``mr_first_rate`` itself is ``Unmeasured``, the reason names it (checked
+    first, per ``_first_timer_reason``'s order) even though
+    ``newcomer_issue_supply`` was genuinely measured and failing."""
     record = _record({})
     inputs = _neutral_inputs(
         mr_first_rate=_unmeasured(),
+        newcomer_issue_supply=_measured(FIRST_TIMER_MIN_NEWCOMER_ISSUES - 1),
+    )
+    assert (
+        persona_gates(record, inputs)[PERSONA_FIRST_TIMER]
+        == f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{INPUT_MR_FIRST_RATE}"
+    )
+
+
+def test_first_timer_gated_reason_substantive_when_both_inputs_measured_and_failing() -> None:
+    """D-PERS-3 second branch: when *both* relevant inputs are ``Measured``
+    and still fail to qualify, the reason is the substantive
+    ``high_barrier_to_entry`` -- there is no missing evidence to blame."""
+    record = _record({})
+    inputs = _neutral_inputs(
+        mr_first_rate=_measured(0.10, n=FIRST_TIMER_MIN_DECIDED_PRS),
         newcomer_issue_supply=_measured(FIRST_TIMER_MIN_NEWCOMER_ISSUES - 1),
     )
     assert persona_gates(record, inputs)[PERSONA_FIRST_TIMER] == REASON_HIGH_BARRIER_TO_ENTRY
@@ -288,10 +317,16 @@ def test_first_timer_not_gated_at_3_newcomer_issues() -> None:
 
 
 def test_first_timer_gated_when_both_inputs_unmeasured() -> None:
-    """Unmeasured inputs satisfy neither branch."""
+    """Unmeasured inputs satisfy neither branch. D-PERS-3: with both inputs
+    unmeasured, the reason names ``mr_first_rate`` -- the first one checked
+    (``_first_timer_reason``'s order) -- rather than a substantive reason;
+    this is the sample-200 case (78/78, module docstring)."""
     record = _record({})
     inputs = _neutral_inputs(mr_first_rate=_unmeasured(), newcomer_issue_supply=_unmeasured())
-    assert PERSONA_FIRST_TIMER in persona_gates(record, inputs)
+    assert (
+        persona_gates(record, inputs)[PERSONA_FIRST_TIMER]
+        == f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{INPUT_MR_FIRST_RATE}"
+    )
 
 
 def test_first_timer_not_gated_via_supply_even_when_mr_rate_is_low() -> None:
@@ -319,25 +354,37 @@ def test_career_capital_gated_just_below_score_and_coverage() -> None:
 
 
 def test_career_capital_gated_when_score_high_but_coverage_low() -> None:
+    """Score is ``Measured`` (90.0): D-PERS-3's substantive branch."""
     record = _record({"criticality": _pillar(90.0, 0.79)})
-    assert PERSONA_CAREER_CAPITAL in persona_gates(record, _neutral_inputs())
+    assert persona_gates(record, _neutral_inputs())[PERSONA_CAREER_CAPITAL] == REASON_LOW_CRITICALITY
 
 
 def test_career_capital_gated_when_coverage_high_but_score_low() -> None:
+    """Score is ``Measured`` (59.99): D-PERS-3's substantive branch."""
     record = _record({"criticality": _pillar(59.99, 1.0)})
-    assert PERSONA_CAREER_CAPITAL in persona_gates(record, _neutral_inputs())
+    assert persona_gates(record, _neutral_inputs())[PERSONA_CAREER_CAPITAL] == REASON_LOW_CRITICALITY
 
 
 def test_career_capital_gated_when_criticality_unmeasured() -> None:
+    """D-PERS-3: ``score is None`` -- the pillar itself is unmeasured (no
+    measured parameter contributed to it), so the reason names the pillar
+    rather than claiming a substantively low criticality."""
     record = _record({"criticality": _pillar(None, 0.0)})
-    assert PERSONA_CAREER_CAPITAL in persona_gates(record, _neutral_inputs())
+    assert (
+        persona_gates(record, _neutral_inputs())[PERSONA_CAREER_CAPITAL]
+        == f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{CRITICALITY_PILLAR}"
+    )
 
 
 def test_career_capital_gated_when_criticality_pillar_missing() -> None:
     """A gate-ineligible record's ``pillars`` is ``{}`` (``cvi.core.engine``'s
-    ``_bare_record``); the gate must not raise ``KeyError``."""
+    ``_bare_record``); the gate must not raise ``KeyError``, and D-PERS-3
+    treats a wholly missing pillar the same as an unmeasured one."""
     record = _record({})
-    assert PERSONA_CAREER_CAPITAL in persona_gates(record, _neutral_inputs())
+    assert (
+        persona_gates(record, _neutral_inputs())[PERSONA_CAREER_CAPITAL]
+        == f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{CRITICALITY_PILLAR}"
+    )
 
 
 def test_persona_gates_no_entry_when_fully_qualifying() -> None:
@@ -418,14 +465,52 @@ def test_persona_gates_and_composite_do_not_mutate_record() -> None:
     gates = persona_gates(record, inputs)
     assert gates[PERSONA_AI_ASSISTED] == REASON_AI_HARD_BAN
 
-    projected_composite, projected_coverage, projected_tier = persona_composite(record, PERSONA_AI_ASSISTED)
-    assert (projected_composite, projected_coverage, projected_tier) != (record.composite, record.coverage, record.tier)
+    projected = persona_composite(record, PERSONA_AI_ASSISTED)
+    assert (projected.cvi, projected.coverage, projected.tier) != (record.composite, record.coverage, record.tier)
 
     # The balanced record itself is untouched by either call.
     assert record.composite == 70.3
     assert record.coverage == 1.0
     assert record.tier == "A"
     assert record.gate.eligible is True
+
+
+def test_persona_gates_and_persona_composite_do_not_mutate_containers() -> None:
+    """W2-7f purity guard (W2-7 review Warning W-2): a whole-record equality
+    check against a ``copy.deepcopy`` taken before either call, which
+    ``==`` extends into the mutable members ``frozen=True`` does not itself
+    protect (``persona_gates``, ``persona_composites``, ``suspicion``,
+    ``pillars``). The W2-7 review's ``test_persona_gates_and_composite_do_not_mutate_record``
+    reads back only ``composite``/``coverage``/``tier``/``gate.eligible`` --
+    four scalar fields a frozen dataclass already protects -- so a mutant
+    that writes ``persona_gates(record, inputs)``'s result into
+    ``record.persona_gates``, appends to ``record.suspicion``, or writes
+    ``persona_composite``'s result into ``record.persona_composites`` still
+    passes all 232 tests (review mutants M12/M21/M22). This test calls both
+    functions -- ``persona_composite`` for every preset, so a write keyed by
+    any persona name is exercised -- then asserts the whole record still
+    equals the pre-call deep copy."""
+    import copy
+
+    record = _record(
+        _HAND_PILLARS,
+        composite=70.3,
+        coverage=1.0,
+        tier="A",
+        gate=_gate(eligible=True),
+    )
+    before = copy.deepcopy(record)
+    inputs = _neutral_inputs(ai_posture=_measured("PROSCRIBED"))
+
+    persona_gates(record, inputs)
+    for persona in PERSONA_PRESETS:
+        persona_composite(record, persona)
+
+    assert record == before
+    assert record.persona_gates == {} and record.persona_gates == before.persona_gates
+    assert record.suspicion == [] and record.suspicion == before.suspicion
+    assert record.persona_composites == {} and record.persona_composites == before.persona_composites
+    assert record.pillars == before.pillars
 
 
 # --------------------------------------------------------------------------- #
@@ -454,11 +539,13 @@ _EXPECTED_BY_PERSONA: dict[str, tuple[float, float, str]] = {
 
 @pytest.mark.parametrize("persona", sorted(PERSONA_PRESETS))
 def test_persona_composite_arithmetic_every_preset(persona: str) -> None:
-    composite, coverage, tier = persona_composite(_HAND_RECORD, persona)
+    result = persona_composite(_HAND_RECORD, persona)
+    assert isinstance(result, PersonaComposite)
     expected_composite, expected_coverage, expected_tier = _EXPECTED_BY_PERSONA[persona]
-    assert composite == pytest.approx(expected_composite)
-    assert coverage == pytest.approx(expected_coverage)
-    assert tier == expected_tier
+    assert result.cvi == pytest.approx(expected_composite)
+    assert result.coverage == pytest.approx(expected_coverage)
+    assert result.tier == expected_tier
+    assert result.rated is True  # every preset here has coverage 1.0 >= 0.60
 
 
 def test_persona_composite_equals_aggregate_functions_when_balanced() -> None:
@@ -490,10 +577,11 @@ def test_persona_composite_equals_aggregate_functions_when_balanced() -> None:
             None if not rated or expected_raw is None else aggregate.apply_ceiling(aggregate.tier_from_score(expected_raw), ceiling)
         )
 
-        composite, coverage, tier = persona_composite(record, PERSONA_BALANCED)
-        assert composite == expected_composite
-        assert coverage == expected_coverage
-        assert tier == expected_tier
+        result = persona_composite(record, PERSONA_BALANCED)
+        assert result.cvi == expected_composite
+        assert result.coverage == expected_coverage
+        assert result.tier == expected_tier
+        assert result.rated is rated
 
 
 def test_coverage_under_a_persona_differs_from_balanced_coverage() -> None:
@@ -519,19 +607,21 @@ def test_coverage_under_a_persona_differs_from_balanced_coverage() -> None:
     }
     record = _record(pillars)
 
-    balanced_composite, balanced_coverage, balanced_tier = persona_composite(record, PERSONA_BALANCED)
-    ai_composite, ai_coverage, ai_tier = persona_composite(record, PERSONA_AI_ASSISTED)
+    balanced = persona_composite(record, PERSONA_BALANCED)
+    ai = persona_composite(record, PERSONA_AI_ASSISTED)
 
-    assert balanced_coverage == pytest.approx(0.85)
-    assert ai_coverage == pytest.approx(0.90)
-    assert balanced_coverage != ai_coverage
+    assert balanced.coverage == pytest.approx(0.85)
+    assert ai.coverage == pytest.approx(0.90)
+    assert balanced.coverage != ai.coverage
 
-    assert balanced_composite == pytest.approx(66.82)
-    assert ai_composite == pytest.approx(63.0)
-    assert balanced_composite != ai_composite
+    assert balanced.cvi == pytest.approx(66.82)
+    assert ai.cvi == pytest.approx(63.0)
+    assert balanced.cvi != ai.cvi
 
-    assert balanced_tier == "B"
-    assert ai_tier == "B"
+    assert balanced.tier == "B"
+    assert ai.tier == "B"
+    assert balanced.rated is True
+    assert ai.rated is True
 
 
 def test_persona_composite_unrated_below_evidence_threshold() -> None:
@@ -545,19 +635,21 @@ def test_persona_composite_unrated_below_evidence_threshold() -> None:
         "accessibility": _pillar(None, 0.0),
     }
     record = _record(pillars)
-    composite, coverage, tier = persona_composite(record, PERSONA_BALANCED)
-    assert coverage == pytest.approx(0.20)
-    assert composite is None
-    assert tier is None
+    result = persona_composite(record, PERSONA_BALANCED)
+    assert result.coverage == pytest.approx(0.20)
+    assert result.cvi is None
+    assert result.tier is None
+    assert result.rated is False
 
 
 def test_persona_composite_none_when_every_pillar_unmeasured() -> None:
     pillars = {name: _pillar(None, 0.0) for name in constants_v2.PILLAR_NAMES}
     record = _record(pillars)
-    composite, coverage, tier = persona_composite(record, PERSONA_BALANCED)
-    assert coverage == pytest.approx(0.0)
-    assert composite is None
-    assert tier is None
+    result = persona_composite(record, PERSONA_BALANCED)
+    assert result.coverage == pytest.approx(0.0)
+    assert result.cvi is None
+    assert result.tier is None
+    assert result.rated is False
 
 
 def test_persona_composite_raises_on_unknown_persona() -> None:
@@ -573,6 +665,51 @@ def test_persona_composite_raises_when_pillars_incomplete() -> None:
     record = _record({})
     with pytest.raises(ValueError, match="must carry exactly"):
         persona_composite(record, PERSONA_BALANCED)
+
+
+def test_persona_composite_tier_uses_unrounded_composite_not_rounded() -> None:
+    """W2-7f (W2-7 review Warning W-4 / mutant M18): 04 section 8's rule is
+    that tier-cutoff comparisons use the *unrounded* composite, never the
+    rounded display value. All five pillars at 69.996 round to a displayed
+    ``cvi`` of 70.0 (exactly the S/A cutoff), but 69.996 itself is still
+    below 70.0, so the tier must stay 'B' (55 <= x < 70), not jump to 'A' --
+    a mutant that computes the tier from the rounded composite instead
+    would return 'A' here and nowhere else in this file distinguishes it."""
+    pillars = _all_measured_pillars(
+        responsiveness=69.996, criticality=69.996, governance=69.996, rigor=69.996, accessibility=69.996
+    )
+    record = _record(pillars)
+    result = persona_composite(record, PERSONA_BALANCED)
+    assert result.cvi == pytest.approx(70.0)
+    assert result.coverage == pytest.approx(1.0)
+    assert result.tier == "B"
+    assert result.rated is True
+
+
+def test_persona_composite_applies_binding_ceiling_not_just_tier_by_score() -> None:
+    """W2-7f (W2-7 review Warning W-4 / mutant M19): a persona whose own
+    weighted coverage lands in the ceiling-B band (0.60 <= C < 0.80) must
+    have its tier capped at 'B' even though the unrounded composite alone
+    would earn 'A' -- a mutant that drops ``apply_ceiling`` entirely would
+    return 'A' here. Hand computation (``first_timer``, accessibility
+    unmeasured, weight .30):
+      coverage: .35 + .10 + .15 + .10           = 0.70
+      raw:      (.35*91+.10*84+.15*77+.10*41)/0.70 = 55.90/0.70 = 79.857142857...
+    tier by score alone is 'A' (>= 70); coverage 0.70 is in [0.60, 0.80), so
+    the ceiling is 'B' and ``apply_ceiling`` keeps the worse of the two."""
+    pillars = {
+        "responsiveness": _pillar(91.0, 1.0),
+        "criticality": _pillar(84.0, 1.0),
+        "governance": _pillar(77.0, 1.0),
+        "rigor": _pillar(41.0, 1.0),
+        "accessibility": _pillar(None, 0.0),
+    }
+    record = _record(pillars)
+    result = persona_composite(record, PERSONA_FIRST_TIMER)
+    assert result.coverage == pytest.approx(0.70)
+    assert result.cvi == pytest.approx(79.86)
+    assert result.tier == "B"
+    assert result.rated is True
 
 
 def test_gated_personas_excludes_balanced() -> None:

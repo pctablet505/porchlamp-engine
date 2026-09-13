@@ -460,6 +460,27 @@ class PillarScore:
 
 
 @dataclass(frozen=True)
+class PersonaComposite:
+    """One persona's re-projected composite (04 section 3; ruling
+    2026-09-13, `PersonaComposite(cvi, coverage, tier, rated)`).
+
+    Returned by ``cvi.core.persona.persona_composite`` and stored under
+    ``ScoreRecord.persona_composites[persona]``. ``coverage`` and ``tier``
+    are that persona's *own* weighted projection (D-MISS-3/D-MAT-2 applied
+    under the persona's preset weights, not the balanced ones); ``rated`` is
+    that persona-weighted coverage's own D-MISS-3 rated/unrated outcome
+    (>= 0.60), computed independently of ``ScoreRecord.tier``/``coverage`` --
+    04 section 6's per-persona-rated ruling: a repo rated under the balanced
+    weights can be unrated under a persona's weights, and vice versa, so
+    ``rated`` here must never be copied from the balanced record."""
+
+    cvi: float | None
+    coverage: float
+    tier: str | None
+    rated: bool
+
+
+@dataclass(frozen=True)
 class ScoreRecord:
     """The pure scoring output for one repo at one snapshot (04 section 3).
 
@@ -501,7 +522,7 @@ class ScoreRecord:
     friction: float | None
     quadrant: str | None
     persona_gates: dict[str, str]
-    persona_composites: dict[str, float]
+    persona_composites: dict[str, PersonaComposite]
     tie_key: tuple
     tie_group: int | None
     rank: int | None
