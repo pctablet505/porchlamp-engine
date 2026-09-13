@@ -192,9 +192,17 @@ export function renderDrawer(state) {
 
   if (!found) {
     let body;
+    // N3 (round-3 review, 2026-09-14): a 404 from `GET /v1/cvi/repos/{o}/
+    // {n}` IS `state.repoDetailError` (api.js/app.js::loadRepoDetail treat
+    // every non-2xx the same way), so checking `repoDetailError` alone
+    // routed a GENUINE not-found through the retry-error banner and made
+    // `DRAWER_NOT_FOUND_TEXT` dead code for the one case it names. A 404
+    // is retried for nothing (the repo will 404 again), so it gets its
+    // own copy and no retry button; every OTHER status (500, timeout, a
+    // network failure) keeps the retry banner.
     if (state.repoDetailLoading) {
       body = `<p>${escapeHtml(copy.DRAWER_LOADING_TEXT)}</p>`;
-    } else if (state.repoDetailError) {
+    } else if (state.repoDetailError && state.repoDetailError.status !== 404) {
       const err = state.repoDetailError;
       body =
         `<div class="error-banner" role="alert">${escapeHtml(copy.drawerErrorText(err.endpoint, err.status, err.detail))}` +

@@ -264,3 +264,42 @@ class TestEvidenceEndpoint:
         resp = httpx.get(f"{server_url}/v1/cvi/repos/ivywood/template-cli-71/evidence")
         assert resp.status_code == 200
         assert resp.json(), "expected non-empty evidence rows"
+
+
+class TestRepoDetailEndpoint:
+    """N3 (round-3 review, 2026-09-14): `GET /v1/cvi/repos/{owner}/{name}`
+    (the drawer's own record fetch, `FixtureStore.find_repo_detail` —
+    distinct from the `/evidence` sub-resource above) had NO test at all,
+    positive or negative. The 404 case specifically matters because
+    `views/drawer.js::renderDrawer` has a dedicated "genuinely not found"
+    copy (`copy.DRAWER_NOT_FOUND_TEXT`, see the sibling render test in
+    `web/v2/tests/unit.test.mjs`) that is only reachable for a REAL 404 —
+    an empty `200 {}` would leave the drawer silently rendering nothing
+    useful instead. `test_unknown_repo_is_404` is written to fail red
+    against exactly that mutant.
+    """
+
+    def test_known_rated_repo_returns_its_leaderboard_row(self, server_url: str) -> None:
+        resp = httpx.get(f"{server_url}/v1/cvi/repos/riverline/httpkit")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["kind"] == "rated"
+        assert body["row"]["owner"] == "riverline"
+        assert body["row"]["name"] == "httpkit"
+
+    def test_unknown_repo_is_404_with_the_nested_error_body(self, server_url: str) -> None:
+        # Mutant this kills: the handler answering an unknown repo with an
+        # empty `200 {}` instead of calling `_send_error_json(404, ...)` —
+        # every assertion below (status code AND body shape) must hold.
+        resp = httpx.get(f"{server_url}/v1/cvi/repos/nobody/nothing")
+        assert resp.status_code == 404
+        body = resp.json()
+        assert set(body.keys()) == {"error"}
+        error = body["error"]
+        assert error["status"] == 404
+        assert error["endpoint"] == "/v1/cvi/repos/nobody/nothing"
+        assert isinstance(error["detail"], str) and error["detail"]
+
+    def test_malformed_path_is_404_not_a_500(self, server_url: str) -> None:
+        resp = httpx.get(f"{server_url}/v1/cvi/repos/just-one-segment")
+        assert resp.status_code == 404
