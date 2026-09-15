@@ -360,9 +360,8 @@ class TestFreeze:
 
 
 # --------------------------------------------------------------------------- #
-# W2-5f additive (W2-5 review W-2, LENS-TQ-14): build_populations ->
-# cvi.core.engine.score end-to-end, on raw values -- the production path,
-# not a hand-built Population double. D-NORM-3's dependents/downloads
+# build_populations -> cvi.core.engine.score end-to-end, on raw values:
+# the production path, not a hand-built Population double. Dependents/downloads
 # curves must rank the same quantity ``build_populations`` freezes: the raw
 # measured value, no transform on either side.
 # --------------------------------------------------------------------------- #

@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.snapshot.reproduce` (packet W0-3).
+"""Unit tests for :mod:`cvi.snapshot.reproduce`.
 
 Reproduction rebuilds the database from ``raw/`` and compares a canonical dump
 hash (`03` section 5, `04` section 2). The canonical dump is: tables sorted by
@@ -68,7 +68,7 @@ def _legacy(data_dir: Path, collector: str, key: str, data: Any) -> Path:
 
 
 def _sample_manifest(repos: list[tuple[str, str]]) -> dict[str, Any]:
-    """The W0-1 sample-manifest shape: the only ecosystem source in a sample."""
+    """Sample manifest shape: the only ecosystem source in a sample."""
     return {"repos": [{"repo": repo, "ecosystem": eco} for repo, eco in repos]}
 
 
@@ -261,13 +261,12 @@ def test_reproduce_reuses_the_frozen_envelope_set(data_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# W0-3f: gate findings P-09 (corrupt-JSON envelope) and P-07b (stale native
-# hash in the frozen manifest)
+# Corrupt-JSON envelope and stale native hash in frozen manifest
 # ---------------------------------------------------------------------------
 
 
 def _corrupt(path: Path) -> None:
-    """Break the JSON in place: the first '}' becomes 'x' (the W0-gate P-09 repro)."""
+    """Break the JSON in place: the first '}' becomes 'x'."""
     text = path.read_text(encoding="utf-8")
     i = text.index("}")
     path.write_text(text[:i] + "x" + text[i + 1:], encoding="utf-8")
@@ -386,10 +385,9 @@ def test_reproduce_fails_when_the_frozen_manifest_records_a_stale_hash(
 
 
 # ---------------------------------------------------------------------------
-# W0-3g: INT-W0-3f review Warning 1 -- a frozen manifest's own invalid_json
-# must sink reproduce forever, symmetric with P-07b's stale-hash rule, so a
+# A frozen manifest's own invalid_json makes reproduce fail, ensuring a
 # snapshot born short a repository stays detectable after the corrupt file
-# is gone (03 section 5: the manifest is the promotion boundary).
+# is gone.
 # ---------------------------------------------------------------------------
 
 

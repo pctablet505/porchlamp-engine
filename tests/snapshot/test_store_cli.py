@@ -1,10 +1,10 @@
-"""W4-6 acceptance: ``python -m cvi.snapshot store <snapshot_dir> --db
+"""Acceptance tests: ``python -m cvi.snapshot store <snapshot_dir> --db
 <path>`` -- a command that scores a snapshot directory and writes it into a
-v2 store, end to end (docs/v2/05-WORK-PLAN.md packet W4-6).
+store, end to end.
 
 Two fixture shapes feed these tests:
 
-* ``tests/fixtures/snapshot_50`` (W2-8b/W3-2f's real, 50-repo fixture) --
+* ``tests/fixtures/snapshot_50`` --
   proves the CLI on real data: counts, ``list_ranked``/``list_not_ranked``,
   ``snapshot_summary``, the served-DB guard, and (real-data bonus) that
   ``build_detectors`` genuinely fires on unmodified data (12 of 50 repos
@@ -13,26 +13,6 @@ Two fixture shapes feed these tests:
   proves the ``previous``/``param_jump`` wiring and the ``expected.json``
   verify/``--no-verify`` contract without depending on real fixture
   content.
-
-History (lead ruling, 2026-09-14): ``tests/fixtures/snapshot_50/
-expected.json`` was originally pinned by ``scripts/build_fixture_snapshot.py``
-scoring with NO detectors wired, which disagreed with what this command
-(detectors always wired -- packet W4-6, item 1) computes on the identical
-directory. Ruling: "the reproduce pin must reflect the real pipeline,
-detectors included" -- ``scripts/build_fixture_snapshot.py``'s pass-2
-scoring and ``cvi.snapshot.store_cmd.score_snapshot_dir`` now share ONE
-function (``cvi.snapshot.store_cmd.score_snapshot_with_detectors``), the
-fixture's ``expected.json`` was regenerated once (bundles/manifest/
-populations came out byte-identical -- detectors run strictly after
-ranking, `03` section 6, and touch no field ``expected.json`` records
-besides the top-level ``records_hash`` scalar), and ``tests/snapshot/
-test_reproduce_fixture.py``'s own permanent CI gate now scores with
-detectors too. Every test below that stores ``tests/fixtures/snapshot_50``
-therefore verifies against its real ``expected.json`` with NO
-``--no-verify`` needed; the flag is exercised exactly once
-(:func:`test_expected_json_mismatch_bypassed_by_no_verify`), against a
-deliberately corrupted synthetic ``expected.json``, to prove the flag
-itself still works.
 """
 from __future__ import annotations
 
@@ -67,54 +47,28 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: -- so this constant is redundant with that check by design, a second,
 #: independent assertion of the same fact).
 #:
-#: Re-pinned again (packet W2-14, 2026-09-14): every bundle's provenance
-#: ``source`` fields were absolute paths of the machine that derived the
-#: sample-200 corpus (docs/v2/00-README.md non-negotiables: provenance must
-#: be relative to the data root); ``cvi.derive.bundle`` now refuses to
-#: build a ``Measured`` with an absolute source and always relativises the
-#: envelope path it resolves, so ``scripts/build_fixture_snapshot.py`` was
-#: re-run against the unchanged sample-200 corpus. All 50 bundles changed
-#: (158 absolute ``source`` strings -> relative, 0 remaining) and every
-#: per-repo ``manifest.json`` ``raw_hash`` moved with them (the path string
-#: is part of what ``feature_provenance_hash`` hashes); no score, tier,
-#: rank, or count changed (``expected.json``'s "records" list is
-#: byte-identical apart from the top-level ``records_hash`` scalar).
+#: Provenance must be relative to the data root; ``cvi.derive.bundle``
+#: ensures relative sources for all bundles.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
     "55a01ac2c6c139ba283072767a4e8b9d706375529841e6d672d37044b8eced84"
 )
-# NB-1 (lead ruling 2026-09-14, U-2): gated/unrated reflect cvi.core.
-# pipeline.not_ranked_class's display classification (one 
-# "unrated: no_external_workflow"-gated repo in this real fixture counts
-# as unrated, not gated) -- was {"gated": 35, "unrated": 15} under the
-# raw engine eligible flag before that fix.
+# Gated/unrated reflect cvi.core.pipeline.not_ranked_class display classification.
 _SNAPSHOT_50_EXPECTED_COUNTS = {"rated": 0, "gated": 31, "unrated": 19}
 
-#: A curated-anchor, empty-PR-window ``GateEvidence`` that clears D-GATE-1..6
-#: eligibility regardless of the repo's other facts (module docstring of
-#: ``cvi.core.gates.evaluate_gates``: ``is_curated_anchor`` skips D-GATE-1;
-#: no archived/mirror/fork, an OSI licence, >=1 vitality commit and an
-#: empty PR window leave every other gate either passing or UNDECIDED,
-#: never failing) -- every synthetic bundle below uses this so it is
-#: ``rated=False`` (low coverage) but ELIGIBLE, the only state
-#: ``cvi.core.engine.score`` actually computes ``params`` for (a gated
-#: record's ``params`` is ``{}`` -- ``detect_param_jump`` would have
-#: nothing to compare)."""
+#: A curated-anchor, empty-PR-window ``GateEvidence`` that clears eligibility
+#: regardless of the repo's other facts.
 _ELIGIBLE_EVIDENCE = GateEvidence(
     manifest_found=None, is_curated_anchor=True, license_file_present=None,
     fork_parent_in_universe=None, vitality_commits_180d=5, off_platform_marker=None,
 )
-#: The manifest.json JSON form of :data:`_ELIGIBLE_EVIDENCE` -- derived from
-#: the one dataclass instance (``dataclasses.asdict``), not a second,
-#: independently hand-typed copy that could silently drift from it.
+#: The manifest.json JSON form of :data:`_ELIGIBLE_EVIDENCE`
 _GATE_EVIDENCE_JSON = asdict(_ELIGIBLE_EVIDENCE)
 
 
 def _all_unmeasured_inputs() -> dict:
-    """Every one of the 18 registered parameter input ids (``cvi.core.
-    engine._score_params`` indexes ``bundle.inputs[input_id]`` directly --
-    a bundle short one key raises ``KeyError``), each ``Unmeasured``."""
+    """Every registered parameter input id, each ``Unmeasured``."""
     return {
-        input_id: Unmeasured(reason="collector_failure", detail="synthetic fixture, W4-6")
+        input_id: Unmeasured(reason="collector_failure", detail="synthetic fixture")
         for input_id in constants.PARAM_INPUT_IDS
     }
 
@@ -244,7 +198,7 @@ def test_served_db_guard_accepts_this_db(tmp_path) -> None:
     """`03` section 5 / the packet dispatch: the served-DB guard must not
     refuse this command's real output.
 
-    ``cvi/serve/guard.py`` has now landed (W4-4 REWORK, Blocker B-4) --
+    ``cvi/serve/guard.py`` verification --
     this test calls its real ``v2_refusal_reasons`` against the database
     this command just wrote and finalised (``store_cmd.py`` calls
     ``finalize_snapshot_hash`` itself, ``promoted_at=as_of_text`` -- no
@@ -261,19 +215,12 @@ def test_served_db_guard_accepts_this_db(tmp_path) -> None:
     assert guard.run_guard(str(db_path)) is None  # no v1 shape in a store-CLI-written db
 
 
-def test_create_app_serves_snapshot_and_not_ranked_if_w4_4_has_landed(tmp_path) -> None:
-    """Packet dispatch: 'if cvi/serve/app.py is on main by then, create_app
-    serves /v1/cvi/snapshot and /v1/cvi/not-ranked for it (else leave that
-    test for the lead to add after W4-4 lands and say so)'. On this base
-    commit ``cvi.serve.app`` does not exist yet (W4-4 is still under
-    review on its own branch) -- skipped, not failed, with that reason;
-    the moment W4-4 lands and this file is rebased, the import succeeds
-    and the body below runs for real."""
+def test_create_app_serves_snapshot_and_not_ranked(tmp_path) -> None:
+    """Tests that create_app serves /v1/cvi/snapshot and /v1/cvi/not-ranked."""
     try:
         from cvi.serve.app import create_app
     except ImportError:
-        pytest.skip("cvi/serve/app.py not on main yet (W4-4 under review) -- "
-                    "lead: this test's body is ready, just needs W4-4 landed and this file rebased")
+        pytest.skip("cvi/serve/app.py not available")
         return
 
     db_path = tmp_path / "cvi.db"
@@ -390,16 +337,11 @@ def test_expected_json_match_exits_0(tmp_path) -> None:
 # =========================================================================== #
 
 def test_write_scored_snapshot_is_one_transaction(tmp_path, monkeypatch) -> None:
-    """`04` section 5 / F-002/F-003's guarantee, applied at THIS call site
-    (packet W4-6, item 1: "writes in one transaction with write_snapshot +
-    write_records"): if ``write_records`` fails for ANY reason after
+    """Atomicity guarantee: writes in one transaction with write_snapshot +
+    write_records. If ``write_records`` fails for ANY reason after
     ``write_snapshot`` has already run inside the same call, nothing for
     that snapshot id exists afterwards -- not even a lone ``snapshots``
-    row. ``write_snapshot`` and ``write_records`` are each already atomic
-    on their own (``cvi/store/writer.py``); this is what glues the PAIR
-    together, and this test induces an arbitrary ``write_records`` failure
-    (monkeypatch, not a real data problem) specifically to isolate that
-    guarantee from any particular cause of failure.
+    row.
 
     This is the test the "write outside the transaction" mutant (remove
     this function's own ``conn.execute("BEGIN")``/``rollback()`` wrapping

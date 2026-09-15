@@ -3,9 +3,9 @@
 Scanned twice: the wall-clock regex over the non-exempt modules, and a
 SQL-clock scan (``CURRENT_TIMESTAMP``, ``datetime('now')``) over every
 ``cvi/`` module, because a DDL default reads the database's clock on the
-module's behalf (W0-2b).
+module's behalf.
 
-Fail-before proof for packet W0-2. Before the change ``cvi/playbook.py``
+Verification that ``cvi/playbook.py``
 defined its own ``BENCHMARK_NOW`` and defaulted ``now`` to it, so a scoring
 call that omitted the reference time silently scored against a frozen date
 instead of the snapshot's ``as_of``.
@@ -47,12 +47,12 @@ CLOCK_RE = re.compile(
 )
 
 # 04 §8 exempts the collect/serve paths: fetching and rate limiting own the
-# clock. ``cvi/collect/`` is the real target-layout directory (W4-1 moved
+# clock. ``cvi/collect/`` is the real target-layout directory (moved
 # the rate limiter's ``time.monotonic`` defaults there from ``cvi/
 # ingest.py``, which no longer needs an exemption at all -- it has zero
 # clock tokens of its own left, see ``_sources()``'s directory filter).
 #
-# EXCLUDED_MODULES is empty as of W4-1: ``benchmark_data.py`` (the fixture
+# EXCLUDED_MODULES is empty: ``benchmark_data.py`` (the fixture
 # clock's single definition, R-2) moved to ``tests/fixtures/
 # synthetic_catalog.py`` -- outside ``CVI_PKG`` entirely, so ``_sources()``
 # never sees it and it needs no per-module entry any more than any other
@@ -86,7 +86,7 @@ def _offenders(paths: list[Path]) -> list[str]:
     ]
 
 
-# W0-2b gap 2: a clock the database reads on the module's behalf (a DDL
+# A clock the database reads on the module's behalf (a DDL
 # default or a SQL clock function) is invisible to the wall-clock regex
 # above, so it is scanned separately. The scan covers every file in the
 # package: no store-side clock exists that the collect/serve exemption

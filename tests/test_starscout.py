@@ -167,7 +167,7 @@ def test_fork_ratio_exactly_100_reachable_no_penalty():
 
 
 # --------------------------------------------------------------------------- #
-# W1-10: audit_star_velocity -- the full audit behind the plain int above.   #
+# audit_star_velocity -- the full audit behind the plain int above.          #
 # Over-correction guard: every test above (filter_fraudulent_star_velocity)  #
 # is untouched and still pins the same integers -- the wrapper's contract   #
 # did not change.                                                            #

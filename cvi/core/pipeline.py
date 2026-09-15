@@ -279,9 +279,7 @@ class ScoredSnapshot:
 #: rewritten. This frozen set is the ONE place the two classifications'
 #: difference is named, reused by :func:`not_ranked_class` (this module),
 #: `cvi.store.queries.snapshot_summary` and `cvi.serve.app`'s not-ranked
-#: split, so every count on every screen agrees (lead ruling 2026-09-14,
-#: U-2: a real-fixture served store showed `/snapshot` reporting
-#: gated=35/unrated=15 while `/not-ranked` reported 31/19).
+#: split, so every count on every screen agrees.
 DISPLAY_UNRATED_GATE_REASONS: frozenset[str] = frozenset({REASON_NO_EXTERNAL_WORKFLOW})
 
 

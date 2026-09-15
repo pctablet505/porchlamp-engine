@@ -12,10 +12,6 @@ D-ORDER-1 stage order, as far as this module goes:
   using the frozen-population mid-rank ECDF (``cvi.snapshot.populations``)
   for the three D-NORM-3 ECDF-normalised parameters (1.5 ttm_p90,
   2.1 dependents, 2.3 downloads) -- queried on the raw measured value, with
-  no transform on either the curve or the population side (D-NORM-3
-  amendment, 02 section 6, lead ruling 2026-09-12). A ``Measured`` ECDF
-  input whose (ecosystem, param) has no frozen population at all comes back
-  as a ``ParamScore(measured=False, reason="no_population")`` (D-MISS-1's
   ``no_population`` reason) rather than raising: see :func:`_score_params`.
 - Stage 3 (evidence gate), 5 (pillar aggregation), 6 (composite/ceiling):
   ``cvi.core.aggregate`` (D-MISS-2/3, D-AGG-2).
@@ -48,9 +44,7 @@ mid-rank ECDF except a catastrophic collapse when the two sides disagree
 (every repo scoring 0.0 on the parameter). The transform was deleted from
 ``cvi/core/params/criticality.py``: all three ECDF-normalised curves now
 query their raw measured value, matching what ``build_populations`` freezes
-(D-NORM-3 amendment, 02 section 6, lead ruling 2026-09-12) -- one definition
-of the quantity being ranked, not a convention two modules had to agree on
-by narration.
+-- one definition of the quantity being ranked.
 """
 from __future__ import annotations
 

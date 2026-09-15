@@ -289,7 +289,7 @@ class TestRepoDetailEndpoint:
     useful instead. `test_unknown_repo_is_404` is written to fail red
     against exactly that mutant.
 
-    W4-5c (2026-09-14): the success-path assertions below were rewritten
+     (2026-09-14): the success-path assertions below were rewritten
     for the flat `RepoDetailResponse` shape (this endpoint's OTHER
     producer, the real API, never sent `{kind, row}` — this server's own
     invented wrapper broke the drawer once pointed at the real API; see
@@ -367,7 +367,7 @@ class TestRepoDetailEndpoint:
 
 
 class TestGatedRepoDrawerSections:
-    """W4-5d (2026-09-14): the drawer's gated branch used to render ONLY
+    """ (2026-09-14): the drawer's gated branch used to render ONLY
     the identity/gate-status section — "the reason sentence and nothing
     else above the fold" (06 §3 C) was implemented client-side
     (`views/drawer.js::renderDrawer`) as "nothing else, period", so a
@@ -514,7 +514,7 @@ WEIGHT_VECTORS: list[dict[str, float]] = [
     {"weight_responsiveness": 0.35, "weight_criticality": 0.10, "weight_governance": 0.15, "weight_rigor": 0.10, "weight_accessibility": 0.30},
     {"weight_responsiveness": 0.15, "weight_criticality": 0.35, "weight_governance": 0.25, "weight_rigor": 0.20, "weight_accessibility": 0.05},
     {"weight_responsiveness": 0.20, "weight_criticality": 0.20, "weight_governance": 0.15, "weight_rigor": 0.35, "weight_accessibility": 0.10},
-    # Opus code review M6 (2026-09-13): every OTHER vector here still rates
+    #  every OTHER vector here still rates
     # all 73 fixture rows, so a mutant that skips the 0.60 coverage floor
     # entirely (RATED_MIN_COVERAGE -> 0.0) survives every one of them. This
     # one genuinely drops exactly one row on the real fixture (72 of 73;
@@ -554,7 +554,7 @@ class TestReprojectParityAgainstHandOracle:
         assert ranks == sorted(ranks) == list(range(1, len(ranks) + 1))
 
     def test_a_tilted_vector_genuinely_drops_a_row_below_the_rating_floor(self, server_url: str) -> None:
-        """Opus code review M6: proves the 0.60 floor is actually enforced
+        """ proves the 0.60 floor is actually enforced
         under reprojection, not just under the balanced/persona paths —
         the vector itself is WEIGHT_VECTORS[-1], asserted by identity so
         this test breaks loudly if that vector's own coverage-crossing
@@ -599,7 +599,7 @@ class TestReprojectParityAgainstHandOracle:
     def test_live_response_with_shifted_ranks_validates_with_correct_rank_delta_sign(
         self, server_url: str
     ) -> None:
-        """Opus code review (2026-09-13): the balanced weight vector alone
+        """ the balanced weight vector alone
         never exercises `rank_delta` (every row's rank is unchanged, so
         `rank_delta == 0` everywhere — a SIGN-FLIPPED implementation would
         pass just as well). A skewed weight vector genuinely reorders rows,
@@ -646,7 +646,7 @@ class TestMatrixEndpoint:
         assert all(p["quadrant"] is not None for p in body["points"])
 
     def test_matrix_points_for_excludes_a_row_with_unmeasured_coordinates(self) -> None:
-        """Opus code review M3 (2026-09-13): the fixture happens to have no
+        """ the fixture happens to have no
         null-quadrant row today, so `test_every_point_carries_a_quadrant`
         above passes whether or not the exclusion filter actually exists —
         this constructs one directly, proving matrix_points_for's own
@@ -672,13 +672,13 @@ class TestMatrixEndpoint:
 
 
 class TestAxisCoverage:
-    """Opus code review B-2 (2026-09-13): this used to compose the caption
+    """ this used to compose the caption
     SENTENCE in Python and send it verbatim (a `06` §6 violation); now it
     sends the raw pillar/count/share numbers and `copy.js` composes the
     sentence — these tests check the numbers, `tests/test_ui_copy_usage.py`
     (via the exported-name check) covers the new copy.js function's own
     reachability, and the number/sentence combination is live-browser
-    verified (`.agents/W4-5b/handoff.md`)."""
+    verified (`.agents//handoff.md`)."""
 
     def test_no_entry_when_every_contributing_pillar_is_well_measured(self) -> None:
         rows = [
@@ -735,7 +735,7 @@ class TestMethodologyEndpoint:
 
 
 class TestErrorBodyShape:
-    """W4-4 review addendum (2026-09-13): the real API's error body is
+    """ review addendum (2026-09-13): the real API's error body is
     `{"error": {endpoint, status, detail}}`, not a bare string —
     `web/v2/api.js` was found to never read `detail` at all. This class
     proves the fixture server actually sends that shape (so `api.js`'s

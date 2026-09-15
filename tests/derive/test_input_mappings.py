@@ -1,4 +1,4 @@
-"""W2-9 oracle tests: one test per ``cvi.derive.bundle.INPUT_MAPPINGS`` row.
+""" oracle tests: one test per ``cvi.derive.bundle.INPUT_MAPPINGS`` row.
 
 Each test builds a hand-controlled v1 derived-file document (see
 ``_fixtures.py``), loads it through the public ``load_bundle`` entry point,
@@ -7,12 +7,12 @@ v2 input id -- every field pinned, nothing left to shape-only assertions.
 
 Sixteen rows have a real resolver with both a positive (Measured) and at
 least one negative (Unmeasured) path: ``ttfhr_hours``, ``dr90_decision_rate``
-(W2-12; W3-1f adds the D-IN-3 per-author cap and eligibility-gate join),
-``mr_first_rate``, ``newcomer_conversion``, ``rr90_return_rate`` (W3-1f,
+(;  adds the D-IN-3 per-author cap and eligibility-gate join),
+``mr_first_rate``, ``newcomer_conversion``, ``rr90_return_rate`` (,
 read-through of the ``author_history``-derived D-IN-3-adjusted cohort
 rates), ``ttm_p90_hours``, ``dependents_deduped``, ``openssf_criticality``
-(W1-7, W2-9f), ``downloads_monthly``, ``legal_ip``, ``elephant_factor``,
-``promotion_ladder``, ``pipeline_defenses`` (W1-7, W2-9f), ``ai_posture``,
+(, ), ``downloads_monthly``, ``legal_ip``, ``elephant_factor``,
+``promotion_ladder``, ``pipeline_defenses`` (, ), ``ai_posture``,
 ``substantive_review_rate``, ``newcomer_issue_supply``. Two rows have no
 landed producer yet and are a constant ``Unmeasured(collector_failure, ...)``
 regardless of document content: ``gr14_ghost_rate``, ``dx``.
@@ -109,7 +109,7 @@ def test_ttfhr_hours(tmp_path: Path) -> None:
         reason="insufficient_n", detail="9 external PRs with a measured TTFHR, need >= 10",
     )
 
-    # Negative 2: no pr_window envelope at all (W1-3 hook never ran here).
+    # Negative 2: no pr_window envelope at all ( hook never ran here).
     no_envelope = base_document()
     no_envelope_bundle = load(tmp_path, no_envelope, key="acme__no-window")
     assert no_envelope_bundle.inputs["ttfhr_hours"] == Unmeasured(
@@ -198,7 +198,7 @@ _TTM_MIXED_DERIVED = [
 
 
 def test_ttm_p90_hours_excludes_internal_unmerged_and_backwards_time_prs(tmp_path: Path) -> None:
-    """W2-9g: 1.5 TTM_p90 must count only PRs that are external AND merged
+    """: 1.5 TTM_p90 must count only PRs that are external AND merged
     AND have mergedAt >= createdAt. The fixture carries one PR failing each
     of the three guards (201 internal, 202 unmerged, 203 backwards-time)
     alongside 5 clean external-merged PRs (204-208, latencies 6/12/18/24/30h)
@@ -258,7 +258,7 @@ def test_substantive_review_rate(tmp_path: Path) -> None:
 
 
 def test_substantive_review_rate_excludes_internal_reviews_from_n(tmp_path: Path) -> None:
-    """W2-9f, W2 (Opus review mutant M12): ``n`` counts decided PRs that are
+    """,  (Opus review mutant M12): ``n`` counts decided PRs that are
     BOTH external AND decided, not decided alone. 12 internal (is_external
     False) decided PRs plus 4 external decided PRs is 16 decided PRs total
     but only 4 decided-EXTERNAL PRs -- below min n 10, so Unmeasured
@@ -313,7 +313,7 @@ def test_dependents_deduped(tmp_path: Path) -> None:
                "organisation (v2 2.1 needs the W1-2 'dependents' collector)",
     )
 
-    # Negative 2 (W2-9f, W1): v1 deriver recorded nothing at all -- 2.1 is
+    # Negative 2 (, ): v1 deriver recorded nothing at all -- 2.1 is
     # class TP (02 section 4 row 2.1), so a deps.dev/ecosyste.ms absence is
     # third_party_gap, exactly like 2.3 downloads_monthly's equivalent
     # branch, not collector_failure (that stays reserved for a local-side
@@ -326,7 +326,7 @@ def test_dependents_deduped(tmp_path: Path) -> None:
 
 
 def test_dependents_deduped_systems_is_not_applicable(tmp_path: Path) -> None:
-    """W1-2f, D-MISS-5: ecosystem == systems always yields
+    """, D-MISS-5: ecosystem == systems always yields
     Unmeasured(not_applicable), read straight off the bundle's own
     ecosystem fact -- ahead of, and regardless of, confidence. Checked
     against every confidence value a real v1 document could carry,
@@ -344,7 +344,7 @@ def test_dependents_deduped_systems_is_not_applicable(tmp_path: Path) -> None:
 
 
 def test_dependents_deduped_maven_missing_names_the_pom_gap(tmp_path: Path) -> None:
-    """W1-2f: maven's third_party_gap detail names the real current gap
+    """: maven's third_party_gap detail names the real current gap
     (pom.xml was never fetched), not the generic deps.dev-absence text."""
     doc = base_document(ecosystem="maven", confidence={"dependents_count": "missing"})
     bundle = load(tmp_path, doc, key="acme__maven-missing")
@@ -377,7 +377,7 @@ def test_dependents_deduped_maven_measured_when_derived(tmp_path: Path) -> None:
 
 
 def test_dependents_deduped_go_measured_when_derived(tmp_path: Path) -> None:
-    """Over-correction guard: go's Measured path is unchanged -- W1-2f only
+    """Over-correction guard: go's Measured path is unchanged --  only
     touches the missing/not_applicable branches, not the "derived" one."""
     data = {"deduped_count": 5, "package": "github.com/a-h/templ"}
     write_envelope(tmp_path / "raw", "dependents", "acme__widget", data, "2026-09-01T00:05:00+00:00")
@@ -396,7 +396,7 @@ def test_dependents_deduped_go_measured_when_derived(tmp_path: Path) -> None:
 
 
 def test_dependents_deduped_go_missing_is_generic_third_party_gap(tmp_path: Path) -> None:
-    """W1-2f requirement 4 (unchanged branch): a mapped ecosystem (go) with
+    """ requirement 4 (unchanged branch): a mapped ecosystem (go) with
     no measured count stays the generic third_party_gap detail, exactly
     like pypi/npm/crates -- not the maven-specific wording."""
     doc = base_document(ecosystem="go", confidence={"dependents_count": "missing"})
@@ -465,10 +465,10 @@ def test_downloads_monthly(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 def test_legal_ip(tmp_path: Path) -> None:
-    """W1-6 BB3: this row now reads the packet's own bare "legal_ip" field
+    """ BB3: this row now reads the packet's own bare "legal_ip" field
     (a "governance" envelope) as an identity vocab over
     constants.LEGAL_IP_VALUES -- never "legal_ip_model" (the v1 regex
-    heuristic W1-6 was built to replace; deleted from this row entirely, so
+    heuristic  was built to replace; deleted from this row entirely, so
     a document that only ever wrote the old field is indistinguishable from
     one that never ran the collector at all -- both are Unmeasured, Negative
     1 below). Mirrors test_ai_posture's shape exactly (same envelope,
@@ -488,18 +488,18 @@ def test_legal_ip(tmp_path: Path) -> None:
     )
 
     # Negative 1: v1 deriver recorded nothing (no governance envelope, or
-    # the collector failed -- W1-6 B2's "missing" confidence).
+    # the collector failed --  B2's "missing" confidence).
     missing = base_document(confidence={"legal_ip": "missing"})
     missing_bundle = load(tmp_path, missing, key="acme__missing-legal")
     assert missing_bundle.inputs["legal_ip"] == Unmeasured(
         reason="collector_failure", detail="v1 deriver recorded no value",
     )
 
-    # Negative 2 (W2-9f, W5): an unrecognized value is THIS ROW's own gap,
+    # Negative 2 (, ): an unrecognized value is THIS ROW's own gap,
     # not a whole-bundle rejection -- even when the envelope is otherwise
-    # perfectly resolvable (pre-W2-9f: this raised BundleValidationError and
+    # perfectly resolvable (pre-: this raised BundleValidationError and
     # lost the whole repo's 17 other, perfectly good inputs over one bad
-    # value in a row that was going to be Unmeasured regardless). W1-6's own
+    # value in a row that was going to be Unmeasured regardless). 's own
     # classify_legal_ip never emits an out-of-vocabulary value, so this
     # scenario is a defensive guard against a malformed/hand-edited document,
     # not a reachable collector output.
@@ -518,7 +518,7 @@ def test_legal_ip(tmp_path: Path) -> None:
 
 
 def test_legal_ip_unmappable_enum_over_correction_guard(tmp_path: Path) -> None:
-    """Over-correction guard for W5: the row-scoped fix does not disable
+    """Over-correction guard for : the row-scoped fix does not disable
     whole-bundle rejection generally -- a genuinely malformed bundle (no
     parseable ``owner/name`` repo identity) is still rejected, even when it
     also carries the same unmappable enum used above."""
@@ -579,7 +579,7 @@ def test_promotion_ladder(tmp_path: Path) -> None:
         reason="collector_failure", detail="v1 deriver recorded no value",
     )
 
-    # W2-9f, W5: same row-scoped fix as legal_ip -- an unmappable enum never
+    # , : same row-scoped fix as legal_ip -- an unmappable enum never
     # rejects the whole bundle.
     bogus_data = {"promotion_ladder": "ROGUE_RUNG"}
     write_envelope(tmp_path / "raw", "tree", "acme__bogus-ladder", bogus_data, "2026-09-01T00:05:00+00:00")
@@ -596,9 +596,9 @@ def test_promotion_ladder(tmp_path: Path) -> None:
 
 
 def test_promotion_ladder_accepts_both_v2_identity_and_legacy_v1_spellings(tmp_path: Path) -> None:
-    """W1-6 BB3 pin (round-3 review CW1 / round-3 review mutant M8):
+    """ BB3 pin (round-3 review CW1 / round-3 review mutant M8):
     INPUT_MAPPINGS["promotion_ladder"] merges the v2 identity vocabulary
-    (VERIFIED/DOCUMENTED/AD_HOC/CLOSED -- what W1-6's own
+    (VERIFIED/DOCUMENTED/AD_HOC/CLOSED -- what 's own
     classify_promotion_ladder writes into this same bare field) with the
     legacy V1_LADDER_VALUES fallback (VERIFIED_PROMOTION/DOCUMENTED_PATHWAY/
     AD_HOC/CLOSED_SINGLE_FIRM). M8 (revert the row to the v1-only vocabulary
@@ -662,10 +662,10 @@ def test_ai_posture(tmp_path: Path) -> None:
 
 
 def test_ai_posture_rejects_an_out_of_set_value(tmp_path: Path) -> None:
-    """W2-9f, W4: ai_posture validates against constants.AI_POSTURE_VALUES
+    """, : ai_posture validates against constants.AI_POSTURE_VALUES
     -- an out-of-set value is Unmeasured(collector_failure) with the bad
     value in detail, never Measured, even with an otherwise perfectly
-    resolvable envelope (pre-W2-9f: the non-validating scalar resolver
+    resolvable envelope (pre-: the non-validating scalar resolver
     passed any string through as a Measured value)."""
     data = {"ai_posture": "NOT_A_POSTURE"}
     write_envelope(tmp_path / "raw", "governance", "acme__bad-posture", data, "2026-09-01T00:05:00+00:00")
@@ -709,7 +709,7 @@ def test_newcomer_issue_supply(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 2.2 openssf_criticality (W1-7, W2-9f)                                       #
+# 2.2 openssf_criticality (, )                                       #
 # --------------------------------------------------------------------------- #
 
 #: The ten Pike signals (cvi.models.OpenSSFSignals field names), a plausible
@@ -789,7 +789,7 @@ _OPENSSF_AT_THRESHOLD_SIGNALS = {
     ids=["all-zero", "mid-vector", "at-threshold"],
 )
 def test_openssf_criticality_matches_core_openssf_directly(tmp_path: Path, signals: dict) -> None:
-    """W2-9g wiring proof: the bundle-derived value equals
+    """ wiring proof: the bundle-derived value equals
     cvi.core.openssf.calculate_pike_criticality(signals) called directly --
     not cvi.derive.bundle's own reimplementation (there is none any more)
     and not cvi.openssf's OpenSSFSignals-typed wrapper (a second hop this
@@ -814,7 +814,7 @@ def test_openssf_criticality_matches_core_openssf_directly(tmp_path: Path, signa
 
 
 def test_openssf_criticality_at_threshold_matches_hand_computed_score(tmp_path: Path) -> None:
-    """Independent oracle (W2-9g): unlike the parity test above (which
+    """Independent oracle (): unlike the parity test above (which
     compares two calls to the SAME cvi.core.openssf.calculate_pike_
     criticality and so cannot detect a wrong default weight or threshold --
     both sides would drift together), this asserts against a value derived
@@ -841,7 +841,7 @@ def test_openssf_criticality_at_threshold_matches_hand_computed_score(tmp_path: 
 
 
 def test_openssf_criticality_missing_signal_names_it(tmp_path: Path) -> None:
-    """W2-9f, W3: a partial openssf_signals dict (defensive -- production's
+    """, : a partial openssf_signals dict (defensive -- production's
     derive_pike_signals never emits one) is the whole-2.2-Unmeasured rule,
     with the missing signal named in detail."""
     key = "acme__pike-partial"
@@ -876,7 +876,7 @@ def test_openssf_criticality_absence_is_third_party_gap(tmp_path: Path) -> None:
 
 
 def test_openssf_criticality_collector_failure_carries_the_companion_detail(tmp_path: Path) -> None:
-    """W1-7f items 1 and 3: scripts/derive.py records confidence
+    """ items 1 and 3: scripts/derive.py records confidence
     "collector_failure" (a pike_signals crash, or a stale window_anchor)
     with the specific reason in the companion "openssf_signals_detail" meta
     key -- this row must surface that exact detail, not the generic
@@ -907,7 +907,7 @@ def test_openssf_criticality_collector_failure_without_detail_still_names_the_re
 
 
 # --------------------------------------------------------------------------- #
-# 2.2 openssf_criticality proxy: proxy:no_dependents_signal (W2-13,           #
+# 2.2 openssf_criticality proxy: proxy:no_dependents_signal (,           #
 # D-MISS-5 consequence for 2.2)                                              #
 # --------------------------------------------------------------------------- #
 
@@ -1095,7 +1095,7 @@ def test_openssf_criticality_proxy_not_reached_when_dependents_measured(tmp_path
 
 
 def test_openssf_criticality_pike_signals_and_openssf_containers_agree(tmp_path: Path) -> None:
-    """"Both containers agree" (W2-13 packet text): cvi.collect.pike_signals'
+    """"Both containers agree" ( packet text): cvi.collect.pike_signals'
     own derive_pike_signals output, fed through cvi.core.openssf.
     calculate_pike_criticality's missing kwarg, matches the bundle-derived
     proxy value end to end -- not two independent reimplementations that
@@ -1132,7 +1132,7 @@ def test_openssf_criticality_pike_signals_and_openssf_containers_agree(tmp_path:
 
 
 # --------------------------------------------------------------------------- #
-# 4.1 pipeline_defenses (W1-7, W2-9f)                                         #
+# 4.1 pipeline_defenses (, )                                         #
 # --------------------------------------------------------------------------- #
 
 def test_pipeline_defenses_primary_method(tmp_path: Path) -> None:
@@ -1188,7 +1188,7 @@ def test_pipeline_defenses_proxy_method_counts_merged_prs(tmp_path: Path) -> Non
 
 
 def test_pipeline_defenses_absence_is_third_party_gap(tmp_path: Path) -> None:
-    """W2-9f, W3: scripts/derive.py never calls Bundle.missing for this
+    """, : scripts/derive.py never calls Bundle.missing for this
     field -- when neither method is measurable its confidence key is simply
     absent (base_document()'s empty confidence dict), which must be treated
     the same as an explicit "missing" (02 section 4 row 4.1: "TP with
@@ -1203,7 +1203,7 @@ def test_pipeline_defenses_absence_is_third_party_gap(tmp_path: Path) -> None:
 
 
 def test_pipeline_defenses_collector_failure_carries_the_companion_detail(tmp_path: Path) -> None:
-    """W1-7f item 1: the same collector_failure sentinel as
+    """ item 1: the same collector_failure sentinel as
     openssf_criticality, keyed off "pipeline_defenses_detail" instead."""
     doc = base_document(
         meta={"pipeline_defenses_detail": "pike_signals.derive_w17_fields raised RuntimeError: boom"},
@@ -1217,7 +1217,7 @@ def test_pipeline_defenses_collector_failure_carries_the_companion_detail(tmp_pa
 
 
 def test_pipeline_defenses_n_feeds_the_rigor_min_n_gate(tmp_path: Path) -> None:
-    """W1-7f item 5 (02 section 4.1, F7): the proxy method's recorded n
+    """ item 5 (02 section 4.1, F7): the proxy method's recorded n
     (merged-PR count) must not just exist but actually reach
     cvi.core.params.rigor's registered 10-merged-PR floor. n genuinely
     changes with the fixture (9 vs 10 merged PRs, one extra open PR that
@@ -1300,8 +1300,8 @@ def test_unmapped_row_is_constant(tmp_path: Path, input_id: str, detail: str) ->
 
 
 # --------------------------------------------------------------------------- #
-# 1.3 mr_first_rate / 5.2 newcomer_conversion / 5.3 rr90_return_rate (W3-1f,  #
-# review W-4/F-004/C1e) -- read-through of author_history's own D-IN-3-      #
+# 1.3 mr_first_rate / 5.2 newcomer_conversion / 5.3 rr90_return_rate (,  #
+# review W-4//C1e) -- read-through of author_history's own D-IN-3-      #
 # adjusted cohort rates via _author_history_rate_resolver. Full path         #
 # coverage lives on mr_first_rate (the shared factory code); the other two   #
 # rows only need proving their own field names are wired correctly.         #
@@ -1322,7 +1322,7 @@ def test_mr_first_rate(tmp_path: Path) -> None:
         source="raw/author_history/acme__mrfirst.json",
         source_hash=expected_hash(ah_data), fetched_at="2026-09-01T00:06:00+00:00",
     )
-    # X11 (W3-1f review round 2): this is the ONE measured field in this
+    # X11 ( review round 2): this is the ONE measured field in this
     # minimal document, so provenance_hash must fold exactly this one
     # author_history envelope -- proving the resolver's ctx.referenced[...]
     # write actually reaches FeatureBundle.provenance_hash, not just the
@@ -1389,7 +1389,7 @@ def test_mr_first_rate_collector_failure_gate_fired(tmp_path: Path) -> None:
 def test_mr_first_rate_unset_when_no_author_history_collected(tmp_path: Path) -> None:
     """No confidence entry at all (derive_cohort_fields returned {} because
     no author_history envelope was ever collected for this repo, or a v1
-    run predates W1-4): the STATIC unset_detail, matching the old
+    run predates ): the STATIC unset_detail, matching the old
     _unmapped(...) behavior byte for byte (an over-correction guard: this
     row must not start reporting collector_failure with an EMPTY detail,
     or crash, just because the field is genuinely absent)."""
@@ -1489,7 +1489,7 @@ def test_rr90_return_rate(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 1.2 dr90_decision_rate (W2-12, D-IN-4 amendment 2026-09-13)                 #
+# 1.2 dr90_decision_rate (, D-IN-4 amendment 2026-09-13)                 #
 #                                                                              #
 # All fixtures share the same pr_window envelope anchor as the ttfhr/ttm_p90  #
 # fixtures above ("2026-09-01T00:00:00+00:00", ``pr_window_data``'s default), #
@@ -1502,7 +1502,7 @@ _DR90_WINDOW_START = "2026-03-05T00:00:00+00:00"
 _DR90_WINDOW_END = "2026-06-03T00:00:00+00:00"
 #: "proxy:din3_unapplied" when no author_history envelope was collected
 #: for the repo (D-IN-3's eligibility gate needs the per-author event
-#: count pr_window alone does not carry, W3-1f review W-1/W-2); "primary"
+#: count pr_window alone does not carry,  review W-1/W-2); "primary"
 #: once an author_history envelope makes the gate applicable too. See
 #: cvi/derive/bundle.py's _DR90_METHOD_PRIMARY/_DR90_METHOD_GATE_UNAPPLIED.
 _DR90_METHOD = "proxy:din3_unapplied"
@@ -1545,7 +1545,7 @@ def test_dr90_decision_rate(tmp_path: Path) -> None:
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
-    # Negative: no pr_window envelope at all (W1-3 hook never ran here).
+    # Negative: no pr_window envelope at all ( hook never ran here).
     no_envelope_bundle = load(tmp_path, base_document(), key="acme__no-window")
     assert no_envelope_bundle.inputs["dr90_decision_rate"] == Unmeasured(
         reason="collector_failure", detail=PR_WINDOW_UNRESOLVABLE_DETAIL,
@@ -1634,11 +1634,11 @@ def test_dr90_decision_rate_malformed_created_at_excluded_and_named(tmp_path: Pa
 
 
 # --------------------------------------------------------------------------- #
-# 1.2 dr90_decision_rate -- D-IN-3 per-author cap (W3-1f review W-1)          #
+# 1.2 dr90_decision_rate -- D-IN-3 per-author cap ( review W-1)          #
 # --------------------------------------------------------------------------- #
 
-#: The reviewer's own sock-puppet oracle (W3-1-review.md C2b), resized
-#: (W3-1f review round 2, B-1) so the CAPPED population clears
+#: The reviewer's own sock-puppet oracle (-review.md C2b), resized
+#: ( review round 2, B-1) so the CAPPED population clears
 #: PARAM_MIN_N=10: a single login files 12 of a 20-PR cohort, all 12
 #: fast-merged (self-approved); the other 8 honest single-PR authors are
 #: all still open. Uncapped this reads r=0.6 -- a throwaway account can
@@ -1808,7 +1808,7 @@ def test_dr90_decision_rate_cap_reduces_below_min_n(tmp_path: Path) -> None:
 
 # --------------------------------------------------------------------------- #
 # 1.2 dr90_decision_rate -- D-IN-3 eligibility gate join against            #
-# author_history (W3-1f review W-1/W-2): present vs. absent for the same    #
+# author_history ( review W-1/W-2): present vs. absent for the same    #
 # 14-PR cohort, pinning both the value AND the "method" tag each case gets. #
 # --------------------------------------------------------------------------- #
 
@@ -1888,7 +1888,7 @@ def test_dr90_decision_rate_eligibility_gate_applied_with_author_history(tmp_pat
 
 def test_dr90_decision_rate_eligibility_gate_unapplied_without_author_history(tmp_path: Path) -> None:
     """Identical 14-PR ``pr_window`` data as the previous test, but NO
-    ``author_history`` envelope was collected for this repo (the W1-4 hook
+    ``author_history`` envelope was collected for this repo (the  hook
     never ran here): the eligibility gate cannot be applied (``pr_window``
     alone carries no public-event count), so all 14 PRs count. The cap is
     still a no-op (one PR per author). All 4 "throwaway" authors' PRs are
@@ -1967,7 +1967,7 @@ def test_dr90_decision_rate_eligibility_unmeasured_author_excluded(tmp_path: Pat
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
-#: X8 (W3-1f review round 2): 10 clean eligible authors (each 1 PR), one
+#: X8 ( review round 2): 10 clean eligible authors (each 1 PR), one
 #: of whom ALSO has ``history_unmeasured=True`` -- their MR_first-only
 #: prior-merge search failed, but their OWN account age/event count are
 #: perfectly good. DR_90's gate reads ONLY ``eligibility_unmeasured``, so

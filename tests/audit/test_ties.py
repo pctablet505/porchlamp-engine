@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.audit.ties` (packet W0-5).
+"""Unit tests for :mod:`cvi.audit.ties`.
 
 A 6-row fixture with one exact composite tie (ccc/r3 and ddd/r4 both at
 69.25) pins the distinct-value count, the tie-group sizes, the size

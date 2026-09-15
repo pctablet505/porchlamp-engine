@@ -1,6 +1,6 @@
-"""W4-5c: `GET /v1/cvi/repos/{owner}/{name}` has TWO independent producers
--- the real API (`cvi/serve/app.py`, packet W4-4) and the UI fixture
-stand-in (`scripts/serve_ui_fixtures.py`, packet W4-5b) -- and nothing
+"""Cross-check tests: `GET /v1/cvi/repos/{owner}/{name}` has two independent producers
+-- the real API (`cvi/serve/app.py`) and the UI fixture
+stand-in (`scripts/serve_ui_fixtures.py`) -- and nothing
 bound them to the same wire contract until this defect reached a served
 tree: the lead's final browser pass on `scripts/serve.py --db <the real
 fixture store>` found the drawer for ANY repo throwing `TypeError: Cannot

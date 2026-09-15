@@ -1,7 +1,7 @@
-"""W2-1 acceptance: the import graph (04 section 3 rules).
+"""Acceptance tests: the import graph.
 
 ``core/`` never imports ``collect/``, ``derive/`` or ``store/``; in concrete
-terms for this packet ``cvi.core`` imports nothing outside ``cvi.core`` plus
+terms ``cvi.core`` imports nothing outside ``cvi.core`` plus
 the standard library, and ``cvi.derive.bundle`` imports nothing outside
 ``cvi.core`` plus the standard library.
 """
@@ -24,12 +24,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 
 #: `cvi/serve` is the outermost layer -- it legitimately reads any other
 #: `cvi.*` package (core, store, audit) -- plus the web framework it is
-#: built on. What it may NEVER import is `scripts.*` (W4-4 REWORK,
-#: Warning W-5): `cvi/serve/app.py` used to do
-#: `from scripts.serve import open_or_exit`, a package reaching backwards
-#: into a script through a `scripts` namespace package with no
-#: `__init__.py` -- invisible to this file before this rule existed,
-#: since nothing here policed `cvi/serve` at all.
+#: built on. What it may NEVER import is `scripts.*`.
 _SERVE_ALLOWED_THIRD_PARTY = ("fastapi", "starlette", "pydantic")
 
 
@@ -67,22 +62,12 @@ def test_derive_bundle_imports_only_core_and_stdlib() -> None:
 
 
 def test_store_imports_only_core_snapshot_or_stdlib() -> None:
-    """F-009 (W4-2 REWORK round 1): `04` section 3 was amended for this
-    packet (R-B) to let ``cvi/store`` import ``cvi.core`` (enums, the tie
-    key) and ``cvi.snapshot`` (the frozen-population table builder, the
-    canonical dump hash) in addition to the standard library -- nothing
-    else. Before this test, that amended rule was prose only.
+    """``cvi/store`` may import ``cvi.core`` (enums, the tie key) and
+    ``cvi.snapshot`` (the frozen-population table builder, the canonical dump hash)
+    in addition to the standard library -- nothing else.
 
-    W4-3 widens this check one step further: a module INSIDE ``cvi/store``
-    may import another module inside ``cvi/store`` (``cvi.store.queries``,
-    R-2's "one definition" -- ``cvi/store/reader.py`` reuses
-    ``cvi.store.queries.ORDER_BY_SQL``/``row_to_dict`` rather than a second,
-    drifting copy of the same SQL/decoding logic). This is not a widening of
-    what ``store/`` may reach OUTSIDE itself -- the rule 04 section 3 states
-    ("store/ imports core ... and snapshot ... and nothing else") is about
-    crossing the package boundary, and an intra-``cvi.store`` import never
-    does that; every import a ``cvi/store/*.py`` file names is still exactly
-    one of stdlib, ``cvi.core.*``, ``cvi.snapshot.*`` or ``cvi.store.*``."""
+    A module inside ``cvi/store`` may also import another module inside
+    ``cvi/store`` (e.g. ``cvi.store.queries``)."""
     assert STORE_DIR.is_dir(), "cvi/store package missing"
     for path in sorted(STORE_DIR.rglob("*.py")):
         for name in imported_modules(path):
@@ -100,12 +85,9 @@ def test_store_imports_only_core_snapshot_or_stdlib() -> None:
 
 
 def test_serve_imports_only_cvi_fastapi_pydantic_or_stdlib() -> None:
-    """W4-4 REWORK (Blocker B-4 / Warning W-5): `cvi/serve` may import any
-    `cvi.*` package plus the standard library and the web-framework
-    packages it is built on (`fastapi`, `starlette`, `pydantic`) -- never
-    `scripts.*`. The guard's pure logic (v1 and v2) now lives in
-    `cvi/serve/guard.py`; `scripts/serve.py` imports FROM `cvi.serve`, the
-    correct direction, and re-exports what `tests/test_serve.py` needs."""
+    """`cvi/serve` may import any `cvi.*` package plus the standard library
+    and the web-framework packages it is built on (`fastapi`, `starlette`,
+    `pydantic`) -- never `scripts.*`."""
     assert SERVE_DIR.is_dir(), "cvi/serve package missing"
     for path in sorted(SERVE_DIR.rglob("*.py")):
         for name in imported_modules(path):
@@ -127,15 +109,9 @@ def test_serve_imports_only_cvi_fastapi_pydantic_or_stdlib() -> None:
 
 
 def test_collect_ratelimit_imports_only_stdlib_or_httpx() -> None:
-    """W4-1: ``cvi/collect/ratelimit.py`` (moved from ``cvi/ingest.py``) is a
-    generic HTTP-primitives module -- token bucket, ETag cache, circuit
-    breaker -- with no CVI-domain knowledge at all, unlike its
-    ``cvi.collect`` siblings (which read/write :class:`~cvi.collect.
-    envelope.Envelope` and so import ``cvi.core``/``cvi.models``). It
-    imports nothing but the standard library and ``httpx``, and this is
-    worth enforcing precisely because a future edit could otherwise wire
-    ``cvi.models``/``cvi.lakehouse`` into what is supposed to stay a
-    reusable, domain-free primitive.
+    """``cvi/collect/ratelimit.py`` is a generic HTTP-primitives module --
+    token bucket, ETag cache, circuit breaker -- with no CVI-domain knowledge
+    at all. It imports nothing but the standard library and ``httpx``.
     """
     assert RATELIMIT_MODULE.is_file(), "cvi/collect/ratelimit.py missing"
     for name in imported_modules(RATELIMIT_MODULE):
@@ -147,31 +123,12 @@ def test_collect_ratelimit_imports_only_stdlib_or_httpx() -> None:
 
 
 def test_no_production_import_of_the_synthetic_catalog_fixture() -> None:
-    """W4-1 (`04-ARCHITECTURE.md` section 2): ``tests/fixtures/
-    synthetic_catalog.py`` (formerly ``cvi/benchmark_data.py``) is "never
-    importable from cvi/" -- and, per `.agents/W4-1/inventory.md` section
-    5's reasoning, the same rule extends to ``scripts/``: a production
-    script importing a test package is exactly backwards, and this
-    fixture's only real property (a stamp nothing but the seeder ever
-    writes) is what ``cvi/serve/guard.py``'s independently frozen
-    ``_FIXTURE_CLOCK_SENTINEL`` exists to avoid depending on.
-
-    W4-1f (review W-4): the ORIGINAL rule only named
-    ``tests.fixtures.synthetic_catalog`` explicitly, so planting
-    ``from tests.helpers.demo_app import DEMO_NOW`` in ``cvi/lakehouse.py``
-    left this suite green -- a name-specific rule, not a layer rule.
-    ``cvi/`` (unlike ``scripts/``) has no legitimate reason to import
-    ANYTHING under ``tests.*``, so its arm is now widened to reject every
-    ``tests.`` import, not just the one fixture module.
+    """``tests/fixtures/synthetic_catalog.py`` is never importable from ``cvi/``
+    or ``scripts/``: a production package importing a test package is prohibited.
+    ``cvi/`` has no legitimate reason to import anything under ``tests.*``.
 
     ``scripts/demo_app.py`` is the one script allowed to import a
-    ``tests.*`` name at all -- but only its OWN relocated helper
-    (``tests.helpers.demo_app``), never the fixture module directly; the
-    fixture import now lives one hop further in, inside
-    ``tests/helpers/demo_app.py`` itself, which is under ``tests/`` and
-    so is not scanned here. ``scripts/`` therefore keeps the NARROW rule
-    (only the fixture module is forbidden), so the shim's own
-    ``tests.helpers.demo_app`` import stays legal.
+    ``tests.*`` helper (``tests.helpers.demo_app``).
     """
     for path in sorted(CVI_DIR.rglob("*.py")):
         for name in imported_modules(path):
@@ -191,35 +148,8 @@ def test_no_production_import_of_the_synthetic_catalog_fixture() -> None:
 
 
 def test_no_cvi_module_resolves_outside_the_repo_root() -> None:
-    """W4-1f (review W-3, replacing a proposed guard that does not work).
-
-    The naive guard -- ``Path(cvi.__file__).is_relative_to(ROOT)`` --
-    does NOT catch a real hazard in this project's shared dev venv: its
-    editable install (``__editable___cvi_0_1_0_finder.py``) hardcodes the
-    MAIN CHECKOUT's path for any ``cvi.<leaf>`` submodule import (a
-    direct child of ``cvi``, e.g. ``cvi.ingest``), regardless of what
-    ``cvi.__path__`` actually resolved to -- while the standard
-    ``PathFinder``, checked first, already shadows this correctly for
-    anything that still exists on disk where ``PYTHONPATH`` points. The
-    top-level ``cvi`` package resolved correctly (inside the worktree)
-    during the W4-1 review even while ``cvi.ingest``/``cvi.benchmark``/
-    ``cvi.benchmark_data`` -- already deleted from that worktree -- each
-    "imported successfully" from the sibling main checkout instead of
-    raising ``ModuleNotFoundError``, because a module ABSENT from disk
-    is exactly the one case the standard ``PathFinder`` cannot shadow.
-
-    This test checks BOTH directions in one pass: every ``cvi/**/*.py``
-    module that exists on disk today (walked fresh, so it can't go
-    stale) MUST import successfully and resolve inside this repo root;
-    PLUS the exact three module names W4-1 deleted, which must EITHER
-    raise ``ModuleNotFoundError`` (correct, once truly gone everywhere)
-    OR -- if something still manages to import them -- resolve inside
-    this root too. A module that raises ``ModuleNotFoundError`` is
-    accepted; one that "imports fine" from outside the root is not. This
-    passes on main today (every deleted name now raises
-    ``ModuleNotFoundError`` everywhere) and would have failed during the
-    W4-1 review, when the trap made the three deleted names resolve
-    successfully from the sibling main checkout instead.
+    """Every ``cvi/**/*.py`` module that exists on disk today must import
+    successfully and resolve inside this repo root.
     """
     on_disk: list[str] = []
     for path in sorted(REPO_ROOT.joinpath("cvi").rglob("*.py")):
@@ -230,11 +160,9 @@ def test_no_cvi_module_resolves_outside_the_repo_root() -> None:
             on_disk.append(".".join(parts))
     assert on_disk, "no cvi/**/*.py modules found to check"
 
-    #: W4-1's own deletions -- included explicitly (not just "whatever is
-    #: on disk today") so this test would have caught the historical trap
-    #: even though none of these three names are on disk to be walked.
-    deleted_by_w4_1 = ["cvi.ingest", "cvi.benchmark", "cvi.benchmark_data"]
-    names = sorted(set(on_disk) | set(deleted_by_w4_1))
+    #: Historical legacy names -- check that none resolve outside the root.
+    historical_modules = ["cvi.ingest", "cvi.benchmark", "cvi.benchmark_data"]
+    names = sorted(set(on_disk) | set(historical_modules))
 
     check_script = """
 import importlib

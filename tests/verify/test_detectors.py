@@ -1,8 +1,4 @@
-"""Acceptance tests for :mod:`cvi.verify.detectors` (packet W3-2).
-
-Fail-before: before this packet ``cvi.verify.detectors`` does not exist, so
-every test below fails on ``ModuleNotFoundError`` (recorded verbatim in the
-handoff).
+"""Acceptance tests for :mod:`cvi.verify.detectors`.
 
 Every oracle below is written against the **literal** 03 section 6 numbers
 (40, 90, 20, 10, 0.30, 5, 7 days, 50, 10, 0.5, 4) rather than the module's
@@ -243,15 +239,8 @@ def test_speed_without_decisions_unmeasured_dr90_never_fires() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# B2 (REWORK round 1): the measured=False guard must hold even when a       #
-# scored-but-unmeasured ParamScore carries a real score. Every fixture      #
-# above pairs measured=False with score=None, so a mutant that deletes the  #
-# ``not param.measured`` guard in _measured_score/_measured_n (leaving only #
-# the None-score check) survived undetected -- and this shape is reachable #
-# today: cvi.audit.detectors_report.load_rows builds exactly              #
-# ParamScore(score=95.0, measured=False, ...) straight from a JSON row     #
-# {"score": 95.0, "measured": false, ...} (_param_score_from_json reads    #
-# "score" and "measured" independently, with no cross-check between them). #
+# Measured=False guard must hold even when a scored-but-unmeasured ParamScore #
+# carries a real score value.                                                #
 # --------------------------------------------------------------------------- #
 
 
@@ -374,13 +363,9 @@ def test_merges_without_return_unmeasured_conversion_and_return_never_fires() ->
 
 
 def test_merges_without_return_mr_first_has_no_n_floor() -> None:
-    """(REWORK round 1, U-1) The 03 section 6 row's "with n >= 10" is
-    implemented as binding the *triggering* side (conversion or return)
-    only, never MR_first itself -- MR_first's own n can be arbitrarily
-    small and the detector still fires. Pins the current interpretation so
-    a change either way is a visible, deliberate diff pending a lead
-    ruling on U-1; genuinely undecided, not equivalent (a future ruling
-    that binds MR_first too changes this test's expected result)."""
+    """The metric definition's 'with n >= 10' is implemented as binding the
+    triggering side (conversion or return) only, never MR_first itself --
+    MR_first's own n can be arbitrarily small and the detector still fires."""
     current = _record({
         "mr_first_rate": _param(90.0, n=1),
         "newcomer_conversion": _param(20.0, n=10),
@@ -424,13 +409,8 @@ def _pr_event(pr_number: int, *, is_external: bool, closed: bool, merged: bool, 
 
 
 def test_closed_unread_share_from_pr_window_counts_closed_unmerged_unanswered() -> None:
-    """(B3, REWORK round 1) The population is external PRs only: a 5th,
-    internal event that would ALSO match "closed, unmerged, unanswered" is
-    included here specifically to prove ``is_external`` filters it out of
-    both the numerator and the denominator -- dropping that filter (M21)
-    would change this fixture's result from (0.25, 4) to (0.4, 5), and on
-    the real sample changes 22 of 51 flagged repos' shares (one,
-    ``KeygraphHQ/shannon``, flips 0.7143 fired -> 0.2333 not fired)."""
+    """The population is external PRs only: an internal event that would
+    also match 'closed, unmerged, unanswered' is excluded via ``is_external``."""
     events = (
         _pr_event(1, is_external=True, closed=True, merged=False, responded=False),  # counts
         _pr_event(2, is_external=True, closed=True, merged=False, responded=True),   # answered: not counted
@@ -497,8 +477,8 @@ def test_newcomer_burst_empty_never_fires() -> None:
     assert detect_newcomer_burst(_record(), None, DetectorInputs()) is False
 
 
-# --- W3-1: newcomer_accounts_from_cohorts, the real-bundle bridge ----------
-
+# --- newcomer_accounts_from_cohorts bridge ----------------------------------
+ 
 def test_newcomer_accounts_from_cohorts_skips_unmeasured_account() -> None:
     """Unmeasured-never-fires at the bridge layer: an author whose account
     creation date was never resolved (None) is skipped entirely, not
@@ -535,12 +515,8 @@ def test_newcomer_accounts_from_cohorts_all_prs_merged_considers_followups() -> 
 
 
 def test_newcomer_burst_fires_through_run_detectors_on_a_real_bundle() -> None:
-    """W3-1: the ownership request the module docstring named is closed —
-    5 real NewcomerAuthor objects (as cvi.derive.bundle loads them from a
-    stored FeatureBundle), all created within a 1-day span and all merged,
-    converted via newcomer_accounts_from_cohorts, must fire newcomer_burst
-    through run_detectors — not just through this file's hand-built
-    NewcomerAccountSample tuples."""
+    """Real NewcomerAuthor objects loaded from FeatureBundle, created within a
+    1-day span and all merged, fire newcomer_burst through run_detectors."""
     authors = tuple(
         NewcomerAuthor(
             login=f"newcomer{i}",

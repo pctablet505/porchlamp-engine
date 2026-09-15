@@ -1,6 +1,4 @@
-"""Tests for tests.fixtures.synthetic_catalog (W4-1: moved from
-cvi/benchmark_data.py -- never importable from cvi/, per
-04-ARCHITECTURE.md section 2): Top 1,000 benchmark dataset and seeder.
+"""Tests for tests.fixtures.synthetic_catalog: Top 1,000 benchmark dataset and seeder.
 
 Verifies:
 - Exactly 1,000 repositories across 6 ecosystems (pypi, npm, crates, go, maven, systems).

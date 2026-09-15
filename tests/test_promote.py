@@ -39,9 +39,9 @@ _derive_spec.loader.exec_module(derive)
 NOW = datetime(2026, 9, 12, 12, 0, 0, tzinfo=timezone.utc)
 
 #: A real repository's envelopes, used to build genuine, non-placeholder
-#: manifests (round 3, Warning-3): round 2's ``build_manifest([], ...)``
-#: covered zero envelopes, which is exactly the shape that hid Blocker-2
-#: from every test that used it. Round 4 (Blocker-2): these are committed
+#: manifests (round 3, ): round 2's ``build_manifest([], ...)``
+#: covered zero envelopes, which is exactly the shape that hid 
+#: from every test that used it.  these are committed
 #: under ``tests/fixtures/`` (32,721 bytes, numpy/numpy's own envelopes
 #: copied verbatim from the read-only sample) rather than read from
 #: ``~/Projects/cvi-scratch/sample-200``, which is absent on any machine but
@@ -136,7 +136,7 @@ def test_missing_created_at_falls_back_to_as_of_not_the_wall_clock():
 
 
 # --------------------------------------------------------------------------- #
-# Round 4, Blocker-1: `scripts/` is not a package. Running promote.py by path
+# , : `scripts/` is not a package. Running promote.py by path
 # (as its own Usage line and scripts/serve.py's own refusal message both tell
 # an operator to) must not depend on the repo root already being on
 # sys.path -- that is exactly the layout a fresh `python scripts/promote.py`
@@ -170,13 +170,13 @@ def test_promote_help_runs_from_a_temp_cwd_with_only_cvi_importable(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Round 3 (Blocker-1, `03` §5): promotion is a pure function of its inputs --
+#  promotion is a pure function of its inputs --
 # the repositories table is truncated first, so no prior write survives it.
 # --------------------------------------------------------------------------- #
 
 
 def test_promote_atomically_replaces_a_stray_row_not_merges_with_it(tmp_path):
-    # Round 2 regression, now proven at the atomic-swap level (round 4
+    # regression, now proven at the atomic-swap level (round 4
     # subtracted promote()'s own in-place truncate -- W-001): a row from a
     # prior write (a seeded demo catalog, a stray manual insert) must not
     # coexist with what this promotion writes. The temp file
@@ -208,7 +208,7 @@ def test_promote_atomically_replaces_a_stray_row_not_merges_with_it(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Round 2 (Blocker-3, Warning-2)/Round 3 (Blocker-2, Warning-1, Warning-2):
+# /
 # promotion requires a frozen snapshot, is bound to its envelope set, and
 # must agree with its as_of.
 # --------------------------------------------------------------------------- #
@@ -216,7 +216,7 @@ def test_promote_atomically_replaces_a_stray_row_not_merges_with_it(tmp_path):
 
 def _copy_sample_envelopes(data_dir: Path) -> None:
     """Copy numpy/numpy's real envelopes from the read-only sample into
-    ``data_dir/raw/`` (round 3, Warning-3)."""
+    ``data_dir/raw/`` (round 3, )."""
     for collector_dir in sorted(p for p in SAMPLE_RAW.iterdir() if p.is_dir()):
         src = collector_dir / f"{SAMPLE_KEY}.json"
         if src.is_file():
@@ -259,8 +259,8 @@ def _synthetic_clean_bundle(data_dir: Path, owner: str, name: str, eco: str = "p
 
 def _freeze_real(data_dir: Path, as_of: str = NOW.isoformat()) -> dict:
     """A real frozen manifest over ``data_dir``'s own ``raw/`` envelopes
-    (round 3, Warning-3): replaces the round-2 ``build_manifest([], ...)``
-    placeholder, the envelope-less shape that hid Blocker-2."""
+    (round 3, ): replaces the round-2 ``build_manifest([], ...)``
+    placeholder, the envelope-less shape that hid ."""
     scan = envelope_entries(data_dir)
     manifest = build_manifest(scan.entries, as_of=as_of, code_commit="unknown",
                               canonical_dump_hash="pending")
@@ -329,7 +329,7 @@ def test_write_snapshot_meta_hash_ignores_its_own_row(tmp_path):
 
 
 def test_main_requires_snapshot_id_flag(monkeypatch, capsys, tmp_path):
-    # Warning-1: --snapshot-id has no default any more.
+    # : --snapshot-id has no default any more.
     monkeypatch.setattr(sys, "argv", ["promote.py", "--data-dir", str(tmp_path)])
     with pytest.raises(SystemExit) as excinfo:
         promote.main()
@@ -373,7 +373,7 @@ def test_main_promotes_and_binds_after_a_freeze(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Round 3, Blocker-2 (`03` §5): "promotion reads only envelopes in the
+# ,  (`03` §5): "promotion reads only envelopes in the
 # manifest" -- the manifest is the promotion boundary, not a label.
 # --------------------------------------------------------------------------- #
 
@@ -436,7 +436,7 @@ def test_manifest_with_one_altered_hash_drops_exactly_that_bundle(tmp_path):
 
 
 def test_bundle_without_a_recorded_hash_is_not_covered_by_any_manifest(tmp_path):
-    # Round 4, W-002 (mutant M9): a provenance entry naming a real envelope
+    # , W-002 (mutant M9): a provenance entry naming a real envelope
     # path that the manifest DOES list, but carrying no recorded sha256
     # ("claimed is None"), must fail closed -- there is nothing to compare,
     # which is not the same as a match. M9 mutated the coverage predicate
@@ -444,7 +444,7 @@ def test_bundle_without_a_recorded_hash_is_not_covered_by_any_manifest(tmp_path)
     # `claimed is None or manifest_index.get(...) == claimed`, which treats
     # a missing hash as an automatic match; with the suite otherwise green
     # that mutant let a HOLLOW manifest promote the whole universe again
-    # (round 2's Blocker-2, restored) -- this bundle's "forks" reference
+    # (round 2's , restored) -- this bundle's "forks" reference
     # still resolves and matches, so ONLY the missing-hash arm is exercised.
     bundle = _real_clean_bundle(tmp_path)
     manifest = _freeze_real(tmp_path)
@@ -488,7 +488,7 @@ def test_manifest_covering_one_of_two_bundles_drops_only_that_one(tmp_path, monk
 
 
 # --------------------------------------------------------------------------- #
-# Round 3, Warning-2 (`03` §5): one snapshot names one reference time.
+# ,  (`03` §5): one snapshot names one reference time.
 # --------------------------------------------------------------------------- #
 
 
@@ -547,13 +547,13 @@ def test_main_defaults_as_of_to_the_manifest_when_omitted(tmp_path, monkeypatch)
 
 
 # --------------------------------------------------------------------------- #
-# Round 4, item 4 (W-001, `03` §5): promotion is atomic -- it never rewrites
+# , item 4 (W-001, `03` §5): promotion is atomic -- it never rewrites
 # the served file in place, so a failure leaves it byte-identical.
 # --------------------------------------------------------------------------- #
 
 
 def test_promote_atomically_leaves_the_served_db_untouched_on_failure(tmp_path, monkeypatch):
-    # Round 3's in-place `DELETE FROM repositories` (subtracted this round)
+    # 's in-place `DELETE FROM repositories` (subtracted this round)
     # made a promotion PURE but not ATOMIC: a failure between the truncate
     # and the finished write left the live database rewritten and
     # unservable, with no rollback (W-001). promote_atomically builds into

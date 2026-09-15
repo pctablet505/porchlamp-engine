@@ -1,7 +1,4 @@
-"""Acceptance tests for :mod:`cvi.verify.pipeline_hook` (packet W3-2f).
-
-Fail-before: before this packet ``cvi.verify.pipeline_hook`` does not exist,
-so every test below fails on ``ModuleNotFoundError``.
+"""Acceptance tests for :mod:`cvi.verify.pipeline_hook`.
 
 The real end-to-end proof that ``cvi.core.pipeline.score_snapshot``'s
 ``previous``/``detectors`` seam and ``cvi.verify.detectors.run_detectors``
@@ -32,15 +29,12 @@ four can ever fire through this composition regardless of bundle content):
   nothing fires on unremarkable data.
 
 The same six-repo ``current_bundles`` are also scored with ``previous=None``
-outright (:func:`test_previous_none_still_fires_single_snapshot_detectors`)
--- lead ruling, correcting this packet's first draft: ``previous=None``
-suppresses only the *cross-snapshot* detectors (``param_jump`` here; none
-of the other three ownership-request detectors can fire through this
-adapter regardless, so they are not a live case in this fixture), never the
-single-snapshot ones. With no previous snapshot at all, ``jump/repo``
+outright (:func:`test_previous_none_still_fires_single_snapshot_detectors`):
+``previous=None`` suppresses only cross-snapshot detectors (``param_jump`` here),
+never single-snapshot ones. With no previous snapshot at all, ``jump/repo``
 therefore fires nothing (there is no previous ``dr90`` to jump from), while
 ``closed/repo`` and ``spam/repo`` fire exactly as they do with a real
-``previous`` -- the presence or absence of a *specific* previous record
+``previous`` -- the presence or absence of a specific previous record
 (whole snapshot missing, or just this one repo new to it) is the only thing
 that changes ``param_jump``'s own answer.
 """
@@ -69,8 +63,8 @@ from cvi.verify.pipeline_hook import build_detectors, detector_inputs_from_bundl
 
 NOW = datetime.datetime(2026, 9, 12, 0, 0, tzinfo=datetime.timezone.utc)
 _HASH64 = "e" * 64
-_SNAPSHOT_PREVIOUS = "snap-w3-2f-previous"
-_SNAPSHOT_CURRENT = "snap-w3-2f-current"
+_SNAPSHOT_PREVIOUS = "snap-previous"
+_SNAPSHOT_CURRENT = "snap-current"
 
 KEY_PARAM_JUMP = "jump/repo"
 KEY_CLOSED_UNREAD = "closed/repo"
@@ -224,12 +218,8 @@ def test_detector_inputs_from_bundle_reads_measured_bundle_facts() -> None:
     assert inputs.closed_unread_share == 1.0
     assert inputs.closed_unread_n == 1
     # top_email_domain_share is None here because this hand-built bundle
-    # never had the W1-5f sidecar fact set (cvi.derive.bundle._load_v1 is
-    # the only setter) -- not because it is an unsourceable field; see
-    # test_detector_inputs_from_bundle_reads_top_email_domain_share_sidecar
-    # below for the positive path. The remaining two ownership-request
-    # fields and the canary field are never sourced from a bundle at all
-    # (module docstring) -- always the "not collected" default.
+    # never had the top_email_domain_share sidecar fact set -- not because
+    # it is an unsourceable field.
     assert inputs.top_email_domain_share is None
     assert inputs.newcomer_accounts == ()
     assert inputs.star_lockstep_penalty_applied is None
@@ -237,9 +227,8 @@ def test_detector_inputs_from_bundle_reads_measured_bundle_facts() -> None:
 
 
 def test_detector_inputs_from_bundle_reads_top_email_domain_share_sidecar() -> None:
-    """W1-5f positive wiring: when a bundle carries the
-    ``top_email_domain_share`` sidecar fact (set the way ``cvi.derive.
-    bundle._load_v1`` sets it), the adapter reads the real share through."""
+    """When a bundle carries the ``top_email_domain_share`` sidecar fact,
+    the adapter reads the real share through."""
     from cvi.derive.bundle import TopEmailDomainShareMeasured, _set_top_email_domain_share
 
     bundle = _bundle(_repo("org", "alpha"), _full_inputs({"elephant_factor": _m(4.0, n=30)}))
@@ -265,9 +254,8 @@ def test_ef_domain_mismatch_fires_through_the_real_composition() -> None:
     """End-to-end: ``ef_domain_mismatch`` (top_email_domain_share >= 0.5 and
     elephant_factor >= 4) fires through the real ``build_detectors`` ->
     ``run_detectors`` composition when a bundle carries both the scored
-    ``elephant_factor`` input and the W1-5f ``top_email_domain_share``
-    sidecar fact -- not merely at the unit level
-    (``tests/verify/test_detectors.py``)."""
+    ``elephant_factor`` input and the ``top_email_domain_share``
+    sidecar fact."""
     from cvi.derive.bundle import TopEmailDomainShareMeasured, _set_top_email_domain_share
 
     owner, name = "mismatch", "repo"
@@ -330,12 +318,11 @@ def test_repo_absent_from_previous_suppresses_only_param_jump() -> None:
 
 
 def test_previous_none_still_fires_single_snapshot_detectors() -> None:
-    """Lead ruling (corrects this packet's first draft): ``previous=None``
-    -- no baseline snapshot at all, not just one repo missing from it --
-    still fires every single-snapshot detector normally through the real
-    ``build_detectors`` composition. Only ``param_jump`` (the one detector
-    that reads ``previous``) yields nothing, on every repo, since there is
-    no previous record anywhere to compare against."""
+    """``previous=None`` -- no baseline snapshot at all, not just one repo
+    missing from it -- still fires every single-snapshot detector normally
+    through the real ``build_detectors`` composition. Only ``param_jump``
+    (the one detector that reads ``previous``) yields nothing, on every repo,
+    since there is no previous record anywhere to compare against."""
     current_bundles = _current_bundles()
     detectors = build_detectors(current_bundles)
     snapshot = _score(current_bundles, _SNAPSHOT_CURRENT, previous=None, detectors=detectors)

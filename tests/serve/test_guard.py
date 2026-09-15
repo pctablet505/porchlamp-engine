@@ -1,11 +1,10 @@
-"""`cvi/serve/guard.py` acceptance (W4-4 REWORK, Blocker B-4 / Warning W-5).
+"""Acceptance tests for `cvi/serve/guard.py`.
 
 The v1 guard's OWN behaviour (fixture-clock, content-hash, message format)
 is already pinned by `tests/test_serve.py` through `scripts.serve`'s
 re-exports -- this file adds only what moved/is new: the frozen fixture-
 clock sentinel never drifting from
-`tests.fixtures.synthetic_catalog.BENCHMARK_NOW` (W4-1: moved from
-`cvi/benchmark_data.py`), and the v2 guard (Blocker B-4) itself.
+`tests.fixtures.synthetic_catalog.BENCHMARK_NOW`, and the v2 guard (Blocker B-4) itself.
 """
 from __future__ import annotations
 
@@ -24,7 +23,7 @@ from serve.helpers import SNAPSHOT_ID, build_snapshot, fresh_db
 
 
 def test_fixture_clock_sentinel_matches_synthetic_catalog():
-    """`.agents/W4-1/inventory.md` §5's recommendation: the guard freezes
+    """The guard freezes
     its own literal rather than importing
     `tests.fixtures.synthetic_catalog.BENCHMARK_NOW` across the
     production/test boundary -- this test is the only thing standing

@@ -679,9 +679,8 @@ def make_handler(
                 return
 
             if path.startswith("/v1/cvi/repos/"):
-                # Lead ruling 2026-09-13: the drawer's record fetch,
-                # independent of the `/evidence` sub-resource above and of
-                # whichever screen opened it (06 §3 Screen C).
+                # The drawer's record fetch, independent of the `/evidence`
+                # sub-resource above and of whichever screen opened it.
                 remainder = path[len("/v1/cvi/repos/"):]
                 parts = remainder.split("/")
                 if len(parts) != 2:

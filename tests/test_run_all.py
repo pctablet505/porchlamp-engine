@@ -1,8 +1,8 @@
 """Tests for scripts/run_all.py's freeze-then-promote wiring.
 
-Round 3, Warning-1 (`03` §5): :func:`freeze_and_promote` must promote under
+Verification: :func:`freeze_and_promote` must promote under
 the id ITS OWN freeze call reported, never by re-discovering "the newest
-manifest" (round 2's bug: a forward-dated or stray manifest already under
+manifest" (a forward-dated or stray manifest already under
 ``snapshots/`` wins a lexical sort over the run's own freeze). The sweep
 loop itself (gather -> derive -> verify per candidate repo) does live
 network calls and is out of scope for an offline test; this file exercises
@@ -25,8 +25,7 @@ _spec.loader.exec_module(run_all)
 from cvi.snapshot.manifest import build_manifest, write_manifest  # noqa: E402
 
 #: A real repository's envelopes, used so the freeze this test runs covers
-#: a genuine, non-empty envelope set (round 3, Warning-3). Round 4
-#: (Blocker-2): committed under ``tests/fixtures/`` rather than read from
+#: a genuine, non-empty envelope set committed under ``tests/fixtures/`` rather than read from
 #: ``~/Projects/cvi-scratch/sample-200``, absent on any machine but this
 #: one, CI included.
 _SAMPLE_RAW = Path(__file__).resolve().parent / "fixtures" / "numpy-envelopes"
@@ -74,7 +73,7 @@ def _stray_manifest(data_dir: Path, as_of: str) -> None:
 def test_freeze_and_promote_uses_the_id_it_just_froze(tmp_path):
     _derive_and_verify_sample(tmp_path)
 
-    # A forward-dated manifest already present: round 2's "lexically-newest
+    # A forward-dated manifest already present: "lexically-newest
     # directory name" default would pick THIS one over the run's own freeze.
     _stray_manifest(tmp_path, as_of="2027-01-01T00:00:00+00:00")
     # And a stray, oddly-named one -- sorts after every real YYYYMMDD... name.

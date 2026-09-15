@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.audit.forward` (packet W5-1, decision D-VAL-1).
+"""Unit tests for :mod:`cvi.audit.forward`.
 
 All data here is a synthetic fixture built in-memory or under ``tmp_path``:
 no repository, no PR and no point cost in this file is real telemetry. The

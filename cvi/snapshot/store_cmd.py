@@ -14,8 +14,7 @@ This module is the pure-ish driver behind ``cvi.snapshot store <dir> --db
    score ``previous_dir`` for real (only its records' ``params`` feed
    ``detect_param_jump`` downstream -- see :func:`_score_previous`), then
    score ``snapshot_dir`` for real via :func:`score_snapshot_with_detectors`
-   -- the ONE function (lead ruling, 2026-09-14: "share the code path")
-   that wires the real detector composition
+   -- the shared function that wires the real detector composition
    (:func:`cvi.verify.pipeline_hook.build_detectors`) in, also called by
    ``scripts/build_fixture_snapshot.py``'s own pass-2 scoring so the two
    producers of a scored snapshot can never independently drift on
@@ -99,26 +98,12 @@ def score_snapshot_with_detectors(
     raw_hashes,
     previous: "ScoredSnapshot | None" = None,
 ) -> ScoredSnapshot:
-    """The ONE function that scores a bundle set for real with the real
-    detector composition wired in (lead ruling, 2026-09-14: "the reproduce
-    pin must reflect the real pipeline, detectors included"; "share the
-    code path -- one function that scores a snapshot directory, used by
-    both").
+    """Scores a bundle set with the real detector composition wired in.
 
     ``cvi.snapshot.store_cmd.score_snapshot_dir`` (this command's own
     driver) and ``scripts/build_fixture_snapshot.py``'s pass-2 "real"
-    scoring (its own module docstring: pass 1 is population-free and
-    exists only to learn gate/rated status -- it stays undecorated,
-    detectors would be wasted work there) both call this and nothing else,
-    so the two can never independently drift on whether/how detectors are
-    wired. ``detectors=build_detectors(bundles)`` is built fresh from
-    THESE bundles every call (:func:`cvi.verify.pipeline_hook.
-    build_detectors`'s own contract: it closes over the current
-    snapshot's bundles) -- ``previous=None`` (the default, and what a
-    fixture/first-ever snapshot always passes) does not suppress the
-    single-snapshot detectors (``closed_unread``, ``label_spam``, ...):
-    only ``detect_param_jump`` needs a genuine previous record
-    (``cvi.core.pipeline.apply_suspicion``'s own docstring)."""
+    scoring both call this, ensuring both paths stay aligned.
+    """
     detectors = build_detectors(bundles)
     return score_snapshot(
         bundles,

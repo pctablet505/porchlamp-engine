@@ -309,9 +309,7 @@ def build_fixture(sample_root: Path, *, size: int = FIXTURE_SIZE, snapshot_id: s
     # Pass 2: the real, final scoring with frozen populations -- the same
     # score_snapshot_with_detectors() cvi.snapshot store's own driver calls
     # (cvi.snapshot.store_cmd), so detectors are wired here exactly the
-    # same way (lead ruling 2026-09-14: one scoring function, used by
-    # both, never a second copy that can drift on whether/how detectors
-    # are wired). previous=None (this script has no previous-snapshot
+    # same way. previous=None (this script has no previous-snapshot
     # concept of its own): the single-snapshot detectors (closed_unread,
     # label_spam, ...) still fire -- only detect_param_jump needs a real
     # previous record.

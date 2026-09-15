@@ -5,7 +5,7 @@ existing v1 check this packet was told to find and extend — it inspects
 `web/index.html` alone, which is a single-file v1 app. `web/v2/` is many
 files (styles/*.css, *.js, components/*.js, views/*.js), so this test
 extends the SAME rule to every file actually served, rather than editing the
-v1 test (v1 is untouched per the dispatch; W4-1 deletes it later).
+v1 test suite verification.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ class TestNoExternalResources:
     def test_files_are_valid_utf8_with_no_nul_bytes(self) -> None:
         # A regression guard: this exact defect (stray NUL bytes silently
         # corrupting a template-literal line) was caught and fixed while
-        # building this packet — see .agents/W4-5a/handoff.md.
+        # building this package.
         for path in served_files():
             data = path.read_bytes()
             assert b"\x00" not in data, f"{path}: contains a NUL byte"

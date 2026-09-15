@@ -1208,7 +1208,7 @@ def test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture(tmp_path
 
 
 def test_evidence_sources_are_relative_on_the_real_fixture(tmp_path):
-    """W2-14: the served evidence `source` must never be an absolute path
+    """The served evidence `source` must never be an absolute path
     of this machine (docs/v2/00-README.md non-negotiables). Fail-before:
     before the fix, every one of these 50 real fixture repos served at
     least one `source` like
@@ -1235,7 +1235,7 @@ def test_evidence_sources_are_relative_on_the_real_fixture(tmp_path):
     db_path = tmp_path / "db.sqlite"
     conn = schema.connect(db_path)
     apply_migrations(conn, applied_at=frozen.as_of.isoformat())
-    write_scored_snapshot(conn, db_path, scored, frozen, code_commit="test-w2-14")
+    write_scored_snapshot(conn, db_path, scored, frozen, code_commit="test-rel-provenance")
     conn.close()
 
     web_dir = tmp_path / "web"

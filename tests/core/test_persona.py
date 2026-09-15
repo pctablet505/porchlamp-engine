@@ -1,12 +1,6 @@
-"""W2-7 acceptance: persona gates and persona composites (02 section 9:
-D-PERS-1/2), ``cvi/core/persona.py``.
+"""Acceptance tests: persona gates and persona composites, ``cvi/core/persona.py``.
 
-Fail-before: before this packet ``cvi.core.persona`` does not exist, so
-every test below fails on ``ModuleNotFoundError`` (recorded verbatim in the
-handoff, matching the convention ``tests/core/test_aggregate.py`` and
-``tests/core/test_engine_v2.py`` document for a brand-new module).
-
-D-PERS-1's "a gated persona view keeps the balanced score" gets its
+A gated persona view keeps the balanced score:
 fail-before from real, still-live v1 code rather than a deleted one:
 ``test_v1_lakehouse_mutates_the_gated_row`` reproduces
 ``cvi.lakehouse.OperationalStore.leaderboard``'s persona re-projection path
@@ -496,20 +490,9 @@ def test_persona_gates_and_composite_do_not_mutate_record() -> None:
 
 
 def test_persona_gates_and_persona_composite_do_not_mutate_containers() -> None:
-    """W2-7f purity guard (W2-7 review Warning W-2): a whole-record equality
-    check against a ``copy.deepcopy`` taken before either call, which
-    ``==`` extends into the mutable members ``frozen=True`` does not itself
-    protect (``persona_gates``, ``persona_composites``, ``suspicion``,
-    ``pillars``). The W2-7 review's ``test_persona_gates_and_composite_do_not_mutate_record``
-    reads back only ``composite``/``coverage``/``tier``/``gate.eligible`` --
-    four scalar fields a frozen dataclass already protects -- so a mutant
-    that writes ``persona_gates(record, inputs)``'s result into
-    ``record.persona_gates``, appends to ``record.suspicion``, or writes
-    ``persona_composite``'s result into ``record.persona_composites`` still
-    passes all 232 tests (review mutants M12/M21/M22). This test calls both
-    functions -- ``persona_composite`` for every preset, so a write keyed by
-    any persona name is exercised -- then asserts the whole record still
-    equals the pre-call deep copy."""
+    """Purity guard: a whole-record equality check against a ``copy.deepcopy``
+    taken before either call, ensuring mutable container members are not
+    mutated in place."""
     import copy
 
     record = _record(
@@ -604,16 +587,10 @@ def test_persona_composite_equals_aggregate_functions_when_balanced() -> None:
         assert result.rated is rated
 
 
-def test_persona_composite_matches_the_pre_w2_11_inline_formula_bit_for_bit() -> None:
-    """Packet W2-11 deliverable 2's over-correction guard: ``persona_composite``
-    used to carry its own private copy of the weighted pillar-to-composite
-    reduction (``Sum(w_p*pillar_p)/Sum(w_p)`` and ``Sum(w_p*c_p)``) instead
-    of calling ``cvi.core.aggregate.composite_score_raw``/
-    ``composite_coverage`` with a ``weights`` keyword; this test transcribes
-    that old, now-deleted formula verbatim as the oracle and checks 2,000
-    random pillar vectors x the five persona presets against it, bit for
-    bit -- proving the switch to the shared ``aggregate`` functions is not a
-    second, drifting definition of the same arithmetic."""
+def test_persona_composite_matches_the_inline_formula_bit_for_bit() -> None:
+    """Over-correction guard: ``persona_composite``
+    weighted pillar-to-composite reduction matches the inline formula
+    bit for bit across random pillar vectors and persona presets."""
     import random
 
     from cvi.core import aggregate
@@ -743,13 +720,10 @@ def test_persona_composite_raises_when_pillars_incomplete() -> None:
 
 
 def test_persona_composite_tier_uses_unrounded_composite_not_rounded() -> None:
-    """W2-7f (W2-7 review Warning W-4 / mutant M18): 04 section 8's rule is
-    that tier-cutoff comparisons use the *unrounded* composite, never the
+    """Tier-cutoff comparisons use the *unrounded* composite, never the
     rounded display value. All five pillars at 69.996 round to a displayed
-    ``cvi`` of 70.0 (exactly the S/A cutoff), but 69.996 itself is still
-    below 70.0, so the tier must stay 'B' (55 <= x < 70), not jump to 'A' --
-    a mutant that computes the tier from the rounded composite instead
-    would return 'A' here and nowhere else in this file distinguishes it."""
+    ``cvi`` of 70.0, but 69.996 is still below 70.0, so the tier must stay 'B'
+    (55 <= x < 70), not jump to 'A'."""
     pillars = _all_measured_pillars(
         responsiveness=69.996, criticality=69.996, governance=69.996, rigor=69.996, accessibility=69.996
     )
@@ -762,16 +736,9 @@ def test_persona_composite_tier_uses_unrounded_composite_not_rounded() -> None:
 
 
 def test_persona_composite_applies_binding_ceiling_not_just_tier_by_score() -> None:
-    """W2-7f (W2-7 review Warning W-4 / mutant M19): a persona whose own
-    weighted coverage lands in the ceiling-B band (0.60 <= C < 0.80) must
-    have its tier capped at 'B' even though the unrounded composite alone
-    would earn 'A' -- a mutant that drops ``apply_ceiling`` entirely would
-    return 'A' here. Hand computation (``first_timer``, accessibility
-    unmeasured, weight .30):
-      coverage: .35 + .10 + .15 + .10           = 0.70
-      raw:      (.35*91+.10*84+.15*77+.10*41)/0.70 = 55.90/0.70 = 79.857142857...
-    tier by score alone is 'A' (>= 70); coverage 0.70 is in [0.60, 0.80), so
-    the ceiling is 'B' and ``apply_ceiling`` keeps the worse of the two."""
+    """A persona whose own weighted coverage lands in the ceiling-B band
+    (0.60 <= C < 0.80) must have its tier capped at 'B' even though the
+    unrounded composite alone would earn 'A'."""
     pillars = {
         "responsiveness": _pillar(91.0, 1.0),
         "criticality": _pillar(84.0, 1.0),

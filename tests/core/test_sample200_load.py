@@ -1,17 +1,10 @@
-"""W2-1 acceptance: FeatureBundle v2 loads the on-disk derived JSON.
+"""Acceptance tests: FeatureBundle loads on-disk derived JSON.
 
-Design-note requirement: the loader reads the v1 derived document format
-(sample-200, produced by the W0-1 sample from ``scripts/derive.py``) and
-returns a schema-version-2 FeatureBundle whose provenance is an envelope
-path plus hash (R-4). ``source_hash`` is the 03 section 5 content hash
-(sha256 of the canonical JSON of the envelope's ``data`` field); the values
-pinned below were computed from the frozen sample-200 envelopes. (The
-sample-200 manifest's ``sha256`` fields are the W0-1 tool's whole-file byte
-hashes - a different fact - so the test does not read that manifest.)
-
+The loader reads the derived document format and returns a FeatureBundle whose
+provenance is an envelope path plus hash.
 The sample is read-only; the test copies one bundle plus its referenced
 envelopes into its own temp dir and loads with ``raw_root`` pointed at the
-copy, so the test never reads or writes the live data tree.
+copy.
 """
 from __future__ import annotations
 
@@ -29,14 +22,6 @@ from cvi.derive.bundle import load_bundle, write_bundle
 
 SAMPLE = Path.home() / "Projects" / "cvi-scratch" / "sample-200"
 KEY = "EvanLi__Github-Ranking"
-#: W2-9 adds "gfi": active_unclaimed_gfis (confidence "verified" for this
-#: repo) now maps to the newcomer_issue_supply input, so its envelope is
-#: referenced too. It must be copied into the isolated raw_root like every
-#: other collector here — without it, cvi.derive.bundle._resolve_envelope's
-#: absolute-path fallback would resolve the source recorded in the frozen
-#: document straight to the live main checkout's data/raw/gfi/ (a tree an
-#: in-flight sweep is writing, per docs/v2/00-README.md), which is both
-#: wrong (the test must never depend on the live tree) and unstable.
 COLLECTORS = ("contributors", "github_meta", "gfi", "pr_events", "pr_reviews", "tree")
 
 
@@ -62,7 +47,7 @@ ENVELOPE_HASHES: dict[str, str] = {
 def sample(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     if not SAMPLE.is_dir():
         pytest.skip(f"sample-200 not present at {SAMPLE}")
-    root = tmp_path_factory.mktemp("w2-1-sample")
+    root = tmp_path_factory.mktemp("sample-run")
     dest = root / "derived"
     dest.mkdir()
     shutil.copy(SAMPLE / "derived" / f"{KEY}.json", dest / f"{KEY}.json")
@@ -108,14 +93,14 @@ def test_measured_inputs_carry_envelope_provenance(bundle: Any, sample: dict[str
     assert elephant.source_hash == ENVELOPE_HASHES["contributors"]
     assert elephant.fetched_at == "2026-09-12T01:10:41.191668+00:00"
 
-    # legal_ip is no longer Measured here (W1-6 BB3): INPUT_MAPPINGS["legal_ip"]
+    # legal_ip is no longer Measured here: INPUT_MAPPINGS["legal_ip"]
     # now reads this packet's own bare "legal_ip" field (the governance
     # envelope's classification, never the abandoned v1 "legal_ip_model"
     # heuristic this frozen document was pinned against) -- see
     # test_unmeasured_inputs_have_documented_reasons for its Unmeasured
     # assertion, since sample-200 predates the governance collector.
 
-    # W2-9: active_unclaimed_gfis (confidence "verified", value 0 -- a
+    # active_unclaimed_gfis (confidence "verified", value 0 -- a
     # measured zero, D-MISS-1: a repo-controlled absence, not a gap) now
     # maps to newcomer_issue_supply instead of falling to collector_failure.
     supply = bundle.inputs["newcomer_issue_supply"]
@@ -136,19 +121,11 @@ def test_unmeasured_inputs_have_documented_reasons(bundle: Any) -> None:
     )
     assert bundle.inputs["ttfhr_hours"].reason == "collector_failure"
     assert bundle.inputs["dr90_decision_rate"].reason == "collector_failure"
-    # W2-9f, W1: dependents_count confidence "missing" for this repo (2.1 is
-    # class TP) is now third_party_gap, not collector_failure.
+    # dependents_count confidence "missing" is third_party_gap.
     assert bundle.inputs["dependents_deduped"] == Unmeasured(
         reason="third_party_gap", detail="deps.dev/ecosyste.ms returned no dependents data",
     )
-    # W1-6 BB3: legal_ip now reads this packet's own bare "legal_ip" field
-    # (a governance envelope), never the v1 "legal_ip_model" heuristic; the
-    # frozen sample-200 document predates the governance collector, so
-    # neither the field nor its confidence was ever written for it -- old
-    # -> new: this input moved from Measured('DCO', source=.../tree/...) to
-    # Unmeasured(collector_failure) when the wiring stopped following
-    # legal_ip_model (the count of Measured inputs on this fixture drops by
-    # one, from 3 to 2: elephant_factor and newcomer_issue_supply remain).
+    # legal_ip reads bare "legal_ip" field (governance envelope).
     assert bundle.inputs["legal_ip"] == Unmeasured(
         reason="collector_failure",
         detail="v1 confidence None for 'legal_ip' is not recognized",
@@ -156,10 +133,7 @@ def test_unmeasured_inputs_have_documented_reasons(bundle: Any) -> None:
     assert bundle.inputs["ai_posture"].reason == "collector_failure"
     assert "not an envelope" in bundle.inputs["ai_posture"].detail
     assert bundle.inputs["promotion_ladder"].reason == "collector_failure"
-    # W2-9f, W3: this repo's derived document predates W1-7 (openssf_signals
-    # confidence "missing", pipeline_defenses confidence key absent) -- both
-    # now map to their real rows instead of falling to the two false
-    # "W1-7 not yet landed" constants.
+    # openssf_signals maps to its real row.
     assert bundle.inputs["openssf_criticality"] == Unmeasured(
         reason="third_party_gap",
         detail="one or more of the ten Pike signal sources is absent (02 section 4 2.2: never a partial score)",
@@ -209,11 +183,7 @@ def test_provenance_hash_matches_independent_recomputation(bundle: Any, sample: 
     hashes. Recomputed here from the pinned content hashes of the five
     referenced envelopes, independently of the loader's hashing code path.
 
-    W1-6 BB3: "tree" drops out of the referenced set (old -> new: 6 -> 5
-    envelopes) -- it was referenced only via the old legal_ip_model wiring,
-    which INPUT_MAPPINGS["legal_ip"] no longer reads (see
-    test_unmeasured_inputs_have_documented_reasons); every other envelope's
-    pinned hash and recomputation method are unchanged.
+    "tree" drops out of the referenced set (5 envelopes).
     """
     referenced = [
         {"source": f"raw/{collector}/{KEY}.json", "source_hash": digest}

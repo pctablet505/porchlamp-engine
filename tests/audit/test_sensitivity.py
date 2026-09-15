@@ -1,7 +1,7 @@
-"""Unit tests for :mod:`cvi.audit.sensitivity` (packet W0-5).
+"""Unit tests for :mod:`cvi.audit.sensitivity`.
 
 A 6-row fixture pins the exact Kendall tau-b of every +/-5 pp pillar
-perturbation against the canonical ranking (D-AGG-3).  The oracles are
+perturbation against the canonical ranking.  The oracles are
 hand-computed from the fixture's pillar values:
 
 canonical composites (weights .25/.25/.20/.15/.15, 2-decimal rounding)
@@ -231,8 +231,8 @@ def test_gated_repos_are_excluded_from_the_rated_set(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# W0-3f: gate finding P-10c — tau-b on an all-tied composite is 0/0 when the
-# perturbation breaks the tie, and must be UNDECIDED (None), not 1.0.
+# Tau-b on an all-tied composite is 0/0 when the perturbation breaks the tie,
+# and must be UNDECIDED (None), not 1.0.
 # ---------------------------------------------------------------------------
 
 TIED_COMPOSITE_DB = (
@@ -245,7 +245,7 @@ TIED_COMPOSITE_DB = (
 
 
 def test_kendall_tau_b_all_tied_on_one_side_is_undefined() -> None:
-    """P-10c: every x tied, the perturbation breaks the tie in y -> 0/0 -> None."""
+    """Every x tied, the perturbation breaks the tie in y -> 0/0 -> None."""
     assert kendall_tau_b([75.0, 75.0, 75.0, 75.0],
                          [70.0, 76.67, 76.67, 70.0]) is None
     # Symmetric: every y tied, x broken -> 0/0 -> None as well.
@@ -261,12 +261,12 @@ def test_kendall_tau_b_tied_in_both_vectors_stays_one() -> None:
 
 
 def test_all_tied_composite_reports_undecided_not_perfect(tmp_path: Path) -> None:
-    """P-10c end-to-end: the W0-gate 4-repo DB. The canonical composite is
-    tied (75.0 for all rows). Eight of the ten +/-5 pp perturbations break
-    the tie -> 0/0-undefined: None, not a perfect 1.0. Accessibility +/-5
-    keeps the composite all-tied -> the documented identical-ranking 1.0.
-    Either way all_pass is False and the rendered report says UNDECIDED for
-    the broken rows instead of perfect agreement."""
+    """End-to-end on a 4-repo tied DB: The canonical composite is tied (75.0
+    for all rows). Eight of the ten +/-5 pp perturbations break the tie ->
+    0/0-undefined: None, not a perfect 1.0. Accessibility +/-5 keeps the
+    composite all-tied -> the documented identical-ranking 1.0. Either way
+    all_pass is False and the rendered report says UNDECIDED for the broken
+    rows instead of perfect agreement."""
     from cvi.audit.sensitivity import format_sensitivity_report
 
     db = _make_db(tmp_path / "tied.db", TIED_COMPOSITE_DB)

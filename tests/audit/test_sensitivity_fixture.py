@@ -1,9 +1,5 @@
-"""W2-8b acceptance: D-AGG-3 sensitivity over the v2 fixture snapshot
-(``cvi.audit.sensitivity.sensitivity_v2``, ``docs/v2/02-RANKING-DESIGN.md``
-section 7).
-
-Fail-before: before this packet ``sensitivity_v2`` does not exist, so every
-test below fails on ``AttributeError``/``ImportError``.
+"""Acceptance tests: sensitivity over the fixture snapshot
+(``cvi.audit.sensitivity.sensitivity_v2``).
 
 Two things are proven, on two different snapshots, on purpose:
 
@@ -16,13 +12,9 @@ Two things are proven, on two different snapshots, on purpose:
    only pillar these 8 repos vary on) show a real, non-1.0 tau-b rather
    than a suspiciously perfect score on every row.
 2. ``test_sensitivity_v2_on_real_fixture_needs_at_least_two_rated_repos`` --
-   the packet's own literal acceptance ("tau >= 0.90 for every perturbation
-   on the fixture") **cannot be evaluated on `tests/fixtures/snapshot_50`**:
-   the real sample-200 corpus, run through the currently-landed W2-9(f)
-   v1-to-v2 loader, tops out at 25.5% composite coverage for its best-
-   covered repo (measured, not estimated -- see the handoff) -- nowhere
-   close to D-EVID-1's 60% rated threshold. Every one of this fixture's 50
-   repos is therefore gated or unrated; zero are rated, so there is no
+   evaluating sensitivity on `tests/fixtures/snapshot_50` requires at least two rated repos;
+   the sample-200 corpus loader tops out below the 60% rated threshold, so all 50
+   repos are gated or unrated.
    ranking to compare a perturbation against. This is not this packet's
    own defect (``cvi/core/pipeline.py`` correctly computes zero rated
    repos from the correct inputs) and not tunable away (R-6, D-AGG-3): it
@@ -158,10 +150,8 @@ def test_weighted_composite_and_coverage_hand_computed() -> None:
     composite_raw = (.35*91 + .10*84 + .15*77 + .10*41) / 0.70
                   = 55.90 / 0.70 = 79.857142857...
 
-    Packet W2-11 (R-3) deleted this module's own private
-    ``_weighted_composite_raw``/``_weighted_coverage`` and gave
-    ``cvi.core.aggregate.composite_score_raw``/``composite_coverage`` a
-    ``weights`` keyword instead -- this test now exercises those directly.
+    Exercises ``cvi.core.aggregate.composite_score_raw`` and ``composite_coverage``
+    with the ``weights`` keyword directly.
     """
     from cvi.core.aggregate import composite_coverage, composite_score_raw
     from cvi.core.models import PillarScore

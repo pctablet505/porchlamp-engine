@@ -1,6 +1,6 @@
-"""Wiring tests for the lazy re-export registry in :mod:`cvi.audit` (W5-1f).
+"""Wiring tests for the lazy re-export registry in :mod:`cvi.audit`.
 
-``cvi.audit.forward`` (W5-1) must be registered in ``_LAZY_EXPORTS`` with
+``cvi.audit.forward`` must be registered in ``_LAZY_EXPORTS`` with
 exactly the module's public top-level names, and every registered name must
 resolve through the package ``__getattr__`` / ``importlib`` to the object
 defined in its submodule.  ``__getattr__`` hands a name to the first

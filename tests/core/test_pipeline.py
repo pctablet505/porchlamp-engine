@@ -1,37 +1,17 @@
-"""W2-8b acceptance: the snapshot scoring pipeline
-(``cvi.core.pipeline.score_snapshot``, D-ORDER-1 stages 0-9 over a whole
-population; 02 sections 1, 9, 10; 04 sections 3, 4, 8; 03 section 5).
-
-Fail-before: before this packet ``cvi.core.pipeline`` does not exist, so
-every test below fails on ``ModuleNotFoundError`` (the same convention
-``tests/core/test_engine_v2.py`` and ``tests/core/test_persona_v2.py``
-already document for their own packets).
+"""Acceptance tests: the snapshot scoring pipeline
+(``cvi.core.pipeline.score_snapshot``).
 
 ``_Fixture12`` builds twelve repos through the real ``FeatureBundle``
 constructor:
 
-- two gated (``archived``, ``unlicensed``) -- stage-0 D-GATE-2/3 failures;
-- two unrated (D-EVID-1 coverage < 0.60), one with zero measured inputs and
-  one with a single measured ``legal_ip`` (RC, contributes some coverage,
-  still below 0.60);
-- eight rated, all built from ``_HI_INPUTS`` (a copy of
-  ``tests/core/test_engine_v2.py::EligibleFixture``'s hand-verified
-  composite-97.3 bundle -- every value chosen so every intermediate lands on
-  a clean part of its curve) with only ``dr90_decision_rate`` varied per
-  repo. ``dr90``'s curve is ``min(100, 125*r)`` for ``r < 0.8``, strictly
-  monotone and never saturating below that boundary, and it feeds only
-  pillar 1 (responsiveness) with within-pillar weight .25 -- so distinct
-  ``r`` values 0.05 spaced apart necessarily give composites at least
-  ``0.25 * 0.25 * 125 * 0.05 = 0.390...`` apart, far more than the 2-decimal
-  rounding this design compares on. Two repos (``tiea/x``, ``tieb/y``) share
+- two gated (``archived``, ``unlicensed``);
+- two unrated (coverage < 0.60), one with zero measured inputs and
+  one with a single measured ``legal_ip``;
+- eight rated, all built with only ``dr90_decision_rate`` varied per
+  repo. Two repos (``tiea/x``, ``tieb/y``) share
   the exact same ``r`` (0.5) and therefore the exact same composite by
-  construction, not by a coincidental rounding -- the deliberate D-TIE-1 tie.
-  One repo (``persona/proscribed``) additionally sets ``ai_posture`` to
-  ``PROSCRIBED`` (Measured): D-PERS-2's hard AI ban gates it from the
-  ``ai_assisted`` persona lens while every other persona (including
-  ``balanced``, which is never a gate target) sees it exactly as scored --
-  the "one repo whose persona gate differs from its balanced gate" the
-  packet asks for.
+  construction. One repo (``persona/proscribed``) additionally sets
+  ``ai_posture`` to ``PROSCRIBED``.
 """
 from __future__ import annotations
 
@@ -73,7 +53,7 @@ from cvi.snapshot.populations import Population, PopulationSet
 
 NOW = datetime.datetime(2026, 9, 12, 0, 0, tzinfo=datetime.timezone.utc)
 _HASH64 = "c" * 64
-_SNAPSHOT_ID = "snap-w2-8b"
+_SNAPSHOT_ID = "snap-synthetic"
 
 
 def _iso(value: datetime.datetime) -> str:
@@ -356,10 +336,8 @@ def test_persona_gate_differs_from_balanced_view() -> None:
 
 
 def test_gated_records_state_the_balanced_gate_reason_on_every_persona() -> None:
-    """R-1 (lead ruling, W2-8b review): a gate-ineligible record is gated
-    under every persona with the balanced ``gate.reason`` -- unconditional,
-    since D-ORDER-1 decides eligibility at stage 0, strictly before any
-    persona lens exists."""
+    """A gate-ineligible record is gated under every persona with the
+    balanced ``gate.reason``."""
     by_key = _by_key(_Fixture12.score())
     archived = by_key[_Fixture12.GATED_ARCHIVED]
     for name in persona.GATED_PERSONAS:
@@ -628,21 +606,13 @@ def test_score_bundle_stage_9_tie_input_reads_ttfhr_p75_and_identity_from_record
     assert entry.owner == "org" and entry.name == "alpha"
     assert entry.owner == record.repo.owner and entry.name == record.repo.name
     assert entry.ttfhr_p75_hours == pytest.approx(24.0)  # the one event's response was 24h after creation
-    # W1-5f: this hand-built bundle never had the last_non_bot_commit_at
-    # sidecar attribute set (cvi.derive.bundle._load_v1 is the only setter),
-    # so cvi.core.commit_domains.last_non_bot_commit_at(bundle) returns its
-    # Unmeasured(collector_failure) default -- correctly collapsed to None
-    # here, not because the field does not exist (see the next test for the
-    # positive wiring path).
+    # Hand-built bundle has no last_non_bot_commit_at sidecar set.
     assert entry.last_non_bot_commit_at is None
 
 
 def test_score_bundle_stage_9_tie_input_reads_last_non_bot_commit_at_from_bundle_sidecar() -> None:
-    """W1-5f positive wiring: when a bundle carries the
-    ``last_non_bot_commit_at`` sidecar fact (set the way
-    ``cvi.derive.bundle._load_v1`` sets it), stage 9 prep reads the real
-    value through -- not the hardcoded ``None`` this module returned before
-    this packet."""
+    """When a bundle carries the ``last_non_bot_commit_at`` sidecar fact,
+    stage 9 prep reads the real value through."""
     from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
 
     bundle = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
@@ -660,9 +630,7 @@ def test_score_bundle_stage_9_tie_input_reads_last_non_bot_commit_at_from_bundle
 
 def test_score_bundle_stage_9_tie_input_measured_absence_is_none() -> None:
     """A ``LastNonBotCommitMeasured(value=None, ...)`` measured absence
-    also collapses to ``None`` for tie-break purposes -- the same as an
-    unset/Unmeasured fact, since D-TIE-1 item 7 has nothing to rank a
-    genuine absence above or below any other unmeasured entry by."""
+    also collapses to ``None`` for tie-break purposes."""
     from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
 
     bundle = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
@@ -679,11 +647,7 @@ def test_score_bundle_stage_9_tie_input_measured_absence_is_none() -> None:
 
 
 def test_score_bundle_stage_9_tie_input_last_non_bot_commit_at_orders_per_level_7() -> None:
-    """Packet deliverable: a record whose only difference is the commit
-    date orders per D-TIE-1 level 7 -- proved end to end through this
-    module's own ``assign_ranks`` wiring, not just ``cvi.core.tiebreak``'s
-    unit tests (which already covered the tie-break *rule*; this is the
-    *wiring* through score_bundle_stage_9_tie_input, W1-5f's own delivery)."""
+    """A record whose only difference is the commit date orders per level 7."""
     from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
     from cvi.core.tiebreak import assign_ranks
 
@@ -776,9 +740,8 @@ def test_score_bundle_stage_8_persona_replaces_never_mutates() -> None:
     assertion cannot tell the two apart. Object identity can:
     ``score_bundle_stage_8_persona`` must always return a *new*
     ``ScoreRecord``, and the record it was given must still show its
-    pre-call, untouched ``persona_gates``/``persona_composites`` afterwards
-    (W2-7f's purity test is the model this repeats at this packet's own
-    composition point, D-PERS-1)."""
+    pre-call, untouched ``persona_gates``/``persona_composites`` afterwards.
+    """
     bundle = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
     record = score_bundle_stages_0_7(
         bundle, _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
@@ -794,20 +757,10 @@ def test_score_bundle_stage_8_persona_replaces_never_mutates() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# W3-2f: score_snapshot(previous=..., detectors=...) -- the suspicion-wiring
-# composition seam. These tests exercise ``apply_suspicion``/``score_snapshot``
-# with hand-written ``detectors`` stubs, never the real
-# ``cvi.verify.detectors``/``cvi.verify.pipeline_hook`` (``cvi.core`` cannot
-# import ``cvi.verify`` -- see ``cvi.core.pipeline.DetectorsCallable``'s own
-# docstring; the real end-to-end wiring through real bundles/detectors is
-# ``tests/verify/test_pipeline_hook.py``). A stub lets each test isolate one
-# fact about the seam without needing a real cross-snapshot fixture.
+# score_snapshot(previous=..., detectors=...) -- suspicion-wiring
 # --------------------------------------------------------------------------- #
 def _two_minimal_bundles() -> tuple[FeatureBundle, FeatureBundle]:
-    """Two gate-eligible, otherwise-empty bundles, deliberately named so
-    D-TIE-2's name order (``aaa/first`` before ``zzz/second``) is opposite
-    the order a *reversed* ``detectors`` mapping insertion would suggest --
-    see :func:`test_score_snapshot_wires_suspicion_by_repo_key_not_position`."""
+    """Two gate-eligible, otherwise-empty bundles."""
     return (
         _bundle(_repo("zzz", "second"), _full_inputs()),
         _bundle(_repo("aaa", "first"), _full_inputs()),
@@ -829,12 +782,8 @@ def _score_two_minimal(
 def test_apply_suspicion_is_identity_only_when_detectors_is_none() -> None:
     """Direct unit test of :func:`apply_suspicion` itself (not through
     ``score_snapshot``): every record's ``suspicion`` stays untouched only
-    when ``detectors is None`` (no composition wired in). ``previous is
-    None`` is **not**, by itself, a reason to skip anything -- lead ruling
-    correcting this function's first draft ("``previous=None`` -> all
-    ``suspicion == []``" in the dispatch meant the cross-snapshot detectors
-    only): a ``detectors`` callable that fires regardless of ``previous``
-    (as every single-snapshot detector does) must still fire when
+    when ``detectors is None`` (no composition wired in). A ``detectors``
+    callable that fires regardless of ``previous`` must still fire when
     ``previous`` is ``None``."""
     baseline = _Fixture12.score()
     records = baseline.records
@@ -846,15 +795,8 @@ def test_apply_suspicion_is_identity_only_when_detectors_is_none() -> None:
 
 
 def test_score_snapshot_previous_none_still_applies_single_snapshot_flags() -> None:
-    """The corrected W3-2f acceptance rule (lead ruling): ``previous=None``
-    does not blanket-suppress detection -- it is forwarded to ``detectors``
-    like any other call, so a callable that fires independently of
-    ``previous`` (every single-snapshot detector) still fires on the very
-    first snapshot ever. Only a callable that itself withholds flags when
-    ``previous is None`` (modelling ``param_jump``, the one detector that
-    actually needs a previous record) yields nothing -- proving
-    ``score_snapshot``/``apply_suspicion`` impose no additional gate of
-    their own beyond whatever the callable decides."""
+    """``previous=None`` does not blanket-suppress detection -- it is
+    forwarded to ``detectors`` like any other call."""
     single_snapshot_style: Any = lambda recs, prev: {repo_key(r): ["closed_unread"] for r in recs}  # noqa: E731
 
     def fires_only_with_previous(recs: Any, prev: Any) -> dict[str, list[str]]:
@@ -960,12 +902,9 @@ def test_score_snapshot_suspicion_never_affects_rank_or_tie_group() -> None:
 
 
 def test_records_hash_changes_when_a_detector_fires() -> None:
-    """Deliverable #1's own explicit ask: a fired detector (a non-empty
-    ``suspicion``) must change ``records_hash`` -- proof that
-    ``ScoreRecord.suspicion`` genuinely participates in
-    ``canonical_records_json`` (it already did before W3-2f:
-    ``_to_plain`` walks every dataclass field generically), not just that
-    the field exists."""
+    """A fired detector (a non-empty ``suspicion``) must change
+    ``records_hash`` -- proof that ``ScoreRecord.suspicion`` genuinely
+    participates in ``canonical_records_json``."""
     snapshot = _Fixture12.score()
     baseline_hash = snapshot.records_hash
     assert all(record.suspicion == [] for record in snapshot.records)
@@ -977,11 +916,9 @@ def test_records_hash_changes_when_a_detector_fires() -> None:
 
 
 def test_build_snapshot_counts_suspicion_histogram() -> None:
-    """``SnapshotCounts.suspicion_counts`` (W3-2f): a per-detector-name
-    histogram built generically from whatever names appear on the final
-    records -- a name no record carries is simply absent, not zero-filled
-    (``cvi.core`` has no fixed nine-name universe to zero-fill from; see
-    the field's own docstring)."""
+    """``SnapshotCounts.suspicion_counts``: a per-detector-name histogram
+    built generically from whatever names appear on the final records -- a name
+    no record carries is simply absent, not zero-filled."""
     baseline = _Fixture12.score()
 
     def _three_flagged(records: Any, previous: Any) -> dict[str, list[str]]:

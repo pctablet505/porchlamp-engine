@@ -9,14 +9,14 @@ sqlite3 connections are thread-bound and starlette's TestClient dispatches on
 its portal thread, so the store is built inside ``client.portal.call`` (the
 same pattern as ``tests/test_api.py::open_client``).
 
-The second half of the file is the served-DB guard of packet W0-4 (`03` §5,
-F1). Round 3 restores an independent rename-proof fixture check (Blocker-1:
+The second half of the file is the served-DB guard of packet (`03` §5,
+F1). restores an independent rename-proof fixture check (:
 round 2 deleted it while adding the content-hash identity, so seeding the
 synthetic catalog and then promoting a real sample on top served fabricated
 rows alongside real ones) alongside identity bound to the database's OWN
 content, not a per-row name/telemetry heuristic (round 1's ``(owner, name)
 == (stars, forks)`` equality, which one ``UPDATE`` statement defeated) or a
-manifest.json that happens to sit beside the db file (round 1's Warning-3).
+manifest.json that happens to sit beside the db file (round 1's ).
 ``scripts/promote.py`` writes a ``snapshot_meta`` row carrying a content hash
 of the ``repositories`` table; ``scripts/serve.py`` recomputes that hash at
 startup and refuses unless it still matches a stored row. ``uvicorn.run`` is
@@ -51,12 +51,12 @@ _spec.loader.exec_module(promote)
 AS_OF = "2026-09-12T00:00:00+00:00"
 
 #: A real repository's envelopes, used to build genuine, non-placeholder
-#: manifests (round 3, Warning-3): ``build_manifest([], ...)`` covered zero
-#: envelopes, the exact shape that hid Blocker-2 from every test that used
+#: manifests (round 3, ): ``build_manifest([], ...)`` covered zero
+#: envelopes, the exact shape that hid  from every test that used
 #: it. serve.py's own checks never consult manifest envelope content, so
 #: this repo need not relate to whatever rows a given test writes into
 #: ``repositories`` -- only :func:`_promote_snapshot`'s content hash does
-#: that. Round 4 (Blocker-2): committed under ``tests/fixtures/`` rather
+#: that.  committed under ``tests/fixtures/`` rather
 #: than read from ``~/Projects/cvi-scratch/sample-200``, absent on any
 #: machine but this one, CI included.
 _SAMPLE_RAW = Path(__file__).resolve().parent / "fixtures" / "numpy-envelopes"
@@ -147,7 +147,7 @@ def test_healthz_ok():
 
 def _copy_sample_envelopes(data_dir: Path) -> None:
     """Copy one real repo's envelopes from the read-only sample into
-    ``data_dir/raw/`` (round 3, Warning-3)."""
+    ``data_dir/raw/`` (round 3, )."""
     for collector_dir in sorted(p for p in _SAMPLE_RAW.iterdir() if p.is_dir()):
         src = collector_dir / f"{_SAMPLE_KEY}.json"
         if src.is_file():
@@ -169,7 +169,7 @@ def _freeze_real(data_dir: Path, as_of: str = AS_OF) -> dict:
 def _promote_snapshot(data_dir: Path, db: Path) -> dict:
     """Freeze ``data_dir`` (real envelopes) and bind ``db``'s current
     ``repositories`` content to it, exactly as ``scripts/promote.py`` does at
-    the end of a real promotion (Blocker-3): a ``snapshot_meta`` row carrying
+    the end of a real promotion (): a ``snapshot_meta`` row carrying
     :func:`cvi.lakehouse.repositories_dump_hash`, not a filesystem manifest
     lookup or a per-row name/telemetry match.
     """
@@ -216,7 +216,7 @@ def served(monkeypatch: pytest.MonkeyPatch) -> _RunRecorder:
 
 
 def test_fixture_database_is_refused_naming_the_row(tmp_path, served):
-    # Round 3 (Blocker-1): restored. Round 2 deleted this rule outright
+    #  restored. deleted this rule outright
     # while adding the content-hash identity below, rather than keeping it
     # as a second, independent guard -- the two catch different things (see
     # the module docstring). A snapshot is bound here too, so the fixture
@@ -317,7 +317,7 @@ def test_empty_promoted_database_serves(tmp_path, served):
 
 
 # --------------------------------------------------------------------------- #
-# Round 2 (Blocker-3): the guard survives edits a name/telemetry heuristic
+#  the guard survives edits a name/telemetry heuristic
 # could not catch, because identity is bound to the table's own content.
 # --------------------------------------------------------------------------- #
 
@@ -325,7 +325,7 @@ def test_empty_promoted_database_serves(tmp_path, served):
 def test_renaming_every_owner_after_promotion_is_refused(tmp_path, served):
     # The lead's explicit bypass: round 1 keyed the guard on (owner, name) ==
     # (stars, forks); this single UPDATE gave it zero reasons while every
-    # fabricated row still served. Round 2 binds identity to a content hash
+    # fabricated row still served. binds identity to a content hash
     # of the whole table, so renaming every owner invalidates it too.
     db = tmp_path / "cvi.db"
     store = _store_at(db)
@@ -367,7 +367,7 @@ def test_nudging_telemetry_after_promotion_is_refused(tmp_path, served):
 
 
 def test_a_stored_hash_sharing_every_digit_but_the_last_is_still_refused(tmp_path, served):
-    # Round 4, W-003 (mutants M6/M12): the comparison must be full-hash
+    # , W-003 (mutants M6/M12): the comparison must be full-hash
     # equality, not a truncated prefix check. M12 mutated `stored_hash ==
     # current` to `stored_hash[:1] == current[:1]` (M6: `[:8]`) and the
     # suite stayed green while a tampered database served. Construct the
@@ -399,10 +399,10 @@ def test_a_stored_hash_sharing_every_digit_but_the_last_is_still_refused(tmp_pat
 
 
 def test_manifest_copied_beside_a_foreign_database_is_refused(tmp_path, served):
-    # Warning-3 (round 1): snapshot identity accepted ANY manifest.json
+    #  (round 1): snapshot identity accepted ANY manifest.json
     # sitting beside the db file, with no check that it described that
     # database's content -- a sample-data manifest copied beside a
-    # thousand-row synthetic database was accepted. Round 2's identity lives
+    # thousand-row synthetic database was accepted. 's identity lives
     # inside the db's own snapshot_meta table, never a beside-the-file
     # manifest, so copying one buys nothing.
     src_dir = tmp_path / "source"
@@ -426,7 +426,7 @@ def test_manifest_copied_beside_a_foreign_database_is_refused(tmp_path, served):
 
 
 # --------------------------------------------------------------------------- #
-# Round 3, Blocker-1 (`03` §5): the review's full seed-then-promote sequence
+# ,  (`03` §5): the review's full seed-then-promote sequence
 # -- two independent fixes, both required.
 # --------------------------------------------------------------------------- #
 

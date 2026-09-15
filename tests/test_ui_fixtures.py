@@ -87,7 +87,7 @@ class TestLeaderboardFixtureInvariants:
         assert sorted(r["rank"] for r in rows) == list(range(1, len(rows) + 1))
 
     def test_singleton_rows_have_a_null_tie_group(self, rows: list[dict]) -> None:
-        # W4-3 store-queries review, 2026-09-13 (ruling R-D): `None` means
+        # Store query convention: `None` means
         # "no tie", not "tie group zero" — a row's own composite is unique.
         singletons = [r for r in rows if r["tie_group"] is None]
         assert singletons, "expected at least one singleton (non-tied) row"
@@ -149,8 +149,7 @@ class TestLeaderboardFixtureInvariants:
                     assert r[f"c_{p}"] == 0.0, "an unmeasured pillar's coverage must be exactly 0.0"
 
     def test_one_row_has_a_null_stars_audited(self, rows: list[dict]) -> None:
-        # W4-3 store-queries review, 2026-09-13: stars_audited is nullable
-        # until W1-10 lands a v2 producer.
+        # stars_audited is nullable when not populated.
         null_stars = [r for r in rows if r["stars_audited"] is None]
         assert len(null_stars) >= 1
 
@@ -189,7 +188,7 @@ class TestPersonaReprojectionFixture:
 
 class TestNotRankedFixture:
     def test_every_u10_gate_reason_present_plus_fork(self) -> None:
-        # "fork" is a W4-3 store-queries review addition (2026-09-13), not
+        # "fork" is a query filter addition, not
         # part of 06 §3 A2's originally documented U-10 set, but the
         # contract now accepts it and this fixture demonstrates it.
         data = load("notranked.json")
@@ -199,7 +198,7 @@ class TestNotRankedFixture:
     def test_both_unrated_reasons_present(self) -> None:
         data = load("notranked.json")
         reasons = {r["unrated_reason"] for r in data["unrated"]}
-        # The engine's own constant (W4-3 review, 2026-09-13); either
+        # The engine's own constant; either
         # spelling is contract-valid, this fixture uses the engine's.
         assert "unrated: insufficient_evidence" in reasons
         assert {"no_external_workflow", "off_platform_routed"} & reasons

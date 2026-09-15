@@ -1,11 +1,11 @@
 """Tests for scripts/verify.py cross-source verification logic.
 
-Provenance is part of verification (packet W0-4, `03` §5): a field that claims
+Provenance is part of verification (packet, `03` §5): a field that claims
 ``verified`` must name an envelope under ``raw/<collector>/<owner>__<name>.json``
 whose hash matches the sha256 recorded in the bundle's own provenance at
-derive time (round 2, Blocker-1) -- and that envelope must belong to THIS
+derive time (round 2, ) -- and that envelope must belong to THIS
 bundle's own key and, where the field's collector is known, that collector
-too (round 2, Blocker-2). ``data_dir`` is an argument of every check here
+too (round 2, ). ``data_dir`` is an argument of every check here
 rather than an ambient global.
 """
 from __future__ import annotations
@@ -39,7 +39,7 @@ def envelope_path(data_dir: Path, collector: str = "github_meta", key: str = KEY
 
 def envelope_provenance(data_dir: Path) -> dict[str, Any]:
     """stars/forks provenance exactly as ``scripts/derive.py`` records it now:
-    the envelope path plus the envelope's own hash (round 2, Blocker-1)."""
+    the envelope path plus the envelope's own hash (round 2, )."""
     digest = envelope_hash(ENVELOPE_DATA)
     entry = {"source": str(envelope_path(data_dir)), "fetched_at": FETCHED_AT, "sha256": digest}
     return {"stars": dict(entry), "forks": dict(entry)}
@@ -155,7 +155,7 @@ def test_verified_field_without_provenance_flags(data_dir):
 
 
 def test_url_provenance_for_verified_field_flags(data_dir):
-    # Round 2 (`03` §5 owner ruling, W1): provenance is an envelope path
+    #  provenance is an envelope path
     # only. A bare URL is not a path under raw/, hash or no hash.
     prov = envelope_provenance(data_dir)
     prov["stars"] = {"source": "https://api.github.com/repos/rust-lang/serde",
@@ -165,8 +165,8 @@ def test_url_provenance_for_verified_field_flags(data_dir):
 
 
 def test_url_provenance_with_recorded_hash_still_flags(data_dir):
-    # Round 1 accepted an http(s) URL carrying a recorded sha256 without ever
-    # recomputing it (Warning-1: any 64-hex string passed). Round 2 deletes
+    # accepted an http(s) URL carrying a recorded sha256 without ever
+    # recomputing it (: any 64-hex string passed). deletes
     # that branch entirely -- this guards against it being reintroduced.
     prov = envelope_provenance(data_dir)
     prov["stars"] = {"source": "https://api.github.com/repos/rust-lang/serde",
@@ -206,7 +206,7 @@ def test_hash_recorded_in_provenance_must_match(data_dir):
 
 
 def test_provenance_without_recorded_hash_flags(data_dir):
-    # Round 2 (Blocker-1): a bundle derived BEFORE this change recorded no
+    #  a bundle derived BEFORE this change recorded no
     # hash at all -- round 1's bug treated "nothing to compare" as passing,
     # which verified file existence, not content. It must flag instead, and
     # stay flagged until the bundle is re-derived.
@@ -232,8 +232,8 @@ def test_envelope_hash_not_matching_its_data_flags(data_dir):
 
 
 def test_backfilled_envelope_hash_is_verifiable(data_dir):
-    # Envelopes written before packet W0-3 recorded no hash: the reader hashes
-    # their data field (the W0-3 read-time rule), so the provenance is verifiable.
+    # Envelopes written before packet recorded no hash: the reader hashes
+    # their data field (the  read-time rule), so the provenance is verifiable.
     path = envelope_path(data_dir)
     doc = json.loads(path.read_text(encoding="utf-8"))
     del doc["sha256"]
@@ -243,7 +243,7 @@ def test_backfilled_envelope_hash_is_verifiable(data_dir):
 
 
 def test_path_and_hash_form_is_accepted(data_dir):
-    # The canonical provenance string of packet W0-3: "<path>#<sha256>".
+    # The canonical provenance string of packet: "<path>#<sha256>".
     prov = envelope_provenance(data_dir)
     prov["stars"] = {"source": f"{envelope_path(data_dir)}#{envelope_hash(ENVELOPE_DATA)}",
                      "fetched_at": FETCHED_AT}
@@ -293,7 +293,7 @@ def test_verify_repo_records_unverifiable_provenance(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Bound provenance (round 2, Blocker-2): an envelope must belong to THIS
+# Bound provenance (round 2, ): an envelope must belong to THIS
 # bundle's own repository key and, where known, its field's own collector.
 # --------------------------------------------------------------------------- #
 
@@ -331,7 +331,7 @@ def test_envelope_from_wrong_collector_flags(data_dir):
 
 
 def test_downloads_field_keys_on_ecosystem_not_owner(tmp_path):
-    # Blocker-2's one explicit exception: scripts/derive.py's downloads
+    # 's one explicit exception: scripts/derive.py's downloads
     # collector keys on <ecosystem>__<name>, not <owner>__<name>.
     write_envelope(envelope_path(tmp_path), "github:repository", ENVELOPE_DATA, FETCHED_AT)
     dl_data = {"monthly": 500}
@@ -344,7 +344,7 @@ def test_downloads_field_keys_on_ecosystem_not_owner(tmp_path):
     r = verify.verify_bundle(bundle(prov, conf=conf), {}, data_dir=tmp_path)
     assert r["clean"] is True and r["flags"] == []
 
-    # Over-correction guard: keying it on OWNER instead (the bug Blocker-2
+    # Over-correction guard: keying it on OWNER instead (the bug 
     # would reintroduce for this one field) must flag.
     wrong_key_path = tmp_path / "raw" / "downloads" / f"{OWNER}__{NAME}.json"
     write_envelope(wrong_key_path, "downloads:pkg", dl_data, FETCHED_AT)
@@ -356,7 +356,7 @@ def test_downloads_field_keys_on_ecosystem_not_owner(tmp_path):
 
 
 def test_list_valued_provenance_checked_elementwise(data_dir):
-    # Blocker-2: a list-valued source (pr_events/pr_reviews-shaped, e.g.
+    # : a list-valued source (pr_events/pr_reviews-shaped, e.g.
     # mean_inline_comments) is checked element by element, not accepted on
     # the strength of its first item alone. "mean_inline_comments" carries
     # no FIELD_COLLECTORS entry, so only the key (not the collector) binds.

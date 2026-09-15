@@ -1,4 +1,4 @@
-"""W2-6 acceptance: the D-TIE-1 tie-break key, D-TIE-2 strict ranks and tie
+"""Acceptance tests: the tie-break key, strict ranks and tie
 groups (`02` section 10; `04` section 3, section 6's SQL ``ORDER BY``).
 
 Fail-before: before this packet ``cvi.core.tiebreak`` does not exist, so
@@ -252,7 +252,7 @@ def test_composite_level_one_descending() -> None:
 
 
 def test_tie_key_composite_pinned_at_two_decimals() -> None:
-    """W2 (round-2 review, M17/M18): D-TIE-1's "composite (2 decimals)"
+    """D-TIE-1's "composite (2 decimals)"
     level must round to exactly 2 decimals inside :func:`tie_key`, not 3,
     and not skip rounding entirely. ``round(91.238, 2) == round(91.24, 2)
     == 91.24``, so a1 and a2 tie at level 1 and coverage (level 2) decides
@@ -266,7 +266,7 @@ def test_tie_key_composite_pinned_at_two_decimals() -> None:
 
 
 def test_tie_group_boundary_pinned_at_two_decimals() -> None:
-    """W3 (round-2 review, M11/M19/M20): D-TIE-2's tie-group boundary must
+    """D-TIE-2's tie-group boundary must
     also round to exactly 2 decimals. ``88.004`` rounds to ``88.0`` (same
     group as an ``88.0`` row); ``88.006`` rounds to ``88.01`` (its own,
     different group). Asserted by comparing ``tie_group`` *values* for both
@@ -496,7 +496,7 @@ def test_tiebreak_input_rejects_empty_owner_or_name() -> None:
 
 
 def test_tiebreak_input_rejects_owner_name_mismatch_with_record_repo() -> None:
-    """W2-10 (04 section 3): ``owner``/``name`` must agree with
+    """``owner``/``name`` must agree with
     ``record.repo`` -- one source of identity, validated. The message must
     name both sides so a caller can see which one is wrong."""
     record = make_record("x", owner="real-owner", name="real-repo")
@@ -552,7 +552,7 @@ def test_assign_ranks_is_independent_of_input_order() -> None:
 # ---------------------------------------------------------------------------
 # SQL parity (04 section 6's ORDER BY).
 #
-# W4 (round-2 review): 04 section 6 now mandates ``NULLS LAST`` on every
+# Mandates ``NULLS LAST`` on every
 # tie-break column (ruling 2026-09-13, after this review) because SQLite
 # sorts NULL *first* under ``ASC`` by default -- the inverse of D-TIE-1's
 # "unmeasured sorts after measured regardless of direction" for an ASC
@@ -614,7 +614,7 @@ def test_sql_order_by_agrees_with_tie_key_on_the_fully_measured_eight_row_case()
     exercise NULL-ordering at all (see
     ``test_sql_order_by_with_nulls_needs_nulls_last_and_matches_tie_key``
     below for that). Renamed from
-    ``test_sql_order_by_agrees_with_tie_key_on_the_eight_row_case`` (W4):
+    ``test_sql_order_by_agrees_with_tie_key_on_the_eight_row_case``:
     the old name's ``agrees`` claimed general parity, not just parity on an
     all-measured sample."""
     conn = sqlite3.connect(":memory:")
@@ -670,7 +670,7 @@ _NINE_NULL_BEARING_EXPECTED_ORDER = [
 
 
 def test_sql_order_by_with_nulls_needs_nulls_last_and_matches_tie_key() -> None:
-    """W4 (round-2 review): parity on the 9-row NULL-bearing case, plus a
+    """Parity on the 9-row NULL-bearing case, plus a
     negative control proving the ``NULLS LAST`` clause is load-bearing, not
     decorative. ``_CORRECTED_ORDER_BY`` (04 section 6, current) must
     reproduce :func:`tie_key`'s order exactly, including ``rank_p`` as a
@@ -735,7 +735,7 @@ def test_ttfhr_p75_nearest_rank_over_external_responded_events() -> None:
 
 
 def test_ttfhr_p75_nearest_rank_at_n_equals_3_pins_ceil_not_floor() -> None:
-    """W1 (round-2 review, M22): ``N=4`` and ``N=1`` are the only two sample
+    """``N=4`` and ``N=1`` are the only two sample
     sizes where ``ceil(0.75*N)`` and ``max(1, floor(0.75*N))`` coincide, so
     neither pins the nearest-rank method. At ``N=3``: ``ceil(0.75*3) =
     ceil(2.25) = 3`` -> 3rd smallest -> 3.0, while the floor mutant gives

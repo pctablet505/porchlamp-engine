@@ -1,5 +1,5 @@
-"""Packet W5-1a acceptance: the extended methodology document
-(``cvi.audit.methodology_history``) -- the one caller allowed to cross the
+"""Acceptance tests for the extended methodology document
+(``cvi.audit.methodology_history``) -- the caller that crosses the
 ``cvi.core`` import boundary to add detectors, process constants and the
 RFC changelog to ``cvi.core.methodology.methodology_document``.
 """

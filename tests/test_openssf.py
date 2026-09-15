@@ -78,7 +78,7 @@ def test_zero_sum_weights_guard_returns_zero():
 
 
 def test_at_threshold_default_weights_score_matches_hand_computation():
-    # W2-9g: the suite above never actually asserts a value against the
+    # The suite above asserts values against
     # real default OPENSSF_WEIGHTS/OPENSSF_THRESHOLDS -- every other test
     # here isolates a guard branch (the saturation floor, the clamp, the
     # zero-weights early return) that is, by construction, invariant to the

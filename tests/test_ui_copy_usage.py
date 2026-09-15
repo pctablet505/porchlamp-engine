@@ -4,7 +4,7 @@
 string literal elsewhere." The dispatch's acceptance test for this is
 explicitly satisfiable as: "a test that parses copy.js's exported keys and
 greps the tests for each key". Node is not available on this box (see
-`.agents/W4-5a/handoff.md`), so there is no `web/v2/tests/*.test.mjs` to
+so there is no `web/v2/tests/*.test.mjs` to
 grep for usage yet; this test greps the actual UI SOURCE
 (`web/v2/{app.js,components,views}`) instead — the practical, available
 substitute that still catches the real defect class (an orphaned string

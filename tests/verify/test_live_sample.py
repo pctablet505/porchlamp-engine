@@ -1,8 +1,8 @@
-"""Unit tests for :mod:`cvi.verify.live_sample` (packet W3-3).
+"""Unit tests for :mod:`cvi.verify.live_sample`.
 
 The canary re-fetches GitHub metadata and the PR window head for a sample of
 rated rows and holds from promotion any row whose live values drift beyond
-tolerance from the recorded verified bundle (03-ANTI-MANIPULATION section 5).
+tolerance from the recorded verified bundle.
 All live traffic goes through the ``Transport`` boundary, which these tests
 fake; no test touches the network.
 """

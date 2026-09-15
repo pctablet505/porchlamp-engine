@@ -557,12 +557,11 @@ export function boot(win = window, doc = document) {
   }
 
   /**
-   * Lead ruling 2026-09-13 (drawer-content-parity fix): the drawer's
-   * record fetch (`GET /v1/cvi/repos/{o}/{n}`) — called by `openRepo`
-   * regardless of which screen it was opened from, so the drawer never
-   * again depends on whatever state slice a particular screen happens to
-   * keep in memory (Matrix's own point list, Compare's per-chip cache,
-   * etc.). Cached per repo, same pattern as `loadEvidence`.
+   * Fetches the repo record (`GET /v1/cvi/repos/{o}/{n}`) — called by `openRepo`
+   * regardless of which screen it was opened from, ensuring the drawer is
+   * independent of any state slice a particular screen keeps in memory (Matrix
+   * point list, Compare per-chip cache, etc.). Cached per repo, matching
+   * `loadEvidence`.
    */
   function loadRepoDetail(owner, name) {
     const key = `${owner}/${name}`;

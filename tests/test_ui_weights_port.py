@@ -1,5 +1,5 @@
 """N1 (round-3 review, 2026-09-14): the B-1 fix to `web/v2/views/
-configure.js::normalizeWeights` (Opus code review, 2026-09-13 — locking
+configure.js::normalizeWeights` (locking
 four pillars and dragging the fifth DOWN left the sum at 0.87, not 1) was
 guarded ONLY by `web/v2/tests/unit.test.mjs`, which cannot execute on this
 box (no Node). This file is a FAITHFUL, line-for-line PORT of
@@ -18,7 +18,7 @@ test suites failing its own copy of the same expected numbers (this file's
 `TestSharedJsonCases`, and `web/v2/tests/unit.test.mjs`'s equivalent).
 
 Started life as the round-2 reviewer's own property-test script
-(`~/Projects/cvi-scratch/W4-5b-review/weights_property_r2.py`) — ported
+property test suite ported
 into a real pytest module here with more branch-specific cases folded in.
 """
 
@@ -141,7 +141,7 @@ class TestNormalizeWeightsProperties:
     """P1 sum==1, P2 locked pillars unchanged, P3 no negative values —
     exercised over every lock subset x a value grid, then a seeded random
     walk, matching the shape the round-2 reviewer's own property test used
-    (`~/Projects/cvi-scratch/W4-5b-review/weights_property_r2.py`)."""
+    property test suite."""
 
     def test_every_lock_subset_and_value_grid_keeps_the_invariant(self) -> None:
         base = dict(BALANCED_WEIGHTS)

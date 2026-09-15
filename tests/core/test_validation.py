@@ -1,4 +1,4 @@
-"""W2-1 acceptance: strict v2 FeatureBundle validation.
+"""Acceptance tests: strict FeatureBundle validation.
 
 Fail-before (R-1): on the base commit there is no ``cvi.core`` and no
 ``cvi.derive``; the v1 deriver (``scripts/derive.py``) filled missing inputs
@@ -181,7 +181,7 @@ def test_rejects_measured_with_bad_source_hash() -> None:
     ],
 )
 def test_rejects_measured_with_absolute_or_unsafe_source(bad_source: str) -> None:
-    """W2-14: provenance is an envelope path plus its hash, and that path
+    """Provenance is an envelope path plus its hash, and that path
     must be relative to the data root (docs/v2/00-README.md non-negotiables)
     -- an absolute path of the machine that derived a bundle, a Windows
     drive-letter path, or a ``..`` escape must never enter a bundle

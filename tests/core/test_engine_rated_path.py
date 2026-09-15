@@ -1,18 +1,7 @@
-"""W2-8 A3 acceptance: pin the RATED path of ``cvi.core.engine.score`` (02
-sections 1, 5, 7, 8; ``cvi/core/engine.py`` lines ~285-325 of the W2-5f
-tree) so mutants R4/R5/R6 -- named in the W2-5f review, confirmed still
-alive by this packet -- die.
+"""Acceptance tests: pin the RATED path of ``cvi.core.engine.score``.
 
-The whole suite passes today even if the rated branch hardcodes
-``rated=False``, ``tier_ceiling=None`` or ``leverage_coverage=friction_coverage=0.0``,
-because ``tests/core/test_engine_v2.py``'s end-to-end oracle
-(``test_engine_end_to_end_every_field``) never asserts ``record.rated``,
-``record.unrated_reason`` or the axis coverages on its one rated fixture.
-This module is self-contained (own bundle-building helpers, not imported
-from ``test_engine_v2.py``: pytest's default rootless import mode does not
-guarantee cross-test-module imports resolve the same way in every runner,
-and ``tests/`` carries no ``__init__.py`` to make it a package) so it does
-not depend on that file's fixtures changing shape under it.
+Tests cover rated status, tier ceilings, and axis coverages on rated fixtures.
+This module is self-contained with its own bundle-building helpers.
 
 Two fixtures:
 

@@ -400,7 +400,7 @@ def _classify_not_ranked(record: Mapping[str, Any], *, persona: str) -> tuple:
        applies per-record to build `SnapshotCounts` and
        `cvi.store.queries.snapshot_summary` applies in SQL -- one
        constant, three call sites, so `/snapshot`'s counts and this
-       endpoint's group sizes always agree (lead ruling 2026-09-14, U-2).
+       endpoint's group sizes always agree.
     2. Eligible but excluded by the ACTIVE persona's own gate
        (`persona_gate_reason` is set, only possible when `persona !=
        "balanced"`): `"persona_hidden"`.

@@ -1,4 +1,4 @@
-"""Tests for W1-9: eligibility metadata and software classification.
+"""Tests for eligibility metadata and software classification.
 
 Subjects:
 * ``cvi.collect.repo_object`` — the repo-object collector (recorded-response
@@ -249,7 +249,7 @@ def test_no_envelopes_all_flags_false_missing(tmp_path):
 
 
 def test_fallback_to_recorded_meta_and_tree(tmp_path):
-    # pre-W1-9 sweep: only github_meta + tree recorded, no repo_object envelope
+    # Legacy sweep: only github_meta + tree recorded, no repo_object envelope
     write_env(tmp_path / "raw", "github_meta", KEY,
               {"stars": 10, "forks": 0, "pushed_at": "2026-09-01T00:00:00Z",
                "archived": True, "created_at": "2020-01-01T00:00:00Z",
@@ -374,7 +374,7 @@ GATHER_DONE = {
     "pr_events": [],
     "pr_reviews": {},
     "contributors": [],
-    # W1-1's per-label gfi collector treats a bare list as legacy and
+    # The per-label gfi collector treats a bare list as legacy and
     # re-fetches (needs_gather); the new shape's metadata-first record is
     # what actually marks it done.
     "gfi": [{"gfi_newcomer_v2": True, "labels_matched": [], "queries": [],
@@ -384,15 +384,15 @@ GATHER_DONE = {
     "commits_180d": [],
     "depsdev": None,
     "scorecard": None,
-    # W1-6/W1-5/W1-2/W1-3/W1-7 postdate this file and are not under test
+    # Other collectors are tested in their dedicated test modules
     # here; marking them done avoids live check-run/file-body/commits/
     # deps.dev/ecosyste.ms/graphql/gh api calls for "acme/widget" below
     # (Blocker B4 round 2).
     "governance": {}, "commits_365d": [], "dependents": {}, "pr_window": {},
     "releases": {}, "issues_counts": {}, "runs": {},
-    # W1-4's author_history hook also postdates this file and is not under
+    # author_history hook is tested in its dedicated test module
     # test here; marking it done avoids a live AuthorWindow gh api call —
-    # surfaced by W1-6's landed network guard (round-3 fix).
+    # surfaced by network guard.
     "author_history": {},
 }
 
