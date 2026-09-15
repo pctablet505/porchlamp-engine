@@ -209,10 +209,10 @@ export function renderPager(page, pageSize, total) {
 
 export function renderTableShell() {
   return (
-    `<div class="table-scroll"><table class="leaderboard-table" data-configure-table="true">` +
+    `<table class="leaderboard-table" data-configure-table="true">` +
     `<thead><tr data-configure-thead="true"></tr></thead>` +
     `<tbody data-configure-tbody="true"></tbody>` +
-    `</table></div>`
+    `</table>`
   );
 }
 

@@ -184,8 +184,11 @@ function renderCaptions(matrix) {
 
 function renderHoverCard(point) {
   if (!point) return `<div class="matrix-hover-card" hidden></div>`;
+  const isRight = (point.friction ?? 0) > 45;
+  const isTop = (point.leverage ?? 0) > 45;
+  const posClass = isRight && isTop ? " matrix-hover-card--top-left" : "";
   return (
-    `<div class="matrix-hover-card" data-matrix-hover-card="true">` +
+    `<div class="matrix-hover-card${posClass}" data-matrix-hover-card="true">` +
     `<p class="repo-name">${escapeHtml(point.owner)}/${escapeHtml(point.name)}</p>` +
     `<p class="cell-numeric">CVI ${point.cvi.toFixed(2)} · ${renderCoverageBadge(point.coverage)} · ${renderTierCell(point.tier, null)}</p>` +
     `<p class="hint">${escapeHtml(copy.MATRIX_OPEN_HINT)}</p>` +

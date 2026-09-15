@@ -88,6 +88,12 @@ input.control {
   background: var(--bg-base);
   border-bottom: 1px solid var(--border-subtle);
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.primary-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .primary-tab {
@@ -594,6 +600,29 @@ input.control {
   margin-bottom: var(--space-md);
 }
 
+.drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.drawer-compare-btn {
+  padding: 4px var(--space-sm);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.drawer-compare-btn:hover {
+  background: var(--bg-surface-hover);
+}
+
 .drawer h1 {
   font-size: var(--text-h1);
   margin: 0 0 var(--space-2xs);
@@ -618,18 +647,76 @@ input.control {
   font-size: var(--text-h2);
 }
 
+.radar-chart-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: var(--space-xs) 0 var(--space-sm);
+}
+
+.radar-chart {
+  max-width: 280px;
+  width: 100%;
+  height: auto;
+}
+
+.radar-grid {
+  fill: none;
+  stroke: var(--border-subtle);
+  stroke-width: 0.8;
+  opacity: 0.8;
+}
+
+.radar-spoke {
+  stroke: var(--border-subtle);
+  stroke-width: 0.8;
+  stroke-dasharray: 2, 2;
+  opacity: 0.8;
+}
+
+.radar-area {
+  fill: rgba(99, 102, 241, 0.2);
+  stroke: var(--accent-violet, #6366f1);
+  stroke-width: 1.5;
+}
+
+.radar-point {
+  fill: var(--accent-violet, #6366f1);
+}
+
+.radar-label {
+  font-size: 8px;
+  font-weight: 500;
+  fill: var(--text-secondary);
+}
+
+.radar-score {
+  font-size: 8px;
+  font-weight: 600;
+  fill: var(--text-primary);
+}
+
 .evidence-table {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--text-caption);
   margin-top: var(--space-xs);
+  table-layout: auto;
 }
 
 .evidence-table th,
 .evidence-table td {
   text-align: left;
-  padding: var(--space-2xs) var(--space-xs);
+  padding: 4px 6px;
   border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.evidence-table td:first-child,
+.evidence-table th:first-child {
+  white-space: normal;
+  max-width: 120px;
+  word-break: break-word;
 }
 
 .gate-banner {

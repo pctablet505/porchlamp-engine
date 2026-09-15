@@ -99,6 +99,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from pydantic import ValidationError
 
 from cvi.serve.contract import (
@@ -673,6 +677,9 @@ def make_handler(
                 owner, name = parts
                 rows = store.evidence.get((owner, name))
                 if rows is None:
+                    if store.find_repo_detail(owner, name) is not None:
+                        self._send_json(200, [])
+                        return
                     self._send_error_json(404, f"no evidence fixture for {owner}/{name}")
                     return
                 self._send_json(200, rows)

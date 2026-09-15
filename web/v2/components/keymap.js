@@ -28,6 +28,8 @@ export const KEY_ACTIONS = Object.freeze([
   { key: "ArrowDown", action: "matrix-focus-down", globalOnly: true },
   { key: "ArrowLeft", action: "matrix-focus-left", globalOnly: true },
   { key: "ArrowRight", action: "matrix-focus-right", globalOnly: true },
+  { key: "l", action: "nav-leaderboard", globalOnly: true },
+  { key: "b", action: "nav-matrix", globalOnly: true },
   { key: "c", action: "nav-compare", globalOnly: true },
   { key: "w", action: "nav-configure", globalOnly: true },
   { key: "m", action: "nav-methodology", globalOnly: true },

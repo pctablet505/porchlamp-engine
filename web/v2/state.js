@@ -94,7 +94,7 @@ export function serializeWeightsParam(weights) {
  */
 export function parseCompareParam(value) {
   if (!value) return [];
-  return value.split(",").map((s) => s.trim()).filter(Boolean);
+  return value.split(",").map((s) => s.trim()).filter(Boolean).slice(0, COMPARE_MAX);
 }
 
 export function serializeCompareParam(repos) {

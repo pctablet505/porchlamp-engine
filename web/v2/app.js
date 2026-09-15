@@ -858,11 +858,19 @@ export function boot(win = window, doc = document) {
 
   header.addEventListener("click", (evt) => {
     if (evt.target.closest("[data-theme-toggle]")) {
-      const order = ["system", "light", "dark"];
-      const next = order[(order.indexOf(store.getState().theme) + 1) % order.length];
+      const currentTheme = store.getState().theme;
+      const isSystemDark = win.matchMedia && win.matchMedia("(prefers-color-scheme: dark)").matches;
+      const isDark = currentTheme === "dark" || (currentTheme === "system" && isSystemDark);
+      const next = isDark ? "light" : "dark";
       store.dispatch({ type: "SET_THEME", theme: next });
       applyTheme(next, doc);
       writePersistedTheme(win.localStorage, next);
+      const btn = header.querySelector("[data-theme-toggle]");
+      if (btn) {
+        btn.textContent = next === "dark" ? "🌙" : "☀";
+        btn.setAttribute("title", `Active theme: ${next}`);
+      }
+      return;
     }
   });
 
@@ -1206,6 +1214,19 @@ export function boot(win = window, doc = document) {
   });
 
   drawerRoot.addEventListener("click", (evt) => {
+    const compareBtn = evt.target.closest("[data-drawer-compare]");
+    if (compareBtn) {
+      const key = compareBtn.dataset.drawerCompare;
+      if (key) {
+        store.dispatch({ type: "COMPARE_ADD_REPO", key });
+        pushUrl(store.getState());
+        if (!store.getState().compareDataByRepo[key]) loadCompareRepo(key);
+        if (!store.getState().methodology && !store.getState().methodologyLoading) loadMethodology();
+        closeDrawer();
+        goToTab("compare");
+      }
+      return;
+    }
     if (evt.target.closest("[data-drawer-close]") || evt.target.matches("[data-drawer-backdrop]")) {
       closeDrawer();
       return;
@@ -1345,6 +1366,14 @@ export function boot(win = window, doc = document) {
         if (s.tab !== "matrix") return;
         store.dispatch({ type: "MATRIX_RESET_VIEW" });
         break;
+      case "nav-leaderboard":
+        if (isInputFocused) return;
+        goToTab("ranked");
+        break;
+      case "nav-matrix":
+        if (isInputFocused) return;
+        goToTab("matrix");
+        break;
       case "nav-compare":
         if (isInputFocused) return;
         goToTab("compare");
@@ -1480,6 +1509,13 @@ export function boot(win = window, doc = document) {
   const persisted = readPersistedTheme(win.localStorage);
   store.dispatch({ type: "SET_THEME", theme: persisted });
   applyTheme(persisted, doc);
+  const initialThemeBtn = header.querySelector("[data-theme-toggle]");
+  if (initialThemeBtn) {
+    const isSystemDark = win.matchMedia && win.matchMedia("(prefers-color-scheme: dark)").matches;
+    const isDark = persisted === "dark" || (persisted === "system" && isSystemDark);
+    initialThemeBtn.textContent = isDark ? "🌙" : "☀";
+    initialThemeBtn.setAttribute("title", `Active theme: ${isDark ? "dark" : "light"}`);
+  }
 
   // Dev-only perf harness (U-19: "measured with the 1000-row page as the
   // perf case"): `?perf=1000` synthesizes a page-shaped payload client-side

@@ -175,10 +175,25 @@ export function renderScatterSvg(points, { quadrantsHidden = {}, focusedKey = nu
     })
     .join("");
 
+  const ticks = [25, 50, 75];
+  const gridLines = ticks
+    .map((t) => {
+      const y = toSvgY(t);
+      const x = toSvgX(t);
+      return (
+        `<line class="matrix-grid-line" x1="0" y1="${y}" x2="100" y2="${y}" />` +
+        `<line class="matrix-grid-line" x1="${x}" y1="0" x2="${x}" y2="100" />` +
+        `<text class="matrix-scale-tick" x="1.5" y="${y - 0.8}">${t}</text>` +
+        `<text class="matrix-scale-tick" x="${x + 0.8}" y="98.5">${t}</text>`
+      );
+    })
+    .join("");
+
   return (
     `<svg class="matrix-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" role="group" ` +
     `aria-label="${escapeHtml(copy.matrixSvgAriaLabel(axisLabels.x, axisLabels.y))}">` +
     `<g class="matrix-washes">${washes}</g>` +
+    `<g class="matrix-grid">${gridLines}</g>` +
     `<line class="matrix-axis-line" x1="${QUADRANT_THRESHOLD}" y1="0" x2="${QUADRANT_THRESHOLD}" y2="100" />` +
     `<line class="matrix-axis-line" x1="0" y1="${QUADRANT_THRESHOLD}" x2="100" y2="${QUADRANT_THRESHOLD}" />` +
     `<g class="matrix-markers">${markers}</g>` +

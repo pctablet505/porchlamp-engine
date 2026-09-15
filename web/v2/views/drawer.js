@@ -91,13 +91,81 @@ function renderComposite(row) {
   const cappedNote = capped
     ? `<p>${escapeHtml(copy.tierLabel(row.tier, row.tier_ceiling))}: bound by the coverage ceiling, not the score.</p>`
     : "";
+  const levCov = row.leverage_coverage != null ? Math.round(row.leverage_coverage * 100) + "%" : copy.MISSING_VALUE;
+  const fricCov = row.friction_coverage != null ? Math.round(row.friction_coverage * 100) + "%" : copy.MISSING_VALUE;
+  const lev = row.leverage != null ? Number(row.leverage).toFixed(1) : copy.MISSING_VALUE;
+  const fric = row.friction != null ? Number(row.friction).toFixed(1) : copy.MISSING_VALUE;
   return (
     `<details open>` +
     `<summary>${escapeHtml(copy.DRAWER_SECTION_COMPOSITE)}</summary>` +
     `<p class="cell-numeric">CVI ${row.cvi.toFixed(2)} · ${renderCoverageBadge(row.coverage)} · ${renderTierCell(row.tier, row.tier_ceiling)}</p>` +
     cappedNote +
-    `<p>${renderQuadrant(row.quadrant)} — ${escapeHtml(copy.COORDINATES_LABEL)}: leverage ${row.leverage ?? copy.MISSING_VALUE} (coverage ${row.leverage_coverage ?? copy.MISSING_VALUE}), friction ${row.friction ?? copy.MISSING_VALUE} (coverage ${row.friction_coverage ?? copy.MISSING_VALUE})</p>` +
+    `<p>${renderQuadrant(row.quadrant)} — ${escapeHtml(copy.COORDINATES_LABEL)}: leverage ${lev} (coverage ${levCov}), friction ${fric} (coverage ${fricCov})</p>` +
     `</details>`
+  );
+}
+
+function renderPillarRadar(row) {
+  const cx = 150;
+  const cy = 120;
+  const r = 75;
+  const n = PILLAR_ORDER.length;
+  const angles = PILLAR_ORDER.map((_, i) => -Math.PI / 2 + (i * 2 * Math.PI) / n);
+
+  const levels = [0.25, 0.5, 0.75, 1.0];
+  const gridPolygons = levels
+    .map((lvl) => {
+      const pts = angles.map((a) => `${(cx + r * lvl * Math.cos(a)).toFixed(1)},${(cy + r * lvl * Math.sin(a)).toFixed(1)}`);
+      return `<polygon points="${pts.join(" ")}" class="radar-grid" />`;
+    })
+    .join("");
+
+  const spokes = angles
+    .map((a) => {
+      const x2 = (cx + r * Math.cos(a)).toFixed(1);
+      const y2 = (cy + r * Math.sin(a)).toFixed(1);
+      return `<line x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}" class="radar-spoke" />`;
+    })
+    .join("");
+
+  const dataPoints = PILLAR_ORDER.map((p, i) => {
+    const rawVal = row[`p_${p}`];
+    const val = typeof rawVal === "number" ? Math.max(0, Math.min(100, rawVal)) : 0;
+    const norm = val / 100;
+    const a = angles[i];
+    return {
+      x: cx + r * norm * Math.cos(a),
+      y: cy + r * norm * Math.sin(a),
+      val: rawVal,
+      pillar: p,
+    };
+  });
+
+  const polyPoints = dataPoints.map((pt) => `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(" ");
+
+  const labels = PILLAR_ORDER.map((p, i) => {
+    const a = angles[i];
+    const lx = cx + (r + 18) * Math.cos(a);
+    const ly = cy + (r + 14) * Math.sin(a);
+    const name = copy.PILLAR_NAMES[p] || p;
+    const score = typeof row[`p_${p}`] === "number" ? row[`p_${p}`].toFixed(1) : copy.MISSING_VALUE;
+    const anchor = Math.abs(Math.cos(a)) < 0.2 ? "middle" : Math.cos(a) > 0 ? "start" : "end";
+    return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${anchor}" class="radar-label">${escapeHtml(name)} <tspan class="radar-score">${score}</tspan></text>`;
+  }).join("");
+
+  const markers = dataPoints
+    .map((pt) => `<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="3" class="radar-point" />`)
+    .join("");
+
+  return (
+    `<div class="radar-chart-container" aria-hidden="true">` +
+    `<svg class="radar-chart" viewBox="0 0 300 240" role="img" aria-label="5-pillar radar visualization">` +
+    gridPolygons +
+    spokes +
+    `<polygon points="${polyPoints}" class="radar-area" />` +
+    markers +
+    labels +
+    `</svg></div>`
   );
 }
 
@@ -111,6 +179,9 @@ function renderEvidenceTable(evidenceRows, evidenceError) {
     }
     return `<p>${escapeHtml(copy.DRAWER_LOADING_TEXT)}</p>`;
   }
+  if (evidenceRows.length === 0) {
+    return `<p class="empty-state">${escapeHtml(copy.DRAWER_NO_EVIDENCE_TEXT)}</p>`;
+  }
   const byPillar = {};
   for (const row of evidenceRows) {
     (byPillar[row.pillar] = byPillar[row.pillar] || []).push(row);
@@ -118,11 +189,12 @@ function renderEvidenceTable(evidenceRows, evidenceError) {
   const sections = PILLAR_ORDER.filter((p) => byPillar[p]).map((pillar) => {
     const rows = byPillar[pillar]
       .map((r) => {
+        const paramLabel = escapeHtml(copy.PARAM_NAMES[r.param_id] || copy.paramName(r.param_id));
         if (r.unmeasured_reason) {
-          return `<tr><td>${escapeHtml(r.param_id)}</td><td colspan="6" class="cell-missing">${escapeHtml(copy.missingValueReason(r.unmeasured_reason))}</td></tr>`;
+          return `<tr><td title="${escapeHtml(r.param_id)}">${paramLabel}</td><td colspan="6" class="cell-missing">${escapeHtml(copy.missingValueReason(r.unmeasured_reason))}</td></tr>`;
         }
         return (
-          `<tr><td>${escapeHtml(r.param_id)}</td>` +
+          `<tr><td title="${escapeHtml(r.param_id)}">${paramLabel}</td>` +
           `<td class="cell-numeric">${escapeHtml(String(r.value))}</td>` +
           `<td class="cell-numeric">${r.score != null ? r.score.toFixed(1) : copy.MISSING_VALUE}</td>` +
           `<td class="cell-numeric">${r.n ?? copy.MISSING_VALUE}</td>` +
@@ -157,6 +229,7 @@ function renderPillarSection(row, evidenceRows, evidenceError) {
   return (
     `<details open>` +
     `<summary>${escapeHtml(copy.DRAWER_SECTION_PILLARS)}</summary>` +
+    renderPillarRadar(row) +
     renderPillarSummary(row) +
     renderEvidenceTable(evidenceRows, evidenceError) +
     `</details>`
@@ -294,7 +367,10 @@ export function renderDrawer(state) {
   // flat shape's fields) can consume it directly.
   const kind = classifyKind(found);
   const row = found;
+  const repoKey = `${row.owner}/${row.name}`;
+  const compareBtn = `<button type="button" class="btn btn-secondary drawer-compare-btn" data-drawer-compare="${escapeHtml(repoKey)}">${escapeHtml(copy.DRAWER_COMPARE_LABEL)}</button>`;
   const closeButton = `<button type="button" class="icon-button" data-drawer-close="true">${escapeHtml(copy.DRAWER_CLOSE_LABEL)}</button>`;
+  const headerActions = `<div class="drawer-actions">${compareBtn}${closeButton}</div>`;
   const identity = renderIdentity(kind, row);
 
   const evidenceRows = state.evidenceByRepo[state.repo];
@@ -316,7 +392,7 @@ export function renderDrawer(state) {
     return (
       `<div class="drawer-backdrop" data-drawer-backdrop="true">` +
       `<div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">` +
-      `<div class="drawer-header">${identity}${closeButton}</div>` +
+      `<div class="drawer-header">${identity}${headerActions}</div>` +
       sections +
       `</div></div>`
     );
@@ -338,7 +414,7 @@ export function renderDrawer(state) {
   return (
     `<div class="drawer-backdrop" data-drawer-backdrop="true">` +
     `<div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">` +
-    `<div class="drawer-header">${identity}${closeButton}</div>` +
+    `<div class="drawer-header">${identity}${headerActions}</div>` +
     sections +
     `</div></div>`
   );

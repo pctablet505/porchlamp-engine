@@ -53,6 +53,40 @@ export const PILLAR_NAMES = Object.freeze({
   accessibility: "Accessibility",
 });
 
+export const PARAM_NAMES = Object.freeze({
+  ttfhr_hours: "Time to First Response",
+  dr90_decision_rate: "Decision Rate (90d)",
+  mr_first_rate: "First-timer Merge Rate",
+  gr14_ghost_rate: "PR Ghost Rate (14d)",
+  ttm_p90_hours: "Time to Merge (p90)",
+  dependents_deduped: "Dependents",
+  openssf_criticality: "OpenSSF Criticality",
+  downloads_monthly: "Monthly Downloads",
+  legal_ip: "Legal IP Regime",
+  elephant_factor: "Elephant Factor",
+  promotion_ladder: "Promotion Ladder",
+  pipeline_defenses: "Pipeline Defenses",
+  ai_posture: "AI Policy Posture",
+  substantive_review_rate: "Substantive Review Rate",
+  newcomer_issue_supply: "Newcomer Issue Supply",
+  newcomer_conversion: "Newcomer Conversion",
+  rr90_return_rate: "Newcomer Return Rate",
+  dx: "Developer Experience",
+  first_timer_merge_rate: "First-timer Merge Rate",
+  pr_ghost_rate_14d: "PR Ghost Rate (14d)",
+  legal_ip_regime: "Legal IP Regime",
+  scorecard_pipeline: "Scorecard Pipeline",
+  ai_policy_posture: "AI Policy Posture",
+  active_gfis: "Good First Issues",
+  newcomer_return_rate_90d: "Newcomer Return Rate (90d)",
+  bus_factor: "Bus Factor",
+  archived_flag: "Archived Flag",
+});
+
+export function paramName(paramId) {
+  return PARAM_NAMES[paramId] || paramId;
+}
+
 export const QUADRANT_LABELS = Object.freeze({
   "Sweet Spot": "Sweet Spot",
   Crucible: "Crucible",
@@ -63,7 +97,7 @@ export const QUADRANT_LABELS = Object.freeze({
 // Color-blind-safe dual encoding (shape + color), spec §5.1.
 export const QUADRANT_GLYPHS = Object.freeze({
   "Sweet Spot": "♦",
-  Crucible: "⬢",
+  Crucible: "⬡",
   Nursery: "●",
   Graveyard: "✕",
 });
@@ -71,8 +105,9 @@ export const QUADRANT_GLYPHS = Object.freeze({
 const TIER_CAPPED_SUFFIX = " (capped)"; // private: only tierLabel needs the literal
 export function tierLabel(tier, tierCeiling) {
   if (!tier) return MISSING_VALUE;
+  const normalizedTier = tier === "S+" ? "S" : tier;
   const capped = tierCeiling && tier === tierCeiling;
-  return capped ? `${tier}${TIER_CAPPED_SUFFIX}` : tier;
+  return capped ? `${normalizedTier}${TIER_CAPPED_SUFFIX}` : normalizedTier;
 }
 
 const COVERAGE_BAND_LABELS = Object.freeze({
@@ -251,6 +286,8 @@ export const KEYMAP_ENTRIES = Object.freeze([
   { keys: "1 – 4", action: "Toggle a matrix quadrant (Sweet Spot / Crucible / Nursery / Graveyard)" },
   { keys: "R", action: "Reset the matrix zoom/pan view" },
   { keys: "↑ ↓ ← →", action: "On the matrix: move focus to the nearest marker in that direction" },
+  { keys: "L", action: "Go to Leaderboard" },
+  { keys: "B", action: "Go to Platform Matrix" },
   { keys: "C", action: "Go to Compare" },
   { keys: "W", action: "Go to Configure weights" },
   { keys: "M", action: "Go to Methodology" },
@@ -279,6 +316,8 @@ export const PLAYBOOK_DISCLAIMER = "This is a model, not a promise.";
 export const PLAYBOOK_STUB_TEXT =
   "Action recommendations are not computed by this snapshot yet.";
 export const DRAWER_CLOSE_LABEL = "Close";
+export const DRAWER_COMPARE_LABEL = "Compare";
+export const DRAWER_NO_EVIDENCE_TEXT = "No detailed evidence telemetry recorded for this repository.";
 export const DRAWER_LOADING_TEXT = "Loading evidence…";
 export const DRAWER_NOT_FOUND_TEXT = "This repository could not be found in the current snapshot.";
 export function drawerErrorText(endpoint, status, detail) {
@@ -475,6 +514,7 @@ export const COMPARE_ROW_GATE_STATUS = "Gate status";
 export const COMPARE_ROW_COMPOSITE = "CVI";
 export const COMPARE_ROW_COVERAGE = "Coverage";
 export const COMPARE_RATED_STATUS = "Rated";
+export const COMPARE_UNMEASURED_LABEL = "Unmeasured";
 
 // --------------------------------------------------------------------- //
 // Screen F: Methodology and snapshot

@@ -164,6 +164,7 @@
   position: absolute;
   top: var(--space-sm);
   right: var(--space-sm);
+  pointer-events: none;
   background: var(--bg-surface-elevated);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-card);
@@ -171,6 +172,26 @@
   box-shadow: var(--shadow-popover);
   max-width: 220px;
   font-size: var(--text-body-md);
+  z-index: 10;
+}
+
+.matrix-hover-card--top-left {
+  right: auto;
+  left: var(--space-sm);
+}
+
+.matrix-grid-line {
+  stroke: var(--border-subtle);
+  stroke-dasharray: 1, 1;
+  stroke-width: 0.35;
+  opacity: 0.7;
+}
+
+.matrix-scale-tick {
+  font-size: 2.8px;
+  font-family: var(--font-mono);
+  fill: var(--text-muted);
+  opacity: 0.75;
 }
 
 .matrix-hover-card .hint {
@@ -208,6 +229,34 @@
   grid-template-columns: 140px 1fr 56px auto;
   align-items: center;
   gap: var(--space-sm);
+}
+
+@media (max-width: 767px) {
+  .weight-slider-row {
+    grid-template-columns: 1fr auto auto;
+    grid-template-rows: auto auto;
+    gap: var(--space-2xs) var(--space-xs);
+  }
+
+  .weight-slider-label {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .weight-slider-value {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .weight-lock-toggle {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .weight-slider {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }
 
 .weight-slider {
@@ -339,6 +388,10 @@
   box-shadow: var(--shadow-popover);
 }
 
+.compare-results:empty {
+  display: none;
+}
+
 .compare-results button {
   display: block;
   width: 100%;
@@ -353,7 +406,19 @@
 
 .compare-table {
   width: 100%;
+  min-width: 480px;
   border-collapse: collapse;
+}
+
+.unmeasured-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: var(--text-caption);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  font-style: italic;
 }
 
 .compare-table th,
@@ -406,5 +471,12 @@
   font-size: var(--text-caption);
   overflow-x: auto;
   white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.app-main code,
+.app-main pre,
+.cell-numeric {
+  overflow-wrap: break-word;
   word-break: break-all;
 }

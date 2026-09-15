@@ -192,7 +192,10 @@ export function shellShape(state, viewport = { isMobile: false }) {
   if (state.leaderboardLoading && !state.leaderboard) return "loading";
   if (state.leaderboardError && !state.leaderboard) return "error";
   if (state.leaderboard && state.leaderboard.rows.length === 0) return "empty";
-  if (state.leaderboard) return `table-${breakpoint}`;
+  if (state.leaderboard) {
+    const personaLens = state.persona === "balanced" ? "balanced" : "lens";
+    return `table-${breakpoint}-${personaLens}`;
+  }
   return "none";
 }
 

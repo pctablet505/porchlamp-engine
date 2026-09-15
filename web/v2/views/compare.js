@@ -220,9 +220,17 @@ function coverageCell(data) {
   return `<td>${renderCoverageBadge(data.row ? data.row.coverage : null)}</td>`;
 }
 
+function pillarScoreCell(data, pillar) {
+  if (!data || data.loading || data.error || !data.row) return `<td>${copy.MISSING_VALUE}</td>`;
+  const score = data.row[`p_${pillar}`];
+  if (score == null) return `<td class="cell-missing">${copy.MISSING_VALUE}</td>`;
+  return `<td class="cell-numeric">${score.toFixed(1)}</td>`;
+}
+
 function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
   const values = valuesForParam(paramEntry.input_id, evidenceByRepo);
   const winner = betterRepoKey(paramEntry, values, persona);
+  const paramLabel = escapeHtml(copy.paramName(paramEntry.input_id));
   const cells = repoKeys
     .map((key) => {
       const raw = values[key];
@@ -230,7 +238,7 @@ function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
       const evidenceRow = evidenceRows.find((e) => e.param_id === paramEntry.input_id);
       if (raw === null || raw === undefined) {
         const reason = evidenceRow ? copy.missingValueReason(evidenceRow.unmeasured_reason) : copy.missingValueReason();
-        return `<td class="cell-missing" tabindex="0" title="${escapeHtml(reason)}">${copy.MISSING_VALUE}</td>`;
+        return `<td class="cell-missing" tabindex="0" title="${escapeHtml(reason)}"><span class="unmeasured-badge">${escapeHtml(copy.COMPARE_UNMEASURED_LABEL)}</span></td>`;
       }
       const isBetter = winner === key;
       const title = evidenceRow
@@ -242,7 +250,7 @@ function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
       return `<td class="cell-numeric${isBetter ? " compare-better-cell" : ""}" tabindex="0" title="${escapeHtml(title)}">${escapeHtml(String(raw))} ${mark}</td>`;
     })
     .join("");
-  return `<tr><th scope="row">${escapeHtml(paramEntry.input_id)}</th>${cells}</tr>`;
+  return `<tr><th scope="row" title="${escapeHtml(paramEntry.input_id)}">${paramLabel}</th>${cells}</tr>`;
 }
 
 export function renderTable(state) {
@@ -253,6 +261,10 @@ export function renderTable(state) {
 
   const methodologyParams = state.methodology ? state.methodology.parameters : [];
   const paramRows = methodologyParams.map((p) => parameterRow(p, repoKeys, evidenceByRepo, state.persona)).join("");
+
+  const pillarRows = Object.keys(copy.PILLAR_NAMES)
+    .map((pillar) => `<tr><th scope="row">${escapeHtml(copy.PILLAR_NAMES[pillar])}</th>${repoKeys.map((k) => pillarScoreCell(dataByRepo[k], pillar)).join("")}</tr>`)
+    .join("");
 
   const allLoaded = repoKeys.every((k) => dataByRepo[k] && !dataByRepo[k].loading && !dataByRepo[k].error);
   let verdictHtml = "";
@@ -273,6 +285,7 @@ export function renderTable(state) {
     `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_GATE_STATUS)}</th>${repoKeys.map((k) => gateStatusCell(dataByRepo[k])).join("")}</tr>` +
     `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_COMPOSITE)}</th>${repoKeys.map((k) => compositeCell(dataByRepo[k])).join("")}</tr>` +
     `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_COVERAGE)}</th>${repoKeys.map((k) => coverageCell(dataByRepo[k])).join("")}</tr>` +
+    pillarRows +
     paramRows +
     `</tbody></table></div>` +
     verdictHtml
