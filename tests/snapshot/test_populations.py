@@ -1,12 +1,12 @@
-"""W2-4 acceptance: frozen per-ecosystem ECDF populations (02 section 6, D-NORM-2/3).
+"""Acceptance tests: frozen per-ecosystem ECDF populations.
 
 ``cvi.snapshot.populations`` builds one population per (ecosystem, param input)
 over the rated, gate-eligible repos for which the parameter is measured at the
-snapshot (D-ORDER-1 stage 4 after stage 3): a population of fewer than 30
+snapshot: a population of fewer than 30
 repos falls back to the global population and carries the
 ``population_fallback`` flag. Gated repos never enter any population (their
-values must not define the percentiles, F3); unrated repos do not either.
-Every expected value below is hand-computed from the D-NORM-1/2 formulas.
+values must not define the percentiles); unrated repos do not either.
+Every expected value below is computed from the percentile formulas.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import sys
 
 import pytest
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core import engine
 from cvi.core import gates
 from cvi.core import models
@@ -27,7 +27,7 @@ from cvi.core.models import GateResult, ParamScore
 from cvi.snapshot import populations
 
 PARAM = "downloads_monthly"
-#: W2-3 registers downloads_monthly as the registry-download input (02 2.3).
+#: Registry-download input for testing.
 
 #: Child process for TestEmissionOrder.test_written_document_order_is_stable_
 #: across_pythonhashseed: builds a fixed PopulationSet spanning six
@@ -170,9 +170,7 @@ class TestMembership:
 
 class TestNonFiniteRejection:
     def test_nan_measured_value_raises_naming_key_and_param(self) -> None:
-        # Fail-before: build_populations accepted this member silently and
-        # froze `nan` into pop.values -- see the module docstring and
-        # D-MISS-1 (docs/v2/02-RANKING-DESIGN.md).
+        # Reject non-finite values rather than freezing NaN into pop.values.
         bad = _member("org/nan-repo", "pypi", float("nan"))
         with pytest.raises(ValueError) as excinfo:
             populations.build_populations(_pypi_members(29) + [bad], "s0")
@@ -276,11 +274,8 @@ class TestEmissionOrder:
         assert [(entry.ecosystem, entry.param) for entry in result.populations] == self._EXPECTED_ORDER
 
     def test_written_document_order_is_stable_across_pythonhashseed(self, tmp_path) -> None:
-        # Fail-before (mutant "remove sorted(pairs)"): with the emission
-        # order taken from raw `set` iteration, the frozen document's
-        # `populations` array order -- and so its bytes -- differs between
-        # PYTHONHASHSEED values, even though every one of these three
-        # subprocesses runs the identical build.
+        # The frozen document's `populations` array order must remain
+        # deterministic across different PYTHONHASHSEED values.
         raw_by_seed: dict[str, str] = {}
         for seed in ("1", "2", "3"):
             env = dict(os.environ)
@@ -312,8 +307,8 @@ class TestFreeze:
         assert path.is_file()
         document = json.loads(path.read_text(encoding="utf-8"))
         assert document["snapshot_id"] == "snap-7"
-        assert document["benchmark_version"] == constants_v2.BENCHMARK_VERSION
-        assert document["constants_hash"] == constants_v2.CONSTANTS_HASH
+        assert document["benchmark_version"] == constants.BENCHMARK_VERSION
+        assert document["constants_hash"] == constants.CONSTANTS_HASH
         assert document["min_population"] == populations.MIN_POPULATION == 30
         pypi = next(entry for entry in document["populations"] if entry["ecosystem"] == "pypi")
         assert pypi["param"] == PARAM
@@ -342,8 +337,8 @@ class TestFreeze:
         assert populations.POPULATIONS_DOCUMENT_VERSION == 1
         assert document["version"] == 1
         assert document["min_population"] == 30
-        assert document["benchmark_version"] == constants_v2.BENCHMARK_VERSION
-        assert document["constants_hash"] == constants_v2.CONSTANTS_HASH
+        assert document["benchmark_version"] == constants.BENCHMARK_VERSION
+        assert document["constants_hash"] == constants.CONSTANTS_HASH
 
     def test_store_table_rows(self, result) -> None:
         rows = populations.build_populations_table(result)
@@ -397,11 +392,11 @@ def _bundle_with_dependents(value: float) -> models.FeatureBundle:
     ``record.params``, populated regardless of the composite-coverage
     outcome)."""
     inputs: dict[str, models.Measured | models.Unmeasured] = {
-        input_id: models.Unmeasured(reason="not_applicable") for input_id in constants_v2.PARAM_INPUT_IDS
+        input_id: models.Unmeasured(reason="not_applicable") for input_id in constants.PARAM_INPUT_IDS
     }
     inputs["dependents_deduped"] = _e2e_measured(value)
     bundle = models.FeatureBundle(
-        schema_version=constants_v2.SCHEMA_VERSION,
+        schema_version=constants.SCHEMA_VERSION,
         repo=models.RepoIdentity(
             owner="org", name="scored", ecosystem="pypi", archived=False,
             mirror_url=None, fork=False, license_spdx="MIT", default_branch="main",

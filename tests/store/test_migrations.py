@@ -1,11 +1,5 @@
-"""W4-2 acceptance: migrations reach the same schema as ``schema.py`` on an
-empty database, preserve every v1 row on a v1-shaped database (`04`
-sections 5, 10), and are atomic per file (REWORK round 1, F-001).
-
-F-008: the acceptance test for v1-row preservation is now proven on a
-MINIMAL, always-available synthetic v1-shaped table (no environment gate);
-the 1,000-row real baseline DB is kept as a supplementary, opt-in-by-
-availability extra, not the only proof.
+"""Migration tests: verifies migrations match ``schema.py`` on an empty database,
+preserve legacy rows on a v1-shaped database, and execute atomically per file.
 """
 from __future__ import annotations
 
@@ -49,12 +43,10 @@ def _build_minimal_v1_db(path: Path) -> None:
     conn.close()
 
 
-def test_discover_migrations_finds_0001_and_0002() -> None:
-    """W4-3 added ``0002_indexes.sql`` (F-013/the packet's indexing
-    deliverable); renamed from ``test_discover_migrations_finds_0001``,
-    which asserted the pre-W4-3 single-file state."""
+def test_discover_migrations_finds_all_migration_files() -> None:
+    """Verify discover_migrations discovers the expected migration files in order."""
     files = discover_migrations()
-    assert [path.name for path in files] == ["0001_init_v2.sql", "0002_indexes.sql"]
+    assert [path.name for path in files] == ["0001_init.sql", "0002_indexes.sql"]
 
 
 def test_apply_migrations_on_empty_db_matches_schema_py(tmp_path) -> None:
@@ -92,8 +84,7 @@ def test_apply_migrations_requires_explicit_applied_at(tmp_path) -> None:
 
 
 def test_apply_migrations_raises_on_an_empty_migrations_directory(tmp_path) -> None:
-    """F-010: an empty migrations directory is a packaging/deployment
-    defect, not "nothing to do"."""
+    """An empty migrations directory is an error condition, not a no-op."""
     empty_dir = tmp_path / "empty_migrations"
     empty_dir.mkdir()
     conn = sqlite3.connect(tmp_path / "x.db")
@@ -102,29 +93,27 @@ def test_apply_migrations_raises_on_an_empty_migrations_directory(tmp_path) -> N
 
 
 # --------------------------------------------------------------------- #
-# F-001: atomicity
+# Atomicity
 # --------------------------------------------------------------------- #
 
 def _write_broken_migration(dst_dir: Path, break_after_n_statements: int) -> None:
-    """A copy of ``0001_init_v2.sql`` with a guaranteed syntax error
+    """A copy of ``0001_init.sql`` with a guaranteed syntax error
     inserted after the ``break_after_n_statements``-th real statement, so
     the failure point is controlled precisely rather than guessed at by
     string surgery on the real file."""
     from cvi.store.migrations import _split_statements
 
-    original = (MIGRATIONS_DIR / "0001_init_v2.sql").read_text(encoding="utf-8")
+    original = (MIGRATIONS_DIR / "0001_init.sql").read_text(encoding="utf-8")
     statements = _split_statements(original)
     broken = statements[:break_after_n_statements] + ["CREATE TABLE BROKEN_SYNTAX ("] + statements[break_after_n_statements:]
     dst_dir.mkdir(parents=True, exist_ok=True)
-    (dst_dir / "0001_init_v2.sql").write_text(";\n".join(broken) + ";\n", encoding="utf-8")
+    (dst_dir / "0001_init.sql").write_text(";\n".join(broken) + ";\n", encoding="utf-8")
 
 
 @pytest.mark.parametrize("break_after_n_statements", [0, 2, 7])
 def test_apply_migrations_is_atomic_on_a_v1_database(tmp_path, break_after_n_statements) -> None:
-    """F-001: a migration that fails partway through -- early (before the
-    legacy rename's effects matter), mid-way, or on the very last
-    statement -- leaves the database byte-for-byte as it was before the
-    call, with the v1 rows still reachable under their original name."""
+    """A migration that fails partway through leaves the database byte-for-byte
+    as it was before the call, with the legacy rows intact."""
     db_path = tmp_path / "v1.db"
     _build_minimal_v1_db(db_path)
     before_hash = hashlib.sha256(db_path.read_bytes()).hexdigest()
@@ -160,7 +149,7 @@ def test_apply_migrations_atomicity_does_not_lose_a_later_migration_file(tmp_pat
     version is never recorded."""
     two_files_dir = tmp_path / "two_files"
     two_files_dir.mkdir()
-    shutil.copyfile(MIGRATIONS_DIR / "0001_init_v2.sql", two_files_dir / "0001_init_v2.sql")
+    shutil.copyfile(MIGRATIONS_DIR / "0001_init.sql", two_files_dir / "0001_init.sql")
     (two_files_dir / "0002_broken.sql").write_text(
         "CREATE TABLE later_ok (id INTEGER PRIMARY KEY);\nCREATE TABLE BROKEN_SYNTAX (;\n", encoding="utf-8"
     )
@@ -182,13 +171,12 @@ def test_apply_migrations_atomicity_does_not_lose_a_later_migration_file(tmp_pat
 
 
 # --------------------------------------------------------------------- #
-# F-008: v1-row preservation -- synthetic primary, real DB as an extra
+# Legacy row preservation
 # --------------------------------------------------------------------- #
 
 def test_v1_shaped_database_migration_preserves_legacy_rows_synthetic(tmp_path) -> None:
-    """Always runs, on a minimal synthetic v1-shaped table -- this is now
-    the primary proof of the acceptance criterion (`04` sections 5, 10),
-    not the environment-gated real-DB test below."""
+    """Verifies legacy rows are preserved into legacy_repositories when
+    migrating a v1-shaped table."""
     db_path = tmp_path / "v1.db"
     _build_minimal_v1_db(db_path)
 
@@ -291,11 +279,8 @@ def test_v1_migration_is_a_noop_on_an_already_v2_database(tmp_path) -> None:
 
 
 def test_migrating_a_create_schema_built_v2_db_is_a_noop_for_rename(tmp_path) -> None:
-    """Kills mutant M10 directly at the migrations-module level (the
-    review's own named scenario): a v2 database built via
-    ``schema.create_schema`` with NO ``schema_migrations`` rows yet (so the
-    loop does not simply ``continue`` past version 1) must still not be
-    mistaken for a v1 database -- it already has ``snapshot_id``."""
+    """A database initialized via ``schema.create_schema`` without prior
+    ``schema_migrations`` rows is not mistaken for a v1 database."""
     db_path = tmp_path / "from_scratch.db"
     conn = sqlite3.connect(db_path)
     schema.create_schema(conn)

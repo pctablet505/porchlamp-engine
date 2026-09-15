@@ -1,5 +1,5 @@
 """Extended v2 methodology document: history + cross-package additions
-(packet W5-1a, `06` section 3 F).
+(`06` section 3 F).
 
 ``cvi.core.methodology.methodology_document`` is pure (``cvi.core`` +
 stdlib only, `tests/core/test_import_graph.py`) and therefore cannot carry
@@ -116,7 +116,7 @@ _DETECTOR_BUILDERS: dict[str, Any] = {
         },
     },
     _detectors.DETECTOR_SOURCE_DRIFT: lambda: {
-        "trigger": "the W3-3 live-sample canary currently holds this repo's row",
+        "trigger": "the live-sample canary currently holds this repo's row",
         "direction": "boolean",
         "thresholds": {},
     },
@@ -136,7 +136,7 @@ def _detector_entries() -> list[dict[str, Any]]:
 
 
 #: The three process constants `docs/v2/rfcs/README.md` "Process constants"
-#: rules out of ``constants_v2.constants_dict()`` on purpose: release gates,
+#: rules out of ``constants.constants_dict()`` on purpose: release gates,
 #: not per-repo scoring inputs. Read straight from their one source module
 #: at call time (never retyped) in :func:`_process_constant_entries`.
 _PROCESS_CONSTANTS: tuple[tuple[str, Any, str, str], ...] = (
@@ -222,7 +222,7 @@ def methodology_with_history(changelog_path: str | Path) -> MethodologyDocument:
     """The extended v2 methodology document: :func:`methodology_document`
     plus ``detectors``, ``not_hashed_process_constants`` and ``rfc_log``
     (parsed from ``changelog_path``). The only impure/cross-package builder
-    in this packet -- see the module docstring for why."""
+    in this module -- see the module docstring for why."""
     document: MethodologyDocument = dict(methodology_document())  # type: ignore[assignment]
     document["detectors"] = _detector_entries()
     document["not_hashed_process_constants"] = _process_constant_entries()

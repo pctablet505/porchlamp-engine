@@ -4,17 +4,17 @@ Criteria: top-N per ecosystem by GitHub stars (search API) plus registry
 top-lists where free. Output line: {"owner","name","ecosystem",
 "selected_by":[...],"stars_at_selection":int,"added_at":iso,
 "star_velocity_flag":bool,"star_velocity":{...},"stars_audited":int} (the
-last three per D-IN-5 / packet W1-10 -- see below).
+last three per D-IN-5 -- see below).
 Dedup by (owner,name) lowercased, merging selected_by; cap --max-total.
 Checkpoint: data/raw/universe_checkpoint.json (rerun skips completed pages).
 
-W1-10 (D-IN-5, `docs/v2/03-ANTI-MANIPULATION.md` section 6 `star_burst`):
-every candidate that makes the final `--max-total` cut is audited through
-`cvi.collect.universe.star_velocity_evidence` (`cvi.starscout`'s StarScout
-lockstep filter, spec 10.3) before `candidates.jsonl` is written -- the
-universe manifest this module writes IS the "universe manifest" packet
-W1-10 owns. `star_velocity_flag`/`star_velocity`/`stars_audited` are never
-a silent `False`/`0`/absent: a failed star-history fetch marks the
+Star-velocity audit (D-IN-5, `docs/v2/03-ANTI-MANIPULATION.md` section 6
+`star_burst`): every candidate that makes the final `--max-total` cut is
+audited through `cvi.collect.universe.star_velocity_evidence`
+(`cvi.starscout`'s StarScout lockstep filter, spec 10.3) before
+`candidates.jsonl` is written -- the universe manifest this module writes is
+the audited one. `star_velocity_flag`/`star_velocity`/`stars_audited` are
+never a silent `False`/`0`/absent: a failed star-history fetch marks the
 candidate `{"measured": false, "reason": "collector_failure", ...}`
 instead (D-MISS-1). See `cvi/collect/universe.py`'s module docstring for
 why `STAR_HISTORY_TRANSPORT` (the live fetch) is not yet implemented.
@@ -41,7 +41,7 @@ CANDIDATES = DATA / "candidates.jsonl"
 #: "STAR_HISTORY_TRANSPORT", fake)` exactly like `gh_search`/`crates_top`
 #: above). No live implementation yet (`cvi.collect.universe`'s docstring):
 #: a real run reports every candidate `Unmeasured(collector_failure)` until
-#: a future packet replaces this one attribute.
+#: this attribute is bound to a real transport.
 STAR_HISTORY_TRANSPORT: Transport = default_star_history_transport
 
 # ecosystem -> GitHub search language queries (page count at 100/page)
@@ -163,7 +163,7 @@ def build(max_per_criterion: int = 1000, max_total: int = 10000,
 
     rows = sorted(found.values(), key=lambda r: -r["stars_at_selection"])[:max_total]
     if not dry_run:
-        # D-IN-5 / W1-10: audit every candidate that makes the cut for
+        # D-IN-5: audit every candidate that makes the cut for
         # fraudulent star velocity before it becomes part of the universe
         # manifest -- "universe entry" is exactly this point (a candidate
         # short of the cap never enters the universe, so it is never

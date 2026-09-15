@@ -1,44 +1,31 @@
 """Commit-actor typing, bot classification and org-key normalisation
 (spec 3.2; D-IN-1's typed-actor bot rule) — the stdlib-only home for the
-pure classification/parsing logic both ``cvi.collect.commits`` (W1-5) and
-``cvi.derive.bundle`` (W1-5f) need.
+pure classification/parsing logic both ``cvi.collect.commits`` and
+``cvi.derive.bundle`` need.
 
-Relocated out of ``cvi.collect.commits`` by packet W1-5f:
 ``cvi/derive/bundle.py`` may import only ``cvi.core`` plus the standard
 library (``tests/core/test_import_graph.py::
 test_derive_bundle_imports_only_core_and_stdlib``; ``docs/v2/
 04-ARCHITECTURE.md`` section 3's rule -- "``derive/`` imports ``core.
-models`` only"), so :func:`last_non_bot_commit_at` and
-:func:`top_domain_share` below (both new, W1-5f -- D-TIE-1 item 7 and the
-``ef_domain_mismatch`` detector's ``top_email_domain_share`` input, 03
-section 6) could not reuse ``cvi.collect.commits``'s bot/org-key
-primitives without moving them somewhere ``cvi.derive.bundle`` can reach.
-The same move packet W2-9g made for Pike criticality
-(``cvi/core/openssf.py``: "``cvi/openssf.py`` delegates, the mirror is
-deleted", `docs/v2/00-README.md` 2026-09-13 row) is repeated here.
-``cvi.collect.commits`` re-exports every symbol this module defines
-(``CommitActor``, ``CommitRecord``, the three domain tables, ``is_bot``,
-``org_key``, ``author_key``, ``records_from_rows``) unchanged, so no
-existing caller or test needed to change its import; this module's own
-logic is copied verbatim from the landed W1-5 module, not rewritten (the
-packet's own "reuse the existing normalisation, do not re-implement it"
-instruction).
+models`` only"), so the bot/org-key primitives live here, where both layers
+can reach them. ``cvi.collect.commits`` re-exports every symbol this module
+defines (``CommitActor``, ``CommitRecord``, the three domain tables,
+``is_bot``, ``org_key``, ``author_key``, ``records_from_rows``).
 
-W1-5f additions: :func:`last_non_bot_commit_date` (D-TIE-1 item 7 -- the max
-commit date among non-bot, dated commits) and :func:`top_domain_share`
-(the raw ``(share, n, top_domain)`` behind ``top_email_domain_share``).
-Both are pure functions over an already-collected ``Sequence[
-CommitRecord]``: no window, no ``now`` parameter, no wall clock -- the
-records passed in are exactly the envelope window a caller already
-collected (D-TIE-1 item 7 and 03 section 6 both read the commits envelope
-as-is; neither re-slices it by a fresh cutoff), matching the repo-wide
-"no wall clock in derived values" rule even more strictly than
-:func:`cvi.collect.commits.elephant_factor` (which does take a ``now``
-to re-slice a possibly-oversized envelope to its nominal window).
+:func:`last_non_bot_commit_date` (D-TIE-1 item 7 -- the max commit date
+among non-bot, dated commits) and :func:`top_domain_share` (the raw
+``(share, n, top_domain)`` behind ``top_email_domain_share``, 03 section 6)
+are pure functions over an already-collected ``Sequence[CommitRecord]``: no
+window, no ``now`` parameter, no wall clock -- the records passed in are
+exactly the envelope window a caller already collected (D-TIE-1 item 7 and
+03 section 6 both read the commits envelope as-is; neither re-slices it by a
+fresh cutoff). This is stricter than
+:func:`cvi.collect.commits.elephant_factor`, which does take a ``now`` to
+re-slice a possibly-oversized envelope to its nominal window.
 
-W1-5f also puts the ``last_non_bot_commit_at`` *bundle-level* sidecar fact
+The ``last_non_bot_commit_at`` *bundle-level* sidecar fact
 (``LastNonBotCommitMeasured``/:func:`last_non_bot_commit_at`/
-:func:`set_last_non_bot_commit_at``) here rather than in
+:func:`set_last_non_bot_commit_at``) lives here rather than in
 ``cvi.derive.bundle`` (where ``cvi.derive.bundle._resolve_commit_facts``
 actually builds it, reading the raw commits envelope): ``cvi.core.
 pipeline`` -- itself restricted to ``cvi.core`` + stdlib -- needs to read
@@ -66,8 +53,8 @@ NOREPLY_DOMAIN: str = "users.noreply.github.com"
 #: their own one-person org, not the provider as an org (spec 3.2, the
 #: "gmail, outlook, proton, users.noreply..." family; ``github.com`` is
 #: included because every ``<login>@github.com`` commit address belongs to
-#: one individual). Exact domain match only (no wildcards, no substring
-#: matching -- F12).
+#: one individual). Exact domain match only: no wildcards, no substring
+#: matching.
 PERSONAL_DOMAINS: frozenset[str] = frozenset({
     "126.com",
     "163.com",
@@ -181,7 +168,7 @@ def is_bot(actor: CommitActor) -> bool:
     """D-IN-1: True when the actor is a bot.
 
     ``actor_type == "Bot"``, a login ending in ``[bot]``, or an exact-match
-    login in :data:`KNOWN_BOT_LOGINS`. No substring matching (F12).
+    login in :data:`KNOWN_BOT_LOGINS`. No substring matching.
     """
     if actor.actor_type == "Bot":
         return True
@@ -242,9 +229,9 @@ def records_from_rows(rows: Sequence[Mapping[str, Any]]) -> list[CommitRecord]:
 
 
 def last_non_bot_commit_date(records: Sequence[CommitRecord]) -> Optional[datetime]:
-    """W1-5f, D-TIE-1 item 7: the max commit-author date among non-bot
+    """D-TIE-1 item 7: the max commit-author date among non-bot
     commits that carry a recorded date, or ``None`` when there is no such
-    commit -- the D-MISS-1 F2 ruling's measured-absence outcome
+    commit -- D-MISS-1's measured-absence outcome
     (``cvi.derive.bundle`` decides how that maps to a Measured/Unmeasured
     bundle-level fact; this function only ever returns a ``datetime`` or
     ``None``, never raises and never guesses a placeholder). Named
@@ -281,7 +268,7 @@ class TopDomainShare:
 
 
 def top_domain_share(records: Sequence[CommitRecord]) -> TopDomainShare:
-    """W1-5f, the ``ef_domain_mismatch`` detector's raw input: the single
+    """The ``ef_domain_mismatch`` detector's raw input: the single
     largest :func:`org_key` group's share of the non-bot commits.
 
     Ties broken by ascending ``org_key`` string -- the exact tie rule
@@ -309,16 +296,16 @@ def top_domain_share(records: Sequence[CommitRecord]) -> TopDomainShare:
 
 # --------------------------------------------------------------------------- #
 # last_non_bot_commit_at: the FeatureBundle-level sidecar fact (D-TIE-1     #
-# item 7). Not one of constants_v2.PARAM_INPUT_IDS's 18 scored parameters,  #
+# item 7). Not one of constants.PARAM_INPUT_IDS's 18 scored parameters,  #
 # so FeatureBundle.inputs (04 section 3: closed to exactly those 18 keys,   #
 # enforced by FeatureBundle.validate()) cannot carry it -- it lives as a    #
 # bundle-instance attribute instead, the same convention cvi.derive.       #
-# bundle's dropped_event_count/_w2_9_dropped_event_count established for a  #
-# fact cvi/core/models.py (out of this packet's ownership) has no declared  #
-# field for. Defined here, not in cvi.derive.bundle (which is where it is   #
-# actually built, in _resolve_commit_facts), so cvi.core.pipeline -- itself #
-# restricted to cvi.core + stdlib -- can read it back for D-TIE-1 item 7's  #
-# tie-break wiring without importing cvi.derive.bundle.                    #
+# bundle's dropped_event_count uses for a fact cvi/core/models.py has no    #
+# declared field for. Defined here, not in cvi.derive.bundle (which is      #
+# where it is actually built, in _resolve_commit_facts), so                 #
+# cvi.core.pipeline -- itself restricted to cvi.core + stdlib -- can read   #
+# it back for D-TIE-1 item 7's tie-break wiring without importing           #
+# cvi.derive.bundle.                                                        #
 # --------------------------------------------------------------------------- #
 
 
@@ -329,8 +316,8 @@ class LastNonBotCommitMeasured:
     ``value`` is the ISO-8601 UTC date/datetime of the max non-bot commit
     (an explicit trailing ``Z`` -- ``cvi.core.tiebreak._commit_epoch`` reads
     it as UTC either way, but ``cvi.derive.bundle`` writes it unambiguously),
-    or ``None`` for the measured-absence outcome (docs/v2 D-MISS-1 F2
-    ruling: "no non-bot commit in the window" is a measured absence, not an
+    or ``None`` for the measured-absence outcome (D-MISS-1: "no non-bot
+    commit in the window" is a measured absence, not an
     ``Unmeasured`` value -- distinct from a missing/failed envelope, which
     is ``Unmeasured(reason="collector_failure")`` instead)."""
 
@@ -341,13 +328,13 @@ class LastNonBotCommitMeasured:
     fetched_at: str
 
 
-#: A W1-5f last-commit fact is either the purpose-built "measured" shape
+#: A last-commit fact is either the purpose-built "measured" shape
 #: above (``Measured`` itself cannot represent it -- its ``method`` field
 #: is pinned to "primary"/"proxy:<name>", ``cvi.core.models.
-#: measured_problems``, and would reject both a ``None`` value and this
-#: packet's "measured:no_non_bot_commit_365d" method sentinel), or
-#: ``Unmeasured`` (a missing/failed envelope -- ``Unmeasured`` needed no
-#: such replacement; it has no constraint this outcome trips).
+#: measured_problems``, and would reject both a ``None`` value and the
+#: "measured:no_non_bot_commit_365d" method sentinel), or
+#: ``Unmeasured`` (a missing/failed envelope -- it has no constraint this
+#: outcome trips).
 LastNonBotCommitValue = Union[LastNonBotCommitMeasured, Unmeasured]
 
 _LAST_NON_BOT_COMMIT_ATTR = "_w1_5f_last_non_bot_commit_at"
@@ -362,15 +349,15 @@ _NO_COMMIT_FACT: Unmeasured = Unmeasured(
 
 
 def last_non_bot_commit_at(bundle: FeatureBundle) -> LastNonBotCommitValue:
-    """D-TIE-1 item 7's fact for one bundle (W1-5f). ``Unmeasured(reason=
+    """D-TIE-1 item 7's fact for one bundle. ``Unmeasured(reason=
     "collector_failure")`` (:data:`_NO_COMMIT_FACT`) for a bundle
     ``cvi.derive.bundle`` never set the sidecar attribute on."""
     return getattr(bundle, _LAST_NON_BOT_COMMIT_ATTR, _NO_COMMIT_FACT)
 
 
 def set_last_non_bot_commit_at(bundle: FeatureBundle, value: LastNonBotCommitValue) -> None:
-    """``cvi.derive.bundle._resolve_commit_facts`` (W1-5f) is this
-    setter's only caller. Defined here rather than as a same-module
+    """``cvi.derive.bundle._resolve_commit_facts`` is this setter's only
+    caller. Defined here rather than as a same-module
     private helper because :func:`last_non_bot_commit_at` above must live
     in ``cvi.core`` (see the module docstring); a setter with no matching
     reader in the same module would be an odd asymmetry, so both live

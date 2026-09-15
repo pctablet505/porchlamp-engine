@@ -87,16 +87,13 @@ def _label_names(labels: Any) -> set[str]:
 
 
 def _envelope_sha256(source: Any, cache: dict[str, Optional[str]]) -> Optional[str]:
-    """Attested sha256 of the envelope at ``source`` (memoized), or ``None``.
+    """Attested sha256 of the envelope at ``source`` (memoized), or ``None`` (`03` §5).
 
-    Round 2, Blocker-1 (`03` §5): ``scripts/verify.py`` can only compare a
-    hash if one is recorded; before this, no provenance entry ever carried
-    one, so the rule verified file existence, not content. The hash recorded
-    here is :attr:`cvi.collect.envelope.Envelope.sha256` — native when the
-    envelope carries one, otherwise the same backfilled canonical hash of its
+    The hash recorded here is :attr:`cvi.collect.envelope.Envelope.sha256` — native
+    when the envelope carries one, otherwise the same backfilled canonical hash of its
     ``data`` field that :func:`cvi.snapshot.manifest.envelope_entries` uses —
     so derive and verify agree on what "the envelope's hash" means without a
-    second definition (R-2).
+    second definition.
 
     ``source`` is whatever one call site passed: usually a ``src(collector,
     key)`` envelope path, sometimes a literal like ``"cli"`` or a raw URL,
@@ -118,14 +115,12 @@ def _envelope_sha256(source: Any, cache: dict[str, Optional[str]]) -> Optional[s
 class Bundle:
     """Accumulates meta / provenance / confidence maps.
 
-    Round 2 (Blocker-1): every provenance entry whose ``source`` (or, for a
+    Every provenance entry whose ``source`` (or, for a
     list-valued ``source``, any element of it) resolves to a readable envelope
     also records that envelope's hash under ``"sha256"``, so
-    ``scripts/verify.py`` has something to compare instead of only a path that
-    exists. This is the one place in the file that needs to change for every
-    field: every ``b.set(...)`` call across the collector blocks below funnels
-    through here unmodified (R-10 — the hook chain those blocks own is not
-    touched by this packet).
+    ``scripts/verify.py`` can verify content integrity rather than only path
+    existence. Every ``b.set(...)`` call across the collector blocks below funnels
+    through here.
     """
 
     def __init__(self) -> None:
@@ -166,9 +161,8 @@ def _load(data_dir: Path, collector: str, key: str) -> tuple[Optional[Any], Opti
 
 
 def _body_cache_path(data_dir: Path, owner: str, name: str, fname: str) -> Path:
-    """The bodies-cache envelope path for one governance file (W1-7f item 6:
-    the one place this formula is written, so the provenance fix below and
-    :func:`_body` itself can never disagree about where a body is cached)."""
+    """The bodies-cache envelope path for one governance file, shared by
+    :func:`_body` and provenance recording."""
     return data_dir / "raw" / "bodies" / f"{owner}__{name}__{fname}.json"
 
 
@@ -196,9 +190,8 @@ def _body(data_dir: Path, owner: str, name: str, fname: str,
 
 def elephant_factor(contributors: Optional[list[dict]]) -> int:
     """Spec 3.2 login-proxy fallback: minimum number of distinct logins whose
-    contributions reach >= 50% of total contributions. W1-5: the primary EF
-    now comes from commit-author email domains (append-only block at the end
-    of derive_repo, via cvi.collect.commits); this approximation is used only
+    contributions reach >= 50% of total contributions. The primary EF
+    comes from commit-author email domains (via cvi.collect.commits); this approximation is used only
     when no commits_365d envelope exists. Greedy descending accumulation
     yields the minimum count; EF >= 1 always (spec floor)."""
     if not contributors:
@@ -288,8 +281,8 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     dl, dl_at = _load(data_dir, "downloads", f"{ecosystem.value}__{name}")
 
     def src(c: str, k: str) -> str:
-        # W1-7f item 4 (R-2): the one envelope-path formula, shared with
-        # cvi.collect.pike_signals's env_path() via cvi.collect.envelope.
+        # Standard envelope-path formula, shared with cvi.collect.pike_signals's
+        # env_path() via cvi.collect.envelope.
         return raw_envelope_path(data_dir, c, k)
 
     # --- stars / forks (github_meta primary; deps.dev is the verify step) ---
@@ -299,7 +292,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         else:
             b.missing(f, 0)
 
-    # --- W1-10 (D-IN-5): universe-entry star-velocity audit pass-through ---
+    # --- Universe-entry star-velocity audit pass-through (D-IN-5) ---
     # cvi.collect.universe.star_velocity_evidence (scripts/build_universe.py)
     # writes one UNIVERSE_ENTRY_COLLECTOR envelope per repo regardless of
     # whether the audit succeeded (its own `record.to_json()`, which is
@@ -450,11 +443,11 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     claude_body, _ = _body(data_dir, owner, name, "CLAUDE.md", fetch)
     corpus = "\n".join(filter(None, [readme_body, contrib_body, agents_body, claude_body]))
 
-    # W1-7f item 6: the source must be the LOCAL bodies-cache envelope this
-    # function just read (a real path under raw/, hashable), never the raw
-    # GitHub URL it was originally fetched from -- a URL is not a path under
-    # raw/ and cvi.derive.bundle._resolve_envelope can never resolve it, so
-    # every legal_ip_model/ai_posture/promotion_ladder value was silently
+    # The source must be the local bodies-cache envelope this function just
+    # read (a real path under raw/, hashable), never the raw GitHub URL it was
+    # originally fetched from -- a URL is not a path under raw/ and
+    # cvi.derive.bundle._resolve_envelope can never resolve it, so
+    # every legal_ip_model/ai_posture/promotion_ladder value would be silently
     # unverifiable (no sha256) regardless of whether the body was cached.
     # Falls back to the tree envelope (still a real, hashable source) only
     # when the relevant body was never fetched at all.
@@ -486,15 +479,15 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # frequency have no collector yet -> None (engine neutral 50). ---
     b.missing("openssf_signals", None)
 
-    # --- W1-9 (D-GATE-1/2/3/6): eligibility markers ---
+    # --- Eligibility markers (D-GATE-1/2/3/6) ---
     from cvi.collect import repo_object as repo_object_mod
     ro, ro_at = _load(data_dir, "repo_object", key)
     _ats = {"repo_object": ro_at, "github_meta": gh_at, "tree": tree_at}
     for field, (value, conf, col) in repo_object_mod.derive_eligibility(ro, gh, tree).items():
         b.set(field, value, src(col, key) if col else None, _ats.get(col), conf)
 
-    # --- W1-1: 5.1 newcomer-issue supply from per-label GFI envelopes.
-    # Supersedes the legacy 30d/AND-label block above for W1-1-format
+    # --- 5.1 newcomer-issue supply from per-label GFI envelopes:
+    # supersedes the legacy 30d/AND-label block above for per-label GFI
     # envelopes; legacy list data keeps the value derived above. Must run
     # before the meta snapshot below. ---
     from cvi.collect import labels as cvi_labels
@@ -503,7 +496,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     if gfi_51 is not None:
         b.set("active_unclaimed_gfis", gfi_51, src("gfi", key), gfi_at, "verified")
 
-    # --- W1-5: email-domain EF (spec 3.2), bus factor, vitality (D-GATE-4) ---
+    # --- Email-domain EF (spec 3.2), bus factor, vitality (D-GATE-4) ---
     c365, c365_at = _load(data_dir, "commits_365d", key)
     if c365 is not None:
         recs = commit_domains.records_from_rows(c365)
@@ -517,23 +510,22 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         b.missing("bus_factor", 1)
         b.missing("vitality", False)
 
-    # --- W1-2 (D-PARAM 2.1 / F3): package-level dependents from the
-    # dependents envelope (deps.dev primary, ecosyste.ms fallback). The v1
-    # usedby_count above is always None (F3); this block overrides it only
-    # when a measured envelope exists. "derived": the value passes the
-    # documented D-PARAM 2.1 dedup, not a raw source figure. ---
+    # --- Package-level dependents from the dependents envelope (deps.dev primary,
+    # ecosyste.ms fallback) (D-PARAM 2.1). The v1 usedby_count above is always
+    # None; this block overrides it only when a measured envelope exists.
+    # "derived": the value passes the documented D-PARAM 2.1 dedup, not a raw source figure. ---
     dep, dep_at = _load(data_dir, "dependents", key)
     if dep is not None and dep.get("deduped_count") is not None:
         b.set("dependents_count", int(dep["deduped_count"]),
               src("dependents", key), dep_at, "derived")
 
-    # --- W1-3 (D-IN-2, 02 §4 1.1/4.3): windowed PR responsiveness fields ---
+    # --- Windowed PR responsiveness fields (D-IN-2, 02 §4 1.1/4.3) ---
     from cvi.collect import github_graphql as prw_mod
     prw, prw_at = _load(data_dir, "pr_window", key)
     for field, (value, conf) in prw_mod.derive_pr_window_fields(prw).items():
         b.set(field, value, src("pr_window", key) if prw is not None else None, prw_at, conf)
 
-    # --- W1-8 (F8, D-MISS-1): downloads measurement status per ecosystem ---
+    # --- Downloads measurement status per ecosystem (D-MISS-1) ---
     try:
         import backfill_downloads as _bdl
     except ImportError:
@@ -544,8 +536,8 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
           src("downloads", f"{ecosystem.value}__{name}") if _dl_status == "measured" else None,
           dl_at, "derived")
 
-    # --- W1-7 (02 §4 2.2 / 4.1, D-MISS-4): locally-derived Pike signals
-    # (all ten or nothing) and the pipeline defenses (scorecard five-check
+    # --- Locally-derived Pike signals (02 §4 2.2 / 4.1, D-MISS-4):
+    # all ten or nothing, and the pipeline defenses (scorecard five-check
     # mean or the review/CI proxy; the method is stored). ---
     from cvi.collect import pike_signals as pike_mod
     rel, rel_at = _load(data_dir, "releases", key)
@@ -556,12 +548,12 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
             data_dir, key, now, gh, gh_at, c365, c365_at, dep, dep_at,
             rel, rel_at, iss, iss_at, rns, rns_at, sc, sc_at, prw, prw_at,
         )
-    except Exception as e:  # review-ok: gate-crash — W1-7f item 1: one repo's
+    except Exception as e:  # review-ok: gate-crash — one repo's
         # Pike-signal derivation must never abort the whole bundle (or, in a
         # sweep, the rest of the run) -- every field this hook could have
         # emitted becomes a recorded collector_failure naming the exception
         # type, and derive_repo carries on with everything computed above
-        # and below (including the W1-6 governance block right after)
+        # and below (including the governance block right after)
         # unaffected.
         detail = f"pike_signals.derive_w17_fields raised {type(e).__name__}: {e}"
         b.set("openssf_signals", None, None, None, "collector_failure")
@@ -571,30 +563,25 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     else:
         for field, (value, source, at, conf) in w17_fields.items():
             b.set(field, value, source, at, conf)
-    # --- W1-6 (02 §4 3.1/3.3/4.2): governance evidence — evidence-based
+    # --- Governance evidence (02 §4 3.1/3.3/4.2) — evidence-based
     # legal IP / promotion ladder / AI posture with an evidence field per
     # value; NONE/AD_HOC/AD_HOC measured-zero defaults when the relevant
     # envelope(s) fetched successfully and found nothing, "missing"
-    # confidence (Unmeasured(collector_failure) at the v2 bundle stage,
-    # W1-7 F2 ruling) when the relevant envelope was never fetched or
-    # failed. The governance envelope carries the check names and
-    # policy-file bodies; the Signed-off-by share comes from the c365
-    # (commits_365d) rows already loaded above, not from a second fetch
-    # (cvi.collect.governance module docstring). prw / c365 reuse the
-    # W1-3 / W1-5 envelopes. Source/fetched_at follow the governance
-    # envelope when it exists, else commits_365d, so a value derived from
-    # c365 alone (no governance envelope) still carries real provenance
-    # instead of None; a "missing"-confidence field carries no source
-    # (matches every other b.missing() field in this module).
-    # (foundation-owner fact mirrors the v1 expression above; the list
-    # stays in FOUNDATION_ORGS, one definition per fact.) Field names are
-    # bare (W7 round 2, matching cvi.core.constants_v2.PARAM_INPUT_IDS
-    # exactly): promotion_ladder / ai_posture already name the v1 regex
-    # heuristic set above (legal_ip_model is the only v1 field with a
-    # distinct name), so this block's b.set() calls deliberately supersede
-    # those heuristic values with the evidence-based ones -- that
-    # replacement, not addition, is this packet's purpose (02 §4 3.3/4.2
-    # ask for evidence-based classification). ---
+    # confidence (Unmeasured(collector_failure) at the v2 bundle stage)
+    # when the relevant envelope was never fetched or failed. The governance
+    # envelope carries the check names and policy-file bodies; the
+    # Signed-off-by share comes from the c365 (commits_365d) rows already
+    # loaded above, not from a second fetch (cvi.collect.governance module
+    # docstring). prw / c365 reuse the PR window and commits_365d envelopes.
+    # Source/fetched_at follow the governance envelope when it exists, else
+    # commits_365d, so a value derived from c365 alone (no governance
+    # envelope) still carries real provenance instead of None; a
+    # "missing"-confidence field carries no source (matches every other
+    # b.missing() field in this module). (Foundation-owner fact mirrors the
+    # expression above; the list stays in FOUNDATION_ORGS, one definition per
+    # fact.) Field names match cvi.core.constants.PARAM_INPUT_IDS exactly:
+    # promotion_ladder / ai_posture supersede the regex heuristic set above
+    # with the evidence-based ones (02 §4 3.3/4.2). ---
     from cvi.collect import governance as gov_mod
     gov, gov_at = _load(data_dir, "governance", key)
     if gov is not None:
@@ -611,8 +598,8 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         else:
             b.set(field, value, gov_src, gov_prov_at, conf)
 
-    # --- W1-4 (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3): author-history
-    # cohorts — DR_90, MR_first, newcomer conversion, RR_90 (raw and D-IN-3
+    # --- Author-history cohorts (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3):
+    # DR_90, MR_first, newcomer conversion, RR_90 (raw and D-IN-3
     # eligibility+cap-adjusted). Self-contained on the author_history
     # envelope alone (its 365-d window covers the decision cohort's
     # [270 d, 90 d] span, so the pr_window envelope above is not needed

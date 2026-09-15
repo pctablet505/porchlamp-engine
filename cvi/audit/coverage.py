@@ -1,7 +1,7 @@
 """Coverage / missingness audit for a CVI data directory.
 
-Packet W0-1 of ``docs/v2/05-WORK-PLAN.md``.  The tool answers one question for
-any directory shaped like ``data/`` (or a copied sample such as
+The tool answers one question for any directory shaped like ``data/`` (or a
+copied sample such as
 ``~/Projects/cvi-scratch/sample-200``): which inputs actually carry
 information, and for how many repositories?  It prints the table described in
 ``docs/v2/01-FINDINGS-2026-09-12.md`` section B: per input, missing rate,
@@ -852,7 +852,7 @@ def _fmt_rate(value: Optional[float], width: int) -> str:
 
 
 def format_report(report: AuditReport) -> str:
-    """Render the audit as fixed-width text (the packet's Measure table)."""
+    """Render the audit as fixed-width text (the Measure table)."""
     lines: List[str] = []
     lines.append(f"cvi/audit/coverage.py v{__version__} (cvi v{CVI_VERSION}) -- {report.data_dir}")
     lines.append(

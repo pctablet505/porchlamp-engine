@@ -99,12 +99,11 @@ def test_full_bundle(tmp_path):
     assert m["active_nonbot_commits_180d"] == 3
     assert m["scorecard_score"] == 9.0 and c["scorecard_score"] == "verified"  # |9.0-8.8| <= 0.5
     assert m["legal_ip_model"] == "DCO" and c["legal_ip_model"] == "derived"
-    # W1-6 (02 §4 3.1/3.3/4.2) supersedes the v1 regex-heuristic ai_posture /
-    # promotion_ladder with evidence-based classification (bare field names,
-    # W7): this fixture seeds no governance/pr_window/commits_365d envelope,
-    # so both are Unmeasured(collector_failure) -- confidence "missing" --
-    # and correctly report the AD_HOC default rather than the heuristic's
-    # regex guess over the README/CONTRIBUTING body text.
+    # ai_posture / promotion_ladder come from evidence-based classification
+    # (02 §4 3.1/3.3/4.2), not a regex heuristic over README/CONTRIBUTING
+    # body text: this fixture seeds no governance/pr_window/commits_365d
+    # envelope, so both are Unmeasured(collector_failure) -- confidence
+    # "missing" -- and report the AD_HOC default.
     assert m["ai_posture"] == "AD_HOC" and c["ai_posture"] == "missing"
     assert m["promotion_ladder"] == "AD_HOC" and c["promotion_ladder"] == "missing"
     assert m["hard_ai_ban"] is False and m["off_platform_reviews"] is False
@@ -120,12 +119,11 @@ def test_full_bundle(tmp_path):
 
 
 def test_provenance_records_envelope_sha256_for_verified_field(tmp_path):
-    # Round 2 (Blocker-1): a verified field's provenance must carry the
-    # envelope's own hash -- computed with the same function
-    # cvi.snapshot.manifest's freeze uses (native when the envelope carries
-    # one, otherwise the backfilled canonical hash of its data) -- so
-    # scripts/verify.py has something real to recompute against, not just a
-    # path that happens to exist.
+    # A verified field's provenance must carry the envelope's own hash --
+    # computed with the same function cvi.snapshot.manifest's freeze uses
+    # (native when the envelope carries one, otherwise the backfilled
+    # canonical hash of its data) -- so scripts/verify.py has something real
+    # to recompute against, not just a path that happens to exist.
     seed_full(tmp_path)
     out = run(tmp_path)
     envelope_data = json.loads(
@@ -143,11 +141,11 @@ def test_provenance_omits_sha256_for_non_envelope_source(tmp_path):
     # "owner"/"name"/"ecosystem" fields) must not gain a fabricated hash --
     # the absence of "sha256" is the honest signal scripts/verify.py's
     # unverifiable_provenance rule reads for a non-path source. Neither
-    # "ai_posture" (W1-6: now sourced from the governance envelope) nor
-    # "legal_ip_model" (W1-7f item 6: now sourced from the local bodies
-    # cache, see test_body_cache_provenance_one_cached_one_missing below)
-    # is a URL-sourced exemplar of this any more -- "owner" is the one
-    # field left with a source no envelope could ever back.
+    # "ai_posture" (sourced from the governance envelope) nor
+    # "legal_ip_model" (sourced from the local bodies cache, see
+    # test_body_cache_provenance_one_cached_one_missing below) is a
+    # URL-sourced exemplar of this -- "owner" is the one field with a source
+    # no envelope could ever back.
     seed_full(tmp_path)
     out = run(tmp_path)
     assert out["provenance"]["owner"]["source"] == "cli"
@@ -155,19 +153,15 @@ def test_provenance_omits_sha256_for_non_envelope_source(tmp_path):
 
 
 def test_legal_ip_model_provenance_is_the_local_body_cache_not_a_url(tmp_path):
-    # W1-7f item 6: seed_full() caches a real CONTRIBUTING.md body --
-    # legal_ip_model's provenance must point at that cache file (a real,
-    # hashable envelope under raw/), never the raw.githubusercontent.com
-    # URL it can never resolve to on the cvi.derive.bundle side (every real
-    # legal_ip_model value was silently unverifiable before this fix,
-    # regardless of caching). ai_posture/promotion_ladder are NOT asserted
-    # here any more: W1-6's governance block (landed on main after this
-    # fix was written) unconditionally supersedes both v1 fields with its
-    # own evidence-based values and provenance, so legal_ip_model -- the
-    # one W1-7-owned field the governance block does not touch (it reads
-    # bare "legal_ip", not "legal_ip_model") -- is the sole survivor this
-    # fix still matters for, and it also drives the live v1 scoring sweep
-    # (cvi.collect.governance module docstring).
+    # seed_full() caches a real CONTRIBUTING.md body -- legal_ip_model's
+    # provenance must point at that cache file (a real, hashable envelope
+    # under raw/), never the raw.githubusercontent.com URL, which never
+    # resolves on the cvi.derive.bundle side. ai_posture/promotion_ladder
+    # are not asserted here: the governance block unconditionally supersedes
+    # both with its own evidence-based values and provenance. legal_ip_model
+    # is the one field the governance block does not touch (it reads bare
+    # "legal_ip", not "legal_ip_model"), and it also drives the live v1
+    # scoring sweep (cvi.collect.governance module docstring).
     seed_full(tmp_path)
     out = run(tmp_path)
     assert out["confidence"]["legal_ip_model"] == "derived"
@@ -177,10 +171,10 @@ def test_legal_ip_model_provenance_is_the_local_body_cache_not_a_url(tmp_path):
 
 
 def test_legal_ip_model_provenance_one_cached_one_missing(tmp_path):
-    """W1-7f item 6, the two sides of the fix: CONTRIBUTING.md cached ->
-    legal_ip_model resolves to that real, hashable envelope; not cached ->
-    it falls back to the tree envelope (still real and hashable, never the
-    broken raw-URL literal)."""
+    """Both sides of legal_ip_model provenance: CONTRIBUTING.md cached ->
+    it resolves to that real, hashable envelope; not cached -> it falls back
+    to the tree envelope (still real and hashable, never a raw-URL
+    literal)."""
     k = f"{OWNER}__{NAME}"
     base_gh = {"stars": 1, "forks": 0, "pushed_at": "2026-09-01T00:00:00Z", "archived": False,
               "license_spdx": "MIT", "default_branch": "main"}

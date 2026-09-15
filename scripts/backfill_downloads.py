@@ -1,6 +1,6 @@
 """Throttled pypistats backfill runner for null registry-download envelopes.
 
-Packet W1-8 (downloads coverage; `02` section 4 2.3 + D-MISS-1, F8):
+Downloads coverage (`02` section 4 2.3 + D-MISS-1):
 monthly_downloads was 77.8% missing because pypistats rate-limits to about
 5 requests/min/IP and its 429 arrives as HTTP 200 + HTML body, which the
 gather path records as a null monthly. A null is NOT done: this runner
@@ -9,7 +9,7 @@ refetches exactly the null pypi download envelopes, throttled to at most
 disk (no separate state), printing an ETA derived from the measured
 per-request time.
 
-Ecosystem reachability measured by this packet:
+Ecosystem reachability:
   pypi   -- pypistats.org (this runner, throttled)
   go     -- dependents via deps.dev only; downloads unmeasured
   maven  -- unmeasured (no registry source)

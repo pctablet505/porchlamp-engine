@@ -81,8 +81,7 @@ def apply_stage0(
 
     ``persona`` enables persona-specific Stage 0 constraints (spec 4). Only
     ``Persona.SENIOR_SYSTEMS`` is implemented (multi-vendor, EF >= 3);
-    ``None`` (the default) disables all persona constraints and preserves
-    the original gate behavior.
+    ``None`` (the default) disables every persona constraint.
     """
     # Gate 1: Maintenance Vitality.
     if meta.active_nonbot_commits_180d < 1:

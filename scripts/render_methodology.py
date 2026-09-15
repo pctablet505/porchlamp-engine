@@ -1,10 +1,10 @@
 """Render `docs/METHODOLOGY-v2.md` from the v2 methodology document.
 
-Packet W5-1a (`docs/v2/06-UX-DESIGN.md` section 3 F): the published
+Per `docs/v2/06-UX-DESIGN.md` section 3 F: the published
 methodology page is "rendered from the frozen constants module so it
 cannot drift from the code." This script is the one place that turns
 :func:`cvi.audit.methodology_history.methodology_with_history` (which
-itself is built only from ``cvi.core.constants_v2``, the ``cvi.core.params``
+itself is built only from ``cvi.core.constants``, the ``cvi.core.params``
 registry, ``cvi.verify.detectors``, the two audit release-bar modules, and
 ``docs/v2/rfcs/CHANGELOG.md``) into the committed markdown file.
 
@@ -267,7 +267,7 @@ tests/test_render_methodology.py fails if this file drifts from a fresh render. 
 **Schema version:** `{document["schema_version"]}`
 **Constants hash:** `{document["constants_hash"]}`
 
-Every number below is read directly from `cvi.core.constants_v2` and the
+Every number below is read directly from `cvi.core.constants` and the
 `cvi.core.params` registry (or, for detectors and the two audit release
 bars, their own frozen module) -- this page cannot drift from the code
 that scores a repository, because it is rendered from the same values.
@@ -323,7 +323,7 @@ still goes through the RFC procedure below.
 
 ## Changing a constant: the RFC procedure
 
-Every constant `cvi.core.constants_v2` defines is frozen (D-VER-1/2): a
+Every constant `cvi.core.constants` defines is frozen (D-VER-1/2): a
 change requires an RFC filed under `docs/v2/rfcs/`, a re-pinned
 `CONSTANTS_HASH`, a `BENCHMARK_VERSION` bump and a named, independent
 reviewer. The full procedure, its two documented enforcement limits, and

@@ -1,8 +1,7 @@
 """Collectors: network fetches that each return one envelope (04 section 2).
 
-Only :mod:`cvi.collect.envelope` lives here at packet W0-3: the contract, the
-write/read pair and the single hashing definition. The collector modules that
-fill it in land in W1.
+:mod:`cvi.collect.envelope` defines the envelope contract, the write/read pair
+and the single hashing definition re-exported here.
 """
 
 from __future__ import annotations

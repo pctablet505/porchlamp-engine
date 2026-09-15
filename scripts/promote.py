@@ -13,7 +13,7 @@ threaded into every scoring call. Without ``--as-of`` the wall clock is read
 once, here at the script boundary, and that value is used for the whole run --
 never inside the scoring loop.
 
-Round 2 (`03` §5, Blocker-3): promotion requires a frozen snapshot manifest
+Manifest binding (`03` §5): promotion requires a frozen snapshot manifest
 (``python -m cvi.snapshot freeze``) and writes a ``snapshot_meta`` row binding
 the database's post-promotion content (:func:`cvi.lakehouse.repositories_dump_hash`)
 to that manifest's identity, so ``scripts/serve.py`` can tell a
@@ -21,39 +21,17 @@ promoted-then-edited database from one that still matches what was promoted
 -- a per-row telemetry check cannot survive a bulk ``UPDATE``, a content hash
 of the whole table can.
 
-Round 3 (`03` §5, Blocker-2, Warning-1, Warning-2): a frozen manifest used to
-be a label -- its ``snapshot_id``/``as_of``/hashes were copied into
-``snapshot_meta`` but nothing checked that the manifest actually covered what
-was promoted, so ``--snapshot-id`` naming an empty manifest promoted the
-whole universe anyway. Promotion is now bound to the manifest's own envelope
-set: :func:`split_by_manifest` keeps only clean bundles whose ``verified``
+Manifest coverage invariants (`03` §5): promotion is bound to the manifest's own
+envelope set. :func:`split_by_manifest` keeps only clean bundles whose ``verified``
 fields' envelopes are ALL listed in the manifest with a matching sha256
 (:func:`_bundle_envelope_refs` reuses ``scripts/verify.py``'s own path/hash
-resolution -- one definition, R-2); a manifest covering none of the clean
-bundles refuses promotion outright. ``--snapshot-id`` is now required (no
-"pick the lexically-newest manifest" default: a forward-dated or stray
-manifest left in ``snapshots/`` used to win silently). ``--as-of`` must agree
-with the bound manifest's own ``as_of`` -- one snapshot names one reference
+resolution); a manifest covering none of the clean bundles refuses promotion
+outright. ``--snapshot-id`` is required (no implicit fallback). ``--as-of`` must
+agree with the bound manifest's own ``as_of`` -- one snapshot names one reference
 time; :func:`resolved_as_of` refuses a mismatch instead of letting
 ``snapshot_meta`` record a value nothing scored against.
 
-Round 3 (Blocker-1): a promotion's output was made pure -- exactly its
-manifest-covered bundles, never rows a prior seed
-(``tests/fixtures/synthetic_catalog.py``, ``scripts/demo_app.py``) left
-behind -- via an in-place ``DELETE FROM repositories`` before any row was
-written.
-
-Round 4 (Blocker-1): the ``from scripts.verify import ...`` below needs the
-repo root on ``sys.path`` -- ``scripts/`` is not a package, so running this
-file directly (as the Usage line and ``scripts/serve.py``'s own refusal
-message both tell an operator to) put only ``.../scripts`` on
-``sys.path[0]`` and crashed with ``ModuleNotFoundError: No module named
-'scripts'``. Bootstrapped exactly as ``scripts/run_all.py`` already does.
-
-Round 4 (W-001): the in-place truncate above is SUBTRACTED. It solved
-purity but not atomicity -- a promotion that raised after truncating and
-before finishing left the live database rewritten and unservable, with no
-rollback. :func:`promote_atomically` now builds into a fresh
+Atomicity and purity: :func:`promote_atomically` builds into a fresh
 ``<db>.tmp-<snapshot_id>`` file, re-runs ``scripts/serve.py``'s own refusal
 checks against it, and only then ``os.replace``s it onto the served path --
 one atomic filesystem rename. On any failure the temp file is discarded and
@@ -180,24 +158,24 @@ def load_clean(data_dir: Path = DATA) -> list[dict[str, Any]]:
 
 
 def _no_manifest_message(data_dir: Path, detail: str) -> str:
-    """One refusal sentence naming the freeze command (Blocker-3, `03` §5)."""
+    """One refusal sentence naming the freeze command (`03` §5)."""
     return (f"{detail}; promotion requires a frozen snapshot -- freeze first with "
             f"`python -m cvi.snapshot freeze --data-dir {data_dir} --as-of <ISO-8601>`")
 
 
 def resolve_manifest(data_dir: Path, snapshot_id: str) -> dict[str, Any]:
-    """Load the frozen manifest named by ``snapshot_id`` (Warning-1, `03` §5).
+    """Load the frozen manifest named by ``snapshot_id`` (`03` §5).
 
     ``snapshot_id`` is required, with no "pick a manifest for me" fallback:
-    round 2's default -- the lexically-newest ``<data_dir>/snapshots/*``
-    directory name -- silently preferred a forward-dated or oddly-named
-    manifest over the one a run had just frozen (a directory named
-    ``HOLLOW-SNAPSHOT`` sorts after every real ``YYYYMMDD...`` name).
+    defaulting to the lexically-newest ``<data_dir>/snapshots/*`` directory
+    name would silently prefer a forward-dated or oddly-named manifest over
+    the one a run had just frozen (a directory named ``HOLLOW-SNAPSHOT``
+    sorts after every real ``YYYYMMDD...`` name).
     ``scripts/run_all.py`` passes the id its own freeze step reported;
     ``scripts/promote.py``'s CLI requires ``--snapshot-id`` for the same
     reason. Raises ``SystemExit`` naming the freeze command when the id
     names no manifest: promotion without one has nothing for
-    ``snapshot_meta`` to record (round-1 Warning-2's original gap).
+    ``snapshot_meta`` to record.
     """
     path = Path(data_dir) / SNAPSHOTS_DIRNAME / snapshot_id / MANIFEST_FILENAME
     if not path.is_file():
@@ -207,16 +185,15 @@ def resolve_manifest(data_dir: Path, snapshot_id: str) -> dict[str, Any]:
 
 
 def resolved_as_of(cli_as_of: Optional[str], manifest: dict[str, Any]) -> datetime:
-    """The single reference time this promotion scores against (Warning-2, `03` §5).
+    """The single reference time this promotion scores against (`03` §5).
 
     A snapshot names one ``as_of``; promotion must score against exactly
     that time, not a second, independently-chosen one. Omitted ``--as-of``
     defaults to the manifest's own ``as_of``. A supplied ``--as-of`` must
     parse and must equal the manifest's ``as_of`` (compared as instants, not
-    strings, so ``Z`` and ``+00:00`` agree) -- round 2 accepted any value and
-    silently stamped rows with it while ``snapshot_meta`` recorded the
-    manifest's own time regardless, so the two could (and, measured, did by
-    six years) disagree with no refusal.
+    strings, so ``Z`` and ``+00:00`` agree); a mismatch is refused rather
+    than stamped onto rows while ``snapshot_meta`` records the manifest's
+    own time.
     """
     manifest_as_of = _dt(manifest.get("as_of"))
     if manifest_as_of is None:
@@ -243,7 +220,7 @@ def _manifest_envelope_index(manifest: dict[str, Any]) -> dict[tuple[str, str], 
 def _bundle_envelope_refs(bundle: dict[str, Any],
                           data_dir: Path) -> list[tuple[str, str, Optional[str]]]:
     """``(collector, key, claimed_sha256)`` for every ``verified`` field's
-    envelope reference in ``bundle`` (Blocker-2, `03` §5: "promotion reads
+    envelope reference in ``bundle`` (`03` §5: "promotion reads
     only envelopes in the manifest").
 
     Restricted to ``verified`` fields -- the same filter
@@ -255,7 +232,7 @@ def _bundle_envelope_refs(bundle: dict[str, Any],
     included. Resolution reuses ``scripts/verify.py``'s own helpers
     (:func:`scripts.verify._envelope_path`, :func:`scripts.verify._source_items`,
     :func:`scripts.verify._claimed_hash`) so there is one definition of what
-    an envelope path is and how its hash is read (R-2).
+    an envelope path is and how its hash is read.
     """
     refs: list[tuple[str, str, Optional[str]]] = []
     provenance = bundle.get("provenance") or {}
@@ -290,7 +267,7 @@ def _covered_by_manifest(bundle: dict[str, Any], data_dir: Path,
 def split_by_manifest(bundles: list[dict[str, Any]], data_dir: Path,
                       manifest: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Partition CLEAN ``bundles`` into ``(covered, not_in_manifest)`` against
-    ``manifest`` (Blocker-2, `03` §5): the manifest is the promotion
+    ``manifest`` (`03` §5): the manifest is the promotion
     boundary, not a label copied into ``snapshot_meta`` for show. A manifest
     with zero envelopes (or one missing/altering an entry a bundle depends
     on) covers zero or fewer bundles; ``main`` refuses outright when
@@ -305,7 +282,7 @@ def split_by_manifest(bundles: list[dict[str, Any]], data_dir: Path,
 
 
 def write_snapshot_meta(db_path: str, manifest: dict[str, Any], dump_hash: str) -> None:
-    """Bind ``db_path``'s just-promoted content to ``manifest`` (Blocker-3).
+    """Bind ``db_path``'s just-promoted content to ``manifest``.
 
     ``dump_hash`` must be computed by the caller AFTER every promoted row is
     written and committed, so it describes exactly the content being vouched
@@ -313,11 +290,9 @@ def write_snapshot_meta(db_path: str, manifest: dict[str, Any], dump_hash: str) 
     :func:`cvi.snapshot.reproduce.canonical_dump_hash` directly (that would
     hash this very table's own row in). ``promoted_at`` mirrors
     ``manifest["as_of"]``, which is safe to treat as "the reference time this
-    promotion scored against" ONLY because :func:`resolved_as_of` (Warning-2,
-    `03` §5) already refused any ``--as-of`` that disagreed with the
-    manifest's own -- round 2 recorded ``manifest["as_of"]`` here
-    unconditionally, so a mismatched ``--as-of`` stamped rows with one time
-    while this column silently recorded another. ``scripts/serve.py``
+    promotion scored against" ONLY because :func:`resolved_as_of` (`03` §5)
+    already refused any ``--as-of`` that disagreed with the manifest's own.
+    ``scripts/serve.py``
     recomputes the same :func:`cvi.lakehouse.repositories_dump_hash` at
     startup and refuses unless it still matches a stored row -- editing
     ``repositories`` after promotion (renaming an owner, nudging a counter)
@@ -355,11 +330,10 @@ def promote(
     receipt is written.
 
     This function upserts into ``db_path`` as given -- it does not by
-    itself guarantee purity against prior content. Round 3 added an
-    in-place ``DELETE FROM repositories`` here for that; round 4 subtracts
-    it (W-001): a promotion that failed AFTER truncating and before
-    finishing left the live database rewritten and unservable with no
-    rollback. Purity is now the caller's job -- :func:`promote_atomically`
+    itself guarantee purity against prior content, and it never truncates:
+    a promotion that failed after an in-place ``DELETE`` and before
+    finishing would leave the live database rewritten and unservable with
+    no rollback. Purity is the caller's job -- :func:`promote_atomically`
     builds into a fresh temp file (nothing to truncate: the file did not
     exist) and only swaps it onto the served path once every check passes.
     Call this function directly only against a path you already know is
@@ -425,16 +399,14 @@ def promote(
 def promote_atomically(bundles: list[dict[str, Any]], db_path: str, as_of: datetime,
                        data_dir: Path, manifest: dict[str, Any]) -> int:
     """Promote ``bundles`` into ``db_path`` without ever rewriting the live
-    file until every check passes (round 4, W-001, `03` §5).
+    file until every check passes (`03` §5).
 
     Builds the whole promotion -- scoring, ``snapshot_meta`` -- into
     ``<db_path>.tmp-<snapshot_id>``, a brand-new file next to ``db_path``,
-    never the served file itself. Purity against prior content (round 3's
-    Blocker-1) is then a property of never having opened the old file at
-    all, not of an in-place ``DELETE``: round 3's ``truncate_repositories``
-    is subtracted (it solved the wrong half of the problem -- a promotion
-    that failed AFTER truncating and before finishing left the live
-    database rewritten and unservable with no rollback).
+    never the served file itself. Purity against prior content is a property
+    of never having opened the old file at all, rather than of an in-place
+    ``DELETE``: a promotion that failed after truncating and before finishing
+    would leave the live database rewritten and unservable with no rollback.
 
     Before the swap, re-runs :func:`scripts.serve.refusal_reasons` -- the
     same fixture-row and identity-hash checks ``scripts/serve.py`` runs at
@@ -479,7 +451,7 @@ def main() -> int:
                          "bound manifest's own as_of; must agree with it if given)")
     ap.add_argument("--snapshot-id", required=True,
                     help="frozen snapshot to promote from and bind snapshot_meta "
-                         "to (required -- no default, Warning-1)")
+                         "to (required -- no default)")
     a = ap.parse_args()
     manifest = resolve_manifest(a.data_dir, a.snapshot_id)
     as_of = resolved_as_of(a.as_of, manifest)

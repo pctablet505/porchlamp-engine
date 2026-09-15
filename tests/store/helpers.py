@@ -5,10 +5,8 @@
 handful of ``inputs`` rather than the full 18 -- the store writer only
 needs whatever a given test's ``record.params`` actually names.
 
-REWORK round 1 (F-011/F-012): rebuilt onto W2-10's ``ScoreRecord.repo:
-RepoIdentity`` (required first field) and the real
-``PersonaComposite`` dataclass (``persona_composites: dict[str,
-PersonaComposite]``, not ``dict[str, float]``).
+Uses ``ScoreRecord.repo: RepoIdentity`` (required first field) and
+``persona_composites: dict[str, PersonaComposite]``.
 """
 from __future__ import annotations
 
@@ -246,9 +244,8 @@ def make_tie(
     """Still needed upstream of the writer: :func:`cvi.core.tiebreak.
     assign_ranks` takes ``TieBreakInput`` entries to compute ``tie_key``/
     ``rank``/``tie_group`` on the record BEFORE it ever reaches
-    :class:`~cvi.store.writer.RepoWrite`, which no longer carries one (lead
-    ruling, REWORK round 1). Defaults ``owner``/``name`` to the record's
-    own identity."""
+    :class:`~cvi.store.writer.RepoWrite`, which does not carry one.
+    Defaults ``owner``/``name`` to the record's own identity."""
     return TieBreakInput(
         record=record,
         owner=owner if owner is not None else record.repo.owner,
@@ -268,8 +265,8 @@ def make_repo_write(
 ) -> RepoWrite:
     """The bundle's ``repo`` is ``record.repo`` itself (not a separately
     constructed, merely-equal ``RepoIdentity``) so the two can never drift:
-    ``RepoWrite.__post_init__`` requires them equal (lead ruling, REWORK
-    round 1 -- identity now comes from ``record.repo``)."""
+    ``RepoWrite.__post_init__`` requires them equal (identity comes from
+    ``record.repo``)."""
     bundle = FeatureBundle(
         schema_version=2,
         repo=record.repo,

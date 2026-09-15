@@ -1,4 +1,4 @@
-"""Pillar-weight sensitivity audit (packet W0-5).
+"""Pillar-weight sensitivity audit.
 
 ``cvi audit sensitivity`` implements the D-AGG-3 sensitivity requirement
 from ``docs/v2/02-RANKING-DESIGN.md`` section 7: for a v1 ``cvi.db`` it
@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from cvi.constants import PILLAR_WEIGHTS
-from cvi.core import aggregate, constants_v2
+from cvi.core import aggregate, constants
 from cvi.core.models import ScoreRecord
 from cvi.core.pipeline import ScoredSnapshot
 from cvi.core.tiebreak import TieBreakInput, assign_ranks
@@ -85,7 +85,7 @@ def kendall_tau_b(x: Sequence[float], y: Sequence[float]) -> Optional[float]:
 
     Returns ``None`` (UNDECIDED) when the statistic is the 0/0 of a
     degenerate input: every value of one vector is tied while the other
-    vector is not (W0-gate P-10c).  That case is not "perfect
+    vector is not (degenerate tie case).  That case is not "perfect
     agreement" -- a perturbation demonstrably moved the ranking -- so it
     must not read as 1.0.
 
@@ -330,19 +330,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 # =========================================================================== #
-# W2-8b: D-AGG-3 sensitivity over a v2 ScoredSnapshot.
+# D-AGG-3 sensitivity over a v2 ScoredSnapshot.
 #
 # ``sensitivity_report`` above compares raw composite *values* via tau-b --
 # adequate for v1, where the store recomputes a perturbed composite directly
 # from stored pillar columns and nothing else about the ranking (tie-breaks,
-# rank) exists yet. v2 has a full D-TIE-1 tie-break/rank pipeline
-# (``cvi.core.tiebreak``, W2-6/W2-8b); the packet's own instruction is to
-# "recompute composites through aggregate from the records' pillar scores +
-# coverages, then re-rank through the same tiebreak path" -- so
-# :func:`sensitivity_v2` compares Kendall tau-b between the *canonical rank
-# order* (``ScoreRecord.rank``, already a strict, unique 1..N total order --
-# see ``cvi.core.tiebreak.assign_ranks``) and the rank order recomputed
-# under each perturbed pillar-weight vector, not the raw composite values.
+# rank) exists. v2 has a full D-TIE-1 tie-break/rank pipeline
+# (``cvi.core.tiebreak``), so :func:`sensitivity_v2` recomputes composites
+# through ``aggregate`` from the records' pillar scores + coverages, re-ranks
+# through the same tiebreak path, and compares Kendall tau-b between the
+# *canonical rank order* (``ScoreRecord.rank``, already a strict, unique 1..N
+# total order -- see ``cvi.core.tiebreak.assign_ranks``) and the rank order
+# recomputed under each perturbed pillar-weight vector, not the raw composite
+# values.
 #
 # A pillar-weight perturbation changes exactly two of the seven D-TIE-1 tie
 # levels: the composite (D-AGG-2, level 1) and the coverage (D-MISS-3's
@@ -356,13 +356,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 # weight vector at all. So :func:`_perturbed_tie_break_input` only ever
 # replaces ``composite``/``coverage`` on a copy of the record -- via
 # ``cvi.core.aggregate.composite_score_raw``/``composite_coverage``'s
-# ``weights`` keyword (packet W2-11, R-3), not a private reduction kept
-# here: this module used to carry its own ``_weighted_composite_raw``/
-# ``_weighted_coverage`` (the ownership request W2-8b's docstring flagged,
-# unresolved at that packet's base commit) because the two ``aggregate``
-# functions hard-coded the balanced weights with no parameter; W2-11 added
-# that parameter and deleted both private copies (this one and
-# ``cvi.core.persona``'s), so this module now calls ``aggregate`` directly.
+# ``weights`` keyword, not a private reduction kept here.
 # TTFHR p75 and the last-commit date are recovered from the *canonical*
 # ``ScoreRecord.tie_key`` (:func:`_decode_measured_asc`/
 # :func:`_decode_measured_desc`, the exact inverse of ``cvi.core.tiebreak.
@@ -416,10 +410,10 @@ def sensitivity_v2(snapshot: ScoredSnapshot, perturbation_pp: float = DEFAULT_PE
     """D-AGG-3 sensitivity report over a v2 :class:`~cvi.core.pipeline.
     ScoredSnapshot`: Kendall tau-b between the canonical rank order and the
     rank order under each +/- ``perturbation_pp`` single-pillar perturbation
-    of :data:`cvi.core.constants_v2.PILLAR_WEIGHTS`, re-ranked through
+    of :data:`cvi.core.constants.PILLAR_WEIGHTS`, re-ranked through
     :func:`cvi.core.tiebreak.assign_ranks` (module docstring section above)
     -- 5 pillars x 2 directions = 10 rows, in the same
-    (:data:`cvi.core.constants_v2.PILLAR_NAMES` order, positive sign first)
+    (:data:`cvi.core.constants.PILLAR_NAMES` order, positive sign first)
     layout :func:`sensitivity_report` uses for v1.
 
     Only rated records (``record.rank is not None``) enter the comparison
@@ -433,7 +427,7 @@ def sensitivity_v2(snapshot: ScoredSnapshot, perturbation_pp: float = DEFAULT_PE
     even be rated" -- two different questions.
 
     Raises ``ValueError`` when fewer than 2 records are rated (the same
-    guard :func:`sensitivity_report` applies, R-2 -- reused, not
+    guard :func:`sensitivity_report` applies -- reused, not
     reimplemented): a ranking comparison needs at least two items."""
     rated = [record for record in snapshot.records if record.rank is not None]
     if len(rated) < 2:
@@ -444,9 +438,9 @@ def sensitivity_v2(snapshot: ScoredSnapshot, perturbation_pp: float = DEFAULT_PE
     canonical_vector = [canonical_rank[key] for key in keys]
 
     rows: list[PerturbationResult] = []
-    for pillar in constants_v2.PILLAR_NAMES:
+    for pillar in constants.PILLAR_NAMES:
         for delta in (perturbation_pp, -perturbation_pp):
-            weights = perturb_pillar_weight(constants_v2.PILLAR_WEIGHTS, pillar, delta)
+            weights = perturb_pillar_weight(constants.PILLAR_WEIGHTS, pillar, delta)
             entries = [_perturbed_tie_break_input(record, weights) for record in rated]
             ranked = assign_ranks(entries)
             perturbed_rank = {

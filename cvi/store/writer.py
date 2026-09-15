@@ -1,50 +1,38 @@
-"""CVI v2 store writer (`04` sections 3, 5; packet W4-2, REWORK round 3).
+"""CVI v2 store writer (`04` sections 3, 5).
 
-Full ownership-request/deviation history, including G-001's
-lakehouse-delegation answer and G-007's noted-not-fixed splitter risk, is
-in ``.agents/W4-2/handoff.md``; kept here only what a reader of this
-module needs to trust its behaviour.
+``RepoWrite`` is ``(record: ScoreRecord, bundle: FeatureBundle)``: identity
+comes from ``record.repo``, and ``__post_init__`` raises if it differs from
+``bundle.repo``. Rank/tie_group ordering is already baked into
+``record.tie_key``/``record.rank``/``record.tie_group`` by the time a record
+reaches this module, and TTFHR p75 is recomputed from ``bundle.pr_window``
+(:func:`cvi.core.tiebreak.ttfhr_p75_from_pr_window`).
 
-``RepoWrite`` is ``(record: ScoreRecord, bundle: FeatureBundle)`` (lead
-ruling, REWORK round 1): identity comes from ``record.repo`` (W2-10);
-``__post_init__`` raises if it differs from ``bundle.repo``.
-``TieBreakInput`` is no longer part of the writer's input -- rank/tie_group
-ordering is already baked into ``record.tie_key``/``record.rank``/
-``record.tie_group`` by the time a record reaches this module, and TTFHR
-p75 is recomputed from ``bundle.pr_window`` (:func:`cvi.core.tiebreak.
-ttfhr_p75_from_pr_window`). ``forks`` (count) still has no producer
-anywhere in the current ``FeatureBundle``/``GateEvidence`` contract,
-written ``NULL`` until a future packet wires a real source. Two other
-columns that used to be in the same boat now have one each:
-``last_human_commit_at`` (W1-5f REWORK, F-001) -- :func:`_last_human_commit_at`
+``forks`` (count) has no producer anywhere in the current
+``FeatureBundle``/``GateEvidence`` contract and is written ``NULL``.
+``last_human_commit_at`` comes from :func:`_last_human_commit_at`, which
 reads the ``last_non_bot_commit_at`` bundle sidecar fact
 (``cvi.core.commit_domains``, D-TIE-1 item 7) the same way
-``cvi.core.pipeline.score_bundle_stage_9_tie_input`` already does for
-``TieBreakInput``, normalised through :func:`_normalize_utc_z`. Before
-this fix ``cvi/store/reader.py``'s SQL ``ORDER BY`` (``last_human_commit_at
-DESC NULLS LAST`` at D-TIE-1 level 7) silently disagreed with the ``rank``
-column stored right beside it, because the column was always ``NULL``
-while ``ScoreRecord.rank``/``tie_key`` were computed from the real date.
-``stars_audited`` (W4-4, G-006) -- :func:`_repo_row` reads a
-``"stars_audited"`` key off ``bundle.inputs`` if present (a future
-promote-pipeline packet's job to populate, from
-``cvi.derive.bundle.resolve_universe_meta_facts`` -- see
-``.agents/W1-10/handoff.md``'s "Store writer one-liner"), written ``NULL``
+``cvi.core.pipeline.score_bundle_stage_9_tie_input`` does for
+``TieBreakInput``, normalised through :func:`_normalize_utc_z` so the stored
+column agrees with the ``rank`` column beside it under
+``cvi/store/reader.py``'s ``last_human_commit_at DESC NULLS LAST``
+(D-TIE-1 level 7). ``stars_audited`` comes from a ``"stars_audited"`` key on
+``bundle.inputs`` when one is present (populated from
+``cvi.derive.bundle.resolve_universe_meta_facts``) and is written ``NULL``
 when absent or ``Unmeasured`` -- never a raw, unaudited star count.
 
-A snapshot id is immutable (03 section 5, F-003): once ``repositories``
+A snapshot id is immutable (03 section 5): once ``repositories``
 carries any row for a ``snapshot_id``, a later :func:`write_records` call
 for that same id raises rather than upserting, replacing, or deleting --
 the only way to retry is a transaction that never committed (see
 :func:`write_records`) or a fresh snapshot id. :func:`write_snapshot`
-mirrors this at the snapshot-identity level (F-004): a repeated call with
+mirrors this at the snapshot-identity level: a repeated call with
 the same id is a no-op only when every identity field matches byte-for-
 byte; any difference raises.
 
 Import-graph note: this module imports ``cvi.snapshot.populations`` and
 ``cvi.snapshot.reproduce`` in addition to ``cvi.core`` -- `04` section 3
-was amended for this packet (R-B) to allow it; enforced by
-``tests/core/test_import_graph.py``.
+allows it; enforced by ``tests/core/test_import_graph.py``.
 """
 from __future__ import annotations
 
@@ -56,7 +44,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Sequence
 
-from cvi.core import commit_domains, constants_v2
+from cvi.core import commit_domains, constants
 from cvi.core.commit_domains import LastNonBotCommitMeasured
 from cvi.core.models import FeatureBundle, Measured, ScoreRecord, canonical_json, is_relative_envelope_source
 from cvi.core.tiebreak import ttfhr_p75_from_pr_window
@@ -77,7 +65,7 @@ class RepoWrite:
     """One repo's write unit: the scored ``record`` and the ``bundle`` that
     carries the raw per-parameter evidence ``ScoreRecord.params`` does not
     itself carry (``FeatureBundle.inputs``: ``raw_value``/``window``/
-    ``source``/``source_hash``/``fetched_at``) and, today, TTFHR p75 (via
+    ``source``/``source_hash``/``fetched_at``) plus TTFHR p75 (via
     ``bundle.pr_window``). Identity is ``record.repo``; ``bundle.repo``
     must be identical (dataclass equality) or construction raises."""
 
@@ -99,14 +87,13 @@ _SNAPSHOT_IDENTITY_FIELDS = ("as_of", "benchmark_version", "constants_hash", "co
 
 
 def _begin(conn: sqlite3.Connection) -> bool:
-    """Start a transaction unless one is already open (G-005, REWORK round
-    3): returns whether THIS call started it. Only the call that started a
-    transaction may end it -- so a caller who already has one open (to
-    wrap :func:`write_snapshot` and :func:`write_records` together in one
-    transaction, G-002) never hits ``OperationalError: cannot start a
-    transaction within a transaction``, and never has that outer
-    transaction committed or rolled back early by an inner call that
-    merely joined it."""
+    """Start a transaction unless one is already open: returns whether THIS
+    call started it. Only the call that started a transaction may end it --
+    so a caller who already has one open (to wrap :func:`write_snapshot`
+    and :func:`write_records` together in one transaction) never hits
+    ``OperationalError: cannot start a transaction within a transaction``,
+    and never has that outer transaction committed or rolled back early by
+    an inner call that merely joined it."""
     if conn.in_transaction:
         return False
     conn.execute("BEGIN")
@@ -137,11 +124,11 @@ def write_snapshot(
     canonical_dump_hash: Optional[str] = None,
     promoted_at: Optional[str] = None,
 ) -> None:
-    """Insert one ``snapshots`` row (`04` section 5, extended per the
-    packet: superset of INT-W0-4's ``snapshot_meta``).
+    """Insert one ``snapshots`` row (`04` section 5, a superset of the
+    ``snapshot_meta`` contract).
 
-    F-004: a second call with the same ``id`` is a no-op ONLY when every
-    identity field (``as_of``, ``benchmark_version``, ``constants_hash``,
+    A second call with the same ``id`` is a no-op ONLY when every identity
+    field (``as_of``, ``benchmark_version``, ``constants_hash``,
     ``code_commit``, ``manifest_root``, ``created_at``) matches the stored
     row byte-for-byte; any difference raises ``ValueError`` instead of
     silently keeping the first definition. ``canonical_dump_hash``/
@@ -151,10 +138,10 @@ def write_snapshot(
     conflict with a row a prior :func:`finalize_snapshot_hash` already
     stamped. ``created_at`` is an explicit argument, never the wall clock.
 
-    G-005 (REWORK round 3): joins ``conn``'s transaction if one is already
-    open (:func:`_begin`/:func:`_end`) rather than always issuing its own
+    Joins ``conn``'s transaction if one is already open
+    (:func:`_begin`/:func:`_end`) rather than always issuing its own
     ``BEGIN`` -- a caller may wrap this together with :func:`write_records`
-    in one outer transaction (G-002) without an ``OperationalError``."""
+    in one outer transaction without an ``OperationalError``."""
     for field_name, value in (
         ("id", id),
         ("as_of", as_of),
@@ -190,15 +177,15 @@ def write_snapshot(
             (id, as_of, benchmark_version, constants_hash, code_commit, manifest_root,
              canonical_dump_hash, created_at, promoted_at),
         )
-    except Exception:
+    except Exception:  # review-ok: transaction cleanup helper terminates transaction before re-raise
         _end(conn, owns, ok=False)
         raise
     _end(conn, owns, ok=True)
 
 
 def _normalize_utc_z(value: Optional[str]) -> Optional[str]:
-    """F-005: normalise an ISO datetime to UTC with a literal ``Z`` suffix
-    so ``last_human_commit_at DESC`` compares correctly as TEXT in SQL (the
+    """Normalise an ISO datetime to UTC with a literal ``Z`` suffix so
+    ``last_human_commit_at DESC`` compares correctly as TEXT in SQL (the
     same ordering a caller gets by comparing epochs in Python). ``None``
     passes through unchanged. Never builds a naive ``datetime`` (an
     offset-less value is already UTC, this codebase's own convention --
@@ -211,19 +198,19 @@ def _normalize_utc_z(value: Optional[str]) -> Optional[str]:
     return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-_PILLAR_NAMES = constants_v2.PILLAR_NAMES
-_PARAM_INPUT_IDS = constants_v2.PARAM_INPUT_IDS
+_PILLAR_NAMES = constants.PILLAR_NAMES
+_PARAM_INPUT_IDS = constants.PARAM_INPUT_IDS
 
 
 def _last_human_commit_at(bundle: FeatureBundle) -> Optional[str]:
-    """W1-5f (F-001): the real ``last_non_bot_commit_at`` bundle-level
-    sidecar fact (D-TIE-1 item 7, ``cvi.core.commit_domains`` -- the same
-    accessor ``cvi.core.pipeline.score_bundle_stage_9_tie_input`` already
-    reads for ``TieBreakInput``), normalised through :func:`_normalize_utc_z`
-    so the stored column compares correctly as TEXT in
-    ``cvi/store/reader.py``'s ``ORDER BY ... last_human_commit_at DESC
-    NULLS LAST``. ``None`` for a measured absence (no non-bot commit in the
-    window) or an unset/``Unmeasured`` fact -- never a guess."""
+    """The ``last_non_bot_commit_at`` bundle-level sidecar fact (D-TIE-1
+    item 7, ``cvi.core.commit_domains`` -- the same accessor
+    ``cvi.core.pipeline.score_bundle_stage_9_tie_input`` reads for
+    ``TieBreakInput``), normalised through :func:`_normalize_utc_z` so the
+    stored column compares correctly as TEXT in ``cvi/store/reader.py``'s
+    ``ORDER BY ... last_human_commit_at DESC NULLS LAST``. ``None`` for a
+    measured absence (no non-bot commit in the window) or an
+    unset/``Unmeasured`` fact -- never a guess."""
     fact = commit_domains.last_non_bot_commit_at(bundle)
     value = fact.value if isinstance(fact, LastNonBotCommitMeasured) else None
     return _normalize_utc_z(value)
@@ -247,15 +234,14 @@ def _repo_row(snapshot_id: str, item: RepoWrite) -> tuple:
         repo.ecosystem,
         record.raw_hash,
         record.constants_hash,
-        # stars_audited (W1-10/G-006, W4-4): read from the bundle's universe
-        # meta -- `FeatureBundle.inputs` has no `__post_init__` validation
-        # (only the separate, never-called-here `.validate()` method), so a
-        # `"stars_audited"` key placed there by a future promote-pipeline
-        # packet (alongside the closed 18-parameter set `.validate()` checks
-        # for) round-trips here without touching `RepoWrite`'s two-field
-        # shape. NULL when absent (every bundle built before this producer
-        # exists) or Unmeasured (StarScout's audit failed for this repo) --
-        # never the raw, unaudited stars count under this column's
+        # stars_audited: read from the bundle's universe meta --
+        # `FeatureBundle.inputs` has no `__post_init__` validation (only the
+        # separate, never-called-here `.validate()` method), so a
+        # `"stars_audited"` key placed there (alongside the closed
+        # 18-parameter set `.validate()` checks for) round-trips here
+        # without touching `RepoWrite`'s two-field shape. NULL when absent
+        # or Unmeasured (StarScout's audit failed for this repo) -- never
+        # the raw, unaudited stars count under this column's
         # audited-sounding name.
         (audited.value if isinstance(audited := item.bundle.inputs.get("stars_audited"), Measured) else None),
         None,  # forks (count): no producer yet
@@ -282,7 +268,7 @@ def _repo_row(snapshot_id: str, item: RepoWrite) -> tuple:
         record.rank,
         record.tie_group,
         ttfhr_p75_from_pr_window(item.bundle.pr_window),
-        _last_human_commit_at(item.bundle),  # last_human_commit_at (W1-5f, F-001)
+        _last_human_commit_at(item.bundle),  # last_human_commit_at
         canonical_json(record.persona_gates),
         persona_composites_json,
         canonical_json(record.suspicion),
@@ -315,7 +301,6 @@ def _param_row(repo_id: int, param_id: str, item: RepoWrite) -> tuple:
     raw_value = canonical_json(bundle_value.value) if isinstance(bundle_value, Measured) else None
     window_start = bundle_value.window_start if isinstance(bundle_value, Measured) else None
     window_end = bundle_value.window_end if isinstance(bundle_value, Measured) else None
-    # W2-14 (found while proving evidence sources are relative end to end):
     # `measured` below is the STAGE-2 (scoring) outcome (cvi.core.engine's
     # ParamScore), which can be False even when the INPUT was genuinely
     # Measured -- `reason="no_population"` is exactly that case (cvi.core.
@@ -323,12 +308,8 @@ def _param_row(repo_id: int, param_id: str, item: RepoWrite) -> tuple:
     # a ParamScore, never to an input-stage value). `EvidenceRow`'s
     # contract (`cvi/serve/contract.py`) is explicit that an unmeasured row
     # carries no score/method/source/fetched_at -- so those four columns
-    # must follow the score-stage `measured` flag, not silently leak the
-    # input-stage envelope reference for a row the API reports as
-    # unmeasured (before this fix, `GET .../evidence` 500'd on any real
-    # repo with a `no_population` parameter: `source`/`fetched_at`
-    # populated alongside `measured=False` failed the contract's own
-    # validator).
+    # follow the score-stage `measured` flag and never leak the input-stage
+    # envelope reference for a row the API reports as unmeasured.
     scored_measured = param_score is not None and param_score.measured
     source = bundle_value.source if scored_measured and isinstance(bundle_value, Measured) else None
     if source is not None and not is_relative_envelope_source(source):
@@ -384,22 +365,21 @@ def write_records(
     """Write one snapshot's repositories, their long-format ``params``
     evidence, and the frozen ``populations`` for that snapshot.
 
-    F-003: a snapshot id is immutable. If ``repositories`` already carries
-    any row for ``snapshot_id``, this raises ``ValueError`` before writing
-    anything -- no upsert, no replace flag, no delete-then-insert. The only
+    A snapshot id is immutable. If ``repositories`` already carries any row
+    for ``snapshot_id``, this raises ``ValueError`` before writing anything
+    -- no upsert, no replace flag, no delete-then-insert. The only
     legitimate retry of the same id is one whose PRIOR attempt never
     committed (see the transaction guarantee below), or a fresh id.
 
-    F-002: the whole call is one transaction (``rollback()`` on any
-    exception, ``commit()`` only at the very end) -- a failure partway
-    through leaves zero rows for this snapshot, even after a later,
-    unrelated ``commit()`` on the same connection (G-002, REWORK round 3:
-    a params-loop failure specifically leaves zero ``repositories`` rows
-    too -- tested directly, closing mutant N1). G-005: joins ``conn``'s
-    transaction if the caller already has one open (:func:`_begin`), so
-    wrapping this together with :func:`write_snapshot` in one outer
-    transaction (G-002's fuller guarantee: nothing for the id exists at
-    all, not just no ``params`` rows) is the caller's to compose.
+    The whole call is one transaction (``rollback()`` on any exception,
+    ``commit()`` only at the very end) -- a failure partway through leaves
+    zero rows for this snapshot, even after a later, unrelated ``commit()``
+    on the same connection; a failure in the params loop leaves zero
+    ``repositories`` rows too. It joins ``conn``'s transaction if the caller
+    already has one open (:func:`_begin`), so wrapping this together with
+    :func:`write_snapshot` in one outer transaction (the fuller guarantee:
+    nothing for the id exists at all, not just no ``params`` rows) is the
+    caller's to compose.
 
     ``params`` rows for a gated repo (``record.params`` is empty at stage 0
     -- `04` section 3, ``cvi.core.engine`` never scores a gated repo's
@@ -448,35 +428,33 @@ def write_records(
             for row in build_populations_table(populations):
                 conn.execute(_POPULATION_UPSERT_SQL, row)
                 populations_written += 1
-    except Exception:
+    except Exception:  # review-ok: transaction cleanup helper terminates transaction before re-raise
         _end(conn, owns, ok=False)
         raise
     _end(conn, owns, ok=True)
     return (repos_written, params_written, populations_written)
 
 
-#: G-001 (REWORK round 3): the snapshot's identity covers every v2 table
-#: that carries evidence for it -- not just membership (``repositories``)
-#: but "why this score" (``params``) and the frozen normalisation inputs
-#: (``populations``). A narrower allow-list let a `params` row (score, raw
-#: value, source_hash) or a `populations` row be rewritten with the
-#: identity hash unchanged -- 03 section 5's guard certifying evidence it
-#: never actually covered.
+#: The snapshot's identity covers every v2 table that carries evidence for
+#: it -- not just membership (``repositories``) but "why this score"
+#: (``params``) and the frozen normalisation inputs (``populations``). A
+#: narrower allow-list would let a `params` row (score, raw value,
+#: source_hash) or a `populations` row be rewritten with the identity hash
+#: unchanged, leaving 03 section 5's guard certifying evidence it does not
+#: cover.
 _SNAPSHOT_DUMP_TABLES = ("repositories", "params", "populations")
 
 
 def snapshot_dump_hash(db_path: Path, snapshot_id: str) -> str:
     """``cvi.snapshot.reproduce.canonical_dump_hash`` scoped to one
     snapshot's own rows of ``repositories``, ``params`` and ``populations``
-    (see the handoff's ownership request: no second hash implementation,
-    R-2). Renamed from ``repositories_snapshot_dump_hash`` (G-001): the old
-    name was an accurate description of the too-narrow behaviour it had.
+    -- there is no second hash implementation here.
 
     An ALLOW-list of tables (keep only the three above), not a fixed
-    exclude-list -- a fixed exclude-list silently hashed
+    exclude-list -- an exclude-list would silently hash
     ``legacy_repositories`` into every v2 snapshot's identity on a migrated
-    v1 database (F-007). Copies ``db_path`` to a scratch file, then, in FK-
-    safe child-before-parent order: deletes every ``params`` row whose
+    v1 database. Copies ``db_path`` to a scratch file, then, in FK-safe
+    child-before-parent order: deletes every ``params`` row whose
     ``repo_id`` belongs to a repository OUTSIDE ``snapshot_id`` (``params``
     has no ``snapshot_id`` column of its own), deletes every
     ``repositories`` row not in ``snapshot_id``, deletes every
@@ -488,10 +466,9 @@ def snapshot_dump_hash(db_path: Path, snapshot_id: str) -> str:
     :func:`cvi.store.schema.connect` (no ``PRAGMA foreign_keys = ON``):
     the final ``DROP TABLE`` of ``snapshots`` (and anything else) would
     fail under FK enforcement while ``repositories`` rows still reference
-    it -- verified directly. Enforcing integrity on a copy being
-    intentionally, selectively torn apart for hashing would break the
-    operation, not protect real data (G-004's guarantee is about
-    connections that write real data; this one only reads and discards)."""
+    it. Enforcing integrity on a copy being intentionally, selectively torn
+    apart for hashing would break the operation, not protect real data --
+    this connection only reads and discards a throwaway copy."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         copy_path = Path(tmp_dir) / "snapshot_dump.db"
         shutil.copyfile(db_path, copy_path)

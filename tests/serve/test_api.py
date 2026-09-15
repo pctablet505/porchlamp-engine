@@ -1,11 +1,11 @@
-"""Packet W4-4 acceptance: `cvi/serve/app.py` -- the v2 API, served straight
+"""Acceptance tests for `cvi/serve/app.py` -- the v2 API, served straight
 off the v2 store, through `cvi/serve/contract.py`'s wire models.
 
 Every endpoint's JSON is parsed by `response_model=` before this test ever
 sees it (FastAPI/pydantic itself refuses to serialise a response that fails
 the contract), so a passing test here is already proof the shape validates;
-the assertions below check the CONTENT the packet's bridge decisions
-produce, not merely "it parsed".
+the assertions below check the content that bridge logic produces,
+not merely "it parsed".
 """
 from __future__ import annotations
 
@@ -91,7 +91,7 @@ def test_leaderboard_balanced_default_shape_and_total(api):
 
 def test_leaderboard_suspicion_and_stars_audited_round_trip(api):
     """Bridge: `suspicion`/`stars_audited` are projected verbatim (not
-    dropped, not fabricated) -- also proves the W1-10/G-006 writer bridge
+    dropped, not fabricated) -- also proves the writer bridge
     (`cvi/store/writer.py`) actually reaches the wire."""
     client, fx, _db = api
     resp = client.get("/v1/cvi/leaderboard?q=flagged-repo")
@@ -241,7 +241,7 @@ def test_not_ranked_gated_group_has_universal_reasons_only(api):
 
 
 def test_not_ranked_no_external_workflow_gate_is_translated_to_unrated(api):
-    """Bridge item 3 (lead ruling): a stage-6 GATE (`gate_reason ==
+    """A stage-6 GATE (`gate_reason ==
     "unrated: no_external_workflow"`) is reported in the UNRATED group
     with the bare `unrated_reason`, never widening `GateReason`."""
     client, fx, _db = api
@@ -288,11 +288,11 @@ def test_not_ranked_balanced_has_no_persona_hidden_group(api):
 
 
 def test_snapshot_counts_match_the_display_classification(api):
-    """NB-1 (lead ruling 2026-09-14, U-2): `/snapshot`'s counts apply
+    """`/snapshot`'s counts apply
     `cvi.core.pipeline`'s user-facing classification
     (`DISPLAY_UNRATED_GATE_REASONS`), not the raw engine `eligible` flag
     -- this fixture's one `"unrated: no_external_workflow"`-gated row
-    (bridge item 3) is counted as unrated here, same as everywhere else."""
+    is counted as unrated here, same as everywhere else."""
     from cvi.core.pipeline import DISPLAY_UNRATED_GATE_REASONS
 
     client, fx, _db = api
@@ -306,13 +306,13 @@ def test_snapshot_counts_match_the_display_classification(api):
 
 
 def test_not_ranked_counts_derived_from_the_split_balanced(api):
-    """NB-1 (lead ruling 2026-09-14, U-2): `NotRankedResponse.counts` must
+    """`NotRankedResponse.counts` must
     match the ACTUAL groups this same response carries, AND must now
     equal `/snapshot`'s counts exactly -- both derive from the SAME
     `cvi.core.pipeline.DISPLAY_UNRATED_GATE_REASONS` classification
     (`cvi.store.queries.snapshot_summary` applies it in SQL,
     `cvi.serve.app._classify_not_ranked` applies it per-row), so a
-    stage-6-gated-but-display-unrated row (bridge item 3) is counted the
+    stage-6-gated-but-display-unrated row is counted the
     same way on both screens -- no more off-by-one between them."""
     client, fx, _db = api
     body = NotRankedResponse(**client.get("/v1/cvi/not-ranked").json())
@@ -442,7 +442,7 @@ def _evidence_row_kwargs(**overrides):
 @pytest.mark.parametrize(
     "bad_source",
     [
-        "/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/torvalds__linux.json",
+        "/var/data/sample-200/raw/gfi/torvalds__linux.json",
         "/raw/pr_window/acme__demo.json",
         "\\raw\\pr_window\\acme__demo.json",
         "C:\\raw\\pr_window\\acme__demo.json",
@@ -450,7 +450,7 @@ def _evidence_row_kwargs(**overrides):
     ],
 )
 def test_evidence_row_rejects_an_absolute_or_unsafe_source(bad_source):
-    """W2-14: `EvidenceRow.source` must be a relative POSIX path with no
+    """`EvidenceRow.source` must be a relative POSIX path with no
     `..` segment (docs/v2/00-README.md non-negotiables) -- an absolute
     path, a Windows drive letter, or a `..` escape must never validate."""
     import pydantic
@@ -669,15 +669,8 @@ def test_ui_fixtures_validate_against_the_api_contract_models():
         elif path.name.startswith("evidence"):
             evidence_adapter.validate_python(payload)
         elif path.name == "methodology.json":
-            # W4-5b addition (round-3 rebase note, 2026-09-14): this
-            # fixture did not exist when this drift guard was written on
-            # the W4-4 branch. `MethodologyResponse` (not `app.py`'s own
-            # `MethodologyDocument`, a plain TypedDict from `cvi.core.
-            # methodology` with no pydantic validation at all) is this
-            # file's contract-side mirror -- `tests/test_ui_fixtures_w4_5b.
-            # py::TestMethodologyFixtureValidatesAgainstContract` already
-            # validates the same fixture against it with exact-value
-            # checks; this branch just needs the SHAPE-only mapping so this
+            # This fixture validates against `MethodologyResponse` (contract-side
+            # mirror of `cvi.core.methodology` document) so this
             # drift guard covers every fixture file rather than failing on
             # one it does not recognise.
             _MethodologyResponse(**payload)
@@ -691,8 +684,7 @@ def test_ui_fixtures_validate_against_the_api_contract_models():
 # --------------------------------------------------------------------------- #
 # Zero external requests through the v2 static mount (extends the existing
 # `tests/test_webapp.py::TestZeroCDNAssurance` pattern to `cvi.serve.app`'s
-# own mount; `web/v2/` does not exist in every worktree yet -- W4-5a lands
-# it -- so this proves the MOUNT + fallback mechanism never introduces an
+# own mount; proves the mount + fallback mechanism never introduces an
 # external reference of its own, using a controlled `index.html`).
 # --------------------------------------------------------------------------- #
 
@@ -756,17 +748,17 @@ def _assert_under_budget_with_retry(measure, label: str, budget_ms: float = 150.
     occasionally overshoot from a transient scheduling stall rather than a
     real regression in the endpoint's cost -- tolerate ONE re-measure
     before failing (never a relaxed budget)."""
-    # Lead ruling 2026-09-13/14: the 150 ms budget is measured in isolation; under
+    # The 150 ms budget is measured in isolation; under
     # pytest-xdist on this shared box the ASSERTION tolerates 2x (same rule as
     # tests/store/test_queries.py); an isolated run enforces the real number.
     if os.environ.get("PYTEST_XDIST_WORKER"):
         budget_ms = budget_ms * 2.0
     first = measure()
-    print(f"\n[W4-4 perf] {label}: {first:.2f} ms")
+    print(f"\n[perf] {label}: {first:.2f} ms")
     if first < budget_ms:
         return
     second = measure()
-    print(f"[W4-4 perf] {label} (retry after a first-batch overshoot): {second:.2f} ms")
+    print(f"[perf] {label} (retry after a first-batch overshoot): {second:.2f} ms")
     assert second < budget_ms, (
         f"{label} exceeded the {budget_ms:.0f}ms budget twice in a row "
         f"({first:.2f}ms, then {second:.2f}ms on retry) -- not attributed to transient host contention"
@@ -798,11 +790,10 @@ def test_performance_leaderboard_and_reproject_p95_under_150ms_for_10k_rows(tmp_
 
 
 # --------------------------------------------------------------------------- #
-# Blocker B-1 (W4-4 REWORK): `scripts/serve.py`'s `main()` must start on a
+# `scripts/serve.py`'s `main()` must start on a
 # v2-only database, from a foreign cwd, and serve `/v1/cvi/*` without a
 # bare 500 -- tested through a REAL subprocess (`create_app` alone does
-# not exercise `main()`'s own guard/banner code path, which is exactly
-# what the review found broken).
+# not exercise `main()`'s own guard/banner code path).
 # --------------------------------------------------------------------------- #
 
 import contextlib  # noqa: E402
@@ -923,7 +914,7 @@ def test_method_mismatch_on_a_real_endpoint_is_not_the_spa_shell(api):
 
 
 def test_bare_healthz_returns_200_with_the_snapshot_id(api):
-    """NB-2 (lead ruling 2026-09-14): a real liveness route, not the SPA
+    """A real liveness route, not the SPA
     shell and not a 404 -- by the time a request reaches it the served-DB
     guard has already passed, so it is always 200 once the process is up."""
     client, fx, _db = api
@@ -937,7 +928,7 @@ def test_bare_healthz_returns_200_with_the_snapshot_id(api):
 
 def test_legacy_prefix_unmounted_is_a_json_404_not_the_spa_shell(api):
     """No v1 shape in this fixture's database -- `/legacy` mounts no real
-    v1 app, but NB-2 registers an explanatory 404 route in its place (never
+    v1 app, but registers an explanatory 404 route in its place (never
     the SPA shell, never the bare "no route matches" fallback)."""
     client, _fx, _db = api
     resp = client.get("/legacy/healthz")
@@ -1131,12 +1122,12 @@ def test_matrix_excludes_a_point_whose_quadrant_is_null_even_with_coordinates(tm
 
 
 def test_no_ceiling_or_band_assigns_a_and_b_correctly_via_reproject(api):
-    """RX3: `_no_ceiling_or_band`'s A/B bands (`cvi.core.constants_v2.
+    """RX3: `_no_ceiling_or_band`'s A/B bands (`cvi.core.constants.
     CEILING_A_MIN_COVERAGE`=0.80, `NO_CEILING_MIN_COVERAGE`=0.95) -- the
     one arithmetic `cvi/serve/app.py` performs itself, per its own
     docstring's "the one exception". Uses `/reproject` with a custom
     weight vector chosen so the resulting coverage lands in each band."""
-    from cvi.core import constants_v2
+    from cvi.core import constants
 
     client, _fx, _db = api
     # Every rated row in this fixture has uniform per-pillar coverage 0.9
@@ -1150,15 +1141,15 @@ def test_no_ceiling_or_band_assigns_a_and_b_correctly_via_reproject(api):
     for row in body["rows"]:
         assert 0.80 <= row["coverage"] < 0.95
         assert row["tier_ceiling"] == "A"
-    assert 0.80 <= 0.9 < constants_v2.NO_CEILING_MIN_COVERAGE  # sanity on the fixture's own assumption
+    assert 0.80 <= 0.9 < constants.NO_CEILING_MIN_COVERAGE  # sanity on the fixture's own assumption
 
 
 # --------------------------------------------------------------------------- #
-# NB-1 (lead ruling 2026-09-14, U-2): the pipeline's own counts, the
+# The pipeline's own counts, the
 # store's snapshot_summary, and this API's not-ranked split must all
 # agree -- a real served fixture showed /snapshot reporting
 # gated=35/unrated=15 (the raw engine eligible flag) while /not-ranked
-# reported 31/19 (06 section 3 A2's classification, already correct at
+# reported 31/19 (classification already correct at
 # the API layer). cvi.core.pipeline.not_ranked_class/
 # DISPLAY_UNRATED_GATE_REASONS is now the one shared rule.
 # --------------------------------------------------------------------------- #

@@ -1,4 +1,4 @@
-"""Forward-validation experiment for the v2 ranking (packet W5-1, D-VAL-1).
+"""Forward-validation experiment for the v2 ranking (D-VAL-1).
 
 The pre-registered contract is `docs/v2/validation/PREREG.md` (v1.0, frozen
 at its self-hash): T is the S0 snapshot's `as_of` (D-VER-3), collection runs
@@ -173,7 +173,7 @@ def resolve_snapshot(snapshot: str, data_dir: Optional[os.PathLike[str]] = None)
     """Resolve ``--snapshot`` to a :class:`SnapshotRef`.
 
     Accepts a path to a ``manifest.json`` (the data dir is inferred from the
-    W0-3 layout ``<data_dir>/snapshots/<id>/manifest.json`` unless given) or a
+    ``<data_dir>/snapshots/<id>/manifest.json`` layout unless given) or a
     snapshot id looked up under ``data_dir`` (default: ``data``).
     """
     path = Path(snapshot)

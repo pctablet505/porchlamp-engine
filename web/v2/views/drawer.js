@@ -2,25 +2,24 @@
 // fixed by D-DEF-2 and never reordered: (1) identity + gate status, (2)
 // composite, (3) pillar/evidence table, (4) persona view, (5) integrity,
 // (6) playbook (stubbed). A gated repository (`gate_reason` set) renders
-// section 1 (identity + the reason sentence) same as always, and — W4-5d
-// (2026-09-14) — sections 3/4/5 (pillars/evidence, persona view,
+// section 1 (identity + the reason sentence) as always, and sections
+// 3/4/5 (pillars/evidence, persona view,
 // integrity) below it, all COLLAPSED (`<details>` with no `open`
 // attribute) so "the reason sentence and nothing else above the fold" (06
 // §3 C) still holds visually while the data is one click away instead of
 // simply absent. Section 2 (composite) is OMITTED for a gated repo — no
 // CVI/tier/quadrant was ever computed (`RepoDetailResponse.cvi` etc. are
-// `None`); see `copy.js`'s comment above `DRAWER_SECTION_COMPOSITE` for
-// the documented choice. Section 6 (playbook) is also omitted for gated —
+// `None`); see `copy.js`'s comment above `DRAWER_SECTION_COMPOSITE`.
+// Section 6 (playbook) is also omitted for gated —
 // an action-recommendation stub has nothing to recommend for a repository
 // disqualified before scoring. The persona section for a gated repo lists
 // every known persona against the SAME repo-level gate reason (a gated
 // repo has no per-persona `persona_composites`/`persona_gates` at all —
 // `{}` on the wire — because disqualification happens before any persona
 // lens is ever applied). An unrated repository (`unrated_reason` set)
-// still shows only its evidence table (section 3), UNCHANGED by W4-5d,
+// shows only its evidence table (section 3),
 // since individual parameters may be partially measured even though
-// composite coverage fell below the 0.60 floor and this packet's scope is
-// gated only (dispatch: "an unrated repo unchanged").
+// composite coverage fell below the 0.60 floor.
 //
 // Focus trap and Esc-to-close-and-restore-focus are DOM concerns handled by
 // app.js; this module only produces markup.
@@ -36,15 +35,13 @@ function escapeHtml(value) {
 }
 
 /**
- * Locates a repo's record. Lead ruling 2026-09-13 (drawer-content-parity
- * fix, reproducing 0-evidence-rows-from-Matrix): the drawer's ONLY source
- * is now `state.repoDetailByKey` — the result of `GET /v1/cvi/repos/{o}/
- * {n}` (`app.js::loadRepoDetail`, called by `openRepo` regardless of which
- * screen opened it) — never the ad-hoc "search whatever state slice
- * happens to already be loaded" this function used before, which gave
- * different (often EMPTY) content depending on entry point (Matrix's own
- * point list, a Compare chip's cache, and the paginated leaderboard's
- * CURRENT PAGE are three different, partial views of a repo's data).
+ * Locates a repo's record. The drawer's ONLY source is
+ * `state.repoDetailByKey` — the result of `GET /v1/cvi/repos/{o}/{n}`
+ * (`app.js::loadRepoDetail`, called by `openRepo` regardless of which
+ * screen opened it) — so the drawer's content is identical from every
+ * entry point. Matrix's own point list, a Compare chip's cache and the
+ * paginated leaderboard's CURRENT PAGE are only partial views of a repo's
+ * data and are never consulted here.
  */
 export function findRow(state, owner, name) {
   const key = `${owner}/${name}`;
@@ -52,18 +49,14 @@ export function findRow(state, owner, name) {
 }
 
 /**
- * W4-5c (2026-09-14): `GET /v1/cvi/repos/{owner}/{name}` no longer sends
- * `kind` on the wire at all -- the REAL API (`cvi/serve/contract.py`'s
- * `RepoDetailResponse`, packet W4-4) never did, and the UI fixture server
- * used to invent a `{kind, row}` wrapper that diverged from it (a real
- * TypeError in the drawer once the frontend was pointed at the real API:
- * `row` was `undefined`). The contract is the truth: `found` IS the flat
- * row now, and `kind` is computed client-side from the same two fields
- * the real store's own rule uses (`cvi.store.queries.list_not_ranked`'s
- * docstring: "Gated (eligible=0) and unrated (eligible=1, rated=0)") --
- * `!eligible` is gated (disqualified before scoring, never rated),
- * `eligible && !rated` is unrated (passed eligibility, failed the
- * coverage floor), anything else is rated.
+ * `GET /v1/cvi/repos/{owner}/{name}` does not send `kind` on the wire at
+ * all (`cvi/serve/contract.py`'s `RepoDetailResponse` is the flat row), so
+ * `kind` is computed client-side from the same two fields the store's own
+ * rule uses (`cvi.store.queries.list_not_ranked`'s docstring: "Gated
+ * (eligible=0) and unrated (eligible=1, rated=0)") -- `!eligible` is gated
+ * (disqualified before scoring, never rated), `eligible && !rated` is
+ * unrated (passed eligibility, failed the coverage floor), anything else
+ * is rated.
  */
 export function classifyKind(found) {
   if (!found.eligible) return "gated";
@@ -171,8 +164,8 @@ function renderPillarSection(row, evidenceRows, evidenceError) {
 }
 
 /**
- * Shared by the "unrated" branch (unchanged by W4-5d — always `open`) and
- * the "gated" branch (W4-5d — always collapsed): neither kind has any
+ * Shared by the "unrated" branch (always `open`) and the "gated" branch
+ * (always collapsed): neither kind has any
  * `p_<pillar>`/`c_<pillar>` score to summarise (`RepoDetailResponse`
  * returns `None` for both — a gated/unrated repo never reaches
  * `cvi.core.engine`'s pillar computation), so unlike `renderPillarSection`
@@ -190,11 +183,11 @@ function renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, open) {
 }
 
 /**
- * W4-5d: a gated repository's `persona_gates`/`persona_composites` are
+ * A gated repository's `persona_gates`/`persona_composites` are
  * both `{}` on the wire (disqualification happens before ANY persona lens
- * is ever applied, so no per-persona gate code was ever computed) — the
- * dispatch's own wording for this section is "all personas gated with the
- * gate reason", so this lists every known persona (`copy.PERSONA_NAMES`)
+ * is ever applied, so no per-persona gate code was ever computed) — this
+ * section reads "all personas gated with the gate reason", so it lists
+ * every known persona (`copy.PERSONA_NAMES`)
  * against the repo's own `gate_reason` sentence rather than reusing
  * `renderPersonaSection`'s per-persona `persona_gates` lookup, which would
  * render zero rows here.
@@ -269,14 +262,12 @@ export function renderDrawer(state) {
 
   if (!found) {
     let body;
-    // N3 (round-3 review, 2026-09-14): a 404 from `GET /v1/cvi/repos/{o}/
-    // {n}` IS `state.repoDetailError` (api.js/app.js::loadRepoDetail treat
-    // every non-2xx the same way), so checking `repoDetailError` alone
-    // routed a GENUINE not-found through the retry-error banner and made
-    // `DRAWER_NOT_FOUND_TEXT` dead code for the one case it names. A 404
-    // is retried for nothing (the repo will 404 again), so it gets its
-    // own copy and no retry button; every OTHER status (500, timeout, a
-    // network failure) keeps the retry banner.
+    // A 404 from `GET /v1/cvi/repos/{o}/{n}` arrives as
+    // `state.repoDetailError` like any other non-2xx
+    // (api.js/app.js::loadRepoDetail treat them the same way), but it is
+    // a genuine not-found: retrying would 404 again, so it gets
+    // `DRAWER_NOT_FOUND_TEXT` and no retry button. Every OTHER status
+    // (500, timeout, a network failure) keeps the retry banner.
     if (state.repoDetailLoading) {
       body = `<p>${escapeHtml(copy.DRAWER_LOADING_TEXT)}</p>`;
     } else if (state.repoDetailError && state.repoDetailError.status !== 404) {
@@ -297,11 +288,10 @@ export function renderDrawer(state) {
     );
   }
 
-  // W4-5c: `found` IS the flat `RepoDetailResponse` now -- `kind` is
-  // derived, `row` is just a local alias so every render helper below
-  // (already written against a LeaderboardRow/NotRankedRow-shaped
-  // object, a strict SUBSET of this flat shape's fields) needs no
-  // further change.
+  // `found` IS the flat `RepoDetailResponse` -- `kind` is derived, `row`
+  // is just a local alias so every render helper below (written against a
+  // LeaderboardRow/NotRankedRow-shaped object, a strict SUBSET of this
+  // flat shape's fields) can consume it directly.
   const kind = classifyKind(found);
   const row = found;
   const closeButton = `<button type="button" class="icon-button" data-drawer-close="true">${escapeHtml(copy.DRAWER_CLOSE_LABEL)}</button>`;
@@ -311,7 +301,7 @@ export function renderDrawer(state) {
   const evidenceError = evidenceRows ? null : state.evidenceError;
 
   if (kind === "gated") {
-    // W4-5d: the gate sentence (in `identity` above) stays "the reason
+    // The gate sentence (in `identity` above) stays "the reason
     // sentence and nothing else above the fold" (06 §3 C) — every section
     // below is collapsed (`open` omitted) so nothing but the summary text
     // shows without a click. Evidence is fetched for a gated repo exactly

@@ -1,48 +1,15 @@
--- 0002_indexes.sql -- W4-3 read-path indexes (04 section 6/7; 06 section 7
--- performance budgets). EXPLAIN QUERY PLAN on a 10,000-row synthetic
--- snapshot showed every list_ranked/reproject predicate already resolves
--- through an existing index EXCEPT the persona/custom-weight base filter
--- (`snapshot_id = ? AND eligible = 1`, cvi/store/queries.py's
--- `_persona_visible_where_sql` and `reproject`): idx_rank and idx_eco both
--- key on `rated`/`ecosystem` instead of `eligible`, so without this index
--- that filter falls back to a full table SCAN, filtering `eligible`
--- row-by-row (confirmed: dropping this index turns
--- `SEARCH r USING INDEX idx_eligible (snapshot_id=? AND eligible=?)` into
--- `SCAN r` in EXPLAIN QUERY PLAN).
+-- 0002_indexes.sql -- Read-path indexes for persona and reproject filtering.
 --
--- Correction (W4-3 review Warning W-3): an earlier version of this comment
--- and the packet's own handoff claimed a ~30% wall-clock speedup (34ms ->
--- 24ms / 73ms -> 64ms p95) from this index. The review could not
--- reproduce that on a SINGLE-SNAPSHOT 10,000-row fixture: dropping the
--- index changes the PLAN (SEARCH -> SCAN, as above) but moved nothing
--- measurable in wall time -- persona p95 42.55ms -> 41.82ms, reproject
--- 44.88ms -> 43.78ms, the base `SELECT r.*` alone 24.17ms -> 23.50ms (all
--- within ordinary run-to-run noise); only the degenerate
--- `COUNT(*) WHERE eligible=1` improved, and only by ~0.6ms absolute
--- (0.16ms -> 0.78ms). The likely reason: SQLite's `eligible` filter is
--- cheap regardless of the access path when the WHOLE table belongs to one
--- snapshot (this fixture's deliberately worst case, matching every other
--- perf test in this packet). The index is kept anyway for the PLAN
--- argument, not a measured one: a real, multi-snapshot database has many
--- more non-matching rows for the `SCAN` to walk past, and the plan-level
--- benefit (an index seek instead of a growing full scan) only gets larger
--- as older snapshots accumulate -- see
--- tests/store/test_queries.py::test_explain_query_plan_uses_idx_eligible_for_persona_and_reproject_base_filter
--- for the reproducible EXPLAIN-based proof this comment now rests on,
--- rather than a wall-clock number that did not hold up.
+-- EXPLAIN QUERY PLAN on synthetic snapshots shows list_ranked and reproject
+-- predicates resolve through existing indexes, while the base filter
+-- (`snapshot_id = ? AND eligible = 1`) benefits from indexing: idx_rank and
+-- idx_eco key on `rated`/`ecosystem` rather than `eligible`.
 --
--- Documented, not addressed here: the persona projection's own predicates
--- (json_extract(persona_composites, '$.' || :persona || '.cvi') ...) and
--- the custom-weight reprojection's per-pillar CASE expressions cannot be
--- indexed. A JSON-path expression index in SQLite must be a FIXED
--- expression at CREATE INDEX time, but :persona varies per call (five
--- preset names today, and this module deliberately never special-cases any
--- one of them), so no expression index can match every call's path.
--- Building one index per known preset would help only those four presets
--- and never a future one, and the measured cost (see the packet's own
--- performance test) is JSON parsing per matching row, not the seek to find
--- those rows in the first place -- an index narrows which rows are
--- visited, it cannot skip evaluating a function against the rows it does
--- visit.
+-- The index is maintained to ensure an index seek rather than a table scan
+-- as snapshots accumulate.
+--
+-- Note: Persona projection predicates (json_extract over persona_composites)
+-- and custom-weight per-pillar CASE expressions cannot be indexed with fixed
+-- expressions, as parameters vary per query.
 
 CREATE INDEX IF NOT EXISTS idx_eligible ON repositories(snapshot_id, eligible);

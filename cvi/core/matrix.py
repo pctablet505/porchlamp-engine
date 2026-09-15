@@ -1,12 +1,11 @@
 """CVI v2 coordinates: leverage, friction, quadrant (D-MAT-1, 02 section 8).
 
-Stage 7 of D-ORDER-1. This is the v2 replacement for the top-level v1
-``cvi/matrix.py``, which stays untouched (packet W2-5 owns this module
-only). The weights and the quadrant names are unchanged from v1 (D-MAT-1:
-"documented convention kept" -- the convention being v1's own docstring,
-reproduced below); what changes is that an unmeasured pillar now drops out
-of the coordinate under the same D-MISS-2 renormalisation, and the
-coordinate carries its own coverage.
+Stage 7 of D-ORDER-1. This is the v2 counterpart of the top-level v1
+``cvi/matrix.py``, which remains separate. The weights and the quadrant
+names are unchanged from v1 (D-MAT-1: "documented convention kept" -- the
+convention being v1's own docstring, reproduced below); what differs is
+that an unmeasured pillar drops out of the coordinate under the same
+D-MISS-2 renormalisation, and the coordinate carries its own coverage.
 
 Leverage (Y axis): ``0.50*criticality + 0.30*rigor + 0.20*governance``.
 Friction (X axis): ``0.50*(100-responsiveness) + 0.30*(100-governance) +
@@ -26,19 +25,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import PillarScore
 
-#: D-MAT-1 leverage weights (kept from v1's LEVERAGE_WEIGHTS). Relocated to
-#: ``constants_v2`` by packet W2-8 (R-2); re-bound here under the original
-#: name.
-LEVERAGE_WEIGHTS: dict[str, float] = constants_v2.LEVERAGE_WEIGHTS
-#: D-MAT-1 friction weights (kept from v1's FRICTION_WEIGHTS). Relocated to
-#: ``constants_v2`` by packet W2-8 (R-2).
-FRICTION_WEIGHTS: dict[str, float] = constants_v2.FRICTION_WEIGHTS
+#: D-MAT-1 leverage weights (kept from v1's LEVERAGE_WEIGHTS), re-bound
+#: from ``cvi.core.constants`` under the original name.
+LEVERAGE_WEIGHTS: dict[str, float] = constants.LEVERAGE_WEIGHTS
+#: D-MAT-1 friction weights (kept from v1's FRICTION_WEIGHTS).
+FRICTION_WEIGHTS: dict[str, float] = constants.FRICTION_WEIGHTS
 #: D-MAT-1 quadrant boundary; a coordinate exactly at the threshold is high.
-#: Relocated to ``constants_v2`` by packet W2-8 (R-2).
-QUADRANT_THRESHOLD: float = constants_v2.QUADRANT_THRESHOLD
+QUADRANT_THRESHOLD: float = constants.QUADRANT_THRESHOLD
 
 #: D-MAT-1 quadrant labels (kept from v1's Quadrant enum values).
 QUADRANT_SWEET_SPOT: str = "Sweet Spot"

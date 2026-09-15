@@ -1,16 +1,13 @@
-"""W2-8b acceptance: D-VER-4 anchors over the v2 fixture snapshot
+"""Acceptance tests: D-VER-4 anchors over the v2 fixture snapshot
 (``cvi.audit.anchors.evaluate_anchors_v2``, ``docs/v2/02-RANKING-DESIGN.md``
 section 11).
-
-Fail-before: before this packet ``evaluate_anchors_v2`` does not exist, so
-every test below fails on ``AttributeError``/``ImportError``.
 
 Every anchor this fixture *can* evaluate must PASS (or REPORT, for
 ``keras_hub_gate_reported``, which never fails by design); an anchor this
 50-repo fixture has no way to evaluate (its identity repo is absent, or --
 ``newcomer_label_5_1`` -- the v2 ``ScoreRecord`` contract itself cannot
 supply the independent fact the relation needs) is asserted SKIPPED WITH
-REASON, per the packet's own instruction, never silently passed.
+REASON, never silently passed.
 """
 from __future__ import annotations
 
@@ -41,7 +38,7 @@ SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "build_fixture_s
 #: SKIPPED (absent identity / no independent fact to check) or REPORT
 #: (``keras_hub_gate_reported``, which never fails).
 _EXPECT_PASS = {"linux_off_platform", "archived_repo_gated", "awesome_non_software"}
-# linux_dco is SKIPPED, not PASS, on this fixture: W1-6 landed legal_ip reading
+# linux_dco is SKIPPED, not PASS, on this fixture: legal_ip reads
 # the real governance envelope, which is absent here, so legal_ip is genuinely
 # Unmeasured(collector_failure) for torvalds/linux -- measured, not a bug (see
 # _skipped_unmeasured_input in cvi/audit/anchors.py and the commit that fixed
@@ -107,7 +104,7 @@ def test_no_relation_ever_returns_fail_on_this_fixture(results) -> None:
     construction -- if a relation this fixture *can* evaluate ever
     genuinely contradicts the ranking, that must show up as FAIL, not be
     silently absorbed into SKIPPED. This fixture's real, measured anchors
-    all hold (the summary below is pasted in the handoff), so today's
+    all hold, so today's
     expected count is zero; a future change to the fixture or the gates
     that breaks a real anchor must fail this test, not be missed by it."""
     failing = [result for result in results if result.verdict == FAIL]
@@ -115,7 +112,7 @@ def test_no_relation_ever_returns_fail_on_this_fixture(results) -> None:
 
 
 def test_print_anchor_table(results, snapshot) -> None:
-    """Not an assertion -- prints the anchor table for the handoff (``-s``
+    """Not an assertion -- prints the anchor table (``-s``
     to see it; harmless without)."""
     print(format_anchor_report_v2(results, len(snapshot.records)))
 
@@ -166,7 +163,7 @@ def test_awesome_and_archived_relations_fail_when_not_actually_gated() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Unmeasured-required-input rule (dispatch fix, following the W1-6 fixture
+# Unmeasured-required-input rule (dispatch fix, following fixture
 # regeneration): SKIPPED naming the reason, never FAIL -- FAIL means a
 # *measured* value contradicts the relation.
 # --------------------------------------------------------------------------- #
@@ -207,11 +204,11 @@ def test_linux_dco_fails_on_a_measured_contradicting_value() -> None:
 
 
 def test_linux_dco_is_skipped_not_failed_when_legal_ip_is_unmeasured() -> None:
-    """The dispatch fix's fail-before/oracle: the *same* anchor, same
+    """The dispatch fix's oracle: the *same* anchor, same
     identity, with ``legal_ip`` genuinely ``Unmeasured`` -- SKIPPED, naming
-    the real reason, never FAIL. Reproduces the real defect measured on
-    ``tests/fixtures/snapshot_50`` after W1-6 landed (legal_ip started
-    reading the governance envelope, absent there)."""
+    the real reason, never FAIL. Reproduces the case measured on
+    ``tests/fixtures/snapshot_50`` when legal_ip started
+    reading the governance envelope (absent there)."""
     param = ParamScore(
         value=None, score=None, measured=False, reason="collector_failure", n=0,
         window_start=None, window_end=None, method=None, source=None, fetched_at=None,
@@ -226,7 +223,7 @@ def test_linux_dco_is_skipped_not_failed_when_legal_ip_is_unmeasured() -> None:
 
 
 def test_mutant_reverting_unmeasured_skip_to_fail_is_red() -> None:
-    """Fail-before for the dispatch fix itself: the old behaviour (report
+    """Regression test for the dispatch fix itself: the old behaviour (report
     FAIL for an Unmeasured required input) must fail
     ``test_linux_dco_is_skipped_not_failed_when_legal_ip_is_unmeasured`` --
     reproduced directly here (without touching the source file) so this

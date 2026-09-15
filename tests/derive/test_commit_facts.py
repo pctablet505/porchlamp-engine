@@ -1,20 +1,14 @@
-"""W1-5f acceptance: ``cvi.derive.bundle``'s two commit-derived bundle-level
+"""Acceptance tests for ``cvi.derive.bundle``'s two commit-derived bundle-level
 sidecar facts -- ``last_non_bot_commit_at`` (D-TIE-1 item 7,
 ``docs/v2/02-RANKING-DESIGN.md`` section 10) and ``top_email_domain_share``
 (the ``ef_domain_mismatch`` detector's input, ``docs/v2/
 03-ANTI-MANIPULATION.md`` section 6). Neither is one of
-``constants_v2.PARAM_INPUT_IDS``'s 18 scored parameters, so both live as
+``constants.PARAM_INPUT_IDS``'s 18 scored parameters, so both live as
 bundle-instance sidecar attributes (``cvi.derive.bundle.
 last_non_bot_commit_at``/``top_email_domain_share`` accessors) rather than
 ``FeatureBundle.inputs`` keys.
 
-Fail-before: before this packet, ``cvi.derive.bundle`` has no
-``last_non_bot_commit_at``/``top_email_domain_share`` names at all --
-``AttributeError`` on import (empirically reproduced against the pre-packet
-tree in the handoff, not merely asserted here: ``git show <base>:cvi/
-derive/bundle.py`` has neither symbol).
-
-``_TOP_DOMAIN_SHARE_MIN_N`` is 30 (``constants_v2.PARAM_MIN_N
+``_TOP_DOMAIN_SHARE_MIN_N`` is 30 (``constants.PARAM_MIN_N
 ["elephant_factor"]``, reused, not a new tunable), so every test that wants
 a *Measured* ``top_email_domain_share`` needs at least 30 non-bot commits;
 :func:`_rows` generates them.
@@ -28,7 +22,7 @@ import pytest
 
 from _fixtures import KEY, base_document, expected_hash, load, prov, write_envelope
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import Unmeasured
 from cvi.derive.bundle import (
     LastNonBotCommitMeasured,
@@ -38,7 +32,7 @@ from cvi.derive.bundle import (
     top_email_domain_share,
 )
 
-MIN_N = constants_v2.PARAM_MIN_N["elephant_factor"]
+MIN_N = constants.PARAM_MIN_N["elephant_factor"]
 assert MIN_N == 30  # anchor: the rest of this file's row counts assume this
 
 
@@ -348,8 +342,7 @@ def test_both_sidecar_facts_survive_a_dump_reload_round_trip(tmp_path: Path) -> 
 
 def test_sidecar_facts_default_when_v2_document_has_neither_optional_key(tmp_path: Path) -> None:
     """A v2 document with no ``last_non_bot_commit_at``/
-    ``top_email_domain_share`` key at all (an older document, or one
-    written before this packet) is still valid -- both facts fall back
+    ``top_email_domain_share`` key at all is still valid -- both facts fall back
     to their unset default, never a validation error."""
     import json as _json
 

@@ -1,7 +1,5 @@
 """Adversarial stress tests and empirical latency benchmarks for Milestone 2 Leaderboard API.
 
-Author: challenger_m2_1
-
 Empirically verifies:
 1. Boundary Conditions (HTTP 422 vs 200):
    - Strict 422 validation for page=0, page_size=0, page_size=1001, limit=0,

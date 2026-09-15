@@ -1,20 +1,11 @@
-"""W4-3 acceptance: `cvi/store/queries.py` -- the SQL reprojection and read
-paths F-013 (W4-2 review) asked for (`04` sections 5-7; `06` sections 3-4,
-7; `02` sections 5, 7-10).
+"""Tests for ``cvi.store.queries`` -- SQL reprojection, filtering, and read paths.
 
-Two big parity requirements get their own tests near the bottom of this
-file:
-
-- **Tie-break SQL parity** (`04` section 6's amended ``ORDER BY``): SQL
-  order under balanced and under every preset persona equals
-  ``cvi.core.tiebreak.assign_ranks`` over a 200-row NULL-bearing synthetic
-  snapshot, with a negative control proving the fixture is load-bearing.
-- **Reprojection parity**: for a 300-row synthetic snapshot and 20 random
-  weight vectors, ``reproject``'s SQL composite/coverage/tier/rank equal a
-  Python oracle written INLINE from D-MISS-2/D-MISS-3 + ``assign_ranks`` --
-  the oracle deliberately does not import ``cvi.core.aggregate`` or
-  ``cvi.core.persona`` (W2-11 is changing those files concurrently; this
-  packet stays out of them per its own dispatch)."""
+Includes parity verification:
+- Tie-break SQL parity: SQL order under balanced and preset personas equals
+  ``cvi.core.tiebreak.assign_ranks`` over a null-bearing synthetic snapshot.
+- Reprojection parity: SQL composite/coverage/tier/rank match an inline
+  reference implementation across randomized weight vectors.
+"""
 from __future__ import annotations
 
 import os
@@ -191,8 +182,7 @@ def test_list_ranked_sort_validation_names_the_allowed_set(tmp_path) -> None:
 
 
 # =========================================================================== #
-# Paging bounds (W4-3 review Warning W-5; owner addendum 2026-09-13: page
-# sizes 20/50/100/500/1000, default 20, max 1000).
+# Paging bounds: page sizes 20/50/100/500/1000, default 20, max 1000.
 # =========================================================================== #
 
 def test_default_limit_is_20_and_max_limit_is_1000() -> None:
@@ -315,16 +305,10 @@ def _is_monotonic_nulls_last(values: list, *, increasing: bool) -> bool:
 
 
 def test_list_ranked_descending_flag_reverses_only_the_promoted_level(tmp_path) -> None:
-    """W4-4 REWORK item-06 (Warning W-3): the API's `-` sort-direction
-    prefix used to be silently discarded -- `descending` did not exist at
-    all before this fix. For every allowed `sort` value: `descending=False`
-    gives a genuinely different order from the default `descending=True`
-    (never equal) over the SAME set of rows; NULLs at the promoted level
-    sort last in BOTH directions (D-TIE-1's missingness rule is about
-    absence, not direction); and `rank`/`tie_group` -- a FIXED fact about
-    the visible set, D-TIE-2 -- are IDENTICAL regardless of direction
-    (the tail after the promoted level, and the window functions that
-    compute rank/tie_group, are never reversed)."""
+    """Verify `descending` flag handling: for every allowed `sort` value,
+    `descending=False` gives an inverse order from default `descending=True`;
+    NULLs at the promoted level sort last in both directions; and `rank`/`tie_group`
+    remain identical regardless of display sort direction."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     rng = random.Random(4242)
     dataset = _build_null_bearing_dataset(rng)
@@ -400,15 +384,8 @@ def test_list_ranked_offset_paging_is_deterministic_under_descending_false(tmp_p
 
 
 def test_list_ranked_rank_is_sort_invariant_for_balanced_and_every_persona(tmp_path) -> None:
-    """W4-3 review Blocker B-2: rank/rank_p are D-TIE-2's "strict 1..N
-    after tie-breaking" -- a FIXED fact about the visible set. Before this
-    fix, the persona branch fed the same sort-aware expression to both
-    ROW_NUMBER() and the outer ORDER BY, so `sort="coverage"` on the
-    reviewer's 242-row fixture changed 241 of 242 rows' rank_p. Reproduced
-    here at smaller scale (40 rows, randomised pillars/coverage) across
-    EVERY allowed sort value, for balanced `rank` and for one persona's
-    `rank_p`: the SET of (name -> rank) pairs must be identical regardless
-    of `sort` -- only the PAGE ORDER may change."""
+    """Verify rank and rank_p are sort-invariant (1..N tie-broken ranking
+    is a fixed property of the snapshot rows, independent of display sort)."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     rng = random.Random(2)
     records = []
@@ -778,10 +755,8 @@ def test_reproject_validates_weights(tmp_path) -> None:
 
 
 def test_reproject_rejects_a_negative_weight_even_if_the_sum_is_1(tmp_path) -> None:
-    """W4-3 review Blocker B-1: a negative weight offset by a larger
-    positive one can still sum to exactly 1.0 -- the review's own
-    reproduction ({responsiveness: -0.5, criticality: 1.5, rest: 0.0})
-    used to return cvi=147.5, tier='S+' on a real stored row."""
+    """A negative weight offset by a larger positive one is rejected even
+    if the weights sum to 1.0."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     rec = dc_replace(make_rated_record("snap-1", owner="a", name="r1"), pillars=_uniform_pillars(95.0, 1.0))
     write_records(conn, "snap-1", [make_repo_write(rec)])
@@ -875,17 +850,9 @@ def test_reproject_no_ceiling_above_0_95_coverage(tmp_path) -> None:
 
 
 def test_reproject_cvi_rounds_the_same_way_sql_orders_and_groups_at_a_2dp_half(tmp_path) -> None:
-    """W4-3 review Warning W-2: SQLite's ``ROUND()`` is round-half-away-
-    from-zero; Python's ``round()`` is round-half-to-even (and disagrees
-    with SQL at an exact 2-dp half for floating-point reasons regardless).
-    Before this fix, the returned ``cvi`` used Python's ``round()`` while
-    the ORDER BY/``tie_group`` used SQL's ``ROUND()`` -- two rows sharing a
-    ``tie_group`` (SQL says they tie at 2 dp) could display two DIFFERENT
-    CVIs (the review's own reproduction: 82.12 vs 82.13, ``tie_group=2``
-    for both). Two rows landing on the exact same boundary (82.125,
-    confirmed to diverge: ``sqlite ROUND(82.125,2)=82.13``,
-    ``python round(82.125,2)=82.12``) must now report the IDENTICAL,
-    SQL-rounded ``cvi`` and share a ``tie_group``."""
+    """SQLite's ``ROUND()`` (half-away-from-zero) is used consistently for
+    both displayed CVI and tie grouping so rows sharing a tie group display
+    identical CVI values."""
     import sqlite3
 
     probe = sqlite3.connect(":memory:")
@@ -908,13 +875,8 @@ def test_reproject_cvi_rounds_the_same_way_sql_orders_and_groups_at_a_2dp_half(t
 
 
 def test_reproject_tier_cutoff_uses_the_unrounded_composite_not_the_displayed_cvi(tmp_path) -> None:
-    """W4-3 review Warning W-4b (item 9 mutation R2): `04` section 8 --
-    "tier-cutoff ... comparisons never use the rounded display value".
-    ``composite_raw=89.997`` rounds (SQL ``ROUND``, half-away-from-zero) to
-    a DISPLAYED ``cvi=90.0``, but 89.997 itself is still BELOW the S+
-    cutoff (90.0) -- the tier must be ``'S'``, not ``'S+'``, or a mutant
-    that cuts tier from the rounded composite goes undetected (it did,
-    before this test: the review's own reproduction)."""
+    """Tier cutoff comparisons use the unrounded composite score rather
+    than the 2-decimal rounded display value."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     rec = dc_replace(make_rated_record("snap-1", owner="a", name="r1"), pillars=_uniform_pillars(89.997, 1.0))
     write_records(conn, "snap-1", [make_repo_write(rec)])
@@ -957,13 +919,8 @@ def test_list_ranked_persona_rated_boundary_is_inclusive_at_exactly_0_60(tmp_pat
 
 
 def test_rated_p_is_true_for_every_visible_row_across_every_persona(tmp_path) -> None:
-    """W4-3 review Warning W-4a, documented: on any row ``list_ranked``
-    actually returns, ``rated_p`` is always ``True`` -- the visibility
-    filter already requires ``coverage_p >= 0.60``, the exact threshold
-    ``persona_composite`` used to set the stored ``rated`` flag, so the two
-    can never disagree on a row that clears the filter. Checked across all
-    four presets with varied, near-boundary coverage values (never exactly
-    a hardcoded round number) to make the invariant concrete, not vacuous."""
+    """On any row ``list_ranked`` returns, ``rated_p`` is ``True`` because
+    the visibility filter requires ``coverage_p >= 0.60``."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     rng = random.Random(4)
     records = []
@@ -1048,11 +1005,9 @@ def test_reproject_and_persona_tie_group_nulls_singleton_and_shares_non_singleto
 def _reproject_oracle(
     pillar_data: Mapping[str, Tuple[Any, float]], weights: Mapping[str, float]
 ) -> Tuple[Any, float, Any, bool]:
-    """D-MISS-2/D-MISS-3 computed directly from `02` sections 5, 7-8 --
-    deliberately NOT via ``cvi.core.aggregate``/``cvi.core.persona`` (W2-11
-    is changing those files concurrently; this packet's own dispatch says
-    to stay out of them). Returns ``(composite_2dp, coverage, tier,
-    rated)``; ``composite``/``tier`` are ``None`` when not rated."""
+    """Reference implementation for reprojecting composites and tiers.
+    Returns ``(composite_2dp, coverage, tier, rated)``;
+    ``composite``/``tier`` are ``None`` when not rated."""
     numerator = 0.0
     denominator = 0.0
     coverage = 0.0
@@ -1371,21 +1326,15 @@ def _assert_under_budget_with_retry(measure, label: str, budget_ms: float = 100.
     retry (query cost does not average out over one more 20-call batch a
     few hundred milliseconds later); a transient host hiccup does not
     reproduce twice in a row."""
-    # Lead ruling 2026-09-13: the 100 ms budget is a property of the query
-    # measured in isolation (the handoff and the review both measured it
-    # there). Under a pytest-xdist run the four workers share this box with
-    # concurrent agent sessions, and the second-worst of 20 samples is what
-    # p95 reports, so the ASSERTION tolerates 2x under xdist; the budget
-    # itself is unchanged and an isolated run (CI's, or `-p no:xdist`) still
-    # enforces the real number.
+    # The 100 ms budget is a property of the query
     if os.environ.get("PYTEST_XDIST_WORKER"):
         budget_ms = budget_ms * 2.0
     first = measure()
-    print(f"\n[W4-3 perf] {label}: {first:.2f} ms (budget {budget_ms:.0f} ms)")
+    print(f"\n[perf] {label}: {first:.2f} ms (budget {budget_ms:.0f} ms)")
     if first < budget_ms:
         return
     second = measure()
-    print(f"[W4-3 perf] {label} (retry after a first-batch overshoot): {second:.2f} ms")
+    print(f"[perf] {label} (retry after a first-batch overshoot): {second:.2f} ms")
     assert second < budget_ms, (
         f"{label} exceeded the {budget_ms:.0f}ms budget twice in a row "
         f"({first:.2f}ms, then {second:.2f}ms on retry) -- not attributed to transient host contention"

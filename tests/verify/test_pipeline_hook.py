@@ -49,12 +49,14 @@ from __future__ import annotations
 import copy
 import datetime
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.gates import GateEvidence
 from cvi.core.models import (
     Cohorts,
     FeatureBundle,
     Measured,
+    NewcomerAuthor,
+    PRRef,
     PRWindow,
     PRWindowEvent,
     RepoIdentity,
@@ -80,8 +82,8 @@ _HEALTHY_EVIDENCE = GateEvidence(
     fork_parent_in_universe=None, vitality_commits_180d=5, off_platform_marker=None,
 )
 _EMPTY_POPULATIONS = PopulationSet(
-    snapshot_id="pop", benchmark_version=constants_v2.BENCHMARK_VERSION,
-    constants_hash=constants_v2.CONSTANTS_HASH, populations=(),
+    snapshot_id="pop", benchmark_version=constants.BENCHMARK_VERSION,
+    constants_hash=constants.CONSTANTS_HASH, populations=(),
 )
 
 
@@ -108,7 +110,7 @@ def _repo(owner: str, name: str) -> RepoIdentity:
 
 
 def _full_inputs(measured=None) -> dict:
-    inputs = {key: _u() for key in constants_v2.PARAM_INPUT_IDS}
+    inputs = {key: _u() for key in constants.PARAM_INPUT_IDS}
     inputs.update(measured or {})
     return inputs
 
@@ -123,14 +125,15 @@ def _closed_unmerged_unread_event(pr_number: int) -> PRWindowEvent:
     )
 
 
-def _bundle(repo: RepoIdentity, inputs: dict, *, events: tuple = ()) -> FeatureBundle:
+def _bundle(repo: RepoIdentity, inputs: dict, *, events: tuple = (), cohorts: Cohorts | None = None) -> FeatureBundle:
     bundle = FeatureBundle(
-        schema_version=constants_v2.SCHEMA_VERSION, repo=repo, inputs=inputs,
+        schema_version=constants.SCHEMA_VERSION, repo=repo, inputs=inputs,
         pr_window=PRWindow(
             start=_iso(NOW - datetime.timedelta(days=180)) if events else None,
             end=_iso(NOW) if events else None, truncated=False, events=events,
         ),
-        cohorts=Cohorts(decision_pr_numbers=(), newcomer_authors=()), provenance_hash=_HASH64,
+        cohorts=cohorts if cohorts is not None else Cohorts(decision_pr_numbers=(), newcomer_authors=()),
+        provenance_hash=_HASH64,
     )
     bundle.validate()
     return bundle
@@ -368,3 +371,26 @@ def test_composition_does_not_mutate_bundles_or_previous_snapshot() -> None:
 
     assert current_bundles == current_before
     assert previous_snapshot == previous_before
+
+
+def test_newcomer_burst_fires_through_build_detectors_pipeline_hook() -> None:
+    """Regression test: verify newcomer_accounts_from_cohorts is wired into
+    detector_inputs_from_bundle, allowing detect_newcomer_burst to fire
+    during live snapshot scoring when 5 newcomer accounts merge within 7 days."""
+    authors = tuple(
+        NewcomerAuthor(
+            login=f"burst_newcomer_{i}",
+            first_pr=PRRef(number=200 + i, created_at=_iso(NOW - datetime.timedelta(days=2, hours=i)),
+                           merged_at=_iso(NOW - datetime.timedelta(days=2, hours=i - 1))),
+            followups=(),
+            account_created_at=_iso(NOW - datetime.timedelta(days=3, hours=i)),
+        )
+        for i in range(5)
+    )
+    cohorts = Cohorts(decision_pr_numbers=(), newcomer_authors=authors)
+    repo = _repo("burst", "repo")
+    bundle = _bundle(repo, _full_inputs(), cohorts=cohorts)
+    detectors = build_detectors([bundle])
+    snapshot = _score([bundle], "snap-burst-test", previous=None, detectors=detectors)
+    assert len(snapshot.records) == 1
+    assert "newcomer_burst" in snapshot.records[0].suspicion

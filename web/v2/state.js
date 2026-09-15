@@ -1,9 +1,7 @@
-// state.js — single store with subscribe + URL sync (06 §6, U-9, amended
-// twice by the lead on 2026-09-13: first the "single virtualized list, no
-// pagination" ruling, then the owner's verbatim instruction that REPLACED
-// it with real pagination — 20/50/100/500/1000 page sizes, default 20,
-// next/prev/first/last controls. This file reflects the OWNER'S final
-// ruling: `page`/`pageSize` are back in the URL-synced state).
+// state.js — single store with subscribe + URL sync (06 §6, U-9).
+// Pagination is real: 20/50/100/500/1000 page sizes, default 20,
+// next/prev/first/last controls, with `page`/`pageSize` part of the
+// URL-synced state.
 //
 // URL shape (the real query string, ruling U-16):
 //   ?persona=&eco=&q=&sort=&page=&page_size=&repo=owner%2Fname&tab=
@@ -18,17 +16,17 @@
 
 const PERSISTED_THEME_KEY = "cvi-v2-theme";
 
-//: Owner instruction 2026-09-13 (verbatim): "keep value of pagesize like
-//: 20, 50, 100, 500,1000". Mirrors `cvi.serve.contract.LEADERBOARD_PAGE_SIZES`.
+//: The page sizes the pagination control offers. Mirrors
+//: `cvi.serve.contract.LEADERBOARD_PAGE_SIZES`.
 export const PAGE_SIZES = Object.freeze([20, 50, 100, 500, 1000]);
 export const DEFAULT_PAGE_SIZE = 20;
 
 // --------------------------------------------------------------------- //
-// W4-5b additions: `tab` grows three new primary-screen values
-// ("matrix" | "compare" | "configure" | "methodology", alongside the
-// existing "ranked" | "notranked" Leaderboard sub-tabs — the "Primary
-// tabs" bar (06 §2) treats "ranked"/"notranked" as both belonging to one
-// "Leaderboard" tab). `w=` and `cmp=` are the two new URL-owned fields.
+// `tab` holds four primary-screen values ("matrix" | "compare" |
+// "configure" | "methodology") alongside the "ranked" | "notranked"
+// Leaderboard sub-tabs — the "Primary tabs" bar (06 §2) treats
+// "ranked"/"notranked" as both belonging to one "Leaderboard" tab. `w=`
+// and `cmp=` are the two extra URL-owned fields.
 // --------------------------------------------------------------------- //
 
 //: The five pillars, in the fixed D-AGG-1 order — also the order `w=` uses.
@@ -41,7 +39,7 @@ export const BALANCED_WEIGHTS = Object.freeze({
   rigor: 0.15,
   accessibility: 0.15,
 });
-//: The five persona presets (`cvi.core.constants_v2.PERSONA_PRESETS`,
+//: The five persona presets (`cvi.core.constants.PERSONA_PRESETS`,
 //: transcribed — Configure's preset BUTTONS start a custom vector from one
 //: of these, but the result is immediately relabelled "custom" (U-11): a
 //: preset button is a starting point, not a mode switch back to a persona).
@@ -59,8 +57,8 @@ export const COMPARE_MIN = 2;
 export const COMPARE_MAX = 4;
 
 /**
- * `w=` URL serialisation (documented choice — 06 §3 D leaves the exact
- * shape to this packet): five comma-separated fractions in
+ * `w=` URL serialisation (06 §3 D leaves the exact shape to the
+ * frontend): five comma-separated fractions in
  * `PILLAR_IDS` order, e.g. `w=0.3,0.2,0.2,0.2,0.1`. Returns `null` for a
  * malformed or wrong-length value (the caller falls back to
  * `BALANCED_WEIGHTS`) — never throws on a hand-edited URL.
@@ -115,7 +113,7 @@ export function defaultState() {
     repo: null, // "owner/name" | null
     theme: "system", // "system" | "light" | "dark"
 
-    // ---------------------------------------------------- W4-5b: Matrix (B)
+    // ----------------------------------------------------------- Matrix (B)
     matrix: null, // the MatrixResponse
     matrixLoading: false,
     matrixError: null,
@@ -125,7 +123,7 @@ export function defaultState() {
     matrixFocusedKey: null, // "owner/name" — keyboard focus / hover, drives the hover card
     matrixHoveredKey: null,
 
-    // ------------------------------------------- W4-5b: Configure weights (D)
+    // ------------------------------------------------ Configure weights (D)
     weights: { ...BALANCED_WEIGHTS },
     weightLocks: { responsiveness: false, criticality: false, governance: false, rigor: false, accessibility: false },
     reproject: null, // the ReprojectResponse for the CURRENT `weights`
@@ -136,13 +134,13 @@ export function defaultState() {
     configurePageSize: DEFAULT_PAGE_SIZE,
     configureSort: "rank", // client-side only (the whole reproject result is already in memory) — not URL-persisted
 
-    // ------------------------------------------------------ W4-5b: Compare (E)
+    // --------------------------------------------------------- Compare (E)
     compareRepos: [], // ["owner/name", ...], 2..COMPARE_MAX, order = display/chip order
     compareQuery: "", // the picker's search text
     compareSearchResults: [], // [{ owner, name, ecosystem, kind: "rated"|"gated"|"unrated" }]
     compareDataByRepo: {}, // "owner/name" -> { kind, row, evidence, loading, error }
 
-    // -------------------------------------------- W4-5b: Methodology (F)
+    // ----------------------------------------------------- Methodology (F)
     methodology: null,
     methodologyLoading: false,
     methodologyError: null,
@@ -158,7 +156,7 @@ export function defaultState() {
     // `data` answers; a mismatch means it must be discarded, not served.
     nextPageCache: null, // { signature: string, data: LeaderboardResponse } | null
 
-    notRanked: null, // the full NotRankedResponse (fetched once per persona; paginated CLIENT-SIDE, see the handoff)
+    notRanked: null, // the full NotRankedResponse (fetched once per persona; paginated CLIENT-SIDE)
     notRankedLoading: false,
     notRankedError: null,
     notRankedPage: 1,
@@ -172,12 +170,10 @@ export function defaultState() {
     evidenceLoading: false,
     evidenceError: null, // { endpoint, status } for the CURRENTLY open repo's evidence, if it failed
 
-    // Lead ruling 2026-09-13 (drawer-content-parity fix): the drawer's
-    // record fetch (GET /v1/cvi/repos/{o}/{n}), independent of which
-    // screen (Leaderboard/Matrix/Compare/Configure) opened it -- the
-    // single source `views/drawer.js::findRow` now consults, replacing
-    // the old "search whatever state slice happens to be loaded" logic.
-    repoDetailByKey: {}, // "owner/name" -> the flat RepoDetailResponse (W4-5c: no longer {kind, row} -- kind is derived client-side, views/drawer.js::classifyKind)
+    // The drawer's record fetch (GET /v1/cvi/repos/{o}/{n}), independent
+    // of which screen (Leaderboard/Matrix/Compare/Configure) opened it --
+    // the single source `views/drawer.js::findRow` consults.
+    repoDetailByKey: {}, // "owner/name" -> the flat RepoDetailResponse (kind is derived client-side, views/drawer.js::classifyKind)
     repoDetailLoading: false,
     repoDetailError: null, // { endpoint, status, detail } for the CURRENTLY open repo, if it failed
 
@@ -271,16 +267,15 @@ export function countRankChanges(previousRows, nextRows) {
 }
 
 /**
- * Lead-reported defect fix (2026-09-13): opening the drawer/keymap via
- * click correctly focused the close button, but a LATER content-only
- * rebuild (e.g. the evidence fetch resolving a moment after the drawer
- * opened) replaced the dialog's innerHTML wholesale — destroying whatever
- * element held focus — and browsers fall back to `<body>` when a focused
- * node is removed from the document. The fix: only restore focus into the
- * dialog after such a rebuild when focus was ALREADY inside it before the
- * rebuild (never steal focus from elsewhere, e.g. the header) AND the
- * dialog is still meant to be open. Extracted as a pure predicate so the
- * decision itself — not the DOM plumbing around it — is unit-testable.
+ * A content-only rebuild of the drawer/keymap dialog (e.g. the evidence
+ * fetch resolving a moment after the drawer opened) replaces the dialog's
+ * innerHTML wholesale, destroying whatever element held focus — and
+ * browsers fall back to `<body>` when a focused node is removed from the
+ * document. Focus is restored into the dialog after such a rebuild only
+ * when focus was ALREADY inside it before the rebuild (never stolen from
+ * elsewhere, e.g. the header) AND the dialog is still meant to be open.
+ * A pure predicate, so the decision itself — not the DOM plumbing around
+ * it — is unit-testable.
  */
 export function shouldRestoreFocusAfterRebuild(isOpen, focusWasInside) {
   return !!isOpen && !!focusWasInside;
@@ -288,28 +283,21 @@ export function shouldRestoreFocusAfterRebuild(isOpen, focusWasInside) {
 
 /**
  * U-18/§5: "Enter opens the FOCUSED row, whether focus came from J/K, Tab,
- * or a click" (lead-reported defect, 2026-09-13, on `c52ab45`): the Enter
- * handler previously consulted ONLY the J/K cursor (`selectedRepoKey`),
- * so a row reached by Tab or a direct `.focus()` call — never having gone
- * through SET_CURSOR — opened nothing. DOM focus is the ground truth
- * whenever it is actually on a row; the J/K cursor is the fallback for
- * when focus is elsewhere (e.g. a header control) but a row was
- * previously selected.
+ * or a click". DOM focus is the ground truth whenever it is actually on a
+ * row; the J/K cursor is the fallback for when focus is elsewhere (e.g. a
+ * header control) but a row was previously selected.
  */
 export function resolveOpenTargetKey(cursorKey, focusedRowKey) {
   return focusedRowKey || cursorKey || null;
 }
 
 /**
- * U-7/U-15/U-16 (lead-reported defect 2026-09-13): a drawer opened from a
- * URL (`?repo=owner/name`, at boot OR restored by `popstate`) must fetch
- * exactly what a click-opened one does (the record via `GET /v1/cvi/repos/
- * {o}/{n}` and its evidence) — before this, only `app.js::openRepo` (the
- * click/Enter path) triggered either fetch, so a URL-hydrated drawer
- * showed the header and an empty pillar table with "Loading evidence…"
- * stuck forever (nothing ever dispatched the load). `owner`/`name` are
- * `null` when there is nothing to load (`state.repo` is falsy or
- * malformed), so the caller can `if (parsed)` without a second check.
+ * U-7/U-15/U-16: a drawer opened from a URL (`?repo=owner/name`, at boot
+ * OR restored by `popstate`) fetches exactly what a click-opened one does
+ * (the record via `GET /v1/cvi/repos/{o}/{n}` and its evidence).
+ * `owner`/`name` are `null` when there is nothing to load (`state.repo`
+ * is falsy or malformed), so the caller can `if (parsed)` without a
+ * second check.
  */
 export function repoToLoadFromState(state) {
   if (!state.repo) return null;
@@ -319,14 +307,14 @@ export function repoToLoadFromState(state) {
 }
 
 /**
- * NB-2 (U-15/U-7, review 2026-09-13): the footer/snapshot-chip strip
- * carries U-6's reproducibility claim, so it must never rest on a
- * fabricated "Loading..." forever when the snapshot fetch actually
- * failed. Returns which of the three states applies (never DOES the
- * string formatting itself — that stays in app.js/copy.js, same
- * separation as `computeHiddenCount`/`renderCountsStrip` in
- * views/leaderboard.js) so the state-selection decision is unit-testable
- * without importing copy.js into this otherwise copy-free module.
+ * U-15/U-7: the footer/snapshot-chip strip carries U-6's reproducibility
+ * claim, so it must never rest on a fabricated "Loading..." forever when
+ * the snapshot fetch actually failed. Returns which of the three states
+ * applies (never DOES the string formatting itself — that stays in
+ * app.js/copy.js, same separation as
+ * `computeHiddenCount`/`renderCountsStrip` in views/leaderboard.js) so
+ * the state-selection decision is unit-testable without importing copy.js
+ * into this otherwise copy-free module.
  */
 export function footerFieldsFor(state) {
   if (state.snapshotError) {
@@ -345,14 +333,9 @@ export function footerFieldsFor(state) {
 
 /**
  * U-16's push-vs-replace policy, as one pure decision function app.js
- * actually calls (not a parallel re-implementation kept only for tests —
- * that was the reviewer's W-5 criticism of a different file in this
- * packet, and this fix does not repeat it). Every debounced `q` keystroke
- * ("type") must not spam history; every other leaderboard-affecting
- * change, and a `q` COMMIT (Enter or blur), is a real navigation step.
- * Bug this exists to prevent (reviewer Blocker B-5): `replaceUrl` was
- * defined but never called, so typing pushed one history entry per
- * debounce window.
+ * actually calls. Every debounced `q` keystroke ("type") must not spam
+ * history; every other leaderboard-affecting change, and a `q` COMMIT
+ * (Enter or blur), is a real navigation step.
  */
 export function urlSyncMode(trigger) {
   return trigger === "type" ? "replace" : "push";
@@ -429,7 +412,7 @@ export function reduce(state, action) {
     case "EVIDENCE_ERROR":
       return { ...state, evidenceLoading: false, evidenceError: action.error };
 
-    // ------------------------------------ drawer-content-parity fix (Screen C)
+    // ------------------------------------------ drawer record fetch (Screen C)
     case "REPO_DETAIL_LOADING":
       return { ...state, repoDetailLoading: true, repoDetailError: null };
     case "REPO_DETAIL_OK":
@@ -442,7 +425,7 @@ export function reduce(state, action) {
     case "REPO_DETAIL_ERROR":
       return { ...state, repoDetailLoading: false, repoDetailError: action.error };
 
-    // --------------------------------------------------- W4-5b: Matrix (B)
+    // ------------------------------------------------------------ Matrix (B)
     case "MATRIX_LOADING":
       return { ...state, matrixLoading: true, matrixError: null };
     case "MATRIX_OK":
@@ -464,7 +447,7 @@ export function reduce(state, action) {
     case "MATRIX_SET_HOVER":
       return { ...state, matrixHoveredKey: action.key };
 
-    // ----------------------------------------- W4-5b: Configure weights (D)
+    // -------------------------------------------------- Configure weights (D)
     case "SET_WEIGHTS":
       return { ...state, weights: action.weights, configurePage: 1 };
     case "TOGGLE_WEIGHT_LOCK":
@@ -482,7 +465,7 @@ export function reduce(state, action) {
     case "REPROJECT_ERROR":
       return { ...state, reprojectLoading: false, reprojectRefetching: false, reprojectError: action.error };
 
-    // ---------------------------------------------------- W4-5b: Compare (E)
+    // ----------------------------------------------------------- Compare (E)
     case "COMPARE_SET_QUERY":
       return { ...state, compareQuery: action.query };
     case "COMPARE_SET_RESULTS":
@@ -512,7 +495,7 @@ export function reduce(state, action) {
         compareDataByRepo: { ...state.compareDataByRepo, [action.key]: { ...(state.compareDataByRepo[action.key] || {}), loading: false, error: action.error } },
       };
 
-    // ------------------------------------------------ W4-5b: Methodology (F)
+    // ------------------------------------------------------- Methodology (F)
     case "METHODOLOGY_LOADING":
       return { ...state, methodologyLoading: true, methodologyError: null };
     case "METHODOLOGY_OK":

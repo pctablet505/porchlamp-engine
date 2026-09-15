@@ -1,19 +1,18 @@
-"""W1-7: OpenSSF (Pike) criticality signals computed locally; scorecard
+"""OpenSSF (Pike) criticality signals computed locally; scorecard
 subset; review/CI proxy for pipeline defenses (``02`` section 4 2.2, 4.1;
 D-MISS-4).
 
-F8: the ten Pike signals were 100% missing because the v1 pipeline awaited
-the OpenSSF BigQuery mirror, which CVI never fetches. This module computes
-every signal locally from recorded envelopes, three of them (releases,
-issue-activity search counts, default-branch CI runs) newly collected here:
+Every signal is computed locally from recorded envelopes -- no OpenSSF
+BigQuery mirror is fetched -- three of them (releases, issue-activity
+search counts, default-branch CI runs) collected by this module:
 
   signal                    source envelope   definition
   created_since_months      github_meta       repo age in months
   updated_since_months      commits_365d      months since the last non-bot
-                                              commit (W1-5 author-date fact)
+                                              commit (author-date fact)
   contributor_count         commits_365d      distinct non-bot authors in
                                               the trailing 365 d
-  org_count                 commits_365d      distinct orgs (W1-5 org_key)
+  org_count                 commits_365d      distinct orgs (``org_key``)
                                               in the trailing 365 d
   commit_frequency_weekly   commits_365d      non-bot commits / 52 weeks
   recent_releases_count     releases          releases with published_at in
@@ -24,26 +23,25 @@ issue-activity search counts, default-branch CI runs) newly collected here:
   updated_issues_count_90d  issues_counts     search updated:>=now-90d
   comment_frequency         issues_counts     mean comments over the
                                               30-issue sample
-  dependents_count          dependents        the W1-2 deduped count
+  dependents_count          dependents        the deduped dependents count
 
 D-MISS-1 applies: a repo-controlled absence is a measured zero (a repo with
 no releases records 0), but a missing envelope is unmeasured -- nine of the
-ten sources are still whole-set-or-nothing, because the Pike engine scores
+ten sources are whole-set-or-nothing, because the Pike engine scores
 a missing signal as 0.0 in the numerator against the full denominator,
 which would bias a partial signal set toward 0 instead of the engine's
 documented neutral 50 for absent telemetry (``cvi.pillars.criticality``).
 The caller (``scripts/derive.py``) leaves ``openssf_signals`` at its
 ``missing`` placeholder when :func:`derive_w17_fields` cannot build a
-complete ten-signal set; ``scripts/promote.py`` already reconstructs an
+complete ten-signal set; ``scripts/promote.py`` reconstructs an
 ``OpenSSFSignals`` from a non-null ``meta.openssf_signals`` and
-``cvi.pillars.criticality.score_openssf_criticality`` already feeds it to
+``cvi.pillars.criticality.score_openssf_criticality`` feeds it to
 ``calculate_pike_criticality`` -- this module's ``openssf_signals`` output
-stops at producing the complete ten-signal set or nothing, exactly as
-before.
+is the complete ten-signal set or nothing.
 
-W2-13 (D-MISS-5 consequence for 2.2, ``02`` section 5): ``dependents_count``
-is the one exception -- when it alone is unmeasurable (the same fact 2.1
-``dependents_deduped`` reads), :func:`derive_pike_signals` now returns the
+``dependents_count`` is the one exception (D-MISS-5 consequence for 2.2,
+``02`` section 5): when it alone is unmeasurable (the same fact 2.1
+``dependents_deduped`` reads), :func:`derive_pike_signals` returns the
 other nine plus which one is missing, and :func:`derive_w17_fields` records
 them under the additive ``openssf_signals_partial`` /
 ``openssf_signals_partial_missing`` fields (``openssf_signals`` itself stays
@@ -60,13 +58,13 @@ carries at least one of the five named checks, the value is the mean of the
 non-null named checks x 10, method ``"primary"``; otherwise the proxy
 (method ``"proxy:review_ci"``) is ``0.6 x code-review rate x 100
 + 0.4 x CI pass rate x 100`` where the code-review rate is the share of
-merged PRs in the recorded W1-3 window with at least one APPROVED review by
+merged PRs in the recorded pr_window with at least one APPROVED review by
 a non-author, non-bot account over all merged PRs, and the CI pass rate is
 the recorded default-branch rate (0 when no completed runs are recorded --
 the design's "0 if no CI"). Both methods are recorded ``derived`` in v1
 confidence terms; the method string follows the v2 vocabulary
-(``cvi.core.constants_v2.METHOD_PRIMARY`` / ``PROXY_METHOD_PREFIX``) so a
-later packet can lift these values into a v2 ``Measured`` unchanged.
+(``cvi.core.constants.METHOD_PRIMARY`` / ``PROXY_METHOD_PREFIX``), so these
+values lift into a v2 ``Measured`` unchanged.
 """
 
 from __future__ import annotations
@@ -82,21 +80,21 @@ import subprocess
 from cvi.collect import commits as commit_domains
 from cvi.collect.envelope import raw_envelope_path, write_envelope
 from cvi.collect.github_graphql import is_bot_actor
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.models import OpenSSFSignals
 
 # --------------------------------------------------------------------------- #
-# REST transport: gh_rest (W1-3's GraphQL collector sets the pattern --
-# cvi.collect.github_graphql.GhCliTransport -- this is its REST equivalent).
+# REST transport: gh_rest, the REST equivalent of the GraphQL collector's
+# cvi.collect.github_graphql.GhCliTransport.
 # One authenticated request per call; the form fields become query
 # parameters via ``gh api -f``; a non-2xx answer raises (``gh api`` exits
 # non-zero), so the collector's "envelope exists = done" checkpoint holds.
 # ``RestTransport`` is the boundary the unit tests fake.
 # --------------------------------------------------------------------------- #
 
-#: Inter-call sleep for core-API transports. The one definition (R-2):
+#: Inter-call sleep for core-API transports. The one definition:
 #: ``scripts/gather.py`` imports this as ``SLEEP_REST`` rather than keeping
-#: its own second ``0.15`` literal (W1-7f).
+#: a second ``0.15`` literal of its own.
 SLEEP_CORE_SECONDS: float = 0.15
 #: Inter-call sleep for search transports (30 req/min authenticated ceiling).
 SLEEP_SEARCH_SECONDS: float = 2.1
@@ -131,7 +129,8 @@ class GhRestTransport:
         cmd = ["gh", "api", "-X", "GET", path]
         for name, value in params.items():
             cmd += ["-f", f"{name}={value}"]
-        time.sleep(self.sleep_seconds)
+        if self.sleep_seconds > 0:
+            time.sleep(self.sleep_seconds)  # review-ok: GitHub API rate-limit pacing (0.15s) to avoid secondary rate limits
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
         if out.returncode != 0:
             raise RuntimeError(
@@ -234,7 +233,7 @@ def collect_releases(raw_dir: Path, owner: str, name: str,
     ``recent_count`` computed at the envelope's anchor -- and returns
     ``"ok"``. Returns ``"skip"`` when the envelope already exists and
     ``force`` is False. The deriver recomputes the count from the raw
-    records at derive time (W1-3 pattern).
+    records at derive time (rolling-window pattern).
     """
     key = f"{owner}__{name}"
     target = raw_dir / "releases" / f"{key}.json"
@@ -289,10 +288,12 @@ def issue_q(owner: str, name: str, qualifier: Optional[str] = None,
     """
     q = f"repo:{owner}/{name} is:issue"
     if qualifier == "closed":
-        assert since is not None
+        if since is None:
+            raise ValueError("since is required when qualifier is 'closed'")
         q += f" is:closed closed:>={since}"
     elif qualifier == "updated":
-        assert since is not None
+        if since is None:
+            raise ValueError("since is required when qualifier is 'updated'")
         q += f" updated:>={since}"
     return q
 
@@ -422,14 +423,13 @@ def months_between(start: datetime, now: datetime) -> float:
     return (now - start).total_seconds() / (DAYS_PER_MONTH * 86400.0)
 
 
-#: W1-7f item 3 (F5): a fetch-time windowed count's ``window_anchor`` must be
+#: A fetch-time windowed count's ``window_anchor`` must be
 #: within this many days of derive-time ``now`` or the count no longer
 #: describes "now" and 2.2 is unmeasured rather than silently stale.
-#: Relocated into the constants freeze by W2-13 (it was a scoring-behaviour
-#: tunable outside CONSTANTS_HASH's coverage); imported back here under the
-#: original name so every existing call site keeps resolving
+#: Defined in the constants freeze (``cvi.core.constants``) and re-bound
+#: here under its original name, so call sites resolve
 #: ``pike_signals.WINDOW_STALENESS_DAYS``.
-WINDOW_STALENESS_DAYS: int = constants_v2.WINDOW_STALENESS_DAYS
+WINDOW_STALENESS_DAYS: int = constants.WINDOW_STALENESS_DAYS
 
 
 def window_anchor_stale(anchor_iso: Optional[str], now: datetime,
@@ -450,15 +450,15 @@ def window_anchor_stale(anchor_iso: Optional[str], now: datetime,
 def human_commit_stats(
     rows: Sequence[Mapping[str, Any]], now: datetime,
 ) -> Optional[dict[str, Union[int, datetime]]]:
-    """W1-5-window stats over the non-bot commits of one recorded envelope.
+    """Trailing-window stats over the non-bot commits of one recorded envelope.
 
     ``rows`` are ``commits_365d`` envelope rows. Returns
     ``{"contributors", "orgs", "commits", "last_commit_at"}`` over the
     non-bot commits on or after ``now - 365 d`` (undated rows count, as in
-    W1-5's own ``elephant_factor``/``bus_factor``); None when no non-bot
-    commit carries a recorded date, because then the months-since-last-
-    commit signal is unmeasurable (this module cannot import W1-5's
-    ``_human_window``: it is module-private, R-10).
+    :mod:`cvi.collect.commits`'s ``elephant_factor``/``bus_factor``); None
+    when no non-bot commit carries a recorded date, because then the
+    months-since-last-commit signal is unmeasurable (the window filter is
+    rebuilt here: ``cvi.collect.commits._human_window`` is module-private).
     """
     records = commit_domains.records_from_rows(list(rows))
     cutoff = now - timedelta(days=commit_domains.COMMIT_WINDOW_DAYS)
@@ -503,19 +503,19 @@ def derive_pike_signals(
     group (module docstring table): the first one absent is why the whole
     call returns ``None``.
 
-    W2-13 (D-MISS-5 consequence for 2.2): ``dep``/``dep["deduped_count"]``
-    is no longer hard-required -- when it is absent, ``"dependents_count"``
+    ``dep``/``dep["deduped_count"]`` is not hard-required (D-MISS-5
+    consequence for 2.2) -- when it is absent, ``"dependents_count"``
     is named in the returned ``frozenset`` and omitted from the returned
     dict, letting :func:`cvi.core.openssf.calculate_pike_criticality`'s
     ``missing`` kwarg renormalise the score over the other nine
     (``cvi.derive.bundle._resolve_openssf_criticality``'s
     ``proxy:no_dependents_signal`` path) instead of the whole set being
-    unmeasured. Returns ``(signals, frozenset())`` when all ten are present
-    -- the pre-W2-13 shape's information content, restated as a dict instead
-    of an :class:`OpenSSFSignals` (the caller, :func:`derive_w17_fields`,
-    is the one place that still constructs an ``OpenSSFSignals`` when the
+    unmeasured. Returns ``(signals, frozenset())`` when all ten are present;
+    the signals are a plain dict, not an :class:`OpenSSFSignals` (the
+    caller, :func:`derive_w17_fields`,
+    is the one place that constructs an ``OpenSSFSignals`` when the
     set is complete, so v1's ``asdict``/``OpenSSFSignals(**sig)`` round trip
-    through ``scripts/derive.py``/``scripts/promote.py`` is unaffected).
+    through ``scripts/derive.py``/``scripts/promote.py`` still works).
     """
     if not isinstance(gh, Mapping):
         return None
@@ -529,8 +529,8 @@ def derive_pike_signals(
         if stats is None:
             return None
     else:
-        # W1-7f item 2 (F2 ruling): an empty commits envelope from a
-        # SUCCESSFUL fetch (c365 == [], not None) is a measured zero, not
+        # An empty commits envelope from a SUCCESSFUL fetch
+        # (c365 == [], not None) is a measured zero, not
         # unmeasured -- the repo genuinely made zero non-bot commits in the
         # window. contributor_count/org_count/commit_frequency_weekly are
         # then correctly zero; updated_since_months has no commit to date
@@ -577,7 +577,7 @@ def derive_pike_signals(
 SCORECARD_CHECKS: tuple[str, ...] = (
     "Code-Review", "CI-Tests", "Branch-Protection", "Maintained",
     "Dangerous-Workflow")
-#: 04 §3 / D-MISS-4 method vocabulary (``cvi.core.constants_v2``): a
+#: 04 §3 / D-MISS-4 method vocabulary (``cvi.core.constants``): a
 #: primary measurement is exactly ``"primary"``; a proxy is ``"proxy:<name>"``.
 METHOD_PRIMARY: str = "primary"
 METHOD_PROXY: str = "proxy:review_ci"
@@ -644,7 +644,7 @@ def pipeline_defenses(
     """02 §4 4.1: the (value, method) pair, or (None, None) when unmeasured.
 
     ``sc`` is the recorded scorecard envelope data (``{"score", "checks"}``),
-    ``prs`` the recorded W1-3 window nodes, ``runs`` the recorded default-
+    ``prs`` the recorded pr_window nodes, ``runs`` the recorded default-
     branch runs. The scorecard subset wins when usable (method
     :data:`METHOD_PRIMARY`); the proxy (:data:`METHOD_PROXY`) needs both the
     pr_window and the runs envelope (``None`` = envelope absent, ``[]`` =
@@ -677,7 +677,7 @@ def derive_w17_fields(
     sc: Any, sc_at: Optional[str],
     prw: Any, prw_at: Optional[str],
 ) -> dict[str, tuple[Any, Any, Any, str]]:
-    """The W1-7 derive hook: ``{field: (value, source, fetched_at, conf)}``.
+    """The derive hook: ``{field: (value, source, fetched_at, conf)}``.
 
     Emits ``openssf_signals`` only when all ten sources are present and
     ``pipeline_defenses`` / ``pipeline_defenses_method`` only when 4.1 is
@@ -686,8 +686,8 @@ def derive_w17_fields(
     unmeasured, not zeros). Source is the list of envelope paths used;
     fetched_at is the newest of the used sources' recorded times.
 
-    W2-13: when exactly the dependents signal is missing (D-MISS-5
-    consequence for 2.2), ``openssf_signals`` stays unemitted (unchanged)
+    When exactly the dependents signal is missing (D-MISS-5
+    consequence for 2.2), ``openssf_signals`` stays unemitted
     but ``openssf_signals_partial`` (the other nine, dict-shaped) and
     ``openssf_signals_partial_missing`` (``["dependents_count"]``) are
     emitted instead, for ``cvi.derive.bundle``'s proxy path to read.
@@ -695,12 +695,12 @@ def derive_w17_fields(
     out: dict[str, tuple[Any, Any, Any, str]] = {}
 
     def env_path(col: str) -> str:
-        # W1-7f item 4 (R-2): the one envelope-path formula, shared with
+        # The one envelope-path formula, shared with
         # scripts/derive.py's src() closure via cvi.collect.envelope.
         return raw_envelope_path(data_dir, col, key)
 
-    # W1-7f item 3 (F5 ruling): a windowed count's own fetch-time anchor
-    # more than WINDOW_STALENESS_DAYS from this derive's `now` means the
+    # A windowed count's own fetch-time anchor more than
+    # WINDOW_STALENESS_DAYS from this derive's `now` means the
     # count no longer describes "now" -- the whole ten-signal set is
     # unmeasured (never partial, same D-MISS-1 rule as an absent source),
     # tagged distinctly from a plain absence so the caller can record
@@ -720,16 +720,16 @@ def derive_w17_fields(
         result = derive_pike_signals(gh, c365, rel, iss, dep, now)
         if result is not None:
             signals, missing = result
-            # F1 (item 1): guarded like the pipeline_defenses `at` below --
-            # every recorded envelope carries fetched_at, but a hand-built
-            # or legacy-shaped one might not, and losing the whole bundle to
-            # a ValueError over one optional timestamp (this line used to
-            # call bare `max(ats)`) is out of proportion to what it costs.
+            # Guarded like the pipeline_defenses `at` below -- every
+            # recorded envelope carries fetched_at, but a hand-built or
+            # legacy-shaped one might not, and losing the whole bundle to
+            # a ValueError over one optional timestamp is out of
+            # proportion to what it costs.
             if not missing:
-                # All ten present: unchanged from pre-W2-13 -- an
-                # OpenSSFSignals instance under "openssf_signals" so v1's
+                # All ten present: an OpenSSFSignals instance under
+                # "openssf_signals", the shape v1's
                 # asdict()/OpenSSFSignals(**sig) round trip
-                # (scripts/derive.py, scripts/promote.py) is untouched.
+                # (scripts/derive.py, scripts/promote.py) expects.
                 sources = [env_path(col) for col in ("github_meta", "commits_365d",
                                                      "releases", "issues_counts",
                                                      "dependents")]
@@ -737,11 +737,11 @@ def derive_w17_fields(
                 out["openssf_signals"] = (OpenSSFSignals(**signals), sources,
                                            max(ats) if ats else None, "derived")
             else:
-                # W2-13 (D-MISS-5 consequence for 2.2): only the dependents
-                # signal is missing. "openssf_signals" itself is left
-                # unemitted (v1 sees exactly the pre-W2-13 "missing"
-                # placeholder); these two new fields are additive and read
-                # only by cvi.derive.bundle._resolve_openssf_criticality's
+                # D-MISS-5 consequence for 2.2: only the dependents signal
+                # is missing. "openssf_signals" itself is left unemitted
+                # (v1 sees its "missing" placeholder); these two fields are
+                # additive and read only by
+                # cvi.derive.bundle._resolve_openssf_criticality's
                 # proxy path.
                 sources = [env_path(col) for col in ("github_meta", "commits_365d",
                                                      "releases", "issues_counts")]

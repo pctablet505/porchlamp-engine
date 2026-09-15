@@ -1,4 +1,4 @@
-"""Packet W5-1a acceptance: `scripts/render_methodology.py` and the
+"""Tests for `scripts/render_methodology.py` and the
 committed `docs/METHODOLOGY-v2.md` it produces.
 
 The load-by-path pattern mirrors `tests/test_promote.py`: `scripts/` is not
@@ -27,8 +27,7 @@ COMMITTED = ROOT / "docs" / "METHODOLOGY-v2.md"
 
 
 def test_committed_methodology_doc_equals_a_fresh_render() -> None:
-    """The whole point of this packet's rendering test (W2-8/W5-1a):
-    `docs/METHODOLOGY-v2.md` must equal `render_markdown(document)` byte
+    """`docs/METHODOLOGY-v2.md` must equal `render_markdown(document)` byte
     for byte, so it cannot silently drift from the frozen constants it
     documents. If this fails, run:
     `PYTHONPATH=$PWD .venv/bin/python scripts/render_methodology.py`
@@ -61,13 +60,13 @@ def test_render_links_the_rfc_procedure() -> None:
 
 
 def test_render_covers_every_pillar_and_parameter() -> None:
-    from cvi.core import constants_v2
+    from cvi.core import constants
 
     document = render_methodology.methodology_with_history(CHANGELOG)
     rendered = render_methodology.render_markdown(document)
-    for name in constants_v2.PILLAR_NAMES:
+    for name in constants.PILLAR_NAMES:
         assert name in rendered
-    for input_id in constants_v2.PARAM_INPUT_IDS:
+    for input_id in constants.PARAM_INPUT_IDS:
         assert f"`{input_id}`" in rendered
 
 

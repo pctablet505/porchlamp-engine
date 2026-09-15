@@ -5,15 +5,13 @@
 ``mid_rank_ecdf`` pre-sorts a population so the frozen populations of
 D-NORM-2 (built by ``cvi.snapshot.populations``) can be queried in O(log N)
 per value. Mid-rank is the tie treatment: the spec's ``<=`` form scores
-every member of an all-tied population 100 (finding F3), the mid-rank form
-scores 50. Pure math: no I/O, no clock, stdlib only (04 section 3 core rule).
+every member of an all-tied population 100, the mid-rank form scores 50.
+Pure math: no I/O, no clock, stdlib only (04 section 3 core rule).
 
 Every numeric input (a query value or a population member) must be finite:
 NaN and +-infinity are rejected with ``ValueError`` naming the offending
-value, not silently scored. Before this check, ``mid_rank_ecdf_score(nan,
-population)`` returned exactly 50.0 -- indistinguishable from a genuine
-mid-population score. ``docs/v2/02-RANKING-DESIGN.md`` D-MISS-1 makes an
-unmeasurable input ``Unmeasured``, never a neutral score; converting an
+value, not silently scored. ``docs/v2/02-RANKING-DESIGN.md`` D-MISS-1 makes
+an unmeasurable input ``Unmeasured``, never a neutral score; converting an
 absence to ``Unmeasured`` is the caller's job, so this module refuses
 non-finite input rather than guessing a score for it.
 """
@@ -61,7 +59,7 @@ def mid_rank_ecdf(population: Sequence[float]) -> Callable[[float], float]:
     """The D-NORM-1 mid-rank ECDF of ``population`` as a callable on the 0-100 scale.
 
     The population is sorted once up front, so each query is O(log N); this
-    is the callback shape the W2-3 ECDF-normalised curves (1.5, 2.1, 2.3,
+    is the callback shape the ECDF-normalised curves (1.5, 2.1, 2.3,
     D-NORM-3) take. Raises ``ValueError`` for an empty population, a
     non-numeric value, or a non-finite (NaN / infinity) population member
     at build time, or a non-finite query value when the returned callable

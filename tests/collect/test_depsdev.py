@@ -1,10 +1,9 @@
-"""W1-2: package-level dependents via deps.dev, ecosyste.ms fallback (F3).
+"""Package-level dependents via deps.dev, ecosyste.ms fallback.
 
 Subjects:
 * ``cvi.collect.depsdev`` -- the dependents collector (recorded-response
   oracles; the urllib boundary is mocked, no live network in tests), the
-  repo -> package-name mapping, and the D-PARAM 2.1 root-org dedup /
-  same-org exclusion;
+  repo -> package-name mapping, and the root-org dedup / same-org exclusion;
 * ``cvi.collect.ecosystemes`` -- the fallback parser;
 * the append-only hooks at the end of ``scripts/gather.py``
   (``dependents`` status entry) and ``scripts/derive.py``
@@ -15,8 +14,7 @@ Recorded responses (captured 2026-09-12T07:37-07:43Z, keyless, no auth):
 * ``GET https://api.deps.dev/v3alpha/systems/pypi/packages/flask``
   (HTTP 200, 12531 bytes, sha256 653d1d347be1c4c5b10ab09b6d67bdef
   13d06397a1ada6e285d257f8535b48d5): ``packageKey``, ``purl`` and 64
-  version entries; **no package-level dependents count field** -- the
-  measurement the packet asked for.
+  version entries; **no package-level dependents count field**.
 * ``GET https://api.deps.dev/v3alpha/systems/pypi/packages/flask/
   versions/3.1.3:dependents`` (HTTP 200, 82 bytes, sha256 f4d460aa
   eae1627eb7bedf0906a58191e4e5340aa6a0f36ee5f5478a68a1984d):
@@ -27,18 +25,18 @@ Recorded responses (captured 2026-09-12T07:37-07:43Z, keyless, no auth):
   flask`` (HTTP 404, 21 bytes, sha256 51d0a9e3bd9ffc25483790aaffe
   7a3597e642edd040dddb16aafc324e6e922ed):
   ``{"error": "not found"}`` -- ``pypi`` is not a registry name in the
-  ecosyste.ms database (the name is ``pypi.org``), so the W1-2 fallback
-  URL 404'd for pypi/flask; re-measured 2026-09-12 (packet W1-2f).
+  ecosyste.ms database (the name is ``pypi.org``), so the initial fallback
+  URL 404'd for pypi/flask; re-measured with corrected registry name.
 * ``GET https://packages.ecosyste.ms/api/v1/registries/pypi.org/
   packages/flask`` (HTTP 200, 69132 bytes, sha256 a61b10ac2f8182415ddd
   3982c9411e844ba9bf2a1f32c70a3b2921b2825ed8a0):
   the corrected fallback URL; the package object carries
-  ``dependent_packages_count`` (2451 at capture, packet W1-2f) -- the
+  ``dependent_packages_count`` (2451 at capture) -- the
   fallback is asserted against this recorded 200; the recorded 404 stays
   as the not-found guard.
 
 The 3.1.3 version is the package's ``isDefault`` version in the recorded
-package payload (F3 had measured 3.1.0: dependentCount 139).
+package payload (version 3.1.0 had dependentCount 139).
 """
 from __future__ import annotations
 
@@ -75,8 +73,8 @@ def _load_script(modname: str, fname: str) -> ModuleType:
     return module
 
 
-gather = _load_script("cvi_gather_w12", "gather.py")
-derive = _load_script("cvi_derive_w12", "derive.py")
+gather = _load_script("cvi_gather_depsdev", "gather.py")
+derive = _load_script("cvi_derive_depsdev", "derive.py")
 
 
 def write_env(raw: Path, collector: str, key: str, data,
@@ -102,7 +100,7 @@ def test_fixture_hashes_match_the_live_capture():
 
 def test_recorded_package_endpoint_has_no_package_level_count():
     """Measurement: GET /v3alpha/systems/pypi/packages/flask carries no
-    dependents figure at package level (the F3 question, answered)."""
+    dependents figure at package level."""
     payload = json.loads((DATA / "depsdev_flask_package.json").read_text())
     assert set(payload) == {"packageKey", "purl", "versions"}
     assert payload["packageKey"] == {"system": "PYPI", "name": "flask"}
@@ -130,9 +128,9 @@ def test_recorded_version_dependents_flask_3_1_3_exact_values():
 
 
 def test_recorded_ecosystemes_404_flask_is_absent_source():
-    """The W1-2 fallback URL 404'd for pypi/flask: ``pypi`` is not a
-    registry name (the name is ``pypi.org``); recorded 2026-09-12,
-    re-measured packet W1-2f. The not-found payload stays absent."""
+    """The fallback URL 404'd for pypi/flask: ``pypi`` is not a
+    registry name (the name is ``pypi.org``); recorded 2026-09-12.
+    The not-found payload stays absent."""
     payload = json.loads((DATA / "ecosystemes_flask_not_found.json").read_text())
     assert payload == {"error": "not found"}
     assert ees.parse_package(payload) is None
@@ -141,7 +139,7 @@ def test_recorded_ecosystemes_404_flask_is_absent_source():
 
 def test_recorded_ecosystemes_package_flask_200_exact_values():
     """Corrected fallback URL (registry name ``pypi.org``) answered 200
-    for pypi/flask: 2451 dependent packages (LIVE, packet W1-2f)."""
+    for pypi/flask: 2451 dependent packages (LIVE)."""
     payload = json.loads((DATA / "ecosystemes_flask_package.json").read_text())
     assert payload["name"] == "flask"
     assert payload["ecosystem"] == "pypi"
@@ -176,11 +174,11 @@ def test_ecosystem_system_mapping_exact():
     assert dd.system_for_ecosystem("pypi") == "pypi"
     assert dd.system_for_ecosystem("crates") == "crates.io"
     assert dd.system_for_ecosystem("npm") == "npm"
-    # W1-2f: go/maven now have a deps.dev system (module path / groupId:artifactId
+    # go/maven have a deps.dev system (module path / groupId:artifactId
     # is still a separate question -- package_name_for_repo, below).
     assert dd.system_for_ecosystem("go") == "go"
     assert dd.system_for_ecosystem("maven") == "maven"
-    assert dd.system_for_ecosystem("systems") is None  # no package registry (D-MISS-5)
+    assert dd.system_for_ecosystem("systems") is None  # no package registry
     assert ees.registry_for_ecosystem("pypi") == "pypi.org"
     assert ees.registry_for_ecosystem("npm") == "npmjs.org"
     assert ees.registry_for_ecosystem("crates") == "crates.io"
@@ -197,33 +195,31 @@ def test_package_name_for_repo():
 
 
 def test_package_name_for_repo_go_default_module_path():
-    """W1-2f: go defaults to github.com/<owner>/<name> -- the tree envelope
-    this codebase writes carries file paths only, not go.mod contents, so
-    this is the only identifier available without a new fetch."""
+    """go defaults to github.com/<owner>/<name> -- the tree envelope
+    carries file paths only, not go.mod contents, so this is the default
+    identifier available without a new fetch."""
     assert dd.package_name_for_repo("grpc", "grpc-go", "go") == "github.com/grpc/grpc-go"
     assert dd.package_name_for_repo("a-h", "templ", "go") == "github.com/a-h/templ"
 
 
 def test_package_name_for_repo_go_mod_module_override():
-    """W1-2f: when a caller already has the root go.mod's module line (a
-    later packet's fetch, not this one), it wins over the default."""
+    """When a caller already has the root go.mod's module line, it wins over the default."""
     assert dd.package_name_for_repo(
         "grpc", "grpc-go", "go", go_mod_module="google.golang.org/grpc",
     ) == "google.golang.org/grpc"
 
 
 def test_package_name_for_repo_maven_needs_parsed_coordinates():
-    """W1-2f: maven has no name-derived default (unlike go) -- a GitHub repo
+    """maven has no name-derived default (unlike go) -- a GitHub repo
     name carries no Maven coordinate -- so it is None until the caller
-    supplies coordinates parsed from a fetched pom.xml (a fetch this packet
-    does not add)."""
+    supplies coordinates parsed from a fetched pom.xml."""
     assert dd.package_name_for_repo("apache", "thrift", "maven") is None
     assert dd.package_name_for_repo(
         "apache", "thrift", "maven", maven_coordinates=("org.apache.thrift", "libthrift"),
     ) == "org.apache.thrift:libthrift"
 
 
-# --- W1-2f: maven pom.xml groupId:artifactId parsing (stdlib XML) ---------------
+# --- maven pom.xml groupId:artifactId parsing (stdlib XML) -----------------------
 
 def test_parse_maven_coordinates_own_group_id():
     pom = """<?xml version="1.0"?>
@@ -299,7 +295,7 @@ def test_parse_maven_coordinates_non_project_root():
     ) is None
 
 
-# --- W1-2f: URL building percent-encodes slash/colon-bearing identifiers --------
+# --- URL building percent-encodes slash/colon-bearing identifiers ------------
 
 def test_package_url_quotes_go_module_path():
     assert dd.package_url("go", "github.com/a-h/templ") == \
@@ -388,9 +384,9 @@ def test_collect_dependents_primary_writes_envelope(tmp_path, monkeypatch):
 
 
 def test_collect_dependents_systems_writes_not_applicable_envelope(tmp_path, monkeypatch, block_live_network):
-    """W1-2f, D-MISS-5: systems now writes an envelope recording the design
-    rule instead of the old silent "skip" -- but still makes zero network
-    calls (the fact is about the ecosystem, never fetched)."""
+    """systems writes an envelope recording the design rule instead of
+    silent "skip" -- but still makes zero network calls (the fact is about
+    the ecosystem, never fetched)."""
     def must_not_fetch(url: str):
         raise AssertionError("no registry exists for systems; nothing may be fetched")
     monkeypatch.setattr(dd, "_get_json", must_not_fetch)
@@ -409,9 +405,8 @@ def test_collect_dependents_systems_writes_not_applicable_envelope(tmp_path, mon
 
 
 def test_collect_dependents_maven_without_pom_content_is_skip_no_envelope(tmp_path, monkeypatch, block_live_network):
-    """W1-2f: maven has no name-derived default identifier; without a
-    fetched pom.xml (this packet adds no such fetch) nothing can be
-    mapped, so this stays "skip" -- unchanged from pre-W1-2f, zero calls."""
+    """maven has no name-derived default identifier; without a
+    fetched pom.xml nothing can be mapped, so this stays "skip"."""
     def must_not_fetch(url: str):
         raise AssertionError("no maven coordinates derivable; nothing may be fetched")
     monkeypatch.setattr(dd, "_get_json", must_not_fetch)
@@ -420,8 +415,8 @@ def test_collect_dependents_maven_without_pom_content_is_skip_no_envelope(tmp_pa
 
 
 def test_collect_dependents_unmapped_ecosystem_is_skip_no_envelope(tmp_path, monkeypatch, block_live_network):
-    """Any ecosystem this module has never heard of behaves exactly like
-    the pre-W1-2f go/maven default: "skip", no fetch, no envelope."""
+    """Any ecosystem this module has never heard of behaves as "skip",
+    no fetch, no envelope."""
     def must_not_fetch(url: str):
         raise AssertionError("no mapping for this ecosystem; nothing may be fetched")
     monkeypatch.setattr(dd, "_get_json", must_not_fetch)
@@ -430,7 +425,7 @@ def test_collect_dependents_unmapped_ecosystem_is_skip_no_envelope(tmp_path, mon
 
 
 def test_collect_dependents_go_default_module_path_writes_envelope(tmp_path, monkeypatch):
-    """W1-2f: go's default identifier drives the same primary deps.dev
+    """go's default identifier drives the same primary deps.dev
     fetch pypi/npm/crates use; the envelope records the derivation method."""
     def replay(url: str):
         if url == dd.package_url("go", "github.com/a-h/templ"):
@@ -469,7 +464,7 @@ def test_collect_dependents_go_mod_module_override_recorded(tmp_path, monkeypatc
 
 
 def test_collect_dependents_maven_with_pom_xml_writes_envelope(tmp_path, monkeypatch):
-    """W1-2f: "if contents are available, ... proceed as for Go" -- a
+    """If contents are available, proceed as for Go -- a
     caller-supplied pom.xml body drives the same primary/fallback flow."""
     pom = """<project xmlns="http://maven.apache.org/POM/4.0.0">
   <groupId>org.apache.thrift</groupId>
@@ -492,9 +487,8 @@ def test_collect_dependents_maven_with_pom_xml_writes_envelope(tmp_path, monkeyp
 
 
 def test_collect_dependents_go_no_count_anywhere_is_fail(tmp_path, monkeypatch):
-    """W1-2f requirement 4 (unchanged branch): a mapped package deps.dev
-    (and the ecosyste.ms fallback) has no count for stays "fail", exactly
-    like the existing pypi/npm/crates contract -- not a new reason."""
+    """A mapped package deps.dev (and the ecosyste.ms fallback) has no count
+    stays "fail", exactly like the existing pypi/npm/crates contract."""
     monkeypatch.setattr(dd, "_get_json", lambda url: None)
     assert dd.collect_dependents(tmp_path, "a-h", "templ", "go") == "fail"
     assert not (tmp_path / "dependents").is_dir()
@@ -519,7 +513,7 @@ def test_collect_dependents_fallback_ecosystemes(tmp_path, monkeypatch):
 
 def test_collect_dependents_fallback_recorded_flask_200(tmp_path, monkeypatch):
     """With deps.dev empty, the recorded pypi.org 200 for pypi/flask drives
-    the fallback envelope at the exact corrected URL (packet W1-2f)."""
+    the fallback envelope at the exact corrected URL."""
     def replay(url: str):
         if url.startswith(dd.DEPSDEV_API):
             return None
@@ -553,9 +547,7 @@ GATHER_DONE = {
     "pr_events": [],
     "pr_reviews": {},
     "contributors": [],
-    # W1-1's per-label gfi collector treats a bare list as legacy and
-    # re-fetches (needs_gather); the new shape's metadata-first record is
-    # what actually marks it done.
+    # Per-label gfi collector metadata-first record marks it done:
     "gfi": [{"gfi_newcomer_v2": True, "labels_matched": [], "queries": [],
              "truncated": False}],
     "actions_runs": [],
@@ -563,18 +555,10 @@ GATHER_DONE = {
     "commits_180d": [],
     "depsdev": None,
     "scorecard": None,
-    # W1-9/W1-5/W1-3/W1-6: these ``gather_repo`` hooks postdate this file and
-    # are not under test here; marking them done keeps the real repo
-    # "pallets/flask" used below from taking live check-run/file-body calls
-    # (repos with a large real PR history make this collector-count matter).
+    # Marking other collectors done avoids taking live calls when gather_repo runs
+    # against pallets/flask:
     "repo_object": {}, "commits_365d": [], "pr_window": {}, "governance": {},
-    # W1-7 (Blocker B4 round 2): releases/issues_counts/runs also postdate
-    # this file; unseeded they made 9 live gh api calls under the
-    # block_live_network guard (3 tests x 3 calls each).
     "releases": {}, "issues_counts": {}, "runs": {},
-    # W1-4's author_history hook also postdates this file and is not under
-    # test here; marking it done avoids a live AuthorWindow gh api call —
-    # surfaced by W1-6's landed network guard (round-3 fix).
     "author_history": {},
 }
 
@@ -616,9 +600,9 @@ def test_gather_repo_dependents_status_skip(tmp_path, monkeypatch, block_live_ne
 
 
 def test_gather_repo_dependents_systems_not_applicable(tmp_path, monkeypatch, block_live_network):
-    """W1-2f: the gather hook now sees "not_applicable" (and a written
+    """The gather hook sees "not_applicable" (and a written
     envelope) for systems, propagated unchanged from collect_dependents --
-    still zero network calls."""
+    zero network calls."""
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
 
@@ -655,8 +639,8 @@ def test_derive_repo_dependents_from_envelope(tmp_path):
 
 
 def test_derive_repo_dependents_stays_missing_without_envelope(tmp_path):
-    """Over-correction guard: the v1 path is unchanged when no dependents
-    envelope exists (usedby_count still None, exactly as F3 recorded)."""
+    """Over-correction guard: the fallback path is unchanged when no dependents
+    envelope exists (usedby_count still None)."""
     raw = tmp_path / "raw"
     write_env(raw, "github_meta", KEY, GATHER_DONE["github_meta"])
     write_env(raw, "depsdev", KEY, {"stars": 1, "usedby_count": None})
@@ -666,7 +650,7 @@ def test_derive_repo_dependents_stays_missing_without_envelope(tmp_path):
 
 
 def test_derive_repo_dependents_v1_usedby_preserved(tmp_path):
-    """Pre-W1-2 data with a real usedby_count keeps the v1 value."""
+    """Legacy data with a real usedby_count keeps the existing value."""
     raw = tmp_path / "raw"
     write_env(raw, "github_meta", KEY, GATHER_DONE["github_meta"])
     write_env(raw, "depsdev", KEY, {"stars": 1, "usedby_count": 5})

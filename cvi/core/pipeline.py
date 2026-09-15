@@ -1,25 +1,20 @@
-"""CVI v2 snapshot scorer: the whole-population composition point (packet
-W2-8b; ``docs/v2/05-WORK-PLAN.md`` packets W2-8/W3-4 folded in).
+"""CVI v2 snapshot scorer: the whole-population composition point.
 
 ``cvi.core.engine.score`` is pure and per-repository: it runs D-ORDER-1
 stages 0-7 (``02`` section 1) and leaves ``persona_gates``,
 ``persona_composites``, ``tie_key``, ``tie_group`` and ``rank`` empty,
 because stages 8 (persona lens, ``cvi.core.persona``) and 9 (tie-breaks and
 rank, ``cvi.core.tiebreak``) both need the *whole* scored population, not one
-record at a time. Nothing before this packet calls ``persona.py`` or
-``tiebreak.py`` from a real per-snapshot driver -- :func:`score_snapshot` is
-that driver.
+record at a time. :func:`score_snapshot` is the whole-population driver.
 
 Pure, no I/O, no clock (04 section 8): every timestamp (``as_of``) and every
 per-repo fact this module cannot derive from a :class:`~cvi.core.models.
 FeatureBundle` alone (``gate_evidence``, ``raw_hash``) is supplied by the
-caller. Building those inputs from raw collector data (for a real snapshot,
-or for the frozen fixture this packet also ships) is the caller's job --
+caller. Building those inputs from raw collector data is the caller's job --
 :mod:`scripts.build_fixture_snapshot` is one such caller.
 
 Stage order implemented here, each step a small named function so it is
-testable alone (05 section 0.4 R-1's fail-before/over-correction guards need
-that):
+testable alone:
 
 - :func:`score_bundle_stages_0_7` -- stages 0-7, delegating entirely to
   :func:`cvi.core.engine.score` (this module never re-implements a scoring
@@ -30,16 +25,15 @@ that):
   why ``gate_evidence`` is inherently per-repo).
 - :func:`score_bundle_stage_8_persona` -- stage 8: ``persona.persona_gates``
   and ``persona.persona_composite`` for every preset, folded onto the record
-  with ``dataclasses.replace`` (never mutated -- W2-7f's purity test is the
-  model this module follows: see the docstring below for the two cases
-  ``persona.py``'s own documented contract forbids calling it plainly on).
+  with ``dataclasses.replace`` (never mutated; see the docstring below for the
+  two cases ``persona.py``'s own documented contract forbids calling it plainly on).
 - :func:`score_bundle_stage_9_tie_input` -- prepares the
   :class:`~cvi.core.tiebreak.TieBreakInput` evidence
   :class:`~cvi.core.models.ScoreRecord` does not itself carry (repo identity,
   TTFHR p75, last non-bot commit date); ranking itself
   (:func:`cvi.core.tiebreak.assign_ranks`) runs once, over the whole
   population, inside :func:`score_snapshot`.
-- :func:`apply_suspicion` -- stage 10 (W3-2f, ``03`` section 6): folds a
+- :func:`apply_suspicion` -- stage 10 (``03`` section 6): folds a
   caller-supplied ``detectors`` callable's per-repo flag names onto
   ``ScoreRecord.suspicion``, run after stage 9's ``assign_ranks`` so
   suspicion can never influence rank/tie_key. ``cvi.core`` cannot import
@@ -50,41 +44,36 @@ that):
   per-persona visible counts and a per-detector ``suspicion_counts``
   histogram, over the final ranked records.
 - :func:`canonical_records_json` / :func:`records_hash_of` -- the
-  reproducibility handle (03 section 5, W3-4): a canonical JSON
+  reproducibility handle (03 section 5): a canonical JSON
   serialisation of the final record tuple (sorted keys, tuples as lists,
   floats via Python's default ``repr``-based float formatting), hashed with
   SHA-256. Field order and dict-insertion order never change it (each
   dataclass becomes a ``{field name: value}`` dict, and
   ``cvi.core.models.canonical_json`` sorts every dict's keys).
 
-Stage 8 on a gated or unrated record (D-PERS-1/2/3, ``02`` section 9;
-**lead ruling R-1**, following the W2-8b review
--- ``.agents/W2-8b/review/R-rulings-compliance.md``). Two cases
-``persona.py``'s own contract does not let a caller treat like a normal
+Stage 8 on a gated or unrated record (D-PERS-1/2/3, ``02`` section 9).
+Two cases ``persona.py``'s own contract does not let a caller treat like a normal
 rated record, both handled by :func:`score_bundle_stage_8_persona`:
 
 - ``record.gate.eligible is False`` (a stage-0 gate failure): ``pillars``
   is ``{}`` (``cvi.core.engine._bare_record``), and
   ``persona.persona_composite`` *raises* ``ValueError`` on an incomplete
-  pillar set by design (``tests/core/test_persona_v2.py::
-  test_persona_composite_raises_when_pillars_incomplete``: "no balanced
-  score exists to reproject, so this is a programming error to catch
-  loudly, not a silent (None, 0.0, None)"). ``persona_composites`` is
-  therefore ``{}`` here, matching what ``cvi.core.engine`` itself already
-  leaves on a gated record. **R-1: a gated repo is gated under every
-  persona**, with the balanced ``gate.reason`` -- D-ORDER-1 decides
-  eligibility at stage 0, strictly before any persona lens exists, so
+  pillar set by design ("no balanced score exists to reproject, so this is
+  a programming error to catch loudly, not a silent (None, 0.0, None)").
+  ``persona_composites`` is therefore ``{}`` here, matching what
+  ``cvi.core.engine`` itself already leaves on a gated record. A gated repo
+  is gated under every persona, with the balanced ``gate.reason`` -- D-ORDER-1
+  decides eligibility at stage 0, strictly before any persona lens exists, so
   nothing about a persona's own weights can undo it.
 - ``record.gate.eligible is True`` and ``record.rated is False`` (a
   stage-3 D-EVID-1 evidence failure): ``pillars`` *is* the full five-name
   dict (``cvi.core.aggregate.aggregate_pillars`` always returns one), so
   ``persona.persona_composite`` can be called for every preset without
-  raising, and is. **R-1: unlike the gated case, this is not universal.**
-  ``04`` section 6's own ruling is that a persona's ``rated`` flag is
-  recomputed from *that persona's own* re-weighted coverage, never copied
-  from the balanced record -- a repo the balanced weights left unrated can
-  still be rated under a persona whose weights happen to favour the
-  pillars this repo *did* measure. So for each of the four
+  raising, and is. Unlike the gated case, this is not universal:
+  a persona's ``rated`` flag is recomputed from *that persona's own*
+  re-weighted coverage, never copied from the balanced record -- a repo the
+  balanced weights left unrated can still be rated under a persona whose weights
+  happen to favour the pillars this repo *did* measure. So for each of the four
   :data:`~cvi.core.persona.GATED_PERSONAS`: if that persona's own
   ``PersonaComposite.rated`` is ``False`` (its own weighted coverage is
   below 0.60), the reason is
@@ -97,18 +86,6 @@ rated record, both handled by :func:`score_bundle_stage_8_persona`:
   as a rated record. A persona clearing both bars is simply absent from
   ``persona_gates``, which is what makes the repo visible under that lens,
   the same rule a rated record already follows.
-
-An earlier version of this module stated the balanced unrated reason on
-all four personas unconditionally (the packet dispatch's literal wording).
-The W2-8b review measured this against the 12-repo fixture:
-``unrated/partial-repo``'s four persona coverages (0.052-0.087) were
-already below 0.60, so the universal override happened to produce the
-right *answer* there, but not from the right *rule* -- a repo unrated at
-balanced weights while genuinely rated under one persona's own weights
-would have been wrongly hidden from that lens too. Corrected per the R-1
-ruling above; `04` section 6's SQL projection (W4-3) needs no change, since
-it already recomputes per-persona ``rated`` independently of this
-module's ``persona_gates`` field.
 """
 from __future__ import annotations
 
@@ -116,7 +93,7 @@ from dataclasses import dataclass, field, fields, is_dataclass, replace
 from datetime import datetime
 from typing import Any, Callable, Mapping, Sequence
 
-from cvi.core import commit_domains, constants_v2, persona
+from cvi.core import commit_domains, constants, persona
 from cvi.core.commit_domains import LastNonBotCommitMeasured
 from cvi.core.engine import PopulationLookup, Snapshot, score
 from cvi.core.gates import GateEvidence, REASON_NO_EXTERNAL_WORKFLOW
@@ -132,9 +109,7 @@ from cvi.core.tiebreak import TieBreakInput, assign_ranks, ttfhr_p75_from_pr_win
 #: A repository key, ``"owner/name"`` (exact case: :class:`~cvi.core.models.
 #: RepoIdentity` never normalises case, and neither does this module -- the
 #: same convention :func:`cvi.core.tiebreak._name_key` lowercases only for
-#: sort comparison, never for identity). No existing type alias for this
-#: shape was found anywhere in the codebase (``grep -rn "RepoKey"`` before
-#: this packet returns nothing); this is this module's own definition.
+#: sort comparison, never for identity).
 RepoKey = str
 
 
@@ -143,10 +118,9 @@ def repo_key(carrier: "FeatureBundle | ScoreRecord") -> RepoKey:
     mappings (and this module's own :class:`SnapshotCounts`) are keyed by.
 
     Accepts either a :class:`~cvi.core.models.FeatureBundle` or a
-    :class:`~cvi.core.models.ScoreRecord` (W3-2f: the ``detectors``
+    :class:`~cvi.core.models.ScoreRecord` (the ``detectors``
     composition seam needs to key *records*, not just bundles, by the same
-    identity -- one definition per fact, R-2, rather than a second
-    ``_record_repo_key`` restating ``f"{x.repo.owner}/{x.repo.name}"``).
+    identity).
     Both types carry a ``repo: RepoIdentity`` field, and ``ScoreRecord.repo``
     is always copied from the bundle it was scored from
     (``cvi.core.engine.score``), so the two never disagree for the same
@@ -180,7 +154,7 @@ def score_bundle_stage_8_persona(record: ScoreRecord, bundle: FeatureBundle) -> 
     """Stage 8 for one already stage-0-7-scored record: fold in
     ``persona_gates``/``persona_composites`` via ``dataclasses.replace``
     (``ScoreRecord`` is frozen; never mutated -- see the module docstring
-    for the gated-vs-unrated distinction R-1 draws and why the unrated
+    for the gated-vs-unrated distinction and why the unrated
     branch recomputes each persona's own coverage rather than stating one
     shared reason)."""
     if not record.gate.eligible:
@@ -207,7 +181,7 @@ def score_bundle_stage_8_persona(record: ScoreRecord, bundle: FeatureBundle) -> 
 def score_bundle_stage_9_tie_input(record: ScoreRecord, bundle: FeatureBundle) -> TieBreakInput:
     """Build one :class:`~cvi.core.tiebreak.TieBreakInput`.
 
-    ``owner``/``name`` come from ``record.repo`` (W2-10: ``ScoreRecord`` now
+    ``owner``/``name`` come from ``record.repo`` (``ScoreRecord``
     carries the scored bundle's ``RepoIdentity``, set by
     ``cvi.core.engine.score`` itself, and ``TieBreakInput.__post_init__``
     rejects an ``owner``/``name`` pair that disagrees with
@@ -217,7 +191,7 @@ def score_bundle_stage_9_tie_input(record: ScoreRecord, bundle: FeatureBundle) -
     used because it is the field the current ``TieBreakInput`` contract
     actually validates against. ``ttfhr_p75_hours`` is computed for real from
     ``bundle.pr_window`` via :func:`cvi.core.tiebreak.
-    ttfhr_p75_from_pr_window`. ``last_non_bot_commit_at`` (W1-5f, D-TIE-1
+    ttfhr_p75_from_pr_window`. ``last_non_bot_commit_at`` (D-TIE-1
     item 7) is read from ``bundle`` via
     :func:`cvi.core.commit_domains.last_non_bot_commit_at` -- ``None`` when
     that fact is ``Unmeasured`` (a missing/failed commits envelope) or a
@@ -225,12 +199,7 @@ def score_bundle_stage_9_tie_input(record: ScoreRecord, bundle: FeatureBundle) -
     "unmeasured -> None" collapse this module already applies to
     ``ttfhr_p75_hours``; ``tiebreak.py``'s own D-TIE-1 ordering already
     treats a ``None`` value as sorting after every measured one at this
-    level regardless. Neither ``FeatureBundle`` nor ``GateEvidence``
-    declares a field for this fact (04 section 3 has none; W1-5's
-    ``GateEvidence.vitality_commits_180d`` is a trailing-180-day *count*,
-    not a date) -- ``cvi.derive.bundle._load_v1`` sets it as a bundle
-    instance sidecar attribute instead, which is why this function reads
-    it through an accessor rather than a declared field."""
+    level regardless. Read through an accessor rather than a declared field."""
     last_commit = commit_domains.last_non_bot_commit_at(bundle)
     last_commit_at = last_commit.value if isinstance(last_commit, LastNonBotCommitMeasured) else None
     return TieBreakInput(
@@ -261,15 +230,13 @@ class SnapshotCounts:
     ``rated`` (04 section 6's per-persona-rated ruling: a persona's
     visibility is never read off the balanced ``rated`` flag).
 
-    ``suspicion_counts`` (W3-2f) is a per-detector-name histogram over every
+    ``suspicion_counts`` is a per-detector-name histogram over every
     record's final ``suspicion`` list: ``{name: number of records carrying
     that name}``. Built generically from whatever names actually appear
     (``cvi.core`` cannot import ``cvi.verify.detectors.DETECTOR_NAMES`` --
     see ``score_snapshot``'s ``detectors`` seam docstring -- so this is not
     a fixed nine-key dict; a name no record carries is simply absent, not
-    zero-filled). Defaults to ``{}`` so the pre-W3-2f construction site in
-    ``tests/audit/test_anchors_fixture.py`` (a known, separately-tracked
-    failure -- see that file) keeps working unchanged."""
+    zero-filled). Defaults to ``{}``."""
 
     rated: int
     gated: int
@@ -286,7 +253,7 @@ class ScoredSnapshot:
     rank 1..N, then gated/unrated records ordered by lowercase
     ``owner/name`` (D-TIE-2) -- exactly ``cvi.core.tiebreak.assign_ranks``'s
     own documented order, carried through unchanged. ``records_hash`` is
-    the reproducibility handle (03 section 5, W3-4): sha256 of
+    the reproducibility handle (03 section 5): sha256 of
     :func:`canonical_records_json` applied to ``records`` in that same
     order, so a shuffle of the *input* ``bundles`` sequence to
     :func:`score_snapshot` can never change it (the whole population is
@@ -378,10 +345,9 @@ def _to_plain(value: Any) -> Any:
     accepts. A dataclass becomes ``{field name: value}`` (never a
     positional list), so re-ordering a dataclass's declared fields cannot
     change the serialised bytes -- ``canonical_json`` sorts every dict's
-    keys besides. Every remaining leaf (``int``/``float``/``str``/``bool``/
-    ``None``) is returned unchanged; Python's ``json`` module already
-    formats a ``float`` with its ``repr`` (the shortest round-tripping
-    form), which is what "floats as repr" in the packet's own words means."""
+    keys besides. Every remaining leaf (``int``/``float``/``str``/``bool``/``None``)
+    is returned unchanged; Python's ``json`` module already formats a
+    ``float`` with its ``repr`` (the shortest round-tripping form)."""
     if is_dataclass(value) and not isinstance(value, type):
         return {field.name: _to_plain(getattr(value, field.name)) for field in fields(value)}
     if isinstance(value, Mapping):
@@ -432,13 +398,11 @@ def _validated_keys(
 
 
 #: The composition seam :func:`score_snapshot` uses to populate
-#: ``ScoreRecord.suspicion`` (W3-2f, ``03`` section 6). ``cvi.core`` may not
+#: ``ScoreRecord.suspicion`` (``03`` section 6). ``cvi.core`` may not
 #: import ``cvi.verify`` (``tests/core/test_import_graph.py`` restricts
 #: every ``cvi/core/*.py`` module to ``cvi.core`` + stdlib), so the real
 #: detector logic (``cvi.verify.detectors.run_detectors``) cannot be called
-#: from here directly -- the lead's preferred "plain import" option the
-#: packet dispatch names is unavailable, confirmed against that test rather
-#: than assumed. Instead the caller supplies a callable of this shape;
+#: from here directly. Instead the caller supplies a callable of this shape;
 #: ``cvi/verify/pipeline_hook.py`` (outside ``cvi.core``, free to import
 #: both ``cvi.core`` and ``cvi.verify``) is the one place that builds the
 #: real one, adapting each current bundle to the
@@ -456,8 +420,8 @@ def apply_suspicion(
     previous: "ScoredSnapshot | None",
     detectors: DetectorsCallable | None,
 ) -> tuple[ScoreRecord, ...]:
-    """Fold ``detectors``'s per-repo flag lists onto ``records`` (W3-2f
-    stage 10, run after stage 9's ranks are assigned -- see
+    """Fold ``detectors``'s per-repo flag lists onto ``records`` (stage 10,
+    run after stage 9's ranks are assigned -- see
     :func:`score_snapshot`'s own docstring for why suspicion must never
     feed back into rank/tie_key).
 
@@ -477,9 +441,7 @@ def apply_suspicion(
     already carried (``[]``, set by ``cvi.core.engine.score``) -- only when
     ``detectors`` is ``None`` (no composition wired in -- ``cvi.core`` alone
     never knows how to build one). **``previous`` being ``None`` is not, by
-    itself, a reason to run nothing** (lead ruling, correcting this
-    function's first draft: "``previous=None`` -> all ``suspicion == []``"
-    in the dispatch meant the *cross-snapshot* detectors only). ``previous``
+    itself, a reason to run nothing**. ``previous``
     is simply forwarded to ``detectors`` unchanged, exactly like any other
     call -- ``detectors(records, previous)`` -- so which detectors actually
     fire on a first-ever snapshot (``previous is None``) is entirely up to
@@ -524,7 +486,7 @@ def score_snapshot(
     detectors: DetectorsCallable | None = None,
 ) -> ScoredSnapshot:
     """Score a whole snapshot: D-ORDER-1 stages 0-9 over every bundle, then
-    stage 10 (W3-2f): fold cross-snapshot detector flags onto ``suspicion``.
+    stage 10: fold cross-snapshot detector flags onto ``suspicion``.
 
     Pure (no I/O, no clock): ``populations`` must already be frozen (stage 4
     -- built by the caller, typically via ``cvi.snapshot.populations.
@@ -535,24 +497,20 @@ def score_snapshot(
     own documented contract); ``gate_evidence`` and ``raw_hashes`` vary per
     repo and are looked up by :func:`repo_key`.
 
-    Adapts the packet dispatch's sketched signature
-    (``score_snapshot(bundles, populations, *, snapshot_id, raw_hashes)``)
-    to what ``cvi.core.engine.score`` actually takes, per the dispatch's own
-    instruction to keep that function's signature as the source of truth:
+    Signature follows ``cvi.core.engine.score`` as the source of truth:
     ``engine.score`` needs a full ``Snapshot`` (``snapshot_id`` + ``as_of`` +
     per-repo ``gate_evidence``), so both ``as_of`` and ``gate_evidence`` are
-    added as explicit keyword parameters here rather than guessed at or
-    smuggled inside ``populations``.
+    added as explicit keyword parameters here.
 
     Steps, each delegated to its own named function (module docstring):
     stages 0-7 per bundle (:func:`score_bundle_stages_0_7`), stage 8 per
     record (:func:`score_bundle_stage_8_persona`), stage 9 tie-break input
     per record (:func:`score_bundle_stage_9_tie_input`) then one call to
     :func:`cvi.core.tiebreak.assign_ranks` over the whole population, stage
-    10 (:func:`apply_suspicion`, W3-2f) over the ranked population,
+    10 (:func:`apply_suspicion`) over the ranked population,
     :func:`build_snapshot_counts`, then :func:`records_hash_of`.
 
-    ``previous`` (W3-2f) is the prior snapshot's own :class:`ScoredSnapshot`
+    ``previous`` is the prior snapshot's own :class:`ScoredSnapshot`
     -- ``None`` for the first snapshot ever, or whenever a caller has none
     to compare against -- and ``detectors`` is the optional composition
     that turns ``(records, previous)`` into each repo's fired detector
@@ -563,8 +521,7 @@ def score_snapshot(
     snapshot fires the single-snapshot detectors (``closed_unread``,
     ``label_spam``, etc.) is the callable's own decision, and the real
     composition's answer is "yes" (only ``param_jump`` needs a genuine
-    previous record to compare against -- lead ruling correcting this
-    function's first draft). Stage 10 runs strictly after stage 9's
+    previous record to compare against). Stage 10 runs strictly after stage 9's
     ``assign_ranks`` call: ``rank``/``tie_group``/``tie_key`` are already
     fixed on every record by then, so ``suspicion`` can never feed back into
     ranking or tie-breaking (``03`` section 6: flags are "displayed...
@@ -601,8 +558,8 @@ def score_snapshot(
 
     return ScoredSnapshot(
         snapshot_id=snapshot_id,
-        benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH,
+        benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH,
         records=records,
         counts=counts,
         records_hash=records_hash_of(records),

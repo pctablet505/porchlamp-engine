@@ -1,18 +1,14 @@
 """Deprecated. Thin compatibility wrapper over ``tests/helpers/demo_app.py``.
 
-W4-1 (`.agents/W4-1/inventory.md` sections 3/8, `04-ARCHITECTURE.md`
-section 2 "scripts/demo_app.py (folded into a test helper)"): every real
-piece of this file -- the 26 deterministic fixtures, the seeding logic,
-``create_demo_app``, ``main`` -- moved verbatim to
-``tests/helpers/demo_app.py``. Kept here, thin, for one release so
-``.venv/bin/python scripts/demo_app.py`` (documented in the project
-README's "Demo" section) still runs, and so ``tests/test_webapp.py``
-(which loads this file BY PATH via ``importlib.util.
-spec_from_file_location`` -- it pins v1 web + v1 demo end to end and is
-not touched by this packet, per the inventory's section 6 v1-deletion
-checklist, which defers it to a later, lead-verified packet) keeps
-resolving ``demo.build_fixture_store`` / ``demo.create_demo_app`` /
-``demo.main`` unchanged.
+The real implementation -- the 26 deterministic fixtures, the seeding
+logic, ``create_demo_app``, ``main`` -- lives in
+``tests/helpers/demo_app.py`` (`04-ARCHITECTURE.md` section 2,
+"scripts/demo_app.py (folded into a test helper)"). This file stays thin so
+``.venv/bin/python scripts/demo_app.py`` (documented in the project README's
+"Demo" section) still runs, and so ``tests/test_webapp.py`` -- which loads
+this file BY PATH via ``importlib.util.spec_from_file_location`` and pins v1
+web + v1 demo end to end -- keeps resolving ``demo.build_fixture_store`` /
+``demo.create_demo_app`` / ``demo.main``.
 
 Run:
     .venv/bin/python scripts/demo_app.py              # in-memory, port 8000
@@ -49,7 +45,7 @@ __all__ = [
 
 warnings.warn(
     "scripts/demo_app.py is deprecated and will be removed: its logic "
-    "moved to tests/helpers/demo_app.py (W4-1). Run "
+    "moved to tests/helpers/demo_app.py. Run "
     "`.venv/bin/python -m tests.helpers.demo_app` (or keep using this "
     "path for one release).",
     DeprecationWarning,

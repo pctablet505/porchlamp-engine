@@ -1,4 +1,4 @@
-"""CVI v2 parameter functions (packet W2-3, 02 sections 4-5).
+"""CVI v2 parameter functions (02 sections 4-5).
 
 One function per parameter (18 total), one module per pillar. Each function
 takes the FeatureBundle input for its parameter (``bundle.inputs``) and
@@ -8,14 +8,14 @@ of the same section. D-PARAM-MONO: every curve is monotone non-decreasing in
 "better for the contributor"; :func:`monotonicity_violations` asserts it
 (tests/core/test_params_monotonic.py).
 
-The ``PARAMS`` registry maps each frozen input id (constants_v2
-``PARAM_INPUT_IDS``) to its ``ParamDef``; W2-5 aggregation consumes it.
+The ``PARAMS`` registry maps each frozen input id (constants
+``PARAM_INPUT_IDS``) to its ``ParamDef``; aggregation consumes it.
 """
 from __future__ import annotations
 
 from typing import Dict, List
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.params.accessibility import (
     DEFS as _ACCESSIBILITY_DEFS,
 )
@@ -59,7 +59,7 @@ PARAMS: Dict[str, ParamDef] = {
 def _registry_problems() -> List[str]:
     """Structural invariants of the registry, checked at import time."""
     problems: List[str] = []
-    expected = set(constants_v2.PARAM_INPUT_IDS)
+    expected = set(constants.PARAM_INPUT_IDS)
     for missing in sorted(expected - set(PARAMS)):
         problems.append(f"input id {missing!r} has no registered curve")
     for extra in sorted(set(PARAMS) - expected):
@@ -68,7 +68,7 @@ def _registry_problems() -> List[str]:
     for input_id, defn in sorted(PARAMS.items()):
         if defn.input_id != input_id:
             problems.append(f"PARAMS key {input_id!r} does not match defn.input_id {defn.input_id!r}")
-        if defn.pillar not in constants_v2.PILLAR_NAMES:
+        if defn.pillar not in constants.PILLAR_NAMES:
             problems.append(f"{input_id}: pillar {defn.pillar!r} is not a frozen pillar name")
         if not 0.0 < defn.weight <= 1.0:
             problems.append(f"{input_id}: weight {defn.weight} outside (0, 1]")
@@ -83,7 +83,7 @@ def _registry_problems() -> List[str]:
                 problems.append(f"{input_id}: {defn.kind} curve needs a domain (lo < hi) and higher_is_better")
         elif defn.kind != KIND_ENUM:
             problems.append(f"{input_id}: unknown kind {defn.kind!r}")
-    for pillar in constants_v2.PILLAR_NAMES:
+    for pillar in constants.PILLAR_NAMES:
         if pillar not in pillar_totals:
             problems.append(f"pillar {pillar!r} has no registered parameters")
     for pillar, total in sorted(pillar_totals.items()):

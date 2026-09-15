@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import Measured, PRWindowEvent, Unmeasured
 from cvi.derive.bundle import load_bundle, write_bundle
 
@@ -92,7 +92,7 @@ def test_repo_identity_values(bundle: Any) -> None:
 
 
 def test_inputs_carry_exactly_the_eighteen_ids(bundle: Any) -> None:
-    assert set(bundle.inputs) == set(constants_v2.PARAM_INPUT_IDS)
+    assert set(bundle.inputs) == set(constants.PARAM_INPUT_IDS)
     assert len(bundle.inputs) == 18
 
 
@@ -230,7 +230,7 @@ def test_dump_and_reload_round_trip(bundle: Any, sample: dict[str, Path], tmp_pa
     write_bundle(bundle, out)
     doc = json.loads(out.read_text(encoding="utf-8"))
     assert doc["schema_version"] == 2
-    assert set(doc["inputs"]) == set(constants_v2.PARAM_INPUT_IDS)
+    assert set(doc["inputs"]) == set(constants.PARAM_INPUT_IDS)
     assert doc["inputs"]["ttfhr_hours"]["kind"] == "unmeasured"
     assert doc["inputs"]["elephant_factor"]["kind"] == "measured"
     assert doc["inputs"]["elephant_factor"]["source_hash"] == bundle.inputs["elephant_factor"].source_hash

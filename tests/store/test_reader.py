@@ -1,12 +1,6 @@
-"""W4-2 acceptance: reader basics + the SQL/tie_key ordering parity test
-(`04` sections 5, 6; `02` section 10). REWORK round 1: rebuilt onto
-``RepoWrite(record, bundle)`` (no ``TieBreakInput`` in the writer's input --
-``TieBreakInput`` is still how a caller runs ``assign_ranks`` upstream of
-the writer); ``ttfhr_p75``/``last_human_commit_at`` are set directly via
-SQL after the write in the ordering fixtures below, since the writer has
-no real producer for them yet (see ``cvi/store/writer.py``'s docstring) --
-this test is about the READER's SQL ordering against stored column values,
-not the writer's (currently absent) sourcing of them.
+"""Reader basics and SQL/tie_key ordering parity tests.
+
+Ordering fixtures test reader SQL ordering against stored column values.
 """
 from __future__ import annotations
 
@@ -29,7 +23,7 @@ from .helpers import (
 
 
 def _fresh_db(path: Path) -> sqlite3.Connection:
-    conn = schema.connect(path)  # G-004: PRAGMA foreign_keys=ON
+    conn = schema.connect(path)  # PRAGMA foreign_keys=ON
     apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
     write_snapshot(
         conn, id="snap-1", as_of="2026-09-13", benchmark_version="2.0.0-dev",
@@ -131,11 +125,10 @@ def _write_and_rank(conn, entries: list[TieBreakInput]) -> list[tuple[str, str]]
 
 
 def test_ranked_order_sql_parity_with_tie_key_nulls_at_multiple_levels(tmp_path) -> None:
-    """The W2-6 review finding: a naive ``ORDER BY`` (no ``NULLS LAST``)
-    inverts the order when an ASC tie-break column is NULL. This fixture
-    puts NULLs at two different tie levels (friction, then leverage) on
-    rows that actually reach those levels, so the parity check is real.
-    F-005 adds a mixed-UTC-offset pair at level 7 (last commit)."""
+    """Verify a naive ``ORDER BY`` (no ``NULLS LAST``) does not invert
+    order when an ASC tie-break column is NULL. Puts NULLs at two different
+    tie levels (friction, then leverage) on rows reaching those levels,
+    along with a mixed-UTC-offset pair at level 7 (last commit)."""
     conn = _fresh_db(tmp_path / "db.sqlite")
 
     def rec(raw_hash, owner, name, composite, p_resp, friction, leverage):
@@ -157,7 +150,7 @@ def test_ranked_order_sql_parity_with_tie_key_nulls_at_multiple_levels(tmp_path)
                       ttfhr_p75_hours=None, last_non_bot_commit_at="2026-01-03T00:00:00Z"),
         TieBreakInput(rec("h5", "acme", "r5", 85.0, 85.0, 10.0, None), "acme", "r5",
                       ttfhr_p75_hours=6.0, last_non_bot_commit_at=None),
-        # F-005: tied all the way down to level 7, mixed UTC offsets.
+        # Tied all the way down to level 7, mixed UTC offsets.
         # r6's instant (18:00-05:00 = 23:00Z) is LATER than r7's (22:00Z),
         # so DESC puts r6 first -- exactly the comparison a naive TEXT sort
         # of the raw (non-normalised) strings would get backwards.
@@ -198,7 +191,7 @@ def test_ranked_order_sql_parity_with_tie_key_nulls_at_multiple_levels(tmp_path)
 
 
 def test_last_human_commit_at_mixed_offset_sorts_by_instant_not_text(tmp_path) -> None:
-    """F-005, isolated: two rows tied on everything through level 6, whose
+    """Two rows tied on everything through level 6, whose
     RAW (pre-normalisation) commit strings would sort backwards as TEXT
     (``'18:00-05:00'`` < ``'22:00Z'`` lexicographically, but the FIRST is
     the LATER instant) -- proves normalisation, not just NULLS LAST, is

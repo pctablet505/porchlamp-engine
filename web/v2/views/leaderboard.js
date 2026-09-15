@@ -7,12 +7,10 @@
 // row list into the persistent `<tbody>`/card container via `patchRows`
 // (components/patch.js).
 //
-// Pagination (owner instruction 2026-09-13, replacing an earlier
-// no-pagination ruling): one API page is loaded at a time (20/50/100/500/
+// Pagination: one API page is loaded at a time (20/50/100/500/
 // 1000 rows, default 20); for the two large page sizes the loaded page is
-// STILL windowed exactly like the table always was (only the visible slice
-// plus a buffer exists in the DOM) — pagination and windowing solve
-// different problems and this packet keeps both.
+// STILL windowed (only the visible slice plus a buffer exists in the DOM)
+// — pagination and windowing solve different problems and both apply.
 
 import * as copy from "../copy.js";
 import {
@@ -90,8 +88,7 @@ export function renderTabs(activeTab, counts) {
 /**
  * The pager UI: page-size dropdown (20/50/100/500/1000) plus
  * first/previous/next/last controls and a "Page i of N (M rows)"
- * indicator. Shared between the Ranked and Not-ranked lists (owner
- * instruction: "the same controls on the Not-ranked list") via the
+ * indicator. Shared between the Ranked and Not-ranked lists via the
  * `dataPrefix` param, which namespaces the `data-*` hooks app.js binds to
  * (`pager` for the leaderboard, `notranked-pager` for the not-ranked list).
  */

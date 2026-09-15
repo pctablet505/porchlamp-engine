@@ -4,8 +4,7 @@
 // the templates defined here, never write new prose inline.
 //
 // tests/test_ui_copy_usage.py enumerates every exported name in this file (via a
-// source-level parse, not execution — Node is not available on this box,
-// see .agents/W4-5a/handoff.md) and asserts each one is referenced
+// source-level parse, not execution) and asserts each one is referenced
 // somewhere under web/v2/, so no string here is dead/orphaned copy.
 
 export const BRAND_NAME = "Contributor Value Index";
@@ -95,8 +94,8 @@ export function coverageBadgeText(coverage) {
 }
 
 // U-10: the gate/unrated reason map (06 §3 A2), reused by the drawer.
-// "fork" is a W4-3 store-queries review addition (2026-09-13), not in the
-// originally documented U-10 set but a valid GateReason on the wire.
+// "fork" is not in the documented U-10 set but is a valid GateReason on
+// the wire.
 const GATE_REASON_COPY = Object.freeze({
   mirror: "Mirror of another repository — not an independent project.",
   archived: "Archived on GitHub — no active development to evaluate.",
@@ -112,9 +111,9 @@ export function gateReasonText(reason) {
 }
 
 // Both spellings of the evidence-floor reason resolve to the same
-// sentence: the engine's own constant is "unrated: insufficient_evidence"
-// (W4-3 review, 2026-09-13); "insufficient_evidence" is kept for any
-// producer that sends the plain form.
+// sentence: the engine's own constant is "unrated: insufficient_evidence";
+// "insufficient_evidence" is accepted for any producer that sends the
+// plain form.
 const UNRATED_REASON_COPY = Object.freeze({
   insufficient_evidence: "Not enough measured evidence to rank",
   "unrated: insufficient_evidence": "Not enough measured evidence to rank",
@@ -137,10 +136,8 @@ export const NOT_RANKED_EMPTY = "No gated or unrated repositories to show.";
 
 // Persona gate reasons (02-RANKING-DESIGN.md D-PERS-2/3), reused by the
 // leaderboard's persona-hidden disclosure and the drawer's persona section.
-// Engine vocabulary (cvi/core/persona.py:185-188; review Warning W-2,
-// 2026-09-13 — these keys previously did not match any real gate code the
-// store could ever send, so every actual gate would have fallen through
-// to personaGateReason's `|| code` and shown the raw code to a user).
+// Keys are the engine's own gate codes (cvi/core/persona.py:185-188); an
+// unknown code falls through to personaGateReason's `|| code`.
 const PERSONA_GATE_COPY = Object.freeze({
   ai_hard_ban: "This repository has an explicit ban on AI-assisted contributions.",
   elephant_factor_below_3:
@@ -168,7 +165,7 @@ export function personaHiddenDisclosure(count) {
 // Levels 6 (TTFHR p75) and 7 (last non-bot commit date) are store-only
 // fields not part of the API row contract (06 §4 does not list them), so
 // the client can only ever derive levels 1, 2, 3, 4, 5 and 8 — see
-// components/table.js's decidingTieLevel and the handoff's stated gap.
+// components/table.js's decidingTieLevel.
 export const TIE_MARK = "=";
 const TIE_LEVEL_LABELS = Object.freeze({
   1: "the composite CVI",
@@ -187,10 +184,10 @@ export function emptyLeaderboardText(gatedCount, unratedCount) {
   return `No rated repositories match. ${gatedCount} gated and ${unratedCount} unrated are listed under Not ranked.`;
 }
 
-// W4-4 review addendum (2026-09-13): the API's error body carries a
-// `detail` string (`{"error": {endpoint, status, detail}}`) explaining
-// WHAT went wrong, not just that it did — appended after the endpoint and
-// status wherever it is available (`ApiError.detail`, `web/v2/api.js`).
+// The API's error body carries a `detail` string (`{"error": {endpoint,
+// status, detail}}`) explaining WHAT went wrong, not just that it did —
+// appended after the endpoint and status wherever it is available
+// (`ApiError.detail`, `web/v2/api.js`).
 function appendSentence(text) {
   const trimmed = text.trim();
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
@@ -217,8 +214,7 @@ export function suspicionTooltip(flags) {
 
 export const ROW_OPEN_HINT = "Press Enter to view why this score";
 
-// Owner instruction 2026-09-13 (replacing the earlier no-pagination
-// ruling): a page-size dropdown (20/50/100/500/1000) plus
+// Pagination copy: a page-size dropdown (20/50/100/500/1000) plus
 // first/previous/next/last controls and a "Page i of N (M rows)"
 // indicator, on both the Ranked and Not-ranked lists.
 export const PAGE_SIZE_LABEL = "Rows per page";
@@ -233,7 +229,7 @@ export function pagerStatusText(page, totalPages, totalRows) {
 export function reprojectedAnnouncement(personaName, count) {
   return `Re-projected under ${personaName}: ${count} rows moved.`;
 }
-// Sort encoding contract (lead-mandated 2026-09-13; mirrored exactly by
+// Sort encoding contract (mirrored exactly by
 // components/table.js's sortDirectionLabel and
 // scripts/serve_ui_fixtures.py's docstring): `sort=<field>` means that
 // field's own "best first" direction — descending for every score/
@@ -265,16 +261,15 @@ export const KEYMAP_ENTRIES = Object.freeze([
 
 export const DRAWER_TITLE = "Why this score";
 export const DRAWER_SECTION_IDENTITY = "Identity and gate status";
-// W4-5d (2026-09-14, packet ruling — "pick one, document in copy.js"): a
-// GATED repository was disqualified before scoring and has no CVI/tier/
+// A GATED repository was disqualified before scoring and has no CVI/tier/
 // quadrant at all (`RepoDetailResponse.cvi` etc. are `None`, never a
-// fabricated value) — the chosen behaviour is to OMIT the composite
-// `<details>` entirely for `kind === "gated"` (`views/drawer.js::
-// renderDrawer`) rather than render it with a "no composite" placeholder
-// sentence. The other three post-identity sections (pillars/evidence,
-// persona view, integrity) still render, collapsed, below the gate
-// sentence (06 §3 C: "the reason sentence and nothing else ABOVE THE
-// FOLD" — collapsed sections below the fold are fine).
+// fabricated value), so the composite `<details>` is OMITTED entirely for
+// `kind === "gated"` (`views/drawer.js::renderDrawer`) rather than
+// rendered with a "no composite" placeholder sentence. The other three
+// post-identity sections (pillars/evidence, persona view, integrity)
+// still render, collapsed, below the gate sentence (06 §3 C: "the reason
+// sentence and nothing else ABOVE THE FOLD" — collapsed sections below
+// the fold are fine).
 export const DRAWER_SECTION_COMPOSITE = "Composite";
 export const DRAWER_SECTION_PILLARS = "Pillars and evidence";
 export const DRAWER_SECTION_PERSONAS = "Persona view";
@@ -352,7 +347,7 @@ export function apiErrorAnnouncement(endpoint, status) {
 }
 
 // --------------------------------------------------------------------- //
-// W4-5b: primary navigation (06 §2 — "Primary tabs: Leaderboard (A) ·
+// Primary navigation (06 §2 — "Primary tabs: Leaderboard (A) ·
 // Matrix (B) · Compare (E) · Configure weights (D) · Methodology (F)").
 // Distinct from TAB_RANKED/TAB_NOT_RANKED above, which are the
 // Leaderboard screen's own Ranked/Not-ranked SUB-tabs.
@@ -383,11 +378,10 @@ export function matrixExcludedCaption(excludedCount) {
   return `${excludedCount} gated ${excludedCount === 1 ? "repository" : "repositories"} excluded.`;
 }
 
-// Opus code review B-2 (2026-09-13): the fixture server used to compose
-// this caption SENTENCE itself and send it verbatim — a `06` §6 violation
-// ("every sentence in copy.js") that the real API cannot match either (it
-// carries `axis_partial_count`/`axis_partial_share` numbers, never
-// prose). `axisName` is "leverage"/"friction"; `entry` is one
+// The caption SENTENCE is composed here, not on the wire (06 §6: "every
+// sentence in copy.js") — the API carries
+// `axis_partial_count`/`axis_partial_share` numbers, never prose.
+// `axisName` is "leverage"/"friction"; `entry` is one
 // `MatrixResponse.axis_coverage` value (`{pillar, axis_partial_count,
 // axis_partial_share}`) or `undefined`/`null` (no caption needed).
 export function matrixAxisCoverageCaption(axisName, entry) {

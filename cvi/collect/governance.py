@@ -1,4 +1,4 @@
-"""W1-6: governance evidence — legal IP, promotion ladder, AI posture.
+"""Governance evidence — legal IP, promotion ladder, AI posture.
 
 Collects, per repository, the raw evidence for the three governance
 parameters of ``docs/v2/02-RANKING-DESIGN.md`` section 4 (3.1, 3.3, 4.2)
@@ -7,56 +7,43 @@ and derives them with ``NONE`` / ``AD_HOC`` / ``AD_HOC`` defaults:
 * **3.1 Legal IP** — check-run names and commit-status contexts on the
   :data:`MERGED_PR_CAP` (20) most recent merged PRs (DCO, EasyCLA,
   cla-assistant, google-cla, ...). The DCO alternative evidence is the
-  ``Signed-off-by`` share over the trailing 365 d commits: the W1-5
-  ``commits_365d`` envelope (:mod:`cvi.collect.commits`) already receives
-  ``commit.message`` in its raw REST response but discarded it; the W1-6
-  ownership extension there (module docstring) now also records a
+  ``Signed-off-by`` share over the trailing 365 d commits: the
+  ``commits_365d`` envelope (:mod:`cvi.collect.commits`) records a
   per-commit ``signed_off`` boolean, so this module computes the share
-  from the existing envelope with **no second commit fetch** and no
+  from that envelope with **no second commit fetch** and no
   message text stored anywhere (``03`` section 3: documents/text are not
   evidence for 3.1; only checks and the sign-off fact are).
 * **3.3 Promotion ladder** — association transitions read from the
-  recorded ``pr_window`` envelope (W1-3): an account whose earliest
+  recorded ``pr_window`` envelope: an account whose earliest
   observed association in the window is external and whose latest is
   MEMBER/COLLABORATOR is a verified promotion. The CLOSED rung needs the
   merged PR authors attributable to one email-domain org via the
-  ``commits_365d`` envelope (W1-5). DOCUMENTED reads the collected
+  ``commits_365d`` envelope. DOCUMENTED reads the collected
   GOVERNANCE.md / MAINTAINERS.md / CONTRIBUTING.md bodies.
 * **4.2 AI policy posture** — presence of an AI-policy file (the
-  :data:`AI_POLICY_FILES` family) only. **PROSCRIBED detection is
-  de-scoped as of round 4** (three rounds of pattern/table tuning each
-  fixed one false-positive class while introducing another of the
-  opposite polarity -- round 3's review named the root cause: bare
-  co-occurrence of a negation/ban token and the word "AI" cannot
+  :data:`AI_POLICY_FILES` family) only. **PROSCRIBED is never detected**:
+  bare co-occurrence of a negation/ban token and the word "AI" cannot
   distinguish "Do not submit AI-generated code" from "Do not worry if you
   used AI", nor "AI is prohibited" from "undisclosed AI use is
   prohibited"; both need the ban's *object*, which this module never
-  bound). ``classify_ai_posture`` now returns REGULATED on AI-policy-file
-  presence, else AD_HOC, and never PROSCRIBED -- until PROSCRIBED
-  detection is re-planned as its own unit (packet **W1-6b**: a corpus
-  sampled and hand-labelled from real ``CONTRIBUTING.md``/``AGENTS.md``/
-  ``AI.md`` bodies already in the raw store, a rule binding the ban
-  expression to its object, a sentence-driven REGULATED path, and a
-  parametrized row-deletion sweep as the standing gate), **the
+  binds. ``classify_ai_posture`` returns REGULATED on AI-policy-file
+  presence, else AD_HOC, and never PROSCRIBED, so **the
   ``ai_assisted`` persona's hard-ban gate cannot fire** -- no repository
   can score the PROSCRIBED regime (25 for that persona) through this
-  collector. :data:`cvi.core.constants_v2.AI_POSTURE_VALUES` keeps all
+  collector. :data:`cvi.core.constants.AI_POSTURE_VALUES` keeps all
   three spellings (REGULATED/PROSCRIBED/AD_HOC): only the producer here is
   narrowed, not the vocabulary. The commit-trailer convention path of
   ``02`` section 4 4.2 ("Assisted-by"/"AI-generated") needs commit message
-  text; this packet's collection scope (05-WORK-PLAN W1-6 goal) is check
-  names, the sign-off share, governance-file text and PR associations
-  only, so that path is not evaluated here either (recorded as a scope
-  decision in the W1-6 handoff, not a defect).
+  text, which this collector never reads, so that path is not evaluated
+  here either.
 
 Per ``03`` section 3, documents are not 3.1 evidence: the regime comes from
 check/status names and the sign-off share only. Classification constants
-are defined here, as the single definition (R-2); W2-1 moves them to the
-v2 frozen constants module (``cvi.core.constants_v2``), which already owns
-the value vocabularies (:data:`cvi.core.constants_v2.LEGAL_IP_VALUES`,
+are defined here, as the single definition; ``cvi.core.constants`` owns
+the value vocabularies (:data:`cvi.core.constants.LEGAL_IP_VALUES`,
 ``PROMOTION_LADDER_VALUES``, ``AI_POSTURE_VALUES``).
 
-Priority, highest first (documented decision, ``02`` §4 + ``03`` §3):
+Priority, highest first (``02`` §4 + ``03`` §3):
 
 * 3.1: foundation-CLA check (or foundation owner) > corp-CLA check >
   DCO check > sign-off share ≥ :data:`SIGNOFF_THRESHOLD` > NONE. A CLA bot
@@ -66,8 +53,8 @@ Priority, highest first (documented decision, ``02`` §4 + ``03`` §3):
   no external merges) > DOCUMENTED (nomination text) > AD_HOC. CLOSED
   outranks DOCUMENTED so a closed repo cannot buy 75 by writing docs
   (``03`` §3: the cheapest fake for 3.3).
-* 4.2: REGULATED (policy file present) > AD_HOC. PROSCRIBED is de-scoped
-  (see above) and never emitted by this module.
+* 4.2: REGULATED (policy file present) > AD_HOC. PROSCRIBED is never
+  emitted by this module (see above).
 """
 
 from __future__ import annotations
@@ -86,10 +73,10 @@ from cvi.collect import commits as commit_domains
 from cvi.collect import github_graphql as pr_window
 from cvi.collect.envelope import sha256_hex, write_envelope
 # --------------------------------------------------------------------------- #
-# 02 §4 / packet W1-6 constants (single definition until W2-1 moves them)     #
+# 02 §4 constants (defined here, once)                                        #
 # --------------------------------------------------------------------------- #
 
-#: Packet W1-6: check evidence comes from the 20 most recent merged PRs.
+#: Check evidence comes from the 20 most recent merged PRs.
 MERGED_PR_CAP: int = 20
 #: Closed PRs scanned (newest first) to reach the 20 merged: 5 pages of 100.
 PULLS_PAGES_MAX: int = 5
@@ -97,7 +84,7 @@ PULLS_PAGES_MAX: int = 5
 PULLS_PAGE_SIZE: int = 100
 #: 02 §4 3.1: DCO when at least 50% of window commits carry Signed-off-by.
 #: The window and cap themselves are :mod:`cvi.collect.commits`'s
-#: ``COMMIT_WINDOW_DAYS``/``COMMIT_CAP`` (R-2: one definition per fact) --
+#: ``COMMIT_WINDOW_DAYS``/``COMMIT_CAP`` (one definition per fact) --
 #: this module reads the already-collected ``commits_365d`` envelope rather
 #: than refetching, so it does not redefine them.
 SIGNOFF_THRESHOLD: float = 0.5
@@ -111,7 +98,7 @@ AI_POLICY_FILES: tuple[str, ...] = (
     "CLAUDE.md")
 
 #: A genuine CLA check/status name -- the shared "is this even a CLA check"
-#: test both branches below require (Blocker B1 round 2: a bare
+#: test both branches below require (a bare
 #: foundation-name substring with no CLA marker at all -- "license/apache-2.0",
 #: "apache-rat", "build (eclipse-temurin-17)", "asf-jenkins-build",
 #: "cncf-conformance-e2e", "test-on-apache-spark" -- must never match
@@ -132,10 +119,9 @@ CLA_CHECK_PATTERNS: tuple[re.Pattern, ...] = tuple(
 #: (02 §4 3.1: "EasyCLA/ASF/Eclipse/CNCF CLA check"). Every alternative here
 #: also satisfies :data:`CLA_CHECK_PATTERNS` (EasyCLA is CNCF's bot; ASF/
 #: Eclipse/CNCF run a named "<foundation>-cla" bot or status context), so a
-#: bare foundation-name substring with no CLA marker never matches here --
-#: the round-1 defect (Blocker B1) matched "apache"/"asf"/"cncf"/"eclipse" on
-#: their own, which is what shadowed a real DCO check on six common
-#: non-CLA build-job names.
+#: bare foundation-name substring with no CLA marker never matches here:
+#: matching "apache"/"asf"/"cncf"/"eclipse" on their own would shadow a
+#: real DCO check on common non-CLA build-job names.
 FOUNDATION_CHECK_PATTERNS: tuple[re.Pattern, ...] = tuple(
     re.compile(p, re.IGNORECASE) for p in (
         r"easycla",
@@ -259,7 +245,7 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
 
 
 def _is_bot_row(row: Mapping[str, Any]) -> bool:
-    """D-IN-1 over one recorded commit row (delegates to W1-5's typing)."""
+    """D-IN-1 over one recorded commit row (delegates to :mod:`cvi.collect.commits`)."""
     return commit_domains.is_bot(commit_domains.CommitActor(
         login=str(row.get("author_login") or ""),
         email=str(row.get("author_email") or ""),
@@ -350,8 +336,8 @@ def _check_evidence(api: RestTransport, owner: str, name: str,
 
 def _row_sequence(rows: Optional[Any]) -> Optional[Sequence[Mapping[str, Any]]]:
     """Defend the ``c365`` (commits_365d) contract: a sequence of row
-    mappings, never a bare mapping itself (Warning W8 round 2 -- a
-    dict-shaped ``c365`` iterates over its *keys*, not its rows, and the
+    mappings, never a bare mapping itself (a dict-shaped ``c365`` iterates
+    over its *keys*, not its rows, and the
     first ``row.get(...)`` then raises ``AttributeError`` on a plain string).
     Returns ``None`` for ``None`` or a malformed (bare-``Mapping``) input, so
     every caller below treats it exactly like "no rows" instead of crashing
@@ -365,14 +351,14 @@ def _row_sequence(rows: Optional[Any]) -> Optional[Sequence[Mapping[str, Any]]]:
 def signoff_share(c365_rows: Optional[Sequence[Mapping[str, Any]]]) -> Optional[dict[str, Any]]:
     """02 §4 3.1: the ``Signed-off-by`` share over the non-bot commits (D-IN-1).
 
-    ``c365_rows`` are the recorded ``commits_365d`` envelope rows (W1-5,
-    read by the ``scripts/derive.py`` hook and passed straight through --
-    no separate fetch); each row's ``signed_off`` boolean is the W1-6
-    ownership extension of :func:`cvi.collect.commits.shape_commit_rows`.
+    ``c365_rows`` are the recorded ``commits_365d`` envelope rows (read by
+    the ``scripts/derive.py`` hook and passed straight through -- no
+    separate fetch); each row's ``signed_off`` boolean comes from
+    :func:`cvi.collect.commits.shape_commit_rows`.
     Returns ``None`` when no ``commits_365d`` envelope was collected at all
     (as opposed to an envelope with zero rows, which returns a share of
     ``None`` inside a real ``{"count": 0, "total": 0, "share": None}``), and
-    also when ``c365_rows`` is a malformed (bare-mapping) shape (W8).
+    also when ``c365_rows`` is a malformed (bare-mapping) shape.
     """
     rows_seq = _row_sequence(c365_rows)
     if rows_seq is None:
@@ -443,7 +429,7 @@ def classify_legal_ip(check_names: Sequence[str], signoff: Optional[Mapping[str,
     ``signoff`` the recorded ``{"count", "total", "share"}`` (None when no
     commit evidence), ``foundation_owner`` the owner-in-foundation-list
     fact. Returns ``(value, evidence)`` with ``value`` in
-    :data:`cvi.core.constants_v2.LEGAL_IP_VALUES`; the evidence dict is
+    :data:`cvi.core.constants.LEGAL_IP_VALUES`; the evidence dict is
     factual (``03`` §3: documents are not evidence) and carries the fired
     ``rule``.
     """
@@ -471,7 +457,7 @@ def classify_legal_ip(check_names: Sequence[str], signoff: Optional[Mapping[str,
 def _orgs_by_login(c365: Optional[Sequence[Mapping[str, Any]]]) -> dict[str, str]:
     """author_login -> email-domain org over the commits_365d envelope rows.
 
-    ``c365`` must be a row sequence (W8); a malformed bare-mapping shape is
+    ``c365`` must be a row sequence; a malformed bare-mapping shape is
     treated as no rows via :func:`_row_sequence`, never crashed on.
     """
     orgs: dict[str, str] = {}
@@ -506,11 +492,11 @@ def classify_promotion_ladder(prw: Optional[Mapping[str, Any]],
                               ) -> tuple[str, dict[str, Any]]:
     """02 §4 3.3: the promotion ladder rung.
 
-    ``prw`` is the recorded ``pr_window`` envelope data (W1-3; None when
+    ``prw`` is the recorded ``pr_window`` envelope data (None when
     absent), ``files`` the governance-file entries, ``c365`` the
-    ``commits_365d`` envelope rows (W1-5). Returns ``(value, evidence)``
+    ``commits_365d`` envelope rows. Returns ``(value, evidence)``
     with ``value`` in
-    :data:`cvi.core.constants_v2.PROMOTION_LADDER_VALUES`; priority is
+    :data:`cvi.core.constants.PROMOTION_LADDER_VALUES`; priority is
     VERIFIED > CLOSED > DOCUMENTED > AD_HOC (module docstring).
     """
     prs = list((prw or {}).get("prs") or [])
@@ -576,13 +562,12 @@ def classify_ai_posture(files: Mapping[str, Optional[Mapping[str, Any]]]
 
     ``files`` are the recorded governance/AI-policy file entries. Returns
     ``(value, evidence)`` with ``value`` in
-    :data:`cvi.core.constants_v2.AI_POSTURE_VALUES``; priority is REGULATED
+    :data:`cvi.core.constants.AI_POSTURE_VALUES``; priority is REGULATED
     (an :data:`AI_POLICY_FILES` entry is present) > AD_HOC. PROSCRIBED is
-    de-scoped as of round 4 and never returned here (module docstring: three
-    rounds of ban-detection schemes each traded one false-positive class for
-    another; re-planned as packet W1-6b). The commit-trailer REGULATED path
-    of ``02`` §4 4.2 is not evaluated either (module docstring: outside this
-    packet's collection scope).
+    never returned here (module docstring: ban detection cannot bind the
+    ban's object). The commit-trailer REGULATED path
+    of ``02`` §4 4.2 is not evaluated either (module docstring: this
+    collector never reads commit message text).
     """
     present = sorted(fname for fname, entry in (files or {}).items() if entry)
     ai_policy_present = [f for f in present if f in AI_POLICY_FILES]
@@ -599,9 +584,9 @@ def derive_governance_fields(gov: Optional[Mapping[str, Any]],
                              ) -> dict[str, tuple[Any, str]]:
     """Bundle fields for 02 §4 3.1/3.3/4.2 from the collected envelopes.
 
-    ``gov`` is the ``governance`` envelope data (W1-6; checks + files),
-    ``prw`` the ``pr_window`` envelope data (W1-3), ``c365`` the
-    ``commits_365d`` envelope rows (W1-5, now carrying ``signed_off`` --
+    ``gov`` is the ``governance`` envelope data (checks + files),
+    ``prw`` the ``pr_window`` envelope data, ``c365`` the
+    ``commits_365d`` envelope rows (they carry ``signed_off`` --
     see :func:`signoff_share`). Returns ``{field: (value, confidence)}`` for
     the six fields written by the ``scripts/derive.py`` hook: ``legal_ip`` /
     ``legal_ip_evidence``, ``promotion_ladder`` /
@@ -611,10 +596,10 @@ def derive_governance_fields(gov: Optional[Mapping[str, Any]],
     the live v1 scoring sweep -- 00-README non-negotiable: never change a
     running sweep).
 
-    Confidence, per field, per Blocker B2 round 2 (the W1-7 F2 template: an
-    envelope absent or failed to fetch is Unmeasured(collector_failure); an
-    envelope that fetched successfully and found nothing is a measured
-    zero, D-MISS-1) -- ``"missing"`` is this v1-format document's spelling
+    Confidence, per field: an envelope absent or failed to fetch is
+    Unmeasured(collector_failure); an envelope that fetched successfully
+    and found nothing is a measured zero (D-MISS-1) -- ``"missing"`` is
+    this v1-format document's spelling
     of Unmeasured (:func:`cvi.derive.bundle._load_v1` maps a ``"missing"``
     confidence to ``Unmeasured(reason="collector_failure")``), ``"derived"``
     a real measured value:

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import pytest
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import (
     GateResult,
     Measured,
@@ -128,8 +128,8 @@ def _record(
     return ScoreRecord(
         repo=_REPO,
         snapshot_id="snap-1",
-        benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH,
+        benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH,
         raw_hash=_HASH64,
         gate=gate if gate is not None else _gate(),
         params={},
@@ -159,7 +159,7 @@ def _all_measured_pillars(
         "rigor": rigor,
         "accessibility": accessibility,
     }
-    return {name: _pillar(values[name], 1.0) for name in constants_v2.PILLAR_NAMES}
+    return {name: _pillar(values[name], 1.0) for name in constants.PILLAR_NAMES}
 
 
 # --------------------------------------------------------------------------- #
@@ -174,13 +174,13 @@ def test_all_five_presets_cover_the_five_pillars_and_sum_to_one() -> None:
         PERSONA_AI_ASSISTED,
     }
     for persona, weights in PERSONA_PRESETS.items():
-        assert set(weights) == set(constants_v2.PILLAR_NAMES), persona
+        assert set(weights) == set(constants.PILLAR_NAMES), persona
         assert sum(weights.values()) == pytest.approx(1.0, abs=1e-6), persona
 
 
-def test_balanced_preset_is_constants_v2_pillar_weights_not_a_copy() -> None:
+def test_balanced_preset_is_constants_pillar_weights_not_a_copy() -> None:
     """R-2: the balanced preset is read off the one frozen definition."""
-    assert PERSONA_PRESETS[PERSONA_BALANCED] == constants_v2.PILLAR_WEIGHTS
+    assert PERSONA_PRESETS[PERSONA_BALANCED] == constants.PILLAR_WEIGHTS
 
 
 def test_non_balanced_presets_match_v1_constants_exactly() -> None:
@@ -622,7 +622,7 @@ def test_persona_composite_matches_the_pre_w2_11_inline_formula_bit_for_bit() ->
 
     for _ in range(2000):
         pillars: dict[str, PillarScore] = {}
-        for pillar in constants_v2.PILLAR_NAMES:
+        for pillar in constants.PILLAR_NAMES:
             if rng.random() < 0.2:  # sometimes unmeasured, to exercise renormalisation/dropout
                 pillars[pillar] = _pillar(None, 0.0)
             else:
@@ -635,10 +635,10 @@ def test_persona_composite_matches_the_pre_w2_11_inline_formula_bit_for_bit() ->
             # The old private reduction persona.py carried before this
             # packet -- transcribed here, never calling the new aggregate
             # functions, so this is a real independent oracle.
-            old_coverage = sum(weights[name] * pillars[name].coverage for name in constants_v2.PILLAR_NAMES)
+            old_coverage = sum(weights[name] * pillars[name].coverage for name in constants.PILLAR_NAMES)
             old_measured = [
                 (weights[name], pillars[name].score)
-                for name in constants_v2.PILLAR_NAMES
+                for name in constants.PILLAR_NAMES
                 if pillars[name].score is not None
             ]
             old_total_weight = sum(weight for weight, _ in old_measured)
@@ -718,7 +718,7 @@ def test_persona_composite_unrated_below_evidence_threshold() -> None:
 
 
 def test_persona_composite_none_when_every_pillar_unmeasured() -> None:
-    pillars = {name: _pillar(None, 0.0) for name in constants_v2.PILLAR_NAMES}
+    pillars = {name: _pillar(None, 0.0) for name in constants.PILLAR_NAMES}
     record = _record(pillars)
     result = persona_composite(record, PERSONA_BALANCED)
     assert result.coverage == pytest.approx(0.0)

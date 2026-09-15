@@ -75,7 +75,7 @@
       "direction": "boolean",
       "name": "source_drift",
       "thresholds": {},
-      "trigger": "the W3-3 live-sample canary currently holds this repo's row"
+      "trigger": "the live-sample canary currently holds this repo's row"
     }
   ],
   "gates": [

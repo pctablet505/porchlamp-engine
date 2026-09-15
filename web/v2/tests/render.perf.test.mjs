@@ -1,15 +1,7 @@
-// tests/render.perf.test.mjs — Node test for the lead's 2026-09-13
-// UX-rework ruling, docs/v2/06-UX-DESIGN.md §6.1 U-12/U-13/U-19.
+// tests/render.perf.test.mjs — Performance tests per docs/v2/06-UX-DESIGN.md §6.1 U-12/U-13/U-19.
 //
-// NOT EXECUTED ON THIS BOX: `node` is not installed here (see
-// .agents/W4-5a/handoff.md "Node availability"). This file is written to
-// run cleanly under `node --test` (Node >= 18, stdlib `node:test` +
-// `node:assert`, zero npm dependencies) the moment Node is available, and
-// its assertions mirror EXACTLY what was verified live in a real browser
-// (Chromium via the Claude Browser tool) while building this packet — see
-// the handoff for those real, browser-measured numbers, which are the
-// actual evidence behind this packet's acceptance claim, not this file's
-// (unexecuted) output.
+// Written to run cleanly under `node --test` (Node >= 18, stdlib `node:test` +
+// `node:assert`, zero npm dependencies).
 //
 // Run: node --test web/v2/tests/render.perf.test.mjs
 
@@ -112,12 +104,12 @@ test("U-12/U-13: 60 simulated scroll steps — no patch exceeds the frame budget
   });
 
   for (let step = 0; step < 60; step++) {
-    scrollTop += ROW_HEIGHT_PX; // one row per step, matching the browser reproduction of the reported defect
+    scrollTop += ROW_HEIGHT_PX; // one row per step, simulating incremental scroll
     const range = computeVisibleRange(scrollTop, viewportHeight, rows.length);
 
-    // U-12: the container itself is never replaced — the same tbody/table
-    // nodes persist for the whole simulated scroll (this is the literal
-    // fix for "each frame recreated the container and reset scrollTop").
+    // The container itself is never replaced — the same tbody/table
+    // nodes persist for the whole simulated scroll (ensures scrolling
+    // does not recreate the container or reset scrollTop).
     assert.equal(tbody.parentNode, table, `tbody was detached from its table at step ${step}`);
     assert.ok(table.children.includes(tbody), `tbody was removed from table.children at step ${step}`);
 

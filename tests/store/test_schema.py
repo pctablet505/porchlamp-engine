@@ -1,9 +1,4 @@
-"""W4-2 acceptance: the DDL (`04` section 5, extended per `06` section 4).
-
-Fail-before: ``cvi.store`` did not exist before this packet -- verified
-verbatim in the handoff by temporarily moving ``cvi/store`` aside and
-re-running this file (``ModuleNotFoundError: No module named 'cvi.store'``).
-"""
+"""Database schema and DDL tests for ``cvi.store``."""
 from __future__ import annotations
 
 import ast
@@ -28,11 +23,8 @@ def test_create_schema_creates_exactly_the_five_tables() -> None:
 
 
 def test_repositories_row_contract_columns_present() -> None:
-    """`06` section 4's row contract columns that `04` section 5's draft
-    was missing (documented in schema.py): ``persona_composites``,
-    ``leverage_coverage``, ``friction_coverage``. ``gate_undecided`` is
-    F-015 (REWORK round 1): ``GateResult.undecided`` must survive the
-    store boundary."""
+    """Verify repositories table columns are present: ``persona_composites``,
+    ``leverage_coverage``, ``friction_coverage``, and ``gate_undecided``."""
     conn = sqlite3.connect(":memory:")
     schema.create_schema(conn)
     columns = {row[1] for row in conn.execute('PRAGMA table_info("repositories")').fetchall()}
@@ -45,24 +37,18 @@ def test_repositories_row_contract_columns_present() -> None:
 
 
 def test_populations_row_contract_matches_build_populations_table() -> None:
-    """``cvi.snapshot.populations.build_populations_table`` (already landed,
-    W2-4/W2-9) emits ``(snapshot_id, ecosystem, param, n, fallback,
-    values_json, values_hash)`` rows -- its own docstring says the schema
-    is W4-2's job; this asserts the table this packet ships actually has
-    those seven columns, not `04` section 5's draft (``sorted_values``
-    only)."""
+    """Verify ``populations`` table columns match
+    ``cvi.snapshot.populations.build_populations_table`` output columns."""
     conn = sqlite3.connect(":memory:")
     schema.create_schema(conn)
     columns = [row[1] for row in conn.execute('PRAGMA table_info("populations")').fetchall()]
     assert set(columns) == {"snapshot_id", "ecosystem", "param_id", "n", "fallback", "values_json", "values_hash"}
 
 
-def test_snapshots_is_a_superset_of_int_w0_4_snapshot_meta() -> None:
-    """INT-W0-4's ``snapshot_meta`` (branch cac2bcf, cvi/lakehouse.py):
-    ``snapshot_id, as_of, benchmark_version, constants_hash, manifest_root,
-    canonical_dump_hash, promoted_at``. This table's ``id`` plays
-    ``snapshot_id``'s role; every other name matches exactly, plus
-    ``code_commit``/``created_at`` (`04` section 5's own draft)."""
+def test_snapshots_is_a_superset_of_snapshot_meta() -> None:
+    """Verify ``snapshots`` table contains metadata columns:
+    ``as_of, benchmark_version, constants_hash, manifest_root,
+    canonical_dump_hash, promoted_at``, with ``id`` as PK."""
     conn = sqlite3.connect(":memory:")
     schema.create_schema(conn)
     columns = {row[1] for row in conn.execute('PRAGMA table_info("snapshots")').fetchall()}
@@ -73,12 +59,9 @@ def test_snapshots_is_a_superset_of_int_w0_4_snapshot_meta() -> None:
     assert "id" in columns  # plays snapshot_meta.snapshot_id's PK role
 
 
-def test_indexes_match_04_section_5() -> None:
-    """W4-3 added ``idx_eligible`` (migration ``0002_indexes.sql``, F-013's
-    indexing deliverable): the persona-projection/custom-reprojection base
-    filter (``snapshot_id = ? AND eligible = 1``) that ``idx_rank``/
-    ``idx_eco`` do not key on. See that migration file's own comment for
-    the measured effect."""
+def test_indexes_match_expected() -> None:
+    """Verify required indexes are present on the schema, including
+    ``idx_eligible`` for persona projection queries."""
     conn = sqlite3.connect(":memory:")
     schema.create_schema(conn)
     names = {

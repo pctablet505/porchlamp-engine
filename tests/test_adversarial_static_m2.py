@@ -1,7 +1,5 @@
 """Adversarial stress tests and empirical verification for Milestone 2 Static Serving & Route Precedence.
 
-Author: challenger_m2_2
-
 Verifies:
 1. Static Serving & Content-Type Integrity:
    - GET / and GET /index.html return exact bytes of web/index.html with text/html.

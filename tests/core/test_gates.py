@@ -1,12 +1,8 @@
-"""W2-2 acceptance: the v2 stage-0 gates (02 section 2, D-GATE-1..6, D-EVID-1).
+"""Acceptance tests for the v2 stage-0 gates (02 section 2, D-GATE-1..6, D-EVID-1).
 
 ``cvi.core.gates`` evaluates every gate, records ``UNDECIDED`` gates by their
 decision id, and reports the *first* failing gate in the design's fixed order
-as the reason. ``cvi.core.gates`` is imported inside each test function (not
-at module level) so the R-1 fail-before run shows ``test_v1_semantics_says_
-black_hole_when_denominator_is_open_only`` passing: it proves the v1 pipeline
-still reads 2 stale open + 28 merged PRs as a black hole while every v2
-oracle fails on the missing module.
+as the reason.
 """
 from __future__ import annotations
 
@@ -15,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import (
     Cohorts,
     FeatureBundle,
@@ -43,7 +39,7 @@ def make_inputs() -> dict[str, Unmeasured]:
     """All 18 parameter inputs unmeasured: the oracles exercise stage 0 only."""
     return {
         input_id: Unmeasured(reason="collector_failure", detail="stage-0 oracle fixture")
-        for input_id in constants_v2.PARAM_INPUT_IDS
+        for input_id in constants.PARAM_INPUT_IDS
     }
 
 
@@ -93,7 +89,7 @@ def make_bundle(events: list[PRWindowEvent], **repo_overrides: Any) -> FeatureBu
     """A valid bundle; the window bounds are null for an empty event list
     (FeatureBundle invariant: bounds are set exactly when events are present)."""
     bundle = FeatureBundle(
-        schema_version=constants_v2.SCHEMA_VERSION,
+        schema_version=constants.SCHEMA_VERSION,
         repo=make_repo(**repo_overrides),
         inputs=make_inputs(),
         pr_window=PRWindow(
@@ -143,8 +139,7 @@ def recent_decided_external() -> PRWindowEvent:
 
 
 def test_v1_semantics_says_black_hole_when_denominator_is_open_only() -> None:
-    """Fail-before demonstration (oracle 3): v1 GR_14 counts open external
-    PRs only, so 2 stale open + 28 merged reads as a black hole."""
+    """Demonstrate v1 GR_14 counts open external PRs only, so 2 stale open + 28 merged reads as a black hole."""
     from cvi.models import AuthorAssociation, Ecosystem, RawPREvent, RepoMeta
     from cvi.stage0 import apply_stage0
 

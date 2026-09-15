@@ -1,22 +1,19 @@
-"""CVI v2 store reader basics (`04` sections 5, 6; packet W4-2 deliverable 4).
+"""CVI v2 store reader basics (`04` sections 5, 6).
 
 Only the single-row/evidence/snapshot getters and the ordering helper the
-SQL persona-projection query (W4-3) builds on; the persona re-projection
-query itself (weighted pillar re-combination, per-persona gate filter,
-``tie_group`` via ``DENSE_RANK`` -- F-014, REWORK round 1: handed to W4-3
-in full, including the null-out-a-singleton-group refinement `04` section 6
-leaves open) is W4-3's.
+SQL persona-projection query builds on. The persona re-projection query
+itself (weighted pillar re-combination, per-persona gate filter,
+``tie_group`` via ``DENSE_RANK``, and the rest of the read-path surface:
+ranked/not-ranked listings, snapshot summary, matrix, evidence,
+reprojection) lives in ``cvi.store.queries``.
 
-``_ORDER_BY_SQL`` is `04` section 6's amended ``ORDER BY`` (ruling
-2026-09-13: ``NULLS LAST`` on every tie-break column, because SQLite sorts
-NULL first under plain ``ASC`` -- the exact inversion the W2-6 review found)
-applied directly to the *stored, un-reprojected* ``cvi``/pillar columns
-(the balanced view); W4-3's ``cvi.store.queries`` reuses this same constant
-(``queries.ORDER_BY_SQL``, this module's own name re-bound to it, R-2 --
-one definition) for its ``cvi_p``/custom-weight projections so the ordering
-clause is defined once. The full read-path surface F-013 asked for (ranked/
-not-ranked listings, snapshot summary, matrix, evidence, reprojection) lives
-in ``cvi.store.queries``; this module keeps only what W4-2 built.
+``_ORDER_BY_SQL`` is `04` section 6's amended ``ORDER BY``: ``NULLS LAST``
+on every tie-break column, because SQLite sorts NULL first under plain
+``ASC``. It is applied directly to the *stored, un-reprojected*
+``cvi``/pillar columns (the balanced view). The constant is defined once as
+``cvi.store.queries.ORDER_BY_SQL`` -- re-bound here under this module's own
+name -- and that same definition backs the ``cvi_p``/custom-weight
+projections there.
 """
 from __future__ import annotations
 
@@ -122,7 +119,7 @@ def ranked_order_sql(conn: sqlite3.Connection, snapshot_id: str) -> List[tuple]:
     :func:`cvi.core.tiebreak.tie_key`; it does not read or write the stored
     ``rank``/``tie_group`` columns (those are the writer's job, from the
     already-ranked ``ScoreRecord``). ``tie_group`` (``DENSE_RANK`` over the
-    composite level) is W4-3's -- see the module docstring."""
+    composite level) is computed by ``cvi.store.queries`` instead."""
     sql = f"""
         SELECT owner, name,
                ROW_NUMBER() OVER (ORDER BY {_ORDER_BY_SQL}) AS sql_rank

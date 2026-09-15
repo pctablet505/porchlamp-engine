@@ -19,13 +19,13 @@ Contract (one envelope per collector per key, JSON on disk)::
 
 ``sha256`` is the SHA-256 hex digest of :func:`canonical_json` of the ``data``
 field -- never of the whole file, so reformatting an envelope cannot change its
-identity. Envelopes written before this field existed carry no hash;
-:func:`read_envelope` hashes their ``data`` field at read time and reports
-``hash_origin == "backfilled\""`", which is how a manifest distinguishes a hash
+identity. An envelope with no ``sha256`` on disk is hashed by
+:func:`read_envelope` at read time and reports
+``hash_origin == "backfilled"``, which is how a manifest distinguishes a hash
 the collector recorded from one the reader reconstructed.
 
 This module owns the only canonical-JSON encoder and the only hash helper in
-the codebase (R-2); everything that needs a content hash imports them here.
+the codebase; everything that needs a content hash imports them here.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ from typing import Any, Literal, Optional, Union
 COLLECTOR_VERSION = "gather/1.0"
 
 #: ``native``: the collector wrote ``sha256``. ``backfilled``: absent on disk, so
-#: the reader hashed the ``data`` field (packet W0-3 read-time backfill rule).
+#: the reader hashed the ``data`` field at read time.
 HashOrigin = Literal["native", "backfilled"]
 
 
@@ -106,19 +106,17 @@ def envelope_hash(data: Any) -> str:
 
 
 def raw_envelope_path(data_dir: Union[Path, str], collector: str, key: str) -> str:
-    """The one envelope-path formula (R-2): ``<data_dir>/raw/<collector>/<key>.json``.
+    """The one envelope-path formula: ``<data_dir>/raw/<collector>/<key>.json``.
 
-    W1-7f: this used to be defined twice -- ``scripts/derive.py``'s ``src()``
-    closure and ``cvi.collect.pike_signals``'s ``env_path()`` closure inside
-    ``derive_w17_fields`` -- with nothing to stop the two from drifting.
-    Both now call this one function.
+    Every caller that needs a raw envelope path goes through this function, so
+    the layout has a single definition.
     """
     return str(Path(data_dir) / "raw" / collector / f"{key}.json")
 
 
 def relative_envelope_path(root: Union[Path, str], path: Union[Path, str]) -> str:
     """Express an envelope ``path`` relative to the data ``root``, as a
-    POSIX string (W2-14, docs/v2/00-README.md non-negotiables).
+    POSIX string (docs/v2/00-README.md non-negotiables).
 
     Provenance is an envelope path plus its content hash, and that path
     must never be absolute: an absolute path names the machine that

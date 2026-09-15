@@ -9,17 +9,16 @@ Audits stargazer velocity to defeat black-market star farming:
   ``STARS_SCOUT_FORK_RATIO`` (100:1), the valid-star count is scaled down by
   ``STARS_SCOUT_LOCKSTEP_PENALTY`` (0.30).
 
-W1-10 (D-IN-5, ``docs/v2/03-ANTI-MANIPULATION.md`` section 6 ``star_burst``):
-the five ``STARS_SCOUT_*`` thresholds live in ``cvi.core.constants_v2`` now
-(RFC-0002, ``docs/v2/rfcs/``) instead of the unhashed ``cvi.constants`` --
-they are still the exact five values the spec names, just registered where
-a change to them is enforced by the constants freeze. :func:`audit_star_velocity`
-is the new entry point: it returns the same de-biased count
-:func:`filter_fraudulent_star_velocity` always has, plus whether the
-lockstep penalty actually fired -- the caller-visible ``int`` alone cannot
-tell "0 valid stars, no penalty" apart from "some valid stars, all zeroed by
-the penalty", and ``cvi.collect.universe`` (universe entry, D-IN-5) needs
-that boolean to record ``star_velocity_flag`` and feed the ``star_burst``
+The five ``STARS_SCOUT_*`` thresholds live in ``cvi.core.constants``
+(D-IN-5, RFC-0002, ``docs/v2/03-ANTI-MANIPULATION.md`` section 6
+``star_burst``) -- the exact five values the spec names, registered where a
+change to them is caught by the constants freeze. :func:`audit_star_velocity`
+is the full entry point: it returns the de-biased count
+:func:`filter_fraudulent_star_velocity` reports, plus whether the lockstep
+penalty fired -- the caller-visible ``int`` alone cannot tell "0 valid
+stars, no penalty" apart from "some valid stars, all zeroed by the
+penalty", and ``cvi.collect.universe`` (universe entry, D-IN-5) needs that
+boolean to record ``star_velocity_flag`` and feed the ``star_burst``
 detector (03 section 6) real evidence.
 """
 
@@ -29,7 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
-from .core.constants_v2 import (
+from .core.constants import (
     STARS_SCOUT_BURST_THRESHOLD,
     STARS_SCOUT_FORK_RATIO,
     STARS_SCOUT_LOCKSTEP_PENALTY,
@@ -42,7 +41,7 @@ from .models import StargazerEvent
 @dataclass(frozen=True)
 class StarVelocityAudit:
     """The full StarScout audit result behind one
-    :func:`filter_fraudulent_star_velocity` call (W1-10).
+    :func:`filter_fraudulent_star_velocity` call.
 
     ``valid_stars`` is exactly what :func:`filter_fraudulent_star_velocity`
     returns. ``recent_stars`` is ``len(RecentStars)`` (step 2 of the
@@ -114,9 +113,9 @@ def filter_fraudulent_star_velocity(
 ) -> int:
     """Return the audited (de-biased) star count for the trailing 90 days.
 
-    Unchanged public contract (every existing caller/test): a thin wrapper
-    over :func:`audit_star_velocity` that returns only ``valid_stars``. See
-    that function's docstring for the algorithm; see :class:`StarVelocityAudit`
-    for the richer result a W1-10 caller needs (whether the penalty fired).
+    A thin wrapper over :func:`audit_star_velocity` that returns only
+    ``valid_stars``. See that function's docstring for the algorithm; see
+    :class:`StarVelocityAudit` for the richer result a caller needs when it
+    must know whether the penalty fired.
     """
     return audit_star_velocity(stargazer_events, repo_forks_delta_90d, now).valid_stars

@@ -1,13 +1,10 @@
-"""Unit tests for :mod:`cvi.collect.envelope` (packet W0-3).
+"""Unit tests for :mod:`cvi.collect.envelope`.
 
 The envelope contract is `03-ANTI-MANIPULATION.md` section 5: a raw fetch is
 stored as ``{source, fetched_at, http_status, etag, sha256,
 collector_version, data}`` and its hash is the sha256 of the canonical JSON of
 the ``data`` field. Envelopes written before that field existed carry no hash
 and are hashed at read time, flagged ``backfilled``.
-
-Fail-before (R-1): the module under test does not exist on the base commit, so
-every test here is red before the packet and green after it.
 """
 from __future__ import annotations
 
@@ -51,7 +48,7 @@ class Colour(str, enum.Enum):
 
 
 def _legacy(path: Path, data: Any) -> Path:
-    """Write an envelope in the pre-W0-3 shape: hash, status, version absent."""
+    """Write a legacy envelope: hash, status, version absent."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps({"fetched_at": FETCHED_AT, "source": "github-rest:issues", "data": data}),
@@ -183,10 +180,9 @@ def test_read_envelope_rejects_a_file_that_is_not_json(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# relative_envelope_path (W2-14): provenance is an envelope path plus its     #
+# relative_envelope_path: provenance is an envelope path plus its             #
 # hash, and that path must be relative to the data root -- never absolute,   #
-# never a leak of this machine's filesystem layout                           #
-# (docs/v2/00-README.md non-negotiables).                                    #
+# never a leak of this machine's filesystem layout.                          #
 # --------------------------------------------------------------------------- #
 
 
@@ -207,7 +203,7 @@ def test_relative_envelope_path_rejects_a_path_outside_the_root(tmp_path: Path) 
 
 
 def test_relative_envelope_path_is_stable_across_two_different_data_roots() -> None:
-    """The reproducibility property (W2-14): the same collector/key pair
+    """The reproducibility property: the same collector/key pair
     relativises to the identical string under any data root -- two
     "machines" with the same corpus copied to different absolute locations
     produce the same provenance, and therefore the same

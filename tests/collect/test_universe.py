@@ -1,4 +1,4 @@
-"""Tests for W1-10: ``cvi.collect.universe`` (D-IN-5 universe-entry
+"""Tests for ``cvi.collect.universe`` (D-IN-5 universe-entry
 star-velocity filter).
 
 Every fetch is a fake ``Transport`` callable -- no test in this file makes
@@ -106,7 +106,7 @@ def test_parse_stargazer_events_skips_only_the_bad_row():
 
 
 # --------------------------------------------------------------------------- #
-# default_star_history_transport: no live implementation yet (W1-10)         #
+# default_star_history_transport: not yet implemented                         #
 # --------------------------------------------------------------------------- #
 
 
@@ -281,9 +281,9 @@ def test_star_velocity_record_unmeasured_reason_must_be_collector_failure_class(
     of its own -- only collector_failure is a real outcome for it, but the
     constructor still enforces membership in the general D-MISS-1
     vocabulary rather than hardcoding just the one string."""
-    from cvi.core import constants_v2
+    from cvi.core import constants
 
-    if reason in constants_v2.UNMEASURED_REASONS:
+    if reason in constants.UNMEASURED_REASONS:
         StarVelocityRecord(measured=False, reason=reason)  # does not raise
     else:
         with pytest.raises(ValueError):

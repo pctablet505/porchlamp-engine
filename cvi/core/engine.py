@@ -3,14 +3,14 @@
 
 D-ORDER-1 stage order, as far as this module goes:
 
-- Stage 0 (gates): :func:`cvi.core.gates.evaluate_gates` (W2-2) runs first.
+- Stage 0 (gates): :func:`cvi.core.gates.evaluate_gates` runs first.
   The first failure is final: no parameter function is ever called for a
   gated repo (``_PARAM_FUNCTIONS`` is looked up freshly per call, so a test
   can replace it with a counting stub and observe zero calls).
 - Stage 2 (measurement/curves): each of the 18 registered parameter
-  functions (``cvi.core.params``, W2-3) is applied to the bundle's inputs,
-  using the frozen-population mid-rank ECDF (``cvi.snapshot.populations``,
-  W2-4) for the three D-NORM-3 ECDF-normalised parameters (1.5 ttm_p90,
+  functions (``cvi.core.params``) is applied to the bundle's inputs,
+  using the frozen-population mid-rank ECDF (``cvi.snapshot.populations``)
+  for the three D-NORM-3 ECDF-normalised parameters (1.5 ttm_p90,
   2.1 dependents, 2.3 downloads) -- queried on the raw measured value, with
   no transform on either the curve or the population side (D-NORM-3
   amendment, 02 section 6, lead ruling 2026-09-12). A ``Measured`` ECDF
@@ -24,8 +24,8 @@ D-ORDER-1 stage order, as far as this module goes:
   module: stage 1 is the deriver's job (the bundle's inputs already carry
   bot-typed, windowed samples), and stage 4 is the frozen ``populations``
   argument, built once per snapshot before any repo is scored.
-- Stages 8-9 (persona gates/projections, tie-breaks/rank) are out of scope
-  (W2-6, W2-7): ``persona_gates``, ``persona_composites``, ``tie_key``,
+- Stages 8-9 (persona gates/projections, tie-breaks/rank) are out of scope:
+  ``persona_gates``, ``persona_composites``, ``tie_key``,
   ``tie_group``, ``rank`` and ``suspicion`` are left empty/None here.
 
 Import-graph note (04 section 3, enforced by
@@ -37,11 +37,9 @@ import from a real one). ``PopulationLookup`` below is a local structural
 ``Protocol`` capturing the one method this module calls
 (``PopulationSet.ecdf`` satisfies it structurally); the real
 ``cvi.snapshot.populations.PopulationSet`` is what every caller passes at
-runtime, imported only from outside ``cvi.core`` (callers, and this
-packet's own tests).
+runtime, imported only from outside ``cvi.core``.
 
-Integration finding, resolved (W2-3 x W2-4, first wired here; W2-5 review
-W-2): the three D-NORM-3 curves used to query their ecdf with a
+Integration finding, resolved: the three D-NORM-3 curves used to query their ecdf with a
 *transformed* value for two of the three parameters -- ``dependents`` and
 ``downloads`` queried ``ecdf(log10(1 + raw_value))`` while
 ``cvi.snapshot.populations`` freezes and stores raw values, and
@@ -60,7 +58,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Protocol
 
-from cvi.core import aggregate, constants_v2, matrix
+from cvi.core import aggregate, constants, matrix
 from cvi.core import params as param_fns
 from cvi.core.gates import REASON_INSUFFICIENT_EVIDENCE, GateEvidence, evaluate_gates
 from cvi.core.models import FeatureBundle, GateResult, Measured, ParamScore, PillarScore, ScoreRecord, Unmeasured
@@ -69,10 +67,10 @@ from cvi.core.params.curves import KIND_ECDF
 
 class PopulationLookup(Protocol):
     """Structural type for the two methods this module needs from a frozen
-    population set (``cvi.snapshot.populations.PopulationSet``, W2-4). Kept
+    population set (``cvi.snapshot.populations.PopulationSet``). Kept
     local rather than imported: see the module docstring's import-graph
     note. ``population`` returns ``None`` (a plain, non-raising existence
-    check -- W2-5 review W-3) rather than raising when the snapshot has no
+    check) rather than raising when the snapshot has no
     population for the pair; its element type is opaque here (``object``)
     since this module never reads a population's fields, only whether one
     exists."""
@@ -89,21 +87,19 @@ class Snapshot:
     ``snapshot_id`` and ``as_of`` are shared across every repo scored at one
     snapshot; ``as_of`` is the D-VER-3 reference time (no clock is read
     inside ``cvi.core`` -- ``tests/test_no_clock.py``). ``gate_evidence`` is
-    inherently per-repo (W1-9 tree/off-platform markers, W1-5 vitality
+    inherently per-repo (tree/off-platform markers, vitality
     commits, universe fork-parent membership), so the caller builds one
     ``Snapshot`` per (repo, snapshot) call, sharing ``snapshot_id``/``as_of``
-    and varying ``gate_evidence``. Additive: not defined by W2-1 (04 section
-    3 names no such type); owned by this module, not ``cvi.core.models``,
-    because it is scoring-call plumbing, not a stored contract shape."""
+    and varying ``gate_evidence``."""
 
     snapshot_id: str
     as_of: datetime
     gate_evidence: GateEvidence
 
 
-#: input_id -> the W2-3 wrapper function that turns the bundle's ParamValue
+#: input_id -> the wrapper function that turns the bundle's ParamValue
 #: into a ParamScore (``cvi.core.params.__all__``): one definition per
-#: parameter, reused here rather than reimplemented (R-2). Looked up fresh
+#: parameter, reused here rather than reimplemented. Looked up fresh
 #: on every call via this module-level name, so a test can monkeypatch it
 #: wholesale and count calls (the D-GATE acceptance oracle).
 _PARAM_FUNCTIONS: dict[str, Callable[..., ParamScore]] = {
@@ -128,7 +124,7 @@ _PARAM_FUNCTIONS: dict[str, Callable[..., ParamScore]] = {
 }
 
 #: The three D-NORM-3 ECDF-normalised input ids (1.5, 2.1, 2.3), derived from
-#: the W2-3 registry rather than repeated here (R-2).
+#: the registry rather than repeated here.
 _ECDF_INPUT_IDS: frozenset[str] = frozenset(
     input_id for input_id, defn in param_fns.PARAMS.items() if defn.kind == KIND_ECDF
 )
@@ -150,19 +146,13 @@ def _unused_ecdf(_value: float) -> float:
 
 
 #: D-MISS-1 reason for a Measured ECDF-kind input whose (ecosystem, param)
-#: has no frozen population at all (W2-5 review W-3; 02 section 5 D-MISS-1,
-#: added 2026-09-12). Distinct from ``_unused_ecdf``'s case: here the input
-#: *was* measured, but the snapshot has nothing to rank it against. Reads
-#: from ``constants_v2.REASON_NO_POPULATION`` (packet W2-8: the string is
-#: defined once, there, and is now also a member of
-#: ``constants_v2.UNMEASURED_REASONS`` -- previously this module's own
-#: hardcoded literal was the only place the value existed, and constructing
-#: an ``Unmeasured("no_population")`` directly would raise, since the tuple
-#: lacked it).
-_REASON_NO_POPULATION = constants_v2.REASON_NO_POPULATION
+#: has no frozen population at all (02 section 5 D-MISS-1). Distinct from
+#: ``_unused_ecdf``'s case: here the input *was* measured, but the snapshot
+#: has nothing to rank it against. Reads from ``constants.REASON_NO_POPULATION``.
+_REASON_NO_POPULATION = constants.REASON_NO_POPULATION
 
 #: D-MISS-5's "bundle fact" resolvers, keyed by the fact name used in
-#: ``constants_v2.NOT_APPLICABLE_RULES`` (today only ``"ecosystem"``). Kept
+#: ``constants.NOT_APPLICABLE_RULES`` (today only ``"ecosystem"``). Kept
 #: local (not a bundle method) since the rule list itself is data, and this
 #: module is the one place that closes the loop between a rule's fact name
 #: and where it actually lives on a :class:`FeatureBundle`.
@@ -172,12 +162,12 @@ _BUNDLE_FACT_RESOLVERS: dict[str, Callable[[FeatureBundle], object]] = {
 
 
 def _not_applicable_is_permitted(input_id: str, bundle: FeatureBundle) -> bool:
-    """D-MISS-5 guard (02 section 5, 03 section 4, W2-13): ``True`` only when
+    """D-MISS-5 guard (02 section 5, 03 section 4): ``True`` only when
     ``(input_id, fact, value)`` matches a row of the closed
-    ``constants_v2.NOT_APPLICABLE_RULES`` list against the bundle's own
+    ``constants.NOT_APPLICABLE_RULES`` list against the bundle's own
     recorded fact. A rule naming a fact this module has no resolver for
     never matches (fails closed, not open)."""
-    for rule_param, fact_name, expected_value in constants_v2.NOT_APPLICABLE_RULES:
+    for rule_param, fact_name, expected_value in constants.NOT_APPLICABLE_RULES:
         if rule_param != input_id:
             continue
         resolver = _BUNDLE_FACT_RESOLVERS.get(fact_name)
@@ -186,7 +176,7 @@ def _not_applicable_is_permitted(input_id: str, bundle: FeatureBundle) -> bool:
     return False
 
 
-#: D-MISS-5/03 section 4 (W2-13): the detail an illegitimate ``not_applicable``
+#: D-MISS-5/03 section 4: the detail an illegitimate ``not_applicable``
 #: claim is downgraded with -- named so the engine's decision is
 #: distinguishable in the record from a genuine collector failure.
 _NOT_APPLICABLE_OUTSIDE_RULE_LIST_DETAIL = "not_applicable claimed outside the rule list"
@@ -202,11 +192,11 @@ def _score_params(bundle: FeatureBundle, populations: PopulationLookup) -> dict[
     whose (ecosystem, param) has no frozen population comes back
     ``ParamScore(measured=False, reason="no_population")`` instead of
     letting ``PopulationSet.ecdf``'s ``LookupError`` escape this (documented
-    pure) function -- W2-5 review W-3. ``n`` is kept from the measurement:
+    pure) function. ``n`` is kept from the measurement:
     the value itself was measured, only the population is missing."""
     ecosystem = bundle.repo.ecosystem
     scores: dict[str, ParamScore] = {}
-    for input_id in constants_v2.PARAM_INPUT_IDS:
+    for input_id in constants.PARAM_INPUT_IDS:
         value = bundle.inputs[input_id]
         if (
             isinstance(value, Unmeasured)
@@ -259,15 +249,15 @@ def _bare_record(
 ) -> ScoreRecord:
     """The common no-rank/no-tier shape shared by a stage-0 gate failure and
     a stage-3 (D-EVID-1) unrated outcome. ``gate`` is passed through
-    unchanged in both cases (W2-5 review W-1): a stage-0 gate failure and a
+    unchanged in both cases: a stage-0 gate failure and a
     stage-3 evidence failure are told apart by ``rated``/``unrated_reason``,
     never by overwriting the stage-0 ``GateResult``. Stages 8-9 (personas,
-    tie-breaks, rank) are out of scope here (W2-6, W2-7): left empty/None."""
+    tie-breaks, rank) are out of scope here: left empty/None."""
     return ScoreRecord(
         repo=bundle.repo,
         snapshot_id=snapshot.snapshot_id,
-        benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH,
+        benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH,
         raw_hash=raw_hash,
         provenance_hash=bundle.provenance_hash,
         gate=gate,
@@ -317,13 +307,12 @@ def score(
     ``rated``/``unrated_reason``/``tier_ceiling`` carry the later stages'
     outcome as their own fields, so a gated repo (``gate.eligible=False``)
     and an unrated repo (``gate.eligible=True``, ``rated=False``) are always
-    distinguishable from the record alone (W2-5 review W-1).
+    distinguishable from the record alone.
 
     ``raw_hash`` is supplied by the caller and stored as-is: this module
     does not compute it (the recommended value is a hash of the whole
-    bundle document, once a deriver computes one -- W2-5 review W-1; a
-    bundle-level hash cannot be computed inside ``cvi.core`` without
-    importing ``cvi.derive``). When omitted it defaults to
+    bundle document; a bundle-level hash cannot be computed inside
+    ``cvi.core`` without importing ``cvi.derive``). When omitted it defaults to
     ``bundle.provenance_hash`` (hash of the referenced envelope hashes
     only), which is also always stored separately as ``provenance_hash`` so
     the two facts -- "which envelopes" and "which whole bundle" -- are never
@@ -355,8 +344,8 @@ def score(
     return ScoreRecord(
         repo=bundle.repo,
         snapshot_id=snapshot.snapshot_id,
-        benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH,
+        benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH,
         raw_hash=resolved_raw_hash,
         provenance_hash=bundle.provenance_hash,
         gate=gate,

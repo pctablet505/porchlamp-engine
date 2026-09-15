@@ -1,15 +1,10 @@
-"""Acceptance tests for :mod:`cvi.core.hygiene` (packet W3-1, D-IN-3).
+"""Acceptance tests for :mod:`cvi.core.hygiene` (D-IN-3).
 
 D-IN-3 (``docs/v2/02-RANKING-DESIGN.md``): a PR author counts only if the
 account is >= 90 days old at PR creation and has >= 5 public events; one
 author contributes at most 20% of any rate's numerator and denominator
-(excess PRs dropped, most recent first). This module is the promoted,
-``cvi.core``-layer home for that mechanism (relocated from
-``cvi.collect.github_graphql``, W1-4, so every rate parameter's derivation
-shares one tested definition, R-2); ``tests/collect/test_pr_window.py``
-keeps its own oracles for the collector's use of these functions, this
-file is the packet's own acceptance/oracle/mutation suite for the
-promoted module directly.
+(excess PRs dropped, most recent first). This module tests the hygiene
+filter functions and author cap enforcement directly.
 """
 from __future__ import annotations
 
@@ -69,9 +64,8 @@ def test_account_eligibility_unmeasured_is_none_regardless_of_data():
 # --- apply_author_cap: the packet's own oracle -------------------------------
 
 def test_apply_author_cap_six_first_timer_prs_capped_to_20_percent():
-    """Packet oracle (docs/v2/05-WORK-PLAN.md W3-1): 6 first-timer PRs from
-    one author among a population of 10 are capped to floor(0.20 * 10) = 2
-    (its two oldest); the other 4 single-PR authors are unaffected."""
+    """6 first-timer PRs from one author among a population of 10 are capped
+    to floor(0.20 * 10) = 2 (its two oldest); the other 4 single-PR authors are unaffected."""
     items = [("sock", NOW - timedelta(days=d)) for d in (100, 101, 102, 103, 104, 105)] + \
             [(f"g{i}", NOW - timedelta(days=d)) for i, d in enumerate((110, 115, 120, 125))]
     kept = apply_author_cap(items)
@@ -101,11 +95,10 @@ def test_apply_author_cap_keeps_oldest_not_newest():
 
 
 def test_apply_author_cap_small_population_binds_when_one_author_dominates():
-    """W3-1f (review B-1): a population entirely owned by one login is
-    still capped down to its allowance (``max(1, floor(0.20*4)) == 1``,
-    the oldest survives) -- the cap DOES bind on real concentration even
-    in a small population; it is the "nobody dominates" case below that
-    must not be zeroed."""
+    """A population entirely owned by one login is still capped down to its
+    allowance (``max(1, floor(0.20*4)) == 1``, the oldest survives) -- the cap
+    does bind on real concentration even in a small population; it is the
+    "nobody dominates" case below that must not be zeroed."""
     items = [("a", NOW - timedelta(days=d)) for d in (1, 2, 3, 4)]
     kept = apply_author_cap(items)
     assert len(kept) == 1
@@ -114,10 +107,8 @@ def test_apply_author_cap_small_population_binds_when_one_author_dominates():
 
 
 def test_apply_author_cap_small_population_keeps_everything_when_nobody_dominates():
-    """W3-1f (review B-1): three INDEPENDENT single-PR authors in a
-    population of 3 -- ``floor(0.20*3) == 0`` -- keep everything: nobody
-    exceeds even a floor-of-1 allowance, so the cap has nothing to bind
-    on. The old rule zeroed this population outright (0 kept), reading an
-    ordinary small sample with no sock puppet in it as "no evidence"."""
+    """Three independent single-PR authors in a population of 3 --
+    ``floor(0.20*3) == 0`` -- keep everything: nobody exceeds even a
+    floor-of-1 allowance, so the cap has nothing to bind on."""
     items = [("a", NOW), ("b", NOW - timedelta(days=1)), ("c", NOW - timedelta(days=2))]
     assert apply_author_cap(items) == (0, 1, 2)

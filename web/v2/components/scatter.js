@@ -9,9 +9,8 @@
 // Marker SIZE = `stars_audited` (sqrt-scaled area, so the visual size
 // difference reflects the actual magnitude ratio), radius 4-12 real
 // screen pixels (`MIN_RADIUS_PX`/`MAX_RADIUS_PX`) regardless of the
-// plot's rendered width (lead ruling 2026-09-13, replacing an earlier
-// viewBox-unit radius that rendered 18-49px diameters on a 710px plot —
-// a solid blob) — a `null` value (no v2 producer yet, W1-10 gap) draws at
+// plot's rendered width — a `null` value (no v2 producer sends
+// `stars_audited` yet) draws at
 // `DEFAULT_RADIUS_PX` (6px) and is counted for the "unaudited" legend
 // note (`views/matrix.js`'s `MATRIX_UNAUDITED_STARS_NOTE`, which also
 // documents this 4-12px scale itself).
@@ -33,9 +32,7 @@ export const DOMAIN_MAX = 100;
 export const QUADRANT_THRESHOLD = 50;
 export const SVG_MARKER_BUDGET = 2000;
 
-// Lead ruling 2026-09-13 (a 710px-wide plot measured 18-49px marker
-// DIAMETERS, median 31 -- turning the Sweet Spot cluster into a solid
-// blob): marker RADIUS is 4-12 screen pixels on a sqrt scale of
+// Marker RADIUS is 4-12 screen pixels on a sqrt scale of
 // `stars_audited`, `null` -> 6px, REGARDLESS of the plot's rendered
 // width. These three are real CSS pixels, documented in the legend
 // (views/matrix.js's MATRIX_UNAUDITED_STARS_NOTE neighbour).
@@ -198,13 +195,11 @@ export function renderScatterSvg(points, { quadrantsHidden = {}, focusedKey = nu
 export function renderFocusOverlaySvg(point, domainMin = 0, domainMax = 0) {
   if (!point) return "";
   const cls = QUAD_CLASS[point.quadrant] || "quad-nursery";
-  // Review R-01 N-2 (2026-09-13): this used to always draw at
-  // `DEFAULT_RADIUS + 0.8` regardless of the marker's own stars-scaled
-  // size, so above the canvas budget the highlighted marker visibly
-  // changed size on focus/hover. `domainMin`/`domainMax` (the caller's
-  // `starsDomain(points)`) let this match the REAL marker's own radius,
-  // with a small constant bump so the focus ring stays visible over the
-  // canvas layer regardless of size.
+  // `domainMin`/`domainMax` (the caller's `starsDomain(points)`) make the
+  // overlay match the REAL marker's own stars-scaled radius, with a small
+  // constant bump so the focus ring stays visible over the canvas layer
+  // regardless of size — the highlighted marker never changes size on
+  // focus/hover.
   const r = radiusForStars(point.stars_audited, domainMin, domainMax) + 0.8;
   return (
     `<svg class="matrix-svg matrix-focus-overlay" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">` +
@@ -223,8 +218,8 @@ export function renderFocusOverlaySvg(point, domainMin = 0, domainMax = 0) {
  * by `sx`/`sy`) — canvas coordinates here are already real pixels, so
  * going through the domain-unit `radiusForStars` and re-scaling by the
  * canvas's OWN width/height would let a canvas wider than
- * `REFERENCE_PLOT_WIDTH_PX` exceed the 4-12px guarantee (lead ruling
- * 2026-09-13); this way the cap holds regardless of canvas size.
+ * `REFERENCE_PLOT_WIDTH_PX` exceed the 4-12px guarantee; this way the cap
+ * holds regardless of canvas size.
  */
 export function drawMatrixCanvas(ctx, points, { quadrantsHidden = {}, colors, width, height }) {
   ctx.clearRect(0, 0, width, height);

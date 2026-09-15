@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# W3-3 live re-verification canary runner (03-ANTI-MANIPULATION section 5).
+# Live re-verification canary runner (03-ANTI-MANIPULATION section 5).
 #
 # Subcommands:
 #   run        Run `python -m cvi.verify.live_sample` on the nightly sample
 #              (seed = today's UTC date; extra args pass through, e.g.
 #              `canary.sh run --max-live 5`).
-#   install    Ship the systemd user timer for the nightly run. This is
-#              executed by the lead only after the packet is ACCEPTed; the
-#              implementer never installs.
+#   install    Ship the systemd user timer for the nightly run.
 #   uninstall  Remove the user timer and the copied unit files.
 #   help       This text.
 #

@@ -1,14 +1,14 @@
-"""Fixture <-> contract validation for packet W4-5a (UI v2 core).
+"""Fixture <-> contract validation for the v2 UI.
 
-`cvi/serve/contract.py` is the wire contract both `web/v2/` and (later)
-W4-4's real API test against. Every fixture under `tests/fixtures/ui/` must
-validate against those pydantic models, and each fixture's own internal
-promises from the dispatch (>= 60 rows, a 2dp tie group of three, every
-coverage band with its ceiling, all four quadrants, at least one row per
-persona hidden by that persona's gate, several suspicion flags, one row with
-an unmeasured pillar, and a re-projected `first_timer` leaderboard with
-non-zero rank deltas) are checked as exact values, not shapes — an
-easy-to-pass fixture test is a defect (house style, see tests/test_serve.py).
+`cvi/serve/contract.py` is the wire contract that both `web/v2/` and the API
+answer to. Every fixture under `tests/fixtures/ui/` must validate against
+those pydantic models, and each fixture's internal promises (>= 60 rows, a
+2dp tie group of three, every coverage band with its ceiling, all four
+quadrants, at least one row per persona hidden by that persona's gate,
+several suspicion flags, one row with an unmeasured pillar, and a
+re-projected `first_timer` leaderboard with non-zero rank deltas) are checked
+as exact values, not shapes — an easy-to-pass fixture test is a defect
+(house style, see tests/test_serve.py).
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from cvi.serve.contract import (
     LeaderboardResponse,
     MatrixPoint,
     MatrixResponse,
+    MethodologyResponse,
     NotRankedResponse,
     NotRankedRow,
     PILLARS,
@@ -326,12 +327,8 @@ class TestContractValidatorsRejectBadInput:
             )
 
 
-class TestMatrixAndReprojectContractOnly:
-    """W4-3 store-queries review (2026-09-13) additions. No UI in this
-    packet consumes them (Matrix is W4-5b, Configure/custom-weights is
-    W4-5c) — this is a smoke test that the shapes are constructible and
-    internally consistent, so W4-4 has a settled contract to build against.
-    """
+class TestMatrixContract:
+    """`MatrixPoint` / `MatrixResponse` construction and validation."""
 
     def test_matrix_point_and_response(self) -> None:
         point = MatrixPoint(
@@ -346,18 +343,67 @@ class TestMatrixAndReprojectContractOnly:
         )
         assert response.points[0].stars_audited is None
 
-    def test_reproject_request_rejects_weights_not_summing_to_one(self) -> None:
+    def test_response_accepts_a_leaderboard_derived_point(self) -> None:
+        leaderboard = load("leaderboard.json")
+        row = leaderboard["rows"][0]
+        point = {
+            "owner": row["owner"], "name": row["name"], "ecosystem": row["ecosystem"],
+            "leverage": row["leverage"], "friction": row["friction"],
+            "leverage_coverage": row["leverage_coverage"], "friction_coverage": row["friction_coverage"],
+            "quadrant": row["quadrant"], "stars_audited": row["stars_audited"],
+            "cvi": row["cvi"], "coverage": row["coverage"], "tier": row["tier"],
+        }
+        response = MatrixResponse.model_validate(
+            {"points": [point], "excluded_count": leaderboard["counts"]["gated"], "axis_coverage": {}}
+        )
+        assert response.points[0].owner == row["owner"]
+
+    def test_excluded_count_cannot_be_negative(self) -> None:
+        with pytest.raises(ValidationError):
+            MatrixResponse.model_validate({"points": [], "excluded_count": -1, "axis_coverage": {}})
+
+
+class TestReprojectContract:
+    """`ReprojectRequest` weight-vector rules and `ReprojectResponse` shape.
+
+    `ReprojectResponse.rows` is `list[ReprojectRow]`: a `LeaderboardRow` plus
+    the five `balanced_*` comparison fields `cvi.store.queries.reproject`
+    returns.
+    """
+
+    def test_valid_weight_vector_accepted(self) -> None:
+        ReprojectRequest.model_validate(
+            {
+                "weight_responsiveness": 0.25, "weight_criticality": 0.25, "weight_governance": 0.2,
+                "weight_rigor": 0.15, "weight_accessibility": 0.15,
+            }
+        )
+
+    def test_zero_pillar_weight_allowed(self) -> None:
+        ReprojectRequest.model_validate(
+            {
+                "weight_responsiveness": 1.0, "weight_criticality": 0.0, "weight_governance": 0.0,
+                "weight_rigor": 0.0, "weight_accessibility": 0.0,
+            }
+        )
+
+    def test_negative_weight_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            ReprojectRequest.model_validate(
+                {
+                    "weight_responsiveness": 1.5, "weight_criticality": -0.5, "weight_governance": 0.0,
+                    "weight_rigor": 0.0, "weight_accessibility": 0.0,
+                }
+            )
+
+    def test_weights_not_summing_to_one_rejected(self) -> None:
         with pytest.raises(ValidationError):
             ReprojectRequest(
                 weight_responsiveness=0.5, weight_criticality=0.5, weight_governance=0.5,
                 weight_rigor=0.0, weight_accessibility=0.0,
             )
 
-    def test_reproject_response_lens_is_always_custom(self) -> None:
-        # W4-5b addition: `ReprojectResponse.rows` is `list[ReprojectRow]`
-        # (`LeaderboardRow` plus the five `balanced_*` comparison fields
-        # `cvi.store.queries.reproject` already returns) — see
-        # `tests/test_ui_fixtures_w4_5b.py` for the dedicated contract tests.
+    def test_response_carries_balanced_comparison_fields_and_custom_lens(self) -> None:
         row = dict(load("leaderboard.json")["rows"][0])
         row["balanced_rank"] = row["rank"]
         row["rank_delta"] = 0  # LeaderboardRow's own validator: rank_delta == balanced_rank - rank
@@ -365,5 +411,66 @@ class TestMatrixAndReprojectContractOnly:
         row["balanced_cvi"] = row["cvi"]
         row["balanced_coverage"] = row["coverage"]
         row["balanced_tier"] = row["tier"]
-        response = ReprojectResponse(rows=[row], total=1)
+        response = ReprojectResponse.model_validate({"rows": [row], "total": 1, "lens": "custom"})
+        assert response.rows[0].balanced_cvi == row["cvi"]
         assert response.lens == "custom"
+
+
+class TestMethodologyContract:
+    """`methodology.json` against `MethodologyResponse`."""
+
+    def test_methodology_json_validates(self) -> None:
+        doc = MethodologyResponse.model_validate(load("methodology.json"))
+        assert len(doc.pillars) == 5
+        assert {p.name for p in doc.pillars} == {
+            "responsiveness", "criticality", "governance", "rigor", "accessibility",
+        }
+        assert abs(sum(p.weight for p in doc.pillars) - 1.0) < 1e-9
+        assert len(doc.parameters) == 18, "02-RANKING-DESIGN.md: 18 scored parameters"
+        assert len(doc.tie_break_levels.levels) == 8, "D-TIE-1 has 8 levels"
+        assert set(doc.personas.presets) == {
+            "balanced", "first_timer", "career_capital", "senior_systems", "ai_assisted",
+        }
+        assert len(doc.detectors) == 9, "03-ANTI-MANIPULATION.md: 9 cross-snapshot detectors"
+        assert len(doc.not_hashed_process_constants) == 3
+        assert len(doc.rfc_log) >= 1
+        assert doc.rfc_log[0].rfc == "genesis", "parse_changelog reverses to oldest-first"
+
+    def test_methodology_json_is_not_hand_typed(self) -> None:
+        # The fixture carries `methodology_document()`'s own constants_hash; a
+        # hand-typed placeholder like the other fixtures' "cccccc..." would not
+        # be hex sha256-shaped.
+        doc = load("methodology.json")
+        h = doc["constants_hash"]
+        assert len(h) >= 32
+        assert all(c in "0123456789abcdef" for c in h), "constants_hash must be real hex, not a placeholder"
+
+
+class TestDecidingTieLevelParity:
+    """Parity test for web/v2/components/table.js::decidingTieLevel with D-TIE-1."""
+
+    @staticmethod
+    def deciding_tie_level(a: dict, b: dict) -> int:
+        round2 = lambda v: None if v is None else round(v, 2)
+        levels = [
+            (1, round2(a.get("cvi")), round2(b.get("cvi"))),
+            (2, a.get("coverage"), b.get("coverage")),
+            (3, a.get("p_responsiveness"), b.get("p_responsiveness")),
+            (4, a.get("friction"), b.get("friction")),
+            (5, a.get("leverage"), b.get("leverage")),
+        ]
+        for level, va, vb in levels:
+            na = float("-inf") if va is None else va
+            nb = float("-inf") if vb is None else vb
+            if na != nb:
+                return level
+        return 8
+
+    def test_deciding_tie_level_composite_rounding_parity(self) -> None:
+        table_js = (Path(__file__).resolve().parent.parent / "web" / "v2" / "components" / "table.js").read_text()
+        assert "Math.round" in table_js
+        assert "round2(a.cvi)" in table_js
+
+        a = {"cvi": 90.114, "coverage": 0.95, "p_responsiveness": 80, "friction": 20, "leverage": 70, "owner": "a", "name": "a"}
+        b = {"cvi": 90.111, "coverage": 0.85, "p_responsiveness": 80, "friction": 20, "leverage": 70, "owner": "b", "name": "b"}
+        assert self.deciding_tie_level(a, b) == 2

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the W0-1 stratified sample of recorded envelopes.
+"""Build the stratified sample of recorded envelopes.
 
 Copies the envelopes of every collector for a stratified sample out of a data
 directory (read-only -- nothing under ``data/`` is written) into a scratch
@@ -13,7 +13,7 @@ topped up to ``--total`` from the largest strata.  The pool defaults to the cand
 that already have at least one recorded envelope, so a sampled repository is
 always one that was actually copied out of ``data/raw`` (``--pool candidates``
 lifts that restriction).  ``--keys-manifest`` re-copies
-an exact key list, which is how a later packet reproduces this sample.
+an exact key list, which allows reproducing this sample.
 
 Usage (from the checkout root)::
 
@@ -299,7 +299,7 @@ def write_manifest(out: Path, plan: dict, records: Sequence[dict], stats: dict, 
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True), encoding="utf-8")
     lines = [
-        "# Sample manifest (W0-1)",
+        "# Sample manifest",
         "",
         f"- source: `{data_dir}`",
         f"- repositories: **{len(records)}** (seed {plan['seed']}, "

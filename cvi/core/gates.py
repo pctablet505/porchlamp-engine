@@ -2,8 +2,8 @@
 
 ``evaluate_gates`` runs the six identity/eligibility gates over a validated
 :class:`~cvi.core.models.FeatureBundle` plus :class:`GateEvidence` (the gate
-inputs the bundle schema does not carry: W1-9 tree/manifest/licence/off-platform
-markers, W1-5 vitality commits, universe fork-parent membership). ``now`` is
+inputs the bundle schema does not carry: tree/manifest/licence/off-platform
+markers, vitality commits, universe fork-parent membership). ``now`` is
 the snapshot reference time, passed explicitly (D-VER-3: the core owns no
 clock). Every gate is evaluated; the first failing gate in the design's fixed
 order is the ``reason``; a gate whose input is insufficient never fails the
@@ -13,26 +13,25 @@ passes, routes to the off-platform workflow, or reports
 ``unrated: no_external_workflow``.
 
 ``evidence_sufficiency`` is the D-EVID-1 stage-3 gate on the composite
-coverage C (D-MISS-3; computed by W2-5): C >= 0.60 is rated, below is
+coverage C (D-MISS-3): C >= 0.60 is rated, below is
 ``unrated: insufficient_evidence`` (listed, not ranked).
 
-Packet W2-8 round 1 relocated the seven numeric gate thresholds below into
-``cvi.core.constants_v2``, imported back here under their original names
-(R-2). Packet W2-8 round 2 additionally relocated ``OSI_APPROVED_LICENSES``
-(round-1 review Warning 5: it is not a bare identifier vocabulary -- D-GATE-3
-*interprets* it as a predicate deciding eligible vs ``REASON_UNLICENSED``, so
-an upstream-list update is itself a ranking-changing event and belongs in
-the hash / RFC procedure the same as any other tunable). ``UNDETERMINED_SPDX``
-stays defined in this module: it is three sentinel strings meaning "no SPDX
-id recorded" (``None``, ``"NOASSERTION"``, ``"OTHER"``), not a license
-vocabulary that could itself drift.
+The seven numeric gate thresholds below and ``OSI_APPROVED_LICENSES`` live
+in ``cvi.core.constants`` and are imported back here under their original
+names. The licence list belongs there because D-GATE-3 *interprets* it as a
+predicate deciding eligible vs ``REASON_UNLICENSED``, so an upstream-list
+update is itself a ranking-changing event and belongs in the hash / RFC
+procedure the same as any other tunable. ``UNDETERMINED_SPDX`` is defined
+in this module: it is three sentinel strings meaning "no SPDX id recorded"
+(``None``, ``"NOASSERTION"``, ``"OTHER"``), not a license vocabulary that
+could itself drift.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import FeatureBundle, GateResult, PRWindowEvent
 
 #: Decision ids recorded in ``GateResult.undecided`` (02 section 2).
@@ -59,29 +58,29 @@ REASON_INSUFFICIENT_EVIDENCE = "unrated: insufficient_evidence"
 ROUTED_OFF_PLATFORM = "off_platform"
 
 #: D-GATE-4: trailing window for non-bot User commits on the default branch.
-GATE4_VITALITY_WINDOW_DAYS: int = constants_v2.GATE4_VITALITY_WINDOW_DAYS
+GATE4_VITALITY_WINDOW_DAYS: int = constants.GATE4_VITALITY_WINDOW_DAYS
 #: D-GATE-5: minimum population of external PRs >= 14 d old, else UNDECIDED.
-GATE5_MIN_N: int = constants_v2.GATE5_MIN_N
+GATE5_MIN_N: int = constants.GATE5_MIN_N
 #: D-GATE-5: a PR is ">= 14 d old" at the snapshot reference time.
-GATE5_MIN_AGE_DAYS: int = constants_v2.GATE5_MIN_AGE_DAYS
+GATE5_MIN_AGE_DAYS: int = constants.GATE5_MIN_AGE_DAYS
 #: D-GATE-5: the substantive-response deadline after opening.
-GATE5_RESPONSE_DEADLINE_DAYS: int = constants_v2.GATE5_RESPONSE_DEADLINE_DAYS
+GATE5_RESPONSE_DEADLINE_DAYS: int = constants.GATE5_RESPONSE_DEADLINE_DAYS
 #: D-GATE-5: pass ceiling on the share with zero substantive response.
-GATE5_MAX_ZERO_RESPONSE_SHARE: float = constants_v2.GATE5_MAX_ZERO_RESPONSE_SHARE
+GATE5_MAX_ZERO_RESPONSE_SHARE: float = constants.GATE5_MAX_ZERO_RESPONSE_SHARE
 #: D-GATE-6: horizon for a decided external PR.
-GATE6_DECISION_WINDOW_DAYS: int = constants_v2.GATE6_DECISION_WINDOW_DAYS
+GATE6_DECISION_WINDOW_DAYS: int = constants.GATE6_DECISION_WINDOW_DAYS
 #: D-EVID-1: composite coverage threshold (D-MISS-3).
-EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = constants_v2.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE
+EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE
 
 #: D-GATE-3: SPDX states that mean "no usable licence recorded" (the gate then
-#: looks for a ``LICENSE*`` file before failing). Matches W1-9's
-#: ``D_GATE3_UNLICENSED_SPDX``; the frozen-constants module is owned by W2-1.
+#: looks for a ``LICENSE*`` file before failing). Mirrors the collector's
+#: ``D_GATE3_UNLICENSED_SPDX``.
 UNDETERMINED_SPDX: frozenset[str | None] = frozenset({None, "NOASSERTION", "OTHER"})
 
-#: D-GATE-3: OSI-approved SPDX ids. Relocated to ``constants_v2`` by packet
-#: W2-8 round 2 (R-2); re-bound here under the original name (see the
-#: module docstring for the source and the round-1 review finding).
-OSI_APPROVED_LICENSES: frozenset[str] = constants_v2.OSI_APPROVED_LICENSES
+#: D-GATE-3: OSI-approved SPDX ids, re-bound from ``cvi.core.constants``
+#: under the original name (see the module docstring for why the list is a
+#: hashed constant).
+OSI_APPROVED_LICENSES: frozenset[str] = constants.OSI_APPROVED_LICENSES
 
 
 def _parse_iso(value: str) -> datetime:
@@ -96,8 +95,8 @@ class GateEvidence:
     A ``None`` field means "not collected / unknown": the affected gate is
     recorded UNDECIDED (02 section 2) instead of failing the repo. Fields map
     to their collectors of record: ``manifest_found`` / ``license_file_present``
-    / ``off_platform_marker`` to W1-9's tree and marker evidence,
-    ``vitality_commits_180d`` to the W1-5 commit evidence on the default
+    / ``off_platform_marker`` to the tree and marker evidence,
+    ``vitality_commits_180d`` to the commit evidence on the default
     branch, ``fork_parent_in_universe`` to the universe build (D-UNI-1).
     """
 
@@ -111,7 +110,7 @@ class GateEvidence:
     fork_parent_in_universe: bool | None = None
     #: D-GATE-4: non-bot User commits on the default branch, trailing 180 d.
     vitality_commits_180d: int | None = None
-    #: D-GATE-6: an off-platform contribution marker (W1-9 markers).
+    #: D-GATE-6: an off-platform contribution marker.
     off_platform_marker: bool | None = None
 
     def __post_init__(self) -> None:
@@ -138,7 +137,7 @@ class GateEvidence:
 def _zero_substantive_response(event: PRWindowEvent) -> bool:
     """D-GATE-5 numerator for one PR: no D-IN-2 response within 14 d of opening.
 
-    ``first_human_review_at`` carries the W1-3 typed-response timestamp (a
+    ``first_human_review_at`` carries the typed-response timestamp (a
     non-author, non-bot MEMBER/OWNER/COLLABORATOR review or >= 40-character
     comment); ``None`` means no such response was recorded."""
     if event.first_human_review_at is None:
@@ -254,8 +253,8 @@ def evaluate_gates(
 def evidence_sufficiency(coverage: float) -> GateResult:
     """D-EVID-1 (02 section 2, stage 3): rated iff composite coverage C >= 0.60.
 
-    ``coverage`` is the composite coverage C of D-MISS-3 (stage-6 output,
-    W2-5), within [0, 1]. Below the threshold the repo is listed but not
+    ``coverage`` is the composite coverage C of D-MISS-3 (stage-6 output),
+    within [0, 1]. Below the threshold the repo is listed but not
     ranked (``unrated: insufficient_evidence``)."""
     if isinstance(coverage, bool) or not isinstance(coverage, (int, float)):
         raise ValueError(f"coverage must be a real number, got {coverage!r}")

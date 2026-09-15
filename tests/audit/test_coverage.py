@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.audit.coverage` (packet W0-1).
+"""Unit tests for :mod:`cvi.audit.coverage`.
 
 Every assertion is an exact value on a 3-bundle fixture built here, so the
 missingness rules, quantile rule, per-repo counts and the black-hole gate are

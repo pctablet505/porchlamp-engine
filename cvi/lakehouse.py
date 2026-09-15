@@ -31,8 +31,8 @@ ambiguities resolved in favour of the spec text):
   so the filter toolbar can render every badge.
 - ``query_matrix`` / ``leaderboard`` order by ``overall_cvi DESC`` with
   ``(owner, name)`` as a deterministic tie-breaker.
-- ``snapshot_meta`` (packet W0-4 round 2, `03` §5 F10, Blocker-3) binds a
-  promotion to the frozen snapshot it was scored against: ``scripts/promote.py``
+- ``snapshot_meta`` (`03` §5 F10) binds a promotion to the frozen snapshot
+  it was scored against: ``scripts/promote.py``
   writes one row per promotion carrying the manifest's identity plus
   :func:`repositories_dump_hash`, recomputed over the just-written
   ``repositories`` table. ``scripts/serve.py`` recomputes that hash at
@@ -185,15 +185,15 @@ _DUMP_HASH_EXCLUDED_TABLES = frozenset({"snapshot_meta"})
 
 def repositories_dump_hash(db_path: str) -> str:
     """:func:`cvi.snapshot.reproduce.canonical_dump_hash` of the ``repositories``
-    table alone (packet W0-4 round 2, Blocker-3).
+    table alone.
 
     ``db_path`` may carry other tables (today, just ``snapshot_meta``) that
     are bookkeeping about the promotion, not promoted content; hashing them
     in would make the value ``write_snapshot_meta`` stores describe a
     database state that stops existing the instant that very row is
     written, so every promoted-then-served database would fail its own
-    check. This scopes the SAME hash function (R-2, no second
-    implementation) to a scratch copy with every excluded table dropped, so
+    check. This scopes the SAME hash function (no second implementation)
+    to a scratch copy with every excluded table dropped, so
     ``scripts/promote.py`` (writing the value) and ``scripts/serve.py``
     (checking it) always compute over identical content.
     """
@@ -225,8 +225,14 @@ class OperationalStore:
     """
 
     def __init__(self, db_path: str = ":memory:") -> None:
-        self._conn = sqlite3.connect(db_path)
-        self._conn.executescript(_SCHEMA)
+        self._conn = sqlite3.connect(db_path, timeout=30.0)
+        self._conn.execute("PRAGMA busy_timeout=30000;")
+        has_table = self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='repositories'"
+        ).fetchone()
+        if not has_table:
+            self._conn.executescript(_SCHEMA)
+        self._leaderboard_cache: dict[tuple, tuple[list[dict], int]] = {}
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -296,6 +302,7 @@ class OperationalStore:
         )
         row = self._conn.execute(sql, [values[c] for c in columns]).fetchone()
         self._conn.commit()
+        self._leaderboard_cache.clear()
         return int(row[0])
 
     # ------------------------------------------------------------------ #
@@ -336,6 +343,7 @@ class OperationalStore:
             (json.dumps(payload, sort_keys=True), owner, name),
         )
         self._conn.commit()
+        self._leaderboard_cache.clear()
         return int(cur.rowcount)
 
     # ------------------------------------------------------------------ #
@@ -377,8 +385,10 @@ class OperationalStore:
         where: list[str] = []
         params: list[Any] = []
         if ecosystem is not None:
-            eco_str = ecosystem.value if hasattr(ecosystem, "value") else str(ecosystem)
-            where.append("LOWER(ecosystem) = LOWER(?)")
+            eco_str = (
+                ecosystem.value if hasattr(ecosystem, "value") else str(ecosystem)
+            ).lower()
+            where.append("ecosystem = ?")
             params.append(eco_str)
         if quadrant is not None:
             where.append("matrix_quadrant = ?")
@@ -431,12 +441,26 @@ class OperationalStore:
                 except ValueError:
                     raise ValueError(f"Unknown persona: {persona!r}") from None
 
+        cache_key = (
+            str(ecosystem).lower() if ecosystem is not None else None,
+            persona_enum.value if persona_enum is not None else None,
+            search.strip().lower() if (search and search.strip()) else None,
+            limit_val,
+            offset_val,
+            int(min_stars),
+        )
+        if cache_key in self._leaderboard_cache:
+            cached_items, cached_total = self._leaderboard_cache[cache_key]
+            return [dict(d) for d in cached_items], cached_total
+
         where: list[str] = []
         params: list[Any] = []
 
         if ecosystem is not None:
-            eco_str = ecosystem.value if hasattr(ecosystem, "value") else str(ecosystem)
-            where.append("LOWER(ecosystem) = LOWER(?)")
+            eco_str = (
+                ecosystem.value if hasattr(ecosystem, "value") else str(ecosystem)
+            ).lower()
+            where.append("ecosystem = ?")
             params.append(eco_str)
 
         if min_stars > 0:
@@ -472,7 +496,10 @@ class OperationalStore:
             cur = self._conn.execute(query_sql, query_params)
             cols = [d[0] for d in cur.description]
             items = [dict(zip(cols, row)) for row in cur.fetchall()]
-            return items, total_count
+            if len(self._leaderboard_cache) >= 512:
+                self._leaderboard_cache.clear()
+            self._leaderboard_cache[cache_key] = (items, total_count)
+            return [dict(d) for d in items], total_count
 
         # Persona re-projection path
         query_sql = f"SELECT {', '.join(_COLUMNS)} FROM repositories{where_clause}"
@@ -510,7 +537,10 @@ class OperationalStore:
 
         rows.sort(key=lambda r: (-r["overall_cvi"], r["owner"], r["name"]))
         items = rows[offset_val : offset_val + limit_val]
-        return items, total_count
+        if len(self._leaderboard_cache) >= 512:
+            self._leaderboard_cache.clear()
+        self._leaderboard_cache[cache_key] = (items, total_count)
+        return [dict(d) for d in items], total_count
 
     def count_by_quadrant(self, ecosystem: Optional[str] = None) -> dict[str, int]:
         """Quadrant -> repo count, for filter-toolbar count badges.
@@ -521,8 +551,10 @@ class OperationalStore:
         sql = "SELECT matrix_quadrant, COUNT(*) FROM repositories"
         params: list[Any] = []
         if ecosystem is not None:
-            eco_str = ecosystem.value if hasattr(ecosystem, "value") else str(ecosystem)
-            sql += " WHERE LOWER(ecosystem) = LOWER(?)"
+            eco_str = (
+                ecosystem.value if hasattr(ecosystem, "value") else str(ecosystem)
+            ).lower()
+            sql += " WHERE ecosystem = ?"
             params.append(eco_str)
         sql += " GROUP BY matrix_quadrant"
         counts = {q.value: 0 for q in Quadrant}
@@ -535,17 +567,15 @@ class OperationalStore:
     # ------------------------------------------------------------------ #
     def close(self) -> None:
         """Close the underlying connection (idempotent)."""
+        self._leaderboard_cache.clear()
         self._conn.close()
 
 
 # --------------------------------------------------------------------------- #
 # Raw-metric hydration (spec 8, 11.2)
 #
-# Moved verbatim from cvi/ingest.py (W4-1, .agents/W4-1/inventory.md
-# section 4/8): OperationalStore is the only argument type, so this keeps
-# the live v1 pipeline's import one hop, not two, and lets cvi/ingest.py
-# retire once its remaining GHArchive stack (dead code, no successor) is
-# also removed.
+# OperationalStore is the only argument type these helpers take, so they live
+# beside it and keep the v1 pipeline's import path one hop deep.
 # --------------------------------------------------------------------------- #
 def _enum_value(value: Any) -> str:
     """Store enums as their ``.value`` strings (lakehouse convention)."""

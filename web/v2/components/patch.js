@@ -1,7 +1,6 @@
-// components/patch.js — a tiny keyed-list DOM patcher (lead ruling A,
-// 2026-09-13 UX rework). Replaces the earlier `container.innerHTML = ...`
-// render path: on every data change this diffs `items` against the
-// container's current keyed children and does the minimum DOM surgery —
+// components/patch.js — a tiny keyed-list DOM patcher. On every data
+// change this diffs `items` against the container's current keyed
+// children and does the minimum DOM surgery —
 // add new nodes, remove stale ones, reorder via `insertBefore` (which
 // MOVES an existing node rather than recreating it, preserving its
 // listeners/focus/scroll-anchoring), and calls `updateItem` on every node

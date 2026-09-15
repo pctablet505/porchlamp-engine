@@ -156,7 +156,7 @@ export function boot(win = window, doc = document) {
       `</div>`;
   }
 
-  // ------------------------------------------------------ W4-5b: primary nav
+  // ------------------------------------------------------ Primary nav
   function buildPrimaryNavOnce() {
     primaryNav.innerHTML = renderPrimaryNav(store.getState().tab);
   }
@@ -188,9 +188,7 @@ export function boot(win = window, doc = document) {
       searchInput.value = state.query;
     }
     if (snapshotChip) {
-      // NB-2 (U-15/U-7, review 2026-09-13): a snapshot fetch failure must
-      // not leave "Loading..." forever on the chip that carries U-6's
-      // reproducibility claim.
+      // A snapshot fetch failure must not leave "Loading..." indefinitely on the chip.
       const fields = footerFieldsFor(state);
       const text =
         fields.kind === "error"
@@ -215,14 +213,8 @@ export function boot(win = window, doc = document) {
   }
 
   /**
-   * NB-2 (U-15/U-7, review 2026-09-13): `SNAPSHOT_ERROR` was reduced into
-   * state but read by nothing, so a 404/5xx/timeout left the literal
-   * "Loading..." in the footer forever — a fabricated resting state on
-   * the one strip carrying U-6's reproducibility claim (§8 item 6).
-   * Extracted as a pure function (state -> the 4 label strings + whether
-   * the retry button shows) so the decision itself is unit-testable
-   * without a DOM, matching shouldRestoreFocusAfterRebuild/urlSyncMode/
-   * resolveOpenTargetKey earlier in this same fix round.
+   * Updates the footer view based on state. If `SNAPSHOT_ERROR` was reduced into
+   * state, displays the error details instead of a perpetual loading indicator.
    */
   function syncFooter(state) {
     const fields = footerFieldsFor(state);
@@ -435,14 +427,10 @@ export function boot(win = window, doc = document) {
     }
 
     if (state.tab === "compare") {
-      // NB-1 (round-3 review): the shell (heading/chips/search input) is
-      // rebuilt ONLY when `shellKey` changes -- tab entry or the chip set
-      // changing -- NEVER on a keystroke (`compareShellKey` deliberately
-      // excludes `compareQuery`/`compareSearchResults`/`compareDataByRepo`,
-      // see its own docstring). The results list and the comparison table
-      // are SIBLINGS of the search input, patched into their own host
-      // containers on every relevant state change without ever touching
-      // `main.innerHTML` or the input itself (06 §6.1 U-12).
+      // The shell (heading/chips/search input) is rebuilt ONLY when `shellKey`
+      // changes -- tab entry or the chip set changing -- NEVER on a keystroke.
+      // The results list and the comparison table are siblings of the search input,
+      // patched into their host containers on state changes without touching the shell.
       const shape = compareShellShape(state);
       const key = compareShellKey(state);
       if (currentTab !== "compare" || key !== currentCompareShape) {
@@ -480,7 +468,7 @@ export function boot(win = window, doc = document) {
     if (shape.startsWith("table")) patchLeaderboardBody(state);
   }
 
-  /** Configure's slider/preset/sum controls render in EVERY shape (loading/error/empty/body — 06 §3 D: the controls stay visible while re-projecting), so a weight/lock change never rebuilds the shell; this syncs the five sliders' value/output/lock state plus the sum display. Also called from `syncView`'s non-"body" branch, since the controls exist there too. */
+  /** Configure's slider/preset/sum controls render in EVERY shape (loading/error/empty/body — the controls stay visible while re-projecting), so a weight/lock change never rebuilds the shell; this syncs the five sliders' value/output/lock state plus the sum display. Also called from `syncView`'s non-"body" branch, since the controls exist there too. */
   function syncConfigureControls(state) {
     for (const pillar of PILLAR_IDS) {
       const slider = main.querySelector(`[data-weight-slider="${pillar}"]`);
@@ -490,10 +478,8 @@ export function boot(win = window, doc = document) {
         if (slider.value !== value) slider.value = value;
         if (slider.disabled !== locked) slider.disabled = locked;
         const pct = `${Math.round(state.weights[pillar] * 1000) / 10}%`;
-        // Matches views/configure.js::renderSlider's own format — a
-        // screen reader must hear WHICH pillar changed, not just the new
-        // percentage, when arrow-keying through the value (lead-reported
-        // defect 2026-09-13).
+        // Matches views/configure.js::renderSlider's format — screen readers
+        // announce which pillar changed, not just the new percentage.
         const valueText = `${copy.PILLAR_NAMES[pillar]}: ${pct}`;
         if (slider.getAttribute("aria-valuetext") !== valueText) slider.setAttribute("aria-valuetext", valueText);
         const output = slider.nextElementSibling;
@@ -519,12 +505,10 @@ export function boot(win = window, doc = document) {
   }
 
   // ------------------------------------------------------------- URL sync
-  // U-16: persona/eco/sort/page/page_size/tab/repo changes are each a real
-  // navigation step (pushState); `q` while TYPING is not — every debounced
-  // keystroke uses replaceState, and only an explicit commit (Enter, or
-  // blurring the search field) turns the current query into one pushState
-  // entry (reviewer-found Blocker B-5: `replaceUrl` was defined but never
-  // called, so every debounce window pushed a fresh history entry).
+  // URL sync: persona/eco/sort/page/page_size/tab/repo changes are each a real
+  // navigation step (pushState); `q` while typing is not — debounced
+  // keystrokes use replaceState, and only an explicit commit (Enter or
+  // blur) creates a pushState history entry.
   function pushUrl(state, opts = {}) {
     const search = serializeSearch(state);
     const target = `${win.location.pathname}${search}`;
@@ -593,7 +577,7 @@ export function boot(win = window, doc = document) {
     });
   }
 
-  // --------------------------------------------------- W4-5b: Matrix (B)
+  // --------------------------------------------------- Matrix (B)
   function loadMatrix() {
     store.dispatch({ type: "MATRIX_LOADING" });
     return api.fetchMatrix().then((result) => {
@@ -605,7 +589,7 @@ export function boot(win = window, doc = document) {
     });
   }
 
-  // ------------------------------------------- W4-5b: Methodology (F)
+  // ------------------------------------------- Methodology (F)
   function loadMethodology() {
     store.dispatch({ type: "METHODOLOGY_LOADING" });
     return api.fetchMethodology().then((result) => {
@@ -617,7 +601,7 @@ export function boot(win = window, doc = document) {
     });
   }
 
-  // ----------------------------------------- W4-5b: Configure weights (D)
+  // ----------------------------------------- Configure weights (D)
   /** Debounced to <= 150ms while dragging a slider (06 §3 D); the greyed-table pattern (U-14) keeps stale rows visible with a progress indicator until the new payload lands. */
   function scheduleReproject() {
     clearTimeout(reprojectDebounce);
@@ -641,7 +625,7 @@ export function boot(win = window, doc = document) {
     });
   }
 
-  // ------------------------------------------------------ W4-5b: Compare (E)
+  // ------------------------------------------------------ Compare (E)
   function searchCompare(query) {
     const trimmed = query.trim();
     if (!trimmed) {
@@ -894,8 +878,8 @@ export function boot(win = window, doc = document) {
     if (btn) goToTab(btn.dataset.primaryTab);
   });
 
-  // NB-2: the footer's retry button (shown only while snapshotError is set)
-  // and (W4-5b) the "verify" link, which routes to the Methodology screen
+  // The footer's retry button (shown only while snapshotError is set)
+  // and the "verify" link, which routes to the Methodology screen
   // instead of a bare same-page anchor jump.
   footer.addEventListener("click", (evt) => {
     if (evt.target.closest("[data-footer-retry]")) {
@@ -995,10 +979,10 @@ export function boot(win = window, doc = document) {
   });
 
   main.addEventListener("click", (evt) => {
-    // Opus code review (2026-09-13): above SVG_MARKER_BUDGET markers the
-    // matrix falls back to a single <canvas> with no per-marker DOM node
-    // for the browser's own click hit-testing to use at all — this is
-    // the replacement (nearest-point-within-tolerance, hitTestPoint).
+    // Above SVG_MARKER_BUDGET markers the matrix falls back to a single
+    // <canvas> with no per-marker DOM node for the browser's own click
+    // hit-testing to use — hitTestPoint resolves the nearest point
+    // within tolerance.
     const canvas = evt.target.closest("[data-matrix-canvas]");
     if (canvas) {
       const s = store.getState();
@@ -1067,7 +1051,7 @@ export function boot(win = window, doc = document) {
       const totalPages = Math.max(1, Math.ceil(flat.length / s.notRankedPageSize));
       return goToNotRankedPage(totalPages);
     }
-    // ------------------------------------------------- W4-5b: Configure (D)
+    // ------------------------------------------------- Configure (D)
     if (evt.target.closest("[data-configure-pager-prev]")) {
       store.dispatch({ type: "SET_CONFIGURE_PAGE", page: Math.max(1, store.getState().configurePage - 1) });
       patchConfigureTable(main, doc, store.getState());
@@ -1100,7 +1084,7 @@ export function boot(win = window, doc = document) {
       return;
     }
 
-    // ---------------------------------------------------- W4-5b: Compare (E)
+    // ---------------------------------------------------- Compare (E)
     const addBtn = evt.target.closest("[data-compare-add]");
     if (addBtn) {
       const key = addBtn.dataset.compareAdd;
@@ -1117,7 +1101,7 @@ export function boot(win = window, doc = document) {
       return;
     }
 
-    // ----------------------------------------------------- W4-5b: Matrix (B)
+    // ----------------------------------------------------- Matrix (B)
     const quadrantToggle = evt.target.closest("[data-matrix-quadrant-toggle]");
     if (quadrantToggle) {
       store.dispatch({ type: "MATRIX_TOGGLE_QUADRANT", quadrant: quadrantToggle.dataset.matrixQuadrantToggle });
@@ -1136,7 +1120,7 @@ export function boot(win = window, doc = document) {
       return;
     }
 
-    // ------------------------------------------------ W4-5b: Methodology (F)
+    // ------------------------------------------------ Methodology (F)
     if (evt.target.closest("[data-methodology-copy]")) {
       const pre = main.querySelector("[data-reproduce-command]");
       const btn = evt.target.closest("[data-methodology-copy]");
@@ -1189,7 +1173,7 @@ export function boot(win = window, doc = document) {
     { passive: true }
   );
 
-  // -------------------------------------------------------- W4-5b: Matrix
+  // -------------------------------------------------------- Matrix
   // interactions: wheel zoom, hover card, keyboard focus between markers.
   main.addEventListener(
     "wheel",
@@ -1309,9 +1293,8 @@ export function boot(win = window, doc = document) {
         // Scroll BEFORE the second patch so a row that was outside the
         // windowed buffer actually exists in the DOM by the time we try to
         // focus it (U-18: keyboard focus must move with the cursor, not
-        // just an internal "selected" flag and a CSS class — lead-reported
-        // defect: j/k updated state but never moved document.activeElement,
-        // so a keyboard user (and any test reading focus) saw nothing move).
+        // just an internal "selected" flag and a CSS class, ensuring
+        // document.activeElement moves so keyboard users see the focus move).
         scrollRowIntoView(nextIdx);
         patchLeaderboardBody(store.getState());
         focusRowByKey(nextKey);
@@ -1323,14 +1306,11 @@ export function boot(win = window, doc = document) {
       case "matrix-focus-right": {
         if (s.tab !== "matrix" || !s.matrix) return;
         const direction = action.replace("matrix-focus-", "");
-        // Opus code review (2026-09-13): above SVG_MARKER_BUDGET markers
-        // there is no per-marker DOM node at all (the canvas fallback,
-        // components/scatter.js) — arrow keys ALWAYS navigate a VIRTUAL
-        // marker index in that mode (there is nothing else they could
-        // usefully do; panning stays available via wheel + the +/-
-        // buttons). Below the budget, the original SVG disambiguation
-        // still applies: the stage itself (not a marker) having focus
-        // means PAN, a focused marker means navigate.
+        // Above SVG_MARKER_BUDGET markers there is no per-marker DOM node
+        // (the canvas fallback, components/scatter.js) — arrow keys always
+        // navigate a virtual marker index in that mode (panning stays
+        // available via wheel and +/- buttons). Below the budget, the
+        // SVG disambiguation applies: stage focus pans, marker focus navigates.
         const usesCanvas = s.matrix.points.length > SVG_MARKER_BUDGET;
         const markerFocused = !usesCanvas && doc.activeElement?.classList.contains("matrix-marker");
         if (!usesCanvas && !markerFocused) {
@@ -1380,25 +1360,20 @@ export function boot(win = window, doc = document) {
         break;
       case "open-selected": {
         if (isInputFocused || s.repo || s.keymapOpen) return;
-        // U-18/§5 (lead-reported defect on c52ab45): resolve the target
-        // from DOM focus FIRST — a row reached by Tab or a direct
-        // `.focus()` call never went through SET_CURSOR, so consulting
-        // only the J/K cursor opened nothing for it. The cursor is the
-        // fallback for when focus is elsewhere but a row was previously
+        // U-18/§5: resolve the target from DOM focus FIRST — a row reached
+        // by Tab or a direct `.focus()` call never went through SET_CURSOR,
+        // so consulting only the J/K cursor opened nothing for it. The cursor
+        // is the fallback for when focus is elsewhere but a row was previously
         // selected. `[data-owner][data-name]` matches both a leaderboard
         // `<tr>` AND a Matrix `.matrix-marker` `<g>` (both carry the same
         // two data attributes) — resolving the key is enough to call
-        // `openRepo` directly; it no longer needs a pre-loaded `row`
-        // object (lead-reported defect 2026-09-13: requiring
-        // `s.leaderboard.rows.find(...)` to succeed meant Enter on a
-        // Tab-/`.focus()`-reached MATRIX marker opened nothing at all,
-        // since the matrix tab never loads `state.leaderboard`).
+        // `openRepo` directly without requiring a pre-loaded `row` object
+        // (since the matrix tab never loads `state.leaderboard`).
         const focusedRow = doc.activeElement?.closest?.("[data-owner][data-name]") ?? null;
         // Above the canvas budget a marker has no DOM node at all to
         // resolve via `[data-owner][data-name]` — `matrixFocusedKey`
-        // (the virtual index arrow keys move, Opus code review 2026-09-13)
-        // is the fallback specifically for that case ("click AND Enter
-        // open the drawer", 06 §3 B).
+        // (the virtual index arrow keys move) is the fallback specifically
+        // for that case ("click AND Enter open the drawer", 06 §3 B).
         const matrixVirtualKey = s.tab === "matrix" ? s.matrixFocusedKey : null;
         const focusedKey = focusedRow
           ? `${focusedRow.dataset.owner}/${focusedRow.dataset.name}`
@@ -1560,12 +1535,11 @@ export function boot(win = window, doc = document) {
     const initialTab = initialState.tab;
     if (initialTab === "ranked" || initialTab === "notranked") loadLeaderboard();
     loadDataForTab(initialTab);
-    // U-7/U-15/U-16 (lead-reported defect 2026-09-13): a drawer opened
-    // straight from a URL (?repo=owner/name, no click ever happened) must
-    // fetch the same record+evidence a click-opened one does — see
-    // repoToLoadFromState's own docstring. `openRepo` is not reused here
-    // because the URL is already authoritative (repo/cursor/history are
-    // already correct); only the two fetches are missing.
+    // U-7/U-15/U-16: a drawer opened straight from a URL (?repo=owner/name,
+    // no click ever happened) must fetch the same record+evidence a
+    // click-opened one does — see repoToLoadFromState's own docstring.
+    // `openRepo` is not reused here because the URL is already authoritative
+    // (repo/cursor/history are already correct); only the two fetches are missing.
     // `renderDrawerAndKeymap` (called inside the `render()` just above)
     // already focuses the drawer's close button for a URL-hydrated
     // `state.repo` on this very first render (`wasDrawerOpen` starts

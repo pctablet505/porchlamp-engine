@@ -1,11 +1,6 @@
 """Rate limiting, ETag delta-hydration, and circuit breaking for outgoing
 HTTP collectors (spec 13).
 
-Moved verbatim from ``cvi/ingest.py`` (W4-1, `04-ARCHITECTURE.md` section 2:
-"``collect/ratelimit.py``: token bucket, ETag cache, circuit breaker (port
-from ``ingest.py``, then delete it)"). No behaviour changed by the move —
-same classes, same docstrings, same messages.
-
 * :class:`TokenBucketRateLimiter` -- strictly 1.2 req/s client-side throttle
   (spec 13), with an injectable clock/sleep so tests are deterministic.
 * :class:`CachedHttpClient` -- wraps an ``httpx.Client`` (transport

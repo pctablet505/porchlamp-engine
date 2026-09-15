@@ -1,10 +1,7 @@
 // tests/unit.test.mjs — Node unit tests for the pure modules (06 §6 and §8
-// acceptance checklist items 3-5, 8; state/query modules added by the
-// 2026-09-13 UX rework, U-14/U-16/U-17/U-18).
+// acceptance checklist items 3-5, 8; state/query modules, U-14/U-16/U-17/U-18).
 //
-// NOT EXECUTED ON THIS BOX: `node` is not installed here — see
-// .agents/W4-5a/handoff.md. Written to run cleanly under `node --test`
-// (Node >= 18, stdlib only) the moment Node is available.
+// Written to run cleanly under `node --test` (Node >= 18, stdlib only).
 //
 // Run: node --test web/v2/tests/unit.test.mjs
 
@@ -35,11 +32,11 @@ import { synthesizeRows } from "../perf-fixtures.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape } from "../views/compare.js";
 import { renderDrawer, classifyKind, findRow } from "../views/drawer.js";
 
-// --------------------------------------------------------------------- U-5
+// ---------------------------------------------------------------------
 // D-TIE-1 client-derivable levels: 1 (composite), 2 (coverage), 3
 // (responsiveness), 4 (friction), 5 (leverage), 8 (owner/name — levels 6
 // TTFHR p75 and 7 last-commit-date are store-only, never in the row
-// contract, see docs/v2/06-UX-DESIGN.md discussion in the handoff).
+// contract; see docs/v2/06-UX-DESIGN.md).
 test("decidingTieLevel: level 1 (composite differs — not a genuine tie)", () => {
   const a = { cvi: 90.11, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "a", name: "a" };
   const b = { cvi: 88.5, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "b", name: "b" };
@@ -117,10 +114,9 @@ test("actionForKeyEvent: letter shortcuts are suppressed while a text input is f
   assert.equal(actionForKeyEvent({ key: "z" }, { isInputFocused: false }), null);
 });
 
-// U-18/§5 (lead-reported defect, 2026-09-13, on c52ab45): a row reached by
-// Tab or a direct `.focus()` call — never having gone through the J/K
-// cursor's SET_CURSOR — must still open on Enter. This is the full
-// key-handler state transition the fix depends on: actionForKeyEvent
+// U-18/§5: a row reached by Tab or a direct `.focus()` call — never having
+// gone through the J/K cursor's SET_CURSOR — must still open on Enter.
+// This is the full key-handler state transition: actionForKeyEvent
 // resolves "Enter" to "open-selected" regardless of how focus got there,
 // and resolveOpenTargetKey must prefer DOM focus over a stale/absent
 // cursor when deciding WHICH row that opens.
@@ -217,13 +213,11 @@ test("countRankChanges: only counts rows whose rank actually differs, matched by
   assert.equal(countRankChanges(null, after), 0);
 });
 
-// query.js (client-side filter/sort) was REMOVED by the owner's
-// 2026-09-13 pagination ruling: with only one page loaded at a time, sort/
-// search/ecosystem changes must go through the API (only the server can
-// see the whole result set) — see app.js's loadLeaderboard and the
-// handoff's "sort/search/filter are fetches" note.
+// With server-side pagination (one page loaded at a time), sort/search/ecosystem
+// changes must go through the API so the server queries the complete dataset
+// (see app.js loadLeaderboard).
 
-// -------------------------------------------------------------- U-10 / copy.js
+// --------------------------------------------------------------------- copy.js
 // The reason maps themselves are private to copy.js (only the wrapper
 // functions are exported); a code the map actually covers must translate
 // to something OTHER than the raw code itself (the functions' fallback is
@@ -241,7 +235,7 @@ test("copy.js: gate and unrated reason text covers every code the fixtures use",
     copy.personaGateReason("insufficient_evidence:decided_first_timer_prs"),
     "Not enough evidence to show under this lens."
   );
-  // Engine vocabulary (cvi/core/persona.py:185-188; review Warning W-2).
+  // Engine vocabulary (cvi/core/persona.py).
   const hardBan = copy.personaGateReason("ai_hard_ban");
   assert.notEqual(hardBan, "ai_hard_ban", "no persona gate copy for ai_hard_ban");
   for (const code of ["elephant_factor_below_3", "high_barrier_to_entry", "criticality_below_threshold"]) {
@@ -265,10 +259,9 @@ test("copy.js: tierLabel appends '(capped)' only when the ceiling is the binding
   assert.equal(copy.tierLabel(null, null), copy.MISSING_VALUE);
 });
 
-// -------------------------------------------------------------- NB-2/W-4
-// U-15/U-7 (review 2026-09-13): a snapshot fetch failure previously left
-// the footer/chip resting on a fabricated "Loading..." forever —
-// SNAPSHOT_ERROR was reduced into state and read by nothing.
+// ---------------------------------------------------------------------
+// Snapshot fetch error handling: when a snapshot fetch fails, the footer/chip
+// reflects the error state rather than remaining on a loading indicator.
 // footerFieldsFor is the single decision app.js's syncFooter and the
 // header chip both read.
 test("footerFieldsFor: error takes priority over a stale/absent snapshot", () => {
@@ -303,10 +296,8 @@ test("footerFieldsFor: an error set alongside a stale snapshot still reports err
 
 // --------------------------------------------------------------------- //
 // Configure weights: normalizeWeights / applyPresetRespectingLocks
-// (Opus code review B-1, 2026-09-13: locking four pillars and dragging
-// the fifth DOWN left the sum at 0.87, not 1 — `free.length === 0` only
-// corrected an OVERFLOW, never a shortfall. Property test shape per the
-// reviewer's own request: lock subsets x values, plus randomised walks.)
+// Lock subsets x values, plus randomized walks. Ensures sum remains 1
+// when dragging down with locked pillars.
 // --------------------------------------------------------------------- //
 
 function sumOf(weights) {
@@ -354,10 +345,10 @@ test("normalizeWeights: every subset of 0-4 locked pillars keeps the sum at 1", 
   }
 });
 
-test("normalizeWeights: the exact reviewer repro (four locked, fifth dragged down) snaps to the only valid value", () => {
+test("normalizeWeights: four locked and fifth dragged down snaps to the only valid value", () => {
   const locks = { responsiveness: true, criticality: true, governance: true, accessibility: true };
   const next = normalizeWeights(BALANCED_WEIGHTS, locks, "rigor", 0.02);
-  assertValidDistribution(next, locks, BALANCED_WEIGHTS, "four-locked repro");
+  assertValidDistribution(next, locks, BALANCED_WEIGHTS, "four-locked drag down");
   // 0.25 + 0.25 + 0.20 + 0.15 (the four locked pillars) = 0.85, so rigor
   // MUST be 0.15 regardless of the 0.02 drag target.
   assert.ok(Math.abs(next.rigor - 0.15) < 1e-9);
@@ -400,11 +391,9 @@ test("applyPresetRespectingLocks: a locked pillar keeps its value and the rest s
 });
 
 // --------------------------------------------------------------------- //
-// N1 (round-3 review, 2026-09-14): the B-1 normaliser fix was guarded only
-// by THIS unexecutable file. `tests/cases/normalize_weights.json` is now
-// the shared oracle: `tests/test_ui_weights_port.py` (a faithful Python
-// port, since Node cannot run here) asserts the SAME numbers against ITS
-// OWN implementation, so a drift between the two would fail one of them.
+// Shared weight normalization oracle: tests/cases/normalize_weights.json
+// provides cross-language fixtures verified against both this JS module
+// and tests/test_ui_weights_port.py.
 // --------------------------------------------------------------------- //
 
 const CASES_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "cases", "normalize_weights.json");
@@ -437,12 +426,9 @@ test("applyPresetRespectingLocks: shared JSON cases match the real JS implementa
 });
 
 // --------------------------------------------------------------------- //
-// Configure weights: slider accessibility markup (lead-reported defect
-// 2026-09-13: "aria-label is null" — a `<label for>` alone gave this
-// box's own accessibility-tree inspection a correct accessible name, but
-// an audit checking the `aria-label` ATTRIBUTE directly found nothing).
-// Hand-traced against `renderControls`'s own HTML string output (no DOM
-// needed) since Node is absent — see the file's own top-of-file note.
+// Configure weights: slider accessibility markup.
+// Checks aria-label, aria-labelledby, and aria-valuetext attributes.
+// Evaluated against renderControls' HTML string output.
 // --------------------------------------------------------------------- //
 
 test("renderControls: every slider carries aria-label, a matching aria-labelledby target, and a pillar-named aria-valuetext", () => {
@@ -465,11 +451,8 @@ test("renderControls: every slider carries aria-label, a matching aria-labelledb
 });
 
 // --------------------------------------------------------------------- //
-// repoToLoadFromState: the URL->actions mapping for a drawer opened
-// straight from a URL (lead-reported defect 2026-09-13: a `?repo=owner/
-// name` URL rendered the drawer's header but never dispatched the
-// evidence/record fetch, since only the click path (app.js::openRepo)
-// triggered either — "Loading evidence..." stuck forever).
+// repoToLoadFromState: URL-to-actions mapping for a drawer opened directly
+// from URL query params (e.g. ?repo=owner/name).
 // --------------------------------------------------------------------- //
 
 test("repoToLoadFromState: a full URL round-trip finds the repo to load", () => {
@@ -494,9 +477,7 @@ test("repoToLoadFromState: a malformed repo (no slash) loads nothing rather than
 
 // --------------------------------------------------------------------- //
 // Matrix: virtual-index keyboard navigation and canvas hit-testing above
-// SVG_MARKER_BUDGET (Opus code review 2026-09-13: "above the 2,000-marker
-// canvas threshold markers have no DOM, so Tab and click stop working").
-// Exercised on the 5,000-point perf fixture, as the reviewer asked.
+// SVG_MARKER_BUDGET threshold, evaluated on the 5,000-point perf fixture.
 // --------------------------------------------------------------------- //
 
 const PERF_POINTS = synthesizeRows(5000);
@@ -533,7 +514,7 @@ test("hitTestPoint: an exact click on a point's own domain position finds it (or
   // The hit must be AT LEAST as close as the target itself — with 5,000
   // densely-packed synthetic points a different point can legitimately be
   // marginally closer to the exact click coordinate than the "intended"
-  // one (verified live against the real fixture server, see the handoff);
+  // one (verified against the fixture server);
   // the correctness property is "closest within tolerance", not "always
   // the specific point a human eye would guess".
   const distTo = (p) => Math.hypot(toSvgX(p.friction) - domainX, toSvgY(p.leverage) - domainY);
@@ -555,21 +536,9 @@ test("hitTestPoint: a smaller tolerance can legitimately find nothing even near 
 });
 
 // --------------------------------------------------------------------- //
-// NB-1 (round-3 review, 2026-09-14): Compare rebuilt `main.innerHTML` on
-// EVERY keystroke because `compareQuery` was baked into the shell HTML,
-// destroying and recreating the focused search `<input>` (06 §6.1 U-12 —
-// "never `innerHTML` on an ancestor of the focused element"). The fix
-// moves the rebuild decision into a pure `shellKey(state)` that
-// `app.js::syncView` compares instead of the rendered HTML string; these
-// tests are the "what to patch" DECISION itself: a keystroke (query/
-// results change) must leave the key untouched (results-only patch), a
-// chip-set change (add/remove) or a shape transition must change it
-// (shell rebuild). A DOM-level check of actual node-identity/caret
-// survival needs a real DOM (no Node, no jsdom, and `tests/fakedom.mjs`
-// does not parse `innerHTML` strings — it only backs the keyed-patch
-// tests above) — verified instead in a real Chromium tab via the Claude
-// Browser tool; see `.agents/W4-5b/handoff.md`'s Round 3 section for that
-// evidence, which this test cannot itself provide.
+// Compare view shell key stability: ensures shellKey(state) does not change
+// on keystroke/query updates so the focused input element is preserved,
+// while changing on repo chip addition/removal or shape transitions.
 // --------------------------------------------------------------------- //
 
 const COMPARE_BASE_STATE = {
@@ -626,16 +595,9 @@ test("compareShellKey: a chip-count shape transition (empty / partial-min / tabl
 });
 
 // --------------------------------------------------------------------- //
-// N3 (round-3 review, 2026-09-14): the repo-detail 404 path was untested
-// end to end. `renderDrawer` used to route ANY `repoDetailError` (a 404
-// included, since api.js/app.js treat every non-2xx the same way) through
-// the retry-error banner, making `copy.DRAWER_NOT_FOUND_TEXT` dead code
-// for the one case it names -- fixed alongside this test (drawer.js: a
-// 404 now renders the not-found copy with no retry button; every other
-// status keeps the retry banner). Mutant this guards against: the server
-// answering an unknown repo with an empty 200 instead of a 404 -- see
-// `tests/test_serve_ui_fixtures.py::TestRepoDetailEndpoint` for the wire
-// half of this same fix.
+// Repo-detail error rendering: a 404 renders copy.DRAWER_NOT_FOUND_TEXT
+// without a retry button, while 500/timeout/network errors render the
+// retry banner.
 // --------------------------------------------------------------------- //
 
 function drawerStateFor(overrides) {
@@ -664,16 +626,8 @@ test("renderDrawer: still loading shows the loading copy, neither not-found nor 
 });
 
 // --------------------------------------------------------------------- //
-// W4-5c (2026-09-14): `GET /v1/cvi/repos/{owner}/{name}` has two
-// producers -- the real API and the UI fixture stand-in
-// (`scripts/serve_ui_fixtures.py`) -- and used to disagree: the fixture
-// server invented a `{kind, row}` wrapper the real API never sent,
-// crashing the drawer (`TypeError: Cannot read properties of undefined
-// (reading 'owner')`) the moment it was pointed at the real API. The
-// contract is the truth: `found` is now the flat `RepoDetailResponse`
-// itself, and `classifyKind` derives `kind` client-side from
-// `eligible`/`rated` (see `tests/test_repo_detail_cross_check.py` for the
-// Python-side two-producer parity test this fix is bound to).
+// Repo-detail flat response contract: the API returns flat RepoDetailResponse
+// objects, and classifyKind derives kind client-side from eligible/rated flags.
 // --------------------------------------------------------------------- //
 
 test("classifyKind: ineligible (gated at stage 0) is 'gated' regardless of rated", () => {
@@ -740,17 +694,9 @@ test("findRow + classifyKind: the real (flat) shape round-trips through renderDr
 });
 
 // --------------------------------------------------------------------- //
-// W4-5d (2026-09-14): the gated branch used to render ONLY the identity/
-// gate-status section (test above this comment, now superseded/rewritten)
-// -- "the reason sentence and nothing else above the fold" (06 §3 C) was
-// implemented as "nothing else, period", losing the pillar/persona/
-// integrity sections a gated repo genuinely has data for (measured/
-// unmeasured evidence rows, a repo-level raw_hash/snapshot_id). Fixed:
-// the gate sentence still renders first and alone above the fold, but
-// three COLLAPSED `<details>` sections now sit below it; the composite
-// section is OMITTED (no CVI/tier/quadrant ever existed for a gated
-// repo -- see copy.js's comment above DRAWER_SECTION_COMPOSITE for the
-// documented "omit, don't placeholder" choice).
+// Gated repository rendering: renders gate reason above the fold, followed
+// by three collapsed <details> sections (Pillars, Personas, Integrity).
+// Composite and Playbook sections are omitted.
 // --------------------------------------------------------------------- //
 
 test("findRow + classifyKind: a GATED repo renders the gate sentence first, then Pillars/Persona/Integrity collapsed, with Composite omitted", () => {
@@ -828,14 +774,8 @@ test("findRow + classifyKind: an UNRATED repo renders its evidence table, not a 
   const html = renderDrawer(state);
   assert.ok(html.includes("repo-insufficient_evidence-0"));
 
-  // W4-5d regression guard: the shared `renderEvidenceOnlyPillarSection`
-  // extraction (used by both "unrated" and the new "gated" branch) must
-  // leave "unrated" byte-for-byte the same shape it always was -- exactly
-  // one <details>, still OPEN (unlike gated's now-collapsed three), and no
-  // persona/integrity sections (an unrated repo's `persona_composites`/
-  // `raw_hash` are real fields but this screen has never shown them, and
-  // this packet's scope is gated only -- dispatch: "an unrated repo
-  // unchanged").
+  // An unrated repo renders exactly one open <details> section, with
+  // persona, integrity, and composite sections omitted.
   const detailsTags = html.match(/<details[^>]*>/g) || [];
   assert.equal(detailsTags.length, 1, "unrated must still render exactly one <details> section");
   assert.ok(/\bopen\b/.test(detailsTags[0]), "unrated's single section must stay open, unchanged");

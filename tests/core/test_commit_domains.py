@@ -1,17 +1,11 @@
-"""W1-5f acceptance: ``cvi.core.commit_domains`` -- the relocated commit-actor
-typing/bot/org-key primitives (unchanged from the landed W1-5 module, moved
-here so ``cvi.derive.bundle``/``cvi.core.pipeline`` can reach them, see the
-module's own docstring) plus the two new pure facts D-TIE-1 item 7 and the
-``ef_domain_mismatch`` detector need: :func:`last_non_bot_commit_date` and
-:func:`top_domain_share`. Also covers the ``last_non_bot_commit_at``
-bundle-level sidecar accessor/setter pair that lives here (not in
-``cvi.derive.bundle``) because ``cvi.core.pipeline`` needs to read it back
-and may import only ``cvi.core`` + stdlib.
-
-Fail-before: before this packet ``cvi.core.commit_domains`` does not exist
-at all, so every test below fails on ``ModuleNotFoundError`` (recorded in
-the handoff, and re-demonstrated empirically in
-``tests/derive/test_w15f_commit_facts.py``'s own fail-before note).
+"""Covers ``cvi.core.commit_domains`` -- the commit-actor typing/bot/org-key
+primitives reachable from ``cvi.derive.bundle``/``cvi.core.pipeline`` -- plus
+the two pure facts D-TIE-1 item 7 and the ``ef_domain_mismatch`` detector
+need: :func:`last_non_bot_commit_date` and :func:`top_domain_share`. Also
+covers the ``last_non_bot_commit_at`` bundle-level sidecar accessor/setter
+pair that lives here (not in ``cvi.derive.bundle``) because
+``cvi.core.pipeline`` needs to read it back and may import only ``cvi.core``
+plus stdlib.
 """
 from __future__ import annotations
 
@@ -75,7 +69,7 @@ def test_last_non_bot_commit_date_bot_by_known_login_exact_match() -> None:
 def test_last_non_bot_commit_date_no_login_non_noreply_email_counts_as_human() -> None:
     """A commit with no linked GitHub account (``login == ""``) but a real,
     non-noreply email is not a bot by any of D-IN-1's three conditions --
-    it counts as human (packet item 1's documented bot rule)."""
+    it counts as human under the documented bot rule."""
     records = [_record(login="", email="ghost@example.com", actor_type="",
                         date=datetime(2026, 5, 1, tzinfo=timezone.utc))]
     assert last_non_bot_commit_date(records) == datetime(2026, 5, 1, tzinfo=timezone.utc)
@@ -170,7 +164,7 @@ def test_top_domain_share_computed_over_non_bot_only_not_all_commits() -> None:
 
 
 def test_top_domain_share_tie_breaks_alphabetically_first() -> None:
-    """Pinned rule (packet item 5): a tie for the top domain resolves to the
+    """Pinned rule: a tie for the top domain resolves to the
     alphabetically-first org key -- the same tie rule
     ``cvi.collect.commits.elephant_factor`` already uses."""
     records = [
@@ -198,8 +192,8 @@ def test_top_domain_share_no_attributable_org_despite_commits() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# is_bot / org_key sanity (already covered via cvi.collect.commits, restated #
-# here once as an anti-vacuity check that the relocation preserved them)     #
+# is_bot / org_key sanity (also covered via cvi.collect.commits, restated   #
+# here once as an anti-vacuity check)                                       #
 # --------------------------------------------------------------------------- #
 
 def test_is_bot_and_org_key_still_behave_after_relocation() -> None:
@@ -210,12 +204,11 @@ def test_is_bot_and_org_key_still_behave_after_relocation() -> None:
 
 
 def test_org_key_folds_email_case_for_corporate_personal_and_noreply_domains() -> None:
-    """F-002 (W1-5f REWORK, mutant R3): pins the ``.lower()`` case fold
-    ``org_key`` applies to the recorded email before matching
-    ``NOREPLY_DOMAIN``/``PERSONAL_DOMAINS`` (both stored lowercase).
-    Without it, an upper-case domain never matches either table and falls
-    through to the generic "return the literal domain" branch -- the lead
-    review's own repro: 40 distinct authors on
+    """Pins the ``.lower()`` case fold ``org_key`` applies to the recorded
+    email before matching ``NOREPLY_DOMAIN``/``PERSONAL_DOMAINS`` (both
+    stored lowercase). Without it, an upper-case domain never matches
+    either table and falls through to the generic "return the literal
+    domain" branch: 40 distinct authors on
     ``...@USERS.NOREPLY.GITHUB.COM`` would collapse into one org named
     ``"USERS.NOREPLY.GITHUB.COM"`` instead of staying 40 distinct
     individuals, moving ``top_email_domain_share`` from 0.025 to 1.000 and

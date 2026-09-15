@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build ``tests/fixtures/snapshot_50``: a frozen v2 fixture snapshot of 50
 repositories, derived from the read-only ``~/Projects/cvi-scratch/sample-200``
-corpus (packet W2-8b, ``docs/v2/05-WORK-PLAN.md`` W2-8/W3-4).
+corpus.
 
 Deterministic and reproducible byte-for-byte: no wall clock, no random
 choice, no live network. ``as_of`` is read from the sample's own
@@ -12,22 +12,14 @@ repos that are present in the sample); scoring is
 ``cvi.core.pipeline.score_snapshot``, itself pure. The only I/O this script
 performs is reading the sample corpus and writing the fixture's own output
 files -- re-running it against the same sample produces byte-identical
-output (``tests/snapshot/test_reproduce_fixture.py`` and this packet's own
-``test_build_fixture_snapshot.py``-style rebuild-and-compare check assert
-that).
+output (``tests/snapshot/test_reproduce_fixture.py`` asserts that).
 
 Gate evidence (``cvi.core.gates.GateEvidence``) is not part of the
 FeatureBundle v2 contract (04 section 3) and no landed collector wires it
-yet (W1-9, ``docs/v2/05-WORK-PLAN.md``, is unimplemented as of this
-packet's base commit -- ``grep -rn "GateEvidence(" cvi/`` before this
-script returns nothing outside test files). This script therefore derives
-it itself, once, directly from the sample's raw envelopes
-(``raw/tree``, ``raw/commits_180d``, ``raw/github_meta``) -- a
-fixture-only, non-authoritative deriver kept local to this script (never
-added to ``cvi/derive`` or ``cvi/collect``, both out of this packet's
-ownership). See :func:`gate_evidence_for` for the exact, documented
-heuristics and their known limitations (recorded again in the handoff as
-COULD NOT VERIFY lines).
+yet. This script therefore derives it directly from the sample's raw
+envelopes (``raw/tree``, ``raw/commits_180d``, ``raw/github_meta``) -- a
+fixture-only, non-authoritative deriver kept local to this script.
+See :func:`gate_evidence_for` for the documented heuristics.
 
 Populations (D-NORM-2/3, stage 4) are frozen from the 50 selected repos
 only, via a two-pass bootstrap :func:`cvi.snapshot.populations.
@@ -51,7 +43,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from cvi.collect.commits import CommitActor, is_bot
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.gates import GateEvidence
 from cvi.core.models import (
     FeatureBundle,
@@ -73,7 +65,7 @@ SNAPSHOT_ID = "snapshot_50"
 #: D-VER-4 anchor repos (``cvi/audit/anchors.py``'s ``ANCHOR_RELATIONS``):
 #: force-included whenever present in the sample, ahead of the plain
 #: alphabetical fill, so the anchor tests can state which anchors this
-#: fixture actually carries (the packet's own instruction).
+#: fixture actually carries.
 ANCHOR_REPO_KEYS: tuple[RepoKey, ...] = (
     "torvalds/linux",
     "gcc-mirror/gcc",
@@ -117,9 +109,7 @@ def _has_license_file(paths: Sequence[str]) -> bool:
     projects -- ``torvalds/linux`` included -- use instead): this is this
     script's own documented interpretation, since ``cvi.core.gates`` takes
     the bool as a caller-supplied fact and defines no file-detection rule of
-    its own to import. Flagged as a finding: a landed W1-9 collector should
-    codify (or explicitly reject) this ``COPYING`` inclusion, not leave it
-    to each caller to decide independently."""
+    its own to import."""
     for path in paths:
         if "/" in path:
             continue
@@ -219,8 +209,7 @@ def select_fixture_repo_keys(manifest: Mapping[str, Any], size: int = FIXTURE_SI
     ``owner/name``), force-including every :data:`ANCHOR_REPO_KEYS` entry
     present in the sample plus one ``awesome*`` repo (:func:`_first_awesome_repo`)
     ahead of the plain alphabetical fill, so the fixture always exercises
-    every D-VER-4 anchor the sample corpus can possibly supply (the
-    packet's own instruction)."""
+    every D-VER-4 anchor the sample corpus can possibly supply."""
     all_keys = sorted(
         (entry["repo"] for entry in manifest["repos"] if _basename_for(entry) is not None),
         key=str.lower,
@@ -248,8 +237,8 @@ def _bundle_raw_hash(bundle: FeatureBundle) -> str:
 
 def _empty_populations(snapshot_id: str) -> PopulationSet:
     return PopulationSet(
-        snapshot_id=snapshot_id, benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH, populations=(),
+        snapshot_id=snapshot_id, benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH, populations=(),
     )
 
 
@@ -429,16 +418,9 @@ def write_fixture(result: FixtureBuildResult, out_dir: Path) -> None:
     )
 
 
-#: Moved to :mod:`cvi.snapshot.fixture_io` (packet W4-6, R-2: one
-#: definition per fact) so ``cvi.snapshot.store_cmd`` -- the ``cvi.snapshot
-#: store`` CLI's driver -- can read a snapshot directory back without
-#: importing this script. Re-exported here under their original names:
-#: every existing caller of this module (``tests/snapshot/
-#: test_reproduce_fixture.py``, ``tests/audit/test_anchors_fixture.py``,
-#: ``tests/audit/test_sensitivity_fixture.py``, all of which load this file
-#: by path via ``importlib`` rather than a normal package import) keeps
-#: working unchanged against ``build_script.load_frozen_fixture``/
-#: ``FrozenFixture``.
+#: Moved to :mod:`cvi.snapshot.fixture_io` so ``cvi.snapshot.store_cmd`` --
+#: the ``cvi.snapshot store`` CLI's driver -- can read a snapshot directory back
+#: without importing this script. Re-exported here under their original names.
 from cvi.snapshot.fixture_io import FrozenFixture, load_frozen_fixture  # noqa: F401
 
 

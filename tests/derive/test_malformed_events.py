@@ -1,12 +1,9 @@
-"""W2-9: malformed-event tolerance for a ghost/deleted-author ``pr_events``
+"""Malformed-event tolerance for a ghost/deleted-author ``pr_events``
 entry, plus the ``dropped_event_count`` accessor it feeds.
 
 GitHub reports a deleted or suspended account as an empty ``author_login``.
 ``PRWindowEvent.author_login`` must be a non-empty string (04 section 3: it
-is an author-keyed record), so such an event cannot become one -- but before
-W2-9 the whole bundle was rejected for it (``PRWindowEvent(author_login="")``
-raised inside the per-event ``try`` and ``problems.append``'d, which made
-``_load_v1`` raise ``BundleValidationError`` at the end). W2-9 tolerates it:
+is an author-keyed record), so such an event cannot become one. When encountered,
 the event is dropped from author-keyed metrics but the bundle still loads,
 and its timestamps still count toward ``pr_window.start``/``end`` (window
 coverage is author-irrelevant).
@@ -71,7 +68,7 @@ def test_dropped_event_count_defaults_to_zero(tmp_path: Path) -> None:
 def test_dropped_event_count_accessor_default_for_a_bundle_with_no_attribute() -> None:
     """A FeatureBundle that never went through ``_load_v1`` (e.g. one built
     from a native v2 document via ``validate_bundle``) never gets the
-    W2-9 backing attribute set at all; the accessor's ``getattr`` default
+    backing attribute set at all; the accessor's ``getattr`` default
     covers that case too, not just the "zero dropped" case above."""
     from cvi.core.models import Cohorts, FeatureBundle, PRWindow, RepoIdentity, feature_provenance_hash
 
@@ -88,9 +85,8 @@ def test_dropped_event_count_accessor_default_for_a_bundle_with_no_attribute() -
 
 
 def test_other_malformed_event_shapes_still_reject_the_whole_bundle(tmp_path: Path) -> None:
-    """Over-correction guard: only the empty-``author_login`` shape is
-    tolerated. An event missing a genuinely required key (``pr_number``)
-    still rejects the whole bundle, exactly as before W2-9."""
+    """Only the empty-``author_login`` shape is tolerated. An event missing
+    a genuinely required key (``pr_number``) still rejects the whole bundle."""
     broken_event = dict(NORMAL_EVENT)
     del broken_event["pr_number"]
     doc = base_document(pr_events=[broken_event])

@@ -1,22 +1,12 @@
-"""W2-14 acceptance: every envelope path recorded in a bundle is relative to
+"""Every envelope path recorded in a bundle is relative to
 the data root, never absolute.
 
-Fail-before (the real bug, `docs/v2/00-README.md` non-negotiables): the
-served evidence endpoint returned a `source` like
-`/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/torvalds__linux.json`
--- an absolute path of the machine that derived it. `cvi.derive.bundle`
-resolved a v1 document's provenance entry to a real envelope file under
-`raw_root`, then recorded `str(path)` verbatim; since `raw_root` (and every
-data root in this codebase, `cvi.paths.data_root`) is always absolute, so
-was every recorded `source`.
-
-The fix (`cvi.derive.bundle._relative_source`) always expresses the
-resolved envelope path relative to the data root before it reaches a
-`Measured`/sidecar fact or `ctx.referenced`, and `cvi.core.models.
-Measured.__post_init__` (via `measured_problems`) refuses to construct one
-with an absolute source at all -- a single enforcement point every
-construction site in `cvi.derive.bundle` (v1 resolution and v2 document
-loading alike) passes through.
+`cvi.derive.bundle._relative_source` expresses the resolved envelope path
+relative to the data root before it reaches a `Measured`/sidecar fact or
+`ctx.referenced`, and `cvi.core.models.Measured.__post_init__` (via
+`measured_problems`) refuses to construct one with an absolute source at
+all -- an enforcement point that both v1 resolution and v2 document
+loading pass through.
 """
 from __future__ import annotations
 
@@ -80,7 +70,7 @@ def test_derive_refuses_an_absolute_source_when_it_cannot_relativise(tmp_path: P
 
 
 def test_relative_provenance_is_identical_across_two_simulated_machines(tmp_path_factory) -> None:
-    """The reproducibility property (W2-14): two "machines" holding a copy
+    """The reproducibility property: two "machines" holding a copy
     of the same data under different absolute roots produce byte-identical
     provenance -- the same relative ``source`` and the same
     ``provenance_hash``/per-envelope ``source_hash`` -- because neither is a

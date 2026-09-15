@@ -1,4 +1,4 @@
-"""Tests for W1-7: OpenSSF signals computed locally, scorecard subset, proxies.
+"""Tests for OpenSSF signals computed locally, scorecard subset, proxies.
 
 Subject: ``cvi.collect.pike_signals`` -- the REST transport boundary, the
 three new collectors (releases, issue-activity search counts, default-branch
@@ -470,7 +470,7 @@ def test_derive_pike_signals_oracle_hand_built():
         {"deduped_count": 1000}, NOW)
     assert result is not None
     signals, missing = result
-    assert missing == frozenset()          # all ten present (W2-13 shape)
+    assert missing == frozenset()          # all ten present
     assert signals["created_since_months"] == 120.0        # 3650 d / (365/12)
     assert signals["updated_since_months"] == 12.0         # 365 d at the window edge
     assert signals["contributor_count"] == 100
@@ -501,18 +501,14 @@ def test_derive_pike_signals_missing_any_source_is_none():
     assert pike.derive_pike_signals(args[0], None, *args[2:], NOW) is None
     assert pike.derive_pike_signals(args[0], args[1], None, *args[3:], NOW) is None
     assert pike.derive_pike_signals(*args[:3], None, args[4], NOW) is None
-    # commits envelope present but empty (a real, recorded zero-commit repo)
-    # AND github_meta carries no pushed_at: the F2 fallback (W1-7f item 2,
-    # test_derive_pike_signals_zero_commits_is_measured_zero_via_pushed_at
-    # below) has nothing to date itself from either, so the whole set is
-    # still None -- this is the one case an empty commits envelope stays
-    # unmeasured, not the general rule.
+    # commits envelope present but empty (a recorded zero-commit repo)
+    # and github_meta carries no pushed_at: has nothing to date itself from,
+    # so the whole set is None.
     assert pike.derive_pike_signals(args[0], [], *args[2:], NOW) is None
 
 
 def test_derive_pike_signals_missing_dependents_is_a_nine_signal_partial():
-    """W2-13 (D-MISS-5 consequence for 2.2): dep is no longer hard-required
-    -- unlike the four groups above, its absence returns the other nine
+    """Dependents is not hard-required: its absence returns the other nine
     signals plus {"dependents_count"} in the missing set, not None."""
     args = (
         {"created_at": (NOW - timedelta(days=3650)).isoformat()},
@@ -534,13 +530,9 @@ def test_derive_pike_signals_missing_dependents_is_a_nine_signal_partial():
 
 
 def test_derive_pike_signals_zero_commits_is_measured_zero_via_pushed_at():
-    """W1-7f item 2 (F2 ruling): an empty commits_365d envelope from a
-    SUCCESSFUL fetch (c365 == [], not None -- the envelope's own absent-vs-
-    recorded-zero convention, matching pipeline_defenses' documented
-    None/[] split) is a measured zero for contributor_count/org_count/
-    commit_frequency_weekly; updated_since_months falls back to
-    github_meta.pushed_at (D-MISS-1: a repo-controlled absence, not a
-    third-party gap)."""
+    """An empty commits_365d envelope from a successful fetch (c365 == [], not None)
+    is a measured zero for contributor_count/org_count/commit_frequency_weekly;
+    updated_since_months falls back to github_meta.pushed_at."""
     gh = {"created_at": (NOW - timedelta(days=3650)).isoformat(),
          "pushed_at": (NOW - timedelta(days=30)).isoformat()}
     result = pike.derive_pike_signals(
@@ -646,15 +638,9 @@ def test_derive_repo_partial_signals_leaves_openssf_missing(tmp_path):
 
 
 def test_derive_repo_missing_dependents_leaves_openssf_missing(tmp_path):
-    """One prerequisite (W1-2 dependents) absent -> the ten-signal
-    ``openssf_signals`` (v1's field) stays at its "missing" placeholder,
-    unchanged (D-MISS-1: the other nine still hard-require everything).
-
-    W2-13 (D-MISS-5 consequence for 2.2): the nine present signals are no
-    longer thrown away -- they land in the additive ``openssf_signals_partial``
-    / ``openssf_signals_partial_missing`` fields for
-    ``cvi.derive.bundle``'s ``proxy:no_dependents_signal`` path, while v1
-    (which only ever reads ``openssf_signals``) is unaffected."""
+    """When dependents are absent, the full ten-signal ``openssf_signals``
+    remains missing, while the nine present signals populate
+    ``openssf_signals_partial``."""
     raw = tmp_path / "raw"
     _seed_pike_inputs(raw)
     (raw / "dependents" / f"{KEY}.json").unlink()
@@ -684,7 +670,7 @@ def test_derive_repo_no_ci_runs_scores_zero_in_proxy(tmp_path):
     assert bundle["meta"]["pipeline_defenses_method"] == "proxy:review_ci"
 
 
-def test_derive_repo_without_inputs_leaves_w17_fields_absent(tmp_path):
+def test_derive_repo_without_inputs_leaves_pike_fields_absent(tmp_path):
     bundle = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path,
                                 fetch=False, now=NOW)
     meta = bundle["meta"]
@@ -694,13 +680,11 @@ def test_derive_repo_without_inputs_leaves_w17_fields_absent(tmp_path):
     assert bundle["confidence"]["openssf_signals"] == "missing"
 
 
-# --- W1-7f item 1 (F1): the unguarded max(ats) crash path -----------------------
+# --- Guard against empty timestamps in max(ats) --------------------------------
 
 def test_derive_repo_pike_signals_survive_envelopes_with_no_fetched_at(tmp_path):
-    """F1: `max(ats)` at the openssf_signals branch used to raise ValueError
-    on an all-empty `ats` list, exactly like the sibling pipeline_defenses
-    branch already guarded 13 lines below it -- reproduced here by stripping
-    fetched_at/collected_at from all five 2.2 prerequisite envelopes."""
+    """Verify `max(ats)` handles empty timestamp lists when envelopes omit
+    fetched_at/collected_at across prerequisite envelopes."""
     raw = tmp_path / "raw"
     _seed_pike_inputs(raw)
     for collector in ("github_meta", "commits_365d", "releases", "issues_counts", "dependents"):
@@ -716,14 +700,13 @@ def test_derive_repo_pike_signals_survive_envelopes_with_no_fetched_at(tmp_path)
     assert bundle["provenance"]["openssf_signals"]["fetched_at"] is None
 
 
-# --- W1-7f item 1: the hook-level crash guard -----------------------------------
+# --- Hook-level crash guard ----------------------------------------------------
 
 def test_derive_repo_pike_hook_crash_is_collector_failure_not_a_lost_bundle(tmp_path, monkeypatch):
     """The collector must never let one repo's failure abort the sweep: a
-    crash anywhere inside derive_w17_fields (not just F1's specific line)
-    becomes a recorded Unmeasured(collector_failure) naming the exception
-    type, and derive_repo returns the REST of the bundle -- computed both
-    before (stars) and would-be-after this hook -- completely unaffected."""
+    crash inside derive_w17_fields becomes a recorded
+    Unmeasured(collector_failure) naming the exception type, and derive_repo
+    returns the rest of the bundle completely unaffected."""
     _seed_pike_inputs(tmp_path / "raw")
 
     def boom(*a: Any, **k: Any) -> Any:
@@ -775,7 +758,7 @@ def test_gather_sweep_continues_after_one_repo_w17_collector_crash(monkeypatch, 
         assert (gather.DATA / collector / "acme__repo3.json").is_file()
 
 
-# --- W1-7f item 3 (F5): windowed-count staleness --------------------------------
+# --- Windowed-count staleness ---------------------------------------------------
 
 def _stale_check_args(anchor_days_ago: float) -> tuple:
     anchor = (NOW - timedelta(days=anchor_days_ago)).isoformat()
@@ -812,7 +795,7 @@ def test_derive_w17_fields_releases_window_15_days_is_stale():
     assert "as_of" in detail
 
 
-# --- W1-7f item 4 (R-2): src()/env_path() share one path formula ---------------
+# --- src()/env_path() shared path formula --------------------------------------
 
 def test_src_and_env_path_share_one_definition():
     from cvi.collect import envelope as envelope_mod
@@ -859,16 +842,8 @@ GATHER_DONE = {
     "commits_180d": [],
     "depsdev": None,
     "scorecard": None,
-    # W1-5/W1-2/W1-3/W1-6 postdate this file and are not under test here;
-    # marking them done avoids live commits/deps.dev/ecosyste.ms/graphql/gh
-    # api calls for "acme/widget" below (Warning WW3 round 3: W1-6's own
-    # `_merged_prs` "…/pulls" call was the 5th, newly-added leak on top of
-    # 4 pre-existing ones -- all 4 collectors are seeded here together so
-    # the shared block_live_network guard records 0 attempts).
+    # Pre-seed other collectors to prevent live network calls:
     "commits_365d": [], "dependents": {}, "pr_window": {}, "governance": {},
-    # W1-4's author_history hook also postdates this file and is not under
-    # test here; marking it done avoids a live AuthorWindow gh api call —
-    # surfaced by W1-6's landed network guard (round-3 fix).
     "author_history": {},
 }
 
@@ -884,12 +859,7 @@ def seed_gather_done(raw: Path, key: str = KEY) -> None:
                                         "tree_paths_le2": ["pyproject.toml"],
                                         "tree_truncated": False,
                                         "offplatform_paths": []})
-    # W1-7f: these three are collected by unrelated blocks earlier in
-    # gather_repo (W1-5 commits_365d, W1-2 dependents, W1-3 pr_window); a
-    # missing envelope makes gather_repo try a REAL fetch through those
-    # collectors' own transports, which have nothing to do with this
-    # module's fakes -- pre-seeding them keeps every test that shares this
-    # helper (old and new) at 0 live-network attempts.
+    # Pre-seed envelopes to keep test execution fully offline without network attempts:
     write_env(raw, "commits_365d", key, [])
     write_env(raw, "dependents", key, {"deduped_count": 0})
     write_env(raw, "pr_window", key, {"window_anchor": "2026-01-01T00:00:00Z",

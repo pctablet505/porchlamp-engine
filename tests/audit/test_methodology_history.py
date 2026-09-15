@@ -68,12 +68,12 @@ def test_not_hashed_process_constants_are_absent_from_constants_dict() -> None:
     scoring inputs (`docs/v2/rfcs/README.md` "Process constants"): confirm
     none of their names collides with a real ``constants_dict()`` key,
     which would mean this packet mis-scoped one of them."""
-    from cvi.core import constants_v2
+    from cvi.core import constants
 
     names = {
         row["name"] for row in methodology_with_history(CHANGELOG)["not_hashed_process_constants"]
     }
-    assert names.isdisjoint(constants_v2.constants_dict().keys())
+    assert names.isdisjoint(constants.constants_dict().keys())
 
 
 # --------------------------------------------------------------------------- #

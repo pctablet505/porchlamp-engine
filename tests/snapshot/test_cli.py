@@ -1,8 +1,8 @@
-"""Tests for :mod:`cvi.snapshot.cli` (packet W0-3): ``cvi snapshot freeze`` and
+"""Tests for :mod:`cvi.snapshot.cli`: ``cvi snapshot freeze`` and
 ``cvi snapshot reproduce``.
 
-``main`` returns the exit code; the CLI layer is the only place in the packet
-that prints (R-8). The data directory is a synthetic one-repo sample built by
+``main`` returns the exit code; the CLI layer handles user-facing output.
+The data directory is a synthetic one-repo sample built by
 ``test_reproduce``'s fixture shape.
 """
 from __future__ import annotations
@@ -114,13 +114,12 @@ def test_reproduce_of_a_flipped_envelope_exits_one_and_names_the_key(
 
 
 # ---------------------------------------------------------------------------
-# W0-3f: gate findings P-09 (corrupt-JSON envelope) and P-07b (stale native
-# hash recorded in the frozen manifest)
+# Corrupt-JSON envelope and stale native hash recorded in the frozen manifest
 # ---------------------------------------------------------------------------
 
 
 def _corrupt(path: Path) -> None:
-    """Break the JSON in place: the first '}' becomes 'x' (the W0-gate P-09 repro)."""
+    """Break the JSON in place: the first '}' becomes 'x'."""
     text = path.read_text(encoding="utf-8")
     i = text.index("}")
     path.write_text(text[:i] + "x" + text[i + 1:], encoding="utf-8")
@@ -129,7 +128,7 @@ def _corrupt(path: Path) -> None:
 def test_reproduce_of_a_corrupt_envelope_exits_one_and_names_it(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """P-09: a corrupt-JSON envelope is reported as INVALID_JSON, exit 1."""
+    """A corrupt-JSON envelope is reported as INVALID_JSON, exit 1."""
     main(["freeze", "--data-dir", str(data_dir), "--as-of", AS_OF, "--code-commit", COMMIT])
     snapshot_id = _only_snapshot(data_dir)
     _corrupt(data_dir / "raw/github_meta/org__alpha.json")
@@ -145,10 +144,10 @@ def test_reproduce_of_a_corrupt_envelope_exits_one_and_names_it(
 def test_freeze_of_a_dir_with_a_corrupt_envelope_completes_and_reports(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """P-09: with --allow-invalid, freeze completes over the readable
+    """With --allow-invalid, freeze completes over the readable
     envelopes, names the corrupt key, records it in the manifest, and exits
-    non-zero (INT-W0-3f review: writing a degraded manifest is now the
-    operator's explicit choice, not the unconditional default)."""
+    non-zero (writing a degraded manifest is now the operator's explicit
+    choice, not the unconditional default)."""
     root = tmp_path / "data"
     _legacy(root, "github_meta", "org__alpha", META)
     _legacy(root, "pr_events", "org__alpha", [])
@@ -171,18 +170,17 @@ def test_freeze_of_a_dir_with_a_corrupt_envelope_completes_and_reports(
 
 
 # ---------------------------------------------------------------------------
-# W0-3g: INT-W0-3f review Warning 1 -- freeze must refuse a degraded manifest
-# by default, and a frozen invalid_json must sink reproduce forever, even
-# after the corrupt file is gone (03 section 5: the manifest is the
-# promotion boundary).
+# Freeze must refuse a degraded manifest by default, and a frozen
+# invalid_json must fail reproduce forever, even after the corrupt file
+# is gone (the manifest is the promotion boundary).
 # ---------------------------------------------------------------------------
 
 
 def test_freeze_refuses_a_corrupt_envelope_without_the_flag(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Fail-before defect (INT-W0-3f review): without --allow-invalid, freeze
-    must not write any manifest when an envelope is unreadable."""
+    """Without --allow-invalid, freeze must not write any manifest when an
+    envelope is unreadable."""
     root = tmp_path / "data"
     _legacy(root, "github_meta", "org__alpha", META)
     _legacy(root, "pr_events", "org__alpha", [])
@@ -201,11 +199,9 @@ def test_freeze_refuses_a_corrupt_envelope_without_the_flag(
 def test_reproduce_of_a_degraded_snapshot_fails_after_the_corrupt_file_is_gone(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The exact INT-W0-3f review sequence: freeze --allow-invalid over one
-    corrupt envelope, delete the corrupt file, then reproduce. On the base
-    version this prints MATCH and exits 0 -- a repository silently dropped
-    from the snapshot with no signal left. Here it must fail, naming the key
-    with INVALID_JSON_FROZEN, because the frozen manifest still records it."""
+    """Freeze --allow-invalid over one corrupt envelope, delete the corrupt
+    file, then reproduce. It must fail, naming the key with
+    INVALID_JSON_FROZEN, because the frozen manifest still records it."""
     root = tmp_path / "data"
     _legacy(root, "github_meta", "org__alpha", META)
     _legacy(root, "pr_events", "org__alpha", [])
@@ -230,9 +226,9 @@ def test_reproduce_of_a_degraded_snapshot_fails_after_the_corrupt_file_is_gone(
 
 
 def test_every_name_cli_imports_from_the_snapshot_package_is_exported() -> None:
-    """Consider 5 (INT-W0-3f review): a consumer importing from the package
-    root can name every symbol the CLI itself relies on -- EnvelopeScan
-    included, since envelope_entries's return type must be nameable too."""
+    """A consumer importing from the package root can name every symbol
+    the CLI itself relies on -- EnvelopeScan included, since
+    envelope_entries's return type must be nameable too."""
     import cvi.snapshot as snapshot_pkg
 
     source = Path(inspect.getsourcefile(main)).read_text(encoding="utf-8")
@@ -247,7 +243,7 @@ def test_every_name_cli_imports_from_the_snapshot_package_is_exported() -> None:
 def test_reproduce_of_a_stale_native_hash_exits_one_and_names_the_key(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """P-07b: a non-empty hash_mismatches in the frozen manifest cannot
+    """A non-empty hash_mismatches in the frozen manifest cannot
     produce MATCH / exit 0."""
     root = tmp_path / "data"
     _legacy(root, "github_meta", "org__alpha", META)

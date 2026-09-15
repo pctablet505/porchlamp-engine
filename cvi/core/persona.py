@@ -47,29 +47,21 @@ the record's already pillar-renormalised scores:
   criticality pillar is measured (``score is not None``) with
   ``score >= 60`` and ``coverage >= 0.80``.
 
-D-PERS-3 (ruling 2026-09-13, following the W2-7 review's Warning W-1).
-``ai_assisted`` and ``senior_systems`` above are *exclusion* gates and are
-unchanged by this ruling: they fire only on measured evidence, so their
-reason is always the substantive one. ``first_timer`` and ``career_capital``
-are *inclusion* gates -- a repo appears under that lens only when the
-evidence *satisfies* the condition, so an ``Unmeasured`` input can never
-satisfy it, but firing for that reason is not the same fact as firing
-because a measured value failed the bar. When one of these two gates fires
-because an input is ``Unmeasured``, the reason is
+D-PERS-3:
+``ai_assisted`` and ``senior_systems`` above are *exclusion* gates:
+they fire only on measured evidence, so their reason is always the substantive
+one. ``first_timer`` and ``career_capital`` are *inclusion* gates -- a repo
+appears under that lens only when the evidence *satisfies* the condition, so
+an ``Unmeasured`` input can never satisfy it, but firing for that reason is
+not the same fact as firing because a measured value failed the bar. When one
+of these two gates fires because an input is ``Unmeasured``, the reason is
 ``f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{input_id}"`` (e.g.
 ``"insufficient_evidence:mr_first_rate"``), never
 :data:`REASON_HIGH_BARRIER_TO_ENTRY`/:data:`REASON_LOW_CRITICALITY`; those
 substantive reasons are reserved for the case where every relevant input
 *was* ``Measured`` and still failed to qualify (:func:`_first_timer_reason`,
-:func:`_career_capital_reason`). This matters in practice, not only in
-principle: on the sample-200 fixture every one of the 78 gate-eligible
-records has ``mr_first_rate``/``newcomer_issue_supply``/the criticality
-pillar ``Unmeasured`` (the W1-4 collector that would populate
-``mr_first_rate`` is not wired yet, C-2 in the W2-7 review), so before this
-ruling both gates reported a substantive-sounding reason
-(``high_barrier_to_entry`` / ``criticality_below_threshold``) for 78/78
-repos where the true fact was a collector gap, not a measured judgement
-about the repo.
+:func:`_career_capital_reason`). This ensures collector gaps are distinguished
+from substantive judgements about the repository.
 
 Persona composites (D-AGG-4: "linear ... no Python full scan" -- this
 function runs once per already-scored record, the shape a per-row SQL
@@ -82,42 +74,24 @@ composite uses by calling
 ``cvi.core.aggregate.coverage_status``/``tier_from_score``/``apply_ceiling``
 directly -- never re-implemented. The weighted pillar-to-composite
 reduction itself (``Sum(w_p * pillar_p) / Sum(w_p)`` and ``Sum(w_p * c_p)``)
-is likewise no longer written here: packet W2-11 (R-3) gave
-``cvi.core.aggregate.composite_score_raw``/``composite_coverage`` an
-optional ``weights`` keyword (defaulting to ``constants_v2.PILLAR_WEIGHTS``),
-so :func:`persona_composite` calls those two directly with the persona's
-preset instead of keeping its own copy -- the ownership request this
-docstring used to record here, now closed. ``tests/core/test_persona_v2.py``
-still proves the result agrees with ``cvi.core.aggregate`` exactly when the
-persona is ``"balanced"`` (an over-correction guard that routing through the
-``weights`` keyword is not itself a second, drifting definition of the same
-arithmetic).
+uses ``cvi.core.aggregate.composite_score_raw``/``composite_coverage`` with
+an explicit ``weights`` keyword parameter.
 
-One-definition-per-constant (R-2). Packet W2-8 (constants freeze) relocated
-``PERSONA_PRESETS`` (all five preset vectors, ``"balanced"`` included -- it
-is still ``constants_v2.PILLAR_WEIGHTS`` itself, just assembled inside
-``constants_v2`` now instead of here), ``GATED_PERSONAS``,
+Single source of truth for constants:
+``PERSONA_PRESETS`` (all five preset vectors, including ``"balanced"`` which
+points to ``constants.PILLAR_WEIGHTS``), ``GATED_PERSONAS``,
 ``WEIGHT_SUM_TOLERANCE`` and the six gate thresholds
 (``SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR``, ``FIRST_TIMER_MIN_DECIDED_PRS``,
 ``FIRST_TIMER_MIN_MR_FIRST``, ``FIRST_TIMER_MIN_NEWCOMER_ISSUES``,
-``CAREER_CAPITAL_MIN_CRITICALITY``, ``CAREER_CAPITAL_MIN_COVERAGE``) into
-``cvi.core.constants_v2``, imported back here so every existing name still
-resolves as ``cvi.core.persona.<NAME>`` (``tests/core/test_persona_v2.py``
-is unchanged). Before this packet the five preset vectors and the six gate
-thresholds had no v2 home: ``cvi.core``'s import-graph test forbade this
-module from importing v1's ``cvi.constants.PERSONA_PRESETS``, and W2-7
-did not own ``constants_v2.py`` to add them there, so they were transcribed
-here and pinned byte-equal to v1 by
-``tests/core/test_persona_v2.py::test_non_balanced_presets_match_v1_constants_exactly``
--- that test is unchanged, since the values themselves did not move, only
-their one true definition. This module still transcribes v1's byte-equal
-check and the preset-sum validation below.
+``CAREER_CAPITAL_MIN_CRITICALITY``, ``CAREER_CAPITAL_MIN_COVERAGE``) are
+defined in ``cvi.core.constants`` and re-exported here so every existing name
+still resolves as ``cvi.core.persona.<NAME>``.
 """
 from __future__ import annotations
 
 from typing import Mapping
 
-from cvi.core import aggregate, constants_v2
+from cvi.core import aggregate, constants
 from cvi.core.models import Measured, ParamValue, PersonaComposite, ScoreRecord
 
 # --------------------------------------------------------------------------- #
@@ -133,40 +107,30 @@ PERSONA_AI_ASSISTED: str = "ai_assisted"
 
 #: Every persona this module knows how to gate. ``PERSONA_BALANCED`` is
 #: deliberately excluded: the balanced view is the ungated default, never a
-#: gate target (D-PERS-1). Relocated to ``constants_v2.GATED_PERSONAS`` by
-#: packet W2-8 (R-2); re-bound here under the original name so every
-#: existing caller/test keeps resolving ``persona.GATED_PERSONAS``. The
-#: string values there match the ``PERSONA_*`` identifiers below by content
-#: (constants_v2 cannot import this module -- persona.py already imports
-#: constants_v2 -- so it holds the literal strings, not these names).
-GATED_PERSONAS: tuple[str, ...] = constants_v2.GATED_PERSONAS
-assert GATED_PERSONAS == (
+#: gate target (D-PERS-1). Defined in ``constants.GATED_PERSONAS``;
+#: re-bound here under the original name so existing callers keep resolving it.
+GATED_PERSONAS: tuple[str, ...] = constants.GATED_PERSONAS
+if GATED_PERSONAS != (
     PERSONA_AI_ASSISTED,
     PERSONA_SENIOR_SYSTEMS,
     PERSONA_FIRST_TIMER,
     PERSONA_CAREER_CAPITAL,
-)
+):
+    raise ValueError("GATED_PERSONAS does not match expected persona tuple")
 
-#: Tolerance for the preset weight-sum check. Relocated to
-#: ``constants_v2.WEIGHT_SUM_TOLERANCE`` by packet W2-8 (R-2).
-WEIGHT_SUM_TOLERANCE: float = constants_v2.WEIGHT_SUM_TOLERANCE
+#: Tolerance for the preset weight-sum check from ``constants.WEIGHT_SUM_TOLERANCE``.
+WEIGHT_SUM_TOLERANCE: float = constants.WEIGHT_SUM_TOLERANCE
 
-#: D-PERS-2 preset weight vectors (spec section 4). Relocated to
-#: ``constants_v2.PERSONA_PRESETS`` by packet W2-8 (R-2) -- the freeze this
-#: module's own docstring flagged as an ownership request. ``"balanced"`` is
-#: still ``constants_v2.PILLAR_WEIGHTS`` itself, assembled inside
-#: ``constants_v2`` now instead of here.
-PERSONA_PRESETS: dict[str, dict[str, float]] = constants_v2.PERSONA_PRESETS
+#: D-PERS-2 preset weight vectors (spec section 4) from ``constants.PERSONA_PRESETS``.
+PERSONA_PRESETS: dict[str, dict[str, float]] = constants.PERSONA_PRESETS
 
 
 def _validate_preset(persona: str, weights: Mapping[str, float]) -> None:
     """Raise ``ValueError`` unless ``weights`` covers exactly the 5 pillar
     names and sums to 1.0 within :data:`WEIGHT_SUM_TOLERANCE`.
 
-    Delegates to :func:`cvi.core.aggregate.validate_pillar_weights` (packet
-    W2-11, R-3: one definition of the weight-vector contract, reused here
-    rather than a second, drifting copy) and re-raises with the persona
-    name so a bad preset names which one failed."""
+    Delegates to :func:`cvi.core.aggregate.validate_pillar_weights`
+    and re-raises with the persona name so a bad preset names which one failed."""
     try:
         aggregate.validate_pillar_weights(weights)
     except ValueError as exc:
@@ -196,28 +160,29 @@ REASON_LOW_CRITICALITY: str = "criticality_below_threshold"
 REASON_INSUFFICIENT_EVIDENCE_PREFIX: str = "insufficient_evidence:"
 
 # --------------------------------------------------------------------------- #
-# D-PERS-2 gate thresholds. Relocated to ``constants_v2`` by packet W2-8
-# (R-2); re-bound here under the original names.
+# D-PERS-2 gate thresholds from ``constants``.
 # --------------------------------------------------------------------------- #
-SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR: float = constants_v2.SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR
-FIRST_TIMER_MIN_DECIDED_PRS: int = constants_v2.FIRST_TIMER_MIN_DECIDED_PRS
-FIRST_TIMER_MIN_MR_FIRST: float = constants_v2.FIRST_TIMER_MIN_MR_FIRST
-FIRST_TIMER_MIN_NEWCOMER_ISSUES: float = constants_v2.FIRST_TIMER_MIN_NEWCOMER_ISSUES
-CAREER_CAPITAL_MIN_CRITICALITY: float = constants_v2.CAREER_CAPITAL_MIN_CRITICALITY
-CAREER_CAPITAL_MIN_COVERAGE: float = constants_v2.CAREER_CAPITAL_MIN_COVERAGE
+SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR: float = constants.SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR
+FIRST_TIMER_MIN_DECIDED_PRS: int = constants.FIRST_TIMER_MIN_DECIDED_PRS
+FIRST_TIMER_MIN_MR_FIRST: float = constants.FIRST_TIMER_MIN_MR_FIRST
+FIRST_TIMER_MIN_NEWCOMER_ISSUES: float = constants.FIRST_TIMER_MIN_NEWCOMER_ISSUES
+CAREER_CAPITAL_MIN_CRITICALITY: float = constants.CAREER_CAPITAL_MIN_CRITICALITY
+CAREER_CAPITAL_MIN_COVERAGE: float = constants.CAREER_CAPITAL_MIN_COVERAGE
 
 #: The bundle input ids this module reads directly (``FeatureBundle.inputs``
-#: keys, ``constants_v2.PARAM_INPUT_IDS``).
+#: keys, ``constants.PARAM_INPUT_IDS``).
 INPUT_AI_POSTURE: str = "ai_posture"
 INPUT_ELEPHANT_FACTOR: str = "elephant_factor"
 INPUT_MR_FIRST_RATE: str = "mr_first_rate"
 INPUT_NEWCOMER_ISSUE_SUPPLY: str = "newcomer_issue_supply"
 
-#: The one ``ai_posture`` value this module gates on (``constants_v2.AI_POSTURE_VALUES``).
+#: The one ``ai_posture`` value this module gates on (``constants.AI_POSTURE_VALUES``).
 AI_POSTURE_PROSCRIBED: str = "PROSCRIBED"
-assert AI_POSTURE_PROSCRIBED in constants_v2.AI_POSTURE_VALUES
+if AI_POSTURE_PROSCRIBED not in constants.AI_POSTURE_VALUES:
+    raise ValueError(f"{AI_POSTURE_PROSCRIBED} not in AI_POSTURE_VALUES")
 for _input_id in (INPUT_AI_POSTURE, INPUT_ELEPHANT_FACTOR, INPUT_MR_FIRST_RATE, INPUT_NEWCOMER_ISSUE_SUPPLY):
-    assert _input_id in constants_v2.PARAM_INPUT_IDS
+    if _input_id not in constants.PARAM_INPUT_IDS:
+        raise ValueError(f"{_input_id} not in PARAM_INPUT_IDS")
 del _input_id
 
 #: ``career_capital`` reads the already pillar-renormalised
@@ -225,7 +190,8 @@ del _input_id
 #: table); this is the id the D-PERS-3 ``insufficient_evidence:<id>`` reason
 #: names for that gate.
 CRITICALITY_PILLAR: str = "criticality"
-assert CRITICALITY_PILLAR in constants_v2.PILLAR_NAMES
+if CRITICALITY_PILLAR not in constants.PILLAR_NAMES:
+    raise ValueError(f"{CRITICALITY_PILLAR} not in PILLAR_NAMES")
 
 
 def _ai_assisted_gated(bundle_inputs: Mapping[str, ParamValue]) -> bool:
@@ -288,7 +254,7 @@ def persona_gates(record: ScoreRecord, bundle_inputs: Mapping[str, ParamValue]) 
     ``record`` supplies the already pillar-renormalised scores the
     ``career_capital`` gate reads (``record.pillars``); ``bundle_inputs`` is
     the ``FeatureBundle.inputs`` mapping the other three gates read
-    directly, keyed by the 18 frozen input ids (``constants_v2.PARAM_INPUT_IDS``).
+    directly, keyed by the 18 frozen input ids (``constants.PARAM_INPUT_IDS``).
     Only the four input ids named in the module docstring are ever looked
     up, so this function works on a gate-ineligible or unrated record too
     (``record.pillars`` may then be ``{}``; ``_career_capital_reason``
@@ -334,7 +300,7 @@ def persona_composite(record: ScoreRecord, persona: str) -> PersonaComposite:
     Raises ``ValueError`` if ``persona`` is not one of :data:`PERSONA_PRESETS`
     (the five D-PERS-2/spec-section-4 presets, ``"balanced"`` included), or
     if ``record.pillars`` does not carry exactly the 5 frozen pillar names
-    (``constants_v2.PILLAR_NAMES`` -- a gate-ineligible record's
+    (``constants.PILLAR_NAMES`` -- a gate-ineligible record's
     ``pillars`` is ``{}``, out of scope for a persona *projection*: there is
     no balanced score to reproject).
 
@@ -362,11 +328,11 @@ def persona_composite(record: ScoreRecord, persona: str) -> PersonaComposite:
         raise ValueError(f"unknown persona {persona!r}; expected one of {sorted(PERSONA_PRESETS)}")
     weights = PERSONA_PRESETS[persona]
     pillars = record.pillars
-    missing = sorted(set(constants_v2.PILLAR_NAMES) - set(pillars))
-    extra = sorted(set(pillars) - set(constants_v2.PILLAR_NAMES))
+    missing = sorted(set(constants.PILLAR_NAMES) - set(pillars))
+    extra = sorted(set(pillars) - set(constants.PILLAR_NAMES))
     if missing or extra:
         raise ValueError(
-            f"record.pillars must carry exactly {constants_v2.PILLAR_NAMES}; missing={missing}, extra={extra}"
+            f"record.pillars must carry exactly {constants.PILLAR_NAMES}; missing={missing}, extra={extra}"
         )
 
     coverage = aggregate.composite_coverage(pillars, weights=weights)

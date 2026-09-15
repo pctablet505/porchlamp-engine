@@ -904,10 +904,7 @@ def test_upsert_deep_dive_success_and_absent(store):
 
 
 # --------------------------------------------------------------------------- #
-# apply_raw_metrics -> query_matrix round-trip (spec 11.2; handoff gotcha)
-#
-# Moved verbatim from tests/test_ingest.py (W4-1: apply_raw_metrics moved
-# from cvi/ingest.py to cvi/lakehouse.py, its only argument type's module).
+# apply_raw_metrics -> query_matrix round-trip (spec 11.2)
 # --------------------------------------------------------------------------- #
 def test_apply_raw_metrics_hydrates_stars_for_matrix_queries(store):
     store.upsert_composite(make_result(owner="acme", name="widget"))
@@ -952,14 +949,11 @@ def test_apply_raw_metrics_noop_for_unknown_repo(store):
 
 
 def test_operational_store_has_no_synthetic_catalog_seeder():
-    """W4-1: OperationalStore.seed_benchmark_catalog (production code
-    generating a synthetic PR-event catalog, importing the test fixture
-    module to do it) was deleted -- the equivalent logic is now a free
-    function in the fixture module itself
-    (tests.fixtures.synthetic_catalog.seed_benchmark_catalog, formerly
-    cvi.benchmark_data), operating on a store through its public API
-    instead of living as one of its methods. Pinned so the method is
-    never silently re-added, re-opening the production -> fixture import
-    this packet closed.
+    """OperationalStore exposes no seed_benchmark_catalog method.
+
+    The equivalent logic is a free function in the fixture module
+    (tests.fixtures.synthetic_catalog.seed_benchmark_catalog) that operates
+    on a store through its public API. Pinned so the method is never
+    silently re-added, which would re-open a production -> fixture import.
     """
     assert not hasattr(OperationalStore, "seed_benchmark_catalog")

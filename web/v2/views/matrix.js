@@ -4,7 +4,7 @@
 // (`renderShell`) plus a handful of pure geometry helpers app.js's event
 // handlers call directly (`zoomView`/`panView`/`nearestMarkerInDirection`)
 // so the interaction logic itself is hand-traceable/unit-testable without
-// a DOM (06 §6, Node absent — see .agents/W4-5b/handoff.md).
+// a DOM (06 §6).
 //
 // Keyboard scheme (06 §3 B: "zoom/pan by wheel and keys ... keyboard focus
 // moves between markers (Tab/arrow keys)" — the two are reconciled here,
@@ -12,15 +12,14 @@
 // DOM order; an arrow key moves focus to the nearest marker in that
 // direction WHEN a marker currently has focus (or, above SVG_MARKER_BUDGET,
 // always — there is no per-marker DOM node in canvas mode to check focus
-// on, Opus code review 2026-09-13); arrow keys pan the view (wheel-only
-// otherwise) when the SVG container itself — not a marker — has focus and
-// the SVG path is active. Zoom itself is wheel + the on-screen `+`/`−`
-// BUTTONS (`[data-matrix-zoom-in/out]`) — NOT keyboard shortcuts (an
-// earlier draft of this comment wrongly implied `+`/`-` keys existed;
-// R-01 N-1 review finding, corrected). `1`-`4` toggle a quadrant; `R`
-// resets the view; Enter opens the drawer for the focused/virtually-
-// focused marker; canvas-mode clicks are hit-tested (hitTestPoint) since
-// there is no per-marker DOM node for the browser's own click targeting.
+// on); arrow keys pan the view (wheel-only otherwise) when the SVG
+// container itself — not a marker — has focus and the SVG path is active.
+// Zoom itself is wheel + the on-screen `+`/`−` BUTTONS
+// (`[data-matrix-zoom-in/out]`), not keyboard shortcuts. `1`-`4` toggle a
+// quadrant; `R` resets the view; Enter opens the drawer for the focused/
+// virtually-focused marker; canvas-mode clicks are hit-tested
+// (hitTestPoint) since there is no per-marker DOM node for the browser's
+// own click targeting.
 
 import * as copy from "../copy.js";
 import { renderCoverageBadge, renderTierCell } from "../components/badge.js";
@@ -114,14 +113,14 @@ export function nearestMarkerInDirection(points, currentKey, direction) {
 }
 
 /**
- * Finds the point nearest a CLICK on the canvas surface (Opus code review
- * 2026-09-13: above `SVG_MARKER_BUDGET` markers have no per-marker DOM
- * node, so the browser's own click hit-testing has nothing to land on —
- * this is the fixture-server-free replacement, a simple nearest-point
- * search within `toleranceDomainUnits` of the click). `domainX`/`domainY`
- * are already-converted domain (0..100) coordinates, matching
- * `toSvgX`/`toSvgY`'s own space; the caller converts the raw pixel click
- * offset before calling this (see `app.js`'s canvas click handler).
+ * Finds the point nearest a CLICK on the canvas surface: above
+ * `SVG_MARKER_BUDGET` markers have no per-marker DOM node, so the
+ * browser's own click hit-testing has nothing to land on and this simple
+ * nearest-point search within `toleranceDomainUnits` stands in for it.
+ * `domainX`/`domainY` are already-converted domain (0..100) coordinates,
+ * matching `toSvgX`/`toSvgY`'s own space; the caller converts the raw
+ * pixel click offset before calling this (see `app.js`'s canvas click
+ * handler).
  * Returns `null` when nothing is within tolerance (a click on empty
  * space is not an accidental open).
  */

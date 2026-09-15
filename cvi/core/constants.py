@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from types import MappingProxyType
+from typing import Mapping
 
-#: Benchmark version for the v2 line (D-VER-1). Frozen at "2.0.0-rc1" by
-#: packet W2-8 (lead ruling 2026-09-12): "2.0.0" itself is flipped by W5-2 at
-#: release; until then constants may still change, but only through the RFC
+#: Benchmark version for the v2 line (D-VER-1). Frozen at "2.0.0-rc1":
+#: until release, constants may still change, but only through the RFC
 #: procedure in docs/v2/rfcs/README.md.
 BENCHMARK_VERSION: str = "2.0.0-rc1"
 
@@ -41,35 +42,29 @@ REASON_NO_POPULATION: str = "no_population"
 #: of an inline ``ecosystem == "systems"`` check (one source); ``cvi.core.
 #: engine`` downgrades any ``not_applicable`` claim whose
 #: ``(parameter, fact, value)`` is not in this list to
-#: ``Unmeasured(collector_failure)`` (W2-13) -- a bundle or collector can
+#: ``Unmeasured(collector_failure)`` -- a bundle or collector can
 #: never assert ``not_applicable`` on its own.
 NOT_APPLICABLE_RULES: tuple[tuple[str, str, str], ...] = (
     ("dependents_deduped", "ecosystem", "systems"),
 )
 
-#: D-MISS-5 consequence for 2.2 (OpenSSF criticality, 02 section 5, W2-13):
+#: D-MISS-5 consequence for 2.2 (OpenSSF criticality, 02 section 5):
 #: the minimum count of the ten Pike signals that must be present for the
 #: no-dependents-signal proxy (``method="proxy:no_dependents_signal"``) to
 #: fire when the dependents signal is ``not_applicable``/``third_party_gap``;
 #: fewer is ``Unmeasured(insufficient_n)``.
 OPENSSF_PROXY_MIN_SIGNALS: int = 8
 
-#: W1-7f follow-up (relocated from ``cvi.collect.pike_signals`` by W2-13,
-#: imported back there): a windowed count's own fetch-time ``window_anchor``
-#: more than this many days from the derive clock means ``openssf_
-#: criticality`` is ``Unmeasured(collector_failure)`` rather than silently
-#: stale (F5 ruling).
+#: Pike signals staleness threshold: a windowed count's own fetch-time
+#: ``window_anchor`` more than this many days from the derive clock means
+#: ``openssf_criticality`` is ``Unmeasured(collector_failure)`` rather than
+#: silently stale (F5 ruling).
 WINDOW_STALENESS_DAYS: int = 14
 
 #: Unmeasured.reason vocabulary (D-MISS-1). ``REASON_NO_POPULATION`` was
 #: added 2026-09-12 (an ECDF-normalised parameter with no rated, measured
 #: repository to build a population from, in its ecosystem or globally, at
-#: this snapshot); before this packet the value was accepted by
-#: ``Unmeasured.reason``'s type annotation but rejected by this tuple's own
-#: runtime check (``cvi.core.models.unmeasured_problems``), so
-#: ``Unmeasured("no_population")`` raised ``BundleValidationError`` --
-#: ``tests/core/test_frozen.py::test_no_population_is_a_constructible_reason``
-#: is the fail-before/after pin for this fix.
+#: this snapshot).
 UNMEASURED_REASONS: tuple[str, ...] = (
     "third_party_gap",
     "collector_failure",
@@ -81,27 +76,22 @@ UNMEASURED_REASONS: tuple[str, ...] = (
 #: Number of decimal places the composite score is rounded to everywhere it
 #: is compared or displayed (D-AGG-2, 04 section 8): ``cvi.core.aggregate``'s
 #: final rounding and every ``round(..., 2)`` site in ``cvi.core.tiebreak``'s
-#: D-TIE-1 composite level and D-TIE-2 tie-group boundary. Relocated by
-#: packet W2-8 (R-2): three call sites duplicated the literal ``2`` before
-#: this constant existed.
+#: D-TIE-1 composite level and D-TIE-2 tie-group boundary.
 COMPOSITE_DECIMALS: int = 2
 
 #: D-NORM-2: minimum population per ecosystem; below it the population falls
 #: back to the global population and carries ``population_fallback``.
-#: Relocated from ``cvi.snapshot.populations`` by packet W2-8 (R-2).
 MIN_POPULATION: int = 30
 
-#: D-MISS-3 ceiling bands, above the D-EVID-1 rated threshold. Relocated
-#: from ``cvi.core.aggregate`` by packet W2-8 (R-2).
+#: D-MISS-3 ceiling bands, above the D-EVID-1 rated threshold.
 CEILING_A_MIN_COVERAGE: float = 0.80
 NO_CEILING_MIN_COVERAGE: float = 0.95
 
 #: D-EVID-1: composite coverage threshold (D-MISS-3) below which a repo is
-#: unrated. Relocated from ``cvi.core.gates`` by packet W2-8 (R-2).
+#: unrated.
 EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE: float = 0.60
 
 #: D-GATE-4: trailing window for non-bot User commits on the default branch.
-#: Relocated from ``cvi.core.gates`` by packet W2-8 (R-2).
 GATE4_VITALITY_WINDOW_DAYS: int = 180
 #: D-GATE-5: minimum population of external PRs >= 14 d old, else UNDECIDED.
 GATE5_MIN_N: int = 10
@@ -115,29 +105,25 @@ GATE5_MAX_ZERO_RESPONSE_SHARE: float = 0.50
 GATE6_DECISION_WINDOW_DAYS: int = 365
 
 #: D-MAT-1 leverage/friction axis weights and the quadrant boundary.
-#: Relocated from ``cvi.core.matrix`` by packet W2-8 (R-2).
-LEVERAGE_WEIGHTS: dict[str, float] = {
+LEVERAGE_WEIGHTS: Mapping[str, float] = MappingProxyType({
     "criticality": 0.50,
     "rigor": 0.30,
     "governance": 0.20,
-}
-FRICTION_WEIGHTS: dict[str, float] = {
+})
+FRICTION_WEIGHTS: Mapping[str, float] = MappingProxyType({
     "responsiveness": 0.50,
     "governance": 0.30,
     "accessibility": 0.20,
-}
+})
 QUADRANT_THRESHOLD: float = 50.0
 
 #: D-MAT-2 tier cutoffs (kept, O-5), worst to best; below the last cutoff is
 #: the floor tier ``"D"`` (``cvi.core.aggregate.TIER_FLOOR`` -- a bare label
-#: with no accompanying threshold, correctly excluded from the hash per the
-#: W2-8 round-1 review's own census). A score exactly at a cutoff belongs to
-#: the higher tier (``>=``), matching the v1 convention these cutoffs are
-#: kept from. Relocated from ``cvi.core.aggregate`` by packet W2-8 round 2
-#: (R-2): a cutoff or an ordering change moves ``ScoreRecord.tier`` for
-#: rated repos exactly like a weight change does, so it belongs in the hash
-#: the same way (round-1 review Blocker 1: an A-cutoff 70.0 -> 60.0 re-tiered
-#: 7 of 89 rated repos on the sample with the hash unchanged).
+#: with no accompanying threshold, excluded from the hash). A score exactly
+#: at a cutoff belongs to the higher tier (``>=``), matching the v1 convention
+#: these cutoffs are kept from. A cutoff or an ordering change moves
+#: ``ScoreRecord.tier`` for rated repos exactly like a weight change does, so
+#: it belongs in the hash the same way.
 TIER_CUTOFFS: tuple[tuple[float, str], ...] = (
     (90.0, "S+"),
     (80.0, "S"),
@@ -147,16 +133,11 @@ TIER_CUTOFFS: tuple[tuple[float, str], ...] = (
 )
 
 #: Every tier and ceiling label, worst to best, for ``apply_ceiling``'s
-#: ``min(tier_by_score, ceiling)`` (D-MAT-2). Relocated from
-#: ``cvi.core.aggregate`` by packet W2-8 round 2 (R-2): reordering this
-#: tuple changes ``apply_ceiling``'s comparison outcome (round-1 review
-#: Blocker 1's reproduction: reordering it turns ``apply_ceiling("B","A")``
-#: from ``"B"`` into ``"A"``).
+#: ``min(tier_by_score, ceiling)`` (D-MAT-2).
 TIER_ORDER: tuple[str, ...] = ("D", "C", "B", "A", "S", "S+")
 
 
-#: 02 section 4 curve-shape parameters. Relocated from ``cvi.core.params.*``
-#: by packet W2-8 (R-2).
+#: 02 section 4 curve-shape parameters.
 #: Float tolerance for the D-PARAM-MONO check (``cvi.core.params.curves``).
 MONO_TOLERANCE: float = 1e-9
 #: Shared rate calibration (1.2 DR_90, 1.3 MR_first, 4.3 substantive review
@@ -179,43 +160,35 @@ SUPPLY_SLOPE: float = 10.0
 ELEPHANT_SLOPE: float = 25.0
 
 #: 3.1 legal-IP regime scores (owner decision O-1: NONE 85).
-LEGAL_IP_SCORES: dict[str, float] = {
+LEGAL_IP_SCORES: Mapping[str, float] = MappingProxyType({
     "DCO": 100.0,
     "NONE": 85.0,
     "FOUNDATION_CLA": 75.0,
     "CORP_CLA": 25.0,
-}
+})
 #: 3.3 promotion-ladder rung scores.
-PROMOTION_LADDER_SCORES: dict[str, float] = {
+PROMOTION_LADDER_SCORES: Mapping[str, float] = MappingProxyType({
     "VERIFIED": 100.0,
     "DOCUMENTED": 75.0,
     "AD_HOC": 40.0,
     "CLOSED": 10.0,
-}
+})
 #: 4.2 AI posture scores, persona-conditional.
-AI_POSTURE_SCORES: dict[str, dict[str, float]] = {
-    "REGULATED": {"human": 95.0, "ai": 95.0},
-    "PROSCRIBED": {"human": 85.0, "ai": 25.0},
-    "AD_HOC": {"human": 40.0, "ai": 40.0},
-}
+AI_POSTURE_SCORES: Mapping[str, Mapping[str, float]] = MappingProxyType({
+    "REGULATED": MappingProxyType({"human": 95.0, "ai": 95.0}),
+    "PROSCRIBED": MappingProxyType({"human": 85.0, "ai": 25.0}),
+    "AD_HOC": MappingProxyType({"human": 40.0, "ai": 40.0}),
+})
 
 #: D-GATE-3 OSI-approved SPDX ids (the union of the SPDX license-list-data
 #: ``isOsiApproved`` flag and the opensource.org approved-licences table,
-#: fetched 2026-09-12 -- see ``cvi.core.gates``'s original module docstring
-#: for the exact sources). Relocated from ``cvi.core.gates`` by packet W2-8
-#: round 2 (R-2), per the round-1 review's Warning 5: this is not a bare
+#: fetched 2026-09-12). This is not a bare
 #: identifier vocabulary like ``GATE_1..6`` -- D-GATE-3 *interprets* it as a
-#: predicate (membership decides eligible vs ``REASON_UNLICENSED``), so
-#: removing one id silently regates every repo under that license
-#: ``unlicensed`` with the hash unchanged (reproduced: removing ``"MIT"``
-#: leaves ``CONSTANTS_HASH`` untouched). An upstream SPDX/OSI list refresh
-#: is therefore itself an RFC-worthy event (``docs/v2/rfcs/README.md``'s new
-#: "upstream vocabulary refresh" class), not a silent data update.
+#: predicate (membership decides eligible vs ``REASON_UNLICENSED``). An
+#: upstream SPDX/OSI list refresh is therefore an RFC-worthy event
+#: (``docs/v2/rfcs/README.md``), not a silent data update.
 #: Kept as a ``frozenset`` here for O(1) gate-time membership; hashed as
-#: ``tuple(sorted(OSI_APPROVED_LICENSES))`` in ``constants_dict()`` (a
-#: ``frozenset`` is not JSON-native -- ``_canonical_json`` operates on the
-#: JSON-native subset of ``cvi.core.models.canonical_json``, per this
-#: module's own docstring).
+#: ``tuple(sorted(OSI_APPROVED_LICENSES))`` in ``constants_dict()``.
 OSI_APPROVED_LICENSES: frozenset[str] = frozenset({
     "0BSD",     "AAL",     "AFL-1.1",     "AFL-1.2",
     "AFL-2.0",     "AFL-2.1",     "AFL-3.0",     "AGPL-3.0",
@@ -260,14 +233,9 @@ OSI_APPROVED_LICENSES: frozenset[str] = frozenset({
 
 #: OpenSSF/Pike criticality (input 2.2, ``cvi.core.openssf``): the
 #: ``cvi.models.OpenSSFSignals`` field name -> the alpha_i/T_i key (spec
-#: 2.2, 10.1). Relocated from ``cvi.core.openssf`` by packet W2-8 round 2
-#: (R-2), per the round-1 review's Blocker 2 and that module's own
-#: docstring ("W2-8's constants-freeze work should decide whether/how they
-#: join that registry"): a weight, threshold or field-mapping change moves
-#: input 2.2's score exactly like any other curve parameter (reproduced:
-#: ``OPENSSF_WEIGHTS["contributor_count"]`` 2.0 -> 3.0 moved the Pike score
-#: 62.107555 -> 62.533452 with the hash unchanged).
-SIGNAL_FIELDS: dict[str, str] = {
+#: 2.2, 10.1): a weight, threshold or field-mapping change moves
+#: input 2.2's score exactly like any other curve parameter.
+SIGNAL_FIELDS: Mapping[str, str] = MappingProxyType({
     "created_since_months": "created_since",
     "updated_since_months": "updated_since",
     "contributor_count": "contributor_count",
@@ -278,10 +246,10 @@ SIGNAL_FIELDS: dict[str, str] = {
     "updated_issues_count_90d": "updated_issues_count",
     "comment_frequency": "comment_frequency",
     "dependents_count": "dependents_count",
-}
+})
 
 #: Default signal weights (alpha_i) and thresholds (T_i) -- spec 2.2, 10.1.
-OPENSSF_WEIGHTS: dict[str, float] = {
+OPENSSF_WEIGHTS: Mapping[str, float] = MappingProxyType({
     "created_since": 1.0,
     "updated_since": -1.0,
     "contributor_count": 2.0,
@@ -292,8 +260,8 @@ OPENSSF_WEIGHTS: dict[str, float] = {
     "updated_issues_count": 0.5,
     "comment_frequency": 1.0,
     "dependents_count": 2.0,
-}
-OPENSSF_THRESHOLDS: dict[str, float] = {
+})
+OPENSSF_THRESHOLDS: Mapping[str, float] = MappingProxyType({
     "created_since": 120.0,
     "updated_since": 120.0,
     "contributor_count": 5000.0,
@@ -304,23 +272,14 @@ OPENSSF_THRESHOLDS: dict[str, float] = {
     "updated_issues_count": 5000.0,
     "comment_frequency": 15.0,
     "dependents_count": 500000.0,
-}
+})
 
 #: D-IN-5 / spec 10.3 Algorithm 3: the StarScout universe-entry star-velocity
-#: filter's five thresholds (``cvi.starscout.audit_star_velocity``).
-#: Relocated from ``cvi.constants`` by packet W1-10 (RFC-0002,
-#: ``docs/v2/rfcs/RFC-0002-starscout-constants-relocation.md``): stars never
-#: enter the composite (D-IN-5 -- "Stars never enter the composite"), so
-#: this relocation moves zero scored `ScoreRecord` fields for any repo
-#: (the same "no bump" reasoning RFC-0001 used for
-#: ``AUTHOR_UNMEASURED_MAX_FRACTION``, a constant with no scoring-path
-#: consumer either); it is hashed anyway because ``CONSTANTS_HASH``'s
-#: contract is "every constant the v2 core computes with lives in this one
-#: module" (``docs/v2/rfcs/README.md``), and a universe-entry gate that
-#: decides whether a repository is even eligible is exactly the kind of
-#: value an unreviewed edit must not be able to move silently. Values
-#: unchanged from ``cvi.constants``' originals (not an RFC to *change* a
-#: threshold, only to move where it is registered and enforced).
+#: filter's five thresholds (``cvi.starscout.audit_star_velocity``):
+#: stars never enter the composite (D-IN-5), so this moves zero scored
+#: `ScoreRecord` fields for any repo. It is hashed because
+#: ``CONSTANTS_HASH``'s contract is "every constant the v2 core computes with
+#: lives in this one module" (``docs/v2/rfcs/README.md``).
 STARS_SCOUT_WINDOW_DAYS: int = 90
 #: Below this many total platform events, a stargazer is a throwaway account.
 STARS_SCOUT_MIN_EVENTS: int = 5
@@ -334,11 +293,9 @@ STARS_SCOUT_LOCKSTEP_PENALTY: float = 0.30
 
 
 #: Per-parameter within-pillar weight, keyed by the 18 frozen input ids
-#: (02 section 4). Relocated from the ``ParamDef`` call sites in
-#: ``cvi.core.params.*`` by packet W2-8 (R-2): the within-pillar weight is a
-#: scoring tunable exactly like ``PILLAR_WEIGHTS``, so it belongs in the
-#: hash the same way.
-PARAM_WEIGHTS: dict[str, float] = {
+#: (02 section 4). The within-pillar weight is a scoring tunable exactly
+#: like ``PILLAR_WEIGHTS``, so it belongs in the hash the same way.
+PARAM_WEIGHTS: Mapping[str, float] = MappingProxyType({
     "ttfhr_hours": 0.30,
     "dr90_decision_rate": 0.25,
     "mr_first_rate": 0.20,
@@ -357,13 +314,12 @@ PARAM_WEIGHTS: dict[str, float] = {
     "newcomer_conversion": 0.35,
     "rr90_return_rate": 0.15,
     "dx": 0.15,
-}
+})
 
 #: Per-parameter minimum sample size below which a measured value is
 #: ``insufficient_n`` (02 section 4); ``None`` where the parameter defines no
-#: minimum. Relocated from the ``ParamDef`` call sites in
-#: ``cvi.core.params.*`` by packet W2-8 (R-2).
-PARAM_MIN_N: dict[str, int | None] = {
+#: minimum.
+PARAM_MIN_N: Mapping[str, int | None] = MappingProxyType({
     "ttfhr_hours": 10,
     "dr90_decision_rate": 10,
     "mr_first_rate": 5,
@@ -382,7 +338,7 @@ PARAM_MIN_N: dict[str, int | None] = {
     "newcomer_conversion": 5,
     "rr90_return_rate": 5,
     "dx": 5,
-}
+})
 
 #: 4.1 pipeline_defenses' ``proxy_min_n`` (the minimum sample that applies
 #: only when the measured method is a proxy, D-MISS-4); the only parameter
@@ -396,27 +352,20 @@ PIPELINE_DEFENSES_PROXY_MIN_N: int = 10
 #: Unmeasured rather than computed on a collapsed population. This is a
 #: distinct gate from PARAM_MIN_N above: PARAM_MIN_N bounds the FINAL rate's
 #: own sample size after every filter has run; this constant bounds the
-#: COLLECTOR's own failure rate before any rate is computed at all (RFC-0001;
-#: motivated by the W1-4 round-2 review's B-2/B-3: a batch-fetch defect
-#: silently collapsed pytest-dev/pytest's MR_first denominator from 55 to 9
-#: authors with no status change -- 45 of 62 = 73% unmeasured, well above
-#: this threshold). Consumed by ``cvi.collect.github_graphql.derive_cohort_
-#: fields``.
+#: COLLECTOR's own failure rate before any rate is computed at all (RFC-0001).
+#: Consumed by ``cvi.collect.github_graphql.derive_cohort_fields``.
 AUTHOR_UNMEASURED_MAX_FRACTION: float = 0.20
 
 #: D-IN-3: for rate parameters (merge, decision, conversion, return) a PR
 #: author counts only if the account is at least this many days old at PR
-#: creation, mirroring StarScout's throwaway rule. Relocated from
-#: ``cvi.collect.github_graphql`` by packet W3-1 (RFC, R-2) into
-#: ``cvi.core.hygiene``, the shared D-IN-3 mechanism every rate
-#: parameter's derivation uses.
+#: creation, mirroring StarScout's throwaway rule (defined in
+#: ``cvi.core.hygiene``).
 MIN_ACCOUNT_AGE_DAYS: int = 90
 #: D-IN-3: and has at least this many public events.
 MIN_PUBLIC_EVENTS: int = 5
 #: D-IN-3 per-author cap: one author contributes at most this fraction of
 #: any rate's numerator and denominator (excess PRs from one author are
-#: dropped, most recent first). Relocated alongside the two constants
-#: above (W3-1).
+#: dropped, most recent first).
 AUTHOR_CAP_FRACTION: float = 0.20
 
 #: Pillar names and frozen pillar weights (02 section 4; O-2: unchanged at
@@ -429,57 +378,53 @@ PILLAR_NAMES: tuple[str, ...] = (
     "rigor",
     "accessibility",
 )
-PILLAR_WEIGHTS: dict[str, float] = {
+PILLAR_WEIGHTS: Mapping[str, float] = MappingProxyType({
     "responsiveness": 0.25,
     "criticality": 0.25,
     "governance": 0.20,
     "rigor": 0.15,
     "accessibility": 0.15,
-}
+})
 
 #: D-PERS-2 persona preset weight vectors (spec section 4), transcribed from
-#: v1's ``cvi.constants.PERSONA_PRESETS`` and pinned byte-equal to it
-#: (``tests/core/test_persona_v2.py::test_non_balanced_presets_match_v1``).
-#: ``"balanced"`` is not transcribed -- it is ``PILLAR_WEIGHTS`` itself, the
-#: one frozen definition (D-AGG-1). Relocated from ``cvi.core.persona`` by
-#: packet W2-8 (R-2): this dict is what ``CONSTANTS_HASH`` now covers.
-PERSONA_PRESETS: dict[str, dict[str, float]] = {
-    "balanced": dict(PILLAR_WEIGHTS),
-    "first_timer": {
+#: v1's ``cvi.constants.PERSONA_PRESETS`` and pinned byte-equal to it.
+#: ``"balanced"`` is ``PILLAR_WEIGHTS`` itself, the one frozen definition (D-AGG-1).
+PERSONA_PRESETS: Mapping[str, Mapping[str, float]] = MappingProxyType({
+    "balanced": MappingProxyType(dict(PILLAR_WEIGHTS)),
+    "first_timer": MappingProxyType({
         "responsiveness": 0.35,
         "criticality": 0.10,
         "governance": 0.15,
         "rigor": 0.10,
         "accessibility": 0.30,
-    },
-    "career_capital": {
+    }),
+    "career_capital": MappingProxyType({
         "responsiveness": 0.20,
         "criticality": 0.35,
         "governance": 0.15,
         "rigor": 0.10,
         "accessibility": 0.20,
-    },
-    "senior_systems": {
+    }),
+    "senior_systems": MappingProxyType({
         "responsiveness": 0.15,
         "criticality": 0.35,
         "governance": 0.25,
         "rigor": 0.20,
         "accessibility": 0.05,
-    },
-    "ai_assisted": {
+    }),
+    "ai_assisted": MappingProxyType({
         "responsiveness": 0.20,
         "criticality": 0.20,
         "governance": 0.15,
         "rigor": 0.35,
         "accessibility": 0.10,
-    },
-}
+    }),
+})
 
 #: Tolerance for the preset weight-sum check (``cvi.core.persona``).
 WEIGHT_SUM_TOLERANCE: float = 1e-6
 
-#: D-PERS-2 gate thresholds. Relocated from ``cvi.core.persona`` by packet
-#: W2-8 (R-2).
+#: D-PERS-2 gate thresholds.
 SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR: float = 3.0
 FIRST_TIMER_MIN_DECIDED_PRS: int = 5
 FIRST_TIMER_MIN_MR_FIRST: float = 0.40
@@ -489,11 +434,8 @@ CAREER_CAPITAL_MIN_COVERAGE: float = 0.80
 
 #: Every persona a repo can be gated from -- the ``"balanced"`` view is
 #: deliberately excluded (D-PERS-1: it is the ungated default, never a gate
-#: target). Relocated from ``cvi.core.persona`` by packet W2-8 (R-2); the
-#: string values match that module's own ``PERSONA_*`` identifier constants
-#: (defined there, not here, per the module docstring's one-definition note
-#: on identifiers -- this tuple is the one *tunable* fact, the set of gated
-#: personas, not the identifiers themselves).
+#: target); the string values match ``cvi.core.persona``'s own
+#: ``PERSONA_*`` identifier constants.
 GATED_PERSONAS: tuple[str, ...] = (
     "ai_assisted",
     "senior_systems",
@@ -554,6 +496,12 @@ def _canonical_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def _unwrap_mapping(v: object) -> object:
+    if isinstance(v, (MappingProxyType, dict)):
+        return {k: _unwrap_mapping(sub_v) for k, sub_v in v.items()}
+    return v
+
+
 def constants_dict() -> dict[str, object]:
     """Every v2 constant in this module, keyed by name.
 
@@ -561,7 +509,7 @@ def constants_dict() -> dict[str, object]:
     appears here. ``CONSTANTS_HASH`` itself is excluded (it is a hash of the
     dict, not a member of it).
     """
-    return {
+    raw = {
         "AI_POSTURE_SCORES": AI_POSTURE_SCORES,
         "AI_POSTURE_VALUES": AI_POSTURE_VALUES,
         "AUTHOR_CAP_FRACTION": AUTHOR_CAP_FRACTION,
@@ -632,22 +580,21 @@ def constants_dict() -> dict[str, object]:
         "WEIGHT_SUM_TOLERANCE": WEIGHT_SUM_TOLERANCE,
         "WINDOW_STALENESS_DAYS": WINDOW_STALENESS_DAYS,
     }
+    return {k: _unwrap_mapping(v) for k, v in raw.items()}
 
 
 #: Module-level UPPER_CASE names that are deliberately NOT part of
-#: ``constants_dict()`` (packet W2-8 round 2, review Warning 6 / mutant M4:
-#: a new constant added here but never registered in ``constants_dict()``
-#: survived the full suite, since nothing checked completeness).
+#: Module-level UPPER_CASE names that are deliberately NOT part of
+#: ``constants_dict()``.
 #: ``CONSTANTS_HASH`` is the only member: it is a hash *of* the dict, so it
 #: cannot also be *in* the dict (self-reference). Every other module-level
 #: UPPER_CASE name -- ``BENCHMARK_VERSION`` included -- is a real key of
 #: ``constants_dict()``; ``BENCHMARK_VERSION`` is deliberately hashed
-#: (not carved out here) because D-VER-1 ties a version bump to a
-#: constants change in the first place, so the two moving together is the
-#: correct behaviour, not a redundancy to break apart.
+#: because D-VER-1 ties a version bump to a constants change in the first
+#: place, so the two moving together is the correct behaviour.
 #: ``tests/core/test_frozen.py::test_every_module_level_constant_is_hashed_or_declared_not_hashed``
 #: enforces that this tuple plus ``constants_dict()`` between them account
-#: for every module-level UPPER_CASE name -- the M4 guard.
+#: for every module-level UPPER_CASE name.
 _NOT_HASHED: tuple[str, ...] = ("CONSTANTS_HASH",)
 
 CONSTANTS_HASH: str = hashlib.sha256(

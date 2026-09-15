@@ -3,10 +3,9 @@
 // row a reason chip from the U-10 map, opening the drawer with the
 // gate/unrated reason shown first.
 //
-// Pagination (owner instruction 2026-09-13: "the same controls on the
-// Not-ranked list") is CLIENT-SIDE here (the whole list is fetched once —
-// see the handoff for why this list does not get server-side paging
-// fields the way the leaderboard does): the combined [gated..., unrated...,
+// Pagination here is CLIENT-SIDE (the whole list is fetched once; this
+// endpoint has no server-side paging fields the way the leaderboard
+// does): the combined [gated..., unrated...,
 // personaHidden...] sequence is sliced for the current page, and a group
 // heading renders whenever the page's slice reaches that group's first row.
 
@@ -91,14 +90,10 @@ export function shellShape(state) {
 /**
  * The shell also embeds the Ranked/Not-ranked tabs (with their counts), so
  * a rebuild is needed once `state.leaderboard` first arrives even though
- * `shellShape`'s own return value did not change. Kept as a SEPARATE
- * function (rather than folded into `shellShape`'s return string, which a
- * prior version of this file did) specifically so every `shellShape(state)
- * === "..."` equality check in this module and in app.js keeps working —
- * that prior version silently broke exactly those checks (a real,
- * lead-reported defect: clicking the Not-ranked tab threw
- * "Cannot read properties of null (reading 'gated')" and never rendered,
- * because `renderShell`'s `shape === "empty"` checks stopped matching
+ * `shellShape`'s own return value did not change. This stays a SEPARATE
+ * function rather than being folded into `shellShape`'s return string, so
+ * every `shellShape(state) === "..."` equality check in this module and in
+ * app.js keeps matching the bare shape (`"empty"`, not
  * `"empty-counted"`).
  */
 export function rebuildKey(state) {
@@ -140,7 +135,7 @@ export function patchNotRankedBody(root, state) {
   if (!container) return;
   const flat = flattenGroups(state.notRanked);
   const html = renderPageRows(flat, state.notRankedPage, state.notRankedPageSize);
-  // W-3 (round-2 review, ruled non-blocking): this is a whole-body innerHTML
+  // This is a whole-body innerHTML
   // replacement, not the keyed patchRows() diff the leaderboard table uses.
   // Safe today because no interaction here holds DOM focus on a row while a
   // page rebuild can land under it (the client only ever paginates a

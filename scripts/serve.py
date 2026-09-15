@@ -9,25 +9,20 @@ that passed ``scripts/verify.py`` — and serves the v2 API + v2 front end
 section 10's strangler migration). No seeding happens here: an empty DB
 serves an empty (but honest) dashboard.
 
-The served-DB guard (``03`` section 5, F1) now lives in
-:mod:`cvi.serve.guard` (W4-4 REWORK, Blocker B-4 / Warning W-5) — this
-module re-exports its v1 names (``count_repos``, ``matching_snapshot_id``,
-``refusal_reasons``, ``open_or_exit``) so every existing caller of
-``scripts.serve.<name>`` keeps resolving the identical function, with the
-identical behaviour, from its new home. See that module's own docstring
-for the two-guard design (v1 fixture-clock + content-hash; v2 tamper +
-fixture-clock-on-a-migrated-table).
+The served-DB guard (``03`` section 5, F1) lives in
+:mod:`cvi.serve.guard` — this module re-exports its v1 names
+(``count_repos``, ``matching_snapshot_id``, ``refusal_reasons``,
+``open_or_exit``) so every caller of ``scripts.serve.<name>`` resolves the
+identical function, with the identical behaviour. See that module's own
+docstring for the two-guard design (v1 fixture-clock + content-hash; v2
+tamper + fixture-clock-on-a-migrated-table).
 
-Blocker B-1 (W4-4 REWORK): ``main()`` used to call the v1 guard
-unconditionally, so a v2-only database (no ``OperationalStore``-shaped
-``repositories`` columns) crashed with an uncaught
-``sqlite3.OperationalError`` before ``uvicorn`` ever started. It now calls
-:func:`cvi.serve.guard.run_guard` — the SAME function :func:`cvi.serve.
-app.create_app` calls — which raises ``SystemExit`` on a genuine refusal
-(v1- or v2-shaped) and otherwise returns the v1 store to report on, or
-``None`` when the database has no v1 shape at all (a normal, non-error
-state: nothing to report, no ``/legacy`` to mount, the v2 API still
-starts and serves whatever v2 data the database has, even if that is
+``main()`` calls :func:`cvi.serve.guard.run_guard` — the SAME function
+:func:`cvi.serve.app.create_app` calls — which raises ``SystemExit`` on a
+genuine refusal (v1- or v2-shaped) and otherwise returns the v1 store to
+report on, or ``None`` when the database has no v1 shape at all (a normal,
+non-error state: nothing to report, no ``/legacy`` to mount, the v2 API
+still starts and serves whatever v2 data the database has, even if that is
 none yet).
 
 Run:
@@ -69,20 +64,18 @@ __all__ = [
 
 _REPO_ROOT: Path = Path(__file__).resolve().parent.parent
 _WEB_DIR: Path = _REPO_ROOT / "web"
-#: `06` sections 6/6.1: the v2 front end (packet W4-5); does not exist in
-#: every worktree yet (it lands with W4-5a) -- `cvi.serve.app.create_app`
-#: mounts it with ``check_dir=False`` so a not-yet-landed directory never
-#: crashes app construction, only requests for a page it cannot find.
+#: `06` sections 6/6.1: the v2 front end. `cvi.serve.app.create_app` mounts
+#: it with ``check_dir=False`` so a missing directory never crashes app
+#: construction, only requests for a page it cannot find.
 _WEB_V2_DIR: Path = _REPO_ROOT / "web" / "v2"
 _DEFAULT_DB: str = str(_REPO_ROOT / "data" / "cvi.db")
 
 
 def create_serve_app(store: OperationalStore) -> FastAPI:
     """CVI **v1** API over ``store`` + the offline v1 web UI mounted at
-    ``/``. Kept for ``tests/test_serve.py``'s existing coverage of the v1
-    guard/mounting behaviour; :func:`main` no longer calls this (it now
-    serves the v2 app, packet W4-4) — a v1-only smoke path some tests
-    still exercise directly.
+    ``/``. This is the v1-only smoke path ``tests/test_serve.py`` exercises
+    directly for guard/mounting coverage; :func:`main` serves the v2 app
+    instead.
 
     API routes are registered first (inside :func:`cvi.api.create_app`), so
     they win over the static mount, mirroring ``scripts.demo_app``.
@@ -115,7 +108,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             "(gather -> derive -> verify -> promote)."
         )
 
-    # Blocker B-1: run_guard() runs the v2 guard (always) and the v1 guard
+    # run_guard() runs the v2 guard (always) and the v1 guard
     # (only if the database has a v1 shape at all) in one call, raising
     # SystemExit on a genuine refusal from either. `store` is `None` for a
     # v2-only database -- a normal state, not an error: no v1 banner to
@@ -131,8 +124,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     # create_app_v2 re-runs the exact same guard on `args.db` itself
     # (`cvi.serve.app`'s own call to `cvi.serve.guard.run_guard`) before it
     # ever touches the v2 store connection or mounts anything --
-    # belt-and-suspenders, not a behaviour change: a database refused here
-    # never reaches this line at all.
+    # belt-and-suspenders: a database refused here never reaches this line
+    # at all.
     app = create_app_v2(args.db, web_dir=_WEB_V2_DIR)
     print(f"CVI serve: {v1_banner}")
     print(f"CVI serve: http://127.0.0.1:{args.port}/ (API under /v1/cvi, legacy under /legacy)")

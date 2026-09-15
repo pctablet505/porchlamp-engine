@@ -3,8 +3,7 @@
 // run is reproducible; every row validates against the same shape as
 // `cvi/serve/contract.py`'s LeaderboardRow (checked by
 // tests/test_ui_fixtures.py, which loads this file's Node-runnable
-// twin logic only when Node is present — see the handoff for the
-// no-Node fallback used on this box).
+// twin logic only when Node is present).
 //
 // Not wired into any production code path: only app.js's `#perf=<n>`
 // dev entry point calls this, to drive a real-browser windowing

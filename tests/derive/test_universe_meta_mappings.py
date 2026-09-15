@@ -1,4 +1,4 @@
-"""W1-10 acceptance tests: ``cvi.derive.bundle``'s universe-entry
+"""Tests for ``cvi.derive.bundle``'s universe-entry
 star-velocity pass-through (``UNIVERSE_META_MAPPINGS`` /
 ``resolve_universe_meta_facts``), and the full chain into
 ``cvi.verify.detectors``'s ``star_burst`` detector through the real
@@ -174,9 +174,8 @@ def _record() -> ScoreRecord:
 
 
 def _detector_inputs_from(document: dict, raw_root=None) -> DetectorInputs:
-    """The wiring a future caller (W4-4) does: resolve the pass-through and
-    thread its Measured/Unmeasured flag into DetectorInputs -- exactly the
-    field name detect_star_burst reads."""
+    """Resolve the pass-through and thread its Measured/Unmeasured flag into
+    DetectorInputs -- exactly the field name detect_star_burst reads."""
     resolved = resolve_universe_meta_facts(document, raw_root=raw_root)
     flag_value = resolved["star_velocity_flag"]
     penalty_applied = bool(flag_value.value) if isinstance(flag_value, Measured) else None

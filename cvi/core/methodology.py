@@ -1,11 +1,11 @@
-"""CVI v2 published methodology document (packet W5-1a, `06` section 3 F).
+"""CVI v2 published methodology document (`06` section 3 F).
 
 :func:`methodology_document` builds the JSON-serialisable document the
-Methodology screen (`06` section 3 F), the API (``GET /v1/cvi/methodology``,
-W4-4) and ``scripts/render_methodology.py`` all render from -- "rendered
+Methodology screen (`06` section 3 F), the API (``GET /v1/cvi/methodology``)
+and ``scripts/render_methodology.py`` all render from -- "rendered
 from the frozen constants module so it cannot drift from the code" (06
 section 3 F, verbatim). Every field is read directly from
-:mod:`cvi.core.constants_v2` and the :mod:`cvi.core.params` registry at
+:mod:`cvi.core.constants` and the :mod:`cvi.core.params` registry at
 call time; nothing here is a hand-typed number, and nothing is cached at
 import time, so mutating a constant and calling this function again always
 reflects the mutation (``tests/core/test_methodology.py``'s
@@ -13,7 +13,7 @@ reflects the mutation (``tests/core/test_methodology.py``'s
 
 **Import boundary (`tests/core/test_import_graph.py`).** Every file
 directly under ``cvi/core/`` may import only ``cvi.core`` plus the standard
-library. Three facts the design brief for this packet asks the document to
+library. Three facts the design brief asks the document to
 carry live outside that boundary, so they are deliberately NOT part of
 :func:`methodology_document`:
 
@@ -24,7 +24,7 @@ carry live outside that boundary, so they are deliberately NOT part of
 * the three audit-only release bars (``MIN_COVERAGE``,
   ``TAU_RELEASE_THRESHOLD``, ``DEFAULT_PERTURBATION_PP``) live in
   :mod:`cvi.audit.anchors` / :mod:`cvi.audit.sensitivity` -- process
-  constants ruled out of ``constants_v2.constants_dict()`` on purpose
+  constants ruled out of ``constants.constants_dict()`` on purpose
   (`docs/v2/rfcs/README.md` "Process constants") and therefore just as far
   outside ``cvi.core`` as the detectors are;
 * the RFC changelog (``rfc_log``) needs a file read, which is I/O and does
@@ -32,18 +32,16 @@ carry live outside that boundary, so they are deliberately NOT part of
 
 :func:`cvi.audit.methodology_history.methodology_with_history` is the one
 caller allowed to cross that boundary: it merges this pure document with
-those three additions. ``cvi/serve/contract.py`` does not exist yet on
-``main`` (W4-5a's file) as of this packet, so :class:`MethodologyDocument`
-is defined here as a ``TypedDict`` rather than a pydantic model -- W4-4
-should replace this import with the pydantic one once that file lands
-(noted again in this packet's handoff).
+those three additions. :class:`MethodologyDocument` is defined here as
+a ``TypedDict`` to maintain strict separation without depending on pydantic
+in the core package.
 """
 
 from __future__ import annotations
 
 from typing import TypedDict
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core import gates as _gates
 from cvi.core.models import canonical_json, sha256_hex
 from cvi.core.params import PARAMS
@@ -184,7 +182,7 @@ class MethodologyDocument(TypedDict, total=False):
 #: Input ids measured over the shared 180-day PR window (``bundle.pr_window``,
 #: 02 section 3 D-IN-4). Not every parameter has its own frozen window
 #: constant (e.g. 3.2 elephant_factor's 365-day commit window is not a
-#: registered ``constants_v2`` name), so ``window_days`` is populated only
+#: registered ``constants`` name), so ``window_days`` is populated only
 #: for the parameters this shared constant genuinely measures -- never a
 #: fabricated number for the others (they report ``window_days: None``).
 _PR_WINDOW_PARAM_IDS: frozenset[str] = frozenset(
@@ -201,22 +199,22 @@ _PR_WINDOW_PARAM_IDS: frozenset[str] = frozenset(
 
 def _curve_description(input_id: str) -> str:
     """Human-readable curve formula for ``input_id``, built from named
-    ``constants_v2`` attributes read at call time -- never a hand-typed
+    ``constants`` attributes read at call time -- never a hand-typed
     number. Raises on an unregistered id (completeness guard mirroring
     ``cvi.core.params._registry_problems``): a new parameter added to
     ``PARAM_INPUT_IDS`` without an entry here fails loudly instead of
     silently omitting its curve."""
     if input_id == "ttfhr_hours":
-        knee = constants_v2.TTFHR_KNEE_HOURS
-        slope = constants_v2.TTFHR_SLOPE_PER_DOUBLING
+        knee = constants.TTFHR_KNEE_HOURS
+        slope = constants.TTFHR_SLOPE_PER_DOUBLING
         return (
             f"100 if the median hours to first substantive human response is "
             f"<= {knee:g}; else max(0, 100 - {slope:g} * log2(t / {knee:g}))"
         )
     if input_id in ("dr90_decision_rate", "mr_first_rate", "substantive_review_rate"):
-        return f"min(100, {constants_v2.RATE_SLOPE:g} * r)"
+        return f"min(100, {constants.RATE_SLOPE:g} * r)"
     if input_id == "gr14_ghost_rate":
-        return f"max(0, 100 - {constants_v2.GHOST_RATE_SLOPE:g} * g)"
+        return f"max(0, 100 - {constants.GHOST_RATE_SLOPE:g} * g)"
     if input_id == "ttm_p90_hours":
         return "100 - ECDF_mid(p90), mid-rank ECDF over the frozen ecosystem population (D-NORM-1)"
     if input_id in ("dependents_deduped", "downloads_monthly"):
@@ -226,7 +224,7 @@ def _curve_description(input_id: str) -> str:
     if input_id == "legal_ip":
         return "evidence-based regime lookup; see this parameter's value_domain.score_table"
     if input_id == "elephant_factor":
-        return f"min(100, {constants_v2.ELEPHANT_SLOPE:g} * EF)"
+        return f"min(100, {constants.ELEPHANT_SLOPE:g} * EF)"
     if input_id == "promotion_ladder":
         return "evidence-based rung lookup; see this parameter's value_domain.score_table"
     if input_id == "pipeline_defenses":
@@ -236,9 +234,9 @@ def _curve_description(input_id: str) -> str:
     if input_id == "ai_posture":
         return "persona-conditional posture lookup; see this parameter's value_domain.score_table"
     if input_id == "newcomer_issue_supply":
-        return f"min(100, {constants_v2.SUPPLY_SLOPE:g} * count)"
+        return f"min(100, {constants.SUPPLY_SLOPE:g} * count)"
     if input_id in ("newcomer_conversion", "rr90_return_rate"):
-        return f"min(100, {constants_v2.COHORT_RATE_SLOPE:g} * r)"
+        return f"min(100, {constants.COHORT_RATE_SLOPE:g} * r)"
     if input_id == "dx":
         return "identity, clamped to [0, 100] (0.5 CI runtime score + 0.5 setup-signal score)"
     raise ValueError(f"methodology.py: no curve description registered for input id {input_id!r}")
@@ -246,14 +244,14 @@ def _curve_description(input_id: str) -> str:
 
 def _enum_score_table(input_id: str) -> dict[str, object] | None:
     """The frozen enum -> score table for ``input_id``, read fresh from
-    ``constants_v2`` (never a hand-typed number). ``None`` for a non-enum
+    ``constants`` (never a hand-typed number). ``None`` for a non-enum
     parameter."""
     if input_id == "legal_ip":
-        return dict(constants_v2.LEGAL_IP_SCORES)
+        return dict(constants.LEGAL_IP_SCORES)
     if input_id == "promotion_ladder":
-        return dict(constants_v2.PROMOTION_LADDER_SCORES)
+        return dict(constants.PROMOTION_LADDER_SCORES)
     if input_id == "ai_posture":
-        return {persona: dict(scores) for persona, scores in constants_v2.AI_POSTURE_SCORES.items()}
+        return {persona: dict(scores) for persona, scores in constants.AI_POSTURE_SCORES.items()}
     return None
 
 
@@ -261,7 +259,8 @@ def _value_domain(defn: ParamDef) -> dict[str, object]:
     """The parameter's value domain/vocabulary, from ``ParamDef`` attributes
     (never a hand-typed number) plus the enum score table when applicable."""
     if defn.kind in (KIND_NUMERIC, KIND_ECDF):
-        assert defn.domain is not None  # cvi.core.params._registry_problems already enforces this
+        if defn.domain is None:
+            raise ValueError(f"defn.domain is unexpectedly None for {defn.kind}")
         return {
             "kind": defn.kind,
             "domain_min": defn.domain[0],
@@ -290,7 +289,7 @@ def _parameter_entry(input_id: str) -> ParameterEntry:
         "pillar": defn.pillar,
         "weight_within_pillar": defn.weight,
         "min_n": defn.min_n,
-        "window_days": constants_v2.PR_WINDOW_DAYS if input_id in _PR_WINDOW_PARAM_IDS else None,
+        "window_days": constants.PR_WINDOW_DAYS if input_id in _PR_WINDOW_PARAM_IDS else None,
         "curve": _curve_description(input_id),
         "value_domain": _value_domain(defn),
     }
@@ -301,7 +300,7 @@ def _parameter_entry(input_id: str) -> ParameterEntry:
         # D-MISS-5 consequence (02 section 5): the no-dependents-signal proxy's
         # own minimum, not modelled as ParamDef.proxy_min_n (that field is
         # 4.1 pipeline_defenses' -- a different proxy mechanism entirely).
-        proxy["proxy_min_signals"] = constants_v2.OPENSSF_PROXY_MIN_SIGNALS
+        proxy["proxy_min_signals"] = constants.OPENSSF_PROXY_MIN_SIGNALS
     if proxy:
         entry["proxy"] = proxy
     return entry
@@ -355,7 +354,7 @@ def _gate_entries() -> list[GateEntry]:
                 ">= 1 commit by a non-bot User on the default branch in the trailing window"
             ),
             "reasons": (_gates.REASON_STALE,),
-            "cutoffs": {"vitality_window_days": constants_v2.GATE4_VITALITY_WINDOW_DAYS},
+            "cutoffs": {"vitality_window_days": constants.GATE4_VITALITY_WINDOW_DAYS},
         },
         {
             "id": _gates.GATE_5,
@@ -369,10 +368,10 @@ def _gate_entries() -> list[GateEntry]:
             ),
             "reasons": (_gates.REASON_BLACK_HOLE,),
             "cutoffs": {
-                "min_n": constants_v2.GATE5_MIN_N,
-                "min_age_days": constants_v2.GATE5_MIN_AGE_DAYS,
-                "response_deadline_days": constants_v2.GATE5_RESPONSE_DEADLINE_DAYS,
-                "max_zero_response_share": constants_v2.GATE5_MAX_ZERO_RESPONSE_SHARE,
+                "min_n": constants.GATE5_MIN_N,
+                "min_age_days": constants.GATE5_MIN_AGE_DAYS,
+                "response_deadline_days": constants.GATE5_RESPONSE_DEADLINE_DAYS,
+                "max_zero_response_share": constants.GATE5_MAX_ZERO_RESPONSE_SHARE,
             },
         },
         {
@@ -384,7 +383,7 @@ def _gate_entries() -> list[GateEntry]:
                 "means unrated: no_external_workflow"
             ),
             "reasons": (_gates.REASON_NO_EXTERNAL_WORKFLOW,),
-            "cutoffs": {"decision_window_days": constants_v2.GATE6_DECISION_WINDOW_DAYS},
+            "cutoffs": {"decision_window_days": constants.GATE6_DECISION_WINDOW_DAYS},
         },
         {
             "id": "D-EVID-1",
@@ -392,7 +391,7 @@ def _gate_entries() -> list[GateEntry]:
             "criterion": "composite coverage must reach the rated minimum, else listed unranked",
             "reasons": (_gates.REASON_INSUFFICIENT_EVIDENCE,),
             "cutoffs": {
-                "min_composite_coverage": constants_v2.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE,
+                "min_composite_coverage": constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE,
             },
         },
     ]
@@ -403,9 +402,9 @@ def _gate_entries() -> list[GateEntry]:
 # --------------------------------------------------------------------------- #
 
 #: One-sentence semantics per D-MISS-1 reason, keyed by the reason string
-#: itself (the literal values ``constants_v2.UNMEASURED_REASONS`` carries).
+#: itself (the literal values ``constants.UNMEASURED_REASONS`` carries).
 #: Prose only -- no number lives in this table; the reasons and thresholds
-#: that ARE numbers are read from ``constants_v2`` in
+#: that ARE numbers are read from ``constants`` in
 #: :func:`_missingness_section` below.
 _MISSINGNESS_SEMANTICS: dict[str, str] = {
     "third_party_gap": (
@@ -437,20 +436,20 @@ _MISSINGNESS_SEMANTICS: dict[str, str] = {
 def _missingness_section() -> MissingnessSection:
     reasons: list[MissingnessReason] = [
         {"reason": reason, "semantics": _MISSINGNESS_SEMANTICS[reason]}
-        for reason in constants_v2.UNMEASURED_REASONS
+        for reason in constants.UNMEASURED_REASONS
     ]
     return {
         "reasons": reasons,
         "coverage_thresholds": {
-            "unrated_below": constants_v2.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE,
-            "ceiling_b_below": constants_v2.CEILING_A_MIN_COVERAGE,
-            "ceiling_a_below": constants_v2.NO_CEILING_MIN_COVERAGE,
+            "unrated_below": constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE,
+            "ceiling_b_below": constants.CEILING_A_MIN_COVERAGE,
+            "ceiling_a_below": constants.NO_CEILING_MIN_COVERAGE,
         },
         "not_applicable_rules": [
             {"parameter": parameter, "bundle_fact": fact, "value": value}
-            for parameter, fact, value in constants_v2.NOT_APPLICABLE_RULES
+            for parameter, fact, value in constants.NOT_APPLICABLE_RULES
         ],
-        "openssf_proxy_min_signals": constants_v2.OPENSSF_PROXY_MIN_SIGNALS,
+        "openssf_proxy_min_signals": constants.OPENSSF_PROXY_MIN_SIGNALS,
     }
 
 
@@ -460,7 +459,7 @@ def _missingness_section() -> MissingnessSection:
 
 
 def _tie_break_section() -> TieBreakSection:
-    decimals = constants_v2.COMPOSITE_DECIMALS
+    decimals = constants.COMPOSITE_DECIMALS
     levels: list[TieBreakLevel] = [
         {
             "field": "composite",
@@ -508,7 +507,7 @@ def _persona_gate_catalog() -> dict[str, PersonaGateEntry]:
                 "elephant factor below the minimum."
             ),
             "thresholds": {
-                "min_elephant_factor": constants_v2.SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR,
+                "min_elephant_factor": constants.SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR,
             },
         },
         "first_timer": {
@@ -521,9 +520,9 @@ def _persona_gate_catalog() -> dict[str, PersonaGateEntry]:
                 "gate (D-PERS-3)."
             ),
             "thresholds": {
-                "min_decided_prs": constants_v2.FIRST_TIMER_MIN_DECIDED_PRS,
-                "min_mr_first": constants_v2.FIRST_TIMER_MIN_MR_FIRST,
-                "min_newcomer_issues": constants_v2.FIRST_TIMER_MIN_NEWCOMER_ISSUES,
+                "min_decided_prs": constants.FIRST_TIMER_MIN_DECIDED_PRS,
+                "min_mr_first": constants.FIRST_TIMER_MIN_MR_FIRST,
+                "min_newcomer_issues": constants.FIRST_TIMER_MIN_NEWCOMER_ISSUES,
             },
         },
         "career_capital": {
@@ -533,17 +532,17 @@ def _persona_gate_catalog() -> dict[str, PersonaGateEntry]:
                 "pillar score and its coverage both reach their minimums."
             ),
             "thresholds": {
-                "min_criticality": constants_v2.CAREER_CAPITAL_MIN_CRITICALITY,
-                "min_coverage": constants_v2.CAREER_CAPITAL_MIN_COVERAGE,
+                "min_criticality": constants.CAREER_CAPITAL_MIN_CRITICALITY,
+                "min_coverage": constants.CAREER_CAPITAL_MIN_COVERAGE,
             },
         },
     }
 
 
 def _personas_section() -> PersonasSection:
-    presets = {preset: dict(weights) for preset, weights in constants_v2.PERSONA_PRESETS.items()}
+    presets = {preset: dict(weights) for preset, weights in constants.PERSONA_PRESETS.items()}
     catalog = _persona_gate_catalog()
-    gates = [catalog[name] for name in constants_v2.GATED_PERSONAS]
+    gates = [catalog[name] for name in constants.GATED_PERSONAS]
     return {"presets": presets, "gates": gates}
 
 
@@ -556,21 +555,21 @@ def methodology_document() -> MethodologyDocument:
     """The pure v2 methodology document (06 section 3 F): benchmark version,
     constants hash, schema version, pillars, parameters, gates,
     missingness, tie-break levels and personas -- built only from
-    ``cvi.core.constants_v2`` and the ``cvi.core.params`` registry, read
+    ``cvi.core.constants`` and the ``cvi.core.params`` registry, read
     fresh on every call. Does not include ``detectors``,
     ``not_hashed_process_constants`` or ``rfc_log`` (see the module
     docstring's import-boundary note); use
     :func:`cvi.audit.methodology_history.methodology_with_history` for the
     extended document that adds those three."""
     return {
-        "benchmark_version": constants_v2.BENCHMARK_VERSION,
-        "schema_version": constants_v2.SCHEMA_VERSION,
-        "constants_hash": constants_v2.CONSTANTS_HASH,
+        "benchmark_version": constants.BENCHMARK_VERSION,
+        "schema_version": constants.SCHEMA_VERSION,
+        "constants_hash": constants.CONSTANTS_HASH,
         "pillars": [
-            {"name": name, "weight": constants_v2.PILLAR_WEIGHTS[name]}
-            for name in constants_v2.PILLAR_NAMES
+            {"name": name, "weight": constants.PILLAR_WEIGHTS[name]}
+            for name in constants.PILLAR_NAMES
         ],
-        "parameters": [_parameter_entry(input_id) for input_id in constants_v2.PARAM_INPUT_IDS],
+        "parameters": [_parameter_entry(input_id) for input_id in constants.PARAM_INPUT_IDS],
         "gates": _gate_entries(),
         "missingness": _missingness_section(),
         "tie_break_levels": _tie_break_section(),

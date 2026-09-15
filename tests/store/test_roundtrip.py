@@ -1,17 +1,8 @@
-"""W4-2 acceptance: the round-trip oracle (packet deliverable 5).
+"""Round-trip verification for the store.
 
 Three ``ScoreRecord``s built by hand -- rated, gated, unrated -- written and
 read back; every field (including JSON columns and the ``params`` rows) is
 asserted equal to the value it was built with, not merely "present".
-
-REWORK round 1 (F-011/F-012): rebuilt onto ``repo: RepoIdentity`` and real
-``PersonaComposite`` values. ``stars_audited``/``forks``/``last_human_commit_at``
-assertions are REMOVED (subtractive, named here): the lead ruling dropped
-``TieBreakInput`` from ``RepoWrite``, and nothing else on
-``FeatureBundle``/``GateEvidence`` carries those three facts today (see
-``cvi/store/writer.py``'s module docstring) -- asserting a value nothing
-can produce would be asserting a guess, not a fact. ``ttfhr_p75`` IS still
-asserted: it is genuinely computed from ``bundle.pr_window`` now.
 """
 from __future__ import annotations
 
@@ -34,7 +25,7 @@ from .helpers import (
 
 
 def _fresh_db(path: Path) -> sqlite3.Connection:
-    conn = schema.connect(path)  # G-004: PRAGMA foreign_keys=ON
+    conn = schema.connect(path)  # PRAGMA foreign_keys=ON
     apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
     write_snapshot(
         conn, id="snap-1", as_of="2026-09-13", benchmark_version="2.0.0-dev",

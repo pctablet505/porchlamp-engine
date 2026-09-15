@@ -7,41 +7,38 @@ measured share of the pillar's within-pillar weight. ``composite_coverage``
 and ``coverage_status`` are D-MISS-3: the composite coverage ``C`` and the
 rated/ceiling outcome it drives (unrated below 0.60, delegated to
 :func:`cvi.core.gates.evidence_sufficiency` -- D-EVID-1's threshold has one
-definition, in that module, R-2). ``composite_score`` is D-AGG-2: the
+definition, in that module). ``composite_score`` is D-AGG-2: the
 balanced composite, renormalised over measured pillars, rounded once at the
 end (04 section 8). ``tier_from_score`` and ``apply_ceiling`` are D-MAT-2:
 absolute cutoffs capped by the coverage ceiling.
 
 ``composite_score_raw``/``composite_coverage`` take an optional ``weights``
-keyword (default the frozen balanced weights, ``constants_v2.PILLAR_WEIGHTS``),
-validated by :func:`validate_pillar_weights`; this generalisation (packet
-W2-11, lead-log ruling R-3) is what lets ``cvi.core.persona.persona_composite``
-and ``cvi.audit.sensitivity`` call these two functions directly with a
-persona/perturbed weight vector instead of each keeping its own copy of the
-same reduction.
+keyword (default the frozen balanced weights, ``constants.PILLAR_WEIGHTS``),
+validated by :func:`validate_pillar_weights`; that generalisation is what
+lets ``cvi.core.persona.persona_composite`` and ``cvi.audit.sensitivity``
+call these two functions directly with a persona/perturbed weight vector
+instead of each keeping its own copy of the same reduction.
 
 The 0.80/0.95 ceiling bands, the 90/80/70/55/40 tier cutoffs and their
-ordering were relocated to ``cvi.core.constants_v2`` by packet W2-8 (round 1
-for the ceiling bands, round 2 for :data:`TIER_CUTOFFS`/:data:`TIER_ORDER`
-per the round-1 review's Blocker 1); re-bound here under the original names.
-``TIER_FLOOR`` stays defined in this module: it is a bare label with no
-accompanying threshold (the round-1 review's own census: "correctly
-excluded"), unlike ``TIER_CUTOFFS``'s (cutoff, label) pairs.
+ordering live in ``cvi.core.constants`` and are re-bound here under their
+original names. ``TIER_FLOOR`` is defined in this module: it is a bare
+label with no accompanying threshold, unlike ``TIER_CUTOFFS``'s
+(cutoff, label) pairs.
 """
 from __future__ import annotations
 
 from typing import Mapping
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.gates import evidence_sufficiency
 from cvi.core.models import ParamScore, PillarScore
 from cvi.core.params import PARAMS
 
 #: D-MISS-3 ceiling bands, above the D-EVID-1 rated threshold (0.60, owned by
-#: cvi.core.gates.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE). Relocated to
-#: ``constants_v2`` by packet W2-8 (R-2).
-CEILING_A_MIN_COVERAGE: float = constants_v2.CEILING_A_MIN_COVERAGE
-NO_CEILING_MIN_COVERAGE: float = constants_v2.NO_CEILING_MIN_COVERAGE
+#: cvi.core.gates.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE), re-bound from
+#: ``cvi.core.constants``.
+CEILING_A_MIN_COVERAGE: float = constants.CEILING_A_MIN_COVERAGE
+NO_CEILING_MIN_COVERAGE: float = constants.NO_CEILING_MIN_COVERAGE
 
 #: D-MISS-3 ceiling labels (bare letters: the design text writes "ceiling B" /
 #: "ceiling A", never "Tier B"). ``None`` means no cap (coverage >= 0.95).
@@ -51,19 +48,17 @@ CEILING_A: str = "A"
 #: D-MAT-2 tier cutoffs (kept, O-5), worst to best; below the last cutoff is
 #: ``TIER_FLOOR``. A score exactly at a cutoff belongs to the higher tier
 #: (``>=``), matching the v1 convention these cutoffs are kept from.
-#: Relocated to ``constants_v2`` by packet W2-8 round 2 (R-2); re-bound here
-#: under the original name.
-TIER_CUTOFFS: tuple[tuple[float, str], ...] = constants_v2.TIER_CUTOFFS
+#: Re-bound from ``cvi.core.constants`` under the original name.
+TIER_CUTOFFS: tuple[tuple[float, str], ...] = constants.TIER_CUTOFFS
 TIER_FLOOR: str = "D"
 
 #: Every tier and ceiling label, worst to best, for ``apply_ceiling``'s
-#: ``min(tier_by_score, ceiling)`` (D-MAT-2). Relocated to ``constants_v2``
-#: by packet W2-8 round 2 (R-2).
-TIER_ORDER: tuple[str, ...] = constants_v2.TIER_ORDER
+#: ``min(tier_by_score, ceiling)`` (D-MAT-2).
+TIER_ORDER: tuple[str, ...] = constants.TIER_ORDER
 
 
 def _pillar_problems(params: Mapping[str, ParamScore]) -> list[str]:
-    expected = set(constants_v2.PARAM_INPUT_IDS)
+    expected = set(constants.PARAM_INPUT_IDS)
     missing = sorted(expected - set(params))
     extra = sorted(set(params) - expected)
     problems = [f"missing input id {key!r}" for key in missing]
@@ -83,7 +78,7 @@ def aggregate_pillars(params: Mapping[str, ParamScore]) -> dict[str, PillarScore
     """D-MISS-2/D-MISS-5: renormalised pillar score and pillar coverage.
 
     ``params`` must carry exactly the 18 frozen input ids
-    (``constants_v2.PARAM_INPUT_IDS``), each already a stage-2
+    (``constants.PARAM_INPUT_IDS``), each already a stage-2
     :class:`~cvi.core.models.ParamScore` (curve applied, ``measured`` set by
     the min-n rule). For each pillar: ``Unmeasured(not_applicable)``
     parameters (D-MISS-5) are excluded from BOTH sides of the coverage ratio
@@ -100,13 +95,13 @@ def aggregate_pillars(params: Mapping[str, ParamScore]) -> dict[str, PillarScore
     if problems:
         raise ValueError("; ".join(problems))
 
-    by_pillar: dict[str, list[tuple[float, ParamScore]]] = {pillar: [] for pillar in constants_v2.PILLAR_NAMES}
+    by_pillar: dict[str, list[tuple[float, ParamScore]]] = {pillar: [] for pillar in constants.PILLAR_NAMES}
     for input_id, param_score in params.items():
         defn = PARAMS[input_id]
         by_pillar[defn.pillar].append((defn.weight, param_score))
 
     result: dict[str, PillarScore] = {}
-    for pillar in constants_v2.PILLAR_NAMES:
+    for pillar in constants.PILLAR_NAMES:
         entries = by_pillar[pillar]
         applicable_entries = [(weight, score) for weight, score in entries if not _is_not_applicable(score)]
         total_weight = sum(weight for weight, _ in applicable_entries)
@@ -123,53 +118,49 @@ def aggregate_pillars(params: Mapping[str, ParamScore]) -> dict[str, PillarScore
 
 def validate_pillar_weights(weights: Mapping[str, float]) -> None:
     """Raise ``ValueError`` unless ``weights`` covers exactly the 5 frozen
-    pillar names (``constants_v2.PILLAR_NAMES``), every weight is
+    pillar names (``constants.PILLAR_NAMES``), every weight is
     non-negative, and they sum to 1.0 within
-    :data:`cvi.core.constants_v2.WEIGHT_SUM_TOLERANCE`.
+    :data:`cvi.core.constants.WEIGHT_SUM_TOLERANCE`.
 
     D-AGG-1's weight-vector contract, generalised beyond the balanced
     preset so :func:`composite_score_raw`/:func:`composite_coverage` can
-    validate an arbitrary (e.g. persona, or a caller-supplied W4-3
-    reprojection) weight vector. Moved here from ``cvi.core.persona``'s
-    private ``_validate_preset`` (packet W2-11, R-3): one definition,
-    reused by that module to validate each persona preset too, rather
-    than two copies of the same check drifting apart.
+    validate an arbitrary (e.g. persona, or a caller-supplied
+    reprojection) weight vector. ``cvi.core.persona`` validates each
+    persona preset through this one definition too.
 
-    Non-negativity (W4-3 review Blocker B-1, added after the frozen
-    presets and the sum check both already existed): a vector with a
-    negative weight can still sum to exactly 1.0 (a positive weight on
-    one pillar offsetting a negative one elsewhere), which is not a
-    weighted AVERAGE any more -- D-AGG-1/D-AGG-2 describe pillars being
-    combined, never one pillar's score being subtracted from another's.
-    Left unchecked, ``cvi.store.queries.reproject`` (the one caller that
-    accepts an arbitrary, non-preset vector -- U-11) could return a
-    composite outside ``[0, 100]`` and a tier the cutoffs never intended
-    (reproduced by the review: ``{responsiveness: -0.5, criticality: 1.5,
-    rest: 0.0}`` summed to 1.0 and returned ``cvi=147.5, tier='S+'`` on a
-    real stored row)."""
-    missing = sorted(set(constants_v2.PILLAR_NAMES) - set(weights))
-    extra = sorted(set(weights) - set(constants_v2.PILLAR_NAMES))
+    Non-negativity: a vector with a negative weight can still sum to
+    exactly 1.0 (a positive weight on one pillar offsetting a negative one
+    elsewhere), which is not a weighted AVERAGE any more -- D-AGG-1/D-AGG-2
+    describe pillars being combined, never one pillar's score being
+    subtracted from another's. Left unchecked,
+    ``cvi.store.queries.reproject`` (the one caller that accepts an
+    arbitrary, non-preset vector -- U-11) could return a composite outside
+    ``[0, 100]`` and a tier the cutoffs never intended: e.g.
+    ``{responsiveness: -0.5, criticality: 1.5, rest: 0.0}`` sums to 1.0 and
+    yields ``cvi=147.5, tier='S+'``."""
+    missing = sorted(set(constants.PILLAR_NAMES) - set(weights))
+    extra = sorted(set(weights) - set(constants.PILLAR_NAMES))
     if missing or extra:
         raise ValueError(
-            f"pillar weights must cover exactly {constants_v2.PILLAR_NAMES}; missing={missing}, extra={extra}"
+            f"pillar weights must cover exactly {constants.PILLAR_NAMES}; missing={missing}, extra={extra}"
         )
     negative = sorted(pillar for pillar, weight in weights.items() if weight < 0.0)
     if negative:
         raise ValueError(f"pillar weights must be non-negative; negative weight(s) for {negative}: {[weights[p] for p in negative]!r}")
     total = sum(weights.values())
-    if abs(total - 1.0) > constants_v2.WEIGHT_SUM_TOLERANCE:
+    if abs(total - 1.0) > constants.WEIGHT_SUM_TOLERANCE:
         raise ValueError(
-            f"pillar weights must sum to 1.0 within {constants_v2.WEIGHT_SUM_TOLERANCE}; got {total!r}"
+            f"pillar weights must sum to 1.0 within {constants.WEIGHT_SUM_TOLERANCE}; got {total!r}"
         )
 
 
 def composite_coverage(
-    pillars: Mapping[str, PillarScore], *, weights: Mapping[str, float] = constants_v2.PILLAR_WEIGHTS
+    pillars: Mapping[str, PillarScore], *, weights: Mapping[str, float] = constants.PILLAR_WEIGHTS
 ) -> float:
     """D-MISS-3/D-MISS-5: composite coverage ``C = Sum_p(W_p * c_p) /
     Sum_p(W_p)`` over APPLICABLE pillars, under ``weights`` (D-AGG-1;
     defaults to the frozen balanced weights). ``pillars`` must carry all
-    five frozen pillar names (``constants_v2.PILLAR_NAMES``); ``weights``
+    five frozen pillar names (``constants.PILLAR_NAMES``); ``weights``
     must too, and must sum to 1.0 within tolerance
     (:func:`validate_pillar_weights`, raised from here).
 
@@ -177,18 +168,16 @@ def composite_coverage(
     (``PillarScore.applicable is False``, set by :func:`aggregate_pillars`)
     is itself not applicable and leaves this sum's denominator entirely,
     the same renormalisation D-MISS-2 applies to a measured/unmeasured
-    split -- so a repo with every other pillar fully measured now reaches
+    split -- so a repo with every other pillar fully measured reaches
     ``C = 1.00`` instead of being capped below the ceiling for a fact about
-    the world (02 section 5). With every pillar applicable (the pre-W2-13
-    case, and every other Unmeasured reason today), the denominator is 1.0
-    and this is exactly the old ``Sum_p(W_p * c_p)`` -- unchanged.
+    the world (02 section 5). When every pillar is applicable the
+    denominator is 1.0 and this reduces to ``Sum_p(W_p * c_p)``.
 
     ``weights`` generalises this beyond the balanced composite so a persona
     projection (``cvi.core.persona.persona_composite``) can call it with a
-    preset vector instead of reimplementing the same reduction (packet
-    W2-11, R-3)."""
+    preset vector instead of reimplementing the same reduction."""
     validate_pillar_weights(weights)
-    applicable = [pillar for pillar in constants_v2.PILLAR_NAMES if pillars[pillar].applicable]
+    applicable = [pillar for pillar in constants.PILLAR_NAMES if pillars[pillar].applicable]
     denominator = sum(weights[pillar] for pillar in applicable)
     if denominator <= 0.0:
         return 0.0
@@ -196,7 +185,7 @@ def composite_coverage(
 
 
 def composite_score_raw(
-    pillars: Mapping[str, PillarScore], *, weights: Mapping[str, float] = constants_v2.PILLAR_WEIGHTS
+    pillars: Mapping[str, PillarScore], *, weights: Mapping[str, float] = constants.PILLAR_WEIGHTS
 ) -> float | None:
     """D-AGG-2 composite before the single final rounding.
 
@@ -208,12 +197,11 @@ def composite_score_raw(
     (:func:`validate_pillar_weights`, raised from here); generalised beyond
     the balanced composite so a persona projection
     (``cvi.core.persona.persona_composite``) can call it with a preset
-    vector instead of reimplementing the same reduction (packet W2-11,
-    R-3)."""
+    vector instead of reimplementing the same reduction."""
     validate_pillar_weights(weights)
     measured = [
         (weights[pillar], pillars[pillar].score)
-        for pillar in constants_v2.PILLAR_NAMES
+        for pillar in constants.PILLAR_NAMES
         if pillars[pillar].score is not None
     ]
     total_weight = sum(weight for weight, _ in measured)
@@ -235,7 +223,7 @@ def coverage_status(coverage: float) -> tuple[bool, str | None]:
 
     The rated/unrated boundary is delegated to
     :func:`cvi.core.gates.evidence_sufficiency` (single definition of the
-    0.60 threshold, R-2), never recomputed here. ``ceiling`` is ``None``
+    0.60 threshold), never recomputed here. ``ceiling`` is ``None``
     when unrated (no tier is assigned at all -- the caller must not consult
     it) or when ``C >= 0.95`` (no cap); otherwise ``"B"`` for
     ``0.60 <= C < 0.80`` or ``"A"`` for ``0.80 <= C < 0.95``."""

@@ -1,12 +1,11 @@
 """Composition point wiring :func:`cvi.verify.detectors.run_detectors` into
-:func:`cvi.core.pipeline.score_snapshot` (packet W3-2f).
+:func:`cvi.core.pipeline.score_snapshot`.
 
 ``cvi/core/*.py`` may only import ``cvi.core`` plus the standard library
 (``tests/core/test_import_graph.py::test_core_imports_nothing_outside_core_and_stdlib``
-and ``test_importing_core_loads_no_other_cvi_package`` both enforce this,
-checked directly against this base commit before writing this module -- the
-lead's preferred "plain import" option named in the packet dispatch is not
-available). ``cvi.core.pipeline.score_snapshot`` therefore accepts an
+and ``test_importing_core_loads_no_other_cvi_package`` both enforce this),
+so a plain import of :mod:`cvi.verify.detectors` from ``cvi.core`` is not
+available. ``cvi.core.pipeline.score_snapshot`` therefore accepts an
 optional ``detectors: DetectorsCallable`` composition seam instead of
 importing :mod:`cvi.verify.detectors` itself; this module -- outside
 ``cvi/core``, free to import both ``cvi.core`` and ``cvi.verify`` -- is the
@@ -32,19 +31,18 @@ Two things :func:`cvi.verify.detectors.run_detectors` needs that a bare
   ignores ``previous`` entirely).
 
 Two of :class:`~cvi.verify.detectors.DetectorInputs`' seven fields have no
-landed collector yet (``newcomer_accounts``, ``star_lockstep_penalty_applied``
--- see that module's own module docstring, "Named inputs this packet cannot
-source yet") and a third (``source_drift_held``) is the W3-3 live-sample
-canary's own per-run output, not a bundle field. ``top_email_domain_share``
-(W1-5f) is sourced from ``bundle`` via
+collector (``newcomer_accounts``, ``star_lockstep_penalty_applied`` -- see
+that module's own module docstring) and a third (``source_drift_held``) is
+the live-sample canary's own per-run output, not a bundle field.
+``top_email_domain_share`` is sourced from ``bundle`` via
 :func:`cvi.derive.bundle.top_email_domain_share`, the bundle-instance
 sidecar fact ``cvi.derive.bundle._load_v1`` sets (neither
 ``FeatureBundle.inputs`` nor any other declared field carries it -- it is
 not one of the 18 scored parameters). :func:`detector_inputs_from_bundle`
-leaves the three fields with no landed source at their ``DetectorInputs``
+leaves the three fields with no bundle source at their ``DetectorInputs``
 default (``None``/``()``\\ ) -- "not collected for this repo", the same
-unmeasured-never-fires rule :mod:`cvi.verify.detectors` already documents
-for every other field, rather than inventing a value this packet has no
+unmeasured-never-fires rule :mod:`cvi.verify.detectors` documents
+for every other field, rather than inventing a value there is no
 evidence for.
 """
 from __future__ import annotations
@@ -54,10 +52,15 @@ from typing import Mapping, Sequence
 from cvi.core.models import FeatureBundle, Measured, ScoreRecord
 from cvi.core.pipeline import DetectorsCallable, RepoKey, ScoredSnapshot, repo_key
 from cvi.derive.bundle import TopEmailDomainShareMeasured, top_email_domain_share as bundle_top_email_domain_share
-from cvi.verify.detectors import DetectorInputs, closed_unread_share_from_pr_window, run_detectors
+from cvi.verify.detectors import (
+    DetectorInputs,
+    closed_unread_share_from_pr_window,
+    newcomer_accounts_from_cohorts,
+    run_detectors,
+)
 
 #: ``bundle.inputs`` keys this adapter reads a raw ``Measured`` value from
-#: (``cvi.core.constants_v2.PARAM_INPUT_IDS`` names both; restated here only
+#: (``cvi.core.constants.PARAM_INPUT_IDS`` names both; restated here only
 #: because importing the whole 18-entry tuple to pick out two would be less
 #: clear at the call site -- the same convention
 #: ``cvi.verify.detectors``'s own ``INPUT_*`` constants already use).
@@ -78,7 +81,7 @@ def _measured_bundle_value(bundle: FeatureBundle, input_id: str) -> float | None
 
 
 def _top_email_domain_share(bundle: FeatureBundle) -> float | None:
-    """W1-5f: ``top_email_domain_share``'s raw share, or ``None`` when the
+    """``top_email_domain_share``'s raw share, or ``None`` when the
     bundle-level fact is ``Unmeasured`` (missing/failed commits envelope,
     or an insufficient non-bot commit sample -- both collapse to "no
     evidence", the same unmeasured-never-fires rule every other
@@ -92,15 +95,17 @@ def detector_inputs_from_bundle(bundle: FeatureBundle) -> DetectorInputs:
     ``FeatureBundle`` can source today (module docstring): raw
     ``elephant_factor`` and ``newcomer_issue_supply`` values when measured,
     the closed-unread share/n computed from ``bundle.pr_window``, and
-    (W1-5f) ``top_email_domain_share`` from the bundle's own sidecar fact
+    ``top_email_domain_share`` from the bundle's own sidecar fact
     -- every other field stays at its documented "not collected" default."""
     share, n = closed_unread_share_from_pr_window(bundle.pr_window)
+    newcomer_accounts = newcomer_accounts_from_cohorts(bundle.cohorts)
     return DetectorInputs(
         newcomer_issue_count=_measured_bundle_value(bundle, _NEWCOMER_ISSUE_SUPPLY_INPUT_ID),
         elephant_factor=_measured_bundle_value(bundle, _ELEPHANT_FACTOR_INPUT_ID),
         top_email_domain_share=_top_email_domain_share(bundle),
         closed_unread_share=share,
         closed_unread_n=n,
+        newcomer_accounts=newcomer_accounts,
     )
 
 

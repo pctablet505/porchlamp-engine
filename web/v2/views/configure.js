@@ -28,8 +28,7 @@ function escapeHtml(value) {
  * at 0 is allowed both as `newValue` and as a rescaled result.
  *
  * Property this function must hold for every input (exercised by
- * `web/v2/tests/unit.test.mjs`, hand-traced — Node is absent, see
- * .agents/W4-5b/handoff.md): `sum(normalizeWeights(...)) === 1` (within
+ * `web/v2/tests/unit.test.mjs`): `sum(normalizeWeights(...)) === 1` (within
  * float epsilon), every LOCKED pillar's value is byte-identical to the
  * input, and no returned value is negative.
  */
@@ -45,10 +44,7 @@ export function normalizeWeights(weights, locks, changedPillar, newValue) {
     // Every OTHER pillar is locked: the dragged one has no freedom at all
     // -- its value is fully determined by the four locked ones (whatever
     // remains of the sum-to-1 budget), never the user's raw drag value.
-    // Review B-1 (2026-09-13): this used to only correct on OVERFLOW
-    // (`fixedSum > 1`), so a value the user dragged DOWN (four locks
-    // summing to 0.85, dragged the fifth 0.15 -> 0.02) left the total at
-    // 0.87 instead of snapping back to the one value that keeps it at 1.
+    // This corrects a drag in EITHER direction, so the total is always 1.
     const lockedSum = fixedSum - next[changedPillar];
     next[changedPillar] = Math.max(0, 1 - lockedSum);
     return next;
@@ -139,14 +135,11 @@ function renderSlider(pillar, weights, locks) {
   const pillarLabel = escapeHtml(copy.PILLAR_NAMES[pillar]);
   return (
     `<div class="weight-slider-row">` +
-    // Lead-reported defect 2026-09-13 ("aria-label is null"): the
-    // `<label for>` association alone gave the input an accessible name
-    // in this box's own accessibility-tree inspection, but a screen
-    // reader / automated audit checking the `aria-label` ATTRIBUTE
-    // directly (not just the computed accessible name) found nothing —
-    // both a `<label for>` AND an explicit `aria-label` are set now, so
-    // either check finds the pillar name; `aria-valuetext` still carries
-    // the live percentage a screen reader announces on every value change.
+    // Both a `<label for>` AND an explicit `aria-label` carry the pillar
+    // name: the label association gives the input its computed accessible
+    // name, and the attribute satisfies audits that read `aria-label`
+    // directly. `aria-valuetext` carries the live percentage a screen
+    // reader announces on every value change.
     `<label class="weight-slider-label" for="weight-${pillar}" id="weight-${pillar}-label">${pillarLabel}</label>` +
     `<input type="range" id="weight-${pillar}" class="weight-slider" min="0" max="1" step="0.01" ` +
     `value="${weights[pillar]}" data-weight-slider="${pillar}" ${locks[pillar] ? "disabled" : ""} ` +
@@ -240,7 +233,7 @@ export function patchConfigureTable(main, doc, state) {
   // purely a client-side slice of an already-small in-memory array; a
   // full page (up to 1000 rows, the same ceiling the leaderboard allows)
   // patches through `patchRows` in one pass without a separate windowing
-  // layer — documented simplification, `.agents/W4-5b/handoff.md`.
+  // layer.
   const tbody = main.querySelector("[data-configure-tbody]");
   if (tbody) {
     const previousRowByKey = new Map();

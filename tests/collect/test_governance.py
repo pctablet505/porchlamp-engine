@@ -1,9 +1,9 @@
-"""Tests for W1-6: governance evidence (legal IP, promotion ladder, AI posture).
+"""Tests for governance evidence (legal IP, promotion ladder, AI posture).
 
 Subject: ``cvi.collect.governance`` — the governance envelope collector
 (check-run names / status contexts on the 20 most recent merged PRs and the
 GOVERNANCE/MAINTAINERS/CONTRIBUTING/SECURITY + AI-policy file bodies), the
-``02`` §4 3.1/3.3/4.2 classifiers, the W1-6 ownership extension of
+classifiers, the ownership extension of
 ``cvi.collect.commits`` (a per-commit ``signed_off`` boolean, no message
 text), and the append-only hooks at the end of ``scripts/gather.py`` (the
 ``governance`` status entry) and ``scripts/derive.py`` (the six ``legal_ip``
@@ -12,7 +12,7 @@ Recorded-response oracles at the REST transport boundary (no live calls)
 assert the exact classification value and evidence for every path, including
 the no-evidence ``NONE``/``AD_HOC``/``AD_HOC`` defaults. The Signed-off-by
 share is *not* fetched by this collector: it is computed from the
-already-collected ``commits_365d`` envelope (W1-5), so ``collect_governance``
+already-collected ``commits_365d`` envelope, so ``collect_governance``
 never fetches commits and never stores commit message text.
 """
 from __future__ import annotations
@@ -45,8 +45,8 @@ def _load_script(modname: str, fname: str) -> ModuleType:
     return module
 
 
-derive = _load_script("cvi_derive_w16", "derive.py")
-gather = _load_script("cvi_gather_w16", "gather.py")
+derive = _load_script("cvi_derive_governance", "derive.py")
+gather = _load_script("cvi_gather_governance", "gather.py")
 
 
 # --- recorded-response transport --------------------------------------------- #
@@ -118,7 +118,7 @@ def _gov_data(merged_prs, checks, check_names, files) -> dict:
 
 def _c365_row(login: str, email: str, signed_off: bool = False,
               typ: str = "User", date: str = "2026-09-01T00:00:00Z") -> dict:
-    """One ``commits_365d`` envelope row (W1-5 + the W1-6 ``signed_off`` field)."""
+    """One ``commits_365d`` envelope row."""
     return {"date": date, "author_email": email, "author_login": login,
             "author_type": typ, "signed_off": signed_off}
 
@@ -161,12 +161,9 @@ def test_collect_governance_envelope_evidence(tmp_path):
 
 
 def test_collect_governance_per_file_sha256_matches_independent_recomputation(tmp_path):
-    """W6: every one of the 12 GOVERNANCE_FILES + AI_POLICY_FILES entries
+    """Every one of the 12 GOVERNANCE_FILES + AI_POLICY_FILES entries
     carries a ``sha256`` computed over its own body bytes -- recomputed here
-    with a plain ``hashlib.sha256`` call (never importing
-    :func:`cvi.collect.envelope.sha256_hex`, so a bug shared by both sides
-    could not cancel out), independently of the collector. Kills mutant M8
-    (``sha256_hex(body)`` -> ``sha256_hex(fname)``)."""
+    with a plain ``hashlib.sha256`` call independently of the collector."""
     import hashlib
 
     all_files = gov.GOVERNANCE_FILES + gov.AI_POLICY_FILES
@@ -290,7 +287,7 @@ def test_collect_governance_transport_error_propagates(tmp_path):
     assert not (tmp_path / "raw" / "governance").exists(), "no envelope on failure"
 
 
-# --- 3.1 signoff_share oracles (W1-6 ownership extension of commits.py) ------- #
+# --- signoff_share oracles --------------------------------------------------- #
 
 def test_signoff_share_none_without_commits_365d_envelope():
     assert gov.signoff_share(None) is None
@@ -387,10 +384,9 @@ def test_legal_ip_none_without_any_evidence():
     assert ev["signoff"] is None
 
 
-# --- Blocker B1 round 2: a bare foundation-name substring is never a CLA --- #
+# --- A bare foundation-name substring is never a CLA ------------------------- #
 
-#: The six check names the round-1 matcher wrongly derived FOUNDATION_CLA
-#: from (O2 in the review): common CI/build/license-badge job names on an
+#: Common CI/build/license-badge job names on an
 #: Apache/Eclipse/CNCF/ASF-licensed repo, none of which is a CLA check.
 FOUNDATION_SUBSTRING_FALSE_POSITIVES: tuple[str, ...] = (
     "license/apache-2.0", "apache-rat", "asf-jenkins-build",
@@ -408,9 +404,7 @@ def test_legal_ip_foundation_substrings_alone_derive_none():
 
 @pytest.mark.parametrize("name", FOUNDATION_SUBSTRING_FALSE_POSITIVES)
 def test_legal_ip_foundation_substrings_never_shadow_a_real_dco_check(name):
-    """B1: each false-positive name alongside a real DCO check -- DCO must
-    win, not the bare foundation-name substring (round-1 defect: DCO 100 ->
-    FOUNDATION_CLA 75 on a mis-read build-job name)."""
+    """Each false-positive name alongside a real DCO check -- DCO must win."""
     value, ev = gov.classify_legal_ip([name, "DCO"], None)
     assert value == "DCO", f"{name!r} alongside DCO wrongly derived {value!r}"
     assert ev["rule"] == "dco_check"
@@ -418,7 +412,7 @@ def test_legal_ip_foundation_substrings_never_shadow_a_real_dco_check(name):
 
 def test_legal_ip_foundation_branded_cla_checks_still_derive_foundation_cla():
     """Over-correction guard: a genuine foundation-branded CLA check (not
-    just EasyCLA) must still classify FOUNDATION_CLA after the B1 tightening."""
+    just EasyCLA) must still classify FOUNDATION_CLA."""
     for name in ("ASF CLA", "apache-cla", "cncf-cla", "eclipse-cla/validation"):
         value, ev = gov.classify_legal_ip([name], None)
         assert value == "FOUNDATION_CLA", f"{name!r} derived {value!r}"
@@ -427,7 +421,7 @@ def test_legal_ip_foundation_branded_cla_checks_still_derive_foundation_cla():
 
 def test_legal_ip_generic_cla_bot_names_derive_corp_cla():
     """Positive control: a real (non-foundation) CLA check name still
-    classifies CORP_CLA after the B1 tightening."""
+    classifies CORP_CLA."""
     for name in ("EasyCLA", "cla-assistant"):
         value, _ = gov.classify_legal_ip([name], None)
         assert value in ("FOUNDATION_CLA", "CORP_CLA")
@@ -437,11 +431,11 @@ def test_legal_ip_generic_cla_bot_names_derive_corp_cla():
     assert value == "FOUNDATION_CLA" and ev["rule"] == "foundation_cla_check"
 
 
-# --- W1: SIGNOFF_THRESHOLD must actually be read ---------------------------- #
+# --- SIGNOFF_THRESHOLD must actually be read -------------------------------- #
 
 def test_legal_ip_signoff_threshold_is_read_from_the_constant(monkeypatch):
-    """The lead's named mutant ("drop the sign-off threshold to 0.0") must be
-    caught by a test that changes the *constant*, not the inline literal."""
+    """The sign-off threshold is caught by a test that changes the *constant*,
+    not the inline literal."""
     monkeypatch.setattr(gov, "SIGNOFF_THRESHOLD", 0.9)
     value, _ = gov.classify_legal_ip([], {"count": 81, "total": 100, "share": 0.81})
     assert value == "NONE"  # 0.81 no longer clears the raised 0.9 threshold
@@ -627,28 +621,16 @@ def test_ai_posture_ad_hoc_default():
     assert "ban" not in ev
 
 
-# --- Round 4 de-scope: PROSCRIBED detection re-planned as W1-6b ------------- #
+# --- PROSCRIBED detection de-scoped ------------------------------------------ #
 #
-# Three rounds of ban-detection schemes (six regexes -> a line-level
-# negation guard -> a 19-row sentence table) each fixed the previous
-# round's false positives while introducing new ones of the opposite
-# polarity. The round-3 review's own root-cause finding: co-occurrence of
-# an AI token and a negation/ban token in the same span cannot separate
-# "Do not submit AI-generated code" from "Do not worry if you used AI",
-# nor "AI is prohibited" from "undisclosed AI use is prohibited" -- both
-# need the ban's *object*, which no round ever bound. `classify_ai_posture`
-# no longer attempts ban detection at all (BAN_TABLE / PERMISSION_TABLE /
-# the sentence splitter / `_ban_match` are deleted, module docstring):
+# Ban detection across free-form prose introduces false positives because
+# co-occurrence of an AI token and a negation/ban token in the same span
+# cannot separate negative usage from permission or scope boundaries.
+# `classify_ai_posture` does not attempt ban detection:
 # REGULATED is AI_POLICY_FILES presence only; everything else is AD_HOC.
-# PROSCRIBED is never returned -- these tests assert that promise directly
-# against the round-3 review's own measured false-positive class.
+# PROSCRIBED is never returned.
 
-#: The nine ordinary CONTRIBUTING.md sentences the round-3 review measured
-#: (item 1, section 2.3): 7 of 9 mis-derived PROSCRIBED under the deleted
-#: table-driven scheme; the remaining two were already AD_HOC even then.
-#: All nine are AD_HOC now, uniformly -- CONTRIBUTING.md is not in
-#: AI_POLICY_FILES, and REGULATED no longer reads body content at all, so
-#: none of the nine can ever become REGULATED from this text.
+#: Ordinary CONTRIBUTING.md sentences to ensure false positives are not triggered:
 ORDINARY_CONTRIBUTING_SENTENCES: tuple[str, ...] = (
     "Do not worry if you used AI to draft your PR",
     "We do not require disclosure of AI assistance",
@@ -705,10 +687,10 @@ def test_ai_posture_never_proscribed_over_all_twelve_files():
     assert ev["rule"] == "ai_policy_file"
     assert sorted(ev["ai_policy_files_present"]) == sorted(gov.AI_POLICY_FILES)
 
-# --- W8: c365 must be a row sequence, never a bare mapping ------------------- #
+# --- c365 must be a row sequence, never a bare mapping ----------------------- #
 
 def test_orgs_by_login_dict_shaped_c365_does_not_crash():
-    """O8: a dict-shaped c365 iterates over its keys, not row mappings; must
+    """A dict-shaped c365 iterates over its keys, not row mappings; must
     be treated as no usable rows, never crash with AttributeError."""
     assert gov._orgs_by_login({"bob": "acme.com"}) == {}
 
@@ -732,14 +714,9 @@ def test_derive_governance_fields_dict_shaped_c365_does_not_crash():
 # --- derive_repo integration ------------------------------------------------------ #
 
 def test_derive_repo_no_governance_evidence_defaults_none_ad_hoc_ad_hoc(tmp_path):
-    """02 §4 3.1/3.3/4.2: no evidence at all is Unmeasured, not a measured
-    NONE/AD_HOC/AD_HOC (Blocker B2 round 2: a collector failure must not
-    score better than the truth -- confidence ``"missing"`` is this
-    v1-format document's spelling of Unmeasured(collector_failure)).
-
-    Fail-before: pre-change ``derive_repo`` carries no ``legal_ip`` field and
-    the legacy default ``legal_ip_model`` is DCO, so the first assert fails
-    with ``assert 'DCO' == 'NONE'``.
+    """No evidence at all is Unmeasured, not a measured NONE/AD_HOC/AD_HOC
+    (a collector failure must not score better than the truth -- confidence
+    ``"missing"`` is the representation of Unmeasured collector failure).
     """
     bundle = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path,
                                 fetch=False, now=NOW)
@@ -757,16 +734,12 @@ def test_derive_repo_no_governance_evidence_defaults_none_ad_hoc_ad_hoc(tmp_path
 
 
 def test_derive_repo_v1_governance_fields_unchanged(tmp_path):
-    """Over-correction guard: ``legal_ip_model`` is a genuinely separate v1
-    field (distinct name from the v2 ``legal_ip``) and this packet must
-    never touch it. ``promotion_ladder`` / ``ai_posture`` are bare v2 names
-    (W7) that deliberately supersede the v1 regex heuristic of the same
-    name -- in this no-evidence fixture the heuristic's own default and the
+    """Over-correction guard: ``legal_ip_model`` is a separate field
+    (distinct name from ``legal_ip``). ``promotion_ladder`` / ``ai_posture``
+    deliberately supersede the older regex heuristic of the same
+    name -- in this no-evidence fixture the heuristic default and the
     evidence-based Unmeasured default both spell AD_HOC, so the value is
-    unchanged, but the source is not: it is the W1-6 classifier now, not
-    the CONTRIBUTING/CODE_OF_CONDUCT regex (see
-    test_derive_repo_no_governance_evidence_defaults_none_ad_hoc_ad_hoc for
-    the confidence proof).
+    preserved.
     """
     bundle = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path,
                                 fetch=False, now=NOW)
@@ -859,7 +832,7 @@ def test_derive_repo_signoff_share_alone_without_governance_envelope(tmp_path):
     assert bundle["confidence"]["ai_posture"] == "missing"
 
 
-# --- Blocker B2 round 2: Unmeasured(collector_failure) vs measured zero --- #
+# --- Unmeasured(collector_failure) vs measured zero ------------------------- #
 
 def test_legal_ip_unmeasured_when_both_envelopes_absent():
     """Fetch failure (neither envelope exists) -> Unmeasured ("missing")."""
@@ -920,9 +893,7 @@ GATHER_DONE = {
     "pr_events": [],
     "pr_reviews": {},
     "contributors": [],
-    # W1-1's per-label gfi collector treats a bare list as legacy and
-    # re-fetches (needs_gather); the new shape's metadata-first record is
-    # what actually marks it done.
+    # Per-label gfi collector metadata-first record marks it done:
     "gfi": [{"gfi_newcomer_v2": True, "labels_matched": [], "queries": [],
              "truncated": False}],
     "actions_runs": [],
@@ -942,14 +913,8 @@ GATHER_DONE = {
                    "source_used": "deps.dev"},
     "pr_window": {"count": 0, "truncated": False, "cost_points": 0,
                   "prs": [], "derived": []},
-    # W1-7 postdates this file's own governance-status tests and is not
-    # under test here; marking it done avoids live gh api calls (Warning
-    # WW2 round 3: these three tests leaked releases/issues_counts/runs/
-    # labels for "acme/widget" with no seed and no block_live_network).
+    # Marking other collectors done avoids taking live calls when gather_repo runs:
     "releases": {}, "issues_counts": {}, "runs": {},
-    # W1-4's author_history hook also postdates this file and is not under
-    # test here; marking it done avoids a live AuthorWindow gh api call —
-    # surfaced by W1-6's landed network guard (round-3 fix).
     "author_history": {},
 }
 

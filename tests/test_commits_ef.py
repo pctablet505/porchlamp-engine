@@ -1,12 +1,12 @@
-"""W1-5: commit author email domains -> elephant factor, bus factor, vitality.
+"""Commit author email domains -> elephant factor, bus factor, vitality.
 
-Covers the new ``cvi.collect.commits`` module (domain org derivation, typed
+Covers the ``cvi.collect.commits`` module (domain org derivation, typed
 actor bot exclusion, 365 d collection cap, envelope-row parsing) and the
 append-only hooks in ``scripts/derive.py`` (EF block: email-domain EF,
 bus factor, vitality) and ``scripts/gather.py`` (``commits_365d`` collector
-block). Oracle values are the packet's acceptance fixtures; the shared
-``tests/test_derive.py`` (login-proxy EF edges and bundle) is the
-over-correction guard for the pre-change path and must stay green.
+block). The shared ``tests/test_derive.py`` (login-proxy EF edges and
+bundle) is the over-correction guard for the login-proxy path and must stay
+green.
 """
 from __future__ import annotations
 
@@ -59,14 +59,14 @@ def _raw(i: int, page: int = 1) -> dict:
 
 
 def oracle_one() -> list:
-    """60 a@corp.com + 30 b@corp.com + 10 c@gmail.com (packet oracle)."""
+    """60 a@corp.com + 30 b@corp.com + 10 c@gmail.com."""
     return ([rec("a@corp.com", "alice", days_ago=1 + i / 40) for i in range(60)]
             + [rec("b@corp.com", "bob", days_ago=1 + i / 40) for i in range(30)]
             + [rec("c@gmail.com", "carol", days_ago=1 + i / 40) for i in range(10)])
 
 
 def oracle_three_domains() -> list:
-    """40/30/30 across three corporate domains (packet oracle)."""
+    """40/30/30 across three corporate domains."""
     return ([rec("a@alpha.com", "alice", days_ago=1 + i / 40) for i in range(40)]
             + [rec("b@beta.com", "bob", days_ago=1 + i / 40) for i in range(30)]
             + [rec("c@gamma.com", "carol", days_ago=1 + i / 40) for i in range(30)])
@@ -224,7 +224,7 @@ def test_shape_handles_unlinked_and_bot_authors():
     assert rows[2]["author_type"] == "Bot" and rows[2]["author_login"] == "dependabot[bot]"
 
 
-# --- W1-6 ownership extension: signed_off boolean (02 section 4 3.1) --------- #
+# --- ownership extension: signed_off boolean (02 section 4 3.1) ------------- #
 
 def test_shape_records_signed_off_true_on_trailer():
     raws = [{"sha": "s1", "commit": {
@@ -330,20 +330,15 @@ def test_gather_hook_writes_commits_365d(tmp_path, monkeypatch, block_live_netwo
                             ("actions_runs", []), ("tree", {"paths": []}),
                             ("commits_180d", []),
                             ("depsdev", {"stars": 1}), ("scorecard", {"score": 5.0}),
-                            # W1-9/W1-3/W1-6 postdate this file and are not
-                            # under test here; marking them done avoids live
-                            # calls for "acme/widget" below. "dependents"
-                            # (W1-2) and "releases"/"issues_counts"/"runs"
-                            # (W1-7) are the same: unseeded, they made 5 live
-                            # calls (api.deps.dev, packages.ecosyste.ms, 3x
-                            # gh api) under the block_live_network guard
-                            # (Blocker B4 round 2).
+                            # Every collector other than commits_365d is
+                            # marked done: unseeded, they make live calls
+                            # (api.deps.dev, packages.ecosyste.ms, 3x gh
+                            # api) that the block_live_network guard fails.
                             ("repo_object", {}), ("pr_window", {}), ("governance", {}),
                             ("dependents", {}), ("releases", {}),
                             ("issues_counts", {}), ("runs", {}),
-                            # W1-4's author_history hook also postdates
-                            # this file (round-3 fix, W1-6's landed
-                            # network guard surfaced it).
+                            # The author_history hook is network-backed too,
+                            # so it is seeded alongside the rest.
                             ("author_history", {})):
         _seed_raw(tmp_path, collector, KEY, data)
     _seed_raw(tmp_path, "downloads", f"pypi__{NAME}", {"monthly": 123})

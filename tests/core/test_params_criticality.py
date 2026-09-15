@@ -1,12 +1,9 @@
-"""W2-3 acceptance: pillar 2 — Criticality curves (02 section 4).
+"""Acceptance tests for pillar 2 — Criticality curves (02 section 4).
 
-Fail-before (R-1): on the base commit ``cvi.core.params`` does not exist, so
-every test in this module fails at import. 2.1 and 2.3 are the
-ECDF-normalised curves of D-NORM-3 (mid-rank ECDF of the raw measured
-value, no transform on either side -- D-NORM-3 amendment, lead ruling
-2026-09-12 after the W2-5 review); 2.2 is the absolute linear calibration
-``100 * C``. None of the three has a minimum-n rule; missing signals are an
-``Unmeasured`` third-party gap.
+2.1 and 2.3 are the ECDF-normalised curves of D-NORM-3 (mid-rank ECDF of
+the raw measured value, no transform on either side); 2.2 is the absolute
+linear calibration ``100 * C``. None of the three has a minimum-n rule;
+missing signals are an ``Unmeasured`` third-party gap.
 """
 from __future__ import annotations
 

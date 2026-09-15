@@ -38,21 +38,21 @@ PENDING_DUMP_HASH = "pending"
 _ROOT_PREFIX = 12
 _UNSAFE = re.compile(r"[^0-9A-Za-z]+")
 
-#: Reason code (R-5) for a ``*.json`` under ``raw/`` that the reader cannot
+#: Reason code for a ``*.json`` under ``raw/`` that the reader cannot
 #: parse as an envelope: malformed JSON, undecodable bytes, or a JSON
 #: document that is not an envelope object.
 REASON_INVALID_JSON = "INVALID_JSON"
 
 #: Reason code for an envelope whose recorded native ``sha256`` no longer
-#: described its ``data`` field when the snapshot was taken (W0-gate P-07b).
+#: described its ``data`` field when the snapshot was taken.
 REASON_STALE_HASH = "STALE_HASH"
 
 #: Reason code for a key the *frozen manifest itself* recorded as unreadable
-#: (its ``invalid_json`` list, W0-gate P-09). Distinct from
+#: (its ``invalid_json`` list). Distinct from
 #: :data:`REASON_INVALID_JSON`, which is a live rescan finding: a frozen
 #: entry keeps this reason long after the corrupt file is fixed or deleted,
-#: because the manifest is the promotion boundary (INT-W0-3f review; `03`
-#: section 5) and a snapshot born short a repository must stay detectable.
+#: because the manifest is the promotion boundary (`03` section 5) and a
+#: snapshot born short a repository must stay detectable.
 REASON_INVALID_JSON_FROZEN = "INVALID_JSON_FROZEN"
 
 #: What makes a present file "not a readable envelope" for the scan: the
@@ -93,11 +93,11 @@ def envelope_entries(data_dir: Path) -> EnvelopeScan:
     about the bytes, so editing ``data`` inside an envelope that still carries
     its old ``sha256`` moves the root instead of hiding behind it. An envelope
     whose recorded hash no longer describes its data is named in
-    ``hash_mismatches`` (packet W0-3 read-time backfill rule). Envelopes written before
-    packet W0-3 carry no ``sha256`` field: their ``data`` field is hashed here,
-    at read time, and the entry is reported as ``backfilled``.
+    ``hash_mismatches``. An envelope carrying no ``sha256`` field has its
+    ``data`` field hashed here, at read time, and the entry is reported as
+    ``backfilled``.
 
-    A ``*.json`` file the reader cannot parse (W0-gate P-09) is not a readable
+    A ``*.json`` file the reader cannot parse is not a readable
     envelope: it is reported in ``invalid_json`` with the
     :data:`REASON_INVALID_JSON` code, and the scan completes over every other
     file instead of aborting.
@@ -207,9 +207,9 @@ def build_manifest(
 
     ``hash_origins`` and ``backfilled_keys`` make the read-time backfill visible
     inside the manifest: a reader can see which hashes the collector recorded and
-    which packet W0-3 reconstructed. ``hash_mismatches`` names the envelopes
-    whose recorded ``sha256`` no longer describes their ``data`` field.
-    ``invalid_json`` (W0-gate P-09) names the files the freeze could not read as
+    which were reconstructed at read time. ``hash_mismatches`` names the
+    envelopes whose recorded ``sha256`` no longer describes their ``data`` field.
+    ``invalid_json`` names the files the freeze could not read as
     envelopes; they carry no hash, so they are excluded from the Merkle root and
     recorded here instead of silently dropped.
     """

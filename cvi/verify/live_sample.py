@@ -1,7 +1,7 @@
 """Live re-verification canary for rated rows (``verify --live-sample``).
 
-Packet W3-3 of ``docs/v2/05-WORK-PLAN.md``; the design is
-``docs/v2/03-ANTI-MANIPULATION.md`` section 5 ("Live re-verification").
+The design is ``docs/v2/03-ANTI-MANIPULATION.md`` section 5
+("Live re-verification").
 
 The canary re-fetches, for a sample of rated repositories, the two fact
 families the pipeline promotes on: the GitHub metadata counters
@@ -450,7 +450,7 @@ def _run_one(row: RatedRow, transport: Transport,
         if recorded is not None:
             try:
                 live = transport.fetch_live_facts(row.owner, row.name)
-            except Exception as exc:
+            except Exception as exc:  # review-ok: external network/transport failures convert to RepoVerdict(FETCH_FAILED)
                 return RepoVerdict(row.owner, row.name, _VERDICT_FETCH_FAILED,
                                    detail=str(exc))
             checks = compare_fields(recorded, live)
@@ -554,7 +554,7 @@ def main(argv: Optional[Sequence[str]] = None,
     out_path.write_text(json.dumps(report.to_dict(), indent=2, sort_keys=True),
                         encoding="utf-8")
 
-    print(f"W3-3 live re-verification canary: seed={seed} population={report.population} "
+    print(f"Live re-verification canary: seed={seed} population={report.population} "
           f"sample={len(report.verdicts)}")
     for v in report.verdicts:
         failed = [f"{c.field}: {c.detail}" for c in v.checks if not c.ok]

@@ -1,15 +1,14 @@
-"""W2-3 acceptance: pillar 1 — Responsiveness curves (02 section 4).
+"""Acceptance tests for pillar 1 — Responsiveness curves (02 section 4).
 
-Fail-before (R-1): on the base commit ``cvi.core.params`` does not exist, so
-every test in this module fails at import. The curves are the absolute
-calibrations of 02 section 4 (1.1-1.5); below the minimum-n sample the
-parameter is ``insufficient_n`` with the actual ``n`` reported.
+The curves are the absolute calibrations of 02 section 4 (1.1-1.5); below
+the minimum-n sample the parameter is ``insufficient_n`` with the actual
+``n`` reported.
 """
 from __future__ import annotations
 
 from typing import Callable
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import Measured, ParamScore, Unmeasured
 from cvi.core.params import dr90, gr14, mr_first, ttfhr, ttm_p90
 
@@ -123,7 +122,7 @@ def test_ttfhr_measured_at_exact_minimum() -> None:
 
 
 def test_ttfhr_unmeasured_passes_through() -> None:
-    for reason in constants_v2.UNMEASURED_REASONS:
+    for reason in constants.UNMEASURED_REASONS:
         result = ttfhr(unmeasured(reason))
         assert result == _gap(reason)
 

@@ -122,13 +122,10 @@ def test_sql_clock_pattern_sees_both_clock_forms() -> None:
 
 
 def test_clock_pattern_sees_the_dot_today_forms() -> None:
-    """Anti-vacuity for the residual gap the INT-W0-3f review found open
-    (Consider 4): ``datetime.today()``/``date.today()`` are wall-clock reads
-    the pre-W0-3g pattern missed entirely; both stayed green on a module with
-    one added. Mutation-proved live (fail-before/restore, W0-3g handoff):
-    injecting ``datetime.today()`` into a scanned module passed
-    ``test_cvi_scoring_modules_own_no_clock`` before this pattern change and
-    fails it after."""
+    """Anti-vacuity for the wall-clock scan: ``datetime.today()`` and
+    ``date.today()`` are wall-clock reads, so ``CLOCK_RE`` must match them
+    too -- otherwise a module adding one would stay green in
+    ``test_cvi_scoring_modules_own_no_clock``."""
     assert CLOCK_RE.search("return datetime.today().timestamp()")
     assert CLOCK_RE.search("return date.today().isoformat()")
 
@@ -144,10 +141,9 @@ def test_exempt_modules_actually_own_a_clock() -> None:
     If a module below stops owning a clock this test goes red, which forces a
     re-read of the exemption instead of letting it rot into a blind spot.
 
-    W4-1: EXCLUDED_MODULES is now empty (its one entry, benchmark_data.py,
-    moved out of cvi/ entirely) -- this assertion is correctly vacuous
-    until a future module needs a per-module exemption again; the loop
-    below still runs so a re-added entry is immediately checked.
+    ``EXCLUDED_MODULES`` is empty, so this assertion is correctly vacuous
+    until a module needs a per-module exemption again; the loop below still
+    runs so a re-added entry is immediately checked.
     """
     paths = [
         CVI_PKG / name for name in sorted(EXCLUDED_MODULES) if (CVI_PKG / name).is_file()
@@ -257,9 +253,9 @@ def _pr_events() -> list[RawPREvent]:
 
 
 def test_ratelimit_directory_exemption_covers_only_the_monotonic_defaults() -> None:
-    """W0-gate P-01 (W4-1: re-pinned to ``cvi/collect/ratelimit.py``, where
-    the rate limiter's ``time.monotonic`` defaults now live -- they moved
-    out of ``cvi/ingest.py``, which no longer needs any exemption at all).
+    """Pins the scope of the ``collect`` directory exemption at
+    ``cvi/collect/ratelimit.py``, where the rate limiter's
+    ``time.monotonic`` defaults live.
 
     (1) No line of the module today matches the wall-clock scanner, so the
     directory exemption currently removes nothing THIS module needs from
@@ -293,12 +289,8 @@ def test_ratelimit_directory_exemption_covers_only_the_monotonic_defaults() -> N
 
 
 def test_ingest_module_is_gone_and_needs_no_exemption() -> None:
-    """W4-1: ``cvi/ingest.py`` is fully deleted (its content moved to
-    ``cvi.collect.ratelimit``/``cvi.lakehouse`` or removed as dead code;
-    the one-release deprecation shim itself was then deleted, per the
-    inventory's own instruction, once the grep sweep showed no in-repo
-    caller remained). It never needs a per-module entry in
-    ``EXCLUDED_MODULES`` again -- pinned here so a stale exemption is
-    never silently re-added for a module that does not exist."""
+    """``cvi/ingest.py`` does not exist and needs no per-module entry in
+    ``EXCLUDED_MODULES`` -- pinned here so a stale exemption is never
+    silently re-added for a module that does not exist."""
     assert "ingest.py" not in EXCLUDED_MODULES
     assert not (CVI_PKG / "ingest.py").exists()

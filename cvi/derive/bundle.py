@@ -1,4 +1,4 @@
-"""Load, validate and dump FeatureBundle v2 documents (packet W2-1; W2-9; W2-9f).
+"""Load, validate and dump FeatureBundle v2 documents.
 
 A v2 document (``data/derived/<key>.json``, ``schema_version = 2``) is the
 JSON shape of :class:`cvi.core.models.FeatureBundle`:
@@ -9,44 +9,13 @@ violation raises :class:`cvi.core.models.BundleValidationError`.
 
 Documents without a ``schema_version`` (or with ``schema_version = 1``) are
 the v1 derived format written by ``scripts/derive.py``. The v1 deriver filled
-missing inputs with silent defaults (``Bundle.missing(field, default)``); the
-v2 mapping does not. Envelope-backed v1 fields become Measured values whose
-provenance is the envelope path plus ``sha256`` of the envelope's ``data``
-field (R-4); everything else becomes Unmeasured with a documented reason.
+missing inputs with defaults; the v2 mapping does not. Envelope-backed v1
+fields become Measured values whose provenance is the envelope path plus
+``sha256`` of the envelope's ``data`` field; everything else becomes Unmeasured
+with a documented reason.
 
-W2-9 replaces the fixed ``V1_FIELD_TO_INPUT`` dict of the original five
-mappings with :data:`INPUT_MAPPINGS`: one resolver per v2 input id (18 rows,
-matching ``constants_v2.PARAM_INPUT_IDS`` one-for-one) so a later packet
-wires a newly-landed collector by replacing its one row, not by re-reading
-this whole module. See the module's own docstring comments beside each row
-for which derived-file field(s) it reads and the D-MISS-1 reason emitted
-when they are absent.
-
-W2-9f (Opus review follow-up, see ``.agents/W2-9f/handoff.md``) wires the
-now-landed W1-7 rows (``openssf_criticality``, ``pipeline_defenses``),
-fixes ``dependents_deduped``'s absence reason to ``third_party_gap`` (it is
-class TP, like ``downloads_monthly``), adds vocabulary validation to
-``ai_posture``, and stops an unmappable ``legal_ip``/``promotion_ladder``
-enum from rejecting the whole bundle: the mapping is now row-scoped
-everywhere (:func:`_map_v1_value` no longer appends to the bundle-wide
-``problems`` list).
-
-W1-2f (D-MISS-5, ``docs/v2/02-RANKING-DESIGN.md`` section 5) changes only
-``dependents_deduped``: ``ecosystem == "systems"`` yields
-``Unmeasured(not_applicable)`` unconditionally (a universe-entry fact this
-row reads straight off ``ctx.meta``, never from what the collector fetched
--- D-MISS-5's guard), ``maven`` gets a specific ``third_party_gap`` detail
-when nothing was measured (the root ``pom.xml`` was never fetched), and any
-ecosystem outside the closed rule list plus this packet's known mappings
-still falls to a named ``third_party_gap``, never ``not_applicable``.
-
-W2-12 (D-IN-4 amendment, 2026-09-13, ``docs/v2/02-RANKING-DESIGN.md`` D-IN-4)
-wires ``dr90_decision_rate``: the decision-rate cohort is external PRs
-opened in the older half of the W1-3 180 d window, ``[anchor-180d,
-anchor-90d)``, computed from the raw pr_window envelope's own
-``window_anchor`` (never a live clock, 04 section 8) -- no second fetch, no
-new collector. See :func:`_resolve_dr90_decision_rate` and its helper
-:func:`_dr90_decision_cohort` for the exact boundary rules.
+:data:`INPUT_MAPPINGS` provides one resolver per v2 input id (18 rows,
+matching ``constants.PARAM_INPUT_IDS`` one-for-one).
 """
 from __future__ import annotations
 
@@ -59,7 +28,7 @@ from datetime import timezone as _utc_timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Union
 
-from cvi.core import commit_domains, constants_v2, hygiene, models, openssf
+from cvi.core import commit_domains, constants, hygiene, models, openssf
 from cvi.core.models import (
     BundleValidationError,
     Cohorts,
@@ -103,35 +72,25 @@ def validate_bundle(document: Mapping[str, Any]) -> FeatureBundle:
     Raises :class:`BundleValidationError` listing every violation found.
     Raises the same error for a document whose ``schema_version`` is not 2.
 
-    W1-5f: ``last_non_bot_commit_at``/``top_email_domain_share`` are read
-    back from the two OPTIONAL top-level keys of the same name when
-    present (see :data:`_W1_5F_OPTIONAL_TOP_LEVEL_KEYS` and
-    :func:`dump_bundle`, which always writes them) -- neither is a
-    ``FeatureBundle`` dataclass field (``cvi/core/models.py`` is out of
-    this packet's ownership), so they are not in :data:`TOP_LEVEL_KEYS`
-    and are never required; a document without them simply leaves the
-    bundle-instance sidecar fact at its unset default. This is what makes
-    the two facts survive a ``dump_bundle``/``write_bundle``/``load_bundle``
-    round trip -- without it, ``last_non_bot_commit_at`` would reset to
-    ``None`` every time a bundle assembled by ``_load_v1`` (real commits
-    envelope in hand) got dumped and reloaded (e.g. ``scripts/
-    build_fixture_snapshot.py``'s frozen fixture), silently changing
-    D-TIE-1 item 7's tie-break input -- and therefore ``records_hash`` --
-    between the snapshot that was scored to produce ``expected.json`` and
-    any later reproduction of it from the committed fixture files.
+    ``last_non_bot_commit_at``/``top_email_domain_share`` are read
+    back from the two optional top-level keys of the same name when
+    present (see :data:`_OPTIONAL_TOP_LEVEL_KEYS` and
+    :func:`dump_bundle`, which writes them). A document without them
+    leaves the bundle-instance sidecar fact at its unset default. This
+    ensures the two facts survive a round trip across dump and load.
     """
     if not isinstance(document, Mapping):
         raise BundleValidationError([f"document must be a mapping, got {type(document).__name__}"])
     doc_keys = set(document)
-    known_keys = set(TOP_LEVEL_KEYS) | _W1_5F_OPTIONAL_TOP_LEVEL_KEYS
+    known_keys = set(TOP_LEVEL_KEYS) | _OPTIONAL_TOP_LEVEL_KEYS
     problems = [f"missing top-level key {key!r}" for key in TOP_LEVEL_KEYS if key not in doc_keys]
     problems += [f"unexpected top-level key {key!r}" for key in sorted(doc_keys - known_keys)]
     if problems:
         raise BundleValidationError(problems)
 
     version = document["schema_version"]
-    if isinstance(version, bool) or not isinstance(version, int) or version != constants_v2.SCHEMA_VERSION:
-        raise BundleValidationError([f"schema_version must be {constants_v2.SCHEMA_VERSION}, got {version!r}"])
+    if isinstance(version, bool) or not isinstance(version, int) or version != constants.SCHEMA_VERSION:
+        raise BundleValidationError([f"schema_version must be {constants.SCHEMA_VERSION}, got {version!r}"])
 
     problems: list[str] = []
     repo = _repo_from(document["repo"], problems)
@@ -174,7 +133,7 @@ def load_bundle(path: Union[Path, str], *, raw_root: Union[Path, str, None] = No
     target = Path(path)
     document = json.loads(target.read_text(encoding="utf-8"))
     version = document.get("schema_version") if isinstance(document, Mapping) else None
-    if version == constants_v2.SCHEMA_VERSION:
+    if version == constants.SCHEMA_VERSION:
         return validate_bundle(document)
     if version in (None, 1) and isinstance(document, Mapping) and "meta" in document:
         return _load_v1(document, raw_root)
@@ -185,7 +144,7 @@ def dump_bundle(bundle: FeatureBundle) -> dict[str, Any]:
     """Serialize a FeatureBundle into the v2 document shape (validates first)."""
     bundle.validate()
     inputs: dict[str, dict[str, Any]] = {}
-    for input_id in constants_v2.PARAM_INPUT_IDS:
+    for input_id in constants.PARAM_INPUT_IDS:
         value = bundle.inputs[input_id]
         if isinstance(value, Measured):
             inputs[input_id] = dict(zip(MEASURED_DOC_KEYS, ("measured", value.value, value.n, value.window_start,
@@ -194,7 +153,7 @@ def dump_bundle(bundle: FeatureBundle) -> dict[str, Any]:
         else:
             inputs[input_id] = {"kind": "unmeasured", "reason": value.reason, "detail": value.detail}
     return {
-        "schema_version": constants_v2.SCHEMA_VERSION,
+        "schema_version": constants.SCHEMA_VERSION,
         "repo": {key: getattr(bundle.repo, key) for key in REPO_KEYS},
         "inputs": inputs,
         "pr_window": {
@@ -216,7 +175,7 @@ def dump_bundle(bundle: FeatureBundle) -> dict[str, Any]:
             ],
         },
         "provenance_hash": bundle.provenance_hash,
-        # W1-5f: OPTIONAL top-level keys (not FeatureBundle dataclass fields
+        # Optional top-level keys (not FeatureBundle dataclass fields
         # -- see validate_bundle's docstring) that carry the two
         # bundle-instance sidecar facts across this dump/reload round trip;
         # always written (even the unset default) so a re-derive is never
@@ -234,15 +193,14 @@ def write_bundle(bundle: FeatureBundle, path: Union[Path, str]) -> Path:
     return target
 
 
-#: Instance attribute name backing :func:`dropped_event_count` (W2-9). Not a
-#: declared FeatureBundle field (cvi/core/models.py is out of this packet's
-#: ownership; see the handoff's ownership request) and not serialized by
-#: :func:`dump_bundle` — a dump/reload round trip loses the count.
-_DROPPED_EVENT_COUNT_ATTR = "_w2_9_dropped_event_count"
+#: Instance attribute name backing :func:`dropped_event_count`. Not a
+#: declared FeatureBundle field and not serialized by :func:`dump_bundle` —
+#: a dump/reload round trip loses the count.
+_DROPPED_EVENT_COUNT_ATTR = "_dropped_event_count_attr"
 
 
 def dropped_event_count(bundle: FeatureBundle) -> int:
-    """Number of ``pr_events`` dropped from ``bundle.pr_window.events`` (W2-9)
+    """Number of ``pr_events`` dropped from ``bundle.pr_window.events``
     because the recorded ``author_login`` was empty — a deleted/ghost GitHub
     account, which GitHub's API reports with no login. ``PRWindowEvent``
     requires a non-empty ``author_login`` (it is an author-keyed record), so
@@ -258,32 +216,18 @@ def _set_dropped_event_count(bundle: FeatureBundle, count: int) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# W1-5f: last_non_bot_commit_at (D-TIE-1 item 7) and top_email_domain_share  #
-# (the ef_domain_mismatch detector's input, 03 section 6). Neither is one of #
-# constants_v2.PARAM_INPUT_IDS's 18 scored parameters, so FeatureBundle.     #
-# inputs (04 section 3: closed to exactly those 18 keys, enforced by        #
-# FeatureBundle.validate()) cannot carry them. They live as bundle-instance  #
-# sidecar attributes instead -- the same convention dropped_event_count/     #
-# _w2_9_dropped_event_count established above for a fact cvi/core/models.py  #
-# (out of this packet's ownership too) has no declared field for.           #
+# Commit facts: last_non_bot_commit_at (D-TIE-1 item 7) and                   #
+# top_email_domain_share (the ef_domain_mismatch detector's input). Neither   #
+# is one of constants.PARAM_INPUT_IDS's 18 scored parameters, so              #
+# FeatureBundle.inputs (closed to exactly those 18 keys, enforced by          #
+# FeatureBundle.validate()) cannot carry them. They live as bundle-instance   #
+# sidecar attributes instead.                                                 #
 #                                                                             #
-# last_non_bot_commit_at's dataclass/attribute-name/accessor/setter live in  #
-# cvi.core.commit_domains, not here: cvi.core.pipeline (D-TIE-1 item 7's     #
-# tie-break wiring) needs to read the fact back and may only import         #
-# cvi.core + stdlib, so it cannot reach an accessor defined in this module.  #
-# top_email_domain_share has no such cvi.core reader (only                  #
-# cvi/verify/pipeline_hook.py, unrestricted, needs it) and stays here.       #
-#                                                                             #
-# Unmeasured (04 section 3) is reused as-is for the "no usable envelope" /   #
-# "insufficient sample" outcomes below: it has no constraint either of this  #
-# packet's absence reasons trips. Measured cannot be reused the same way --  #
-# its method field is pinned to "primary"/"proxy:<name>" (cvi.core.models.  #
-# measured_problems) and would reject this packet's                         #
-# "measured:no_non_bot_commit_365d" sentinel and a None value -- both real,  #
-# spec-mandated outcomes here (docs/v2 D-MISS-1 F2 ruling) -- so a           #
-# purpose-built "measured" shape (cvi.core.commit_domains.                  #
-# LastNonBotCommitMeasured) replaces Measured for that fact; the same       #
-# replacement is needed for top_email_domain_share below.                   #
+# last_non_bot_commit_at's dataclass/attribute-name/accessor/setter live in   #
+# cvi.core.commit_domains, not here: cvi.core.pipeline (D-TIE-1 item 7's      #
+# tie-break wiring) needs to read the fact back and may only import          #
+# cvi.core + stdlib, so it cannot reach an accessor defined in this module.   #
+# top_email_domain_share has no such cvi.core reader and stays here.          #
 # --------------------------------------------------------------------------- #
 
 #: Re-exported from cvi.core.commit_domains (see above) so this module's own
@@ -314,12 +258,12 @@ class TopEmailDomainShareMeasured:
     fetched_at: str
 
 
-#: A W1-5f top_email_domain_share fact is either the purpose-built
+#: A top_email_domain_share fact is either the purpose-built
 #: "measured" shape above, or ``Unmeasured`` (missing/failed envelope, or an
 #: insufficient sample).
 TopEmailDomainShareValue = Union[TopEmailDomainShareMeasured, Unmeasured]
 
-_TOP_EMAIL_DOMAIN_SHARE_ATTR = "_w1_5f_top_email_domain_share"
+_TOP_EMAIL_DOMAIN_SHARE_ATTR = "_top_email_domain_share_attr"
 
 #: getattr default for a bundle this module never set the sidecar attribute
 #: on (a native v2 document, e.g. -- see the module docstring's "these two
@@ -332,12 +276,10 @@ _NO_COMMIT_FACT = Unmeasured(
     detail="no commits_365d or commits_180d envelope resolvable for this bundle",
 )
 
-#: W1-5f: reuse the exact minimum sample size 3.2 elephant_factor uses
-#: (constants_v2.PARAM_MIN_N["elephant_factor"] -- 30 non-bot commits) for
-#: top_email_domain_share's insufficient_n gate. Not a new tunable
-#: (docs/v2/00-README.md: "No new numeric tunable outside
-#: cvi.core.constants_v2" -- this reads the existing registered one).
-_TOP_DOMAIN_SHARE_MIN_N: int = constants_v2.PARAM_MIN_N["elephant_factor"]
+#: Reuse the exact minimum sample size 3.2 elephant_factor uses
+#: (constants.PARAM_MIN_N["elephant_factor"] -- 30 non-bot commits) for
+#: top_email_domain_share's insufficient_n gate.
+_TOP_DOMAIN_SHARE_MIN_N: int = constants.PARAM_MIN_N["elephant_factor"]
 
 #: The two envelope keys :func:`_resolve_commit_window_envelope` tries, in
 #: order (D-IN-4: 365 d is the EF/last-commit window; 180 d is the
@@ -367,7 +309,7 @@ _set_last_non_bot_commit_at = commit_domains.set_last_non_bot_commit_at
 
 
 def top_email_domain_share(bundle: FeatureBundle) -> TopEmailDomainShareValue:
-    """The ``ef_domain_mismatch`` detector's input for one bundle (W1-5f).
+    """The ``ef_domain_mismatch`` detector's input for one bundle.
     ``Unmeasured(reason="collector_failure")`` (:data:`_NO_COMMIT_FACT`) for
     a bundle this module never set the sidecar attribute on."""
     return getattr(bundle, _TOP_EMAIL_DOMAIN_SHARE_ATTR, _NO_COMMIT_FACT)
@@ -388,7 +330,7 @@ def _set_top_email_domain_share(bundle: FeatureBundle, value: TopEmailDomainShar
 
 _LAST_NON_BOT_COMMIT_DOC_KEY = "last_non_bot_commit_at"
 _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY = "top_email_domain_share"
-_W1_5F_OPTIONAL_TOP_LEVEL_KEYS = frozenset({_LAST_NON_BOT_COMMIT_DOC_KEY, _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY})
+_OPTIONAL_TOP_LEVEL_KEYS = frozenset({_LAST_NON_BOT_COMMIT_DOC_KEY, _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY})
 
 
 def _last_non_bot_commit_at_doc(value: LastNonBotCommitValue) -> dict[str, Any]:
@@ -536,7 +478,7 @@ def _iso_utc_z(value: datetime.datetime) -> str:
 
 
 def _resolve_commit_facts(ctx: "_V1Ctx", key: str) -> tuple[LastNonBotCommitValue, TopEmailDomainShareValue]:
-    """Build both W1-5f commit-derived facts from one envelope read (the
+    """Build both commit-derived facts from one envelope read (the
     ``commits_365d`` envelope, or ``commits_180d`` when the first is absent
     -- :func:`_resolve_commit_window_envelope`). ``key`` is ``"<owner>__
     <name>"`` (the same basename ``scripts/derive.py``/``scripts/
@@ -654,7 +596,7 @@ def _inputs_from(doc: Any, problems: list[str]) -> dict[str, Measured | Unmeasur
     if not isinstance(doc, Mapping):
         problems.append("inputs must be a mapping")
         return {}
-    expected = set(constants_v2.PARAM_INPUT_IDS)
+    expected = set(constants.PARAM_INPUT_IDS)
     for key in sorted(expected - set(doc)):
         problems.append(f"inputs missing key {key!r}")
     for key in sorted(set(doc) - expected):
@@ -795,10 +737,9 @@ def _resolve_envelope(source: Any, raw_root: Union[Path, str, None]) -> Path | N
 
 def _relative_source(path: Path, raw_root: Union[Path, str, None]) -> str:
     """Express a resolved envelope ``path`` as a provenance ``source``
-    relative to the data root (W2-14, docs/v2/00-README.md non-negotiables):
-    never an absolute path of the machine that derived it, so a bundle's
-    provenance is portable and reproduces byte-identically from a copy of
-    the same data root on any machine.
+    relative to the data root: never an absolute path of the machine that
+    derived it, so a bundle's provenance is portable and reproduces
+    byte-identically from a copy of the same data root on any machine.
 
     ``raw_root`` is always ``<data_root>/raw`` -- the one convention this
     module's own envelope resolution, ``cvi.collect.envelope.
@@ -806,10 +747,8 @@ def _relative_source(path: Path, raw_root: Union[Path, str, None]) -> str:
     so its parent is the data root every recorded source is relativised
     against, giving exactly ``raw/<collector>/<key>.json``. This duplicates
     ``cvi.collect.envelope.relative_envelope_path``'s arithmetic rather than
-    importing it: 04 section 3 restricts ``cvi.derive.bundle`` to
-    ``cvi.core`` plus stdlib (the same reason this module keeps its own
-    ``_resolve_envelope``/``_envelope_hash`` instead of importing
-    ``cvi.collect.envelope``'s).
+    importing it: this module keeps its own ``_resolve_envelope`` and
+    ``_envelope_hash`` to avoid circular or collect-layer dependencies.
 
     Raises :class:`BundleValidationError` when ``path`` cannot be expressed
     as a relative path under a known root: a stale absolute source (for
@@ -818,8 +757,8 @@ def _relative_source(path: Path, raw_root: Union[Path, str, None]) -> str:
     if raw_root is not None:
         try:
             return path.relative_to(Path(raw_root).parent).as_posix()
-        except ValueError:
-            pass
+        except ValueError:  # Path is not subpath of raw_root; fall through to relative check
+            candidate = None
     candidate = path.as_posix()
     if not path.is_absolute() and models.is_relative_envelope_source(candidate):
         return candidate
@@ -834,7 +773,7 @@ def _envelope_data(path: Path) -> Any:
 
 
 def _envelope_hash(path: Path) -> str:
-    """sha256 of the canonical JSON of the envelope's data field (W0-3 rule)."""
+    """sha256 of the canonical JSON of the envelope's data field."""
     return models.sha256_hex(models.canonical_json(_envelope_data(path)))
 
 
@@ -849,8 +788,8 @@ def _first_source(entry: Any) -> str | None:
 def _parse_iso_or_none(value: Any) -> Optional[datetime.datetime]:
     """Parse an ISO-8601 timestamp; ``None`` for absent or unparseable input.
 
-    Never reads a live clock (04 section 8): it only parses a string already
-    recorded in an envelope or a derived document."""
+    Never reads a live clock: it only parses a string already recorded in an
+    envelope or a derived document."""
     if not isinstance(value, str) or not value:
         return None
     try:
@@ -865,28 +804,26 @@ def _valid_iso_string(value: Any) -> Optional[str]:
 
 
 # --------------------------------------------------------------------------- #
-# W2-9: the declarative v2 input mapping table.                               #
+# Declarative v2 input mapping table.                                         #
 #                                                                              #
 # One resolver per v2 input id (18 rows total, one-for-one with               #
-# constants_v2.PARAM_INPUT_IDS). Each resolver reads the v1 derived           #
-# document's meta/provenance/confidence dicts (plus, for the three           #
+# constants.PARAM_INPUT_IDS). Each resolver reads the v1 derived              #
+# document's meta/provenance/confidence dicts (plus, for the three            #
 # pr_window-derived rows, the raw pr_window envelope) and returns exactly    #
-# one Measured or Unmeasured value. A later packet wires a newly-landed      #
-# collector output by replacing its row in INPUT_MAPPINGS; nothing else in   #
-# this module needs to change.                                               #
+# one Measured or Unmeasured value. Wires collector output by mapping its     #
+# row in INPUT_MAPPINGS.                                                      #
 # --------------------------------------------------------------------------- #
 
 
 @dataclass
 class _V1Ctx:
-    """Shared read-only-ish context every row resolver receives.
+    """Shared read-only context every row resolver receives.
 
     ``problems`` and ``referenced`` are the same list/dict objects
-    ``_load_v1`` uses for the whole bundle: appending to ``problems`` (an
-    unrecognized enum value, 3.1/3.3's pre-W2-9 behaviour) rejects the whole
-    bundle; writing to ``referenced`` folds an envelope hash into the
-    bundle's ``provenance_hash``. ``cache`` memoizes the pr_window envelope
-    read across the three rows that share it.
+    ``_load_v1`` uses for the whole bundle: appending to ``problems``
+    rejects the whole bundle; writing to ``referenced`` folds an envelope hash
+    into the bundle's ``provenance_hash``. ``cache`` memoizes the pr_window
+    envelope read across the rows that share it.
     """
 
     meta: Mapping[str, Any]
@@ -902,15 +839,9 @@ InputResolver = Callable[[_V1Ctx], "Measured | Unmeasured"]
 
 
 def _map_v1_value(value: Any, vocab: Mapping[str, str]) -> Any:
-    """Map a v1 enum spelling through ``vocab``; ``None`` for an unrecognized
-    value. W2-9f (W5): this never touches the bundle-wide ``problems`` list
-    -- an unmappable enum is this one row's own gap (the caller returns a
-    row-scoped ``Unmeasured``), not a whole-bundle-rejecting data-corruption
-    signal (the pre-W2-9f behaviour: a single bad enum in a row the loader
-    was already about to discard -- e.g. every real sample-200 document's
-    ``raw.githubusercontent.com`` source for ``legal_ip``/``promotion_ladder``,
-    which can never resolve to an envelope regardless of the enum -- lost
-    the entire repo's 17 other, perfectly good inputs)."""
+    """Map a v1 enum spelling through ``vocab``; ``None`` for an unrecognized value.
+    An unmappable enum is a row-scoped gap resulting in ``Unmeasured`` rather than
+    a whole-bundle rejection."""
     return vocab.get(value)
 
 
@@ -922,10 +853,7 @@ def _plain_scalar_resolver(
 ) -> InputResolver:
     """Resolver for a v1 meta field carried through unchanged: an int or str
     value, no enum mapping, ``n=0`` (a scalar, not a sample). Covers
-    ``elephant_factor`` and (W2-9) ``newcomer_issue_supply`` -- not
-    ``ai_posture`` (W2-9f, W4: it moved to :func:`_vocab_scalar_resolver`
-    with an identity vocab, so an out-of-set value is validated rather than
-    passed through as a Measured)."""
+    ``elephant_factor`` and ``newcomer_issue_supply``."""
 
     def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
         confidence_value = ctx.confidence.get(v1_field)
@@ -955,12 +883,9 @@ def _plain_scalar_resolver(
 
 def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputResolver:
     """Resolver for an enum-valued v1 field mapped through a fixed
-    v1-spelling -> v2-spelling vocabulary (``legal_ip``, ``promotion_ladder``;
-    W2-9f: also ``ai_posture``, whose v1 spelling already is the v2 spelling
-    -- an identity ``{v: v for v in constants_v2.AI_POSTURE_VALUES}`` vocab
-    both validates and passes it through unchanged, W4). An unmappable value
-    is this row's own gap (:func:`_map_v1_value`), never a whole-bundle
-    rejection (W5)."""
+    v1-spelling -> v2-spelling vocabulary (``legal_ip``, ``promotion_ladder``,
+    and ``ai_posture``). An unmappable value is handled at row scope
+    (:func:`_map_v1_value`)."""
 
     def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
         confidence_value = ctx.confidence.get(v1_field)
@@ -994,14 +919,9 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
 
 
 def _resolve_downloads_monthly(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """2.3 Downloads. Reads v1 ``monthly_downloads``, unchanged from pre-W2-9
-    behaviour for the Measured path and the "old-format, no W1-8 hook" gap
-    (over-correction guard). W2-9 adds: when W1-8's ``downloads_status`` meta
-    field is present, its "pending" (ecosystem is retryable, not yet
-    backfilled) vs "unmeasured" (no registry for this ecosystem) distinction
-    replaces the generic detail text — same reason (``third_party_gap``,
-    D-MISS-1 class TP), a more precise ``detail``.
-    """
+    """2.3 Downloads. Reads v1 ``monthly_downloads``. When the ``downloads_status``
+    meta field is present, its "pending" vs "unmeasured" status provides
+    refined detail for ``third_party_gap``."""
     confidence_value = ctx.confidence.get("monthly_downloads")
     value = ctx.meta.get("monthly_downloads")
     entry = ctx.provenance.get("monthly_downloads")
@@ -1032,51 +952,22 @@ def _resolve_downloads_monthly(ctx: _V1Ctx) -> Measured | Unmeasured:
                        detail=f"v1 confidence {confidence_value!r} for 'monthly_downloads' is not recognized")
 
 
-#: Ecosystems D-MISS-5 does not name (``02`` section 5: the rule list names
-#: only ``systems`` -> 2.1). Anything outside this set is a mapping gap this
-#: row has never seen, not a fact about the world -- it must still fall to
-#: ``third_party_gap``, never ``not_applicable`` (W1-2f: "the rule list is
-#: closed"). Mirrors :class:`cvi.models.Ecosystem`'s members; not imported
-#: from there because ``cvi.derive`` reads only ``cvi.core.models`` (04
-#: section 3's import rule) and ``cvi.models`` sits outside ``cvi.core``.
+#: Ecosystems with package registry support for dependents.
 _ECOSYSTEMS_WITH_DEPENDENTS_MAPPING: frozenset[str] = frozenset(
     {"pypi", "npm", "crates", "go", "maven"}
 )
 
 
 def _resolve_dependents_deduped(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """2.1 Dependents. v1's ``dependents_count`` carries two unrelated facts
-    under the same key, distinguished only by ``confidence`` (W1-2): the raw,
-    non-deduplicated deps.dev ``usedByCount`` (``"verified"``) or the W1-2
-    hook's root-organisation-deduplicated count (``"derived"``). Only the
-    ``"derived"`` value is D-PARAM 2.1's dependents_deduped; the raw count is
-    never exposed under this input id, deduplicated or not.
+    """2.1 Dependents. Reads the root-organisation-deduplicated count (``"derived"``)
+    from ``dependents_count``. Only the ``"derived"`` value is exposed as
+    ``dependents_deduped``.
 
-    2.1 is class TP (02 section 4 row 2.1): ``confidence == "missing"`` means
-    deps.dev/ecosyste.ms returned no ``usedByCount`` at all for this package
-    -- a third-party gap, exactly like 2.3 downloads_monthly's equivalent
-    branch (W2-9f, W1) -- not ``collector_failure`` (reserved here for a
-    genuine local-side fault: an unresolvable envelope, or a value the W1-2
-    hook wrote in a shape this loader cannot parse).
-
-    W1-2f (D-MISS-5): ``ecosystem == "systems"`` always yields
-    ``Unmeasured(not_applicable)`` here, ahead of the confidence check --
-    the fact is about the ecosystem (recorded on the bundle at universe
-    entry, ``ctx.meta["ecosystem"]``), never about what
-    ``cvi.collect.depsdev.collect_dependents`` happened to fetch. W2-13:
-    this row now reads ``constants_v2.NOT_APPLICABLE_RULES`` (the closed,
-    hashed list) instead of an inline check -- one source for "which
-    (parameter, fact, value) triples may assign not_applicable", shared with
-    ``cvi.core.engine``'s guard that downgrades any claim outside it.
-    ``maven`` gets a more specific ``third_party_gap`` detail when nothing
-    was measured: today's gap is that the root ``pom.xml`` was never
-    fetched (the tree envelope carries file paths only, not contents), not
-    that deps.dev/ecosyste.ms lack the package. Any ecosystem outside the
-    rule list and this packet's known mappings still falls to the generic
-    ``third_party_gap``, named, never ``not_applicable``.
-    """
+    Yields ``Unmeasured(not_applicable)`` for ecosystems defined in
+    ``constants.NOT_APPLICABLE_RULES`` (such as ``systems``). Other unmeasured
+    ecosystems yield ``third_party_gap``."""
     ecosystem = ctx.meta.get("ecosystem")
-    for rule_param, fact_name, expected_value in constants_v2.NOT_APPLICABLE_RULES:
+    for rule_param, fact_name, expected_value in constants.NOT_APPLICABLE_RULES:
         if rule_param != "dependents_deduped" or fact_name != "ecosystem":
             continue
         if ecosystem == expected_value:
@@ -1126,11 +1017,11 @@ def _resolve_dependents_deduped(ctx: _V1Ctx) -> Measured | Unmeasured:
 
 
 def _pr_window_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapping[str, Any]], Optional[str]]:
-    """Resolve and read the raw ``pr_window`` envelope (W1-3) once per bundle
+    """Resolve and read the raw ``pr_window`` envelope once per bundle
     load, memoized on ``ctx.cache`` since three rows share it.
 
     Keyed off the ``pr_window_count`` provenance entry: ``derive_pr_window_fields``
-    sets it (confidence ``"verified"``) unconditionally whenever the W1-3 hook
+    sets it (confidence ``"verified"``) unconditionally whenever the collector
     had an envelope to read, so its absence means the hook never ran for this
     repo. Returns ``(None, None, None)`` in that case, or when ``raw_root``
     cannot resolve the recorded source to a readable file.
@@ -1151,13 +1042,13 @@ def _pr_window_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapping[s
 
 
 def _author_history_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapping[str, Any]], Optional[str]]:
-    """Resolve and read the raw ``author_history`` envelope (W1-4) once per
-    bundle load, memoized on ``ctx.cache`` (W3-1f: the D-IN-3 eligibility
-    join for 1.2 DR_90, plus whichever of 1.3/5.2/5.3 read it directly).
+    """Resolve and read the raw ``author_history`` envelope once per
+    bundle load, memoized on ``ctx.cache`` (for the D-IN-3 eligibility
+    join for 1.2 DR_90, plus whichever rows read it directly).
 
     Keyed off the ``author_history_cost_points`` provenance entry:
     ``cvi.collect.github_graphql.derive_cohort_fields`` sets it (confidence
-    ``"verified"``) unconditionally whenever the W1-4 hook had an envelope
+    ``"verified"``) unconditionally whenever the hook had an envelope
     to read, mirroring :func:`_pr_window_envelope`'s own key. Returns
     ``(None, None, None)`` when the hook never ran for this repo, or when
     ``raw_root`` cannot resolve the recorded source to a readable file --
@@ -1182,8 +1073,7 @@ def _author_history_envelope(ctx: _V1Ctx) -> tuple[Optional[Path], Optional[Mapp
 def _pr_window_bounds(data: Optional[Mapping[str, Any]]) -> tuple[Optional[str], Optional[str]]:
     """The pr_window envelope's own ``(start, end)`` as ISO strings, derived
     from its recorded ``window_anchor``/``window_days`` — not a live clock
-    read (04 section 8): both are values the W1-3 collector already stored
-    at its own collection time."""
+    read: both are values the collector already stored at its own collection time."""
     if not isinstance(data, Mapping):
         return None, None
     anchor = data.get("window_anchor")
@@ -1200,7 +1090,7 @@ def _merged_external_latency_hours(data: Mapping[str, Any]) -> list[float]:
 
     Joins the raw pr_window envelope's ``derived`` classifications
     (``is_external``, ``merged``) with its ``prs`` raw nodes (``createdAt``,
-    ``mergedAt``) by PR ``number``: the W1-3 collector records them in two
+    ``mergedAt``) by PR ``number``: the collector records them in two
     separate lists, neither alone carries both facts.
     """
     classified = {
@@ -1223,31 +1113,28 @@ def _merged_external_latency_hours(data: Mapping[str, Any]) -> list[float]:
     return out
 
 
-#: D-IN-4 amendment (2026-09-13, ``docs/v2/02-RANKING-DESIGN.md`` D-IN-4):
-#: the decision-rate cohort is the older half of the W1-3 180 d window, not
+#: D-IN-4 amendment (``docs/v2/02-RANKING-DESIGN.md`` D-IN-4):
+#: the decision-rate cohort is the older half of the 180 d window, not
 #: a second fetch beyond it -- every PR in it has had a full 90 d to be
 #: decided by the time the envelope's own ``window_anchor`` was recorded.
 _DR90_COHORT_START_DAYS = 180
 _DR90_COHORT_END_DAYS = 90
 _DR90_DECISION_WINDOW_DAYS = 90
 
-#: 1.2 DR_90's ``method`` (W3-1f, review W-2): ``"primary"`` once BOTH the
-#: D-IN-3 per-author cap and the eligibility gate apply; ``"proxy:
-#: din3_unapplied"`` when the eligibility gate could not be applied (no
-#: ``author_history`` envelope for this repo -- ``pr_window`` alone carries
-#: no public-event count, so ``is_eligible_account`` would read every
-#: author ineligible and collapse the cohort to n=0; review §3.2). The cap
-#: itself needs only ``(login, createdAt)``, both present on every
-#: ``pr_window`` PR node, so it is UNCONDITIONAL -- applied whether or not
-#: the gate is (review W-1: "the stated reason does not cover [the cap]").
-#: D-MISS-4 reserves ``"proxy:<name>"`` for a documented alternate
-#: methodology (4.1's review/CI proxy is the precedent); an eligibility-
-#: unapplied DR_90 is exactly that: a real, computed rate under a weaker
-#: method than the row's primary definition, and this tag is what lets a
-#: consumer tell the two apart -- the caveat used to live only in a
-#: docstring (review W-2), which nothing downstream could read.
-_DR90_METHOD_PRIMARY = constants_v2.METHOD_PRIMARY
-_DR90_METHOD_GATE_UNAPPLIED = constants_v2.PROXY_METHOD_PREFIX + "din3_unapplied"
+#: 1.2 DR_90's ``method``: ``"primary"`` once BOTH the D-IN-3 per-author
+#: cap and the eligibility gate apply; ``"proxy:din3_unapplied"`` when the
+#: eligibility gate could not be applied (no ``author_history`` envelope
+#: for this repo -- ``pr_window`` alone carries no public-event count, so
+#: ``is_eligible_account`` would read every author ineligible and collapse
+#: the cohort to n=0). The cap itself needs only ``(login, createdAt)``,
+#: both present on every ``pr_window`` PR node, so it is UNCONDITIONAL --
+#: applied whether or not the gate is. D-MISS-4 reserves ``"proxy:<name>"``
+#: for a documented alternate methodology (4.1's review/CI proxy is the
+#: precedent); an eligibility-unapplied DR_90 is a real, computed rate
+#: under a weaker method than the row's primary definition, and this tag
+#: lets consumers distinguish the two.
+_DR90_METHOD_PRIMARY = constants.METHOD_PRIMARY
+_DR90_METHOD_GATE_UNAPPLIED = constants.PROXY_METHOD_PREFIX + "din3_unapplied"
 
 
 def _dr90_author_eligible(
@@ -1255,27 +1142,26 @@ def _dr90_author_eligible(
 ) -> Optional[bool]:
     """D-IN-3 tri-state eligibility for one DR_90 cohort PR's author,
     joined against the ``author_history`` envelope's ``author_records``
-    (W1-4) by ``login``. ``None`` (unknown, excluded from the gated
+    by ``login``. ``None`` (unknown, excluded from the gated
     population) when the login has no author_history record at all (the
     two envelopes' decision-cohort windows do not perfectly coincide -- the
-    W1-4 365 d window's cohort is a superset of pr_window's narrower 1.2
+    365 d window's cohort is a superset of pr_window's narrower 1.2
     band, so a genuine miss should be rare but is not impossible) or when
     its eligibility fetch failed (``eligibility_unmeasured``); otherwise
     ``cvi.core.hygiene.is_eligible_account`` on the record's own
     ``account_created_at``/``public_event_count`` against THIS PR's
     ``createdAt`` (D-IN-3: age is measured at PR creation, not "now").
 
-    ``measured`` reads ONLY ``eligibility_unmeasured`` (W3-1f review X8,
-    decided, not merely tested): DR_90's gate needs exactly the account's
-    age and public-event count, both of which come from the per-author
-    eligibility fetch. ``cvi.collect.github_graphql._account_eligibility``
+    ``measured`` reads ONLY ``eligibility_unmeasured``: DR_90's gate needs
+    exactly the account's age and public-event count, both of which come
+    from the per-author eligibility fetch. ``cvi.collect.github_graphql._account_eligibility``
     ORs in ``history_unmeasured`` too, but that flag means the author's
     PRIOR-MERGE SEARCH failed -- a fact 1.3 (MR_first's "no prior merged
     PR") needs and DR_90 does not. Coupling the two here would exclude an
     author whose eligibility data is perfectly good from DR_90's
     population solely because an unrelated MR_first-only fetch failed for
     them, which is over-strict for this row specifically (the collector's
-    shared helper is correct for ITS OWN use: one call site there serves
+    shared helper is correct for its own use: one call site there serves
     both 1.2 and 1.3 at once, so it must OR every flag either row cares
     about; this join serves 1.2 alone).
 
@@ -1302,14 +1188,14 @@ def _dr90_decision_cohort(
     author_records: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> tuple[int, int, int, int, bool]:
     """1.2 DR_90's cohort and decision count over the raw pr_window envelope,
-    D-IN-3-adjusted (W3-1f).
+    D-IN-3-adjusted.
 
     Joins ``derived[].is_external`` with ``prs[].{createdAt,mergedAt,closedAt,
     author}`` by PR ``number`` -- the same by-number join
     :func:`_merged_external_latency_hours` uses for 1.5. The cohort is every
     external PR whose ``createdAt`` falls in the half-open interval
     ``[anchor - 180d, anchor - 90d)``: the lower bound is inclusive (a PR
-    opened exactly 180 d ago is still inside the W1-3 collector's trailing
+    opened exactly 180 d ago is still inside the collector's trailing
     window), the upper bound is exclusive (a PR opened exactly 90 d ago has
     not yet had the full 90 d every cohort member is owed to be decided, so
     it is left for a later snapshot rather than measured early -- this is
@@ -1319,12 +1205,12 @@ def _dr90_decision_cohort(
     name it in an ``insufficient_n`` detail instead of silently shrinking
     ``n`` with no explanation.
 
-    D-IN-3 (review W-1): when ``author_records`` is given (an
-    ``author_history`` envelope was collected for this repo), each cohort
-    PR's author is checked with :func:`_dr90_author_eligible`, keeping only
-    the ``True`` ones (a ``None`` -- unmeasured or unmatched -- is excluded
-    from the population entirely, never assumed eligible, the same
-    principle ``cvi.collect.github_graphql`` applies throughout W1-4).
+    D-IN-3: when ``author_records`` is given (an ``author_history`` envelope
+    was collected for this repo), each cohort PR's author is checked with
+    :func:`_dr90_author_eligible`, keeping only the ``True`` ones (a ``None`` --
+    unmeasured or unmatched -- is excluded from the population entirely,
+    never assumed eligible, the same principle ``cvi.collect.github_graphql``
+    applies throughout author history collection).
     Whether or not the gate is applied, the survivors are then run through
     :func:`cvi.core.hygiene.apply_author_cap` keyed on ``(login,
     createdAt)`` -- both present on every ``pr_window`` node regardless of
@@ -1340,14 +1226,13 @@ def _dr90_decision_cohort(
     AFTER the date window and (if applied) the eligibility gate but BEFORE
     the cap; ``capped_cohort_size`` is the (gated and) capped count.
 
-    W3-1f (review B-1, corrected): ``PARAM_MIN_N`` is checked against
-    ``capped_cohort_size`` -- the SAME number the ``Measured.n`` this
-    packet reports carries, and therefore the same number
-    ``cvi.core.params.curves._apply`` re-checks against its own
-    ``min_n`` when the record is scored. Checking a DIFFERENT number
+    ``PARAM_MIN_N`` is checked against ``capped_cohort_size`` -- the same
+    number the ``Measured.n`` reports, and therefore the same number
+    ``cvi.core.params.curves._apply`` re-checks against its own ``min_n``
+    when the record is scored. Checking a different number
     (``raw_cohort_size``) at the resolver than the record itself reports
-    let a Measured value through here that the param layer immediately
-    re-rejected as ``insufficient_n`` anyway -- with no detail, since
+    would let a Measured value through that the param layer immediately
+    re-rejects as ``insufficient_n`` anyway -- with no detail, since
     ``ParamScore`` carries none -- silently converting the very
     manipulation this cap exists to correct back into missing data. The
     degenerate case that motivated the split (a small, undominated
@@ -1412,26 +1297,23 @@ def _dr90_decision_cohort(
 
 
 def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """1.2 DR_90 decision rate (D-IN-4 amendment, 2026-09-13; D-IN-3
-    per-author cap and eligibility gate, W3-1f). No v1 summary field
-    exists for this cohort (the v1 pipeline never computed it): both the
-    value and ``n`` are computed here from the raw pr_window envelope via
-    :func:`_dr90_decision_cohort`, D-IN-3-adjusted against the
-    ``author_history`` envelope (W1-4) when one was collected for this
-    repo; see :data:`_DR90_METHOD_PRIMARY`/:data:`_DR90_METHOD_GATE_UNAPPLIED`
-    for how the two cases are told apart downstream.
+    """1.2 DR_90 decision rate (D-IN-4 amendment; D-IN-3 per-author cap and
+    eligibility gate). No v1 summary field exists for this cohort (the v1
+    pipeline never computed it): both the value and ``n`` are computed here
+    from the raw pr_window envelope via :func:`_dr90_decision_cohort`,
+    D-IN-3-adjusted against the ``author_history`` envelope when one was
+    collected for this repo; see :data:`_DR90_METHOD_PRIMARY` and
+    :data:`_DR90_METHOD_GATE_UNAPPLIED` for how the two cases are told apart
+    downstream.
 
-    Note (review N-3, resolved W3-1f notes item 4): ``cvi.collect.
-    github_graphql.derive_cohort_fields`` computes a DIFFERENT number over
-    the ``author_history`` envelope's wider (270 d) decision-cohort
-    definition, now named ``meta["dr90_decision_rate_author_history_
-    cohort"]`` specifically so it can never be confused with THIS row
-    (picked over making this resolver read that field instead: the two
-    are genuinely different cohorts, not two computations of the same
-    one). This resolver does not read that field: it recomputes the cap
-    and gate directly against ``pr_window``'s narrower (180 d,
-    D-IN-4-amended) cohort, which is the row this packet's own oracle 1 is
-    written against and the one W2-12 wired live.
+    Note: ``cvi.collect.github_graphql.derive_cohort_fields`` computes a
+    different number over the ``author_history`` envelope's wider (270 d)
+    decision-cohort definition, named
+    ``meta["dr90_decision_rate_author_history_cohort"]`` specifically so it
+    cannot be confused with this row (the two are genuinely different
+    cohorts, not two computations of the same one). This resolver does not
+    read that field: it recomputes the cap and gate directly against
+    ``pr_window``'s narrower (180 d, D-IN-4-amended) cohort.
     """
     path, data, fetched_at = _pr_window_envelope(ctx)
     if path is None:
@@ -1451,7 +1333,7 @@ def _resolve_dr90_decision_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
             if isinstance(record, Mapping)
         }
     decided, cohort, raw_cohort, malformed, gate_applied = _dr90_decision_cohort(data, anchor, author_records)
-    min_n = constants_v2.PARAM_MIN_N["dr90_decision_rate"]
+    min_n = constants.PARAM_MIN_N["dr90_decision_rate"]
     if cohort < min_n:
         detail = (
             f"{cohort} external PRs in the decision cohort ({raw_cohort} before the D-IN-3 "
@@ -1487,7 +1369,7 @@ _PR_WINDOW_UNRESOLVABLE_DETAIL = (
 
 
 def _resolve_ttfhr_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """1.1 TTFHR. Reads the W1-3 ``pr_window_ttfhr_median_hours`` /
+    """1.1 TTFHR. Reads the ``pr_window_ttfhr_median_hours`` /
     ``pr_window_external_measured_latency_count`` summary fields the derive
     hook already writes (``cvi.collect.github_graphql.derive_pr_window_fields``);
     no raw-envelope join needed for the value or ``n``, only to resolve
@@ -1497,7 +1379,7 @@ def _resolve_ttfhr_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
     n_value = ctx.meta.get("pr_window_external_measured_latency_count")
     n = n_value if isinstance(n_value, int) and not isinstance(n_value, bool) else 0
-    min_n = constants_v2.PARAM_MIN_N["ttfhr_hours"]
+    min_n = constants.PARAM_MIN_N["ttfhr_hours"]
     if n < min_n:
         return Unmeasured(reason="insufficient_n",
                            detail=f"{n} external PRs with a measured TTFHR, need >= {min_n}")
@@ -1514,7 +1396,7 @@ def _resolve_ttfhr_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
 
 
 def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """4.3 Substantive review rate. The rate itself is the W1-3
+    """4.3 Substantive review rate. The rate itself is the
     ``pr_window_substantive_review_rate`` summary field; ``n`` (decided
     external PRs) has no summary field and is counted from the raw
     envelope's ``derived`` classifications."""
@@ -1526,7 +1408,7 @@ def _resolve_substantive_review_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
         if isinstance(entry, Mapping) and entry.get("is_external") and entry.get("decided")
     ]
     n = len(decided_external)
-    min_n = constants_v2.PARAM_MIN_N["substantive_review_rate"]
+    min_n = constants.PARAM_MIN_N["substantive_review_rate"]
     if n < min_n:
         return Unmeasured(reason="insufficient_n",
                            detail=f"{n} decided external PRs, need >= {min_n}")
@@ -1552,7 +1434,7 @@ def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
         return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
     latencies = _merged_external_latency_hours(data)
     n = len(latencies)
-    min_n = constants_v2.PARAM_MIN_N["ttm_p90_hours"]
+    min_n = constants.PARAM_MIN_N["ttm_p90_hours"]
     if n < min_n:
         return Unmeasured(reason="insufficient_n",
                            detail=f"{n} merged external PRs with recorded latency, need >= {min_n}")
@@ -1569,9 +1451,8 @@ def _resolved_source_paths(source_field: Any, raw_root: Union[Path, str, None]) 
     """Resolve a provenance ``source`` *list* to the subset of entries that
     exist as envelopes; ``[]`` when ``source_field`` is not a non-empty list.
 
-    ``openssf_signals`` and ``pipeline_defenses`` (W2-9f, W1-7) are the only
-    two rows whose W1-7 derive hook (``cvi.collect.pike_signals.
-    derive_w17_fields``) records more than one contributing envelope path
+    ``openssf_signals`` and ``pipeline_defenses`` are the only two rows
+    whose derive hook records more than one contributing envelope path
     under one provenance entry -- every other row's ``source`` is a single
     string (:func:`_first_source`)."""
     if not isinstance(source_field, list) or not source_field:
@@ -1579,25 +1460,24 @@ def _resolved_source_paths(source_field: Any, raw_root: Union[Path, str, None]) 
     return [path for path in (_resolve_envelope(s, raw_root) for s in source_field) if path is not None]
 
 
-#: D-MISS-5 consequence for 2.2 (02 section 5, W2-13): the method string when
+#: D-MISS-5 consequence for 2.2: the method string when
 #: the Pike score is computed without a dependents signal, renormalised.
 _OPENSSF_PROXY_METHOD: str = "proxy:no_dependents_signal"
 
 
 def _resolve_openssf_criticality_proxy(ctx: _V1Ctx) -> Optional["Measured | Unmeasured"]:
-    """D-MISS-5 consequence for 2.2 (02 section 5, W2-13): the
-    ``proxy:no_dependents_signal`` path, tried when the full ten-signal set
-    was never emitted (``_resolve_openssf_criticality``'s caller only
-    reaches here when ``confidence["openssf_signals"]`` is not
-    ``"derived"``).
+    """D-MISS-5 consequence for 2.2: the ``proxy:no_dependents_signal`` path,
+    tried when the full ten-signal set was never emitted
+    (``_resolve_openssf_criticality``'s caller only reaches here when
+    ``confidence["openssf_signals"]`` is not ``"derived"``).
 
     Reuses :func:`_resolve_dependents_deduped`'s own resolution of the
     dependents fact -- one source for "why is the dependents signal
     unusable" -- rather than a second copy of its ecosystem/confidence
     branching: the two rows read the identical underlying collector fact
-    (module docstring's "dependents_count | dependents | the W1-2 deduped
-    count", ``02`` section 5). Returns ``None`` (fall through to the
-    caller's generic gap) when dependents was actually measured (this row's
+    (module docstring's "dependents_count | dependents | deduplicated
+    count"). Returns ``None`` (fall through to the caller's generic gap)
+    when dependents was actually measured (this row's
     ``openssf_signals_partial`` companion could then only be a hand-built or
     corrupted document, never production output) or when its own reason
     (e.g. an ``insufficient_n`` D-MISS-1 doesn't define for 2.1) offers
@@ -1625,7 +1505,7 @@ def _resolve_openssf_criticality_proxy(ctx: _V1Ctx) -> Optional["Measured | Unme
         openssf.SIGNAL_FIELDS[name] for name in missing_field_names if name in openssf.SIGNAL_FIELDS
     )
     present_count = len(openssf.SIGNAL_FIELDS) - len(missing_short_names)
-    if present_count < constants_v2.OPENSSF_PROXY_MIN_SIGNALS:
+    if present_count < constants.OPENSSF_PROXY_MIN_SIGNALS:
         return Unmeasured(reason="insufficient_n", detail=f"{present_count} of 10 signals")
 
     bad = [
@@ -1656,26 +1536,23 @@ def _resolve_openssf_criticality_proxy(ctx: _V1Ctx) -> Optional["Measured | Unme
 
 
 def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """2.2 OpenSSF criticality (W1-7, W2-9f). Reads the W1-7
-    ``meta.openssf_signals`` dict (``cvi.collect.pike_signals.
-    derive_w17_fields``: the ten raw Pike signals, written with confidence
-    ``"derived"`` only when all ten source envelopes were available --
-    D-MISS-1/02 section 4 row 2.2: never a partial score, class TP "only if
-    a signal is missing") and computes C in [0, 1] via
-    :func:`cvi.core.openssf.calculate_pike_criticality` (W2-9g: the one
+    """2.2 OpenSSF criticality. Reads the ``meta.openssf_signals`` dict
+    (``cvi.collect.pike_signals.derive_pike_signals``: the ten raw Pike signals,
+    written with confidence ``"derived"`` only when all ten source envelopes were
+    available -- D-MISS-1: never a partial score, class TP "only if a signal is
+    missing") and computes C in [0, 1] via
+    :func:`cvi.core.openssf.calculate_pike_criticality` (the one
     definition of the formula; ``cvi.derive`` imports ``cvi.core`` and
     stdlib only, and this module is itself both). A ``meta.openssf_signals``
-    dict missing (or non-
-    numeric) one of the ten fields is defensive: production's
+    dict missing (or non-numeric) one of the ten fields is defensive: production's
     ``derive_pike_signals`` never emits a partial dict, but a hand-built or
     corrupted document might, and 2.2's whole-set-or-nothing rule must hold
     for it too -- the first missing field is named in the detail.
 
-    W2-13 (D-MISS-5 consequence for 2.2, 02 section 5): when the full set
-    was never emitted, :func:`_resolve_openssf_criticality_proxy` is tried
-    before the generic gap below -- when the dependents signal specifically
+    When the full set was never emitted, :func:`_resolve_openssf_criticality_proxy`
+    is tried before the generic gap below -- when the dependents signal specifically
     (``not_applicable``/``third_party_gap``) is why, and at least
-    ``constants_v2.OPENSSF_PROXY_MIN_SIGNALS`` of the ten are present, this
+    ``constants.OPENSSF_PROXY_MIN_SIGNALS`` of the ten are present, this
     row is ``Measured(method="proxy:no_dependents_signal")`` instead of
     Unmeasured; a dependents ``collector_failure`` still leaves 2.2
     ``Unmeasured(collector_failure)`` (a retry can still measure it)."""
@@ -1706,17 +1583,14 @@ def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
         for path in paths:
             ctx.referenced[_relative_source(path, ctx.raw_root)] = _envelope_hash(path)
         return Measured(value=round(openssf.calculate_pike_criticality(signals), 4), n=0, window_start=None,
-                         window_end=None, method=constants_v2.METHOD_PRIMARY,
+                         window_end=None, method=constants.METHOD_PRIMARY,
                          source=_relative_source(paths[0], ctx.raw_root),
                          source_hash=_envelope_hash(paths[0]), fetched_at=fetched_at)
     if confidence_value == "collector_failure":
-        # W1-7f items 1 and 3: cvi.collect.pike_signals.derive_w17_fields
-        # (crashed, or found a windowed count's own fetch-time window_anchor
-        # more than WINDOW_STALENESS_DAYS from as_of) recorded this sentinel
-        # itself, with the specific reason in the companion detail field --
-        # the generic "not recognized" fallback message below would discard
-        # that reason and read as if the confidence value were unexpected
-        # rather than deliberately set.
+        # Pike signals deriver recorded this sentinel itself, with the specific
+        # reason in the companion detail field -- the generic "not recognized"
+        # fallback message below would discard that reason and read as if the
+        # confidence value were unexpected rather than deliberately set.
         detail = ctx.meta.get("openssf_signals_detail")
         return Unmeasured(reason="collector_failure",
                            detail=detail if isinstance(detail, str) and detail else "pike_signals collector failed")
@@ -1733,14 +1607,13 @@ def _resolve_openssf_criticality(ctx: _V1Ctx) -> Measured | Unmeasured:
                        detail=f"v1 confidence {confidence_value!r} for 'openssf_signals' is not recognized")
 
 
-#: ``cvi.collect.pike_signals.METHOD_PROXY``, mirrored (04 section 3: same
-#: import restriction as :data:`_OPENSSF_WEIGHTS`) -- the review/CI proxy
-#: method string 4.1 stores when no scorecard subset is usable.
+#: Mirror of review/CI proxy method string stored when no scorecard
+#: subset is usable.
 _PIPELINE_DEFENSES_PROXY_METHOD: str = "proxy:review_ci"
 
 
 def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """4.1 Pipeline defenses (W1-7, W2-9f). Reads the pre-computed W1-7
+    """4.1 Pipeline defenses. Reads the pre-computed
     ``meta.pipeline_defenses`` / ``meta.pipeline_defenses_method`` fields
     (``cvi.collect.pike_signals.pipeline_defenses``): method ``"primary"``
     (Scorecard 5-check mean, one scorecard envelope, n=0 -- a scalar) or
@@ -1748,14 +1621,12 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
     and runs envelopes). ``n`` for the proxy method is the merged-PR count
     backing the review-rate denominator (``cvi.collect.pike_signals.
     code_review_rate``), read from the pr_window envelope's own ``prs`` list
-    -- 02 section 4 row 4.1's 10-merged-PR minimum sample applies to the
-    proxy method only (``cvi.core.params.rigor._PIPELINE.proxy_min_n``).
+    -- 10-merged-PR minimum sample applies to the proxy method only
+    (``cvi.core.params.rigor._PIPELINE.proxy_min_n``).
 
-    Unlike every other v1 field, ``scripts/derive.py`` never calls
-    ``Bundle.missing`` for this one: when 4.1 is unmeasurable by either
-    method, its confidence key is simply absent from the v1 document (not
-    the string ``"missing"``) -- both are treated as the same TP absence
-    here (02 section 4 row 4.1: "TP with proxy")."""
+    When 4.1 is unmeasurable by either method, its confidence key is simply
+    absent from the v1 document (not the string ``"missing"``) -- both are
+    treated as the same TP absence here."""
     confidence_value = ctx.confidence.get("pipeline_defenses")
     value = ctx.meta.get("pipeline_defenses")
     method = ctx.meta.get("pipeline_defenses_method")
@@ -1763,7 +1634,7 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
     source_field = entry.get("source") if isinstance(entry, Mapping) else None
     fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
     value_ok = isinstance(value, (int, float)) and not isinstance(value, bool)
-    method_ok = method in (constants_v2.METHOD_PRIMARY, _PIPELINE_DEFENSES_PROXY_METHOD)
+    method_ok = method in (constants.METHOD_PRIMARY, _PIPELINE_DEFENSES_PROXY_METHOD)
     if confidence_value in ("verified", "derived", "flag") and value_ok and method_ok:
         paths = _resolved_source_paths(source_field, ctx.raw_root)
         if not paths or not isinstance(fetched_at, str) or not fetched_at:
@@ -1787,10 +1658,8 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
                    "derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
         )
     if confidence_value == "collector_failure":
-        # W1-7f item 1: pike_signals.derive_w17_fields crashed before it
-        # could report either method for this repo -- the companion detail
-        # field names the exception (set alongside this sentinel; see
-        # _resolve_openssf_criticality's identical branch).
+        # Pike signals deriver crashed before it could report either method
+        # for this repo -- the companion detail field names the exception.
         detail = ctx.meta.get("pipeline_defenses_detail")
         return Unmeasured(reason="collector_failure",
                            detail=detail if isinstance(detail, str) and detail else "pike_signals collector failed")
@@ -1801,14 +1670,13 @@ def _resolve_pipeline_defenses(ctx: _V1Ctx) -> Measured | Unmeasured:
 def _author_history_rate_resolver(
     rate_field: str, count_field: str, detail_field: str, *, unset_detail: str, count_unit: str = "authors",
 ) -> InputResolver:
-    """W3-1f (review W-4/F-004/C1e): read-through resolver for the three
-    D-IN-3-adjusted cohort rates ``cvi.collect.github_graphql.
-    derive_cohort_fields`` (W1-4/W3-1) computes straight from the
-    ``author_history`` envelope -- ``mr_first_rate``, ``newcomer_conversion``,
+    """Read-through resolver for the three D-IN-3-adjusted cohort rates
+    ``cvi.collect.github_graphql.derive_cohort_fields`` computes straight from
+    the ``author_history`` envelope -- ``mr_first_rate``, ``newcomer_conversion``,
     ``rr90_return_rate`` -- the same way :func:`_plain_scalar_resolver`
-    reads every other v1-precomputed scalar (unlike ``dr90_decision_rate``,
+    reads other precomputed scalars (unlike ``dr90_decision_rate``,
     none of these three has its own live pr_window-based resolver yet, so
-    there is no "one name two values" ambiguity here to resolve).
+    there is no ambiguity to resolve).
 
     - confidence ``"derived"`` (the collector's own unmeasured-fraction
       gate did not fire): ``Measured`` from ``meta[rate_field]``, ``n``
@@ -1818,28 +1686,23 @@ def _author_history_rate_resolver(
       confidence), which reads as ``insufficient_n``, never
       ``collector_failure``: a real, checked, empty cohort is not a
       collector defect.
-    - confidence ``"missing"`` (the gate DID fire: too many cohort/
+    - confidence ``"missing"`` (the gate fired: too many cohort/
       newcomer authors have no eligibility data to trust the adjusted
-      rate): ``Unmeasured(collector_failure, ...)`` with the REAL,
-      dynamic, per-repo detail carried in ``meta[detail_field]`` (F-004:
-      "k of n authors unmeasured") -- never the static ``unset_detail``,
-      which would hide that a collector FAILURE, not an absent collector,
-      is why this row has no value (review C1e: this mapping did not
-      exist at all before W3-1f, so ``collector_failure`` was never
-      emitted for this gate).
+      rate): ``Unmeasured(collector_failure, ...)`` with the dynamic,
+      per-repo detail carried in ``meta[detail_field]`` -- never the static
+      ``unset_detail``, which would hide that a collector failure, not an
+      absent collector, is why this row has no value.
     - confidence absent entirely (no ``author_history`` envelope was
-      collected for this repo -- ``derive_cohort_fields`` returned ``{}``
-      -- or a v1 run predating W1-4): ``Unmeasured(collector_failure,
-      unset_detail)``, the STATIC message identifying the missing
-      collector itself.
+      collected for this repo or an older run predating the collector):
+      ``Unmeasured(collector_failure, unset_detail)``, the static message
+      identifying the missing collector itself.
     - any other confidence value: the same "not recognized" fallback
       :func:`_plain_scalar_resolver` uses.
 
-    ``count_unit`` (W3-1f review N-2) names what ``count_field`` counts in
-    the ``insufficient_n`` detail -- ``"authors"`` for ``newcomer_
-    conversion``/``rr90_return_rate`` (``02``'s own unit for 5.2/5.3), but
-    ``mr_first_rate``'s ``mr_first_pr_count`` counts PRs, not authors, so
-    that row passes ``count_unit="PRs"``.
+    ``count_unit`` names what ``count_field`` counts in the
+    ``insufficient_n`` detail -- ``"authors"`` for newcomer conversion
+    and retention rate, but ``mr_first_rate``'s ``mr_first_pr_count`` counts
+    PRs, not authors, so that row passes ``count_unit="PRs"``.
     """
 
     def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
@@ -1848,7 +1711,7 @@ def _author_history_rate_resolver(
             value = ctx.meta.get(rate_field)
             count = ctx.meta.get(count_field)
             count_ok = isinstance(count, int) and not isinstance(count, bool)
-            min_n = constants_v2.PARAM_MIN_N.get(rate_field)
+            min_n = constants.PARAM_MIN_N.get(rate_field)
             if count_ok and min_n is not None and count < min_n:
                 return Unmeasured(
                     reason="insufficient_n",
@@ -1901,28 +1764,28 @@ def _unmapped(detail: str) -> InputResolver:
     return resolve
 
 
-#: The v2 input mapping table (W2-9): one resolver per
-#: ``constants_v2.PARAM_INPUT_IDS`` entry, in the same pillar order.
+#: The v2 input mapping table: one resolver per
+#: ``constants.PARAM_INPUT_IDS`` entry, in the same pillar order.
 #:
 #: | Input id | Reads | When absent |
 #: |---|---|---|
-#: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count (W1-3) | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
-#: | dr90_decision_rate | raw pr_window envelope: derived[].is_external joined with prs[].{createdAt,mergedAt,closedAt} by number, cohort [anchor-180d,anchor-90d) (W2-12, D-IN-4 amendment) | no envelope -> collector_failure; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
-#: | mr_first_rate | meta.mr_first_rate + .mr_first_pr_count (D-IN-3-adjusted, W1-4/W3-1f) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
-#: | gr14_ghost_rate | (none landed) | collector_failure: needs a snapshot as_of the v1-to-v2 loader is never given (04 section 8) |
-#: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number (W1-3) | no envelope -> collector_failure; n<5 -> insufficient_n |
-#: | dependents_deduped | meta.dependents_count when confidence=="derived" (W1-2 dependents hook); meta.ecosystem gates it (W1-2f) | ecosystem=="systems" -> not_applicable (D-MISS-5); verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap, maven detail names the uncollected pom.xml, unmapped ecosystem detail names it (W2-9f, W1-2f) |
-#: | openssf_criticality | meta.openssf_signals, ten raw Pike signals (W1-7); C computed locally (mirrored, 04 section 3) | confidence missing, or any signal absent -> third_party_gap (never a partial score) |
-#: | downloads_monthly | meta.monthly_downloads; meta.downloads_status (W1-8) refines the Unmeasured detail | third_party_gap, detail per downloads_status |
-#: | legal_ip | meta.legal_ip_model, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection (W2-9f, W5) |
-#: | elephant_factor | meta.elephant_factor (W1-5 override already lands here) | collector_failure |
-#: | promotion_ladder | meta.promotion_ladder, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection (W2-9f, W5) |
-#: | pipeline_defenses | meta.pipeline_defenses + .pipeline_defenses_method (W1-7): "primary" (scorecard) or "proxy:review_ci" (n = merged PRs) | confidence absent or missing -> third_party_gap (TP with proxy) |
-#: | ai_posture | meta.ai_posture, vocab-validated against constants_v2.AI_POSTURE_VALUES (identity map, W2-9f, W4) | collector_failure; an out-of-set value is collector_failure too, never Measured |
-#: | substantive_review_rate | meta.pr_window_substantive_review_rate (W1-3); n from the raw envelope | no envelope -> collector_failure; n<10 -> insufficient_n |
-#: | newcomer_issue_supply | meta.active_unclaimed_gfis (W1-1 recount already lands here) | collector_failure |
-#: | newcomer_conversion | meta.newcomer_conversion + .newcomer_conversion_author_count (D-IN-3-adjusted, W1-4/W3-1f) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
-#: | rr90_return_rate | meta.rr90_return_rate + .rr90_return_author_count (D-IN-3-adjusted, W1-4/W3-1f) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
+#: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
+#: | dr90_decision_rate | raw pr_window envelope: derived[].is_external joined with prs[].{createdAt,mergedAt,closedAt} by number, cohort [anchor-180d,anchor-90d) (D-IN-4 amendment) | no envelope -> collector_failure; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
+#: | mr_first_rate | meta.mr_first_rate + .mr_first_pr_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
+#: | gr14_ghost_rate | (none landed) | collector_failure: needs a snapshot as_of the v1-to-v2 loader is never given |
+#: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number | no envelope -> collector_failure; n<5 -> insufficient_n |
+#: | dependents_deduped | meta.dependents_count when confidence=="derived" (dependents hook); meta.ecosystem gates it | ecosystem=="systems" -> not_applicable (D-MISS-5); verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap, maven detail names the uncollected pom.xml, unmapped ecosystem detail names it |
+#: | openssf_criticality | meta.openssf_signals, ten raw Pike signals; C computed locally | confidence missing, or any signal absent -> third_party_gap (never a partial score) |
+#: | downloads_monthly | meta.monthly_downloads; meta.downloads_status refines the Unmeasured detail | third_party_gap, detail per downloads_status |
+#: | legal_ip | meta.legal_ip, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
+#: | elephant_factor | meta.elephant_factor | collector_failure |
+#: | promotion_ladder | meta.promotion_ladder, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
+#: | pipeline_defenses | meta.pipeline_defenses + .pipeline_defenses_method: "primary" (scorecard) or "proxy:review_ci" (n = merged PRs) | confidence absent or missing -> third_party_gap (TP with proxy) |
+#: | ai_posture | meta.ai_posture, vocab-validated against constants.AI_POSTURE_VALUES (identity map) | collector_failure; an out-of-set value is collector_failure too, never Measured |
+#: | substantive_review_rate | meta.pr_window_substantive_review_rate; n from the raw envelope | no envelope -> collector_failure; n<10 -> insufficient_n |
+#: | newcomer_issue_supply | meta.active_unclaimed_gfis | collector_failure |
+#: | newcomer_conversion | meta.newcomer_conversion + .newcomer_conversion_author_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
+#: | rr90_return_rate | meta.rr90_return_rate + .rr90_return_author_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
 #: | dx | (none landed) | collector_failure: v1 has CI runtime only, not the setup-signal half |
 INPUT_MAPPINGS: dict[str, InputResolver] = {
     "ttfhr_hours": _resolve_ttfhr_hours,
@@ -1941,35 +1804,19 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     "dependents_deduped": _resolve_dependents_deduped,
     "openssf_criticality": _resolve_openssf_criticality,
     "downloads_monthly": _resolve_downloads_monthly,
-    # W1-6 round 3 (Blocker BB3): "legal_ip" now reads W1-6's own bare
-    # "legal_ip" field (identity vocab -- classify_legal_ip already returns
-    # exactly constants_v2.LEGAL_IP_VALUES spellings), never the v1
-    # "legal_ip_model" regex heuristic it was built to replace -- a repo
-    # W1-6 measured FOUNDATION_CLA must not publish to v2 as Measured('DCO')
-    # from the abandoned heuristic. No legacy fallback: "legal_ip_model"'s
-    # CORP_CLA_RECIPROCAL/CORP_CLA_UNILATERAL split has no v2 counterpart to
-    # fall back to (tests/derive/test_input_mappings.py::test_legal_ip and
-    # ::test_legal_ip_unmappable_enum_over_correction_guard assert the old
-    # "legal_ip_model" wiring and now fail by design -- reported, not fixed
-    # here; W1_LEGAL_IP_VALUES above is unused as of this row and is left
-    # for that packet to retire).
+    # "legal_ip" reads the bare "legal_ip" field (identity vocab matching
+    # constants.LEGAL_IP_VALUES), rather than the legacy regex heuristic.
     "legal_ip": _vocab_scalar_resolver(
-        "legal_ip", {value: value for value in constants_v2.LEGAL_IP_VALUES}),
+        "legal_ip", {value: value for value in constants.LEGAL_IP_VALUES}),
     "elephant_factor": _plain_scalar_resolver("elephant_factor"),
-    # W1-6 round 3 (Blocker BB3): "promotion_ladder" now accepts BOTH the v2
-    # vocabulary as identity (VERIFIED/DOCUMENTED/AD_HOC/CLOSED -- what
-    # W1-6's classify_promotion_ladder actually writes into this same bare
-    # field) and the legacy v1 spellings via V1_LADDER_VALUES (a fallback
-    # for any document not yet re-derived under W1-6 -- e.g. an old v1-only
-    # spelling VERIFIED_PROMOTION/DOCUMENTED_PATHWAY/CLOSED_SINGLE_FIRM).
-    # Before this row, VERIFIED/DOCUMENTED (genuine evidence) resolved to
-    # Unmeasured while AD_HOC (no evidence) alone resolved Measured, purely
-    # because the two vocabularies happen to spell "AD_HOC" the same way.
+    # "promotion_ladder" accepts both the current vocabulary as identity
+    # (VERIFIED/DOCUMENTED/AD_HOC/CLOSED) and the legacy v1 spellings via
+    # V1_LADDER_VALUES as a fallback.
     "promotion_ladder": _vocab_scalar_resolver(
         "promotion_ladder",
-        {**V1_LADDER_VALUES, **{value: value for value in constants_v2.PROMOTION_LADDER_VALUES}}),
+        {**V1_LADDER_VALUES, **{value: value for value in constants.PROMOTION_LADDER_VALUES}}),
     "pipeline_defenses": _resolve_pipeline_defenses,
-    "ai_posture": _vocab_scalar_resolver("ai_posture", {value: value for value in constants_v2.AI_POSTURE_VALUES}),
+    "ai_posture": _vocab_scalar_resolver("ai_posture", {value: value for value in constants.AI_POSTURE_VALUES}),
     "substantive_review_rate": _resolve_substantive_review_rate,
     "newcomer_issue_supply": _plain_scalar_resolver("active_unclaimed_gfis"),
     "newcomer_conversion": _author_history_rate_resolver(
@@ -1983,30 +1830,24 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     "dx": _unmapped("v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only"),
 }
 
-assert set(INPUT_MAPPINGS) == set(constants_v2.PARAM_INPUT_IDS), (
-    "INPUT_MAPPINGS must carry exactly one row per v2 input id"
-)
+if set(INPUT_MAPPINGS) != set(constants.PARAM_INPUT_IDS):
+    raise ValueError("INPUT_MAPPINGS must carry exactly one row per v2 input id")
 
 
 # --------------------------------------------------------------------------- #
-# W1-10: universe-entry star-velocity pass-through (D-IN-5, `03` section 6). #
+# Universe-entry star-velocity pass-through (D-IN-5).                         #
 #                                                                              #
-# star_velocity_flag/stars_audited are NOT one of the 18 v2 parameter        #
-# inputs -- D-IN-5 states plainly "Stars never enter the composite", and     #
-# INPUT_MAPPINGS' own assert above closes `FeatureBundle.inputs` at exactly  #
-# `constants_v2.PARAM_INPUT_IDS`, so these two facts can never be a row      #
-# there. Nor is `cvi.core.models.RepoIdentity` (or any other FeatureBundle   #
-# field) extended to carry them: `cvi/core/models.py` is out of this        #
-# packet's ownership. This table is the "meta pass-through" a caller reads  #
-# instead -- same _V1Ctx-based resolver shape as INPUT_MAPPINGS, built from #
-# the identical v1 meta/provenance/confidence dicts `scripts/derive.py`'s   #
-# universe hook writes into (`cvi.collect.universe.star_velocity_evidence`  #
-# via `scripts/build_universe.py`, `star_velocity_flag`/`stars_audited`).   #
-# `cvi.verify.detectors.DetectorInputs.star_lockstep_penalty_applied` (the  #
-# `star_burst` detector's only input) and `cvi.store.writer`'s              #
-# `stars_audited` column (G-006) are its two consumers -- see              #
-# `resolve_universe_meta_facts` below for the public entry point a future  #
-# packet (W4-4) calls alongside `load_bundle` for the same document.        #
+# star_velocity_flag/stars_audited are NOT one of the 18 parameter inputs -- #
+# D-IN-5 states plainly "Stars never enter the composite", and                #
+# INPUT_MAPPINGS' own assert closes `FeatureBundle.inputs` at exactly          #
+# `constants.PARAM_INPUT_IDS`, so these two facts cannot be a row there.     #
+# This table is the "meta pass-through" a caller reads instead -- same         #
+# _V1Ctx-based resolver shape as INPUT_MAPPINGS, built from the v1            #
+# meta/provenance/confidence dicts written during universe collection         #
+# (`star_velocity_flag`/`stars_audited`).                                     #
+# `cvi.verify.detectors.DetectorInputs.star_lockstep_penalty_applied` (the     #
+# `star_burst` detector's input) and `cvi.store.writer`'s `stars_audited`      #
+# column are its consumers -- see `resolve_universe_meta_facts` below.        #
 # --------------------------------------------------------------------------- #
 
 
@@ -2083,12 +1924,11 @@ def _pr_event_or_none(
     entry: Mapping[str, Any], index: int, problems: list[str]
 ) -> Optional[PRWindowEvent]:
     """One ``PRWindowEvent`` from a raw v1 ``pr_events`` entry, or ``None``
-    for a ghost/deleted-account event (W2-9): GitHub returns an empty
+    for a ghost/deleted-account event: GitHub returns an empty
     ``author_login`` for these and ``PRWindowEvent`` requires a non-empty one
     (it is an author-keyed record). Other malformed events still append to
-    ``problems`` (pre-W2-9 behaviour, unchanged: the whole bundle is
-    rejected) and also return ``None``; the caller tells the two apart by
-    checking ``author_login`` itself.
+    ``problems`` (the whole bundle is rejected) and also return ``None``; the
+    caller tells the two apart by checking ``author_login`` itself.
     """
     if not entry.get("author_login"):
         return None
@@ -2158,12 +1998,12 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
     ctx = _V1Ctx(meta=meta, provenance=provenance, confidence=confidence, raw_root=raw_root,
                  problems=problems, referenced=referenced)
     inputs: dict[str, Measured | Unmeasured] = {
-        input_id: INPUT_MAPPINGS[input_id](ctx) for input_id in constants_v2.PARAM_INPUT_IDS
+        input_id: INPUT_MAPPINGS[input_id](ctx) for input_id in constants.PARAM_INPUT_IDS
     }
-    # W1-5f: computed here (not via an INPUT_MAPPINGS row -- neither fact is
-    # one of the 18 scored inputs) so the commits envelope it reads is
-    # resolved, hashed and folded into ctx.referenced before provenance_hash
-    # is computed below from that same dict.
+    # Computed here (not via an INPUT_MAPPINGS row -- neither fact is one of
+    # the 18 scored inputs) so the commits envelope it reads is resolved,
+    # hashed and folded into ctx.referenced before provenance_hash is computed
+    # below from that same dict.
     last_commit_fact, top_domain_fact = _resolve_commit_facts(ctx, f"{owner}__{name}")
 
     raw_events = document.get("pr_events")
@@ -2182,14 +2022,14 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
                 events.append(event)
                 bound_source: Mapping[str, Any] = entry
             elif was_ghost_author:
-                # Window bounds are author-irrelevant (W2-9): a ghost-account
-                # event still marks calendar coverage even though it cannot
-                # become an author-keyed PRWindowEvent. A genuinely malformed
-                # (non-ghost) entry is excluded from bounds entirely, same as
-                # pre-W2-9 (its problems() entry, appended above, rejects the
-                # whole bundle) -- folding its unparsed timestamps in here
-                # would let a single-event bundle's PRWindow invariant fire
-                # before that more informative per-event error is reported.
+                # Window bounds are author-irrelevant: a ghost-account event
+                # still marks calendar coverage even though it cannot become an
+                # author-keyed PRWindowEvent. A genuinely malformed (non-ghost)
+                # entry is excluded from bounds entirely (its problems() entry,
+                # appended above, rejects the whole bundle) -- folding its
+                # unparsed timestamps in here would let a single-event bundle's
+                # PRWindow invariant fire before that more informative per-event
+                # error is reported.
                 dropped_ghost_author_count += 1
                 bound_source = entry
             else:
@@ -2220,13 +2060,13 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
         truncated=False,  # the v1 document carries no truncation marker
         events=tuple(events),
     )
-    # W1-3/W1-4 collect the cohorts; the v1 pipeline produced none.
+    # The v1 pipeline produced no cohorts.
     cohorts = Cohorts(decision_pr_numbers=(), newcomer_authors=())
 
     if problems:
         raise BundleValidationError(problems)
     bundle = FeatureBundle(
-        schema_version=constants_v2.SCHEMA_VERSION,
+        schema_version=constants.SCHEMA_VERSION,
         repo=repo,
         inputs=inputs,
         pr_window=window,

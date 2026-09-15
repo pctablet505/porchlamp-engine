@@ -58,12 +58,11 @@ export function betterRepoKey(paramEntry, valuesByRepoKey, persona) {
   else if (direction === "lower") rank = (v) => -v;
   else if (direction.kind === "enum-order") {
     rank = (v) => direction.order.indexOf(v);
-    // Review W-5 (2026-09-13): a value absent from the enum's own
-    // worst-to-best order (`indexOf` returns -1) is UNKNOWN, not "worse
-    // than the worst" — ranking it as -1 would silently mark every OTHER
-    // repo's real (known) value as "better" purely because this one
-    // couldn't be placed on the scale. Treated the same as an unmeasured
-    // value: excluded from the comparison entirely.
+    // A value absent from the enum's own worst-to-best order (`indexOf`
+    // returns -1) is unknown, not "worse than the worst" — ranking it as
+    // -1 would silently mark every other repo's real (known) value as
+    // "better" purely because this one could not be placed on the scale.
+    // Treated the same as an unmeasured value: excluded from comparison.
     measured = measured.filter(([, v]) => rank(v) !== -1);
     if (measured.length < 2) return null;
   } else return null;
@@ -135,12 +134,11 @@ function renderChips(compareRepos) {
 }
 
 /**
- * NB-1 (2026-09-14 round-3 review): the query-dependent PART of the picker
- * only — the results `<ul>` and/or the "max reached" caption. Deliberately
- * excludes the `<input>` itself, so this can be patched into
- * `[data-compare-results-host]` (a SIBLING of the input, never an
- * ancestor) on every keystroke without the input ever being touched. See
- * `patchResults` / `shellKey` below and 06 §6.1 (U-12).
+ * The query-dependent PART of the picker only — the results `<ul>` and/or
+ * the "max reached" caption. Deliberately excludes the `<input>` itself,
+ * so this can be patched into `[data-compare-results-host]` (a SIBLING of
+ * the input, never an ancestor) on every keystroke without the input
+ * ever being touched. See `patchResults` / `shellKey` below and 06 §6.1 (U-12).
  */
 function renderPickerResults(state) {
   const atMax = state.compareRepos.length >= COMPARE_MAX;
@@ -162,13 +160,13 @@ function renderPickerResults(state) {
 /**
  * The STATIC part of the picker: the search `<input>` itself plus an
  * empty results-host container. Rendered only as part of the shell (see
- * `shellKey`/`renderShell`) — NEVER re-rendered while the input has focus,
- * per U-12 and the NB-1 fix: `value="${state.compareQuery}"` is read from
- * state only at shell-CREATION time (tab entry or a chip added/removed,
- * both of which reset or intentionally replace the query — see
- * `state.js::COMPARE_ADD_REPO`), never on every keystroke. The input owns
- * its own value/caret thereafter; state follows the input via the
- * `COMPARE_SET_QUERY` dispatch on its own `input` event, not the reverse.
+ * `shellKey`/`renderShell`) — NEVER re-rendered while the input has focus:
+ * `value="${state.compareQuery}"` is read from state only at shell-CREATION
+ * time (tab entry or a chip added/removed, both of which reset or
+ * intentionally replace the query — see `state.js::COMPARE_ADD_REPO`),
+ * never on every keystroke. The input owns its own value/caret thereafter;
+ * state follows the input via the `COMPARE_SET_QUERY` dispatch on its own
+ * `input` event, not the reverse.
  */
 function renderPickerShell(state) {
   const atMax = state.compareRepos.length >= COMPARE_MAX;
@@ -288,7 +286,7 @@ export function shellShape(state) {
 }
 
 /**
- * NB-1: the shell-REBUILD decision key — deliberately depends on ONLY
+ * The shell-rebuild decision key — deliberately depends on ONLY
  * `shellShape` (which is itself a pure function of `compareRepos.length`)
  * and `compareRepos` itself (order/membership, for the chip row). It must
  * NEVER depend on `compareQuery` or `compareSearchResults` (a keystroke)
@@ -296,10 +294,9 @@ export function shellShape(state) {
  * patched into their own host containers (`patchResults`/`patchTable`)
  * without ever touching `main.innerHTML`, so a change to either must never
  * be reflected in this key or the focused search input would be destroyed
- * and recreated on every keystroke (06 §6.1 U-12; the exact defect this
- * fixes). This is the "what to patch" decision: unchanged key on a
- * keystroke -> patch results only; changed key (a chip added/removed, or
- * entering the tab) -> rebuild the shell.
+ * and recreated on every keystroke. This is the "what to patch" decision:
+ * unchanged key on a keystroke -> patch results only; changed key (a chip
+ * added/removed, or entering the tab) -> rebuild the shell.
  */
 export function shellKey(state) {
   return `${shellShape(state)}:${state.compareRepos.join(",")}`;

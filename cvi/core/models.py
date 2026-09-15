@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass, fields
 from typing import Any, Literal, Mapping
 
-from cvi.core import constants_v2
+from cvi.core import constants
 
 #: Envelope hash / provenance hash shape: 64 lowercase hex digits.
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -82,14 +82,14 @@ def _optional_nonempty_str(value: Any) -> bool:
 
 #: Windows drive letter or UNC prefix (``C:\``, ``C:/``, ``\\host\share``) --
 #: rejected alongside a leading POSIX ``/`` so a provenance path can never
-#: name an absolute location on any platform, not just this one (W2-14).
+#: name an absolute location on any platform.
 _DRIVE_OR_UNC = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 
 
 def is_relative_envelope_source(value: Any) -> bool:
     """Whether ``value`` is a safe, portable envelope-provenance path.
 
-    W2-14 (docs/v2/00-README.md non-negotiables): provenance is an envelope
+    Envelope provenance requirements (docs/v2/00-README.md): provenance is an envelope
     path plus its content hash, and that path must be relative to the data
     root (``raw/<collector>/<key>.json``) -- never an absolute path of the
     machine that derived it, so a bundle reproduces identically from a copy
@@ -117,9 +117,9 @@ def measured_problems(value: Measured) -> list[str]:
         field = getattr(value, name)
         if not _optional_nonempty_str(field):
             problems.append(f"measured.{name} must be an ISO date string or null")
-    if value.method != constants_v2.METHOD_PRIMARY and not (
-        value.method.startswith(constants_v2.PROXY_METHOD_PREFIX)
-        and len(value.method) > len(constants_v2.PROXY_METHOD_PREFIX)
+    if value.method != constants.METHOD_PRIMARY and not (
+        value.method.startswith(constants.PROXY_METHOD_PREFIX)
+        and len(value.method) > len(constants.PROXY_METHOD_PREFIX)
     ):
         problems.append(f"measured.method must be 'primary' or 'proxy:<name>', got {value.method!r}")
     if not _nonempty_str(value.source):
@@ -139,8 +139,8 @@ def measured_problems(value: Measured) -> list[str]:
 def unmeasured_problems(value: Unmeasured) -> list[str]:
     """Field-level invariants of one Unmeasured value."""
     problems: list[str] = []
-    if value.reason not in constants_v2.UNMEASURED_REASONS:
-        problems.append(f"unmeasured.reason must be one of {constants_v2.UNMEASURED_REASONS}, got {value.reason!r}")
+    if value.reason not in constants.UNMEASURED_REASONS:
+        problems.append(f"unmeasured.reason must be one of {constants.UNMEASURED_REASONS}, got {value.reason!r}")
     if not isinstance(value.detail, str):
         problems.append(f"unmeasured.detail must be a string, got {type(value.detail).__name__}")
     return problems
@@ -183,7 +183,7 @@ class Unmeasured:
     measured in the first place, regardless of populations); the scoring
     engine (``cvi.core.engine``, stage 2) is the one caller that assigns it,
     to a stage-2 ``ParamScore`` rather than to an input-stage ``Unmeasured``
-    -- listed in ``constants_v2.UNMEASURED_REASONS`` when that module's own
+    -- listed in ``constants.UNMEASURED_REASONS`` when that module's own
     frozen vocabulary is next revised (R-2: kept here only in this type's
     documented taxonomy, per 02 section 5's D-MISS-1 amendment)."""
 
@@ -277,8 +277,9 @@ class RepoIdentity:
 class PRWindowEvent:
     """One PR inside the 180-day window (04 section 3).
 
-    Review-thread detail (typed actors, review bodies) is the W1-3 contract;
-    this event carries the window fields every PR-based parameter needs."""
+    Review-thread detail (typed actors, review bodies) is part of the PR event
+    collection contract; this event carries the window fields every PR-based
+    parameter needs."""
 
     pr_number: int
     created_at: str
@@ -369,7 +370,7 @@ class PRRef:
 class NewcomerAuthor:
     """One sampled newcomer-cohort author with their PR history (04 section 3).
 
-    ``account_created_at`` (W3-1): the account's own GitHub creation date,
+    ``account_created_at``: the account's own GitHub creation date,
     ISO-8601 — the fact ``cvi.verify.detectors``' ``newcomer_burst``
     lockstep rule (``03`` section 4) keys on. ``None`` on a bundle built
     before this field existed, or when the collector's per-author fetch
@@ -422,7 +423,7 @@ def _repo_problems(repo: RepoIdentity) -> list[str]:
     if not isinstance(repo, RepoIdentity):
         problems.append("repo must be a RepoIdentity")
     else:
-        for name in constants_v2.REPO_IDENTITY_FIELDS:
+        for name in constants.REPO_IDENTITY_FIELDS:
             if name not in {f.name for f in fields(repo)}:
                 problems.append(f"repo missing field {name}")
     return problems
@@ -454,10 +455,10 @@ class FeatureBundle:
     def validate(self) -> None:
         """Check the full v2 schema against this bundle; raise on violation."""
         problems: list[str] = []
-        if not _is_int(self.schema_version) or self.schema_version != constants_v2.SCHEMA_VERSION:
-            problems.append(f"schema_version must be {constants_v2.SCHEMA_VERSION}, got {self.schema_version!r}")
+        if not _is_int(self.schema_version) or self.schema_version != constants.SCHEMA_VERSION:
+            problems.append(f"schema_version must be {constants.SCHEMA_VERSION}, got {self.schema_version!r}")
         problems.extend(_repo_problems(self.repo))
-        expected = set(constants_v2.PARAM_INPUT_IDS)
+        expected = set(constants.PARAM_INPUT_IDS)
         missing = sorted(expected - set(self.inputs))
         extra = sorted(set(self.inputs) - expected)
         problems.extend(f"inputs missing key {key!r}" for key in missing)
@@ -485,9 +486,8 @@ class GateResult:
 @dataclass(frozen=True)
 class ParamScore:
     """One scored parameter (04 section 3): score, measured flag, reason, n,
-    method, plus the raw evidence 06 section 4's evidence endpoint (W4-4)
-    needs so it never has to re-fetch the ``FeatureBundle`` (packet W2-11,
-    lead-log ruling R-2/R-3).
+    method, plus the raw evidence 06 section 4's evidence endpoint
+    needs so it never has to re-fetch the ``FeatureBundle``.
 
     ``value`` is the ``Measured.value`` the scoring param function received,
     verbatim and before any curve was applied -- ``None`` only when the
@@ -518,14 +518,13 @@ class ParamScore:
 class PillarScore:
     """One scored pillar (04 section 3): renormalised score and coverage.
 
-    ``applicable`` (D-MISS-5, W2-13) is ``False`` only when every parameter
+    ``applicable`` (D-MISS-5) is ``False`` only when every parameter
     in the pillar is ``Unmeasured(not_applicable)`` -- the pillar is itself
     undefined for this repo (a fact about the world, not an evidence gap),
     so it leaves the composite-coverage denominator entirely
     (:func:`cvi.core.aggregate.composite_coverage`) rather than counting as
-    0 coverage against the pillar's full weight. Defaults to ``True`` so
-    every pre-W2-13 construction site (none of whose fixtures carry
-    ``not_applicable``) is unaffected."""
+    0 coverage against the pillar's full weight. Defaults to ``True`` when
+    not specified."""
 
     score: float | None
     coverage: float
@@ -561,8 +560,8 @@ class ScoreRecord:
     :func:`cvi.core.engine.score` (04 section 3).
 
     ``benchmark_version`` plus ``constants_hash`` let any reader re-derive
-    which benchmark a row came from (D-VER-2/D-VER-3); field validation lands
-    with the packets that populate each stage (W2-2, W2-5, W2-6, W2-7).
+    which benchmark a row came from (D-VER-2/D-VER-3); field validation is
+    performed across each pipeline stage.
 
     ``gate`` is always the unmodified stage-0 :class:`GateResult` (04
     section 3): whether the repo went on to be rated is carried by
@@ -571,18 +570,16 @@ class ScoreRecord:
     (``gate.eligible=True``, ``rated=False``) are always distinguishable
     from the record alone, matching the store schema's separate
     ``eligible``/``gate_reason``/``rated``/``unrated_reason`` columns (04
-    section 5; W2-5 review W-1). ``tier_ceiling`` is the D-MISS-3 coverage
+    section 5). ``tier_ceiling`` is the D-MISS-3 coverage
     ceiling (``None``, ``"B"`` or ``"A"``) that capped -- or would have
     capped -- ``tier``; ``leverage_coverage``/``friction_coverage`` are each
     D-MAT-1 coordinate's own measured-weight share, additive alongside
-    ``leverage``/``friction`` (04 section 3 names no such fields, but
-    ``cvi.core.matrix.Coordinates`` already carries them -- W2-5 review
-    W-1(c)). ``raw_hash`` is whatever the caller of
+    ``leverage``/``friction`` (carried by ``cvi.core.matrix.Coordinates``).
+    ``raw_hash`` is whatever the caller of
     :func:`cvi.core.engine.score` supplied (recommended: a hash of the
     whole bundle document); ``provenance_hash`` is always
     ``FeatureBundle.provenance_hash`` (hash of the referenced envelope
-    hashes only) kept as its own fact so the two are never conflated
-    (W2-5 review W-1)."""
+    hashes only) kept as its own fact so the two are never conflated."""
 
     repo: RepoIdentity
     snapshot_id: str

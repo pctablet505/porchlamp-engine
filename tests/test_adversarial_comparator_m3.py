@@ -1,7 +1,5 @@
 """Adversarial stress tests and empirical verification for Milestone 3 Screen E Comparator, Leaderboard, and Zero-CDN Delivery.
 
-Author: challenger_m3_2
-
 Empirically challenges:
 1. Zero-CDN Architecture & 100% Offline Self-Containment:
    - Adversarial regex scan for http://, https://, external script tags, external CSS links,

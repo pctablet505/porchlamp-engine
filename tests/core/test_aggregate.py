@@ -1,19 +1,14 @@
-"""W2-5 acceptance: pillar renormalisation, coverage, ceilings, composite
+"""Pillar renormalisation, coverage, ceilings and composite arithmetic
 (02 sections 5, 7; D-MISS-2/3, D-AGG-2, D-MAT-2's tier/ceiling arithmetic).
 
-Fail-before: before this packet ``cvi.core.aggregate`` does not exist, so
-every test below fails on ``ModuleNotFoundError`` (recorded verbatim in the
-handoff, per R-1's "for new modules the fail-before is ... the absent
-module, documented").
-
-Oracles are hand-computed and asserted as exact values (R-1), not shapes:
-each docstring below shows the arithmetic.
+Oracles are hand-computed and asserted as exact values, not shapes: each
+docstring below shows the arithmetic.
 """
 from __future__ import annotations
 
 import pytest
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.aggregate import (
     CEILING_A,
     CEILING_B,
@@ -71,7 +66,7 @@ def _not_applicable() -> ParamScore:
 def full_params(overrides: dict[str, ParamScore] | None = None) -> dict[str, ParamScore]:
     """All 18 params measured at score 50.0, with ``overrides`` applied.
     A neutral baseline the pillar-level oracles override selectively."""
-    base = {input_id: _measured(50.0) for input_id in constants_v2.PARAM_INPUT_IDS}
+    base = {input_id: _measured(50.0) for input_id in constants.PARAM_INPUT_IDS}
     if overrides:
         base.update(overrides)
     return base
@@ -104,7 +99,7 @@ def test_pillar_with_two_of_three_measured_renormalises_exactly() -> None:
 def test_pillar_fully_measured_has_coverage_one() -> None:
     params = full_params()
     pillars = aggregate_pillars(params)
-    for pillar in constants_v2.PILLAR_NAMES:
+    for pillar in constants.PILLAR_NAMES:
         assert pillars[pillar].coverage == pytest.approx(1.0)
         assert pillars[pillar].score == pytest.approx(50.0)
 
@@ -138,7 +133,7 @@ def test_pillar_not_applicable_parameter_excluded_from_both_sides() -> None:
 def test_pillar_third_party_gap_is_unchanged_from_not_applicable() -> None:
     """Over-correction guard / D-MISS-5's "other four reasons unchanged":
     third_party_gap (unlike not_applicable) still counts fully against
-    coverage -- 0.60 / 1.00 = 0.60, exactly the pre-W2-13 arithmetic."""
+    coverage -- 0.60 / 1.00 = 0.60."""
     params = full_params({"dependents_deduped": _unmeasured(reason="third_party_gap")})
     pillars = aggregate_pillars(params)
     criticality = pillars["criticality"]
@@ -197,10 +192,8 @@ def test_composite_coverage_arithmetic() -> None:
 
 
 def test_composite_coverage_systems_repo_end_to_end_reaches_one() -> None:
-    """D-MISS-5 acceptance oracle (W2-13 packet text): a systems repo with
-    everything else measured reaches C = 1.00, no ceiling -- before this
-    packet it was < 0.95 (0.90: criticality pillar coverage 0.60/1.00,
-    C = .25*1+.25*0.60+.20*1+.15*1+.15*1 = 0.90). Full pipeline through
+    """D-MISS-5 oracle: a systems repo with everything else measured
+    reaches C = 1.00 with no ceiling. Full pipeline through
     aggregate_pillars, not a hand-built PillarScore mapping."""
     params = full_params({"dependents_deduped": _not_applicable()})
     pillars = aggregate_pillars(params)
@@ -209,7 +202,7 @@ def test_composite_coverage_systems_repo_end_to_end_reaches_one() -> None:
 
 def test_composite_coverage_third_party_gap_end_to_end_unchanged() -> None:
     """The other oracle: a pypi repo with a deps.dev third_party_gap keeps
-    the gap counted -- C is exactly the pre-W2-13 0.90, unchanged."""
+    the gap counted -- C is 0.90."""
     params = full_params({"dependents_deduped": _unmeasured(reason="third_party_gap")})
     pillars = aggregate_pillars(params)
     assert composite_coverage(pillars) == pytest.approx(0.90)
@@ -220,8 +213,8 @@ def test_composite_coverage_excludes_wholly_not_applicable_pillar_from_denominat
     composite coverage is computed over the remaining four pillars, weights
     renormalised: C = (.25*1 + .20*1 + .15*1 + .15*1) / (.25+.20+.15+.15)
     = 0.75 / 0.75 = 1.00 (every remaining pillar fully covered), not
-    0.75 (which is what the pre-W2-13 unconditional Sum_p(W_p*c_p) would
-    give by treating the excluded pillar as 0 coverage against its weight)."""
+    0.75, which is what an unconditional Sum_p(W_p*c_p) gives by treating
+    the excluded pillar as 0 coverage against its weight."""
     criticality_ids = [input_id for input_id, defn in PARAMS.items() if defn.pillar == "criticality"]
     params = full_params({input_id: _not_applicable() for input_id in criticality_ids})
     pillars = aggregate_pillars(params)
@@ -232,7 +225,7 @@ def test_composite_coverage_excludes_wholly_not_applicable_pillar_from_denominat
 def test_composite_coverage_all_pillars_not_applicable_is_zero() -> None:
     """Defensive floor: every pillar inapplicable (a construction no real
     rule list produces today) returns 0.0 rather than dividing by zero."""
-    pillars = {pillar: PillarScore(score=None, coverage=0.0, applicable=False) for pillar in constants_v2.PILLAR_NAMES}
+    pillars = {pillar: PillarScore(score=None, coverage=0.0, applicable=False) for pillar in constants.PILLAR_NAMES}
     assert composite_coverage(pillars) == 0.0
 
 
@@ -279,7 +272,7 @@ def test_composite_score_renormalises_over_measured_pillars_only() -> None:
 
 
 def test_composite_score_none_when_every_pillar_unmeasured() -> None:
-    pillars = {pillar: PillarScore(score=None, coverage=0.0) for pillar in constants_v2.PILLAR_NAMES}
+    pillars = {pillar: PillarScore(score=None, coverage=0.0) for pillar in constants.PILLAR_NAMES}
     assert composite_score_raw(pillars) is None
     assert composite_score(pillars) is None
 
@@ -330,7 +323,7 @@ def test_tier_from_score_cutoffs(composite: float, expected: str) -> None:
 
 
 def test_score_92_with_coverage_085_yields_tier_a() -> None:
-    """The packet's own oracle: raw tier for 92 is S+ (>=90); coverage 0.85
+    """Combined oracle: raw tier for 92 is S+ (>=90); coverage 0.85
     gives ceiling A (0.80 <= C < 0.95); the worse of the two is A."""
     tier = tier_from_score(92.0)
     assert tier == "S+"
@@ -356,13 +349,13 @@ def test_apply_ceiling_takes_the_worse_tier(tier: str, ceiling: str | None, expe
 
 
 # --------------------------------------------------------------------------- #
-# ParamScore.value (packet W2-11): required, no default.
+# ParamScore.value: required, no default.
 # --------------------------------------------------------------------------- #
 
 
 def test_param_score_requires_value_no_default() -> None:
-    """A constructor site that forgets ``value`` must fail loudly (packet
-    W2-11 deliverable 1: "No default: make the field required")."""
+    """A constructor site that forgets ``value`` must fail loudly: the
+    field is required and has no default."""
     with pytest.raises(TypeError, match="value"):
         ParamScore(  # type: ignore[call-arg]
             score=50.0,
@@ -378,10 +371,10 @@ def test_param_score_requires_value_no_default() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# composite_score_raw / composite_coverage: the ``weights`` keyword (W2-11,
-# lead-log ruling R-3) -- default is the frozen balanced weights (unchanged
-# arithmetic, proved above); a caller-supplied vector must be validated and
-# used instead of the hard-coded balanced weights.
+# composite_score_raw / composite_coverage: the ``weights`` keyword --
+# default is the frozen balanced weights (arithmetic proved above); a
+# caller-supplied vector must be validated and used instead of the
+# hard-coded balanced weights.
 # --------------------------------------------------------------------------- #
 
 _CUSTOM_WEIGHTS = {
@@ -426,7 +419,7 @@ def test_composite_coverage_honours_a_custom_weight_vector() -> None:
 def test_composite_score_raw_rejects_weights_not_summing_to_one() -> None:
     bad_weights = dict(_CUSTOM_WEIGHTS)
     bad_weights["responsiveness"] = 0.50  # now sums to 1.10
-    pillars = {pillar: PillarScore(score=50.0, coverage=1.0) for pillar in constants_v2.PILLAR_NAMES}
+    pillars = {pillar: PillarScore(score=50.0, coverage=1.0) for pillar in constants.PILLAR_NAMES}
     with pytest.raises(ValueError, match="must sum to 1.0"):
         composite_score_raw(pillars, weights=bad_weights)
 
@@ -434,37 +427,37 @@ def test_composite_score_raw_rejects_weights_not_summing_to_one() -> None:
 def test_composite_coverage_rejects_weights_not_summing_to_one() -> None:
     bad_weights = dict(_CUSTOM_WEIGHTS)
     bad_weights["responsiveness"] = 0.50  # now sums to 1.10
-    pillars = {pillar: PillarScore(score=50.0, coverage=1.0) for pillar in constants_v2.PILLAR_NAMES}
+    pillars = {pillar: PillarScore(score=50.0, coverage=1.0) for pillar in constants.PILLAR_NAMES}
     with pytest.raises(ValueError, match="must sum to 1.0"):
         composite_coverage(pillars, weights=bad_weights)
 
 
 def test_composite_score_raw_rejects_weights_missing_a_pillar() -> None:
     incomplete = {k: v for k, v in _CUSTOM_WEIGHTS.items() if k != "accessibility"}
-    pillars = {pillar: PillarScore(score=50.0, coverage=1.0) for pillar in constants_v2.PILLAR_NAMES}
+    pillars = {pillar: PillarScore(score=50.0, coverage=1.0) for pillar in constants.PILLAR_NAMES}
     with pytest.raises(ValueError, match="must cover exactly"):
         composite_score_raw(pillars, weights=incomplete)
 
 
 def test_validate_pillar_weights_accepts_the_frozen_balanced_default() -> None:
     """No exception -- the balanced weights are always a valid vector."""
-    validate_pillar_weights(constants_v2.PILLAR_WEIGHTS)
+    validate_pillar_weights(constants.PILLAR_WEIGHTS)
 
 
 def test_validate_pillar_weights_rejects_an_extra_pillar() -> None:
-    extra = dict(constants_v2.PILLAR_WEIGHTS)
+    extra = dict(constants.PILLAR_WEIGHTS)
     extra["extra_pillar"] = 0.0
     with pytest.raises(ValueError, match="must cover exactly"):
         validate_pillar_weights(extra)
 
 
 def test_validate_pillar_weights_rejects_a_negative_weight_even_if_the_sum_is_1(tmp_path=None) -> None:
-    """W4-3 review Blocker B-1: a negative weight offset by a larger
-    positive one can still sum to exactly 1.0 -- must still raise, naming
-    the offending pillar, not just check the sum."""
-    negative = dict(constants_v2.PILLAR_WEIGHTS)
+    """A negative weight offset by a larger positive one can still sum to
+    exactly 1.0 -- validation must still raise, naming the offending
+    pillar, not just check the sum."""
+    negative = dict(constants.PILLAR_WEIGHTS)
     negative["responsiveness"] = -0.5
-    negative["criticality"] = negative["criticality"] + 0.5 + constants_v2.PILLAR_WEIGHTS["responsiveness"]
+    negative["criticality"] = negative["criticality"] + 0.5 + constants.PILLAR_WEIGHTS["responsiveness"]
     assert abs(sum(negative.values()) - 1.0) < 1e-9  # sanity: the sum check alone would not catch this
     with pytest.raises(ValueError, match="non-negative"):
         validate_pillar_weights(negative)
@@ -473,7 +466,7 @@ def test_validate_pillar_weights_rejects_a_negative_weight_even_if_the_sum_is_1(
 def test_validate_pillar_weights_accepts_a_zero_weight() -> None:
     """Over-correction guard: zero is not negative -- a pillar dropped to
     zero weight (never scored under this vector) must still validate."""
-    zeroed = dict(constants_v2.PILLAR_WEIGHTS)
+    zeroed = dict(constants.PILLAR_WEIGHTS)
     dropped = zeroed.pop("accessibility")
     zeroed["accessibility"] = 0.0
     zeroed["responsiveness"] = zeroed["responsiveness"] + dropped

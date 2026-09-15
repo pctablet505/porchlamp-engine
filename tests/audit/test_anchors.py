@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.audit.anchors` (packet W0-5).
+"""Unit tests for :mod:`cvi.audit.anchors`.
 
 The fixture database exercises every D-VER-4 relation exactly once in the
 verdict it deserves: two rating anchors PASS (kubernetes rated, torvalds/linux

@@ -1,4 +1,4 @@
-"""Recorded-response tests for the W1-1 per-label newcomer-issue collector.
+"""Recorded-response tests for the per-label newcomer-issue collector.
 
 No live calls: a fake transport serves the recorded repo label list and the
 recorded per-label issue pages, and records every call so the exact queries

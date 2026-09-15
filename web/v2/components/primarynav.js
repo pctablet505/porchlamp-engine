@@ -2,8 +2,7 @@
 // Leaderboard (A) · Matrix (B) · Compare (E) · Configure weights (D) ·
 // Methodology (F)"). Distinct from views/leaderboard.js's `renderTabs`,
 // which is the Leaderboard screen's OWN Ranked/Not-ranked sub-tab bar —
-// this component owns none of that screen's internals (W4-5b stays out of
-// views/{leaderboard,notranked,drawer}.js beyond wiring).
+// this component owns none of that screen's internals.
 //
 // Rendered ONCE by app.js into its own persistent DOM node
 // (`#app-primary-nav`, never inside `main`, so switching screens never

@@ -1,11 +1,9 @@
-"""CVI v2 relational store (`04` section 5, packet W4-2).
+"""CVI v2 relational store (`04` section 5).
 
 ``schema.py`` is the DDL; ``migrations/`` applies it forward-only (v1 rows
 preserved under ``legacy_repositories``, `04` section 10); ``writer.py``
 inserts a snapshot's ``ScoreRecord``s, their long-format parameter evidence
 and frozen populations; ``reader.py`` has the single-row/evidence/snapshot
-getters plus the ordering helper the SQL persona-projection query (W4-3)
-builds on. The Python full-scan persona re-projection this replaces stays in
-``cvi.lakehouse`` (v1) until W5-2.
+getters plus the ordering helper the SQL persona-projection query builds on.
 """
 from __future__ import annotations

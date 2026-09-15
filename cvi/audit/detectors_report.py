@@ -1,4 +1,4 @@
-"""``cvi audit detectors``: cross-snapshot detector counts (packet W3-2).
+"""``cvi audit detectors``: cross-snapshot detector counts.
 
 Runs every detector in :mod:`cvi.verify.detectors` over a set of scored
 repositories and reports, per detector, how many repositories triggered it
@@ -7,8 +7,7 @@ and which ones. All detector *logic* lives in ``cvi.verify.detectors``
 I/O only -- reading the two input files, matching current against previous
 by repo key, and rendering the report.
 
-Input format (interim, pending the W4-2 v2 store). No v2 ``cvi.db`` schema
-exists yet (``00-README.md`` status table: wave W4 "not started"), so
+Input format (an interim contract, not a stored schema).
 ``--current``/``--previous`` each take a JSON file: a list of "row"
 objects, one per repository::
 
@@ -40,10 +39,9 @@ unmeasured-never-fires rule). ``params`` need only list the five input ids
 the detectors actually read (``ttfhr_hours``, ``dr90_decision_rate``,
 ``mr_first_rate``, ``newcomer_conversion``, ``rr90_return_rate``); missing
 or absent entries are treated as unmeasured. This row shape is this
-packet's own interim contract, not a new stored schema -- once W4-2 lands a
-real reader of ``ScoreRecord`` rows from ``cvi.db`` should replace
-:func:`load_rows`, and the rest of this module (matching, counting,
-rendering) is unaffected.
+module's own interim contract, not a stored schema -- a real reader of
+``ScoreRecord`` rows from ``cvi.db`` would replace :func:`load_rows`, and
+the rest of this module (matching, counting, rendering) is unaffected.
 """
 from __future__ import annotations
 
@@ -61,7 +59,7 @@ __version__ = "1.0.0"
 
 #: Parameter input ids a detector row may carry (cvi.verify.detectors'
 #: INPUT_* constants, restated here as the JSON row's allowed ``params``
-#: keys -- R-2: this is the I/O layer's own list of *which* inputs it
+#: keys -- this is the I/O layer's own list of *which* inputs it
 #: reads off disk, not a second definition of what they mean).
 ROW_PARAM_IDS: tuple[str, ...] = (
     "ttfhr_hours",
@@ -90,11 +88,11 @@ def _param_score_from_json(payload: Mapping[str, Any]) -> ParamScore:
     """One ``params`` entry from the interim JSON row shape (module
     docstring) into a :class:`~cvi.core.models.ParamScore`. ``value``,
     ``window_start``, ``window_end``, ``source`` and ``fetched_at`` are
-    optional here too (packet W2-11 gave ``ParamScore`` these evidence
-    fields; no detector reads any of them -- ``cvi.verify.detectors``'s
-    module docstring -- so a row lacking them, as every example in this
-    module's docstring does, still parses; ``payload.get`` defaults each to
-    ``None``, same as every other optional field in this row format)."""
+    optional here too (they are ``ParamScore`` evidence fields no detector
+    reads -- ``cvi.verify.detectors``'s module docstring -- so a row
+    lacking them, as every example in this module's docstring does, still
+    parses; ``payload.get`` defaults each to ``None``, same as every other
+    optional field in this row format)."""
     measured = bool(payload.get("measured", False))
     score = payload.get("score")
     return ParamScore(
@@ -116,7 +114,7 @@ def _param_score_from_json(payload: Mapping[str, Any]) -> ParamScore:
 #: detectors read ``ScoreRecord.repo`` (see ``cvi.verify.detectors``'s
 #: module docstring -- every predicate reads only ``.params`` and the
 #: separate ``DetectorInputs``), so only ``owner``/``name`` need to be
-#: real. W2-10 made ``repo`` a required ``ScoreRecord`` field.
+#: real. ``repo`` is a required ``ScoreRecord`` field.
 _PLACEHOLDER_ECOSYSTEM = "unknown"
 
 
@@ -124,9 +122,9 @@ def _repo_identity_from_key(key: str) -> RepoIdentity:
     """Build a real ``RepoIdentity`` from a row's ``"owner/name"`` key.
 
     Raises ``ValueError`` naming the key when it does not contain exactly
-    the one ``"/"`` the documented row format requires (R-1: assert
-    values, not shapes -- a malformed key must not silently become a
-    single-part owner or name)."""
+    the one ``"/"`` the documented row format requires (assert values, not
+    shapes -- a malformed key must not silently become a single-part owner
+    or name)."""
     parts = key.split("/")
     if len(parts) != 2 or not parts[0] or not parts[1]:
         raise ValueError(f'row key must be "owner/name", got {key!r}')

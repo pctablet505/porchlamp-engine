@@ -1,9 +1,9 @@
 // components/table.js — the leaderboard table: column header, per-row cell
-// markup, the client-side D-TIE-1 level derivation, and (lead ruling A,
-// 2026-09-13 UX rework) real DOM element builders (`createRowElement`,
-// `updateRowElement`) used by `patchRows` instead of `innerHTML` on the
-// table body. `rowCells` is the single source of truth for a row's per-cell
-// HTML so the "create" and "update" paths can never drift apart.
+// markup, the client-side D-TIE-1 level derivation, and real DOM element
+// builders (`createRowElement`, `updateRowElement`) used by `patchRows`
+// instead of `innerHTML` on the table body. `rowCells` is the single
+// source of truth for a row's per-cell HTML so the "create" and "update"
+// paths can never drift apart.
 
 import * as copy from "../copy.js";
 import { renderCoverageBadge, renderQuadrant, renderSuspicionIcon, renderTierCell } from "./badge.js";
@@ -25,21 +25,17 @@ export const SORTABLE_COLUMNS = new Set([
 ]);
 
 /**
- * The sort-encoding contract (lead-mandated 2026-09-13, documented here,
- * in copy.js, and in scripts/serve_ui_fixtures.py's module docstring — all
- * three MUST agree): `sort=<field>` means that field's "best first"
- * direction — DESCENDING for every score/coverage-like field (higher is
- * better), ASCENDING for `rank`/`tier` (rank 1 and tier S are already
- * "best"). A leading `-` (`sort=-<field>`) reverses that default. Clicking
- * an unsorted column header applies the field's default (best-first)
+ * The sort-encoding contract (documented here, in copy.js, and in
+ * scripts/serve_ui_fixtures.py's module docstring — all three MUST
+ * agree): `sort=<field>` means that field's "best first" direction —
+ * DESCENDING for every score/coverage-like field (higher is better),
+ * ASCENDING for `rank`/`tier` (rank 1 and tier S are already "best"). A
+ * leading `-` (`sort=-<field>`) reverses that default. Clicking an
+ * unsorted column header applies the field's default (best-first)
  * direction; clicking the ALREADY-active column's header toggles the `-`
  * prefix. This one function is the single source of truth for what
  * direction a given `sort` value actually produces, so the `aria-sort`
- * label rendered on the header can never disagree with the real order —
- * lead-reported defect: `?sort=coverage` correctly sorted descending
- * (100% first) but the header claimed `aria-sort="ascending"`, because the
- * old code read the direction off the `-` prefix alone without accounting
- * for which fields default to descending.
+ * label rendered on the header can never disagree with the real order.
  */
 export function sortDirectionLabel(sortField) {
   const field = sortField.startsWith("-") ? sortField.slice(1) : sortField;
@@ -78,14 +74,14 @@ export function rowKey(row) {
  * D-TIE-1's ordering key, restricted to the fields the API row contract
  * (06 §4) actually sends. Levels 6 (TTFHR p75) and 7 (last non-bot commit
  * date) are store-only and never reach the client, so this function can
- * only place a difference at levels 1, 2, 3, 4, 5 or 8 — see
- * docs/v2/06-UX-DESIGN.md discussion in the handoff. Returns the first
+ * only place a difference at levels 1, 2, 3, 4, 5 or 8. Returns the first
  * level at which `a` and `b` differ; two distinct rows always differ by
  * level 8 (owner/name is a natural key) if nothing earlier does.
  */
 export function decidingTieLevel(a, b) {
+  const round2 = (v) => (v === null || v === undefined ? v : Math.round(v * 100) / 100);
   const levels = [
-    [1, a.cvi, b.cvi],
+    [1, round2(a.cvi), round2(b.cvi)],
     [2, a.coverage, b.coverage],
     [3, a.p_responsiveness, b.p_responsiveness],
     [4, a.friction, b.friction],
@@ -100,9 +96,8 @@ export function decidingTieLevel(a, b) {
 }
 
 export function isTieMate(row, previousRow) {
-  // `tie_group === null` means "no tie" (W4-3 store-queries review,
-  // 2026-09-13, ruling R-D) — two singleton rows must never be treated as
-  // tied just because they share the value `null`.
+  // `tie_group === null` means "no tie" — two singleton rows must never be
+  // treated as tied just because they share the value `null`.
   return !!previousRow && row.tie_group !== null && previousRow.tie_group === row.tie_group;
 }
 
@@ -266,7 +261,7 @@ export const CARD_HEIGHT_PX = 168;
 // pure string form (used by tests and any non-windowed caller);
 // `createCardElement`/`updateCardElement` above are the DOM builders
 // app.js patches through, on the same keyed-diff path as the desktop
-// table (ruling B applies at every breakpoint, not just desktop). ---
+// table (the keyed-diff path applies at every breakpoint). ---
 
 function cardInnerHtml(row, opts) {
   const { previousRow = null, showPersonaDelta = false } = opts || {};
@@ -296,7 +291,7 @@ export function renderCard(row, opts) {
 }
 
 /** DOM builders for the < 768px card list, windowed via `patchRows` exactly
- * like the desktop table (ruling B applies to every breakpoint). */
+ * like the desktop table (the keyed-diff path applies at every breakpoint). */
 export function createCardElement(doc, row, opts) {
   const div = doc.createElement("div");
   div.dataset.owner = row.owner;

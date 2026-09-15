@@ -1,12 +1,10 @@
-"""W2-4 acceptance: the D-NORM-1 mid-rank ECDF (02 section 6).
+"""Acceptance tests for the D-NORM-1 mid-rank ECDF (02 section 6).
 
 ``cvi.core.normalize`` implements ``R(x) = 100 * (#{x_k < x} + 0.5 * #{x_k = x})
 / N``. The spec's ``<=`` form (v1 ``cvi.normalize.compute_ecosystem_percentile``)
-scores every member of an all-tied population at 100.0 (finding F3); the
+scores every member of an all-tied population at 100.0, whereas the
 mid-rank form scores 50.0 and is the standard tie treatment. The oracles below
-hand-compute every expected value from the D-NORM-1 formula. The file is
-named ``test_normalize_v2`` to avoid a basename collision with the v1
-``tests/test_normalize.py`` (no test package ``__init__.py`` files).
+hand-compute every expected value from the D-NORM-1 formula.
 """
 from __future__ import annotations
 

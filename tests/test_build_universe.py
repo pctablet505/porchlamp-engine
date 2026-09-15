@@ -1,7 +1,7 @@
 """Tests for scripts/build_universe.py dedup/merge/cap/checkpoint logic.
 
-W1-10 (D-IN-5, `docs/v2/03-ANTI-MANIPULATION.md` section 6 `star_burst`):
-also covers the star-velocity audit `build()` now applies to every
+Per D-IN-5 (`docs/v2/03-ANTI-MANIPULATION.md` section 6 `star_burst`),
+also covers the star-velocity audit `build()` applies to every
 candidate that makes the `--max-total` cut before `candidates.jsonl` is
 written -- the universe manifest this module writes.
 """
@@ -35,9 +35,9 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(bu, "DATA", tmp_path)
     monkeypatch.setattr(bu, "CHECKPOINT", tmp_path / "universe_checkpoint.json")
     monkeypatch.setattr(bu, "CANDIDATES", tmp_path / "candidates.jsonl")
-    # Every existing test in this file predates W1-10 and asserts nothing
-    # about the star-velocity fields; give them a working, network-free
-    # default transport so build() does not raise NotImplementedError from
+    # Most tests in this file assert nothing about the star-velocity fields;
+    # give them a working, network-free default transport so build() does not
+    # raise NotImplementedError from
     # cvi.collect.universe.default_star_history_transport.
     monkeypatch.setattr(bu, "STAR_HISTORY_TRANSPORT", _clean_star_fetch)
     return tmp_path
@@ -125,19 +125,12 @@ def test_crates_top_strips_git_suffix(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# W1-10: the star-velocity filter is applied to every candidate at entry.    #
+# The star-velocity filter is applied to every candidate at entry.          #
 # --------------------------------------------------------------------------- #
 
 
 def test_star_velocity_filter_called_once_per_candidate(sandbox, monkeypatch):
-    """Fail-before: on the pre-W1-10 tree, ``scripts/build_universe.py``
-    never imports ``cvi.collect.universe`` at all (that module did not
-    exist), so this test fails at collection with ``ModuleNotFoundError`` --
-    the same class of fail-before ``tests/verify/test_detectors.py``'s own
-    docstring describes for a packet's brand-new module. Verbatim base-tree
-    output pasted in the handoff.
-
-    Patches where the audit is actually invoked
+    """Patches where the audit is actually invoked
     (``cvi.collect.universe.audit_star_velocity``, not
     ``cvi.starscout.audit_star_velocity`` -- ``cvi.collect.universe``
     imports the name directly, so patching the defining module would not

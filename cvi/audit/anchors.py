@@ -1,4 +1,4 @@
-"""D-VER-4 anchor relation audit (packet W0-5).
+"""D-VER-4 anchor relation audit.
 
 ``cvi audit anchors`` evaluates the relational anchors from
 ``docs/v2/02-RANKING-DESIGN.md`` section 11 (D-VER-4) against a v1
@@ -356,19 +356,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 # =========================================================================== #
-# W2-8b: D-VER-4 anchors over v2 ScoredSnapshot records.
+# D-VER-4 anchors over v2 ScoredSnapshot records.
 #
-# Same nine relations (:data:`ANCHOR_RELATIONS`), same D-VER-4 semantics, now
-# read from ``cvi.core.pipeline.ScoredSnapshot.records`` instead of the v1
-# ``repositories`` table -- the v1 functions above are untouched (this
-# section is purely additive). Two differences from the v1 reading, both
-# consequences of the v2 contract shape rather than a change in what D-VER-4
-# means:
+# Same nine relations (:data:`ANCHOR_RELATIONS`), same D-VER-4 semantics, read
+# from ``cvi.core.pipeline.ScoredSnapshot.records`` instead of the v1
+# ``repositories`` table the functions above read. Two differences from the v1
+# reading, both consequences of the v2 contract shape rather than a change in
+# what D-VER-4 means:
 #
 # - v1's "repo not present in DB" is a FAIL (a full v1 database should
 #   contain every real GitHub repo it was ever asked about); a v2
 #   ``ScoredSnapshot`` is commonly a small fixture slice of the universe
-#   (this packet's own ``tests/fixtures/snapshot_50``) that may legitimately
+#   (such as ``tests/fixtures/snapshot_50``) that may legitimately
 #   never have collected ``gcc-mirror/gcc``, ``kubernetes/kubernetes``,
 #   ``vllm-project/vllm`` or ``keras-team/keras-hub`` at all. Absence of one
 #   of these four *identity* anchors is therefore :data:`SKIPPED` with a
@@ -386,9 +385,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 #   only ``score``/``measured``/``reason``/``n``/``method`` -- no raw
 #   measured *value* survives past stage 2 into the record at all, for any
 #   parameter, so no independent cross-check is possible from a
-#   ``ScoredSnapshot`` alone (an already-known contract gap: 04 section 7's
+#   ``ScoredSnapshot`` alone (a known contract gap: 04 section 7's
 #   own `/evidence` endpoint promises a "value" the stored shape has nowhere
-#   to keep -- flagged again in the handoff). :func:`_check_newcomer_v2`
+#   to keep). :func:`_check_newcomer_v2`
 #   therefore also reports :data:`SKIPPED`, naming this exact reason, rather
 #   than fabricating a same-source "check" that could never fail
 #   independently of the curve it is supposedly verifying.
@@ -405,7 +404,7 @@ SKIPPED = "SKIPPED"
 
 def _records_by_identity(snapshot: ScoredSnapshot) -> dict[tuple[str, str], Any]:
     """``{(owner, name): ScoreRecord}`` over ``snapshot.records`` -- every
-    record carries its own ``repo`` (W2-10), so no separate bundle lookup is
+    record carries its own ``repo``, so no separate bundle lookup is
     needed the way the v1 SQL reader needed a join."""
     return {(record.repo.owner, record.repo.name): record for record in snapshot.records}
 
@@ -474,7 +473,7 @@ def _check_awesome_v2(snapshot: ScoredSnapshot) -> AnchorResult:
 def _tier_rank_v2(tier: Optional[str]) -> int:
     """v2 tier order (bare letters -- ``cvi.core.aggregate.TIER_ORDER``, not
     v1's ``"Tier A"``-prefixed :data:`TIER_ORDER` above; reused, not
-    redefined, R-2)."""
+    redefined)."""
     return _V2_TIER_ORDER.index(tier) if tier in _V2_TIER_ORDER else -1
 
 
@@ -500,18 +499,15 @@ def _check_rated_v2(records: Mapping[tuple[str, str], Any], owner: str, name: st
 
 
 def _skipped_unmeasured_input(relation_id: str, reason: str) -> AnchorResult:
-    """Shared rule for every anchor that reads a stage-2 ``ParamScore``
-    (dispatch fix, following the W1-6 fixture-regeneration finding): a
+    """Shared rule for every anchor that reads a stage-2 ``ParamScore``: a
     required input that is ``Unmeasured`` on the anchor repo means the
     relation cannot be evaluated at all -- ``SKIPPED``, naming the
     ``Unmeasured`` reason, never ``FAIL``. ``FAIL`` is reserved for a
     *measured* value that contradicts the relation; an absent measurement
-    contradicts nothing, so reporting it as a failed relation previously
-    misrepresented a collector gap as a wrong ranking (measured: this
-    happened for real on ``linux_dco`` once ``legal_ip`` started reading
-    the governance envelope, which is absent on the fixture -- W1-6
-    landing changed the input from a v1 meta field, always present on this
-    fixture, to a real envelope read, not always present)."""
+    contradicts nothing, and reporting it as a failed relation would
+    misrepresent a collector gap as a wrong ranking (``linux_dco`` hits
+    this: ``legal_ip`` reads the governance envelope, which is absent on
+    the fixture)."""
     return AnchorResult(relation_id, _EXPECTED[relation_id], f"input unmeasured: {reason}", SKIPPED)
 
 

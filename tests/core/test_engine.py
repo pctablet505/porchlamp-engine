@@ -1,9 +1,5 @@
-"""W2-5 acceptance: the v2 scoring engine, ``score(bundle, populations,
-snapshot) -> ScoreRecord`` (02 sections 1, 5, 7, 8; 04 sections 3, 4).
-
-Fail-before: before this packet ``cvi.core.engine`` does not exist, so every
-test below fails on ``ModuleNotFoundError`` (recorded verbatim in the
-handoff).
+"""The scoring engine, ``score(bundle, populations, snapshot) ->
+ScoreRecord`` (02 sections 1, 5, 7, 8; 04 sections 3, 4).
 
 ``EligibleFixture`` builds one hand-computed, fully-measured bundle (every
 pillar 100.0 except rigor at 82.0, chosen so every intermediate value is a
@@ -21,7 +17,7 @@ from typing import Any, Callable
 
 import pytest
 
-from cvi.core import constants_v2, matrix
+from cvi.core import constants, matrix
 from cvi.core.engine import Snapshot, score
 from cvi.core.gates import GateEvidence
 from cvi.core.models import (
@@ -69,7 +65,7 @@ def qualifying_events() -> tuple[PRWindowEvent, ...]:
     member that population is below D-GATE-5's minimum n (10), so D-GATE-5
     is UNDECIDED rather than a clean pass. Chosen deliberately (a 10-member
     healthy population would also work but adds nine more events for no
-    extra coverage of this packet's own code)."""
+    extra coverage)."""
     created = NOW - datetime.timedelta(days=30)
     return (
         PRWindowEvent(
@@ -114,7 +110,7 @@ def _m(value: Any, *, n: int = 0, method: str = "primary") -> Measured:
 def make_bundle(inputs: dict[str, Measured | Unmeasured], **repo_overrides: Any) -> FeatureBundle:
     events = qualifying_events()
     bundle = FeatureBundle(
-        schema_version=constants_v2.SCHEMA_VERSION,
+        schema_version=constants.SCHEMA_VERSION,
         repo=make_repo(**repo_overrides),
         inputs=inputs,
         pr_window=PRWindow(
@@ -212,8 +208,8 @@ class EligibleFixture:
     def populations() -> PopulationSet:
         return PopulationSet(
             snapshot_id="snap-1",
-            benchmark_version=constants_v2.BENCHMARK_VERSION,
-            constants_hash=constants_v2.CONSTANTS_HASH,
+            benchmark_version=constants.BENCHMARK_VERSION,
+            constants_hash=constants.CONSTANTS_HASH,
             populations=(
                 Population("pypi", "ttm_p90_hours", 4, False, {"a": 5.0, "b": 10.0, "c": 20.0, "d": 30.0}),
                 Population("pypi", "dependents_deduped", 4, False, {"a": 0.0, "b": 1.0, "c": 2.0, "d": 3.0}),
@@ -237,8 +233,8 @@ def test_engine_end_to_end_every_field() -> None:
 
     assert record.repo == bundle.repo
     assert record.snapshot_id == "snap-1"
-    assert record.benchmark_version == constants_v2.BENCHMARK_VERSION
-    assert record.constants_hash == constants_v2.CONSTANTS_HASH
+    assert record.benchmark_version == constants.BENCHMARK_VERSION
+    assert record.constants_hash == constants.CONSTANTS_HASH
     assert record.raw_hash == _HASH64
 
     assert record.gate.eligible is True
@@ -246,11 +242,11 @@ def test_engine_end_to_end_every_field() -> None:
     assert record.gate.routed is None
     assert record.gate.undecided == ("D-GATE-5",)
 
-    assert set(record.params) == set(constants_v2.PARAM_INPUT_IDS)
+    assert set(record.params) == set(constants.PARAM_INPUT_IDS)
     for input_id, param_score in record.params.items():
         assert param_score.measured is True, input_id
         assert param_score.reason is None, input_id
-        # W2-11: every Measured ParamScore's ``value`` is the bundle input's
+        # Every Measured ParamScore's ``value`` is the bundle input's
         # raw Measured.value, verbatim, before any curve.
         assert param_score.value == bundle.inputs[input_id].value, input_id
         assert param_score.n == bundle.inputs[input_id].n, input_id
@@ -263,14 +259,14 @@ def test_engine_end_to_end_every_field() -> None:
     assert record.params["ai_posture"].method == "primary"
     assert record.params["elephant_factor"].n == 30
 
-    assert set(record.pillars) == set(constants_v2.PILLAR_NAMES)
+    assert set(record.pillars) == set(constants.PILLAR_NAMES)
     assert record.pillars["responsiveness"].score == pytest.approx(100.0)
     assert record.pillars["responsiveness"].coverage == pytest.approx(1.0)
     assert record.pillars["criticality"].score == pytest.approx(100.0)
     assert record.pillars["governance"].score == pytest.approx(100.0)
     assert record.pillars["rigor"].score == pytest.approx(82.0)
     assert record.pillars["accessibility"].score == pytest.approx(100.0)
-    for pillar in constants_v2.PILLAR_NAMES:
+    for pillar in constants.PILLAR_NAMES:
         assert record.pillars[pillar].coverage == pytest.approx(1.0)
 
     assert record.composite == pytest.approx(EligibleFixture.composite)
@@ -315,10 +311,10 @@ def test_gated_repo_never_calls_the_parameter_functions(monkeypatch: pytest.Monk
     monkeypatch.setattr(
         engine,
         "_PARAM_FUNCTIONS",
-        {input_id: _counting_stub(calls) for input_id in constants_v2.PARAM_INPUT_IDS},
+        {input_id: _counting_stub(calls) for input_id in constants.PARAM_INPUT_IDS},
     )
     bundle = make_bundle(
-        {input_id: Unmeasured(reason="collector_failure") for input_id in constants_v2.PARAM_INPUT_IDS},
+        {input_id: Unmeasured(reason="collector_failure") for input_id in constants.PARAM_INPUT_IDS},
         archived=True,
     )
     snapshot = Snapshot(snapshot_id="snap-1", as_of=NOW, gate_evidence=healthy_evidence())
@@ -344,7 +340,7 @@ def test_eligible_repo_calls_every_parameter_function_exactly_once(monkeypatch: 
     eligible bundle, does observe all 18 calls."""
     from cvi.core import engine
 
-    calls: dict[str, int] = {input_id: 0 for input_id in constants_v2.PARAM_INPUT_IDS}
+    calls: dict[str, int] = {input_id: 0 for input_id in constants.PARAM_INPUT_IDS}
     real_functions = dict(engine._PARAM_FUNCTIONS)
 
     def make_counted(input_id: str) -> Callable[..., Any]:
@@ -357,17 +353,17 @@ def test_eligible_repo_calls_every_parameter_function_exactly_once(monkeypatch: 
     monkeypatch.setattr(
         engine,
         "_PARAM_FUNCTIONS",
-        {input_id: make_counted(input_id) for input_id in constants_v2.PARAM_INPUT_IDS},
+        {input_id: make_counted(input_id) for input_id in constants.PARAM_INPUT_IDS},
     )
 
     record = engine.score(EligibleFixture.bundle(), EligibleFixture.populations(), EligibleFixture.snapshot())
 
-    assert calls == {input_id: 1 for input_id in constants_v2.PARAM_INPUT_IDS}
+    assert calls == {input_id: 1 for input_id in constants.PARAM_INPUT_IDS}
     assert record.composite == pytest.approx(EligibleFixture.composite)
 
 
 # --------------------------------------------------------------------------- #
-# D-MISS-5 guard (W2-13): not_applicable is assignable only from the closed
+# D-MISS-5 guard: not_applicable is assignable only from the closed
 # NOT_APPLICABLE_RULES list; the engine downgrades any other claim.
 # --------------------------------------------------------------------------- #
 
@@ -413,12 +409,12 @@ def test_unrated_repo_has_no_composite_or_tier_but_keeps_params_and_coverage() -
     (regression guard for the eager-ecdf-fetch bug: calling ``.ecdf`` on an
     empty set would raise ``LookupError``).
 
-    W2-5f (W-1): the stage-0 ``gate`` stays exactly as ``evaluate_gates``
-    returned it (``eligible=True`` -- this repo passed every stage-0 gate);
-    the stage-3 D-EVID-1 outcome lives in ``rated``/``unrated_reason``
-    instead of overwriting it."""
+    The stage-0 ``gate`` stays exactly as ``evaluate_gates`` returned it
+    (``eligible=True`` -- this repo passed every stage-0 gate); the stage-3
+    D-EVID-1 outcome lives in ``rated``/``unrated_reason`` instead of
+    overwriting it."""
     inputs: dict[str, Measured | Unmeasured] = {
-        input_id: Unmeasured(reason="collector_failure") for input_id in constants_v2.PARAM_INPUT_IDS
+        input_id: Unmeasured(reason="collector_failure") for input_id in constants.PARAM_INPUT_IDS
     }
     inputs.update(
         {
@@ -430,8 +426,8 @@ def test_unrated_repo_has_no_composite_or_tier_but_keeps_params_and_coverage() -
     )
     bundle = make_bundle(inputs)
     empty_populations = PopulationSet(
-        snapshot_id="snap-1", benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH, populations=(),
+        snapshot_id="snap-1", benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH, populations=(),
     )
     snapshot = Snapshot(snapshot_id="snap-1", as_of=NOW, gate_evidence=healthy_evidence())
 
@@ -456,7 +452,7 @@ def test_unrated_repo_has_no_composite_or_tier_but_keeps_params_and_coverage() -
     assert record.friction_coverage == pytest.approx(0.0)
     assert len(record.params) == 18
 
-    # W2-11: value is None for every Unmeasured input, and the raw measured
+    # value is None for every Unmeasured input, and the raw measured
     # value (verbatim) for every Measured one, regardless of the score/
     # measured outcome the curve produced.
     measured_ids = {"newcomer_issue_supply", "newcomer_conversion", "rr90_return_rate", "dx"}
@@ -512,7 +508,7 @@ def test_coordinates_all_pillars_unmeasured_gives_none_axes_and_no_quadrant() ->
     """Anti-vacuity for the drop-out tests above: when every contributing
     pillar is unmeasured, the axis (and so the quadrant) is None, not 0.0 --
     0.0 would be a silently wrong "low" classification instead of "unknown"."""
-    pillars = {pillar: PillarScore(score=None, coverage=0.0) for pillar in constants_v2.PILLAR_NAMES}
+    pillars = {pillar: PillarScore(score=None, coverage=0.0) for pillar in constants.PILLAR_NAMES}
     coords = matrix.coordinates(pillars)
     assert coords.leverage is None
     assert coords.leverage_coverage == pytest.approx(0.0)
@@ -531,9 +527,9 @@ def test_quadrant_boundary_50_counts_as_high_on_both_axes() -> None:
 
 
 def test_coordinates_rounds_leverage_and_friction_before_the_quadrant_comparison() -> None:
-    """W2-5f mutant guard (review section 7, M13): matrix.py's own module
-    docstring names this the deliberate v1-kept exception -- the quadrant
-    compares *rounded* leverage/friction, not the raw pre-round values.
+    """matrix.py's own module docstring names this the deliberate v1-kept
+    exception -- the quadrant compares *rounded* leverage/friction, not the
+    raw pre-round values.
     criticality .50, rigor/governance 0.0 -> leverage_raw = .50*99.998 =
     49.999, which rounds to 50.0 (high); responsiveness/accessibility 100.0,
     governance 0.0 -> friction_raw = .30*(100-0) = 30.0 (unambiguously low,
@@ -560,10 +556,9 @@ def test_coordinates_rounds_leverage_and_friction_before_the_quadrant_comparison
 
 
 # --------------------------------------------------------------------------- #
-# W2-5f mutant guards (review section 7, M10/M12): the engine's stored
-# ``composite`` is the rounded display value, but ``tier`` is derived from
-# the unrounded ``composite_raw`` (04 section 8) -- and this is the one case
-# where the two diverge across a tier cutoff.
+# The engine's stored ``composite`` is the rounded display value, but
+# ``tier`` is derived from the unrounded ``composite_raw`` (04 section 8) --
+# and this is the one case where the two diverge across a tier cutoff.
 # --------------------------------------------------------------------------- #
 
 
@@ -578,9 +573,9 @@ def test_engine_derives_tier_from_the_unrounded_composite_not_the_rounded_displa
 
     89.996 rounds to 90.0, the S/S+ cutoff: ``tier_from_score(89.996) ==
     "S"`` but ``tier_from_score(90.0) == "S+"``. A correct engine stores
-    ``composite=90.0`` (the rounded value, M12's target) with ``tier="S"``
-    (derived from the unrounded 89.996, M10's target) -- both wrong in the
-    mutant, in opposite directions, so one bundle kills both mutants."""
+    ``composite=90.0`` (the rounded value) with ``tier="S"`` (derived from
+    the unrounded 89.996), so this one bundle pins both halves of the
+    rule."""
     inputs = dict(EligibleFixture.inputs())
     inputs["openssf_criticality"] = _m(0.16525714285714263, n=0)
     bundle = make_bundle(inputs)
@@ -594,14 +589,14 @@ def test_engine_derives_tier_from_the_unrounded_composite_not_the_rounded_displa
 
 
 # --------------------------------------------------------------------------- #
-# W2-5f (W-1): a stage-0 gate failure and a stage-3 evidence failure must be
+# A stage-0 gate failure and a stage-3 evidence failure must be
 # distinguishable from the record alone.
 # --------------------------------------------------------------------------- #
 
 
 def test_gated_and_unrated_records_are_distinguishable() -> None:
     gated_bundle = make_bundle(
-        {input_id: Unmeasured(reason="collector_failure") for input_id in constants_v2.PARAM_INPUT_IDS},
+        {input_id: Unmeasured(reason="collector_failure") for input_id in constants.PARAM_INPUT_IDS},
         archived=True,
     )
     snapshot = Snapshot(snapshot_id="snap-1", as_of=NOW, gate_evidence=healthy_evidence())
@@ -613,7 +608,7 @@ def test_gated_and_unrated_records_are_distinguishable() -> None:
     assert gated.tier_ceiling is None
 
     unrated_inputs: dict[str, Measured | Unmeasured] = {
-        input_id: Unmeasured(reason="collector_failure") for input_id in constants_v2.PARAM_INPUT_IDS
+        input_id: Unmeasured(reason="collector_failure") for input_id in constants.PARAM_INPUT_IDS
     }
     unrated_inputs.update(
         {
@@ -625,8 +620,8 @@ def test_gated_and_unrated_records_are_distinguishable() -> None:
     )
     unrated_bundle = make_bundle(unrated_inputs)
     empty_populations = PopulationSet(
-        snapshot_id="snap-1", benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH, populations=(),
+        snapshot_id="snap-1", benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH, populations=(),
     )
     unrated = score(unrated_bundle, empty_populations, snapshot)
     assert unrated.gate.eligible is True
@@ -636,7 +631,7 @@ def test_gated_and_unrated_records_are_distinguishable() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# W2-5f (W-1): raw_hash is the caller's own value; provenance_hash is kept.
+# raw_hash is the caller's own value; provenance_hash is kept.
 # --------------------------------------------------------------------------- #
 
 
@@ -656,28 +651,27 @@ def test_score_accepts_a_caller_supplied_raw_hash_distinct_from_provenance_hash(
 
 
 # --------------------------------------------------------------------------- #
-# W2-5f (W-3): a Measured ECDF input with no frozen population is
+# A Measured ECDF input with no frozen population is
 # Unmeasured(reason="no_population"), never an escaping LookupError.
 # --------------------------------------------------------------------------- #
 
 
 def test_ecdf_params_missing_population_are_no_population_not_a_crash() -> None:
-    """Fail-before: on the base engine, ``populations.ecdf(...)`` is called
-    eagerly for every Measured ECDF input regardless of population
-    existence, so this raises ``LookupError`` instead of returning (recorded
-    verbatim in the handoff). ``ttm_p90_hours`` is Unmeasured here (its own
-    D-MISS-1 reason must pass through, and the missing population must never
-    even be consulted for it -- the eager-ecdf-fetch guard already proves
-    that path); ``dependents_deduped``/``downloads_monthly`` are Measured
-    with no population in an empty ``PopulationSet``, so both come back
+    """``populations.ecdf(...)`` is consulted lazily, so a missing
+    population never escapes as ``LookupError``. ``ttm_p90_hours`` is
+    Unmeasured here (its own D-MISS-1 reason must pass through, and the
+    missing population must never even be consulted for it -- the
+    eager-ecdf-fetch guard already proves that path);
+    ``dependents_deduped``/``downloads_monthly`` are Measured with no
+    population in an empty ``PopulationSet``, so both come back
     ``no_population`` with the real sample size preserved."""
     inputs = dict(EligibleFixture.inputs())
     inputs["ttm_p90_hours"] = Unmeasured(reason="third_party_gap")
     inputs["dependents_deduped"] = _m(999999.0, n=42)
     bundle = make_bundle(inputs)
     empty_populations = PopulationSet(
-        snapshot_id="snap-1", benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH, populations=(),
+        snapshot_id="snap-1", benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH, populations=(),
     )
 
     record = score(bundle, empty_populations, EligibleFixture.snapshot())
@@ -721,17 +715,17 @@ def test_ecdf_params_missing_population_are_no_population_not_a_crash() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# W2-10 acceptance: ScoreRecord carries its own repo identity (04 section 3).
+# ScoreRecord carries its own repo identity (04 section 3).
 # --------------------------------------------------------------------------- #
 
 
 def _bare_score_record_fields() -> dict[str, Any]:
     """Every ``ScoreRecord`` field except ``repo`` -- a minimal gated shape,
-    reused by the fail-before/after proof below."""
+    reused by the required-field check below."""
     return dict(
         snapshot_id="snap-1",
-        benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH,
+        benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH,
         raw_hash=_HASH64,
         gate=GateResult(eligible=True, reason=None, routed=None, undecided=()),
         params={},
@@ -752,11 +746,9 @@ def _bare_score_record_fields() -> dict[str, Any]:
 
 
 def test_score_record_requires_repo() -> None:
-    """Fail-before: on the base ``cvi.core.models``, ``ScoreRecord`` has no
-    ``repo`` field at all, so ``ScoreRecord(**_bare_score_record_fields())``
-    is accepted outright (recorded verbatim in the handoff). After this
-    packet ``repo`` is a required field with no default, so the same call
-    (still omitting it) raises ``TypeError`` naming it as missing."""
+    """``repo`` is a required ``ScoreRecord`` field with no default:
+    constructing one without it raises ``TypeError`` naming it as
+    missing."""
     with pytest.raises(TypeError, match="repo"):
         ScoreRecord(**_bare_score_record_fields())  # type: ignore[call-arg]
 
@@ -771,14 +763,14 @@ def test_engine_repo_is_bundle_repo_on_every_path() -> None:
     shapes :func:`score` can return: gated (stage-0 ``eligible=False``),
     unrated (D-EVID-1 insufficient coverage) and rated. A distinct
     ``owner``/``name`` per bundle (rather than reusing ``EligibleFixture``'s
-    default ``org/alpha`` for all three) is the mutant guard named by the
-    packet: an engine that hard-codes a constant ``RepoIdentity``, or copies
-    a *different* bundle's ``repo``, would pass a same-identity check but
-    fail this one."""
+    default ``org/alpha`` for all three) is deliberate: an engine that
+    hard-codes a constant ``RepoIdentity``, or copies a *different*
+    bundle's ``repo``, would pass a same-identity check but fail this
+    one."""
     snapshot = Snapshot(snapshot_id="snap-1", as_of=NOW, gate_evidence=healthy_evidence())
 
     gated_bundle = make_bundle(
-        {input_id: Unmeasured(reason="collector_failure") for input_id in constants_v2.PARAM_INPUT_IDS},
+        {input_id: Unmeasured(reason="collector_failure") for input_id in constants.PARAM_INPUT_IDS},
         owner="gated-owner", name="gated-repo", archived=True,
     )
     gated = score(gated_bundle, _PoisonPopulations(), snapshot)
@@ -787,7 +779,7 @@ def test_engine_repo_is_bundle_repo_on_every_path() -> None:
     assert gated.repo.name == "gated-repo"
 
     unrated_inputs: dict[str, Measured | Unmeasured] = {
-        input_id: Unmeasured(reason="collector_failure") for input_id in constants_v2.PARAM_INPUT_IDS
+        input_id: Unmeasured(reason="collector_failure") for input_id in constants.PARAM_INPUT_IDS
     }
     unrated_inputs.update(
         {
@@ -799,8 +791,8 @@ def test_engine_repo_is_bundle_repo_on_every_path() -> None:
     )
     unrated_bundle = make_bundle(unrated_inputs, owner="unrated-owner", name="unrated-repo")
     empty_populations = PopulationSet(
-        snapshot_id="snap-1", benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH, populations=(),
+        snapshot_id="snap-1", benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH, populations=(),
     )
     unrated = score(unrated_bundle, empty_populations, snapshot)
     assert unrated.repo == unrated_bundle.repo

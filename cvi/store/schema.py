@@ -1,13 +1,12 @@
 """CVI v2 store schema (04 section 5, extended per 06 section 4).
 
-Deviations from the `04` section 5 draft, and the full rationale for each,
-are recorded in ``.agents/W4-2/handoff.md`` (REWORK round 1, F-014: kept
-out of this docstring to hold the size class). In one line: ``repositories``
-gains ``leverage_coverage``/``friction_coverage``/``persona_composites``/
-``gate_undecided`` (06 section 4 fields the draft omits); ``benchmark_version``
-is joined from ``snapshots``, never duplicated; ``snapshots`` is a superset
-of INT-W0-4's ``snapshot_meta``; ``populations`` matches
-``cvi.snapshot.populations.build_populations_table``'s real row shape.
+Where this schema goes beyond the `04` section 5 draft: ``repositories``
+carries ``leverage_coverage``/``friction_coverage``/``persona_composites``/
+``gate_undecided`` (06 section 4 fields the draft omits);
+``benchmark_version`` is joined from ``snapshots``, never duplicated;
+``snapshots`` is a superset of the ``snapshot_meta`` contract;
+``populations`` matches
+``cvi.snapshot.populations.build_populations_table``'s row shape.
 
 :data:`SCHEMA_STATEMENTS` is the single Python-side DDL definition;
 :func:`create_schema` executes it directly (fixtures/oracle tests);
@@ -21,12 +20,10 @@ section 5: avoided so SQLite >= 3.35 is not required); a grep-style test in
 ``tests/store/test_schema.py`` enforces it over ``cvi/store`` (docstring
 prose mentioning the word, like this one, is excluded from that check).
 
-G-006 ruling (REWORK round 3): ``repositories.stars_audited`` has no v2
-producer yet -- W1-10 owns the StarScout-audited value that will fill it.
-The writer stores ``NULL`` there, never a raw, unaudited star count under
-this column's audited-sounding name (that would be fabrication, not a
-placeholder); the column stays nullable for exactly that reason, and the
-UI renders "--" for it per `06` U-7 until W1-10 lands.
+``repositories.stars_audited`` has no v2 producer: the writer stores
+``NULL`` there, never a raw, unaudited star count under this column's
+audited-sounding name. The column is nullable for exactly that reason, and
+the UI renders "--" for it per `06` U-7.
 """
 from __future__ import annotations
 
@@ -147,29 +144,29 @@ SCHEMA_STATEMENTS: Tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS idx_rank ON repositories(snapshot_id, rated, cvi DESC, coverage DESC)",
     "CREATE INDEX IF NOT EXISTS idx_eco ON repositories(snapshot_id, ecosystem, cvi DESC)",
     "CREATE INDEX IF NOT EXISTS idx_name ON repositories(owner, name)",
-    # W4-3 / migration 0002_indexes.sql: the persona-projection and custom-
-    # reprojection base filter is `snapshot_id = ? AND eligible = 1`, which
-    # idx_rank/idx_eco do not key on (they key on rated/ecosystem); see that
-    # migration file's own comment for the measured effect and for why the
-    # JSON-path predicates themselves cannot be indexed.
+    # The persona-projection and custom-reprojection base filter is
+    # `snapshot_id = ? AND eligible = 1`, which idx_rank/idx_eco do not key
+    # on (they key on rated/ecosystem); see 0002_indexes.sql's own comment
+    # for the measured effect and for why the JSON-path predicates
+    # themselves cannot be indexed.
     "CREATE INDEX IF NOT EXISTS idx_eligible ON repositories(snapshot_id, eligible)",
 )
 
 
 def connect(path) -> sqlite3.Connection:
     """The one place a caller should open a connection to a v2 store
-    database (G-004, REWORK round 3): sets ``PRAGMA foreign_keys = ON``
-    before returning it. SQLite disables foreign-key enforcement by
-    default, so every ``REFERENCES`` clause in this schema
-    (``params.repo_id``, ``repositories.snapshot_id``) is decorative on a
-    plain ``sqlite3.connect()`` -- an orphan row is silently accepted and
-    only ``PRAGMA foreign_key_check`` would ever find it. Deliberately NOT
-    used by ``cvi.store.writer.snapshot_dump_hash``'s internal scratch
-    copy: that helper's whole job is a destructive ``DELETE``/``DROP``
-    scoping of a throwaway copy, and ``DROP TABLE snapshots`` while
-    ``repositories`` rows still reference it fails under FK enforcement
-    (verified) -- enforcing integrity on a copy being intentionally torn
-    apart for hashing would break the very operation, not protect it."""
+    database: sets ``PRAGMA foreign_keys = ON`` before returning it. SQLite
+    disables foreign-key enforcement by default, so every ``REFERENCES``
+    clause in this schema (``params.repo_id``, ``repositories.snapshot_id``)
+    is decorative on a plain ``sqlite3.connect()`` -- an orphan row is
+    silently accepted and only ``PRAGMA foreign_key_check`` would ever find
+    it. Deliberately NOT used by
+    ``cvi.store.writer.snapshot_dump_hash``'s internal scratch copy: that
+    helper's whole job is a destructive ``DELETE``/``DROP`` scoping of a
+    throwaway copy, and ``DROP TABLE snapshots`` while ``repositories`` rows
+    still reference it fails under FK enforcement -- enforcing integrity on a
+    copy being intentionally torn apart for hashing would break the very
+    operation, not protect it."""
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -200,7 +197,7 @@ def introspect_schema(conn: sqlite3.Connection) -> Dict[str, object]:
     preserves has one, ``idx_cvi_search ON repositories (LOWER(owner),
     LOWER(name))``) is represented as a placeholder string keyed by its
     position, never a bare ``None`` (sorting a mix of ``str`` and ``None``
-    raises ``TypeError`` -- the v1-migration test is what first found this).
+    raises ``TypeError``).
     """
     tables: Dict[str, List[tuple]] = {}
     indexes: Dict[str, List[tuple]] = {}

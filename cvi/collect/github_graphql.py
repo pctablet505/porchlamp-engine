@@ -1,4 +1,4 @@
-"""W1-3: windowed PR collection with typed actors and review threads.
+"""Windowed PR collection with typed actors and review threads.
 
 Collects the PRs a repository opened in the trailing 180 days (D-IN-4,
 ``docs/v2/02-RANKING-DESIGN.md`` section 3) from the GitHub GraphQL API and
@@ -16,11 +16,8 @@ derives the per-PR responsiveness inputs of ``02`` section 4:
   actor classifications and ``review_threads_total``.
 
 Bot typing follows D-IN-1: ``__typename == "Bot"``, a login ending in
-``[bot]``, or an exact-match login in the frozen list below — the v1
-substring matching is removed (F12). The D-IN-1/2/4 and §4 constants below
-transcribe the design verbatim; W2-1 moves them to the v2 frozen constants
-module (``cvi.core.constants_v2``) — until then this module is their single
-definition (R-2).
+``[bot]``, or an exact-match login in the frozen list below — v1 substring
+matching is removed.
 """
 
 from __future__ import annotations
@@ -36,7 +33,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from cvi.collect.envelope import write_envelope
-from cvi.core.constants_v2 import AUTHOR_UNMEASURED_MAX_FRACTION
+from cvi.core.constants import AUTHOR_UNMEASURED_MAX_FRACTION
 from cvi.core.hygiene import (
     account_eligibility as _hygiene_account_eligibility,
     apply_author_cap,
@@ -402,72 +399,51 @@ def derive_pr_window_fields(prw: Optional[dict]) -> dict[str, tuple[Any, str]]:
 
 
 # --------------------------------------------------------------------------- #
-# W1-4: author history and newcomer cohorts (D-IN-3/D-IN-4, 02 §4 1.2/1.3/
-# 5.2/5.3)
+# Author history and newcomer cohorts (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3)
 # --------------------------------------------------------------------------- #
 #
-# Data plan (docs/v2/05-WORK-PLAN.md, packet W1-4). One envelope per repo,
+# Data plan. One envelope per repo,
 # ``raw_dir/author_history/<owner>__<name>.json``:
 #
 # * a 365-d window of PRs (cap 500 newest, ``truncated`` flag) — the same
-#   fetch serves BOTH cohorts. The decision cohort ([anchor-270 d,
-#   anchor-90 d]) is read from this window rather than from the W1-3
-#   ``pr_window`` envelope (180 d): the 365-d window strictly dominates it
-#   (same page cap, longer target, same newest-first ordering, so its
-#   recorded floor is never nearer to ``anchor`` than the 180-d window's),
-#   so building the decision cohort from it covers the full 270 d for free
+#   fetch serves both cohorts. The decision cohort ([anchor-270 d,
+#   anchor-90 d]) is read from this window rather than from the 180-d
+#   ``pr_window`` envelope: the 365-d window strictly dominates it,
+#   so building the decision cohort from it covers the full 270 d
 #   instead of silently narrowing to [180 d, 90 d]. ``decision_cohort_
 #   coverage_gap_days`` records the residual, non-zero only when this
 #   window itself truncates before reaching 270 d back;
 # * an external, non-bot author whose first recorded PR in the window was
 #   opened in [anchor-365 d, anchor-180 d] is a newcomer-cohort author
 #   (D-IN-4); at most 20 are sampled per repo — sorted by login, then a
-#   fixed-seed random draw over that sorted list (the packet's own words),
-#   not the chronologically earliest 20 (see :func:`_select_newcomer_sample`);
-# * D-IN-3 eligibility (account age, event count) is fetched for EVERY
+#   fixed-seed random draw over that sorted list (see :func:`_select_newcomer_sample`);
+# * D-IN-3 eligibility (account age, event count) is fetched for every
 #   author in the union (sampled newcomers + external decision-cohort
 #   authors), via aliased ``user(login:)`` batches of
-#   :data:`ELIGIBILITY_BATCH_SIZE` (round-2 cost cap: below the ~17-alias
-#   silent-truncation threshold measured on
-#   ``contributionsCollection.contributionCalendar.totalContributions`` at
-#   50-wide batches — GitHub's profile "public events" count has no current
-#   API, so this contribution-calendar aggregate, GitHub's own default
-#   window of roughly the trailing year, is the closest available proxy).
-#   An alias with no data in the response — a deleted/renamed account, or a
-#   truncated batch — is recorded ``eligibility_unmeasured`` rather than a
-#   silent ineligible default;
+#   :data:`ELIGIBILITY_BATCH_SIZE`. An alias with no data in the response —
+#   a deleted/renamed account, or a truncated batch — is recorded
+#   ``eligibility_unmeasured`` rather than a silent ineligible default;
 # * the per-author ``search`` (the author's newest 30 PRs in the repo,
 #   ``repo:o/n is:pr author:login`` — prior-merge history for MR_first) is
 #   capped at :data:`AUTHOR_SEARCH_CAP` per repo, deterministically sampled
 #   (:func:`_seeded_sample`) from the union when it is larger. A search that
 #   fails with a GraphQL error (``history_unmeasured``) or that fell outside
 #   the sample (``history_unsampled``) degrades that one author to no
-#   recorded history rather than failing the whole repo's collection — and,
-#   per B2 (round 2), excludes that author from MR_first's population
-#   entirely (:func:`_no_prior_merged` returns ``None``), never assumed a
-#   first-timer;
+#   recorded history rather than failing the whole repo's collection — and
+#   excludes that author from MR_first's population entirely
+#   (:func:`_no_prior_merged` returns ``None``), never assumed a first-timer;
 # * derivation (``derive_cohort_fields``, pure over the recorded envelope):
 #   for each of DR_90 (1.2), MR_first (1.3), newcomer conversion (5.2) and
-#   RR_90 (5.3) both a RAW rate (over the identified cohort, no D-IN-3
+#   RR_90 (5.3) both a raw rate (over the identified cohort, no D-IN-3
 #   eligibility or cap) and the D-IN-3-adjusted rate (eligible authors only,
-#   each capped at floor(20% * n) items, oldest kept) are stored, per the
-#   packet's "both raw and capped counts are stored" instruction; W3-1
-#   generalizes D-IN-3 application to every rate parameter and may
-#   supersede the capped fields here with a shared implementation.
+#   each capped at floor(20% * n) items, oldest kept) are stored.
 #
-# Documented approximations (R-5): "no previously merged PR" (MR_first, B1
-# fix round 2 — the predicate is merge time, not creation time) is a
-# statement about the recorded history only — the 365-d window plus the
-# sampled per-author newest-30 search — an author with more than 30 total
-# PRs, or outside the round-2 search sample, may have an older merged PR no
-# recorded source reached (module note above: excluded from MR_first rather
-# than assumed); a truncated newcomer band excludes candidates whose oldest
-# recorded PR sits within ``TRUNCATION_MARGIN_DAYS`` of the truncation
-# floor, since an even older, unrecorded PR would misclassify them as a
-# newcomer.
-#
-# The D-IN constants below are the single definition until W2-1's frozen
-# constants module takes over (R-2), mirroring the W1-3 constants above.
+# Documented approximations: "no previously merged PR" (MR_first — the
+# predicate is merge time, not creation time) is a statement about recorded
+# history only — the 365-d window plus the sampled per-author newest-30 search;
+# a truncated newcomer band excludes candidates whose oldest recorded PR sits
+# within ``TRUNCATION_MARGIN_DAYS`` of the truncation floor, since an even older,
+# unrecorded PR would misclassify them as a newcomer.
 
 #: D-IN-4: the author-history window — 365 d of PRs.
 AUTHOR_WINDOW_DAYS: int = 365
@@ -479,10 +455,7 @@ NEWCOMER_BAND_START_DAYS: int = 365
 NEWCOMER_BAND_END_DAYS: int = 180
 #: D-IN-4: at most 20 sampled newcomer-cohort authors per repo.
 NEWCOMER_SAMPLE_SIZE: int = 20
-#: D-IN-4's own words: "sorted login, then a seeded choice" — the fixed
-#: seed for the ``random.Random(...).sample`` draw over the login-sorted
-#: candidate pool. Fixed once, never derived from wall-clock time or a
-#: repo-specific value (both would break exact reproducibility, D-EVID-1).
+#: Fixed seed for deterministic sampling of the candidate pool.
 NEWCOMER_SAMPLE_SEED: int = 20260912
 #: Per-author history: the 30 newest of the author's PRs in the repo.
 AUTHOR_SEARCH_FIRST: int = 30
@@ -492,54 +465,30 @@ TRUNCATION_MARGIN_DAYS: int = 30
 #: D-IN-4: decision-rate cohort, older edge — opened at most 270 d ago.
 DECISION_COHORT_START_DAYS: int = 270
 #: D-IN-4/1.2: decision-cohort newer edge AND the DR_90 decide-by window —
-#: the same fact from two angles: a cohort PR has had exactly this long to
-#: be decided (D-IN-4's stated rationale for the cohort's near boundary).
+#: a cohort PR has had exactly this long to be decided.
 DECISION_WINDOW_DAYS: int = 90
-#: D-IN-3 (account age, event count, per-author cap): MIN_ACCOUNT_AGE_DAYS,
-#: MIN_PUBLIC_EVENTS and AUTHOR_CAP_FRACTION are imported from
-#: cvi.core.constants_v2 (W3-1, RFC-0004) — this module's own D-IN-4
-#: constants stay here pending W2-1's broader relocation (R-2).
+#: D-IN-3: MIN_ACCOUNT_AGE_DAYS, MIN_PUBLIC_EVENTS and AUTHOR_CAP_FRACTION
+#: are imported from cvi.core.constants.
 #: 5.2: the first PR converted when merged within 180 d of opening.
 NEWCOMER_CONVERT_WINDOW_DAYS: int = 180
 #: 5.3: a return needs a second PR within 90 d after the first PR's merge.
 RETURN_WINDOW_DAYS: int = 90
-#: Round-2 cost cap: at most this many per-author ``search`` calls per repo,
+#: At most this many per-author ``search`` calls per repo,
 #: deterministically sampled (:func:`_seeded_sample`) from the union of the
-#: decision cohort and the newcomer sample when that union is larger. An
-#: author outside the sample is ``history_unsampled`` (module note below).
+#: decision cohort and the newcomer sample when that union is larger.
 AUTHOR_SEARCH_CAP: int = 50
-#: Round-2 cost cap: the D-IN-3 eligibility lookup (account age, event
-#: count) is batched via aliased ``user(login:)`` queries at up to this many
-#: authors per request. Round 3 correction: this is NOT a safe ceiling —
-#: round-2 review §3.5 measured only 11 of 15 aliases resolving in a live
-#: batch (``Resource limits for this query exceeded``, GitHub's per-query
-#: complexity budget on ``contributionsCollection``, which depends on the
-#: specific accounts in the batch, not on alias count). No fixed width is
-#: safe; :func:`_fetch_eligibility_batch` keeps every alias that DOES
-#: resolve and retries only the rest, narrower each time
-#: (:data:`ELIGIBILITY_RETRY_WIDTHS`), which is what actually makes this
-#: width workable rather than the width itself.
+#: Batch size for aliased user eligibility queries.
 ELIGIBILITY_BATCH_SIZE: int = 15
-#: Round-3 (B-1): narrower retry widths for the aliases a batch left
-#: unresolved, tried in order until one resolves or a width of 1 pins the
-#: outcome to a single login.
+#: Narrower retry widths for aliases a batch left unresolved.
 ELIGIBILITY_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
-#: Round-3 (B-3/B-2): above this fraction of a repo's cohort authors being
-#: unmeasured (search or eligibility failure, not the designed search-cap
-#: sample), row 1.2 (DR_90) and row 1.3 (MR_first)'s D-IN-3-adjusted rate
-#: are reported unmeasured rather than computed on a collapsed population
-#: (review B-2: DR_90 capped n 81 -> 22, MR_first capped 0.3818 -> 0.6667 on
-#: n 55 -> 9, silently, on pytest-dev/pytest). Imported from
-#: :mod:`cvi.core.constants_v2` (RFC-0001) — W2-8's constants freeze has
-#: landed on main; this is the one D-IN constant this module does NOT
-#: define locally, since D-MISS-1 gate thresholds are exactly what the
-#: freeze covers (docs/v2/rfcs/README.md). The module's other 17 D-IN
-#: constants remain here pending W2-1's broader relocation (R-2).
+#: Above this fraction of a repo's cohort authors being unmeasured,
+#: row 1.2 (DR_90) and row 1.3 (MR_first)'s D-IN-3-adjusted rate
+#: are reported unmeasured rather than computed on a collapsed population.
+#: Imported from :mod:`cvi.core.constants`.
 
 #: The 365-d window query: PRs in all three states, newest first, light
 #: fields (no reviews/comments — the author section does not derive
-#: D-IN-2). ``rateLimit`` carries both fields the packet's acceptance
-#: criterion pastes: ``cost`` and ``remaining``.
+#: D-IN-2). ``rateLimit`` carries ``cost`` and ``remaining``.
 AUTHOR_WINDOW_QUERY: str = (
     "query AuthorWindow($owner: String!, $name: String!, $first: Int, $after: String) {"
     " rateLimit { cost remaining }"
@@ -662,9 +611,9 @@ def fetch_author_window(owner: str, name: str, now: datetime,
 
 
 def _seeded_sample(candidates: Sequence[str], size: int) -> tuple[str, ...]:
-    """Deterministic sample shared by the newcomer cohort (D-IN-4, the
-    packet's own words: "sorted login, then a seeded choice") and the
-    round-2 per-author search cap: sort the candidate logins, then draw at
+    """Deterministic sample shared by the newcomer cohort (D-IN-4:
+    sorted login, then a seeded choice) and the
+    per-author search cap: sort the candidate logins, then draw at
     most ``size`` of them with a fixed-seed
     ``random.Random(NEWCOMER_SAMPLE_SEED).sample`` — not the earliest
     ``size``, which would sample only one slice of the population every
@@ -735,7 +684,7 @@ def _run_eligibility_query(logins: Sequence[str], transport: GraphqlTransport,
     Returns ``(resolved, unresolved, cost, remaining, resource_limited)``.
     ``resolved`` maps a login to its eligibility record for every alias
     that carried data in the response; ``unresolved`` lists the logins
-    whose alias was null — round 3 (B-1): kept for a narrower retry by the
+    whose alias was null -- kept for a narrower retry by the
     caller, never discarded along with the rest of a partially-successful
     batch. A whole-call transport failure (``execute`` raises — the body
     was not even parseable, not merely error-carrying) is treated the same
@@ -743,7 +692,7 @@ def _run_eligibility_query(logins: Sequence[str], transport: GraphqlTransport,
     immediately unmeasured, so it too gets a narrower retry first.
     ``resource_limited`` is True when an error names GitHub's per-query
     resource budget — the caller's signal to shrink its width for the rest
-    of the run (review §3.5: no fixed width is a safe ceiling).
+    of the run.
     """
     query = _eligibility_batch_query(len(logins))
     variables = {f"l{i}": login for i, login in enumerate(logins)}
@@ -929,8 +878,7 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
 
 
 #: D-IN-3: ``is_eligible_account``/``apply_author_cap`` are imported from
-#: :mod:`cvi.core.hygiene` (W3-1, RFC-0004) — the module note above
-#: explains why those two, and only those two, moved.
+#: :mod:`cvi.core.hygiene`.
 
 
 def _cap_prs(prs: Sequence[dict]) -> list[dict]:
@@ -974,23 +922,12 @@ def _author_pr_history(window_prs: Sequence[dict],
 
 def _account_eligibility(record: Optional[dict], pr_created_at: Optional[str],
                          fallback_account_at: Optional[str] = None) -> Optional[bool]:
-    """D-IN-3 eligibility of one author, tri-state (round 3, B-3; shared
-    core, F-001 round W3-1): ``True`` (eligible), ``False`` (confirmed
-    ineligible on real data), or ``None`` (unknown — this author's
-    eligibility lookup or prior-merge search failed:
-    ``eligibility_unmeasured`` or ``history_unmeasured``). Round-2's
-    defect: an unmeasured author read as ineligible, which is
-    indistinguishable at the derivation layer from a genuinely event-free
-    account (review B-3). A ``None`` here must be excluded from a rate's
-    numerator AND denominator by the caller — pinned with ``is True``, not
-    truthiness (review F-3: an ``is not False`` call site would silently
-    read ``None`` as eligible).
-
-    F-001 (W3-1, review C2c): this is the ONE tri-state check every D-IN-3
-    rate uses — rows 1.2/1.3 via :func:`_eligible` and rows 5.2/5.3 via
-    :func:`_newcomer_cohort_authors` both call this, instead of 5.2/5.3
-    calling :func:`is_eligible_account` directly and re-introducing the
-    round-2 conflation on the same records three lines away.
+    """D-IN-3 eligibility of one author, tri-state:
+    ``True`` (eligible), ``False`` (confirmed ineligible on real data), or
+    ``None`` (unknown — this author's eligibility lookup or prior-merge search
+    failed: ``eligibility_unmeasured`` or ``history_unmeasured``).
+    A ``None`` here must be excluded from a rate's numerator and denominator
+    by the caller (checked with ``is True``).
     """
     record = record or {}
     measured = not (record.get("eligibility_unmeasured") or record.get("history_unmeasured"))
@@ -1010,25 +947,12 @@ def _eligible(pr: dict, records: dict[str, dict]) -> Optional[bool]:
 
 
 def _author_status(record: dict, anchor: datetime) -> str:
-    """One author's status for the round-3 accounting fields (B-3/B-2):
-    ``"unmeasured"`` (a search or eligibility fetch failed for this
-    author), ``"unsampled"`` (the designed :data:`AUTHOR_SEARCH_CAP`
-    sample, counted separately so a large repo does not look broken),
-    ``"ineligible"`` (real data, D-IN-3 thresholds not met) or
-    ``"eligible"``. Uses the window anchor as the reference time (a
-    per-repo summary, not the exact per-PR gate :func:`_eligible` applies
-    for the scored rates themselves, which compares each PR's own
-    ``createdAt``).
-
-    F-002 (W3-1, review C2b): a failed fetch is tested BEFORE the search-
-    cap sample, not after. An author can be both outside the sample and
-    have a failed fetch (the cap and the fetch are independent); testing
-    ``history_unsampled`` first counted that author as a designed
-    exclusion, so ``authors_excluded_unmeasured`` undercounted real
-    failures and the round-3 gate (:data:`AUTHOR_UNMEASURED_MAX_FRACTION`)
-    could not fire on them -- reproduced on the round-2 pytest-dev/pytest
-    envelope, where the true failure count (45) read as 38 under the old
-    order."""
+    """One author's status for accounting fields:
+    ``"unmeasured"`` (a search or eligibility fetch failed for this author),
+    ``"unsampled"`` (the designed :data:`AUTHOR_SEARCH_CAP` sample),
+    ``"ineligible"`` (real data, D-IN-3 thresholds not met), or
+    ``"eligible"``. Uses the window anchor as reference time.
+    A failed fetch is tested before the search-cap sample."""
     if record.get("history_unmeasured") or record.get("eligibility_unmeasured"):
         return "unmeasured"
     if record.get("history_unsampled"):
@@ -1041,19 +965,14 @@ def _author_status(record: dict, anchor: datetime) -> str:
 
 def _no_prior_merged(pr: dict, window_prs: Sequence[dict],
                      records: dict[str, dict]) -> Optional[bool]:
-    """1.3 MR_first: the author had no other recorded PR MERGED strictly
-    before this one's ``createdAt`` (B1 fix, round 2 — the predicate is
-    merge time, not creation time: an earlier-created PR that merges AFTER
-    this one's ``createdAt`` does not disqualify), in the union of the
-    window and the author's search history (module note: a documented
-    approximation of "ever").
+    """1.3 MR_first: the author had no other recorded PR merged strictly
+    before this one's ``createdAt``, in the union of the window and the
+    author's search history.
 
-    Returns ``None`` — unknown, not "no prior merge" — when the author's
-    prior-merge history was not measured for this repo: the search failed
-    (``history_unmeasured``, B2) or the author fell outside the round-2
-    search cap (``history_unsampled``). Callers must exclude a ``None``
-    result from MR_first's population entirely, never read it as True.
-    """
+    Returns ``None`` (unknown) when the author's prior-merge history was not
+    measured for this repo: the search failed (``history_unmeasured``) or
+    the author fell outside the search cap (``history_unsampled``). Callers
+    must exclude a ``None`` result from MR_first's population entirely."""
     login = _login_of(pr)
     record = records.get(login)
     if record is not None and (record.get("history_unmeasured")
@@ -1132,11 +1051,8 @@ def _newcomer_cohort_authors(window_prs: Sequence[dict], records: dict[str, dict
             for pr in followups)
         authors.append({
             "login": login,
-            # W3-1 (03 §4 lockstep / newcomer_burst): the account's own
-            # creation date, carried through to cvi.core.models.
-            # NewcomerAuthor so cvi.verify.detectors can read it; None
-            # when the eligibility fetch for this author never resolved
-            # it (unmeasured, not guessed).
+            # The account's creation date, carried through to cvi.core.models.NewcomerAuthor;
+            # None when unmeasured.
             "account_created_at": record.get("account_created_at"),
             "first_pr": {"number": first_pr.get("number"),
                          "created_at": first_pr.get("createdAt"),
@@ -1180,62 +1096,23 @@ AUTHOR_HISTORY_BUNDLE_FIELDS: tuple[str, ...] = (
 
 
 def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
-    """W1-4 bundle fields from the recorded ``author_history`` envelope
-    ``data`` (packet W1-4, D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3).
+    """Bundle fields from the recorded ``author_history`` envelope data
+    (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3).
 
-    Returns ``{field: (value, confidence)}`` for
-    :data:`AUTHOR_HISTORY_BUNDLE_FIELDS`: the envelope-recorded facts (point
-    cost, truncation, rate-limit remaining, sampled-author count) are
-    ``verified``; every cohort roster and rate is ``derived``. Both a RAW
-    rate (the identified cohort, no D-IN-3 eligibility or cap) and the
-    D-IN-3-adjusted rate (eligible authors, per-author capped) are stored
-    for DR_90, MR_first, newcomer conversion and RR_90 (module note). Empty
-    dict when ``ah`` is None: without the author_history envelope no cohort
-    quantity is measurable.
+    Returns ``{field: (value, confidence)}`` for :data:`AUTHOR_HISTORY_BUNDLE_FIELDS`:
+    the envelope-recorded facts (point cost, truncation, rate-limit remaining,
+    sampled-author count) are ``verified``; every cohort roster and rate is
+    ``derived``. Both a raw rate (the identified cohort, no D-IN-3 eligibility or cap)
+    and the D-IN-3-adjusted rate (eligible authors, per-author capped) are stored
+    for DR_90, MR_first, newcomer conversion and RR_90. Empty dict when ``ah`` is None.
 
-    W3-1f (review notes item 4, "one name, two values"): the D-IN-3-adjusted
-    DR_90 fields computed here are named ``dr90_decision_rate_author_
-    history_cohort``/``dr90_decision_pr_count_author_history_cohort`` --
-    NOT the bare ``dr90_decision_rate`` the v2 scored input id also uses --
-    because they are a genuinely DIFFERENT number from that scored input:
-    this decision cohort spans :data:`DECISION_COHORT_START_DAYS` (270)
-    down to 90 days back from THIS envelope's own ``window_anchor``, while
-    ``cvi.derive.bundle``'s
-    ``dr90_decision_rate`` resolver (W2-12's D-IN-4 amendment) computes an
-    independent, narrower [anchor-180d, anchor-90d) cohort straight from
-    the ``pr_window`` envelope and never reads these two fields at all.
-    Renaming them (rather than making that resolver read them) preserves
-    both: the resolver keeps the cheaper, already-wired pr_window-only
-    computation D-IN-4 chose, and these two fields stay available, under
-    an unambiguous name, for any future consumer that specifically wants
-    the wider author_history-cohort figure.
+    The D-IN-3-adjusted DR_90 fields computed here are named
+    ``dr90_decision_rate_author_history_cohort``/``dr90_decision_pr_count_author_history_cohort``
+    to distinguish them from the narrower 180-day pr_window cohort.
 
-    Round 3 (B-3/B-2): ``authors_total``/``authors_excluded_unsampled``/
-    ``authors_excluded_unmeasured``/``authors_excluded_ineligible`` account
-    for every author in the union once. When more than
-    :data:`AUTHOR_UNMEASURED_MAX_FRACTION` of them are ``unmeasured``, DR_90
-    and MR_first's D-IN-3-adjusted (capped) rate and count are reported
-    ``(None, "missing")`` with a ``cohort_unmeasured_detail`` string,
-    instead of computed on a collapsed population — a collector failure
-    (batch errors, review B-1) must not silently rewrite a scored parameter
-    (review B-2). The RAW rates are unaffected by this gate.
-
-    W3-1 (F-001, review C2c): rows 5.2/5.3 get the identical treatment,
-    gated on the fraction of the SAMPLED NEWCOMER ROSTER (not the 1.2/1.3
-    union) that is unmeasured, with its own ``newcomer_unmeasured_detail``
-    string — the round-2 conflation (``is_eligible_account`` called
-    directly, bypassing the tri-state) was present on these two rows
-    specifically, three lines from the fixed 1.2/1.3 code.
-
-    F-004 (W3-1): the gate's confidence value is the documented ``"missing"``
-    (``scripts/derive.py``'s existing verified/derived/missing/flag
-    vocabulary), never an invented fifth value — D-MISS-1's own
-    ``collector_failure`` reason belongs to ``Unmeasured`` objects that
-    only ``cvi.derive.bundle`` constructs, which this collector module
-    never builds directly. The real, per-repo failure detail is carried in
-    ``cohort_unmeasured_detail``/``newcomer_unmeasured_detail`` (confidence
-    ``"verified"``, since the count itself is a real, checked fact) for
-    whichever future ``cvi.derive.bundle`` resolver reads it.
+    When more than :data:`AUTHOR_UNMEASURED_MAX_FRACTION` of cohort authors are
+    unmeasured, adjusted rates and counts are reported as ``(None, "missing")``
+    with detail recorded in ``cohort_unmeasured_detail`` and ``newcomer_unmeasured_detail``.
     """
     if not ah:
         return {}
@@ -1262,9 +1139,7 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         gap_days = (covered_since - requested_start).days
     out["decision_cohort_coverage_gap_days"] = (gap_days, "derived")
 
-    # --- Round-3 (B-3/B-2) author accounting: every author record sorted
-    # into exactly one bucket, so a large excluded-for-failure share is a
-    # recorded count, not a silently collapsed denominator (review B-2). ---
+    # Author accounting: every author record sorted into exactly one bucket.
     statuses = [_author_status(r, anchor) for r in records.values()]
     authors_total = len(statuses)
     authors_excluded_unsampled = statuses.count("unsampled")
@@ -1286,9 +1161,8 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     out["dr90_decision_rate_raw"] = (_ratio(raw_decided, len(cohort_prs)), "derived")
     out["dr90_decision_pr_count_raw"] = (len(cohort_prs), "derived")
 
-    # Only a *known* first-timer counts (B2/round-2 cap): an author whose
-    # prior-merge history is unmeasured or unsampled is excluded from the
-    # MR_first population entirely, not defaulted to "no prior merge".
+    # Only a confirmed first-timer counts: an author whose prior-merge history
+    # is unmeasured or unsampled is excluded from the MR_first population entirely.
     mr_candidates = [pr for pr in cohort_prs
                      if _no_prior_merged(pr, window_prs, records) is True]
     raw_mr_decided = [pr for pr in mr_candidates if pr.get("closedAt") is not None]
@@ -1297,11 +1171,7 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
     out["mr_first_pr_count_raw"] = (len(raw_mr_decided), "derived")
 
     if collector_failed:
-        # Round 3 (B-2): a collapsed population is not a rate — more than
-        # AUTHOR_UNMEASURED_MAX_FRACTION of this repo's cohort authors have
-        # no eligibility/history data (a collector failure, not a sample),
-        # so the D-IN-3-adjusted rate is unmeasured rather than computed on
-        # what is left. F-004: "missing" is the documented confidence value.
+        # Collector failure gate: when too many authors are unmeasured, mark missing.
         detail = f"{authors_excluded_unmeasured} of {authors_total} authors unmeasured"
         out["dr90_decision_rate_author_history_cohort"] = (None, "missing")
         out["dr90_decision_pr_count_author_history_cohort"] = (None, "missing")
@@ -1329,10 +1199,7 @@ def derive_cohort_fields(ah: Optional[dict]) -> dict[str, tuple[Any, str]]:
         _ratio(sum(1 for a in authors if a["_converted"]), len(authors)), "derived")
     out["newcomer_conversion_raw_author_count"] = (len(authors), "derived")
 
-    # F-001 (W3-1, review C2c): the same collector-failure gate as 1.2/1.3,
-    # taken over THIS roster (the sampled newcomer authors), not the 1.2/1.3
-    # union — a repo can fail eligibility fetches for its newcomer sample
-    # independently of its decision cohort.
+    # Collector failure gate over the sampled newcomer roster.
     newcomer_total = len(authors)
     newcomer_unmeasured = sum(1 for a in authors if a["_eligible"] is None)
     newcomer_fraction = (newcomer_unmeasured / newcomer_total) if newcomer_total else 0.0

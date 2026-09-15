@@ -1,14 +1,12 @@
-"""Unit tests for :mod:`cvi.snapshot.manifest` (packet W0-3).
+"""Unit tests for :mod:`cvi.snapshot.manifest`.
 
 The manifest lists ``(collector, key, sha256)`` for every envelope, a Merkle
-root over those entries, and the code commit (`03` section 5, `04` section 2).
+root over those entries, and the code commit.
 The Merkle definition pinned here is: leaves are the digests
 ``sha256(canonical JSON of [collector, key, sha256])``, each leaf is hashed once
 more, parents are ``sha256(left_hex + right_hex)``, a level with an odd count
 reuses its last node as its own right child, and an empty tree is
 ``sha256(canonical JSON of [])``.
-
-Fail-before (R-1): ``cvi.snapshot`` does not exist on the base commit.
 """
 from __future__ import annotations
 
@@ -43,7 +41,7 @@ META_DATA: dict[str, Any] = {"stars": 1000, "forks": 12}
 
 
 def _legacy(data_dir: Path, collector: str, key: str, data: Any) -> Path:
-    """Write an envelope in the pre-W0-3 shape (no ``sha256`` field)."""
+    """Write a legacy envelope (no ``sha256`` field)."""
     path = data_dir / "raw" / collector / f"{key}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -55,7 +53,7 @@ def _legacy(data_dir: Path, collector: str, key: str, data: Any) -> Path:
 
 @pytest.fixture
 def data_dir(tmp_path: Path) -> Path:
-    """Three repos x two collectors, all in the pre-W0-3 envelope shape."""
+    """Three repos x two collectors, all in legacy envelope shape."""
     root = tmp_path / "data"
     for key in REPOS:
         _legacy(root, "gfi", key, GFI_DATA)
@@ -278,7 +276,7 @@ def test_code_commit_is_none_outside_a_repository(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# W0-3f: gate finding P-09 — a *.json that is no longer a readable envelope
+# Unreadable envelope handling: a *.json that is no longer a readable envelope
 # must be reported with a reason code, not crash the scan.
 # ---------------------------------------------------------------------------
 
@@ -286,7 +284,7 @@ def test_code_commit_is_none_outside_a_repository(tmp_path: Path) -> None:
 def test_envelope_entries_reports_an_unreadable_file_without_aborting(
     data_dir: Path,
 ) -> None:
-    """P-09: corrupt JSON is excluded from the entries and named with a reason."""
+    """Corrupt JSON is excluded from the entries and named with a reason."""
     from cvi.snapshot.manifest import REASON_INVALID_JSON
 
     path = data_dir / "raw/gfi/org__delta.json"
@@ -309,7 +307,7 @@ def test_envelope_entries_reports_an_unreadable_file_without_aborting(
 def test_envelope_entries_reports_valid_json_that_is_not_an_envelope(
     tmp_path: Path,
 ) -> None:
-    """P-09: a *.json holding a JSON array is not a readable envelope either."""
+    """A *.json holding a JSON array is not a readable envelope either."""
     from cvi.snapshot.manifest import REASON_INVALID_JSON
 
     _legacy(tmp_path / "data", "gfi", "org__alpha", GFI_DATA)
@@ -328,7 +326,7 @@ def test_envelope_entries_clean_dir_has_no_invalid_files(data_dir: Path) -> None
 
 
 def test_build_manifest_records_the_invalid_json_keys(data_dir: Path) -> None:
-    """P-09: the manifest names the unreadable files, and they stay out of the root."""
+    """The manifest names the unreadable files, and they stay out of the root."""
     entries = envelope_entries(data_dir).entries
     manifest = build_manifest(
         entries,
@@ -349,7 +347,7 @@ def test_build_manifest_records_the_invalid_json_keys(data_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# W0-3g: INT-W0-3f review Consider 3 (R-2) -- INVALID_JSON, STALE_HASH and
+# Reason code constants: INVALID_JSON, STALE_HASH and
 # INVALID_JSON_FROZEN are each spelled once, as a constant here; every other
 # site imports the constant instead of repeating the literal.
 # ---------------------------------------------------------------------------

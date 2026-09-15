@@ -1,8 +1,7 @@
-"""W1-1 derivation of active_unclaimed_gfis from per-label GFI envelopes.
+"""Derivation of active_unclaimed_gfis from per-label GFI envelopes.
 
-Separate file by lead grant: the shared tests/test_derive.py is owned by
-other packets that append to it; this file loads scripts/derive.py the same
-way and asserts the new W1-1 gfi block plus the legacy-path guard.
+Loads scripts/derive.py the same way the shared tests/test_derive.py does
+and asserts the gfi block plus the legacy-path guard.
 """
 from __future__ import annotations
 
@@ -36,7 +35,7 @@ def run(tmp: Path) -> dict:
 
 def new_data(labels_matched: list[str], issues: list[dict],
              truncated: bool = False) -> list[dict]:
-    """W1-1 gfi envelope data: metadata record first, then issue records."""
+    """Per-label gfi envelope data: metadata record first, then issue records."""
     return [{"gfi_newcomer_v2": True, "labels_matched": labels_matched,
              "queries": [f"repos/{OWNER}/{NAME}/issues?state=open&labels={label}"
                          for label in labels_matched],
@@ -46,7 +45,7 @@ def new_data(labels_matched: list[str], issues: list[dict],
 def test_new_format_counts_open_unclaimed_recent_matched(tmp_path: Path):
     """Exact count: closed, assigned and 91-day-old recorded issues are
     excluded; an issue matched only via a per-repo alias counts; the legacy
-    hyphen-spelled labels no longer gate the count (5.1's alias regex does).
+    hyphen-spelled labels do not gate the count (5.1's alias regex does).
     """
     seed_gfi(tmp_path, new_data(["good first issue", "E-easy"], [
         {"number": 100, "state": "open", "assignee": None,
@@ -91,7 +90,7 @@ def test_no_matching_labels_is_measured_zero(tmp_path: Path):
 
 
 def test_legacy_list_keeps_old_derivation(tmp_path: Path):
-    """Over-correction guard: pre-W1-1 list-shaped gfi envelopes keep the
+    """Over-correction guard: list-shaped (legacy) gfi envelopes keep the
     legacy derivation (30d window, hyphen labels) untouched."""
     seed_gfi(tmp_path, [
         {"number": 10, "assignee": None, "updated_at": "2026-09-07T00:00:00Z",

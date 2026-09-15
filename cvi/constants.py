@@ -114,10 +114,9 @@ GFI_TARGET: int = 10  # 10 active unclaimed GFIs => 100 pts
 RR90_MULTIPLIER: float = 200.0  # 50% return rate => 100 pts
 DX_CI_MINUTES_TARGET: float = 20.0  # reproducible CI under 20 min => full marks
 
-# Phase 1 StarScout anti-gaming thresholds (spec 10.3) relocated to
-# cvi.core.constants_v2 (W1-10, RFC-0002, docs/v2/rfcs/): the only importer,
-# cvi/starscout.py, reads them from there now so they are covered by the
-# v2 constants freeze (CONSTANTS_HASH).
+# Phase 1 StarScout anti-gaming thresholds (spec 10.3) live in
+# cvi.core.constants (RFC-0002): cvi/starscout.py reads them from there, so
+# they are covered by the v2 constants freeze (CONSTANTS_HASH).
 
 # Bot / service-account markers stripped from review-latency metrics (spec 2, P1).
 BOT_LOGIN_MARKERS: tuple[str, ...] = (

@@ -37,7 +37,7 @@ from typing import Any
 
 import pytest
 
-from cvi.core import aggregate, constants_v2
+from cvi.core import aggregate, constants
 from cvi.core.engine import Snapshot, score
 from cvi.core.gates import GateEvidence
 from cvi.core.models import (
@@ -101,7 +101,7 @@ def _qualifying_events() -> tuple[PRWindowEvent, ...]:
 
 def _make_bundle(inputs: dict[str, Measured | Unmeasured]) -> FeatureBundle:
     bundle = FeatureBundle(
-        schema_version=constants_v2.SCHEMA_VERSION,
+        schema_version=constants.SCHEMA_VERSION,
         repo=RepoIdentity(
             owner="org",
             name="alpha",
@@ -155,8 +155,8 @@ def _base_inputs() -> dict[str, Measured]:
 def _populations() -> PopulationSet:
     return PopulationSet(
         snapshot_id="snap-1",
-        benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH,
+        benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH,
         populations=(
             Population("pypi", "ttm_p90_hours", 4, False, {"a": 5.0, "b": 10.0, "c": 20.0, "d": 30.0}),
             Population("pypi", "dependents_deduped", 4, False, {"a": 0.0, "b": 1.0, "c": 2.0, "d": 3.0}),

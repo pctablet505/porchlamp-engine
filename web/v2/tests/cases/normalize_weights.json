@@ -1,5 +1,5 @@
 {
-  "_note": "N1 (2026-09-14 round-3 review): shared exact-value test cases for views/configure.js::normalizeWeights / applyPresetRespectingLocks, asserted IDENTICALLY by web/v2/tests/unit.test.mjs (the real JS) and tests/test_ui_weights_port.py (a faithful Python port, since Node cannot run here) — a drift between the two implementations shows up as one of them failing its own copy of these numbers. 'expected' values were computed once from the same logic both files implement (see either file's own docstring for the exact branch each case exercises: full-lock snap-back, plain proportional split, the overflow/remaining<0 correction, and the free-pillars-all-at-0 equal split), then hand-verified for the first (four-locked) case by arithmetic in the round-3 dispatch. Floating-point: compare with a small epsilon (1e-9), not exact equality.",
+  "_note": "Shared exact-value test cases for views/configure.js::normalizeWeights / applyPresetRespectingLocks, asserted identically by web/v2/tests/unit.test.mjs and tests/test_ui_weights_port.py. Floating-point: compare with a small epsilon (1e-9), not exact equality.",
   "pillar_ids": [
     "responsiveness",
     "criticality",

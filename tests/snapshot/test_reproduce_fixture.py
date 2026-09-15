@@ -1,31 +1,20 @@
-"""W2-8b / W3-4 acceptance: reproduce ``tests/fixtures/snapshot_50`` in CI
-(``03`` section 5, ``04`` section 9).
+"""Acceptance tests: reproduce ``tests/fixtures/snapshot_50`` in CI.
 
 Scoring the frozen fixture through ``cvi.snapshot.store_cmd.
-score_snapshot_with_detectors`` (packet W4-6, lead ruling 2026-09-14: "the
-reproduce pin must reflect the real pipeline, detectors included" --
-``previous=None`` here, a fixture has no previous snapshot, but the
-single-snapshot detectors still fire: ``closed_unread`` genuinely finds 12
+score_snapshot_with_detectors`` (the reproduce pin reflects the real pipeline,
+detectors included -- ``previous=None`` here, a fixture has no previous snapshot,
+but the single-snapshot detectors still fire: ``closed_unread`` genuinely finds 12
 of these 50 real repos) reproduces ``expected.json``'s ``records_hash``
-exactly -- the reproducibility handle this packet's own ``ScoredSnapshot``
-defines. This is the CI gate ``.github/workflows/ci.yml``'s "Anchors,
-sensitivity, reproduce (fixture snapshot)" step runs. Before 2026-09-14
-this test scored with no detectors at all (``score_snapshot(...,
-detectors=None)``), which is why the pinned ``records_hash`` changed when
-this was fixed (was ``b4177bf2…``, now ``fe49557c…`` -- see ``.agents/
-W4-6/handoff.md`` for the full before/after and the mutant proofs that
-detector wiring is real, not decorative).
+exactly -- the reproducibility handle ``ScoredSnapshot`` defines. This is the CI
+gate ``.github/workflows/ci.yml``'s "Anchors, sensitivity, reproduce (fixture snapshot)"
+step runs.
 
-``test_a_constant_change_makes_the_gate_fail`` is not a permanent guard: it
-is this packet's own required demonstration that the gate is real (paste
-the failure in the handoff), applied by mutating a frozen constant on disk,
-observing the red run, and restoring the file byte-for-byte before this
-suite is trusted again -- see the handoff for the actual failing output.
-That test is therefore skipped by default (mutating ``constants_v2.py`` at
-import time would corrupt every other test module's own import of it for
-the rest of the process) and is meant to be run once, by hand, exactly as
-the method rules describe; :func:`test_reproduce_matches_expected_hash`
-above is the permanent, always-on gate.
+``test_a_constant_change_makes_the_gate_fail`` is a demonstration that the gate
+is sensitive to weight changes, applied by mutating a frozen constant on disk,
+observing the failure, and restoring the file. That test is skipped by default
+(mutating ``constants.py`` at import time would corrupt every other test module's
+own import of it for the rest of the process);
+:func:`test_reproduce_matches_expected_hash` above is the permanent, always-on gate.
 """
 from __future__ import annotations
 
@@ -53,8 +42,7 @@ def _load_build_script():
 
 
 def test_fixture_is_present() -> None:
-    """Fail-before: before this packet, ``tests/fixtures/snapshot_50``
-    does not exist, so this (and every test below) fails immediately."""
+    """Verify ``tests/fixtures/snapshot_50`` fixture files exist."""
     for name in ("manifest.json", "expected.json", "populations.json"):
         assert (FIXTURE_DIR / name).is_file(), name
     assert (FIXTURE_DIR / "bundles").is_dir()
@@ -108,14 +96,13 @@ def test_fixture_rebuild_is_byte_identical(tmp_path: Path) -> None:
 
 
 @pytest.mark.skip(
-    reason="run by hand once per packet (method rules): mutating constants_v2.py at import "
-    "time corrupts every other test module's cached import for the rest of the process. "
-    "See the handoff for the actual red-run output this test's body reproduces."
+    reason="manual procedure: mutating constants.py at import "
+    "time corrupts every other test module's cached import for the rest of the process."
 )
 def test_a_constant_change_makes_the_gate_fail() -> None:
-    """Manual procedure (paste the result in the handoff, then restore):
+    """Manual procedure:
 
-    1. Edit ``cvi/core/constants_v2.py``: change ``PILLAR_WEIGHTS["governance"]``
+    1. Edit ``cvi/core/constants.py``: change ``PILLAR_WEIGHTS["governance"]``
        from 0.20 to 0.21 (and rebalance another pillar by -0.01 so the
        vector still sums to 1.0, e.g. ``"rigor": 0.14``).
     2. Clear ``__pycache__``, run this file's
@@ -125,7 +112,6 @@ def test_a_constant_change_makes_the_gate_fail() -> None:
        differs from ``expected.json`` -- the test fails with an assertion
        diff naming the two hashes.
     3. Restore byte-identical:
-       ``git show 9a31c9f:cvi/core/constants_v2.py > cvi/core/constants_v2.py``
-       (use the actual base commit named in the handoff if it has since
-       moved), then ``git diff --stat`` must be empty.
+       ``git checkout -- cvi/core/constants.py``,
+       then ``git diff --stat`` must be empty.
     """

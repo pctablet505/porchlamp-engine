@@ -15,13 +15,13 @@ export class ApiError extends Error {
     // 0: network-level failure (no response at all).
     // "timeout": exceeded DEFAULT_TIMEOUT_MS with no response.
     this.status = status;
-    // W4-4 review addendum (2026-09-13): the real API's error body is
-    // `{"error": {endpoint, status, detail}}` (mirrored exactly by
-    // scripts/serve_ui_fixtures.py's `_send_error_json`) — `detail` is that
-    // body's own explanation of what went wrong, shown to the user AFTER
-    // the endpoint+status (`copy.errorBannerText`'s third argument),
-    // distinct from `message` (this Error's own summary, used for
-    // `Error.prototype.toString()`/logging, never rendered directly).
+    // The API's error body is `{"error": {endpoint, status, detail}}`
+    // (mirrored exactly by scripts/serve_ui_fixtures.py's
+    // `_send_error_json`) — `detail` is that body's own explanation of what
+    // went wrong, shown to the user AFTER the endpoint+status
+    // (`copy.errorBannerText`'s third argument), distinct from `message`
+    // (this Error's own summary, used for `Error.prototype.toString()`/
+    // logging, never rendered directly).
     this.detail = detail;
   }
 }
@@ -37,9 +37,8 @@ async function extractErrorDetail(response) {
     const body = await response.clone().json();
     const err = body && body.error;
     if (err && typeof err === "object") return typeof err.detail === "string" ? err.detail : undefined;
-    // Tolerate a bare-string `{"error": "..."}` body too (the shape every
-    // OTHER structured-error caller before this addendum assumed) rather
-    // than only ever recognising the new nested form.
+    // Tolerate a bare-string `{"error": "..."}` body too, not only the
+    // nested form.
     return typeof err === "string" ? err : undefined;
   } catch {
     return undefined;
@@ -113,14 +112,11 @@ export function fetchEvidence(owner, name) {
 /**
  * `GET /v1/cvi/repos/{owner}/{name}` -> `RepoDetailResponse` (the flat
  * shape, `cvi/serve/contract.py`) — the drawer's record fetch,
- * independent of which screen opened it. W4-5c (2026-09-14): both
- * producers of this endpoint (the real API, `cvi/serve/app.py`, and the
- * UI fixture stand-in, `scripts/serve_ui_fixtures.py`) now send this SAME
- * shape — `scripts/serve_ui_fixtures.py` used to invent its own `{kind,
- * row}` wrapper, which broke the drawer the moment this frontend was
- * pointed at the real API instead. `views/drawer.js::classifyKind`
- * derives `kind` client-side from `eligible`/`rated`; it is not on the
- * wire at all.
+ * independent of which screen opened it. Both producers of this endpoint
+ * (the real API, `cvi/serve/app.py`, and the UI fixture stand-in,
+ * `scripts/serve_ui_fixtures.py`) send this same shape.
+ * `views/drawer.js::classifyKind` derives `kind` client-side from
+ * `eligible`/`rated`; it is not on the wire at all.
  */
 export function fetchRepoDetail(owner, name) {
   return getJson(`/v1/cvi/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
@@ -133,7 +129,7 @@ export function fetchSnapshot() {
 export { DEFAULT_TIMEOUT_MS };
 
 /**
- * W4-5b Screen B (Matrix): `GET /v1/cvi/matrix` -> `MatrixResponse`
+ * Screen B (Matrix): `GET /v1/cvi/matrix` -> `MatrixResponse`
  * (`cvi.serve.contract.MatrixResponse`).
  */
 export function fetchMatrix() {
@@ -141,7 +137,7 @@ export function fetchMatrix() {
 }
 
 /**
- * W4-5b Screen F (Methodology): `GET /v1/cvi/methodology` ->
+ * Screen F (Methodology): `GET /v1/cvi/methodology` ->
  * `MethodologyResponse` (`cvi.serve.contract.MethodologyResponse`).
  */
 export function fetchMethodology() {
@@ -149,7 +145,7 @@ export function fetchMethodology() {
 }
 
 /**
- * W4-5b Screen D (Configure weights): `POST /v1/cvi/reproject` with a
+ * Screen D (Configure weights): `POST /v1/cvi/reproject` with a
  * five-pillar weight vector (`ReprojectRequest`) -> `ReprojectResponse`.
  * Shares `getJson`'s timeout/typed-error contract (U-15) via a small POST
  * variant rather than a second, drifting error-handling path.

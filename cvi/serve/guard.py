@@ -1,64 +1,53 @@
 """The served-DB guard (`03-ANTI-MANIPULATION.md` §5), for both the v1
 shape (`cvi.lakehouse.OperationalStore`) and the v2 shape (`cvi.store.*`).
 
-W4-4 REWORK (Blocker B-4; Warning W-5): previously `cvi/serve/app.py`
-reached BACKWARDS into `scripts.serve` for the v1 guard (`from
-scripts.serve import open_or_exit`) -- a package importing a script, via a
-`scripts` namespace package with no `__init__.py`, invisible to
-`tests/core/test_import_graph.py` because that test had no rule for
-`cvi/serve` at all (it broke only a non-editable install, where the repo
-root is off `sys.path`: `ModuleNotFoundError: No module named 'scripts'`).
-Both the v1 guard's reusable logic AND the new v2 guard now live HERE;
+Both the v1 guard's reusable logic and the v2 guard live HERE;
 `scripts/serve.py` imports FROM this module (the correct direction --
 `scripts/` may import `cvi.*`, `cvi/serve` must never import `scripts.*`,
-enforced by the `cvi/serve` edge rule added to `tests/core/
-test_import_graph.py` in the same change) and re-exports the v1 names so
+enforced by the `cvi/serve` edge rule in `tests/core/
+test_import_graph.py`) and re-exports the v1 names, so
 `tests/test_serve.py` (`from scripts import serve; serve.refusal_reasons`)
-keeps resolving them unchanged.
+resolves them there.
 
 Two independent guards live here, because a database can fail either, both
 or neither:
 
 * **The v1 guard** (`refusal_reasons`/`matching_snapshot_id`/
-  `count_repos`/`open_or_exit`, moved verbatim -- same logic, same
-  messages, same two independent checks its own docstrings already
-  explain): a fixture-clock row (`last_indexed_at` matching
-  `_FIXTURE_CLOCK_SENTINEL`) or a content-hash mismatch against
+  `count_repos`/`open_or_exit`): a fixture-clock row (`last_indexed_at`
+  matching `_FIXTURE_CLOCK_SENTINEL`) or a content-hash mismatch against
   `snapshot_meta`, over `cvi.lakehouse.OperationalStore`.
 
-  `_FIXTURE_CLOCK_SENTINEL` is a LITERAL, frozen here rather than imported
-  from `tests.fixtures.synthetic_catalog.BENCHMARK_NOW` (W4-1 moved
-  `cvi/benchmark_data.py` there per the `.agents/W4-1/inventory.md`
-  recommendation, §5: "never importable from `cvi/`", since this guard's
-  whole security property is a stamp only the FIXTURE seeder ever writes
-  -- a production module importing the fixture module, in either
-  direction, is exactly backwards). `tests/serve/
+  `_FIXTURE_CLOCK_SENTINEL` is a LITERAL rather than an import of
+  `tests.fixtures.synthetic_catalog.BENCHMARK_NOW`, which is never
+  importable from `cvi/`: this guard's whole security property is a stamp
+  only the FIXTURE seeder ever writes, so a production module importing
+  the fixture module, in either direction, is exactly backwards.
+  `tests/serve/
   test_guard.py::test_fixture_clock_sentinel_matches_synthetic_catalog`
   asserts the two values stay byte-identical so they can never silently
   drift apart.
 
-* **The v2 guard** (`v2_refusal_reasons`/`served_snapshot_id`, new,
-  Blocker B-4): over the v2 `snapshots`/`repositories` tables `cvi.store.
-  queries`/`cvi.store.reader` actually read. Recomputes `cvi.store.writer.
+* **The v2 guard** (`v2_refusal_reasons`/`served_snapshot_id`): over the
+  v2 `snapshots`/`repositories` tables `cvi.store.queries`/`cvi.store.
+  reader` actually read. Recomputes `cvi.store.writer.
   snapshot_dump_hash` for the ONE snapshot `cvi.serve.app` would actually
   serve (`served_snapshot_id`: most recently PROMOTED, else most recently
   created) and refuses if it no longer matches the stored
-  `canonical_dump_hash` -- `03` §5's identity check, generalised from v1's
-  single-table `repositories_dump_hash` to v2's per-snapshot,
-  multi-table (`repositories`/`params`/`populations`) hash. Only a
-  FINALISED snapshot (`canonical_dump_hash IS NOT NULL`) is checked this
-  way -- an unfinalised one is a normal, temporary state `cvi.serve.app.
-  _require_snapshot` already 503s on per request (Warning W-6), not a
-  startup refusal. Also checks the SAME fixture-clock stamp against
-  whichever table currently carries the v1 shape: `repositories` on an
-  unmigrated v1-only database opened directly, or `legacy_repositories`
-  on one `04-ARCHITECTURE.md` §10's migration has already renamed it to
-  (the migration comment in `cvi/store/migrations/0001_init_v2.sql`
-  documents the rename) -- a v1 fixture catalog does not stop being
-  fabricated telemetry just because it was migrated forward.
+  `canonical_dump_hash` -- `03` §5's identity check over v2's
+  per-snapshot, multi-table (`repositories`/`params`/`populations`) hash.
+  Only a FINALISED snapshot (`canonical_dump_hash IS NOT NULL`) is checked
+  this way -- an unfinalised one is a normal, temporary state
+  `cvi.serve.app._require_snapshot` 503s on per request, not a startup
+  refusal. Also checks the SAME fixture-clock stamp against whichever
+  table currently carries the v1 shape: `repositories` on an unmigrated
+  v1-only database opened directly, or `legacy_repositories` on one
+  `04-ARCHITECTURE.md` §10's migration has already renamed it to (the
+  migration comment in `cvi/store/migrations/0001_init_v2.sql` documents
+  the rename) -- a v1 fixture catalog does not stop being fabricated
+  telemetry just because it was migrated forward.
 
-Both guards report ALL of their own reasons before refusing (never masks
-one behind another, matching the v1 guard's own existing convention).
+Both guards report ALL of their own reasons before refusing, never masking
+one behind another.
 """
 from __future__ import annotations
 
@@ -94,9 +83,8 @@ def _refusal_message(db_path: str, reasons: List[str]) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# v1 guard (moved verbatim from `scripts/serve.py`; INT-W0-4 round 3,
-# `03` §5) -- unchanged behaviour; `tests/test_serve.py` still imports
-# these same names back out of `scripts.serve`, which now re-exports them.
+# v1 guard (`03` §5), over the v1 `OperationalStore` shape. `scripts.serve`
+# re-exports these same names, and `tests/test_serve.py` imports them there.
 # --------------------------------------------------------------------------- #
 
 
@@ -184,7 +172,7 @@ def open_or_exit(db_path: str) -> OperationalStore:
 
 
 # --------------------------------------------------------------------------- #
-# v2 guard (new, Blocker B-4). Uses a PLAIN ``sqlite3.connect`` (not
+# v2 guard. Uses a PLAIN ``sqlite3.connect`` (not
 # ``cvi.store.schema.connect``, and never ``OperationalStore``, which
 # cannot open a v2-shaped database at all -- see `cvi/serve/app.py`'s
 # `_run_served_db_guard` docstring): this guard must work on exactly the
@@ -254,8 +242,8 @@ def _v1_hash_tamper_reasons(conn: sqlite3.Connection, db_path: str) -> List[str]
     API's own guard must still refuse a tampered legacy row set rather
     than silently ignore it because `/legacy` happens not to be mounted).
     A no-op when `snapshot_meta` does not exist (a v2-only database, or
-    one already renamed to `legacy_repositories` -- W4-1's inventory notes
-    `snapshot_meta` is v1-specific and is not part of the rename)."""
+    one already renamed to `legacy_repositories` -- `snapshot_meta` is
+    v1-specific and is not part of the rename)."""
     if not _table_exists(conn, "snapshot_meta"):
         return []
     rows = conn.execute("SELECT snapshot_id, canonical_dump_hash FROM snapshot_meta").fetchall()
@@ -303,15 +291,14 @@ def v2_refusal_reasons(db_path: str) -> List[str]:
 
 def run_guard(db_path: str) -> Optional[OperationalStore]:
     """The one function both `scripts/serve.py`'s `main` and `cvi.serve.
-    app.create_app` call (Blocker B-1/B-4): runs the v2 guard first
-    (raises `SystemExit` on any v2-guard reason -- a tampered or
-    fixture-marked database is refused regardless of whether a v1 shape
-    is even present to mount at `/legacy`), then the v1 guard ONLY IF the
-    database has a v1 shape at all (`OperationalStore.__init__` succeeds;
-    a `sqlite3.OperationalError` means no v1 shape -- nothing to refuse
-    on that front, nothing to mount either, `None` is the correct,
-    non-error return). A genuine v1-shaped refusal still raises exactly
-    the message :func:`open_or_exit` always produced.
+    app.create_app` call: runs the v2 guard first (raises `SystemExit` on
+    any v2-guard reason -- a tampered or fixture-marked database is
+    refused regardless of whether a v1 shape is even present to mount at
+    `/legacy`), then the v1 guard ONLY IF the database has a v1 shape at
+    all (`OperationalStore.__init__` succeeds; a `sqlite3.OperationalError`
+    means no v1 shape -- nothing to refuse on that front, nothing to mount
+    either, `None` is the correct, non-error return). A genuine v1-shaped
+    refusal raises exactly the message :func:`open_or_exit` produces.
     """
     v2_reasons = v2_refusal_reasons(db_path)
     if v2_reasons:

@@ -1,4 +1,4 @@
-"""Commit-author collection and domain-based derivations (packet W1-5).
+"""Commit-author collection and domain-based derivations.
 
 Collects the trailing 365 d of commits (cap 1,000, newest first) with
 ``commit.author.email``, ``author.login`` and ``author.type`` (``02`` section
@@ -19,28 +19,18 @@ Bots are excluded from every count: an actor is a bot per D-IN-1
 (``actor_type == "Bot"``, a login ending in ``[bot]``, or an exact-match
 login in :data:`KNOWN_BOT_LOGINS`); substring matching is absent (F12).
 
-W1-5 owns only this module (R-10), so the packet's frozen constants are
-defined here, not in ``cvi/constants.py``.
+``CommitActor``, ``CommitRecord``, the three domain tables
+(``NOREPLY_DOMAIN``, ``PERSONAL_DOMAINS``, ``KNOWN_BOT_LOGINS``),
+``is_bot``, ``org_key``, ``author_key`` and ``records_from_rows`` are
+defined in ``cvi.core.commit_domains`` (stdlib only, so
+``cvi.derive.bundle`` can import it while it cannot import this module --
+``tests/core/test_import_graph.py``) and are re-exported here unchanged;
+``__all__`` below lists them. D-TIE-1 item 7's ``last_non_bot_commit_at``
+and 03 section 6's ``top_email_domain_share`` live in that module too.
 
-W1-5f relocation note: ``CommitActor``, ``CommitRecord``, the three domain
-tables (``NOREPLY_DOMAIN``, ``PERSONAL_DOMAINS``, ``KNOWN_BOT_LOGINS``),
-``is_bot``, ``org_key``, ``author_key``, ``_parse_dt`` (kept private, not
-re-exported -- no caller outside ``cvi.core.commit_domains`` uses it) and
-``records_from_rows`` now live in ``cvi.core.commit_domains`` (stdlib
-only, importable from ``cvi.derive.bundle`` -- this module cannot be,
-``tests/core/test_import_graph.py``); every symbol with an existing
-caller is re-exported here unchanged so that caller keeps working
-verbatim (``__all__`` below lists them). See that module's docstring for
-why (D-TIE-1 item 7's ``last_non_bot_commit_at`` and 03 section 6's
-``top_email_domain_share`` also live there now).
-
-W1-6 ownership extension (02 section 4 3.1, dispatch-authorized): this
-collector already receives ``commit.message`` in the raw GitHub REST
-response for every window commit (the ``repos/{owner}/{repo}/commits``
-listing) but discarded it when shaping envelope rows. :func:`shape_commit_rows`
-now also records the boolean :data:`SIGNOFF_TRAILER` presence per commit as
-``signed_off`` -- the fact 3.1's Signed-off-by share needs -- and still never
-stores the message text itself, so no new live call is added for 3.1.
+:func:`shape_commit_rows` also records the boolean :data:`SIGNOFF_TRAILER`
+presence per commit as ``signed_off`` -- the fact 02 section 4 3.1's
+Signed-off-by share needs -- and never stores the message text itself.
 """
 
 from __future__ import annotations
@@ -49,11 +39,10 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Mapping, Optional, Sequence
 
-#: Relocated to ``cvi.core.commit_domains`` (W1-5f, see the module
-#: docstring); re-exported here unchanged so every existing caller of this
-#: module (``commits.CommitActor``, ``commits.is_bot`` etc.) keeps working
-#: verbatim. ``cvi.derive.bundle`` (W1-5f) reads the same symbols directly
-#: from ``cvi.core.commit_domains`` -- the one place this logic is defined.
+#: Defined in ``cvi.core.commit_domains`` -- the one place this logic
+#: lives -- and re-exported here unchanged so callers of this module
+#: (``commits.CommitActor``, ``commits.is_bot`` etc.) resolve the same
+#: objects. ``cvi.derive.bundle`` imports them from that module directly.
 from cvi.core.commit_domains import (
     KNOWN_BOT_LOGINS,
     NOREPLY_DOMAIN,
@@ -66,12 +55,10 @@ from cvi.core.commit_domains import (
     records_from_rows,
 )
 
-#: Declares the relocated names above (F401: unused-import) as this
-#: module's own public re-exports, matching the convention ``cvi/
-#: openssf.py``'s own W2-9g relocation set (``__all__ = [...]``) -- plus
-#: this module's locally-defined public names, so ``__all__`` stays the
-#: complete list rather than a partial one that would misleadingly imply
-#: the rest are private.
+#: Declares the re-exported names above (F401: unused-import) as this
+#: module's own public names, together with the public names defined
+#: locally, so ``__all__`` stays the complete list rather than a partial
+#: one that would misleadingly imply the rest are private.
 __all__ = [
     "COMMIT_WINDOW_DAYS",
     "COMMIT_CAP",
@@ -94,15 +81,15 @@ __all__ = [
     "is_vital",
 ]
 
-#: 05-W1-5: EF and bus factor are computed over the trailing 365 d.
+#: EF and bus factor are computed over the trailing 365 d.
 COMMIT_WINDOW_DAYS: int = 365
-#: 05-W1-5: at most 1,000 commits per repo are collected (newest first).
+#: At most 1,000 commits per repo are collected (newest first).
 COMMIT_CAP: int = 1000
 #: REST listing page size (GitHub max per_page for commits is 100).
 COMMIT_PAGE_SIZE: int = 100
 #: D-GATE-4: vitality counts the trailing 180 d.
 VITALITY_WINDOW_DAYS: int = 180
-#: W1-6 (02 section 4 3.1): the DCO trailer :func:`shape_commit_rows` flags
+#: 02 section 4 3.1: the DCO trailer :func:`shape_commit_rows` flags
 #: per commit (case-sensitive, substring match against the raw message,
 #: never stored). The exact convention text per the DCO spec.
 SIGNOFF_TRAILER: str = "Signed-off-by:"
@@ -114,7 +101,7 @@ def shape_commit_rows(raw_commits: Sequence[Mapping[str, Any]]) -> list[dict[str
     Each row is ``{"date", "author_email", "author_login", "author_type",
     "signed_off"}``: ``date`` and ``author_email`` come from the git commit
     author, ``author_login`` and ``author_type`` from the linked GitHub
-    account ("" when the commit has none), and ``signed_off`` (W1-6, 02
+    account ("" when the commit has none), and ``signed_off`` (02
     section 4 3.1) is whether :data:`SIGNOFF_TRAILER` occurs in
     ``commit.message`` -- the message text itself is never kept in the row.
     """

@@ -9,7 +9,7 @@ tests/test_render_methodology.py fails if this file drifts from a fresh render. 
 **Schema version:** `2`
 **Constants hash:** `748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b`
 
-Every number below is read directly from `cvi.core.constants_v2` and the
+Every number below is read directly from `cvi.core.constants` and the
 `cvi.core.params` registry (or, for detectors and the two audit release
 bars, their own frozen module) -- this page cannot drift from the code
 that scores a repository, because it is rendered from the same values.
@@ -168,7 +168,7 @@ Composite is rounded to 2 decimal place(s) before comparison.
 | `star_burst` | the StarScout lockstep penalty was applied to this repo at universe entry | boolean | — |
 | `label_spam` | newcomer-labelled issue count >= issue_count_min and newcomer conversion score <= conversion_score_max | compound | issue_count_min=50, conversion_score_max=10 |
 | `ef_domain_mismatch` | top commit email-domain share >= domain_share_min while elephant factor >= ef_min | compound | domain_share_min=0.5, ef_min=4 |
-| `source_drift` | the W3-3 live-sample canary currently holds this repo's row | boolean | — |
+| `source_drift` | the live-sample canary currently holds this repo's row | boolean | — |
 
 ## Not-hashed process constants
 
@@ -186,7 +186,7 @@ still goes through the RFC procedure below.
 
 ## Changing a constant: the RFC procedure
 
-Every constant `cvi.core.constants_v2` defines is frozen (D-VER-1/2): a
+Every constant `cvi.core.constants` defines is frozen (D-VER-1/2): a
 change requires an RFC filed under `docs/v2/rfcs/`, a re-pinned
 `CONSTANTS_HASH`, a `BENCHMARK_VERSION` bump and a named, independent
 reviewer. The full procedure, its two documented enforcement limits, and

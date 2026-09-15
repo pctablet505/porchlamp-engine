@@ -3,27 +3,25 @@
 Each function takes the FeatureBundle input for its parameter
 (``bundle.inputs[<input id>]``) and returns the calibrated ParamScore.
 3.1 Legal IP and 3.3 Promotion ladder are evidence-based enum lookups over
-the frozen vocabularies (constants_v2); 3.2 Elephant factor is the linear
+the frozen vocabularies (constants); 3.2 Elephant factor is the linear
 calibration ``min(100, 25*EF)`` with a 30-commit minimum sample.
 """
 from __future__ import annotations
 
 from typing import Dict, Tuple
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import ParamScore, ParamValue
 from cvi.core.params.curves import KIND_ENUM, KIND_NUMERIC, ParamDef, _apply
 
-#: 3.1 regime scores (02 section 4, owner decision O-1: NONE 85). Relocated
-#: to ``constants_v2`` by packet W2-8 (R-2); re-bound here under the
-#: original name.
-LEGAL_IP_SCORES: Dict[str, float] = constants_v2.LEGAL_IP_SCORES
-#: 3.3 rung scores (02 section 4). Relocated to ``constants_v2`` by packet
-#: W2-8 (R-2).
-PROMOTION_LADDER_SCORES: Dict[str, float] = constants_v2.PROMOTION_LADDER_SCORES
+#: 3.1 regime scores (02 section 4, owner decision O-1: NONE 85), re-bound
+#: from ``cvi.core.constants`` under the original name.
+LEGAL_IP_SCORES: Dict[str, float] = constants.LEGAL_IP_SCORES
+#: 3.3 rung scores (02 section 4).
+PROMOTION_LADDER_SCORES: Dict[str, float] = constants.PROMOTION_LADDER_SCORES
 #: 3.2 EF slope (02 section 4): points per organisation at the 50% commit
-#: share. Relocated to ``constants_v2`` by packet W2-8 (R-2).
-ELEPHANT_SLOPE: float = constants_v2.ELEPHANT_SLOPE
+#: share.
+ELEPHANT_SLOPE: float = constants.ELEPHANT_SLOPE
 
 
 def _lookup(table: Dict[str, float], input_id: str, value: str) -> float:
@@ -48,7 +46,7 @@ def _promotion_ladder_score(rung: str) -> float:
 _LEGAL_IP = ParamDef(
     input_id="legal_ip",
     pillar="governance",
-    weight=constants_v2.PARAM_WEIGHTS["legal_ip"],
+    weight=constants.PARAM_WEIGHTS["legal_ip"],
     kind=KIND_ENUM,
     score=_legal_ip_score,
     better_order=("CORP_CLA", "FOUNDATION_CLA", "NONE", "DCO"),
@@ -56,17 +54,17 @@ _LEGAL_IP = ParamDef(
 _ELEPHANT = ParamDef(
     input_id="elephant_factor",
     pillar="governance",
-    weight=constants_v2.PARAM_WEIGHTS["elephant_factor"],
+    weight=constants.PARAM_WEIGHTS["elephant_factor"],
     kind=KIND_NUMERIC,
     score=_elephant_score,
-    min_n=constants_v2.PARAM_MIN_N["elephant_factor"],
+    min_n=constants.PARAM_MIN_N["elephant_factor"],
     domain=(1.0, 10.0),
     higher_is_better=True,
 )
 _LADDER = ParamDef(
     input_id="promotion_ladder",
     pillar="governance",
-    weight=constants_v2.PARAM_WEIGHTS["promotion_ladder"],
+    weight=constants.PARAM_WEIGHTS["promotion_ladder"],
     kind=KIND_ENUM,
     score=_promotion_ladder_score,
     better_order=("CLOSED", "AD_HOC", "DOCUMENTED", "VERIFIED"),

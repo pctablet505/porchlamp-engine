@@ -22,9 +22,9 @@ from typing import Any, Optional
 
 from cvi.collect.commits import collect_commits_365d
 from cvi.collect.envelope import write_envelope
-# W1-7f (R-2): SLEEP_REST used to duplicate cvi.collect.pike_signals'
-# SLEEP_CORE_SECONDS (both 0.15, the same GitHub core-API rate limit) --
-# one definition now, imported under this file's existing name.
+# SLEEP_REST shares cvi.collect.pike_signals' SLEEP_CORE_SECONDS
+# (both 0.15, the same GitHub core-API rate limit) -- one definition imported
+# under this file's existing name.
 from cvi.collect.pike_signals import SLEEP_CORE_SECONDS as SLEEP_REST
 from cvi.paths import data_root
 
@@ -225,7 +225,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         status["downloads"] = "ok" if monthly is not None else "fail"
     else:
         status["downloads"] = "skip"
-    # W1-9 (D-GATE-1/2/3/6): repo-object eligibility envelope
+    # Repo-object eligibility envelope (D-GATE-1/2/3/6)
     if _done("repo_object", key, force):
         status["repo_object"] = "skip"
     else:
@@ -236,8 +236,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             status["repo_object"] = "fail"
             print(f"  WARN repo_object {owner}/{name}: {e}")
 
-    # --- W1-1: per-label newcomer-label GFI collection. Supersedes the
-    # AND-label entry in `rest` above: when the gfi envelope is missing or
+    # --- Per-label newcomer-label GFI collection: when the gfi envelope is missing or
     # legacy, fetch the repo's label list once, query each alias-matching
     # label separately, and rewrite the envelope with labels_matched. ---
     from cvi.collect import labels as cvi_labels
@@ -254,7 +253,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     else:
         status["gfi"] = "skip"
 
-    # --- W1-5: commits_365d (365 d, cap 1000; author email/login/type) ---
+    # --- commits_365d (365 d, cap 1000; author email/login/type) ---
     if not _done("commits_365d", key, force):
         def _page(page: int, since: str) -> list[dict]:
             time.sleep(SLEEP_REST)
@@ -271,7 +270,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             print(f"  WARN commits_365d {owner}/{name}: {e}")
     else:
         status["commits_365d"] = "skip"
-    # W1-2 (F3): package-level dependents — deps.dev primary, ecosyste.ms
+    # Package-level dependents — deps.dev primary, ecosyste.ms
     # fallback; "skip" = no registry mapping for this ecosystem (module
     # docstring of cvi.collect.depsdev), no envelope, no fetch.
     if _done("dependents", key, force):
@@ -283,7 +282,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["dependents"] = "fail"
             print(f"  WARN dependents {owner}/{name}: {e}")
-    # W1-3 (D-IN-1/2/4, 02 §4 1.1/1.4/4.3): windowed PRs, typed actors
+    # Windowed PRs, typed actors (D-IN-1/2/4, 02 §4 1.1/1.4/4.3)
     if _done("pr_window", key, force):
         status["pr_window"] = "skip"
     else:
@@ -293,7 +292,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["pr_window"] = "fail"
             print(f"  WARN pr_window {owner}/{name}: {e}")
-    # W1-8 (F8, D-MISS-1): downloads null is retry-able, not a hard failure:
+    # Downloads null is retry-able, not a hard failure (D-MISS-1):
     # pypi/npm/crates -> "pending" (pypi via scripts/backfill_downloads.py at
     # <= 4/min); go (deps.dev dependents only), maven, systems -> "unmeasured".
     if status.get("downloads") == "fail":
@@ -303,12 +302,12 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             from scripts import backfill_downloads as _bdl
         status["downloads"] = ("pending" if ecosystem in _bdl.RETRYABLE_ECOSYSTEMS
                                else "unmeasured")
-    # --- W1-7 (02 §4 2.2 / 4.1): releases, issues search counts, CI runs ---
-    from cvi.collect import pike_signals as w17_pike
+    # --- Releases, issues search counts, CI runs (02 §4 2.2 / 4.1) ---
+    from cvi.collect import pike_signals as pike_mod
     for collector, call in (
-        ("releases", lambda: w17_pike.collect_releases(DATA, owner, name)),
-        ("issues_counts", lambda: w17_pike.collect_issue_counts(DATA, owner, name)),
-        ("runs", lambda: w17_pike.collect_runs(DATA, owner, name, branch)),
+        ("releases", lambda: pike_mod.collect_releases(DATA, owner, name)),
+        ("issues_counts", lambda: pike_mod.collect_issue_counts(DATA, owner, name)),
+        ("runs", lambda: pike_mod.collect_runs(DATA, owner, name, branch)),
     ):
         if _done(collector, key, force):
             status[collector] = "skip"
@@ -318,7 +317,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status[collector] = "fail"
             print(f"  WARN {collector} {owner}/{name}: {e}")
-    # --- W1-6 (02 §4 3.1/3.3/4.2): governance evidence envelope — check
+    # --- Governance evidence envelope (02 §4 3.1/3.3/4.2) — check
     # names on the 20 newest merged PRs, 365 d sign-off commits and the
     # GOVERNANCE/MAINTAINERS/CONTRIBUTING/SECURITY + AI-policy files. ---
     if _done("governance", key, force):
@@ -330,7 +329,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["governance"] = "fail"
             print(f"  WARN governance {owner}/{name}: {e}")
-    # W1-4 (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3): author history + cohorts
+    # Author history + cohorts (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3)
     if _done("author_history", key, force):
         status["author_history"] = "skip"
     else:

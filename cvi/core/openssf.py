@@ -1,4 +1,4 @@
-"""Canonical OpenSSF (Rob Pike) criticality engine, core-only (W2-9g).
+"""Canonical OpenSSF (Rob Pike) criticality engine, core-only.
 
 Computes the multi-signal criticality score C in [0.0, 1.0] (spec 2.2, 10.1):
 
@@ -17,40 +17,31 @@ field names rather than importing that dataclass -- exactly the shape
 a v1/v2 derived document's ``meta.openssf_signals`` already carries on disk
 (``scripts/derive.py`` writes it via that same ``asdict`` call).
 
-W2-9g: this is the single definition of the formula and its default
-weights/thresholds. Before this packet, ``cvi.openssf.calculate_pike_
-criticality`` (v1 pillar scoring) and ``cvi.derive.bundle._resolve_
-openssf_criticality`` (v2 loader, packet W2-9f) each carried their own full
-copy — ``cvi.derive`` cannot import outside ``cvi.core`` + stdlib either, so
-it could not previously call ``cvi.openssf`` directly. Both now call this
-one function; see ``cvi/openssf.py`` for the ``OpenSSFSignals``-typed public
-wrapper v1 code keeps using.
+This is the single definition of the formula and its default
+weights/thresholds: both ``cvi.openssf.calculate_pike_criticality`` (v1
+pillar scoring) and ``cvi.derive.bundle._resolve_openssf_criticality`` (v2
+loader) call this one function. See ``cvi/openssf.py`` for the
+``OpenSSFSignals``-typed public wrapper v1 code uses.
 
-The weights/thresholds/field-mapping below were tunables outside
-``cvi.core.constants_v2``'s "one definition" claim when this module first
-landed (CONSTANTS_HASH did not cover them). Packet W2-8 round 2 relocated
-all three into ``constants_v2`` per the round-1 review's Blocker 2
-(``OPENSSF_WEIGHTS["contributor_count"]`` 2.0 -> 3.0 moved input 2.2's score
-with the hash unchanged); re-bound here under the original names so every
-existing caller keeps resolving ``cvi.core.openssf.<NAME>``.
+The weights, thresholds and field mapping themselves live in
+``cvi.core.constants`` and are re-bound below under their original names, so
+every caller resolves ``cvi.core.openssf.<NAME>``.
 """
 from __future__ import annotations
 
 import math
 from typing import Mapping, Optional
 
-from cvi.core import constants_v2
+from cvi.core import constants
 
 #: ``cvi.models.OpenSSFSignals`` field name -> the alpha_i / T_i key (spec
 #: 2.2, 10.1). Iteration order matches the module docstring's signal table
-#: in ``cvi/collect/pike_signals.py``. Relocated to ``constants_v2`` by
-#: packet W2-8 round 2 (R-2).
-SIGNAL_FIELDS: dict[str, str] = constants_v2.SIGNAL_FIELDS
+#: in ``cvi/collect/pike_signals.py``.
+SIGNAL_FIELDS: dict[str, str] = constants.SIGNAL_FIELDS
 
 #: Default signal weights (alpha_i) and thresholds (T_i) — spec 2.2, 10.1.
-#: Relocated to ``constants_v2`` by packet W2-8 round 2 (R-2).
-OPENSSF_WEIGHTS: dict[str, float] = constants_v2.OPENSSF_WEIGHTS
-OPENSSF_THRESHOLDS: dict[str, float] = constants_v2.OPENSSF_THRESHOLDS
+OPENSSF_WEIGHTS: dict[str, float] = constants.OPENSSF_WEIGHTS
+OPENSSF_THRESHOLDS: dict[str, float] = constants.OPENSSF_THRESHOLDS
 
 
 def calculate_pike_criticality(
@@ -67,17 +58,15 @@ def calculate_pike_criticality(
     or an equivalent plain dict (e.g. a derived document's
     ``meta.openssf_signals``); every field not named in ``missing`` must be
     present and numeric, which the caller is responsible for having already
-    verified (this function raises ``KeyError`` on a missing one, same as
-    the pre-W2-9g ``OpenSSFSignals``-typed callers would have on a malformed
-    dataclass).
+    verified — a missing field raises ``KeyError``.
 
-    ``missing`` (W2-13, D-MISS-5 consequence for 2.2) names alpha_i/T_i keys
+    ``missing`` (a D-MISS-5 consequence for 2.2) names alpha_i/T_i keys
     (:data:`SIGNAL_FIELDS` values, e.g. ``"dependents_count"``) to exclude
     from both the numerator and the denominator -- the score renormalises
     over the *present* signals' weights instead of treating an absent one as
     0.0 against the full denominator (which would bias toward 0 instead of
-    neutral). ``None``/empty (the default) is the pre-W2-13 behaviour,
-    unchanged: every signal in ``weights`` contributes.
+    neutral). With ``None``/empty (the default) every signal in ``weights``
+    contributes.
     """
     weights = weights if weights is not None else OPENSSF_WEIGHTS
     thresholds = thresholds if thresholds is not None else OPENSSF_THRESHOLDS

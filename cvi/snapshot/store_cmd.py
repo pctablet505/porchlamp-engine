@@ -1,4 +1,4 @@
-"""``cvi.snapshot store`` driver (packet W4-6): score an on-disk snapshot
+"""``cvi.snapshot store`` driver: score an on-disk snapshot
 directory and write it into a v2 store, end to end.
 
 Thin orchestration only -- ``cvi/snapshot/cli.py`` owns argv parsing, every
@@ -206,8 +206,7 @@ def write_scored_snapshot(
     ``write_snapshot`` and ``write_records`` run inside ONE transaction
     this function opens itself (both join it via their own ``_begin``/
     ``_end`` -- ``cvi.store.writer``'s documented "join an ambient
-    transaction" contract, ``tests/store/test_writer.py``'s own G-005
-    tests exercise the identical ``conn.execute("BEGIN")`` idiom): if
+    transaction" contract, which exercises the identical ``conn.execute("BEGIN")`` idiom): if
     EITHER fails, nothing for ``scored.snapshot_id`` exists afterwards, not
     even the ``snapshots`` row alone -- a stricter guarantee than either
     function gives by itself (each is already atomic on its own; nothing
@@ -243,7 +242,7 @@ def write_scored_snapshot(
             created_at=as_of_text,
         )
         write_records(conn, scored.snapshot_id, items, populations=frozen.populations)
-    except Exception:
+    except Exception:  # review-ok: rollback transaction on any write failure and re-raise
         conn.rollback()
         raise
     conn.commit()

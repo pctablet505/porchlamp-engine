@@ -42,7 +42,7 @@ from typing import Any
 
 import pytest
 
-from cvi.core import constants_v2, persona
+from cvi.core import constants, persona
 from cvi.core.gates import GateEvidence
 from cvi.core.models import (
     Cohorts,
@@ -146,7 +146,7 @@ def _decided_event() -> PRWindowEvent:
 
 def _bundle(repo: RepoIdentity, inputs: dict[str, Measured | Unmeasured], *, events: tuple = ()) -> FeatureBundle:
     bundle = FeatureBundle(
-        schema_version=constants_v2.SCHEMA_VERSION, repo=repo, inputs=inputs,
+        schema_version=constants.SCHEMA_VERSION, repo=repo, inputs=inputs,
         pr_window=PRWindow(
             start=_iso(NOW - datetime.timedelta(days=180)) if events else None,
             end=_iso(NOW) if events else None, truncated=False, events=events,
@@ -160,7 +160,7 @@ def _bundle(repo: RepoIdentity, inputs: dict[str, Measured | Unmeasured], *, eve
 def _full_inputs(measured: dict[str, Measured | Unmeasured] | None = None) -> dict[str, Measured | Unmeasured]:
     """Every one of the 18 inputs ``Unmeasured("not_applicable")`` except
     the overrides in ``measured``."""
-    inputs: dict[str, Measured | Unmeasured] = {key: _u() for key in constants_v2.PARAM_INPUT_IDS}
+    inputs: dict[str, Measured | Unmeasured] = {key: _u() for key in constants.PARAM_INPUT_IDS}
     inputs.update(measured or {})
     return inputs
 
@@ -250,8 +250,8 @@ class _Fixture12:
         100.0 regardless of which repo -- the ``dr90`` lever is the only
         thing that varies their composite."""
         return PopulationSet(
-            snapshot_id=_SNAPSHOT_ID, benchmark_version=constants_v2.BENCHMARK_VERSION,
-            constants_hash=constants_v2.CONSTANTS_HASH,
+            snapshot_id=_SNAPSHOT_ID, benchmark_version=constants.BENCHMARK_VERSION,
+            constants_hash=constants.CONSTANTS_HASH,
             populations=(
                 Population("pypi", "ttm_p90_hours", 4, False, {"a": 5.0, "b": 10.0, "c": 20.0, "d": 30.0}),
                 Population("pypi", "dependents_deduped", 4, False, {"a": 0.0, "b": 1.0, "c": 2.0, "d": 3.0}),
@@ -419,8 +419,8 @@ def _hand_built_unrated_divergent_record(bundle: FeatureBundle) -> ScoreRecord:
     }
     gate = GateResult(eligible=True, reason=None, routed=None, undecided=())
     return ScoreRecord(
-        repo=bundle.repo, snapshot_id=_SNAPSHOT_ID, benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH, raw_hash=_HASH64, gate=gate, params={},
+        repo=bundle.repo, snapshot_id=_SNAPSHOT_ID, benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH, raw_hash=_HASH64, gate=gate, params={},
         pillars=pillars, composite=None, coverage=0.495, tier=None, leverage=None, friction=None,
         quadrant=None, persona_gates={}, persona_composites={}, tie_key=(), tie_group=None, rank=None,
         suspicion=[], rated=False, unrated_reason="unrated: insufficient_evidence",

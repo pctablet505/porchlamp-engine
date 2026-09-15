@@ -4,22 +4,19 @@ The package is installed editable into the venv (``pip install -e .``), so
 ``import cvi`` resolves from anywhere. This file is intentionally minimal to
 avoid coupling the per-module test suites to shared fixtures.
 
-The one exception is :func:`block_live_network` (Blocker B4 round 2 of
-W1-6): a shared, opt-in fixture that a test file requests explicitly (it is
-not autouse, so it changes nothing for a file that does not ask for it).
-Requesting it makes any real (non-loopback) socket connection or
-``subprocess.Popen`` raise immediately. Raising alone is not enough: the
-code under test here is ``scripts/gather.py``'s ``gather_repo``, and every
-one of its per-collector calls is wrapped in a broad ``except Exception``
-that swallows exactly this raise and records ``status[collector] = "fail"``
--- a test that never asserts that status would still pass with the call
-blocked and unnoticed (this is the literal Blocker B4 finding: "the calls
-are swallowed ... and the results are unasserted, so the suite cannot see
-them"). So the fixture also records every blocked attempt and fails the
-test itself at teardown if any occurred, independent of whatever the test
-body asserted. Mark an individual test with ``@pytest.mark.live_network``
-to opt that one test back into real network access (the fixture is a no-op
-for it).
+The one exception is :func:`block_live_network`: a shared, opt-in fixture that
+a test file requests explicitly (it is not autouse, so it changes nothing for a
+file that does not ask for it). Requesting it makes any real (non-loopback)
+socket connection or ``subprocess.Popen`` raise immediately. Raising alone is
+not enough: the code under test here is ``scripts/gather.py``'s ``gather_repo``,
+and every one of its per-collector calls is wrapped in a broad
+``except Exception`` that swallows exceptions and records
+``status[collector] = "fail"`` -- a test that never asserts that status would
+still pass with the call blocked and unnoticed. So the fixture also records
+every blocked attempt and fails the test itself at teardown if any occurred,
+independent of whatever the test body asserted. Mark an individual test with
+``@pytest.mark.live_network`` to opt that one test back into real network access
+(the fixture is a no-op for it).
 """
 from __future__ import annotations
 

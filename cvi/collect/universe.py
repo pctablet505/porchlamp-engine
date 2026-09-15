@@ -1,12 +1,9 @@
-"""D-IN-5 StarScout universe-entry filter (packet W1-10).
+"""D-IN-5 StarScout universe-entry filter.
 
-Before this packet ``cvi.starscout.filter_fraudulent_star_velocity`` existed
-but nothing called it: ``scripts/build_universe.py`` wrote every candidate
-into ``data/raw/candidates.jsonl`` with no star-velocity audit at all, and
-the ``star_burst`` detector (``docs/v2/03-ANTI-MANIPULATION.md`` section 6)
-had no evidence to read (found by the W3-2 review,
-``docs/v2/00-README.md`` 2026-09-13 lead log row). This module is the
-testable core of that missing step:
+``scripts/build_universe.py`` audits the star velocity of every candidate
+before writing it into ``data/raw/candidates.jsonl``, and the
+``star_burst`` detector (``docs/v2/03-ANTI-MANIPULATION.md`` section 6)
+reads the evidence this module records. The testable core of that step:
 
 * :func:`collect_star_history` fetches one repo's recent stargazer events
   and its fork delta through an injectable :data:`Transport` and writes one
@@ -23,17 +20,17 @@ testable core of that missing step:
   third-party-gap or insufficient-n case of its own (a reachable GitHub
   always answers this query), so ``collector_failure`` is the only reason
   a universe-entry audit can fail.
-* :data:`default_star_history_transport` intentionally has no live
-  implementation yet: a genuine per-account "total platform events" audit
+* :data:`default_star_history_transport` has no live implementation: a
+  genuine per-account "total platform events" audit
   (``STARS_SCOUT_MIN_EVENTS``'s throwaway-account check) needs one extra
-  REST call per stargazer login, out of this packet's size-S scope. It
+  REST call per stargazer login. It
   raises rather than fabricating a value, so a real run of
   ``scripts/build_universe.py`` reports every candidate
   ``Unmeasured(collector_failure)`` (an honest gap) instead of a wrong
   ``Measured`` value -- the same D-MISS-1 principle applied to the
-  collector itself, not just its callers. A future packet supplies the
-  real transport and changes exactly one call site
-  (``scripts/build_universe.py``'s ``STAR_HISTORY_TRANSPORT``).
+  collector itself, not just its callers. A live transport is wired in at
+  one call site (``scripts/build_universe.py``'s
+  ``STAR_HISTORY_TRANSPORT``).
 
 ``scripts/build_universe.py`` applies this to every candidate at entry;
 ``cvi/derive/bundle.py``'s ``UNIVERSE_META_MAPPINGS`` carries
@@ -50,7 +47,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from cvi.collect.envelope import read_envelope, write_envelope
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.models import StargazerEvent
 from cvi.starscout import audit_star_velocity
 
@@ -96,7 +93,7 @@ class StarVelocityRecord:
     Measured/Unmeasured split for a fact this collector cannot always
     produce (the star-history fetch can fail): when ``False`` every other
     field is ``None`` and ``reason`` is one of
-    ``cvi.core.constants_v2.UNMEASURED_REASONS`` (in practice always
+    ``cvi.core.constants.UNMEASURED_REASONS`` (in practice always
     ``"collector_failure"`` -- see the module docstring for why this check
     has no other failure mode); the JSON on disk spells this exactly like
     ``cvi.core.models.Unmeasured`` for a reader that already knows that
@@ -129,9 +126,9 @@ class StarVelocityRecord:
                     "an unmeasured StarVelocityRecord must not carry star_velocity_flag, "
                     f"stars_audited, star_velocity or provenance, got {measured_fields!r}"
                 )
-            if self.reason not in constants_v2.UNMEASURED_REASONS:
+            if self.reason not in constants.UNMEASURED_REASONS:
                 raise ValueError(
-                    f"reason must be one of {constants_v2.UNMEASURED_REASONS}, got {self.reason!r}"
+                    f"reason must be one of {constants.UNMEASURED_REASONS}, got {self.reason!r}"
                 )
 
     def to_json(self) -> dict[str, Any]:
@@ -207,17 +204,14 @@ def parse_stargazer_events(raw_events: Iterable[Mapping[str, Any]]) -> list[Star
 
 
 def default_star_history_transport(owner: str, name: str) -> dict[str, Any]:
-    """No live implementation yet (W1-10, size S). See the module docstring:
-    raises rather than fabricating a per-account throwaway audit this
-    packet's scope does not cover -- callers must pass ``fetch=`` explicitly
-    (every test does; ``scripts/build_universe.py``'s real run reports
-    every candidate ``Unmeasured(collector_failure)`` until a future packet
-    lands a working transport here)."""
+    """No live implementation: raises rather than fabricating the
+    per-account throwaway audit ``STARS_SCOUT_MIN_EVENTS`` needs, so
+    callers must pass ``fetch=`` explicitly (every test does; a real run of
+    ``scripts/build_universe.py`` reports every candidate
+    ``Unmeasured(collector_failure)`` while this placeholder is in use)."""
     raise NotImplementedError(
-        "cvi.collect.universe has no live star-history transport yet (W1-10): "
-        "pass fetch= explicitly; a future packet supplies the real GraphQL + "
-        "per-account REST fetch STARS_SCOUT_MIN_EVENTS' throwaway check needs "
-        f"(requested for {owner}/{name})"
+        "cvi.collect.universe has no live star-history transport yet: "
+        f"pass fetch= explicitly (requested for {owner}/{name})"
     )
 
 
@@ -288,7 +282,7 @@ def star_velocity_evidence(
             stars_audited=audit.valid_stars,
             star_velocity={
                 "recent_stars": audit.recent_stars,
-                "window_days": constants_v2.STARS_SCOUT_WINDOW_DAYS,
+                "window_days": constants.STARS_SCOUT_WINDOW_DAYS,
             },
             provenance={
                 "path": str(path),

@@ -1,62 +1,51 @@
-"""W1-2: package-level dependents via deps.dev (F3), ecosyste.ms fallback.
+"""Package-level dependents via deps.dev (F3), ecosyste.ms fallback.
 
-F3 (``docs/v2/01-FINDINGS-2026-09-12.md``) measured that v1 read
-``usedByCount`` from the deps.dev *project* endpoint
-(``GET /v3/projects/github.com%2F{o}%2F{n}``), which never carries a
-dependents figure, so dependents were missing for 100% of the sample.
-The dependents figure lives at the *package* level. W1-2 measured the
-two candidate shapes (2026-09-12, keyless, recorded responses under
-``tests/collect/data/``):
+The dependents figure lives at the *package* level. The deps.dev
+*project* endpoint (``GET /v3/projects/github.com%2F{o}%2F{n}``) carries
+no dependents figure at all (F3,
+``docs/v2/01-FINDINGS-2026-09-12.md``). Two package-level shapes exist:
 
 * ``GET /v3alpha/systems/{system}/packages/{name}`` -- ``packageKey``,
   ``purl`` and the version list only; **no package-level dependents
-  count** (recorded: flask, 64 versions).
+  count**.
 * ``GET /v3alpha/systems/{system}/packages/{name}/versions/{v}:dependents``
   -- ``{"dependentCount", "directDependentCount",
   "indirectDependentCount"}`` per version, **count-only, no dependent
-  package list** (recorded: flask 3.1.3 -> 12698).
+  package list**.
 
 So the package-level count is the dependents count of the package's
 ``isDefault`` (latest) version. Fallback when deps.dev has no figure:
-:mod:`cvi.collect.ecosystemes`
-(``dependent_packages_count``; the W1-2 404 on the pypi/flask URL was a
-registry-name error -- corrected in W1-2f, see that module).
+:mod:`cvi.collect.ecosystemes` (``dependent_packages_count``).
 
 Repo -> package name mapping: the universe's ``selected_by`` fixes the
 ecosystem; the repo manifest is the registry namespace itself, so in the
 single-level registries (pypi, crates.io, npm unscoped) the repo name is
-the package-name candidate.
-
-W1-2f (2026-09-13, ``docs/v2/05-WORK-PLAN.md`` W1-2f, D-MISS-5) extends the
-mapping past those three:
+the package-name candidate. Past those three (D-MISS-5):
 
 * **go** maps to deps.dev system ``go`` (its canonical id is ``GO``; the
-  URL segment stays lowercase, matching this module's existing
-  pypi/npm/crates.io convention, which W1-2's own live check already
-  proved deps.dev's v3alpha API accepts). Package name = module path,
+  URL segment stays lowercase, matching this module's pypi/npm/crates.io
+  convention, which the v3alpha API accepts). Package name = module path,
   default ``github.com/<owner>/<name>``, method
   ``"derived:module_path_default"``. The root ``go.mod``'s ``module``
   line would be more precise for a multi-module or vanity-imported repo,
   but the ``tree`` envelope this codebase writes
   (``scripts/gather.py``'s ``tree`` collector) carries file *paths* only,
-  never blob contents -- so this packet does not add a new fetch; a
-  caller that already has the module line (a later packet's raw-content
-  fetch) passes it as ``go_mod_module`` and gets method
+  never blob contents, so this module never reads it; a caller that has
+  the module line passes it as ``go_mod_module`` and gets method
   ``"derived:go_mod_module"`` instead.
 * **maven** has no registry-derivable identifier at all: ``groupId:
   artifactId`` lives inside the root ``pom.xml``, which (same tree-envelope
-  limitation) this packet cannot read. :func:`package_name_for_repo`
+  limitation) this module cannot read. :func:`package_name_for_repo`
   returns ``None`` for maven unless the caller supplies
   ``maven_coordinates`` (parsed by :func:`parse_maven_coordinates` from a
-  ``pom.xml`` body a future packet fetches -- one raw-content GET per
-  maven repo, the same shape as :func:`cvi.collect.repo_object._fetch_body`
-  -- see ``.agents/W1-2f/handoff.md`` for the exact call). Without it,
-  :func:`collect_dependents` returns ``"skip"``: no fetch, no envelope,
-  identical to the pre-W1-2f behaviour.
+  ``pom.xml`` body the caller fetched -- one raw-content GET per maven
+  repo, the same shape as :func:`cvi.collect.repo_object._fetch_body`).
+  Without it, :func:`collect_dependents` returns ``"skip"``: no fetch, no
+  envelope.
 * **systems** has no package registry at all, ever (D-MISS-5): this is a
   fact about the ecosystem, not a data gap, so :func:`collect_dependents`
-  now writes a ``not_applicable`` envelope (naming the ``D-MISS-5`` rule)
-  instead of the old silent ``"skip"`` -- an auditor can then see the
+  writes a ``not_applicable`` envelope (naming the ``D-MISS-5`` rule)
+  rather than skipping -- an auditor can then see the
   repo's 2.1 was assessed, not merely never attempted. No network call is
   made. ``cvi.derive.bundle``'s ``dependents_deduped`` row assigns
   ``Unmeasured(not_applicable)`` for this ecosystem directly (a bundle
@@ -95,10 +84,9 @@ NOT_APPLICABLE_RULE: str = "D-MISS-5"
 
 #: CVI ecosystem -> deps.dev system id (the literal URL path segment; the
 #: canonical deps.dev ids are uppercase -- ``PYPI``, ``GO``, ``MAVEN`` -- but
-#: W1-2's live check already proved the v3alpha API accepts these lowercase
-#: segments, so this table keeps that established, live-validated
-#: convention rather than mixing casings). Absent = no package registry at
-#: all (systems, D-MISS-5); go/maven (W1-2f) are present here because deps.dev
+#: the v3alpha API accepts these lowercase segments, so this table keeps one
+#: casing throughout). Absent = no package registry at
+#: all (systems, D-MISS-5); go/maven are present here because deps.dev
 #: has a system for both, even though their *package name* still needs
 #: :func:`package_name_for_repo`'s extra derivation (module path /
 #: ``groupId:artifactId``), not a plain repo-name lookup.
@@ -124,7 +112,7 @@ def _local_tag(tag: str) -> str:
 
 
 def parse_maven_coordinates(pom_xml: str) -> Optional[tuple[str, str]]:
-    """Parse ``(groupId, artifactId)`` from a root ``pom.xml`` body (W1-2f, D-PARAM 2.1).
+    """Parse ``(groupId, artifactId)`` from a root ``pom.xml`` body (D-PARAM 2.1).
 
     ``groupId`` falls back to ``<parent><groupId>`` when the project element
     carries none of its own -- the standard multi-module Maven convention of
@@ -176,14 +164,14 @@ def package_name_for_repo(
     the repo name normalised to the registry's case convention (crates:
     lowercase).
 
-    go (W1-2f): the module path. Default ``github.com/<owner>/<name>``
-    unless ``go_mod_module`` (the root ``go.mod``'s ``module`` line, from a
-    fetch this packet does not add -- module docstring) is given, in which
-    case it is used verbatim.
+    go: the module path. Default ``github.com/<owner>/<name>``
+    unless ``go_mod_module`` (the root ``go.mod``'s ``module`` line, which
+    this module does not fetch) is given, in which case it is used
+    verbatim.
 
-    maven (W1-2f): ``groupId:artifactId``, built only from
+    maven: ``groupId:artifactId``, built only from
     ``maven_coordinates`` (:func:`parse_maven_coordinates`'s result on a
-    fetched ``pom.xml`` -- also a fetch this packet does not add); ``None``
+    ``pom.xml`` the caller fetched); ``None``
     otherwise. Unlike go, there is no name-derived default: a GitHub repo
     name carries no Maven coordinate.
 
@@ -206,19 +194,18 @@ def package_name_for_repo(
 def package_url(system: str, package: str) -> str:
     """Deps.dev package endpoint URL.
 
-    ``package`` is percent-encoded (W1-2f: a go module path such as
+    ``package`` is percent-encoded: a go module path such as
     ``github.com/owner/name`` contains ``/``, which must not be read as
     extra path segments; a maven ``groupId:artifactId`` contains ``:``,
     which URL parsers can otherwise mistake for a scheme separator when the
-    URL is re-parsed downstream). ``quote(..., safe="")`` is a no-op on the
-    plain pypi/npm/crates names already covered by tests, so this is not a
-    behaviour change for them.
+    URL is re-parsed downstream. ``quote(..., safe="")`` is a no-op on the
+    plain pypi/npm/crates names.
     """
     return f"{DEPSDEV_API}/systems/{system}/packages/{urllib.parse.quote(package, safe='')}"
 
 
 def version_dependents_url(system: str, package: str, version: str) -> str:
-    """Deps.dev per-version dependents endpoint URL (``version`` percent-encoded, W1-2f)."""
+    """Deps.dev per-version dependents endpoint URL (``version`` percent-encoded)."""
     return f"{package_url(system, package)}/versions/{urllib.parse.quote(version, safe='')}:dependents"
 
 
@@ -349,9 +336,9 @@ def _not_applicable_envelope_data(ecosystem: str) -> dict[str, Any]:
     """D-MISS-5 envelope body for an ecosystem with no package registry.
 
     Every dependents-shaped field a reader might look for is present and
-    ``None`` (never omitted): ``scripts/derive.py``'s untouched dependents
-    block only acts on ``deduped_count is not None`` (W1-2), so this body's
-    ``None`` leaves that block a no-op -- the ``not_applicable`` decision is
+    ``None`` (never omitted): ``scripts/derive.py``'s dependents block
+    only acts on ``deduped_count is not None``, so this body's ``None``
+    leaves that block a no-op -- the ``not_applicable`` decision is
     made once, by :mod:`cvi.derive.bundle`'s ``dependents_deduped`` row
     reading the bundle's own ``ecosystem`` fact (D-MISS-5's guard: a
     universe-entry fact, not a collector outcome), not by this envelope.
@@ -381,26 +368,25 @@ def collect_dependents(
     contract in :mod:`cvi.collect.envelope`) and returns ``"ok"`` on a
     measured count.
 
-    Returns ``"not_applicable"`` (W1-2f, D-MISS-5) for the ``systems``
+    Returns ``"not_applicable"`` (D-MISS-5) for the ``systems``
     ecosystem: no package registry ever exists for it, so an envelope
     recording that fact is written instead -- see
     :func:`_not_applicable_envelope_data` -- with no network call.
 
     Returns ``"skip"`` when no package identifier can be derived at all
-    and no fetch is attempted: maven without ``maven_pom_xml`` (W1-2f does
-    not add the raw-content fetch that would supply it -- module
-    docstring), or any other ecosystem with no known mapping. Nothing is
-    fetched, no envelope is written.
+    and no fetch is attempted: maven without ``maven_pom_xml``, or any
+    other ecosystem with no known mapping. Nothing is fetched, no
+    envelope is written.
 
     Returns ``"fail"`` when a package identifier exists but no source
     (deps.dev, then the ecosyste.ms fallback) carries a count.
 
-    ``go_mod_module`` / ``maven_pom_xml`` (W1-2f): optional content a
-    caller already fetched (this function does not fetch either) --
-    respectively the root ``go.mod``'s ``module`` line and the root
-    ``pom.xml`` body, parsed here via :func:`parse_maven_coordinates`.
-    Passing them is what "if contents are available" resolves to; today's
-    callers (``scripts/gather.py``) pass neither.
+    ``go_mod_module`` / ``maven_pom_xml``: optional content a caller
+    already fetched (this function fetches neither) -- respectively the
+    root ``go.mod``'s ``module`` line and the root ``pom.xml`` body,
+    parsed here via :func:`parse_maven_coordinates`. Passing them is what
+    "if contents are available" resolves to; ``scripts/gather.py`` passes
+    neither.
     """
     if ecosystem == "systems":
         key = f"{owner}__{name}"

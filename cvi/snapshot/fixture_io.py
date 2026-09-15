@@ -1,6 +1,5 @@
 """Shared reader for an on-disk, already-scored v2 snapshot directory
-(packet W4-6, moved out of ``scripts/build_fixture_snapshot.py`` per that
-packet's own instruction, R-2: one definition per fact).
+(one definition per fact).
 
 The shape read here -- ``bundles/<owner>__<name>.json``,
 ``populations.json``, ``manifest.json`` and an optional ``expected.json``
@@ -9,17 +8,14 @@ writes. Two callers need to read it back without either one importing a
 ``scripts/`` file (a script is not an importable package member, and
 ``cvi/snapshot`` -- the CLI's own package -- must not import ``scripts.*``):
 ``scripts/build_fixture_snapshot.py`` itself (round-trip tests that rebuild
-the fixture and compare) and ``cvi.snapshot.store_cmd`` (packet W4-6's
+the fixture and compare) and ``cvi.snapshot.store_cmd`` (the
 ``cvi.snapshot store`` CLI, scoring a real snapshot directory for the
 store).
 
-``expected.json`` is OPTIONAL here (widened from the original, fixture-only
-version of this function, which required it): a real, non-fixture snapshot
-directory ``cvi.snapshot store`` is pointed at in production has no pinned
+``expected.json`` is OPTIONAL: a real, non-fixture snapshot directory
+``cvi.snapshot store`` is pointed at in production has no pinned
 expectations to check itself against. ``FrozenFixture.expected`` is
-``None`` when the file is absent; every existing caller of this function
-only reads ``tests/fixtures/snapshot_50``, which always ships one, so
-their behaviour is unchanged.
+``None`` when the file is absent.
 """
 from __future__ import annotations
 
@@ -55,11 +51,10 @@ class FrozenFixture:
 
 def load_frozen_fixture(out_dir: Path) -> FrozenFixture:
     """Read back a snapshot directory ``scripts.build_fixture_snapshot.
-    write_fixture`` (or ``cvi.snapshot store``'s own producer, once one
-    exists) wrote: bundles, the frozen ``PopulationSet``, gate evidence and
-    raw hashes from ``manifest.json``, and ``expected.json`` when present.
-    Pure I/O, no scoring -- the caller (a test, or ``cvi.snapshot.
-    store_cmd``) calls ``score_snapshot`` itself."""
+    write_fixture`` wrote: bundles, the frozen ``PopulationSet``, gate
+    evidence and raw hashes from ``manifest.json``, and ``expected.json``
+    when present. Pure I/O, no scoring -- the caller (a test, or
+    ``cvi.snapshot.store_cmd``) calls ``score_snapshot`` itself."""
     manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
     expected_path = out_dir / "expected.json"
     expected = json.loads(expected_path.read_text(encoding="utf-8")) if expected_path.is_file() else None

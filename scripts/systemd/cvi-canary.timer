@@ -1,5 +1,5 @@
 [Unit]
-Description=Nightly schedule for the CVI live re-verification canary (W3-3)
+Description=Nightly schedule for the CVI live re-verification canary
 
 [Timer]
 # 03:00 UTC daily; the randomisation spreads the GitHub load off the top of

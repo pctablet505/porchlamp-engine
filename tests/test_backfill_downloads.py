@@ -1,16 +1,19 @@
-"""Tests for scripts/backfill_downloads.py (W1-8 downloads coverage).
+"""Tests for scripts/backfill_downloads.py downloads coverage.
 
 A fake pypistats server (local http.server implementing
 ``/api/packages/<name>/recent``) supplies every downloads value in this
 file; the throttled-package case returns pypistats' real 429 shape
 (HTTP 200 + HTML body) so "null is not done" is exercised against the
-parser, not a stub. No downloads value is fabricated (R-4).
+parser, not a stub. No downloads value is fabricated.
 """
 from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
+import select
+import socket
 import subprocess
 import sys
 import threading
@@ -23,6 +26,7 @@ from typing import Any, Optional
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
 NOW = datetime(2026, 9, 12, tzinfo=timezone.utc)
+SUBPROCESS_ENV = dict(os.environ, PYTHONPATH=str(ROOT))
 
 
 def _load(name: str, path: Path):
@@ -52,14 +56,30 @@ class _PypistatsHandler(BaseHTTPRequestHandler):
     def log_message(self, *args: Any) -> None:
         pass
 
-    def _send(self, code: int, body: bytes) -> bool:
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
+    def _is_disconnected(self) -> bool:
         try:
+            r, _, _ = select.select([self.connection], [], [], 0)
+            if r:
+                data = self.connection.recv(1, socket.MSG_PEEK)
+                if not data:
+                    return True
+        except (OSError, socket.error):
+            return True
+        return False
+
+    def _send(self, code: int, body: bytes) -> bool:
+        if self._is_disconnected():
+            return False
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
             self.wfile.write(body)
+            self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
+            return False
+        if self._is_disconnected():
             return False
         return True
 
@@ -130,7 +150,7 @@ def make_data_dir(data_dir: Path, names: list[str],
 
 
 # --------------------------------------------------------------------------
-# runner: resume after kill (acceptance 1)
+# runner: resume after kill
 # --------------------------------------------------------------------------
 
 def test_runner_resumes_after_kill(tmp_path):
@@ -146,7 +166,7 @@ def test_runner_resumes_after_kill(tmp_path):
                "--interval", "0.05"]
         log1 = tmp_path / "run1.log"
         with open(log1, "w") as lf:
-            proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT)
+            proc = subprocess.Popen(cmd, stdout=lf, stderr=subprocess.STDOUT, env=SUBPROCESS_ENV, cwd=ROOT)
             try:
                 deadline = time.time() + 60
                 while time.time() < deadline:
@@ -163,10 +183,11 @@ def test_runner_resumes_after_kill(tmp_path):
         done1 = sorted(n for n in names if monthly_of(data_dir, n) is not None)
         assert done1 == names[:3]
         assert [monthly_of(data_dir, n) for n in names[3:]] == [None] * 3
+        time.sleep(server.response_delay + 0.1)  # allow in-flight aborted handler to settle
         first_run = list(server.seen)
         assert [n for n, _ in first_run] == names[:3]  # no 4th response completed
 
-        proc2 = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        proc2 = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=SUBPROCESS_ENV, cwd=ROOT)
         assert proc2.returncode == 0, proc2.stdout[-2000:]
         # resumed exactly where it stopped: the 3 nulls fetched, done ones not
         for n in names:
@@ -179,7 +200,7 @@ def test_runner_resumes_after_kill(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# runner: rate respected (acceptance 2) + ETA
+# runner: rate respected + ETA
 # --------------------------------------------------------------------------
 
 def test_rate_respected_and_eta_printed(tmp_path, capsys):
@@ -213,7 +234,7 @@ def test_default_interval_is_4_per_minute():
 
 
 # --------------------------------------------------------------------------
-# runner: nulls are not done (R-4: no fabricated downloads)
+# runner: nulls are not done (no fabricated downloads)
 # --------------------------------------------------------------------------
 
 def test_nulls_stay_undone_and_are_refetched(tmp_path):
@@ -260,7 +281,7 @@ def test_done_not_refetched_and_404_not_fabricated(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# BigQuery probe (acceptance 4): no credentials -> UNDECIDED / U-ENV
+# BigQuery probe: no credentials -> UNDECIDED / U-ENV
 # --------------------------------------------------------------------------
 
 def test_probe_bigquery_no_credentials_on_this_machine():
@@ -299,13 +320,14 @@ def test_probe_bigquery_query_failure_undecided():
 def test_cli_probe_bigquery_output(tmp_path):
     out = subprocess.run([sys.executable, str(SCRIPTS / "backfill_downloads.py"),
                           "--data-dir", str(tmp_path), "--probe-bigquery"],
-                         capture_output=True, text=True, timeout=60)
+                         capture_output=True, text=True, timeout=60,
+                         env=SUBPROCESS_ENV, cwd=ROOT)
     assert out.returncode == 0, out.stdout + out.stderr
     assert "UNDECIDED / U-ENV" in out.stdout
 
 
 # --------------------------------------------------------------------------
-# ecosystem capability map (packet: go dependents-only, maven unmeasured,
+# ecosystem capability map (go dependents-only, maven unmeasured,
 # crates 90-day/3 kept, npm as is)
 # --------------------------------------------------------------------------
 
@@ -331,17 +353,16 @@ gather = _load("gather_w18", SCRIPTS / "gather.py")
 def _seed_all_but_downloads(tmp_path: Path) -> None:
     raw = tmp_path / "raw"
     key = "acme__widget"
-    # W1-9/W1-5/W1-2/W1-3/W1-7/W1-6 postdate this file and are not under
-    # test here; marking them done avoids live check-run/file-body/commits/
-    # deps.dev/ecosyste.ms/graphql/gh api calls for "acme/widget" below
-    # (Blocker B4 round 2).
+    # Every collector other than downloads is marked done so that gathering
+    # "acme/widget" below makes no live check-run/file-body/commits/
+    # deps.dev/ecosyste.ms/graphql/gh api calls.
     for col in ("github_meta", "pr_events", "pr_reviews", "contributors",
                 "commits_180d", "actions_runs", "depsdev",
                 "scorecard", "tree", "repo_object", "governance",
                 "commits_365d", "dependents", "pr_window",
                 "releases", "issues_counts", "runs",
-                # W1-4's author_history hook also postdates this file
-                # (round-3 fix, W1-6's landed network guard surfaced it).
+                # The author_history hook is network-backed too, so it is
+                # seeded alongside the rest.
                 "author_history"):
         p = raw / col / f"{key}.json"
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -349,7 +370,7 @@ def _seed_all_but_downloads(tmp_path: Path) -> None:
                                  "source": "test",
                                  "data": {"default_branch": "main"}}),
                      encoding="utf-8")
-    # W1-1's per-label gfi collector treats a bare/legacy-shaped envelope as
+    # The per-label gfi collector treats a bare/legacy-shaped envelope as
     # needing re-gather (needs_gather); the new shape's metadata-first
     # record is what actually marks it done.
     gfi_p = raw / "gfi" / f"{key}.json"

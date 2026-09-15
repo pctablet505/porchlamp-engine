@@ -1,37 +1,30 @@
-"""Snapshot manifests and reproduction (packet W0-3, `04` §2 ``snapshot/``).
+"""Snapshot manifests and reproduction (`04` §2 ``snapshot/``).
 
 ``freeze`` freezes the envelope hashes of a data dir into
 ``snapshots/<id>/manifest.json`` with a Merkle root; ``reproduce`` rebuilds the
 database from those envelopes and compares a canonical dump hash. Envelope
 hashing itself lives in :mod:`cvi.collect.envelope` (one definition per fact).
 
-W4-6f: ``cvi.snapshot.store_cmd``'s five public names (below) are exposed
-LAZILY, via module ``__getattr__`` (PEP 562), never imported at package
-load time. Eagerly importing them here created a real circular import on
-main (found by the W4-4 reviewer, reproduced as
-``python -c "import cvi.store.writer"``): ``cvi.store.writer`` imports
-``cvi.snapshot.populations``, which -- as a submodule import -- forces
-Python to first run this very ``__init__.py`` if ``cvi.snapshot`` is not
-already in ``sys.modules``; that run used to eagerly import
-``cvi.snapshot.store_cmd``, which imports names FROM ``cvi.store.writer``
--- the exact module still mid-execution one frame up, so those names do
-not exist on it yet (``ImportError: cannot import name 'RepoWrite' from
-partially initialized module``). The cycle only shows up when
-``cvi.store.writer`` (or anything that imports it) is the FIRST ``cvi``
-import of the process -- which nothing in this suite ever does, since
-some other module always imports ``cvi.snapshot`` (harmlessly, at that
-point) first. See ``tests/snapshot/test_import_order.py`` for a subprocess
-test that pins the actual import order this bug needs to reproduce.
+``cvi.snapshot.store_cmd``'s five public names (below) are exposed LAZILY,
+via module ``__getattr__`` (PEP 562), never imported at package load time.
+Importing them eagerly here creates a circular import: ``cvi.store.writer``
+imports ``cvi.snapshot.populations``, which -- as a submodule import --
+forces Python to first run this very ``__init__.py`` if ``cvi.snapshot`` is
+not already in ``sys.modules``; an eager import of ``cvi.snapshot.store_cmd``
+in that run would import names FROM ``cvi.store.writer``, the exact module
+still mid-execution one frame up, so those names do not exist on it yet
+(``ImportError: cannot import name 'RepoWrite' from partially initialized
+module``). The cycle only shows up when ``cvi.store.writer`` (or anything
+that imports it) is the FIRST ``cvi`` import of the process. See
+``tests/snapshot/test_import_order.py`` for a subprocess test that pins that
+import order.
 
 ``__getattr__`` defers the ``cvi.store.writer`` import until one of these
 five names is actually READ off this package (``cvi.snapshot.
 score_snapshot_dir``, say) -- by then the process's imports have long
 settled, so the cycle never gets a chance to form. ``__all__`` still lists
-them (a plain list of strings, no import needed to build it) so
-``tests/snapshot/test_cli.py``'s
-``test_every_name_cli_imports_from_the_snapshot_package_is_exported`` --
-which checks membership in ``__all__``, never that the name is already
-bound as a module attribute -- keeps passing unchanged."""
+them (a plain list of strings, no import needed to build it), so a caller
+checking membership in ``__all__`` sees them without forcing the import."""
 
 from __future__ import annotations
 

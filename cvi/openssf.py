@@ -1,14 +1,13 @@
 """Canonical OpenSSF (Rob Pike) criticality engine, ``OpenSSFSignals``-typed
 wrapper (spec 2.2, 10.1).
 
-W2-9g: the formula, its default weights/thresholds, and the ten-signal
-field mapping moved to :mod:`cvi.core.openssf` (a ``cvi.derive``-importable,
-stdlib-only module) so ``cvi.openssf`` (this module) and
-``cvi.derive.bundle`` share one definition instead of each carrying a full
-copy. This module re-exports the moved constants for existing importers and
-keeps the ``OpenSSFSignals``-typed public signature every v1 caller
-(``cvi.pillars.criticality``, ``tests/test_openssf.py``) already uses,
-adapting via ``dataclasses.asdict`` before delegating.
+The formula, its default weights/thresholds, and the ten-signal field
+mapping live in :mod:`cvi.core.openssf` (a ``cvi.derive``-importable,
+stdlib-only module), so this module and ``cvi.derive.bundle`` share one
+definition instead of each carrying a full copy. This module re-exports
+those constants and exposes the ``OpenSSFSignals``-typed public signature
+its v1 callers (``cvi.pillars.criticality``, ``tests/test_openssf.py``)
+use, adapting via ``dataclasses.asdict`` before delegating.
 """
 
 from __future__ import annotations

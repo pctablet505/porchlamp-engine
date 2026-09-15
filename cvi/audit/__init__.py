@@ -1,4 +1,4 @@
-"""CVI audit tools: coverage (W0-1), anchors, sensitivity and ties (W0-5), forward (W5-1), detectors (W3-2).
+"""CVI audit tools: coverage, anchors, sensitivity, ties, forward and detectors.
 
 Read-only analysis over a data directory or a ``cvi.db`` database.  The
 public names live in the submodules and are re-exported lazily, so
@@ -20,8 +20,8 @@ detectors_report
     (``python -m cvi.audit.detectors_report``).
 methodology_history
     Extended v2 methodology document -- ``cvi.core.methodology`` plus
-    detectors, not-hashed process constants and the RFC changelog (packet
-    W5-1a, `06` section 3 F).
+    detectors, not-hashed process constants and the RFC changelog
+    (`06` section 3 F).
 """
 
 from __future__ import annotations

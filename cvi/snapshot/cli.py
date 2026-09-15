@@ -1,7 +1,7 @@
-"""``cvi snapshot freeze``, ``cvi snapshot reproduce`` (packet W0-3) and
-``cvi snapshot store`` (packet W4-6).
+"""``cvi snapshot freeze``, ``cvi snapshot reproduce``, and
+``cvi snapshot store``.
 
-The CLI layer owns the wall clock and every ``print`` in the packet; the modules
+The CLI layer owns the wall clock and every ``print``; the modules
 behind it are pure. ``--data-dir`` is a data directory (or a copied sample) with
 ``raw/`` under it; ``--as-of`` is the snapshot reference time (D-VER-3) that both
 deriving and scoring are pinned to.
@@ -54,7 +54,7 @@ def _freeze(args: argparse.Namespace) -> int:
     the manifest is the promotion boundary (`03` section 5), so a snapshot
     born short a repository must be the operator's explicit choice
     (``--allow-invalid``), never a silent default that a later ``reproduce``
-    cannot detect once the corrupt file is gone (INT-W0-3f review).
+    cannot detect once the corrupt file is gone.
     """
     data_dir = Path(args.data_dir)
     try:
@@ -134,7 +134,7 @@ def _reproduce(args: argparse.Namespace) -> int:
 
 def _store(args: argparse.Namespace) -> int:
     """Score ``args.snapshot_dir`` for real and write it into the v2 store
-    at ``args.db`` (packet W4-6), printing counts and the reproducibility
+    at ``args.db``, printing counts and the reproducibility
     hashes. Every timestamp comes from the directory's own manifest -- see
     the module docstring.
 
@@ -211,7 +211,7 @@ def _parser() -> argparse.ArgumentParser:
     replay.add_argument("--data-dir", default="data", help="data dir with raw/ under it")
 
     store = commands.add_parser(
-        "store", help="score a snapshot directory (packet W2-8b's shape) and write it into a v2 store"
+        "store", help="score a snapshot directory and write it into a v2 store"
     )
     store.add_argument(
         "snapshot_dir",

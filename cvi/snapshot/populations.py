@@ -8,14 +8,14 @@ percentiles, F3). An ecosystem population of fewer than ``MIN_POPULATION``
 (30, D-NORM-2) falls back to the global population (all ecosystems combined)
 and carries the ``population_fallback`` flag. ``write_populations`` freezes
 the set to ``populations.json``; ``build_populations_table`` produces the
-plain rows for the store's ``populations`` table -- W4-2 owns that schema and
-its migration, this module never touches ``cvi/store``.
+plain rows for the store's ``populations`` table -- that schema and its
+migration live in ``cvi/store``, which this module never touches.
 
 A member's measured value must be finite: ``build_populations`` raises
 ``ValueError`` naming the repo key and the param for a NaN or +-infinity
-value, rather than freezing it into a population. Before this check, such a
-value was accepted silently and later scored at exactly the population
-median (``docs/v2/02-RANKING-DESIGN.md`` D-MISS-1: an unmeasurable input is
+value, rather than freezing it into a population. Such a value would
+otherwise be scored at exactly the population median
+(``docs/v2/02-RANKING-DESIGN.md`` D-MISS-1: an unmeasurable input is
 ``Unmeasured``, never a neutral score). Converting an absence to
 ``Unmeasured`` is the caller's job; this module refuses instead of guessing.
 """
@@ -27,15 +27,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import GateResult, canonical_json, sha256_hex
 from cvi.core.normalize import mid_rank_ecdf
 
 #: D-NORM-2: minimum population per ecosystem; below it the population falls
 #: back to the global population and carries ``population_fallback``.
-#: Relocated to ``cvi.core.constants_v2.MIN_POPULATION`` by packet W2-8
-#: (R-2); re-bound here under the original name.
-MIN_POPULATION: int = constants_v2.MIN_POPULATION
+#: Re-bound from ``cvi.core.constants.MIN_POPULATION`` under its original
+#: name.
+MIN_POPULATION: int = constants.MIN_POPULATION
 
 #: Version of the ``populations.json`` document (frozen snapshot artifact).
 POPULATIONS_DOCUMENT_VERSION: int = 1
@@ -95,7 +95,7 @@ class PopulationSet:
     def ecdf(self, ecosystem: str, param: str) -> Callable[[float], float]:
         """The D-NORM-1 mid-rank ECDF of the effective population, on the 0-100 scale.
 
-        The callback shape the W2-3 ECDF curves consume. Raises
+        The callback shape the ECDF curves consume. Raises
         ``LookupError`` when the snapshot has no population for the pair."""
         entry = self.population(ecosystem, param)
         if entry is None:
@@ -181,8 +181,8 @@ def build_populations(members: Sequence[PopulationMember], snapshot_id: str) -> 
         )
     return PopulationSet(
         snapshot_id=snapshot_id,
-        benchmark_version=constants_v2.BENCHMARK_VERSION,
-        constants_hash=constants_v2.CONSTANTS_HASH,
+        benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH,
         populations=tuple(populations),
     )
 
@@ -229,8 +229,8 @@ def build_populations_table(popset: PopulationSet) -> list[tuple[str, str, str, 
     values_json, values_hash)``; ``values_json`` is the canonical JSON of
     the effective population (repo key to raw value, sorted by key) and
     ``values_hash`` its SHA-256, so a reader can verify the frozen values
-    without the snapshot file. The schema and the migration are W4-2's;
-    this function only builds rows and never touches ``cvi/store``."""
+    without the snapshot file. The schema and the migration live in
+    ``cvi/store``; this function only builds rows and never touches it."""
     rows: list[tuple[str, str, str, int, bool, str, str]] = []
     for entry in popset.populations:
         values_json = canonical_json({key: entry.values[key] for key in sorted(entry.values)})

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import (
     BundleValidationError,
     Cohorts,
@@ -49,7 +49,7 @@ def make_inputs(unmeasured_ids=()) -> dict:
             if input_id in unmeasured_ids
             else make_measured()
         )
-        for input_id in constants_v2.PARAM_INPUT_IDS
+        for input_id in constants.PARAM_INPUT_IDS
     }
 
 
@@ -111,7 +111,7 @@ def make_doc(**overrides) -> dict:
                 "source_hash": _HASH,
                 "fetched_at": _FETCHED_AT,
             }
-            for input_id in constants_v2.PARAM_INPUT_IDS
+            for input_id in constants.PARAM_INPUT_IDS
         },
         "pr_window": {
             "start": "2026-03-04T00:00:00+00:00",
@@ -137,7 +137,7 @@ def make_doc(**overrides) -> dict:
     return doc
 
 
-@pytest.mark.parametrize("missing_id", list(constants_v2.PARAM_INPUT_IDS))
+@pytest.mark.parametrize("missing_id", list(constants.PARAM_INPUT_IDS))
 def test_rejects_bundle_with_missing_input_key(missing_id: str) -> None:
     """The acceptance fail-before case: v1 silently defaulted, v2 rejects."""
     doc = make_doc()
@@ -262,7 +262,7 @@ def test_valid_document_round_trips() -> None:
     assert dumped["inputs"]["ttfhr_hours"]["kind"] == "measured"
     reloaded = validate_bundle(dumped)
     assert reloaded == bundle
-    assert set(dumped["inputs"]) == set(constants_v2.PARAM_INPUT_IDS)
+    assert set(dumped["inputs"]) == set(constants.PARAM_INPUT_IDS)
 
 
 def test_validate_method_on_valid_bundle_passes() -> None:

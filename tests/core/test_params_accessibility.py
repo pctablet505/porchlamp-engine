@@ -1,14 +1,12 @@
-"""W2-3 acceptance: pillar 5 — Accessibility curves (02 section 4).
+"""Acceptance tests for pillar 5 — Accessibility curves (02 section 4).
 
-Fail-before (R-1): on the base commit ``cvi.core.params`` does not exist, so
-every test in this module fails at import. 5.1 is the capped supply curve;
-5.2/5.3 are the cohort rate curves with a 5-author minimum; 5.4 is the
-identity on the 0-100 DX composite (runtime + setup blended by the deriver)
-with a 5-run minimum.
+5.1 is the capped supply curve; 5.2/5.3 are the cohort rate curves with a
+5-author minimum; 5.4 is the identity on the 0-100 DX composite (runtime +
+setup blended by the deriver) with a 5-run minimum.
 """
 from __future__ import annotations
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import Measured, ParamScore, Unmeasured
 from cvi.core.params import dx, newcomer_conversion, newcomer_issue_supply, rr90_return_rate
 
@@ -159,6 +157,6 @@ def test_dx_insufficient_n_one_below_minimum() -> None:
 
 
 def test_dx_unmeasured_when_run_timing_is_absent() -> None:
-    for reason in constants_v2.UNMEASURED_REASONS:
+    for reason in constants.UNMEASURED_REASONS:
         result = dx(Unmeasured(reason=reason, detail="no run_timing"))
         assert result == _gap(reason)

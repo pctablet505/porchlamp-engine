@@ -1,4 +1,4 @@
-"""W1-9: eligibility metadata and software classification for one repo.
+"""Eligibility metadata and software classification for one repo.
 
 Collects the repository-object facts the v2 gates need (D-GATE-1/2/3/6 in
 ``docs/v2/02-RANKING-DESIGN.md`` section 2) and derives the boolean
@@ -17,11 +17,9 @@ eligibility markers from recorded envelopes:
 
 :func:`collect_repo_object` writes one envelope per repo under
 ``<raw_dir>/repo_object/``; :func:`derive_eligibility` turns that envelope
-(or, for pre-W1-9 sweeps, the recorded ``github_meta`` + ``tree``
-envelopes) into the markers. The D-GATE constants below transcribe the
-design verbatim; W2-1 moves them to the v2 frozen constants module
-(``cvi.core.constants_v2``) — until then this module is their single
-definition (R-2).
+(or the recorded ``github_meta`` + ``tree`` envelopes) into the markers.
+The D-GATE constants below transcribe the design verbatim and are this
+module's single definition of them.
 """
 
 from __future__ import annotations
@@ -183,7 +181,7 @@ def derive_eligibility(ro: Optional[dict],
     """Derive the D-GATE-1/2/3/6 markers from recorded envelopes.
 
     ``ro``: the repo_object envelope ``data`` (primary source, written by
-    :func:`collect_repo_object`). ``meta`` / ``tree``: the pre-W1-9
+    :func:`collect_repo_object`). ``meta`` / ``tree``: the recorded
     ``github_meta`` / ``tree`` envelope ``data`` as fallbacks for the fields
     those sweeps already recorded (``archived``, ``license_spdx``, the full
     tree path list).
@@ -344,7 +342,7 @@ def _fetch_body(url: str) -> Optional[str]:
 
 def collect_repo_object(raw_dir: Path, owner: str, name: str,
                         branch: str) -> str:
-    """Collect the W1-9 repo-object facts and write one envelope.
+    """Collect the repo-object facts and write one envelope.
 
     One GraphQL repository lookup for ``archived`` / ``mirror_url`` /
     ``fork`` / ``parent`` / ``license.spdx_id`` / the all-time PR total; the

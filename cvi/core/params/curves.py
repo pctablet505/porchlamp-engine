@@ -1,4 +1,4 @@
-"""CVI v2 parameter-curve machinery (packet W2-3, 02 sections 4-5).
+"""CVI v2 parameter-curve machinery (02 sections 4-5).
 
 The registry record (:class:`ParamDef`), the shared input-to-ParamScore path
 (``_apply``: Unmeasured pass-through, minimum-n rule, curve application,
@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import ParamScore, ParamValue, Unmeasured
 
 #: Curve kinds a ParamDef may declare: score(value) / score(value, ecdf) /
@@ -20,25 +20,23 @@ KIND_NUMERIC: str = "numeric"
 KIND_ECDF: str = "ecdf"
 KIND_ENUM: str = "enum"
 
-#: Float tolerance for the D-PARAM-MONO check. Relocated to ``constants_v2``
-#: by packet W2-8 (R-2); re-bound here under the original name.
-MONO_TOLERANCE: float = constants_v2.MONO_TOLERANCE
+#: Float tolerance for the D-PARAM-MONO check, re-bound from
+#: ``cvi.core.constants`` under the original name.
+MONO_TOLERANCE: float = constants.MONO_TOLERANCE
 
-#: Fixed probe sample for :func:`reference_ecdf`: 0.0 through 32.0. Not
-#: relocated (packet W2-8): this is the D-PARAM-MONO property-test probe
-#: population, not a per-snapshot frozen population or a scoring input --
-#: see the docstring of :func:`reference_ecdf` below.
+#: Fixed probe sample for :func:`reference_ecdf`: 0.0 through 32.0. This is
+#: the D-PARAM-MONO property-test probe population, not a per-snapshot
+#: frozen population or a scoring input -- see the docstring of
+#: :func:`reference_ecdf` below.
 _REFERENCE_SAMPLE: Tuple[float, ...] = tuple(float(i) for i in range(33))
 
 #: Shared 02 section 4 rate calibration (1.2 DR_90, 1.3 MR_first, 4.3
 #: substantive review rate): full marks at an 80% rate, linear below.
-#: Relocated to ``constants_v2`` by packet W2-8 (R-2).
-RATE_SLOPE: float = constants_v2.RATE_SLOPE
+RATE_SLOPE: float = constants.RATE_SLOPE
 
 #: Shared 02 section 4 cohort-rate calibration (5.2 conversion, 5.3 RR_90):
-#: full marks at a 50% cohort rate, linear below. Relocated to
-#: ``constants_v2`` by packet W2-8 (R-2).
-COHORT_RATE_SLOPE: float = constants_v2.COHORT_RATE_SLOPE
+#: full marks at a 50% cohort rate, linear below.
+COHORT_RATE_SLOPE: float = constants.COHORT_RATE_SLOPE
 
 
 @dataclass(frozen=True)
@@ -92,7 +90,7 @@ def reference_ecdf(value: float) -> float:
 
     Probe population for the D-PARAM-MONO check of the ECDF-normalised
     curves (1.5, 2.1, 2.3). Not a frozen v2 population: those are
-    per-snapshot and per-ecosystem (D-NORM-2, packet W2-4)."""
+    per-snapshot and per-ecosystem (D-NORM-2)."""
     below = sum(1 for s in _REFERENCE_SAMPLE if s < value)
     tied = sum(1 for s in _REFERENCE_SAMPLE if s == value)
     return 100.0 * (below + 0.5 * tied) / len(_REFERENCE_SAMPLE)
@@ -100,7 +98,7 @@ def reference_ecdf(value: float) -> float:
 
 def _required_min_n(defn: ParamDef, method: str) -> Optional[int]:
     """The minimum sample a measurement must meet: ``proxy_min_n`` for proxy methods, else ``min_n``."""
-    if method.startswith(constants_v2.PROXY_METHOD_PREFIX) and defn.proxy_min_n is not None:
+    if method.startswith(constants.PROXY_METHOD_PREFIX) and defn.proxy_min_n is not None:
         return defn.proxy_min_n
     return defn.min_n
 
@@ -121,8 +119,7 @@ def _apply(
     ``fetched_at``) are copied from the ``Measured`` input whenever one
     exists -- including ``insufficient_n``, where a real measurement was
     taken but did not clear the sample-size bar -- and are ``None`` only for
-    an ``Unmeasured`` input, which has no measurement to report (packet
-    W2-11)."""
+    an ``Unmeasured`` input, which has no measurement to report."""
     if isinstance(value, Unmeasured):
         return ParamScore(
             value=None,

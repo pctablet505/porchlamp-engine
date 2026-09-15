@@ -1,12 +1,9 @@
 """CVI demo application: deterministic fixture data + the web front end.
 
-W4-1 (`.agents/W4-1/inventory.md` sections 3/8, `04-ARCHITECTURE.md`
-section 2 "scripts/demo_app.py (folded into a test helper)"): this is the
-full logic that used to live at `scripts/demo_app.py`, moved here
-verbatim. `scripts/demo_app.py` is now a one-release deprecation shim
-re-exporting these names so `.venv/bin/python scripts/demo_app.py` and
-`tests/test_webapp.py` (which loads it by file path) both keep working
-unchanged.
+This is the full logic that used to live at `scripts/demo_app.py`, folded into
+a test helper module. `scripts/demo_app.py` is now a one-release deprecation shim
+re-exporting these names so `scripts/demo_app.py` and `tests/test_webapp.py`
+both keep working unchanged.
 
 Seeds 26 fictional, fully deterministic repositories (six ecosystems, all
 four quadrants, one gated black-hole repo, two off-platform repos, stars

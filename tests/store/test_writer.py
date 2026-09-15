@@ -1,10 +1,4 @@
-"""W4-2 acceptance: the writer (`04` section 5; REWORK round 1).
-
-Fail-before proofs for the round-1 blockers are pasted verbatim in
-``.agents/W4-2/handoff.md`` (each fix's test below reproduces the review's
-own repro shape: inject the failure, show the pre-fix behaviour, then
-assert the fixed behaviour).
-"""
+"""Tests for ``cvi.store.writer``: writing snapshots, repositories, parameters, and populations."""
 from __future__ import annotations
 
 import sqlite3
@@ -37,7 +31,7 @@ from .helpers import (
 
 
 def _fresh_db(path: Path) -> sqlite3.Connection:
-    conn = schema.connect(path)  # G-004: PRAGMA foreign_keys=ON
+    conn = schema.connect(path)  # PRAGMA foreign_keys=ON
     apply_migrations(conn, applied_at="2026-09-13T00:00:00Z")
     return conn
 
@@ -51,7 +45,7 @@ def _write_one_snapshot(conn, snapshot_id: str = "snap-1") -> None:
 
 
 # --------------------------------------------------------------------- #
-# write_snapshot: F-004 conflict detection
+# write_snapshot: conflict detection
 # --------------------------------------------------------------------- #
 
 def test_write_snapshot_is_idempotent_on_identical_definition(tmp_path) -> None:
@@ -63,7 +57,7 @@ def test_write_snapshot_is_idempotent_on_identical_definition(tmp_path) -> None:
 
 
 def test_write_snapshot_raises_on_a_conflicting_definition(tmp_path) -> None:
-    """F-004: a second call for the same id with a DIFFERENT identity field
+    """A second call for the same id with a DIFFERENT identity field
     must raise, not silently keep the first definition."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
@@ -127,18 +121,9 @@ def test_write_records_round_trips_repo_params_and_populations(tmp_path) -> None
 
 
 def test_write_records_nulls_source_for_a_measured_input_with_no_population(tmp_path) -> None:
-    """W2-14 (found while proving the evidence endpoint always serves
-    relative sources on the real fixture): ``reason="no_population"`` is a
-    STAGE-2 outcome (``cvi.core.models.Unmeasured``'s own docstring: the
-    scoring engine assigns it to a ``ParamScore``, never to an input-stage
-    value) -- the underlying bundle input can be genuinely ``Measured`` with
-    a real ``source``/``fetched_at`` even though ``ParamScore.measured`` is
-    ``False``. ``cvi/serve/contract.py``'s ``EvidenceRow`` contract is
-    explicit that an unmeasured row carries no source/fetched_at; before
-    this fix the writer copied them through anyway, so any real repo with a
-    ``no_population`` parameter made ``GET .../evidence`` 500 (the row
-    failed its own contract's validator: ``measured=False`` but ``source``
-    and ``fetched_at`` were set)."""
+    """When ``reason="no_population"``, ``ParamScore.measured`` is False.
+    The writer ensures provenance fields (source, source_hash, fetched_at, method)
+    are stored as NULL to satisfy the EvidenceRow contract."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
 
@@ -170,13 +155,8 @@ def test_write_records_nulls_source_for_a_measured_input_with_no_population(tmp_
 
 
 def test_param_row_rejects_an_absolute_source(tmp_path) -> None:
-    """W2-14 defense-in-depth: ``cvi.core.models.Measured.__post_init__``
-    already refuses to construct a ``Measured`` with an absolute source, so
-    the only way to reach ``_param_row``'s own guard is a value that became
-    absolute *after* construction (``object.__setattr__`` on the frozen
-    dataclass, standing in for "however a stale/corrupted absolute source
-    got here") -- the store must still refuse to write it, never silently
-    persist an absolute path of this machine as served evidence."""
+    """The store refuses to write absolute source paths, ensuring only relative
+    paths are persisted as evidence."""
     from cvi.store.writer import _param_row
 
     param_scores = {
@@ -234,11 +214,11 @@ def test_write_records_writes_populations(tmp_path) -> None:
 
 
 # --------------------------------------------------------------------- #
-# F-003: a snapshot id is immutable
+# A snapshot id is immutable
 # --------------------------------------------------------------------- #
 
 def test_write_records_rejects_a_second_write_to_the_same_snapshot(tmp_path) -> None:
-    """F-003: 5 repos, then a second write of 2 for the SAME snapshot ->
+    """Five repos, then a second write of 2 for the SAME snapshot ->
     raises; the database still shows exactly the original 5 rows and the
     snapshot's identity hash is unchanged."""
     db_path = tmp_path / "db.sqlite"
@@ -265,7 +245,7 @@ def test_write_records_rejects_rewrite_even_when_shrinking(tmp_path) -> None:
     """Over-correction guard: the immutability check fires even when the
     caller is trying to write FEWER rows than before (the exact shape a
     delete-then-insert design would have silently allowed to leave ghost
-    members -- F-003's rejected alternative)."""
+    members)."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
     write_records(conn, "snap-1", [make_repo_write(make_rated_record("snap-1", owner="acme", name="only"))])
@@ -277,7 +257,7 @@ def test_write_records_rejects_rewrite_even_when_shrinking(tmp_path) -> None:
 def test_write_records_retry_after_a_rolled_back_failure_succeeds(tmp_path) -> None:
     """A snapshot id whose only prior attempt FAILED (and so rolled back to
     zero rows) is not "already written" -- retrying with the same id must
-    succeed, proving F-002's rollback and F-003's immutability check
+    succeed, proving rollback and immutability checks
     compose correctly rather than permanently locking out a legitimate
     retry."""
     conn = _fresh_db(tmp_path / "db.sqlite")
@@ -294,12 +274,11 @@ def test_write_records_retry_after_a_rolled_back_failure_succeeds(tmp_path) -> N
 
 
 # --------------------------------------------------------------------- #
-# F-002: one snapshot = one transaction, rollback on failure
+# One snapshot = one transaction, rollback on failure
 # --------------------------------------------------------------------- #
 
 def test_write_records_rolls_back_on_failure_leaving_zero_rows_after_a_later_commit(tmp_path) -> None:
-    """F-002 (kills mutant M5, dropping the final ``conn.commit()``): a
-    raise after 2 of 3 rows leaves the transaction rolled back; a
+    """A raise after 2 of 3 rows leaves the transaction rolled back; a
     SUBSEQUENT, unrelated ``commit()`` on the same connection must not make
     any of the partial batch durable."""
     db_path = tmp_path / "db.sqlite"
@@ -313,8 +292,7 @@ def test_write_records_rolls_back_on_failure_leaving_zero_rows_after_a_later_com
         write_records(conn, "snap-1", [r0, r1, bad])
 
     # A later, unrelated commit on the SAME connection must not resurrect
-    # the partial batch (the defect: no try/except meant the staged rows
-    # rode along on whatever commit happened next).
+    # the partial batch.
     conn.execute("SELECT 1")
     conn.commit()
 
@@ -327,14 +305,12 @@ def test_write_records_rolls_back_on_failure_leaving_zero_rows_after_a_later_com
 
 
 # --------------------------------------------------------------------- #
-# G-002 (REWORK round 3): the transaction boundary, closing mutant N1
+# Transaction boundary atomicity
 # --------------------------------------------------------------------- #
 
 def test_write_records_params_loop_failure_leaves_zero_repositories_rows(tmp_path, monkeypatch) -> None:
-    """G-002 closes mutant N1 (a moved transaction boundary survived the
-    round-2 battery): fail specifically in the PARAMS loop, AFTER the
-    repositories loop has already run within the same call, and confirm
-    ZERO repositories rows remain -- not just zero params rows."""
+    """A failure in the params loop rolls back preceding repository inserts
+    within the same call, leaving zero repository rows committed."""
     import cvi.store.writer as writer_module
 
     conn = _fresh_db(tmp_path / "db.sqlite")
@@ -361,8 +337,8 @@ def test_write_records_params_loop_failure_leaves_zero_repositories_rows(tmp_pat
 
 
 def test_write_snapshot_and_write_records_compose_into_one_transaction(tmp_path, monkeypatch) -> None:
-    """G-002's fuller guarantee: a caller wraps :func:`write_snapshot` and
-    :func:`write_records` in ONE outer transaction (enabled by G-005's
+    """Transaction composition guarantee: a caller wraps :func:`write_snapshot`
+    and :func:`write_records` in ONE outer transaction (enabled by the
     join-if-open guard); a failure while writing params leaves NOTHING for
     the id -- not even the ``snapshots`` row -- and a retry with the SAME
     id succeeds."""
@@ -400,7 +376,7 @@ def test_write_snapshot_and_write_records_compose_into_one_transaction(tmp_path,
 
 
 # --------------------------------------------------------------------- #
-# G-004 (REWORK round 3): PRAGMA foreign_keys = ON
+# PRAGMA foreign_keys = ON
 # --------------------------------------------------------------------- #
 
 def test_orphan_params_row_is_rejected(tmp_path) -> None:
@@ -430,7 +406,7 @@ def test_foreign_key_check_is_empty_after_a_full_write(tmp_path) -> None:
 
 
 # --------------------------------------------------------------------- #
-# G-005 (REWORK round 3): join an already-open transaction
+# Join an already-open transaction
 # --------------------------------------------------------------------- #
 
 def test_write_snapshot_joins_an_already_open_transaction(tmp_path) -> None:
@@ -472,7 +448,7 @@ def test_write_records_joins_an_already_open_transaction(tmp_path) -> None:
 
 
 # --------------------------------------------------------------------- #
-# F-006 mutation-battery survivors: dedicated kill tests
+# Mutation-battery survivors: dedicated kill tests
 # --------------------------------------------------------------------- #
 
 def test_rank_is_null_whenever_not_rated(tmp_path) -> None:
@@ -544,7 +520,7 @@ def test_migrating_a_create_schema_built_v2_db_renames_nothing(tmp_path) -> None
 
 
 # --------------------------------------------------------------------- #
-# F-007: allow-list dump hash
+# Allow-list dump hash
 # --------------------------------------------------------------------- #
 
 def test_snapshot_dump_hash_ignores_other_snapshots(tmp_path) -> None:
@@ -579,7 +555,7 @@ def test_snapshot_dump_hash_ignores_other_snapshots(tmp_path) -> None:
 
 
 def test_snapshot_dump_hash_ignores_legacy_repositories(tmp_path) -> None:
-    """F-007: a fixed exclude-list would hash a migrated v1 DB's
+    """A fixed exclude-list would hash a migrated v1 DB's
     ``legacy_repositories`` (1,000 rows) into every v2 snapshot's identity.
     The allow-list (keep ``repositories`` only) must be immune to it."""
     db_path = tmp_path / "db.sqlite"
@@ -610,7 +586,7 @@ def test_snapshot_dump_hash_ignores_legacy_repositories(tmp_path) -> None:
 
 
 def test_snapshot_dump_hash_covers_params_and_populations_rows(tmp_path) -> None:
-    """G-001 (REWORK round 3): the identity hash must cover the snapshot's
+    """The identity hash must cover the snapshot's
     OWN ``params`` and ``populations`` rows, not just ``repositories`` --
     rewriting a param's score/raw_value/source_hash, or a population's
     values, must move the hash; another snapshot's rows must not."""
@@ -695,7 +671,7 @@ def test_finalize_snapshot_hash_stamps_hash_and_promoted_at(tmp_path) -> None:
 
 
 # --------------------------------------------------------------------- #
-# F-011/F-012: RepoWrite identity, PersonaComposite serialisation
+# RepoWrite identity, PersonaComposite serialisation
 # --------------------------------------------------------------------- #
 
 def test_repo_write_rejects_mismatched_identity() -> None:
@@ -706,10 +682,8 @@ def test_repo_write_rejects_mismatched_identity() -> None:
 
 
 def test_persona_composites_round_trip_via_asdict(tmp_path) -> None:
-    """F-012: ``canonical_json`` cannot encode a ``PersonaComposite``
-    dataclass directly; the writer must go through ``asdict`` first. Proven
-    by writing the REAL type (not the pre-W2-10 ``dict[str, float]``) and
-    reconstructing it on the way back."""
+    """``PersonaComposite`` dataclasses serialize to dicts for JSON storage
+    and reconstruct identically on read."""
     from cvi.store import reader
 
     conn = _fresh_db(tmp_path / "db.sqlite")
@@ -729,10 +703,8 @@ def test_persona_composites_round_trip_via_asdict(tmp_path) -> None:
 
 
 def test_writer_raises_a_clear_error_on_the_stale_dict_float_shape() -> None:
-    """Fail-before proof for F-012, reproduced directly (not just via the
-    merge-trial evidence in the review): a record built the OLD, pre-W2-10
-    way (``persona_composites={"p": 82.5}``, a bare float) must fail loudly
-    at write time, not silently store nonsense."""
+    """A record built with bare float persona composites fails loudly at
+    write time rather than storing invalid data."""
     record = make_rated_record("snap-1", owner="acme", name="demo")
     record = replace(record, persona_composites={"balanced": 82.5})  # type: ignore[dict-item]
     item = make_repo_write(record)
@@ -742,7 +714,7 @@ def test_writer_raises_a_clear_error_on_the_stale_dict_float_shape() -> None:
 
 
 # --------------------------------------------------------------------- #
-# F-015: gate_undecided
+# gate_undecided
 # --------------------------------------------------------------------- #
 
 def test_gate_undecided_round_trips(tmp_path) -> None:
@@ -757,7 +729,7 @@ def test_gate_undecided_round_trips(tmp_path) -> None:
 
 
 # --------------------------------------------------------------------- #
-# F-005: UTC normalisation
+# UTC normalisation
 # --------------------------------------------------------------------- #
 
 def test_normalize_utc_z_passes_none_through() -> None:
@@ -812,17 +784,8 @@ def test_ttfhr_p75_is_none_with_no_qualifying_event(tmp_path) -> None:
 
 
 def test_stars_forks_are_null_no_producer(tmp_path) -> None:
-    """Documents, rather than hides, the current gap (module docstring):
-    no ``FeatureBundle``/``GateEvidence`` field carries ``stars_audited``/
-    ``forks`` yet. ``last_human_commit_at`` is deliberately NOT asserted
-    here any more (W1-5f REWORK, F-001): it DOES have a real producer now
-    (:func:`cvi.store.writer._last_human_commit_at`) -- it is only NULL in
-    this fixture because ``make_repo_write``'s bundle never had the
-    ``last_non_bot_commit_at`` sidecar fact set, not because the column is
-    unproducible. See ``test_last_human_commit_at_is_produced_from_the_
-    bundle_sidecar_fact`` below for the positive case, and its
-    ``NULL``-on-unset sibling for why this fixture's own NULL is still
-    correct."""
+    """When a bundle has no stars/forks/last_commit facts set, the corresponding
+    columns in repositories remain NULL."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
     write_records(conn, "snap-1", [make_repo_write(make_rated_record("snap-1"))])
@@ -833,14 +796,7 @@ def test_stars_forks_are_null_no_producer(tmp_path) -> None:
 
 
 # --------------------------------------------------------------------- #
-# last_human_commit_at produced from the bundle sidecar fact (W1-5f      #
-# REWORK, F-001): the lead's review found the writer still hardcoded    #
-# NULL after this fact gained a real producer, so cvi/store/reader.py's #
-# SQL D-TIE-1 ORDER BY (level 7) silently disagreed with the stored     #
-# `rank` column. These write through the REAL writer -- no post-write   #
-# UPDATE stamp -- which is exactly what tests/store/test_reader.py's    #
-# own `_write_and_rank` helper could not catch (it always overwrites    #
-# the column itself, "as the writer would if it had a real producer").  #
+# last_human_commit_at produced from the bundle sidecar fact             #
 # --------------------------------------------------------------------- #
 
 def test_last_human_commit_at_is_produced_from_the_bundle_sidecar_fact(tmp_path) -> None:
@@ -909,13 +865,11 @@ def test_last_human_commit_at_is_null_for_a_measured_absence(tmp_path) -> None:
 
 
 def test_sql_rank_order_agrees_with_python_when_writer_produces_the_commit_date(tmp_path) -> None:
-    """F-001's own repro (lead review §4.5), closed: two repos tied through
+    """Two repos tied through
     D-TIE-1 level 6, differing only by ``last_non_bot_commit_at`` --
     ``assign_ranks`` (Python) and ``reader.ranked_order_sql`` (SQL) must
     agree once the WRITER produces the column for real, with no UPDATE
-    stamp anywhere in this test. Before the fix this reproduced the
-    review's exact inversion (SQL: aaa-old, zzz-new; Python: zzz-new,
-    aaa-old)."""
+    stamp anywhere in this test."""
     from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
     from cvi.core.tiebreak import TieBreakInput, assign_ranks
     from cvi.store import reader

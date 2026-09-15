@@ -1,15 +1,14 @@
-"""W2-3 acceptance: pillar 3 — Governance curves (02 section 4).
+"""Acceptance tests for pillar 3 — Governance curves (02 section 4).
 
-Fail-before (R-1): on the base commit ``cvi.core.params`` does not exist, so
-every test in this module fails at import. 3.1 and 3.3 are evidence-based
-enum lookups (the regime/rung is the value, not a rate); 3.2 is the
-elephant-factor linear calibration with a 30-commit minimum sample.
+3.1 and 3.3 are evidence-based enum lookups (the regime/rung is the value,
+not a rate); 3.2 is the elephant-factor linear calibration with a 30-commit
+minimum sample.
 """
 from __future__ import annotations
 
 import pytest
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import Measured, ParamScore, Unmeasured
 from cvi.core.params import PARAMS, elephant_factor, legal_ip, promotion_ladder
 
@@ -155,7 +154,7 @@ def test_promotion_ladder_unmeasured_passes_through() -> None:
 
 
 def test_all_frozen_regimes_and_rungs_are_registered() -> None:
-    for regime in constants_v2.LEGAL_IP_VALUES:
+    for regime in constants.LEGAL_IP_VALUES:
         assert PARAMS["legal_ip"].score(regime) > 0.0
-    for rung in constants_v2.PROMOTION_LADDER_VALUES:
+    for rung in constants.PROMOTION_LADDER_VALUES:
         assert PARAMS["promotion_ladder"].score(rung) > 0.0

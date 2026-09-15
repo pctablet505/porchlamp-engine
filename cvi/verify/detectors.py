@@ -1,4 +1,4 @@
-"""Cross-snapshot manipulation detectors (packet W3-2, ``03`` section 6).
+"""Cross-snapshot manipulation detectors (``03`` section 6).
 
 Nine pure predicates, one per row of the ``03-ANTI-MANIPULATION.md`` section
 6 table, plus :func:`run_detectors` which evaluates all nine and returns the
@@ -13,11 +13,8 @@ first snapshot) and a :class:`DetectorInputs` bundle of the raw facts no
 ``ScoreRecord`` carries, and returns a plain ``bool`` -- fired or not.
 :func:`run_detectors` is the one place that turns those nine booleans into
 the ``list[str]`` the store contract names. This module never edits
-``cvi/core/engine.py`` -- wiring ``run_detectors`` into the scoring call
-that produces ``ScoreRecord.suspicion`` is an ownership request to W2-8
-(the constants-freeze/store-wiring packet), recorded in this packet's
-handoff rather than done here (R-10: this packet owns
-``cvi/verify/detectors.py`` and ``cvi/audit/detectors_report.py`` only).
+``cvi/core/engine.py``: wiring ``run_detectors`` into the scoring call
+that produces ``ScoreRecord.suspicion`` is the caller's job.
 
 **The unmeasured-never-fires rule.** A detector needs *measured* evidence on
 every input it reads: an ``Unmeasured``/unscored parameter, a missing
@@ -32,46 +29,45 @@ a false accusation either. Every ``detect_*`` docstring below repeats which
 of its own inputs this applies to, and ``tests/verify/test_detectors.py``
 has one dedicated case per input proving the unmeasured value does not fire.
 
-**Named inputs this packet cannot source yet (ownership requests).** Two
-of the nine detectors still need a raw fact no landed collector or bundle
-field currently carries (a third, ``newcomer_burst``, was closed by packet
-W3-1 — kept in this list for its history). Rather than approximate a
-missing fact from something else, each open one reads its own explicitly
-named :class:`DetectorInputs` field that defaults to ``None`` (never
-fires) until the fact exists:
+**Named inputs no collector sources yet.** Two of the nine detectors need
+a raw fact no collector or bundle field carries. Rather than approximate a
+missing fact from something else, each reads its own explicitly named
+:class:`DetectorInputs` field that defaults to ``None`` (never fires)
+until the fact exists:
 
-* ``newcomer_burst`` — CLOSED (packet W3-1). ``NewcomerAuthor`` now carries
-  ``account_created_at`` (``cvi/core/models.py``), threaded through from
-  the collector's already-fetched per-author ``user.createdAt``
-  (``cvi.collect.github_graphql``) and ``cvi.derive.bundle``'s
-  load/dump round-trip. :func:`newcomer_accounts_from_cohorts` builds real
-  :class:`NewcomerAccountSample` tuples straight from a landed
-  ``FeatureBundle.cohorts.newcomer_authors`` — this dataclass is kept as
-  the detector's own input shape (not replaced by ``NewcomerAuthor``
-  itself) because the detector's ``all_prs_merged`` fact is a derived
-  boolean, not a stored one; wiring ``newcomer_accounts_from_cohorts``'s
-  output into ``DetectorInputs`` at a real call site is still W2-8/W2-9's
-  wiring request (this module's ``run_detectors`` is pure, R-10).
 * ``star_burst`` needs whether the StarScout lockstep penalty
   (``cvi/starscout.py``, v1) was applied to this repo at universe entry
   (``DetectorInputs.star_lockstep_penalty_applied``). No v2 schema field
-  carries this fact today (``RepoIdentity`` has no stars-related field).
-  Ownership request: expose it as a stored per-repo boolean from the
-  universe-build step (``scripts/build_universe.py`` / D-IN-5) so a real
-  caller can populate this field instead of leaving it ``None``.
+  carries this fact (``RepoIdentity`` has no stars-related field); it
+  needs exposing as a stored per-repo boolean from the universe-build
+  step (``scripts/build_universe.py`` / D-IN-5) before a real caller can
+  populate this field instead of leaving it ``None``.
 * ``ef_domain_mismatch`` needs the top commit email-domain's share of a
   repo's human commits (``DetectorInputs.top_email_domain_share``).
-  ``cvi.collect.commits.elephant_factor`` (W1-5) computes the *count* of
-  orgs reaching 50% of commits but never the top org's own share, and no
-  bundle input carries it. Ownership request: have the W1-5 collector (or
-  its deriver hook) additionally compute and store the top-domain share
-  alongside ``elephant_factor`` so a real caller can populate this field.
+  ``cvi.collect.commits.elephant_factor`` computes the *count* of orgs
+  reaching 50% of commits but never the top org's own share, and no
+  bundle input carries it; the collector (or its deriver hook) needs to
+  compute and store the top-domain share alongside ``elephant_factor``
+  before a real caller can populate this field.
 
-``closed_unread`` and ``source_drift`` are *not* ownership requests: the
-first is computed directly from ``FeatureBundle.pr_window`` (already landed,
-W1-3) by :func:`closed_unread_share_from_pr_window`, and the second is a
-plain pass-through of the W3-3 live-sample canary's per-repo hold verdict,
-supplied by whichever caller has that ``LiveSampleReport`` in hand.
+The other three raw-fact inputs are sourced:
+
+* ``newcomer_burst`` reads ``NewcomerAuthor.account_created_at``
+  (``cvi/core/models.py``), threaded through from the collector's
+  per-author ``user.createdAt`` (``cvi.collect.github_graphql``) and
+  ``cvi.derive.bundle``'s load/dump round-trip.
+  :func:`newcomer_accounts_from_cohorts` builds
+  :class:`NewcomerAccountSample` tuples straight from
+  ``FeatureBundle.cohorts.newcomer_authors`` — that dataclass is the
+  detector's own input shape (not ``NewcomerAuthor`` itself) because the
+  detector's ``all_prs_merged`` fact is a derived boolean, not a stored
+  one. Wiring its output into ``DetectorInputs`` at a real call site is
+  the caller's job; ``run_detectors`` itself is pure.
+* ``closed_unread`` is computed directly from ``FeatureBundle.pr_window``
+  by :func:`closed_unread_share_from_pr_window`.
+* ``source_drift`` is a plain pass-through of the live-sample canary's
+  per-repo hold verdict, supplied by whichever caller has that
+  ``LiveSampleReport`` in hand.
 """
 from __future__ import annotations
 
@@ -95,8 +91,8 @@ DETECTOR_LABEL_SPAM: str = "label_spam"
 DETECTOR_EF_DOMAIN_MISMATCH: str = "ef_domain_mismatch"
 DETECTOR_SOURCE_DRIFT: str = "source_drift"
 
-#: All nine detector names, in 03 section 6 table order (R-2: the one
-#: definition ``run_detectors`` and every test iterate over).
+#: All nine detector names, in 03 section 6 table order -- the one
+#: definition ``run_detectors`` and every test iterate over.
 DETECTOR_NAMES: tuple[str, ...] = (
     DETECTOR_PARAM_JUMP,
     DETECTOR_SPEED_WITHOUT_DECISIONS,
@@ -110,11 +106,9 @@ DETECTOR_NAMES: tuple[str, ...] = (
 )
 
 # --------------------------------------------------------------------------- #
-# Frozen thresholds (03 section 6). One definition per fact (R-2): every      #
-# number this module compares against lives here, nowhere else, and none of  #
-# it is in ``cvi.core.constants_v2`` yet -- flagged for W2-8 to relocate at   #
-# the constants freeze (the same pattern W2-2's gate thresholds and W2-4's   #
-# ``MIN_POPULATION`` used while waiting on that freeze).                     #
+# Frozen thresholds (03 section 6). One definition per fact: every number    #
+# this module compares against lives here, nowhere else, and none of it is   #
+# in ``cvi.core.constants``.                                                 #
 # --------------------------------------------------------------------------- #
 
 #: ``param_jump``: a parameter score move strictly greater than this many
@@ -155,11 +149,11 @@ LABEL_SPAM_CONVERSION_SCORE_MAX: float = 10.0
 EF_DOMAIN_SHARE_MIN: float = 0.5
 EF_DOMAIN_MISMATCH_EF_MIN: float = 4.0
 
-#: Parameter input ids this module reads from ``ScoreRecord.params`` (R-2:
-#: reused from ``cvi.core.constants_v2.PARAM_INPUT_IDS`` naming, not
+#: Parameter input ids this module reads from ``ScoreRecord.params``
+#: reused from ``cvi.core.constants.PARAM_INPUT_IDS`` naming, not
 #: retyped as a second literal set -- kept as local names here only because
 #: importing the whole 18-entry tuple to pick out five would be less clear
-#: at each call site).
+#: at each call site.
 INPUT_TTFHR: str = "ttfhr_hours"
 INPUT_DR90: str = "dr90_decision_rate"
 INPUT_MR_FIRST: str = "mr_first_rate"
@@ -195,14 +189,13 @@ def _measured_n(record: ScoreRecord, input_id: str) -> Optional[int]:
 @dataclass(frozen=True)
 class NewcomerAccountSample:
     """One first-timer-cohort account, for the ``newcomer_burst`` lockstep
-    rule (03 section 4). ``NewcomerAuthor`` now carries
-    ``account_created_at`` too (CLOSED, packet W3-1 -- see the module
-    docstring); this dataclass is kept as the detector's own input shape
-    rather than replaced by ``NewcomerAuthor`` itself, because
+    rule (03 section 4). ``NewcomerAuthor`` carries
+    ``account_created_at`` too; this dataclass is the detector's own input
+    shape rather than ``NewcomerAuthor`` itself, because
     ``all_prs_merged`` is a fact this detector DERIVES from a cohort's raw
     PR list, not one any stored schema carries directly --
-    :func:`newcomer_accounts_from_cohorts` is what builds real instances
-    of this dataclass from a landed ``FeatureBundle.cohorts.
+    :func:`newcomer_accounts_from_cohorts` is what builds instances
+    of this dataclass from a ``FeatureBundle.cohorts.
     newcomer_authors``."""
 
     login: str
@@ -232,8 +225,8 @@ class DetectorInputs:
     collected for this repo at this snapshot" -- the unmeasured-never-fires
     rule applies to each one identically to a ``ParamScore``: a detector
     that reads a ``None``/empty field here returns ``False``, never a
-    guess. See the module docstring for which fields are ownership
-    requests versus already sourceable today.
+    guess. See the module docstring for which fields a collector sources
+    today and which have no source yet.
     """
 
     #: ``label_spam``: raw 5.1 newcomer-issue-supply count (the input's
@@ -246,25 +239,24 @@ class DetectorInputs:
     #: ``bundle.inputs["elephant_factor"]`` when ``Measured``.
     elephant_factor: Optional[float] = None
     #: ``ef_domain_mismatch``: top commit email-domain's share of human
-    #: commits. OWNERSHIP REQUEST (see module docstring) -- ``None`` until
-    #: a collector computes it.
+    #: commits. ``None`` until a collector computes it (see the module
+    #: docstring).
     top_email_domain_share: Optional[float] = None
     #: ``closed_unread``: pre-aggregated (share, n) over external PRs
     #: closed unmerged with no substantive response, computed by
     #: :func:`closed_unread_share_from_pr_window` from the bundle's real
-    #: ``pr_window`` -- not an ownership request, just kept as a plain
-    #: value here so this module's predicates stay free of the
-    #: ``FeatureBundle``/``PRWindow`` shape.
+    #: ``pr_window`` -- kept as a plain value here so this module's
+    #: predicates stay free of the ``FeatureBundle``/``PRWindow`` shape.
     closed_unread_share: Optional[float] = None
     closed_unread_n: Optional[int] = None
-    #: ``newcomer_burst``: the sampled first-timer accounts. OWNERSHIP
-    #: REQUEST (see module docstring) -- ``None``/empty until the cohort
-    #: schema carries account creation dates.
+    #: ``newcomer_burst``: the sampled first-timer accounts, as built by
+    #: :func:`newcomer_accounts_from_cohorts`; empty means no evidence.
     newcomer_accounts: tuple[NewcomerAccountSample, ...] = ()
     #: ``star_burst``: whether the StarScout lockstep penalty was applied
-    #: at universe entry. OWNERSHIP REQUEST (see module docstring).
+    #: at universe entry. ``None`` until the universe-build step stores it
+    #: (see the module docstring).
     star_lockstep_penalty_applied: Optional[bool] = None
-    #: ``source_drift``: this repo's W3-3 live-sample canary hold verdict
+    #: ``source_drift``: this repo's live-sample canary hold verdict
     #: (``True`` iff the row is currently held, i.e. verdict != "ok").
     source_drift_held: Optional[bool] = None
 
@@ -276,7 +268,7 @@ _EMPTY_INPUTS: DetectorInputs = DetectorInputs()
 
 def closed_unread_share_from_pr_window(pr_window: PRWindow) -> tuple[Optional[float], int]:
     """The ``closed_unread`` (share, n) pair straight from a real
-    ``FeatureBundle.pr_window`` (03 section 6; W1-3's landed schema).
+    ``FeatureBundle.pr_window`` (03 section 6).
 
     Population: external PR events in the window. Numerator: those closed
     (``closed_at`` set) and never merged (``merged_at`` is ``None``) with no
@@ -303,14 +295,13 @@ def closed_unread_share_from_pr_window(pr_window: PRWindow) -> tuple[Optional[fl
 
 
 def newcomer_accounts_from_cohorts(cohorts: Cohorts) -> tuple[NewcomerAccountSample, ...]:
-    """The ``newcomer_burst`` detector's real input, straight from a landed
-    ``FeatureBundle.cohorts.newcomer_authors`` (W3-1, closing the ownership
-    request the module docstring names — ``NewcomerAuthor`` now carries
+    """The ``newcomer_burst`` detector's input, straight from
+    ``FeatureBundle.cohorts.newcomer_authors`` (``NewcomerAuthor`` carries
     ``account_created_at``).
 
     An author whose account creation date was never measured (``None`` —
-    the collector's search or eligibility fetch failed for them, W1-4
-    round 3) is skipped entirely, not guessed at: the unmeasured-never-
+    the collector's search or eligibility fetch failed for them) is
+    skipped entirely, not guessed at: the unmeasured-never-
     fires rule applies here exactly as it does to every other
     :class:`DetectorInputs` field. ``all_prs_merged`` is true iff every PR
     this account is recorded as having opened (its first PR and every
@@ -492,7 +483,7 @@ def detect_ef_domain_mismatch(
 def detect_source_drift(
     current: ScoreRecord, previous: Optional[ScoreRecord], inputs: DetectorInputs
 ) -> bool:
-    """``source_drift``: the W3-3 live-sample canary is holding this repo's
+    """``source_drift``: the live-sample canary is holding this repo's
     row from promotion (03 section 5/6). Reads
     ``inputs.source_drift_held``. Unmeasured-never-fires: ``None`` (not
     sampled by the canary this run) never fires; only an explicit ``True``
@@ -500,8 +491,8 @@ def detect_source_drift(
     return inputs.source_drift_held is True
 
 
-#: Every detector, keyed by name, in 03 section 6 table order (R-2: the one
-#: place the name -> predicate mapping is written).
+#: Every detector, keyed by name, in 03 section 6 table order -- the one
+#: place the name -> predicate mapping is written.
 _DETECTOR_FUNCTIONS: "dict[str, Callable[[ScoreRecord, Optional[ScoreRecord], DetectorInputs], bool]]" = {
     DETECTOR_PARAM_JUMP: detect_param_jump,
     DETECTOR_SPEED_WITHOUT_DECISIONS: detect_speed_without_decisions,
@@ -527,8 +518,8 @@ def run_detectors(
     independent of ``dict``/iteration order and safe to compare directly in
     a test or store verbatim on ``ScoreRecord.suspicion``). Does not
     mutate ``current``, ``previous`` or ``inputs`` (04 section 3:
-    ``ScoreRecord`` is frozen; wiring this into the record the engine
-    returns is an ownership request to W2-8, see the module docstring)."""
+    ``ScoreRecord`` is frozen; wiring this result onto the record the
+    engine returns is the caller's job, see the module docstring)."""
     return sorted(
         name for name, detector in _DETECTOR_FUNCTIONS.items() if detector(current, previous, inputs)
     )

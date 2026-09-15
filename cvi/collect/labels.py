@@ -1,8 +1,9 @@
 """Newcomer-label issue collection for parameter 5.1 (D-PARAM 5.1, D-IN-4).
 
-Replaces the legacy AND-label query (``labels=good-first-issue,help-wanted``)
-which required one issue to carry both labels at once and returned no issues
-for ~99.9% of repos (finding F2). This collector:
+Labels are matched per repo rather than by an AND-label query
+(``labels=good-first-issue,help-wanted``), which requires one issue to
+carry both labels at once and returns no issues for ~99.9% of repos
+(finding F2). This collector:
 
 1. fetches the repo's own label list once (label names are never assumed),
 2. keeps the labels matching the 5.1 alias regex,
@@ -14,10 +15,10 @@ for ~99.9% of repos (finding F2). This collector:
    descending so the cap cannot hide in-window issues), and
 6. records ``labels_matched`` in the envelope.
 
-The envelope ``data`` stays a list so the pre-W1-1 derive block keeps reading
-it: the first record is the W1-1 metadata (``labels_matched``, ``queries``,
-``truncated``) and the remaining records are the unioned issue records, a
-superset of the legacy fields plus ``state``.
+The envelope ``data`` is a list: the first record is the metadata
+(``labels_matched``, ``queries``, ``truncated``) and the remaining records
+are the unioned issue records, a superset of the legacy fields plus
+``state``.
 """
 from __future__ import annotations
 
@@ -256,12 +257,12 @@ def collect_newcomer_issues(fetch: Transport, owner: str, name: str,
 
 def write_gfi_envelope(owner: str, name: str, result: GfiResult,
                        path: Path) -> Path:
-    """Write the W1-1 GFI envelope and return the envelope path.
+    """Write the GFI envelope and return the envelope path.
 
-    ``data`` is a list (first record = W1-1 metadata, rest = issues) so the
-    pre-W1-1 derive block keeps reading it; the hash over ``data`` is
+    ``data`` is a list (first record = metadata, rest = issues), the shape
+    the derive block reads; the hash over ``data`` is
     recorded by :func:`cvi.collect.envelope.write_envelope` (provenance =
-    envelope path + hash, R-4).
+    envelope path + hash).
     """
     data: list[dict] = [{
         "gfi_newcomer_v2": True,
@@ -279,13 +280,13 @@ def write_gfi_envelope(owner: str, name: str, result: GfiResult,
 
 
 def is_new_gfi_envelope(data: Any) -> bool:
-    """True for W1-1 GFI envelope data (metadata record first), else False."""
+    """True for current-format GFI envelope data (metadata record first), else False."""
     return (isinstance(data, list) and bool(data)
             and isinstance(data[0], dict) and "labels_matched" in data[0])
 
 
 def parse_gfi_envelope(data: Any) -> Optional[GfiResult]:
-    """Read back W1-1 GFI envelope data; None for absent or legacy data."""
+    """Read back current-format GFI envelope data; None for absent or legacy data."""
     if not is_new_gfi_envelope(data):
         return None
     meta = data[0]
@@ -316,13 +317,12 @@ def needs_gather(envelope_path: Path, force: bool) -> bool:
 
 def count_newcomer_issues(data: Any, fetched_at: Optional[str],
                           now: datetime) -> Optional[int]:
-    """Recount the 5.1 supply from a W1-1 GFI envelope.
+    """Recount the 5.1 supply from a current-format GFI envelope.
 
     Re-applies open + unassigned + updated-within-90d to the recorded
     issues, anchored at the envelope's ``fetched_at`` (``now`` when the
     envelope records none), so the count is reproducible from recorded data.
-    Returns None for absent or legacy-format data: the pre-W1-1 derivation
-    then stands.
+    Returns None for absent or legacy-format data.
     """
     result = parse_gfi_envelope(data)
     if result is None:

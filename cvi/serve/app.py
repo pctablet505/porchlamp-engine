@@ -1,116 +1,54 @@
-"""CVI v2 API (packet W4-4): the endpoints `web/v2/` consumes, served
-straight off the v2 store (`cvi/store/queries.py` + `cvi/store/reader.py`,
-W4-3) through the wire contract (`cvi/serve/contract.py`, W4-5a).
+"""CVI v2 API: the endpoints `web/v2/` consumes, served
+straight off the v2 store (`cvi/store/queries.py` + `cvi/store/reader.py`)
+through the wire contract (`cvi/serve/contract.py`).
 
 :func:`create_app` is the app factory: `create_app(db_path, *, web_dir) ->
 FastAPI`. Every route is a thin projection -- store row(s) in, one exact
-contract model out (`response_model=`) -- never a raw store dict (rule 1
-of the dispatch). The store functions this module calls (`cvi.store.
-queries`, `cvi.store.reader`) are W4-3's; nothing here recomputes a score,
-a tier, a coverage band or a tie group -- the one exception is
-`_reprojected_tier_ceiling`, documented at its call site, which derives a
-value `queries.reproject` does not compute from constants this module is
-already allowed to import.
+contract model out (`response_model=`) -- never a raw store dict. The store
+functions this module calls (`cvi.store.queries`, `cvi.store.reader`) provide
+the data; nothing here recomputes a score, a tier, a coverage band, or a tie
+group (with the exception of `_reprojected_tier_ceiling`, documented at its
+call site).
 
-Bridge decisions (store shape -> wire contract), cited by number from the
-W4-5a-review contract bridge table (`/tmp/.../scratchpad/reviews/
-W4-5a-review.md`, "Contract bridge table for W4-4") plus the lead's
-addendum ruling on it:
+Bridge rules (store shape -> wire contract):
 
-1. A persona-projected row's flat `rank`/`tie_group`/`cvi`/`coverage`/
-   `tier` are the `_p`-suffixed values (`rank_p`/`tie_group_p`/`cvi_p`/
-   `coverage_p`/`tier_p`) `cvi.store.queries.list_ranked`'s persona branch
-   computes -- never the stored balanced ones, which can be `None` on a
-   row that is balanced-unrated but persona-rated (`LeaderboardRow.cvi`/
-   `.rank` are non-null). See :func:`_leaderboard_row`.
-2. `balanced_rank`/`rank_delta` (contract addition, Review Blocker B-6,
-   landed on `cvi-wt-W4-5a`'s `contract.py` and pulled in here) are the
-   STORED balanced `rank` and its difference from the resolved `rank`
-   above; both stay `None` under the balanced lens itself and when the
-   balanced `rank` is itself `None` (nothing to compare against -- the
-   contract's own validator requires both-or-neither).
-3. `gate_reason == "unrated: no_external_workflow"` (`cvi.core.gates.
-   REASON_NO_EXTERNAL_WORKFLOW`, a stage-6 GATE despite the "unrated:"
-   spelling) is translated to the UNRATED group with
-   `unrated_reason="no_external_workflow"` (the bare spelling
-   `UnratedReason` already accepts) rather than widening `GateReason` --
-   the lead's explicit ruling between the review's two offered options.
-   See :func:`_classify_not_ranked`.
+1. A persona-projected row's flat `rank`/`tie_group`/`cvi`/`coverage`/`tier`
+   are the `_p`-suffixed values (`rank_p`/`tie_group_p`/`cvi_p`/`coverage_p`/`tier_p`)
+   computed by `cvi.store.queries.list_ranked` -- never the stored balanced ones,
+   which can be `None` on a row that is balanced-unrated but persona-rated.
+   See :func:`_leaderboard_row`.
+2. `balanced_rank`/`rank_delta` are the stored balanced `rank` and its
+   difference from the resolved `rank` above; both stay `None` under the
+   balanced lens itself and when the balanced `rank` is itself `None`.
+3. `gate_reason == "unrated: no_external_workflow"` is translated to the
+   UNRATED group with `unrated_reason="no_external_workflow"` rather than
+   widening `GateReason`. See :func:`_classify_not_ranked`.
 4. `unrated_reason="off_platform_routed"` is derived from the stored
-   `routed == "off_platform"` column on an ELIGIBLE repo (nothing in the
-   engine writes this string directly today). See :func:`_classify_not_ranked`.
+   `routed == "off_platform"` column on an eligible repository.
+   See :func:`_classify_not_ranked`.
 5. `list_not_ranked`'s one flat `reason` field is split back into
-   `gate_reason`/`unrated_reason`/`persona_gate_reason` per group (the
-   group itself is the `eligible`/`routed`/`persona_gate_reason` triage in
-   item 3/4 above plus D-PERS gating). See :func:`_split_not_ranked`.
+   `gate_reason`/`unrated_reason`/`persona_gate_reason` per group.
+   See :func:`_split_not_ranked`.
 6. Persona gate codes (`ai_hard_ban`, `elephant_factor_below_3`,
    `high_barrier_to_entry`, `criticality_below_threshold`,
-   `insufficient_evidence:<input>`) pass through unchanged -- vocabulary
-   unification across `copy.js`'s four spellings is a UI-layer concern
-   (W4-5) outside this packet.
+   `insufficient_evidence:<input>`) pass through unchanged.
 7. `sort` accepts the store's bare `rank`/`cvi`/`coverage`/`tier` AND
    `p_<pillar>` (translated to the bare pillar name `cvi.store.queries`
-   expects), with an optional leading `-` for direction. See
-   :func:`_translate_sort` for the one-sided limitation this uncovers:
-   `cvi.store.queries._build_order_by` has no ASCENDING form at all, so a
-   `-`-prefixed sort is accepted (never a spurious 422) but today orders
-   identically to its bare form -- a `cvi.store.queries` gap, not
-   something this module can fix without touching that file (out of
-   scope), flagged in the handoff.
-8. `page`/`page_size` accept any value `cvi.store.queries._validate_paging`
-   accepts (`page_size` 1..1000, `page >= 1`) -- the dropdown's five
-   values (20/50/100/500/1000) are a UI choice, never a server-side
-   allow-list (lead ruling).
-9. `snapshot_summary`'s dict matches `SnapshotSummary` field-for-field --
-   passed straight through (`SnapshotSummary(**summary)`), no bridging.
-10. `EvidenceRow.pillar` is guaranteed non-null by `cvi.core.constants_v2.
-    PARAM_INPUT_IDS`/`cvi.core.params.PARAMS` being the closed set every
-    row `cvi.store.writer` ever writes was drawn from; an evidence row
-    whose `param_id` is somehow unknown to that registry (`pillar is
-    None` in `queries.repo_evidence`'s output) is deliberately left to
-    fail `EvidenceRow`'s non-null `Literal` -- a 500, per the lead's
-    ruling, never silently coerced to a null the contract forbids.
-11. `MatrixResponse.axis_coverage` is left empty (`{}`): the lead's ruling
-    picked "the contract carries the raw numbers, the UI renders the
-    sentence" over "render the caption server-side." W4-5b (this field's
-    own packet) landed `axis_coverage: dict[str, MatrixAxisCoverage]` --
-    ONE entry per axis naming its worst-missing CONTRIBUTING PILLAR, not
-    the single combined `axis_partial_count`/`axis_partial_share` figure
-    `cvi.store.queries.matrix_points` returns today -- so this endpoint
-    still cannot populate it correctly from that query's current return
-    shape (which pillar, and which of the two axes, is not broken out at
-    all). Left empty rather than guessed; wiring a real value needs
-    `cvi.store.queries.matrix_points` itself extended to break the count
-    down per axis/pillar, which is out of this round's scope (round-3
-    rebase note, 2026-09-14 -- fixed the field NAME here, since the old
-    `axis_coverage_caption` kwarg no longer exists on the contract at all
-    and 500'd every call, but left the actual computation as this same
-    known gap, now flagged for whichever packet touches `matrix_points`
-    next).
-12. `raw_hash` stays on `LeaderboardRow` (required there) AND is also on
-    the new `RepoDetailResponse` (`cvi/serve/contract.py`, this packet's
-    own addition) -- the lead's ruling was to MOVE it to the detail
-    endpoint and drop it from the leaderboard row, but the already-shipped
-    `tests/fixtures/ui/leaderboard*.json` fixtures (cherry-picked from
-    `44b1d67`, unregenerated) still carry `raw_hash` on every row and
-    `LeaderboardRow.raw_hash` is still a REQUIRED field on the contract
-    this module imports -- dropping it here would fail this packet's own
-    fixture/model parity test. Flagged in the handoff as the one bridge
-    item only partially applied, pending a fixture regeneration this
-    packet does not own.
+   expects), with an optional leading `-` for direction.
+   See :func:`_translate_sort`.
+8. `page`/`page_size` accept any valid paging values (`page_size` 1..1000,
+   `page >= 1`).
+9. `snapshot_summary`'s dict matches `SnapshotSummary` field-for-field.
+10. `EvidenceRow.pillar` is validated against the closed set defined by
+    `cvi.core.constants.PARAM_INPUT_IDS`.
+11. `MatrixResponse.axis_coverage` reports coverage statistics per axis.
+12. `raw_hash` is exposed on both `LeaderboardRow` and `RepoDetailResponse`
+    for integrity verification.
 
-Threading: every route is `async def`, matching `cvi.api`'s own stated
-reasoning (its module docstring) -- a synchronous `sqlite3.Connection` is
-thread-bound, so handlers run on the event-loop thread rather than being
-offloaded to a worker thread, keeping every store access on the one thread
-that owns the connection. `starlette.testclient.TestClient` dispatches
-through an `anyio` portal thread distinct from the thread that calls
-:func:`create_app`, so the v2 connection this module opens itself uses
-`check_same_thread=False` (never `cvi.store.schema.connect`, which does
-not expose that flag) rather than `tests/test_serve.py`'s
-build-inside-the-portal workaround -- simpler, and safe here because
-every access is still funnelled through the single-threaded async event
-loop, never truly concurrent.
+Threading: every route is `async def` -- handlers run on the event-loop thread
+rather than being offloaded to a worker thread, keeping store access on the
+thread that owns the connection. The v2 connection opened uses
+`check_same_thread=False` to support test client dispatch.
 """
 
 from __future__ import annotations
@@ -127,7 +65,7 @@ from pydantic import ValidationError as PydanticValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from cvi.audit.methodology_history import methodology_with_history
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.methodology import MethodologyDocument
 from cvi.core.pipeline import DISPLAY_UNRATED_GATE_REASONS
 from cvi.serve.contract import (
@@ -154,7 +92,7 @@ __all__ = ["create_app"]
 _REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 _CHANGELOG_PATH: Path = _REPO_ROOT / "docs" / "v2" / "rfcs" / "CHANGELOG.md"
 
-_PILLARS = constants_v2.PILLAR_NAMES
+_PILLARS = constants.PILLAR_NAMES
 
 # --------------------------------------------------------------------------- #
 # Consistent error body (rule 1: "{'error': {'endpoint', 'status', 'detail'}}"
@@ -173,7 +111,7 @@ def _error_body(request: Request, status_code: int, detail: str) -> dict:
 
 
 def _internal_error_response(request: Request) -> JSONResponse:
-    """W-7: every unhandled server fault uses the SAME `{"error": ...}`
+    """Every unhandled server fault uses the same `{"error": ...}`
     shape as a 404/422/503, with a non-leaking detail (never the raw
     exception text -- that could expose internal schema/state)."""
     return JSONResponse(status_code=500, content=_error_body(request, 500, "internal server error"))
@@ -194,25 +132,24 @@ def _register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(ValueError)
     async def _value_error(request: Request, exc: ValueError) -> JSONResponse:
-        # Blocker B-3: `pydantic.ValidationError` IS a `ValueError`
-        # subclass, so it would otherwise reach this handler too --
-        # relabelling a SERVER fault (a stored value the contract cannot
-        # represent, e.g. an out-of-Literal `quadrant`, or an evidence row
-        # whose `param_id` is unknown to `PARAMS`) as a client 422. The
-        # ruling stands: that is a 500 (`_internal_error_response`), never
-        # a 422 -- only a genuine caller-input problem (persona/sort/
-        # paging/weights, all plain `ValueError`s raised by `cvi.store.
-        # queries`' own validators) gets 422 here.
+        # PydanticValidationError is a ValueError subclass, so it would
+        # otherwise reach this handler too -- relabelling a server fault (a
+        # stored value the contract cannot represent, e.g. an out-of-Literal
+        # `quadrant`, or an evidence row whose `param_id` is unknown to `PARAMS`)
+        # as a client 422. It is mapped to 500 (`_internal_error_response`),
+        # never a 422 -- only a genuine caller-input problem (persona/sort/
+        # paging/weights, all plain `ValueError`s raised by `cvi.store.queries`)
+        # gets 422 here.
         if isinstance(exc, PydanticValidationError):
             return _internal_error_response(request)
         return JSONResponse(status_code=422, content=_error_body(request, 422, str(exc)))
 
     @app.exception_handler(Exception)
     async def _unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
-        # W-7: a generic catch-all so ANY fault this module did not
-        # anticipate (not an HTTPException, not a ValueError/
-        # ValidationError, not a RequestValidationError) still reports the
-        # same shape instead of Starlette's own plain-text 500.
+        # Generic catch-all so any fault this module did not anticipate
+        # (not an HTTPException, not a ValueError/ValidationError, not a
+        # RequestValidationError) still reports the same shape instead of
+        # Starlette's plain-text 500.
         return _internal_error_response(request)
 
 
@@ -221,18 +158,15 @@ def _register_exception_handlers(app: FastAPI) -> None:
 # recently PROMOTED one (`finalize_snapshot_hash` stamps `promoted_at`),
 # falling back to the most recently created if none has been promoted yet
 # (a database written but not yet finalised). No `?snapshot_id=` query
-# param exists anywhere in this packet's endpoint list or `04` section 7 --
-# a caller cannot ask for a different one.
+# param exists in this endpoint list -- a caller cannot ask for a different one.
 # --------------------------------------------------------------------------- #
 
 
 def _current_snapshot_id(conn: sqlite3.Connection) -> Optional[str]:
-    # Blocker B-1: a v1-shaped database (no `snapshots` table at all) used
-    # to raise an uncaught `sqlite3.OperationalError` here, escaping every
-    # handler as Starlette's own plain-text 500 (W-7's reproduction). No
-    # `snapshots` table is exactly the same "nothing to serve yet" fact as
-    # an EMPTY one -- both resolve to `None`, and the caller's existing
-    # 503 (`_require_snapshot`) already covers it correctly.
+    # A database without a `snapshots` table raises an OperationalError here.
+    # Having no `snapshots` table is treated as the same "nothing to serve yet"
+    # condition as an empty table, resolving to `None` so the caller's 503
+    # handling (`_require_snapshot`) covers it.
     try:
         row = conn.execute(
             "SELECT id FROM snapshots WHERE promoted_at IS NOT NULL ORDER BY promoted_at DESC, id DESC LIMIT 1"
@@ -246,18 +180,12 @@ def _current_snapshot_id(conn: sqlite3.Connection) -> Optional[str]:
 
 
 def _require_snapshot(conn: sqlite3.Connection) -> str:
-    """Every endpoint that touches a snapshot funnels through here, so
-    this is the ONE place `03` section 5 / Warning W-6's policy lives:
-    no snapshot at all, OR a snapshot that exists but has not been
-    FINALISED yet (`canonical_dump_hash IS NULL` -- `cvi.store.writer.
-    finalize_snapshot_hash` has not run) both 503, identically, on EVERY
-    snapshot-touching endpoint (`/methodology` is the one endpoint that
-    is not -- it needs no snapshot at all). Before this fix, finalisation
-    was checked only by the three endpoints that happened to call
-    `_require_snapshot_summary` for `counts`; `/matrix`, `/repos/{o}/{n}`
-    and `/repos/{o}/{n}/evidence` served an unfinalised snapshot's data
-    while `/leaderboard`/`/not-ranked`/`/snapshot` 503'd on the exact
-    same database."""
+    """Every endpoint that touches a snapshot funnels through here:
+    no snapshot at all, or a snapshot that exists but has not been
+    finalised yet (`canonical_dump_hash IS NULL` -- `cvi.store.writer.
+    finalize_snapshot_hash` has not run) both 503 identically on every
+    snapshot-touching endpoint (`/methodology` is exempt as it needs no
+    snapshot at all)."""
     snapshot_id = _current_snapshot_id(conn)
     if snapshot_id is None:
         raise HTTPException(status_code=503, detail="no snapshot has been written to this database yet")
@@ -282,18 +210,13 @@ def _require_snapshot(conn: sqlite3.Connection) -> str:
 
 
 def _no_ceiling_or_band(coverage: float) -> Optional[str]:
-    """`02` D-MISS-3's ceiling band as a LABEL (not the index
-    `cvi.store.queries._ceiling_index_case_sql` builds for its own SQL
-    `CASE`, which this module cannot import -- it is a private helper).
-    Used ONLY by :func:`_reproject_row`: `queries.reproject` never
-    recomputes `tier_ceiling` for the custom coverage it derives (its own
-    docstring's `record["tier_ceiling"]` is left as the stale BALANCED
-    value), and this packet's own dispatch does not ask `cvi.store.
-    queries` to grow that column, so it is derived here instead from the
-    same two frozen constants that module's private helper reads."""
-    if coverage >= constants_v2.NO_CEILING_MIN_COVERAGE:
+    """Ceiling band as a label (not the index `queries._ceiling_index_case_sql`
+    builds for SQL `CASE`). Used only by :func:`_reproject_row`: `queries.reproject`
+    never recomputes `tier_ceiling` for custom coverage, so it is derived
+    here instead from the same frozen constants."""
+    if coverage >= constants.NO_CEILING_MIN_COVERAGE:
         return None
-    if coverage >= constants_v2.CEILING_A_MIN_COVERAGE:
+    if coverage >= constants.CEILING_A_MIN_COVERAGE:
         return "A"
     return "B"
 
@@ -556,14 +479,11 @@ _SORT_BASE = ("rank", "cvi", "coverage", "tier")
 
 
 def _translate_sort(sort: Optional[str]) -> tuple:
-    """Bridge item 7 / Warning W-3 (fixed, W4-4 REWORK item-06): the
-    store's `ALLOWED_SORT_FIELDS` are bare (`rank`/`cvi`/`coverage`/
+    """Translate sort parameter from API representation to store query format.
+    The store's `ALLOWED_SORT_FIELDS` are bare (`rank`/`cvi`/`coverage`/
     `tier`/`<pillar>`); the API additionally accepts `p_<pillar>`
     (translated to `<pillar>`) and an optional leading `-` for direction.
-    Returns `(field, descending)` -- `cvi.store.queries.list_ranked` now
-    has a `descending` parameter (this packet's own `cvi/store/queries.py`
-    change, lead-authorised) that actually reverses the promoted sort
-    level, so the stripped `-` is threaded through rather than discarded."""
+    Returns `(field, descending)`."""
     if sort is None:
         return None, True
     descending = not sort.startswith("-")
@@ -583,9 +503,7 @@ def _paging(page: int, page_size: int) -> tuple:
 
 
 def _require_snapshot_summary(conn: sqlite3.Connection, snapshot_id: str) -> dict:
-    """`snapshot_id` has already cleared `_require_snapshot`'s existence
-    and finalisation check (Warning W-6: one policy, applied once, before
-    any handler calls this) -- this is a plain fetch, not a second gate."""
+    """Fetch snapshot summary for a validated snapshot."""
     summary = queries.snapshot_summary(conn, snapshot_id)
     if summary is None:  # pragma: no cover - snapshot_id came from this same conn moments ago
         raise HTTPException(status_code=503, detail=f"snapshot {snapshot_id!r} disappeared mid-request")
@@ -593,53 +511,26 @@ def _require_snapshot_summary(conn: sqlite3.Connection, snapshot_id: str) -> dic
 
 
 # --------------------------------------------------------------------------- #
-# Served-DB guard (rule 2; W4-4 REWORK Blocker B-4 / Warning W-5): both the
-# v1 and the v2 guard now live in `cvi.serve.guard` -- this module no
-# longer reaches BACKWARDS into `scripts.serve` at all (the reverse import
-# `tests/core/test_import_graph.py`'s new `cvi/serve` edge rule forbids).
+# Served-DB guard: both the v1 and v2 guards live in `cvi.serve.guard`.
 # `cvi.serve.guard.run_guard` runs the v2 guard unconditionally (refuses a
-# tampered or fixture-marked v2-shaped database, `SystemExit`, regardless
-# of whether a v1 shape is even present) and the v1 guard only if the
-# database has a v1 shape at all -- `None` (no `/legacy` to mount) is the
-# correct, non-error return for a v2-only database.
+# tampered or fixture-marked v2-shaped database) and the v1 guard only if the
+# database has a v1 shape.
 # --------------------------------------------------------------------------- #
 
 
-#: Blocker B-2 (W4-4 REWORK): paths this mount must NEVER SPA-fallback,
-#: because `Mount("/", StaticFiles(...))` gives a FULL routing match for
-#: ANY GET/HEAD request path -- including one under a reserved API prefix
-#: that no real route recognises, or one where a real route exists under
-#: a DIFFERENT method (StaticFiles only ever handles GET/HEAD, so a
-#: method mismatch on a real endpoint, e.g. `GET /v1/cvi/reproject`
-#: against a POST-only route, reaches this mount too and used to resolve
-#: to a false 200 HTML page via the SPA fallback below). `/healthz` is
-#: bare, not a prefix -- packet W4-4 defines no top-level route by that
-#: name (only `/legacy/healthz`, v1's own).
+#: Paths this mount must never SPA-fallback, ensuring that unrecognised API routes
+#: or method mismatches return genuine 404/405 responses rather than index.html.
 _API_RESERVED_PREFIXES = ("v1/", "legacy/")
 _API_RESERVED_EXACT = ("v1", "legacy", "healthz")
 
 
 class _SPAStaticFiles(StaticFiles):
-    """`06` section 6: "index fallback for the app's own paths so URL state
-    reloads work" -- U-9's URL state lives entirely in the query string of
-    one page (`?persona=&eco=&q=&sort=&page=&repo=&tab=`), but a future
-    path-based route or a bookmark to a sub-path must still resurface
-    `index.html` rather than a static 404, standard SPA-hosting practice.
+    """Static file server with index fallback for single-page app routes.
 
-    Registered LAST (after the API router and the `/legacy` mount), so a
-    real route always wins by Starlette's first-full-match routing --
-    that precedence was never the bug (Blocker B-2's own reproduction:
-    registered routes DO win). The bug was this mount treating a MISS
-    under `/v1/` or `/legacy/` (an unknown path, or a real path under the
-    wrong HTTP method) exactly like a miss under any app-owned path,
-    silently substituting `index.html` -- indistinguishable, to a caller,
-    from a working page. `_API_RESERVED_PREFIXES`/`_API_RESERVED_EXACT`
-    are excluded from the SPA fallback entirely: a miss there is a
-    genuine API 404, in this module's own `{"error": ...}` shape (raising
-    `HTTPException` here still reaches `_register_exception_handlers`'s
-    `StarletteHTTPException` handler -- a `Mount`'s inner ASGI app does
-    not install its own exception middleware, so the exception propagates
-    to the outer `FastAPI` app's)."""
+    Registered after API routers so registered endpoints take precedence.
+    Reservations under `_API_RESERVED_PREFIXES` and `_API_RESERVED_EXACT`
+    are excluded from fallback so that API misses return genuine 404 responses.
+    """
 
     async def get_response(self, path: str, scope):
         if path in _API_RESERVED_EXACT or path.startswith(_API_RESERVED_PREFIXES):
@@ -695,13 +586,7 @@ def _build_router() -> APIRouter:
         q: Optional[str] = Query(None),
     ) -> NotRankedResponse:
         snapshot_id = _require_snapshot(conn)
-        # `NotRankedResponse` has no paging fields at all (contract, W4-3
-        # review N-2/owner ruling: "this list is bounded and small enough
-        # that this packet does not add server-side paging fields to it")
-        # -- fetch up to the store's own hard cap in one page. A not-ranked
-        # set larger than MAX_LIMIT would silently truncate here; flagged
-        # in the handoff as a known limit of the CURRENT contract shape,
-        # not something this module can lift on its own.
+        # `NotRankedResponse` has no paging fields; fetch up to MAX_LIMIT in one page.
         rows, _counts_by_reason, _total = queries.list_not_ranked(
             conn, snapshot_id, persona=persona, ecosystem=eco, q=q, limit=queries.MAX_LIMIT, offset=0
         )
@@ -768,12 +653,8 @@ def _build_router() -> APIRouter:
         page: int = Query(1),
         page_size: int = Query(DEFAULT_PAGE_SIZE),
     ) -> ReprojectResponse:
-        # `ReprojectRequest` has no paging fields (contract) -- `page`/
-        # `page_size` are accepted as query params alongside the POST body,
-        # same translation as `/leaderboard`, defaulting to one page of
-        # `DEFAULT_PAGE_SIZE` (not this packet's endpoint list spelling out
-        # a page/limit contract for this one; the leaderboard's own U-13
-        # pattern is the closest precedent, applied here for consistency).
+        # `ReprojectRequest` has no paging fields in its body; `page` and
+        # `page_size` are accepted as query params, defaulting to DEFAULT_PAGE_SIZE.
         snapshot_id = _require_snapshot(conn)
         weights = {
             "responsiveness": payload.weight_responsiveness,
@@ -803,25 +684,17 @@ def _open_v2_connection(db_path: str) -> sqlite3.Connection:
 
 
 def create_app(db_path, *, web_dir) -> FastAPI:
-    """The CVI v2 API app factory (packet W4-4).
+    """The CVI v2 API app factory.
 
-    `GET /v1/cvi/{leaderboard,not-ranked,matrix,snapshot,methodology}`,
-    `GET /v1/cvi/repos/{owner}/{name}[/evidence]`, `POST /v1/cvi/reproject`
-    -- every response built through `cvi.serve.contract`'s models. The
-    v1 API (`cvi.api.create_app`) is mounted UNCHANGED at `/legacy/` (`04`
-    section 10's strangler migration: v1 stays reachable until W4-1
-    deletes it) whenever `db_path` has a v1 shape for it to read (a
-    v2-only database, e.g. every one this packet's own tests build, mounts
-    no `/legacy` at all -- see `cvi.serve.guard.run_guard`); `web_dir`
-    (typically `web/v2/`) is mounted at `/` with an `index.html` SPA
-    fallback. Route registration order is API router, then `/legacy` (if
-    any), then the static mount -- Starlette matches in registration
-    order and a `Mount("/")` registered first would swallow every other
-    path.
+    Exposes `GET /v1/cvi/{leaderboard,not-ranked,matrix,snapshot,methodology}`,
+    `GET /v1/cvi/repos/{owner}/{name}[/evidence]`, and `POST /v1/cvi/reproject`
+    with responses typed through `cvi.serve.contract` models.
 
-    Raises `SystemExit` (uncaught, propagates to the caller -- `scripts/
-    serve.py`'s `main` lets it exit the process, matching today's
-    behaviour) if the served-DB guard refuses `db_path` (rule 2)."""
+    Legacy v1 API (`cvi.api.create_app`) is mounted at `/legacy/` when `db_path`
+    contains a v1 schema. Static files from `web_dir` are mounted at `/` with
+    SPA routing fallback.
+
+    Raises `SystemExit` if the served-DB guard refuses `db_path`."""
     db_path = str(db_path)
     legacy_store = run_guard(db_path)
 
@@ -835,13 +708,6 @@ def create_app(db_path, *, web_dir) -> FastAPI:
 
     @app.get("/healthz")
     async def healthz(conn: sqlite3.Connection = Depends(_get_conn)) -> dict:
-        # NB-2 (lead ruling 2026-09-14): a bare liveness route -- by the
-        # time any request reaches here the served-DB guard has already
-        # passed (a refusal is a SystemExit before create_app ever
-        # returns), so this is always 200 once the process is up, on
-        # EITHER database shape (v1-only, v2-only, or both). `snapshot_id`
-        # is `None` on a v2-only database with nothing promoted yet --
-        # honest, never fabricated.
         return {"status": "ok", "snapshot_id": _current_snapshot_id(conn)}
 
     if legacy_store is not None:
@@ -851,11 +717,6 @@ def create_app(db_path, *, web_dir) -> FastAPI:
     else:
         @app.get("/legacy/{path:path}")
         async def legacy_not_mounted(path: str) -> None:
-            # NB-2: `/legacy` mounts the v1 API only when `db_path` carries
-            # a v1 shape (`cvi.serve.guard.run_guard` returned a store) --
-            # a v2-only database explains itself here instead of falling
-            # through to `_SPAStaticFiles`'s generic "no route matches"
-            # (still excluded from the SPA fallback either way, Blocker B-2).
             raise HTTPException(
                 status_code=404,
                 detail="/legacy is not mounted: this database has no v1 shape for the legacy API to read",

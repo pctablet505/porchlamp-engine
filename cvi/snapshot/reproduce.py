@@ -59,13 +59,13 @@ class EnvelopeCheck:
     after the freeze. Keys are ``<collector>/<key>``, the same form the manifest
     uses in ``backfilled_keys``.
 
-    ``invalid_json`` (W0-gate P-09) names the files the reader can no longer
+    ``invalid_json`` names the files the reader can no longer
     parse as envelopes -- a frozen envelope whose bytes rotted into
     non-JSON, or a file added after the freeze that is not readable JSON.
-    ``stale_native_hashes`` (W0-gate P-07b) repeats the frozen manifest's
+    ``stale_native_hashes`` repeats the frozen manifest's
     ``hash_mismatches``: envelopes whose recorded native ``sha256`` did not
     describe their ``data`` when the snapshot was taken.
-    ``invalid_json_frozen`` (INT-W0-3f review; `03` section 5) repeats the
+    ``invalid_json_frozen`` (`03` section 5) repeats the
     frozen manifest's own ``invalid_json``: a snapshot born short one
     envelope can never reproduce clean, even once the corrupt file is
     repaired or deleted and a live rescan finds nothing wrong with the dir.

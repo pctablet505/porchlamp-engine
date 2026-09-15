@@ -1,16 +1,15 @@
-"""W2-3 acceptance: pillar 4 — Rigor curves (02 section 4).
+"""Acceptance tests for pillar 4 — Rigor curves (02 section 4).
 
-Fail-before (R-1): on the base commit ``cvi.core.params`` does not exist, so
-every test in this module fails at import. 4.3 replaces the v1 Gaussian with
-the monotone rate curve ``min(100, 125*r)``; the Gaussian regression guard
-lives in ``test_params_monotonic.py``. 4.1's minimum-n rule (10 merged PRs)
-applies to the proxy method only; the Scorecard primary method has none.
+4.3 replaces the v1 Gaussian with the monotone rate curve ``min(100, 125*r)``;
+the Gaussian regression guard lives in ``test_params_monotonic.py``. 4.1's
+minimum-n rule (10 merged PRs) applies to the proxy method only; the Scorecard
+primary method has none.
 """
 from __future__ import annotations
 
 import pytest
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import Measured, ParamScore, Unmeasured
 from cvi.core.params import ai_posture, pipeline_defenses, substantive_review_rate
 
@@ -171,6 +170,6 @@ def test_substantive_review_rate_insufficient_n_one_below_minimum() -> None:
 
 
 def test_substantive_review_rate_unmeasured_passes_through() -> None:
-    for reason in constants_v2.UNMEASURED_REASONS:
+    for reason in constants.UNMEASURED_REASONS:
         result = substantive_review_rate(Unmeasured(reason=reason, detail="x"))
         assert result == _gap(reason)

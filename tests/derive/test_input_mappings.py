@@ -34,7 +34,7 @@ from _fixtures import (
     write_envelope,
 )
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import BundleValidationError, Measured, Unmeasured, feature_provenance_hash
 from cvi.core.params import dr90
 from cvi.derive.bundle import INPUT_MAPPINGS
@@ -49,7 +49,7 @@ PR_WINDOW_UNRESOLVABLE_DETAIL = (
 
 
 def test_input_mappings_cover_every_v2_input_id() -> None:
-    assert set(INPUT_MAPPINGS) == set(constants_v2.PARAM_INPUT_IDS)
+    assert set(INPUT_MAPPINGS) == set(constants.PARAM_INPUT_IDS)
     assert len(INPUT_MAPPINGS) == 18
 
 
@@ -467,7 +467,7 @@ def test_downloads_monthly(tmp_path: Path) -> None:
 def test_legal_ip(tmp_path: Path) -> None:
     """W1-6 BB3: this row now reads the packet's own bare "legal_ip" field
     (a "governance" envelope) as an identity vocab over
-    constants_v2.LEGAL_IP_VALUES -- never "legal_ip_model" (the v1 regex
+    constants.LEGAL_IP_VALUES -- never "legal_ip_model" (the v1 regex
     heuristic W1-6 was built to replace; deleted from this row entirely, so
     a document that only ever wrote the old field is indistinguishable from
     one that never ran the collector at all -- both are Unmeasured, Negative
@@ -662,7 +662,7 @@ def test_ai_posture(tmp_path: Path) -> None:
 
 
 def test_ai_posture_rejects_an_out_of_set_value(tmp_path: Path) -> None:
-    """W2-9f, W4: ai_posture validates against constants_v2.AI_POSTURE_VALUES
+    """W2-9f, W4: ai_posture validates against constants.AI_POSTURE_VALUES
     -- an out-of-set value is Unmeasured(collector_failure) with the bad
     value in detail, never Measured, even with an otherwise perfectly
     resolvable envelope (pre-W2-9f: the non-validating scalar resolver
@@ -1334,7 +1334,7 @@ def test_mr_first_rate(tmp_path: Path) -> None:
 
 def test_mr_first_rate_insufficient_n(tmp_path: Path) -> None:
     """A real, "derived" value with a count below PARAM_MIN_N (5, per
-    constants_v2.PARAM_MIN_N['mr_first_rate']) is insufficient_n, not
+    constants.PARAM_MIN_N['mr_first_rate']) is insufficient_n, not
     Measured on too little evidence and not collector_failure (the
     collector did its job; there just were not enough authors)."""
     ah_data = author_history_data()

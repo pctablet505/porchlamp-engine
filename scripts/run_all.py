@@ -7,17 +7,15 @@ are skipped), so reruns resume. --skip-downloads runs a fast pass (GitHub +
 deps.dev + scorecard + npm/crates) and defers pypistats (4/min) to a later
 backfill.
 
-Round 2 (`03` §5, Blocker-3, Warning-2): promotion now requires a frozen
-snapshot (``scripts/promote.py --snapshot-id``), so the documented pipeline
-gains a freeze step between verify and promote -- gather -> derive -> verify
--> freeze -> promote -> serve -- rather than leaving that step to be
-discovered only from ``scripts/serve.py``'s own refusal message.
+Promotion requires a frozen snapshot (``scripts/promote.py --snapshot-id``,
+`03` §5), so the pipeline runs gather -> derive -> verify -> freeze ->
+promote -> serve.
 
-Round 3 (Warning-1, `03` §5): :func:`freeze_and_promote` passes the id ITS
-OWN freeze call reported straight into ``--snapshot-id``, rather than having
+:func:`freeze_and_promote` passes the id ITS OWN freeze call reported
+straight into ``--snapshot-id`` rather than letting
 ``promote.resolve_manifest`` re-discover "the newest manifest" by directory
-name -- a forward-dated or stray manifest already under ``snapshots/`` used
-to win that lexical sort over the run's own freeze, silently.
+name -- a forward-dated or stray manifest already under ``snapshots/`` would
+win that lexical sort over the run's own freeze.
 
 Usage:
   .venv/bin/python scripts/run_all.py --limit 50 --skip-downloads
@@ -79,10 +77,10 @@ def run_one(owner: str, name: str, eco: str, skip_pypistats: bool) -> str:
 
 def freeze_and_promote(db: str, data_dir: Path, as_of: datetime) -> int:
     """Freeze ``data_dir`` at ``as_of``, then promote CLEAN bundles under the
-    id THAT freeze just reported (round 3, Warning-1, `03` §5) -- never by
-    re-discovering "the newest manifest" (round 2's bug: a forward-dated or
-    stray manifest already under ``snapshots/`` wins that lexical sort over
-    the run's own freeze). ``as_of`` is read once by the caller and reused
+    id THAT freeze just reported (`03` §5) -- never by re-discovering "the
+    newest manifest" (a forward-dated or stray manifest already under
+    ``snapshots/`` wins that lexical sort over the run's own freeze).
+    ``as_of`` is read once by the caller and reused
     for both the freeze and the scoring, so :func:`promote.resolved_as_of`'s
     match-the-manifest check always passes here by construction. Returns the
     process exit code (0 on success).

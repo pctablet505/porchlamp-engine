@@ -1,10 +1,6 @@
-"""Acceptance tests for :mod:`cvi.audit.detectors_report` (packet W3-2).
+"""Acceptance tests for :mod:`cvi.audit.detectors_report`.
 
-Fail-before: before this packet ``cvi.audit.detectors_report`` does not
-exist, so every test below fails on ``ModuleNotFoundError`` (recorded
-verbatim in the handoff).
-
-Covers: the lazy-registry wiring (the ``forward``/W5-1f pattern), row
+Covers: the lazy-registry wiring (the ``forward`` pattern), row
 loading from the interim JSON format, key-matched current/previous
 detection, and a 6-record fixture asserting the rendered counts.
 """
@@ -140,7 +136,7 @@ def test_load_rows_missing_file_raises() -> None:
 
 
 def test_load_rows_param_evidence_fields_are_optional_and_round_trip(tmp_path: Path) -> None:
-    """Packet W2-11 gave ``ParamScore`` the evidence fields (``value``,
+    """Verify ``ParamScore`` evidence fields (``value``,
     ``window_start``, ``window_end``, ``source``, ``fetched_at``); this row
     format's own docstring says every field but ``key``/``params`` is
     optional, and no detector reads any of the five, so a row naming none
@@ -236,7 +232,7 @@ def _six_record_fixture(tmp_path: Path) -> tuple[Path, Path]:
         },
     ]
     current = _write_rows(tmp_path, "current.json", current_rows)
-    # previous = identical rows (Measure convention from the packet): no
+    # previous = identical rows (baseline convention): no
     # param_jump possible, same-snapshot detectors reproduce identically.
     previous = _write_rows(tmp_path, "previous.json", current_rows)
     return current, previous
@@ -302,7 +298,7 @@ def _param_row(key: str, input_id: str, score: float, n: int) -> dict:
 
 
 def test_build_report_param_jump_fires_through_a_real_previous_snapshot(tmp_path: Path) -> None:
-    """(M42, REWORK round 1) ``build_report``'s one cross-snapshot
+    """Test ``build_report``'s cross-snapshot
     capability, exercised with an actually-different previous row -- every
     other report test either omits ``previous`` or supplies one identical
     to ``current``, so a mutant that always calls ``run_detectors(...,
@@ -315,7 +311,7 @@ def test_build_report_param_jump_fires_through_a_real_previous_snapshot(tmp_path
 
 
 def test_build_report_flagged_tuple_is_sorted_by_key(tmp_path: Path) -> None:
-    """(M43, REWORK round 1) Two repos that both trigger the same detector,
+    """Test two repos that both trigger the same detector,
     written to the row file in reverse-alphabetical order -- the fixtures
     in every other report test flag at most one repo per detector, so a
     mutant that drops ``sorted(current)`` for dict/insertion order left the

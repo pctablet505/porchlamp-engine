@@ -1,10 +1,9 @@
-"""W4-6f acceptance: the circular import found by the W4-4 reviewer on main
-(`3ed230f`'s parent -- reproduced directly: ``python -c "import cvi.store.
-writer"`` as the FIRST ``cvi`` import of a fresh process raised
+"""Regression tests ensuring clean import order and resolving circular import:
+``python -c "import cvi.store.writer"`` as the FIRST ``cvi`` import of a fresh process raised
 ``ImportError: cannot import name 'RepoWrite' from partially initialized
-module 'cvi.store.writer' (most likely due to a circular import)``).
+module 'cvi.store.writer' (most likely due to a circular import)``.
 
-Root cause (``cvi/snapshot/__init__.py``'s own module docstring, W4-6f):
+Root cause (in ``cvi/snapshot/__init__.py``):
 ``cvi.store.writer`` imports ``cvi.snapshot.populations``, a submodule
 import that forces Python to run ``cvi/snapshot/__init__.py`` first if
 ``cvi.snapshot`` is not already in ``sys.modules``; that ``__init__.py``
@@ -52,7 +51,7 @@ def _run_fresh_import(statement: str) -> subprocess.CompletedProcess:
 
 
 def test_cvi_store_writer_is_importable_as_the_first_cvi_import() -> None:
-    """The exact reproduction command from the W4-4 reviewer's report."""
+    """Ensure ``cvi.store.writer`` can be imported first without circular import error."""
     result = _run_fresh_import("import cvi.store.writer")
     assert result.returncode == 0, (
         f"`python -c \"import cvi.store.writer\"` failed as the first cvi "

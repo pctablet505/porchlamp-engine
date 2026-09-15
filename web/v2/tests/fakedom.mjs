@@ -8,9 +8,7 @@
 // ONLY when the new value differs from the current one — mirroring real
 // DOM semantics for `classList.add/remove/toggle` (a no-op add/remove of
 // an already-present/absent token fires no mutation) and matching what
-// `tests/test_ui_perf.mjs` verified live in a real browser via
-// MutationObserver + `takeRecords()` while building this packet (see
-// .agents/W4-5a/handoff.md).
+// MutationObserver + `takeRecords()`.
 
 function kebabFromCamel(prop) {
   return prop.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);

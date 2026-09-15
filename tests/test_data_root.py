@@ -1,11 +1,10 @@
 """Tests for cvi.paths.data_root and its use in scripts/gather.py and
-scripts/derive.py (packet W2-8c).
+scripts/derive.py.
 
-R-1: a fail-before/pass-after pair plus an over-correction guard. Before
-this packet neither script could be pointed anywhere but the main
-checkout's own ``data/`` (no env var, no flag) -- the "override honoured"
-tests below fail against that prior state. The "default unchanged" tests
-are the over-correction guard: the switch must be inert when unset.
+The "override honoured" tests pin that both scripts can be pointed at a
+data root other than the checkout's own ``data/``, via env var or flag.
+The "default unchanged" tests are the over-correction guard: the switch
+must be inert when unset.
 """
 from __future__ import annotations
 

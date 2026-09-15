@@ -7,21 +7,21 @@ data/verified/<key>.json with a verification report, and --promote upserts
 clean repos into the OperationalStore (data/cvi.db) scored against the
 verified-universe ECDF populations.
 
-Provenance is part of verification (`03` §5, R-4): every field whose confidence
+Provenance is part of verification (`03` §5): every field whose confidence
 says ``verified`` must name an envelope under ``raw/<collector>/<key>.json``
 where ``key`` is the bundle's own ``<owner>__<name>`` (``<ecosystem>__<name>``
 for the downloads collector) and, for fields whose collector
 ``scripts/derive.py`` fixes statically, ``collector`` matches that field.
 The envelope's hash must also be recomputed and compared against the sha256
-``scripts/derive.py`` records into the provenance entry at derive time
-(round 2: a missing recorded hash is unverifiable, not merely unusual — a
-bundle derived before this change stays flagged until it is re-derived).
+``scripts/derive.py`` records into the provenance entry at derive time; a
+missing recorded hash is unverifiable, not merely unusual, so such a bundle
+stays flagged until it is re-derived.
 A source that is a word (``ecosystem-intelligence``), a URL, an envelope for a
 different repository or collector, or one with no recorded hash is not
 re-checkable and flags ``unverifiable_provenance``, which blocks promotion.
-Round 2 (`03` §5 owner ruling): a bare ``http(s)://`` URL is never accepted —
-provenance is an envelope path only; a URL lives inside an envelope's own
-``source`` field, never as the provenance pointer itself.
+A bare ``http(s)://`` URL is never accepted (`03` §5): provenance is an
+envelope path only; a URL lives inside an envelope's own ``source`` field,
+never as the provenance pointer itself.
 
 Usage: .venv/bin/python scripts/verify.py [--all | --repo owner name] [--promote]
                                          [--data-dir data]
@@ -63,11 +63,11 @@ ENVELOPE_DIRNAME = "raw"
 SHA256_HEX_LENGTH = 64
 
 #: field -> the ``raw/<collector>/`` directory name(s) ``scripts/derive.py``
-#: statically fixes for that field's ``verified`` confidence (Blocker-2, `03`
-#: §5). Exhaustive over every ``b.set(field, ..., "verified")`` /
+#: statically fixes for that field's ``verified`` confidence (`03` §5).
+#: Exhaustive over every ``b.set(field, ..., "verified")`` /
 #: ``derive_eligibility`` / ``derive_pr_window_fields`` call in
 #: ``scripts/derive.py`` and the modules it calls (``cvi/collect/repo_object.py``,
-#: ``cvi/collect/github_graphql.py``) as of this packet. ``archived`` and
+#: ``cvi/collect/github_graphql.py``). ``archived`` and
 #: ``unlicensed`` accept two collectors: ``repo_object`` when the richer
 #: envelope exists, ``github_meta`` as the fallback (``primary or
 #: "github_meta"`` in ``derive_eligibility``). A field absent from this mapping
@@ -107,7 +107,7 @@ def _load(p: Path) -> Optional[dict]:
 
 
 def _hash_stripped(source: str) -> str:
-    """Drop a ``#<sha256>`` suffix: the path part of a W0-3 provenance string."""
+    """Drop a ``#<sha256>`` suffix: the path part of a provenance string."""
     path, separator, digest = source.rpartition("#")
     if path and separator and len(digest) == SHA256_HEX_LENGTH:
         return path
@@ -120,7 +120,7 @@ def _envelope_path(source: str, data_dir: Path) -> Optional[Path]:
     Absolute, data-dir-relative and copied-dir forms all resolve: a bundle keeps
     the absolute path it was collected with, so the part from ``raw`` onward is
     tried against this data dir too. That is the same reason a manifest records
-    envelope paths relative to its data dir (packet W0-3): a copied sample must
+    envelope paths relative to its data dir: a copied sample must
     verify against its own copy, never against the directory it came from.
 
     Returns ``None`` when the source is not a path under ``raw`` at all — a word
@@ -141,15 +141,15 @@ def _envelope_path(source: str, data_dir: Path) -> Optional[Path]:
 
 
 def _claimed_hash(source: str, hash_hint: Any) -> Optional[str]:
-    """Hash the provenance repeats for ``source``, in either W0-3 form.
+    """Hash the provenance repeats for ``source``, in either accepted form.
 
     ``hash_hint`` is the already-extracted ``sha256`` value for this source
     item (a provenance dict's ``sha256`` key, or one element of it for a
     list-valued source — see :func:`_source_items`); a ``<path>#<sha256>``
-    suffix on ``source`` itself is the other W0-3 form
+    suffix on ``source`` itself is the other accepted form
     (:attr:`cvi.collect.envelope.Envelope.provenance`). ``None`` means the
-    provenance repeats no hash at all: round 2 (Blocker-1) treats that as
-    unverifiable rather than as "nothing to compare".
+    provenance repeats no hash at all, which counts as unverifiable rather
+    than as "nothing to compare".
     """
     if isinstance(hash_hint, str) and len(hash_hint) == SHA256_HEX_LENGTH:
         return hash_hint
@@ -164,7 +164,7 @@ def _source_items(entry: Any) -> list[tuple[Any, Any]]:
 
     A scalar entry (the common case) yields one pair. A list-valued ``source``
     (``scripts/derive.py``'s ``pr_events``/``mean_inline_comments``, each
-    naming two envelopes) is checked element-wise (Blocker-2): each source item
+    naming two envelopes) is checked element-wise: each source item
     pairs with the same-index element of a list-valued ``sha256``, or with
     ``None`` when ``sha256`` is absent or a different length.
     """
@@ -177,7 +177,7 @@ def _source_items(entry: Any) -> list[tuple[Any, Any]]:
 
 
 def _expected_key(field: str, owner: Any, name: Any, ecosystem: Any) -> str:
-    """The ``<...>__<name>`` stem ``field``'s envelope must carry (Blocker-2).
+    """The ``<...>__<name>`` stem ``field``'s envelope must carry.
 
     Every field keys on the bundle's own ``owner``/``name`` except the
     downloads collector, which keys on the registry ``ecosystem`` instead
@@ -193,10 +193,10 @@ def _path_offender(field: str, source: Any, hash_hint: Any, data_dir: Path,
     """Why one provenance source item cannot be re-checked, or ``None``.
 
     Order: is it a non-empty string at all; does it resolve to a file under
-    ``raw/``; does that file's key/collector belong to *this* bundle and field
-    (Blocker-2); is the file a readable, internally-consistent envelope; does
-    a hash exist in the provenance to compare, and does it match the envelope's
-    current hash (Blocker-1). Any failure returns a detail naming the field and
+    ``raw/``; does that file's key/collector belong to *this* bundle and field;
+    is the file a readable, internally-consistent envelope; does a hash exist
+    in the provenance to compare, and does it match the envelope's current
+    hash. Any failure returns a detail naming the field and
     what was found; passing every gate returns ``None``.
     """
     if not isinstance(source, str) or not source:
@@ -254,9 +254,8 @@ def provenance_checks(bundle: dict, data_dir: Path = DATA) -> list[dict[str, Any
     is what they legitimately carry (``ecosystem`` comes from the collector's
     arguments, ``ai_posture`` from a README URL read by hand). ``owner``,
     ``name`` and ``ecosystem`` come from the bundle's own ``meta`` (every real
-    ``scripts/derive.py`` bundle sets all three unconditionally) rather than a
-    new parameter, so this function's signature — and every caller's — is
-    unchanged (Blocker-2: the key/collector check needs the bundle's identity).
+    ``scripts/derive.py`` bundle sets all three unconditionally) rather than
+    from a parameter: the key/collector check needs the bundle's identity.
     """
     provenance = bundle.get("provenance") or {}
     confidence = bundle.get("confidence") or {}
@@ -341,7 +340,7 @@ def main() -> int:
     ap.add_argument("--data-dir", type=Path, default=DATA,
                     help="data dir (or copied sample) holding derived/ and raw/")
     ap.add_argument("--promote", action="store_true",
-                    help="upsert clean repos into OperationalStore (TODO wave F)")
+                    help="upsert clean repos into OperationalStore (delegates to scripts/promote.py)")
     a = ap.parse_args()
     keys: list[tuple[str, str]] = []
     if a.repo:

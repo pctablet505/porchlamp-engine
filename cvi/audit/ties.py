@@ -1,4 +1,4 @@
-"""Composite tie audit (packet W0-5).
+"""Composite tie audit.
 
 ``cvi audit ties`` reports how much the v1 ranking actually distinguishes
 repos: the number of distinct composite (``overall_cvi``) values among the

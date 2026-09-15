@@ -1,12 +1,12 @@
-"""CVI v2 core: the shared contracts every other v2 packet builds on.
+"""CVI v2 core: the shared contracts the rest of the codebase builds on.
 
 ``cvi.core`` is leaf: it imports nothing outside ``cvi.core`` and the
 standard library (tests/core/test_import_graph.py asserts the graph). The
-frozen constants live in :mod:`cvi.core.constants_v2`; the Measured/Unmeasured
+frozen constants live in :mod:`cvi.core.constants`; the Measured/Unmeasured
 contracts, FeatureBundle and ScoreRecord shapes live in :mod:`cvi.core.models`.
 """
-from cvi.core import constants_v2, models
-from cvi.core.constants_v2 import (
+from cvi.core import constants, models
+from cvi.core.constants import (
     AI_POSTURE_VALUES,
     BENCHMARK_VERSION,
     CONSTANTS_HASH,
@@ -78,7 +78,7 @@ __all__ = [
     "Unmeasured",
     "canonical_json",
     "constants_dict",
-    "constants_v2",
+    "constants",
     "feature_provenance_hash",
     "models",
     "sha256_hex",

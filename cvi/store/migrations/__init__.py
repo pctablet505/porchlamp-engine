@@ -18,12 +18,11 @@ check is a no-op. The check runs once, keyed to migration ``0001``
 specifically (the only migration that could ever collide with the v1
 table name); later migrations never repeat it.
 
-F-001 (REWORK round 1): each migration file's statements -- the legacy
-rename included -- run inside ONE explicit ``BEGIN``/``COMMIT``, with
-``rollback()`` on any exception, so a failure partway through a file
-undoes everything that file did, the rename included; ``executescript()``
-is never used (it commits any pending transaction before it runs, which is
-exactly what made the previous version's failure non-atomic).
+Each migration file's statements -- the legacy rename included -- run inside
+ONE explicit ``BEGIN``/``COMMIT``, with ``rollback()`` on any exception, so a
+failure partway through a file undoes everything that file did, the rename
+included. ``executescript()`` is never used: it commits any pending
+transaction before it runs, which would break that atomicity.
 """
 from __future__ import annotations
 
@@ -93,21 +92,20 @@ def applied_versions(conn: sqlite3.Connection) -> set[int]:
 def apply_migrations(conn: sqlite3.Connection, applied_at: str, migrations_dir: Path | None = None) -> list[int]:
     """Apply every not-yet-applied migration in order; return the versions applied.
 
-    ``applied_at`` is required and stored verbatim per migration (no
-    wall-clock read in this module, R rules): the caller supplies it, same
-    pattern as a snapshot's ``created_at``.
+    ``applied_at`` is required and stored verbatim per migration; this module
+    never reads the wall clock. The caller supplies it, same pattern as a
+    snapshot's ``created_at``.
 
-    F-001: each file's statements run inside their OWN explicit
-    transaction (``BEGIN`` ... ``COMMIT``, ``rollback()`` on any
-    exception, then re-raise) -- a failure on the k-th statement of a file
-    leaves the database exactly as it was before that file started
-    (checksummed by the caller's own test), including the legacy rename.
-    Migrations already committed by an earlier file in the same call stay
-    committed (forward-only progress is still made file-by-file).
+    Each file's statements run inside their OWN explicit transaction
+    (``BEGIN`` ... ``COMMIT``, ``rollback()`` on any exception, then
+    re-raise) -- a failure on the k-th statement of a file leaves the
+    database exactly as it was before that file started, including the
+    legacy rename. Migrations already committed by an earlier file in the
+    same call stay committed (forward-only progress is still made
+    file-by-file).
 
-    F-010: raises ``RuntimeError`` if no migration files are found at all --
-    an empty directory is a packaging/deployment defect, not "nothing to
-    do".
+    Raises ``RuntimeError`` if no migration files are found at all -- an
+    empty directory is a packaging/deployment defect, not "nothing to do".
     """
     if not isinstance(applied_at, str) or not applied_at:
         raise ValueError(f"applied_at must be a non-empty string, got {applied_at!r}")
@@ -131,7 +129,7 @@ def apply_migrations(conn: sqlite3.Connection, applied_at: str, migrations_dir: 
                 "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
                 (version, applied_at),
             )
-        except Exception:
+        except Exception:  # review-ok: rollback migration transaction on failure before re-raise
             conn.rollback()
             raise
         conn.commit()

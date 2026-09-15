@@ -4,18 +4,18 @@ Each function takes the FeatureBundle input for its parameter
 (``bundle.inputs[<input id>]``) and returns the calibrated ParamScore.
 2.1 Dependents and 2.3 Downloads are ECDF-normalised (D-NORM-3): the second
 argument is the frozen-population mid-rank ECDF (D-NORM-1, 0-100 scale),
-queried on the raw measured value -- no transform on either side (D-NORM-3,
-lead ruling 2026-09-12 after the W2-5 review: ``cvi.snapshot.populations``
-freezes and stores raw values, so the curve must query raw too, or the two
-sides rank different quantities). 2.2 OpenSSF criticality is the absolute
-linear calibration ``100 * C``. None of the three has a minimum-n rule; a
-missing signal or missing registry is an ``Unmeasured`` third-party gap.
+queried on the raw measured value -- no transform on either side (D-NORM-3:
+``cvi.snapshot.populations`` freezes and stores raw values, so the curve
+must query raw too, or the two sides rank different quantities). 2.2
+OpenSSF criticality is the absolute linear calibration ``100 * C``. None of
+the three has a minimum-n rule; a missing signal or missing registry is an
+``Unmeasured`` third-party gap.
 """
 from __future__ import annotations
 
 from typing import Callable, Tuple
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import ParamScore, ParamValue
 from cvi.core.params.curves import KIND_ECDF, KIND_NUMERIC, ParamDef, _apply
 
@@ -33,7 +33,7 @@ def _pike_score(criticality: float) -> float:
 _DEPENDENTS = ParamDef(
     input_id="dependents_deduped",
     pillar="criticality",
-    weight=constants_v2.PARAM_WEIGHTS["dependents_deduped"],
+    weight=constants.PARAM_WEIGHTS["dependents_deduped"],
     kind=KIND_ECDF,
     score=_population_score,
     domain=(0.0, 1e6),
@@ -42,7 +42,7 @@ _DEPENDENTS = ParamDef(
 _OPENSF = ParamDef(
     input_id="openssf_criticality",
     pillar="criticality",
-    weight=constants_v2.PARAM_WEIGHTS["openssf_criticality"],
+    weight=constants.PARAM_WEIGHTS["openssf_criticality"],
     kind=KIND_NUMERIC,
     score=_pike_score,
     domain=(0.0, 1.0),
@@ -51,7 +51,7 @@ _OPENSF = ParamDef(
 _DOWNLOADS = ParamDef(
     input_id="downloads_monthly",
     pillar="criticality",
-    weight=constants_v2.PARAM_WEIGHTS["downloads_monthly"],
+    weight=constants.PARAM_WEIGHTS["downloads_monthly"],
     kind=KIND_ECDF,
     score=_population_score,
     domain=(0.0, 1e9),

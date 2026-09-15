@@ -1,4 +1,4 @@
-"""Tests for the ``scripts/gather.py`` envelope write path (packet W0-3).
+"""Tests for the ``scripts/gather.py`` envelope write path.
 
 Only the write path changed: every envelope gather writes must now carry
 ``sha256``, ``http_status`` and ``collector_version`` (`03` section 5), and the
@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture
 def gather(tmp_path: Path) -> ModuleType:
-    spec = importlib.util.spec_from_file_location("cvi_gather_w03", ROOT / "scripts/gather.py")
+    spec = importlib.util.spec_from_file_location("cvi_gather", ROOT / "scripts/gather.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

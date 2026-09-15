@@ -44,7 +44,7 @@ from typing import Optional
 
 import pytest
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.gates import GateEvidence
 from cvi.core.models import FeatureBundle, Unmeasured, canonical_json, sha256_hex
 from cvi.derive.bundle import dump_bundle, write_bundle
@@ -115,7 +115,7 @@ def _all_unmeasured_inputs() -> dict:
     a bundle short one key raises ``KeyError``), each ``Unmeasured``."""
     return {
         input_id: Unmeasured(reason="collector_failure", detail="synthetic fixture, W4-6")
-        for input_id in constants_v2.PARAM_INPUT_IDS
+        for input_id in constants.PARAM_INPUT_IDS
     }
 
 
@@ -164,8 +164,8 @@ def _write_snapshot_dir(
         })
     write_populations(
         PopulationSet(
-            snapshot_id=snapshot_id, benchmark_version=constants_v2.BENCHMARK_VERSION,
-            constants_hash=constants_v2.CONSTANTS_HASH, populations=(),
+            snapshot_id=snapshot_id, benchmark_version=constants.BENCHMARK_VERSION,
+            constants_hash=constants.CONSTANTS_HASH, populations=(),
         ),
         directory / "populations.json",
     )

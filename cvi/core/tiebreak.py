@@ -29,17 +29,13 @@ Stars, forks and downloads are never read by this module at all (D-TIE-1:
 "never tie-breakers -- vanity and gameable"); the acceptance tests attach
 adversarial values for them to :class:`TieBreakInput` to prove it.
 
-Packet W2-8 (constants freeze) relocated the composite-rounding decimal
-count into ``cvi.core.constants_v2.COMPOSITE_DECIMALS``; the three
+The composite-rounding decimal count is read from
+``cvi.core.constants.COMPOSITE_DECIMALS``; the three
 ``round(..., 2)`` sites (the D-TIE-1 composite level in :func:`tie_key` and
-the two composite-rounding sites in :func:`assign_ranks`) now read it from
-there instead of the literal ``2`` (R-2); the pinned tests
-(``test_tie_key_composite_pinned_at_two_decimals``,
-``test_tie_group_boundary_pinned_at_two_decimals``) are unchanged since the
-value itself did not change.
+the two composite-rounding sites in :func:`assign_ranks`) read it from
+there instead of the literal ``2`` (R-2).
 
-Ownership request -> W2-8 (recorded here and in the handoff). ``ScoreRecord``
-reserves ``tie_key``/``tie_group``/``rank`` for this packet to populate, but
+``ScoreRecord`` reserves ``tie_key``/``tie_group``/``rank``, but
 the record itself carries none of the following, so this module cannot
 implement ``tie_key(record: ScoreRecord) -> tuple`` as a single-argument
 function over the stored contract alone:
@@ -55,16 +51,13 @@ function over the stored contract alone:
   ``FeatureBundle.inputs``. It *is* computable from evidence the bundle
   already carries -- :func:`ttfhr_p75_from_pr_window` below, applied to
   ``FeatureBundle.pr_window`` -- so a caller with the bundle can supply a
-  real value today; this module does not block on W2-8 for this one.
+  real value today.
 - date of the last non-bot commit: not derivable from anything in
   ``FeatureBundle`` or ``GateEvidence`` -- `04` section 3 has no commit-list
-  or commit-date field anywhere, and W1-5's vitality evidence
+  or commit-date field anywhere, and vitality evidence
   (``GateEvidence.vitality_commits_180d``) is a trailing-180-day *count*,
-  not a date. A caller has no source for this field until a future packet
-  (W2-8, or whichever packet owns the commit-collection evidence) wires a
-  dated field through the bundle or the record. Until then every caller
-  passes ``None`` here, which is the correct "unmeasured" value under this
-  module's own rule, not a guess.
+  not a date. When unavailable, callers pass ``None`` here, which is the correct
+  "unmeasured" value under this module's own rule, not a guess.
 
 Import-graph note (`04` section 3, ``tests/core/test_import_graph.py``):
 this module imports only ``cvi.core`` plus the standard library.
@@ -76,7 +69,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Sequence
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import PRWindow, ScoreRecord
 
 #: D-TIE-1 item 3: the pillar name whose score is the tie-break input.
@@ -223,7 +216,7 @@ def tie_key(entry: TieBreakInput) -> tuple:
     pillar = entry.record.pillars.get(_RESPONSIVENESS_PILLAR)
     responsiveness_score = pillar.score if pillar is not None else None
     return (
-        -round(entry.record.composite, constants_v2.COMPOSITE_DECIMALS),
+        -round(entry.record.composite, constants.COMPOSITE_DECIMALS),
         -entry.record.coverage,
         _measured_desc(responsiveness_score),
         _measured_asc(entry.record.friction),
@@ -270,14 +263,14 @@ def assign_ranks(
 
     composite_counts: dict[float, int] = {}
     for entry in rated_sorted:
-        composite = round(entry.record.composite, constants_v2.COMPOSITE_DECIMALS)  # type: ignore[arg-type]
+        composite = round(entry.record.composite, constants.COMPOSITE_DECIMALS)  # type: ignore[arg-type]
         composite_counts[composite] = composite_counts.get(composite, 0) + 1
 
     result: list[tuple[ScoreRecord, int | None, int | None]] = []
     group_ids: dict[float, int] = {}
     next_group_id = 1
     for rank, entry in enumerate(rated_sorted, start=1):
-        composite = round(entry.record.composite, constants_v2.COMPOSITE_DECIMALS)  # type: ignore[arg-type]
+        composite = round(entry.record.composite, constants.COMPOSITE_DECIMALS)  # type: ignore[arg-type]
         tie_group: int | None
         if composite_counts[composite] > 1:
             if composite not in group_ids:

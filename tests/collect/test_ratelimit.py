@@ -1,9 +1,6 @@
 """Offline tests for the rate limiter / ETag cache / circuit breaker
 (``cvi/collect/ratelimit.py``; spec 13).
 
-Moved verbatim from ``tests/test_ingest.py`` (W4-1, `cvi/ingest.py` split):
-same fakes, same assertions, only the import source changed.
-
 No network: all HTTP flows through fake ``httpx.BaseTransport``
 implementations, and all time flows through a :class:`FakeClock` whose
 ``advance`` doubles as the limiter/breaker sleep, keeping token-bucket and

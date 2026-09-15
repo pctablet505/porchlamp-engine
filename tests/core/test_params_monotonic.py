@@ -1,13 +1,11 @@
-"""W2-3 acceptance: D-PARAM-MONO property (02 section 4) and registry integrity.
+"""Acceptance tests for D-PARAM-MONO property (02 section 4) and registry integrity.
 
-Fail-before (R-1): on the base commit ``cvi.core.params`` does not exist, so
-every test in this module fails at import. The property test asserts that
-every registered curve is monotone non-decreasing in "better for the
-contributor" over a 33-point grid on its registered domain (numeric and
-ECDF curves) and over its better-ordering (enum curves; both personas for
-the persona-conditional 4.2). Non-monotone curves are not admitted: the
-test proves the check has teeth by registering the v1 4.3 Gaussian and
-expecting the property check to flag it.
+The property test asserts that every registered curve is monotone non-decreasing
+in "better for the contributor" over a 33-point grid on its registered domain
+(numeric and ECDF curves) and over its better-ordering (enum curves; both personas
+for the persona-conditional 4.2). Non-monotone curves are not admitted: the test
+verifies this enforcement by testing a non-monotonic curve and expecting the
+property check to flag it.
 """
 from __future__ import annotations
 
@@ -15,7 +13,7 @@ import math
 
 import pytest
 
-from cvi.core import constants_v2
+from cvi.core import constants
 from cvi.core.models import Measured
 from cvi.core.params import PARAMS, ParamDef, monotonicity_violations, substantive_review_rate
 
@@ -38,17 +36,17 @@ def measured(value: object, n: int = 0) -> Measured:
 
 def test_registry_covers_exactly_the_18_parameters() -> None:
     assert len(PARAMS) == 18
-    assert set(PARAMS) == set(constants_v2.PARAM_INPUT_IDS)
+    assert set(PARAMS) == set(constants.PARAM_INPUT_IDS)
 
 
 def test_registry_maps_every_parameter_to_a_pillar_with_unit_weight() -> None:
     totals: dict[str, float] = {}
     for input_id, defn in PARAMS.items():
         assert defn.input_id == input_id
-        assert defn.pillar in constants_v2.PILLAR_NAMES
+        assert defn.pillar in constants.PILLAR_NAMES
         assert 0.0 < defn.weight <= 1.0
         totals[defn.pillar] = totals.get(defn.pillar, 0.0) + defn.weight
-    assert set(totals) == set(constants_v2.PILLAR_NAMES)
+    assert set(totals) == set(constants.PILLAR_NAMES)
     for pillar, total in sorted(totals.items()):
         assert total == pytest.approx(1.0, abs=1e-9), pillar
 
