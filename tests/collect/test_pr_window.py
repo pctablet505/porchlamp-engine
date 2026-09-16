@@ -205,10 +205,11 @@ def test_substantive_review_thresholds_exact():
         pr_node(23, created, reviews=[review("renovate[bot]", typ="Bot",
                                              assoc="MEMBER", body="r" * 200,
                                              inline=5)]),
-        pr_node(24, created, reviews=[review("alice", assoc="NONE", body="r" * 200)]),
+        pr_node(24, created, reviews=[review("carol", assoc="NONE", body="r" * 200)]),
+        pr_node(25, created, author_login="alice", reviews=[review("alice", assoc="NONE", body="r" * 200)]),
     ]
     out = gql.derive_pr_window(prs)
-    assert [d["substantive_review"] for d in out] == [False, True, True, False, True]
+    assert [d["substantive_review"] for d in out] == [False, True, True, False, True, False]
 
 
 # --- decided / merged / external flags -----------------------------------------
@@ -470,7 +471,7 @@ def test_derive_repo_pr_window_fields(tmp_path):
     assert bundle["confidence"]["pr_window_count"] == "verified"
     assert bundle["confidence"]["pr_window_ttfhr_median_hours"] == "derived"
     assert bundle["provenance"]["pr_window_count"]["source"] == \
-        str(data_dir / "raw" / "pr_window" / "acme__widget.json")
+        "raw/pr_window/acme__widget.json"
 
 
 def test_derive_repo_without_pr_window_envelope_unaffected(tmp_path):
@@ -1789,7 +1790,7 @@ def test_derive_repo_cohort_fields(tmp_path):
     assert meta["author_history_cost_points"] == 77
     assert bundle["confidence"]["dr90_decision_rate_author_history_cohort"] == "derived"
     assert bundle["confidence"]["author_history_cost_points"] == "verified"
-    ah_path = str(data_dir / "raw" / "author_history" / "acme__widget.json")
+    ah_path = "raw/author_history/acme__widget.json"
     assert bundle["provenance"]["dr90_decision_rate_author_history_cohort"]["source"] == ah_path
     assert bundle["provenance"]["dr90_decision_rate_author_history_cohort"]["fetched_at"] == NOW.isoformat()
 

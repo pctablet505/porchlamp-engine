@@ -589,7 +589,7 @@ def test_derive_repo_pike_signals_from_envelopes(tmp_path):
     # the pillar parameter must be exactly the hand-computed C x 100
     assert score_openssf_criticality(signals) == pytest.approx(_PIKE_EXPECTED_C * 100.0, abs=1e-9)
     assert bundle["provenance"]["openssf_signals"]["source"] == [
-        str(tmp_path / "raw" / c / f"{KEY}.json")
+        f"raw/{c}/{KEY}.json"
         for c in ("github_meta", "commits_365d", "releases", "issues_counts", "dependents")
     ]
 
@@ -603,7 +603,7 @@ def test_derive_repo_without_scorecard_gets_proxy_review_ci(tmp_path):
     assert meta["pipeline_defenses_method"] == "proxy:review_ci"
     assert bundle["confidence"]["pipeline_defenses"] == "derived"
     assert bundle["provenance"]["pipeline_defenses"]["source"] == [
-        str(tmp_path / "raw" / c / f"{KEY}.json") for c in ("pr_window", "runs")]
+        f"raw/{c}/{KEY}.json" for c in ("pr_window", "runs")]
     # the v1 scorecard_score stays missing (0.0) — the measured proxy is new
     assert meta["scorecard_score"] == 0.0
     assert bundle["confidence"]["scorecard_score"] == "missing"
@@ -620,7 +620,7 @@ def test_derive_repo_scorecard_subset_wins_over_proxy(tmp_path):
     assert meta["pipeline_defenses"] == 82.0       # (9+10+7+10+5)/5 x 10, 6th check ignored
     assert meta["pipeline_defenses_method"] == "primary"
     assert bundle["provenance"]["pipeline_defenses"]["source"] == [
-        str(tmp_path / "raw" / "scorecard" / f"{KEY}.json")]
+        f"raw/scorecard/{KEY}.json"]
 
 
 def test_derive_repo_partial_signals_leaves_openssf_missing(tmp_path):
@@ -654,7 +654,7 @@ def test_derive_repo_missing_dependents_leaves_openssf_missing(tmp_path):
     assert partial["created_since_months"] == 120.0
     assert bundle["meta"]["openssf_signals_partial_missing"] == ["dependents_count"]
     assert bundle["provenance"]["openssf_signals_partial"]["source"] == [
-        str(tmp_path / "raw" / c / f"{KEY}.json")
+        f"raw/{c}/{KEY}.json"
         for c in ("github_meta", "commits_365d", "releases", "issues_counts")
     ]
 

@@ -290,12 +290,22 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     dl, dl_at = _load(data_dir, "downloads", f"{ecosystem.value}__{name}")
 
     def _rel(p: Path | str) -> str:
-        if Path(data_dir).resolve() == Path(DATA_DIR).resolve():
-            try:
-                return relative_envelope_path(DATA_DIR, p)
-            except ValueError:
-                pass
-        return str(p)
+        """Provenance path, relative to the data root this derivation is
+        reading from.
+
+        Relative to ``data_dir``, not to the module default: a derivation run
+        against any other root -- a test corpus, another machine's checkout,
+        a second sample -- was recording an absolute path, which names the
+        machine that derived it and cannot be resolved anywhere else. The
+        path is part of the hashed record, so that made those records
+        non-portable and unreproducible (docs/v2/00-README.md).
+
+        A path outside ``data_dir`` is a bug in the caller rather than
+        something to paper over, and ``relative_envelope_path`` raises for
+        it. Every caller here builds its path with ``raw_envelope_path
+        (data_dir, ...)``, so that cannot happen by construction.
+        """
+        return relative_envelope_path(data_dir, p)
 
     def src(c: str, k: str) -> str:
         # Standard envelope-path formula, shared with cvi.collect.pike_signals's
@@ -517,10 +527,19 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     c365, c365_at = _load(data_dir, "commits_365d", key)
     if c365 is not None:
         recs = commit_domains.records_from_rows(c365)
-        b.set("elephant_factor", commit_domains.elephant_factor(recs, now),
-              src("commits_365d", key), c365_at, "derived")
-        b.set("bus_factor", commit_domains.bus_factor(recs, now),
-              src("commits_365d", key), c365_at, "derived")
+        # Both factors are None when under half the window's commits could be
+        # attributed to an org/author at all: the 50% threshold is then
+        # unreachable, so the measure is missing rather than large (D-MISS-1).
+        ef = commit_domains.elephant_factor(recs, now)
+        if ef is not None:
+            b.set("elephant_factor", ef, src("commits_365d", key), c365_at, "derived")
+        else:
+            b.missing("elephant_factor", 1)
+        bf = commit_domains.bus_factor(recs, now)
+        if bf is not None:
+            b.set("bus_factor", bf, src("commits_365d", key), c365_at, "derived")
+        else:
+            b.missing("bus_factor", 1)
         b.set("vitality", commit_domains.is_vital(recs, now),
               src("commits_365d", key), c365_at, "derived")
     else:
@@ -614,6 +633,14 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
             b.set(field, value, None, None, conf)
         else:
             b.set(field, value, gov_src, gov_prov_at, conf)
+
+    ai_posture_val = b.meta.get("ai_posture")
+    is_proscribed = (
+        ai_posture_val is AIPosture.PROSCRIBED
+        or ai_posture_val == "PROSCRIBED"
+        or getattr(ai_posture_val, "name", None) == "PROSCRIBED"
+    )
+    b.set("hard_ai_ban", is_proscribed, "derived from ai_posture", None, "derived")
 
     # --- Author-history cohorts (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3):
     # DR_90, MR_first, newcomer conversion, RR_90 (raw and D-IN-3

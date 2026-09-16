@@ -216,9 +216,19 @@ def write_envelope(
     this contract only records the value. ``http_status`` defaults to 200
     because the write path runs only after a transport that raises on a
     non-2xx response (`gh api` exits non-zero, ``urlopen`` raises ``HTTPError``).
+
+    The body written is ``_plain(data)``, the same reduction
+    :func:`envelope_hash` hashes, not ``data`` itself. The two differ for any
+    value JSON does not represent natively -- an ``Ecosystem.PYPI`` hashes as
+    ``"Ecosystem.PYPI"`` but ``json.dumps`` writes a ``str``-valued enum as
+    ``"pypi"`` -- so writing the raw value produced a file whose recorded hash
+    did not match its own contents. :func:`read_envelope` re-hashes the body
+    it reads, so every such envelope reported itself as tampered with the
+    moment it was read back, including immediately after being written.
     """
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    body = _plain(data)
     target.write_text(
         json.dumps(
             {
@@ -226,9 +236,9 @@ def write_envelope(
                 "fetched_at": fetched_at,
                 "http_status": http_status,
                 "etag": etag,
-                "sha256": envelope_hash(data),
+                "sha256": envelope_hash(body),
                 "collector_version": collector_version,
-                "data": data,
+                "data": body,
             }
         ),
         encoding="utf-8",

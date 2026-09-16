@@ -167,32 +167,66 @@ def _parse_dt(value: Any) -> Optional[datetime]:
 def is_bot(actor: CommitActor) -> bool:
     """D-IN-1: True when the actor is a bot.
 
-    ``actor_type == "Bot"``, a login ending in ``[bot]``, or an exact-match
-    login in :data:`KNOWN_BOT_LOGINS`. No substring matching.
+    ``actor_type == "Bot"``, a login ending in ``[bot]``, an exact-match
+    login in :data:`KNOWN_BOT_LOGINS`, or an email whose local part carries
+    the same ``[bot]`` marker. No substring matching.
+
+    The email is consulted because a git commit carries no ``actor_type``:
+    a bot that commits with a plain ``login`` and a
+    ``...[bot]@users.noreply.github.com`` address -- which is what the
+    GitHub Apps default -- is invisible to the first three checks, and every
+    one of its commits counted as human authorship, deflating the
+    concentration the elephant and bus factors measure.
     """
     if actor.actor_type == "Bot":
         return True
     login = actor.login.lower()
-    return login.endswith("[bot]") or login in KNOWN_BOT_LOGINS
+    if login.endswith("[bot]") or login in KNOWN_BOT_LOGINS:
+        return True
+    email = actor.email.strip().lower()
+    local = email.rsplit("@", 1)[0] if "@" in email else ""
+    return local.endswith("[bot]") or local in KNOWN_BOT_LOGINS
+
+
+def _noreply_login(local_part: str) -> str:
+    """The login inside a ``users.noreply.github.com`` local part.
+
+    GitHub has issued ``<id>+<login>@users.noreply.github.com`` by default
+    for years; the bare ``<login>@`` form is the older one. Both are handled
+    here, because leaving the ``<id>+`` prefix in place meant the address did
+    not match the author's login and the two forms were counted as different
+    people.
+    """
+    return local_part.split("+", 1)[1] if "+" in local_part else local_part
 
 
 def org_key(actor: CommitActor) -> Optional[str]:
     """The org a commit author's commits count toward (spec 3.2).
 
     Corporate domains count as one org per domain.
-    ``users.noreply.github.com`` maps to the author's login (the domain is
-    never an org of its own; None when the commit has no linked login).
-    Personal domains count as one org per author (the login, else the
-    lowercased email address). None when no email is recorded.
+    ``users.noreply.github.com`` maps to the author's login -- taken from the
+    address itself when the commit records no linked login (the domain is
+    never an org of its own). Personal domains count as one org per author
+    (the login, else the lowercased email address). None when no email is
+    recorded.
     """
     email = actor.email.strip().lower()
     if "@" not in email:
         return None
-    domain = email.rsplit("@", 1)[1]
+    local, domain = email.rsplit("@", 1)
     if not domain:
         return None
     if domain == NOREPLY_DOMAIN:
-        return actor.login.strip() or None
+        # Falling through to `domain` here would have made
+        # "users.noreply.github.com" itself an org, collapsing every
+        # unlinked GitHub author in the repository into one fictitious
+        # organisation and reporting the project as far more concentrated
+        # than it is.
+        if actor.login.strip():
+            return actor.login.strip()
+        if "+" in local:
+            return _noreply_login(local) or None
+        return None
     if domain in PERSONAL_DOMAINS:
         return actor.login.strip() or email
     return domain

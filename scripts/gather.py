@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import time
 import urllib.request
@@ -410,7 +411,8 @@ def _downloads(ecosystem: str, name: str,
         # limit); a transient null is refetched on rerun (nulls are not
         # marked complete), so no inline retry (it would waste 45s/repo).
         time.sleep(SLEEP_PYPISTATS)
-        d = _get_json(f"https://pypistats.org/api/packages/{name}/recent",
+        pkg = re.sub(r"[-_.]+", "-", name).lower()
+        d = _get_json(f"https://pypistats.org/api/packages/{pkg}/recent",
                       {"User-Agent": "cvi-research/0.1 (ranking study)"})
         return ((d or {}).get("data") or {}).get("last_month"), "pypistats"
     if ecosystem == "npm":

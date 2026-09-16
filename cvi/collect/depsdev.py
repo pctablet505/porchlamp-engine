@@ -63,6 +63,7 @@ value and the exclusion is not measurable for them.
 from __future__ import annotations
 
 import json
+import re
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as _ET
@@ -83,13 +84,8 @@ DEPSDEV_API: str = "https://api.deps.dev/v3alpha"
 NOT_APPLICABLE_RULE: str = "D-MISS-5"
 
 #: CVI ecosystem -> deps.dev system id (the literal URL path segment; the
-#: canonical deps.dev ids are uppercase -- ``PYPI``, ``GO``, ``MAVEN`` -- but
-#: the v3alpha API accepts these lowercase segments, so this table keeps one
-#: casing throughout). Absent = no package registry at
-#: all (systems, D-MISS-5); go/maven are present here because deps.dev
-#: has a system for both, even though their *package name* still needs
-#: :func:`package_name_for_repo`'s extra derivation (module path /
-#: ``groupId:artifactId``), not a plain repo-name lookup.
+#: systems endpoint requires lowercase for pypi/npm/crates/maven, and accepts
+#: "go" as an alias for canonical "GO").
 SYSTEM_FOR_ECOSYSTEM: dict[str, str] = {
     "pypi": "pypi",
     "npm": "npm",
@@ -144,8 +140,11 @@ def parse_maven_coordinates(pom_xml: str) -> Optional[tuple[str, str]]:
                 if _local_tag(grandchild.tag) == "groupId" and grandchild.text \
                         and grandchild.text.strip():
                     parent_group_id = grandchild.text.strip()
-    resolved_group_id = group_id or parent_group_id
-    if not resolved_group_id or not artifact_id:
+    if group_id in ("${project.parent.groupId}", "${parent.groupId}", "${project.groupId}"):
+        resolved_group_id = parent_group_id
+    else:
+        resolved_group_id = group_id or parent_group_id
+    if not resolved_group_id or not artifact_id or resolved_group_id.startswith("${"):
         return None
     return resolved_group_id, artifact_id
 
@@ -180,6 +179,8 @@ def package_name_for_repo(
     gap).
     """
     if ecosystem in ("pypi", "npm", "crates"):
+        if ecosystem == "pypi":
+            return re.sub(r"[-_.]+", "-", name).lower()
         return name.lower() if ecosystem == "crates" else name
     if ecosystem == "go":
         return go_mod_module if go_mod_module else f"github.com/{owner}/{name}"
@@ -279,11 +280,22 @@ def root_org(system: str, name: str) -> str:
     """Root organisation of a dependent package (D-PARAM 2.1).
 
     npm namespaces packages by the ``@scope`` prefix; the scope (lowercased,
-    without the ``@``) is the root organisation. Every registry mapped here
-    is a single-level namespace, where the package is its own root.
+    without the ``@``) is the root organisation.
+    go modules namespace by host/owner/repo; the owner is the root organisation.
+    maven coordinates are groupId:artifactId; the groupId is the root organisation.
+    Every other registry mapped here is a single-level namespace, where the package
+    is its own root.
     """
-    org = name.split("/", 1)[0][1:] if system == "npm" and name.startswith("@") \
-        else name
+    sys_lower = system.lower()
+    if sys_lower == "npm" and name.startswith("@"):
+        org = name.split("/", 1)[0][1:]
+    elif sys_lower in ("go", "golang"):
+        parts = name.split("/")
+        org = parts[1] if len(parts) >= 2 and "." in parts[0] else parts[0]
+    elif sys_lower == "maven":
+        org = name.split(":", 1)[0]
+    else:
+        org = name
     return org.lower()
 
 
@@ -314,12 +326,12 @@ def dedup_dependents(packages: Iterable[tuple[str, str]], system: str,
     dropped: list[str] = []
     for _, name in packages:
         root = root_org(system, name)
-        if own and root == own:
+        if own and (root == own or (system.lower() == "maven" and own in root.split("."))):
             dropped.append(name)
         else:
             kept.add(root)
     return DedupedDependents(count=len(kept), kept_roots=frozenset(kept),
-                              dropped_same_org=tuple(dropped))
+                             dropped_same_org=tuple(dropped))
 
 
 def _get_json(url: str) -> Optional[dict]:

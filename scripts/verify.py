@@ -292,10 +292,20 @@ def verify_bundle(bundle: dict, depsdev: Optional[dict],
     # sources genuinely disagree (wrong repo mapping / corrupt data).
     for field, dd_key in (("stars", "stars"), ("forks", "forks")):
         a, b = m.get(field), dd.get(dd_key)
-        if a and b:
-            rel = abs(a - b) / max(a, b)
-            ok = rel <= STARS_TOL or b < a
-            check(field, ok, f"github={a} depsdev={b} rel={rel:.3f}")
+        # `is not None`, not truthiness: a repo with 0 stars or 0 forks has
+        # been measured, and reading that as "deps.dev value absent" skipped
+        # the comparison for exactly the repos where a disagreement between
+        # sources is most suspicious.
+        if a is not None and b is not None:
+            larger = max(a, b)
+            if larger == 0:
+                # Both zero: they agree exactly, and `abs(0-0)/max(0,0)`
+                # raises ZeroDivisionError.
+                check(field, True, f"github={a} depsdev={b} (both zero)")
+            else:
+                rel = abs(a - b) / larger
+                ok = rel <= STARS_TOL or b < a
+                check(field, ok, f"github={a} depsdev={b} rel={rel:.3f}")
         else:
             check(field, True, "single-source (deps.dev value absent)")
     lic, dlic = gh_meta.get("license_spdx"), dd.get("license")
@@ -303,7 +313,8 @@ def verify_bundle(bundle: dict, depsdev: Optional[dict],
         check("license", str(lic).lower().replace("_", "-") == str(dlic).lower().replace("_", "-"),
               f"github={lic} depsdev={dlic}")
     sc, dsc = m.get("scorecard_score"), dd.get("scorecard_overall")
-    if sc and dsc:
+    # Again `is not None`: 0.0 is a real scorecard score, and the worst one.
+    if sc is not None and dsc is not None:
         # Advisory: recorded but never gates (see ADVISORY_CHECKS). The delta is
         # cache-refresh drift between two snapshots of the same tool.
         check("scorecard", abs(sc - dsc) <= 1.0, f"scorecard={sc} depsdev={dsc}")
@@ -325,7 +336,13 @@ def verify_repo(owner: str, name: str, data_dir: Path = DATA) -> dict[str, Any]:
     if bundle is None:
         raise SystemExit(f"no derived bundle for {key}; run derive.py first")
     deps = (_load(data_dir / "raw" / "depsdev" / f"{key}.json") or {}).get("data")
-    report = verify_bundle(bundle, deps, data_dir=data_dir)
+    # The github_meta envelope carries `license_spdx`, which is the only
+    # source for verify_bundle's license cross-check. Without it that check
+    # saw `gh_meta = {}` and could never run: it was dead code in every real
+    # verification, which is precisely how a licence disagreement between
+    # GitHub and deps.dev would go unnoticed.
+    gh_meta = (_load(data_dir / "raw" / "github_meta" / f"{key}.json") or {}).get("data")
+    report = verify_bundle(bundle, deps, gh_meta, data_dir=data_dir)
     out = data_dir / "verified" / f"{key}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"bundle": bundle, "report": report},

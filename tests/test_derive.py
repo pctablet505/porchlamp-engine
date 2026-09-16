@@ -165,8 +165,8 @@ def test_legal_ip_model_provenance_is_the_local_body_cache_not_a_url(tmp_path):
     seed_full(tmp_path)
     out = run(tmp_path)
     assert out["confidence"]["legal_ip_model"] == "derived"
-    assert out["provenance"]["legal_ip_model"]["source"] == str(
-        tmp_path / "raw" / "bodies" / f"{OWNER}__{NAME}__CONTRIBUTING.md.json")
+    assert out["provenance"]["legal_ip_model"]["source"] == (
+        f"raw/bodies/{OWNER}__{NAME}__CONTRIBUTING.md.json")
     assert "sha256" in out["provenance"]["legal_ip_model"]
 
 
@@ -178,14 +178,14 @@ def test_legal_ip_model_provenance_one_cached_one_missing(tmp_path):
     k = f"{OWNER}__{NAME}"
     base_gh = {"stars": 1, "forks": 0, "pushed_at": "2026-09-01T00:00:00Z", "archived": False,
               "license_spdx": "MIT", "default_branch": "main"}
-    contrib_path = tmp_path / "raw" / "bodies" / f"{k}__CONTRIBUTING.md.json"
+    contrib_path = f"raw/bodies/{k}__CONTRIBUTING.md.json"
 
     # Cached side.
     write(tmp_path, "github_meta", k, base_gh)
     write(tmp_path, "tree", k, {"paths": ["CONTRIBUTING.md"]})
     body(tmp_path, "CONTRIBUTING.md", "Please sign off your commits (DCO).")
     out = run(tmp_path)
-    assert out["provenance"]["legal_ip_model"]["source"] == str(contrib_path)
+    assert out["provenance"]["legal_ip_model"]["source"] == contrib_path
     assert "sha256" in out["provenance"]["legal_ip_model"]
 
     # Missing side: a different repo, no CONTRIBUTING.md ever fetched.
@@ -193,8 +193,10 @@ def test_legal_ip_model_provenance_one_cached_one_missing(tmp_path):
     write(other, "github_meta", k, base_gh)
     write(other, "tree", k, {"paths": ["CONTRIBUTING.md"]})
     out2 = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, other, fetch=False, now=NOW)
-    tree_path = other / "raw" / "tree" / f"{k}.json"
-    assert out2["provenance"]["legal_ip_model"]["source"] == str(tree_path)
+    # Relative to `other`, the data root this derivation read from -- the
+    # provenance path is portable, so it is the same string whichever root
+    # the envelopes happen to live under.
+    assert out2["provenance"]["legal_ip_model"]["source"] == f"raw/tree/{k}.json"
     assert "sha256" in out2["provenance"]["legal_ip_model"]
 
 

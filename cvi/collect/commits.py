@@ -168,23 +168,22 @@ def _human_window(records: Sequence[CommitRecord], now: datetime,
 
 def elephant_factor(records: Sequence[CommitRecord], now: datetime,
                     window_days: int = COMMIT_WINDOW_DAYS) -> int:
-    """Spec 3.2: the minimum number of orgs reaching 50% of the human
-    commits in the trailing window (365 d by default).
+    """Spec 3.2: the minimum number of orgs reaching 50% of the attributable
+    human commits in the trailing window (365 d by default).
 
-    Orgs come from :func:`org_key` over the non-bot commits; commits whose
-    author resolves to no org still count in the 50% denominator. Greedy
+    Orgs come from :func:`org_key` over the non-bot commits; greedy
     accumulation from the largest org yields the minimum count; the result
     is floored at 1 (spec floor).
     """
     window = _human_window(records, now, window_days, include_undated=True)
-    total = len(window)
-    if total == 0:
-        return 1
     counts: Counter[str] = Counter()
     for record in window:
         org = org_key(record.actor)
         if org is not None:
             counts[org] += 1
+    total = sum(counts.values())
+    if total == 0:
+        return 1
     acc, ef = 0, 0
     for _org, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
         acc += n
@@ -196,22 +195,22 @@ def elephant_factor(records: Sequence[CommitRecord], now: datetime,
 
 def bus_factor(records: Sequence[CommitRecord], now: datetime,
                window_days: int = COMMIT_WINDOW_DAYS) -> int:
-    """The minimum number of human authors reaching 50% of the human commits
-    in the trailing window (365 d by default).
+    """The minimum number of human authors reaching 50% of the attributable
+    human commits in the trailing window (365 d by default).
 
     Authors come from :func:`author_key` over the non-bot commits (one
-    author per login, else per email address); unattributable commits stay
-    in the 50% denominator. The result is floored at 1.
+    author per login, else per email address); greedy accumulation from the
+    largest author yields the minimum count; the result is floored at 1.
     """
     window = _human_window(records, now, window_days, include_undated=True)
-    total = len(window)
-    if total == 0:
-        return 1
     counts: Counter[str] = Counter()
     for record in window:
         author = author_key(record.actor)
         if author is not None:
             counts[author] += 1
+    total = sum(counts.values())
+    if total == 0:
+        return 1
     acc, factor = 0, 0
     for _author, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
         acc += n

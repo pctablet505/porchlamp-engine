@@ -96,6 +96,25 @@ def _p90(values: list[float]) -> float:
     return s[idx]
 
 
+_PROMOTION_LADDER_MAP: dict[str, PromotionLadder] = {
+    "VERIFIED": PromotionLadder.VERIFIED_PROMOTION,
+    "VERIFIED_PROMOTION": PromotionLadder.VERIFIED_PROMOTION,
+    "DOCUMENTED": PromotionLadder.DOCUMENTED_PATHWAY,
+    "DOCUMENTED_PATHWAY": PromotionLadder.DOCUMENTED_PATHWAY,
+    "AD_HOC": PromotionLadder.AD_HOC,
+    "CLOSED": PromotionLadder.CLOSED_SINGLE_FIRM,
+    "CLOSED_SINGLE_FIRM": PromotionLadder.CLOSED_SINGLE_FIRM,
+}
+
+
+def _parse_promotion_ladder(val: Any) -> PromotionLadder:
+    if isinstance(val, PromotionLadder):
+        return val
+    if isinstance(val, str):
+        return _PROMOTION_LADDER_MAP.get(val, PromotionLadder.AD_HOC)
+    return PromotionLadder.AD_HOC
+
+
 def _repo_meta(m: dict[str, Any]) -> RepoMeta:
     sig = m.get("openssf_signals")
     signals = OpenSSFSignals(**sig) if sig else None
@@ -111,7 +130,7 @@ def _repo_meta(m: dict[str, Any]) -> RepoMeta:
         active_nonbot_commits_180d=int(m.get("active_nonbot_commits_180d", 0)),
         off_platform_reviews=bool(m.get("off_platform_reviews", False)),
         hard_ai_ban=bool(m.get("hard_ai_ban", False)),
-        promotion_ladder=PromotionLadder[m.get("promotion_ladder", "AD_HOC")],
+        promotion_ladder=_parse_promotion_ladder(m.get("promotion_ladder")),
         mean_inline_comments=float(m.get("mean_inline_comments", 0.0)),
         active_unclaimed_gfis=int(m.get("active_unclaimed_gfis", 0)),
         rr_90=float(m.get("rr_90", 0.0)),

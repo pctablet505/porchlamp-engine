@@ -98,14 +98,17 @@ def _top_email_domain_share(bundle: FeatureBundle) -> float | None:
     return fact.value if isinstance(fact, TopEmailDomainShareMeasured) else None
 
 
-def detector_inputs_from_bundle(bundle: FeatureBundle) -> DetectorInputs:
+def detector_inputs_from_bundle(
+    bundle: FeatureBundle,
+    source_drift_held: bool | None = None,
+) -> DetectorInputs:
     """Build :class:`~cvi.verify.detectors.DetectorInputs` from a real
     ``FeatureBundle`` (module docstring): raw ``elephant_factor`` and
     ``newcomer_issue_supply`` values when measured, closed-unread share/n
     from ``bundle.pr_window``, ``newcomer_accounts`` from ``bundle.cohorts``,
-    ``top_email_domain_share`` from the bundle sidecar fact, and
+    ``top_email_domain_share`` from the bundle sidecar fact,
     ``star_lockstep_penalty_applied`` from the bundle ``star_velocity_flag``
-    sidecar fact."""
+    sidecar fact, and optional ``source_drift_held``."""
     share, n = closed_unread_share_from_pr_window(bundle.pr_window)
     newcomer_accounts = newcomer_accounts_from_cohorts(bundle.cohorts)
     return DetectorInputs(
@@ -116,10 +119,14 @@ def detector_inputs_from_bundle(bundle: FeatureBundle) -> DetectorInputs:
         closed_unread_n=n,
         newcomer_accounts=newcomer_accounts,
         star_lockstep_penalty_applied=bundle_star_velocity_flag(bundle),
+        source_drift_held=source_drift_held,
     )
 
 
-def build_detectors(bundles: Sequence[FeatureBundle]) -> DetectorsCallable:
+def build_detectors(
+    bundles: Sequence[FeatureBundle],
+    source_drift_by_key: Mapping[RepoKey, bool] | None = None,
+) -> DetectorsCallable:
     """The ``detectors`` callable :func:`cvi.core.pipeline.score_snapshot`
     accepts: ``(records, previous) -> {repo_key: [fired detector names]}``.
 
@@ -138,8 +145,12 @@ def build_detectors(bundles: Sequence[FeatureBundle]) -> DetectorsCallable:
     from exactly ``bundles``) falls back to the all-``None`` empty
     ``DetectorInputs``, i.e. no detector needing a bundle fact can fire for
     it, rather than raising."""
+    drift_map = source_drift_by_key or {}
     inputs_by_key: dict[RepoKey, DetectorInputs] = {
-        repo_key(bundle): detector_inputs_from_bundle(bundle) for bundle in bundles
+        repo_key(bundle): detector_inputs_from_bundle(
+            bundle, source_drift_held=drift_map.get(repo_key(bundle))
+        )
+        for bundle in bundles
     }
     empty_inputs = DetectorInputs()
 

@@ -635,7 +635,7 @@ def test_derive_repo_dependents_from_envelope(tmp_path):
     assert out["meta"]["dependents_count"] == 12698
     assert out["confidence"]["dependents_count"] == "derived"
     assert out["provenance"]["dependents_count"]["source"] == \
-        str(raw / "dependents" / f"{KEY}.json")
+        f"raw/dependents/{KEY}.json"
 
 
 def test_derive_repo_dependents_stays_missing_without_envelope(tmp_path):

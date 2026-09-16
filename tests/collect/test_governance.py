@@ -780,7 +780,7 @@ def test_derive_repo_governance_evidence_fields(tmp_path):
                   "ai_posture_evidence"):
         assert bundle["confidence"][field] == "derived"
         assert bundle["provenance"][field]["source"] == \
-            str(raw / "governance" / f"{KEY}.json")
+            f"raw/governance/{KEY}.json"
 
 
 def test_derive_repo_governance_envelope_without_pr_window(tmp_path):
@@ -821,7 +821,7 @@ def test_derive_repo_signoff_share_alone_without_governance_envelope(tmp_path):
     assert m["legal_ip_evidence"]["rule"] == "signoff_share"
     assert m["legal_ip_evidence"]["signoff"] == {"count": 50, "total": 100, "share": 0.5}
     assert bundle["provenance"]["legal_ip"]["source"] == \
-        str(raw / "commits_365d" / f"{KEY}.json")
+        f"raw/commits_365d/{KEY}.json"
     # no governance envelope -> no file/check evidence for the other two,
     # and both are Unmeasured (B2: neither prw nor gov exists for the
     # ladder; gov alone is absent for posture):

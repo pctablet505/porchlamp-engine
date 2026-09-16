@@ -180,13 +180,20 @@ def test_collect_star_history_fail_on_non_mapping_payload(tmp_path: Path, block_
 
 def test_flagged_fixture_repo_lockstep_burst_is_flagged(tmp_path: Path, block_live_network):
     """A fixture repo with lockstep star bursts is flagged at entry."""
-    record = star_velocity_evidence(tmp_path, "acme", "burst-repo", NOW, _burst_fetch, FETCHED_AT)
+    raw_dir = tmp_path / "raw"
+    record = star_velocity_evidence(raw_dir, "acme", "burst-repo", NOW, _burst_fetch, FETCHED_AT)
     assert record.measured is True
     assert record.star_velocity_flag is True
     assert record.stars_audited == 100  # int(334 * 0.30) == 100
     assert record.star_velocity == {"recent_stars": 534, "window_days": 90}
-    assert record.provenance["path"] == str(tmp_path / STAR_HISTORY_COLLECTOR / "acme__burst-repo.json")
-    envelope = read_envelope(Path(record.provenance["path"]))
+    # Relative to the data root, never absolute: the record is written into a
+    # hashed envelope, so an absolute path would name this machine and the
+    # provenance would not verify anywhere else.
+    assert record.provenance["path"] == f"raw/{STAR_HISTORY_COLLECTOR}/acme__burst-repo.json"
+    assert not Path(record.provenance["path"]).is_absolute()
+    # Resolving it against the data root is what a consumer has to do, so the
+    # recorded path has to actually lead to the envelope it claims.
+    envelope = read_envelope(tmp_path / record.provenance["path"])
     assert record.provenance["sha256"] == envelope.sha256
     assert record.provenance["fetched_at"] == FETCHED_AT
 

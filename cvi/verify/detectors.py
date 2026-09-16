@@ -119,6 +119,8 @@ MERGES_WITHOUT_RETURN_MIN_N: int = 10
 #: ``closed_unread``: share floor (of external PRs, closed unmerged, with no
 #: substantive response ever recorded).
 CLOSED_UNREAD_SHARE_MIN: float = 0.30
+#: ``closed_unread``: minimum external PR sample size threshold.
+CLOSED_UNREAD_MIN_N: int = 10
 
 #: ``newcomer_burst`` (03 section 4 lockstep rule): minimum count of
 #: eligible-looking, all-merged first-timer accounts, and the span they must

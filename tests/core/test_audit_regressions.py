@@ -351,3 +351,63 @@ def test_gates_read_a_naive_timestamp_as_utc() -> None:
 
 def test_gates_preserve_an_explicit_offset() -> None:
     assert gates._parse_iso("2026-09-01T05:30:00+05:30") == gates._parse_iso("2026-09-01T00:00:00Z")
+
+
+# --------------------------------------------------------------------------- #
+# Workstream B Regression Tests
+# --------------------------------------------------------------------------- #
+
+def test_b_root_org_go_and_maven() -> None:
+    from cvi.collect import depsdev as dd
+    assert dd.root_org("go", "github.com/gin-gonic/gin") == "gin-gonic"
+    assert dd.root_org("go", "github.com/pallets/flask") == "pallets"
+    assert dd.root_org("maven", "com.google.guava:guava") == "com.google.guava"
+    assert dd.root_org("maven", "org.apache.commons:commons-lang3") == "org.apache.commons"
+    # dedup_dependents drops same-org dependents
+    pkgs = (("go", "github.com/pallets/flask"), ("go", "github.com/other/pkg"))
+    deduped = dd.dedup_dependents(pkgs, "go", "pallets")
+    assert deduped.dropped_same_org == ("github.com/pallets/flask",)
+    assert deduped.count == 1
+
+
+def test_b_parse_maven_coordinates_parent_property_placeholder() -> None:
+    from cvi.collect import depsdev as dd
+    pom = """<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <parent>
+    <groupId>com.example.parent</groupId>
+    <artifactId>parent-pom</artifactId>
+    <version>1.0.0</version>
+  </parent>
+  <groupId>${project.parent.groupId}</groupId>
+  <artifactId>child-core</artifactId>
+</project>"""
+    assert dd.parse_maven_coordinates(pom) == ("com.example.parent", "child-core")
+
+
+def test_b_package_name_pypi_pep503() -> None:
+    from cvi.collect import depsdev as dd
+    assert dd.package_name_for_repo("pallets", "Flask_SQLAlchemy", "pypi") == "flask-sqlalchemy"
+    assert dd.package_name_for_repo("pallets", "flask.test", "pypi") == "flask-test"
+
+
+def test_b_promotion_ladder_v2_vocabulary() -> None:
+    import importlib.util
+    from pathlib import Path
+    from cvi.models import PromotionLadder
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location("promote_script", root / "scripts" / "promote.py")
+    promote = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(promote)
+    assert promote._parse_promotion_ladder("VERIFIED") == PromotionLadder.VERIFIED_PROMOTION
+    assert promote._parse_promotion_ladder("DOCUMENTED") == PromotionLadder.DOCUMENTED_PATHWAY
+    assert promote._parse_promotion_ladder("CLOSED") == PromotionLadder.CLOSED_SINGLE_FIRM
+    assert promote._parse_promotion_ladder("AD_HOC") == PromotionLadder.AD_HOC
+
+
+def test_b_build_detectors_wires_source_drift() -> None:
+    from cvi.core.pipeline import repo_key
+    from cvi.verify import pipeline_hook
+    bundle = make_bundle([recent_decided_external()])
+    key = repo_key(bundle)
+    call = pipeline_hook.build_detectors([bundle], source_drift_by_key={key: True})
+    assert call is not None

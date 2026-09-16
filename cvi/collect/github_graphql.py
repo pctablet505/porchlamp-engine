@@ -170,10 +170,18 @@ def _association(value: Any) -> str:
     return str(value or "").upper()
 
 
-def _is_maintainer(login: Any, association: Any, author_login: str) -> bool:
-    """D-IN-2 responder: non-bot, not the PR author, maintainer association."""
+def _is_maintainer(login: Any, association: Any, author_login: str,
+                   typename: Any = None) -> bool:
+    """D-IN-2 responder: non-bot, not the PR author, maintainer association.
+
+    ``typename`` is the actor's GraphQL ``__typename``. It is the
+    authoritative bot signal (D-IN-1) -- a ``Bot`` node whose login does not
+    happen to end in ``[bot]`` is invisible to the login heuristics alone,
+    and was previously counted as a human maintainer response, inflating
+    responsiveness for exactly the repositories that automate it.
+    """
     low = str(login or "").lower()
-    if is_bot_actor(None, login):
+    if is_bot_actor(typename, login):
         return False
     if low and low == author_login:
         return False
@@ -196,7 +204,8 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
     never the PR author and never a bot; ``ttfhr_hours`` is the opening-to-
     response span in hours (None when there is no candidate or the recorded
     response predates the opening). ``substantive_review`` (02 §4.3) is any
-    non-bot review with 1+ inline comments or an 80+ character body.
+    review with 1+ inline comments or an 80+ character body, by someone who
+    is neither a bot nor the PR's own author.
     """
     out: list[dict] = []
     for pr in prs:
@@ -208,15 +217,12 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
         for kind in ("review", "comment"):
             source = "reviews" if kind == "review" else "comments"
             for raw in ((pr.get(source) or {}).get("nodes") or []):
-                if kind == "review":
-                    ok = _is_maintainer(
-                        (raw.get("author") or {}).get("login"),
-                        raw.get("authorAssociation"), author_login)
-                else:
-                    ok = _is_maintainer(
-                        (raw.get("author") or {}).get("login"),
-                        raw.get("authorAssociation"), author_login) \
-                        and len(str(raw.get("bodyText") or "")) >= SUBSTANTIVE_COMMENT_CHARS
+                raw_author = raw.get("author") or {}
+                ok = _is_maintainer(
+                    raw_author.get("login"), raw.get("authorAssociation"),
+                    author_login, raw_author.get("__typename"))
+                if kind == "comment":
+                    ok = ok and len(str(raw.get("bodyText") or "")) >= SUBSTANTIVE_COMMENT_CHARS
                 if not ok:
                     continue
                 dt = _parse_iso(raw.get("createdAt"))
@@ -227,9 +233,14 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
             created_dt = _parse_iso(pr.get("createdAt"))
             if created_dt is not None and best_dt >= created_dt:
                 ttfhr = (best_dt - created_dt).total_seconds() / 3600.0
+        # A review by the PR's own author is not the project reviewing the PR.
+        # Self-review is common (contributors annotate their own diffs), and
+        # counting it credited the repository with scrutiny nobody outside
+        # the change ever applied.
         substantive_review = any(
             not is_bot_actor((raw.get("author") or {}).get("__typename"),
                              (raw.get("author") or {}).get("login"))
+            and str((raw.get("author") or {}).get("login") or "").lower() != author_login
             and (int((raw.get("comments") or {}).get("totalCount") or 0) >= 1
                  or len(str(raw.get("body") or "")) >= SUBSTANTIVE_REVIEW_BODY_CHARS)
             for raw in ((pr.get("reviews") or {}).get("nodes") or []))
@@ -819,8 +830,12 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     cost = window.cost_points
     remaining = window.remaining
     sample = _select_newcomer_sample(window.prs, now, window.truncated)
-    needed = sorted(set(_decision_cohort_logins(window.prs, now)) | set(sample))
-    search_sample = set(_seeded_sample(needed, AUTHOR_SEARCH_CAP))
+    newcomers = sorted(set(sample))
+    decision_logins = sorted(set(_decision_cohort_logins(window.prs, now)))
+    needed = sorted(set(decision_logins) | set(newcomers))
+    remaining_cap = max(0, AUTHOR_SEARCH_CAP - len(newcomers))
+    other_logins = sorted(set(decision_logins) - set(newcomers))
+    search_sample = set(newcomers) | set(_seeded_sample(other_logins, remaining_cap))
 
     author_records: list[dict] = []
     for login in needed:
@@ -1030,8 +1045,11 @@ def _newcomer_cohort_authors(window_prs: Sequence[dict], records: dict[str, dict
     for login in sampled:
         if login not in in_band:
             continue
+        record = records.get(login) or {}
+        if record.get("history_unsampled") or record.get("history_unmeasured"):
+            continue
         history = sorted(
-            (item for pr in _author_pr_history(window_prs, records.get(login), login)
+            (item for pr in _author_pr_history(window_prs, record, login)
              if (item := (_parse_iso(pr.get("createdAt")), pr.get("number"), pr))[0] is not None),
             key=lambda item: (item[0], item[1]))
         if not history:

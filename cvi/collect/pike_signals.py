@@ -78,7 +78,7 @@ import json
 import subprocess
 
 from cvi.collect import commits as commit_domains
-from cvi.collect.envelope import raw_envelope_path, write_envelope
+from cvi.collect.envelope import raw_envelope_path, relative_envelope_path, write_envelope
 from cvi.collect.github_graphql import is_bot_actor
 from cvi.core import constants
 from cvi.models import OpenSSFSignals
@@ -697,7 +697,13 @@ def derive_w17_fields(
     def env_path(col: str) -> str:
         # The one envelope-path formula, shared with
         # scripts/derive.py's src() closure via cvi.collect.envelope.
-        return raw_envelope_path(data_dir, col, key)
+        #
+        # Relative to the data root: these strings become `Measured.source`,
+        # and provenance must never be absolute -- an absolute path names the
+        # machine that derived the value, so the record is not portable and
+        # cannot be re-verified elsewhere (docs/v2/00-README.md). The path is
+        # built from `data_dir` immediately above, so it is always inside it.
+        return relative_envelope_path(data_dir, raw_envelope_path(data_dir, col, key))
 
     # A windowed count's own fetch-time anchor more than
     # WINDOW_STALENESS_DAYS from this derive's `now` means the

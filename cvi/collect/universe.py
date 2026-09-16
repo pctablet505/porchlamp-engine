@@ -285,7 +285,16 @@ def star_velocity_evidence(
                 "window_days": constants.STARS_SCOUT_WINDOW_DAYS,
             },
             provenance={
-                "path": str(path),
+                # The canonical relative envelope path,
+                # ``raw/<collector>/<key>.json`` -- never ``str(path)``. This
+                # dict is written into a hashed envelope body, and an absolute
+                # path names the machine that collected it, so the record
+                # would neither resolve nor verify anywhere else
+                # (docs/v2/00-README.md non-negotiables). It is built from the
+                # collector and key rather than from ``raw_dir`` so the
+                # recorded form does not depend on how the caller spelled the
+                # directory.
+                "path": f"raw/{STAR_HISTORY_COLLECTOR}/{owner}__{name}.json",
                 "sha256": envelope.sha256,
                 "fetched_at": envelope.fetched_at,
             },
