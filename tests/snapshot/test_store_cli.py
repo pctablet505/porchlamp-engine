@@ -38,7 +38,9 @@ from tests.store.helpers import make_bundle, make_measured
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 
 #: ``tests/fixtures/snapshot_50/expected.json``'s own pinned ``records_hash``
-#: (regenerated 2026-09-14, module docstring): 12 of the 50 real repos
+#: (regenerated 2026-09-16 from the sample corpus, so the committed bundles
+#: and manifest are again what ``scripts/build_fixture_snapshot.py`` builds --
+#: ``test_fixture_rebuild_is_byte_identical``): 12 of the 50 real repos
 #: genuinely trip ``closed_unread``, 0 trip anything else on a first-ever
 #: snapshot with no ``previous``. Restated here as a named constant so a
 #: silent, unnoticed drift in that shared fixture file shows up as a
@@ -50,7 +52,7 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: Provenance must be relative to the data root; ``cvi.derive.bundle``
 #: ensures relative sources for all bundles.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "a4b9b6cee6e64be3678a29ec8e4396b0f295aa71a6427e5614f57e823c5dc6bf"
+    "b364f71c089525a375acb16e72afd956ba2c7caa7c14b008d035bed3cd924f19"
 )
 # Gated/unrated reflect cvi.core.pipeline.not_ranked_class display classification.
 #

@@ -12,6 +12,7 @@
   "benchmark_version": "2.0.0-rc1",
   "constants_hash": "748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b",
   "document": "cvi-fixture-snapshot-manifest",
+  "merkle_root": "cab43b159d871ca575658dbb3d57cda7bb959ce5241b8f962a0622b2f8aa686b",
   "population_fallback_params": [],
   "repo_count": 50,
   "repos": [
@@ -28,7 +29,7 @@
       },
       "name": "interview_internal_reference",
       "owner": "0voice",
-      "raw_hash": "210fb329d4525d3868e2c4d29b0042d67abb570eb1a3ede865a9473bc28f6c62"
+      "raw_hash": "5791fea4345c32e4a0847947647d8d5dfc9cb1962955ecefc4f841f571b44879"
     },
     {
       "bundle_file": "bundles/1995parham__github-do-not-ban-us.json",
@@ -43,7 +44,7 @@
       },
       "name": "github-do-not-ban-us",
       "owner": "1995parham",
-      "raw_hash": "d037c917a708eeb1434e663eacf9d51d625e45f73ef32dc8c9e3eabab11c1fc3"
+      "raw_hash": "d81047d610836bd5b36e4e010f7b9b91fea161bb11c12832889ad6e08e111efa"
     },
     {
       "bundle_file": "bundles/a-h__templ.json",
@@ -58,7 +59,7 @@
       },
       "name": "templ",
       "owner": "a-h",
-      "raw_hash": "03d328bb55f553dc6c602cb0ce1dfcc9e864670b54f229ec8beb310693f20b96"
+      "raw_hash": "6d86f81c12daeeeeaeff6c76a4a939a6f94d41d2bcc6bf5ed599a7d076230208"
     },
     {
       "bundle_file": "bundles/abel533__Mapper.json",
@@ -73,7 +74,7 @@
       },
       "name": "Mapper",
       "owner": "abel533",
-      "raw_hash": "55f8d93b734fd39d730e472f802576c272e454f197fe50b9279306268eba251f"
+      "raw_hash": "8ce95e389aac445c01f66e3d4bb8eef3c9b3efcd1c6f324d4250aff389559fab"
     },
     {
       "bundle_file": "bundles/abiosoft__colima.json",
@@ -88,7 +89,7 @@
       },
       "name": "colima",
       "owner": "abiosoft",
-      "raw_hash": "660c8ef095d38de2c40b202093beccb04813b25d1a84d250051898f60183134c"
+      "raw_hash": "46a970617556c17d6d6805a8c018ce21533b22097029f1a1a175750dc2d5af8b"
     },
     {
       "bundle_file": "bundles/aFarkas__html5shiv.json",
@@ -103,7 +104,7 @@
       },
       "name": "html5shiv",
       "owner": "aFarkas",
-      "raw_hash": "4422cfb9437d2515dedd5f835c1ffcf0a892ee638c35a5bcac6f2bf4c0762f84"
+      "raw_hash": "dfb3dcdab85e2d8f751b6770a9df93b883d5b1c8fe4d4ba360f50d2971578884"
     },
     {
       "bundle_file": "bundles/ai-dynamo__dynamo.json",
@@ -118,7 +119,7 @@
       },
       "name": "dynamo",
       "owner": "ai-dynamo",
-      "raw_hash": "3738eef79932a495dc4187375af9c3e96613f62c2bfb52905ee881d21813ca4d"
+      "raw_hash": "9c60d6a7a6a8ddf6c69987fcaa94b2fa30409efc07ce0ac83be13f23d9d864e3"
     },
     {
       "bundle_file": "bundles/airbnb__epoxy.json",
@@ -133,7 +134,7 @@
       },
       "name": "epoxy",
       "owner": "airbnb",
-      "raw_hash": "b89d5524ae406643649edd0b4d0d24760245575c98e0f82e8fd1fdad83622e72"
+      "raw_hash": "c8af60600adaa72cbd3b43a5c7cef68413e7231bd05fb65ba94b7c352358e33f"
     },
     {
       "bundle_file": "bundles/aleju__imgaug.json",
@@ -148,7 +149,7 @@
       },
       "name": "imgaug",
       "owner": "aleju",
-      "raw_hash": "b70cf22bc67863309ca8df1eb68262f3bc9867ece56cd3a3c5b1e4466d819d1a"
+      "raw_hash": "0ec00ebedd8676aaa15c6aeadf4f939be4f62b577a7998e76b1e5265f749c9dc"
     },
     {
       "bundle_file": "bundles/alexellis__k3sup.json",
@@ -163,7 +164,7 @@
       },
       "name": "k3sup",
       "owner": "alexellis",
-      "raw_hash": "7e16402a1f35d8d78b95d4d3967a73da54afafa5378d2a87511b37e26d1afdbb"
+      "raw_hash": "4bd5d65aea140949186bbc06ad9d3bb43e8943f5d1785461fa37cffcc9f572cb"
     },
     {
       "bundle_file": "bundles/alibaba__AndFix.json",
@@ -178,7 +179,7 @@
       },
       "name": "AndFix",
       "owner": "alibaba",
-      "raw_hash": "20c14c431b0fcaffb853fb23f42cc3288ef90461f8e5ce7c603cd3a76bc3f407"
+      "raw_hash": "56af0c596f768b65a8e516a7fbd8e7a7bb5178b3daf9f941b9ee9a9223e95575"
     },
     {
       "bundle_file": "bundles/alibaba__canal.json",
@@ -193,7 +194,7 @@
       },
       "name": "canal",
       "owner": "alibaba",
-      "raw_hash": "c127befeb1f5d388e51f2bbfd907a36c32a2fbb8e8f223a7088ddc4c08950c8f"
+      "raw_hash": "84d5b7f5f03626829695a8c773e4fff160e69d54265207ee4aa8589b31c8928d"
     },
     {
       "bundle_file": "bundles/alibaba__easyexcel.json",
@@ -208,7 +209,7 @@
       },
       "name": "easyexcel",
       "owner": "alibaba",
-      "raw_hash": "293c817a6e167a40e0f2b0e54ae44ed438ef189f920507f88e831fc64b10015a"
+      "raw_hash": "74e9d06efec99abc4e93e371cf4e5ab9aae6d6b6bc45298a9bdb35b4b2d5df2d"
     },
     {
       "bundle_file": "bundles/angular__angular.json",
@@ -223,7 +224,7 @@
       },
       "name": "angular",
       "owner": "angular",
-      "raw_hash": "4a54b5acaee835f6874ae791f7930c1320385a72a782176fad28a31efee90962"
+      "raw_hash": "d43c7af9c0b365e0d299a787f90a613f78b584452a499d58e7f321c756904493"
     },
     {
       "bundle_file": "bundles/anthropics__claude-code.json",
@@ -238,7 +239,7 @@
       },
       "name": "claude-code",
       "owner": "anthropics",
-      "raw_hash": "683369c8deaaa9cbd6d144cfcf009d386bb7f153e7edaa8fa14a8512ad8a8190"
+      "raw_hash": "ba1abbffa4622ab303b2c523e824eb4919fc204519057b9aef7c87e44788ccb5"
     },
     {
       "bundle_file": "bundles/anthropics__skills.json",
@@ -253,7 +254,7 @@
       },
       "name": "skills",
       "owner": "anthropics",
-      "raw_hash": "de94959db078660483cb7e3ddd9e04be0a7692f66a842eeff4c764e4d3d5d102"
+      "raw_hash": "3222eb2673b5b09e95683313c700a7cc162441228742988cfe496729efa0ed7d"
     },
     {
       "bundle_file": "bundles/apache__cassandra.json",
@@ -268,7 +269,7 @@
       },
       "name": "cassandra",
       "owner": "apache",
-      "raw_hash": "48eebf699e163e7cb55a48bf1d0aa5928633fa40c0ac8b19deb8260a15cbb82d"
+      "raw_hash": "d21be9ffd27b04f377b1507a539252877f3df750808e529e50ef06e0f09af40f"
     },
     {
       "bundle_file": "bundles/apache__datafusion.json",
@@ -283,7 +284,7 @@
       },
       "name": "datafusion",
       "owner": "apache",
-      "raw_hash": "5646bd630315c2abdfb6e965c1056bfaf14425753566e106f0bac966623259b9"
+      "raw_hash": "452f4eed5a0811dd98f40653258b5c776cac9c4509029c6e4e693de345723a55"
     },
     {
       "bundle_file": "bundles/apache__thrift.json",
@@ -298,7 +299,7 @@
       },
       "name": "thrift",
       "owner": "apache",
-      "raw_hash": "565976b628e3c4211c8a5bd188be38850c9eecf30cae5981b8deb7927ab1afb0"
+      "raw_hash": "63ae59f5889a35082e290499141e3cccad637b521aaedc476f21881eeafa7b8d"
     },
     {
       "bundle_file": "bundles/apple__darwin-xnu.json",
@@ -313,7 +314,7 @@
       },
       "name": "darwin-xnu",
       "owner": "apple",
-      "raw_hash": "597754e27868c17d967dfebb6a64ef5a1882bbed11150e499fb24b31facbab11"
+      "raw_hash": "1a39f8cc5217dc100871ad38f2a5903ff74a729300602ad6b2e3799bbb7d5371"
     },
     {
       "bundle_file": "bundles/argoproj__argo-workflows.json",
@@ -328,7 +329,7 @@
       },
       "name": "argo-workflows",
       "owner": "argoproj",
-      "raw_hash": "7db65adf92637c61fb2d7c2434c6a17c692cce02e8a8342f47c0d0a3151c34f6"
+      "raw_hash": "5a5cf9197cacb6ea08d67337017d9c87ada990cd929dd66c405b4c62705b29dc"
     },
     {
       "bundle_file": "bundles/asdf-vm__asdf.json",
@@ -343,7 +344,7 @@
       },
       "name": "asdf",
       "owner": "asdf-vm",
-      "raw_hash": "d11a5e14c2abc8777eadba102873cec9cc113b8c0bc58236d911d2707943f5ab"
+      "raw_hash": "911aace554fd00e42cd8b0434c837cf0a21e042f4c2f943a6d595c4594c69d95"
     },
     {
       "bundle_file": "bundles/AtsushiSakai__PythonRobotics.json",
@@ -358,7 +359,7 @@
       },
       "name": "PythonRobotics",
       "owner": "AtsushiSakai",
-      "raw_hash": "805e0b5150a1a6447ddde3a54265dc89cc03b0516a95a78fb66133a1fc6e7067"
+      "raw_hash": "548c03d8a6537776eaa7cd3daf09d497def7305ad992d7068ea3c9a78a0a52b5"
     },
     {
       "bundle_file": "bundles/babysor__MockingBird.json",
@@ -373,7 +374,7 @@
       },
       "name": "MockingBird",
       "owner": "babysor",
-      "raw_hash": "776e3a6d57355f67cf8245b5c42245c7af7c083f7173080bc402fc2f95e24a08"
+      "raw_hash": "2dcf1fbaa4a604db2ce5392c0bfae98825ec8937b78bf4d9fa2cb7230022d4f3"
     },
     {
       "bundle_file": "bundles/be5invis__Sarasa-Gothic.json",
@@ -388,7 +389,7 @@
       },
       "name": "Sarasa-Gothic",
       "owner": "be5invis",
-      "raw_hash": "c8a39cd9bb1ed9d40cda9c8061c183b865559f6a0c2a934af6dace7b567df3fa"
+      "raw_hash": "61b1b474e9736200fb15211696702d06bc7c729b773db1e635f211a36a6dd74a"
     },
     {
       "bundle_file": "bundles/blender__blender.json",
@@ -403,7 +404,7 @@
       },
       "name": "blender",
       "owner": "blender",
-      "raw_hash": "d0b9f9ec352b8d44df6682a1c9365a57cb1eb258ac6ac786afec74aadf0ccf98"
+      "raw_hash": "11ce722ea17528c84315b33df2986a7d36c6daf2adf0ddf272411e1ed3e540e5"
     },
     {
       "bundle_file": "bundles/boyter__scc.json",
@@ -418,7 +419,7 @@
       },
       "name": "scc",
       "owner": "boyter",
-      "raw_hash": "af1be29cfc237d6c3b36fd8c368ded8efabf4a3b7e40c2dd8ddb8706c9177863"
+      "raw_hash": "b620c15fc2ab5dacff7849f6c449f8c922d86e764b149087e6740febbf9602a3"
     },
     {
       "bundle_file": "bundles/brunodev85__winlator.json",
@@ -433,7 +434,7 @@
       },
       "name": "winlator",
       "owner": "brunodev85",
-      "raw_hash": "50f5b4abfcdbab142a847c191f397ce64be7e58dcb9c44cf0bb5e57d60d58571"
+      "raw_hash": "daf9b7492f932610a76951d86fa25a6ceeb5bf59477f746ac16b43b9b554a695"
     },
     {
       "bundle_file": "bundles/bytecodealliance__rustix.json",
@@ -448,7 +449,7 @@
       },
       "name": "rustix",
       "owner": "bytecodealliance",
-      "raw_hash": "c0dac761577040712fba31afa3d46d8336d699821139e6f36a2473824dac0040"
+      "raw_hash": "6099d7731e69239ee532fd631863c81f7fd798b0c8bfab92407fc9a84e54429c"
     },
     {
       "bundle_file": "bundles/cadence-workflow__cadence.json",
@@ -463,7 +464,7 @@
       },
       "name": "cadence",
       "owner": "cadence-workflow",
-      "raw_hash": "4905cae16b86907bee20432382a36a8b48a0808cc3a4297beb724c7479b8d1ce"
+      "raw_hash": "3f34ccc54ec5c28bc55b2891462c3b0556fc26517a42f1ce4e41ba7324b97282"
     },
     {
       "bundle_file": "bundles/ceph__ceph.json",
@@ -478,7 +479,7 @@
       },
       "name": "ceph",
       "owner": "ceph",
-      "raw_hash": "122af4181fa2ac3935e33258985f02e2c39dd9eaa957e1e7ad2fb2e0d28944cc"
+      "raw_hash": "a2a18c75fbf02f46a132d6b4aea883841944344528ad676fbd1b8a90fb14af3b"
     },
     {
       "bundle_file": "bundles/cerebroapp__cerebro.json",
@@ -493,7 +494,7 @@
       },
       "name": "cerebro",
       "owner": "cerebroapp",
-      "raw_hash": "a5d939faae53197804f54881e146fec772a07af8a8cd0ca384ad736a39451a97"
+      "raw_hash": "762000a4d37d7c5300aac4c2afd63a169a2bbbbbce1baa274199adfc000d4fc2"
     },
     {
       "bundle_file": "bundles/cft0808__edict.json",
@@ -508,7 +509,7 @@
       },
       "name": "edict",
       "owner": "cft0808",
-      "raw_hash": "87269c43b42eaa1a05c585333eab8b407122893c9ebfccc76b2d73ed5b5d35a0"
+      "raw_hash": "41720a34c5d394f5e5b4f1ce97f1a518964e1e4791ed5d989367758a840b85e7"
     },
     {
       "bundle_file": "bundles/chai2010__advanced-go-programming-book.json",
@@ -523,7 +524,7 @@
       },
       "name": "advanced-go-programming-book",
       "owner": "chai2010",
-      "raw_hash": "d70a78d141541177820dabec797cdb991131b5f0977d409d9d384df19546e200"
+      "raw_hash": "dc2e15e120d4f4656424c1ecad972edbd0e18261ef16398b531a4df2ba6eed5e"
     },
     {
       "bundle_file": "bundles/charmbracelet__lipgloss.json",
@@ -538,7 +539,7 @@
       },
       "name": "lipgloss",
       "owner": "charmbracelet",
-      "raw_hash": "2340304532da64f3cb4aa9d98676035c71a6819ba49e5ac376affb9824de3d0f"
+      "raw_hash": "a6f6fbab1f3d96e55eba15f9084c4606253769e779131443620e3186deb14908"
     },
     {
       "bundle_file": "bundles/chillzhuang__SpringBlade.json",
@@ -553,7 +554,7 @@
       },
       "name": "SpringBlade",
       "owner": "chillzhuang",
-      "raw_hash": "2be9fd9a683b81a763a293cab5a986f061fa6cfb58ed4543a7b357913519bd7a"
+      "raw_hash": "7af3a200b5df4b83a4f31264ae4bc4d8844e3b6554426a967a150ee1e8636146"
     },
     {
       "bundle_file": "bundles/claudiodangelis__qrcp.json",
@@ -568,7 +569,7 @@
       },
       "name": "qrcp",
       "owner": "claudiodangelis",
-      "raw_hash": "7f9217cae3518e438f798e74dd0c4cfe4a37474a07c381b64f4a21461cb45ffe"
+      "raw_hash": "68d9b199f6660cdc95b9c15f9523e8126e29934507efb74b53374ecba8609c6e"
     },
     {
       "bundle_file": "bundles/cloudnative-pg__cloudnative-pg.json",
@@ -583,7 +584,7 @@
       },
       "name": "cloudnative-pg",
       "owner": "cloudnative-pg",
-      "raw_hash": "bdd58bfcb2ae3b12096fc95c01e2cff64a6a775ab5f0c041fe3b62b8b078977c"
+      "raw_hash": "243ba0697156958b75cf311f46d401009f410e5416ec2f4e05eea26c15a783cc"
     },
     {
       "bundle_file": "bundles/cockroachdb__cockroach.json",
@@ -598,7 +599,7 @@
       },
       "name": "cockroach",
       "owner": "cockroachdb",
-      "raw_hash": "fb91ee8c53b7dfcb987a38e7b96c0e8162264a840aa37474057ccf6e5a0f480e"
+      "raw_hash": "49a87c4af9579380d4f96de814884cae1e81be7453375126589c58d201f0e056"
     },
     {
       "bundle_file": "bundles/cymcsg__UltimateRecyclerView.json",
@@ -613,7 +614,7 @@
       },
       "name": "UltimateRecyclerView",
       "owner": "cymcsg",
-      "raw_hash": "03a75dc4b512441b77c731429cc83c76d9327cd78fc713950f5b905af61d1162"
+      "raw_hash": "311f684a680c736db73643b9f69ae59e42fb7863b04cdfb0382493841ca9d875"
     },
     {
       "bundle_file": "bundles/daniulive__SmarterStreaming.json",
@@ -628,7 +629,7 @@
       },
       "name": "SmarterStreaming",
       "owner": "daniulive",
-      "raw_hash": "ce1f0476d8ce7b96e7da6ab7edb3d7426087e4d207cedd5b8c7dcabd47367ddf"
+      "raw_hash": "a214ded08888c7c7dbd5d63dbfdc3f494282019868d2e95352f0e69e68911003"
     },
     {
       "bundle_file": "bundles/deeplethe__utopia.json",
@@ -643,7 +644,7 @@
       },
       "name": "utopia",
       "owner": "deeplethe",
-      "raw_hash": "fb0d4c5049438bfbc9a814faa723dd32a6ce67252a5123cb2b69208bc638cc07"
+      "raw_hash": "dc544031f23a341792e5bd64b7849adc2f98a114f49a3ccaef19f06218f28f70"
     },
     {
       "bundle_file": "bundles/defunkt__jquery-pjax.json",
@@ -658,7 +659,7 @@
       },
       "name": "jquery-pjax",
       "owner": "defunkt",
-      "raw_hash": "8b44f96cfe0bff00fe82fb5ec547ecc46d958768277df161079760569ca6265d"
+      "raw_hash": "01a03d94e11ae01c4e03f18482867894baf71e665f81437d335aa7c6daf27805"
     },
     {
       "bundle_file": "bundles/drogonframework__drogon.json",
@@ -673,7 +674,7 @@
       },
       "name": "drogon",
       "owner": "drogonframework",
-      "raw_hash": "5ef0df4ab147fe785f729c759d92f2663bdf54a44d4a293c2e734526bd4c61e3"
+      "raw_hash": "57487dc875072073c7e5c95f20b6f565a0a9009f0646d5e027754176c63c210b"
     },
     {
       "bundle_file": "bundles/dtolnay__anyhow.json",
@@ -688,7 +689,7 @@
       },
       "name": "anyhow",
       "owner": "dtolnay",
-      "raw_hash": "38e6a90833e30e24801551371ce8a9de0ea2ce2f95e3e2812d533a53164445bf"
+      "raw_hash": "8cb1210e596bb77582c25e47a2f001d33c1ef78be56b255bf7a65db127c304ac"
     },
     {
       "bundle_file": "bundles/dtolnay__ryu.json",
@@ -703,7 +704,7 @@
       },
       "name": "ryu",
       "owner": "dtolnay",
-      "raw_hash": "899c7ed91a61423fc7c76f890e11f9e3990b86445aac53ec5dccbbfafa78e408"
+      "raw_hash": "fbb9c24c33ca2cf75444889ca770b39b2094bb4c4a87ac688971136b36ca1d07"
     },
     {
       "bundle_file": "bundles/duckdb__duckdb.json",
@@ -718,7 +719,7 @@
       },
       "name": "duckdb",
       "owner": "duckdb",
-      "raw_hash": "8809a87078bab4a66ca5a2eb18fd41825699e13de9f37c6f267d5e8e06527197"
+      "raw_hash": "2fee9055fb335161743bb64a831d26877072ac095609b12121687acfcb43febb"
     },
     {
       "bundle_file": "bundles/electron__electron.json",
@@ -733,7 +734,7 @@
       },
       "name": "electron",
       "owner": "electron",
-      "raw_hash": "a5ed5e4d1e61035e9f05eaa7f4fabad07180148acb45514d654def3afbd118f0"
+      "raw_hash": "9c38d1d40de12b4f3ce097554ec00883f521a0b17dc15a499644140c15b3237f"
     },
     {
       "bundle_file": "bundles/EvoLinkAI__awesome-gpt-image-2-API-and-Prompts.json",
@@ -748,7 +749,7 @@
       },
       "name": "awesome-gpt-image-2-API-and-Prompts",
       "owner": "EvoLinkAI",
-      "raw_hash": "0ae383620b064d682b7e4957f07b1dbf6071d635cb77c927cfe35385e8b86b04"
+      "raw_hash": "fe4208cc6a07a148ca406bae25cef93416b86f546ae8262ca0cde16ec1368be3"
     },
     {
       "bundle_file": "bundles/torvalds__linux.json",
@@ -763,7 +764,7 @@
       },
       "name": "linux",
       "owner": "torvalds",
-      "raw_hash": "d0dedb1320378005360f444c99c165799a1af31b1e398b910cdaa8457f0e2846"
+      "raw_hash": "8a2febe50705e6d945b4ebe933379e5872295805f745fa734463a0cd20b13c5e"
     }
   ],
   "snapshot_id": "snapshot_50",

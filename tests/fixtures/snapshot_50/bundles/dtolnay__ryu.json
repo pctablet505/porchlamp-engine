@@ -3,6 +3,7 @@
     "decision_pr_numbers": [],
     "newcomer_authors": []
   },
+  "forks": 39,
   "inputs": {
     "ai_posture": {
       "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/dtolnay/ryu/HEAD/README.md'",

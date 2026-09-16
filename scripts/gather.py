@@ -7,7 +7,9 @@ GitHub meta+PRs+first-reviews come from ONE aliased GraphQL request/repo;
 contributors/commits/GFI/actions/tree via REST; deps.dev, OpenSSF scorecard
 and registry download counts are keyless second sources.
 
-Usage: .venv/bin/python scripts/gather.py --limit 5 [--only-collector X] [--force]
+Usage: .venv/bin/python scripts/gather.py --limit 5 [--collectors a,b] [--force]
+       .venv/bin/python scripts/gather.py --all --collectors pr_window
+(the second form is one breadth-first layer: that collector for every candidate)
 """
 from __future__ import annotations
 
@@ -37,6 +39,32 @@ SLEEP_PYPISTATS = 15.0  # pypistats.org: ~5 req/min/IP (429 arrives as HTTP 200 
 PR_SAMPLE = 30
 CONTRIB_PAGES = 2
 COMMIT_PAGES = 3
+
+#: Every envelope directory gather_repo() can write, in fetch order. ``--collectors``
+#: takes a comma-separated subset of these. ``github_meta``/``pr_events``/``pr_reviews``
+#: come from one GraphQL request, so naming any of the three runs that request.
+COLLECTORS: tuple[str, ...] = (
+    "github_meta", "pr_events", "pr_reviews", "contributors", "gfi", "actions_runs", "tree",
+    "commits_180d", "depsdev", "scorecard", "downloads", "repo_object", "commits_365d",
+    "dependents", "pr_window", "releases", "issues_counts", "runs", "governance",
+    "author_history",
+)
+_META_BLOCK: frozenset[str] = frozenset({"github_meta", "pr_events", "pr_reviews"})
+
+
+def parse_collectors(text: str) -> Optional[frozenset[str]]:
+    """``--collectors`` value -> the selected set, or ``None`` for everything.
+
+    An unknown name exits with the valid list: a typo must not quietly turn a
+    breadth-first layer into a fetch-everything (depth-first) run.
+    """
+    names = frozenset(part.strip() for part in text.split(",") if part.strip())
+    if not names:
+        return None
+    unknown = sorted(names - set(COLLECTORS))
+    if unknown:
+        raise SystemExit(f"unknown collector(s) {unknown}; valid: {', '.join(COLLECTORS)}")
+    return names
 
 
 def _env(collector: str, key: str, source: str, data: Any) -> Path:
@@ -76,13 +104,26 @@ def _get_json(url: str, headers: Optional[dict] = None) -> Optional[dict]:
 
 
 def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
-                skip_pypistats: bool = False) -> dict[str, str]:
-    """Fetch every collector for one repo; return {collector: ok|skip|fail}."""
+                skip_pypistats: bool = False,
+                collectors: Optional[frozenset[str]] = None) -> dict[str, str]:
+    """Fetch every collector for one repo; return {collector: ok|skip|fail}.
+
+    ``collectors`` restricts the call to those names -- one breadth-first
+    layer, swept over every candidate before the next layer starts; every
+    other collector is reported ``"skip"`` without touching a transport.
+    ``None`` fetches everything, as before.
+    """
     key = f"{owner}__{name}"
     status: dict[str, str] = {}
 
+    def selected(collector: str) -> bool:
+        return collectors is None or collector in collectors
+
+    def done(collector: str) -> bool:
+        return not selected(collector) or _done(collector, key, force)
+
     # --- 1 GraphQL point: meta + PR sample + first reviews ---
-    if not _done("github_meta", key, force):
+    if (collectors is None or collectors & _META_BLOCK) and not _done("github_meta", key, force):
         q = (
             '{ r: repository(owner: "%s", name: "%s") {'
             'stargazerCount forkCount pushedAt isArchived createdAt'
@@ -158,7 +199,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                     "truncated": bool((d or {}).get("truncated"))}),
     ]
     for collector, path, flags, shape in rest:
-        if _done(collector, key, force):
+        if done(collector):
             status[collector] = "skip"
             continue
         time.sleep(SLEEP_REST)
@@ -170,7 +211,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             print(f"  WARN {collector} {owner}/{name}: {e}")
 
     # commits_180d (paged, capped)
-    if not _done("commits_180d", key, force):
+    if not done("commits_180d"):
         since = (datetime.now(timezone.utc) - timedelta(days=180)).isoformat()
         rows: list[dict] = []
         try:
@@ -202,7 +243,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                         "checks": {c["name"]: c.get("score") for c in d.get("checks", [])}}
          if d else None),
     ]:
-        if _done(collector, key, force):
+        if done(collector):
             status[collector] = "skip"
             continue
         time.sleep(SLEEP_KEYLESS)
@@ -220,14 +261,14 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             if dl_p.is_file() else None
     except (json.JSONDecodeError, OSError):  # review-ok: gate-cache — corrupt -> refetch
         dl_monthly = None
-    if not (dl_monthly is not None and not force):
+    if selected("downloads") and not (dl_monthly is not None and not force):
         monthly, src = _downloads(ecosystem, name, skip_pypistats=skip_pypistats)
         _env("downloads", dl_key, src, {"monthly": monthly})
         status["downloads"] = "ok" if monthly is not None else "fail"
     else:
         status["downloads"] = "skip"
     # Repo-object eligibility envelope (D-GATE-1/2/3/6)
-    if _done("repo_object", key, force):
+    if done("repo_object"):
         status["repo_object"] = "skip"
     else:
         from cvi.collect.repo_object import collect_repo_object
@@ -243,7 +284,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     from cvi.collect import labels as cvi_labels
 
     gfi_path = DATA / "gfi" / f"{key}.json"
-    if cvi_labels.needs_gather(gfi_path, force):
+    if selected("gfi") and cvi_labels.needs_gather(gfi_path, force):
         try:
             result = cvi_labels.collect_newcomer_issues(_gh, owner, name)
             cvi_labels.write_gfi_envelope(owner, name, result, gfi_path)
@@ -255,7 +296,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         status["gfi"] = "skip"
 
     # --- commits_365d (365 d, cap 1000; author email/login/type) ---
-    if not _done("commits_365d", key, force):
+    if not done("commits_365d"):
         def _page(page: int, since: str) -> list[dict]:
             time.sleep(SLEEP_REST)
             return _gh(f"repos/{owner}/{name}/commits", "-X", "GET",
@@ -274,7 +315,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     # Package-level dependents — deps.dev primary, ecosyste.ms
     # fallback; "skip" = no registry mapping for this ecosystem (module
     # docstring of cvi.collect.depsdev), no envelope, no fetch.
-    if _done("dependents", key, force):
+    if done("dependents"):
         status["dependents"] = "skip"
     else:
         from cvi.collect import depsdev as depsdev_mod
@@ -321,7 +362,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             status["dependents"] = "fail"
             print(f"  WARN dependents {owner}/{name}: {e}")
     # Windowed PRs, typed actors (D-IN-1/2/4, 02 §4 1.1/1.4/4.3)
-    if _done("pr_window", key, force):
+    if done("pr_window"):
         status["pr_window"] = "skip"
     else:
         from cvi.collect import github_graphql as prw_mod
@@ -347,7 +388,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         ("issues_counts", lambda: pike_mod.collect_issue_counts(DATA, owner, name)),
         ("runs", lambda: pike_mod.collect_runs(DATA, owner, name, branch)),
     ):
-        if _done(collector, key, force):
+        if done(collector):
             status[collector] = "skip"
             continue
         try:
@@ -358,7 +399,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     # --- Governance evidence envelope (02 §4 3.1/3.3/4.2) — check
     # names on the 20 newest merged PRs, 365 d sign-off commits and the
     # GOVERNANCE/MAINTAINERS/CONTRIBUTING/SECURITY + AI-policy files. ---
-    if _done("governance", key, force):
+    if done("governance"):
         status["governance"] = "skip"
     else:
         from cvi.collect import governance as gov_mod
@@ -368,7 +409,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             status["governance"] = "fail"
             print(f"  WARN governance {owner}/{name}: {e}")
     # Author history + cohorts (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3)
-    if _done("author_history", key, force):
+    if done("author_history"):
         status["author_history"] = "skip"
     else:
         from cvi.collect import github_graphql as cohort_mod
@@ -433,18 +474,26 @@ def main() -> int:
     ap.add_argument("--repo", nargs=2, metavar=("OWNER", "NAME"))
     ap.add_argument("--ecosystem", default="pypi")
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--all", action="store_true",
+                    help="every candidate in candidates.jsonl (--limit is ignored)")
+    ap.add_argument("--collectors", default="",
+                    help="comma-separated subset of: " + ",".join(COLLECTORS)
+                         + " -- one breadth-first layer; default: everything")
     a = ap.parse_args()
+    selected = parse_collectors(a.collectors)
     if a.repo:
         repos = [(a.repo[0], a.repo[1], a.ecosystem)]
     else:
         repos = []
-        for line in CANDIDATES.read_text().splitlines()[: a.limit]:
+        lines = CANDIDATES.read_text().splitlines()
+        for line in (lines if a.all else lines[: a.limit]):
             r = json.loads(line)
             if r.get("owner"):
                 repos.append((r["owner"], r["name"], r["ecosystem"]))
     ok = fail = 0
+    print(f"collectors: {'all' if selected is None else ','.join(sorted(selected))}; repos: {len(repos)}")
     for owner, name, eco in repos:
-        st = gather_repo(owner, name, eco, force=a.force)
+        st = gather_repo(owner, name, eco, force=a.force, collectors=selected)
         bad = [k for k, v in st.items() if v == "fail"]
         ok += not bad
         fail += bool(bad)

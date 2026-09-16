@@ -3,6 +3,7 @@
     "decision_pr_numbers": [],
     "newcomer_authors": []
   },
+  "forks": 1594,
   "inputs": {
     "ai_posture": {
       "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/alibaba/AndFix/HEAD/README.md'",

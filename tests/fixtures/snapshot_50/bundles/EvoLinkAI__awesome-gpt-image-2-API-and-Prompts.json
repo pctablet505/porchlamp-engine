@@ -3,6 +3,7 @@
     "decision_pr_numbers": [],
     "newcomer_authors": []
   },
+  "forks": 1734,
   "inputs": {
     "ai_posture": {
       "detail": "v1 source is not an envelope: 'https://raw.githubusercontent.com/EvoLinkAI/awesome-gpt-image-2-API-and-Prompts/HEAD/README.md'",
