@@ -212,9 +212,19 @@ def _first_timer_reason(bundle_inputs: Mapping[str, ParamValue]) -> str | None:
     reason its own branch failed to qualify (``Unmeasured``, not merely a
     low value), the reason names it; else if ``newcomer_issue_supply`` is
     the reason its branch failed the same way, the reason names that one
-    instead; only when *both* inputs were ``Measured`` and still failed to
-    qualify is the reason the substantive
-    :data:`REASON_HIGH_BARRIER_TO_ENTRY`."""
+    instead; else if ``mr_first_rate`` was measured over too few decided PRs
+    to be read at all, the reason names it; only when *both* inputs carried
+    enough evidence to be read and still failed to qualify is the reason the
+    substantive :data:`REASON_HIGH_BARRIER_TO_ENTRY`.
+
+    The ``n`` floor is an evidence condition, not a barrier condition: it
+    exists because a merge-rate computed over a handful of decided PRs is
+    not a reliable estimate at all. Reporting such a repo as a high barrier
+    to entry would assert something the sample cannot show, so it is
+    reported as insufficient evidence for ``mr_first_rate``. It is checked
+    after the two ``Unmeasured`` cases because an input with no measurement
+    at all is the more basic gap to report.
+    """
     mr_first = bundle_inputs[INPUT_MR_FIRST_RATE]
     mr_qualifies = (
         isinstance(mr_first, Measured)
@@ -229,6 +239,8 @@ def _first_timer_reason(bundle_inputs: Mapping[str, ParamValue]) -> str | None:
         return f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{INPUT_MR_FIRST_RATE}"
     if not isinstance(supply, Measured):
         return f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{INPUT_NEWCOMER_ISSUE_SUPPLY}"
+    if mr_first.n < FIRST_TIMER_MIN_DECIDED_PRS:
+        return f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{INPUT_MR_FIRST_RATE}"
     return REASON_HIGH_BARRIER_TO_ENTRY
 
 
@@ -237,14 +249,25 @@ def _career_capital_reason(record: ScoreRecord) -> str | None:
     reason the gate fires. A missing pillar (gate-ineligible record,
     ``record.pillars == {}``) or a pillar with no measured parameter
     (``score is None``) is the ``Unmeasured`` case -- reason names the
-    pillar; a pillar with a real ``score`` that still fails the threshold or
-    coverage condition is the substantive :data:`REASON_LOW_CRITICALITY`."""
+    pillar; a pillar with a real ``score`` that still fails the threshold is
+    the substantive :data:`REASON_LOW_CRITICALITY`.
+
+    Thin coverage is reported as insufficient evidence, not as low
+    criticality: a repo whose criticality clears
+    :data:`CAREER_CAPITAL_MIN_CRITICALITY` and fails only
+    :data:`CAREER_CAPITAL_MIN_COVERAGE` has not been shown to be low-value,
+    it has been shown to be under-measured, and the two reasons must not be
+    conflated (the coverage condition is part of the D-PERS-2 gate, so the
+    gate still fires either way -- only the stated reason differs).
+    """
     criticality = record.pillars.get(CRITICALITY_PILLAR)
     score = criticality.score if criticality is not None else None
     if score is None:
         return f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{CRITICALITY_PILLAR}"
-    if score >= CAREER_CAPITAL_MIN_CRITICALITY and criticality.coverage >= CAREER_CAPITAL_MIN_COVERAGE:
-        return None
+    if score >= CAREER_CAPITAL_MIN_CRITICALITY:
+        if criticality.coverage >= CAREER_CAPITAL_MIN_COVERAGE:
+            return None
+        return f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{CRITICALITY_PILLAR}"
     return REASON_LOW_CRITICALITY
 
 

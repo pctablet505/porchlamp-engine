@@ -95,14 +95,21 @@ PERSONAS: tuple[str, ...] = (
 GateReason = Literal["mirror", "archived", "unlicensed", "stale", "black_hole", "non_software", "fork"]
 
 #: `unrated_reason` values (`06-UX-DESIGN.md` §3 A2: "insufficient evidence
-#: ... ; no external workflow; off-platform routed"). Both spellings of the
-#: evidence-floor reason are accepted: the
-#: engine's own constant is `"unrated: insufficient_evidence"`; this
-#: contract takes that string as-is rather than asking the API to
-#: normalise it, and `copy.js.unratedReasonText` maps either spelling to
-#: the same sentence.
+#: ... ; no external workflow; off-platform routed"). Both spellings of each
+#: reason are accepted: the engine's own constants are prefixed
+#: (`cvi.core.gates.REASON_INSUFFICIENT_EVIDENCE` is
+#: `"unrated: insufficient_evidence"`, and likewise for the other two); this
+#: contract takes those strings as-is rather than asking the API to
+#: normalise them, and `copy.js.unratedReasonText` maps either spelling to
+#: the same sentence. The bare spellings are kept because stored v1 rows and
+#: the hand-written UI fixtures use them.
 UnratedReason = Literal[
-    "insufficient_evidence", "unrated: insufficient_evidence", "no_external_workflow", "off_platform_routed"
+    "insufficient_evidence",
+    "unrated: insufficient_evidence",
+    "no_external_workflow",
+    "unrated: no_external_workflow",
+    "off_platform_routed",
+    "unrated: off_platform_routed",
 ]
 
 

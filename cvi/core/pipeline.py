@@ -96,7 +96,10 @@ from typing import Any, Callable, Mapping, Sequence
 from cvi.core import commit_domains, constants, persona
 from cvi.core.commit_domains import LastNonBotCommitMeasured
 from cvi.core.engine import PopulationLookup, Snapshot, score
-from cvi.core.gates import GateEvidence, REASON_NO_EXTERNAL_WORKFLOW
+from cvi.core.gates import (
+    DISPLAY_UNRATED_GATE_REASONS as _DISPLAY_UNRATED_GATE_REASONS,
+    GateEvidence,
+)
 from cvi.core.models import (
     FeatureBundle,
     PersonaComposite,
@@ -156,22 +159,48 @@ def score_bundle_stage_8_persona(record: ScoreRecord, bundle: FeatureBundle) -> 
     (``ScoreRecord`` is frozen; never mutated -- see the module docstring
     for the gated-vs-unrated distinction and why the unrated
     branch recomputes each persona's own coverage rather than stating one
-    shared reason)."""
+    shared reason).
+
+    A gate-ineligible record fails every persona for the same D-GATE reason
+    and has no persona composites at all. Otherwise each gated persona gets
+    exactly one reason, chosen by what the reason *claims* rather than by
+    which check produced it:
+
+    1. A substantive D-PERS-2 gate (``ai_hard_ban``,
+       ``high_barrier_to_entry``, ``criticality_below_threshold``). These
+       fire on evidence that was measured and genuinely failed, so they are
+       durable: collecting more data for the pillars this persona is thin on
+       would not open the lens. Reporting the coverage gap instead would
+       tell a reader to wait for evidence that cannot change the outcome,
+       and would hide a hard ban behind a soft-sounding reason.
+    2. ``insufficient_evidence:coverage``, when the persona's own composite
+       did not clear the coverage floor. This is recomputed per persona
+       rather than inherited from ``record.rated`` because the preset weight
+       vectors differ: a repo can be unrated overall yet have enough
+       evidence under one persona's weights, and a repo rated overall can
+       still be under-covered for a persona that leans on a thin pillar.
+       It outranks the input-level evidence reason below because the whole
+       lens is unreadable, not just one of its inputs.
+    3. An ``insufficient_evidence:<input>`` D-PERS-2 gate, when the persona
+       is otherwise well enough covered to be shown -- then the one missing
+       input is exactly the thing to name.
+    """
     if not record.gate.eligible:
         gates = {p: record.gate.reason for p in persona.GATED_PERSONAS}
         composites: dict[str, PersonaComposite] = {}
-    elif not record.rated:
+    else:
         composites = {p: persona.persona_composite(record, p) for p in persona.PERSONA_PRESETS}
         own_gates = persona.persona_gates(record, bundle.inputs)
         gates = {}
         for name in persona.GATED_PERSONAS:
-            if not composites[name].rated:
+            own = own_gates.get(name)
+            substantive = own is not None and not own.startswith(persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX)
+            if substantive:
+                gates[name] = own
+            elif not composites[name].rated:
                 gates[name] = f"{persona.REASON_INSUFFICIENT_EVIDENCE_PREFIX}coverage"
-            elif name in own_gates:
-                gates[name] = own_gates[name]
-    else:
-        gates = persona.persona_gates(record, bundle.inputs)
-        composites = {p: persona.persona_composite(record, p) for p in persona.PERSONA_PRESETS}
+            elif own is not None:
+                gates[name] = own
     return replace(record, persona_gates=gates, persona_composites=composites)
 
 
@@ -276,11 +305,15 @@ class ScoredSnapshot:
 #: gates it at stage 0 (`cvi.core.gates.REASON_NO_EXTERNAL_WORKFLOW`,
 #: D-GATE-6: `eligible=False`) -- that raw flag is `03` section 5's
 #: provenance and stays exactly as `evaluate_gates` computed it, never
-#: rewritten. This frozen set is the ONE place the two classifications'
-#: difference is named, reused by :func:`not_ranked_class` (this module),
-#: `cvi.store.queries.snapshot_summary` and `cvi.serve.app`'s not-ranked
-#: split, so every count on every screen agrees.
-DISPLAY_UNRATED_GATE_REASONS: frozenset[str] = frozenset({REASON_NO_EXTERNAL_WORKFLOW})
+#: rewritten.
+#:
+#: Re-exported from ``cvi.core.gates``, which is where it is defined (beside
+#: the reason vocabulary it is a subset of, and reachable from
+#: ``cvi.core.engine``, which this module imports). Named here as well so its
+#: existing consumers -- :func:`not_ranked_class` below,
+#: `cvi.store.queries.snapshot_summary`, `cvi.serve.app`'s not-ranked split --
+#: keep importing it from the module whose classification it describes.
+DISPLAY_UNRATED_GATE_REASONS: frozenset[str] = _DISPLAY_UNRATED_GATE_REASONS
 
 
 def not_ranked_class(record: ScoreRecord) -> str:
@@ -377,10 +410,23 @@ def _validated_keys(
     raw_hashes: Mapping[RepoKey, str],
 ) -> list[RepoKey]:
     keys = [repo_key(bundle) for bundle in bundles]
-    seen: set[RepoKey] = set()
+    # Case-INSENSITIVE: the last level of both D-TIE-1 (``tie_key``) and
+    # D-TIE-2 (``_name_key``) is ``(owner.lower(), name.lower())``, so two
+    # bundles differing only in case produce an identical final key. Python's
+    # sort is stable, which means their relative order -- and therefore
+    # ``ScoredSnapshot.records_hash`` -- would be decided by the caller's
+    # input sequence, breaking this module's contract that a shuffle of
+    # ``bundles`` can never change the hash. They are also, in every
+    # real sense, the same repository: GitHub owner/name is case-insensitive.
+    seen: dict[str, RepoKey] = {}
     duplicates: set[RepoKey] = set()
     for key in keys:
-        (duplicates if key in seen else seen).add(key)
+        folded = key.lower()
+        if folded in seen:
+            duplicates.add(seen[folded])
+            duplicates.add(key)
+        else:
+            seen[folded] = key
     problems: list[str] = []
     if duplicates:
         problems.append(f"duplicate repo key(s) in bundles: {sorted(duplicates)}")

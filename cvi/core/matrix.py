@@ -23,9 +23,9 @@ comparison behaviour specifically as kept.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Callable, Mapping
 
-from cvi.core import constants
+from cvi.core import aggregate, constants
 from cvi.core.models import PillarScore
 
 #: D-MAT-1 leverage weights (kept from v1's LEVERAGE_WEIGHTS), re-bound
@@ -56,35 +56,64 @@ class Coordinates:
     quadrant: str | None
 
 
-def _renormalised(weights: Mapping[str, float], values: Mapping[str, float | None]) -> tuple[float | None, float]:
-    """``Sum(w_i * v_i) / Sum(w_i)`` over measured (non-``None``) entries;
-    coverage is ``Sum(w_i measured) / Sum(w_i all)``. D-MAT-1: an unmeasured
-    pillar drops out of the coordinate under the same renormalisation as
-    D-MISS-2. ``None`` when every contributing pillar is unmeasured."""
-    total_weight = sum(weights.values())
-    measured_weight = sum(weight for name, weight in weights.items() if values[name] is not None)
-    coverage = measured_weight / total_weight if total_weight > 0.0 else 0.0
+def _renormalised(
+    weights: Mapping[str, float],
+    pillars: Mapping[str, PillarScore],
+    transform: Callable[[float], float],
+) -> tuple[float | None, float]:
+    """``Sum(w_i * transform(score_i)) / Sum(w_i)`` over measured contributing
+    pillars, and that axis's coverage, both over the APPLICABLE ones.
+
+    Two renormalisations, over the same denominator, matching what
+    :mod:`cvi.core.aggregate` does for the composite:
+
+    - D-MISS-5: a contributing pillar that is ``applicable=False`` (all of its
+      parameters are ``not_applicable`` for this repo -- a fact about the
+      world, not a gap in the data) leaves BOTH sums entirely, exactly as
+      :func:`cvi.core.aggregate.composite_coverage` drops it from its own
+      denominator. Leaving its weight in the denominator would cap this
+      axis's coverage below 1.0 for a repo that is, on the evidence that can
+      exist for it, fully measured.
+    - D-MAT-1/D-MISS-2: an unmeasured pillar (``score is None``) drops out of
+      the VALUE's renormalisation, so the coordinate is the weighted mean of
+      the pillars that were measured.
+
+    ``coverage`` is the measured SHARE of applicable contributing weight --
+    ``Sum(w_i * c_i) / Sum(w_i)``, weighing each pillar by its own
+    ``PillarScore.coverage`` rather than by whether it has any score at all.
+    A pillar 10% measured contributes 0.10 of its weight here, not all of it:
+    "this axis is fully covered" must mean the parameters under it were
+    measured, not merely that one of them was.
+
+    ``None`` for the value when every applicable contributing pillar is
+    unmeasured; ``0.0`` coverage when none is applicable.
+    """
+    applicable = [name for name in weights if pillars[name].applicable]
+    total_weight = sum(weights[name] for name in applicable)
+    if total_weight <= 0.0:
+        return None, 0.0
+    coverage = round(
+        sum(weights[name] * pillars[name].coverage for name in applicable) / total_weight,
+        aggregate.RATIO_DECIMALS,
+    )
+    measured = [(weights[name], pillars[name].score) for name in applicable if pillars[name].score is not None]
+    measured_weight = sum(weight for weight, _ in measured)
     if measured_weight <= 0.0:
         return None, coverage
-    numerator = sum(weight * values[name] for name, weight in weights.items() if values[name] is not None)
-    return numerator / measured_weight, coverage
+    value = sum(weight * transform(score) for weight, score in measured) / measured_weight
+    return round(value, aggregate.RATIO_DECIMALS), coverage
 
 
 def leverage(pillars: Mapping[str, PillarScore]) -> tuple[float | None, float]:
     """D-MAT-1 leverage and its coverage, unrounded. ``pillars`` must carry
     all five frozen pillar names."""
-    values = {name: pillars[name].score for name in LEVERAGE_WEIGHTS}
-    return _renormalised(LEVERAGE_WEIGHTS, values)
+    return _renormalised(LEVERAGE_WEIGHTS, pillars, lambda score: score)
 
 
 def friction(pillars: Mapping[str, PillarScore]) -> tuple[float | None, float]:
     """D-MAT-1 friction and its coverage, unrounded. ``pillars`` must carry
     all five frozen pillar names."""
-    values = {
-        name: (100.0 - pillars[name].score) if pillars[name].score is not None else None
-        for name in FRICTION_WEIGHTS
-    }
-    return _renormalised(FRICTION_WEIGHTS, values)
+    return _renormalised(FRICTION_WEIGHTS, pillars, lambda score: 100.0 - score)
 
 
 def quadrant(leverage_value: float | None, friction_value: float | None) -> str | None:

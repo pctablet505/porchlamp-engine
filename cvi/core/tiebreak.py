@@ -146,10 +146,23 @@ def ttfhr_p75_from_pr_window(pr_window: PRWindow) -> float | None:
     return hours[index - 1]
 
 
+def _as_utc(value: str) -> datetime:
+    """Parse an ISO date/datetime string as an AWARE UTC datetime.
+
+    An offset-less string (a bare date, or one this codebase normalised from a
+    ``Z`` suffix) is interpreted as UTC rather than left naive. Python refuses
+    to subtract a naive datetime from an aware one -- it raises ``TypeError``
+    -- so a window whose two ends came from different collectors, one carrying
+    an offset and one not, would abort the sort rather than produce a wrong
+    number. Same convention as :func:`_commit_epoch`, so every timestamp in
+    this module is read the same way.
+    """
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
 def _hours_between(start: str, end: str) -> float:
-    start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
-    end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
-    return (end_dt - start_dt).total_seconds() / 3600.0
+    return (_as_utc(end) - _as_utc(start)).total_seconds() / 3600.0
 
 
 def _commit_epoch(value: str | None) -> float | None:
@@ -198,6 +211,21 @@ def _measured_asc(value: float | None) -> tuple[int, float]:
     return (0, value)
 
 
+#: Decimal places the float levels of :func:`tie_key` are quantised to before
+#: they are compared. Chosen far below the ``~1e-16`` ULP error a weighted mean
+#: over the decimal weights in ``cvi.core.constants`` carries, and far above
+#: any precision these levels are stored or shown at (coverage 4 decimals,
+#: leverage/friction 2), so quantising can only remove representation noise --
+#: never merge two values the design text would call different.
+_TIE_LEVEL_DECIMALS: int = 9
+
+
+def _quantised(value: float | None) -> float | None:
+    """``value`` rounded to :data:`_TIE_LEVEL_DECIMALS`; ``None`` passes through
+    unchanged (it means unmeasured, which is its own branch of the encoding)."""
+    return None if value is None else round(value, _TIE_LEVEL_DECIMALS)
+
+
 def tie_key(entry: TieBreakInput) -> tuple:
     """D-TIE-1 sort key for one *rated* entry (``entry.record.composite is
     not None``). Ascending comparison of the returned tuples reproduces the
@@ -206,6 +234,19 @@ def tie_key(entry: TieBreakInput) -> tuple:
     tuple" by :func:`_measured_desc` / :func:`_measured_asc`; composite and
     coverage use the same negation directly since they are never
     unmeasured for a rated record).
+
+    Every float level is quantised before it enters the tuple. D-TIE-1 is a
+    LADDER: two repos that tie on one level must fall through to the next one,
+    and that only happens if "tie" is decided on the value the design text
+    names rather than on its binary representation. Composite already had this
+    (``COMPOSITE_DECIMALS``) and leverage/friction arrive pre-rounded from
+    :func:`cvi.core.matrix.coordinates`; coverage, the responsiveness pillar
+    score and TTFHR-p75 did not, and all three are weighted-mean ratios or
+    interpolated percentiles that carry ``~1e-16`` error, so two genuinely
+    tied repos would be separated here -- arbitrarily, by which operand
+    happened to round up -- instead of being sent on to the next level.
+    :data:`_TIE_LEVEL_DECIMALS` is far below that noise and far above any
+    precision these levels are stored or displayed at.
 
     Raises ``ValueError`` if ``entry.record.composite`` is ``None``: this
     function is for rated records only (D-TIE-2 -- gated and unrated
@@ -217,11 +258,11 @@ def tie_key(entry: TieBreakInput) -> tuple:
     responsiveness_score = pillar.score if pillar is not None else None
     return (
         -round(entry.record.composite, constants.COMPOSITE_DECIMALS),
-        -entry.record.coverage,
-        _measured_desc(responsiveness_score),
-        _measured_asc(entry.record.friction),
-        _measured_desc(entry.record.leverage),
-        _measured_asc(entry.ttfhr_p75_hours),
+        -round(entry.record.coverage, _TIE_LEVEL_DECIMALS),
+        _measured_desc(_quantised(responsiveness_score)),
+        _measured_asc(_quantised(entry.record.friction)),
+        _measured_desc(_quantised(entry.record.leverage)),
+        _measured_asc(_quantised(entry.ttfhr_p75_hours)),
         _measured_desc(_commit_epoch(entry.last_non_bot_commit_at)),
         (entry.owner.lower(), entry.name.lower()),
     )

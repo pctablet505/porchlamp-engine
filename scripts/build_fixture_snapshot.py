@@ -241,6 +241,85 @@ def _tier_or_none(record: Any) -> str | None:
     return record.tier
 
 
+def expected_document(snapshot: ScoredSnapshot) -> dict[str, Any]:
+    """Build ``expected.json``'s content for ``snapshot``.
+
+    Split out of :func:`write_fixture` so the committed fixture's
+    expectations can be re-derived from the committed bundles alone (see
+    :func:`rewrite_expected`) using the very same construction, without
+    needing the read-only sample corpus the rest of the build consumes.
+    A second, hand-maintained copy of this shape would be free to drift
+    from the one the real build writes, which would quietly weaken the
+    reproducibility pin it exists to be.
+    """
+    return {
+        "document": "cvi-fixture-snapshot-expected",
+        "version": 1,
+        "records_hash": snapshot.records_hash,
+        "counts": {
+            "rated": snapshot.counts.rated,
+            "gated": snapshot.counts.gated,
+            "unrated": snapshot.counts.unrated,
+            "persona_visible": dict(snapshot.counts.persona_visible),
+        },
+        "rank_order": [f"{r.repo.owner}/{r.repo.name}" for r in snapshot.records],
+        "records": [
+            {
+                "repo": f"{r.repo.owner}/{r.repo.name}",
+                "eligible": r.gate.eligible,
+                "gate_reason": r.gate.reason,
+                "routed": r.gate.routed,
+                "rated": r.rated,
+                "unrated_reason": r.unrated_reason,
+                "composite": r.composite,
+                "coverage": round(r.coverage, 6),
+                "tier": _tier_or_none(r),
+                "rank": r.rank,
+                "tie_group": r.tie_group,
+            }
+            for r in snapshot.records
+        ],
+    }
+
+
+def write_expected(snapshot: ScoredSnapshot, path: Path) -> None:
+    """Write ``expected.json`` for ``snapshot`` to ``path``."""
+    path.write_text(
+        json.dumps(expected_document(snapshot), indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def rewrite_expected(fixture_dir: Path) -> ScoredSnapshot:
+    """Re-score the committed fixture in place and rewrite ``expected.json``.
+
+    For the case where the engine's semantics changed deliberately -- a gate
+    corrected, a reason code re-classified -- and the fixture's pinned
+    expectations are now stale *by intent*. The bundles, populations and
+    manifest are inputs and are left untouched; only the recorded outputs are
+    refreshed, from those same inputs, through the real pipeline
+    (:func:`cvi.snapshot.store_cmd.score_snapshot_with_detectors`, the exact
+    entry point ``test_reproduce_matches_expected_hash`` pins against).
+
+    This is deliberately a separate, explicitly-invoked mode rather than
+    something any test does on its own: a pin that rewrites itself when it
+    fails is not a pin. Every use must come with a reviewed explanation of
+    why the previous expectations were wrong.
+    """
+    from cvi.snapshot.store_cmd import score_snapshot_with_detectors
+
+    frozen = load_frozen_fixture(fixture_dir)
+    snapshot = score_snapshot_with_detectors(
+        frozen.bundles,
+        frozen.populations,
+        snapshot_id=frozen.snapshot_id,
+        as_of=frozen.as_of,
+        gate_evidence=frozen.gate_evidence,
+        raw_hashes=frozen.raw_hashes,
+    )
+    write_expected(snapshot, fixture_dir / "expected.json")
+    return snapshot
+
+
 def write_fixture(result: FixtureBuildResult, out_dir: Path) -> None:
     """Write the fixture's on-disk shape: ``bundles/<owner>__<name>.json``,
     ``populations.json``, ``manifest.json``, ``expected.json``."""
@@ -288,37 +367,7 @@ def write_fixture(result: FixtureBuildResult, out_dir: Path) -> None:
         json.dumps(manifest_doc, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
 
-    expected_doc = {
-        "document": "cvi-fixture-snapshot-expected",
-        "version": 1,
-        "records_hash": result.snapshot.records_hash,
-        "counts": {
-            "rated": result.snapshot.counts.rated,
-            "gated": result.snapshot.counts.gated,
-            "unrated": result.snapshot.counts.unrated,
-            "persona_visible": dict(result.snapshot.counts.persona_visible),
-        },
-        "rank_order": [f"{r.repo.owner}/{r.repo.name}" for r in result.snapshot.records],
-        "records": [
-            {
-                "repo": f"{r.repo.owner}/{r.repo.name}",
-                "eligible": r.gate.eligible,
-                "gate_reason": r.gate.reason,
-                "routed": r.gate.routed,
-                "rated": r.rated,
-                "unrated_reason": r.unrated_reason,
-                "composite": r.composite,
-                "coverage": round(r.coverage, 6),
-                "tier": _tier_or_none(r),
-                "rank": r.rank,
-                "tie_group": r.tie_group,
-            }
-            for r in result.snapshot.records
-        ],
-    }
-    (out_dir / "expected.json").write_text(
-        json.dumps(expected_doc, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    write_expected(result.snapshot, out_dir / "expected.json")
 
 
 #: Moved to :mod:`cvi.snapshot.fixture_io` so ``cvi.snapshot.store_cmd`` --
@@ -333,7 +382,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
     parser.add_argument("--size", type=int, default=FIXTURE_SIZE)
     parser.add_argument("--snapshot-id", default=SNAPSHOT_ID)
+    parser.add_argument(
+        "--rewrite-expected",
+        action="store_true",
+        help=(
+            "Do not rebuild from the sample corpus; re-score the committed fixture in "
+            "--out-dir and rewrite only its expected.json. Use when the engine's "
+            "semantics changed deliberately and the pinned expectations are stale by "
+            "intent -- never to make a failing reproduce test go away."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    if args.rewrite_expected:
+        snapshot = rewrite_expected(args.out_dir)
+        print(f"rewrote {args.out_dir / 'expected.json'} from the committed bundles")
+        print(f"counts: rated={snapshot.counts.rated} gated={snapshot.counts.gated} "
+              f"unrated={snapshot.counts.unrated}")
+        print(f"records_hash: {snapshot.records_hash}")
+        return 0
 
     result = build_fixture(args.sample_root, size=args.size, snapshot_id=args.snapshot_id)
     write_fixture(result, args.out_dir)

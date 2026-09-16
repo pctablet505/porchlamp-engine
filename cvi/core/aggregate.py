@@ -56,6 +56,30 @@ TIER_FLOOR: str = "D"
 #: ``min(tier_by_score, ceiling)`` (D-MAT-2).
 TIER_ORDER: tuple[str, ...] = constants.TIER_ORDER
 
+#: Decimal places every weighted-mean RATIO in this module is rounded to
+#: before it is returned (and therefore before any sharp ``>=`` threshold
+#: compares it).
+#:
+#: The weights in ``cvi.core.constants`` are decimal literals that IEEE 754
+#: binary doubles cannot represent exactly, so a sum of them carries a
+#: ``~1e-16`` ULP error while the ``weight * score`` products above it stay
+#: exact for integer scores: ``(0.35 * 60 + 0.25 * 60) / (0.35 + 0.25)``
+#: evaluates to ``59.99999999999999``, not ``60.0``, and
+#: ``0.25*0.6 + 0.25*0.6 + 0.15*1 + 0.15*1`` to ``0.59999999999999998``, not
+#: ``0.60``. Every consumer of these ratios compares them against a sharp
+#: cutoff -- the D-EVID-1 ``0.60`` coverage floor, the D-MISS-3 ``0.80`` /
+#: ``0.95`` ceiling bands, the D-MAT-2 tier cutoffs, the D-PERS-2 persona
+#: minimums -- so that ULP is the difference between tier ``S+`` and ``S``,
+#: or between rated and ``unrated: insufficient_evidence``, for a repo whose
+#: every measured input landed exactly on the cutoff.
+#:
+#: 12 is chosen to sit far below the ``1e-16`` noise floor (so the exact
+#: rational value wins) and far above the precision any threshold or stored
+#: value in this codebase distinguishes (composites are stored at 2 decimals,
+#: coverages at 4): rounding here can only remove representation error, never
+#: change a value the design text could name.
+RATIO_DECIMALS: int = 12
+
 
 def _pillar_problems(params: Mapping[str, ParamScore]) -> list[str]:
     expected = set(constants.PARAM_INPUT_IDS)
@@ -106,10 +130,10 @@ def aggregate_pillars(params: Mapping[str, ParamScore]) -> dict[str, PillarScore
         applicable_entries = [(weight, score) for weight, score in entries if not _is_not_applicable(score)]
         total_weight = sum(weight for weight, _ in applicable_entries)
         measured_weight = sum(weight for weight, score in applicable_entries if score.measured)
-        coverage = measured_weight / total_weight if total_weight > 0.0 else 0.0
+        coverage = round(measured_weight / total_weight, RATIO_DECIMALS) if total_weight > 0.0 else 0.0
         if measured_weight > 0.0:
             weighted_sum = sum(weight * score.score for weight, score in applicable_entries if score.measured)
-            pillar_score = weighted_sum / measured_weight
+            pillar_score = round(weighted_sum / measured_weight, RATIO_DECIMALS)
         else:
             pillar_score = None
         result[pillar] = PillarScore(score=pillar_score, coverage=coverage, applicable=total_weight > 0.0)
@@ -181,7 +205,10 @@ def composite_coverage(
     denominator = sum(weights[pillar] for pillar in applicable)
     if denominator <= 0.0:
         return 0.0
-    return sum(weights[pillar] * pillars[pillar].coverage for pillar in applicable) / denominator
+    return round(
+        sum(weights[pillar] * pillars[pillar].coverage for pillar in applicable) / denominator,
+        RATIO_DECIMALS,
+    )
 
 
 def composite_score_raw(
@@ -207,7 +234,7 @@ def composite_score_raw(
     total_weight = sum(weight for weight, _ in measured)
     if total_weight <= 0.0:
         return None
-    return sum(weight * score for weight, score in measured) / total_weight
+    return round(sum(weight * score for weight, score in measured) / total_weight, RATIO_DECIMALS)
 
 
 def composite_score(pillars: Mapping[str, PillarScore]) -> float | None:

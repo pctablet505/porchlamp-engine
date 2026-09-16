@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass, fields
 from typing import Any, Literal, Mapping
@@ -40,8 +41,20 @@ def canonical_json(value: object) -> str:
 
     Byte-identical to ``cvi.collect.envelope.canonical_json`` on values
     decoded from JSON (that encoder additionally lowers enums, datetimes and
-    sets, which v2 documents do not carry)."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    sets, which v2 documents do not carry).
+
+    ``allow_nan=False``: Python's default would emit the bare tokens ``NaN``,
+    ``Infinity`` and ``-Infinity``, which RFC 8259 has no production for. Any
+    other reader -- a browser's ``JSON.parse``, a strict JSON library, SQLite's
+    ``json_valid`` -- rejects such a document, so a bundle carrying one would
+    hash and write cleanly here and fail to load everywhere else. Raising
+    ``ValueError`` at the encoder keeps that failure at the point the bad value
+    is introduced. Values reaching here are normally already validated by
+    :func:`measured_problems`, which rejects non-finite floats outright.
+    """
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    )
 
 
 def sha256_hex(text: str) -> str:
@@ -80,6 +93,10 @@ def _optional_nonempty_str(value: Any) -> bool:
     return value is None or _nonempty_str(value)
 
 
+def _optional_iso(value: Any) -> bool:
+    return value is None or _is_iso(value)
+
+
 #: Windows drive letter or UNC prefix (``C:\``, ``C:/``, ``\\host\share``) --
 #: rejected alongside a leading POSIX ``/`` so a provenance path can never
 #: name an absolute location on any platform.
@@ -111,11 +128,20 @@ def measured_problems(value: Measured) -> list[str]:
     problems: list[str] = []
     if isinstance(value.value, bool) or not isinstance(value.value, (int, float, str)):
         problems.append(f"measured.value must be int/float/str, got {type(value.value).__name__}")
+    elif isinstance(value.value, float) and not math.isfinite(value.value):
+        # NaN / +-Infinity are not measurements, and they do not fail loudly
+        # downstream: the stage-2 curves clamp with ``min(100.0, x)``, and
+        # ``min(100.0, float("nan"))`` returns 100.0 in Python (the comparison
+        # is False, so the first operand wins), so a corrupt value would be
+        # scored as FULL MARKS rather than rejected. They are also not
+        # representable in RFC 8259 JSON (see ``canonical_json``). Reject them
+        # at the same boundary that rejects a wrong type.
+        problems.append(f"measured.value must be finite, got {value.value!r}")
     if not _is_int(value.n) or value.n < 0:
         problems.append(f"measured.n must be a non-negative int, got {value.n!r}")
     for name in ("window_start", "window_end"):
         field = getattr(value, name)
-        if not _optional_nonempty_str(field):
+        if not _optional_iso(field):
             problems.append(f"measured.{name} must be an ISO date string or null")
     if value.method != constants.METHOD_PRIMARY and not (
         value.method.startswith(constants.PROXY_METHOD_PREFIX)
@@ -297,7 +323,7 @@ class PRWindowEvent:
         if not _is_iso(self.created_at):
             problems.append(f"event.created_at must be an ISO datetime, got {self.created_at!r}")
         for name in ("closed_at", "merged_at", "first_human_review_at"):
-            if not _optional_nonempty_str(getattr(self, name)):
+            if not _optional_iso(getattr(self, name)):
                 problems.append(f"event.{name} must be an ISO datetime or null")
         if not _nonempty_str(self.author_login):
             problems.append("event.author_login must be a non-empty string")
@@ -360,7 +386,7 @@ class PRRef:
             problems.append(f"pr_ref.number must be an int >= 1, got {self.number!r}")
         if not _is_iso(self.created_at):
             problems.append(f"pr_ref.created_at must be an ISO datetime, got {self.created_at!r}")
-        if not _optional_nonempty_str(self.merged_at):
+        if not _optional_iso(self.merged_at):
             problems.append("pr_ref.merged_at must be an ISO datetime or null")
         if problems:
             raise BundleValidationError(problems)

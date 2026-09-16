@@ -54,7 +54,14 @@ from typing import Callable, Protocol
 
 from cvi.core import aggregate, constants, matrix
 from cvi.core import params as param_fns
-from cvi.core.gates import REASON_INSUFFICIENT_EVIDENCE, GateEvidence, evaluate_gates
+from cvi.core.gates import (
+    DISPLAY_UNRATED_GATE_REASONS,
+    REASON_INSUFFICIENT_EVIDENCE,
+    REASON_OFF_PLATFORM_ROUTED,
+    ROUTED_OFF_PLATFORM,
+    GateEvidence,
+    evaluate_gates,
+)
 from cvi.core.models import FeatureBundle, GateResult, Measured, ParamScore, PillarScore, ScoreRecord, Unmeasured
 from cvi.core.params.curves import KIND_ECDF
 
@@ -314,15 +321,43 @@ def score(
     resolved_raw_hash = bundle.provenance_hash if raw_hash is None else raw_hash
     gate = evaluate_gates(bundle, snapshot.gate_evidence, snapshot.as_of)
     if not gate.eligible:
+        # A stage-0 reason the design text words as an UNRATED outcome
+        # (``DISPLAY_UNRATED_GATE_REASONS`` -- currently D-GATE-6's
+        # "no external workflow") is carried onto the record as
+        # ``unrated_reason`` as well, not just left on ``gate.reason``.
+        # Consumers read ``unrated_reason`` to render "why is this not
+        # ranked"; leaving it ``None`` here made the record say "gated, for
+        # no stated reason" for the one gate whose reason is the whole point.
+        unrated_reason = gate.reason if gate.reason in DISPLAY_UNRATED_GATE_REASONS else None
         return _bare_record(
             snapshot, bundle, gate, params={}, pillars={}, coverage=0.0,
-            rated=False, unrated_reason=None, tier_ceiling=None, raw_hash=resolved_raw_hash,
+            rated=False, unrated_reason=unrated_reason, tier_ceiling=None,
+            raw_hash=resolved_raw_hash,
         )
 
     param_scores = _score_params(bundle, populations)
     pillars = aggregate.aggregate_pillars(param_scores)
     coverage = aggregate.composite_coverage(pillars)
     rated, ceiling = aggregate.coverage_status(coverage)
+    if gate.routed == ROUTED_OFF_PLATFORM:
+        # D-GATE-6 routed this repo off-platform: its review workflow is real
+        # but lives somewhere GitHub cannot see (a mailing list, Gerrit), so
+        # there are no external PRs to measure. It passes the gate -- it is
+        # not a black hole, it is not abandoned -- but it must never be RANKED
+        # against repos whose responsiveness was actually observed.
+        #
+        # Eligibility alone is not enough to stop that: the non-PR parameters
+        # (criticality, governance, and the non-PR halves of rigor and
+        # accessibility) carry 0.63 of the composite weight, comfortably over
+        # the 0.60 evidence floor, so a well-instrumented off-platform repo
+        # would clear D-EVID-1 on non-PR evidence alone and be ranked with an
+        # empty responsiveness pillar. Scoring still runs so the drawer can
+        # show what IS known; only the rating is withheld.
+        return _bare_record(
+            snapshot, bundle, gate, params=param_scores, pillars=pillars, coverage=coverage,
+            rated=False, unrated_reason=REASON_OFF_PLATFORM_ROUTED, tier_ceiling=ceiling,
+            raw_hash=resolved_raw_hash,
+        )
     if not rated:
         return _bare_record(
             snapshot, bundle, gate, params=param_scores, pillars=pillars, coverage=coverage,

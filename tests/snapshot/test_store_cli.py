@@ -50,10 +50,24 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: Provenance must be relative to the data root; ``cvi.derive.bundle``
 #: ensures relative sources for all bundles.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "55a01ac2c6c139ba283072767a4e8b9d706375529841e6d672d37044b8eced84"
+    "a4b9b6cee6e64be3678a29ec8e4396b0f295aa71a6427e5614f57e823c5dc6bf"
 )
 # Gated/unrated reflect cvi.core.pipeline.not_ranked_class display classification.
-_SNAPSHOT_50_EXPECTED_COUNTS = {"rated": 0, "gated": 31, "unrated": 19}
+#
+# Regenerated 2026-09-16 (was rated 0 / gated 31 / unrated 19) after three
+# gate corrections, each of which moves real repos in this fixture:
+#   * D-GATE-5 now counts a merge inside the 14-day deadline as a substantive
+#     response. Five repos that merge most external PRs on sight and leave no
+#     review artefact -- boyter/scc merges 25 of its 26 external PRs, often
+#     within the hour -- were being disqualified as `black_hole`. They are
+#     now eligible, moving gated 31 -> 26.
+#   * D-GATE-6 now applies its own 365-day horizon instead of inheriting the
+#     PR window's. chillzhuang/SpringBlade's only decided external PR closed
+#     in 2020 and no longer satisfies a "trailing 365 d" gate.
+#   * torvalds/linux is now `unrated: off_platform_routed` rather than
+#     `unrated: insufficient_evidence`: it is routed off-platform, which is
+#     the accurate reason, not a shortage of evidence.
+_SNAPSHOT_50_EXPECTED_COUNTS = {"rated": 0, "gated": 26, "unrated": 24}
 
 #: A curated-anchor, empty-PR-window ``GateEvidence`` that clears eligibility
 #: regardless of the repo's other facts.
@@ -147,7 +161,8 @@ def test_store_snapshot_50_counts_and_hashes(tmp_path, capsys) -> None:
     assert code == 0, out
 
     assert "snapshot snapshot_50" in out
-    assert "rated 0 gated 31 unrated 19" in out
+    _c = _SNAPSHOT_50_EXPECTED_COUNTS
+    assert f"rated {_c['rated']} gated {_c['gated']} unrated {_c['unrated']}" in out
     assert f"records_hash {_SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS}" in out
     assert "constants_hash " in out
     assert "snapshot_dump_hash " in out

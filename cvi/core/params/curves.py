@@ -8,6 +8,7 @@ D-PARAM-MONO property check (:func:`monotonicity_violations`).
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional, Tuple
 
@@ -152,6 +153,15 @@ def _apply(
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
             raise ValueError(f"{defn.input_id}: numeric value required, got {type(raw).__name__}")
         x = float(raw)
+        # A non-finite input is not a measurement, and it does not fail loudly
+        # further down: every clamp in this module is ``min(100.0, ...)``, and
+        # ``min(100.0, nan)`` is 100.0 in Python (the comparison is False, so
+        # the first operand wins), so NaN would be scored as full marks.
+        # ``cvi.core.models.measured_problems`` already rejects these at
+        # bundle validation; this is the second line of defence, at the only
+        # place a raw value becomes a score.
+        if not math.isfinite(x):
+            raise ValueError(f"{defn.input_id}: numeric value must be finite, got {x!r}")
         if defn.kind == KIND_ECDF:
             if ecdf is None:
                 raise ValueError(f"{defn.input_id}: ECDF-normalised curve requires the frozen-population ECDF")
@@ -169,9 +179,15 @@ def _apply(
             score = defn.score(raw, persona)
         else:
             score = defn.score(raw)
+    score = float(score)
+    # Same reasoning for the curve's OUTPUT: the clamp below cannot be trusted
+    # to bound a NaN, so a curve that produced one must raise rather than
+    # silently report 100.0.
+    if not math.isfinite(score):
+        raise ValueError(f"{defn.input_id}: curve produced a non-finite score {score!r}")
     return ParamScore(
         value=value.value,
-        score=max(0.0, min(100.0, float(score))),
+        score=max(0.0, min(100.0, score)),
         measured=True,
         reason=None,
         n=value.n,

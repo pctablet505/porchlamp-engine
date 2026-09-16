@@ -1,6 +1,6 @@
 {
   "counts": {
-    "gated": 31,
+    "gated": 26,
     "persona_visible": {
       "ai_assisted": 0,
       "balanced": 0,
@@ -9,7 +9,7 @@
       "senior_systems": 0
     },
     "rated": 0,
-    "unrated": 19
+    "unrated": 24
   },
   "document": "cvi-fixture-snapshot-expected",
   "rank_order": [
@@ -119,16 +119,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "abiosoft/colima",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -379,16 +379,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "be5invis/Sarasa-Gothic",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -401,20 +401,20 @@
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: no_external_workflow"
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "boyter/scc",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -466,7 +466,7 @@
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: no_external_workflow"
     },
     {
       "composite": null,
@@ -483,16 +483,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "cft0808/edict",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -522,16 +522,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0525,
-      "eligible": true,
-      "gate_reason": null,
+      "coverage": 0.0,
+      "eligible": false,
+      "gate_reason": "unrated: no_external_workflow",
       "rank": null,
       "rated": false,
       "repo": "chillzhuang/SpringBlade",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": "unrated: insufficient_evidence"
+      "unrated_reason": "unrated: no_external_workflow"
     },
     {
       "composite": null,
@@ -570,7 +570,7 @@
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: no_external_workflow"
     },
     {
       "composite": null,
@@ -626,16 +626,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "drogonframework/drogon",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -687,7 +687,7 @@
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: no_external_workflow"
     },
     {
       "composite": null,
@@ -713,9 +713,9 @@
       "routed": "off_platform",
       "tie_group": null,
       "tier": null,
-      "unrated_reason": "unrated: insufficient_evidence"
+      "unrated_reason": "unrated: off_platform_routed"
     }
   ],
-  "records_hash": "55a01ac2c6c139ba283072767a4e8b9d706375529841e6d672d37044b8eced84",
+  "records_hash": "a4b9b6cee6e64be3678a29ec8e4396b0f295aa71a6427e5614f57e823c5dc6bf",
   "version": 1
 }

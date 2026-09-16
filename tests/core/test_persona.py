@@ -363,14 +363,33 @@ def test_career_capital_not_gated_at_boundary_60_and_080() -> None:
 
 
 def test_career_capital_gated_just_below_score_and_coverage() -> None:
+    """Score fails the threshold on its own, so the substantive reason stands
+    even though coverage is also short."""
     record = _record({"criticality": _pillar(59.99, 0.79)})
     assert persona_gates(record, _neutral_inputs())[PERSONA_CAREER_CAPITAL] == REASON_LOW_CRITICALITY
 
 
 def test_career_capital_gated_when_score_high_but_coverage_low() -> None:
-    """Score is ``Measured`` (90.0): D-PERS-3's substantive branch."""
+    """Only the coverage condition fails: the reason must name the evidence gap.
+
+    D-PERS-3 forbids a substantive reason when the gate fires on missing
+    evidence, and this repo's criticality is 90 -- far above the threshold.
+    Reporting ``criticality_below_threshold`` here would state something
+    the scores contradict."""
     record = _record({"criticality": _pillar(90.0, 0.79)})
-    assert persona_gates(record, _neutral_inputs())[PERSONA_CAREER_CAPITAL] == REASON_LOW_CRITICALITY
+    assert (
+        persona_gates(record, _neutral_inputs())[PERSONA_CAREER_CAPITAL]
+        == f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{CRITICALITY_PILLAR}"
+    )
+
+
+def test_career_capital_thin_coverage_is_never_reported_as_low_criticality() -> None:
+    """The boundary case of the rule above: score exactly at the threshold,
+    coverage one step under it."""
+    record = _record({"criticality": _pillar(CAREER_CAPITAL_MIN_CRITICALITY, CAREER_CAPITAL_MIN_COVERAGE - 0.01)})
+    reason = persona_gates(record, _neutral_inputs())[PERSONA_CAREER_CAPITAL]
+    assert reason != REASON_LOW_CRITICALITY
+    assert reason == f"{REASON_INSUFFICIENT_EVIDENCE_PREFIX}{CRITICALITY_PILLAR}"
 
 
 def test_career_capital_gated_when_coverage_high_but_score_low() -> None:
@@ -611,8 +630,16 @@ def test_persona_composite_matches_the_inline_formula_bit_for_bit() -> None:
 
             # The old private reduction persona.py carried before this
             # packet -- transcribed here, never calling the new aggregate
-            # functions, so this is a real independent oracle.
-            old_coverage = sum(weights[name] * pillars[name].coverage for name in constants.PILLAR_NAMES)
+            # functions, so this is a real independent oracle. The one
+            # thing it does take from aggregate is RATIO_DECIMALS: every
+            # weighted-mean ratio is rounded there to strip the ~1e-16 ULP
+            # error the decimal weights carry in binary floating point, and
+            # an oracle that skipped that step would be asserting the
+            # representation error, not the formula.
+            old_coverage = round(
+                sum(weights[name] * pillars[name].coverage for name in constants.PILLAR_NAMES),
+                aggregate.RATIO_DECIMALS,
+            )
             old_measured = [
                 (weights[name], pillars[name].score)
                 for name in constants.PILLAR_NAMES
@@ -620,7 +647,10 @@ def test_persona_composite_matches_the_inline_formula_bit_for_bit() -> None:
             ]
             old_total_weight = sum(weight for weight, _ in old_measured)
             old_composite_raw = (
-                sum(weight * value for weight, value in old_measured) / old_total_weight
+                round(
+                    sum(weight * value for weight, value in old_measured) / old_total_weight,
+                    aggregate.RATIO_DECIMALS,
+                )
                 if old_total_weight > 0.0
                 else None
             )

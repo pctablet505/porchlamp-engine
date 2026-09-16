@@ -28,7 +28,8 @@ could itself drift.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import re
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 
 from cvi.core import constants
@@ -53,9 +54,38 @@ REASON_STALE = "stale"
 REASON_BLACK_HOLE = "black_hole"
 REASON_NO_EXTERNAL_WORKFLOW = "unrated: no_external_workflow"
 REASON_INSUFFICIENT_EVIDENCE = "unrated: insufficient_evidence"
+#: ``ScoreRecord.unrated_reason`` for a repo D-GATE-6 routed off-platform.
+#: Not a ``GateResult.reason``: the repo PASSES the gate (it has a real review
+#: workflow, just not on GitHub), so the gate stays ``eligible`` and it is the
+#: evidence stage that declines to rate it. 06 section 3 A2 lists
+#: "off-platform routed" beside "insufficient evidence" as an unrated outcome.
+REASON_OFF_PLATFORM_ROUTED = "unrated: off_platform_routed"
 
 #: ``GateResult.routed`` value for the D-GATE-6 off-platform workflow.
 ROUTED_OFF_PLATFORM = "off_platform"
+
+#: Stage-0 gate reasons that `06-UX-DESIGN.md` section 3 A2 classifies as
+#: UNRATED rather than GATED.
+#:
+#: 06's user-facing split lists "no external workflow" under unrated (an
+#: evidence outcome, beside "insufficient evidence" and "off-platform
+#: routed"), never under gated (the six universal disqualifications --
+#: mirror / archived / unlicensed / stale / black hole / non-software -- plus
+#: fork). The ENGINE nonetheless gates it at stage 0
+#: (:data:`REASON_NO_EXTERNAL_WORKFLOW`, D-GATE-6: ``eligible=False``); that
+#: raw flag is `03` section 5's provenance and stays exactly as
+#: :func:`evaluate_gates` computed it, never rewritten.
+#:
+#: This frozen set is the ONE place the two classifications' difference is
+#: named. It lives here, beside the reason vocabulary it is a subset of,
+#: rather than in ``cvi.core.pipeline``, because ``cvi.core.engine`` also
+#: needs it (to carry such a reason onto ``ScoreRecord.unrated_reason``) and
+#: ``pipeline`` imports ``engine`` -- defining it there would make the
+#: dependency circular. ``cvi.core.pipeline.DISPLAY_UNRATED_GATE_REASONS``
+#: re-exports this name for its existing consumers
+#: (``cvi.store.queries.snapshot_summary``, ``cvi.serve.app``'s not-ranked
+#: split), so every count on every screen still agrees with one definition.
+DISPLAY_UNRATED_GATE_REASONS: frozenset[str] = frozenset({REASON_NO_EXTERNAL_WORKFLOW})
 
 #: D-GATE-4: trailing window for non-bot User commits on the default branch.
 GATE4_VITALITY_WINDOW_DAYS: int = constants.GATE4_VITALITY_WINDOW_DAYS
@@ -84,8 +114,87 @@ OSI_APPROVED_LICENSES: frozenset[str] = constants.OSI_APPROVED_LICENSES
 
 
 def _parse_iso(value: str) -> datetime:
-    """Parse an ISO-8601 timestamp (``Z`` accepted) into an aware datetime."""
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    """Parse an ISO-8601 timestamp (``Z`` accepted) into an aware datetime.
+
+    Timestamps that carry no offset are read as UTC. Every gate compares the
+    result against an aware ``as_of``, and mixing naive and aware datetimes
+    raises ``TypeError``; defaulting to UTC keeps a collector that dropped the
+    offset from taking the whole evaluation down.
+    """
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+#: SPDX expression operators (SPDX spec Annex D). ``WITH`` attaches a licence
+#: EXCEPTION to the identifier on its left; the exception name is not itself a
+#: licence id, so it is dropped when checking approval.
+_SPDX_OPERATORS: frozenset[str] = frozenset({"AND", "OR", "WITH"})
+
+#: One SPDX licence identifier, optionally suffixed ``+`` ("or later"), plus
+#: the operators and parentheses a compound expression may contain. Anything
+#: outside this shape is not an SPDX expression this gate claims to read.
+_SPDX_EXPRESSION = re.compile(r"^[A-Za-z0-9.\-+()\s]+$")
+
+
+def _spdx_licence_ids(expression: str) -> list[str]:
+    """The licence identifiers named by an SPDX ``expression``.
+
+    Splits on the ``AND`` / ``OR`` / ``WITH`` operators and parentheses and
+    returns the remaining tokens with any ``+`` ("or later") suffix removed.
+    Everything to the right of a ``WITH`` is an exception name rather than a
+    licence, so it is dropped: ``Apache-2.0 WITH LLVM-exception`` is still the
+    Apache-2.0 licence for the purposes of this gate.
+    """
+    tokens = re.split(r"[()\s]+", expression.strip())
+    ids: list[str] = []
+    skip_next = False
+    for token in tokens:
+        if not token:
+            continue
+        upper = token.upper()
+        if upper in _SPDX_OPERATORS:
+            skip_next = upper == "WITH"
+            continue
+        if skip_next:
+            skip_next = False
+            continue
+        ids.append(token.rstrip("+"))
+    return ids
+
+
+def _is_parseable_spdx_expression(spdx: str | None) -> bool:
+    """Whether ``spdx`` looks like an SPDX expression naming at least one id."""
+    if not isinstance(spdx, str) or not spdx.strip():
+        return False
+    if not _SPDX_EXPRESSION.match(spdx):
+        return False
+    return bool(_spdx_licence_ids(spdx))
+
+
+def _is_osi_approved_expression(spdx: str | None) -> bool:
+    """D-GATE-3: whether ``spdx`` grants an OSI-approved licence.
+
+    ``OSI_APPROVED_LICENSES`` holds bare identifiers, but the SPDX field on a
+    repository is an EXPRESSION: Rust crates almost universally publish
+    ``MIT OR Apache-2.0``, LLVM-derived projects publish
+    ``Apache-2.0 WITH LLVM-exception``. Comparing the whole expression against
+    a set of bare ids fails every one of them, and -- because the old code
+    then fell into the final ``else`` -- failed them as ``unlicensed`` WITHOUT
+    even consulting the LICENSE file in the tree. A repo with no SPDX at all
+    passed the gate on that file; a dual-licensed repo did not.
+
+    Identifiers are compared case-insensitively (hosts report ``mit`` as
+    readily as ``MIT``). ``AND`` requires every named licence to be approved;
+    ``OR`` requires only one, since the recipient may choose that branch.
+    """
+    if not _is_parseable_spdx_expression(spdx):
+        return False
+    assert spdx is not None  # narrowed by _is_parseable_spdx_expression
+    approved = {name.casefold() for name in OSI_APPROVED_LICENSES}
+    ids = [name.casefold() for name in _spdx_licence_ids(spdx)]
+    if " or " in f" {spdx.casefold()} ":
+        return any(name in approved for name in ids)
+    return all(name in approved for name in ids)
 
 
 @dataclass(frozen=True)
@@ -139,11 +248,29 @@ def _zero_substantive_response(event: PRWindowEvent) -> bool:
 
     ``first_human_review_at`` carries the typed-response timestamp (a
     non-author, non-bot MEMBER/OWNER/COLLABORATOR review or >= 40-character
-    comment); ``None`` means no such response was recorded."""
+    comment); ``None`` means no such response was recorded.
+
+    A MERGE inside the same deadline also counts as a response, even with no
+    review or comment recorded. D-GATE-5 asks whether external contributors
+    are ghosted; merging someone's pull request is the least ambiguous
+    possible answer to that, and a maintainer who reads a small diff and
+    merges it the same hour often leaves no reviewable artefact behind. Left
+    unhandled, the friendliest repositories in the universe -- those merging
+    most external PRs on sight -- would cross the >50% "unanswered" share and
+    be disqualified as ``black_hole``, which is precisely backwards.
+
+    A bare CLOSE is deliberately NOT treated the same way: closing an external
+    PR with no review and no comment is the ghosting behaviour this gate
+    exists to catch, and it already has its own dedicated signal in
+    ``cvi.verify.detectors`` (``closed_unread``).
+    """
+    created = _parse_iso(event.created_at)
+    deadline = timedelta(days=GATE5_RESPONSE_DEADLINE_DAYS)
+    if event.merged_at is not None and (_parse_iso(event.merged_at) - created) <= deadline:
+        return False
     if event.first_human_review_at is None:
         return True
-    response = _parse_iso(event.first_human_review_at) - _parse_iso(event.created_at)
-    return response > timedelta(days=GATE5_RESPONSE_DEADLINE_DAYS)
+    return (_parse_iso(event.first_human_review_at) - created) > deadline
 
 
 def _has_decided_external_pr(events: tuple[PRWindowEvent, ...], now: datetime) -> bool:
@@ -151,13 +278,21 @@ def _has_decided_external_pr(events: tuple[PRWindowEvent, ...], now: datetime) -
 
     Every event in the 180-day PR window was opened inside that window, so a
     decision recorded on it necessarily falls inside the 365-day horizon; the
-    decision timestamp is additionally required to be <= ``now`` (decided as
-    of the snapshot)."""
+    horizon is nonetheless checked explicitly against
+    :data:`GATE6_DECISION_WINDOW_DAYS` rather than left implied by the caller's
+    window, so the constant the methodology document publishes for this gate is
+    the constant the gate actually applies -- and so widening the PR window
+    later cannot silently widen this gate too. The decision timestamp is also
+    required to be ``<= now`` (decided as of the snapshot)."""
+    horizon = now - timedelta(days=GATE6_DECISION_WINDOW_DAYS)
     for event in events:
         if not event.is_external:
             continue
         decided_at = event.merged_at or event.closed_at
-        if decided_at is not None and _parse_iso(decided_at) <= now:
+        if decided_at is None:
+            continue
+        decided = _parse_iso(decided_at)
+        if horizon <= decided <= now:
             return True
     return False
 
@@ -201,9 +336,13 @@ def evaluate_gates(
 
     # D-GATE-3: licensed (OSI-approved SPDX, else a LICENSE* file).
     spdx = repo.license_spdx
-    if spdx in OSI_APPROVED_LICENSES:
+    if _is_osi_approved_expression(spdx):
         pass
-    elif spdx in UNDETERMINED_SPDX:
+    elif spdx in UNDETERMINED_SPDX or not _is_parseable_spdx_expression(spdx):
+        # Either the host told us it could not determine a licence, or it gave
+        # us something this gate cannot read as an SPDX expression. Both are
+        # "we do not know from the metadata", so fall through to the tree
+        # evidence rather than concluding the repo is unlicensed.
         if evidence.license_file_present is True:
             pass
         elif evidence.license_file_present is False:
@@ -211,6 +350,9 @@ def evaluate_gates(
         else:
             undecided.append(GATE_3)
     else:
+        # A well-formed SPDX expression that is not OSI-approved: a real,
+        # recorded, non-open licence. This is a decided failure -- a LICENSE
+        # file in the tree cannot make a proprietary licence open.
         failures.append((3, REASON_UNLICENSED))
 
     # D-GATE-4: vitality (>= 1 non-bot User commit, default branch, 180 d).

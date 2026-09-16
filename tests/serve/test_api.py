@@ -1163,10 +1163,20 @@ def test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture(tmp_path
     fixture_dir = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
     scored, frozen = score_snapshot_dir(fixture_dir)
 
+    # The expected split comes from the fixture's own frozen expected.json,
+    # not from literals copied in here. What this test is about is the three
+    # layers agreeing with each other and with the pin; pinning the digits
+    # separately only means a deliberate engine change (a gate corrected, a
+    # reason re-classified) breaks this test for a reason that has nothing
+    # to do with agreement -- and invites a "fix" that edits the digits.
+    expected_gated = frozen.expected["counts"]["gated"]
+    expected_unrated = frozen.expected["counts"]["unrated"]
+    assert expected_gated + expected_unrated + frozen.expected["counts"]["rated"] == 50
+
     # Layer 1: the pipeline's own SnapshotCounts (cvi.core.pipeline.
     # build_snapshot_counts, using not_ranked_class per record).
-    assert scored.counts.gated == 31, scored.counts.gated
-    assert scored.counts.unrated == 19, scored.counts.unrated
+    assert scored.counts.gated == expected_gated, scored.counts.gated
+    assert scored.counts.unrated == expected_unrated, scored.counts.unrated
     assert scored.counts.rated + scored.counts.gated + scored.counts.unrated == len(scored.records)
 
     # Layer 2: cvi.store.queries.snapshot_summary (SQL, same
@@ -1180,8 +1190,8 @@ def test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture(tmp_path
     raw_conn = sqlite3.connect(db_path)
     summary = queries.snapshot_summary(raw_conn, scored.snapshot_id)
     raw_conn.close()
-    assert summary["counts"]["gated"] == 31, summary["counts"]
-    assert summary["counts"]["unrated"] == 19, summary["counts"]
+    assert summary["counts"]["gated"] == expected_gated, summary["counts"]
+    assert summary["counts"]["unrated"] == expected_unrated, summary["counts"]
     assert summary["counts"]["rated"] == scored.counts.rated
 
     # Layer 3: this API's /not-ranked split and /snapshot counts.
@@ -1194,16 +1204,16 @@ def test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture(tmp_path
     not_ranked = client.get("/v1/cvi/not-ranked")
     assert not_ranked.status_code == 200, not_ranked.text
     body = not_ranked.json()
-    assert len(body["gated"]) == 31, len(body["gated"])
-    assert len(body["unrated"]) + len(body["persona_hidden"]) == 19
-    assert body["counts"]["gated"] == 31
-    assert body["counts"]["unrated"] == 19
+    assert len(body["gated"]) == expected_gated, len(body["gated"])
+    assert len(body["unrated"]) + len(body["persona_hidden"]) == expected_unrated
+    assert body["counts"]["gated"] == expected_gated
+    assert body["counts"]["unrated"] == expected_unrated
 
     snapshot_resp = client.get("/v1/cvi/snapshot")
     assert snapshot_resp.status_code == 200, snapshot_resp.text
     snap_counts = snapshot_resp.json()["counts"]
-    assert snap_counts["gated"] == 31, snap_counts
-    assert snap_counts["unrated"] == 19, snap_counts
+    assert snap_counts["gated"] == expected_gated, snap_counts
+    assert snap_counts["unrated"] == expected_unrated, snap_counts
     assert snap_counts == body["counts"]
 
 
