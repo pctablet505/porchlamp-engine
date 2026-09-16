@@ -233,9 +233,19 @@ export function errorBannerText(endpoint, status, detail) {
   return `${withDetail} Showing the last good data below.`;
 }
 
+const UNMEASURED_REASON_NAMES = Object.freeze({
+  third_party_gap: "Third-party data unavailable",
+  collector_failure: "Collector failure",
+  insufficient_n: "Insufficient sample size",
+  not_applicable: "Not applicable",
+  no_population: "No reference population",
+});
+
 export const MISSING_VALUE = "—";
 export function missingValueReason(reason) {
-  return reason ? `Not shown: ${reason}` : "Not measured for this repository.";
+  if (!reason) return "Not measured for this repository.";
+  const label = UNMEASURED_REASON_NAMES[reason] || reason;
+  return `Not shown: ${label}`;
 }
 
 export const LOADING_LABEL = "Loading…";

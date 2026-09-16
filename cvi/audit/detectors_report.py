@@ -206,6 +206,8 @@ def load_rows(path: "Path | str") -> dict[str, DetectorRow]:
     file, ``json.JSONDecodeError`` for invalid JSON, and ``KeyError`` for a
     row missing its required ``key`` field."""
     document = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(document, list):
+        raise ValueError(f"expected a JSON list of row objects, got {type(document).__name__}")
     rows = [_row_from_json(entry) for entry in document]
     return {row.key: row for row in rows}
 

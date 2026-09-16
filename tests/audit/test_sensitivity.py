@@ -229,6 +229,15 @@ def test_gated_repos_are_excluded_from_the_rated_set(tmp_path: Path) -> None:
         assert extra.tau_b == pytest.approx(plain.tau_b, abs=1e-15)
 
 
+def test_fifteen_pp_perturbation_allows_zero_weight(db_path: Path) -> None:
+    """A 15 pp perturbation on a 15% pillar (rigor / accessibility) reaches 0.0 weight
+    and must succeed without raising ValueError."""
+    report = sensitivity_report(db_path, pp=15)
+    assert report.pp == 15
+    assert len(report.rows) == 10
+    assert all(row.tau_b is not None for row in report.rows)
+
+
 
 # ---------------------------------------------------------------------------
 # Tau-b on an all-tied composite is 0/0 when the perturbation breaks the tie,

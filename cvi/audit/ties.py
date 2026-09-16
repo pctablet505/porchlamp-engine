@@ -71,6 +71,7 @@ class TieReport:
     gated: int
     distinct: int
     groups: tuple[TieGroup, ...]
+    unrated: int = 0
 
     def size_histogram(self) -> dict[int, int]:
         """Map group size to the number of groups of that size."""
@@ -154,29 +155,35 @@ def ties_report(db_path: str | Path) -> TieReport:
         if "rated" in cols and ("composite" in cols or "cvi" in cols):
             comp_expr = _v2_composite_expr(cols)
             snap_id = _served_snapshot_id(con, cols)
-            if snap_id is not None and "snapshot_id" in cols:
-                counts = con.execute(
-                    f"SELECT {comp_expr}, COUNT(*) FROM repositories "
-                    f"WHERE rated = 1 AND snapshot_id = ? GROUP BY {comp_expr}",
-                    (snap_id,),
-                ).fetchall()
-                total = con.execute(
-                    "SELECT COUNT(*) FROM repositories WHERE snapshot_id = ?",
-                    (snap_id,),
+            where_snap = "WHERE snapshot_id = ?" if (snap_id is not None and "snapshot_id" in cols) else ""
+            and_snap = "AND snapshot_id = ?" if (snap_id is not None and "snapshot_id" in cols) else ""
+            params = (snap_id,) if (snap_id is not None and "snapshot_id" in cols) else ()
+
+            counts = con.execute(
+                f"SELECT {comp_expr}, COUNT(*) FROM repositories "
+                f"WHERE rated = 1 {and_snap} GROUP BY {comp_expr}",
+                params,
+            ).fetchall()
+            total = con.execute(
+                f"SELECT COUNT(*) FROM repositories {where_snap}",
+                params,
+            ).fetchone()[0]
+            rated = con.execute(
+                f"SELECT COUNT(*) FROM repositories WHERE rated = 1 {and_snap}",
+                params,
+            ).fetchone()[0]
+            if "eligible" in cols:
+                gated = con.execute(
+                    f"SELECT COUNT(*) FROM repositories WHERE eligible = 0 {and_snap}",
+                    params,
                 ).fetchone()[0]
-                rated = con.execute(
-                    "SELECT COUNT(*) FROM repositories WHERE rated = 1 AND snapshot_id = ?",
-                    (snap_id,),
+                unrated = con.execute(
+                    f"SELECT COUNT(*) FROM repositories WHERE eligible = 1 AND rated = 0 {and_snap}",
+                    params,
                 ).fetchone()[0]
             else:
-                counts = con.execute(
-                    f"SELECT {comp_expr}, COUNT(*) FROM repositories "
-                    f"WHERE rated = 1 GROUP BY {comp_expr}"
-                ).fetchall()
-                total = con.execute("SELECT COUNT(*) FROM repositories").fetchone()[0]
-                rated = con.execute(
-                    "SELECT COUNT(*) FROM repositories WHERE rated = 1"
-                ).fetchone()[0]
+                gated = total - rated
+                unrated = 0
         else:
             counts = con.execute(
                 "SELECT overall_cvi, COUNT(*) FROM repositories "
@@ -186,6 +193,8 @@ def ties_report(db_path: str | Path) -> TieReport:
             rated = con.execute(
                 "SELECT COUNT(*) FROM repositories WHERE is_stage0_disqualified = 0"
             ).fetchone()[0]
+            gated = total - rated
+            unrated = 0
     finally:
         con.close()
     valid_counts = [(value, count) for value, count in counts if value is not None]
@@ -197,9 +206,10 @@ def ties_report(db_path: str | Path) -> TieReport:
     groups = tuple(sorted(groups, key=lambda group: (-group.size, group.value)))
     return TieReport(
         rated=int(rated),
-        gated=int(total - rated),
+        gated=int(gated),
         distinct=len(valid_counts),
         groups=groups,
+        unrated=int(unrated),
     )
 
 
@@ -207,9 +217,13 @@ def format_tie_report(report: TieReport) -> str:
     """Render the tie report as plain text."""
     histogram = report.size_histogram()
     histogram_text = ", ".join(f"{size}: {count}" for size, count in histogram.items())
+    if report.unrated > 0:
+        repos_line = f"repos: {report.rated + report.gated + report.unrated} total, {report.rated} rated, {report.gated} gated, {report.unrated} unrated"
+    else:
+        repos_line = f"repos: {report.rated + report.gated} total, {report.rated} rated, {report.gated} gated"
     lines = [
         "CVI tie audit",
-        f"repos: {report.rated + report.gated} total, {report.rated} rated, {report.gated} gated",
+        repos_line,
         f"distinct composite values: {report.distinct}",
         f"tie groups (>= 2 rated repos): {len(report.groups)}",
     ]

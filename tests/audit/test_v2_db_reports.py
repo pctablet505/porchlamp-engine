@@ -299,13 +299,14 @@ def test_v2_ties_report(tmp_path: Path) -> None:
     db_path = _build_full_v2_db(tmp_path / "cvi_v2.db")
     report = ties_report(db_path)
     assert report.rated == 4
-    assert report.gated == 4
+    assert report.gated == 3
+    assert report.unrated == 1
     assert report.distinct == 3
     assert len(report.groups) == 1
     assert report.groups[0].value == 84.2
     assert report.groups[0].size == 2
     text = ties.format_tie_report(report)
-    assert "4 rated, 4 gated" in text
+    assert "4 rated, 3 gated, 1 unrated" in text
     assert ties.main(["--db", str(db_path), "--json"]) == 0
 
 
@@ -346,7 +347,8 @@ def test_v2_snapshot_50_db_reports(tmp_path: Path) -> None:
 
     t_report = ties_report(db_path)
     assert t_report.rated == 0
-    assert t_report.gated == 50
+    assert t_report.gated == 31
+    assert t_report.unrated == 19
     assert t_report.distinct == 0
 
     a_report = anchors_report(db_path)

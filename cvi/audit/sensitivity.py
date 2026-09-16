@@ -46,8 +46,8 @@ from typing import Any, Optional
 
 from cvi.core import aggregate, constants
 from cvi.core.constants import PILLAR_WEIGHTS
-from cvi.core.models import ScoreRecord
-from cvi.core.pipeline import ScoredSnapshot
+from cvi.core.models import GateResult, PillarScore, RepoIdentity, ScoreRecord
+from cvi.core.pipeline import ScoredSnapshot, SnapshotCounts
 from cvi.core.tiebreak import TieBreakInput, assign_ranks
 
 __version__ = "1.0.0"
@@ -149,14 +149,14 @@ def perturb_pillar_weight(
     ------
     ValueError
         When ``pillar`` is not a key of ``base`` or the resulting weight
-        would leave the open interval (0, 1).
+        would leave the closed interval [0, 1].
     """
     if pillar not in base:
         raise ValueError(f"unknown pillar {pillar!r}")
     base_weight = base[pillar]
     new_weight = base_weight + delta_pp / 100.0
-    if not 0.0 < new_weight < 1.0:
-        raise ValueError(f"perturbed weight {new_weight:.4f} outside (0, 1)")
+    if not 0.0 <= new_weight <= 1.0:
+        raise ValueError(f"perturbed weight {new_weight:.4f} outside [0, 1]")
     scale = (1.0 - new_weight) / (1.0 - base_weight)
     return {
         key: (new_weight if key == pillar else weight * scale) for key, weight in base.items()
@@ -330,6 +330,108 @@ def _compute_perturbed_composite(
     return round(raw, 2)
 
 
+def _v2_snapshot_from_db(db_path: str | Path) -> ScoredSnapshot:
+    """Reconstruct a minimal ScoredSnapshot containing rated records from a v2 database."""
+    con = sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        cols = _repo_columns(con)
+        snap_id = _served_snapshot_id(con, cols)
+        where_clause = "WHERE rated = 1"
+        params: tuple[Any, ...] = ()
+        if snap_id is not None and "snapshot_id" in cols:
+            where_clause += " AND snapshot_id = ?"
+            params = (snap_id,)
+        rows = con.execute(
+            f"SELECT * FROM repositories {where_clause} ORDER BY owner, name",
+            params,
+        ).fetchall()
+    finally:
+        con.close()
+
+    entries: list[TieBreakInput] = []
+    for r in rows:
+        owner = str(r["owner"])
+        name = str(r["name"])
+        eco = str(r["ecosystem"]) if "ecosystem" in cols and r["ecosystem"] else "python"
+        arch = bool(r["archived"]) if "archived" in cols and r["archived"] is not None else False
+        spdx = str(r["license_spdx"]) if "license_spdx" in cols and r["license_spdx"] is not None else None
+        repo = RepoIdentity(
+            owner=owner,
+            name=name,
+            ecosystem=eco,
+            archived=arch,
+            mirror_url=None,
+            fork=False,
+            license_spdx=spdx,
+            default_branch="main",
+        )
+        routed = str(r["routed"]) if "routed" in cols and r["routed"] is not None else None
+        gate = GateResult(eligible=True, reason=None, routed=routed, undecided=())
+        pillars: dict[str, PillarScore] = {}
+        for p_name in constants.PILLAR_NAMES:
+            p_col = f"p_{p_name}" if f"p_{p_name}" in cols else f"score_{p_name}"
+            c_col = f"c_{p_name}"
+            p_val = float(r[p_col]) if p_col in cols and r[p_col] is not None else None
+            c_val = float(r[c_col]) if c_col in cols and r[c_col] is not None else (1.0 if p_val is not None else 0.0)
+            pillars[p_name] = PillarScore(score=p_val, coverage=c_val)
+
+        cvi_raw = r["cvi"] if "cvi" in cols and r["cvi"] is not None else (r["composite"] if "composite" in cols and r["composite"] is not None else None)
+        cvi_val = float(cvi_raw) if cvi_raw is not None else None
+        cov_val = float(r["coverage"]) if "coverage" in cols and r["coverage"] is not None else 1.0
+        lev_val = float(r["leverage"]) if "leverage" in cols and r["leverage"] is not None else None
+        fric_val = float(r["friction"]) if "friction" in cols and r["friction"] is not None else None
+        tier_val = str(r["tier"]) if "tier" in cols and r["tier"] is not None else None
+        quad_val = str(r["quadrant"]) if "quadrant" in cols and r["quadrant"] is not None else None
+        rank_val = int(r["rank"]) if "rank" in cols and r["rank"] is not None else None
+        tg_val = int(r["tie_group"]) if "tie_group" in cols and r["tie_group"] is not None else None
+        raw_h = str(r["raw_hash"]) if "raw_hash" in cols and r["raw_hash"] else "0" * 64
+
+        rec = ScoreRecord(
+            repo=repo,
+            snapshot_id=snap_id or "s",
+            benchmark_version="2.0.0-dev",
+            constants_hash="0" * 64,
+            raw_hash=raw_h,
+            gate=gate,
+            params={},
+            pillars=pillars,
+            composite=cvi_val,
+            coverage=cov_val,
+            tier=tier_val,
+            leverage=lev_val,
+            friction=fric_val,
+            quadrant=quad_val,
+            persona_gates={},
+            persona_composites={},
+            tie_key=(),
+            tie_group=tg_val,
+            rank=rank_val,
+            suspicion=[],
+            rated=True,
+        )
+        ttfhr = float(r["ttfhr_p75"]) if "ttfhr_p75" in cols and r["ttfhr_p75"] is not None else None
+        last_commit = str(r["last_human_commit_at"]) if "last_human_commit_at" in cols and r["last_human_commit_at"] is not None else None
+        entries.append(TieBreakInput(
+            record=rec,
+            owner=owner,
+            name=name,
+            ttfhr_p75_hours=ttfhr,
+            last_non_bot_commit_at=last_commit,
+        ))
+
+    ranked = assign_ranks(entries)
+    records = [rec for rec, _rank, _tg in ranked]
+    return ScoredSnapshot(
+        snapshot_id=snap_id or "s",
+        benchmark_version="2.0.0-dev",
+        constants_hash="0" * 64,
+        records=records,
+        counts=SnapshotCounts(rated=len(records), gated=0, unrated=0, persona_visible={}),
+        records_hash="0" * 64,
+    )
+
+
 def sensitivity_report(
     db_path: str | Path, pp: int = DEFAULT_PERTURBATION_PP
 ) -> SensitivityReport:
@@ -356,6 +458,14 @@ def sensitivity_report(
     """
     if pp < 0:
         raise ValueError("pp must be >= 0")
+    con = sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)
+    try:
+        cols = _repo_columns(con)
+    finally:
+        con.close()
+    if "p_responsiveness" in cols and "rated" in cols:
+        snapshot = _v2_snapshot_from_db(db_path)
+        return sensitivity_v2(snapshot, perturbation_pp=pp)
     pillars, canonical = _fetch_rated(db_path)
     rated = len(pillars)
     if rated < 2:

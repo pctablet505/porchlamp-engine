@@ -345,3 +345,18 @@ def test_main_json_output_is_valid_json(tmp_path: Path, capsys: pytest.CaptureFi
     payload = json.loads(capsys.readouterr().out)
     assert payload["total_repos"] == 6
     assert payload["counts"]["label_spam"] == 1
+
+
+def test_load_rows_rejects_non_list_document(tmp_path: Path) -> None:
+    path = tmp_path / "dict.json"
+    path.write_text(json.dumps({"key": "org/a"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="expected a JSON list"):
+        load_rows(path)
+
+
+def test_main_non_list_file_exits_2(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = tmp_path / "dict.json"
+    path.write_text(json.dumps({"key": "org/a"}), encoding="utf-8")
+    exit_code = main(["--current", str(path)])
+    assert exit_code == 2
+    assert "cannot load detector rows" in capsys.readouterr().err

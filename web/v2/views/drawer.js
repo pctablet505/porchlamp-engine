@@ -98,7 +98,7 @@ function renderComposite(row) {
   return (
     `<details open>` +
     `<summary>${escapeHtml(copy.DRAWER_SECTION_COMPOSITE)}</summary>` +
-    `<p class="cell-numeric">CVI ${row.cvi.toFixed(2)} · ${renderCoverageBadge(row.coverage)} · ${renderTierCell(row.tier, row.tier_ceiling)}</p>` +
+    `<p class="cell-numeric">CVI ${row.cvi != null ? row.cvi.toFixed(2) : copy.MISSING_VALUE} · ${renderCoverageBadge(row.coverage)} · ${renderTierCell(row.tier, row.tier_ceiling)}</p>` +
     cappedNote +
     `<p>${renderQuadrant(row.quadrant)} — ${escapeHtml(copy.COORDINATES_LABEL)}: leverage ${lev} (coverage ${levCov}), friction ${fric} (coverage ${fricCov})</p>` +
     `</details>`
@@ -292,7 +292,7 @@ function renderPersonaSection(row) {
       return (
         `<tr><td>${escapeHtml(name)}</td>` +
         `<td class="cell-numeric">${composite.cvi != null ? composite.cvi.toFixed(2) : copy.MISSING_VALUE}</td>` +
-        `<td>${renderTierCell(composite.tier, null)}</td>` +
+        `<td>${renderTierCell(composite.tier, composite.tier_ceiling)}</td>` +
         `<td>${composite.rated ? escapeHtml(copy.RATED_LABEL) : escapeHtml(copy.NOT_RATED_LABEL)}</td>` +
         `</tr>`
       );
@@ -308,11 +308,12 @@ function renderPersonaSection(row) {
 
 function renderIntegritySection(row) {
   const flags = row.suspicion && row.suspicion.length ? renderSuspicionIcon(row.suspicion) + " " + escapeHtml(row.suspicion.join(", ")) : escapeHtml(copy.SUSPICION_NONE_TEXT);
+  const hashText = row.raw_hash ? `${escapeHtml(row.raw_hash.slice(0, 16))}…` : copy.MISSING_VALUE;
   return (
     `<details>` +
     `<summary>${escapeHtml(copy.DRAWER_SECTION_INTEGRITY)}</summary>` +
-    `<p class="cell-numeric">${escapeHtml(copy.RAW_HASH_LABEL)}: ${escapeHtml(row.raw_hash.slice(0, 16))}…</p>` +
-    `<p class="cell-numeric">${escapeHtml(copy.SNAPSHOT_ID_LABEL)}: ${escapeHtml(row.snapshot_id)}</p>` +
+    `<p class="cell-numeric">${escapeHtml(copy.RAW_HASH_LABEL)}: ${hashText}</p>` +
+    `<p class="cell-numeric">${escapeHtml(copy.SNAPSHOT_ID_LABEL)}: ${escapeHtml(row.snapshot_id || "")}</p>` +
     `<p>${flags}</p>` +
     `</details>`
   );

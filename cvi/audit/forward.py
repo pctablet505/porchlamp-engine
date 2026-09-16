@@ -195,11 +195,43 @@ def load_scores(db_path: os.PathLike[str]) -> list[ScoreRow]:
     """Read every ``repositories`` row as a :class:`ScoreRow`, sorted by repo."""
     conn = sqlite3.connect(f"file:{Path(db_path).as_posix()}?mode=ro", uri=True)
     try:
-        cursor = conn.execute("SELECT owner, name, is_stage0_disqualified, "
-                              + ", ".join(SCORE_COLUMNS) + " FROM repositories")
-        rows = [ScoreRow(f"{owner}/{name}", not bool(disqualified),
-                         {column: float(value) for column, value in zip(SCORE_COLUMNS, values)})
-                for owner, name, disqualified, *values in cursor]
+        cols = {row[1] for row in conn.execute('PRAGMA table_info("repositories")').fetchall()}
+        if "p_responsiveness" in cols and "rated" in cols:
+            comp_col = "COALESCE(cvi, composite)" if ("cvi" in cols and "composite" in cols) else ("cvi" if "cvi" in cols else "composite")
+            v2_cols = [
+                "p_responsiveness",
+                "p_criticality",
+                "p_governance",
+                "p_rigor",
+                "p_accessibility",
+                comp_col,
+            ]
+            cursor = conn.execute("SELECT owner, name, rated, " + ", ".join(v2_cols) + " FROM repositories")
+            rows = [
+                ScoreRow(
+                    f"{owner}/{name}",
+                    bool(rated),
+                    {
+                        canon: (float(val) if val is not None else 0.0)
+                        for canon, val in zip(SCORE_COLUMNS, values)
+                    },
+                )
+                for owner, name, rated, *values in cursor
+            ]
+        else:
+            cursor = conn.execute("SELECT owner, name, is_stage0_disqualified, "
+                                  + ", ".join(SCORE_COLUMNS) + " FROM repositories")
+            rows = [
+                ScoreRow(
+                    f"{owner}/{name}",
+                    not bool(disqualified),
+                    {
+                        column: (float(value) if value is not None else 0.0)
+                        for column, value in zip(SCORE_COLUMNS, values)
+                    },
+                )
+                for owner, name, disqualified, *values in cursor
+            ]
     finally:
         conn.close()
     return sorted(rows, key=lambda row: row.repo)
@@ -717,6 +749,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"excluded PRs: internal={report.excluded['internal']}, "
           f"not_first_timer={report.excluded['not_first_timer']}; "
           f"forward_report.json covers {report.n_prs_eligible} eligible PRs")
+    if any(c.verdict == "FAIL" for c in report.criteria):
+        return 1
     return 0
 
 

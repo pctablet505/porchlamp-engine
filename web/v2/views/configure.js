@@ -33,10 +33,12 @@ function escapeHtml(value) {
  * input, and no returned value is negative.
  */
 export function normalizeWeights(weights, locks, changedPillar, newValue) {
+  if (locks && locks[changedPillar]) return { ...weights };
+  if (!Number.isFinite(newValue)) return { ...weights };
   const clamped = Math.max(0, Math.min(1, newValue));
   const next = { ...weights, [changedPillar]: clamped };
 
-  const fixed = new Set([changedPillar, ...PILLAR_IDS.filter((p) => locks[p])]);
+  const fixed = new Set([changedPillar, ...PILLAR_IDS.filter((p) => locks && locks[p])]);
   const fixedSum = PILLAR_IDS.filter((p) => fixed.has(p)).reduce((s, p) => s + next[p], 0);
   const free = PILLAR_IDS.filter((p) => !fixed.has(p));
 
@@ -59,7 +61,7 @@ export function normalizeWeights(weights, locks, changedPillar, newValue) {
 
   const freeCurrentSum = free.reduce((s, p) => s + weights[p], 0);
   for (const p of free) {
-    next[p] = freeCurrentSum > 0 ? (weights[p] / freeCurrentSum) * remaining : remaining / free.length;
+    next[p] = freeCurrentSum > 1e-9 ? (weights[p] / freeCurrentSum) * remaining : remaining / free.length;
   }
   return next;
 }
@@ -107,13 +109,13 @@ export function sortReprojectRows(rows, sort) {
  * preset's own weights already sum to 1).
  */
 export function applyPresetRespectingLocks(weights, locks, preset) {
-  const lockedSum = PILLAR_IDS.filter((p) => locks[p]).reduce((s, p) => s + weights[p], 0);
-  const free = PILLAR_IDS.filter((p) => !locks[p]);
+  const lockedSum = PILLAR_IDS.filter((p) => locks && locks[p]).reduce((s, p) => s + weights[p], 0);
+  const free = PILLAR_IDS.filter((p) => !locks || !locks[p]);
   const remaining = Math.max(0, 1 - lockedSum);
   const presetFreeSum = free.reduce((s, p) => s + preset[p], 0);
   const next = { ...weights };
   for (const p of free) {
-    next[p] = presetFreeSum > 0 ? (preset[p] / presetFreeSum) * remaining : remaining / free.length;
+    next[p] = presetFreeSum > 1e-9 ? (preset[p] / presetFreeSum) * remaining : remaining / free.length;
   }
   return next;
 }
@@ -130,9 +132,10 @@ export function topMovers(rows, limit = 5) {
   return { up, down };
 }
 
-function renderSlider(pillar, weights, locks) {
+function renderSlider(pillar, weights, locks, unlockedCount) {
   const pct = Math.round(weights[pillar] * 1000) / 10;
   const pillarLabel = escapeHtml(copy.PILLAR_NAMES[pillar]);
+  const disabled = !!(locks && locks[pillar]) || (unlockedCount !== undefined && unlockedCount <= 1);
   return (
     `<div class="weight-slider-row">` +
     // Both a `<label for>` AND an explicit `aria-label` carry the pillar
@@ -141,13 +144,13 @@ function renderSlider(pillar, weights, locks) {
     // directly. `aria-valuetext` carries the live percentage a screen
     // reader announces on every value change.
     `<label class="weight-slider-label" for="weight-${pillar}" id="weight-${pillar}-label">${pillarLabel}</label>` +
-    `<input type="range" id="weight-${pillar}" class="weight-slider" min="0" max="1" step="0.01" ` +
-    `value="${weights[pillar]}" data-weight-slider="${pillar}" ${locks[pillar] ? "disabled" : ""} ` +
+    `<input type="range" id="weight-${pillar}" class="weight-slider" min="0" max="1" step="any" ` +
+    `value="${weights[pillar]}" data-weight-slider="${pillar}" ${disabled ? "disabled" : ""} ` +
     `aria-label="${pillarLabel}" aria-labelledby="weight-${pillar}-label" aria-valuetext="${pillarLabel}: ${pct}%">` +
     `<output class="weight-slider-value" for="weight-${pillar}">${pct}%</output>` +
     `<button type="button" class="icon-button weight-lock-toggle" data-weight-lock="${pillar}" ` +
-    `aria-pressed="${!!locks[pillar]}" aria-label="${escapeHtml(copy.CONFIGURE_LOCK_LABEL)} ${pillarLabel}">` +
-    `${locks[pillar] ? "🔒" : "🔓"}</button>` +
+    `aria-pressed="${!!(locks && locks[pillar])}" aria-label="${escapeHtml(copy.CONFIGURE_LOCK_LABEL)} ${pillarLabel}">` +
+    `${locks && locks[pillar] ? "🔒" : "🔓"}</button>` +
     `</div>`
   );
 }
@@ -164,7 +167,8 @@ function renderPresets() {
 
 export function renderControls(state) {
   const sum = weightsSum(state.weights);
-  const sliders = PILLAR_IDS.map((p) => renderSlider(p, state.weights, state.weightLocks)).join("");
+  const unlockedCount = PILLAR_IDS.filter((p) => !state.weightLocks[p]).length;
+  const sliders = PILLAR_IDS.map((p) => renderSlider(p, state.weights, state.weightLocks, unlockedCount)).join("");
   const sumOffBy1 = Math.abs(sum - 1) > 0.005;
   return (
     `<div class="weight-controls">` +

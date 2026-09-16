@@ -155,7 +155,7 @@ export function rowCells(row, opts) {
       key: "repository",
       html: `<span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span><span class="eco-chip">${escapeHtml(row.ecosystem)}</span>`,
     },
-    { key: "cvi", html: row.cvi.toFixed(2), numeric: true },
+    { key: "cvi", html: row.cvi != null ? row.cvi.toFixed(2) : copy.MISSING_VALUE, numeric: true },
     { key: "coverage", html: renderCoverageBadge(row.coverage) },
     { key: "tier", html: renderTierCell(row.tier, row.tier_ceiling) },
     { key: "quadrant", html: renderQuadrant(row.quadrant) },
@@ -275,7 +275,7 @@ function cardInnerHtml(row, opts) {
     `<span>${renderCoverageBadge(row.coverage)}</span>` +
     `</div>` +
     `<div><span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span><span class="eco-chip">${escapeHtml(row.ecosystem)}</span></div>` +
-    `<div class="cell-numeric">${copy.COLUMN_CVI} ${row.cvi.toFixed(2)} · ${renderTierCell(row.tier, row.tier_ceiling)}</div>` +
+    `<div class="cell-numeric">${copy.COLUMN_CVI} ${row.cvi != null ? row.cvi.toFixed(2) : copy.MISSING_VALUE} · ${renderTierCell(row.tier, row.tier_ceiling)}</div>` +
     `<div>${renderQuadrant(row.quadrant)} ${pillarBarsHtml(row)}${showPersonaDelta ? ` ${deltaHtml(row)}` : ""}</div>` +
     `<div>${renderSuspicionIcon(row.suspicion)}</div>`;
   return { html, tied };

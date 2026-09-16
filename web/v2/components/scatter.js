@@ -100,9 +100,19 @@ export function radiusForStars(starsAudited, domainMin, domainMax) {
 }
 
 export function starsDomain(points) {
-  const values = points.map((p) => p.stars_audited).filter((v) => v !== null && v !== undefined);
-  if (values.length === 0) return { min: 0, max: 0 };
-  return { min: Math.min(...values), max: Math.max(...values) };
+  let min = Infinity;
+  let max = -Infinity;
+  let found = false;
+  for (const p of points) {
+    const v = p.stars_audited;
+    if (v !== null && v !== undefined && Number.isFinite(v)) {
+      if (v < min) min = v;
+      if (v > max) max = v;
+      found = true;
+    }
+  }
+  if (!found) return { min: 0, max: 0 };
+  return { min, max };
 }
 
 const QUAD_CLASS = {

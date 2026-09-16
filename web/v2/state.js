@@ -65,7 +65,9 @@ export const COMPARE_MAX = 4;
  */
 export function parseWeightsParam(value) {
   if (!value) return null;
-  const parts = value.split(",").map(Number);
+  const rawParts = value.split(",");
+  if (rawParts.some((p) => p.trim() === "")) return null;
+  const parts = rawParts.map(Number);
   if (parts.length !== PILLAR_IDS.length || parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
   const sum = parts.reduce((a, b) => a + b, 0);
   if (Math.abs(sum - 1) > 1e-6) return null;
@@ -88,13 +90,22 @@ export function serializeWeightsParam(weights) {
 
 /**
  * `cmp=` URL serialisation: comma-separated `owner/name` pairs (06 §3 E:
- * "URL `cmp=a/b,c/d`"). `/` inside an owner or repo name is vanishingly
- * rare on GitHub and not defended against further here (same class of
- * simplification `repo=owner/name` already makes above).
+ * "URL `cmp=a/b,c/d`").
  */
 export function parseCompareParam(value) {
   if (!value) return [];
-  return value.split(",").map((s) => s.trim()).filter(Boolean).slice(0, COMPARE_MAX);
+  const validRepoRegex = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
+  const seen = new Set();
+  const result = [];
+  for (const s of value.split(",")) {
+    const trimmed = s.trim();
+    if (trimmed && validRepoRegex.test(trimmed) && !seen.has(trimmed)) {
+      seen.add(trimmed);
+      result.push(trimmed);
+      if (result.length >= COMPARE_MAX) break;
+    }
+  }
+  return result;
 }
 
 export function serializeCompareParam(repos) {
@@ -183,14 +194,35 @@ export function defaultState() {
   };
 }
 
+export const VALID_PERSONAS = Object.freeze(["balanced", "first_timer", "career_capital", "senior_systems", "ai_assisted"]);
+
+export const VALID_SORT_FIELDS = Object.freeze(new Set([
+  "rank",
+  "cvi",
+  "coverage",
+  "tier",
+  "p_responsiveness",
+  "p_criticality",
+  "p_governance",
+  "p_rigor",
+  "p_accessibility",
+]));
+
 /** Parse `location.search` (with or without the leading "?") into a partial state. */
 export function parseSearch(search) {
   const qs = new URLSearchParams(search.replace(/^\?/, ""));
   const out = {};
-  if (qs.has("persona")) out.persona = qs.get("persona");
+  if (qs.has("persona")) {
+    const p = qs.get("persona");
+    if (VALID_PERSONAS.includes(p)) out.persona = p;
+  }
   if (qs.has("eco")) out.ecosystem = qs.get("eco");
   if (qs.has("q")) out.query = qs.get("q");
-  if (qs.has("sort")) out.sort = qs.get("sort");
+  if (qs.has("sort")) {
+    const s = qs.get("sort");
+    const field = s.startsWith("-") ? s.slice(1) : s;
+    if (VALID_SORT_FIELDS.has(field)) out.sort = s;
+  }
   if (qs.has("page")) {
     const n = parseInt(qs.get("page"), 10);
     if (Number.isFinite(n) && n >= 1) out.page = n;
@@ -217,7 +249,7 @@ export function parseSearch(search) {
 //: Every value `tab=` may legitimately hold (06 §2's primary tabs, plus the
 //: Leaderboard screen's own Ranked/Not-ranked sub-tabs) — an unrecognised
 //: value in a hand-edited URL falls back to "ranked", never a blank screen.
-const VALID_TABS = Object.freeze(["ranked", "notranked", "matrix", "compare", "configure", "methodology"]);
+export const VALID_TABS = Object.freeze(["ranked", "notranked", "matrix", "compare", "configure", "methodology"]);
 
 /** Serialize the URL-relevant slice of state back into a "?..." string ("" when every param is default). */
 export function serializeSearch(state) {
@@ -240,7 +272,7 @@ export function serializeSearch(state) {
   return s ? `?${s}` : "";
 }
 
-function weightsEqual(a, b) {
+export function weightsEqual(a, b) {
   return PILLAR_IDS.every((p) => Math.abs((a[p] ?? 0) - (b[p] ?? 0)) < 1e-9);
 }
 
@@ -348,8 +380,22 @@ export function urlSyncMode(trigger) {
  */
 export function reduce(state, action) {
   switch (action.type) {
-    case "SET_PARAMS":
-      return { ...state, ...action.payload };
+    case "SET_PARAMS": {
+      const personaChanged = action.payload && action.payload.persona && action.payload.persona !== state.persona;
+      return {
+        ...state,
+        ...action.payload,
+        ...(personaChanged ? { notRanked: null, notRankedError: null, notRankedPage: 1 } : {}),
+      };
+    }
+    case "SET_PERSONA":
+      return {
+        ...state,
+        persona: action.persona,
+        notRanked: null,
+        notRankedError: null,
+        notRankedPage: 1,
+      };
     case "SET_TAB":
       return { ...state, tab: action.tab };
     case "SET_PAGE":

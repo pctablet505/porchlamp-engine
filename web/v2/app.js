@@ -45,6 +45,7 @@ import {
   BALANCED_WEIGHTS,
   PERSONA_PRESET_WEIGHTS,
   MATRIX_QUADRANTS,
+  weightsEqual,
 } from "./state.js";
 import {
   renderShell,
@@ -102,6 +103,10 @@ function escapeHtml(value) {
 }
 
 export function boot(win = window, doc = document) {
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const signal = controller ? controller.signal : undefined;
+  const listenerOpts = (opts = {}) => (signal ? { ...opts, signal } : opts);
+
   const store = createStore(win.location.search);
 
   const header = doc.getElementById("app-header-controls");
@@ -470,13 +475,15 @@ export function boot(win = window, doc = document) {
 
   /** Configure's slider/preset/sum controls render in EVERY shape (loading/error/empty/body — the controls stay visible while re-projecting), so a weight/lock change never rebuilds the shell; this syncs the five sliders' value/output/lock state plus the sum display. Also called from `syncView`'s non-"body" branch, since the controls exist there too. */
   function syncConfigureControls(state) {
+    const unlockedCount = PILLAR_IDS.filter((p) => !state.weightLocks[p]).length;
     for (const pillar of PILLAR_IDS) {
       const slider = main.querySelector(`[data-weight-slider="${pillar}"]`);
       const locked = !!state.weightLocks[pillar];
+      const shouldDisable = locked || unlockedCount <= 1;
       if (slider) {
         const value = String(state.weights[pillar]);
         if (slider.value !== value) slider.value = value;
-        if (slider.disabled !== locked) slider.disabled = locked;
+        if (slider.disabled !== shouldDisable) slider.disabled = shouldDisable;
         const pct = `${Math.round(state.weights[pillar] * 1000) / 10}%`;
         // Matches views/configure.js::renderSlider's format — screen readers
         // announce which pillar changed, not just the new percentage.
@@ -843,6 +850,12 @@ export function boot(win = window, doc = document) {
   });
   header.addEventListener("keydown", (evt) => {
     if (evt.target.matches("[data-search-input]") && evt.key === "Enter") {
+      if (searchDebounce) {
+        clearTimeout(searchDebounce);
+        searchDebounce = null;
+        store.dispatch({ type: "SET_PARAMS", payload: { query: evt.target.value, page: 1 } });
+        loadLeaderboard();
+      }
       if (urlSyncMode("commit") === "push") pushUrl(store.getState(), { force: true });
     }
   });
@@ -850,6 +863,12 @@ export function boot(win = window, doc = document) {
     "blur",
     (evt) => {
       if (evt.target.matches && evt.target.matches("[data-search-input]")) {
+        if (searchDebounce) {
+          clearTimeout(searchDebounce);
+          searchDebounce = null;
+          store.dispatch({ type: "SET_PARAMS", payload: { query: evt.target.value, page: 1 } });
+          loadLeaderboard();
+        }
         if (urlSyncMode("commit") === "push") pushUrl(store.getState(), { force: true });
       }
     },
@@ -967,6 +986,7 @@ export function boot(win = window, doc = document) {
       const pillar = slider.dataset.weightSlider;
       const state = store.getState();
       const next = normalizeWeights(state.weights, state.weightLocks, pillar, parseFloat(slider.value));
+      if (weightsEqual(next, state.weights)) return;
       store.dispatch({ type: "SET_WEIGHTS", weights: next });
       syncConfigureControls(store.getState());
       clearTimeout(reprojectDebounce);
@@ -1085,6 +1105,7 @@ export function boot(win = window, doc = document) {
       const state = store.getState();
       const preset = PERSONA_PRESET_WEIGHTS[presetBtn.dataset.weightPreset];
       const next = applyPresetRespectingLocks(state.weights, state.weightLocks, preset);
+      if (weightsEqual(next, state.weights)) return;
       store.dispatch({ type: "SET_WEIGHTS", weights: next });
       pushUrl(store.getState());
       runReproject();
@@ -1177,7 +1198,7 @@ export function boot(win = window, doc = document) {
       win.requestAnimationFrame(runPatch);
       win.setTimeout(runPatch, 32);
     },
-    { passive: true }
+    listenerOpts({ passive: true })
   );
 
   // -------------------------------------------------------- Matrix
@@ -1255,9 +1276,18 @@ export function boot(win = window, doc = document) {
   });
 
   function trapFocus(evt) {
-    const container = store.getState().repo ? drawerRoot.querySelector(".drawer") : keymapRoot.querySelector(".keymap-overlay");
+    const s = store.getState();
+    const container = s.keymapOpen
+      ? keymapRoot.querySelector(".keymap-overlay")
+      : s.repo
+      ? drawerRoot.querySelector(".drawer")
+      : null;
     if (!container) return;
-    const focusable = container.querySelectorAll('button, [href], input, select, [tabindex]:not([tabindex="-1"])');
+    const focusable = Array.from(
+      container.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"]):not([disabled])'
+      )
+    );
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
@@ -1271,7 +1301,9 @@ export function boot(win = window, doc = document) {
   }
 
   doc.addEventListener("keydown", (evt) => {
-    const isInputFocused = ["INPUT", "SELECT", "TEXTAREA"].includes(doc.activeElement?.tagName);
+    const activeTag = doc.activeElement?.tagName;
+    const isInputFocused = ["INPUT", "SELECT", "TEXTAREA"].includes(activeTag);
+    const isInteractiveFocused = ["BUTTON", "A", "SUMMARY"].includes(activeTag);
     const s = store.getState();
 
     if (evt.key === "Tab" && (s.repo || s.keymapOpen)) {
@@ -1279,7 +1311,7 @@ export function boot(win = window, doc = document) {
       return;
     }
 
-    const action = actionForKeyEvent(evt, { isInputFocused });
+    const action = actionForKeyEvent(evt, { isInputFocused, isInteractiveFocused });
     if (!action) return;
 
     switch (action) {
@@ -1388,6 +1420,7 @@ export function boot(win = window, doc = document) {
         break;
       case "open-selected": {
         if (isInputFocused || s.repo || s.keymapOpen) return;
+        if (["BUTTON", "A", "SUMMARY"].includes(doc.activeElement?.tagName)) return;
         // U-18/§5: resolve the target from DOM focus FIRST — a row reached
         // by Tab or a direct `.focus()` call never went through SET_CURSOR,
         // so consulting only the J/K cursor opened nothing for it. The cursor
@@ -1414,8 +1447,8 @@ export function boot(win = window, doc = document) {
         break;
       }
       case "close-overlay":
-        if (s.repo) closeDrawer();
-        else if (s.keymapOpen) store.dispatch({ type: "TOGGLE_KEYMAP", open: false });
+        if (s.keymapOpen) store.dispatch({ type: "TOGGLE_KEYMAP", open: false });
+        else if (s.repo) closeDrawer();
         break;
       case "next-page":
         if (isInputFocused || s.repo || s.keymapOpen) return;
@@ -1437,7 +1470,7 @@ export function boot(win = window, doc = document) {
       default:
         break;
     }
-  });
+  }, listenerOpts());
 
   function scrollRowIntoView(index) {
     const container = main.querySelector("[data-leaderboard-tbody], [data-leaderboard-cards]");
@@ -1457,6 +1490,12 @@ export function boot(win = window, doc = document) {
   }
 
   win.addEventListener("popstate", () => {
+    clearTimeout(searchDebounce);
+    clearTimeout(reprojectDebounce);
+    clearTimeout(compareSearchDebounce);
+    searchDebounce = null;
+    reprojectDebounce = null;
+    compareSearchDebounce = null;
     const previousState = store.getState();
     // popstate must be able to CLEAR a param that is absent from the new
     // URL (e.g. navigating from ?eco=pypi back to no eco at all), so every
@@ -1482,14 +1521,14 @@ export function boot(win = window, doc = document) {
     const weightsChanged = PILLAR_IDS.some((p) => s.weights[p] !== previousState.weights[p]);
     if (weightsChanged || (s.tab === "configure" && !s.reproject)) runReproject();
     loadDataForTab(s.tab);
-  });
+  }, listenerOpts());
 
   win.addEventListener("resize", () => {
     // A resize can cross the 768px breakpoint (table <-> card list), which
     // is a shell-shape change (shellShape folds isMobile in), so this goes
     // through syncView rather than a bare patch.
     if (store.getState().tab === "ranked") syncView(store.getState());
-  });
+  }, listenerOpts());
 
   // ------------------------------------------------------------ Boot
   function applyTheme(theme, document_ = doc) {
@@ -1565,6 +1604,7 @@ export function boot(win = window, doc = document) {
     // eslint-disable-next-line no-console
     console.log(`[perf] matrix render of ${n} points: ${(t3 - t2).toFixed(1)}ms`);
   } else {
+    replaceUrl(store.getState());
     render();
     const initialState = store.getState();
     const initialTab = initialState.tab;
@@ -1588,7 +1628,22 @@ export function boot(win = window, doc = document) {
   }
   loadSnapshot();
 
-  return { store, render, patchLeaderboardBody, loadLeaderboard, loadMatrix, loadMethodology, runReproject, goToTab };
+  return {
+    store,
+    render,
+    patchLeaderboardBody,
+    loadLeaderboard,
+    loadMatrix,
+    loadMethodology,
+    runReproject,
+    goToTab,
+    destroy: () => {
+      if (controller) controller.abort();
+      clearTimeout(searchDebounce);
+      clearTimeout(reprojectDebounce);
+      clearTimeout(compareSearchDebounce);
+    },
+  };
 }
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {

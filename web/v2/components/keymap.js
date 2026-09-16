@@ -46,10 +46,12 @@ const ACTIONS_BY_KEY = new Map(KEY_ACTIONS.map((entry) => [entry.key.toLowerCase
  * @returns {string|null} the action name, or null if this key has no binding
  *   (or is suppressed because a text input is focused).
  */
-export function actionForKeyEvent(evt, context = { isInputFocused: false }) {
+export function actionForKeyEvent(evt, context = { isInputFocused: false, isInteractiveFocused: false }) {
+  if (evt.metaKey || evt.ctrlKey || evt.altKey) return null;
   const entry = ACTIONS_BY_KEY.get(String(evt.key).toLowerCase());
   if (!entry) return null;
   if (entry.globalOnly && context.isInputFocused) return null;
+  if (entry.action === "open-selected" && context.isInteractiveFocused) return null;
   return entry.action;
 }
 

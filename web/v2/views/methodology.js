@@ -121,14 +121,18 @@ function renderPersonas(personas) {
     })
     .join("");
   const gateItems = personas.gates
-    .map(
-      (g) =>
+    .map((g) => {
+      const thresholdsObj = g.thresholds || {};
+      const entries = Object.entries(thresholdsObj);
+      const thresholdsText = entries.length
+        ? ` (${entries.map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(v)}`).join(", ")})`
+        : "";
+      return (
         `<li><strong>${escapeHtml(copy.PERSONA_NAMES[g.persona] || g.persona)}</strong>: ${escapeHtml(g.description)}` +
-        (Object.keys(g.thresholds).length
-          ? ` (${Object.entries(g.thresholds).map(([k, v]) => `${k}: ${v}`).join(", ")})`
-          : "") +
+        thresholdsText +
         `</li>`
-    )
+      );
+    })
     .join("");
   const headerCells = pillarIds.map((p) => `<th>${escapeHtml(copy.PILLAR_NAMES[p])}</th>`).join("");
   return (

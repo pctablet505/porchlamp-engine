@@ -215,7 +215,7 @@ def _check_awesome(con: sqlite3.Connection) -> AnchorResult:
         "FROM repositories WHERE lower(name) LIKE 'awesome%' ORDER BY owner, name"
     ).fetchall()
     if not rows:
-        return AnchorResult(relation_id, _EXPECTED[relation_id], "0 awesome-* repos in DB", FAIL)
+        return AnchorResult(relation_id, _EXPECTED[relation_id], "0 awesome-* repos in DB", SKIPPED)
     gated_as_list = [
         row
         for row in rows
@@ -436,14 +436,24 @@ def _check_archived_db_v2(con: sqlite3.Connection, snap_id: Optional[str]) -> An
         rows = con.execute(
             f"SELECT {select_cols} FROM repositories ORDER BY owner, name"
         ).fetchall()
+    if not rows:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], "0 repos in DB slice", SKIPPED)
+    candidates = []
     matches = []
     for r in rows:
         eligible = bool(r[2])
         reason = r[3]
         arch = bool(r[4]) if has_archived_col and len(r) > 4 and r[4] is not None else False
-        if not eligible and ((isinstance(reason, str) and "archived" in reason.lower()) or arch):
-            matches.append(f"{r[0]}/{r[1]}")
-    if matches:
+        is_candidate = arch or (isinstance(reason, str) and "archived" in reason.lower())
+        if is_candidate:
+            candidates.append(f"{r[0]}/{r[1]}")
+            if not eligible and ((isinstance(reason, str) and "archived" in reason.lower()) or arch):
+                matches.append(f"{r[0]}/{r[1]}")
+    if not candidates:
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], "0 archived repos in DB slice", SKIPPED
+        )
+    if len(matches) == len(candidates):
         noun = "repo" if len(matches) == 1 else "repos"
         return AnchorResult(
             relation_id,
@@ -452,7 +462,7 @@ def _check_archived_db_v2(con: sqlite3.Connection, snap_id: Optional[str]) -> An
             PASS,
         )
     return AnchorResult(
-        relation_id, _EXPECTED[relation_id], "no gated repo with reason 'archived'", FAIL
+        relation_id, _EXPECTED[relation_id], "archived repo not gated with reason 'archived'", FAIL
     )
 
 
@@ -472,7 +482,7 @@ def _check_awesome_db_v2(con: sqlite3.Connection, snap_id: Optional[str]) -> Anc
         ).fetchall()
     if not rows:
         return AnchorResult(
-            relation_id, _EXPECTED[relation_id], "0 awesome-* repos in DB", FAIL
+            relation_id, _EXPECTED[relation_id], "0 awesome-* repos in DB", SKIPPED
         )
     gated_as_list = [
         row
@@ -819,7 +829,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(json.dumps(payload, indent=2))
     else:
         print(format_anchor_report(results, total, rated))
-    return 0
+    return 1 if results.counts[FAIL] > 0 else 0
 
 
 # =========================================================================== #
