@@ -40,10 +40,11 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from cvi.core import constants
 from cvi.core.gates import GateEvidence
+from cvi.snapshot.manifest import merkle_root
 from cvi.core.models import (
     FeatureBundle,
     Measured,
@@ -140,6 +141,23 @@ def _bundle_raw_hash(bundle: FeatureBundle) -> str:
     return sha256_hex(canonical_json(dump_bundle(bundle)))
 
 
+class _BootstrapPopulationLookup:
+    """Bootstrap population lookup for Pass 1 scoring.
+
+    Provides a dummy population and neutral ECDF callable so that measured ECDF
+    parameters (ttm_p90_hours, dependents_deduped, downloads_monthly) are not
+    falsely marked unmeasured with reason='no_population', which would depress
+    Pass 1 composite coverage and exclude eligible repositories from Pass 2
+    population membership.
+    """
+
+    def population(self, ecosystem: str, param: str) -> object:
+        return object()
+
+    def ecdf(self, ecosystem: str, param: str) -> Callable[[float], float]:
+        return lambda _val: 50.0
+
+
 def _empty_populations(snapshot_id: str) -> PopulationSet:
     return PopulationSet(
         snapshot_id=snapshot_id, benchmark_version=constants.BENCHMARK_VERSION,
@@ -151,7 +169,13 @@ def _population_member(bundle: FeatureBundle, pass1_gate, pass1_rated: bool) -> 
     measured: dict[str, float] = {}
     for input_id in ECDF_INPUT_IDS:
         value = bundle.inputs[input_id]
-        if isinstance(value, Measured) and isinstance(value.value, (int, float)) and not isinstance(value.value, bool):
+        min_n = constants.PARAM_MIN_N.get(input_id)
+        if (
+            isinstance(value, Measured)
+            and isinstance(value.value, (int, float))
+            and not isinstance(value.value, bool)
+            and (min_n is None or (value.n is not None and value.n >= min_n))
+        ):
             measured[input_id] = float(value.value)
     return PopulationMember(
         key=repo_key(bundle), ecosystem=bundle.repo.ecosystem, gate=pass1_gate, rated=pass1_rated, measured=measured,
@@ -200,7 +224,7 @@ def build_fixture(sample_root: Path, *, size: int = FIXTURE_SIZE, snapshot_id: s
     # Pass 1: population-free scoring, purely to learn gate/rated status and
     # each bundle's raw ECDF-input values (module docstring).
     pass1 = score_snapshot(
-        bundles, _empty_populations(snapshot_id), snapshot_id=snapshot_id, as_of=as_of,
+        bundles, _BootstrapPopulationLookup(), snapshot_id=snapshot_id, as_of=as_of,
         gate_evidence=gate_evidence, raw_hashes=raw_hashes,
     )
     pass1_by_key = {repo_key_of(record): record for record in pass1.records}
@@ -357,6 +381,7 @@ def write_fixture(result: FixtureBuildResult, out_dir: Path) -> None:
         "as_of": result.as_of.isoformat(),
         "benchmark_version": result.snapshot.benchmark_version,
         "constants_hash": result.snapshot.constants_hash,
+        "merkle_root": merkle_root(sorted(result.raw_hashes.values())),
         "repo_count": len(result.bundles),
         "anchors_present": result.anchors_present,
         "anchors_absent": result.anchors_absent,

@@ -411,3 +411,92 @@ def test_b_build_detectors_wires_source_drift() -> None:
     key = repo_key(bundle)
     call = pipeline_hook.build_detectors([bundle], source_drift_by_key={key: True})
     assert call is not None
+
+
+# --------------------------------------------------------------------------- #
+# Workstream C regression tests
+# --------------------------------------------------------------------------- #
+
+
+def test_c_population_member_min_n_guard() -> None:
+    from cvi.core.models import FeatureBundle, RepoIdentity, PRWindow, Cohorts
+    from cvi.core.gates import GateResult
+    from cvi.snapshot.build_cmd import _population_member
+    from cvi.core import constants
+    from tests.core.test_validation import make_measured
+
+    # ttm_p90_hours has min_n = 5
+    repo = RepoIdentity("owner", "name", "pypi", False, None, False, "MIT", "main")
+    bundle_below_n = FeatureBundle(
+        schema_version=2,
+        repo=repo,
+        provenance_hash="a" * 64,
+        pr_window=PRWindow(start=None, end=None, truncated=False, events=()),
+        cohorts=Cohorts(decision_pr_numbers=(), newcomer_authors=()),
+        inputs={
+            param: make_measured(value=10.0, n=2) if param == "ttm_p90_hours"
+            else make_measured(value=100.0, n=0) if param in ("dependents_deduped", "downloads_monthly")
+            else make_measured(value=1.0)
+            for param in constants.PARAM_INPUT_IDS
+        },
+    )
+    gate = GateResult(eligible=True, reason=None, routed=None, undecided=())
+    mem_below = _population_member(bundle_below_n, gate, True)
+    assert "ttm_p90_hours" not in mem_below.measured
+    assert "dependents_deduped" in mem_below.measured
+    assert "downloads_monthly" in mem_below.measured
+
+    bundle_above_n = FeatureBundle(
+        schema_version=2,
+        repo=repo,
+        provenance_hash="a" * 64,
+        pr_window=PRWindow(start=None, end=None, truncated=False, events=()),
+        cohorts=Cohorts(decision_pr_numbers=(), newcomer_authors=()),
+        inputs={
+            param: make_measured(value=10.0, n=5) if param == "ttm_p90_hours"
+            else make_measured(value=100.0, n=0) if param in ("dependents_deduped", "downloads_monthly")
+            else make_measured(value=1.0)
+            for param in constants.PARAM_INPUT_IDS
+        },
+    )
+    mem_above = _population_member(bundle_above_n, gate, True)
+    assert "ttm_p90_hours" in mem_above.measured
+
+
+def test_c_bootstrap_population_lookup_satisfies_protocol() -> None:
+    from cvi.snapshot.build_cmd import _BootstrapPopulationLookup
+    lookup = _BootstrapPopulationLookup()
+    assert lookup.population("pypi", "ttm_p90_hours") is not None
+    ecdf = lookup.ecdf("pypi", "ttm_p90_hours")
+    assert callable(ecdf)
+    assert ecdf(42.0) == 50.0
+
+
+def test_c_lakehouse_operational_store_legacy_repositories(tmp_path) -> None:
+    import sqlite3
+    from cvi.lakehouse import OperationalStore, repositories_dump_hash
+
+    db = tmp_path / "migrated.db"
+    conn = sqlite3.connect(db)
+    # Simulate a migrated DB: legacy_repositories has v1 shape, repositories has v2 shape
+    conn.execute(
+        "CREATE TABLE legacy_repositories (id INTEGER PRIMARY KEY, owner TEXT, name TEXT, overall_cvi REAL, rank_tier TEXT, matrix_quadrant TEXT, stars INTEGER, is_stage0_disqualified INTEGER, friction_score REAL, leverage_score REAL, score_responsiveness REAL, score_criticality REAL, score_governance REAL, score_rigor_ai REAL, score_accessibility REAL, last_indexed_at TEXT, ecosystem TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO legacy_repositories (id, owner, name, overall_cvi, rank_tier, matrix_quadrant, stars, is_stage0_disqualified, score_responsiveness, score_criticality, score_governance, score_rigor_ai, score_accessibility, last_indexed_at, ecosystem) VALUES (1, 'org', 'repo', 80.0, 'A', 'NURTURE', 100, 0, 80, 80, 80, 80, 80, '2026-09-12T00:00:00Z', 'pypi')"
+    )
+    conn.execute("CREATE TABLE repositories (id INTEGER PRIMARY KEY, snapshot_id TEXT, owner TEXT, name TEXT)")
+    conn.execute("CREATE TABLE snapshots (id TEXT PRIMARY KEY)")
+    conn.commit()
+    conn.close()
+
+    store = OperationalStore(str(db))
+    assert store._table == "legacy_repositories"
+    row = store.get_repo("org", "repo")
+    assert row is not None
+    assert row["owner"] == "org" and row["name"] == "repo"
+
+    # Dump hash isolates legacy_repositories as repositories and hashes cleanly
+    dh = repositories_dump_hash(str(db))
+    assert isinstance(dh, str) and len(dh) == 64
+

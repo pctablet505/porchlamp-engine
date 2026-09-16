@@ -208,8 +208,13 @@ def repositories_dump_hash(db_path: str) -> str:
                     "AND name NOT LIKE 'sqlite_%'"
                 ).fetchall()
             ]
+            if "legacy_repositories" in tables:
+                if "repositories" in tables:
+                    conn.execute('DROP TABLE "repositories"')
+                conn.execute('ALTER TABLE "legacy_repositories" RENAME TO "repositories"')
+                tables = [t for t in tables if t not in ("legacy_repositories", "repositories")] + ["repositories"]
             for table in tables:
-                if table in _DUMP_HASH_EXCLUDED_TABLES:
+                if table != "repositories":
                     conn.execute(f'DROP TABLE "{table}"')
             conn.commit()
         finally:
@@ -227,11 +232,26 @@ class OperationalStore:
     def __init__(self, db_path: str = ":memory:") -> None:
         self._conn = sqlite3.connect(db_path, timeout=30.0)
         self._conn.execute("PRAGMA busy_timeout=30000;")
+        has_legacy = self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='legacy_repositories'"
+        ).fetchone()
         has_table = self._conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='repositories'"
         ).fetchone()
-        if not has_table:
-            self._conn.executescript(_SCHEMA)
+        has_v1_cols = False
+        if has_table:
+            cols = {
+                r[1] for r in self._conn.execute("PRAGMA table_info(repositories)").fetchall()
+            }
+            has_v1_cols = "last_indexed_at" in cols
+        if not has_legacy and not has_v1_cols:
+            if not has_table:
+                self._conn.executescript(_SCHEMA)
+                self._table = "repositories"
+            else:
+                raise sqlite3.OperationalError("no v1 repositories table in v2 database")
+        else:
+            self._table = "legacy_repositories" if has_legacy else "repositories"
         self._leaderboard_cache: dict[tuple, tuple[list[dict], int]] = {}
 
     @property
@@ -295,7 +315,7 @@ class OperationalStore:
         update_columns = [c for c in columns if c not in ("owner", "name")]
         set_clause = ", ".join(f"{c} = excluded.{c}" for c in update_columns)
         sql = (
-            f"INSERT INTO repositories ({', '.join(columns)}) "
+            f"INSERT INTO {self._table} ({', '.join(columns)}) "
             f"VALUES ({placeholders}) "
             f"ON CONFLICT(owner, name) DO UPDATE SET {set_clause} "
             f"RETURNING id"
@@ -320,11 +340,11 @@ class OperationalStore:
         """
         columns = {
             r[1]
-            for r in self._conn.execute("PRAGMA table_info(repositories)").fetchall()
+            for r in self._conn.execute(f"PRAGMA table_info({self._table})").fetchall()
         }
         if "deep_dive_json" not in columns:
             self._conn.execute(
-                "ALTER TABLE repositories ADD COLUMN deep_dive_json TEXT"
+                f"ALTER TABLE {self._table} ADD COLUMN deep_dive_json TEXT"
             )
             self._conn.commit()
 
@@ -338,7 +358,7 @@ class OperationalStore:
         """
         self.ensure_deep_dive_column()
         cur = self._conn.execute(
-            "UPDATE repositories SET deep_dive_json = ? "
+            f"UPDATE {self._table} SET deep_dive_json = ? "
             "WHERE owner = ? AND name = ?",
             (json.dumps(payload, sort_keys=True), owner, name),
         )
@@ -358,7 +378,7 @@ class OperationalStore:
         it appears as a key (``None`` when no payload has been stored).
         """
         cur = self._conn.execute(
-            "SELECT * FROM repositories WHERE owner = ? AND name = ?",
+            f"SELECT * FROM {self._table} WHERE owner = ? AND name = ?",
             (owner, name),
         )
         row = cur.fetchone()
@@ -402,7 +422,7 @@ class OperationalStore:
             "SELECT owner, name, friction_score AS x, leverage_score AS y, "
             "overall_cvi AS cvi, rank_tier AS tier, matrix_quadrant AS quadrant, "
             "stars AS size, is_stage0_disqualified AS is_gated "
-            "FROM repositories"
+            f"FROM {self._table}"
         )
         if where:
             sql += f" WHERE {' AND '.join(where)}"
@@ -483,13 +503,13 @@ class OperationalStore:
 
         # Fast path: Balanced or default ranking (no re-projection needed)
         if persona_enum is None or persona_enum == Persona.BALANCED:
-            count_sql = f"SELECT COUNT(*) FROM repositories{where_clause}"
+            count_sql = f"SELECT COUNT(*) FROM {self._table}{where_clause}"
             total_count = int(self._conn.execute(count_sql, params).fetchone()[0])
 
             # Explicit column list (not SELECT *): the leaderboard never serves
             # the optional deep_dive_json blob, so don't read it for every row.
             query_sql = (
-                f"SELECT {', '.join(_COLUMNS)} FROM repositories{where_clause} "
+                f"SELECT {', '.join(_COLUMNS)} FROM {self._table}{where_clause} "
                 "ORDER BY overall_cvi DESC, owner, name LIMIT ? OFFSET ?"
             )
             query_params = list(params) + [limit_val, offset_val]
@@ -502,7 +522,7 @@ class OperationalStore:
             return [dict(d) for d in items], total_count
 
         # Persona re-projection path
-        query_sql = f"SELECT {', '.join(_COLUMNS)} FROM repositories{where_clause}"
+        query_sql = f"SELECT {', '.join(_COLUMNS)} FROM {self._table}{where_clause}"
         cur = self._conn.execute(query_sql, params)
         cols = [d[0] for d in cur.description]
         rows = [dict(zip(cols, row)) for row in cur.fetchall()]
@@ -548,7 +568,7 @@ class OperationalStore:
         Always returns all four quadrants (0 when absent) so the toolbar
         can render every badge.
         """
-        sql = "SELECT matrix_quadrant, COUNT(*) FROM repositories"
+        sql = f"SELECT matrix_quadrant, COUNT(*) FROM {self._table}"
         params: list[Any] = []
         if ecosystem is not None:
             eco_str = (

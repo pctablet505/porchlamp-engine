@@ -24,7 +24,9 @@ from cvi.core.pipeline import RepoKey, repo_key, score_snapshot
 from cvi.derive.bundle import dump_bundle, load_bundle, write_bundle
 from cvi.derive.gate_evidence import gate_evidence_for
 from cvi.snapshot.fixture_io import FrozenFixture, load_frozen_fixture
-from cvi.snapshot.manifest import code_commit
+from typing import Callable
+
+from cvi.snapshot.manifest import code_commit, merkle_root
 from cvi.snapshot.populations import (
     PopulationMember,
     PopulationSet,
@@ -49,6 +51,23 @@ def _bundle_raw_hash(bundle: FeatureBundle) -> str:
     return sha256_hex(canonical_json(dump_bundle(bundle)))
 
 
+class _BootstrapPopulationLookup:
+    """Bootstrap population lookup for Pass 1 scoring.
+
+    Provides a dummy population and neutral ECDF callable so that measured ECDF
+    parameters (ttm_p90_hours, dependents_deduped, downloads_monthly) are not
+    falsely marked unmeasured with reason='no_population', which would depress
+    Pass 1 composite coverage and exclude eligible repositories from Pass 2
+    population membership.
+    """
+
+    def population(self, ecosystem: str, param: str) -> object:
+        return object()
+
+    def ecdf(self, ecosystem: str, param: str) -> Callable[[float], float]:
+        return lambda _val: 50.0
+
+
 def _empty_populations(snapshot_id: str) -> PopulationSet:
     return PopulationSet(
         snapshot_id=snapshot_id,
@@ -62,10 +81,12 @@ def _population_member(bundle: FeatureBundle, pass1_gate, pass1_rated: bool) -> 
     measured: dict[str, float] = {}
     for input_id in ECDF_INPUT_IDS:
         value = bundle.inputs[input_id]
+        min_n = constants.PARAM_MIN_N.get(input_id)
         if (
             isinstance(value, Measured)
             and isinstance(value.value, (int, float))
             and not isinstance(value.value, bool)
+            and (min_n is None or (value.n is not None and value.n >= min_n))
         ):
             measured[input_id] = float(value.value)
     return PopulationMember(
@@ -116,10 +137,10 @@ def build_snapshot_dir(
         gate_evidence[key] = gate_evidence_for(raw_dir, basename)
         raw_hashes[key] = _bundle_raw_hash(bundle)
 
-    # Pass 1: score against empty populations to obtain gate/rated status
+    # Pass 1: score against bootstrap populations to obtain gate/rated status
     pass1 = score_snapshot(
         bundles,
-        _empty_populations(snapshot_id),
+        _BootstrapPopulationLookup(),
         snapshot_id=snapshot_id,
         as_of=as_of,
         gate_evidence=gate_evidence,
@@ -150,6 +171,7 @@ def build_snapshot_dir(
     write_populations(populations, out_dir / "populations.json")
 
     commit = code_commit_sha or code_commit(_CODE_ROOT) or "unknown"
+    root = merkle_root(sorted(raw_hashes.values()))
     repos_manifest = [
         {
             "owner": bundle.repo.owner,
@@ -174,6 +196,7 @@ def build_snapshot_dir(
         "benchmark_version": constants.BENCHMARK_VERSION,
         "constants_hash": constants.CONSTANTS_HASH,
         "code_commit": commit,
+        "merkle_root": root,
         "repos": repos_manifest,
     }
     (out_dir / "manifest.json").write_text(

@@ -128,6 +128,7 @@ class DetectorEntry(TypedDict, total=False):
     never by :func:`methodology_document` -- see the module docstring)."""
 
     name: str
+    direction: str
     trigger: str
     thresholds: dict[str, object]
 

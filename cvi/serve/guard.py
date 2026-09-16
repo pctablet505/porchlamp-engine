@@ -90,7 +90,8 @@ def _refusal_message(db_path: str, reasons: List[str]) -> str:
 
 def count_repos(store: OperationalStore) -> int:
     """Number of promoted repo rows currently in the store."""
-    row = store.connection.execute("SELECT COUNT(*) FROM repositories").fetchone()
+    table = getattr(store, "_table", "repositories")
+    row = store.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
     return int(row[0])
 
 
@@ -101,8 +102,9 @@ def _fixture_marker_rows(store: OperationalStore) -> list:
     ``owner``/``name``/``stars``/``forks``, so ``UPDATE repositories SET
     owner = owner || '-inc'`` does not change which rows this returns.
     """
+    table = getattr(store, "_table", "repositories")
     return store.connection.execute(
-        "SELECT id, owner, name FROM repositories WHERE last_indexed_at = ? ORDER BY id",
+        f"SELECT id, owner, name FROM {table} WHERE last_indexed_at = ? ORDER BY id",
         (_FIXTURE_MARKER,),
     ).fetchall()
 

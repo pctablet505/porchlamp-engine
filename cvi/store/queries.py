@@ -465,11 +465,13 @@ def list_ranked(
 
     paths = _persona_paths(persona)
     visible_clause, visible_params = _persona_visible_where_sql(persona)
-    where = f"r.snapshot_id = ? AND {visible_clause}{extra_where}"
-    params = [snapshot_id, *visible_params, *extra_params]
-    proj_select_params = [paths["cvi"], paths["coverage"], paths["tier"], paths["rated"], *params]
+    base_where = f"r.snapshot_id = ? AND {visible_clause}"
+    base_params = [snapshot_id, *visible_params]
+    proj_select_params = [paths["cvi"], paths["coverage"], paths["tier"], paths["rated"], *base_params]
 
-    total = conn.execute(f"SELECT COUNT(*) FROM repositories r WHERE {where}", params).fetchone()[0]
+    count_where = f"r.snapshot_id = ? AND {visible_clause}{extra_where}"
+    count_params = [snapshot_id, *visible_params, *extra_params]
+    total = conn.execute(f"SELECT COUNT(*) FROM repositories r WHERE {count_where}", count_params).fetchone()[0]
 
     rank_order_expr = _order_by_sql("ROUND(cvi_p, 2)", "coverage_p")
     display_order_expr = _build_order_by(sort, "ROUND(cvi_p, 2)", "coverage_p", "tier_p", descending=descending)
@@ -483,7 +485,7 @@ def list_ranked(
             json_extract(r.persona_composites, ?) AS tier_p,
             json_extract(r.persona_composites, ?) AS rated_p
         FROM repositories r
-        WHERE {where}
+        WHERE {base_where}
     """
     sql = f"""
         WITH ranked AS (
@@ -491,8 +493,6 @@ def list_ranked(
                 ROW_NUMBER() OVER (ORDER BY {rank_order_expr}) AS rank_p,
                 {_tie_group_sql("cvi_p")} AS tie_group_p
             FROM ({slim_select})
-            ORDER BY {display_order_expr}
-            LIMIT ? OFFSET ?
         )
         SELECT r.*, s.benchmark_version AS benchmark_version,
             rk.cvi_p, rk.coverage_p, rk.tier_p, rk.rated_p,
@@ -500,9 +500,11 @@ def list_ranked(
         FROM ranked rk
         JOIN repositories r ON rk.id = r.id
         JOIN snapshots s ON r.snapshot_id = s.id
+        WHERE 1=1{extra_where}
         ORDER BY {display_order_expr}
+        LIMIT ? OFFSET ?
     """
-    columns, raw_rows = _fetch(conn, sql, [*proj_select_params, limit, offset])
+    columns, raw_rows = _fetch(conn, sql, [*proj_select_params, *extra_params, limit, offset])
     rows = []
     for raw in raw_rows:
         record = row_to_dict(columns, raw)
@@ -957,9 +959,10 @@ def reproject(
         den_params.append(weight)
         cov_terms.append(f"(? * COALESCE(c_{pillar}, 0))")
         cov_params.append(weight)
-
+    total_weight = float(sum(weights.values()))
     composite_raw_sql = f"(({' + '.join(num_terms)}) / NULLIF({' + '.join(den_terms)}, 0))"
-    coverage_sql = f"({' + '.join(cov_terms)})"
+    coverage_sql = f"(({' + '.join(cov_terms)}) / ?)"
+    cov_params.append(total_weight)
     proj_params = [*num_params, *den_params, *cov_params]
 
     proj_sql = f"""

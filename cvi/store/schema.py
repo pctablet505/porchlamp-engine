@@ -169,6 +169,7 @@ def connect(path) -> sqlite3.Connection:
     operation, not protect it."""
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.create_function("py_round", 2, lambda val, n=2: round(float(val), n) if val is not None else None)
     return conn
 
 

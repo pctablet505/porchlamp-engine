@@ -414,11 +414,15 @@ def _classify_not_ranked(record: Mapping[str, Any], *, persona: str) -> tuple:
         if record["gate_reason"] in DISPLAY_UNRATED_GATE_REASONS:
             return "unrated", record["gate_reason"].removeprefix("unrated: ")
         return "gated", record["gate_reason"]
+    if not record.get("rated", True):
+        if record.get("routed") == "off_platform":
+            return "unrated", "off_platform_routed"
+        return "unrated", record.get("unrated_reason") or record.get("reason", "insufficient_coverage")
     if persona != "balanced" and record.get("persona_gate_reason") is not None:
         return "persona_hidden", record["persona_gate_reason"]
     if record.get("routed") == "off_platform":
         return "unrated", "off_platform_routed"
-    return "unrated", record["reason"]
+    return "unrated", record.get("reason", "insufficient_coverage")
 
 
 def _not_ranked_row(record: Mapping[str, Any], *, group: str, reason: str) -> NotRankedRow:
@@ -529,12 +533,19 @@ class _SPAStaticFiles(StaticFiles):
 
     Registered after API routers so registered endpoints take precedence.
     Reservations under `_API_RESERVED_PREFIXES` and `_API_RESERVED_EXACT`
-    are excluded from fallback so that API misses return genuine 404 responses.
+    are excluded from fallback so that API misses return genuine 404 responses,
+    or 405 on method mismatches for known API paths.
     """
 
     async def get_response(self, path: str, scope):
-        if path in _API_RESERVED_EXACT or path.startswith(_API_RESERVED_PREFIXES):
-            raise HTTPException(status_code=404, detail=f"no route matches '/{path}'")
+        norm_path = path.lstrip("/")
+        if norm_path in _API_RESERVED_EXACT or norm_path.startswith(_API_RESERVED_PREFIXES):
+            method = scope.get("method", "GET")
+            if method not in ("GET", "HEAD"):
+                raise HTTPException(status_code=405, detail=f"method {method} not allowed on '/{norm_path}'")
+            raise HTTPException(status_code=404, detail=f"no route matches '/{norm_path}'")
+        if not self.directory or not Path(self.directory).is_dir():
+            raise HTTPException(status_code=404, detail=f"no route matches '/{norm_path}'")
         try:
             return await super().get_response(path, scope)
         except StarletteHTTPException as exc:
@@ -680,6 +691,7 @@ def _open_v2_connection(db_path: str) -> sqlite3.Connection:
     API might grow."""
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.create_function("py_round", 2, lambda val, n=2: round(float(val), n) if val is not None else None)
     return conn
 
 
