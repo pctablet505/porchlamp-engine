@@ -7,18 +7,17 @@ comes from ``record.repo``, and ``__post_init__`` raises if it differs from
 reaches this module, and TTFHR p75 is recomputed from ``bundle.pr_window``
 (:func:`cvi.core.tiebreak.ttfhr_p75_from_pr_window`).
 
-``forks`` (count) has no producer anywhere in the current
-``FeatureBundle``/``GateEvidence`` contract and is written ``NULL``.
-``last_human_commit_at`` comes from :func:`_last_human_commit_at`, which
+``forks`` (count) comes from :func:`cvi.derive.bundle.forks_count` (or ``NULL``
+when absent). ``last_human_commit_at`` comes from :func:`_last_human_commit_at`, which
 reads the ``last_non_bot_commit_at`` bundle sidecar fact
 (``cvi.core.commit_domains``, D-TIE-1 item 7) the same way
 ``cvi.core.pipeline.score_bundle_stage_9_tie_input`` does for
 ``TieBreakInput``, normalised through :func:`_normalize_utc_z` so the stored
 column agrees with the ``rank`` column beside it under
 ``cvi/store/reader.py``'s ``last_human_commit_at DESC NULLS LAST``
-(D-TIE-1 level 7). ``stars_audited`` comes from a ``"stars_audited"`` key on
-``bundle.inputs`` when one is present (populated from
-``cvi.derive.bundle.resolve_universe_meta_facts``) and is written ``NULL``
+(D-TIE-1 level 7). ``stars_audited`` comes from
+:func:`cvi.derive.bundle.stars_audited` (falling back to a ``"stars_audited"``
+key on ``bundle.inputs`` when one is present) and is written ``NULL``
 when absent or ``Unmeasured`` -- never a raw, unaudited star count.
 
 A snapshot id is immutable (03 section 5): once ``repositories``
@@ -36,6 +35,7 @@ allows it; enforced by ``tests/core/test_import_graph.py``.
 """
 from __future__ import annotations
 
+import importlib
 import shutil
 import sqlite3
 import tempfile
@@ -50,6 +50,15 @@ from cvi.core.models import FeatureBundle, Measured, ScoreRecord, canonical_json
 from cvi.core.tiebreak import ttfhr_p75_from_pr_window
 from cvi.snapshot.populations import PopulationSet, build_populations_table
 from cvi.snapshot.reproduce import canonical_dump_hash
+
+
+def bundle_stars_audited(bundle: FeatureBundle) -> Optional[int]:
+    return importlib.import_module("cvi.derive.bundle").stars_audited(bundle)
+
+
+def bundle_forks_count(bundle: FeatureBundle) -> Optional[int]:
+    return importlib.import_module("cvi.derive.bundle").forks_count(bundle)
+
 
 __all__ = [
     "RepoWrite",
@@ -227,6 +236,11 @@ def _repo_row(snapshot_id: str, item: RepoWrite) -> tuple:
     persona_composites_json = canonical_json(
         {persona: asdict(composite) for persona, composite in record.persona_composites.items()}
     )
+    stars_val = bundle_stars_audited(item.bundle)
+    if stars_val is None:
+        audited = item.bundle.inputs.get("stars_audited")
+        stars_val = audited.value if isinstance(audited, Measured) else None
+    forks_val = bundle_forks_count(item.bundle)
     return (
         snapshot_id,
         repo.owner,
@@ -234,17 +248,12 @@ def _repo_row(snapshot_id: str, item: RepoWrite) -> tuple:
         repo.ecosystem,
         record.raw_hash,
         record.constants_hash,
-        # stars_audited: read from the bundle's universe meta --
-        # `FeatureBundle.inputs` has no `__post_init__` validation (only the
-        # separate, never-called-here `.validate()` method), so a
-        # `"stars_audited"` key placed there (alongside the closed
-        # 18-parameter set `.validate()` checks for) round-trips here
-        # without touching `RepoWrite`'s two-field shape. NULL when absent
-        # or Unmeasured (StarScout's audit failed for this repo) -- never
-        # the raw, unaudited stars count under this column's
-        # audited-sounding name.
-        (audited.value if isinstance(audited := item.bundle.inputs.get("stars_audited"), Measured) else None),
-        None,  # forks (count): no producer yet
+        # stars_audited: read from bundle sidecar via bundle_stars_audited,
+        # falling back to a "stars_audited" key on bundle.inputs for legacy
+        # test compatibility. NULL when absent or Unmeasured (StarScout's
+        # audit failed for this repo) -- never the raw, unaudited stars count.
+        stars_val,
+        forks_val,
         repo.license_spdx,
         int(repo.archived),
         int(repo.mirror_url is not None),

@@ -29,11 +29,12 @@ cvi/
   core/                 pure, stdlib only, no I/O, no clock (enforced by
                          tests/core/test_import_graph.py)
     models.py           Measured/Unmeasured, ParamValue, GateResult, ScoreRecord, enums
-    constants_v2.py     frozen constants + CONSTANTS_HASH + BENCHMARK_VERSION
+    constants.py        frozen constants + CONSTANTS_HASH + BENCHMARK_VERSION
     gates.py            D-GATE-1..6, D-EVID-1
     hygiene.py          actor typing, author eligibility, per-author caps, windows
     params/             one module per pillar; one function per parameter -> ParamValue
     normalize.py        mid-rank ECDF over frozen populations
+    openssf.py          Rob Pike 10-signal OpenSSF criticality calculation
     aggregate.py        renormalisation, coverage, composite, ceilings
     matrix.py           coordinates, quadrant
     persona.py          presets, persona gates, projection weights
@@ -69,11 +70,11 @@ cvi/
                          `features/` per-parameter split not done; W4-1
                          flagged this out of its own scope, real but larger
                          than a "package move")
+    gate_evidence.py    derives GateEvidence (manifest, vitality, license) from raw envelopes
   verify/
     detectors.py        §6 of 03-ANTI-MANIPULATION
     live_sample.py      nightly canary (tests-only: no script/cron wired yet)
-    pipeline_hook.py     wires verify into core.pipeline (tests-only: no
-                         script calls the v2 pipeline yet)
+    pipeline_hook.py     wires verify into core.pipeline
     (not built: `crosscheck.py`, `provenance.py`, `report.py` -- the v1
     crosscheck logic this doc anticipated moving here still lives inline
     in scripts/verify.py, the real, still-necessary v1 bridge)
@@ -81,9 +82,11 @@ cvi/
     manifest.py         freeze, Merkle root, manifest.json
     populations.py      build + freeze ECDF populations
     reproduce.py        rebuild + canonical dump hash compare
-    store_cmd.py         W4-6: `python -m cvi.snapshot store` -- score a
+    fixture_io.py       shared reader for on-disk v2 snapshot directories
+    build_cmd.py        `python -m cvi.snapshot build` -- build v2 snapshot directory from data/
+    store_cmd.py        W4-6: `python -m cvi.snapshot store` -- score a
                          frozen snapshot into cvi.store
-    cli.py, __main__.py  `python -m cvi.snapshot` entry point
+    cli.py, __main__.py `python -m cvi.snapshot` entry point
   store/
     schema.py           DDL v2
     migrations/         0001_init_v2.sql, 0002_indexes.sql (numbered,

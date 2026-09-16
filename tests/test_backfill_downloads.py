@@ -79,9 +79,7 @@ class _PypistatsHandler(BaseHTTPRequestHandler):
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
             return False
-        if self._is_disconnected():
-            return False
-        return True
+        return not self._is_disconnected()
 
     def do_GET(self) -> None:
         try:

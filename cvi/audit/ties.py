@@ -91,13 +91,57 @@ class TieReport:
         return in_ties / self.rated
 
 
+def _repo_columns(con: sqlite3.Connection) -> set[str]:
+    """Return column names present on ``repositories``."""
+    return {row[1] for row in con.execute('PRAGMA table_info("repositories")').fetchall()}
+
+
+def _table_exists(con: sqlite3.Connection, name: str) -> bool:
+    return (
+        con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        is not None
+    )
+
+
+def _served_snapshot_id(con: sqlite3.Connection, cols: set[str]) -> Optional[str]:
+    """Return the latest/served snapshot ID for a v2 database, if any."""
+    if _table_exists(con, "snapshots"):
+        row = con.execute(
+            "SELECT id FROM snapshots WHERE promoted_at IS NOT NULL ORDER BY promoted_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+        row = con.execute(
+            "SELECT id FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+    if "snapshot_id" in cols:
+        row = con.execute(
+            "SELECT snapshot_id FROM repositories ORDER BY snapshot_id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+    return None
+
+
+def _v2_composite_expr(cols: set[str]) -> str:
+    if "composite" in cols and "cvi" in cols:
+        return "COALESCE(composite, cvi)"
+    if "composite" in cols:
+        return "composite"
+    return "cvi"
+
+
 def ties_report(db_path: str | Path) -> TieReport:
     """Compute the tie statistics for ``db_path``.
 
     Parameters
     ----------
     db_path:
-        Path to a v1 ``cvi.db`` (SQLite with a ``repositories`` table).
+        Path to a v1 or v2 ``cvi.db`` (SQLite with a ``repositories`` table).
 
     Returns
     -------
@@ -106,26 +150,55 @@ def ties_report(db_path: str | Path) -> TieReport:
     """
     con = sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)
     try:
-        counts = con.execute(
-            "SELECT overall_cvi, COUNT(*) FROM repositories "
-            "WHERE is_stage0_disqualified = 0 GROUP BY overall_cvi"
-        ).fetchall()
-        total = con.execute("SELECT COUNT(*) FROM repositories").fetchone()[0]
-        rated = con.execute(
-            "SELECT COUNT(*) FROM repositories WHERE is_stage0_disqualified = 0"
-        ).fetchone()[0]
+        cols = _repo_columns(con)
+        if "rated" in cols and ("composite" in cols or "cvi" in cols):
+            comp_expr = _v2_composite_expr(cols)
+            snap_id = _served_snapshot_id(con, cols)
+            if snap_id is not None and "snapshot_id" in cols:
+                counts = con.execute(
+                    f"SELECT {comp_expr}, COUNT(*) FROM repositories "
+                    f"WHERE rated = 1 AND snapshot_id = ? GROUP BY {comp_expr}",
+                    (snap_id,),
+                ).fetchall()
+                total = con.execute(
+                    "SELECT COUNT(*) FROM repositories WHERE snapshot_id = ?",
+                    (snap_id,),
+                ).fetchone()[0]
+                rated = con.execute(
+                    "SELECT COUNT(*) FROM repositories WHERE rated = 1 AND snapshot_id = ?",
+                    (snap_id,),
+                ).fetchone()[0]
+            else:
+                counts = con.execute(
+                    f"SELECT {comp_expr}, COUNT(*) FROM repositories "
+                    f"WHERE rated = 1 GROUP BY {comp_expr}"
+                ).fetchall()
+                total = con.execute("SELECT COUNT(*) FROM repositories").fetchone()[0]
+                rated = con.execute(
+                    "SELECT COUNT(*) FROM repositories WHERE rated = 1"
+                ).fetchone()[0]
+        else:
+            counts = con.execute(
+                "SELECT overall_cvi, COUNT(*) FROM repositories "
+                "WHERE is_stage0_disqualified = 0 GROUP BY overall_cvi"
+            ).fetchall()
+            total = con.execute("SELECT COUNT(*) FROM repositories").fetchone()[0]
+            rated = con.execute(
+                "SELECT COUNT(*) FROM repositories WHERE is_stage0_disqualified = 0"
+            ).fetchone()[0]
     finally:
         con.close()
+    valid_counts = [(value, count) for value, count in counts if value is not None]
     groups = tuple(
         TieGroup(value=float(value), size=int(count))
-        for value, count in counts
+        for value, count in valid_counts
         if int(count) >= 2
     )
     groups = tuple(sorted(groups, key=lambda group: (-group.size, group.value)))
     return TieReport(
         rated=int(rated),
         gated=int(total - rated),
-        distinct=len(counts),
+        distinct=len(valid_counts),
         groups=groups,
     )
 

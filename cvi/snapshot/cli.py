@@ -25,6 +25,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Sequence
 
+import cvi.snapshot.build_cmd as _build_cmd
 from cvi.snapshot.manifest import (
     PENDING_DUMP_HASH,
     REASON_INVALID_JSON,
@@ -186,6 +187,28 @@ def _store(args: argparse.Namespace) -> int:
     return 0
 
 
+def _build(args: argparse.Namespace) -> int:
+    """Build a v2 snapshot directory from ``args.data_dir`` at ``args.out_dir``."""
+    data_dir = Path(args.data_dir)
+    out_dir = Path(args.out_dir)
+    try:
+        as_of = datetime.fromisoformat(args.as_of.replace("Z", "+00:00"))
+    except ValueError:
+        print(f"--as-of is not an ISO-8601 timestamp: {args.as_of!r}")
+        return 2
+    frozen = _build_cmd.build_snapshot_dir(
+        data_dir,
+        out_dir,
+        snapshot_id=args.snapshot_id,
+        as_of=as_of,
+        code_commit_sha=args.code_commit,
+    )
+    print(f"snapshot {frozen.snapshot_id}")
+    print(f"bundles {len(frozen.bundles)}")
+    print(f"out_dir {out_dir}")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     """Build the ``freeze`` / ``reproduce`` argument parser."""
     parser = argparse.ArgumentParser(
@@ -229,6 +252,16 @@ def _parser() -> argparse.ArgumentParser:
     )
     store.add_argument("--code-commit", default=None,
                         help="override the recorded commit (tests, out-of-tree builds)")
+
+    build = commands.add_parser(
+        "build", help="build a v2 snapshot directory from derived bundles and raw envelopes"
+    )
+    build.add_argument("--data-dir", default="data", help="data dir with raw/ and derived/ under it")
+    build.add_argument("--out-dir", required=True, help="output directory for the built v2 snapshot")
+    build.add_argument("--snapshot-id", required=True, help="snapshot identifier")
+    build.add_argument("--as-of", required=True, help=_AS_OF_HELP)
+    build.add_argument("--code-commit", default=None,
+                       help="override the recorded commit (tests, out-of-tree builds)")
     return parser
 
 
@@ -239,7 +272,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command is None:
         parser.print_usage()
         return 2
-    handlers = {"freeze": _freeze, "reproduce": _reproduce, "store": _store}
+    handlers = {"freeze": _freeze, "reproduce": _reproduce, "store": _store, "build": _build}
     try:
         return handlers[str(args.command)](args)
     except (SnapshotError, FileNotFoundError) as error:

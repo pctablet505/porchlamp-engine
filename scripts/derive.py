@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from cvi.collect import commits as commit_domains
-from cvi.collect.envelope import raw_envelope_path, read_envelope
+from cvi.collect.envelope import raw_envelope_path, read_envelope, relative_envelope_path
 from cvi.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
 from cvi.constants import BOT_LOGIN_MARKERS
 from cvi.models import (
@@ -86,7 +86,11 @@ def _label_names(labels: Any) -> set[str]:
     return out
 
 
-def _envelope_sha256(source: Any, cache: dict[str, Optional[str]]) -> Optional[str]:
+def _envelope_sha256(
+    source: Any,
+    cache: dict[str, Optional[str]],
+    data_dir: Path = DATA_DIR,
+) -> Optional[str]:
     """Attested sha256 of the envelope at ``source`` (memoized), or ``None`` (`03` §5).
 
     The hash recorded here is :attr:`cvi.collect.envelope.Envelope.sha256` — native
@@ -106,7 +110,11 @@ def _envelope_sha256(source: Any, cache: dict[str, Optional[str]]) -> Optional[s
         return None
     if source not in cache:
         try:
-            cache[source] = read_envelope(source).sha256
+            p = Path(source)
+            if not p.is_file() and not p.is_absolute():
+                cand = Path(data_dir) / p
+                p = cand if cand.is_file() else DATA_DIR / p
+            cache[source] = read_envelope(p).sha256
         except (OSError, json.JSONDecodeError):
             cache[source] = None
     return cache[source]
@@ -123,22 +131,23 @@ class Bundle:
     through here.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, data_dir: Path = DATA_DIR) -> None:
         self.meta: dict[str, Any] = {}
         self.prov: dict[str, Any] = {}
         self.conf: dict[str, str] = {}
         self._hash_cache: dict[str, Optional[str]] = {}
+        self._data_dir: Path = data_dir
 
     def set(self, field: str, value: Any, source: Optional[str],
             fetched_at: Optional[str], confidence: str) -> None:
         self.meta[field] = value
         entry: dict[str, Any] = {"source": source, "fetched_at": fetched_at}
         if isinstance(source, list):
-            hashes = [_envelope_sha256(item, self._hash_cache) for item in source]
+            hashes = [_envelope_sha256(item, self._hash_cache, self._data_dir) for item in source]
             if any(h is not None for h in hashes):
                 entry["sha256"] = hashes
         else:
-            digest = _envelope_sha256(source, self._hash_cache)
+            digest = _envelope_sha256(source, self._hash_cache, self._data_dir)
             if digest is not None:
                 entry["sha256"] = digest
         self.prov[field] = entry
@@ -262,7 +271,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     """Build the feature bundle (meta + pr_events + provenance + confidence)."""
     now = now or datetime.now(timezone.utc)
     key = f"{owner}__{name}"
-    b = Bundle()
+    b = Bundle(data_dir)
     b.set("owner", owner, "cli", None, "derived")
     b.set("name", name, "cli", None, "derived")
     b.set("ecosystem", ecosystem, "cli", None, "derived")
@@ -280,10 +289,18 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     tree, tree_at = _load(data_dir, "tree", key)
     dl, dl_at = _load(data_dir, "downloads", f"{ecosystem.value}__{name}")
 
+    def _rel(p: Path | str) -> str:
+        if Path(data_dir).resolve() == Path(DATA_DIR).resolve():
+            try:
+                return relative_envelope_path(DATA_DIR, p)
+            except ValueError:
+                pass
+        return str(p)
+
     def src(c: str, k: str) -> str:
         # Standard envelope-path formula, shared with cvi.collect.pike_signals's
         # env_path() via cvi.collect.envelope.
-        return raw_envelope_path(data_dir, c, k)
+        return _rel(raw_envelope_path(data_dir, c, k))
 
     # --- stars / forks (github_meta primary; deps.dev is the verify step) ---
     for f, gk in (("stars", "stars"), ("forks", "forks")):
@@ -455,15 +472,15 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     coc_path = _body_cache_path(data_dir, owner, name, "CODE_OF_CONDUCT.md")
     readme_path = _body_cache_path(data_dir, owner, name, "README.md")
 
-    legal_source = str(contrib_path) if contrib_path.is_file() else src("tree", key)
+    legal_source = _rel(contrib_path) if contrib_path.is_file() else src("tree", key)
     b.set("legal_ip_model", _legal_ip(contrib_body, str(gh.get("license_spdx") or ""), owner),
           legal_source, contrib_body_at or tree_at, "derived")
-    ai_source = str(readme_path) if readme_path.is_file() else src("tree", key)
+    ai_source = _rel(readme_path) if readme_path.is_file() else src("tree", key)
     b.set("ai_posture", _ai_posture(corpus), ai_source, readme_body_at or tree_at, "derived")
     if contrib_path.is_file():
-        ladder_source, ladder_at = str(contrib_path), contrib_body_at
+        ladder_source, ladder_at = _rel(contrib_path), contrib_body_at
     elif coc_path.is_file():
-        ladder_source, ladder_at = str(coc_path), coc_body_at
+        ladder_source, ladder_at = _rel(coc_path), coc_body_at
     else:
         ladder_source, ladder_at = src("tree", key), tree_at
     b.set("promotion_ladder", _promotion_ladder(f"{contrib_body or ''}\n{coc_body or ''}"),

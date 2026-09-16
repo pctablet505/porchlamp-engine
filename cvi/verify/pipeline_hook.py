@@ -30,20 +30,24 @@ Two things :func:`cvi.verify.detectors.run_detectors` needs that a bare
   ``detect_param_jump`` needs a real previous record; every other detector
   ignores ``previous`` entirely).
 
-Two of :class:`~cvi.verify.detectors.DetectorInputs`' seven fields have no
-collector (``newcomer_accounts``, ``star_lockstep_penalty_applied`` -- see
-that module's own module docstring) and a third (``source_drift_held``) is
-the live-sample canary's own per-run output, not a bundle field.
-``top_email_domain_share`` is sourced from ``bundle`` via
-:func:`cvi.derive.bundle.top_email_domain_share`, the bundle-instance
-sidecar fact ``cvi.derive.bundle._load_v1`` sets (neither
-``FeatureBundle.inputs`` nor any other declared field carries it -- it is
-not one of the 18 scored parameters). :func:`detector_inputs_from_bundle`
-leaves the three fields with no bundle source at their ``DetectorInputs``
-default (``None``/``()``\\ ) -- "not collected for this repo", the same
-unmeasured-never-fires rule :mod:`cvi.verify.detectors` documents
-for every other field, rather than inventing a value there is no
-evidence for.
+All fields of :class:`~cvi.verify.detectors.DetectorInputs` except
+``source_drift_held`` are sourced from ``bundle`` and wired into
+:class:`~cvi.verify.detectors.DetectorInputs` by
+:func:`detector_inputs_from_bundle`:
+
+* ``newcomer_issue_count`` and ``elephant_factor`` from ``bundle.inputs``.
+* ``closed_unread_share`` and ``closed_unread_n`` from ``bundle.pr_window``
+  via :func:`cvi.verify.detectors.closed_unread_share_from_pr_window`.
+* ``newcomer_accounts`` from ``bundle.cohorts`` via
+  :func:`cvi.verify.detectors.newcomer_accounts_from_cohorts`.
+* ``top_email_domain_share`` from ``bundle`` sidecar via
+  :func:`cvi.derive.bundle.top_email_domain_share`.
+* ``star_lockstep_penalty_applied`` from ``bundle`` sidecar via
+  :func:`cvi.derive.bundle.star_velocity_flag`.
+
+Only ``source_drift_held`` is left at its ``DetectorInputs`` default
+(``None``) because it is the live-sample canary's own per-run output, not a
+``FeatureBundle`` field.
 """
 from __future__ import annotations
 
@@ -51,7 +55,11 @@ from typing import Mapping, Sequence
 
 from cvi.core.models import FeatureBundle, Measured, ScoreRecord
 from cvi.core.pipeline import DetectorsCallable, RepoKey, ScoredSnapshot, repo_key
-from cvi.derive.bundle import TopEmailDomainShareMeasured, top_email_domain_share as bundle_top_email_domain_share
+from cvi.derive.bundle import (
+    TopEmailDomainShareMeasured,
+    star_velocity_flag as bundle_star_velocity_flag,
+    top_email_domain_share as bundle_top_email_domain_share,
+)
 from cvi.verify.detectors import (
     DetectorInputs,
     closed_unread_share_from_pr_window,
@@ -91,12 +99,13 @@ def _top_email_domain_share(bundle: FeatureBundle) -> float | None:
 
 
 def detector_inputs_from_bundle(bundle: FeatureBundle) -> DetectorInputs:
-    """Build the one :class:`~cvi.verify.detectors.DetectorInputs` a real
-    ``FeatureBundle`` can source today (module docstring): raw
-    ``elephant_factor`` and ``newcomer_issue_supply`` values when measured,
-    the closed-unread share/n computed from ``bundle.pr_window``, and
-    ``top_email_domain_share`` from the bundle's own sidecar fact
-    -- every other field stays at its documented "not collected" default."""
+    """Build :class:`~cvi.verify.detectors.DetectorInputs` from a real
+    ``FeatureBundle`` (module docstring): raw ``elephant_factor`` and
+    ``newcomer_issue_supply`` values when measured, closed-unread share/n
+    from ``bundle.pr_window``, ``newcomer_accounts`` from ``bundle.cohorts``,
+    ``top_email_domain_share`` from the bundle sidecar fact, and
+    ``star_lockstep_penalty_applied`` from the bundle ``star_velocity_flag``
+    sidecar fact."""
     share, n = closed_unread_share_from_pr_window(bundle.pr_window)
     newcomer_accounts = newcomer_accounts_from_cohorts(bundle.cohorts)
     return DetectorInputs(
@@ -106,6 +115,7 @@ def detector_inputs_from_bundle(bundle: FeatureBundle) -> DetectorInputs:
         closed_unread_share=share,
         closed_unread_n=n,
         newcomer_accounts=newcomer_accounts,
+        star_lockstep_penalty_applied=bundle_star_velocity_flag(bundle),
     )
 
 

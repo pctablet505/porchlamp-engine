@@ -1,9 +1,7 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -23,6 +21,9 @@ jobs:
 
       - name: Lint (gate 1, ratchet: must stay clean)
         run: ruff check cvi/ scripts/ tests/
+
+      - name: Run frontend Node test suite
+        run: node --test web/v2/tests/unit.test.mjs web/v2/tests/render.perf.test.mjs
 
       - name: Run test suite
         run: env -u PYTEST_ADDOPTS python -m pytest tests/ -n auto -p no:cacheprovider

@@ -42,7 +42,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from cvi.collect.commits import CommitActor, is_bot
 from cvi.core import constants
 from cvi.core.gates import GateEvidence
 from cvi.core.models import (
@@ -53,6 +52,16 @@ from cvi.core.models import (
 )
 from cvi.core.pipeline import RepoKey, ScoredSnapshot, repo_key, score_snapshot
 from cvi.derive.bundle import dump_bundle, load_bundle, write_bundle
+from cvi.derive.gate_evidence import (  # noqa: F401
+    MANIFEST_MAX_DEPTH,
+    RECOGNIZED_MANIFEST_BASENAMES,
+    _has_license_file,
+    _has_off_platform_marker,
+    _has_recognized_manifest,
+    _tree_paths,
+    _vitality_commit_count,
+    gate_evidence_for,
+)
 from cvi.snapshot.populations import PopulationMember, PopulationSet, build_populations, write_populations
 from cvi.snapshot.store_cmd import score_snapshot_with_detectors
 
@@ -76,110 +85,6 @@ ANCHOR_REPO_KEYS: tuple[RepoKey, ...] = (
 
 #: The three D-NORM-3 ECDF-normalised input ids (02 section 4, 1.5/2.1/2.3).
 ECDF_INPUT_IDS: tuple[str, ...] = ("ttm_p90_hours", "dependents_deduped", "downloads_monthly")
-
-#: D-GATE-1 recognised build/package manifests (02 section 2), exact
-#: basename match plus the two suffix rules the design text also names.
-RECOGNIZED_MANIFEST_BASENAMES: frozenset[str] = frozenset({
-    "pyproject.toml", "setup.py", "setup.cfg", "package.json", "Cargo.toml",
-    "go.mod", "pom.xml", "CMakeLists.txt", "Makefile", "meson.build",
-    "configure.ac", "mix.exs", "Gemfile",
-})
-#: D-GATE-1 depth bound: at most this many "/" separators from the repo root.
-MANIFEST_MAX_DEPTH = 2
-
-
-def _has_recognized_manifest(paths: Sequence[str]) -> bool:
-    """D-GATE-1: a recognised manifest at tree depth <= 2 anywhere in
-    ``paths`` (a flat list of repo-relative file paths, as the sample's
-    ``raw/tree`` envelopes record them)."""
-    for path in paths:
-        if path.count("/") > MANIFEST_MAX_DEPTH:
-            continue
-        base = path.rsplit("/", 1)[-1]
-        if base in RECOGNIZED_MANIFEST_BASENAMES or base.endswith(".cabal") or base.startswith("build.gradle"):
-            return True
-    return False
-
-
-def _has_license_file(paths: Sequence[str]) -> bool:
-    """D-GATE-3's "look for a LICENSE* file" fallback, root-level only.
-
-    Recognises both the literal ``LICENSE*`` pattern the design text names
-    and the extremely common ``COPYING`` synonym (the file GNU-licensed
-    projects -- ``torvalds/linux`` included -- use instead): this is this
-    script's own documented interpretation, since ``cvi.core.gates`` takes
-    the bool as a caller-supplied fact and defines no file-detection rule of
-    its own to import."""
-    for path in paths:
-        if "/" in path:
-            continue
-        upper = path.upper()
-        if upper.startswith("LICENSE") or upper.startswith("COPYING"):
-            return True
-    return False
-
-
-#: D-GATE-6 off-platform marker (02 section 2): only the tree-path signal is
-#: checked here (``Documentation/process/submitting-patches*``). The
-#: design's other two markers ("MAINTAINERS with L: mailing-list lines",
-#: "README says patches go to a list/Gerrit/Phabricator") need file
-#: *content*, which the sample's ``raw/tree`` envelope does not carry (path
-#: listings only) -- COULD NOT VERIFY, recorded in the handoff, not guessed.
-def _has_off_platform_marker(paths: Sequence[str]) -> bool:
-    return any("documentation/process/submitting-patches" in path.lower() for path in paths)
-
-
-def _tree_paths(raw_root: Path, basename: str) -> list[str]:
-    path = raw_root / "tree" / f"{basename}.json"
-    if not path.is_file():
-        return []
-    document = json.loads(path.read_text(encoding="utf-8"))
-    data = document.get("data") if isinstance(document, Mapping) else None
-    paths = data.get("paths") if isinstance(data, Mapping) else None
-    return [p for p in paths if isinstance(p, str)] if isinstance(paths, list) else []
-
-
-def _vitality_commit_count(raw_root: Path, basename: str) -> int | None:
-    """D-GATE-4: non-bot commit count over the sample's own ``commits_180d``
-    envelope (already the trailing-180-day window -- D-IN-4's own window for
-    this gate). ``None`` (UNDECIDED, never a guessed 0) when the envelope is
-    absent."""
-    path = raw_root / "commits_180d" / f"{basename}.json"
-    if not path.is_file():
-        return None
-    document = json.loads(path.read_text(encoding="utf-8"))
-    data = document.get("data") if isinstance(document, Mapping) else None
-    if not isinstance(data, list):
-        return None
-    count = 0
-    for entry in data:
-        if not isinstance(entry, Mapping):
-            continue
-        login = entry.get("author_login") or ""
-        actor = CommitActor(login=str(login), email="", actor_type="")
-        if not is_bot(actor):
-            count += 1
-    return count
-
-
-def gate_evidence_for(raw_root: Path, basename: str) -> GateEvidence:
-    """Derive one repo's :class:`~cvi.core.gates.GateEvidence` from the
-    sample's raw ``tree``/``commits_180d`` envelopes (module docstring:
-    fixture-only, not a landed collector). ``fork_parent_in_universe`` stays
-    ``None`` (undecided): every v1-loaded bundle's ``RepoIdentity.fork`` is
-    hardcoded ``False`` by ``cvi.derive.bundle._load_v1`` (that loader never
-    observes a real fork flag), so D-GATE-2's fork branch never reads this
-    field for any repo this script scores -- ``None`` is correct, not a
-    stand-in for missing data."""
-    paths = _tree_paths(raw_root, basename)
-    return GateEvidence(
-        manifest_found=_has_recognized_manifest(paths) if paths else None,
-        is_curated_anchor=False,
-        license_file_present=_has_license_file(paths) if paths else None,
-        fork_parent_in_universe=None,
-        vitality_commits_180d=_vitality_commit_count(raw_root, basename),
-        off_platform_marker=_has_off_platform_marker(paths) if paths else None,
-    )
 
 
 def _basename_for(manifest_repo_entry: Mapping[str, Any]) -> str | None:

@@ -44,8 +44,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from cvi.constants import PILLAR_WEIGHTS
 from cvi.core import aggregate, constants
+from cvi.core.constants import PILLAR_WEIGHTS
 from cvi.core.models import ScoreRecord
 from cvi.core.pipeline import ScoredSnapshot
 from cvi.core.tiebreak import TieBreakInput, assign_ranks
@@ -60,13 +60,23 @@ TAU_RELEASE_THRESHOLD = 0.90
 DEFAULT_PERTURBATION_PP = 5
 
 #: ``repositories`` columns holding the five pillar scores, in
-#: :data:`cvi.constants.PILLAR_WEIGHTS` order (v1 schema).
+#: :data:`cvi.core.constants.PILLAR_WEIGHTS` order (v1 schema).
 PILLAR_COLUMNS: tuple[str, ...] = (
     "score_responsiveness",
     "score_criticality",
     "score_governance",
     "score_rigor_ai",
     "score_accessibility",
+)
+
+#: ``repositories`` columns holding the five pillar scores, in
+#: :data:`cvi.core.constants.PILLAR_WEIGHTS` order (v2 schema).
+V2_PILLAR_COLUMNS: tuple[str, ...] = (
+    "p_responsiveness",
+    "p_criticality",
+    "p_governance",
+    "p_rigor",
+    "p_accessibility",
 )
 
 
@@ -207,22 +217,117 @@ class SensitivityReport:
         )
 
 
-def _fetch_rated(db_path: str | Path) -> tuple[list[list[float]], list[float]]:
+def _repo_columns(con: sqlite3.Connection) -> set[str]:
+    """Return column names present on ``repositories``."""
+    return {row[1] for row in con.execute('PRAGMA table_info("repositories")').fetchall()}
+
+
+def _table_exists(con: sqlite3.Connection, name: str) -> bool:
+    return (
+        con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        is not None
+    )
+
+
+def _served_snapshot_id(con: sqlite3.Connection, cols: set[str]) -> Optional[str]:
+    """Return the latest/served snapshot ID for a v2 database, if any."""
+    if _table_exists(con, "snapshots"):
+        row = con.execute(
+            "SELECT id FROM snapshots WHERE promoted_at IS NOT NULL ORDER BY promoted_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+        row = con.execute(
+            "SELECT id FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+    if "snapshot_id" in cols:
+        row = con.execute(
+            "SELECT snapshot_id FROM repositories ORDER BY snapshot_id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+    return None
+
+
+def _v2_composite_expr(cols: set[str]) -> str:
+    if "composite" in cols and "cvi" in cols:
+        return "COALESCE(composite, cvi)"
+    if "composite" in cols:
+        return "composite"
+    return "cvi"
+
+
+def _fetch_rated(db_path: str | Path) -> tuple[list[list[Optional[float]]], list[float]]:
     """Return ``(pillar matrix, canonical composites)`` of the rated repos,
     ordered by ``owner, name``."""
     con = sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)
     try:
-        rows = con.execute(
-            "SELECT "
-            + ", ".join(PILLAR_COLUMNS)
-            + ", overall_cvi FROM repositories "
-            "WHERE is_stage0_disqualified = 0 ORDER BY owner, name"
-        ).fetchall()
+        cols = _repo_columns(con)
+        if "p_responsiveness" in cols and "rated" in cols:
+            comp_expr = _v2_composite_expr(cols)
+            snap_id = _served_snapshot_id(con, cols)
+            if snap_id is not None and "snapshot_id" in cols:
+                rows = con.execute(
+                    "SELECT "
+                    + ", ".join(V2_PILLAR_COLUMNS)
+                    + f", {comp_expr} FROM repositories "
+                    "WHERE rated = 1 AND snapshot_id = ? ORDER BY owner, name",
+                    (snap_id,),
+                ).fetchall()
+            else:
+                rows = con.execute(
+                    "SELECT "
+                    + ", ".join(V2_PILLAR_COLUMNS)
+                    + f", {comp_expr} FROM repositories "
+                    "WHERE rated = 1 ORDER BY owner, name"
+                ).fetchall()
+            n_pillars = len(V2_PILLAR_COLUMNS)
+        else:
+            rows = con.execute(
+                "SELECT "
+                + ", ".join(PILLAR_COLUMNS)
+                + ", overall_cvi FROM repositories "
+                "WHERE is_stage0_disqualified = 0 ORDER BY owner, name"
+            ).fetchall()
+            n_pillars = len(PILLAR_COLUMNS)
     finally:
         con.close()
-    pillars = [[float(column) for column in row[: len(PILLAR_COLUMNS)]] for row in rows]
-    canonical = [float(row[len(PILLAR_COLUMNS)]) for row in rows]
+    pillars = [
+        [float(column) if column is not None else None for column in row[:n_pillars]]
+        for row in rows
+    ]
+    canonical = [float(row[n_pillars]) for row in rows]
     return pillars, canonical
+
+
+def _compute_perturbed_composite(
+    value: Sequence[Optional[float]], weights: Mapping[str, float]
+) -> float:
+    if all(v is not None for v in value):
+        return round(
+            sum(weights[pillar_key] * float(value[i]) for i, pillar_key in enumerate(PILLAR_WEIGHTS)),
+            2,
+        )
+    measured_weight = sum(
+        weights[pillar_key]
+        for i, pillar_key in enumerate(PILLAR_WEIGHTS)
+        if value[i] is not None
+    )
+    if measured_weight == 0.0:
+        return 0.0
+    raw = (
+        sum(
+            weights[pillar_key] * float(value[i])
+            for i, pillar_key in enumerate(PILLAR_WEIGHTS)
+            if value[i] is not None
+        )
+        / measured_weight
+    )
+    return round(raw, 2)
 
 
 def sensitivity_report(
@@ -233,7 +338,7 @@ def sensitivity_report(
     Parameters
     ----------
     db_path:
-        Path to a v1 ``cvi.db`` (SQLite with a ``repositories`` table).
+        Path to a v1 or v2 ``cvi.db`` (SQLite with a ``repositories`` table).
     pp:
         Perturbation magnitude in percentage points; 0 recomputes the
         canonical composite unchanged (guard run).
@@ -260,10 +365,7 @@ def sensitivity_report(
         for delta in (pp, -pp):
             weights = perturb_pillar_weight(PILLAR_WEIGHTS, pillar, delta)
             perturbed = [
-                round(
-                    sum(weights[pillar_key] * value[i] for i, pillar_key in enumerate(PILLAR_WEIGHTS)),
-                    2,
-                )
+                _compute_perturbed_composite(value, weights)
                 for value in pillars
             ]
             tau = kendall_tau_b(canonical, perturbed)

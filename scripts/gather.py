@@ -278,7 +278,44 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     else:
         from cvi.collect import depsdev as depsdev_mod
         try:
-            status["dependents"] = depsdev_mod.collect_dependents(DATA, owner, name, ecosystem)
+            dep_kwargs: dict[str, Any] = {}
+            if ecosystem == "maven":
+                pom_xml: Optional[str] = None
+                try:
+                    import inspect as _inspect
+                    from cvi.collect import repo_object as _ro_mod
+                    ro_params = _inspect.signature(_ro_mod._fetch_body).parameters
+                    if len(ro_params) >= 3:
+                        pom_xml = _ro_mod._fetch_body(owner, name, "pom.xml")
+                    else:
+                        pom_xml = _ro_mod._fetch_body(
+                            f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/pom.xml"
+                        )
+                except Exception:  # review-ok: gate-network — fallback to _gh
+                    pom_xml = None
+                if pom_xml is None:
+                    try:
+                        import base64
+                        res = _gh(f"repos/{owner}/{name}/contents/pom.xml")
+                        if isinstance(res, dict) and res.get("content"):
+                            pom_xml = base64.b64decode(res["content"]).decode("utf-8", "replace")
+                        elif isinstance(res, str):
+                            pom_xml = res
+                    except Exception:  # review-ok: gate-network — unreadable pom.xml
+                        pom_xml = None
+                coords = depsdev_mod.parse_maven_coordinates(pom_xml) if pom_xml else None
+                import inspect as _inspect
+                cd_params = _inspect.signature(depsdev_mod.collect_dependents).parameters
+                has_var_kw = any(
+                    p.kind == _inspect.Parameter.VAR_KEYWORD for p in cd_params.values()
+                )
+                if "maven_coordinates" in cd_params or has_var_kw:
+                    dep_kwargs["maven_coordinates"] = coords
+                if "maven_pom_xml" in cd_params and "maven_coordinates" not in cd_params:
+                    dep_kwargs["maven_pom_xml"] = pom_xml
+            status["dependents"] = depsdev_mod.collect_dependents(
+                DATA, owner, name, ecosystem, **dep_kwargs
+            )
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["dependents"] = "fail"
             print(f"  WARN dependents {owner}/{name}: {e}")

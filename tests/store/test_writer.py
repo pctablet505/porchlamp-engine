@@ -795,6 +795,38 @@ def test_stars_forks_are_null_no_producer(tmp_path) -> None:
     assert row == (None, None, None)
 
 
+def test_stars_audited_and_forks_written_from_bundle_sidecars(tmp_path) -> None:
+    """When a bundle carries stars_audited and forks sidecar facts, write_records
+    persists non-null values into repositories."""
+    from cvi.derive.bundle import set_forks_count, set_stars_audited
+
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    _write_one_snapshot(conn)
+    item = make_repo_write(make_rated_record("snap-1"))
+    set_stars_audited(item.bundle, 456)
+    set_forks_count(item.bundle, 78)
+    write_records(conn, "snap-1", [item])
+    row = conn.execute(
+        "SELECT stars_audited, forks FROM repositories WHERE snapshot_id='snap-1'"
+    ).fetchone()
+    assert row == (456, 78)
+
+
+def test_stars_audited_legacy_inputs_fallback_still_works(tmp_path) -> None:
+    """When stars_audited sidecar is not set but bundle.inputs carries a Measured
+    'stars_audited' entry, write_records falls back to it."""
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    _write_one_snapshot(conn)
+    item = make_repo_write(make_rated_record("snap-1"))
+    item.bundle.inputs["stars_audited"] = make_measured(999, n=0)
+    write_records(conn, "snap-1", [item])
+    row = conn.execute(
+        "SELECT stars_audited, forks FROM repositories WHERE snapshot_id='snap-1'"
+    ).fetchone()
+    assert row == (999, None)
+
+
+
 # --------------------------------------------------------------------- #
 # last_human_commit_at produced from the bundle sidecar fact             #
 # --------------------------------------------------------------------- #

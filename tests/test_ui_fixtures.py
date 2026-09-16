@@ -450,7 +450,8 @@ class TestDecidingTieLevelParity:
 
     @staticmethod
     def deciding_tie_level(a: dict, b: dict) -> int:
-        round2 = lambda v: None if v is None else round(v, 2)
+        def round2(v):
+            return None if v is None else round(v, 2)
         levels = [
             (1, round2(a.get("cvi")), round2(b.get("cvi"))),
             (2, a.get("coverage"), b.get("coverage")),

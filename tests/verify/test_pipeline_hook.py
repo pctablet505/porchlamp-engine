@@ -7,11 +7,9 @@ test_pipeline.py`` covers the seam itself (``apply_suspicion``'s contract)
 with hand-written stub callables; this file covers only the real
 composition ``cvi/verify/pipeline_hook.py`` builds.
 
-Six repos, engineered so exactly three named detectors fire (each on
-sourceable inputs -- ``star_burst``, ``ef_domain_mismatch``,
-``newcomer_burst`` and ``source_drift`` need a ``DetectorInputs`` field this
-adapter never populates, per its own module docstring, so none of those
-four can ever fire through this composition regardless of bundle content):
+Six repos, engineered so exactly three named detectors fire in the baseline
+fixture (each on sourceable inputs -- only ``source_drift`` needs a
+``DetectorInputs`` field from the live-sample canary rather than the bundle):
 
 * ``param_jump`` on ``jump/repo``: ``dr90_decision_rate`` moves from 0.0
   (score 0.0) to 1.0 (score 100.0), n=20 both sides.
@@ -381,3 +379,43 @@ def test_newcomer_burst_fires_through_build_detectors_pipeline_hook() -> None:
     snapshot = _score([bundle], "snap-burst-test", previous=None, detectors=detectors)
     assert len(snapshot.records) == 1
     assert "newcomer_burst" in snapshot.records[0].suspicion
+
+
+def test_detector_inputs_from_bundle_reads_star_velocity_flag_sidecar() -> None:
+    """When a bundle carries the star_velocity_flag sidecar fact (True/False or
+    Measured 1/0), detector_inputs_from_bundle populates star_lockstep_penalty_applied."""
+    from cvi.derive.bundle import set_star_velocity_flag
+
+    bundle_true = _bundle(_repo("org", "true-flag"), _full_inputs())
+    set_star_velocity_flag(bundle_true, True)
+    assert detector_inputs_from_bundle(bundle_true).star_lockstep_penalty_applied is True
+
+    bundle_false = _bundle(_repo("org", "false-flag"), _full_inputs())
+    set_star_velocity_flag(bundle_false, False)
+    assert detector_inputs_from_bundle(bundle_false).star_lockstep_penalty_applied is False
+
+    bundle_measured_true = _bundle(_repo("org", "measured-true"), _full_inputs())
+    set_star_velocity_flag(bundle_measured_true, _m(1))
+    assert detector_inputs_from_bundle(bundle_measured_true).star_lockstep_penalty_applied is True
+
+    bundle_measured_false = _bundle(_repo("org", "measured-false"), _full_inputs())
+    set_star_velocity_flag(bundle_measured_false, _m(0))
+    assert detector_inputs_from_bundle(bundle_measured_false).star_lockstep_penalty_applied is False
+
+
+def test_star_burst_fires_through_build_detectors_pipeline_hook() -> None:
+    """End-to-end: star_burst fires during snapshot scoring when star_velocity_flag
+    is True on the bundle, and does not fire when False."""
+    from cvi.derive.bundle import set_star_velocity_flag
+
+    flagged = _bundle(_repo("star", "flagged"), _full_inputs())
+    set_star_velocity_flag(flagged, True)
+    normal = _bundle(_repo("star", "normal"), _full_inputs())
+    set_star_velocity_flag(normal, False)
+
+    detectors = build_detectors([flagged, normal])
+    snapshot = _score([flagged, normal], "snap-star-burst", previous=None, detectors=detectors)
+    by_key = _by_key(snapshot)
+    assert "star_burst" in by_key["star/flagged"].suspicion
+    assert "star_burst" not in by_key["star/normal"].suspicion
+

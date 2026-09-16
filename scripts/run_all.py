@@ -32,7 +32,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from cvi.lakehouse import repositories_dump_hash
 from cvi.snapshot import cli as snapshot_cli
+from cvi.snapshot.build_cmd import build_snapshot_dir
+from cvi.snapshot.manifest import code_commit
+from cvi.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
+from cvi.store.migrations import apply_migrations
+from cvi.store.schema import connect as connect_store
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -75,6 +81,39 @@ def run_one(owner: str, name: str, eco: str, skip_pypistats: bool) -> str:
     return "CLEAN" if report["clean"] else "FLAG"
 
 
+def promote_v2(db: str, data_dir: Path, snapshot_id: str, as_of: datetime) -> int:
+    """Build v2 snapshot directory, score it, and promote into v2 tables in ``db``."""
+    out_dir = data_dir / "snapshots_v2" / snapshot_id
+    commit = code_commit(ROOT) or "unknown"
+    build_snapshot_dir(
+        data_dir,
+        out_dir,
+        snapshot_id=snapshot_id,
+        as_of=as_of,
+        code_commit_sha=commit,
+    )
+    scored, frozen = score_snapshot_dir(out_dir)
+    db_path = Path(db)
+    conn = connect_store(db_path)
+    try:
+        apply_migrations(conn, applied_at=as_of.isoformat())
+        write_scored_snapshot(conn, db_path, scored, frozen, code_commit=commit)
+        has_meta = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshot_meta'"
+        ).fetchone()
+        if has_meta:
+            new_hash = repositories_dump_hash(str(db_path))
+            conn.execute(
+                "UPDATE snapshot_meta SET canonical_dump_hash = ? WHERE snapshot_id = ?",
+                (new_hash, snapshot_id),
+            )
+            conn.commit()
+    finally:
+        conn.close()
+    print(f"promoted v2 snapshot {snapshot_id} -> {db}")
+    return 0
+
+
 def freeze_and_promote(db: str, data_dir: Path, as_of: datetime) -> int:
     """Freeze ``data_dir`` at ``as_of``, then promote CLEAN bundles under the
     id THAT freeze just reported (`03` §5) -- never by re-discovering "the
@@ -114,6 +153,9 @@ def freeze_and_promote(db: str, data_dir: Path, as_of: datetime) -> int:
               f"{manifest['snapshot_id']}: not promoted")
     n = promote.promote_atomically(covered, db, as_of, data_dir, manifest)
     print(f"promoted {n} verified repos -> {db} (snapshot {manifest['snapshot_id']})")
+    derived_dir = data_dir / "derived"
+    if derived_dir.is_dir() and any(derived_dir.glob("*.json")):
+        promote_v2(db, data_dir, snapshot_id, as_of)
     return 0
 
 

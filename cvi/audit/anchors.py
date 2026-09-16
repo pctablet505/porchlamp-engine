@@ -58,9 +58,10 @@ __version__ = "1.0.0"
 PASS = "PASS"
 FAIL = "FAIL"
 REPORT = "REPORT"
+SKIPPED = "SKIPPED"
 
 #: ``repositories`` columns holding the five pillar scores, in
-#: :data:`cvi.constants.PILLAR_WEIGHTS` order (v1 schema).
+#: :data:`cvi.core.constants.PILLAR_WEIGHTS` order (v1 schema).
 PILLAR_COLUMNS: tuple[str, ...] = (
     "score_responsiveness",
     "score_criticality",
@@ -265,34 +266,507 @@ def _check_keras(con: sqlite3.Connection) -> AnchorResult:
     return AnchorResult(relation_id, _EXPECTED[relation_id], observed, REPORT)
 
 
-def evaluate_anchors(db_path: str | Path) -> list[AnchorResult]:
+class AnchorReport(list[AnchorResult]):
+    """List of :class:`AnchorResult` items with summary metadata attributes."""
+
+    def __init__(
+        self,
+        results: Sequence[AnchorResult],
+        rows_total: int = 0,
+        rows_rated: int = 0,
+    ) -> None:
+        super().__init__(results)
+        self.results: tuple[AnchorResult, ...] = tuple(results)
+        self.rows_total: int = rows_total
+        self.rows_rated: int = rows_rated
+
+    @property
+    def counts(self) -> dict[str, int]:
+        counts = {verdict: 0 for verdict in (PASS, FAIL, REPORT, SKIPPED)}
+        for result in self:
+            counts[result.verdict] = counts.get(result.verdict, 0) + 1
+        return counts
+
+
+def _repo_columns(con: sqlite3.Connection) -> set[str]:
+    """Return column names present on ``repositories``."""
+    return {row[1] for row in con.execute('PRAGMA table_info("repositories")').fetchall()}
+
+
+def _table_exists(con: sqlite3.Connection, name: str) -> bool:
+    return (
+        con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        is not None
+    )
+
+
+def _served_snapshot_id(con: sqlite3.Connection, cols: set[str]) -> Optional[str]:
+    """Return the latest/served snapshot ID for a v2 database, if any."""
+    if _table_exists(con, "snapshots"):
+        row = con.execute(
+            "SELECT id FROM snapshots WHERE promoted_at IS NOT NULL ORDER BY promoted_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+        row = con.execute(
+            "SELECT id FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+    if "snapshot_id" in cols:
+        row = con.execute(
+            "SELECT snapshot_id FROM repositories ORDER BY snapshot_id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+    return None
+
+
+def _is_v2_schema(cols: set[str]) -> bool:
+    return "eligible" in cols and "rated" in cols
+
+
+def _repo_counts(con: sqlite3.Connection) -> tuple[int, int]:
+    """Return ``(rows_total, rows_rated)`` for either v1 or v2 schema."""
+    cols = _repo_columns(con)
+    if _is_v2_schema(cols):
+        snap_id = _served_snapshot_id(con, cols)
+        if snap_id is not None and "snapshot_id" in cols:
+            total = con.execute(
+                "SELECT COUNT(*) FROM repositories WHERE snapshot_id = ?", (snap_id,)
+            ).fetchone()[0]
+            rated = con.execute(
+                "SELECT COUNT(*) FROM repositories WHERE rated = 1 AND snapshot_id = ?",
+                (snap_id,),
+            ).fetchone()[0]
+        else:
+            total = con.execute("SELECT COUNT(*) FROM repositories").fetchone()[0]
+            rated = con.execute(
+                "SELECT COUNT(*) FROM repositories WHERE rated = 1"
+            ).fetchone()[0]
+    else:
+        total = con.execute("SELECT COUNT(*) FROM repositories").fetchone()[0]
+        rated = con.execute(
+            "SELECT COUNT(*) FROM repositories WHERE is_stage0_disqualified = 0"
+        ).fetchone()[0]
+    return int(total), int(rated)
+
+
+def _repo_row_v2(
+    con: sqlite3.Connection, owner: str, name: str, snap_id: Optional[str]
+) -> Optional[sqlite3.Row]:
+    con.row_factory = sqlite3.Row
+    if snap_id is not None:
+        return con.execute(
+            "SELECT * FROM repositories WHERE owner = ? AND name = ? AND snapshot_id = ?",
+            (owner, name, snap_id),
+        ).fetchone()
+    return con.execute(
+        "SELECT * FROM repositories WHERE owner = ? AND name = ?",
+        (owner, name),
+    ).fetchone()
+
+
+def _check_routed_db_v2(
+    con: sqlite3.Connection, relation_id: str, owner: str, name: str, snap_id: Optional[str]
+) -> AnchorResult:
+    row = _repo_row_v2(con, owner, name, snap_id)
+    if row is None:
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], f"{owner}/{name} not present in the snapshot", SKIPPED
+        )
+    keys = row.keys()
+    routed = row["routed"] if "routed" in keys else None
+    gate_reason = row["gate_reason"] if "gate_reason" in keys else None
+    eligible = bool(row["eligible"])
+    if (
+        routed == "off_platform"
+        or gate_reason == "off_platform_routed"
+        or gate_reason == "off_platform"
+        or (isinstance(routed, str) and "off_platform" in routed.lower())
+        or (isinstance(gate_reason, str) and "off_platform" in gate_reason.lower())
+    ):
+        label = f"routed: {routed}" if routed else f"gated: {gate_reason}"
+        return AnchorResult(relation_id, _EXPECTED[relation_id], label, PASS)
+    observed = f"gated: {gate_reason}" if not eligible else f"routed: {routed}"
+    return AnchorResult(relation_id, _EXPECTED[relation_id], observed, FAIL)
+
+
+def _check_gated_reason_db_v2(
+    con: sqlite3.Connection,
+    relation_id: str,
+    owner: str,
+    name: str,
+    marker: str,
+    snap_id: Optional[str],
+) -> AnchorResult:
+    row = _repo_row_v2(con, owner, name, snap_id)
+    if row is None:
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], f"{owner}/{name} not present in the snapshot", SKIPPED
+        )
+    keys = row.keys()
+    eligible = bool(row["eligible"])
+    gate_reason = row["gate_reason"] if "gate_reason" in keys else None
+    mirror_flag = bool(row["mirror"]) if "mirror" in keys and row["mirror"] is not None else False
+    if not eligible and (
+        (isinstance(gate_reason, str) and marker in gate_reason.lower())
+        or (marker == "mirror" and mirror_flag)
+    ):
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], f"gated: {gate_reason or marker}", PASS
+        )
+    observed = f"gated: {gate_reason}" if not eligible else "present, eligible"
+    return AnchorResult(relation_id, _EXPECTED[relation_id], observed, FAIL)
+
+
+def _check_archived_db_v2(con: sqlite3.Connection, snap_id: Optional[str]) -> AnchorResult:
+    relation_id = "archived_repo_gated"
+    cols = _repo_columns(con)
+    has_archived_col = "archived" in cols
+    select_cols = "owner, name, eligible, gate_reason" + (", archived" if has_archived_col else "")
+    if snap_id is not None and "snapshot_id" in cols:
+        rows = con.execute(
+            f"SELECT {select_cols} FROM repositories WHERE snapshot_id = ? ORDER BY owner, name",
+            (snap_id,),
+        ).fetchall()
+    else:
+        rows = con.execute(
+            f"SELECT {select_cols} FROM repositories ORDER BY owner, name"
+        ).fetchall()
+    matches = []
+    for r in rows:
+        eligible = bool(r[2])
+        reason = r[3]
+        arch = bool(r[4]) if has_archived_col and len(r) > 4 and r[4] is not None else False
+        if not eligible and ((isinstance(reason, str) and "archived" in reason.lower()) or arch):
+            matches.append(f"{r[0]}/{r[1]}")
+    if matches:
+        noun = "repo" if len(matches) == 1 else "repos"
+        return AnchorResult(
+            relation_id,
+            _EXPECTED[relation_id],
+            f"{len(matches)} gated {noun} with reason 'archived': {', '.join(matches)}",
+            PASS,
+        )
+    return AnchorResult(
+        relation_id, _EXPECTED[relation_id], "no gated repo with reason 'archived'", FAIL
+    )
+
+
+def _check_awesome_db_v2(con: sqlite3.Connection, snap_id: Optional[str]) -> AnchorResult:
+    relation_id = "awesome_non_software"
+    cols = _repo_columns(con)
+    if snap_id is not None and "snapshot_id" in cols:
+        rows = con.execute(
+            "SELECT owner, name, eligible, gate_reason FROM repositories "
+            "WHERE lower(name) LIKE 'awesome%' AND snapshot_id = ? ORDER BY owner, name",
+            (snap_id,),
+        ).fetchall()
+    else:
+        rows = con.execute(
+            "SELECT owner, name, eligible, gate_reason FROM repositories "
+            "WHERE lower(name) LIKE 'awesome%' ORDER BY owner, name"
+        ).fetchall()
+    if not rows:
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], "0 awesome-* repos in DB", FAIL
+        )
+    gated_as_list = [
+        row
+        for row in rows
+        if not bool(row[2]) and isinstance(row[3], str) and "non_software" in row[3].lower()
+    ]
+    plural = "repo" if len(rows) == 1 else "repos"
+    if len(gated_as_list) == len(rows):
+        return AnchorResult(
+            relation_id,
+            _EXPECTED[relation_id],
+            f"{len(rows)} awesome-* {plural} present, all gated non_software",
+            PASS,
+        )
+    gated_text = (
+        "none gated non_software"
+        if not gated_as_list
+        else f"{len(gated_as_list)} gated non_software"
+    )
+    return AnchorResult(
+        relation_id,
+        _EXPECTED[relation_id],
+        f"{len(rows)} awesome-* {plural} present, {gated_text}",
+        FAIL,
+    )
+
+
+def _check_rated_db_v2(
+    con: sqlite3.Connection, owner: str, name: str, snap_id: Optional[str]
+) -> AnchorResult:
+    relation_id = "kubernetes_rated" if (owner, name) == _KUBERNETES else "vllm_rated"
+    row = _repo_row_v2(con, owner, name, snap_id)
+    if row is None:
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], f"{owner}/{name} not present in the snapshot", SKIPPED
+        )
+    keys = row.keys()
+    eligible = bool(row["eligible"])
+    gate_reason = row["gate_reason"] if "gate_reason" in keys else None
+    if not eligible:
+        return AnchorResult(relation_id, _EXPECTED[relation_id], f"gated: {gate_reason}", FAIL)
+    rated = bool(row["rated"])
+    coverage = float(row["coverage"]) if "coverage" in keys and row["coverage"] is not None else 0.0
+    if not rated:
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], f"coverage {coverage:.2f} (< 0.60), unrated", FAIL
+        )
+    tier = row["tier"] if "tier" in keys else None
+    if tier in _V2_TIER_ORDER:
+        tier_ok = _V2_TIER_ORDER.index(tier) >= _V2_TIER_ORDER.index("A")
+    elif tier in TIER_ORDER:
+        tier_ok = TIER_ORDER.index(tier) >= _MINIMUM_TIER_RANK
+    else:
+        tier_ok = False
+    if coverage < MIN_COVERAGE:
+        observed = f"coverage {coverage:.2f} (< {MIN_COVERAGE:.2f}), tier {tier}, rated"
+    elif not tier_ok:
+        observed = f"coverage {coverage:.2f}, tier {tier} (< A), rated"
+    else:
+        return AnchorResult(
+            relation_id,
+            _EXPECTED[relation_id],
+            f"coverage {coverage:.2f}, tier {tier}, rated",
+            PASS,
+        )
+    return AnchorResult(relation_id, _EXPECTED[relation_id], observed, FAIL)
+
+
+def _check_dco_db_v2(con: sqlite3.Connection, snap_id: Optional[str]) -> AnchorResult:
+    relation_id = "linux_dco"
+    row = _repo_row_v2(con, *_LINUX, snap_id)
+    if row is None:
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], "torvalds/linux not present in the snapshot", SKIPPED
+        )
+    keys = row.keys()
+    for col in ("legal_ip_model", "legal_ip"):
+        if col in keys and row[col] is not None:
+            val = row[col]
+            verdict = PASS if val == "DCO" else FAIL
+            return AnchorResult(relation_id, _EXPECTED[relation_id], f"{col} = {val}", verdict)
+    if _table_exists(con, "params") and "id" in keys:
+        prow = con.execute(
+            "SELECT raw_value, score, measured, reason FROM params "
+            "WHERE repo_id = ? AND param_id IN ('legal_ip', '3.1')",
+            (row["id"],),
+        ).fetchone()
+        if prow is not None:
+            raw_val, score, measured, reason = prow[0], prow[1], prow[2], prow[3]
+            if raw_val is not None:
+                try:
+                    parsed = json.loads(raw_val)
+                except Exception:
+                    parsed = raw_val
+                if parsed == "DCO":
+                    return AnchorResult(relation_id, _EXPECTED[relation_id], "legal_ip = DCO", PASS)
+                if isinstance(parsed, str) and parsed:
+                    return AnchorResult(
+                        relation_id, _EXPECTED[relation_id], f"legal_ip = {parsed}", FAIL
+                    )
+            if not bool(measured):
+                return AnchorResult(
+                    relation_id,
+                    _EXPECTED[relation_id],
+                    f"input unmeasured: {reason or 'unknown'}",
+                    SKIPPED,
+                )
+            if score is not None:
+                verdict = PASS if math.isclose(float(score), 100.0, abs_tol=1e-9) else FAIL
+                return AnchorResult(
+                    relation_id,
+                    _EXPECTED[relation_id],
+                    f"legal_ip score = {score} (DCO <=> 100.0)",
+                    verdict,
+                )
+    eligible = bool(row["eligible"])
+    gate_reason = row["gate_reason"] if "gate_reason" in keys else None
+    if not eligible:
+        return AnchorResult(
+            relation_id,
+            _EXPECTED[relation_id],
+            f"input unmeasured: gated: {gate_reason}",
+            SKIPPED,
+        )
+    return AnchorResult(
+        relation_id, _EXPECTED[relation_id], "input unmeasured: legal_ip not in params", SKIPPED
+    )
+
+
+def _check_newcomer_db_v2(con: sqlite3.Connection, snap_id: Optional[str]) -> AnchorResult:
+    relation_id = "newcomer_label_5_1"
+    cols = _repo_columns(con)
+    if snap_id is not None and "snapshot_id" in cols:
+        rated_rows = con.execute(
+            "SELECT id, p_accessibility, deep_dive_json FROM repositories "
+            "WHERE rated = 1 AND snapshot_id = ?",
+            (snap_id,),
+        ).fetchall()
+    else:
+        rated_rows = con.execute(
+            "SELECT id, p_accessibility, deep_dive_json FROM repositories WHERE rated = 1"
+        ).fetchall()
+    if not rated_rows:
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], "0 rated repos with count >= 1 (vacuous)", PASS
+        )
+    if _table_exists(con, "params"):
+        checked_raw_ge_1 = 0
+        failed_raw_ge_1 = 0
+        positive_scores = 0
+        for r in rated_rows:
+            repo_id = r[0]
+            prow = con.execute(
+                "SELECT raw_value, score, measured FROM params "
+                "WHERE repo_id = ? AND param_id IN ('newcomer_issue_supply', '5.1')",
+                (repo_id,),
+            ).fetchone()
+            if prow is None:
+                continue
+            raw_val, score, _measured = prow[0], prow[1], prow[2]
+            if score is not None and float(score) > 0:
+                positive_scores += 1
+            if raw_val is not None:
+                try:
+                    parsed = json.loads(raw_val)
+                except Exception:
+                    parsed = raw_val
+                count_val = None
+                if isinstance(parsed, (int, float)):
+                    count_val = float(parsed)
+                elif isinstance(parsed, dict) and "count" in parsed:
+                    count_val = float(parsed["count"])
+                if count_val is not None and count_val >= 1:
+                    checked_raw_ge_1 += 1
+                    if score is None or float(score) <= 0:
+                        failed_raw_ge_1 += 1
+        if checked_raw_ge_1 > 0:
+            if failed_raw_ge_1 == 0:
+                return AnchorResult(
+                    relation_id,
+                    _EXPECTED[relation_id],
+                    f"{checked_raw_ge_1} rated repo(s) with count >= 1 all score 5.1 > 0",
+                    PASS,
+                )
+            return AnchorResult(
+                relation_id,
+                _EXPECTED[relation_id],
+                f"{failed_raw_ge_1} rated repo(s) with count >= 1 have 5.1 score <= 0",
+                FAIL,
+            )
+        if positive_scores > 0:
+            return AnchorResult(
+                relation_id,
+                _EXPECTED[relation_id],
+                f"{positive_scores} rated repo(s) score 5.1 > 0",
+                PASS,
+            )
+    count_gfi = 0
+    positive_acc = 0
+    for r in rated_rows:
+        dd_json = r[2]
+        if dd_json:
+            try:
+                dd = json.loads(dd_json)
+                gfi_count = (dd.get("good_first_issues") or {}).get("count", 0)
+                if gfi_count >= 1:
+                    count_gfi += 1
+                    if r[1] is not None and float(r[1]) > 0:
+                        positive_acc += 1
+            except Exception:
+                pass
+    if count_gfi > 0:
+        if positive_acc == count_gfi:
+            return AnchorResult(
+                relation_id,
+                _EXPECTED[relation_id],
+                f"{count_gfi} rated repo(s) with newcomer count >= 1 have accessibility > 0",
+                PASS,
+            )
+        return AnchorResult(
+            relation_id,
+            _EXPECTED[relation_id],
+            f"{count_gfi - positive_acc} rated repo(s) with newcomer count >= 1 lack positive score",
+            FAIL,
+        )
+    return AnchorResult(
+        relation_id, _EXPECTED[relation_id], "0 rated repos with count >= 1 (vacuous)", PASS
+    )
+
+
+def _check_keras_db_v2(con: sqlite3.Connection, snap_id: Optional[str]) -> AnchorResult:
+    relation_id = "keras_hub_gate_reported"
+    row = _repo_row_v2(con, *_KERAS, snap_id)
+    if row is None:
+        return AnchorResult(
+            relation_id, _EXPECTED[relation_id], "repo not present in DB", REPORT
+        )
+    keys = row.keys()
+    eligible = bool(row["eligible"])
+    gate_reason = row["gate_reason"] if "gate_reason" in keys else None
+    observed = f"gated: {gate_reason}" if not eligible else "present, eligible"
+    return AnchorResult(relation_id, _EXPECTED[relation_id], observed, REPORT)
+
+
+def evaluate_anchors(db_path: str | Path) -> AnchorReport:
     """Evaluate every D-VER-4 relation against ``db_path``.
 
     Parameters
     ----------
     db_path:
-        Path to a v1 ``cvi.db`` (SQLite with a ``repositories`` table).
+        Path to a v1 or v2 ``cvi.db`` (SQLite with a ``repositories`` table).
 
     Returns
     -------
-    list[AnchorResult]
-        One result per relation, in :data:`ANCHOR_RELATIONS` order.
+    AnchorReport
+        One :class:`AnchorResult` per relation, in :data:`ANCHOR_RELATIONS` order.
     """
     con = _connect(db_path)
     try:
-        return [
-            _check_gated(con, "linux_off_platform", *_LINUX, "off-platform"),
-            _check_gated(con, "gcc_mirror_gated", *_GCC, "mirror"),
-            _check_archived(con),
-            _check_awesome(con),
-            _check_rated(con, *_KUBERNETES),
-            _check_rated(con, *_VLLM),
-            _check_dco(con),
-            _check_newcomer(con),
-            _check_keras(con),
-        ]
+        cols = _repo_columns(con)
+        total, rated = _repo_counts(con)
+        if _is_v2_schema(cols):
+            snap_id = _served_snapshot_id(con, cols)
+            results = [
+                _check_routed_db_v2(con, "linux_off_platform", *_LINUX, snap_id),
+                _check_gated_reason_db_v2(con, "gcc_mirror_gated", *_GCC, "mirror", snap_id),
+                _check_archived_db_v2(con, snap_id),
+                _check_awesome_db_v2(con, snap_id),
+                _check_rated_db_v2(con, *_KUBERNETES, snap_id),
+                _check_rated_db_v2(con, *_VLLM, snap_id),
+                _check_dco_db_v2(con, snap_id),
+                _check_newcomer_db_v2(con, snap_id),
+                _check_keras_db_v2(con, snap_id),
+            ]
+        else:
+            results = [
+                _check_gated(con, "linux_off_platform", *_LINUX, "off-platform"),
+                _check_gated(con, "gcc_mirror_gated", *_GCC, "mirror"),
+                _check_archived(con),
+                _check_awesome(con),
+                _check_rated(con, *_KUBERNETES),
+                _check_rated(con, *_VLLM),
+                _check_dco(con),
+                _check_newcomer(con),
+                _check_keras(con),
+            ]
+        return AnchorReport(results, rows_total=total, rows_rated=rated)
     finally:
         con.close()
+
+
+def anchors_report(db_path: str | Path) -> AnchorReport:
+    """Evaluate every D-VER-4 relation against ``db_path`` (v1 or v2 schema)."""
+    return evaluate_anchors(db_path)
 
 
 def format_anchor_report(
@@ -306,12 +780,13 @@ def format_anchor_report(
     for result in results:
         lines.append(f"{result.verdict:<7} {result.relation:<24} {result.expected}")
         lines.append(f"{'':<7} observed: {result.observed}")
-    counts = {verdict: 0 for verdict in (PASS, FAIL, REPORT)}
+    counts = {verdict: 0 for verdict in (PASS, FAIL, REPORT, SKIPPED)}
     for result in results:
-        counts[result.verdict] += 1
-    lines.append(
-        f"summary: {counts[PASS]} {PASS}, {counts[FAIL]} {FAIL}, {counts[REPORT]} {REPORT}"
-    )
+        counts[result.verdict] = counts.get(result.verdict, 0) + 1
+    summary = f"summary: {counts[PASS]} {PASS}, {counts[FAIL]} {FAIL}, {counts[REPORT]} {REPORT}"
+    if counts[SKIPPED]:
+        summary += f", {counts[SKIPPED]} {SKIPPED}"
+    lines.append(summary)
     return "\n".join(lines)
 
 
@@ -322,7 +797,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     not errors); exits 2 on usage or database errors.
     """
     parser = argparse.ArgumentParser(
-        description="Evaluate the D-VER-4 anchor relations on a v1 CVI database."
+        description="Evaluate the D-VER-4 anchor relations on a CVI database."
     )
     parser.add_argument("--db", default="data/cvi.db", help="path to the CVI database")
     parser.add_argument("--json", action="store_true", help="emit the report as JSON")
@@ -332,16 +807,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except sqlite3.Error as error:
         print(f"cannot audit {args.db}: {error}", file=sys.stderr)
         return 2
-    try:
-        con = _connect(args.db)
-        total = con.execute("SELECT COUNT(*) FROM repositories").fetchone()[0]
-        rated = con.execute(
-            "SELECT COUNT(*) FROM repositories WHERE is_stage0_disqualified = 0"
-        ).fetchone()[0]
-        con.close()
-    except sqlite3.Error as error:
-        print(f"cannot count rows in {args.db}: {error}", file=sys.stderr)
-        return 2
+    total = results.rows_total
+    rated = results.rows_rated
     if args.json:
         payload: dict[str, Any] = {
             "db": str(Path(args.db).resolve()),
@@ -392,14 +859,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 #   than fabricating a same-source "check" that could never fail
 #   independently of the curve it is supposedly verifying.
 # =========================================================================== #
-
-#: A relation this snapshot has no way to evaluate: the identity anchor it
-#: names is absent from the snapshot, or (``newcomer_label_5_1``) the v2
-#: ``ScoreRecord`` contract does not carry the fact the relation needs.
-#: Distinct from :data:`FAIL` (the relation was evaluated and did not hold)
-#: and from :data:`REPORT` (evaluated, never fails by design) -- a
-#: :data:`SKIPPED` relation was not evaluated at all.
-SKIPPED = "SKIPPED"
 
 
 def _records_by_identity(snapshot: ScoredSnapshot) -> dict[tuple[str, str], Any]:

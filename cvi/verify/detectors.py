@@ -29,45 +29,34 @@ a false accusation either. Every ``detect_*`` docstring below repeats which
 of its own inputs this applies to, and ``tests/verify/test_detectors.py``
 has one dedicated case per input proving the unmeasured value does not fire.
 
-**Named inputs no collector sources yet.** Two of the nine detectors need
-a raw fact no collector or bundle field carries. Rather than approximate a
-missing fact from something else, each reads its own explicitly named
-:class:`DetectorInputs` field that defaults to ``None`` (never fires)
-until the fact exists:
+**Sourcing raw facts into DetectorInputs.** All raw-fact inputs read by the
+nine detectors are sourced from :class:`~cvi.core.models.FeatureBundle` and
+wired into :class:`DetectorInputs` by
+:func:`cvi.verify.pipeline_hook.detector_inputs_from_bundle`, except
+``source_drift_held`` which comes from the live-sample canary:
 
-* ``star_burst`` needs whether the StarScout lockstep penalty
-  (``cvi/starscout.py``, v1) was applied to this repo at universe entry
-  (``DetectorInputs.star_lockstep_penalty_applied``). No v2 schema field
-  carries this fact (``RepoIdentity`` has no stars-related field); it
-  needs exposing as a stored per-repo boolean from the universe-build
-  step (``scripts/build_universe.py`` / D-IN-5) before a real caller can
-  populate this field instead of leaving it ``None``.
-* ``ef_domain_mismatch`` needs the top commit email-domain's share of a
-  repo's human commits (``DetectorInputs.top_email_domain_share``).
-  ``cvi.collect.commits.elephant_factor`` computes the *count* of orgs
-  reaching 50% of commits but never the top org's own share, and no
-  bundle input carries it; the collector (or its deriver hook) needs to
-  compute and store the top-domain share alongside ``elephant_factor``
-  before a real caller can populate this field.
-
-The other three raw-fact inputs are sourced:
-
+* ``star_burst`` reads whether the StarScout lockstep penalty
+  (``cvi/starscout.py``) was applied to this repo at universe entry
+  (``DetectorInputs.star_lockstep_penalty_applied``), sourced from the
+  bundle sidecar fact :func:`cvi.derive.bundle.star_velocity_flag`
+  (D-IN-5 pass-through).
+* ``ef_domain_mismatch`` reads the top commit email-domain's share of a
+  repo's human commits (``DetectorInputs.top_email_domain_share``), sourced
+  from the bundle sidecar fact
+  :func:`cvi.derive.bundle.top_email_domain_share` alongside the scored
+  ``elephant_factor`` parameter input.
 * ``newcomer_burst`` reads ``NewcomerAuthor.account_created_at``
   (``cvi/core/models.py``), threaded through from the collector's
   per-author ``user.createdAt`` (``cvi.collect.github_graphql``) and
   ``cvi.derive.bundle``'s load/dump round-trip.
   :func:`newcomer_accounts_from_cohorts` builds
   :class:`NewcomerAccountSample` tuples straight from
-  ``FeatureBundle.cohorts.newcomer_authors`` — that dataclass is the
-  detector's own input shape (not ``NewcomerAuthor`` itself) because the
-  detector's ``all_prs_merged`` fact is a derived boolean, not a stored
-  one. Wiring its output into ``DetectorInputs`` at a real call site is
-  the caller's job; ``run_detectors`` itself is pure.
+  ``FeatureBundle.cohorts.newcomer_authors``.
 * ``closed_unread`` is computed directly from ``FeatureBundle.pr_window``
   by :func:`closed_unread_share_from_pr_window`.
 * ``source_drift`` is a plain pass-through of the live-sample canary's
-  per-repo hold verdict, supplied by whichever caller has that
-  ``LiveSampleReport`` in hand.
+  per-repo hold verdict (``DetectorInputs.source_drift_held``), supplied by
+  whichever caller has that ``LiveSampleReport`` in hand.
 """
 from __future__ import annotations
 
@@ -239,8 +228,8 @@ class DetectorInputs:
     #: ``bundle.inputs["elephant_factor"]`` when ``Measured``.
     elephant_factor: Optional[float] = None
     #: ``ef_domain_mismatch``: top commit email-domain's share of human
-    #: commits. ``None`` until a collector computes it (see the module
-    #: docstring).
+    #: commits. Sourced from ``bundle`` sidecar via
+    #: :func:`cvi.derive.bundle.top_email_domain_share`.
     top_email_domain_share: Optional[float] = None
     #: ``closed_unread``: pre-aggregated (share, n) over external PRs
     #: closed unmerged with no substantive response, computed by
@@ -253,8 +242,8 @@ class DetectorInputs:
     #: :func:`newcomer_accounts_from_cohorts`; empty means no evidence.
     newcomer_accounts: tuple[NewcomerAccountSample, ...] = ()
     #: ``star_burst``: whether the StarScout lockstep penalty was applied
-    #: at universe entry. ``None`` until the universe-build step stores it
-    #: (see the module docstring).
+    #: at universe entry. Sourced from ``bundle`` sidecar via
+    #: :func:`cvi.derive.bundle.star_velocity_flag`.
     star_lockstep_penalty_applied: Optional[bool] = None
     #: ``source_drift``: this repo's live-sample canary hold verdict
     #: (``True`` iff the row is currently held, i.e. verdict != "ok").
@@ -438,9 +427,7 @@ def detect_star_burst(
     """``star_burst``: the StarScout lockstep penalty was applied to this
     repo at universe entry (03 section 6). Reads
     ``inputs.star_lockstep_penalty_applied``. Unmeasured-never-fires:
-    ``None`` (not audited, or the fact does not exist yet -- see the
-    module docstring's ownership request) never fires; only an explicit
-    ``True`` does."""
+    ``None`` (not audited) never fires; only an explicit ``True`` does."""
     return inputs.star_lockstep_penalty_applied is True
 
 
@@ -471,8 +458,7 @@ def detect_ef_domain_mismatch(
     orgs), read from ``inputs.elephant_factor`` -- not the parameter's
     0-100 score, which the table's "EF >= 4" plainly is not (EF is
     typically single digits). Unmeasured-never-fires: either a ``None``
-    domain share (see the module docstring's ownership request) or a
-    ``None`` EF never fires."""
+    domain share or a ``None`` EF never fires."""
     domain_share = inputs.top_email_domain_share
     ef = inputs.elephant_factor
     if domain_share is None or ef is None:

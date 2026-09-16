@@ -67,8 +67,8 @@ from cvi import __version__ as CVI_VERSION
 
 __version__ = "1.0.0"
 
-#: Collector bucket directories under ``raw/``.
-COLLECTORS: Tuple[str, ...] = (
+#: Original v1 collector bucket directories under ``raw/``.
+V1_COLLECTORS: Tuple[str, ...] = (
     "actions_runs",
     "commits_180d",
     "contributors",
@@ -81,6 +81,24 @@ COLLECTORS: Tuple[str, ...] = (
     "scorecard",
     "tree",
 )
+
+#: Additional v2 collector bucket directories under ``raw/``.
+V2_COLLECTORS: Tuple[str, ...] = (
+    "repo_object",
+    "commits_365d",
+    "dependents",
+    "pr_window",
+    "releases",
+    "issues_counts",
+    "runs",
+    "governance",
+    "author_history",
+    "universe_entry",
+)
+
+#: Collector bucket directories under ``raw/``.
+COLLECTORS: Tuple[str, ...] = V1_COLLECTORS + V2_COLLECTORS
+ALL_COLLECTORS: Tuple[str, ...] = COLLECTORS
 
 #: Collectors keyed by GitHub ``owner__repo`` rather than ``ecosystem__package``.
 GITHUB_KEYED_COLLECTORS: Tuple[str, ...] = tuple(name for name in COLLECTORS if name != "downloads")
@@ -172,6 +190,8 @@ class RepoEvidence:
         if not self.name:
             self.name = self.owner
         derived = _read_json(data_dir / "derived" / f"{self.owner}__{self.name}.json")
+        if derived is None:
+            derived = _read_json(data_dir / "bundles" / f"{self.owner}__{self.name}.json")
         self.derived: Optional[dict] = derived if isinstance(derived, dict) else None
         self.meta: dict = (self.derived or {}).get("meta") or {}
         self.confidence: dict = (self.derived or {}).get("confidence") or {}
@@ -180,6 +200,12 @@ class RepoEvidence:
     def ecosystem(self) -> str:
         """Package ecosystem recorded by the deriver, else ``unknown``."""
         value = self.meta.get("ecosystem")
+        if not isinstance(value, str) or not value:
+            value = ((self.derived or {}).get("repo") or {}).get("ecosystem")
+        if not isinstance(value, str) or not value:
+            univ = self.envelope("universe_entry")
+            if isinstance(univ, dict):
+                value = univ.get("ecosystem")
         return value if isinstance(value, str) and value else "unknown"
 
     def envelope(self, collector: str) -> Optional[Any]:
@@ -221,13 +247,19 @@ class RepoEvidence:
         return state if isinstance(state, str) else None
 
     def pr_records(self) -> List[dict]:
-        """PR records from the derived bundle, falling back to raw ``pr_events``."""
+        """PR records from the derived bundle, falling back to raw ``pr_events`` or v2 ``pr_window``."""
         events = self.derived.get("pr_events") if self.derived else None
         if isinstance(events, list) and events:
             return [event for event in events if isinstance(event, dict)]
+        pr_win = self.derived.get("pr_window") if self.derived else None
+        if isinstance(pr_win, dict) and isinstance(pr_win.get("events"), list) and pr_win["events"]:
+            return [event for event in pr_win["events"] if isinstance(event, dict)]
         raw_events = self.envelope("pr_events")
         if isinstance(raw_events, list):
             return [event for event in raw_events if isinstance(event, dict)]
+        raw_pr_win = self.envelope("pr_window")
+        if isinstance(raw_pr_win, dict) and isinstance(raw_pr_win.get("events"), list):
+            return [event for event in raw_pr_win["events"] if isinstance(event, dict)]
         return []
 
     def latency_hours(self) -> List[float]:
@@ -603,25 +635,33 @@ def discover_repos(data_dir: "str | os.PathLike[str]", manifest: Optional[dict] 
     """Return the repository keys of a data dir, sorted.
 
     Keys come from the sample manifest when one is supplied, otherwise from
-    the union of GitHub-keyed collector filenames and ``derived/`` filenames.
+    the union of GitHub-keyed collector filenames, auto-discovered ``raw/``
+    subdirectories, ``derived/`` filenames and ``bundles/`` filenames.
     """
     root = Path(data_dir)
     if manifest:
         keys = [entry.get("repo") for entry in manifest["repos"] if isinstance(entry, dict)]
         return tuple(sorted({key for key in keys if isinstance(key, str) and key}))
     found = set()
-    for collector in GITHUB_KEYED_COLLECTORS:
-        directory = root / "raw" / collector
+    collector_names = list(GITHUB_KEYED_COLLECTORS)
+    raw_root = root / "raw"
+    if raw_root.is_dir():
+        for child in raw_root.iterdir():
+            if child.is_dir() and child.name != "downloads" and child.name not in collector_names:
+                collector_names.append(child.name)
+    for collector in collector_names:
+        directory = raw_root / collector
         if not directory.is_dir():
             continue
         for path in directory.iterdir():
             if path.suffix == ".json":
                 found.add(_stem_to_repo(path.stem))
-    derived = root / "derived"
-    if derived.is_dir():
-        for path in derived.iterdir():
-            if path.suffix == ".json":
-                found.add(_stem_to_repo(path.stem))
+    for folder_name in ("derived", "bundles"):
+        folder = root / folder_name
+        if folder.is_dir():
+            for path in folder.iterdir():
+                if path.suffix == ".json":
+                    found.add(_stem_to_repo(path.stem))
     return tuple(sorted(found))
 
 

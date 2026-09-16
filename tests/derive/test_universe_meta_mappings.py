@@ -219,3 +219,50 @@ def test_unmeasured_never_fires_star_burst_through_real_run_detectors():
     assert inputs.star_lockstep_penalty_applied is None
     result = run_detectors(_record(), None, inputs)
     assert "star_burst" not in result
+
+
+def test_sidecars_survive_load_v1_and_dump_validate_round_trip(tmp_path: Path):
+    """Verify stars_audited, star_velocity_flag, and forks survive _load_v1 and
+    a dump_bundle -> validate_bundle round-trip, and populate DetectorInputs."""
+    from cvi.derive.bundle import (
+        _load_v1,
+        dump_bundle,
+        forks_count,
+        star_velocity_flag,
+        stars_audited,
+        validate_bundle,
+    )
+    from cvi.verify.pipeline_hook import detector_inputs_from_bundle
+
+    data = {
+        "measured": True,
+        "star_velocity_flag": True,
+        "stars_audited": 321,
+        "star_velocity": {"recent_stars": 534, "window_days": 90},
+        "provenance": {},
+    }
+    write_envelope(tmp_path / "raw", "universe_entry", "acme__widget", data)
+    doc = base_document(
+        meta={"star_velocity_flag": True, "stars_audited": 321, "forks": 45},
+        provenance={"star_velocity_flag": prov("universe_entry"), "stars_audited": prov("universe_entry")},
+        confidence={"star_velocity_flag": "verified", "stars_audited": "verified"},
+    )
+    bundle = _load_v1(doc, raw_root=tmp_path / "raw")
+    assert stars_audited(bundle) == 321
+    assert star_velocity_flag(bundle) is True
+    assert forks_count(bundle) == 45
+
+    dumped = dump_bundle(bundle)
+    assert "stars_audited" in dumped
+    assert "star_velocity_flag" in dumped
+    assert dumped["forks"] == 45
+
+    reloaded = validate_bundle(dumped)
+    assert stars_audited(reloaded) == 321
+    assert star_velocity_flag(reloaded) is True
+    assert forks_count(reloaded) == 45
+
+    inputs = detector_inputs_from_bundle(reloaded)
+    assert inputs.star_lockstep_penalty_applied is True
+    assert "star_burst" in run_detectors(_record(), None, inputs)
+

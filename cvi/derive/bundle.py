@@ -72,12 +72,13 @@ def validate_bundle(document: Mapping[str, Any]) -> FeatureBundle:
     Raises :class:`BundleValidationError` listing every violation found.
     Raises the same error for a document whose ``schema_version`` is not 2.
 
-    ``last_non_bot_commit_at``/``top_email_domain_share`` are read
-    back from the two optional top-level keys of the same name when
-    present (see :data:`_OPTIONAL_TOP_LEVEL_KEYS` and
-    :func:`dump_bundle`, which writes them). A document without them
-    leaves the bundle-instance sidecar fact at its unset default. This
-    ensures the two facts survive a round trip across dump and load.
+    ``last_non_bot_commit_at``, ``top_email_domain_share``, ``stars_audited``,
+    ``star_velocity_flag``, and ``forks`` are read back from optional
+    top-level keys of the same name when present (see
+    :data:`_OPTIONAL_TOP_LEVEL_KEYS` and :func:`dump_bundle`, which writes
+    them). A document without them leaves the bundle-instance sidecar fact at
+    its unset default. This ensures the facts survive a round trip across dump
+    and load.
     """
     if not isinstance(document, Mapping):
         raise BundleValidationError([f"document must be a mapping, got {type(document).__name__}"])
@@ -112,6 +113,12 @@ def validate_bundle(document: Mapping[str, Any]) -> FeatureBundle:
         _set_last_non_bot_commit_at(bundle, _last_non_bot_commit_at_from_doc(document[_LAST_NON_BOT_COMMIT_DOC_KEY]))
     if _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY in document:
         _set_top_email_domain_share(bundle, _top_email_domain_share_from_doc(document[_TOP_EMAIL_DOMAIN_SHARE_DOC_KEY]))
+    if _STARS_AUDITED_DOC_KEY in document:
+        _set_stars_audited(bundle, _stars_audited_from_doc(document[_STARS_AUDITED_DOC_KEY]))
+    if _STAR_VELOCITY_FLAG_DOC_KEY in document:
+        _set_star_velocity_flag(bundle, _star_velocity_flag_from_doc(document[_STAR_VELOCITY_FLAG_DOC_KEY]))
+    if _FORKS_DOC_KEY in document:
+        _set_forks_count(bundle, _forks_from_doc(document[_FORKS_DOC_KEY]))
     return bundle
 
 
@@ -152,7 +159,7 @@ def dump_bundle(bundle: FeatureBundle) -> dict[str, Any]:
                                                            value.source_hash, value.fetched_at)))
         else:
             inputs[input_id] = {"kind": "unmeasured", "reason": value.reason, "detail": value.detail}
-    return {
+    doc: dict[str, Any] = {
         "schema_version": constants.SCHEMA_VERSION,
         "repo": {key: getattr(bundle.repo, key) for key in REPO_KEYS},
         "inputs": inputs,
@@ -183,6 +190,13 @@ def dump_bundle(bundle: FeatureBundle) -> dict[str, Any]:
         _LAST_NON_BOT_COMMIT_DOC_KEY: _last_non_bot_commit_at_doc(commit_domains.last_non_bot_commit_at(bundle)),
         _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY: _top_email_domain_share_doc(top_email_domain_share(bundle)),
     }
+    if stars_audited(bundle) is not None:
+        doc[_STARS_AUDITED_DOC_KEY] = _stars_audited_doc(getattr(bundle, _STARS_AUDITED_ATTR, None))
+    if star_velocity_flag(bundle) is not None:
+        doc[_STAR_VELOCITY_FLAG_DOC_KEY] = _star_velocity_flag_doc(getattr(bundle, _STAR_VELOCITY_FLAG_ATTR, None))
+    if forks_count(bundle) is not None:
+        doc[_FORKS_DOC_KEY] = forks_count(bundle)
+    return doc
 
 
 def write_bundle(bundle: FeatureBundle, path: Union[Path, str]) -> Path:
@@ -319,8 +333,75 @@ def _set_top_email_domain_share(bundle: FeatureBundle, value: TopEmailDomainShar
     setattr(bundle, _TOP_EMAIL_DOMAIN_SHARE_ATTR, value)
 
 
+set_top_email_domain_share = _set_top_email_domain_share
+
+_STARS_AUDITED_ATTR = "_stars_audited_attr"
+_STAR_VELOCITY_FLAG_ATTR = "_star_velocity_flag_attr"
+_FORKS_ATTR = "_forks_attr"
+
+
+def stars_audited(bundle: FeatureBundle) -> int | None:
+    """Return the audited star count from ``bundle`` if Measured or int, else ``None``."""
+    val = getattr(bundle, _STARS_AUDITED_ATTR, None)
+    if isinstance(val, Measured):
+        if isinstance(val.value, int) and not isinstance(val.value, bool):
+            return val.value
+        return None
+    if isinstance(val, int) and not isinstance(val, bool):
+        return val
+    return None
+
+
+def _set_stars_audited(bundle: FeatureBundle, value: Measured | Unmeasured | int | None) -> None:
+    setattr(bundle, _STARS_AUDITED_ATTR, value)
+
+
+set_stars_audited = _set_stars_audited
+
+
+def star_velocity_flag(bundle: FeatureBundle) -> bool | None:
+    """Return the StarScout lockstep-penalty flag from ``bundle`` if Measured or bool, else ``None``."""
+    val = getattr(bundle, _STAR_VELOCITY_FLAG_ATTR, None)
+    if isinstance(val, Measured):
+        return bool(val.value)
+    if isinstance(val, bool):
+        return val
+    return None
+
+
+def _set_star_velocity_flag(bundle: FeatureBundle, value: Measured | Unmeasured | bool | None) -> None:
+    setattr(bundle, _STAR_VELOCITY_FLAG_ATTR, value)
+
+
+set_star_velocity_flag = _set_star_velocity_flag
+
+
+def forks_count(bundle: FeatureBundle) -> int | None:
+    """Return the forks count from ``bundle`` if present as int >= 0 (or Measured int >= 0), else ``None``."""
+    val = getattr(bundle, _FORKS_ATTR, None)
+    if isinstance(val, Measured):
+        if isinstance(val.value, int) and not isinstance(val.value, bool) and val.value >= 0:
+            return val.value
+        return None
+    if isinstance(val, int) and not isinstance(val, bool) and val >= 0:
+        return val
+    return None
+
+
+forks = forks_count
+
+
+def _set_forks_count(bundle: FeatureBundle, value: Measured | int | None) -> None:
+    setattr(bundle, _FORKS_ATTR, value)
+
+
+_set_forks = _set_forks_count
+set_forks_count = _set_forks_count
+set_forks = _set_forks_count
+
+
 # --------------------------------------------------------------------------- #
-# Round-trip serialisation: the two OPTIONAL v2-document top-level keys      #
+# Round-trip serialisation: the OPTIONAL v2-document top-level keys           #
 # validate_bundle/dump_bundle use to carry the sidecar facts across a real   #
 # dump/reload (see validate_bundle's own docstring for why this matters --   #
 # last_non_bot_commit_at feeds tie_key, so losing it on reload would         #
@@ -330,7 +411,16 @@ def _set_top_email_domain_share(bundle: FeatureBundle, value: TopEmailDomainShar
 
 _LAST_NON_BOT_COMMIT_DOC_KEY = "last_non_bot_commit_at"
 _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY = "top_email_domain_share"
-_OPTIONAL_TOP_LEVEL_KEYS = frozenset({_LAST_NON_BOT_COMMIT_DOC_KEY, _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY})
+_STARS_AUDITED_DOC_KEY = "stars_audited"
+_STAR_VELOCITY_FLAG_DOC_KEY = "star_velocity_flag"
+_FORKS_DOC_KEY = "forks"
+_OPTIONAL_TOP_LEVEL_KEYS = frozenset({
+    _LAST_NON_BOT_COMMIT_DOC_KEY,
+    _TOP_EMAIL_DOMAIN_SHARE_DOC_KEY,
+    _STARS_AUDITED_DOC_KEY,
+    _STAR_VELOCITY_FLAG_DOC_KEY,
+    _FORKS_DOC_KEY,
+})
 
 
 def _last_non_bot_commit_at_doc(value: LastNonBotCommitValue) -> dict[str, Any]:
@@ -391,6 +481,90 @@ def _top_email_domain_share_from_doc(doc: Any) -> TopEmailDomainShareValue:
         except BundleValidationError:
             return _NO_COMMIT_FACT
     return _NO_COMMIT_FACT
+
+
+def _stars_audited_doc(value: Any) -> Any:
+    if isinstance(value, Measured):
+        return dict(zip(
+            MEASURED_DOC_KEYS,
+            ("measured", value.value, value.n, value.window_start, value.window_end,
+             value.method, value.source, value.source_hash, value.fetched_at),
+        ))
+    return value
+
+
+def _stars_audited_from_doc(doc: Any) -> Measured | Unmeasured | int | None:
+    if isinstance(doc, int) and not isinstance(doc, bool):
+        return doc
+    if isinstance(doc, Mapping):
+        if doc.get("kind") == "measured":
+            try:
+                return Measured(
+                    value=doc["value"], n=doc["n"], window_start=doc.get("window_start"),
+                    window_end=doc.get("window_end"), method=str(doc["method"]),
+                    source=str(doc["source"]), source_hash=str(doc["source_hash"]),
+                    fetched_at=str(doc["fetched_at"]),
+                )
+            except (KeyError, BundleValidationError, TypeError, ValueError):
+                val = doc.get("value")
+                if isinstance(val, int) and not isinstance(val, bool):
+                    return val
+                return None
+        if doc.get("kind") == "unmeasured":
+            try:
+                return Unmeasured(reason=doc.get("reason", "collector_failure"), detail=doc.get("detail", ""))
+            except BundleValidationError:
+                return None
+    return None
+
+
+def _star_velocity_flag_doc(value: Any) -> Any:
+    if isinstance(value, Measured):
+        return dict(zip(
+            MEASURED_DOC_KEYS,
+            ("measured", value.value, value.n, value.window_start, value.window_end,
+             value.method, value.source, value.source_hash, value.fetched_at),
+        ))
+    return value
+
+
+def _star_velocity_flag_from_doc(doc: Any) -> Measured | Unmeasured | bool | None:
+    if isinstance(doc, bool):
+        return doc
+    if isinstance(doc, int) and doc in (0, 1):
+        return bool(doc)
+    if isinstance(doc, Mapping):
+        if doc.get("kind") == "measured":
+            try:
+                return Measured(
+                    value=doc["value"], n=doc["n"], window_start=doc.get("window_start"),
+                    window_end=doc.get("window_end"), method=str(doc["method"]),
+                    source=str(doc["source"]), source_hash=str(doc["source_hash"]),
+                    fetched_at=str(doc["fetched_at"]),
+                )
+            except (KeyError, BundleValidationError, TypeError, ValueError):
+                val = doc.get("value")
+                if isinstance(val, bool):
+                    return val
+                if isinstance(val, int) and val in (0, 1):
+                    return bool(val)
+                return None
+        if doc.get("kind") == "unmeasured":
+            try:
+                return Unmeasured(reason=doc.get("reason", "collector_failure"), detail=doc.get("detail", ""))
+            except BundleValidationError:
+                return None
+    return None
+
+
+def _forks_from_doc(doc: Any) -> int | None:
+    if isinstance(doc, int) and not isinstance(doc, bool) and doc >= 0:
+        return doc
+    if isinstance(doc, Mapping) and doc.get("kind") == "measured":
+        val = doc.get("value")
+        if isinstance(val, int) and not isinstance(val, bool) and val >= 0:
+            return val
+    return None
 
 
 def _commit_envelope_path(ctx: "_V1Ctx", key: str, envelope_key: str) -> Optional[Path]:
@@ -1886,16 +2060,18 @@ def _resolve_star_velocity_flag(ctx: _V1Ctx) -> Measured | Unmeasured:
                        detail=f"v1 confidence {confidence_value!r} for 'star_velocity_flag' is not recognized")
 
 
+_resolve_stars_audited: InputResolver = _plain_scalar_resolver(
+    "stars_audited",
+    missing_reason="collector_failure",
+    missing_detail="universe entry never audited star velocity for this repo "
+                    "(star-history fetch failed, cvi.collect.universe)",
+)
+
 #: The two universe-entry facts, keyed exactly like INPUT_MAPPINGS but kept
 #: in a separate table so INPUT_MAPPINGS' own 18-row assert stays exact.
 UNIVERSE_META_MAPPINGS: dict[str, InputResolver] = {
     "star_velocity_flag": _resolve_star_velocity_flag,
-    "stars_audited": _plain_scalar_resolver(
-        "stars_audited",
-        missing_reason="collector_failure",
-        missing_detail="universe entry never audited star velocity for this repo "
-                        "(star-history fetch failed, cvi.collect.universe)",
-    ),
+    "stars_audited": _resolve_stars_audited,
 }
 
 
@@ -2005,6 +2181,14 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
     # hashed and folded into ctx.referenced before provenance_hash is computed
     # below from that same dict.
     last_commit_fact, top_domain_fact = _resolve_commit_facts(ctx, f"{owner}__{name}")
+    stars_audited_fact = _resolve_stars_audited(ctx)
+    star_velocity_flag_fact = _resolve_star_velocity_flag(ctx)
+    raw_forks = meta.get("forks")
+    forks_fact = (
+        raw_forks
+        if isinstance(raw_forks, int) and not isinstance(raw_forks, bool) and raw_forks >= 0
+        else None
+    )
 
     raw_events = document.get("pr_events")
     events: list[PRWindowEvent] = []
@@ -2077,4 +2261,7 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
     _set_dropped_event_count(bundle, dropped_ghost_author_count)
     _set_last_non_bot_commit_at(bundle, last_commit_fact)
     _set_top_email_domain_share(bundle, top_domain_fact)
+    _set_stars_audited(bundle, stars_audited_fact)
+    _set_star_velocity_flag(bundle, star_velocity_flag_fact)
+    _set_forks_count(bundle, forks_fact)
     return bundle

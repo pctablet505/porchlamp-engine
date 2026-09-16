@@ -273,3 +273,72 @@ def test_reproduce_of_a_stale_native_hash_exits_one_and_names_the_key(
     assert code == 1
     assert "STALE_HASH downloads/pypi__alpha" in printed
     assert "MISMATCH" in printed
+
+
+def test_build_creates_v2_snapshot_dir(
+    data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """cvi snapshot build creates manifest.json, populations.json, and bundles/*.json."""
+    from cvi.snapshot.fixture_io import load_frozen_fixture
+
+    _legacy(data_dir, "tree", "org__alpha", {"paths": ["pyproject.toml", "LICENSE"]})
+    _legacy(data_dir, "commits_180d", "org__alpha", [{"author_login": "alice"}])
+    derived = data_dir / "derived"
+    derived.mkdir(parents=True, exist_ok=True)
+    derived_doc = {
+        "repo": "org/alpha",
+        "meta": {
+            "owner": "org",
+            "name": "alpha",
+            "ecosystem": "pypi",
+            "stars": 1000,
+            "forks": 12,
+            "monthly_downloads": 4000,
+            "dependents_count": 10,
+            "elephant_factor": 2,
+            "active_nonbot_commits_180d": 1,
+            "scorecard_score": 8.0,
+            "legal_ip_model": "DCO",
+            "ai_posture": "AD_HOC",
+            "promotion_ladder": "AD_HOC",
+            "hard_ai_ban": False,
+            "off_platform_reviews": False,
+            "dx_ci_minutes": 10.0,
+            "active_unclaimed_gfis": 1,
+            "rr_90": 0.5,
+            "mean_inline_comments": 2.0,
+            "openssf_signals": None,
+        },
+        "pr_events": [],
+        "provenance": {
+            "stars": {"source": str(data_dir / "raw/github_meta/org__alpha.json"), "fetched_at": FETCHED_AT},
+            "monthly_downloads": {
+                "source": str(data_dir / "raw/downloads/pypi__alpha.json"),
+                "fetched_at": FETCHED_AT,
+            },
+        },
+        "confidence": {"stars": "verified", "monthly_downloads": "verified"},
+    }
+    (derived / "org__alpha.json").write_text(json.dumps(derived_doc), encoding="utf-8")
+
+    out_dir = tmp_path / "out_snap"
+    code = main([
+        "build",
+        "--data-dir", str(data_dir),
+        "--out-dir", str(out_dir),
+        "--snapshot-id", "snap-test-1",
+        "--as-of", AS_OF,
+        "--code-commit", COMMIT,
+    ])
+    printed = capsys.readouterr().out
+    assert code == 0
+    assert "snapshot snap-test-1" in printed
+    assert (out_dir / "manifest.json").is_file()
+    assert (out_dir / "populations.json").is_file()
+    assert (out_dir / "bundles" / "org__alpha.json").is_file()
+
+    frozen = load_frozen_fixture(out_dir)
+    assert frozen.snapshot_id == "snap-test-1"
+    assert len(frozen.bundles) == 1
+    assert frozen.gate_evidence["org/alpha"].manifest_found is True
+    assert frozen.gate_evidence["org/alpha"].license_file_present is True

@@ -12,7 +12,6 @@ pass is a defect.
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 import re
 
@@ -24,7 +23,6 @@ from cvi.api import create_app
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = REPO_ROOT / "web"
-DEMO_APP_PATH = REPO_ROOT / "scripts" / "demo_app.py"
 
 #: Total fixture repos seeded by the demo app.
 EXPECTED_REPO_COUNT = 26
@@ -43,11 +41,9 @@ SMALL_REPOS = {"seed/tiny-hook", "stale/stale-tool", "seed/seed-utils", "build/h
 
 
 def _load_demo_module():
-    """Import scripts/demo_app.py by path (the scripts/ dir has no __init__)."""
-    spec = importlib.util.spec_from_file_location("cvi_demo_app", DEMO_APP_PATH)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """Import the demo app helper directly (avoiding the deprecated scripts/demo_app.py shim)."""
+    from tests.helpers import demo_app
+    return demo_app
 
 
 @pytest.fixture(scope="module")
