@@ -51,6 +51,18 @@ D_GATE1_MANIFEST_PREFIXES: tuple[str, ...] = ("build.gradle",)
 D_GATE1_MANIFEST_SUFFIXES: tuple[str, ...] = (".cabal",)
 D_GATE1_MAX_DEPTH: int = 2
 
+#: Maximum git-tree REST requests one repo's shallow crawl (:func:`_shallow_tree`)
+#: may make, counting the root listing. The D-GATE-1/3/6 evidence this feeds only
+#: needs the root listing (depth-0 files and dirs are free) plus the immediate
+#: children required to confirm a manifest / ``LICENSE`` / submitting-patches path
+#: at depth <= 2; a full crawl of a wide monorepo costs dozens of calls (the audit
+#: measured 61+ against the plan's 1-2-per-repo budget) without adding gate
+#: evidence. 8 bounds the worst case at the root plus seven subdirectory listings,
+#: enough to cover realistic small/medium repos. A crawl that hits the cap returns
+#: its partial path list with ``truncated=True`` so the envelope is never mistaken
+#: for a complete tree.
+MAX_TREE_REQUESTS: int = 8
+
 #: D-GATE-3: licence states that count as "no usable licence recorded"; the
 #: gate then looks for a ``LICENSE*`` file before failing.
 D_GATE3_UNLICENSED_SPDX: frozenset[Optional[str]] = frozenset({None, "NOASSERTION", "OTHER"})
@@ -270,20 +282,36 @@ def derive_eligibility(ro: Optional[dict],
 # --------------------------------------------------------------------------- #
 
 
-def _gh_graphql(query: str) -> Optional[dict]:
-    """Run one ``gh api graphql`` request; return the payload's ``r`` field.
+def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
+    """Run one ``gh api graphql`` request; return ``(r, error_summary)``.
 
-    Raises :class:`RuntimeError` on transport failure or a GraphQL errors
-    block; a repository lookup that simply found nothing returns None.
+    GitHub returns ``data`` and ``errors`` together whenever some fields are
+    unavailable (for example a security or admin field the token cannot see)
+    while every other field in the same response is present and correct, and
+    ``gh api graphql`` exits non-zero for such a partial response. A usable
+    ``data.r`` is therefore salvaged and returned with a short summary of the
+    errors alongside it, so the caller can tell a partial success from a total
+    failure (a whole-envelope discard on any error threw away fields already in
+    hand — the same bug fixed at the transport layer in
+    ``github_graphql.GhCliTransport``). Raises :class:`RuntimeError` on an
+    unparseable body (a true transport/network failure) or when the response has
+    errors and no usable data at all; a lookup that found nothing (no data, no
+    errors) returns ``(None, None)``.
     """
     out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
                          capture_output=True, text=True, timeout=90)
-    if out.returncode != 0:
-        raise RuntimeError(f"gh api graphql rc={out.returncode}: {out.stderr[:160]}")
-    payload = json.loads(out.stdout)
-    if payload.get("errors"):
-        raise RuntimeError(f"graphql errors: {str(payload['errors'])[:160]}")
-    return (payload.get("data") or {}).get("r")
+    try:
+        payload = json.loads(out.stdout)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise RuntimeError(
+            f"gh api graphql rc={out.returncode}: {out.stderr[:160] or e}") from e
+    r = (payload.get("data") or {}).get("r")
+    errors = payload.get("errors")
+    if r:
+        return r, (str(errors)[:160] if errors else None)
+    if errors:
+        raise RuntimeError(f"graphql errors: {str(errors)[:160]}")
+    return None, None
 
 
 def _gh_rest(path: str) -> Any:
@@ -299,8 +327,12 @@ def _shallow_tree(owner: str, name: str, branch: str) -> tuple[Optional[list[str
     i.e. paths at depth <= :data:`D_GATE1_MAX_DEPTH`.
 
     Returns ``(paths, truncated)``; ``(None, False)`` when the root lookup is
-    unusable.
+    unusable. At most :data:`MAX_TREE_REQUESTS` git-tree requests are made; when
+    the budget runs out mid-crawl the partial path list is returned with
+    ``truncated=True``, as it is whenever a subtree listing is unreadable or
+    node-truncated — a partial path list never reports ``truncated=False``.
     """
+    requests = 1  # the root listing below counts against the budget
     root = _gh_rest(f"repos/{owner}/{name}/git/trees/{branch}")
     if not isinstance(root, dict):
         return None, False
@@ -317,8 +349,13 @@ def _shallow_tree(owner: str, name: str, branch: str) -> tuple[Optional[list[str
     for _ in range(D_GATE1_MAX_DEPTH):
         nxt: list[tuple[str, str]] = []
         for sha, prefix in frontier:
+            if requests >= MAX_TREE_REQUESTS:
+                truncated = True  # budget exhausted: subtrees left unfetched
+                return paths, truncated
             node = _gh_rest(f"repos/{owner}/{name}/git/trees/{sha}")
+            requests += 1
             if not isinstance(node, dict):
+                truncated = True  # unreadable subtree: its paths are not in hand
                 continue
             truncated = truncated or bool(node.get("truncated"))
             for e in node.get("tree") or []:
@@ -354,7 +391,7 @@ def collect_repo_object(raw_dir: Path, owner: str, name: str,
     failures raise for the caller to mark retryable.
     """
     key = f"{owner}__{name}"
-    r = _gh_graphql(REPO_OBJECT_QUERY % (owner, name))
+    r, graphql_error = _gh_graphql(REPO_OBJECT_QUERY % (owner, name))
     if not r:
         return "fail"
     data: dict[str, Any] = {
@@ -364,6 +401,11 @@ def collect_repo_object(raw_dir: Path, owner: str, name: str,
         "parent": None,
         "license_spdx_id": (r.get("licenseInfo") or {}).get("spdxId"),
         "pull_requests_total": (r.get("pullRequests") or {}).get("totalCount"),
+        # A partial GraphQL response (some fields unavailable, the rest present)
+        # is salvaged rather than discarded; the partial case is recorded here so
+        # the envelope is not silently indistinguishable from a clean lookup.
+        "graphql_partial": graphql_error is not None,
+        "graphql_error": graphql_error,
     }
     parent = r.get("parent")
     if parent:

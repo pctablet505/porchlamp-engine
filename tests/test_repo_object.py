@@ -20,7 +20,7 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -293,7 +293,7 @@ def test_collect_writes_recorded_envelope(tmp_path):
             "M: acme <acme@example.com>\nL: widget@example.com\nS: maintained\n",
         "https://raw.githubusercontent.com/acme/widget/HEAD/README.md":
             "Patches are reviewed in Gerrit before merge.\n"}
-    with patch.object(ro_mod, "_gh_graphql", return_value=recorded_r), \
+    with patch.object(ro_mod, "_gh_graphql", return_value=(recorded_r, None)), \
          patch.object(ro_mod, "_fetch_body", side_effect=lambda u: bodies.get(u)):
         status = ro_mod.collect_repo_object(raw, "acme", "widget", "main")
     assert status == "ok"
@@ -334,7 +334,7 @@ def test_collect_shallow_tree_fallback(tmp_path):
         "repos/acme/widget/git/trees/s2": {"truncated": True, "tree": [
             {"path": "b.py", "type": "blob"}]},
     }
-    with patch.object(ro_mod, "_gh_graphql", return_value=recorded_r), \
+    with patch.object(ro_mod, "_gh_graphql", return_value=(recorded_r, None)), \
          patch.object(ro_mod, "_gh_rest", side_effect=lambda p: trees[p]), \
          patch.object(ro_mod, "_fetch_body", return_value=None):
         status = ro_mod.collect_repo_object(raw, "acme", "widget", "main")
@@ -352,7 +352,7 @@ def test_collect_shallow_tree_fallback(tmp_path):
 
 
 def test_collect_repo_not_found_returns_fail(tmp_path):
-    with patch.object(ro_mod, "_gh_graphql", return_value=None):
+    with patch.object(ro_mod, "_gh_graphql", return_value=(None, None)):
         status = ro_mod.collect_repo_object(tmp_path / "raw", "acme", "missing", "main")
     assert status == "fail"
     assert not (tmp_path / "raw" / "repo_object").is_dir()
@@ -363,6 +363,89 @@ def test_collect_transport_failure_raises(tmp_path):
                       side_effect=RuntimeError("gh api graphql rc=1")), \
          pytest.raises(RuntimeError):
         ro_mod.collect_repo_object(tmp_path / "raw", "acme", "widget", "main")
+
+
+# --- defect B3: a partial GraphQL response is salvaged, not discarded ---------
+
+def test_collect_partial_graphql_salvages_usable_fields(tmp_path, block_live_network):
+    # GitHub returns ``data`` AND ``errors`` together whenever some fields are
+    # unavailable (a security/admin field the token cannot see) while every
+    # other field in the same response is present and correct. The collector
+    # must keep the usable fields and record that the response was partial, not
+    # throw all of it away as a total failure.
+    raw = tmp_path / "raw"
+    payload = {
+        "data": {"r": {
+            "isArchived": False, "mirrorUrl": None, "isFork": False,
+            "parent": None, "licenseInfo": {"spdxId": "MIT"},
+            "pullRequests": {"totalCount": 7}}},
+        "errors": [{"message": "Field 'securityAndAnalysis' requires repo admin"}],
+    }
+    proc = SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+    with patch.object(ro_mod.subprocess, "run", return_value=proc), \
+         patch.object(ro_mod, "_gh_rest", return_value=None), \
+         patch.object(ro_mod, "_fetch_body", return_value=None):
+        status = ro_mod.collect_repo_object(raw, "acme", "widget", "main")
+    assert status == "ok"
+    d = json.loads((raw / "repo_object" / f"{KEY}.json").read_text(encoding="utf-8"))["data"]
+    assert d["archived"] is False
+    assert d["license_spdx_id"] == "MIT"        # the license already in hand is kept
+    assert d["pull_requests_total"] == 7
+    assert d["graphql_partial"] is True          # the partial case is visible, not silent
+
+
+def test_gh_graphql_total_failure_still_raises(block_live_network):
+    # errors with no usable data at all still raise, exactly as before.
+    payload = {"data": {"r": None},
+               "errors": [{"message": "Could not resolve to a Repository with the name 'o/n'."}]}
+    proc = SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+    with patch.object(ro_mod.subprocess, "run", return_value=proc), \
+         pytest.raises(RuntimeError):
+        ro_mod._gh_graphql('query { r: repository(owner: "o", name: "n") { name } }')
+
+
+# --- defect B4: the shallow-tree crawl caps its requests and flags truncation --
+
+def _forever_subtree_rest(calls, fanout):
+    """A fake ``_gh_rest`` returning ``fanout`` fresh subtrees for every tree it
+    is asked about — a frontier that would grow without bound if uncapped."""
+    def fake(path):
+        calls.append(path)
+        n = len(calls)
+        return {"truncated": False, "tree": [
+            {"path": f"d{n}_{i}", "type": "tree", "sha": f"sha{n}_{i}"}
+            for i in range(fanout)]}
+    return fake
+
+
+def test_shallow_tree_request_count_is_capped(block_live_network):
+    calls: list[str] = []
+    with patch.object(ro_mod, "_gh_rest", side_effect=_forever_subtree_rest(calls, 5)):
+        ro_mod._shallow_tree("acme", "widget", "main")
+    assert len(calls) <= ro_mod.MAX_TREE_REQUESTS
+
+
+def test_shallow_tree_budget_abort_reports_truncated(block_live_network):
+    calls: list[str] = []
+    with patch.object(ro_mod, "_gh_rest", side_effect=_forever_subtree_rest(calls, 5)):
+        _paths, truncated = ro_mod._shallow_tree("acme", "widget", "main")
+    assert truncated is True   # a budget-aborted crawl must not look complete
+
+
+def test_shallow_tree_complete_small_crawl_not_truncated(block_live_network):
+    # a small tree that finishes inside the depth cap and the request budget,
+    # with no node-level truncation, must still report ``truncated is False``.
+    trees = {
+        "repos/acme/widget/git/trees/main": {"truncated": False, "tree": [
+            {"path": "src", "type": "tree", "sha": "s1"},
+            {"path": "README.md", "type": "blob"}]},
+        "repos/acme/widget/git/trees/s1": {"truncated": False, "tree": [
+            {"path": "a.py", "type": "blob"}]},
+    }
+    with patch.object(ro_mod, "_gh_rest", side_effect=lambda p: trees[p]):
+        paths, truncated = ro_mod._shallow_tree("acme", "widget", "main")
+    assert truncated is False
+    assert paths == ["src", "README.md", "src/a.py"]
 
 
 # --- the append-only gather hook ----------------------------------------------
