@@ -120,6 +120,10 @@ def build_snapshot_dir(
        and writes ``out_dir / "populations.json"``.
     6. Writes each v2 bundle to ``out_dir / "bundles" / f"{owner}__{name}.json"``.
     7. Writes ``out_dir / "manifest.json"`` and returns ``load_frozen_fixture(out_dir)``.
+
+    The manifest ``merkle_root`` covers every file the build writes: its leaves
+    are ``sorted([each bundle raw_hash] + [sha256 of populations.json bytes])``,
+    so two builds over the same bundles but different populations differ (E-01).
     """
     derived_dir = data_dir / "derived"
     raw_dir = data_dir / "raw"
@@ -169,9 +173,10 @@ def build_snapshot_dir(
         write_bundle(bundle, bundles_dir / basename)
 
     write_populations(populations, out_dir / "populations.json")
+    populations_leaf = sha256_hex((out_dir / "populations.json").read_text(encoding="utf-8"))
 
     commit = code_commit_sha or code_commit(_CODE_ROOT) or "unknown"
-    root = merkle_root(sorted(raw_hashes.values()))
+    root = merkle_root(sorted([*raw_hashes.values(), populations_leaf]))
     repos_manifest = [
         {
             "owner": bundle.repo.owner,

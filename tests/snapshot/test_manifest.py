@@ -163,12 +163,41 @@ def test_merkle_root_is_order_sensitive() -> None:
     assert merkle_root(["a", "b", "c"]) != merkle_root(["c", "b", "a"])
 
 
-def test_constants_hash_follows_the_constants(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_constants_hash_is_the_frozen_constant(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``constants_hash()`` is the frozen core constant, not a live recomputation.
+
+    The pre-fix code derived the hash from ``dir(cvi.constants)``, so editing a
+    module attribute moved it and a snapshot could be scored against constants
+    it was not frozen against. It must instead return
+    :data:`cvi.core.constants.CONSTANTS_HASH` and stay put when ``cvi.constants``
+    is patched (D-VER-2: one definition, single source)."""
+    from cvi.core.constants import CONSTANTS_HASH
+
     import cvi.constants as constants
 
+    assert constants_hash() == CONSTANTS_HASH
     before = constants_hash()
     monkeypatch.setattr(constants, "PILLAR_WEIGHTS", {**PILLAR_WEIGHTS, "rigor": 0.16})
-    assert constants_hash() != before
+    assert constants_hash() == before
+    assert constants_hash() == CONSTANTS_HASH
+
+
+def test_constants_hash_matches_the_core_constant() -> None:
+    """``manifest.constants_hash()`` equals ``cvi.core.constants.CONSTANTS_HASH`` (E-02)."""
+    from cvi.core.constants import CONSTANTS_HASH
+
+    assert constants_hash() == CONSTANTS_HASH
+
+
+def test_build_manifest_records_core_constants_hash(data_dir: Path) -> None:
+    """``build_manifest`` stores the core ``CONSTANTS_HASH``, not a recomputed hash."""
+    from cvi.core.constants import CONSTANTS_HASH
+
+    entries = envelope_entries(data_dir).entries
+    manifest = build_manifest(
+        entries, as_of=AS_OF, code_commit=COMMIT, canonical_dump_hash="dump-hash"
+    )
+    assert manifest["constants_hash"] == CONSTANTS_HASH
 
 
 def test_build_manifest_records_the_snapshot_identity(data_dir: Path) -> None:

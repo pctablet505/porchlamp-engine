@@ -20,8 +20,8 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from cvi import __version__ as BENCHMARK_VERSION
-from cvi import constants as _constants
 from cvi.collect.envelope import canonical_json, envelope_hash, read_envelope, sha256_hex
+from cvi.core.constants import CONSTANTS_HASH
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -161,17 +161,15 @@ def merkle_root(leaves: Sequence[str]) -> str:
 
 
 def constants_hash() -> str:
-    """Hash of every tuning constant in :mod:`cvi.constants` (D-VER-2).
+    """The frozen tuning-constant hash :data:`cvi.core.constants.CONSTANTS_HASH` (D-VER-2).
 
-    Covers each public upper-case binding, so changing one weight moves the hash
-    and a snapshot can never be scored with constants it was not frozen against.
+    The single definition lives in :mod:`cvi.core.constants`, which folds every
+    constant the v2 core computes with into one digest. This returns that digest
+    directly rather than recomputing it from another module's attributes, so a
+    snapshot can never be scored with constants it was not frozen against and the
+    manifest hash cannot drift from the one the pipeline actually uses.
     """
-    values = {
-        name: getattr(_constants, name)
-        for name in dir(_constants)
-        if name.isupper() and not name.startswith("_")
-    }
-    return envelope_hash(values)
+    return CONSTANTS_HASH
 
 
 def code_commit(work_tree: Path) -> Optional[str]:
