@@ -597,18 +597,30 @@ def _build_router() -> APIRouter:
         q: Optional[str] = Query(None),
     ) -> NotRankedResponse:
         snapshot_id = _require_snapshot(conn)
-        # `NotRankedResponse` has no paging fields; fetch up to MAX_LIMIT in one page.
-        rows, _counts_by_reason, _total = queries.list_not_ranked(
+        # One page of rows, fetched up to MAX_LIMIT; `counts` below must not be
+        # recounted from `rows`, which is truncated whenever the store holds more.
+        rows, _counts_by_reason, total_not_ranked = queries.list_not_ranked(
             conn, snapshot_id, persona=persona, ecosystem=eco, q=q, limit=queries.MAX_LIMIT, offset=0
         )
+        # `_counts_by_reason` is keyed by gate/unrated reason only, which cannot
+        # answer the gated/unrated split: the display rule moves
+        # `DISPLAY_UNRATED_GATE_REASONS` rows out of `gated`, and that vocabulary
+        # lives in core, not in the store's reason strings. So the authoritative
+        # split comes from the snapshot summary instead, same numbers `/snapshot`
+        # serves. Stage-0 gating is persona-invariant, so `counts.gated` needs no
+        # persona adjustment; the persona view only changes the rated side.
         gated, unrated, persona_hidden = _split_not_ranked(rows, persona=persona)
         summary = _require_snapshot_summary(conn, snapshot_id)
+        universe = summary["counts"]["total"]
+        gated_count = summary["counts"]["gated"]
         rated = summary["persona_visible_counts"][persona]
         counts = SnapshotCounts(
-            rated=rated, gated=len(gated), unrated=len(unrated) + len(persona_hidden),
-            total=rated + len(gated) + len(unrated) + len(persona_hidden),
+            rated=rated, gated=gated_count, unrated=universe - rated - gated_count, total=universe,
         )
-        return NotRankedResponse(gated=gated, unrated=unrated, persona_hidden=persona_hidden, counts=counts)
+        return NotRankedResponse(
+            gated=gated, unrated=unrated, persona_hidden=persona_hidden, counts=counts,
+            truncated=total_not_ranked > len(rows),
+        )
 
     @router.get("/matrix", response_model=MatrixResponse)
     async def get_matrix(
@@ -618,14 +630,18 @@ def _build_router() -> APIRouter:
         snapshot_id = _require_snapshot(conn)
         result = queries.matrix_points(conn, snapshot_id, persona=persona)
         points: list[MatrixPoint] = []
-        excluded = result["excluded_count"]
         for raw_point in result["points"]:
             point = _matrix_point(raw_point)
-            if point is None:
-                excluded += 1
-            else:
+            if point is not None:
                 points.append(point)
-        return MatrixResponse(points=points, excluded_count=excluded, axis_coverage={})
+        # `excluded_count` stays the store's own figure; rows the store listed
+        # but the API could not render are counted separately, never merged.
+        return MatrixResponse(
+            points=points,
+            excluded_count=result["excluded_count"],
+            unrenderable_count=len(result["points"]) - len(points),
+            axis_coverage={},
+        )
 
     @router.get("/repos/{owner}/{name}", response_model=RepoDetailResponse)
     async def get_repo(
@@ -676,7 +692,9 @@ def _build_router() -> APIRouter:
         }
         limit, offset = _paging(page, page_size)
         rows, total = queries.reproject(conn, snapshot_id, weights, limit=limit, offset=offset)
-        return ReprojectResponse(rows=[_reproject_row(row) for row in rows], total=total)
+        return ReprojectResponse(
+            rows=[_reproject_row(row) for row in rows], total=total, page=page, page_size=page_size
+        )
 
     return router
 

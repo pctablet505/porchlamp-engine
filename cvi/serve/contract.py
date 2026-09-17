@@ -466,6 +466,10 @@ class NotRankedResponse(StrictModel):
     unrated: list[NotRankedRow]
     persona_hidden: list[NotRankedRow] = []
     counts: SnapshotCounts
+    #: True when the store held more not-ranked rows than this fetch's cap, so
+    #: the three row lists below are a truncated page while `counts` is still
+    #: the full, authoritative figure.
+    truncated: bool = False
 
     @model_validator(mode="after")
     def _rows_match_their_group(self) -> "NotRankedResponse":
@@ -518,18 +522,24 @@ class MatrixAxisCoverage(StrictModel):
 
 
 class MatrixResponse(StrictModel):
-    """`GET /v1/cvi/matrix`. `excluded_count`: count of gated repositories
-    excluded from plotting. `axis_coverage`: coverage statistics per axis
+    """`GET /v1/cvi/matrix`. `excluded_count`: the store's own count of
+    repositories excluded from plotting, reported unchanged.
+    `unrenderable_count`: rows the store listed as plottable that the API
+    could not convert to `MatrixPoint` — kept separate so each number has
+    exactly one meaning. `axis_coverage`: coverage statistics per axis
     (`leverage` / `friction`) for missing contributing pillars."""
 
     points: list[MatrixPoint]
     excluded_count: int
+    unrenderable_count: int = 0
     axis_coverage: dict[str, MatrixAxisCoverage] = {}
 
     @model_validator(mode="after")
     def _excluded_count_is_non_negative(self) -> "MatrixResponse":
         if self.excluded_count < 0:
             raise ValueError(f"excluded_count must be >= 0, got {self.excluded_count}")
+        if self.unrenderable_count < 0:
+            raise ValueError(f"unrenderable_count must be >= 0, got {self.unrenderable_count}")
         for axis in self.axis_coverage:
             if axis not in ("leverage", "friction"):
                 raise ValueError(f"axis_coverage key must be 'leverage' or 'friction', got {axis!r}")
@@ -580,11 +590,15 @@ class ReprojectRow(LeaderboardRow):
 class ReprojectResponse(StrictModel):
     """Rows re-projected under a custom weight vector — `ReprojectRow`
     (`LeaderboardRow` plus the balanced-comparison fields), `lens` is
-    always the literal `"custom"` (U-11)."""
+    always the literal `"custom"` (U-11). `page`/`page_size` state which
+    slice of the `total` eligible rows `rows` is, so a client can tell a
+    page from the whole set."""
 
     rows: list[ReprojectRow]
     total: int
     lens: Literal["custom"] = "custom"
+    page: int = 1
+    page_size: int = DEFAULT_PAGE_SIZE
 
 
 # --------------------------------------------------------------------------- #

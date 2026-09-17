@@ -485,7 +485,11 @@ def test_matrix_only_plots_rated_rows_and_excludes_the_rest(api):
     # point instead of excluding it -- caught directly by this fixture).
     assert ("acme", "tie2-null-friction") not in plotted
     assert len(body["points"]) == len(fx.rated_names) - 1
-    assert body["excluded_count"] == len(fx.gated) + len(fx.unrated) + 1
+    # AUD-SERVE/G3: `excluded_count` is the STORE's own gated+unrated figure;
+    # the rated-but-unrenderable row (tie2-null-friction, friction=None) is
+    # reported separately, never merged into it.
+    assert body["excluded_count"] == len(fx.gated) + len(fx.unrated)
+    assert body["unrenderable_count"] == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -1118,7 +1122,11 @@ def test_matrix_excludes_a_point_whose_quadrant_is_null_even_with_coordinates(tm
     assert resp.status_code == 200
     body = resp.json()
     assert body["points"] == []
-    assert body["excluded_count"] == 1
+    # AUD-SERVE/G3: the store counted this rated row as a point (excluded_count
+    # is the store's total-minus-points = 0); the API dropping it for a null
+    # coordinate is a SEPARATE unrenderable row, not part of excluded_count.
+    assert body["excluded_count"] == 0
+    assert body["unrenderable_count"] == 1
 
 
 def test_no_ceiling_or_band_assigns_a_and_b_correctly_via_reproject(api):
@@ -1267,3 +1275,114 @@ def test_evidence_sources_are_relative_on_the_real_fixture(tmp_path):
             assert not row.source.startswith("\\"), (owner, name, row.param_id, row.source)
             assert not re.match(r"^[A-Za-z]:[\\/]", row.source), (owner, name, row.param_id, row.source)
     assert checked_sources > 0  # the fixture actually carries measured evidence to check
+
+
+# --------------------------------------------------------------------------- #
+# AUD-SERVE defect set (see logs/REPORT-SERVE.md):
+#   G1  /reproject must state which page it served (page/page_size) while
+#       total stays the full count.
+#   G4  /not-ranked counts must be the store's authoritative numbers, correct
+#       even when the row list is truncated at MAX_LIMIT, and agree with
+#       /snapshot; the response must flag truncation.
+#   G3  /matrix must report the store's excluded_count unchanged and any rows
+#       the API dropped separately (unrenderable_count).
+# --------------------------------------------------------------------------- #
+
+
+def _serve_store(tmp_path, *, n_rated: int = 285):
+    """Build + finalise a real synthetic snapshot and serve it through a real
+    `create_app` (the same `api`-fixture pattern, factored out so a test can
+    build a store under a monkeypatched `queries.MAX_LIMIT`)."""
+    db_path = tmp_path / "db.sqlite"
+    conn = fresh_db(db_path)
+    fx = build_snapshot(conn, db_path, n_rated=n_rated)
+    finalize(conn, db_path)
+    conn.close()
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<html></html>")
+    app = create_app(str(db_path), web_dir=web_dir)
+    return TestClient(app), fx, db_path
+
+
+def test_reproject_response_states_which_page_it_served(tmp_path):
+    """G1: a reproject page smaller than the eligible set must report page and
+    page_size, and total must exceed the returned row count."""
+    from cvi.serve.contract import ReprojectResponse
+
+    client, fx, _db = _serve_store(tmp_path)
+    resp = client.post("/v1/cvi/reproject", json=_WEIGHTS)  # default page_size=20
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Before the fix neither key exists -> KeyError names the missing field.
+    assert data["page"] == 1
+    assert data["page_size"] == 20
+
+    body = ReprojectResponse(**data)  # proves the contract carries both fields
+    assert len(body.rows) == 20
+    assert body.total > len(body.rows)  # the whole-eligible-set screen got a slice
+    assert body.total == len(fx.rated_names)  # total is still the full count
+
+
+def test_not_ranked_counts_survive_a_truncated_page(monkeypatch, tmp_path):
+    """G4: with a gated bucket larger than the fetch cap, the reported gated
+    count must be the true number, not the truncated page length. MAX_LIMIT is
+    monkeypatched to 5 (see the report) so a handful of gated rows crosses the
+    cap without a 1000-row build."""
+    monkeypatch.setattr(queries, "MAX_LIMIT", 5)
+    client, _fx, db_path = _serve_store(tmp_path)
+
+    conn = _raw_conn(db_path)
+    true_gated = queries.snapshot_summary(conn, SNAPSHOT_ID)["counts"]["gated"]
+    conn.close()
+    assert true_gated > 5  # the fixture crosses the patched cap
+
+    resp = client.get("/v1/cvi/not-ranked")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["truncated"] is True  # the row list is a truncated page
+    body = NotRankedResponse(**data)  # proves the contract carries the flag
+    assert len(body.gated) <= 5  # the returned gated list really is capped
+    assert body.counts.gated == true_gated  # ...but the count is the truth
+    assert body.counts.gated != len(body.gated)
+
+
+def test_not_ranked_counts_agree_with_snapshot_on_a_truncated_page(monkeypatch, tmp_path):
+    """G4 cross-screen: even with the row list truncated at MAX_LIMIT,
+    /not-ranked counts must equal /snapshot counts exactly."""
+    monkeypatch.setattr(queries, "MAX_LIMIT", 5)
+    client, _fx, _db = _serve_store(tmp_path)
+    body = NotRankedResponse(**client.get("/v1/cvi/not-ranked").json())
+    snapshot = SnapshotSummary(**client.get("/v1/cvi/snapshot").json())
+    assert body.counts == snapshot.counts
+
+
+def test_matrix_splits_store_exclusions_from_api_drops(api):
+    """G3: excluded_count is the store's own figure, unchanged; rows the API
+    could not render are counted separately in unrenderable_count, never merged."""
+    from cvi.serve.contract import MatrixResponse
+
+    client, _fx, db_path = api
+    conn = _raw_conn(db_path)
+    store_result = queries.matrix_points(conn, SNAPSHOT_ID, persona="balanced")
+    conn.close()
+    store_excluded = store_result["excluded_count"]
+    store_points = len(store_result["points"])
+
+    resp = client.get("/v1/cvi/matrix")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Before the fix this key is absent -> KeyError; and excluded_count is the
+    # merged store+API number -> the equality below also fails before the fix.
+    assert data["unrenderable_count"] == store_points - len(data["points"])
+
+    body = MatrixResponse(**data)  # proves the contract carries the field
+    assert body.excluded_count == store_excluded  # store's number, verbatim
+    dropped = store_points - len(body.points)
+    assert dropped >= 1  # the fixture's tie2-null-friction row is unrenderable
+    assert body.unrenderable_count == dropped
+    # The two numbers stay separate (never the old merged sum).
+    assert body.excluded_count != store_excluded + dropped
