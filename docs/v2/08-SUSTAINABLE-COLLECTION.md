@@ -6,7 +6,10 @@ plan how to do it sustainably."* Decisions here carry ids `D-COL-*`; the
 packets that implement them are wave **W6** in `05-WORK-PLAN.md`.
 
 Every number in §1 is measured from the cache in `data/raw` (fetched
-2026-09-11/12) or from the W2-8c live run. Numbers in §5 are estimates built
+2026-09-11/12), from the W2-8c live run, or from call counts in the collector
+source. **Corrected 2026-09-17** after `AUDIT-2026-09-17-DEEP-REVIEW.md`
+finding `B6`: the governance row, and every total that inherited it, were too
+low by ≈100k REST calls (≈20 h). Numbers in §5 are estimates built
 from those measurements and are labelled so; packet **W6-0** replaces them with
 measurements from the sweep now in flight.
 
@@ -32,19 +35,22 @@ one.
 | `pr_window` | 1–5 GraphQL pages, ≈31 points/page (100 PRs × nested reviews/comments) | ≈35k points (W2-8c: 147 points / 24 repos ≈ 6 per repo, most repos 1 page) | GraphQL | ~7 |
 | `issues_counts` | **3 search calls** at 2.1 s each | 17k search calls | search (30/min) | **~10** |
 | `releases`, `runs` | 1–2 REST each | ~17k | REST | ~3.5 |
-| `governance` | merged-PR page + **check names for each of 20 merged PRs** + sign-off commits + files ≈ 25–30 REST | **~155k** | REST | **~31** |
+| `governance` | merged-PR pages (≤5) + **2 calls (`statuses` + `check-runs`) per distinct head SHA of 20 merged PRs** + sign-off commits + files ≈ **45 REST** | **≈259k** | REST | **≈52** |
 | `author_history` | 365-d PR window (GraphQL pages) + eligibility batches of 15 logins | ≈ (external authors ÷ 15) batches per repo; a 200-author repo = 14 batches | GraphQL | ~5–10 |
 | `dependents`, `depsdev`, `scorecard` | keyless HTTP | ~17k | none (0.35 s sleep) | ~1.7 wall |
 | `downloads` (pypi) | pypistats, 4/min | 900 | pypistats | ~4 wall |
-| **Sum** | ≈ 30 REST + 4 GraphQL + 3 search per repo (W2-8c measured 712 REST / 98 GraphQL for 24 repos) | ≈ 172k REST, ≈ 45k points, 17k search | | **≈ 45–50 h serialised** |
+| **Sum** | ≈ 48 REST + 4 GraphQL + 3 search per repo | **≈ 276k REST**, ≈ 45k points, 17k search | | **≈ 65–70 h serialised** |
 
 Add the per-call overhead: every call is a `gh api` **subprocess** (~0.2 s
 process start), so a 30-call repo spends ~6 s in process spawning alone —
 about 10 h per sweep of pure overhead, overlapping the above.
 
-**A full sweep is ~2 days of wall-clock on one token.** Weekly refresh would
-be a ~30 % duty cycle with no headroom for anything else; daily is
-impossible; and `WINDOW_STALENESS_DAYS = 14` forces at least one sweep every
+**A full sweep is ~3 days of wall-clock on one token** — `governance` alone is
+≈52 h, more than this table's first published estimate for the whole sweep
+(corrected 2026-09-17 after deep-audit finding `B6`: the earlier row said
+25–30 REST/repo and missed that governance spends **two** calls per distinct
+head SHA across 20 merged PRs). Weekly refresh would be a >40 % duty cycle
+with no headroom for anything else; daily is impossible; and `WINDOW_STALENESS_DAYS = 14` forces at least one sweep every
 two weeks, so the design's floor is *two-day sweeps every fortnight with data
 up to 14 days old at snapshot time*.
 
@@ -189,6 +195,16 @@ silently old — and the snapshot still builds. Because fingerprints advance
 watermarks (D-COL-1), only a repo the fingerprint pass itself could not reach
 can go stale.
 
+**D-COL-12 Governance evidence is sampled, not enumerated.** Two REST calls per
+head SHA across 20 merged PRs is 40 of governance's ~45 calls/repo, and it buys
+a CLA/check-name classification from a sample the audit (`B6`) showed is too
+thin to support `legal_ip` and `promotion_ladder` anyway. Cap the SHA probe at
+the **5 newest distinct head SHAs** (10 calls) and read the rest of 3.1/3.3
+from the repo's own files, already cached; when fewer than 3 distinct SHAs
+carry a CLA signal, `legal_ip` is `Unmeasured(insufficient_n)` rather than a
+guess. That takes governance to ~15 REST/repo, ≈86k for the universe, ≈17 h for
+a full sweep and ≈3k REST/day on the 30-day clock.
+
 **D-COL-11 A bulk feed as the backstop, not the path.** GH Archive's hourly
 public-event dumps replay any window with zero API quota. They are used (a)
 to backfill after an outage and (b) as an *independent* cross-check: a
@@ -206,14 +222,15 @@ in 58 queries.
 | PR deltas | 2,000 × 1 page of ≤ 25 PRs | ≈ 16k points | busy repos need 2–3 pages |
 | Issue / commit / run deltas | 2,000 × 3 conditional REST | ≈ 6k REST, many `304` (free) | |
 | New authors | ~500 logins/day → 34 batches | < 100 points | after the first pass |
-| Slow facts (30-d spread) | ≈ 190 repos/day × ~27 REST | ≈ 5k REST | governance stays the dearest fact; it now runs 1/30 as often |
+| Slow facts (30-d spread) | ≈ 190 repos/day × ~45 REST | ≈ 8.5k REST | governance stays the dearest fact; it now runs 1/30 as often. **D-COL-12 caps it further.** |
 | Keyless weekly spread | ≈ 820/day | 0 API | ~35 min wall incl. pypistats |
-| **Total** | | **≈ 12k REST + 17k points/day ≈ 10–15 % of the daily budget** | ≈ 1–2 h wall with keep-alive |
+| **Total** | | **≈ 15k REST + 17k points/day ≈ 12–18 % of the daily budget** | ≈ 1.5–2.5 h wall with keep-alive |
 
 The same arithmetic for a **weekly** cadence with only D-COL-1/3/4/6 landed
 (no ledgers yet, today's full-window collectors kept): ≈ 3,500 changed repos
-× (1 GraphQL + 5 REST) ≈ 20k REST + 20k points ≈ **4–5 h per week** — down
-from ~48 h. That is the interim state after the first three packets.
+× (1 GraphQL + 5 REST) plus the 30-day governance share ≈ 26k REST + 20k
+points ≈ **6–7 h per week** — down from ≈ 65 h. That is the interim state after
+the first four packets.
 
 ## 6. Fingerprint → collector invalidation
 
