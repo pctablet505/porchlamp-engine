@@ -36,7 +36,6 @@ allows it; enforced by ``tests/core/test_import_graph.py``.
 from __future__ import annotations
 
 import importlib
-import shutil
 import sqlite3
 import tempfile
 from dataclasses import asdict, dataclass
@@ -462,7 +461,12 @@ def snapshot_dump_hash(db_path: Path, snapshot_id: str) -> str:
     An ALLOW-list of tables (keep only the three above), not a fixed
     exclude-list -- an exclude-list would silently hash
     ``legacy_repositories`` into every v2 snapshot's identity on a migrated
-    v1 database. Copies ``db_path`` to a scratch file, then, in FK-safe
+    v1 database. Makes a consistent single-file copy of ``db_path`` in ANY
+    journal mode via SQLite's online backup API
+    (:meth:`sqlite3.Connection.backup`) -- unlike a byte copy, which misses
+    committed-but-uncheckpointed data that still lives in a ``-wal`` sidecar
+    (the copy can then hold no tables at all) and is not guaranteed valid while
+    another connection writes. The copy is then scoped, in FK-safe
     child-before-parent order: deletes every ``params`` row whose
     ``repo_id`` belongs to a repository OUTSIDE ``snapshot_id`` (``params``
     has no ``snapshot_id`` column of its own), deletes every
@@ -477,11 +481,17 @@ def snapshot_dump_hash(db_path: Path, snapshot_id: str) -> str:
     fail under FK enforcement while ``repositories`` rows still reference
     it. Enforcing integrity on a copy being intentionally, selectively torn
     apart for hashing would break the operation, not protect real data --
-    this connection only reads and discards a throwaway copy."""
+    this connection only reads and discards a throwaway copy. The separate
+    ``source`` connection is opened solely so :meth:`sqlite3.Connection.backup`
+    can read the live database; it issues no writes of its own."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         copy_path = Path(tmp_dir) / "snapshot_dump.db"
-        shutil.copyfile(db_path, copy_path)
         scratch = sqlite3.connect(copy_path)
+        source = sqlite3.connect(db_path)
+        try:
+            source.backup(scratch)
+        finally:
+            source.close()
         try:
             scratch.execute(
                 "DELETE FROM params WHERE repo_id IN "
