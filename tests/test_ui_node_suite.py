@@ -1,11 +1,14 @@
 """Pytest wrapper for the Node.js frontend test suite (`web/v2/tests/`).
 
-Executes `node --test` on `unit.test.mjs` and `render.perf.test.mjs` when
-Node.js is available in `PATH`, and skips cleanly when Node.js is absent on
-the host machine.
+Executes `node --test` on `unit.test.mjs` and `render.perf.test.mjs`. An
+absent Node.js interpreter is a failure, not a silent skip (H4): the suite
+only skips when `CVI_ALLOW_MISSING_NODE=1` is set explicitly. `find_node`
+looks on `PATH`, then `CVI_NODE_BIN`, then the usual install locations, so an
+installed-but-unexported Node.js still gates.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,12 +19,55 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 UNIT_TEST_MJS = REPO_ROOT / "web" / "v2" / "tests" / "unit.test.mjs"
 PERF_TEST_MJS = REPO_ROOT / "web" / "v2" / "tests" / "render.perf.test.mjs"
 
+#: Where to look for a Node.js interpreter, in order, when it is not on
+#: ``PATH``. The point of this suite is that the JavaScript tests actually
+#: RUN; a Node.js that is installed but unexported is the commonest reason
+#: they silently did not (on the development host the binary sat in
+#: ``~/.local/opt/node-v22.14.0-linux-x64/bin`` while ``PATH`` had none, so
+#: the whole frontend layer skipped for months and two real failures landed
+#: on main). These globs are generic install layouts, not one machine's
+#: paths; ``CVI_NODE_BIN`` is the explicit override.
+_NODE_GLOBS: tuple[str, ...] = (
+    ".local/opt/node-*/bin/node",
+    "tools/node-*/bin/node",
+    ".nvm/versions/node/*/bin/node",
+    ".volta/tools/image/node/*/bin/node",
+)
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js binary not installed in PATH")
+
+def find_node() -> str | None:
+    """A Node.js interpreter: ``PATH``, then ``CVI_NODE_BIN``, then a small
+    set of generic install locations under ``$HOME`` and ``/usr/local``.
+
+    Returns ``None`` only when no interpreter exists anywhere we look, which
+    is the one case that should stop the suite.
+    """
+    on_path = shutil.which("node")
+    if on_path:
+        return on_path
+    override = os.environ.get("CVI_NODE_BIN")
+    if override and Path(override).is_file() and os.access(override, os.X_OK):
+        return override
+    home = Path.home()
+    candidates = [path for pattern in _NODE_GLOBS for path in sorted(home.glob(pattern), reverse=True)]
+    candidates.append(Path("/usr/local/bin/node"))
+    for candidate in candidates:
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
 def test_node_frontend_unit_and_perf_suite() -> None:
     """Run Node.js unit and render performance suites for `web/v2/`."""
-    node_bin = shutil.which("node")
-    assert node_bin is not None
+    node_bin = find_node()
+    if node_bin is None:
+        if os.environ.get("CVI_ALLOW_MISSING_NODE") == "1":
+            pytest.skip("no Node.js interpreter found (CVI_ALLOW_MISSING_NODE=1)")
+        pytest.fail(
+            "no Node.js interpreter found on PATH, in CVI_NODE_BIN, or in the usual install "
+            "locations; the frontend suite is a real gate. Install Node.js, point CVI_NODE_BIN "
+            "at an interpreter, or set CVI_ALLOW_MISSING_NODE=1 to skip it explicitly."
+        )
     result = subprocess.run(
         [node_bin, "--test", str(UNIT_TEST_MJS), str(PERF_TEST_MJS)],
         cwd=str(REPO_ROOT),
@@ -33,3 +79,28 @@ def test_node_frontend_unit_and_perf_suite() -> None:
         f"node --test exited with {result.returncode}:\n"
         f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     )
+
+
+def test_find_node_prefers_path_then_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """``find_node`` looks on PATH first, then at ``CVI_NODE_BIN``."""
+    monkeypatch.setattr(shutil, "which", lambda name: "/from/path/node")
+    assert find_node() == "/from/path/node"
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    fake = tmp_path / "node"
+    fake.write_text("#!/bin/sh\n"); fake.chmod(0o755)
+    monkeypatch.setenv("CVI_NODE_BIN", str(fake))
+    assert find_node() == str(fake)
+
+
+def test_missing_node_is_a_failure_unless_opted_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """H4: no Node.js interpreter anywhere must fail, not skip, unless
+    ``CVI_ALLOW_MISSING_NODE=1`` opts out explicitly."""
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setattr("tests.test_ui_node_suite.find_node", lambda: None)
+    monkeypatch.delenv("CVI_ALLOW_MISSING_NODE", raising=False)
+    with pytest.raises(pytest.fail.Exception):
+        test_node_frontend_unit_and_perf_suite()
+
+    monkeypatch.setenv("CVI_ALLOW_MISSING_NODE", "1")
+    with pytest.raises(pytest.skip.Exception):
+        test_node_frontend_unit_and_perf_suite()

@@ -509,8 +509,9 @@ def format_sensitivity_report(report: SensitivityReport) -> str:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Run ``cvi audit sensitivity``; returns the process exit code.
 
-    Exits 0 when the report completes (a failed release gate is data,
-    not an error); exits 2 on usage or database errors.
+    Exits 0 when the report completes and its release gate passes, 1 when
+    the gate fails (``report.all_pass`` is False); exits 2 on usage or
+    database errors.
     """
     parser = argparse.ArgumentParser(
         description="Kendall tau-b of the ranking under +/- pp pillar-weight perturbations (D-AGG-3)."
@@ -537,7 +538,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(json.dumps(payload, indent=2))
     else:
         print(format_sensitivity_report(report))
-    return 0
+    return 0 if report.all_pass else 1
 
 
 

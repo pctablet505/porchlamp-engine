@@ -71,14 +71,16 @@ def _parse_exports(source: str) -> set[str]:
     return exported
 
 
-def _parse_imports(source: str) -> list[tuple[str, list[str], bool]]:
-    """Extract import statements as (module_specifier, imported_symbols, is_namespace_import).
+def _parse_imports(source: str) -> list[tuple[str, list[str], bool, str | None]]:
+    """Extract import statements as (module_specifier, imported_symbols, is_namespace_import,
+    namespace_alias).
 
     For ``import { a, b as c } from "./mod.js"``, ``imported_symbols`` contains
-    the upstream exported names ``["a", "b"]``.
+    the upstream exported names ``["a", "b"]``.  For ``import * as copy from
+    "./mod.js"``, ``namespace_alias`` is the local binding ``"copy"``.
     """
     clean = _strip_js_comments(source)
-    results: list[tuple[str, list[str], bool]] = []
+    results: list[tuple[str, list[str], bool, str | None]] = []
 
     # Match standard `import ... from "specifier"` (including multi-line braces)
     import_from_pattern = re.compile(
@@ -89,10 +91,13 @@ def _parse_imports(source: str) -> list[tuple[str, list[str], bool]]:
         specifier = match.group(2).strip()
         symbols: list[str] = []
         is_namespace = False
+        ns_alias: str | None = None
 
         # Check namespace import: `* as name`
-        if re.search(r"\*\s+as\s+[A-Za-z_$][\w$]*", clause):
+        ns_match = re.search(r"\*\s+as\s+([A-Za-z_$][\w$]*)", clause)
+        if ns_match:
             is_namespace = True
+            ns_alias = ns_match.group(1)
 
         # Check named imports: `{ ... }`
         brace_match = re.search(r"\{([^}]*)\}", clause)
@@ -112,14 +117,32 @@ def _parse_imports(source: str) -> list[tuple[str, list[str], bool]]:
             if tok and re.match(r"^[A-Za-z_$][\w$]*$", tok):
                 symbols.append("default")
 
-        results.append((specifier, symbols, is_namespace))
+        results.append((specifier, symbols, is_namespace, ns_alias))
 
     # Match side-effect imports: `import "./specifier.js"`
     side_effect_pattern = re.compile(r"\bimport\s+[\"']([^\"']+)[\"']")
     for match in side_effect_pattern.finditer(clean):
-        results.append((match.group(1).strip(), [], False))
+        results.append((match.group(1).strip(), [], False, None))
 
     return results
+
+
+_IMPORT_STMT_PATTERN = re.compile(r"\bimport\s+[^;]*?[\"'][^\"']+[\"']")
+
+
+def _namespace_property_reads(source: str, alias: str) -> set[str]:
+    """Return every property name read off namespace-import ``alias`` in ``source``.
+
+    Exclusions kept deliberately small (H2): import statements are blanked
+    before scanning so the alias inside a specifier string (``from
+    "./copy.js"``) is not mistaken for a property read, comments are removed
+    via :func:`_strip_js_comments` (``//`` line comments and ``/* */`` blocks),
+    and a name immediately followed by ``=`` (an assignment to the property,
+    which does not occur in this codebase) is ignored.
+    """
+    scan_source = _IMPORT_STMT_PATTERN.sub("", _strip_js_comments(source))
+    reads_pattern = re.compile(rf"\b{re.escape(alias)}\.([A-Za-z_$][A-Za-z0-9_$]*)(?!=)")
+    return set(reads_pattern.findall(scan_source))
 
 
 def test_es_module_import_export_graph_integrity() -> None:
@@ -137,7 +160,7 @@ def test_es_module_import_export_graph_integrity() -> None:
         imports = _parse_imports(source)
         rel_importer = path.relative_to(REPO_ROOT)
 
-        for specifier, imported_symbols, is_namespace in imports:
+        for specifier, imported_symbols, is_namespace, ns_alias in imports:
             assert specifier.startswith(("./", "../")), (
                 f"{rel_importer}: unexpected non-relative module specifier {specifier!r}"
             )
@@ -155,6 +178,13 @@ def test_es_module_import_export_graph_integrity() -> None:
                 assert target_exports, (
                     f"{rel_importer}: namespace import from {specifier!r} points to module with no exports"
                 )
+                assert ns_alias is not None
+                for name in sorted(_namespace_property_reads(source, ns_alias)):
+                    assert name in target_exports, (
+                        f"{rel_importer}: reads {ns_alias}.{name} but "
+                        f"{target_path.relative_to(REPO_ROOT)} does not export {name!r} "
+                        f"(namespace import of {specifier!r})"
+                    )
             for symbol in imported_symbols:
                 assert symbol in target_exports, (
                     f"{rel_importer} imports symbol {symbol!r} from {specifier!r}, "
