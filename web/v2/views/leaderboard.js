@@ -227,7 +227,7 @@ export function patchTableBody(tbody, doc, rows, range, opts) {
             previousRow: item.index > 0 ? rows[item.index - 1] : null,
             showPersonaDelta,
           })
-        : createSpacerElement(doc, `__${item.kind}__`, colCount),
+        : createSpacerElement(doc, `__${item.kind}__`, colCount, item.height),
     (node, item) => {
       if (item.kind !== "row") {
         updateSpacerElement(node, item.height);

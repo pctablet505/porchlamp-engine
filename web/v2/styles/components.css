@@ -179,6 +179,10 @@ input.control {
   background: var(--coverage-b);
 }
 
+.badge-coverage-below .badge-dot {
+  background: var(--coverage-below);
+}
+
 .tier-pill {
   font-family: var(--font-mono);
   font-weight: 700;

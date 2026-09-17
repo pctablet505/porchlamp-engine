@@ -105,9 +105,8 @@ export const QUADRANT_GLYPHS = Object.freeze({
 const TIER_CAPPED_SUFFIX = " (capped)"; // private: only tierLabel needs the literal
 export function tierLabel(tier, tierCeiling) {
   if (!tier) return MISSING_VALUE;
-  const normalizedTier = tier === "S+" ? "S" : tier;
   const capped = tierCeiling && tier === tierCeiling;
-  return capped ? `${normalizedTier}${TIER_CAPPED_SUFFIX}` : normalizedTier;
+  return capped ? `${tier}${TIER_CAPPED_SUFFIX}` : tier;
 }
 
 const COVERAGE_BAND_LABELS = Object.freeze({
@@ -337,7 +336,8 @@ export function drawerErrorText(endpoint, status, detail) {
 // Shared by every retryable fetch banner (evidence 404, snapshot
 // 5xx/timeout — U-15: every request has an error state, and every
 // error state offers a way back).
-export const RETRY_LABEL = "Retry";
+export const RETRY_LABEL = "Retry";  // every retry button in the app: the footer,
+// the evidence panel and the repo-detail panel all offer the same action (U-15).
 export const RAW_HASH_LABEL = "Raw hash";
 export const SNAPSHOT_ID_LABEL = "Snapshot";
 export const SUSPICION_NONE_TEXT = "No suspicion flags on this repository.";

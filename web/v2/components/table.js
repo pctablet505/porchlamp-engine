@@ -222,20 +222,34 @@ export function updateRowElement(tr, row, opts) {
 }
 
 /** A spacer `<tr>` that reserves scroll height for the rows above/below the rendered window. */
-export function createSpacerElement(doc, key, colCount) {
+export function createSpacerElement(doc, key, colCount, heightPx = 0) {
   const tr = doc.createElement("tr");
   tr.dataset.key = key;
   tr.setAttribute("aria-hidden", "true");
   const td = doc.createElement("td");
   td.colSpan = colCount;
   tr.appendChild(td);
+  // A created node must be fully in sync with its item. patch.js calls
+  // `updateItem` only on nodes that SURVIVE a patch, never on ones it just
+  // created, so a spacer built without its height got that height written on
+  // the NEXT patch instead -- which is why render.perf.test.mjs's U-19
+  // assertion saw three <tr>s touched by a one-row change: the changed row
+  // plus both spacers receiving their first height. Measured after a warm-up
+  // patch the same scenario touches exactly one <tr>, so the windowing itself
+  // was always correct; this closes the deferred write.
+  updateSpacerElement(tr, heightPx);
   return tr;
 }
 
 export function updateSpacerElement(tr, heightPx) {
   const next = `${heightPx}px`;
   if (tr.style.height !== next) tr.style.height = next;
-  tr.hidden = heightPx <= 0;
+  // Guarded like the write above it: an unconditional assignment counts as a
+  // DOM mutation even when the value is unchanged. (This was not the cause of
+  // the U-19 failure -- see createSpacerElement -- but an unguarded write in a
+  // function whose whole purpose is minimal surgery is still wrong.)
+  const hidden = heightPx <= 0;
+  if (tr.hidden !== hidden) tr.hidden = hidden;
 }
 
 export function columnCount(showPersonaDelta) {

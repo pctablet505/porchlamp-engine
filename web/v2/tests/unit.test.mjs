@@ -13,6 +13,7 @@ import path from "node:path";
 
 import { decidingTieLevel, SORTABLE_COLUMNS } from "../components/table.js";
 import { KEY_ACTIONS, actionForKeyEvent } from "../components/keymap.js";
+import { renderCoverageBadge } from "../components/badge.js";
 import {
   defaultState,
   reduce,
@@ -96,10 +97,24 @@ test("keymap: every documented key in copy.KEYMAP_ENTRIES has a matching KEY_ACT
   for (const entry of copy.KEYMAP_ENTRIES) {
     // The overlay uses the short, human label "Esc" for KeyboardEvent.key's
     // "Escape" — the only place the two vocabularies diverge.
-    const keyAliases = { esc: "escape" };
-    const singleKeys = entry.keys
-      .split(/\s*[/–-]\s*/)
+    const keyAliases = {
+      esc: "escape",
+      "\u2191": "arrowup",
+      "\u2193": "arrowdown",
+      "\u2190": "arrowleft",
+      "\u2192": "arrowright",
+    };
+    // Split only on SEPARATORS, never on a key that IS the separator: the
+    // overlay documents "/" (Focus search) as a shortcut in its own right, and
+    // splitting it on "/" yielded ["", ""] -- so this assertion reported a
+    // missing handler for a key KEY_ACTIONS has always handled. The Python twin
+    // of this helper (tests/test_ui_js_integrity.py::_expand_keymap_entry_keys)
+    // already required the surrounding spaces; this now matches it.
+    const singleKeys = (entry.keys.trim().length === 1
+      ? [entry.keys.trim()]
+      : entry.keys.split(/\s+[/\u2013-]\s+|\s*\u2013\s*|\s+/))
       .map((k) => k.trim().toLowerCase())
+      .filter((k) => k.length > 0)
       .map((k) => keyAliases[k] || k);
     const anyHandled = singleKeys.some((k) => handledKeys.has(k));
     assert.ok(anyHandled, `overlay entry "${entry.keys}" (${entry.action}) has no matching KEY_ACTIONS handler`);
@@ -782,4 +797,67 @@ test("findRow + classifyKind: an UNRATED repo renders its evidence table, not a 
   assert.ok(!html.includes(copy.DRAWER_SECTION_PERSONAS), "no Persona view section for unrated (unchanged)");
   assert.ok(!html.includes(copy.DRAWER_SECTION_INTEGRITY), "no Integrity section for unrated (unchanged)");
   assert.ok(!html.includes(copy.DRAWER_SECTION_COMPOSITE), "no Composite section for unrated (unchanged)");
+});
+
+// --------------------------------------------------------------------- //
+// AUD-WEB H3: the scoring engine emits "S+" as a real, highest tier
+// (cvi/core/constants.py: TIER_CUTOFFS = ((90.0, "S+"), (80.0, "S"), ...),
+// TIER_ORDER = ("D","C","B","A","S","S+")). tierLabel must NOT rewrite it down
+// to "S" — a 95-score repo and an 82-score repo must read differently — while
+// still appending "(capped)" when the coverage ceiling is the binding tier.
+// --------------------------------------------------------------------- //
+test("copy.js: tierLabel keeps S+ distinct from S and caps it only when the ceiling is S+", () => {
+  assert.equal(copy.tierLabel("S+", null), "S+");
+  assert.equal(copy.tierLabel("S+", "S+"), "S+ (capped)");
+  assert.equal(copy.tierLabel("A", null), "A");
+});
+
+// --------------------------------------------------------------------- //
+// AUD-WEB H1: web/v2/views/drawer.js:351 reads copy.RETRY_LABEL for
+// the repo-detail retry button. That export was missing, so the button read
+// the literal text "undefined". It must be a real, non-empty label.
+// --------------------------------------------------------------------- //
+test("copy.js: RETRY_LABEL is a non-empty string (the retry button is never 'undefined')", () => {
+  assert.equal(typeof copy.RETRY_LABEL, "string");
+  assert.ok(copy.RETRY_LABEL.length > 0, "RETRY_LABEL must be a non-empty string");
+});
+
+// --------------------------------------------------------------------- //
+// AUD-WEB H1 (rendered path): the drawer's retryable repo-detail error banner
+// must not render the literal text "undefined" anywhere in its HTML. Built
+// the same way the existing renderDrawer error tests above build markup.
+// --------------------------------------------------------------------- //
+test("renderDrawer: a retryable repo-detail error renders no literal 'undefined' in its HTML", () => {
+  const html = renderDrawer(
+    drawerStateFor({ repoDetailError: { endpoint: "/v1/cvi/repos/nobody/nothing", status: 500, detail: "boom" } }),
+  );
+  assert.ok(html.includes("data-repo-detail-retry"), "the retry banner must render for a non-404 error");
+  assert.ok(!html.includes("undefined"), `drawer error HTML must not contain the literal text "undefined":\n${html}`);
+});
+
+// --------------------------------------------------------------------- //
+// AUD-WEB H6: a below-floor coverage (< 0.6) is a data-quality warning and
+// must render with its own badge-coverage-below class, not the ordinary
+// "Ceiling B" band badge class — otherwise the warning looks like a normal B.
+// --------------------------------------------------------------------- //
+test("renderCoverageBadge: a below-floor coverage uses badge-coverage-below, not the B badge", () => {
+  const html = renderCoverageBadge(0.42);
+  assert.ok(html.includes("badge-coverage-below"), `below-floor badge must carry badge-coverage-below, got: ${html}`);
+  assert.ok(
+    !/class="badge badge-coverage-b"/.test(html),
+    `below-floor badge must not reuse the plain B badge class, got: ${html}`,
+  );
+});
+
+// --------------------------------------------------------------------- //
+// AUD-WEB H6 (styled): the badge-coverage-below class must actually exist in
+// the stylesheet, styled off the theme's --coverage-below token (defined for
+// light and dark in tokens.css), so the badge is distinct and legible in both
+// themes rather than an unstyled plain-B badge.
+// --------------------------------------------------------------------- //
+test("components.css: .badge-coverage-below is styled off var(--coverage-below)", () => {
+  const cssPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "styles", "components.css");
+  const css = readFileSync(cssPath, "utf8");
+  assert.ok(css.includes(".badge-coverage-below"), "components.css must define a .badge-coverage-below rule");
+  assert.match(css, /\.badge-coverage-below[^{]*\{[^}]*--coverage-below[^}]*\}/);
 });

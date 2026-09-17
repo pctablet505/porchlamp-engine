@@ -15,7 +15,7 @@ export function renderCoverageBadge(coverage) {
     return `<span class="cell-missing" tabindex="0" title="${escapeHtml(copy.missingValueReason())}">${copy.MISSING_VALUE}</span>`;
   }
   const band = copy.coverageBandForValue(coverage);
-  const cls = band === "full" ? "badge-coverage-full" : band === "A" ? "badge-coverage-a" : "badge-coverage-b";
+  const cls = band === "full" ? "badge-coverage-full" : band === "A" ? "badge-coverage-a" : band === "B" ? "badge-coverage-b" : "badge-coverage-below";
   const text = copy.coverageBadgeText(coverage);
   return `<span class="badge ${cls}"><span class="badge-dot" aria-hidden="true"></span>${escapeHtml(text)}</span>`;
 }

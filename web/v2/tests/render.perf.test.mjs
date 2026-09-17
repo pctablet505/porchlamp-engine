@@ -25,6 +25,11 @@ import { synthesizeRows } from "../perf-fixtures.js";
 const FRAME_BUDGET_MS = 16;
 const FRAME_BUDGET_MARGIN = 3; // U-19: "3x margin, numbers reported"
 
+// NOTE: this mirrors the windowing in web/v2/views/leaderboard.js by hand. The
+// two must stay in step -- when they drifted (leaderboard passed a spacer its
+// height at create time and this helper did not) U-19 measured a harness that
+// was not what production runs. Any change to leaderboard.js's patchRows call
+// belongs here too.
 function patchWindow(doc, tbody, rows, range, opts) {
   const colCount = columnCount(opts.showPersonaDelta);
   const topHeight = range.start * ROW_HEIGHT_PX;
@@ -43,7 +48,7 @@ function patchWindow(doc, tbody, rows, range, opts) {
             previousRow: item.index > 0 ? rows[item.index - 1] : null,
             showPersonaDelta: opts.showPersonaDelta,
           })
-        : createSpacerElement(doc, `__${item.kind}__`, colCount),
+        : createSpacerElement(doc, `__${item.kind}__`, colCount, item.height),
     (node, item) => {
       if (item.kind !== "row") {
         updateSpacerElement(node, item.height);

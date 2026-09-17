@@ -348,7 +348,7 @@ export function renderDrawer(state) {
       const err = state.repoDetailError;
       body =
         `<div class="error-banner" role="alert">${escapeHtml(copy.drawerErrorText(err.endpoint, err.status, err.detail))}` +
-        ` <button type="button" class="icon-button" data-repo-detail-retry="true">${escapeHtml(copy.EVIDENCE_RETRY_LABEL)}</button></div>`;
+        ` <button type="button" class="icon-button" data-repo-detail-retry="true">${escapeHtml(copy.RETRY_LABEL)}</button></div>`;
     } else {
       body = `<div class="empty-state">${escapeHtml(copy.DRAWER_NOT_FOUND_TEXT)}</div>`;
     }
