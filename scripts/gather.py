@@ -18,6 +18,7 @@ import json
 import re
 import subprocess
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -67,19 +68,21 @@ def parse_collectors(text: str) -> Optional[frozenset[str]]:
     return names
 
 
-def _env(collector: str, key: str, source: str, data: Any) -> Path:
+def _env(collector: str, key: str, source: str, data: Any,
+         http_status: int = 200) -> Path:
     """Write one envelope with its hash, status and collector version (`03` section 5).
 
-    ``http_status=200`` records a fact about the transports used here, not a
-    guess: ``gh api`` exits non-zero and ``urllib`` raises ``HTTPError`` on a
-    non-2xx answer, so a response that reached this function was accepted.
+    ``http_status`` records the status the transport actually saw. The ``200``
+    default is for the paths whose transport raises on a non-2xx (``gh api``
+    exits non-zero, ``urllib`` raises ``HTTPError``), so a response that reached
+    them was accepted; a caller that swallows an error must pass the real status.
     """
     return write_envelope(
         DATA / collector / f"{key}.json",
         source=source,
         data=data,
         fetched_at=datetime.now(timezone.utc).isoformat(),
-        http_status=200,
+        http_status=http_status,
     )
 
 
@@ -94,13 +97,38 @@ def _gh(*args: str) -> Any:
     return json.loads(out.stdout) if out.stdout.strip() else None
 
 
-def _get_json(url: str, headers: Optional[dict] = None) -> Optional[dict]:
+def _fetch_json(url: str, headers: Optional[dict] = None) -> tuple[Any, Optional[int], Optional[Exception]]:
+    """Fetch ``url`` and report what happened, so a caller can tell a source
+    that answered with nothing from a fetch that could not reach the source.
+
+    Returns ``(body, http_status, error)``:
+      * a 2xx answer: the decoded JSON ``body``, the real status, ``None``.
+      * an HTTP error such as 404: ``(None, e.code, e)`` -- the source answered,
+        so its status is known and a caller may record "not present" with it.
+      * a transport failure (DNS, refused, timeout, undecodable body):
+        ``(None, None, e)`` -- no status was ever received, so a caller must NOT
+        mark the fetch done; the next run should retry.
+    """
     req = urllib.request.Request(url, headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
-            return json.load(r)
-    except Exception:  # review-ok: gate-network — keyless source absent -> None
-        return None
+            return (json.load(r), getattr(r, "status", 200), None)
+    except urllib.error.HTTPError as e:  # the source answered with a non-2xx status
+        return (None, e.code, e)
+    except Exception as e:  # review-ok: gate-network — no status => fetch not done, retry next run
+        return (None, None, e)
+
+
+def _get_json(url: str, headers: Optional[dict] = None) -> Optional[dict]:
+    """Fetch ``url`` and return its JSON body, or ``None`` on any failure.
+
+    Used by the registry download counters, where any failure means "no number"
+    and a null is refetched on rerun, so the failure reason is not needed. The
+    keyless metadata path uses :func:`_fetch_json` instead, so it can tell an
+    absent source from a failed fetch and never stamp a failed fetch as a
+    successful measurement.
+    """
+    return _fetch_json(url, headers)[0]
 
 
 def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
@@ -247,9 +275,17 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             status[collector] = "skip"
             continue
         time.sleep(SLEEP_KEYLESS)
-        body = _get_json(url, hdr)
+        body, http_status, _error = _fetch_json(url, hdr)
+        if http_status is None:
+            # Could not reach the source (transport error): write nothing so the
+            # next run retries it -- a failed fetch is not a completed one, and
+            # an envelope here would mark the key permanently "done".
+            status[collector] = "fail"
+            continue
+        # The source answered. A 2xx null or a 404 both mean "nothing here", but
+        # the envelope carries the real status rather than a blanket 200.
         shaped = shape(body) if body else None
-        _env(collector, key, url, shaped)
+        _env(collector, key, url, shaped, http_status=http_status)
         status[collector] = "ok" if shaped else "fail"
 
     # downloads (registry per ecosystem). A null monthly (rate-limited

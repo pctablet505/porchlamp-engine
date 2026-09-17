@@ -34,6 +34,7 @@ import datetime as _datetime
 import enum
 import hashlib
 import json
+import os
 from collections.abc import Mapping, Sequence, Set as AbstractSet
 from dataclasses import dataclass
 from pathlib import Path
@@ -213,9 +214,15 @@ def write_envelope(
     """Write one envelope with its hash and return the path written.
 
     ``fetched_at`` is passed in by the caller: a collector owns its own clock,
-    this contract only records the value. ``http_status`` defaults to 200
-    because the write path runs only after a transport that raises on a
-    non-2xx response (`gh api` exits non-zero, ``urlopen`` raises ``HTTPError``).
+    this contract only records the value. ``http_status`` records the HTTP
+    status the transport actually saw for this fetch; the ``200`` default is
+    only a convenience for callers whose transport raises on a non-2xx answer,
+    so anything reaching them was accepted. A caller that swallows a transport
+    error or a non-2xx response instead of letting it raise MUST pass the real
+    status: writing a failed fetch with the default ``200`` stamps it as a
+    successful measurement, and because a file's existence is what marks a key
+    "done" everywhere in this codebase, that mislabelled failure would be
+    permanent until a ``--force`` rerun.
 
     The body written is ``_plain(data)``, the same reduction
     :func:`envelope_hash` hashes, not ``data`` itself. The two differ for any
@@ -229,18 +236,28 @@ def write_envelope(
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     body = _plain(data)
-    target.write_text(
-        json.dumps(
-            {
-                "source": source,
-                "fetched_at": fetched_at,
-                "http_status": http_status,
-                "etag": etag,
-                "sha256": envelope_hash(body),
-                "collector_version": collector_version,
-                "data": body,
-            }
-        ),
-        encoding="utf-8",
+    text = json.dumps(
+        {
+            "source": source,
+            "fetched_at": fetched_at,
+            "http_status": http_status,
+            "etag": etag,
+            "sha256": envelope_hash(body),
+            "collector_version": collector_version,
+            "data": body,
+        }
     )
+    # Write to a sibling temp file, then rename it onto the target: os.replace is
+    # atomic within a filesystem, so a reader ever sees the old envelope or the
+    # complete new one, never a half-written file. Existence means "done"
+    # everywhere in this codebase, so a torn file left in place would be treated
+    # as a completed fetch forever. The temp file is removed if the write fails,
+    # so an interrupted write leaves no ".tmp-*" litter behind.
+    tmp = target.with_name(f"{target.name}.tmp-{os.getpid()}")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, target)
+    except Exception:  # review-ok: cleanup-then-reraise — remove the temp file, keep the error
+        tmp.unlink(missing_ok=True)
+        raise
     return target
