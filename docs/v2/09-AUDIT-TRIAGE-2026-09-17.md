@@ -79,7 +79,52 @@ failing test first and paste its real failure; never weaken an assertion or add
 a skip; report honestly what you could not do. The lead verifies each report
 against the tree before anything is committed to `main`.
 
+## Lead finding the audit missed: row 3.1 is unmeasured for the whole corpus
+
+While verifying `A-01` I found a defect none of the eight auditors reported,
+and it is the most expensive one on this page.
+
+`legal_ip` (row 3.1, `PARAM_WEIGHTS = 0.35` — the heaviest parameter in the
+governance pillar) is `Unmeasured(collector_failure)` for **every repository in
+the real corpus**, because `cvi/derive/bundle.py:1983` maps it from a bare
+`legal_ip` field while `scripts/derive.py:486` writes the classification to
+`legal_ip_model`. Nothing writes a bare `legal_ip`; the `"NONE"` that appears
+in every derived file is the v1 bundle's default-fill, stamped confidence
+`"missing"`, which the resolver correctly refuses.
+
+Measured at `96922c1` over the live corpus:
+
+| Measurement | Result |
+| --- | --- |
+| real bundles loaded through `load_bundle` | 60 |
+| row 3.1 `Measured` | **0** |
+| row 3.1 `Unmeasured(collector_failure)` | **60** |
+| `legal_ip_model` values actually present (200-file sample) | `DCO` 188, `CORP_CLA_UNILATERAL` 7, `FOUNDATION_CLA` 5 |
+| `confidence["legal_ip"]` | `missing` in 199, absent in 1 |
+| `confidence["legal_ip_model"]` | `derived` in 200 |
+
+Cost: 0.35 of a governance pillar summing to 1.0, times
+`PILLAR_WEIGHTS["governance"] = 0.20`, is **0.07 of composite coverage lost
+unconditionally by every repo** against a 0.60 evidence floor — 11.7 % of the
+evidence budget a repo needs to be rated at all, lost to a key name. This is
+the most plausible single cause of the standing `rated 0` result on both the
+fixture and every real build so far.
+
+The fix cannot be made without also settling `A-01`, because wiring
+`legal_ip_model` in means deciding what its two corporate-CLA values mean in
+v2. **`docs/v2/rfcs/RFC-0005-legal-ip-wiring-and-cla-reciprocity.md`** is that
+decision: keep the reciprocal/unilateral split (40.0/10.0, the values v1 has
+always carried and three published docs describe) and delete the v2-only
+`CORP_CLA = 25.0`, which prices a foundation-style reciprocal CLA and a
+company-owned unilateral one identically. This is the first constants change in
+this lineage that will move published scores, and RFC-0005 names the
+before/after evidence the packet must paste.
+
 ## Batch 2 — scoring correctness (needs lead review, not a local model alone)
+
+- **RFC-0005** (above): wire row 3.1 and settle the CLA vocabulary. Highest
+  value item outstanding. Serialise it after `AUD-SNAPHASH`, which also
+  regenerates the fixture.
 
 - `A-01`/`A-02` legal-IP regime defined three ways; a spec-published level
   raises `ValueError` and legacy rows are silently re-scored. Touches the
