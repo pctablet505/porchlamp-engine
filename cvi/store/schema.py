@@ -27,8 +27,19 @@ the UI renders "--" for it per `06` U-7.
 """
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from typing import Dict, List, Tuple
+
+#: Milliseconds a connection waits for a contended database lock before it
+#: gives up, set by :func:`connect` via ``PRAGMA busy_timeout``. SQLite's
+#: default is 0, so a contending connection raises ``database is locked`` on
+#: the first conflict. A v2 promote writes a whole snapshot inside one
+#: transaction that runs for seconds, and the API server holds long-lived read
+#: connections on the same file; 5000 ms lets a brief promote/serve overlap
+#: resolve by waiting instead of failing, while still bounding how long a
+#: request can stall before surfacing a real lock timeout.
+BUSY_TIMEOUT_MS = 5000
 
 #: Tables created by this schema, in dependency order (referenced-before-
 #: referencing, so a fresh executescript can run them in this order too).
@@ -155,12 +166,28 @@ SCHEMA_STATEMENTS: Tuple[str, ...] = (
 
 def connect(path) -> sqlite3.Connection:
     """The one place a caller should open a connection to a v2 store
-    database: sets ``PRAGMA foreign_keys = ON`` before returning it. SQLite
-    disables foreign-key enforcement by default, so every ``REFERENCES``
-    clause in this schema (``params.repo_id``, ``repositories.snapshot_id``)
-    is decorative on a plain ``sqlite3.connect()`` -- an orphan row is
-    silently accepted and only ``PRAGMA foreign_key_check`` would ever find
-    it. Deliberately NOT used by
+    database: sets ``PRAGMA journal_mode = WAL``, ``PRAGMA busy_timeout``,
+    and ``PRAGMA foreign_keys = ON`` before returning it.
+
+    WAL and ``busy_timeout`` together make serve-while-promoting safe: a v2
+    promote writes a whole snapshot in one transaction against the same file
+    the API server holds read connections open on, and in SQLite's default
+    rollback-journal mode that single writer takes an exclusive lock that
+    blocks every reader (and vice-versa), raising ``database is locked`` on
+    the first conflict because the default busy timeout is 0. Write-ahead
+    logging lets readers and that one writer proceed concurrently, and the
+    timeout lets a brief overlap resolve by waiting. ``journal_mode`` is
+    persistent per-database, so this converts the file once; the PRAGMA
+    returns the resulting mode, which stays ``memory`` for an in-memory
+    database and can stay unchanged on a filesystem that cannot host a WAL.
+    Neither is a failure -- the connection is still usable, so a non-WAL
+    result is accepted and behaviour is unchanged there.
+
+    ``PRAGMA foreign_keys = ON`` matters because SQLite disables foreign-key
+    enforcement by default, so every ``REFERENCES`` clause in this schema
+    (``params.repo_id``, ``repositories.snapshot_id``) is decorative on a
+    plain ``sqlite3.connect()`` -- an orphan row is silently accepted and only
+    ``PRAGMA foreign_key_check`` would ever find it. Deliberately NOT used by
     ``cvi.store.writer.snapshot_dump_hash``'s internal scratch copy: that
     helper's whole job is a destructive ``DELETE``/``DROP`` scoping of a
     throwaway copy, and ``DROP TABLE snapshots`` while ``repositories`` rows
@@ -168,6 +195,12 @@ def connect(path) -> sqlite3.Connection:
     copy being intentionally torn apart for hashing would break the very
     operation, not protect it."""
     conn = sqlite3.connect(path)
+    # ``journal_mode`` returns the resulting mode as a row; it can silently
+    # fail to become ``wal`` (in-memory, or a filesystem without WAL support),
+    # which is not an error -- read the result and proceed on any mode.
+    with contextlib.suppress(sqlite3.OperationalError):
+        conn.execute("PRAGMA journal_mode = WAL").fetchone()
+    conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.create_function("py_round", 2, lambda val, n=2: round(float(val), n) if val is not None else None)
     return conn
