@@ -730,3 +730,133 @@ Review: hub protocol items L0-L2 (+L3 for W4-*), lenses <list>; item records to 
 | W5 | 2 | ~6 + full run (~5 h GraphQL/REST at the current pace, plus downloads backfill) | weeks 10–11 |
 
 Weeks 12–13 are reserve for rework rounds and the release.
+
+## 5. Wave W6 — sustainable collection (added 2026-09-17; design in `08-SUSTAINABLE-COLLECTION.md`)
+
+Gate to enter: the BFS backfill (`07`) has finished L1. Gate to leave: seven
+consecutive nightly snapshots built unattended within the §5 budget, each
+reproducible from the ledgers (W6-8), cost report attached.
+
+### W6-0 Cost accounting on the sweep in flight (added 2026-09-17)
+**Goal.** `scripts/gather.py` writes one JSON line per (repo, collector) to
+`<data_root>/state/gather-cost.jsonl`: calls by transport (REST / GraphQL /
+search / keyless), GraphQL points from `rateLimit.cost`, wall seconds, status.
+A `scripts/cost_report.py` sums it per collector and per tier (D-COL-3 buckets
+from `github_meta.pushed_at`). Replaces `08` §5's estimates with measurements.
+**Acceptance.** Fail-before test: a recorded 3-repo gather produces the
+expected lines; the report's totals equal the sum of the lines. **Cites.**
+D-COL-3, D-COL-10. **Depends.** none. **Size.** S. **Routing.** local.
+
+### W6-1 One transport (added 2026-09-17)
+**Goal.** `cvi/collect/transport.py`: persistent `http.client` session, token
+from `gh auth token`, `If-None-Match` from a per-URL ETag store
+(`data/state/etags.sqlite`), `304` ⇒ unchanged and free, `X-RateLimit-*` and
+GraphQL `rateLimit` feed `ratelimit.py`'s bucket and breaker; `Retry-After`
+honoured. Every collector's `gh api` subprocess call replaced by the transport
+behind the existing `Transport` protocols; `gh` is used only for the token.
+**Acceptance.** The 50-repo recorded gather through the new transport writes
+envelopes whose `data` hashes equal the committed ones; a recorded `304`
+advances the watermark and writes nothing; subprocess count in a 3-repo gather
+drops from N to 1 (measured, printed); breaker opens on a recorded 403 +
+`Retry-After` and closes at the stated time (fake clock). **Cites.** D-COL-6.
+**Depends.** W6-0. **Size.** M. **Routing.** local (mechanical), lead review.
+
+### W6-2 Fingerprints and dirty-only gather (added 2026-09-17)
+**Goal.** `cvi/collect/fingerprint.py`: the aliased 100-repo query of `08` §4
+D-COL-1; `data/state/fingerprints.jsonl` append-only; `gather.py --dirty`
+selects (repo, collector) pairs from the §6 invalidation table and advances
+watermarks for unchanged repos; tiers computed (D-COL-3) and written to the
+cost report. **Acceptance.** Two passes on a recorded unchanged universe → 0
+collector fetches, every watermark advanced; one recorded moved
+`pullRequests.last.updatedAt` → exactly the PR-side collectors enqueued for
+that repo; measured points per 100-repo query printed. **Cites.** D-COL-1,
+D-COL-3. **Depends.** W6-1. **Size.** M. **Routing.** local, lead review.
+
+### W6-3 PR ledger and delta `pr_window` (added 2026-09-17)
+**Goal.** `data/ledgers/prs/<owner>__<name>.jsonl`: append-only versions keyed
+by PR number with `observed_at`; delta fetch by `UPDATED_AT DESC` to
+`watermark − 1 h`; the `pr_window` envelope becomes a derive-time view
+(`cvi/derive/ledger.py`: as-of slice, latest version per number, 180-d window,
+500 cap with `truncated`) so `derive.py`, the bundle contract and the scoring
+core are unchanged; existing `pr_window` envelopes seed the ledger (version 1,
+`observed_at` = `fetched_at`). **Acceptance.** For the 50 recorded repos, a
+full fetch and (seed + N recorded deltas) produce byte-identical views at the
+same `as_of`; a tombstoned PR leaves the view; the view of an `as_of` before
+the latest delta is unchanged by that delta (reproducibility, D-COL-8).
+**Cites.** D-COL-2, D-COL-8, D-IN-4. **Depends.** W6-2. **Size.** L.
+**Routing.** Sonnet/Opus, lead review.
+
+### W6-4 Issue, commit, release and run ledgers; search API retired (added 2026-09-17)
+**Goal.** Same ledger shape for issues (`since`), commits (`since`), releases
+(newest-first, stop at watermark), workflow runs (`created=>watermark`);
+`issues_counts` computed from the issue ledger; search kept only for the
+one-time backfill rule of D-COL-7; `commits_180d`/`commits_365d`/`releases`/
+`runs`/`issues_counts` envelopes become views. **Acceptance.** Counts from the
+ledger equal the recorded search-derived counts for the 50 repos within the
+window; a full recorded gather makes 0 search calls; each view is byte-stable
+across deltas at a fixed `as_of`. **Cites.** D-COL-2, D-COL-7. **Depends.**
+W6-3. **Size.** L. **Routing.** Sonnet, lead review.
+
+### W6-5 Global user cache (added 2026-09-17)
+**Goal.** `data/state/users/<login>.json` with `createdAt`, `__typename`,
+public-event count + TTL 90 d, eligibility; `author_history` derived as a join
+of the PR ledger with the cache; eligibility batches only for unknown or
+expired logins; existing `author_history` envelopes seed it. **Acceptance.**
+Second recorded run over the same repos issues 0 eligibility batches; an
+expired TTL issues exactly one; cache hit/miss counts in the cost report; the
+derived `author_history` view equals the recorded one. **Cites.** D-COL-5,
+D-IN-3. **Depends.** W6-3. **Size.** M. **Routing.** local, lead review.
+
+### W6-6 Slow facts on slow clocks (added 2026-09-17)
+**Goal.** `governance`, `contributors`, `repo_object`, `tree`: due when
+`defaultBranchRef.target.oid` moved **and** ≥ 30 d since last; `dependents`,
+`depsdev`, `scorecard`, `downloads`: weekly, spread by hash of the repo key
+over 7 days; star history monthly, incremental. Due-ness lives in
+`data/state/schedule.sqlite` (repo × collector × next_due × watermark).
+**Acceptance.** A simulated 60-day clock with unchanged fingerprints issues
+`governance` for a repo exactly twice; a moved oid inside the 30 d issues
+nothing; the weekly spread puts ≈ 1/7 of repos on each weekday (printed
+histogram). **Cites.** D-COL-4. **Depends.** W6-2. **Size.** M. **Routing.**
+local.
+
+### W6-7 Scheduler daemon and timers (added 2026-09-17)
+**Goal.** `python -m cvi.collect.daemon --once|--loop`: priority drain of
+`schedule.sqlite` under the budget with the D-COL-10 reserve, single-instance
+pidfile lock, resumable, structured log, daily cost report; systemd user units
+`cvi-fingerprint.timer` (hourly), `cvi-collect.timer` (hourly),
+`cvi-snapshot.timer` (daily 02:00 UTC) with a documented install step (owner
+runs it). **Acceptance.** `kill -9` mid-drain then restart on a recorded
+transport → no duplicate fetch, no lost item (queue diff empty); the reserve is
+never breached (assert on the recorded budget trace); a second instance exits
+with a named message. **Cites.** D-COL-10. **Depends.** W6-2, W6-6.
+**Size.** L. **Routing.** Sonnet/Opus, lead review.
+
+### W6-8 Ledger-slice reproducibility (added 2026-09-17)
+**Goal.** Manifest per-repo `raw_hash` = hash of the as-of ledger slices (plus
+slow-fact envelopes); `manifest_root` over those; `cvi.snapshot reproduce <id>`
+re-derives from ledgers at the recorded `as_of`; compaction with header record
+and the refusal rule of D-COL-8. **Acceptance.** Reproduce yesterday's snapshot
+after today's recorded deltas → identical `records_hash`; reproduce a snapshot
+whose range was compacted → refusal naming the compaction record; the
+snapshot_50 fixture regenerated once and byte-identical thereafter. **Cites.**
+D-COL-8, D-VER-3. **Depends.** W6-3, W6-4. **Size.** L. **Routing.** Opus,
+lead review.
+
+### W6-9 Nightly snapshot chain, flip and retention (added 2026-09-17)
+**Goal.** `scripts/nightly.py`: derive → build → store `--previous
+<yesterday>` → served-DB guard → atomic flip of the served database (symlink +
+`os.replace`), snapshot id = UTC date, Sunday = published; retention job
+(daily 30 d, weekly 1 y, monthly forever; ledgers 400 d). **Acceptance.**
+Seven simulated days on recorded data → seven chained snapshots, `param_jump`
+fires on an injected jump and nowhere else, the served DB passes the guard
+after every flip, retention deletes exactly the expected files (listed).
+**Cites.** D-COL-9, D-COL-10. **Depends.** W6-7, W6-8. **Size.** M.
+**Routing.** local, lead review.
+
+### W6-10 GH Archive backstop (added 2026-09-17; optional)
+**Goal.** `scripts/gharchive_replay.py`: filter hourly dumps to the universe,
+append to ledgers as versions with `observed_at` = dump hour; a
+`ledger_vs_archive` detector over a window. **Acceptance.** Replay of a
+recorded hour reproduces the ledger appends a live delta made for the same
+hour; the detector flags an injected missing event. **Cites.** D-COL-11.
+**Depends.** W6-4. **Size.** M. **Routing.** local.
