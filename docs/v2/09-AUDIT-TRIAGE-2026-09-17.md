@@ -267,3 +267,30 @@ indistinguishable from a fully-unmeasured one. The divergence is pinned by a
 **strict** xfail naming the column that would be needed, so it converts to a
 passing test the moment that lands. Inventing a proxy that is right on the
 fixture and wrong in general was the available alternative and was refused.
+
+### `D-02` landed after its blocker was cleared
+
+`AUD-DUMPHASH` replaced `snapshot_dump_hash`'s `shutil.copyfile` with SQLite's
+online backup API (`sqlite3.Connection.backup`), which produces a consistent
+single-file copy in any journal mode. `VACUUM INTO` was the alternative and was
+rejected because it compacts, and the integrity hash must not depend on storage
+layout.
+
+The hash does not move, verified three ways rather than claimed:
+
+1. The packet pinned `a0dba53d…`, measured on the pre-fix code. I re-ran that
+   single test against pre-fix `main` and it passes there too, so the pin is a
+   real regression guard and not a value recorded after the change.
+2. `canonical_dump_hash` hashes `canonical_dump`'s table CONTENT, not file
+   bytes, so WAL's byte-level churn cannot reach it. Read, not assumed.
+3. End to end: `python -m cvi.snapshot store tests/fixtures/snapshot_50`
+   against a fresh database now reports
+   `snapshot_dump_hash 43484221eac344668f3ed4e2f27fc3c23621d21c5065c423c4c09cd459f433f0`
+   — the same value this fixture produced before either change, with
+   `PRAGMA journal_mode` confirming `wal` and the v2 served-DB guard returning
+   no refusal reasons.
+
+`AUD-STOREWAL` then landed unchanged from what the agent wrote. **All nine
+batch-1 packets are in.** `main` at `08032e3`: **2,712 passed, 1 skipped,
+1 xfailed, 0 failed**, ruff clean — the first fully green full-suite run of this
+session, including the JavaScript layer that had never executed on this host.
