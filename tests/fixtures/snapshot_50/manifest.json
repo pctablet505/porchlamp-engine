@@ -12,7 +12,7 @@
   "benchmark_version": "2.0.0-rc1",
   "constants_hash": "748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b",
   "document": "cvi-fixture-snapshot-manifest",
-  "merkle_root": "cab43b159d871ca575658dbb3d57cda7bb959ce5241b8f962a0622b2f8aa686b",
+  "merkle_root": "944101baee3ab317cd8e4d6f14270b27115140a2262951d3c4f6f43e2767eb61",
   "population_fallback_params": [],
   "repo_count": 50,
   "repos": [

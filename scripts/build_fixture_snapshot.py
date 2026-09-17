@@ -344,6 +344,20 @@ def rewrite_expected(fixture_dir: Path) -> ScoredSnapshot:
     return snapshot
 
 
+def _populations_leaf(out_dir: Path) -> str:
+    """The ``populations.json`` merkle leaf, identical to the one
+    ``cvi.snapshot.build_cmd.build_snapshot_dir`` uses (E-01).
+
+    Two builders write a v2 snapshot manifest -- that command and this
+    fixture script -- and the root must mean the same thing in both, or the
+    fixture's integrity claim is weaker than the product's. Populations are
+    the ECDF reference distributions: the same bundles scored against
+    different populations produce different scores, so a root that omits
+    them can be equal for two directories that do not score alike.
+    """
+    return sha256_hex((out_dir / "populations.json").read_text(encoding="utf-8"))
+
+
 def write_fixture(result: FixtureBuildResult, out_dir: Path) -> None:
     """Write the fixture's on-disk shape: ``bundles/<owner>__<name>.json``,
     ``populations.json``, ``manifest.json``, ``expected.json``."""
@@ -381,7 +395,7 @@ def write_fixture(result: FixtureBuildResult, out_dir: Path) -> None:
         "as_of": result.as_of.isoformat(),
         "benchmark_version": result.snapshot.benchmark_version,
         "constants_hash": result.snapshot.constants_hash,
-        "merkle_root": merkle_root(sorted(result.raw_hashes.values())),
+        "merkle_root": merkle_root(sorted([*result.raw_hashes.values(), _populations_leaf(out_dir)])),
         "repo_count": len(result.bundles),
         "anchors_present": result.anchors_present,
         "anchors_absent": result.anchors_absent,
