@@ -188,3 +188,82 @@ data, `E-01`'s sibling checks.
 
 The `Nit` tail, and `F-04`/`F-06`/`F-07` (forward/anchor reporting shape) until
 there is real rated data to run them against — they are unfalsifiable today.
+
+## Batch 1 outcome (2026-09-17/18)
+
+Seven of eight packets landed. Every report was verified against the tree
+before anything reached `main`: I read each diff, re-ran the tests myself, and
+in three cases the verification changed the result.
+
+| Packet | Landed | Verification note |
+| --- | --- | --- |
+| `AUD-WEB` | `07c284f` | Correct. Its brief (mine) made it add a duplicate `Retry` constant; I collapsed that to the existing `RETRY_LABEL`, which `drawer.js` already used for its other retry button. |
+| `AUD-GATE` | `b7085ad` | Correct. Its H2 test caught the phantom name with a precise message. |
+| `AUD-B1B2` | `478a712` | Correct, and it corrected a false docstring. |
+| `AUD-REPOOBJ` | `69462ff` | Correct. Declared the `rc != 0` trade-off it had to make. |
+| `AUD-COMMITS` | `12ffe8e` | Correct. Checked its caller rather than assuming. |
+| `AUD-SNAPHASH` | `67ec1a0` + `d5b4206` | Half the fix. `scripts/build_fixture_snapshot.py` is a second implementation of the manifest write and still omitted populations; the packet did not own that file and correctly left it. I closed it, regenerated the fixture (`merkle_root` `cab43b15…` → `944101ba…`, `records_hash` unchanged). |
+| `AUD-SERVE` | `545bc8d` | Correct. |
+| `AUD-REPROJECT` | `d9509c2` | D-03 fixed; D-01 **pinned, not fixed** — see below. |
+| `AUD-STOREWAL` | **not landed** | Correctly refused. See below. |
+
+`main` at `d9509c2`: 2,702 passed, 1 skipped, 1 xfailed, ruff clean. The one
+failure, `tests/test_backfill_downloads.py::test_nulls_stay_undone_and_are_refetched`,
+is pre-existing and intermittent on `main` (measured 1–2 failures in 4 runs
+before any of this work). I attempted a fix, found it traded that failure for a
+new one in `test_runner_resumes_after_kill`, and reverted rather than land a
+net-negative change. The race is in the test's own `ThreadingHTTPServer`, which
+appends to `seen` after flushing the response.
+
+### Two findings that came out of verification, not from the audit
+
+**The JavaScript suite had never run on this host.** `node` is installed in
+`~/.local/opt` and has never been on `PATH`, so `tests/test_ui_node_suite.py`
+skipped silently — which is finding `H4` exactly. With the skip made loud and
+`find_node()` looking past `PATH`, the suite ran and had **two real failures**,
+both of which pre-date the 2026-09-15/16 agent commits: they were shipped at
+`1dff982`, in my own lead session, and hidden by that skip.
+
+- U-19 ("a one-row data change patches exactly one `<tr>`") reported three.
+  `patch.js` calls `updateItem` only on nodes that survive a patch, never on
+  ones it just created, and `createSpacerElement` did not set its own height,
+  so both spacers took their first height on the *next* patch. Measured after a
+  warm-up patch the same scenario touches exactly one row — the windowing was
+  always right. Fixed at the create path.
+- The keymap assertion reported that `/` had no handler when `KEY_ACTIONS` has
+  always had one: the JS expander split `entry.keys` on `/`, turning the bare
+  `/` shortcut into `["", ""]`. Its Python twin already required the
+  surrounding spaces. **Had I briefed this to an agent as "fix the missing
+  handler", it would have changed working code.**
+
+Both were found only because the gate was switched on. That is the argument for
+`G12`/`G13`/`H4` in one line.
+
+**`snapshot_dump_hash` cannot survive WAL, and that blocks `D-02`.**
+`AUD-STOREWAL` enabled WAL and `busy_timeout` as instructed, then reported that
+the instructed suite was **not** green: 27 failures and 38 errors, every one the
+same exception, `no such table: params`, from
+`cvi/store/writer.py::snapshot_dump_hash`. That function copies the database
+with `shutil.copyfile` — the main `.db` file only. In rollback-journal mode all
+committed data is in that file; in WAL mode committed-but-un-checkpointed data
+lives in the `-wal` sidecar, so the copy has no tables at all.
+
+This is a latent Blocker in its own right, independent of WAL: copying a live
+SQLite file with `shutil.copyfile` is not a safe way to obtain a consistent
+snapshot for hashing. The fix is to use SQLite's own backup API or
+`VACUUM INTO`, which produce a consistent single-file copy in any journal mode.
+**`D-02` is therefore blocked on that, and the agent was right to stop rather
+than force the suite green.** Queued as the next packet.
+
+### `D-01` is pinned rather than fixed, deliberately
+
+`reproject`'s coverage denominator uses the full weight sum while
+`cvi.core.aggregate` drops a `not_applicable` pillar from both sides (D-MISS-5),
+so one inapplicable pillar moves a repo from coverage 1.0/tier S+ to 0.8/tier A
+on the custom-weights endpoint — and since coverage gates rating, it can vanish
+from that leaderboard. It cannot be fixed in SQL today: `repositories` has no
+per-pillar applicability column, so an entirely-`not_applicable` pillar is
+indistinguishable from a fully-unmeasured one. The divergence is pinned by a
+**strict** xfail naming the column that would be needed, so it converts to a
+passing test the moment that lands. Inventing a proxy that is right on the
+fixture and wrong in general was the available alternative and was refused.
