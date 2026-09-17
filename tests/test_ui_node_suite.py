@@ -87,7 +87,8 @@ def test_find_node_prefers_path_then_override(monkeypatch: pytest.MonkeyPatch, t
     assert find_node() == "/from/path/node"
     monkeypatch.setattr(shutil, "which", lambda name: None)
     fake = tmp_path / "node"
-    fake.write_text("#!/bin/sh\n"); fake.chmod(0o755)
+    fake.write_text("#!/bin/sh\n")
+    fake.chmod(0o755)
     monkeypatch.setenv("CVI_NODE_BIN", str(fake))
     assert find_node() == str(fake)
 
