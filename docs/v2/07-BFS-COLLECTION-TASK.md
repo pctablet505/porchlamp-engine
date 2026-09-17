@@ -25,9 +25,9 @@ Layers, in order:
 | Layer | Collectors to fetch (exact names) | What it unlocks | Cost |
 |---|---|---|---|
 | L0 | nothing — the cheap layer is **already on disk** (fetched 2026-09-11/12) | first leaderboard, mostly unrated | zero API calls |
-| L1 | `pr_window` | responsiveness pillar (biggest single gain) | GraphQL, ~6 points/repo |
+| L1 | `pr_window`, then `governance` | responsiveness pillar, then rows 3.1/3.3/4.2 — **`governance` alone unlocks 0.175 of composite coverage, 29 % of the 0.60 rating floor**, and today `data/raw/governance` is empty | GraphQL ~6 points/repo; governance ~45 REST/repo |
 | L2 | `repo_object,gfi,dependents,releases,runs` | eligibility gates, newcomer issues, dependents | REST/keyless, 1–3 calls each |
-| L3 | `commits_365d,issues_counts,governance` | criticality signals, governance pillar | REST, up to ~15 calls/repo |
+| L3 | `commits_365d,issues_counts` | criticality signals | REST, up to ~15 calls/repo |
 | L4 | `author_history` | first-timer / returning-contributor rates | GraphQL, most expensive |
 
 After **every** layer you run the same four steps: derive → build → store → serve.
@@ -226,8 +226,24 @@ ls data/raw/pr_window | wc -l
 - Rough duration: 6–10 hours of API time for all repos (GraphQL budget is
   5,000 points per hour; measured cost is about 6 points per repo).
 
+Then, **in the same layer**, gather governance — it is the largest remaining
+coverage unlock and the reason `rated` stays at 0:
+
+```bash
+cd /home/pctablet505/Projects/contributor-value-index
+.venv/bin/python scripts/gather.py --all --collectors governance 2>&1 | tee -a /home/pctablet505/Projects/cvi-scratch/bfs-run/gather-L1-governance.log
+ls data/raw/governance | wc -l
+```
+
+This is the most expensive collector per repo (~45 REST calls, roughly 50
+hours for the whole universe at 5,000 calls/hour), so expect it to run for
+about two days. Run it the same way as `pr_window`: repeat the command until
+two consecutive runs end with the same failure count. Report progress from
+`ls data/raw/governance | wc -l`.
+
 Then Step A, B, C, D with `LX` = `L1`. The `rated` count should now be above
-zero. Write the before/after counts in STATUS.md.
+zero for the first time. Write the before/after counts in STATUS.md — that
+number is the single most important measurement in this whole runbook.
 
 ## 7. Phase 2, 3, 4 — the same loop with the next collectors
 
@@ -236,7 +252,7 @@ For each row, run gather (twice, as in Phase 1), then Steps A–D:
 | Phase | `LX` | gather command |
 |---|---|---|
 | 2 | `L2` | `.venv/bin/python scripts/gather.py --all --collectors repo_object,gfi,dependents,releases,runs 2>&1 \| tee -a $RUN/gather-L2.log` |
-| 3 | `L3` | `.venv/bin/python scripts/gather.py --all --collectors commits_365d,issues_counts,governance 2>&1 \| tee -a $RUN/gather-L3.log` |
+| 3 | `L3` | `.venv/bin/python scripts/gather.py --all --collectors commits_365d,issues_counts 2>&1 \| tee -a $RUN/gather-L3.log` |
 | 4 | `L4` | `.venv/bin/python scripts/gather.py --all --collectors author_history 2>&1 \| tee -a $RUN/gather-L4.log` |
 
 Notes per phase:
