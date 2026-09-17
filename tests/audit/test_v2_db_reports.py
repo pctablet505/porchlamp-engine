@@ -292,7 +292,13 @@ def test_v2_sensitivity_report(tmp_path: Path) -> None:
         assert -1.0 <= row.tau_b <= 1.0
     text = sensitivity.format_sensitivity_report(report)
     assert "rated repos: 4" in text
-    assert sensitivity.main(["--db", str(db_path), "--json"]) == 0
+    # The CLI's exit code IS the release verdict (F-02): 0 when the gate
+    # passes, 1 when it fails. Asserting it against report.all_pass rather
+    # than a literal keeps this meaningful whatever this fixture produces --
+    # the previous `== 0` passed vacuously, because main() returned 0
+    # unconditionally, and this fixture's gate does not in fact pass.
+    assert not report.all_pass, "fixture expected to fail the gate; see the exit-code assertion below"
+    assert sensitivity.main(["--db", str(db_path), "--json"]) == (0 if report.all_pass else 1)
 
 
 def test_v2_ties_report(tmp_path: Path) -> None:
