@@ -1376,3 +1376,141 @@ def test_performance_list_ranked_persona_p95_under_100ms_for_10k_rows(tmp_path) 
             lambda limit=limit: _p95(_time_calls(lambda: queries.list_ranked(conn, "snap-1", persona="career_capital", limit=limit, offset=0))),
             f"list_ranked(persona, limit={limit}) p95 over 20 calls, 10,000 rows",
         )
+
+
+# =========================================================================== #
+# AUD-REPROJECT: reproject's custom-weight view vs the canonical core path.
+# =========================================================================== #
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "repositories has no per-pillar applicability column (branch 3 of D-01): "
+        "reproject cannot tell an entirely not_applicable pillar from an unmeasured "
+        "one, so it drags coverage (and therefore tier) down. Fixing this needs a "
+        "new column, e.g. repositories.applicable_<pillar>."
+    ),
+)
+def test_reproject_coverage_and_tier_match_canonical_when_a_pillar_is_not_applicable(tmp_path) -> None:
+    """D-MISS-5 / AUD-REPROJECT D-01.
+
+    A pillar whose parameters are ALL ``Unmeasured(not_applicable)``
+    (``PillarScore.applicable is False`` -- a systems-ecosystem repo's
+    inapplicable input, ``constants.NOT_APPLICABLE_RULES``) leaves BOTH sides
+    of the composite-coverage ratio in the canonical path
+    (``cvi.core.aggregate.composite_coverage``); its remaining pillars are
+    renormalised over their own weight, so a fully-measured-everywhere-else
+    repo reaches coverage 1.0 and its uncapped tier.
+
+    ``reproject`` reimplements the reduction in SQL from the stored
+    ``p_*``/``c_*`` columns. An inapplicable pillar is stored identically to a
+    fully-UNMEASURED one (``p=NULL, c=0.0``) -- the ``repositories`` table
+    carries no per-pillar applicability flag (branch 3 of the packet) -- so
+    ``reproject`` counts the inapplicable pillar's weight in the coverage
+    DENOMINATOR as if its evidence were merely missing, and reports coverage
+    0.8 (not 1.0) and tier A (not S+).
+
+    This test pins the two paths together. It must FAIL today (strict xfail):
+    the moment a pillar-applicability column lands and ``reproject`` uses it,
+    the coverage and tier agree and this test starts passing on its own.
+    """
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    pillars = {
+        "responsiveness": PillarScore(score=85.0, coverage=1.0),
+        "criticality": PillarScore(score=85.0, coverage=1.0),
+        "governance": PillarScore(score=None, coverage=0.0, applicable=False),  # entirely not_applicable
+        "rigor": PillarScore(score=85.0, coverage=1.0),
+        "accessibility": PillarScore(score=85.0, coverage=1.0),
+    }
+    rec = dc_replace(make_rated_record("snap-1", owner="a", name="sysrepo"), pillars=pillars)
+    write_records(conn, "snap-1", [make_repo_write(rec)])
+
+    # Canonical: reproject the SAME record through the frozen core with the
+    # SAME balanced weights the store writes from (persona_composite ->
+    # composite_coverage / composite_score_raw / tier_from_score / apply_ceiling).
+    canonical = persona_composite(rec, "balanced")
+
+    rows, total = queries.reproject(conn, "snap-1", BALANCED_WEIGHTS)
+    assert total == 1
+    sql = rows[0]
+    assert sql["coverage"] == pytest.approx(canonical.coverage), (
+        f"coverage: reproject={sql['coverage']} vs canonical persona path={canonical.coverage}"
+    )
+    assert sql["tier"] == canonical.tier, (
+        f"tier: reproject={sql['tier']} vs canonical persona path={canonical.tier}"
+    )
+
+
+def test_reproject_tier_cutoff_rounds_the_composite_to_ratio_decimals_like_the_core(tmp_path) -> None:
+    """AUD-REPROJECT D-03.
+
+    The canonical path rounds a composite to ``RATIO_DECIMALS`` (12) inside
+    ``composite_score_raw`` before ``tier_from_score`` compares it to a cutoff
+    (aggregate.py). ``reproject`` fed the raw SQL division straight into the
+    tier CASE, so a composite that is mathematically exactly a cutoff but
+    accumulates to a float one ULP below it was published one tier lower.
+
+    Five pillars at score 80.0 (full coverage, so the row is rated with no
+    ceiling) weighted 0.2 / 0.2 / 0.2 / 0.3 / 0.1 are exactly the S cutoff,
+    but the IEEE-754 left-fold the SQL performs --
+    ``(((0.2*80 + 0.2*80) + 0.2*80) + 0.3*80) + 0.1*80`` over the denominator
+    ``(((0.2 + 0.2) + 0.2) + 0.3) + 0.1`` -- evaluates to 79.99999999999999.
+    ``composite_score_raw`` rounds that back to exactly 80.0 and tiers S; the
+    unfixed tier CASE saw 79.999... < 80 and published A.
+    """
+    from cvi.core import aggregate
+
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    rec = dc_replace(
+        make_rated_record("snap-1", owner="a", name="cutoff"),
+        pillars=_uniform_pillars(80.0, 1.0),
+    )
+    write_records(conn, "snap-1", [make_repo_write(rec)])
+
+    # All five pillars score 80.0 at full coverage: coverage 1.0 (rated, no
+    # ceiling) and the composite is the weighted mean of five identical 80.0
+    # scores -- mathematically exactly 80.0, the S cutoff.
+    weights = {
+        "responsiveness": 0.2, "criticality": 0.2,
+        "governance": 0.2, "rigor": 0.3, "accessibility": 0.1,
+    }
+    rows, _ = queries.reproject(conn, "snap-1", weights)
+    assert len(rows) == 1
+
+    # Sanity: the raw left-fold the SQL performs really does sit below the
+    # cutoff, while the canonical core rounds it back to exactly 80.0.
+    raw_sql_fold = (
+        ((((0.2 * 80.0 + 0.2 * 80.0) + 0.2 * 80.0) + 0.3 * 80.0) + 0.1 * 80.0)
+        / ((((0.2 + 0.2) + 0.2) + 0.3) + 0.1)
+    )
+    assert raw_sql_fold < 80.0
+    composite_raw = aggregate.composite_score_raw(rec.pillars, weights=weights)
+    assert composite_raw == 80.0
+    expected_tier = aggregate.tier_from_score(composite_raw)
+    assert expected_tier == "S"
+
+    # The displayed CVI is unaffected (still 2 decimals); only the tier moves.
+    assert rows[0]["cvi"] == 80.0
+    assert rows[0]["tier"] == expected_tier == "S"
+
+
+def test_reproject_displayed_cvi_is_two_decimals_even_when_the_float_is_longer(tmp_path) -> None:
+    """AUD-REPROJECT: the tier fix must not change the displayed ``cvi`` --
+    still exactly 2 decimal places (D-AGG-2 / 04 section 8), matching SQLite
+    ``ROUND(..., 2)`` (half away from zero)."""
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    # 0.1 / 0.3 in SQL gives a long float; the tier path now rounds at 12
+    # decimals but the DISPLAYED cvi must stay the 2-decimal SQL round.
+    pillars = _uniform_pillars(82.123456789, 1.0)
+    rec = dc_replace(make_rated_record("snap-1", owner="a", name="cvi-2dp"), pillars=pillars)
+    write_records(conn, "snap-1", [make_repo_write(rec)])
+
+    probe = sqlite3.connect(":memory:")
+    sql_rounded = probe.execute("SELECT ROUND(?, 2)", (82.123456789,)).fetchone()[0]
+    probe.close()
+
+    rows, _ = queries.reproject(conn, "snap-1", {p: 0.2 for p in PILLARS})
+    assert len(rows) == 1
+    assert rows[0]["cvi"] == sql_rounded == 82.12
+    # cvi carries at most 2 decimals regardless of the raw composite's length.
+    assert round(rows[0]["cvi"], 2) == rows[0]["cvi"]

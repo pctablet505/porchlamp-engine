@@ -50,12 +50,15 @@ Import-graph note (`04` section 3; enforced by
 ``tests/core/test_import_graph.py``): this module imports only ``cvi.core``
 (enums, frozen constants, the pillar/param registries) plus the standard
 library -- no ``cvi.collect``, ``cvi.derive`` or ``cvi.serve``. It does NOT
-import ``cvi.core.persona``, and imports exactly ONE name from
+import ``cvi.core.persona``, and imports exactly TWO names from
 ``cvi.core.aggregate``: :func:`~cvi.core.aggregate.validate_pillar_weights`
 (a pure, no-SQL, called-once-per-call validation function that
 :func:`reproject`'s ``_validate_weights`` delegates to rather than carrying
 a second, drifting copy of the non-negativity/sum check that
-``cvi.core.persona``'s presets are validated by). Neither
+``cvi.core.persona``'s presets are validated by), and the constant
+``cvi.core.aggregate.RATIO_DECIMALS`` (the canonical composite-rounding
+precision, so ``reproject``'s score-tier CASE rounds a composite to the same
+digits the core does before comparing it to a tier cutoff). Neither
 ``cvi.core.persona`` nor ``cvi.core.aggregate``'s WEIGHTED-REDUCTION
 functions (``composite_score_raw``/``composite_coverage``) are imported:
 those compute a :class:`~cvi.core.models.ScoreRecord`'s pillars from *raw
@@ -89,7 +92,7 @@ import sqlite3
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from cvi.core import constants
-from cvi.core.aggregate import validate_pillar_weights
+from cvi.core.aggregate import RATIO_DECIMALS, validate_pillar_weights
 from cvi.core.gates import REASON_INSUFFICIENT_EVIDENCE
 from cvi.core.pipeline import DISPLAY_UNRATED_GATE_REASONS
 from cvi.core.params import PARAMS
@@ -853,8 +856,12 @@ def _tier_by_score_case_sql(score_expr: str) -> str:
     """`02` D-MAT-2 tier cutoffs (``constants.TIER_CUTOFFS``, best to
     worst already), mapped to each label's :data:`_TIER_ORDER` position --
     the score-only tier, before the D-MISS-3 coverage ceiling is applied.
-    ``score_expr`` must be the UNROUNDED composite (`04` section 8: tier-
-    cutoff comparisons never use the rounded display value)."""
+    ``score_expr`` must be the composite rounded to ``RATIO_DECIMALS`` -- the
+    same rounding the canonical core applies inside ``composite_score_raw``
+    before ``tier_from_score`` -- so a composite that is mathematically exactly
+    a cutoff but accumulates to a float one ULP below it tiers the same way
+    here as in the core. It must never be the 2-decimal display value (`04`
+    section 8: tier-cutoff comparisons never use the rounded display value)."""
     whens = " ".join(f"WHEN {score_expr} >= {cutoff!r} THEN {_TIER_ORDER.index(label)}" for cutoff, label in _TIER_CUTOFFS)
     floor_index = _TIER_ORDER.index("D")
     return f"(CASE {whens} ELSE {floor_index} END)"
@@ -905,8 +912,9 @@ def reproject(
       already 0.0, so it needs no special case here, unlike the composite).
     - rated iff coverage >= 0.60 (``EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE``).
     - tier: ``MIN(score-tier, ceiling)`` by :data:`_TIER_ORDER` position
-      (`02` D-MAT-2), the score-tier from the UNROUNDED composite
-      (`_tier_by_score_case_sql`) and the ceiling from coverage
+      (`02` D-MAT-2), the score-tier from the composite rounded to
+      ``RATIO_DECIMALS`` (`_tier_by_score_case_sql`, matching the core's
+      ``composite_score_raw`` rounding) and the ceiling from coverage
       (`_ceiling_index_case_sql`) -- `04` section 8's rule that ceiling/tier
       comparisons never use the rounded display value.
     - rank/tie_group: D-TIE-1 with this custom composite/coverage at levels
@@ -977,7 +985,7 @@ def reproject(
 
     visible_sql = f"""
         SELECT *,
-            {_tier_by_score_case_sql("composite_raw")} AS score_tier_index,
+            {_tier_by_score_case_sql(f"ROUND(composite_raw, {RATIO_DECIMALS})")} AS score_tier_index,
             {_ceiling_index_case_sql("coverage_custom")} AS ceiling_index
         FROM ({proj_sql})
         WHERE composite_raw IS NOT NULL AND coverage_custom >= {_RATED_MIN_COVERAGE}
