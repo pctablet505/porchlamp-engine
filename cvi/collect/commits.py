@@ -2,8 +2,11 @@
 
 Collects the trailing 365 d of commits (cap 1,000, newest first) with
 ``commit.author.email``, ``author.login`` and ``author.type`` (``02`` section
-3: "Commits | trailing 365 d (EF, bus factor), trailing 180 d (vitality)"),
-and derives from the typed commit actors:
+3: "Commits | trailing 365 d (EF, bus factor), trailing 180 d (vitality)");
+:func:`collect_commits_365d` records the cap as a fact by returning the
+envelope ``data`` as a window-metadata dict with a ``truncated`` boolean,
+the convention :mod:`cvi.collect.github_graphql` uses for its capped
+windows; and derives from the typed commit actors:
 
 * organisation by email domain (spec 3.2): one corporate-domain org per
   domain; ``users.noreply.github.com`` maps to the author's login (never an
@@ -124,7 +127,7 @@ def shape_commit_rows(raw_commits: Sequence[Mapping[str, Any]]) -> list[dict[str
 def collect_commits_365d(
     fetch_page: Callable[[int, str], Sequence[Mapping[str, Any]]],
     now: Optional[datetime] = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Collect the trailing 365 d of commits, newest first, capped.
 
     ``fetch_page(page, since)`` is the transport boundary: it must return
@@ -134,16 +137,35 @@ def collect_commits_365d(
     :data:`COMMIT_PAGE_SIZE` items or once :data:`COMMIT_CAP` rows are
     gathered; a repo with more commits than the cap records its newest
     :data:`COMMIT_CAP` commits (a sub-365 d slice).
+
+    Returns the envelope ``data`` as a window-metadata dict recording the
+    cap as a fact, the same convention :mod:`cvi.collect.github_graphql`
+    uses for its capped windows: ``count`` (rows kept), ``cap``
+    (:data:`COMMIT_CAP`), ``truncated`` (whether the fetch stopped on the
+    cap, so a cap-hit window is distinguishable from one holding exactly
+    the cap's worth of commits) and ``rows`` (the shaped rows). A
+    truncated window is a biased sample -- the newest :data:`COMMIT_CAP`
+    commits -- and every statistic derived from it inherits that bias.
     """
     now = now or datetime.now(timezone.utc)
     since = (now - timedelta(days=COMMIT_WINDOW_DAYS)).isoformat()
     rows: list[dict[str, Any]] = []
+    truncated = False
     for page in range(1, COMMIT_CAP // COMMIT_PAGE_SIZE + 1):
         raw = list(fetch_page(page, since))
         rows.extend(shape_commit_rows(raw))
-        if len(raw) < COMMIT_PAGE_SIZE or len(rows) >= COMMIT_CAP:
+        if len(raw) < COMMIT_PAGE_SIZE:
             break
-    return rows[:COMMIT_CAP]
+        if len(rows) >= COMMIT_CAP:
+            truncated = True
+            break
+    rows = rows[:COMMIT_CAP]
+    return {
+        "count": len(rows),
+        "cap": COMMIT_CAP,
+        "truncated": truncated,
+        "rows": rows,
+    }
 
 
 def _human_window(records: Sequence[CommitRecord], now: datetime,
@@ -167,13 +189,16 @@ def _human_window(records: Sequence[CommitRecord], now: datetime,
 
 
 def elephant_factor(records: Sequence[CommitRecord], now: datetime,
-                    window_days: int = COMMIT_WINDOW_DAYS) -> int:
+                    window_days: int = COMMIT_WINDOW_DAYS) -> Optional[int]:
     """Spec 3.2: the minimum number of orgs reaching 50% of the attributable
     human commits in the trailing window (365 d by default).
 
     Orgs come from :func:`org_key` over the non-bot commits; greedy
     accumulation from the largest org yields the minimum count; the result
-    is floored at 1 (spec floor).
+    is floored at 1 (spec floor). Returns ``None`` when no non-bot commit in
+    the window resolves to an org at all -- "no attributable commits" is an
+    absence, not the worst measured value of 1 (a single-org project), which
+    the caller must be able to tell apart.
     """
     window = _human_window(records, now, window_days, include_undated=True)
     counts: Counter[str] = Counter()
@@ -183,7 +208,7 @@ def elephant_factor(records: Sequence[CommitRecord], now: datetime,
             counts[org] += 1
     total = sum(counts.values())
     if total == 0:
-        return 1
+        return None
     acc, ef = 0, 0
     for _org, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
         acc += n
@@ -194,13 +219,16 @@ def elephant_factor(records: Sequence[CommitRecord], now: datetime,
 
 
 def bus_factor(records: Sequence[CommitRecord], now: datetime,
-               window_days: int = COMMIT_WINDOW_DAYS) -> int:
+               window_days: int = COMMIT_WINDOW_DAYS) -> Optional[int]:
     """The minimum number of human authors reaching 50% of the attributable
     human commits in the trailing window (365 d by default).
 
     Authors come from :func:`author_key` over the non-bot commits (one
     author per login, else per email address); greedy accumulation from the
     largest author yields the minimum count; the result is floored at 1.
+    Returns ``None`` when no non-bot commit in the window resolves to an
+    author at all -- "no attributable commits" is an absence, not the worst
+    measured value of 1, which the caller must be able to tell apart.
     """
     window = _human_window(records, now, window_days, include_undated=True)
     counts: Counter[str] = Counter()
@@ -210,7 +238,7 @@ def bus_factor(records: Sequence[CommitRecord], now: datetime,
             counts[author] += 1
     total = sum(counts.values())
     if total == 0:
-        return 1
+        return None
     acc, factor = 0, 0
     for _author, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
         acc += n

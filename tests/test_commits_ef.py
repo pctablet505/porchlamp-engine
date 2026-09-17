@@ -150,14 +150,45 @@ def test_bus_factor_counts_individuals_not_orgs():
 
 
 def test_ef_and_bus_floors_and_window():
-    assert cc.elephant_factor([], NOW) == 1
-    assert cc.bus_factor([], NOW) == 1
+    # No attributable commits (empty, only-stale, only-unattributable) is an
+    # absence -> None (B:commits-cap); it is NOT the worst measured value of 1.
+    assert cc.elephant_factor([], NOW) is None
+    assert cc.bus_factor([], NOW) is None
     stale = [rec("a@corp.com", "alice", days_ago=400)]  # outside the 365 d window
-    assert cc.elephant_factor(stale, NOW) == 1
-    assert cc.bus_factor(stale, NOW) == 1
+    assert cc.elephant_factor(stale, NOW) is None
+    assert cc.bus_factor(stale, NOW) is None
     unattributable = [rec("", days_ago=5 + i) for i in range(100)]  # no email/login
-    assert cc.elephant_factor(unattributable, NOW) == 1
-    assert cc.bus_factor(unattributable, NOW) == 1
+    assert cc.elephant_factor(unattributable, NOW) is None
+    assert cc.bus_factor(unattributable, NOW) is None
+    # A genuine single-org project still measures the floor of 1 (see
+    # test_single_org_project_still_measures_one).
+
+
+# --------------------------------------------------------------------------- #
+# Zero attributable commits is an ABSENCE, not the worst measured value (B:commits-cap)
+# --------------------------------------------------------------------------- #
+
+def test_elephant_factor_no_records_is_absence_not_one():
+    # No commit data at all is a different fact from "one org owns everything":
+    # elephant_factor must return None so the caller can tell them apart.
+    assert cc.elephant_factor([], NOW) is None
+
+
+def test_bus_factor_no_records_is_absence_not_one():
+    assert cc.bus_factor([], NOW) is None
+
+
+def test_single_org_project_still_measures_one():
+    # A genuine single-organisation project: every commit is a@corp.com, so
+    # the elephant factor is the real measured floor of 1 (not an absence).
+    single_org = [rec("a@corp.com", f"dev{i % 3}", days_ago=1 + i / 40)
+                  for i in range(50)]
+    assert cc.elephant_factor(single_org, NOW) == 1
+    # The bus factor's floor needs a single *author*: one login owns all 50
+    # commits, so 50% is reached by one author -> bus factor 1.
+    single_author = [rec("a@corp.com", "alice", days_ago=1 + i / 40)
+                     for i in range(50)]
+    assert cc.bus_factor(single_author, NOW) == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -189,8 +220,10 @@ def test_collect_stops_at_short_page_and_shapes_rows():
         calls.append((page, since))
         return [_raw(i, page) for i in range(100 if page < 3 else 40)]
 
-    rows = cc.collect_commits_365d(fetch, now=NOW)
+    data = cc.collect_commits_365d(fetch, now=NOW)
+    rows = data["rows"]
     assert len(rows) == 240
+    assert data["truncated"] is False and data["count"] == 240
     assert [p for p, _ in calls] == [1, 2, 3]
     assert all(s == (NOW - timedelta(days=365)).isoformat() for _, s in calls)
     assert rows[0] == {"date": "2026-09-01T00:00:00Z", "author_email": "u0@corp.com",
@@ -204,9 +237,43 @@ def test_collect_caps_at_1000_commits():
         calls.append(page)
         return [_raw(i, page) for i in range(100)]
 
-    rows = cc.collect_commits_365d(fetch, now=NOW)
-    assert len(rows) == 1000
+    data = cc.collect_commits_365d(fetch, now=NOW)
+    assert len(data["rows"]) == 1000
+    assert data["truncated"] is True  # every page full: the fetch stopped on the cap
     assert calls == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+
+# --------------------------------------------------------------------------- #
+# The cap is a recorded fact (B:commits-cap, second half)                     #
+# --------------------------------------------------------------------------- #
+
+def test_collect_records_truncation_when_cap_hit():
+    def fetch(page: int, since: str):
+        return [_raw(i, page) for i in range(100)]  # every page full
+
+    data = cc.collect_commits_365d(fetch, now=NOW)
+    assert data["truncated"] is True
+    assert data["count"] == cc.COMMIT_CAP == 1000
+    assert data["cap"] == cc.COMMIT_CAP
+    assert len(data["rows"]) == 1000
+
+
+def test_collect_not_truncated_when_under_cap():
+    def fetch(page: int, since: str):
+        return [_raw(i, page) for i in range(100 if page < 3 else 40)]
+
+    data = cc.collect_commits_365d(fetch, now=NOW)
+    assert data["truncated"] is False
+    assert data["count"] == 240 < data["cap"]
+    assert len(data["rows"]) == 240
+
+
+def test_statistics_unchanged_on_normal_multiorg_input():
+    # Regression guard: the two fixes must not move a correct answer on a
+    # normal (untruncated, multi-org, multi-author) input.
+    recs = oracle_three_domains()
+    assert cc.elephant_factor(recs, NOW) == 2
+    assert cc.bus_factor(recs, NOW) == 2
 
 
 def test_shape_handles_unlinked_and_bot_authors():
@@ -358,7 +425,12 @@ def test_gather_hook_writes_commits_365d(tmp_path, monkeypatch, block_live_netwo
     assert st["commits_365d"] == "ok"
     assert st["contributors"] == "skip" and st["downloads"] == "skip"
     env = json.loads((tmp_path / "commits_365d" / f"{KEY}.json").read_text())
-    assert env["data"] == [
+    # collect_commits_365d now returns a window-metadata dict (the cap is a
+    # recorded fact); the shaped rows live under "rows", count < cap so the
+    # window is not truncated.
+    assert env["data"]["truncated"] is False and env["data"]["count"] == 2
+    assert env["data"]["cap"] == cc.COMMIT_CAP
+    assert env["data"]["rows"] == [
         {"date": "2026-09-01T00:00:00Z", "author_email": "u0@corp.com",
          "author_login": "u0", "author_type": "User", "signed_off": False},
         {"date": "2026-09-02T00:00:00Z", "author_email": "n@corp.com",
