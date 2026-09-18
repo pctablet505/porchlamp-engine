@@ -78,6 +78,26 @@ from cvi.collect.envelope import sha256_hex, write_envelope
 
 #: Check evidence comes from the 20 most recent merged PRs.
 MERGED_PR_CAP: int = 20
+
+#: D-COL-12: at most this many DISTINCT head SHAs are probed for check/status
+#: evidence, newest merge first. Each probed SHA costs two REST calls
+#: (``/statuses`` + ``/check-runs``), so the uncapped probe over
+#: ``MERGED_PR_CAP`` PRs was up to 40 calls per repository -- about 45 with the
+#: pulls pages, ~259k for the 5,753-repo universe, ~52 h of a 5,000/h core
+#: budget, which is more than `08` first budgeted for the ENTIRE sweep.
+#: A CLA is a property of the project, not of one pull request: where it is
+#: required its check appears on essentially every external PR, so twenty
+#: probes buy near-duplicate evidence. Five keeps the signal and costs 10 calls.
+CHECK_EVIDENCE_SHA_CAP: int = 5
+
+#: D-COL-12: the fewest distinct probed SHAs that can support the NEGATIVE
+#: finding "this project has no CLA". A positive signal is a measurement from
+#: one probe -- seeing an EasyCLA context proves a CLA exists. Its absence
+#: proves nothing until enough commits were examined, and capping the probe
+#: makes a thin sample more likely (all five newest merges can be maintainers'
+#: own PRs, which carry no CLA check). Below this, 3.1 is an evidence gap
+#: rather than a measured ``NONE``.
+CHECK_EVIDENCE_MIN_SHAS: int = 3
 #: Closed PRs scanned (newest first) to reach the 20 merged: 5 pages of 100.
 PULLS_PAGES_MAX: int = 5
 #: REST pulls page size (GitHub max).
@@ -289,21 +309,51 @@ def _merged_prs(api: RestTransport, owner: str, name: str
     return merged, True
 
 
-def _check_evidence(api: RestTransport, owner: str, name: str,
-                    merged_prs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Status contexts and check-run names on each merged PR's head commit.
+def _distinct_head_shas(merged_prs: Sequence[Mapping[str, Any]]
+                        ) -> list[tuple[str, Mapping[str, Any]]]:
+    """``(sha, pr)`` for each distinct non-empty head SHA, newest merge first.
 
-    One ``/commits/{sha}/statuses`` and one ``/commits/{sha}/check-runs``
-    call per distinct head SHA (GitHub records EasyCLA as a status context
-    and cla-assistant/google-cla as check runs; both are 3.1 evidence).
+    Ordered by ``merged_at`` descending so "newest" is a fact rather than an
+    accident of the pulls listing, which is sorted by CREATION date -- a pull
+    request opened earlier can be merged later, so the two orders differ.
+    Entries with no ``merged_at`` sort last rather than being dropped.
     """
-    checks: list[dict[str, Any]] = []
+    ordered = sorted(
+        merged_prs,
+        key=lambda pr: (str(pr.get("merged_at") or ""), str(pr.get("number") or "")),
+        reverse=True,
+    )
+    out: list[tuple[str, Mapping[str, Any]]] = []
     seen: set[str] = set()
-    for pr in merged_prs:
+    for pr in ordered:
         sha = str(pr.get("head_sha") or "")
         if not sha or sha in seen:
             continue
         seen.add(sha)
+        out.append((sha, pr))
+    return out
+
+
+def _check_evidence(api: RestTransport, owner: str, name: str,
+                    merged_prs: Sequence[Mapping[str, Any]]
+                    ) -> tuple[list[dict[str, Any]], int, int]:
+    """Status contexts and check-run names on merged PRs' head commits.
+
+    Returns ``(checks, shas_probed, shas_available)``. Two REST calls per
+    probed SHA -- ``/commits/{sha}/statuses`` and ``/commits/{sha}/check-runs``
+    (GitHub records EasyCLA as a status context and cla-assistant/google-cla as
+    check runs; both are 3.1 evidence) -- over at most
+    :data:`CHECK_EVIDENCE_SHA_CAP` distinct SHAs, newest merge first (D-COL-12).
+    ``shas_available`` is how many distinct SHAs there were to choose from, so
+    a reader can tell "looked at 5 of 5" from "looked at 5 of 20"; a SHA whose
+    commit 404s is counted as probed, because the call was spent.
+    """
+    checks: list[dict[str, Any]] = []
+    distinct = _distinct_head_shas(merged_prs)
+    shas_available = len(distinct)
+    shas_probed = 0
+    for sha, pr in distinct[:CHECK_EVIDENCE_SHA_CAP]:
+        shas_probed += 1
         try:
             statuses = api.call(f"repos/{owner}/{name}/commits/{sha}/statuses",
                                 {"per_page": "100"}) or []
@@ -331,7 +381,7 @@ def _check_evidence(api: RestTransport, owner: str, name: str,
                 "pr": pr.get("number"),
                 "sha": sha,
             })
-    return checks
+    return checks, shas_probed, shas_available
 
 
 def _row_sequence(rows: Optional[Any]) -> Optional[Sequence[Mapping[str, Any]]]:
@@ -399,7 +449,7 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
     fetch_file = fetch_file or fetch_file_text(owner, name)
 
     merged_prs, pulls_available = _merged_prs(api, owner, name)
-    checks = _check_evidence(api, owner, name, merged_prs)
+    checks, shas_probed, shas_available = _check_evidence(api, owner, name, merged_prs)
     files: dict[str, Optional[dict[str, Any]]] = {}
     for fname in (*GOVERNANCE_FILES, *AI_POLICY_FILES):
         body = fetch_file(fname)
@@ -409,6 +459,10 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
         "merged_pr_cap": MERGED_PR_CAP,
         "merged_prs": merged_prs,
         "checks": checks,
+        # D-COL-12: what the check evidence actually rests on.
+        "check_sha_cap": CHECK_EVIDENCE_SHA_CAP,
+        "checks_shas_probed": shas_probed,
+        "checks_shas_available": shas_available,
         "check_names": sorted({c["name"] for c in checks if c["name"]}),
         "files": files,
     }
@@ -630,6 +684,28 @@ def derive_governance_fields(gov: Optional[Mapping[str, Any]],
     else:
         legal, legal_ev = classify_legal_ip(check_names, signoff, foundation_owner)
         legal_conf = "derived"
+        # D-COL-12. A POSITIVE finding stands on one probe: an EasyCLA context
+        # proves a CLA exists no matter how few commits were examined, and a
+        # DCO sign-off share is computed from commits_365d, not from the probe
+        # at all. Only the NEGATIVE default -- rule "no_evidence", i.e. "we saw
+        # no CLA check, therefore NONE" -- depends on having examined enough
+        # commits, and capping the probe at CHECK_EVIDENCE_SHA_CAP makes a thin
+        # sample likelier (the newest merges can all be maintainers' own PRs,
+        # which carry no CLA check). Below CHECK_EVIDENCE_MIN_SHAS distinct
+        # probed SHAs that is absence of evidence, not evidence of absence, so
+        # 3.1 becomes an evidence gap instead of a measured NONE.
+        # A governance envelope written before this field existed does not
+        # record the count; treat that as "not recorded" and leave the old
+        # behaviour, rather than retroactively gapping an existing corpus.
+        probed = (gov or {}).get("checks_shas_probed")
+        if (legal_ev.get("rule") == "no_evidence" and isinstance(probed, int)
+                and probed < CHECK_EVIDENCE_MIN_SHAS):
+            legal_ev = {**legal_ev,
+                        "reason": (f"only {probed} distinct head SHA(s) probed for check evidence; "
+                                   f"{CHECK_EVIDENCE_MIN_SHAS} are needed to conclude no CLA"),
+                        "checks_shas_probed": probed,
+                        "checks_shas_available": (gov or {}).get("checks_shas_available")}
+            legal_conf = "missing"
 
     if prw is None and gov is None:
         ladder, ladder_ev, ladder_conf = (

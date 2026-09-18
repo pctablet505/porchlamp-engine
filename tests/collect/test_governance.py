@@ -134,7 +134,10 @@ def test_collect_governance_envelope_evidence(tmp_path):
                   head=f"h{i:02d}") for i in range(22, 0, -1)]
     statuses = {f"h{i:02d}": [_status("EasyCLA"), _status("tide")]
                 for i in range(0, 20, 3)}
-    runs = {f"h{i:02d}": [_checkrun("cla")] for i in range(0, 20, 7)}
+    # h20 is inside the newest-CHECK_EVIDENCE_SHA_CAP window (h22..h18), so this
+    # fixture still exercises BOTH evidence kinds under D-COL-12's cap; the
+    # older entries (h00/h07/h14) are deliberately outside it.
+    runs = {f"h{i:02d}": [_checkrun("cla")] for i in (0, 7, 14, 20)}
     fake = FakeApi([pulls], statuses, runs)
     bodies = {"GOVERNANCE.md": "governance body\n", "AI_POLICY.md": "ai body\n"}
 
@@ -151,7 +154,20 @@ def test_collect_governance_envelope_evidence(tmp_path):
     assert len(d["merged_prs"]) == gov.MERGED_PR_CAP
     assert [p["number"] for p in d["merged_prs"]] == list(range(22, 2, -1))
     assert d["merged_prs"][0]["head_sha"] == "h22"
+    # D-COL-12: only the newest CHECK_EVIDENCE_SHA_CAP distinct head SHAs are
+    # probed. Evidence on older commits is no longer collected -- that is the
+    # trade the cap makes -- so the fixture places one check-run inside the
+    # probed window to keep both evidence kinds covered. What must NOT change
+    # is the verdict, asserted directly below: the capped sample classifies
+    # this repository identically to the full uncapped set, which is the whole
+    # argument for the cap (twenty probes bought near-duplicate evidence at
+    # four times the API cost).
     assert "EasyCLA" in d["check_names"] and "tide" in d["check_names"] and "cla" in d["check_names"]
+    assert d["checks_shas_probed"] == gov.CHECK_EVIDENCE_SHA_CAP
+    assert d["checks_shas_available"] == gov.MERGED_PR_CAP
+    assert (gov.classify_legal_ip(d["check_names"], None, False)[0]
+            == gov.classify_legal_ip(["EasyCLA", "tide", "cla"], None, False)[0]), \
+        "the capped sample must reach the same legal-IP verdict as the full one"
     assert d["check_names"] == sorted(set(d["check_names"]))
     kinds = {(c["name"], c["kind"]) for c in d["checks"]}
     assert ("EasyCLA", "status") in kinds and ("cla", "check_run") in kinds
@@ -966,3 +982,125 @@ def test_gather_repo_governance_status_fail(tmp_path, monkeypatch, block_live_ne
     monkeypatch.setattr(gov, "collect_governance", raise_transport_error)
     status = gather.gather_repo(OWNER, NAME, "pypi")
     assert status["governance"] == "fail"
+
+
+# =========================================================================== #
+# D-COL-12: the check-evidence probe is capped, and a thin sample cannot
+# support the negative finding "this project has no CLA".
+# =========================================================================== #
+
+def _check_evidence_calls(fake: "FakeApi") -> list[str]:
+    """The probe's own REST calls, i.e. everything but the pulls listing."""
+    return [path for path, _ in fake.calls if "/commits/" in path]
+
+
+def _twenty_distinct_sha_prs() -> list[dict]:
+    """20 merged PRs with 20 distinct head SHAs, newest merge LAST in the list
+    so a correct implementation cannot pass by taking the first five."""
+    return [
+        _pr(i, f"2026-08-{i:02d}T00:00:00Z", f"2026-09-{i:02d}T00:00:00Z", head=f"sha{i:02d}")
+        for i in range(1, 21)
+    ]
+
+
+def test_check_evidence_probe_is_capped(tmp_path):
+    """D-COL-12: at most CHECK_EVIDENCE_SHA_CAP distinct SHAs are probed, so
+    the collector costs 2*cap calls rather than 2 per merged PR."""
+    prs = _twenty_distinct_sha_prs()
+    recorded = {f"sha{i:02d}": [_status("ci/build")] for i in range(1, 21)}
+    fake = FakeApi([prs, []], statuses_by_sha=recorded, checkruns_by_sha={})
+    assert gov.collect_governance(tmp_path / "raw", OWNER, NAME, now=NOW,
+                                  api=fake, fetch_file=lambda p: None) == "ok"
+    calls = _check_evidence_calls(fake)
+    assert len(calls) <= 2 * gov.CHECK_EVIDENCE_SHA_CAP, (
+        f"probe made {len(calls)} calls for 20 distinct SHAs; the cap is "
+        f"{gov.CHECK_EVIDENCE_SHA_CAP} SHAs = {2 * gov.CHECK_EVIDENCE_SHA_CAP} calls"
+    )
+
+
+def test_check_evidence_probes_the_newest_merges(tmp_path):
+    """Newest by merged_at, not by creation order or list order: the pulls
+    listing is sorted by CREATION date, and a PR opened earlier can merge later."""
+    prs = _twenty_distinct_sha_prs()  # merged_at ascending, so the newest are last
+    recorded = {f"sha{i:02d}": [_status("ci/build")] for i in range(1, 21)}
+    fake = FakeApi([prs, []], statuses_by_sha=recorded, checkruns_by_sha={})
+    gov.collect_governance(tmp_path / "raw", OWNER, NAME, now=NOW,
+                           api=fake, fetch_file=lambda p: None)
+    probed = {path.split("/commits/")[1].split("/")[0] for path in _check_evidence_calls(fake)}
+    newest = {f"sha{i:02d}" for i in range(21 - gov.CHECK_EVIDENCE_SHA_CAP, 21)}
+    assert probed == newest, f"probed {sorted(probed)}, expected the newest merges {sorted(newest)}"
+
+
+def test_check_evidence_collapses_duplicate_shas(tmp_path):
+    """Twenty PRs sharing three head SHAs probe three, not the cap."""
+    prs = [_pr(i, f"2026-08-{i:02d}T00:00:00Z", f"2026-09-{i:02d}T00:00:00Z",
+               head=f"dup{i % 3}") for i in range(1, 21)]
+    recorded = {f"dup{i}": [_status("ci/build")] for i in range(3)}
+    fake = FakeApi([prs, []], statuses_by_sha=recorded, checkruns_by_sha={})
+    gov.collect_governance(tmp_path / "raw", OWNER, NAME, now=NOW,
+                           api=fake, fetch_file=lambda p: None)
+    probed = {path.split("/commits/")[1].split("/")[0] for path in _check_evidence_calls(fake)}
+    assert probed == {"dup0", "dup1", "dup2"}
+    data = read_envelope(tmp_path / "raw" / "governance" / f"{KEY}.json").data
+    assert data["checks_shas_probed"] == 3
+    assert data["checks_shas_available"] == 3
+
+
+def test_envelope_records_what_the_evidence_rests_on(tmp_path):
+    """A reader must be able to tell "5 of 5" from "5 of 20"."""
+    prs = _twenty_distinct_sha_prs()
+    recorded = {f"sha{i:02d}": [_status("ci/build")] for i in range(1, 21)}
+    fake = FakeApi([prs, []], statuses_by_sha=recorded, checkruns_by_sha={})
+    gov.collect_governance(tmp_path / "raw", OWNER, NAME, now=NOW,
+                           api=fake, fetch_file=lambda p: None)
+    data = read_envelope(tmp_path / "raw" / "governance" / f"{KEY}.json").data
+    assert data["check_sha_cap"] == gov.CHECK_EVIDENCE_SHA_CAP
+    assert data["checks_shas_probed"] == gov.CHECK_EVIDENCE_SHA_CAP
+    assert data["checks_shas_available"] == 20
+
+
+def _gov_with_probe(probed: int, available: int, check_names: list[str]) -> dict:
+    """A governance envelope body carrying only what row 3.1 reads."""
+    return {"files": {}, "check_names": check_names,
+            "checks_shas_probed": probed, "checks_shas_available": available}
+
+
+def test_enough_probes_and_no_cla_is_a_measurement(tmp_path):
+    """Evidence of absence: the cap's worth of SHAs carrying no CLA check
+    measures NONE. It is not a gap -- we looked, and there was nothing."""
+    fields = gov.derive_governance_fields(
+        _gov_with_probe(gov.CHECK_EVIDENCE_SHA_CAP, 20, ["ci/build", "lint"]), None, None, False)
+    value, confidence = fields["legal_ip"]
+    assert value == "NONE"
+    assert confidence == "derived", "a probed-and-empty sample is a measurement, not a gap"
+
+
+def test_too_few_probes_and_no_cla_is_an_evidence_gap(tmp_path):
+    """Absence of evidence: below CHECK_EVIDENCE_MIN_SHAS the negative finding
+    is not supported, so 3.1 is Unmeasured rather than a measured NONE."""
+    probed = gov.CHECK_EVIDENCE_MIN_SHAS - 1
+    fields = gov.derive_governance_fields(
+        _gov_with_probe(probed, 1, ["ci/build"]), None, None, False)
+    value, confidence = fields["legal_ip"]
+    assert confidence == "missing", (
+        f"{probed} probed SHAs cannot support 'no CLA'; expected an evidence gap, got {value!r}"
+    )
+    assert str(probed) in str(fields["legal_ip_evidence"][0]["reason"])
+
+
+def test_a_positive_cla_signal_stands_on_one_probe(tmp_path):
+    """A positive finding needs no minimum: seeing an EasyCLA context proves a
+    CLA exists however few commits were examined."""
+    fields = gov.derive_governance_fields(
+        _gov_with_probe(1, 1, ["EasyCLA"]), None, None, False)
+    value, confidence = fields["legal_ip"]
+    assert confidence == "derived"
+    assert value != "NONE", "a CLA check is evidence regardless of sample size"
+
+
+def test_an_envelope_without_the_probe_count_keeps_the_old_behaviour(tmp_path):
+    """A governance envelope written before D-COL-12 records no count; that is
+    'not recorded', not 'too few', so it must not be retroactively gapped."""
+    fields = gov.derive_governance_fields({"files": {}, "check_names": []}, None, None, False)
+    value, confidence = fields["legal_ip"]
+    assert (value, confidence) == ("NONE", "derived")
