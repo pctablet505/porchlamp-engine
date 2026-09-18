@@ -195,7 +195,7 @@ silently old — and the snapshot still builds. Because fingerprints advance
 watermarks (D-COL-1), only a repo the fingerprint pass itself could not reach
 can go stale.
 
-**D-COL-12 Governance evidence is sampled, not enumerated.** Two REST calls per
+**D-COL-12 Governance evidence is sampled, not enumerated.** *(IMPLEMENTED 2026-09-18, `bca16dd`; measured 40 probe calls → 10 with a counting fake transport.)* Two REST calls per
 head SHA across 20 merged PRs is 40 of governance's ~45 calls/repo, and it buys
 a CLA/check-name classification from a sample the audit (`B6`) showed is too
 thin to support `legal_ip` and `promotion_ladder` anyway. Cap the SHA probe at

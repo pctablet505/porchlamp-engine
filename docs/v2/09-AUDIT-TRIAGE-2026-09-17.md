@@ -294,3 +294,49 @@ The hash does not move, verified three ways rather than claimed:
 batch-1 packets are in.** `main` at `08032e3`: **2,712 passed, 1 skipped,
 1 xfailed, 0 failed**, ruff clean — the first fully green full-suite run of this
 session, including the JavaScript layer that had never executed on this host.
+
+## D-COL-12 landed ahead of the layer that needed it (2026-09-18)
+
+The live collection run reaches L3 — the layer carrying `governance` — in about
+three hours, and `governance` was the single most expensive thing in the plan.
+The local model server went down mid-dispatch (`503 … main slot: empty`, a
+clean stop with the GPU fully released, no Xid), so I implemented D-COL-12
+myself rather than load a 94 GB model unasked. The data collection itself never
+needed the model: it is pure GitHub API work.
+
+Measured with a counting fake transport on 20 merged PRs with 20 distinct head
+SHAs, not estimated:
+
+| | total calls | probe calls |
+| --- | --- | --- |
+| before | 41 | 40 |
+| after | 11 | 10 |
+
+At ~45 core calls/repo that was ~259,000 calls and ~52 h of a 5,000/h budget;
+at ~15 it is ~86,000 and ~17 h, taking L3 from roughly 63 h to 28 h.
+
+Two consequences of capping, both handled rather than ignored:
+
+- **"Newest" had to become a fact.** The pulls listing is sorted by *creation*
+  date and a PR opened earlier can merge later, so the probe now sorts
+  explicitly by `merged_at` descending.
+- **A thin sample cannot support a negative finding.** Capping makes it likelier
+  that every probed merge is a maintainer's own PR, which carries no CLA check.
+  A *positive* signal still stands on one probe — an EasyCLA context proves a
+  CLA exists, and a DCO sign-off share comes from `commits_365d`, not from the
+  probe at all — but the `no_evidence → NONE` default now needs 3 distinct
+  probed SHAs, else row 3.1 is an evidence gap. Evidence of absence and absence
+  of evidence are different claims and are now scored differently.
+
+The equivalence argument is asserted, not assumed: the existing envelope test
+now checks that the capped sample reaches the *same* legal-IP verdict
+(`FOUNDATION_CLA` via `foundation_cla_check`) as the full uncapped set, and its
+fixture was extended so both evidence kinds still fall inside the probed
+window rather than losing that coverage.
+
+The three p95 timing tests fail while this is written. That is host load from
+**another project** — AlgoTrading's pytest at 213 % and 186 % CPU on a 32-core
+box, load average 90.5 — not a regression: this change touches only
+`cvi/collect/governance.py`, while those tests import
+`cvi.core.params.governance` and `cvi.pillars.governance`, different modules
+entirely.
