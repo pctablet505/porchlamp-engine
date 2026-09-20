@@ -195,6 +195,30 @@ silently old — and the snapshot still builds. Because fingerprints advance
 watermarks (D-COL-1), only a repo the fingerprint pass itself could not reach
 can go stale.
 
+**D-COL-13 Read the budget from response headers, never from `/rate_limit`.**
+*(MEASURED 2026-09-20 on the live token; this invalidates the naive reading of
+D-COL-10.)* `GET /rate_limit` is untrustworthy for this credential: its body
+**and its own response headers** report a fresh, empty window on every call
+(`remaining=5000`, `used=0`, reset ≈ now+60 min), while the bucket that real
+calls consume read `remaining=4283`, `used=717` at the same instant — two
+different reset epochs, 32 minutes apart. Proof: five consecutive
+`gh api repos/dtolnay/syn` calls moved `/rate_limit` not at all, while
+`X-Ratelimit-Remaining` on those responses went 4344 → 4342. Therefore the
+D-COL-10 reserve must be computed from the `X-Ratelimit-Remaining` /
+`X-Ratelimit-Reset` headers of a real request (and from GraphQL's own
+`rateLimit { remaining resetAt }` field for points), at a cost of one call plus
+one point per sample. A scheduler that polls `/rate_limit` will believe it has
+a full budget forever and will drive straight into 403s.
+
+Consequence already paid: the BFS sweep's guard (`gather_layer.sh`) sampled
+`/rate_limit`, so for all of L1 and L2 it was **inert** — 1,116 samples all read
+5000/5000, meaning the sleep-to-reset path and the in-run stop could never fire.
+The only protection that actually worked was the 403/429 WARN-streak detector.
+Fixed 2026-09-20. Note the failure was silent and self-congratulatory: the run
+log recorded "the guard has never had to intervene", which reads as evidence of
+headroom and is in fact evidence of a broken instrument — the
+[broken-measurements-fail-downward] pattern.
+
 **D-COL-12 Governance evidence is sampled, not enumerated.** *(IMPLEMENTED 2026-09-18, `bca16dd`; measured 40 probe calls → 10 with a counting fake transport.)* Two REST calls per
 head SHA across 20 merged PRs is 40 of governance's ~45 calls/repo, and it buys
 a CLA/check-name classification from a sample the audit (`B6`) showed is too
