@@ -30,6 +30,7 @@ from cvi.collect.envelope import write_envelope
 # (both 0.15, the same GitHub core-API rate limit) -- one definition imported
 # under this file's existing name.
 from cvi.collect.pike_signals import SLEEP_CORE_SECONDS as SLEEP_REST
+from cvi.collect.user_cache import UserCache
 from cvi.paths import data_root
 
 DATA = data_root() / "raw"
@@ -88,6 +89,20 @@ def _env(collector: str, key: str, source: str, data: Any,
 
 def _done(collector: str, key: str, force: bool) -> bool:
     return (DATA / collector / f"{key}.json").is_file() and not force
+
+
+_USER_CACHE: Optional[UserCache] = None
+
+
+def _user_cache() -> UserCache:
+    """The D-COL-5 user cache (``08``), one per process, at
+    ``<data_root>/state/users`` -- derived from ``DATA`` on every call, so
+    a caller that points ``DATA`` elsewhere gets a cache beside it."""
+    global _USER_CACHE
+    root = DATA.parent / "state" / "users"
+    if _USER_CACHE is None or _USER_CACHE.root != root:
+        _USER_CACHE = UserCache(root)
+    return _USER_CACHE
 
 
 def _gh(*args: str) -> Any:
@@ -450,7 +465,8 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     else:
         from cvi.collect import github_graphql as cohort_mod
         try:
-            status["author_history"] = cohort_mod.collect_author_history(DATA, owner, name)
+            status["author_history"] = cohort_mod.collect_author_history(
+                DATA, owner, name, user_cache=_user_cache())
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["author_history"] = "fail"
             print(f"  WARN author_history {owner}/{name}: {e}")
@@ -534,6 +550,8 @@ def main() -> int:
         ok += not bad
         fail += bool(bad)
         print(f"{owner}/{name} [{eco}]: {'OK' if not bad else 'FAIL ' + ','.join(bad)}")
+    if _USER_CACHE is not None:
+        print(_USER_CACHE.summary())
     print(f"done: {ok} clean, {fail} with failures")
     return 0
 

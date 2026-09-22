@@ -19,6 +19,8 @@ import pytest
 
 from cvi.collect import github_graphql as gql
 from cvi.collect.envelope import envelope_hash, read_envelope, write_envelope
+from cvi.collect import user_cache as gql_user_cache
+from cvi.collect.user_cache import UserCache
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 NOW = datetime(2026, 9, 12, 0, 0, 0, tzinfo=timezone.utc)
@@ -439,6 +441,28 @@ def test_gather_repo_pr_window_status_fail(tmp_path, monkeypatch, block_live_net
     assert status["pr_window"] == "fail"
 
 
+def test_gather_passes_one_user_cache_beside_data(tmp_path, monkeypatch, block_live_network):
+    """author_history gets the D-COL-5 cache at ``<data_root>/state/users``,
+    derived from ``DATA`` (so a test's tree, never the real one), and the
+    SAME cache object for every repo of a run -- a fresh cache per repo
+    would silently turn the universe-wide lookup back into a per-repo one."""
+    gather.DATA = tmp_path / "raw"
+    seen = []
+
+    def fake_collect(raw_dir, owner, name, **kwargs):
+        seen.append(kwargs.get("user_cache"))
+        return "ok"
+
+    monkeypatch.setattr(gql, "collect_author_history", fake_collect)
+    only = frozenset({"author_history"})
+    assert gather.gather_repo("acme", "widget", "pypi", collectors=only)["author_history"] == "ok"
+    assert gather.gather_repo("acme", "gadget", "pypi", collectors=only)["author_history"] == "ok"
+    assert len(seen) == 2
+    assert seen[0] is seen[1]
+    assert isinstance(seen[0], UserCache)
+    assert seen[0].root == tmp_path / "state" / "users"
+
+
 # --- the append-only derive hook ---------------------------------------------------
 
 def _write_pr_window_envelope(raw: Path) -> None:
@@ -558,6 +582,23 @@ class ResourceLimited:
 RESOURCE_LIMITED = ResourceLimited()
 
 
+class NoDataBody:
+    """Sentinel: a batched search that includes this login answers with a
+    body carrying neither ``data`` nor ``errors`` (GitHub's rate-limit
+    answer) -- nothing in the call resolves."""
+
+
+NO_DATA_BODY = NoDataBody()
+
+
+class DataWithError:
+    """Sentinel: this login's alias carries ``value`` AND an ``errors``
+    entry addressed inside it -- partial data from a failed search."""
+
+    def __init__(self, value: dict):
+        self.value = value
+
+
 class ResolvesBelowWidth:
     """Sentinel: this login's alias errors with GitHub's
     resource-budget message whenever the CURRENT query has more than
@@ -573,12 +614,18 @@ class ResolvesBelowWidth:
 
 class W4Transport:
     """Recorded-response transport for the author section: scripted window
-    pages, per-author search nodes, and per-login eligibility documents
-    served through the batched ``AuthorEligibilityBatch`` alias
-    query, with scripted point cost and ``remaining``. An unrecorded author
-    is a failure, not a default; ``None`` for a login's search response
-    simulates a GraphQL "could not resolve" error (a deleted/renamed
-    account).
+    pages, per-author search nodes served through the batched
+    ``AuthorPrsSearchBatch`` alias query, and per-login eligibility
+    documents served through the batched ``AuthorEligibilityBatch`` alias
+    query, with scripted point cost and ``remaining`` per call. An
+    unrecorded author is a failure, not a default. ``None`` for a login's
+    search makes its alias null with an ``errors`` entry addressed to it
+    (one failed search inside a batch that still resolves the others);
+    ``NO_DATA_BODY`` makes the whole call answer with a rate-limit body;
+    ``search_raise_on_call`` (0-indexed search-call numbers) makes the
+    transport itself raise. MEASURED 2026-09-22: a search for a login that
+    does not exist answers ``{"nodes": []}`` with no error, so that case is
+    scripted as an empty node list, not as ``None``.
 
     Eligibility responses are LIVE-shaped. ``None`` for a login's user
     document produces a null alias PLUS a path-addressed ``errors`` entry
@@ -595,19 +642,23 @@ class W4Transport:
     """
 
     def __init__(self, window_pages, window_costs, window_remaining, searches, users,
-                search_meta=None, eligibility_batch_meta=None,
-                eligibility_raise_on_call=None):
+                search_batch_meta=None, eligibility_batch_meta=None,
+                eligibility_raise_on_call=None, search_raise_on_call=None):
         self.window_pages = list(window_pages)
         self.window_costs = list(window_costs)
         self.window_remaining = list(window_remaining)
         self.searches = dict(searches)
         self.users = dict(users)
-        self.search_meta = dict(search_meta or {})
+        self.search_batch_meta = list(search_batch_meta or [])
         self.eligibility_batch_meta = list(eligibility_batch_meta or [])
         self.eligibility_raise_on_call = set(eligibility_raise_on_call or ())
+        self.search_raise_on_call = set(search_raise_on_call or ())
         self.calls: list[tuple[str, dict]] = []
         self.eligibility_batch_sizes: list[int] = []
+        self.search_batch_sizes: list[int] = []
+        self.searched_logins: list[str] = []
         self._eligibility_batches = 0
+        self._search_batches = 0
 
     def execute(self, query: str, variables: dict) -> dict:
         self.calls.append((query, dict(variables)))
@@ -617,14 +668,50 @@ class W4Transport:
             return {"data": {"rateLimit": {"cost": self.window_costs[n - 1],
                                           "remaining": self.window_remaining[n - 1]},
                             "r": {"pullRequests": self.window_pages[n - 1]}}}
-        if "search(query" in query:
-            login = variables["q"].rsplit("author:", 1)[-1]
-            assert login in self.searches, f"unrecorded search for {login}"
-            if self.searches[login] is None:
-                return {"errors": [{"message": f"Could not resolve to a User "
-                                              f"with the login of '{login}'."}]}
-            return {"data": {"rateLimit": self.search_meta.get(login, {"cost": 1, "remaining": 999}),
-                            "s": self.searches[login]}}
+        if "AuthorPrsSearchBatch" in query:
+            batch_idx = self._search_batches
+            self._search_batches += 1
+            n = sum(1 for key in variables if key.startswith("q"))
+            self.search_batch_sizes.append(n)
+            # Parse the query text itself: every alias s{i} paired with $q{i},
+            # exactly n of them, all sharing the one $first variable.
+            for i in range(n):
+                assert f"s{i}: search(query: $q{i}, type: ISSUE, first: $first)" in query, \
+                    f"alias s{i} not paired with $q{i} in query text"
+            assert query.count("search(query:") == n
+            assert variables["first"] == gql.AUTHOR_SEARCH_FIRST
+            if batch_idx in self.search_raise_on_call:
+                raise RuntimeError("gh api graphql rc=1: simulated transport failure")
+            data: dict = {}
+            errors: list[dict] = []
+            for i in range(n):
+                q = variables[f"q{i}"]
+                assert q.startswith("repo:acme/") and " is:pr author:" in q, q
+                login = q.rsplit("author:", 1)[-1]
+                assert login in self.searches, f"unrecorded search for {login}"
+                self.searched_logins.append(login)
+                val = self.searches[login]
+                if val is NO_DATA_BODY:
+                    # A secondary-rate-limit answer: JSON, but neither data
+                    # nor errors -- the whole call carries nothing.
+                    return {"message": "You have exceeded a secondary rate limit."}
+                if val is None:
+                    data[f"s{i}"] = None
+                    errors.append({"path": [f"s{i}"],
+                                  "message": "Something went wrong while executing your query."})
+                elif isinstance(val, DataWithError):
+                    data[f"s{i}"] = val.value
+                    errors.append({"path": [f"s{i}", "nodes", 0],
+                                  "message": "Something went wrong while executing your query."})
+                else:
+                    data[f"s{i}"] = val
+            data["rateLimit"] = (self.search_batch_meta[batch_idx]
+                                 if batch_idx < len(self.search_batch_meta)
+                                 else {"cost": 1, "remaining": 999})
+            doc = {"data": data}
+            if errors:
+                doc["errors"] = errors
+            return doc
         if "AuthorEligibilityBatch" in query:
             batch_idx = self._eligibility_batches
             self._eligibility_batches += 1
@@ -676,7 +763,7 @@ class W4Transport:
 
     @property
     def n_search_calls(self) -> int:
-        return sum(1 for q, _ in self.calls if "search(query" in q)
+        return sum(1 for q, _ in self.calls if "AuthorPrsSearchBatch" in q)
 
     @property
     def n_eligibility_batch_calls(self) -> int:
@@ -811,9 +898,9 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
                 "contributionsCollection": {"contributionCalendar": {"totalContributions": 200}}},
     }
     fake = W4Transport(_w4_main_window_pages(), [10, 12], [4990, 4980], searches, users,
-                       search_meta={"ext1": {"cost": 2, "remaining": 4978},
-                                   "new1": {"cost": 1, "remaining": 4977},
-                                   "new2": {"cost": 1, "remaining": 4976}},
+                       search_batch_meta=[{"cost": 2, "remaining": 4978},
+                                         {"cost": 1, "remaining": 4977},
+                                         {"cost": 1, "remaining": 4976}],
                        eligibility_batch_meta=[{"cost": 1, "remaining": 4971},
                                               {"cost": 1, "remaining": 4970},
                                               {"cost": 1, "remaining": 4969}])
@@ -827,11 +914,12 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
     assert d["cap"] == 500
     assert d["count"] == 6
     assert d["truncated"] is False
-    # 10+12 window points; ext1 search(2)+new2 search(1) [new1's search
-    # fails before its cost/remaining are read -> +0]; the fresh batch
-    # resolves ext1/new2 but leaves new1 unresolved, which is then retried alone
-    # at width 5 and width 1 before giving up — 3 eligibility calls, 1 pt each.
-    assert d["cost_points"] == 28
+    # 10+12 window points; searches: ONE batched call for ext1/new1/new2
+    # (2 pts) resolves ext1 and new2, and new1's failed alias is retried
+    # alone at width 5 and width 1 (1 pt each) -> 4; eligibility: the fresh
+    # batch resolves ext1/new2 and new1 is retried the same way -> 3 calls,
+    # 1 pt each. A failed alias still costs its call's points.
+    assert d["cost_points"] == 29
     # the last (width-1) retry call executes last.
     assert d["rate_limit_remaining"] == 4969
     # 2 band candidates, under the 20-author cap: both kept, sorted by
@@ -847,17 +935,20 @@ def test_collect_author_history_envelope_union_sample_and_cost(tmp_path):
                                     {"number": 103, "createdAt": "2026-05-15T00:00:00Z",
                                      "closedAt": None, "mergedAt": None, "state": "OPEN"}],
                             "history_unmeasured": False, "history_unsampled": False,
-                            "eligibility_unmeasured": False}
+                            "eligibility_unmeasured": False,
+                            "eligibility_observed_at": NOW.isoformat()}
     # new1's search failed (history_unmeasured) and its eligibility alias
     # came back unresolved (eligibility_unmeasured) — degraded to no
     # history/account, not a crash.
     assert recs["new1"] == {"login": "new1", "account_created_at": None,
                             "public_event_count": None, "prs": [],
                             "history_unmeasured": True, "history_unsampled": False,
-                            "eligibility_unmeasured": True}
+                            "eligibility_unmeasured": True,
+                            "eligibility_observed_at": None}
     assert recs["new2"]["history_unmeasured"] is False
     assert recs["new2"]["eligibility_unmeasured"] is False
     assert len(fake.calls) == 8  # 2 window + 3 search + 3 eligibility calls
+    assert fake.search_batch_sizes == [3, 1, 1]  # one batch, then new1 alone twice
     assert fake.n_eligibility_batch_calls == 3
     assert gql.collect_author_history(raw, "acme", "widget", now=NOW,
                                       transport=fake) == "skip"
@@ -1073,7 +1164,9 @@ def test_collect_author_history_search_cap_marks_unsampled_authors(tmp_path):
     unsampled = [login for login, r in recs.items() if r["history_unsampled"]]
     assert len(sampled) == 50
     assert len(unsampled) == 10
-    assert fake.n_search_calls == 50  # only the sampled authors are searched
+    # only the sampled authors are searched, each once, 25 to a call
+    assert sorted(fake.searched_logins) == sorted(sampled)
+    assert fake.search_batch_sizes == [25, 25]
     assert set(sampled) == set(gql._seeded_sample(sorted(recs), gql.AUTHOR_SEARCH_CAP))
     assert fake.n_eligibility_batch_calls == 4  # ceil(60 / 15): every author, uncapped
 
@@ -1097,6 +1190,238 @@ def test_dr90_unaffected_by_search_cap(tmp_path):
     assert fields["dr90_decision_rate_raw"] == (1.0, "derived")
     assert fields["dr90_decision_pr_count_author_history_cohort"] == (60, "derived")
     assert fields["dr90_decision_rate_author_history_cohort"] == (1.0, "derived")
+
+
+# --- Batched per-author searches (AUTHOR_SEARCH_BATCH_SIZE) -----------------
+
+def _decision_authors(logins, events=50, closed_after=None):
+    """One decision-cohort PR (150 d old) per login, plus an eligibility
+    document per login (account from 2015, ``events`` contributions --
+    a dict maps login -> count)."""
+    prs = [w4_days(1000 + i, 150, login, closed_after=closed_after)
+           for i, login in enumerate(logins)]
+    users = {login: {"createdAt": "2015-01-01T00:00:00Z",
+                     "contributionsCollection": {"contributionCalendar": {
+                         "totalContributions": events[login] if isinstance(events, dict) else events}}}
+             for login in logins}
+    return prs, users
+
+
+def _records(raw, key=KEY):
+    data = read_envelope(raw / "author_history" / f"{key}.json").data
+    return {r["login"]: r for r in data["author_records"]}
+
+
+def _eligibility_requests(fake):
+    """The logins each eligibility call asked for, in call order."""
+    return [[variables[f"l{i}"] for i in range(len(variables))]
+            for query, variables in fake.calls if "AuthorEligibilityBatch" in query]
+
+
+def test_author_search_batch_query_alias_variable_correspondence():
+    for n in (1, 3, gql.AUTHOR_SEARCH_BATCH_SIZE):
+        query = gql._author_search_batch_query(n)
+        assert query.count("search(query:") == n
+        for i in range(n):
+            assert f"s{i}: search(query: $q{i}, type: ISSUE, first: $first)" in query
+            assert f"$q{i}: String!" in query
+        assert query.count("$first: Int") == 1
+
+
+def test_batched_searches_keep_each_authors_own_nodes(tmp_path):
+    """30 searched authors take 2 calls (25 + 5), not 30, and batching never
+    mixes authors up: each record holds exactly its own scripted nodes.
+    Over-correction guard: an author whose search finds nothing is MEASURED
+    with no PRs -- MEASURED 2026-09-22, a search for a login that does not
+    exist answers ``{"nodes": []}`` with no error, and that is an answer."""
+    raw = tmp_path / "raw"
+    logins = [f"d{i:03d}" for i in range(30)]
+    prs, users = _decision_authors(logins)
+    searches = {login: {"nodes": [w4_spr(5000 + i, "2026-01-01T00:00:00Z")]}
+                for i, login in enumerate(logins)}
+    searches["d007"] = {"nodes": []}
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], searches, users)
+    assert gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
+    recs = _records(raw)
+    assert fake.search_batch_sizes == [25, 5]
+    for i, login in enumerate(logins):
+        assert recs[login]["history_unmeasured"] is False
+        expected = [] if login == "d007" else [5000 + i]
+        assert [pr["number"] for pr in recs[login]["prs"]] == expected
+
+
+def test_one_failed_alias_retries_only_that_author(tmp_path):
+    """The other 24 aliases of a batch are kept at once; only the failed
+    author is retried (width 5, then 1) and only it is unmeasured."""
+    raw = tmp_path / "raw"
+    logins = [f"d{i:03d}" for i in range(30)]
+    prs, users = _decision_authors(logins)
+    searches = {login: {"nodes": []} for login in logins}
+    searches["d003"] = None
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], searches, users)
+    gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
+    recs = _records(raw)
+    assert [login for login, r in recs.items() if r["history_unmeasured"]] == ["d003"]
+    assert fake.search_batch_sizes == [25, 1, 1, 5]
+
+
+def test_a_rate_limit_body_is_unmeasured_never_an_empty_history(tmp_path):
+    """FAIL-BEFORE (the one-search loop, reproduced 2026-09-22): a search
+    answered with GitHub's rate-limit body -- JSON with neither ``data``
+    nor ``errors`` -- was recorded as an author with NO PRs and
+    ``history_unmeasured`` False, which MR_first then counts as a
+    first-timer. It is now unmeasured, and the authors that shared its call
+    are retried narrower and resolve."""
+    raw = tmp_path / "raw"
+    prs, users = _decision_authors(["d000", "d001", "d002"])
+    merged = w4_spr(1, "2026-01-01T00:00:00Z", merged="2026-01-02T00:00:00Z")
+    searches = {"d000": {"nodes": [merged]}, "d001": NO_DATA_BODY, "d002": {"nodes": []}}
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], searches, users)
+    gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
+    recs = _records(raw)
+    assert recs["d001"]["history_unmeasured"] is True
+    assert recs["d001"]["prs"] == []
+    assert recs["d000"]["history_unmeasured"] is False
+    assert recs["d000"]["prs"] == [merged]
+    assert recs["d002"]["history_unmeasured"] is False
+    assert fake.search_batch_sizes == [3, 3, 1, 1, 1]
+
+
+def test_an_alias_with_data_and_its_own_error_is_not_kept(tmp_path):
+    """One search that fails with ANY error is unmeasured, even with data
+    alongside it -- the one-search loop's rule, kept inside a batch."""
+    raw = tmp_path / "raw"
+    prs, users = _decision_authors(["d000", "d001"])
+    partial = DataWithError({"nodes": [w4_spr(9, "2026-01-01T00:00:00Z")]})
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990],
+                       {"d000": {"nodes": []}, "d001": partial}, users)
+    gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
+    recs = _records(raw)
+    assert recs["d001"]["history_unmeasured"] is True
+    assert recs["d001"]["prs"] == []
+    assert recs["d000"]["history_unmeasured"] is False
+
+
+def test_an_error_without_a_path_leaves_every_alias_unresolved():
+    """An ``errors`` entry with no path (a timeout, a server fault) is
+    addressed to no single alias, so the data that came back beside it is
+    not trusted for any of them."""
+    class GlobalErrorTransport:
+        def execute(self, query, variables):
+            return {"data": {"rateLimit": {"cost": 1, "remaining": 900},
+                             "s0": {"nodes": []}, "s1": {"nodes": []}},
+                    "errors": [{"message": "Something went wrong while executing your query."}]}
+
+    resolved, unresolved, cost, remaining = gql._run_author_search_query(
+        "acme", "widget", ["a", "b"], GlobalErrorTransport())
+    assert resolved == {}
+    assert unresolved == ["a", "b"]
+    assert (cost, remaining) == (1, 900)
+
+
+def test_search_transport_failure_retries_narrower(tmp_path):
+    raw = tmp_path / "raw"
+    logins = [f"d{i:03d}" for i in range(7)]
+    prs, users = _decision_authors(logins)
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990],
+                       {login: {"nodes": []} for login in logins}, users,
+                       search_raise_on_call={0})
+    gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake)
+    assert not any(r["history_unmeasured"] for r in _records(raw).values())
+    assert fake.search_batch_sizes == [7, 5, 2]
+
+
+# --- D-COL-5 user cache inside collect_author_history -----------------------
+
+def test_user_cache_second_repo_looks_up_only_logins_it_has_never_seen(tmp_path):
+    """FAIL-BEFORE: with no cache, repo B looked up d001 and d002 again
+    although repo A had just done so. With the cache, B's only eligibility
+    call asks for d003, and the reused values keep A's observation time."""
+    cache = UserCache(tmp_path / "state" / "users")
+    prs_a, users_a = _decision_authors(["d000", "d001", "d002"])
+    fake_a = W4Transport([_w4_page(prs_a, False)], [3], [4990],
+                         {login: {"nodes": []} for login in users_a}, users_a)
+    gql.collect_author_history(tmp_path / "raw", "acme", "widget", now=NOW,
+                               transport=fake_a, user_cache=cache)
+    assert _eligibility_requests(fake_a) == [["d000", "d001", "d002"]]
+
+    later = NOW + timedelta(days=1)
+    prs_b, users_b = _decision_authors(["d001", "d002", "d003"])
+    fake_b = W4Transport([_w4_page(prs_b, False)], [3], [4990],
+                         {login: {"nodes": []} for login in users_b}, users_b)
+    gql.collect_author_history(tmp_path / "raw", "acme", "gadget", now=later,
+                               transport=fake_b, user_cache=cache)
+    assert _eligibility_requests(fake_b) == [["d003"]]
+    recs = _records(tmp_path / "raw", "acme__gadget")
+    assert recs["d001"]["eligibility_observed_at"] == NOW.isoformat()
+    assert recs["d002"]["eligibility_observed_at"] == NOW.isoformat()
+    assert recs["d003"]["eligibility_observed_at"] == later.isoformat()
+    assert recs["d001"]["public_event_count"] == 50
+    assert recs["d001"]["account_created_at"] == "2015-01-01T00:00:00Z"
+    assert cache.stats["hits"] == 2
+    assert cache.stats["writes"] == 4
+
+
+def test_user_cache_expired_entry_is_looked_up_again_once(tmp_path):
+    cache = UserCache(tmp_path / "users")
+    stale = {"account_created_at": "2015-01-01T00:00:00Z", "public_event_count": 3,
+             "eligibility_unmeasured": False}
+    cache.put("d000", stale, NOW - timedelta(days=gql_user_cache.USER_CACHE_TTL_DAYS + 1))
+    cache.put("d001", {**stale, "public_event_count": 50}, NOW - timedelta(days=10))
+    prs, users = _decision_authors(["d000", "d001"])
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990],
+                       {login: {"nodes": []} for login in users}, users)
+    gql.collect_author_history(tmp_path / "raw", "acme", "widget", now=NOW,
+                               transport=fake, user_cache=cache)
+    assert _eligibility_requests(fake) == [["d000"]]
+    recs = _records(tmp_path / "raw")
+    assert recs["d000"]["public_event_count"] == 50  # the fresh value, not the stale 3
+    assert recs["d000"]["eligibility_observed_at"] == NOW.isoformat()
+    assert recs["d001"]["eligibility_observed_at"] == (NOW - timedelta(days=10)).isoformat()
+    assert cache.get("d000", NOW)["public_event_count"] == 50  # rewritten
+
+
+def test_unmeasured_eligibility_is_not_cached_and_is_asked_again(tmp_path):
+    cache = UserCache(tmp_path / "users")
+    prs, users = _decision_authors(["d000"])
+    users["d000"] = None  # the alias never resolves
+    for repo in ("widget", "gadget"):
+        fake = W4Transport([_w4_page(prs, False)], [3], [4990], {"d000": {"nodes": []}}, users)
+        gql.collect_author_history(tmp_path / "raw", "acme", repo, now=NOW,
+                                   transport=fake, user_cache=cache)
+        assert _eligibility_requests(fake) == [["d000"], ["d000"], ["d000"]]
+        rec = _records(tmp_path / "raw", f"acme__{repo}")["d000"]
+        assert rec["eligibility_unmeasured"] is True
+        assert rec["eligibility_observed_at"] is None
+    assert not (tmp_path / "users" / "d000.json").exists()
+
+
+def test_cached_eligibility_derives_the_same_fields_as_a_fresh_lookup(tmp_path):
+    """Over-correction guard: the cache changes where an eligibility value
+    came from, never what it derives. Five authors are ineligible (2
+    contributions) so the D-IN-3 gate really moves the cohort fields; only
+    the cost bookkeeping may differ between a cold and a warm run."""
+    logins = [f"d{i:03d}" for i in range(20)]
+    events = {login: (2 if i < 5 else 50) for i, login in enumerate(logins)}
+    prs, users = _decision_authors(logins, events=events, closed_after=5)
+    searches = {login: {"nodes": []} for login in logins}
+
+    def run(raw, cache):
+        fake = W4Transport([_w4_page(prs, False)], [3], [4990], searches, users)
+        gql.collect_author_history(raw, "acme", "widget", now=NOW, transport=fake,
+                                   user_cache=cache)
+        return fake, gql.derive_cohort_fields(
+            read_envelope(raw / "author_history" / f"{KEY}.json").data)
+
+    cache = UserCache(tmp_path / "users")
+    _, cold = run(tmp_path / "cold", None)
+    run(tmp_path / "seed", cache)
+    warm_fake, warm = run(tmp_path / "warm", cache)
+    assert warm_fake.n_eligibility_batch_calls == 0
+    bookkeeping = {"author_history_cost_points", "author_history_rate_limit_remaining"}
+    assert {k: v for k, v in warm.items() if k not in bookkeeping} == \
+        {k: v for k, v in cold.items() if k not in bookkeeping}
+    assert cold["dr90_decision_pr_count_raw"] != cold["dr90_decision_pr_count_author_history_cohort"]
 
 
 # --- GhCliTransport parses the body on rc != 0 --------------------------------

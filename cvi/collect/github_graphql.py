@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from cvi.collect.envelope import write_envelope
+from cvi.collect.user_cache import UserCache
 from cvi.core.constants import AUTHOR_UNMEASURED_MAX_FRACTION
 from cvi.core.hygiene import (
     account_eligibility as _hygiene_account_eligibility,
@@ -492,6 +493,16 @@ AUTHOR_SEARCH_CAP: int = 50
 ELIGIBILITY_BATCH_SIZE: int = 15
 #: Narrower retry widths for aliases a batch left unresolved.
 ELIGIBILITY_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
+#: Aliased per-author searches per ``AuthorPrsSearchBatch`` call. MEASURED
+#: 2026-09-22 on the live API: 10 one-search calls took 7.49 s and 10 points;
+#: the same 10 searches as one aliased query took 2.08 s and 1 point and
+#: returned node-for-node identical results; 25 aliases took 4.5-5.1 s and 1
+#: point on the three busiest repos in the universe (392-440 external
+#: authors), inside GitHub's 10 s query timeout. One search per call made
+#: these searches 79 % of L4's projected ~112k GraphQL calls.
+AUTHOR_SEARCH_BATCH_SIZE: int = 25
+#: Narrower retry widths for search aliases a batch left unresolved.
+AUTHOR_SEARCH_RETRY_WIDTHS: tuple[int, ...] = (5, 1)
 #: Above this fraction of a repo's cohort authors being unmeasured,
 #: row 1.2 (DR_90) and row 1.3 (MR_first)'s D-IN-3-adjusted rate
 #: are reported unmeasured rather than computed on a collapsed population.
@@ -512,16 +523,6 @@ AUTHOR_WINDOW_QUERY: str = (
     " } } }"
 )
 
-#: Per-author PR history: the author's newest PRs in the repo (the search
-#: type ISSUE covers pull requests; the query is per D-IN-4 / 02 §4 1.3).
-AUTHOR_PRS_SEARCH_QUERY: str = (
-    "query AuthorPrsSearch($q: String!, $first: Int) {"
-    " rateLimit { cost remaining }"
-    " s: search(query: $q, type: ISSUE, first: $first) {"
-    " nodes { ... on PullRequest { number createdAt closedAt mergedAt state } }"
-    " } }"
-)
-
 def _eligibility_batch_query(n: int) -> str:
     """D-IN-3 eligibility batch query for ``n`` logins: aliased
     ``user(login:)`` nodes ``u0``..``u{n-1}`` (variables ``l0``..``l{n-1}``,
@@ -536,6 +537,21 @@ def _eligibility_batch_query(n: int) -> str:
         "contributionsCollection { contributionCalendar { totalContributions } } }"
         for i in range(n))
     return f"query AuthorEligibilityBatch({var_decls}) {{ rateLimit {{ cost remaining }} {aliases} }}"
+
+
+def _author_search_batch_query(n: int) -> str:
+    """Per-author PR history for ``n`` authors in one call: aliased
+    ``search`` fields ``s0``..``s{n-1}`` (variables ``q0``..``q{n-1}``,
+    ``s{i}`` always paired with ``q{i}``), each one author's newest PRs in
+    the repo (the search type ISSUE covers pull requests; the query is per
+    D-IN-4 / 02 §4 1.3)."""
+    var_decls = " ".join(f"$q{i}: String!" for i in range(n))
+    aliases = " ".join(
+        f"s{i}: search(query: $q{i}, type: ISSUE, first: $first) {{"
+        " nodes { ... on PullRequest { number createdAt closedAt mergedAt state } } }"
+        for i in range(n))
+    return (f"query AuthorPrsSearchBatch({var_decls} $first: Int) {{"
+            f" rateLimit {{ cost remaining }} {aliases} }}")
 
 
 def _raise_on_graphql_errors(doc: dict[str, Any], context: str) -> None:
@@ -794,11 +810,134 @@ def _fetch_eligibility_batch(logins: Sequence[str], transport: GraphqlTransport,
     return out, cost, remaining
 
 
+def _run_author_search_query(owner: str, name: str, logins: Sequence[str],
+                             transport: GraphqlTransport,
+                             ) -> tuple[dict[str, list[dict]], list[str], int, Optional[int]]:
+    """One ``AuthorPrsSearchBatch`` call over exactly ``logins``.
+
+    Returns ``(resolved, unresolved, cost, remaining)``; ``resolved`` maps a
+    login to its shaped PR list. An alias is resolved only when its data is
+    present AND no ``errors`` entry is addressed to it: one search that
+    fails with any error is ``history_unmeasured`` (the rule of the
+    one-search-per-call loop this replaces), so an alias carrying data next
+    to an error of its own is not kept either. An ``errors`` entry without a
+    path is addressed to no single alias and leaves every alias unresolved,
+    as does a transport failure (``execute`` raises). So does a body with no
+    ``data`` at all -- a rate-limit answer is JSON with neither ``data`` nor
+    ``errors`` -- which the one-search loop read as an author with no PRs.
+    """
+    variables: dict[str, Any] = {f"q{i}": f"repo:{owner}/{name} is:pr author:{login}"
+                                 for i, login in enumerate(logins)}
+    variables["first"] = AUTHOR_SEARCH_FIRST
+    try:
+        doc = transport.execute(_author_search_batch_query(len(logins)), variables)
+    except RuntimeError:
+        return {}, list(logins), 0, None
+    data = doc.get("data") or {}
+    rl = data.get("rateLimit") or {}
+    cost = int(rl.get("cost") or 0)
+    remaining = int(rl["remaining"]) if rl.get("remaining") is not None else None
+    errors = doc.get("errors") or []
+    if any(not error.get("path") for error in errors):
+        return {}, list(logins), cost, remaining
+    errored = {str(error["path"][0]) for error in errors}
+    resolved: dict[str, list[dict]] = {}
+    unresolved: list[str] = []
+    for i, login in enumerate(logins):
+        node = data.get(f"s{i}")
+        if node is None or f"s{i}" in errored:
+            unresolved.append(login)
+            continue
+        resolved[login] = [
+            {"number": raw.get("number"), "createdAt": raw.get("createdAt"),
+             "closedAt": raw.get("closedAt"), "mergedAt": raw.get("mergedAt"),
+             "state": raw.get("state")}
+            for raw in (node.get("nodes") or [])
+        ]
+    return resolved, unresolved, cost, remaining
+
+
+def _fetch_author_searches(owner: str, name: str, logins: Sequence[str],
+                           transport: GraphqlTransport,
+                           batch_size: int = AUTHOR_SEARCH_BATCH_SIZE,
+                           ) -> tuple[dict[str, Optional[list[dict]]], int, Optional[int]]:
+    """Per-author PR history (the newest :data:`AUTHOR_SEARCH_FIRST` PRs
+    each author opened in the repo) for every login in ``logins``.
+
+    Batched like :func:`_fetch_eligibility_batch`: every alias that
+    resolves is kept at once; only the logins whose alias did not are
+    retried, at the narrower :data:`AUTHOR_SEARCH_RETRY_WIDTHS`, and a login
+    still unresolved at width 1 maps to ``None`` -- the caller records it
+    ``history_unmeasured``, never as an author with no PRs. ``logins`` is
+    de-duplicated in first-seen order. Returns ``(histories, cost,
+    remaining)``.
+    """
+    out: dict[str, Optional[list[dict]]] = {}
+    cost = 0
+    remaining: Optional[int] = None
+
+    def _run(pool: Sequence[str]) -> list[str]:
+        nonlocal cost, remaining
+        resolved, unresolved, c, r = _run_author_search_query(owner, name, pool, transport)
+        out.update(resolved)
+        cost += c
+        if r is not None:
+            remaining = r
+        return unresolved
+
+    fresh = list(dict.fromkeys(logins))
+    while fresh:
+        chunk, fresh = fresh[:batch_size], fresh[batch_size:]
+        pool = _run(chunk)
+        for width in AUTHOR_SEARCH_RETRY_WIDTHS:
+            next_pool: list[str] = []
+            for start in range(0, len(pool), width):
+                next_pool.extend(_run(pool[start:start + width]))
+            pool = next_pool
+        for login in pool:
+            out[login] = None
+    return out, cost, remaining
+
+
+def _eligibility_with_cache(logins: Sequence[str], transport: GraphqlTransport,
+                            now: datetime, user_cache: Optional[UserCache],
+                            ) -> tuple[dict[str, dict], int, Optional[int]]:
+    """D-IN-3 eligibility for ``logins``, reading and filling the D-COL-5
+    user cache (:mod:`cvi.collect.user_cache`) when one is given.
+
+    Only logins the cache cannot answer go to :func:`_fetch_eligibility_batch`.
+    Every returned record carries ``eligibility_observed_at``: ``now`` for a
+    value fetched by this call, the original lookup time for a value the
+    cache supplied, ``None`` when the lookup failed.
+    """
+    cached: dict[str, dict] = {}
+    if user_cache is not None:
+        for login in dict.fromkeys(logins):
+            hit = user_cache.get(login, now)
+            if hit is not None:
+                cached[login] = hit
+    fetched, cost, remaining = _fetch_eligibility_batch(
+        [login for login in logins if login not in cached], transport, ELIGIBILITY_BATCH_SIZE)
+    out: dict[str, dict] = {}
+    for login, record in fetched.items():
+        measured = not record["eligibility_unmeasured"]
+        out[login] = {**record, "eligibility_observed_at": now.isoformat() if measured else None}
+        if measured and user_cache is not None:
+            user_cache.put(login, record, now)
+    for login, hit in cached.items():
+        out[login] = {"account_created_at": hit["account_created_at"],
+                      "public_event_count": hit["public_event_count"],
+                      "eligibility_unmeasured": False,
+                      "eligibility_observed_at": hit["observed_at"]}
+    return out, cost, remaining
+
+
 def collect_author_history(raw_dir: Path, owner: str, name: str,
                            now: Optional[datetime] = None,
                            transport: Optional[GraphqlTransport] = None,
                            force: bool = False,
-                           page_size: int = PAGE_SIZE) -> str:
+                           page_size: int = PAGE_SIZE,
+                           user_cache: Optional[UserCache] = None) -> str:
     """Collect the author-history envelope for one repository.
 
     Writes ``raw_dir/author_history/<owner>__<name>.json`` — one envelope
@@ -819,6 +958,12 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     outside the sample is ``history_unsampled`` and, like a failed search
     (``history_unmeasured``), excluded from MR_first's population entirely
     (:func:`_no_prior_merged`) rather than assumed a first-timer.
+
+    The searches run :data:`AUTHOR_SEARCH_BATCH_SIZE` to a call
+    (:func:`_fetch_author_searches`), and eligibility is read from
+    ``user_cache`` (08 D-COL-5) before any lookup is made
+    (:func:`_eligibility_with_cache`); each record's
+    ``eligibility_observed_at`` says when its eligibility was fetched.
     """
     key = f"{owner}__{name}"
     target = raw_dir / "author_history" / f"{key}.json"
@@ -837,6 +982,11 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     other_logins = sorted(set(decision_logins) - set(newcomers))
     search_sample = set(newcomers) | set(_seeded_sample(other_logins, remaining_cap))
 
+    histories, search_cost, search_remaining = _fetch_author_searches(
+        owner, name, [login for login in needed if login in search_sample], t)
+    cost += search_cost
+    if search_remaining is not None:
+        remaining = search_remaining
     author_records: list[dict] = []
     for login in needed:
         record: dict[str, Any] = {
@@ -846,29 +996,13 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
         }
         if login not in search_sample:
             record["history_unsampled"] = True
+        elif histories.get(login) is None:
+            record["history_unmeasured"] = True  # unresolved at every width: a failed search
         else:
-            try:
-                search_doc = t.execute(
-                    AUTHOR_PRS_SEARCH_QUERY,
-                    {"q": f"repo:{owner}/{name} is:pr author:{login}",
-                     "first": AUTHOR_SEARCH_FIRST})
-                _raise_on_graphql_errors(search_doc, f"search {owner}/{name} {login}")
-                sdata = search_doc.get("data") or {}
-                rl = sdata.get("rateLimit") or {}
-                cost += int(rl.get("cost") or 0)
-                if rl.get("remaining") is not None:
-                    remaining = int(rl["remaining"])
-                record["prs"] = [
-                    {"number": raw.get("number"), "createdAt": raw.get("createdAt"),
-                     "closedAt": raw.get("closedAt"), "mergedAt": raw.get("mergedAt"),
-                     "state": raw.get("state")}
-                    for raw in ((sdata.get("s") or {}).get("nodes") or [])
-                ]
-            except RuntimeError:
-                record["history_unmeasured"] = True  # deleted/renamed account or a transient failure
+            record["prs"] = histories[login]
         author_records.append(record)
 
-    elig, elig_cost, elig_remaining = _fetch_eligibility_batch(needed, t, ELIGIBILITY_BATCH_SIZE)
+    elig, elig_cost, elig_remaining = _eligibility_with_cache(needed, t, now, user_cache)
     cost += elig_cost
     if elig_remaining is not None:
         remaining = elig_remaining

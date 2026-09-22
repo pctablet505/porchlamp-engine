@@ -806,6 +806,11 @@ Second recorded run over the same repos issues 0 eligibility batches; an
 expired TTL issues exactly one; cache hit/miss counts in the cost report; the
 derived `author_history` view equals the recorded one. **Cites.** D-COL-5,
 D-IN-3. **Depends.** W6-3. **Size.** M. **Routing.** local, lead review.
+**Status 2026-09-22.** The cache half landed ahead of W6-3, for the L4 sweep:
+`cvi/collect/user_cache.py` (TTL 90 d, never a record observed after the run's
+clock, failures never cached), read through by `collect_author_history`, whose
+records now carry `eligibility_observed_at`. Still open: the ledger join, and
+seeding from existing `author_history` envelopes (there were none).
 
 ### W6-6 Slow facts on slow clocks (added 2026-09-17)
 **Goal.** `governance`, `contributors`, `repo_object`, `tree`: due when

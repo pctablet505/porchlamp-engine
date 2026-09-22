@@ -45,6 +45,19 @@ Add the per-call overhead: every call is a `gh api` **subprocess** (~0.2 s
 process start), so a 30-call repo spends ~6 s in process spawning alone —
 about 10 h per sweep of pure overhead, overlapping the above.
 
+**Corrected 2026-09-22 (`author_history`, measured before the L4 sweep).**
+The table's ~5–10 h missed two costs. (1) The per-author prior-PR search ran
+one GraphQL call per author, up to 50 per repo: 10 such calls took 7.49 s and
+10 points, and across the L1 PR windows they were 79 % of L4's projected
+~112k calls. (2) An `AuthorEligibilityBatch` of 15 logins takes 6.3–9.9 s
+(the contribution calendar is the slow field; 30 logins time out, 50 hit
+`RESOURCE_LIMITS_EXCEEDED`). Projected L4 at one call at a time: **≈41 h**.
+Two changes landed before L4 started: searches go 25 aliases to a call
+(4.5–5.1 s, 1 point, identical nodes) and eligibility reads the D-COL-5 user
+cache first (134,036 author-repo pairs name 94,235 logins). Projected: **≈24 h**,
+of which ≈13 h is the repos not already gated. GitHub's documented cap of 60 s
+of GraphQL CPU per minute rules out running these lookups concurrently.
+
 **A full sweep is ~3 days of wall-clock on one token** — `governance` alone is
 ≈52 h, more than this table's first published estimate for the whole sweep
 (corrected 2026-09-17 after deep-audit finding `B6`: the earlier row said
