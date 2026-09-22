@@ -50,7 +50,8 @@ class _PypistatsHandler(BaseHTTPRequestHandler):
 
     Server attributes (set by the test): ``values`` (name -> last_month),
     ``modes`` (name -> "html429" | "missing"), ``response_delay`` seconds,
-    ``seen`` (completed responses: [(name, timestamp), ...]).
+    ``seen`` (responses sent: [(name, timestamp), ...], each logged just
+    before its write and removed if the write fails -- see ``_send``).
     """
 
     def log_message(self, *args: Any) -> None:
@@ -67,9 +68,26 @@ class _PypistatsHandler(BaseHTTPRequestHandler):
             return True
         return False
 
-    def _send(self, code: int, body: bytes) -> bool:
+    def _send(self, code: int, body: bytes, record: Optional[str] = None) -> bool:
+        """Write one response; ``record`` names the package to log in ``seen``.
+
+        The entry is logged BEFORE the write and removed if the write fails.
+        Both orderings that log after the write race the client, which may
+        read the response, return, and have the test read ``seen`` before
+        this thread runs again (MEASURED 2026-09-22: a full ``-n auto`` run
+        lost the first two requests of test_nulls_stay_undone_and_are_refetched;
+        a 0.2 s pause after ``flush()`` reproduces a loss every time). The old
+        post-write ``_is_disconnected()`` re-check made it worse: a client
+        that read everything and closed looks exactly like one that vanished.
+        A client that went away during the response delay is still caught by
+        the check at the top -- what test_runner_resumes_after_kill needs.
+        """
         if self._is_disconnected():
             return False
+        entry = None
+        if record is not None:
+            entry = (record, time.time())
+            self.server.seen.append(entry)
         try:
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
@@ -78,8 +96,10 @@ class _PypistatsHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
+            if entry is not None:
+                self.server.seen.remove(entry)
             return False
-        return not self._is_disconnected()
+        return True
 
     def do_GET(self) -> None:
         try:
@@ -91,17 +111,16 @@ class _PypistatsHandler(BaseHTTPRequestHandler):
             time.sleep(self.server.response_delay)
             mode = self.server.modes.get(name, "value")
             if mode == "html429":  # pypistats throttling: 200 + HTML body
-                ok = self._send(200, b'<a href="/api/#etiquette">429 RATE LIMIT EXCEEDED</a>')
+                self._send(200, b'<a href="/api/#etiquette">429 RATE LIMIT EXCEEDED</a>',
+                           record=name)
             elif mode == "missing":
-                ok = self._send(404, b'{"error": "package not found"}')
+                self._send(404, b'{"error": "package not found"}', record=name)
             else:
                 body = json.dumps({"data": {"last_day": 1, "last_week": 7,
                                             "last_month": self.server.values[name]},
                                   "package": name,
                                   "type": "recent_downloads"}).encode()
-                ok = self._send(200, body)
-            if ok:
-                self.server.seen.append((name, time.time()))
+                self._send(200, body, record=name)
         except (BrokenPipeError, ConnectionResetError):
             pass
 
