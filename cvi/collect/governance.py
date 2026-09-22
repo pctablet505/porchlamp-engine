@@ -228,24 +228,65 @@ class GhApiTransport:
 FileFetcher = Callable[[str], Optional[str]]
 
 
-def fetch_file_text(owner: str, name: str, timeout_seconds: int = 30) -> FileFetcher:
+#: Connect/read timeout for one raw.githubusercontent.com attempt, and how
+#: many attempts a single file gets. MEASURED 2026-09-21: that host resolves
+#: to four IPv4 anycast addresses and one of them (185.199.109.133) accepts
+#: no SYN from this network, while the other three connect in ~0.05 s.
+#: urllib uses whichever address getaddrinfo hands it and blocks for the
+#: whole timeout -- it has no happy-eyeballs fallback, which is why `curl`
+#: succeeded against the same host while this collector stalled (six
+#: identical urllib fetches: 0.05/0.07/0.05/0.08/30.09/0.05 s).
+#: collect_governance fetches 12 files per repo, so P(some attempt lands on
+#: the dead address) = 1 - 0.75**12 = 97%, and because every non-404 raises,
+#: one unlucky address failed the WHOLE repo: L3g run 3 logged "3882 clean,
+#: 1871 with failures" and throughput fell from 6.00 to 0.50 repos/min.
+#: The resolver rotates addresses, so a retry almost always lands on a live
+#: one -- measured, the stalled file always succeeded on attempt 2.
+#: 3 s is sized off the SUCCESS latency, not guessed: 17 clean fetches
+#: measured min 0.047 s / median 0.058 s / max 0.088 s, so 3 s is 34x the
+#: slowest real success and cannot cut a working response short, while
+#: capping a dead-address stall at 3 s instead of 30 s. Observed stall rate
+#: was 7 of 24 attempts (~29%, consistent with 1 of 4 addresses), so the
+#: expected cost is 12 x 0.29 x 3 s = ~10 s/repo against the ~90 s that the
+#: single 30 s timeout cost -- and 4 attempts still bound the worst case.
+FETCH_FILE_TIMEOUT_SECONDS: int = 3
+FETCH_FILE_ATTEMPTS: int = 4
+
+
+def fetch_file_text(owner: str, name: str,
+                    timeout_seconds: int = FETCH_FILE_TIMEOUT_SECONDS,
+                    attempts: int = FETCH_FILE_ATTEMPTS) -> FileFetcher:
     """Live :data:`FileFetcher` for one repository's HEAD ref.
 
     Returns the UTF-8 body of the file at ``path``; ``None`` when the file
     does not exist (HTTP 404). Any other failure raises, so a transient
     error never gets cached as "absent" (the envelope checkpoint retries).
+
+    A *transport* failure (no HTTP response: connect timeout, reset, DNS)
+    is retried up to ``attempts`` times -- see
+    :data:`FETCH_FILE_ATTEMPTS` for the measured reason. Retrying stops at
+    the contract boundary in both directions: a 404 is an ANSWER and is
+    returned immediately, any other HTTPError is the server answering and is
+    raised immediately, and once the attempts are spent the transport error
+    is re-raised rather than swallowed -- so this never converts "could not
+    reach the CDN" into "the file is not there".
     """
 
     def fetch(path: str) -> Optional[str]:
         url = f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{path}"
         req = urllib.request.Request(url, headers={"User-Agent": "cvi-research/0.1"})
-        try:
-            with urllib.request.urlopen(req, timeout=timeout_seconds) as r:
-                return r.read().decode("utf-8", "replace")
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return None
-            raise
+        last: Exception = RuntimeError("no attempt made")
+        for _ in range(max(1, attempts)):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout_seconds) as r:
+                    return r.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    return None
+                raise
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                last = e  # transport, not an HTTP answer -- try another address
+        raise last
     return fetch
 
 
