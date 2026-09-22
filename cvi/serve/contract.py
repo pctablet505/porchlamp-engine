@@ -417,11 +417,41 @@ class SnapshotSummary(StrictModel):
     reproduce_command: str
 
     @model_validator(mode="after")
-    def _persona_visible_never_exceeds_rated(self) -> "SnapshotSummary":
+    def _persona_visible_never_exceeds_non_gated(self) -> "SnapshotSummary":
+        """A persona count is bounded by the NON-GATED rows, not by
+        ``counts.rated``.
+
+        MEASURED 2026-09-21. This bound used to be ``counts.rated`` and it is
+        wrong: a persona view is a re-weighted projection
+        (``cvi.core.persona``: ``persona_composite`` is "a separate
+        re-weighted projection"), and
+        ``cvi.store.queries._persona_visible_where_sql`` admits a row on
+        ``persona_composites[<persona>].coverage >= 0.60`` -- that persona's
+        own weights -- not on the balanced ``rated`` flag. A persona that
+        down-weights the pillars a sweep has not collected yet therefore
+        clears the floor for MORE repos than balanced does. Snapshot
+        2026-09-21-L3gp, the first in this project's history with
+        ``rated > 0``, measured rated=94 with ai_assisted=303 and
+        senior_systems=98, and the old bound 500-ed
+        ``GET /v1/cvi/snapshot`` on it.
+
+        The old assertion was unfalsifiable rather than merely untested:
+        every snapshot before that one had rated=0, which forces every
+        persona count to 0 and makes ``visible > counts.rated`` impossible
+        to trip. Tightening a bound until only the degenerate case satisfies
+        it is the broken-measurement-fails-downward pattern -- the guard
+        reported agreement because there was nothing to disagree with.
+
+        ``rated + unrated`` is the sound bound and is still a real one:
+        persona visibility requires ``eligible = 1``, and every eligible row
+        is counted in ``rated`` or in ``unrated``, never in ``gated``.
+        """
+        bound = self.counts.rated + self.counts.unrated
         for persona, visible in self.persona_visible_counts.items():
-            if visible < 0 or visible > self.counts.rated:
+            if visible < 0 or visible > bound:
                 raise ValueError(
-                    f"persona_visible_counts[{persona!r}]={visible} must be in [0, counts.rated={self.counts.rated}]"
+                    f"persona_visible_counts[{persona!r}]={visible} must be in "
+                    f"[0, counts.rated+counts.unrated={bound}]"
                 )
         return self
 
