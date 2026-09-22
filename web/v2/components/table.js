@@ -104,14 +104,18 @@ export function isTieMate(row, previousRow) {
 export function renderColumnHeader(sortField, showPersonaDelta) {
   const cells = COLUMNS.filter((c) => !c.personaOnly || showPersonaDelta)
     .map((col) => {
+      // data-col pairs a <th> with its <td> (which already carries
+      // data-cell), so a column can be shown/hidden as a unit. Without it
+      // only sortable columns were addressable, and hiding a body cell
+      // without its header shifts every column after it.
       if (!col.sortable) {
         const tooltip = col.vanity ? ` title="${escapeHtml(copy.VANITY_TOOLTIP)}"` : "";
-        return `<th${tooltip}>${escapeHtml(col.label)}</th>`;
+        return `<th data-col="${col.key}"${tooltip}>${escapeHtml(col.label)}</th>`;
       }
       const isActive = sortField.replace(/^-/, "") === col.key;
       const ariaSort = isActive ? ` aria-sort="${sortDirectionLabel(sortField)}"` : "";
       return (
-        `<th data-sortable="true" data-sort-field="${col.key}" tabindex="0" role="button"` +
+        `<th data-col="${col.key}" data-sortable="true" data-sort-field="${col.key}" tabindex="0" role="button"` +
         `${ariaSort}>${escapeHtml(col.label)}</th>`
       );
     })

@@ -53,6 +53,8 @@ import {
   patchTableBody,
   patchCardBody,
   syncPager,
+  personaDeltaForState,
+  personaVisibleForState,
 } from "./views/leaderboard.js";
 import {
   renderShell as renderNotRankedShell,
@@ -281,33 +283,45 @@ export function boot(win = window, doc = document) {
   }
 
   function syncCountsStrip(state) {
-    // computeHiddenCount/renderCountsStrip live in views/leaderboard.js;
-    // re-rendering just this small, bounded element (never an ancestor of
-    // a focused control) keeps U-4's "hidden by this lens (N)" disclosure
-    // correct across a persona switch or a late-arriving snapshot without
-    // a shell rebuild.
+    // The lens disclosure is computed by views/leaderboard.js's
+    // personaDeltaForState — the ONE implementation. This block used to
+    // carry its own copy behind a comment claiming the logic was "kept in
+    // one place"; the copy had drifted (it rendered only the `> 0` branch,
+    // so a lens that ranks MORE repos than balanced produced a negative
+    // number and silently rendered nothing). Re-rendering just this small,
+    // bounded element — never an ancestor of a focused control — keeps the
+    // disclosure right across a persona switch or a late-arriving snapshot
+    // without a shell rebuild.
     const strip = main.querySelector("[data-counts-strip]");
     if (!strip || !state.leaderboard) return;
-    // Recompute via the same logic renderShell used (kept in one place).
-    let hiddenCount;
-    if (state.persona !== "balanced" && state.snapshot) {
-      const visible = state.snapshot.persona_visible_counts[state.persona];
-      if (typeof visible === "number") hiddenCount = state.leaderboard.counts.rated - visible;
-    }
-    const hiddenText =
-      typeof hiddenCount === "number" && hiddenCount > 0 ? copy.personaHiddenDisclosure(hiddenCount) : null;
+    const delta = personaDeltaForState(state);
+    const legend = strip.querySelector(".corpus-legend") || strip;
+    const hiddenText = delta
+      ? delta.hidden
+        ? copy.personaHiddenDisclosure(delta.hidden)
+        : copy.personaExtraDisclosure(delta.extra)
+      : null;
     const existingHiddenSpan = strip.querySelector("[data-hidden-count]");
     if (hiddenText) {
       if (existingHiddenSpan) {
         if (existingHiddenSpan.textContent !== hiddenText) existingHiddenSpan.textContent = hiddenText;
       } else {
         const span = doc.createElement("span");
+        span.className = "corpus-lens";
         span.dataset.hiddenCount = "true";
         span.textContent = hiddenText;
-        strip.appendChild(span);
+        legend.appendChild(span);
       }
     } else if (existingHiddenSpan) {
-      strip.removeChild(existingHiddenSpan);
+      existingHiddenSpan.remove();
+    }
+
+    // The Ranked tab count is lens-dependent too (it must equal the row
+    // count the pager reports), so it has to be synced here as well.
+    const rankedCount = personaVisibleForState(state);
+    const rankedCountEl = main.querySelector('[data-tab="ranked"] .count');
+    if (rankedCountEl && typeof rankedCount === "number" && rankedCountEl.textContent !== String(rankedCount)) {
+      rankedCountEl.textContent = String(rankedCount);
     }
   }
 
@@ -1149,6 +1163,24 @@ export function boot(win = window, doc = document) {
     }
 
     // ------------------------------------------------ Methodology (F)
+    // The "On this page" index (and the snapshot's detector-flag links).
+    // Handled here rather than as a plain #fragment jump: routing lives in
+    // the query string, and a fragment navigation would push a history
+    // entry the router does not own. Focus follows the scroll so keyboard
+    // and screen-reader users continue from the section they chose.
+    const docJump = evt.target.closest("[data-doc-jump]");
+    if (docJump) {
+      const target = doc.getElementById(docJump.getAttribute("data-doc-jump"));
+      if (target) {
+        evt.preventDefault();
+        // An instant jump, not a smooth scroll: sections sit up to ~7,000 px
+        // apart, and a smooth scroll never advances in a hidden tab (measured).
+        target.scrollIntoView({ block: "start" });
+        const focusTarget = target.matches("[tabindex]") ? target : target.querySelector("[tabindex='-1']");
+        if (focusTarget) focusTarget.focus({ preventScroll: true });
+      }
+      return;
+    }
     if (evt.target.closest("[data-methodology-copy]")) {
       const pre = main.querySelector("[data-reproduce-command]");
       const btn = evt.target.closest("[data-methodology-copy]");

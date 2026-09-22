@@ -61,6 +61,36 @@
   --accent-warning: #dc2626;
   --accent-success: #22c55e;
 
+  /* Corpus meter (rated / gated / unrated share of a snapshot).
+   * VALIDATED 2026-09-21 with the dataviz six-checks validator against
+   * --bg-surface. One accent plus two lightness-separated NEUTRALS, not
+   * three status hues: an amber/green adjacent pair measured only
+   * dE 5.7 for protanopia (below even the 6-8 floor band), while this
+   * trio measures dE 12.3 (deutan) / 20.6 (normal vision) in dark and
+   * 14.2 / 20.0 in light -- both PASS. The neutrals read as neutral ON
+   * PURPOSE ("gated" is excluded-by-design, not an error, and must not
+   * borrow the red of a failure), so the validator's chroma-floor and
+   * lightness-band checks -- which it scopes to CATEGORICAL palettes --
+   * do not apply -- every OTHER check passes, contrast included.
+   *
+   * MEASURED against the real ground (--bg-base), not guessed: the first
+   * attempt put `gated` at #475569, which came out at 2.56:1 while the
+   * other two measured 8.5 and 7.6 -- so the 60.8% MAJORITY segment was
+   * the one share nobody could see, reading as empty space. Lightness now
+   * carries the ordering (rated accent > unrated light > gated mid) and
+   * all three clear 3:1 in both themes. Every segment also carries a
+   * visible label and count, so colour never carries identity alone.
+   * Re-run the validator before changing any of the six values. */
+  --corpus-rated: #22c55e;
+  --corpus-unrated: #cbd5e1;
+  --corpus-gated: #64748b;
+
+  /* Screen F pillar-weight bars: one hue (magnitude, single series).
+   * Graphic contrast vs --bg-surface, the card they render on (WCAG 1.4.11
+   * needs 3:1): MEASURED 8.33:1 dark, 4.10:1 light. Pinned in
+   * tests/test_ui_contrast.py. */
+  --spec-bar: #38bdf8;
+
   /* Tie-row band */
   --tie-row-band: rgba(56, 189, 248, 0.08);
 
@@ -140,6 +170,11 @@
     --coverage-b: #b45309;
     --coverage-below: #dc2626;
 
+    --corpus-rated: #16a34a;
+    --corpus-unrated: #475569;
+    --corpus-gated: #7a889f;
+    --spec-bar: #0284c7;
+
     --tie-row-band: rgba(2, 132, 199, 0.08);
   }
 }
@@ -173,6 +208,11 @@
   --coverage-a: #0891b2;
   --coverage-b: #b45309;
   --coverage-below: #dc2626;
+
+  --corpus-rated: #16a34a;
+  --corpus-unrated: #475569;
+  --corpus-gated: #7a889f;
+  --spec-bar: #0284c7;
 
   --tie-row-band: rgba(2, 132, 199, 0.08);
 }

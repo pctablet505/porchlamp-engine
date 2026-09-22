@@ -163,6 +163,7 @@ export function unratedReasonText(reason, coverage) {
   return UNRATED_REASON_COPY[reason] || reason;
 }
 
+export const RATED_GROUP_TITLE = "Rated";
 export const GATED_GROUP_TITLE = "Gated";
 export const UNRATED_GROUP_TITLE = "Unrated";
 export const PERSONA_HIDDEN_GROUP_TITLE = "Hidden by this lens";
@@ -193,6 +194,15 @@ export function personaGateReason(code) {
 }
 export function personaHiddenDisclosure(count) {
   return `Hidden by this lens (${count})`;
+}
+/**
+ * The other direction of U-4. A lens re-weights coverage, so it can clear
+ * the rated floor for repos the balanced view cannot rate at all — 209 of
+ * them under `ai_assisted` on snapshot 2026-09-21-L3gp. Saying only
+ * "hidden" made that case unsayable.
+ */
+export function personaExtraDisclosure(count) {
+  return `Also visible in this lens (${count})`;
 }
 
 // U-5: tie marks and the rank tooltip naming the deciding D-TIE-1 level.
@@ -386,9 +396,6 @@ export const METHODOLOGY_MANIFEST_ROOT_LABEL = "Manifest root";
 export const METHODOLOGY_CONSTANTS_HASH_LABEL = "Constants hash";
 export const METHODOLOGY_CODE_COMMIT_LABEL = "Code commit";
 export const METHODOLOGY_CANONICAL_DUMP_HASH_LABEL = "Canonical dump hash";
-export function methodologyTieBreakDecimalsText(decimals) {
-  return `Composite rounded to ${methodologyIntText(decimals)} decimal place(s) before comparison.`;
-}
 export const METHODOLOGY_OPENSSF_PROXY_MIN_SIGNALS_LABEL = "OpenSSF proxy minimum signals";
 
 export function apiErrorAnnouncement(endpoint, status) {
@@ -548,21 +555,14 @@ export const METHODOLOGY_SECTION_RFC_LOG = "Change log";
 export const METHODOLOGY_SECTION_SNAPSHOT = "Snapshot";
 export const METHODOLOGY_COL_WEIGHT = "Weight";
 export const METHODOLOGY_COL_MIN_N = "Min n";
-export const METHODOLOGY_COL_WINDOW = "Window (days)";
+export const METHODOLOGY_COL_WINDOW = "Window";
 export const METHODOLOGY_COL_CURVE = "Curve";
 export const METHODOLOGY_COL_PILLAR = "Pillar";
-export const METHODOLOGY_COL_CRITERION = "Criterion";
 export const METHODOLOGY_COL_REASONS = "Reasons";
-export const METHODOLOGY_COL_FIELD = "Field";
 export const METHODOLOGY_COL_DIRECTION = "Direction";
-export const METHODOLOGY_COL_NOTE = "Note";
-export const METHODOLOGY_COL_TRIGGER = "Trigger";
 export const METHODOLOGY_COL_MODULE = "Module";
 export const METHODOLOGY_COL_VALUE = "Value";
 export const METHODOLOGY_COL_GATES = "Gates";
-export const METHODOLOGY_COL_DATE = "Date";
-export const METHODOLOGY_COL_RFC = "RFC";
-export const METHODOLOGY_COL_SUMMARY = "Summary";
 export const METHODOLOGY_COL_HASH_CHANGE = "Hash change";
 export const METHODOLOGY_COL_ID = "ID";
 export const METHODOLOGY_COL_NAME = "Name";
@@ -580,13 +580,67 @@ export function methodologyBenchmarkLine(benchmarkVersion, constantsHash, schema
 export function methodologySnapshotLine(snapshotId, asOf) {
   return `${snapshotId} · as of ${asOf}`;
 }
-export function methodologyCountsLine(counts) {
-  return `${counts.rated} rated · ${counts.gated} gated · ${counts.unrated} unrated · ${counts.total} total`;
-}
 export const METHODOLOGY_NO_PROXY_TEXT = "No proxy path.";
 export function methodologyProxyText(proxy) {
   const parts = [];
   if (typeof proxy.proxy_min_n === "number") parts.push(`min n ${proxy.proxy_min_n}`);
   if (typeof proxy.proxy_min_signals === "number") parts.push(`min signals ${proxy.proxy_min_signals}`);
   return parts.length ? parts.join(", ") : METHODOLOGY_NO_PROXY_TEXT;
+}
+
+// --- Screen F document layout (redesign 2026-09-22) ----------------------
+export const METHODOLOGY_INDEX_LABEL = "On this page";
+/**
+ * One sentence under each section heading saying what the section answers.
+ * Keys are the section keys in views/methodology.js. The detectors line is
+ * sourced, not assumed: docs/v2/03 section 6 ("flags on the row ... never
+ * silent penalties") and cvi/core/pipeline.py (suspicion is folded on AFTER
+ * assign_ranks, "so suspicion can never influence rank/tie_key").
+ */
+export const METHODOLOGY_SECTION_LEDES = Object.freeze({
+  snapshot: "The build this page describes, and the command that reproduces it.",
+  gates: "Checks a repository must pass to be ranked. A repository that fails one carries the gate's reason instead of a rank.",
+  pillars: "The five pillars of the composite score, and the share of it each one carries.",
+  parameters: "The measured inputs, grouped by pillar: how each is scored, how much evidence it needs, and over what window.",
+  missingness: "What a missing input means, and how much coverage a repository needs before it is rated.",
+  personas: "Alternative weightings of the same five pillars, and the gates that decide which repositories each persona shows.",
+  tie_break: "When two composites are equal, these fields separate them, in this order.",
+  detectors: "Integrity checks run against the previous snapshot. They flag a row for review; they never change a score or a rank.",
+  process_constants: "Constants of the release process, not of any score, so they sit outside the constants hash.",
+  rfc_log: "The history of the scored constants, newest first, with the constants hash each change produced.",
+});
+export const METHODOLOGY_DETECTOR_SUMMARY_LABEL = "Detector flags in this snapshot";
+export const METHODOLOGY_DETECTOR_SUMMARY_NONE = "No detector flagged a row in this snapshot.";
+export function methodologyDetectorCountText(count) {
+  return `${count} ${count === 1 ? "row" : "rows"}`;
+}
+/** Human labels for the payload's coverage-threshold keys; an unknown key renders as itself. */
+export const METHODOLOGY_COVERAGE_THRESHOLD_LABELS = Object.freeze({
+  unrated_below: "Unrated below",
+  ceiling_b_below: "Tier ceiling B below",
+  ceiling_a_below: "Tier ceiling A below",
+});
+export const METHODOLOGY_REASONS_LABEL = "What a missing input means";
+export const METHODOLOGY_NOT_APPLICABLE_LABEL = "Not-applicable rules";
+export const METHODOLOGY_NOT_APPLICABLE_WHEN = "does not apply when";
+export const METHODOLOGY_PERSONA_GATES_LABEL = "Persona gates";
+export const METHODOLOGY_ENUM_ORDER_LABEL = "Worst to best";
+export const METHODOLOGY_RFC_CURRENT_TAG = "Current";
+export const METHODOLOGY_RFC_CURRENT_TITLE = "This change produced the constants hash this page is rendered from.";
+export const METHODOLOGY_HASH_TO = "to";
+export function methodologyPillarShareText(weight) {
+  return `${methodologyPercentText(weight)} of the composite`;
+}
+
+// --- Corpus strip (how much of the snapshot is rated at all) -------------
+/** One segment's share of the snapshot, to a single decimal. */
+export function corpusShareText(percent) {
+  return `${percent.toFixed(1)}%`;
+}
+/** The meter's accessible name: the whole split in one sentence. */
+export function corpusMeterLabel(counts) {
+  return (
+    `${counts.rated} rated, ${counts.gated} gated, ${counts.unrated} unrated ` +
+    `of ${counts.total} repositories in this snapshot`
+  );
 }

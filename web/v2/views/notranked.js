@@ -10,7 +10,14 @@
 // heading renders whenever the page's slice reaches that group's first row.
 
 import * as copy from "../copy.js";
-import { renderPager, syncPager, renderTabs, renderCountsStrip, computeHiddenCount } from "./leaderboard.js";
+import {
+  renderPager,
+  syncPager,
+  renderTabs,
+  renderCountsStrip,
+  personaDeltaForState,
+  personaVisibleForState,
+} from "./leaderboard.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -108,7 +115,9 @@ export function renderShell(state) {
   // them) must stay reachable from EITHER view — without this, switching
   // to Not-ranked would strand the user with no way back to Ranked.
   const leaderboardCounts = state.leaderboard ? state.leaderboard.counts : null;
-  const tabsHtml = renderTabs(state.tab, leaderboardCounts) + renderCountsStrip(leaderboardCounts, computeHiddenCount(state));
+  const tabsHtml =
+    renderTabs(state.tab, leaderboardCounts, personaVisibleForState(state)) +
+    renderCountsStrip(leaderboardCounts, personaDeltaForState(state));
 
   if (shape === "loading") return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}${renderSkeleton()}</section>`;
   if (shape === "error") return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}${renderErrorBanner(notRankedError)}</section>`;

@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { decidingTieLevel, SORTABLE_COLUMNS } from "../components/table.js";
+import { decidingTieLevel, SORTABLE_COLUMNS, renderColumnHeader } from "../components/table.js";
 import { KEY_ACTIONS, actionForKeyEvent } from "../components/keymap.js";
 import { renderCoverageBadge } from "../components/badge.js";
 import {
@@ -32,6 +32,19 @@ import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY } from "../components/scatt
 import { synthesizeRows } from "../perf-fixtures.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape } from "../views/compare.js";
 import { renderDrawer, classifyKind, findRow } from "../views/drawer.js";
+import {
+  personaVisibleCount,
+  personaDelta,
+  renderTabs,
+  renderCountsStrip,
+} from "../views/leaderboard.js";
+import {
+  renderShell as renderMethodologyShell,
+  sectionIndex,
+  parameterGroups,
+  changeLogEntries,
+  inlineCodeHtml,
+} from "../views/methodology.js";
 
 // ---------------------------------------------------------------------
 // D-TIE-1 client-derivable levels: 1 (composite), 2 (coverage), 3
@@ -860,4 +873,240 @@ test("components.css: .badge-coverage-below is styled off var(--coverage-below)"
   const css = readFileSync(cssPath, "utf8");
   assert.ok(css.includes(".badge-coverage-below"), "components.css must define a .badge-coverage-below rule");
   assert.match(css, /\.badge-coverage-below[^{]*\{[^}]*--coverage-below[^}]*\}/);
+});
+
+// ---------------------------------------------------------------------
+// Persona-visible counts (regression, 2026-09-21).
+//
+// A persona view is a RE-WEIGHTED projection: cvi.core.persona computes
+// persona_composites[p].coverage from that persona's own pillar weights, and
+// the store admits a row on that coverage clearing 0.60 -- not on the
+// balanced `rated` flag. So a persona that down-weights the pillars a sweep
+// has not collected yet is visible for MORE repos than balanced, not fewer.
+//
+// Measured on snapshot 2026-09-21-L3gp: counts.rated = 94 while
+// persona_visible_counts.ai_assisted = 303 and senior_systems = 98. Two
+// things broke on those numbers:
+//   1. the Ranked sub-tab kept showing 94 while the table under it paged 303
+//      rows ("Page 1 of 16 (303 rows)");
+//   2. `hidden = counts.rated - visible` went to -209, and the disclosure was
+//      rendered only when `> 0`, so it silently vanished exactly when the
+//      lens was changing the set the most.
+// Both assumed persona-visible is a SUBSET of balanced-rated. It is not.
+// ---------------------------------------------------------------------
+
+const L3GP_COUNTS = { rated: 94, gated: 3498, unrated: 2163, total: 5755 };
+const L3GP_SNAPSHOT = {
+  persona_visible_counts: {
+    ai_assisted: 303, balanced: 94, career_capital: 0, first_timer: 0, senior_systems: 98,
+  },
+};
+
+test("leaderboard: personaVisibleCount follows the lens, not the balanced rated flag", () => {
+  assert.equal(personaVisibleCount(L3GP_COUNTS, L3GP_SNAPSHOT, "balanced"), 94);
+  assert.equal(personaVisibleCount(L3GP_COUNTS, L3GP_SNAPSHOT, "ai_assisted"), 303);
+  assert.equal(personaVisibleCount(L3GP_COUNTS, L3GP_SNAPSHOT, "senior_systems"), 98);
+  assert.equal(personaVisibleCount(L3GP_COUNTS, L3GP_SNAPSHOT, "first_timer"), 0);
+});
+
+test("leaderboard: the Ranked tab count matches what the table actually pages", () => {
+  const html = renderTabs("ranked", L3GP_COUNTS, personaVisibleCount(L3GP_COUNTS, L3GP_SNAPSHOT, "ai_assisted"));
+  assert.match(html, /Ranked<span class="count">303<\/span>/);
+  // Not-ranked is persona-independent (gate reasons are persona-free).
+  assert.match(html, /Not ranked<span class="count">5661<\/span>/);
+});
+
+test("leaderboard: personaDelta reports BOTH directions, not just hidden", () => {
+  // more visible than balanced -> "extra", the case that used to disappear
+  assert.deepEqual(personaDelta(L3GP_COUNTS, L3GP_SNAPSHOT, "ai_assisted"), { extra: 209 });
+  // fewer visible than balanced -> "hidden", the original U-4 case
+  assert.deepEqual(personaDelta(L3GP_COUNTS, L3GP_SNAPSHOT, "first_timer"), { hidden: 94 });
+  // equal, and balanced itself -> no disclosure at all
+  assert.equal(personaDelta(L3GP_COUNTS, L3GP_SNAPSHOT, "balanced"), null);
+  assert.equal(personaDelta({ ...L3GP_COUNTS, rated: 303 }, L3GP_SNAPSHOT, "ai_assisted"), null);
+});
+
+test("leaderboard: the counts strip renders the extra-visible disclosure", () => {
+  const html = renderCountsStrip(L3GP_COUNTS, personaDelta(L3GP_COUNTS, L3GP_SNAPSHOT, "ai_assisted"));
+  assert.match(html, /Also visible in this lens \(209\)/);
+  const hiddenHtml = renderCountsStrip(L3GP_COUNTS, personaDelta(L3GP_COUNTS, L3GP_SNAPSHOT, "first_timer"));
+  assert.match(hiddenHtml, /Hidden by this lens \(94\)/);
+});
+
+// --- over-correction guards ------------------------------------------- #
+
+test("leaderboard: a missing snapshot or unknown persona falls back to balanced rated", () => {
+  assert.equal(personaVisibleCount(L3GP_COUNTS, null, "ai_assisted"), 94);
+  assert.equal(personaVisibleCount(L3GP_COUNTS, L3GP_SNAPSHOT, "not_a_persona"), 94);
+  assert.equal(personaVisibleCount(null, L3GP_SNAPSHOT, "ai_assisted"), null);
+  assert.equal(personaDelta(L3GP_COUNTS, null, "ai_assisted"), null);
+});
+
+// ---------------------------------------------------------------------
+// Corpus strip: the snapshot's rated/gated/unrated split as a meter.
+// ---------------------------------------------------------------------
+
+test("leaderboard: the corpus meter segments are proportional and sum to the total", () => {
+  const html = renderCountsStrip(L3GP_COUNTS, null);
+  // every segment carries a visible label + count, never colour alone
+  assert.match(html, /Rated/);
+  assert.match(html, /Gated/);
+  assert.match(html, /Unrated/);
+  assert.match(html, /94/);
+  assert.match(html, /3498/);
+  assert.match(html, /2163/);
+  // proportions, to one decimal: 94/5755 = 1.6%, 3498/5755 = 60.8%, 2163/5755 = 37.6%
+  assert.match(html, /1\.6%/);
+  assert.match(html, /60\.8%/);
+  assert.match(html, /37\.6%/);
+  // the meter is an accessible progressbar-free group with a text summary
+  assert.match(html, /role="img"/);
+  assert.match(html, /aria-label="[^"]*5755[^"]*"/);
+});
+
+test("leaderboard: the corpus meter survives a zero total without dividing by zero", () => {
+  const html = renderCountsStrip({ rated: 0, gated: 0, unrated: 0, total: 0 }, null);
+  assert.doesNotMatch(html, /NaN/);
+  assert.doesNotMatch(html, /Infinity/);
+});
+
+test("table: every column header carries data-col so th and td can be targeted together", () => {
+  const html = renderColumnHeader("-cvi", false);
+  for (const key of ["rank", "repository", "cvi", "coverage", "tier", "quadrant", "pillars", "suspicion", "stars"]) {
+    assert.match(html, new RegExp(`data-col="${key}"`), `missing data-col="${key}"`);
+  }
+  // the persona-only delta column appears only with the flag on
+  assert.doesNotMatch(html, /data-col="delta"/);
+  assert.match(renderColumnHeader("-cvi", true), /data-col="delta"/);
+});
+
+// --------------------------------------------------------------------- //
+// Screen F (methodology), redesign 2026-09-22. Rendered against the real
+// fixtures in tests/fixtures/ui/ -- methodology.json is generated from
+// methodology_document(), not hand-typed (tests/test_ui_fixtures.py).
+// --------------------------------------------------------------------- //
+
+const UI_FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tests", "fixtures", "ui");
+const METHODOLOGY_DOC = JSON.parse(readFileSync(path.join(UI_FIXTURES, "methodology.json"), "utf8"));
+const SNAPSHOT_DOC = JSON.parse(readFileSync(path.join(UI_FIXTURES, "snapshot.json"), "utf8"));
+function methodologyShell(snapshot, doc = METHODOLOGY_DOC) {
+  return renderMethodologyShell({ methodology: doc, snapshot, methodologyLoading: false, methodologyError: null });
+}
+
+test("methodology: the index and the body come from one list (same ids, same order, each once)", () => {
+  const html = methodologyShell(SNAPSHOT_DOC);
+  const index = sectionIndex(METHODOLOGY_DOC, SNAPSHOT_DOC);
+  const sectionIds = [...html.matchAll(/<section class="doc-section" id="([^"]+)"/g)].map((m) => m[1]);
+  const jumpIds = [...html.matchAll(/class="doc-index-link" href="#[^"]+" data-doc-jump="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(index.length, 10, "snapshot + the nine methodology sections");
+  assert.deepEqual(sectionIds, index.map((e) => e.id));
+  assert.deepEqual(jumpIds, index.map((e) => e.id));
+  assert.equal(new Set(sectionIds).size, sectionIds.length, "section ids are unique");
+});
+
+test("methodology: the Snapshot section appears only once the snapshot payload has loaded", () => {
+  assert.ok(sectionIndex(METHODOLOGY_DOC, SNAPSHOT_DOC).some((e) => e.id === "methodology-snapshot"));
+  assert.ok(!sectionIndex(METHODOLOGY_DOC, null).some((e) => e.id === "methodology-snapshot"));
+  assert.ok(!methodologyShell(null).includes('id="methodology-snapshot"'));
+});
+
+test("methodology: section counts are the payload's own lengths, never literals", () => {
+  const byId = Object.fromEntries(sectionIndex(METHODOLOGY_DOC, SNAPSHOT_DOC).map((e) => [e.id, e.count]));
+  assert.equal(byId["methodology-parameters"], METHODOLOGY_DOC.parameters.length);
+  assert.equal(byId["methodology-gates"], METHODOLOGY_DOC.gates.length);
+  assert.equal(byId["methodology-detectors"], METHODOLOGY_DOC.detectors.length);
+  assert.equal(byId["methodology-rfc_log"], METHODOLOGY_DOC.rfc_log.length);
+  assert.equal(byId["methodology-snapshot"], null, "the snapshot is not a list, so it carries no count");
+});
+
+test("methodology: parameterGroups keeps every parameter exactly once, grouped under its own pillar, in pillar order", () => {
+  const groups = parameterGroups(METHODOLOGY_DOC.parameters, METHODOLOGY_DOC.pillars);
+  const expectedOrder = METHODOLOGY_DOC.pillars.map((p) => p.name).filter((n) => METHODOLOGY_DOC.parameters.some((p) => p.pillar === n));
+  assert.deepEqual(groups.map((g) => g.pillar), expectedOrder);
+  const flat = groups.flatMap((g) => g.parameters.map((p) => p.input_id));
+  assert.deepEqual([...flat].sort(), METHODOLOGY_DOC.parameters.map((p) => p.input_id).sort());
+  for (const g of groups) {
+    for (const p of g.parameters) assert.equal(p.pillar, g.pillar, `${p.input_id} is filed under ${g.pillar}`);
+  }
+});
+
+test("methodology: a parameter naming a pillar the pillar list lacks still gets a group (guard: never dropped)", () => {
+  const orphan = { ...METHODOLOGY_DOC.parameters[0], input_id: "orphan_input", pillar: "unlisted_pillar" };
+  const groups = parameterGroups([...METHODOLOGY_DOC.parameters, orphan], METHODOLOGY_DOC.pillars);
+  const last = groups[groups.length - 1];
+  assert.equal(last.pillar, "unlisted_pillar", "unknown pillars follow the known ones");
+  assert.deepEqual(last.parameters.map((p) => p.input_id), ["orphan_input"]);
+  assert.equal(last.weight, null, "no weight is invented for a pillar the payload does not weigh");
+});
+
+test("methodology: every parameter is a row of the rendered table (grouping drops nothing)", () => {
+  const html = methodologyShell(SNAPSHOT_DOC);
+  const rowIds = [...html.matchAll(/<th scope="row" class="cell-id"><code>([^<]+)<\/code><\/th>/g)].map((m) => m[1]);
+  for (const p of METHODOLOGY_DOC.parameters) assert.ok(rowIds.includes(p.input_id), `${p.input_id} is rendered`);
+});
+
+test("methodology: an enum parameter shows every level WITH its score_table score (the curve text points there)", () => {
+  // Before the redesign the domain cell printed only the level order, while
+  // the curve said "see this parameter's value_domain.score_table".
+  const html = methodologyShell(SNAPSHOT_DOC);
+  const enums = METHODOLOGY_DOC.parameters.filter((p) => p.value_domain && p.value_domain.kind === "enum");
+  assert.ok(enums.length > 0, "the fixture must carry enum parameters for this test to mean anything");
+  for (const p of enums) {
+    const d = p.value_domain;
+    const table = d.score_table || {};
+    const pairs = d.values_worst_to_best
+      ? d.values_worst_to_best.map((lv) => [lv, table[lv]])
+      : Object.entries(d.persona_orders).flatMap(([persona, order]) => order.map((lv) => [lv, (table[lv] || {})[persona]]));
+    for (const [level, score] of pairs) {
+      assert.ok(
+        html.includes(`<code class="spec-chip">${level}<span class="spec-chip-value">${score}</span></code>`),
+        `${p.input_id}: ${level} -> ${score}`
+      );
+    }
+  }
+});
+
+test("methodology: the change log is newest first, and only the entry that produced the page's constants hash is Current", () => {
+  const entries = changeLogEntries(METHODOLOGY_DOC.rfc_log, METHODOLOGY_DOC.constants_hash);
+  assert.deepEqual(entries.map((e) => e.rfc), [...METHODOLOGY_DOC.rfc_log].reverse().map((e) => e.rfc));
+  const current = entries.filter((e) => e.current);
+  assert.equal(current.length, 1);
+  assert.equal(current[0].hash_after, METHODOLOGY_DOC.constants_hash);
+  assert.equal(METHODOLOGY_DOC.rfc_log.length, entries.length, "reversing must not drop or add entries");
+  assert.equal(METHODOLOGY_DOC.rfc_log[0].rfc, "genesis", "the payload itself is left in chronological order");
+});
+
+test("methodology: when no logged change produced the constants hash, no entry claims to be Current (guard)", () => {
+  assert.ok(changeLogEntries(METHODOLOGY_DOC.rfc_log, "0".repeat(64)).every((e) => !e.current));
+  assert.ok(changeLogEntries(METHODOLOGY_DOC.rfc_log, "").every((e) => !e.current));
+  assert.ok(changeLogEntries(METHODOLOGY_DOC.rfc_log, null).every((e) => !e.current));
+  const html = methodologyShell(SNAPSHOT_DOC, { ...METHODOLOGY_DOC, constants_hash: "0".repeat(64) });
+  assert.ok(!html.includes("spec-tag-current"));
+});
+
+test("methodology: inlineCodeHtml sets backtick spans as code and escapes everything else first (guard: markup stays inert)", () => {
+  assert.equal(inlineCodeHtml("see `value_domain.score_table` here"), "see <code>value_domain.score_table</code> here");
+  assert.equal(inlineCodeHtml("a <script>x()</script> `b`"), "a &lt;script&gt;x()&lt;/script&gt; <code>b</code>");
+  assert.equal(inlineCodeHtml("`<img src=x onerror=y>`"), "<code>&lt;img src=x onerror=y&gt;</code>");
+  assert.equal(inlineCodeHtml("an unmatched ` stays literal"), "an unmatched ` stays literal");
+});
+
+test("methodology: detector flags link to a definition only when that detector is defined on the page", () => {
+  const [defined] = METHODOLOGY_DOC.detectors;
+  // Smaller count listed FIRST, so only a real sort puts the larger first
+  // (with the larger listed first, an unsorted render also passed -- measured).
+  const html = methodologyShell({ ...SNAPSHOT_DOC, detector_summary: { not_a_detector: 2, [defined.name]: 3 } });
+  const anchor = `methodology-detector-${defined.name}`;
+  assert.ok(html.includes(`data-doc-jump="${anchor}"`), "a defined detector's flag links to its definition");
+  assert.ok(html.includes(`<li class="spec-entry" id="${anchor}"`), "and that definition carries the anchor");
+  assert.ok(!html.includes('data-doc-jump="methodology-detector-not_a_detector"'), "an undefined one is not a dead link");
+  assert.ok(html.indexOf(defined.name) < html.indexOf("not_a_detector"), "largest count first");
+  // The real fixture's flags name no detector the fixture defines: nothing links.
+  assert.ok(!methodologyShell(SNAPSHOT_DOC).includes('data-doc-jump="methodology-detector-'));
+});
+
+test("methodology: an empty detector summary says so instead of rendering an empty list", () => {
+  const html = methodologyShell({ ...SNAPSHOT_DOC, detector_summary: {} });
+  assert.ok(html.includes(copy.METHODOLOGY_DETECTOR_SUMMARY_NONE));
+  assert.ok(!html.includes('class="detector-flags"'));
 });

@@ -109,6 +109,10 @@ GRAPHIC_PAIRS = [
     ("quad-graveyard", "bg-surface"),
     ("quad-graveyard", "bg-surface-elevated"),
     ("border-focus", "bg-surface"),
+    # Screen F (redesign 2026-09-22): pillar-weight bars and the change log's
+    # "Current" ring/dot, both drawn on the section card (--bg-surface).
+    ("spec-bar", "bg-surface"),
+    ("coverage-full", "bg-surface"),
 ]
 
 

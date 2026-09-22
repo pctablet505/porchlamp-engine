@@ -450,33 +450,940 @@
   border-radius: var(--radius-card);
 }
 
-/* ---- Screen F: Methodology and snapshot (06 §3 F) ---- */
-.app-main > details {
-  border-bottom: 1px solid var(--border-subtle);
-  padding: var(--space-sm) 0;
-}
-
-.app-main > details summary {
-  cursor: pointer;
-  font-weight: 600;
-  font-size: var(--text-h2);
-}
-
-.reproduce-command {
-  background: var(--bg-surface-elevated);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-control);
-  padding: var(--space-sm);
-  font-family: var(--font-mono);
-  font-size: var(--text-caption);
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
 .app-main code,
 .app-main pre,
 .cell-numeric {
   overflow-wrap: break-word;
   word-break: break-all;
+}
+
+/* ---- Screen F: Methodology and snapshot (06 §3 F) ----
+ * Redesign 2026-09-22. Screen F is a reference document, so it is laid out
+ * as one: an "On this page" index (a sticky rail on wide screens) beside one
+ * card per section, in the order the rating pipeline runs.
+ *
+ * What it replaces, MEASURED at a 1440 px viewport: nine collapsed <details>
+ * hairlines, and one generic `.evidence-table` whose cells were all `nowrap`
+ * except the first (`word-break: break-word`). Long prose cells pushed three
+ * tables to 1,545 / 2,092 / 3,079 px and the auto table layout squeezed the
+ * one breakable column to ~21 px, stacking identifiers one character per
+ * line. Every table cell now declares a role -- identifier (.cell-id),
+ * number (.num), prose (.cell-prose), meta (.cell-meta) -- and the
+ * prose-heavy lists (gates, detectors, change log) are entry lists.
+ *
+ * Wrapping rule used throughout: `overflow-wrap: break-word`, never
+ * `anywhere`/`break-all` inside a table or flex row. break-word still
+ * breaks a token that would overflow its line, but it does NOT lower the
+ * token's min-content size, so it can never collapse a column. */
+
+.doc-page-head {
+  margin-bottom: var(--space-lg);
+}
+
+.doc-page-head .view-heading {
+  margin-bottom: var(--space-2xs);
+}
+
+.doc-lede {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+}
+
+.app-main .doc-page code {
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.doc-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+@media (min-width: 1200px) {
+  .doc-layout {
+    grid-template-columns: 12.5rem minmax(0, 1fr);
+    gap: var(--space-xl);
+  }
+}
+
+/* The index: a wrapped row of chips on narrow screens, a sticky rail on
+ * wide ones. No max-height/overflow on the rail: ten links fit any desktop
+ * viewport, and the owner rule (base.css) is no inner scroll boxes. */
+.doc-index-title {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.doc-index-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doc-index-link {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding: 4px var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+  text-decoration: none;
+}
+
+.doc-index-link:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.doc-index-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (min-width: 1200px) {
+  .doc-index {
+    position: sticky;
+    top: calc(var(--header-height) + var(--space-md));
+  }
+
+  .doc-index-list {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 0;
+    border-left: 1px solid var(--border-subtle);
+  }
+
+  .doc-index-link {
+    margin-left: -1px;
+    padding: 6px var(--space-sm);
+    border: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    background: none;
+  }
+
+  .doc-index-link:hover {
+    border-left-color: var(--border-strong);
+    background: var(--bg-surface);
+  }
+}
+
+/* ---- Sections ---- */
+.doc-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+}
+
+.doc-section {
+  min-width: 0;
+  padding: var(--space-lg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--bg-surface);
+  scroll-margin-top: calc(var(--header-height) + var(--space-md));
+}
+
+.doc-section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.doc-section-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-h2);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.doc-section-lede {
+  max-width: 72ch;
+  margin: var(--space-2xs) 0 var(--space-md);
+  color: var(--text-secondary);
+  font-size: var(--text-body-lg);
+  line-height: 1.55;
+}
+
+.doc-subhead {
+  margin: var(--space-lg) 0 var(--space-xs);
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.doc-muted,
+.doc-page .is-muted {
+  color: var(--text-muted);
+}
+
+/* Says how much is behind each section heading. */
+.section-count {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+/* ---- Typed tables (parameters, personas, process constants) ---- */
+/* MEASURED 2026-09-22 at 390 px: the page scrolled sideways (document
+ * 794 px wide) with nothing visibly overflowing. The culprit was the
+ * position:absolute `.sr-only` text inside a scrolled table: with no
+ * positioned ancestor its containing block is the page, not the scroll
+ * box, so at its static x (~780 px) it widened the document. Making the
+ * scroll box the containing block keeps that overflow inside it. */
+.doc-page .table-scroll {
+  position: relative;
+}
+
+.spec-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-body-md);
+  line-height: 1.5;
+}
+
+.spec-table th,
+.spec-table td {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.spec-table thead th {
+  border-bottom-color: var(--border-strong);
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.spec-table tbody th {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.spec-table tbody tr:not(.spec-group):hover > * {
+  background: var(--bg-surface-elevated);
+}
+
+.spec-table .num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.spec-table .cell-id {
+  white-space: nowrap;
+}
+
+/* An identifier must never split: `.app-main code` breaks anywhere (it
+ * guards the rest of the app against unbroken digests). */
+.app-main .doc-page .spec-table code {
+  overflow-wrap: normal;
+  font-size: 0.95em;
+}
+
+.app-main .doc-page .spec-table .cell-prose code {
+  overflow-wrap: break-word;
+}
+
+.spec-table .col-prose {
+  width: 40%;
+}
+
+.spec-table .col-meta {
+  width: 12%;
+}
+
+.spec-table .col-domain {
+  width: 19%;
+}
+
+/* An enum domain: levels worst to best, one per line, each with its score. */
+.enum-caption {
+  display: block;
+  margin: 0 0 2px;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.enum-ladder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.enum-ladder + .enum-caption {
+  margin-top: var(--space-xs);
+}
+
+.spec-table .cell-meta {
+  color: var(--text-secondary);
+}
+
+/* A 5x5 matrix of weights is read across a row: at 100% width its columns
+ * sat ~180 px apart, so it shrinks to its content instead. */
+.spec-table-personas {
+  width: auto;
+}
+
+.spec-table-personas .num {
+  padding-left: var(--space-lg);
+}
+
+@media (max-width: 959px) {
+  .spec-table-personas .num {
+    padding-left: var(--space-sm);
+  }
+}
+
+.spec-group th {
+  padding-top: var(--space-md);
+  border-bottom-color: var(--border-strong);
+  color: var(--text-primary);
+  font-size: var(--text-body-md);
+  font-weight: 600;
+}
+
+.spec-group-share {
+  margin-left: var(--space-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
+/* Narrow screens: a stackable table becomes one block per row -- the
+ * identifier on its own line, numbers inline, prose and meta as labelled
+ * blocks (labels from each cell's data-label). The parameters table's
+ * narrowest possible width is 806 px (seven columns, three fixed), which
+ * a card fits from ~890 px of viewport without the rail and ~1,120 px
+ * with it -- hence stacking below 960 px and the rail only from 1200 px.
+ * MEASURED before this at
+ * 390 px: the parameters table showed only ID / Weight / Min n in its
+ * scroll box, with rows ~100 px tall and blank because the off-screen
+ * Curve column was wrapping. */
+@media (max-width: 959px) {
+  .spec-table-stack,
+  .spec-table-stack tbody {
+    display: block;
+  }
+
+  .spec-table-stack thead {
+    display: none;
+  }
+
+  .spec-table-stack tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2xs) var(--space-md);
+    padding: var(--space-sm) 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .spec-table-stack tr > * {
+    padding: 0;
+    border: 0;
+  }
+
+  .spec-table-stack tbody th,
+  .spec-table-stack td:not(.num) {
+    flex: 1 1 100%;
+  }
+
+  .spec-table-stack .num {
+    text-align: left;
+  }
+
+  /* "No proxy path" on 15 of 18 cards was a labelled dash each: noise. */
+  .spec-table-stack td.is-empty {
+    display: none;
+  }
+
+  .spec-table-stack td[data-label]::before {
+    content: attr(data-label);
+    margin-right: 6px;
+    color: var(--text-muted);
+    font-size: var(--text-caption);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .spec-table-stack td:not(.num)::before {
+    display: block;
+    margin: 0 0 2px;
+  }
+
+  .spec-table-stack .spec-group {
+    display: block;
+    padding: var(--space-md) 0 var(--space-2xs);
+    border-bottom: 1px solid var(--border-strong);
+  }
+
+  .spec-table-stack .spec-group th {
+    display: block;
+  }
+
+  .spec-table-stack tbody tr:not(.spec-group):hover > * {
+    background: none;
+  }
+}
+
+/* ---- Entry lists (gates, detectors, persona gates, change log) ----
+ * A definition layout: name on the left, meaning on the right. */
+.spec-entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.spec-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-lg);
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--border-subtle);
+  scroll-margin-top: calc(var(--header-height) + var(--space-md));
+}
+
+.spec-entry:first-child {
+  padding-top: var(--space-2xs);
+  border-top: 0;
+}
+
+.spec-entry:last-child {
+  padding-bottom: 0;
+}
+
+@media (min-width: 900px) {
+  .spec-entry {
+    grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  }
+}
+
+.spec-entry-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.spec-entry-id,
+.spec-entry-date {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+}
+
+.spec-entry-title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: break-word;
+}
+
+.spec-entry-title code {
+  font-size: 0.92em;
+}
+
+.spec-entry-body {
+  min-width: 0;
+}
+
+.spec-prose {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-body-lg);
+  line-height: 1.55;
+}
+
+.doc-page .spec-prose code,
+.doc-page .spec-def dd code,
+.doc-page .spec-rules code,
+.doc-page .spec-step-note code {
+  padding: 0 4px;
+  border-radius: var(--radius-badge);
+  background: var(--bg-surface-elevated);
+  font-size: 0.88em;
+}
+
+.spec-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-lg);
+  margin: var(--space-sm) 0 0;
+}
+
+.spec-fact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.spec-fact dt,
+.spec-stat dt,
+.identity-label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.spec-fact dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2xs);
+  min-width: 0;
+  margin: 0;
+}
+
+.spec-chip {
+  padding: 1px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-badge);
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  white-space: nowrap;
+}
+
+.spec-chip-value {
+  margin-left: 6px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.spec-tag {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Text stays in text ink; the colour lives only in the ring and the dot
+ * (graphics, 3:1), so the tag is legible in both themes. */
+.spec-tag-current {
+  border-color: var(--coverage-full);
+  color: var(--text-primary);
+}
+
+.spec-tag-current::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--coverage-full);
+  vertical-align: 1px;
+}
+
+/* A digest shortened by CSS only: the full value stays in the DOM, so one
+ * click (user-select: all) or a copy takes all of it. */
+.app-main .doc-page .spec-hash {
+  display: inline-block;
+  max-width: 13ch;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-body-md);
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.spec-hash-arrow {
+  color: var(--text-muted);
+}
+
+/* ---- Missingness ---- */
+.spec-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: var(--space-sm);
+  margin: 0;
+}
+
+.spec-stat {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+}
+
+.spec-stat dd {
+  margin: var(--space-2xs) 0 0;
+  color: var(--text-primary);
+  font-size: var(--metric-lg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.spec-defs {
+  margin: 0;
+}
+
+.spec-def {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-lg);
+  padding: var(--space-sm) 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.spec-def:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+@media (min-width: 900px) {
+  .spec-def {
+    grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  }
+}
+
+.spec-def dt code {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+}
+
+.spec-def dd {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-body-lg);
+  line-height: 1.55;
+}
+
+.spec-rules {
+  margin: 0;
+  padding-left: var(--space-lg);
+  font-size: var(--text-body-lg);
+  line-height: 1.55;
+}
+
+/* ---- Tie-breakers: a real sequence, numbered by CSS counters ---- */
+.spec-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: spec-step;
+}
+
+.spec-step {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  column-gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+  border-top: 1px solid var(--border-subtle);
+  counter-increment: spec-step;
+}
+
+.spec-step:first-child {
+  border-top: 0;
+}
+
+.spec-step::before {
+  content: counter(spec-step);
+  grid-row: 1 / span 2;
+  padding-top: 2px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.spec-step-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.spec-step-field {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+}
+
+.spec-step-note {
+  grid-column: 2;
+  max-width: 72ch;
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+  line-height: 1.5;
+}
+
+/* ---- Pillars: one bar per pillar, scaled to the heaviest ----
+ * `--w` (the pillar's weight) and `--wmax` (the heaviest) come from the
+ * payload as inline custom properties; the division happens here, so
+ * views/methodology.js needs no numeric literal. Bars start at zero with no
+ * track, and the printed percentage carries the value (dataviz: thin marks,
+ * direct labels, rounded data end). */
+.pillar-weights {
+  width: 100%;
+  max-width: 36rem;
+  border-collapse: collapse;
+  font-size: var(--text-body-md);
+}
+
+.pillar-weights th,
+.pillar-weights td {
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.pillar-weights thead th {
+  border-bottom-color: var(--border-strong);
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pillar-weights tbody th {
+  width: 9.5rem;
+  padding-right: var(--space-md);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.pillar-weight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.pillar-bar {
+  flex: 1;
+  height: 8px;
+}
+
+.pillar-bar-fill {
+  display: block;
+  width: calc(var(--w) / var(--wmax) * 100%);
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--spec-bar);
+}
+
+.pillar-weight-value {
+  min-width: 4ch;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* ---- Snapshot ---- */
+.snapshot-line {
+  margin: 0 0 var(--space-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+}
+
+.doc-section .counts-strip {
+  margin: 0 0 var(--space-md);
+}
+
+/* Digests and a commit: looked up and copied, never read as prose. Label
+ * column beside a monospace value column; one click selects a whole value. */
+.identity-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-lg);
+  margin: 0 0 var(--space-md);
+}
+
+@media (min-width: 900px) {
+  .identity-grid {
+    grid-template-columns: max-content minmax(0, 1fr);
+    row-gap: var(--space-xs);
+  }
+}
+
+.identity-row {
+  display: contents;
+}
+
+.identity-grid .identity-label {
+  padding-top: 2px;
+}
+
+.identity-value {
+  min-width: 0;
+  margin: 0 0 var(--space-xs);
+}
+
+@media (min-width: 900px) {
+  .identity-value {
+    margin: 0;
+  }
+}
+
+.app-main .doc-page .identity-value code {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+  -webkit-user-select: all;
+  user-select: all;
+}
+
+.snapshot-detectors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-md);
+}
+
+.detector-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.detector-flag {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  padding: 4px var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+}
+
+.detector-flag a {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+
+.detector-flag a:hover {
+  text-decoration-color: currentColor;
+}
+
+.detector-flag code {
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+}
+
+.detector-flag-count {
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.reproduce-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-2xs);
+}
+
+.reproduce-copy {
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+
+.reproduce-copy:hover {
+  background: var(--bg-surface-hover);
+}
+
+.app-main .reproduce-command {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 767px) {
+  .doc-section {
+    padding: var(--space-md);
+  }
+}
+
+@media (forced-colors: active) {
+  .pillar-bar-fill,
+  .spec-tag-current::before {
+    background: CanvasText;
+  }
 }

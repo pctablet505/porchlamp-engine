@@ -142,10 +142,103 @@ input.control {
 /* ---- Counts strip (always visible; U-2) ---- */
 .counts-strip {
   display: flex;
-  gap: var(--space-md);
+  flex-direction: column;
+  gap: var(--space-xs);
   font-size: var(--text-caption);
   color: var(--text-secondary);
   padding: var(--space-2xs) 0 var(--space-sm);
+}
+
+/* ---- Corpus meter: how much of the snapshot is rated at all ----
+ * A part-to-whole of ONE population, so a single stacked bar, not three
+ * bars. Segment colours come from --corpus-* (validated; see tokens.css).
+ * The 2px surface gap between fills is the dataviz mark spec — it keeps
+ * adjacent segments readable without an outline, including in
+ * forced-colors mode where the fills may be overridden. */
+.corpus-meter {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  /* No track fill. The segments always sum to the whole, so a track adds
+   * nothing -- and it actively misled: the recessive `gated` segment (the
+   * MAJORITY of a mid-collection snapshot) sat at 2.4:1 against
+   * --bg-surface-elevated and read as empty track rather than as the
+   * largest share. The 2px inter-segment gaps now show the page surface,
+   * which delimits each segment crisply without a competing fill. */
+}
+
+.corpus-seg {
+  flex-basis: 0;
+  min-width: 2px; /* a tiny share stays visible instead of vanishing */
+}
+
+/* Rounded data-ends anchored to the ends of the bar (dataviz mark spec):
+ * only the outer edges round, so the inner joins stay square and the
+ * proportions read true. */
+.corpus-meter .corpus-seg:first-child {
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+}
+
+.corpus-meter .corpus-seg:last-child {
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+}
+
+.corpus-seg-rated { background: var(--corpus-rated); }
+.corpus-seg-gated { background: var(--corpus-gated); }
+.corpus-seg-unrated { background: var(--corpus-unrated); }
+
+.corpus-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+  align-items: baseline;
+}
+
+.corpus-key {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2xs);
+}
+
+/* The swatch is decoration; the label and count beside it carry identity,
+ * which is what lets the muted segments sit below 3:1 on the surface. */
+.corpus-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-badge);
+  align-self: center;
+  flex: none;
+}
+
+.corpus-count {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.corpus-pct {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.corpus-lens {
+  color: var(--text-primary);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-xs);
+}
+
+@media (forced-colors: active) {
+  /* Forced-colors drops the fills; the legend text still identifies each
+   * segment, and a border keeps the proportions visible. */
+  .corpus-seg,
+  .corpus-swatch {
+    border: 1px solid CanvasText;
+  }
 }
 
 /* ---- Badges ---- */
@@ -720,7 +813,23 @@ input.control {
 .evidence-table th:first-child {
   white-space: normal;
   max-width: 120px;
-  word-break: break-word;
+  /* overflow-wrap, NOT word-break: `word-break: break-word` lowers the
+   * cell's min-content to one character, so the auto table layout -- whose
+   * other cells are all nowrap -- squeezed this column to ~22 px and stacked
+   * "Decision Rate (90d)" one character per line (MEASURED 2026-09-22 in the
+   * onnx/onnx drawer: cells up to 255 px tall). overflow-wrap still breaks an
+   * overlong word, but never counts those breaks toward min-content. */
+  overflow-wrap: break-word;
+}
+
+/* `.cell-numeric` breaks anywhere (views.css) so a digit run or digest never
+ * overflows a cell. The drawer also puts the class on four PARAGRAPHS of
+ * spaced text (pillar summary, CVI line, hash, snapshot id), where break-all
+ * split words mid-letter ("Governan|ce", MEASURED 2026-09-22). A paragraph
+ * wraps at spaces and breaks a word only if it alone would overflow. */
+p.cell-numeric {
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 
 .gate-banner {

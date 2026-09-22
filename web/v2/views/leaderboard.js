@@ -53,27 +53,105 @@ export function renderEmptyState(gatedCount, unratedCount) {
 }
 
 /**
- * U-4: "hidden by this lens (N)" disclosure. `hiddenCount` is
- * `counts.rated - snapshot.persona_visible_counts[persona]` — computed by
- * the caller, since it needs both the leaderboard and snapshot payloads.
+ * How many rows the ACTIVE LENS ranks. Not `counts.rated`.
+ *
+ * MEASURED 2026-09-21. A persona view is a re-weighted projection
+ * (`cvi.core.persona`: `persona_composite` is "a separate re-weighted
+ * projection"), and the store admits a row on
+ * `persona_composites[<persona>].coverage >= 0.60` — that persona's own
+ * weights — not on the balanced `rated` flag. So a persona that
+ * down-weights the pillars a sweep has not collected yet ranks MORE repos
+ * than balanced, not fewer: snapshot 2026-09-21-L3gp measured
+ * `counts.rated = 94` with `ai_assisted = 303` and `senior_systems = 98`.
+ * Treating persona-visible as a subset of balanced-rated broke two things
+ * at once — the Ranked tab showed 94 over a table paging 303 rows, and the
+ * U-4 disclosure below went negative and silently vanished.
+ *
+ * Falls back to `counts.rated` when the snapshot has not arrived yet or the
+ * persona is unknown, which is exactly the balanced case.
  */
-export function renderCountsStrip(counts, hiddenCount) {
+export function personaVisibleCount(counts, snapshot, persona) {
+  if (!counts) return null;
+  if (persona === "balanced" || !snapshot || !snapshot.persona_visible_counts) return counts.rated;
+  const visible = snapshot.persona_visible_counts[persona];
+  return typeof visible === "number" ? visible : counts.rated;
+}
+
+/**
+ * U-4's lens disclosure, in BOTH directions — the one place this is
+ * computed (`renderShell` and `app.js::syncCountsStrip` both call it, so
+ * they cannot drift apart as they previously did).
+ *
+ * Returns `{ hidden: n }` when the lens ranks fewer repos than balanced,
+ * `{ extra: n }` when it ranks more, and `null` when the counts agree or
+ * no lens is active.
+ */
+export function personaDelta(counts, snapshot, persona) {
+  const visible = personaVisibleCount(counts, snapshot, persona);
+  if (visible === null || persona === "balanced" || !snapshot) return null;
+  const diff = visible - counts.rated;
+  if (diff === 0) return null;
+  return diff < 0 ? { hidden: -diff } : { extra: diff };
+}
+
+/**
+ * The corpus strip: how much of the snapshot is actually rated, as a
+ * proportional meter plus the lens disclosure.
+ *
+ * This replaced two bare `Gated: N` / `Unrated: N` spans. On a
+ * mid-collection snapshot the split IS the headline — 94 rated of 5755 is
+ * the first thing a reader needs in order to read the table below at all —
+ * and as flat caption text it was the least legible element on the screen.
+ *
+ * Colour never carries a segment's identity on its own: every segment has
+ * a visible label and count beside the meter, which is also the relief the
+ * palette's sub-3:1 contrast on the muted segments requires. The two
+ * not-rated segments are deliberately NEUTRAL and separated by lightness
+ * rather than hue — an amber/green pair here measured only ΔE 5.7 for
+ * protanopia (below even the 6-8 floor band), while one accent plus two
+ * lightness-separated neutrals measures ΔE 12.3 dark / 14.2 light. Do not
+ * "brighten" these into status hues without re-running that check.
+ */
+export function renderCountsStrip(counts, delta) {
   if (!counts) return "";
-  const hiddenSpan =
-    typeof hiddenCount === "number" && hiddenCount > 0
-      ? `<span>${escapeHtml(copy.personaHiddenDisclosure(hiddenCount))}</span>`
-      : "";
+  const total = counts.total || 0;
+  const pct = (n) => (total > 0 ? (n * 100) / total : 0);
+  const segments = [
+    { key: "rated", label: copy.RATED_GROUP_TITLE, value: counts.rated },
+    { key: "gated", label: copy.GATED_GROUP_TITLE, value: counts.gated },
+    { key: "unrated", label: copy.UNRATED_GROUP_TITLE, value: counts.unrated },
+  ];
+  const bar = segments
+    .map((s) => `<span class="corpus-seg corpus-seg-${s.key}" style="flex-grow:${pct(s.value)}"></span>`)
+    .join("");
+  const legend = segments
+    .map(
+      (s) =>
+        `<span class="corpus-key">` +
+        `<span class="corpus-swatch corpus-seg-${s.key}" aria-hidden="true"></span>` +
+        `${escapeHtml(s.label)}` +
+        `<b class="corpus-count">${s.value}</b>` +
+        `<span class="corpus-pct">${escapeHtml(copy.corpusShareText(pct(s.value)))}</span>` +
+        `</span>`
+    )
+    .join("");
+  const disclosure = delta
+    ? `<span class="corpus-lens" data-hidden-count="true">${escapeHtml(
+        delta.hidden ? copy.personaHiddenDisclosure(delta.hidden) : copy.personaExtraDisclosure(delta.extra)
+      )}</span>`
+    : "";
   return (
     `<div class="counts-strip" data-counts-strip="true">` +
-    `<span>${escapeHtml(copy.GATED_GROUP_TITLE)}: ${counts.gated}</span>` +
-    `<span>${escapeHtml(copy.UNRATED_GROUP_TITLE)}: ${counts.unrated}</span>` +
-    hiddenSpan +
+    `<div class="corpus-meter" role="img" aria-label="${escapeHtml(copy.corpusMeterLabel(counts))}">${bar}</div>` +
+    `<div class="corpus-legend">${legend}${disclosure}</div>` +
     `</div>`
   );
 }
 
-export function renderTabs(activeTab, counts) {
-  const rated = counts ? counts.rated : "";
+export function renderTabs(activeTab, counts, visibleCount) {
+  // The Ranked count must be what the table under it actually pages, which
+  // under a lens is NOT counts.rated — see personaVisibleCount.
+  const rated = counts ? (typeof visibleCount === "number" ? visibleCount : counts.rated) : "";
   const notRankedCount = counts ? counts.gated + counts.unrated : "";
   return (
     `<div class="tabs" role="tablist">` +
@@ -111,18 +189,30 @@ export function renderPager(page, pageSize, total, dataPrefix = "pager") {
 }
 
 /** The one-time structural shell for a given (loading/error/empty/normal) state. `viewport.isMobile` picks the table vs. card-list shell (06 §5: below 768px the leaderboard is a card list). */
-/** N for U-4's "hidden by this lens (N)" disclosure, or `undefined` under the balanced lens / before the snapshot has loaded. */
-export function computeHiddenCount(state) {
+/**
+ * U-4's lens disclosure for a whole app state: `{hidden:n}`, `{extra:n}` or
+ * `null`. Thin wrapper over `personaDelta` so the leaderboard shell, the
+ * not-ranked shell and `app.js::syncCountsStrip` all read ONE
+ * implementation — app.js's comment already claimed the logic was "kept in
+ * one place" while in fact holding a second copy that had drifted.
+ */
+export function personaDeltaForState(state) {
   const counts = state.leaderboard ? state.leaderboard.counts : null;
-  if (!counts || state.persona === "balanced" || !state.snapshot) return undefined;
-  const visible = state.snapshot.persona_visible_counts[state.persona];
-  return typeof visible === "number" ? counts.rated - visible : undefined;
+  return personaDelta(counts, state.snapshot, state.persona);
+}
+
+/** Rows the active lens ranks, for a whole app state. */
+export function personaVisibleForState(state) {
+  const counts = state.leaderboard ? state.leaderboard.counts : null;
+  return personaVisibleCount(counts, state.snapshot, state.persona);
 }
 
 export function renderShell(state, viewport = { isMobile: false }) {
   const { leaderboardLoading, leaderboardError, leaderboard } = state;
   const counts = leaderboard ? leaderboard.counts : null;
-  const header = renderTabs(state.tab, counts) + renderCountsStrip(counts, computeHiddenCount(state));
+  const header =
+    renderTabs(state.tab, counts, personaVisibleForState(state)) +
+    renderCountsStrip(counts, personaDeltaForState(state));
 
   let body;
   if (leaderboardLoading && !leaderboard) {
