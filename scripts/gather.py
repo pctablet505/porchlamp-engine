@@ -520,7 +520,34 @@ def _downloads(ecosystem: str, name: str,
     return None, "no-source"
 
 
-def main() -> int:
+def read_priority_keys(path: Path) -> list[str]:
+    """``owner__name`` keys, one per line; blank lines and ``#`` comments ignored."""
+    return [line.strip() for line in path.read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+
+
+def order_by_priority(repos: list[tuple[str, str, str]], keys: list[str],
+                      ) -> tuple[list[tuple[str, str, str]], int]:
+    """``repos`` with every repo whose ``owner__name`` is in ``keys`` moved first.
+
+    Both segments keep candidate order, and no repo is dropped or repeated:
+    this decides only WHEN a repo is gathered, never WHETHER. Returns the
+    reordered list and the length of the priority segment.
+    """
+    wanted = set(keys)
+    first = [r for r in repos if f"{r[0]}__{r[1]}" in wanted]
+    rest = [r for r in repos if f"{r[0]}__{r[1]}" not in wanted]
+    return first + rest, len(first)
+
+
+#: Printed once the priority segment has been gathered. Worded so that it can
+#: never match the per-run summary the BFS runner greps for
+#: (``done: .* clean, .* with failures``): a run killed after this line must
+#: not read as a finished run.
+PRIORITY_DONE_MARKER = "priority segment finished"
+
+
+def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, default=10)
     ap.add_argument("--repo", nargs=2, metavar=("OWNER", "NAME"))
@@ -531,7 +558,10 @@ def main() -> int:
     ap.add_argument("--collectors", default="",
                     help="comma-separated subset of: " + ",".join(COLLECTORS)
                          + " -- one breadth-first layer; default: everything")
-    a = ap.parse_args()
+    ap.add_argument("--priority-keys", type=Path, default=None,
+                    help="file of owner__name keys to gather FIRST; every other "
+                         "repo still follows (ordering only, nothing is skipped)")
+    a = ap.parse_args(argv)
     selected = parse_collectors(a.collectors)
     if a.repo:
         repos = [(a.repo[0], a.repo[1], a.ecosystem)]
@@ -542,14 +572,22 @@ def main() -> int:
             r = json.loads(line)
             if r.get("owner"):
                 repos.append((r["owner"], r["name"], r["ecosystem"]))
+    n_first = 0
+    if a.priority_keys is not None:
+        keys = read_priority_keys(a.priority_keys)
+        repos, n_first = order_by_priority(repos, keys)
+        print(f"priority: {n_first} of {len(repos)} repos first ({a.priority_keys}; "
+              f"{len(set(keys)) - n_first} listed keys are not candidates)")
     ok = fail = 0
     print(f"collectors: {'all' if selected is None else ','.join(sorted(selected))}; repos: {len(repos)}")
-    for owner, name, eco in repos:
+    for i, (owner, name, eco) in enumerate(repos, 1):
         st = gather_repo(owner, name, eco, force=a.force, collectors=selected)
         bad = [k for k, v in st.items() if v == "fail"]
         ok += not bad
         fail += bool(bad)
         print(f"{owner}/{name} [{eco}]: {'OK' if not bad else 'FAIL ' + ','.join(bad)}")
+        if i == n_first:
+            print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
     if _USER_CACHE is not None:
         print(_USER_CACHE.summary())
     print(f"done: {ok} clean, {fail} with failures")
