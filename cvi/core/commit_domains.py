@@ -10,7 +10,8 @@ test_derive_bundle_imports_only_core_and_stdlib``; ``docs/v2/
 models`` only"), so the bot/org-key primitives live here, where both layers
 can reach them. ``cvi.collect.commits`` re-exports every symbol this module
 defines (``CommitActor``, ``CommitRecord``, the three domain tables,
-``is_bot``, ``org_key``, ``author_key``, ``records_from_rows``).
+``is_bot``, ``org_key``, ``author_key``, ``envelope_rows``,
+``records_from_rows``).
 
 :func:`last_non_bot_commit_date` (D-TIE-1 item 7 -- the max commit date
 among non-bot, dated commits) and :func:`top_domain_share` (the raw
@@ -240,6 +241,32 @@ def author_key(actor: CommitActor) -> Optional[str]:
         return login
     email = actor.email.strip().lower()
     return email or None
+
+
+def envelope_rows(data: Any) -> Optional[list[Mapping[str, Any]]]:
+    """The commit rows of a ``commits_365d``/``commits_180d`` envelope's
+    ``data``, in either shape a collector has recorded: a bare row list
+    (the v1 collectors; every ``commits_180d`` envelope) or the
+    window-metadata dict ``cvi.collect.commits.collect_commits_365d``
+    returns since it began recording its cap (``{"count", "cap",
+    "truncated", "rows"}``). ``None`` for ``None`` and for any other value,
+    which every caller already reads as "no envelope".
+
+    Every reader of a commits envelope goes through here. The window dict
+    iterates as its four keys, not its rows, so a reader that took ``data``
+    as the row list either raised ``AttributeError`` on the first
+    ``row.get`` (``scripts/derive.py``, failing the whole bundle) or
+    treated the envelope as absent -- for every repo whose commits had been
+    re-collected. ``truncated`` is not consulted: a capped window's rows
+    are read exactly as the list-shaped envelopes' always were (the v1
+    collectors kept the same newest-1000 cap without recording it)."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, Mapping):
+        rows = data.get("rows")
+        if isinstance(rows, list):
+            return rows
+    return None
 
 
 def records_from_rows(rows: Sequence[Mapping[str, Any]]) -> list[CommitRecord]:

@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from cvi.collect.commits import CommitActor, is_bot
+from cvi.collect.commits import CommitActor, envelope_rows, is_bot
 from cvi.core.gates import GateEvidence
 
 __all__ = [
@@ -96,11 +96,11 @@ def _vitality_commit_count(raw_root: Path, basename: str) -> int | None:
     if not path.is_file():
         return None
     document = json.loads(path.read_text(encoding="utf-8"))
-    data = document.get("data") if isinstance(document, Mapping) else None
-    if not isinstance(data, list):
+    rows = envelope_rows(document.get("data") if isinstance(document, Mapping) else None)
+    if rows is None:
         return None
     count = 0
-    for entry in data:
+    for entry in rows:
         if not isinstance(entry, Mapping):
             continue
         login = entry.get("author_login") or ""

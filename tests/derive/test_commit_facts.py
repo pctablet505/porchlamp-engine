@@ -80,6 +80,38 @@ def test_last_non_bot_commit_at_measured_from_commits_365d(tmp_path: Path) -> No
     assert fact.value == "2026-06-01T00:00:00Z"
 
 
+def _collected(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """``rows`` as ``cvi.collect.commits.collect_commits_365d`` itself
+    records them (its window dict) -- the producer builds the envelope, so a
+    change to what it records reaches this reader's tests too."""
+    from cvi.collect.commits import collect_commits_365d
+    raw = [{"commit": {"author": {"email": r["author_email"], "date": r["date"]}, "message": ""},
+            "author": {"login": r["author_login"], "type": r["author_type"]}} for r in rows]
+    return collect_commits_365d(lambda page, since: raw if page == 1 else [])
+
+
+def test_both_facts_read_the_collectors_window_dict(tmp_path: Path) -> None:
+    """``collect_commits_365d`` records ``{"count", "cap", "truncated",
+    "rows"}``, not a row list; both facts read that as "no list-shaped
+    data" -> collector_failure for every repo whose commits had been
+    re-collected."""
+    rows = _rows(30) + [_row("latest", "latest@corp.com", "2026-06-01T00:00:00Z")]
+    window = _collected(rows)
+    assert isinstance(window, dict)
+    write_envelope(tmp_path / "raw", "commits_365d", KEY, window)
+    bundle = load(tmp_path, _doc(commits_365d=rows))
+
+    fact = last_non_bot_commit_at(bundle)
+    assert isinstance(fact, LastNonBotCommitMeasured)
+    assert fact.value == "2026-06-01T00:00:00Z"
+    share = top_email_domain_share(bundle)
+    assert isinstance(share, TopEmailDomainShareMeasured)
+    assert share.value == 1.0 and share.n == 31  # every row is corp.com
+    assert share.top_domain == "corp.com"
+    # the hash stays over what the envelope RECORDED (the window dict), not the unwrapped rows:
+    assert share.source_hash == expected_hash(window)
+
+
 def test_last_non_bot_commit_at_resolves_via_raw_root_with_no_provenance_entry(tmp_path: Path) -> None:
     """The real sample-200 corpus's v1 documents key ``provenance`` by meta
     field name (``elephant_factor``, ``active_nonbot_commits_180d``, ...),

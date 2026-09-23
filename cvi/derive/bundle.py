@@ -670,9 +670,9 @@ def _resolve_commit_facts(ctx: "_V1Ctx", key: str) -> tuple[LastNonBotCommitValu
             Unmeasured(reason="collector_failure", detail=detail),
         )
     path, fetched_at, used_fallback = resolved
-    data = _envelope_data(path)
-    if not isinstance(data, list):
-        detail = f"envelope at {path} has no list-shaped 'data' field"
+    data = commit_domains.envelope_rows(_envelope_data(path))
+    if data is None:
+        detail = f"envelope at {path} records no commit rows (neither a row list nor a window dict with 'rows')"
         return (
             Unmeasured(reason="collector_failure", detail=detail),
             Unmeasured(reason="collector_failure", detail=detail),

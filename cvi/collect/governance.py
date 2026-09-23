@@ -430,12 +430,16 @@ def _row_sequence(rows: Optional[Any]) -> Optional[Sequence[Mapping[str, Any]]]:
     mappings, never a bare mapping itself (a dict-shaped ``c365`` iterates
     over its *keys*, not its rows, and the
     first ``row.get(...)`` then raises ``AttributeError`` on a plain string).
-    Returns ``None`` for ``None`` or a malformed (bare-``Mapping``) input, so
-    every caller below treats it exactly like "no rows" instead of crashing
-    ``derive_repo``.
+    A mapping is the collector's own window dict when it carries ``rows``
+    (``commit_domains.envelope_rows`` unwraps it -- the shape
+    ``collect_commits_365d`` records); returns ``None`` for ``None`` or any
+    other mapping, so every caller below treats it exactly like "no rows"
+    instead of crashing ``derive_repo``.
     """
-    if rows is None or isinstance(rows, Mapping):
+    if rows is None:
         return None
+    if isinstance(rows, Mapping):
+        return commit_domains.envelope_rows(rows)
     return rows
 
 

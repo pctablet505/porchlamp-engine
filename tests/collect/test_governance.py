@@ -715,6 +715,21 @@ def test_signoff_share_dict_shaped_c365_does_not_crash():
     assert gov.signoff_share({"bob": "acme.com"}) is None
 
 
+def test_signoff_share_reads_the_collectors_window_dict():
+    """The one mapping that IS rows: ``collect_commits_365d`` records
+    ``{"count", "cap", "truncated", "rows"}``. It was treated like the
+    malformed mapping above, so every re-collected repo lost its sign-off
+    evidence silently."""
+    from cvi.collect.commits import collect_commits_365d
+    raw = [{"commit": {"author": {"email": f"u{i}@corp.com", "date": "2026-09-01T00:00:00Z"},
+                       "message": "Signed-off-by: U" if i % 4 else ""},
+            "author": {"login": f"u{i}", "type": "User"}} for i in range(8)]
+    window = collect_commits_365d(lambda page, since: raw if page == 1 else [])
+    assert isinstance(window, dict)  # the producer's own shape, not a hand-built one
+    assert gov.signoff_share(window) == {"count": 6, "total": 8, "share": 0.75}
+    assert gov.signoff_share(window) == gov.signoff_share(window["rows"])
+
+
 def test_promotion_ladder_dict_shaped_c365_does_not_crash():
     value, ev = gov.classify_promotion_ladder(None, {}, {"bob": "acme.com"})
     assert value == "AD_HOC"

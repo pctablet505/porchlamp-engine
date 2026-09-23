@@ -367,6 +367,72 @@ def test_derive_repo_ef_block_from_email_domains(tmp_path):
     assert out["provenance"]["bus_factor"]["source"].endswith("commits_365d/acme__widget.json")
 
 
+def _raw_commit(email: str, login: str, days_ago: float, message: str = "") -> dict:
+    """One GitHub REST commit object -- the input ``collect_commits_365d`` shapes."""
+    return {"sha": f"sha-{login}-{days_ago}",
+            "commit": {"author": {"name": login, "email": email,
+                                  "date": iso(NOW - timedelta(days=days_ago))},
+                       "message": message},
+            "author": {"login": login, "type": "User"}}
+
+
+def _collected(raw: list[dict]) -> dict:
+    """``data`` exactly as ``collect_commits_365d`` records it for ``raw``:
+    the producer builds the envelope here, so a change to what it records
+    reaches these tests instead of only the collector's own."""
+    return cc.collect_commits_365d(lambda page, since: raw if page == 1 else [], now=NOW)
+
+
+_WINDOW_RAW = ([_raw_commit("a@corp.com", "alice", 1 + i / 40, "Signed-off-by: A") for i in range(60)]
+               + [_raw_commit("b@other.com", "bob", 1 + i / 40) for i in range(30)]
+               + [_raw_commit("c@gmail.com", "carol", 1 + i / 40) for i in range(10)])
+
+
+def test_derive_repo_reads_the_collectors_window_dict(tmp_path):
+    """``gather.py`` writes ``collect_commits_365d``'s window dict as the
+    envelope ``data``, not a row list. derive_repo iterated the dict's four
+    keys and raised ``AttributeError`` on ``str.get`` -- every repo whose
+    commits had been re-collected (5,752 of 5,755 at the 2026-09-22 L3c
+    layer) failed to derive, and the layer was built from stale bundles."""
+    data = _collected(_WINDOW_RAW)
+    assert isinstance(data, dict) and data["truncated"] is False  # the shape under test
+    _write_envelope(tmp_path, "commits_365d", KEY, data)
+    out = _run(tmp_path)
+    m, conf = out["meta"], out["confidence"]
+    assert m["elephant_factor"] == 1 and conf["elephant_factor"] == "derived"  # corp.com 60/100
+    assert m["bus_factor"] == 1 and conf["bus_factor"] == "derived"            # alice 60/100
+    assert m["vitality"] is True and conf["vitality"] == "derived"
+    # the governance block reads the same rows (sign-off share, 3.1):
+    assert m["legal_ip"] == "DCO"
+    assert m["legal_ip_evidence"]["signoff"] == {"count": 60, "total": 100, "share": 0.6}
+
+
+def test_derive_repo_window_dict_and_row_list_derive_identically(tmp_path):
+    """Over-correction guard: the row-list envelopes the v1 collectors wrote
+    (and every ``commits_180d`` envelope still is) derive exactly what a
+    window dict holding the same rows derives -- the unwrap changes which
+    shape is read, never a value (EF, bus factor, vitality, Pike signals,
+    governance: the whole meta and confidence)."""
+    data = _collected(_WINDOW_RAW)
+    _write_envelope(tmp_path / "dict", "commits_365d", KEY, data)
+    _write_envelope(tmp_path / "list", "commits_365d", KEY, data["rows"])
+    as_dict, as_list = _run(tmp_path / "dict"), _run(tmp_path / "list")
+    assert as_dict["meta"] == as_list["meta"]
+    assert as_dict["confidence"] == as_list["confidence"]
+    assert as_dict["meta"]["elephant_factor"] == 1  # not two equal failures
+
+
+def test_envelope_rows_accepts_both_recorded_shapes_only():
+    rows = [{"author_login": "alice", "date": "2026-09-01T00:00:00Z"}]
+    assert cc.envelope_rows(rows) is rows
+    assert cc.envelope_rows({"count": 1, "cap": 1000, "truncated": True, "rows": rows}) is rows
+    assert cc.envelope_rows(_collected([])) == []   # a measured empty window stays a list
+    assert cc.envelope_rows(None) is None
+    assert cc.envelope_rows({"bob": "acme.com"}) is None   # a mapping without rows is not a window
+    assert cc.envelope_rows({"rows": "not-a-list"}) is None
+    assert cc.envelope_rows("rows") is None
+
+
 def test_derive_repo_fallback_without_commits_365d(tmp_path):
     _write_envelope(tmp_path, "contributors", KEY, CONTRIBS)
     out = _run(tmp_path)

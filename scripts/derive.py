@@ -524,7 +524,13 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         b.set("active_unclaimed_gfis", gfi_51, src("gfi", key), gfi_at, "verified")
 
     # --- Email-domain EF (spec 3.2), bus factor, vitality (D-GATE-4) ---
-    c365, c365_at = _load(data_dir, "commits_365d", key)
+    # `c365` is the ROW LIST from here on (the Pike and governance blocks
+    # below read it too), whichever shape the envelope recorded:
+    # commit_domains.envelope_rows unwraps the collector's window dict.
+    c365_data, c365_at = _load(data_dir, "commits_365d", key)
+    c365 = commit_domains.envelope_rows(c365_data)
+    if c365 is None:
+        c365_at = None
     if c365 is not None:
         recs = commit_domains.records_from_rows(c365)
         # Both factors are None when under half the window's commits could be

@@ -24,7 +24,8 @@ login in :data:`KNOWN_BOT_LOGINS`); substring matching is absent (F12).
 
 ``CommitActor``, ``CommitRecord``, the three domain tables
 (``NOREPLY_DOMAIN``, ``PERSONAL_DOMAINS``, ``KNOWN_BOT_LOGINS``),
-``is_bot``, ``org_key``, ``author_key`` and ``records_from_rows`` are
+``is_bot``, ``org_key``, ``author_key``, ``envelope_rows`` and
+``records_from_rows`` are
 defined in ``cvi.core.commit_domains`` (stdlib only, so
 ``cvi.derive.bundle`` can import it while it cannot import this module --
 ``tests/core/test_import_graph.py``) and are re-exported here unchanged;
@@ -53,6 +54,7 @@ from cvi.core.commit_domains import (
     CommitActor,
     CommitRecord,
     author_key,
+    envelope_rows,
     is_bot,
     org_key,
     records_from_rows,
@@ -74,6 +76,7 @@ __all__ = [
     "CommitActor",
     "CommitRecord",
     "author_key",
+    "envelope_rows",
     "is_bot",
     "org_key",
     "records_from_rows",
