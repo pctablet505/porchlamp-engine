@@ -228,15 +228,27 @@ def test_rate_respected_and_eta_printed(tmp_path, capsys):
         data_dir = tmp_path / "data"
         make_data_dir(data_dir, names)
         backfill = _load_backfill()
+        # Time the requests where the throttle acts: as they are SENT. The
+        # server's arrival times also carry each request's latency, and the
+        # first request pays one-off costs (first connection, lazy imports):
+        # on GitHub's runner that shortened the first observed gap to 0.34 s
+        # while the sends were a full 0.4 s apart (CI run 35878054799).
+        sent: list[float] = []
+        fetch = backfill.fetch_last_month
+
+        def timed_fetch(*args, **kwargs):
+            sent.append(time.monotonic())
+            return fetch(*args, **kwargs)
+
+        backfill.fetch_last_month = timed_fetch
         report = backfill.backfill(
             data_dir, base_url=f"http://127.0.0.1:{server.server_address[1]}",
             min_interval=0.4,
         )
         assert report.fetched == 4 and report.still_null == 0
-        ts = [t for _, t in server.seen]
-        gaps = [b - a for a, b in zip(ts, ts[1:])]
-        assert all(g >= 0.35 for g in gaps), f"inter-request gaps {gaps} < 0.4 s interval"
-        assert all(n == f"b{i}" for i, (n, _) in enumerate(server.seen))
+        gaps = [b - a for a, b in zip(sent, sent[1:])]
+        assert len(gaps) == 3 and all(g >= 0.4 - 0.005 for g in gaps), f"send gaps {gaps} < 0.4 s interval"
+        assert [n for n, _ in server.seen] == names  # every request reached the server, in order
         out = capsys.readouterr().out
         assert "eta" in out.lower()  # ETA is reported, not just counted
         assert "measured" in out
