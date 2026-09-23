@@ -1329,6 +1329,11 @@ def _assert_under_budget_with_retry(measure, label: str, budget_ms: float = 100.
     # The 100 ms budget is a property of the query
     if os.environ.get("PYTEST_XDIST_WORKER"):
         budget_ms = budget_ms * 2.0
+    # CI runs on slower shared hardware than the host these budgets describe:
+    # PORCHLAMP_PERF_HOST_FACTOR (set only in .github/workflows/ci.yml, with the
+    # measured evidence) scales the budget for that host. Unset means 1, so
+    # every local run still enforces the real number.
+    budget_ms = budget_ms * float(os.environ.get("PORCHLAMP_PERF_HOST_FACTOR", "1"))
     first = measure()
     print(f"\n[perf] {label}: {first:.2f} ms (budget {budget_ms:.0f} ms)")
     if first < budget_ms:
