@@ -286,7 +286,7 @@ used in the importing file).
 ## 3. Shim plan
 
 **External-consumer check first:** `git remote -v` → only
-`github.com/pctablet505/porchlamp` (personal), local `main` is
+`github.com/pctablet505/porchlamp-engine` (personal), local `main` is
 currently well ahead of `origin/main` (198+ commits at session start),
 `pyproject.toml` has no `[project.scripts]` entry points and the package has
 never been published (version `0.1.0`, no PyPI listing evidenced). **Nothing
