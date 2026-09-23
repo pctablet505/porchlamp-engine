@@ -235,7 +235,7 @@ def build_grid(db: Path, *, quick: bool, seed: int = 20260923) -> Grid:
     for owner, name in unknown:
         _repo(grid, owner, name)
 
-    presets = [list(constants.PERSONA_PRESETS[p][q] for q in pillars) for p in sorted(constants.PERSONA_PRESETS)]
+    presets = [[constants.PERSONA_PRESETS[p][q] for q in pillars] for p in sorted(constants.PERSONA_PRESETS)]
     one_hot = [[1.0 if i == j else 0.0 for i in range(len(pillars))] for j in range(len(pillars))]
     vectors = presets + one_hot + [[0.2] * len(pillars)]
     for _ in range(12 if quick else 60):

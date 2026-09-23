@@ -44,7 +44,7 @@ def _patch(monkeypatch, outcomes):
     """Each call pops one outcome: an Exception to raise, or str to return."""
     calls: list[int] = []
 
-    def fake_urlopen(req, timeout=None):  # noqa: ANN001
+    def fake_urlopen(req, timeout=None):
         calls.append(1)
         out = outcomes.pop(0)
         if isinstance(out, Exception):
