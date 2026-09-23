@@ -24,6 +24,13 @@ import { synthesizeRows } from "../perf-fixtures.js";
 
 const FRAME_BUDGET_MS = 16;
 const FRAME_BUDGET_MARGIN = 3; // U-19: "3x margin, numbers reported"
+// CI re-runs this suite inside pytest -n auto on slower shared hardware than
+// the host the budget describes: PORCHLAMP_PERF_HOST_FACTOR (set only on
+// ci.yml's pytest step) scales the limit there. Unset means 1, so a local run
+// and CI's standalone node step enforce the real 48 ms.
+const HOST_FACTOR = Number(process.env.PORCHLAMP_PERF_HOST_FACTOR ?? "1");
+assert.ok(HOST_FACTOR > 0, `PORCHLAMP_PERF_HOST_FACTOR must be a positive number, got ${process.env.PORCHLAMP_PERF_HOST_FACTOR}`);
+const LIMIT_MS = FRAME_BUDGET_MS * FRAME_BUDGET_MARGIN * HOST_FACTOR;
 
 // NOTE: this mirrors the windowing in web/v2/views/leaderboard.js by hand. The
 // two must stay in step -- when they drifted (leaderboard passed a spacer its
@@ -84,8 +91,8 @@ test("U-13/U-19: 1,000 synthetic rows (the max page size) — initial windowed p
   const rendered = tbody.children.filter((tr) => !tr.hasAttribute("aria-hidden"));
   assert.ok(rendered.length > 0 && rendered.length < 100, `windowed slice should be small, got ${rendered.length}`);
   assert.ok(
-    elapsed < FRAME_BUDGET_MS * FRAME_BUDGET_MARGIN,
-    `initial patch of 1,000 rows took ${elapsed.toFixed(2)}ms, budget ${FRAME_BUDGET_MS}ms x${FRAME_BUDGET_MARGIN} margin = ${FRAME_BUDGET_MS * FRAME_BUDGET_MARGIN}ms`
+    elapsed < LIMIT_MS,
+    `initial patch of 1,000 rows took ${elapsed.toFixed(2)}ms, budget ${FRAME_BUDGET_MS}ms x${FRAME_BUDGET_MARGIN} margin x${HOST_FACTOR} host = ${LIMIT_MS}ms`
   );
   console.log(`[measured] initial windowed patch of 1,000 rows: ${elapsed.toFixed(2)}ms`);
 });
@@ -132,12 +139,12 @@ test("U-12/U-13: 60 simulated scroll steps — no patch exceeds the frame budget
   const avgFrame = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
   console.log(
     `[measured] 60 scroll steps: max=${maxFrame.toFixed(2)}ms avg=${avgFrame.toFixed(2)}ms ` +
-      `(budget ${FRAME_BUDGET_MS}ms, 3x margin ${FRAME_BUDGET_MS * FRAME_BUDGET_MARGIN}ms)`
+      `(budget ${FRAME_BUDGET_MS}ms, 3x margin x${HOST_FACTOR} host = ${LIMIT_MS}ms)`
   );
 
   assert.ok(
-    maxFrame < FRAME_BUDGET_MS * FRAME_BUDGET_MARGIN,
-    `a scroll-step patch took ${maxFrame.toFixed(2)}ms, over the ${FRAME_BUDGET_MS * FRAME_BUDGET_MARGIN}ms (3x) margin`
+    maxFrame < LIMIT_MS,
+    `a scroll-step patch took ${maxFrame.toFixed(2)}ms, over the ${LIMIT_MS}ms limit (3x margin x${HOST_FACTOR} host)`
   );
   // The rendered slice must actually have moved on most steps (not every
   // single step necessarily changes the integer first-rank at a 1-row

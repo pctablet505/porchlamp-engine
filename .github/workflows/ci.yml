@@ -37,8 +37,10 @@ jobs:
         env:
           # The perf budgets (100 ms queries, 150 ms API; 2x under xdist) describe the
           # development host. Run 35878054799 measured this runner 1.3-1.5x over even the
-          # xdist budgets (257/276 ms vs 200, 443 ms vs 300) with no code change, so CI
-          # scales them by 2; a local run (factor unset) enforces the real numbers.
+          # xdist budgets (257/276 ms vs 200, 443 ms vs 300) with no code change, and run
+          # 35879353753 the JS render budget re-run here (57 ms vs 48), so CI scales them
+          # by 2. A local run and the standalone node step above (factor unset) enforce
+          # the real numbers.
           PORCHLAMP_PERF_HOST_FACTOR: "2"
         run: env -u PYTEST_ADDOPTS python -m pytest tests/ -n auto -p no:cacheprovider
 
