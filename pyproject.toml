@@ -16,7 +16,7 @@ requires-python = ">=3.10"
 # actually import porchlamp.serve.app (ModuleNotFoundError: fastapi), confirmed
 # by the non-editable install check this packet's inventory asked for.
 server = ["fastapi>=0.141", "httpx>=0.28", "pydantic>=2.0", "uvicorn>=0.50"]
-dev = ["fastapi>=0.141", "httpx>=0.28", "pytest>=9", "pytest-xdist>=3.8", "pyyaml>=6.0.3"]
+dev = ["fastapi>=0.141", "httpx>=0.28", "pytest>=9", "pytest-xdist>=3.8", "pyyaml>=6.0.3", "uvicorn>=0.52.4"]
 
 [tool.setuptools]
 packages = ["porchlamp", "porchlamp.audit", "porchlamp.collect", "porchlamp.core", "porchlamp.core.params", "porchlamp.derive", "porchlamp.pillars", "porchlamp.serve", "porchlamp.snapshot", "porchlamp.store", "porchlamp.store.migrations", "porchlamp.verify"]
