@@ -14,6 +14,8 @@ import path from "node:path";
 import { decidingTieLevel, SORTABLE_COLUMNS, renderColumnHeader } from "../components/table.js";
 import { KEY_ACTIONS, actionForKeyEvent } from "../components/keymap.js";
 import { renderCoverageBadge } from "../components/badge.js";
+import { renderBrand } from "../components/brand.js";
+import { escapeHtml } from "../components/table.js";
 import {
   defaultState,
   reduce,
@@ -1002,6 +1004,26 @@ test("methodology: the index and the body come from one list (same ids, same ord
   assert.deepEqual(sectionIds, index.map((e) => e.id));
   assert.deepEqual(jumpIds, index.map((e) => e.id));
   assert.equal(new Set(sectionIds).size, sectionIds.length, "section ids are unique");
+});
+
+test("brand: the header carries the symbol (decorative), the name and the slogan, all from copy.js", () => {
+  const html = renderBrand();
+  assert.match(html, /<svg class="brand-mark"[^>]*aria-hidden="true"/, "the symbol is hidden from assistive technology");
+  assert.ok(html.includes(`</svg>${escapeHtml(copy.BRAND_NAME)}</span>`), "the name follows the symbol");
+  assert.ok(html.includes(`<span class="brand-tagline">${escapeHtml(copy.BRAND_TAGLINE)}</span>`), "the slogan");
+});
+
+test("methodology: Why Porchlamp sits above the document, each paragraph once, and only once the document has loaded", () => {
+  const html = methodologyShell(SNAPSHOT_DOC);
+  const why = html.indexOf('<section class="why-card"');
+  assert.ok(why > -1, "the Why section renders");
+  assert.ok(why < html.indexOf('<div class="doc-layout"'), "and comes before the document");
+  assert.ok(html.includes(`>${escapeHtml(copy.WHY_HEADING)}</h2>`));
+  for (const paragraph of copy.WHY_PARAGRAPHS) {
+    assert.equal(html.split(`<p>${escapeHtml(paragraph)}</p>`).length - 1, 1, paragraph.slice(0, 40));
+  }
+  const loading = renderMethodologyShell({ methodology: null, snapshot: null, methodologyLoading: true, methodologyError: null });
+  assert.ok(!loading.includes("why-card"), "no Why section while the document is loading");
 });
 
 test("methodology: the Snapshot section appears only once the snapshot payload has loaded", () => {

@@ -64,6 +64,7 @@ import {
   flattenGroups,
 } from "./views/notranked.js";
 import { renderDrawer } from "./views/drawer.js";
+import { renderBrand } from "./components/brand.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
 import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel } from "./components/table.js";
 import { synthesizeRows } from "./perf-fixtures.js";
@@ -148,7 +149,7 @@ export function boot(win = window, doc = document) {
       (p) => `<option value="${p}">${escapeHtml(copy.PERSONA_NAMES[p])}</option>`
     ).join("");
     header.innerHTML =
-      `<span class="brand">${escapeHtml(copy.BRAND_NAME)}</span>` +
+      renderBrand() +
       `<span class="snapshot-chip" data-snapshot-chip="true">${escapeHtml(copy.LOADING_LABEL)}</span>` +
       `<div class="header-controls">` +
       `<label class="field-label">${escapeHtml(copy.PERSONA_LABEL)}</label>` +

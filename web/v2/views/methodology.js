@@ -551,6 +551,10 @@ export function renderShell(state) {
     `<div class="doc-page">` +
     `<div class="doc-page-head">${heading}` +
     `<p class="doc-lede">${escapeHtml(copy.methodologyBenchmarkLine(doc.benchmark_version, doc.constants_hash, doc.schema_version))}</p></div>` +
+    `<section class="why-card" aria-labelledby="why-porchlamp-title">` +
+    `<h2 class="why-title" id="why-porchlamp-title">${escapeHtml(copy.WHY_HEADING)}</h2>` +
+    copy.WHY_PARAGRAPHS.map((p) => `<p>${escapeHtml(p)}</p>`).join("") +
+    `</section>` +
     `<div class="doc-layout" id="methodology">` +
     renderIndex(sectionIndex(doc, state.snapshot)) +
     `<div class="doc-body">${sections.map(renderSection).join("")}</div>` +

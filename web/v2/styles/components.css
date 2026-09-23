@@ -16,11 +16,40 @@
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: var(--text-h2);
   color: var(--text-primary);
   white-space: nowrap;
+}
+
+.brand-mark {
+  width: 1.4em;
+  height: 1.4em;
+  flex: none;
+}
+
+.brand-mark-glow {
+  fill: var(--lamp-glow);
+}
+
+.brand-mark-rays {
+  stroke: var(--lamp-glow);
+}
+
+.brand-tagline {
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+@media (max-width: 1365px) {
+  .brand-tagline {
+    display: none;
+  }
 }
 
 .snapshot-chip {

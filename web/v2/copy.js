@@ -8,6 +8,8 @@
 // somewhere under web/v2/, so no string here is dead/orphaned copy.
 
 export const BRAND_NAME = "Porchlamp";
+/** The slogan, beside the brand in the header (hidden on narrow screens). */
+export const BRAND_TAGLINE = "Find the projects that leave the light on.";
 
 export const NAV_LEADERBOARD = "Leaderboard";
 export const NAV_NOT_RANKED = "Not ranked";
@@ -537,6 +539,13 @@ export const COMPARE_UNMEASURED_LABEL = "Unmeasured";
 // Screen F: Methodology and snapshot
 // --------------------------------------------------------------------- //
 export const METHODOLOGY_HEADING = "Methodology and snapshot";
+/** "Why Porchlamp", above the methodology: the one idea, the finding behind it, and where the numbers come from. */
+export const WHY_HEADING = "Why Porchlamp";
+export const WHY_PARAGRAPHS = Object.freeze([
+  "A porch lamp left on tells a visitor they are expected. Porchlamp ranks open-source projects the same way: by what happens to a stranger's pull request, not by how many stars the project has.",
+  "Stars do not review pull requests. In our measurements about half of active projects leave most pull requests from outside contributors without a human reply, review or merge for two weeks, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.",
+  "Every number comes from public GitHub activity: how fast a person answered outside contributors, how many of their pull requests reached a decision, whether first-time contributors came back, and how much other software depends on the project.",
+]);
 export const METHODOLOGY_LOADING_TEXT = "Loading the methodology…";
 export function methodologyErrorText(endpoint, status, detail) {
   const base = `Could not load the methodology from ${endpoint} (status ${status}).`;
