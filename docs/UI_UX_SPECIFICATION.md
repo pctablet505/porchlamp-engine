@@ -1,5 +1,5 @@
 # UI/UX Architecture & Design System Specification
-## Contributor Value Index (CVI) Platform
+## Porchlamp Platform
 
 ---
 
@@ -7,12 +7,12 @@
 
 ### 1.1 Product Philosophy & Design Tenets
 
-The **Contributor Value Index (CVI) Platform** transforms open-source discovery from vanity-metric popularity contests (stars, forks) into an empirical, engineering-grade decision support platform. 
+The **Porchlamp Platform** transforms open-source discovery from vanity-metric popularity contests (stars, forks) into an empirical, engineering-grade decision support platform. 
 
 The user experience is guided by four foundational design tenets:
 
 1. **Information Density without Cognitive Noise:** Borrowing from high-performance developer tools (Linear, Datadog, Grafana, Vercel), interfaces favor compact typography, monospace tabular figures, high-contrast visual hierarchies, and progressive disclosure over empty whitespace or decorative fluff.
-2. **Deterministic Clarity over Black-Box Scoring:** Every aggregate CVI score and 2D coordinate is fully decomposable. Maintainers and contributors must be able to trace any metric back to its empirical root (e.g., exact hours to first human review, Kaplan-Meier latency curves, SHA-verified commit entropy).
+2. **Deterministic Clarity over Black-Box Scoring:** Every aggregate Porchlamp score and 2D coordinate is fully decomposable. Maintainers and contributors must be able to trace any metric back to its empirical root (e.g., exact hours to first human review, Kaplan-Meier latency curves, SHA-verified commit entropy).
 3. **Multi-Faceted Persona Adaptation:** Contributor value is subjective. An onboarding newcomer seeks low-friction mentorship; an elite systems engineer seeks high-rigor, high-impact infrastructure; an AI-assisted contributor seeks transparent AI policies and deterministic automated CI. The UI must fluidly re-project rankings based on user intent.
 4. **Latency-Zero Spatial Navigation:** The flagship 2D Contributor Discovery Matrix must feel like a native high-performance CAD canvas or game engine: smooth 60fps pan/zoom, sub-100ms viewport clustering, instant hover tooltips, and seamless transitions into deep-dive repository drawers.
 
@@ -22,7 +22,7 @@ The user experience is guided by four foundational design tenets:
 
 ```mermaid
 flowchart TD
-    Root["CVI User Personas and Mental Models"]
+    Root["Porchlamp User Personas and Mental Models"]
 
     subgraph P1 ["Persona 1: The Explorer (First-Time Contributor)"]
         direction TB
@@ -104,7 +104,7 @@ flowchart TD
 flowchart TD
     subgraph GlobalShell ["App Shell (Fixed Header, Global Context and Nav Rail)"]
         direction TB
-        Brand["CVI Logo and Version HUD"]
+        Brand["Porchlamp Logo and Version HUD"]
         NavRail["Primary Nav Rail<br/>• 2D Matrix (/matrix)<br/>• Leaderboard (/leaderboard)<br/>• Configurator (/persona)<br/>• Compare (/compare)"]
         Omnibar["Omnibar / Cmd+K Search<br/>• Fuzzy Repo Search<br/>• Persona Presets<br/>• Quick Jump"]
         ContextStatus["System HUD<br/>• Repos Indexed: 5,420<br/>• GHArchive Sync: Live (Lag under 15m)<br/>• Ecosystem: All"]
@@ -130,7 +130,7 @@ The shell uses an ultra-responsive three-tier layout optimized for high-density 
 flowchart TD
     subgraph ViewportLayout ["Global Layout Grid and Viewport Architecture"]
         direction TB
-        TopNav["Top Navigation and Omnibar (Height: 56px, Fixed)<br/>[ CVI Logo ] [ Matrix ] [ Leaderboard ] [ Configurator ] [ Compare ] | [ Cmd+K Search ] [ System HUD ]"]
+        TopNav["Top Navigation and Omnibar (Height: 56px, Fixed)<br/>[ Porchlamp Logo ] [ Matrix ] [ Leaderboard ] [ Configurator ] [ Compare ] | [ Cmd+K Search ] [ System HUD ]"]
         
         subgraph MiddleZone ["Interactive Workspace Zone"]
             direction LR
@@ -152,12 +152,12 @@ The Omnibar provides universal, keyboard-driven navigation across repositories, 
 
 - **Keyboard Trigger:** `Cmd + K` (macOS) / `Ctrl + K` (Linux/Windows) or single-key `/` when no input is focused.
 - **Search Scope:**
-  - **Direct Repository Lookup:** Fuzzy-matches `owner/repo` against the 5,000+ indexed repositories with immediate CVI score badges.
+  - **Direct Repository Lookup:** Fuzzy-matches `owner/repo` against the 5,000+ indexed repositories with immediate Porchlamp score badges.
   - **Persona Presets:** Instant activation of presets (`/persona first-timer`, `/persona career`, `/persona senior`).
   - **Ecosystem Switcher:** Fast scoping (`/eco python`, `/eco rust`, `/eco go`).
   - **Direct Matrix Jumps:** Center canvas on specific quadrant coordinates (`/goto sweet-spot`, `/goto crucible`).
 - **Visual Feedback:** 
-  - Result rows display owner avatar, repository name, primary language tag, composite CVI score pill, and quadrant color dot.
+  - Result rows display owner avatar, repository name, primary language tag, composite Porchlamp score pill, and quadrant color dot.
   - Arrow keys (`Up` / `Down`) cycle selections; `Enter` opens the Scorecard Drawer; `Cmd + Enter` navigates directly to the GitHub repository.
 
 ---
@@ -233,7 +233,7 @@ Font Stacks:
 | **Body Large** | Inter | 15px / 0.9375rem | 22px | 400 / 500 | `-0.010em` | Introductory text, drawer descriptions |
 | **Body Medium** | Inter | 13px / 0.8125rem | 18px | 400 / 500 | `0.000em` | Table text, general UI controls, pills |
 | **Caption / Micro** | Inter | 11px / 0.6875rem | 14px | 500 (Med) | `+0.010em` | Metadata tags, tooltips, axis helper text |
-| **Metric Large** | JetBrains Mono | 28px / 1.75rem | 32px | 700 (Bold) | `-0.020em` | Composite CVI score badge, big KPI stats |
+| **Metric Large** | JetBrains Mono | 28px / 1.75rem | 32px | 700 (Bold) | `-0.020em` | Composite Porchlamp score badge, big KPI stats |
 | **Metric Standard** | JetBrains Mono | 14px / 0.875rem | 18px | 600 (Semi) | `0.000em` | Table column numbers, coordinate HUD |
 | **Metric Pill / HUD** | JetBrains Mono | 10px / 0.625rem | 12px | 500 (Med) | `+0.025em` | Quadrant coordinates `(L:88, F:24)` |
 
@@ -293,7 +293,7 @@ stateDiagram-v2
 
 The 2D Discovery Matrix is the flagship exploratory canvas. It plots repositories along **Leverage ($Y$-axis, 0–100)** versus **Friction ($X$-axis, 0–100)**, partitioned into four distinct quadrants bisected at $(50, 50)$.
 
-![Screen A: 2D Discovery Matrix Canvas](assets/cvi_platform_matrix.svg)
+![Screen A: 2D Discovery Matrix Canvas](assets/porchlamp_platform_matrix.svg)
 
 #### Canvas Architecture & Technical Mechanics
 
@@ -331,7 +331,7 @@ When hovering over any scatter node for >= 120ms, a rich card anchors to the nod
 
 | Hover Card Component | Interactive Specification & Data State |
 | :--- | :--- |
-| **Repository Header** | **`vllm-project / vllm`** `[ Tier S+ ]` `[ CVI: 94.2 ]`<br/>*High-throughput and memory-efficient LLM serving engine* |
+| **Repository Header** | **`vllm-project / vllm`** `[ Tier S+ ]` `[ Porchlamp: 94.2 ]`<br/>*High-throughput and memory-efficient LLM serving engine* |
 | **Quadrant & Core Metrics** | **The Sweet Spot (Emerald Diamond)**<br/>• **Time-to-First-Review (TTFHR):** 11.2h (Top 2% PyPI)<br/>• **PR Ghost Rate:** 4.1% (Near-Zero Black Hole Risk)<br/>• **OpenSSF Scorecard:** 8.8 / 10<br/>• **Active Unclaimed GFIs:** 14 fresh issues |
 | **Downstream Footprint & Action** | Python / CUDA • 14,820 Downstream Dependent Orgs<br/>`[ Click point or press Enter to inspect full Scorecard Drawer → ]` |
 
@@ -341,16 +341,16 @@ When hovering over any scatter node for >= 120ms, a rich card anchors to the nod
 
 Screen B provides a tabular, data-dense view for users who prefer structured sorting, multi-column ranking, and precise numerical comparisons across programming language ecosystems.
 
-![Screen B: Multi-Ecosystem Ranked Leaderboard](assets/cvi_leaderboard.svg)
+![Screen B: Multi-Ecosystem Ranked Leaderboard](assets/porchlamp_leaderboard.svg)
 
 #### Column Hierarchy & Interactive Behaviors
 
 1. **Rank Position (`#`):** Global ordinal integer based on active persona weighting. Tabular monospace numerals.
 2. **Tier Badge (`[S+]`, `[S]`, `[A]`, `[B]`, `[C]`, `[D]`):**
-   - Tier S+: Glowing emerald border, top 1% composite CVI.
+   - Tier S+: Glowing emerald border, top 1% composite Porchlamp.
    - Tier D / Disqualified: Flashing red warning outline.
 3. **Repository Identity:** Avatar, verified foundation badge (e.g., Apache, CNCF, PSF feather icon), `owner/name`, and primary license.
-4. **Overall CVI Score (0–100):** Visual mini-progress bar with numerical score overlaid.
+4. **Overall Porchlamp Score (0–100):** Visual mini-progress bar with numerical score overlaid.
 5. **Maintainer Responsiveness (TTFHR):** Bot-filtered median hours. Values <= 24h styled in emerald; > 168h (1 week) styled in red.
 6. **Pull Request Ghost Rate:** Percentage of PRs unanswered after 14 days. >= 50% displays a red warning badge `[STAGE 0 FAIL]`.
 7. **Downstream Footprint:** Unique root-organization dependents derived from package manager indexes.
@@ -368,7 +368,7 @@ Screen C is the ultimate diagnostic view for a single repository. It opens as a 
 flowchart TB
     subgraph ScorecardLayout ["Screen C: Repository Scorecard Architecture"]
         direction TB
-        Header["Header HUD: Repo Identity, CVI Composite Badge, Quadrant Pill, License"]
+        Header["Header HUD: Repo Identity, Porchlamp Composite Badge, Quadrant Pill, License"]
         
         subgraph VisualDuo ["Visual Diagnostics Row"]
             direction LR
@@ -392,13 +392,13 @@ flowchart TB
 
 #### Detailed Scorecard Section Specifications
 
-![Screen C: Deep-Dive Scorecard Drawer](assets/cvi_scorecard_drawer.svg)
+![Screen C: Deep-Dive Scorecard Drawer](assets/porchlamp_scorecard_drawer.svg)
 
 ---
 
 ### 4.4 Screen D: Persona Configurator & Weight Adjuster
 
-![Screen D: Custom Priority Configurator](assets/cvi_custom_ranking.svg)
+![Screen D: Custom Priority Configurator](assets/porchlamp_custom_ranking.svg)
 
 Screen D empowers contributors to calibrate the platform's multi-criteria evaluation engine to match their personal career goals.
 
@@ -444,7 +444,7 @@ Screen E enables head-to-head evaluation between two to four repositories, direc
 
 | Metric Dimension | Repository A: `vllm-project/vllm` | Repository B: `keras-team/keras-hub` |
 | :--- | :--- | :--- |
-| **Overall CVI Score** | **94.2 (Tier S+) [Recommended]** | **41.2 (Tier D) [High Risk]** |
+| **Overall Porchlamp Score** | **94.2 (Tier S+) [Recommended]** | **41.2 (Tier D) [High Risk]** |
 | **2D Discovery Quadrant** | **The Sweet Spot** (Emerald Diamond) | **The Graveyard** (Crimson Cross) |
 | **Superimposed Radar View** | Solid Cyan Polygon (Expansive across all 5 axes) | Dashed Red Polygon (Collapsed on P1 and P5) |
 | **Pillar 1: Responsiveness** | | |
@@ -554,4 +554,4 @@ flowchart LR
 | **Accessibility & Responsive**| WCAG 2.1 AA, color-blind shape coding, keyboard shortcuts, 5 breakpoints. | Verified Complete |
 
 ---
-*Architectural Document End — Contributor Value Index (CVI) Platform UI/UX Specification.*
+*Architectural Document End — Porchlamp Platform UI/UX Specification.*

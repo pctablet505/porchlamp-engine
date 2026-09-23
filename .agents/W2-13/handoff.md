@@ -8,13 +8,13 @@
 ## Diffstat (`8a4846c..HEAD`)
 
 ```
- cvi/collect/pike_signals.py                        | 141 +++++++++----
- cvi/core/aggregate.py                              |  62 ++++--
- cvi/core/constants_v2.py                           |  32 +++
- cvi/core/engine.py                                 |  43 +++-
- cvi/core/models.py                                 |  12 +-
- cvi/core/openssf.py                                |  26 ++-
- cvi/derive/bundle.py                               | 134 ++++++++++--
+ porchlamp/collect/pike_signals.py                        | 141 +++++++++----
+ porchlamp/core/aggregate.py                              |  62 ++++--
+ porchlamp/core/constants_v2.py                           |  32 +++
+ porchlamp/core/engine.py                                 |  43 +++-
+ porchlamp/core/models.py                                 |  12 +-
+ porchlamp/core/openssf.py                                |  26 ++-
+ porchlamp/derive/bundle.py                               | 134 ++++++++++--
  docs/v2/rfcs/CHANGELOG.md                          |   1 +
  docs/v2/rfcs/RFC-0002-not-applicable-rules-and-criticality-proxy.md | 108 ++++++++++
  tests/collect/test_w17_pike.py                     |  92 ++++++---
@@ -43,12 +43,12 @@ Rebased onto local `main`, not `origin/main`.
 
 ## 1. Constants
 
-`cvi/core/constants_v2.py` gains three constants (all registered in
+`porchlamp/core/constants_v2.py` gains three constants (all registered in
 `constants_dict()`, rows added to `_FROZEN_TABLE`):
 
 - `NOT_APPLICABLE_RULES: tuple[tuple[str, str, str], ...] = (("dependents_deduped", "ecosystem", "systems"),)`
 - `OPENSSF_PROXY_MIN_SIGNALS: int = 8`
-- `WINDOW_STALENESS_DAYS: int = 14` (relocated from `cvi/collect/pike_signals.py`, imported back there as `constants_v2.WINDOW_STALENESS_DAYS`)
+- `WINDOW_STALENESS_DAYS: int = 14` (relocated from `porchlamp/collect/pike_signals.py`, imported back there as `constants_v2.WINDOW_STALENESS_DAYS`)
 
 RFC: `docs/v2/rfcs/RFC-0002-not-applicable-rules-and-criticality-proxy.md`.
 Changelog: `docs/v2/rfcs/CHANGELOG.md` new top row.
@@ -61,13 +61,13 @@ Changelog: `docs/v2/rfcs/CHANGELOG.md` new top row.
 
 ## 2. Rule enforcement
 
-- `cvi/derive/bundle.py::_resolve_dependents_deduped` now loops
+- `porchlamp/derive/bundle.py::_resolve_dependents_deduped` now loops
   `constants_v2.NOT_APPLICABLE_RULES` (matching on `rule_param ==
   "dependents_deduped"` and `fact_name == "ecosystem"`) instead of an
   inline `if ecosystem == "systems"`. Same detail text, same behaviour —
   verified: every existing `test_dependents_deduped_*` test in
   `tests/derive/test_input_mappings.py` passes unchanged.
-- `cvi/core/engine.py`: `_score_params` now downgrades any
+- `porchlamp/core/engine.py`: `_score_params` now downgrades any
   `Unmeasured(not_applicable)` bundle input whose `(parameter, fact,
   value)` does not match a `NOT_APPLICABLE_RULES` row to
   `Unmeasured(collector_failure, detail="not_applicable claimed outside
@@ -81,10 +81,10 @@ Changelog: `docs/v2/rfcs/CHANGELOG.md` new top row.
 
 ## 3. Coverage (D-MISS-5)
 
-`cvi/core/aggregate.py::aggregate_pillars`: `not_applicable` parameters are
+`porchlamp/core/aggregate.py::aggregate_pillars`: `not_applicable` parameters are
 now excluded from BOTH sides of pillar coverage first
 (`_is_not_applicable`), then the existing D-MISS-2 renormalisation runs
-over the applicable subset. `PillarScore` (`cvi/core/models.py`) gains
+over the applicable subset. `PillarScore` (`porchlamp/core/models.py`) gains
 `applicable: bool = True` — `False` only when a pillar's entire applicable
 weight is 0 (every parameter in it not_applicable).
 `composite_coverage` sums `W_p * c_p` only over pillars with
@@ -110,7 +110,7 @@ Every pre-existing coverage test in `test_aggregate.py` passes unchanged
 
 ## 4. Criticality proxy
 
-- `cvi/collect/pike_signals.py::derive_pike_signals`: no longer hard-requires
+- `porchlamp/collect/pike_signals.py::derive_pike_signals`: no longer hard-requires
   `dep["deduped_count"]`. Returns `tuple[dict[str, int|float], frozenset[str]]
   | None` (the nine-or-ten present signals, keyed by `OpenSSFSignals` field
   name, plus which are missing) instead of `Optional[OpenSSFSignals]`; still
@@ -124,11 +124,11 @@ Every pre-existing coverage test in `test_aggregate.py` passes unchanged
   `openssf_signals` itself stays at v1's pre-existing "missing" placeholder in
   that case — verified end to end in
   `test_derive_repo_missing_dependents_leaves_openssf_missing`.
-- `cvi/core/openssf.py::calculate_pike_criticality` gains a keyword-only
+- `porchlamp/core/openssf.py::calculate_pike_criticality` gains a keyword-only
   `missing: Optional[frozenset[str]] = None` that excludes named alpha_i/T_i
   keys from both the numerator and denominator sums (renormalising over
   present signals); `None`/empty is the pre-W2-13 behaviour, byte-identical.
-- `cvi/derive/bundle.py::_resolve_openssf_criticality`: when the full
+- `porchlamp/derive/bundle.py::_resolve_openssf_criticality`: when the full
   ten-signal set was never emitted, tries `_resolve_openssf_criticality_proxy`
   before falling to the generic `third_party_gap` gap. That helper reuses
   `_resolve_dependents_deduped(ctx)`'s own resolution (one source for "why is
@@ -155,8 +155,8 @@ Tests (`tests/derive/test_input_mappings.py`, `tests/collect/test_w17_pike.py`):
   over-correction guard (a hand-built doc with both a measured
   `dependents_count` AND a partial companion falls through, not shortcut).
 - `test_openssf_criticality_pike_signals_and_openssf_containers_agree`: feeds
-  `cvi.collect.pike_signals.derive_pike_signals`' real output through
-  `cvi.core.openssf.calculate_pike_criticality(..., missing=...)` and confirms
+  `porchlamp.collect.pike_signals.derive_pike_signals`' real output through
+  `porchlamp.core.openssf.calculate_pike_criticality(..., missing=...)` and confirms
   it matches the bundle-derived proxy value end to end ("both containers
   agree").
 - `tests/collect/test_w17_pike.py`: `derive_pike_signals` return-shape tests
@@ -246,15 +246,15 @@ restoration, confirmed after mutant 7 with a full-suite + ruff run.
 env -u PYTEST_ADDOPTS PYTHONPATH=$PWD /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -B -m pytest -n 4 -p no:cacheprovider
 2149 passed, 1 skipped in ~11s
 
-PYTHONPATH=$PWD /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -m ruff check cvi/ tests/ scripts/
+PYTHONPATH=$PWD /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -m ruff check porchlamp/ tests/ scripts/
 All checks passed!
 ```
 
 ## Not touched (per packet scope)
 
-`cvi/store/**`, `web/**`, `cvi/serve/**`, `cvi/core/pipeline.py`,
-`cvi/collect/{github_graphql,depsdev}.py`, `scripts/build_universe.py`. In
-`cvi/derive/bundle.py` only `_resolve_dependents_deduped` and
+`porchlamp/store/**`, `web/**`, `porchlamp/serve/**`, `porchlamp/core/pipeline.py`,
+`porchlamp/collect/{github_graphql,depsdev}.py`, `scripts/build_universe.py`. In
+`porchlamp/derive/bundle.py` only `_resolve_dependents_deduped` and
 `_resolve_openssf_criticality` (plus the new
 `_resolve_openssf_criticality_proxy` helper beside it) were touched —
 W2-12's `dr90_decision_rate` row and every other row are untouched (the
@@ -274,8 +274,8 @@ boundaries held).
 
 W1-10 landed on `main` (`783656a`/`469d681`) while this packet was in
 review, claiming RFC-0002 for the StarScout `STARS_SCOUT_*` relocation.
-Rebased onto the new `main` tip; `cvi/core/constants_v2.py` and
-`cvi/derive/bundle.py` auto-merged with zero conflicts (row/section
+Rebased onto the new `main` tip; `porchlamp/core/constants_v2.py` and
+`porchlamp/derive/bundle.py` auto-merged with zero conflicts (row/section
 boundaries held); resolved `tests/core/test_frozen.py` and
 `docs/v2/rfcs/CHANGELOG.md` by hand (kept both sides); renamed this
 packet's RFC file to `RFC-0003-not-applicable-rules-and-criticality-proxy.md`

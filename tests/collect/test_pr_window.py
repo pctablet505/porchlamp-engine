@@ -1,6 +1,6 @@
 """Tests for windowed PR collection with typed actors and review threads.
 
-Subject: ``cvi.collect.github_graphql``:
+Subject: ``porchlamp.collect.github_graphql``:
 recorded-response oracles at the GraphQL transport boundary (no live calls)
 asserting the exact values, pagination stop at the window
 boundary, ``truncated`` at the 500 cap, point-cost accounting, and the
@@ -17,10 +17,10 @@ from types import ModuleType
 
 import pytest
 
-from cvi.collect import github_graphql as gql
-from cvi.collect.envelope import envelope_hash, read_envelope, write_envelope
-from cvi.collect import user_cache as gql_user_cache
-from cvi.collect.user_cache import UserCache
+from porchlamp.collect import github_graphql as gql
+from porchlamp.collect.envelope import envelope_hash, read_envelope, write_envelope
+from porchlamp.collect import user_cache as gql_user_cache
+from porchlamp.collect.user_cache import UserCache
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 NOW = datetime(2026, 9, 12, 0, 0, 0, tzinfo=timezone.utc)
@@ -37,8 +37,8 @@ def _load_script(modname: str, fname: str) -> ModuleType:
     return module
 
 
-gather = _load_script("cvi_gather_pr_window", "gather.py")
-derive = _load_script("cvi_derive_pr_window", "derive.py")
+gather = _load_script("porchlamp_gather_pr_window", "gather.py")
+derive = _load_script("porchlamp_derive_pr_window", "derive.py")
 
 
 # --- recorded-response fixtures ----------------------------------------------
@@ -513,7 +513,7 @@ def test_derive_repo_without_pr_window_envelope_unaffected(tmp_path):
 # Author history and newcomer cohorts
 # =============================================================================
 #
-# Subject: cvi.collect.github_graphql's author section (recorded-response
+# Subject: porchlamp.collect.github_graphql's author section (recorded-response
 # oracles, no live calls) plus the append-only hooks at the end of
 # scripts/gather.py (the ``author_history`` status entry) and
 # scripts/derive.py (the cohort bundle fields).
@@ -1747,7 +1747,7 @@ def test_apply_author_cap_six_of_ten_capped_to_two():
 def test_apply_author_cap_small_population_binds_when_one_author_dominates():
     """A population entirely owned by one login is still capped down to its
     allowance (``max(1, floor(0.20*4)) == 1``, the oldest survives) even though
-    the population is small -- ``cvi.core.hygiene.apply_author_cap`` no
+    the population is small -- ``porchlamp.core.hygiene.apply_author_cap`` no
     longer zeroes a small population outright (see
     ``tests/core/test_hygiene.py`` for the full oracle, including the
     "nobody dominates" case that must NOT be zeroed)."""

@@ -824,7 +824,7 @@ input.control {
 
 /* `.cell-numeric` breaks anywhere (views.css) so a digit run or digest never
  * overflows a cell. The drawer also puts the class on four PARAGRAPHS of
- * spaced text (pillar summary, CVI line, hash, snapshot id), where break-all
+ * spaced text (pillar summary, Porchlamp line, hash, snapshot id), where break-all
  * split words mid-letter ("Governan|ce", MEASURED 2026-09-22). A paragraph
  * wraps at spaces and breaks a word only if it alone would overflow. */
 p.cell-numeric {

@@ -17,7 +17,7 @@ handoff"). Two commits. Not pushed. Main not touched.
 Scope: **PART A only** (constants freeze + prerequisites). PART B
 (W2-8b: bundles→ranked-records scoring driver, 50-repo fixture snapshot,
 anchors/sensitivity over v2 records, CI job) is a separate, concurrently
-running packet — confirmed with the lead that it owns `cvi/core/pipeline.py`,
+running packet — confirmed with the lead that it owns `porchlamp/core/pipeline.py`,
 `tests/fixtures/snapshot_50/`, `tests/core/test_pipeline.py`, `tests/audit/*`,
 `tests/snapshot/test_reproduce_fixture.py`, `.github/workflows/ci.yml`; none
 of those paths are touched here.
@@ -25,20 +25,20 @@ of those paths are touched here.
 ## Diffstat (my own diff, rebased branch vs. final rebased base `92bc615`)
 
 ```
- cvi/core/aggregate.py                |  17 +-
- cvi/core/constants_v2.py             | 310 ++++++++++++++++++++++++++++++++---
- cvi/core/engine.py                   |  10 +-
- cvi/core/gates.py                    |  30 ++--
- cvi/core/matrix.py                   |  23 ++-
- cvi/core/params/accessibility.py     |  20 ++-
- cvi/core/params/criticality.py       |   7 +-
- cvi/core/params/curves.py            |  20 ++-
- cvi/core/params/governance.py        |  35 ++--
- cvi/core/params/responsiveness.py    |  30 ++--
- cvi/core/params/rigor.py             |  19 +--
- cvi/core/persona.py                  | 116 +++++--------
- cvi/core/tiebreak.py                 |  16 +-
- cvi/snapshot/populations.py          |   7 +-
+ porchlamp/core/aggregate.py                |  17 +-
+ porchlamp/core/constants_v2.py             | 310 ++++++++++++++++++++++++++++++++---
+ porchlamp/core/engine.py                   |  10 +-
+ porchlamp/core/gates.py                    |  30 ++--
+ porchlamp/core/matrix.py                   |  23 ++-
+ porchlamp/core/params/accessibility.py     |  20 ++-
+ porchlamp/core/params/criticality.py       |   7 +-
+ porchlamp/core/params/curves.py            |  20 ++-
+ porchlamp/core/params/governance.py        |  35 ++--
+ porchlamp/core/params/responsiveness.py    |  30 ++--
+ porchlamp/core/params/rigor.py             |  19 +--
+ porchlamp/core/persona.py                  | 116 +++++--------
+ porchlamp/core/tiebreak.py                 |  16 +-
+ porchlamp/snapshot/populations.py          |   7 +-
  docs/v2/rfcs/CHANGELOG.md            |   9 +
  docs/v2/rfcs/README.md               |  90 ++++++++++
  tests/core/test_constants_hash.py    |  21 ++-
@@ -61,7 +61,7 @@ or a dict-key lookup at a `ParamDef` call site).
 
 | Symbol | From module | Value | In `constants_dict()` |
 |---|---|---|---|
-| `PERSONA_PRESETS` (5 preset dicts) | `cvi/core/persona.py` | balanced=`PILLAR_WEIGHTS`; first_timer/career_capital/senior_systems/ai_assisted per D-PERS-2 | yes |
+| `PERSONA_PRESETS` (5 preset dicts) | `porchlamp/core/persona.py` | balanced=`PILLAR_WEIGHTS`; first_timer/career_capital/senior_systems/ai_assisted per D-PERS-2 | yes |
 | `SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR` | persona.py | 3.0 | yes |
 | `FIRST_TIMER_MIN_DECIDED_PRS` | persona.py | 5 | yes |
 | `FIRST_TIMER_MIN_MR_FIRST` | persona.py | 0.40 | yes |
@@ -70,35 +70,35 @@ or a dict-key lookup at a `ParamDef` call site).
 | `CAREER_CAPITAL_MIN_COVERAGE` | persona.py | 0.80 | yes |
 | `GATED_PERSONAS` | persona.py | `(ai_assisted, senior_systems, first_timer, career_capital)` | yes |
 | `WEIGHT_SUM_TOLERANCE` | persona.py | 1e-6 | yes |
-| `CEILING_A_MIN_COVERAGE` | `cvi/core/aggregate.py` | 0.80 | yes |
+| `CEILING_A_MIN_COVERAGE` | `porchlamp/core/aggregate.py` | 0.80 | yes |
 | `NO_CEILING_MIN_COVERAGE` | aggregate.py | 0.95 | yes |
-| `EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE` (the rated threshold) | `cvi/core/gates.py` | 0.60 | yes |
-| `COMPOSITE_DECIMALS` | `cvi/core/tiebreak.py` (3 `round(...,2)` sites) | 2 | yes |
-| `MIN_POPULATION` | `cvi/snapshot/populations.py` | 30 | yes |
+| `EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE` (the rated threshold) | `porchlamp/core/gates.py` | 0.60 | yes |
+| `COMPOSITE_DECIMALS` | `porchlamp/core/tiebreak.py` (3 `round(...,2)` sites) | 2 | yes |
+| `MIN_POPULATION` | `porchlamp/snapshot/populations.py` | 30 | yes |
 | `GATE4_VITALITY_WINDOW_DAYS` | gates.py | 180 | yes |
 | `GATE5_MIN_N` | gates.py | 10 | yes |
 | `GATE5_MIN_AGE_DAYS` | gates.py | 14 | yes |
 | `GATE5_RESPONSE_DEADLINE_DAYS` | gates.py | 14 | yes |
 | `GATE5_MAX_ZERO_RESPONSE_SHARE` | gates.py | 0.50 | yes |
 | `GATE6_DECISION_WINDOW_DAYS` | gates.py | 365 | yes |
-| `LEVERAGE_WEIGHTS` | `cvi/core/matrix.py` | criticality .50/rigor .30/governance .20 | yes |
+| `LEVERAGE_WEIGHTS` | `porchlamp/core/matrix.py` | criticality .50/rigor .30/governance .20 | yes |
 | `FRICTION_WEIGHTS` | matrix.py | responsiveness .50/governance .30/accessibility .20 | yes |
 | `QUADRANT_THRESHOLD` | matrix.py | 50.0 | yes |
-| `MONO_TOLERANCE` | `cvi/core/params/curves.py` | 1e-9 | yes |
+| `MONO_TOLERANCE` | `porchlamp/core/params/curves.py` | 1e-9 | yes |
 | `RATE_SLOPE` | curves.py | 125.0 | yes |
 | `COHORT_RATE_SLOPE` | curves.py | 200.0 | yes |
-| `TTFHR_KNEE_HOURS` | `cvi/core/params/responsiveness.py` | 12.0 | yes |
+| `TTFHR_KNEE_HOURS` | `porchlamp/core/params/responsiveness.py` | 12.0 | yes |
 | `TTFHR_SLOPE_PER_DOUBLING` | responsiveness.py | 25.0 | yes |
 | `GHOST_RATE_SLOPE` | responsiveness.py | 200.0 | yes |
-| `SUPPLY_SLOPE` | `cvi/core/params/accessibility.py` | 10.0 | yes |
-| `ELEPHANT_SLOPE` | `cvi/core/params/governance.py` | 25.0 | yes |
+| `SUPPLY_SLOPE` | `porchlamp/core/params/accessibility.py` | 10.0 | yes |
+| `ELEPHANT_SLOPE` | `porchlamp/core/params/governance.py` | 25.0 | yes |
 | `LEGAL_IP_SCORES` | governance.py | DCO 100/NONE 85/FOUNDATION_CLA 75/CORP_CLA 25 | yes |
 | `PROMOTION_LADDER_SCORES` | governance.py | VERIFIED 100/DOCUMENTED 75/AD_HOC 40/CLOSED 10 | yes |
-| `AI_POSTURE_SCORES` | `cvi/core/params/rigor.py` | nested dict, persona-conditional | yes |
+| `AI_POSTURE_SCORES` | `porchlamp/core/params/rigor.py` | nested dict, persona-conditional | yes |
 | `PARAM_WEIGHTS` (18 entries) | every `ParamDef(weight=...)` call site across `params/*` | per-parameter within-pillar weight | yes |
 | `PARAM_MIN_N` (18 entries, some `None`) | every `ParamDef(min_n=...)` call site | per-parameter minimum n | yes |
 | `PIPELINE_DEFENSES_PROXY_MIN_N` | rigor.py (`_PIPELINE.proxy_min_n`) | 10 | yes |
-| `REASON_NO_POPULATION` / `UNMEASURED_REASONS` (+1 member) | `cvi/core/engine.py` (`_REASON_NO_POPULATION`) / constants_v2 (already existed, missing the member) | `"no_population"` | yes |
+| `REASON_NO_POPULATION` / `UNMEASURED_REASONS` (+1 member) | `porchlamp/core/engine.py` (`_REASON_NO_POPULATION`) / constants_v2 (already existed, missing the member) | `"no_population"` | yes |
 | `BENCHMARK_VERSION` | constants_v2.py (already there) | `"2.0.0-dev"` → `"2.0.0-rc1"` | yes |
 
 **Not relocated (deliberate, reasoning given inline in each module)**:
@@ -136,7 +136,7 @@ across the rebase (main's own commits since `c7b2a1b` never touched
 
 ## Fail-before / after — `Unmeasured("no_population")`
 
-**Before** (on base `c7b2a1b`, `cvi/core/models.py` + `cvi/core/constants_v2.py`
+**Before** (on base `c7b2a1b`, `porchlamp/core/models.py` + `porchlamp/core/constants_v2.py`
 restored via `git show c7b2a1b:<path>` to an isolated scratch copy, not the
 live worktree):
 ```
@@ -163,7 +163,7 @@ accepting anything.
 ## Drift proof (A1: change 3 relocated values, run `test_frozen`, paste failures, restore)
 
 Mutated in the worktree (scripted, three `str.replace` calls on
-`cvi/core/constants_v2.py`): `PERSONA_PRESETS["first_timer"]["responsiveness"]`
+`porchlamp/core/constants_v2.py`): `PERSONA_PRESETS["first_timer"]["responsiveness"]`
 0.35→0.36, `MIN_POPULATION` 30→31, `CEILING_A_MIN_COVERAGE` 0.80→0.81.
 Reproduced identically before the first rebase, after the first rebase
 (tree at `0f5c05c`, superseded), and after the second rebase (tree at
@@ -190,7 +190,7 @@ first failure and hidden the other two). File restored via `cp` from a
 saved pre-mutation copy; `diff -q` confirmed byte-identical; full suite
 re-run green (see below) after each restore.
 
-## A3: R4/R5/R6 mutant kills (`cvi/core/engine.py` rated path, lines ~319-325 post-rebase)
+## A3: R4/R5/R6 mutant kills (`porchlamp/core/engine.py` rated path, lines ~319-325 post-rebase)
 
 Fixtures: `FullyMeasured` (C=1.0, no ceiling) and `GovernanceUnmeasured`
 (all 3 governance inputs `Unmeasured` → governance pillar score `None` →
@@ -255,7 +255,7 @@ Verbatim final line:
 1674 passed, 12 warnings in 55.22s
 exit=0
 ```
-`ruff check cvi/ scripts/ tests/`: clean except the 4 pre-existing errors
+`ruff check porchlamp/ scripts/ tests/`: clean except the 4 pre-existing errors
 in `scripts/curate_dataset_llm.py` (untouched, per the packet's own
 instruction not to touch that file).
 
@@ -263,13 +263,13 @@ instruction not to touch that file).
 
 1. Rebased twice. First `git rebase refs/remotes/origin-local/main` (main
    tip `59b9614` at the time) onto branch `W2-8`. One real conflict:
-   `cvi/core/persona.py`'s module-docstring prose (both sides described the
+   `porchlamp/core/persona.py`'s module-docstring prose (both sides described the
    same "ownership request to W2-8" paragraph — W2-7f's copy said it was
    still outstanding, mine said it was done). Resolved by keeping my
    description (accurate: the relocation is now done) while preserving
    W2-7f's substantive D-PERS-3 content elsewhere in the file (untouched by
-   the merge, no conflict there). `cvi/core/engine.py` and
-   `cvi/core/tiebreak.py` auto-merged cleanly (W2-10's
+   the merge, no conflict there). `porchlamp/core/engine.py` and
+   `porchlamp/core/tiebreak.py` auto-merged cleanly (W2-10's
    `ScoreRecord.repo`/`TieBreakInput` validation landed alongside my
    `_REASON_NO_POPULATION`/`COMPOSITE_DECIMALS` edits with no line overlap).
    Second rebase onto `92bc615` (W2-9g) was a clean auto-rebase, zero file
@@ -277,19 +277,19 @@ instruction not to touch that file).
    drift proof and the R4/R5/R6 mutant kills re-run and re-confirmed
    byte-for-byte identical to the pre-rebase results, `CONSTANTS_HASH`
    unchanged.
-2. Did not touch `cvi/core/pipeline.py`, `tests/fixtures/snapshot_50/`,
+2. Did not touch `porchlamp/core/pipeline.py`, `tests/fixtures/snapshot_50/`,
    `tests/core/test_pipeline.py`, `tests/audit/*`,
    `tests/snapshot/test_reproduce_fixture.py`, `.github/workflows/ci.yml`
    (W2-8b's paths, per the coordinator's notice).
 3. No `ScoreRecord` is constructed directly in the new tests (only via
-   `cvi.core.engine.score(...)`), so W2-10's new required `repo=` field
+   `porchlamp.core.engine.score(...)`), so W2-10's new required `repo=` field
    needed no test-side changes here.
 
 ## COULD NOT VERIFY
 
 - Whether W2-8b's fixture snapshot / CI job will need the relocated
   `PARAM_WEIGHTS`/`PARAM_MIN_N` dicts surfaced anywhere beyond
-  `cvi.core.constants_v2` — not this packet's scope to build that consumer.
+  `porchlamp.core.constants_v2` — not this packet's scope to build that consumer.
 - The RFC template's "rank movement on the fixture" and "anchors" sections
   reference `tests/fixtures/snapshot_50/` and the anchor set, both owned by
   W2-8b; the template is written to point at them but nothing in this
@@ -303,20 +303,20 @@ instruction not to touch that file).
 ## Findings that belong to W2-8b or elsewhere (not fixed here, out of scope)
 
 - The scoring driver (bundles → ranked `ScoreRecord`s) does not exist yet
-  outside test fixtures; `cvi.core.engine.score` is a pure per-repo
+  outside test fixtures; `porchlamp.core.engine.score` is a pure per-repo
   function with no batch/ranking wrapper. W2-8b's plan (bundles→ranked-
   records driver) is the natural home; it will need to call
-  `cvi.core.tiebreak.assign_ranks` over `TieBreakInput`s built from
-  `FeatureBundle.repo` (owner/name) and `cvi.core.tiebreak.ttfhr_p75_from_pr_window`
+  `porchlamp.core.tiebreak.assign_ranks` over `TieBreakInput`s built from
+  `FeatureBundle.repo` (owner/name) and `porchlamp.core.tiebreak.ttfhr_p75_from_pr_window`
   — the "last non-bot commit date" field `TieBreakInput` still has no
   source for (an open ownership request recorded in `tiebreak.py`'s own
   docstring, not resolved by this packet — it needs a dated commit field
   through the bundle or record, which is bigger than a constants freeze).
-- `cvi/audit/*`'s v1-DB coupling: not inspected in this packet (out of the
+- `porchlamp/audit/*`'s v1-DB coupling: not inspected in this packet (out of the
   A1-A3 scope); noted here only because the packet asked me to report
   anything I noticed — I did not go looking, so this is a non-finding, not
   a clean bill of health.
-- `cvi/core/aggregate.py`'s `TIER_CUTOFFS`/`TIER_ORDER` and `gates.py`'s
+- `porchlamp/core/aggregate.py`'s `TIER_CUTOFFS`/`TIER_ORDER` and `gates.py`'s
   `OSI_APPROVED_LICENSES`/`UNDETERMINED_SPDX` are the two "found but
   deliberately not relocated" categories (see the relocation table's "Not
   relocated" section) — if a future packet decides these should also be
@@ -348,21 +348,21 @@ handoff), `6c8619a` (fix, round 2 — this section). **Final base: `097142a`.**
 
 | Symbol | Module | Round-1 status | Round-2 disposition |
 |---|---|---|---|
-| `TIER_CUTOFFS` | `cvi/core/aggregate.py` | uncovered, MUST ADD | **covered** — moved to `constants_v2`, re-bound; `_FROZEN_TABLE` row added (★) |
-| `TIER_ORDER` | `cvi/core/aggregate.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
-| `OPENSSF_WEIGHTS` | `cvi/core/openssf.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
-| `OPENSSF_THRESHOLDS` | `cvi/core/openssf.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
-| `SIGNAL_FIELDS` | `cvi/core/openssf.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
-| `TTFHR_MIN_N` | `cvi/derive/bundle.py` | duplicate of `PARAM_MIN_N`, uncovered | **deleted** — value (10) confirmed identical to `PARAM_MIN_N["ttfhr_hours"]` (10), no divergence; call site now reads `constants_v2.PARAM_MIN_N["ttfhr_hours"]` directly |
-| `SUBSTANTIVE_REVIEW_MIN_N` | `cvi/derive/bundle.py` | duplicate, uncovered | **deleted** — value (10) confirmed identical to `PARAM_MIN_N["substantive_review_rate"]` (10); call site reads the registry directly |
-| `TTM_P90_MIN_N` | `cvi/derive/bundle.py` | duplicate, uncovered | **deleted** — value (5) confirmed identical to `PARAM_MIN_N["ttm_p90_hours"]` (5); call site reads the registry directly |
-| `OSI_APPROVED_LICENSES` | `cvi/core/gates.py` | uncovered, SHOULD ADD | **covered** — moved to `constants_v2` (as `tuple(sorted(...))` for JSON-native hashing; kept as `frozenset` at the gate call site for O(1) membership), re-bound; not in `_FROZEN_TABLE` (not ★-marked) |
-| `MIN_COVERAGE` | `cvi/audit/anchors.py` | REPORT (W2-8b's code, 1 of 3 UNDECIDED) | **not-hashed-by-ruling** — a release gate, not a scored value; left in place; documented in `docs/v2/rfcs/README.md`'s new "Process constants" section; still RFC-gated |
-| `TAU_RELEASE_THRESHOLD` | `cvi/audit/sensitivity.py` | REPORT | **not-hashed-by-ruling** — same treatment |
-| `DEFAULT_PERTURBATION_PP` | `cvi/audit/sensitivity.py` | REPORT | **not-hashed-by-ruling** — same treatment |
-| `UNDETERMINED_SPDX` | `cvi/core/gates.py` | 1 of 3 UNDECIDED (review's own census summary calls it "correctly excluded" elsewhere, contradicting its UNDECIDED list) | **excluded-with-reason, not addressed this round** — not in the coordinator's round-2 task list; three sentinel strings meaning "no SPDX id recorded" (`None`/`"NOASSERTION"`/`"OTHER"`), not itself a vocabulary that can drift the way `OSI_APPROVED_LICENSES` can; flagged for the lead to resolve the review's internal inconsistency |
-| `TIER_FLOOR` | `cvi/core/aggregate.py` | correctly excluded (label, no threshold) | **unchanged** — stays in `aggregate.py` |
-| `ParamDef.domain` ×18, `_REFERENCE_SAMPLE`, `better_order`, `persona_orders` | `cvi/core/params/*` | correctly excluded (verified: read only by the monotonicity probe/validation, never by `_apply`) | **unchanged** |
+| `TIER_CUTOFFS` | `porchlamp/core/aggregate.py` | uncovered, MUST ADD | **covered** — moved to `constants_v2`, re-bound; `_FROZEN_TABLE` row added (★) |
+| `TIER_ORDER` | `porchlamp/core/aggregate.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
+| `OPENSSF_WEIGHTS` | `porchlamp/core/openssf.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
+| `OPENSSF_THRESHOLDS` | `porchlamp/core/openssf.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
+| `SIGNAL_FIELDS` | `porchlamp/core/openssf.py` | uncovered, MUST ADD | **covered** — moved, re-bound; `_FROZEN_TABLE` row added (★) |
+| `TTFHR_MIN_N` | `porchlamp/derive/bundle.py` | duplicate of `PARAM_MIN_N`, uncovered | **deleted** — value (10) confirmed identical to `PARAM_MIN_N["ttfhr_hours"]` (10), no divergence; call site now reads `constants_v2.PARAM_MIN_N["ttfhr_hours"]` directly |
+| `SUBSTANTIVE_REVIEW_MIN_N` | `porchlamp/derive/bundle.py` | duplicate, uncovered | **deleted** — value (10) confirmed identical to `PARAM_MIN_N["substantive_review_rate"]` (10); call site reads the registry directly |
+| `TTM_P90_MIN_N` | `porchlamp/derive/bundle.py` | duplicate, uncovered | **deleted** — value (5) confirmed identical to `PARAM_MIN_N["ttm_p90_hours"]` (5); call site reads the registry directly |
+| `OSI_APPROVED_LICENSES` | `porchlamp/core/gates.py` | uncovered, SHOULD ADD | **covered** — moved to `constants_v2` (as `tuple(sorted(...))` for JSON-native hashing; kept as `frozenset` at the gate call site for O(1) membership), re-bound; not in `_FROZEN_TABLE` (not ★-marked) |
+| `MIN_COVERAGE` | `porchlamp/audit/anchors.py` | REPORT (W2-8b's code, 1 of 3 UNDECIDED) | **not-hashed-by-ruling** — a release gate, not a scored value; left in place; documented in `docs/v2/rfcs/README.md`'s new "Process constants" section; still RFC-gated |
+| `TAU_RELEASE_THRESHOLD` | `porchlamp/audit/sensitivity.py` | REPORT | **not-hashed-by-ruling** — same treatment |
+| `DEFAULT_PERTURBATION_PP` | `porchlamp/audit/sensitivity.py` | REPORT | **not-hashed-by-ruling** — same treatment |
+| `UNDETERMINED_SPDX` | `porchlamp/core/gates.py` | 1 of 3 UNDECIDED (review's own census summary calls it "correctly excluded" elsewhere, contradicting its UNDECIDED list) | **excluded-with-reason, not addressed this round** — not in the coordinator's round-2 task list; three sentinel strings meaning "no SPDX id recorded" (`None`/`"NOASSERTION"`/`"OTHER"`), not itself a vocabulary that can drift the way `OSI_APPROVED_LICENSES` can; flagged for the lead to resolve the review's internal inconsistency |
+| `TIER_FLOOR` | `porchlamp/core/aggregate.py` | correctly excluded (label, no threshold) | **unchanged** — stays in `aggregate.py` |
+| `ParamDef.domain` ×18, `_REFERENCE_SAMPLE`, `better_order`, `persona_orders` | `porchlamp/core/params/*` | correctly excluded (verified: read only by the monotonicity probe/validation, never by `_apply`) | **unchanged** |
 | `GATE_*`, `REASON_*`, `ROUTED_OFF_PLATFORM`, `QUADRANT_*`, `PERSONA_*`, `INPUT_*`, `KIND_*`, `CEILING_A`/`CEILING_B` | various | correctly excluded (identifier strings) | **unchanged** |
 
 **M4 guard** (`tests/core/test_frozen.py::test_every_module_level_constant_is_hashed_or_declared_not_hashed`
@@ -460,7 +460,7 @@ main's own commits between `9bb1c22` and `097142a` — W0-4's LLM-curation
 deletion, INT-W0-4, several docs-only lead-log entries — added the
 remaining 55 independently, none overlapping this packet's files.)
 
-**ruff** `cvi/ scripts/ tests/`: **all checks passed** (the 4 previously
+**ruff** `porchlamp/ scripts/ tests/`: **all checks passed** (the 4 previously
 pre-existing `F401`s in `scripts/curate_dataset_llm.py` are moot — W0-4
 deleted that file in the commits this round rebased onto).
 
@@ -479,7 +479,7 @@ deleted that file in the commits this round rebased onto).
 
 ## COULD NOT VERIFY (round 2, in addition to round 1's list)
 
-- Whether `cvi/audit/anchors.py`/`sensitivity.py` will need a code comment
+- Whether `porchlamp/audit/anchors.py`/`sensitivity.py` will need a code comment
   pointing back at `docs/v2/rfcs/README.md`'s new "Process constants"
   section — not this packet's file to touch (W2-8b/W2-13 territory per the
   work-plan's packet ownership).

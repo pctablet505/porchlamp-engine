@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from cvi.core import constants
-from cvi.core.models import Measured, ParamScore, Unmeasured
-from cvi.core.params import ai_posture, pipeline_defenses, substantive_review_rate
+from porchlamp.core import constants
+from porchlamp.core.models import Measured, ParamScore, Unmeasured
+from porchlamp.core.params import ai_posture, pipeline_defenses, substantive_review_rate
 
 _HASH = "ab" * 32
 _FETCHED_AT = "2026-09-01T00:00:00+00:00"

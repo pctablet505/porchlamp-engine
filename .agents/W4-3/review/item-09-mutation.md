@@ -15,7 +15,7 @@ backup and asserted identical afterwards.
 | M5 | reproject: composite divided by 1 | KILLED | test_reproject_renormalises_over_measured_pillars_only (+10 more) |
 | M6 | reproject: a c=0 pillar kept in the sums | KILLED | test_reproject_excludes_a_pillar_whose_coverage_is_zero_even_if_a_score_is_stored |
 | M7 | list_ranked balanced: `offset + 1` | KILLED | test_list_ranked_balanced_basic_order_and_total (+8 more) |
-| M8 | `_persona_paths`: coverage path aliased to `.cvi` | KILLED | test_list_ranked_persona_rated_boundary_is_inclusive_at_exactly_0_60 |
+| M8 | `_persona_paths`: coverage path aliased to `.porchlamp` | KILLED | test_list_ranked_persona_rated_boundary_is_inclusive_at_exactly_0_60 |
 | M9 | reproject: tier label from score_tier_index alone | KILLED | test_reproject_applies_ceiling_b_band; test_reproject_applies_ceiling_a_band; test_reproject_parity_... |
 | M10 | schema.py: `idx_eligible` statement removed | KILLED | test_apply_migrations_on_empty_db_matches_schema_py; test_indexes_match_04_section_5 |
 | R1 | persona JSON path for `rated_p` points at `.tier` | **SURVIVED** (equivalent on the returned set) | — |
@@ -33,7 +33,7 @@ Survivor analysis:
   {True}`, `tier_p None present: False`), because the visibility filter already
   requires `coverage_p >= 0.60`. The field carries no information.
 - **R2 is NOT equivalent** — demo: pillar score 89.997 with a single-pillar
-  weight vector returns `cvi=90.0, tier='S'`; under the mutant it becomes
+  weight vector returns `porchlamp=90.0, tier='S'`; under the mutant it becomes
   `'S+'`. `04` §8's "tier comparisons never use the rounded display value" is
   unenforced for `reproject`.
 - **R4 is NOT equivalent** — 10 persona-gated rows exist under career_capital

@@ -7,11 +7,11 @@
 ## Diffstat (vs `8a4846c`)
 
 ```
- cvi/collect/universe.py                            | 305 ++++++++++++++++++++
- cvi/constants.py                                   |  12 +-
- cvi/core/constants_v2.py                           |  31 +++
- cvi/derive/bundle.py                               |  90 ++++++
- cvi/starscout.py                                   |  78 +++++-
+ porchlamp/collect/universe.py                            | 305 ++++++++++++++++++++
+ porchlamp/constants.py                                   |  12 +-
+ porchlamp/core/constants_v2.py                           |  31 +++
+ porchlamp/derive/bundle.py                               |  90 ++++++
+ porchlamp/starscout.py                                   |  78 +++++-
  docs/v2/rfcs/CHANGELOG.md                          |   1 +
  docs/v2/rfcs/RFC-0002-starscout-constants-relocation.md | 87 ++++++
  scripts/build_universe.py                          |  53 +++-
@@ -27,9 +27,9 @@
  17 files changed, 1442 insertions(+), 24 deletions(-)
 ```
 
-No file outside this list was touched. Forbidden paths (`cvi/store/**`,
-`web/**`, `cvi/serve/**`, `cvi/core/{pipeline,aggregate,persona,models}.py`,
-`cvi/collect/{pike_signals,github_graphql,depsdev}.py`) are untouched.
+No file outside this list was touched. Forbidden paths (`porchlamp/store/**`,
+`web/**`, `porchlamp/serve/**`, `porchlamp/core/{pipeline,aggregate,persona,models}.py`,
+`porchlamp/collect/{pike_signals,github_graphql,depsdev}.py`) are untouched.
 `scripts/derive.py`'s diff is the minimal universe hook only (one import
 line + one 20-line block reading the `universe_entry` envelope) — nothing
 else in that file changed.
@@ -46,13 +46,13 @@ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest -n 4 -p no:c
 
 ## What was built
 
-1. **`cvi/starscout.py`**: `audit_star_velocity()` runs the unchanged
+1. **`porchlamp/starscout.py`**: `audit_star_velocity()` runs the unchanged
    spec-10.3 algorithm and returns `StarVelocityAudit(valid_stars,
    recent_stars, fork_ratio, penalty_applied)`. `filter_fraudulent_star_velocity`
    becomes a thin wrapper returning `.valid_stars` — every one of its 22
    pre-existing oracle tests, and the adversarial burst-ring test, pass
    unchanged (over-correction guard).
-2. **`cvi/collect/universe.py`** (new): `collect_star_history` (injectable
+2. **`porchlamp/collect/universe.py`** (new): `collect_star_history` (injectable
    `Transport`, envelope-existence checkpoint, `force=` refetch) writes
    `data/raw/star_history/<owner>__<name>.json`. `star_velocity_evidence`
    reads it back, runs `audit_star_velocity`, and returns a
@@ -85,7 +85,7 @@ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest -n 4 -p no:c
    `b.set`/`b.missing` for `star_velocity_flag`/`stars_audited`/
    `star_velocity` — `confidence="missing"` (never a fabricated
    `True`/`False` `meta` value) when the audit was `Unmeasured`.
-5. **`cvi/derive/bundle.py`**: `UNIVERSE_META_MAPPINGS` (2 rows) +
+5. **`porchlamp/derive/bundle.py`**: `UNIVERSE_META_MAPPINGS` (2 rows) +
    `resolve_universe_meta_facts(document, raw_root=...)` — see "Why not
    an `INPUT_MAPPINGS` row" below. `_V1Ctx`, `_plain_scalar_resolver`,
    `_resolve_envelope`, `_envelope_hash`, `_first_source` are reused
@@ -93,21 +93,21 @@ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest -n 4 -p no:c
    `_load_v1` was touched, so W1-7f's/W2-12's own edits to *other* rows
    of the same file rebased with zero conflict.
 6. **RFC-0002** (`docs/v2/rfcs/`): relocates the five `STARS_SCOUT_*`
-   thresholds from `cvi.constants` (unhashed) into `cvi.core.constants_v2`
+   thresholds from `porchlamp.constants` (unhashed) into `porchlamp.core.constants_v2`
    (hashed). Values unchanged. `CONSTANTS_HASH`:
    `d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e`
    (RFC-0001's landed value, the base this packet rebased onto) ->
    `446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0`.
    `docs/v2/rfcs/CHANGELOG.md` updated (RFC-0002 row added, ordered newest
    first above RFC-0001). No version bump (D-VER-1): same "no
-   scoring-path consumer" reasoning RFC-0001 used — `cvi.starscout` has no
-   caller anywhere in `cvi.core.engine`/`aggregate`/`matrix`/`params`.
+   scoring-path consumer" reasoning RFC-0001 used — `porchlamp.starscout` has no
+   caller anywhere in `porchlamp.core.engine`/`aggregate`/`matrix`/`params`.
 
 ## Why not an `INPUT_MAPPINGS` row (deviation from the packet text, justified)
 
 The packet text says "one `INPUT_MAPPINGS` row ... carrying
 `star_velocity_flag` and `stars_audited` into the bundle". This is not
-possible without also touching `cvi/core/models.py` (out of this
+possible without also touching `porchlamp/core/models.py` (out of this
 packet's scope):
 
 - `FeatureBundle.inputs` is closed at exactly `constants_v2.PARAM_INPUT_IDS`
@@ -117,17 +117,17 @@ packet's scope):
   "Stars never enter the composite" — `star_velocity_flag`/`stars_audited`
   can never legitimately be one of the 18 scoring inputs, so they cannot
   become a 19th `INPUT_MAPPINGS` row without breaking that invariant.
-- `Measured.value` (`cvi.core.models.measured_problems`) explicitly
+- `Measured.value` (`porchlamp.core.models.measured_problems`) explicitly
   rejects `bool` — `star_velocity_flag` cannot be a `Measured.value`
   without an encoding trick (this packet encodes it as `1`/`0` in
   `_resolve_star_velocity_flag`, documented inline).
 - `RepoIdentity`/`FeatureBundle` have no spare field either, and
-  `cvi/core/models.py` is explicitly out of this packet's ownership.
+  `porchlamp/core/models.py` is explicitly out of this packet's ownership.
 
 The packet's own alternate phrasing anticipates this: "(or the meta
 pass-through the detector reads — read `star_burst`'s input name and
 satisfy exactly that)". `star_burst`'s input name is
-`cvi.verify.detectors.DetectorInputs.star_lockstep_penalty_applied`.
+`porchlamp.verify.detectors.DetectorInputs.star_lockstep_penalty_applied`.
 `UNIVERSE_META_MAPPINGS` + `resolve_universe_meta_facts` is exactly that
 pass-through: same `_V1Ctx`/resolver shape as `INPUT_MAPPINGS`, built from
 the identical v1 `meta`/`provenance`/`confidence` dicts, kept in a
@@ -135,13 +135,13 @@ separate table so `INPUT_MAPPINGS`'s own 18-row assert stays exact. A demo
 of the full chain (`tests/derive/test_universe_meta_mappings.py`) proves
 `DetectorInputs.star_lockstep_penalty_applied` gets populated from it and
 `run_detectors` fires `star_burst` — see Acceptance below. Wiring this into
-the real `cvi.core.pipeline.score_snapshot` call (now that W3-2f has landed
+the real `porchlamp.core.pipeline.score_snapshot` call (now that W3-2f has landed
 detector wiring for the other two ownership-request fields) is the next
 packet's job, not this one's (`pipeline.py` is out of scope here).
 
 ## Store writer one-liner (for W4-4, G-006)
 
-`cvi/store/writer.py` line ~222 currently:
+`porchlamp/store/writer.py` line ~222 currently:
 ```python
 None,  # stars_audited: no producer yet (see module docstring)
 ```
@@ -151,7 +151,7 @@ threads through `RepoWrite(record, bundle)`, the one-line change is:
 ```python
 audited.value if isinstance(audited := facts["stars_audited"], Measured) else None,
 ```
-where `facts = cvi.derive.bundle.resolve_universe_meta_facts(document,
+where `facts = porchlamp.derive.bundle.resolve_universe_meta_facts(document,
 raw_root=...)` was computed once per repo alongside `load_bundle(...)` and
 threaded into `RepoWrite` the same way `bundle` already is (a third
 constructor argument, or a field folded into a `RepoWrite`-adjacent
@@ -206,7 +206,7 @@ merging two independent RFC additions, not one replacing the other),
 `raw_envelope_path` addition — both kept), and the three `snapshot_50`
 scoring-metadata files (regenerated fresh post-merge rather than picking
 either side, since the true post-merge `CONSTANTS_HASH` is neither
-pre-image). **`cvi/core/constants_v2.py` and `cvi/derive/bundle.py`
+pre-image). **`porchlamp/core/constants_v2.py` and `porchlamp/derive/bundle.py`
 auto-merged with zero conflicts** — confirming the "keep the bundle.py
 diff to that row" discipline held even against W1-7f's/W2-12's concurrent
 edits to other rows of the same file.
@@ -221,18 +221,18 @@ own already-updated `_param()` helper shape.
 ## Fail-before
 
 `tests/test_build_universe.py::test_star_velocity_filter_called_once_per_candidate`
-patches `cvi.collect.universe.audit_star_velocity` (not
-`cvi.starscout.audit_star_velocity` — `cvi.collect.universe` imports the
+patches `porchlamp.collect.universe.audit_star_velocity` (not
+`porchlamp.starscout.audit_star_velocity` — `porchlamp.collect.universe` imports the
 name directly, so the patch has to land where the name is looked up) and
 asserts it ran once per candidate that made the `--max-total` cut. Run
 against a detached worktree at the original dispatch base (`04d78b8`,
-before this packet's `cvi/collect/universe.py` existed):
+before this packet's `porchlamp/collect/universe.py` existed):
 
 ```
 ImportError while importing test module '.../tests/test_build_universe.py'.
 tests/test_build_universe.py:18: in <module>
-    import cvi.collect.universe as universe_module
-E   ModuleNotFoundError: No module named 'cvi.collect.universe'
+    import porchlamp.collect.universe as universe_module
+E   ModuleNotFoundError: No module named 'porchlamp.collect.universe'
 ```
 Same class of fail-before `tests/verify/test_detectors.py`'s own docstring
 uses for a packet's brand-new module. On this commit: 3/3 tests in that
@@ -244,7 +244,7 @@ All four re-verified against the final rebased tree (post-`8a4846c`
 rebase), not just the pre-rebase draft, so the pasted hashes/messages below
 match what ships in `294ba25`.
 
-**1. Filter not called** (`cvi/collect/universe.py`: replaced
+**1. Filter not called** (`porchlamp/collect/universe.py`: replaced
 `audit_star_velocity(events, forks_delta, now)` with a stub object that
 records nothing):
 ```
@@ -279,7 +279,7 @@ FAILED tests/test_build_universe.py::test_failed_star_history_fetch_never_silent
 ```
 
 **4. Threshold changed, pinned hash left unchanged** (`STARS_SCOUT_BURST_THRESHOLD`
-500 -> 50 in `cvi/core/constants_v2.py`, `tests/core/test_frozen.py` left
+500 -> 50 in `porchlamp/core/constants_v2.py`, `tests/core/test_frozen.py` left
 untouched — simulating a bypass of the RFC procedure):
 ```
 2 failed, 31 passed

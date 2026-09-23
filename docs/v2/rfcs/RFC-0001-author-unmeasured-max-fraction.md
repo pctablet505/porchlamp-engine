@@ -2,7 +2,7 @@
 
 ## Motivation
 
-The W1-4 packet's `cvi.collect.github_graphql` module computes row 1.2
+The W1-4 packet's `porchlamp.collect.github_graphql` module computes row 1.2
 (DR_90) and row 1.3 (MR_first) — D-IN-3's D-IN-3-adjusted rates — from a
 per-repo cohort of authors whose account-age/event-count eligibility and
 prior-merge history are fetched per author. The round-2 review (B-1/B-2/B-3
@@ -13,7 +13,7 @@ D-IN-3-adjusted rate was computed anyway — `0.3818 (n=55)` moved to
 `0.6667 (n=9)` with no status change and no recorded exclusion count. D-IN-3
 and D-MISS-1 both require an absent input to read as `Unmeasured`, not as a
 silently smaller `Measured` sample; row 1.2/1.3's existing `PARAM_MIN_N`
-gate (`cvi.core.constants_v2.PARAM_MIN_N`) only bounds the FINAL rate's own
+gate (`porchlamp.core.constants_v2.PARAM_MIN_N`) only bounds the FINAL rate's own
 sample size after every filter has run, so it cannot catch this: 9 and 22
 are both above their respective minimums (5 and 10).
 
@@ -29,13 +29,13 @@ remainder.
 
 | Constant | Before | After |
 |---|---|---|
-| `AUTHOR_UNMEASURED_MAX_FRACTION` | (did not exist; briefly lived as a module-level constant in `cvi/collect/github_graphql.py`, outside `constants_v2`, during W1-4 round 3) | `0.20` |
+| `AUTHOR_UNMEASURED_MAX_FRACTION` | (did not exist; briefly lived as a module-level constant in `porchlamp/collect/github_graphql.py`, outside `constants_v2`, during W1-4 round 3) | `0.20` |
 
 `BENCHMARK_VERSION`: `"2.0.0-rc1"` -> `"2.0.0-rc1"` (no bump). This is a new
-constant with no scoring-path consumer yet: `cvi.collect.github_graphql`'s
+constant with no scoring-path consumer yet: `porchlamp.collect.github_graphql`'s
 four D-IN-3/D-IN-4 bundle fields (`dr90_decision_rate`, `mr_first_rate`,
 `newcomer_conversion`, `rr90_return_rate`) are not wired into
-`cvi.derive.bundle` — that module still `_unmapped`s all four inputs (W2-9,
+`porchlamp.derive.bundle` — that module still `_unmapped`s all four inputs (W2-9,
 unlanded as of this RFC). Adding this constant and its gate therefore moves
 zero `ScoreRecord` fields for any repo scored today; the W2-8 round-2
 precedent (`391d10b91e...` -> the census-closure hash, same file) applied
@@ -46,9 +46,9 @@ change, applied to a genuinely new (not merely newly-hashed) constant.
 ## Evidence
 
 - **Sensitivity** (D-AGG-3): not applicable. `AUTHOR_UNMEASURED_MAX_FRACTION`
-  is read only by `cvi.collect.github_graphql.derive_cohort_fields`, which
-  has no caller in `cvi.core`'s scoring path (`engine.score`,
-  `aggregate.*`, `matrix.*`, `params.*`) or in `cvi.derive.bundle`. A
+  is read only by `porchlamp.collect.github_graphql.derive_cohort_fields`, which
+  has no caller in `porchlamp.core`'s scoring path (`engine.score`,
+  `aggregate.*`, `matrix.*`, `params.*`) or in `porchlamp.derive.bundle`. A
   Kendall-tau perturbation report requires a scored ranking to perturb;
   none of this constant's four candidate output fields reaches one.
 - **Anchors** (D-VER-4): not applicable, same reason — no anchor repo's

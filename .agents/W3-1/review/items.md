@@ -20,8 +20,8 @@ Full report: `scratchpad/reviews/W3-1-review.md`. Machine-readable: `items.json`
 | C3c | L1-05 | **PASS** | — | Fires at 5 accounts / 6.9 d; 4 never fire; an unmerged account is excluded from the count. |
 | C3d | LENS-DET-01 | **PASS** | — | X1 (cap +1) KILLED by 8; X2 (keeps newest) by 4; X3 (age 90->89) by 9; X4 (events 5->4) by 6; X5 (cap 0.20->0.22) by 6; X6 (burst 5->4) by 4; X7 (window 7->8 d) by 2. |
 | C4 | L1-13 | **PASS** | — | run_detectors -> ['newcomer_burst'] for 5 accounts / 6.9 d / all merged, and [] for 4 accounts, a 30-day spread, unmerged PRs and empty inputs. The date survives the NewcomerAuthor round-trip; an unmeasured author is skipped (mutant X11 proves the skip is load-bearing). |
-| C5 | LENS-PROV-02 | **PASS** | — | Recomputed with cvi.core.models.canonical_json = module = pinned = changelog after 748be6e4...; removing the three keys reproduces the before 419091af... exactly. Three _FROZEN_TABLE rows (test_frozen.py:226-228); M4 completeness test present; fixture diff is 3 files, 1 line each. |
-| C6 | L2-02 | **PASS** | — | AST-derived imports: __future__, datetime, typing, cvi.core.constants_v2 only; zero clock/I-O/randomness tokens; tests/core/test_import_graph.py 4 passed. |
+| C5 | LENS-PROV-02 | **PASS** | — | Recomputed with porchlamp.core.models.canonical_json = module = pinned = changelog after 748be6e4...; removing the three keys reproduces the before 419091af... exactly. Three _FROZEN_TABLE rows (test_frozen.py:226-228); M4 completeness test present; fixture diff is 3 files, 1 line each. |
+| C6 | L2-02 | **PASS** | — | AST-derived imports: __future__, datetime, typing, porchlamp.core.constants_v2 only; zero clock/I-O/randomness tokens; tests/core/test_import_graph.py 4 passed. |
 | C7 | LENS-DET-01 | **PASS** | — | 17 run (their 5 + my 12): 16 KILLED, 1 equivalent (X12: 'is True' -> truthiness agrees on every value in {True,False,None}; only 'is not False' differs, and that is T3, killed), 0 genuine survivors. Tree restored clean. |
 | C8a | L1-08 | **PASS** | — | '2234 passed, 1 skipped, 12 warnings in 9.13s' EXIT=0 - the claim is exact. Ruff on the nine touched files: All checks passed! |
 | C8b | TC-4 | **PASS** | — | Both commits clean onto bcdf07b; merged suite 2234 passed, 1 skipped; regenerating the fixture on the merged tree changes nothing, so it is byte-correct (unlike the W1-4 round-3 race). |
@@ -31,9 +31,9 @@ Full report: `scratchpad/reviews/W3-1-review.md`. Machine-readable: `items.json`
 
 | id | severity | file:line | statement |
 |---|---|---|---|
-| F-001 | Warning: | `cvi/derive/bundle.py` | DR_90 - the only rate parameter with a live resolver - scores with neither the D-IN-3 eligibility gate nor the per-author cap. |
-| F-004 | Warning: | `cvi/collect/github_graphql.py:1216` | collector_failure is still not emitted and no bundle loader maps the gated fields, so the truthful detail strings reach no consumer. |
-| F-003 | Warning: | `cvi/collect/github_graphql.py:500` | Two shipped-source citations point at RFC-0002 (the StarScout relocation) where they mean RFC-0004. |
+| F-001 | Warning: | `porchlamp/derive/bundle.py` | DR_90 - the only rate parameter with a live resolver - scores with neither the D-IN-3 eligibility gate nor the per-author cap. |
+| F-004 | Warning: | `porchlamp/collect/github_graphql.py:1216` | collector_failure is still not emitted and no bundle loader maps the gated fields, so the truthful detail strings reach no consumer. |
+| F-003 | Warning: | `porchlamp/collect/github_graphql.py:500` | Two shipped-source citations point at RFC-0002 (the StarScout relocation) where they mean RFC-0004. |
 
 ## Follow-ups (landing order)
 

@@ -10,14 +10,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import pytest
 
-from cvi.constants import (
+from porchlamp.constants import (
     PERSONA_PRESETS,
 )
-from cvi.deepdive import _survival_curve
-from cvi.engine import assign_tier
-from cvi.lakehouse import OperationalStore
-from cvi.matrix import decompose
-from cvi.models import (
+from porchlamp.deepdive import _survival_curve
+from porchlamp.engine import assign_tier
+from porchlamp.lakehouse import OperationalStore
+from porchlamp.matrix import decompose
+from porchlamp.models import (
     AuthorAssociation,
     Ecosystem,
     LegalIPModel,
@@ -30,34 +30,34 @@ from cvi.models import (
     StargazerEvent,
     Tier,
 )
-from cvi.normalize import compute_ecosystem_percentile
-from cvi.openssf import calculate_pike_criticality
-from cvi.persona import (
+from porchlamp.normalize import compute_ecosystem_percentile
+from porchlamp.openssf import calculate_pike_criticality
+from porchlamp.persona import (
     rank_deltas,
     reproject,
     validate_persona_preset,
 )
-from cvi.pillars.accessibility import (
+from porchlamp.pillars.accessibility import (
     score_dx,
     score_gfi,
 )
-from cvi.pillars.criticality import (
+from porchlamp.pillars.criticality import (
     _log10_plus_one,
 )
-from cvi.pillars.governance import (
+from porchlamp.pillars.governance import (
     score_decentralization,
 )
-from cvi.pillars.responsiveness import (
+from porchlamp.pillars.responsiveness import (
     score_ghost_rate,
     score_mr_first,
     score_ttfhr,
     score_ttm_p90,
 )
-from cvi.pillars.rigor import (
+from porchlamp.pillars.rigor import (
     score_review_depth,
 )
-from cvi.playbook import generate_maintainer_playbook
-from cvi.starscout import filter_fraudulent_star_velocity
+from porchlamp.playbook import generate_maintainer_playbook
+from porchlamp.starscout import filter_fraudulent_star_velocity
 
 
 class TestNumericalExtremesAndDivisionByZero:
@@ -422,13 +422,13 @@ class TestSQLiteCorruptDataAndNullFields:
     def test_sql_injection_and_like_wildcards_in_search(self) -> None:
         store = OperationalStore(":memory:")
         ps = PillarScores(70.0, 70.0, 70.0, 70.0, 70.0)
-        from cvi.models import CVICompositeResult
+        from porchlamp.models import PorchlampCompositeResult
 
-        res = CVICompositeResult(
+        res = PorchlampCompositeResult(
             owner="safe_org",
             name="cool_repo_100%",
             ecosystem=Ecosystem.PYPI,
-            overall_cvi=70.0,
+            overall_porchlamp=70.0,
             rank_tier=Tier.A,
             matrix_quadrant=Quadrant.SWEET_SPOT,
             leverage_score=70.0,
@@ -475,14 +475,14 @@ class TestSQLiteCorruptDataAndNullFields:
     def test_leaderboard_pagination_extreme_offsets(self) -> None:
         store = OperationalStore(":memory:")
         ps = PillarScores(60.0, 60.0, 60.0, 60.0, 60.0)
-        from cvi.models import CVICompositeResult
+        from porchlamp.models import PorchlampCompositeResult
 
         for i in range(10):
-            res = CVICompositeResult(
+            res = PorchlampCompositeResult(
                 owner=f"org_{i}",
                 name=f"repo_{i}",
                 ecosystem=Ecosystem.PYPI,
-                overall_cvi=50.0 + i,
+                overall_porchlamp=50.0 + i,
                 rank_tier=Tier.B,
                 matrix_quadrant=Quadrant.SWEET_SPOT,
                 leverage_score=60.0,
@@ -538,7 +538,7 @@ class TestPlaybookAllBottlenecksAndEdgeCases:
         pb = generate_maintainer_playbook(meta, [pr], now=now)
         assert pb["actions"] == []
         assert pb["total_point_gain"] == 0.0
-        assert pb["potential_cvi"] == pb["current_cvi"]
+        assert pb["potential_porchlamp"] == pb["current_porchlamp"]
 
     def test_playbook_all_eight_bottlenecks_simultaneously(self) -> None:
         now = datetime(2026, 9, 11, 12, 0, 0)
@@ -601,10 +601,10 @@ class TestPlaybookAllBottlenecksAndEdgeCases:
 
         # Deltas are positive
         assert pb["total_point_gain"] > 0.0
-        assert pb["potential_cvi"] <= 100.0
+        assert pb["potential_porchlamp"] <= 100.0
 
-        # Verify sorted descending by delta_cvi
-        deltas = [a["delta_cvi"] for a in pb["actions"]]
+        # Verify sorted descending by delta_porchlamp
+        deltas = [a["delta_porchlamp"] for a in pb["actions"]]
         assert deltas == sorted(deltas, reverse=True)
 
 
@@ -719,13 +719,13 @@ class TestPaginationMonotonicityUnderAllPersonas:
 
         assert total_fetched == 1000
 
-        # Verify strict score monotonicity: item[i].overall_cvi >= item[i+1].overall_cvi
+        # Verify strict score monotonicity: item[i].overall_porchlamp >= item[i+1].overall_porchlamp
         for i in range(len(all_items) - 1):
-            curr_cvi = all_items[i]["overall_cvi"]
-            next_cvi = all_items[i + 1]["overall_cvi"]
-            assert curr_cvi >= next_cvi, (
+            curr_porchlamp = all_items[i]["overall_porchlamp"]
+            next_porchlamp = all_items[i + 1]["overall_porchlamp"]
+            assert curr_porchlamp >= next_porchlamp, (
                 f"Monotonicity violation under {persona.value}: "
-                f"Rank #{i + 1} ({curr_cvi}) < Rank #{i + 2} ({next_cvi})"
+                f"Rank #{i + 1} ({curr_porchlamp}) < Rank #{i + 2} ({next_porchlamp})"
             )
 
         store.close()

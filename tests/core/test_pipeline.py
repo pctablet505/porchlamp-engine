@@ -1,5 +1,5 @@
 """Acceptance tests: the snapshot scoring pipeline
-(``cvi.core.pipeline.score_snapshot``).
+(``porchlamp.core.pipeline.score_snapshot``).
 
 ``_Fixture12`` builds twelve repos through the real ``FeatureBundle``
 constructor:
@@ -22,9 +22,9 @@ from typing import Any
 
 import pytest
 
-from cvi.core import constants, persona
-from cvi.core.gates import GateEvidence
-from cvi.core.models import (
+from porchlamp.core import constants, persona
+from porchlamp.core.gates import GateEvidence
+from porchlamp.core.models import (
     Cohorts,
     FeatureBundle,
     GateResult,
@@ -36,7 +36,7 @@ from cvi.core.models import (
     ScoreRecord,
     Unmeasured,
 )
-from cvi.core.pipeline import (
+from porchlamp.core.pipeline import (
     RepoKey,
     ScoredSnapshot,
     apply_suspicion,
@@ -49,7 +49,7 @@ from cvi.core.pipeline import (
     score_bundle_stages_0_7,
     score_snapshot,
 )
-from cvi.snapshot.populations import Population, PopulationSet
+from porchlamp.snapshot.populations import Population, PopulationSet
 
 NOW = datetime.datetime(2026, 9, 12, 0, 0, tzinfo=datetime.timezone.utc)
 _HASH64 = "c" * 64
@@ -297,7 +297,7 @@ def test_twelve_repo_fixture_shape() -> None:
         record = by_key[key]
         assert record.composite is not None, key
         assert set(record.persona_composites) == set(persona.PERSONA_PRESETS), key
-        assert record.persona_composites[persona.PERSONA_BALANCED].cvi == pytest.approx(record.composite)
+        assert record.persona_composites[persona.PERSONA_BALANCED].porchlamp == pytest.approx(record.composite)
 
 
 def test_tie_pair_shares_tie_group_and_ranks_by_name() -> None:
@@ -332,7 +332,7 @@ def test_persona_gate_differs_from_balanced_view() -> None:
     # the balanced score itself is untouched by the ai_assisted gate
     # (D-PERS-1: gates are filters, never a rewrite of the stored score).
     assert record.composite is not None
-    assert record.persona_composites[persona.PERSONA_BALANCED].cvi == pytest.approx(record.composite)
+    assert record.persona_composites[persona.PERSONA_BALANCED].porchlamp == pytest.approx(record.composite)
 
 
 def test_gated_records_state_the_balanced_gate_reason_on_every_persona() -> None:
@@ -543,7 +543,7 @@ def test_records_hash_changes_when_one_record_field_changes(field: str, new_valu
 def test_records_hash_unaffected_by_dict_or_field_insertion_order() -> None:
     """Over-correction guard for :func:`canonical_records_json`: two records
     differing only in the *construction* order of a dict field (never in
-    content) must hash identically -- ``cvi.core.models.canonical_json``
+    content) must hash identically -- ``porchlamp.core.models.canonical_json``
     sorts dict keys; this proves the pipeline's own recursive converter
     does not defeat that by, say, building an ordered list of pairs."""
     snapshot = _Fixture12.score()
@@ -566,9 +566,9 @@ def test_records_hash_unaffected_by_dict_or_field_insertion_order() -> None:
 # --------------------------------------------------------------------------- #
 def test_score_bundle_stages_0_7_is_engine_score() -> None:
     """Fail-before / wiring guard: stages 0-7 return exactly what
-    ``cvi.core.engine.score`` would for the same arguments -- this function
+    ``porchlamp.core.engine.score`` would for the same arguments -- this function
     must never reimplement or shortcut any of D-ORDER-1's stages 0-7."""
-    from cvi.core.engine import Snapshot, score
+    from porchlamp.core.engine import Snapshot, score
 
     bundle = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
     populations = _Fixture12.populations()
@@ -613,7 +613,7 @@ def test_score_bundle_stage_9_tie_input_reads_ttfhr_p75_and_identity_from_record
 def test_score_bundle_stage_9_tie_input_reads_last_non_bot_commit_at_from_bundle_sidecar() -> None:
     """When a bundle carries the ``last_non_bot_commit_at`` sidecar fact,
     stage 9 prep reads the real value through."""
-    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+    from porchlamp.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
 
     bundle = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
     set_last_non_bot_commit_at(bundle, LastNonBotCommitMeasured(
@@ -631,7 +631,7 @@ def test_score_bundle_stage_9_tie_input_reads_last_non_bot_commit_at_from_bundle
 def test_score_bundle_stage_9_tie_input_measured_absence_is_none() -> None:
     """A ``LastNonBotCommitMeasured(value=None, ...)`` measured absence
     also collapses to ``None`` for tie-break purposes."""
-    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+    from porchlamp.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
 
     bundle = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
     set_last_non_bot_commit_at(bundle, LastNonBotCommitMeasured(
@@ -648,8 +648,8 @@ def test_score_bundle_stage_9_tie_input_measured_absence_is_none() -> None:
 
 def test_score_bundle_stage_9_tie_input_last_non_bot_commit_at_orders_per_level_7() -> None:
     """A record whose only difference is the commit date orders per level 7."""
-    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
-    from cvi.core.tiebreak import assign_ranks
+    from porchlamp.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+    from porchlamp.core.tiebreak import assign_ranks
 
     bundle_a = _bundle(_repo("org", "alpha"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
     bundle_b = _bundle(_repo("org", "beta"), _hi_inputs(dr90=0.8), events=(_decided_event(),))
@@ -832,7 +832,7 @@ def test_score_snapshot_sorts_and_dedupes_detector_names() -> None:
     """``score_snapshot``/``apply_suspicion`` must sort and de-duplicate the
     ``detectors`` callable's own output, not just trust it -- the callable
     is a caller-supplied interface with no contract of its own about order
-    or duplicates (only ``cvi.verify.detectors.run_detectors`` happens to
+    or duplicates (only ``porchlamp.verify.detectors.run_detectors`` happens to
     already return sorted, deduplicated names; this test proves the
     guarantee holds even when the callable does not)."""
     unsorted_with_dupes: Any = {

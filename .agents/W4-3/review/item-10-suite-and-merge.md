@@ -9,7 +9,7 @@ Merge trial: `git worktree add --detach <scratch>/merge main` (main tip
 `8a4846c`), `git cherry-pick ddab27a 63772a4` -- both applied with no conflict.
     main alone:  2129 passed, 1 skipped, 12 warnings in 12.12s
     merged tree: 2169 passed, 1 skipped, 12 warnings in 13.23s
-    ruff check cvi/ tests/ scripts/ -> All checks passed!
+    ruff check porchlamp/ tests/ scripts/ -> All checks passed!
 Worktree removed (`git worktree remove --force`).
 
 Size: 882 lines = 441 code + 292 docstring + 47 comment + 102 blank.

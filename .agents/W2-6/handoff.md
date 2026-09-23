@@ -5,7 +5,7 @@ Worktree: `/home/pctablet505/Projects/cvi-wt-W2-6`, branch `W2-6`, base `a0dd646
 ## Diffstat (new files, this commit only)
 
 ```
- cvi/core/tiebreak.py        | 262 +++++++++++++++++++++++++++++
+ porchlamp/core/tiebreak.py        | 262 +++++++++++++++++++++++++++++
  tests/core/test_tiebreak.py | 475 +++++++++++++++++++++++++++++++++++++++++++
  2 files changed, 737 insertions(+)
 ```
@@ -20,7 +20,7 @@ deferred, not attempted, per the accepted precedent for every packet above.
 
 ## Files
 
-- `cvi/core/tiebreak.py` (new) — `tie_key`, `assign_ranks`,
+- `porchlamp/core/tiebreak.py` (new) — `tie_key`, `assign_ranks`,
   `ttfhr_p75_from_pr_window`, `TieBreakInput` (D-TIE-1/2, `02` section 10).
 - `tests/core/test_tiebreak.py` (new) — 19 tests: the 8-row D-TIE-1 oracle,
   the SQL `ORDER BY` parity check, unmeasured-after-measured per level
@@ -28,10 +28,10 @@ deferred, not attempted, per the accepted precedent for every packet above.
   strictness, input-order independence, the deliberately-broken-key
   fail-before-oracle proof, `ttfhr_p75_from_pr_window` (3 cases).
 
-Not modified: `cvi/core/engine.py`, `cvi/core/aggregate.py`,
-`cvi/core/matrix.py`, `cvi/core/models.py` (packet's own forbidden list).
+Not modified: `porchlamp/core/engine.py`, `porchlamp/core/aggregate.py`,
+`porchlamp/core/matrix.py`, `porchlamp/core/models.py` (packet's own forbidden list).
 
-## Ownership requests -> W2-8 (also embedded in `cvi/core/tiebreak.py`'s
+## Ownership requests -> W2-8 (also embedded in `porchlamp/core/tiebreak.py`'s
 module docstring)
 
 `ScoreRecord` (`04` section 3) reserves `tie_key`/`tie_group`/`rank` for
@@ -41,7 +41,7 @@ inputs needed to compute them for a real repo:
 1. **Repo identity (`owner`/`name`).** Not on `ScoreRecord` anywhere; `04`
    section 3 puts these on `FeatureBundle.repo` only. `TieBreakInput`
    (this module's own type) carries them alongside the record; a caller
-   that already has the bundle in hand (as `cvi.core.engine.score` does)
+   that already has the bundle in hand (as `porchlamp.core.engine.score` does)
    reads `bundle.repo.owner`/`bundle.repo.name`. Not a blocker for this
    packet, but the real design gap is that `ScoreRecord` cannot be joined
    back to a repo without external bookkeeping — W2-8 should decide
@@ -75,22 +75,22 @@ inputs needed to compute them for a real repo:
 
 ## Fail-before proof
 
-`cvi/core/tiebreak.py` did not exist before this packet.
+`porchlamp/core/tiebreak.py` did not exist before this packet.
 
 ```
-$ mv cvi/core/tiebreak.py <elsewhere>
+$ mv porchlamp/core/tiebreak.py <elsewhere>
 $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .../python -B -m pytest tests/core/test_tiebreak.py -p no:cacheprovider
 ==================================== ERRORS ====================================
 _________________ ERROR collecting tests/core/test_tiebreak.py _________________
 ImportError while importing test module '.../tests/core/test_tiebreak.py'.
 tests/core/test_tiebreak.py:28: in <module>
-    from cvi.core.tiebreak import (
-E   ModuleNotFoundError: No module named 'cvi.core.tiebreak'
+    from porchlamp.core.tiebreak import (
+E   ModuleNotFoundError: No module named 'porchlamp.core.tiebreak'
 =========================== short test summary info ============================
 ERROR tests/core/test_tiebreak.py
 !!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
 1 error in 0.06s
-$ mv <elsewhere>/tiebreak.py cvi/core/tiebreak.py   # restored
+$ mv <elsewhere>/tiebreak.py porchlamp/core/tiebreak.py   # restored
 ```
 
 Second fail-before proof, for the oracle itself rather than the module's
@@ -126,18 +126,18 @@ tests/core/test_aggregate.py ...................................         [100%]
 EXIT=0
 ```
 
-`test_import_graph.py` matters specifically: `cvi/core/tiebreak.py` imports
-only `cvi.core.models` plus `math`/`dataclasses`/`datetime`/`typing` (stdlib)
+`test_import_graph.py` matters specifically: `porchlamp/core/tiebreak.py` imports
+only `porchlamp.core.models` plus `math`/`dataclasses`/`datetime`/`typing` (stdlib)
 — confirmed by this guard, not just by inspection.
 
 ## Ruff
 
 ```
-$ .../ruff check cvi/core/tiebreak.py tests/core/test_tiebreak.py
+$ .../ruff check porchlamp/core/tiebreak.py tests/core/test_tiebreak.py
 All checks passed!
 EXIT=0
 
-$ .../ruff check cvi/ scripts/ tests/
+$ .../ruff check porchlamp/ scripts/ tests/
 Found 4 errors.
 ```
 
@@ -183,13 +183,13 @@ MEASURE (synthetic): TTFHR p75 measured for 100 of 122 rows (last_non_bot_commit
 **Real engine: 0 rated, exactly as W2-5's own Measure step found and
 explained** (`~/Projects/cvi-scratch/W2-5/measure.py`'s handoff, same root
 cause reproduced here on the same sample and the current, unchanged
-`cvi/derive/bundle.py`): the v1-format sample-200 bundles' loader
+`porchlamp/derive/bundle.py`): the v1-format sample-200 bundles' loader
 (`_load_v1`) maps only 5 of the 18 v2 parameter inputs, capping composite
 coverage at 0.3075 for every bundle regardless of repo — below the 0.60
 D-EVID-1 threshold always, so `build_populations` admits nothing and no
 repo is ever rated. This is a structural fact about this specific sample's
 provenance (frozen pre-W1), not a defect in this packet's tie-break code
-— confirmed by checking `git log` on `cvi/derive/bundle.py` (last touched
+— confirmed by checking `git log` on `porchlamp/derive/bundle.py` (last touched
 before W2-9's in-flight rewrite, which per the lead log's PAUSE entry has
 not landed on `main`) and by observing the number matches W2-5's own
 figure (0 of ~164) exactly, on the same code path. Per this packet's own
@@ -248,7 +248,7 @@ conflicts). New head after this round's commit is below.
 ### Diffstat
 
 ```
- cvi/core/tiebreak.py        |  23 +++-
+ porchlamp/core/tiebreak.py        |  23 +++-
  tests/core/test_tiebreak.py | 329 +++++++++++++++++++++++++++++++++++++++-----
  2 files changed, 315 insertions(+), 37 deletions(-)
 ```
@@ -265,7 +265,7 @@ non-ISO string raises `ValueError` naming the value instead of propagating
 
 ```
 $ TZ=Asia/Kolkata PYTHONPATH=$PWD .../python -c "
-from cvi.core.tiebreak import _commit_epoch
+from porchlamp.core.tiebreak import _commit_epoch
 print(_commit_epoch('2026-06-01'))
 print(_commit_epoch('2026-06-01T00:00:00Z'))
 "
@@ -319,7 +319,7 @@ asserted by `tie_group` value, never by a crash.
 
 `docs/v2/04-ARCHITECTURE.md` §6 (current, post-ruling-2026-09-13) specifies
 `NULLS LAST` on every tie column, `ROW_NUMBER()` for `rank_p`, and a
-separate `DENSE_RANK() OVER (ORDER BY ROUND(cvi_p,2) DESC)` for `tie_group`
+separate `DENSE_RANK() OVER (ORDER BY ROUND(porchlamp_p,2) DESC)` for `tie_group`
 — transcribed verbatim into `_CORRECTED_ORDER_BY`. The old 8-row test is
 renamed `test_sql_order_by_agrees_with_tie_key_on_the_fully_measured_eight_row_case`
 (it cannot exercise NULL-ordering; the name no longer implies it does). A
@@ -399,11 +399,11 @@ same pre-existing starlette/fastapi deprecation notices.)
 ### Ruff
 
 ```
-$ .../ruff check cvi/core/tiebreak.py tests/core/test_tiebreak.py
+$ .../ruff check porchlamp/core/tiebreak.py tests/core/test_tiebreak.py
 All checks passed!
 EXIT=0
 
-$ .../ruff check cvi/ scripts/ tests/
+$ .../ruff check porchlamp/ scripts/ tests/
 Found 4 errors.
 EXIT=1
 ```

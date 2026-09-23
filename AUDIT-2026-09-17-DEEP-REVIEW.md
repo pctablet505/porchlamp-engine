@@ -1,4 +1,4 @@
-# CVI Deep Audit — 2026-09-17
+# Porchlamp Deep Audit — 2026-09-17
 
 Read-only adversarial review of the whole project. Branch `main`, no code changed by this
 audit. Rules in force: `docs/REVIEW_GUIDELINES.md`, plus the AlgoTrading bedrock standards
@@ -22,13 +22,13 @@ it was derived from (`docs/bedrock/CODE_REVIEW.md`, `docs/standards/code_quality
 
 | Slice | Ownership |
 | --- | --- |
-| A-core | Scoring algorithm: `cvi/core/**` incl. `params/`, `cvi/pillars/**`, legacy top-level shims |
-| B-collect | Data acquisition: `cvi/collect/**`, `scripts/gather.py`, `build_universe.py`, `backfill_downloads.py` |
-| C-derive | Provenance + verification: `cvi/derive/**`, `cvi/verify/**`, `cvi/provenance.py`, `scripts/{derive,verify,promote}.py` |
-| D-store | Persistence: `cvi/store/**`, `cvi/lakehouse.py`, `data/cvi.db` |
-| E-snapshot | Reproducibility: `cvi/snapshot/**`, `scripts/{build_fixture_snapshot,make_sample,run_all}.py`, `canary.sh` |
-| F-audit | Self-critique: `cvi/audit/**`, `cvi/{stage0,starscout,deepdive,playbook}.py` |
-| G-serve | API + ops: `cvi/serve/**`, `cvi/api.py`, `scripts/{serve,serve_ui_fixtures}.py`, CI, packaging |
+| A-core | Scoring algorithm: `porchlamp/core/**` incl. `params/`, `porchlamp/pillars/**`, legacy top-level shims |
+| B-collect | Data acquisition: `porchlamp/collect/**`, `scripts/gather.py`, `build_universe.py`, `backfill_downloads.py` |
+| C-derive | Provenance + verification: `porchlamp/derive/**`, `porchlamp/verify/**`, `porchlamp/provenance.py`, `scripts/{derive,verify,promote}.py` |
+| D-store | Persistence: `porchlamp/store/**`, `porchlamp/lakehouse.py`, `data/cvi.db` |
+| E-snapshot | Reproducibility: `porchlamp/snapshot/**`, `scripts/{build_fixture_snapshot,make_sample,run_all}.py`, `canary.sh` |
+| F-audit | Self-critique: `porchlamp/audit/**`, `porchlamp/{stage0,starscout,deepdive,playbook}.py` |
+| G-serve | API + ops: `porchlamp/serve/**`, `porchlamp/api.py`, `scripts/{serve,serve_ui_fixtures}.py`, CI, packaging |
 | H-web | Frontend: `web/v2/**`, `web/index.html` |
 
 ## Consolidated register
@@ -48,10 +48,10 @@ silently.
      (`.github/workflows/ci.yml:4`) → add `push` and `pull_request`.
    - the JS suite skips itself when `node` is absent (`tests/test_ui_node_suite.py:20`) → fail unless
      an explicit flag allows the skip.
-   - the release gate returns 0 whatever it finds (`cvi/audit/sensitivity.py:540`) → return 1 on a
+   - the release gate returns 0 whatever it finds (`porchlamp/audit/sensitivity.py:540`) → return 1 on a
      failed gate, and call the CLI from CI so a verdict reaches something that acts.
    - the newcomer anchor has no raw input to compare against
-     (`cvi/audit/anchors.py:676`) → persist the raw count, return NOT-APPLICABLE when it is absent.
+     (`porchlamp/audit/anchors.py:676`) → persist the raw count, return NOT-APPLICABLE when it is absent.
    This cluster is why 7 of the 18 Blockers (`H1`, `H3`, `G1`, `G2`, `G8`, and both F Blockers) could
    reach `main` with no signal.
 
@@ -66,7 +66,7 @@ silently.
    under-reports and then contradicts `/snapshot` the moment a bucket crosses 1000.
 
 4. **Give the tier vocabulary one owner, and stop renaming `S+`.** Closes `H3`, `G8`, and the boundary
-   half of `D-03`. The engine emits `S+` (`cvi/core/constants.py:128-137`, re-verified at HEAD);
+   half of `D-03`. The engine emits `S+` (`porchlamp/core/constants.py:128-137`, re-verified at HEAD);
    `web/v2/copy.js:107` collapses it to `S`, and the fixture's invented ordering
    (`scripts/serve_ui_fixtures.py:130`) sorts `S+` behind `F` — which is how the client bug survived
    review. The top 1% of the benchmark is displayed as plain `S`, contradicting three published docs.
@@ -76,11 +76,11 @@ silently.
    custom-weight endpoint, and one returned row asserts its coverage is both 1.0 and 0.8.
 
 6. **star history: implement or unbind the transport, then put it in the coverage inventory.** Closes
-   `B7`, `F-08`. Stars never enter the composite (`cvi/core/constants.py:277-279`), so no score is
+   `B7`, `F-08`. Stars never enter the composite (`porchlamp/core/constants.py:277-279`), so no score is
    wrong — but StarScout's universe-entry filter and the `star_burst` detector can never fire in a
    real run (`data/raw/` has no `star_history/` directory), the reader raises through a docstring that
-   promises it never raises (`cvi/collect/universe.py:272`), and the coverage auditor's collector lists
-   were drawn without it (`cvi/audit/coverage.py:71-100`), so a 100%-unmeasured input is invisible to
+   promises it never raises (`porchlamp/collect/universe.py:272`), and the coverage auditor's collector lists
+   were drawn without it (`porchlamp/audit/coverage.py:71-100`), so a 100%-unmeasured input is invisible to
    the tool that reports unmeasured coverage.
 
 7. **Make the shipped tree servable, and stop writing to the inode the server holds open.** Closes
@@ -111,47 +111,47 @@ Plus one line that is not in the ten because it costs nothing: `web/v2/views/dra
 ### Blocker
 
 - **`write_envelope` is non-atomic while every resume probe is a bare existence check** — `B1` (cause of
-  `C-02`, and of `B7`'s raise path) — `cvi/collect/envelope.py:232` — silent permanent measured-zeros in
+  `C-02`, and of `B7`'s raise path) — `porchlamp/collect/envelope.py:232` — silent permanent measured-zeros in
   the score; `--force`-only recovery; upstream cause of the derive-side outage. Same root cause one level up:
   a multi-call collector emits one envelope only at the end, so a failure on page 4 of 5 pays all five pages
-  of rate limit again (`B:no-resume`, folded here) — `cvi/collect/github_graphql.py:278-320`, `:575-621`.
+  of rate limit again (`B:no-resume`, folded here) — `porchlamp/collect/github_graphql.py:278-320`, `:575-621`.
 - **A failed keyless fetch is written as a permanent provenanced null stamped `http_status=200`** — `B2` —
   `scripts/gather.py:97-103` — a transient 503 becomes "this project has no dependents", and the run
   reports `fail` while laying down the envelope that marks it done forever.
 - **`repo_object` discards a whole envelope on one partial GraphQL error** — `B3` —
-  `cvi/collect/repo_object.py:285` — `owner`, `hasIssuesEnabled`, license and stars already in hand are
+  `porchlamp/collect/repo_object.py:285` — `owner`, `hasIssuesEnabled`, license and stars already in hand are
   thrown away; the salvage path exists in `GhCliTransport` and was never propagated.
 - **`_shallow_tree`'s frontier is uncapped and records no `truncated` flag** — `B4` —
-  `cvi/collect/repo_object.py:330` — a monorepo costs 61+ REST calls against a 1–2 call budget; a
+  `porchlamp/collect/repo_object.py:330` — a monorepo costs 61+ REST calls against a 1–2 call budget; a
   budget-aborted tree is byte-identical to a complete one on disk.
 - **One unguarded exception ends a multi-hour sweep** — `B5` — `scripts/gather.py:496` — six hours in, one
   `gh` call over 90 s kills the process and everything after repo ~3,000 is silently absent.
 - **Governance is under-budgeted on cost and under-evidenced on correctness** — `B6` —
-  `cvi/collect/governance.py:308` — ≈45 REST/repo (≈52 h for the universe), `404 → continue` drops
+  `porchlamp/collect/governance.py:308` — ≈45 REST/repo (≈52 h for the universe), `404 → continue` drops
   evidence unflagged, `legal_ip` and `promotion_ladder` classify from a 3-PR sample.
 - **star history has no live transport and is absent from the coverage inventory** — `B7` + `F-08` —
-  `cvi/collect/universe.py:212` — universe-entry filter and `star_burst` detector permanently inert;
+  `porchlamp/collect/universe.py:212` — universe-entry filter and `star_burst` detector permanently inert;
   coverage report green with 100% of one input absent. Composite impact is zero (D-IN-5).
 - **The universe's selection column mixes GitHub stars with crates.io downloads; crates.io is one page** —
   `B8` — `scripts/build_universe.py:87` — the cut point is an arbitrary unit mismatch, and one failed page
   permanently deletes a criterion.
-- **`cvi/collect/ratelimit.py`: 332 lines, zero readers** — `B9` — `cvi/collect/ratelimit.py` — the
+- **`porchlamp/collect/ratelimit.py`: 332 lines, zero readers** — `B9` — `porchlamp/collect/ratelimit.py` — the
   enforcement mechanism `08` §4 leans on does not exist to the running code, cannot express a points
   budget, and its cache would not survive a rerun.
-- **The `newcomer_label_5_1` anchor cannot fail on any input** — `F-01` — `cvi/audit/anchors.py:676` —
+- **The `newcomer_label_5_1` anchor cannot fail on any input** — `F-01` — `porchlamp/audit/anchors.py:676` —
   every world yields vacuous PASS, score-restating PASS, or a boilerplate FAIL the test pins as expected;
   the one anchor whose job is to compare a score to its input never does.
 - **The release gate exits 0 unconditionally and real data has no consumer** — `F-02` —
-  `cvi/audit/sensitivity.py:540` — a ranking that fails every criterion ships green. See the
+  `porchlamp/audit/sensitivity.py:540` — a ranking that fails every criterion ships green. See the
   reconciliation note: its one mechanical consumer is a fixture assertion that passes vacuously.
 - **`/reproject` silently pages 20 rows while the UI assumes the whole set** — `G1` —
-  `cvi/serve/app.py:664` — Screen D shows 20 of 285 eligible repos today; the fixture server and the two
+  `porchlamp/serve/app.py:664` — Screen D shows 20 of 285 eligible repos today; the fixture server and the two
   tests that touch the endpoint both hide it.
-- **`/matrix` ships `axis_coverage={}` with a renderer and no producer** — `G2` — `cvi/serve/app.py:628` —
+- **`/matrix` ships `axis_coverage={}` with a renderer and no producer** — `G2` — `porchlamp/serve/app.py:628` —
   the missing-pillar caption is dead in production *and* in the fixture; the per-axis counts exist only as
   a private copy inside `scripts/serve_ui_fixtures.py`.
 - **`/not-ranked` truncates at 1000 and re-derives its counts from the truncated page** — `G4` —
-  `cvi/serve/app.py:601` — the store's authoritative `_counts_by_reason` is discarded; the mechanism is
+  `porchlamp/serve/app.py:601` — the store's authoritative `_counts_by_reason` is discarded; the mechanism is
   certain, the symptom waits for a bucket to cross 1000.
 - **The drawer retry button renders the literal word `undefined`** — `H1` — `web/v2/views/drawer.js:351` —
   user-facing on the most-trafficked error path.
@@ -169,55 +169,55 @@ Plus one line that is not in the ten because it costs nothing: `web/v2/views/dra
 ### Warning
 
 - **The legal-IP regime enum is defined three times with three different answers** — `A-01`, `A-02` —
-  `cvi/core/constants.py:162` — a spec-published level raises `ValueError` in scoring, and legacy rows are
+  `porchlamp/core/constants.py:162` — a spec-published level raises `ValueError` in scoring, and legacy rows are
   silently re-scored (RECIPROCAL 40→25, UNILATERAL 10→25).
 - **The published methodology advertises a persona-conditional score the engine cannot produce** — `A-03`
-  (+ `A-04`) — `cvi/core/engine.py:213` — `METHODOLOGY-v2.md:71` renders a per-persona table no code path
+  (+ `A-04`) — `porchlamp/core/engine.py:213` — `METHODOLOGY-v2.md:71` renders a per-persona table no code path
   reaches, because the engine calls every non-ECDF input with no persona.
-- **One torn raw envelope aborts every derive over the tree** — `C-02` — `cvi/derive/bundle.py:945` —
+- **One torn raw envelope aborts every derive over the tree** — `C-02` — `porchlamp/derive/bundle.py:945` —
   the derive-side half of `B1`; kept at Warning so the outage is not counted twice against the same cause.
 - **The loader and the certification chain run on the wall clock** — `C-05`, `E-03` —
   `scripts/derive.py:268-272` — the same `derived/*.json` loaded twice across a window boundary scores
   differently, `gr14_ghost_rate` and `dx` are permanently unmeasurable, and a fresh sample→fixture rebuild
   is not byte-reproducible but skips in CI.
 - **The bundle loader is self-attesting: derive-time hashes are recorded and never compared** — `C-01` —
-  `cvi/derive/bundle.py:950` — a consumer of `derived/*.json` that does not go through `promote` cannot
+  `porchlamp/derive/bundle.py:950` — a consumer of `derived/*.json` that does not go through `promote` cannot
   detect an in-place envelope edit.
 - **`reproject` cannot see D-MISS-5, so coverage and tier diverge from the canonical persona path** —
-  `D-01` — `cvi/store/queries.py:960` — reproduced numerically: coverage 1.0 vs 0.8, tier S vs A.
+  `D-01` — `porchlamp/store/queries.py:960` — reproduced numerically: coverage 1.0 vs 0.8, tier S vs A.
 - **No WAL or `busy_timeout`, and the v2 write path mutates the served database in place** — `D-02` —
-  `cvi/store/schema.py:170` — the first v2 promote against a served DB risks `database is locked`
+  `porchlamp/store/schema.py:170` — the first v2 promote against a served DB risks `database is locked`
   mid-promotion; v1's temp-file + `os.replace` discipline was not carried across.
 - **The snapshot directory's Merkle root omits `populations.json`** — `E-01` —
-  `cvi/snapshot/build_cmd.py:174` — two dirs with one `merkle_root` can score differently; the DB dump
+  `porchlamp/snapshot/build_cmd.py:174` — two dirs with one `merkle_root` can score differently; the DB dump
   hash covers populations, the directory hash does not.
 - **Two different `constants_hash` definitions share one field name** — `E-02` —
-  `cvi/snapshot/manifest.py:163` vs `cvi/core/constants.py:600` — measured to differ at runtime; a reader
+  `porchlamp/snapshot/manifest.py:163` vs `porchlamp/core/constants.py:600` — measured to differ at runtime; a reader
   mis-identifies which tuning constants a legacy snapshot was frozen against.
 - **Forward evaluation coerces missing outcomes to 0.0, which PREREG does not authorize** — `F-03` —
-  `cvi/audit/forward.py:215` — absent data becomes an observation of zero and feeds the significance
+  `porchlamp/audit/forward.py:215` — absent data becomes an observation of zero and feeds the significance
   statistics with no trace in the report.
 - **The forward report has nowhere to put the S0 cap disclosure PREREG requires** — `F-04` —
-  `cvi/audit/forward.py:139` — a frozen pre-registered obligation is unmet, on the most influential
+  `porchlamp/audit/forward.py:139` — a frozen pre-registered obligation is unmet, on the most influential
   observations in the validation design.
 - **"Rated universe" has two definitions with no declared equivalence** — `F-05` —
-  `cvi/audit/forward.py:209` — the same pre-registered statistic is computed over two different
+  `porchlamp/audit/forward.py:209` — the same pre-registered statistic is computed over two different
   populations depending on which branch runs.
 - **Archived/awesome anchors answer the same empty population three different ways** — `F-06` —
-  `cvi/audit/anchors.py:909` — anchor reports are not comparable across snapshot/DB or v1/v2 runs, and a
+  `porchlamp/audit/anchors.py:909` — anchor reports are not comparable across snapshot/DB or v1/v2 runs, and a
   correct universe can fail its own anchor.
 - **The detectors report reads a missing `measured` key as "not measured"** — `F-07` —
-  `cvi/audit/detectors_report.py:96` — a producer bug collapses "could not express itself" into "tested and
+  `porchlamp/audit/detectors_report.py:96` — a producer bug collapses "could not express itself" into "tested and
   fine" in the one artifact whose job is coverage.
-- **Three incompatible definitions of `excluded_count`** — `G3` — `cvi/store/queries.py:774` — measured
+- **Three incompatible definitions of `excluded_count`** — `G3` — `porchlamp/store/queries.py:774` — measured
   27 vs the store's own 26 in one call; the published number is not reproducible from any documented rule.
-- **The guard verifies a snapshot the server may not serve** — `G5` — `cvi/serve/app.py:711` — boot-time
+- **The guard verifies a snapshot the server may not serve** — `G5` — `porchlamp/serve/app.py:711` — boot-time
   bytes are hashed, the served row is re-picked per request by a second implementation of the same rule;
   `OperationalError` degrades to a 503 rather than a refusal.
 - **No `Cache-Control` or `ETag` on snapshot-immutable, content-hash-pinned data** — `G6` —
-  `cvi/serve/app.py` (all v2 handlers) — a discarded `snapshot_summary` is ≈73% of a leaderboard request
+  `porchlamp/serve/app.py` (all v2 handlers) — a discarded `snapshot_summary` is ≈73% of a leaderboard request
   (27.40 ms median of 37.58 ms at 10k rows), repaid on every page turn.
-- **A production 500 leaves no trace** — `G7` — `cvi/serve/app.py:147` — the traceback is discarded by a
+- **A production 500 leaves no trace** — `G7` — `porchlamp/serve/app.py:147` — the traceback is discarded by a
   handler whose own comment says it exists for faults nobody anticipated; no logger in the module.
 - **The fixture enforces `LEADERBOARD_PAGE_SIZES` and production does not** — `G9` —
   `scripts/serve_ui_fixtures.py:621` — the stand-in is stricter than the thing it stands in for, so a
@@ -237,18 +237,18 @@ Plus one line that is not in the ten because it costs nothing: `web/v2/views/dra
   good data" is announced on a first-load failure with no prior data; `configureDeltaText` renders `NaN`
   for a null `balanced_rank` (`copy.js:471`).
 - **The eligibility retry storm puts all its cost on the failure path** — `B:retry-storm` —
-  `cvi/collect/github_graphql.py:736` — one deleted login in a 15-login chunk costs ~19 extra GraphQL
+  `porchlamp/collect/github_graphql.py:736` — one deleted login in a 15-login chunk costs ~19 extra GraphQL
   calls; a whole-batch error leaves every login in it unresolved.
-- **Cost accounting that gates nothing** — `B:cost-accounting` — `cvi/collect/github_graphql.py:885` —
+- **Cost accounting that gates nothing** — `B:cost-accounting` — `porchlamp/collect/github_graphql.py:885` —
   `rate_limit_remaining` is recorded and read by nobody; a failed call is booked as `cost = 0`.
 - **Pagination ends on a shape check, so a short list and a truncated list are byte-identical** —
-  `B:pagination-shape` — `cvi/collect/github_graphql.py:316` — a partial-error response records
+  `B:pagination-shape` — `porchlamp/collect/github_graphql.py:316` — a partial-error response records
   `truncated: False` over a short list.
 - **`commits_365d` is capped with no flag, and zero commits scores maximum concentration** —
-  `B:commits-cap` — `cvi/collect/commits.py:185` — a repo at the 1000 cap looks like one with exactly
+  `B:commits-cap` — `porchlamp/collect/commits.py:185` — a repo at the 1000 cap looks like one with exactly
   1000 commits, and `total == 0` returns `1`, identical to a genuine single-author project.
 - **`dedup_dependents` unit conflation means dedup silently does nothing** — `B:dedup-dependents` —
-  `cvi/collect/depsdev.py:315` — D-PARAM 2.1's anti-double-count rule is trusted blindly by derive and
+  `porchlamp/collect/depsdev.py:315` — D-PARAM 2.1's anti-double-count rule is trusted blindly by derive and
   never sees deduplicated data.
 - **The `branch = "main"` fallback becomes a scoring penalty** — `B:branch-main` — `scripts/gather.py:165`
   — a `master`/`trunk` repo queries a branch with no runs, gets 0, and `pipeline_defenses` applies "0 if
@@ -268,65 +268,65 @@ Plus one line that is not in the ten because it costs nothing: `web/v2/views/dra
 ### Consider
 
 - **The persona-composite rule exists twice, in Python and in SQL, with no test that they agree** — `A-05` —
-  `cvi/core/pipeline.py:192` vs `docs/v2/02-RANKING-DESIGN.md:276-277` — the same two-implementation shape
+  `porchlamp/core/pipeline.py:192` vs `docs/v2/02-RANKING-DESIGN.md:276-277` — the same two-implementation shape
   that already produced `D-01`.
 - **The benchmark spec still prints v1 gradients** — `A-06` — `docs/BENCHMARK_SPECIFICATION.md` §5 — a
   reader calibrating against §5 gets −10.0/+0.60 where the shipped engine is −7.5/+0.525.
-- **A dead store makes the absolute-path fallback unconditional** — `C-03` — `cvi/derive/bundle.py:936` — a
+- **A dead store makes the absolute-path fallback unconditional** — `C-03` — `porchlamp/derive/bundle.py:936` — a
   source merely outside `raw_root` kills every field instead of one.
 - **`paths[0]` names one envelope for a value the collector computed from several** — `C-04` —
-  `cvi/derive/bundle.py:1624` — provenance that verifies cleanly and names the wrong file; for the
+  `porchlamp/derive/bundle.py:1624` — provenance that verifies cleanly and names the wrong file; for the
   `pipeline_defenses` proxy an absent `pr_window` becomes a *zero* `n`.
 - **Source hashes can come from a different data root than the run** — `C-06` — `scripts/derive.py:116` —
   breaks the self-contained-copied-dir property for hashes while the paths stay relative.
 - **The `bodies/` cache is backfilled provenance, null-as-measured, and HEAD-dependent** — `C-07` —
   `scripts/derive.py:~178-196` — `{"body": null}` is indistinguishable from a fetch failure, and the fetch
   targets `HEAD`, not the repo's `default_branch`.
-- **`cvi/provenance.py` is a test-only schema that reads as production** — `C-08` — `cvi/provenance.py` —
+- **`porchlamp/provenance.py` is a test-only schema that reads as production** — `C-08` — `porchlamp/provenance.py` —
   two provenance schemas coexist with nothing marking which is authoritative, plus a live-looking `RAW_DIR`.
 - **`reproject` tiers on the full-float composite; canonical rounds to 12 places first** — `D-03` —
-  `cvi/store/queries.py:980` — off-by-one tier at an exact cutoff, and `RATIO_DECIMALS` lives outside
+  `porchlamp/store/queries.py:980` — off-by-one tier at an exact cutoff, and `RATIO_DECIMALS` lives outside
   `constants.py`.
 - **The read path breaks its own "no Python loop" invariant and defeats its ranking index** — `D-04` —
-  `cvi/store/queries.py:772` — `EXPLAIN QUERY PLAN` shows `USE TEMP B-TREE FOR ORDER BY` because
-  `ROUND(cvi, 2)` makes `idx_rank`'s ordering columns unusable; `reproject` scans the set twice.
+  `porchlamp/store/queries.py:772` — `EXPLAIN QUERY PLAN` shows `USE TEMP B-TREE FOR ORDER BY` because
+  `ROUND(porchlamp, 2)` makes `idx_rank`'s ordering columns unusable; `reproject` scans the set twice.
 - **The evidence drawer can 500 on a stored value the contract cannot represent** — `G10` —
-  `cvi/store/queries.py:789-849` — no evidence block exists for this ID; it is recorded only in G's
+  `porchlamp/store/queries.py:789-849` — no evidence block exists for this ID; it is recorded only in G's
   Coverage note, where it was left at Consider for want of a real snapshot to test against.
-- **`AGENTS.md`/`CLAUDE.md` counts as an AI policy file** — `B:agents-file` — `cvi/collect/governance.py:95`
+- **`AGENTS.md`/`CLAUDE.md` counts as an AI policy file** — `B:agents-file` — `porchlamp/collect/governance.py:95`
   — any repo carrying an agent config classifies as `REGULATED`, and the module concedes `PROSCRIBED` can
   never fire, so the `ai_assisted` hard-ban gate is dead by construction — the same shape `F-01` graded
   Blocker in the audit layer.
 - **Governance stores 12 full document bodies per repo in the dearest envelope** — `B:bodies-in-envelope` —
-  `cvi/collect/governance.py:406` — against `08` §3 and `03` §3, which say documents are not 3.1 evidence;
+  `porchlamp/collect/governance.py:406` — against `08` §3 and `03` §3, which say documents are not 3.1 evidence;
   the `bodies/` cache already shows the on-demand alternative.
 
 ### Nit
 
-- **D-GATE-5's population rests on an invariant no one asserts** — `A-07` — `cvi/core/gates.py` — a caller
+- **D-GATE-5's population rests on an invariant no one asserts** — `A-07` — `porchlamp/core/gates.py` — a caller
   passing a differently-scoped `pr_window` gets wrong gates with no error.
-- **Cosmetic and defensive-code tail** — `A-08` — `cvi/core/constants.py:586` (one sentence emitted twice),
-  `cvi/core/gates.py:325` (comment words the code backwards), `cvi/core/tiebreak.py` (`coverage` typed
-  `float | None`, treated as non-null), `cvi/core/params/curves.py:24-40` (four re-bound constants).
-- **Store nit tail** — `D-04` tail — `cvi/store/queries.py:697` (`json_each` full scan), `:628`
-  (`list_not_ranked` Python-slices the whole set, in-code justified), `cvi/store/ops.py` (v1-only
+- **Cosmetic and defensive-code tail** — `A-08` — `porchlamp/core/constants.py:586` (one sentence emitted twice),
+  `porchlamp/core/gates.py:325` (comment words the code backwards), `porchlamp/core/tiebreak.py` (`coverage` typed
+  `float | None`, treated as non-null), `porchlamp/core/params/curves.py:24-40` (four re-bound constants).
+- **Store nit tail** — `D-04` tail — `porchlamp/store/queries.py:697` (`json_each` full scan), `:628`
+  (`list_not_ranked` Python-slices the whole set, in-code justified), `porchlamp/store/ops.py` (v1-only
   leaderboard cache).
 - **The audit tooling reads tie-break layers by tuple position** — `F:tie-key-positional` —
-  `cvi/audit/sensitivity.py:610` — `record.tie_key[5]`/`[6]` against `cvi/core/tiebreak.py:259`; a reorder
+  `porchlamp/audit/sensitivity.py:610` — `record.tie_key[5]`/`[6]` against `porchlamp/core/tiebreak.py:259`; a reorder
   silently re-points the comparison with no test to catch it.
 - **More "answer for missing data" defaults, and a wrong annotation** — `F:coverage-default` —
-  `cvi/audit/sensitivity.py:376` — a missing `c_*` column becomes 1.0; `SensitivityReport.pp` is annotated
+  `porchlamp/audit/sensitivity.py:376` — a missing `c_*` column becomes 1.0; `SensitivityReport.pp` is annotated
   `int` and carries fractions.
 - **Audit tooling nit tail: dropped negatives, duplicated constants, mislabeled anchor** —
-  `cvi/audit/coverage.py:273` (negative latencies silently dropped), `:109` (black-hole score hardcoded
-  beside the METHODOLOGY text instead of derived from it), `cvi/audit/anchors.py:74` (a completeness check
+  `porchlamp/audit/coverage.py:273` (negative latencies silently dropped), `:109` (black-hole score hardcoded
+  beside the METHODOLOGY text instead of derived from it), `porchlamp/audit/anchors.py:74` (a completeness check
   wearing a coverage label).
 - **Serve nit tail: nine queries for an immutable answer, and two contracts under one version string** —
-  `cvi/store/queries.py:668` (`SELECT * FROM snapshots` twice per call), `:674-703` (population counts and
-  a per-persona `COUNT` each call), `cvi/serve/app.py:562` (the v2 router is still prefixed `/v1/cvi` while
-  v1 is mounted at `/legacy`), `cvi/api.py` (the legacy surface registers no exception handlers and never
+  `porchlamp/store/queries.py:668` (`SELECT * FROM snapshots` twice per call), `:674-703` (population counts and
+  a per-persona `COUNT` each call), `porchlamp/serve/app.py:562` (the v2 router is still prefixed `/v1/porchlamp` while
+  v1 is mounted at `/legacy`), `porchlamp/api.py` (the legacy surface registers no exception handlers and never
   passes the guard).
-- **Packaging tail** — `pyproject.toml` — no `dependencies` key, so `pip install cvi` cannot serve;
+- **Packaging tail** — `pyproject.toml` — no `dependencies` key, so `pip install porchlamp` cannot serve;
   `requires-python = ">=3.10"` against ruff `target-version = "py312"`; no `[project.scripts]` entry, which
   is why serving means knowing the path to `scripts/serve.py`.
 - **Frontend nit tail** — `web/v2/app.js:976` (`void state;`), `:1654` (debug handle ships in production),
@@ -340,16 +340,16 @@ Plus one line that is not in the ten because it costs nothing: `web/v2/views/dra
 - **Flaky v1-era test race outside the v2 core** — `A-09` — `tests/test_backfill_downloads.py:103` —
   intermittent red from an assertion that can beat the handler thread's `seen.append`.
 - **DR_90 is recomputed from raw `pr_window`; one open question about cap-vs-`min_n`** — `C-09` —
-  `cvi/derive/bundle.py:1359` — recomputation is the right call; whether `min_n` gates the capped or the raw
+  `porchlamp/derive/bundle.py:1359` — recomputation is the right call; whether `min_n` gates the capped or the raw
   cohort is not settled by any text either auditor could find.
 - **Determinism confirmed on the v1 reproduce path and the promote path** — `E-04` and E's low-severity tail
-  — `cvi/snapshot/reproduce.py`, `scripts/promote.py:206-231`, `cvi/snapshot/store_cmd.py:180-234` — the
+  — `porchlamp/snapshot/reproduce.py`, `scripts/promote.py:206-231`, `porchlamp/snapshot/store_cmd.py:180-234` — the
   dump hash is float-normalised and row-sorted, `as_of`/`created_at`/`promoted_at` all come from
   `frozen.as_of`, and the pass-1 constant ECDF is intentional.
 - **Plan-only mode picks the lexicographic first database and rewrites the report anyway** — `F:plan-mode-db`
-  — `cvi/audit/forward.py:669`.
+  — `porchlamp/audit/forward.py:669`.
 - **The release gate partly measures the tie-breaker against itself** — `F:tau-vacuous` —
-  `cvi/audit/sensitivity.py:554` — the canonical is scored as the stored rank, so on a fixture where
+  `porchlamp/audit/sensitivity.py:554` — the canonical is scored as the stored rank, so on a fixture where
   composites tie, tau = 1.0 and the gate passes vacuously.
 - **The report header cites `docs/bedrock/*` and `docs/standards/*`, and neither directory exists here** —
   `G:FYI-docs` — no rule was cited from either.
@@ -357,10 +357,10 @@ Plus one line that is not in the ten because it costs nothing: `web/v2/views/dra
 ### Duplicates and disagreements reconciled
 
 - **star history (`B7` + `F-08`) is one root cause with two blast radii, and it does not move the
-  composite.** `cvi/collect/universe.py:206-215`'s `NotImplementedError` is the cause; B read it as "every
+  composite.** `porchlamp/collect/universe.py:206-215`'s `NotImplementedError` is the cause; B read it as "every
   candidate is `Unmeasured(collector_failure)` and the reader can raise through a never-raises contract", F
   read it as "the coverage auditor's denominator was built without the collector". Kept as one Blocker at
-  `B7`'s grade. Severity is *not* raised on scoring grounds: `cvi/core/constants.py:277-279` states plainly
+  `B7`'s grade. Severity is *not* raised on scoring grounds: `porchlamp/core/constants.py:277-279` states plainly
   that stars never enter the composite (D-IN-5), so the real loss is universe-entry filtering and the
   `star_burst` suspicion detector, both permanently inert, plus a raise path that B1 makes reachable.
 - **`G12` re-ranked Warning → Blocker** as part of the CI cluster. Reason: its blast radius is not the
@@ -378,8 +378,8 @@ Plus one line that is not in the ten because it costs nothing: `web/v2/views/dra
 - **Torn envelopes: `B1` is the cause, `C-02` is the consequence, and the dependency is kept visible
   rather than flattened.** `C-02` stays Warning even though it is an outage, because grading it Blocker too
   would count one failure twice; `B1` sequences first, exactly as C wrote.
-- **`A-02`'s impact line corrected against source.** `cvi/constants.py:89-94` scores RECIPROCAL 40.0 and
-  UNILATERAL 10.0; `cvi/derive/bundle.py:52-58` maps both to `CORP_CLA`, which scores 25.0. The collapse is
+- **`A-02`'s impact line corrected against source.** `porchlamp/constants.py:89-94` scores RECIPROCAL 40.0 and
+  UNILATERAL 10.0; `porchlamp/derive/bundle.py:52-58` maps both to `CORP_CLA`, which scores 25.0. The collapse is
   15 points *harsher* for reciprocal and 15 points *more lenient* for unilateral — A's "15 points harsher"
   describes only the reciprocal branch. Both directions belong in the fix note.
 - **`D-01` kept at Warning although it is a silent wrong tier**, which the vocabulary would put at Blocker.
@@ -405,7 +405,7 @@ Plus one line that is not in the ten because it costs nothing: `web/v2/views/dra
   separate entry would let a fixer repair the write and leave the page loop alone. No ID was dropped;
   each fold is named in both places.
 - **`S+` across the slices: no disagreement, and slice A corroborates H.** Slice A read
-  `cvi/core/constants.py` in full and filed nothing against the tier tables; `cvi/core/constants.py:128-137`
+  `porchlamp/core/constants.py` in full and filed nothing against the tier tables; `porchlamp/core/constants.py:128-137`
   carries `(90.0, "S+")` and a six-name `TIER_ORDER`, re-verified at HEAD. So `H3` is a client-side defect
   alone, `G8` is the fixture that hid it, and `D-03` is a third place the same 90.0 boundary is evaluated,
   under a different rounding rule.
@@ -446,7 +446,7 @@ with E's three low-severity tail notes into one determinism entry.
 <!-- BEGIN A-CORE -->
 ### A-01 — Warning — `CORP_CLA_RECIPROCAL` is published in the spec but unscoreable in v2
 
-**Where** — `cvi/core/constants.py:162-168`
+**Where** — `porchlamp/core/constants.py:162-168`
 ```python
 #: 3.1 legal-IP regime scores (owner decision O-1: NONE 85).
 LEGAL_IP_SCORES: Mapping[str, float] = MappingProxyType({
@@ -456,14 +456,14 @@ LEGAL_IP_SCORES: Mapping[str, float] = MappingProxyType({
     "CORP_CLA": 25.0,
 })
 ```
-**Why it's wrong** — `docs/v2/02-RANKING-DESIGN.md:151` (row 3.1) publishes `DCO 100 · NONE 85 · FOUNDATION_CLA 75 · CORP_CLA_RECIPROCAL 40 (curated override only) · CORP_CLA 25`. The constant — and `LEGAL_IP_VALUES` (`cvi/core/constants.py:~485`) — omit that level entirely, so `cvi/core/params/governance.py` raises `ValueError` on it. That rejection is deliberate and asserted by `tests/core/test_params_governance.py:96-97`.
-**Impact** — Any input carrying the spec-published level crashes scoring rather than being overridden, and even the doc's own "curated override" path cannot express 40. v1 still scores it 40 (`cvi/constants.py:92`, `cvi/pillars/governance.py:12`, `cvi/playbook.py:251`, `cvi/deepdive.py:39,223`, `web/index.html:2637`, `cvi/models.py:69`). The generated `docs/METHODOLOGY-v2.md` hides the gap because the table is rendered from the constant (`cvi/core/methodology.py:246-256`).
+**Why it's wrong** — `docs/v2/02-RANKING-DESIGN.md:151` (row 3.1) publishes `DCO 100 · NONE 85 · FOUNDATION_CLA 75 · CORP_CLA_RECIPROCAL 40 (curated override only) · CORP_CLA 25`. The constant — and `LEGAL_IP_VALUES` (`porchlamp/core/constants.py:~485`) — omit that level entirely, so `porchlamp/core/params/governance.py` raises `ValueError` on it. That rejection is deliberate and asserted by `tests/core/test_params_governance.py:96-97`.
+**Impact** — Any input carrying the spec-published level crashes scoring rather than being overridden, and even the doc's own "curated override" path cannot express 40. v1 still scores it 40 (`porchlamp/constants.py:92`, `porchlamp/pillars/governance.py:12`, `porchlamp/playbook.py:251`, `porchlamp/deepdive.py:39,223`, `web/index.html:2637`, `porchlamp/models.py:69`). The generated `docs/METHODOLOGY-v2.md` hides the gap because the table is rendered from the constant (`porchlamp/core/methodology.py:246-256`).
 **Fix** — Add `"CORP_CLA_RECIPROCAL": 40.0` to `LEGAL_IP_SCORES` and `LEGAL_IP_VALUES` (then update that test), or amend 02:151 to drop the level.
 **Confidence** — High.
 
 ### A-02 — Warning — derive silently collapses `CORP_CLA_RECIPROCAL` to 25
 
-**Where** — `cvi/derive/bundle.py:52-58`
+**Where** — `porchlamp/derive/bundle.py:52-58`
 ```python
 #: v1 enum spellings -> v2 3.1 regimes.
 V1_LEGAL_IP_VALUES: dict[str, str] = {
@@ -480,7 +480,7 @@ V1_LEGAL_IP_VALUES: dict[str, str] = {
 
 ### A-03 — Warning — the persona-conditional AI-posture score never reaches v2, yet the methodology advertises it
 
-**Where** — `cvi/core/params/rigor.py:28-35`
+**Where** — `porchlamp/core/params/rigor.py:28-35`
 ```python
 AI_POSTURE_SCORES: Dict[str, Dict[str, float]] = constants.AI_POSTURE_SCORES
 
@@ -490,27 +490,27 @@ def _ai_posture_score(posture: str, persona: str) -> float:
         raise ValueError(f"ai_posture: unknown posture {posture!r}; expected one of {sorted(AI_POSTURE_SCORES)}")
     return table[persona]
 ```
-**Why it's wrong** — `ai_posture(value, persona="human")` (`rigor.py:82`, tested `tests/core/test_params_rigor.py:115-149`) is never handed a persona: `cvi/core/engine.py:213-215` calls `function(value)` for every non-ECDF input, so the default `"human"` column is always the one used.
-**Impact** — 02:165 (row 4.2) publishes `25 (AI)` for `PROSCRIBED`, and `docs/METHODOLOGY-v2.md:71` renders that per-persona table straight from `constants.AI_POSTURE_SCORES` (`methodology.py:254-255`), so the published methodology promises a number the engine cannot produce. The code's design — one human score plus persona *gates* — is the coherent one: D-AGG-4 (02:276-277) recomputes per-persona composites in SQL from stored pillar scores, and `cvi/core/persona.py:319-369` only re-weights stored pillars, so `PROSCRIBED` scores 85 even in `ai_assisted`.
+**Why it's wrong** — `ai_posture(value, persona="human")` (`rigor.py:82`, tested `tests/core/test_params_rigor.py:115-149`) is never handed a persona: `porchlamp/core/engine.py:213-215` calls `function(value)` for every non-ECDF input, so the default `"human"` column is always the one used.
+**Impact** — 02:165 (row 4.2) publishes `25 (AI)` for `PROSCRIBED`, and `docs/METHODOLOGY-v2.md:71` renders that per-persona table straight from `constants.AI_POSTURE_SCORES` (`methodology.py:254-255`), so the published methodology promises a number the engine cannot produce. The code's design — one human score plus persona *gates* — is the coherent one: D-AGG-4 (02:276-277) recomputes per-persona composites in SQL from stored pillar scores, and `porchlamp/core/persona.py:319-369` only re-weights stored pillars, so `PROSCRIBED` scores 85 even in `ai_assisted`.
 **Fix** — Amend 02:165 to the gate design and drop the dead `persona` argument, or thread persona through `engine.py:213-215`.
 **Confidence** — High.
 
 ### A-04 — Consider — 02's `ai_assisted` gate cites a field that does not exist in v2
 
-**Where** — `cvi/core/persona.py:197-199`
+**Where** — `porchlamp/core/persona.py:197-199`
 ```python
 def _ai_assisted_gated(bundle_inputs: Mapping[str, ParamValue]) -> bool:
     value = bundle_inputs[INPUT_AI_POSTURE]
     return isinstance(value, Measured) and value.value == AI_POSTURE_PROSCRIBED
 ```
-**Why it's wrong** — The gate text in 02 also requires a non-empty `ai_policy_evidence`, which is not a field of the v2 `FeatureBundle`. `persona.py:26-34` argues `Measured` already implies provenance, which is why the check is posture-only. `cvi/core/methodology.py:499-501` repeats the doc's phrasing.
+**Why it's wrong** — The gate text in 02 also requires a non-empty `ai_policy_evidence`, which is not a field of the v2 `FeatureBundle`. `persona.py:26-34` argues `Measured` already implies provenance, which is why the check is posture-only. `porchlamp/core/methodology.py:499-501` repeats the doc's phrasing.
 **Impact** — None functionally; the doc and the generated methodology overstate the gate's condition.
 **Fix** — Delete the evidence clause from the 02 gate text (and from `methodology.py:499-501`), or add the field.
 **Confidence** — High.
 
 ### A-05 — Consider — the persona-composite rule is expressed twice, in two languages
 
-**Where** — `cvi/core/pipeline.py:192` (stage 8 computes `persona_composites` in Python) against D-AGG-4, `docs/v2/02-RANKING-DESIGN.md:276-277`, which mandates the composites "in SQL from the stored pillar scores".
+**Where** — `porchlamp/core/pipeline.py:192` (stage 8 computes `persona_composites` in Python) against D-AGG-4, `docs/v2/02-RANKING-DESIGN.md:276-277`, which mandates the composites "in SQL from the stored pillar scores".
 **Why it's wrong** — Two implementations of one rule, in different layers, with no shared test asserting they agree.
 **Impact** — The numbers match today; drift is the risk, and drift would be silent because both are plausible.
 **Fix** — Keep one authority and make the other a checked projection of it (assert equality in a test, or generate the SQL from the Python).
@@ -518,7 +518,7 @@ def _ai_assisted_gated(bundle_inputs: Mapping[str, ParamValue]) -> bool:
 
 ### A-06 — Consider — the benchmark spec still prints v1 gradients
 
-**Where** — `docs/BENCHMARK_SPECIFICATION.md` §5: `∂CVI/∂GR₁₄ = −10.0` and GFI `+0.60/issue`.
+**Where** — `docs/BENCHMARK_SPECIFICATION.md` §5: `∂Porchlamp/∂GR₁₄ = −10.0` and GFI `+0.60/issue`.
 **Why it's wrong** — v2 values are −7.5 and +0.525; `EF +1.75/org` and Scorecard `+0.60/unit` still agree.
 **Impact** — A reader calibrating against §5 gets the wrong sensitivities for the shipped engine. The doc sits under §14's supersession clause, so it is legacy rather than authoritative — but it is the natural place to look.
 **Fix** — Update the two gradients, or delete §5 and point at 02 §4.
@@ -526,7 +526,7 @@ def _ai_assisted_gated(bundle_inputs: Mapping[str, ParamValue]) -> bool:
 
 ### A-07 — Nit — D-GATE-5's population rests on an unasserted invariant
 
-**Where** — `cvi/core/gates.py`, D-GATE-5 branch: only the `now − created_at >= GATE5_MIN_AGE_DAYS` floor is evaluated, over `pr_window`.
+**Where** — `porchlamp/core/gates.py`, D-GATE-5 branch: only the `now − created_at >= GATE5_MIN_AGE_DAYS` floor is evaluated, over `pr_window`.
 **Why it's wrong** — The rule's population ("no PR activity in the trailing 180 days", 02:100) is correct only if `pr_window` *is* that trailing window. `gates.py` takes that on faith from the caller; nothing here asserts it.
 **Impact** — A caller passing a differently-scoped window would produce wrong gates with no error.
 **Fix** — Assert the window length (or pass the constant into the gate) so the invariant is local.
@@ -534,10 +534,10 @@ def _ai_assisted_gated(bundle_inputs: Mapping[str, ParamValue]) -> bool:
 
 ### A-08 — Nit — cosmetic and defensive-code tail
 
-- `cvi/core/gates.py:325-326` — comment reads "not a fork (fork only when the parent is absent from the universe)". The code is right (`REASON_FORK` iff `fork_parent_in_universe is True`, `undecided` on `None`, pass on `False`; `tests/core/test_gates.py:363,382,402`), but the comment words it backwards and invites a wrong "fix".
-- `cvi/core/params/curves.py:24-40` — `MONO_TOLERANCE`, `_REFERENCE_SAMPLE`, `RATE_SLOPE`, `COHORT_RATE_SLOPE` each re-bind a `constants` value under a near-identical comment block; collapse to one note.
-- `cvi/core/constants.py:586-587` — the same sentence is emitted twice: `#: Module-level UPPER_CASE names that are deliberately NOT part of` / `#: Module-level UPPER_CASE names that are deliberately NOT part of`.
-- `cvi/core/tiebreak.py` — `record.coverage` is typed `float | None` yet treated as non-`None` for rated rows; either narrow the type or handle `None`.
+- `porchlamp/core/gates.py:325-326` — comment reads "not a fork (fork only when the parent is absent from the universe)". The code is right (`REASON_FORK` iff `fork_parent_in_universe is True`, `undecided` on `None`, pass on `False`; `tests/core/test_gates.py:363,382,402`), but the comment words it backwards and invites a wrong "fix".
+- `porchlamp/core/params/curves.py:24-40` — `MONO_TOLERANCE`, `_REFERENCE_SAMPLE`, `RATE_SLOPE`, `COHORT_RATE_SLOPE` each re-bind a `constants` value under a near-identical comment block; collapse to one note.
+- `porchlamp/core/constants.py:586-587` — the same sentence is emitted twice: `#: Module-level UPPER_CASE names that are deliberately NOT part of` / `#: Module-level UPPER_CASE names that are deliberately NOT part of`.
+- `porchlamp/core/tiebreak.py` — `record.coverage` is typed `float | None` yet treated as non-`None` for rated rows; either narrow the type or handle `None`.
 - 02 never prescribes how `tie_group` ids are numbered, so the chosen convention is undocumented.
 
 **Fix** — Comment/typing cleanups only; no behavior change. **Confidence** — High.
@@ -560,15 +560,15 @@ def _ai_assisted_gated(bundle_inputs: Mapping[str, ParamValue]) -> bool:
 - The constants → `methodology.py` renderer chain means the *published* methodology can over-promise what the engine does: A-01 and A-03 are both cases where 02/`METHODOLOGY-v2.md` advertises a number no v2 code path produces.
 - Enum vocabularies are the real coupling point. A level published in 02 but missing from a constant becomes either a hard `ValueError` (A-01) or a silent downward v1 collapse (A-02) — never a warning.
 - Persona conditioning is implemented as gates over a single human score, not per-persona scoring (A-03, A-04); the design is coherent, the documentation has not caught up.
-- Gate, tiebreak, and missingness logic otherwise follow 02 faithfully, including the D-MISS-5 `not_applicable` → `collector_failure` downgrade (`cvi/core/engine.py:208-212`), and D-VER-3 determinism holds mechanically: `grep -rn "datetime\.now\|time\.time\|utcnow\|date\.today\|datetime\.today" cvi/core/` returns zero hits.
-- `OPENSSF_PROXY_MIN_SIGNALS = 8` **is** enforced, not decorative: `cvi/derive/bundle.py:1681-1683` computes `present_count` and returns `Unmeasured(reason="insufficient_n", detail=f"{present_count} of 10 signals")`, guarded again at `:1661-1674` and `:1771-1774`, tested by `tests/derive/test_input_mappings.py:1037-1058` (`"7 of 10 signals"`) — matches 02:238-242.
-- The v1 scoring stack is absent from the v2 serve path: `cvi/serve/app.py:67-71,87-88` and `cvi/serve/guard.py:59-60` import `cvi.core`, `cvi.store`, `cvi.audit` and the v1 lakehouse/writer only, with the legacy app mounted lazily at `app.py:726` (`from cvi.api import create_app as _create_legacy_app`); `cvi/api.py` exists, `cvi/cli.py` does not.
+- Gate, tiebreak, and missingness logic otherwise follow 02 faithfully, including the D-MISS-5 `not_applicable` → `collector_failure` downgrade (`porchlamp/core/engine.py:208-212`), and D-VER-3 determinism holds mechanically: `grep -rn "datetime\.now\|time\.time\|utcnow\|date\.today\|datetime\.today" porchlamp/core/` returns zero hits.
+- `OPENSSF_PROXY_MIN_SIGNALS = 8` **is** enforced, not decorative: `porchlamp/derive/bundle.py:1681-1683` computes `present_count` and returns `Unmeasured(reason="insufficient_n", detail=f"{present_count} of 10 signals")`, guarded again at `:1661-1674` and `:1771-1774`, tested by `tests/derive/test_input_mappings.py:1037-1058` (`"7 of 10 signals"`) — matches 02:238-242.
+- The v1 scoring stack is absent from the v2 serve path: `porchlamp/serve/app.py:67-71,87-88` and `porchlamp/serve/guard.py:59-60` import `porchlamp.core`, `porchlamp.store`, `porchlamp.audit` and the v1 lakehouse/writer only, with the legacy app mounted lazily at `app.py:726` (`from porchlamp.api import create_app as _create_legacy_app`); `porchlamp/api.py` exists, `porchlamp/cli.py` does not.
 - Everything else found is cosmetic or defensive (A-07, A-08) — the core's defect density is low.
 
 **Coverage**
 
-Read fully: `cvi/core/constants.py`, `models.py`, `pipeline.py`, `persona.py`, `matrix.py`, `tiebreak.py`, `gates.py`, `aggregate.py`, `normalize.py`, `engine.py`, `methodology.py`, `openssf.py`, `hygiene.py`, `commit_domains.py`, `params/curves.py`, `params/governance.py`, `params/rigor.py`; the cited tests under `tests/core/` and `tests/derive/`; `cvi/derive/bundle.py` in the proxy-guard and v1-mapping regions.
-Skimmed: `docs/v2/02-RANKING-DESIGN.md`, `docs/METHODOLOGY-v2.md`, `docs/BENCHMARK_SPECIFICATION.md`, `cvi/serve/*`.
+Read fully: `porchlamp/core/constants.py`, `models.py`, `pipeline.py`, `persona.py`, `matrix.py`, `tiebreak.py`, `gates.py`, `aggregate.py`, `normalize.py`, `engine.py`, `methodology.py`, `openssf.py`, `hygiene.py`, `commit_domains.py`, `params/curves.py`, `params/governance.py`, `params/rigor.py`; the cited tests under `tests/core/` and `tests/derive/`; `porchlamp/derive/bundle.py` in the proxy-guard and v1-mapping regions.
+Skimmed: `docs/v2/02-RANKING-DESIGN.md`, `docs/METHODOLOGY-v2.md`, `docs/BENCHMARK_SPECIFICATION.md`, `porchlamp/serve/*`.
 Verification runs: full `.venv/bin/pytest -q` → exit 0, `[100%]` with a single `s` and no `F`/`E`; focused subset (`test_methodology.py`, `test_render_methodology.py`, `test_ui_methodology_no_literals.py`, `test_constants_hash.py`, `test_frozen.py`) → exit 0, 80 passes; `.venv/bin/ruff check .` → `All checks passed!`.
 COULD NOT VERIFY: a total pass count. The `N passed` summary line never appeared in either captured full-suite log, so magnitude is taken from `docs/v2/00-README.md:173` ("Suite on main 2,211 passed, 1 skipped") rather than from this run.
 <!-- END A-CORE -->
@@ -585,15 +585,15 @@ are `B1…B9` (Blocker) plus an unnumbered Warning/Consider tail. No tests were 
 `docs/v2/08-SUSTAINABLE-COLLECTION.md` §5**, and that doc understates its own most expensive
 line item. `08:39` budgets a sweep at ≈172k REST + 45k GraphQL points + 17k search calls
 ≈ 45–50 h serialised, which `08:41-48` turns into "~2 days of wall-clock" at a "~30 % duty
-cycle". But governance alone is ≈45 REST calls/repo (`cvi/collect/governance.py:255-334`), so
+cycle". But governance alone is ≈45 REST calls/repo (`porchlamp/collect/governance.py:255-334`), so
 45 × 5,753 repos ≈ **259k REST ≈ 52 h** — governance by itself exceeds the entire plan.
 `08 §5`'s "interim ~4–5 h/week" (`08:215-216`) inherits the same error.
 
 ### B1 — Blocker — `write_envelope` is not atomic, while every resume check is a bare existence probe
 
-- **Where**: `cvi/collect/envelope.py:204-232`; resume probes at `scripts/gather.py:86-87`,
-  `cvi/collect/github_graphql.py:344`, `:825`, `cvi/collect/pike_signals.py:240`, `:323`,
-  `:387`, `cvi/collect/governance.py:394-396`
+- **Where**: `porchlamp/collect/envelope.py:204-232`; resume probes at `scripts/gather.py:86-87`,
+  `porchlamp/collect/github_graphql.py:344`, `:825`, `porchlamp/collect/pike_signals.py:240`, `:323`,
+  `:387`, `porchlamp/collect/governance.py:394-396`
 - **Evidence**: `target.parent.mkdir(...)` (`:230`) then `target.write_text(json.dumps(...))`
   (`:232`). `write_text` truncates then writes, so an interrupt 200 bytes into a 300 KB
   envelope leaves a half-written JSON *file*, and `_done` = `.is_file() and not force`.
@@ -628,7 +628,7 @@ cycle". But governance alone is ≈45 REST calls/repo (`cvi/collect/governance.p
 
 ### B3 — Blocker — `repo_object` still discards an entire envelope on one partial error
 
-- **Where**: `cvi/collect/repo_object.py:273-286`, `:343`, `:357`, `:388`, `:403`, `:409`
+- **Where**: `porchlamp/collect/repo_object.py:273-286`, `:343`, `:357`, `:388`, `:403`, `:409`
 - **Evidence**: `_gh_graphql` raises on `returncode != 0` (`:281-282`) and again whenever the
   response carries a GraphQL `errors` array (`:285`); `collect_repo_object` builds everything
   off that one call plus `_shallow_tree` plus `_fetch_body` for MAINTAINERS and README.
@@ -643,7 +643,7 @@ cycle". But governance alone is ≈45 REST calls/repo (`cvi/collect/governance.p
 
 ### B4 — Blocker — `_shallow_tree`'s frontier is uncapped and contradicts its own budget
 
-- **Where**: `cvi/collect/repo_object.py:297-331` (`:309`, `:316`, `:319`, frontier push `:330`)
+- **Where**: `porchlamp/collect/repo_object.py:297-331` (`:309`, `:316`, `:319`, frontier push `:330`)
 - **Evidence**: one tree call plus one per top-level directory.
 - **Why it's wrong**: a monorepo with 60 top-level dirs costs 61+ REST calls for one repo,
   against `08:30`'s budget of "1–2 REST … ~9k … ~2 h". No cap and no `truncated` flag.
@@ -654,8 +654,8 @@ cycle". But governance alone is ≈45 REST calls/repo (`cvi/collect/governance.p
 
 ### B5 — Blocker — one unguarded exception ends a multi-hour sweep
 
-- **Where**: `scripts/gather.py:496`; raisers at `cvi/collect/github_graphql.py:135`,
-  `cvi/collect/governance.py:196`, `scripts/gather.py:138-160`, `:490`
+- **Where**: `scripts/gather.py:496`; raisers at `porchlamp/collect/github_graphql.py:135`,
+  `porchlamp/collect/governance.py:196`, `scripts/gather.py:138-160`, `:490`
 - **Evidence**: `st = gather_repo(...)` in the candidate loop has no `try`, and
   `subprocess.run(timeout=90)` propagates `subprocess.TimeoutExpired`.
 - **Impact**: six hours in, one `gh` call exceeding 90 s kills the process; every repo after
@@ -665,7 +665,7 @@ cycle". But governance alone is ≈45 REST calls/repo (`cvi/collect/governance.p
 
 ### B6 — Blocker — governance is under-budgeted on cost and silently under-evidenced on correctness
 
-- **Where**: `cvi/collect/governance.py:80`, `:82`, `:84`, `:255-289`, `:292-334`, `:308`,
+- **Where**: `porchlamp/collect/governance.py:80`, `:82`, `:84`, `:255-289`, `:292-334`, `:308`,
   `:310`, `:312-314`, `:404-406`, `:408-409`, `:211-229`
 - **Evidence**: `_merged_prs` pulls 5 × 100 PRs; `_check_evidence` makes 2 REST calls per
   distinct head SHA for up to `MERGED_PR_CAP=20` = 40 calls. Pulls are fetched
@@ -685,7 +685,7 @@ cycle". But governance alone is ≈45 REST calls/repo (`cvi/collect/governance.p
 
 ### B7 — Blocker — star history is inert, and its reader violates its own contract
 
-- **Where**: `cvi/collect/universe.py:206-215`, `:253`, `:272`, `:289`, `:297`;
+- **Where**: `porchlamp/collect/universe.py:206-215`, `:253`, `:272`, `:289`, `:297`;
   `scripts/build_universe.py:33`, `:41-45`
 - **Evidence**: `default_star_history_transport` is `raise NotImplementedError` (`:212`),
   bound live at `build_universe.py:45` (comment: "No live implementation yet").
@@ -716,13 +716,13 @@ cycle". But governance alone is ≈45 REST calls/repo (`cvi/collect/governance.p
   write atomically.
 - **Confidence**: high.
 
-### B9 — Blocker — `cvi/collect/ratelimit.py`: 332 lines, zero readers
+### B9 — Blocker — `porchlamp/collect/ratelimit.py`: 332 lines, zero readers
 
-- **Where**: `cvi/collect/ratelimit.py` (whole module), `:43-45`, `:141`
+- **Where**: `porchlamp/collect/ratelimit.py` (whole module), `:43-45`, `:141`
 - **Evidence**: grep for `ratelimit|CachedHttpClient|TokenBucketRateLimiter|CircuitBreaker`
   hits only its own file, `tests/collect/test_ratelimit.py`, `tests/test_no_clock.py`,
   `tests/core/test_import_graph.py`, docs, `.github/workflows/ci.yml`, `.agents/W4-1/*`,
-  `pyproject.toml` — **no consumer under `cvi/` or `scripts/`**.
+  `pyproject.toml` — **no consumer under `porchlamp/` or `scripts/`**.
 - **Why it's wrong**: `docs/REVIEW_GUIDELINES.md:60-67` makes "new symbols with zero readers"
   a Blocker verbatim, and `08:82-86` already admits it. It also cannot do the job:
   `DEFAULT_RATE = 1.2` is a requests/second bucket that cannot express a *points* budget
@@ -748,13 +748,13 @@ cycle". But governance alone is ≈45 REST calls/repo (`cvi/collect/governance.p
 - **Pagination on a shape check** — `github_graphql.py:316-319`, `:616-619`: if `pageInfo` is
   absent (partial-error response) the loop stops and the envelope records `truncated: False`
   over a short list. Short list and truncated list are byte-identical on disk.
-- **`commits_365d` cap with no flag** — `cvi/collect/commits.py:87`, `:124-146`: rows sliced to
+- **`commits_365d` cap with no flag** — `porchlamp/collect/commits.py:87`, `:124-146`: rows sliced to
   `COMMIT_CAP=1000` with no `truncated`, feeding `elephant_factor:169`, `bus_factor:196` and
   vitality, so a repo at the cap looks like a repo with exactly 1000 commits (biases EF
   upward). Compounding: `:185-186` and `:212-213` both return `1` when `total == 0`, so a repo
   with **no commits** gets the maximum concentration score, identical to a genuine
   single-author project.
-- **`dedup_dependents` unit conflation** — `cvi/collect/depsdev.py:315-334`: the parent's
+- **`dedup_dependents` unit conflation** — `porchlamp/collect/depsdev.py:315-334`: the parent's
   `system` is applied to each dependent and `packages` is always `None`, so `deduped_count`
   silently equals the raw count — D-PARAM 2.1's anti-double-count rule, trusted blindly by
   `derive.py:549-556`, never sees deduplicated data.
@@ -766,10 +766,10 @@ cycle". But governance alone is ≈45 REST calls/repo (`cvi/collect/governance.p
   `inspect.signature(_ro_mod._fetch_body)` against a function that takes exactly one parameter
   (`repo_object.py:334`), so the `len(ro_params) >= 3` branch is unreachable.
 - **Duplicate constants**, against guidelines §4 ("one definition per fact, constants live in
-  `cvi/constants.py` only"): `SLEEP_PYPISTATS` (`gather.py:38`) vs
+  `porchlamp/constants.py` only"): `SLEEP_PYPISTATS` (`gather.py:38`) vs
   `ratelimit.DEFAULT_MIN_INTERVAL`, `SLEEP_KEYLESS` (`:37`), `SLEEP_REST` merely re-exported
   (`:31`), and the download `User-Agent` spelled twice inside one function (`:457`
-  `"cvi-research/0.1 (ranking study)"` vs `:464` `"cvi-research/0.1"`) and again in the
+  `"porchlamp-research/0.1 (ranking study)"` vs `:464` `"porchlamp-research/0.1"`) and again in the
   backfill.
 - **Downloads key drops the owner** — `dl_key = f"{ecosystem}__{name}"` (`gather.py:257`), read
   back at `derive.py:290`: registry names are global, GitHub repos are not, so two tracked repos
@@ -806,7 +806,7 @@ cycle". But governance alone is ≈45 REST calls/repo (`cvi/collect/governance.p
 - `scripts/backfill_downloads.py` is the model fix: `.tmp` + `os.replace` (`:122-133`),
   null-is-not-done, a bool-safe int check, a monotonic-clock throttle, ETA from measured
   per-request time. B1 and B2 are already solved here.
-- `cvi/collect/labels.py` is the model collector: one query per label, union by issue *number*,
+- `porchlamp/collect/labels.py` is the model collector: one query per label, union by issue *number*,
   explicit `MAX_ISSUE_PAGES = 2`, `truncated` recorded, and a `needs_gather` that re-collects
   corrupt and legacy envelopes — exactly the re-detection `_done()` lacks.
 - `governance.py:351-371` `signoff_share` re-derives from the collected `commits_365d` envelope
@@ -861,7 +861,7 @@ cycle". But governance alone is ≈45 REST calls/repo (`cvi/collect/governance.p
 
 ## Coverage
 
-- **Read fully**: `cvi/collect/{envelope,github_graphql,commits,depsdev,ecosystemes,governance,labels,pike_signals,ratelimit,repo_object,universe}.py`,
+- **Read fully**: `porchlamp/collect/{envelope,github_graphql,commits,depsdev,ecosystemes,governance,labels,pike_signals,ratelimit,repo_object,universe}.py`,
   `scripts/{gather,build_universe,backfill_downloads}.py`.
 - **Skimmed**: `tests/collect/**`, `docs/v2/08-SUSTAINABLE-COLLECTION.md`, `docs/v2/03-ANTI-MANIPULATION.md`.
 - **COULD NOT VERIFY**: deps.dev system ids (`SYSTEM_FOR_ECOSYSTEM` → `crates.io`/`go`/`maven`)
@@ -887,7 +887,7 @@ must open via `read_envelope`; `:220 if not envelope.hash_matches_data` is an of
 `unverifiable_provenance`, which blocks promotion), `scripts/promote.py:72` imports
 `_claimed_hash`, `_envelope_path` and `_source_items` out of `scripts.verify` and re-runs them
 against the manifest map (`:235-268`), with `:276` "A bundle with zero resolvable references
-fails", and `cvi/snapshot/manifest.py:84` records `entry["sha256"] = envelope.computed_sha256`
+fails", and `porchlamp/snapshot/manifest.py:84` records `entry["sha256"] = envelope.computed_sha256`
 *with* `hash_origin` plus `hash_matches_data`. Caveats on that gate: `ADVISORY_CHECKS =
 {"scorecard"}` never gates, and `REQUIRED_VERIFIED = ("stars", "forks")` is a narrow floor. The
 realistic risks here are C-02 (availability) and C-05 (reproducibility), not a corrupted score
@@ -895,14 +895,14 @@ shipping silently.
 
 ### C-01 — Warning — The bundle loader is self-attesting: derive-time envelope hashes are recorded but never compared
 
-**Where**: `cvi/derive/bundle.py:949-951` — `_envelope_hash` is
+**Where**: `porchlamp/derive/bundle.py:949-951` — `_envelope_hash` is
 `sha256_hex(canonical_json(_envelope_data(path)))`, called at `:1042`, `:1075`, `:1108`, `:1186`,
 `:1521`, `:1565`, `:1705`, `:1758`, `:1819`. `_relative_source:922-925` states it "duplicates
-`cvi.collect.envelope.relative_envelope_path`'s arithmetic rather than importing it … to avoid
-circular or collect-layer dependencies". `grep -n sha256 cvi/derive/bundle.py` returns only four
+`porchlamp.collect.envelope.relative_envelope_path`'s arithmetic rather than importing it … to avoid
+circular or collect-layer dependencies". `grep -n sha256 porchlamp/derive/bundle.py` returns only four
 hits (`:14`, `:950`, `:951`, `:2131` — docstrings plus `_envelope_hash` itself), and
-`grep -nE "sha256|hash_matches_data|read_envelope|computed_sha256" cvi/verify/**` returns **no
-matches**; `cvi/verify/pipeline_hook.py` (171 L) was read fully and is pure detector composition.
+`grep -nE "sha256|hash_matches_data|read_envelope|computed_sha256" porchlamp/verify/**` returns **no
+matches**; `porchlamp/verify/pipeline_hook.py` (171 L) was read fully and is pure detector composition.
 
 **Why it's wrong**: the integrity value is produced by the same reader that consumes it, so it
 attests to itself; the loader never reads back the `sha256` that the v1 document recorded in
@@ -910,26 +910,26 @@ attests to itself; the loader never reads back the `sha256` that the v1 document
 
 **Impact**: editing an envelope in place moves `source_hash` and `provenance_hash` with no mismatch
 signal — `provenance_hash` fingerprints the bytes as they are now, not the bytes the score came
-from, so a consumer of `derived/*.json` alone (`web/v2`, `cvi/serve`, an external reader) cannot
+from, so a consumer of `derived/*.json` alone (`web/v2`, `porchlamp/serve`, an external reader) cannot
 detect a swap. This is a design-level gap, not a test contradiction:
 `tests/derive/test_relative_provenance.py:42,47` deliberately pins `fact.source ==
 "raw/contributors/acme__widget.json"` and `bundle.provenance_hash ==
 feature_provenance_hash({fact.source: fact.source_hash})` with the hash recomputed at load.
 
-**Fix**: route `_resolve_envelope`/`_envelope_data` through `cvi.collect.envelope.read_envelope`
+**Fix**: route `_resolve_envelope`/`_envelope_data` through `porchlamp.collect.envelope.read_envelope`
 and treat `hash_matches_data is False` as `Unmeasured(reason="collector_failure")`; if the
 `derive/`→`core/`-only rule in `docs/v2/04-ARCHITECTURE.md` is what blocks the import, move the
-envelope reader into `cvi/core/` rather than duplicating its path arithmetic.
+envelope reader into `porchlamp/core/` rather than duplicating its path arithmetic.
 
 **Confidence**: high — exhaustive grep, nine call sites enumerated.
 
 ### C-02 — Warning — One torn raw envelope aborts the entire bundle load; upstream cause is B1
 
-**Where**: `cvi/derive/bundle.py:944-946` — `_envelope_data` is a bare
+**Where**: `porchlamp/derive/bundle.py:944-946` — `_envelope_data` is a bare
 `json.loads(path.read_text(encoding="utf-8"))` — reached via `_resolve_envelope:887-909`, which
 guards only with `alt.is_file()` / `candidate.is_file()`, from `_load_v1:2177`
 (`input_id: INPUT_MAPPINGS[input_id](ctx) for input_id in constants.PARAM_INPUT_IDS`). The same
-shape appears at `cvi/derive/gate_evidence.py:84` (`_tree_paths`) and `:98`
+shape appears at `porchlamp/derive/gate_evidence.py:84` (`_tree_paths`) and `:98`
 (`_vitality_commit_count`). Reproduced on a scratch copy of the fixture root by truncating
 `raw/github_meta/acme__widget.json`: `json.decoder.JSONDecodeError: Expecting value: line 1 column
 53 (char 52)`; the chain is `load_bundle` → `_load_v1:2177` → `resolve:1042 source_hash =
@@ -937,11 +937,11 @@ _envelope_hash(path)` → `_envelope_hash:951` → `_envelope_data:945`.
 
 **Why it's wrong**: the other two layers that walk the same tree refuse to die on one unreadable
 envelope — `scripts/derive.py:160-169` catches `JSONDecodeError` and returns `(None, None)`, and
-`cvi/snapshot/manifest.py::envelope_entries` catches `UNREADABLE_ENVELOPE_ERRORS` and continues.
+`porchlamp/snapshot/manifest.py::envelope_entries` catches `UNREADABLE_ENVELOPE_ERRORS` and continues.
 This is not a "readers must never raise" claim: `tests/derive/test_malformed_events.py` shows
 whole-bundle rejection *is* intended for malformed document **content**, whereas a malformed raw
 **envelope file** is an I/O artifact generated one layer out. **This is the derive-side half of
-collection auditor B's B1** (`cvi/collect/envelope.py:204-232`'s non-atomic `write_text` is the
+collection auditor B's B1** (`porchlamp/collect/envelope.py:204-232`'s non-atomic `write_text` is the
 cause), so the two slices overlap by design and B1 sequences first.
 
 **Impact**: after an interrupted gather, every `derive` over that data dir raises — for any repo
@@ -959,7 +959,7 @@ read-verified only.
 
 ### C-03 — Consider — `_relative_source`'s absolute-path fallback is dead code
 
-**Where**: `cvi/derive/bundle.py:931-941` — under `if raw_root is not None:`, the
+**Where**: `porchlamp/derive/bundle.py:931-941` — under `if raw_root is not None:`, the
 `try: return path.relative_to(Path(raw_root).parent).as_posix()` is followed by
 `except ValueError: candidate = None` (`:935`), then `:936` assigns
 `candidate = path.as_posix()` **unconditionally**, so the `None` written one line earlier is never
@@ -979,11 +979,11 @@ pins the absolute-path rejection as *intended*, so the contract is not questione
 
 ### C-04 — Consider — `paths[0]` names one envelope for a value the collector computed from several
 
-**Where**: `cvi/derive/bundle.py:1624-1634` `_resolved_source_paths` — no sort,
+**Where**: `porchlamp/derive/bundle.py:1624-1634` `_resolved_source_paths` — no sort,
 `[path for path in (_resolve_envelope(s, raw_root) for s in source_field) if path is not None]` —
 consumed at `:1708-1709` and `:1826-1827`, with `n` taken from
 `_envelope_data(paths[0])["prs"]` counting `mergedAt is not None` at `:1820-1824`. Document order
-is hardcoded in `cvi/collect/pike_signals.py::derive_w17_fields`: `:739-743`
+is hardcoded in `porchlamp/collect/pike_signals.py::derive_w17_fields`: `:739-743`
 `[env_path(col) for col in ("github_meta", "commits_365d", "releases", "issues_counts", "dependents")]`,
 `:752-756` the four-source `openssf_signals_partial` variant, `:765-771` `pipeline_defenses` →
 `[env_path("scorecard")]` for `METHOD_PRIMARY` / `[env_path("pr_window"), env_path("runs")]` for
@@ -1011,7 +1011,7 @@ sliding to the next entry.
 **Where**: `scripts/derive.py:268-272` — `def derive_repo(owner, name, ecosystem, data_dir=DATA_DIR,
 fetch=False, now: Optional[datetime] = None)` then `now = now or datetime.now(timezone.utc)` — plus
 `:193` `at = utc_now_iso(datetime.now(timezone.utc))` in the `_body` cache writer;
-`cvi/derive/bundle.py:125-147` `load_bundle(path, *, raw_root=None)` has **no** `as_of`/`now`, and
+`porchlamp/derive/bundle.py:125-147` `load_bundle(path, *, raw_root=None)` has **no** `as_of`/`now`, and
 `_load_v1:2127 def _load_v1(document, raw_root)` has none either. See also `_unmapped:1930-1934`,
 the table at `:1949` ("`gr14_ghost_rate` | (none landed) | collector_failure: needs a snapshot
 as_of the v1-to-v2 loader is never given"), `:1972-1976` ("must not borrow the pr_window
@@ -1023,7 +1023,7 @@ signals; v1 stores a CI runtime mean only"), and `:2007-2008`, which raises `Val
 the v1→v2 path cannot be given an as-of even in principle.
 
 **Impact**: the same `derived/*.json` loaded twice across a window boundary yields different
-scores, so `cvi/snapshot/reproduce.py` cannot tell benign drift from a real mismatch; and
+scores, so `porchlamp/snapshot/reproduce.py` cannot tell benign drift from a real mismatch; and
 2-of-18-unmeasurable (`gr14_ghost_rate`, `dx`) is a permanent ceiling *inside* the coverage check
 rather than a crash.
 
@@ -1075,13 +1075,13 @@ permanently (`--force`-only recovery); body-sourced hashes carry no origin marke
 **Confidence**: medium-high — the shape is clear from reading, but the non-default-branch case was
 not executed.
 
-### C-08 — Consider — `cvi/provenance.py` is a test-only schema that reads as production
+### C-08 — Consider — `porchlamp/provenance.py` is a test-only schema that reads as production
 
-**Where**: `cvi/provenance.py` (`RepoEnvelope`, `FieldRecord`, `raw_path`, `RAW_DIR`); the only
-production import anywhere is `utc_now_iso` (`scripts/derive.py:40`, `cvi/audit/forward.py:44`),
+**Where**: `porchlamp/provenance.py` (`RepoEnvelope`, `FieldRecord`, `raw_path`, `RAW_DIR`); the only
+production import anywhere is `utc_now_iso` (`scripts/derive.py:40`, `porchlamp/audit/forward.py:44`),
 and everything else is referenced only by `tests/test_provenance.py`.
 
-**Why it's wrong**: two provenance schemas coexist (the live one in `cvi/core/models.py` plus
+**Why it's wrong**: two provenance schemas coexist (the live one in `porchlamp/core/models.py` plus
 `bundle.py`) with nothing marking which one is authoritative.
 
 **Impact**: no runtime defect — a maintenance and misreading hazard, plus a live-looking `RAW_DIR`
@@ -1094,11 +1094,11 @@ its tests into the live schema's tests.
 
 ### C-09 — FYI — DR_90 is recomputed from raw `pr_window` at load; one question about cap-vs-`min_n`
 
-**Where**: `cvi/derive/bundle.py:1359` `_dr90_decision_cohort` — a half-open
+**Where**: `porchlamp/derive/bundle.py:1359` `_dr90_decision_cohort` — a half-open
 `[anchor - 180d, anchor - 90d)` window, `hygiene.apply_author_cap` over `(login, createdAt)`,
 no-author PRs keyed `__no_author_pr_<number>`, "decided" meaning `mergedAt`/`closedAt` within 90 d
 inclusive, `n` set to the **capped** cohort, `min_n` re-checked in
-`cvi.core.params.curves._apply`, and the method flipping to `proxy:din3_unapplied` when there is no
+`porchlamp.core.params.curves._apply`, and the method flipping to `proxy:din3_unapplied` when there is no
 `author_history` envelope.
 
 **Why it's wrong**: re-deriving rather than trusting a v1 scalar is the right call; reading cannot
@@ -1115,8 +1115,8 @@ closes it.
 **Slice summary**
 
 - Verification here is a **gate, not a layer**: every hash check lives on the publish path
-  (`scripts/verify.py`, `scripts/promote.py`, `cvi/snapshot/manifest.py`) and none in the read path
-  (`cvi/derive/bundle.py`, `cvi/verify/detectors.py`, `cvi/verify/pipeline_hook.py`), so anything
+  (`scripts/verify.py`, `scripts/promote.py`, `porchlamp/snapshot/manifest.py`) and none in the read path
+  (`porchlamp/derive/bundle.py`, `porchlamp/verify/detectors.py`, `porchlamp/verify/pipeline_hook.py`), so anything
   that reads `derived/*.json` without going through promotion trusts an attestation the loader
   wrote about itself → C-01.
 - The same corruption is handled three different ways by three layers over the same tree —
@@ -1131,7 +1131,7 @@ closes it.
 - Dead code here is ambiguous rather than harmless: an overwritten `None` and a test-only schema
   both hide what the author actually meant → C-03, C-08.
 - **Disproved claim, so nobody re-raises it**: `_FORKS_DOC_KEY` cannot collide with a
-  `RepoIdentity` field, because `cvi/core/models.py:274` `RepoIdentity` has **no `forks` field**.
+  `RepoIdentity` field, because `porchlamp/core/models.py:274` `RepoIdentity` has **no `forks` field**.
 - Worth crediting: `scripts/verify.py::_path_offender:191-220` is provenance-by-default-deny and
   treats the *absence* of a recorded hash as an offender; `manifest.py:84`'s `hash_origin` is the
   honest way to model backfilled hashes; `_dr90_decision_cohort:1359` recomputes rather than
@@ -1141,18 +1141,18 @@ closes it.
 
 **Coverage**
 
-- **Read fully**: `cvi/derive/bundle.py`, `cvi/derive/gate_evidence.py`,
-  `cvi/verify/pipeline_hook.py`, `cvi/provenance.py`, `scripts/derive.py`, `scripts/verify.py`,
-  `scripts/promote.py`, plus targeted full reads of `cvi/collect/pike_signals.py::derive_w17_fields`
-  and `env_path`, `cvi/snapshot/manifest.py`, `cvi/core/models.py::RepoIdentity`,
-  `cvi/core/params/curves._apply`, and `tests/derive/{test_relative_provenance,test_malformed_events}.py`.
-- **Skimmed**: `cvi/verify/detectors.py` (513 L), `cvi/verify/live_sample.py` (575 L),
-  `cvi/snapshot/reproduce.py` (321 L), `scripts/gather.py`.
+- **Read fully**: `porchlamp/derive/bundle.py`, `porchlamp/derive/gate_evidence.py`,
+  `porchlamp/verify/pipeline_hook.py`, `porchlamp/provenance.py`, `scripts/derive.py`, `scripts/verify.py`,
+  `scripts/promote.py`, plus targeted full reads of `porchlamp/collect/pike_signals.py::derive_w17_fields`
+  and `env_path`, `porchlamp/snapshot/manifest.py`, `porchlamp/core/models.py::RepoIdentity`,
+  `porchlamp/core/params/curves._apply`, and `tests/derive/{test_relative_provenance,test_malformed_events}.py`.
+- **Skimmed**: `porchlamp/verify/detectors.py` (513 L), `porchlamp/verify/live_sample.py` (575 L),
+  `porchlamp/snapshot/reproduce.py` (321 L), `scripts/gather.py`.
 - **COULD NOT VERIFY**: `detectors.py` and `live_sample.py` in full — C-01's claim that no verifier
   checks hashes rests on an exhaustive grep, strong but not a read; `reproduce.py` beyond earlier
   greps (`computed_sha256 == entry["sha256"]`, `hash_mismatches`/`invalid_json`, cf.
   `tests/snapshot/test_reproduce.py:364,:378` P-07b), so C-02 may or may not be caught there;
-  `cvi/core/commit_domains.py`; whether any live `data/raw/` envelope is actually torn, or any tree
+  `porchlamp/core/commit_domains.py`; whether any live `data/raw/` envelope is actually torn, or any tree
   is missing a named collector key (the trigger rates for C-02 and C-04); C-09's `min_n` intent —
   the spec definition of the DR_90 denominator was not located; and, with no network available,
   C-07's fetch behaviour was unexercised.
@@ -1167,7 +1167,7 @@ closes it.
 <!-- BEGIN D-STORE -->
 
 Slice verdict: the persistence layer is honest and well-provenanced, but the
-custom-weight reprojection in `cvi/store/queries.py` silently re-implements the
+custom-weight reprojection in `porchlamp/store/queries.py` silently re-implements the
 canonical aggregation in SQL and gets one of its two rules wrong (the coverage
 denominator), which then propagates into the tier. Separately, every store
 connection opens without WAL or `busy_timeout` while the v2 write path mutates
@@ -1179,12 +1179,12 @@ could not host them (see **Coverage**).
 
 ### D-01 — Warning — `reproject` cannot see D-MISS-5, so coverage and tier diverge from the canonical persona path
 
-- **Where**: `cvi/store/queries.py:960-965` (coverage formula) and `:956-958`
+- **Where**: `porchlamp/store/queries.py:960-965` (coverage formula) and `:956-958`
   (composite formula) inside `reproject`; canonical rule at
-  `cvi/core/aggregate.py:181-211` (`composite_coverage`, the same function
-  `cvi.core.persona.persona_composite` calls); the `not_applicable` persistence
-  at `cvi/core/aggregate.py:101-140`; the v2 column set at
-  `cvi/store/schema.py:64-112`.
+  `porchlamp/core/aggregate.py:181-211` (`composite_coverage`, the same function
+  `porchlamp.core.persona.persona_composite` calls); the `not_applicable` persistence
+  at `porchlamp/core/aggregate.py:101-140`; the v2 column set at
+  `porchlamp/store/schema.py:64-112`.
 - **Evidence**: coverage is computed as `sum(w_p * COALESCE(c_p, 0))` over
   *all five* pillars divided by the *full* weight vector —
   `queries.py:960` `cov_terms.append(f"(? * COALESCE(c_{pillar}, 0))")`,
@@ -1199,7 +1199,7 @@ could not host them (see **Coverage**).
   `repositories` table has only `p_*`/`c_*` columns — no `applicable` flag — so
   the SQL cannot tell "not applicable" from "unmeasured". It is not the
   composite that breaks: `:956-958` renormalise the numerator/denominator per
-  pillar with a `CASE`, so `composite_raw` matches canonical (confirmed — cvi
+  pillar with a `CASE`, so `composite_raw` matches canonical (confirmed — porchlamp
   agrees). It is the **coverage** denominator that is wrong.
 - **Why it's wrong**: a pillar that is legitimately `not_applicable` (D-MISS-5)
   contributes `0` to the numerator yet its full weight stays in the
@@ -1233,10 +1233,10 @@ could not host them (see **Coverage**).
 
 ### D-02 — Warning — no WAL / `busy_timeout`, and the v2 write path mutates the served database in place
 
-- **Where**: `cvi/store/schema.py:156-173` (`connect`),
-  `cvi/serve/app.py:684-695` (`_open_v2_connection`),
-  `cvi/snapshot/store_cmd.py:217-233` (`write_scored_snapshot`),
-  `cvi/snapshot/cli.py:170` and `scripts/run_all.py:97` (both call
+- **Where**: `porchlamp/store/schema.py:156-173` (`connect`),
+  `porchlamp/serve/app.py:684-695` (`_open_v2_connection`),
+  `porchlamp/snapshot/store_cmd.py:217-233` (`write_scored_snapshot`),
+  `porchlamp/snapshot/cli.py:170` and `scripts/run_all.py:97` (both call
   `connect_store(Path(args.db))` / `connect_store(Path(db))` on the served
   path). Contrast the safe v1 path: `scripts/promote.py` `promote_atomically`
   (≈418-460).
@@ -1274,11 +1274,11 @@ could not host them (see **Coverage**).
 
 ### D-03 — Consider — `reproject` tiers on the full-float composite; canonical rounds to 12 places first
 
-- **Where**: `cvi/core/aggregate.py:81` (`RATIO_DECIMALS: int = 12`) and
+- **Where**: `porchlamp/core/aggregate.py:81` (`RATIO_DECIMALS: int = 12`) and
   `:214-237` (`composite_score_raw`, rounds at `:237`
   `return round(sum(...) / total_weight, RATIO_DECIMALS)`), consumed by tier
-  comparisons in `cvi/core/persona.py:362,368`; versus `reproject` at
-  `cvi/store/queries.py:980`, which feeds the unrounded `composite_raw` straight
+  comparisons in `porchlamp/core/persona.py:362,368`; versus `reproject` at
+  `porchlamp/store/queries.py:980`, which feeds the unrounded `composite_raw` straight
   into `_tier_by_score_case_sql("composite_raw")`.
 - **Evidence**: `RATIO_DECIMALS` is 12 and is *not* in `constants.py` (defined
   locally at `aggregate.py:81`). Canonical `composite_score_raw` rounds to 12
@@ -1323,12 +1323,12 @@ snapshot_summary:
   for `axis_partial_count` (`:774-779`). **Fix**: fold the count into SQL,
   `SUM(CASE WHEN friction_coverage < 1.0 OR leverage_coverage < 1.0 THEN 1 ELSE 0 END)`.
 - **The ranking index's ordering columns are dead** — `idx_rank`
-  (`schema.py:144`) tails `cvi DESC, coverage DESC`, but the balanced page
-  `ORDER BY` leads with `ROUND(cvi, 2)` (`queries.py:451`, applied at
+  (`schema.py:144`) tails `porchlamp DESC, coverage DESC`, but the balanced page
+  `ORDER BY` leads with `ROUND(porchlamp, 2)` (`queries.py:451`, applied at
   `:460`) plus a tie-break tail (tier, owner, name, ecosystem) that is not in
   the index, so SQLite cannot use the index order and re-sorts every page —
   exactly the `USE TEMP B-TREE FOR ORDER BY` above. The `COUNT(*)` path is fine
-  (covering index). **Fix**: index the expression `ROUND(cvi,2)` (and the
+  (covering index). **Fix**: index the expression `ROUND(porchlamp,2)` (and the
   tie-break columns), or order on the stored 2-decimal column directly.
 - **`reproject` scans twice** — `total = COUNT(*) FROM (visible_sql)`
   (`queries.py:986`) and the ranked CTE re-runs `visible_sql` (`:992-999`): two
@@ -1358,7 +1358,7 @@ latency.
   custom-weight endpoint is the only reader of that SQL, so it fails quietly.
 - **The read path violates its stated invariant and defeats its own indices.**
   `queries.py:4-6` promises "no Python loop" while `matrix_points` loops in
-  Python; `idx_rank` carries ordering columns that a `ROUND(cvi,2)` wrapper makes
+  Python; `idx_rank` carries ordering columns that a `ROUND(porchlamp,2)` wrapper makes
   unusable (D-04). Both are self-consistency breaks the code can be made to pass
   without a redesign.
 - **Every connection lacks WAL/`busy_timeout` while v2 writes the served file in
@@ -1369,23 +1369,23 @@ latency.
   `constants.py`, against guidelines §4); reproject compares the raw float
   (D-03), so "one source per fact" does not hold for the tier boundary either.
 - **Follow-up (§4), all in `queries.py`:** fold `matrix_points`'
-  `axis_partial_count` into SQL; index the `ROUND(cvi,2)` expression plus the
+  `axis_partial_count` into SQL; index the `ROUND(porchlamp,2)` expression plus the
   tie-break columns so `idx_rank`'s ordering is actually used; and stop
   re-running `visible_sql` twice per `reproject` (count and page from one pass).
 
 ## Coverage
 
-- **Read fully**: `cvi/store/queries.py`, `cvi/store/schema.py`,
-  `cvi/core/aggregate.py`.
-- **Skimmed**: `cvi/store/writer.py`, `cvi/store/ops.py`,
-  `cvi/snapshot/{store_cmd,cli}.py`, `cvi/serve/app.py`,
+- **Read fully**: `porchlamp/store/queries.py`, `porchlamp/store/schema.py`,
+  `porchlamp/core/aggregate.py`.
+- **Skimmed**: `porchlamp/store/writer.py`, `porchlamp/store/ops.py`,
+  `porchlamp/snapshot/{store_cmd,cli}.py`, `porchlamp/serve/app.py`,
   `scripts/{promote,run_all}.py`.
 - **Verified-by**: `.venv/bin/python -m pytest tests/store/` → **128 passed in
   6.70s** (pytest 9.1.1). The `sqlite3` CLI is not installed here; all SQL was
   run through `.venv/bin/python` and Python's `sqlite3` module (SQLite lib
   3.53.1).
 - **COULD NOT VERIFY**: the live `data/cvi.db` is a **V1 lakehouse only**
-  (`repositories` ≈1,000 rows with v1 columns `overall_cvi`/`rank_tier`/
+  (`repositories` ≈1,000 rows with v1 columns `overall_porchlamp`/`rank_tier`/
   `deep_dive_json`, `PRAGMA user_version=0`, `journal_mode=delete`, integrity
   check OK) — it has **no v2 tables**, so the v2 `queries.*` functions cannot run
   against it as-is; every §1–§4 finding above is on the v2 code and an in-memory
@@ -1400,24 +1400,24 @@ latency.
 ## Slice E — snapshot and reproducibility
 
 <!-- BEGIN E-SNAPSHOT -->
-Auditor E reviewed the snapshot/reproducibility layer — `cvi/snapshot/{manifest,build_cmd,store_cmd,fixture_io,reproduce}.py`, `cvi/core/constants.py`, `cvi/constants.py`, `cvi/store/writer.py`, `cvi/serve/guard.py`, `scripts/{promote,make_sample,build_fixture_snapshot}.py` — against `tests/core/test_constants_hash.py` and `tests/snapshot/{test_reproduce_fixture,test_populations}.py`. What was actually executed: `pytest tests/core/test_constants_hash.py tests/snapshot/test_reproduce_fixture.py -p no:cacheprovider -q` → **11 passed, 1 skipped**; `pytest tests/snapshot/test_populations.py -p no:cacheprovider -q` → **22 passed**; a runtime probe computing both `constants_hash` implementations (see E-02). No source file was modified and nothing under `cvi/`, `scripts/`, `web/`, `tests/`, `docs/`, `data/` or git state was written to. Finding IDs are `E-01`… by severity; the labels `Finding B` / `Finding A` from the working analysis are kept in the titles so the two carry-over follow-ups stay traceable.
+Auditor E reviewed the snapshot/reproducibility layer — `porchlamp/snapshot/{manifest,build_cmd,store_cmd,fixture_io,reproduce}.py`, `porchlamp/core/constants.py`, `porchlamp/constants.py`, `porchlamp/store/writer.py`, `porchlamp/serve/guard.py`, `scripts/{promote,make_sample,build_fixture_snapshot}.py` — against `tests/core/test_constants_hash.py` and `tests/snapshot/{test_reproduce_fixture,test_populations}.py`. What was actually executed: `pytest tests/core/test_constants_hash.py tests/snapshot/test_reproduce_fixture.py -p no:cacheprovider -q` → **11 passed, 1 skipped**; `pytest tests/snapshot/test_populations.py -p no:cacheprovider -q` → **22 passed**; a runtime probe computing both `constants_hash` implementations (see E-02). No source file was modified and nothing under `porchlamp/`, `scripts/`, `web/`, `tests/`, `docs/`, `data/` or git state was written to. Finding IDs are `E-01`… by severity; the labels `Finding B` / `Finding A` from the working analysis are kept in the titles so the two carry-over follow-ups stay traceable.
 
 **Bottom line on the slice question:** a stranger *can* reproduce a published number from the snapshot alone along each pipeline's intended path — the v2 store/serve guard and the v1 reproduce path are internally consistent, and the `snapshot_50` fixture is pinned as a permanent CI gate (`test_reproduce_matches_expected_hash`). What breaks first is not arithmetic but **certification coverage**: the snapshot *directory's* Merkle root silently omits `populations.json` (E-01), so two dirs with an identical `merkle_root` can score differently, and the field literally named `constants_hash` in the legacy manifest means a *different* number than the canonical core hash (E-02). Both are invisible to the current suite.
 
 ### E-01 — Warning — Snapshot-dir Merkle root omits `populations.json` (Finding B)
 
-- **Where**: `cvi/snapshot/build_cmd.py:174` `    root = merkle_root(sorted(raw_hashes.values()))`, stored as `build_cmd.py:199` `        "merkle_root": root,`; populations are written one line earlier at `build_cmd.py:171` `    write_populations(populations, out_dir / "populations.json")` but their hash is never added to `raw_hashes`. The store recomputes the same root: `cvi/snapshot/store_cmd.py:177` `    return merkle_root(sorted(frozen.raw_hashes.values()))`. `cvi/snapshot/fixture_io.py:60` `    expected = json.loads(expected_path.read_text(encoding="utf-8")) if expected_path.is_file() else None` — production snapshots ship no `expected.json`, so `expected` is `None` and `verify_expected` (`store_cmd.py:147-163`) no-ops, never checking populations either.
+- **Where**: `porchlamp/snapshot/build_cmd.py:174` `    root = merkle_root(sorted(raw_hashes.values()))`, stored as `build_cmd.py:199` `        "merkle_root": root,`; populations are written one line earlier at `build_cmd.py:171` `    write_populations(populations, out_dir / "populations.json")` but their hash is never added to `raw_hashes`. The store recomputes the same root: `porchlamp/snapshot/store_cmd.py:177` `    return merkle_root(sorted(frozen.raw_hashes.values()))`. `porchlamp/snapshot/fixture_io.py:60` `    expected = json.loads(expected_path.read_text(encoding="utf-8")) if expected_path.is_file() else None` — production snapshots ship no `expected.json`, so `expected` is `None` and `verify_expected` (`store_cmd.py:147-163`) no-ops, never checking populations either.
 - **Why it's wrong**: inside the published directory the Merkle root certifies only the per-repo bundle `raw_hash`es. The population ECDFs directly drive percentile scores and composite ranking, yet a hand-edited `populations.json` sitting in the same dir is uncertified at the directory level.
-- **Impact**: two snapshot dirs sharing one `merkle_root` can carry different `populations.json` and produce different published numbers — "reproduce from the snapshot alone" fails while every hash still matches. Severity leans LOW because the *post-store DB* guard does cover it: `cvi/store/writer.py:454` `_SNAPSHOT_DUMP_TABLES = ("repositories", "params", "populations")` is folded into `snapshot_dump_hash` (`writer.py:457-505`), and `cvi/serve/guard.py:282` `                recomputed = snapshot_dump_hash(Path(db_path), snapshot_id)` (compared at `:283`) refuses on mismatch. The exposure is the snapshot-dir → store boundary, *before* the DB guard exists.
+- **Impact**: two snapshot dirs sharing one `merkle_root` can carry different `populations.json` and produce different published numbers — "reproduce from the snapshot alone" fails while every hash still matches. Severity leans LOW because the *post-store DB* guard does cover it: `porchlamp/store/writer.py:454` `_SNAPSHOT_DUMP_TABLES = ("repositories", "params", "populations")` is folded into `snapshot_dump_hash` (`writer.py:457-505`), and `porchlamp/serve/guard.py:282` `                recomputed = snapshot_dump_hash(Path(db_path), snapshot_id)` (compared at `:283`) refuses on mismatch. The exposure is the snapshot-dir → store boundary, *before* the DB guard exists.
 - **Fix** *(carry-over follow-up #1)*: fold the `populations.json` content hash into `merkle_root` / `manifest_root_of`, or add a test asserting the directory-level root covers `populations.json`. No test currently asserts this.
 - **Confidence**: high — omission read directly off both call sites; DB-side mitigation read off `writer.py`/`guard.py` and exercised by the passing store/guard suite.
 
 ### E-02 — Warning — Two different `constants_hash` definitions under one name (Finding A, CA-23 "one fact, one definition")
 
-- **Where**: legacy `cvi/snapshot/manifest.py:23` `from cvi import constants as _constants` feeds `cvi/snapshot/manifest.py:163-174` `def constants_hash() -> str:` which hashes UPPER_CASE bindings of `cvi/constants.py` via `envelope_hash`. Core `cvi/core/constants.py:600-601` `CONSTANTS_HASH: str = hashlib.sha256(` / `    _canonical_json(constants_dict()).encode("utf-8")`, consumed at `cvi/snapshot/build_cmd.py:197` `        "constants_hash": constants.CONSTANTS_HASH,`.
-- **Why it's wrong**: the two disagree. Runtime probe this session: legacy `manifest.constants_hash()` = `2282711184d229fc38e04c23eb45ea58c4c3e5728e4bad8ac0be54e0a183fd15`, core `CONSTANTS_HASH` = `748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b`. The tables genuinely differ — legacy `cvi/constants.py:89-94` `LEGAL_IP_SCORES` `{DCO:100.0, FOUNDATION_CLA:75.0, CORP_CLA_RECIPROCAL:40.0, CORP_CLA_UNILATERAL:10.0}` vs core `cvi/core/constants.py:163-168` `{DCO:100.0, NONE:85.0, FOUNDATION_CLA:75.0, CORP_CLA:25.0}`.
-- **Impact**: each pipeline is internally self-consistent (v1 reproduce reruns v1 scripts on `cvi.constants`; v2 on core), so within-pipeline reproduce is fine. The hazard is a reader who sees a field named `constants_hash` in a legacy manifest, assumes it is the canonical core `CONSTANTS_HASH`, and mis-identifies which tuning constants a snapshot was frozen against. `cvi/audit/sensitivity.py` imports **both** (already flagged at `.agents/W4-1/inventory.md:144,552`).
-- **Fix** *(carry-over follow-up #2)*: unify under one definition per CA-23, or add a cross-check/documenting test asserting legacy `manifest.constants_hash()` is a distinct value and rename to kill the collision. `tests/core/test_constants_hash.py` imports only `cvi.core.constants`, so no test cross-checks the two — the collision is uncaught.
+- **Where**: legacy `porchlamp/snapshot/manifest.py:23` `from porchlamp import constants as _constants` feeds `porchlamp/snapshot/manifest.py:163-174` `def constants_hash() -> str:` which hashes UPPER_CASE bindings of `porchlamp/constants.py` via `envelope_hash`. Core `porchlamp/core/constants.py:600-601` `CONSTANTS_HASH: str = hashlib.sha256(` / `    _canonical_json(constants_dict()).encode("utf-8")`, consumed at `porchlamp/snapshot/build_cmd.py:197` `        "constants_hash": constants.CONSTANTS_HASH,`.
+- **Why it's wrong**: the two disagree. Runtime probe this session: legacy `manifest.constants_hash()` = `2282711184d229fc38e04c23eb45ea58c4c3e5728e4bad8ac0be54e0a183fd15`, core `CONSTANTS_HASH` = `748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b`. The tables genuinely differ — legacy `porchlamp/constants.py:89-94` `LEGAL_IP_SCORES` `{DCO:100.0, FOUNDATION_CLA:75.0, CORP_CLA_RECIPROCAL:40.0, CORP_CLA_UNILATERAL:10.0}` vs core `porchlamp/core/constants.py:163-168` `{DCO:100.0, NONE:85.0, FOUNDATION_CLA:75.0, CORP_CLA:25.0}`.
+- **Impact**: each pipeline is internally self-consistent (v1 reproduce reruns v1 scripts on `porchlamp.constants`; v2 on core), so within-pipeline reproduce is fine. The hazard is a reader who sees a field named `constants_hash` in a legacy manifest, assumes it is the canonical core `CONSTANTS_HASH`, and mis-identifies which tuning constants a snapshot was frozen against. `porchlamp/audit/sensitivity.py` imports **both** (already flagged at `.agents/W4-1/inventory.md:144,552`).
+- **Fix** *(carry-over follow-up #2)*: unify under one definition per CA-23, or add a cross-check/documenting test asserting legacy `manifest.constants_hash()` is a distinct value and rename to kill the collision. `tests/core/test_constants_hash.py` imports only `porchlamp.core.constants`, so no test cross-checks the two — the collision is uncaught.
 - **Confidence**: high — both hashes computed at runtime this session and confirmed to diverge; table deltas read verbatim from both files.
 
 ### E-03 — Consider — Fresh sample→fixture chain is not byte-reproducible (masked in CI)
@@ -1430,16 +1430,16 @@ Auditor E reviewed the snapshot/reproducibility layer — `cvi/snapshot/{manifes
 
 ### E-04 — FYI — v1 reproduce verifies via dump hash, not `constants_hash`
 
-- **Where**: `cvi/snapshot/reproduce.py` `rebuild()` reruns `scripts/{derive,verify,promote}.py` over the frozen `raw/` symlink at the manifest `as_of`, then requires `canonical_dump_hash` to match `manifest["canonical_dump_hash"]`.
+- **Where**: `porchlamp/snapshot/reproduce.py` `rebuild()` reruns `scripts/{derive,verify,promote}.py` over the frozen `raw/` symlink at the manifest `as_of`, then requires `canonical_dump_hash` to match `manifest["canonical_dump_hash"]`.
 - **Why it's a note, not a defect**: the dump hash is a sufficient content check and is float-normalized (`FIXED_FLOAT_DECIMALS = 9`) and row-sorted → platform-stable; `scripts/verify.py` does not independently re-assert `constants_hash` at reproduce time. Recorded so it is not mistaken for a gap in E-02's mitigation.
 - **Fix**: none required.
 - **Confidence**: high.
 
 ### Low-severity tail
 
-- **FYI** — `cvi/snapshot/build_cmd.py:67-68` (`_BootstrapPopulationLookup.ecdf`) and build_fixture pass-1 return a constant `lambda _val: 50.0`; intentional (pass 1 only needs gate/rated status to size populations; pass 2 uses real ECDFs). Not a defect.
+- **FYI** — `porchlamp/snapshot/build_cmd.py:67-68` (`_BootstrapPopulationLookup.ecdf`) and build_fixture pass-1 return a constant `lambda _val: 50.0`; intentional (pass 1 only needs gate/rated status to size populations; pass 2 uses real ECDFs). Not a defect.
 - **FYI** — `scripts/promote.py` is deterministic given `as_of`: `resolved_as_of` (`promote.py:206-231`) forces CLI `--as-of` == manifest `as_of` (compared as instants); wall-clock `datetime.now` appears only at the script boundary (`promote.py:362`, when `as_of` is None) and for the `promoted.json` receipt timestamp (`promote.py:413`) — a receipt, not scored data.
-- **FYI** — `cvi/snapshot/store_cmd.py::write_scored_snapshot` (`store_cmd.py:180-234`) takes `as_of`/`created_at`/`promoted_at` all from `frozen.as_of`; no wall clock reaches scored output.
+- **FYI** — `porchlamp/snapshot/store_cmd.py::write_scored_snapshot` (`store_cmd.py:180-234`) takes `as_of`/`created_at`/`promoted_at` all from `frozen.as_of`; no wall clock reaches scored output.
 
 **Slice summary**
 
@@ -1452,22 +1452,22 @@ Auditor E reviewed the snapshot/reproducibility layer — `cvi/snapshot/{manifes
 
 **Coverage**
 
-- **Read fully**: `cvi/serve/guard.py`, `scripts/promote.py`, and the load-bearing regions of `cvi/snapshot/{manifest,build_cmd,store_cmd,fixture_io}.py`, `cvi/store/writer.py`, `cvi/core/constants.py`, `cvi/constants.py`, `cvi/snapshot/reproduce.py`, `tests/core/test_constants_hash.py`, `tests/snapshot/{test_reproduce_fixture,test_populations}.py`.
+- **Read fully**: `porchlamp/serve/guard.py`, `scripts/promote.py`, and the load-bearing regions of `porchlamp/snapshot/{manifest,build_cmd,store_cmd,fixture_io}.py`, `porchlamp/store/writer.py`, `porchlamp/core/constants.py`, `porchlamp/constants.py`, `porchlamp/snapshot/reproduce.py`, `tests/core/test_constants_hash.py`, `tests/snapshot/{test_reproduce_fixture,test_populations}.py`.
 - **Skimmed / relied on from working analysis**: `scripts/{make_sample,build_fixture_snapshot}.py`, `.agents/W4-1/inventory.md`.
-- **COULD NOT VERIFY**: `scripts/derive.py`, `scripts/verify.py`, `cvi/lakehouse.py` (`repositories_dump_hash`/`OperationalStore`), `cvi/serve/{app,contract}.py`, `cvi/store/schema.py` + `migrations/0001_init_v2.sql`, `tests/snapshot/test_import_order.py`, `tests/serve/test_guard.py`, `tests/core/test_frozen.py` — treated as confirmatory only because the guard/reproduce core was verified sound and the passing serve/store/populations suites cover their ground; none would change E-01/E-02. E-03's `make_sample`/`build_fixture_snapshot` clock behavior was carried from the earlier analysis and not re-executed as a fresh from-scratch sample build this session.
+- **COULD NOT VERIFY**: `scripts/derive.py`, `scripts/verify.py`, `porchlamp/lakehouse.py` (`repositories_dump_hash`/`OperationalStore`), `porchlamp/serve/{app,contract}.py`, `porchlamp/store/schema.py` + `migrations/0001_init_v2.sql`, `tests/snapshot/test_import_order.py`, `tests/serve/test_guard.py`, `tests/core/test_frozen.py` — treated as confirmatory only because the guard/reproduce core was verified sound and the passing serve/store/populations suites cover their ground; none would change E-01/E-02. E-03's `make_sample`/`build_fixture_snapshot` clock behavior was carried from the earlier analysis and not re-executed as a fresh from-scratch sample build this session.
 <!-- END E-SNAPSHOT -->
 
 ## Slice F — audit tooling
 
 <!-- BEGIN F-AUDIT -->
-Auditor F reviewed the audit tooling against what it claims to verify — all of `cvi/audit/**`
+Auditor F reviewed the audit tooling against what it claims to verify — all of `porchlamp/audit/**`
 (`anchors.py`, `sensitivity.py`, `forward.py`, `coverage.py`, `detectors_report.py`,
 `methodology_history.py`, `provenance.py`, `diff.py`), the frozen validation contract
 `docs/v2/validation/PREREG.md`, the CI/cron wiring (`scripts/canary.sh`, `scripts/run_all.py`,
 `.github/workflows/ci.yml`), and the collectors the audit layer is supposed to watch
-(`cvi/collect/universe.py`, `scripts/build_universe.py`) — plus the audit test suites under
+(`porchlamp/collect/universe.py`, `scripts/build_universe.py`) — plus the audit test suites under
 `tests/audit/`. Findings are `F-01`…`F-08` by severity, with a short tail. Nothing under
-`cvi/`, `scripts/`, or `docs/` was modified.
+`porchlamp/`, `scripts/`, or `docs/` was modified.
 
 **Headline: which "verified" relationships cannot fail.** The numeric gates can genuinely
 fail and do exercise their arithmetic — the tie-break checks, forward-significance criteria,
@@ -1490,7 +1490,7 @@ invisible to the coverage auditor by construction.
 
 ### F-01 — Blocker — The `newcomer_label_5_1` anchor cannot verify the relationship it claims to anchor
 
-**Where** — `cvi/audit/anchors.py:245-256` (v1), `:1013-1022` (v2 snapshot), `:632-713` (v2 DB)
+**Where** — `porchlamp/audit/anchors.py:245-256` (v1), `:1013-1022` (v2 snapshot), `:632-713` (v2 DB)
 
 **Why it's wrong** — Three implementations of the same anchor, none capable of cross-checking
 parameter 5.1 against its input. The v1 `_check_newcomer` returns `PASS` with
@@ -1524,15 +1524,15 @@ boilerplate FAIL.
 
 ### F-02 — Blocker — The release gate cannot fail: exit 0 is unconditional and nothing consumes the verdict
 
-**Where** — `cvi/audit/sensitivity.py:509-540`; `scripts/canary.sh`; `scripts/run_all.py`; `.github/`; `tests/audit/test_sensitivity.py`
+**Where** — `porchlamp/audit/sensitivity.py:509-540`; `scripts/canary.sh`; `scripts/run_all.py`; `.github/`; `tests/audit/test_sensitivity.py`
 
 **Why it's wrong** — `main()`'s own docstring states the contract: `"Exits 0 when the report
 completes (a failed release gate is data, not an error); exits 2 on usage or database
 errors."` The function then executes `return 0` (`:540`) unconditionally; the computed
 `all_pass` — which does correctly fold every criterion including a `tau_b is None` failure
 (`:212-217`) — is only serialized into the `--json` payload (`:534`). `scripts/canary.sh`
-never invokes the audit CLI (it runs `cvi.verify.live_sample` only), `scripts/run_all.py` and
-`.github/workflows/ci.yml` contain no call to any `cvi.audit.*` entry point, and
+never invokes the audit CLI (it runs `porchlamp.verify.live_sample` only), `scripts/run_all.py` and
+`.github/workflows/ci.yml` contain no call to any `porchlamp.audit.*` entry point, and
 `tests/audit/test_sensitivity.py` contains no test of `main()` or its exit code. Compare the
 forward checker, which *does* map verdicts to status — `forward.py:752-753`
 `if any(c.verdict == "FAIL" for c in report.criteria): return 1` — yet even there no test
@@ -1551,7 +1551,7 @@ call the gate from `canary.sh` or a CI job so the verdict reaches something that
 
 ### F-03 — Warning — Forward evaluation silently converts missing outcomes to 0.0, which PREREG does not authorize
 
-**Where** — `cvi/audit/forward.py:215` (v2 branch) and `:229` (v1 branch)
+**Where** — `porchlamp/audit/forward.py:215` (v2 branch) and `:229` (v1 branch)
 
 **Why it's wrong** — The outcome loaders coerce absent values to zero: the v2 branch maps
 `canon: (float(val) if val is not None else 0.0)` and the v1 branch `column: (float(value) if
@@ -1576,7 +1576,7 @@ snapshots actually carry NULL outcomes (see Coverage).
 
 ### F-04 — Warning — The forward report never discloses the S0 truncation caps PREREG requires it to disclose
 
-**Where** — `docs/v2/validation/PREREG.md:43-45`; `cvi/audit/forward.py:139-155`
+**Where** — `docs/v2/validation/PREREG.md:43-45`; `porchlamp/audit/forward.py:139-155`
 
 **Why it's wrong** — PREREG fixes the evidence envelopes: `"S0 envelopes carry at most 300
 commits (180 d) and at most 30 PRs. ... and the caps are disclosed in the report."` The
@@ -1598,11 +1598,11 @@ contract can't regress again.
 
 ### F-05 — Warning — "Rated universe" has two definitions across the forward checker's branches, with no declared equivalence
 
-**Where** — `docs/v2/validation/PREREG.md:36-37`; `cvi/audit/forward.py:209-213` vs `:222-227`; `cvi/store/queries.py:345-352`
+**Where** — `docs/v2/validation/PREREG.md:36-37`; `porchlamp/audit/forward.py:209-213` vs `:222-227`; `porchlamp/store/queries.py:345-352`
 
 **Why it's wrong** — PREREG defines the analysis universe by `is_stage0_disqualified =
 FALSE`. The forward checker's v1 branch uses `not bool(disqualified)` from the snapshot
-column, while the v2 branch reads the DB `rated` column instead. `cvi/store/queries.py:345-352`
+column, while the v2 branch reads the DB `rated` column instead. `porchlamp/store/queries.py:345-352`
 documents that `rated` column as the *coverage* flag — repos meeting the balanced
 D-MISS-3(0.60) coverage bar — not as the disqualification complement. Nothing in code,
 docs, or tests declares or checks that `rated` ⟺ `NOT is_stage0_disqualified`, and the two
@@ -1622,7 +1622,7 @@ practice (I could not check whether the current snapshot's flag values actually 
 
 ### F-06 — Warning — Archived/awesome anchors disagree across the three implementations on what "no such repos" means
 
-**Where** — `cvi/audit/anchors.py:909-919` (`_check_archived_v2`), `:452-455`
+**Where** — `porchlamp/audit/anchors.py:909-919` (`_check_archived_v2`), `:452-455`
 (`_check_archived_db_v2`), `:217-218` (`_check_awesome` vs `_check_awesome_v2`)
 
 **Why it's wrong** — An empty population is the same fact in all these cases, but the audit
@@ -1647,7 +1647,7 @@ variants through it.
 
 ### F-07 — Warning — The detectors report treats a missing `measured` key as "not measured", so a producer bug reads as a clean report
 
-**Where** — `cvi/audit/detectors_report.py:96`
+**Where** — `porchlamp/audit/detectors_report.py:96`
 
 **Why it's wrong** — `measured = bool(payload.get("measured", False))`: a producer that
 forgets the key entirely yields the same result as a detector that honestly reported
@@ -1669,8 +1669,8 @@ detector), or at minimum render "key absent" distinctly from `measured: false`.
 
 ### F-08 — Warning — `star_history` is unmeasured in every real run and the coverage auditor can never see it
 
-**Where** — `cvi/collect/universe.py:206-215`, `:233-236`, `:70`; `scripts/build_universe.py:45,176-179`;
-`cvi/audit/coverage.py:71-100`
+**Where** — `porchlamp/collect/universe.py:206-215`, `:233-236`, `:70`; `scripts/build_universe.py:45,176-179`;
+`porchlamp/audit/coverage.py:71-100`
 
 **Why it's wrong** — The transport is a placeholder: `default_star_history_transport` does
 `raise NotImplementedError(...)`, and its docstring states plainly that "a real run of
@@ -1682,9 +1682,9 @@ gate-network -- transport failure -> "fail"` swallows the `NotImplementedError` 
 fail, which routes to `unmeasured_star_velocity` — D-MISS-1 compliant, and the module docstring
 (`build_universe.py:17-18`) is candid about it, so the *collector* layer degrades correctly.
 The gap is in the audit layer: the coverage auditor enumerates collectors through the
-`V1_COLLECTORS` / `V2_COLLECTORS` / `COLLECTORS` lists in `cvi/audit/coverage.py:71-100`, and
+`V1_COLLECTORS` / `V2_COLLECTORS` / `COLLECTORS` lists in `porchlamp/audit/coverage.py:71-100`, and
 none contains `"star_history"` — the envelope directory name is `STAR_HISTORY_COLLECTOR =
-"star_history"` (`universe.py:70`), and the only mention anywhere in `cvi/audit/` is a
+"star_history"` (`universe.py:70`), and the only mention anywhere in `porchlamp/audit/` is a
 lockstep note in `methodology_history.py:95`. `data/raw/` confirms the state on disk: there is
 no `star_history/` directory at all.
 
@@ -1716,7 +1716,7 @@ claim is the module docstring's own, and no other transport is wired anywhere in
   (`sensitivity.py:212-217`), but nothing consumes it (F-02): the right verdict is computed in
   the right place and then discarded.
 - **Nit** — `sensitivity.py:610-611` reads `record.tie_key[5]` / `record.tie_key[6]` by
-  position against the tuple built in `cvi/core/tiebreak.py:259-267` (currently
+  position against the tuple built in `porchlamp/core/tiebreak.py:259-267` (currently
   `ttfhr_p75` / `commit_epoch`). Correct today; a tuple reorder silently re-points the
   comparison at the wrong tie-break layer with no test to catch it.
 - **Nit** — `_v2_snapshot_from_db` (`sensitivity.py:376`) defaults `coverage` to `1.0` when a
@@ -1762,19 +1762,19 @@ claim is the module docstring's own, and no other transport is wired anywhere in
 
 **Coverage**
 
-- **Read fully**: every file under `cvi/audit/` (`anchors.py`, `sensitivity.py`, `forward.py`,
+- **Read fully**: every file under `porchlamp/audit/` (`anchors.py`, `sensitivity.py`, `forward.py`,
   `coverage.py`, `detectors_report.py`, `methodology_history.py`, `provenance.py`, `diff.py`),
   `docs/v2/validation/PREREG.md`, `scripts/canary.sh`, and the load-bearing regions of
-  `cvi/collect/universe.py`, `scripts/build_universe.py`, `tests/audit/test_anchors.py`,
+  `porchlamp/collect/universe.py`, `scripts/build_universe.py`, `tests/audit/test_anchors.py`,
   `tests/audit/test_sensitivity.py`, `tests/audit/test_forward.py`.
-- **Spot-checked against source**: `cvi/core/constants.py:163-168` (the four legal-IP scores
-  are distinct, so the DCO anchor's inversion is well-defined), `cvi/core/tiebreak.py:259-268,
-  277-328`, `cvi/core/aggregate.py:240-244` + `cvi/core/engine.py:368-369` (round-to-2dp is
+- **Spot-checked against source**: `porchlamp/core/constants.py:163-168` (the four legal-IP scores
+  are distinct, so the DCO anchor's inversion is well-defined), `porchlamp/core/tiebreak.py:259-268,
+  277-328`, `porchlamp/core/aggregate.py:240-244` + `porchlamp/core/engine.py:368-369` (round-to-2dp is
   idempotent, so the recomputed-composite comparisons are not float-noise),
-  `cvi/store/queries.py:345-352` (the `rated` column's documented meaning), and the real
+  `porchlamp/store/queries.py:345-352` (the `rated` column's documented meaning), and the real
   envelope field names under `data/raw/` against the fields `forward.py:271-311` reads.
 - **Executed**: `ls data/raw/` (confirms no `star_history/` directory, F-08); grep sweeps of
-  `scripts/` and `.github/` for `cvi.audit` invocations (F-02). No test runs were executed —
+  `scripts/` and `.github/` for `porchlamp.audit` invocations (F-02). No test runs were executed —
   this slice is static review and no source was modified.
 - **COULD NOT VERIFY**: the v1 engine's composite storage formula (relied on only as
   consistent with the E-slice round-2dp finding); `_check_dco_db_v2`'s params-table parsing was
@@ -1787,13 +1787,13 @@ claim is the module docstring's own, and no other transport is wired anywhere in
 ## Slice G — serve, API, ops
 
 <!-- BEGIN G-SERVE -->
-Auditor G reviewed the serve layer — `cvi/serve/{app,contract,guard}.py`, the legacy
-`cvi/api.py`, the read path they drive (`cvi/store/queries.py:255-1032`), `scripts/serve.py`,
+Auditor G reviewed the serve layer — `porchlamp/serve/{app,contract,guard}.py`, the legacy
+`porchlamp/api.py`, the read path they drive (`porchlamp/store/queries.py:255-1032`), `scripts/serve.py`,
 `scripts/serve_ui_fixtures.py`, `tests/serve/**`, `tests/test_serve.py`,
 `tests/test_ui_node_suite.py`, `.github/workflows/ci.yml` and `pyproject.toml` — cross-checked
 against the client call sites in `web/v2/**` (owned by auditor H) and `docs/v2/06-UX-DESIGN.md`.
 What was actually executed: `pytest tests/serve tests/test_serve.py -p no:cacheprovider -q` →
-**83 passed** (2 deprecation warnings); `.venv/bin/ruff check cvi scripts tests` → `All checks
+**83 passed** (2 deprecation warnings); `.venv/bin/ruff check porchlamp scripts tests` → `All checks
 passed!`; a `run_guard` probe against a **copy** of `data/cvi.db`, and a `TestClient` script
 driving real `create_app` calls over a synthetic v2 snapshot, plus timings at 10,000 rows. No
 source file was modified and nothing under `data/` was written to. Note that the serve baseline
@@ -1803,16 +1803,16 @@ severity, with a nit tail.
 
 ### G1 — Blocker — `/reproject` silently pages 20 rows while the UI assumes the whole set
 
-- **Where**: `cvi/serve/app.py:660-679`; `cvi/serve/contract.py:431`, `:580-588`;
+- **Where**: `porchlamp/serve/app.py:660-679`; `porchlamp/serve/contract.py:431`, `:580-588`;
   `web/v2/api.js:153-166`; `web/v2/views/configure.js:225`, `:232-239`;
   `scripts/serve_ui_fixtures.py:710-730`
 - **Evidence**: the handler takes paging as **query** params — `page: int = Query(1)`,
   `page_size: int = Query(DEFAULT_PAGE_SIZE)` (`app.py:664-665`) with `DEFAULT_PAGE_SIZE = 20`
   (`contract.py:431`, imported at `app.py:72`) — and `queries.reproject` returns
-  `(rows, total)` from a full `COUNT(*)` (`cvi/store/queries.py:986`), so the server *knows* it
+  `(rows, total)` from a full `COUNT(*)` (`porchlamp/store/queries.py:986`), so the server *knows* it
   truncated. `ReprojectResponse` (`contract.py:580-588`) carries only `rows`, `total` and
   `lens: "custom"` — no `page`, no `page_size`. Measured live: a valid 5-weight `POST
-  /v1/cvi/reproject` with no query string returns `200` with `len(rows) == 20`, `total == 285`,
+  /v1/porchlamp/reproject` with no query string returns `200` with `len(rows) == 20`, `total == 285`,
   and body keys exactly `['lens', 'rows', 'total']`; the same call with `?page_size=1000`
   returns all 285.
 - **Why it's wrong**: the client never sends a paging param (`api.js:153-166` builds the URL
@@ -1837,8 +1837,8 @@ severity, with a nit tail.
 
 ### G2 — Blocker — `/matrix` hardcodes `axis_coverage={}` and nothing in the repo produces it
 
-- **Where**: `cvi/serve/app.py:628`; `cvi/serve/contract.py:501-518`;
-  `cvi/store/queries.py:774-786`; `web/v2/views/matrix.js:168-182`; `web/v2/copy.js:434-440`;
+- **Where**: `porchlamp/serve/app.py:628`; `porchlamp/serve/contract.py:501-518`;
+  `porchlamp/store/queries.py:774-786`; `web/v2/views/matrix.js:168-182`; `web/v2/copy.js:434-440`;
   `scripts/serve_ui_fixtures.py:146`, `:174-203`
 - **Evidence**: the handler returns
   `MatrixResponse(points=points, excluded_count=excluded, axis_coverage={})` — a literal empty
@@ -1870,7 +1870,7 @@ severity, with a nit tail.
 
 ### G4 — Blocker — `/not-ranked` truncates at 1000 and recomputes its counts from the truncated page
 
-- **Where**: `cvi/serve/app.py:592-611`; `cvi/store/queries.py:142`, `:589`, `:628`;
+- **Where**: `porchlamp/serve/app.py:592-611`; `porchlamp/store/queries.py:142`, `:589`, `:628`;
   `docs/v2/06-UX-DESIGN.md` U-13 `:184-196`
 - **Evidence**: `limit=queries.MAX_LIMIT` (`MAX_LIMIT = 1000`, `queries.py:142`) with `offset=0`
   and no paging parameters (`app.py:601-602`); the comment at `:600` reads "fetch up to MAX_LIMIT
@@ -1898,8 +1898,8 @@ severity, with a nit tail.
 
 ### G3 — Warning — three incompatible definitions of `excluded_count`
 
-- **Where**: `cvi/store/queries.py:774`; `cvi/serve/contract.py:520-527`;
-  `scripts/serve_ui_fixtures.py:665`; `cvi/serve/app.py:613-628`
+- **Where**: `porchlamp/store/queries.py:774`; `porchlamp/serve/contract.py:520-527`;
+  `scripts/serve_ui_fixtures.py:665`; `porchlamp/serve/app.py:613-628`
 - **Evidence**: the store computes it as *every* un-plotted row (`total - len(points)`,
   `queries.py:774`); the `MatrixResponse` docstring (`contract.py:520-527`) defines it as "count
   of **gated** repositories excluded from plotting"; the fixture sets it to
@@ -1919,7 +1919,7 @@ severity, with a nit tail.
 
 ### G5 — Warning — the guard verifies a snapshot the server may not end up serving
 
-- **Where**: `cvi/serve/app.py:711`, `:156-175`; `cvi/serve/guard.py:195-204`;
+- **Where**: `porchlamp/serve/app.py:711`, `:156-175`; `porchlamp/serve/guard.py:195-204`;
   `scripts/serve.py:111-127`
 - **Evidence**: `run_guard(db_path)` runs exactly once per process, at startup (`app.py:711`),
   and again in the entrypoint (`scripts/serve.py:116`) — which computes the whole-DB dump hash a
@@ -1946,13 +1946,13 @@ severity, with a nit tail.
 
 ### G6 — Warning — no `Cache-Control` or `ETag` on snapshot-immutable, content-hash-pinned data
 
-- **Where**: `cvi/serve/app.py` (all v2 handlers); measured timings below
-- **Evidence**: grep for `ETag|Cache-Control|Last-Modified` across `cvi/`, `scripts/` and
-  `web/v2/` returns `ETag` only in `cvi/collect/ratelimit.py` — the *outbound* GitHub client, not
+- **Where**: `porchlamp/serve/app.py` (all v2 handlers); measured timings below
+- **Evidence**: grep for `ETag|Cache-Control|Last-Modified` across `porchlamp/`, `scripts/` and
+  `web/v2/` returns `ETag` only in `porchlamp/collect/ratelimit.py` — the *outbound* GitHub client, not
   this server. Every v2 response is a plain `JSONResponse` with no validator or freshness header.
   Cost per request, measured at `n_rated = 10_000`: `queries.snapshot_summary` median **27.40 ms**
   (min 26.90 / max 29.00), `queries.list_ranked(..., limit=20)` median **6.57 ms** (6.42 / 7.27),
-  and the full `GET /v1/cvi/leaderboard?page_size=20` median **37.58 ms** (36.02 / 43.02).
+  and the full `GET /v1/porchlamp/leaderboard?page_size=20` median **37.58 ms** (36.02 / 43.02).
   `snapshot_summary` is computed even where it is thrown away — `/not-ranked` calls it at
   `app.py:605` only to use one field.
 - **Why it's wrong**: the payload for a given `(snapshot_id, persona, sort, page, q)` is
@@ -1969,11 +1969,11 @@ severity, with a nit tail.
 
 ### G7 — Warning — a production 500 leaves no trace at all
 
-- **Where**: `cvi/serve/app.py:147-153`, `:113-117`; the file has no `logging` import
+- **Where**: `porchlamp/serve/app.py:147-153`, `:113-117`; the file has no `logging` import
 - **Evidence**: the catch-all `@app.exception_handler(Exception)` is
   `return _internal_error_response(request)` — and `_internal_error_response` (`:113-117`)
   returns a fixed `"internal server error"` body. There is no logger anywhere in
-  `cvi/serve/app.py` (grep for `logging` returns nothing).
+  `porchlamp/serve/app.py` (grep for `logging` returns nothing).
 - **Why it's wrong**: the non-leaking 500 is correct and deliberate, but discarding the exception
   object without logging it means the traceback is dropped on the floor. The observability lens in
   `docs/REVIEW_GUIDELINES.md` §4: a 500 in production is undiagnosable after the fact, and the
@@ -1987,11 +1987,11 @@ severity, with a nit tail.
 
 ### G8 — Warning — the fixture's tier vocabulary is not the engine's
 
-- **Where**: `scripts/serve_ui_fixtures.py:130`, `:219-221`; `cvi/core/constants.py:137`;
+- **Where**: `scripts/serve_ui_fixtures.py:130`, `:219-221`; `porchlamp/core/constants.py:137`;
   `tests/fixtures/ui/leaderboard.json`, `tests/fixtures/ui/leaderboard-first_timer.json`
 - **Evidence**: the fixture defines `TIER_ORDER = {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4,
   "F": 5}` (`:130`) while the engine's real ordering is
-  `TIER_ORDER: tuple[str, ...] = ("D", "C", "B", "A", "S", "S+")` (`cvi/core/constants.py:137`).
+  `TIER_ORDER: tuple[str, ...] = ("D", "C", "B", "A", "S", "S+")` (`porchlamp/core/constants.py:137`).
   The same file re-transcribes the real tiers again at `:219-221`, including
   `FULL_TIER_ORDER`, so two vocabularies coexist in one script. The sort key is
   `.get(tier or "F", 5)`.
@@ -2003,13 +2003,13 @@ severity, with a nit tail.
 - **Impact**: the demo server can rank the top band to the bottom of the leaderboard, and the
   fixture data teaches the frontend a tier set that production never sends — which is one of the
   reasons auditor H's `S+` findings (H3) survived.
-- **Fix**: import `TIER_ORDER`/`FULL_TIER_ORDER` from `cvi.core.constants`, drop `F`, and
+- **Fix**: import `TIER_ORDER`/`FULL_TIER_ORDER` from `porchlamp.core.constants`, drop `F`, and
   regenerate both committed fixture files.
 - **Confidence**: high — both orderings quoted, fixture contents enumerated.
 
 ### G9 — Warning — the fixture enforces `LEADERBOARD_PAGE_SIZES` and production does not
 
-- **Where**: `cvi/serve/contract.py:429-431`, `:445-455`; `scripts/serve_ui_fixtures.py:129`, `:621`
+- **Where**: `porchlamp/serve/contract.py:429-431`, `:445-455`; `scripts/serve_ui_fixtures.py:129`, `:621`
 - **Evidence**: `LEADERBOARD_PAGE_SIZES = (20, 50, 100, 500, 1000)` and `DEFAULT_PAGE_SIZE = 20`
   (`contract.py:429-431`); the fixture imports the tuple (`:129`) and rejects anything outside it
   with a 400 (`:621`). Production's only gate is `LeaderboardResponse._paging_is_sane`
@@ -2032,12 +2032,12 @@ severity, with a nit tail.
 - **Evidence**: `python scripts/serve.py` with no arguments uses
   `_DEFAULT_DB = <repo>/data/cvi.db` (`:71`, wired to the CLI default at `:94`) and calls
   `run_guard(args.db)` at `:116`. Executed against a copy of that file, it exits:
-  `SystemExit: CVI serve refused for '/tmp/probe.db': 1000 of 1000 rows in 'repositories' carry
+  `SystemExit: Porchlamp serve refused for '/tmp/probe.db': 1000 of 1000 rows in 'repositories' carry
   the tests/fixtures/synthetic_catalog.py fixture clock (last_indexed_at=2026-09-11T12:00:00):
   row 1 vllm-project/vllm is fabricated telemetry, which is a test fixture and never a ranking
   source`. Separately, `data/cvi.db` contains only the tables `['repositories',
   'sqlite_sequence']` over 1000 rows with **v1** columns (27 of them:
-  `score_responsiveness`, `leverage_score`, `matrix_quadrant`, `overall_cvi`, `rank_tier`,
+  `score_responsiveness`, `leverage_score`, `matrix_quadrant`, `overall_porchlamp`, `rank_tier`,
   `is_stage0_disqualified`, `deep_dive_json`, …) — no `rated`, no `p_*`, no
   `friction_coverage`/`leverage_coverage`, and no `snapshots` or `snapshot_meta` table.
 - **Why it's wrong**: the guard refusing is the guard *working correctly*, and that is the
@@ -2095,23 +2095,23 @@ severity, with a nit tail.
 
 ## Nits
 
-- `cvi/store/queries.py:668-671` — `snapshot_summary` runs `SELECT * FROM snapshots WHERE id = ?`
+- `porchlamp/store/queries.py:668-671` — `snapshot_summary` runs `SELECT * FROM snapshots WHERE id = ?`
   twice per call, back to back. One fetch, and `SELECT` only the columns used.
-- `cvi/store/queries.py:674-703` — the same call issues three population COUNTs (total / gated /
+- `porchlamp/store/queries.py:674-703` — the same call issues three population COUNTs (total / gated /
   rated), then one more `SELECT COUNT(*) FROM repositories r WHERE r.snapshot_id = ? AND <clause>`
   per persona via `_count_persona_visible` (`:689-692`; `balanced` short-circuits, so four extra
   COUNTs on the default persona), then a `json_each(r.suspicion)` `GROUP BY` scan (`:694-703`).
   Nine-plus queries to answer a question that is fixed for a content-hashed snapshot; see G6.
-- `cvi/api.py` — the legacy v1 app (353 lines) registers **no** exception handlers, coerces
+- `porchlamp/api.py` — the legacy v1 app (353 lines) registers **no** exception handlers, coerces
   possibly-NULL columns with `int(...)`/`float(row[...])`, and `create_app(store=None)` defaults
   to a fresh in-memory `OperationalStore` that has never passed through `run_guard`, so the
   `/legacy` surface is served without the tamper guarantee the v2 surface documents.
-- `cvi/serve/app.py:562` — the v2 router's prefix is still `APIRouter(prefix="/v1/cvi")` while the
+- `porchlamp/serve/app.py:562` — the v2 router's prefix is still `APIRouter(prefix="/v1/porchlamp")` while the
   legacy v1 app is mounted at `/legacy`. Two generations of the same version string mean the URL
   cannot tell a caller which contract they are talking to, and every client has to know that
-  `/v1/cvi` is v2.
+  `/v1/porchlamp` is v2.
 - `pyproject.toml` — no `dependencies` key at all (only the `server` and `dev` extras), so
-  `pip install cvi` yields a package that cannot serve; `requires-python = ">=3.10"` while ruff is
+  `pip install porchlamp` yields a package that cannot serve; `requires-python = ">=3.10"` while ruff is
   configured `target-version = "py312"`, so ruff will accept syntax the declared floor rejects; no
   `[project.scripts]` entry, which is why serving requires knowing the path to
   `scripts/serve.py`.
@@ -2120,7 +2120,7 @@ severity, with a nit tail.
 
 ## What the serve layer genuinely does well
 
-- **Paging input is validated, not crashed on** — `_validate_paging` (`cvi/store/queries.py:280-290`)
+- **Paging input is validated, not crashed on** — `_validate_paging` (`porchlamp/store/queries.py:280-290`)
   raises `ValueError`, which `app.py:145` maps to a 422 with the standard error body. Bad `page`
   and `page_size` are a clean client error, not a 500.
 - **Search is not a `LIKE` injection** — `queries.py:307` matches with
@@ -2156,8 +2156,8 @@ severity, with a nit tail.
 - **Published fields without producers, and definitions without owners.** `axis_coverage` (G2)
   ships as a literal `{}`; `excluded_count` (G3) has three meanings; tier order (G8) is
   re-transcribed. `docs/REVIEW_GUIDELINES.md` §4 "one definition per fact" is the rule these
-  break, and the fix is always to import from or delegate to `cvi/core/constants.py` and
-  `cvi/store/queries.py`.
+  break, and the fix is always to import from or delegate to `porchlamp/core/constants.py` and
+  `porchlamp/store/queries.py`.
 - **Counts are re-derived from pages instead of read from the store** (G4, and again in G1's
   `total`), so a truncation turns into a wrong total rather than a visible page boundary.
 - **Per-request cost is paid on immutable data**: no caching headers at all (G6) over a nine-query
@@ -2172,11 +2172,11 @@ severity, with a nit tail.
 
 ## Coverage
 
-- **Read fully**: `cvi/serve/app.py`, `cvi/serve/contract.py`, `cvi/serve/guard.py`,
-  `cvi/store/queries.py:255-1032`, `cvi/api.py`, `scripts/serve.py`,
+- **Read fully**: `porchlamp/serve/app.py`, `porchlamp/serve/contract.py`, `porchlamp/serve/guard.py`,
+  `porchlamp/store/queries.py:255-1032`, `porchlamp/api.py`, `scripts/serve.py`,
   `scripts/serve_ui_fixtures.py`, `tests/serve/helpers.py`, `tests/serve/test_guard.py`,
   `tests/test_ui_node_suite.py`, `docs/v2/06-UX-DESIGN.md`, `docs/REVIEW_GUIDELINES.md`,
-  `.github/workflows/ci.yml`, `cvi/core/constants.py:130-143`.
+  `.github/workflows/ci.yml`, `porchlamp/core/constants.py:130-143`.
 - **Cross-checked** (call sites and declarations, not read line by line): `web/v2/api.js`,
   `web/v2/app.js`, `web/v2/copy.js`, `web/v2/views/matrix.js`, `web/v2/views/configure.js`
   (auditor H owns these files), `pyproject.toml`, `tests/fixtures/ui/*.json`,
@@ -2186,7 +2186,7 @@ severity, with a nit tail.
      -p no:cacheprovider -q` → **83 passed**, 2 deprecation warnings. This is *not* §1's canonical
      invocation (`pytest tests/ -n auto -p no:cacheprovider`); the slice suite was run, not the full
      suite.
-  2. `.venv/bin/ruff check cvi scripts tests` → `All checks passed!`, exit 0.
+  2. `.venv/bin/ruff check porchlamp scripts tests` → `All checks passed!`, exit 0.
   3. `run_guard` on a copy at `/tmp/probe.db` → `SystemExit`, message quoted in G11. The real
      `data/cvi.db` was never passed to `create_app`/`run_guard`, since both can write.
   4. Schema probe: `data/cvi.db` tables `['repositories', 'sqlite_sequence']`, 1000 rows, 27
@@ -2196,7 +2196,7 @@ severity, with a nit tail.
      `axis_coverage`, the G3 27-vs-26 delta, the G4 `MAX_LIMIT = 5` monkeypatch disagreement.
   6. Timings at `n_rated = 10_000`, `seed = 7` (median / min / max, ms):
      `snapshot_summary` 27.40 / 26.90 / 29.00; `list_ranked(limit=20)` 6.57 / 6.42 / 7.27;
-     `GET /v1/cvi/leaderboard?page_size=20` 37.58 / 36.02 / 43.02.
+     `GET /v1/porchlamp/leaderboard?page_size=20` 37.58 / 36.02 / 43.02.
   7. `serve_ui_fixtures.py`'s `axis_coverage()` over the committed
      `tests/fixtures/ui/leaderboard.json` (73 rows) → `{}`;
      `tests/fixtures/ui/matrix.json` does not exist;
@@ -2215,8 +2215,8 @@ severity, with a nit tail.
   the real universe size (G4's magnitude, not its mechanism); whether `workflow_dispatch` CI is
   diligently triggered by convention in this repo (G12); the end-to-end behaviour of the shipped
   tree, since G11 blocks it; and any JS runtime behaviour, as there is no `node` on this host.
-- **Never read**: `data/promoted.json`, `cvi/store/reader.py`, `cvi/lakehouse.py`,
-  `cvi/store/queries.py:1-255`, `docs/ARCHITECTURE.md`.
+- **Never read**: `data/promoted.json`, `porchlamp/store/reader.py`, `porchlamp/lakehouse.py`,
+  `porchlamp/store/queries.py:1-255`, `docs/ARCHITECTURE.md`.
 <!-- END G-SERVE -->
 
 ## Slice H — frontend
@@ -2267,13 +2267,13 @@ was executed**: there is no `node` binary on this host (`node: command not found
 
 ### H3 — Blocker — tier `S+` exists in the engine and the UI silently renames it
 
-- **Where**: `cvi/core/constants.py:127-134`, `:137`; `web/v2/copy.js:108`, `:109`;
+- **Where**: `porchlamp/core/constants.py:127-134`, `:137`; `web/v2/copy.js:108`, `:109`;
   `web/v2/components/badge.js:28`; `web/v2/tests/unit.test.mjs:255-260`
 - **Evidence**: `TIER_CUTOFFS` begins at `(90.0, "S+")` and
   `TIER_ORDER = ("D", "C", "B", "A", "S", "S+")`, while
   `const normalizedTier = tier === "S+" ? "S" : tier;` collapses it.
 - **Why it's wrong**: three documents specify the opposite — `docs/UI_UX_SPECIFICATION.md:334`,
-  `:349-350` (an `[S+]` badge, "Tier S+: Glowing emerald border, top 1% composite CVI"),
+  `:349-350` (an `[S+]` badge, "Tier S+: Glowing emerald border, top 1% composite Porchlamp"),
   `docs/ARCHITECTURE.md:525`, `:650`, and `docs/BENCHMARK_SPECIFICATION.md:38`. The label never
   reaches the DOM. `unit.test.mjs:255-260` tests `tierLabel` for capped/uncapped/null but never
   passes `"S+"` — the same assertion-depth gap as H1 in a different module.
@@ -2326,20 +2326,20 @@ was executed**: there is no `node` binary on this host (`node: command not found
 
 ### H7 — Warning — cross-language constants are hand-mirrored with no parity test
 
-- **Where**: `web/v2/state.js:21` vs `cvi/serve/contract.py:430`, `:449-450`;
-  `web/v2/state.js:46-52` vs `cvi/core/constants.py:392-422`;
-  `web/v2/state.js:199-209` vs `cvi/serve/app.py:482-502`; `web/v2/copy.js:56-84`
+- **Where**: `web/v2/state.js:21` vs `porchlamp/serve/contract.py:430`, `:449-450`;
+  `web/v2/state.js:46-52` vs `porchlamp/core/constants.py:392-422`;
+  `web/v2/state.js:199-209` vs `porchlamp/serve/app.py:482-502`; `web/v2/copy.js:56-84`
 - **Evidence**: `PAGE_SIZES = [20,50,100,500,1000]` vs `LEADERBOARD_PAGE_SIZES` (equal today,
   but the server actually accepts any `1..max`, so the "Mirrors" comment overstates it);
   `PERSONA_PRESET_WEIGHTS` vs `PERSONA_PRESETS` (byte-equal today — all four persona vectors and
   `balanced` `0.25/0.25/0.20/0.15/0.15` checked line by line); `VALID_SORT_FIELDS` vs `_SORT_BASE`
   + `p_<pillar>` (in sync); `PILLAR_ORDER`/`PILLAR_IDS`/`SORTABLE_COLUMNS` likewise duplicated.
   `PARAM_NAMES` carries **9 dead keys**: the engine's scored inputs are exactly 18
-  (`grep input_id=` over `cvi/core/params/*.py`, also `cvi/core/constants.py:450-468`) and all 18
+  (`grep input_id=` over `porchlamp/core/params/*.py`, also `porchlamp/core/constants.py:450-468`) and all 18
   are present, but the leftovers — `first_timer_merge_rate`, `pr_ghost_rate_14d`,
   `legal_ip_regime`, `scorecard_pipeline`, `ai_policy_posture`, `newcomer_return_rate_90d`, plus
   `active_gfis`, `archived_flag` (no Python occurrence at all) and `bus_factor` (a
-  `cvi/collect/commits.py:80` signal, not a scored input) — each have a live twin with an
+  `porchlamp/collect/commits.py:80` signal, not a scored input) — each have a live twin with an
   **identical label string**, so the map holds two spellings for one metric.
 - **Why it's wrong**: no parity test exists for any of these, so a server-side change silently
   strands the client. Dead keys are runtime-harmless (`views/drawer.js:192` and `copy.js:87`
@@ -2357,7 +2357,7 @@ was executed**: there is no `node` binary on this host (`node: command not found
   screen-reader user that data is present while the view is empty.
 - `web/v2/copy.js:471-475` — `configureDeltaText` subtracts `balanced_rank` with no null guard,
   so a row whose `balanced_rank` is `null` renders `NaN`.
-- Verified **not** drift: `cvi/serve/contract.py:206` validates `0.0 <= self.coverage <= 1.0`
+- Verified **not** drift: `porchlamp/serve/contract.py:206` validates `0.0 <= self.coverage <= 1.0`
   (plus per-pillar `c_<pillar>`), so coverage is a 0..1 fraction and the client's
   `Math.round(coverage * 100)` with 0.95/0.8/0.6 bands is correct. `web/v2/index.html` (25 lines)
   contains every mount point `app.js` queries (`.skip-link`→`#app-main`,
@@ -2367,13 +2367,13 @@ was executed**: there is no `node` binary on this host (`node: command not found
 ## Nits
 
 - `web/v2/app.js:976` — `void state;`, a no-op statement.
-- `web/v2/app.js:1654` — `window.__cviDebug = boot();` ships a debug handle in production.
+- `web/v2/app.js:1654` — `window.__porchlampDebug = boot();` ships a debug handle in production.
 - `web/v2/app.js:157` — hardcoded registry list `["pypi","npm","cargo","go","maven"]` for the
   filter `<select>`, not derived from any shared constant, so a new upstream registry is
   silently absent from the UI.
 - `web/v2/components/table.js:98-102` — `isTieMate` guards `tie_group !== null`, which does not
-  exclude `undefined`. `tie_group` is a required wire field (`cvi/serve/contract.py:156`, `:257`)
-  and is `null` for singleton groups (`cvi/store/queries.py:14`), so this is reachable only via
+  exclude `undefined`. `tie_group` is a required wire field (`porchlamp/serve/contract.py:156`, `:257`)
+  and is `null` for singleton groups (`porchlamp/store/queries.py:14`), so this is reachable only via
   hand-built fixture rows. Worth a `!= null` cleanup, not a bug report.
 
 ## What the suite genuinely covers well
@@ -2416,8 +2416,8 @@ was executed**: there is no `node` binary on this host (`node: command not found
   `web/v2/views/`, `web/v2/index.html`, `web/v2/tests/{unit.test.mjs,fakedom.mjs,render.perf.test.mjs}`,
   `tests/test_ui_js_integrity.py`, `tests/test_ui_copy_usage.py`, `tests/test_ui_node_suite.py`,
   `tests/test_ui_weights_port.py`, `.github/workflows/ci.yml`, `web/v2/package.json`.
-- **Cross-checked**: `cvi/core/constants.py`, `cvi/serve/contract.py`, `cvi/serve/app.py`,
-  `cvi/core/params/*.py`, `cvi/store/queries.py`, `docs/UI_UX_SPECIFICATION.md`.
+- **Cross-checked**: `porchlamp/core/constants.py`, `porchlamp/serve/contract.py`, `porchlamp/serve/app.py`,
+  `porchlamp/core/params/*.py`, `porchlamp/store/queries.py`, `docs/UI_UX_SPECIFICATION.md`.
 - **COULD NOT VERIFY**: any runtime behaviour (no `node` on this host, and no `pytest` run);
   whether `render.perf.test.mjs` can actually fail on a slow render, since it was never executed
   here; whether `workflow_dispatch` CI is diligently triggered by convention; whether the CSS
@@ -2441,10 +2441,10 @@ section is a new finding.
 
 Blast radius: this is how 7 of the 18 Blockers (`H1`, `H3`, `G1`, `G2`, `G8`, `F-01`, `F-02`)
 reached `main` with no signal. Each layer reads its own absent input as success. The
-sensitivity gate returns 0 from `cvi/audit/sensitivity.py:540` whatever the verdict says; the
-`newcomer_label_5_1` anchor at `cvi/audit/anchors.py:676` (`if positive_scores > 0:`) has no
+sensitivity gate returns 0 from `porchlamp/audit/sensitivity.py:540` whatever the verdict says; the
+`newcomer_label_5_1` anchor at `porchlamp/audit/anchors.py:676` (`if positive_scores > 0:`) has no
 raw count to compare against, so it cannot express "we had nothing";
-`cvi/audit/detectors_report.py:96` (`measured = bool(payload.get("measured", False))`)
+`porchlamp/audit/detectors_report.py:96` (`measured = bool(payload.get("measured", False))`)
 collapses "could not express itself" into an orderly-looking row;
 `tests/test_ui_js_integrity.py:154` (`if is_namespace:`) only asserts that a namespace has
 some exports, leaving roughly 600 `copy.*` reads unchecked; `tests/test_ui_node_suite.py:20`
@@ -2467,18 +2467,18 @@ and every new check ships with a mutation that turns it red.
 `C-04` `C-07` `F-03` `F-07` `F:coverage-default` `G4` `H6`
 
 The number a reader sees is sometimes "we did not look". The envelope is written in place
-(`cvi/collect/envelope.py:232`, `target.write_text(`) while every resume probe is a bare
+(`porchlamp/collect/envelope.py:232`, `target.write_text(`) while every resume probe is a bare
 existence check (`scripts/gather.py:86-87`), so a torn file reads as a completed one. A
 keyless 503 is swallowed by `except Exception: return None` at `scripts/gather.py:97-103` and
 written as a null stamped `http_status=200`. Pagination ends on a shape check
-(`cvi/collect/github_graphql.py:316`, `page_info = connection.get("pageInfo") or {}`), so a
+(`porchlamp/collect/github_graphql.py:316`, `page_info = connection.get("pageInfo") or {}`), so a
 short list is recorded with `truncated: False`. `commits_365d` is sliced to
-`COMMIT_CAP: int = 1000` (`cvi/collect/commits.py:87`, applied at `:185`) with no flag on the
+`COMMIT_CAP: int = 1000` (`porchlamp/collect/commits.py:87`, applied at `:185`) with no flag on the
 repo. The branch is guessed at `scripts/gather.py:165`
 (`branch = (r.get("defaultBranchRef") or {}).get("name") or "main"`), which yields 0 workflow
 runs for a repo whose default branch is not `main`, which collects the "0 if no CI" penalty.
 The forward tracker coerces a missing outcome into a measurement at
-`cvi/audit/forward.py:215` (`canon: (float(val) if val is not None else 0.0)`).
+`porchlamp/audit/forward.py:215` (`canon: (float(val) if val is not None else 0.0)`).
 
 Each of these is byte-identical on disk to a real measurement. That is how three layers carry
 it forward unflagged: the collector writes it, the store indexes it, the audit layer counts it
@@ -2493,20 +2493,20 @@ yield a scoring input.
 `E-02` `G3` `G8` `H3` `H5` `H7` `H7b` `D-01` `D-03` `A-01` `A-02` `A-05` `F-05` `F-06`
 `B:duplicate-constants` `B:spelled-paths` `B:retryable-ecosystems`
 
-Two functions compute `constants_hash` under one field name: `cvi/snapshot/manifest.py:163`
-(`def constants_hash()`) and `cvi/core/constants.py:600`
+Two functions compute `constants_hash` under one field name: `porchlamp/snapshot/manifest.py:163`
+(`def constants_hash()`) and `porchlamp/core/constants.py:600`
 (`CONSTANTS_HASH: str = hashlib.sha256(`), and a runtime probe shows the two tables genuinely
 differ (`E-02`). One API response carries three `excluded_count` meanings —
-`cvi/store/queries.py:774` (`partial = sum(`) counts partial populations, `:783`
+`porchlamp/store/queries.py:774` (`partial = sum(`) counts partial populations, `:783`
 (`"excluded_count": total - len(points)`) counts dropped points, and the measured response
 reports 27 where the store's own count is 26 (`G3`). The legal-IP enum lives in three places
-with three answers: the comment at `cvi/core/constants.py:162`, RECIPROCAL 40.0 and
-UNILATERAL 10.0 in `cvi/constants.py:89-94`, and `cvi/derive/bundle.py:52-58`, which collapses
+with three answers: the comment at `porchlamp/core/constants.py:162`, RECIPROCAL 40.0 and
+UNILATERAL 10.0 in `porchlamp/constants.py:89-94`, and `porchlamp/derive/bundle.py:52-58`, which collapses
 both to `CORP_CLA` 25.0. The persona-composite rule is written in Python
-(`cvi/core/pipeline.py:192`, `composites = {p: persona.persona_composite(record, p) for p in
+(`porchlamp/core/pipeline.py:192`, `composites = {p: persona.persona_composite(record, p) for p in
 persona.PERSONA_PRESETS}`) and again in SQL with no parity test between them — that gap is the
 exact shape behind `D-01`'s coverage 1.0 versus 0.8 and tier S versus A. The 90.0 boundary is
-evaluated in `cvi/core/constants.py:128`, again in `cvi/store/queries.py` with different
+evaluated in `porchlamp/core/constants.py:128`, again in `porchlamp/store/queries.py` with different
 rounding (`D-03`), and a third time in `web/v2/copy.js:107`.
 
 Fix: import or generate every downstream copy from the Python table.
@@ -2522,7 +2522,7 @@ production does not enforce (`G9`); the fixture carries private per-axis counts,
 `G2`'s empty `axis_coverage` looked fine in the demo; and its tier vocabulary is not the
 engine's (`G8`), which is what let the `H3` rename survive review. The real server cannot start
 from a clean tree (`scripts/serve.py:71`,
-`_DEFAULT_DB: str = str(_REPO_ROOT / "data" / "cvi.db")`, `G11`), so the fixture is the only
+`_DEFAULT_DB: str = str(_REPO_ROOT / "data" / "porchlamp.db")`, `G11`), so the fixture is the only
 thing anyone runs — and the shipped `data/cvi.db` has no v2 tables at all, which slices D and G
 each established by probing it directly.
 
@@ -2538,16 +2538,16 @@ the real handler.
 
 `F-08`/`B7` `F-01` `F-02` `F-04` `F-05` `F-07` `E-01` `E-02`
 
-Coverage reports green with 100% of one input absent, because `cvi/audit/coverage.py:71-100`
+Coverage reports green with 100% of one input absent, because `porchlamp/audit/coverage.py:71-100`
 builds its collector inventory by hand and `star_history` is not in the list. It has no
-transport at all: `cvi/collect/universe.py:212` raises `NotImplementedError` under a "never
+transport at all: `porchlamp/collect/universe.py:212` raises `NotImplementedError` under a "never
 raises" docstring at `:206-215`, and `data/raw/` has no `star_history/` directory. The same
-shape recurs three more times. `cvi/audit/forward.py:209` (`SELECT owner, name, rated, ...`)
+shape recurs three more times. `porchlamp/audit/forward.py:209` (`SELECT owner, name, rated, ...`)
 defines "rated" twice with no declared equivalence; `:139` (`@dataclass(frozen=True)`
 `ForwardReport`, fields `as_of`, `n_repos_rated`, `n_repos_in_analysis`, `n_prs_eligible`,
 `excluded`, `pairs`, `criteria`) has no field that can carry PREREG's S0 cap disclosure; and
-`cvi/audit/detectors_report.py:96` reports a check as measured from a payload flag. In slice E
-the hole is in the artifact itself: `cvi/snapshot/build_cmd.py:174`
+`porchlamp/audit/detectors_report.py:96` reports a check as measured from a payload flag. In slice E
+the hole is in the artifact itself: `porchlamp/snapshot/build_cmd.py:174`
 (`root = merkle_root(sorted(raw_hashes.values()))`) hashes the file set the builder chose, so
 omitting `populations.json` leaves the artifact hash unable to express the thing that changed.
 
@@ -2561,14 +2561,14 @@ the snapshot writer's own output list.
 
 The correct pattern exists three times in this repo and is not shared.
 `scripts/backfill_downloads.py:121-133` writes `.backfill-tmp` and calls `os.replace(tmp,
-path)`; v1's promote discipline swaps a temp file; `cvi/collect/envelope.py:232` writes in
-place. `cvi/store/schema.py:170` (`conn = sqlite3.connect(path)`) opens with no WAL and no
+path)`; v1's promote discipline swaps a temp file; `porchlamp/collect/envelope.py:232` writes in
+place. `porchlamp/store/schema.py:170` (`conn = sqlite3.connect(path)`) opens with no WAL and no
 `busy_timeout`, while v2 mutates the served database in place where v1 replaced it.
 
 Because every resume probe is a bare existence check, the non-atomic write is not a cleanliness
 problem — it is the mechanism that turns one interrupted run into permanently wrong scores.
 
-Fix: one `atomic_write_json` in `cvi/` used by every writer, plus a grep test that no other
+Fix: one `atomic_write_json` in `porchlamp/` used by every writer, plus a grep test that no other
 `write_text` touches a data path and that no second `sqlite3.connect` lacks `busy_timeout`.
 
 ### T7 — The project describes itself more confidently than it tests itself
@@ -2577,19 +2577,19 @@ Fix: one `atomic_write_json` in `cvi/` used by every writer, plus a grep test th
 `F-05` `G2` `G:FYI-docs` `H3` `H7`
 
 `docs/METHODOLOGY-v2.md:71` renders a per-persona AI-posture table that no code path reaches:
-`cvi/core/engine.py:213` (`function = _PARAM_FUNCTIONS[input_id]`) calls every non-ECDF input
+`porchlamp/core/engine.py:213` (`function = _PARAM_FUNCTIONS[input_id]`) calls every non-ECDF input
 with no persona argument. The benchmark specification still prints v1 gradients. Three docs
 state that `S+` exists — `docs/UI_UX_SPECIFICATION.md:334` (`[ Tier S+ ]`),
 `docs/ARCHITECTURE.md:525` (`| rank_tier | Enum | Tier S+, ... Tier D |`),
 `docs/BENCHMARK_SPECIFICATION.md:38` (`Tier (S+ to D)`) — while `web/v2/copy.js:107` renames it
 (`H3`). Docstrings promise what the code contradicts: "never raises" at
-`cvi/collect/universe.py:206-215`, above a `raise NotImplementedError`, and the "no Python
+`porchlamp/collect/universe.py:206-215`, above a `raise NotImplementedError`, and the "no Python
 loop" claim behind `D-04`. `F-01`'s SKIP text describes a check that cannot run. The serve
 report header cites `docs/bedrock/*` and `docs/standards/*`, neither of which exists in this
 checkout (`G:FYI-docs`).
 
 Fix: a doc-consistency test that pulls the tier table, parameter names, and gradient numbers
-out of `cvi/core/constants.py` and asserts that the literals in the three specs match — the
+out of `porchlamp/core/constants.py` and asserts that the literals in the three specs match — the
 shape of `tests/test_ui_weights_port.py`, aimed at prose.
 
 ### T8 — Cost recorded and never read
@@ -2597,12 +2597,12 @@ shape of `tests/test_ui_weights_port.py`, aimed at prose.
 `B9` `B:cost-accounting` `B:retry-storm` `B4` `B6` `B8` `G6`
 
 The budget that `docs/v2/08-SUSTAINABLE-COLLECTION.md` §4 makes load-bearing does not exist in
-running code. `cvi/collect/ratelimit.py` is 332 lines that no collector imports — its only
+running code. `porchlamp/collect/ratelimit.py` is 332 lines that no collector imports — its only
 readers are `tests/collect/test_ratelimit.py:17` and `tests/core/test_import_graph.py:21`,
 `:111-121` — it cannot express a points budget, and its cache would not survive a rerun.
-`"rate_limit_remaining": remaining,` at `cvi/collect/github_graphql.py:885` is consulted by
+`"rate_limit_remaining": remaining,` at `porchlamp/collect/github_graphql.py:885` is consulted by
 nothing. A failed call books `cost = 0`, which under-reports exactly when the retry storm
-spends most: roughly 19 extra calls per deleted login (`cvi/collect/github_graphql.py:736` and
+spends most: roughly 19 extra calls per deleted login (`porchlamp/collect/github_graphql.py:736` and
 the retry path around it).
 
 The server carries the same miniature. A discarded `snapshot_summary` is 27.40 ms of a
@@ -2636,23 +2636,23 @@ different prose.
 ### Citation defects found in the audit itself
 
 Three files appear in auditors' coverage lists that **do not exist** in the repo:
-`cvi/audit/provenance.py` and `cvi/audit/diff.py` (both in F's "read fully"), and
-`cvi/store/ops.py` (in D's "skimmed", and in the register's store-nit bullet). The real
-`cvi/audit/` is `__init__, anchors, coverage, detectors_report, forward, methodology_history,
-sensitivity, ties`; the real `cvi/store/` is `__init__, migrations, queries, reader, schema,
+`porchlamp/audit/provenance.py` and `porchlamp/audit/diff.py` (both in F's "read fully"), and
+`porchlamp/store/ops.py` (in D's "skimmed", and in the register's store-nit bullet). The real
+`porchlamp/audit/` is `__init__, anchors, coverage, detectors_report, forward, methodology_history,
+sensitivity, ties`; the real `porchlamp/store/` is `__init__, migrations, queries, reader, schema,
 writer`. The v1 leaderboard-cache code those citations describe is real, but lives in
-`cvi/api.py` and `cvi/lakehouse.py`. A fourth: E cites `migrations/0001_init_v2.sql`; the
-v2 schema is actually in `cvi/store/migrations/0001_init.sql`. The findings built on that code
+`porchlamp/api.py` and `porchlamp/lakehouse.py`. A fourth: E cites `migrations/0001_init_v2.sql`; the
+v2 schema is actually in `porchlamp/store/migrations/0001_init.sql`. The findings built on that code
 stand — only the paths are wrong. Treat a path in this report as a pointer to the claim, not
 as a line you can paste.
 
 ### Never read by anyone
 
 `scripts/demo_app.py` (no auditor mentioned it), `data/promoted.json`,
-`cvi/store/reader.py`, `cvi/store/queries.py:1-255`, `cvi/lakehouse.py`,
+`porchlamp/store/reader.py`, `porchlamp/store/queries.py:1-255`, `porchlamp/lakehouse.py`,
 `docs/ARCHITECTURE.md`, `scripts/derive.py`, `scripts/verify.py`. G's slice covered
-`cvi/serve/**` but not the two older read paths it also owns (`cvi/api.py` is covered,
-`cvi/lakehouse.py` is not). E's reproducibility claims about `make_sample` and
+`porchlamp/serve/**` but not the two older read paths it also owns (`porchlamp/api.py` is covered,
+`porchlamp/lakehouse.py` is not). E's reproducibility claims about `make_sample` and
 `build_fixture_snapshot` were reasoned from code, not re-executed as a fresh from-scratch
 sample build.
 
@@ -2672,10 +2672,10 @@ sample build.
   about a live provider are unverified.
 
 The live `data/cvi.db` is **v1 lakehouse only** — roughly 1,000 `repositories` rows with the
-v1 columns (`overall_cvi`, `rank_tier`, `deep_dive_json`), `PRAGMA user_version = 0`,
+v1 columns (`overall_porchlamp`, `rank_tier`, `deep_dive_json`), `PRAGMA user_version = 0`,
 `journal_mode = delete`, integrity check clean. **There are no v2 tables in it.** Every v2
 store finding was therefore checked against the in-memory v2 schema built from
-`cvi/store/migrations/0001_init.sql`, not against the file anyone is actually serving. The
+`porchlamp/store/migrations/0001_init.sql`, not against the file anyone is actually serving. The
 blast radius of `D-01`/`D-02` is a code path, not an observed corruption; equally, nobody has
 yet seen a v2 migration run against a real database.
 

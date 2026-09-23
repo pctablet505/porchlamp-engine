@@ -10,7 +10,7 @@ that same commit, so it cannot name its own final hash.
 
 ## What changed
 
-### `cvi/derive/bundle.py`
+### `porchlamp/derive/bundle.py`
 - `INPUT_MAPPINGS["dr90_decision_rate"]` is now `_resolve_dr90_decision_rate`
   (was `_unmapped("...outside the landed W1-3 collector's trailing-180d
   window")`). Its docstring-table row is rewritten to describe the real
@@ -55,7 +55,7 @@ that same commit, so it cannot name its own final hash.
 The packet's literal method string
 (`"cohort:[anchor-180d,anchor-90d) all external authors (D-IN-3 pending
 W3-1)"`) cannot be stored in `Measured.method` as written:
-`cvi.core.models.measured_problems` (called from `Measured.__post_init__`,
+`porchlamp.core.models.measured_problems` (called from `Measured.__post_init__`,
 so it raises at construction time, not just at `validate_bundle`) is a
 whole-codebase invariant that rejects any `method` other than exactly
 `"primary"` or a `"proxy:<name>"`-prefixed string — confirmed by running
@@ -113,7 +113,7 @@ was asked — everything else matches the spec as written.
 
 Ran the three new tests against the base file content twice: once against
 the original dispatch base (`04d78b8`, via
-`git show 04d78b8:cvi/derive/bundle.py > cvi/derive/bundle.py`) and again
+`git show 04d78b8:porchlamp/derive/bundle.py > porchlamp/derive/bundle.py`) and again
 after the rebase against the new base (`583a63d`), restoring the fixed
 file (`cp` from a saved copy — **not** `git checkout --`, which is
 forbidden and was accidentally invoked once mid-mutant-testing; caught
@@ -134,7 +134,7 @@ tree; all killed both times)
 | 6 | `closedAt` ignored (`if decided_by_merge:` only) | red: `test_dr90_decision_rate`, `value: 0.3 != 0.4` (closedAt-only PR #101 wrongly not counted) |
 
 One process note: while sequencing these mutants I ran `git checkout --
-cvi/derive/bundle.py` intending it as a revert, which — since nothing had
+porchlamp/derive/bundle.py` intending it as a revert, which — since nothing had
 been committed on this branch yet at that point — actually reset the file
 to the unmodified base (wiping the fix). Caught immediately via `grep` for
 `_resolve_dr90_decision_rate` coming back empty; restored from a `cp`
@@ -185,7 +185,7 @@ above).
 
 ## Diffstat (base `583a63d` → branch tip, excluding this handoff file)
 
-54 files changed, 378 insertions(+), 118 deletions(-): `cvi/derive/
+54 files changed, 378 insertions(+), 118 deletions(-): `porchlamp/derive/
 bundle.py`, `tests/derive/test_input_mappings.py`, and 52 fixture files
 (50 bundle JSONs + `expected.json` + `manifest.json`; `populations.json`
 unchanged — no rated repo means no population content depends on this

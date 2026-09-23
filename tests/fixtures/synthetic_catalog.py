@@ -8,7 +8,7 @@ Comprehensive, realistic benchmark catalog of 1,000 open-source repositories acr
 - Graveyard (~25%): Low leverage (<50), high friction (>=50), Tier C/D (incl. gated black holes)
 
 Includes ground-truth reference projects:
-- vllm-project/vllm (Sweet Spot, Tier S, CVI 88.8)
+- vllm-project/vllm (Sweet Spot, Tier S, Porchlamp 88.8)
 - keras-team/keras-hub (Graveyard, Tier D, 0.0 gated black hole)
 - torvalds/linux (Crucible, off-platform)
 - gentoo/gentoo (AI-proscribed, Tier A under BALANCED)
@@ -22,11 +22,11 @@ import json
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
 
-from cvi.deepdive import build_deep_dive
-from cvi.engine import PILLAR_NAMES, assign_tier
-from cvi.lakehouse import OperationalStore
-from cvi.matrix import decompose
-from cvi.models import (
+from porchlamp.deepdive import build_deep_dive
+from porchlamp.engine import PILLAR_NAMES, assign_tier
+from porchlamp.lakehouse import OperationalStore
+from porchlamp.matrix import decompose
+from porchlamp.models import (
     AIPosture,
     AuthorAssociation,
     Ecosystem,
@@ -38,7 +38,7 @@ from cvi.models import (
     RepoMeta,
     Tier,
 )
-from cvi.persona import persona_composite
+from porchlamp.persona import persona_composite
 
 __all__ = [
     "BENCHMARK_NOW",
@@ -815,8 +815,8 @@ def seed_benchmark_catalog(
 ) -> None:
     """Bulk insert repository definitions in a single transaction in <2.0s.
 
-    W4-1: moved verbatim from ``cvi.lakehouse.OperationalStore.
-    seed_benchmark_catalog`` -- a production module (``cvi/lakehouse.py``)
+    W4-1: moved verbatim from ``porchlamp.lakehouse.OperationalStore.
+    seed_benchmark_catalog`` -- a production module (``porchlamp/lakehouse.py``)
     generating synthetic PR events and seeding a fabricated catalog is
     exactly the "production import of the fixture" this repo's
     non-negotiables forbid (synthetic data is a test fixture only). This
@@ -838,7 +838,7 @@ def seed_benchmark_catalog(
         is_gated = item.get("is_gated", False)
 
         if is_gated:
-            cvi = 0.0
+            porchlamp = 0.0
             tier = Tier.D.value
             quadrant = Quadrant.GRAVEYARD.value
             lev = 0.0
@@ -850,8 +850,8 @@ def seed_benchmark_catalog(
         else:
             ps = PillarScores(*pillars)
             lev, fric, quad = decompose(ps)
-            cvi = persona_composite(ps, Persona.BALANCED)
-            tier = assign_tier(cvi).value
+            porchlamp = persona_composite(ps, Persona.BALANCED)
+            tier = assign_tier(porchlamp).value
             quadrant = quad.value
             is_dq = 0
             dq_reason = None
@@ -885,7 +885,7 @@ def seed_benchmark_catalog(
             pr_events,
             when,
             pillar_scores=ps,
-            overall_cvi=cvi,
+            overall_porchlamp=porchlamp,
         )
         dd_str = json.dumps(dd, sort_keys=True)
 
@@ -926,7 +926,7 @@ def seed_benchmark_catalog(
             lev,
             fric,
             quadrant,
-            cvi,
+            porchlamp,
             tier,
             is_dq,
             dq_reason,
@@ -941,7 +941,7 @@ def seed_benchmark_catalog(
         elephant_factor, legal_ip_model, ai_posture,
         score_responsiveness, score_criticality, score_governance,
         score_rigor_ai, score_accessibility, leverage_score,
-        friction_score, matrix_quadrant, overall_cvi, rank_tier,
+        friction_score, matrix_quadrant, overall_porchlamp, rank_tier,
         is_stage0_disqualified, disqualification_reason, last_indexed_at,
         deep_dive_json
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -964,7 +964,7 @@ def seed_benchmark_catalog(
         leverage_score = excluded.leverage_score,
         friction_score = excluded.friction_score,
         matrix_quadrant = excluded.matrix_quadrant,
-        overall_cvi = excluded.overall_cvi,
+        overall_porchlamp = excluded.overall_porchlamp,
         rank_tier = excluded.rank_tier,
         is_stage0_disqualified = excluded.is_stage0_disqualified,
         disqualification_reason = excluded.disqualification_reason,

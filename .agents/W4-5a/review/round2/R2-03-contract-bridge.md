@@ -15,7 +15,7 @@ convention agrees with the contract (`table.js:114-117`: positive ⇒ ▲ ⇒ ra
 so **W4-4 must subtract in the other order**, not the contract change its validator.
 
 Rest of the round-1 bridge table is unchanged and still owed by W4-4:
-persona projection of `rank_p/cvi_p/coverage_p/tier_p/tie_group_p` into the flat fields;
+persona projection of `rank_p/porchlamp_p/coverage_p/tier_p/tie_group_p` into the flat fields;
 `'unrated: no_external_workflow'` arriving in `gate_reason`; `off_platform_routed` having no producer;
 `list_not_ranked`'s flat `reason` needing to be split back into the three fields;
 bare-vs-`p_`-prefixed sort field names; page→offset and the page_size membership rule (still absent

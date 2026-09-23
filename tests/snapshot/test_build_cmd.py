@@ -1,4 +1,4 @@
-"""``cvi snapshot build`` driver: the manifest Merkle root covers populations.
+"""``porchlamp snapshot build`` driver: the manifest Merkle root covers populations.
 
 The Merkle root in ``manifest.json`` is the integrity anchor of a built
 snapshot (D-VER-3). It must cover *every* file the build writes, so that two
@@ -13,11 +13,11 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cvi.core import constants
-from cvi.core.models import sha256_hex
-from cvi.snapshot.build_cmd import build_snapshot_dir
-from cvi.snapshot.manifest import merkle_root
-from cvi.snapshot.populations import Population, PopulationSet
+from porchlamp.core import constants
+from porchlamp.core.models import sha256_hex
+from porchlamp.snapshot.build_cmd import build_snapshot_dir
+from porchlamp.snapshot.manifest import merkle_root
+from porchlamp.snapshot.populations import Population, PopulationSet
 
 _FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 _AS_OF = datetime(2026, 9, 12, tzinfo=timezone.utc)
@@ -65,7 +65,7 @@ def test_merkle_root_covers_populations(tmp_path, monkeypatch):
             return _pop_set(snapshot_id, {"a/b": 1.0, "c/d": 2.0})
 
         monkeypatch.setattr(
-            "cvi.snapshot.build_cmd.build_populations", fake_build_populations
+            "porchlamp.snapshot.build_cmd.build_populations", fake_build_populations
         )
         out_dir = tmp_path / ("out_a" if popset_a else "out_b")
         build_snapshot_dir(

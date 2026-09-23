@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.audit.sensitivity`.
+"""Unit tests for :mod:`porchlamp.audit.sensitivity`.
 
 A 6-row fixture pins the exact Kendall tau-b of every +/-5 pp pillar
 perturbation against the canonical ranking.  The oracles are
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from cvi.audit.sensitivity import (
+from porchlamp.audit.sensitivity import (
     TAU_RELEASE_THRESHOLD,
     PerturbationResult,
     SensitivityReport,
@@ -35,7 +35,7 @@ from cvi.audit.sensitivity import (
 )
 
 # owner/name -> (responsiveness, criticality, governance, rigor, accessibility,
-#               canonical overall_cvi, rank_tier)
+#               canonical overall_porchlamp, rank_tier)
 FIXTURE = (
     ("aaa/r1", 90.0, 60.0, 70.0, 60.0, 50.0, 68.0, "Tier A"),
     ("bbb/r2", 80.0, 95.0, 70.0, 60.0, 50.0, 74.25, "Tier S"),
@@ -88,7 +88,7 @@ def _make_db(path: Path, rows: tuple[tuple, ...]) -> Path:
             leverage_score REAL,
             friction_score REAL,
             matrix_quadrant VARCHAR(30),
-            overall_cvi REAL,
+            overall_porchlamp REAL,
             rank_tier VARCHAR(30),
             is_stage0_disqualified BOOLEAN DEFAULT 0,
             disqualification_reason TEXT,
@@ -104,7 +104,7 @@ def _make_db(path: Path, rows: tuple[tuple, ...]) -> Path:
         con.execute(
             "INSERT INTO repositories (owner, name, score_responsiveness, "
             "score_criticality, score_governance, score_rigor_ai, "
-            "score_accessibility, overall_cvi, rank_tier, "
+            "score_accessibility, overall_porchlamp, rank_tier, "
             "is_stage0_disqualified) VALUES (?,?,?,?,?,?,?,?,?,?)",
             (owner, name, resp, crit, gov, rig, acc, overall, tier, gated),
         )
@@ -115,7 +115,7 @@ def _make_db(path: Path, rows: tuple[tuple, ...]) -> Path:
 
 @pytest.fixture()
 def db_path(tmp_path: Path) -> Path:
-    return _make_db(tmp_path / "cvi.db", FIXTURE)
+    return _make_db(tmp_path / "porchlamp.db", FIXTURE)
 
 
 def test_kendall_tau_b_hand_oracles() -> None:
@@ -190,12 +190,12 @@ def test_sensitivity_report_ordering_is_canonical(db_path: Path) -> None:
 def test_zero_pp_perturbation_is_the_identity(db_path: Path) -> None:
     """Over-correction guard: an unperturbed fixture yields the same numbers
     -- every tau is exactly 1.0 and the recomputed canonical composite
-    reproduces the stored overall_cvi for all six rows."""
+    reproduces the stored overall_porchlamp for all six rows."""
     report = sensitivity_report(db_path, pp=0)
     assert all(row.tau_b == 1.0 for row in report.rows)
     con = sqlite3.connect(str(db_path))
     try:
-        stored = dict(con.execute("SELECT owner || '/' || name, overall_cvi FROM repositories"))
+        stored = dict(con.execute("SELECT owner || '/' || name, overall_porchlamp FROM repositories"))
     finally:
         con.close()
     base = {
@@ -221,7 +221,7 @@ def test_zero_pp_perturbation_is_the_identity(db_path: Path) -> None:
 def test_gated_repos_are_excluded_from_the_rated_set(tmp_path: Path) -> None:
     """Guard: a gated row at the same composite must not move any number."""
     gated_row = ("ggg/r7", 90.0, 60.0, 70.0, 60.0, 50.0, 68.0, "Tier D", 1)
-    path = _make_db(tmp_path / "cvi.db", FIXTURE + (gated_row,))
+    path = _make_db(tmp_path / "porchlamp.db", FIXTURE + (gated_row,))
     base_report = sensitivity_report(_make_db(tmp_path / "base.db", FIXTURE), pp=5)
     with_gated = sensitivity_report(path, pp=5)
     assert with_gated.rated == 6
@@ -245,7 +245,7 @@ def test_fifteen_pp_perturbation_allows_zero_weight(db_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 TIED_COMPOSITE_DB = (
-    # Every row carries overall_cvi = 75.0: the canonical composite is tied.
+    # Every row carries overall_porchlamp = 75.0: the canonical composite is tied.
     ("aaa/r1", 0.0, 100.0, 100.0, 100.0, 100.0, 75.0, "Tier A"),
     ("bbb/r2", 100.0, 0.0, 100.0, 100.0, 100.0, 75.0, "Tier A"),
     ("ccc/r3", 100.0, 100.0, 50.0, 0.0, 100.0, 75.0, "Tier B"),
@@ -276,7 +276,7 @@ def test_all_tied_composite_reports_undecided_not_perfect(tmp_path: Path) -> Non
     composite all-tied -> the documented identical-ranking 1.0. Either way
     all_pass is False and the rendered report says UNDECIDED for the broken
     rows instead of perfect agreement."""
-    from cvi.audit.sensitivity import format_sensitivity_report
+    from porchlamp.audit.sensitivity import format_sensitivity_report
 
     db = _make_db(tmp_path / "tied.db", TIED_COMPOSITE_DB)
     report = sensitivity_report(db, pp=5)

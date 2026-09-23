@@ -2,7 +2,7 @@
 
 Spec 14's verification matrix names this suite ``test_openssf_criticality``;
 the file hosts it per the test-suite layout. Exact-oracle assertions for
-``cvi.openssf.calculate_pike_criticality``: every asserted value is
+``porchlamp.openssf.calculate_pike_criticality``: every asserted value is
 hand-computed against the default ``OPENSSF_WEIGHTS`` /
 ``OPENSSF_THRESHOLDS`` (sum|alpha| = 10.5, sum(alpha) = 8.5), so a drift in
 the saturation guard, the [0, 1] clamp, or the zero-weight guard fails
@@ -11,9 +11,9 @@ loudly.
 
 from __future__ import annotations
 
-from cvi.constants import OPENSSF_THRESHOLDS, OPENSSF_WEIGHTS
-from cvi.models import OpenSSFSignals
-from cvi.openssf import calculate_pike_criticality
+from porchlamp.constants import OPENSSF_THRESHOLDS, OPENSSF_WEIGHTS
+from porchlamp.models import OpenSSFSignals
+from porchlamp.openssf import calculate_pike_criticality
 
 
 def make_signals(**overrides) -> OpenSSFSignals:
@@ -88,7 +88,7 @@ def test_at_threshold_default_weights_score_matches_hand_computation():
     # exactly log(1+T)/log(1+T) = 1.0 regardless of T; the score collapses
     # to sum(alpha_i) / sum(|alpha_i|) = 8.5 / 10.5 (this file's own cited
     # constants, see test_zero_sum_weights_guard_returns_zero's comment) =
-    # 0.809523... -> a value computed by hand, not by calling any CVI code.
+    # 0.809523... -> a value computed by hand, not by calling any Porchlamp code.
     signals = make_signals(
         created_since_months=120.0,
         updated_since_months=120.0,

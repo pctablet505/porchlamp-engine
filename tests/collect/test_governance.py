@@ -1,10 +1,10 @@
 """Tests for governance evidence (legal IP, promotion ladder, AI posture).
 
-Subject: ``cvi.collect.governance`` — the governance envelope collector
+Subject: ``porchlamp.collect.governance`` — the governance envelope collector
 (check-run names / status contexts on the 20 most recent merged PRs and the
 GOVERNANCE/MAINTAINERS/CONTRIBUTING/SECURITY + AI-policy file bodies), the
 classifiers, the ownership extension of
-``cvi.collect.commits`` (a per-commit ``signed_off`` boolean, no message
+``porchlamp.collect.commits`` (a per-commit ``signed_off`` boolean, no message
 text), and the append-only hooks at the end of ``scripts/gather.py`` (the
 ``governance`` status entry) and ``scripts/derive.py`` (the six ``legal_ip``
 / ``promotion_ladder`` / ``ai_posture`` value + evidence fields).
@@ -27,8 +27,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Optional
 
-from cvi.collect import governance as gov
-from cvi.collect.envelope import envelope_hash, read_envelope, write_envelope
+from porchlamp.collect import governance as gov
+from porchlamp.collect.envelope import envelope_hash, read_envelope, write_envelope
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 NOW = datetime(2026, 9, 12, 0, 0, 0, tzinfo=timezone.utc)
@@ -45,8 +45,8 @@ def _load_script(modname: str, fname: str) -> ModuleType:
     return module
 
 
-derive = _load_script("cvi_derive_governance", "derive.py")
-gather = _load_script("cvi_gather_governance", "gather.py")
+derive = _load_script("porchlamp_derive_governance", "derive.py")
+gather = _load_script("porchlamp_gather_governance", "gather.py")
 
 
 # --- recorded-response transport --------------------------------------------- #
@@ -720,7 +720,7 @@ def test_signoff_share_reads_the_collectors_window_dict():
     ``{"count", "cap", "truncated", "rows"}``. It was treated like the
     malformed mapping above, so every re-collected repo lost its sign-off
     evidence silently."""
-    from cvi.collect.commits import collect_commits_365d
+    from porchlamp.collect.commits import collect_commits_365d
     raw = [{"commit": {"author": {"email": f"u{i}@corp.com", "date": "2026-09-01T00:00:00Z"},
                        "message": "Signed-off-by: U" if i % 4 else ""},
             "author": {"login": f"u{i}", "type": "User"}} for i in range(8)]

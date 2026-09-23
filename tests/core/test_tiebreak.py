@@ -1,7 +1,7 @@
 """Acceptance tests: the tie-break key, strict ranks and tie
 groups (`02` section 10; `04` section 3, section 6's SQL ``ORDER BY``).
 
-Fail-before: before this packet ``cvi.core.tiebreak`` does not exist, so
+Fail-before: before this packet ``porchlamp.core.tiebreak`` does not exist, so
 every test below fails on ``ModuleNotFoundError`` (recorded verbatim in the
 handoff). A second fail-before proof is
 ``test_wrong_key_order_is_caught_by_the_oracle``: it runs the main 8-row
@@ -10,9 +10,9 @@ oracle's own name-order assertion against a deliberately broken key
 encoding) and shows the assertion actually fails on it, rather than trusting
 the oracle to be sensitive to a wrong implementation on faith.
 
-Row identity trick: :class:`~cvi.core.models.ScoreRecord` carries no repo
+Row identity trick: :class:`~porchlamp.core.models.ScoreRecord` carries no repo
 identity (that is exactly this packet's ownership-request finding -- see
-``cvi/core/tiebreak.py``'s module docstring), so a test that wants to read
+``porchlamp/core/tiebreak.py``'s module docstring), so a test that wants to read
 "which row is this, after ``assign_ranks`` returned a new record via
 ``dataclasses.replace``" stashes the row's own label in ``raw_hash`` (never
 read by any tie-break logic) and reads it back off the output records.
@@ -28,8 +28,8 @@ from pathlib import Path
 
 import pytest
 
-from cvi.core.models import GateResult, PillarScore, PRWindow, PRWindowEvent, RepoIdentity, ScoreRecord
-from cvi.core.tiebreak import (
+from porchlamp.core.models import GateResult, PillarScore, PRWindow, PRWindowEvent, RepoIdentity, ScoreRecord
+from porchlamp.core.tiebreak import (
     TieBreakInput,
     _commit_epoch,
     _measured_asc,
@@ -45,7 +45,7 @@ _PILLARS = ("responsiveness", "criticality", "governance", "rigor", "accessibili
 def make_record(label: str, *, owner: str = "acme", name: str | None = None, **overrides: object) -> ScoreRecord:
     """A fully-measured, internally consistent ``ScoreRecord``. ``label`` is
     stashed in ``raw_hash`` purely so tests can recover row identity after
-    :func:`~cvi.core.tiebreak.assign_ranks` rebuilds the record (see the
+    :func:`~porchlamp.core.tiebreak.assign_ranks` rebuilds the record (see the
     module docstring); it plays no role in any tie-break comparison.
     ``owner``/``name`` (defaulting to ``"acme"``/``label``, matching
     :func:`make_entry`'s own defaults) build ``repo`` so a record built here
@@ -372,7 +372,7 @@ def test_commit_epoch_orders_identically_under_different_host_timezones(
     script.write_text(
         "import sys\n"
         "from pathlib import Path\n"
-        "from cvi.core.tiebreak import assign_ranks\n"
+        "from porchlamp.core.tiebreak import assign_ranks\n"
         "from tests.core.test_tiebreak import make_entry\n"
         "a = make_entry('a-row', last_non_bot_commit_at='2026-06-01')\n"
         "b = make_entry('b-row', last_non_bot_commit_at='2026-06-01T00:00:00Z')\n"

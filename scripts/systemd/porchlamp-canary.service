@@ -1,0 +1,13 @@
+[Unit]
+Description=Porchlamp live re-verification canary (verify --live-sample)
+Documentation=file://{{PORCHLAMP_ROOT}}/docs/v2/03-ANTI-MANIPULATION.md
+# Re-fetches the nightly sample from GitHub and writes the verdict file to
+# $PORCHLAMP_ROOT/data/canary/verdicts-<seed>.json. A held row (source_drift or
+# worse) makes the run exit 1; promotion must consume that verdict file.
+
+[Service]
+Type=oneshot
+Environment=PORCHLAMP_ROOT={{PORCHLAMP_ROOT}}
+Environment=PORCHLAMP_PY={{PORCHLAMP_ROOT}}/.venv/bin/python
+WorkingDirectory={{PORCHLAMP_ROOT}}
+ExecStart={{PORCHLAMP_ROOT}}/scripts/canary.sh run

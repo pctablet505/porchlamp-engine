@@ -1,4 +1,4 @@
-"""Shared fixtures and configuration for CVI E2E Test Suite (Tiers 1-4).
+"""Shared fixtures and configuration for Porchlamp E2E Test Suite (Tiers 1-4).
 
 Follows the opaque-box testing methodology:
 - Uses the official FastAPI API layer via TestClient.
@@ -18,9 +18,9 @@ import pytest
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
-from cvi.api import create_app
+from porchlamp.api import create_app
 from tests.fixtures.synthetic_catalog import build_benchmark_store
-from cvi.lakehouse import OperationalStore
+from porchlamp.lakehouse import OperationalStore
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 WEB_DIR = REPO_ROOT / "web"

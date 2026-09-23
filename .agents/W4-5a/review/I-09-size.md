@@ -12,7 +12,7 @@ Subtractable now:
   reaches them. ~25 lines.
 - `app.js:288 replaceUrl` — dead (and its absence is Blocker B-5).
 - The `?perf=` harness (`app.js` ~l.739-767), `perf-fixtures.js` (91 lines) and
-  `window.__cviDebug = boot()` (`app.js:783`) ship dev-only code and a global handle to every user.
+  `window.__porchlampDebug = boot()` (`app.js:783`) ship dev-only code and a global handle to every user.
   Keep the generator for the Node test; gate the harness and the global out of the served bundle.
 - `render.perf.test.mjs:36-67 patchWindow` duplicates `patchTableBody` (~30 lines) — import it.
 NOT subtractable but untested: `tokens.css` repeats the light palette verbatim in two blocks

@@ -24,11 +24,11 @@ line was meant for the *cross-snapshot* detectors only (`param_jump`, and
 conceptually `source_drift`, though see below) — a first-ever snapshot
 must still carry the single-snapshot flags.
 
-**Fix** (`d264dff`, in `cvi/core/pipeline.py::apply_suspicion`): the gate
+**Fix** (`d264dff`, in `porchlamp/core/pipeline.py::apply_suspicion`): the gate
 is now `if detectors is None: return tuple(records)` — the `previous is
 None` half is gone. `previous` is simply forwarded to the `detectors`
 callable unchanged; which detectors fire on a first-ever snapshot is
-entirely up to the callable, and `cvi.verify.detectors.run_detectors`
+entirely up to the callable, and `porchlamp.verify.detectors.run_detectors`
 already gets this right on its own (only `detect_param_jump` reads
 `previous` and short-circuits when it is `None`; the other eight ignore it
 and evaluate the current record/inputs regardless) — this fix simply lets
@@ -36,11 +36,11 @@ that existing, already-tested behaviour reach `score_snapshot` instead of
 being pre-empted by an extra blanket gate above it.
 
 **On `source_drift`**: the ruling's own wording groups it with the
-cross-snapshot detectors, but `cvi.verify.detectors.detect_source_drift`'s
+cross-snapshot detectors, but `porchlamp.verify.detectors.detect_source_drift`'s
 actual signature never reads its `previous` argument at all -- it only
 reads `inputs.source_drift_held` (the W3-3 live-sample canary's per-run
 hold verdict, a fact about *this* run, not a comparison between two scored
-records). No special-casing was added for it: `cvi/verify/
+records). No special-casing was added for it: `porchlamp/verify/
 pipeline_hook.py`'s adapter already never populates `source_drift_held`
 (an ownership-request field, module docstring), so `source_drift` cannot
 fire through this composition regardless of `previous` -- vacuously
@@ -55,7 +55,7 @@ real previous run) or like the other single-snapshot detectors.
 Corrected: two tests that encoded the old blanket-suppression rule
 (renamed/rewritten to assert the new one), one new real end-to-end test in
 `tests/verify/test_pipeline_hook.py`, one new mutant (M5, table below), and
-the affected docstrings in `cvi/core/pipeline.py`. `cvi/verify/
+the affected docstrings in `porchlamp/core/pipeline.py`. `porchlamp/verify/
 pipeline_hook.py` itself needed **no** code change — `build_detectors`'s
 `_run` closure already handled `previous=None` correctly (defensive code
 written for the "repo absent from `previous`" case, coincidentally exactly
@@ -66,8 +66,8 @@ with `previous=None` before, since the old outer gate intercepted first.
 
 ```
  .agents/W3-2f/handoff.md           | 272 +++++++++++++++++++++++++++++++ (new)
- cvi/core/pipeline.py               | 162 +++++++++++++++++--
- cvi/verify/pipeline_hook.py        | 127 +++++++++++++++++ (new)
+ porchlamp/core/pipeline.py               | 162 +++++++++++++++++--
+ porchlamp/verify/pipeline_hook.py        | 127 +++++++++++++++++ (new)
  tests/core/test_pipeline.py        | 218 +++++++++++++++++++++++++
  tests/verify/test_pipeline_hook.py | 319 +++++++++++++++++++++++++++++++++++++ (new)
  5 files changed, 1088 insertions(+), 10 deletions(-)
@@ -75,29 +75,29 @@ with `previous=None` before, since the old outer gate intercepted first.
 `git status --short` on the worktree shows exactly these five files (the
 handoff document plus the four packet-owned code/test files) — nothing
 outside the packet's owned files, and none of the forbidden paths
-(`cvi/audit/anchors.py`, `cvi/core/{aggregate,persona,models,params/*}.py`,
-`cvi/store/**`, `web/**`/`cvi/serve/**`, `cvi/collect/**`/`cvi/derive/**`)
-touched. (`cvi/core/tiebreak.py` was touched only transiently, for the M4
+(`porchlamp/audit/anchors.py`, `porchlamp/core/{aggregate,persona,models,params/*}.py`,
+`porchlamp/store/**`, `web/**`/`porchlamp/serve/**`, `porchlamp/collect/**`/`porchlamp/derive/**`)
+touched. (`porchlamp/core/tiebreak.py` was touched only transiently, for the M4
 mutation demonstration below, and restored via `git show` before any
 commit — it carries no diff in the final commit.)
 
 ## The import-graph question, answered
 
 `tests/core/test_import_graph.py::test_core_imports_nothing_outside_core_and_stdlib`
-and `::test_importing_core_loads_no_other_cvi_package` both restrict every
-`cvi/core/*.py` module (which includes `cvi/core/pipeline.py`) to `cvi.core`
+and `::test_importing_core_loads_no_other_porchlamp_package` both restrict every
+`porchlamp/core/*.py` module (which includes `porchlamp/core/pipeline.py`) to `porchlamp.core`
 + stdlib imports only — checked directly against the base commit before
 writing anything (`python -c "import ast; ..."` against the test file, then
 confirmed by running it). **The lead's preferred plain import
-(`cvi.core.pipeline` importing `cvi.verify.detectors.run_detectors`
+(`porchlamp.core.pipeline` importing `porchlamp.verify.detectors.run_detectors`
 directly) is not available.** So:
 
-- `cvi/core/pipeline.py::score_snapshot` gained a `detectors:
+- `porchlamp/core/pipeline.py::score_snapshot` gained a `detectors:
   DetectorsCallable | None = None` composition seam
   (`Callable[[Sequence[ScoreRecord], ScoredSnapshot | None],
   Mapping[RepoKey, Sequence[str]]]`) plus `previous: ScoredSnapshot | None
   = None`, per the dispatch's own fallback instruction.
-- `cvi/verify/pipeline_hook.py` (new, outside `cvi/core`) is the one place
+- `porchlamp/verify/pipeline_hook.py` (new, outside `porchlamp/core`) is the one place
   that builds the real callable: `detector_inputs_from_bundle()` adapts a
   `FeatureBundle` to a `DetectorInputs`, and `build_detectors(bundles)`
   closes over the *current* bundles to return the `(records, previous) ->
@@ -105,14 +105,14 @@ directly) is not available.** So:
 
 ## What was built
 
-### 1. `cvi/core/pipeline.py`
+### 1. `porchlamp/core/pipeline.py`
 
 - `repo_key()` now accepts a `FeatureBundle` **or** a `ScoreRecord` (both
   carry `repo: RepoIdentity`) — one definition per fact (R-2) rather than a
   second `_record_repo_key` restating `f"{x.repo.owner}/{x.repo.name}"`; the
   suspicion-wiring seam needs to key *records*, the existing callers still
   key bundles, and `ScoreRecord.repo` is always copied from the bundle it
-  was scored from (`cvi.core.engine.score`), so the two never disagree.
+  was scored from (`porchlamp.core.engine.score`), so the two never disagree.
 - `DetectorsCallable` (module-level type alias) and `apply_suspicion(records,
   previous, detectors)` (new function, "stage 10"): folds `detectors`'s
   per-repo flag lists onto `ScoreRecord.suspicion` via `dataclasses.replace`
@@ -137,22 +137,22 @@ directly) is not available.** So:
   construction site — `SnapshotCounts(rated=..., persona_visible={})`,
   no `suspicion_counts` kwarg — keeps working unchanged). Built generically
   in `build_snapshot_counts` from whatever names actually appear across
-  `records`' `suspicion` lists — `cvi.core` has no fixed nine-name universe
-  to zero-fill from (it cannot import `cvi.verify.detectors.DETECTOR_NAMES`
+  `records`' `suspicion` lists — `porchlamp.core` has no fixed nine-name universe
+  to zero-fill from (it cannot import `porchlamp.verify.detectors.DETECTOR_NAMES`
   either), so an untriggered detector is simply absent from the dict, not
   zero.
 
-### 2. `cvi/verify/pipeline_hook.py` (new)
+### 2. `porchlamp/verify/pipeline_hook.py` (new)
 
 - `detector_inputs_from_bundle(bundle)`: the one adapter from a real
   `FeatureBundle` to a `DetectorInputs` — reuses
-  `cvi.verify.detectors.closed_unread_share_from_pr_window` rather than
+  `porchlamp.verify.detectors.closed_unread_share_from_pr_window` rather than
   recomputing the closed-unread share a second way. Populates
   `newcomer_issue_count` / `elephant_factor` from `bundle.inputs` when
   `Measured`, and `closed_unread_share`/`closed_unread_n` from
   `bundle.pr_window`. **There was no existing bundle-to-`DetectorInputs`
   adapter to reuse** — I checked: the only other `DetectorInputs`
-  construction site, `cvi.audit.detectors_report._row_from_json`, builds
+  construction site, `porchlamp.audit.detectors_report._row_from_json`, builds
   from an interim JSON row format (`--current`/`--previous` files), not
   from a real `FeatureBundle` — so this is the one definition of it, not a
   duplicate. The four fields no landed collector/canary sources yet
@@ -166,7 +166,7 @@ directly) is not available.** So:
   `{repo_key: DetectorInputs}` once from `bundles`, then returns a closure
   matching `previous.records` by `repo_key` (`None` for a repo absent from
   `previous` or when `previous` is `None`) and calling
-  `cvi.verify.detectors.run_detectors` per current record.
+  `porchlamp.verify.detectors.run_detectors` per current record.
 
 ## Acceptance checklist (against this packet's own dispatch, items 1-4)
 
@@ -207,7 +207,7 @@ directly) is not available.** So:
 ## Which three detectors, and why (packet's "if its input exists" test)
 
 `star_burst` needs `DetectorInputs.star_lockstep_penalty_applied`, one of
-the three named ownership requests `cvi.verify.detectors`'s own module
+the three named ownership requests `porchlamp.verify.detectors`'s own module
 docstring says no landed schema field carries yet ("No v2 schema field
 carries this fact today") — so it **cannot** fire through a real
 `FeatureBundle` regardless of content, and is not one of the three. I used
@@ -215,7 +215,7 @@ carries this fact today") — so it **cannot** fire through a real
 score, both sourceable from a bundle today), alongside `param_jump` and
 `closed_unread` as the dispatch suggested. The same reasoning excludes
 `newcomer_burst`, `ef_domain_mismatch` and `source_drift` from ever firing
-through `cvi/verify/pipeline_hook.py`'s adapter — confirmed empirically:
+through `porchlamp/verify/pipeline_hook.py`'s adapter — confirmed empirically:
 `test_exactly_three_detectors_fire_on_the_named_repos` asserts the fired-name
 set is exactly `{param_jump, closed_unread, label_spam}`.
 
@@ -235,7 +235,7 @@ committed content — never `git stash`/`git checkout --`), re-verified green
 | M1 | drop `sorted(set(...))`, use plain `list(...)` | `apply_suspicion` | RED | `test_score_snapshot_sorts_and_dedupes_detector_names` |
 | M2 | hardcode `detectors(records, None)` regardless of the real `previous` ("previous ignored") | `apply_suspicion` | RED | `test_exactly_three_detectors_fire_on_the_named_repos` (real `build_detectors`; `param_jump` stops firing on `jump/repo` even though a real `previous` was supplied) |
 | M3 | positional pairing (`zip(records, suspicion_by_key.values())`) instead of `repo_key` lookup | `apply_suspicion` | RED | `test_score_snapshot_wires_suspicion_by_repo_key_not_position` |
-| M4 | apply suspicion **before** `assign_ranks` (`cvi/core/pipeline.py`) **and** fold `entry.record.suspicion` into `tie_key()` ahead of the name tiebreak (`cvi/core/tiebreak.py`) | both files, paired | RED | `test_score_snapshot_suspicion_never_affects_rank_or_tie_group` |
+| M4 | apply suspicion **before** `assign_ranks` (`porchlamp/core/pipeline.py`) **and** fold `entry.record.suspicion` into `tie_key()` ahead of the name tiebreak (`porchlamp/core/tiebreak.py`) | both files, paired | RED | `test_score_snapshot_suspicion_never_affects_rank_or_tie_group` |
 | M5 | reinstate the old, incorrect gate: `if previous is None or detectors is None: return tuple(records)` | `apply_suspicion` | RED | `test_score_snapshot_previous_none_still_applies_single_snapshot_flags`, `test_apply_suspicion_is_identity_only_when_detectors_is_none`, `test_previous_none_still_fires_single_snapshot_detectors` (all three, independently) |
 
 M2's mutant changed shape from the first delivery: the original code's
@@ -326,7 +326,7 @@ dispatch flagged as pre-existing ("known on main right now and being fixed
 elsewhere") were already gone by the first rebase (main's `f4f8c7f`,
 "chore(fixtures): regenerate snapshot_50 after W1-2f", landed the fix
 concurrently with this packet) and stayed gone through the later two
-rebases. Nothing in this packet touched `cvi/audit/anchors.py` or the
+rebases. Nothing in this packet touched `porchlamp/audit/anchors.py` or the
 fixture. `tests/snapshot/test_reproduce_fixture.py::
 test_reproduce_matches_expected_hash` and `tests/core/test_import_graph.py`
 (4/4) both still pass on the final base, confirmed separately after the
@@ -360,6 +360,6 @@ unrelated to this packet) both pass.
 - No real CLI/script calls `score_snapshot(..., previous=..., detectors=
   build_detectors(...))` yet — this packet wires the seam and its
   composition, per the dispatch's file ownership, but does not add a
-  `cvi.cli` snapshot subcommand or cron job that threads a real previous
+  `porchlamp.cli` snapshot subcommand or cron job that threads a real previous
   snapshot through. Flagging for whichever packet owns the real snapshot
   driver (likely wave W4/W5).

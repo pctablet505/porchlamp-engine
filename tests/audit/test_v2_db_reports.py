@@ -1,15 +1,15 @@
-"""Unit tests verifying v2 SQLite database reports in cvi/audit/."""
+"""Unit tests verifying v2 SQLite database reports in porchlamp/audit/."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from cvi.audit import anchors, coverage, sensitivity, ties
-from cvi.audit.anchors import PASS, REPORT, SKIPPED, anchors_report, evaluate_anchors
-from cvi.audit.sensitivity import sensitivity_report
-from cvi.audit.ties import ties_report
-from cvi.core.models import (
+from porchlamp.audit import anchors, coverage, sensitivity, ties
+from porchlamp.audit.anchors import PASS, REPORT, SKIPPED, anchors_report, evaluate_anchors
+from porchlamp.audit.sensitivity import sensitivity_report
+from porchlamp.audit.ties import ties_report
+from porchlamp.core.models import (
     Cohorts,
     FeatureBundle,
     GateResult,
@@ -20,10 +20,10 @@ from cvi.core.models import (
     RepoIdentity,
     ScoreRecord,
 )
-from cvi.snapshot import store_cmd
-from cvi.store import schema
-from cvi.store.migrations import apply_migrations
-from cvi.store.writer import RepoWrite, finalize_snapshot_hash, write_records, write_snapshot
+from porchlamp.snapshot import store_cmd
+from porchlamp.store import schema
+from porchlamp.store.migrations import apply_migrations
+from porchlamp.store.writer import RepoWrite, finalize_snapshot_hash, write_records, write_snapshot
 
 HEX64 = "a" * 64
 SNAPSHOT_ID = "snap-v2-audit-test"
@@ -283,7 +283,7 @@ def _build_full_v2_db(db_path: Path) -> Path:
 
 
 def test_v2_sensitivity_report(tmp_path: Path) -> None:
-    db_path = _build_full_v2_db(tmp_path / "cvi_v2.db")
+    db_path = _build_full_v2_db(tmp_path / "porchlamp_v2.db")
     report = sensitivity_report(db_path, pp=5)
     assert report.rated == 4
     assert len(report.rows) == 10
@@ -302,7 +302,7 @@ def test_v2_sensitivity_report(tmp_path: Path) -> None:
 
 
 def test_v2_ties_report(tmp_path: Path) -> None:
-    db_path = _build_full_v2_db(tmp_path / "cvi_v2.db")
+    db_path = _build_full_v2_db(tmp_path / "porchlamp_v2.db")
     report = ties_report(db_path)
     assert report.rated == 4
     assert report.gated == 3
@@ -317,7 +317,7 @@ def test_v2_ties_report(tmp_path: Path) -> None:
 
 
 def test_v2_anchors_report(tmp_path: Path) -> None:
-    db_path = _build_full_v2_db(tmp_path / "cvi_v2.db")
+    db_path = _build_full_v2_db(tmp_path / "porchlamp_v2.db")
     report = anchors_report(db_path)
     assert len(report) == 9
     assert report.rows_total == 8

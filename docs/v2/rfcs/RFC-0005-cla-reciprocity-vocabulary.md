@@ -4,11 +4,11 @@
 
 > **Correction, 2026-09-17, same day.** The first version of this RFC stated
 > that row 3.1 was unmeasured because of a key name — that
-> `cvi/derive/bundle.py` read a bare `legal_ip` while `scripts/derive.py` wrote
+> `porchlamp/derive/bundle.py` read a bare `legal_ip` while `scripts/derive.py` wrote
 > only `legal_ip_model`. **That mechanism was wrong and I published it before
 > finishing the trace.** `scripts/derive.py:617-634` *does* write a bare
 > `legal_ip` under the correct v2 name, via
-> `cvi.collect.governance.derive_governance_fields`, whose field names match
+> `porchlamp.collect.governance.derive_governance_fields`, whose field names match
 > `PARAM_INPUT_IDS` exactly. The measurements below are unchanged and
 > reproduced; the cause is not a name, it is a collector that has never run.
 > The vocabulary half of this RFC (`A-01`) stands on its own and is what the
@@ -22,7 +22,7 @@ from `derive_governance_fields`, which returns `"missing"` for every one of
 them when the `governance` envelope is absent:
 
 ```
-$ python -c "from cvi.collect import governance as g; print(g.derive_governance_fields(None, None, None, False))"
+$ python -c "from porchlamp.collect import governance as g; print(g.derive_governance_fields(None, None, None, False))"
   legal_ip          -> value=NONE    conf=missing
   promotion_ladder  -> value=AD_HOC  conf=missing
   ai_posture        -> value=AD_HOC  conf=missing
@@ -59,12 +59,12 @@ regimes, and v1 and v2 disagree about what they are worth.
 
 | Module | Values | Scores |
 |---|---|---|
-| `cvi/constants.py` (v1, unhashed) | `DCO`, `FOUNDATION_CLA`, `CORP_CLA_RECIPROCAL`, `CORP_CLA_UNILATERAL`, `NONE` | 100 / 75 / **40** / **10** / 85 |
-| `cvi/core/constants.py` (v2, hashed) | `DCO`, `FOUNDATION_CLA`, `CORP_CLA`, `NONE` | 100 / 75 / **25** / 85 |
-| `cvi/models.py::LegalIPModel` (the enum the v1 deriver emits) | includes both corporate spellings | — |
+| `porchlamp/constants.py` (v1, unhashed) | `DCO`, `FOUNDATION_CLA`, `CORP_CLA_RECIPROCAL`, `CORP_CLA_UNILATERAL`, `NONE` | 100 / 75 / **40** / **10** / 85 |
+| `porchlamp/core/constants.py` (v2, hashed) | `DCO`, `FOUNDATION_CLA`, `CORP_CLA`, `NONE` | 100 / 75 / **25** / 85 |
+| `porchlamp/models.py::LegalIPModel` (the enum the v1 deriver emits) | includes both corporate spellings | — |
 
-`cvi/pillars/governance.py`'s docstring publishes the v1 table (40/10) and
-`cvi/playbook.py:235,251` still branches on the two values to give different
+`porchlamp/pillars/governance.py`'s docstring publishes the v1 table (40/10) and
+`porchlamp/playbook.py:235,251` still branches on the two values to give different
 advice, so a row carrying `CORP_CLA_RECIPROCAL` into v2 today is either
 rejected by the identity vocab or silently re-scored 40 -> 25, and
 `CORP_CLA_UNILATERAL` 10 -> 25.
@@ -97,12 +97,12 @@ non-monotone in the thing 3.1 measures.
 The two scores are not new numbers: 40.0 and 10.0 are the values v1 has
 carried since the genesis freeze and that three published documents describe.
 This RFC restores them into the hashed table and **deletes `CORP_CLA`**, so
-one vocabulary exists rather than two. `cvi/pillars/governance.py`'s docstring
+one vocabulary exists rather than two. `porchlamp/pillars/governance.py`'s docstring
 becomes accurate rather than contradicted.
 
 Wiring, outside the constants (no RFC needed, listed for completeness):
 
-1. `cvi/derive/bundle.py` row 3.1 reads **`legal_ip_model`**, the field that
+1. `porchlamp/derive/bundle.py` row 3.1 reads **`legal_ip_model`**, the field that
    is actually written, with an identity vocab over the new
    `LEGAL_IP_VALUES`. The bare `legal_ip` name is retired; a bundle carrying
    only the default-filled `legal_ip` stays `Unmeasured`, as it should.
@@ -152,7 +152,7 @@ Required before this lands, and the acceptance criteria for the packet:
    (`D-VER-4`), with the verdict pasted. Note that the sensitivity CLI returns
    0 unconditionally today — packet `AUD-GATE` fixes that; until it lands,
    read the printed report rather than the exit code.
-6. `cvi/playbook.py` and `cvi/deepdive.py` keep working — they already branch
+6. `porchlamp/playbook.py` and `porchlamp/deepdive.py` keep working — they already branch
    on the two values, so they should need no change. Confirm by running their
    tests rather than by reading them.
 

@@ -97,61 +97,61 @@ function toQueryString(params) {
  * @param {{persona?: string, eco?: string, q?: string, sort?: string, page?: number, page_size?: number}} params
  */
 export function fetchLeaderboard(params = {}) {
-  const endpoint = `/v1/cvi/leaderboard${toQueryString(params)}`;
+  const endpoint = `/v1/porchlamp/leaderboard${toQueryString(params)}`;
   return getJson(endpoint);
 }
 
 export function fetchNotRanked(params = {}) {
-  return getJson(`/v1/cvi/not-ranked${toQueryString(params)}`);
+  return getJson(`/v1/porchlamp/not-ranked${toQueryString(params)}`);
 }
 
 export function fetchEvidence(owner, name) {
-  return getJson(`/v1/cvi/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/evidence`);
+  return getJson(`/v1/porchlamp/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/evidence`);
 }
 
 /**
- * `GET /v1/cvi/repos/{owner}/{name}` -> `RepoDetailResponse` (the flat
- * shape, `cvi/serve/contract.py`) — the drawer's record fetch,
+ * `GET /v1/porchlamp/repos/{owner}/{name}` -> `RepoDetailResponse` (the flat
+ * shape, `porchlamp/serve/contract.py`) — the drawer's record fetch,
  * independent of which screen opened it. Both producers of this endpoint
- * (the real API, `cvi/serve/app.py`, and the UI fixture stand-in,
+ * (the real API, `porchlamp/serve/app.py`, and the UI fixture stand-in,
  * `scripts/serve_ui_fixtures.py`) send this same shape.
  * `views/drawer.js::classifyKind` derives `kind` client-side from
  * `eligible`/`rated`; it is not on the wire at all.
  */
 export function fetchRepoDetail(owner, name) {
-  return getJson(`/v1/cvi/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+  return getJson(`/v1/porchlamp/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
 }
 
 export function fetchSnapshot() {
-  return getJson("/v1/cvi/snapshot");
+  return getJson("/v1/porchlamp/snapshot");
 }
 
 export { DEFAULT_TIMEOUT_MS };
 
 /**
- * Screen B (Matrix): `GET /v1/cvi/matrix` -> `MatrixResponse`
- * (`cvi.serve.contract.MatrixResponse`).
+ * Screen B (Matrix): `GET /v1/porchlamp/matrix` -> `MatrixResponse`
+ * (`porchlamp.serve.contract.MatrixResponse`).
  */
 export function fetchMatrix() {
-  return getJson("/v1/cvi/matrix");
+  return getJson("/v1/porchlamp/matrix");
 }
 
 /**
- * Screen F (Methodology): `GET /v1/cvi/methodology` ->
- * `MethodologyResponse` (`cvi.serve.contract.MethodologyResponse`).
+ * Screen F (Methodology): `GET /v1/porchlamp/methodology` ->
+ * `MethodologyResponse` (`porchlamp.serve.contract.MethodologyResponse`).
  */
 export function fetchMethodology() {
-  return getJson("/v1/cvi/methodology");
+  return getJson("/v1/porchlamp/methodology");
 }
 
 /**
- * Screen D (Configure weights): `POST /v1/cvi/reproject` with a
+ * Screen D (Configure weights): `POST /v1/porchlamp/reproject` with a
  * five-pillar weight vector (`ReprojectRequest`) -> `ReprojectResponse`.
  * Shares `getJson`'s timeout/typed-error contract (U-15) via a small POST
  * variant rather than a second, drifting error-handling path.
  */
 export async function postReproject(weights, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const endpoint = "/v1/cvi/reproject";
+  const endpoint = "/v1/porchlamp/reproject";
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   let response;

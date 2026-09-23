@@ -15,9 +15,9 @@ pushed. Main not touched, `data/` not touched, no network, no wall clock.
 ## Diffstat (vs. base `acdf885`)
 
 ```
- cvi/audit/__init__.py                   |   8 +
- cvi/audit/methodology_history.py        | 230 +++++++++++++
- cvi/core/methodology.py                 | 588 ++++++++++++++++++++++++++++++++
+ porchlamp/audit/__init__.py                   |   8 +
+ porchlamp/audit/methodology_history.py        | 230 +++++++++++++
+ porchlamp/core/methodology.py                 | 588 ++++++++++++++++++++++++++++++++
  docs/METHODOLOGY-v2.md                  | 204 +++++++++++
  docs/v2/rfcs/CHANGELOG.md               |  11 +-
  docs/v2/rfcs/README.md                  |  46 +++
@@ -30,10 +30,10 @@ pushed. Main not touched, `data/` not touched, no network, no wall clock.
 
 ## What landed
 
-1. **`cvi/core/methodology.py`** — `methodology_document() -> dict`, pure
-   (`cvi.core` + stdlib only; `tests/core/test_import_graph.py` enforces
-   this on every file directly under `cvi/core/`). Built only from
-   `cvi.core.constants_v2` and the `cvi.core.params.PARAMS` registry, read
+1. **`porchlamp/core/methodology.py`** — `methodology_document() -> dict`, pure
+   (`porchlamp.core` + stdlib only; `tests/core/test_import_graph.py` enforces
+   this on every file directly under `porchlamp/core/`). Built only from
+   `porchlamp.core.constants_v2` and the `porchlamp.core.params.PARAMS` registry, read
    fresh at call time (nothing cached at import time — required for the
    mutation test below). Fields: `benchmark_version`, `schema_version`
    (= `constants_v2.SCHEMA_VERSION` — there is no separate "methodology
@@ -42,33 +42,33 @@ pushed. Main not touched, `data/` not touched, no network, no wall clock.
    named constants, value domain/vocabulary from `ParamDef` +
    enum score tables, proxy info where `ParamDef.proxy_min_n` or the
    OpenSSF no-dependents-signal exception applies), `gates` (D-GATE-1..6 +
-   D-EVID-1, with whatever numeric cutoffs actually exist in `cvi.core` —
+   D-EVID-1, with whatever numeric cutoffs actually exist in `porchlamp.core` —
    D-GATE-1/2 genuinely have none), `missingness` (five reasons + one-
    sentence semantics, the 0.60/0.80/0.95 coverage thresholds, D-MISS-5's
    not-applicable rules), `tie_break_levels` (the eight D-TIE-1 levels, in
    order, plus `composite_decimals`), `personas` (the five presets +
    the four `GATED_PERSONAS` gate thresholds). `methodology_hash()` =
-   `sha256_hex(canonical_json(document))` (reusing `cvi.core.models`'
+   `sha256_hex(canonical_json(document))` (reusing `porchlamp.core.models`'
    existing functions, not a re-implementation).
    `MethodologyDocument` is a `TypedDict` here (per the packet's fallback
-   branch: `cvi/serve/contract.py` does not exist anywhere on `main` as of
+   branch: `porchlamp/serve/contract.py` does not exist anywhere on `main` as of
    this handoff — confirmed with `find . -iname contract.py` and
-   `ls cvi/serve` — so there is nothing for W4-4 to validate against yet;
+   `ls porchlamp/serve` — so there is nothing for W4-4 to validate against yet;
    **W4-4 should replace this TypedDict import with a pydantic model once
    W4-5a lands that file**).
 
 2. **Deviation from the packet's literal deliverable list — read this.**
    The dispatch says `methodology_document()` should also carry
-   `detectors` (from `cvi/verify/detectors.py`) and
+   `detectors` (from `porchlamp/verify/detectors.py`) and
    `not_hashed_process_constants` (the audit release bars), built "ONLY
    from the constants module and the param definitions" and restricted to
-   "pure, stdlib + cvi.core only." Those two instructions conflict:
-   detector thresholds live in `cvi.verify.detectors` and the three
-   release bars live in `cvi.audit.anchors`/`cvi.audit.sensitivity` —
-   neither is `cvi.core`, and `tests/core/test_import_graph.py`
+   "pure, stdlib + porchlamp.core only." Those two instructions conflict:
+   detector thresholds live in `porchlamp.verify.detectors` and the three
+   release bars live in `porchlamp.audit.anchors`/`porchlamp.audit.sensitivity` —
+   neither is `porchlamp.core`, and `tests/core/test_import_graph.py`
    (`test_core_imports_nothing_outside_core_and_stdlib`, glob-scoped to
-   every `cvi/core/*.py` file) fails hard on such an import — confirmed by
-   running it before writing a line of this module. `cvi.core.pipeline`'s
+   every `porchlamp/core/*.py` file) fails hard on such an import — confirmed by
+   running it before writing a line of this module. `porchlamp.core.pipeline`'s
    own docstring documents an identical wall for the unrelated
    `ScoreRecord.suspicion` wiring problem ("the lead's preferred plain
    import option is unavailable, confirmed against that test rather than
@@ -77,36 +77,36 @@ pushed. Main not touched, `data/` not touched, no network, no wall clock.
    carry `detectors` or `not_hashed_process_constants` (or `rfc_log`, which
    the dispatch itself already redirects to an audit-level helper for the
    same reason — I/O). All three live only on the **extended** document
-   from `cvi.audit.methodology_history.methodology_with_history(changelog_path)`,
+   from `porchlamp.audit.methodology_history.methodology_with_history(changelog_path)`,
    which is free to cross that boundary the same way
-   `cvi/audit/detectors_report.py` already does. If the lead disagrees with
+   `porchlamp/audit/detectors_report.py` already does. If the lead disagrees with
    this split (e.g. prefers gutting the import-graph test's scope instead),
    that is a call above this packet's pay grade — flagging it rather than
    guessing.
 
-3. **`cvi/audit/methodology_history.py`** — the one caller allowed to cross
+3. **`porchlamp/audit/methodology_history.py`** — the one caller allowed to cross
    that boundary. `methodology_with_history(changelog_path)` returns
    `methodology_document()` plus:
-   - `detectors`: one entry per `cvi.verify.detectors.DETECTOR_NAMES` (name,
+   - `detectors`: one entry per `porchlamp.verify.detectors.DETECTOR_NAMES` (name,
      trigger text, direction, thresholds — every threshold value read live
-     from its named `cvi.verify.detectors` module attribute, never retyped).
+     from its named `porchlamp.verify.detectors` module attribute, never retyped).
      Building keyed by `DETECTOR_NAMES` itself (not a hand-maintained list
      of nine strings) so a tenth detector added later raises `KeyError`
      instead of silently missing from the document.
-   - `not_hashed_process_constants`: `MIN_COVERAGE` (`cvi.audit.anchors`),
+   - `not_hashed_process_constants`: `MIN_COVERAGE` (`porchlamp.audit.anchors`),
      `TAU_RELEASE_THRESHOLD`, `DEFAULT_PERTURBATION_PP`
-     (`cvi.audit.sensitivity`) — the exact three `docs/v2/rfcs/README.md`
+     (`porchlamp.audit.sensitivity`) — the exact three `docs/v2/rfcs/README.md`
      "Process constants" names, read via `getattr` at call time.
    - `rfc_log`: `parse_changelog(changelog_path)` — a small regex-based
      markdown-table parser (`docs/v2/rfcs/CHANGELOG.md`'s own format:
      `| Date | RFC | Summary | Hash before -> after |`), returned oldest
      first. Handles the genesis row's `*(none)* -> `hash`` one-hash form.
-   Registered in `cvi/audit/__init__.py`'s existing lazy-export pattern
+   Registered in `porchlamp/audit/__init__.py`'s existing lazy-export pattern
    (`parse_changelog`, `methodology_with_history`).
 
 4. **`scripts/render_methodology.py`** + **`docs/METHODOLOGY-v2.md`** — a
    pure `render_markdown(document: dict) -> str` (one table per section,
-   the `cvi reproduce <snapshot dir>` template, a link to
+   the `porchlamp reproduce <snapshot dir>` template, a link to
    `docs/v2/rfcs/README.md`'s RFC procedure) plus a thin `main()` with
    `--check` (CI drift gate, exit 1 if the committed file would change) and
    plain write mode. Renders from the **extended** document
@@ -138,7 +138,7 @@ pushed. Main not touched, `data/` not touched, no network, no wall clock.
      `d7664f2` (the W2-8-round-2 lead-reproduction commit named in
      `docs/v2/00-README.md`'s own ACCEPT row) and its `CONSTANTS_HASH`
      (`391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8`,
-     verified by `git show d7664f2:cvi/core/constants_v2.py` + exec — the
+     verified by `git show d7664f2:porchlamp/core/constants_v2.py` + exec — the
      three round-2 content/docs commits at that hash all produce the same
      value, so `d7664f2` — the docs commit the lead's own log names — is
      the least ambiguous citation). Chains exactly into RFC-0001's own
@@ -147,7 +147,7 @@ pushed. Main not touched, `data/` not touched, no network, no wall clock.
      packet started) is one continuous, gapless lineage.
    - **`UNDETERMINED_SPDX`**: ruled **not hashed** in
      `docs/v2/rfcs/README.md` — I agree with the packet's own suggested
-     framing after reading `cvi/core/gates.py`'s module docstring, which
+     framing after reading `porchlamp/core/gates.py`'s module docstring, which
      already argues the same thing when `OSI_APPROVED_LICENSES` was
      relocated in the *opposite* direction (W2-8 round 2): three sentinels
      for "no SPDX id recorded" are a closed absence-vocabulary, not a
@@ -183,7 +183,7 @@ module-level assignment uses), installing that as the new
 second test monkeypatches `constants_v2.__doc__` and confirms neither
 moves. Both pass.
 
-Ran: `env -u PYTEST_ADDOPTS PYTHONPATH=$PWD /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -B -m pytest tests -n auto -p no:cacheprovider` → **2269 passed, 1 skipped** (the pre-existing skip is unrelated — `tests/core/test_import_graph.py` and the whole suite pass with this packet's files added). `ruff check .` repo-wide: **All checks passed**. `ruff format` applied to every file this packet wrote (not to the one pre-existing, unrelated formatting debt line in `cvi/audit/__init__.py` that predates this packet — confirmed against `main` before touching that file).
+Ran: `env -u PYTEST_ADDOPTS PYTHONPATH=$PWD /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -B -m pytest tests -n auto -p no:cacheprovider` → **2269 passed, 1 skipped** (the pre-existing skip is unrelated — `tests/core/test_import_graph.py` and the whole suite pass with this packet's files added). `ruff check .` repo-wide: **All checks passed**. `ruff format` applied to every file this packet wrote (not to the one pre-existing, unrelated formatting debt line in `porchlamp/audit/__init__.py` that predates this packet — confirmed against `main` before touching that file).
 
 ## Numbers for the dispatch's final-message template
 
@@ -195,16 +195,16 @@ Ran: `env -u PYTEST_ADDOPTS PYTHONPATH=$PWD /home/pctablet505/Projects/contribut
 
 ## Notes for downstream packets
 
-- **W4-4** (`GET /v1/cvi/methodology`): call
-  `cvi.audit.methodology_history.methodology_with_history(changelog_path)`
-  for the full document (or `cvi.core.methodology.methodology_document()`
+- **W4-4** (`GET /v1/porchlamp/methodology`): call
+  `porchlamp.audit.methodology_history.methodology_with_history(changelog_path)`
+  for the full document (or `porchlamp.core.methodology.methodology_document()`
   for just the constants-derived part); merge in the per-snapshot fields
   `06` section 3 F also wants (`id`, `as_of`, `manifest_root`, counts,
   `code_commit`) from whatever snapshot-reading code that endpoint already
   has — none of that is in scope here (it needs a live snapshot, which is
-  I/O this packet's brief explicitly keeps out of `cvi.core`). Replace the
+  I/O this packet's brief explicitly keeps out of `porchlamp.core`). Replace the
   `MethodologyDocument` TypedDict import with a pydantic model once
-  `cvi/serve/contract.py` exists (W4-5a).
+  `porchlamp/serve/contract.py` exists (W4-5a).
 - **06 §3 F / Methodology screen**: `docs/METHODOLOGY-v2.md` (or the same
   extended document, unrendered) is the ready-made source for every static
   part of that screen; only the six per-snapshot fields above are missing.
@@ -216,5 +216,5 @@ Ran: `env -u PYTEST_ADDOPTS PYTHONPATH=$PWD /home/pctablet505/Projects/contribut
   newcomer-cohort windows) that is not a registered `constants_v2` name
   today. If one of those windows is later frozen as a named constant, add
   it to `_PR_WINDOW_PARAM_IDS`'s sibling logic in
-  `cvi/core/methodology.py::_parameter_entry` rather than hand-typing the
+  `porchlamp/core/methodology.py::_parameter_entry` rather than hand-typing the
   day count.

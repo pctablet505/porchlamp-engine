@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.audit.coverage`.
+"""Unit tests for :mod:`porchlamp.audit.coverage`.
 
 Every assertion is an exact value on a 3-bundle fixture built here, so the
 missingness rules, quantile rule, per-repo counts and the black-hole gate are
@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 import pytest
 
-from cvi.audit.coverage import AuditReport, InputStat, audit_universe
+from porchlamp.audit.coverage import AuditReport, InputStat, audit_universe
 
 REPOS = ("org/alpha", "org/beta", "org/gamma")
 

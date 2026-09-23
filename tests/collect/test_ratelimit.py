@@ -1,5 +1,5 @@
 """Offline tests for the rate limiter / ETag cache / circuit breaker
-(``cvi/collect/ratelimit.py``; spec 13).
+(``porchlamp/collect/ratelimit.py``; spec 13).
 
 No network: all HTTP flows through fake ``httpx.BaseTransport``
 implementations, and all time flows through a :class:`FakeClock` whose
@@ -14,7 +14,7 @@ from typing import Callable
 import httpx
 import pytest
 
-from cvi.collect.ratelimit import (
+from porchlamp.collect.ratelimit import (
     CachedHttpClient,
     CircuitBreaker,
     ETagCache,
@@ -25,7 +25,7 @@ from cvi.collect.ratelimit import (
 )
 
 #: Any GET-like URL works for these fakes -- reused from the old
-#: ``cvi.ingest.GITHUB_GRAPHQL_ENDPOINT`` constant, inlined since
+#: ``porchlamp.ingest.GITHUB_GRAPHQL_ENDPOINT`` constant, inlined since
 #: ``ratelimit.py`` is a generic HTTP-primitives module with no
 #: GitHub-specific constants of its own.
 _SOME_URL = "https://api.github.com/graphql"

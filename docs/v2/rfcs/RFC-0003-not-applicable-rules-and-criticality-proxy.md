@@ -17,19 +17,19 @@ This RFC's constants close the loop the ruling opened:
    (`02` section 5's "the rule list lives in `constants_v2` and is part of
    the constants hash"): the only design-level rule permitted to assign
    `Unmeasured(not_applicable)` today is `dependents_deduped` when the
-   bundle's own `ecosystem` fact is `"systems"`. `cvi.core.engine` reads it
+   bundle's own `ecosystem` fact is `"systems"`. `porchlamp.core.engine` reads it
    to downgrade any other not_applicable claim to `collector_failure` (03
    section 4: "a bundle or collector can never assert not_applicable on its
-   own"), and `cvi.derive.bundle._resolve_dependents_deduped` reads the same
+   own"), and `porchlamp.derive.bundle._resolve_dependents_deduped` reads the same
    tuple instead of its own inline check.
 2. `OPENSSF_PROXY_MIN_SIGNALS` is the minimum count of the ten Pike signals
-   (`cvi.core.openssf.SIGNAL_FIELDS`) that must be present for row 2.2's
+   (`porchlamp.core.openssf.SIGNAL_FIELDS`) that must be present for row 2.2's
    `proxy:no_dependents_signal` renormalised score to fire when the
    dependents signal is `not_applicable`/`third_party_gap` (never a
    retry-able `collector_failure`) — the D-MISS-5 consequence text in `02`
    section 5.
 3. `WINDOW_STALENESS_DAYS` is a straight relocation: W1-7f (2026-09-13,
-   `91362a1`) introduced this value inside `cvi/collect/pike_signals.py`,
+   `91362a1`) introduced this value inside `porchlamp/collect/pike_signals.py`,
    outside `constants_dict()`'s coverage, with its own follow-up noting the
    gap ("relocate, register, RFC + hash re-pin" -- folded into this
    packet). It already gated row 2.2's F5 staleness refusal; this RFC only
@@ -41,9 +41,9 @@ This RFC's constants close the loop the ruling opened:
 
 | Constant | Before | After |
 |---|---|---|
-| `NOT_APPLICABLE_RULES` | did not exist (the rule was an inline `if ecosystem == "systems"` check in `cvi/derive/bundle.py`, unhashed and unenforced against any other row) | `(("dependents_deduped", "ecosystem", "systems"),)` |
+| `NOT_APPLICABLE_RULES` | did not exist (the rule was an inline `if ecosystem == "systems"` check in `porchlamp/derive/bundle.py`, unhashed and unenforced against any other row) | `(("dependents_deduped", "ecosystem", "systems"),)` |
 | `OPENSSF_PROXY_MIN_SIGNALS` | did not exist (row 2.2 had no proxy path at all — a missing dependents signal made the whole ten-signal set `Unmeasured`) | `8` |
-| `WINDOW_STALENESS_DAYS` | `14` (module-level constant in `cvi/collect/pike_signals.py`, outside `constants_dict()`) | `14` (relocated into `constants_v2`, re-bound in `pike_signals.py` under the same name) |
+| `WINDOW_STALENESS_DAYS` | `14` (module-level constant in `porchlamp/collect/pike_signals.py`, outside `constants_dict()`) | `14` (relocated into `constants_v2`, re-bound in `pike_signals.py` under the same name) |
 
 `BENCHMARK_VERSION`: `"2.0.0-rc1"` -> `"2.0.0-rc1"` (no bump). `01/02`
 section 5's D-MISS-5 is a missingness-policy change (D-VER-1's "major"
@@ -86,12 +86,12 @@ line.
   reasons the sample's staleness predates this packet (2.2's
   `proxy:no_dependents_signal` never fires against this specific sample
   because its underlying v1 derived documents were produced before this
-  packet's `cvi/collect/pike_signals.py` change and carry no
+  packet's `porchlamp/collect/pike_signals.py` change and carry no
   `openssf_signals_partial` field at all -- a fresh `derive_repo` run would
   activate it, per this RFC's own new code path, but that re-derive is out
   of this packet's scope). `records_hash` still moves
   (`099264a0d5…` in this packet's own handoff) because
-  `cvi.core.models.PillarScore` gains a new field (`applicable: bool`,
+  `porchlamp.core.models.PillarScore` gains a new field (`applicable: bool`,
   default `True`) that appears in every stored record's `pillars` dump
   structurally, and because `CONSTANTS_HASH` itself moved (stamped per
   record) -- not because any repo's coverage or tier value changed.

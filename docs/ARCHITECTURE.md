@@ -1,4 +1,4 @@
-# Implementation Architecture — Contributor Value Index (CVI) Platform
+# Implementation Architecture — Porchlamp Platform
 ## Empirical Foundation, System Topology, Low-Level Design & UI/UX Architecture (HLD + LLD)
 
 ---
@@ -9,7 +9,7 @@
 
 ## 1. System Overview & Core Objectives
 
-The **Contributor Value Index (CVI) Platform** is an empirical analytics engine and discovery platform that evaluates open-source software (OSS) repositories worldwide based on **contributor return-on-investment (ROI)**.
+The **Porchlamp Platform** is an empirical analytics engine and discovery platform that evaluates open-source software (OSS) repositories worldwide based on **contributor return-on-investment (ROI)**.
 
 Rather than relying on uncalibrated vanity metrics (stars, raw downloads), the platform models the trade-off between **Contributor Leverage** (long-term career capital, production impact, engineering growth) and **Contributor Friction** (human review latency, PR ghosting, corporate silos, relicensing risk, and toxic interactions).
 
@@ -45,7 +45,7 @@ flowchart TB
 
 ## 2. Parametric Hierarchy & The 5-Phase Ranking Pipeline
 
-To eliminate rank-reversal pathologies, scale distortions across package managers, and vanity metric gaming, CVI executes ranking through an explicit, sequential 5-phase pipeline:
+To eliminate rank-reversal pathologies, scale distortions across package managers, and vanity metric gaming, Porchlamp executes ranking through an explicit, sequential 5-phase pipeline:
 
 ```mermaid
 flowchart TB
@@ -80,7 +80,7 @@ flowchart TB
 
     Phase4 --> Phase5["Phase 5: Persona-Adaptive Leaderboard Projection<br/>• Balanced Default, First-Timer, Career Capital, Senior Systems, AI-Assisted"]
 
-    Phase5 --> Output["Final CVI Score (0 - 100), Quadrant and Verified Tier"]
+    Phase5 --> Output["Final Porchlamp Score (0 - 100), Quadrant and Verified Tier"]
 ```
 
 ### Phase Details & Mathematical Rationale
@@ -112,7 +112,7 @@ $$
    - Computes an axiomatic linear weighted sum over calibrated percentile scores across 15 empirical parameters:
 
 $$
-CVI = \sum_{j=1}^{15} w_j \cdot R_{\text{pct}}(x_j)
+Porchlamp = \sum_{j=1}^{15} w_j \cdot R_{\text{pct}}(x_j)
 $$
 
 5. **Phase 4: 2D Matrix Coordinate Decomposition**
@@ -345,7 +345,7 @@ flowchart TD
     subgraph OperationalServing ["3. Operational and Serving Layer"]
         MetaDB[("Relational Operational Store<br/>SQLite / PostgreSQL Metadata Cache")]
         APIServer["High-Performance REST and GraphQL Server<br/>FastAPI with In-Memory Response Caching"]
-        WebClient["CVI Discovery Web Client<br/>Interactive 2D Canvas and Real-Time Re-projection"]
+        WebClient["Porchlamp Discovery Web Client<br/>Interactive 2D Canvas and Real-Time Re-projection"]
     end
 
     GHA --> DuckDB
@@ -400,7 +400,7 @@ classDiagram
         -pillar_scorers: List
         +apply_stage0_eba_gates(repo_meta)
         +compute_ecosystem_percentiles(raw_metrics, ecosystem)
-        +compute_cvi(percentile_scores, persona)
+        +compute_porchlamp(percentile_scores, persona)
     }
 
     class DuckDBLakehouse {
@@ -458,7 +458,7 @@ sequenceDiagram
     participant Duck as DuckDB Lakehouse
     participant Scout as StarScout Filter
     participant Pike as OpenSSF Engine
-    participant Score as CVI Scoring Runner
+    participant Score as Porchlamp Scoring Runner
     participant Meta as Operational Store (SQLite/Postgres)
 
     Cron->>GHA: Execute hourly partition sync (YYYY-MM-DD-H)
@@ -471,8 +471,8 @@ sequenceDiagram
     Score->>Duck: Execute vectorized TTFHR, MR_first, GR_14 and TTM_p90
     Duck-->>Score: Return bot-filtered review telemetry (under 120ms)
     Score->>Score: Calculate ECDF percentiles within language ecosystem
-    Score->>Score: Apply Stage 0 EBA Gates and calculate CVI composite
-    Score->>Meta: Upsert repository record (leverage, friction, CVI, quadrant)
+    Score->>Score: Apply Stage 0 EBA Gates and calculate Porchlamp composite
+    Score->>Meta: Upsert repository record (leverage, friction, Porchlamp, quadrant)
     Meta-->>Cron: Batch sync finished successfully
 ```
 
@@ -514,14 +514,14 @@ sequenceDiagram
 | `comment_frequency` | Float (64-bit) | No | 15 comments / issue | Depth and engagement of architectural discourse |
 | `dependents_count` | Integer (Unsigned 32) | No | 500,000 dependents | Volume of direct downstream package imports |
 
-### 9.3 Scored Composite Contract (`CVICompositeResult`)
+### 9.3 Scored Composite Contract (`PorchlampCompositeResult`)
 
 | Field Name | Logical Type | Valid Range | Precision | Description |
 | :--- | :--- | :---: | :---: | :--- |
 | `owner` | String | -- | -- | Target repository owner namespace |
 | `name` | String | -- | -- | Target repository slug |
 | `ecosystem` | Enum | `npm, pypi, crates, go, maven, systems` | -- | Primary package registry ecosystem |
-| `overall_cvi` | Float (64-bit) | [0.0, 100.0] | 2 decimals | Composite Contributor Value Index |
+| `overall_porchlamp` | Float (64-bit) | [0.0, 100.0] | 2 decimals | Composite Porchlamp |
 | `rank_tier` | Enum | `Tier S+, Tier S, Tier A, Tier B, Tier C, Tier D` | -- | Cardinal prestige and health tier |
 | `matrix_quadrant` | Enum | `Sweet Spot, Crucible, Nursery, Graveyard` | -- | 2D Discovery Matrix classification |
 | `leverage_score` | Float (64-bit) | [0.0, 100.0] | 2 decimals | Composite Y-coordinate (Impact / Rigor) |
@@ -646,7 +646,7 @@ Stores indexed metadata, pillar evaluations, and 2D matrix coordinates.
 | `leverage_score` | REAL | NOT NULL | 2D Matrix Y-coordinate in [0.0, 100.0] |
 | `friction_score` | REAL | NOT NULL | 2D Matrix X-coordinate in [0.0, 100.0] |
 | `matrix_quadrant` | VARCHAR(30) | NOT NULL | Discovery quadrant classification |
-| `overall_cvi` | REAL | NOT NULL | Final composite CVI score in [0.0, 100.0] |
+| `overall_porchlamp` | REAL | NOT NULL | Final composite Porchlamp score in [0.0, 100.0] |
 | `rank_tier` | VARCHAR(30) | NOT NULL | Tier designation (Tier S+, S, A, B, C, D) |
 | `is_stage0_disqualified`| BOOLEAN | DEFAULT FALSE | Stage 0 non-compensatory gating outcome |
 | `disqualification_reason`| TEXT | NULLABLE | Human-readable gating violation detail |
@@ -654,24 +654,24 @@ Stores indexed metadata, pillar evaluations, and 2D matrix coordinates.
 
 **Indexes & Performance Optimization:**
 - Composite Unique Index: `UNIQUE(owner, name)`
-- Filtered B-Tree Index: `idx_cvi_ecosystem_rank(ecosystem, overall_cvi DESC)`
-- Spatial Partition Index: `idx_cvi_quadrant(matrix_quadrant, overall_cvi DESC)`
+- Filtered B-Tree Index: `idx_porchlamp_ecosystem_rank(ecosystem, overall_porchlamp DESC)`
+- Spatial Partition Index: `idx_porchlamp_quadrant(matrix_quadrant, overall_porchlamp DESC)`
 
 ---
 
 ## 12. REST & GraphQL Interface API Specifications
 
-### 12.1 Matrix Spatial Query (`GET /v1/cvi/matrix`)
+### 12.1 Matrix Spatial Query (`GET /v1/porchlamp/matrix`)
 - **Query Parameters:**
   - `ecosystem`: String (optional, e.g. `pypi`, `crates`, `all`)
   - `domain`: String (optional, e.g. `ai_ml`, `systems`, `devtools`)
   - `persona`: Enum (default: `balanced`, options: `first_timer`, `career_capital`, `senior_systems`, `ai_assisted`)
   - `min_stars`: Integer (default: 100)
 - **Response Structure:**
-  - Array of scatter node objects: `[{ repo_id, owner, name, x: friction_score, y: leverage_score, cvi: overall_cvi, tier, quadrant, size, is_gated }]`
+  - Array of scatter node objects: `[{ repo_id, owner, name, x: friction_score, y: leverage_score, porchlamp: overall_porchlamp, tier, quadrant, size, is_gated }]`
   - Performance SLA: &lt; 50ms response time from in-memory operational cache.
 
-### 12.2 Repository Deep-Dive Scorecard (`GET /v1/cvi/repos/{owner}/{name}`)
+### 12.2 Repository Deep-Dive Scorecard (`GET /v1/porchlamp/repos/{owner}/{name}`)
 - **Path Parameters:**
   - `owner`: Repository owner login
   - `name`: Repository name
@@ -685,7 +685,7 @@ Stores indexed metadata, pillar evaluations, and 2D matrix coordinates.
     - Legal IP classification, CLA hazard level, and AI policy posture details.
     - Curated active Unclaimed Good First Issues (titles, labels, creation dates, URLs).
 
-### 12.3 Dynamic Persona Re-Projection (`POST /v1/cvi/reproject`)
+### 12.3 Dynamic Persona Re-Projection (`POST /v1/porchlamp/reproject`)
 - **Request Payload:**
   - Custom weights vector: `{ responsiveness: 0.35, criticality: 0.20, governance: 0.15, rigor: 0.15, accessibility: 0.15 }` (must sum to 1.0).
 - **Response Structure:**
@@ -724,8 +724,8 @@ flowchart LR
 | **`test_starscout_filter`** | Anti-Fraud Filter | Neutralizes lockstep star bursts lacking fork/issue correlation. |
 | **`test_ecdf_ecosystem_scale`**| Normalization Engine | Prevents npm package density from depressing Rust/Go systems libraries. |
 | **`test_legal_ip_penalty`** | Governance Scorer | DCO repositories score 100; unilateral corporate CLAs penalized at 10. |
-| **`test_ground_truth_vllm`** | End-to-End Engine | `vllm-project/vllm` -> **The Sweet Spot** (CVI = 88.8, Tier S+). |
-| **`test_ground_truth_hub`** | End-to-End Engine | `keras-team/keras-hub` -> **The Graveyard** (CVI = 46.8, Black Hole). |
+| **`test_ground_truth_vllm`** | End-to-End Engine | `vllm-project/vllm` -> **The Sweet Spot** (Porchlamp = 88.8, Tier S+). |
+| **`test_ground_truth_hub`** | End-to-End Engine | `keras-team/keras-hub` -> **The Graveyard** (Porchlamp = 46.8, Black Hole). |
 | **`test_ground_truth_linux`**| End-to-End Engine | `torvalds/linux` -> Stage 0 Gated (Mailing-list off-platform routing). |
 | **`test_ground_truth_gentoo`**| Persona Scorer | `gentoo/gentoo` -> Disqualified for AI persona; Tier A for traditional. |
 
@@ -739,7 +739,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    Root["CVI User Personas and Mental Models"]
+    Root["Porchlamp User Personas and Mental Models"]
 
     subgraph P1 ["Persona 1: The Explorer (First-Time Contributor)"]
         direction TB
@@ -786,13 +786,13 @@ flowchart TD
 ### 16.1 High-Fidelity Desktop Platform Interfaces
 
 #### View 1: The Interactive 2D Discovery Matrix & Scorecard Drawer
-![CVI Platform 2D Discovery Matrix & Scorecard Drawer Mockup](assets/cvi_platform_matrix.svg)
+![Porchlamp Platform 2D Discovery Matrix & Scorecard Drawer Mockup](assets/porchlamp_platform_matrix.svg)
 
 #### View 2: Multi-Ecosystem Ranked Leaderboard & Advanced Filtering Toolbar
-![CVI Multi-Ecosystem Leaderboard & Advanced Filtering Toolbar Mockup](assets/cvi_leaderboard.svg)
+![Porchlamp Multi-Ecosystem Leaderboard & Advanced Filtering Toolbar Mockup](assets/porchlamp_leaderboard.svg)
 
 #### View 3: Custom Priority & Dynamic Re-Ranking Configurator
-![CVI Custom Priority & Dynamic Re-Ranking Configurator Mockup](assets/cvi_custom_ranking.svg)
+![Porchlamp Custom Priority & Dynamic Re-Ranking Configurator Mockup](assets/porchlamp_custom_ranking.svg)
 
 ---
 
@@ -845,7 +845,7 @@ stateDiagram-v2
 flowchart TD
     subgraph GlobalShell ["Global App Shell (Fixed Header and Omnibar)"]
         direction TB
-        Brand["CVI Engineering Portal HUD"]
+        Brand["Porchlamp Engineering Portal HUD"]
         NavRail["Primary Tab Navigation<br/>1. 2D Discovery Matrix (/matrix)<br/>2. Multi-Ecosystem Leaderboard (/leaderboard)<br/>3. Custom Priority Configurator (/persona)<br/>4. Side-by-Side Repo Comparator (/compare)"]
         Omnibar["Omnibar / Cmd+K Search and Quick Jump"]
     end
@@ -933,7 +933,7 @@ flowchart TD
 
 ## 19. Custom Ordering & Dynamic Re-Ranking System UX
 
-To address varying contributor priorities (e.g. beginner looking for mentorship vs. senior engineer seeking Tier-S career capital), CVI provides an interactive, real-time dynamic re-ranking engine:
+To address varying contributor priorities (e.g. beginner looking for mentorship vs. senior engineer seeking Tier-S career capital), Porchlamp provides an interactive, real-time dynamic re-ranking engine:
 
 ```mermaid
 flowchart LR
@@ -944,7 +944,7 @@ flowchart LR
     end
 
     subgraph DynamicEngine ["2. In-Memory WAM Re-Calculation (< 50ms)"]
-        Recompute["Compute New CVI Composite Scores<br/>CVI_i = Sum(w_j * R_pct(x_ij))"]
+        Recompute["Compute New Porchlamp Composite Scores<br/>PORCHLAMP_i = Sum(w_j * R_pct(x_ij))"]
         DeltaAudit["Calculate Positional Deltas<br/>Delta = Rank_old - Rank_new"]
     end
 
@@ -977,7 +977,7 @@ flowchart LR
 ### 19.3 Shareable URL State Serialization
 Every custom ranking configuration serializes directly into URL search parameters:
 ```
-https://cvi.dev/leaderboard?eco=pypi&w_resp=35&w_crit=25&w_gov=15&w_rig=15&w_acc=10&exclude_black_holes=true
+https://porchlamp.dev/leaderboard?eco=pypi&w_resp=35&w_crit=25&w_gov=15&w_rig=15&w_acc=10&exclude_black_holes=true
 ```
 Users can bookmark, export, or share their exact ranking criteria with teams and communities.
 

@@ -1,6 +1,6 @@
 """Phase 5 Persona-Adaptive Leaderboard Projection tests (spec 2, Phase 5; spec 4).
 
-Exact-oracle tests for ``cvi.persona``. Every assertion pins the computed
+Exact-oracle tests for ``porchlamp.persona``. Every assertion pins the computed
 value to a hand-computed expectation, so any drift in weight wiring,
 validation, rounding, or rank-delta tie-breaking fails loudly.
 
@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import pytest
 
-from cvi.constants import PERSONA_PRESETS
-from cvi.models import Persona, PillarScores
-from cvi.persona import (
+from porchlamp.constants import PERSONA_PRESETS
+from porchlamp.models import Persona, PillarScores
+from porchlamp.persona import (
     PILLAR_KEYS,
     persona_composite,
     rank_deltas,
@@ -296,7 +296,7 @@ def test_validate_persona_preset_covers_all_pillar_keys():
 def test_validate_persona_preset_rejects_bad_weights():
     # The helper validates any weight dict via the same rule: prove the
     # underlying check fires on a broken preset-shaped dict.
-    from cvi.persona import _validate_weights
+    from porchlamp.persona import _validate_weights
 
     with pytest.raises(ValueError, match="exactly the 5 pillar keys"):
         _validate_weights({"responsiveness": 1.0})

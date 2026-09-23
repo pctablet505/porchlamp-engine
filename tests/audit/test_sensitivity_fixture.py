@@ -1,5 +1,5 @@
 """Acceptance tests: sensitivity over the fixture snapshot
-(``cvi.audit.sensitivity.sensitivity_v2``).
+(``porchlamp.audit.sensitivity.sensitivity_v2``).
 
 Two things are proven, on two different snapshots, on purpose:
 
@@ -16,12 +16,12 @@ Two things are proven, on two different snapshots, on purpose:
    the sample-200 corpus loader tops out below the 60% rated threshold, so all 50
    repos are gated or unrated.
    ranking to compare a perturbation against. This is not this packet's
-   own defect (``cvi/core/pipeline.py`` correctly computes zero rated
+   own defect (``porchlamp/core/pipeline.py`` correctly computes zero rated
    repos from the correct inputs) and not tunable away (R-6, D-AGG-3): it
    is a genuine data-pipeline gap upstream of this packet (dr90/mr_first/
    gr14/openssf_criticality/pipeline_defenses/newcomer_conversion/
    rr90_return_rate/dx are still ``_unmapped`` in
-   ``cvi/derive/bundle.py::INPUT_MAPPINGS``, and this specific sample's
+   ``porchlamp/derive/bundle.py::INPUT_MAPPINGS``, and this specific sample's
    derived documents additionally carry no ``pr_window_count`` provenance
    at all, so ttfhr/ttm_p90/substantive_review_rate never resolve either),
    recorded here as a measured fact and in the handoff as a blocking
@@ -36,8 +36,8 @@ from pathlib import Path
 
 import pytest
 
-from cvi.audit.sensitivity import DEFAULT_PERTURBATION_PP, TAU_RELEASE_THRESHOLD, sensitivity_v2
-from cvi.core.pipeline import score_snapshot
+from porchlamp.audit.sensitivity import DEFAULT_PERTURBATION_PP, TAU_RELEASE_THRESHOLD, sensitivity_v2
+from porchlamp.core.pipeline import score_snapshot
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "build_fixture_snapshot.py"
@@ -129,7 +129,7 @@ def test_sensitivity_v2_on_real_fixture_needs_at_least_two_rated_repos() -> None
 
 # --------------------------------------------------------------------------- #
 # Mutation-battery oracle: renormalisation over measured pillars only
-# (D-MISS-2 generalised, see cvi.audit.sensitivity's module docstring).
+# (D-MISS-2 generalised, see porchlamp.audit.sensitivity's module docstring).
 # --------------------------------------------------------------------------- #
 def test_weighted_composite_and_coverage_hand_computed() -> None:
     """Hand computation with one pillar unmeasured (accessibility), so
@@ -150,11 +150,11 @@ def test_weighted_composite_and_coverage_hand_computed() -> None:
     composite_raw = (.35*91 + .10*84 + .15*77 + .10*41) / 0.70
                   = 55.90 / 0.70 = 79.857142857...
 
-    Exercises ``cvi.core.aggregate.composite_score_raw`` and ``composite_coverage``
+    Exercises ``porchlamp.core.aggregate.composite_score_raw`` and ``composite_coverage``
     with the ``weights`` keyword directly.
     """
-    from cvi.core.aggregate import composite_coverage, composite_score_raw
-    from cvi.core.models import PillarScore
+    from porchlamp.core.aggregate import composite_coverage, composite_score_raw
+    from porchlamp.core.models import PillarScore
 
     pillars = {
         "responsiveness": PillarScore(91.0, 1.0),
@@ -172,8 +172,8 @@ def test_weighted_composite_and_coverage_hand_computed() -> None:
 
 
 def test_weighted_composite_raw_is_none_when_every_pillar_unmeasured() -> None:
-    from cvi.core.aggregate import composite_score_raw
-    from cvi.core.models import PillarScore
+    from porchlamp.core.aggregate import composite_score_raw
+    from porchlamp.core.models import PillarScore
 
     pillars = {name: PillarScore(None, 0.0) for name in ("responsiveness", "criticality", "governance", "rigor", "accessibility")}
     weights = {"responsiveness": 0.35, "criticality": 0.10, "governance": 0.15, "rigor": 0.10, "accessibility": 0.30}

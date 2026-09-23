@@ -1,7 +1,7 @@
-# I-01 Contract (`cvi/serve/contract.py`) — PASS with gaps
-Reviewed at tip 026bb32. 471 lines, no I/O (verified: imports are `typing` + `pydantic` only; no `cvi.store`/`cvi.core`/`os`/`open`/`requests`).
+# I-01 Contract (`porchlamp/serve/contract.py`) — PASS with gaps
+Reviewed at tip 026bb32. 471 lines, no I/O (verified: imports are `typing` + `pydantic` only; no `porchlamp.store`/`porchlamp.core`/`os`/`open`/`requests`).
 
-06 §4 field list vs the model: every field present. `rank, tie_group, owner, name, ecosystem, cvi, coverage, tier, tier_ceiling, quadrant, leverage, friction, leverage_coverage, friction_coverage, p_*/c_* (5+5), persona_gates, persona_composites, suspicion, stars_audited, snapshot_id, benchmark_version` — all present; `raw_hash` added (declared as an addition in the module docstring, justified by 06 §3 C item 5).
+06 §4 field list vs the model: every field present. `rank, tie_group, owner, name, ecosystem, porchlamp, coverage, tier, tier_ceiling, quadrant, leverage, friction, leverage_coverage, friction_coverage, p_*/c_* (5+5), persona_gates, persona_composites, suspicion, stars_audited, snapshot_id, benchmark_version` — all present; `raw_hash` added (declared as an addition in the module docstring, justified by 06 §3 C item 5).
 
 Eleven W4-3 mismatches — all eleven applied:
 1 tie_group `int|None`, equality-only semantics documented (l.123-127) — OK
@@ -19,5 +19,5 @@ Eleven W4-3 mismatches — all eleven applied:
 GAPS (see report Blocker B-6 / bridge table):
 - No `rank_delta` / balanced projection fields, so 06 §3 A's persona-delta column and §8 item 4 cannot be satisfied; `extra="forbid"` means an API cannot add them without a contract change.
 - `page_size` is bounded by `max(LEADERBOARD_PAGE_SIZES)` but not constrained to membership; `leaderboard.json` itself carries `page_size: 73` and validates.
-- `GateReason` omits the engine's stage-6 `'unrated: no_external_workflow'` (`cvi/core/gates.py:55`), which the store writes into `gate_reason`.
-- `off_platform_routed` has no producer (`cvi/core/gates.py:59` writes `routed='off_platform'` on an *eligible* repo).
+- `GateReason` omits the engine's stage-6 `'unrated: no_external_workflow'` (`porchlamp/core/gates.py:55`), which the store writes into `gate_reason`.
+- `off_platform_routed` has no producer (`porchlamp/core/gates.py:59` writes `routed='off_platform'` on an *eligible* repo).

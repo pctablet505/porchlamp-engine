@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 import pytest
 
-from cvi.collect.envelope import envelope_hash, write_envelope
+from porchlamp.collect.envelope import envelope_hash, write_envelope
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("verify", ROOT / "scripts" / "verify.py")

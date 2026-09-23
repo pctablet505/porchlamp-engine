@@ -1,8 +1,8 @@
 """Persona-specific Stage 0 constraint gates (spec 4) tests.
 
 Pins the senior_systems Multi-Vendor gate (gate 4b, ``elephant_factor >= 3``)
-in ``cvi.stage0.apply_stage0`` and its wiring through
-``cvi.engine.score_repository``. The remaining spec-4 persona gates
+in ``porchlamp.stage0.apply_stage0`` and its wiring through
+``porchlamp.engine.score_repository``. The remaining spec-4 persona gates
 (first_timer "Low-Barrier Only", career_capital "High Tier Brand Only") are
 intentionally unimplemented pending owner definition, so no test pins their
 semantics.
@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from cvi.engine import PILLAR_NAMES, score_repository
-from cvi.models import Ecosystem, Persona, RepoMeta, Stage0Result, Tier
-from cvi.stage0 import apply_stage0
+from porchlamp.engine import PILLAR_NAMES, score_repository
+from porchlamp.models import Ecosystem, Persona, RepoMeta, Stage0Result, Tier
+from porchlamp.stage0 import apply_stage0
 
 NOW = datetime(2026, 9, 11, 12, 0, 0)
 
@@ -142,7 +142,7 @@ def test_engine_senior_systems_low_ef_disqualified():
         _meta(elephant_factor=1), [], NOW, persona=Persona.SENIOR_SYSTEMS
     )
     assert result.is_stage0_disqualified is True
-    assert result.overall_cvi == 0.0
+    assert result.overall_porchlamp == 0.0
     assert result.rank_tier is Tier.D
     assert result.stage0.passed is False
     assert result.disqualification_reason is not None
@@ -163,5 +163,5 @@ def test_engine_senior_systems_multi_vendor_not_disqualified():
     assert result.stage0.passed is True
     assert result.pillar_scores is not None
     # All pillars 50.0 -> composite 50.0 for any persona -> Tier C.
-    assert result.overall_cvi == 50.0
+    assert result.overall_porchlamp == 50.0
     assert result.rank_tier is Tier.C

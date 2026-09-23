@@ -5,9 +5,9 @@ Worktree: `/home/pctablet505/Projects/cvi-wt-W2-5`, branch `W2-5`, base `e29fb79
 ## Diffstat (files staged for this commit only)
 
 ```
- cvi/core/aggregate.py        | 171 ++++++++++++++++
- cvi/core/engine.py           | 251 +++++++++++++++++++++++
- cvi/core/matrix.py           | 129 ++++++++++++
+ porchlamp/core/aggregate.py        | 171 ++++++++++++++++
+ porchlamp/core/engine.py           | 251 +++++++++++++++++++++++
+ porchlamp/core/matrix.py           | 129 ++++++++++++
  tests/core/test_aggregate.py | 241 ++++++++++++++++++++++
  tests/core/test_engine_v2.py | 462 +++++++++++++++++++++++++++++++++++++++++++
  5 files changed, 1254 insertions(+)
@@ -22,49 +22,49 @@ with the same note.
 ## Files
 
 Owned and committed:
-- `cvi/core/aggregate.py` (new) — D-MISS-2/3, D-AGG-2: pillar renormalisation,
+- `porchlamp/core/aggregate.py` (new) — D-MISS-2/3, D-AGG-2: pillar renormalisation,
   composite coverage, rated/ceiling status, composite, tier cutoffs/ceiling.
-- `cvi/core/matrix.py` (new) — D-MAT-1/2: v2 leverage/friction/quadrant
-  coordinates. The v1 `cvi/matrix.py` is untouched.
-- `cvi/core/engine.py` (new) — `score(bundle, populations, snapshot) ->
+- `porchlamp/core/matrix.py` (new) — D-MAT-1/2: v2 leverage/friction/quadrant
+  coordinates. The v1 `porchlamp/matrix.py` is untouched.
+- `porchlamp/core/engine.py` (new) — `score(bundle, populations, snapshot) ->
   ScoreRecord`, D-ORDER-1 stages 0, 2, 3, 5, 6, 7.
 - `tests/core/test_aggregate.py` (new) — 35 tests, every pillar/coverage/
   ceiling/composite/tier acceptance oracle.
 - `tests/core/test_engine_v2.py` (new) — 8 tests: the end-to-end oracle, the
   D-GATE never-calls-parameter-functions guard (+ its anti-vacuity sibling),
-  the D-EVID-1 unrated case, and four direct `cvi.core.matrix` oracles
+  the D-EVID-1 unrated case, and four direct `porchlamp.core.matrix` oracles
   (leverage/friction drop an unmeasured pillar with renormalised weights,
   all-unmeasured gives `None` axes, the 50.0 quadrant boundary).
 
 Provided by W2-4, extracted from the packet's untracked tar, **not staged,
 not part of this commit** (present in the worktree only so the packet's
 code runs and its own tests pass):
-- `cvi/core/normalize.py`
-- `cvi/snapshot/populations.py`
+- `porchlamp/core/normalize.py`
+- `porchlamp/snapshot/populations.py`
 - `tests/core/test_normalize_v2.py`
 - `tests/snapshot/test_populations.py`
 
-Not modified: `cvi/core/models.py`, `cvi/core/constants_v2.py`,
-`cvi/core/gates.py`, `cvi/core/params/**` (W2-1/W2-2/W2-3, read-only
-dependencies), `cvi/matrix.py`, `cvi/engine.py` (v1, untouched).
+Not modified: `porchlamp/core/models.py`, `porchlamp/core/constants_v2.py`,
+`porchlamp/core/gates.py`, `porchlamp/core/params/**` (W2-1/W2-2/W2-3, read-only
+dependencies), `porchlamp/matrix.py`, `porchlamp/engine.py` (v1, untouched).
 
 `ScoreRecord` already carried every field this packet needed (W2-1's
-`cvi/core/models.py`); no additive fields were required.
+`porchlamp/core/models.py`); no additive fields were required.
 
 ## Design decisions worth flagging to the lead
 
-1. **`Snapshot` is new, owned by `cvi/core/engine.py`.** 04 section 3 names
+1. **`Snapshot` is new, owned by `porchlamp/core/engine.py`.** 04 section 3 names
    no such type; the packet's `score(bundle, populations, snapshot)`
-   signature needs a place for `as_of` (D-VER-3: no clock in `cvi.core`) and
+   signature needs a place for `as_of` (D-VER-3: no clock in `porchlamp.core`) and
    the stage-0 `GateEvidence` (external to the bundle: W1-9 tree markers,
    W1-5 vitality commits). `GateEvidence` is inherently per-repo, so the
    caller builds one `Snapshot` per (repo, snapshot) call, sharing
    `snapshot_id`/`as_of`. Defined in `engine.py`, not `models.py` (not in
    this packet's owned files).
 2. **`PopulationLookup` is a local structural `Protocol`, not an import of
-   `cvi.snapshot.populations.PopulationSet`.** `tests/core/
+   `porchlamp.snapshot.populations.PopulationSet`.** `tests/core/
    test_import_graph.py` (W2-1, landed, not owned by this packet) asserts
-   every file directly in `cvi/core/` imports nothing outside `cvi.core` +
+   every file directly in `porchlamp/core/` imports nothing outside `porchlamp.core` +
    stdlib, via a plain AST scan — a `TYPE_CHECKING`-guarded import is caught
    by the scan just the same as a real one, so it cannot be used to route
    around this. `PopulationLookup` declares only the `.ecdf(ecosystem,
@@ -75,8 +75,8 @@ dependencies), `cvi/matrix.py`, `cvi/engine.py` (v1, untouched).
    populations must be built in log space.** The three D-NORM-3 curves do
    not all query their `ecdf` the same way: `ttm_p90` queries
    `ecdf(p90_hours)` (raw), but `dependents`/`downloads` query
-   `ecdf(log10(1 + raw_value))` (`cvi/core/params/criticality.py`).
-   `cvi.snapshot.populations.PopulationMember.measured` is documented as
+   `ecdf(log10(1 + raw_value))` (`porchlamp/core/params/criticality.py`).
+   `porchlamp.snapshot.populations.PopulationMember.measured` is documented as
    "the raw measured value"; for the frozen ECDF to rank the same quantity
    the curve queries with, whoever builds the dependents/downloads
    *populations* must insert `log10(1 + raw)`, not the raw count — the
@@ -88,14 +88,14 @@ dependencies), `cvi/matrix.py`, `cvi/engine.py` (v1, untouched).
    log space. This is a real cross-packet gap, not a hypothetical: it does
    not surface as a crash, only as a silently wrong ranking, so it is easy
    to miss. Flagging for whoever writes the real population-building driver
-   and for `cvi/snapshot/populations.py`'s own docstring.
+   and for `porchlamp/snapshot/populations.py`'s own docstring.
 4. **Bug found and fixed during test construction: eager `ecdf` fetch on an
    `Unmeasured` ECDF-kind input.** `_score_params`'s first draft called
    `populations.ecdf(ecosystem, input_id)` unconditionally for the three
    ECDF-kind ids, before checking whether the bundle's value was even
    `Measured`. Since Python evaluates call arguments eagerly, this fetched
    (and could raise `LookupError` on) a population the curve was never
-   going to consult (`cvi.core.params.curves._apply` short-circuits on
+   going to consult (`porchlamp.core.params.curves._apply` short-circuits on
    `Unmeasured` before touching `ecdf`). Fixed: the population is now
    fetched only when `isinstance(value, Measured)`; a placeholder callable
    (never invoked) satisfies the three ECDF wrapper functions' required
@@ -106,7 +106,7 @@ dependencies), `cvi/matrix.py`, `cvi/engine.py` (v1, untouched).
 5. **`raw_hash = bundle.provenance_hash`, not a hash of the full serialized
    bundle.** `03-ANTI-MANIPULATION.md` line 85 says `raw_hash` is "hash of
    its bundle"; a hash of the *full* bundle document requires
-   `cvi.derive.bundle.dump_bundle`, which `cvi/core/` may not import
+   `porchlamp.derive.bundle.dump_bundle`, which `porchlamp/core/` may not import
    (04 section 3's import rule, enforced by the same AST-scan test).
    `provenance_hash` (hash of the referenced envelope hashes) is the
    closest fact already on the `FeatureBundle` object without crossing that
@@ -124,30 +124,30 @@ dependencies), `cvi/matrix.py`, `cvi/engine.py` (v1, untouched).
    tier-ceiling comparisons use unrounded values.** 04 section 8 says
    "comparisons for gates and ceilings use unrounded values"; D-MAT-1 says
    the quadrant's 50.0 threshold keeps "documented convention" — which is
-   v1's own docstring, reproduced in `cvi/matrix.py`, stating explicitly
+   v1's own docstring, reproduced in `porchlamp/matrix.py`, stating explicitly
    that rounding happens *before* the quadrant comparison. Treated as a
    deliberate, named exception (quadrant is neither a gate nor a ceiling)
-   rather than a conflict; both choices are commented in `cvi/core/
-   matrix.py` and `cvi/core/aggregate.py`.
+   rather than a conflict; both choices are commented in `porchlamp/core/
+   matrix.py` and `porchlamp/core/aggregate.py`.
 
 ## Fail-before proof
 
-`cvi/core/aggregate.py`, `cvi/core/matrix.py` and `cvi/core/engine.py` did
+`porchlamp/core/aggregate.py`, `porchlamp/core/matrix.py` and `porchlamp/core/engine.py` did
 not exist before this packet, so the fail-before is the absent-module proof
-(R-1): the three files were moved out of `cvi/core/` (with `__pycache__`
+(R-1): the three files were moved out of `porchlamp/core/` (with `__pycache__`
 cleared) and the packet's test files run against their absence.
 
 ```
-$ mv cvi/core/aggregate.py cvi/core/matrix.py cvi/core/engine.py <elsewhere>
+$ mv porchlamp/core/aggregate.py porchlamp/core/matrix.py porchlamp/core/engine.py <elsewhere>
 $ find . -name __pycache__ -exec rm -rf {} +
 $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .../python -m pytest tests/core/test_aggregate.py tests/core/test_engine_v2.py -p no:cacheprovider -q
 ==================================== ERRORS ====================================
 ________________ ERROR collecting tests/core/test_aggregate.py _________________
 ...
-E   ModuleNotFoundError: No module named 'cvi.core.aggregate'
+E   ModuleNotFoundError: No module named 'porchlamp.core.aggregate'
 ________________ ERROR collecting tests/core/test_engine_v2.py _________________
 ...
-E   ModuleNotFoundError: No module named 'cvi.core.engine'
+E   ModuleNotFoundError: No module named 'porchlamp.core.engine'
 =========================== short test summary info ============================
 ERROR tests/core/test_aggregate.py
 ERROR tests/core/test_engine_v2.py
@@ -156,11 +156,11 @@ PYTEST_EXIT=2
 ```
 
 Files restored (`git status --short` confirmed identical to before the
-move); re-run below is the pass-after state. The four `cvi.core.matrix`
+move); re-run below is the pass-after state. The four `porchlamp.core.matrix`
 oracle tests (leverage/friction drop-out, all-unmeasured, the 50.0 quadrant
 boundary) were added to `test_engine_v2.py` after this fail-before capture,
 during a self-review against the packet's acceptance list; they fail the
-identical way (the file's module-level `from cvi.core import ... matrix`
+identical way (the file's module-level `from porchlamp.core import ... matrix`
 cannot collect at all without the module), so the capture above covers them
 too -- confirmed by re-diffing: every test in the file, old and new, is
 inside the same import scope that the recorded `ModuleNotFoundError`
@@ -180,7 +180,7 @@ EXIT=0
 ```
 
 (43 = 35 in `test_aggregate.py` + 8 in `test_engine_v2.py`, the latter
-including the four `cvi.core.matrix` oracles added after an initial review
+including the four `porchlamp.core.matrix` oracles added after an initial review
 of my own coverage found the packet's "unmeasured pillar drops out of
 leverage and friction" and "boundary 50.0" oracles were not yet exercised
 directly — the end-to-end fixture alone never takes the unmeasured-pillar
@@ -203,19 +203,19 @@ EXIT=0
 
 `test_import_graph.py` matters specifically here: it is the test that
 forced decision #2 above (the `PopulationLookup` protocol instead of an
-import of `cvi.snapshot.populations`).
+import of `porchlamp.snapshot.populations`).
 
 ## Ruff
 
 Scoped to this packet's five files:
 
 ```
-$ .../ruff check cvi/core/aggregate.py cvi/core/matrix.py cvi/core/engine.py tests/core/test_aggregate.py tests/core/test_engine_v2.py
+$ .../ruff check porchlamp/core/aggregate.py porchlamp/core/matrix.py porchlamp/core/engine.py tests/core/test_aggregate.py tests/core/test_engine_v2.py
 All checks passed!
 EXIT=0
 ```
 
-Full sweep (`cvi/ scripts/ tests/`, the packet's Lint line): exit 1, 23
+Full sweep (`porchlamp/ scripts/ tests/`, the packet's Lint line): exit 1, 23
 errors, all in three files that exist on `main` untouched by this packet
 (`tests/test_adversarial_comparator_m3.py`, `tests/test_perf_sla_stress.py`,
 `tests/test_webapp.py` — confirmed via `git show e29fb79:<path>`), all
@@ -244,8 +244,8 @@ wrong.) 12 warnings are pre-existing deprecation notices from
 Ran `python /home/pctablet505/Projects/cvi-scratch/W2-5/measure.py`
 (PYTHONPATH = the worktree) over a copy of `sample-200` at
 `/home/pctablet505/Projects/cvi-scratch/W2-5/sample-200`, loading through
-the W2-1 `cvi.derive.bundle.load_bundle` loader and building populations
-through W2-4's `cvi.snapshot.populations.build_populations`. Full verbatim
+the W2-1 `porchlamp.derive.bundle.load_bundle` loader and building populations
+through W2-4's `porchlamp.snapshot.populations.build_populations`. Full verbatim
 output:
 
 ```
@@ -283,7 +283,7 @@ root cause the packet names for the previous W2-4 agent's finding: a
 data; the exact count, 15, matches).
 
 **Rated = 0 of 164 scorable bundles, and this is a structural fact about
-the sample, not a defect in this packet's code.** `cvi/derive/bundle.py`'s
+the sample, not a defect in this packet's code.** `porchlamp/derive/bundle.py`'s
 `_load_v1` shim (`V1_FIELD_TO_INPUT`) maps only 5 of the 18 v2 parameter
 inputs from v1-format data (`elephant_factor`, `legal_ip`,
 `promotion_ladder`, `ai_posture`, `downloads_monthly`); the other 13 are
@@ -325,7 +325,7 @@ envelope's path list; `vitality_commits_180d` from the `commits_180d`
 envelope, non-bot logins only; `fork_parent_in_universe` and
 `off_platform_marker` always `None`/UNDECIDED) rather than whatever more
 complete W1-9-sourced evidence the W2-2 implementer's own measurement used
-— `cvi/core/gates.py` itself is unchanged, imported directly from `main`.
+— `porchlamp/core/gates.py` itself is unchanged, imported directly from `main`.
 `stale` (34) and `archived` (7) match exactly, since those come straight
 from `bundle.repo.archived`/real `commits_180d` counts with no scan
 involved; `black_hole` and `non_software` are the two gates whose evidence
@@ -368,15 +368,15 @@ stage 3), and rated = 0 for the structural reason above.
   packet's scope (W1 re-derive is not owned by W2-5).
 - **The W2-2 lead-log's exact black_hole=55/non_software=14 figures.** This
   packet's own `GateEvidence` reconstruction (necessary only for the
-  Measure step, not for any acceptance oracle) gives 54/16; `cvi/core/
+  Measure step, not for any acceptance oracle) gives 54/16; `porchlamp/core/
   gates.py` is unchanged and the delta is attributable to evidence-input
   approximation, not to the gate logic — see the cross-check note above.
   Reproducing the W2-2 implementer's exact evidence-building script was not
-  attempted (it was not committed; only `cvi/core/gates.py` and its test
+  attempted (it was not committed; only `porchlamp/core/gates.py` and its test
   file landed).
 - **Whether `raw_hash` must be a full-bundle content hash** (03's literal
-  wording) rather than `provenance_hash`, given `cvi/core/` cannot import
-  `cvi.derive.bundle.dump_bundle` to compute one (decision #5). No
+  wording) rather than `provenance_hash`, given `porchlamp/core/` cannot import
+  `porchlamp.derive.bundle.dump_bundle` to compute one (decision #5). No
   acceptance oracle in this packet's list constrains the value, so this is
   a design choice pending the store-layer packet (W4-2) confirming what it
   actually needs.

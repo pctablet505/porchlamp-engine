@@ -24,7 +24,7 @@ from typing import Any
 import httpx
 import pytest
 
-from cvi.serve.contract import RepoDetailResponse
+from porchlamp.serve.contract import RepoDetailResponse
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "serve_ui_fixtures.py"
@@ -35,7 +35,7 @@ PILLARS = ("responsiveness", "criticality", "governance", "rigor", "accessibilit
 
 
 def _load_module():
-    spec = importlib.util.spec_from_file_location("cvi_serve_ui_fixtures", SCRIPT_PATH)
+    spec = importlib.util.spec_from_file_location("porchlamp_serve_ui_fixtures", SCRIPT_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -97,7 +97,7 @@ class TestHealthAndStatic:
         assert "javascript" in resp.headers["content-type"]
 
     def test_unknown_v1_path_is_404_json(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/nonexistent")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/nonexistent")
         assert resp.status_code == 404
         assert "error" in resp.json()
 
@@ -110,7 +110,7 @@ class TestHealthAndStatic:
 
 class TestLeaderboardEndpoint:
     def test_default_params_return_page_one_sorted_by_rank(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard")
         assert resp.status_code == 200
         body = resp.json()
         assert body["persona"] == "balanced"
@@ -121,32 +121,32 @@ class TestLeaderboardEndpoint:
         assert len(body["rows"]) == 20
 
     def test_page_size_1000_returns_every_row_in_one_page(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"page_size": 1000})
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"page_size": 1000})
         body = resp.json()
         assert body["total"] == len(body["rows"])
         assert body["total"] >= 60
 
     def test_pagination_covers_every_row_exactly_once(self, server_url: str) -> None:
-        page1 = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"page": 1, "page_size": 50}).json()
-        page2 = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"page": 2, "page_size": 50}).json()
+        page1 = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"page": 1, "page_size": 50}).json()
+        page2 = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"page": 2, "page_size": 50}).json()
         keys1 = {(r["owner"], r["name"]) for r in page1["rows"]}
         keys2 = {(r["owner"], r["name"]) for r in page2["rows"]}
         assert not (keys1 & keys2), "the same row appeared on two pages"
         assert len(keys1) + len(keys2) == page1["total"]
 
     def test_invalid_page_size_is_rejected(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"page_size": 37})
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"page_size": 37})
         assert resp.status_code == 400
 
     def test_eco_filter_matches_only_that_ecosystem(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"eco": "pypi", "page_size": 1000})
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"eco": "pypi", "page_size": 1000})
         body = resp.json()
         assert body["rows"], "no pypi rows in the fixture"
         assert all(r["ecosystem"] == "pypi" for r in body["rows"])
         assert body["ecosystem"] == "pypi"
 
     def test_q_filter_matches_owner_or_name_case_insensitively(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"q": "RIVERLINE", "page_size": 1000})
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"q": "RIVERLINE", "page_size": 1000})
         body = resp.json()
         assert body["rows"]
         assert all("riverline" in f"{r['owner']}/{r['name']}".lower() for r in body["rows"])
@@ -159,35 +159,35 @@ class TestLeaderboardEndpoint:
         # tests/fixtures/ui/leaderboard.json now carries one mixed-case
         # repo ("Blue-Forge/Task-Runner") specifically so a lowercase
         # query against it only matches if the row side is ALSO lowered.
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"q": "blue-forge", "page_size": 1000})
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"q": "blue-forge", "page_size": 1000})
         body = resp.json()
         assert body["rows"], "lowercase query must still match the mixed-case fixture row"
         assert any(r["owner"] == "Blue-Forge" for r in body["rows"])
 
-    def test_sort_cvi_is_descending_by_default(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"sort": "cvi", "page_size": 1000})
-        cvis = [r["cvi"] for r in resp.json()["rows"]]
-        assert cvis == sorted(cvis, reverse=True)
+    def test_sort_porchlamp_is_descending_by_default(self, server_url: str) -> None:
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"sort": "porchlamp", "page_size": 1000})
+        porchlamps = [r["porchlamp"] for r in resp.json()["rows"]]
+        assert porchlamps == sorted(porchlamps, reverse=True)
 
-    def test_sort_minus_cvi_is_ascending(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"sort": "-cvi", "page_size": 1000})
-        cvis = [r["cvi"] for r in resp.json()["rows"]]
-        assert cvis == sorted(cvis)
+    def test_sort_minus_porchlamp_is_ascending(self, server_url: str) -> None:
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"sort": "-porchlamp", "page_size": 1000})
+        porchlamps = [r["porchlamp"] for r in resp.json()["rows"]]
+        assert porchlamps == sorted(porchlamps)
 
     def test_sort_tier_is_ascending_best_first(self, server_url: str) -> None:
         order = {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4, "F": 5}
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"sort": "tier", "page_size": 1000})
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"sort": "tier", "page_size": 1000})
         ordinals = [order[r["tier"]] for r in resp.json()["rows"] if r["tier"]]
         assert ordinals == sorted(ordinals)
 
     def test_unsortable_field_is_rejected(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"sort": "stars_audited"})
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"sort": "stars_audited"})
         assert resp.status_code == 400
 
     def test_first_timer_persona_drops_gated_rows_and_reorders(self, server_url: str) -> None:
-        balanced = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"page_size": 1000}).json()
+        balanced = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"page_size": 1000}).json()
         first_timer = httpx.get(
-            f"{server_url}/v1/cvi/leaderboard", params={"persona": "first_timer", "page_size": 1000}
+            f"{server_url}/v1/porchlamp/leaderboard", params={"persona": "first_timer", "page_size": 1000}
         ).json()
         assert first_timer["persona"] == "first_timer"
         balanced_keys = {(r["owner"], r["name"]) for r in balanced["rows"]}
@@ -195,14 +195,14 @@ class TestLeaderboardEndpoint:
         assert ft_keys < balanced_keys, "first_timer must drop at least one gated row"
 
     def test_counts_are_identical_across_filters(self, server_url: str) -> None:
-        unfiltered = httpx.get(f"{server_url}/v1/cvi/leaderboard").json()
-        filtered = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"eco": "pypi"}).json()
+        unfiltered = httpx.get(f"{server_url}/v1/porchlamp/leaderboard").json()
+        filtered = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"eco": "pypi"}).json()
         assert unfiltered["counts"] == filtered["counts"], "gated/unrated counts must never change with filtering"
 
 
 class TestNotRankedEndpoint:
     def test_shape_matches_fixture(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/not-ranked")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/not-ranked")
         assert resp.status_code == 200
         body = resp.json()
         expected = json.loads((FIXTURES_DIR / "notranked.json").read_text())
@@ -210,7 +210,7 @@ class TestNotRankedEndpoint:
         assert body["persona_hidden"] == []
 
     def test_persona_param_returns_the_persona_hidden_group(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/not-ranked", params={"persona": "first_timer"})
+        resp = httpx.get(f"{server_url}/v1/porchlamp/not-ranked", params={"persona": "first_timer"})
         assert resp.status_code == 200
         body = resp.json()
         expected = json.loads((FIXTURES_DIR / "notranked-first_timer.json").read_text())
@@ -220,7 +220,7 @@ class TestNotRankedEndpoint:
 
 class TestSnapshotEndpoint:
     def test_shape_matches_fixture(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/snapshot")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/snapshot")
         assert resp.status_code == 200
         expected = json.loads((FIXTURES_DIR / "snapshot.json").read_text())
         assert resp.json() == expected
@@ -229,12 +229,12 @@ class TestSnapshotEndpoint:
         # Review 2026-09-13 NB-2/W-4: this is the exact response shape the
         # front end's footer/snapshot chip must stop treating as
         # "Loading..." forever (state.footerFieldsFor / app.js syncFooter).
-        resp = httpx.get(f"{failing_snapshot_server_url}/v1/cvi/snapshot")
+        resp = httpx.get(f"{failing_snapshot_server_url}/v1/porchlamp/snapshot")
         assert resp.status_code == 500
         assert "error" in resp.json()
 
     def test_fail_snapshot_switch_does_not_affect_other_endpoints(self, failing_snapshot_server_url: str) -> None:
-        resp = httpx.get(f"{failing_snapshot_server_url}/v1/cvi/leaderboard")
+        resp = httpx.get(f"{failing_snapshot_server_url}/v1/porchlamp/leaderboard")
         assert resp.status_code == 200
         resp2 = httpx.get(f"{failing_snapshot_server_url}/healthz")
         assert resp2.status_code == 200
@@ -242,13 +242,13 @@ class TestSnapshotEndpoint:
 
 class TestEvidenceEndpoint:
     def test_known_repo_returns_its_evidence_fixture(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/repos/riverline/httpkit/evidence")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/repos/riverline/httpkit/evidence")
         assert resp.status_code == 200
         expected = json.loads((FIXTURES_DIR / "evidence-riverline__httpkit.json").read_text())
         assert resp.json() == expected
 
     def test_unknown_repo_is_404(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/repos/nobody/nothing/evidence")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/repos/nobody/nothing/evidence")
         assert resp.status_code == 404
 
     def test_every_evidence_fixture_file_is_reachable_at_200(self, server_url: str) -> None:
@@ -264,7 +264,7 @@ class TestEvidenceEndpoint:
         for path in evidence_files:
             stem = path.name[len("evidence-") : -len(".json")]
             owner, _, name = stem.partition("__")
-            resp = httpx.get(f"{server_url}/v1/cvi/repos/{owner}/{name}/evidence")
+            resp = httpx.get(f"{server_url}/v1/porchlamp/repos/{owner}/{name}/evidence")
             assert resp.status_code == 200, f"{path.name} ({owner}/{name}) did not resolve to 200"
             assert resp.json() == json.loads(path.read_text())
 
@@ -272,13 +272,13 @@ class TestEvidenceEndpoint:
         # The exact repo the review's live probe found broken (1 owner
         # word, 3 name words — the case the old "split hyphens in half"
         # heuristic got wrong).
-        resp = httpx.get(f"{server_url}/v1/cvi/repos/ivywood/template-cli-71/evidence")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/repos/ivywood/template-cli-71/evidence")
         assert resp.status_code == 200
         assert resp.json(), "expected non-empty evidence rows"
 
 
 class TestRepoDetailEndpoint:
-    """N3 (round-3 review, 2026-09-14): `GET /v1/cvi/repos/{owner}/{name}`
+    """N3 (round-3 review, 2026-09-14): `GET /v1/porchlamp/repos/{owner}/{name}`
     (the drawer's own record fetch, `FixtureStore.find_repo_detail` —
     distinct from the `/evidence` sub-resource above) had NO test at all,
     positive or negative. The 404 case specifically matters because
@@ -300,7 +300,7 @@ class TestRepoDetailEndpoint:
     class of defect that shipped unnoticed before."""
 
     def test_known_rated_repo_validates_and_carries_the_expected_facts(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/repos/riverline/httpkit")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/repos/riverline/httpkit")
         assert resp.status_code == 200
         body = resp.json()
         detail = RepoDetailResponse.model_validate(body)
@@ -311,17 +311,17 @@ class TestRepoDetailEndpoint:
         assert detail.gate_reason is None
         assert detail.unrated_reason is None
         assert detail.rank is not None
-        assert detail.cvi is not None
+        assert detail.porchlamp is not None
 
     def test_known_gated_repo_validates_and_carries_the_expected_facts(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/repos/gated-org/repo-mirror-0")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/repos/gated-org/repo-mirror-0")
         assert resp.status_code == 200
         detail = RepoDetailResponse.model_validate(resp.json())
         assert detail.eligible is False
         assert detail.rated is False
         assert detail.gate_reason == "mirror"
         assert detail.rank is None
-        assert detail.cvi is None
+        assert detail.porchlamp is None
         assert detail.c_responsiveness is None
         # `coverage` is NOT NULL on the real store even for a never-scored
         # repo (`RepoDetailResponse`'s own docstring) — this fixture row's
@@ -329,7 +329,7 @@ class TestRepoDetailEndpoint:
         assert detail.coverage == 0.0
 
     def test_known_unrated_repo_validates_and_carries_the_expected_facts(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/repos/unrated-org/repo-insufficient_evidence-0")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/repos/unrated-org/repo-insufficient_evidence-0")
         assert resp.status_code == 200
         detail = RepoDetailResponse.model_validate(resp.json())
         assert detail.eligible is True
@@ -343,7 +343,7 @@ class TestRepoDetailEndpoint:
         # `"coverage": null` — `RepoDetailResponse.coverage` is a required
         # `float`, never `None`, so this must default to 0.0 rather than
         # 500 on a validation error or silently omit the field.
-        resp = httpx.get(f"{server_url}/v1/cvi/repos/gated-org/repo-non_software-5")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/repos/gated-org/repo-non_software-5")
         assert resp.status_code == 200
         detail = RepoDetailResponse.model_validate(resp.json())
         assert detail.coverage == 0.0
@@ -352,17 +352,17 @@ class TestRepoDetailEndpoint:
         # Mutant this kills: the handler answering an unknown repo with an
         # empty `200 {}` instead of calling `_send_error_json(404, ...)` —
         # every assertion below (status code AND body shape) must hold.
-        resp = httpx.get(f"{server_url}/v1/cvi/repos/nobody/nothing")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/repos/nobody/nothing")
         assert resp.status_code == 404
         body = resp.json()
         assert set(body.keys()) == {"error"}
         error = body["error"]
         assert error["status"] == 404
-        assert error["endpoint"] == "/v1/cvi/repos/nobody/nothing"
+        assert error["endpoint"] == "/v1/porchlamp/repos/nobody/nothing"
         assert isinstance(error["detail"], str) and error["detail"]
 
     def test_malformed_path_is_404_not_a_500(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/repos/just-one-segment")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/repos/just-one-segment")
         assert resp.status_code == 404
 
 
@@ -374,11 +374,11 @@ class TestGatedRepoDrawerSections:
     gated repo's real pillar-evidence, persona, and integrity facts were
     never reachable at all, even by clicking. Fixed: those three sections
     now render collapsed below the gate sentence; the composite section is
-    omitted (no CVI/tier/quadrant was ever computed for a gated repo).
+    omitted (no Porchlamp/tier/quadrant was ever computed for a gated repo).
 
     This is the fixture-server half of that fix: it proves the SAME two
-    calls `app.js::openRepo` makes for ANY kind — `GET /v1/cvi/repos/{o}/
-    {n}` and `GET /v1/cvi/repos/{o}/{n}/evidence` — both succeed for a
+    calls `app.js::openRepo` makes for ANY kind — `GET /v1/porchlamp/repos/{o}/
+    {n}` and `GET /v1/porchlamp/repos/{o}/{n}/evidence` — both succeed for a
     GATED repo (i.e. evidence is fetched for gated repos exactly as for
     unrated/rated ones, never skipped on `kind`), and that the evidence
     payload actually carries rows for the drawer's now-reachable "Pillars
@@ -394,13 +394,13 @@ class TestGatedRepoDrawerSections:
         # `evidence-*.json` fixture file (the other 2 are rated repos) —
         # deliberately chosen so this test exercises real evidence rows,
         # not a 404-tolerated empty set.
-        detail_resp = httpx.get(f"{server_url}/v1/cvi/repos/gated-org/repo-archived-1")
+        detail_resp = httpx.get(f"{server_url}/v1/porchlamp/repos/gated-org/repo-archived-1")
         assert detail_resp.status_code == 200
         detail = RepoDetailResponse.model_validate(detail_resp.json())
         assert detail.eligible is False, "repo-archived-1 must classify as gated (classifyKind: !eligible)"
         assert detail.gate_reason == "archived"
 
-        evidence_resp = httpx.get(f"{server_url}/v1/cvi/repos/gated-org/repo-archived-1/evidence")
+        evidence_resp = httpx.get(f"{server_url}/v1/porchlamp/repos/gated-org/repo-archived-1/evidence")
         assert evidence_resp.status_code == 200, (
             "evidence must be fetchable for a gated repo exactly as for any other kind "
             "(app.js::openRepo calls loadEvidence unconditionally, never gated on `kind`)"
@@ -412,17 +412,17 @@ class TestGatedRepoDrawerSections:
 
     def test_every_gated_fixture_repo_validates_with_no_composite_facts(self, server_url: str) -> None:
         # Every gated repo in the fixture (not just repo-archived-1) must
-        # carry no CVI/tier/quadrant — the contract-level reason the
+        # carry no Porchlamp/tier/quadrant — the contract-level reason the
         # drawer's Composite section is omitted for `kind === "gated"`.
         notranked = json.loads((FIXTURES_DIR / "notranked.json").read_text())
         gated_repos = notranked["gated"]
         assert len(gated_repos) >= 5, "expected the full set of gated fixture repos"
         for row in gated_repos:
-            resp = httpx.get(f"{server_url}/v1/cvi/repos/{row['owner']}/{row['name']}")
+            resp = httpx.get(f"{server_url}/v1/porchlamp/repos/{row['owner']}/{row['name']}")
             assert resp.status_code == 200
             detail = RepoDetailResponse.model_validate(resp.json())
             assert detail.eligible is False
-            assert detail.cvi is None
+            assert detail.porchlamp is None
             assert detail.tier is None
             assert detail.quadrant is None
             assert detail.persona_composites == {}
@@ -483,7 +483,7 @@ def oracle_reproject(rows: list[dict[str, Any]], weights: dict[str, float]) -> l
             {
                 "owner": row["owner"],
                 "name": row["name"],
-                "cvi": round(composite, 2),
+                "porchlamp": round(composite, 2),
                 "coverage": coverage,
                 "tier": tier,
                 "p_responsiveness": row["p_responsiveness"],
@@ -493,7 +493,7 @@ def oracle_reproject(rows: list[dict[str, Any]], weights: dict[str, float]) -> l
         )
     scored.sort(
         key=lambda r: (
-            -r["cvi"],
+            -r["porchlamp"],
             -r["coverage"],
             -(r["p_responsiveness"] if r["p_responsiveness"] is not None else -1e18),
             r["friction"] if r["friction"] is not None else 1e18,
@@ -525,8 +525,8 @@ WEIGHT_VECTORS: list[dict[str, float]] = [
 
 class TestReprojectParityAgainstHandOracle:
     @pytest.mark.parametrize("weights", WEIGHT_VECTORS, ids=[f"v{i}" for i in range(len(WEIGHT_VECTORS))])
-    def test_server_matches_oracle_on_rank_cvi_coverage_tier(self, server_url: str, weights: dict[str, float]) -> None:
-        resp = httpx.post(f"{server_url}/v1/cvi/reproject", json=weights)
+    def test_server_matches_oracle_on_rank_porchlamp_coverage_tier(self, server_url: str, weights: dict[str, float]) -> None:
+        resp = httpx.post(f"{server_url}/v1/porchlamp/reproject", json=weights)
         assert resp.status_code == 200
         served = resp.json()["rows"]
 
@@ -540,13 +540,13 @@ class TestReprojectParityAgainstHandOracle:
             assert key in served_by_key, f"{key} present in the oracle but missing from the server"
             got = served_by_key[key]
             assert got["rank"] == exp["rank"], key
-            assert math.isclose(got["cvi"], exp["cvi"], abs_tol=1e-9), key
+            assert math.isclose(got["porchlamp"], exp["porchlamp"], abs_tol=1e-9), key
             assert math.isclose(got["coverage"], exp["coverage"], abs_tol=1e-6), key
             assert got["tier"] == exp["tier"], key
 
     def test_zero_pillar_weight_still_ranks_the_full_visible_set(self, server_url: str) -> None:
         weights = {"weight_responsiveness": 1.0, "weight_criticality": 0.0, "weight_governance": 0.0, "weight_rigor": 0.0, "weight_accessibility": 0.0}
-        resp = httpx.post(f"{server_url}/v1/cvi/reproject", json=weights)
+        resp = httpx.post(f"{server_url}/v1/porchlamp/reproject", json=weights)
         body = resp.json()
         assert body["total"] > 0
         assert body["lens"] == "custom"
@@ -559,41 +559,41 @@ class TestReprojectParityAgainstHandOracle:
         the vector itself is WEIGHT_VECTORS[-1], asserted by identity so
         this test breaks loudly if that vector's own coverage-crossing
         property is ever lost to an edit."""
-        balanced_total = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"page_size": 1000}).json()["total"]
-        resp = httpx.post(f"{server_url}/v1/cvi/reproject", json=WEIGHT_VECTORS[-1])
+        balanced_total = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"page_size": 1000}).json()["total"]
+        resp = httpx.post(f"{server_url}/v1/porchlamp/reproject", json=WEIGHT_VECTORS[-1])
         assert resp.json()["total"] < balanced_total
 
     def test_balanced_weights_reproduce_the_stored_balanced_ranking(self, server_url: str) -> None:
         # D-AGG-1: the balanced weight vector IS `PILLAR_WEIGHTS`.
         balanced = {"weight_responsiveness": 0.25, "weight_criticality": 0.25, "weight_governance": 0.20, "weight_rigor": 0.15, "weight_accessibility": 0.15}
-        resp = httpx.post(f"{server_url}/v1/cvi/reproject", json=balanced)
+        resp = httpx.post(f"{server_url}/v1/porchlamp/reproject", json=balanced)
         top = resp.json()["rows"][0]
         stored_top = min(_leaderboard_rows(), key=lambda r: r["rank"])
         assert (top["owner"], top["name"]) == (stored_top["owner"], stored_top["name"])
-        assert math.isclose(top["cvi"], stored_top["cvi"], abs_tol=1e-9)
+        assert math.isclose(top["porchlamp"], stored_top["porchlamp"], abs_tol=1e-9)
 
     def test_non_negative_weights_that_do_not_sum_to_one_are_rejected(self, server_url: str) -> None:
         resp = httpx.post(
-            f"{server_url}/v1/cvi/reproject",
+            f"{server_url}/v1/porchlamp/reproject",
             json={"weight_responsiveness": 0.5, "weight_criticality": 0.5, "weight_governance": 0.5, "weight_rigor": 0.0, "weight_accessibility": 0.0},
         )
         assert resp.status_code == 400
 
     def test_negative_weight_is_rejected(self, server_url: str) -> None:
         resp = httpx.post(
-            f"{server_url}/v1/cvi/reproject",
+            f"{server_url}/v1/porchlamp/reproject",
             json={"weight_responsiveness": 1.5, "weight_criticality": -0.5, "weight_governance": 0.0, "weight_rigor": 0.0, "weight_accessibility": 0.0},
         )
         assert resp.status_code == 400
 
     def test_malformed_json_body_is_rejected(self, server_url: str) -> None:
-        resp = httpx.post(f"{server_url}/v1/cvi/reproject", content=b"{not json", headers={"Content-Type": "application/json"})
+        resp = httpx.post(f"{server_url}/v1/porchlamp/reproject", content=b"{not json", headers={"Content-Type": "application/json"})
         assert resp.status_code == 400
 
     def test_response_validates_against_the_contract(self, server_url: str) -> None:
-        from cvi.serve.contract import ReprojectResponse
+        from porchlamp.serve.contract import ReprojectResponse
 
-        resp = httpx.post(f"{server_url}/v1/cvi/reproject", json=WEIGHT_VECTORS[0])
+        resp = httpx.post(f"{server_url}/v1/porchlamp/reproject", json=WEIGHT_VECTORS[0])
         ReprojectResponse.model_validate(resp.json())
 
     def test_live_response_with_shifted_ranks_validates_with_correct_rank_delta_sign(
@@ -604,17 +604,17 @@ class TestReprojectParityAgainstHandOracle:
         `rank_delta == 0` everywhere — a SIGN-FLIPPED implementation would
         pass just as well). A skewed weight vector genuinely reorders rows,
         so this both validates the LIVE response through
-        `cvi.serve.contract.ReprojectResponse` (LeaderboardRow's own
+        `porchlamp.serve.contract.ReprojectResponse` (LeaderboardRow's own
         `rank_delta == balanced_rank - rank` validator, which raises on a
         wrong value) AND asserts the sign against an independent
         recomputation, so a hypothetical `rank - balanced_rank` mutant
         would fail both the contract validator and this assertion.
         """
-        from cvi.serve.contract import ReprojectResponse
+        from porchlamp.serve.contract import ReprojectResponse
 
         # Pure-responsiveness: skewed enough from balanced to move ranks
         # (WEIGHT_VECTORS[1] in this file's own oracle-parity table).
-        resp = httpx.post(f"{server_url}/v1/cvi/reproject", json=WEIGHT_VECTORS[1])
+        resp = httpx.post(f"{server_url}/v1/porchlamp/reproject", json=WEIGHT_VECTORS[1])
         assert resp.status_code == 200
         body = resp.json()
         response = ReprojectResponse.model_validate(body)  # raises if any row's rank_delta is inconsistent
@@ -630,7 +630,7 @@ class TestReprojectParityAgainstHandOracle:
 
 class TestMatrixEndpoint:
     def test_excludes_gated_repos_and_reports_the_count(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/matrix")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/matrix")
         assert resp.status_code == 200
         body = resp.json()
         notranked = json.loads((FIXTURES_DIR / "notranked.json").read_text())
@@ -642,7 +642,7 @@ class TestMatrixEndpoint:
         assert not (plotted_keys & gated_keys)
 
     def test_every_point_carries_a_quadrant(self, server_url: str) -> None:
-        body = httpx.get(f"{server_url}/v1/cvi/matrix").json()
+        body = httpx.get(f"{server_url}/v1/porchlamp/matrix").json()
         assert all(p["quadrant"] is not None for p in body["points"])
 
     def test_matrix_points_for_excludes_a_row_with_unmeasured_coordinates(self) -> None:
@@ -654,7 +654,7 @@ class TestMatrixEndpoint:
         base = dict(
             owner="x", name="y", ecosystem="pypi", leverage=50.0, friction=50.0,
             leverage_coverage=0.0, friction_coverage=0.0, stars_audited=None,
-            cvi=50.0, coverage=0.6, tier="B",
+            porchlamp=50.0, coverage=0.6, tier="B",
         )
         rows = [
             {**base, "quadrant": None},  # every contributing pillar unmeasured -- cannot be plotted
@@ -665,9 +665,9 @@ class TestMatrixEndpoint:
         assert points[0]["name"] == "plottable"
 
     def test_response_validates_against_the_contract(self, server_url: str) -> None:
-        from cvi.serve.contract import MatrixResponse
+        from porchlamp.serve.contract import MatrixResponse
 
-        resp = httpx.get(f"{server_url}/v1/cvi/matrix")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/matrix")
         MatrixResponse.model_validate(resp.json())
 
 
@@ -710,7 +710,7 @@ class TestAxisCoverage:
         assert serve_ui_fixtures.axis_coverage(rows) == {}
 
     def test_response_conforms_to_the_contract(self) -> None:
-        from cvi.serve.contract import MatrixAxisCoverage
+        from porchlamp.serve.contract import MatrixAxisCoverage
 
         rows = [
             {"p_responsiveness": 1.0, "p_governance": 1.0, "p_accessibility": None if i < 6 else 1.0, "p_criticality": 1.0, "p_rigor": 1.0}
@@ -722,15 +722,15 @@ class TestAxisCoverage:
 
 class TestMethodologyEndpoint:
     def test_serves_the_fixture_verbatim(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/methodology")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/methodology")
         assert resp.status_code == 200
         expected = json.loads((FIXTURES_DIR / "methodology.json").read_text())
         assert resp.json() == expected
 
     def test_response_validates_against_the_contract(self, server_url: str) -> None:
-        from cvi.serve.contract import MethodologyResponse
+        from porchlamp.serve.contract import MethodologyResponse
 
-        resp = httpx.get(f"{server_url}/v1/cvi/methodology")
+        resp = httpx.get(f"{server_url}/v1/porchlamp/methodology")
         MethodologyResponse.model_validate(resp.json())
 
 
@@ -744,30 +744,30 @@ class TestErrorBodyShape:
     """
 
     def test_400_error_body_is_the_nested_shape(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"page_size": 37})
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"page_size": 37})
         assert resp.status_code == 400
         body = resp.json()
         assert set(body.keys()) == {"error"}
         error = body["error"]
         assert error["status"] == 400
-        assert error["endpoint"] == "/v1/cvi/leaderboard"
+        assert error["endpoint"] == "/v1/porchlamp/leaderboard"
         assert isinstance(error["detail"], str) and error["detail"]
 
     def test_fail_snapshot_returns_the_nested_shape_with_a_real_detail(
         self, failing_snapshot_server_url: str
     ) -> None:
-        resp = httpx.get(f"{failing_snapshot_server_url}/v1/cvi/snapshot")
+        resp = httpx.get(f"{failing_snapshot_server_url}/v1/porchlamp/snapshot")
         assert resp.status_code == 500
         error = resp.json()["error"]
         assert error["status"] == 500
-        assert error["endpoint"] == "/v1/cvi/snapshot"
+        assert error["endpoint"] == "/v1/porchlamp/snapshot"
         assert "simulated snapshot failure" in error["detail"]
         assert "--fail snapshot" in error["detail"]
 
     def test_query_string_is_stripped_from_the_endpoint_field(self, server_url: str) -> None:
-        resp = httpx.get(f"{server_url}/v1/cvi/leaderboard", params={"page_size": 999999})
+        resp = httpx.get(f"{server_url}/v1/porchlamp/leaderboard", params={"page_size": 999999})
         assert resp.status_code == 400
         # The endpoint name must be the bare path, not `path?page_size=999999`
         # (api.js names failures by endpoint for the U-15 banner; a query
         # string baked in would make every distinct query its own "endpoint").
-        assert resp.json()["error"]["endpoint"] == "/v1/cvi/leaderboard"
+        assert resp.json()["error"]["endpoint"] == "/v1/porchlamp/leaderboard"

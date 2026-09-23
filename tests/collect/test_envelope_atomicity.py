@@ -31,7 +31,7 @@ from types import ModuleType
 
 import pytest
 
-from cvi.collect.envelope import envelope_hash, read_envelope, write_envelope
+from porchlamp.collect.envelope import envelope_hash, read_envelope, write_envelope
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -51,7 +51,7 @@ def gather(tmp_path: Path) -> ModuleType:
     ``tmp_path`` so no test ever writes into the real ``data/`` directory.
     """
     spec = importlib.util.spec_from_file_location(
-        "cvi_gather_atomicity", ROOT / "scripts/gather.py")
+        "porchlamp_gather_atomicity", ROOT / "scripts/gather.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

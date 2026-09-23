@@ -1,6 +1,6 @@
 """Tests for OpenSSF signals computed locally, scorecard subset, proxies.
 
-Subject: ``cvi.collect.pike_signals`` -- the REST transport boundary, the
+Subject: ``porchlamp.collect.pike_signals`` -- the REST transport boundary, the
 three new collectors (releases, issue-activity search counts, default-branch
 CI runs) and the 02 §4 2.2 / 4.1 derivation -- plus the append-only hooks at
 the end of ``scripts/gather.py`` (the ``releases`` / ``issues_counts`` /
@@ -30,8 +30,8 @@ from typing import Any, Optional
 
 import pytest
 
-from cvi.collect import pike_signals as pike
-from cvi.collect.pike_signals import (
+from porchlamp.collect import pike_signals as pike
+from porchlamp.collect.pike_signals import (
     ci_pass_rate,
     collect_issue_counts,
     collect_releases,
@@ -41,9 +41,9 @@ from cvi.collect.pike_signals import (
     releases_in_window,
     tags_in_window,
 )
-from cvi.models import OpenSSFSignals
-from cvi.openssf import calculate_pike_criticality
-from cvi.pillars.criticality import score_openssf_criticality
+from porchlamp.models import OpenSSFSignals
+from porchlamp.openssf import calculate_pike_criticality
+from porchlamp.pillars.criticality import score_openssf_criticality
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 NOW = datetime(2026, 9, 12, 0, 0, 0, tzinfo=timezone.utc)
@@ -60,19 +60,19 @@ def _load_script(modname: str, fname: str) -> ModuleType:
     return module
 
 
-gather = _load_script("cvi_gather_w17", "gather.py")
-derive = _load_script("cvi_derive_w17", "derive.py")
+gather = _load_script("porchlamp_gather_w17", "gather.py")
+derive = _load_script("porchlamp_derive_w17", "derive.py")
 
 
 def write_env(raw: Path, collector: str, key: str, data,
               at: str = "2026-09-11T00:00:00Z") -> None:
-    from cvi.collect.envelope import write_envelope
+    from porchlamp.collect.envelope import write_envelope
     write_envelope(raw / collector / f"{key}.json", source="test", data=data,
                    fetched_at=at)
 
 
 def read_env(raw: Path, collector: str, key: str):
-    from cvi.collect.envelope import read_envelope
+    from porchlamp.collect.envelope import read_envelope
     return read_envelope(raw / collector / f"{key}.json")
 
 
@@ -484,7 +484,7 @@ def test_derive_pike_signals_oracle_hand_built():
     # Independent hand-computation of spec 10.1 for these raw values
     # (weights +1,-1,+2,+1,+1,+0.5,+0.5,+0.5,+1,+2; sum|alpha| = 10.5):
     assert calculate_pike_criticality(OpenSSFSignals(**signals)) == pytest.approx(_PIKE_EXPECTED_C, abs=1e-12)
-    from cvi.core.openssf import calculate_pike_criticality as core_calculate
+    from porchlamp.core.openssf import calculate_pike_criticality as core_calculate
     assert core_calculate(signals) == pytest.approx(_PIKE_EXPECTED_C, abs=1e-12)
     assert score_openssf_criticality(OpenSSFSignals(**signals)) == pytest.approx(_PIKE_EXPECTED_C * 100.0, abs=1e-9)
 
@@ -798,7 +798,7 @@ def test_derive_w17_fields_releases_window_15_days_is_stale():
 # --- src()/env_path() shared path formula --------------------------------------
 
 def test_src_and_env_path_share_one_definition():
-    from cvi.collect import envelope as envelope_mod
+    from porchlamp.collect import envelope as envelope_mod
 
     assert derive.raw_envelope_path is envelope_mod.raw_envelope_path
     assert pike.raw_envelope_path is envelope_mod.raw_envelope_path
@@ -807,7 +807,7 @@ def test_src_and_env_path_share_one_definition():
 def test_src_and_env_path_both_route_through_the_shared_function(tmp_path, monkeypatch):
     """A behavioural guard, not just an identity check: patches the name
     BOTH modules import and proves scripts/derive.py's src() (a
-    derive.py-only collector, "tree") and cvi.collect.pike_signals'
+    derive.py-only collector, "tree") and porchlamp.collect.pike_signals'
     env_path() (an openssf_signals-only collector, "dependents") each
     actually call through it -- neither closure kept its own inline
     '<data_dir>/raw/<collector>/<key>.json' formula."""

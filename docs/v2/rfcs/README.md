@@ -1,6 +1,6 @@
 # Constants-change RFCs
 
-`cvi/core/constants_v2.py` is frozen (D-VER-1/2, `docs/v2/02-RANKING-DESIGN.md`
+`porchlamp/core/constants_v2.py` is frozen (D-VER-1/2, `docs/v2/02-RANKING-DESIGN.md`
 section 11; `docs/v2/03-ANTI-MANIPULATION.md` section 7). Every value the
 ranking computes with — pillar weights, per-parameter weights and minimum
 sample sizes, curve-shape constants, coverage/ceiling/gate thresholds, tier
@@ -44,7 +44,7 @@ instead of a silent ranking shift (with the two documented limits below).
    representative rows (`_FROZEN_TABLE`), that row too — **in the same
    commit** as the `constants_v2.py` change. Recompute the new hash with:
    ```
-   python -c "from cvi.core import constants_v2 as c; print(c.CONSTANTS_HASH)"
+   python -c "from porchlamp.core import constants_v2 as c; print(c.CONSTANTS_HASH)"
    ```
 3. **Bump `BENCHMARK_VERSION`** per D-VER-1: a weight or curve-constant
    change is a minor bump; a parameter-set, gate or missingness-policy
@@ -84,13 +84,13 @@ starts being read by a live parameter, gate, aggregation or tie-break
 computation that did not read it before, e.g. RFC-0001's
 `AUTHOR_UNMEASURED_MAX_FRACTION` did *not* bump the tag because it had no
 scoring-path consumer yet; the RFC that later wires it into
-`cvi.collect.github_graphql.derive_cohort_fields` would.) A constant added
+`porchlamp.collect.github_graphql.derive_cohort_fields` would.) A constant added
 purely for documentation, relocation, or a not-yet-wired guard is exempt
 until the RFC that gives it a real consumer.
 
 ## `UNDETERMINED_SPDX`: not hashed (ruling, packet W5-1a)
 
-`UNDETERMINED_SPDX` (`cvi/core/gates.py`) is **not** a member of
+`UNDETERMINED_SPDX` (`porchlamp/core/gates.py`) is **not** a member of
 `constants_v2.constants_dict()`, and stays that way. It is three sentinel
 strings meaning "no usable SPDX id was recorded" (`None`, `"NOASSERTION"`,
 `"OTHER"`) that make D-GATE-3 fall back to a `LICENSE*` file search — a
@@ -98,7 +98,7 @@ fixed, closed vocabulary describing an *absence*, not a licence vocabulary
 that itself has members added or removed the way `OSI_APPROVED_LICENSES`
 does. Changing what "undetermined" means would be a change to the D-GATE-3
 *algorithm* (what counts as "no SPDX id"), reviewed as ordinary code, not a
-tunable value an RFC retargets. This matches `cvi/core/gates.py`'s own
+tunable value an RFC retargets. This matches `porchlamp/core/gates.py`'s own
 module docstring, written when `OSI_APPROVED_LICENSES` was relocated in the
 opposite direction (W2-8 round 2): "`UNDETERMINED_SPDX` stays defined in
 this module: ... not a license vocabulary that could itself drift." The
@@ -115,7 +115,7 @@ reopen it, not a silent edit.
 `REASON_UNLICENSED`, so an upstream SPDX/OSI list update changes which
 repos are in the benchmark at all — a larger rank movement than most weight
 changes. Refreshing it from the upstream sources (see
-`cvi/core/constants_v2.py`'s docstring on `OSI_APPROVED_LICENSES` for where
+`porchlamp/core/constants_v2.py`'s docstring on `OSI_APPROVED_LICENSES` for where
 they are) follows the same five-step procedure above; the RFC's "Evidence"
 section for this class reports the added/removed id list and the count of
 repos whose gate outcome flips, in place of a weight-perturbation
@@ -131,11 +131,11 @@ purpose and are ruled out of `constants_dict()` (W2-8 round 2, lead ruling):
 
 | Constant | Module | What it gates |
 |---|---|---|
-| `MIN_COVERAGE` | `cvi/audit/anchors.py` | D-VER-4 anchor-check threshold (a release gate, not a per-repo score) |
-| `TAU_RELEASE_THRESHOLD` | `cvi/audit/sensitivity.py` | D-AGG-3's tau >= 0.90 release bar |
-| `DEFAULT_PERTURBATION_PP` | `cvi/audit/sensitivity.py` | the +-5pp weight-perturbation size the sensitivity report tests at |
+| `MIN_COVERAGE` | `porchlamp/audit/anchors.py` | D-VER-4 anchor-check threshold (a release gate, not a per-repo score) |
+| `TAU_RELEASE_THRESHOLD` | `porchlamp/audit/sensitivity.py` | D-AGG-3's tau >= 0.90 release bar |
+| `DEFAULT_PERTURBATION_PP` | `porchlamp/audit/sensitivity.py` | the +-5pp weight-perturbation size the sensitivity report tests at |
 
-None of these three is read anywhere in `cvi.core`'s scoring path
+None of these three is read anywhere in `porchlamp.core`'s scoring path
 (`engine.score`, `aggregate.*`, `matrix.*`, `params.*`); changing one moves
 no `ScoreRecord` field for any repo — it only changes whether a *snapshot*
 clears the bar for release. They are still constants-freeze subjects in the
@@ -156,7 +156,7 @@ drifting definition of "what counts as reading a constant" — exactly the
 kind of duplication this freeze exists to remove):
 
 - **A call site reverted to a literal of the same value is invisible.** If
-  `cvi/core/tiebreak.py`'s `round(composite, constants_v2.COMPOSITE_DECIMALS)`
+  `porchlamp/core/tiebreak.py`'s `round(composite, constants_v2.COMPOSITE_DECIMALS)`
   were rewritten as `round(composite, 2)`, the behaviour is identical today
   (both round to 2), the hash is untouched (correctly — the *value* did not
   move), and no test distinguishes "reads the registry" from "hardcodes the

@@ -23,8 +23,8 @@ from tests.fixtures.synthetic_catalog import (
     generate_benchmark_catalog,
     seed_benchmark_store,
 )
-from cvi.lakehouse import OperationalStore
-from cvi.models import (
+from porchlamp.lakehouse import OperationalStore
+from porchlamp.models import (
     AIPosture,
     Ecosystem,
     LegalIPModel,
@@ -249,7 +249,7 @@ class TestCatalogIntegrity:
             # No nulls in primary metadata columns
             assert row["owner"] and row["name"] and row["ecosystem"]
             assert row["stars"] is not None and row["stars"] >= 0
-            assert row["overall_cvi"] is not None and 0.0 <= row["overall_cvi"] <= 100.0
+            assert row["overall_porchlamp"] is not None and 0.0 <= row["overall_porchlamp"] <= 100.0
             assert row["rank_tier"] in [t.value for t in Tier]
             assert row["matrix_quadrant"] in [q.value for q in Quadrant]
 
@@ -267,16 +267,16 @@ class TestCatalogIntegrity:
             assert expected_top_keys.issubset(dd.keys()), f"Missing keys in deep_dive_json: {expected_top_keys - set(dd.keys())}"
 
             playbook = dd["maintainer_playbook"]
-            assert "current_cvi" in playbook
-            assert "potential_cvi" in playbook
+            assert "current_porchlamp" in playbook
+            assert "potential_porchlamp" in playbook
             assert "total_point_gain" in playbook
             assert "actions" in playbook
-            assert playbook["potential_cvi"] <= 100.0
+            assert playbook["potential_porchlamp"] <= 100.0
             assert playbook["total_point_gain"] >= 0.0
 
             # Gating validation
             if row["is_stage0_disqualified"]:
-                assert row["overall_cvi"] == 0.0
+                assert row["overall_porchlamp"] == 0.0
                 assert row["rank_tier"] == Tier.D.value
                 assert row["friction_score"] == 100.0
                 assert row["leverage_score"] == 0.0
@@ -418,16 +418,16 @@ class TestStorageQueryingStress:
             assert elapsed < 150.0, f"Persona {persona} scan took {elapsed:.2f}ms (exceeded headroom)"
 
             # Check descending sorting
-            scores = [r["overall_cvi"] for r in items]
+            scores = [r["overall_porchlamp"] for r in items]
             assert scores == sorted(scores, reverse=True), f"Items not sorted descending under {persona}"
 
         # Strict gate: gentoo under AI_ASSISTED must be disqualified
         gentoo_balanced, _ = seeded_store.leaderboard(search="gentoo", persona=Persona.BALANCED)
-        assert gentoo_balanced[0]["overall_cvi"] > 0.0
+        assert gentoo_balanced[0]["overall_porchlamp"] > 0.0
         assert gentoo_balanced[0]["is_stage0_disqualified"] == 0
 
         gentoo_ai, _ = seeded_store.leaderboard(search="gentoo", persona=Persona.AI_ASSISTED)
-        assert gentoo_ai[0]["overall_cvi"] == 0.0
+        assert gentoo_ai[0]["overall_porchlamp"] == 0.0
         assert gentoo_ai[0]["rank_tier"] == Tier.D.value
         assert gentoo_ai[0]["is_stage0_disqualified"] == 1
 
@@ -435,7 +435,7 @@ class TestStorageQueryingStress:
         items_sys, _ = seeded_store.leaderboard(persona=Persona.SENIOR_SYSTEMS, limit=1000)
         for r in items_sys:
             if r["elephant_factor"] < 3:
-                assert r["overall_cvi"] == 0.0
+                assert r["overall_porchlamp"] == 0.0
                 assert r["rank_tier"] == Tier.D.value
                 assert r["is_stage0_disqualified"] == 1
 

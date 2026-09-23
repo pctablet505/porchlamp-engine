@@ -14,6 +14,6 @@ Merge trial onto the current main tip `9d364cc` (advanced past the named base
 main alone:  2468 passed, 1 skipped, 12 warnings in 13.40s
 cherry-pick 75b9776 d45c278 9650cde b39e016 9237580 f6a398c   # all six, no conflict
 merged:      2502 passed, 1 skipped, 12 warnings in 17.96s
-ruff check cvi/ tests/ scripts/ -> All checks passed!
+ruff check porchlamp/ tests/ scripts/ -> All checks passed!
 ```
 Worktree removed.

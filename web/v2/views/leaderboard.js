@@ -56,7 +56,7 @@ export function renderEmptyState(gatedCount, unratedCount) {
  * How many rows the ACTIVE LENS ranks. Not `counts.rated`.
  *
  * MEASURED 2026-09-21. A persona view is a re-weighted projection
- * (`cvi.core.persona`: `persona_composite` is "a separate re-weighted
+ * (`porchlamp.core.persona`: `persona_composite` is "a separate re-weighted
  * projection"), and the store admits a row on
  * `persona_composites[<persona>].coverage >= 0.60` — that persona's own
  * weights — not on the balanced `rated` flag. So a persona that

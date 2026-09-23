@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from cvi.core import constants
-from cvi.core.aggregate import (
+from porchlamp.core import constants
+from porchlamp.core.aggregate import (
     CEILING_A,
     CEILING_B,
     TIER_FLOOR,
@@ -22,8 +22,8 @@ from cvi.core.aggregate import (
     tier_from_score,
     validate_pillar_weights,
 )
-from cvi.core.models import ParamScore, PillarScore
-from cvi.core.params import PARAMS
+from porchlamp.core.models import ParamScore, PillarScore
+from porchlamp.core.params import PARAMS
 
 
 def _measured(score: float, *, n: int = 100, method: str = "primary") -> ParamScore:
@@ -59,7 +59,7 @@ def _unmeasured(reason: str = "insufficient_n") -> ParamScore:
 def _not_applicable() -> ParamScore:
     """D-MISS-5: a stage-2 score this module trusts as ``not_applicable``
     (the closed-list guard that may only assign this reason lives in
-    ``cvi.core.engine``, upstream of ``aggregate_pillars``)."""
+    ``porchlamp.core.engine``, upstream of ``aggregate_pillars``)."""
     return _unmeasured(reason="not_applicable")
 
 

@@ -6,9 +6,9 @@ Commit sha: `0ee62ce` (branch `W2-10`)
 ## Diffstat
 
 ```
-cvi/core/engine.py            |   2 +
-cvi/core/models.py            |   4 ++
-cvi/core/tiebreak.py          |   8 ++++
+porchlamp/core/engine.py            |   2 +
+porchlamp/core/models.py            |   4 ++
+porchlamp/core/tiebreak.py          |   8 ++++
 tests/core/test_engine_v2.py  | 104 +++++++++++++++++++++++++++++++++++++++++-
 tests/core/test_persona_v2.py |  22 ++++++++-
 tests/core/test_tiebreak.py   |  47 +++++++++++++++++--
@@ -17,22 +17,22 @@ tests/core/test_tiebreak.py   |  47 +++++++++++++++++--
 
 ## Change
 
-1. `cvi/core/models.py`: `ScoreRecord` gets a required `repo: RepoIdentity`
+1. `porchlamp/core/models.py`: `ScoreRecord` gets a required `repo: RepoIdentity`
    field, placed first, no default. One-sentence docstring addition:
    "``repo`` is copied from the scored ``FeatureBundle.repo`` by
-   :func:`cvi.core.engine.score` (04 section 3)."
-2. `cvi/core/engine.py`: both `ScoreRecord(` construction sites
+   :func:`porchlamp.core.engine.score` (04 section 3)."
+2. `porchlamp/core/engine.py`: both `ScoreRecord(` construction sites
    (`_bare_record`'s gated/unrated shape, `score()`'s rated path) now set
    `repo=bundle.repo`. `_REASON_NO_POPULATION` (line ~156, owned by W2-8)
    untouched.
-3. `cvi/core/tiebreak.py`: `TieBreakInput.__post_init__` additionally
+3. `porchlamp/core/tiebreak.py`: `TieBreakInput.__post_init__` additionally
    rejects a mismatch between `(owner, name)` and
    `(record.repo.owner, record.repo.name)`, naming both identities in the
    message. Nothing else in the file touched (owner/name fields themselves
    are W2-8b's, left as-is).
 4. Every `ScoreRecord(` constructor site found by
-   `grep -rn 'ScoreRecord(' cvi tests` fixed:
-   - `cvi/core/engine.py` x2 (production, item 2 above).
+   `grep -rn 'ScoreRecord(' porchlamp tests` fixed:
+   - `porchlamp/core/engine.py` x2 (production, item 2 above).
    - `tests/core/test_persona_v2.py::_record` — added module-level `_REPO`
      (`RepoIdentity(owner="org", name="alpha", ...)`, same shape
      `tests/core/test_engine_v2.py::make_repo` uses) and passed it as
@@ -96,7 +96,7 @@ AFTER: TypeError: ScoreRecord.__init__() missing 1 required positional argument:
 ## Mutants killed (paste)
 
 **Mutant 1 — engine sets `repo` from a constant instead of `bundle.repo`**
-(both `ScoreRecord(` sites in `cvi/core/engine.py` changed to a hardcoded
+(both `ScoreRecord(` sites in `porchlamp/core/engine.py` changed to a hardcoded
 `RepoIdentity(owner="mutant", name="mutant", ...)`; a "different bundle"
 variant isn't constructible at either call site — each has exactly one
 `bundle` parameter in scope, so the constant substitution is the meaningful
@@ -109,12 +109,12 @@ FAILED tests/core/test_engine_v2.py::test_unrated_repo_has_no_composite_or_tier_
 FAILED tests/core/test_engine_v2.py::test_engine_repo_is_bundle_repo_on_every_path
 ```
 
-Reverted (`cp` from a pre-mutation snapshot back over `cvi/core/engine.py`);
-`git diff cvi/core/engine.py` against the committed version came back empty
+Reverted (`cp` from a pre-mutation snapshot back over `porchlamp/core/engine.py`);
+`git diff porchlamp/core/engine.py` against the committed version came back empty
 before continuing.
 
 **Mutant 2 — tiebreak mismatch check compares `owner` only**
-(`cvi/core/tiebreak.py`'s new check narrowed to
+(`porchlamp/core/tiebreak.py`'s new check narrowed to
 `(self.owner,) != (self.record.repo.owner,)`):
 
 ```
@@ -140,7 +140,7 @@ exit=0
 
 - Nothing outstanding. `tests/store/helpers.py` (mentioned in the packet as
   a possible additional constructor site) does not exist on `main` at the
-  base sha — confirmed by the `grep -rn 'ScoreRecord(' cvi tests` run
+  base sha — confirmed by the `grep -rn 'ScoreRecord(' porchlamp tests` run
   itself finding no such file, so there was nothing to fix there.
 
 ## Hazard note (self-inflicted, resolved)

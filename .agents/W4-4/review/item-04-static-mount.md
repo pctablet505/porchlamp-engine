@@ -9,12 +9,12 @@ the DB has a v1 shape. Measured with `TestClient`:
   /app.js                      -> 200  text/javascript               html=False
   /some/deep/app/route         -> 200  text/html                     html=True   (SPA fallback, correct)
   /?persona=first_timer        -> 200  text/html                     html=True   (URL state reloads, correct)
-  /v1/cvi/bogus                -> 200  text/html                     html=True   <-- API path swallowed
-  /v1/cvi/leaderboard/extra    -> 200  text/html                     html=True   <-- API path swallowed
-  /v1/cvi/                     -> 200  text/html                     html=True
+  /v1/porchlamp/bogus                -> 200  text/html                     html=True   <-- API path swallowed
+  /v1/porchlamp/leaderboard/extra    -> 200  text/html                     html=True   <-- API path swallowed
+  /v1/porchlamp/                     -> 200  text/html                     html=True
   /healthz                     -> 200  text/html                     html=True   <-- still advertised by serve.py
-  GET /v1/cvi/reproject        -> 200  text/html                     html=True   <-- method mismatch swallowed
-  POST /v1/cvi/leaderboard     -> 405  {"error":{...}}                           (from StaticFiles, not the router)
+  GET /v1/porchlamp/reproject        -> 200  text/html                     html=True   <-- method mismatch swallowed
+  POST /v1/porchlamp/leaderboard     -> 405  {"error":{...}}                           (from StaticFiles, not the router)
 ```
 
 Registered API routes do win over the mount (precedence holds); the failure

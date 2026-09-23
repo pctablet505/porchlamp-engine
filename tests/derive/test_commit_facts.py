@@ -1,10 +1,10 @@
-"""Acceptance tests for ``cvi.derive.bundle``'s two commit-derived bundle-level
+"""Acceptance tests for ``porchlamp.derive.bundle``'s two commit-derived bundle-level
 sidecar facts -- ``last_non_bot_commit_at`` (D-TIE-1 item 7,
 ``docs/v2/02-RANKING-DESIGN.md`` section 10) and ``top_email_domain_share``
 (the ``ef_domain_mismatch`` detector's input, ``docs/v2/
 03-ANTI-MANIPULATION.md`` section 6). Neither is one of
 ``constants.PARAM_INPUT_IDS``'s 18 scored parameters, so both live as
-bundle-instance sidecar attributes (``cvi.derive.bundle.
+bundle-instance sidecar attributes (``porchlamp.derive.bundle.
 last_non_bot_commit_at``/``top_email_domain_share`` accessors) rather than
 ``FeatureBundle.inputs`` keys.
 
@@ -22,9 +22,9 @@ import pytest
 
 from _fixtures import KEY, base_document, expected_hash, load, prov, write_envelope
 
-from cvi.core import constants
-from cvi.core.models import Unmeasured
-from cvi.derive.bundle import (
+from porchlamp.core import constants
+from porchlamp.core.models import Unmeasured
+from porchlamp.derive.bundle import (
     LastNonBotCommitMeasured,
     TopEmailDomainShareMeasured,
     last_non_bot_commit_at,
@@ -81,10 +81,10 @@ def test_last_non_bot_commit_at_measured_from_commits_365d(tmp_path: Path) -> No
 
 
 def _collected(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """``rows`` as ``cvi.collect.commits.collect_commits_365d`` itself
+    """``rows`` as ``porchlamp.collect.commits.collect_commits_365d`` itself
     records them (its window dict) -- the producer builds the envelope, so a
     change to what it records reaches this reader's tests too."""
-    from cvi.collect.commits import collect_commits_365d
+    from porchlamp.collect.commits import collect_commits_365d
     raw = [{"commit": {"author": {"email": r["author_email"], "date": r["date"]}, "message": ""},
             "author": {"login": r["author_login"], "type": r["author_type"]}} for r in rows]
     return collect_commits_365d(lambda page, since: raw if page == 1 else [])
@@ -353,7 +353,7 @@ def test_top_email_domain_share_tie_breaks_alphabetically_first(tmp_path: Path) 
 # --------------------------------------------------------------------------- #
 
 def test_both_sidecar_facts_survive_a_dump_reload_round_trip(tmp_path: Path) -> None:
-    from cvi.derive.bundle import write_bundle
+    from porchlamp.derive.bundle import write_bundle
 
     rows = _rows(20, domain="corp.com") + _rows(10, domain="other.com", start_day=21) + [
         _row("latest", "latest@corp.com", "2026-06-01T00:00:00Z"),
@@ -378,7 +378,7 @@ def test_sidecar_facts_default_when_v2_document_has_neither_optional_key(tmp_pat
     to their unset default, never a validation error."""
     import json as _json
 
-    from cvi.derive.bundle import dump_bundle
+    from porchlamp.derive.bundle import dump_bundle
 
     rows = _rows(30)
     _write(tmp_path, "commits_365d", rows)

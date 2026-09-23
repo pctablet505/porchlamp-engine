@@ -35,7 +35,7 @@ import pytest
 from fastapi.testclient import TestClient
 from fastapi.staticfiles import StaticFiles
 
-from cvi.api import create_app
+from porchlamp.api import create_app
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = REPO_ROOT / "web"
@@ -271,7 +271,7 @@ class TestThemePersistenceAndInteractionAdversarial:
         assert idx != -1, "initTheme function not found"
         fn_snippet = html_content[idx : idx + 350]
 
-        assert 'localStorage.getItem("cvi-theme")' in fn_snippet
+        assert 'localStorage.getItem("porchlamp-theme")' in fn_snippet
         assert "prefers-color-scheme: light" in fn_snippet
         assert "setTheme(" in fn_snippet
 
@@ -283,7 +283,7 @@ class TestThemePersistenceAndInteractionAdversarial:
 
         assert "state.theme = theme" in fn_snippet
         assert 'document.documentElement.setAttribute("data-theme", theme)' in fn_snippet
-        assert 'localStorage.setItem("cvi-theme", theme)' in fn_snippet
+        assert 'localStorage.setItem("porchlamp-theme", theme)' in fn_snippet
         assert '$("theme-icon").textContent =' in fn_snippet
         assert "☀️" in fn_snippet
         assert "🌙" in fn_snippet

@@ -19,7 +19,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 98.76,
+      "porchlamp": 98.76,
       "ecosystem": "pypi",
       "friction": 1.96,
       "friction_coverage": 1.0,
@@ -35,31 +35,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 98.34,
+          "porchlamp": 98.34,
           "rated": true,
           "tier": "S"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 98.34,
+          "porchlamp": 98.34,
           "rated": true,
           "tier": "S"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 98.34,
+          "porchlamp": 98.34,
           "rated": true,
           "tier": "S"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 98.76,
+          "porchlamp": 98.76,
           "rated": true,
           "tier": "S"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 98.34,
+          "porchlamp": 98.34,
           "rated": true,
           "tier": "S"
         }
@@ -85,7 +85,7 @@
       "c_responsiveness": 0.853,
       "c_rigor": 0.89,
       "coverage": 0.8616,
-      "cvi": 97.29,
+      "porchlamp": 97.29,
       "ecosystem": "maven",
       "friction": 1.97,
       "friction_coverage": 0.8642,
@@ -101,31 +101,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8774,
-          "cvi": 95.94,
+          "porchlamp": 95.94,
           "rated": true,
           "tier": "A"
         },
         "balanced": {
           "coverage": 0.8774,
-          "cvi": 95.94,
+          "porchlamp": 95.94,
           "rated": true,
           "tier": "A"
         },
         "career_capital": {
           "coverage": 0.8774,
-          "cvi": 95.94,
+          "porchlamp": 95.94,
           "rated": true,
           "tier": "A"
         },
         "first_timer": {
           "coverage": 0.8616,
-          "cvi": 97.29,
+          "porchlamp": 97.29,
           "rated": true,
           "tier": "A"
         },
         "senior_systems": {
           "coverage": 0.8774,
-          "cvi": 95.94,
+          "porchlamp": 95.94,
           "rated": true,
           "tier": "A"
         }
@@ -151,7 +151,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 92.4,
+      "porchlamp": 92.4,
       "ecosystem": "pypi",
       "friction": 5.7,
       "friction_coverage": 1.0,
@@ -167,31 +167,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 90.96,
+          "porchlamp": 90.96,
           "rated": true,
           "tier": "S"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 90.96,
+          "porchlamp": 90.96,
           "rated": true,
           "tier": "S"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 90.96,
+          "porchlamp": 90.96,
           "rated": true,
           "tier": "S"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 92.4,
+          "porchlamp": 92.4,
           "rated": true,
           "tier": "S"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 90.96,
+          "porchlamp": 90.96,
           "rated": true,
           "tier": "S"
         }
@@ -217,7 +217,7 @@
       "c_responsiveness": 0.809,
       "c_rigor": 0.858,
       "coverage": 0.8598,
-      "cvi": 92.18,
+      "porchlamp": 92.18,
       "ecosystem": "npm",
       "friction": 10.47,
       "friction_coverage": 0.8411,
@@ -233,31 +233,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8714,
-          "cvi": 93.77,
+          "porchlamp": 93.77,
           "rated": true,
           "tier": "A"
         },
         "balanced": {
           "coverage": 0.8714,
-          "cvi": 93.77,
+          "porchlamp": 93.77,
           "rated": true,
           "tier": "A"
         },
         "career_capital": {
           "coverage": 0.8714,
-          "cvi": 93.77,
+          "porchlamp": 93.77,
           "rated": true,
           "tier": "A"
         },
         "first_timer": {
           "coverage": 0.8598,
-          "cvi": 92.18,
+          "porchlamp": 92.18,
           "rated": true,
           "tier": "A"
         },
         "senior_systems": {
           "coverage": 0.8714,
-          "cvi": 93.77,
+          "porchlamp": 93.77,
           "rated": true,
           "tier": "A"
         }
@@ -283,7 +283,7 @@
       "c_responsiveness": 0.915,
       "c_rigor": 0.833,
       "coverage": 0.8737,
-      "cvi": 91.57,
+      "porchlamp": 91.57,
       "ecosystem": "maven",
       "friction": 10.32,
       "friction_coverage": 0.889,
@@ -299,31 +299,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8623,
-          "cvi": 93.31,
+          "porchlamp": 93.31,
           "rated": true,
           "tier": "A"
         },
         "balanced": {
           "coverage": 0.8623,
-          "cvi": 93.31,
+          "porchlamp": 93.31,
           "rated": true,
           "tier": "A"
         },
         "career_capital": {
           "coverage": 0.8623,
-          "cvi": 93.31,
+          "porchlamp": 93.31,
           "rated": true,
           "tier": "A"
         },
         "first_timer": {
           "coverage": 0.8737,
-          "cvi": 91.57,
+          "porchlamp": 91.57,
           "rated": true,
           "tier": "A"
         },
         "senior_systems": {
           "coverage": 0.8623,
-          "cvi": 93.31,
+          "porchlamp": 93.31,
           "rated": true,
           "tier": "A"
         }
@@ -349,7 +349,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 91.27,
+      "porchlamp": 91.27,
       "ecosystem": "pypi",
       "friction": 8.55,
       "friction_coverage": 1.0,
@@ -365,31 +365,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 89.89,
+          "porchlamp": 89.89,
           "rated": true,
           "tier": "A"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 89.89,
+          "porchlamp": 89.89,
           "rated": true,
           "tier": "A"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 89.89,
+          "porchlamp": 89.89,
           "rated": true,
           "tier": "A"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 91.27,
+          "porchlamp": 91.27,
           "rated": true,
           "tier": "S"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 89.89,
+          "porchlamp": 89.89,
           "rated": true,
           "tier": "A"
         }
@@ -415,7 +415,7 @@
       "c_responsiveness": 0.806,
       "c_rigor": 0.875,
       "coverage": 0.864,
-      "cvi": 90.39,
+      "porchlamp": 90.39,
       "ecosystem": "npm",
       "friction": 9.97,
       "friction_coverage": 0.8605,
@@ -431,31 +431,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8819,
-          "cvi": 91.6,
+          "porchlamp": 91.6,
           "rated": true,
           "tier": "A"
         },
         "balanced": {
           "coverage": 0.8819,
-          "cvi": 91.6,
+          "porchlamp": 91.6,
           "rated": true,
           "tier": "A"
         },
         "career_capital": {
           "coverage": 0.8819,
-          "cvi": 91.6,
+          "porchlamp": 91.6,
           "rated": true,
           "tier": "A"
         },
         "first_timer": {
           "coverage": 0.864,
-          "cvi": 90.39,
+          "porchlamp": 90.39,
           "rated": true,
           "tier": "A"
         },
         "senior_systems": {
           "coverage": 0.8819,
-          "cvi": 91.6,
+          "porchlamp": 91.6,
           "rated": true,
           "tier": "A"
         }
@@ -481,7 +481,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 89.85,
+      "porchlamp": 89.85,
       "ecosystem": "maven",
       "friction": 13.66,
       "friction_coverage": 1.0,
@@ -497,31 +497,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 91.99,
+          "porchlamp": 91.99,
           "rated": true,
           "tier": "S"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 91.99,
+          "porchlamp": 91.99,
           "rated": true,
           "tier": "S"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 91.99,
+          "porchlamp": 91.99,
           "rated": true,
           "tier": "S"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 89.85,
+          "porchlamp": 89.85,
           "rated": true,
           "tier": "A"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 91.99,
+          "porchlamp": 91.99,
           "rated": true,
           "tier": "S"
         }
@@ -547,7 +547,7 @@
       "c_responsiveness": 0.756,
       "c_rigor": 0.627,
       "coverage": 0.6966,
-      "cvi": 88.12,
+      "porchlamp": 88.12,
       "ecosystem": "maven",
       "friction": 11.72,
       "friction_coverage": 0.7172,
@@ -563,31 +563,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.6901,
-          "cvi": 87.76,
+          "porchlamp": 87.76,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.6901,
-          "cvi": 87.76,
+          "porchlamp": 87.76,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.6901,
-          "cvi": 87.76,
+          "porchlamp": 87.76,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.6966,
-          "cvi": 88.12,
+          "porchlamp": 88.12,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.6901,
-          "cvi": 87.76,
+          "porchlamp": 87.76,
           "rated": true,
           "tier": "B"
         }
@@ -613,7 +613,7 @@
       "c_responsiveness": 0.764,
       "c_rigor": 0.721,
       "coverage": 0.7008,
-      "cvi": 85.35,
+      "porchlamp": 85.35,
       "ecosystem": "go",
       "friction": 14.28,
       "friction_coverage": 0.6913,
@@ -629,31 +629,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.7083,
-          "cvi": 82.98,
+          "porchlamp": 82.98,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.7083,
-          "cvi": 82.98,
+          "porchlamp": 82.98,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.7083,
-          "cvi": 82.98,
+          "porchlamp": 82.98,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.7008,
-          "cvi": 85.35,
+          "porchlamp": 85.35,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.7083,
-          "cvi": 82.98,
+          "porchlamp": 82.98,
           "rated": true,
           "tier": "B"
         }
@@ -679,7 +679,7 @@
       "c_responsiveness": 0.739,
       "c_rigor": 0.77,
       "coverage": 0.7145,
-      "cvi": 83.03,
+      "porchlamp": 83.03,
       "ecosystem": "go",
       "friction": 18.33,
       "friction_coverage": 0.7164,
@@ -695,31 +695,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.7359,
-          "cvi": 85.38,
+          "porchlamp": 85.38,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.7359,
-          "cvi": 85.38,
+          "porchlamp": 85.38,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.7359,
-          "cvi": 85.38,
+          "porchlamp": 85.38,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.7145,
-          "cvi": 83.03,
+          "porchlamp": 83.03,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.7359,
-          "cvi": 85.38,
+          "porchlamp": 85.38,
           "rated": true,
           "tier": "B"
         }
@@ -745,7 +745,7 @@
       "c_responsiveness": 0.85,
       "c_rigor": 0.887,
       "coverage": 0.8678,
-      "cvi": 78.61,
+      "porchlamp": 78.61,
       "ecosystem": "go",
       "friction": 19.74,
       "friction_coverage": 0.8669,
@@ -761,25 +761,25 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.877,
-          "cvi": 76.61,
+          "porchlamp": 76.61,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.877,
-          "cvi": 76.61,
+          "porchlamp": 76.61,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.8678,
-          "cvi": 78.61,
+          "porchlamp": 78.61,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.877,
-          "cvi": 76.61,
+          "porchlamp": 76.61,
           "rated": true,
           "tier": "B"
         }
@@ -807,7 +807,7 @@
       "c_responsiveness": 0.711,
       "c_rigor": 0.709,
       "coverage": 0.7227,
-      "cvi": 77.87,
+      "porchlamp": 77.87,
       "ecosystem": "pypi",
       "friction": 23.24,
       "friction_coverage": 0.7321,
@@ -823,31 +823,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.7091,
-          "cvi": 79.13,
+          "porchlamp": 79.13,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.7091,
-          "cvi": 79.13,
+          "porchlamp": 79.13,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.7091,
-          "cvi": 79.13,
+          "porchlamp": 79.13,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.7227,
-          "cvi": 77.87,
+          "porchlamp": 77.87,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.7091,
-          "cvi": 79.13,
+          "porchlamp": 79.13,
           "rated": true,
           "tier": "B"
         }
@@ -873,7 +873,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 77.76,
+      "porchlamp": 77.76,
       "ecosystem": "npm",
       "friction": 22.99,
       "friction_coverage": 1.0,
@@ -889,31 +889,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 75.86,
+          "porchlamp": 75.86,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 75.86,
+          "porchlamp": 75.86,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 75.86,
+          "porchlamp": 75.86,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 77.76,
+          "porchlamp": 77.76,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 75.86,
+          "porchlamp": 75.86,
           "rated": true,
           "tier": "B"
         }
@@ -939,7 +939,7 @@
       "c_responsiveness": 0.664,
       "c_rigor": 0.639,
       "coverage": 0.6721,
-      "cvi": 77.48,
+      "porchlamp": 77.48,
       "ecosystem": "pypi",
       "friction": 21.53,
       "friction_coverage": 0.6717,
@@ -955,31 +955,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.654,
-          "cvi": 74.91,
+          "porchlamp": 74.91,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.654,
-          "cvi": 74.91,
+          "porchlamp": 74.91,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.654,
-          "cvi": 74.91,
+          "porchlamp": 74.91,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.6721,
-          "cvi": 77.48,
+          "porchlamp": 77.48,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.654,
-          "cvi": 74.91,
+          "porchlamp": 74.91,
           "rated": true,
           "tier": "B"
         }
@@ -1005,7 +1005,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 74.85,
+      "porchlamp": 74.85,
       "ecosystem": "pypi",
       "friction": 24.5,
       "friction_coverage": 1.0,
@@ -1021,31 +1021,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 74.85,
+          "porchlamp": 74.85,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         }
@@ -1071,7 +1071,7 @@
       "c_responsiveness": 0.9,
       "c_rigor": 1.0,
       "coverage": 0.96,
-      "cvi": 74.85,
+      "porchlamp": 74.85,
       "ecosystem": "npm",
       "friction": 24.5,
       "friction_coverage": 0.95,
@@ -1087,31 +1087,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.975,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.975,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.975,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.96,
-          "cvi": 74.85,
+          "porchlamp": 74.85,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.975,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         }
@@ -1137,7 +1137,7 @@
       "c_responsiveness": 0.8,
       "c_rigor": 1.0,
       "coverage": 0.92,
-      "cvi": 74.85,
+      "porchlamp": 74.85,
       "ecosystem": "cargo",
       "friction": 24.5,
       "friction_coverage": 0.9,
@@ -1153,31 +1153,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.95,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.95,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.95,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.92,
-          "cvi": 74.85,
+          "porchlamp": 74.85,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.95,
-          "cvi": 77.0,
+          "porchlamp": 77.0,
           "rated": true,
           "tier": "B"
         }
@@ -1203,7 +1203,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 74.54,
+      "porchlamp": 74.54,
       "ecosystem": "go",
       "friction": 27.5,
       "friction_coverage": 1.0,
@@ -1219,31 +1219,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 77.09,
+          "porchlamp": 77.09,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 77.09,
+          "porchlamp": 77.09,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 77.09,
+          "porchlamp": 77.09,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 74.54,
+          "porchlamp": 74.54,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 77.09,
+          "porchlamp": 77.09,
           "rated": true,
           "tier": "B"
         }
@@ -1269,7 +1269,7 @@
       "c_responsiveness": 0.859,
       "c_rigor": 0.851,
       "coverage": 0.8533,
-      "cvi": 74.13,
+      "porchlamp": 74.13,
       "ecosystem": "maven",
       "friction": 24.91,
       "friction_coverage": 0.8563,
@@ -1285,31 +1285,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8642,
-          "cvi": 76.74,
+          "porchlamp": 76.74,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.8642,
-          "cvi": 76.74,
+          "porchlamp": 76.74,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.8642,
-          "cvi": 76.74,
+          "porchlamp": 76.74,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.8533,
-          "cvi": 74.13,
+          "porchlamp": 74.13,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.8642,
-          "cvi": 76.74,
+          "porchlamp": 76.74,
           "rated": true,
           "tier": "B"
         }
@@ -1335,7 +1335,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 73.05,
+      "porchlamp": 73.05,
       "ecosystem": "cargo",
       "friction": 30.73,
       "friction_coverage": 1.0,
@@ -1351,31 +1351,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 75.53,
+          "porchlamp": 75.53,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 75.53,
+          "porchlamp": 75.53,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 75.53,
+          "porchlamp": 75.53,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 73.05,
+          "porchlamp": 73.05,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 75.53,
+          "porchlamp": 75.53,
           "rated": true,
           "tier": "B"
         }
@@ -1401,7 +1401,7 @@
       "c_responsiveness": 0.817,
       "c_rigor": 0.868,
       "coverage": 0.8484,
-      "cvi": 72.57,
+      "porchlamp": 72.57,
       "ecosystem": "go",
       "friction": 26.9,
       "friction_coverage": 0.8489,
@@ -1417,31 +1417,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8528,
-          "cvi": 70.39,
+          "porchlamp": 70.39,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.8528,
-          "cvi": 70.39,
+          "porchlamp": 70.39,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.8528,
-          "cvi": 70.39,
+          "porchlamp": 70.39,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.8484,
-          "cvi": 72.57,
+          "porchlamp": 72.57,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.8528,
-          "cvi": 70.39,
+          "porchlamp": 70.39,
           "rated": true,
           "tier": "B"
         }
@@ -1467,7 +1467,7 @@
       "c_responsiveness": 0.823,
       "c_rigor": 0.846,
       "coverage": 0.8495,
-      "cvi": 72.49,
+      "porchlamp": 72.49,
       "ecosystem": "pypi",
       "friction": 27.52,
       "friction_coverage": 0.8388,
@@ -1483,31 +1483,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8569,
-          "cvi": 69.29,
+          "porchlamp": 69.29,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.8569,
-          "cvi": 69.29,
+          "porchlamp": 69.29,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.8569,
-          "cvi": 69.29,
+          "porchlamp": 69.29,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.8495,
-          "cvi": 72.49,
+          "porchlamp": 72.49,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.8569,
-          "cvi": 69.29,
+          "porchlamp": 69.29,
           "rated": true,
           "tier": "C"
         }
@@ -1533,7 +1533,7 @@
       "c_responsiveness": 0.836,
       "c_rigor": 0.815,
       "coverage": 0.8639,
-      "cvi": 72.17,
+      "porchlamp": 72.17,
       "ecosystem": "go",
       "friction": 26.56,
       "friction_coverage": 0.856,
@@ -1549,31 +1549,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8647,
-          "cvi": 73.14,
+          "porchlamp": 73.14,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.8647,
-          "cvi": 73.14,
+          "porchlamp": 73.14,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.8647,
-          "cvi": 73.14,
+          "porchlamp": 73.14,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.8639,
-          "cvi": 72.17,
+          "porchlamp": 72.17,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.8647,
-          "cvi": 73.14,
+          "porchlamp": 73.14,
           "rated": true,
           "tier": "B"
         }
@@ -1599,7 +1599,7 @@
       "c_responsiveness": 0.853,
       "c_rigor": 0.824,
       "coverage": 0.8444,
-      "cvi": 72.13,
+      "porchlamp": 72.13,
       "ecosystem": "npm",
       "friction": 26.87,
       "friction_coverage": 0.8563,
@@ -1615,31 +1615,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.84,
-          "cvi": 70.96,
+          "porchlamp": 70.96,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 0.84,
-          "cvi": 70.96,
+          "porchlamp": 70.96,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.84,
-          "cvi": 70.96,
+          "porchlamp": 70.96,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.8444,
-          "cvi": 72.13,
+          "porchlamp": 72.13,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.84,
-          "cvi": 70.96,
+          "porchlamp": 70.96,
           "rated": true,
           "tier": "B"
         }
@@ -1665,7 +1665,7 @@
       "c_responsiveness": 0.872,
       "c_rigor": 0.942,
       "coverage": 0.8831,
-      "cvi": 71.55,
+      "porchlamp": 71.55,
       "ecosystem": "cargo",
       "friction": 25.24,
       "friction_coverage": 0.8905,
@@ -1681,25 +1681,25 @@
       "persona_composites": {
         "balanced": {
           "coverage": 0.889,
-          "cvi": 71.38,
+          "porchlamp": 71.38,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 0.889,
-          "cvi": 71.38,
+          "porchlamp": 71.38,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 0.8831,
-          "cvi": 71.55,
+          "porchlamp": 71.55,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 0.889,
-          "cvi": 71.38,
+          "porchlamp": 71.38,
           "rated": true,
           "tier": "B"
         }
@@ -1727,7 +1727,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 71.05,
+      "porchlamp": 71.05,
       "ecosystem": "pypi",
       "friction": 30.1,
       "friction_coverage": 1.0,
@@ -1743,31 +1743,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 74.65,
+          "porchlamp": 74.65,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 74.65,
+          "porchlamp": 74.65,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 74.65,
+          "porchlamp": 74.65,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 71.05,
+          "porchlamp": 71.05,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 74.65,
+          "porchlamp": 74.65,
           "rated": true,
           "tier": "B"
         }
@@ -1793,7 +1793,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 71.05,
+      "porchlamp": 71.05,
       "ecosystem": "pypi",
       "friction": 30.1,
       "friction_coverage": 1.0,
@@ -1809,31 +1809,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 74.65,
+          "porchlamp": 74.65,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 74.65,
+          "porchlamp": 74.65,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 74.65,
+          "porchlamp": 74.65,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 71.05,
+          "porchlamp": 71.05,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 74.65,
+          "porchlamp": 74.65,
           "rated": true,
           "tier": "B"
         }
@@ -1859,7 +1859,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 70.78,
+      "porchlamp": 70.78,
       "ecosystem": "pypi",
       "friction": 31.79,
       "friction_coverage": 1.0,
@@ -1875,31 +1875,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 70.82,
+          "porchlamp": 70.82,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 70.82,
+          "porchlamp": 70.82,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 70.82,
+          "porchlamp": 70.82,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 70.78,
+          "porchlamp": 70.78,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 70.82,
+          "porchlamp": 70.82,
           "rated": true,
           "tier": "B"
         }
@@ -1925,7 +1925,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 70.52,
+      "porchlamp": 70.52,
       "ecosystem": "pypi",
       "friction": 29.64,
       "friction_coverage": 1.0,
@@ -1941,31 +1941,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 70.59,
+          "porchlamp": 70.59,
           "rated": true,
           "tier": "B"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 70.59,
+          "porchlamp": 70.59,
           "rated": true,
           "tier": "B"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 70.59,
+          "porchlamp": 70.59,
           "rated": true,
           "tier": "B"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 70.52,
+          "porchlamp": 70.52,
           "rated": true,
           "tier": "B"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 70.59,
+          "porchlamp": 70.59,
           "rated": true,
           "tier": "B"
         }
@@ -1991,7 +1991,7 @@
       "c_responsiveness": 0.919,
       "c_rigor": 0.926,
       "coverage": 0.6907,
-      "cvi": 69.63,
+      "porchlamp": 69.63,
       "ecosystem": "go",
       "friction": 56.41,
       "friction_coverage": 0.7373,
@@ -2007,31 +2007,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.7829,
-          "cvi": 69.92,
+          "porchlamp": 69.92,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.7829,
-          "cvi": 69.92,
+          "porchlamp": 69.92,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.7829,
-          "cvi": 69.92,
+          "porchlamp": 69.92,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.6907,
-          "cvi": 69.63,
+          "porchlamp": 69.63,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.7829,
-          "cvi": 69.92,
+          "porchlamp": 69.92,
           "rated": true,
           "tier": "C"
         }
@@ -2057,7 +2057,7 @@
       "c_responsiveness": 0.766,
       "c_rigor": 0.601,
       "coverage": 0.6723,
-      "cvi": 68.7,
+      "porchlamp": 68.7,
       "ecosystem": "maven",
       "friction": 33.83,
       "friction_coverage": 0.6855,
@@ -2073,31 +2073,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.6507,
-          "cvi": 68.94,
+          "porchlamp": 68.94,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.6507,
-          "cvi": 68.94,
+          "porchlamp": 68.94,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.6507,
-          "cvi": 68.94,
+          "porchlamp": 68.94,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.6723,
-          "cvi": 68.7,
+          "porchlamp": 68.7,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.6507,
-          "cvi": 68.94,
+          "porchlamp": 68.94,
           "rated": true,
           "tier": "C"
         }
@@ -2123,7 +2123,7 @@
       "c_responsiveness": 0.778,
       "c_rigor": 0.764,
       "coverage": 0.7223,
-      "cvi": 67.99,
+      "porchlamp": 67.99,
       "ecosystem": "npm",
       "friction": 31.5,
       "friction_coverage": 0.7191,
@@ -2139,31 +2139,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.7236,
-          "cvi": 69.41,
+          "porchlamp": 69.41,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.7236,
-          "cvi": 69.41,
+          "porchlamp": 69.41,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.7236,
-          "cvi": 69.41,
+          "porchlamp": 69.41,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.7223,
-          "cvi": 67.99,
+          "porchlamp": 67.99,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.7236,
-          "cvi": 69.41,
+          "porchlamp": 69.41,
           "rated": true,
           "tier": "C"
         }
@@ -2189,7 +2189,7 @@
       "c_responsiveness": 0.877,
       "c_rigor": 0.875,
       "coverage": 0.8786,
-      "cvi": 67.89,
+      "porchlamp": 67.89,
       "ecosystem": "pypi",
       "friction": 32.59,
       "friction_coverage": 0.8747,
@@ -2205,25 +2205,25 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8851,
-          "cvi": 66.46,
+          "porchlamp": 66.46,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.8851,
-          "cvi": 66.46,
+          "porchlamp": 66.46,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.8851,
-          "cvi": 66.46,
+          "porchlamp": 66.46,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.8786,
-          "cvi": 67.89,
+          "porchlamp": 67.89,
           "rated": true,
           "tier": "C"
         }
@@ -2251,7 +2251,7 @@
       "c_responsiveness": 0.918,
       "c_rigor": 0.83,
       "coverage": 0.8957,
-      "cvi": 66.48,
+      "porchlamp": 66.48,
       "ecosystem": "npm",
       "friction": 33.43,
       "friction_coverage": 0.9126,
@@ -2267,31 +2267,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.872,
-          "cvi": 64.13,
+          "porchlamp": 64.13,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.872,
-          "cvi": 64.13,
+          "porchlamp": 64.13,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.872,
-          "cvi": 64.13,
+          "porchlamp": 64.13,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.8957,
-          "cvi": 66.48,
+          "porchlamp": 66.48,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.872,
-          "cvi": 64.13,
+          "porchlamp": 64.13,
           "rated": true,
           "tier": "C"
         }
@@ -2317,7 +2317,7 @@
       "c_responsiveness": 0.629,
       "c_rigor": 0.669,
       "coverage": 0.6748,
-      "cvi": 65.37,
+      "porchlamp": 65.37,
       "ecosystem": "pypi",
       "friction": 34.25,
       "friction_coverage": 0.6589,
@@ -2333,31 +2333,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.6928,
-          "cvi": 64.9,
+          "porchlamp": 64.9,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.6928,
-          "cvi": 64.9,
+          "porchlamp": 64.9,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.6928,
-          "cvi": 64.9,
+          "porchlamp": 64.9,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.6748,
-          "cvi": 65.37,
+          "porchlamp": 65.37,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.6928,
-          "cvi": 64.9,
+          "porchlamp": 64.9,
           "rated": true,
           "tier": "C"
         }
@@ -2383,7 +2383,7 @@
       "c_responsiveness": 0.702,
       "c_rigor": 0.611,
       "coverage": 0.715,
-      "cvi": 64.79,
+      "porchlamp": 64.79,
       "ecosystem": "pypi",
       "friction": 32.02,
       "friction_coverage": 0.7132,
@@ -2399,31 +2399,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.7106,
-          "cvi": 61.39,
+          "porchlamp": 61.39,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.7106,
-          "cvi": 61.39,
+          "porchlamp": 61.39,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.7106,
-          "cvi": 61.39,
+          "porchlamp": 61.39,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.715,
-          "cvi": 64.79,
+          "porchlamp": 64.79,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.7106,
-          "cvi": 61.39,
+          "porchlamp": 61.39,
           "rated": true,
           "tier": "C"
         }
@@ -2449,7 +2449,7 @@
       "c_responsiveness": 0.924,
       "c_rigor": 0.873,
       "coverage": 0.8945,
-      "cvi": 63.03,
+      "porchlamp": 63.03,
       "ecosystem": "go",
       "friction": 36.24,
       "friction_coverage": 0.8915,
@@ -2465,31 +2465,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8857,
-          "cvi": 63.55,
+          "porchlamp": 63.55,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.8857,
-          "cvi": 63.55,
+          "porchlamp": 63.55,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.8857,
-          "cvi": 63.55,
+          "porchlamp": 63.55,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.8945,
-          "cvi": 63.03,
+          "porchlamp": 63.03,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.8857,
-          "cvi": 63.55,
+          "porchlamp": 63.55,
           "rated": true,
           "tier": "C"
         }
@@ -2515,7 +2515,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 61.75,
+      "porchlamp": 61.75,
       "ecosystem": "cargo",
       "friction": 37.0,
       "friction_coverage": 1.0,
@@ -2531,31 +2531,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 48.0,
+          "porchlamp": 48.0,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 48.0,
+          "porchlamp": 48.0,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 48.0,
+          "porchlamp": 48.0,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 61.75,
+          "porchlamp": 61.75,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 48.0,
+          "porchlamp": 48.0,
           "rated": true,
           "tier": "D"
         }
@@ -2581,7 +2581,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 61.7,
+      "porchlamp": 61.7,
       "ecosystem": "cargo",
       "friction": 41.11,
       "friction_coverage": 1.0,
@@ -2597,31 +2597,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 64.16,
+          "porchlamp": 64.16,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 64.16,
+          "porchlamp": 64.16,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 64.16,
+          "porchlamp": 64.16,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 61.7,
+          "porchlamp": 61.7,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 64.16,
+          "porchlamp": 64.16,
           "rated": true,
           "tier": "C"
         }
@@ -2647,7 +2647,7 @@
       "c_responsiveness": 0.846,
       "c_rigor": 0.898,
       "coverage": 0.8515,
-      "cvi": 61.05,
+      "porchlamp": 61.05,
       "ecosystem": "npm",
       "friction": 41.33,
       "friction_coverage": 0.8449,
@@ -2663,31 +2663,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8436,
-          "cvi": 62.47,
+          "porchlamp": 62.47,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.8436,
-          "cvi": 62.47,
+          "porchlamp": 62.47,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.8436,
-          "cvi": 62.47,
+          "porchlamp": 62.47,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.8515,
-          "cvi": 61.05,
+          "porchlamp": 61.05,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.8436,
-          "cvi": 62.47,
+          "porchlamp": 62.47,
           "rated": true,
           "tier": "C"
         }
@@ -2716,7 +2716,7 @@
       "c_responsiveness": 0.665,
       "c_rigor": 0.612,
       "coverage": 0.6712,
-      "cvi": 60.92,
+      "porchlamp": 60.92,
       "ecosystem": "npm",
       "friction": 37.05,
       "friction_coverage": 0.6861,
@@ -2732,31 +2732,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.6726,
-          "cvi": 59.74,
+          "porchlamp": 59.74,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.6726,
-          "cvi": 59.74,
+          "porchlamp": 59.74,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.6726,
-          "cvi": 59.74,
+          "porchlamp": 59.74,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.6712,
-          "cvi": 60.92,
+          "porchlamp": 60.92,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.6726,
-          "cvi": 59.74,
+          "porchlamp": 59.74,
           "rated": true,
           "tier": "C"
         }
@@ -2782,7 +2782,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 60.5,
+      "porchlamp": 60.5,
       "ecosystem": "maven",
       "friction": 37.55,
       "friction_coverage": 1.0,
@@ -2798,31 +2798,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 58.35,
+          "porchlamp": 58.35,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 58.35,
+          "porchlamp": 58.35,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 58.35,
+          "porchlamp": 58.35,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 60.5,
+          "porchlamp": 60.5,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 58.35,
+          "porchlamp": 58.35,
           "rated": true,
           "tier": "C"
         }
@@ -2848,7 +2848,7 @@
       "c_responsiveness": 0.803,
       "c_rigor": 0.853,
       "coverage": 0.8099,
-      "cvi": 59.8,
+      "porchlamp": 59.8,
       "ecosystem": "npm",
       "friction": 43.09,
       "friction_coverage": 0.8218,
@@ -2864,31 +2864,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8179,
-          "cvi": 61.93,
+          "porchlamp": 61.93,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.8179,
-          "cvi": 61.93,
+          "porchlamp": 61.93,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.8179,
-          "cvi": 61.93,
+          "porchlamp": 61.93,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.8099,
-          "cvi": 59.8,
+          "porchlamp": 59.8,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.8179,
-          "cvi": 61.93,
+          "porchlamp": 61.93,
           "rated": true,
           "tier": "C"
         }
@@ -2916,7 +2916,7 @@
       "c_responsiveness": 0.84,
       "c_rigor": 0.769,
       "coverage": 0.8114,
-      "cvi": 57.12,
+      "porchlamp": 57.12,
       "ecosystem": "maven",
       "friction": 40.82,
       "friction_coverage": 0.8137,
@@ -2932,31 +2932,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8202,
-          "cvi": 60.6,
+          "porchlamp": 60.6,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.8202,
-          "cvi": 60.6,
+          "porchlamp": 60.6,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.8202,
-          "cvi": 60.6,
+          "porchlamp": 60.6,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.8114,
-          "cvi": 57.12,
+          "porchlamp": 57.12,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.8202,
-          "cvi": 60.6,
+          "porchlamp": 60.6,
           "rated": true,
           "tier": "C"
         }
@@ -2984,7 +2984,7 @@
       "c_responsiveness": 0.903,
       "c_rigor": 0.844,
       "coverage": 0.8831,
-      "cvi": 56.9,
+      "porchlamp": 56.9,
       "ecosystem": "pypi",
       "friction": 43.57,
       "friction_coverage": 0.8772,
@@ -3000,31 +3000,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8828,
-          "cvi": 53.31,
+          "porchlamp": 53.31,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 0.8828,
-          "cvi": 53.31,
+          "porchlamp": 53.31,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 0.8828,
-          "cvi": 53.31,
+          "porchlamp": 53.31,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 0.8831,
-          "cvi": 56.9,
+          "porchlamp": 56.9,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.8828,
-          "cvi": 53.31,
+          "porchlamp": 53.31,
           "rated": true,
           "tier": "D"
         }
@@ -3050,7 +3050,7 @@
       "c_responsiveness": 0.897,
       "c_rigor": 0.932,
       "coverage": 0.8811,
-      "cvi": 56.86,
+      "porchlamp": 56.86,
       "ecosystem": "cargo",
       "friction": 41.59,
       "friction_coverage": 0.8852,
@@ -3066,31 +3066,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8733,
-          "cvi": 56.71,
+          "porchlamp": 56.71,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.8733,
-          "cvi": 56.71,
+          "porchlamp": 56.71,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.8733,
-          "cvi": 56.71,
+          "porchlamp": 56.71,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.8811,
-          "cvi": 56.86,
+          "porchlamp": 56.86,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.8733,
-          "cvi": 56.71,
+          "porchlamp": 56.71,
           "rated": true,
           "tier": "C"
         }
@@ -3116,7 +3116,7 @@
       "c_responsiveness": 0.827,
       "c_rigor": 0.82,
       "coverage": 0.8567,
-      "cvi": 55.21,
+      "porchlamp": 55.21,
       "ecosystem": "npm",
       "friction": 43.59,
       "friction_coverage": 0.8625,
@@ -3132,31 +3132,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.873,
-          "cvi": 55.54,
+          "porchlamp": 55.54,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 0.873,
-          "cvi": 55.54,
+          "porchlamp": 55.54,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 0.873,
-          "cvi": 55.54,
+          "porchlamp": 55.54,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 0.8567,
-          "cvi": 55.21,
+          "porchlamp": 55.21,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 0.873,
-          "cvi": 55.54,
+          "porchlamp": 55.54,
           "rated": true,
           "tier": "C"
         }
@@ -3182,7 +3182,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 55.07,
+      "porchlamp": 55.07,
       "ecosystem": "npm",
       "friction": 40.55,
       "friction_coverage": 1.0,
@@ -3198,31 +3198,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 52.59,
+          "porchlamp": 52.59,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 52.59,
+          "porchlamp": 52.59,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 52.59,
+          "porchlamp": 52.59,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 55.07,
+          "porchlamp": 55.07,
           "rated": true,
           "tier": "C"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 52.59,
+          "porchlamp": 52.59,
           "rated": true,
           "tier": "D"
         }
@@ -3248,7 +3248,7 @@
       "c_responsiveness": 0.891,
       "c_rigor": 0.901,
       "coverage": 0.8937,
-      "cvi": 54.44,
+      "porchlamp": 54.44,
       "ecosystem": "go",
       "friction": 43.85,
       "friction_coverage": 0.8754,
@@ -3264,31 +3264,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.893,
-          "cvi": 53.89,
+          "porchlamp": 53.89,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 0.893,
-          "cvi": 53.89,
+          "porchlamp": 53.89,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 0.893,
-          "cvi": 53.89,
+          "porchlamp": 53.89,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 0.8937,
-          "cvi": 54.44,
+          "porchlamp": 54.44,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 0.893,
-          "cvi": 53.89,
+          "porchlamp": 53.89,
           "rated": true,
           "tier": "D"
         }
@@ -3314,7 +3314,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 51.59,
+      "porchlamp": 51.59,
       "ecosystem": "npm",
       "friction": 49.14,
       "friction_coverage": 1.0,
@@ -3330,31 +3330,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 50.16,
+          "porchlamp": 50.16,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 50.16,
+          "porchlamp": 50.16,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 50.16,
+          "porchlamp": 50.16,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 51.59,
+          "porchlamp": 51.59,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 50.16,
+          "porchlamp": 50.16,
           "rated": true,
           "tier": "D"
         }
@@ -3380,7 +3380,7 @@
       "c_responsiveness": 0.718,
       "c_rigor": 0.753,
       "coverage": 0.7409,
-      "cvi": 48.86,
+      "porchlamp": 48.86,
       "ecosystem": "go",
       "friction": 51.16,
       "friction_coverage": 0.7264,
@@ -3396,31 +3396,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.7422,
-          "cvi": 50.07,
+          "porchlamp": 50.07,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 0.7422,
-          "cvi": 50.07,
+          "porchlamp": 50.07,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 0.7422,
-          "cvi": 50.07,
+          "porchlamp": 50.07,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 0.7409,
-          "cvi": 48.86,
+          "porchlamp": 48.86,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 0.7422,
-          "cvi": 50.07,
+          "porchlamp": 50.07,
           "rated": true,
           "tier": "D"
         }
@@ -3446,7 +3446,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 48.31,
+      "porchlamp": 48.31,
       "ecosystem": "go",
       "friction": 50.03,
       "friction_coverage": 1.0,
@@ -3462,31 +3462,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 48.28,
+          "porchlamp": 48.28,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 48.28,
+          "porchlamp": 48.28,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 48.28,
+          "porchlamp": 48.28,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 48.31,
+          "porchlamp": 48.31,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 48.28,
+          "porchlamp": 48.28,
           "rated": true,
           "tier": "D"
         }
@@ -3512,7 +3512,7 @@
       "c_responsiveness": 0.878,
       "c_rigor": 0.911,
       "coverage": 0.8924,
-      "cvi": 48.11,
+      "porchlamp": 48.11,
       "ecosystem": "pypi",
       "friction": 51.05,
       "friction_coverage": 0.8941,
@@ -3528,31 +3528,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8923,
-          "cvi": 47.19,
+          "porchlamp": 47.19,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 0.8923,
-          "cvi": 47.19,
+          "porchlamp": 47.19,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 0.8923,
-          "cvi": 47.19,
+          "porchlamp": 47.19,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 0.8924,
-          "cvi": 48.11,
+          "porchlamp": 48.11,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 0.8923,
-          "cvi": 47.19,
+          "porchlamp": 47.19,
           "rated": true,
           "tier": "D"
         }
@@ -3578,7 +3578,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 47.71,
+      "porchlamp": 47.71,
       "ecosystem": "npm",
       "friction": 50.27,
       "friction_coverage": 1.0,
@@ -3594,31 +3594,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 48.11,
+          "porchlamp": 48.11,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 48.11,
+          "porchlamp": 48.11,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 48.11,
+          "porchlamp": 48.11,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 47.71,
+          "porchlamp": 47.71,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 48.11,
+          "porchlamp": 48.11,
           "rated": true,
           "tier": "D"
         }
@@ -3644,7 +3644,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 47.49,
+      "porchlamp": 47.49,
       "ecosystem": "pypi",
       "friction": 53.15,
       "friction_coverage": 1.0,
@@ -3660,31 +3660,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 47.15,
+          "porchlamp": 47.15,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 47.15,
+          "porchlamp": 47.15,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 47.15,
+          "porchlamp": 47.15,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 47.49,
+          "porchlamp": 47.49,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 47.15,
+          "porchlamp": 47.15,
           "rated": true,
           "tier": "D"
         }
@@ -3710,7 +3710,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 46.08,
+      "porchlamp": 46.08,
       "ecosystem": "maven",
       "friction": 54.21,
       "friction_coverage": 1.0,
@@ -3726,31 +3726,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 45.82,
+          "porchlamp": 45.82,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 45.82,
+          "porchlamp": 45.82,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 45.82,
+          "porchlamp": 45.82,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 46.08,
+          "porchlamp": 46.08,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 45.82,
+          "porchlamp": 45.82,
           "rated": true,
           "tier": "D"
         }
@@ -3776,7 +3776,7 @@
       "c_responsiveness": 0.852,
       "c_rigor": 0.885,
       "coverage": 0.8677,
-      "cvi": 46.08,
+      "porchlamp": 46.08,
       "ecosystem": "maven",
       "friction": 51.3,
       "friction_coverage": 0.8714,
@@ -3792,31 +3792,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8774,
-          "cvi": 47.4,
+          "porchlamp": 47.4,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 0.8774,
-          "cvi": 47.4,
+          "porchlamp": 47.4,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 0.8774,
-          "cvi": 47.4,
+          "porchlamp": 47.4,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 0.8677,
-          "cvi": 46.08,
+          "porchlamp": 46.08,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 0.8774,
-          "cvi": 47.4,
+          "porchlamp": 47.4,
           "rated": true,
           "tier": "D"
         }
@@ -3842,7 +3842,7 @@
       "c_responsiveness": 0.671,
       "c_rigor": 0.74,
       "coverage": 0.6953,
-      "cvi": 44.91,
+      "porchlamp": 44.91,
       "ecosystem": "go",
       "friction": 50.66,
       "friction_coverage": 0.7041,
@@ -3858,31 +3858,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.7016,
-          "cvi": 42.77,
+          "porchlamp": 42.77,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 0.7016,
-          "cvi": 42.77,
+          "porchlamp": 42.77,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 0.7016,
-          "cvi": 42.77,
+          "porchlamp": 42.77,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 0.6953,
-          "cvi": 44.91,
+          "porchlamp": 44.91,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 0.7016,
-          "cvi": 42.77,
+          "porchlamp": 42.77,
           "rated": true,
           "tier": "D"
         }
@@ -3908,7 +3908,7 @@
       "c_responsiveness": 0.667,
       "c_rigor": 0.745,
       "coverage": 0.6812,
-      "cvi": 44.49,
+      "porchlamp": 44.49,
       "ecosystem": "go",
       "friction": 58.52,
       "friction_coverage": 0.6817,
@@ -3924,31 +3924,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.698,
-          "cvi": 46.12,
+          "porchlamp": 46.12,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 0.698,
-          "cvi": 46.12,
+          "porchlamp": 46.12,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 0.698,
-          "cvi": 46.12,
+          "porchlamp": 46.12,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 0.6812,
-          "cvi": 44.49,
+          "porchlamp": 44.49,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 0.698,
-          "cvi": 46.12,
+          "porchlamp": 46.12,
           "rated": true,
           "tier": "D"
         }
@@ -3974,7 +3974,7 @@
       "c_responsiveness": 0.936,
       "c_rigor": 0.814,
       "coverage": 0.8677,
-      "cvi": 42.36,
+      "porchlamp": 42.36,
       "ecosystem": "go",
       "friction": 58.41,
       "friction_coverage": 0.8756,
@@ -3990,31 +3990,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.853,
-          "cvi": 42.8,
+          "porchlamp": 42.8,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 0.853,
-          "cvi": 42.8,
+          "porchlamp": 42.8,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 0.853,
-          "cvi": 42.8,
+          "porchlamp": 42.8,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 0.8677,
-          "cvi": 42.36,
+          "porchlamp": 42.36,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 0.853,
-          "cvi": 42.8,
+          "porchlamp": 42.8,
           "rated": true,
           "tier": "D"
         }
@@ -4040,7 +4040,7 @@
       "c_responsiveness": 0.931,
       "c_rigor": 0.827,
       "coverage": 0.9075,
-      "cvi": 41.86,
+      "porchlamp": 41.86,
       "ecosystem": "maven",
       "friction": 55.46,
       "friction_coverage": 0.9031,
@@ -4056,31 +4056,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8988,
-          "cvi": 42.91,
+          "porchlamp": 42.91,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 0.8988,
-          "cvi": 42.91,
+          "porchlamp": 42.91,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 0.8988,
-          "cvi": 42.91,
+          "porchlamp": 42.91,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 0.9075,
-          "cvi": 41.86,
+          "porchlamp": 41.86,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 0.8988,
-          "cvi": 42.91,
+          "porchlamp": 42.91,
           "rated": true,
           "tier": "D"
         }
@@ -4106,7 +4106,7 @@
       "c_responsiveness": 0.742,
       "c_rigor": 0.714,
       "coverage": 0.7238,
-      "cvi": 41.67,
+      "porchlamp": 41.67,
       "ecosystem": "npm",
       "friction": 56.88,
       "friction_coverage": 0.7489,
@@ -4122,31 +4122,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.7071,
-          "cvi": 41.01,
+          "porchlamp": 41.01,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 0.7071,
-          "cvi": 41.01,
+          "porchlamp": 41.01,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 0.7071,
-          "cvi": 41.01,
+          "porchlamp": 41.01,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 0.7238,
-          "cvi": 41.67,
+          "porchlamp": 41.67,
           "rated": true,
           "tier": "D"
         },
         "senior_systems": {
           "coverage": 0.7071,
-          "cvi": 41.01,
+          "porchlamp": 41.01,
           "rated": true,
           "tier": "D"
         }
@@ -4172,7 +4172,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 38.75,
+      "porchlamp": 38.75,
       "ecosystem": "npm",
       "friction": 66.0,
       "friction_coverage": 1.0,
@@ -4188,31 +4188,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 55.0,
+          "porchlamp": 55.0,
           "rated": true,
           "tier": "C"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 55.0,
+          "porchlamp": 55.0,
           "rated": true,
           "tier": "C"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 55.0,
+          "porchlamp": 55.0,
           "rated": true,
           "tier": "C"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 38.75,
+          "porchlamp": 38.75,
           "rated": true,
           "tier": "F"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 55.0,
+          "porchlamp": 55.0,
           "rated": true,
           "tier": "C"
         }
@@ -4238,7 +4238,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 38.21,
+      "porchlamp": 38.21,
       "ecosystem": "maven",
       "friction": 60.7,
       "friction_coverage": 1.0,
@@ -4254,31 +4254,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 41.17,
+          "porchlamp": 41.17,
           "rated": true,
           "tier": "D"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 41.17,
+          "porchlamp": 41.17,
           "rated": true,
           "tier": "D"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 41.17,
+          "porchlamp": 41.17,
           "rated": true,
           "tier": "D"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 38.21,
+          "porchlamp": 38.21,
           "rated": true,
           "tier": "F"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 41.17,
+          "porchlamp": 41.17,
           "rated": true,
           "tier": "D"
         }
@@ -4304,7 +4304,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 37.72,
+      "porchlamp": 37.72,
       "ecosystem": "maven",
       "friction": 63.67,
       "friction_coverage": 1.0,
@@ -4320,31 +4320,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 37.36,
+          "porchlamp": 37.36,
           "rated": true,
           "tier": "F"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 37.36,
+          "porchlamp": 37.36,
           "rated": true,
           "tier": "F"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 37.36,
+          "porchlamp": 37.36,
           "rated": true,
           "tier": "F"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 37.72,
+          "porchlamp": 37.72,
           "rated": true,
           "tier": "F"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 37.36,
+          "porchlamp": 37.36,
           "rated": true,
           "tier": "F"
         }
@@ -4370,7 +4370,7 @@
       "c_responsiveness": 0.906,
       "c_rigor": 0.815,
       "coverage": 0.9005,
-      "cvi": 36.99,
+      "porchlamp": 36.99,
       "ecosystem": "maven",
       "friction": 62.89,
       "friction_coverage": 0.9196,
@@ -4386,31 +4386,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.8851,
-          "cvi": 39.12,
+          "porchlamp": 39.12,
           "rated": true,
           "tier": "F"
         },
         "balanced": {
           "coverage": 0.8851,
-          "cvi": 39.12,
+          "porchlamp": 39.12,
           "rated": true,
           "tier": "F"
         },
         "career_capital": {
           "coverage": 0.8851,
-          "cvi": 39.12,
+          "porchlamp": 39.12,
           "rated": true,
           "tier": "F"
         },
         "first_timer": {
           "coverage": 0.9005,
-          "cvi": 36.99,
+          "porchlamp": 36.99,
           "rated": true,
           "tier": "F"
         },
         "senior_systems": {
           "coverage": 0.8851,
-          "cvi": 39.12,
+          "porchlamp": 39.12,
           "rated": true,
           "tier": "F"
         }
@@ -4436,7 +4436,7 @@
       "c_responsiveness": 0.781,
       "c_rigor": 0.683,
       "coverage": 0.7476,
-      "cvi": 36.83,
+      "porchlamp": 36.83,
       "ecosystem": "cargo",
       "friction": 62.99,
       "friction_coverage": 0.7521,
@@ -4452,31 +4452,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 0.7269,
-          "cvi": 37.21,
+          "porchlamp": 37.21,
           "rated": true,
           "tier": "F"
         },
         "balanced": {
           "coverage": 0.7269,
-          "cvi": 37.21,
+          "porchlamp": 37.21,
           "rated": true,
           "tier": "F"
         },
         "career_capital": {
           "coverage": 0.7269,
-          "cvi": 37.21,
+          "porchlamp": 37.21,
           "rated": true,
           "tier": "F"
         },
         "first_timer": {
           "coverage": 0.7476,
-          "cvi": 36.83,
+          "porchlamp": 36.83,
           "rated": true,
           "tier": "F"
         },
         "senior_systems": {
           "coverage": 0.7269,
-          "cvi": 37.21,
+          "porchlamp": 37.21,
           "rated": true,
           "tier": "F"
         }
@@ -4502,7 +4502,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 33.84,
+      "porchlamp": 33.84,
       "ecosystem": "npm",
       "friction": 67.68,
       "friction_coverage": 1.0,
@@ -4518,31 +4518,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 35.55,
+          "porchlamp": 35.55,
           "rated": true,
           "tier": "F"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 35.55,
+          "porchlamp": 35.55,
           "rated": true,
           "tier": "F"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 35.55,
+          "porchlamp": 35.55,
           "rated": true,
           "tier": "F"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 33.84,
+          "porchlamp": 33.84,
           "rated": true,
           "tier": "F"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 35.55,
+          "porchlamp": 35.55,
           "rated": true,
           "tier": "F"
         }
@@ -4568,7 +4568,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 32.03,
+      "porchlamp": 32.03,
       "ecosystem": "maven",
       "friction": 66.46,
       "friction_coverage": 1.0,
@@ -4584,31 +4584,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 31.3,
+          "porchlamp": 31.3,
           "rated": true,
           "tier": "F"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 31.3,
+          "porchlamp": 31.3,
           "rated": true,
           "tier": "F"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 31.3,
+          "porchlamp": 31.3,
           "rated": true,
           "tier": "F"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 32.03,
+          "porchlamp": 32.03,
           "rated": true,
           "tier": "F"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 31.3,
+          "porchlamp": 31.3,
           "rated": true,
           "tier": "F"
         }
@@ -4634,7 +4634,7 @@
       "c_responsiveness": 1.0,
       "c_rigor": 1.0,
       "coverage": 1.0,
-      "cvi": 17.75,
+      "porchlamp": 17.75,
       "ecosystem": "cargo",
       "friction": 84.0,
       "friction_coverage": 1.0,
@@ -4650,31 +4650,31 @@
       "persona_composites": {
         "ai_assisted": {
           "coverage": 1.0,
-          "cvi": 19.0,
+          "porchlamp": 19.0,
           "rated": true,
           "tier": "F"
         },
         "balanced": {
           "coverage": 1.0,
-          "cvi": 19.0,
+          "porchlamp": 19.0,
           "rated": true,
           "tier": "F"
         },
         "career_capital": {
           "coverage": 1.0,
-          "cvi": 19.0,
+          "porchlamp": 19.0,
           "rated": true,
           "tier": "F"
         },
         "first_timer": {
           "coverage": 1.0,
-          "cvi": 17.75,
+          "porchlamp": 17.75,
           "rated": true,
           "tier": "F"
         },
         "senior_systems": {
           "coverage": 1.0,
-          "cvi": 19.0,
+          "porchlamp": 19.0,
           "rated": true,
           "tier": "F"
         }

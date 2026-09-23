@@ -7,7 +7,7 @@ Worktree `/home/pctablet505/Projects/cvi-wt-W2-9f`, branch `W2-9f`, started from
 ## 0. Lineage correction (item 6)
 
 W2-9's own handoff states "W2-1 landed it at 1,258 lines already" — false; the review's W6 finding
-confirmed it (`git show e899583:cvi/derive/bundle.py | wc -l` = 566). The real lineage:
+confirmed it (`git show e899583:porchlamp/derive/bundle.py | wc -l` = 566). The real lineage:
 **566 (base, W2-1) → 1,010 (after W2-9) → 1,210 (after this packet, W2-9f)**. I did not edit W2-9's
 own handoff (outside this packet's ownership, `.agents/W2-9f/` only); this note is the honest
 number for my own work, not a correction of that file.
@@ -16,12 +16,12 @@ number for my own work, not a correction of that file.
 
 ```
 $ git diff --stat
- cvi/derive/bundle.py                | 262 ++++++++++++++++++++++++++++----
+ porchlamp/derive/bundle.py                | 262 ++++++++++++++++++++++++++++----
  tests/core/test_sample200_load.py   |  19 ++-
  tests/derive/test_input_mappings.py | 292 +++++++++++++++++++++++++++++++++---
  3 files changed, 518 insertions(+), 55 deletions(-)
 ```
-`cvi/derive/bundle.py`: 1,010 → 1,210 lines (+200, +19.8%). Deviation acknowledged, not split:
+`porchlamp/derive/bundle.py`: 1,010 → 1,210 lines (+200, +19.8%). Deviation acknowledged, not split:
 two new resolvers (`_resolve_openssf_criticality`, `_resolve_pipeline_defenses`) plus their mirrored
 constants account for most of the growth; same one-mapping-concern reasoning W2-9 gave.
 `tests/core/test_sample200_load.py` is touched because item 1/3's reason changes are directly
@@ -59,26 +59,26 @@ FAILED tests/derive/test_input_mappings.py::test_substantive_review_rate_exclude
 AssertionError: assert Measured(value=0.5, n=16, ...) == Unmeasured(reason='insufficient_n', detail='4 decided external PRs, need >= 10')
 M12_KILL_EXIT=1
 ```
-Restored; `md5sum cvi/derive/bundle.py` back to the pre-mutation digest
+Restored; `md5sum porchlamp/derive/bundle.py` back to the pre-mutation digest
 (`11628e975911f3e723db91bfff2fba58`); `tests/derive/` 30/30 green after restore.
 
 ## 4. Item 3 (W3) — the two W1-7 rows
 
 Read `scripts/derive.py` (`derive_w17_fields` call site, `Bundle.set`/`Bundle.missing`) and
-`cvi/collect/pike_signals.py` (`derive_pike_signals`, `pipeline_defenses`, `derive_w17_fields`) on
+`porchlamp/collect/pike_signals.py` (`derive_pike_signals`, `pipeline_defenses`, `derive_w17_fields`) on
 this tree to find the exact fields:
 
 - **`openssf_criticality`** (2.2, class TP "only if a signal is missing"): reads
   `meta.openssf_signals` (the ten raw Pike signals, `confidence == "derived"` only when all ten
-  source envelopes were available). `cvi.derive` may import only `cvi.core` + stdlib
-  (`tests/core/test_import_graph.py`), so `cvi.openssf.calculate_pike_criticality` cannot be called
+  source envelopes were available). `porchlamp.derive` may import only `porchlamp.core` + stdlib
+  (`tests/core/test_import_graph.py`), so `porchlamp.openssf.calculate_pike_criticality` cannot be called
   directly; `_pike_criticality_score` mirrors its weights/thresholds/formula locally (same pattern,
   and the same R-2 tradeoff, as W2-9's own min-n constants). A `meta.openssf_signals` dict missing
   one of the ten fields (defensive: production never emits a partial dict) is the whole-2.2-
   Unmeasured rule, naming the missing signal.
 - **`pipeline_defenses`** (4.1, "TP with proxy"): reads the pre-computed `meta.pipeline_defenses` /
   `meta.pipeline_defenses_method` ("primary" or "proxy:review_ci") that
-  `cvi.collect.pike_signals.derive_w17_fields` already writes. `n` for the proxy method is the
+  `porchlamp.collect.pike_signals.derive_w17_fields` already writes. `n` for the proxy method is the
   merged-PR count backing `code_review_rate`'s denominator, read from the pr_window envelope's own
   `prs` list (its provenance `source` is a list of paths, unlike every other row — the new
   `_resolved_source_paths` helper handles it for both new rows). Unlike every other v1 field,
@@ -89,7 +89,7 @@ this tree to find the exact fields:
 Deleted both false `"(W1-7 not yet landed)"` detail strings.
 
 Tests added: `test_openssf_criticality` (Measured, method "primary", n=0 — value cross-checked
-against `cvi.openssf.calculate_pike_criticality` called directly as an independent oracle, not the
+against `porchlamp.openssf.calculate_pike_criticality` called directly as an independent oracle, not the
 mirrored code under test), `test_openssf_criticality_missing_signal_names_it` (names `'org_count'`),
 `test_openssf_criticality_absence_is_third_party_gap`; `test_pipeline_defenses_primary_method`,
 `test_pipeline_defenses_proxy_method_counts_merged_prs` (5 recorded PRs, 3 merged → n=3),
@@ -161,7 +161,7 @@ param again — and its one call site):
 ```
 FAILED tests/derive/test_input_mappings.py::test_legal_ip
 FAILED tests/derive/test_input_mappings.py::test_promotion_ladder
-cvi.core.models.BundleValidationError: v1 value 'ROGUE_RUNG' has no v2 vocabulary mapping
+porchlamp.core.models.BundleValidationError: v1 value 'ROGUE_RUNG' has no v2 vocabulary mapping
 ```
 Restored; digest matched; `tests/derive/ tests/core/test_sample200_load.py` 38/38 green after
 restore.
@@ -178,11 +178,11 @@ $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD /home/pctablet505/Projects/contributor-v
 1611 passed, 12 warnings in 54.78s
 EXIT=0
 
-$ /home/pctablet505/Projects/contributor-value-index/.venv/bin/ruff check cvi/derive/bundle.py tests/derive/ tests/core/test_sample200_load.py
+$ /home/pctablet505/Projects/contributor-value-index/.venv/bin/ruff check porchlamp/derive/bundle.py tests/derive/ tests/core/test_sample200_load.py
 All checks passed!
 RUFF_OWNED_EXIT=0
 
-$ /home/pctablet505/Projects/contributor-value-index/.venv/bin/ruff check cvi/ scripts/ tests/
+$ /home/pctablet505/Projects/contributor-value-index/.venv/bin/ruff check porchlamp/ scripts/ tests/
 Found 4 errors.   (all four in scripts/curate_dataset_llm.py — unowned, pre-existing per the
                    W2-9 review, the file W0-4 deletes)
 ```
@@ -196,6 +196,6 @@ the over-correction guard.
 ## 8. Not touched (ownership boundaries respected)
 
 `scripts/derive.py` (read-only, for field names and the one sanity-check invocation, immediately
-reverted), `cvi/collect/pike_signals.py` (read-only), `cvi/core/*`, other collectors. No sibling
+reverted), `porchlamp/collect/pike_signals.py` (read-only), `porchlamp/core/*`, other collectors. No sibling
 mapping module created (W2-9 didn't create one either; two new resolvers plus mirrored constants
 still reads as one coherent v1-to-v2 mapping concern, same reasoning W2-9 gave for not splitting).

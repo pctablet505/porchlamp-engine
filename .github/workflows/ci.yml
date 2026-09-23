@@ -23,7 +23,7 @@ jobs:
         run: pip install "pytest==9.1.1" "pytest-xdist==3.8.0" "fastapi==0.141.1" "httpx==0.28.1" "ruff==0.16.7"
 
       - name: Lint (gate 1, ratchet: must stay clean)
-        run: ruff check cvi/ scripts/ tests/
+        run: ruff check porchlamp/ scripts/ tests/
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -67,29 +67,29 @@ jobs:
         run: ls -l dist/
 
       - name: sdist contains the store migrations
-        run: tar tzf dist/*.tar.gz | grep -q 'cvi/store/migrations/.*\.sql'
+        run: tar tzf dist/*.tar.gz | grep -q 'porchlamp/store/migrations/.*\.sql'
 
       - name: Non-editable install (W4-1: package move must survive a real install)
         run: |
-          python -m venv /tmp/cvi-install-check
-          /tmp/cvi-install-check/bin/pip install --quiet "$(ls dist/*.tar.gz)[server]"
+          python -m venv /tmp/porchlamp-install-check
+          /tmp/porchlamp-install-check/bin/pip install --quiet "$(ls dist/*.tar.gz)[server]"
 
       - name: Non-editable install finds the moved/serving modules + migrations
         run: |
-          /tmp/cvi-install-check/bin/python -c "
+          /tmp/porchlamp-install-check/bin/python -c "
           import os
-          import cvi
-          import cvi.serve.app
-          import cvi.snapshot.store_cmd
-          import cvi.collect.ratelimit
-          import cvi.store.migrations as m
+          import porchlamp
+          import porchlamp.serve.app
+          import porchlamp.snapshot.store_cmd
+          import porchlamp.collect.ratelimit
+          import porchlamp.store.migrations as m
           mdir = os.path.dirname(m.__file__)
           sql_files = sorted(f for f in os.listdir(mdir) if f.endswith('.sql'))
           assert sql_files, f'no .sql migrations found in installed {mdir}'
           print('migrations found:', sql_files)
-          cvi_dir = os.path.dirname(cvi.__file__)
+          porchlamp_dir = os.path.dirname(porchlamp.__file__)
           for gone in ('benchmark_data.py', 'ingest.py', 'benchmark.py'):
-              path = os.path.join(cvi_dir, gone)
+              path = os.path.join(porchlamp_dir, gone)
               assert not os.path.exists(path), f'{gone} should not exist in the installed package'
           print('ALL CHECKS PASSED')
           "

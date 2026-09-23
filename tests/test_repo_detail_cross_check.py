@@ -1,22 +1,22 @@
-"""Cross-check tests: `GET /v1/cvi/repos/{owner}/{name}` has two independent producers
--- the real API (`cvi/serve/app.py`) and the UI fixture
+"""Cross-check tests: `GET /v1/porchlamp/repos/{owner}/{name}` has two independent producers
+-- the real API (`porchlamp/serve/app.py`) and the UI fixture
 stand-in (`scripts/serve_ui_fixtures.py`) -- and nothing
 bound them to the same wire contract until this defect reached a served
 tree: the lead's final browser pass on `scripts/serve.py --db <the real
 fixture store>` found the drawer for ANY repo throwing `TypeError: Cannot
 read properties of undefined (reading 'owner')` and staying on "Loading
 evidence...". Root cause: the real API returns the flat `RepoDetailResponse`
-(`cvi/serve/contract.py`), while the fixture server returned
+(`porchlamp/serve/contract.py`), while the fixture server returned
 `{"kind": ..., "row": {...}}` and the drawer read `data.row`.
 
 Ruling: the contract is the truth. This module builds BOTH producers (the
-real API through `cvi.serve.app.create_app` on a synthetic store, via the
+real API through `porchlamp.serve.app.create_app` on a synthetic store, via the
 SAME `tests/serve/helpers.py` builder `tests/serve/test_api_v2.py` uses;
 the fixture server through `scripts/serve_ui_fixtures.py`'s own `serve()`
 on the static `tests/fixtures/ui/` files) and asserts, for a comparable
 repo in each of the three `kind`s (rated / gated / unrated), that both
 responses carry the EXACT SAME top-level key set and both independently
-validate as `cvi.serve.contract.RepoDetailResponse` -- so a future edit to
+validate as `porchlamp.serve.contract.RepoDetailResponse` -- so a future edit to
 either producer that breaks parity with the other fails here first, not
 in a browser three packets later.
 """
@@ -36,8 +36,8 @@ from fastapi.testclient import TestClient
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tests"))  # tests/ on sys.path for `serve.helpers` (matches tests/serve/test_api_v2.py's own trick)
 
-from cvi.serve.app import create_app  # noqa: E402
-from cvi.serve.contract import RepoDetailResponse  # noqa: E402
+from porchlamp.serve.app import create_app  # noqa: E402
+from porchlamp.serve.contract import RepoDetailResponse  # noqa: E402
 from serve.helpers import build_snapshot, finalize, fresh_db  # noqa: E402
 
 WEB_DIR = REPO_ROOT / "web" / "v2"
@@ -46,7 +46,7 @@ FIXTURE_SERVER_SCRIPT = REPO_ROOT / "scripts" / "serve_ui_fixtures.py"
 
 
 def _load_fixture_server_module():
-    spec = importlib.util.spec_from_file_location("cvi_serve_ui_fixtures_xcheck", FIXTURE_SERVER_SCRIPT)
+    spec = importlib.util.spec_from_file_location("porchlamp_serve_ui_fixtures_xcheck", FIXTURE_SERVER_SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -104,11 +104,11 @@ def test_repo_detail_key_set_and_contract_match_between_the_two_producers(
     fixture_owner: str,
     fixture_name: str,
 ) -> None:
-    real_resp = real_api_client.get(f"/v1/cvi/repos/{real_owner}/{real_name}")
+    real_resp = real_api_client.get(f"/v1/porchlamp/repos/{real_owner}/{real_name}")
     assert real_resp.status_code == 200, real_resp.text
     real_body = real_resp.json()
 
-    fixture_resp = httpx.get(f"{fixture_server_url}/v1/cvi/repos/{fixture_owner}/{fixture_name}")
+    fixture_resp = httpx.get(f"{fixture_server_url}/v1/porchlamp/repos/{fixture_owner}/{fixture_name}")
     assert fixture_resp.status_code == 200, fixture_resp.text
     fixture_body = fixture_resp.json()
 

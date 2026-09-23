@@ -1,6 +1,6 @@
 """Phase 0 Elimination-by-Aspects (EBA) hard-gating tests.
 
-Exact-oracle tests for ``cvi.stage0.apply_stage0``. Every assertion pins the
+Exact-oracle tests for ``porchlamp.stage0.apply_stage0``. Every assertion pins the
 full ``Stage0Result`` (passed, reason, is_black_hole, is_off_platform,
 is_ai_ban_disqualified) to a hand-computed expectation, so any drift in gate
 order, threshold, or flag wiring fails loudly.
@@ -14,15 +14,15 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from cvi.constants import GHOST_RATE_GATE
-from cvi.models import (
+from porchlamp.constants import GHOST_RATE_GATE
+from porchlamp.models import (
     AuthorAssociation,
     Ecosystem,
     RawPREvent,
     RepoMeta,
     Stage0Result,
 )
-from cvi.stage0 import apply_stage0
+from porchlamp.stage0 import apply_stage0
 
 NOW = datetime(2026, 9, 11, 12, 0, 0)
 

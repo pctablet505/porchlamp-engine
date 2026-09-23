@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.audit.forward`.
+"""Unit tests for :mod:`porchlamp.audit.forward`.
 
 All data here is a synthetic fixture built in-memory or under ``tmp_path``:
 no repository, no PR and no point cost in this file is real telemetry. The
@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from cvi.audit.forward import (
+from porchlamp.audit.forward import (
     ForwardError,
     PILLAR_COLUMNS,
     COMPOSITE_COLUMN,
@@ -38,7 +38,7 @@ from cvi.audit.forward import (
     roc_auc,
     spearman_rho,
 )
-from cvi.collect.envelope import read_envelope, write_envelope
+from porchlamp.collect.envelope import read_envelope, write_envelope
 
 T0 = datetime(2026, 7, 1, tzinfo=timezone.utc)
 FETCHED_AT = "2026-09-29T12:00:00Z"  # T0 + 90 d, the pre-registered collect time
@@ -183,7 +183,7 @@ def _synthetic_universe() -> tuple[list[ScoreRow], list[PRRecord], dict[str, fro
                     "score_governance": 100.0 - 5.0 * i,
                     "score_rigor_ai": 5.0 * i,
                     "score_accessibility": 50.0 - 3.0 * i,
-                    "overall_cvi": 100.0 - 10.0 * i,
+                    "overall_porchlamp": 100.0 - 10.0 * i,
                 },
             )
         )
@@ -222,8 +222,8 @@ def test_analyze_known_spearman_and_criteria() -> None:
     scores, prs, first_timers = _synthetic_universe()
     report = analyze(scores, prs, T0, first_timers)
     pairs = {(p.score, p.label): p for p in report.pairs}
-    assert pairs[("overall_cvi", "merge_rate")].spearman == 1.0
-    assert pairs[("overall_cvi", "decision_rate")].spearman == 1.0
+    assert pairs[("overall_porchlamp", "merge_rate")].spearman == 1.0
+    assert pairs[("overall_porchlamp", "decision_rate")].spearman == 1.0
     assert pairs[("score_responsiveness", "merge_rate")].spearman == -1.0
     assert pairs[("score_responsiveness", "decision_rate")].spearman == -1.0
     assert pairs[("score_criticality", "merge_rate")].spearman is None
@@ -241,7 +241,7 @@ def test_analyze_known_spearman_and_criteria() -> None:
     # AUC: merged PRs concentrate in high-composite repos, but r0 still holds
     # one unmerged PR and r7 one merged PR, so the value is between 0 and 1:
     # (3220 + 172) / (64 * 64) = 0.828125 exactly.
-    auc = pairs[("overall_cvi", "merge_rate")].auc
+    auc = pairs[("overall_porchlamp", "merge_rate")].auc
     assert auc is not None
     assert 0.5 < auc < 1.0
     assert auc == 0.828125
@@ -263,8 +263,8 @@ def test_analyze_insufficient_repos_is_undecided() -> None:
     kept = [row for row in scores if row.repo == "org/r0"]
     report = analyze(kept, prs, T0, first_timers)
     pairs = {(p.score, p.label): p for p in report.pairs}
-    assert pairs[("overall_cvi", "merge_rate")].spearman is None
-    assert pairs[("overall_cvi", "merge_rate")].rho_reason == "insufficient_repos"
+    assert pairs[("overall_porchlamp", "merge_rate")].spearman is None
+    assert pairs[("overall_porchlamp", "merge_rate")].rho_reason == "insufficient_repos"
     criteria = {c.name: c for c in report.criteria}
     assert criteria["C2"].verdict == "UNDECIDED:insufficient_repos"
 
@@ -279,11 +279,11 @@ def test_window_constants_match_prereg() -> None:
         "score_rigor_ai",
         "score_accessibility",
     )
-    assert COMPOSITE_COLUMN == "overall_cvi"
+    assert COMPOSITE_COLUMN == "overall_porchlamp"
 
 
 def test_last_page_reads_rel_last_not_per_page(monkeypatch: pytest.MonkeyPatch) -> None:
-    import cvi.audit.forward as forward
+    import porchlamp.audit.forward as forward
 
     link = (
         '<https://api.github.com/repositories/1/pulls?per_page=100&page=2>; rel="next", '
@@ -349,7 +349,7 @@ def _write_db(path: Path, scores: list[ScoreRow]) -> None:
             score_governance REAL NOT NULL,
             score_rigor_ai REAL NOT NULL,
             score_accessibility REAL NOT NULL,
-            overall_cvi REAL NOT NULL,
+            overall_porchlamp REAL NOT NULL,
             UNIQUE(owner, name)
         )
         """
@@ -367,7 +367,7 @@ def _write_db(path: Path, scores: list[ScoreRow]) -> None:
                 row.scores["score_governance"],
                 row.scores["score_rigor_ai"],
                 row.scores["score_accessibility"],
-                row.scores["overall_cvi"],
+                row.scores["overall_porchlamp"],
             ),
         )
     conn.commit()
@@ -380,16 +380,16 @@ def test_load_scores_reads_rated_rows(tmp_path: Path) -> None:
         ScoreRow(
             repo="org/gated",
             rated=False,
-            scores={**{column: 0.0 for column in PILLAR_COLUMNS}, "overall_cvi": 0.0},
+            scores={**{column: 0.0 for column in PILLAR_COLUMNS}, "overall_porchlamp": 0.0},
         )
     )
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     _write_db(db, scores)
     rows = load_scores(db)
     assert len(rows) == 9
     assert next(row for row in rows if row.repo == "org/gated").rated is False
     top = next(row for row in rows if row.repo == "org/r0")
-    assert top.scores["overall_cvi"] == 100.0
+    assert top.scores["overall_porchlamp"] == 100.0
     assert top.scores["score_responsiveness"] == 10.0
 
 
@@ -481,7 +481,7 @@ def test_dry_run_live_costs_and_writes_nothing(
     capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import cvi.audit.forward as forward
+    import porchlamp.audit.forward as forward
 
     calls: list[str] = []
 
@@ -522,7 +522,7 @@ def test_dry_run_live_costs_and_writes_nothing(
 def test_dry_run_live_partial_bound(
     tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import cvi.audit.forward as forward
+    import porchlamp.audit.forward as forward
 
     def fake_get(url: str, token: str) -> Any:
         if url.endswith("/repos/octo/b"):
@@ -552,7 +552,7 @@ def test_dry_run_live_partial_bound(
 def test_collect_writes_envelopes_and_receipt(
     tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import cvi.audit.forward as forward
+    import porchlamp.audit.forward as forward
 
     out = tmp_path / "forward"
     manifest = _write_manifest(tmp_path / "snapshots" / "s0" / "manifest.json", T0)

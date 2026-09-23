@@ -1,4 +1,4 @@
-"""Acceptance tests: pin the RATED path of ``cvi.core.engine.score``.
+"""Acceptance tests: pin the RATED path of ``porchlamp.core.engine.score``.
 
 Tests cover rated status, tier ceilings, and axis coverages on rated fixtures.
 This module is self-contained with its own bundle-building helpers.
@@ -26,10 +26,10 @@ from typing import Any
 
 import pytest
 
-from cvi.core import aggregate, constants
-from cvi.core.engine import Snapshot, score
-from cvi.core.gates import GateEvidence
-from cvi.core.models import (
+from porchlamp.core import aggregate, constants
+from porchlamp.core.engine import Snapshot, score
+from porchlamp.core.gates import GateEvidence
+from porchlamp.core.models import (
     Cohorts,
     FeatureBundle,
     Measured,
@@ -38,7 +38,7 @@ from cvi.core.models import (
     RepoIdentity,
     Unmeasured,
 )
-from cvi.snapshot.populations import Population, PopulationSet
+from porchlamp.snapshot.populations import Population, PopulationSet
 
 NOW = datetime.datetime(2026, 9, 12, 0, 0, tzinfo=datetime.timezone.utc)
 _HASH64 = "e" * 64
@@ -221,9 +221,9 @@ def test_rated_path_ceiling_a_case_with_distinct_axis_coverages() -> None:
     assert record.tier_ceiling == expected_ceiling
     assert record.tier_ceiling == "A"
 
-    # The axis coverages equal what cvi.core.matrix computes directly from
+    # The axis coverages equal what porchlamp.core.matrix computes directly from
     # the same pillars (never re-derived independently by this test).
-    from cvi.core import matrix
+    from porchlamp.core import matrix
 
     _, expected_leverage_coverage = matrix.leverage(record.pillars)
     _, expected_friction_coverage = matrix.friction(record.pillars)

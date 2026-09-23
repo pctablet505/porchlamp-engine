@@ -1,6 +1,6 @@
 # Item 8 — Wall clock / RETURNING / NULLS LAST / FK / read-only (L3) — PASS, 1 Note
 
-- `grep RETURNING cvi/store/queries.py` -> none.
+- `grep RETURNING porchlamp/store/queries.py` -> none.
 - `grep -E "datetime\.now|time\.time|utcnow|date\.today|CURRENT_TIMESTAMP|datetime\('now'\)"` -> none.
 - ORDER BY audit: every D-TIE-1 level carries `NULLS LAST` except the final
   `lower(owner || '/' || name) ASC` (both columns NOT NULL). Two further

@@ -9,7 +9,7 @@ kept" below).
 ## Diffstat
 
 ```
- cvi/collect/github_graphql.py   | 669 ++++++++++++++++++++++++++++++++++++++++
+ porchlamp/collect/github_graphql.py   | 669 ++++++++++++++++++++++++++++++++++++++++
  scripts/derive.py               |  12 +
  scripts/gather.py               |  10 +
  tests/collect/test_pr_window.py | 590 +++++++++++++++++++++++++++++++++++
@@ -21,7 +21,7 @@ Non-test source lines: 669 + 12 + 10 = 691, within the L-class ceiling
 
 ## Conflicts and what was kept from the in-flight diff
 
-`git apply --3way` applied `cvi/collect/github_graphql.py` and
+`git apply --3way` applied `porchlamp/collect/github_graphql.py` and
 `tests/collect/test_pr_window.py` cleanly; `scripts/derive.py` and
 `scripts/gather.py` conflicted because W1-8 (`ab8893f`) and W1-2f
 (`6129f7c`) added hook-chain entries after the in-flight diff's base
@@ -154,7 +154,7 @@ envelope shape, and the GraphQL query skeletons. What was changed:
 
 ## Ownership request (not this packet's file)
 
-`cvi/derive/bundle.py` (owned by W2-1, landed) still marks all four of this
+`porchlamp/derive/bundle.py` (owned by W2-1, landed) still marks all four of this
 packet's v2 inputs `Unmeasured(reason="collector_failure", detail="...the
 v1 pipeline collected none")` via its `NO_V2_COLLECTOR` table — stale as of
 this packet. Wiring `V1_FIELD_TO_INPUT` (or an equivalent) for `dr90_
@@ -192,7 +192,7 @@ files to the base, ran the packet's own (already-committed) test file
 against that pre-change code, then restored.
 
 ```
-$ git show e29fb79:cvi/collect/github_graphql.py > cvi/collect/github_graphql.py
+$ git show e29fb79:porchlamp/collect/github_graphql.py > porchlamp/collect/github_graphql.py
 $ git show e29fb79:scripts/derive.py > scripts/derive.py
 $ git show e29fb79:scripts/gather.py > scripts/gather.py
 $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .../python -m pytest tests/collect/test_pr_window.py -p no:cacheprovider -q
@@ -200,7 +200,7 @@ $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .../python -m pytest tests/collect/test_
 
 22 of the 44 tests fail against the pre-change code — every test that
 exercises a function this packet adds — each with `AttributeError:
-<module 'cvi.collect.github_graphql' ...> has no attribute
+<module 'porchlamp.collect.github_graphql' ...> has no attribute
 'collect_author_history'` (or `fetch_author_window` /
 `derive_cohort_fields` / `apply_author_cap` / `is_eligible_account` /
 `_select_newcomer_sample`), or a `KeyError` for a bundle field the
@@ -249,13 +249,13 @@ passed again (above).
 
 Packet-scoped (the 4 files this packet owns):
 
-Command: `/home/pctablet505/Projects/contributor-value-index/.venv/bin/ruff check cvi/collect/github_graphql.py scripts/derive.py scripts/gather.py tests/collect/test_pr_window.py`
+Command: `/home/pctablet505/Projects/contributor-value-index/.venv/bin/ruff check porchlamp/collect/github_graphql.py scripts/derive.py scripts/gather.py tests/collect/test_pr_window.py`
 
 ```
 All checks passed!
 ```
 
-Full-tree (the packet's own stated lint command, `ruff check cvi/ scripts/
+Full-tree (the packet's own stated lint command, `ruff check porchlamp/ scripts/
 tests/`): 23 pre-existing findings, none in a file this packet touches —
 4 in `scripts/curate_dataset_llm.py` (identical count on the unmodified
 main checkout at the current tip; `00-README.md`'s non-negotiables mark
@@ -356,10 +356,10 @@ live calls; computed straight from the existing `derived/*.json` bundles —
 `sample-200` predates the `pr_window`/`author_history` collectors, so this
 is the only "before" population available):
 
-- v1 "external merge rate" (what `cvi.pillars.responsiveness.score_mr_
+- v1 "external merge rate" (what `porchlamp.pillars.responsiveness.score_mr_
   first` actually computes, since `author_prior_merged_commits` defaults
   to 0 everywhere in the v1 deriver, so its "first-timer" restriction never
-  excludes anyone — confirmed by reading `cvi/models.py`'s `RawPREvent`
+  excludes anyone — confirmed by reading `porchlamp/models.py`'s `RawPREvent`
   default and `scripts/derive.py`'s event construction, neither of which
   ever sets that field): computed directly as merged/decided over each
   repo's external `pr_events`. n=190 of 199 repos have >= 1 decided
@@ -459,12 +459,12 @@ the round-1 base. Both conflicts were the same shape: W1-7's block and this
 packet's block both wanted to be last. Resolved by keeping W1-7's block
 first and appending this packet's block after it, unchanged otherwise — no
 existing hook reordered, edited or removed. `tests/collect/test_pr_window.py`
-and `cvi/collect/github_graphql.py` auto-merged clean.
+and `porchlamp/collect/github_graphql.py` auto-merged clean.
 
 ### Diffstat (round 2 only, `f009ede..HEAD`)
 
 ```
- cvi/collect/github_graphql.py   | 205 insertions(+), 100 deletions(-)
+ porchlamp/collect/github_graphql.py   | 205 insertions(+), 100 deletions(-)
  tests/collect/test_pr_window.py | 334 insertions(+), 29 deletions(-)
 ```
 
@@ -482,7 +482,7 @@ batched design necessarily changes.
 
 Changed the predicate from "an earlier-created PR that merged at any time"
 to "an earlier PR MERGED strictly before this PR's `createdAt`"
-(`cvi/collect/github_graphql.py`, `_no_prior_merged`). Two boundary tests
+(`porchlamp/collect/github_graphql.py`, `_no_prior_merged`). Two boundary tests
 added and both pass on the fixed code:
 
 ```
@@ -560,7 +560,7 @@ test_b2_dr90_unaffected_by_history_unmeasured                   PASS  (DR_90 ide
 ### B3 — twelve mutant kills
 
 Re-ran the review's own mutation harness (one mutant applied at a time
-against `cvi/collect/github_graphql.py`, full `tests/collect/test_pr_
+against `porchlamp/collect/github_graphql.py`, full `tests/collect/test_pr_
 window.py` run, file restored and byte-diffed clean after each) for all
 12 named mutants — the 6 the lead named plus the review's own 6 — against
 the round-2 code plus the 6 new boundary tests this round adds. All 12
@@ -715,12 +715,12 @@ step with the rebase, not a defect.
 ### Lint
 
 ```
-$ .../ruff check cvi/collect/github_graphql.py scripts/gather.py scripts/derive.py \
+$ .../ruff check porchlamp/collect/github_graphql.py scripts/gather.py scripts/derive.py \
       tests/collect/test_pr_window.py
 All checks passed!
 ```
 
-Zero `print()`, zero `TODO`, in `cvi/collect/github_graphql.py`
+Zero `print()`, zero `TODO`, in `porchlamp/collect/github_graphql.py`
 (`grep -c` both 0).
 
 ### COULD NOT VERIFY
@@ -755,8 +755,8 @@ dispatched" entry, `3e53358`; the actual commit `e3e74fc feat(core): W2-8
 constants freeze part A...` lives only on branch `W2-8`, confirmed via
 `git merge-base --is-ancestor e3e74fc main` = false). Per the dispatch,
 `AUTHOR_UNMEASURED_MAX_FRACTION` is therefore defined locally in
-`cvi/collect/github_graphql.py` with a `# W2-8 census` comment, not in
-`cvi.core.constants_v2`.
+`porchlamp/collect/github_graphql.py` with a `# W2-8 census` comment, not in
+`porchlamp.core.constants_v2`.
 
 ### B-1 — partial-batch discard fixed
 
@@ -1018,17 +1018,17 @@ by `--collect-only` moving in step with the rebase.
 ### Lint
 
 ```
-$ .../ruff check cvi/collect/github_graphql.py scripts/gather.py scripts/derive.py \
+$ .../ruff check porchlamp/collect/github_graphql.py scripts/gather.py scripts/derive.py \
       tests/collect/test_pr_window.py
 All checks passed!
 ```
 
-Zero `print()`, zero `TODO` in `cvi/collect/github_graphql.py`.
+Zero `print()`, zero `TODO` in `porchlamp/collect/github_graphql.py`.
 
 ### Diffstat (round 3 only, `1476573..HEAD`)
 
 ```
- cvi/collect/github_graphql.py   | 224 insertions(+), 66 deletions(-)
+ porchlamp/collect/github_graphql.py   | 224 insertions(+), 66 deletions(-)
  tests/collect/test_pr_window.py | 426 insertions(+), 32 deletions(-)
 ```
 

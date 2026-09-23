@@ -4,7 +4,7 @@ module). Reuses ``tests/store/helpers.py``'s record/bundle builders and
 ``ScoreRecord``s, wrap in ``TieBreakInput``, ``assign_ranks``, THEN write --
 a real pipeline's order) rather than inventing a second one, so a rated row
 this module writes always carries a real, non-null ``rank`` the way
-production does (`cvi.store.writer`'s own docstring: rank/tie_group are
+production does (`porchlamp.store.writer`'s own docstring: rank/tie_group are
 "already baked into" a record by the time it reaches the writer).
 """
 from __future__ import annotations
@@ -15,13 +15,13 @@ from dataclasses import replace as dc_replace
 from pathlib import Path
 from typing import Dict, List
 
-from cvi.core.gates import REASON_FORK
-from cvi.core.models import ParamScore
-from cvi.core.persona import PERSONA_PRESETS, persona_composite
-from cvi.core.tiebreak import TieBreakInput, assign_ranks
-from cvi.store import schema
-from cvi.store.migrations import apply_migrations
-from cvi.store.writer import write_records, write_snapshot, finalize_snapshot_hash
+from porchlamp.core.gates import REASON_FORK
+from porchlamp.core.models import ParamScore
+from porchlamp.core.persona import PERSONA_PRESETS, persona_composite
+from porchlamp.core.tiebreak import TieBreakInput, assign_ranks
+from porchlamp.store import schema
+from porchlamp.store.migrations import apply_migrations
+from porchlamp.store.writer import write_records, write_snapshot, finalize_snapshot_hash
 
 from store.helpers import (
     make_gated_record,
@@ -64,7 +64,7 @@ def _with_persona_composites(record):
 
 def finalize(conn: sqlite3.Connection, db_path: Path, *, snapshot_id: str = SNAPSHOT_ID) -> str:
     """Stamp ``canonical_dump_hash``/``promoted_at`` so ``GET /snapshot``
-    (which refuses an un-finalised snapshot, `cvi/serve/app.py`'s
+    (which refuses an un-finalised snapshot, `porchlamp/serve/app.py`'s
     ``_require_snapshot_summary``) has one to serve."""
     return finalize_snapshot_hash(conn, db_path, snapshot_id, promoted_at="2026-09-13T01:00:00Z")
 
@@ -98,7 +98,7 @@ def build_snapshot(
     """A snapshot with >= 300 total rows: ``n_rated`` rated rows (a mix of
     unique composites, one explicit 3-way tie, one explicit 2-way tie with
     a NULL at the friction tie-break level, and a persona-gated row),
-    ~25 gated rows (one per ``cvi.core.gates`` reason INCLUDING ``fork``
+    ~25 gated rows (one per ``porchlamp.core.gates`` reason INCLUDING ``fork``
     and the ``"unrated: no_external_workflow"`` stage-6 gate the API
     translates), ~15 unrated rows (plain insufficient-evidence and
     ``routed="off_platform"``). Returns a :class:`SnapshotFixture` naming

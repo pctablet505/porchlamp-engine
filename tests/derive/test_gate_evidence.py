@@ -1,15 +1,15 @@
-"""``cvi.derive.gate_evidence._vitality_commit_count`` (D-GATE-4) reads a
+"""``porchlamp.derive.gate_evidence._vitality_commit_count`` (D-GATE-4) reads a
 commits envelope's rows in either recorded shape -- the bare row list every
 ``commits_180d`` envelope holds today, or the window dict
 ``collect_commits_365d`` records -- through the same
-``cvi.core.commit_domains.envelope_rows`` every other commits reader uses."""
+``porchlamp.core.commit_domains.envelope_rows`` every other commits reader uses."""
 from __future__ import annotations
 
 from pathlib import Path
 
 from _fixtures import KEY, write_envelope
 
-from cvi.derive.gate_evidence import _vitality_commit_count
+from porchlamp.derive.gate_evidence import _vitality_commit_count
 
 ROWS = [{"author_login": "alice", "date": "2026-08-01T00:00:00Z"},
         {"author_login": "bob", "date": "2026-08-02T00:00:00Z"},

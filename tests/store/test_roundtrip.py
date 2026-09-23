@@ -9,10 +9,10 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from cvi.core.models import ParamScore, PersonaComposite, PRWindow, PRWindowEvent
-from cvi.store import reader, schema
-from cvi.store.migrations import apply_migrations
-from cvi.store.writer import write_records, write_snapshot
+from porchlamp.core.models import ParamScore, PersonaComposite, PRWindow, PRWindowEvent
+from porchlamp.store import reader, schema
+from porchlamp.store.migrations import apply_migrations
+from porchlamp.store.writer import write_records, write_snapshot
 
 from .helpers import (
     make_gated_record,
@@ -62,8 +62,8 @@ def test_roundtrip_rated_gated_unrated(tmp_path) -> None:
         quadrant="Sweet Spot",
         persona_gates={"senior_systems": "low_elephant_factor"},
         persona_composites={
-            "balanced": PersonaComposite(cvi=88.42, coverage=0.95, tier="A", rated=True),
-            "first_timer": PersonaComposite(cvi=70.1, coverage=0.7, tier="C", rated=True),
+            "balanced": PersonaComposite(porchlamp=88.42, coverage=0.95, tier="A", rated=True),
+            "first_timer": PersonaComposite(porchlamp=70.1, coverage=0.7, tier="C", rated=True),
         },
         suspicion=["lockstep_review", "source_drift"],
         gate_undecided=("D-GATE-3",),
@@ -114,7 +114,7 @@ def test_roundtrip_rated_gated_unrated(tmp_path) -> None:
     row = reader.get_row(conn, "snap-1", "kubernetes", "kubernetes")
     assert row["ecosystem"] == "go"
     assert row["raw_hash"] == "r" * 64
-    assert row["cvi"] == 88.42
+    assert row["porchlamp"] == 88.42
     assert row["coverage"] == 0.95
     assert row["tier"] == "A"
     assert row["tier_ceiling"] is None
@@ -128,8 +128,8 @@ def test_roundtrip_rated_gated_unrated(tmp_path) -> None:
     assert row["unrated_reason"] is None
     assert row["persona_gates"] == {"senior_systems": "low_elephant_factor"}
     assert row["persona_composites"] == {
-        "balanced": {"cvi": 88.42, "coverage": 0.95, "tier": "A", "rated": True},
-        "first_timer": {"cvi": 70.1, "coverage": 0.7, "tier": "C", "rated": True},
+        "balanced": {"porchlamp": 88.42, "coverage": 0.95, "tier": "A", "rated": True},
+        "first_timer": {"porchlamp": 70.1, "coverage": 0.7, "tier": "C", "rated": True},
     }
     assert row["suspicion"] == ["lockstep_review", "source_drift"]
     assert row["gate_undecided"] == ["D-GATE-3"]
@@ -159,7 +159,7 @@ def test_roundtrip_rated_gated_unrated(tmp_path) -> None:
     assert gated_row["eligible"] is False
     assert gated_row["gate_reason"] == "mirror"
     assert gated_row["rated"] is False
-    assert gated_row["cvi"] is None
+    assert gated_row["porchlamp"] is None
     assert gated_row["coverage"] == 0.0
     assert gated_row["mirror"] is True
     assert gated_row["gate_undecided"] == []
@@ -171,7 +171,7 @@ def test_roundtrip_rated_gated_unrated(tmp_path) -> None:
     assert unrated_row["rated"] is False
     assert unrated_row["unrated_reason"] == "unrated: insufficient_evidence"
     assert unrated_row["tier_ceiling"] == "B"
-    assert unrated_row["cvi"] is None
+    assert unrated_row["porchlamp"] is None
     assert unrated_row["coverage"] == 0.12
 
     unrated_evidence = reader.get_evidence(conn, "snap-1", "acme", "tiny-lib")

@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from cvi.collect import labels
-from cvi.collect.envelope import envelope_hash, read_envelope
+from porchlamp.collect import labels
+from porchlamp.collect.envelope import envelope_hash, read_envelope
 
 NOW = datetime(2026, 9, 12, tzinfo=timezone.utc)
 OWNER, NAME = "acme", "widget"

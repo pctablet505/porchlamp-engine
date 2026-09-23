@@ -10,13 +10,13 @@ Checkpoint: data/raw/universe_checkpoint.json (rerun skips completed pages).
 
 Star-velocity audit (D-IN-5, `docs/v2/03-ANTI-MANIPULATION.md` section 6
 `star_burst`): every candidate that makes the final `--max-total` cut is
-audited through `cvi.collect.universe.star_velocity_evidence`
-(`cvi.starscout`'s StarScout lockstep filter, spec 10.3) before
+audited through `porchlamp.collect.universe.star_velocity_evidence`
+(`porchlamp.starscout`'s StarScout lockstep filter, spec 10.3) before
 `candidates.jsonl` is written -- the universe manifest this module writes is
 the audited one. `star_velocity_flag`/`star_velocity`/`stars_audited` are
 never a silent `False`/`0`/absent: a failed star-history fetch marks the
 candidate `{"measured": false, "reason": "collector_failure", ...}`
-instead (D-MISS-1). See `cvi/collect/universe.py`'s module docstring for
+instead (D-MISS-1). See `porchlamp/collect/universe.py`'s module docstring for
 why `STAR_HISTORY_TRANSPORT` (the live fetch) is not yet implemented.
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from cvi.collect.universe import Transport, default_star_history_transport, star_velocity_evidence
+from porchlamp.collect.universe import Transport, default_star_history_transport, star_velocity_evidence
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "raw"
 CHECKPOINT = DATA / "universe_checkpoint.json"
@@ -39,7 +39,7 @@ CANDIDATES = DATA / "candidates.jsonl"
 #: The star-history transport `build()` uses (module attribute, not a
 #: default argument, so a test can `monkeypatch.setattr(bu,
 #: "STAR_HISTORY_TRANSPORT", fake)` exactly like `gh_search`/`crates_top`
-#: above). No live implementation yet (`cvi.collect.universe`'s docstring):
+#: above). No live implementation yet (`porchlamp.collect.universe`'s docstring):
 #: a real run reports every candidate `Unmeasured(collector_failure)` until
 #: this attribute is bound to a real transport.
 STAR_HISTORY_TRANSPORT: Transport = default_star_history_transport
@@ -71,7 +71,7 @@ def crates_top(limit: int) -> list[dict[str, Any]]:
     """Top crates.io packages by downloads (User-Agent required)."""
     req = urllib.request.Request(
         "https://crates.io/api/v1/crates?sort=downloads&per_page=100",
-        headers={"User-Agent": "cvi-research/0.1 (ranking study)"})
+        headers={"User-Agent": "porchlamp-research/0.1 (ranking study)"})
     with urllib.request.urlopen(req, timeout=30) as r:
         data = json.load(r)
     hits = []

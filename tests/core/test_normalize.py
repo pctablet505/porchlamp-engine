@@ -1,7 +1,7 @@
 """Acceptance tests for the D-NORM-1 mid-rank ECDF (02 section 6).
 
-``cvi.core.normalize`` implements ``R(x) = 100 * (#{x_k < x} + 0.5 * #{x_k = x})
-/ N``. The spec's ``<=`` form (v1 ``cvi.normalize.compute_ecosystem_percentile``)
+``porchlamp.core.normalize`` implements ``R(x) = 100 * (#{x_k < x} + 0.5 * #{x_k = x})
+/ N``. The spec's ``<=`` form (v1 ``porchlamp.normalize.compute_ecosystem_percentile``)
 scores every member of an all-tied population at 100.0, whereas the
 mid-rank form scores 50.0 and is the standard tie treatment. The oracles below
 hand-compute every expected value from the D-NORM-1 formula.
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from cvi.core import normalize
+from porchlamp.core import normalize
 
 
 def test_all_tied_population_scores_50():

@@ -7,14 +7,14 @@ Scratch data: `/home/pctablet505/Projects/cvi-scratch/W3-2/` (copy of
 ## Diffstat
 
 ```
-$ git diff --stat cvi/audit/__init__.py
- cvi/audit/__init__.py | 14 +++++++++++++-
+$ git diff --stat porchlamp/audit/__init__.py
+ porchlamp/audit/__init__.py | 14 +++++++++++++-
  1 file changed, 13 insertions(+), 1 deletion(-)
 
-$ wc -l cvi/verify/detectors.py cvi/audit/detectors_report.py \
+$ wc -l porchlamp/verify/detectors.py porchlamp/audit/detectors_report.py \
         tests/verify/test_detectors.py tests/audit/test_detectors_report.py
-  499 cvi/verify/detectors.py            (new)
-  254 cvi/audit/detectors_report.py      (new)
+  499 porchlamp/verify/detectors.py            (new)
+  254 porchlamp/audit/detectors_report.py      (new)
   577 tests/verify/test_detectors.py     (new)
   277 tests/audit/test_detectors_report.py (new)
  1607 total
@@ -22,7 +22,7 @@ $ wc -l cvi/verify/detectors.py cvi/audit/detectors_report.py \
 
 5 files, 4 new, 1 modified. No file outside this packet's ownership touched.
 
-**Size deviation** (R-9, reported not hidden): `cvi/verify/detectors.py` is
+**Size deviation** (R-9, reported not hidden): `porchlamp/verify/detectors.py` is
 499 source lines against the packet's size class M (<= 400, per `00-README.md`'s
 precedent table). Matches this project's repeated pattern (W0-3 754 vs M400,
 W2-1 1258, W2-3 867 vs L800, W1-7 ...) — subtraction deferred, not a
@@ -34,14 +34,14 @@ the acceptance criteria require tested and documented.
 
 ## Files
 
-- `cvi/verify/detectors.py` (new) — 9 pure `detect_*` predicates (03 section
+- `porchlamp/verify/detectors.py` (new) — 9 pure `detect_*` predicates (03 section
   6 table), `DetectorInputs`/`NewcomerAccountSample` dataclasses,
   `closed_unread_share_from_pr_window` helper, `run_detectors`.
-- `cvi/audit/detectors_report.py` (new) — I/O layer: interim JSON row
+- `porchlamp/audit/detectors_report.py` (new) — I/O layer: interim JSON row
   format, `load_rows`, `build_report`, `format_report`, `main` (`python -m
-  cvi.audit.detectors_report --current <rows.json> [--previous <rows.json>]
+  porchlamp.audit.detectors_report --current <rows.json> [--previous <rows.json>]
   [--json]`).
-- `cvi/audit/__init__.py` (modified) — registered `cvi.audit.detectors_report`
+- `porchlamp/audit/__init__.py` (modified) — registered `porchlamp.audit.detectors_report`
   in `_LAZY_EXPORTS` (the W5-1f pattern for `forward`), docstring updated.
 - `tests/verify/test_detectors.py` (new) — 52 tests.
 - `tests/audit/test_detectors_report.py` (new) — 12 tests.
@@ -51,7 +51,7 @@ the acceptance criteria require tested and documented.
 ```
 $ python -B -m pytest tests/verify/_fail_before_probe.py -p no:cacheprovider
 ImportError while importing test module '.../tests/verify/_fail_before_probe.py'.
-E   ModuleNotFoundError: No module named 'cvi.verify.detectors'
+E   ModuleNotFoundError: No module named 'porchlamp.verify.detectors'
 =========================== short test summary info ===========================
 ERROR tests/verify/_fail_before_probe.py
 1 error in 0.04s
@@ -71,7 +71,7 @@ now uses bare literals (40.0, 90.0, 20.0, 10, 0.30, 5, 7 days, 50, 10.0,
 pins each constant. Re-running the same mutation now fails correctly:
 
 ```
-$ sed -i 's/PARAM_JUMP_THRESHOLD_POINTS: float = 40.0/= 50.0/' cvi/verify/detectors.py
+$ sed -i 's/PARAM_JUMP_THRESHOLD_POINTS: float = 40.0/= 50.0/' porchlamp/verify/detectors.py
 $ python -B -m pytest tests/verify/test_detectors.py -p no:cacheprovider -k "param_jump or frozen_thresholds"
 FF.......
 FAILED tests/verify/test_detectors.py::test_frozen_thresholds_match_03_section_6 - assert 50.0 == 40.0
@@ -97,11 +97,11 @@ only to confirm the registration slots in cleanly.)
 ## ruff
 
 ```
-$ .venv/bin/ruff check cvi/verify/detectors.py cvi/audit/detectors_report.py \
-    cvi/audit/__init__.py tests/verify/test_detectors.py tests/audit/test_detectors_report.py
+$ .venv/bin/ruff check porchlamp/verify/detectors.py porchlamp/audit/detectors_report.py \
+    porchlamp/audit/__init__.py tests/verify/test_detectors.py tests/audit/test_detectors_report.py
 All checks passed!
 
-$ .venv/bin/ruff check cvi/ scripts/ tests/
+$ .venv/bin/ruff check porchlamp/ scripts/ tests/
 Found 4 errors.  (all pre-existing, in scripts/curate_dataset_llm.py — the
 file 00-README.md's non-negotiables say W0-4 deletes; unrelated to this
 packet, not touched.)
@@ -151,8 +151,8 @@ this packet's files.
 
 Ran via a scratch script (`~/Projects/cvi-scratch/W3-2/measure_detectors.py`,
 not a deliverable) that loads every `derived/*.json` bundle in the scratch
-sample copy through the real `cvi.derive.bundle.load_bundle`, scores each
-with the real `cvi.core.engine.score()` (`GateEvidence(manifest_found=None)`
+sample copy through the real `porchlamp.derive.bundle.load_bundle`, scores each
+with the real `porchlamp.core.engine.score()` (`GateEvidence(manifest_found=None)`
 — no W1-9 evidence wiring in this packet's scope, so most identity gates
 come back `UNDECIDED` rather than failing; a population stub whose
 `population()` always returns `None`, since no real cross-repo
@@ -222,28 +222,28 @@ context.
 
 ## Ownership requests (to the lead / W2-8 / relevant packets)
 
-1. **Wire `run_detectors` into the engine.** `cvi/core/engine.py` does not
+1. **Wire `run_detectors` into the engine.** `porchlamp/core/engine.py` does not
    call `run_detectors`; `ScoreRecord.suspicion` is left `[]` by every
-   caller today. Per this packet's own instructions, `cvi/core/engine.py`
+   caller today. Per this packet's own instructions, `porchlamp/core/engine.py`
    is not touched here (R-10). The caller needs a previous-snapshot
    `ScoreRecord` and a `DetectorInputs` built per-repo — natural home is
    wherever W2-8 (or a promote/freeze step) already iterates repos with
    both snapshots in hand.
 2. **`newcomer_burst`** needs each sampled newcomer-cohort account's
    *account creation date*. `Cohorts`/`NewcomerAuthor`
-   (`cvi/core/models.py`) records first-PR/follow-up PR timestamps but not
+   (`porchlamp/core/models.py`) records first-PR/follow-up PR timestamps but not
    when the GitHub account itself was created. Add
    `account_created_at: str` to `NewcomerAuthor` (04 section 3) and a
-   mapped input id in `cvi/derive/bundle.py`'s `INPUT_MAPPINGS` (W2-9's
+   mapped input id in `porchlamp/derive/bundle.py`'s `INPUT_MAPPINGS` (W2-9's
    table) so a real caller builds `NewcomerAccountSample` tuples from the
    bundle instead of this packet's parallel dataclass.
 3. **`star_burst`** needs whether the StarScout lockstep penalty
-   (`cvi/starscout.py`, v1 algorithm, D-IN-5) was applied at universe
+   (`porchlamp/starscout.py`, v1 algorithm, D-IN-5) was applied at universe
    entry. No v2 schema field carries this (`RepoIdentity` has no
    stars-related field). Expose it as a stored per-repo boolean from the
    universe-build step (`scripts/build_universe.py`).
 4. **`ef_domain_mismatch`** needs the top commit email-domain's share of a
-   repo's human commits. `cvi.collect.commits.elephant_factor` (W1-5)
+   repo's human commits. `porchlamp.collect.commits.elephant_factor` (W1-5)
    computes the *count* of orgs reaching 50% of commits but never the top
    org's own share, and no bundle input carries it. Have the W1-5
    collector or its deriver hook additionally compute and store the
@@ -314,7 +314,7 @@ W2-10 (`8e89d03`, landed on main after this packet's original base) made
 `repo: RepoIdentity` the first, required field of `ScoreRecord`. Fixed both
 construction sites the review named:
 
-- `cvi/audit/detectors_report.py::_minimal_score_record` now takes a
+- `porchlamp/audit/detectors_report.py::_minimal_score_record` now takes a
   `repo: RepoIdentity` parameter. New `_repo_identity_from_key(key: str) ->
   RepoIdentity` parses the row's `"owner/name"` key (already the
   documented format) into a real `RepoIdentity`, raising `ValueError`
@@ -354,13 +354,13 @@ Added two tests to `tests/verify/test_detectors.py`:
   — `ParamScore(score=95.0, measured=False, reason="collector_failure",
   n=30, method=None)` must make both `_measured_score` and `_measured_n`
   return `None` (both private helpers imported directly, matching this
-  repo's existing precedent — `cvi.benchmark_data._pinned_scorers`,
-  `cvi.deepdive._survival_curve` are tested the same way).
+  repo's existing precedent — `porchlamp.benchmark_data._pinned_scorers`,
+  `porchlamp.deepdive._survival_curve` are tested the same way).
 - `test_speed_without_decisions_scored_but_unmeasured_ttfhr_never_fires` —
   the same scored-but-unmeasured TTFHR paired with a qualifying DR_90 must
   not fire `detect_speed_without_decisions`.
 
-This shape is reachable today, not hypothetical: `cvi.audit.detectors_report
+This shape is reachable today, not hypothetical: `porchlamp.audit.detectors_report
 .load_rows`'s `_param_score_from_json` reads `"score"` and `"measured"`
 independently from the row JSON with no cross-check, so
 `{"score": 95.0, "measured": false, ...}` produces exactly this
@@ -369,7 +369,7 @@ independently from the row JSON with no cross-check, so
 Mutation proof (`_measured_score`'s and `_measured_n`'s `not param.measured`
 guards deleted together, matching M37+M39):
 ```
-$ sed -n '166,183p' cvi/verify/detectors.py   # before
+$ sed -n '166,183p' porchlamp/verify/detectors.py   # before
     if param is None or not param.measured or param.score is None:   # _measured_score
     if param is None or not param.measured:                          # _measured_n
 
@@ -401,7 +401,7 @@ not just uncounted in the numerator.
 
 Mutation proof (the `if event.is_external` filter dropped, matching M21):
 ```
-$ sed -i 's/external = \[event for event in pr_window.events if event.is_external\]/external = list(pr_window.events)/' cvi/verify/detectors.py
+$ sed -i 's/external = \[event for event in pr_window.events if event.is_external\]/external = list(pr_window.events)/' porchlamp/verify/detectors.py
 $ env -u PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/verify/test_detectors.py \
     -p no:cacheprovider -k closed_unread_share_from_pr_window
 F.
@@ -484,7 +484,7 @@ FAILED test_build_report_flagged_tuple_is_sorted_by_key
 
 ```
 $ git diff --stat
- cvi/audit/detectors_report.py        | 43 ++++++++++++++++---
+ porchlamp/audit/detectors_report.py        | 43 ++++++++++++++++---
  tests/audit/test_detectors_report.py | 31 ++++++++++++++
  tests/verify/test_detectors.py       | 82 +++++++++++++++++++++++++++++++++---
  3 files changed, 144 insertions(+), 12 deletions(-)
@@ -496,7 +496,7 @@ R-6: every other line is a test or a fixture change.
 ## Full suite, ruff (round 2, final)
 
 ```
-$ .venv/bin/ruff check cvi/verify/detectors.py cvi/audit/detectors_report.py \
+$ .venv/bin/ruff check porchlamp/verify/detectors.py porchlamp/audit/detectors_report.py \
     tests/verify/test_detectors.py tests/audit/test_detectors_report.py
 All checks passed!
 
@@ -518,7 +518,7 @@ U-1 (MR_first's n-floor placement), U-2 (closed_unread denominator), U-3
 this round pins the *current* implementation's tested behaviour for U-1
 only (M16's fix), it does not resolve any of the four rulings. W1 (report
 `--data-dir` mode), W6 (thresholds into `constants_v2`), W7 (the
-`cvi.core.pipeline` injection point), W1-5f (top-domain share), and the new
+`porchlamp.core.pipeline` injection point), W1-5f (top-domain share), and the new
 StarScout-boolean packet are all out of scope for a bounded 3-item rework
 and remain open per the review's recommendation.
 

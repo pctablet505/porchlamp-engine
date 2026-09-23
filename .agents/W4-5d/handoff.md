@@ -43,7 +43,7 @@ the fold still shows only the reason sentence:
    _synthetic_raw_hash`) and `snapshot_id` are both real fields already on
    the wire.
 
-**Composite** (section 2) is **omitted** for gated — no CVI/tier/quadrant
+**Composite** (section 2) is **omitted** for gated — no Porchlamp/tier/quadrant
 was ever computed. Documented per the dispatch's "pick one, document in
 copy.js" instruction: a comment above `copy.DRAWER_SECTION_COMPOSITE`
 explains the choice (omit, not a "no composite" placeholder sentence).
@@ -85,7 +85,7 @@ see below):
 
 **`tests/test_serve_ui_fixtures.py`** (new `TestGatedRepoDrawerSections`):
 `test_gated_repo_with_a_real_evidence_fixture_is_fully_fetchable` hits
-both `GET /v1/cvi/repos/gated-org/repo-archived-1` (validates
+both `GET /v1/porchlamp/repos/gated-org/repo-archived-1` (validates
 `eligible=False`, `gate_reason="archived"`) and its `/evidence` (200,
 non-empty, `pillar="governance"`, `unmeasured_reason="not_applicable"`) —
 the fixture-server half of "evidence is fetched for gated repos exactly as
@@ -93,7 +93,7 @@ for unrated" (`gated-org/repo-archived-1` is 1 of only 3 repos with a real
 `evidence-*.json` fixture, deliberately chosen over the other 6 gated
 fixture repos so this test exercises real rows, not a 404-tolerated empty
 set). `test_every_gated_fixture_repo_validates_with_no_composite_facts`
-checks every gated fixture repo (not just this one) has `cvi`/`tier`/
+checks every gated fixture repo (not just this one) has `porchlamp`/`tier`/
 `quadrant`/`persona_composites`/`persona_gates` all null/empty — the
 contract-level reason Composite is omitted for `kind === "gated"`.
 
@@ -105,7 +105,7 @@ reserved/in use by other sessions):
   `<details>`, all `open === false`; summaries exactly `["Pillars and
   evidence", "Persona view", "Integrity"]`; gate banner text "Archived on
   GitHub — no active development to evaluate."; network log shows BOTH
-  `GET /v1/cvi/repos/gated-org/repo-archived-1` (200) AND its `/evidence`
+  `GET /v1/porchlamp/repos/gated-org/repo-archived-1` (200) AND its `/evidence`
   (200) fired by `openRepo` — confirms evidence is not skipped for gated.
   Expanding the Pillars `<details>` (`.open = true`) renders exactly the
   fixture's evidence row: `<h3>Governance</h3>` … `archived_flag` … "Not

@@ -159,7 +159,7 @@ test("U-19: a one-row data change patches exactly one <tr>", () => {
 
   const targetIndex = Math.floor((range.start + range.end) / 2);
   const changedRows = rows.slice();
-  changedRows[targetIndex] = { ...changedRows[targetIndex], cvi: changedRows[targetIndex].cvi + 1 };
+  changedRows[targetIndex] = { ...changedRows[targetIndex], porchlamp: changedRows[targetIndex].porchlamp + 1 };
 
   const beforeLen = doc.mutationLog.length;
   patchWindow(doc, tbody, changedRows, range, { showPersonaDelta: false, selectedRepoKey: null });

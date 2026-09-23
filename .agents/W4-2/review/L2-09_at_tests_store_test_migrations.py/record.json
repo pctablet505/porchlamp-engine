@@ -22,7 +22,7 @@
     "refused": false
   },
   "input": {
-    "file": "cvi/store (939 source lines) + tests/store (1106 lines)",
+    "file": "porchlamp/store (939 source lines) + tests/store (1106 lines)",
     "sha256": "b91a7ae7296c158801288027b04449699c571be8185eaa0d6ab8fd392ad75a50",
     "n_lines": 2046,
     "extracted_from_sha": "8b9d314"

@@ -7,7 +7,7 @@ for every repo (or a sample, --quick) plus unknown ones; /snapshot,
 /matrix, /methodology; /reproject for the persona presets, one-hot and
 seeded random weight vectors over EVERY page of the full custom ranking;
 and the error cases the UI can reach -- this asks the API itself
-(Starlette's ``TestClient`` on ``cvi.serve.app.create_app`` over the same
+(Starlette's ``TestClient`` on ``porchlamp.serve.app.create_app`` over the same
 database) and the site's ``api.js`` (under Node, reading the exported
 files through ``scripts/static_parity.mjs``), and requires identical
 answers, compared strictly (``true`` is not ``1``; a missing key is not
@@ -66,7 +66,7 @@ MUTANTS: tuple[tuple[str, str, str], ...] = (
     ("custom weight total summed left to right (not CPython's compensated sum)",
      "const totalWeight = pySum(w);", "const totalWeight = w.reduce((a, b) => a + b, 0);"),
     ("custom tie groups keep singletons",
-     "members.get(v.cviDisplay) === 1 ? null : denseRank.get(v.cviDisplay)", "denseRank.get(v.cviDisplay)"),
+     "members.get(v.porchlampDisplay) === 1 ? null : denseRank.get(v.porchlampDisplay)", "denseRank.get(v.porchlampDisplay)"),
 )
 
 _NODE_GLOBS = (".local/opt/node-*/bin/node", "tools/node-*/bin/node", ".nvm/versions/node/*/bin/node")
@@ -83,12 +83,12 @@ def _export_static():
 
 
 def find_node() -> Optional[str]:
-    """``PATH``, then ``CVI_NODE_BIN``, then the usual per-user installs
+    """``PATH``, then ``PORCHLAMP_NODE_BIN``, then the usual per-user installs
     (``tests/test_ui_node_suite.py``'s ``find_node``)."""
     on_path = shutil.which("node")
     if on_path:
         return on_path
-    override = os.environ.get("CVI_NODE_BIN")
+    override = os.environ.get("PORCHLAMP_NODE_BIN")
     if override and Path(override).is_file():
         return override
     for pattern in _NODE_GLOBS:
@@ -131,7 +131,7 @@ class Grid:
     def __init__(self, db: Path) -> None:
         from fastapi.testclient import TestClient
 
-        from cvi.serve.app import create_app
+        from porchlamp.serve.app import create_app
 
         self.client = TestClient(create_app(str(db), web_dir=str(db.parent / "__no_web__")))
         self.requests: list[dict] = []
@@ -151,7 +151,7 @@ class Grid:
 
     def post_reproject(self, weights: dict, page: Optional[int], page_size: Optional[int]) -> dict:
         params = {k: v for k, v in (("page", page), ("page_size", page_size)) if v is not None}
-        answer = self._answer(self.client.post("/v1/cvi/reproject", params=params, json=weights))
+        answer = self._answer(self.client.post("/v1/porchlamp/reproject", params=params, json=weights))
         options = {k: v for k, v in (("page", page), ("page_size", page_size)) if v is not None}
         self.requests.append({"kind": "reproject", "fn": "postReproject", "args": [weights, options] if options else [weights]})
         self.expected.append(answer)
@@ -159,15 +159,15 @@ class Grid:
 
 
 def _leaderboard(grid: Grid, params: dict) -> None:
-    grid.get("leaderboard", "fetchLeaderboard", [params], "/v1/cvi/leaderboard", params)
+    grid.get("leaderboard", "fetchLeaderboard", [params], "/v1/porchlamp/leaderboard", params)
 
 
 def _not_ranked(grid: Grid, params: dict) -> None:
-    grid.get("not-ranked", "fetchNotRanked", [params], "/v1/cvi/not-ranked", params)
+    grid.get("not-ranked", "fetchNotRanked", [params], "/v1/porchlamp/not-ranked", params)
 
 
 def _repo(grid: Grid, owner: str, name: str) -> None:
-    path = f"/v1/cvi/repos/{quote(owner, safe='')}/{quote(name, safe='')}"
+    path = f"/v1/porchlamp/repos/{quote(owner, safe='')}/{quote(name, safe='')}"
     grid.get("repo", "fetchRepoDetail", [owner, name], path)
     grid.get("evidence", "fetchEvidence", [owner, name], f"{path}/evidence")
 
@@ -177,15 +177,15 @@ def _weights(pillars: tuple[str, ...], values: list[float]) -> dict:
 
 
 def build_grid(db: Path, *, quick: bool, seed: int = 20260923) -> Grid:
-    from cvi.core import constants
+    from porchlamp.core import constants
 
     sort_keys = _export_static().sort_keys
 
     grid = Grid(db)
     pillars = constants.PILLAR_NAMES
-    snapshot = grid.get("snapshot", "fetchSnapshot", [], "/v1/cvi/snapshot")["data"]
-    grid.get("matrix", "fetchMatrix", [], "/v1/cvi/matrix")
-    grid.get("methodology", "fetchMethodology", [], "/v1/cvi/methodology")
+    snapshot = grid.get("snapshot", "fetchSnapshot", [], "/v1/porchlamp/snapshot")["data"]
+    grid.get("matrix", "fetchMatrix", [], "/v1/porchlamp/matrix")
+    grid.get("methodology", "fetchMethodology", [], "/v1/porchlamp/methodology")
     personas = sorted(snapshot["persona_visible_counts"])
 
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
@@ -294,7 +294,7 @@ def verify(db: Path, site: Path, *, quick: bool = False, mutants: bool = True, l
     every mutant caught (:func:`passed`)."""
     node = find_node()
     if node is None:
-        raise SystemExit("verify: no Node.js interpreter (PATH, CVI_NODE_BIN, ~/.local/opt/node-*)")
+        raise SystemExit("verify: no Node.js interpreter (PATH, PORCHLAMP_NODE_BIN, ~/.local/opt/node-*)")
     with tempfile.TemporaryDirectory() as tmp:
         # A private copy: the database may be the one being served.
         copy = Path(tmp) / "snapshot.db"

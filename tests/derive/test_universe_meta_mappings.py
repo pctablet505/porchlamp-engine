@@ -1,7 +1,7 @@
-"""Tests for ``cvi.derive.bundle``'s universe-entry
+"""Tests for ``porchlamp.derive.bundle``'s universe-entry
 star-velocity pass-through (``UNIVERSE_META_MAPPINGS`` /
 ``resolve_universe_meta_facts``), and the full chain into
-``cvi.verify.detectors``'s ``star_burst`` detector through the real
+``porchlamp.verify.detectors``'s ``star_burst`` detector through the real
 ``run_detectors``.
 
 ``star_velocity_flag``/``stars_audited`` are not part of
@@ -17,9 +17,9 @@ from pathlib import Path
 
 from _fixtures import base_document, expected_hash, prov, write_envelope
 
-from cvi.core.models import BundleValidationError, GateResult, Measured, ParamScore, RepoIdentity, ScoreRecord, Unmeasured
-from cvi.derive.bundle import UNIVERSE_META_MAPPINGS, resolve_universe_meta_facts
-from cvi.verify.detectors import DetectorInputs, run_detectors
+from porchlamp.core.models import BundleValidationError, GateResult, Measured, ParamScore, RepoIdentity, ScoreRecord, Unmeasured
+from porchlamp.derive.bundle import UNIVERSE_META_MAPPINGS, resolve_universe_meta_facts
+from porchlamp.verify.detectors import DetectorInputs, run_detectors
 
 import pytest
 
@@ -81,7 +81,7 @@ def test_star_velocity_flag_unmeasured_when_confidence_missing(tmp_path: Path):
     assert result["star_velocity_flag"] == Unmeasured(
         reason="collector_failure",
         detail="universe entry never audited star velocity for this repo "
-               "(star-history fetch failed, cvi.collect.universe)",
+               "(star-history fetch failed, porchlamp.collect.universe)",
     )
 
 
@@ -135,7 +135,7 @@ def test_stars_audited_unmeasured_when_confidence_missing():
     assert result["stars_audited"] == Unmeasured(
         reason="collector_failure",
         detail="universe entry never audited star velocity for this repo "
-               "(star-history fetch failed, cvi.collect.universe)",
+               "(star-history fetch failed, porchlamp.collect.universe)",
     )
     # Never a silent 0 masquerading as a real audited count:
     assert result["stars_audited"] != Measured(
@@ -211,7 +211,7 @@ def test_normal_repo_does_not_fire_star_burst_through_real_run_detectors(tmp_pat
 
 
 def test_unmeasured_never_fires_star_burst_through_real_run_detectors():
-    """Unmeasured-never-fires (cvi.verify.detectors' own rule): a failed
+    """Unmeasured-never-fires (porchlamp.verify.detectors' own rule): a failed
     star-history fetch must not manufacture a False->never-fires OR a
     True->false-accusation; it must simply not fire, same as 'no evidence'."""
     doc = base_document(confidence={"star_velocity_flag": "missing"})
@@ -224,7 +224,7 @@ def test_unmeasured_never_fires_star_burst_through_real_run_detectors():
 def test_sidecars_survive_load_v1_and_dump_validate_round_trip(tmp_path: Path):
     """Verify stars_audited, star_velocity_flag, and forks survive _load_v1 and
     a dump_bundle -> validate_bundle round-trip, and populate DetectorInputs."""
-    from cvi.derive.bundle import (
+    from porchlamp.derive.bundle import (
         _load_v1,
         dump_bundle,
         forks_count,
@@ -232,7 +232,7 @@ def test_sidecars_survive_load_v1_and_dump_validate_round_trip(tmp_path: Path):
         stars_audited,
         validate_bundle,
     )
-    from cvi.verify.pipeline_hook import detector_inputs_from_bundle
+    from porchlamp.verify.pipeline_hook import detector_inputs_from_bundle
 
     data = {
         "measured": True,

@@ -1,4 +1,4 @@
-"""Acceptance tests for :mod:`cvi.verify.detectors`.
+"""Acceptance tests for :mod:`porchlamp.verify.detectors`.
 
 Every oracle below is written against the **literal** 03 section 6 numbers
 (40, 90, 20, 10, 0.30, 5, 7 days, 50, 10, 0.5, 4) rather than the module's
@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from cvi.core.models import Cohorts, GateResult, NewcomerAuthor, ParamScore, PRRef, PRWindow, PRWindowEvent, RepoIdentity, ScoreRecord
-from cvi.verify.detectors import (
+from porchlamp.core.models import Cohorts, GateResult, NewcomerAuthor, ParamScore, PRRef, PRWindow, PRWindowEvent, RepoIdentity, ScoreRecord
+from porchlamp.verify.detectors import (
     _measured_n,
     _measured_score,
     CLOSED_UNREAD_SHARE_MIN,

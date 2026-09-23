@@ -5,7 +5,7 @@
   "checklist_id": "TC-4",
   "level": "L3",
   "target": {
-    "path": "cvi/store",
+    "path": "porchlamp/store",
     "symbol": "merge trial"
   },
   "agent": {
@@ -22,7 +22,7 @@
     "refused": false
   },
   "input": {
-    "file": "cvi/store (939 source lines) + tests/store (1106 lines)",
+    "file": "porchlamp/store (939 source lines) + tests/store (1106 lines)",
     "sha256": "b91a7ae7296c158801288027b04449699c571be8185eaa0d6ab8fd392ad75a50",
     "n_lines": 2046,
     "extracted_from_sha": "8b9d314"
@@ -99,10 +99,10 @@
       "finding_id": "F-012",
       "severity": "Blocker:",
       "statement": "The writer cannot serialise the real persona_composites contract: canonical_json is handed PersonaComposite dataclasses and raises, so no record the engine will produce can be written.",
-      "file": "cvi/store/writer.py",
+      "file": "porchlamp/store/writer.py",
       "line": 166,
       "quoted_line": "        canonical_json(record.persona_composites),",
-      "failure_scenario": "On the merged tree, a ScoreRecord whose persona_composites is {'balanced': PersonaComposite(cvi=82.5, coverage=0.9, tier='B', rated=True)} -- main's declared type dict[str, PersonaComposite] since the 2026-09-13 ruling -- makes write_records raise 'TypeError: Object of type PersonaComposite is not JSON serializable'. The packet's suite is green only because tests/store/helpers.py builds the old dict[str, float].",
+      "failure_scenario": "On the merged tree, a ScoreRecord whose persona_composites is {'balanced': PersonaComposite(porchlamp=82.5, coverage=0.9, tier='B', rated=True)} -- main's declared type dict[str, PersonaComposite] since the 2026-09-13 ruling -- makes write_records raise 'TypeError: Object of type PersonaComposite is not JSON serializable'. The packet's suite is green only because tests/store/helpers.py builds the old dict[str, float].",
       "evidence_record": "EV-e9_persona",
       "measurement_integrity": true
     }
@@ -110,7 +110,7 @@
   "observations": [
     "Resolution executed in the trial only: writer serialises with asdict(); the three record builders take owner/name/ecosystem and set repo=RepoIdentity(...); the reader/roundtrip fixtures thread identity and build real PersonaComposite values. 4 files, 45 insertions, 23 deletions -> full suite '1675 passed, 12 warnings in 43.13s'.",
     "No textual conflict hunk exists: pyproject.toml's one-line packages change merged cleanly and no other file overlaps W2-6/W2-7f/W2-9f/W2-10.",
-    "The schema needed no change in any of this (git diff --stat over cvi/store/schema.py and cvi/store/migrations/ is empty after the resolution)."
+    "The schema needed no change in any of this (git diff --stat over porchlamp/store/schema.py and porchlamp/store/migrations/ is empty after the resolution)."
   ],
   "not_checked": [
     {

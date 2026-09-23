@@ -1,13 +1,13 @@
-"""Database schema and DDL tests for ``cvi.store``."""
+"""Database schema and DDL tests for ``porchlamp.store``."""
 from __future__ import annotations
 
 import ast
 import sqlite3
 from pathlib import Path
 
-from cvi.store import schema
+from porchlamp.store import schema
 
-STORE_DIR = Path(__file__).resolve().parents[2] / "cvi" / "store"
+STORE_DIR = Path(__file__).resolve().parents[2] / "porchlamp" / "store"
 
 
 def test_create_schema_creates_exactly_the_five_tables() -> None:
@@ -38,7 +38,7 @@ def test_repositories_row_contract_columns_present() -> None:
 
 def test_populations_row_contract_matches_build_populations_table() -> None:
     """Verify ``populations`` table columns match
-    ``cvi.snapshot.populations.build_populations_table`` output columns."""
+    ``porchlamp.snapshot.populations.build_populations_table`` output columns."""
     conn = sqlite3.connect(":memory:")
     schema.create_schema(conn)
     columns = [row[1] for row in conn.execute('PRAGMA table_info("populations")').fetchall()]

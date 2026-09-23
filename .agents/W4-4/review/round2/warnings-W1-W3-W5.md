@@ -32,12 +32,12 @@ Mutants RX2 (`_matrix_point` plots a NULL-quadrant point) and RX3
 and `test_no_ceiling_or_band_assigns_a_and_b_correctly_via_reproject`.
 
 ## W-5 the backwards `scripts.serve` import — FIXED
-`cvi/serve/guard.py` now owns both guards; `scripts/serve.py` imports FROM
+`porchlamp/serve/guard.py` now owns both guards; `scripts/serve.py` imports FROM
 it. Plant on the detached copy:
 ```
-  cvi/serve/app.py: from scripts.serve import main as _planted  # PLANTED
-  FAILED tests/core/test_import_graph.py::test_serve_imports_only_cvi_fastapi_pydantic_or_stdlib
-  AssertionError: cvi/serve/app.py imports 'scripts.serve' -- cvi/serve must never
+  porchlamp/serve/app.py: from scripts.serve import main as _planted  # PLANTED
+  FAILED tests/core/test_import_graph.py::test_serve_imports_only_porchlamp_fastapi_pydantic_or_stdlib
+  AssertionError: porchlamp/serve/app.py imports 'scripts.serve' -- porchlamp/serve must never
                   import scripts.* (the reverse of the allowed direction)
 ```
 Restored byte-identical; `git status --porcelain` empty.
@@ -46,10 +46,10 @@ Restored byte-identical; `git status --porcelain` empty.
 On a written-but-unfinalised snapshot every snapshot-touching endpoint
 503s (round 1: three did, three served):
 ```
-  /v1/cvi/leaderboard          -> 503      /v1/cvi/matrix                -> 503
-  /v1/cvi/not-ranked           -> 503      /v1/cvi/repos/a/r0            -> 503
-  /v1/cvi/snapshot             -> 503      /v1/cvi/repos/a/r0/evidence   -> 503
-  POST /v1/cvi/reproject       -> 503      /v1/cvi/methodology           -> 200 (touches no snapshot)
+  /v1/porchlamp/leaderboard          -> 503      /v1/porchlamp/matrix                -> 503
+  /v1/porchlamp/not-ranked           -> 503      /v1/porchlamp/repos/a/r0            -> 503
+  /v1/porchlamp/snapshot             -> 503      /v1/porchlamp/repos/a/r0/evidence   -> 503
+  POST /v1/porchlamp/reproject       -> 503      /v1/porchlamp/methodology           -> 200 (touches no snapshot)
 ```
 
 ## W-7 a 500 uses the error shape — FIXED

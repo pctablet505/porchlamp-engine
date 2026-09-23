@@ -25,13 +25,13 @@ from fastapi.testclient import TestClient
 import httpx
 import uvicorn
 
-from cvi.api import create_app
+from porchlamp.api import create_app
 from tests.fixtures.synthetic_catalog import (
     build_benchmark_store,
     generate_benchmark_catalog,
     seed_benchmark_store,
 )
-from cvi.lakehouse import OperationalStore
+from porchlamp.lakehouse import OperationalStore
 
 
 def percentile(samples: list[float], pct: float) -> float:
@@ -146,41 +146,41 @@ def benchmark_endpoints_in_process(iterations: int = 50) -> dict[str, Any]:
             # Healthz
             ("GET /healthz", "/healthz", "Healthz Probe"),
             # Matrix
-            ("GET /v1/cvi/matrix (default)", "/v1/cvi/matrix", "Matrix Default"),
-            ("GET /v1/cvi/matrix (min_stars=100)", "/v1/cvi/matrix?min_stars=100", "Matrix Stars Filter"),
-            ("GET /v1/cvi/matrix (ecosystem=pypi)", "/v1/cvi/matrix?ecosystem=pypi", "Matrix PyPI Filter"),
-            ("GET /v1/cvi/matrix (all black holes)", "/v1/cvi/matrix?exclude_black_holes=false", "Matrix Black Holes"),
+            ("GET /v1/porchlamp/matrix (default)", "/v1/porchlamp/matrix", "Matrix Default"),
+            ("GET /v1/porchlamp/matrix (min_stars=100)", "/v1/porchlamp/matrix?min_stars=100", "Matrix Stars Filter"),
+            ("GET /v1/porchlamp/matrix (ecosystem=pypi)", "/v1/porchlamp/matrix?ecosystem=pypi", "Matrix PyPI Filter"),
+            ("GET /v1/porchlamp/matrix (all black holes)", "/v1/porchlamp/matrix?exclude_black_holes=false", "Matrix Black Holes"),
             # Leaderboard pagination
-            ("GET /v1/cvi/leaderboard (page=1, size=50)", "/v1/cvi/leaderboard?page=1&page_size=50", "Leaderboard Page 1"),
-            ("GET /v1/cvi/leaderboard (page=10, size=50)", "/v1/cvi/leaderboard?page=10&page_size=50", "Leaderboard Page 10"),
-            ("GET /v1/cvi/leaderboard (page=20, size=50)", "/v1/cvi/leaderboard?page=20&page_size=50", "Leaderboard Page 20 (Deep)"),
-            ("GET /v1/cvi/leaderboard (page_size=1000)", "/v1/cvi/leaderboard?page=1&page_size=1000", "Leaderboard 1,000 Repos Bulk"),
-            ("GET /v1/cvi/leaderboard (offset=950)", "/v1/cvi/leaderboard?offset=950&limit=50", "Leaderboard Offset 950"),
+            ("GET /v1/porchlamp/leaderboard (page=1, size=50)", "/v1/porchlamp/leaderboard?page=1&page_size=50", "Leaderboard Page 1"),
+            ("GET /v1/porchlamp/leaderboard (page=10, size=50)", "/v1/porchlamp/leaderboard?page=10&page_size=50", "Leaderboard Page 10"),
+            ("GET /v1/porchlamp/leaderboard (page=20, size=50)", "/v1/porchlamp/leaderboard?page=20&page_size=50", "Leaderboard Page 20 (Deep)"),
+            ("GET /v1/porchlamp/leaderboard (page_size=1000)", "/v1/porchlamp/leaderboard?page=1&page_size=1000", "Leaderboard 1,000 Repos Bulk"),
+            ("GET /v1/porchlamp/leaderboard (offset=950)", "/v1/porchlamp/leaderboard?offset=950&limit=50", "Leaderboard Offset 950"),
             # Leaderboard ecosystem filters
-            ("GET /v1/cvi/leaderboard (eco=pypi)", "/v1/cvi/leaderboard?ecosystem=pypi", "Leaderboard PyPI"),
-            ("GET /v1/cvi/leaderboard (eco=npm)", "/v1/cvi/leaderboard?ecosystem=npm", "Leaderboard npm"),
-            ("GET /v1/cvi/leaderboard (eco=crates)", "/v1/cvi/leaderboard?ecosystem=crates", "Leaderboard Crates"),
-            ("GET /v1/cvi/leaderboard (eco=go)", "/v1/cvi/leaderboard?ecosystem=go", "Leaderboard Go"),
-            ("GET /v1/cvi/leaderboard (eco=maven)", "/v1/cvi/leaderboard?ecosystem=maven", "Leaderboard Maven"),
-            ("GET /v1/cvi/leaderboard (eco=systems)", "/v1/cvi/leaderboard?ecosystem=systems", "Leaderboard Systems"),
+            ("GET /v1/porchlamp/leaderboard (eco=pypi)", "/v1/porchlamp/leaderboard?ecosystem=pypi", "Leaderboard PyPI"),
+            ("GET /v1/porchlamp/leaderboard (eco=npm)", "/v1/porchlamp/leaderboard?ecosystem=npm", "Leaderboard npm"),
+            ("GET /v1/porchlamp/leaderboard (eco=crates)", "/v1/porchlamp/leaderboard?ecosystem=crates", "Leaderboard Crates"),
+            ("GET /v1/porchlamp/leaderboard (eco=go)", "/v1/porchlamp/leaderboard?ecosystem=go", "Leaderboard Go"),
+            ("GET /v1/porchlamp/leaderboard (eco=maven)", "/v1/porchlamp/leaderboard?ecosystem=maven", "Leaderboard Maven"),
+            ("GET /v1/porchlamp/leaderboard (eco=systems)", "/v1/porchlamp/leaderboard?ecosystem=systems", "Leaderboard Systems"),
             # Leaderboard search
-            ("GET /v1/cvi/leaderboard (search=vllm)", "/v1/cvi/leaderboard?search=vllm", "Leaderboard Search 'vllm'"),
-            ("GET /v1/cvi/leaderboard (search=kubernetes)", "/v1/cvi/leaderboard?search=kubernetes", "Leaderboard Search 'kubernetes'"),
-            ("GET /v1/cvi/leaderboard (search=a broad)", "/v1/cvi/leaderboard?search=a", "Leaderboard Broad Search 'a'"),
-            ("GET /v1/cvi/leaderboard (search=nonexistent)", "/v1/cvi/leaderboard?search=zzzznotfound", "Leaderboard Search 0-hit"),
-            ("GET /v1/cvi/leaderboard (search=% wildcard)", "/v1/cvi/leaderboard?search=%25", "Leaderboard Wildcard Escaped '%'"),
+            ("GET /v1/porchlamp/leaderboard (search=vllm)", "/v1/porchlamp/leaderboard?search=vllm", "Leaderboard Search 'vllm'"),
+            ("GET /v1/porchlamp/leaderboard (search=kubernetes)", "/v1/porchlamp/leaderboard?search=kubernetes", "Leaderboard Search 'kubernetes'"),
+            ("GET /v1/porchlamp/leaderboard (search=a broad)", "/v1/porchlamp/leaderboard?search=a", "Leaderboard Broad Search 'a'"),
+            ("GET /v1/porchlamp/leaderboard (search=nonexistent)", "/v1/porchlamp/leaderboard?search=zzzznotfound", "Leaderboard Search 0-hit"),
+            ("GET /v1/porchlamp/leaderboard (search=% wildcard)", "/v1/porchlamp/leaderboard?search=%25", "Leaderboard Wildcard Escaped '%'"),
             # Leaderboard dynamic persona projections
-            ("GET /v1/cvi/leaderboard (persona=balanced)", "/v1/cvi/leaderboard?persona=balanced", "Leaderboard Persona BALANCED"),
-            ("GET /v1/cvi/leaderboard (persona=first_timer)", "/v1/cvi/leaderboard?persona=first_timer", "Leaderboard Persona FIRST_TIMER"),
-            ("GET /v1/cvi/leaderboard (persona=career_capital)", "/v1/cvi/leaderboard?persona=career_capital", "Leaderboard Persona CAREER_CAPITAL"),
-            ("GET /v1/cvi/leaderboard (persona=senior_systems)", "/v1/cvi/leaderboard?persona=senior_systems", "Leaderboard Persona SENIOR_SYSTEMS"),
-            ("GET /v1/cvi/leaderboard (persona=ai_assisted)", "/v1/cvi/leaderboard?persona=ai_assisted", "Leaderboard Persona AI_ASSISTED"),
+            ("GET /v1/porchlamp/leaderboard (persona=balanced)", "/v1/porchlamp/leaderboard?persona=balanced", "Leaderboard Persona BALANCED"),
+            ("GET /v1/porchlamp/leaderboard (persona=first_timer)", "/v1/porchlamp/leaderboard?persona=first_timer", "Leaderboard Persona FIRST_TIMER"),
+            ("GET /v1/porchlamp/leaderboard (persona=career_capital)", "/v1/porchlamp/leaderboard?persona=career_capital", "Leaderboard Persona CAREER_CAPITAL"),
+            ("GET /v1/porchlamp/leaderboard (persona=senior_systems)", "/v1/porchlamp/leaderboard?persona=senior_systems", "Leaderboard Persona SENIOR_SYSTEMS"),
+            ("GET /v1/porchlamp/leaderboard (persona=ai_assisted)", "/v1/porchlamp/leaderboard?persona=ai_assisted", "Leaderboard Persona AI_ASSISTED"),
             # Static delivery
             ("GET / (index delivery)", "/", "Static /"),
             ("GET /index.html (direct file)", "/index.html", "Static /index.html"),
             # Repos deep-dive
-            ("GET /v1/cvi/repos/vllm-project/vllm", "/v1/cvi/repos/vllm-project/vllm", "Deep Dive (vllm)"),
-            ("GET /v1/cvi/repos/torvalds/linux", "/v1/cvi/repos/torvalds/linux", "Deep Dive (linux)"),
+            ("GET /v1/porchlamp/repos/vllm-project/vllm", "/v1/porchlamp/repos/vllm-project/vllm", "Deep Dive (vllm)"),
+            ("GET /v1/porchlamp/repos/torvalds/linux", "/v1/porchlamp/repos/torvalds/linux", "Deep Dive (linux)"),
         ]
 
         print(f"{'Endpoint':<45s} | {'p50':>7s} | {'p95':>7s} | {'p99':>7s} | {'max':>7s} | {'SLA Status'}")
@@ -250,12 +250,12 @@ def benchmark_live_uvicorn(iterations: int = 50) -> dict[str, Any]:
         ("Live GET /healthz", "/healthz"),
         ("Live GET / (static index)", "/"),
         ("Live GET /index.html", "/index.html"),
-        ("Live GET /v1/cvi/matrix", "/v1/cvi/matrix"),
-        ("Live GET /v1/cvi/leaderboard (default)", "/v1/cvi/leaderboard"),
-        ("Live GET /v1/cvi/leaderboard (deep p20)", "/v1/cvi/leaderboard?page=20&page_size=50"),
-        ("Live GET /v1/cvi/leaderboard (persona=ai_assisted)", "/v1/cvi/leaderboard?persona=ai_assisted"),
-        ("Live GET /v1/cvi/leaderboard (search=vllm)", "/v1/cvi/leaderboard?search=vllm"),
-        ("Live GET /v1/cvi/repos/vllm-project/vllm", "/v1/cvi/repos/vllm-project/vllm"),
+        ("Live GET /v1/porchlamp/matrix", "/v1/porchlamp/matrix"),
+        ("Live GET /v1/porchlamp/leaderboard (default)", "/v1/porchlamp/leaderboard"),
+        ("Live GET /v1/porchlamp/leaderboard (deep p20)", "/v1/porchlamp/leaderboard?page=20&page_size=50"),
+        ("Live GET /v1/porchlamp/leaderboard (persona=ai_assisted)", "/v1/porchlamp/leaderboard?persona=ai_assisted"),
+        ("Live GET /v1/porchlamp/leaderboard (search=vllm)", "/v1/porchlamp/leaderboard?search=vllm"),
+        ("Live GET /v1/porchlamp/repos/vllm-project/vllm", "/v1/porchlamp/repos/vllm-project/vllm"),
     ]
 
     results: dict[str, dict[str, float]] = {}
@@ -323,16 +323,16 @@ def benchmark_concurrency_stress() -> dict[str, Any]:
         "/healthz",
         "/",
         "/index.html",
-        "/v1/cvi/matrix",
-        "/v1/cvi/matrix?ecosystem=pypi&min_stars=100",
-        "/v1/cvi/leaderboard?page=1&page_size=50",
-        "/v1/cvi/leaderboard?page=5&page_size=50",
-        "/v1/cvi/leaderboard?page=20&page_size=50",
-        "/v1/cvi/leaderboard?ecosystem=crates",
-        "/v1/cvi/leaderboard?search=vllm",
-        "/v1/cvi/leaderboard?persona=ai_assisted",
-        "/v1/cvi/leaderboard?persona=senior_systems",
-        "/v1/cvi/repos/vllm-project/vllm",
+        "/v1/porchlamp/matrix",
+        "/v1/porchlamp/matrix?ecosystem=pypi&min_stars=100",
+        "/v1/porchlamp/leaderboard?page=1&page_size=50",
+        "/v1/porchlamp/leaderboard?page=5&page_size=50",
+        "/v1/porchlamp/leaderboard?page=20&page_size=50",
+        "/v1/porchlamp/leaderboard?ecosystem=crates",
+        "/v1/porchlamp/leaderboard?search=vllm",
+        "/v1/porchlamp/leaderboard?persona=ai_assisted",
+        "/v1/porchlamp/leaderboard?persona=senior_systems",
+        "/v1/porchlamp/repos/vllm-project/vllm",
     ]
 
     concurrency_levels = [1, 5, 10, 20, 40]

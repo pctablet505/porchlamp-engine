@@ -30,7 +30,7 @@ underneath it (U-12), which both rounds kept.
 
 - `web/index.html` — a single 3,289-line file, offline single-page app.
 - `scripts/serve.py` mounts it at `/` via `StaticFiles(directory=web/)`
-  alongside `cvi.api.create_app()`.
+  alongside `porchlamp.api.create_app()`.
 - `scripts/demo_app.py` seeds 26 fixture repos for it.
 - `tests/test_webapp.py::TestIndexServed::test_page_is_fully_offline` is
   the existing zero-external-request check the dispatch asked me to find;
@@ -39,12 +39,12 @@ underneath it (U-12), which both rounds kept.
   extends the same rule to every file under `web/v2/`.
 
 I built under `web/v2/` per the dispatch's instruction (v1 already occupies
-`web/`). Nothing in `cvi/core/**`, `cvi/store/**`, `cvi/collect/**`,
+`web/`). Nothing in `porchlamp/core/**`, `porchlamp/store/**`, `porchlamp/collect/**`,
 `scripts/serve.py`, `web/index.html`, or `scripts/demo_app.py` was touched.
 
-## Contract (`cvi/serve/contract.py`)
+## Contract (`porchlamp/serve/contract.py`)
 
-Pydantic models, free of I/O (no `cvi.store`/`cvi.collect`/`cvi.core`
+Pydantic models, free of I/O (no `porchlamp.store`/`porchlamp.collect`/`porchlamp.core`
 imports), importable by both a future FastAPI app and the stdlib fixture
 server:
 
@@ -114,10 +114,10 @@ PYTHONPATH=$PWD /home/pctablet505/Projects/contributor-value-index/.venv/bin/pyt
 Currently **running** on port 8899 (PID from this session) serving this
 exact rebased tree — the lead can open `http://127.0.0.1:8899/` directly.
 Stdlib `http.server.ThreadingHTTPServer`, no FastAPI. Endpoints:
-`GET /v1/cvi/leaderboard?persona=&eco=&q=&sort=&page=&page_size=`,
-`GET /v1/cvi/not-ranked?persona=`, `GET /v1/cvi/repos/{o}/{n}/evidence`,
-`GET /v1/cvi/snapshot`, `GET /healthz`, everything else static from
-`web/v2/`. `page_size` must be one of `cvi.serve.contract.LEADERBOARD_PAGE_SIZES`.
+`GET /v1/porchlamp/leaderboard?persona=&eco=&q=&sort=&page=&page_size=`,
+`GET /v1/porchlamp/not-ranked?persona=`, `GET /v1/porchlamp/repos/{o}/{n}/evidence`,
+`GET /v1/porchlamp/snapshot`, `GET /healthz`, everything else static from
+`web/v2/`. `page_size` must be one of `porchlamp.serve.contract.LEADERBOARD_PAGE_SIZES`.
 
 ## Front end (`web/v2/`)
 
@@ -178,7 +178,7 @@ made obsolete by the pagination ruling; sort/search/eco now always fetch
 ### Pagination (owner instruction, verbatim, 2026-09-13)
 
 - Default page size 20; dropdown offers exactly 20/50/100/500/1000
-  (`cvi.serve.contract.LEADERBOARD_PAGE_SIZES`, imported by both the
+  (`porchlamp.serve.contract.LEADERBOARD_PAGE_SIZES`, imported by both the
   fixture server and `state.js`).
 - Pager: first/previous/`Page i of N (M rows)`/next/last
   (`views/leaderboard.js::renderPager`, shared with Not-ranked via a
@@ -210,7 +210,7 @@ made obsolete by the pagination ruling; sort/search/eco now always fetch
 
 ### Screen A tie mark / tooltip (U-5)
 
-`components/table.js::decidingTieLevel` compares two rows' `cvi`,
+`components/table.js::decidingTieLevel` compares two rows' `porchlamp`,
 `coverage`, `p_responsiveness`, `friction`, `leverage` — levels 1, 2, 3, 4,
 5 of D-TIE-1 — and falls back straight to level 8 (`owner`/`name`).
 **Levels 6 (TTFHR p75) and 7 (last non-bot commit date) are not in the API
@@ -298,7 +298,7 @@ shipped scroll handler races `requestAnimationFrame` against a 32 ms
 correct "sync to paint" behavior while this environment's scroll-driven
 patches still fire (verified: dispatching real `scroll` events and waiting
 150 ms produced the correctly advanced windowed slice without calling any
-debug hook). A `window.__cviDebug = boot()` dev-only hook (never on any
+debug hook). A `window.__porchlampDebug = boot()` dev-only hook (never on any
 user-facing path) was also added so `patchLeaderboardBody` could be
 invoked synchronously for the more precise per-step timing numbers above.
 
@@ -309,7 +309,7 @@ invoked synchronously for the more precise per-step timing numbers above.
 | 1 | Every row shows coverage; C<0.95 shows its ceiling | `tests/test_ui_fixtures.py::TestLeaderboardFixtureInvariants::test_every_coverage_band_present_with_its_ceiling`; `components/badge.js::renderCoverageBadge` |
 | 2 | Gated/unrated counts visible on Ranked, match Not-ranked | `tests/test_serve_ui_fixtures.py::TestLeaderboardEndpoint::test_counts_are_identical_across_filters`; `views/leaderboard.js::renderCountsStrip` rendered on both tabs |
 | 3 | Vanity columns have no sort affordance | `web/v2/tests/unit.test.mjs::"SORTABLE_COLUMNS excludes every vanity/decorative column"` (unexecuted, see Node note); `components/table.js::SORTABLE_COLUMNS`/`renderColumnHeader` |
-| 4 | Persona switch: balanced CVI visible, deltas shown, hidden count = persona_gates count | live-verified announcement text above; `views/leaderboard.js::computeHiddenCount`/`renderCountsStrip`; `tests/test_ui_fixtures.py::TestLeaderboardFixtureInvariants::test_every_non_balanced_persona_has_a_gated_row` |
+| 4 | Persona switch: balanced Porchlamp visible, deltas shown, hidden count = persona_gates count | live-verified announcement text above; `views/leaderboard.js::computeHiddenCount`/`renderCountsStrip`; `tests/test_ui_fixtures.py::TestLeaderboardFixtureInvariants::test_every_non_balanced_persona_has_a_gated_row` |
 | 5 | Tie rows carry "=" and the tooltip names the deciding level | `web/v2/tests/unit.test.mjs` levels 1/2/8 (unexecuted, see Node note); `tests/test_ui_fixtures.py::test_exactly_one_tie_group_of_three_and_one_of_two` |
 | 6 | Footer shows snapshot id, version, constants hash, manifest root | `app.js::syncFooter`; visually confirmed in screenshots taken during live verification |
 | 7 | All four states render for leaderboard/drawer/not-ranked from fixtures | `views/leaderboard.js::renderSkeleton/renderErrorBanner/renderEmptyState`; live-verified loading/error/empty paths render (drawer's "Loading evidence…"/404+retry states live-verified) |
@@ -419,7 +419,7 @@ this table was actually executed on this box.
 
 ## Rules followed
 
-Stayed out of `cvi/core/**`, `cvi/store/**`, `cvi/collect/**`,
+Stayed out of `porchlamp/core/**`, `porchlamp/store/**`, `porchlamp/collect/**`,
 `scripts/serve.py`, `web/index.html`, `scripts/demo_app.py`. No network
 calls, no CDN, no external fonts (system font stack only, confirmed by
 `tests/test_ui_no_external_resources.py`). `PYTHONPATH=$PWD` used for

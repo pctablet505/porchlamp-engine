@@ -1,4 +1,4 @@
-"""Acceptance tests for `cvi/serve/guard.py`.
+"""Acceptance tests for `porchlamp/serve/guard.py`.
 
 The v1 guard's OWN behaviour (fixture-clock, content-hash, message format)
 is already pinned by `tests/test_serve.py` through `scripts.serve`'s
@@ -16,8 +16,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from cvi.serve import guard
-from cvi.store.writer import finalize_snapshot_hash
+from porchlamp.serve import guard
+from porchlamp.store.writer import finalize_snapshot_hash
 
 from serve.helpers import SNAPSHOT_ID, build_snapshot, fresh_db
 
@@ -51,14 +51,14 @@ def test_v2_refusal_reasons_empty_for_a_clean_finalised_store(tmp_path):
 def test_v2_refusal_reasons_refuses_a_tampered_finalised_snapshot(tmp_path):
     """Blocker B-4's own reproduction: a finalised v2 store edited AFTER
     `finalize_snapshot_hash` (any statement -- here, nudging one row's
-    `cvi`) must be refused: the recomputed `snapshot_dump_hash` no longer
+    `porchlamp`) must be refused: the recomputed `snapshot_dump_hash` no longer
     matches the stored `canonical_dump_hash`."""
     db_path = tmp_path / "db.sqlite"
     conn = _build_and_finalize(db_path)
     conn.close()
 
     tamper = sqlite3.connect(db_path)
-    tamper.execute("UPDATE repositories SET cvi = 100.0 WHERE snapshot_id = ?", (SNAPSHOT_ID,))
+    tamper.execute("UPDATE repositories SET porchlamp = 100.0 WHERE snapshot_id = ?", (SNAPSHOT_ID,))
     tamper.commit()
     tamper.close()
 
@@ -70,7 +70,7 @@ def test_v2_refusal_reasons_refuses_a_tampered_finalised_snapshot(tmp_path):
 
 def test_v2_refusal_reasons_tolerates_an_unfinalised_snapshot(tmp_path):
     """A snapshot with no `canonical_dump_hash` yet is a NORMAL, temporary
-    state (Warning W-6: `cvi.serve.app._require_snapshot` 503s it per
+    state (Warning W-6: `porchlamp.serve.app._require_snapshot` 503s it per
     request) -- the STARTUP guard has nothing to compare and must not
     refuse it."""
     db_path = tmp_path / "db.sqlite"
@@ -156,7 +156,7 @@ def test_run_guard_raises_systemexit_for_a_tampered_v2_database(tmp_path):
     conn = _build_and_finalize(db_path)
     conn.close()
     tamper = sqlite3.connect(db_path)
-    tamper.execute("UPDATE repositories SET cvi = 100.0 WHERE snapshot_id = ?", (SNAPSHOT_ID,))
+    tamper.execute("UPDATE repositories SET porchlamp = 100.0 WHERE snapshot_id = ?", (SNAPSHOT_ID,))
     tamper.commit()
     tamper.close()
     with pytest.raises(SystemExit) as excinfo:
@@ -175,14 +175,14 @@ def test_run_guard_raises_systemexit_for_a_v1_database_with_no_snapshot_meta(tmp
     inside `run_guard` is caught here even though it survives against a
     fixture-marked/tampered database (which the v2 guard ALSO independently
     refuses)."""
-    from cvi.lakehouse import apply_raw_metrics
-    from cvi.lakehouse import OperationalStore
-    from cvi.models import CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
+    from porchlamp.lakehouse import apply_raw_metrics
+    from porchlamp.lakehouse import OperationalStore
+    from porchlamp.models import PorchlampCompositeResult, Ecosystem, PillarScores, Quadrant, Tier
 
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     store = OperationalStore(str(db_path))
-    result = CVICompositeResult(
-        owner="numpy", name="numpy", ecosystem=Ecosystem.PYPI, overall_cvi=70.31,
+    result = PorchlampCompositeResult(
+        owner="numpy", name="numpy", ecosystem=Ecosystem.PYPI, overall_porchlamp=70.31,
         rank_tier=Tier.A, matrix_quadrant=Quadrant.SWEET_SPOT, leverage_score=72.0,
         friction_score=30.0, is_stage0_disqualified=False, disqualification_reason=None,
     )

@@ -22,7 +22,7 @@ _spec = importlib.util.spec_from_file_location("run_all", ROOT / "scripts" / "ru
 run_all = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(run_all)
 
-from cvi.snapshot.manifest import build_manifest, write_manifest  # noqa: E402
+from porchlamp.snapshot.manifest import build_manifest, write_manifest  # noqa: E402
 
 #: A real repository's envelopes, used so the freeze this test runs covers
 #: a genuine, non-empty envelope set committed under ``tests/fixtures/`` rather than read from
@@ -85,7 +85,7 @@ def test_freeze_and_promote_uses_the_id_it_just_froze(tmp_path):
         tmp_path / "snapshots" / hollow["snapshot_id"] / "manifest.json",
         tmp_path / "snapshots" / "HOLLOW-SNAPSHOT" / "manifest.json")
 
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     as_of = datetime(2026, 9, 14, tzinfo=timezone.utc)
     rc = run_all.freeze_and_promote(db, tmp_path, as_of)
     assert rc == 0
@@ -107,7 +107,7 @@ def test_freeze_and_promote_refuses_when_the_freeze_covers_nothing_to_promote(tm
     # No candidate repo was ever derived/verified here: freeze succeeds (an
     # empty raw/ is a valid, if trivial, envelope set) but there is nothing
     # in verified/ to promote.
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     as_of = datetime(2026, 9, 14, tzinfo=timezone.utc)
     rc = run_all.freeze_and_promote(db, tmp_path, as_of)
     assert rc == 1

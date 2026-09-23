@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import hashlib
 
-from cvi.core import constants
-from cvi.core.models import canonical_json
+from porchlamp.core import constants
+from porchlamp.core.models import canonical_json
 
 
 def _recompute(constants: dict) -> str:

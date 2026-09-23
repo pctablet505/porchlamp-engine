@@ -52,20 +52,20 @@ import {
 // TTFHR p75 and 7 last-commit-date are store-only, never in the row
 // contract; see docs/v2/06-UX-DESIGN.md).
 test("decidingTieLevel: level 1 (composite differs — not a genuine tie)", () => {
-  const a = { cvi: 90.11, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "a", name: "a" };
-  const b = { cvi: 88.5, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "b", name: "b" };
+  const a = { porchlamp: 90.11, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "a", name: "a" };
+  const b = { porchlamp: 88.5, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "b", name: "b" };
   assert.equal(decidingTieLevel(a, b), 1);
 });
 
 test("decidingTieLevel: level 2 (tied on composite, differ on coverage)", () => {
-  const a = { cvi: 90.11, coverage: 0.97, p_responsiveness: 80, friction: 20, leverage: 70, owner: "a", name: "a" };
-  const b = { cvi: 90.11, coverage: 0.81, p_responsiveness: 80, friction: 20, leverage: 70, owner: "b", name: "b" };
+  const a = { porchlamp: 90.11, coverage: 0.97, p_responsiveness: 80, friction: 20, leverage: 70, owner: "a", name: "a" };
+  const b = { porchlamp: 90.11, coverage: 0.81, p_responsiveness: 80, friction: 20, leverage: 70, owner: "b", name: "b" };
   assert.equal(decidingTieLevel(a, b), 2);
 });
 
 test("decidingTieLevel: level 8 (tied through every client-visible level, owner/name is the fallback)", () => {
-  const a = { cvi: 77.0, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "aaa", name: "deep" };
-  const b = { cvi: 77.0, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "zzz", name: "deep" };
+  const a = { porchlamp: 77.0, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "aaa", name: "deep" };
+  const b = { porchlamp: 77.0, coverage: 0.9, p_responsiveness: 80, friction: 20, leverage: 70, owner: "zzz", name: "deep" };
   assert.equal(decidingTieLevel(a, b), 8);
 });
 
@@ -75,7 +75,7 @@ test("SORTABLE_COLUMNS excludes every vanity/decorative column (stars, quadrant,
     assert.ok(!SORTABLE_COLUMNS.has(forbidden), `${forbidden} must not be sortable (U-3)`);
   }
   assert.ok(SORTABLE_COLUMNS.has("rank"));
-  assert.ok(SORTABLE_COLUMNS.has("cvi"));
+  assert.ok(SORTABLE_COLUMNS.has("porchlamp"));
   assert.ok(SORTABLE_COLUMNS.has("coverage"));
   assert.ok(SORTABLE_COLUMNS.has("tier"));
   for (const pillar of ["responsiveness", "criticality", "governance", "rigor", "accessibility"]) {
@@ -177,16 +177,16 @@ test("resolveOpenTargetKey returns null when neither a cursor nor a focused row 
 // ------------------------------------------------------------- U-16 (state.js)
 test("parseSearch / serializeSearch round-trip (incl. page/page_size), and clear a param absent from a new URL", () => {
   const s1 = {
-    ...defaultState(), persona: "first_timer", ecosystem: "pypi", query: "flask", sort: "-cvi",
+    ...defaultState(), persona: "first_timer", ecosystem: "pypi", query: "flask", sort: "-porchlamp",
     page: 3, pageSize: 100, tab: "notranked", repo: "a/b",
   };
   const qs = serializeSearch(s1);
-  assert.equal(qs, "?persona=first_timer&eco=pypi&q=flask&sort=-cvi&page=3&page_size=100&repo=a%2Fb&tab=notranked");
+  assert.equal(qs, "?persona=first_timer&eco=pypi&q=flask&sort=-porchlamp&page=3&page_size=100&repo=a%2Fb&tab=notranked");
   const parsed = parseSearch(qs);
   assert.equal(parsed.persona, "first_timer");
   assert.equal(parsed.ecosystem, "pypi");
   assert.equal(parsed.query, "flask");
-  assert.equal(parsed.sort, "-cvi");
+  assert.equal(parsed.sort, "-porchlamp");
   assert.equal(parsed.page, 3);
   assert.equal(parsed.pageSize, 100);
   assert.equal(parsed.tab, "notranked");
@@ -263,7 +263,7 @@ test("copy.js: gate and unrated reason text covers every code the fixtures use",
     copy.personaGateReason("insufficient_evidence:decided_first_timer_prs"),
     "Not enough evidence to show under this lens."
   );
-  // Engine vocabulary (cvi/core/persona.py).
+  // Engine vocabulary (porchlamp/core/persona.py).
   const hardBan = copy.personaGateReason("ai_hard_ban");
   assert.notEqual(hardBan, "ai_hard_ban", "no persona gate copy for ai_hard_ban");
   for (const code of ["elephant_factor_below_3", "high_barrier_to_entry", "criticality_below_threshold"]) {
@@ -293,10 +293,10 @@ test("copy.js: tierLabel appends '(capped)' only when the ceiling is the binding
 // footerFieldsFor is the single decision app.js's syncFooter and the
 // header chip both read.
 test("footerFieldsFor: error takes priority over a stale/absent snapshot", () => {
-  const errored = { ...defaultState(), snapshotError: { endpoint: "/v1/cvi/snapshot", status: 500 } };
+  const errored = { ...defaultState(), snapshotError: { endpoint: "/v1/porchlamp/snapshot", status: 500 } };
   assert.deepEqual(footerFieldsFor(errored), {
     kind: "error",
-    endpoint: "/v1/cvi/snapshot",
+    endpoint: "/v1/porchlamp/snapshot",
     status: 500,
     detail: undefined,
   });
@@ -317,7 +317,7 @@ test("footerFieldsFor: an error set alongside a stale snapshot still reports err
   const state = {
     ...defaultState(),
     snapshot,
-    snapshotError: { endpoint: "/v1/cvi/snapshot", status: 500 },
+    snapshotError: { endpoint: "/v1/porchlamp/snapshot", status: 500 },
   };
   assert.equal(footerFieldsFor(state).kind, "error");
 });
@@ -597,7 +597,7 @@ test("compareShellKey: a per-repo data fetch landing (compareDataByRepo) never c
   const before = compareShellKey(COMPARE_BASE_STATE);
   const afterFetch = {
     ...COMPARE_BASE_STATE,
-    compareDataByRepo: { "riverline/httpkit": { loading: false, kind: "rated", row: { cvi: 90 }, evidence: [] } },
+    compareDataByRepo: { "riverline/httpkit": { loading: false, kind: "rated", row: { porchlamp: 90 }, evidence: [] } },
   };
   assert.equal(compareShellKey(afterFetch), before, "a repo's data landing must be a results/table patch, never a shell rebuild");
 });
@@ -633,14 +633,14 @@ function drawerStateFor(overrides) {
 }
 
 test("renderDrawer: a 404 (genuinely not found) shows copy.DRAWER_NOT_FOUND_TEXT and no retry button", () => {
-  const html = renderDrawer(drawerStateFor({ repoDetailError: { endpoint: "/v1/cvi/repos/nobody/nothing", status: 404, detail: "no such repo: nobody/nothing" } }));
+  const html = renderDrawer(drawerStateFor({ repoDetailError: { endpoint: "/v1/porchlamp/repos/nobody/nothing", status: 404, detail: "no such repo: nobody/nothing" } }));
   assert.ok(html.includes(copy.DRAWER_NOT_FOUND_TEXT), "must render the not-found copy for a 404");
   assert.ok(!html.includes("data-repo-detail-retry"), "a genuine 404 must not offer a retry button (it will 404 again)");
 });
 
 test("renderDrawer: a non-404 error (500/timeout/network) shows the retry banner, not the not-found copy", () => {
   for (const status of [500, "timeout", 0]) {
-    const html = renderDrawer(drawerStateFor({ repoDetailError: { endpoint: "/v1/cvi/repos/nobody/nothing", status, detail: "boom" } }));
+    const html = renderDrawer(drawerStateFor({ repoDetailError: { endpoint: "/v1/porchlamp/repos/nobody/nothing", status, detail: "boom" } }));
     assert.ok(!html.includes(copy.DRAWER_NOT_FOUND_TEXT), `status=${status}: must not show the not-found copy`);
     assert.ok(html.includes("data-repo-detail-retry"), `status=${status}: must offer a retry button`);
   }
@@ -674,7 +674,7 @@ const FLAT_RATED_DETAIL = {
   owner: "riverline", name: "httpkit", ecosystem: "pypi",
   snapshot_id: "snap-test", benchmark_version: "2.0.0-test", raw_hash: "a".repeat(64),
   eligible: true, gate_reason: null, rated: true, unrated_reason: null,
-  rank: 1, tie_group: null, cvi: 98.34, coverage: 1.0, tier: "S", tier_ceiling: null,
+  rank: 1, tie_group: null, porchlamp: 98.34, coverage: 1.0, tier: "S", tier_ceiling: null,
   quadrant: "Sweet Spot", leverage: 90, friction: 5, leverage_coverage: 1.0, friction_coverage: 1.0,
   p_responsiveness: 95, c_responsiveness: 1.0, p_criticality: 90, c_criticality: 1.0,
   p_governance: 92, c_governance: 1.0, p_rigor: 88, c_rigor: 1.0, p_accessibility: 91, c_accessibility: 1.0,
@@ -685,7 +685,7 @@ const FLAT_GATED_DETAIL = {
   owner: "gated-org", name: "repo-mirror-0", ecosystem: "cargo",
   snapshot_id: "snap-test", benchmark_version: "2.0.0-test", raw_hash: "b".repeat(64),
   eligible: false, gate_reason: "mirror", rated: false, unrated_reason: null,
-  rank: null, tie_group: null, cvi: null, coverage: 0.0, tier: null, tier_ceiling: null,
+  rank: null, tie_group: null, porchlamp: null, coverage: 0.0, tier: null, tier_ceiling: null,
   quadrant: null, leverage: null, friction: null, leverage_coverage: null, friction_coverage: null,
   p_responsiveness: null, c_responsiveness: null, p_criticality: null, c_criticality: null,
   p_governance: null, c_governance: null, p_rigor: null, c_rigor: null, p_accessibility: null, c_accessibility: null,
@@ -717,7 +717,7 @@ test("findRow + classifyKind: the real (flat) shape round-trips through renderDr
   assert.equal(classifyKind(FLAT_RATED_DETAIL), "rated");
   const html = renderDrawer(state);
   assert.ok(html.includes("riverline"));
-  assert.ok(html.includes("98.34"), "the composite CVI must render");
+  assert.ok(html.includes("98.34"), "the composite score must render");
   assert.ok(html.includes(FLAT_RATED_DETAIL.raw_hash.slice(0, 16)), "the integrity section must render raw_hash");
 });
 
@@ -740,7 +740,7 @@ test("findRow + classifyKind: a GATED repo renders the gate sentence first, then
   assert.ok(firstDetailsIndex >= 0, "at least one <details> section must render");
   assert.ok(gateSentenceIndex < firstDetailsIndex, "the gate sentence must render before any <details> section (nothing else above the fold)");
 
-  // Composite is omitted entirely -- no CVI/tier/quadrant was ever computed.
+  // Composite is omitted entirely -- no score/tier/quadrant was ever computed.
   assert.ok(!html.includes(copy.DRAWER_SECTION_COMPOSITE), "no Composite section for a gated repo");
   // Playbook is omitted too -- nothing to recommend for a disqualified repo.
   assert.ok(!html.includes(copy.DRAWER_SECTION_PLAYBOOK), "no Playbook section for a gated repo");
@@ -814,7 +814,7 @@ test("findRow + classifyKind: an UNRATED repo renders its evidence table, not a 
 
 // --------------------------------------------------------------------- //
 // AUD-WEB H3: the scoring engine emits "S+" as a real, highest tier
-// (cvi/core/constants.py: TIER_CUTOFFS = ((90.0, "S+"), (80.0, "S"), ...),
+// (porchlamp/core/constants.py: TIER_CUTOFFS = ((90.0, "S+"), (80.0, "S"), ...),
 // TIER_ORDER = ("D","C","B","A","S","S+")). tierLabel must NOT rewrite it down
 // to "S" — a 95-score repo and an 82-score repo must read differently — while
 // still appending "(capped)" when the coverage ceiling is the binding tier.
@@ -842,7 +842,7 @@ test("copy.js: RETRY_LABEL is a non-empty string (the retry button is never 'und
 // --------------------------------------------------------------------- //
 test("renderDrawer: a retryable repo-detail error renders no literal 'undefined' in its HTML", () => {
   const html = renderDrawer(
-    drawerStateFor({ repoDetailError: { endpoint: "/v1/cvi/repos/nobody/nothing", status: 500, detail: "boom" } }),
+    drawerStateFor({ repoDetailError: { endpoint: "/v1/porchlamp/repos/nobody/nothing", status: 500, detail: "boom" } }),
   );
   assert.ok(html.includes("data-repo-detail-retry"), "the retry banner must render for a non-404 error");
   assert.ok(!html.includes("undefined"), `drawer error HTML must not contain the literal text "undefined":\n${html}`);
@@ -878,7 +878,7 @@ test("components.css: .badge-coverage-below is styled off var(--coverage-below)"
 // ---------------------------------------------------------------------
 // Persona-visible counts (regression, 2026-09-21).
 //
-// A persona view is a RE-WEIGHTED projection: cvi.core.persona computes
+// A persona view is a RE-WEIGHTED projection: porchlamp.core.persona computes
 // persona_composites[p].coverage from that persona's own pillar weights, and
 // the store admits a row on that coverage clearing 0.60 -- not on the
 // balanced `rated` flag. So a persona that down-weights the pillars a sweep
@@ -971,13 +971,13 @@ test("leaderboard: the corpus meter survives a zero total without dividing by ze
 });
 
 test("table: every column header carries data-col so th and td can be targeted together", () => {
-  const html = renderColumnHeader("-cvi", false);
-  for (const key of ["rank", "repository", "cvi", "coverage", "tier", "quadrant", "pillars", "suspicion", "stars"]) {
+  const html = renderColumnHeader("-porchlamp", false);
+  for (const key of ["rank", "repository", "porchlamp", "coverage", "tier", "quadrant", "pillars", "suspicion", "stars"]) {
     assert.match(html, new RegExp(`data-col="${key}"`), `missing data-col="${key}"`);
   }
   // the persona-only delta column appears only with the flag on
   assert.doesNotMatch(html, /data-col="delta"/);
-  assert.match(renderColumnHeader("-cvi", true), /data-col="delta"/);
+  assert.match(renderColumnHeader("-porchlamp", true), /data-col="delta"/);
 });
 
 // --------------------------------------------------------------------- //

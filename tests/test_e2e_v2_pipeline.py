@@ -9,12 +9,12 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from cvi.collect.envelope import write_envelope
-from cvi.serve.app import create_app
-from cvi.snapshot.build_cmd import build_snapshot_dir
-from cvi.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
-from cvi.store.migrations import apply_migrations
-from cvi.store.schema import connect as connect_store
+from porchlamp.collect.envelope import write_envelope
+from porchlamp.serve.app import create_app
+from porchlamp.snapshot.build_cmd import build_snapshot_dir
+from porchlamp.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
+from porchlamp.store.migrations import apply_migrations
+from porchlamp.store.schema import connect as connect_store
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -184,7 +184,7 @@ def test_e2e_v2_pipeline_build_score_store_serve(tmp_path: Path, monkeypatch) ->
 
     # Step 3: Score snapshot directory and write to SQLite
     scored, frozen_loaded = score_snapshot_dir(snapshot_dir)
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     conn = connect_store(db_path)
     try:
         apply_migrations(conn, applied_at=NOW.isoformat())
@@ -198,28 +198,28 @@ def test_e2e_v2_pipeline_build_score_store_serve(tmp_path: Path, monkeypatch) ->
     finally:
         conn.close()
 
-    # Step 4: Serve via FastAPI and verify all 5 v1/cvi endpoints return HTTP 200
+    # Step 4: Serve via FastAPI and verify all 5 v1/porchlamp endpoints return HTTP 200
     app = create_app(db_path, web_dir=tmp_path)
     client = TestClient(app)
 
-    res_snap = client.get("/v1/cvi/snapshot")
+    res_snap = client.get("/v1/porchlamp/snapshot")
     assert res_snap.status_code == 200
     assert res_snap.json()["snapshot_id"] == "e2e-v2"
 
-    res_lead = client.get("/v1/cvi/leaderboard")
+    res_lead = client.get("/v1/porchlamp/leaderboard")
     assert res_lead.status_code == 200
     assert "rows" in res_lead.json()
 
-    res_not_ranked = client.get("/v1/cvi/not-ranked")
+    res_not_ranked = client.get("/v1/porchlamp/not-ranked")
     assert res_not_ranked.status_code == 200
     assert "unrated" in res_not_ranked.json()
     assert "gated" in res_not_ranked.json()
 
-    res_matrix = client.get("/v1/cvi/matrix")
+    res_matrix = client.get("/v1/porchlamp/matrix")
     assert res_matrix.status_code == 200
     assert "points" in res_matrix.json()
 
-    res_repo = client.get("/v1/cvi/repos/acme/widget")
+    res_repo = client.get("/v1/porchlamp/repos/acme/widget")
     assert res_repo.status_code == 200
     assert res_repo.json()["owner"] == "acme"
     assert res_repo.json()["name"] == "widget"
@@ -257,7 +257,7 @@ def test_e2e_run_all_freeze_and_promote_serves_v2(tmp_path: Path, monkeypatch) -
     report = verify_mod.verify_repo(OWNER, NAME, data_dir=tmp_path)
     assert report["clean"] is True
 
-    db_path = tmp_path / "cvi_promoted.db"
+    db_path = tmp_path / "porchlamp_promoted.db"
     rc = run_all_mod.freeze_and_promote(
         str(db_path),
         tmp_path,
@@ -270,11 +270,11 @@ def test_e2e_run_all_freeze_and_promote_serves_v2(tmp_path: Path, monkeypatch) -
     client = TestClient(app)
 
     for endpoint in [
-        "/v1/cvi/snapshot",
-        "/v1/cvi/leaderboard",
-        "/v1/cvi/not-ranked",
-        "/v1/cvi/matrix",
-        "/v1/cvi/repos/acme/widget",
+        "/v1/porchlamp/snapshot",
+        "/v1/porchlamp/leaderboard",
+        "/v1/porchlamp/not-ranked",
+        "/v1/porchlamp/matrix",
+        "/v1/porchlamp/repos/acme/widget",
     ]:
         resp = client.get(endpoint)
         assert resp.status_code == 200, f"Endpoint {endpoint} failed with {resp.status_code}: {resp.text}"

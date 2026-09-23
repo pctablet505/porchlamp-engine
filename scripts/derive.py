@@ -25,11 +25,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
-from cvi.collect import commits as commit_domains
-from cvi.collect.envelope import raw_envelope_path, read_envelope, relative_envelope_path
-from cvi.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
-from cvi.constants import BOT_LOGIN_MARKERS
-from cvi.models import (
+from porchlamp.collect import commits as commit_domains
+from porchlamp.collect.envelope import raw_envelope_path, read_envelope, relative_envelope_path
+from porchlamp.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
+from porchlamp.constants import BOT_LOGIN_MARKERS
+from porchlamp.models import (
     AIPosture,
     AuthorAssociation,
     Ecosystem,
@@ -37,8 +37,8 @@ from cvi.models import (
     PromotionLadder,
     RawPREvent,
 )
-from cvi.provenance import utc_now_iso
-from cvi.paths import data_root
+from porchlamp.provenance import utc_now_iso
+from porchlamp.paths import data_root
 
 DATA_DIR = data_root()
 GFI_WINDOW_DAYS = 30
@@ -93,9 +93,9 @@ def _envelope_sha256(
 ) -> Optional[str]:
     """Attested sha256 of the envelope at ``source`` (memoized), or ``None`` (`03` §5).
 
-    The hash recorded here is :attr:`cvi.collect.envelope.Envelope.sha256` — native
+    The hash recorded here is :attr:`porchlamp.collect.envelope.Envelope.sha256` — native
     when the envelope carries one, otherwise the same backfilled canonical hash of its
-    ``data`` field that :func:`cvi.snapshot.manifest.envelope_entries` uses —
+    ``data`` field that :func:`porchlamp.snapshot.manifest.envelope_entries` uses —
     so derive and verify agree on what "the envelope's hash" means without a
     second definition.
 
@@ -200,7 +200,7 @@ def _body(data_dir: Path, owner: str, name: str, fname: str,
 def elephant_factor(contributors: Optional[list[dict]]) -> int:
     """Spec 3.2 login-proxy fallback: minimum number of distinct logins whose
     contributions reach >= 50% of total contributions. The primary EF
-    comes from commit-author email domains (via cvi.collect.commits); this approximation is used only
+    comes from commit-author email domains (via porchlamp.collect.commits); this approximation is used only
     when no commits_365d envelope exists. Greedy descending accumulation
     yields the minimum count; EF >= 1 always (spec floor)."""
     if not contributors:
@@ -308,8 +308,8 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         return relative_envelope_path(data_dir, p)
 
     def src(c: str, k: str) -> str:
-        # Standard envelope-path formula, shared with cvi.collect.pike_signals's
-        # env_path() via cvi.collect.envelope.
+        # Standard envelope-path formula, shared with porchlamp.collect.pike_signals's
+        # env_path() via porchlamp.collect.envelope.
         return _rel(raw_envelope_path(data_dir, c, k))
 
     # --- stars / forks (github_meta primary; deps.dev is the verify step) ---
@@ -320,13 +320,13 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
             b.missing(f, 0)
 
     # --- Universe-entry star-velocity audit pass-through (D-IN-5) ---
-    # cvi.collect.universe.star_velocity_evidence (scripts/build_universe.py)
+    # porchlamp.collect.universe.star_velocity_evidence (scripts/build_universe.py)
     # writes one UNIVERSE_ENTRY_COLLECTOR envelope per repo regardless of
     # whether the audit succeeded (its own `record.to_json()`, which is
     # exactly the shape a failed fetch also serializes -- {"measured":
     # false, "reason": "collector_failure", ...}). "missing" here (never a
     # silent True/False/0 default) means confidence, not the meta value
-    # itself: cvi.derive.bundle.UNIVERSE_META_MAPPINGS checks confidence
+    # itself: porchlamp.derive.bundle.UNIVERSE_META_MAPPINGS checks confidence
     # first and never trusts the None placeholder.
     uni_doc, uni_at = _load(data_dir, UNIVERSE_ENTRY_COLLECTOR, key)
     uni_record: Optional[StarVelocityRecord] = None
@@ -473,7 +473,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # The source must be the local bodies-cache envelope this function just
     # read (a real path under raw/, hashable), never the raw GitHub URL it was
     # originally fetched from -- a URL is not a path under raw/ and
-    # cvi.derive.bundle._resolve_envelope can never resolve it, so
+    # porchlamp.derive.bundle._resolve_envelope can never resolve it, so
     # every legal_ip_model/ai_posture/promotion_ladder value would be silently
     # unverifiable (no sha256) regardless of whether the body was cached.
     # Falls back to the tree envelope (still a real, hashable source) only
@@ -507,7 +507,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     b.missing("openssf_signals", None)
 
     # --- Eligibility markers (D-GATE-1/2/3/6) ---
-    from cvi.collect import repo_object as repo_object_mod
+    from porchlamp.collect import repo_object as repo_object_mod
     ro, ro_at = _load(data_dir, "repo_object", key)
     _ats = {"repo_object": ro_at, "github_meta": gh_at, "tree": tree_at}
     for field, (value, conf, col) in repo_object_mod.derive_eligibility(ro, gh, tree).items():
@@ -517,9 +517,9 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # supersedes the legacy 30d/AND-label block above for per-label GFI
     # envelopes; legacy list data keeps the value derived above. Must run
     # before the meta snapshot below. ---
-    from cvi.collect import labels as cvi_labels
+    from porchlamp.collect import labels as porchlamp_labels
 
-    gfi_51 = cvi_labels.count_newcomer_issues(gfis, gfi_at, now)
+    gfi_51 = porchlamp_labels.count_newcomer_issues(gfis, gfi_at, now)
     if gfi_51 is not None:
         b.set("active_unclaimed_gfis", gfi_51, src("gfi", key), gfi_at, "verified")
 
@@ -562,7 +562,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
               src("dependents", key), dep_at, "derived")
 
     # --- Windowed PR responsiveness fields (D-IN-2, 02 §4 1.1/4.3) ---
-    from cvi.collect import github_graphql as prw_mod
+    from porchlamp.collect import github_graphql as prw_mod
     prw, prw_at = _load(data_dir, "pr_window", key)
     for field, (value, conf) in prw_mod.derive_pr_window_fields(prw).items():
         b.set(field, value, src("pr_window", key) if prw is not None else None, prw_at, conf)
@@ -581,7 +581,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # --- Locally-derived Pike signals (02 §4 2.2 / 4.1, D-MISS-4):
     # all ten or nothing, and the pipeline defenses (scorecard five-check
     # mean or the review/CI proxy; the method is stored). ---
-    from cvi.collect import pike_signals as pike_mod
+    from porchlamp.collect import pike_signals as pike_mod
     rel, rel_at = _load(data_dir, "releases", key)
     iss, iss_at = _load(data_dir, "issues_counts", key)
     rns, rns_at = _load(data_dir, "runs", key)
@@ -613,7 +613,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # when the relevant envelope was never fetched or failed. The governance
     # envelope carries the check names and policy-file bodies; the
     # Signed-off-by share comes from the c365 (commits_365d) rows already
-    # loaded above, not from a second fetch (cvi.collect.governance module
+    # loaded above, not from a second fetch (porchlamp.collect.governance module
     # docstring). prw / c365 reuse the PR window and commits_365d envelopes.
     # Source/fetched_at follow the governance envelope when it exists, else
     # commits_365d, so a value derived from c365 alone (no governance
@@ -621,10 +621,10 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # "missing"-confidence field carries no source (matches every other
     # b.missing() field in this module). (Foundation-owner fact mirrors the
     # expression above; the list stays in FOUNDATION_ORGS, one definition per
-    # fact.) Field names match cvi.core.constants.PARAM_INPUT_IDS exactly:
+    # fact.) Field names match porchlamp.core.constants.PARAM_INPUT_IDS exactly:
     # promotion_ladder / ai_posture supersede the regex heuristic set above
     # with the evidence-based ones (02 §4 3.3/4.2). ---
-    from cvi.collect import governance as gov_mod
+    from porchlamp.collect import governance as gov_mod
     gov, gov_at = _load(data_dir, "governance", key)
     if gov is not None:
         gov_src, gov_prov_at = src("governance", key), gov_at
@@ -653,8 +653,8 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # eligibility+cap-adjusted). Self-contained on the author_history
     # envelope alone (its 365-d window covers the decision cohort's
     # [270 d, 90 d] span, so the pr_window envelope above is not needed
-    # here; see the module note in cvi.collect.github_graphql). ---
-    from cvi.collect import github_graphql as cohort_mod
+    # here; see the module note in porchlamp.collect.github_graphql). ---
+    from porchlamp.collect import github_graphql as cohort_mod
     ah, ah_at = _load(data_dir, "author_history", key)
     ah_src = src("author_history", key) if ah is not None else None
     for field, (value, conf) in cohort_mod.derive_cohort_fields(ah).items():

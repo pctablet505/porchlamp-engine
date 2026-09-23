@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CVI — Contributor Value Index</title>
+<title>Porchlamp — Porchlamp</title>
 <style>
   :root {
     --bg-base: #090d16;
@@ -614,7 +614,7 @@
   }
 
   /* Mini progress bar inside cell */
-  .cvi-score-cell {
+  .porchlamp-score-cell {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1012,7 +1012,7 @@
     color: var(--text-primary);
     font-family: var(--font-mono);
   }
-  .cvi-big {
+  .porchlamp-big {
     font-size: 26px !important;
     font-weight: 800;
     color: var(--accent) !important;
@@ -1211,9 +1211,9 @@
   <div class="brand-zone">
     <a href="#matrix" class="brand-logo">
       <span class="logo-icon">♦</span>
-      <span>CVI</span>
+      <span>Porchlamp</span>
     </a>
-    <span class="brand-tag">Contributor Value Index</span>
+    <span class="brand-tag">Porchlamp</span>
     <span class="brand-tag" style="font-family: var(--font-mono)">v1.0</span>
   </div>
 
@@ -1276,7 +1276,7 @@
       </label>
 
       <div class="hint" style="flex-basis: 100%;">
-        Demo default here is <code>min_stars=0</code> so every seeded repo is visible — the API's own default is <code>min_stars=100</code>; type 100 above to see that filter drop the small repos. Filters apply live to <code>GET /v1/cvi/matrix</code>.
+        Demo default here is <code>min_stars=0</code> so every seeded repo is visible — the API's own default is <code>min_stars=100</code>; type 100 above to see that filter drop the small repos. Filters apply live to <code>GET /v1/porchlamp/matrix</code>.
       </div>
 
       <div class="badges" id="quadrant-badges" style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px;"></div>
@@ -1291,7 +1291,7 @@
         <span class="hint">Click any node to open Deep-Dive Scorecard Drawer</span>
       </div>
 
-      <div id="scatter" aria-label="CVI 2D matrix scatter">
+      <div id="scatter" aria-label="Porchlamp 2D matrix scatter">
         <!-- Canvas Controls -->
         <div class="canvas-controls">
           <button type="button" class="canvas-btn" id="zoom-in-btn" title="Zoom In">+</button>
@@ -1354,7 +1354,7 @@
             <th class="no-sort" style="width: 32px;"><input type="checkbox" id="lb-select-all" title="Select all visible"></th>
             <th data-sort="rank" class="sorted"># <span class="sort-icon">▲</span></th>
             <th data-sort="repo_id">Repository <span class="sort-icon">↕</span></th>
-            <th data-sort="overall_cvi">CVI Score <span class="sort-icon">↕</span></th>
+            <th data-sort="overall_porchlamp">Porchlamp Score <span class="sort-icon">↕</span></th>
             <th data-sort="rank_tier">Tier <span class="sort-icon">↕</span></th>
             <th data-sort="matrix_quadrant">Quadrant <span class="sort-icon">↕</span></th>
             <th data-sort="score_responsiveness" title="Responsiveness (P1)">P1 (Resp) <span class="sort-icon">↕</span></th>
@@ -1605,7 +1605,7 @@
 
 
 <footer class="app-footer">
-  CVI · matrix nodes: x = friction (0–100), y = leverage (0–100), boundary at 50 on both axes ·
+  Porchlamp · matrix nodes: x = friction (0–100), y = leverage (0–100), boundary at 50 on both axes ·
   API defaults: <code>min_stars=100</code>, <code>exclude_black_holes=true</code>, <code>persona</code>/<code>domain</code> params reserved no-ops.
 </footer>
 
@@ -1709,7 +1709,7 @@ const state = {
 // Theme Management (Light & Dark with LocalStorage)
 // ---------------------------------------------------------------------------
 function initTheme() {
-  const saved = localStorage.getItem("cvi-theme");
+  const saved = localStorage.getItem("porchlamp-theme");
   const prefersLight = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
   const initial = saved ? saved : (prefersLight ? "light" : "dark");
   setTheme(initial);
@@ -1718,7 +1718,7 @@ function initTheme() {
 function setTheme(theme) {
   state.theme = theme;
   document.documentElement.setAttribute("data-theme", theme);
-  localStorage.setItem("cvi-theme", theme);
+  localStorage.setItem("porchlamp-theme", theme);
   $("theme-icon").textContent = theme === "light" ? "☀️" : "🌙";
   if (state.nodes.length) renderScatter();
   if (state.selectedNodeId && state.repoDetailsCache[state.selectedNodeId]) {
@@ -1771,8 +1771,8 @@ async function loadMatrix() {
 
   let body;
   try {
-    const res = await fetch("/v1/cvi/matrix?" + params.toString());
-    if (!res.ok) throw new Error("GET /v1/cvi/matrix -> HTTP " + res.status);
+    const res = await fetch("/v1/porchlamp/matrix?" + params.toString());
+    if (!res.ok) throw new Error("GET /v1/porchlamp/matrix -> HTTP " + res.status);
     body = await res.json();
   } catch (err) {
     state.nodes = [];
@@ -1794,7 +1794,7 @@ async function loadMatrix() {
 
 async function loadFullLeaderboard() {
   try {
-    const res = await fetch("/v1/cvi/leaderboard?limit=1000");
+    const res = await fetch("/v1/porchlamp/leaderboard?limit=1000");
     if (res.ok) {
       const data = await res.json();
       state.allRepos = Array.isArray(data) ? data : (data.items || []);
@@ -1805,7 +1805,7 @@ async function loadFullLeaderboard() {
         owner: n.owner,
         name: n.name,
         rank: i + 1,
-        overall_cvi: n.cvi,
+        overall_porchlamp: n.porchlamp,
         rank_tier: n.tier,
         matrix_quadrant: n.quadrant,
         leverage_score: n.y,
@@ -1834,7 +1834,7 @@ async function fetchRepoDetails(owner, name) {
   const repoId = `${owner}/${name}`;
   if (state.repoDetailsCache[repoId]) return state.repoDetailsCache[repoId];
   try {
-    const res = await fetch(`/v1/cvi/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
+    const res = await fetch(`/v1/porchlamp/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`);
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     state.repoDetailsCache[repoId] = data;
@@ -1967,7 +1967,7 @@ function renderScatter() {
     const r = nodeRadius(node.size);
     const isSelected = node.repo_id === state.selectedNodeId;
     const group = svgEl("g", { class: "node" + (isSelected ? " selected" : ""), tabindex: 0, role: "button" });
-    group.setAttribute("aria-label", `${node.repo_id}: CVI ${node.cvi}, ${node.quadrant}`);
+    group.setAttribute("aria-label", `${node.repo_id}: Porchlamp ${node.porchlamp}, ${node.quadrant}`);
 
     if (node.is_gated) {
       group.appendChild(svgEl("circle", { cx, cy, r, fill: "none", stroke: "#ef4444", "stroke-width": 2.2 }));
@@ -2068,8 +2068,8 @@ function showHoverCard(node, event) {
       <span class="badge ${node.tier === 'Tier S+' || node.tier === 'Tier S' ? 'sweet' : 'accent'}">${esc(node.tier)}</span>
     </div>
     <div class="hover-card-metric">
-      <span>CVI Score</span>
-      <b>${Number(node.cvi).toFixed(2)} / 100</b>
+      <span>Porchlamp Score</span>
+      <b>${Number(node.porchlamp).toFixed(2)} / 100</b>
     </div>
     <div class="hover-card-metric">
       <span>Quadrant</span>
@@ -2130,7 +2130,7 @@ function renderLeaderboard() {
   repos.sort((a, b) => {
     let va = a[col], vb = b[col];
     if (col === "rank") { va = Number(a.rank || 0); vb = Number(b.rank || 0); }
-    else if (col === "overall_cvi") { va = Number(a.overall_cvi || 0); vb = Number(b.overall_cvi || 0); }
+    else if (col === "overall_porchlamp") { va = Number(a.overall_porchlamp || 0); vb = Number(b.overall_porchlamp || 0); }
     else if (col === "stars") { va = Number(a.stars || 0); vb = Number(b.stars || 0); }
     else if (col === "monthly_downloads") { va = Number(a.monthly_downloads || 0); vb = Number(b.monthly_downloads || 0); }
     else if (col === "dependents_count") { va = Number(a.dependents_count || 0); vb = Number(b.dependents_count || 0); }
@@ -2168,7 +2168,7 @@ function renderLeaderboard() {
       (repo.rank_tier === "Tier A" ? "badge accent" :
       (repo.rank_tier === "Tier B" ? "badge nursery" : "badge graveyard")));
 
-    const cviVal = Number(repo.overall_cvi || 0);
+    const porchlampVal = Number(repo.overall_porchlamp || 0);
     const p1 = Number(repo.score_responsiveness || 0).toFixed(0);
     const p2 = Number(repo.score_criticality || 0).toFixed(0);
     const p3 = Number(repo.score_governance || 0).toFixed(0);
@@ -2191,11 +2191,11 @@ function renderLeaderboard() {
         </div>
       </td>
       <td>
-        <div class="cvi-score-cell">
+        <div class="porchlamp-score-cell">
           <div class="mini-bar-track">
-            <div class="mini-bar-fill" style="width: ${cviVal}%; background: ${quadColor};"></div>
+            <div class="mini-bar-fill" style="width: ${porchlampVal}%; background: ${quadColor};"></div>
           </div>
-          <span class="mono-num" style="font-weight: 700;">${cviVal.toFixed(2)}</span>
+          <span class="mono-num" style="font-weight: 700;">${porchlampVal.toFixed(2)}</span>
         </div>
       </td>
       <td><span class="${tierClass}">${esc(repo.rank_tier || "Tier B")}</span></td>
@@ -2333,7 +2333,7 @@ function populateComparatorPicker() {
     if (!state.selectedForCompare.includes(r.repo_id)) {
       const opt = document.createElement("option");
       opt.value = r.repo_id;
-      opt.textContent = `${r.repo_id} (${r.matrix_quadrant} · CVI ${Number(r.overall_cvi).toFixed(1)})`;
+      opt.textContent = `${r.repo_id} (${r.matrix_quadrant} · Porchlamp ${Number(r.overall_porchlamp).toFixed(1)})`;
       picker.appendChild(opt);
     }
   }
@@ -2407,7 +2407,7 @@ async function renderComparator() {
     <div style="display: flex; align-items: center; gap: 6px;">
       <span style="width: 10px; height: 10px; background: ${COMP_COLORS[i]}; border-radius: 50%;"></span>
       <b style="color: var(--text-primary);">${esc(r.repo_id)}</b>
-      <span class="mono-num" style="color: var(--text-muted); font-size: 11px;">(CVI: ${Number(r.overall_cvi).toFixed(1)})</span>
+      <span class="mono-num" style="color: var(--text-muted); font-size: 11px;">(Porchlamp: ${Number(r.overall_porchlamp).toFixed(1)})</span>
     </div>
   `).join("");
 
@@ -2487,7 +2487,7 @@ function renderComparatorDiffTable(repos) {
   const rows = [
     // Category 1: Composite Benchmark
     { cat: "COMPOSITE BENCHMARK & TIER" },
-    { label: "Overall CVI Score", fn: r => Number(r.overall_cvi || 0).toFixed(2), higherBetter: true, format: "mono" },
+    { label: "Overall Porchlamp Score", fn: r => Number(r.overall_porchlamp || 0).toFixed(2), higherBetter: true, format: "mono" },
     { label: "Global Rank", fn: r => `#${r.rank || "—"}`, higherBetter: false, valFn: r => r.rank || 9999, format: "mono" },
     { label: "Benchmark Tier", fn: r => r.rank_tier || "Tier B", format: "badge" },
     { label: "2D Matrix Quadrant", fn: r => `${QUADRANT_GLYPHS[r.matrix_quadrant] || '●'} ${r.matrix_quadrant || '—'}`, format: "quad" },
@@ -2564,13 +2564,13 @@ function renderComparatorDiffTable(repos) {
 
 function renderComparatorVerdict(repos) {
   if (repos.length < 2) return;
-  const bestOverall = [...repos].sort((a,b) => Number(b.overall_cvi || 0) - Number(a.overall_cvi || 0))[0];
+  const bestOverall = [...repos].sort((a,b) => Number(b.overall_porchlamp || 0) - Number(a.overall_porchlamp || 0))[0];
   const bestResp = [...repos].sort((a,b) => Number(b.pillar_scores?.responsiveness || 0) - Number(a.pillar_scores?.responsiveness || 0))[0];
   const bestImpact = [...repos].sort((a,b) => Number(b.stars || 0) - Number(a.stars || 0))[0];
   const bestGov = [...repos].sort((a,b) => Number(b.elephant_factor || 0) - Number(a.elephant_factor || 0))[0];
 
   $("comp-verdict-text").innerHTML = `
-    <b>Highest Composite Benchmark:</b> <span style="color: var(--sweet); font-weight: 700;">${esc(bestOverall.repo_id)}</span> (CVI: ${Number(bestOverall.overall_cvi).toFixed(1)}, ${esc(bestOverall.rank_tier)}) delivers the optimal balance of maintainer velocity and downstream production footprint.<br><br>
+    <b>Highest Composite Benchmark:</b> <span style="color: var(--sweet); font-weight: 700;">${esc(bestOverall.repo_id)}</span> (Porchlamp: ${Number(bestOverall.overall_porchlamp).toFixed(1)}, ${esc(bestOverall.rank_tier)}) delivers the optimal balance of maintainer velocity and downstream production footprint.<br><br>
     • <b>For First-Time Contributors:</b> Choose <b>${esc(bestResp.repo_id)}</b> — leads in review responsiveness (${Number(bestResp.pillar_scores?.responsiveness || 0).toFixed(0)} P1 score).<br>
     • <b>For Career Capital & Resume Proof:</b> Choose <b>${esc(bestImpact.repo_id)}</b> — commands the largest production ecosystem footprint (${Number(bestImpact.stars || 0).toLocaleString()} stars).<br>
     • <b>For Governance & Legal Safety:</b> <b>${esc(bestGov.repo_id)}</b> provides the most decentralized organizational backing (Elephant Factor ${bestGov.elephant_factor ?? 1}).
@@ -2696,8 +2696,8 @@ function renderDrawer(body) {
 
     <div class="kv-grid">
       <div class="kv-item">
-        <span>CVI Composite Score</span>
-        <b class="cvi-big">${Number(body.overall_cvi).toFixed(2)}</b>
+        <span>Porchlamp Composite Score</span>
+        <b class="porchlamp-big">${Number(body.overall_porchlamp).toFixed(2)}</b>
       </div>
       <div class="kv-item">
         <span>Leverage / Friction</span>
@@ -2844,7 +2844,7 @@ function generatePlaybook(repo) {
     });
   }
 
-  const currentScore = Number(repo.overall_cvi || 0);
+  const currentScore = Number(repo.overall_porchlamp || 0);
   const potentialBoost = actions.reduce((sum, a) => {
     const match = a.badge.match(/\+([\d.]+)/);
     return sum + (match ? parseFloat(match[1]) : 0);
@@ -3114,7 +3114,7 @@ async function submitReproject() {
 
   let items;
   try {
-    const res = await fetch("/v1/cvi/reproject", {
+    const res = await fetch("/v1/porchlamp/reproject", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ weights: normalized }),
@@ -3207,7 +3207,7 @@ function renderOmnibarResults(query) {
         <b>${esc(repo.repo_id)}</b>
         <span class="badge">${esc(repo.rank_tier || 'Tier B')}</span>
       </div>
-      <span class="mono-num" style="color: var(--accent);">CVI ${Number(repo.overall_cvi).toFixed(1)}</span>
+      <span class="mono-num" style="color: var(--accent);">Porchlamp ${Number(repo.overall_porchlamp).toFixed(1)}</span>
     `;
     li.addEventListener("click", () => {
       closeOmnibar();

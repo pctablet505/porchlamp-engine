@@ -6,21 +6,21 @@ main tip `a789466`. Three cherry-picks applied first, clean, no conflicts:
 - `9d15d71` (W2-5f `6c409db`): ScoreRecord gains `rated`, `unrated_reason`,
   `tier_ceiling`, `leverage_coverage`, `friction_coverage`,
   `provenance_hash`; `score()` takes `raw_hash`.
-- `c66f08b` (W2-6 `9ecfe21`): `cvi/core/tiebreak.py` (`TieBreakInput`,
+- `c66f08b` (W2-6 `9ecfe21`): `porchlamp/core/tiebreak.py` (`TieBreakInput`,
   `tie_key`, `assign_ranks`).
-- `0e666b9` (W2-7 `3617dfd`): `cvi/core/persona.py`.
+- `0e666b9` (W2-7 `3617dfd`): `porchlamp/core/persona.py`.
 
 None of the three cherry-picked files were modified.
 
 ## Diffstat (new work on top of the cherry-picks)
 
 ```
- cvi/store/__init__.py                 |  11 ++
- cvi/store/migrations/0001_init_v2.sql | 108 +++++++++++
- cvi/store/migrations/__init__.py      |  96 +++++++++
- cvi/store/reader.py                   | 159 +++++++++++++++
- cvi/store/schema.py                   | 212 ++++++++++++++++++++
- cvi/store/writer.py                   | 353 ++++++++++++++++++++++++++++++++++
+ porchlamp/store/__init__.py                 |  11 ++
+ porchlamp/store/migrations/0001_init_v2.sql | 108 +++++++++++
+ porchlamp/store/migrations/__init__.py      |  96 +++++++++
+ porchlamp/store/reader.py                   | 159 +++++++++++++++
+ porchlamp/store/schema.py                   | 212 ++++++++++++++++++++
+ porchlamp/store/writer.py                   | 353 ++++++++++++++++++++++++++++++++++
  pyproject.toml                        |   2 +-
  tests/store/__init__.py               |   0
  tests/store/helpers.py                | 242 +++++++++++++++++++++++
@@ -32,7 +32,7 @@ None of the three cherry-picked files were modified.
  14 files changed, 2046 insertions(+), 1 deletion(-)   (.agents/W4-2/handoff.md itself not counted here)
 ```
 
-Source (non-test) lines: `cvi/store/**` = 939. **Size deviation**: L-class
+Source (non-test) lines: `porchlamp/store/**` = 939. **Size deviation**: L-class
 is <=800; 939 is over by 139 (~17%). Subtraction deferred, not a blocker —
 consistent with nearly every prior packet's own logged deviation (W0-3 754
 vs M, W2-1 1258 vs M, W2-5 867 vs L, W1-3/W1-8/W2-9 similarly). Most of the
@@ -46,23 +46,23 @@ accepting the remaining deviation rather than cutting substance.
 
 ## What was built
 
-- `cvi/store/schema.py` — DDL (`SCHEMA_STATEMENTS`), `create_schema`,
+- `porchlamp/store/schema.py` — DDL (`SCHEMA_STATEMENTS`), `create_schema`,
   `introspect_schema` (structural fingerprint: column defs + index
   column-sets, order-independent, handles v1's expression index).
-- `cvi/store/migrations/0001_init_v2.sql` + `cvi/store/migrations/__init__.py`
+- `porchlamp/store/migrations/0001_init_v2.sql` + `porchlamp/store/migrations/__init__.py`
   — forward-only runner, `schema_migrations` bookkeeping, and the one-time
   v1-shape check that renames an existing v1 `repositories` table (no
   `snapshot_id` column) to `legacy_repositories` before creating the v2
   table, so nothing is dropped.
-- `cvi/store/writer.py` — `RepoWrite` (identity/evidence carrier),
+- `porchlamp/store/writer.py` — `RepoWrite` (identity/evidence carrier),
   `write_snapshot`, `write_records` (repos + params long rows +
   populations, idempotent via `ON CONFLICT ... DO UPDATE`, no `RETURNING`),
   `repositories_snapshot_dump_hash`, `finalize_snapshot_hash`.
-- `cvi/store/reader.py` — `get_snapshot`, `get_row`, `get_evidence`,
+- `porchlamp/store/reader.py` — `get_snapshot`, `get_row`, `get_evidence`,
   `list_not_ranked`, `ranked_order_sql` (the `04` section 6 `NULLS LAST` /
   `ROW_NUMBER`/`DENSE_RANK` ordering, for the parity test and for W4-3 to
   build its persona projection on).
-- `pyproject.toml` — added `cvi.store`, `cvi.store.migrations` to
+- `pyproject.toml` — added `porchlamp.store`, `porchlamp.store.migrations` to
   `[tool.setuptools] packages`.
 
 ## Deviations from `04` section 5's draft (documented in `schema.py`)
@@ -76,7 +76,7 @@ accepting the remaining deviation rather than cutting substance.
 3. `snapshots` gains `canonical_dump_hash`, `promoted_at` — superset of
    INT-W0-4's `snapshot_meta` (same column names; `id` plays
    `snapshot_meta.snapshot_id`'s role), per the packet's own instruction.
-4. `populations` matches `cvi.snapshot.populations.build_populations_table`'s
+4. `populations` matches `porchlamp.snapshot.populations.build_populations_table`'s
    actual row shape (`snapshot_id, ecosystem, param_id, n, fallback,
    values_json, values_hash`) — that already-landed function's own
    docstring says "the schema and the migration are W4-2's"; the draft's
@@ -87,28 +87,28 @@ accepting the remaining deviation rather than cutting substance.
 1. **Repo identity is not on `ScoreRecord`.** `04` section 3 puts
    `owner`/`name`/`ecosystem`/etc. on `FeatureBundle.repo`; the packet's
    literal `write_records(records: list[ScoreRecord], snapshot_id,
-   populations)` signature cannot be built as dispatched. `cvi.core.tiebreak`
+   populations)` signature cannot be built as dispatched. `porchlamp.core.tiebreak`
    already logged this exact gap as an ownership request to W2-8 for its own
    tie-break evidence (`TieBreakInput`). `write_records` here takes
    `Sequence[RepoWrite]` (a `TieBreakInput` + the `FeatureBundle`, for the
    remaining identity fields and the raw per-parameter evidence
    `ScoreRecord.params` does not carry) instead. When W2-8 lands a real
    fix, `RepoWrite`/`TieBreakInput` should be revisited together.
-2. **`cvi.lakehouse.repositories_dump_hash` is INT-W0-4-only.** Per the
+2. **`porchlamp.lakehouse.repositories_dump_hash` is INT-W0-4-only.** Per the
    packet's own fallback, nothing is vendored: `writer.
-   repositories_snapshot_dump_hash` calls `cvi.snapshot.reproduce.
+   repositories_snapshot_dump_hash` calls `porchlamp.snapshot.reproduce.
    canonical_dump_hash` (the function IS on this tree; INT-W0-4's helper
    wraps the same one) with its own scratch-copy scoping, extended with a
    row-level `WHERE snapshot_id=?` filter the v1 (single-snapshot) table
    never needed. When INT-W0-4 lands, the lead should consider one shared
    scoping helper instead of two independent ones.
 3. **Import-graph note.** `04` section 3 says "store/ imports core ... and
-   nothing else"; `writer.py` also imports `cvi.snapshot.populations` and
-   `cvi.snapshot.reproduce` because the packet dispatch explicitly directs
+   nothing else"; `writer.py` also imports `porchlamp.snapshot.populations` and
+   `porchlamp.snapshot.reproduce` because the packet dispatch explicitly directs
    reuse of `build_populations_table` and `canonical_dump_hash`. Flagging
    the prose/instruction mismatch for the lead to reconcile in `04`.
 4. **`04` section 6's `DENSE_RANK()`-only `tie_group`** does not null out a
-   singleton group's id the way `cvi.core.tiebreak.assign_ranks` does
+   singleton group's id the way `porchlamp.core.tiebreak.assign_ranks` does
    (tested in `test_ranked_order_sql_tie_group_dense_rank` — a non-tying
    row still gets a distinct dense-rank number, not `None`). Implemented
    exactly as `04` section 6 specifies since that is what a parity/reader
@@ -127,15 +127,15 @@ accepting the remaining deviation rather than cutting substance.
 
 ## Fail-before proof (verbatim)
 
-`cvi.store` did not exist before this packet. Reproduced by moving
-`cvi/store` aside and re-running:
+`porchlamp.store` did not exist before this packet. Reproduced by moving
+`porchlamp/store` aside and re-running:
 
 ```
-$ mv cvi/store /tmp/store-hideaway && pytest tests/store/test_schema.py -p no:cacheprovider
+$ mv porchlamp/store /tmp/store-hideaway && pytest tests/store/test_schema.py -p no:cacheprovider
 ImportError while importing test module '.../tests/store/test_schema.py'.
 tests/store/test_schema.py:12: in <module>
-    from cvi.store import schema
-E   ModuleNotFoundError: No module named 'cvi.store'
+    from porchlamp.store import schema
+E   ModuleNotFoundError: No module named 'porchlamp.store'
 1 error in 0.05s
 ```
 (restored immediately after)
@@ -150,16 +150,16 @@ $ pytest tests/store/ -p no:cacheprovider
 EXIT:0
 ```
 
-Ruff, `cvi/store` + `tests/store` (this packet's own files):
+Ruff, `porchlamp/store` + `tests/store` (this packet's own files):
 ```
-$ ruff check cvi/store tests/store
+$ ruff check porchlamp/store tests/store
 All checks passed!
 EXIT:0
 ```
 
 Ruff, full tree (pre-existing, out of scope — see below):
 ```
-$ ruff check cvi/ scripts/ tests/
+$ ruff check porchlamp/ scripts/ tests/
 ... 4 errors, all in scripts/curate_dataset_llm.py (F401 unused imports:
     time, datetime, timezone, typing.Any)
 Found 4 errors.
@@ -195,7 +195,7 @@ EXIT:0
   (`test_ranked_order_sql_parity_with_tie_key_nulls_at_multiple_levels`):
   5-row fixture with NULLs at two different D-TIE-1 levels (friction on one
   row, leverage on two rows) — `reader.ranked_order_sql`'s
-  `(owner, name)` order equals `cvi.core.tiebreak.assign_ranks`'s order
+  `(owner, name)` order equals `porchlamp.core.tiebreak.assign_ranks`'s order
   exactly: `[r1, r2, r4, r5, r3]`. A companion assertion in the same test
   runs the identical query with `NULLS LAST` stripped and confirms it
   produces a *different* (wrong) order on this fixture — proving the test
@@ -208,8 +208,8 @@ prose isn't a false positive, with a planted-violation positive control).
 No wall-clock reads: `write_snapshot`/`apply_migrations` require an
 explicit `created_at`/`applied_at` string argument (`ValueError` if
 empty). No `print()`, no `TODO`. Ruff clean on owned files. Files touched:
-`cvi/store/**` (new), `tests/store/**` (new), `pyproject.toml` (one line).
-`cvi/lakehouse.py`, `cvi/api.py`, `scripts/` untouched.
+`porchlamp/store/**` (new), `tests/store/**` (new), `pyproject.toml` (one line).
+`porchlamp/lakehouse.py`, `porchlamp/api.py`, `scripts/` untouched.
 
 ---
 
@@ -221,7 +221,7 @@ Review: `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adb
 
 `git rebase --onto localmain/main 0e666b9` on branch `W4-2`: dropped the three old cherry-picks (`9d15d71`/`c66f08b`/`0e666b9`, superseded on main), kept only the packet commit, replayed cleanly onto main tip `913ae2c` (no conflicts) — new head `ff7b049`. Picked up for free: W2-6 round 2 (UTC-safe `_commit_epoch`), W2-7f (`PersonaComposite`), W2-9f/g, W2-10 (`ScoreRecord.repo: RepoIdentity`, `TieBreakInput` identity validation), W1-6 round 2, W3-2, and `.agents/` no longer gitignored (`db8bb78`).
 
-`RepoWrite` becomes `(record: ScoreRecord, bundle: FeatureBundle)` per the lead ruling: identity is `record.repo`; `__post_init__` raises on a mismatch with `bundle.repo`. `TieBreakInput` is dropped from the writer's own input — it is still how a caller runs `assign_ranks` **upstream** of the writer (tests still use it for that); the writer reads `record.tie_key`/`record.rank`/`record.tie_group` directly. `ttfhr_p75` is genuinely computed from `bundle.pr_window` now (`cvi.core.tiebreak.ttfhr_p75_from_pr_window`, real code path, tested with a real `PRWindowEvent`). `stars_audited`, `forks` (count) and `last_human_commit_at` have **no source anywhere** in the current `FeatureBundle`/`GateEvidence` contract (confirmed by reading both dataclasses on the rebased tree) — written `NULL`, documented in `cvi/store/writer.py`'s module docstring, not silently guessed. This is a real, load-bearing finding, not an assumption: I verified `RepoIdentity` and `GateEvidence` field lists directly before concluding there is no producer.
+`RepoWrite` becomes `(record: ScoreRecord, bundle: FeatureBundle)` per the lead ruling: identity is `record.repo`; `__post_init__` raises on a mismatch with `bundle.repo`. `TieBreakInput` is dropped from the writer's own input — it is still how a caller runs `assign_ranks` **upstream** of the writer (tests still use it for that); the writer reads `record.tie_key`/`record.rank`/`record.tie_group` directly. `ttfhr_p75` is genuinely computed from `bundle.pr_window` now (`porchlamp.core.tiebreak.ttfhr_p75_from_pr_window`, real code path, tested with a real `PRWindowEvent`). `stars_audited`, `forks` (count) and `last_human_commit_at` have **no source anywhere** in the current `FeatureBundle`/`GateEvidence` contract (confirmed by reading both dataclasses on the rebased tree) — written `NULL`, documented in `porchlamp/store/writer.py`'s module docstring, not silently guessed. This is a real, load-bearing finding, not an assumption: I verified `RepoIdentity` and `GateEvidence` field lists directly before concluding there is no producer.
 
 ## Blockers and warnings addressed
 
@@ -267,15 +267,15 @@ Plus `test_apply_migrations_atomicity_does_not_lose_a_later_migration_file`: a t
 
 **F-008 (v1-migration tests skip silently).** New `_build_minimal_v1_db` + `test_v1_shaped_database_migration_preserves_legacy_rows_synthetic` is now the primary, always-running proof; the real 1,000-row baseline test is renamed `..._real_db_extra` and kept `skipif`-gated as a supplementary check, not the only one.
 
-**F-009 (import-graph coverage).** `tests/core/test_import_graph.py` gained `test_store_imports_only_core_snapshot_or_stdlib` (allows `cvi.core`, `cvi.snapshot`, stdlib). This is the one file outside my originally-owned `cvi/store`/`tests/store` I touched, per the coordinator's explicit F-009 instruction.
+**F-009 (import-graph coverage).** `tests/core/test_import_graph.py` gained `test_store_imports_only_core_snapshot_or_stdlib` (allows `porchlamp.core`, `porchlamp.snapshot`, stdlib). This is the one file outside my originally-owned `porchlamp/store`/`tests/store` I touched, per the coordinator's explicit F-009 instruction.
 
-**F-010 (packaging).** `[tool.setuptools.package-data]` added for `"cvi.store.migrations" = ["*.sql"]`; `apply_migrations` raises `RuntimeError` when `discover_migrations()` is empty (test: `test_apply_migrations_raises_on_an_empty_migrations_directory`).
+**F-010 (packaging).** `[tool.setuptools.package-data]` added for `"porchlamp.store.migrations" = ["*.sql"]`; `apply_migrations` raises `RuntimeError` when `discover_migrations()` is empty (test: `test_apply_migrations_raises_on_an_empty_migrations_directory`).
 
 **F-011 + F-012 (rebase + PersonaComposite).** `tests/store/helpers.py` rebuilt: `make_repo_identity`/`make_bundle`/`make_rated_record`/`make_gated_record`/`make_unrated_record` all take `owner`/`name`/`ecosystem` (or an explicit `repo=`) and build `RepoIdentity` as `ScoreRecord`'s required first field; `persona_composites` parameters are `dict[str, PersonaComposite]`. Writer fix: `_repo_row` serialises `persona_composites` via `{persona: asdict(composite) ...}` before `canonical_json` (a bare `canonical_json(record.persona_composites)` raises `TypeError` on the real dataclass — reproduced directly in `test_writer_raises_a_clear_error_on_the_stale_dict_float_shape`, not just cited from the review's merge trial). Round-trip test: `test_persona_composites_round_trip_via_asdict` reconstructs `PersonaComposite(**stored[persona])` and asserts equality to the original dataclasses.
 
 **F-015 (gate_undecided).** `repositories.gate_undecided TEXT NOT NULL DEFAULT '[]'` added to both `schema.py` and `0001_init_v2.sql` (kept in sync, parity test passes); writer stores `canonical_json(list(record.gate.undecided))`; reader decodes it as a JSON list. Test: `test_gate_undecided_round_trips` + assertions in the round-trip oracle.
 
-**F-014 (size).** Moved the ownership-request/deviation prose out of `writer.py`'s and `schema.py`'s module docstrings into this handoff (kept only a one-line pointer in each); removed `_TIE_GROUP_ORDER_BY_SQL` and the `DENSE_RANK` column from `reader.ranked_order_sql` entirely (handed to W4-3, per the coordinator's ruling), and deleted the test that exercised it (`test_ranked_order_sql_tie_group_dense_rank`) rather than keeping a test for a feature this package no longer has. Net effect: `cvi/store/*` source went from 939 to 1016 lines. **This is a net increase, not the ~855 the review projected** — the F-014 trim alone would have gotten there, but F-001/F-002/F-003/F-004/F-005/F-007/F-012/F-015 are all genuinely new, required logic (atomicity, immutability, conflict detection, UTC normalisation, allow-list scoping, dataclass serialisation, a new column) that the round-1 code did not have. Per-file: `writer.py` 353→413, `migrations/__init__.py` 96→139, `schema.py` 212→193, `reader.py` 159→151, `0001_init_v2.sql` 108→109. Named, not hidden: L-class (≤800) remains exceeded; subtraction deferred once more, this time against a larger, correctness-driven base.
+**F-014 (size).** Moved the ownership-request/deviation prose out of `writer.py`'s and `schema.py`'s module docstrings into this handoff (kept only a one-line pointer in each); removed `_TIE_GROUP_ORDER_BY_SQL` and the `DENSE_RANK` column from `reader.ranked_order_sql` entirely (handed to W4-3, per the coordinator's ruling), and deleted the test that exercised it (`test_ranked_order_sql_tie_group_dense_rank`) rather than keeping a test for a feature this package no longer has. Net effect: `porchlamp/store/*` source went from 939 to 1016 lines. **This is a net increase, not the ~855 the review projected** — the F-014 trim alone would have gotten there, but F-001/F-002/F-003/F-004/F-005/F-007/F-012/F-015 are all genuinely new, required logic (atomicity, immutability, conflict detection, UTC normalisation, allow-list scoping, dataclass serialisation, a new column) that the round-1 code did not have. Per-file: `writer.py` 353→413, `migrations/__init__.py` 96→139, `schema.py` 212→193, `reader.py` 159→151, `0001_init_v2.sql` 108→109. Named, not hidden: L-class (≤800) remains exceeded; subtraction deferred once more, this time against a larger, correctness-driven base.
 
 ## Not touched (F-013)
 
@@ -283,7 +283,7 @@ Plus `test_apply_migrations_atomicity_does_not_lose_a_later_migration_file`: a t
 
 ## Ownership requests (carried forward + new)
 
-1. (carried forward) `cvi.lakehouse.repositories_dump_hash` exists only on INT-W0-4; `repositories_snapshot_dump_hash` still duplicates its scratch-copy shape, now via an allow-list. Unchanged recommendation: one shared helper once INT-W0-4 lands.
+1. (carried forward) `porchlamp.lakehouse.repositories_dump_hash` exists only on INT-W0-4; `repositories_snapshot_dump_hash` still duplicates its scratch-copy shape, now via an allow-list. Unchanged recommendation: one shared helper once INT-W0-4 lands.
 2. (new) `stars_audited`/`forks`(count)/`last_human_commit_at` have no producer anywhere in `FeatureBundle`/`GateEvidence` today (verified directly against the rebased tree, not assumed). Whichever packet wires real values should also revisit `RepoWrite`'s shape — it may need a third, small evidence carrier again, or these facts may land on `RepoIdentity`/a future bundle field.
 3. (new, from the review's own note, not independently re-verified this round) foreign keys are off by default in SQLite and the writer never enables them, so a `write_records` call can target a `snapshot_id` with no `snapshots` row at all. Not one of the coordinator's F-numbered items; recorded as `COULD NOT VERIFY: whether W4-3/W4-4 wants PRAGMA foreign_keys=ON or an explicit existence check` rather than fixed unprompted, per the subtractive-rework instruction to fix exactly the listed items.
 
@@ -304,7 +304,7 @@ $ pytest tests/store/ tests/test_no_clock.py tests/core/test_import_graph.py -p 
 ......................................................................   [100%]
 70 passed in 0.20s (mutation-testing baseline, confirmed after every restore)
 
-$ ruff check cvi/store tests/store tests/core/test_import_graph.py
+$ ruff check porchlamp/store tests/store tests/core/test_import_graph.py
 All checks passed!
 EXIT:0
 
@@ -312,7 +312,7 @@ $ pytest tests/ -n 4 -p no:cacheprovider
 1708 passed, 12 warnings in 58.06s (0:01:00)
 EXIT:0
 
-$ ruff check cvi/ scripts/ tests/
+$ ruff check porchlamp/ scripts/ tests/
 ... 4 errors, all in scripts/curate_dataset_llm.py (F401, untouched, forbidden, pre-existing since round 1)
 EXIT:1
 ```
@@ -320,11 +320,11 @@ EXIT:1
 ## Diffstat (round 2, on top of the rebased `ff7b049`)
 
 ```
- cvi/store/migrations/0001_init_v2.sql |   1 +
- cvi/store/migrations/__init__.py      |  65 ++++-
- cvi/store/reader.py                   |  30 +--
- cvi/store/schema.py                   |  49 ++--
- cvi/store/writer.py                   | 328 ++++++++++++++-----------
+ porchlamp/store/migrations/0001_init_v2.sql |   1 +
+ porchlamp/store/migrations/__init__.py      |  65 ++++-
+ porchlamp/store/reader.py                   |  30 +--
+ porchlamp/store/schema.py                   |  49 ++--
+ porchlamp/store/writer.py                   | 328 ++++++++++++++-----------
  pyproject.toml                        |   3 +
  tests/core/test_import_graph.py       |  22 ++
  tests/store/helpers.py                | 119 ++++++----
@@ -362,7 +362,7 @@ risk, note only).
 `git rebase localmain/main` on branch `W4-2`: two commits replayed onto
 main tip `4e917e1` → `bea2e06` with no conflicts (new heads `358ab11`,
 `3ccf7c9`). Picked up for free: INT-W0-4 rounds 3-4 (landed on main,
-`cvi.lakehouse.repositories_dump_hash`/`snapshot_meta` now real), the
+`porchlamp.lakehouse.repositories_dump_hash`/`snapshot_meta` now real), the
 `.agents/<packet>/review/` commit convention ratified.
 
 ## G-001 (Blocker) — widen the identity hash
@@ -383,10 +383,10 @@ pass unchanged, proving repositories-level scoping and legacy isolation
 both survived the widening.
 
 **Lakehouse-delegation answer (asked, not to be implemented):**
-`cvi.lakehouse.repositories_dump_hash` (now real, landed with INT-W0-4)
-and `cvi.store.writer.snapshot_dump_hash` should NOT delegate to each
+`porchlamp.lakehouse.repositories_dump_hash` (now real, landed with INT-W0-4)
+and `porchlamp.store.writer.snapshot_dump_hash` should NOT delegate to each
 other. They already share the one thing that should be shared -- both
-call `cvi.snapshot.reproduce.canonical_dump_hash` on a scratch copy
+call `porchlamp.snapshot.reproduce.canonical_dump_hash` on a scratch copy
 (R-2, one canonicalisation) -- but their table-scoping orchestration is
 genuinely different: v1's `repositories` is a single flat table with no
 `snapshot_id` (the whole table IS one implicit snapshot, hence a plain
@@ -424,7 +424,7 @@ levels:
 
 ## G-004 — `PRAGMA foreign_keys = ON`
 
-New `cvi.store.schema.connect(path)`: the one place a caller should open a
+New `porchlamp.store.schema.connect(path)`: the one place a caller should open a
 v2 store connection; sets the pragma before returning it. Every `tests/
 store` fixture that exercises the writer (`test_writer.py`,
 `test_reader.py`, `test_roundtrip.py`) now opens its connection through
@@ -487,13 +487,13 @@ unaudited count under the audited-sounding column name.
 ## Size (G-003, stated honestly)
 
 ```
-cvi/store/__init__.py                      11
-cvi/store/migrations/0001_init_v2.sql     109
-cvi/store/migrations/__init__.py          139
-cvi/store/reader.py                       151
-cvi/store/schema.py                       219  (was 193; +26: connect() + its docstring, G-006 note)
-cvi/store/writer.py                       482  (was 413; +69: _begin/_end, widened snapshot_dump_hash + its docstring)
-cvi/store TOTAL: 1111 | L class cap 800 | round 2 was 1016 | delta +95
+porchlamp/store/__init__.py                      11
+porchlamp/store/migrations/0001_init_v2.sql     109
+porchlamp/store/migrations/__init__.py          139
+porchlamp/store/reader.py                       151
+porchlamp/store/schema.py                       219  (was 193; +26: connect() + its docstring, G-006 note)
+porchlamp/store/writer.py                       482  (was 413; +69: _begin/_end, widened snapshot_dump_hash + its docstring)
+porchlamp/store TOTAL: 1111 | L class cap 800 | round 2 was 1016 | delta +95
 ```
 Still over cap; the deviation is now three rounds deep and each round's
 growth has been real, required correctness work (atomicity, immutability,
@@ -553,10 +553,10 @@ $ pytest tests/store/ tests/test_no_clock.py tests/core/test_import_graph.py -p 
 (mutation baseline)
 79 passed in 0.22s
 
-$ ruff check cvi/store tests/store tests/core/test_import_graph.py
+$ ruff check porchlamp/store tests/store tests/core/test_import_graph.py
 All checks passed!
 
-$ ruff check cvi/ scripts/ tests/
+$ ruff check porchlamp/ scripts/ tests/
 All checks passed!
 EXIT:0
 ```
@@ -573,8 +573,8 @@ EXIT:0
 ## Diffstat (round 3, on top of rebased `3ccf7c9`)
 
 ```
- cvi/store/schema.py           |  26 +++++
- cvi/store/writer.py           | 137 +++++++++++++++++------
+ porchlamp/store/schema.py           |  26 +++++
+ porchlamp/store/writer.py           | 137 +++++++++++++++++------
  tests/store/test_reader.py    |   4 +-
  tests/store/test_roundtrip.py |   4 +-
  tests/store/test_writer.py    | 246 +++++++++++++++++++++++++++++++++++++++---

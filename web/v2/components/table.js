@@ -14,7 +14,7 @@ export const PILLAR_ORDER = ["responsiveness", "criticality", "governance", "rig
 /** Columns Screen A allows sorting on (U-3: vanity columns never sortable). */
 export const SORTABLE_COLUMNS = new Set([
   "rank",
-  "cvi",
+  "porchlamp",
   "coverage",
   "tier",
   "p_responsiveness",
@@ -50,7 +50,7 @@ export const ROW_HEIGHT_PX = 40;
 const COLUMNS = [
   { key: "rank", label: copy.COLUMN_RANK, sortable: true },
   { key: "repository", label: copy.COLUMN_REPOSITORY, sortable: false },
-  { key: "cvi", label: copy.COLUMN_CVI, sortable: true },
+  { key: "porchlamp", label: copy.COLUMN_PORCHLAMP, sortable: true },
   { key: "coverage", label: copy.COLUMN_COVERAGE, sortable: true },
   { key: "tier", label: copy.COLUMN_TIER, sortable: true },
   { key: "quadrant", label: copy.COLUMN_QUADRANT, sortable: false },
@@ -81,7 +81,7 @@ export function rowKey(row) {
 export function decidingTieLevel(a, b) {
   const round2 = (v) => (v === null || v === undefined ? v : Math.round(v * 100) / 100);
   const levels = [
-    [1, round2(a.cvi), round2(b.cvi)],
+    [1, round2(a.porchlamp), round2(b.porchlamp)],
     [2, a.coverage, b.coverage],
     [3, a.p_responsiveness, b.p_responsiveness],
     [4, a.friction, b.friction],
@@ -159,7 +159,7 @@ export function rowCells(row, opts) {
       key: "repository",
       html: `<span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span><span class="eco-chip">${escapeHtml(row.ecosystem)}</span>`,
     },
-    { key: "cvi", html: row.cvi != null ? row.cvi.toFixed(2) : copy.MISSING_VALUE, numeric: true },
+    { key: "porchlamp", html: row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE, numeric: true },
     { key: "coverage", html: renderCoverageBadge(row.coverage) },
     { key: "tier", html: renderTierCell(row.tier, row.tier_ceiling) },
     { key: "quadrant", html: renderQuadrant(row.quadrant) },
@@ -293,7 +293,7 @@ function cardInnerHtml(row, opts) {
     `<span>${renderCoverageBadge(row.coverage)}</span>` +
     `</div>` +
     `<div><span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span><span class="eco-chip">${escapeHtml(row.ecosystem)}</span></div>` +
-    `<div class="cell-numeric">${copy.COLUMN_CVI} ${row.cvi != null ? row.cvi.toFixed(2) : copy.MISSING_VALUE} · ${renderTierCell(row.tier, row.tier_ceiling)}</div>` +
+    `<div class="cell-numeric">${copy.COLUMN_PORCHLAMP} ${row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderTierCell(row.tier, row.tier_ceiling)}</div>` +
     `<div>${renderQuadrant(row.quadrant)} ${pillarBarsHtml(row)}${showPersonaDelta ? ` ${deltaHtml(row)}` : ""}</div>` +
     `<div>${renderSuspicionIcon(row.suspicion)}</div>`;
   return { html, tied };

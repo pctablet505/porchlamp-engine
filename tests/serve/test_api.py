@@ -1,5 +1,5 @@
-"""Acceptance tests for `cvi/serve/app.py` -- the v2 API, served straight
-off the v2 store, through `cvi/serve/contract.py`'s wire models.
+"""Acceptance tests for `porchlamp/serve/app.py` -- the v2 API, served straight
+off the v2 store, through `porchlamp/serve/contract.py`'s wire models.
 
 Every endpoint's JSON is parsed by `response_model=` before this test ever
 sees it (FastAPI/pydantic itself refuses to serialise a response that fails
@@ -21,16 +21,16 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # tests/ on sys.path for `store.helpers`
 
-from cvi.core.methodology import methodology_document, methodology_hash
-from cvi.core.models import canonical_json, sha256_hex
-from cvi.serve.app import create_app
-from cvi.serve.contract import (
+from porchlamp.core.methodology import methodology_document, methodology_hash
+from porchlamp.core.models import canonical_json, sha256_hex
+from porchlamp.serve.app import create_app
+from porchlamp.serve.contract import (
     EvidenceRow,
     LeaderboardResponse,
     NotRankedResponse,
     SnapshotSummary,
 )
-from cvi.store import queries
+from porchlamp.store import queries
 
 from serve.helpers import SNAPSHOT_ID, build_snapshot, finalize, fresh_db
 
@@ -65,7 +65,7 @@ def api(tmp_path):
 
 def _raw_conn(db_path) -> sqlite3.Connection:
     """A second, independent connection to the same file, for oracle
-    queries straight through `cvi.store.queries` (never through the API)."""
+    queries straight through `porchlamp.store.queries` (never through the API)."""
     return sqlite3.connect(str(db_path))
 
 
@@ -76,7 +76,7 @@ def _raw_conn(db_path) -> sqlite3.Connection:
 
 def test_leaderboard_balanced_default_shape_and_total(api):
     client, fx, _db = api
-    resp = client.get("/v1/cvi/leaderboard")
+    resp = client.get("/v1/porchlamp/leaderboard")
     assert resp.status_code == 200
     body = LeaderboardResponse(**resp.json())
     assert body.persona == "balanced"
@@ -92,9 +92,9 @@ def test_leaderboard_balanced_default_shape_and_total(api):
 def test_leaderboard_suspicion_and_stars_audited_round_trip(api):
     """Bridge: `suspicion`/`stars_audited` are projected verbatim (not
     dropped, not fabricated) -- also proves the writer bridge
-    (`cvi/store/writer.py`) actually reaches the wire."""
+    (`porchlamp/store/writer.py`) actually reaches the wire."""
     client, fx, _db = api
-    resp = client.get("/v1/cvi/leaderboard?q=flagged-repo")
+    resp = client.get("/v1/porchlamp/leaderboard?q=flagged-repo")
     body = LeaderboardResponse(**resp.json())
     assert len(body.rows) == 1
     row = body.rows[0]
@@ -104,14 +104,14 @@ def test_leaderboard_suspicion_and_stars_audited_round_trip(api):
 
 def test_leaderboard_stars_audited_null_when_not_measured(api):
     client, fx, _db = api
-    resp = client.get("/v1/cvi/leaderboard?q=repo-0000")
+    resp = client.get("/v1/porchlamp/leaderboard?q=repo-0000")
     row = LeaderboardResponse(**resp.json()).rows[0]
     assert row.stars_audited is None
 
 
 def test_leaderboard_tie_group_shared_by_ties_and_null_for_singletons(api):
     client, fx, _db = api
-    resp = client.get("/v1/cvi/leaderboard?page_size=1000")
+    resp = client.get("/v1/porchlamp/leaderboard?page_size=1000")
     rows = {row.owner + "/" + row.name: row for row in LeaderboardResponse(**resp.json()).rows}
     tie3_groups = {rows[f"acme/{name}"].tie_group for name in fx.tie_group_names["tie3"]}
     assert len(tie3_groups) == 1 and None not in tie3_groups
@@ -127,7 +127,7 @@ def test_leaderboard_tie_group_shared_by_ties_and_null_for_singletons(api):
 
 def test_leaderboard_persona_projects_p_suffixed_fields_and_computes_delta(api):
     client, fx, db_path = api
-    resp = client.get("/v1/cvi/leaderboard?persona=first_timer&page_size=1000")
+    resp = client.get("/v1/porchlamp/leaderboard?persona=first_timer&page_size=1000")
     body = LeaderboardResponse(**resp.json())
     assert body.persona == "first_timer"
     # The persona-gated row must be ABSENT from this persona's leaderboard.
@@ -143,7 +143,7 @@ def test_leaderboard_persona_projects_p_suffixed_fields_and_computes_delta(api):
         store_row = by_name[row.name]
         assert row.rank == store_row["rank_p"]
         assert row.tie_group == store_row["tie_group_p"]
-        assert row.cvi == store_row["cvi_p"]
+        assert row.porchlamp == store_row["porchlamp_p"]
         assert row.coverage == store_row["coverage_p"]
         assert row.tier == store_row["tier_p"]
         assert row.balanced_rank == store_row["rank"]
@@ -155,7 +155,7 @@ def test_leaderboard_persona_projects_p_suffixed_fields_and_computes_delta(api):
 
 def test_leaderboard_persona_delta_is_null_when_balanced_rank_is_null(api):
     """A row that is persona-rated but balanced-UNRATED has nothing to
-    show a delta against (`cvi.store.queries.list_ranked`'s own docstring)
+    show a delta against (`porchlamp.store.queries.list_ranked`'s own docstring)
     -- this fixture has no such row by construction (every rated row here
     clears every persona's coverage floor), so this test instead proves
     the code path handles it via the parity check already covering the
@@ -164,7 +164,7 @@ def test_leaderboard_persona_delta_is_null_when_balanced_rank_is_null(api):
     explicit assertion of that one implication so it reads as a
     requirement, not an incidental side effect of the loop."""
     client, _fx, db_path = api
-    resp = client.get("/v1/cvi/leaderboard?persona=career_capital&page_size=1000")
+    resp = client.get("/v1/porchlamp/leaderboard?persona=career_capital&page_size=1000")
     body = LeaderboardResponse(**resp.json())
     for row in body.rows:
         if row.balanced_rank is None:
@@ -173,21 +173,21 @@ def test_leaderboard_persona_delta_is_null_when_balanced_rank_is_null(api):
 
 def test_leaderboard_sort_pillar_translation_and_allow_list(api):
     client, _fx, _db = api
-    ok = client.get("/v1/cvi/leaderboard?sort=p_responsiveness&page_size=1000")
+    ok = client.get("/v1/porchlamp/leaderboard?sort=p_responsiveness&page_size=1000")
     assert ok.status_code == 200
     body = LeaderboardResponse(**ok.json())
     scores = [row.p_responsiveness for row in body.rows if row.p_responsiveness is not None]
     assert scores == sorted(scores, reverse=True)
 
-    bad = client.get("/v1/cvi/leaderboard?sort=stars")
+    bad = client.get("/v1/porchlamp/leaderboard?sort=stars")
     assert bad.status_code == 422
-    assert bad.json()["error"]["endpoint"] == "/v1/cvi/leaderboard"
+    assert bad.json()["error"]["endpoint"] == "/v1/porchlamp/leaderboard"
     assert "sort" in bad.json()["error"]["detail"]
 
 
 def test_leaderboard_unknown_persona_is_422(api):
     client, _fx, _db = api
-    resp = client.get("/v1/cvi/leaderboard?persona=nonexistent")
+    resp = client.get("/v1/porchlamp/leaderboard?persona=nonexistent")
     assert resp.status_code == 422
     assert resp.json()["error"]["status"] == 422
 
@@ -199,11 +199,11 @@ def test_leaderboard_unknown_persona_is_422(api):
 
 def test_paging_pages_partition_the_full_set_in_order(api):
     client, fx, _db = api
-    full = LeaderboardResponse(**client.get("/v1/cvi/leaderboard?page_size=1000").json())
+    full = LeaderboardResponse(**client.get("/v1/porchlamp/leaderboard?page_size=1000").json())
     assert len(full.rows) == len(fx.rated_names)
 
-    page1 = LeaderboardResponse(**client.get("/v1/cvi/leaderboard?page=1&page_size=20").json())
-    page2 = LeaderboardResponse(**client.get("/v1/cvi/leaderboard?page=2&page_size=20").json())
+    page1 = LeaderboardResponse(**client.get("/v1/porchlamp/leaderboard?page=1&page_size=20").json())
+    page2 = LeaderboardResponse(**client.get("/v1/porchlamp/leaderboard?page=2&page_size=20").json())
     assert [(r.owner, r.name) for r in page1.rows] == [(r.owner, r.name) for r in full.rows[0:20]]
     assert [(r.owner, r.name) for r in page2.rows] == [(r.owner, r.name) for r in full.rows[20:40]]
     assert page1.total == page2.total == full.total
@@ -211,16 +211,16 @@ def test_paging_pages_partition_the_full_set_in_order(api):
 
 def test_paging_beyond_range_is_empty_rows_with_total(api):
     client, fx, _db = api
-    resp = LeaderboardResponse(**client.get("/v1/cvi/leaderboard?page=999&page_size=20").json())
+    resp = LeaderboardResponse(**client.get("/v1/porchlamp/leaderboard?page=999&page_size=20").json())
     assert resp.rows == []
     assert resp.total == len(fx.rated_names)
 
 
 def test_paging_page_size_1000_accepted_1001_rejected(api):
     client, _fx, _db = api
-    ok = client.get("/v1/cvi/leaderboard?page_size=1000")
+    ok = client.get("/v1/porchlamp/leaderboard?page_size=1000")
     assert ok.status_code == 200
-    bad = client.get("/v1/cvi/leaderboard?page_size=1001")
+    bad = client.get("/v1/porchlamp/leaderboard?page_size=1001")
     assert bad.status_code == 422
     assert "1000" in bad.json()["error"]["detail"]
 
@@ -232,7 +232,7 @@ def test_paging_page_size_1000_accepted_1001_rejected(api):
 
 def test_not_ranked_gated_group_has_universal_reasons_only(api):
     client, fx, _db = api
-    body = NotRankedResponse(**client.get("/v1/cvi/not-ranked").json())
+    body = NotRankedResponse(**client.get("/v1/porchlamp/not-ranked").json())
     gated_by_name = {row.name: row for row in body.gated}
     assert set(gated_by_name) == {n for n, r in fx.gated.items() if r != "unrated: no_external_workflow"}
     for name, row in gated_by_name.items():
@@ -245,7 +245,7 @@ def test_not_ranked_no_external_workflow_gate_is_translated_to_unrated(api):
     "unrated: no_external_workflow"`) is reported in the UNRATED group
     with the bare `unrated_reason`, never widening `GateReason`."""
     client, fx, _db = api
-    body = NotRankedResponse(**client.get("/v1/cvi/not-ranked").json())
+    body = NotRankedResponse(**client.get("/v1/porchlamp/not-ranked").json())
     name = next(n for n, r in fx.gated.items() if r == "unrated: no_external_workflow")
     assert name not in {row.name for row in body.gated}
     unrated_row = next(row for row in body.unrated if row.name == name)
@@ -258,7 +258,7 @@ def test_not_ranked_off_platform_routed_is_derived(api):
     `unrated_reason == "off_platform_routed"`, overriding whatever the
     stored `unrated_reason` column itself says."""
     client, fx, _db = api
-    body = NotRankedResponse(**client.get("/v1/cvi/not-ranked").json())
+    body = NotRankedResponse(**client.get("/v1/porchlamp/not-ranked").json())
     routed_names = {n for n, kind in fx.unrated.items() if kind == "routed"}
     routed_rows = [row for row in body.unrated if row.name in routed_names]
     assert len(routed_rows) == len(routed_names)
@@ -272,7 +272,7 @@ def test_not_ranked_off_platform_routed_is_derived(api):
 
 def test_not_ranked_persona_hidden_group_under_a_persona(api):
     client, fx, _db = api
-    body = NotRankedResponse(**client.get(f"/v1/cvi/not-ranked?persona={fx.persona_gate_persona}").json())
+    body = NotRankedResponse(**client.get(f"/v1/porchlamp/not-ranked?persona={fx.persona_gate_persona}").json())
     hidden_by_name = {row.name: row for row in body.persona_hidden}
     assert set(hidden_by_name) == set(fx.persona_gated)
     for name, reason in fx.persona_gated.items():
@@ -283,22 +283,22 @@ def test_not_ranked_persona_hidden_group_under_a_persona(api):
 
 def test_not_ranked_balanced_has_no_persona_hidden_group(api):
     client, _fx, _db = api
-    body = NotRankedResponse(**client.get("/v1/cvi/not-ranked").json())
+    body = NotRankedResponse(**client.get("/v1/porchlamp/not-ranked").json())
     assert body.persona_hidden == []
 
 
 def test_snapshot_counts_match_the_display_classification(api):
     """`/snapshot`'s counts apply
-    `cvi.core.pipeline`'s user-facing classification
+    `porchlamp.core.pipeline`'s user-facing classification
     (`DISPLAY_UNRATED_GATE_REASONS`), not the raw engine `eligible` flag
     -- this fixture's one `"unrated: no_external_workflow"`-gated row
     is counted as unrated here, same as everywhere else."""
-    from cvi.core.pipeline import DISPLAY_UNRATED_GATE_REASONS
+    from porchlamp.core.pipeline import DISPLAY_UNRATED_GATE_REASONS
 
     client, fx, _db = api
     reclassified = sum(1 for reason in fx.gated.values() if reason in DISPLAY_UNRATED_GATE_REASONS)
     assert reclassified == 1, "fixture assumption: exactly one gated reason is display-reclassified"
-    snapshot = SnapshotSummary(**client.get("/v1/cvi/snapshot").json())
+    snapshot = SnapshotSummary(**client.get("/v1/porchlamp/snapshot").json())
     assert snapshot.counts.rated == len(fx.rated_names)
     assert snapshot.counts.gated == len(fx.gated) - reclassified
     assert snapshot.counts.unrated == len(fx.unrated) + reclassified
@@ -309,14 +309,14 @@ def test_not_ranked_counts_derived_from_the_split_balanced(api):
     """`NotRankedResponse.counts` must
     match the ACTUAL groups this same response carries, AND must now
     equal `/snapshot`'s counts exactly -- both derive from the SAME
-    `cvi.core.pipeline.DISPLAY_UNRATED_GATE_REASONS` classification
-    (`cvi.store.queries.snapshot_summary` applies it in SQL,
-    `cvi.serve.app._classify_not_ranked` applies it per-row), so a
+    `porchlamp.core.pipeline.DISPLAY_UNRATED_GATE_REASONS` classification
+    (`porchlamp.store.queries.snapshot_summary` applies it in SQL,
+    `porchlamp.serve.app._classify_not_ranked` applies it per-row), so a
     stage-6-gated-but-display-unrated row is counted the
     same way on both screens -- no more off-by-one between them."""
     client, fx, _db = api
-    body = NotRankedResponse(**client.get("/v1/cvi/not-ranked").json())
-    snapshot = SnapshotSummary(**client.get("/v1/cvi/snapshot").json())
+    body = NotRankedResponse(**client.get("/v1/porchlamp/not-ranked").json())
+    snapshot = SnapshotSummary(**client.get("/v1/porchlamp/snapshot").json())
     assert body.counts.gated == len(body.gated)
     assert body.counts.unrated == len(body.unrated) + len(body.persona_hidden)
     assert body.counts.total == body.counts.rated + body.counts.gated + body.counts.unrated
@@ -328,15 +328,15 @@ def test_not_ranked_counts_derived_from_the_split_balanced(api):
 def test_not_ranked_counts_derived_from_the_split_persona(api):
     client, fx, _db = api
     persona = fx.persona_gate_persona
-    body = NotRankedResponse(**client.get(f"/v1/cvi/not-ranked?persona={persona}").json())
-    snapshot = SnapshotSummary(**client.get("/v1/cvi/snapshot").json())
+    body = NotRankedResponse(**client.get(f"/v1/porchlamp/not-ranked?persona={persona}").json())
+    snapshot = SnapshotSummary(**client.get("/v1/porchlamp/snapshot").json())
     assert body.counts.gated == len(body.gated)
     assert body.counts.unrated == len(body.unrated) + len(body.persona_hidden)
     assert body.counts.total == body.counts.rated + body.counts.gated + body.counts.unrated
     # persona-visible rated matches the leaderboard's own total under the
     # SAME persona -- the exact equality the review found broken
     # (counts.rated=64 vs leaderboard.total=58) before this fix.
-    leaderboard = LeaderboardResponse(**client.get(f"/v1/cvi/leaderboard?persona={persona}&page_size=1000").json())
+    leaderboard = LeaderboardResponse(**client.get(f"/v1/porchlamp/leaderboard?persona={persona}&page_size=1000").json())
     assert body.counts.rated == leaderboard.total == snapshot.persona_visible_counts[persona]
     assert body.counts.total == snapshot.counts.total
 
@@ -348,7 +348,7 @@ def test_not_ranked_counts_derived_from_the_split_persona(api):
 
 def test_persona_visible_counts_reflect_the_one_persona_gated_row(api):
     client, fx, _db = api
-    snapshot = SnapshotSummary(**client.get("/v1/cvi/snapshot").json())
+    snapshot = SnapshotSummary(**client.get("/v1/porchlamp/snapshot").json())
     assert snapshot.persona_visible_counts["balanced"] == len(fx.rated_names)
     # Every rated row here has uniform 0.9 per-pillar coverage (`tests/store/
     # helpers.make_rated_record`'s default), so it clears every persona's
@@ -366,7 +366,7 @@ def test_persona_visible_counts_reflect_the_one_persona_gated_row(api):
 
 def test_repo_detail_rated_repo(api):
     client, fx, _db = api
-    resp = client.get("/v1/cvi/repos/acme/flagged-repo")
+    resp = client.get("/v1/porchlamp/repos/acme/flagged-repo")
     assert resp.status_code == 200
     body = resp.json()
     assert body["eligible"] is True
@@ -378,31 +378,31 @@ def test_repo_detail_rated_repo(api):
 
 def test_repo_detail_gated_repo_has_null_pillars_and_gate_status(api):
     client, fx, _db = api
-    resp = client.get("/v1/cvi/repos/gated-org/gated-fork")
+    resp = client.get("/v1/porchlamp/repos/gated-org/gated-fork")
     assert resp.status_code == 200
     body = resp.json()
     assert body["eligible"] is False
     assert body["gate_reason"] == "fork"
     assert body["rated"] is False
     assert body["rank"] is None
-    assert body["cvi"] is None
+    assert body["porchlamp"] is None
     assert body["c_responsiveness"] is None
 
 
 def test_repo_detail_unknown_repo_is_404_with_consistent_body(api):
     client, _fx, _db = api
-    resp = client.get("/v1/cvi/repos/nobody/nothing")
+    resp = client.get("/v1/porchlamp/repos/nobody/nothing")
     assert resp.status_code == 404
     body = resp.json()
     assert set(body.keys()) == {"error"}
     assert set(body["error"].keys()) == {"endpoint", "status", "detail"}
-    assert body["error"]["endpoint"] == "/v1/cvi/repos/nobody/nothing"
+    assert body["error"]["endpoint"] == "/v1/porchlamp/repos/nobody/nothing"
     assert body["error"]["status"] == 404
 
 
 def test_evidence_shape_for_a_rated_repo(api):
     client, _fx, _db = api
-    resp = client.get("/v1/cvi/repos/acme/flagged-repo/evidence")
+    resp = client.get("/v1/porchlamp/repos/acme/flagged-repo/evidence")
     assert resp.status_code == 200
     rows = [EvidenceRow(**item) for item in resp.json()]
     assert len(rows) > 0
@@ -415,7 +415,7 @@ def test_evidence_shape_for_a_rated_repo(api):
 
 def test_evidence_unknown_repo_is_404_with_consistent_body(api):
     client, _fx, _db = api
-    resp = client.get("/v1/cvi/repos/nobody/nothing/evidence")
+    resp = client.get("/v1/porchlamp/repos/nobody/nothing/evidence")
     assert resp.status_code == 404
     assert set(resp.json()["error"].keys()) == {"endpoint", "status", "detail"}
 
@@ -471,7 +471,7 @@ def test_evidence_row_accepts_a_relative_source():
 
 def test_matrix_only_plots_rated_rows_and_excludes_the_rest(api):
     client, fx, _db = api
-    resp = client.get("/v1/cvi/matrix")
+    resp = client.get("/v1/porchlamp/matrix")
     assert resp.status_code == 200
     body = resp.json()
     plotted = {(p["owner"], p["name"]) for p in body["points"]}
@@ -507,15 +507,15 @@ def test_snapshot_not_finalised_is_503(tmp_path):
     (web_dir / "index.html").write_text("<html></html>")
     app = create_app(str(db_path), web_dir=web_dir)
     client = TestClient(app)
-    resp = client.get("/v1/cvi/snapshot")
+    resp = client.get("/v1/porchlamp/snapshot")
     assert resp.status_code == 503
-    resp2 = client.get("/v1/cvi/leaderboard")
+    resp2 = client.get("/v1/porchlamp/leaderboard")
     assert resp2.status_code == 503
 
 
 def test_methodology_matches_the_real_pure_document_and_its_hash(api):
     client, _fx, _db = api
-    resp = client.get("/v1/cvi/methodology")
+    resp = client.get("/v1/porchlamp/methodology")
     assert resp.status_code == 200
     served = resp.json()
     # `methodology_document()` is Python (tuples included); a JSON round
@@ -526,7 +526,7 @@ def test_methodology_matches_the_real_pure_document_and_its_hash(api):
         assert served[key] == value, key
     stripped = {key: served[key] for key in pure}
     assert sha256_hex(canonical_json(stripped)) == methodology_hash()
-    # Extended fields (`cvi.audit.methodology_history`) are also present.
+    # Extended fields (`porchlamp.audit.methodology_history`) are also present.
     assert "detectors" in served and "rfc_log" in served
 
 
@@ -543,7 +543,7 @@ _WEIGHTS = {
 
 def test_reproject_parity_with_store_queries(api):
     client, _fx, db_path = api
-    resp = client.post("/v1/cvi/reproject?page_size=1000", json=_WEIGHTS)
+    resp = client.post("/v1/porchlamp/reproject?page_size=1000", json=_WEIGHTS)
     assert resp.status_code == 200
     body = resp.json()
 
@@ -558,7 +558,7 @@ def test_reproject_parity_with_store_queries(api):
     for row in body["rows"]:
         store_row = by_name[row["name"]]
         assert row["rank"] == store_row["rank"]
-        assert row["cvi"] == store_row["cvi"]
+        assert row["porchlamp"] == store_row["porchlamp"]
         assert row["coverage"] == store_row["coverage"]
         assert row["tier"] == store_row["tier"]
         assert row["balanced_rank"] == store_row["balanced_rank"]
@@ -569,7 +569,7 @@ def test_reproject_rejects_negative_weight(api):
     bad = dict(_WEIGHTS)
     bad["weight_responsiveness"] = -0.5
     bad["weight_criticality"] = 0.95
-    resp = client.post("/v1/cvi/reproject", json=bad)
+    resp = client.post("/v1/porchlamp/reproject", json=bad)
     assert resp.status_code == 422
     assert "non-negative" in resp.json()["error"]["detail"]
 
@@ -577,7 +577,7 @@ def test_reproject_rejects_negative_weight(api):
 def test_reproject_rejects_unnormalised_weights(api):
     client, _fx, _db = api
     bad = {k: 0.5 for k in _WEIGHTS}
-    resp = client.post("/v1/cvi/reproject", json=bad)
+    resp = client.post("/v1/porchlamp/reproject", json=bad)
     assert resp.status_code == 422
     assert "sum to 1" in resp.json()["error"]["detail"]
 
@@ -590,8 +590,8 @@ def test_reproject_rejects_unnormalised_weights(api):
 def test_error_body_shape_is_consistent_across_404_422_503(tmp_path, api):
     client, _fx, _db = api
     responses = [
-        client.get("/v1/cvi/repos/nobody/nothing"),  # 404
-        client.get("/v1/cvi/leaderboard?persona=nope"),  # 422
+        client.get("/v1/porchlamp/repos/nobody/nothing"),  # 404
+        client.get("/v1/porchlamp/leaderboard?persona=nope"),  # 422
     ]
     for resp in responses:
         body = resp.json()
@@ -608,8 +608,8 @@ def test_error_body_shape_is_consistent_across_404_422_503(tmp_path, api):
 
 def test_create_app_refuses_a_fixture_marked_v1_database(tmp_path):
     from tests.fixtures.synthetic_catalog import BENCHMARK_NOW, get_benchmark_catalog, seed_benchmark_catalog
-    from cvi.lakehouse import OperationalStore, repositories_dump_hash
-    from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest
+    from porchlamp.lakehouse import OperationalStore, repositories_dump_hash
+    from porchlamp.snapshot.manifest import build_manifest, envelope_entries, write_manifest
     import importlib.util
 
     root = Path(__file__).resolve().parent.parent.parent
@@ -617,7 +617,7 @@ def test_create_app_refuses_a_fixture_marked_v1_database(tmp_path):
     promote = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(promote)
 
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     store = OperationalStore(str(db_path))
     rows = get_benchmark_catalog(3)
     seed_benchmark_catalog(store, rows, BENCHMARK_NOW)
@@ -654,11 +654,11 @@ def test_create_app_refuses_a_fixture_marked_v1_database(tmp_path):
 def test_ui_fixtures_validate_against_the_api_contract_models():
     import pydantic
 
-    from cvi.serve.contract import EvidenceRow as _EvidenceRow
-    from cvi.serve.contract import LeaderboardResponse as _LeaderboardResponse
-    from cvi.serve.contract import MethodologyResponse as _MethodologyResponse
-    from cvi.serve.contract import NotRankedResponse as _NotRankedResponse
-    from cvi.serve.contract import SnapshotSummary as _SnapshotSummary
+    from porchlamp.serve.contract import EvidenceRow as _EvidenceRow
+    from porchlamp.serve.contract import LeaderboardResponse as _LeaderboardResponse
+    from porchlamp.serve.contract import MethodologyResponse as _MethodologyResponse
+    from porchlamp.serve.contract import NotRankedResponse as _NotRankedResponse
+    from porchlamp.serve.contract import SnapshotSummary as _SnapshotSummary
 
     evidence_adapter = pydantic.TypeAdapter(list[_EvidenceRow])
     checked = 0
@@ -674,7 +674,7 @@ def test_ui_fixtures_validate_against_the_api_contract_models():
             evidence_adapter.validate_python(payload)
         elif path.name == "methodology.json":
             # This fixture validates against `MethodologyResponse` (contract-side
-            # mirror of `cvi.core.methodology` document) so this
+            # mirror of `porchlamp.core.methodology` document) so this
             # drift guard covers every fixture file rather than failing on
             # one it does not recognise.
             _MethodologyResponse(**payload)
@@ -687,7 +687,7 @@ def test_ui_fixtures_validate_against_the_api_contract_models():
 
 # --------------------------------------------------------------------------- #
 # Zero external requests through the v2 static mount (extends the existing
-# `tests/test_webapp.py::TestZeroCDNAssurance` pattern to `cvi.serve.app`'s
+# `tests/test_webapp.py::TestZeroCDNAssurance` pattern to `porchlamp.serve.app`'s
 # own mount; proves the mount + fallback mechanism never introduces an
 # external reference of its own, using a controlled `index.html`).
 # --------------------------------------------------------------------------- #
@@ -784,18 +784,18 @@ def test_performance_leaderboard_and_reproject_p95_under_150ms_for_10k_rows(tmp_
 
     for limit in (20, 1000):
         _assert_under_budget_with_retry(
-            lambda limit=limit: _p95(_time_calls(lambda: client.get(f"/v1/cvi/leaderboard?page_size={limit}"))),
+            lambda limit=limit: _p95(_time_calls(lambda: client.get(f"/v1/porchlamp/leaderboard?page_size={limit}"))),
             f"GET /leaderboard page_size={limit} p95 over 15 calls",
         )
         _assert_under_budget_with_retry(
-            lambda limit=limit: _p95(_time_calls(lambda: client.post(f"/v1/cvi/reproject?page_size={limit}", json=_WEIGHTS))),
+            lambda limit=limit: _p95(_time_calls(lambda: client.post(f"/v1/porchlamp/reproject?page_size={limit}", json=_WEIGHTS))),
             f"POST /reproject page_size={limit} p95 over 15 calls",
         )
 
 
 # --------------------------------------------------------------------------- #
 # `scripts/serve.py`'s `main()` must start on a
-# v2-only database, from a foreign cwd, and serve `/v1/cvi/*` without a
+# v2-only database, from a foreign cwd, and serve `/v1/porchlamp/*` without a
 # bare 500 -- tested through a REAL subprocess (`create_app` alone does
 # not exercise `main()`'s own guard/banner code path).
 # --------------------------------------------------------------------------- #
@@ -847,7 +847,7 @@ def test_main_starts_on_a_v2_database_from_a_foreign_cwd(tmp_path):
         text=True,
     )
     try:
-        resp = _wait_for_http(f"http://127.0.0.1:{port}/v1/cvi/leaderboard")
+        resp = _wait_for_http(f"http://127.0.0.1:{port}/v1/porchlamp/leaderboard")
         assert resp.status_code == 200, resp.text
         assert resp.json()["total"] == len(fx.rated_names)
     finally:
@@ -861,9 +861,9 @@ def test_main_starts_on_a_v2_database_from_a_foreign_cwd(tmp_path):
 def test_main_v1_endpoints_do_not_500_on_a_v2_only_database(tmp_path):
     """Blocker B-1's second reproduction: on a v2-only database, `main()`
     used to start (once the first crash was worked around) but then
-    500 on every `/v1/cvi/*` call because `_current_snapshot_id` raised
+    500 on every `/v1/porchlamp/*` call because `_current_snapshot_id` raised
     an uncaught `sqlite3.OperationalError`. Both are now fixed at once:
-    `main()` starts AND every `/v1/cvi/*` endpoint responds normally."""
+    `main()` starts AND every `/v1/porchlamp/*` endpoint responds normally."""
     db_path = tmp_path / "db.sqlite"
     conn = fresh_db(db_path)
     build_snapshot(conn, db_path, n_rated=5)
@@ -881,7 +881,7 @@ def test_main_v1_endpoints_do_not_500_on_a_v2_only_database(tmp_path):
         text=True,
     )
     try:
-        for path in ("/v1/cvi/leaderboard", "/v1/cvi/snapshot", "/v1/cvi/not-ranked", "/v1/cvi/matrix"):
+        for path in ("/v1/porchlamp/leaderboard", "/v1/porchlamp/snapshot", "/v1/porchlamp/not-ranked", "/v1/porchlamp/matrix"):
             resp = _wait_for_http(f"http://127.0.0.1:{port}{path}")
             assert resp.status_code in (200, 503), f"{path}: {resp.status_code} {resp.text}"
             assert resp.headers["content-type"].startswith("application/json"), path
@@ -901,7 +901,7 @@ def test_main_v1_endpoints_do_not_500_on_a_v2_only_database(tmp_path):
 
 def test_unmatched_api_path_is_a_json_404_not_the_spa_shell(api):
     client, _fx, _db = api
-    for path in ("/v1/cvi/bogus", "/v1/cvi/leaderboard/extra", "/v1/cvi/"):
+    for path in ("/v1/porchlamp/bogus", "/v1/porchlamp/leaderboard/extra", "/v1/porchlamp/"):
         resp = client.get(path)
         assert resp.status_code == 404, path
         assert resp.headers["content-type"].startswith("application/json"), path
@@ -912,7 +912,7 @@ def test_unmatched_api_path_is_a_json_404_not_the_spa_shell(api):
 
 def test_method_mismatch_on_a_real_endpoint_is_not_the_spa_shell(api):
     client, _fx, _db = api
-    resp = client.get("/v1/cvi/reproject")  # POST-only
+    resp = client.get("/v1/porchlamp/reproject")  # POST-only
     assert resp.status_code != 200 or resp.headers["content-type"].startswith("application/json")
     assert not resp.headers["content-type"].startswith("text/html")
 
@@ -941,29 +941,29 @@ def test_legacy_prefix_unmounted_is_a_json_404_not_the_spa_shell(api):
     assert "v1 shape" in resp.json()["error"]["detail"]
 
 
-def test_create_app_serves_v1_cvi_endpoints_as_503_not_500_on_a_legitimate_v1_db(tmp_path):
+def test_create_app_serves_v1_porchlamp_endpoints_as_503_not_500_on_a_legitimate_v1_db(tmp_path):
     """Blocker B-1's per-request half, at the `create_app` layer directly
     (the subprocess tests above exercise it through `main()`; this proves
     the SAME fix on a database that is a LEGITIMATE, promoted v1 store --
     not fixture-marked, not tampered -- which must start cleanly, mount
-    `/legacy` with real v1 data, and answer every `/v1/cvi/*` call with a
+    `/legacy` with real v1 data, and answer every `/v1/porchlamp/*` call with a
     clean 503 (no `snapshots` table at all) rather than a bare 500."""
     import importlib.util
 
-    from cvi.lakehouse import OperationalStore, repositories_dump_hash
-    from cvi.models import CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
-    from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest
+    from porchlamp.lakehouse import OperationalStore, repositories_dump_hash
+    from porchlamp.models import PorchlampCompositeResult, Ecosystem, PillarScores, Quadrant, Tier
+    from porchlamp.snapshot.manifest import build_manifest, envelope_entries, write_manifest
 
     root = Path(__file__).resolve().parent.parent.parent
     spec = importlib.util.spec_from_file_location("promote_probe2", root / "scripts" / "promote.py")
     promote = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(promote)
 
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     store = OperationalStore(str(db_path))
     store.upsert_composite(
-        CVICompositeResult(
-            owner="tokio-rs", name="tokio", ecosystem=Ecosystem.CRATES, overall_cvi=70.31,
+        PorchlampCompositeResult(
+            owner="tokio-rs", name="tokio", ecosystem=Ecosystem.CRATES, overall_porchlamp=70.31,
             rank_tier=Tier.A, matrix_quadrant=Quadrant.SWEET_SPOT, leverage_score=72.0,
             friction_score=30.0, is_stage0_disqualified=False, disqualification_reason=None,
         ),
@@ -993,7 +993,7 @@ def test_create_app_serves_v1_cvi_endpoints_as_503_not_500_on_a_legitimate_v1_db
     legacy = client.get("/legacy/healthz")
     assert legacy.status_code == 200 and legacy.json() == {"status": "ok"}
 
-    for path in ("/v1/cvi/leaderboard", "/v1/cvi/snapshot", "/v1/cvi/not-ranked"):
+    for path in ("/v1/porchlamp/leaderboard", "/v1/porchlamp/snapshot", "/v1/porchlamp/not-ranked"):
         resp = client.get(path)
         assert resp.status_code == 503, f"{path}: {resp.status_code} {resp.text}"
         assert resp.headers["content-type"].startswith("application/json"), path
@@ -1005,7 +1005,7 @@ def test_real_api_paths_and_the_spa_fallback_both_still_work(api):
     were already correct -- a real endpoint still 200s, and a genuine
     app-owned path still falls back to the SPA shell."""
     client, _fx, _db = api
-    ok = client.get("/v1/cvi/leaderboard")
+    ok = client.get("/v1/porchlamp/leaderboard")
     assert ok.status_code == 200
     index = client.get("/")
     assert index.status_code == 200 and index.headers["content-type"].startswith("text/html")
@@ -1039,7 +1039,7 @@ def test_a_stored_out_of_literal_quadrant_is_a_500_not_a_422(tmp_path):
     (web_dir / "index.html").write_text("<html></html>")
     app = create_app(str(db_path), web_dir=web_dir)
     client = TestClient(app, raise_server_exceptions=False)
-    resp = client.get("/v1/cvi/leaderboard")
+    resp = client.get("/v1/porchlamp/leaderboard")
     assert resp.status_code == 500
     body = resp.json()
     assert set(body.keys()) == {"error"}
@@ -1051,17 +1051,17 @@ def test_a_stored_out_of_literal_quadrant_is_a_500_not_a_422(tmp_path):
 
 def test_a_genuine_caller_input_error_is_still_422_not_500(api):
     """Over-correction guard: narrowing the `ValueError` handler must not
-    turn a real caller-input problem into a 500 -- `cvi.store.queries`'
+    turn a real caller-input problem into a 500 -- `porchlamp.store.queries`'
     own validators still 422 exactly as before."""
     client, _fx, _db = api
-    resp = client.get("/v1/cvi/leaderboard?persona=nonexistent")
+    resp = client.get("/v1/porchlamp/leaderboard?persona=nonexistent")
     assert resp.status_code == 422
     assert resp.json()["error"]["status"] == 422
 
 
 # --------------------------------------------------------------------------- #
 # Blocker B-4, through the API: a tampered v2 store is refused by
-# `create_app` itself (`cvi.serve.guard` is exercised directly in
+# `create_app` itself (`porchlamp.serve.guard` is exercised directly in
 # `tests/serve/test_guard.py`; this proves the wiring, not the logic).
 # --------------------------------------------------------------------------- #
 
@@ -1074,7 +1074,7 @@ def test_create_app_refuses_a_tampered_v2_store(tmp_path):
     conn.close()
 
     tamper = sqlite3.connect(db_path)
-    tamper.execute("UPDATE repositories SET cvi = 100.0 WHERE snapshot_id = ?", (SNAPSHOT_ID,))
+    tamper.execute("UPDATE repositories SET porchlamp = 100.0 WHERE snapshot_id = ?", (SNAPSHOT_ID,))
     tamper.commit()
     tamper.close()
 
@@ -1097,8 +1097,8 @@ def test_matrix_excludes_a_point_whose_quadrant_is_null_even_with_coordinates(tm
     the leverage/friction-null case the OTHER matrix test already covers
     -- a row with both coordinates present but no quadrant computed must
     still be excluded, not plotted with a `None` quadrant."""
-    from cvi.core.tiebreak import TieBreakInput, assign_ranks
-    from cvi.store.writer import write_records
+    from porchlamp.core.tiebreak import TieBreakInput, assign_ranks
+    from porchlamp.store.writer import write_records
     from store.helpers import make_rated_record, make_repo_write
 
     db_path = tmp_path / "db.sqlite"
@@ -1118,7 +1118,7 @@ def test_matrix_excludes_a_point_whose_quadrant_is_null_even_with_coordinates(tm
     (web_dir / "index.html").write_text("<html></html>")
     app = create_app(str(db_path), web_dir=web_dir)
     client = TestClient(app)
-    resp = client.get("/v1/cvi/matrix")
+    resp = client.get("/v1/porchlamp/matrix")
     assert resp.status_code == 200
     body = resp.json()
     assert body["points"] == []
@@ -1130,19 +1130,19 @@ def test_matrix_excludes_a_point_whose_quadrant_is_null_even_with_coordinates(tm
 
 
 def test_no_ceiling_or_band_assigns_a_and_b_correctly_via_reproject(api):
-    """RX3: `_no_ceiling_or_band`'s A/B bands (`cvi.core.constants.
+    """RX3: `_no_ceiling_or_band`'s A/B bands (`porchlamp.core.constants.
     CEILING_A_MIN_COVERAGE`=0.80, `NO_CEILING_MIN_COVERAGE`=0.95) -- the
-    one arithmetic `cvi/serve/app.py` performs itself, per its own
+    one arithmetic `porchlamp/serve/app.py` performs itself, per its own
     docstring's "the one exception". Uses `/reproject` with a custom
     weight vector chosen so the resulting coverage lands in each band."""
-    from cvi.core import constants
+    from porchlamp.core import constants
 
     client, _fx, _db = api
     # Every rated row in this fixture has uniform per-pillar coverage 0.9
     # (`tests/store/helpers.make_rated_record`'s default), so ANY weight
     # vector summing to 1 gives every row coverage_custom == 0.9 -- squarely
     # inside ceiling band A ([0.80, 0.95)), never B or "no ceiling".
-    resp = client.post("/v1/cvi/reproject?page_size=1000", json=_WEIGHTS)
+    resp = client.post("/v1/porchlamp/reproject?page_size=1000", json=_WEIGHTS)
     assert resp.status_code == 200
     body = resp.json()
     assert body["rows"], "reproject returned no rows"
@@ -1158,15 +1158,15 @@ def test_no_ceiling_or_band_assigns_a_and_b_correctly_via_reproject(api):
 # agree -- a real served fixture showed /snapshot reporting
 # gated=35/unrated=15 (the raw engine eligible flag) while /not-ranked
 # reported 31/19 (classification already correct at
-# the API layer). cvi.core.pipeline.not_ranked_class/
+# the API layer). porchlamp.core.pipeline.not_ranked_class/
 # DISPLAY_UNRATED_GATE_REASONS is now the one shared rule.
 # --------------------------------------------------------------------------- #
 
 
 def test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture(tmp_path):
-    from cvi.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
-    from cvi.store import schema
-    from cvi.store.migrations import apply_migrations
+    from porchlamp.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
+    from porchlamp.store import schema
+    from porchlamp.store.migrations import apply_migrations
 
     fixture_dir = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
     scored, frozen = score_snapshot_dir(fixture_dir)
@@ -1181,13 +1181,13 @@ def test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture(tmp_path
     expected_unrated = frozen.expected["counts"]["unrated"]
     assert expected_gated + expected_unrated + frozen.expected["counts"]["rated"] == 50
 
-    # Layer 1: the pipeline's own SnapshotCounts (cvi.core.pipeline.
+    # Layer 1: the pipeline's own SnapshotCounts (porchlamp.core.pipeline.
     # build_snapshot_counts, using not_ranked_class per record).
     assert scored.counts.gated == expected_gated, scored.counts.gated
     assert scored.counts.unrated == expected_unrated, scored.counts.unrated
     assert scored.counts.rated + scored.counts.gated + scored.counts.unrated == len(scored.records)
 
-    # Layer 2: cvi.store.queries.snapshot_summary (SQL, same
+    # Layer 2: porchlamp.store.queries.snapshot_summary (SQL, same
     # DISPLAY_UNRATED_GATE_REASONS constant).
     db_path = tmp_path / "db.sqlite"
     conn = schema.connect(db_path)
@@ -1209,7 +1209,7 @@ def test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture(tmp_path
     app = create_app(str(db_path), web_dir=web_dir)
     client = TestClient(app)
 
-    not_ranked = client.get("/v1/cvi/not-ranked")
+    not_ranked = client.get("/v1/porchlamp/not-ranked")
     assert not_ranked.status_code == 200, not_ranked.text
     body = not_ranked.json()
     assert len(body["gated"]) == expected_gated, len(body["gated"])
@@ -1217,7 +1217,7 @@ def test_counts_agree_across_pipeline_store_and_api_on_the_real_fixture(tmp_path
     assert body["counts"]["gated"] == expected_gated
     assert body["counts"]["unrated"] == expected_unrated
 
-    snapshot_resp = client.get("/v1/cvi/snapshot")
+    snapshot_resp = client.get("/v1/porchlamp/snapshot")
     assert snapshot_resp.status_code == 200, snapshot_resp.text
     snap_counts = snapshot_resp.json()["counts"]
     assert snap_counts["gated"] == expected_gated, snap_counts
@@ -1232,7 +1232,7 @@ def test_evidence_sources_are_relative_on_the_real_fixture(tmp_path):
     least one `source` like
     `/home/pctablet505/Projects/cvi-scratch/sample-200/raw/gfi/....json`.
 
-    `EvidenceRow`'s own pydantic validator (`cvi/serve/contract.py`)
+    `EvidenceRow`'s own pydantic validator (`porchlamp/serve/contract.py`)
     already refuses an absolute `source` -- a bad row would make FastAPI's
     `response_model` raise before this test ever saw JSON. This test adds
     an independent, content-level check on top: walk the real store built
@@ -1240,9 +1240,9 @@ def test_evidence_sources_are_relative_on_the_real_fixture(tmp_path):
     API) and grep every `source` string on every repo's evidence for a
     leading `/`, a leading `\\`, or a Windows drive letter.
     """
-    from cvi.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
-    from cvi.store import schema
-    from cvi.store.migrations import apply_migrations
+    from porchlamp.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
+    from porchlamp.store import schema
+    from porchlamp.store.migrations import apply_migrations
 
     fixture_dir = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
     manifest = json.loads((fixture_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -1264,7 +1264,7 @@ def test_evidence_sources_are_relative_on_the_real_fixture(tmp_path):
 
     checked_sources = 0
     for owner, name in repos:
-        resp = client.get(f"/v1/cvi/repos/{owner}/{name}/evidence")
+        resp = client.get(f"/v1/porchlamp/repos/{owner}/{name}/evidence")
         assert resp.status_code == 200, (owner, name, resp.text)
         rows = [EvidenceRow(**item) for item in resp.json()]
         for row in rows:
@@ -1308,10 +1308,10 @@ def _serve_store(tmp_path, *, n_rated: int = 285):
 def test_reproject_response_states_which_page_it_served(tmp_path):
     """G1: a reproject page smaller than the eligible set must report page and
     page_size, and total must exceed the returned row count."""
-    from cvi.serve.contract import ReprojectResponse
+    from porchlamp.serve.contract import ReprojectResponse
 
     client, fx, _db = _serve_store(tmp_path)
-    resp = client.post("/v1/cvi/reproject", json=_WEIGHTS)  # default page_size=20
+    resp = client.post("/v1/porchlamp/reproject", json=_WEIGHTS)  # default page_size=20
     assert resp.status_code == 200
     data = resp.json()
 
@@ -1338,7 +1338,7 @@ def test_not_ranked_counts_survive_a_truncated_page(monkeypatch, tmp_path):
     conn.close()
     assert true_gated > 5  # the fixture crosses the patched cap
 
-    resp = client.get("/v1/cvi/not-ranked")
+    resp = client.get("/v1/porchlamp/not-ranked")
     assert resp.status_code == 200
     data = resp.json()
 
@@ -1354,15 +1354,15 @@ def test_not_ranked_counts_agree_with_snapshot_on_a_truncated_page(monkeypatch, 
     /not-ranked counts must equal /snapshot counts exactly."""
     monkeypatch.setattr(queries, "MAX_LIMIT", 5)
     client, _fx, _db = _serve_store(tmp_path)
-    body = NotRankedResponse(**client.get("/v1/cvi/not-ranked").json())
-    snapshot = SnapshotSummary(**client.get("/v1/cvi/snapshot").json())
+    body = NotRankedResponse(**client.get("/v1/porchlamp/not-ranked").json())
+    snapshot = SnapshotSummary(**client.get("/v1/porchlamp/snapshot").json())
     assert body.counts == snapshot.counts
 
 
 def test_matrix_splits_store_exclusions_from_api_drops(api):
     """G3: excluded_count is the store's own figure, unchanged; rows the API
     could not render are counted separately in unrenderable_count, never merged."""
-    from cvi.serve.contract import MatrixResponse
+    from porchlamp.serve.contract import MatrixResponse
 
     client, _fx, db_path = api
     conn = _raw_conn(db_path)
@@ -1371,7 +1371,7 @@ def test_matrix_splits_store_exclusions_from_api_drops(api):
     store_excluded = store_result["excluded_count"]
     store_points = len(store_result["points"])
 
-    resp = client.get("/v1/cvi/matrix")
+    resp = client.get("/v1/porchlamp/matrix")
     assert resp.status_code == 200
     data = resp.json()
 

@@ -19,9 +19,9 @@ from pathlib import Path
 
 import pytest
 
-from cvi.collect.envelope import write_envelope
-from cvi.lakehouse import OperationalStore, repositories_dump_hash
-from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest
+from porchlamp.collect.envelope import write_envelope
+from porchlamp.lakehouse import OperationalStore, repositories_dump_hash
+from porchlamp.snapshot.manifest import build_manifest, envelope_entries, write_manifest
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("promote", ROOT / "scripts" / "promote.py")
@@ -94,7 +94,7 @@ def _deep_dive_json(db_path: str, owner: str, name: str):
 
 
 def test_promote_materializes_deep_dive(tmp_path):
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     n = promote.promote([_bundle()], db, NOW, tmp_path)
     assert n == 1
     dd = _deep_dive_json(db, "acme", "widget")
@@ -108,7 +108,7 @@ def test_promote_materializes_deep_dive(tmp_path):
     # Playbook is a dict with an actions list (the double-count fix keeps it sane).
     pb = dd["maintainer_playbook"]
     assert isinstance(pb["actions"], list)
-    assert pb["potential_cvi"] <= 100.0
+    assert pb["potential_porchlamp"] <= 100.0
 
 
 def test_promote_deep_dive_survives_empty_pr_events(tmp_path):
@@ -116,7 +116,7 @@ def test_promote_deep_dive_survives_empty_pr_events(tmp_path):
     # crash promotion or leave the column NULL.
     b = _bundle(owner="quiet", name="library")
     b["pr_events"] = []
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     assert promote.promote([b], db, NOW, tmp_path) == 1
     dd = _deep_dive_json(db, "quiet", "library")
     assert dd is not None
@@ -144,21 +144,21 @@ def test_missing_created_at_falls_back_to_as_of_not_the_wall_clock():
 # --------------------------------------------------------------------------- #
 
 
-def test_promote_help_runs_from_a_temp_cwd_with_only_cvi_importable(tmp_path):
-    # Simulates the deployed layout: `cvi` is importable (however it got
+def test_promote_help_runs_from_a_temp_cwd_with_only_porchlamp_importable(tmp_path):
+    # Simulates the deployed layout: `porchlamp` is importable (however it got
     # there -- an editable install, in this worktree's case a symlink built
     # here so the test does not depend on which checkout the venv's
     # editable install happens to point at), but the repo root/`scripts` is
     # NOT separately on sys.path. Before the fix, `from scripts.verify
     # import ...` crashed here with "ModuleNotFoundError: No module named
     # 'scripts'" -- reproduced below on the round-3 source, byte for byte.
-    only_cvi = tmp_path / "only_cvi_on_path"
-    only_cvi.mkdir()
-    (only_cvi / "cvi").symlink_to(ROOT / "cvi")
+    only_porchlamp = tmp_path / "only_porchlamp_on_path"
+    only_porchlamp.mkdir()
+    (only_porchlamp / "porchlamp").symlink_to(ROOT / "porchlamp")
     cwd = tmp_path / "cwd"
     cwd.mkdir()
     env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
-    env["PYTHONPATH"] = str(only_cvi)
+    env["PYTHONPATH"] = str(only_porchlamp)
 
     result = subprocess.run(
         [sys.executable, "-B", str(ROOT / "scripts" / "promote.py"), "--help"],
@@ -182,14 +182,14 @@ def test_promote_atomically_replaces_a_stray_row_not_merges_with_it(tmp_path):
     # coexist with what this promotion writes. The temp file
     # promote_atomically builds starts empty and REPLACES the old file
     # outright, so purity no longer depends on an in-place DELETE.
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     store = OperationalStore(db)
     store.connection.execute(
         "INSERT INTO repositories (owner, name, ecosystem, domain_category, "
         "stars, forks, openssf_criticality, elephant_factor, legal_ip_model, "
         "ai_posture, score_responsiveness, score_criticality, score_governance, "
         "score_rigor_ai, score_accessibility, leverage_score, friction_score, "
-        "matrix_quadrant, overall_cvi, rank_tier) VALUES "
+        "matrix_quadrant, overall_porchlamp, rank_tier) VALUES "
         "('stray', 'row', 'pypi', '', 1, 1, 0, 1, 'DCO', 'AD_HOC', "
         "0, 0, 0, 0, 0, 0, 0, 'SWEET_SPOT', 0, 'A')")
     store.connection.commit()
@@ -271,7 +271,7 @@ def _freeze_real(data_dir: Path, as_of: str = NOW.isoformat()) -> dict:
 def test_resolve_manifest_without_a_freeze_names_the_freeze_command(tmp_path):
     with pytest.raises(SystemExit) as excinfo:
         promote.resolve_manifest(tmp_path, "whatever-id")
-    assert "cvi.snapshot freeze" in str(excinfo.value)
+    assert "porchlamp.snapshot freeze" in str(excinfo.value)
     assert str(tmp_path) in str(excinfo.value)
 
 
@@ -285,12 +285,12 @@ def test_resolve_manifest_with_unknown_snapshot_id_names_the_freeze_command(tmp_
     _freeze_real(tmp_path)
     with pytest.raises(SystemExit) as excinfo:
         promote.resolve_manifest(tmp_path, "does-not-exist")
-    assert "cvi.snapshot freeze" in str(excinfo.value)
+    assert "porchlamp.snapshot freeze" in str(excinfo.value)
 
 
 def test_write_snapshot_meta_records_the_bound_identity(tmp_path):
     bundle = _real_clean_bundle(tmp_path)
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     promote.promote([bundle], db, NOW, tmp_path)
     manifest = _freeze_real(tmp_path)
     dump_hash = repositories_dump_hash(db)
@@ -319,7 +319,7 @@ def test_write_snapshot_meta_hash_ignores_its_own_row(tmp_path):
     # not include its own row -- otherwise every promoted-then-served
     # database would invalidate itself the instant the row is written.
     bundle = _real_clean_bundle(tmp_path)
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     promote.promote([bundle], db, NOW, tmp_path)
     manifest = _freeze_real(tmp_path)
     before = repositories_dump_hash(db)
@@ -340,20 +340,20 @@ def test_main_requires_snapshot_id_flag(monkeypatch, capsys, tmp_path):
 
 def test_main_refuses_promotion_for_an_unknown_snapshot_id(tmp_path, monkeypatch):
     bundle = _real_clean_bundle(tmp_path)
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     monkeypatch.setattr(sys, "argv", [
         "promote.py", "--db", db, "--data-dir", str(tmp_path),
         "--snapshot-id", "does-not-exist", "--as-of", NOW.isoformat()])
     with pytest.raises(SystemExit) as excinfo:
         promote.main()
-    assert "cvi.snapshot freeze" in str(excinfo.value)
+    assert "porchlamp.snapshot freeze" in str(excinfo.value)
     assert not Path(db).exists()
     del bundle  # only needed to prove a clean bundle existing doesn't matter
 
 
 def test_main_promotes_and_binds_after_a_freeze(tmp_path, monkeypatch):
     _real_clean_bundle(tmp_path)
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     manifest = _freeze_real(tmp_path)
     monkeypatch.setattr(sys, "argv", [
         "promote.py", "--db", db, "--data-dir", str(tmp_path),
@@ -386,7 +386,7 @@ def test_hollow_manifest_covers_zero_clean_bundles_and_is_refused(tmp_path, monk
     hollow = build_manifest([], as_of="2026-01-01T00:00:00+00:00",
                             code_commit="unknown", canonical_dump_hash="pending")
     write_manifest(tmp_path, hollow)
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     monkeypatch.setattr(sys, "argv", [
         "promote.py", "--db", db, "--data-dir", str(tmp_path),
         "--snapshot-id", hollow["snapshot_id"], "--as-of", "2026-01-01T00:00:00Z"])
@@ -404,7 +404,7 @@ def test_real_manifest_promotes_exactly_the_covered_bundle(tmp_path, monkeypatch
     assert covered == [bundle]
     assert not_in_manifest == []
 
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     monkeypatch.setattr(sys, "argv", [
         "promote.py", "--db", db, "--data-dir", str(tmp_path),
         "--snapshot-id", manifest["snapshot_id"], "--as-of", NOW.isoformat()])
@@ -472,7 +472,7 @@ def test_manifest_covering_one_of_two_bundles_drops_only_that_one(tmp_path, monk
     assert covered == [acme_bundle]
     assert not_in_manifest == [numpy_bundle]
 
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     monkeypatch.setattr(sys, "argv", [
         "promote.py", "--db", db, "--data-dir", str(tmp_path),
         "--snapshot-id", manifest["snapshot_id"], "--as-of", NOW.isoformat()])
@@ -517,7 +517,7 @@ def test_main_refuses_as_of_disagreeing_with_the_manifest(tmp_path, monkeypatch)
     # snapshot_meta silently recorded another, six years apart.
     _real_clean_bundle(tmp_path)
     manifest = _freeze_real(tmp_path, as_of="2026-09-13T00:00:00+00:00")
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     monkeypatch.setattr(sys, "argv", [
         "promote.py", "--db", db, "--data-dir", str(tmp_path),
         "--snapshot-id", manifest["snapshot_id"], "--as-of", "2020-01-01T00:00:00Z"])
@@ -530,7 +530,7 @@ def test_main_refuses_as_of_disagreeing_with_the_manifest(tmp_path, monkeypatch)
 def test_main_defaults_as_of_to_the_manifest_when_omitted(tmp_path, monkeypatch):
     _real_clean_bundle(tmp_path)
     manifest = _freeze_real(tmp_path, as_of="2026-09-13T00:00:00+00:00")
-    db = str(tmp_path / "cvi.db")
+    db = str(tmp_path / "porchlamp.db")
     monkeypatch.setattr(sys, "argv", [
         "promote.py", "--db", db, "--data-dir", str(tmp_path),
         "--snapshot-id", manifest["snapshot_id"]])
@@ -563,7 +563,7 @@ def test_promote_atomically_leaves_the_served_db_untouched_on_failure(tmp_path, 
     # snapshot_meta) still leaves the SERVED file untouched.
     bundle = _real_clean_bundle(tmp_path)
     manifest = _freeze_real(tmp_path)
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     n = promote.promote_atomically([bundle], str(db), NOW, tmp_path, manifest)
     assert n == 1
     before = hashlib.sha256(db.read_bytes()).hexdigest()
@@ -577,7 +577,7 @@ def test_promote_atomically_leaves_the_served_db_untouched_on_failure(tmp_path, 
 
     after = hashlib.sha256(db.read_bytes()).hexdigest()
     assert after == before, "a failed promotion rewrote the served database"
-    tmp_file = tmp_path / f"cvi.db.tmp-{manifest['snapshot_id']}"
+    tmp_file = tmp_path / f"porchlamp.db.tmp-{manifest['snapshot_id']}"
     assert not tmp_file.exists(), "the failed attempt's temp file was not cleaned up"
 
 
@@ -587,8 +587,8 @@ def test_promote_atomically_cleans_up_a_stale_temp_file_from_a_prior_failure(tmp
     # for a completed promotion or block the next attempt.
     bundle = _real_clean_bundle(tmp_path)
     manifest = _freeze_real(tmp_path)
-    db = tmp_path / "cvi.db"
-    stale = tmp_path / f"cvi.db.tmp-{manifest['snapshot_id']}"
+    db = tmp_path / "porchlamp.db"
+    stale = tmp_path / f"porchlamp.db.tmp-{manifest['snapshot_id']}"
     stale.write_text("not a real database", encoding="utf-8")
 
     n = promote.promote_atomically([bundle], str(db), NOW, tmp_path, manifest)

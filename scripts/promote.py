@@ -14,8 +14,8 @@ once, here at the script boundary, and that value is used for the whole run --
 never inside the scoring loop.
 
 Manifest binding (`03` §5): promotion requires a frozen snapshot manifest
-(``python -m cvi.snapshot freeze``) and writes a ``snapshot_meta`` row binding
-the database's post-promotion content (:func:`cvi.lakehouse.repositories_dump_hash`)
+(``python -m porchlamp.snapshot freeze``) and writes a ``snapshot_meta`` row binding
+the database's post-promotion content (:func:`porchlamp.lakehouse.repositories_dump_hash`)
 to that manifest's identity, so ``scripts/serve.py`` can tell a
 promoted-then-edited database from one that still matches what was promoted
 -- a per-row telemetry check cannot survive a bulk ``UPDATE``, a content hash
@@ -54,10 +54,10 @@ from typing import Any, Optional
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from cvi.engine import score_repository
-from cvi.deepdive import build_deep_dive
-from cvi.lakehouse import OperationalStore, apply_raw_metrics, repositories_dump_hash
-from cvi.models import (
+from porchlamp.engine import score_repository
+from porchlamp.deepdive import build_deep_dive
+from porchlamp.lakehouse import OperationalStore, apply_raw_metrics, repositories_dump_hash
+from porchlamp.models import (
     AIPosture,
     AuthorAssociation,
     Ecosystem,
@@ -67,7 +67,7 @@ from cvi.models import (
     RawPREvent,
     RepoMeta,
 )
-from cvi.snapshot.manifest import MANIFEST_FILENAME, SNAPSHOTS_DIRNAME
+from porchlamp.snapshot.manifest import MANIFEST_FILENAME, SNAPSHOTS_DIRNAME
 from scripts.serve import refusal_reasons as _serve_refusal_reasons
 from scripts.verify import _claimed_hash, _envelope_path, _source_items
 
@@ -179,7 +179,7 @@ def load_clean(data_dir: Path = DATA) -> list[dict[str, Any]]:
 def _no_manifest_message(data_dir: Path, detail: str) -> str:
     """One refusal sentence naming the freeze command (`03` §5)."""
     return (f"{detail}; promotion requires a frozen snapshot -- freeze first with "
-            f"`python -m cvi.snapshot freeze --data-dir {data_dir} --as-of <ISO-8601>`")
+            f"`python -m porchlamp.snapshot freeze --data-dir {data_dir} --as-of <ISO-8601>`")
 
 
 def resolve_manifest(data_dir: Path, snapshot_id: str) -> dict[str, Any]:
@@ -305,14 +305,14 @@ def write_snapshot_meta(db_path: str, manifest: dict[str, Any], dump_hash: str) 
 
     ``dump_hash`` must be computed by the caller AFTER every promoted row is
     written and committed, so it describes exactly the content being vouched
-    for -- :func:`cvi.lakehouse.repositories_dump_hash`, never
-    :func:`cvi.snapshot.reproduce.canonical_dump_hash` directly (that would
+    for -- :func:`porchlamp.lakehouse.repositories_dump_hash`, never
+    :func:`porchlamp.snapshot.reproduce.canonical_dump_hash` directly (that would
     hash this very table's own row in). ``promoted_at`` mirrors
     ``manifest["as_of"]``, which is safe to treat as "the reference time this
     promotion scored against" ONLY because :func:`resolved_as_of` (`03` §5)
     already refused any ``--as-of`` that disagreed with the manifest's own.
     ``scripts/serve.py``
-    recomputes the same :func:`cvi.lakehouse.repositories_dump_hash` at
+    recomputes the same :func:`porchlamp.lakehouse.repositories_dump_hash` at
     startup and refuses unless it still matches a stored row -- editing
     ``repositories`` after promotion (renaming an owner, nudging a counter)
     changes the recomputed hash, so no stored row matches any more.
@@ -404,7 +404,7 @@ def promote(
                 meta.owner, meta.name,
                 build_deep_dive(meta, events, as_of,
                                 pillar_scores=result.pillar_scores,
-                                overall_cvi=result.overall_cvi))
+                                overall_porchlamp=result.overall_porchlamp))
             n += 1
     finally:
         store.close()
@@ -462,7 +462,7 @@ def promote_atomically(bundles: list[dict[str, Any]], db_path: str, as_of: datet
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--db", default=str(DATA / "cvi.db"))
+    ap.add_argument("--db", default=str(DATA / "porchlamp.db"))
     ap.add_argument("--data-dir", type=Path, default=DATA,
                     help="directory holding verified/ and receiving promoted.json")
     ap.add_argument("--as-of", metavar="ISO-8601", default=None,

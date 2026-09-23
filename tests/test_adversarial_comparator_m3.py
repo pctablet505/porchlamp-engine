@@ -55,7 +55,7 @@ def catalog_repos() -> list[dict]:
     assert len(repos) == 1000
     for r in repos:
         r["repo_id"] = f"{r['owner']}/{r['name']}"
-        r["overall_cvi"] = r.get("overall_cvi", 50.0)
+        r["overall_porchlamp"] = r.get("overall_porchlamp", 50.0)
         r["pillar_scores"] = {
             "responsiveness": r.get("score_responsiveness", 50.0),
             "criticality": r.get("score_criticality", 50.0),
@@ -156,7 +156,7 @@ class ScreenEComparatorOracle:
         rows = [
             # Category 1: Composite Benchmark
             {"cat": "COMPOSITE BENCHMARK & TIER"},
-            {"label": "Overall CVI Score", "fn": lambda r: f"{float(r.get('overall_cvi', 0)):.2f}", "higherBetter": True, "format": "mono"},
+            {"label": "Overall Porchlamp Score", "fn": lambda r: f"{float(r.get('overall_porchlamp', 0)):.2f}", "higherBetter": True, "format": "mono"},
             {"label": "Global Rank", "fn": lambda r: f"#{r.get('rank', '—')}", "higherBetter": False, "valFn": lambda r: r.get("rank") or 9999, "format": "mono"},
             {"label": "Benchmark Tier", "fn": lambda r: r.get("rank_tier", "Tier B"), "format": "badge"},
             {"label": "2D Matrix Quadrant", "fn": lambda r: f"{quadrant_glyphs.get(r.get('matrix_quadrant', ''), '●')} {r.get('matrix_quadrant', '—')}", "format": "quad"},
@@ -244,14 +244,14 @@ class ScreenEComparatorOracle:
         if len(repos) < 2:
             return "Select at least 2 repositories to generate comparison verdicts."
 
-        best_overall = sorted(repos, key=lambda r: float(r.get("overall_cvi", 0)), reverse=True)[0]
+        best_overall = sorted(repos, key=lambda r: float(r.get("overall_porchlamp", 0)), reverse=True)[0]
         best_resp = sorted(repos, key=lambda r: float(r.get("pillar_scores", {}).get("responsiveness", 0)), reverse=True)[0]
         best_impact = sorted(repos, key=lambda r: int(r.get("stars", 0)), reverse=True)[0]
         best_gov = sorted(repos, key=lambda r: int(r.get("elephant_factor", 0)), reverse=True)[0]
 
         return (
             f"<b>Highest Composite Benchmark:</b> <span style=\"color: var(--sweet); font-weight: 700;\">{_esc(best_overall.get('repo_id'))}</span> "
-            f"(CVI: {float(best_overall.get('overall_cvi', 0)):.1f}, {_esc(best_overall.get('rank_tier'))}) delivers the optimal balance of maintainer velocity and downstream production footprint.<br><br>"
+            f"(Porchlamp: {float(best_overall.get('overall_porchlamp', 0)):.1f}, {_esc(best_overall.get('rank_tier'))}) delivers the optimal balance of maintainer velocity and downstream production footprint.<br><br>"
             f"• <b>For First-Time Contributors:</b> Choose <b>{_esc(best_resp.get('repo_id'))}</b> — leads in review responsiveness "
             f"({float(best_resp.get('pillar_scores', {}).get('responsiveness', 0)):.0f} P1 score).<br>"
             f"• <b>For Career Capital & Resume Proof:</b> Choose <b>{_esc(best_impact.get('repo_id'))}</b> — commands the largest production ecosystem footprint "
@@ -469,7 +469,7 @@ class TestScreenEComparatorEdgeCasesAndAnomalies:
         """
         repo_1 = {
             "repo_id": "test/repo-alpha",
-            "overall_cvi": 80.00,
+            "overall_porchlamp": 80.00,
             "rank": 10,
             "stars": 5000,
             "elephant_factor": 3,
@@ -478,7 +478,7 @@ class TestScreenEComparatorEdgeCasesAndAnomalies:
         }
         repo_2 = {
             "repo_id": "test/repo-beta",
-            "overall_cvi": 80.00,  # Exact tie with repo_1
+            "overall_porchlamp": 80.00,  # Exact tie with repo_1
             "rank": 10,            # Exact tie with repo_1
             "stars": 5000,         # Exact tie with repo_1
             "elephant_factor": 3,  # Exact tie with repo_1
@@ -512,14 +512,14 @@ class TestScreenEComparatorEdgeCasesAndAnomalies:
         """
         repo_a = {
             "repo_id": "test/gated-a",
-            "overall_cvi": 0.0,
+            "overall_porchlamp": 0.0,
             "rank": 1000,
             "pillar_scores": {},
             "deep_dive": {"raw_metrics": {"ttfhr_hours": None, "ghost_rate_14d": None}, "good_first_issues": {"count": 0}},
         }
         repo_b = {
             "repo_id": "test/gated-b",
-            "overall_cvi": 0.0,
+            "overall_porchlamp": 0.0,
             "rank": 1000,
             "pillar_scores": {},
             "deep_dive": {"raw_metrics": {"ttfhr_hours": None, "ghost_rate_14d": None}, "good_first_issues": {"count": 0}},
@@ -531,8 +531,8 @@ class TestScreenEComparatorEdgeCasesAndAnomalies:
 
     def test_verdict_synthesis_under_exact_ties(self, oracle: ScreenEComparatorOracle) -> None:
         """Verdict synthesis with identical metric values remains stable and deterministic."""
-        repo_x = {"repo_id": "tied/repo-x", "overall_cvi": 70.0, "rank_tier": "Tier A", "stars": 1000, "elephant_factor": 2, "pillar_scores": {"responsiveness": 80.0}}
-        repo_y = {"repo_id": "tied/repo-y", "overall_cvi": 70.0, "rank_tier": "Tier A", "stars": 1000, "elephant_factor": 2, "pillar_scores": {"responsiveness": 80.0}}
+        repo_x = {"repo_id": "tied/repo-x", "overall_porchlamp": 70.0, "rank_tier": "Tier A", "stars": 1000, "elephant_factor": 2, "pillar_scores": {"responsiveness": 80.0}}
+        repo_y = {"repo_id": "tied/repo-y", "overall_porchlamp": 70.0, "rank_tier": "Tier A", "stars": 1000, "elephant_factor": 2, "pillar_scores": {"responsiveness": 80.0}}
 
         verdict_xy = oracle.render_verdict([repo_x, repo_y])
         assert "tied/repo-x" in verdict_xy
@@ -543,13 +543,13 @@ class TestScreenEComparatorEdgeCasesAndAnomalies:
     def test_tied_metric_four_way_tie(self, oracle: ScreenEComparatorOracle) -> None:
         """When 4 repositories share an identical value, only the 1st repo receives 👑."""
         repos = [
-            {"repo_id": f"repo-{i}", "overall_cvi": 60.0, "rank": 50, "elephant_factor": 2, "pillar_scores": {}}
+            {"repo_id": f"repo-{i}", "overall_porchlamp": 60.0, "rank": 50, "elephant_factor": 2, "pillar_scores": {}}
             for i in range(4)
         ]
         diff = oracle.render_diff_table(repos)
-        cvi_eval = next(e for e in diff["evaluations"] if e["label"] == "Overall CVI Score")
-        assert cvi_eval["best_idx"] == 0
-        assert cvi_eval["winner_repo_id"] == "repo-0"
+        porchlamp_eval = next(e for e in diff["evaluations"] if e["label"] == "Overall Porchlamp Score")
+        assert porchlamp_eval["best_idx"] == 0
+        assert porchlamp_eval["winner_repo_id"] == "repo-0"
 
     def test_comparator_landmark_projects_vllm_vs_keras_hub(self, oracle: ScreenEComparatorOracle) -> None:
         """Empirical comparison of landmark projects vllm-project/vllm (Tier S) vs keras-team/keras-hub (Tier D)."""
@@ -577,8 +577,8 @@ class TestScreenEComparatorEdgeCasesAndAnomalies:
         diff = oracle.render_diff_table([vllm, keras])
         evals = {e["label"]: e for e in diff["evaluations"]}
 
-        # vllm wins Overall CVI, Responsiveness, Criticality, Governance
-        assert evals["Overall CVI Score"]["winner_repo_id"] == "vllm-project/vllm"
+        # vllm wins Overall Porchlamp, Responsiveness, Criticality, Governance
+        assert evals["Overall Porchlamp Score"]["winner_repo_id"] == "vllm-project/vllm"
         assert evals["Responsiveness Score (P1)"]["winner_repo_id"] == "vllm-project/vllm"
         assert evals["Criticality Score (P2)"]["winner_repo_id"] == "vllm-project/vllm"
         assert evals["Governance Score (P3)"]["winner_repo_id"] == "vllm-project/vllm"

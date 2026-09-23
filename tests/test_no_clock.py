@@ -2,10 +2,10 @@
 
 Scanned twice: the wall-clock regex over the non-exempt modules, and a
 SQL-clock scan (``CURRENT_TIMESTAMP``, ``datetime('now')``) over every
-``cvi/`` module, because a DDL default reads the database's clock on the
+``porchlamp/`` module, because a DDL default reads the database's clock on the
 module's behalf.
 
-Verification that ``cvi/playbook.py``
+Verification that ``porchlamp/playbook.py``
 defined its own ``BENCHMARK_NOW`` and defaulted ``now`` to it, so a scoring
 call that omitted the reference time silently scored against a frozen date
 instead of the snapshot's ``as_of``.
@@ -27,10 +27,10 @@ from pathlib import Path
 
 import pytest
 
-from cvi import playbook
-from cvi.deepdive import build_deep_dive
-from cvi.engine import score_repository
-from cvi.models import (
+from porchlamp import playbook
+from porchlamp.deepdive import build_deep_dive
+from porchlamp.engine import score_repository
+from porchlamp.models import (
     AIPosture,
     AuthorAssociation,
     Ecosystem,
@@ -38,23 +38,23 @@ from cvi.models import (
     RawPREvent,
     RepoMeta,
 )
-from cvi.playbook import generate_maintainer_playbook
+from porchlamp.playbook import generate_maintainer_playbook
 
-CVI_PKG = Path(__file__).resolve().parent.parent / "cvi"
+PORCHLAMP_PKG = Path(__file__).resolve().parent.parent / "porchlamp"
 
 CLOCK_RE = re.compile(
     r"datetime\.now|utcnow|time\.time|BENCHMARK_NOW|datetime\.today|date\.today"
 )
 
 # 04 §8 exempts the collect/serve paths: fetching and rate limiting own the
-# clock. ``cvi/collect/`` is the real target-layout directory (moved
-# the rate limiter's ``time.monotonic`` defaults there from ``cvi/
+# clock. ``porchlamp/collect/`` is the real target-layout directory (moved
+# the rate limiter's ``time.monotonic`` defaults there from ``porchlamp/
 # ingest.py``, which no longer needs an exemption at all -- it has zero
 # clock tokens of its own left, see ``_sources()``'s directory filter).
 #
 # EXCLUDED_MODULES is empty: ``benchmark_data.py`` (the fixture
 # clock's single definition, R-2) moved to ``tests/fixtures/
-# synthetic_catalog.py`` -- outside ``CVI_PKG`` entirely, so ``_sources()``
+# synthetic_catalog.py`` -- outside ``PORCHLAMP_PKG`` entirely, so ``_sources()``
 # never sees it and it needs no per-module entry any more than any other
 # test file does. The mechanism stays in place for a future module that
 # legitimately needs it.
@@ -65,10 +65,10 @@ NOW = datetime(2026, 9, 11, 12, 0, 0)
 
 
 def _sources() -> list[Path]:
-    """Every ``cvi/`` module except the collect/serve path."""
+    """Every ``porchlamp/`` module except the collect/serve path."""
     return [
         path
-        for path in sorted(CVI_PKG.rglob("*.py"))
+        for path in sorted(PORCHLAMP_PKG.rglob("*.py"))
         if not EXCLUDED_DIRS.intersection(path.parts)
         and path.name not in EXCLUDED_MODULES
     ]
@@ -77,7 +77,7 @@ def _sources() -> list[Path]:
 def _offenders(paths: list[Path]) -> list[str]:
     """``path:line`` for each line that reads a time the module itself owns."""
     return [
-        f"{path.relative_to(CVI_PKG.parent)}:{number}"
+        f"{path.relative_to(PORCHLAMP_PKG.parent)}:{number}"
         for path in paths
         for number, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), start=1
@@ -99,8 +99,8 @@ SQL_CLOCK_RE = re.compile(
 def _sql_offenders() -> list[str]:
     """``path:line`` for each line that reads a clock inside SQL."""
     return [
-        f"{path.relative_to(CVI_PKG.parent)}:{number}"
-        for path in sorted(CVI_PKG.rglob("*.py"))
+        f"{path.relative_to(PORCHLAMP_PKG.parent)}:{number}"
+        for path in sorted(PORCHLAMP_PKG.rglob("*.py"))
         for number, line in enumerate(
             path.read_text(encoding="utf-8").splitlines(), start=1
         )
@@ -108,8 +108,8 @@ def _sql_offenders() -> list[str]:
     ]
 
 
-def test_cvi_modules_own_no_sql_clock() -> None:
-    """No SQL-side clock anywhere in ``cvi/``: no DDL timestamp default,
+def test_porchlamp_modules_own_no_sql_clock() -> None:
+    """No SQL-side clock anywhere in ``porchlamp/``: no DDL timestamp default,
     no SQL NOW() reader (D-VER-3: the database is a pure function of the
     times its callers pass in)."""
     assert _sql_offenders() == []
@@ -125,12 +125,12 @@ def test_clock_pattern_sees_the_dot_today_forms() -> None:
     """Anti-vacuity for the wall-clock scan: ``datetime.today()`` and
     ``date.today()`` are wall-clock reads, so ``CLOCK_RE`` must match them
     too -- otherwise a module adding one would stay green in
-    ``test_cvi_scoring_modules_own_no_clock``."""
+    ``test_porchlamp_scoring_modules_own_no_clock``."""
     assert CLOCK_RE.search("return datetime.today().timestamp()")
     assert CLOCK_RE.search("return date.today().isoformat()")
 
 
-def test_cvi_scoring_modules_own_no_clock() -> None:
+def test_porchlamp_scoring_modules_own_no_clock() -> None:
     """No wall-clock read and no module-owned reference time in the core."""
     assert _offenders(_sources()) == []
 
@@ -146,7 +146,7 @@ def test_exempt_modules_actually_own_a_clock() -> None:
     runs so a re-added entry is immediately checked.
     """
     paths = [
-        CVI_PKG / name for name in sorted(EXCLUDED_MODULES) if (CVI_PKG / name).is_file()
+        PORCHLAMP_PKG / name for name in sorted(EXCLUDED_MODULES) if (PORCHLAMP_PKG / name).is_file()
     ]
     assert {hit.rsplit(":", 1)[0] for hit in _offenders(paths)} == set()
 
@@ -185,8 +185,8 @@ def test_playbook_no_longer_defines_benchmark_now() -> None:
 def test_explicit_reference_time_path_is_unchanged() -> None:
     """Over-correction guard: the values produced when ``now`` is passed in."""
     pb = generate_maintainer_playbook(_meta(), _pr_events(), now=NOW)
-    assert pb["current_cvi"] == 76.46
-    assert pb["potential_cvi"] == 80.84
+    assert pb["current_porchlamp"] == 76.46
+    assert pb["potential_porchlamp"] == 80.84
     assert pb["total_point_gain"] == 4.38
     assert pb["current_tier"] == "Tier A"
     assert pb["projected_tier"] == "Tier S"
@@ -199,7 +199,7 @@ def test_explicit_reference_time_path_is_unchanged() -> None:
                 "hours (target TTFHR <= 12h) to reduce contributor drop-off."
             ),
             "delta_param_score": 50.0,
-            "delta_cvi": 4.38,
+            "delta_porchlamp": 4.38,
             "delta_friction": -8.75,
         }
     ]
@@ -254,7 +254,7 @@ def _pr_events() -> list[RawPREvent]:
 
 def test_ratelimit_directory_exemption_covers_only_the_monotonic_defaults() -> None:
     """Pins the scope of the ``collect`` directory exemption at
-    ``cvi/collect/ratelimit.py``, where the rate limiter's
+    ``porchlamp/collect/ratelimit.py``, where the rate limiter's
     ``time.monotonic`` defaults live.
 
     (1) No line of the module today matches the wall-clock scanner, so the
@@ -268,7 +268,7 @@ def test_ratelimit_directory_exemption_covers_only_the_monotonic_defaults() -> N
     in this exempt module is caught by the guard, so the ``collect``
     directory exemption cannot silently rot into a blind spot for it.
     """
-    source = (CVI_PKG / "collect" / "ratelimit.py").read_text(encoding="utf-8")
+    source = (PORCHLAMP_PKG / "collect" / "ratelimit.py").read_text(encoding="utf-8")
     wall_clock_lines = [line for line in source.splitlines() if CLOCK_RE.search(line)]
     assert wall_clock_lines == []
     monotonic_lines = [
@@ -289,8 +289,8 @@ def test_ratelimit_directory_exemption_covers_only_the_monotonic_defaults() -> N
 
 
 def test_ingest_module_is_gone_and_needs_no_exemption() -> None:
-    """``cvi/ingest.py`` does not exist and needs no per-module entry in
+    """``porchlamp/ingest.py`` does not exist and needs no per-module entry in
     ``EXCLUDED_MODULES`` -- pinned here so a stale exemption is never
     silently re-added for a module that does not exist."""
     assert "ingest.py" not in EXCLUDED_MODULES
-    assert not (CVI_PKG / "ingest.py").exists()
+    assert not (PORCHLAMP_PKG / "ingest.py").exists()

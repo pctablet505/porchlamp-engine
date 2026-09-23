@@ -1,4 +1,4 @@
-# Contributor Value Index (CVI) — Empirical Foundation & Benchmark Standard
+# Porchlamp — Empirical Foundation & Benchmark Standard
 
 ## The Axiomatic, Mathematical & Empirical Specification of the Global Open-Source Contributor Benchmark
 
@@ -11,9 +11,9 @@ Most developer analytics tools and repository rankings degenerate into **"vanity
 2. **Compensatory Pathologies:** In traditional Weighted Additive Models without non-compensatory gates, high vanity scores compensate for total community abandonment (e.g., $100,000\text{ stars} \times 0.20$ outweighs an unresponsive, abandoned maintenance team).
 3. **Cross-Ecosystem Scale Distortion:** Ecosystem distributions diverge by orders of magnitude. The median npm package has 14 downstream dependents (due to micro-packaging culture), whereas the median Go or Rust library has 2. Direct comparison across languages without rigorous within-ecosystem normalization introduces severe architectural bias.
 4. **Rank-Reversal Anomalies:** Multi-criteria decision frameworks like AHP (Analytic Hierarchy Process) or TOPSIS suffer from Arrow's Impossibility Theorem: introducing an irrelevant, low-scoring repository alters the relative rank between two elite repositories.
-5. **Absence of Maintainer Agency:** Arbitrary rankings produce grades without causal gradients. If a benchmark cannot provide a mathematically provable gradient $\nabla \text{CVI}$ showing which specific operational levers move the score and why, it is unscientific and cannot guide community improvement.
+5. **Absence of Maintainer Agency:** Arbitrary rankings produce grades without causal gradients. If a benchmark cannot provide a mathematically provable gradient $\nabla \text{Porchlamp}$ showing which specific operational levers move the score and why, it is unscientific and cannot guide community improvement.
 
-The **Contributor Value Index (CVI)** is constructed to resolve these exact failure modes through an axiomatic 5-phase evaluation pipeline grounded in empirical software engineering research (Gousios et al., Storey et al., Rob Pike, CHAOSS, He et al.).
+The **Porchlamp** is constructed to resolve these exact failure modes through an axiomatic 5-phase evaluation pipeline grounded in empirical software engineering research (Gousios et al., Storey et al., Rob Pike, CHAOSS, He et al.).
 
 ---
 
@@ -23,7 +23,7 @@ The **Contributor Value Index (CVI)** is constructed to resolve these exact fail
 flowchart TD
     Candidate["Target Repository Candidate"] --> Phase0{"Phase 0: Elimination-by-Aspects (EBA)<br/>• Non-bot commit in trailing 180d?<br/>• External PR Ghost Rate <= 50%?<br/>• Platform-native review workflow?<br/>• Persona constraints satisfied?"}
 
-    Phase0 -- "Fails Gate" --> Relegated["Relegated / Specialized Routing<br/>• Stage-0 Gated: overall_cvi = 0.0, Tier D<br/>• Off-Platform: Routed to ML workflow"]
+    Phase0 -- "Fails Gate" --> Relegated["Relegated / Specialized Routing<br/>• Stage-0 Gated: overall_porchlamp = 0.0, Tier D<br/>• Off-Platform: Routed to ML workflow"]
 
     Phase0 -- "Passes Gate" --> Phase1["Phase 1: Anti-Gaming & De-Biasing<br/>• Strip CI bots ([bot], *-actions, stale)<br/>• StarScout audit: remove throwaway accounts & burst rings<br/>• Dependency sanitization: root-org grouping"]
 
@@ -42,12 +42,12 @@ flowchart TD
 
 ### 2. Phase 0: Non-Compensatory Gating (Tversky's EBA)
 
-Traditional scoring systems fail because they are purely compensatory. In CVI, **Phase 0 executes Tversky's Elimination-by-Aspects (1972)**: repositories failing non-negotiable baseline viability are eliminated before scoring:
+Traditional scoring systems fail because they are purely compensatory. In Porchlamp, **Phase 0 executes Tversky's Elimination-by-Aspects (1972)**: repositories failing non-negotiable baseline viability are eliminated before scoring:
 
 | Gate | Empirical Aspect | Mathematical Criterion | Failure Outcome | Scientific Rationale |
 |---|---|---|---|---|
-| **Gate 1: Vitality** | Active Maintenance | $\text{Commits}_{\text{180d}} \ge 1$ (non-bot to default branch) | Relegated to `Tier.D`, `cvi = 0.0` | Repositories with no commits in 6 months are abandoned. Contributing has near-zero merge probability. |
-| **Gate 2: Black Hole** | Community Abandonment | $\text{Ghost Rate } GR_{14} \le 50.0\%$ | Relegated to `Tier.D`, `cvi = 0.0`, `is_black_hole = True` | A repository ignoring $> 50\%$ of community PRs for $> 14\text{ days}$ consumes developer hours without reciprocity. |
+| **Gate 1: Vitality** | Active Maintenance | $\text{Commits}_{\text{180d}} \ge 1$ (non-bot to default branch) | Relegated to `Tier.D`, `porchlamp = 0.0` | Repositories with no commits in 6 months are abandoned. Contributing has near-zero merge probability. |
+| **Gate 2: Black Hole** | Community Abandonment | $\text{Ghost Rate } GR_{14} \le 50.0\%$ | Relegated to `Tier.D`, `porchlamp = 0.0`, `is_black_hole = True` | A repository ignoring $> 50\%$ of community PRs for $> 14\text{ days}$ consumes developer hours without reciprocity. |
 | **Gate 3: Workflow** | Platform Reviews | $\text{Reviews}_{\text{platform}} = \text{True}$ | Routed to Specialized Workflow (`is_off_platform = True`) | Prevents penalizing mailing-list workflows (`torvalds/linux`, `git/git`) as "unresponsive GitHub repos". |
 | **Gate 4: Persona** | Multi-Vendor Governance | $\text{Elephant Factor } EF \ge 3$ (Senior Systems only) | Disqualified under Senior Systems View | Protects senior infrastructure contributors from single-vendor commercial capture. |
 | **Gate 5: AI Posture** | Generative AI Ban | $\text{AI Posture} \ne \text{PROSCRIBED}$ (AI Persona only) | Disqualified under AI-Assisted View | Prevents contributors using AI developer tools from wasting time on projects enforcing hard AI bans (`gentoo`, `qemu`). |
@@ -58,7 +58,7 @@ Traditional scoring systems fail because they are purely compensatory. In CVI, *
 
 The Canonical Global Benchmark is evaluated under the **Balanced Standard** across **5 Pillars and 16 Parameters** ($\sum w_i = 1.0$):
 
-$$\text{CVI}_{\text{Canonical}} = \sum_{j=1}^{16} w_j \cdot R_{\text{pct}}(x_j)$$
+$$\text{Porchlamp}_{\text{Canonical}} = \sum_{j=1}^{16} w_j \cdot R_{\text{pct}}(x_j)$$
 
 ```mermaid
 pie title Canonical Parameter Weight Distribution (Balanced Benchmark)
@@ -217,7 +217,7 @@ pie title Canonical Parameter Weight Distribution (Balanced Benchmark)
 To prove the benchmark is not arbitrary, we analyze its perturbation stability and condition number.
 
 #### Theorem 1 (Lipschitz Continuity & Rank Stability):
-Let $\mathbf{w} \in \mathbb{R}^{16}$ be the weight vector, $\sum w_j = 1$, and let $\mathbf{s}(R) \in [0, 100]^{16}$ be the normalized score vector for repository $R$. The CVI score mapping $f(R; \mathbf{w}) = \mathbf{w}^T \mathbf{s}(R)$ is Lipschitz continuous with constant $L = \|\mathbf{s}\|_\infty = 100$:
+Let $\mathbf{w} \in \mathbb{R}^{16}$ be the weight vector, $\sum w_j = 1$, and let $\mathbf{s}(R) \in [0, 100]^{16}$ be the normalized score vector for repository $R$. The Porchlamp score mapping $f(R; \mathbf{w}) = \mathbf{w}^T \mathbf{s}(R)$ is Lipschitz continuous with constant $L = \|\mathbf{s}\|_\infty = 100$:
 
 $$|f(R; \mathbf{w}) - f(R; \mathbf{w}')| \le 100 \cdot \|\mathbf{w} - \mathbf{w}'\|_1$$
 
@@ -225,19 +225,19 @@ $$|f(R; \mathbf{w}) - f(R; \mathbf{w}')| \le 100 \cdot \|\mathbf{w} - \mathbf{w}
 
 ---
 
-### 5. Maintainer Optimization Gradient ($\nabla \text{CVI}$)
+### 5. Maintainer Optimization Gradient ($\nabla \text{Porchlamp}$)
 
-For any repository maintainer seeking to improve their benchmark standing, the gradient vector $\nabla_{\mathbf{x}} \text{CVI}$ defines the exact marginal ROI of operational community interventions:
+For any repository maintainer seeking to improve their benchmark standing, the gradient vector $\nabla_{\mathbf{x}} \text{Porchlamp}$ defines the exact marginal ROI of operational community interventions:
 
-$$\nabla \text{CVI} = \left[ \frac{\partial \text{CVI}}{\partial \text{TTFHR}}, \frac{\partial \text{CVI}}{\partial GR_{14}}, \frac{\partial \text{CVI}}{\partial EF}, \frac{\partial \text{CVI}}{\partial \text{GFI}}, \frac{\partial \text{CVI}}{\partial \text{Scorecard}} \right]$$
+$$\nabla \text{Porchlamp} = \left[ \frac{\partial \text{Porchlamp}}{\partial \text{TTFHR}}, \frac{\partial \text{Porchlamp}}{\partial GR_{14}}, \frac{\partial \text{Porchlamp}}{\partial EF}, \frac{\partial \text{Porchlamp}}{\partial \text{GFI}}, \frac{\partial \text{Porchlamp}}{\partial \text{Scorecard}} \right]$$
 
-| Operational Maintainer Lever | Mathematical Marginal Derivative | Quantified Impact on CVI Score | Practical Maintainer Intervention |
+| Operational Maintainer Lever | Mathematical Marginal Derivative | Quantified Impact on Porchlamp Score | Practical Maintainer Intervention |
 |---|---|---|---|
-| **Reduce Review Latency** | $\frac{\partial \text{CVI}}{\partial \text{TTFHR}} = -\frac{8.75 \cdot 25.0}{\ln(2) \cdot \text{TTFHR}}$ | Halving TTFHR from $48\text{h} \rightarrow 24\text{h}$ adds **$+2.19\text{ pts}$** | Implement PR triage rotation; assign weekly on-call maintainers. |
-| **Eliminate PR Ghosting** | $\frac{\partial \text{CVI}}{\partial GR_{14}} = -10.0$ | Decreasing ghost rate from $20\% \rightarrow 0\%$ adds **$+2.00\text{ pts}$** (and clears Black Hole risk) | Triage open community PRs weekly; provide clear feedback or close gracefully. |
-| **Diversify Committer Base** | $\frac{\partial \text{CVI}}{\partial EF} = +1.75\text{ pts per org}$ | Increasing Elephant Factor from $1 \rightarrow 4$ adds **$+5.25\text{ pts}$** | Invite frequent external contributors from other organizations to co-maintainership. |
-| **Curate Good First Issues** | $\frac{\partial \text{CVI}}{\partial \text{GFI}} = +0.60\text{ pts per issue}$ | Adding 5 fresh, well-scoped GFIs adds **$+3.00\text{ pts}$** | Tag issues with clear reproduction steps and reproduction scripts for newcomers. |
-| **Harden CI Branch Defenses** | $\frac{\partial \text{CVI}}{\partial \text{Scorecard}} = +0.60\text{ pts per unit}$ | Raising Scorecard from $5.0 \rightarrow 8.0$ adds **$+1.80\text{ pts}$** | Require status checks before merging, pin GitHub Actions to SHA, configure SAST. |
+| **Reduce Review Latency** | $\frac{\partial \text{Porchlamp}}{\partial \text{TTFHR}} = -\frac{8.75 \cdot 25.0}{\ln(2) \cdot \text{TTFHR}}$ | Halving TTFHR from $48\text{h} \rightarrow 24\text{h}$ adds **$+2.19\text{ pts}$** | Implement PR triage rotation; assign weekly on-call maintainers. |
+| **Eliminate PR Ghosting** | $\frac{\partial \text{Porchlamp}}{\partial GR_{14}} = -10.0$ | Decreasing ghost rate from $20\% \rightarrow 0\%$ adds **$+2.00\text{ pts}$** (and clears Black Hole risk) | Triage open community PRs weekly; provide clear feedback or close gracefully. |
+| **Diversify Committer Base** | $\frac{\partial \text{Porchlamp}}{\partial EF} = +1.75\text{ pts per org}$ | Increasing Elephant Factor from $1 \rightarrow 4$ adds **$+5.25\text{ pts}$** | Invite frequent external contributors from other organizations to co-maintainership. |
+| **Curate Good First Issues** | $\frac{\partial \text{Porchlamp}}{\partial \text{GFI}} = +0.60\text{ pts per issue}$ | Adding 5 fresh, well-scoped GFIs adds **$+3.00\text{ pts}$** | Tag issues with clear reproduction steps and reproduction scripts for newcomers. |
+| **Harden CI Branch Defenses** | $\frac{\partial \text{Porchlamp}}{\partial \text{Scorecard}} = +0.60\text{ pts per unit}$ | Raising Scorecard from $5.0 \rightarrow 8.0$ adds **$+1.80\text{ pts}$** | Require status checks before merging, pin GitHub Actions to SHA, configure SAST. |
 
 ---
 
@@ -254,7 +254,7 @@ flowchart TD
         A4["Monorepo Self-Dependency Inflation<br/>Importing internal subpackages to fake dependents"]
     end
 
-    subgraph DefenseMechanism ["CVI Empirical Defense Layer"]
+    subgraph DefenseMechanism ["Porchlamp Empirical Defense Layer"]
         D1["Bot Marker Stripping & Human Association Checks<br/>• Filters [bot], *-actions, stale<br/>• Measures only genuine human maintainer reviews"]
         D2["StarScout Filter & Registry CDN Scrubber<br/>• Throwaways (<5 events) dropped<br/>• Lockstep >100:1 star/fork rings penalised by 70%<br/>• Mirrors & CI IPs scrubbed"]
         D3["30-Day Freshness Window & Assignment Audit<br/>• Only unclaimed issues updated in trailing 30d qualify"]
@@ -291,6 +291,6 @@ By synthesizing:
 2. **Within-ecosystem ECDF normalization** to eradicate cross-language packaging scale skews,
 3. **Pike's saturating logarithmic criticality formulations** to resist vanity metric gaming,
 4. **Empirical review latency half-life decay** to benchmark human turnaround times, and
-5. **Causal maintainer optimization gradients ($\nabla \text{CVI}$)** to make the benchmark actionable,
+5. **Causal maintainer optimization gradients ($\nabla \text{Porchlamp}$)** to make the benchmark actionable,
 
-the Contributor Value Index provides a mathematically sound, academically defensible, and empirically robust public standard for open-source engineering investment.
+the Porchlamp provides a mathematically sound, academically defensible, and empirically robust public standard for open-source engineering investment.

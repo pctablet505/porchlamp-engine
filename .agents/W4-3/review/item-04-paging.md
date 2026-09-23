@@ -7,8 +7,8 @@ configurations the concatenated pages equal the single full-limit list exactly,
 contain no duplicates, and report the same `total`. `ALL PAGING CHECKS PASS: True`.
 
 R-3: every vanity/unspellable field raises naming the allowed set --
-stars, stars_audited, forks, downloads, owner, cvi_p, rank_p, tie_group.
-`ALLOWED_SORT_FIELDS = ('rank','cvi','coverage','tier','responsiveness',
+stars, stars_audited, forks, downloads, owner, porchlamp_p, rank_p, tie_group.
+`ALLOWED_SORT_FIELDS = ('rank','porchlamp','coverage','tier','responsiveness',
 'criticality','governance','rigor','accessibility')`.
 
 Blocker B-2: `rank_p` is ROW_NUMBER over the CHOSEN sort, not over D-TIE-1:

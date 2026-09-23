@@ -1,9 +1,9 @@
-"""Export one CVI snapshot database as a static site (GitHub Pages).
+"""Export one Porchlamp snapshot database as a static site (GitHub Pages).
 
-The UI in ``web/v2`` reads the v2 API (``cvi/serve/app.py``). A static host
+The UI in ``web/v2`` reads the v2 API (``porchlamp/serve/app.py``). A static host
 has no API, so this writes, under ``<out>/data/<snapshot_id>/``, what that
 API answers for this database -- every response is read THROUGH the API
-(Starlette's ``TestClient`` on :func:`cvi.serve.app.create_app`), never
+(Starlette's ``TestClient`` on :func:`porchlamp.serve.app.create_app`), never
 recomputed here -- plus the row lists and orderings ``web/static/api.js``
 needs to answer the parameterised requests (search, ecosystem, sort,
 paging) in the browser. The one computation the browser does itself is
@@ -15,8 +15,8 @@ exported in ``reproject.json``.
 directory, and ``.nojekyll``. ``scripts/verify_static_export.py`` checks the
 exported site against the API, request by request.
 
-The primary checkout cannot import ``cvi.serve.app`` while it carries the
-owner's uncommitted rollback (``cvi.lakehouse.repositories_dump_hash``), so
+The primary checkout cannot import ``porchlamp.serve.app`` while it carries the
+owner's uncommitted rollback (``porchlamp.lakehouse.repositories_dump_hash``), so
 run this from a clean tree::
 
     PYTHONPATH=<clean worktree> .venv/bin/python <clean worktree>/scripts/export_static.py \\
@@ -81,9 +81,9 @@ def bucket_of(owner: str, name: str) -> str:
 
 
 def sort_keys(pillars: tuple[str, ...]) -> tuple[str, ...]:
-    """Every ``sort`` value ``/leaderboard`` accepts (``cvi.serve.app.
+    """Every ``sort`` value ``/leaderboard`` accepts (``porchlamp.serve.app.
     _translate_sort``), both directions."""
-    fields = ("rank", "cvi", "coverage", "tier") + tuple(f"p_{p}" for p in pillars)
+    fields = ("rank", "porchlamp", "coverage", "tier") + tuple(f"p_{p}" for p in pillars)
     return tuple(s for f in fields for s in (f, f"-{f}"))
 
 
@@ -100,7 +100,7 @@ class _Api:
     def __init__(self, db_path: Path) -> None:
         from fastapi.testclient import TestClient
 
-        from cvi.serve.app import create_app
+        from porchlamp.serve.app import create_app
 
         with tempfile.TemporaryDirectory() as empty_web:
             self.client = TestClient(create_app(db_path, web_dir=empty_web))
@@ -120,7 +120,7 @@ def _leaderboard_pages(api: _Api, persona: str, sort: Optional[str]) -> tuple[li
     rows: list[dict] = []
     page = 1
     while True:
-        body = api.get("/v1/cvi/leaderboard", persona=persona, sort=sort, page=page, page_size=PAGE_MAX)
+        body = api.get("/v1/porchlamp/leaderboard", persona=persona, sort=sort, page=page, page_size=PAGE_MAX)
         rows.extend(body["rows"])
         if len(rows) >= body["total"] or not body["rows"]:
             return rows, body["total"]
@@ -160,10 +160,10 @@ def _export_not_ranked(api: _Api, conn: sqlite3.Connection, snapshot_id: str, pe
     group the API files it under. ``/not-ranked`` itself returns only the
     first ``queries.MAX_LIMIT`` of a filtered list, so the full list comes
     from the same store query and the same classification the endpoint
-    runs (``cvi.serve.app._classify_not_ranked``/``_not_ranked_row``), then
+    runs (``porchlamp.serve.app._classify_not_ranked``/``_not_ranked_row``), then
     is checked against the endpoint's own unfiltered answer."""
-    from cvi.serve import app as serve_app
-    from cvi.store import queries
+    from porchlamp.serve import app as serve_app
+    from porchlamp.store import queries
 
     records: list[dict] = []
     while True:
@@ -179,7 +179,7 @@ def _export_not_ranked(api: _Api, conn: sqlite3.Connection, snapshot_id: str, pe
         row = serve_app._not_ranked_row(record, group=group, reason=reason).model_dump(mode="json")
         rows.append({"group": group, "row": row})
 
-    served = api.get("/v1/cvi/not-ranked", persona=persona)
+    served = api.get("/v1/porchlamp/not-ranked", persona=persona)
     first = rows[: queries.MAX_LIMIT]
     rebuilt = {
         group: [r["row"] for r in first if r["group"] == group] for group in ("gated", "unrated", "persona_hidden")
@@ -196,13 +196,13 @@ def _repo_records(api: _Api, conn: sqlite3.Connection, snapshot_id: str) -> Iter
         (snapshot_id,),
     ).fetchall()
     for owner, name in names:
-        path = f"/v1/cvi/repos/{quote(owner, safe='')}/{quote(name, safe='')}"
+        path = f"/v1/porchlamp/repos/{quote(owner, safe='')}/{quote(name, safe='')}"
         yield owner, name, {"detail": api.get(path), "evidence": api.get(f"{path}/evidence")}
 
 
 #: ``ReprojectRow`` fields copied from a repo's stored record unchanged
-#: (``cvi.serve.app._reproject_row`` -> ``_project_leaderboard_row``); the
-#: browser computes rank/tie_group/cvi/coverage/tier/tier_ceiling/rank_delta.
+#: (``porchlamp.serve.app._reproject_row`` -> ``_project_leaderboard_row``); the
+#: browser computes rank/tie_group/porchlamp/coverage/tier/tier_ceiling/rank_delta.
 _REPROJECT_STORED = (
     "owner", "name", "ecosystem", "quadrant", "leverage", "friction", "leverage_coverage",
     "friction_coverage", "persona_gates", "persona_composites", "suspicion", "stars_audited",
@@ -215,10 +215,10 @@ def _export_reproject(conn: sqlite3.Connection, snapshot_id: str, details: dict[
     stored pillar columns and D-TIE-1 tail columns it orders by, and the
     stored record fields a ``ReprojectRow`` carries (from the API's own
     ``/repos/{owner}/{name}`` answer), plus the constants its SQL embeds."""
-    from cvi.core import constants
-    from cvi.core.aggregate import RATIO_DECIMALS
-    from cvi.serve.contract import DEFAULT_PAGE_SIZE
-    from cvi.store import queries
+    from porchlamp.core import constants
+    from porchlamp.core.aggregate import RATIO_DECIMALS
+    from porchlamp.serve.contract import DEFAULT_PAGE_SIZE
+    from porchlamp.store import queries
 
     pillars = constants.PILLAR_NAMES
     tail = conn.execute(
@@ -243,7 +243,7 @@ def _export_reproject(conn: sqlite3.Connection, snapshot_id: str, details: dict[
             row[f"p_{pillar}"] = detail[f"p_{pillar}"]
             row[f"c_{pillar}"] = detail[f"c_{pillar}"]
         row.update(
-            balanced_rank=detail["rank"], balanced_tie_group=detail["tie_group"], balanced_cvi=detail["cvi"],
+            balanced_rank=detail["rank"], balanced_tie_group=detail["tie_group"], balanced_porchlamp=detail["porchlamp"],
             balanced_coverage=detail["coverage"], balanced_tier=detail["tier"],
             ttfhr_p75=ttfhr_p75, last_human_commit_at=last_commit,
         )
@@ -287,8 +287,8 @@ def _scan_for_forbidden(out: Path) -> None:
 
 
 def export(db: Path, out: Path) -> dict:
-    from cvi.core import constants
-    from cvi.serve.app import _current_snapshot_id, _open_v2_connection
+    from porchlamp.core import constants
+    from porchlamp.serve.app import _current_snapshot_id, _open_v2_connection
 
     if out.exists() and any(out.iterdir()):
         raise SystemExit(f"export: {out} is not empty")
@@ -306,14 +306,14 @@ def export(db: Path, out: Path) -> dict:
         api = _Api(copy)
         conn = _open_v2_connection(str(copy))
         snapshot_id = _current_snapshot_id(conn)
-        snapshot = api.get("/v1/cvi/snapshot")
+        snapshot = api.get("/v1/porchlamp/snapshot")
         if snapshot["snapshot_id"] != snapshot_id:
             raise SystemExit("export: the API serves a different snapshot than the database's current one")
         data = out / "data" / snapshot_id
         sizes: dict[str, int] = {}
         sizes["snapshot.json"] = _dump(data / "snapshot.json", snapshot)
-        sizes["methodology.json"] = _dump(data / "methodology.json", api.get("/v1/cvi/methodology"))
-        sizes["matrix.json"] = _dump(data / "matrix.json", api.get("/v1/cvi/matrix"))
+        sizes["methodology.json"] = _dump(data / "methodology.json", api.get("/v1/porchlamp/methodology"))
+        sizes["matrix.json"] = _dump(data / "matrix.json", api.get("/v1/porchlamp/matrix"))
 
         personas = sorted(constants.PERSONA_PRESETS)
         sorts = sort_keys(constants.PILLAR_NAMES)
@@ -343,7 +343,7 @@ def export(db: Path, out: Path) -> dict:
         "exported_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "source_db_sha256": hashlib.sha256(db.read_bytes()).hexdigest(),
         "buckets": BUCKETS,
-        # the allow-list /leaderboard checks ``sort`` against (cvi.serve.app._translate_sort):
+        # the allow-list /leaderboard checks ``sort`` against (porchlamp.serve.app._translate_sort):
         "sort_fields": [s for s in sorts if not s.startswith("-")],
         "bytes": sizes,
     }

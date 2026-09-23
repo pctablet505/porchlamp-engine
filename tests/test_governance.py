@@ -21,9 +21,9 @@ the pillar score is 0.35*100 + 0.35*25 + 0.30*10 = 46.75 — a different
 weight assignment yields a different value.
 """
 
-from cvi.constants import LEGAL_IP_SCORES
-from cvi.models import Ecosystem, LegalIPModel, PromotionLadder, RepoMeta
-from cvi.pillars.governance import (
+from porchlamp.constants import LEGAL_IP_SCORES
+from porchlamp.models import Ecosystem, LegalIPModel, PromotionLadder, RepoMeta
+from porchlamp.pillars.governance import (
     score_decentralization,
     score_governance,
     score_legal_ip,

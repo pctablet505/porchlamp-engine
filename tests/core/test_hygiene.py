@@ -1,4 +1,4 @@
-"""Acceptance tests for :mod:`cvi.core.hygiene` (D-IN-3).
+"""Acceptance tests for :mod:`porchlamp.core.hygiene` (D-IN-3).
 
 D-IN-3 (``docs/v2/02-RANKING-DESIGN.md``): a PR author counts only if the
 account is >= 90 days old at PR creation and has >= 5 public events; one
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from cvi.core.hygiene import account_eligibility, apply_author_cap, is_eligible_account
+from porchlamp.core.hygiene import account_eligibility, apply_author_cap, is_eligible_account
 
 NOW = datetime(2026, 9, 12, 0, 0, 0, tzinfo=timezone.utc)
 

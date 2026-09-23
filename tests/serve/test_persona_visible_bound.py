@@ -1,9 +1,9 @@
 """`SnapshotSummary.persona_visible_counts` bound (regression, 2026-09-21).
 
-A persona view is a *re-weighted projection*: `cvi.core.persona` states that
+A persona view is a *re-weighted projection*: `porchlamp.core.persona` states that
 `persona_composite` is "a separate re-weighted projection" whose coverage is
 computed from that persona's own pillar weights, and
-`cvi.store.queries._persona_visible_where_sql` admits a row on
+`porchlamp.store.queries._persona_visible_where_sql` admits a row on
 `persona_composites[<persona>].coverage >= 0.60` -- not on the balanced
 `rated` flag. A persona that down-weights the pillars a sweep is still
 missing therefore clears the floor for MORE repos than balanced does.
@@ -11,7 +11,7 @@ missing therefore clears the floor for MORE repos than balanced does.
 The first snapshot in this project's history with `rated > 0` showed exactly
 that: rated=94 while ai_assisted=303 and senior_systems=98. The original
 validator asserted `visible <= counts.rated` and rejected it, 500-ing
-`GET /v1/cvi/snapshot`. The assertion was unfalsifiable until then, because
+`GET /v1/porchlamp/snapshot`. The assertion was unfalsifiable until then, because
 every snapshot until then had rated=0, which forces every persona count to 0
 and makes the bound pass trivially.
 
@@ -25,7 +25,7 @@ re-weighting can never change the visible set.
 import pytest
 from pydantic import ValidationError
 
-from cvi.serve.contract import SnapshotCounts, SnapshotSummary
+from porchlamp.serve.contract import SnapshotCounts, SnapshotSummary
 
 _BASE = {
     "snapshot_id": "2026-09-21-L3gp",
@@ -36,7 +36,7 @@ _BASE = {
     "code_commit": "e9963501e59809d39cc3c49c143f5d77629432be",
     "canonical_dump_hash": "d" * 64,
     "detector_summary": {},
-    "reproduce_command": "python -m cvi.snapshot reproduce 2026-09-21-L3gp",
+    "reproduce_command": "python -m porchlamp.snapshot reproduce 2026-09-21-L3gp",
 }
 
 

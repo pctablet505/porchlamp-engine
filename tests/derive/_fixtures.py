@@ -1,10 +1,10 @@
-"""Shared fixture builders for ``cvi.derive.bundle`` oracle tests.
+"""Shared fixture builders for ``porchlamp.derive.bundle`` oracle tests.
 
 Every helper here builds a hand-controlled v1 derived-file document (the
 ``scripts/derive.py`` output shape: ``repo``/``meta``/``provenance``/
 ``confidence``/``pr_events``) plus the raw envelope files its provenance
 entries point at, so each test in this package can assert an exact
-:class:`~cvi.core.models.Measured`/:class:`~cvi.core.models.Unmeasured`
+:class:`~porchlamp.core.models.Measured`/:class:`~porchlamp.core.models.Unmeasured`
 value with no unpinned fields.
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ FETCHED_AT = "2026-09-01T00:05:00+00:00"
 
 def expected_hash(data: Any) -> str:
     """03 section 5 content hash, recomputed independently of
-    ``cvi.core.models.canonical_json``/``sha256_hex`` (same documented
+    ``porchlamp.core.models.canonical_json``/``sha256_hex`` (same documented
     algorithm: sha256 of sorted-key, no-whitespace JSON), so the oracle does
     not call the code under test to check its own output."""
     payload = json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -36,7 +36,7 @@ def write_envelope(
 ) -> Path:
     """Write a raw envelope file under ``raw_root/<collector>/<key>.json``.
 
-    Only the ``data`` key is read by ``cvi.derive.bundle._envelope_data``;
+    Only the ``data`` key is read by ``porchlamp.derive.bundle._envelope_data``;
     the rest of the real ``Envelope`` shape is not needed to exercise the
     loader (matches the existing convention in ``tests/test_derive.py``)."""
     path = raw_root / collector / f"{key}.json"
@@ -48,7 +48,7 @@ def write_envelope(
 
 def recorded_source(collector: str, key: str = KEY) -> str:
     """A v1 provenance ``source`` string with a ``raw/<collector>/<key>.json``
-    tail, so ``cvi.derive.bundle._resolve_envelope``'s ``raw_root`` fallback
+    tail, so ``porchlamp.derive.bundle._resolve_envelope``'s ``raw_root`` fallback
     resolves it regardless of where the original absolute path pointed."""
     return f"/original-data-dir/raw/{collector}/{key}.json"
 
@@ -90,10 +90,10 @@ def write_document(root: Path, document: Mapping[str, Any], key: str = KEY) -> P
 
 def load(root: Path, document: Mapping[str, Any], key: str = KEY):
     """Write ``document`` to ``root/derived/<key>.json`` and load it back
-    through the public :func:`cvi.derive.bundle.load_bundle` entry point
+    through the public :func:`porchlamp.derive.bundle.load_bundle` entry point
     (not the private ``_load_v1``), with ``raw_root=root/"raw"`` -- the same
     two-step disk round trip ``tests/core/test_sample200_load.py`` uses."""
-    from cvi.derive.bundle import load_bundle
+    from porchlamp.derive.bundle import load_bundle
 
     path = write_document(root, document, key)
     return load_bundle(path, raw_root=root / "raw")
@@ -110,7 +110,7 @@ def pr_window_data(
     cost_points: int = 0,
 ) -> dict[str, Any]:
     """The raw ``pr_window`` envelope ``data`` shape
-    (``cvi.collect.github_graphql.collect_pr_window``): ``window_anchor``/
+    (``porchlamp.collect.github_graphql.collect_pr_window``): ``window_anchor``/
     ``window_days`` (bounds), ``prs`` (raw GraphQL PR nodes: ``number``,
     ``createdAt``, ``mergedAt``), ``derived`` (per-PR classifications:
     ``number``, ``is_external``, ``merged``, ``decided``,
@@ -132,11 +132,11 @@ def author_history_data(
     cost_points: int = 0,
 ) -> dict[str, Any]:
     """The raw ``author_history`` envelope ``data`` shape
-    (``cvi.collect.github_graphql.collect_author_history``): only the
+    (``porchlamp.collect.github_graphql.collect_author_history``): only the
     ``author_records`` list (``login``, ``account_created_at``,
     ``public_event_count``, ``eligibility_unmeasured``,
     ``history_unmeasured``) is read by the DR_90 eligibility join
-    (``cvi.derive.bundle._author_history_envelope`` /
+    (``porchlamp.derive.bundle._author_history_envelope`` /
     ``_dr90_author_eligible``); the rest of the real envelope shape
     (``sampled_authors``, rate-limit accounting) is not needed here."""
     return {

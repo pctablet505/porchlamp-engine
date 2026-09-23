@@ -16,9 +16,9 @@ from typing import Any
 
 import pytest
 
-from cvi.core import constants
-from cvi.core.models import Measured, PRWindowEvent, Unmeasured
-from cvi.derive.bundle import load_bundle, write_bundle
+from porchlamp.core import constants
+from porchlamp.core.models import Measured, PRWindowEvent, Unmeasured
+from porchlamp.derive.bundle import load_bundle, write_bundle
 
 SAMPLE = Path.home() / "Projects" / "cvi-scratch" / "sample-200"
 KEY = "EvanLi__Github-Ranking"
@@ -141,7 +141,7 @@ def test_unmeasured_inputs_have_documented_reasons(bundle: Any) -> None:
     assert bundle.inputs["pipeline_defenses"] == Unmeasured(
         reason="third_party_gap",
         detail="no scorecard envelope with a usable check subset and no pr_window/runs envelopes to "
-               "derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+               "derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
     )
 
 

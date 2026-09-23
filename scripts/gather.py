@@ -1,7 +1,7 @@
 """Gather verified raw data for candidate repos into data/raw/<collector>/.
 
 One envelope per (collector, repo): {"source","fetched_at","http_status",
-"etag","sha256","collector_version","data"} (the contract in cvi.collect.envelope).
+"etag","sha256","collector_version","data"} (the contract in porchlamp.collect.envelope).
 Existence of the envelope = completed (checkpoint); --force refetches.
 GitHub meta+PRs+first-reviews come from ONE aliased GraphQL request/repo;
 contributors/commits/GFI/actions/tree via REST; deps.dev, OpenSSF scorecard
@@ -24,14 +24,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from cvi.collect.commits import collect_commits_365d
-from cvi.collect.envelope import write_envelope
-# SLEEP_REST shares cvi.collect.pike_signals' SLEEP_CORE_SECONDS
+from porchlamp.collect.commits import collect_commits_365d
+from porchlamp.collect.envelope import write_envelope
+# SLEEP_REST shares porchlamp.collect.pike_signals' SLEEP_CORE_SECONDS
 # (both 0.15, the same GitHub core-API rate limit) -- one definition imported
 # under this file's existing name.
-from cvi.collect.pike_signals import SLEEP_CORE_SECONDS as SLEEP_REST
-from cvi.collect.user_cache import UserCache
-from cvi.paths import data_root
+from porchlamp.collect.pike_signals import SLEEP_CORE_SECONDS as SLEEP_REST
+from porchlamp.collect.user_cache import UserCache
+from porchlamp.paths import data_root
 
 DATA = data_root() / "raw"
 CANDIDATES = DATA / "candidates.jsonl"
@@ -322,7 +322,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     if done("repo_object"):
         status["repo_object"] = "skip"
     else:
-        from cvi.collect.repo_object import collect_repo_object
+        from porchlamp.collect.repo_object import collect_repo_object
         try:
             status["repo_object"] = collect_repo_object(DATA, owner, name, branch)
         except Exception as e:  # review-ok: gate-network — retry on rerun
@@ -332,13 +332,13 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     # --- Per-label newcomer-label GFI collection: when the gfi envelope is missing or
     # legacy, fetch the repo's label list once, query each alias-matching
     # label separately, and rewrite the envelope with labels_matched. ---
-    from cvi.collect import labels as cvi_labels
+    from porchlamp.collect import labels as porchlamp_labels
 
     gfi_path = DATA / "gfi" / f"{key}.json"
-    if selected("gfi") and cvi_labels.needs_gather(gfi_path, force):
+    if selected("gfi") and porchlamp_labels.needs_gather(gfi_path, force):
         try:
-            result = cvi_labels.collect_newcomer_issues(_gh, owner, name)
-            cvi_labels.write_gfi_envelope(owner, name, result, gfi_path)
+            result = porchlamp_labels.collect_newcomer_issues(_gh, owner, name)
+            porchlamp_labels.write_gfi_envelope(owner, name, result, gfi_path)
             status["gfi"] = "ok"
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["gfi"] = "fail"
@@ -365,18 +365,18 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         status["commits_365d"] = "skip"
     # Package-level dependents — deps.dev primary, ecosyste.ms
     # fallback; "skip" = no registry mapping for this ecosystem (module
-    # docstring of cvi.collect.depsdev), no envelope, no fetch.
+    # docstring of porchlamp.collect.depsdev), no envelope, no fetch.
     if done("dependents"):
         status["dependents"] = "skip"
     else:
-        from cvi.collect import depsdev as depsdev_mod
+        from porchlamp.collect import depsdev as depsdev_mod
         try:
             dep_kwargs: dict[str, Any] = {}
             if ecosystem == "maven":
                 pom_xml: Optional[str] = None
                 try:
                     import inspect as _inspect
-                    from cvi.collect import repo_object as _ro_mod
+                    from porchlamp.collect import repo_object as _ro_mod
                     ro_params = _inspect.signature(_ro_mod._fetch_body).parameters
                     if len(ro_params) >= 3:
                         pom_xml = _ro_mod._fetch_body(owner, name, "pom.xml")
@@ -416,7 +416,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     if done("pr_window"):
         status["pr_window"] = "skip"
     else:
-        from cvi.collect import github_graphql as prw_mod
+        from porchlamp.collect import github_graphql as prw_mod
         try:
             status["pr_window"] = prw_mod.collect_pr_window(DATA, owner, name)
         except Exception as e:  # review-ok: gate-network — retry on rerun
@@ -433,7 +433,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         status["downloads"] = ("pending" if ecosystem in _bdl.RETRYABLE_ECOSYSTEMS
                                else "unmeasured")
     # --- Releases, issues search counts, CI runs (02 §4 2.2 / 4.1) ---
-    from cvi.collect import pike_signals as pike_mod
+    from porchlamp.collect import pike_signals as pike_mod
     for collector, call in (
         ("releases", lambda: pike_mod.collect_releases(DATA, owner, name)),
         ("issues_counts", lambda: pike_mod.collect_issue_counts(DATA, owner, name)),
@@ -453,7 +453,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     if done("governance"):
         status["governance"] = "skip"
     else:
-        from cvi.collect import governance as gov_mod
+        from porchlamp.collect import governance as gov_mod
         try:
             status["governance"] = gov_mod.collect_governance(DATA, owner, name)
         except Exception as e:  # review-ok: gate-network — retry on rerun
@@ -463,7 +463,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     if done("author_history"):
         status["author_history"] = "skip"
     else:
-        from cvi.collect import github_graphql as cohort_mod
+        from porchlamp.collect import github_graphql as cohort_mod
         try:
             status["author_history"] = cohort_mod.collect_author_history(
                 DATA, owner, name, user_cache=_user_cache())
@@ -506,14 +506,14 @@ def _downloads(ecosystem: str, name: str,
         time.sleep(SLEEP_PYPISTATS)
         pkg = re.sub(r"[-_.]+", "-", name).lower()
         d = _get_json(f"https://pypistats.org/api/packages/{pkg}/recent",
-                      {"User-Agent": "cvi-research/0.1 (ranking study)"})
+                      {"User-Agent": "porchlamp-research/0.1 (ranking study)"})
         return ((d or {}).get("data") or {}).get("last_month"), "pypistats"
     if ecosystem == "npm":
         d = _get_json(f"https://api.npmjs.org/downloads/point/last-month/{name}")
         return (d or {}).get("downloads"), "npmjs"
     if ecosystem == "crates":
         d = _get_json(f"https://crates.io/api/v1/crates/{name}",
-                      {"User-Agent": "cvi-research/0.1"})
+                      {"User-Agent": "porchlamp-research/0.1"})
         rd = (d or {}).get("crate", {}).get("recent_downloads")
         # recent_downloads is a trailing-90-day figure; normalize to monthly.
         return (int(rd) // 3 if rd is not None else None), "crates.io"

@@ -17,14 +17,14 @@ import hashlib
 
 import pytest
 
-from cvi.core import constants
-from cvi.core.models import BundleValidationError, Unmeasured, canonical_json
+from porchlamp.core import constants
+from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_json
 
 
 #: D-VER-2: the frozen hash for BENCHMARK_VERSION "2.0.0-rc1". A failure here
 #: means a constant moved without the RFC procedure in docs/v2/rfcs/README.md;
 #: recompute intentionally with
-#: `python -c "from cvi.core import constants as c; print(c.CONSTANTS_HASH)"`
+#: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
 FROZEN_CONSTANTS_HASH = "748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b"
 
@@ -197,9 +197,9 @@ def test_hash_is_a_pure_function_of_the_dict() -> None:
     depends on content, not identity or import order."""
     import importlib
 
-    from cvi.core import constants as first_import
+    from porchlamp.core import constants as first_import
 
-    second_import = importlib.import_module("cvi.core.constants")
+    second_import = importlib.import_module("porchlamp.core.constants")
     assert first_import is second_import  # module cache, expected
     recomputed_first = hashlib.sha256(
         canonical_json(first_import.constants_dict()).encode("utf-8")
@@ -239,7 +239,7 @@ def test_every_module_level_constant_is_hashed_or_declared_not_hashed() -> None:
     Every module-level UPPER_CASE name (leading-underscore names such as
     ``_NOT_HASHED``/``_canonical_json`` are internal machinery, not
     constants under this claim) must be either a key of ``constants_dict()``
-    or listed in :data:`cvi.core.constants._NOT_HASHED`. ``BENCHMARK_VERSION``
+    or listed in :data:`porchlamp.core.constants._NOT_HASHED`. ``BENCHMARK_VERSION``
     is deliberately NOT in ``_NOT_HASHED``: D-VER-1 ties a version bump to a
     constants change, so hashing it too is correct, not redundant."""
     names = {name for name in vars(constants) if name.isupper() and not name.startswith("_")}

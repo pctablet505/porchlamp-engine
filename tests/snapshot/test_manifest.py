@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.snapshot.manifest`.
+"""Unit tests for :mod:`porchlamp.snapshot.manifest`.
 
 The manifest lists ``(collector, key, sha256)`` for every envelope, a Merkle
 root over those entries, and the code commit.
@@ -19,9 +19,9 @@ from typing import Any
 
 import pytest
 
-from cvi.collect.envelope import envelope_hash, write_envelope
-from cvi.constants import PILLAR_WEIGHTS
-from cvi.snapshot.manifest import (
+from porchlamp.collect.envelope import envelope_hash, write_envelope
+from porchlamp.constants import PILLAR_WEIGHTS
+from porchlamp.snapshot.manifest import (
     MANIFEST_FILENAME,
     build_manifest,
     constants_hash,
@@ -166,14 +166,14 @@ def test_merkle_root_is_order_sensitive() -> None:
 def test_constants_hash_is_the_frozen_constant(monkeypatch: pytest.MonkeyPatch) -> None:
     """``constants_hash()`` is the frozen core constant, not a live recomputation.
 
-    The pre-fix code derived the hash from ``dir(cvi.constants)``, so editing a
+    The pre-fix code derived the hash from ``dir(porchlamp.constants)``, so editing a
     module attribute moved it and a snapshot could be scored against constants
     it was not frozen against. It must instead return
-    :data:`cvi.core.constants.CONSTANTS_HASH` and stay put when ``cvi.constants``
+    :data:`porchlamp.core.constants.CONSTANTS_HASH` and stay put when ``porchlamp.constants``
     is patched (D-VER-2: one definition, single source)."""
-    from cvi.core.constants import CONSTANTS_HASH
+    from porchlamp.core.constants import CONSTANTS_HASH
 
-    import cvi.constants as constants
+    import porchlamp.constants as constants
 
     assert constants_hash() == CONSTANTS_HASH
     before = constants_hash()
@@ -183,15 +183,15 @@ def test_constants_hash_is_the_frozen_constant(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_constants_hash_matches_the_core_constant() -> None:
-    """``manifest.constants_hash()`` equals ``cvi.core.constants.CONSTANTS_HASH`` (E-02)."""
-    from cvi.core.constants import CONSTANTS_HASH
+    """``manifest.constants_hash()`` equals ``porchlamp.core.constants.CONSTANTS_HASH`` (E-02)."""
+    from porchlamp.core.constants import CONSTANTS_HASH
 
     assert constants_hash() == CONSTANTS_HASH
 
 
 def test_build_manifest_records_core_constants_hash(data_dir: Path) -> None:
     """``build_manifest`` stores the core ``CONSTANTS_HASH``, not a recomputed hash."""
-    from cvi.core.constants import CONSTANTS_HASH
+    from porchlamp.core.constants import CONSTANTS_HASH
 
     entries = envelope_entries(data_dir).entries
     manifest = build_manifest(
@@ -289,7 +289,7 @@ def test_load_manifest_names_a_missing_snapshot(data_dir: Path) -> None:
 
 
 def test_code_commit_reads_the_checked_out_commit() -> None:
-    from cvi.snapshot.manifest import code_commit
+    from porchlamp.snapshot.manifest import code_commit
 
     root = Path(__file__).resolve().parents[2]
     expected = subprocess.run(
@@ -299,7 +299,7 @@ def test_code_commit_reads_the_checked_out_commit() -> None:
 
 
 def test_code_commit_is_none_outside_a_repository(tmp_path: Path) -> None:
-    from cvi.snapshot.manifest import code_commit
+    from porchlamp.snapshot.manifest import code_commit
 
     assert code_commit(tmp_path) is None
 
@@ -314,7 +314,7 @@ def test_envelope_entries_reports_an_unreadable_file_without_aborting(
     data_dir: Path,
 ) -> None:
     """Corrupt JSON is excluded from the entries and named with a reason."""
-    from cvi.snapshot.manifest import REASON_INVALID_JSON
+    from porchlamp.snapshot.manifest import REASON_INVALID_JSON
 
     path = data_dir / "raw/gfi/org__delta.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -337,7 +337,7 @@ def test_envelope_entries_reports_valid_json_that_is_not_an_envelope(
     tmp_path: Path,
 ) -> None:
     """A *.json holding a JSON array is not a readable envelope either."""
-    from cvi.snapshot.manifest import REASON_INVALID_JSON
+    from porchlamp.snapshot.manifest import REASON_INVALID_JSON
 
     _legacy(tmp_path / "data", "gfi", "org__alpha", GFI_DATA)
     (tmp_path / "data/raw/gfi/org__beta.json").write_text("[1, 2]", encoding="utf-8")
@@ -384,11 +384,11 @@ def test_build_manifest_records_the_invalid_json_keys(data_dir: Path) -> None:
 
 def test_reason_code_literals_are_spelled_only_at_their_constant_definitions() -> None:
     """Grep-based, mirroring tests/test_no_clock.py's own scan style: the
-    three reason-code literals appear nowhere in ``cvi/`` except the
+    three reason-code literals appear nowhere in ``porchlamp/`` except the
     ``REASON_*`` assignments in this module, so a caller can only reach them
     by importing the constant (a change to the constant's value moves every
     reader with it)."""
-    package = Path(__file__).resolve().parents[2] / "cvi"
+    package = Path(__file__).resolve().parents[2] / "porchlamp"
     literal_re = re.compile(r"\bINVALID_JSON_FROZEN\b|\bINVALID_JSON\b|\bSTALE_HASH\b")
     hits = sorted(
         f"{path.relative_to(package.parent)}: {line.strip()}"
@@ -397,7 +397,7 @@ def test_reason_code_literals_are_spelled_only_at_their_constant_definitions() -
         if literal_re.search(line)
     )
     assert hits == [
-        'cvi/snapshot/manifest.py: REASON_INVALID_JSON = "INVALID_JSON"',
-        'cvi/snapshot/manifest.py: REASON_INVALID_JSON_FROZEN = "INVALID_JSON_FROZEN"',
-        'cvi/snapshot/manifest.py: REASON_STALE_HASH = "STALE_HASH"',
+        'porchlamp/snapshot/manifest.py: REASON_INVALID_JSON = "INVALID_JSON"',
+        'porchlamp/snapshot/manifest.py: REASON_INVALID_JSON_FROZEN = "INVALID_JSON_FROZEN"',
+        'porchlamp/snapshot/manifest.py: REASON_STALE_HASH = "STALE_HASH"',
     ]

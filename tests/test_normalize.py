@@ -1,6 +1,6 @@
 """Direct tests for Phase 2 ECDF normalization (spec 10.2).
 
-``cvi/normalize.py`` had no dedicated test file (2026-09-12 review gap): the
+``porchlamp/normalize.py`` had no dedicated test file (2026-09-12 review gap): the
 ECDF was only exercised indirectly through pillar tests, so the two
 load-bearing details — the ``<=`` (not ``<``) comparison and the empty-
 population 50.0 fallback — were not locked. These tests pin them.
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from cvi.normalize import compute_ecosystem_percentile
+from porchlamp.normalize import compute_ecosystem_percentile
 
 
 def test_empty_population_neutral_median():

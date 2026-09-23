@@ -1,0 +1,215 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675" style="background:#090D16; font-family:-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, sans-serif;">
+  <defs>
+    <linearGradient id="rowHighlight" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#1E293B" stop-opacity="0.8"/><stop offset="100%" stop-color="#0F172A" stop-opacity="0.2"/></linearGradient>
+  </defs>
+
+  <!-- Global Header Nav -->
+  <rect x="0" y="0" width="1200" height="56" fill="#0F172A" stroke="#1E293B" stroke-width="1"/>
+  <circle cx="28" cy="28" r="12" fill="#10B981"/>
+  <text x="24" y="33" fill="#090D16" font-size="14" font-weight="900">C</text>
+  <text x="50" y="33" fill="#F8FAFC" font-size="16" font-weight="700" letter-spacing="-0.02em">Porchlamp</text>
+
+  <!-- Nav Tabs -->
+  <g transform="translate(260, 0)">
+    <text x="20" y="32" fill="#94A3B8" font-size="13" font-weight="500">Matrix</text>
+    <rect x="90" y="14" width="105" height="28" rx="6" fill="#1E293B"/>
+    <text x="105" y="32" fill="#38BDF8" font-size="13" font-weight="600">Leaderboard</text>
+    <line x1="100" y1="46" x2="185" y2="46" stroke="#38BDF8" stroke-width="2"/>
+    <text x="220" y="32" fill="#94A3B8" font-size="13" font-weight="500">Configurator</text>
+    <text x="320" y="32" fill="#94A3B8" font-size="13" font-weight="500">Compare</text>
+  </g>
+
+  <!-- Omnibar -->
+  <rect x="740" y="12" width="260" height="32" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="754" y="32" fill="#64748B" font-size="12">Filter repos, orgs, tags... ⌘K</text>
+
+  <!-- Filter Toolbar Surface (Height: 90px) -->
+  <g transform="translate(30, 70)">
+    <rect x="0" y="0" width="1140" height="85" rx="8" fill="#0F172A" stroke="#1E293B" stroke-width="1"/>
+
+    <!-- Row 1: Ecosystem Scoping Pills -->
+    <text x="20" y="26" fill="#94A3B8" font-size="11" font-weight="600">ECOSYSTEM:</text>
+    <!-- Python Active Pill -->
+    <rect x="100" y="10" width="110" height="24" rx="12" fill="#1E293B" stroke="#38BDF8" stroke-width="1.5"/>
+    <text x="112" y="26" fill="#38BDF8" font-size="11" font-weight="700">✓ Python (PyPI)</text>
+    <!-- Other Ecosystem Pills -->
+    <rect x="220" y="10" width="125" height="24" rx="12" fill="#1E293B" stroke="#334155" stroke-width="0.5"/>
+    <text x="232" y="26" fill="#94A3B8" font-size="11">TypeScript (npm)</text>
+    <rect x="355" y="10" width="100" height="24" rx="12" fill="#1E293B" stroke="#334155" stroke-width="0.5"/>
+    <text x="367" y="26" fill="#94A3B8" font-size="11">Rust (Crates)</text>
+    <rect x="465" y="10" width="70" height="24" rx="12" fill="#1E293B" stroke="#334155" stroke-width="0.5"/>
+    <text x="480" y="26" fill="#94A3B8" font-size="11">Go</text>
+    <rect x="545" y="10" width="110" height="24" rx="12" fill="#1E293B" stroke="#334155" stroke-width="0.5"/>
+    <text x="557" y="26" fill="#94A3B8" font-size="11">Systems (C/C++)</text>
+
+    <!-- Quadrant Filter Chips -->
+    <text x="680" y="26" fill="#94A3B8" font-size="11" font-weight="600">QUADRANT:</text>
+    <rect x="755" y="10" width="120" height="24" rx="4" fill="#1E293B" stroke="#10B981" stroke-width="1"/>
+    <circle cx="767" cy="22" r="4" fill="#10B981"/>
+    <text x="777" y="26" fill="#10B981" font-size="11" font-weight="600">Sweet Spot (384)</text>
+
+    <rect x="885" y="10" width="110" height="24" rx="4" fill="#1E293B" stroke="#6366F1" stroke-width="1"/>
+    <circle cx="897" cy="22" r="4" fill="#6366F1"/>
+    <text x="907" y="26" fill="#6366F1" font-size="11" font-weight="600">Crucible (210)</text>
+
+    <rect x="1005" y="10" width="115" height="24" rx="4" fill="#1E293B" stroke="#F59E0B" stroke-width="1"/>
+    <circle cx="1017" cy="22" r="4" fill="#F59E0B"/>
+    <text x="1027" y="26" fill="#F59E0B" font-size="11" font-weight="600">Nursery (890)</text>
+
+    <!-- Row 2: Hard Constraint Gating Switches -->
+    <line x1="20" y1="46" x2="1120" y2="46" stroke="#1E293B" stroke-width="1"/>
+    <text x="20" y="68" fill="#94A3B8" font-size="11" font-weight="600">STAGE 0 GATES:</text>
+
+    <!-- Switch 1: Exclude Black Holes -->
+    <rect x="130" y="55" width="28" height="16" rx="8" fill="#10B981"/>
+    <circle cx="148" cy="63" r="6" fill="#090D16"/>
+    <text x="165" y="68" fill="#F8FAFC" font-size="11">Exclude Black Holes (>50% Ghost)</text>
+
+    <!-- Switch 2: Active Maintenance -->
+    <rect x="410" y="55" width="28" height="16" rx="8" fill="#10B981"/>
+    <circle cx="428" cy="63" r="6" fill="#090D16"/>
+    <text x="445" y="68" fill="#F8FAFC" font-size="11">Active Maintenance (&lt;90d)</text>
+
+    <!-- Switch 3: Clean IP -->
+    <rect x="630" y="55" width="28" height="16" rx="8" fill="#334155"/>
+    <circle cx="638" cy="63" r="6" fill="#94A3B8"/>
+    <text x="665" y="68" fill="#94A3B8" font-size="11">DCO / Permissive IP Only</text>
+
+    <!-- Right Summary Stats -->
+    <text x="960" y="68" fill="#38BDF8" font-size="11" font-weight="600">Showing 384 of 5,420 Repos (7.1%)</text>
+  </g>
+
+  <!-- Table Container (Height: 480px) -->
+  <g transform="translate(30, 170)">
+    <rect x="0" y="0" width="1140" height="475" rx="8" fill="#0F172A" stroke="#1E293B" stroke-width="1"/>
+
+    <!-- Table Header Row -->
+    <rect x="0" y="0" width="1140" height="38" rx="8" fill="#1E293B"/>
+    <text x="20" y="24" fill="#94A3B8" font-size="11" font-weight="700">#</text>
+    <text x="55" y="24" fill="#94A3B8" font-size="11" font-weight="700">TIER</text>
+    <text x="120" y="24" fill="#94A3B8" font-size="11" font-weight="700">REPOSITORY</text>
+    <text x="360" y="24" fill="#94A3B8" font-size="11" font-weight="700">Porchlamp SCORE</text>
+    <text x="490" y="24" fill="#94A3B8" font-size="11" font-weight="700">BOT-TTFHR</text>
+    <text x="590" y="24" fill="#94A3B8" font-size="11" font-weight="700">GHOST RATE</text>
+    <text x="700" y="24" fill="#94A3B8" font-size="11" font-weight="700">DEPENDENTS</text>
+    <text x="820" y="24" fill="#94A3B8" font-size="11" font-weight="700">ELEPHANT FACTOR</text>
+    <text x="980" y="24" fill="#94A3B8" font-size="11" font-weight="700">90D VELOCITY</text>
+
+    <!-- Table Row 1: vllm-project/vllm (Active Hover) -->
+    <g transform="translate(0, 42)">
+      <rect x="0" y="0" width="1140" height="60" fill="url(#rowHighlight)"/>
+      <text x="20" y="35" fill="#F8FAFC" font-family="monospace" font-size="13" font-weight="700">001</text>
+      <rect x="52" y="20" width="48" height="20" rx="4" fill="#10B981" fill-opacity="0.2"/>
+      <text x="59" y="34" fill="#10B981" font-size="11" font-weight="700">TIER S+</text>
+
+      <!-- Repo Info -->
+      <circle cx="132" cy="30" r="10" fill="#334155"/>
+      <text x="128" y="34" fill="#F8FAFC" font-size="11">🐙</text>
+      <text x="150" y="28" fill="#F8FAFC" font-size="13" font-weight="700">vllm-project / vllm</text>
+      <text x="150" y="44" fill="#94A3B8" font-size="11">Apache-2.0 · Python / C++ · Sweet Spot</text>
+
+      <!-- Porchlamp Score Progress Bar -->
+      <text x="360" y="35" fill="#10B981" font-family="monospace" font-size="15" font-weight="700">94.2</text>
+      <rect x="405" y="27" width="60" height="6" rx="3" fill="#1E293B"/>
+      <rect x="405" y="27" width="56" height="6" rx="3" fill="#10B981"/>
+
+      <!-- Latency & Ghost -->
+      <text x="490" y="35" fill="#10B981" font-family="monospace" font-size="13">11.2h</text>
+      <text x="590" y="35" fill="#10B981" font-family="monospace" font-size="13">3.8%</text>
+
+      <!-- Dependents & Elephant -->
+      <text x="700" y="35" fill="#F8FAFC" font-family="monospace" font-size="13">14,820 orgs</text>
+      <rect x="820" y="20" width="115" height="22" rx="4" fill="#1E293B" stroke="#10B981" stroke-width="0.5"/>
+      <text x="828" y="35" fill="#10B981" font-size="11">Multi-Vendor (4)</text>
+
+      <!-- Sparkline (Rising) -->
+      <polyline points="980,42 1000,38 1020,40 1040,28 1060,24 1080,18" fill="none" stroke="#10B981" stroke-width="2"/>
+    </g>
+
+    <!-- Table Row 2: duckdb/duckdb -->
+    <g transform="translate(0, 105)">
+      <line x1="20" y1="0" x2="1120" y2="0" stroke="#1E293B" stroke-width="0.5"/>
+      <text x="20" y="35" fill="#94A3B8" font-family="monospace" font-size="13">002</text>
+      <rect x="52" y="20" width="48" height="20" rx="4" fill="#10B981" fill-opacity="0.2"/>
+      <text x="59" y="34" fill="#10B981" font-size="11" font-weight="700">TIER S+</text>
+
+      <circle cx="132" cy="30" r="10" fill="#334155"/>
+      <text x="128" y="34" fill="#F8FAFC" font-size="11">🦆</text>
+      <text x="150" y="28" fill="#F8FAFC" font-size="13" font-weight="700">duckdb / duckdb</text>
+      <text x="150" y="44" fill="#94A3B8" font-size="11">MIT · C++ / Python · Sweet Spot</text>
+
+      <text x="360" y="35" fill="#10B981" font-family="monospace" font-size="15" font-weight="700">92.8</text>
+      <rect x="405" y="27" width="60" height="6" rx="3" fill="#1E293B"/>
+      <rect x="405" y="27" width="54" height="6" rx="3" fill="#10B981"/>
+
+      <text x="490" y="35" fill="#10B981" font-family="monospace" font-size="13">14.1h</text>
+      <text x="590" y="35" fill="#10B981" font-family="monospace" font-size="13">4.2%</text>
+
+      <text x="700" y="35" fill="#F8FAFC" font-family="monospace" font-size="13">28,140 orgs</text>
+      <rect x="820" y="20" width="115" height="22" rx="4" fill="#1E293B" stroke="#10B981" stroke-width="0.5"/>
+      <text x="828" y="35" fill="#10B981" font-size="11">Multi-Vendor (3)</text>
+
+      <polyline points="980,40 1000,42 1020,32 1040,30 1060,25 1080,20" fill="none" stroke="#10B981" stroke-width="2"/>
+    </g>
+
+    <!-- Table Row 3: fastapi/tiangolo -->
+    <g transform="translate(0, 170)">
+      <line x1="20" y1="0" x2="1120" y2="0" stroke="#1E293B" stroke-width="0.5"/>
+      <text x="20" y="35" fill="#94A3B8" font-family="monospace" font-size="13">003</text>
+      <rect x="52" y="20" width="48" height="20" rx="4" fill="#38BDF8" fill-opacity="0.2"/>
+      <text x="64" y="34" fill="#38BDF8" font-size="11" font-weight="700">TIER S</text>
+
+      <circle cx="132" cy="30" r="10" fill="#334155"/>
+      <text x="128" y="34" fill="#F8FAFC" font-size="11">⚡</text>
+      <text x="150" y="28" fill="#F8FAFC" font-size="13" font-weight="700">fastapi / fastapi</text>
+      <text x="150" y="44" fill="#94A3B8" font-size="11">MIT · Python · Sweet Spot</text>
+
+      <text x="360" y="35" fill="#38BDF8" font-family="monospace" font-size="15" font-weight="700">89.4</text>
+      <rect x="405" y="27" width="60" height="6" rx="3" fill="#1E293B"/>
+      <rect x="405" y="27" width="50" height="6" rx="3" fill="#38BDF8"/>
+
+      <text x="490" y="35" fill="#38BDF8" font-family="monospace" font-size="13">18.0h</text>
+      <text x="590" y="35" fill="#38BDF8" font-family="monospace" font-size="13">8.5%</text>
+
+      <text x="700" y="35" fill="#F8FAFC" font-family="monospace" font-size="13">89,200 orgs</text>
+      <rect x="820" y="20" width="115" height="22" rx="4" fill="#1E293B" stroke="#F59E0B" stroke-width="0.5"/>
+      <text x="828" y="35" fill="#F59E0B" font-size="11">Single-Firm (1)</text>
+
+      <polyline points="980,30 1000,32 1020,28 1040,35 1060,30 1080,26" fill="none" stroke="#38BDF8" stroke-width="2"/>
+    </g>
+
+    <!-- Table Row 4 (Disqualified Alert Row): keras-team/keras-hub -->
+    <g transform="translate(0, 235)">
+      <line x1="20" y1="0" x2="1120" y2="0" stroke="#1E293B" stroke-width="0.5"/>
+      <text x="20" y="35" fill="#EF4444" font-family="monospace" font-size="13">142</text>
+      <rect x="52" y="20" width="48" height="20" rx="4" fill="#EF4444" fill-opacity="0.2"/>
+      <text x="60" y="34" fill="#EF4444" font-size="11" font-weight="700">TIER D</text>
+
+      <circle cx="132" cy="30" r="10" fill="#334155"/>
+      <text x="128" y="34" fill="#EF4444" font-size="11">⚠</text>
+      <text x="150" y="28" fill="#EF4444" font-size="13" font-weight="700">keras-team / keras-hub [GATED]</text>
+      <text x="150" y="44" fill="#EF4444" font-size="11">Stage 0 Disqualified · PR Black Hole · Ghost Rate > 50%</text>
+
+      <text x="360" y="35" fill="#EF4444" font-family="monospace" font-size="15" font-weight="700">41.2</text>
+      <rect x="405" y="27" width="60" height="6" rx="3" fill="#1E293B"/>
+      <rect x="405" y="27" width="22" height="6" rx="3" fill="#EF4444"/>
+
+      <text x="490" y="35" fill="#EF4444" font-family="monospace" font-size="13">412.0h</text>
+      <text x="590" y="35" fill="#EF4444" font-family="monospace" font-size="13" font-weight="700">58.4% ⚠</text>
+
+      <text x="700" y="35" fill="#94A3B8" font-family="monospace" font-size="13">4,210 orgs</text>
+      <rect x="820" y="20" width="115" height="22" rx="4" fill="#1E293B" stroke="#EF4444" stroke-width="0.5"/>
+      <text x="828" y="35" fill="#EF4444" font-size="11">Single-Firm (1)</text>
+
+      <polyline points="980,25 1000,28 1020,38 1040,42 1060,45 1080,48" fill="none" stroke="#EF4444" stroke-width="2"/>
+    </g>
+
+    <!-- Table Footer / Pagination -->
+    <rect x="0" y="430" width="1140" height="45" rx="8" fill="#1E293B"/>
+    <text x="20" y="458" fill="#94A3B8" font-size="12">Showing 1 - 50 of 384 Matched Python Candidates</text>
+    <rect x="940" y="440" width="90" height="26" rx="4" fill="#0F172A" stroke="#334155" stroke-width="1"/>
+    <text x="955" y="457" fill="#F8FAFC" font-size="11">Export CSV</text>
+    <rect x="1040" y="440" width="80" height="26" rx="4" fill="#10B981"/>
+    <text x="1055" y="457" fill="#090D16" font-size="11" font-weight="700">Compare</text>
+  </g>
+</svg>

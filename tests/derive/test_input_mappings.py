@@ -1,4 +1,4 @@
-""" oracle tests: one test per ``cvi.derive.bundle.INPUT_MAPPINGS`` row.
+""" oracle tests: one test per ``porchlamp.derive.bundle.INPUT_MAPPINGS`` row.
 
 Each test builds a hand-controlled v1 derived-file document (see
 ``_fixtures.py``), loads it through the public ``load_bundle`` entry point,
@@ -34,12 +34,12 @@ from _fixtures import (
     write_envelope,
 )
 
-from cvi.core import constants
-from cvi.core.models import BundleValidationError, Measured, Unmeasured, feature_provenance_hash
-from cvi.core.params import dr90
-from cvi.derive.bundle import INPUT_MAPPINGS
+from porchlamp.core import constants
+from porchlamp.core.models import BundleValidationError, Measured, Unmeasured, feature_provenance_hash
+from porchlamp.core.params import dr90
+from porchlamp.derive.bundle import INPUT_MAPPINGS
 
-#: Copied verbatim from cvi/derive/bundle.py's ``_PR_WINDOW_UNRESOLVABLE_DETAIL``
+#: Copied verbatim from porchlamp/derive/bundle.py's ``_PR_WINDOW_UNRESOLVABLE_DETAIL``
 #: -- pinned here as a literal so a change to the message is a deliberate,
 #: reviewed edit to this test, not a silent drift.
 PR_WINDOW_UNRESOLVABLE_DETAIL = (
@@ -712,7 +712,7 @@ def test_newcomer_issue_supply(tmp_path: Path) -> None:
 # 2.2 openssf_criticality (, )                                       #
 # --------------------------------------------------------------------------- #
 
-#: The ten Pike signals (cvi.models.OpenSSFSignals field names), a plausible
+#: The ten Pike signals (porchlamp.models.OpenSSFSignals field names), a plausible
 #: mid-sized repo's values -- matches the module docstring's signal table.
 _OPENSSF_SIGNALS = {
     "created_since_months": 48.0,
@@ -735,8 +735,8 @@ def _write_openssf_envelopes(tmp_path: Path, key: str) -> None:
 
 
 def test_openssf_criticality(tmp_path: Path) -> None:
-    from cvi.models import OpenSSFSignals
-    from cvi.openssf import calculate_pike_criticality
+    from porchlamp.models import OpenSSFSignals
+    from porchlamp.openssf import calculate_pike_criticality
 
     key = "acme__pike"
     _write_openssf_envelopes(tmp_path, key)
@@ -751,8 +751,8 @@ def test_openssf_criticality(tmp_path: Path) -> None:
     bundle = load(tmp_path, doc, key=key)
     value = bundle.inputs["openssf_criticality"]
     assert isinstance(value, Measured)
-    # Oracle: cvi.openssf.calculate_pike_criticality itself (independent of
-    # cvi.derive.bundle's mirrored, cvi.core-only reimplementation), not the
+    # Oracle: porchlamp.openssf.calculate_pike_criticality itself (independent of
+    # porchlamp.derive.bundle's mirrored, porchlamp.core-only reimplementation), not the
     # code under test.
     expected = round(calculate_pike_criticality(OpenSSFSignals(**_OPENSSF_SIGNALS)), 4)
     assert value == Measured(
@@ -766,7 +766,7 @@ def test_openssf_criticality(tmp_path: Path) -> None:
 
 #: Three signal vectors spanning the formula's interesting regions: every
 #: field at zero, a plausible mid-sized repo, and every field pinned exactly
-#: at its OPENSSF_THRESHOLDS saturation point (cvi.core.openssf.
+#: at its OPENSSF_THRESHOLDS saturation point (porchlamp.core.openssf.
 #: OPENSSF_THRESHOLDS values) -- the boundary where the log-ratio's
 #: denominator equals its numerator's cap.
 _OPENSSF_ALL_ZERO_SIGNALS = {
@@ -790,12 +790,12 @@ _OPENSSF_AT_THRESHOLD_SIGNALS = {
 )
 def test_openssf_criticality_matches_core_openssf_directly(tmp_path: Path, signals: dict) -> None:
     """ wiring proof: the bundle-derived value equals
-    cvi.core.openssf.calculate_pike_criticality(signals) called directly --
-    not cvi.derive.bundle's own reimplementation (there is none any more)
-    and not cvi.openssf's OpenSSFSignals-typed wrapper (a second hop this
+    porchlamp.core.openssf.calculate_pike_criticality(signals) called directly --
+    not porchlamp.derive.bundle's own reimplementation (there is none any more)
+    and not porchlamp.openssf's OpenSSFSignals-typed wrapper (a second hop this
     test does not take), across three regions of the formula: every signal
     at zero, a mid-sized repo, and every signal exactly at its threshold."""
-    from cvi.core.openssf import calculate_pike_criticality
+    from porchlamp.core.openssf import calculate_pike_criticality
 
     key = f"acme__pike-parity-{hash(frozenset(signals.items())) & 0xffff:x}"
     _write_openssf_envelopes(tmp_path, key)
@@ -815,10 +815,10 @@ def test_openssf_criticality_matches_core_openssf_directly(tmp_path: Path, signa
 
 def test_openssf_criticality_at_threshold_matches_hand_computed_score(tmp_path: Path) -> None:
     """Independent oracle (): unlike the parity test above (which
-    compares two calls to the SAME cvi.core.openssf.calculate_pike_
+    compares two calls to the SAME porchlamp.core.openssf.calculate_pike_
     criticality and so cannot detect a wrong default weight or threshold --
     both sides would drift together), this asserts against a value derived
-    by hand, calling no CVI code at all. At every signal exactly at its
+    by hand, calling no Porchlamp code at all. At every signal exactly at its
     threshold, saturation_denom == value for every term, so every
     normalized S_i* is exactly log(1+T)/log(1+T) = 1.0 regardless of T's
     magnitude; the score collapses to sum(alpha_i) / sum(|alpha_i|) = 8.5 /
@@ -947,7 +947,7 @@ def test_openssf_criticality_proxy_when_dependents_not_applicable(tmp_path: Path
     value = bundle.inputs["openssf_criticality"]
     assert isinstance(value, Measured)
     assert value.method == "proxy:no_dependents_signal"
-    from cvi.core.openssf import calculate_pike_criticality as core_calculate
+    from porchlamp.core.openssf import calculate_pike_criticality as core_calculate
 
     expected = round(core_calculate(partial_signals, missing=frozenset({"dependents_count"})), 4)
     assert value.value == expected
@@ -1095,15 +1095,15 @@ def test_openssf_criticality_proxy_not_reached_when_dependents_measured(tmp_path
 
 
 def test_openssf_criticality_pike_signals_and_openssf_containers_agree(tmp_path: Path) -> None:
-    """"Both containers agree" ( packet text): cvi.collect.pike_signals'
-    own derive_pike_signals output, fed through cvi.core.openssf.
+    """"Both containers agree" ( packet text): porchlamp.collect.pike_signals'
+    own derive_pike_signals output, fed through porchlamp.core.openssf.
     calculate_pike_criticality's missing kwarg, matches the bundle-derived
     proxy value end to end -- not two independent reimplementations that
     could silently drift apart."""
     from datetime import datetime, timezone
 
-    from cvi.collect import pike_signals as pike
-    from cvi.core.openssf import calculate_pike_criticality as core_calculate
+    from porchlamp.collect import pike_signals as pike
+    from porchlamp.core.openssf import calculate_pike_criticality as core_calculate
 
     now = datetime(2026, 9, 12, 0, 0, 0, tzinfo=timezone.utc)
     gh = {"created_at": "2016-09-14T00:00:00+00:00"}
@@ -1159,7 +1159,7 @@ def test_pipeline_defenses_proxy_method_counts_merged_prs(tmp_path: Path) -> Non
     """proxy:review_ci: n is the merged-PR count (the code_review_rate
     denominator), read from the pr_window envelope's own prs list -- 3
     merged of 5 recorded PRs here, none of which is the min-n gate's
-    concern (that lives in cvi.core.params.rigor, not this loader)."""
+    concern (that lives in porchlamp.core.params.rigor, not this loader)."""
     key = "acme__proxy-pd"
     prs = [
         {"number": 1, "mergedAt": "2026-08-01T00:00:00+00:00"},
@@ -1198,7 +1198,7 @@ def test_pipeline_defenses_absence_is_third_party_gap(tmp_path: Path) -> None:
     assert bundle.inputs["pipeline_defenses"] == Unmeasured(
         reason="third_party_gap",
         detail="no scorecard envelope with a usable check subset and no pr_window/runs envelopes to "
-               "derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+               "derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
     )
 
 
@@ -1219,12 +1219,12 @@ def test_pipeline_defenses_collector_failure_carries_the_companion_detail(tmp_pa
 def test_pipeline_defenses_n_feeds_the_rigor_min_n_gate(tmp_path: Path) -> None:
     """ item 5 (02 section 4.1, F7): the proxy method's recorded n
     (merged-PR count) must not just exist but actually reach
-    cvi.core.params.rigor's registered 10-merged-PR floor. n genuinely
+    porchlamp.core.params.rigor's registered 10-merged-PR floor. n genuinely
     changes with the fixture (9 vs 10 merged PRs, one extra open PR that
     never counts either way) and 9 falls below the floor while 10 clears
     it -- proving the wiring from bundle.py's loader through to the curve
     module that reads ``value.n``, not merely that a number is stored."""
-    from cvi.core.params.rigor import pipeline_defenses as rigor_pipeline_defenses
+    from porchlamp.core.params.rigor import pipeline_defenses as rigor_pipeline_defenses
 
     def make(n_merged: int, key: str) -> Any:
         prs = [{"number": i, "mergedAt": "2026-08-01T00:00:00+00:00"} for i in range(n_merged)]
@@ -1504,7 +1504,7 @@ _DR90_WINDOW_END = "2026-06-03T00:00:00+00:00"
 #: for the repo (D-IN-3's eligibility gate needs the per-author event
 #: count pr_window alone does not carry,  review W-1/W-2); "primary"
 #: once an author_history envelope makes the gate applicable too. See
-#: cvi/derive/bundle.py's _DR90_METHOD_PRIMARY/_DR90_METHOD_GATE_UNAPPLIED.
+#: porchlamp/derive/bundle.py's _DR90_METHOD_PRIMARY/_DR90_METHOD_GATE_UNAPPLIED.
 _DR90_METHOD = "proxy:din3_unapplied"
 _DR90_METHOD_GATED = "primary"
 
@@ -1649,7 +1649,7 @@ def test_dr90_decision_rate_malformed_created_at_excluded_and_named(tmp_path: Pa
 #: (4 sock + 8 honest) with 4 decided: r = 4/12 = 0.3333, not 0.6. This is
 #: also the test that pins PARAM_MIN_N being checked against the CAPPED
 #: 12-PR population (review B-1: the SAME number ``Measured.n`` reports,
-#: and therefore the same number ``cvi.core.params.curves._apply``
+#: and therefore the same number ``porchlamp.core.params.curves._apply``
 #: re-checks when the record is scored) -- not the raw 20, and not zero
 #: (the pre-round-2 bug would have checked min_n against the raw cohort
 #: while reporting the capped n, so the record here and the param-layer
@@ -1972,7 +1972,7 @@ def test_dr90_decision_rate_eligibility_unmeasured_author_excluded(tmp_path: Pat
 #: prior-merge search failed, but their OWN account age/event count are
 #: perfectly good. DR_90's gate reads ONLY ``eligibility_unmeasured``, so
 #: this author is NOT excluded: capped n stays 10, not 9. Decoupled
-#: (docstring decision) from ``cvi.collect.github_graphql.
+#: (docstring decision) from ``porchlamp.collect.github_graphql.
 #: _account_eligibility``'s OR of both flags, which is correct for ITS
 #: OWN shared 1.2+1.3 call site but wrong here, where only 1.2 is scored.
 _DR90_HISTORY_ONLY_PRS = [

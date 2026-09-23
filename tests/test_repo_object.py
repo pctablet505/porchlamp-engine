@@ -1,7 +1,7 @@
 """Tests for eligibility metadata and software classification.
 
 Subjects:
-* ``cvi.collect.repo_object`` — the repo-object collector (recorded-response
+* ``porchlamp.collect.repo_object`` — the repo-object collector (recorded-response
   oracles; the gh/urllib boundary is mocked, no live network) and the
   D-GATE-1/2/3/6 marker derivations;
 * the append-only hooks at the end of ``scripts/gather.py`` (the
@@ -25,8 +25,8 @@ from unittest.mock import patch
 
 import pytest
 
-from cvi.collect import repo_object as ro_mod
-from cvi.collect.envelope import envelope_hash
+from porchlamp.collect import repo_object as ro_mod
+from porchlamp.collect.envelope import envelope_hash
 
 ROOT = Path(__file__).resolve().parent.parent
 NOW = datetime(2026, 9, 12, tzinfo=timezone.utc)
@@ -42,8 +42,8 @@ def _load_script(modname: str, fname: str) -> ModuleType:
     return module
 
 
-gather = _load_script("cvi_gather_w19", "gather.py")
-derive = _load_script("cvi_derive_w19", "derive.py")
+gather = _load_script("porchlamp_gather_w19", "gather.py")
+derive = _load_script("porchlamp_derive_w19", "derive.py")
 
 
 def write_env(raw: Path, collector: str, key: str, data,

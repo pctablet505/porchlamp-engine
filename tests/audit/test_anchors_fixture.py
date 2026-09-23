@@ -1,5 +1,5 @@
 """Acceptance tests: D-VER-4 anchors over the v2 fixture snapshot
-(``cvi.audit.anchors.evaluate_anchors_v2``, ``docs/v2/02-RANKING-DESIGN.md``
+(``porchlamp.audit.anchors.evaluate_anchors_v2``, ``docs/v2/02-RANKING-DESIGN.md``
 section 11).
 
 Every anchor this fixture *can* evaluate must PASS (or REPORT, for
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from cvi.audit.anchors import (
+from porchlamp.audit.anchors import (
     ANCHOR_RELATIONS,
     FAIL,
     PASS,
@@ -26,8 +26,8 @@ from cvi.audit.anchors import (
     evaluate_anchors_v2,
     format_anchor_report_v2,
 )
-from cvi.core.models import ParamScore
-from cvi.core.pipeline import score_snapshot
+from porchlamp.core.models import ParamScore
+from porchlamp.core.pipeline import score_snapshot
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "build_fixture_snapshot.py"
@@ -41,7 +41,7 @@ _EXPECT_PASS = {"linux_off_platform", "archived_repo_gated", "awesome_non_softwa
 # linux_dco is SKIPPED, not PASS, on this fixture: legal_ip reads
 # the real governance envelope, which is absent here, so legal_ip is genuinely
 # Unmeasured(collector_failure) for torvalds/linux -- measured, not a bug (see
-# _skipped_unmeasured_input in cvi/audit/anchors.py and the commit that fixed
+# _skipped_unmeasured_input in porchlamp/audit/anchors.py and the commit that fixed
 # this from a wrongly-reported FAIL).
 _EXPECT_SKIPPED = {"gcc_mirror_gated", "kubernetes_rated", "vllm_rated", "newcomer_label_5_1", "linux_dco"}
 _EXPECT_REPORT = {"keras_hub_gate_reported"}
@@ -125,7 +125,7 @@ def test_print_anchor_table(results, snapshot) -> None:
 # not be caught by the tests above alone).
 # --------------------------------------------------------------------------- #
 def _minimal_gated_record(owner: str, name: str, *, eligible: bool, reason):
-    from cvi.core.models import GateResult, RepoIdentity, ScoreRecord
+    from porchlamp.core.models import GateResult, RepoIdentity, ScoreRecord
 
     repo = RepoIdentity(
         owner=owner, name=name, ecosystem="pypi", archived=False, mirror_url=None,
@@ -147,7 +147,7 @@ def test_awesome_and_archived_relations_fail_when_not_actually_gated() -> None:
     ``_check_awesome_v2``/``_check_archived_v2`` that a vacuously-true
     condition (e.g. ``len(gated_as_list) >= 0``) would let slip through as
     an always-PASS."""
-    from cvi.core.pipeline import ScoredSnapshot, SnapshotCounts
+    from porchlamp.core.pipeline import ScoredSnapshot, SnapshotCounts
 
     records = (
         _minimal_gated_record("someone", "awesome-not-gated", eligible=True, reason=None),
@@ -172,7 +172,7 @@ def _linux_record_with_legal_ip(param):
     controlled fact is its ``legal_ip`` ``ParamScore`` (``param``, or
     ``None`` to omit it from ``params`` entirely -- not exercised by these
     tests, kept for completeness of the shape)."""
-    from cvi.core.models import GateResult, RepoIdentity, ScoreRecord
+    from porchlamp.core.models import GateResult, RepoIdentity, ScoreRecord
 
     repo = RepoIdentity(
         owner="torvalds", name="linux", ecosystem="systems", archived=False, mirror_url=None,
@@ -241,7 +241,7 @@ def test_mutant_reverting_unmeasured_skip_to_fail_is_red() -> None:
 
 
 def _snapshot_of(record):
-    from cvi.core.pipeline import ScoredSnapshot, SnapshotCounts
+    from porchlamp.core.pipeline import ScoredSnapshot, SnapshotCounts
 
     return ScoredSnapshot(
         snapshot_id="s", benchmark_version="2.0.0-dev", constants_hash="x", records=(record,),

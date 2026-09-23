@@ -1,4 +1,4 @@
-"""Tests for ``cvi.collect.universe`` (D-IN-5 universe-entry
+"""Tests for ``porchlamp.collect.universe`` (D-IN-5 universe-entry
 star-velocity filter).
 
 Every fetch is a fake ``Transport`` callable -- no test in this file makes
@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from cvi.collect.envelope import read_envelope
-from cvi.collect.universe import (
+from porchlamp.collect.envelope import read_envelope
+from porchlamp.collect.universe import (
     STAR_HISTORY_COLLECTOR,
     UNIVERSE_ENTRY_COLLECTOR,
     StarVelocityRecord,
@@ -23,7 +23,7 @@ from cvi.collect.universe import (
     parse_stargazer_events,
     star_velocity_evidence,
 )
-from cvi.models import StargazerEvent
+from porchlamp.models import StargazerEvent
 
 NOW = datetime(2026, 9, 11, 12, 0, 0, tzinfo=timezone.utc)
 FETCHED_AT = NOW.isoformat()
@@ -288,7 +288,7 @@ def test_star_velocity_record_unmeasured_reason_must_be_collector_failure_class(
     of its own -- only collector_failure is a real outcome for it, but the
     constructor still enforces membership in the general D-MISS-1
     vocabulary rather than hardcoding just the one string."""
-    from cvi.core import constants
+    from porchlamp.core import constants
 
     if reason in constants.UNMEASURED_REASONS:
         StarVelocityRecord(measured=False, reason=reason)  # does not raise

@@ -2,15 +2,15 @@
 
 Covers three layers:
 
-1. ``cvi.lakehouse`` — the additive optional ``deep_dive_json`` column:
+1. ``porchlamp.lakehouse`` — the additive optional ``deep_dive_json`` column:
    ensure-on-fresh-store, upsert round-trip, missing-repo semantics, and
    the guarantee that a fresh store keeps the exact spec 11.2 column set
    until a payload is stored.
-2. ``cvi.deepdive.build_deep_dive`` — a small deterministic PR
+2. ``porchlamp.deepdive.build_deep_dive`` — a small deterministic PR
    population with hand-computed TTFHR / MR_first / GR_14 / p90 values
    and a hand-computed Kaplan-Meier curve (incl. censored PRs, the
    risk-set convention at tied times, and deterministic thinning).
-3. ``cvi.api`` — the deep-dive route surfaces the stored payload under
+3. ``porchlamp.api`` — the deep-dive route surfaces the stored payload under
    ``deep_dive`` when present and omits the key when it is not; 404
    behavior unchanged.
 
@@ -26,13 +26,13 @@ from typing import Callable
 
 from fastapi.testclient import TestClient
 
-from cvi.api import create_app
-from cvi.deepdive import build_deep_dive
-from cvi.lakehouse import OperationalStore
-from cvi.models import (
+from porchlamp.api import create_app
+from porchlamp.deepdive import build_deep_dive
+from porchlamp.lakehouse import OperationalStore
+from porchlamp.models import (
     AIPosture,
     AuthorAssociation,
-    CVICompositeResult,
+    PorchlampCompositeResult,
     Ecosystem,
     LegalIPModel,
     PillarScores,
@@ -67,7 +67,7 @@ SPEC_COLUMNS = [
     "leverage_score",
     "friction_score",
     "matrix_quadrant",
-    "overall_cvi",
+    "overall_porchlamp",
     "rank_tier",
     "is_stage0_disqualified",
     "disqualification_reason",
@@ -237,11 +237,11 @@ class TestDeepDiveColumn:
 
     @staticmethod
     def _seed(store: OperationalStore, owner="acme", name="widget") -> None:
-        result = CVICompositeResult(
+        result = PorchlampCompositeResult(
             owner=owner,
             name=name,
             ecosystem=Ecosystem.PYPI,
-            overall_cvi=50.0,
+            overall_porchlamp=50.0,
             rank_tier=Tier.B,
             matrix_quadrant=Quadrant.SWEET_SPOT,
             leverage_score=60.0,
@@ -441,10 +441,10 @@ class TestFeedPendingAndMetaSections:
     def test_payload_maintainer_playbook_present(self) -> None:
         payload = build_deep_dive(make_meta(), population(), NOW)
         playbook = payload["maintainer_playbook"]
-        assert "current_cvi" in playbook
+        assert "current_porchlamp" in playbook
         assert "current_tier" in playbook
         assert "current_quadrant" in playbook
-        assert "potential_cvi" in playbook
+        assert "potential_porchlamp" in playbook
         assert "projected_tier" in playbook
         assert "projected_quadrant" in playbook
         assert "total_point_gain" in playbook
@@ -454,12 +454,12 @@ class TestFeedPendingAndMetaSections:
 # --------------------------------------------------------------------------- #
 # API: deep-dive route
 # --------------------------------------------------------------------------- #
-def make_result(owner: str, name: str) -> CVICompositeResult:
-    return CVICompositeResult(
+def make_result(owner: str, name: str) -> PorchlampCompositeResult:
+    return PorchlampCompositeResult(
         owner=owner,
         name=name,
         ecosystem=Ecosystem.PYPI,
-        overall_cvi=92.5,
+        overall_porchlamp=92.5,
         rank_tier=Tier.S_PLUS,
         matrix_quadrant=Quadrant.SWEET_SPOT,
         leverage_score=80.0,
@@ -508,7 +508,7 @@ class TestApiDeepDive:
     def test_seeded_repo_includes_deep_dive(self) -> None:
         client = open_client(seed_deep_dive_store)
         try:
-            resp = client.get("/v1/cvi/repos/alpha/repo")
+            resp = client.get("/v1/porchlamp/repos/alpha/repo")
             assert resp.status_code == 200
             body = resp.json()
             expected_payload = build_deep_dive(make_meta(), population(), NOW)
@@ -518,7 +518,7 @@ class TestApiDeepDive:
             # ...and every other field is unchanged.
             assert body["owner"] == "alpha"
             assert body["name"] == "repo"
-            assert body["overall_cvi"] == 92.5
+            assert body["overall_porchlamp"] == 92.5
             assert body["rank_tier"] == "Tier S+"
             assert body["matrix_quadrant"] == "Sweet Spot"
             assert body["pillar_scores"] == {
@@ -534,7 +534,7 @@ class TestApiDeepDive:
     def test_unseeded_repo_omits_deep_dive_key(self) -> None:
         client = open_client(seed_deep_dive_store)
         try:
-            resp = client.get("/v1/cvi/repos/beta/repo")
+            resp = client.get("/v1/porchlamp/repos/beta/repo")
             assert resp.status_code == 200
             body = resp.json()
             # Column exists (alpha's upsert materialized it) but is NULL:
@@ -542,7 +542,7 @@ class TestApiDeepDive:
             assert "deep_dive" not in body
             assert body["deep_dive_json"] is None
             assert body["owner"] == "beta"
-            assert body["overall_cvi"] == 92.5
+            assert body["overall_porchlamp"] == 92.5
             assert body["pillar_scores"] == {
                 "responsiveness": 90.0,
                 "criticality": 80.0,
@@ -552,7 +552,7 @@ class TestApiDeepDive:
             }
             # beta's key set equals alpha's minus the parsed deep_dive.
             alpha_keys = set(
-                client.get("/v1/cvi/repos/alpha/repo").json()
+                client.get("/v1/porchlamp/repos/alpha/repo").json()
             ) - {"deep_dive"}
             assert set(body) == alpha_keys
         finally:
@@ -561,7 +561,7 @@ class TestApiDeepDive:
     def test_missing_repo_404_unchanged(self) -> None:
         client = open_client(seed_deep_dive_store)
         try:
-            resp = client.get("/v1/cvi/repos/nobody/nothing")
+            resp = client.get("/v1/porchlamp/repos/nobody/nothing")
             assert resp.status_code == 404
             assert "detail" in resp.json()
         finally:

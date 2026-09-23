@@ -50,7 +50,7 @@ def test_render_contains_the_reproduce_command_template() -> None:
     document = render_methodology.methodology_with_history(CHANGELOG)
     rendered = render_methodology.render_markdown(document)
     assert render_methodology.REPRODUCE_COMMAND_TEMPLATE in rendered
-    assert "cvi reproduce <snapshot dir>" in rendered
+    assert "porchlamp reproduce <snapshot dir>" in rendered
 
 
 def test_render_links_the_rfc_procedure() -> None:
@@ -60,7 +60,7 @@ def test_render_links_the_rfc_procedure() -> None:
 
 
 def test_render_covers_every_pillar_and_parameter() -> None:
-    from cvi.core import constants
+    from porchlamp.core import constants
 
     document = render_methodology.methodology_with_history(CHANGELOG)
     rendered = render_methodology.render_markdown(document)

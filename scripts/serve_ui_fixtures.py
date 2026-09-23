@@ -2,17 +2,17 @@
 
 This is a stdlib-only (`http.server`, no FastAPI, no third-party deps) stand-in so
 `web/v2/` can be built and exercised against the wire contract in
-`cvi/serve/contract.py`. Filtering, sorting and paging
+`porchlamp/serve/contract.py`. Filtering, sorting and paging
 happen here in Python over the fixture files under `tests/fixtures/ui/` — the
 UI's query parameters are genuinely exercised, not just echoed.
 
-Endpoints (all under `/v1/cvi/`, matching `docs/v2/04-ARCHITECTURE.md` §7 and
+Endpoints (all under `/v1/porchlamp/`, matching `docs/v2/04-ARCHITECTURE.md` §7 and
 `docs/v2/06-UX-DESIGN.md` §4):
 
-    GET /v1/cvi/leaderboard?persona=&eco=&q=&sort=&page=&page_size=
-    GET /v1/cvi/not-ranked
-    GET /v1/cvi/repos/{owner}/{name}/evidence
-    GET /v1/cvi/snapshot
+    GET /v1/porchlamp/leaderboard?persona=&eco=&q=&sort=&page=&page_size=
+    GET /v1/porchlamp/not-ranked
+    GET /v1/porchlamp/repos/{owner}/{name}/evidence
+    GET /v1/porchlamp/snapshot
     GET /healthz
 
 Everything else is served as a static file from `web/v2/` (default `/` ->
@@ -20,7 +20,7 @@ Everything else is served as a static file from `web/v2/` (default `/` ->
 
 Query parameter semantics (fixture-server contract):
 
-- `persona`: one of `cvi.serve.contract.PERSONAS`, default `balanced`.
+- `persona`: one of `porchlamp.serve.contract.PERSONAS`, default `balanced`.
   `tests/fixtures/ui/leaderboard-first_timer.json` is a genuinely
   re-projected fixture (different ranks) and is served verbatim for
   `persona=first_timer`. The other three non-balanced personas have no
@@ -31,7 +31,7 @@ Query parameter semantics (fixture-server contract):
 - `eco`: exact match against `ecosystem` (case-insensitive), unfiltered when
   omitted or empty.
 - `q`: case-insensitive substring match against `"owner/name"`.
-- `sort`: one of `rank, cvi, coverage, tier, p_responsiveness,
+- `sort`: one of `rank, porchlamp, coverage, tier, p_responsiveness,
   p_criticality, p_governance, p_rigor, p_accessibility` (the columns Screen
   A allows sorting on — U-3 vanity columns are never sortable, and this
   server rejects any other value with 400). A leading `-` reverses the
@@ -42,7 +42,7 @@ Query parameter semantics (fixture-server contract):
   handler — all three must agree on which fields default to descending vs
   ascending.
 - `page`, `page_size`: 1-based page, `page_size` one of
-  `cvi.serve.contract.LEADERBOARD_PAGE_SIZES` (20, 50, 100, 500, 1000;
+  `porchlamp.serve.contract.LEADERBOARD_PAGE_SIZES` (20, 50, 100, 500, 1000;
   default 20). `total` and `counts` always reflect the full filtered set / the
   whole snapshot respectively — `counts` (rated/gated/unrated) never changes
   with filtering (Screen A requirement: the counts beside the Ranked/Not-ranked
@@ -54,11 +54,11 @@ Run:
 
 Additional endpoints (Matrix/Configure/Methodology screens):
 
-    GET  /v1/cvi/matrix
-    GET  /v1/cvi/methodology
-    POST /v1/cvi/reproject
+    GET  /v1/porchlamp/matrix
+    GET  /v1/porchlamp/methodology
+    POST /v1/porchlamp/reproject
 
-`GET /v1/cvi/matrix` builds `MatrixPoint`s straight from the loaded
+`GET /v1/porchlamp/matrix` builds `MatrixPoint`s straight from the loaded
 `leaderboard.json` rows (every rated row already carries its own
 `leverage`/`friction`/`quadrant`/coverage fields — no recomputation from
 raw pillar scores is needed); `excluded_count` is the snapshot's `gated`
@@ -70,16 +70,16 @@ the doc's own caption wording only ever names gated repos).
 never pre-rendered prose) is computed by :func:`axis_coverage` below;
 `web/v2/copy.js` composes the caption sentence client-side from those numbers.
 
-`GET /v1/cvi/methodology` serves `tests/fixtures/ui/methodology.json`
+`GET /v1/porchlamp/methodology` serves `tests/fixtures/ui/methodology.json`
 verbatim. That file is the genuine output of
-`cvi.audit.methodology_history.methodology_with_history()`.
+`porchlamp.audit.methodology_history.methodology_with_history()`.
 :func:`FixtureStore._load_methodology` re-reads and re-validates the
 file every time a `FixtureStore` is constructed (once per process start,
 matching every other fixture here), so a `methodology.json` that drifted
 from the contract fails loudly at startup rather than silently serving a
 stale shape.
 
-`POST /v1/cvi/reproject` mirrors `cvi.store.queries.reproject`'s semantics
+`POST /v1/porchlamp/reproject` mirrors `porchlamp.store.queries.reproject`'s semantics
 (D-MISS-2 renormalisation, D-MAT-2 tier/ceiling, D-TIE-1 ordering) in pure
 Python over the SAME `leaderboard.json` rows the balanced leaderboard
 reads — see :func:`reproject_rows`'s own docstring for the one documented
@@ -105,7 +105,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from pydantic import ValidationError
 
-from cvi.serve.contract import (
+from porchlamp.serve.contract import (
     DEFAULT_PAGE_SIZE,
     LEADERBOARD_PAGE_SIZES,
     PILLARS,
@@ -117,22 +117,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_WEB_DIR = REPO_ROOT / "web" / "v2"
 DEFAULT_FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures" / "ui"
 
-#: Screen A: sort only on rank, CVI, coverage, tier, pillars (U-3: vanity
+#: Screen A: sort only on rank, Porchlamp, coverage, tier, pillars (U-3: vanity
 #: columns — stars, forks, downloads — carry no sort affordance at all).
 SORTABLE_FIELDS = {
-    "rank", "cvi", "coverage", "tier",
+    "rank", "porchlamp", "coverage", "tier",
     "p_responsiveness", "p_criticality", "p_governance", "p_rigor", "p_accessibility",
 }
 #: 20/50/100/500/1000, default 20 — defined
-#: once in cvi/serve/contract.py, imported here so the fixture server and
+#: once in porchlamp/serve/contract.py, imported here so the fixture server and
 #: the real API can never drift apart on the allowed set.
 ALLOWED_PAGE_SIZES = LEADERBOARD_PAGE_SIZES
 TIER_ORDER = {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4, "F": 5}
 
 # --------------------------------------------------------------------------- #
 # Matrix (B) — D-MAT-1 axis weights, read here as plain literals               #
-# (this fixture server never imports cvi.core, per its own module docstring)  #
-# and cited against cvi/core/constants.py's LEVERAGE_WEIGHTS/                #
+# (this fixture server never imports porchlamp.core, per its own module docstring)  #
+# and cited against porchlamp/core/constants.py's LEVERAGE_WEIGHTS/                #
 # FRICTION_WEIGHTS so a constants change is a visible two-file diff, not a    #
 # silent drift.                                                               #
 # --------------------------------------------------------------------------- #
@@ -147,7 +147,7 @@ AXIS_CAPTION_MIN_MISSING_FRACTION = 0.05
 
 
 def matrix_points_for(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """`MatrixPoint` rows (`cvi.serve.contract.MatrixPoint`) straight from
+    """`MatrixPoint` rows (`porchlamp.serve.contract.MatrixPoint`) straight from
     already-computed leaderboard row fields — every rated row already
     carries its own D-MAT-1 coordinates, so this never recomputes them from
     raw pillar scores."""
@@ -162,7 +162,7 @@ def matrix_points_for(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "friction_coverage": r["friction_coverage"],
             "quadrant": r["quadrant"],
             "stars_audited": r.get("stars_audited"),
-            "cvi": r["cvi"],
+            "porchlamp": r["porchlamp"],
             "coverage": r["coverage"],
             "tier": r["tier"],
         }
@@ -175,7 +175,7 @@ def axis_coverage(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """One entry per axis (`leverage`/`friction`) whose worst-missing
     contributing pillar is unmeasured for
     :data:`AXIS_CAPTION_MIN_MISSING_FRACTION` or more of `rows` --
-    `cvi.serve.contract.MatrixAxisCoverage`-shaped dicts (`pillar`,
+    `porchlamp.serve.contract.MatrixAxisCoverage`-shaped dicts (`pillar`,
     `axis_partial_count`, `axis_partial_share`). The API sends raw numbers,
     never prose (06 §6: sentences belong in copy.js) -- `copy.js`'s
     `matrixAxisCoverageCaption` now does the composing, client-side,
@@ -205,10 +205,10 @@ def axis_coverage(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 # --------------------------------------------------------------------------- #
 # Configure weights (D) — a pure-Python mirror of                             #
-# cvi.store.queries.reproject's semantics (D-MISS-2/D-MAT-2/D-TIE-1) over     #
+# porchlamp.store.queries.reproject's semantics (D-MISS-2/D-MAT-2/D-TIE-1) over     #
 # the SAME fixture rows the balanced leaderboard reads. Constants below are   #
-# transcribed from cvi/core/constants.py and cited, not imported (this        #
-# fixture server is test-only and never imports cvi.core — module docstring)  #
+# transcribed from porchlamp/core/constants.py and cited, not imported (this        #
+# fixture server is test-only and never imports porchlamp.core — module docstring)  #
 # --------------------------------------------------------------------------- #
 #: `constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE`.
 RATED_MIN_COVERAGE = 0.60
@@ -237,14 +237,14 @@ def _ceiling_for_coverage(coverage: float) -> str:
 
 
 def reproject_rows(rows: list[dict[str, Any]], weights: dict[str, float]) -> list[dict[str, Any]]:
-    """Pure-Python mirror of `cvi.store.queries.reproject`'s semantics over
+    """Pure-Python mirror of `porchlamp.store.queries.reproject`'s semantics over
     already-loaded leaderboard rows (each already carries its `p_*`/`c_*`
     pillar columns).
 
     - D-MISS-2 renormalisation: `composite = Sum(w*p for measured pillars) /
       Sum(w for measured pillars)`; a pillar counts as measured when its
       coverage is positive AND its score is not null (mirrors
-      `cvi.store.queries.reproject`'s own defensive double check).
+      `porchlamp.store.queries.reproject`'s own defensive double check).
     - Coverage: `Sum(w*c)` over all five pillars.
       A row is dropped entirely when no pillar is measured (composite is
       undefined, matching the SQL's `composite_raw IS NOT NULL` filter) or
@@ -262,8 +262,8 @@ def reproject_rows(rows: list[dict[str, Any]], weights: dict[str, float]) -> lis
       through to owner/name.
     - `tie_group`: a DENSE_RANK-equivalent id over the sorted, ROUNDED
       composite (a new id for every distinct value visited, tied or not),
-      `None`'d for a singleton group (R-D ruling, `cvi.store.queries`).
-    - `balanced_rank`/`balanced_tie_group`/`balanced_cvi`/`balanced_coverage`/
+      `None`'d for a singleton group (R-D ruling, `porchlamp.store.queries`).
+    - `balanced_rank`/`balanced_tie_group`/`balanced_porchlamp`/`balanced_coverage`/
       `balanced_tier`: the row's ORIGINAL (pre-reprojection) values, carried
       forward unchanged — the side-by-side comparison Screen D's rank-delta
       list needs.
@@ -284,7 +284,7 @@ def reproject_rows(rows: list[dict[str, Any]], weights: dict[str, float]) -> lis
         composite_raw = num / den
         if cov < RATED_MIN_COVERAGE:
             continue
-        cvi_display = round(composite_raw, 2)
+        porchlamp_display = round(composite_raw, 2)
         ceiling = _ceiling_for_coverage(cov)
         tier = min(_tier_by_score(composite_raw), ceiling, key=FULL_TIER_ORDER.index)
         # `tier_ceiling` (06 §4 / LeaderboardRow docstring): None once coverage
@@ -297,10 +297,10 @@ def reproject_rows(rows: list[dict[str, Any]], weights: dict[str, float]) -> lis
                 **row,
                 "balanced_rank": row["rank"],
                 "balanced_tie_group": row["tie_group"],
-                "balanced_cvi": row["cvi"],
+                "balanced_porchlamp": row["porchlamp"],
                 "balanced_coverage": row["coverage"],
                 "balanced_tier": row["tier"],
-                "cvi": cvi_display,
+                "porchlamp": porchlamp_display,
                 "coverage": round(cov, 6),
                 "tier": tier,
                 "tier_ceiling": tier_ceiling,
@@ -309,7 +309,7 @@ def reproject_rows(rows: list[dict[str, Any]], weights: dict[str, float]) -> lis
 
     def sort_key(r: dict[str, Any]):
         return (
-            -r["cvi"],
+            -r["porchlamp"],
             -r["coverage"],
             -(r["p_responsiveness"] if r["p_responsiveness"] is not None else float("-inf")),
             r["friction"] if r["friction"] is not None else float("inf"),
@@ -319,17 +319,17 @@ def reproject_rows(rows: list[dict[str, Any]], weights: dict[str, float]) -> lis
 
     projected.sort(key=sort_key)
 
-    counts = Counter(r["cvi"] for r in projected)
+    counts = Counter(r["porchlamp"] for r in projected)
     out: list[dict[str, Any]] = []
     current_group = 0
-    last_cvi = object()  # sentinel: never equal to a float, so row 0 always starts a new group
+    last_porchlamp = object()  # sentinel: never equal to a float, so row 0 always starts a new group
     for rank, r in enumerate(projected, start=1):
         r = dict(r)
         r["rank"] = rank
-        if r["cvi"] != last_cvi:
+        if r["porchlamp"] != last_porchlamp:
             current_group += 1
-            last_cvi = r["cvi"]
-        r["tie_group"] = current_group if counts[r["cvi"]] > 1 else None
+            last_porchlamp = r["porchlamp"]
+        r["tie_group"] = current_group if counts[r["porchlamp"]] > 1 else None
         # `LeaderboardRow` validates `rank_delta == balanced_rank - rank` whenever
         # `balanced_rank` is set -- a reprojected row always carries its
         # prior balanced rank, so `rank_delta` is always set here too.
@@ -406,7 +406,7 @@ class FixtureStore:
         return self.notranked_by_persona.get(persona, self.notranked)
 
     def find_repo_detail(self, owner: str, name: str) -> dict[str, Any] | None:
-        """`GET /v1/cvi/repos/{owner}/{name}` -- the same record regardless
+        """`GET /v1/porchlamp/repos/{owner}/{name}` -- the same record regardless
         of which screen asks for it: balanced leaderboard rows first (rated),
         then the balanced not-ranked lists (gated/unrated), `None` if the repo
         is in neither (a genuine 404).
@@ -447,13 +447,13 @@ class FixtureStore:
     def _repo_detail_from_not_ranked_row(self, row: dict[str, Any], *, eligible: bool) -> dict[str, Any]:
         """A gated/unrated row (`tests/fixtures/ui/notranked.json`) is a
         `NotRankedRow` -- much sparser than `RepoDetailResponse` requires,
-        matching the real store's own asymmetry (`cvi/store/schema.py`:
+        matching the real store's own asymmetry (`porchlamp/store/schema.py`:
         every `repositories` column always exists per row, but only a
-        RATED row ever has `rank`/`cvi`/pillar scores/etc. computed at
+        RATED row ever has `rank`/`porchlamp`/pillar scores/etc. computed at
         all -- a gated/unrated repo genuinely has `NULL` for every one of
         them, per `RepoDetailResponse`'s own docstring). `eligible` comes
         from WHICH not-ranked group this row was found in (the real
-        store's own rule, `cvi.store.queries.list_not_ranked`'s docstring:
+        store's own rule, `porchlamp.store.queries.list_not_ranked`'s docstring:
         "Gated (eligible=0) and unrated (eligible=1, rated=0)"), never
         guessed per-row. `coverage` defaults to 0.0 when this fixture
         row's own is `None` (`repositories.coverage` is NOT NULL in the
@@ -478,7 +478,7 @@ class FixtureStore:
             "unrated_reason": row.get("unrated_reason"),
             "rank": None,
             "tie_group": None,
-            "cvi": None,
+            "porchlamp": None,
             "coverage": row["coverage"] if row.get("coverage") is not None else 0.0,
             "tier": None,
             "tier_ceiling": None,
@@ -552,10 +552,10 @@ def make_handler(
 ) -> type[BaseHTTPRequestHandler]:
     """`fail_endpoints`: endpoint names (currently only "snapshot" is wired)
     that unconditionally return 500 — lets a test or a manual UI check
-    exercise U-15's error-state requirement for `GET /v1/cvi/snapshot`."""
+    exercise U-15's error-state requirement for `GET /v1/porchlamp/snapshot`."""
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "CVIUIFixtureServer/1.0"
+        server_version = "PorchlampUIFixtureServer/1.0"
 
         def log_message(self, fmt: str, *args: Any) -> None:  # quieter test runs
             pass
@@ -608,7 +608,7 @@ def make_handler(
                 self._send_json(200, {"ok": True})
                 return
 
-            if path == "/v1/cvi/leaderboard":
+            if path == "/v1/porchlamp/leaderboard":
                 try:
                     page = int(params.get("page", "1"))
                     page_size = int(params.get("page_size", str(DEFAULT_PAGE_SIZE)))
@@ -639,23 +639,23 @@ def make_handler(
                 self._send_json(200, result)
                 return
 
-            if path == "/v1/cvi/not-ranked":
+            if path == "/v1/porchlamp/not-ranked":
                 persona = params.get("persona", "balanced")
                 self._send_json(200, store.notranked_for_persona(persona))
                 return
 
-            if path == "/v1/cvi/snapshot":
+            if path == "/v1/porchlamp/snapshot":
                 if "snapshot" in fail_endpoints:
                     self._send_error_json(500, "simulated snapshot failure (--fail snapshot)")
                     return
                 self._send_json(200, store.snapshot)
                 return
 
-            if path == "/v1/cvi/methodology":
+            if path == "/v1/porchlamp/methodology":
                 self._send_json(200, store.methodology)
                 return
 
-            if path == "/v1/cvi/matrix":
+            if path == "/v1/porchlamp/matrix":
                 rows = store.rows_for_persona("balanced")
                 points = matrix_points_for(rows)
                 self._send_json(
@@ -668,8 +668,8 @@ def make_handler(
                 )
                 return
 
-            if path.startswith("/v1/cvi/repos/") and path.endswith("/evidence"):
-                remainder = path[len("/v1/cvi/repos/"):-len("/evidence")]
+            if path.startswith("/v1/porchlamp/repos/") and path.endswith("/evidence"):
+                remainder = path[len("/v1/porchlamp/repos/"):-len("/evidence")]
                 parts = remainder.split("/")
                 if len(parts) != 2:
                     self._send_error_json(404, f"malformed repo path: {path}")
@@ -685,10 +685,10 @@ def make_handler(
                 self._send_json(200, rows)
                 return
 
-            if path.startswith("/v1/cvi/repos/"):
+            if path.startswith("/v1/porchlamp/repos/"):
                 # The drawer's record fetch, independent of the `/evidence`
                 # sub-resource above and of whichever screen opened it.
-                remainder = path[len("/v1/cvi/repos/"):]
+                remainder = path[len("/v1/porchlamp/repos/"):]
                 parts = remainder.split("/")
                 if len(parts) != 2:
                     self._send_error_json(404, f"malformed repo path: {path}")
@@ -710,7 +710,7 @@ def make_handler(
         def do_POST(self) -> None:
             path, _params = _query_params(self.path)
 
-            if path == "/v1/cvi/reproject":
+            if path == "/v1/porchlamp/reproject":
                 length = int(self.headers.get("Content-Length", "0") or "0")
                 raw = self.rfile.read(length) if length > 0 else b"{}"
                 try:
@@ -768,7 +768,7 @@ def main(argv: list[str] | None = None) -> None:
         fail_endpoints=frozenset(args.fail),
     )
     actual_port = httpd.server_address[1]
-    print(f"CVI UI fixture server: http://{args.host}:{actual_port}/ "
+    print(f"Porchlamp UI fixture server: http://{args.host}:{actual_port}/ "
           f"(web={args.web_dir}, fixtures={args.fixtures_dir})")
     sys.stdout.flush()
     try:

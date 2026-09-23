@@ -2,7 +2,7 @@
 
 | Dispatch item | Present | Note |
 |---|---|---|
-| `cvi/serve/app.py` factory with the `/v1/cvi` router | yes | `create_app(db_path, *, web_dir)` |
+| `porchlamp/serve/app.py` factory with the `/v1/porchlamp` router | yes | `create_app(db_path, *, web_dir)` |
 | leaderboard, not-ranked, matrix, repos/{o}/{n}, evidence, snapshot, methodology, reproject | yes (8/8) | all 200 on real fixture data |
 | every response through the contract models | yes | `response_model=` on every route; no `**record` passthrough |
 | field-by-field bridge from the store rows | yes | 11 of 12 bridge items applied (item 11 deferred, item 12 half — both self-flagged) |

@@ -5,7 +5,7 @@ a parameter score (or the weighted pillar score) to a hand-computed expected
 value, so any drift in bot filtering, median vs mean, first-timer scoping,
 ghost age boundary, nearest-rank percentile, or weight wiring fails loudly.
 
-Oracle summary (from ``docs/ARCHITECTURE.md`` 1.1-1.4 + ``cvi.constants``):
+Oracle summary (from ``docs/ARCHITECTURE.md`` 1.1-1.4 + ``porchlamp.constants``):
   1.1 TTFHR:    100 if median <= 12h else max(0, 100 - 25*log2(median/12)).
                 Bot-filtered (author_login contains any BOT_LOGIN_MARKERS,
                 case-insensitive). No qualifying PRs -> 50.0.
@@ -26,9 +26,9 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from cvi.constants import PARAM_WEIGHTS
-from cvi.models import AuthorAssociation, RawPREvent
-from cvi.pillars.responsiveness import (
+from porchlamp.constants import PARAM_WEIGHTS
+from porchlamp.models import AuthorAssociation, RawPREvent
+from porchlamp.pillars.responsiveness import (
     score_ghost_rate,
     score_mr_first,
     score_responsiveness,

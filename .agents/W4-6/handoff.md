@@ -1,4 +1,4 @@
-# W4-6 handoff — `cvi.snapshot store`: score a snapshot directory into a v2 store
+# W4-6 handoff — `porchlamp.snapshot store`: score a snapshot directory into a v2 store
 
 Base (final rebase): `4005d7d` (main tip). Two commits on branch `W4-6`
 (worktree `~/Projects/cvi-wt-W4-6`): the original delivery, and a
@@ -7,10 +7,10 @@ that section below). Diffstat, final base → final HEAD:
 
 ```
  .agents/W4-6/handoff.md                  | 334 +++++++++++++++++++++++
- cvi/snapshot/__init__.py                 |  12 +
- cvi/snapshot/cli.py                      |  88 +++++-
- cvi/snapshot/fixture_io.py               |  91 +++++++
- cvi/snapshot/store_cmd.py                | 251 +++++++++++++++++
+ porchlamp/snapshot/__init__.py                 |  12 +
+ porchlamp/snapshot/cli.py                      |  88 +++++-
+ porchlamp/snapshot/fixture_io.py               |  91 +++++++
+ porchlamp/snapshot/store_cmd.py                | 251 +++++++++++++++++
  scripts/build_fixture_snapshot.py        |  77 ++----
  tests/fixtures/snapshot_50/expected.json |   2 +-
  tests/snapshot/test_reproduce_fixture.py |  29 +-
@@ -24,26 +24,26 @@ amending this file to embed its own commit's sha is circular; `git log
 
 ## What was delivered
 
-`python -m cvi.snapshot store <snapshot_dir> --db <path> [--previous <dir>] [--no-verify] [--code-commit <sha>]`:
+`python -m porchlamp.snapshot store <snapshot_dir> --db <path> [--previous <dir>] [--no-verify] [--code-commit <sha>]`:
 
 1. Loads `<snapshot_dir>` (`bundles/*.json`, `populations.json`,
    `manifest.json`, optional `expected.json`) via the shared loader moved
-   into `cvi/snapshot/fixture_io.py` (`FrozenFixture`/`load_frozen_fixture`
+   into `porchlamp/snapshot/fixture_io.py` (`FrozenFixture`/`load_frozen_fixture`
    — cut out of `scripts/build_fixture_snapshot.py` verbatim, R-2; that
    script now imports and re-exports them so its own tests, which load it
    by path via `importlib`, keep working unchanged — verified directly).
-2. Scores it for real: `cvi.core.pipeline.score_snapshot` with detectors
-   wired via `cvi.verify.pipeline_hook.build_detectors(frozen.bundles)`.
+2. Scores it for real: `porchlamp.core.pipeline.score_snapshot` with detectors
+   wired via `porchlamp.verify.pipeline_hook.build_detectors(frozen.bundles)`.
    `--previous <dir>` is loaded and scored the same way (no detectors
    composed for it — only its records' `params` feed `detect_param_jump`)
    and passed as `score_snapshot`'s `previous=`.
 3. `expected.json`, if present, is checked against the freshly computed
-   `records_hash` (`cvi.snapshot.store_cmd.verify_expected`); a mismatch
+   `records_hash` (`porchlamp.snapshot.store_cmd.verify_expected`); a mismatch
    exits 1 with a clear message unless `--no-verify`.
-4. Opens/creates the DB (`cvi.store.schema.connect` + `cvi.store.
+4. Opens/creates the DB (`porchlamp.store.schema.connect` + `porchlamp.store.
    migrations.apply_migrations`), writes `write_snapshot` + `write_records`
-   in ONE transaction this command opens itself (`cvi.snapshot.store_cmd.
-   write_scored_snapshot`), then calls `cvi.store.writer.
+   in ONE transaction this command opens itself (`porchlamp.snapshot.store_cmd.
+   write_scored_snapshot`), then calls `porchlamp.store.writer.
    finalize_snapshot_hash` (necessarily a second, later transaction — that
    function's own docstring: it reads `db_path` fresh off disk, which
    cannot see this connection's own uncommitted writes) and prints the
@@ -54,12 +54,12 @@ amending this file to embed its own commit's sha is circular; `git log
 
 No wall clock anywhere in this command: `as_of`/`created_at`/`promoted_at`
 are all `frozen.as_of` (from the snapshot directory's own `manifest.json`);
-`code_commit` defaults to `git rev-parse HEAD` (same helper `cvi snapshot
+`code_commit` defaults to `git rev-parse HEAD` (same helper `porchlamp snapshot
 freeze` already uses), never a timestamp.
 
 New/moved files:
 
-- `cvi/snapshot/fixture_io.py` (new): `FrozenFixture`/`load_frozen_fixture`,
+- `porchlamp/snapshot/fixture_io.py` (new): `FrozenFixture`/`load_frozen_fixture`,
   moved out of `scripts/build_fixture_snapshot.py`. `expected.json` is now
   OPTIONAL (`None` when absent) — a real, non-fixture snapshot directory
   has no pinned expectation of its own; every existing caller
@@ -67,22 +67,22 @@ New/moved files:
   test_anchors_fixture.py`, `tests/audit/test_sensitivity_fixture.py`) only
   ever points this at `tests/fixtures/snapshot_50`, which always ships
   one, so their behaviour is unchanged (full suite green, checked).
-- `cvi/snapshot/store_cmd.py` (new): `score_snapshot_dir`, `verify_expected`,
+- `porchlamp/snapshot/store_cmd.py` (new): `score_snapshot_dir`, `verify_expected`,
   `manifest_root_of`, `write_scored_snapshot`, `VerificationError`.
-- `cvi/snapshot/cli.py`: `store` subcommand + `_store` handler.
-- `cvi/snapshot/__init__.py`: the four new names added to `__all__` (an
+- `porchlamp/snapshot/cli.py`: `store` subcommand + `_store` handler.
+- `porchlamp/snapshot/__init__.py`: the four new names added to `__all__` (an
   existing test, `test_every_name_cli_imports_from_the_snapshot_package_is_exported`,
-  enforces that every name `cli.py` imports from `cvi.snapshot.*` is
+  enforces that every name `cli.py` imports from `porchlamp.snapshot.*` is
   re-exported at the package root — caught this the first time, fixed).
 - `scripts/build_fixture_snapshot.py`: `FrozenFixture`/`load_frozen_fixture`
-  removed, re-imported from `cvi.snapshot.fixture_io` (one `# noqa: F401`,
+  removed, re-imported from `porchlamp.snapshot.fixture_io` (one `# noqa: F401`,
   since they're kept only for backward-compatible re-export).
 
 `manifest_root` (the `snapshots.manifest_root` column): this directory
 shape carries no envelope-level freeze manifest of its own (`03` section 5's
-Merkle-root-over-envelope-hashes concept belongs to `cvi snapshot freeze`,
+Merkle-root-over-envelope-hashes concept belongs to `porchlamp snapshot freeze`,
 a different artifact). `write_scored_snapshot` computes it as
-`cvi.snapshot.manifest.merkle_root(sorted(frozen.raw_hashes.values()))` —
+`porchlamp.snapshot.manifest.merkle_root(sorted(frozen.raw_hashes.values()))` —
 reusing that function rather than a second Merkle implementation (R-2) —
 the Merkle root of every bundle's own `raw_hash` in the snapshot, the
 closest real analogue this directory shape has to "which inputs this
@@ -98,7 +98,7 @@ detectors included (with `previous=None` the single-snapshot detectors
 fire; `closed_unread` on 12/50 is real evidence, not noise)."** This
 follow-up commit implements that ruling in full:
 
-1. **Shared code path**: `cvi/snapshot/store_cmd.py` gained
+1. **Shared code path**: `porchlamp/snapshot/store_cmd.py` gained
    `score_snapshot_with_detectors(bundles, populations, *, snapshot_id,
    as_of, gate_evidence, raw_hashes, previous=None) -> ScoredSnapshot` --
    the ONE function that calls `build_detectors(bundles)` then
@@ -152,19 +152,19 @@ follow-up commit implements that ruling in full:
   `queries.snapshot_summary(...)["canonical_dump_hash"]` non-`None`.
 - Served-DB guard location: checked **both** main (`08c1502`) and
   `~/Projects/cvi-wt-W4-4` (`f6a398c`) immediately before finishing —
-  `cvi/serve/guard.py` does not exist on either as of this handoff. W4-4's
+  `porchlamp/serve/guard.py` does not exist on either as of this handoff. W4-4's
   REWORK round 1 ruling (00-README.md, 2026-09-13) names it as the future
   home of a real v2 guard ("recompute snapshot_dump_hash, refuse
   non-finalised with 503 everywhere, refuse fixture-clock rows"), but it
   has not been delivered anywhere this worktree can read. `test_served_db_guard_accepts_this_db`
-  probes for `cvi.serve.guard` first and **fails loudly** (not silently) if
+  probes for `porchlamp.serve.guard` first and **fails loudly** (not silently) if
   it appears without being wired into the test — a deliberate tripwire so
   this doesn't silently test the wrong thing forever. Until then it
   demonstrates the only guard that exists today (`scripts.serve.
-  refusal_reasons` / `cvi.lakehouse.OperationalStore`, v1-only) does not
+  refusal_reasons` / `porchlamp.lakehouse.OperationalStore`, v1-only) does not
   misfire against a v2-only database — `OperationalStore.__init__` raises
   `sqlite3.OperationalError` against a v2 schema (confirmed directly), the
-  exact failure `cvi/serve/app.py::_run_served_db_guard` (branch `W4-4`,
+  exact failure `porchlamp/serve/app.py::_run_served_db_guard` (branch `W4-4`,
   read only) already catches to mean "nothing v1-shaped here to refuse".
 
 ## Test suite
@@ -184,7 +184,7 @@ follow-up commit implements that ruling in full:
   exits 1, DB sha256 unchanged.
 - `test_served_db_guard_accepts_this_db` — see addendum section above.
 - `test_create_app_serves_snapshot_and_not_ranked_if_w4_4_has_landed` —
-  skipped today (`cvi.serve.app` not importable); body is real and ready,
+  skipped today (`porchlamp.serve.app` not importable); body is real and ready,
   runs for real the moment W4-4 lands and this branch is rebased onto it.
 - `test_previous_wires_param_jump_suspicion` — 30 synthetic repos, one
   engineered `dr90_decision_rate` swing (0.05→0.95, n=20 both sides,
@@ -209,7 +209,7 @@ $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD /home/pctablet505/Projects/contributor-v
 exit=0
 ```
 
-Ruff: `python -m ruff check cvi/ scripts/ tests/snapshot/` → `All checks passed!`
+Ruff: `python -m ruff check porchlamp/ scripts/ tests/snapshot/` → `All checks passed!`
 
 Every count above is unchanged from the first commit (10 tests, 2477/2 in
 the full suite) -- the follow-up commit changed WHAT is being verified
@@ -322,7 +322,7 @@ export PYTHONPATH=$PWD
     --size 200 --snapshot-id my_snapshot_v1
 
 # 5. store: score for real (detectors wired) and write into a v2 SQLite store
-.venv/bin/python -m cvi.snapshot store \
+.venv/bin/python -m porchlamp.snapshot store \
     ~/Projects/cvi-scratch/my-snapshot --db ~/Projects/cvi-scratch/my-cvi.db
 #   (add --previous <earlier snapshot dir> once you have one, to light up
 #   param_jump; add --no-verify only if you intentionally changed scoring
@@ -330,7 +330,7 @@ export PYTHONPATH=$PWD
 
 # 6. serve: the v2 API + UI over that database
 .venv/bin/python scripts/serve.py --db ~/Projects/cvi-scratch/my-cvi.db
-#   http://127.0.0.1:8000/  (API under /v1/cvi, legacy v1 under /legacy)
+#   http://127.0.0.1:8000/  (API under /v1/porchlamp, legacy v1 under /legacy)
 ```
 
 **Known gap, honestly stated**: as of this base commit, `scripts/serve.py`'s
@@ -339,5 +339,5 @@ export PYTHONPATH=$PWD
 packet's to fix) — pointed at a v2-only database like step 5's output, it
 raises `sqlite3.OperationalError` before `uvicorn` ever starts. Until that
 lands on main, step 6 needs `cvi-wt-W4-4`'s own `scripts/serve.py`
-(`cvi.serve.app.create_app`) instead of main's. Once W4-4 lands, step 6 as
+(`porchlamp.serve.app.create_app`) instead of main's. Once W4-4 lands, step 6 as
 written above works unchanged.

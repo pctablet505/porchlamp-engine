@@ -15,9 +15,9 @@ no import of aggregate/persona/constants_v2 for the cutoffs.
 
 Blocker B-1 (`item3b_edges.py`):
     sum(w) = 1.0 for {responsiveness:-0.5, criticality:1.5, rest 0}
-    edge/neg -> cvi=147.5  coverage=1.0  tier=S+  rank=1
+    edge/neg -> porchlamp=147.5  coverage=1.0  tier=S+  rank=1
 
 Warning W-2 (same script): SQL ROUND vs Python round
-    edge/half-a: returned cvi=82.12  tie_group=2  rank=2
-    edge/half-b: returned cvi=82.13  tie_group=2  rank=3
+    edge/half-a: returned porchlamp=82.12  tie_group=2  rank=2
+    edge/half-b: returned porchlamp=82.13  tie_group=2  rank=3
     python round(82.125,2) = 82.12 ; sqlite ROUND(82.125,2) = 82.13

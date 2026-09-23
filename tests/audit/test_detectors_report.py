@@ -1,4 +1,4 @@
-"""Acceptance tests for :mod:`cvi.audit.detectors_report`.
+"""Acceptance tests for :mod:`porchlamp.audit.detectors_report`.
 
 Covers: the lazy-registry wiring (the ``forward`` pattern), row
 loading from the interim JSON format, key-matched current/previous
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from cvi.audit.detectors_report import (
+from porchlamp.audit.detectors_report import (
     DetectorRow,
     build_report,
     format_report,
@@ -46,21 +46,21 @@ def _public_top_level_names(source: str) -> set[str]:
 
 
 def test_detectors_report_entry_lists_module_public_names() -> None:
-    from cvi import audit
+    from porchlamp import audit
 
-    origin = importlib.util.find_spec("cvi.audit.detectors_report").origin
+    origin = importlib.util.find_spec("porchlamp.audit.detectors_report").origin
     expected = _public_top_level_names(Path(origin).read_text(encoding="utf-8"))
-    assert "cvi.audit.detectors_report" in audit._LAZY_EXPORTS
-    assert set(audit._LAZY_EXPORTS["cvi.audit.detectors_report"]) == expected
-    assert not any(name.startswith("_") for name in audit._LAZY_EXPORTS["cvi.audit.detectors_report"])
+    assert "porchlamp.audit.detectors_report" in audit._LAZY_EXPORTS
+    assert set(audit._LAZY_EXPORTS["porchlamp.audit.detectors_report"]) == expected
+    assert not any(name.startswith("_") for name in audit._LAZY_EXPORTS["porchlamp.audit.detectors_report"])
 
 
 def test_detectors_report_names_resolve_via_getattr() -> None:
-    from cvi import audit
+    from porchlamp import audit
 
     registry = audit._LAZY_EXPORTS
-    assert set(registry["cvi.audit.detectors_report"]) <= set(audit.__all__)
-    for name in registry["cvi.audit.detectors_report"]:
+    assert set(registry["porchlamp.audit.detectors_report"]) <= set(audit.__all__)
+    for name in registry["porchlamp.audit.detectors_report"]:
         provider = next(module for module, names in registry.items() if name in names)
         expected = importlib.import_module(provider)
         assert getattr(audit, name) is getattr(expected, name)

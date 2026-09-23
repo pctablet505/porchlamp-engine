@@ -20,7 +20,7 @@ result  .25/.25/.20/.15/.02                              (sum 0.87)
 it — verbatim, from my own probe on port 8917:
 ```
 sum 0.87 (four locked + drag) -> HTTP 400
-{"error": {"endpoint": "/v1/cvi/reproject", "status": 400,
+{"error": {"endpoint": "/v1/porchlamp/reproject", "status": 400,
            "detail": "1 validation error for ReprojectRequest\n  Value error, weights must sum to 1.0, got 0.87"}}
 ```
 So the user locks four sliders, moves the fifth, and Screen D shows an API error banner instead of a
@@ -40,7 +40,7 @@ Everything else on this screen checks out:
 - **Reproject arithmetic: 7/7 weight vectors exact** against my independent oracle
   (`scratch/W4-5b-review/reproject_oracle.py`) — balanced, equal, responsiveness-heavy,
   zero-accessibility, two-zero-pillars, single-pillar (four zeros) and a tilted vector that drops a
-  row below the 0.60 floor. Row membership, `cvi` (2 dp), coverage, tier (with ceiling), rank order
+  row below the 0.60 floor. Row membership, `porchlamp` (2 dp), coverage, tier (with ceiling), rank order
   and `rank_delta == balanced_rank - rank` all agree. A rounding difference I first suspected was my
   own oracle's fault: 67.475 is not exactly representable, and Python's `round` and SQLite's `ROUND`
   agree on it (both 67.47) — verified directly, no defect.

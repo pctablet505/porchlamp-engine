@@ -29,7 +29,7 @@ No W4-3 p95 flake this time — the lead's 2x-under-xdist tolerance ruling lande
   light palette never redefines the accents), **W-9** (the first row of a tie group carries neither
   the "=" mark nor the band), **N-1** (no per-persona payload cache, U-14), **N-2** (Not-ranked
   page/page_size absent from the URL; `]`/`[` page the leaderboard from that tab), **N-3** (dev perf
-  harness, `window.__cviDebug`, dead `renderCard`/`renderCardList`, `escapeHtml` duplicated 8×),
+  harness, `window.__porchlampDebug`, dead `renderCard`/`renderCardList`, `escapeHtml` duplicated 8×),
   **N-4** (the two light-palette blocks can drift; only one is parsed), **N-5** (`drawer.js:196`
   reuses the empty-leaderboard sentence as the repo-not-found message, and a persona-hidden row
   opened from Not-ranked always lands there — `findRow` never searches `persona_hidden`).

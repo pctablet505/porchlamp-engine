@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.collect.envelope`.
+"""Unit tests for :mod:`porchlamp.collect.envelope`.
 
 The envelope contract is `03-ANTI-MANIPULATION.md` section 5: a raw fetch is
 stored as ``{source, fetched_at, http_status, etag, sha256,
@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from cvi.collect.envelope import (
+from porchlamp.collect.envelope import (
     COLLECTOR_VERSION,
     canonical_json,
     envelope_hash,
@@ -208,8 +208,8 @@ def test_relative_envelope_path_is_stable_across_two_different_data_roots() -> N
     "machines" with the same corpus copied to different absolute locations
     produce the same provenance, and therefore the same
     ``feature_provenance_hash``."""
-    machine_a = Path("/home/alice/cvi-data")
-    machine_b = Path("/var/lib/cvi/data-copy")
+    machine_a = Path("/home/alice/porchlamp-data")
+    machine_b = Path("/var/lib/porchlamp/data-copy")
     envelope_a = raw_envelope_path(machine_a, "gfi", "torvalds__linux")
     envelope_b = raw_envelope_path(machine_b, "gfi", "torvalds__linux")
     assert relative_envelope_path(machine_a, envelope_a) == relative_envelope_path(machine_b, envelope_b)

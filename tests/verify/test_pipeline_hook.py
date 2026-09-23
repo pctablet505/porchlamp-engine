@@ -1,11 +1,11 @@
-"""Acceptance tests for :mod:`cvi.verify.pipeline_hook`.
+"""Acceptance tests for :mod:`porchlamp.verify.pipeline_hook`.
 
-The real end-to-end proof that ``cvi.core.pipeline.score_snapshot``'s
-``previous``/``detectors`` seam and ``cvi.verify.detectors.run_detectors``
+The real end-to-end proof that ``porchlamp.core.pipeline.score_snapshot``'s
+``previous``/``detectors`` seam and ``porchlamp.verify.detectors.run_detectors``
 compose correctly over genuine ``FeatureBundle``\\ s -- ``tests/core/
 test_pipeline.py`` covers the seam itself (``apply_suspicion``'s contract)
 with hand-written stub callables; this file covers only the real
-composition ``cvi/verify/pipeline_hook.py`` builds.
+composition ``porchlamp/verify/pipeline_hook.py`` builds.
 
 Six repos, engineered so exactly three named detectors fire in the baseline
 fixture (each on sourceable inputs -- only ``source_drift`` needs a
@@ -41,9 +41,9 @@ from __future__ import annotations
 import copy
 import datetime
 
-from cvi.core import constants
-from cvi.core.gates import GateEvidence
-from cvi.core.models import (
+from porchlamp.core import constants
+from porchlamp.core.gates import GateEvidence
+from porchlamp.core.models import (
     Cohorts,
     FeatureBundle,
     Measured,
@@ -54,10 +54,10 @@ from cvi.core.models import (
     RepoIdentity,
     Unmeasured,
 )
-from cvi.core.pipeline import ScoredSnapshot, repo_key, score_snapshot
-from cvi.snapshot.populations import PopulationSet
-from cvi.verify.detectors import DETECTOR_NAMES
-from cvi.verify.pipeline_hook import build_detectors, detector_inputs_from_bundle
+from porchlamp.core.pipeline import ScoredSnapshot, repo_key, score_snapshot
+from porchlamp.snapshot.populations import PopulationSet
+from porchlamp.verify.detectors import DETECTOR_NAMES
+from porchlamp.verify.pipeline_hook import build_detectors, detector_inputs_from_bundle
 
 NOW = datetime.datetime(2026, 9, 12, 0, 0, tzinfo=datetime.timezone.utc)
 _HASH64 = "e" * 64
@@ -227,7 +227,7 @@ def test_detector_inputs_from_bundle_reads_measured_bundle_facts() -> None:
 def test_detector_inputs_from_bundle_reads_top_email_domain_share_sidecar() -> None:
     """When a bundle carries the ``top_email_domain_share`` sidecar fact,
     the adapter reads the real share through."""
-    from cvi.derive.bundle import TopEmailDomainShareMeasured, _set_top_email_domain_share
+    from porchlamp.derive.bundle import TopEmailDomainShareMeasured, _set_top_email_domain_share
 
     bundle = _bundle(_repo("org", "alpha"), _full_inputs({"elephant_factor": _m(4.0, n=30)}))
     _set_top_email_domain_share(bundle, TopEmailDomainShareMeasured(
@@ -239,8 +239,8 @@ def test_detector_inputs_from_bundle_reads_top_email_domain_share_sidecar() -> N
 
 
 def test_detector_inputs_from_bundle_top_email_domain_share_unmeasured_is_none() -> None:
-    from cvi.core.models import Unmeasured as _Unmeasured
-    from cvi.derive.bundle import _set_top_email_domain_share
+    from porchlamp.core.models import Unmeasured as _Unmeasured
+    from porchlamp.derive.bundle import _set_top_email_domain_share
 
     bundle = _bundle(_repo("org", "alpha"), _full_inputs())
     _set_top_email_domain_share(bundle, _Unmeasured(reason="insufficient_n"))
@@ -254,7 +254,7 @@ def test_ef_domain_mismatch_fires_through_the_real_composition() -> None:
     ``run_detectors`` composition when a bundle carries both the scored
     ``elephant_factor`` input and the ``top_email_domain_share``
     sidecar fact."""
-    from cvi.derive.bundle import TopEmailDomainShareMeasured, _set_top_email_domain_share
+    from porchlamp.derive.bundle import TopEmailDomainShareMeasured, _set_top_email_domain_share
 
     owner, name = "mismatch", "repo"
     bundle = _bundle(_repo(owner, name), _full_inputs({"elephant_factor": _m(6.0, n=30)}))
@@ -384,7 +384,7 @@ def test_newcomer_burst_fires_through_build_detectors_pipeline_hook() -> None:
 def test_detector_inputs_from_bundle_reads_star_velocity_flag_sidecar() -> None:
     """When a bundle carries the star_velocity_flag sidecar fact (True/False or
     Measured 1/0), detector_inputs_from_bundle populates star_lockstep_penalty_applied."""
-    from cvi.derive.bundle import set_star_velocity_flag
+    from porchlamp.derive.bundle import set_star_velocity_flag
 
     bundle_true = _bundle(_repo("org", "true-flag"), _full_inputs())
     set_star_velocity_flag(bundle_true, True)
@@ -406,7 +406,7 @@ def test_detector_inputs_from_bundle_reads_star_velocity_flag_sidecar() -> None:
 def test_star_burst_fires_through_build_detectors_pipeline_hook() -> None:
     """End-to-end: star_burst fires during snapshot scoring when star_velocity_flag
     is True on the bundle, and does not fire when False."""
-    from cvi.derive.bundle import set_star_velocity_flag
+    from porchlamp.derive.bundle import set_star_velocity_flag
 
     flagged = _bundle(_repo("star", "flagged"), _full_inputs())
     set_star_velocity_flag(flagged, True)

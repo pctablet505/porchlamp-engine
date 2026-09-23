@@ -5,7 +5,7 @@
 - Patch source: commit `18102f7` on branch `W0-3f` in the read-only tree
   `/tmp/cvi-wt-W0-3f` (base `6651386`), applied via `git am -3` as `4f9757c`.
 - Interpreter: `/home/pctablet505/Projects/contributor-value-index/.venv/bin/python`
-  (repo venv, Python 3.12). `PYTHONPATH=$PWD` verified to resolve `cvi.__file__`
+  (repo venv, Python 3.12). `PYTHONPATH=$PWD` verified to resolve `porchlamp.__file__`
   inside this worktree before every command below.
 
 ## Step 1 — git am -3
@@ -25,10 +25,10 @@ Applying: fix(snapshot,audit): W0-3f wave-gate findings P-09/P-07b/P-10c/P-01
 between the source commit and the applied commit:
 
 ```
- cvi/audit/sensitivity.py         |  37 ++++++++---
- cvi/snapshot/cli.py              |  21 ++++--
- cvi/snapshot/manifest.py         |  60 ++++++++++++++++-
- cvi/snapshot/reproduce.py        |  49 +++++++++++---
+ porchlamp/audit/sensitivity.py         |  37 ++++++++---
+ porchlamp/snapshot/cli.py              |  21 ++++--
+ porchlamp/snapshot/manifest.py         |  60 ++++++++++++++++-
+ porchlamp/snapshot/reproduce.py        |  49 +++++++++++---
  tests/audit/test_sensitivity.py  |  56 ++++++++++++++++
  tests/snapshot/test_cli.py       |  87 ++++++++++++++++++++++++
  tests/snapshot/test_manifest.py  |  95 ++++++++++++++++++++++----
@@ -53,8 +53,8 @@ byte-identical to `4f9757c`) after every restore.
 ### P-09 (Blocker) — corrupt-JSON envelope crash
 
 Files reverted together (they are interdependent — `cli.py` and `reproduce.py`
-both call `manifest.envelope_entries`): `cvi/snapshot/manifest.py`,
-`cvi/snapshot/reproduce.py`, `cvi/snapshot/cli.py`.
+both call `manifest.envelope_entries`): `porchlamp/snapshot/manifest.py`,
+`porchlamp/snapshot/reproduce.py`, `porchlamp/snapshot/cli.py`.
 
 Fail-before (`pytest ... -p no:cacheprovider`), **exit 1**:
 
@@ -65,15 +65,15 @@ ___________ test_reproduce_survives_a_corrupt_envelope_and_names_it ____________
 >       manifest = _freeze(data_dir, envelope_entries(data_dir).entries)
 E       AttributeError: 'list' object has no attribute 'entries'
 _________ test_reproduce_of_a_corrupt_envelope_exits_one_and_names_it __________
-    cvi/snapshot/manifest.py:63: in envelope_entries
+    porchlamp/snapshot/manifest.py:63: in envelope_entries
         envelope = read_envelope(path)
-    cvi/collect/envelope.py:160: in read_envelope
+    porchlamp/collect/envelope.py:160: in read_envelope
         document = json.loads(Path(path).read_text(encoding="utf-8"))
 E   json.decoder.JSONDecodeError: Expecting ',' delimiter: line 1 column 267 (char 266)
 ______ test_freeze_of_a_dir_with_a_corrupt_envelope_completes_and_reports ______
-    cvi/snapshot/cli.py:45: in _freeze
+    porchlamp/snapshot/cli.py:45: in _freeze
         entries = envelope_entries(data_dir)
-    cvi/snapshot/manifest.py:63: in envelope_entries
+    porchlamp/snapshot/manifest.py:63: in envelope_entries
         envelope = read_envelope(path)
 E   json.decoder.JSONDecodeError: Expecting ',' delimiter: line 1 column 111 (char 110)
 3 failed in 0.09s
@@ -133,7 +133,7 @@ Pass-after (files restored to `4f9757c`), run together with the 3 P-09 tests,
 
 ### P-10c (Minor) — Kendall tau-b returns 1.0 on a degenerate all-tied case
 
-File reverted: `cvi/audit/sensitivity.py` only (independent of the snapshot
+File reverted: `porchlamp/audit/sensitivity.py` only (independent of the snapshot
 group).
 
 Fail-before, **exit 1**:
@@ -160,14 +160,14 @@ Pass-after (file restored to `4f9757c`), **exit 0**:
 3 passed in 0.01s
 ```
 
-### P-01 (Minor) — unguarded `cvi/ingest.py` no-clock exemption
+### P-01 (Minor) — unguarded `porchlamp/ingest.py` no-clock exemption
 
-**Deviation from the literal step:** no `cvi/` source file changed for this
-finding — `git diff 6651386 4f9757c -- cvi/ingest.py` is empty; the fix is
+**Deviation from the literal step:** no `porchlamp/` source file changed for this
+finding — `git diff 6651386 4f9757c -- porchlamp/ingest.py` is empty; the fix is
 `tests/test_no_clock.py::test_ingest_exemption_covers_only_the_monotonic_defaults`
 only. There is no pre-fix blob of a production file to restore. Substituted
 an equivalent mutation: appended the exact regression class the finding
-names (an unguarded `datetime.now()` call) to the end of `cvi/ingest.py`,
+names (an unguarded `datetime.now()` call) to the end of `porchlamp/ingest.py`,
 kept a byte-for-byte backup first, ran the guarding test, then restored the
 file from the backup and confirmed `diff` reported no difference.
 
@@ -175,7 +175,7 @@ Fail-before (mutated `ingest.py`), **exit 1**:
 ```
 F                                                                        [100%]
 ___________ test_ingest_exemption_covers_only_the_monotonic_defaults ___________
-    source = (CVI_PKG / "ingest.py").read_text(encoding="utf-8")
+    source = (PORCHLAMP_PKG / "ingest.py").read_text(encoding="utf-8")
     wall_clock_lines = [line for line in source.splitlines() if CLOCK_RE.search(line)]
 >   assert wall_clock_lines == []
 E   AssertionError: assert ['    return ....timestamp()'] == []
@@ -193,10 +193,10 @@ Pass-after (file restored, `diff` against backup empty), full
 **Observation (measured, not a hedge):** the same mutation was also run
 against the rest of `tests/test_no_clock.py` with the new test deselected
 (`-k "not test_ingest_exemption..."`), to check the gate's literal claim that
-"a `datetime.now()` added to `cvi/ingest.py` today would pass the whole
+"a `datetime.now()` added to `porchlamp/ingest.py` today would pass the whole
 no-clock suite":
 ```
-E       AssertionError: assert {'cvi/benchma...vi/ingest.py'} == {'cvi/benchma...mark_data.py'}
+E       AssertionError: assert {'porchlamp/benchma...vi/ingest.py'} == {'porchlamp/benchma...mark_data.py'}
 1 failed, 8 passed, 1 deselected in 0.03s
 ```
 `test_exempt_modules_actually_own_a_clock` also fails on this mutation,
@@ -235,7 +235,7 @@ confirmed `json.load` now raises `JSONDecodeError`.
 
 `reproduce`, **exit 1**:
 ```
-$ python -m cvi.snapshot reproduce 20260912T0000000000-49814505ca85 --data-dir <copy>
+$ python -m porchlamp.snapshot reproduce 20260912T0000000000-49814505ca85 --data-dir <copy>
 snapshot 20260912T0000000000-49814505ca85
 envelopes 2180 match, 0 mismatched, 0 missing, 0 unexpected, 1 invalid, 0 stale-hash
 INVALID_JSON scorecard/AtsushiSakai__PythonRobotics
@@ -283,13 +283,13 @@ packet's files.
 
 Packet-owned files only (the 9 files the patch touched), **exit 0**:
 ```
-$ ruff check cvi/audit/sensitivity.py cvi/snapshot/cli.py cvi/snapshot/manifest.py cvi/snapshot/reproduce.py \
+$ ruff check porchlamp/audit/sensitivity.py porchlamp/snapshot/cli.py porchlamp/snapshot/manifest.py porchlamp/snapshot/reproduce.py \
     tests/audit/test_sensitivity.py tests/snapshot/test_cli.py tests/snapshot/test_manifest.py \
     tests/snapshot/test_reproduce.py tests/test_no_clock.py
 All checks passed!
 ```
 
-Full command per the packet header (`ruff check cvi/ scripts/ tests/`),
+Full command per the packet header (`ruff check porchlamp/ scripts/ tests/`),
 **exit 1** — 23 pre-existing errors in 5 files this packet does not own and
 never touched (confirmed by the Step-1 diffstat): `scripts/curate_dataset_llm.py`
 (4x F401), `tests/benchmark_sla_runner.py` (6x F401/RUF046/B023),
@@ -324,7 +324,7 @@ packet's ownership (R-10), recorded and not touched.
    from the test-helper API mismatch.
 3. P-01 has no production-code "pre-fix version" to restore (the fix is
    test-only); substituted an equivalent injected mutation into
-   `cvi/ingest.py`, restored byte-for-byte afterward (`diff` confirmed
+   `porchlamp/ingest.py`, restored byte-for-byte afterward (`diff` confirmed
    empty). See the Observation under P-01 above: the specific literal
    mutation used is also caught by a pre-existing, unrelated test
    (`test_exempt_modules_actually_own_a_clock`), which narrows exactly what
@@ -335,7 +335,7 @@ packet's ownership (R-10), recorded and not touched.
    `chmod -R u+w` after copying (source `sample-200` files are `r--r--r--`).
    Applied only to this packet's own scratch copy; `sample-200` itself was
    never opened for writing.
-5. Ruff on the full `cvi/ scripts/ tests/` tree exits 1 on 23 pre-existing,
+5. Ruff on the full `porchlamp/ scripts/ tests/` tree exits 1 on 23 pre-existing,
    unowned errors (listed above under Step 4); ruff on the 9 files this
    packet owns exits 0.
 

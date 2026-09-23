@@ -1,4 +1,4 @@
-"""Journal-mode safety of ``cvi.store.writer.snapshot_dump_hash``.
+"""Journal-mode safety of ``porchlamp.store.writer.snapshot_dump_hash``.
 
 ``snapshot_dump_hash`` must reduce a live store to a single snapshot's rows
 and hash them no matter how the source database stores those bytes on disk.
@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import sqlite3
 
-from cvi.store import schema
-from cvi.store.migrations import apply_migrations
-from cvi.store.writer import snapshot_dump_hash, write_records, write_snapshot
+from porchlamp.store import schema
+from porchlamp.store.migrations import apply_migrations
+from porchlamp.store.writer import snapshot_dump_hash, write_records, write_snapshot
 
 from .helpers import make_rated_record, make_repo_write
 

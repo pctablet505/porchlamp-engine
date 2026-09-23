@@ -33,10 +33,10 @@ import math
 
 import pytest
 
-from cvi.constants import OPENSSF_THRESHOLDS, OPENSSF_WEIGHTS, PARAM_WEIGHTS
-from cvi.models import Ecosystem, OpenSSFSignals, RepoMeta
-from cvi.openssf import calculate_pike_criticality
-from cvi.pillars.criticality import (
+from porchlamp.constants import OPENSSF_THRESHOLDS, OPENSSF_WEIGHTS, PARAM_WEIGHTS
+from porchlamp.models import Ecosystem, OpenSSFSignals, RepoMeta
+from porchlamp.openssf import calculate_pike_criticality
+from porchlamp.pillars.criticality import (
     score_criticality,
     score_dependents,
     score_downloads,

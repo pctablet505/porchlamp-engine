@@ -35,10 +35,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from cvi.api import create_app
-from cvi.lakehouse import OperationalStore, apply_raw_metrics, repositories_dump_hash
-from cvi.models import CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
-from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest
+from porchlamp.api import create_app
+from porchlamp.lakehouse import OperationalStore, apply_raw_metrics, repositories_dump_hash
+from porchlamp.models import PorchlampCompositeResult, Ecosystem, PillarScores, Quadrant, Tier
+from porchlamp.snapshot.manifest import build_manifest, envelope_entries, write_manifest
 from scripts import serve
 from scripts.serve import count_repos, create_serve_app
 from tests.fixtures.synthetic_catalog import BENCHMARK_NOW, get_benchmark_catalog, seed_benchmark_catalog
@@ -68,12 +68,12 @@ def _store_at(db_path: Path) -> OperationalStore:
     return OperationalStore(str(db_path))
 
 
-def _result(name: str) -> CVICompositeResult:
-    return CVICompositeResult(
+def _result(name: str) -> PorchlampCompositeResult:
+    return PorchlampCompositeResult(
         owner="tokio-rs",
         name=name,
         ecosystem=Ecosystem.CRATES,
-        overall_cvi=70.31,
+        overall_porchlamp=70.31,
         rank_tier=Tier.A,
         matrix_quadrant=Quadrant.SWEET_SPOT,
         leverage_score=72.0,
@@ -115,7 +115,7 @@ def test_empty_store_serves_no_repos():
     # report ~1000 repos here. It must report zero — no fabrication.
     client = open_serve_client(_empty)
     try:
-        lb = client.get("/v1/cvi/leaderboard?limit=1000").json()
+        lb = client.get("/v1/porchlamp/leaderboard?limit=1000").json()
         assert lb["items"] == []
         assert lb["total"] == 0
     finally:
@@ -125,11 +125,11 @@ def test_empty_store_serves_no_repos():
 def test_promoted_row_is_served():
     client = open_serve_client(_promoted)
     try:
-        lb = client.get("/v1/cvi/leaderboard?limit=1000").json()
+        lb = client.get("/v1/porchlamp/leaderboard?limit=1000").json()
         assert lb["total"] == 1
         assert lb["items"][0]["owner"] == "tokio-rs"
         assert lb["items"][0]["name"] == "tokio"
-        assert lb["items"][0]["cvi"] == 70.31
+        assert lb["items"][0]["porchlamp"] == 70.31
     finally:
         client.__exit__(None, None, None)
 
@@ -170,7 +170,7 @@ def _promote_snapshot(data_dir: Path, db: Path) -> dict:
     """Freeze ``data_dir`` (real envelopes) and bind ``db``'s current
     ``repositories`` content to it, exactly as ``scripts/promote.py`` does at
     the end of a real promotion (): a ``snapshot_meta`` row carrying
-    :func:`cvi.lakehouse.repositories_dump_hash`, not a filesystem manifest
+    :func:`porchlamp.lakehouse.repositories_dump_hash`, not a filesystem manifest
     lookup or a per-row name/telemetry match.
     """
     manifest = _freeze_real(data_dir)
@@ -188,8 +188,8 @@ def _fixture_rows(store: OperationalStore, count: int) -> list[dict]:
 def _promoted_row(store: OperationalStore, owner: str, name: str,
                   stars: int, forks: int) -> None:
     """Write one row the way scripts/promote.py does: composite + raw metrics."""
-    result = CVICompositeResult(
-        owner=owner, name=name, ecosystem=Ecosystem.PYPI, overall_cvi=70.31,
+    result = PorchlampCompositeResult(
+        owner=owner, name=name, ecosystem=Ecosystem.PYPI, overall_porchlamp=70.31,
         rank_tier=Tier.A, matrix_quadrant=Quadrant.SWEET_SPOT, leverage_score=72.0,
         friction_score=30.0, is_stage0_disqualified=False, disqualification_reason=None,
     )
@@ -221,7 +221,7 @@ def test_fixture_database_is_refused_naming_the_row(tmp_path, served):
     # as a second, independent guard -- the two catch different things (see
     # the module docstring). A snapshot is bound here too, so the fixture
     # rule is isolated: only IT can fire.
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     store = _store_at(db)
     rows = _fixture_rows(store, 3)
     store.close()
@@ -243,7 +243,7 @@ def test_renaming_fixture_owners_does_not_evade_the_marker(tmp_path, served):
     # The fixture guard is keyed on last_indexed_at, never owner/name, so
     # round 1's exact bypass of the OLD (owner, name) == (stars, forks) rule
     # does nothing to it.
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     store = _store_at(db)
     _fixture_rows(store, 5)
     store.close()
@@ -262,7 +262,7 @@ def test_renaming_fixture_owners_does_not_evade_the_marker(tmp_path, served):
 
 
 def test_database_without_snapshot_meta_is_refused(tmp_path, served):
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     store = _store_at(db)
     _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
     store.close()
@@ -277,7 +277,7 @@ def test_database_without_snapshot_meta_is_refused(tmp_path, served):
 
 
 def test_promoted_database_with_snapshot_identity_serves(tmp_path, served):
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     store = _store_at(db)
     _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
     _promoted_row(store, "tokio-rs", "tokio", stars=33123, forks=3244)
@@ -292,7 +292,7 @@ def test_promoted_database_with_snapshot_identity_serves(tmp_path, served):
 def test_real_repo_sharing_a_fixture_name_still_serves(tmp_path, served):
     # Over-correction guard: six of the 199 sample repos share a name with a
     # benchmark fixture. A real, promoted-and-bound row must still serve.
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     store = _store_at(db)
     _promoted_row(store, "torvalds", "linux", stars=248274, forks=64487)
     store.close()
@@ -307,7 +307,7 @@ def test_real_repo_sharing_a_fixture_name_still_serves(tmp_path, served):
 def test_empty_promoted_database_serves(tmp_path, served):
     # An empty store is honest: no rows to be fabricated, and the snapshot
     # binding still names what the (empty) database was promoted against.
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     OperationalStore(str(db)).close()
     _promote_snapshot(tmp_path, db)
 
@@ -327,7 +327,7 @@ def test_renaming_every_owner_after_promotion_is_refused(tmp_path, served):
     # (stars, forks); this single UPDATE gave it zero reasons while every
     # fabricated row still served. binds identity to a content hash
     # of the whole table, so renaming every owner invalidates it too.
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     store = _store_at(db)
     _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
     store.close()
@@ -350,7 +350,7 @@ def test_renaming_every_owner_after_promotion_is_refused(tmp_path, served):
 def test_nudging_telemetry_after_promotion_is_refused(tmp_path, served):
     # The other half of round 1's bypass: nudging every counter by one leaves
     # names intact but still invalidates the content hash.
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     store = _store_at(db)
     _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
     store.close()
@@ -374,7 +374,7 @@ def test_a_stored_hash_sharing_every_digit_but_the_last_is_still_refused(tmp_pat
     # strongest near-miss possible: a stored value identical to the real
     # current hash in every hex digit except the last -- any comparison
     # truncated to fewer than 64 characters accepts it.
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     store = _store_at(db)
     _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
     store.close()
@@ -407,7 +407,7 @@ def test_manifest_copied_beside_a_foreign_database_is_refused(tmp_path, served):
     # manifest, so copying one buys nothing.
     src_dir = tmp_path / "source"
     src_dir.mkdir()
-    db = src_dir / "cvi.db"
+    db = src_dir / "porchlamp.db"
     store = _store_at(db)
     _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
     store.close()
@@ -416,7 +416,7 @@ def test_manifest_copied_beside_a_foreign_database_is_refused(tmp_path, served):
 
     foreign_dir = tmp_path / "foreign"
     foreign_dir.mkdir()
-    foreign_db = foreign_dir / "cvi.db"
+    foreign_db = foreign_dir / "porchlamp.db"
     OperationalStore(str(foreign_db)).close()  # never promoted at all
     shutil.copytree(src_dir / "snapshots", foreign_dir / "snapshots")
 
@@ -439,7 +439,7 @@ def test_seed_then_promote_serves_only_the_real_rows(tmp_path, served):
     # the served path -- there is no old content left to coexist with,
     # because the old file is never opened at all) means only the promoted
     # row survives.
-    db = tmp_path / "cvi.db"
+    db = tmp_path / "porchlamp.db"
     store = _store_at(db)
     _fixture_rows(store, 1000)
     store.close()
@@ -480,7 +480,7 @@ def test_seed_then_promote_serves_only_the_real_rows(tmp_path, served):
         "stars, forks, openssf_criticality, elephant_factor, legal_ip_model, "
         "ai_posture, score_responsiveness, score_criticality, score_governance, "
         "score_rigor_ai, score_accessibility, leverage_score, friction_score, "
-        "matrix_quadrant, overall_cvi, rank_tier, last_indexed_at) VALUES "
+        "matrix_quadrant, overall_porchlamp, rank_tier, last_indexed_at) VALUES "
         "(?, ?, 'pypi', '', ?, ?, 0, 1, 'DCO', 'AD_HOC', 0, 0, 0, 0, 0, 0, 0, "
         "'SWEET_SPOT', 0, 'A', ?)",
         (row["owner"], row["name"], row["stars"], row["forks"], BENCHMARK_NOW.isoformat()))

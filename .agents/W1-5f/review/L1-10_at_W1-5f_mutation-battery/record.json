@@ -6,7 +6,7 @@
   "level": "L1",
   "lens": "LENS-TQ",
   "target": {
-    "path": "cvi/core/commit_domains.py",
+    "path": "porchlamp/core/commit_domains.py",
     "symbol": "org_key",
     "line_start": 196,
     "line_end": 216
@@ -79,7 +79,7 @@
       "finding_id": "F-002",
       "severity": "Warning:",
       "statement": "org_key's .lower() -- the case fold the packet's 'normalisation identical to elephant_factor's' claim rests on -- is pinned by no test; the mutant that removes it leaves the whole suite green.",
-      "file": "cvi/core/commit_domains.py",
+      "file": "porchlamp/core/commit_domains.py",
       "line": 196,
       "quoted_line": "    email = actor.email.strip().lower()",
       "failure_scenario": "Forty commits by forty distinct authors, each on their own '<id>+<login>@USERS.NOREPLY.GITHUB.COM' address: the shipped code returns share 0.025 over forty one-person orgs; with the .lower() removed the domain no longer matches NOREPLY_DOMAIN, all forty collapse into one org 'USERS.NOREPLY.GITHUB.COM', share becomes 1.000, and ef_domain_mismatch (share >= 0.5, EF >= 4) fires on a repository with forty independent contributors. Full suite after the mutant: 2256 passed, exit 0.",
@@ -92,7 +92,7 @@
       "finding_id": "F-003",
       "severity": "Warning:",
       "statement": "_commit_envelope_path's provenance-keyed fallback branch is reachable and works but is covered by no test; dropping the is_file() guard that reaches it leaves the suite green.",
-      "file": "cvi/derive/bundle.py",
+      "file": "porchlamp/derive/bundle.py",
       "line": 452,
       "quoted_line": "        if candidate.is_file():",
       "failure_scenario": "raw_root set, raw_root/commits_365d/<key>.json absent, and a v1 provenance entry keyed 'commits_365d' naming the envelope elsewhere: the shipped code resolves it (value 2026-07-07T00:00:00Z, method measured:commits_365d); with the guard dropped the candidate path is returned unconditionally, the provenance entry is never consulted, and the fact becomes Unmeasured. Full suite after the mutant: 2256 passed, exit 0.",

@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cvi.collect.envelope import envelope_hash
+from porchlamp.collect.envelope import envelope_hash
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("derive", ROOT / "scripts" / "derive.py")
@@ -120,7 +120,7 @@ def test_full_bundle(tmp_path):
 
 def test_provenance_records_envelope_sha256_for_verified_field(tmp_path):
     # A verified field's provenance must carry the envelope's own hash --
-    # computed with the same function cvi.snapshot.manifest's freeze uses
+    # computed with the same function porchlamp.snapshot.manifest's freeze uses
     # (native when the envelope carries one, otherwise the backfilled
     # canonical hash of its data) -- so scripts/verify.py has something real
     # to recompute against, not just a path that happens to exist.
@@ -156,12 +156,12 @@ def test_legal_ip_model_provenance_is_the_local_body_cache_not_a_url(tmp_path):
     # seed_full() caches a real CONTRIBUTING.md body -- legal_ip_model's
     # provenance must point at that cache file (a real, hashable envelope
     # under raw/), never the raw.githubusercontent.com URL, which never
-    # resolves on the cvi.derive.bundle side. ai_posture/promotion_ladder
+    # resolves on the porchlamp.derive.bundle side. ai_posture/promotion_ladder
     # are not asserted here: the governance block unconditionally supersedes
     # both with its own evidence-based values and provenance. legal_ip_model
     # is the one field the governance block does not touch (it reads bare
     # "legal_ip", not "legal_ip_model"), and it also drives the live v1
-    # scoring sweep (cvi.collect.governance module docstring).
+    # scoring sweep (porchlamp.collect.governance module docstring).
     seed_full(tmp_path)
     out = run(tmp_path)
     assert out["confidence"]["legal_ip_model"] == "derived"

@@ -21,10 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture
 def gather(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    monkeypatch.setenv("CVI_DATA_ROOT", str(tmp_path))
-    spec = importlib.util.spec_from_file_location("cvi_gather_collectors", ROOT / "scripts/gather.py")
+    monkeypatch.setenv("PORCHLAMP_DATA_ROOT", str(tmp_path))
+    spec = importlib.util.spec_from_file_location("porchlamp_gather_collectors", ROOT / "scripts/gather.py")
     module = importlib.util.module_from_spec(spec)
-    sys.modules["cvi_gather_collectors"] = module
+    sys.modules["porchlamp_gather_collectors"] = module
     spec.loader.exec_module(module)
     return module
 
@@ -59,7 +59,7 @@ def test_only_the_selected_collector_runs(gather: ModuleType, monkeypatch: pytes
     # real layer-1 run over the cached layer-0 corpus).
     gather._env("github_meta", "org__alpha", "github-graphql", {"default_branch": "main"})
     calls: list[tuple[str, str]] = []
-    import cvi.collect.github_graphql as prw
+    import porchlamp.collect.github_graphql as prw
 
     def fake_pr_window(raw_dir: Path, owner: str, name: str, *a, **k) -> str:
         calls.append((owner, name))

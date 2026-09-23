@@ -1,11 +1,11 @@
 # Item 6 — the `-` sort direction is inert — CONFIRMED; required follow-up
 
 Measured: `GET /leaderboard?sort=coverage&page_size=1000` and
-`sort=-coverage` return an **identical** 64-row order. `-rank`, `-cvi`,
+`sort=-coverage` return an **identical** 64-row order. `-rank`, `-porchlamp`,
 `-tier`, `-p_rigor` are all accepted (200) and all inert.
-`cvi.store.queries._build_order_by` hard-codes `DESC` on every branch.
+`porchlamp.store.queries._build_order_by` hard-codes `DESC` on every branch.
 
-Minimal `cvi/store/queries.py` change — the promoted level takes a
+Minimal `porchlamp/store/queries.py` change — the promoted level takes a
 direction, the D-TIE-1 tail after it stays fixed so the order stays total
 and offset paging stays deterministic:
 
@@ -13,7 +13,7 @@ and offset paging stays deterministic:
 def _build_order_by(sort, composite_expr, coverage_expr, tier_expr, *, descending=True):
     default = _order_by_sql(composite_expr, coverage_expr)      # unchanged tail
     direction = "DESC" if descending else "ASC"
-    if sort is None or sort in ("rank", "cvi"):
+    if sort is None or sort in ("rank", "porchlamp"):
         return default if descending else f"{composite_expr} ASC NULLS LAST, {default}"
     if sort == "coverage":
         return f"{coverage_expr} {direction} NULLS LAST, {default}"

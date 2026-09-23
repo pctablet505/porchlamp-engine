@@ -1,10 +1,10 @@
 """Package-level dependents via deps.dev, ecosyste.ms fallback.
 
 Subjects:
-* ``cvi.collect.depsdev`` -- the dependents collector (recorded-response
+* ``porchlamp.collect.depsdev`` -- the dependents collector (recorded-response
   oracles; the urllib boundary is mocked, no live network in tests), the
   repo -> package-name mapping, and the root-org dedup / same-org exclusion;
-* ``cvi.collect.ecosystemes`` -- the fallback parser;
+* ``porchlamp.collect.ecosystemes`` -- the fallback parser;
 * the append-only hooks at the end of ``scripts/gather.py``
   (``dependents`` status entry) and ``scripts/derive.py``
   (``dependents_count`` from the dependents envelope).
@@ -48,9 +48,9 @@ from pathlib import Path
 from types import ModuleType
 
 
-from cvi.collect import depsdev as dd
-from cvi.collect import ecosystemes as ees
-from cvi.collect.envelope import envelope_hash, read_envelope
+from porchlamp.collect import depsdev as dd
+from porchlamp.collect import ecosystemes as ees
+from porchlamp.collect.envelope import envelope_hash, read_envelope
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
@@ -73,8 +73,8 @@ def _load_script(modname: str, fname: str) -> ModuleType:
     return module
 
 
-gather = _load_script("cvi_gather_depsdev", "gather.py")
-derive = _load_script("cvi_derive_depsdev", "derive.py")
+gather = _load_script("porchlamp_gather_depsdev", "gather.py")
+derive = _load_script("porchlamp_derive_depsdev", "derive.py")
 
 
 def write_env(raw: Path, collector: str, key: str, data,

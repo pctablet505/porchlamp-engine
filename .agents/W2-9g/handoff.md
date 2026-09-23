@@ -6,9 +6,9 @@ Branch `W2-9f`, on top of `2a9cd91` (not rebased, per instruction — the lead c
 
 ```
 $ git diff --stat 2a9cd91
- cvi/core/openssf.py                 | 119 ++++++++++++++++++++++++++++++++
- cvi/derive/bundle.py                |  74 +++-----------------
- cvi/openssf.py                      |  68 ++++++------------
+ porchlamp/core/openssf.py                 | 119 ++++++++++++++++++++++++++++++++
+ porchlamp/derive/bundle.py                |  74 +++-----------------
+ porchlamp/openssf.py                      |  68 ++++++------------
  tests/derive/test_input_mappings.py | 133 ++++++++++++++++++++++++++++++++++++
  tests/test_openssf.py               |  27 ++++++++
  5 files changed, 308 insertions(+), 113 deletions(-)
@@ -41,35 +41,35 @@ Mutant 2 (delete `or not info.get("merged")`, against the fixed fixture):
 FAILED tests/derive/test_input_mappings.py::test_ttm_p90_hours_excludes_internal_unmerged_and_backwards_time_prs
 AssertionError: assert Measured(value=524.0, n=6, ...) == Measured(value=30.0, n=5, ...)
 ```
-Restored via `git show 2a9cd91:cvi/derive/bundle.py > cvi/derive/bundle.py`;
+Restored via `git show 2a9cd91:porchlamp/derive/bundle.py > porchlamp/derive/bundle.py`;
 `find . -name __pycache__ -exec rm -rf {} +` before and after each mutant;
-`md5sum cvi/derive/bundle.py` matched the pre-mutation digest
+`md5sum porchlamp/derive/bundle.py` matched the pre-mutation digest
 (`11628e975911f3e723db91bfff2fba58`) after every restore;
 `tests/derive/ tests/core/test_sample200_load.py` 39/39 green after each restore.
 
 ## Item 2 — Pike criticality: one function
 
-`cvi/core/openssf.py` (new, stdlib-only): `SIGNAL_FIELDS` (OpenSSFSignals field
+`porchlamp/core/openssf.py` (new, stdlib-only): `SIGNAL_FIELDS` (OpenSSFSignals field
 name -> alpha_i/T_i key), `OPENSSF_WEIGHTS`, `OPENSSF_THRESHOLDS`, and
 `calculate_pike_criticality(signals: Mapping[str, float], weights=None,
 thresholds=None) -> float`. Operates on a plain mapping keyed by the ten
 `OpenSSFSignals` field names (`dataclasses.asdict(OpenSSFSignals(...))`'s exact
 shape, and exactly the shape a derived document's `meta.openssf_signals` already
-has) rather than importing `cvi.models.OpenSSFSignals` — `cvi.core` may import
-nothing outside `cvi.core` + stdlib (docs/v2/04-ARCHITECTURE.md section 3;
-`tests/core/test_import_graph.py` covers `cvi.core.*` generally, non-recursive
+has) rather than importing `porchlamp.models.OpenSSFSignals` — `porchlamp.core` may import
+nothing outside `porchlamp.core` + stdlib (docs/v2/04-ARCHITECTURE.md section 3;
+`tests/core/test_import_graph.py` covers `porchlamp.core.*` generally, non-recursive
 glob, so this flat new file is included automatically).
 
-`cvi/openssf.py`: now a thin `OpenSSFSignals`-typed wrapper —
+`porchlamp/openssf.py`: now a thin `OpenSSFSignals`-typed wrapper —
 `calculate_pike_criticality(signals, weights=None, thresholds=None)` calls
-`dataclasses.asdict(signals)` then delegates to `cvi.core.openssf.
+`dataclasses.asdict(signals)` then delegates to `porchlamp.core.openssf.
 calculate_pike_criticality`. Re-exports `OPENSSF_WEIGHTS`/`OPENSSF_THRESHOLDS`
-from `cvi.core.openssf` (same values, same objects now — not a second copy).
+from `porchlamp.core.openssf` (same values, same objects now — not a second copy).
 `tests/test_openssf.py`'s three original tests pass unchanged (verified before
 any other change: `3 passed`).
 
-`cvi/derive/bundle.py`: `_resolve_openssf_criticality` now calls
-`openssf.calculate_pike_criticality(signals)` (`from cvi.core import
+`porchlamp/derive/bundle.py`: `_resolve_openssf_criticality` now calls
+`openssf.calculate_pike_criticality(signals)` (`from porchlamp.core import
 constants_v2, models, openssf`) and `openssf.SIGNAL_FIELDS` for its own
 ten-field presence/numeric-type validation (a different concern — validating a
 possibly-malformed v1 document shape before computing anything — kept in
@@ -83,11 +83,11 @@ Added `test_openssf_criticality_matches_core_openssf_directly`
 (`tests/derive/`), parametrized over three signal vectors (all-zero, the
 existing mid-sized-repo vector, every signal exactly at its
 `OPENSSF_THRESHOLDS` value) — asserts the bundle-derived value equals
-`cvi.core.openssf.calculate_pike_criticality(signals)` called directly. 3/3
+`porchlamp.core.openssf.calculate_pike_criticality(signals)` called directly. 3/3
 pass.
 
 **Checked, not assumed, the requested mutant** (change one weight in
-`cvi/core/openssf.py`, `contributor_count` 2.0 -> 3.0): it did **not** kill
+`porchlamp/core/openssf.py`, `contributor_count` 2.0 -> 3.0): it did **not** kill
 `tests/test_openssf.py`'s three existing tests, and it could **not** have
 killed the wiring test above either, for a structural reason found while
 verifying rather than reported as a surprise:
@@ -111,7 +111,7 @@ Fix (not just a report): added one independent-oracle test to **each** file —
 (`tests/derive/test_input_mappings.py`) and
 `test_at_threshold_default_weights_score_matches_hand_computation`
 (`tests/test_openssf.py`) — both asserting the all-at-threshold score against
-`8.5 / 10.5` computed by hand (no CVI call on that side at all): at every
+`8.5 / 10.5` computed by hand (no Porchlamp call on that side at all): at every
 signal exactly at its threshold, `saturation_denom == value` for every term,
 so every normalized `S_i*` is exactly `log(1+T)/log(1+T) = 1.0` regardless of
 `T`'s magnitude, and the score collapses to `sum(alpha_i) / sum(|alpha_i|) =
@@ -119,7 +119,7 @@ so every normalized `S_i*` is exactly `log(1+T)/log(1+T) = 1.0` regardless of
 weight's value, so a mutated weight changes the ratio and the assertion.
 
 Mutant re-run with both new tests in place (`contributor_count` weight 2.0 ->
-3.0 in `cvi/core/openssf.py`):
+3.0 in `porchlamp/core/openssf.py`):
 ```
 $ pytest tests/test_openssf.py
 FAILED tests/test_openssf.py::test_at_threshold_default_weights_score_matches_hand_computation
@@ -134,27 +134,27 @@ assert 0.8261 == 0.8095
 Both suites go red, as the acceptance criterion asked — via the two new
 independent-oracle tests, not via the parity/wiring tests (which are
 correctly insensitive to this class of defect by design, and always will be).
-Restored via the saved-good copy of `cvi/core/openssf.py`
+Restored via the saved-good copy of `porchlamp/core/openssf.py`
 (`md5sum` `0241a63abf10123b06d9ebe5defa2659` before and after); `tests/derive/
 tests/core/ tests/test_openssf.py` 277/277 green after restore.
 
 ### Note for W2-8 (per instruction, not acted on)
 
-`OPENSSF_WEIGHTS`/`OPENSSF_THRESHOLDS` (now canonical in `cvi/core/openssf.py`)
+`OPENSSF_WEIGHTS`/`OPENSSF_THRESHOLDS` (now canonical in `porchlamp/core/openssf.py`)
 are tunables, not frozen v2 ranking constants — they are not covered by
-`cvi.core.constants_v2.CONSTANTS_HASH`. I did not move them into
+`porchlamp.core.constants_v2.CONSTANTS_HASH`. I did not move them into
 `constants_v2.py`; W2-8 owns that file's freeze process right now and should
 decide whether/how these join it.
 
-**Residual, out-of-scope duplicate spotted, not touched:** `cvi/constants.py`
+**Residual, out-of-scope duplicate spotted, not touched:** `porchlamp/constants.py`
 still carries its own separate `OPENSSF_WEIGHTS`/`OPENSSF_THRESHOLDS` literal
 dicts (same values, different objects), imported directly by
-`tests/test_openssf.py` (`from cvi.constants import OPENSSF_THRESHOLDS,
-OPENSSF_WEIGHTS`). `cvi/openssf.py` no longer reads from `cvi.constants` (it
-reads `cvi.core.openssf` now), so this is dead weight rather than a live
+`tests/test_openssf.py` (`from porchlamp.constants import OPENSSF_THRESHOLDS,
+OPENSSF_WEIGHTS`). `porchlamp/openssf.py` no longer reads from `porchlamp.constants` (it
+reads `porchlamp.core.openssf` now), so this is dead weight rather than a live
 double-source-of-truth, but it is a second physical copy of the same ten-key
 dict a future edit could drift from the canonical one. Left as-is: touching
-`cvi/constants.py` was not asked for and is a distinct file/decision from
+`porchlamp/constants.py` was not asked for and is a distinct file/decision from
 `constants_v2.py`.
 
 ## Verification
@@ -172,9 +172,9 @@ EXIT=0
 parametrized wiring test, the two hand-computed independent-oracle tests.)
 
 ```
-$ ruff check cvi/derive/bundle.py cvi/core/openssf.py cvi/openssf.py tests/derive/test_input_mappings.py tests/test_openssf.py
+$ ruff check porchlamp/derive/bundle.py porchlamp/core/openssf.py porchlamp/openssf.py tests/derive/test_input_mappings.py tests/test_openssf.py
 All checks passed!
 
-$ ruff check cvi/ scripts/ tests/
+$ ruff check porchlamp/ scripts/ tests/
 Found 4 errors.   (all four in scripts/curate_dataset_llm.py — unowned, pre-existing, unchanged from W2-9/W2-9f)
 ```

@@ -190,7 +190,7 @@ function renderHoverCard(point) {
   return (
     `<div class="matrix-hover-card${posClass}" data-matrix-hover-card="true">` +
     `<p class="repo-name">${escapeHtml(point.owner)}/${escapeHtml(point.name)}</p>` +
-    `<p class="cell-numeric">CVI ${point.cvi != null ? point.cvi.toFixed(2) : copy.MISSING_VALUE} · ${renderCoverageBadge(point.coverage)} · ${renderTierCell(point.tier, point.tier_ceiling)}</p>` +
+    `<p class="cell-numeric">Score ${point.porchlamp != null ? point.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderCoverageBadge(point.coverage)} · ${renderTierCell(point.tier, point.tier_ceiling)}</p>` +
     `<p class="hint">${escapeHtml(copy.MATRIX_OPEN_HINT)}</p>` +
     `</div>`
   );

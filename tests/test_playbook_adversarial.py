@@ -2,21 +2,21 @@
 
 Adversarially challenges:
 1. Mathematical invariants across random metric combinations (fuzzing):
-   - delta_cvi >= 0.0
-   - potential_cvi <= 100.0
-   - potential_cvi >= current_cvi
+   - delta_porchlamp >= 0.0
+   - potential_porchlamp <= 100.0
+   - potential_porchlamp >= current_porchlamp
    - projected_tier in valid Tiers
    - projected_quadrant in valid Quadrants
-   - total_point_gain == sum(delta_cvi)
+   - total_point_gain == sum(delta_porchlamp)
 2. Black Hole recovery:
-   - Repo with GR_14 > 50% starts at CVI=0, Tier=D, Quadrant=Graveyard
-   - Recovers to positive CVI and lower friction (delta_friction <= 0)
+   - Repo with GR_14 > 50% starts at Porchlamp=0, Tier=D, Quadrant=Graveyard
+   - Recovers to positive Porchlamp and lower friction (delta_friction <= 0)
 3. Signed friction change:
    - For P1, P3, P5 bottlenecks: delta_friction <= 0.0
    - For P4 (Rigor): delta_friction == 0.0 strictly
    - For Stage 0 Black Hole: delta_friction <= 0.0
 4. Priority ordering:
-   - Actions strictly sorted descending by delta_cvi (a_i >= a_{i+1})
+   - Actions strictly sorted descending by delta_porchlamp (a_i >= a_{i+1})
    - Deterministic tie-breaking (delta_friction ascending, bottleneck alphabetical)
    - Sequential priority numbers 1..N
 5. Extreme boundary conditions:
@@ -32,7 +32,7 @@ import random
 from datetime import datetime, timedelta
 import pytest
 
-from cvi.models import (
+from porchlamp.models import (
     AIPosture,
     AuthorAssociation,
     Ecosystem,
@@ -44,7 +44,7 @@ from cvi.models import (
     RepoMeta,
     Tier,
 )
-from cvi.playbook import generate_maintainer_playbook
+from porchlamp.playbook import generate_maintainer_playbook
 
 NOW = datetime(2026, 9, 11, 12, 0, 0)
 VALID_TIERS = {t.value for t in Tier}
@@ -182,24 +182,24 @@ def test_mathematical_invariants_fuzzing() -> None:
                 rigor=rng.uniform(0.0, 100.0),
                 accessibility=rng.uniform(0.0, 100.0),
             )
-            cvi_val = rng.uniform(0.0, 100.0)
+            porchlamp_val = rng.uniform(0.0, 100.0)
             pb = generate_maintainer_playbook(
-                meta, prs, pillar_scores=p_scores, overall_cvi=cvi_val, now=NOW
+                meta, prs, pillar_scores=p_scores, overall_porchlamp=porchlamp_val, now=NOW
             )
         else:
             pb = generate_maintainer_playbook(meta, prs, now=NOW)
 
         # Verification of core mathematical invariants:
-        # 1. delta_cvi >= 0.0 for every action
+        # 1. delta_porchlamp >= 0.0 for every action
         for act in pb["actions"]:
-            assert act["delta_cvi"] >= 0.0, f"Negative delta_cvi {act['delta_cvi']} in iter {i}"
+            assert act["delta_porchlamp"] >= 0.0, f"Negative delta_porchlamp {act['delta_porchlamp']} in iter {i}"
 
-        # 2. potential_cvi <= 100.0
-        assert pb["potential_cvi"] <= 100.0, f"potential_cvi > 100.0 ({pb['potential_cvi']}) in iter {i}"
+        # 2. potential_porchlamp <= 100.0
+        assert pb["potential_porchlamp"] <= 100.0, f"potential_porchlamp > 100.0 ({pb['potential_porchlamp']}) in iter {i}"
 
-        # 3. potential_cvi >= current_cvi
-        assert pb["potential_cvi"] >= pb["current_cvi"], (
-            f"potential_cvi ({pb['potential_cvi']}) < current_cvi ({pb['current_cvi']}) in iter {i}"
+        # 3. potential_porchlamp >= current_porchlamp
+        assert pb["potential_porchlamp"] >= pb["current_porchlamp"], (
+            f"potential_porchlamp ({pb['potential_porchlamp']}) < current_porchlamp ({pb['current_porchlamp']}) in iter {i}"
         )
 
         # 4. Valid tiers
@@ -211,20 +211,20 @@ def test_mathematical_invariants_fuzzing() -> None:
         assert pb["current_quadrant"] in VALID_QUADRANTS, f"Invalid current_quadrant {pb['current_quadrant']}"
 
         # 6. Total point gain consistency
-        expected_gain = round(sum(a["delta_cvi"] for a in pb["actions"]), 2)
+        expected_gain = round(sum(a["delta_porchlamp"] for a in pb["actions"]), 2)
         assert pb["total_point_gain"] == pytest.approx(expected_gain, abs=0.01)
 
-        # 7. Potential CVI calculation consistency
-        expected_pot = min(100.0, round(pb["current_cvi"] + pb["total_point_gain"], 2))
-        assert pb["potential_cvi"] == pytest.approx(expected_pot, abs=0.01)
+        # 7. Potential Porchlamp calculation consistency
+        expected_pot = min(100.0, round(pb["current_porchlamp"] + pb["total_point_gain"], 2))
+        assert pb["potential_porchlamp"] == pytest.approx(expected_pot, abs=0.01)
 
 
 # ---------------------------------------------------------------------------
 # Test Suite 2: Black Hole Recovery Verification
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("ghost_count,clean_count", [(3, 1), (6, 2), (10, 0), (20, 5)])
-def test_black_hole_recovery_to_positive_cvi_and_lower_friction(ghost_count: int, clean_count: int) -> None:
-    """Verify repo with GR_14 > 50% recovers from 0.0 CVI to positive CVI and lower friction."""
+def test_black_hole_recovery_to_positive_porchlamp_and_lower_friction(ghost_count: int, clean_count: int) -> None:
+    """Verify repo with GR_14 > 50% recovers from 0.0 Porchlamp to positive Porchlamp and lower friction."""
     meta = _make_meta(
         elephant_factor=4,
         legal_ip_model=LegalIPModel.DCO,
@@ -264,8 +264,8 @@ def test_black_hole_recovery_to_positive_cvi_and_lower_friction(ghost_count: int
     prs = ghosts + clean
     pb = generate_maintainer_playbook(meta, prs, now=NOW)
 
-    # Must start disqualified in Black Hole (current_cvi == 0.0, Tier D, Graveyard)
-    assert pb["current_cvi"] == 0.0
+    # Must start disqualified in Black Hole (current_porchlamp == 0.0, Tier D, Graveyard)
+    assert pb["current_porchlamp"] == 0.0
     assert pb["current_tier"] == Tier.D.value
     assert pb["current_quadrant"] == Quadrant.GRAVEYARD.value
 
@@ -274,14 +274,14 @@ def test_black_hole_recovery_to_positive_cvi_and_lower_friction(ghost_count: int
     assert len(bh_actions) == 1, "Expected exactly 1 Black Hole remediation action"
     bh = bh_actions[0]
 
-    # delta_cvi must be positive and recover the un-gated CVI
-    assert bh["delta_cvi"] > 40.0
+    # delta_porchlamp must be positive and recover the un-gated Porchlamp
+    assert bh["delta_porchlamp"] > 40.0
     # delta_friction must be negative (friction reduction)
     assert bh["delta_friction"] < 0.0
 
-    # Overall playbook must project positive CVI, upgraded tier, and valid quadrant
-    assert pb["potential_cvi"] > 50.0
-    assert pb["potential_cvi"] <= 100.0
+    # Overall playbook must project positive Porchlamp, upgraded tier, and valid quadrant
+    assert pb["potential_porchlamp"] > 50.0
+    assert pb["potential_porchlamp"] <= 100.0
     assert pb["projected_tier"] in {Tier.S_PLUS.value, Tier.S.value, Tier.A.value, Tier.B.value}
     assert pb["projected_quadrant"] in {Quadrant.SWEET_SPOT.value, Quadrant.CRUCIBLE.value, Quadrant.NURSERY.value}
 
@@ -341,16 +341,16 @@ def test_black_hole_boundary_gr14() -> None:
     pb_60 = generate_maintainer_playbook(meta, ghosts_3 + clean_open_2, now=NOW)
     bh_60 = [a for a in pb_60["actions"] if "Stage 0 Black Hole" in a["bottleneck"]]
     assert len(bh_60) == 1
-    assert pb_60["current_cvi"] == 0.0
-    assert pb_60["potential_cvi"] > 0.0
+    assert pb_60["current_porchlamp"] == 0.0
+    assert pb_60["potential_porchlamp"] > 0.0
 
 
-def test_black_hole_with_passed_overall_cvi_not_double_counted() -> None:
-    """Regression: a black-hole repo whose *stored* overall_cvi is non-zero
+def test_black_hole_with_passed_overall_porchlamp_not_double_counted() -> None:
+    """Regression: a black-hole repo whose *stored* overall_porchlamp is non-zero
     (scored ungated) must still project from a 0 baseline. Passing a non-zero
-    overall_cvi while forcing Tier D / Graveyard used to keep the ungated CVI as
-    the baseline and then add the black-hole delta (== normal_cvi) on top, so
-    potential_cvi ~= 2x normal. The displayed CVI of a gated repo is 0, so the
+    overall_porchlamp while forcing Tier D / Graveyard used to keep the ungated Porchlamp as
+    the baseline and then add the black-hole delta (== normal_porchlamp) on top, so
+    potential_porchlamp ~= 2x normal. The displayed Porchlamp of a gated repo is 0, so the
     baseline must be 0 too."""
     meta = _make_meta()
     # 3 open ghosts + 2 clean-open = 60% ghost rate -> black hole (>50%).
@@ -368,18 +368,18 @@ def test_black_hole_with_passed_overall_cvi_not_double_counted() -> None:
         rigor=65.0, accessibility=60.0,
     )
     pb = generate_maintainer_playbook(
-        meta, ghosts + clean_open, pillar_scores=passed_ps, overall_cvi=70.0, now=NOW
+        meta, ghosts + clean_open, pillar_scores=passed_ps, overall_porchlamp=70.0, now=NOW
     )
     bh = [a for a in pb["actions"] if "Stage 0 Black Hole" in a["bottleneck"]]
     assert len(bh) == 1
     # Baseline must collapse to 0, not stay at the passed-in 70.
-    assert pb["current_cvi"] == 0.0
+    assert pb["current_porchlamp"] == 0.0
     assert pb["current_tier"] == Tier.D.value
     assert pb["current_quadrant"] == Quadrant.GRAVEYARD.value
     # No double count: recovery is 0 -> normal, so potential stays <= 100 and is
-    # not ~2x the ungated 70 (which the old code produced via 70 + normal_cvi).
-    assert pb["potential_cvi"] <= 100.0
-    assert pb["potential_cvi"] < 2 * 70.0
+    # not ~2x the ungated 70 (which the old code produced via 70 + normal_porchlamp).
+    assert pb["potential_porchlamp"] <= 100.0
+    assert pb["potential_porchlamp"] < 2 * 70.0
 
 
 # ---------------------------------------------------------------------------
@@ -451,8 +451,8 @@ def test_signed_friction_changes_across_all_pillars() -> None:
 # ---------------------------------------------------------------------------
 # Test Suite 4: Priority Ordering & Stability
 # ---------------------------------------------------------------------------
-def test_priority_ordering_strictly_descending_cvi() -> None:
-    """Verify that actions are sorted descending by delta_cvi with valid priorities."""
+def test_priority_ordering_strictly_descending_porchlamp() -> None:
+    """Verify that actions are sorted descending by delta_porchlamp with valid priorities."""
     meta = _make_meta(
         elephant_factor=1,
         legal_ip_model=LegalIPModel.CORP_CLA_UNILATERAL,
@@ -473,8 +473,8 @@ def test_priority_ordering_strictly_descending_cvi() -> None:
     # Priorities must be strictly 1, 2, ..., N
     assert [a["priority"] for a in actions] == list(range(1, len(actions) + 1))
 
-    # delta_cvi must be monotonically non-increasing (descending)
-    deltas = [a["delta_cvi"] for a in actions]
+    # delta_porchlamp must be monotonically non-increasing (descending)
+    deltas = [a["delta_porchlamp"] for a in actions]
     for i in range(len(deltas) - 1):
         assert deltas[i] >= deltas[i + 1], (
             f"Ordering violation: action {actions[i]['bottleneck']} ({deltas[i]}) < "
@@ -483,7 +483,7 @@ def test_priority_ordering_strictly_descending_cvi() -> None:
 
 
 def test_tie_breaking_order() -> None:
-    """Verify tie-breaking: when delta_cvi is equal, lower (more negative) delta_friction comes first."""
+    """Verify tie-breaking: when delta_porchlamp is equal, lower (more negative) delta_friction comes first."""
     meta = _make_meta(elephant_factor=2)
     lat = 12.0 * (2.0 ** 1.6)
     prs = [
@@ -495,8 +495,8 @@ def test_tie_breaking_order() -> None:
     actions = pb["actions"]
     assert len(actions) == 2
     a1, a2 = actions[0], actions[1]
-    assert a1["delta_cvi"] == pytest.approx(3.50, abs=0.01)
-    assert a2["delta_cvi"] == pytest.approx(3.50, abs=0.01)
+    assert a1["delta_porchlamp"] == pytest.approx(3.50, abs=0.01)
+    assert a2["delta_porchlamp"] == pytest.approx(3.50, abs=0.01)
 
     # TTFHR has delta_friction -7.00 vs EF -5.25 -> TTFHR must be Priority 1
     assert "TTFHR" in a1["bottleneck"]
@@ -559,8 +559,8 @@ def test_all_eight_bottlenecks_simultaneously() -> None:
 
     assert len(actions) == 8
     assert [a["priority"] for a in actions] == list(range(1, 9))
-    assert pb["potential_cvi"] <= 100.0
-    assert pb["potential_cvi"] > 0.0
+    assert pb["potential_porchlamp"] <= 100.0
+    assert pb["potential_porchlamp"] > 0.0
     assert pb["projected_tier"] in VALID_TIERS
     assert pb["projected_quadrant"] in VALID_QUADRANTS
 
@@ -577,12 +577,12 @@ def test_extreme_negative_and_out_of_bounds_inputs() -> None:
     )
     pb = generate_maintainer_playbook(meta, [], now=NOW)
 
-    assert pb["current_cvi"] >= 0.0
-    assert pb["potential_cvi"] <= 100.0
+    assert pb["current_porchlamp"] >= 0.0
+    assert pb["potential_porchlamp"] <= 100.0
     assert pb["projected_tier"] in VALID_TIERS
     assert pb["projected_quadrant"] in VALID_QUADRANTS
     for a in pb["actions"]:
-        assert a["delta_cvi"] >= 0.0
+        assert a["delta_porchlamp"] >= 0.0
         assert a["delta_friction"] <= 0.0
 
 
@@ -609,7 +609,7 @@ def test_performance_with_large_pr_population() -> None:
     elapsed = time.perf_counter() - t0
 
     assert elapsed < 1.0, f"Playbook generation took {elapsed:.4f}s (> 1.0s)"
-    assert pb["potential_cvi"] <= 100.0
+    assert pb["potential_porchlamp"] <= 100.0
     assert pb["projected_tier"] in VALID_TIERS
 
 
@@ -619,48 +619,48 @@ def test_performance_with_large_pr_population() -> None:
 def test_all_1000_benchmark_repositories_playbooks() -> None:
     """Verify invariants hold across all 1,000 seeded benchmark catalog repositories."""
     import json
-    from cvi.lakehouse import OperationalStore
+    from porchlamp.lakehouse import OperationalStore
     from tests.fixtures.synthetic_catalog import seed_benchmark_store
 
     store = OperationalStore()
     seed_benchmark_store(store, count=1000)
 
-    cur = store._conn.execute("SELECT owner, name, overall_cvi, rank_tier, matrix_quadrant, deep_dive_json FROM repositories")
+    cur = store._conn.execute("SELECT owner, name, overall_porchlamp, rank_tier, matrix_quadrant, deep_dive_json FROM repositories")
     rows = cur.fetchall()
     assert len(rows) == 1000
 
     black_hole_count = 0
-    for _owner, _name, overall_cvi, _rank_tier, _matrix_quadrant, dd_json in rows:
+    for _owner, _name, overall_porchlamp, _rank_tier, _matrix_quadrant, dd_json in rows:
         assert dd_json is not None
         dd = json.loads(dd_json)
         pb = dd.get("maintainer_playbook")
         assert pb is not None
 
         # Mathematical invariants
-        assert pb["potential_cvi"] <= 100.0
-        assert pb["potential_cvi"] >= pb["current_cvi"]
+        assert pb["potential_porchlamp"] <= 100.0
+        assert pb["potential_porchlamp"] >= pb["current_porchlamp"]
         assert pb["projected_tier"] in VALID_TIERS
         assert pb["projected_quadrant"] in VALID_QUADRANTS
         assert pb["current_tier"] in VALID_TIERS
         assert pb["current_quadrant"] in VALID_QUADRANTS
 
         # Priority ordering & signed friction
-        deltas = [a["delta_cvi"] for a in pb["actions"]]
+        deltas = [a["delta_porchlamp"] for a in pb["actions"]]
         assert deltas == sorted(deltas, reverse=True)
 
         for a in pb["actions"]:
-            assert a["delta_cvi"] >= 0.0
+            assert a["delta_porchlamp"] >= 0.0
             if "Pipeline Defenses" in a["bottleneck"]:
                 assert a["delta_friction"] == 0.0
             else:
                 assert a["delta_friction"] <= 0.0
 
-        if overall_cvi == 0.0:
+        if overall_porchlamp == 0.0:
             black_hole_count += 1
-            assert pb["current_cvi"] == 0.0
+            assert pb["current_porchlamp"] == 0.0
             assert pb["current_tier"] == Tier.D.value
             assert pb["current_quadrant"] == Quadrant.GRAVEYARD.value
-            assert pb["potential_cvi"] > 0.0
+            assert pb["potential_porchlamp"] > 0.0
             assert any("Stage 0 Black Hole" in a["bottleneck"] for a in pb["actions"])
 
     assert black_hole_count > 0, "Expected to test at least one Black Hole repository in the 1,000 benchmark catalog"
@@ -669,7 +669,7 @@ def test_all_1000_benchmark_repositories_playbooks() -> None:
 def test_landmark_repositories_playbook_recovery() -> None:
     """Verify specific landmark projects exhibit correct playbook projections."""
     import json
-    from cvi.lakehouse import OperationalStore
+    from porchlamp.lakehouse import OperationalStore
     from tests.fixtures.synthetic_catalog import seed_benchmark_store
 
     store = OperationalStore()
@@ -682,10 +682,10 @@ def test_landmark_repositories_playbook_recovery() -> None:
     row = cur.fetchone()
     assert row is not None
     pb_keras = json.loads(row[0])["maintainer_playbook"]
-    assert pb_keras["current_cvi"] == 0.0
+    assert pb_keras["current_porchlamp"] == 0.0
     assert pb_keras["current_tier"] == Tier.D.value
     assert pb_keras["current_quadrant"] == Quadrant.GRAVEYARD.value
-    assert pb_keras["potential_cvi"] > 60.0
+    assert pb_keras["potential_porchlamp"] > 60.0
     assert pb_keras["projected_tier"] in {Tier.A.value, Tier.B.value}
     assert pb_keras["projected_quadrant"] == Quadrant.SWEET_SPOT.value
     assert pb_keras["actions"][0]["bottleneck"] == "Stage 0 Black Hole (PR Ghost Rate > 50%)"
@@ -699,7 +699,7 @@ def test_landmark_repositories_playbook_recovery() -> None:
     pb_linux = json.loads(row[0])["maintainer_playbook"]
     assert pb_linux["current_quadrant"] == Quadrant.CRUCIBLE.value
     assert pb_linux["projected_quadrant"] == Quadrant.SWEET_SPOT.value
-    assert pb_linux["potential_cvi"] > pb_linux["current_cvi"]
+    assert pb_linux["potential_porchlamp"] > pb_linux["current_porchlamp"]
 
     # 3. Facebook/react (Sweet Spot Tier S+ capped at 100.0)
     cur = store._conn.execute(
@@ -708,8 +708,8 @@ def test_landmark_repositories_playbook_recovery() -> None:
     row = cur.fetchone()
     assert row is not None
     pb_react = json.loads(row[0])["maintainer_playbook"]
-    assert pb_react["current_cvi"] >= 90.0
-    assert pb_react["potential_cvi"] == 100.0
+    assert pb_react["current_porchlamp"] >= 90.0
+    assert pb_react["potential_porchlamp"] == 100.0
     assert pb_react["projected_tier"] == Tier.S_PLUS.value
 
 
@@ -717,7 +717,7 @@ def test_stage0_disqualified_non_black_hole() -> None:
     """Verify Stage 0 disqualification due to inactive maintenance (< 1 nonbot commit) is handled."""
     meta = _make_meta(active_nonbot_commits_180d=0)
     pb = generate_maintainer_playbook(meta, [], now=NOW)
-    assert pb["current_cvi"] == 0.0
+    assert pb["current_porchlamp"] == 0.0
     assert pb["current_tier"] == Tier.D.value
     assert pb["projected_tier"] == Tier.D.value
     assert not any("Stage 0 Black Hole" in a["bottleneck"] for a in pb["actions"])

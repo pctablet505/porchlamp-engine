@@ -5,7 +5,7 @@ Worktree: `/home/pctablet505/Projects/cvi-wt-W2-7`, branch `W2-7`, base `a0dd646
 ## Diffstat (files staged for this commit only)
 
 ```
- cvi/core/persona.py            | 333 +++++++++++++++++++++
+ porchlamp/core/persona.py            | 333 +++++++++++++++++++++
  tests/core/test_persona_v2.py  | 587 ++++++++++++++++++++++++++++++++++++++
  2 files changed, 920 insertions(+)
 ```
@@ -26,20 +26,20 @@ for.
 ## Files
 
 Owned and committed:
-- `cvi/core/persona.py` (new) — `persona_gates(record, bundle_inputs) ->
+- `porchlamp/core/persona.py` (new) — `persona_gates(record, bundle_inputs) ->
   dict[persona, reason]` (D-PERS-2) and
-  `persona_composite(record, persona) -> (cvi, coverage, tier)` (D-AGG-4).
-  `cvi/persona.py` (v1) is untouched.
+  `persona_composite(record, persona) -> (porchlamp, coverage, tier)` (D-AGG-4).
+  `porchlamp/persona.py` (v1) is untouched.
 - `tests/core/test_persona_v2.py` (new) — 38 tests: preset-vector checks,
   every gate's boundary on both sides, unmeasured handling per gate, the
   D-PERS-1 fail-before/contrast pair, persona-composite arithmetic for all
   five presets, the coverage-differs-by-weight oracle, the unrated/
   all-unmeasured/unknown-persona/incomplete-pillars edge cases, and the
-  balanced-persona over-correction guard against `cvi.core.aggregate`.
+  balanced-persona over-correction guard against `porchlamp.core.aggregate`.
 
-Not modified (R-10): `cvi/core/engine.py`, `cvi/core/aggregate.py`,
-`cvi/core/models.py`, `cvi/core/constants_v2.py`, `cvi/core/gates.py`,
-`cvi/core/params/**`, `cvi/persona.py`, `cvi/constants.py`.
+Not modified (R-10): `porchlamp/core/engine.py`, `porchlamp/core/aggregate.py`,
+`porchlamp/core/models.py`, `porchlamp/core/constants_v2.py`, `porchlamp/core/gates.py`,
+`porchlamp/core/params/**`, `porchlamp/persona.py`, `porchlamp/constants.py`.
 
 ## Design notes and the two structural conflicts
 
@@ -48,7 +48,7 @@ on `ai_posture == PROSCRIBED with ai_policy_evidence non-empty`, but the
 FeatureBundle v2 contract (04 section 3) has no field of that name — only
 `ai_posture`'s own `Measured`/`Unmeasured` status. Every `Measured` value
 already carries non-empty envelope provenance
-(`cvi.core.models.measured_problems` requires a non-empty `source`), so
+(`porchlamp.core.models.measured_problems` requires a non-empty `source`), so
 `persona.py` reads a `Measured("PROSCRIBED", ...)` as the "with evidence"
 case and `Unmeasured` (any reason) as "without evidence". This is a
 documented interpretation, not a guess: tested both sides
@@ -61,16 +61,16 @@ to populate it; until then this reading is the only one the data model
 supports.
 
 **One-definition-per-constant vs. the import-graph test.** The dispatch
-says to reuse `cvi/constants.py`'s `PERSONA_PRESETS` or
-`cvi/core/constants_v2.py`, never a second copy. Neither is directly usable:
+says to reuse `porchlamp/constants.py`'s `PERSONA_PRESETS` or
+`porchlamp/core/constants_v2.py`, never a second copy. Neither is directly usable:
 `constants_v2.py` has no `PERSONA_PRESETS` and W2-7 does not own that file
-(R-10); importing `cvi.constants` (v1) from `cvi/core/persona.py` fails
+(R-10); importing `porchlamp.constants` (v1) from `porchlamp/core/persona.py` fails
 `tests/core/test_import_graph.py::test_core_imports_nothing_outside_core_and_stdlib`,
-which scans every file under `cvi/core/*.py`. Resolution: the `"balanced"`
+which scans every file under `porchlamp/core/*.py`. Resolution: the `"balanced"`
 preset is read directly off `constants_v2.PILLAR_WEIGHTS` (already the one
 frozen definition, zero duplication); the other four preset vectors are
 transcribed once into `persona.py` and pinned byte-equal to
-`cvi.constants.PERSONA_PRESETS` by
+`porchlamp.constants.PERSONA_PRESETS` by
 `test_non_balanced_presets_match_v1_constants_exactly` — an equality test
 standing in for the cross-package import the architecture forbids, so the
 two cannot silently drift. **Ownership request → W2-8** (constants freeze):
@@ -80,14 +80,14 @@ copies.
 **`aggregate.composite_score_raw`/`composite_coverage` take no weights
 parameter.** They hard-code `constants_v2.PILLAR_WEIGHTS` (the balanced
 weights) with no injection point, so `persona_composite` cannot call them
-for a non-balanced persona. `cvi.core.aggregate.coverage_status`/
+for a non-balanced persona. `porchlamp.core.aggregate.coverage_status`/
 `tier_from_score`/`apply_ceiling` (weight-agnostic — they take a computed
 float, not the weights) *are* reused verbatim; only the two weighted-sum
 reductions themselves (`Sum(w_p*pillar_p)/Sum(w_p)`,
 `Sum(w_p*c_p)`) are necessarily written again, generalised over an
 arbitrary weight vector. `test_persona_composite_equals_aggregate_functions_when_balanced`
 proves the generalisation is not a second, drifting definition: it must
-agree with `cvi.core.aggregate`'s own functions bit-for-bit when the
+agree with `porchlamp.core.aggregate`'s own functions bit-for-bit when the
 persona is `"balanced"`, on both a rated and an unrated hand-built record.
 **Ownership request → W2-8:** give `composite_score_raw`/`composite_coverage`
 an optional `weights` parameter (default `constants_v2.PILLAR_WEIGHTS`) so
@@ -95,7 +95,7 @@ this module can call them instead of duplicating the reduction.
 
 **Gate thresholds and reason strings have no v2 home either**, so they are
 defined once in `persona.py` (3.0, 5, 0.40, 3.0, 60.0, 0.80,
-`REASON_AI_HARD_BAN` etc.) following the precedent `cvi/core/gates.py`'s own
+`REASON_AI_HARD_BAN` etc.) following the precedent `porchlamp/core/gates.py`'s own
 module docstring already sets for its not-yet-relocated thresholds.
 **Ownership request → W2-8** to relocate alongside the presets.
 
@@ -105,15 +105,15 @@ New module: no test exists before this packet, so the whole suite fails on
 `ModuleNotFoundError`. Reproduced by temporarily moving `persona.py` aside:
 
 ```
-$ mv cvi/core/persona.py /tmp/.../persona.py.bak
+$ mv porchlamp/core/persona.py /tmp/.../persona.py.bak
 $ python -B -m pytest tests/core/test_persona_v2.py -p no:cacheprovider -q
 ==================================== ERRORS ====================================
 ________________ ERROR collecting tests/core/test_persona_v2.py ________________
 ImportError while importing test module '.../tests/core/test_persona_v2.py'.
 Traceback:
   tests/core/test_persona_v2.py:29: in <module>
-    from cvi.core.persona import (
-E   ModuleNotFoundError: No module named 'cvi.core.persona'
+    from porchlamp.core.persona import (
+E   ModuleNotFoundError: No module named 'porchlamp.core.persona'
 =========================== short test summary info ============================
 ERROR tests/core/test_persona_v2.py
 !!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
@@ -124,12 +124,12 @@ Exit: 2
 
 **D-PERS-1's own fail-before is the still-live v1 defect, not a deleted
 module.** `test_v1_lakehouse_mutates_the_gated_row` exercises the real,
-unmodified `cvi.lakehouse.OperationalStore.leaderboard` (the same scenario
+unmodified `porchlamp.lakehouse.OperationalStore.leaderboard` (the same scenario
 `tests/test_lakehouse.py::test_leaderboard_persona_constraints` already
 covers) and asserts it overwrites `is_stage0_disqualified` to `1` and zeroes
-`overall_cvi`/`rank_tier` on the returned row for an `ai_assisted` view of a
+`overall_porchlamp`/`rank_tier` on the returned row for an `ai_assisted` view of a
 PROSCRIBED repo — this test **passes**, because the defect is real and
-untouched (`cvi/lakehouse.py` is out of scope for W2-7, R-10).
+untouched (`porchlamp/lakehouse.py` is out of scope for W2-7, R-10).
 `test_persona_gates_and_composite_do_not_mutate_record` builds the v2
 equivalent (a rated `ScoreRecord`, `composite=70.3`), calls
 `persona_gates`/`persona_composite` for the same conceptual case, and
@@ -164,9 +164,9 @@ names — the 4 pre-existing `scripts/curate_dataset_llm.py` findings are
 untouched, unrelated code awaiting W0-4's deletion, confirmed via
 `git status --short` showing no changes to that file):
 ```
-$ .venv/bin/ruff check cvi/core/persona.py tests/core/test_persona_v2.py
+$ .venv/bin/ruff check porchlamp/core/persona.py tests/core/test_persona_v2.py
 All checks passed!
-$ .venv/bin/ruff check cvi/ scripts/ tests/
+$ .venv/bin/ruff check porchlamp/ scripts/ tests/
 Found 4 errors.   # all in scripts/curate_dataset_llm.py, pre-existing, not owned by W2-7
 ```
 
@@ -209,13 +209,13 @@ career_capital:  gated=78 visible=0   of 78
 ```
 
 Zero rated records is expected and already tracked (lead log, W2-9
-dispatched): the base commit's `cvi/derive/bundle.py` v1 loader maps only 5
+dispatched): the base commit's `porchlamp/derive/bundle.py` v1 loader maps only 5
 of the 18 v2 input ids (`elephant_factor`, `legal_ip`, `promotion_ladder`,
 `ai_posture`, `downloads_monthly`); the packet's own text anticipates this
 ("gates read inputs, not the composite, so this works even if few or no
 records are 'rated'"), and "gate-eligible" above is computed from
 `record.params` being non-empty (stage-0 pass), not from
-`record.gate.eligible`, because `cvi.core.engine.score`'s stage-3 path
+`record.gate.eligible`, because `porchlamp.core.engine.score`'s stage-3 path
 deliberately overwrites `gate.eligible`/`gate.reason` with the
 `"unrated: insufficient_evidence"` outcome (a W2-5 lead-log ruling: "the
 unrated path must keep the stage-0 GateResult so gated and unrated stay
@@ -241,13 +241,13 @@ Per-persona readings, verified against the raw bundle inputs directly
 
 ## Ownership requests (to the lead / W2-8)
 
-1. Relocate all five persona preset weight vectors from `cvi/constants.py`
-   and this module's transcription into `cvi/core/constants_v2.py`; delete
+1. Relocate all five persona preset weight vectors from `porchlamp/constants.py`
+   and this module's transcription into `porchlamp/core/constants_v2.py`; delete
    both copies, keeping the equality test as a migration check until then.
 2. Relocate this module's gate thresholds/reason strings into
    `constants_v2.py` alongside the presets (same R-2 reasoning
-   `cvi/core/gates.py` already flags for its own thresholds).
-3. Give `cvi.core.aggregate.composite_score_raw`/`composite_coverage` an
+   `porchlamp/core/gates.py` already flags for its own thresholds).
+3. Give `porchlamp.core.aggregate.composite_score_raw`/`composite_coverage` an
    optional `weights` parameter (default `constants_v2.PILLAR_WEIGHTS`) so
    `persona_composite` can call them instead of a parallel one-line
    reduction.
@@ -258,7 +258,7 @@ Per-persona readings, verified against the raw bundle inputs directly
    non-degenerate `first_timer`/`career_capital` Measure reading on real
    data (already tracked; not a new finding).
 6. `persona_gates`/`persona_composites` are not yet wired onto
-   `ScoreRecord` by any caller (`cvi.core.engine.score` still returns them
+   `ScoreRecord` by any caller (`porchlamp.core.engine.score` still returns them
    empty, by design — W2-7 does not own `engine.py`, R-10). A future
    packet (W2-8 or a wiring packet) should call
    `persona_gates(record, bundle.inputs)` and
@@ -276,6 +276,6 @@ Per-persona readings, verified against the raw bundle inputs directly
   this base commit (see Measure); the gate logic itself is exercised by
   the unit tests only.
 - The 15 `BundleValidationError`s during `load_bundle` on `sample-200`
-  bundles were not diagnosed (out of scope, `cvi/derive/bundle.py` is not
+  bundles were not diagnosed (out of scope, `porchlamp/derive/bundle.py` is not
   owned by W2-7); they reduce the Measure denominator from 199 to 184 but
   do not affect any acceptance oracle.

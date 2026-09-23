@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 from _fixtures import base_document, load
 
-from cvi.core.models import BundleValidationError, PRWindowEvent
-from cvi.derive.bundle import dropped_event_count
+from porchlamp.core.models import BundleValidationError, PRWindowEvent
+from porchlamp.derive.bundle import dropped_event_count
 
 GHOST_EVENT = {
     "pr_number": 99,
@@ -70,7 +70,7 @@ def test_dropped_event_count_accessor_default_for_a_bundle_with_no_attribute() -
     from a native v2 document via ``validate_bundle``) never gets the
     backing attribute set at all; the accessor's ``getattr`` default
     covers that case too, not just the "zero dropped" case above."""
-    from cvi.core.models import Cohorts, FeatureBundle, PRWindow, RepoIdentity, feature_provenance_hash
+    from porchlamp.core.models import Cohorts, FeatureBundle, PRWindow, RepoIdentity, feature_provenance_hash
 
     bundle = FeatureBundle(
         schema_version=2,

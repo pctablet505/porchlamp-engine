@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.audit.ties`.
+"""Unit tests for :mod:`porchlamp.audit.ties`.
 
 A 6-row fixture with one exact composite tie (ccc/r3 and ddd/r4 both at
 69.25) pins the distinct-value count, the tie-group sizes, the size
@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from cvi.audit.ties import TieReport, TieGroup, format_tie_report, ties_report
+from porchlamp.audit.ties import TieReport, TieGroup, format_tie_report, ties_report
 
-# owner/name -> (pillars, canonical overall_cvi, rank_tier, gated)
+# owner/name -> (pillars, canonical overall_porchlamp, rank_tier, gated)
 FIXTURE = (
     ("aaa/r1", 68.0, "Tier A", 0),
     ("bbb/r2", 74.25, "Tier S", 0),
@@ -52,7 +52,7 @@ def _make_db(path: Path, rows: tuple[tuple, ...]) -> Path:
             leverage_score REAL,
             friction_score REAL,
             matrix_quadrant VARCHAR(30),
-            overall_cvi REAL,
+            overall_porchlamp REAL,
             rank_tier VARCHAR(30),
             is_stage0_disqualified BOOLEAN DEFAULT 0,
             disqualification_reason TEXT,
@@ -64,7 +64,7 @@ def _make_db(path: Path, rows: tuple[tuple, ...]) -> Path:
     for owner_name, overall, tier, gated in rows:
         owner, name = owner_name.split("/")
         con.execute(
-            "INSERT INTO repositories (owner, name, overall_cvi, rank_tier, "
+            "INSERT INTO repositories (owner, name, overall_porchlamp, rank_tier, "
             "is_stage0_disqualified) VALUES (?,?,?,?,?)",
             (owner, name, overall, tier, gated),
         )
@@ -75,7 +75,7 @@ def _make_db(path: Path, rows: tuple[tuple, ...]) -> Path:
 
 def test_exact_tie_statistics_on_six_row_fixture(tmp_path: Path) -> None:
     """Distinct composites and tie-group sizes are exact values, not shapes."""
-    path = _make_db(tmp_path / "cvi.db", FIXTURE)
+    path = _make_db(tmp_path / "porchlamp.db", FIXTURE)
     report = ties_report(path)
     assert isinstance(report, TieReport)
     assert report.rated == 6
@@ -93,7 +93,7 @@ def test_all_distinct_yields_zero_groups(tmp_path: Path) -> None:
         ("bbb/r2", 80.0, "Tier A", 0),
         ("ccc/r3", 70.0, "Tier B", 0),
     )
-    report = ties_report(_make_db(tmp_path / "cvi.db", rows))
+    report = ties_report(_make_db(tmp_path / "porchlamp.db", rows))
     assert report.distinct == 3
     assert report.groups == ()
     assert report.size_histogram() == {}
@@ -105,7 +105,7 @@ def test_gated_repos_do_not_enter_the_tie_counts(tmp_path: Path) -> None:
     """Over-correction guard: a gated row duplicating the tied composite
     leaves every reported number unchanged."""
     rows = FIXTURE + (("ggg/r7", 69.25, "Tier D", 1),)
-    path = _make_db(tmp_path / "cvi.db", rows)
+    path = _make_db(tmp_path / "porchlamp.db", rows)
     report = ties_report(path)
     assert report.rated == 6
     assert report.gated == 1
@@ -117,7 +117,7 @@ def test_gated_repos_do_not_enter_the_tie_counts(tmp_path: Path) -> None:
 def test_repeated_evaluation_is_deterministic(tmp_path: Path) -> None:
     """Over-correction guard: re-reading the untouched fixture yields the
     identical report."""
-    path = _make_db(tmp_path / "cvi.db", FIXTURE)
+    path = _make_db(tmp_path / "porchlamp.db", FIXTURE)
     first = ties_report(path)
     second = ties_report(path)
     assert first == second
@@ -132,7 +132,7 @@ def test_report_names_the_largest_group(tmp_path: Path) -> None:
         ("ddd/r4", 60.0, "Tier C", 0),
         ("eee/r5", 60.0, "Tier C", 0),
     )
-    report = ties_report(_make_db(tmp_path / "cvi.db", rows))
+    report = ties_report(_make_db(tmp_path / "porchlamp.db", rows))
     assert report.size_histogram() == {3: 1, 2: 1}
     assert report.largest_size() == 3
     text = format_tie_report(report)

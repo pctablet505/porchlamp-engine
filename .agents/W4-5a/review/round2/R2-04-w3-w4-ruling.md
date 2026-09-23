@@ -20,7 +20,7 @@ LEADERBOARD, which is its own small defect (N-2).
 U-15 is unconditional ("Every request has an error state… 'Loading…' is never a resting state") and
 the snapshot fetch is one of the four. `SNAPSHOT_ERROR` is reduced into state and then read by
 nothing: `syncFooter` (`app.js:139-156`) and the header chip branch only on `!snap`, so a 404/5xx/
-timeout on `/v1/cvi/snapshot` leaves the literal string "Loading…" in the header chip and the footer
+timeout on `/v1/porchlamp/snapshot` leaves the literal string "Loading…" in the header chip and the footer
 **forever**. That is precisely the fabricated state U-7 forbids, and it lands on the one strip that
 carries 06 §6 U-6's reproducibility claim (snapshot id, version, constants hash, manifest root —
 §8 item 6). It is also the failure mode most likely to appear first against W4-4's real API.

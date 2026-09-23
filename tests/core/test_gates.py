@@ -1,6 +1,6 @@
 """Acceptance tests for the v2 stage-0 gates (02 section 2, D-GATE-1..6, D-EVID-1).
 
-``cvi.core.gates`` evaluates every gate, records ``UNDECIDED`` gates by their
+``porchlamp.core.gates`` evaluates every gate, records ``UNDECIDED`` gates by their
 decision id, and reports the *first* failing gate in the design's fixed order
 as the reason.
 """
@@ -11,8 +11,8 @@ from typing import Any
 
 import pytest
 
-from cvi.core import constants
-from cvi.core.models import (
+from porchlamp.core import constants
+from porchlamp.core.models import (
     Cohorts,
     FeatureBundle,
     PRWindow,
@@ -106,7 +106,7 @@ def make_bundle(events: list[PRWindowEvent], **repo_overrides: Any) -> FeatureBu
 
 
 def healthy_evidence() -> Any:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     return gates.GateEvidence(
         manifest_found=True,
@@ -140,8 +140,8 @@ def recent_decided_external() -> PRWindowEvent:
 
 def test_v1_semantics_says_black_hole_when_denominator_is_open_only() -> None:
     """Demonstrate v1 GR_14 counts open external PRs only, so 2 stale open + 28 merged reads as a black hole."""
-    from cvi.models import AuthorAssociation, Ecosystem, RawPREvent, RepoMeta
-    from cvi.stage0 import apply_stage0
+    from porchlamp.models import AuthorAssociation, Ecosystem, RawPREvent, RepoMeta
+    from porchlamp.stage0 import apply_stage0
 
     events: list[RawPREvent] = [
         RawPREvent(
@@ -184,7 +184,7 @@ def test_v1_semantics_says_black_hole_when_denominator_is_open_only() -> None:
 
 def test_windowed_denominator_counts_merged_prs() -> None:
     """Oracle 3: 2 stale open + 28 merged in the window -> 2/30, not a black hole."""
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     events = [make_event(1000, 30), make_event(1001, 32)]
     events += [
@@ -199,7 +199,7 @@ def test_windowed_denominator_counts_merged_prs() -> None:
 
 def test_nine_external_prs_at_least_14_days_old_is_undecided_not_black_hole() -> None:
     """Oracle 1: n = 9 < 10 -> UNDECIDED, recorded, and never a black hole."""
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     events = [make_event(10 + i, 30) for i in range(9)] + [recent_decided_external()]
     result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
@@ -211,7 +211,7 @@ def test_nine_external_prs_at_least_14_days_old_is_undecided_not_black_hole() ->
 def test_ten_prs_six_unanswered_is_black_hole() -> None:
     """Oracle 2: 6 of 10 external PRs opened in the window lack a substantive
     response within 14 days -> 0.60 > 0.50, gated black_hole."""
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     events = [make_event(10 + i, 30) for i in range(6)]
     events += [
@@ -225,7 +225,7 @@ def test_ten_prs_six_unanswered_is_black_hole() -> None:
 
 def test_share_exactly_half_is_not_black_hole() -> None:
     """Boundary: 5 of 10 unanswered is exactly 0.50, which the design allows."""
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     events = [make_event(10 + i, 30) for i in range(5)]
     events += [make_event(20 + i, 30, first_human_review_days_after=1) for i in range(5)]
@@ -239,7 +239,7 @@ def test_share_exactly_half_is_not_black_hole() -> None:
 def test_prs_younger_than_14_days_do_not_enter_the_population() -> None:
     """9 stale + 4 recent external PRs: the recent ones are not >= 14 d old, so
     n stays 9 and the gate is UNDECIDED rather than a black hole."""
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     events = [make_event(10 + i, 30) for i in range(9)]
     events += [make_event(50 + i, 3, first_human_review_days_after=1) for i in range(4)]
@@ -252,7 +252,7 @@ def test_prs_younger_than_14_days_do_not_enter_the_population() -> None:
 
 def test_internal_prs_do_not_enter_the_black_hole_population() -> None:
     """The gate measures external PRs only: 12 stale internal PRs leave n = 0."""
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     events = [make_event(10 + i, 30, is_external=False) for i in range(12)]
     events += [recent_decided_external()]
@@ -264,7 +264,7 @@ def test_internal_prs_do_not_enter_the_black_hole_population() -> None:
 
 def test_review_after_14_days_does_not_count_as_a_response() -> None:
     """A response at day 15 is outside the 14-day deadline: 10 of 10 unanswered."""
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     events = [make_event(10 + i, 30, first_human_review_days_after=15) for i in range(10)]
     result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
@@ -278,7 +278,7 @@ def test_review_after_14_days_does_not_count_as_a_response() -> None:
 
 
 def test_non_software_when_no_manifest_at_depth_two() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     evidence = healthy_evidence()
     result = gates.evaluate_gates(
@@ -299,7 +299,7 @@ def test_non_software_when_no_manifest_at_depth_two() -> None:
 
 
 def test_non_software_undecided_when_tree_unknown() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     evidence = healthy_evidence()
     result = gates.evaluate_gates(
@@ -320,7 +320,7 @@ def test_non_software_undecided_when_tree_unknown() -> None:
 
 
 def test_curated_anchor_bypasses_the_manifest_gate() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     evidence = healthy_evidence()
     result = gates.evaluate_gates(
@@ -341,7 +341,7 @@ def test_curated_anchor_bypasses_the_manifest_gate() -> None:
 
 
 def test_archived_repo_is_gated() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(make_bundle(healthy_events(), archived=True), healthy_evidence(), NOW)
     assert result.eligible is False
@@ -349,7 +349,7 @@ def test_archived_repo_is_gated() -> None:
 
 
 def test_mirror_repo_is_gated() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events(), mirror_url="https://github.com/upstream/alpha.git"),
@@ -361,7 +361,7 @@ def test_mirror_repo_is_gated() -> None:
 
 
 def test_fork_is_gated_when_parent_is_in_the_universe() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events(), fork=True),
@@ -380,7 +380,7 @@ def test_fork_is_gated_when_parent_is_in_the_universe() -> None:
 
 
 def test_fork_is_allowed_when_parent_is_absent_from_the_universe() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events(), fork=True),
@@ -400,7 +400,7 @@ def test_fork_is_allowed_when_parent_is_absent_from_the_universe() -> None:
 
 
 def test_fork_is_undecided_when_parent_membership_is_unknown() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events(), fork=True),
@@ -413,7 +413,7 @@ def test_fork_is_undecided_when_parent_membership_is_unknown() -> None:
 
 
 def test_unlicensed_when_spdx_undetermined_and_no_license_file() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events(), license_spdx="NOASSERTION"),
@@ -432,7 +432,7 @@ def test_unlicensed_when_spdx_undetermined_and_no_license_file() -> None:
 
 
 def test_unlicensed_when_no_spdx_recorded_and_no_license_file() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events(), license_spdx=None),
@@ -451,7 +451,7 @@ def test_unlicensed_when_no_spdx_recorded_and_no_license_file() -> None:
 
 
 def test_undetermined_spdx_with_a_license_file_passes() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events(), license_spdx="OTHER"),
@@ -471,7 +471,7 @@ def test_undetermined_spdx_with_a_license_file_passes() -> None:
 
 
 def test_license_file_unknown_is_undecided_not_a_failure() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events(), license_spdx="NOASSERTION"),
@@ -484,7 +484,7 @@ def test_license_file_unknown_is_undecided_not_a_failure() -> None:
 
 
 def test_recorded_non_osi_spdx_id_is_gated_unlicensed() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events(), license_spdx="BUSL-1.1"),
@@ -496,7 +496,7 @@ def test_recorded_non_osi_spdx_id_is_gated_unlicensed() -> None:
 
 
 def test_osi_approved_spdx_id_passes() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events(), license_spdx="Apache-2.0"),
@@ -509,7 +509,7 @@ def test_osi_approved_spdx_id_passes() -> None:
 
 
 def test_stale_when_zero_non_bot_vitality_commits() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events()),
@@ -528,7 +528,7 @@ def test_stale_when_zero_non_bot_vitality_commits() -> None:
 
 
 def test_vitality_unknown_is_undecided_not_stale() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle(healthy_events()),
@@ -553,7 +553,7 @@ def test_vitality_unknown_is_undecided_not_stale() -> None:
 
 
 def test_off_platform_marker_routes_the_repo() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle([]),
@@ -573,7 +573,7 @@ def test_off_platform_marker_routes_the_repo() -> None:
 
 
 def test_no_external_workflow_is_unrated() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle([]),
@@ -593,7 +593,7 @@ def test_no_external_workflow_is_unrated() -> None:
 
 
 def test_internal_decided_prs_do_not_count_as_an_external_workflow() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle([make_event(1, 30, is_external=False, merged_days_after=2, closed_days_after=2)]),
@@ -605,7 +605,7 @@ def test_internal_decided_prs_do_not_count_as_an_external_workflow() -> None:
 
 
 def test_off_platform_marker_unknown_is_undecided() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle([]),
@@ -627,7 +627,7 @@ def test_off_platform_marker_unknown_is_undecided() -> None:
 
 
 def test_a_recent_decided_external_pr_satisfies_the_workflow_gate() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(
         make_bundle([make_event(1, 3, merged_days_after=1, closed_days_after=1)]),
@@ -650,7 +650,7 @@ def test_a_recent_decided_external_pr_satisfies_the_workflow_gate() -> None:
 def test_all_gates_are_evaluated_and_first_failure_wins() -> None:
     """Archived (gate 2) plus 9 stale PRs (gate 5 UNDECIDED): the reason is the
     first failure, but gate 5 is still evaluated and recorded."""
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     events = [make_event(10 + i, 30) for i in range(9)]
     result = gates.evaluate_gates(make_bundle(events, archived=True), healthy_evidence(), NOW)
@@ -662,7 +662,7 @@ def test_all_gates_are_evaluated_and_first_failure_wins() -> None:
 def test_healthy_repo_passes_every_gate() -> None:
     """Over-correction guard: the correct path is unchanged — a repo that
     passes every gate comes back fully eligible with nothing recorded."""
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evaluate_gates(make_bundle(healthy_events()), healthy_evidence(), NOW)
     assert result.eligible is True
@@ -672,7 +672,7 @@ def test_healthy_repo_passes_every_gate() -> None:
 
 
 def test_naive_reference_time_is_rejected() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     with pytest.raises(ValueError):
         gates.evaluate_gates(
@@ -681,7 +681,7 @@ def test_naive_reference_time_is_rejected() -> None:
 
 
 def test_gate_evidence_rejects_invalid_fields() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     with pytest.raises(ValueError):
         gates.GateEvidence(manifest_found="yes")  # type: ignore[arg-type]
@@ -698,7 +698,7 @@ def test_gate_evidence_rejects_invalid_fields() -> None:
 
 
 def test_evidence_gate_rates_at_the_threshold() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evidence_sufficiency(0.60)
     assert result.eligible is True
@@ -708,7 +708,7 @@ def test_evidence_gate_rates_at_the_threshold() -> None:
 
 
 def test_evidence_gate_unrates_below_the_threshold() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     result = gates.evidence_sufficiency(0.599)
     assert result.eligible is False
@@ -718,7 +718,7 @@ def test_evidence_gate_unrates_below_the_threshold() -> None:
 
 
 def test_evidence_gate_rejects_out_of_range_coverage() -> None:
-    from cvi.core import gates
+    from porchlamp.core import gates
 
     with pytest.raises(ValueError):
         gates.evidence_sufficiency(-0.1)

@@ -4,7 +4,7 @@ answers every request the way the API does -- checked request by request by
 -- and that check catches a broken adapter (its mutants).
 
 An absent Node.js interpreter fails this module, as it fails
-``tests/test_ui_node_suite.py`` (H4), unless ``CVI_ALLOW_MISSING_NODE=1``.
+``tests/test_ui_node_suite.py`` (H4), unless ``PORCHLAMP_ALLOW_MISSING_NODE=1``.
 """
 from __future__ import annotations
 
@@ -49,9 +49,9 @@ _FIXTURE_CATCHES = (
 @pytest.fixture(scope="module")
 def site(tmp_path_factory):
     if verify_static_export.find_node() is None:
-        if os.environ.get("CVI_ALLOW_MISSING_NODE") == "1":
-            pytest.skip("no Node.js interpreter found (CVI_ALLOW_MISSING_NODE=1)")
-        pytest.fail("no Node.js interpreter found on PATH, in CVI_NODE_BIN, or in ~/.local/opt/node-*")
+        if os.environ.get("PORCHLAMP_ALLOW_MISSING_NODE") == "1":
+            pytest.skip("no Node.js interpreter found (PORCHLAMP_ALLOW_MISSING_NODE=1)")
+        pytest.fail("no Node.js interpreter found on PATH, in PORCHLAMP_NODE_BIN, or in ~/.local/opt/node-*")
     tmp = tmp_path_factory.mktemp("static")
     db = tmp / "db.sqlite"
     conn = fresh_db(db)

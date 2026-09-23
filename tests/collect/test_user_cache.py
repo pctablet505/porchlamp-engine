@@ -1,4 +1,4 @@
-"""D-COL-5 user cache (``cvi.collect.user_cache``): TTL, no look-ahead,
+"""D-COL-5 user cache (``porchlamp.collect.user_cache``): TTL, no look-ahead,
 failures never cached, file names never built from unsafe logins."""
 
 from __future__ import annotations
@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
-from cvi.collect.user_cache import USER_CACHE_TTL_DAYS, UserCache
+from porchlamp.collect.user_cache import USER_CACHE_TTL_DAYS, UserCache
 
 NOW = datetime(2026, 9, 22, 12, 0, tzinfo=timezone.utc)
 MEASURED = {"account_created_at": "2015-01-01T00:00:00Z", "public_event_count": 40,

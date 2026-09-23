@@ -6,12 +6,12 @@ in `~/Projects/cvi-wt-W1-2f`. Commit: `ea5590b`.
 
 `.agents/W1-2/handoff.md` (asked to be read first) does not exist anywhere
 in history (`git log --all -- ".agents/W1-2*"` is empty) -- W1-2's contract
-was read instead from `cvi/collect/depsdev.py`'s module docstring and
+was read instead from `porchlamp/collect/depsdev.py`'s module docstring and
 `tests/collect/test_depsdev.py`, which was sufficient.
 
 ## What changed
 
-### `cvi/collect/depsdev.py`
+### `porchlamp/collect/depsdev.py`
 - `SYSTEM_FOR_ECOSYSTEM` gains `"go": "go"`, `"maven": "maven"` (deps.dev's
   canonical ids are uppercase `GO`/`MAVEN`; kept lowercase to match this
   file's existing, live-validated `pypi`/`npm`/`crates.io` convention --
@@ -24,7 +24,7 @@ was read instead from `cvi/collect/depsdev.py`'s module docstring and
     only option this packet can offer -- the `tree` envelope
     `scripts/gather.py` writes carries `{"paths": [...], "truncated": ...}`
     only, confirmed by reading its collector at `scripts/gather.py`'s
-    `tree` REST hook and `cvi/collect/repo_object.py`'s tree-envelope
+    `tree` REST hook and `porchlamp/collect/repo_object.py`'s tree-envelope
     reader: no blob contents, ever, so no `go.mod` fetch is added here).
   - maven: `maven_coordinates` (a `(groupId, artifactId)` tuple) if given,
     else `None` -- no name-derived default exists for Maven.
@@ -54,12 +54,12 @@ was read instead from `cvi/collect/depsdev.py`'s module docstring and
   pom.xml yet) stays `"skip"` -- identical to pre-W1-2f behaviour, zero
   calls, no envelope.
 
-### `cvi/collect/ecosystemes.py`
+### `porchlamp/collect/ecosystemes.py`
 - `package_url` percent-encodes `package` (see above); no behaviour change
   for existing plain names, `REGISTRY_FOR_ECOSYSTEM`'s go/maven entries
   (already present, unused before this packet) are now reachable.
 
-### `cvi/derive/bundle.py`
+### `porchlamp/derive/bundle.py`
 - `_resolve_dependents_deduped` only (as scoped): reads `ctx.meta.get(
   "ecosystem")` (already present in the same `meta` mapping `_load_v1`
   itself reads `ecosystem` from -- no `_V1Ctx` field added).
@@ -109,7 +109,7 @@ was read instead from `cvi/collect/depsdev.py`'s module docstring and
 ## Rebases
 
 Main advanced twice while this packet ran (background swarm): `097142a`
-(dispatch base) -> `f7eeaab` (W2-8c phase 1, `CVI_DATA_ROOT`; unrelated to
+(dispatch base) -> `f7eeaab` (W2-8c phase 1, `PORCHLAMP_DATA_ROOT`; unrelated to
 this packet's files) -> `bd0cec4e` (an unrelated anchors-fixture SKIP fix).
 Rebased onto both in turn; only the first produced a conflict, in
 `tests/collect/test_depsdev.py` (another packet added the `block_live_
@@ -158,8 +158,8 @@ Flagged as a background follow-up task (spawn_task id `task_b25c02c8`,
 "Regenerate snapshot_50 fixture after W1-2f dependents fix") rather than
 fixed in this diff.
 
-Ruff: `ruff check cvi/collect/depsdev.py cvi/collect/ecosystemes.py
-cvi/derive/bundle.py tests/collect/test_depsdev.py tests/derive/
+Ruff: `ruff check porchlamp/collect/depsdev.py porchlamp/collect/ecosystemes.py
+porchlamp/derive/bundle.py tests/collect/test_depsdev.py tests/derive/
 test_input_mappings.py` -> `All checks passed!`
 
 ## Fail-before
@@ -188,21 +188,21 @@ fix, since the mutated lines don't exist at `<base>`):
 
 ## Mutants (each red, pasted, restored via `git show HEAD:<path> > <path>`)
 
-1. **Swap `not_applicable`/`third_party_gap`** -- `cvi/derive/bundle.py`
+1. **Swap `not_applicable`/`third_party_gap`** -- `porchlamp/derive/bundle.py`
    line 656, `reason="not_applicable"` -> `reason="third_party_gap"` in the
    systems branch.
    ```
    FAILED tests/derive/test_input_mappings.py::test_dependents_deduped_systems_is_not_applicable
    1 failed, 37 passed in 0.09s
    ```
-2. **Module path built from name only** -- `cvi/collect/depsdev.py` line
+2. **Module path built from name only** -- `porchlamp/collect/depsdev.py` line
    197, `f"github.com/{owner}/{name}"` -> `f"github.com/{name}"`.
    ```
    FAILED tests/collect/test_depsdev.py::test_package_name_for_repo_go_default_module_path
    FAILED tests/collect/test_depsdev.py::test_collect_dependents_go_default_module_path_writes_envelope
    2 failed, 43 passed in 0.09s
    ```
-3. **groupId taken from artifactId** -- `cvi/collect/depsdev.py` line 159,
+3. **groupId taken from artifactId** -- `porchlamp/collect/depsdev.py` line 159,
    `resolved_group_id = group_id or parent_group_id` -> `resolved_group_id
    = artifact_id or parent_group_id`.
    ```
@@ -223,7 +223,7 @@ test_input_mappings.py` re-verified green after each restore (83 passed).
 `gh api rate_limit` before: `core {"limit":5000,"used":0,"remaining":5000}`.
 After: `core {"limit":5000,"used":0,"remaining":5000}` -- unchanged, because
 this collector never calls `gh`/the GitHub REST or GraphQL API; it hits
-deps.dev/ecosyste.ms directly over `urllib`. `CVI_DATA_ROOT` (the W2-8c
+deps.dev/ecosyste.ms directly over `urllib`. `PORCHLAMP_DATA_ROOT` (the W2-8c
 override the packet asked me to check for) landed on main (`f9a0116`) as a
 `scripts/gather.py`/`scripts/derive.py` CLI switch, but `collect_dependents`
 already takes an explicit `raw_dir` argument, so the live check called it
@@ -264,7 +264,7 @@ Three repos from `tests/fixtures/snapshot_50/manifest.json` in
   synthetic pom.xml bodies only -- never exercised against a real fetched
   `pom.xml`, because this packet adds no fetch (by design: "do not add a
   new network call blindly"). A later packet must add exactly one
-  raw-content GET per maven repo (the same shape as `cvi.collect.
+  raw-content GET per maven repo (the same shape as `porchlamp.collect.
   repo_object._fetch_body`: `raw.githubusercontent.com/<owner>/<name>/
   <default_branch>/pom.xml`), parse it with `parse_maven_coordinates`, and
   pass the result as `maven_coordinates` to `package_name_for_repo` /

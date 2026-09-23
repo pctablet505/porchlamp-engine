@@ -3,9 +3,9 @@
 Per `docs/v2/06-UX-DESIGN.md` section 3 F: the published
 methodology page is "rendered from the frozen constants module so it
 cannot drift from the code." This script is the one place that turns
-:func:`cvi.audit.methodology_history.methodology_with_history` (which
-itself is built only from ``cvi.core.constants``, the ``cvi.core.params``
-registry, ``cvi.verify.detectors``, the two audit release-bar modules, and
+:func:`porchlamp.audit.methodology_history.methodology_with_history` (which
+itself is built only from ``porchlamp.core.constants``, the ``porchlamp.core.params``
+registry, ``porchlamp.verify.detectors``, the two audit release-bar modules, and
 ``docs/v2/rfcs/CHANGELOG.md``) into the committed markdown file.
 
 ``tests/test_render_methodology.py`` re-renders and diffs against the
@@ -26,12 +26,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from cvi.audit.methodology_history import methodology_with_history
+from porchlamp.audit.methodology_history import methodology_with_history
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CHANGELOG = REPO_ROOT / "docs" / "v2" / "rfcs" / "CHANGELOG.md"
 DEFAULT_OUT = REPO_ROOT / "docs" / "METHODOLOGY-v2.md"
-REPRODUCE_COMMAND_TEMPLATE = "cvi reproduce <snapshot dir>"
+REPRODUCE_COMMAND_TEMPLATE = "porchlamp reproduce <snapshot dir>"
 
 
 def _cell(text: Any) -> str:
@@ -252,23 +252,23 @@ def _render_rfc_log(document: dict[str, Any]) -> str:
 
 def render_markdown(document: dict[str, Any]) -> str:
     """The full ``docs/METHODOLOGY-v2.md`` content for ``document`` (as
-    returned by :func:`cvi.audit.methodology_history.methodology_with_history`
-    or, for the sections that need it, :func:`cvi.core.methodology.methodology_document`).
+    returned by :func:`porchlamp.audit.methodology_history.methodology_with_history`
+    or, for the sections that need it, :func:`porchlamp.core.methodology.methodology_document`).
     Pure function of ``document``: the same document always renders to the
     same markdown, byte for byte."""
     return f"""<!-- GENERATED FILE. Do not hand-edit.
 Regenerate with: PYTHONPATH=$PWD .venv/bin/python scripts/render_methodology.py
-Source: cvi.audit.methodology_history.methodology_with_history (`docs/v2/06-UX-DESIGN.md` section 3 F).
+Source: porchlamp.audit.methodology_history.methodology_with_history (`docs/v2/06-UX-DESIGN.md` section 3 F).
 tests/test_render_methodology.py fails if this file drifts from a fresh render. -->
 
-# CVI v2 Methodology
+# Porchlamp v2 Methodology
 
 **Benchmark version:** `{document["benchmark_version"]}`
 **Schema version:** `{document["schema_version"]}`
 **Constants hash:** `{document["constants_hash"]}`
 
-Every number below is read directly from `cvi.core.constants` and the
-`cvi.core.params` registry (or, for detectors and the two audit release
+Every number below is read directly from `porchlamp.core.constants` and the
+`porchlamp.core.params` registry (or, for detectors and the two audit release
 bars, their own frozen module) -- this page cannot drift from the code
 that scores a repository, because it is rendered from the same values.
 
@@ -323,7 +323,7 @@ still goes through the RFC procedure below.
 
 ## Changing a constant: the RFC procedure
 
-Every constant `cvi.core.constants` defines is frozen (D-VER-1/2): a
+Every constant `porchlamp.core.constants` defines is frozen (D-VER-1/2): a
 change requires an RFC filed under `docs/v2/rfcs/`, a re-pinned
 `CONSTANTS_HASH`, a `BENCHMARK_VERSION` bump and a named, independent
 reviewer. The full procedure, its two documented enforcement limits, and

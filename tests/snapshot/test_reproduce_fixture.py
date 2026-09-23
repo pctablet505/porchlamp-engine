@@ -1,6 +1,6 @@
 """Acceptance tests: reproduce ``tests/fixtures/snapshot_50`` in CI.
 
-Scoring the frozen fixture through ``cvi.snapshot.store_cmd.
+Scoring the frozen fixture through ``porchlamp.snapshot.store_cmd.
 score_snapshot_with_detectors`` (the reproduce pin reflects the real pipeline,
 detectors included -- ``previous=None`` here, a fixture has no previous snapshot,
 but the single-snapshot detectors still fire: ``closed_unread`` genuinely finds 12
@@ -51,7 +51,7 @@ def test_fixture_is_present() -> None:
 def test_reproduce_matches_expected_hash() -> None:
     """The permanent CI gate: score the frozen fixture through the real
     pipeline (detectors included -- module docstring), compare hashes."""
-    from cvi.snapshot.store_cmd import score_snapshot_with_detectors
+    from porchlamp.snapshot.store_cmd import score_snapshot_with_detectors
 
     build_script = _load_build_script()
     frozen = build_script.load_frozen_fixture(FIXTURE_DIR)
@@ -102,7 +102,7 @@ def test_fixture_rebuild_is_byte_identical(tmp_path: Path) -> None:
 def test_a_constant_change_makes_the_gate_fail() -> None:
     """Manual procedure:
 
-    1. Edit ``cvi/core/constants.py``: change ``PILLAR_WEIGHTS["governance"]``
+    1. Edit ``porchlamp/core/constants.py``: change ``PILLAR_WEIGHTS["governance"]``
        from 0.20 to 0.21 (and rebalance another pillar by -0.01 so the
        vector still sums to 1.0, e.g. ``"rigor": 0.14``).
     2. Clear ``__pycache__``, run this file's
@@ -112,6 +112,6 @@ def test_a_constant_change_makes_the_gate_fail() -> None:
        differs from ``expected.json`` -- the test fails with an assertion
        diff naming the two hashes.
     3. Restore byte-identical:
-       ``git checkout -- cvi/core/constants.py``,
+       ``git checkout -- porchlamp/core/constants.py``,
        then ``git diff --stat`` must be empty.
     """

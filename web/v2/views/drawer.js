@@ -8,7 +8,7 @@
 // attribute) so "the reason sentence and nothing else above the fold" (06
 // §3 C) still holds visually while the data is one click away instead of
 // simply absent. Section 2 (composite) is OMITTED for a gated repo — no
-// CVI/tier/quadrant was ever computed (`RepoDetailResponse.cvi` etc. are
+// score/tier/quadrant was ever computed (`RepoDetailResponse.porchlamp` etc. are
 // `None`); see `copy.js`'s comment above `DRAWER_SECTION_COMPOSITE`.
 // Section 6 (playbook) is also omitted for gated —
 // an action-recommendation stub has nothing to recommend for a repository
@@ -36,7 +36,7 @@ function escapeHtml(value) {
 
 /**
  * Locates a repo's record. The drawer's ONLY source is
- * `state.repoDetailByKey` — the result of `GET /v1/cvi/repos/{o}/{n}`
+ * `state.repoDetailByKey` — the result of `GET /v1/porchlamp/repos/{o}/{n}`
  * (`app.js::loadRepoDetail`, called by `openRepo` regardless of which
  * screen opened it) — so the drawer's content is identical from every
  * entry point. Matrix's own point list, a Compare chip's cache and the
@@ -49,10 +49,10 @@ export function findRow(state, owner, name) {
 }
 
 /**
- * `GET /v1/cvi/repos/{owner}/{name}` does not send `kind` on the wire at
- * all (`cvi/serve/contract.py`'s `RepoDetailResponse` is the flat row), so
+ * `GET /v1/porchlamp/repos/{owner}/{name}` does not send `kind` on the wire at
+ * all (`porchlamp/serve/contract.py`'s `RepoDetailResponse` is the flat row), so
  * `kind` is computed client-side from the same two fields the store's own
- * rule uses (`cvi.store.queries.list_not_ranked`'s docstring: "Gated
+ * rule uses (`porchlamp.store.queries.list_not_ranked`'s docstring: "Gated
  * (eligible=0) and unrated (eligible=1, rated=0)") -- `!eligible` is gated
  * (disqualified before scoring, never rated), `eligible && !rated` is
  * unrated (passed eligibility, failed the coverage floor), anything else
@@ -98,7 +98,7 @@ function renderComposite(row) {
   return (
     `<details open>` +
     `<summary>${escapeHtml(copy.DRAWER_SECTION_COMPOSITE)}</summary>` +
-    `<p class="cell-numeric">CVI ${row.cvi != null ? row.cvi.toFixed(2) : copy.MISSING_VALUE} · ${renderCoverageBadge(row.coverage)} · ${renderTierCell(row.tier, row.tier_ceiling)}</p>` +
+    `<p class="cell-numeric">Score ${row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderCoverageBadge(row.coverage)} · ${renderTierCell(row.tier, row.tier_ceiling)}</p>` +
     cappedNote +
     `<p>${renderQuadrant(row.quadrant)} — ${escapeHtml(copy.COORDINATES_LABEL)}: leverage ${lev} (coverage ${levCov}), friction ${fric} (coverage ${fricCov})</p>` +
     `</details>`
@@ -241,7 +241,7 @@ function renderPillarSection(row, evidenceRows, evidenceError) {
  * (always collapsed): neither kind has any
  * `p_<pillar>`/`c_<pillar>` score to summarise (`RepoDetailResponse`
  * returns `None` for both — a gated/unrated repo never reaches
- * `cvi.core.engine`'s pillar computation), so unlike `renderPillarSection`
+ * `porchlamp.core.engine`'s pillar computation), so unlike `renderPillarSection`
  * above (the "rated" case) this never calls `renderPillarSummary` — only
  * the evidence table, which is populated independently of `kind`
  * (individual parameters may still be measured/unmeasured with reasons).
@@ -276,7 +276,7 @@ function renderPersonaSectionAllGated(row) {
   return (
     `<details>` +
     `<summary>${escapeHtml(copy.DRAWER_SECTION_PERSONAS)}</summary>` +
-    `<div class="table-scroll"><table class="evidence-table"><thead><tr><th>Persona</th><th>CVI</th><th>Tier</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>` +
+    `<div class="table-scroll"><table class="evidence-table"><thead><tr><th>Persona</th><th>Score</th><th>Tier</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>` +
     `</details>`
   );
 }
@@ -291,7 +291,7 @@ function renderPersonaSection(row) {
       }
       return (
         `<tr><td>${escapeHtml(name)}</td>` +
-        `<td class="cell-numeric">${composite.cvi != null ? composite.cvi.toFixed(2) : copy.MISSING_VALUE}</td>` +
+        `<td class="cell-numeric">${composite.porchlamp != null ? composite.porchlamp.toFixed(2) : copy.MISSING_VALUE}</td>` +
         `<td>${renderTierCell(composite.tier, composite.tier_ceiling)}</td>` +
         `<td>${composite.rated ? escapeHtml(copy.RATED_LABEL) : escapeHtml(copy.NOT_RATED_LABEL)}</td>` +
         `</tr>`
@@ -301,7 +301,7 @@ function renderPersonaSection(row) {
   return (
     `<details>` +
     `<summary>${escapeHtml(copy.DRAWER_SECTION_PERSONAS)}</summary>` +
-    `<div class="table-scroll"><table class="evidence-table"><thead><tr><th>Persona</th><th>CVI</th><th>Tier</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>` +
+    `<div class="table-scroll"><table class="evidence-table"><thead><tr><th>Persona</th><th>Score</th><th>Tier</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>` +
     `</details>`
   );
 }
@@ -336,7 +336,7 @@ export function renderDrawer(state) {
 
   if (!found) {
     let body;
-    // A 404 from `GET /v1/cvi/repos/{o}/{n}` arrives as
+    // A 404 from `GET /v1/porchlamp/repos/{o}/{n}` arrives as
     // `state.repoDetailError` like any other non-2xx
     // (api.js/app.js::loadRepoDetail treat them the same way), but it is
     // a genuine not-found: retrying would 404 again, so it gets

@@ -1,6 +1,6 @@
 """Commit author email domains -> elephant factor, bus factor, vitality.
 
-Covers the ``cvi.collect.commits`` module (domain org derivation, typed
+Covers the ``porchlamp.collect.commits`` module (domain org derivation, typed
 actor bot exclusion, 365 d collection cap, envelope-row parsing) and the
 append-only hooks in ``scripts/derive.py`` (EF block: email-domain EF,
 bus factor, vitality) and ``scripts/gather.py`` (``commits_365d`` collector
@@ -17,7 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-from cvi.collect import commits as cc  # noqa: E402
+from porchlamp.collect import commits as cc  # noqa: E402
 
 
 def _load_script(name: str, filename: str):

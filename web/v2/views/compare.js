@@ -212,8 +212,8 @@ function gateStatusCell(data) {
 
 function compositeCell(data) {
   if (!data || data.loading || data.error || data.kind !== "rated" || !data.row) return `<td>${copy.MISSING_VALUE}</td>`;
-  const cviVal = data.row.cvi != null ? data.row.cvi.toFixed(2) : copy.MISSING_VALUE;
-  return `<td class="cell-numeric">${cviVal} · ${renderTierCell(data.row.tier, data.row.tier_ceiling)}</td>`;
+  const porchlampVal = data.row.porchlamp != null ? data.row.porchlamp.toFixed(2) : copy.MISSING_VALUE;
+  return `<td class="cell-numeric">${porchlampVal} · ${renderTierCell(data.row.tier, data.row.tier_ceiling)}</td>`;
 }
 
 function coverageCell(data) {

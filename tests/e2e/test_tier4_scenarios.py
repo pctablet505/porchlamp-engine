@@ -3,7 +3,7 @@
 Verifies end-to-end behavior for authoritative open-source benchmark landmark projects:
 1. vllm-project/vllm (PyPI Sweet Spot benchmark: high leverage, low friction, Tier S/S+, DCO, sub-12h TTFHR)
 2. torvalds/linux (Systems Crucible benchmark: off-platform LKML mailing-list routing, not disqualified)
-3. keras-team/keras-hub (PyPI Graveyard benchmark: Stage 0 Black Hole, 58.4% ghost rate, 0.0 CVI, Tier D)
+3. keras-team/keras-hub (PyPI Graveyard benchmark: Stage 0 Black Hole, 58.4% ghost rate, 0.0 Porchlamp, Tier D)
 4. facebook/react (npm ecosystem anchor: Tier S+, massive scale, 200k+ stars, high dependents)
 5. kubernetes/kubernetes (Go foundational system: CNCF Foundation CLA, multi-vendor EF >= 4, Crucible)
 6. gentoo/gentoo (Systems AI policy posture ban: Tier A under BALANCED, Stage 0 disqualified under AI_ASSISTED)
@@ -22,7 +22,7 @@ class TestLandmarkVLLMScenario:
 
     def test_vllm_sweet_spot_scorecard_and_telemetry(self, client: TestClient) -> None:
         """vllm-project/vllm exhibits high leverage, low friction, Tier S/S+, and passes Stage 0."""
-        resp = client.get("/v1/cvi/repos/vllm-project/vllm")
+        resp = client.get("/v1/porchlamp/repos/vllm-project/vllm")
         assert resp.status_code == 200
         data = resp.json()
 
@@ -31,7 +31,7 @@ class TestLandmarkVLLMScenario:
         assert data["ecosystem"] == "pypi"
         assert data["matrix_quadrant"] == "Sweet Spot"
         assert data["rank_tier"] in ("Tier S", "Tier S+")
-        assert data["overall_cvi"] >= 80.0
+        assert data["overall_porchlamp"] >= 80.0
         assert data["is_stage0_disqualified"] == 0
 
         # Leverage Y >= 50.0, Friction X < 50.0
@@ -44,7 +44,7 @@ class TestLandmarkVLLMScenario:
 
     def test_vllm_leaderboard_positioning(self, client: TestClient) -> None:
         """vllm appears in the top tier on the PyPI leaderboard."""
-        resp = client.get("/v1/cvi/leaderboard", params={"ecosystem": "pypi", "limit": 20})
+        resp = client.get("/v1/porchlamp/leaderboard", params={"ecosystem": "pypi", "limit": 20})
         assert resp.status_code == 200
         items = resp.json()["items"]
         vllm_item = next((item for item in items if item["repo_id"] == "vllm-project/vllm"), None)
@@ -61,7 +61,7 @@ class TestLandmarkLinuxScenario:
 
     def test_linux_off_platform_routing_not_penalized(self, client: TestClient) -> None:
         """torvalds/linux routes through off-platform review path and is NOT disqualified."""
-        resp = client.get("/v1/cvi/repos/torvalds/linux")
+        resp = client.get("/v1/porchlamp/repos/torvalds/linux")
         assert resp.status_code == 200
         data = resp.json()
 
@@ -79,7 +79,7 @@ class TestLandmarkLinuxScenario:
 
     def test_linux_systems_leaderboard_presence(self, client: TestClient) -> None:
         """torvalds/linux is discoverable on the Systems ecosystem leaderboard."""
-        resp = client.get("/v1/cvi/leaderboard", params={"ecosystem": "systems", "search": "linux"})
+        resp = client.get("/v1/porchlamp/leaderboard", params={"ecosystem": "systems", "search": "linux"})
         assert resp.status_code == 200
         items = resp.json()["items"]
         assert len(items) >= 1
@@ -96,7 +96,7 @@ class TestLandmarkKerasHubScenario:
 
     def test_keras_hub_black_hole_short_circuit(self, client: TestClient) -> None:
         """keras-team/keras-hub triggers Stage 0 Black Hole due to excessive ghost rate (>50%)."""
-        resp = client.get("/v1/cvi/repos/keras-team/keras-hub")
+        resp = client.get("/v1/porchlamp/repos/keras-team/keras-hub")
         assert resp.status_code == 200
         data = resp.json()
 
@@ -106,7 +106,7 @@ class TestLandmarkKerasHubScenario:
         assert data["is_stage0_disqualified"] == 1
         assert data["matrix_quadrant"] == "Graveyard"
         assert data["rank_tier"] == "Tier D"
-        assert data["overall_cvi"] == 0.0
+        assert data["overall_porchlamp"] == 0.0
         assert data["leverage_score"] == 0.0
         assert data["friction_score"] == 100.0
         assert "ghost" in data["disqualification_reason"].lower()
@@ -114,14 +114,14 @@ class TestLandmarkKerasHubScenario:
     def test_keras_hub_relegation_on_leaderboard(self, client: TestClient) -> None:
         """keras-hub appears at the bottom of the PyPI leaderboard with 0.0 score."""
         resp = client.get(
-            "/v1/cvi/leaderboard", params={"ecosystem": "pypi", "search": "keras-hub"}
+            "/v1/porchlamp/leaderboard", params={"ecosystem": "pypi", "search": "keras-hub"}
         )
         assert resp.status_code == 200
         items = resp.json()["items"]
         assert len(items) == 1
         hub = items[0]
         assert hub["is_gated"] == 1
-        assert hub["cvi"] == 0.0
+        assert hub["porchlamp"] == 0.0
         assert hub["tier"] == "Tier D"
 
 
@@ -133,7 +133,7 @@ class TestLandmarkReactScenario:
 
     def test_react_sweet_spot_tier_s_plus(self, client: TestClient) -> None:
         """facebook/react achieves Tier S+ in the Sweet Spot with massive downloads and dependents."""
-        resp = client.get("/v1/cvi/repos/facebook/react")
+        resp = client.get("/v1/porchlamp/repos/facebook/react")
         assert resp.status_code == 200
         data = resp.json()
 
@@ -142,7 +142,7 @@ class TestLandmarkReactScenario:
         assert data["ecosystem"] == "npm"
         assert data["matrix_quadrant"] == "Sweet Spot"
         assert data["rank_tier"] == "Tier S+"
-        assert data["overall_cvi"] >= 90.0
+        assert data["overall_porchlamp"] >= 90.0
         assert data["is_stage0_disqualified"] == 0
 
         # Massive scale metrics
@@ -152,7 +152,7 @@ class TestLandmarkReactScenario:
 
     def test_react_leads_npm_leaderboard(self, client: TestClient) -> None:
         """facebook/react is among the top 5 repos on the npm leaderboard."""
-        resp = client.get("/v1/cvi/leaderboard", params={"ecosystem": "npm", "limit": 10})
+        resp = client.get("/v1/porchlamp/leaderboard", params={"ecosystem": "npm", "limit": 10})
         assert resp.status_code == 200
         items = resp.json()["items"]
         react_item = next((item for item in items if item["repo_id"] == "facebook/react"), None)
@@ -169,7 +169,7 @@ class TestLandmarkKubernetesScenario:
 
     def test_kubernetes_crucible_and_multi_vendor_governance(self, client: TestClient) -> None:
         """kubernetes/kubernetes is a high-leverage Crucible project with Elephant Factor >= 4."""
-        resp = client.get("/v1/cvi/repos/kubernetes/kubernetes")
+        resp = client.get("/v1/porchlamp/repos/kubernetes/kubernetes")
         assert resp.status_code == 200
         data = resp.json()
 
@@ -186,7 +186,7 @@ class TestLandmarkKubernetesScenario:
 
     def test_kubernetes_on_go_leaderboard(self, client: TestClient) -> None:
         """kubernetes is ranked in the top tier of Go projects."""
-        resp = client.get("/v1/cvi/leaderboard", params={"ecosystem": "go", "search": "kubernetes"})
+        resp = client.get("/v1/porchlamp/leaderboard", params={"ecosystem": "go", "search": "kubernetes"})
         assert resp.status_code == 200
         items = resp.json()["items"]
         k8s = next(item for item in items if item["repo_id"] == "kubernetes/kubernetes")
@@ -203,25 +203,25 @@ class TestLandmarkGentooScenario:
     def test_gentoo_passes_balanced_persona(self, client: TestClient) -> None:
         """gentoo/gentoo passes under Persona.BALANCED as Tier A or Tier S."""
         resp = client.get(
-            "/v1/cvi/leaderboard",
+            "/v1/porchlamp/leaderboard",
             params={"ecosystem": "systems", "search": "gentoo", "persona": "balanced"},
         )
         assert resp.status_code == 200
         items = resp.json()["items"]
         gentoo = next(item for item in items if item["repo_id"] == "gentoo/gentoo")
         assert gentoo["is_gated"] == 0
-        assert gentoo["cvi"] >= 70.0
+        assert gentoo["porchlamp"] >= 70.0
         assert gentoo["tier"] in ("Tier A", "Tier S")
 
     def test_gentoo_disqualified_under_ai_assisted_persona(self, client: TestClient) -> None:
         """gentoo/gentoo is disqualified under Persona.AI_ASSISTED due to its hard AI contribution ban."""
         resp = client.get(
-            "/v1/cvi/leaderboard",
+            "/v1/porchlamp/leaderboard",
             params={"ecosystem": "systems", "search": "gentoo", "persona": "ai_assisted"},
         )
         assert resp.status_code == 200
         items = resp.json()["items"]
         gentoo = next(item for item in items if item["repo_id"] == "gentoo/gentoo")
         assert gentoo["is_gated"] == 1
-        assert gentoo["cvi"] == 0.0
+        assert gentoo["porchlamp"] == 0.0
         assert gentoo["tier"] == "Tier D"

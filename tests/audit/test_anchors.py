@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.audit.anchors`.
+"""Unit tests for :mod:`porchlamp.audit.anchors`.
 
 The fixture database exercises every D-VER-4 relation exactly once in the
 verdict it deserves: two rating anchors PASS (kubernetes rated, torvalds/linux
@@ -14,7 +14,7 @@ import sqlite3
 from pathlib import Path
 
 
-from cvi.audit.anchors import (
+from porchlamp.audit.anchors import (
     ANCHOR_RELATIONS,
     AnchorResult,
     evaluate_anchors,
@@ -81,7 +81,7 @@ def _make_db(path: Path, rows: tuple[tuple, ...]) -> Path:
             leverage_score REAL,
             friction_score REAL,
             matrix_quadrant VARCHAR(30),
-            overall_cvi REAL,
+            overall_porchlamp REAL,
             rank_tier VARCHAR(30),
             is_stage0_disqualified BOOLEAN DEFAULT 0,
             disqualification_reason TEXT,
@@ -95,7 +95,7 @@ def _make_db(path: Path, rows: tuple[tuple, ...]) -> Path:
         con.execute(
             "INSERT INTO repositories (owner, name, score_responsiveness, "
             "score_criticality, score_governance, score_rigor_ai, "
-            "score_accessibility, overall_cvi, rank_tier, "
+            "score_accessibility, overall_porchlamp, rank_tier, "
             "is_stage0_disqualified, disqualification_reason, legal_ip_model, "
             "deep_dive_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
@@ -135,13 +135,13 @@ def test_relation_ids_follow_dver4_order() -> None:
 
 
 def test_exact_verdicts_on_fixture_db(tmp_path: Path) -> None:
-    results = evaluate_anchors(_make_db(tmp_path / "cvi.db", FIXTURE))
+    results = evaluate_anchors(_make_db(tmp_path / "porchlamp.db", FIXTURE))
     assert [result.relation for result in results] == [r for r, _ in ANCHOR_RELATIONS]
     assert _verdicts(results) == EXPECTED_VERDICTS
 
 
 def test_observed_facts_are_exact(tmp_path: Path) -> None:
-    results = {r.relation: r for r in evaluate_anchors(_make_db(tmp_path / "cvi.db", FIXTURE))}
+    results = {r.relation: r for r in evaluate_anchors(_make_db(tmp_path / "porchlamp.db", FIXTURE))}
     assert results["linux_dco"].observed == "legal_ip_model = DCO"
     assert results["kubernetes_rated"].observed == "coverage 1.00, tier Tier S, rated"
     assert results["vllm_rated"].observed == "coverage 0.80 (< 0.90), tier Tier S, rated"
@@ -162,7 +162,7 @@ def test_observed_facts_are_exact(tmp_path: Path) -> None:
 
 def test_missing_anchor_repo_fails_with_named_observed(tmp_path: Path) -> None:
     rows = tuple(row for row in FIXTURE if not row[0].startswith(("torvalds/", "keras-team/")))
-    results = {r.relation: r for r in evaluate_anchors(_make_db(tmp_path / "cvi.db", rows))}
+    results = {r.relation: r for r in evaluate_anchors(_make_db(tmp_path / "porchlamp.db", rows))}
     assert results["linux_dco"].verdict == "FAIL"
     assert results["linux_dco"].observed == "repo not present in DB"
     assert results["linux_off_platform"].verdict == "FAIL"
@@ -179,7 +179,7 @@ def test_gated_anchor_repo_fails_the_rating_relation(tmp_path: Path) -> None:
         else row
         for row in FIXTURE
     )
-    results = {r.relation: r for r in evaluate_anchors(_make_db(tmp_path / "cvi.db", rows))}
+    results = {r.relation: r for r in evaluate_anchors(_make_db(tmp_path / "porchlamp.db", rows))}
     assert results["kubernetes_rated"].verdict == "FAIL"
     assert results["kubernetes_rated"].observed == "gated: PR ghost rate exceeds 50% ceiling (black hole)"
 
@@ -187,7 +187,7 @@ def test_gated_anchor_repo_fails_the_rating_relation(tmp_path: Path) -> None:
 def test_report_is_stable_across_runs(tmp_path: Path) -> None:
     """Over-correction guard: the untouched fixture yields the same report
     on every evaluation."""
-    path = _make_db(tmp_path / "cvi.db", FIXTURE)
+    path = _make_db(tmp_path / "porchlamp.db", FIXTURE)
     first = evaluate_anchors(path)
     second = evaluate_anchors(path)
     assert first == second
@@ -195,7 +195,7 @@ def test_report_is_stable_across_runs(tmp_path: Path) -> None:
 
 
 def test_anchor_report_counts_verdicts(tmp_path: Path) -> None:
-    results = evaluate_anchors(_make_db(tmp_path / "cvi.db", FIXTURE))
+    results = evaluate_anchors(_make_db(tmp_path / "porchlamp.db", FIXTURE))
     text = format_anchor_report(results, 7, 6)
     assert "3 PASS" in text
     assert "5 FAIL" in text

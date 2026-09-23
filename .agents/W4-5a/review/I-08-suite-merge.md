@@ -6,7 +6,7 @@ Branch suite (tip 026bb32, worktree clean at the time of the run):
 Merge trial: `git worktree add --detach <scratch>/merge main` (main tip **819d361**, which is past the
 packet's base acdf885 — W4-3, W1-5f and the lead logs landed since), then
 `git cherry-pick 44b1d67 313c828 c99e324 026bb32` — **applied clean, no conflicts** (pyproject's
-packages line merged without a textual conflict; `cvi.serve` is present in the merged list).
+packages line merged without a textual conflict; `porchlamp.serve` is present in the merged list).
 Full suite in the merge tree: **2390 passed, 1 skipped in 18.71s**.
 A first run of the same tree reported `1 failed, 2389 passed` —
 `tests/store/test_queries.py::test_performance_list_ranked_and_reproject_p95_under_100ms_for_10k_rows`

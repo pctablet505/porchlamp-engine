@@ -20,7 +20,7 @@ manifest (`docs/v2/05-WORK-PLAN.md`, W0-3 manifest layout). The ranking is
 frozen at T by D-VER-3. At T + 90 d, this one command collects and analyzes:
 
 ```
-.venv/bin/python -m cvi.audit.forward --snapshot <S0-id> --data-dir <S0 data dir> --collect
+.venv/bin/python -m porchlamp.audit.forward --snapshot <S0-id> --data-dir <S0 data dir> --collect
 ```
 
 The collection writes one GitHub envelope per rated repo under the output
@@ -76,7 +76,7 @@ Per rated repo, over its eligible PRs:
 ## 5. Exact analysis
 
 Scores: `score_responsiveness`, `score_criticality`, `score_governance`,
-`score_rigor_ai`, `score_accessibility`, `overall_cvi`, read from the S0
+`score_rigor_ai`, `score_accessibility`, `overall_porchlamp`, read from the S0
 database at T.
 
 For each score S and each label L in {decision_rate, merge_rate}, over rated
@@ -95,7 +95,7 @@ Criteria, stated before any collection, from D-VAL-1:
 - **C1:** rho(score_responsiveness, decision_rate) >= 0.40. PASS when the
   value is defined and >= 0.40; FAIL when defined and < 0.40; UNDECIDED with
   the section-5 reason code when undefined.
-- **C2:** rho(overall_cvi, merge_rate) >= 0.30. Same verdict rule.
+- **C2:** rho(overall_porchlamp, merge_rate) >= 0.30. Same verdict rule.
 
 A FAIL is published as FAIL, printed verbatim and stored in
 `forward_report.json`. A failed criterion drives the v2.1 weight revision, per

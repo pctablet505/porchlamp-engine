@@ -39,7 +39,7 @@
   The file is clean today; the guard would not stop the defect class returning. Fix: match `${...}`
   with a brace-balanced scan, and scan quoted strings for digits too.
 - **W-7** `methodology.json` is a pre-generated static fixture, not produced at startup by
-  `cvi.audit.methodology_history.methodology_with_history` (declared deviation). Post-rebase that
+  `porchlamp.audit.methodology_history.methodology_with_history` (declared deviation). Post-rebase that
   module IS importable here, and no test compares the fixture against a live call — so the document
   the UI renders can drift from the real methodology silently. A single test that regenerates and
   diffs would close it.

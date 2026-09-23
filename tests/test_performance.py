@@ -3,7 +3,7 @@
 ``docs/ARCHITECTURE.md`` section 12.1 (~line 672) sets a performance SLA
 of <50ms response time for the matrix endpoint "from in-memory
 operational cache". This suite pins that SLA against
-``cvi.lakehouse.OperationalStore`` (in-memory SQLite, i.e. the
+``porchlamp.lakehouse.OperationalStore`` (in-memory SQLite, i.e. the
 operational cache) at a fixed, deterministic seed size ``N``.
 
 Bar: a test that is easy to pass is a defect. The SLA assertion is fixed
@@ -27,8 +27,8 @@ from __future__ import annotations
 import math
 import time
 
-from cvi.lakehouse import OperationalStore
-from cvi.models import CVICompositeResult, Ecosystem, Quadrant, Tier
+from porchlamp.lakehouse import OperationalStore
+from porchlamp.models import PorchlampCompositeResult, Ecosystem, Quadrant, Tier
 
 # Seed size for the SLA runs. Per the task directive the assertion stays
 # <50ms p95; if this box cannot hold that, scale N down in steps
@@ -50,18 +50,18 @@ def percentile_ms(samples: list[float], pct: float) -> float:
     return ordered[max(1, rank) - 1]
 
 
-def make_result(i: int) -> CVICompositeResult:
+def make_result(i: int) -> PorchlampCompositeResult:
     """Deterministic composite for seed index ``i`` (no randomness).
 
-    All fields vary with ``i`` so ecosystem/quadrant/tier/cvi are spread
+    All fields vary with ``i`` so ecosystem/quadrant/tier/porchlamp are spread
     across their full domains; the same index reproduces the same row.
     """
     disqualified = i % 25 == 0
-    return CVICompositeResult(
+    return PorchlampCompositeResult(
         owner=f"org{i % 50:02d}",
         name=f"proj{i:05d}",
         ecosystem=_ECOSYSTEMS[i % len(_ECOSYSTEMS)],
-        overall_cvi=round(((i * 9973) % 10000) / 100.0, 2),
+        overall_porchlamp=round(((i * 9973) % 10000) / 100.0, 2),
         rank_tier=_TIERS[i % len(_TIERS)],
         matrix_quadrant=_QUADRANTS[i % len(_QUADRANTS)],
         leverage_score=round(((i * 271) % 1000) / 10.0, 1),
@@ -74,7 +74,7 @@ def make_result(i: int) -> CVICompositeResult:
 def seed(store: OperationalStore, count: int) -> None:
     """Seed ``count`` deterministic rows via ``upsert_composite``.
 
-    ``CVICompositeResult`` carries no raw repo metrics (spec 9.3), so
+    ``PorchlampCompositeResult`` carries no raw repo metrics (spec 9.3), so
     ``upsert_composite`` stores the documented default ``stars=0``
     (lakehouse module docstring); star counts are varied
     deterministically afterwards via direct SQL, mirroring
@@ -105,7 +105,7 @@ def measure(operation, runs: int = TIMED_RUNS) -> tuple[float, float]:
 
 
 def test_spec_11_2_indexes_exist() -> None:
-    """Spec 11.2 mandates idx_cvi_ecosystem_rank and idx_cvi_quadrant."""
+    """Spec 11.2 mandates idx_porchlamp_ecosystem_rank and idx_porchlamp_quadrant."""
     store = OperationalStore()
     try:
         names = [
@@ -116,8 +116,8 @@ def test_spec_11_2_indexes_exist() -> None:
         ]
     finally:
         store.close()
-    assert "idx_cvi_ecosystem_rank" in names, f"missing spec 11.2 index; found: {names}"
-    assert "idx_cvi_quadrant" in names, f"missing spec 11.2 index; found: {names}"
+    assert "idx_porchlamp_ecosystem_rank" in names, f"missing spec 11.2 index; found: {names}"
+    assert "idx_porchlamp_quadrant" in names, f"missing spec 11.2 index; found: {names}"
 
 
 def test_count_by_quadrant_always_returns_all_four_keys() -> None:

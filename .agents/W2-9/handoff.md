@@ -2,14 +2,14 @@
 
 Worktree `/home/pctablet505/Projects/cvi-wt-W2-9`, branch `W2-9`. Started from `5b88e08` (per the
 original dispatch); rebased onto `e899583` (current `main` tip at hand-off time — one docs-only
-lead-log commit ahead of the `a0dd646` the dispatch named; `git diff a0dd646 e899583 -- cvi/ tests/
-scripts/` is empty, so this is the same base by content). Rebase was a trivial fast-forward: `cvi/
+lead-log commit ahead of the `a0dd646` the dispatch named; `git diff a0dd646 e899583 -- porchlamp/ tests/
+scripts/` is empty, so this is the same base by content). Rebase was a trivial fast-forward: `porchlamp/
 derive/bundle.py` and `tests/core/test_sample200_load.py` are untouched between `5b88e08` and
 `e899583` (the packets that landed in between — HYG-1, W0-3f/g, W2-4/W2-4f, W1-7, W2-5 — touch
 different files), so no conflicts.
 
 This continues a session a system restart killed mid-task. Two files were already modified,
-uncommitted, from the previous attempt (`cvi/derive/bundle.py` rewritten with the declarative
+uncommitted, from the previous attempt (`porchlamp/derive/bundle.py` rewritten with the declarative
 `INPUT_MAPPINGS` table; `tests/core/test_sample200_load.py` with the "gfi" collector added). I
 committed that inherited work as-is (`git add -A && git commit`, no edits) before rebasing, to
 avoid losing it, then continued on top.
@@ -34,8 +34,8 @@ Full `test_sample200_load.py`: 8/8 passed, independently, before I touched anyth
 ## 1. Diffstat (against `a0dd646`)
 
 ```
-$ git diff --stat a0dd646 -- cvi/derive/bundle.py tests/core/test_sample200_load.py tests/derive/
- cvi/derive/bundle.py                  | 640 ++++++++++++++++++++++++++++------
+$ git diff --stat a0dd646 -- porchlamp/derive/bundle.py tests/core/test_sample200_load.py tests/derive/
+ porchlamp/derive/bundle.py                  | 640 ++++++++++++++++++++++++++++------
  tests/core/test_sample200_load.py     |  31 +-
  tests/derive/_fixtures.py             | 126 +++++++
  tests/derive/test_input_mappings.py   | 485 ++++++++++++++++++++++++++
@@ -43,7 +43,7 @@ $ git diff --stat a0dd646 -- cvi/derive/bundle.py tests/core/test_sample200_load
  5 files changed, 1281 insertions(+), 99 deletions(-)
 ```
 
-`cvi/derive/bundle.py` is now 1,010 lines. **Size deviation** vs whatever class this module was
+`porchlamp/derive/bundle.py` is now 1,010 lines. **Size deviation** vs whatever class this module was
 budgeted at (W2-1 landed it at 1,258 lines already, itself a recorded M-class deviation) — matches
 this project's established pattern (every packet touching this file has recorded and deferred a
 size deviation rather than split it: W2-1, W0-3, W2-3, W5-1 lead-log rows all say "subtraction
@@ -92,8 +92,8 @@ M_GHOST_BOUNDS_RED_EXIT=1
 $ python -B -m pytest tests/derive/ -p no:cacheprovider -v
 ============================== 23 passed in 0.06s ===============================
 M_GHOST_BOUNDS_RESTORE_GREEN_EXIT=0
-$ git diff --stat cvi/derive/bundle.py     # unchanged after restore, confirms clean restore
- cvi/derive/bundle.py | 31 ++++++++++++++++++++-----------
+$ git diff --stat porchlamp/derive/bundle.py     # unchanged after restore, confirms clean restore
+ porchlamp/derive/bundle.py | 31 ++++++++++++++++++++-----------
 ```
 
 Two more mutants killed while hardening the min-n boundary tests (below), same restore-and-confirm
@@ -108,7 +108,7 @@ procedure:
   `test_substantive_review_rate` already hit their own min-n floor exactly in the positive fixture
   (n=5 and n=10 respectively) so no change was needed there.
 
-## 3. Mapping table (`cvi/derive/bundle.py::INPUT_MAPPINGS`, unchanged from the inherited design)
+## 3. Mapping table (`porchlamp/derive/bundle.py::INPUT_MAPPINGS`, unchanged from the inherited design)
 
 | Input id | Reads | When absent |
 |---|---|---|
@@ -166,8 +166,8 @@ the full suite and `tests/derive/` + `tests/e2e/` + `tests/core/test_sample200_l
 pass.
 
 **3 — fail-before proofs (4, not just the required 3).** `/home/pctablet505/Projects/cvi-scratch/
-W2-9/fail-before/run_proof.py`: dynamically imports `cvi/derive/bundle.py` as it existed at
-`a0dd646` (`git show a0dd646:cvi/derive/bundle.py`) under a distinct module name alongside the
+W2-9/fail-before/run_proof.py`: dynamically imports `porchlamp/derive/bundle.py` as it existed at
+`a0dd646` (`git show a0dd646:porchlamp/derive/bundle.py`) under a distinct module name alongside the
 current worktree module, and runs the identical fixture (via the same `tests/derive/_fixtures.py`
 helpers) through both.
 
@@ -195,10 +195,10 @@ which is the permanent form of the same "before/after" evidence.)
 **4 — full suite + ruff.**
 
 ```
-$ ruff check cvi/derive/bundle.py tests/derive/ tests/core/test_sample200_load.py
+$ ruff check porchlamp/derive/bundle.py tests/derive/ tests/core/test_sample200_load.py
 All checks passed!
 
-$ ruff check cvi/ scripts/ tests/
+$ ruff check porchlamp/ scripts/ tests/
 Found 4 errors.   # all 4 in scripts/curate_dataset_llm.py, pre-existing (last touched commit
                   # 578f059, unrelated to this packet); that file is deleted by W0-4 per
                   # docs/v2/00-README.md ("do not run it") — not mine to fix or touch.
@@ -287,16 +287,16 @@ and recorded a real zero, distinct from "never ran."
 ## 5. Ownership requests
 
 1. **Min-n constants duplicated.** `TTFHR_MIN_N`/`SUBSTANTIVE_REVIEW_MIN_N`/`TTM_P90_MIN_N` are
-   mirrored (not imported) from `cvi.core.params`'s 02 §4 thresholds, because `cvi.derive` is
-   documented (04 §3) to import only `cvi.core.models`. Request: move these three into
-   `cvi.core.constants_v2` (alongside `PARAM_INPUT_IDS`) so both packets read one definition and a
+   mirrored (not imported) from `porchlamp.core.params`'s 02 §4 thresholds, because `porchlamp.derive` is
+   documented (04 §3) to import only `porchlamp.core.models`. Request: move these three into
+   `porchlamp.core.constants_v2` (alongside `PARAM_INPUT_IDS`) so both packets read one definition and a
    future threshold change cannot silently diverge between the scorer and the loader.
 2. **`dropped_event_count` is a module-level accessor over a private, unserialized instance
-   attribute** (`_w2_9_dropped_event_count`, set via `setattr` since `cvi.core.models.FeatureBundle`
+   attribute** (`_w2_9_dropped_event_count`, set via `setattr` since `porchlamp.core.models.FeatureBundle`
    is out of this packet's ownership), not a declared `FeatureBundle` field. It is lost on a
    dump/reload round trip (`dump_bundle` does not serialize it — confirmed, not asserted away).
    Request: promote it to a real `FeatureBundle` field (e.g. `dropped_event_count: int = 0`) in
-   `cvi/core/models.py` when that module is next open, so it survives the v2 JSON round trip and
+   `porchlamp/core/models.py` when that module is next open, so it survives the v2 JSON round trip and
    downstream packets (W3-x integrity, audit) don't have to special-case this bundle attribute.
 3. **`ai_posture` and `promotion_ladder` record a raw GitHub URL as `provenance[field].source`**
    (`scripts/derive.py`'s `body_src = f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/
@@ -317,7 +317,7 @@ and recorded a real zero, distinct from "never ran."
    detail text, but W1-7 shows `ACCEPT_WITH_FOLLOWUP` in `docs/v2/00-README.md`'s lead log
    (`ed7abb2`) as of this hand-off. I did not wire these two rows: W1-7 landed on `main` after I had
    already rebased and was mid-implementation, wiring it now would mean reading and re-deriving
-   against `cvi/collect/pike_signals.py`'s actual output shape (out of the time budget for this
+   against `porchlamp/collect/pike_signals.py`'s actual output shape (out of the time budget for this
    already-large diff), and the packet's file-ownership line does not name that collector. Flagging
    as a live follow-up rather than a silent gap: a next packet (or a W2-9 follow-up, "W2-9f") should
    wire `openssf_criticality`/`pipeline_defenses` from the now-landed W1-7 output and update these
@@ -329,11 +329,11 @@ None. Every deliverable was run and its output captured above; nothing was block
 
 ## 7. Files touched
 
-- `cvi/derive/bundle.py` — owned; the malformed-event bugfix in §2 on top of the inherited
+- `porchlamp/derive/bundle.py` — owned; the malformed-event bugfix in §2 on top of the inherited
   `INPUT_MAPPINGS` rewrite.
 - `tests/core/test_sample200_load.py` — owned per packet scope (inherited edit, verified correct).
 - `tests/derive/_fixtures.py`, `tests/derive/test_input_mappings.py`,
   `tests/derive/test_malformed_events.py` — new, owned.
 - `.agents/W2-9/handoff.md` — this file.
-- Nothing under `cvi/collect/`, `cvi/core/`, `scripts/derive.py`'s hook chain, or the schema
+- Nothing under `porchlamp/collect/`, `porchlamp/core/`, `scripts/derive.py`'s hook chain, or the schema
   registry was edited.

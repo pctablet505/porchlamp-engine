@@ -4,16 +4,16 @@
 
 - Scripts are the pipeline (`scripts/gather.py`, `derive.py`, `verify.py`,
   `promote.py`, `run_all.py`) and are imported via `importlib` in tests; a
-  second, dead ingestion stack lives in `cvi/ingest.py` (669 lines, never run).
+  second, dead ingestion stack lives in `porchlamp/ingest.py` (669 lines, never run).
 - Bundles are untyped dicts; a dropped key becomes a silent default (this is
   how F5 and F7 stayed invisible behind a green suite).
 - Missing values are sentinels (`0.0`, `50`, `None`) with different meanings per
   field; the sentinel policy is the largest scoring distortion (Q1).
-- `cvi/lakehouse.py` mixes schema, writes, queries, seeding, deep-dive storage
+- `porchlamp/lakehouse.py` mixes schema, writes, queries, seeding, deep-dive storage
   and a Python full-scan persona re-projection.
 - Scoring reads the wall clock; nothing is reproducible.
-- The synthetic catalog is a first-class module (`cvi/benchmark_data.py`,
-  `cvi/benchmark.py`, `scripts/demo_app.py`) that can be served.
+- The synthetic catalog is a first-class module (`porchlamp/benchmark_data.py`,
+  `porchlamp/benchmark.py`, `scripts/demo_app.py`) that can be served.
 
 ## 2. Target layout
 
@@ -25,7 +25,7 @@ original target (still visible in git history) named something that was
 never built, or that got built under a different, better name.
 
 ```
-cvi/
+porchlamp/
   core/                 pure, stdlib only, no I/O, no clock (enforced by
                          tests/core/test_import_graph.py)
     models.py           Measured/Unmeasured, ParamValue, GateResult, ScoreRecord, enums
@@ -51,15 +51,15 @@ cvi/
     commits.py          commits w/ emails, commit-domain classification
     labels.py           issue/PR label collection
     pike_signals.py     OpenSSF-signal-shaped collection (not a scorecard API
-                         call -- see cvi.core.openssf for the scoring side)
+                         call -- see porchlamp.core.openssf for the scoring side)
     depsdev.py          dependents (package level), project metadata
     ecosystemes.py      per-ecosystem registry helpers (npm/crates/pypi/...)
     universe.py         candidate universe filtering; owns envelope-checkpoint
                          logic inline (no separate checkpoint.py)
     governance.py        governance-signal collection
     ratelimit.py        token bucket, ETag cache, circuit breaker -- moved
-                         from cvi/ingest.py verbatim (W4-1); stdlib + httpx
-                         only, no cvi.* imports (tests/core/test_import_graph.py)
+                         from porchlamp/ingest.py verbatim (W4-1); stdlib + httpx
+                         only, no porchlamp.* imports (tests/core/test_import_graph.py)
     (not built: `github_rest.py` as a single file -- split across
     repo_object.py/commits.py/labels.py/pike_signals.py instead, each
     independently tested; `scorecard.py`, `registries.py`, `checkpoint.py`
@@ -83,10 +83,10 @@ cvi/
     populations.py      build + freeze ECDF populations
     reproduce.py        rebuild + canonical dump hash compare
     fixture_io.py       shared reader for on-disk v2 snapshot directories
-    build_cmd.py        `python -m cvi.snapshot build` -- build v2 snapshot directory from data/
-    store_cmd.py        W4-6: `python -m cvi.snapshot store` -- score a
-                         frozen snapshot into cvi.store
-    cli.py, __main__.py `python -m cvi.snapshot` entry point
+    build_cmd.py        `python -m porchlamp.snapshot build` -- build v2 snapshot directory from data/
+    store_cmd.py        W4-6: `python -m porchlamp.snapshot store` -- score a
+                         frozen snapshot into porchlamp.store
+    cli.py, __main__.py `python -m porchlamp.snapshot` entry point
   store/
     schema.py           DDL v2
     migrations/         0001_init_v2.sql, 0002_indexes.sql (numbered,
@@ -96,7 +96,7 @@ cvi/
     queries.py          shared SQL/decoding (ORDER_BY_SQL, row_to_dict) --
                          reader.py and writer.py both reuse this (R-2)
   serve/
-    app.py              FastAPI app (`cvi.serve.app.create_app`) -- v2 at
+    app.py              FastAPI app (`porchlamp.serve.app.create_app`) -- v2 at
                          `/`, v1 at `/legacy/` when a v1 shape exists,
                          `/healthz` (named `api.py` in the original target;
                          built as `app.py` instead)
@@ -105,28 +105,28 @@ cvi/
     guard.py            the served-DB guard (v1 fixture-clock + hash check,
                          v2 tamper check) -- not in the original target at
                          all; W4-4 REWORK moved it here from scripts/serve.py
-                         so cvi/serve never imports scripts.* (enforced by
+                         so porchlamp/serve never imports scripts.* (enforced by
                          tests/core/test_import_graph.py)
-    (web UI lives at the repo-root `web/` directory, not `cvi/serve/static/`)
+    (web UI lives at the repo-root `web/` directory, not `porchlamp/serve/static/`)
   audit/
     coverage.py         missingness/coverage report (the table in 01-FINDINGS)
-    sensitivity.py      D-AGG-3 report (imports cvi.constants.PILLAR_WEIGHTS,
+    sensitivity.py      D-AGG-3 report (imports porchlamp.constants.PILLAR_WEIGHTS,
                          a v1 table with no v2 equivalent yet -- flagged,
                          W4-1 inventory section 7)
     anchors.py          D-VER-4 relational anchors
     ties.py             tie statistics
     detectors_report.py  W4-6-era reporting module (tests-only: waits on a
-                         `cvi.cli audit` subcommand that does not exist)
+                         `porchlamp.cli audit` subcommand that does not exist)
     forward.py           forward-looking audit report (tests-only, same wait)
     methodology_history.py  methodology-version history for the audit trail
   (cli.py does NOT exist and is not being built: the "scripts become thin
-  shims calling cvi.cli" plan is DESCOPED, lead ruling 2026-09-13 -- every
+  shims calling porchlamp.cli" plan is DESCOPED, lead ruling 2026-09-13 -- every
   scripts/*.py file holds 5-18 real top-level functions, not "argparse +
   one call into a library"; scripts stay entry points, see below)
 tests/
-  core/ collect/ derive/ verify/ snapshot/ store/ serve/ audit/   (mirrors cvi/)
-  fixtures/synthetic_catalog.py   (ex cvi/benchmark_data.py, moved W4-1;
-                                    never importable from cvi/ OR scripts/,
+  core/ collect/ derive/ verify/ snapshot/ store/ serve/ audit/   (mirrors porchlamp/)
+  fixtures/synthetic_catalog.py   (ex porchlamp/benchmark_data.py, moved W4-1;
+                                    never importable from porchlamp/ OR scripts/,
                                     enforced by tests/core/test_import_graph.py)
   fixtures/snapshot_50/           (committed raw envelopes for reproduce-in-CI)
   helpers/demo_app.py             (ex scripts/demo_app.py, moved W4-1)
@@ -144,24 +144,24 @@ scripts/                real entry points (NOT thin shims -- see the cli.py
                          not touched here).
 ```
 
-Deleted (W4-1, landed): `cvi/ingest.py` (rate limiter moved to
-`cvi/collect/ratelimit.py`, `apply_raw_metrics` moved to
-`cvi/lakehouse.py`, the GHArchive stack and `ingest_and_score` were dead
+Deleted (W4-1, landed): `porchlamp/ingest.py` (rate limiter moved to
+`porchlamp/collect/ratelimit.py`, `apply_raw_metrics` moved to
+`porchlamp/lakehouse.py`, the GHArchive stack and `ingest_and_score` were dead
 code with no successor -- deleted outright; a one-release deprecation
 shim held the module path briefly, then was deleted once the inventory
-confirmed no in-repo caller remained), `cvi/benchmark.py` (a pure
-re-export shim over `cvi/benchmark_data.py`), `cvi/benchmark_data.py`
+confirmed no in-repo caller remained), `porchlamp/benchmark.py` (a pure
+re-export shim over `porchlamp/benchmark_data.py`), `porchlamp/benchmark_data.py`
 (moved to `tests/fixtures/synthetic_catalog.py`).
 
 Not deleted, still v1, per `04` §10 step 3 ("old engine keeps serving the
-v1 DB until W5-2"): `cvi/models.py`, `cvi/constants.py`, `cvi/stage0.py`,
-`cvi/starscout.py`, `cvi/normalize.py`, `cvi/openssf.py`, `cvi/pillars/*`,
-`cvi/matrix.py`, `cvi/persona.py`, `cvi/engine.py`, `cvi/lakehouse.py`,
-`cvi/api.py`, `cvi/deepdive.py`, `cvi/playbook.py`, `web/index.html` --
+v1 DB until W5-2"): `porchlamp/models.py`, `porchlamp/constants.py`, `porchlamp/stage0.py`,
+`porchlamp/starscout.py`, `porchlamp/normalize.py`, `porchlamp/openssf.py`, `porchlamp/pillars/*`,
+`porchlamp/matrix.py`, `porchlamp/persona.py`, `porchlamp/engine.py`, `porchlamp/lakehouse.py`,
+`porchlamp/api.py`, `porchlamp/deepdive.py`, `porchlamp/playbook.py`, `web/index.html` --
 these are the only live v1 scoring/serving path (`scripts/promote.py`,
 `scripts/serve.py` still import them) and retire together at W5-2, not
-piecemeal. `cvi/provenance.py`/`cvi/paths.py` are shared utilities used by
-both v1 and v2 code and are not v1-specific despite living at the `cvi/`
+piecemeal. `porchlamp/provenance.py`/`porchlamp/paths.py` are shared utilities used by
+both v1 and v2 code and are not v1-specific despite living at the `porchlamp/`
 top level.
 
 ## 3. Core contracts
@@ -218,7 +218,7 @@ class ScoreRecord:
     tier: str | None            # after ceiling
     leverage: float | None; friction: float | None; quadrant: str | None
     persona_gates: dict[str, str]        # reason codes; unmeasured-driven gating uses insufficient_evidence:<input>
-    persona_composites: dict[str, PersonaComposite]   # PersonaComposite(cvi, coverage, tier, rated) per persona (ruling 2026-09-13)
+    persona_composites: dict[str, PersonaComposite]   # PersonaComposite(porchlamp, coverage, tier, rated) per persona (ruling 2026-09-13)
     tie_key: tuple; tie_group: int | None; rank: int | None
     suspicion: list[str]
 ```
@@ -240,7 +240,7 @@ universe.jsonl ─ gather ─► data/raw/<collector>/<key>.json (Envelope)
               reproduce ─► rebuild from raw + manifest, compare canonical dump hash
 ```
 
-`run_all` becomes `cvi run --universe ... --as-of ...` and is resumable through
+`run_all` becomes `porchlamp run --universe ... --as-of ...` and is resumable through
 the envelope checkpoint (existing behaviour, kept: a null registry value is not
 "done").
 
@@ -264,7 +264,7 @@ CREATE TABLE repositories (
   p_responsiveness REAL, c_responsiveness REAL, p_criticality REAL, c_criticality REAL,
   p_governance REAL, c_governance REAL, p_rigor REAL, c_rigor REAL, p_accessibility REAL, c_accessibility REAL,
   -- composite
-  cvi REAL, coverage REAL NOT NULL, tier TEXT, tier_ceiling TEXT,
+  porchlamp REAL, coverage REAL NOT NULL, tier TEXT, tier_ceiling TEXT,
   leverage REAL, friction REAL, quadrant TEXT,
   -- ordering
   rank INTEGER, tie_group INTEGER, ttfhr_p75 REAL, last_human_commit_at TEXT,
@@ -286,8 +286,8 @@ CREATE TABLE populations (                     -- frozen ECDF inputs
   fallback INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (snapshot_id, ecosystem, param_id));
 
-CREATE INDEX idx_rank ON repositories(snapshot_id, rated, cvi DESC, coverage DESC);
-CREATE INDEX idx_eco  ON repositories(snapshot_id, ecosystem, cvi DESC);
+CREATE INDEX idx_rank ON repositories(snapshot_id, rated, porchlamp DESC, coverage DESC);
+CREATE INDEX idx_eco  ON repositories(snapshot_id, ecosystem, porchlamp DESC);
 CREATE INDEX idx_name ON repositories(owner, name);
 ```
 
@@ -307,10 +307,10 @@ s AS (
   SELECT r.*,
     (COALESCE(wr*p_responsiveness,0)+COALESCE(wc*p_criticality,0)+COALESCE(wg*p_governance,0)
      +COALESCE(wi*p_rigor,0)+COALESCE(wa*p_accessibility,0))
-    / NULLIF((CASE WHEN p_responsiveness IS NULL THEN 0 ELSE wr END)+ ... ,0) AS cvi_p
+    / NULLIF((CASE WHEN p_responsiveness IS NULL THEN 0 ELSE wr END)+ ... ,0) AS porchlamp_p
   FROM repositories r, w WHERE r.snapshot_id=:sid AND r.rated=1
     AND json_extract(r.persona_gates, '$.' || :persona) IS NULL)
-SELECT s.*, RANK() OVER (ORDER BY ROUND(cvi_p,2) DESC NULLS LAST, coverage DESC NULLS LAST,
+SELECT s.*, RANK() OVER (ORDER BY ROUND(porchlamp_p,2) DESC NULLS LAST, coverage DESC NULLS LAST,
                          p_responsiveness DESC NULLS LAST, friction ASC NULLS LAST,
                          leverage DESC NULLS LAST, ttfhr_p75 ASC NULLS LAST,
                          last_human_commit_at DESC NULLS LAST,
@@ -322,15 +322,15 @@ FROM s LIMIT :limit OFFSET :offset;
 W2-6 review): SQLite sorts NULL first under `ASC` by default, which would put a
 repository with an *unmeasured* friction ahead of every measured one — the
 inverse of D-TIE-1. SQLite ≥ 3.30 is required for the syntax; the parity test
-between this query and `cvi.core.tiebreak.tie_key` must include NULLs at more
+between this query and `porchlamp.core.tiebreak.tie_key` must include NULLs at more
 than one tie level. The store also needs `RANK()` to yield strict ranks after
 the full key, so `ROW_NUMBER()` over the same ORDER BY is used for `rank` and
-a separate `DENSE_RANK() OVER (ORDER BY ROUND(cvi_p,2) DESC)` for `tie_group`.
+a separate `DENSE_RANK() OVER (ORDER BY ROUND(porchlamp_p,2) DESC)` for `tie_group`.
 
 Per-persona rating (ruling 2026-09-13 after the W2-7 review): `rated` under a
 persona is recomputed from the persona-weighted coverage (D-MISS-3 applies
 under the active weights), never copied from the balanced `rated` flag; the
-query above therefore filters on `cvi_p IS NOT NULL AND coverage_p >= 0.60`
+query above therefore filters on `porchlamp_p IS NOT NULL AND coverage_p >= 0.60`
 where `coverage_p` is computed from the pillar coverages with the persona
 weights, and applies the tier ceiling from `coverage_p`.
 
@@ -340,11 +340,11 @@ No Python loop over all rows for any endpoint.
 
 - Every row gains `coverage`, `tier_ceiling`, `tie_group`, `snapshot_id`,
   `benchmark_version`, `suspicion`, `persona_gates`.
-- `GET /v1/cvi/repos/{o}/{n}/evidence` → the `params` rows for the repo (value,
+- `GET /v1/porchlamp/repos/{o}/{n}/evidence` → the `params` rows for the repo (value,
   score, measured, reason, n, window, method, source URL, fetched_at).
-- `GET /v1/cvi/snapshot` → manifest summary (id, as_of, version, constants
+- `GET /v1/porchlamp/snapshot` → manifest summary (id, as_of, version, constants
   hash, root, counts of rated/gated/unrated, detector summary).
-- `GET /v1/cvi/unrated` → gated and unrated repos with reasons.
+- `GET /v1/porchlamp/unrated` → gated and unrated repos with reasons.
 - `reproject` keeps its contract; it is now the SQL in §6.
 
 ## 8. Determinism and time
@@ -372,11 +372,11 @@ No Python loop over all rows for any endpoint.
 
 ## 10. Migration path (strangler, no big bang)
 
-1. Create `cvi/core/models.py` (Measured/Unmeasured) and `constants_v2.py`
+1. Create `porchlamp/core/models.py` (Measured/Unmeasured) and `constants_v2.py`
    alongside the existing engine; nothing imports them yet (W2-1).
 2. New collectors and derivers write bundle **v2** files under a scratch data
    dir; v1 files stay untouched until the sweep finishes (W1-*).
-3. New engine in `cvi/core/` scores v2 bundles; old engine keeps serving the v1
+3. New engine in `porchlamp/core/` scores v2 bundles; old engine keeps serving the v1
    DB until W5-2 (W2-*).
 4. Store v2 as a new schema with migrations; `serve` reads either until the
    v1 DB is retired (W4-2).

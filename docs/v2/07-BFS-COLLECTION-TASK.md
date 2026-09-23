@@ -1,4 +1,4 @@
-# Task: breadth-first data collection for the CVI leaderboard
+# Task: breadth-first data collection for the Porchlamp leaderboard
 
 **Who runs this:** the local data-collection agent (Qwen Flash-Next via Kimi Code CLI).
 **Who wrote it:** the lead, 2026-09-16. Questions go to the lead; do not guess.
@@ -50,7 +50,7 @@ RUN=/home/pctablet505/Projects/cvi-scratch/bfs-run
 
 ## 2. Rules
 
-1. **Do not edit any file** under `$REPO/cvi`, `$REPO/scripts`, `$REPO/tests`, `$REPO/web`, `$REPO/docs`. You run scripts; you do not change them.
+1. **Do not edit any file** under `$REPO/porchlamp`, `$REPO/scripts`, `$REPO/tests`, `$REPO/web`, `$REPO/docs`. You run scripts; you do not change them.
 2. **Do not delete anything** under `$REPO/data/raw`. Never run `rm` on it.
 3. **Run only ONE `gather.py` process at a time.** The GitHub token is shared; two gatherers double the rate-limit hits.
 4. **Do not pass `--force`** to `gather.py` except in Phase 5, where this file says so.
@@ -64,13 +64,13 @@ RUN=/home/pctablet505/Projects/cvi-scratch/bfs-run
 cd /home/pctablet505/Projects/contributor-value-index
 git pull --ff-only
 gh auth status
-.venv/bin/python -c "import cvi; print('cvi ok')"
+.venv/bin/python -c "import porchlamp; print('porchlamp ok')"
 wc -l data/raw/candidates.jsonl
 ls data/raw/github_meta | wc -l
 mkdir -p /home/pctablet505/Projects/cvi-scratch/bfs-run
 ```
 
-Expected: `gh auth status` says `Logged in to github.com`; `cvi ok`; `5753`;
+Expected: `gh auth status` says `Logged in to github.com`; `porchlamp ok`; `5753`;
 about `5731`. If `gh auth status` does not say logged in, stop and report.
 
 Write the repository list once (every loop below reads this file):
@@ -132,7 +132,7 @@ grep -c "DERIVE FAIL" /home/pctablet505/Projects/cvi-scratch/bfs-run/derive-LX.l
 ```bash
 cd /home/pctablet505/Projects/contributor-value-index
 rm -rf /home/pctablet505/Projects/cvi-scratch/bfs-run/snap-LX
-.venv/bin/python -m cvi.snapshot build \
+.venv/bin/python -m porchlamp.snapshot build \
   --data-dir data \
   --out-dir /home/pctablet505/Projects/cvi-scratch/bfs-run/snap-LX \
   --snapshot-id "$(date -u +%Y-%m-%d)-LX" \
@@ -154,7 +154,7 @@ rm -rf /home/pctablet505/Projects/cvi-scratch/bfs-run/snap-LX
 ```bash
 cd /home/pctablet505/Projects/contributor-value-index
 rm -f /home/pctablet505/Projects/cvi-scratch/bfs-run/cvi-LX.db
-.venv/bin/python -m cvi.snapshot store \
+.venv/bin/python -m porchlamp.snapshot store \
   /home/pctablet505/Projects/cvi-scratch/bfs-run/snap-LX \
   --db /home/pctablet505/Projects/cvi-scratch/bfs-run/cvi-LX.db
 ```
@@ -175,7 +175,7 @@ echo $! > /home/pctablet505/Projects/cvi-scratch/bfs-run/serve.pid
 sleep 3
 curl -s http://127.0.0.1:8000/healthz
 echo
-curl -s http://127.0.0.1:8000/v1/cvi/snapshot | head -c 600
+curl -s http://127.0.0.1:8000/v1/porchlamp/snapshot | head -c 600
 echo
 ```
 

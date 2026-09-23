@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.verify.live_sample`.
+"""Unit tests for :mod:`porchlamp.verify.live_sample`.
 
 The canary re-fetches GitHub metadata and the PR window head for a sample of
 rated rows and holds from promotion any row whose live values drift beyond
@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 import pytest
 
-from cvi.verify.live_sample import (
+from porchlamp.verify.live_sample import (
     LiveFacts,
     LiveSampleReport,
     RatedRow,
@@ -30,7 +30,7 @@ from cvi.verify.live_sample import (
     run_live_sample,
     select_sample,
 )
-from cvi.verify import live_sample as ls
+from porchlamp.verify import live_sample as ls
 
 
 # --------------------------------------------------------------------------- #
@@ -38,10 +38,10 @@ from cvi.verify import live_sample as ls
 # --------------------------------------------------------------------------- #
 
 
-def _row(owner: str, ecosystem: str, overall_cvi: float,
+def _row(owner: str, ecosystem: str, overall_porchlamp: float,
          stars: int = 0, forks: int = 0) -> RatedRow:
     return RatedRow(owner=owner, name=owner, ecosystem=ecosystem,
-                    stars=stars, forks=forks, overall_cvi=overall_cvi)
+                    stars=stars, forks=forks, overall_porchlamp=overall_porchlamp)
 
 
 def _store_db(path: Path, rows: list[RatedRow]) -> Path:
@@ -51,13 +51,13 @@ def _store_db(path: Path, rows: list[RatedRow]) -> Path:
         "id INTEGER PRIMARY KEY, owner VARCHAR(100) NOT NULL, "
         "name VARCHAR(100) NOT NULL, ecosystem VARCHAR(50) NOT NULL, "
         "stars INTEGER NOT NULL, forks INTEGER NOT NULL, "
-        "overall_cvi REAL NOT NULL, UNIQUE(owner, name))")
+        "overall_porchlamp REAL NOT NULL, UNIQUE(owner, name))")
     for row in rows:
         conn.execute(
             "INSERT INTO repositories (owner, name, ecosystem, stars, forks, "
-            "overall_cvi) VALUES (?, ?, ?, ?, ?, ?)",
+            "overall_porchlamp) VALUES (?, ?, ?, ?, ?, ?)",
             (row.owner, row.name, row.ecosystem, row.stars, row.forks,
-             row.overall_cvi))
+             row.overall_porchlamp))
     conn.commit()
     conn.close()
     return path
@@ -478,9 +478,9 @@ def test_load_rated_rows_rank_order(tmp_path: Path) -> None:
     rows = [_row("b", "A", 50.0, stars=5, forks=1),
             _row("a", "A", 90.0, stars=9, forks=2),
             _row("c", "B", 90.0, stars=7, forks=3)]
-    path = _store_db(tmp_path / "cvi.db", rows)
+    path = _store_db(tmp_path / "porchlamp.db", rows)
     loaded = load_rated_rows(str(path))
-    assert [r.owner for r in loaded] == ["a", "c", "b"]  # cvi desc, then owner
+    assert [r.owner for r in loaded] == ["a", "c", "b"]  # porchlamp desc, then owner
     assert loaded[0].stars == 9 and loaded[0].forks == 2
 
 
@@ -492,7 +492,7 @@ def test_cli_main_held_exit_code_and_verdicts_file(tmp_path: Path, capsys) -> No
     rows = [_row("ok1", "pypi", 90.0, stars=100, forks=10),
             _row("ok2", "pypi", 80.0, stars=200, forks=20),
             _row("drift", "pypi", 70.0, stars=300, forks=30)]
-    db = _store_db(tmp_path / "cvi.db", rows)
+    db = _store_db(tmp_path / "porchlamp.db", rows)
     fake = FakeTransport()
     fake.set("ok1", "ok1", 100, 10, 1, 10)
     fake.set("ok2", "ok2", 200, 20, 2, 20)
@@ -520,7 +520,7 @@ def test_cli_main_held_exit_code_and_verdicts_file(tmp_path: Path, capsys) -> No
 
 def test_cli_main_all_ok_exit_zero(tmp_path: Path, capsys) -> None:
     rows = [_row("ok1", "pypi", 90.0, stars=100, forks=10)]
-    db = _store_db(tmp_path / "cvi.db", rows)
+    db = _store_db(tmp_path / "porchlamp.db", rows)
     fake = FakeTransport()
     fake.set("ok1", "ok1", 101, 10, 1, 10)
     _write_verified(tmp_path, "ok1", "ok1",
@@ -543,7 +543,7 @@ def test_cli_main_missing_db_is_config_error(tmp_path: Path, capsys) -> None:
 
 def test_cli_main_missing_seed_is_config_error(tmp_path: Path, capsys) -> None:
     rows = [_row("ok1", "pypi", 90.0, stars=100, forks=10)]
-    db = _store_db(tmp_path / "cvi.db", rows)
+    db = _store_db(tmp_path / "porchlamp.db", rows)
     rc = main(["--live-sample", "--db", str(db), "--data-dir", str(tmp_path)],
               transport=FakeTransport())
     assert rc == 2

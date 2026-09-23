@@ -2,10 +2,10 @@
 
 Empirically validates:
 1. OperationalStore seeding SLA: 1,000 repos seeded in < 2.0s (memory & disk).
-2. Leaderboard API response time SLA: GET /v1/cvi/leaderboard p95 < 50ms on 1,000 repos
+2. Leaderboard API response time SLA: GET /v1/porchlamp/leaderboard p95 < 50ms on 1,000 repos
    under diverse parameters (pagination, ecosystems, search, dynamic persona projection).
 3. Healthz probe latency SLA: GET /healthz p95 < 50ms.
-4. Matrix spatial query latency SLA: GET /v1/cvi/matrix p95 < 50ms.
+4. Matrix spatial query latency SLA: GET /v1/porchlamp/matrix p95 < 50ms.
 5. Static file delivery: GET / and GET /index.html p95 < 50ms.
 6. Repeated & concurrent workloads: zero error rate, robust queueing, and live TCP loopback.
 """
@@ -28,13 +28,13 @@ import httpx
 import pytest
 import uvicorn
 
-from cvi.api import create_app
+from porchlamp.api import create_app
 from tests.fixtures.synthetic_catalog import (
     build_benchmark_store,
     generate_benchmark_catalog,
     seed_benchmark_store,
 )
-from cvi.lakehouse import OperationalStore
+from porchlamp.lakehouse import OperationalStore
 
 
 def _calc_p95(samples: list[float]) -> float:
@@ -112,43 +112,43 @@ class TestSeedingSLA:
 # ============================================================================ #
 
 class TestLeaderboardSLA:
-    """Stress test GET /v1/cvi/leaderboard against <50ms p95 SLA across diverse query axes."""
+    """Stress test GET /v1/porchlamp/leaderboard against <50ms p95 SLA across diverse query axes."""
 
     @pytest.mark.parametrize(
         "query_url,description",
         [
             # Pagination
-            ("/v1/cvi/leaderboard?page=1&page_size=50", "Default Page 1"),
-            ("/v1/cvi/leaderboard?page=10&page_size=50", "Mid Page 10"),
-            ("/v1/cvi/leaderboard?page=20&page_size=50", "Deep Page 20"),
-            ("/v1/cvi/leaderboard?offset=950&limit=50", "Explicit Offset 950"),
-            ("/v1/cvi/leaderboard?page=1&page_size=1000", "Bulk Fetch All 1,000 Repos"),
+            ("/v1/porchlamp/leaderboard?page=1&page_size=50", "Default Page 1"),
+            ("/v1/porchlamp/leaderboard?page=10&page_size=50", "Mid Page 10"),
+            ("/v1/porchlamp/leaderboard?page=20&page_size=50", "Deep Page 20"),
+            ("/v1/porchlamp/leaderboard?offset=950&limit=50", "Explicit Offset 950"),
+            ("/v1/porchlamp/leaderboard?page=1&page_size=1000", "Bulk Fetch All 1,000 Repos"),
             # Ecosystem filters
-            ("/v1/cvi/leaderboard?ecosystem=pypi", "Filter PyPI"),
-            ("/v1/cvi/leaderboard?ecosystem=npm", "Filter npm"),
-            ("/v1/cvi/leaderboard?ecosystem=crates", "Filter Crates"),
-            ("/v1/cvi/leaderboard?ecosystem=go", "Filter Go"),
-            ("/v1/cvi/leaderboard?ecosystem=maven", "Filter Maven"),
-            ("/v1/cvi/leaderboard?ecosystem=systems", "Filter Systems"),
+            ("/v1/porchlamp/leaderboard?ecosystem=pypi", "Filter PyPI"),
+            ("/v1/porchlamp/leaderboard?ecosystem=npm", "Filter npm"),
+            ("/v1/porchlamp/leaderboard?ecosystem=crates", "Filter Crates"),
+            ("/v1/porchlamp/leaderboard?ecosystem=go", "Filter Go"),
+            ("/v1/porchlamp/leaderboard?ecosystem=maven", "Filter Maven"),
+            ("/v1/porchlamp/leaderboard?ecosystem=systems", "Filter Systems"),
             # Substring search
-            ("/v1/cvi/leaderboard?search=vllm", "Search Landmark vllm"),
-            ("/v1/cvi/leaderboard?search=kubernetes", "Search Landmark kubernetes"),
-            ("/v1/cvi/leaderboard?search=a", "Search Broad 'a'"),
-            ("/v1/cvi/leaderboard?search=nonexistent_xyz", "Search 0 Matches"),
-            ("/v1/cvi/leaderboard?search=%25", "Search Escaped Wildcard '%'"),
+            ("/v1/porchlamp/leaderboard?search=vllm", "Search Landmark vllm"),
+            ("/v1/porchlamp/leaderboard?search=kubernetes", "Search Landmark kubernetes"),
+            ("/v1/porchlamp/leaderboard?search=a", "Search Broad 'a'"),
+            ("/v1/porchlamp/leaderboard?search=nonexistent_xyz", "Search 0 Matches"),
+            ("/v1/porchlamp/leaderboard?search=%25", "Search Escaped Wildcard '%'"),
             # Dynamic Persona Projections
-            ("/v1/cvi/leaderboard?persona=balanced", "Persona BALANCED"),
-            ("/v1/cvi/leaderboard?persona=first_timer", "Persona FIRST_TIMER"),
-            ("/v1/cvi/leaderboard?persona=career_capital", "Persona CAREER_CAPITAL"),
-            ("/v1/cvi/leaderboard?persona=senior_systems", "Persona SENIOR_SYSTEMS"),
-            ("/v1/cvi/leaderboard?persona=ai_assisted", "Persona AI_ASSISTED"),
+            ("/v1/porchlamp/leaderboard?persona=balanced", "Persona BALANCED"),
+            ("/v1/porchlamp/leaderboard?persona=first_timer", "Persona FIRST_TIMER"),
+            ("/v1/porchlamp/leaderboard?persona=career_capital", "Persona CAREER_CAPITAL"),
+            ("/v1/porchlamp/leaderboard?persona=senior_systems", "Persona SENIOR_SYSTEMS"),
+            ("/v1/porchlamp/leaderboard?persona=ai_assisted", "Persona AI_ASSISTED"),
             # Combinatorial
             (
-                "/v1/cvi/leaderboard?ecosystem=pypi&persona=ai_assisted&search=vllm",
+                "/v1/porchlamp/leaderboard?ecosystem=pypi&persona=ai_assisted&search=vllm",
                 "Combo: PyPI + AI_ASSISTED + vllm",
             ),
             (
-                "/v1/cvi/leaderboard?ecosystem=crates&persona=senior_systems&page=2",
+                "/v1/porchlamp/leaderboard?ecosystem=crates&persona=senior_systems&page=2",
                 "Combo: Crates + SENIOR_SYSTEMS + Page 2",
             ),
         ],
@@ -207,18 +207,18 @@ class TestHealthzMatrixStaticSLA:
     @pytest.mark.parametrize(
         "query_url",
         [
-            "/v1/cvi/matrix",
-            "/v1/cvi/matrix?min_stars=100",
-            "/v1/cvi/matrix?min_stars=1000",
-            "/v1/cvi/matrix?ecosystem=npm",
-            "/v1/cvi/matrix?exclude_black_holes=false",
-            "/v1/cvi/matrix?limit=5000",
+            "/v1/porchlamp/matrix",
+            "/v1/porchlamp/matrix?min_stars=100",
+            "/v1/porchlamp/matrix?min_stars=1000",
+            "/v1/porchlamp/matrix?ecosystem=npm",
+            "/v1/porchlamp/matrix?exclude_black_holes=false",
+            "/v1/porchlamp/matrix?limit=5000",
         ],
     )
     def test_matrix_spatial_query_sla_under_50ms(
         self, benchmark_app_and_client, query_url: str
     ) -> None:
-        """GET /v1/cvi/matrix under various filters must respond with p95 < 50ms."""
+        """GET /v1/porchlamp/matrix under various filters must respond with p95 < 50ms."""
         _, client = benchmark_app_and_client
         client.get(query_url)
 
@@ -275,12 +275,12 @@ class TestConcurrencyAndLiveServer:
         endpoints = [
             "/healthz",
             "/",
-            "/v1/cvi/matrix",
-            "/v1/cvi/leaderboard?page=1&page_size=50",
-            "/v1/cvi/leaderboard?ecosystem=pypi",
-            "/v1/cvi/leaderboard?search=vllm",
-            "/v1/cvi/leaderboard?persona=ai_assisted",
-            "/v1/cvi/repos/vllm-project/vllm",
+            "/v1/porchlamp/matrix",
+            "/v1/porchlamp/leaderboard?page=1&page_size=50",
+            "/v1/porchlamp/leaderboard?ecosystem=pypi",
+            "/v1/porchlamp/leaderboard?search=vllm",
+            "/v1/porchlamp/leaderboard?persona=ai_assisted",
+            "/v1/porchlamp/repos/vllm-project/vllm",
         ] * 15  # 120 requests
 
         latencies: list[float] = []
@@ -341,10 +341,10 @@ class TestConcurrencyAndLiveServer:
             targets = [
                 "/healthz",
                 "/",
-                "/v1/cvi/matrix",
-                "/v1/cvi/leaderboard",
-                "/v1/cvi/leaderboard?persona=balanced",
-                "/v1/cvi/leaderboard?search=vllm",
+                "/v1/porchlamp/matrix",
+                "/v1/porchlamp/leaderboard",
+                "/v1/porchlamp/leaderboard?persona=balanced",
+                "/v1/porchlamp/leaderboard?search=vllm",
             ]
 
             for ep in targets:

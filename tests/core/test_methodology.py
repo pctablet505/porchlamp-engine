@@ -1,5 +1,5 @@
 """Acceptance tests for the published v2 methodology document
-(``cvi.core.methodology``, `06` section 3 F).
+(``porchlamp.core.methodology``, `06` section 3 F).
 
 Three concerns, one file: (1) the document's shape covers every pillar,
 parameter, gate, missingness reason, tie-break level and persona the
@@ -15,16 +15,16 @@ from typing import Any
 
 import pytest
 
-from cvi.core import constants
-from cvi.core.methodology import (
+from porchlamp.core import constants
+from porchlamp.core.methodology import (
     KIND_ECDF,
     KIND_ENUM,
     KIND_NUMERIC,
     methodology_document,
     methodology_hash,
 )
-from cvi.core.models import canonical_json, sha256_hex
-from cvi.core.params import PARAMS
+from porchlamp.core.models import canonical_json, sha256_hex
+from porchlamp.core.params import PARAMS
 
 # --------------------------------------------------------------------------- #
 # Shape                                                                        #
@@ -135,7 +135,7 @@ def test_gates_cover_the_six_gate_ids_plus_evidence_sufficiency() -> None:
         by_id["D-EVID-1"]["cutoffs"]["min_composite_coverage"]
         == constants.EVIDENCE_GATE_MIN_COMPOSITE_COVERAGE
     )
-    # D-GATE-1/2 have no frozen numeric cutoff anywhere in cvi.core
+    # D-GATE-1/2 have no frozen numeric cutoff anywhere in porchlamp.core
     assert by_id["D-GATE-1"]["cutoffs"] == {}
     assert by_id["D-GATE-2"]["cutoffs"] == {}
 
@@ -255,7 +255,7 @@ def _known_numbers() -> set[float]:
     """Every number ``methodology_document`` is allowed to emit: every
     numeric leaf of ``constants.constants_dict()``, plus every numeric
     attribute (``weight``, ``min_n``, ``proxy_min_n``, ``domain``) of every
-    registered :class:`~cvi.core.params.curves.ParamDef`."""
+    registered :class:`~porchlamp.core.params.curves.ParamDef`."""
     known: list[float] = []
     _flatten_numbers(constants.constants_dict(), known)
     for defn in PARAMS.values():

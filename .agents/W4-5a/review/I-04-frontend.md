@@ -25,7 +25,7 @@ VIOLATIONS
    row list instead of a keyed patch; a focused not-ranked row is destroyed by any re-render.
 4. U-15 "Loading… is never a resting state" — the snapshot fetch has no error path:
    `SNAPSHOT_ERROR` is stored but `syncFooter` (`app.js:139-150`) and the header chip only test
-   `!snap`, so a failed `/v1/cvi/snapshot` leaves "Loading…" in the footer and the snapshot chip
+   `!snap`, so a failed `/v1/porchlamp/snapshot` leaves "Loading…" in the footer and the snapshot chip
    permanently. (Leaderboard/not-ranked/evidence error states are all correct, with a retry.)
 
 COPY RULE (06 §6 "every user-facing sentence in copy.js") — violated at:

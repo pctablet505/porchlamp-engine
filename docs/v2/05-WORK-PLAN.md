@@ -30,7 +30,7 @@
    worktree path, the scratch data dir, the base commit sha.
 2. Implementer: `git worktree add ~/Projects/cvi-wt-<id> -b <id> <base>`;
    copy the sample data (`~/Projects/cvi-scratch/sample-200/`, created once by
-   W0-1) to `~/Projects/cvi-scratch/<id>/`; export `CVI_DATA_DIR` to it.
+   W0-1) to `~/Projects/cvi-scratch/<id>/`; export `PORCHLAMP_DATA_DIR` to it.
 3. Fail-before proof: write the test first, run it, paste the failing output;
    never `git stash`, never `git checkout -- <path>`; use
    `git show <base>:<path> > <path>` to reproduce pre-change behaviour.
@@ -104,11 +104,11 @@ M ≤ 400, L ≤ 800).
 ### W0-1 Sample data and coverage audit tool
 **Goal.** A 200-repo sample copied from `data/raw` (stratified: 33 per
 ecosystem, including the anchors) under `~/Projects/cvi-scratch/sample-200/`,
-and `cvi/audit/coverage.py` that prints the missingness/constant/sample-size
+and `porchlamp/audit/coverage.py` that prints the missingness/constant/sample-size
 table from `01-FINDINGS` §B for any data dir.
 **Why.** F2, F4, F5, F7, F8: nothing can be shown fixed without a before/after
 table. **Cites.** `01` §B, §F.
-**Owns.** `cvi/audit/__init__.py`, `cvi/audit/coverage.py`,
+**Owns.** `porchlamp/audit/__init__.py`, `porchlamp/audit/coverage.py`,
 `tests/audit/test_coverage.py`, `scripts/make_sample.py`.
 **Steps.** Copy envelopes for the 200 keys (all collectors) read-only from
 `data/raw`; write the tool: per input, missing rate, derived rate, distinct
@@ -121,27 +121,27 @@ asserts exact values.
 **Forbidden.** Writing anything under `data/`. **Depends.** – **Size.** S.
 
 ### W0-2 Deterministic time
-**Goal.** Scoring takes `as_of` explicitly; no wall-clock reads in `cvi/`
+**Goal.** Scoring takes `as_of` explicitly; no wall-clock reads in `porchlamp/`
 scoring modules.
 **Why.** D-VER-3; reproducibility is impossible today.
 **Cites.** `02` D-VER-3, `04` §8.
-**Owns.** `cvi/engine.py`, `cvi/playbook.py` (`BENCHMARK_NOW` removed),
-`cvi/deepdive.py`, `scripts/promote.py`, `tests/test_no_clock.py`, affected
+**Owns.** `porchlamp/engine.py`, `porchlamp/playbook.py` (`BENCHMARK_NOW` removed),
+`porchlamp/deepdive.py`, `scripts/promote.py`, `tests/test_no_clock.py`, affected
 tests.
 **Steps.** Thread `now`/`as_of` from `promote` into every call; delete
-`BENCHMARK_NOW`; add a test that greps `cvi/` (excluding `collect`/`serve`)
+`BENCHMARK_NOW`; add a test that greps `porchlamp/` (excluding `collect`/`serve`)
 for `datetime.now`, `utcnow`, `time.time` and fails on any hit.
 **Acceptance.** Grep test fails before (paste), passes after; promote on the
-sample twice with the same `as_of` gives identical `cvi.db` dump hashes.
+sample twice with the same `as_of` gives identical `porchlamp.db` dump hashes.
 **Measure.** Two dump hashes, equal. **Depends.** W0-1. **Size.** S.
 
 ### W0-3 Envelope hashes and snapshot manifest
 **Goal.** Every envelope carries `sha256`, `http_status`, `collector_version`;
-`cvi snapshot freeze --as-of` writes `manifest.json` (envelope hashes, Merkle
-root, code commit); `cvi reproduce` rebuilds from raw and compares a canonical
+`porchlamp snapshot freeze --as-of` writes `manifest.json` (envelope hashes, Merkle
+root, code commit); `porchlamp reproduce` rebuilds from raw and compares a canonical
 dump hash.
 **Why.** `03` §5; F10. **Cites.** `03` §5, `04` §2 (`snapshot/`), D-VER-3.
-**Owns.** `cvi/collect/envelope.py` (new), `cvi/snapshot/*` (new),
+**Owns.** `porchlamp/collect/envelope.py` (new), `porchlamp/snapshot/*` (new),
 `scripts/gather.py` (write path only), `tests/snapshot/*`.
 **Steps.** Backfill hashes for existing envelopes at read time (hash the
 `data` field canonical JSON when `sha256` is absent; record `backfilled`);
@@ -169,12 +169,12 @@ the fixture row; a promoted sample DB serves.
 **Depends.** W0-3 (hash rule). **Size.** S.
 
 ### W0-5 Anchors and sensitivity harness
-**Goal.** `cvi audit anchors` evaluates D-VER-4 relations on a DB; `cvi audit
-sensitivity` computes Kendall τ for ±5 pp per pillar; `cvi audit ties` reports
+**Goal.** `porchlamp audit anchors` evaluates D-VER-4 relations on a DB; `porchlamp audit
+sensitivity` computes Kendall τ for ±5 pp per pillar; `porchlamp audit ties` reports
 distinct composite values and tie-group sizes.
 **Why.** D-AGG-3, D-VER-4, F14. **Cites.** `02` §7, §11.
-**Owns.** `cvi/audit/anchors.py`, `cvi/audit/sensitivity.py`,
-`cvi/audit/ties.py`, `tests/audit/*`.
+**Owns.** `porchlamp/audit/anchors.py`, `porchlamp/audit/sensitivity.py`,
+`porchlamp/audit/ties.py`, `tests/audit/*`.
 **Acceptance.** On the current v1 sample DB the harness runs and reports (it
 will show failures; that is the baseline). Unit tests with a 6-row fixture
 assert exact τ and tie counts.
@@ -189,7 +189,7 @@ labels matching the alias regex (D-PARAM 5.1), query each selected label
 separately (`labels=<one>`), union by issue number, keep open + unassigned +
 updated within 90 d; record `labels_matched`.
 **Why.** F2 (0 vs 18/36 live). **Cites.** `02` §4 5.1, D-IN-4.
-**Owns.** `scripts/gather.py` (gfi block) or `cvi/collect/github_rest.py`,
+**Owns.** `scripts/gather.py` (gfi block) or `porchlamp/collect/github_rest.py`,
 `scripts/derive.py` (gfi block), `tests/collect/test_labels.py`,
 `tests/test_derive.py`.
 **Acceptance.** Recorded-response test: label list with `good first issue` and
@@ -212,7 +212,7 @@ package-level count; fall back to ecosyste.ms
 same-org dependents; for `systems`, measure repology package-count feasibility
 on 20 repos and report (no scoring use yet).
 **Why.** F3 (100% missing; ECDF all-100). **Cites.** `02` §4 2.1, `03` §3.
-**Owns.** `cvi/collect/depsdev.py` (new) or the depsdev block in
+**Owns.** `porchlamp/collect/depsdev.py` (new) or the depsdev block in
 `gather.py`, `scripts/derive.py` (dependents block), tests.
 **Acceptance.** Recorded-response tests for both sources; `pallets/flask`
 returns a non-zero package-level count (paste); sample missing-rate for
@@ -223,7 +223,7 @@ repology feasibility (mappable / 20).
 **Depends.** W0-1. **Size.** M.
 
 ### W1-2f Dependents for Go and Maven; systems → not_applicable (added 2026-09-13)
-**Goal.** `cvi/collect/depsdev.py` maps `go` to the deps.dev GO system with
+**Goal.** `porchlamp/collect/depsdev.py` maps `go` to the deps.dev GO system with
 the module path `github.com/<owner>/<name>` (multi-module repos: the root
 `go.mod` module line from the tree envelope, if present) and `maven` to
 `groupId:artifactId` parsed from the root `pom.xml`; `systems` (no registry)
@@ -247,7 +247,7 @@ response time (D-IN-2), substantive review flag (4.3), decided/merged flags.
 Measure point cost.
 **Why.** F4 (window), F12 (bot typing), 4.3 input. **Cites.** D-IN-1, D-IN-2,
 D-IN-4, `02` §4 1.1/1.4/1.5/4.3.
-**Owns.** `cvi/collect/github_graphql.py` (new), `scripts/derive.py` (PR
+**Owns.** `porchlamp/collect/github_graphql.py` (new), `scripts/derive.py` (PR
 block), `tests/collect/test_pr_window.py`, `tests/test_derive.py`.
 **Acceptance.** Recorded-response tests: a bot-typed comment is not a
 response; a 30-char member comment is not; a 41-char member comment is;
@@ -270,7 +270,7 @@ first: 30)` to get prior merged count before the first PR, merge within 180 d,
 second PR within 90 d; author account age and public event count (`user.
 createdAt`, `contributionsCollection` or REST `users/{login}/events` count).
 **Why.** F5. **Cites.** D-IN-3, D-IN-4, `02` §4 1.2/1.3/5.2/5.3.
-**Owns.** `cvi/collect/github_graphql.py` (author section), `scripts/derive.py`
+**Owns.** `porchlamp/collect/github_graphql.py` (author section), `scripts/derive.py`
 (cohort block), tests.
 **Acceptance.** Recorded-response tests for each derived quantity with
 hand-computed oracles; eligibility exclusion test (89-day-old account excluded,
@@ -330,7 +330,7 @@ two independent readers with disagreements recorded, stored as fixtures with
 their envelope hashes; no invented sentences. (3) Acceptance is precision-first:
 zero false PROSCRIBED on the corpus, recall reported; a rule nothing in the
 corpus pins is deleted. (4) Persona `ai_assisted`'s hard-ban gate starts
-firing only when this lands. **Owns.** `cvi/collect/governance.py` (the
+firing only when this lands. **Owns.** `porchlamp/collect/governance.py` (the
 PROSCRIBED path), fixtures, tests. **Depends.** W1-6. **Size.** M.
 
 ### W1-7 OpenSSF signals computed locally; scorecard subset; review/CI proxies
@@ -397,7 +397,7 @@ manifest; W2-9's mapping carries it into the bundle so the `star_burst`
 detector (03 §6) has evidence. Found by the W3-2 review: the filter exists
 but nothing calls it and nothing reports whether it fired.
 **Why.** D-IN-5, `03` §4 (StarScout lockstep), `03` §6 `star_burst`.
-**Owns.** `scripts/build_universe.py`, `cvi/collect/universe.py` (if split
+**Owns.** `scripts/build_universe.py`, `porchlamp/collect/universe.py` (if split
 out), the universe manifest schema, one `INPUT_MAPPINGS` row, tests.
 **Acceptance.** A fixture repo with lockstep star bursts is flagged at entry
 and carries the flag through derive; a normal repo carries `False`; the flag
@@ -407,12 +407,12 @@ silently `False`.
 **Depends.** W1-2, W2-9. **Size.** S.
 
 ### W2-1 Core types: Measured/Unmeasured, bundle schema v2, frozen constants
-**Goal.** `cvi/core/models.py` with the contracts in `04` §3; `FeatureBundle`
-v2 load/validate/dump; `cvi/core/constants_v2.py` with every v2 constant,
+**Goal.** `porchlamp/core/models.py` with the contracts in `04` §3; `FeatureBundle`
+v2 load/validate/dump; `porchlamp/core/constants_v2.py` with every v2 constant,
 `BENCHMARK_VERSION = "2.0.0-dev"`, `CONSTANTS_HASH`.
 **Why.** Q1; F8; `04` §1. **Cites.** `04` §3, D-MISS-1, D-VER-2.
-**Owns.** `cvi/core/__init__.py`, `cvi/core/models.py`,
-`cvi/core/constants_v2.py`, `cvi/derive/bundle.py`, `tests/core/*`.
+**Owns.** `porchlamp/core/__init__.py`, `porchlamp/core/models.py`,
+`porchlamp/core/constants_v2.py`, `porchlamp/derive/bundle.py`, `tests/core/*`.
 **Acceptance.** Validation rejects a bundle with a missing input key
 (fail-before: silent default); hash test; import-graph test (`core` imports
 nothing outside `core`).
@@ -420,10 +420,10 @@ nothing outside `core`).
 identity). **Depends.** W0-2. **Size.** M (the shared core; lands first).
 
 ### W2-2 Gates v2
-**Goal.** D-GATE-1..6 and D-EVID-1 in `cvi/core/gates.py`, returning
+**Goal.** D-GATE-1..6 and D-EVID-1 in `porchlamp/core/gates.py`, returning
 `GateResult` with `UNDECIDED` gates recorded.
 **Why.** F6, F11. **Cites.** `02` §2.
-**Owns.** `cvi/core/gates.py`, `tests/core/test_gates.py`.
+**Owns.** `porchlamp/core/gates.py`, `tests/core/test_gates.py`.
 **Acceptance.** Oracles: 9 external PRs ≥ 14 d old → `UNDECIDED`, not
 black hole; 10 with 6 unanswered → black hole; windowed denominator test
 (merged PRs in window count in the denominator: 2 stale open + 28 merged →
@@ -434,12 +434,12 @@ black-hole count.
 **Depends.** W2-1. **Size.** M.
 
 ### W2-3 Parameter functions v2 with monotonicity property tests
-**Goal.** One function per parameter in `cvi/core/params/<pillar>.py` taking
+**Goal.** One function per parameter in `porchlamp/core/params/<pillar>.py` taking
 bundle inputs and returning `ParamScore` (score, measured, reason, n, method);
 curves per `02` §4; minimum-n rule; a property test that every curve is
 monotone non-decreasing over a grid.
 **Why.** D-PARAM-MONO; the Gaussian; F5. **Cites.** `02` §4, §5.
-**Owns.** `cvi/core/params/*`, `tests/core/test_params_*.py`.
+**Owns.** `porchlamp/core/params/*`, `tests/core/test_params_*.py`.
 **Acceptance.** Hand-computed oracle per parameter at 3 points and both
 boundaries; `insufficient_n` at n = min−1; monotonicity test fails if the old
 Gaussian is registered (fail-before).
@@ -447,19 +447,19 @@ Gaussian is registered (fail-before).
 **Depends.** W2-1. **Size.** L.
 
 ### W2-4 Mid-rank ECDF and frozen populations
-**Goal.** `cvi/core/normalize.py` mid-rank ECDF; `cvi/snapshot/populations.py`
+**Goal.** `porchlamp/core/normalize.py` mid-rank ECDF; `porchlamp/snapshot/populations.py`
 builds per-ecosystem populations from rated & measured repos, applies the
 min-30 fallback, freezes to `populations.json` and the store table.
 **Why.** F3. **Cites.** D-NORM-1..3.
-**Owns.** `cvi/core/normalize.py`, `cvi/snapshot/populations.py`, tests.
+**Owns.** `porchlamp/core/normalize.py`, `porchlamp/snapshot/populations.py`, tests.
 **Acceptance.** All-tied population → 50.0 (fail-before: 100.0); mixed ties
 oracle; fallback flag when N < 30; populations exclude gated repos (test).
 **Measure.** Population sizes per ecosystem/param on the sample.
 **Depends.** W2-1, W2-2. **Size.** S.
 
 ### W2-5 Aggregation, coverage, ceilings, composite, coordinates
-**Goal.** `cvi/core/aggregate.py` (D-MISS-2/3, D-AGG-2), `cvi/core/matrix.py`
-v2 (D-MAT-1/2), `cvi/core/engine.py` producing `ScoreRecord`.
+**Goal.** `porchlamp/core/aggregate.py` (D-MISS-2/3, D-AGG-2), `porchlamp/core/matrix.py`
+v2 (D-MAT-1/2), `porchlamp/core/engine.py` producing `ScoreRecord`.
 **Why.** Q1; F8. **Cites.** `02` §5, §7, §8.
 **Owns.** those modules, `tests/core/test_aggregate.py`,
 `tests/core/test_engine_v2.py`.
@@ -473,10 +473,10 @@ tier distribution before ceilings and after.
 **Depends.** W2-3, W2-4. **Size.** M.
 
 ### W2-6 Tie-breaks and rank
-**Goal.** `cvi/core/tiebreak.py` builds the D-TIE-1 key; rank assignment and
+**Goal.** `porchlamp/core/tiebreak.py` builds the D-TIE-1 key; rank assignment and
 `tie_group`.
 **Why.** 118 distinct values / 981 rows. **Cites.** D-TIE-1/2.
-**Owns.** `cvi/core/tiebreak.py`, tests.
+**Owns.** `porchlamp/core/tiebreak.py`, tests.
 **Acceptance.** Oracle on 8 rows covering every tie level, including two rows
 identical except case in the name; stars never affect order (test with a
 stars column present).
@@ -487,7 +487,7 @@ stars column present).
 **Goal.** `persona_gates` per D-PERS-2; persona composites via the same
 renormalisation; `is_stage0_disqualified` untouched by personas.
 **Why.** Q3. **Cites.** D-PERS-1/2.
-**Owns.** `cvi/core/persona.py`, tests.
+**Owns.** `porchlamp/core/persona.py`, tests.
 **Acceptance.** Oracles for each gate at its boundary; a gated persona view
 keeps the balanced score (fail-before: v1 overwrote the flag).
 **Measure.** Gate counts per persona on the sample.
@@ -498,7 +498,7 @@ keeps the balanced score (fail-before: v1 overwrote the flag).
 anchors (D-VER-4) and sensitivity (D-AGG-3) run in CI on the fixture snapshot;
 a `docs/v2/rfcs/README.md` stating the change procedure.
 **Why.** D-VER-1/2, `03` §7. **Cites.** `02` §11, `03` §7.
-**Owns.** `cvi/core/constants_v2.py` (hash line), `.github/workflows/ci.yml`,
+**Owns.** `porchlamp/core/constants_v2.py` (hash line), `.github/workflows/ci.yml`,
 `tests/fixtures/snapshot_50/` (from the sample), `tests/core/test_frozen.py`.
 **Acceptance.** Changing any constant fails the hash test; anchors pass on the
 fixture; τ ≥ 0.90 for every ±5 pp perturbation on the fixture (report the
@@ -509,14 +509,14 @@ numbers; if below, open an RFC rather than tuning).
 ---
 
 ### W2-8b Snapshot scoring pipeline, fixture snapshot, anchors/sensitivity v2, reproduce-in-CI (split from W2-8, 2026-09-13)
-**Goal.** `cvi/core/pipeline.py::score_snapshot(bundles, populations, …) -> ScoredSnapshot`
+**Goal.** `porchlamp/core/pipeline.py::score_snapshot(bundles, populations, …) -> ScoredSnapshot`
 composing stages 8–9 (persona lens; tie-breaks, rank, tie groups) over a whole
 population on top of `engine.score`; `tests/fixtures/snapshot_50/` built from
 real sample repos and byte-reproducible by `scripts/build_fixture_snapshot.py`;
 `evaluate_anchors_v2` / `sensitivity_v2` over records; a reproduce test pinning
 `records_hash`; a CI step. Absorbs W3-4.
-**Owns.** `cvi/core/pipeline.py`, `tests/fixtures/snapshot_50/**`,
-`cvi/audit/{anchors,sensitivity}.py` (additive), the three fixture tests, `ci.yml`.
+**Owns.** `porchlamp/core/pipeline.py`, `tests/fixtures/snapshot_50/**`,
+`porchlamp/audit/{anchors,sensitivity}.py` (additive), the three fixture tests, `ci.yml`.
 **Acceptance.** As W2-8 (anchors pass; τ ≥ 0.90 per ±5 pp perturbation on the
 fixture; a changed constant makes the reproduce test red).
 **Depends.** W2-6, W2-7f, W2-10. **Size.** M.
@@ -542,8 +542,8 @@ set by every param function so 06 §4's evidence rows and the newcomer-label
 anchor have their fact; `aggregate.composite_score_raw`/`composite_coverage`
 take a `weights` parameter and the copies in `persona.py` and
 `sensitivity.py` are deleted.
-**Owns.** `cvi/core/models.py`, `cvi/core/params/*.py` (value pass-through),
-`cvi/core/aggregate.py`, `cvi/core/persona.py`, `cvi/audit/sensitivity.py`, tests.
+**Owns.** `porchlamp/core/models.py`, `porchlamp/core/params/*.py` (value pass-through),
+`porchlamp/core/aggregate.py`, `porchlamp/core/persona.py`, `porchlamp/audit/sensitivity.py`, tests.
 **Acceptance.** Every Measured ParamScore on the fixture has a non-None value
 equal to the bundle input; a property test shows the three composite paths
 were arithmetically identical before deletion. **Depends.** W2-8, W2-8b. **Size.** S.
@@ -558,7 +558,7 @@ were arithmetically identical before deletion. **Depends.** W2-8, W2-8b. **Size.
 `_unmapped` resolver. Author eligibility (D-IN-3) applies once W1-4 lands
 (W3-1); until then the row is Measured over all external authors and says so
 in `method`.
-**Owns.** the one mapping row + helper in `cvi/derive/bundle.py`, tests.
+**Owns.** the one mapping row + helper in `porchlamp/derive/bundle.py`, tests.
 **Acceptance.** Fixture with PRs at 89/90/91/179/180/181 days and decided at
 89/90/91 days pins every boundary; mutants on each boundary die; the W2-8c
 data shows a non-zero Measured count. **Depends.** W1-7f, W1-6 (both edit
@@ -580,8 +580,8 @@ rule key die. **Depends.** W2-8 (constants), W2-11. **Size.** S.
 ### W3-1 Author eligibility, per-author caps, lockstep detector
 **Goal.** D-IN-3 applied in derivation of every rate parameter;
 `newcomer_burst` detector.
-**Cites.** D-IN-3, `03` §4, §6. **Owns.** `cvi/core/hygiene.py`,
-`cvi/verify/detectors.py` (part), tests.
+**Cites.** D-IN-3, `03` §4, §6. **Owns.** `porchlamp/core/hygiene.py`,
+`porchlamp/verify/detectors.py` (part), tests.
 **Acceptance.** Oracles: 6 first-timer PRs from one author → capped to 20% of
 the denominator; 89-day account excluded; 5 accounts created within 7 days,
 all merged → flag.
@@ -591,7 +591,7 @@ all merged → flag.
 ### W3-2 Cross-snapshot detectors and suspicion flags
 **Goal.** The `03` §6 table as functions over (current, previous) records;
 flags stored in `suspicion`; a report command.
-**Owns.** `cvi/verify/detectors.py`, `cvi/audit/detectors_report.py`, tests.
+**Owns.** `porchlamp/verify/detectors.py`, `porchlamp/audit/detectors_report.py`, tests.
 **Acceptance.** One oracle per detector at its threshold, both sides.
 **Measure.** Flag counts on the sample (previous = v1 sample scored by v2).
 **Depends.** W2-5. **Size.** M.
@@ -600,7 +600,7 @@ flags stored in `suspicion`; a report command.
 **Goal.** `verify --live-sample`: random 5% + top 50 per ecosystem; compares
 stars/forks (monotone), open-PR count, latest PR number; `source_drift`
 holds the row; nightly systemd user timer (installed only after ACCEPT).
-**Cites.** `03` §5. **Owns.** `cvi/verify/live_sample.py`, `scripts/canary.sh`,
+**Cites.** `03` §5. **Owns.** `porchlamp/verify/live_sample.py`, `scripts/canary.sh`,
 tests (fake transport).
 **Acceptance.** Drift injected in a recorded response → row held; no drift →
 promoted; sample run live on 10 repos with counts.
@@ -608,9 +608,9 @@ promoted; sample run live on 10 repos with counts.
 **Depends.** W0-3. **Size.** M.
 
 ### W3-4 Reproduce in CI
-**Goal.** CI job: `cvi reproduce tests/fixtures/snapshot_50` → identical hash.
+**Goal.** CI job: `porchlamp reproduce tests/fixtures/snapshot_50` → identical hash.
 **Cites.** `03` §5, `04` §9. **Owns.** `.github/workflows/ci.yml`,
-`cvi/snapshot/reproduce.py` (if changes needed), fixture.
+`porchlamp/snapshot/reproduce.py` (if changes needed), fixture.
 **Acceptance.** Job green; a deliberately changed constant in a branch makes
 it red (paste both).
 **Depends.** W0-3, W2-8. **Size.** S.
@@ -619,9 +619,9 @@ it red (paste both).
 
 ### W4-1 Package move and dead-code deletion (strangler step)
 **Goal.** Move to the `04` §2 layout with shims in `scripts/`; delete
-`cvi/ingest.py` (after moving the limiter/ETag/circuit breaker to
-`cvi/collect/ratelimit.py` with their tests), `cvi/benchmark.py`,
-`cvi/benchmark_data.py` → `tests/fixtures/synthetic_catalog.py`,
+`porchlamp/ingest.py` (after moving the limiter/ETag/circuit breaker to
+`porchlamp/collect/ratelimit.py` with their tests), `porchlamp/benchmark.py`,
+`porchlamp/benchmark_data.py` → `tests/fixtures/synthetic_catalog.py`,
 `scripts/demo_app.py` → test helper.
 **Why.** `04` §1. **Cites.** `04` §2, §10. **Owns.** the moved files, all
 import sites, `pyproject.toml` packages list, README module map.
@@ -634,14 +634,14 @@ test.
 ### W4-2 Store schema v2 and migrations
 **Goal.** `04` §5 schema; numbered migrations; writer for rows/params/
 populations/snapshots; v1 → v2 migration test on a copy of the v1 DB.
-**Owns.** `cvi/store/*`, tests. **Acceptance.** Migration test both paths;
+**Owns.** `porchlamp/store/*`, tests. **Acceptance.** Migration test both paths;
 `RETURNING` absent (grep test); writer round-trip oracle.
 **Measure.** Migration time on the v1 DB copy. **Depends.** W2-5. **Size.** L.
 
 ### W4-3 SQL persona projection and rank
 **Goal.** `04` §6 query replaces the Python full scan; identical results to the
 Python engine on the sample (test).
-**Owns.** `cvi/store/reader.py`, `cvi/api.py` (call sites), tests.
+**Owns.** `porchlamp/store/reader.py`, `porchlamp/api.py` (call sites), tests.
 **Acceptance.** Equality test of ranks and composites between SQL and engine
 for every persona on the sample; p95 latency measured (report, no SLA edits).
 **Measure.** p95 for leaderboard and reproject on 5k synthetic rows.
@@ -654,7 +654,7 @@ leaderboard (rated, with rank/tie_group/coverage/tier_ceiling/persona
 deltas), `not-ranked` (gated + unrated with reasons and copy keys), `matrix`,
 `repos/{o}/{n}` (row + pillars + persona gates + suspicion), `repos/{o}/{n}/evidence`
 (params long rows), `snapshot`, `reproject` (SQL path from W4-3).
-**Owns.** `cvi/serve/api.py` (or `cvi/api.py` until W4-1 moves it), `tests/test_api.py`.
+**Owns.** `porchlamp/serve/api.py` (or `porchlamp/api.py` until W4-1 moves it), `tests/test_api.py`.
 **Acceptance.** Contract tests for every field in `06` §4; the four UI states
 have API-level fixtures (empty, error, partial); p95 latencies within `06` §7 on
 a 10k-row synthetic store; no Python full scans (grep test).
@@ -682,9 +682,9 @@ once W4-4 lands; each part keeps the checklist items it owns).
 ### W5-1 Forward validation experiment setup
 **Goal.** Freeze snapshot `S0` after the full v2 run; write the pre-registered
 analysis (`docs/v2/validation/PREREG.md`: labels, criteria from D-VAL-1);
-`cvi audit forward --snapshot S0 --collect` scheduled at `S0 + 90 d` (timer
+`porchlamp audit forward --snapshot S0 --collect` scheduled at `S0 + 90 d` (timer
 installed after ACCEPT).
-**Cites.** D-VAL-1 (owner O-6). **Owns.** `cvi/audit/forward.py`, the
+**Cites.** D-VAL-1 (owner O-6). **Owns.** `porchlamp/audit/forward.py`, the
 pre-registration doc, tests with synthetic outcomes.
 **Acceptance.** Analysis oracle on synthetic outcomes (known Spearman);
 collection dry-run on 5 repos.
@@ -692,7 +692,7 @@ collection dry-run on 5 repos.
 
 ### W5-2 Full-universe v2 run and release
 **Goal.** Re-derive all repos from `data/raw` (plus new collectors' envelopes)
-under a fresh data dir, verify, freeze, score, promote `data/cvi-v2.db`,
+under a fresh data dir, verify, freeze, score, promote `data/porchlamp-v2.db`,
 manifest published, methodology page (`docs/v2/METHODOLOGY.md`: parameters,
 windows, curves, weights, tie-breakers, universe, hashes, sensitivity,
 anchors, detectors), `serve` switched to v2.
@@ -748,7 +748,7 @@ expected lines; the report's totals equal the sum of the lines. **Cites.**
 D-COL-3, D-COL-10. **Depends.** none. **Size.** S. **Routing.** local.
 
 ### W6-1 One transport (added 2026-09-17)
-**Goal.** `cvi/collect/transport.py`: persistent `http.client` session, token
+**Goal.** `porchlamp/collect/transport.py`: persistent `http.client` session, token
 from `gh auth token`, `If-None-Match` from a per-URL ETag store
 (`data/state/etags.sqlite`), `304` ⇒ unchanged and free, `X-RateLimit-*` and
 GraphQL `rateLimit` feed `ratelimit.py`'s bucket and breaker; `Retry-After`
@@ -762,7 +762,7 @@ drops from N to 1 (measured, printed); breaker opens on a recorded 403 +
 **Depends.** W6-0. **Size.** M. **Routing.** local (mechanical), lead review.
 
 ### W6-2 Fingerprints and dirty-only gather (added 2026-09-17)
-**Goal.** `cvi/collect/fingerprint.py`: the aliased 100-repo query of `08` §4
+**Goal.** `porchlamp/collect/fingerprint.py`: the aliased 100-repo query of `08` §4
 D-COL-1; `data/state/fingerprints.jsonl` append-only; `gather.py --dirty`
 selects (repo, collector) pairs from the §6 invalidation table and advances
 watermarks for unchanged repos; tiers computed (D-COL-3) and written to the
@@ -776,7 +776,7 @@ D-COL-3. **Depends.** W6-1. **Size.** M. **Routing.** local, lead review.
 **Goal.** `data/ledgers/prs/<owner>__<name>.jsonl`: append-only versions keyed
 by PR number with `observed_at`; delta fetch by `UPDATED_AT DESC` to
 `watermark − 1 h`; the `pr_window` envelope becomes a derive-time view
-(`cvi/derive/ledger.py`: as-of slice, latest version per number, 180-d window,
+(`porchlamp/derive/ledger.py`: as-of slice, latest version per number, 180-d window,
 500 cap with `truncated`) so `derive.py`, the bundle contract and the scoring
 core are unchanged; existing `pr_window` envelopes seed the ledger (version 1,
 `observed_at` = `fetched_at`). **Acceptance.** For the 50 recorded repos, a
@@ -807,7 +807,7 @@ expired TTL issues exactly one; cache hit/miss counts in the cost report; the
 derived `author_history` view equals the recorded one. **Cites.** D-COL-5,
 D-IN-3. **Depends.** W6-3. **Size.** M. **Routing.** local, lead review.
 **Status 2026-09-22.** The cache half landed ahead of W6-3, for the L4 sweep:
-`cvi/collect/user_cache.py` (TTL 90 d, never a record observed after the run's
+`porchlamp/collect/user_cache.py` (TTL 90 d, never a record observed after the run's
 clock, failures never cached), read through by `collect_author_history`, whose
 records now carry `eligibility_observed_at`. Still open: the ledger join, and
 seeding from existing `author_history` envelopes (there were none).
@@ -825,11 +825,11 @@ histogram). **Cites.** D-COL-4. **Depends.** W6-2. **Size.** M. **Routing.**
 local.
 
 ### W6-7 Scheduler daemon and timers (added 2026-09-17)
-**Goal.** `python -m cvi.collect.daemon --once|--loop`: priority drain of
+**Goal.** `python -m porchlamp.collect.daemon --once|--loop`: priority drain of
 `schedule.sqlite` under the budget with the D-COL-10 reserve, single-instance
 pidfile lock, resumable, structured log, daily cost report; systemd user units
-`cvi-fingerprint.timer` (hourly), `cvi-collect.timer` (hourly),
-`cvi-snapshot.timer` (daily 02:00 UTC) with a documented install step (owner
+`porchlamp-fingerprint.timer` (hourly), `porchlamp-collect.timer` (hourly),
+`porchlamp-snapshot.timer` (daily 02:00 UTC) with a documented install step (owner
 runs it). **Acceptance.** `kill -9` mid-drain then restart on a recorded
 transport → no duplicate fetch, no lost item (queue diff empty); the reserve is
 never breached (assert on the recorded budget trace); a second instance exits
@@ -838,7 +838,7 @@ with a named message. **Cites.** D-COL-10. **Depends.** W6-2, W6-6.
 
 ### W6-8 Ledger-slice reproducibility (added 2026-09-17)
 **Goal.** Manifest per-repo `raw_hash` = hash of the as-of ledger slices (plus
-slow-fact envelopes); `manifest_root` over those; `cvi.snapshot reproduce <id>`
+slow-fact envelopes); `manifest_root` over those; `porchlamp.snapshot reproduce <id>`
 re-derives from ledgers at the recorded `as_of`; compaction with header record
 and the refusal rule of D-COL-8. **Acceptance.** Reproduce yesterday's snapshot
 after today's recorded deltas → identical `records_hash`; reproduce a snapshot

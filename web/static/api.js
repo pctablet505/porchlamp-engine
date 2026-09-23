@@ -13,7 +13,7 @@
 //   - /not-ranked: the same filtering, then the endpoint's own truncation
 //     to its first `max_rows` rows and split into groups;
 //   - /reproject (custom weights): the one real computation — a port of
-//     cvi.store.queries.reproject's SQL over the stored pillar columns.
+//     porchlamp.store.queries.reproject's SQL over the stored pillar columns.
 
 import { DATA_VERSION } from "./data-version.js";
 
@@ -125,7 +125,7 @@ function queryInt(endpoint, name, value, fallback) {
   return Number(s);
 }
 
-/** cvi.store.queries._validate_persona; the persona list is the snapshot's own. */
+/** porchlamp.store.queries._validate_persona; the persona list is the snapshot's own. */
 function validatePersona(endpoint, persona, snapshot) {
   const known = Object.keys(snapshot.persona_visible_counts).sort();
   if (!known.includes(persona)) {
@@ -133,7 +133,7 @@ function validatePersona(endpoint, persona, snapshot) {
   }
 }
 
-/** cvi.store.queries._validate_paging. */
+/** porchlamp.store.queries._validate_paging. */
 function validatePaging(endpoint, limit, offset, maxLimit) {
   if (!Number.isInteger(limit) || limit < 1 || limit > maxLimit) {
     throw unprocessable(endpoint, `limit must be an integer in 1..${maxLimit}; got ${limit}`);
@@ -148,7 +148,7 @@ function sqlLower(s) {
   return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
 }
 
-/** cvi.store.queries._ecosystem_filter + _search_filter: exact ecosystem; `q` a case-insensitive owner or name substring. */
+/** porchlamp.store.queries._ecosystem_filter + _search_filter: exact ecosystem; `q` a case-insensitive owner or name substring. */
 function rowFilter(eco, q) {
   const needle = present(q) ? sqlLower(String(q)) : null;
   return (row) =>
@@ -161,7 +161,7 @@ function rowFilter(eco, q) {
  * @param {{persona?: string, eco?: string, q?: string, sort?: string, page?: number, page_size?: number}} params
  */
 export function fetchLeaderboard(params = {}) {
-  const endpoint = `/v1/cvi/leaderboard${toQueryString(params)}`;
+  const endpoint = `/v1/porchlamp/leaderboard${toQueryString(params)}`;
   return answer(endpoint, async () => {
     const snapshot = await loadJson("snapshot.json");
     const persona = present(params.persona) ? String(params.persona) : "balanced";
@@ -191,7 +191,7 @@ export function fetchLeaderboard(params = {}) {
   });
 }
 
-/** cvi.serve.app._translate_sort's allow-list check, then the persona check, then the persona's exported list. */
+/** porchlamp.serve.app._translate_sort's allow-list check, then the persona check, then the persona's exported list. */
 async function rankedList(endpoint, persona, sort, snapshot) {
   if (sort !== null) {
     const manifest = await loadJson("manifest.json");
@@ -209,7 +209,7 @@ async function rankedList(endpoint, persona, sort, snapshot) {
 
 // -------------------------------------------------------- /not-ranked
 export function fetchNotRanked(params = {}) {
-  const endpoint = `/v1/cvi/not-ranked${toQueryString(params)}`;
+  const endpoint = `/v1/porchlamp/not-ranked${toQueryString(params)}`;
   return answer(endpoint, async () => {
     const snapshot = await loadJson("snapshot.json");
     const persona = present(params.persona) ? String(params.persona) : "balanced";
@@ -256,7 +256,7 @@ async function repoRecord(endpoint, owner, name) {
 }
 
 function repoPath(owner, name) {
-  return `/v1/cvi/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+  return `/v1/porchlamp/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
 }
 
 export function fetchEvidence(owner, name) {
@@ -265,7 +265,7 @@ export function fetchEvidence(owner, name) {
 }
 
 /**
- * `GET /v1/cvi/repos/{owner}/{name}` -> `RepoDetailResponse`, the API's
+ * `GET /v1/porchlamp/repos/{owner}/{name}` -> `RepoDetailResponse`, the API's
  * own exported answer.
  */
 export function fetchRepoDetail(owner, name) {
@@ -275,15 +275,15 @@ export function fetchRepoDetail(owner, name) {
 
 // ------------------------------------------- snapshot / matrix / methodology
 export function fetchSnapshot() {
-  return answer("/v1/cvi/snapshot", () => loadJson("snapshot.json"));
+  return answer("/v1/porchlamp/snapshot", () => loadJson("snapshot.json"));
 }
 
 export function fetchMatrix() {
-  return answer("/v1/cvi/matrix", () => loadJson("matrix.json"));
+  return answer("/v1/porchlamp/matrix", () => loadJson("matrix.json"));
 }
 
 export function fetchMethodology() {
-  return answer("/v1/cvi/methodology", () => loadJson("methodology.json"));
+  return answer("/v1/porchlamp/methodology", () => loadJson("methodology.json"));
 }
 
 // ---------------------------------------------------------- /reproject
@@ -311,10 +311,10 @@ function ascNullsLast(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** cvi.store.queries._order_by_sql over the custom composite/coverage: D-TIE-1's 8 levels. */
+/** porchlamp.store.queries._order_by_sql over the custom composite/coverage: D-TIE-1's 8 levels. */
 function tieBreakOrder(a, b) {
   return (
-    descNullsLast(a.cviDisplay, b.cviDisplay) ||
+    descNullsLast(a.porchlampDisplay, b.porchlampDisplay) ||
     descNullsLast(a.coverage, b.coverage) ||
     descNullsLast(a.row.p_responsiveness, b.row.p_responsiveness) ||
     ascNullsLast(a.row.friction, b.row.friction) ||
@@ -344,11 +344,11 @@ function pySum(values) {
   return c !== 0 && Number.isFinite(c) ? total + c : total;
 }
 
-/** The whole custom projection, ranked: cvi.store.queries.reproject without its LIMIT/OFFSET. */
+/** The whole custom projection, ranked: porchlamp.store.queries.reproject without its LIMIT/OFFSET. */
 function reprojectAll(base, weights) {
   const pillars = base.pillars;
   const w = pillars.map((p) => weights[p]);
-  const totalWeight = pySum(w); // cvi.store.queries.reproject: float(sum(weights.values()))
+  const totalWeight = pySum(w); // porchlamp.store.queries.reproject: float(sum(weights.values()))
   const tierIndex = (label) => base.tier_order.indexOf(label);
   const visible = [];
   for (const row of base.rows) {
@@ -380,7 +380,7 @@ function reprojectAll(base, weights) {
       coverage >= base.no_ceiling_min_coverage ? tierIndex("S+") : coverage >= base.ceiling_a_min_coverage ? tierIndex("A") : tierIndex("B");
     visible.push({
       row,
-      cviDisplay: sqlRound(composite, 2),
+      porchlampDisplay: sqlRound(composite, 2),
       coverage,
       tier: base.tier_order[Math.min(scoreTier, ceiling)],
       lowerKey: sqlLower(`${row.owner}/${row.name}`),
@@ -389,23 +389,23 @@ function reprojectAll(base, weights) {
   visible.sort(tieBreakOrder);
   // _tie_group_sql: DENSE_RANK over ROUND(composite, 2) DESC, NULL for a value only one row has.
   const members = new Map();
-  for (const v of visible) members.set(v.cviDisplay, (members.get(v.cviDisplay) || 0) + 1);
+  for (const v of visible) members.set(v.porchlampDisplay, (members.get(v.porchlampDisplay) || 0) + 1);
   const denseRank = new Map([...members.keys()].sort((a, b) => b - a).map((value, i) => [value, i + 1]));
   visible.forEach((v, i) => {
     v.rank = i + 1;
-    v.tieGroup = members.get(v.cviDisplay) === 1 ? null : denseRank.get(v.cviDisplay);
+    v.tieGroup = members.get(v.porchlampDisplay) === 1 ? null : denseRank.get(v.porchlampDisplay);
   });
   return visible;
 }
 
-/** cvi.serve.app._no_ceiling_or_band. */
+/** porchlamp.serve.app._no_ceiling_or_band. */
 function tierCeiling(base, coverage) {
   if (coverage >= base.no_ceiling_min_coverage) return null;
   if (coverage >= base.ceiling_a_min_coverage) return "A";
   return "B";
 }
 
-/** cvi.serve.app._reproject_row: a ReprojectRow, fields in the contract's order. */
+/** porchlamp.serve.app._reproject_row: a ReprojectRow, fields in the contract's order. */
 function reprojectRow(base, v) {
   const r = v.row;
   const out = {
@@ -414,7 +414,7 @@ function reprojectRow(base, v) {
     owner: r.owner,
     name: r.name,
     ecosystem: r.ecosystem,
-    cvi: v.cviDisplay,
+    porchlamp: v.porchlampDisplay,
     coverage: v.coverage,
     tier: v.tier,
     tier_ceiling: tierCeiling(base, v.coverage),
@@ -439,14 +439,14 @@ function reprojectRow(base, v) {
     balanced_rank: r.balanced_rank,
     rank_delta: r.balanced_rank === null ? null : r.balanced_rank - v.rank,
     balanced_tie_group: r.balanced_tie_group,
-    balanced_cvi: r.balanced_cvi,
+    balanced_porchlamp: r.balanced_porchlamp,
     balanced_coverage: r.balanced_coverage,
     balanced_tier: r.balanced_tier,
   });
   return out;
 }
 
-/** ReprojectRequest's pydantic validation, then cvi.core.aggregate.validate_pillar_weights. */
+/** ReprojectRequest's pydantic validation, then porchlamp.core.aggregate.validate_pillar_weights. */
 function validatedWeights(endpoint, body, base) {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     throw unprocessable(endpoint, "body: Input should be a valid dictionary or object to extract fields from");
@@ -473,13 +473,13 @@ function validatedWeights(endpoint, body, base) {
 }
 
 /**
- * Screen D (Configure weights): `POST /v1/cvi/reproject` with a five-pillar
+ * Screen D (Configure weights): `POST /v1/porchlamp/reproject` with a five-pillar
  * weight vector -> `ReprojectResponse`, computed here. `page`/`page_size`
  * mirror the endpoint's query parameters (the UI sends neither: page 1 of
  * the default page size, as against the API).
  */
 export async function postReproject(weights, { page = 1, page_size: pageSize } = {}) {
-  const endpoint = "/v1/cvi/reproject";
+  const endpoint = "/v1/porchlamp/reproject";
   return answer(endpoint, async () => {
     const base = await loadJson("reproject.json");
     const size = pageSize === undefined ? base.default_page_size : pageSize;

@@ -1,7 +1,7 @@
 # B-3 — server faults reported as client 422s — FIXED (verified)
 
 ```
-  stored quadrant='Nowhere' -> 500  {"error":{"endpoint":"/v1/cvi/leaderboard","status":500,
+  stored quadrant='Nowhere' -> 500  {"error":{"endpoint":"/v1/porchlamp/leaderboard","status":500,
                                      "detail":"internal server error"}}
   unknown param_id          -> 500  {"error":{"endpoint":".../evidence","status":500,
                                      "detail":"internal server error"}}
@@ -13,7 +13,7 @@ lead's bridge-item-10 ruling. The detail leaks nothing (W-7 satisfied: a
 Over-correction guard — genuine caller input is untouched:
 ```
     bad persona        -> 422  unknown persona 'nonsense'; expected one of [...]
-    vanity sort        -> 422  sort must be one of ('rank','cvi','coverage','tier','p_...')
+    vanity sort        -> 422  sort must be one of ('rank','porchlamp','coverage','tier','p_...')
     page_size=0        -> 422  limit must be an integer in 1..1000; got 0
     page_size=1001     -> 422  limit must be an integer in 1..1000; got 1001
     page=0             -> 422  offset must be a non-negative integer; got -20

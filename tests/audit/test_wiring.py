@@ -1,12 +1,12 @@
-"""Wiring tests for the lazy re-export registry in :mod:`cvi.audit`.
+"""Wiring tests for the lazy re-export registry in :mod:`porchlamp.audit`.
 
-``cvi.audit.forward`` must be registered in ``_LAZY_EXPORTS`` with
+``porchlamp.audit.forward`` must be registered in ``_LAZY_EXPORTS`` with
 exactly the module's public top-level names, and every registered name must
 resolve through the package ``__getattr__`` / ``importlib`` to the object
 defined in its submodule.  ``__getattr__`` hands a name to the first
 registered module that lists it, so the shared name ``main`` (already owned
-by ``coverage``) still resolves to ``cvi.audit.coverage.main``; every other
-forward name resolves to ``cvi.audit.forward``.
+by ``coverage``) still resolves to ``porchlamp.audit.coverage.main``; every other
+forward name resolves to ``porchlamp.audit.forward``.
 """
 
 from __future__ import annotations
@@ -36,31 +36,31 @@ def _public_top_level_names(source: str) -> set[str]:
 
 
 def test_forward_entry_lists_module_public_names() -> None:
-    from cvi import audit
+    from porchlamp import audit
 
-    origin = importlib.util.find_spec("cvi.audit.forward").origin
+    origin = importlib.util.find_spec("porchlamp.audit.forward").origin
     expected = _public_top_level_names(Path(origin).read_text(encoding="utf-8"))
-    assert "cvi.audit.forward" in audit._LAZY_EXPORTS
-    assert set(audit._LAZY_EXPORTS["cvi.audit.forward"]) == expected
+    assert "porchlamp.audit.forward" in audit._LAZY_EXPORTS
+    assert set(audit._LAZY_EXPORTS["porchlamp.audit.forward"]) == expected
     assert not any(
-        name.startswith("_") for name in audit._LAZY_EXPORTS["cvi.audit.forward"]
+        name.startswith("_") for name in audit._LAZY_EXPORTS["porchlamp.audit.forward"]
     )
 
 
 def test_forward_names_resolve_via_getattr() -> None:
     """Each forward name resolves through ``__getattr__`` to its provider module's object."""
-    from cvi import audit
+    from porchlamp import audit
 
     registry = audit._LAZY_EXPORTS
-    assert set(registry["cvi.audit.forward"]) <= set(audit.__all__)
-    for name in registry["cvi.audit.forward"]:
+    assert set(registry["porchlamp.audit.forward"]) <= set(audit.__all__)
+    for name in registry["porchlamp.audit.forward"]:
         provider = next(module for module, names in registry.items() if name in names)
         expected = importlib.import_module(provider)
         assert getattr(audit, name) is getattr(expected, name)
 
 
 def test_all_registry_entries_resolve() -> None:
-    from cvi import audit
+    from porchlamp import audit
 
     for module_name, names in audit._LAZY_EXPORTS.items():
         module = importlib.import_module(module_name)

@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from cvi.snapshot.reproduce import canonical_dump
-from cvi.store import schema
-from cvi.store.migrations import MIGRATIONS_DIR, apply_migrations, discover_migrations
+from porchlamp.snapshot.reproduce import canonical_dump
+from porchlamp.store import schema
+from porchlamp.store.migrations import MIGRATIONS_DIR, apply_migrations, discover_migrations
 
 V1_BASELINE = Path("/home/pctablet505/Projects/cvi-scratch/v1-baseline/cvi.db")
 
@@ -30,13 +30,13 @@ def _build_minimal_v1_db(path: Path) -> None:
             owner VARCHAR(100) NOT NULL,
             name VARCHAR(100) NOT NULL,
             ecosystem VARCHAR(50) NOT NULL,
-            overall_cvi REAL NOT NULL,
+            overall_porchlamp REAL NOT NULL,
             UNIQUE(owner, name)
         )
         """
     )
     conn.executemany(
-        "INSERT INTO repositories (owner, name, ecosystem, overall_cvi) VALUES (?, ?, ?, ?)",
+        "INSERT INTO repositories (owner, name, ecosystem, overall_porchlamp) VALUES (?, ?, ?, ?)",
         [("acme", "one", "python", 71.5), ("acme", "two", "go", 82.0), ("acme", "three", "rust", 55.25)],
     )
     conn.commit()
@@ -76,7 +76,7 @@ def test_apply_migrations_is_idempotent(tmp_path) -> None:
 
 
 def test_apply_migrations_requires_explicit_applied_at(tmp_path) -> None:
-    """R rules: no wall-clock read in ``cvi/`` -- ``applied_at`` must be
+    """R rules: no wall-clock read in ``porchlamp/`` -- ``applied_at`` must be
     supplied, never defaulted to ``datetime.now()``."""
     conn = sqlite3.connect(tmp_path / "x.db")
     with pytest.raises(ValueError):
@@ -101,7 +101,7 @@ def _write_broken_migration(dst_dir: Path, break_after_n_statements: int) -> Non
     inserted after the ``break_after_n_statements``-th real statement, so
     the failure point is controlled precisely rather than guessed at by
     string surgery on the real file."""
-    from cvi.store.migrations import _split_statements
+    from porchlamp.store.migrations import _split_statements
 
     original = (MIGRATIONS_DIR / "0001_init.sql").read_text(encoding="utf-8")
     statements = _split_statements(original)

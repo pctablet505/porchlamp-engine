@@ -1,4 +1,4 @@
-# TEST_READY: Contributor Value Index E2E Test Suite
+# TEST_READY: Porchlamp E2E Test Suite
 
 **Status:** READY  
 **Date:** 2026-09-11  
@@ -36,7 +36,7 @@ All Tier 1 features meet or exceed the $\ge 5$ test cases requirement:
 - [x] **Canonical Parameter Hierarchy & WAM** (5 tests)
   - `test_canonical_pillar_priority_weights`: Canonical weights (P1 25%, P2 25%, P3 20%, P4 15%, P5 15%).
   - `test_canonical_underlying_15_parameters_weights`: Exact internal pillar allocations for all 15 empirical metrics.
-  - `test_wam_scoring_mathematical_consistency`: Overall CVI equals canonical weighted sum of pillars.
+  - `test_wam_scoring_mathematical_consistency`: Overall Porchlamp equals canonical weighted sum of pillars.
   - `test_leverage_formula_decomposition`: Leverage (Y-axis) decomposes into $0.50 \cdot P_2 + 0.30 \cdot P_4 + 0.20 \cdot P_3$.
   - `test_friction_formula_decomposition`: Friction (X-axis) decomposes into $0.50(100 - P_1) + 0.30(100 - P_3) + 0.20(100 - P_5)$.
 
@@ -58,10 +58,10 @@ All Tier 1 features meet or exceed the $\ge 5$ test cases requirement:
 
 - [x] **API Endpoints** (5 tests)
   - `test_api_healthz_liveness`: `GET /healthz` returns 200 OK in $< 50$ms SLA.
-  - `test_api_matrix_spatial_query_sla`: `GET /v1/cvi/matrix` returns nodes and quadrant totals in $< 50$ms SLA.
-  - `test_api_repo_deep_dive_scorecard_200_and_404`: `GET /v1/cvi/repos/{owner}/{name}` scorecard and 404 handling.
-  - `test_api_paginated_leaderboard_endpoint`: `GET /v1/cvi/leaderboard` pagination, limit, offset in $< 50$ms SLA.
-  - `test_api_persona_reproject_endpoint`: `POST /v1/cvi/reproject` dynamic weight re-ranking.
+  - `test_api_matrix_spatial_query_sla`: `GET /v1/porchlamp/matrix` returns nodes and quadrant totals in $< 50$ms SLA.
+  - `test_api_repo_deep_dive_scorecard_200_and_404`: `GET /v1/porchlamp/repos/{owner}/{name}` scorecard and 404 handling.
+  - `test_api_paginated_leaderboard_endpoint`: `GET /v1/porchlamp/leaderboard` pagination, limit, offset in $< 50$ms SLA.
+  - `test_api_persona_reproject_endpoint`: `POST /v1/porchlamp/reproject` dynamic weight re-ranking.
 
 - [x] **Dual Theme Engine** (6 tests)
   - `test_dual_theme_dark_mode_palette_tokens`: Dark mode obsidian canvas (`#090D16`) and slate tokens.
@@ -100,8 +100,8 @@ All Tier 1 features meet or exceed the $\ge 5$ test cases requirement:
 - [x] **Rank Monotonicity**: Gapless, non-overlapping global rank sequence across sequential pages.
 - [x] **Sorting Invariance**: Scores monotonically non-increasing under all supported personas.
 - [x] **Quad-Quadrant Multi-Repo Comparison**: Simultaneous comparison of 4 repositories from all 4 quadrants.
-- [x] **Playbook & Comparator Integration**: Bottleneck identification lifts potential CVI above current CVI.
-- [x] **Leaderboard vs Reproject Equivalence**: Balanced persona leaderboard matches `POST /v1/cvi/reproject` ranks.
+- [x] **Playbook & Comparator Integration**: Bottleneck identification lifts potential Porchlamp above current Porchlamp.
+- [x] **Leaderboard vs Reproject Equivalence**: Balanced persona leaderboard matches `POST /v1/porchlamp/reproject` ranks.
 - [x] **Black Hole State Propagation**: Gated repository state verified across Matrix, Leaderboard, and Scorecard.
 - [x] **Spatial Matrix Multi-Filter**: `ecosystem` + `min_stars` + `exclude_black_holes` evaluated simultaneously.
 
@@ -111,7 +111,7 @@ All Tier 1 features meet or exceed the $\ge 5$ test cases requirement:
 
 - [x] **Landmark PyPI — Sweet Spot**: `vllm-project/vllm` (Tier S/S+, leverage $\ge 50$, friction $< 50$, sub-12h TTFHR, DCO).
 - [x] **Landmark Systems — Crucible & Off-Platform Routing**: `torvalds/linux` (LKML mailing list path, not disqualified, leverage $\ge 50$, friction $\ge 50$).
-- [x] **Landmark PyPI — Graveyard & Black Hole**: `keras-team/keras-hub` (Stage 0 Black Hole, ghost rate $> 50\%$, 0.0 CVI, Tier D).
+- [x] **Landmark PyPI — Graveyard & Black Hole**: `keras-team/keras-hub` (Stage 0 Black Hole, ghost rate $> 50\%$, 0.0 Porchlamp, Tier D).
 - [x] **Landmark npm — Ecosystem Anchor**: `facebook/react` (Tier S+, Sweet Spot, 200k+ stars, 50M+ downloads, 100k+ dependents).
 - [x] **Landmark Go — Foundational System**: `kubernetes/kubernetes` (Crucible, CNCF CLA, Elephant Factor $\ge 4$).
 - [x] **Landmark Systems — AI Policy Posture Ban**: `gentoo/gentoo` (Tier A under Balanced persona, disqualified under AI-Assisted persona).

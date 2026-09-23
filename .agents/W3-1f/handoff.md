@@ -11,23 +11,23 @@ four Notes items.
 
 ```
  .agents/W3-1/handoff.md             |  17 +-
- cvi/collect/github_graphql.py       |  27 ++-
- cvi/derive/bundle.py                | 353 ++++++++++++++++++++++-----
- cvi/verify/detectors.py             |  13 +-
+ porchlamp/collect/github_graphql.py       |  27 ++-
+ porchlamp/derive/bundle.py                | 353 ++++++++++++++++++++++-----
+ porchlamp/verify/detectors.py             |  13 +-
  tests/collect/test_pr_window.py     |  40 +--
  tests/derive/_fixtures.py           |  19 ++
  tests/derive/test_input_mappings.py | 468 +++++++++++++++++++++++++++++++++++-
  7 files changed, 827 insertions(+), 110 deletions(-)
 ```
-`cvi/derive/bundle.py`: 1,433 → 1,782 lines (W2-9f's own count carried forward through W2-12/W3-1
+`porchlamp/derive/bundle.py`: 1,433 → 1,782 lines (W2-9f's own count carried forward through W2-12/W3-1
 was 1,433 at this branch point; +349, +24%). Not split: the growth is one new module-scope helper
 (`_author_history_envelope`), one new eligibility predicate (`_dr90_author_eligible`), the
 rewritten `_dr90_decision_cohort`/`_resolve_dr90_decision_rate` pair, and one new resolver factory
 (`_author_history_rate_resolver`) — all load-bearing for this packet's four items, none of it
-incidental. `cvi/collect/github_graphql.py` and `tests/collect/test_pr_window.py` are touched only
+incidental. `porchlamp/collect/github_graphql.py` and `tests/collect/test_pr_window.py` are touched only
 for the Notes-item-4 rename (below); no behavior in that module changed.
 
-Stayed out of `cvi/store/**`, `web/**`, `cvi/serve/**`, `cvi/core/pipeline.py` — none touched.
+Stayed out of `porchlamp/store/**`, `web/**`, `porchlamp/serve/**`, `porchlamp/core/pipeline.py` — none touched.
 
 ## 1. Item W-1 — DR_90 per-author cap + eligibility-gate join
 
@@ -35,13 +35,13 @@ Stayed out of `cvi/store/**`, `web/**`, `cvi/serve/**`, `cvi/core/pipeline.py` �
 DR_90) applied neither D-IN-3 mechanism at all — a sock puppet filing 6 of a 10-PR cohort, all
 6 fast-merged, scored `r = 0.6` where the cap should give `0.3333`.
 
-**Fix.** `cvi/derive/bundle.py`:
+**Fix.** `porchlamp/derive/bundle.py`:
 - `_dr90_decision_cohort(data, anchor, author_records=None)` now takes an optional
   `author_records` map (login → `author_history` record). When given, each cohort PR's author is
   checked with the new `_dr90_author_eligible` (tri-state: `True`/`False`/`None`, `None` — unknown
-  — excluded from the population entirely, matching `cvi.core.hygiene.account_eligibility`'s own
+  — excluded from the population entirely, matching `porchlamp.core.hygiene.account_eligibility`'s own
   discipline). Whether or not the gate ran, survivors are always run through
-  `cvi.core.hygiene.apply_author_cap` keyed on `(login, createdAt)` — both present on every
+  `porchlamp.core.hygiene.apply_author_cap` keyed on `(login, createdAt)` — both present on every
   `pr_window` PR node regardless of `author_history` — so the cap is unconditional and the gate is
   conditional, exactly matching the review's own diagnosis (C2c): "the CAP needs only
   `(login, created_at)`... it needs only a join that already exists".
@@ -51,7 +51,7 @@ DR_90) applied neither D-IN-3 mechanism at all — a sock puppet filing 6 of a 1
   PRs as one giant sock puppet.
 - `_dr90_author_eligible`'s `measured` flag combines BOTH of the collector's failure signals
   (`eligibility_unmeasured` OR `history_unmeasured`), mirroring
-  `cvi.collect.github_graphql._account_eligibility` (F-001's "one D-IN-3 mechanism"); checking only
+  `porchlamp.collect.github_graphql._account_eligibility` (F-001's "one D-IN-3 mechanism"); checking only
   one would silently read the other kind of fetch failure as a confirmed `True`/`False`. Unlike
   that collector-side helper, a login entirely ABSENT from `author_records` reads as unknown
   (`None`) here, not "confirmed ineligible on a zero event count" — this join crosses two
@@ -170,10 +170,10 @@ design — that is exactly the unmapped fallback path). Restored, `diff -q` clea
   `419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9 ->
   748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b` (matches
   `docs/v2/rfcs/RFC-0004-din3-hygiene-constants.md`'s own reviewer-verified pair, and the current
-  `cvi.core.constants_v2.CONSTANTS_HASH` on disk). The in-source citations at
-  `cvi/collect/github_graphql.py:500,932` already said `RFC-0004` — fixed by the lead at landing
+  `porchlamp.core.constants_v2.CONSTANTS_HASH` on disk). The in-source citations at
+  `porchlamp/collect/github_graphql.py:500,932` already said `RFC-0004` — fixed by the lead at landing
   per `a2297e4` (review item W-3), nothing left to do there.
-- **`NewcomerAccountSample` docstring contradiction** (`cvi/verify/detectors.py`): the class
+- **`NewcomerAccountSample` docstring contradiction** (`porchlamp/verify/detectors.py`): the class
   docstring said the current schema "does not carry" `account_created_at` and named itself "this
   packet's own named carrier... until that schema gains the field" — directly contradicting the
   module docstring 8 lines above, which already says `newcomer_burst` is CLOSED and
@@ -184,7 +184,7 @@ design — that is exactly the unmapped fallback path). Restored, `diff -q` clea
 - **"One name, two values"** (`meta["dr90_decision_rate"]` vs. the scored `dr90_decision_rate`
   input): renamed the collector's own D-IN-3-adjusted field (computed over `author_history`'s wider
   270 d decision cohort) to `dr90_decision_rate_author_history_cohort` /
-  `dr90_decision_pr_count_author_history_cohort` in `cvi/collect/github_graphql.py`
+  `dr90_decision_pr_count_author_history_cohort` in `porchlamp/collect/github_graphql.py`
   (`AUTHOR_HISTORY_BUNDLE_FIELDS` and both `derive_cohort_fields` branches that set it), with the
   corresponding 20 assertions in `tests/collect/test_pr_window.py` updated to match. **Picked
   rename over "make the resolver read it"** because the two numbers are genuinely different
@@ -197,10 +197,10 @@ design — that is exactly the unmapped fallback path). Restored, `diff -q` clea
   consumer that specifically wants it. Added a paragraph to `derive_cohort_fields`'s docstring
   recording this reasoning, and updated `_resolve_dr90_decision_rate`'s own "review N-3" docstring
   note to reference the new name. No `AUTHOR_HISTORY_BUNDLE_FIELDS` consumer outside
-  `cvi/collect/github_graphql.py`/`tests/collect/test_pr_window.py` existed to update — confirmed
-  by grep before renaming: every other `"dr90_decision_rate"` occurrence in the tree (`cvi/core/
-  params/responsiveness.py`, `cvi/core/constants_v2.py`, `cvi/verify/detectors.py`,
-  `cvi/derive/bundle.py`'s `INPUT_MAPPINGS`/`PARAM_MIN_N` lookups, every `bundle.inputs[...]`
+  `porchlamp/collect/github_graphql.py`/`tests/collect/test_pr_window.py` existed to update — confirmed
+  by grep before renaming: every other `"dr90_decision_rate"` occurrence in the tree (`porchlamp/core/
+  params/responsiveness.py`, `porchlamp/core/constants_v2.py`, `porchlamp/verify/detectors.py`,
+  `porchlamp/derive/bundle.py`'s `INPUT_MAPPINGS`/`PARAM_MIN_N` lookups, every `bundle.inputs[...]`
   assertion) is the v2 scored input id, a different dict/namespace entirely, and is unaffected.
 
 ## 5. Rebase
@@ -213,7 +213,7 @@ of the branch pointer once this packet's own commit lands (see §6 for the resul
 
 ## 6. Verification
 
-- Ruff: `ruff check cvi/ scripts/ tests/` → `All checks passed!`
+- Ruff: `ruff check porchlamp/ scripts/ tests/` → `All checks passed!`
 - Fixture: `scripts/build_fixture_snapshot.py` reproduces `records_hash
   7ac577015106445b778572bf951e2bd4ae3f3ec7b0fe90754835296764a00360` — byte-identical to the
   pre-packet snapshot; `git diff --stat -- tests/fixtures/snapshot_50/` is empty. No regeneration
@@ -231,15 +231,15 @@ Review read: `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bf
 
 ### B-1 (Blocker) — checked one number, reported another
 
-Round 1's fix checked `PARAM_MIN_N` against `raw_cohort` but reported `Measured(n=capped)`; `cvi.core.params.curves._apply` re-applies the *same* `min_n` against the reported `n`, so both cap oracles (sock-puppet `r=0.3333 n=6`, boundary `r=0.1111 n=9`) scored `insufficient_n` end to end — the anti-manipulation cap converted a manipulated repo into missing data instead of a corrected rate, exactly reversing what D-IN-3 is for.
+Round 1's fix checked `PARAM_MIN_N` against `raw_cohort` but reported `Measured(n=capped)`; `porchlamp.core.params.curves._apply` re-applies the *same* `min_n` against the reported `n`, so both cap oracles (sock-puppet `r=0.3333 n=6`, boundary `r=0.1111 n=9`) scored `insufficient_n` end to end — the anti-manipulation cap converted a manipulated repo into missing data instead of a corrected rate, exactly reversing what D-IN-3 is for.
 
 **Ruling taken (the review's recommended option (a)):** check and report the SAME number — the CAPPED population — and fix the degenerate case at its source:
 
-- `cvi/core/hygiene.py::apply_author_cap`: `allowed = max(1, int(AUTHOR_CAP_FRACTION * len(items)))`, dropping the old `if allowed <= 0: return ()` branch entirely. A small population now keeps everything **until the cap actually binds on real concentration** — three independent single-PR authors (nobody dominating) keep all three; four PRs all from one login are still capped down to that login's one-item allowance. Fail-before: `test_apply_author_cap_small_population_binds_when_one_author_dominates` (new) and the pre-existing `..._loses_everything` test (renamed/re-pointed) both failed against the pre-fix code with the exact wrong values quoted above; both pass now.
-- `cvi/derive/bundle.py::_resolve_dr90_decision_rate`: `min_n` is checked against `cohort` (the capped size, the SAME number `Measured.n` reports), not `raw_cohort`. The detail string for the `insufficient_n` path now names BOTH numbers (`"{cohort} external PRs in the decision cohort ({raw_cohort} before the D-IN-3 per-author cap), need >= {min_n}"`) — diagnostic value for a human reading the bundle, since a capped rate below the floor is a real cap bind, not silently mistaken for "no evidence at all". `raw_cohort` is otherwise dead as a gate; it survives in the return tuple only to be named there.
+- `porchlamp/core/hygiene.py::apply_author_cap`: `allowed = max(1, int(AUTHOR_CAP_FRACTION * len(items)))`, dropping the old `if allowed <= 0: return ()` branch entirely. A small population now keeps everything **until the cap actually binds on real concentration** — three independent single-PR authors (nobody dominating) keep all three; four PRs all from one login are still capped down to that login's one-item allowance. Fail-before: `test_apply_author_cap_small_population_binds_when_one_author_dominates` (new) and the pre-existing `..._loses_everything` test (renamed/re-pointed) both failed against the pre-fix code with the exact wrong values quoted above; both pass now.
+- `porchlamp/derive/bundle.py::_resolve_dr90_decision_rate`: `min_n` is checked against `cohort` (the capped size, the SAME number `Measured.n` reports), not `raw_cohort`. The detail string for the `insufficient_n` path now names BOTH numbers (`"{cohort} external PRs in the decision cohort ({raw_cohort} before the D-IN-3 per-author cap), need >= {min_n}"`) — diagnostic value for a human reading the bundle, since a capped rate below the floor is a real cap bind, not silently mistaken for "no evidence at all". `raw_cohort` is otherwise dead as a gate; it survives in the return tuple only to be named there.
 - The two round-1 cap oracles are RESIZED so the capped population clears `PARAM_MIN_N=10`, per the review's own instruction: sock-puppet is now 20 raw PRs (12 sock, 8 honest; `floor(0.20*20)=4` capped, same 0.3333/0.6 pair as before at 2x scale); cap-boundary is now 20 raw PRs (dominant holds `allowed+1=5`, 15 honest; capped 19, `r=0.0526`).
 - **New:** `test_dr90_decision_rate_cap_reduces_below_min_n` — a REAL sock puppet (9 of 12 raw PRs from one login) where the capped population (5) genuinely falls below `min_n` even after the fix — proves the safe failure direction still exists for an actually-too-small capped population, with the dual-count detail.
-- **New, per the review's own instruction ("assert the ParamScore, not the resolver's return value"):** both cap-oracle tests now also call `cvi.core.params.dr90(bundle.inputs["dr90_decision_rate"])` directly and assert `measured=True`, `reason=None`, `n=<capped>` — the end-to-end path through the param layer the round-1 tests never exercised, which is exactly what let the original bug ship.
+- **New, per the review's own instruction ("assert the ParamScore, not the resolver's return value"):** both cap-oracle tests now also call `porchlamp.core.params.dr90(bundle.inputs["dr90_decision_rate"])` directly and assert `measured=True`, `reason=None`, `n=<capped>` — the end-to-end path through the param layer the round-1 tests never exercised, which is exactly what let the original bug ship.
 
 Mutants (backup/mutate/rerun/restore, `diff -q` byte-identical after every restore):
 - Reintroduce the `raw_cohort` check → `test_dr90_decision_rate_cap_reduces_below_min_n` fails (reports `Measured(0.0, n=5)` where `Unmeasured(insufficient_n)` is correct) — this is precisely the round-1 bug's own failure mode, now caught.
@@ -247,7 +247,7 @@ Mutants (backup/mutate/rerun/restore, `diff -q` byte-identical after every resto
 
 ### X8 — the `eligibility_unmeasured` / `history_unmeasured` coupling, decided
 
-**Decision (relax it for DR_90):** `_dr90_author_eligible`'s `measured` now reads ONLY `eligibility_unmeasured`. DR_90's gate needs exactly the account's age and public-event count, both from the per-author eligibility fetch; `history_unmeasured` means the author's PRIOR-MERGE SEARCH failed, a fact only 1.3 (MR_first's "no prior merged PR") needs. `cvi.collect.github_graphql._account_eligibility` is correct to OR both flags — its one call site serves 1.2 AND 1.3 at once — but this bundle-side join serves 1.2 alone, so coupling in `history_unmeasured` was over-strict: it would exclude an author with perfectly good eligibility data from DR_90's population solely because an unrelated MR_first-only fetch failed for them.
+**Decision (relax it for DR_90):** `_dr90_author_eligible`'s `measured` now reads ONLY `eligibility_unmeasured`. DR_90's gate needs exactly the account's age and public-event count, both from the per-author eligibility fetch; `history_unmeasured` means the author's PRIOR-MERGE SEARCH failed, a fact only 1.3 (MR_first's "no prior merged PR") needs. `porchlamp.collect.github_graphql._account_eligibility` is correct to OR both flags — its one call site serves 1.2 AND 1.3 at once — but this bundle-side join serves 1.2 alone, so coupling in `history_unmeasured` was over-strict: it would exclude an author with perfectly good eligibility data from DR_90's population solely because an unrelated MR_first-only fetch failed for them.
 
 New test: `test_dr90_decision_rate_ignores_history_unmeasured_when_eligibility_is_measured` — 10 clean eligible authors, one with `history_unmeasured=True` but `eligibility_unmeasured=False` and genuinely good account data; capped `n` stays 10 (not 9), proving the author is kept. Mutant (re-couple the two flags) → this test fails (`n=9`, `Unmeasured(insufficient_n)` instead of `Measured(n=10)`).
 
@@ -263,6 +263,6 @@ Added one `bundle.provenance_hash == feature_provenance_hash({<envelope path>: <
 ### Verification (round 2)
 
 - `tests/core/test_hygiene.py`, `tests/derive/test_input_mappings.py`, `tests/collect/test_pr_window.py`, `tests/verify/` — all pass; `tests/derive/ tests/core/ tests/collect/ tests/verify/` together: **879 passed**.
-- Ruff (`cvi/ scripts/ tests/`): `All checks passed!`
+- Ruff (`porchlamp/ scripts/ tests/`): `All checks passed!`
 - Full suite (`tests/ -n 4 -p no:cacheprovider`): **2338 passed, 1 skipped, 12 warnings** on a quiet run. One noisy run showed `tests/store/test_queries.py::test_performance_list_ranked_and_reproject_p95_under_100ms_for_10k_rows` fail once under concurrent load (isolated: `1 passed in 4.06s`) — the SAME U-LOAD SLA-latency flakiness the review's own N-4 already recorded, not attributable to this packet.
 - Fixture: unaffected by round 2 as well (no round-2 change touches `sample-200`'s own data path; the resized fixtures are unit-test-only).

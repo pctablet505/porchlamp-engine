@@ -1,15 +1,15 @@
 # W2-4 Handoff — Mid-rank ECDF and frozen populations (D-NORM-1..3)
 
 - Branch: `W2-4`, base `6651386` (W2-2 gates v2), commit below + handoff commit.
-- Owns (R-10): `cvi/core/normalize.py` (new), `cvi/snapshot/populations.py` (new),
+- Owns (R-10): `porchlamp/core/normalize.py` (new), `porchlamp/snapshot/populations.py` (new),
   `tests/core/test_normalize_v2.py` (new), `tests/snapshot/test_populations.py` (new).
   Nothing else touched. No live repos: unit oracles + frozen-sample measure only.
 
 ## Diffstat
 
 ```
- cvi/core/normalize.py              |  58 +++++++++
- cvi/snapshot/populations.py        | 234 +++++++++++++++++++++++++++++++++++++
+ porchlamp/core/normalize.py              |  58 +++++++++
+ porchlamp/snapshot/populations.py        | 234 +++++++++++++++++++++++++++++++++++++
  tests/core/test_normalize_v2.py    |  72 ++++++++++++
  tests/snapshot/test_populations.py | 213 +++++++++++++++++++++++++++++++++
  4 files changed, 577 insertions(+)
@@ -21,17 +21,17 @@ API (R-8); no logic beyond D-NORM-1..3. Flagged, not trimmed.
 
 ## Design (02 section 6)
 
-- `cvi.core.normalize` (leaf, stdlib only — import-graph test holds):
+- `porchlamp.core.normalize` (leaf, stdlib only — import-graph test holds):
   `mid_rank_ecdf_score(value, population)` is D-NORM-1
   `R(x) = 100 * (#{x_k < x} + 0.5 * #{x_k = x}) / N` on the 0-100 scale
   (bisect on a sorted copy: below-minimum -> 0.0, above-maximum -> 100.0,
   all-tied -> 50.0); `mid_rank_ecdf(population)` pre-sorts once and returns
   the O(log N) query closure — the callback shape W2-3's KIND_ECDF curves
   (1.5, 2.1, 2.3) take. Empty population or non-numeric input raises
-  ValueError (the v1 `cvi.normalize` silent-50.0 empty fallback is not
+  ValueError (the v1 `porchlamp.normalize` silent-50.0 empty fallback is not
   reproduced: an empty population is a data condition the engine records,
   not a score).
-- `cvi.snapshot.populations`:
+- `porchlamp.snapshot.populations`:
   - `PopulationMember` = one repo's stage-4 input: repo key, ecosystem,
     stage-0 `GateResult` (W2-2), stage-3 `rated` bool (D-EVID-1), and the raw
     measured values keyed by param input id.
@@ -56,12 +56,12 @@ API (R-8); no logic beyond D-NORM-1..3. Flagged, not trimmed.
     `(snapshot_id, ecosystem, param, n, fallback, values_json, values_hash)`
     for the store's `populations` table; canonical JSON + SHA-256 of the
     effective population. W4-2 owns the schema and the migration; this
-    module never touches `cvi/store/`.
+    module never touches `porchlamp/store/`.
 - D-NORM-3 is not re-stated here: the caller (W2-5 engine) passes measured
   values for the ECDF params it reads as `kind == KIND_ECDF` from the W2-3
   `PARAMS` registry (one definition per fact).
-- `MIN_POPULATION: int = 30` is defined once in `cvi/snapshot/populations.py`
-  because `cvi.core.constants_v2` is owned by W2-1 and frozen by W2-8.
+- `MIN_POPULATION: int = 30` is defined once in `porchlamp/snapshot/populations.py`
+  because `porchlamp.core.constants_v2` is owned by W2-1 and frozen by W2-8.
   **Flag for W2-8 freeze: relocate `MIN_POPULATION` (D-NORM-2) into the
   frozen constants module when the constants freeze lands.** Same pattern as
   W2-2's gate thresholds in `gates.py`.
@@ -73,13 +73,13 @@ API (R-8); no logic beyond D-NORM-1..3. Flagged, not trimmed.
 
 ## R-1 fail-before (verbatim; exit code 1)
 
-Seed state: `cvi/core/normalize.py` = v1 `<=` semantics
-(`count(x <= v)/N*100`, empty -> 50.0), `cvi/snapshot/populations.py` = naive
+Seed state: `porchlamp/core/normalize.py` = v1 `<=` semantics
+(`count(x <= v)/N*100`, empty -> 50.0), `porchlamp/snapshot/populations.py` = naive
 builder (no gate/rated filter, no fallback, ecosystem-only values, no
 validation). Final test files unchanged.
 
 Command: `env -u PYTEST_ADDOPTS /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -m pytest tests/core/test_normalize_v2.py tests/snapshot/test_populations.py -p no:cacheprovider`
-(full output: `/tmp/cvi-w2-4-fail-before-final.txt`)
+(full output: `/tmp/porchlamp-w2-4-fail-before-final.txt`)
 
 ```
 FF.F.FFFF.FFFF.FFFF.FF                                                   [100%]
@@ -132,11 +132,11 @@ Same command, final implementation:
 22 passed in 0.03s
 ```
 
-Exit code: 0. Full output: `/tmp/cvi-w2-4-after.txt`.
+Exit code: 0. Full output: `/tmp/porchlamp-w2-4-after.txt`.
 
 ## Full canonical suite
 
-Baseline (clean worktree at `6651386`, `/tmp/cvi-w2-4-base`,
+Baseline (clean worktree at `6651386`, `/tmp/porchlamp-w2-4-base`,
 `env -u PYTEST_ADDOPTS /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -m pytest tests/ -n auto -p no:cacheprovider`):
 
 ```
@@ -158,7 +158,7 @@ passed in both runs; no isolation re-run was needed.
 
 ## Ruff (zero new findings)
 
-Command: `env -u PYTEST_ADDOPTS /home/pctablet505/Projects/contributor-value-index/.venv/bin/ruff check cvi/core/normalize.py cvi/snapshot/populations.py tests/core/test_normalize_v2.py tests/snapshot/test_populations.py`
+Command: `env -u PYTEST_ADDOPTS /home/pctablet505/Projects/contributor-value-index/.venv/bin/ruff check porchlamp/core/normalize.py porchlamp/snapshot/populations.py tests/core/test_normalize_v2.py tests/snapshot/test_populations.py`
 
 ```
 All checks passed!
@@ -169,13 +169,13 @@ with `next(...)`; re-run clean.)
 
 ## Measure (sample, measured 2026-09-12)
 
-Sample copied to `~/Projects/cvi-scratch/W2-4/`, `CVI_DATA_DIR` exported to it
+Sample copied to `~/Projects/cvi-scratch/W2-4/`, `PORCHLAMP_DATA_DIR` exported to it
 (`/home/pctablet505/Projects/cvi-scratch/W2-4`). Reproduce:
-`CVI_DATA_DIR=... /home/pctablet505/Projects/contributor-value-index/.venv/bin/python ~/Projects/cvi-scratch/W2-4/measure_populations.py`
+`PORCHLAMP_DATA_DIR=... /home/pctablet505/Projects/contributor-value-index/.venv/bin/python ~/Projects/cvi-scratch/W2-4/measure_populations.py`
 (worktree `/tmp/cvi-wt-W2-4` on `sys.path`). Full output:
 `~/Projects/cvi-scratch/W2-4/measure-output.txt`.
 
-Inputs: v2 bundles via `cvi.derive.bundle` v1-mapping over the sample's 199
+Inputs: v2 bundles via `porchlamp.derive.bundle` v1-mapping over the sample's 199
 derived docs; stage-0 `GateResult` via W2-2's `evaluate_gates` with
 `GateEvidence` from the sample's raw `tree`/`github_meta` envelopes (W1-9
 `derive_eligibility`, same construction as W2-2's `measure_gates.py`);
@@ -240,6 +240,6 @@ Population sizes per ecosystem/param (frozen via
   sample measure above is the furthest computable.
 - The store `populations` table schema: W4-2 owns it; `build_populations_table`
   was exercised only by its own oracle rows, not against a migration.
-- `populations.json` consumed by the `cvi snapshot` CLI: no CLI wiring exists
+- `populations.json` consumed by the `porchlamp snapshot` CLI: no CLI wiring exists
   yet (W4-1 owns the snapshot surface); the file was written and re-parsed by
   the test oracle only.

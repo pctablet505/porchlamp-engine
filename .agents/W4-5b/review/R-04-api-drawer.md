@@ -21,11 +21,11 @@ semantically and factually.
 
 **The server half already exists.** `scripts/serve_ui_fixtures.py:399` already implements
 `find_repo_detail(owner, name)` and the handler at line 606 already serves
-`GET /v1/cvi/repos/{owner}/{name}` → `{"kind": "rated"|"gated"|"unrated", "row": {...}}`, added under
+`GET /v1/porchlamp/repos/{owner}/{name}` → `{"kind": "rated"|"gated"|"unrated", "row": {...}}`, added under
 the lead's own 2026-09-13 drawer-content-parity ruling. W4-4's API carries the same endpoint
 (`RepoDetailResponse`). So the fix is client-side only:
 
-1. `api.js`: `export function fetchRepoDetail(owner, name)` → `getJson('/v1/cvi/repos/<o>/<n>')`
+1. `api.js`: `export function fetchRepoDetail(owner, name)` → `getJson('/v1/porchlamp/repos/<o>/<n>')`
    (4 lines, mirroring `fetchEvidence`).
 2. `state.js`: a `repoDetailByKey: {}` cache plus `REPO_DETAIL_{LOADING,OK,ERROR}` cases, exactly the
    shape `evidenceByRepo` already uses (~10 lines).

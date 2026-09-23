@@ -1,10 +1,10 @@
-"""Covers ``cvi.core.commit_domains`` -- the commit-actor typing/bot/org-key
-primitives reachable from ``cvi.derive.bundle``/``cvi.core.pipeline`` -- plus
+"""Covers ``porchlamp.core.commit_domains`` -- the commit-actor typing/bot/org-key
+primitives reachable from ``porchlamp.derive.bundle``/``porchlamp.core.pipeline`` -- plus
 the two pure facts D-TIE-1 item 7 and the ``ef_domain_mismatch`` detector
 need: :func:`last_non_bot_commit_date` and :func:`top_domain_share`. Also
 covers the ``last_non_bot_commit_at`` bundle-level sidecar accessor/setter
-pair that lives here (not in ``cvi.derive.bundle``) because
-``cvi.core.pipeline`` needs to read it back and may import only ``cvi.core``
+pair that lives here (not in ``porchlamp.derive.bundle``) because
+``porchlamp.core.pipeline`` needs to read it back and may import only ``porchlamp.core``
 plus stdlib.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from cvi.core.commit_domains import (
+from porchlamp.core.commit_domains import (
     CommitActor,
     CommitRecord,
     LastNonBotCommitMeasured,
@@ -25,7 +25,7 @@ from cvi.core.commit_domains import (
     set_last_non_bot_commit_at,
     top_domain_share,
 )
-from cvi.core.models import FeatureBundle, PRWindow, RepoIdentity, Unmeasured
+from porchlamp.core.models import FeatureBundle, PRWindow, RepoIdentity, Unmeasured
 
 
 def _actor(login: str = "alice", email: str = "alice@corp.com", actor_type: str = "User") -> CommitActor:
@@ -166,7 +166,7 @@ def test_top_domain_share_computed_over_non_bot_only_not_all_commits() -> None:
 def test_top_domain_share_tie_breaks_alphabetically_first() -> None:
     """Pinned rule: a tie for the top domain resolves to the
     alphabetically-first org key -- the same tie rule
-    ``cvi.collect.commits.elephant_factor`` already uses."""
+    ``porchlamp.collect.commits.elephant_factor`` already uses."""
     records = [
         _record("alice", "alice@zzz.com"),
         _record("bob", "bob@aaa.com"),
@@ -184,7 +184,7 @@ def test_top_domain_share_no_attributable_org_despite_commits() -> None:
     """Every non-bot commit lacks a resolvable email (``org_key`` returns
     ``None`` for all of them): ``n`` is still the non-bot count, but
     ``top_domain`` is "" and ``share`` is 0.0 -- distinct from the
-    ``n == 0`` case (``cvi.derive.bundle`` maps the two to different
+    ``n == 0`` case (``porchlamp.derive.bundle`` maps the two to different
     ``Unmeasured`` reasons)."""
     records = [_record(login="alice", email="", actor_type="User")]
     result = top_domain_share(records)
@@ -192,7 +192,7 @@ def test_top_domain_share_no_attributable_org_despite_commits() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# is_bot / org_key sanity (also covered via cvi.collect.commits, restated   #
+# is_bot / org_key sanity (also covered via porchlamp.collect.commits, restated   #
 # here once as an anti-vacuity check)                                       #
 # --------------------------------------------------------------------------- #
 
@@ -235,7 +235,7 @@ def _bundle() -> FeatureBundle:
         owner="acme", name="widget", ecosystem="pypi", archived=False,
         mirror_url=None, fork=False, license_spdx=None, default_branch=None,
     )
-    from cvi.core.models import Cohorts
+    from porchlamp.core.models import Cohorts
     return FeatureBundle(
         schema_version=2, repo=repo, inputs={}, pr_window=PRWindow(None, None, False, ()),
         cohorts=Cohorts((), ()), provenance_hash="0" * 64,

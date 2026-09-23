@@ -14,8 +14,8 @@ import collections
 import time
 from datetime import datetime
 
-from cvi.lakehouse import OperationalStore
-from cvi.models import Ecosystem, Quadrant, Tier
+from porchlamp.lakehouse import OperationalStore
+from porchlamp.models import Ecosystem, Quadrant, Tier
 from tests.fixtures.synthetic_catalog import (
     build_benchmark_store,
     generate_synthetic_pr_events,
@@ -200,13 +200,13 @@ def test_seed_benchmark_store_and_deep_dive() -> None:
     # Ground truth in DB
     vllm = store.get_repo("vllm-project", "vllm")
     assert vllm is not None
-    assert vllm["overall_cvi"] == 88.8
+    assert vllm["overall_porchlamp"] == 88.8
     assert vllm["rank_tier"] == "Tier S"
     assert vllm["matrix_quadrant"] == "Sweet Spot"
 
     hub = store.get_repo("keras-team", "keras-hub")
     assert hub is not None
-    assert hub["overall_cvi"] == 0.0
+    assert hub["overall_porchlamp"] == 0.0
     assert hub["rank_tier"] == "Tier D"
     assert hub["is_stage0_disqualified"] == 1
 

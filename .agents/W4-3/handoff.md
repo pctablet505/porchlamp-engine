@@ -6,7 +6,7 @@ Commit: `ddab27a` on branch `W4-3` (worktree `~/Projects/cvi-wt-W4-3`).
 
 ## What was delivered
 
-`cvi/store/queries.py` (new, 882 lines): every read path F-013 (W4-2
+`porchlamp/store/queries.py` (new, 882 lines): every read path F-013 (W4-2
 review) asked for, in SQL, no Python loop over rows (`04` section 6).
 
 ### Query signatures
@@ -30,24 +30,24 @@ reproject(conn, snapshot_id, weights, *, limit=50, offset=0) -> (rows, total)
 ### Field-naming contract (the design decision W4-4 needs)
 
 Every row carries the STORED, balanced `06` section 4 fields under their
-own names (`rank`, `tie_group`, `cvi`, `coverage`, `tier`, `rated`, plus
+own names (`rank`, `tie_group`, `porchlamp`, `coverage`, `tier`, `rated`, plus
 every `p_*`/`c_*`, `persona_gates`, `persona_composites`, `suspicion`,
 `stars_audited`, `snapshot_id`, `benchmark_version`, …) — `NULL`/`False`
 exactly when the balanced record has no rank (gated or unrated).
 
 - `list_ranked`/`matrix_points` under a non-`"balanced"` `persona`
-  ADDITIONALLY attach `cvi_p`, `coverage_p`, `tier_p`, `rated_p` (read
+  ADDITIONALLY attach `porchlamp_p`, `coverage_p`, `tier_p`, `rated_p` (read
   from the stored `persona_composites` JSON, never recomputed) and, for
   `list_ranked` only, `rank_p`/`tie_group_p` (computed here — no stored
   column exists for a cross-row, order-dependent fact). The plain
-  `rank`/`cvi`/`coverage`/`tier`/`rated` on such a row stay the BALANCED
+  `rank`/`porchlamp`/`coverage`/`tier`/`rated` on such a row stay the BALANCED
   values (per the ruling: a repo can be persona-rated while
   balanced-unrated, so `list_ranked(persona="balanced")` and
   `list_ranked(persona=<preset>)` on the same row can legitimately show
   different `total`s).
 - `reproject` (U-11: never a persona) returns the CUSTOM projection under
   the plain names (this IS the requested view) plus `balanced_rank`/
-  `balanced_cvi`/`balanced_coverage`/`balanced_tier` for the side-by-side
+  `balanced_porchlamp`/`balanced_coverage`/`balanced_tier` for the side-by-side
   comparison `06` section 3 D asks for, and `lens: "custom"` always.
 
 W4-4 decides what subset of this reaches the JSON API; nothing here was
@@ -63,7 +63,7 @@ definition (R-2), used by `list_ranked`'s persona branch and by
 and never calls this function.
 
 **Numbering caveat for anyone parity-testing this against
-`cvi.core.tiebreak.assign_ranks`:** `DENSE_RANK()` assigns a new number
+`porchlamp.core.tiebreak.assign_ranks`:** `DENSE_RANK()` assigns a new number
 to EVERY distinct composite value it visits (tied or not); `assign_ranks`'
 own counter only advances for composite values that actually recur. The
 two schemes agree on WHICH rows share a group, never on the group's
@@ -72,12 +72,12 @@ helper compares group MEMBERSHIP, not raw ids, for exactly this reason.
 
 ### Per-persona rated (W2-7 review ruling, `04` section 6)
 
-`cvi_p`/`coverage_p`/`tier_p`/`rated_p` are read verbatim from the stored
-`persona_composites` JSON (written by `cvi.core.persona.persona_composite`
+`porchlamp_p`/`coverage_p`/`tier_p`/`rated_p` are read verbatim from the stored
+`persona_composites` JSON (written by `porchlamp.core.persona.persona_composite`
 at score time) — never recomputed here. The VISIBILITY filter
 (`_persona_visible_where_sql`, shared by `list_ranked`, its complement in
 `list_not_ranked`, `_count_persona_visible` and `matrix_points`) is
-`eligible = 1 AND persona_gates[persona] IS NULL AND cvi_p IS NOT NULL
+`eligible = 1 AND persona_gates[persona] IS NULL AND porchlamp_p IS NOT NULL
 AND coverage_p >= 0.60` — the literal predicate `04` section 6's ruling
 text specifies, which is why `rated_p`'s own stored boolean is exposed as
 data but the FILTER re-derives the same fact from `coverage_p` directly.
@@ -92,7 +92,7 @@ stored `p_*`/`c_*` columns:
 - composite: `Sum(w_p * p_p) / Sum(w_p)` over pillars with `c_p > 0 AND
   p_p IS NOT NULL` (D-MISS-2) — the `p_p IS NOT NULL` half is a defensive
   guard against a hypothetical row where a coverage>0 pillar's score is
-  somehow NULL (never true of real writer output, `cvi.core.aggregate.
+  somehow NULL (never true of real writer output, `porchlamp.core.aggregate.
   aggregate_pillars` guarantees the two agree; guards against poisoning
   the whole sum to NULL if that invariant were ever violated).
 - coverage: `Sum(w_p * c_p)` over all 5 pillars (D-MISS-3's `C`).
@@ -110,7 +110,7 @@ to weights.
 
 ## Indexes (deliverable 7)
 
-`cvi/store/migrations/0002_indexes.sql` adds
+`porchlamp/store/migrations/0002_indexes.sql` adds
 `idx_eligible ON repositories(snapshot_id, eligible)` (mirrored in
 `schema.py`'s `SCHEMA_STATEMENTS` for `introspect_schema` parity). EXPLAIN
 QUERY PLAN on a 10,000-row single-snapshot synthetic DB:
@@ -141,7 +141,7 @@ JSON-path evaluation + windowed ORDER BY) improved from roughly 73ms to
 **64.22ms p95** with the index in place (see Performance below).
 
 **Documented, not addressed:** the persona projection's
-`json_extract(persona_composites, '$.' || :persona || '.cvi')` predicates
+`json_extract(persona_composites, '$.' || :persona || '.porchlamp')` predicates
 and `reproject`'s per-pillar `CASE` expressions cannot be indexed. A JSON
 path expression index in SQLite must be a FIXED expression at `CREATE
 INDEX` time; `:persona` varies per call (five presets today, and this
@@ -195,7 +195,7 @@ print to stdout).
 
 For balanced and every one of the four preset personas, `list_ranked`'s
 SQL order (and, for personas, `rank_p`/`tie_group_p`'s group membership)
-equals `cvi.core.tiebreak.assign_ranks` run on the same evidence, exactly.
+equals `porchlamp.core.tiebreak.assign_ranks` run on the same evidence, exactly.
 A negative control (the pre-ruling clause, `friction ASC` with its
 `NULLS LAST` dropped) gives a DIFFERENT order on this same fixture,
 proving the fixture is load-bearing, not vacuous.
@@ -207,10 +207,10 @@ a 300-row synthetic snapshot (written through the real writer,
 `~15%` of each pillar unmeasured per row) and 20 random weight vectors.
 `_reproject_oracle` is written INLINE from `02` sections 5, 7-8 (D-MISS-2
 renormalisation, D-MISS-3 coverage/tier/ceiling) — it imports neither
-`cvi.core.aggregate` nor `cvi.core.persona` (W2-11 was changing both
+`porchlamp.core.aggregate` nor `porchlamp.core.persona` (W2-11 was changing both
 concurrently; this packet's dispatch says to stay out of them). For every
 trial: `reproject`'s SQL `(owner, name, rank, tier)` sequence and
-`cvi` values equal the oracle's exactly; `tie_group` is compared by group
+`porchlamp` values equal the oracle's exactly; `tie_group` is compared by group
 MEMBERSHIP (see the R-D numbering caveat above).
 
 ## Mutation battery (deliverable, ≥10 required)
@@ -230,7 +230,7 @@ the backup after every restore to confirm).
 | M5 | `reproject`: composite divided by `1` instead of the renormalised weight sum | **KILLED** (11 failed) |
 | M6 | `reproject`: a pillar with `c = 0` kept in the sum (guard reduced to `p IS NOT NULL` alone) | **KILLED** (1 failed) |
 | M7 | `list_ranked` balanced branch: `offset + 1` instead of `offset` | **KILLED** (9 failed) |
-| M8 | `_persona_paths`: `"coverage"` path aliased to the `.cvi` sub-path | **KILLED** (1 failed) |
+| M8 | `_persona_paths`: `"coverage"` path aliased to the `.porchlamp` sub-path | **KILLED** (1 failed) |
 | M9 | `reproject`: tier label from `score_tier_index` alone, ceiling never applied | **KILLED** (3 failed) |
 | M10 | `schema.py`'s `idx_eligible` statement commented out (migration file left intact) | **KILLED** (2 failed) |
 
@@ -238,7 +238,7 @@ the backup after every restore to confirm).
 
 Reproduce: `/tmp/mutate.py` (kept out of the repo — a throwaway driver
 script) applied each mutant as an exact string replacement in
-`cvi/store/queries.py`/`schema.py`; anyone re-running this battery should
+`porchlamp/store/queries.py`/`schema.py`; anyone re-running this battery should
 write an equivalent one-off script rather than expect it checked in.
 
 ## Rules compliance
@@ -249,24 +249,24 @@ write an equivalent one-off script rather than expect it checked in.
   ASC` level (matching the existing `_ORDER_BY_SQL`/reader.py
   convention).
 - No wall clock (`tests/test_no_clock.py`, 11 tests, green).
-- Import graph: `cvi/store/queries.py` imports only `cvi.core.constants_v2`,
-  `cvi.core.gates` (one constant, `REASON_INSUFFICIENT_EVIDENCE`) and
-  `cvi.core.params` (the `PARAMS` pillar lookup for `repo_evidence`) plus
-  stdlib — never `cvi.core.aggregate`/`cvi.core.persona` (the packet's
-  "stay out of `cvi/core/**`" plus its own reasoning: this module reads
+- Import graph: `porchlamp/store/queries.py` imports only `porchlamp.core.constants_v2`,
+  `porchlamp.core.gates` (one constant, `REASON_INSUFFICIENT_EVIDENCE`) and
+  `porchlamp.core.params` (the `PARAMS` pillar lookup for `repo_evidence`) plus
+  stdlib — never `porchlamp.core.aggregate`/`porchlamp.core.persona` (the packet's
+  "stay out of `porchlamp/core/**`" plus its own reasoning: this module reads
   ALREADY-aggregated store columns, it never re-derives a pillar from raw
   parameters). `tests/core/test_import_graph.py`'s store-boundary check
-  was widened by ONE line (`or name.startswith("cvi.store")`) so
+  was widened by ONE line (`or name.startswith("porchlamp.store")`) so
   `reader.py` can import the moved `ORDER_BY_SQL`/`row_to_dict` from
   `queries.py` instead of carrying a second, drifting copy — this is an
   INTRA-store import, never a new external dependency; the docstring on
   that test explains why it does not weaken `04` section 3's rule (which
   is about crossing the package boundary).
-- Ruff clean over the whole tree (`ruff check cvi/ tests/ scripts/`).
-- Stayed out of `cvi/core/**` (source, not tests — `tests/core/
+- Ruff clean over the whole tree (`ruff check porchlamp/ tests/ scripts/`).
+- Stayed out of `porchlamp/core/**` (source, not tests — `tests/core/
   test_import_graph.py`'s one-line widening is the only touch there and
-  is about `cvi/store`'s own boundary, not core logic), `cvi/collect/**`,
-  `cvi/derive/**`, `web/**`, `cvi/serve/**`, `scripts/serve.py`.
+  is about `porchlamp/store`'s own boundary, not core logic), `porchlamp/collect/**`,
+  `porchlamp/derive/**`, `web/**`, `porchlamp/serve/**`, `scripts/serve.py`.
 
 ## Suite
 
@@ -283,13 +283,13 @@ rebase target `1f097dc`) — confirmed absent after the rebase; nothing
 left to report there.
 
 ```
-$ ruff check cvi/ tests/ scripts/
+$ ruff check porchlamp/ tests/ scripts/
 All checks passed!
 ```
 
 ## COULD NOT VERIFY / ownership notes
 
-- `matrix_points`'s persona projection reprojects `cvi`/`coverage`/`tier`
+- `matrix_points`'s persona projection reprojects `porchlamp`/`coverage`/`tier`
   but NOT `leverage`/`friction`/their coverages (D-MAT-1's coordinates are
   computed from the balanced pillar renormalisation only; no `02`/`04`
   decision defines a persona-specific matrix coordinate). Documented in
@@ -304,9 +304,9 @@ All checks passed!
   against this packet's D-VER-2 (constants live in one frozen module;
   nothing here overrides them), just a coupling worth naming.
 - `snapshot_summary`'s `reproduce_command` string
-  (`"python -m cvi.snapshot reproduce <id>"`) is built from the
-  invocation literally written in `cvi/snapshot/cli.py`'s own module
-  docstring (`cvi/cli.py`, the unified CLI `02`/`04` describe, does not
+  (`"python -m porchlamp.snapshot reproduce <id>"`) is built from the
+  invocation literally written in `porchlamp/snapshot/cli.py`'s own module
+  docstring (`porchlamp/cli.py`, the unified CLI `02`/`04` describe, does not
   exist yet) — this string will need updating once that CLI lands.
 
 ---
@@ -317,19 +317,19 @@ Review: `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adb
 records under `.agents/W4-3/review/`. 11/11 items PASS (2 with findings), 2
 Blockers, 6 Warnings, 8 Notes, 12/15 mutants (3 survivors). Base for this
 round: rebased twice, first onto `4f5b2ba` (owner's paginated-leaderboard
-ruling) then onto `acdf885` (W3-1, D-MISS-5 landed in `cvi.core.aggregate`
+ruling) then onto `acdf885` (W3-1, D-MISS-5 landed in `porchlamp.core.aggregate`
 — confirmed non-conflicting with this round's own edit to that file: W3-1
 touched `aggregate_pillars`/`composite_coverage`, never
 `validate_pillar_weights`'s body).
 
 ## B-1 — `reproject` accepted a negative weight
 
-Fixed at the source: `cvi.core.aggregate.validate_pillar_weights` (the
+Fixed at the source: `porchlamp.core.aggregate.validate_pillar_weights` (the
 one function every weight vector — preset or custom — is validated
 through, W2-11's) gains a non-negativity clause between the shape check
-and the sum check. `cvi.store.queries._validate_weights` now *delegates
+and the sum check. `porchlamp.store.queries._validate_weights` now *delegates
 entirely* to it instead of carrying its own copy of the shape/sum check —
-one definition, per R-2, and `cvi.core.persona`'s preset validation is
+one definition, per R-2, and `porchlamp.core.persona`'s preset validation is
 covered by the same fix for free.
 
 Tests: `tests/core/test_aggregate.py::test_validate_pillar_weights_rejects_a_negative_weight_even_if_the_sum_is_1`
@@ -370,16 +370,16 @@ composites that recur.
 
 ## W-2 — SQL `ROUND()` vs Python `round()` at a 2-dp half
 
-`reproject` now computes `cvi_display = ROUND(composite_raw, 2)` once, in
-SQL, and returns that value directly (`record["cvi"] = record.pop("cvi_display")`)
+`reproject` now computes `porchlamp_display = ROUND(composite_raw, 2)` once, in
+SQL, and returns that value directly (`record["porchlamp"] = record.pop("porchlamp_display")`)
 instead of a second, disagreeing `round(composite_raw, 2)` in Python — the
 same expression drives the `ORDER BY` and `tie_group` too, so one rounding
 rule governs all three facts about a row.
 
-Test: `test_reproject_cvi_rounds_the_same_way_sql_orders_and_groups_at_a_2dp_half`
+Test: `test_reproject_porchlamp_rounds_the_same_way_sql_orders_and_groups_at_a_2dp_half`
 — two rows at `composite_raw=82.125` (confirmed via a live probe:
 `sqlite ROUND(82.125,2)=82.13`, `python round(82.125,2)=82.12`) now report
-the identical, SQL-rounded `cvi=82.13` and share a `tie_group`.
+the identical, SQL-rounded `porchlamp=82.13` and share a `tie_group`.
 
 ## W-3 — `idx_eligible`'s claimed 30% gain did not reproduce
 
@@ -416,8 +416,8 @@ mutant: the test now fails with `assert True is False`.
 **(b) tier from the rounded composite (R2).** The code already used the
 unrounded `composite_raw` for the tier cutoff (`04` section 8), but
 nothing tested it. Added
-`test_reproject_tier_cutoff_uses_the_unrounded_composite_not_the_displayed_cvi`:
-`composite_raw=89.997` displays `cvi=90.0` (SQL rounds up) but must stay
+`test_reproject_tier_cutoff_uses_the_unrounded_composite_not_the_displayed_porchlamp`:
+`composite_raw=89.997` displays `porchlamp=90.0` (SQL rounds up) but must stay
 `tier='S'`, not `'S+'`. Verified by re-applying R2's exact mutant
 (`_tier_by_score_case_sql("ROUND(composite_raw, 2)")`): fails with
 `'S+' == 'S'`.
@@ -458,7 +458,7 @@ below) per the owner's addendum.
 
 ## W-6 — contract mismatches
 
-Untouched, as instructed — `cvi/serve/**` is W4-4/W4-5a's.
+Untouched, as instructed — `porchlamp/serve/**` is W4-4/W4-5a's.
 
 ## Performance, re-measured (10,000-row synthetic snapshot, isolated)
 
@@ -530,7 +530,7 @@ pre-mutation backup, and via `git status --short` showing a clean tree).
 | M5 | reproject: composite divided by 1 (renormalisation dropped) | KILLED |
 | M6 | reproject: a c=0 pillar kept in the sums | KILLED |
 | M7 | list_ranked balanced: `offset + 1` | KILLED |
-| M8 | `_persona_paths`: coverage path aliased to `.cvi` | KILLED |
+| M8 | `_persona_paths`: coverage path aliased to `.porchlamp` | KILLED |
 | M9 | reproject: tier label from `score_tier_index` alone (ceiling dropped) | KILLED |
 | M10 | schema.py: `idx_eligible` statement removed | KILLED |
 | R1 | persona JSON path for `rated_p` points at `.tier` | **KILLED** (was equivalent — new forged-JSON test) |
@@ -555,27 +555,27 @@ host load — everything else in the 2,290-test suite is unconditionally
 green across every run in this session.)
 
 ```
-$ ruff check cvi/ tests/ scripts/
+$ ruff check porchlamp/ tests/ scripts/
 All checks passed!
 ```
 
 ## Diffstat (this follow-up round, on top of the original `9746419`)
 
 ```
-cvi/core/aggregate.py                  |  28 ++-
-cvi/store/migrations/0002_indexes.sql  |  31 ++-
-cvi/store/queries.py                   | ~210 ++++++++++++++++----
+porchlamp/core/aggregate.py                  |  28 ++-
+porchlamp/store/migrations/0002_indexes.sql  |  31 ++-
+porchlamp/store/queries.py                   | ~210 ++++++++++++++++----
 tests/core/test_aggregate.py           |  22 +++
 tests/store/test_queries.py            | ~450 +++++++++++++++++++++++++++++-----
 ```
 
 ## COULD NOT VERIFY / carried forward
 
-- W-6 (12 contract mismatches against W4-5a's `cvi/serve/contract.py`) is
+- W-6 (12 contract mismatches against W4-5a's `porchlamp/serve/contract.py`) is
   explicitly W4-4's to bridge; two of the twelve (`tie_group: int` with a
   `>= 1` validator contradicting R-D; `stars_audited: int` contradicting
   G-006) are contract-side bugs, not bridging work — flagged again here
-  since this round did not touch `cvi/serve/**` per instruction.
+  since this round did not touch `porchlamp/serve/**` per instruction.
 - Notes N-1 through N-8 from the original review (NULLS LAST on two
   provably-NULL-free ORDER BYs; `matrix_points` still has no ecosystem/q
   filter (unlike `list_ranked`/`list_not_ranked`, which already had one

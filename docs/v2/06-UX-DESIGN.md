@@ -47,13 +47,13 @@ shareable and reload-safe; persona and ecosystem changes rewrite the URL.
 ### A. Leaderboard (default)
 
 Columns, in order: rank (with "=" tie mark), repository (owner/name, ecosystem
-chip, audited-star size hint), CVI (2 decimals), coverage badge (percentage,
+chip, audited-star size hint), Porchlamp (2 decimals), coverage badge (percentage,
 colour by band: ≥95 full, 80–95 ceiling A, 60–80 ceiling B), tier (with
 ceiling shown as "A (capped)" when the ceiling bound), quadrant glyph+label,
 five pillar mini-bars with per-pillar coverage, persona delta (only when a
 non-balanced persona is active), suspicion flags (icon with reason list).
 
-Interactions: sort only on rank, CVI, coverage, tier, pillars; search by
+Interactions: sort only on rank, Porchlamp, coverage, tier, pillars; search by
 owner/name; ecosystem scope; page size 20 (default)/50/100/500/1000 with next/previous page; row click or Enter opens
 the drawer; J/K move; "=" rows share a subtle background band.
 
@@ -75,7 +75,7 @@ reason lives in one map (U-10) and is reused by the drawer.
 Scatter of friction (x) vs leverage (y), quadrant washes and labels, marker
 size = audited stars, marker shape+colour by quadrant (colour-blind safe).
 Gated repos are not plotted; a caption states how many are excluded. Hover
-card: name, CVI, coverage, tier; click opens the drawer. Zoom/pan with keys
+card: name, Porchlamp, coverage, tier; click opens the drawer. Zoom/pan with keys
 and wheel; a "reset view" control. Axis coverage caption when a pillar was
 unmeasured for many rows ("friction computed without accessibility for 12%").
 
@@ -83,7 +83,7 @@ unmeasured for many rows ("friction computed without accessibility for 12%").
 
 Order of sections is fixed and reflects D-DEF-2: (1) identity strip and gate
 status (if gated: the reason sentence and nothing else above the fold); (2)
-composite: CVI, coverage, tier with ceiling explanation, quadrant with
+composite: Porchlamp, coverage, tier with ceiling explanation, quadrant with
 coordinates and their coverages; (3) pillar table: score, coverage, and per
 parameter: value, score, n, window, method, source (envelope path,
 fetched_at) — unmeasured parameters show the reason; (4) persona view: gates
@@ -118,14 +118,14 @@ the exact reproduce command.
 
 ## 4. Data contract the UI consumes (API v2, from `04` §7)
 
-Row: `rank, tie_group, owner, name, ecosystem, cvi, coverage, tier,
+Row: `rank, tie_group, owner, name, ecosystem, porchlamp, coverage, tier,
 tier_ceiling, quadrant, leverage, friction, leverage_coverage,
 friction_coverage, p_* and c_* for the five pillars, persona_gates (JSON),
 persona_composites (JSON), suspicion (JSON), stars_audited, snapshot_id,
 benchmark_version`. Gated/unrated rows carry `gate_reason` or
-`unrated_reason` and no rank. `GET /v1/cvi/repos/{o}/{n}/evidence` returns the
-`params` long rows. `GET /v1/cvi/snapshot` returns the manifest summary.
-`POST /v1/cvi/reproject` keeps its contract. Any field the UI needs beyond
+`unrated_reason` and no rank. `GET /v1/porchlamp/repos/{o}/{n}/evidence` returns the
+`params` long rows. `GET /v1/porchlamp/snapshot` returns the manifest summary.
+`POST /v1/porchlamp/reproject` keeps its contract. Any field the UI needs beyond
 these is an API change (W4-4), never a client-side derivation.
 
 ## 5. Interaction and accessibility standards
@@ -231,7 +231,7 @@ replace the "subtree replacement" sentence in §6:
 2. Gated and unrated counts are visible on the ranked tab and match the
    Not-ranked tab.
 3. Vanity columns have no sort affordance.
-4. Persona switch: balanced CVI stays visible, deltas appear, hidden count
+4. Persona switch: balanced Porchlamp stays visible, deltas appear, hidden count
    matches `persona_gates`.
 5. Tie rows carry "=" and the rank tooltip names the deciding level.
 6. Footer shows snapshot id, version, constants hash, manifest root.

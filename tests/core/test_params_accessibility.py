@@ -6,9 +6,9 @@ setup blended by the deriver) with a 5-run minimum.
 """
 from __future__ import annotations
 
-from cvi.core import constants
-from cvi.core.models import Measured, ParamScore, Unmeasured
-from cvi.core.params import dx, newcomer_conversion, newcomer_issue_supply, rr90_return_rate
+from porchlamp.core import constants
+from porchlamp.core.models import Measured, ParamScore, Unmeasured
+from porchlamp.core.params import dx, newcomer_conversion, newcomer_issue_supply, rr90_return_rate
 
 _HASH = "ab" * 32
 _FETCHED_AT = "2026-09-01T00:00:00+00:00"

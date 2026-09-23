@@ -8,12 +8,12 @@ packet executes).
 
 ## What moved / deleted / shimmed
 
-**1. `cvi/ingest.py` split (3 commits: `2938c93`, `d99ee5b`, `2bd2dbe`)**
+**1. `porchlamp/ingest.py` split (3 commits: `2938c93`, `d99ee5b`, `2bd2dbe`)**
 
 - Rate limiter / ETag cache / circuit breaker (`TokenBucketRateLimiter`,
   `ETagCache`, `FetchResult`, `CircuitBreaker`, `_parse_reset_epoch`,
   `CachedHttpClient`, `IngestError`, `RateLimitedError`) moved **verbatim**
-  to `cvi/collect/ratelimit.py` (source byte-identical for 7 of 8 symbols;
+  to `porchlamp/collect/ratelimit.py` (source byte-identical for 7 of 8 symbols;
   `CachedHttpClient` differs by one docstring word, no code change).
   **Correction (W4-1f, review W-1): the tests were NOT moved verbatim** —
   17 of 23 carried-over test definitions were hand-rewritten (only the
@@ -26,7 +26,7 @@ packet executes).
   verbatim from `git show 130ed0f:tests/test_ingest.py` in `tests/collect/
   test_ratelimit.py`, W4-1f; the mutant now dies against the restored
   file too (re-verified).
-- `apply_raw_metrics`/`_enum_value` moved to `cvi/lakehouse.py` (its only
+- `apply_raw_metrics`/`_enum_value` moved to `porchlamp/lakehouse.py` (its only
   argument type, `OperationalStore`, already lives there). Every caller
   (`scripts/promote.py`, `scripts/demo_app.py`, 5 test files) re-pointed
   in the same commit.
@@ -40,8 +40,8 @@ packet executes).
   understated what this file covered.** Only about 5 of its 20 tests
   actually concerned the deleted GHArchive/`ingest_and_score` stack; the
   other ~15 exercised **live v1 surface** through that pipeline used as a
-  fixture — `cvi.api.create_app` (persona reprojection, deep-dive,
-  the matrix endpoint, leaderboard order), `cvi.engine.score_repository`,
+  fixture — `porchlamp.api.create_app` (persona reprojection, deep-dive,
+  the matrix endpoint, leaderboard order), `porchlamp.engine.score_repository`,
   `query_matrix`, `count_by_quadrant`, off-platform routing, black-hole
   gating, pillar-score distinctness. Every one of those areas does have
   independent surviving coverage (`tests/test_api.py`,
@@ -50,7 +50,7 @@ packet executes).
   `tests/test_stage0.py`) — the deletion is safe — but what is genuinely
   gone, and was not called out plainly enough here originally, is the
   **single end-to-end path**: nothing in the suite now exercises the v1
-  raw-events → `score_repository` → `OperationalStore` → `cvi.api`
+  raw-events → `score_repository` → `OperationalStore` → `porchlamp.api`
   pipeline as one continuous flow through a live server the way this
   file did. Piecemeal coverage of every step is not the same guarantee
   as one test proving the steps compose correctly end to end, and no
@@ -59,32 +59,32 @@ packet executes).
   around only `apply_raw_metrics`'s surviving half, without
   `ingest_and_score` to drive it, would be new test design, not a
   "package move").
-- `cvi/ingest.py` then became a one-release deprecation shim (re-exporting
-  the `cvi.collect.ratelimit` names with a `DeprecationWarning`), per the
+- `porchlamp/ingest.py` then became a one-release deprecation shim (re-exporting
+  the `porchlamp.collect.ratelimit` names with a `DeprecationWarning`), per the
   task's instruction — then **deleted** in the next commit: grep sweep
-  (`grep -rn "cvi\.ingest\|cvi/ingest\|from \.ingest" cvi scripts tests`)
+  (`grep -rn "porchlamp\.ingest\|porchlamp/ingest\|from \.ingest" porchlamp scripts tests`)
   showed zero in-repo callers outside the shim's own test and prose
   comments, so no in-repo caller justified keeping it.
 
-**2. `cvi/benchmark.py` deleted (`aa7c011`)**
+**2. `porchlamp/benchmark.py` deleted (`aa7c011`)**
 
 Zero production importers (confirmed by grep, matching the inventory's
 own finding); its 8 test importers rewritten to import
-`cvi.benchmark_data` directly (one boundary crossing at a time, ahead of
+`porchlamp.benchmark_data` directly (one boundary crossing at a time, ahead of
 item 3's move).
 
-**3. `cvi/benchmark_data.py` → `tests/fixtures/synthetic_catalog.py`
+**3. `porchlamp/benchmark_data.py` → `tests/fixtures/synthetic_catalog.py`
 (2 commits: `4fdc18c`, `bca968e`, plus the rule in `7c5bd87`)**
 
 - The served-DB guard's fixture-clock sentinel (`_FIXTURE_CLOCK_SENTINEL`
-  in `cvi/serve/guard.py`) was **already frozen independently** before
+  in `porchlamp/serve/guard.py`) was **already frozen independently** before
   this packet started (landed with the W4-4 REWORK) — confirmed, not
   re-done. Its cross-check test (renamed
   `test_fixture_clock_sentinel_matches_synthetic_catalog`) re-pointed at
   the new import path.
-- **The one real production import found and removed**: `cvi/lakehouse.py`
+- **The one real production import found and removed**: `porchlamp/lakehouse.py`
   `OperationalStore.seed_benchmark_catalog` was production code that
-  lazily imported `cvi.benchmark_data.generate_synthetic_pr_events` — a
+  lazily imported `porchlamp.benchmark_data.generate_synthetic_pr_events` — a
   production module reaching into the fixture module, exactly what the
   non-negotiables forbid. Deleted from `OperationalStore` entirely; the
   identical logic now lives as a free function,
@@ -98,7 +98,7 @@ item 3's move).
   (`"benchmark_data"` → `"synthetic_catalog"`).
 - New enforced rule, `tests/core/test_import_graph.py::
   test_no_production_import_of_the_synthetic_catalog_fixture`: neither
-  `cvi/` nor `scripts/` may import `tests.fixtures.synthetic_catalog`,
+  `porchlamp/` nor `scripts/` may import `tests.fixtures.synthetic_catalog`,
   directly or transitively named — added only once nothing under either
   tree still needed to (after item 4 landed).
 
@@ -120,14 +120,14 @@ all 53 of its tests pass against the shim.
 
 **5. Package data / CI (`c331655`)**
 
-`cvi.store.migrations` package-data and `cvi.serve`/`cvi.snapshot` in
+`porchlamp.store.migrations` package-data and `porchlamp.serve`/`porchlamp.snapshot` in
 `packages=[...]` were already correct (landed with W4-4/W4-6, before this
 packet). The actual non-editable-install check (built with `python -m
 build --sdist` into a scratch venv, then `pip install
-dist/*.tar.gz[server]`) surfaced a real, pre-existing blocker: `cvi.serve.
-app`/`cvi.api`/`cvi.serve.contract` import `fastapi`+`pydantic` directly,
-and `cvi.collect.ratelimit` (this packet's own move, carrying forward a
-gap `cvi/ingest.py` already had) imports `httpx` — none of the three were
+dist/*.tar.gz[server]`) surfaced a real, pre-existing blocker: `porchlamp.serve.
+app`/`porchlamp.api`/`porchlamp.serve.contract` import `fastapi`+`pydantic` directly,
+and `porchlamp.collect.ratelimit` (this packet's own move, carrying forward a
+gap `porchlamp/ingest.py` already had) imports `httpx` — none of the three were
 declared anywhere a plain install could reach (`server` extra had only
 `uvicorn`). Fixed: `server` now lists `fastapi`, `httpx`, `pydantic`,
 `uvicorn` together. CI's `package` job extended to grep the sdist for the
@@ -137,7 +137,7 @@ check, turning the one-off manual verification into a standing gate.
 **6. Import-graph rules + docs (`2938c93`, `7c5bd87`, `6a0a845`)**
 
 - `tests/core/test_import_graph.py::test_collect_ratelimit_imports_only_stdlib_or_httpx`
-  pins `cvi/collect/ratelimit.py` to stdlib + `httpx` only (no `cvi.*`).
+  pins `porchlamp/collect/ratelimit.py` to stdlib + `httpx` only (no `porchlamp.*`).
 - `tests/core/test_import_graph.py::test_no_production_import_of_the_synthetic_catalog_fixture`
   (above).
 - `docs/v2/04-ARCHITECTURE.md` §2 layout table rewritten from aspirational
@@ -152,42 +152,42 @@ check, turning the one-off manual verification into a standing gate.
 
 ```
 $ python -m build --sdist --outdir <scratch>/verify-build .   # scratch venv, python3.12
-$ <scratch>/verify-venv/bin/pip install <scratch>/verify-build/cvi-0.1.0.tar.gz[server]
+$ <scratch>/verify-venv/bin/pip install <scratch>/verify-build/porchlamp-0.1.0.tar.gz[server]
 $ cd /tmp   # neutral cwd — rules out python -c's sys.path[0]='' resolving to a checkout
 $ <scratch>/verify-venv/bin/python -c "
-import cvi
-print('cvi at:', cvi.__file__)
-import cvi.serve.app
-print('cvi.serve.app imported OK:', cvi.serve.app.__file__)
-import cvi.snapshot.store_cmd
-print('cvi.snapshot.store_cmd imported OK:', cvi.snapshot.store_cmd.__file__)
-import cvi.collect.ratelimit
-print('cvi.collect.ratelimit imported OK:', cvi.collect.ratelimit.__file__)
-import cvi.store.migrations as m
+import porchlamp
+print('porchlamp at:', porchlamp.__file__)
+import porchlamp.serve.app
+print('porchlamp.serve.app imported OK:', porchlamp.serve.app.__file__)
+import porchlamp.snapshot.store_cmd
+print('porchlamp.snapshot.store_cmd imported OK:', porchlamp.snapshot.store_cmd.__file__)
+import porchlamp.collect.ratelimit
+print('porchlamp.collect.ratelimit imported OK:', porchlamp.collect.ratelimit.__file__)
+import porchlamp.store.migrations as m
 import os
 mdir = os.path.dirname(m.__file__)
 print('migrations dir:', mdir)
 print('sql files:', sorted(f for f in os.listdir(mdir) if f.endswith('.sql')))
 "
-cvi at: .../verify-venv/lib/python3.12/site-packages/cvi/__init__.py
-cvi.serve.app imported OK: .../site-packages/cvi/serve/app.py
-cvi.snapshot.store_cmd imported OK: .../site-packages/cvi/snapshot/store_cmd.py
-cvi.collect.ratelimit imported OK: .../site-packages/cvi/collect/ratelimit.py
-migrations dir: .../site-packages/cvi/store/migrations
+porchlamp at: .../verify-venv/lib/python3.12/site-packages/porchlamp/__init__.py
+porchlamp.serve.app imported OK: .../site-packages/porchlamp/serve/app.py
+porchlamp.snapshot.store_cmd imported OK: .../site-packages/porchlamp/snapshot/store_cmd.py
+porchlamp.collect.ratelimit imported OK: .../site-packages/porchlamp/collect/ratelimit.py
+migrations dir: .../site-packages/porchlamp/store/migrations
 sql files: ['0001_init_v2.sql', '0002_indexes.sql']
 ```
 Plus: confirmed `benchmark_data.py`/`ingest.py`/`benchmark.py` are absent
-from the installed `cvi/` package directory. Exact commands replayed as
+from the installed `porchlamp/` package directory. Exact commands replayed as
 the new CI `package` job steps.
 
 ## Suite / lint, per commit and final (rebased onto main `130ed0f`)
 
 Every commit above was green on its own at the time it was made (`env -u
 PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest -p
-no:cacheprovider -n 4`, `ruff check cvi/ scripts/ tests/`). Final state
+no:cacheprovider -n 4`, `ruff check porchlamp/ scripts/ tests/`). Final state
 after rebase:
 
-- `ruff check cvi/ scripts/ tests/` → **All checks passed!**
+- `ruff check porchlamp/ scripts/ tests/` → **All checks passed!**
 - Full suite → **2573 passed, 1 skipped** (main's own baseline at
   `130ed0f`, after W4-5b landed, was higher than this branch's original
   base of 2518 because W4-5b added its own tests; the two counts are not
@@ -206,7 +206,7 @@ after rebase:
 - `tests/benchmark_sla_runner.py` and `scripts/build_fixture_snapshot.py`
   are standalone runners with no importer anywhere in the tree (confirmed
   by grep) — their import was fixed (`benchmark_sla_runner.py`'s
-  `cvi.benchmark` → `cvi.benchmark_data` in the earlier commit, then to
+  `porchlamp.benchmark` → `porchlamp.benchmark_data` in the earlier commit, then to
   `tests.fixtures.synthetic_catalog`) but neither was *executed*
   end-to-end as part of this packet (out of scope: they are SLA/perf
   tools, not part of the standard suite).
@@ -216,31 +216,31 @@ after rebase:
 - The inventory (written against `c19a93a`) proposed the served-DB guard
   relocation (its own step 1) as a **prerequisite** for this packet. By
   the time W4-1 actually ran, that relocation had **already landed** as
-  part of the W4-4 REWORK (Blocker B-4 / Warning W-5) — `cvi/serve/
+  part of the W4-4 REWORK (Blocker B-4 / Warning W-5) — `porchlamp/serve/
   guard.py` already existed with its own frozen sentinel and cross-check
   test before this branch's first commit. This packet only needed to
   re-point that already-independent sentinel's cross-check test at the
   new fixture location, not build the freeze itself.
 - The inventory's own proposed 10-step commit sequence (§8) included
-  fixing `cvi/store/migrations/__init__.py`'s `_split_statements` hygiene
+  fixing `porchlamp/store/migrations/__init__.py`'s `_split_statements` hygiene
   item (step 10) and a full README.md rewrite (step 9). **The task text
   handed to this packet explicitly narrowed scope to 6 items and did not
   include either** — left untouched, not silently dropped: `README.md`'s
   module map is still entirely v1 (unaffected by this packet, since it
-  never named `cvi/ingest.py`/`cvi/benchmark.py`/`cvi/benchmark_data.py`
+  never named `porchlamp/ingest.py`/`porchlamp/benchmark.py`/`porchlamp/benchmark_data.py`
   in a way this packet's changes would make MORE wrong than before), and
   `_split_statements` is unrelated to any file this packet touched.
-- New finding, not anticipated by the inventory: `cvi/lakehouse.py`'s
+- New finding, not anticipated by the inventory: `porchlamp/lakehouse.py`'s
   `OperationalStore.seed_benchmark_catalog` was a **second** production
   import of the fixture module (via a lazy `from .benchmark_data import
   generate_synthetic_pr_events` inside the method body) that the
   inventory's §5 discussion did not name explicitly (it named `scripts/
   serve.py`'s `BENCHMARK_NOW` import as "the load-bearing dependency" but
   did not flag this second one). Found only by grepping
-  `cvi/lakehouse.py` directly during item 3's execution; fixed per the
+  `porchlamp/lakehouse.py` directly during item 3's execution; fixed per the
   same non-negotiable.
 - New finding, not anticipated by the inventory: the packaging gap in
-  item 5 (`cvi.serve.app` cannot import in a non-editable install because
+  item 5 (`porchlamp.serve.app` cannot import in a non-editable install because
   `fastapi`/`pydantic`/`httpx` are not declared where a plain install can
   reach them). Pre-existing (not introduced by this packet), but only
   surfaced by actually doing the verification the inventory recommended
@@ -248,15 +248,15 @@ after rebase:
   correctness was the whole story.
 - Environment hazard (not a code defect, worth flagging for future
   packets): the **shared** venv's editable install
-  (`.venv/lib/python3.12/site-packages/__editable___cvi_0_1_0_finder.py`)
-  has a `MetaPathFinder` that, for a `cvi.<name>` import whose immediate
-  parent package IS `cvi` (i.e. `cvi.<leaf>`, not `cvi.<pkg>.<leaf>`),
-  hardcodes the **main checkout's** path regardless of what `cvi.__path__`
+  (`.venv/lib/python3.12/site-packages/__editable___porchlamp_0_1_0_finder.py`)
+  has a `MetaPathFinder` that, for a `porchlamp.<name>` import whose immediate
+  parent package IS `porchlamp` (i.e. `porchlamp.<leaf>`, not `porchlamp.<pkg>.<leaf>`),
+  hardcodes the **main checkout's** path regardless of what `porchlamp.__path__`
   actually resolved to. The normal `PathFinder` (checked first) shadows
   this correctly for anything that still exists in the worktree, but a
   module **deleted in the worktree** silently falls through to this
   finder and resurrects from the main checkout instead of raising
-  `ModuleNotFoundError` — e.g. `import cvi.benchmark_data` still
+  `ModuleNotFoundError` — e.g. `import porchlamp.benchmark_data` still
   "succeeded" from this worktree after the file was `git mv`'d away,
   resolving to the main checkout's stale copy. This never affected any
   correctness claim in this handoff (every "zero remaining importer"
@@ -264,7 +264,7 @@ after rebase:
   but a future agent relying on "the import succeeded" as proof of
   "nothing references the old path" from a worktree against the shared
   venv would be fooled by it. Two-level-deep submodules
-  (`cvi.collect.ratelimit`) are unaffected (the finder declines and lets
+  (`porchlamp.collect.ratelimit`) are unaffected (the finder declines and lets
   the normal, correct `PathFinder` handle them).
 
 ## W4-1f — review follow-up round (XS)
@@ -283,16 +283,16 @@ the coordinator's scope for this round.
 - **W-2** (see the corrected paragraph above): corrected the
   `tests/test_ingestion_integration.py` deletion justification and
   recorded explicitly that the v1 raw→`score_repository`→
-  `OperationalStore`→`cvi.api` path has no single end-to-end test
+  `OperationalStore`→`porchlamp.api` path has no single end-to-end test
   anymore, only piecemeal per-step coverage.
 - **W-3**: replaced the (never-committed, only narrated) finder-trap
   observation with an actual regression test,
   `tests/core/test_import_graph.py::
-  test_no_cvi_module_resolves_outside_the_repo_root`. It walks every
-  `cvi/**/*.py` module that exists on disk today (must import
+  test_no_porchlamp_module_resolves_outside_the_repo_root`. It walks every
+  `porchlamp/**/*.py` module that exists on disk today (must import
   successfully and resolve inside the repo root) **plus** the exact
-  three names this packet deleted (`cvi.ingest`, `cvi.benchmark`,
-  `cvi.benchmark_data` — must raise `ModuleNotFoundError` naming that
+  three names this packet deleted (`porchlamp.ingest`, `porchlamp.benchmark`,
+  `porchlamp.benchmark_data` — must raise `ModuleNotFoundError` naming that
   exact module, or resolve inside root if somehow still importable).
   Passes today. Proved it "would have caught the trap" with a full
   sandboxed reproduction (not touching the real main checkout or the
@@ -305,17 +305,17 @@ the coordinator's scope for this round.
   tightened the exception handling while building this proof: catching
   bare `ModuleNotFoundError` would silently swallow a resurrected
   module's OWN missing sub-dependency (observed with `httpx` while
-  reproducing the trap for `cvi.ingest` in a bare venv) as if the target
+  reproducing the trap for `porchlamp.ingest` in a bare venv) as if the target
   module were simply absent; narrowed to `exc.name == name` so only a
   genuinely-missing target module is treated as an acceptable outcome.
-- **W-4**: widened the `cvi/` arm of
+- **W-4**: widened the `porchlamp/` arm of
   `test_no_production_import_of_the_synthetic_catalog_fixture` from
   "reject only `tests.fixtures.synthetic_catalog`" to "reject any
-  `tests.` import" (no legitimate reason for `cvi/` to import anything
+  `tests.` import" (no legitimate reason for `porchlamp/` to import anything
   under `tests/`); kept the narrow, name-specific rule for `scripts/` so
   `scripts/demo_app.py`'s shim import of `tests.helpers.demo_app` stays
   legal. Reproduced the review's exact planted violation
-  (`from tests.helpers.demo_app import DEMO_NOW` in `cvi/lakehouse.py`):
+  (`from tests.helpers.demo_app import DEMO_NOW` in `porchlamp/lakehouse.py`):
   green before this fix, red after (manual plant, not committed;
   restored before commit).
 

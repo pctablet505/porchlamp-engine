@@ -19,12 +19,12 @@ Final commit: `3706d43`.
 
 Production code, vs the final rebase base `819d361`:
 ```
- cvi/collect/commits.py      | 235 +++++++--------------------
- cvi/core/commit_domains.py  | 378 +++++++++++++++++++++++++++++++++++++++++++  (new file)
- cvi/core/pipeline.py        |  29 ++--
- cvi/derive/bundle.py        | 385 +++++++++++++++++++++++++++++++++++++++++++-
- cvi/store/writer.py         |  37 +++-                                        (F-001, REWORK)
- cvi/verify/pipeline_hook.py |  42 +++--
+ porchlamp/collect/commits.py      | 235 +++++++--------------------
+ porchlamp/core/commit_domains.py  | 378 +++++++++++++++++++++++++++++++++++++++++++  (new file)
+ porchlamp/core/pipeline.py        |  29 ++--
+ porchlamp/derive/bundle.py        | 385 +++++++++++++++++++++++++++++++++++++++++++-
+ porchlamp/store/writer.py         |  37 +++-                                        (F-001, REWORK)
+ porchlamp/verify/pipeline_hook.py |  42 +++--
  6 files changed, 896 insertions(+), 210 deletions(-)
 ```
 Full diff vs `819d361`: `74 files changed, 4170 insertions(+), 366 deletions(-)`
@@ -56,25 +56,25 @@ REWORK bounded to two items. Full report:
 `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adbe955a4084/scratchpad/reviews/W1-5f-review.md`;
 item records under `.agents/W1-5f/review/` (now committed, see Diffstat).
 
-**F-001 (Blocker, item 4 `LENS-CORR-15`).** `cvi/store/writer.py::_repo_row`
+**F-001 (Blocker, item 4 `LENS-CORR-15`).** `porchlamp/store/writer.py::_repo_row`
 still wrote `last_human_commit_at = NULL` unconditionally
 (`_normalize_utc_z(None),  # last_human_commit_at: no producer yet`) — the
 comment became false the moment this packet landed
 `last_non_bot_commit_at` as a bundle sidecar fact, but nothing updated the
-writer to read it. `cvi/store/reader.py`'s SQL `ORDER BY` carries
+writer to read it. `porchlamp/store/reader.py`'s SQL `ORDER BY` carries
 `last_human_commit_at DESC NULLS LAST` at D-TIE-1 level 7; with the column
 always NULL, SQL fell straight through to the level-8 name fallback while
-`cvi.core.tiebreak.assign_ranks` (the Python authority) used the real
+`porchlamp.core.tiebreak.assign_ranks` (the Python authority) used the real
 date — a real, demonstrated order inversion (review §4.5: Python
 `zzz-new, aaa-old`, SQL `aaa-old, zzz-new`), invisible to the existing
 `tests/store/test_reader.py::_write_and_rank` fixture because it always
 stamps the column with a direct `UPDATE`, "as the writer would if it had a
 real producer" — which, before this packet, it never did.
 
-Fixed with the lead's one authorised edit to `cvi/store/writer.py`: new
+Fixed with the lead's one authorised edit to `porchlamp/store/writer.py`: new
 `_last_human_commit_at(bundle)` reads
-`cvi.core.commit_domains.last_non_bot_commit_at(bundle)` (the same
-accessor `cvi.core.pipeline.score_bundle_stage_9_tie_input` already uses
+`porchlamp.core.commit_domains.last_non_bot_commit_at(bundle)` (the same
+accessor `porchlamp.core.pipeline.score_bundle_stage_9_tie_input` already uses
 for `TieBreakInput`), extracts `.value` when it is a
 `LastNonBotCommitMeasured`, else `None`, and normalises through the
 already-landed `_normalize_utc_z`. Module docstring corrected (the
@@ -95,7 +95,7 @@ produces the column for real. The pre-existing
 never had the sidecar fact set, not because the column is unproducible;
 `stars_audited`/`forks` still have no producer at all).
 
-Fail-before: reverted `cvi/store/writer.py` to the pre-fix version and ran
+Fail-before: reverted `porchlamp/store/writer.py` to the pre-fix version and ran
 the four new positive-value tests — 3 of 4 failed (the measured-absence
 case is vacuously `NULL` either way), including the exact SQL/Python order
 inversion:
@@ -149,7 +149,7 @@ packet or lead ruling.
    `Unmeasured` (D-MISS-1 F2 ruling). Missing/malformed envelope →
    `Unmeasured(reason="collector_failure")`.
 2. **`top_email_domain_share`**: share of non-bot commits whose
-   normalised author-email domain (`cvi.core.commit_domains.org_key` —
+   normalised author-email domain (`porchlamp.core.commit_domains.org_key` —
    noreply/personal addresses count as distinct individuals, corporate
    domains merge, exactly `elephant_factor`'s own rule) equals the most
    frequent one. `n` = non-bot commit count;
@@ -159,11 +159,11 @@ packet or lead ruling.
    corpus's own case) → `Unmeasured(collector_failure)`, distinct from
    insufficient_n. Tie for the top domain → alphabetically-first wins
    (pinned; same rule `elephant_factor` already uses).
-3. Wired: `cvi.core.pipeline.score_bundle_stage_9_tie_input` now reads
+3. Wired: `porchlamp.core.pipeline.score_bundle_stage_9_tie_input` now reads
    `last_non_bot_commit_at` from the bundle instead of hardcoding `None`
    (W3-2f had already landed by the time I reached this step, so I did
    the one-line wiring + tests directly rather than deferring).
-   `cvi.verify.pipeline_hook.detector_inputs_from_bundle` now reads
+   `porchlamp.verify.pipeline_hook.detector_inputs_from_bundle` now reads
    `top_email_domain_share` the same way, feeding the `ef_domain_mismatch`
    detector for real (new end-to-end test: fires through the real
    `build_detectors`/`run_detectors` composition, not just the unit level).
@@ -185,31 +185,31 @@ rows or bundle fields; they are bundle fields, following the
 live there. Three things came out of chasing this correctly through the
 import graph:
 
-**Relocation to `cvi/core/commit_domains.py` (new file, stdlib-only).**
-`cvi/derive/bundle.py` may import only `cvi.core` + stdlib
+**Relocation to `porchlamp/core/commit_domains.py` (new file, stdlib-only).**
+`porchlamp/derive/bundle.py` may import only `porchlamp.core` + stdlib
 (`tests/core/test_import_graph.py::test_derive_bundle_imports_only_core_and_stdlib`)
-and `cvi/core/pipeline.py` is itself inside `cvi/core`, so neither can
-import `cvi.collect.commits` to reuse its `is_bot`/`org_key`/`CommitActor`/
+and `porchlamp/core/pipeline.py` is itself inside `porchlamp/core`, so neither can
+import `porchlamp.collect.commits` to reuse its `is_bot`/`org_key`/`CommitActor`/
 `CommitRecord`/`records_from_rows`. Moved those five (verbatim, not
 rewritten — the packet's own "reuse, do not re-implement" instruction) plus
-the three domain tables into the new module; `cvi.collect.commits`
+the three domain tables into the new module; `porchlamp.collect.commits`
 re-exports them unchanged (`__all__` declares this so ruff doesn't flag the
 re-export as unused) so every existing caller/test needed zero changes —
 confirmed: `tests/test_commits_ef.py` (25 tests, W1-5's own suite) and every
 consumer of `commits.CommitActor`/`is_bot`/`org_key`/`records_from_rows`
-(`cvi/collect/governance.py`, `cvi/collect/pike_signals.py`,
+(`porchlamp/collect/governance.py`, `porchlamp/collect/pike_signals.py`,
 `scripts/build_fixture_snapshot.py`, `scripts/gather.py`, `scripts/derive.py`)
 still pass/import unchanged. Same move packet W2-9g made for Pike
-criticality (`cvi/core/openssf.py`), same reasoning.
+criticality (`porchlamp/core/openssf.py`), same reasoning.
 
 The two new pure facts (`last_non_bot_commit_date(records)`,
 `top_domain_share(records) -> TopDomainShare`) live in the new module too,
 plus the `last_non_bot_commit_at` **bundle**-level sidecar
-(dataclass/attr-name/getter/setter) — because `cvi.core.pipeline` needs to
-read that one back and cannot reach `cvi.derive.bundle`.
-`top_email_domain_share`'s bundle-level sidecar has no `cvi.core` reader
-(only `cvi/verify/pipeline_hook.py`, unrestricted) and stays in
-`cvi.derive.bundle`.
+(dataclass/attr-name/getter/setter) — because `porchlamp.core.pipeline` needs to
+read that one back and cannot reach `porchlamp.derive.bundle`.
+`top_email_domain_share`'s bundle-level sidecar has no `porchlamp.core` reader
+(only `porchlamp/verify/pipeline_hook.py`, unrestricted) and stays in
+`porchlamp.derive.bundle`.
 
 **Real envelope resolution (not provenance-dict lookup).** My first
 implementation read `ctx.provenance.get("commits_365d")` /
@@ -240,7 +240,7 @@ pre-existing one. Fixed: two OPTIONAL top-level v2-document keys
 (`last_non_bot_commit_at`, `top_email_domain_share`, tagged
 `{"kind": "measured"|"unmeasured", ...}`), whitelisted in `validate_bundle`'s
 strict-keys check (`_W1_5F_OPTIONAL_TOP_LEVEL_KEYS`, not a `FeatureBundle`
-dataclass field — `cvi/core/models.py` stays untouched), always written by
+dataclass field — `porchlamp/core/models.py` stays untouched), always written by
 `dump_bundle`, read back (never raising on malformed data — falls back to
 the same "unset" default) by `validate_bundle`. Covered by
 `test_both_sidecar_facts_survive_a_dump_reload_round_trip` and
@@ -254,7 +254,7 @@ the sample corpus's `commits_180d` envelopes is shaped
 `{"author_login", "date"}` only (verified: `commits_365d` never exists at
 all in the corpus; `commits_180d` rows carry no `author_email`/
 `author_type` anywhere across all 200 repos), an older/different collector
-shape than `cvi.collect.commits.shape_commit_rows`'s landed
+shape than `porchlamp.collect.commits.shape_commit_rows`'s landed
 `{"date", "author_email", "author_login", "author_type", "signed_off"}`.
 `org_key` needs an `@`-bearing email and has nothing to work with, so no
 commit ever resolves to an org. `last_non_bot_commit_at` is unaffected
@@ -296,11 +296,11 @@ REWORK round ran it for real.
 (`4fbc1c3`/`583a63d`/`7159461`) partway through this packet's work, so I
 did **not** leave the one-liner for the lead:
 
-- `cvi/core/pipeline.py::score_bundle_stage_9_tie_input`: replaced the
+- `porchlamp/core/pipeline.py::score_bundle_stage_9_tie_input`: replaced the
   hardcoded `last_non_bot_commit_at=None` with
   `commit_domains.last_non_bot_commit_at(bundle).value if isinstance(...,
   LastNonBotCommitMeasured) else None`.
-- `cvi/verify/pipeline_hook.py::detector_inputs_from_bundle`: added
+- `porchlamp/verify/pipeline_hook.py::detector_inputs_from_bundle`: added
   `top_email_domain_share=_top_email_domain_share(bundle)` reading the new
   sidecar the same way.
 
@@ -361,14 +361,14 @@ delta: main `2325 passed` vs this branch `2375 passed`.)
 
 ## Fail-before
 
-Restored `cvi/derive/bundle.py`, `cvi/collect/commits.py`,
-`cvi/core/pipeline.py`, `cvi/verify/pipeline_hook.py` to the pre-packet
+Restored `porchlamp/derive/bundle.py`, `porchlamp/collect/commits.py`,
+`porchlamp/core/pipeline.py`, `porchlamp/verify/pipeline_hook.py` to the pre-packet
 main tip (`8a4846c`, main before this packet's first commit) and deleted
-`cvi/core/commit_domains.py` (did not exist there); ran the new test
+`porchlamp/core/commit_domains.py` (did not exist there); ran the new test
 files:
 ```
-tests/core/test_commit_domains.py: ModuleNotFoundError: No module named 'cvi.core.commit_domains'
-tests/derive/test_w15f_commit_facts.py: ImportError: cannot import name 'LastNonBotCommitMeasured' from 'cvi.derive.bundle'
+tests/core/test_commit_domains.py: ModuleNotFoundError: No module named 'porchlamp.core.commit_domains'
+tests/derive/test_w15f_commit_facts.py: ImportError: cannot import name 'LastNonBotCommitMeasured' from 'porchlamp.derive.bundle'
 tests/core/test_pipeline.py: 3 new tests FAILED (ImportError / hardcoded None), 34 pre-existing tests still passed
 tests/verify/test_pipeline_hook.py: 3 new tests FAILED (ImportError), 6 pre-existing tests still passed
 ```
@@ -387,7 +387,7 @@ scope).
 
 `__pycache__` cleared before the run and again after each restore.
 
-1. **Bots counted** (`cvi/core/commit_domains.py::top_domain_share`,
+1. **Bots counted** (`porchlamp/core/commit_domains.py::top_domain_share`,
    `non_bot = list(records)`): 3 tests fail —
    `test_top_domain_share_excludes_bot_commits_from_numerator_and_denominator`,
    `test_top_domain_share_computed_over_non_bot_only_not_all_commits`,
@@ -405,7 +405,7 @@ scope).
    assertion — `.share` wrong while `.n` stays right, proving the two
    mutants are independently detected).
 5. **Absence and failure swapped**, both directions
-   (`cvi/derive/bundle.py::_resolve_commit_facts`): missing-envelope case
+   (`porchlamp/derive/bundle.py::_resolve_commit_facts`): missing-envelope case
    wrongly returns a measured absence → 1 test fails
    (`test_last_non_bot_commit_at_missing_envelope_is_unmeasured_collector_failure`);
    genuine-absence case wrongly returns `Unmeasured` → 2 tests fail
@@ -427,16 +427,16 @@ Rebased five times in total as main advanced during and after review:
 `tests/fixtures/snapshot_50/expected.json`'s `records_hash` line -- both
 sides had re-pinned it; resolved by taking either value and immediately
 regenerating the fixture for real afterward, since the merged
-`cvi/derive/bundle.py` -- auto-merged cleanly, W1-10/W2-13 never touched
+`porchlamp/derive/bundle.py` -- auto-merged cleanly, W1-10/W2-13 never touched
 this packet's lines -- needed a fresh, authoritative hash anyway).
-`cvi/collect/commits.py`, `cvi/core/commit_domains.py`,
-`cvi/core/pipeline.py`, `cvi/verify/pipeline_hook.py` were never touched by
+`porchlamp/collect/commits.py`, `porchlamp/core/commit_domains.py`,
+`porchlamp/core/pipeline.py`, `porchlamp/verify/pipeline_hook.py` were never touched by
 the commits landing in between, so those four applied with zero conflicts.
 
 REWORK round, after the lead's review: `5f5350a` -> `819d361` (main tip at
 the time; the lead's floor was `3c5d99f`, cleared). Same shape of
 conflict, same resolution: only `tests/fixtures/snapshot_50/expected.json`
-conflicted (both sides had re-pinned `records_hash`); `cvi/store/writer.py`
+conflicted (both sides had re-pinned `records_hash`); `porchlamp/store/writer.py`
 -- touched by both this REWORK round and W4-3's own landing -- auto-merged
 with zero conflict (confirmed by grepping the merged file for
 `_last_human_commit_at`/`commit_domains` after the rebase). Resolved by
@@ -457,20 +457,20 @@ logged on main); not re-chased, since the lead's instructed floor
   packet gets the sample-refresh work, referenced in the W2-8b/W3-2 lead
   log rows as "W2-8c").
 - I did not touch `scripts/derive.py` at all — the two new facts are
-  computed entirely inside `cvi.derive.bundle._load_v1` from the raw
+  computed entirely inside `porchlamp.derive.bundle._load_v1` from the raw
   commits envelope, never via a `scripts/derive.py`-computed meta scalar
   (unlike `elephant_factor`). This means a *fresh* v1 derive run (not
   through this fixture's re-load path) would not carry these two facts in
-  its `meta`/`provenance` at all — only `cvi.derive.bundle.load_bundle`
+  its `meta`/`provenance` at all — only `porchlamp.derive.bundle.load_bundle`
   reading a document's raw envelopes (via `raw_root`) produces them. If a
   future packet wants these facts computed and stored by `scripts/
-  derive.py` itself (e.g. for `cvi.lakehouse`/`cvi.ingest`'s v1 path), that
+  derive.py` itself (e.g. for `porchlamp.lakehouse`/`porchlamp.ingest`'s v1 path), that
   is new scope this packet did not attempt.
 - The review's F-003 (mutant R6, `_commit_envelope_path`'s `is_file()`
   guard un-pinned in the `raw_root`-set-but-file-missing-with-a-provenance-
   entry case), F-004 (a malformed optional top-level key degrades silently
   to `Unmeasured(collector_failure)` instead of raising), and F-006 (two
-  stale docstrings in `cvi/core/tiebreak.py` and `tests/verify/
+  stale docstrings in `porchlamp/core/tiebreak.py` and `tests/verify/
   test_pipeline_hook.py` that still describe the pre-W1-5f state) are
   **not** addressed in this REWORK round — out of the lead's bounded scope
   (F-001, F-002 only). Left open for the lead or a future packet.

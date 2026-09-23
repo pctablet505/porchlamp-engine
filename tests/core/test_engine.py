@@ -17,10 +17,10 @@ from typing import Any, Callable
 
 import pytest
 
-from cvi.core import constants, matrix
-from cvi.core.engine import Snapshot, score
-from cvi.core.gates import GateEvidence
-from cvi.core.models import (
+from porchlamp.core import constants, matrix
+from porchlamp.core.engine import Snapshot, score
+from porchlamp.core.gates import GateEvidence
+from porchlamp.core.models import (
     Cohorts,
     FeatureBundle,
     GateResult,
@@ -33,7 +33,7 @@ from cvi.core.models import (
     ScoreRecord,
     Unmeasured,
 )
-from cvi.snapshot.populations import Population, PopulationSet
+from porchlamp.snapshot.populations import Population, PopulationSet
 
 NOW = datetime.datetime(2026, 9, 12, 0, 0, tzinfo=datetime.timezone.utc)
 _HASH64 = "b" * 64
@@ -305,7 +305,7 @@ def _counting_stub(counter: list[int]) -> Callable[..., Any]:
 
 
 def test_gated_repo_never_calls_the_parameter_functions(monkeypatch: pytest.MonkeyPatch) -> None:
-    from cvi.core import engine
+    from porchlamp.core import engine
 
     calls: list[int] = []
     monkeypatch.setattr(
@@ -338,7 +338,7 @@ def test_gated_repo_never_calls_the_parameter_functions(monkeypatch: pytest.Monk
 def test_eligible_repo_calls_every_parameter_function_exactly_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """Anti-vacuity for the guard above: the same counting mechanism, on an
     eligible bundle, does observe all 18 calls."""
-    from cvi.core import engine
+    from porchlamp.core import engine
 
     calls: dict[str, int] = {input_id: 0 for input_id in constants.PARAM_INPUT_IDS}
     real_functions = dict(engine._PARAM_FUNCTIONS)
@@ -464,7 +464,7 @@ def test_unrated_repo_has_no_composite_or_tier_but_keeps_params_and_coverage() -
 
 
 # --------------------------------------------------------------------------- #
-# D-MAT-1 acceptance oracles: cvi.core.matrix directly (unmeasured pillars
+# D-MAT-1 acceptance oracles: porchlamp.core.matrix directly (unmeasured pillars
 # drop out of the coordinate with renormalised weights; the 50.0 quadrant
 # boundary counts as high on both axes).
 # --------------------------------------------------------------------------- #

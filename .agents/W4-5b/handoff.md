@@ -40,7 +40,7 @@ including a real `--fail snapshot` 500 asserting the detail text appears).
 Live-browser verified: a monkey-patched 503 with a synthetic detail
 rendered exactly as expected in Screen B's error banner. Also confirmed
 (no change needed): `views/configure.js`'s client-side sort already used
-the exact `sort=p_<pillar>`/`-p_<pillar>`, `rank/cvi/coverage/tier`-with-`-`
+the exact `sort=p_<pillar>`/`-p_<pillar>`, `rank/porchlamp/coverage/tier`-with-`-`
 -for-ascending-of-score encoding, since it imports and reuses
 `components/table.js::SORTABLE_COLUMNS` rather than redeclaring it.
 
@@ -71,10 +71,10 @@ in `b2f85a1` (also updated two hand-constructed test fixtures).
 FAILs were W4-5a's own to fix, not mine) and the W4-4 row (API being built
 in parallel — never landed during this packet; the fixture server remains
 the UI's only backend); `.agents/W4-5a/handoff.md`; `web/v2/**`;
-`cvi/core/methodology.py` + `cvi/audit/methodology_history.py`;
-`cvi/store/queries.py::reproject`; `docs/UI_UX_SPECIFICATION.md`.
+`porchlamp/core/methodology.py` + `porchlamp/audit/methodology_history.py`;
+`porchlamp/store/queries.py::reproject`; `docs/UI_UX_SPECIFICATION.md`.
 
-## Backend (`cvi/serve/contract.py`, `scripts/serve_ui_fixtures.py`)
+## Backend (`porchlamp/serve/contract.py`, `scripts/serve_ui_fixtures.py`)
 
 ### Contract additions (models were missing)
 
@@ -82,13 +82,13 @@ the UI's only backend); `.agents/W4-5a/handoff.md`; `web/v2/**`;
   `MethodologyParameter`, `MethodologyGate`, `MethodologyMissingness*`,
   `MethodologyTieBreak*`, `MethodologyPersona*`, `MethodologyDetector`,
   `MethodologyProcessConstant`, `MethodologyRfcLogEntry`) mirroring
-  `cvi.core.methodology.MethodologyDocument` /
-  `cvi.audit.methodology_history.methodology_with_history` field-for-field.
+  `porchlamp.core.methodology.MethodologyDocument` /
+  `porchlamp.audit.methodology_history.methodology_with_history` field-for-field.
   Validated against the real fixture (see below) — every field name and
   nullability matched on the first pass except needing `MethodologyProxyInfo`
   to allow either sub-field alone.
 - `ReprojectRow` (`LeaderboardRow` + `balanced_rank`/`balanced_tie_group`/
-  `balanced_cvi`/`balanced_coverage`/`balanced_tier`): `cvi.store.queries.
+  `balanced_porchlamp`/`balanced_coverage`/`balanced_tier`): `porchlamp.store.queries.
   reproject` already returns these five balanced-comparison fields but
   `ReprojectResponse` had no field for them — Screen D's "live rank deltas
   vs balanced" side list needs both figures from one response.
@@ -99,15 +99,15 @@ the UI's only backend); `.agents/W4-5a/handoff.md`; `web/v2/**`;
 
 ### `scripts/serve_ui_fixtures.py` additions
 
-- `GET /v1/cvi/matrix` — `MatrixPoint`s straight from the loaded leaderboard
+- `GET /v1/porchlamp/matrix` — `MatrixPoint`s straight from the loaded leaderboard
   rows (each already carries D-MAT-1 coordinates); `excluded_count` = the
   snapshot's `gated` count; `axis_coverage_caption` names the worst-missing
   contributing pillar per axis at a documented 5% threshold
   (`AXIS_CAPTION_MIN_MISSING_FRACTION`).
-- `GET /v1/cvi/methodology` — serves `tests/fixtures/ui/methodology.json`
+- `GET /v1/porchlamp/methodology` — serves `tests/fixtures/ui/methodology.json`
   verbatim (see "Methodology fixture" below for why it's a static file here
   rather than a live call).
-- `POST /v1/cvi/reproject` — `reproject_rows()` mirrors `cvi.store.queries.
+- `POST /v1/porchlamp/reproject` — `reproject_rows()` mirrors `porchlamp.store.queries.
   reproject`'s D-MISS-2 renormalisation / D-MAT-2 tier+ceiling / D-TIE-1
   ordering in pure Python over the same fixture rows. **Documented gap**:
   D-TIE-1 levels 6 (TTFHR p75) and 7 (last non-bot commit date) are skipped
@@ -118,9 +118,9 @@ the UI's only backend); `.agents/W4-5a/handoff.md`; `web/v2/**`;
 ### Methodology fixture generation (deviation, reasoned)
 
 `06`/the dispatch's literal text: "methodology.json generated at startup by
-calling `cvi.audit.methodology_history.methodology_with_history(...)`."
+calling `porchlamp.audit.methodology_history.methodology_with_history(...)`."
 This branch (based on `W4-5a`, now rebased onto `main`) DOES have
-`cvi.audit.methodology_history` available post-rebase — but the fixture file
+`porchlamp.audit.methodology_history` available post-rebase — but the fixture file
 itself was generated **before** the rebase, via a one-off scratch script
 (`~/Projects/cvi-scratch/W4-5b/gen_methodology_fixture.py`, not shipped)
 that ran the real function against the **main checkout's editable install**
@@ -137,7 +137,7 @@ cd /home/pctablet505/Projects/contributor-value-index
 ```
 
 (writes directly to this worktree's `tests/fixtures/ui/methodology.json`).
-Now that the rebase has landed `cvi.audit.methodology_history` into this
+Now that the rebase has landed `porchlamp.audit.methodology_history` into this
 branch's own tree, a future packet could switch `serve_ui_fixtures.py` to
 call it in-process at server startup instead — left as-is here since the
 static-file pattern is what every sibling fixture already does and changing
@@ -185,7 +185,7 @@ circle=Nursery, cross=Graveyard, using the existing `--quad-*` tokens),
 marker size sqrt-scaled from `stars_audited` (`null` → `DEFAULT_RADIUS`,
 "unaudited" legend caption). Gated repos excluded with an "N gated excluded"
 caption; `axis_coverage_caption` rendered when present. Hover card
-(name/CVI/coverage/tier) on hover AND keyboard focus. Click/Enter opens the
+(name/Porchlamp/coverage/tier) on hover AND keyboard focus. Click/Enter opens the
 drawer (reuses the existing `[data-owner][data-name]` delegated handler —
 no new wiring needed there). Zoom via wheel + `+`/`-` buttons, pan via
 arrow keys when the stage itself (not a marker) has focus; a Reset view
@@ -215,7 +215,7 @@ per-node DOM cost for the rest.
 
 Five sliders + lock toggles with `normalizeWeights` (proportional
 normalisation: locked weights fixed, the others rescale to sum to 1, zero
-allowed) debounced ≤150 ms to `POST /v1/cvi/reproject` with the greyed-table
+allowed) debounced ≤150 ms to `POST /v1/porchlamp/reproject` with the greyed-table
 pattern (U-14). Five persona preset buttons (`applyPresetRespectingLocks` —
 see fixes below) labelled and always relabelled "Custom" immediately after
 (U-11). Live "Rank deltas vs balanced" side list (`topMovers`, top 5 up/down
@@ -248,7 +248,7 @@ fixture — is tolerated as an empty evidence set, not a failed comparison).
 
 ### F. Methodology and snapshot (`views/methodology.js`)
 
-Renders `GET /v1/cvi/methodology` (pillars, parameters, gates, missingness,
+Renders `GET /v1/porchlamp/methodology` (pillars, parameters, gates, missingness,
 tie-breakers, personas, detectors, process constants, RFC log) and the
 already-loaded `state.snapshot` (id, as_of, manifest root, constants hash,
 counts, the exact reproduce command in a copyable `<pre>` with a
@@ -397,8 +397,8 @@ live-verified against the real payload.
 
 ## Rules followed
 
-`PYTHONPATH=$PWD` for every Python command. Stayed out of `cvi/**` except
-`cvi/serve/contract.py` additions (named above, both new models). Stayed out
+`PYTHONPATH=$PWD` for every Python command. Stayed out of `porchlamp/**` except
+`porchlamp/serve/contract.py` additions (named above, both new models). Stayed out
 of `views/{leaderboard,notranked,drawer}.js` beyond the same kind of
 "wiring" the dispatch anticipated (app.js calls into their existing exports
 unchanged; the one drawer-adjacent finding below is reported, not fixed, for
@@ -586,7 +586,7 @@ routed EVERY `repoDetailError` — a 404 included, since `api.js`/
 retry-error banner, making `copy.DRAWER_NOT_FOUND_TEXT` dead code for the
 one case it names. Fixed: the not-found branch now checks
 `status !== 404` before choosing the retry banner. **Live-verified**: `GET
-/v1/cvi/repos/nobody/nothing` returns 404 with the expected body; `?repo=
+/v1/porchlamp/repos/nobody/nothing` returns 404 with the expected body; `?repo=
 nobody%2Fnothing` renders the drawer with exactly the not-found copy and
 no retry button (real Chromium tab, real navigation, `#app-drawer-root`
 inspected directly); all three `renderDrawer` cases (404 / non-404 /
@@ -617,16 +617,16 @@ actually closed that gap for this round's evidence.
 ### Unplanned item: rebase fallout — two branches' independent contract.py changes collided silently — commit `28f6783`
 
 Rebasing onto main (`752d5ec` -> current tip, per the dispatch's "752d5ec
-or later" — pulled in W4-4's real `cvi/serve/app.py`/`guard.py` for the
+or later" — pulled in W4-4's real `porchlamp/serve/app.py`/`guard.py` for the
 FIRST time onto this branch) succeeded with **zero textual conflicts**
 across all 18 commits. That silence was misleading: `tests/serve/
 test_api_v2.py` (main's own 50-test suite for the real API) went from
 50 passed to 7 failed the moment this branch's own contract.py commits
 landed on top, because the merge auto-combined two independently-designed
-additions to `cvi/serve/contract.py` with no textual overlap but a real
+additions to `porchlamp/serve/contract.py` with no textual overlap but a real
 semantic collision. Diagnosed (pristine `main` in a scratch worktree
 confirmed 50/50 passing — this was NOT a pre-existing failure) and fixed
-all three root causes, none touching `cvi/store/**` or any of this
+all three root causes, none touching `porchlamp/store/**` or any of this
 round's three dispatched items:
 
 1. **Duplicate `class RepoDetailResponse`** in `contract.py`: W4-4's own
@@ -647,15 +647,15 @@ round's three dispatched items:
    item 11 explicitly handing the numbers field to W4-5b) still passed the
    old name, and `StrictModel`'s `extra="forbid"` turned that into a 500.
    Fixed the kwarg name; the VALUE stays `{}` (an honest gap, documented —
-   `cvi.store.queries.matrix_points` only returns one combined count/share,
+   `porchlamp.store.queries.matrix_points` only returns one combined count/share,
    not the per-axis/per-pillar breakdown `MatrixAxisCoverage` needs; wiring
    a real value needs that query extended, out of this round's scope).
 3. **`_reproject_row` returned a bare `LeaderboardRow`** where
    `ReprojectRow` (a `LeaderboardRow` SUBCLASS this branch added) was
    required — a parent-class instance never satisfies a subclass-typed
    field, so every `/reproject` call 500'd on the four missing
-   `balanced_tie_group`/`balanced_cvi`/`balanced_coverage`/`balanced_tier`
-   fields (which `cvi.store.queries.reproject` already returns on
+   `balanced_tie_group`/`balanced_porchlamp`/`balanced_coverage`/`balanced_tier`
+   fields (which `porchlamp.store.queries.reproject` already returns on
    `record` — just never wired through). Fixed by widening the shared
    `_project_leaderboard_row` result into a real `ReprojectRow`.
 
@@ -666,8 +666,8 @@ fixture that didn't exist when that test was written) — added, validated
 against `MethodologyResponse`.
 
 **Live end-to-end verification** against a real `create_app()` instance
-(not the fixture server): `/v1/cvi/matrix` (200), `POST /v1/cvi/reproject`
-(200, full `ReprojectRow` with all five balanced_* fields), `GET /v1/cvi/
+(not the fixture server): `/v1/porchlamp/matrix` (200), `POST /v1/porchlamp/reproject`
+(200, full `ReprojectRow` with all five balanced_* fields), `GET /v1/porchlamp/
 repos/{owner}/{name}` (200 known repo, 404 unknown repo with the nested
 error body) — script and output in this round's commit message.
 
@@ -705,8 +705,8 @@ branch already carried through the rebase):
  9 files changed, ~900 insertions(+), ~30 deletions(-)
 ```
 
-(`.agents/W4-5b/review/round2/*` (4 files, docs), `cvi/serve/app.py`,
-`cvi/serve/contract.py`, `tests/serve/test_api_v2.py`,
+(`.agents/W4-5b/review/round2/*` (4 files, docs), `porchlamp/serve/app.py`,
+`porchlamp/serve/contract.py`, `tests/serve/test_api_v2.py`,
 `tests/test_serve_ui_fixtures.py`, `tests/test_ui_weights_port.py` (new),
 `web/v2/api.js`, `web/v2/app.js`, `web/v2/package.json` (new),
 `web/v2/tests/cases/normalize_weights.json` (new), `web/v2/tests/
@@ -733,10 +733,10 @@ Bounded follow-up dispatched by the lead's own final browser pass on the
 real API served from `main` (`scripts/serve.py --db <the real fixture
 store>`): opening the drawer for ANY repo threw `TypeError: Cannot read
 properties of undefined (reading 'owner')` and stayed on "Loading
-evidence…". Root cause: `GET /v1/cvi/repos/{owner}/{name}` had two
+evidence…". Root cause: `GET /v1/porchlamp/repos/{owner}/{name}` had two
 independent producers with two different shapes. The real API
-(`cvi/serve/app.py`, packet W4-4) sends the flat `RepoDetailResponse`
-(`cvi/serve/contract.py`); this branch's own `scripts/
+(`porchlamp/serve/app.py`, packet W4-4) sends the flat `RepoDetailResponse`
+(`porchlamp/serve/contract.py`); this branch's own `scripts/
 serve_ui_fixtures.py` (packet W4-5b) invented `{"kind": ..., "row":
 {...}}` and `views/drawer.js` read `data.row` — `undefined` against the
 real API's response. Ruling: **the contract is the truth**.
@@ -763,7 +763,7 @@ three packets later:
 - A gated/unrated row (`notranked.json`, much sparser) gets
   `snapshot_id`/`benchmark_version` threaded from the store's own global
   `snapshot.json` (a constant, not a derivation), `eligible` from WHICH
-  not-ranked group the row was found in (matching `cvi.store.queries.
+  not-ranked group the row was found in (matching `porchlamp.store.queries.
   list_not_ranked`'s own documented rule: "Gated (eligible=0) and unrated
   (eligible=1, rated=0)"), `coverage` defaulting to 0.0 when this
   fixture's own is `None` (the real store's `coverage` column is NOT
@@ -785,7 +785,7 @@ flat shape's fields, so no other line needed to change). `state.js`'s
 `repoDetailByKey` doc comment updated; no reducer logic changed.
 
 **(3) Cross-producer binding**: new `tests/test_repo_detail_cross_check.py`
-builds BOTH producers — the real API through `cvi.serve.app.create_app`
+builds BOTH producers — the real API through `porchlamp.serve.app.create_app`
 on a synthetic store (`tests/serve/helpers.py`'s `build_snapshot`, the
 SAME builder `tests/serve/test_api_v2.py` uses) and the UI fixture server
 through `scripts/serve_ui_fixtures.py`'s own `serve()` — and asserts, for
@@ -805,7 +805,7 @@ Also updated: `tests/test_serve_ui_fixtures.py::TestRepoDetailEndpoint`'s
 success-path tests rewritten for the flat shape (rated/gated/unrated,
 each validated against `RepoDetailResponse` itself, plus a dedicated test
 for the null-coverage-defaults-to-0.0 case); removed the now-fully-dead
-`RepoDetailFixtureResponse` from `cvi/serve/contract.py` (added in this
+`RepoDetailFixtureResponse` from `porchlamp/serve/contract.py` (added in this
 branch's own round-3 rebase-reconciliation commit as a rename, now that
 nothing needs the `{kind, row}` shape at all) and its `__all__` entry;
 `web/v2/api.js`'s doc comment corrected back to the one real
@@ -814,10 +814,10 @@ unit tests plus three `renderDrawer` round-trip tests (rated/gated/
 unrated) against hand-built flat-shape fixtures.
 
 **Live-verified** (Chromium via the Claude Browser tool, fixture server
-restarted on port 8902 to pick up the Python change): `GET /v1/cvi/repos/
+restarted on port 8902 to pick up the Python change): `GET /v1/porchlamp/repos/
 riverline/httpkit` returns the flat shape on the wire; `?repo=riverline%2
 Fhttpkit` opens the drawer with the composite/pillar/persona/integrity
-sections rendering correctly (CVI, raw_hash, etc.), zero console errors;
+sections rendering correctly (Porchlamp, raw_hash, etc.), zero console errors;
 `?repo=gated-org%2Frepo-mirror-0` renders identity + gate banner only, no
 numeric composite cells; `?repo=unrated-org%2Frepo-insufficient_evidence-0`
 renders identity + unrated banner + evidence section without throwing.

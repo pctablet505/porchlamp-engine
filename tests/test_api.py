@@ -1,8 +1,8 @@
-"""Tests for the CVI REST API layer (spec 12).
+"""Tests for the Porchlamp REST API layer (spec 12).
 
 Seeds an in-memory ``OperationalStore`` via ``upsert_composite`` and
 patches the raw ``stars`` column with direct SQL (ingestion-layer
-territory — see the ``cvi.lakehouse`` module docstring) so the
+territory — see the ``porchlamp.lakehouse`` module docstring) so the
 ``min_stars`` filter paths are actually exercised.
 
 Oracle style: exact expected values everywhere; a test that is easy to
@@ -16,9 +16,9 @@ from collections.abc import Callable
 import pytest
 from fastapi.testclient import TestClient
 
-from cvi.api import create_app
-from cvi.lakehouse import OperationalStore
-from cvi.models import CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
+from porchlamp.api import create_app
+from porchlamp.lakehouse import OperationalStore
+from porchlamp.models import PorchlampCompositeResult, Ecosystem, PillarScores, Quadrant, Tier
 
 
 NODE_KEYS = {
@@ -27,7 +27,7 @@ NODE_KEYS = {
     "name",
     "x",
     "y",
-    "cvi",
+    "porchlamp",
     "tier",
     "quadrant",
     "size",
@@ -42,7 +42,7 @@ ALL_QUADRANTS = {"Sweet Spot", "Crucible", "Nursery", "Graveyard"}
 def make_result(
     owner: str,
     name: str,
-    overall_cvi: float,
+    overall_porchlamp: float,
     rank_tier: Tier,
     matrix_quadrant: Quadrant,
     leverage_score: float,
@@ -50,12 +50,12 @@ def make_result(
     ecosystem: Ecosystem = Ecosystem.PYPI,
     is_stage0_disqualified: bool = False,
     disqualification_reason: str | None = None,
-) -> CVICompositeResult:
-    return CVICompositeResult(
+) -> PorchlampCompositeResult:
+    return PorchlampCompositeResult(
         owner=owner,
         name=name,
         ecosystem=ecosystem,
-        overall_cvi=overall_cvi,
+        overall_porchlamp=overall_porchlamp,
         rank_tier=rank_tier,
         matrix_quadrant=matrix_quadrant,
         leverage_score=leverage_score,
@@ -87,7 +87,7 @@ def seed_matrix_store() -> OperationalStore:
     """Five repos: covers every filter axis and quadrant (incl. gated)."""
     store = OperationalStore()
     seed = [
-        # owner, name, eco, cvi, tier, quadrant, leverage, friction, pillars, stars, gated
+        # owner, name, eco, porchlamp, tier, quadrant, leverage, friction, pillars, stars, gated
         ("alpha", "omega", Ecosystem.PYPI, 92.5, Tier.S_PLUS, Quadrant.SWEET_SPOT,
          80.0, 20.0, make_pillars(90, 80, 70, 60, 50), 150, False, None),
         ("beta", "omega", Ecosystem.PYPI, 88.0, Tier.S, Quadrant.CRUCIBLE,
@@ -99,12 +99,12 @@ def seed_matrix_store() -> OperationalStore:
         ("gated", "omega", Ecosystem.PYPI, 0.0, Tier.D, Quadrant.GRAVEYARD,
          0.0, 100.0, make_pillars(0, 0, 0, 0, 0), 1000, True, "ghost rate 0.4"),
     ]
-    for owner, name, eco, cvi, tier, quad, lev, fric, pillars, stars, gated, reason in seed:
+    for owner, name, eco, porchlamp, tier, quad, lev, fric, pillars, stars, gated, reason in seed:
         store.upsert_composite(
             make_result(
                 owner,
                 name,
-                cvi,
+                porchlamp,
                 tier,
                 quad,
                 lev,
@@ -120,13 +120,13 @@ def seed_matrix_store() -> OperationalStore:
 
 
 def seed_reproject_store() -> OperationalStore:
-    """Four repos whose old ranking (by overall_cvi) intentionally
+    """Four repos whose old ranking (by overall_porchlamp) intentionally
     disagrees with the criticality-heavy re-projection:
 
-    - one/a:   pillars (100, 0, 0, 0, 0),  cvi 50 -> old rank 1
-    - two/b:   pillars (0, 100, 0, 0, 0),  cvi 40 -> old rank 2
-    - three/c: pillars (0, 0, 50, 0, 0),   cvi 30 -> old rank 3
-    - four/d:  pillars (0, 0, 50, 0, 0),   cvi 20 -> old rank 4
+    - one/a:   pillars (100, 0, 0, 0, 0),  porchlamp 50 -> old rank 1
+    - two/b:   pillars (0, 100, 0, 0, 0),  porchlamp 40 -> old rank 2
+    - three/c: pillars (0, 0, 50, 0, 0),   porchlamp 30 -> old rank 3
+    - four/d:  pillars (0, 0, 50, 0, 0),   porchlamp 20 -> old rank 4
     """
     store = OperationalStore()
     seed = [
@@ -139,9 +139,9 @@ def seed_reproject_store() -> OperationalStore:
         ("four", "d", 20.0, Tier.D, Quadrant.NURSERY, 10.0, 30.0,
          make_pillars(0, 0, 50, 0, 0)),
     ]
-    for owner, name, cvi, tier, quad, lev, fric, pillars in seed:
+    for owner, name, porchlamp, tier, quad, lev, fric, pillars in seed:
         store.upsert_composite(
-            make_result(owner, name, cvi, tier, quad, lev, fric),
+            make_result(owner, name, porchlamp, tier, quad, lev, fric),
             pillar_scores=pillars,
         )
     return store
@@ -199,7 +199,7 @@ def test_create_app_default_store_serves_empty_matrix() -> None:
     # default (see open_client docstring re: sqlite thread affinity)
     client = open_client(lambda: OperationalStore())
     try:
-        resp = client.get("/v1/cvi/matrix")
+        resp = client.get("/v1/porchlamp/matrix")
         assert resp.status_code == 200
         body = resp.json()
         assert body["nodes"] == []
@@ -209,11 +209,11 @@ def test_create_app_default_store_serves_empty_matrix() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# GET /v1/cvi/matrix
+# GET /v1/porchlamp/matrix
 # --------------------------------------------------------------------------- #
 class TestMatrix:
     def test_default_params_nodes_and_shape(self, matrix_client) -> None:
-        resp = matrix_client.get("/v1/cvi/matrix")
+        resp = matrix_client.get("/v1/porchlamp/matrix")
         assert resp.status_code == 200
         body = resp.json()
         nodes = body["nodes"]
@@ -230,7 +230,7 @@ class TestMatrix:
         assert alpha["owner"] == "alpha" and alpha["name"] == "omega"
         assert alpha["repo_id"] == "alpha/omega"
         assert alpha["x"] == 20.0 and alpha["y"] == 80.0
-        assert alpha["cvi"] == 92.5
+        assert alpha["porchlamp"] == 92.5
         assert alpha["tier"] == "Tier S+"
         assert alpha["quadrant"] == "Sweet Spot"
         assert alpha["size"] == 150
@@ -240,18 +240,18 @@ class TestMatrix:
         assert delta["size"] == 100
 
     def test_default_excludes_low_star_and_gated(self, matrix_client) -> None:
-        ids = [n["repo_id"] for n in matrix_client.get("/v1/cvi/matrix").json()["nodes"]]
+        ids = [n["repo_id"] for n in matrix_client.get("/v1/porchlamp/matrix").json()["nodes"]]
         assert "beta/omega" not in ids  # stars=99 < 100
         assert "gated/omega" not in ids  # stage-0 disqualified
 
     def test_quadrant_counts_always_all_four_keys(self, matrix_client) -> None:
-        counts = matrix_client.get("/v1/cvi/matrix").json()["quadrant_counts"]
+        counts = matrix_client.get("/v1/porchlamp/matrix").json()["quadrant_counts"]
         assert set(counts) == ALL_QUADRANTS
         # counts reflect the table (no stars/gating filter): all 5 repos
         assert counts == {"Sweet Spot": 1, "Crucible": 1, "Nursery": 1, "Graveyard": 2}
 
     def test_ecosystem_filter(self, matrix_client) -> None:
-        body = matrix_client.get("/v1/cvi/matrix", params={"ecosystem": "pypi"}).json()
+        body = matrix_client.get("/v1/porchlamp/matrix", params={"ecosystem": "pypi"}).json()
         assert [n["repo_id"] for n in body["nodes"]] == ["alpha/omega", "delta/omega"]
         assert body["quadrant_counts"] == {
             "Sweet Spot": 1,
@@ -261,17 +261,17 @@ class TestMatrix:
         }
 
     def test_ecosystem_no_match(self, matrix_client) -> None:
-        body = matrix_client.get("/v1/cvi/matrix", params={"ecosystem": "crates"}).json()
+        body = matrix_client.get("/v1/porchlamp/matrix", params={"ecosystem": "crates"}).json()
         assert body["nodes"] == []
         assert body["quadrant_counts"] == dict.fromkeys(ALL_QUADRANTS, 0)
 
     def test_min_stars_filter_values(self, matrix_client) -> None:
         high = matrix_client.get(
-            "/v1/cvi/matrix", params={"min_stars": 500}
+            "/v1/porchlamp/matrix", params={"min_stars": 500}
         ).json()["nodes"]
         assert [n["repo_id"] for n in high] == ["gamma/omega"]
         zero = matrix_client.get(
-            "/v1/cvi/matrix", params={"min_stars": 0}
+            "/v1/porchlamp/matrix", params={"min_stars": 0}
         ).json()["nodes"]
         # gated still excluded (default), everything else passes
         assert [n["repo_id"] for n in zero] == [
@@ -283,7 +283,7 @@ class TestMatrix:
 
     def test_exclude_black_holes_off_includes_gated(self, matrix_client) -> None:
         body = matrix_client.get(
-            "/v1/cvi/matrix", params={"exclude_black_holes": "false"}
+            "/v1/porchlamp/matrix", params={"exclude_black_holes": "false"}
         ).json()
         nodes = body["nodes"]
         assert [n["repo_id"] for n in nodes] == [
@@ -293,18 +293,18 @@ class TestMatrix:
             "gated/omega",
         ]
         assert nodes[-1]["is_gated"] == 1
-        assert nodes[-1]["cvi"] == 0.0
+        assert nodes[-1]["porchlamp"] == 0.0
         assert nodes[-1]["size"] == 1000
 
     def test_domain_is_reserved_noop(self, matrix_client) -> None:
-        plain = matrix_client.get("/v1/cvi/matrix").json()
+        plain = matrix_client.get("/v1/porchlamp/matrix").json()
         with_domain = matrix_client.get(
-            "/v1/cvi/matrix", params={"domain": "ai_ml"}
+            "/v1/porchlamp/matrix", params={"domain": "ai_ml"}
         ).json()
         assert with_domain == plain
 
     def test_persona_is_reserved_noop(self, matrix_client) -> None:
-        plain = matrix_client.get("/v1/cvi/matrix").json()
+        plain = matrix_client.get("/v1/porchlamp/matrix").json()
         for persona in (
             "balanced",
             "first_timer",
@@ -313,33 +313,33 @@ class TestMatrix:
             "ai_assisted",
         ):
             assert (
-                matrix_client.get("/v1/cvi/matrix", params={"persona": persona}).json()
+                matrix_client.get("/v1/porchlamp/matrix", params={"persona": persona}).json()
                 == plain
             )
 
     def test_persona_invalid_422(self, matrix_client) -> None:
-        resp = matrix_client.get("/v1/cvi/matrix", params={"persona": "vibe_coder"})
+        resp = matrix_client.get("/v1/porchlamp/matrix", params={"persona": "vibe_coder"})
         assert resp.status_code == 422
         assert "detail" in resp.json()
 
     def test_min_stars_negative_422(self, matrix_client) -> None:
-        resp = matrix_client.get("/v1/cvi/matrix", params={"min_stars": -1})
+        resp = matrix_client.get("/v1/porchlamp/matrix", params={"min_stars": -1})
         assert resp.status_code == 422
 
 
 # --------------------------------------------------------------------------- #
-# GET /v1/cvi/repos/{owner}/{name}
+# GET /v1/porchlamp/repos/{owner}/{name}
 # --------------------------------------------------------------------------- #
 class TestRepoDeepDive:
     def test_happy_path_full_row_plus_pillar_scores(self, matrix_client) -> None:
-        resp = matrix_client.get("/v1/cvi/repos/alpha/omega")
+        resp = matrix_client.get("/v1/porchlamp/repos/alpha/omega")
         assert resp.status_code == 200
         body = resp.json()
         assert body["owner"] == "alpha"
         assert body["name"] == "omega"
         assert body["ecosystem"] == "pypi"
         assert body["stars"] == 150
-        assert body["overall_cvi"] == 92.5
+        assert body["overall_porchlamp"] == 92.5
         assert body["rank_tier"] == "Tier S+"
         assert body["matrix_quadrant"] == "Sweet Spot"
         assert body["leverage_score"] == 80.0
@@ -356,12 +356,12 @@ class TestRepoDeepDive:
         }
 
     def test_gated_repo_flags(self, matrix_client) -> None:
-        body = matrix_client.get("/v1/cvi/repos/gated/omega").json()
+        body = matrix_client.get("/v1/porchlamp/repos/gated/omega").json()
         assert body["is_stage0_disqualified"] == 1
         assert body["disqualification_reason"] == "ghost rate 0.4"
 
     def test_missing_repo_404_json(self, matrix_client) -> None:
-        resp = matrix_client.get("/v1/cvi/repos/nobody/nothing")
+        resp = matrix_client.get("/v1/porchlamp/repos/nobody/nothing")
         assert resp.status_code == 404
         assert "detail" in resp.json()
 
@@ -375,7 +375,7 @@ class TestRepoDeepDive:
 
         client = open_client(seed)
         try:
-            resp = client.get("/v1/cvi/repos/alpha/omega")
+            resp = client.get("/v1/porchlamp/repos/alpha/omega")
             assert resp.status_code == 200
             data = resp.json()
             assert "deep_dive" in data
@@ -385,7 +385,7 @@ class TestRepoDeepDive:
 
 
 # --------------------------------------------------------------------------- #
-# POST /v1/cvi/reproject
+# POST /v1/porchlamp/reproject
 # --------------------------------------------------------------------------- #
 class TestReproject:
     #: 0.4*resp + 0.6*crit: inverts old ranks 1 and 2, leaves 3/4 tied at 0.0
@@ -398,7 +398,7 @@ class TestReproject:
     }
 
     def test_happy_path_rerank_and_deltas(self, reproject_client) -> None:
-        resp = reproject_client.post("/v1/cvi/reproject", json={"weights": self.WEIGHTS})
+        resp = reproject_client.post("/v1/porchlamp/reproject", json={"weights": self.WEIGHTS})
         assert resp.status_code == 200
         items = resp.json()
         # new scores: two/b=60.0, one/a=40.0, three/c=0.0, four/d=0.0
@@ -438,7 +438,7 @@ class TestReproject:
             "rigor": 0.125,
             "accessibility": 1e-9,
         }
-        resp = reproject_client.post("/v1/cvi/reproject", json={"weights": weights})
+        resp = reproject_client.post("/v1/porchlamp/reproject", json={"weights": weights})
         assert resp.status_code == 200
         assert len(resp.json()) == 4
 
@@ -449,13 +449,13 @@ class TestReproject:
             "governance": 0.2,
             "rigor": 0.2,
         }
-        resp = reproject_client.post("/v1/cvi/reproject", json={"weights": weights})
+        resp = reproject_client.post("/v1/porchlamp/reproject", json={"weights": weights})
         assert resp.status_code == 422
         assert "detail" in resp.json()
 
     def test_extra_key_422(self, reproject_client) -> None:
         weights = dict(self.WEIGHTS, vibes=0.0)
-        resp = reproject_client.post("/v1/cvi/reproject", json={"weights": weights})
+        resp = reproject_client.post("/v1/porchlamp/reproject", json={"weights": weights})
         assert resp.status_code == 422
         assert "detail" in resp.json()
 
@@ -467,7 +467,7 @@ class TestReproject:
             "rigor": 0.15,
             "accessibility": 0.05,  # sums to 1.05
         }
-        resp = reproject_client.post("/v1/cvi/reproject", json={"weights": weights})
+        resp = reproject_client.post("/v1/porchlamp/reproject", json={"weights": weights})
         assert resp.status_code == 422
         assert "detail" in resp.json()
 
@@ -480,14 +480,14 @@ class TestReproject:
             "rigor": 0.15,
             "accessibility": 0.15001,
         }
-        resp = reproject_client.post("/v1/cvi/reproject", json={"weights": weights})
+        resp = reproject_client.post("/v1/porchlamp/reproject", json={"weights": weights})
         assert resp.status_code == 422
         assert "detail" in resp.json()
 
     def test_empty_store_returns_empty_array(self) -> None:
         client = open_client(lambda: OperationalStore())
         try:
-            resp = client.post("/v1/cvi/reproject", json={"weights": self.WEIGHTS})
+            resp = client.post("/v1/porchlamp/reproject", json={"weights": self.WEIGHTS})
             assert resp.status_code == 200
             assert resp.json() == []
         finally:
@@ -495,7 +495,7 @@ class TestReproject:
 
 
 # --------------------------------------------------------------------------- #
-# GET /v1/cvi/leaderboard
+# GET /v1/porchlamp/leaderboard
 # --------------------------------------------------------------------------- #
 LEADERBOARD_KEYS = {
     "rank",
@@ -503,7 +503,7 @@ LEADERBOARD_KEYS = {
     "owner",
     "name",
     "ecosystem",
-    "cvi",
+    "porchlamp",
     "tier",
     "quadrant",
     "x",
@@ -565,7 +565,7 @@ def persona_constraint_client() -> TestClient:
 
 class TestLeaderboard:
     def test_default_params_balanced_pagination(self, matrix_client) -> None:
-        resp = matrix_client.get("/v1/cvi/leaderboard")
+        resp = matrix_client.get("/v1/porchlamp/leaderboard")
         assert resp.status_code == 200
         body = resp.json()
         assert body["total"] == 5
@@ -577,9 +577,9 @@ class TestLeaderboard:
         assert len(items) == 5
         # Ranks must be 1..5 in order
         assert [i["rank"] for i in items] == [1, 2, 3, 4, 5]
-        # Highest overall_cvi is alpha/omega (92.5)
+        # Highest overall_porchlamp is alpha/omega (92.5)
         assert items[0]["repo_id"] == "alpha/omega"
-        assert items[0]["cvi"] == 92.5
+        assert items[0]["porchlamp"] == 92.5
         assert items[0]["tier"] == "Tier S+"
         # Required keys present on all items
         for item in items:
@@ -587,7 +587,7 @@ class TestLeaderboard:
 
     def test_custom_pagination_page_and_size(self, matrix_client) -> None:
         # Page 1, page_size 2 -> items 1, 2, total_pages 3
-        p1 = matrix_client.get("/v1/cvi/leaderboard", params={"page": 1, "page_size": 2}).json()
+        p1 = matrix_client.get("/v1/porchlamp/leaderboard", params={"page": 1, "page_size": 2}).json()
         assert p1["page"] == 1
         assert p1["page_size"] == 2
         assert p1["total_pages"] == 3
@@ -595,7 +595,7 @@ class TestLeaderboard:
         assert [i["rank"] for i in p1["items"]] == [1, 2]
 
         # Page 2, page_size 2 -> items 3, 4, total_pages 3
-        p2 = matrix_client.get("/v1/cvi/leaderboard", params={"page": 2, "page_size": 2}).json()
+        p2 = matrix_client.get("/v1/porchlamp/leaderboard", params={"page": 2, "page_size": 2}).json()
         assert p2["page"] == 2
         assert p2["page_size"] == 2
         assert p2["total_pages"] == 3
@@ -603,7 +603,7 @@ class TestLeaderboard:
         assert [i["rank"] for i in p2["items"]] == [3, 4]
 
         # Page 3, page_size 2 -> item 5, total_pages 3
-        p3 = matrix_client.get("/v1/cvi/leaderboard", params={"page": 3, "page_size": 2}).json()
+        p3 = matrix_client.get("/v1/porchlamp/leaderboard", params={"page": 3, "page_size": 2}).json()
         assert p3["page"] == 3
         assert p3["page_size"] == 2
         assert p3["total_pages"] == 3
@@ -611,58 +611,58 @@ class TestLeaderboard:
         assert [i["rank"] for i in p3["items"]] == [5]
 
         # Page 2, page_size 10 -> out of bounds items [], total_pages 1
-        p_custom = matrix_client.get("/v1/cvi/leaderboard", params={"page": 2, "page_size": 10}).json()
+        p_custom = matrix_client.get("/v1/porchlamp/leaderboard", params={"page": 2, "page_size": 10}).json()
         assert p_custom["page"] == 2
         assert p_custom["page_size"] == 10
         assert p_custom["total_pages"] == 1
         assert p_custom["items"] == []
 
     def test_invalid_pagination_boundaries(self, matrix_client) -> None:
-        assert matrix_client.get("/v1/cvi/leaderboard", params={"page": 0}).status_code == 422
-        assert matrix_client.get("/v1/cvi/leaderboard", params={"page": -1}).status_code == 422
-        assert matrix_client.get("/v1/cvi/leaderboard", params={"page_size": 0}).status_code == 422
-        assert matrix_client.get("/v1/cvi/leaderboard", params={"page_size": 1001}).status_code == 422
-        assert matrix_client.get("/v1/cvi/leaderboard", params={"limit": 0}).status_code == 422
-        assert matrix_client.get("/v1/cvi/leaderboard", params={"limit": 1001}).status_code == 422
-        assert matrix_client.get("/v1/cvi/leaderboard", params={"offset": -1}).status_code == 422
+        assert matrix_client.get("/v1/porchlamp/leaderboard", params={"page": 0}).status_code == 422
+        assert matrix_client.get("/v1/porchlamp/leaderboard", params={"page": -1}).status_code == 422
+        assert matrix_client.get("/v1/porchlamp/leaderboard", params={"page_size": 0}).status_code == 422
+        assert matrix_client.get("/v1/porchlamp/leaderboard", params={"page_size": 1001}).status_code == 422
+        assert matrix_client.get("/v1/porchlamp/leaderboard", params={"limit": 0}).status_code == 422
+        assert matrix_client.get("/v1/porchlamp/leaderboard", params={"limit": 1001}).status_code == 422
+        assert matrix_client.get("/v1/porchlamp/leaderboard", params={"offset": -1}).status_code == 422
 
     def test_ecosystem_filter(self, matrix_client) -> None:
-        resp = matrix_client.get("/v1/cvi/leaderboard", params={"ecosystem": "pypi"})
+        resp = matrix_client.get("/v1/porchlamp/leaderboard", params={"ecosystem": "pypi"})
         assert resp.status_code == 200
         body = resp.json()
         assert body["total"] == 4
         assert all(i["ecosystem"] == "pypi" for i in body["items"])
 
         # Case-insensitive match
-        resp_upper = matrix_client.get("/v1/cvi/leaderboard", params={"ecosystem": "PYPI"})
+        resp_upper = matrix_client.get("/v1/porchlamp/leaderboard", params={"ecosystem": "PYPI"})
         assert resp_upper.status_code == 200
         assert resp_upper.json()["total"] == 4
 
         # Non-matching ecosystem
-        resp_empty = matrix_client.get("/v1/cvi/leaderboard", params={"ecosystem": "crates"})
+        resp_empty = matrix_client.get("/v1/porchlamp/leaderboard", params={"ecosystem": "crates"})
         assert resp_empty.status_code == 200
         assert resp_empty.json()["total"] == 0
         assert resp_empty.json()["items"] == []
 
     def test_min_stars_filter(self, matrix_client) -> None:
         # beta has stars=99, alpha=150, delta=100, gamma=500, gated=1000
-        resp = matrix_client.get("/v1/cvi/leaderboard", params={"min_stars": 100})
+        resp = matrix_client.get("/v1/porchlamp/leaderboard", params={"min_stars": 100})
         assert resp.status_code == 200
         body = resp.json()
         assert body["total"] == 4
         assert "beta/omega" not in [i["repo_id"] for i in body["items"]]
 
-        resp_high = matrix_client.get("/v1/cvi/leaderboard", params={"min_stars": 500})
+        resp_high = matrix_client.get("/v1/porchlamp/leaderboard", params={"min_stars": 500})
         assert resp_high.status_code == 200
         assert resp_high.json()["total"] == 2
 
         # Negative min_stars rejected
-        resp_bad = matrix_client.get("/v1/cvi/leaderboard", params={"min_stars": -1})
+        resp_bad = matrix_client.get("/v1/porchlamp/leaderboard", params={"min_stars": -1})
         assert resp_bad.status_code == 422
 
     def test_pagination_offsets(self, matrix_client) -> None:
         # Page 1: limit 2, offset 0
-        p1 = matrix_client.get("/v1/cvi/leaderboard", params={"limit": 2, "offset": 0}).json()
+        p1 = matrix_client.get("/v1/porchlamp/leaderboard", params={"limit": 2, "offset": 0}).json()
         assert p1["page"] == 1
         assert p1["limit"] == 2
         assert p1["total"] == 5
@@ -670,56 +670,56 @@ class TestLeaderboard:
         assert [i["rank"] for i in p1["items"]] == [1, 2]
 
         # Page 2: limit 2, offset 2
-        p2 = matrix_client.get("/v1/cvi/leaderboard", params={"limit": 2, "offset": 2}).json()
+        p2 = matrix_client.get("/v1/porchlamp/leaderboard", params={"limit": 2, "offset": 2}).json()
         assert p2["page"] == 2
         assert p2["limit"] == 2
         assert len(p2["items"]) == 2
         assert [i["rank"] for i in p2["items"]] == [3, 4]
 
         # Page 3: limit 2, offset 4
-        p3 = matrix_client.get("/v1/cvi/leaderboard", params={"limit": 2, "offset": 4}).json()
+        p3 = matrix_client.get("/v1/porchlamp/leaderboard", params={"limit": 2, "offset": 4}).json()
         assert p3["page"] == 3
         assert len(p3["items"]) == 1
         assert [i["rank"] for i in p3["items"]] == [5]
 
         # Beyond total
-        p4 = matrix_client.get("/v1/cvi/leaderboard", params={"limit": 2, "offset": 10}).json()
+        p4 = matrix_client.get("/v1/porchlamp/leaderboard", params={"limit": 2, "offset": 10}).json()
         assert p4["page"] == 6
         assert p4["items"] == []
 
         # Validation errors
-        assert matrix_client.get("/v1/cvi/leaderboard", params={"limit": 0}).status_code == 422
-        assert matrix_client.get("/v1/cvi/leaderboard", params={"limit": 1001}).status_code == 422
-        assert matrix_client.get("/v1/cvi/leaderboard", params={"offset": -1}).status_code == 422
+        assert matrix_client.get("/v1/porchlamp/leaderboard", params={"limit": 0}).status_code == 422
+        assert matrix_client.get("/v1/porchlamp/leaderboard", params={"limit": 1001}).status_code == 422
+        assert matrix_client.get("/v1/porchlamp/leaderboard", params={"offset": -1}).status_code == 422
 
     def test_fuzzy_search(self, matrix_client) -> None:
         # By owner
-        r1 = matrix_client.get("/v1/cvi/leaderboard", params={"search": "alpha"}).json()
+        r1 = matrix_client.get("/v1/porchlamp/leaderboard", params={"search": "alpha"}).json()
         assert r1["total"] == 1
         assert r1["items"][0]["repo_id"] == "alpha/omega"
 
         # By name
-        r2 = matrix_client.get("/v1/cvi/leaderboard", params={"search": "omega"}).json()
+        r2 = matrix_client.get("/v1/porchlamp/leaderboard", params={"search": "omega"}).json()
         assert r2["total"] == 5
 
         # By full id
-        r3 = matrix_client.get("/v1/cvi/leaderboard", params={"search": "gamma/omega"}).json()
+        r3 = matrix_client.get("/v1/porchlamp/leaderboard", params={"search": "gamma/omega"}).json()
         assert r3["total"] == 1
         assert r3["items"][0]["repo_id"] == "gamma/omega"
 
         # Whitespace-only search is treated as no search
-        r4 = matrix_client.get("/v1/cvi/leaderboard", params={"search": "   "}).json()
+        r4 = matrix_client.get("/v1/porchlamp/leaderboard", params={"search": "   "}).json()
         assert r4["total"] == 5
 
         # No match
-        r5 = matrix_client.get("/v1/cvi/leaderboard", params={"search": "nonexistent"}).json()
+        r5 = matrix_client.get("/v1/porchlamp/leaderboard", params={"search": "nonexistent"}).json()
         assert r5["total"] == 0
         assert r5["items"] == []
 
     def test_persona_reproject_ordering(self, reproject_client) -> None:
         # Test dynamic persona projection on the reproject fixture repos
         resp_ft = reproject_client.get(
-            "/v1/cvi/leaderboard", params={"persona": "first_timer"}
+            "/v1/porchlamp/leaderboard", params={"persona": "first_timer"}
         )
         assert resp_ft.status_code == 200
         items_ft = resp_ft.json()["items"]
@@ -727,51 +727,51 @@ class TestLeaderboard:
         # First-timer weights: resp .40, crit .05, gov .15, rigor .10, acc .30
         # Check that scores are reprojected and ranks updated
         assert items_ft[0]["rank"] == 1
-        assert items_ft[0]["cvi"] > 0.0
+        assert items_ft[0]["porchlamp"] > 0.0
 
     def test_persona_constraints_ai_and_senior_systems(self, persona_constraint_client) -> None:
         # 1. Under BALANCED: all 3 non-gated score normally
         bal = persona_constraint_client.get(
-            "/v1/cvi/leaderboard", params={"persona": "balanced"}
+            "/v1/porchlamp/leaderboard", params={"persona": "balanced"}
         ).json()["items"]
         by_id_bal = {i["repo_id"]: i for i in bal}
-        assert by_id_bal["ai/proscribed"]["cvi"] == 75.0
+        assert by_id_bal["ai/proscribed"]["porchlamp"] == 75.0
         assert by_id_bal["ai/proscribed"]["is_gated"] == 0
-        assert by_id_bal["solo/dev"]["cvi"] == 75.0
+        assert by_id_bal["solo/dev"]["porchlamp"] == 75.0
         assert by_id_bal["solo/dev"]["is_gated"] == 0
-        assert by_id_bal["found/core"]["cvi"] == 80.0
+        assert by_id_bal["found/core"]["porchlamp"] == 80.0
         assert by_id_bal["found/core"]["is_gated"] == 0
-        assert by_id_bal["gated/repo"]["cvi"] == 0.0
+        assert by_id_bal["gated/repo"]["porchlamp"] == 0.0
         assert by_id_bal["gated/repo"]["is_gated"] == 1
 
-        # 2. Under AI_ASSISTED: ai/proscribed is hard-disqualified (cvi=0, Tier D, is_gated=1)
+        # 2. Under AI_ASSISTED: ai/proscribed is hard-disqualified (porchlamp=0, Tier D, is_gated=1)
         ai_resp = persona_constraint_client.get(
-            "/v1/cvi/leaderboard", params={"persona": "ai_assisted"}
+            "/v1/porchlamp/leaderboard", params={"persona": "ai_assisted"}
         ).json()["items"]
         by_id_ai = {i["repo_id"]: i for i in ai_resp}
-        assert by_id_ai["ai/proscribed"]["cvi"] == 0.0
+        assert by_id_ai["ai/proscribed"]["porchlamp"] == 0.0
         assert by_id_ai["ai/proscribed"]["tier"] == "Tier D"
         assert by_id_ai["ai/proscribed"]["is_gated"] == 1
         # solo/dev and found/core are not proscribed, so they score > 0
-        assert by_id_ai["solo/dev"]["cvi"] > 0.0
-        assert by_id_ai["found/core"]["cvi"] > 0.0
+        assert by_id_ai["solo/dev"]["porchlamp"] > 0.0
+        assert by_id_ai["found/core"]["porchlamp"] > 0.0
 
-        # 3. Under SENIOR_SYSTEMS: solo/dev (EF=1 < 3) is hard-disqualified (cvi=0, Tier D, is_gated=1)
+        # 3. Under SENIOR_SYSTEMS: solo/dev (EF=1 < 3) is hard-disqualified (porchlamp=0, Tier D, is_gated=1)
         ss_resp = persona_constraint_client.get(
-            "/v1/cvi/leaderboard", params={"persona": "senior_systems"}
+            "/v1/porchlamp/leaderboard", params={"persona": "senior_systems"}
         ).json()["items"]
         by_id_ss = {i["repo_id"]: i for i in ss_resp}
-        assert by_id_ss["solo/dev"]["cvi"] == 0.0
+        assert by_id_ss["solo/dev"]["porchlamp"] == 0.0
         assert by_id_ss["solo/dev"]["tier"] == "Tier D"
         assert by_id_ss["solo/dev"]["is_gated"] == 1
         # found/core (EF=5 >= 3) and ai/proscribed (EF=4 >= 3) pass EF constraint
-        assert by_id_ss["found/core"]["cvi"] > 0.0
+        assert by_id_ss["found/core"]["porchlamp"] > 0.0
         assert by_id_ss["found/core"]["is_gated"] == 0
-        assert by_id_ss["ai/proscribed"]["cvi"] > 0.0
+        assert by_id_ss["ai/proscribed"]["porchlamp"] > 0.0
         assert by_id_ss["ai/proscribed"]["is_gated"] == 0
 
     def test_invalid_persona_422(self, matrix_client) -> None:
-        resp = matrix_client.get("/v1/cvi/leaderboard", params={"persona": "invalid_persona"})
+        resp = matrix_client.get("/v1/porchlamp/leaderboard", params={"persona": "invalid_persona"})
         assert resp.status_code == 422
 
     def test_store_leaderboard_value_error_raises_422(self, monkeypatch, matrix_client) -> None:
@@ -779,14 +779,14 @@ class TestLeaderboard:
             raise ValueError("simulated value error")
         store = matrix_client.app.state.store
         monkeypatch.setattr(store, "leaderboard", mock_leaderboard)
-        resp = matrix_client.get("/v1/cvi/leaderboard")
+        resp = matrix_client.get("/v1/porchlamp/leaderboard")
         assert resp.status_code == 422
         assert "simulated value error" in resp.json()["detail"]
 
     def test_empty_store_returns_empty_paginated_dict(self) -> None:
         client = open_client(lambda: OperationalStore())
         try:
-            resp = client.get("/v1/cvi/leaderboard")
+            resp = client.get("/v1/porchlamp/leaderboard")
             assert resp.status_code == 200
             assert resp.json() == {
                 "total": 0,
@@ -818,8 +818,8 @@ class TestStaticServing:
 
     def test_api_routes_not_shadowed(self, matrix_client) -> None:
         assert matrix_client.get("/healthz").headers["content-type"] == "application/json"
-        assert matrix_client.get("/v1/cvi/matrix").headers["content-type"] == "application/json"
-        assert matrix_client.get("/v1/cvi/leaderboard").headers["content-type"] == "application/json"
+        assert matrix_client.get("/v1/porchlamp/matrix").headers["content-type"] == "application/json"
+        assert matrix_client.get("/v1/porchlamp/leaderboard").headers["content-type"] == "application/json"
 
     def test_create_app_web_dir_none(self) -> None:
         app = create_app(web_dir=None)

@@ -7,15 +7,15 @@ Input: `/home/pctablet505/Projects/cvi-wt-W0-4` uncommitted work on base `32bb8b
 ## 1. Apply and conflicts
 
 `git log --oneline 32bb8b3..e29fb79 -- scripts/verify.py scripts/serve.py
-tests/test_verify.py tests/test_serve.py cvi/verify` names one commit,
-`d1103bf` (W3-3 canary). Its full diffstat (`cvi/verify/__init__.py`,
-`cvi/verify/live_sample.py`, `pyproject.toml`, `scripts/canary.sh`,
+tests/test_verify.py tests/test_serve.py porchlamp/verify` names one commit,
+`d1103bf` (W3-3 canary). Its full diffstat (`porchlamp/verify/__init__.py`,
+`porchlamp/verify/live_sample.py`, `pyproject.toml`, `scripts/canary.sh`,
 `scripts/systemd/*`, `tests/verify/test_live_sample.py`) never touches any of
 the four files the pathspec matched on directly — it only matched because it
-created the `cvi/verify/` directory. Direct check:
+created the `porchlamp/verify/` directory. Direct check:
 `git diff 32bb8b3..e29fb79 -- scripts/verify.py scripts/serve.py
 tests/test_verify.py tests/test_serve.py` is byte-empty. The W3-3 canary is a
-fully separate CLI (`python -m cvi.verify.live_sample`, invoked by
+fully separate CLI (`python -m porchlamp.verify.live_sample`, invoked by
 `scripts/canary.sh`, never imported by `scripts/verify.py`).
 
 `git apply --3way --index tracked.diff`: **0 conflicts**, all 7 files applied
@@ -34,16 +34,16 @@ Files: delete `HANDOFF-DATASET-CURATION-AGENT.md`, delete
 (one arg). Between base `32bb8b3` and `e29fb79`, commit `7945e99` (W0-2b)
 changed the signature to `seed_benchmark_catalog(self, repos, now: datetime)`
 (explicit reference time, D-VER-3, no ambient clock) — `git log
-32bb8b3..e29fb79 -- cvi/lakehouse.py` names it. This pathspec was outside the
+32bb8b3..e29fb79 -- porchlamp/lakehouse.py` names it. This pathspec was outside the
 one the dispatch suggested (it only named `scripts/verify.py scripts/serve.py
-tests/test_verify.py tests/test_serve.py cvi/verify`), so it surfaced as a
+tests/test_verify.py tests/test_serve.py porchlamp/verify`), so it surfaced as a
 test failure, not a patch conflict:
 
 ```
 TypeError: OperationalStore.seed_benchmark_catalog() missing 1 required positional argument: 'now'
 ```
 
-Fix: import `BENCHMARK_NOW` from `cvi.benchmark_data` (the fixed constant
+Fix: import `BENCHMARK_NOW` from `porchlamp.benchmark_data` (the fixed constant
 used the same way by `tests/test_adversarial_tier5_hardening.py`) and call
 `store.seed_benchmark_catalog(rows, BENCHMARK_NOW)`. Fail-before/after:
 
@@ -113,28 +113,28 @@ BASE  (e29fb79, pre-packet)  clean=True flags=[]
 INTEGRATED (this worktree)   clean=False flags=['unverifiable_provenance']
 ```
 
-**Served-DB guard**, scratch copy of `v1-baseline/cvi.db` (1,000 rows, all
-`cvi/benchmark_data.py` fixtures, no snapshot manifest):
+**Served-DB guard**, scratch copy of `v1-baseline/porchlamp.db` (1,000 rows, all
+`porchlamp/benchmark_data.py` fixtures, no snapshot manifest):
 ```
 BASE  (e29fb79, pre-packet): no SystemExit; would have served (uvicorn.run called_with={'host': '127.0.0.1', 'port': 8999})
 INTEGRATED: SystemExit message:
-CVI serve refused for '.../v1-baseline-cvi.db':
-  1000 of 1000 rows are cvi/benchmark_data.py fixtures: row 1 vllm-project/vllm (stars=38500, forks=5400) is fabricated telemetry, which is a test fixture and never a ranking source
-  row 1 vllm-project/vllm carries no snapshot identity: no manifest.json under .../snapshots — freeze the data dir first with `python -m cvi.snapshot freeze --data-dir ... --as-of <ISO-8601>`
+Porchlamp serve refused for '.../v1-baseline-porchlamp.db':
+  1000 of 1000 rows are porchlamp/benchmark_data.py fixtures: row 1 vllm-project/vllm (stars=38500, forks=5400) is fabricated telemetry, which is a test fixture and never a ranking source
+  row 1 vllm-project/vllm carries no snapshot identity: no manifest.json under .../snapshots — freeze the data dir first with `python -m porchlamp.snapshot freeze --data-dir ... --as-of <ISO-8601>`
 ```
 
 ## 5. Real acceptance commands (not a harness — the actual CLI, real files)
 
 Data copied to `/home/pctablet505/Projects/cvi-scratch/INT-W0-4/` (sample-200:
 199 derived/verified bundles, 2,181 raw envelopes; a scratch copy of
-`v1-baseline/cvi.db`); originals untouched.
+`v1-baseline/porchlamp.db`); originals untouched.
 
 **Synthetic DB refused** (literal acceptance command):
 ```
 $ python scripts/serve.py --db /home/pctablet505/Projects/cvi-scratch/INT-W0-4/v1-baseline-cvi.db
-CVI serve refused for '/home/pctablet505/Projects/cvi-scratch/INT-W0-4/v1-baseline-cvi.db':
-  1000 of 1000 rows are cvi/benchmark_data.py fixtures: row 1 vllm-project/vllm (stars=38500, forks=5400) is fabricated telemetry, which is a test fixture and never a ranking source
-  row 1 vllm-project/vllm carries no snapshot identity: no manifest.json under /home/pctablet505/Projects/cvi-scratch/INT-W0-4/snapshots — freeze the data dir first with `python -m cvi.snapshot freeze --data-dir /home/pctablet505/Projects/cvi-scratch/INT-W0-4 --as-of <ISO-8601>`
+Porchlamp serve refused for '/home/pctablet505/Projects/cvi-scratch/INT-W0-4/v1-baseline-cvi.db':
+  1000 of 1000 rows are porchlamp/benchmark_data.py fixtures: row 1 vllm-project/vllm (stars=38500, forks=5400) is fabricated telemetry, which is a test fixture and never a ranking source
+  row 1 vllm-project/vllm carries no snapshot identity: no manifest.json under /home/pctablet505/Projects/cvi-scratch/INT-W0-4/snapshots — freeze the data dir first with `python -m porchlamp.snapshot freeze --data-dir /home/pctablet505/Projects/cvi-scratch/INT-W0-4 --as-of <ISO-8601>`
 Exit code: 1
 ```
 
@@ -144,24 +144,24 @@ scripts/promote.py` — no match), so promote alone is correctly refused for
 missing snapshot identity (the guard working as designed on a genuinely
 unfrozen DB) — freeze must run between promote and serve:
 ```
-$ python scripts/promote.py --db .../sample-200/cvi.db --data-dir .../sample-200 --as-of 2026-09-12T00:00:00Z
-promoted 196 verified repos as of 2026-09-12T00:00:00+00:00 -> .../sample-200/cvi.db
+$ python scripts/promote.py --db .../sample-200/porchlamp.db --data-dir .../sample-200 --as-of 2026-09-12T00:00:00Z
+promoted 196 verified repos as of 2026-09-12T00:00:00+00:00 -> .../sample-200/porchlamp.db
 
-$ python scripts/serve.py --db .../sample-200/cvi.db          # before freeze
-CVI serve refused for '.../sample-200/cvi.db':
+$ python scripts/serve.py --db .../sample-200/porchlamp.db          # before freeze
+Porchlamp serve refused for '.../sample-200/porchlamp.db':
   row 1 0voice/interview_internal_reference carries no snapshot identity: no manifest.json under .../snapshots — freeze the data dir first with ...
 Exit code: 1
 
-$ python -m cvi.snapshot freeze --data-dir .../sample-200 --as-of 2026-09-12T00:00:00Z
+$ python -m porchlamp.snapshot freeze --data-dir .../sample-200 --as-of 2026-09-12T00:00:00Z
 snapshot 20260912T0000000000-49814505ca85
 merkle_root 49814505ca8516549e842c47a57528fe47cab9c30e85d2739a1c5c182ca910de
 envelopes 2181 (native 0, backfilled 2181)
 dump_hash 4315c2eda37fce7818ade0c86312259f41354141c5316d40632c20df1004c684
 # dump_hash matches the W0-3 lead-log entry's recorded value for this same sample (4315c2ed...) — cross-check confirms this is the known-good sample.
 
-$ python scripts/serve.py --db .../sample-200/cvi.db --port 18234   # after freeze
-CVI serve: 196 verified repos from '.../sample-200/cvi.db' (snapshot 20260912T0000000000-49814505ca85)
-CVI serve: http://127.0.0.1:18234/ (API under /v1, /healthz)
+$ python scripts/serve.py --db .../sample-200/porchlamp.db --port 18234   # after freeze
+Porchlamp serve: 196 verified repos from '.../sample-200/porchlamp.db' (snapshot 20260912T0000000000-49814505ca85)
+Porchlamp serve: http://127.0.0.1:18234/ (API under /v1, /healthz)
 
 $ curl -m 5 -w '\nHTTP_STATUS:%{http_code}\n' http://127.0.0.1:18234/healthz
 {"status":"ok"}
@@ -220,7 +220,7 @@ $ ruff check scripts/verify.py scripts/serve.py tests/test_verify.py tests/test_
 All checks passed!
 Exit code: 0
 ```
-Repo-wide (`cvi/ scripts/ tests/`): 19 pre-existing errors in 4 files never
+Repo-wide (`porchlamp/ scripts/ tests/`): 19 pre-existing errors in 4 files never
 touched by this packet (`tests/benchmark_sla_runner.py`,
 `tests/test_adversarial_comparator_m3.py`, `tests/test_perf_sla_stress.py`,
 `tests/test_webapp.py`) — confirmed present on base `e29fb79` directly
@@ -245,9 +245,9 @@ RUF046 findings). Out of scope (R-10); not modified.
 - **Serve guard error message (verbatim)**, real CLI, real v1-baseline
   scratch copy, exit code 1:
   ```
-  CVI serve refused for '/home/pctablet505/Projects/cvi-scratch/INT-W0-4/v1-baseline-cvi.db':
-    1000 of 1000 rows are cvi/benchmark_data.py fixtures: row 1 vllm-project/vllm (stars=38500, forks=5400) is fabricated telemetry, which is a test fixture and never a ranking source
-    row 1 vllm-project/vllm carries no snapshot identity: no manifest.json under /home/pctablet505/Projects/cvi-scratch/INT-W0-4/snapshots — freeze the data dir first with `python -m cvi.snapshot freeze --data-dir /home/pctablet505/Projects/cvi-scratch/INT-W0-4 --as-of <ISO-8601>`
+  Porchlamp serve refused for '/home/pctablet505/Projects/cvi-scratch/INT-W0-4/v1-baseline-cvi.db':
+    1000 of 1000 rows are porchlamp/benchmark_data.py fixtures: row 1 vllm-project/vllm (stars=38500, forks=5400) is fabricated telemetry, which is a test fixture and never a ranking source
+    row 1 vllm-project/vllm carries no snapshot identity: no manifest.json under /home/pctablet505/Projects/cvi-scratch/INT-W0-4/snapshots — freeze the data dir first with `python -m porchlamp.snapshot freeze --data-dir /home/pctablet505/Projects/cvi-scratch/INT-W0-4 --as-of <ISO-8601>`
   ```
 - **Hung test**: none. Section 6 above.
 
@@ -260,7 +260,7 @@ RUF046 findings). Out of scope (R-10); not modified.
    `provenance_offender` (section 2) — completes `03` §5 as cited by the
    packet; the applied diff only implemented the envelope-path form.
 3. The "promoted sample DB serves" acceptance needs an explicit
-   `python -m cvi.snapshot freeze` between `promote.py` and `serve.py`
+   `python -m porchlamp.snapshot freeze` between `promote.py` and `serve.py`
    (section 5) — `promote.py` does not write a manifest itself, and this is
    correct behavior for the guard (an unfrozen DB has no snapshot identity by
    the guard's own definition), not a defect in the packet's code. Recorded
@@ -292,7 +292,7 @@ RUF046 findings). Out of scope (R-10); not modified.
 
 Continuation after a system restart killed the previous round-2 attempt
 mid-task. Six files were already modified and uncommitted when this session
-started (`cvi/lakehouse.py`, `scripts/derive.py`, `scripts/promote.py`,
+started (`porchlamp/lakehouse.py`, `scripts/derive.py`, `scripts/promote.py`,
 `scripts/run_all.py`, `scripts/serve.py`, `scripts/verify.py`); that work was
 kept and built on, not discarded. One load-bearing defect was found and fixed
 in it (§R2.2 below) before anything else could be trusted.
@@ -300,7 +300,7 @@ in it (§R2.2 below) before anything else could be trusted.
 ## R2.1 Diffstat (working tree vs `HEAD` = `13764e1`)
 
 ```
- cvi/lakehouse.py          |  69 ++++++++++++++++++-
+ porchlamp/lakehouse.py          |  69 ++++++++++++++++++-
  docs/REVIEW_GUIDELINES.md |  11 +--
  scripts/derive.py         |  54 ++++++++++++++-
  scripts/promote.py        |  84 ++++++++++++++++++++++-
@@ -317,25 +317,25 @@ in it (§R2.2 below) before anything else could be trusted.
 ## R2.2 Defect found in the inherited work and fixed: self-referential dump hash
 
 The inherited `promote.py`/`serve.py` diff called
-`cvi.snapshot.reproduce.canonical_dump_hash(db_path)` directly on the whole
+`porchlamp.snapshot.reproduce.canonical_dump_hash(db_path)` directly on the whole
 database file to produce the value `snapshot_meta.canonical_dump_hash`
 records. `canonical_dump_hash` hashes every table in the file, and
 `snapshot_meta` is a table in that same file. Measured before the fix: a
 freshly promoted, never-edited database was refused --
 
 ```
-$ python scripts/promote.py --db cvi.db --data-dir <sample> --as-of 2026-09-12T00:00:00Z
-promoted 197 verified repos ... -> cvi.db (snapshot 20260912T0000000000-49814505ca85)   # exit 0
-$ python scripts/serve.py --db cvi.db --port 18790                                       # exit 1
-CVI serve refused for 'cvi.db':
-  cvi.db's current content matches none of its 1 recorded snapshot_meta row(s) --
+$ python scripts/promote.py --db porchlamp.db --data-dir <sample> --as-of 2026-09-12T00:00:00Z
+promoted 197 verified repos ... -> porchlamp.db (snapshot 20260912T0000000000-49814505ca85)   # exit 0
+$ python scripts/serve.py --db porchlamp.db --port 18790                                       # exit 1
+Porchlamp serve refused for 'porchlamp.db':
+  porchlamp.db's current content matches none of its 1 recorded snapshot_meta row(s) --
   the database was modified after promotion, or copied beside a foreign snapshot
 ```
 
 because the hash `promote.py` stored was computed while `snapshot_meta` was
 still empty, and the hash `serve.py` recomputed at startup included the
 `snapshot_meta` row that promotion had since written -- every promoted
-database refused itself. Fix: added `cvi.lakehouse.repositories_dump_hash`,
+database refused itself. Fix: added `porchlamp.lakehouse.repositories_dump_hash`,
 which calls the SAME `canonical_dump_hash` (no second hash implementation,
 R-2) on a scratch copy of the db with every table except `repositories`
 dropped, so the value is a fixed point across the write and the read.
@@ -367,15 +367,15 @@ Net new tests this round: `test_verify.py` 21→26 (+5), `test_serve.py` 9→12
 ## R2.4 Ruff
 
 ```
-$ .venv/bin/python -m ruff check cvi/ scripts/ tests/
+$ .venv/bin/python -m ruff check porchlamp/ scripts/ tests/
 All checks passed!
 exit=0
 ```
 
-No new `TODO`, `noqa`, or `type: ignore` in the diff (`git diff -- cvi/ scripts/
+No new `TODO`, `noqa`, or `type: ignore` in the diff (`git diff -- porchlamp/ scripts/
 tests/ docs/ | grep -E "^\+.*(TODO|FIXME|noqa|type: *ignore)"` → exit 1, zero
-matches). `print()` count in `cvi/` unchanged by this packet's files (only
-`cvi/lakehouse.py` was touched there, and it added none).
+matches). `print()` count in `porchlamp/` unchanged by this packet's files (only
+`porchlamp/lakehouse.py` was touched there, and it added none).
 
 ## R2.5 Mutation kills (TQ-PROC-3: mutate → red → restore → verify byte-identical restore)
 
@@ -438,22 +438,22 @@ sample: **0 of 200 (0%)**.
 
 1. **Promoted-then-served DB is ACCEPTED**:
    ```
-   CVI serve: 197 verified repos from '.../cvi.db' (snapshot 20260912T0000000000-49814505ca85)
+   Porchlamp serve: 197 verified repos from '.../porchlamp.db' (snapshot 20260912T0000000000-49814505ca85)
    GET /healthz -> {"status":"ok"}
    ```
 2. **`UPDATE repositories SET owner = owner || '-inc'` (rename every owner) is REFUSED**, exit 1:
    ```
-   CVI serve refused for '.../renamed.db':
+   Porchlamp serve refused for '.../renamed.db':
      .../renamed.db's current content matches none of its 1 recorded snapshot_meta row(s) --
      the database was modified after promotion, or copied beside a foreign snapshot
    ```
 3. **`UPDATE repositories SET stars = stars + 1` (nudge every counter) is REFUSED**, exit 1: same
    "matches none of its 1 recorded snapshot_meta row(s)" message.
-4. **Synthetic `v1-baseline/cvi.db` (1,000 fixture rows, never promoted) is REFUSED**, exit 1:
+4. **Synthetic `v1-baseline/porchlamp.db` (1,000 fixture rows, never promoted) is REFUSED**, exit 1:
    ```
-   CVI serve refused for '.../v1_fresh.db':
+   Porchlamp serve refused for '.../v1_fresh.db':
      .../v1_fresh.db has no snapshot_meta row: promote against a frozen snapshot first
-     (`python -m cvi.snapshot freeze --data-dir <dir> --as-of <ISO-8601>` then
+     (`python -m porchlamp.snapshot freeze --data-dir <dir> --as-of <ISO-8601>` then
      `scripts/promote.py --snapshot-id <id> --db <db> --data-dir <dir>`)
    ```
 5. **A real, valid `snapshots/` manifest copied beside a foreign (never-promoted) empty DB is REFUSED**,
@@ -478,15 +478,15 @@ mutation restores in §R2.5.)
 
 ## R2.10 What changed, file by file
 
-- **`cvi/lakehouse.py`** (Blocker-3): `snapshot_meta` table (already added
+- **`porchlamp/lakehouse.py`** (Blocker-3): `snapshot_meta` table (already added
   before this session) plus the new `repositories_dump_hash` function
   (§R2.2) that both `promote.py` and `serve.py` now import and call instead
-  of `cvi.snapshot.reproduce.canonical_dump_hash` directly.
+  of `porchlamp.snapshot.reproduce.canonical_dump_hash` directly.
 - **`scripts/derive.py`** (Blocker-1): `_envelope_sha256` helper and
   `Bundle.set`'s recording of `entry["sha256"]` (scalar or list-valued,
   memoized per source path) were already correct in the inherited diff —
   verified they use `Envelope.sha256` (native-or-backfilled, the same
-  property `cvi.snapshot.manifest`'s freeze reads), not a second hash
+  property `porchlamp.snapshot.manifest`'s freeze reads), not a second hash
   definition. Confirmed the touched region is lines 26 and 83-150 only
   (`git diff scripts/derive.py | grep '^@@'`); the hook chain below line 150
   (owned by other packets) is untouched.
@@ -501,8 +501,8 @@ mutation restores in §R2.5.)
 - **`scripts/promote.py`** (Blocker-3, Warning-2): `resolve_manifest`,
   `write_snapshot_meta`, `--snapshot-id` were already correct in the
   inherited diff. Fixed: `write_snapshot_meta`'s hash argument now comes
-  from `cvi.lakehouse.repositories_dump_hash`, not `canonical_dump_hash`
-  directly (§R2.2); removed the now-unused `cvi.snapshot.reproduce` import.
+  from `porchlamp.lakehouse.repositories_dump_hash`, not `canonical_dump_hash`
+  directly (§R2.2); removed the now-unused `porchlamp.snapshot.reproduce` import.
 - **`scripts/run_all.py`** (Blocker-3, Warning-2): the `freeze` step between
   `verify` and `promote` was already correct in the inherited diff (pipeline
   order gather → derive → verify → freeze → promote). Fixed the same
@@ -525,10 +525,10 @@ mutation restores in §R2.5.)
 ## R2.11 Ownership expansion (for the lead to ratify)
 
 Files this packet (`INT-W0-4`) now writes to that were not all originally
-listed as owned in round 1: `cvi/lakehouse.py` (new `snapshot_meta` table +
+listed as owned in round 1: `porchlamp/lakehouse.py` (new `snapshot_meta` table +
 `repositories_dump_hash`), `scripts/run_all.py` (freeze step). `promote.py`
 and `serve.py` were already owned. No file outside
-`cvi/lakehouse.py, scripts/{derive,verify,promote,run_all,serve}.py,
+`porchlamp/lakehouse.py, scripts/{derive,verify,promote,run_all,serve}.py,
 docs/REVIEW_GUIDELINES.md, tests/{test_verify,test_serve,test_derive,
 test_promote}.py, .agents/INT-W0-4/handoff.md` was touched
 (`git diff --name-status` against `HEAD`).
@@ -542,8 +542,8 @@ test_promote}.py, .agents/INT-W0-4/handoff.md` was touched
   already cached, so unit-testing `main()` end-to-end needs a larger
   network-mocking harness than this round's scope. The freeze/promote glue
   itself is four calls into already-independently-tested functions
-  (`cvi.snapshot.cli.main`, `promote.resolve_manifest`, `promote.promote`,
-  `promote.write_snapshot_meta`, `cvi.lakehouse.repositories_dump_hash`),
+  (`porchlamp.snapshot.cli.main`, `promote.resolve_manifest`, `promote.promote`,
+  `promote.write_snapshot_meta`, `porchlamp.lakehouse.repositories_dump_hash`),
   and the exact same sequence was run live end-to-end against the re-derived
   200-repo sample in §R2.7/§R2.8 with the outputs shown there.
 - `COULD NOT VERIFY: whether any packet outside W0-4's ownership will ever
@@ -584,7 +584,7 @@ flags -- was correct in both counts. Left the round-2 text as written above
 ## R3.1 Diffstat (vs round 2's `cac2bcf`)
 
 ```
- cvi/lakehouse.py                |  17 +++
+ porchlamp/lakehouse.py                |  17 +++
  docs/v2/03-ANTI-MANIPULATION.md |   6 +-
  scripts/promote.py              | 212 ++++++++++++++++++++------
  scripts/run_all.py              |  64 ++++++--
@@ -595,7 +595,7 @@ flags -- was correct in both counts. Left the round-2 text as written above
  8 files changed, 881 insertions(+), 156 deletions(-)
 ```
 
-Ownership expansion: none beyond round 2's (`cvi/lakehouse.py`,
+Ownership expansion: none beyond round 2's (`porchlamp/lakehouse.py`,
 `scripts/run_all.py` already flagged there for the lead to ratify).
 `tests/test_run_all.py` is new: `scripts/run_all.py` had no test file at
 all before this round (recorded as a round-2 `COULD NOT VERIFY`); Warning-1
@@ -603,7 +603,7 @@ required exercising its `--snapshot-id` wiring, so the gap was closed here.
 
 ## R3.2 What changed, file by file
 
-- **`cvi/lakehouse.py`**: `OperationalStore.truncate_repositories()`
+- **`porchlamp/lakehouse.py`**: `OperationalStore.truncate_repositories()`
   (Blocker-1, fix #1) -- deletes every `repositories` row; `promote()` calls
   it before writing anything, so a promotion's output is exactly its
   bundles, never rows a prior seed or run left behind.
@@ -631,7 +631,7 @@ required exercising its `--snapshot-id` wiring, so the gap was closed here.
   explicit dir, matching the `promote(...)` call beside it).
 - **`scripts/serve.py`** (Blocker-1, fix #2): `_fixture_marker_rows` /
   `_FIXTURE_MARKER` restore an INDEPENDENT, rename-proof check keyed on
-  `last_indexed_at == cvi.benchmark_data.BENCHMARK_NOW` (a stamp only the
+  `last_indexed_at == porchlamp.benchmark_data.BENCHMARK_NOW` (a stamp only the
   seeded catalog ever writes; `scripts/promote.py` always writes the
   scoring `as_of` instead). `refusal_reasons` now reports up to two reasons
   (fixture-clock and content-hash) instead of one masking the other.
@@ -665,21 +665,21 @@ sample into a scratch data dir, derived and verified for real (`CLEAN`),
 frozen (`snapshot 20260913T0000000000-b6e8fd69e810`, 10 envelopes).
 
 ```
-$ python scripts/promote.py --db cvi.db --data-dir <dir> --as-of 2026-09-13T00:00:00Z
+$ python scripts/promote.py --db porchlamp.db --data-dir <dir> --as-of 2026-09-13T00:00:00Z
 usage: promote.py [-h] [--db DB] [--data-dir DATA_DIR] [--as-of ISO-8601]
                   --snapshot-id SNAPSHOT_ID
 promote.py: error: the following arguments are required: --snapshot-id
 exit=2
 
-$ python scripts/promote.py --db cvi.db --data-dir <dir> --snapshot-id 20260913T0000000000-b6e8fd69e810 --as-of 2026-09-13T00:00:00Z
-promoted 1 verified repos as of 2026-09-13T00:00:00+00:00 -> cvi.db (snapshot 20260913T0000000000-b6e8fd69e810)
+$ python scripts/promote.py --db porchlamp.db --data-dir <dir> --snapshot-id 20260913T0000000000-b6e8fd69e810 --as-of 2026-09-13T00:00:00Z
+promoted 1 verified repos as of 2026-09-13T00:00:00+00:00 -> porchlamp.db (snapshot 20260913T0000000000-b6e8fd69e810)
 exit=0
 
-$ python scripts/promote.py --db cvi_mismatch.db --data-dir <dir> --snapshot-id 20260913T0000000000-b6e8fd69e810 --as-of 2020-01-01T00:00:00Z
+$ python scripts/promote.py --db porchlamp_mismatch.db --data-dir <dir> --snapshot-id 20260913T0000000000-b6e8fd69e810 --as-of 2020-01-01T00:00:00Z
 --as-of 2020-01-01T00:00:00+00:00 does not match manifest '20260913T0000000000-b6e8fd69e810''s as_of 2026-09-13T00:00:00+00:00 -- one snapshot, one reference time
 exit=1   (no db file written)
 
-$ python scripts/promote.py --db cvi_hollow.db --data-dir <dir> --snapshot-id 20260101T0000000000-4f53cda18c2b --as-of 2026-01-01T00:00:00Z   # HOLLOW-SNAPSHOT: 0 envelopes
+$ python scripts/promote.py --db porchlamp_hollow.db --data-dir <dir> --snapshot-id 20260101T0000000000-4f53cda18c2b --as-of 2026-01-01T00:00:00Z   # HOLLOW-SNAPSHOT: 0 envelopes
 manifest 20260101T0000000000-4f53cda18c2b covers 0 of 1 clean bundles
 exit=1   (no db file written)
 ```
@@ -697,25 +697,25 @@ seeded 1000
 promote real sample ON TOP of the seeded db -> exit 0
 total rows now: 1   ([('numpy', 'numpy')])   <- fix #1: truncate
 
-$ python scripts/serve.py --db cvi_seed_then_promote.db --port 18901
-CVI serve: 1 verified repos from '.../cvi_seed_then_promote.db' (snapshot 20260913T0000000000-b6e8fd69e810)
+$ python scripts/serve.py --db porchlamp_seed_then_promote.db --port 18901
+Porchlamp serve: 1 verified repos from '.../porchlamp_seed_then_promote.db' (snapshot 20260913T0000000000-b6e8fd69e810)
 GET /healthz -> {"status":"ok"}   HTTP=200
 
 # reintroduce ONE fixture row after promotion (simulating fix #1 failing some other way)
 now 2 rows
-$ python scripts/serve.py --db cvi_seed_then_promote.db --port 18902
-CVI serve refused for '.../cvi_seed_then_promote.db':
-  1 of 2 rows carry the cvi/benchmark_data.py fixture clock (last_indexed_at=2026-09-11T12:00:00): row 1002 vllm-project/vllm is fabricated telemetry, which is a test fixture and never a ranking source
-  .../cvi_seed_then_promote.db's current content matches none of its 1 recorded snapshot_meta row(s) -- the database was modified after promotion, or copied beside a foreign snapshot
+$ python scripts/serve.py --db porchlamp_seed_then_promote.db --port 18902
+Porchlamp serve refused for '.../porchlamp_seed_then_promote.db':
+  1 of 2 rows carry the porchlamp/benchmark_data.py fixture clock (last_indexed_at=2026-09-11T12:00:00): row 1002 vllm-project/vllm is fabricated telemetry, which is a test fixture and never a ranking source
+  .../porchlamp_seed_then_promote.db's current content matches none of its 1 recorded snapshot_meta row(s) -- the database was modified after promotion, or copied beside a foreign snapshot
 exit=1   <- fix #2 catches it independently
 ```
 
 Rename-proof marker, against round 1's exact bypass:
 ```
 $ sqlite3: UPDATE repositories SET owner = owner || '-inc'   (5 fixture rows)
-$ python scripts/serve.py --db cvi_rename_fixture.db --port 18903
-CVI serve refused for '.../cvi_rename_fixture.db':
-  5 of 5 rows carry the cvi/benchmark_data.py fixture clock (last_indexed_at=2026-09-11T12:00:00): row 1 vllm-project-inc/vllm is fabricated telemetry, which is a test fixture and never a ranking source
+$ python scripts/serve.py --db porchlamp_rename_fixture.db --port 18903
+Porchlamp serve refused for '.../porchlamp_rename_fixture.db':
+  5 of 5 rows carry the porchlamp/benchmark_data.py fixture clock (last_indexed_at=2026-09-11T12:00:00): row 1 vllm-project-inc/vllm is fabricated telemetry, which is a test fixture and never a ranking source
   ...has no snapshot_meta row: promote against a frozen snapshot first (...)
 exit=1
 ```
@@ -726,7 +726,7 @@ exit=1
 ```
 snapshot 20260914T0000000000-b6e8fd69e810
 ...
-promoted 1 verified repos -> cvi_runall.db (snapshot 20260914T0000000000-b6e8fd69e810)
+promoted 1 verified repos -> porchlamp_runall.db (snapshot 20260914T0000000000-b6e8fd69e810)
 rc= 0
 ```
 `snapshot_meta.snapshot_id` bound: `20260914T0000000000-...` -- the run's
@@ -756,7 +756,7 @@ Net new tests this round: `test_promote.py` 11->21 (+10), `test_serve.py`
 ## R3.5 Ruff
 
 ```
-$ .venv/bin/python -m ruff check cvi/ scripts/ tests/
+$ .venv/bin/python -m ruff check porchlamp/ scripts/ tests/
 All checks passed!
 exit=0
 ```
@@ -818,7 +818,7 @@ lines 441+); the rebase applied with zero conflicts
 Post-rebase re-verification (same commands as above, on the rebased tree):
 
 ```
-$ .venv/bin/python -m ruff check cvi/ scripts/ tests/
+$ .venv/bin/python -m ruff check porchlamp/ scripts/ tests/
 All checks passed!
 
 $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest \
@@ -863,12 +863,12 @@ command that crashed. Fixed with the same `ROOT`/`sys.path.insert(0, ...)`
 two-line bootstrap `scripts/run_all.py` already uses, placed before the
 `scripts.verify` import.
 
-Fail-before, reproduced on the round-3 source with `cvi` importable
-(via a symlink to this worktree's `cvi/`, so the failure is the import
-crash itself, not a stale `cvi` from a different checkout) but the repo
+Fail-before, reproduced on the round-3 source with `porchlamp` importable
+(via a symlink to this worktree's `porchlamp/`, so the failure is the import
+crash itself, not a stale `porchlamp` from a different checkout) but the repo
 root NOT on `sys.path`:
 ```
-$ PYTHONPATH=<dir containing only a cvi/ symlink> .venv/bin/python -B \
+$ PYTHONPATH=<dir containing only a porchlamp/ symlink> .venv/bin/python -B \
   scripts/promote.py --help          # cwd elsewhere entirely
 Traceback (most recent call last):
   File ".../scripts/promote.py", line 72, in <module>
@@ -878,14 +878,14 @@ exit=1
 ```
 Fixed, same setup:
 ```
-$ PYTHONPATH=<dir containing only a cvi/ symlink> .venv/bin/python -B \
+$ PYTHONPATH=<dir containing only a porchlamp/ symlink> .venv/bin/python -B \
   scripts/promote.py --help
 usage: promote.py [-h] ...
 exit=0
 ```
-Automated as `tests/test_promote.py::test_promote_help_runs_from_a_temp_cwd_with_only_cvi_importable`
+Automated as `tests/test_promote.py::test_promote_help_runs_from_a_temp_cwd_with_only_porchlamp_importable`
 (a real `subprocess.run`, `cwd` a fresh temp dir, `PYTHONPATH` pointing at a
-constructed dir holding only a `cvi` symlink): fails with the exact
+constructed dir holding only a `porchlamp` symlink): fails with the exact
 traceback above on the round-3 source, passes after the fix.
 
 ## R4.2 Item 2 (Blocker-2) — tests hardcoded a machine-local path
@@ -976,7 +976,7 @@ Round 3's `OperationalStore.truncate_repositories()` (an in-place `DELETE
 FROM repositories` before writing) made a promotion PURE but not ATOMIC: a
 failure between the truncate and the finished write left the live database
 rewritten and unservable, with no rollback. Subtracted entirely (the
-method deleted from `cvi/lakehouse.py`; its call site removed from
+method deleted from `porchlamp/lakehouse.py`; its call site removed from
 `scripts/promote.py`'s `promote()`).
 
 New `scripts/promote.py::promote_atomically(bundles, db_path, as_of,
@@ -1016,7 +1016,7 @@ MATCH: YES
 $ ls atomic.db*
 atomic.db                    # no .tmp-NOKEY left behind
 $ .venv/bin/python scripts/serve.py --db atomic.db --port 18950   # still serves
-CVI serve: 1 verified repos from 'atomic.db' (snapshot ...)
+Porchlamp serve: 1 verified repos from 'atomic.db' (snapshot ...)
 GET /healthz -> {"status":"ok"}  HTTP=200
 ```
 The failure happens AFTER `promote(bundles, tmp_path, ...)` already wrote
@@ -1052,7 +1052,7 @@ No assertion was weakened: both tests assert the identical end state
 ## R4.6 Diffstat (vs round 3's rebased tip)
 
 ```
- cvi/lakehouse.py                                   |  17 ---
+ porchlamp/lakehouse.py                                   |  17 ---
  scripts/promote.py                                 |  98 ++++++++++++--
  scripts/run_all.py                                 |   4 +-
  scripts/serve.py                                   |   8 +-
@@ -1063,14 +1063,14 @@ No assertion was weakened: both tests assert the identical end state
  17 files changed, 292 insertions(+), 63 deletions(-)
 ```
 
-Ownership: unchanged from round 3 (`cvi/lakehouse.py`, `scripts/run_all.py`
+Ownership: unchanged from round 3 (`porchlamp/lakehouse.py`, `scripts/run_all.py`
 still pending the lead's ratification); new `tests/fixtures/` directory,
 owned by this packet's test files only.
 
 ## R4.7 Ruff and full suite
 
 ```
-$ .venv/bin/python -m ruff check cvi/ scripts/ tests/
+$ .venv/bin/python -m ruff check porchlamp/ scripts/ tests/
 All checks passed!
 
 $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/ -n 4 -p no:cacheprovider
@@ -1109,7 +1109,7 @@ Matches.
 Rebased onto `main`'s tip at dispatch time (`9bb1c22`, past the coordinator's
 named `31adc2b`). `git diff --name-only` between the pre-rebase merge-base
 and `main` touched none of this packet's owned or depended-on files
-(`cvi/lakehouse.py`, `scripts/{promote,run_all,serve,verify,derive}.py`,
+(`porchlamp/lakehouse.py`, `scripts/{promote,run_all,serve,verify,derive}.py`,
 `tests/{test_promote,test_serve,test_run_all}.py`, `tests/fixtures/`,
 `.agents/INT-W0-4/handoff.md`) — empty diff, zero overlap. Rebase applied
 with zero conflicts (`git rebase 9bb1c22` -> "Successfully rebased",
@@ -1118,7 +1118,7 @@ with zero conflicts (`git rebase 9bb1c22` -> "Successfully rebased",
 re-verification:
 
 ```
-$ .venv/bin/python -m ruff check cvi/ scripts/ tests/
+$ .venv/bin/python -m ruff check porchlamp/ scripts/ tests/
 All checks passed!
 
 $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest \

@@ -1,4 +1,4 @@
-// copy.js — every user-facing sentence in the CVI v2 UI lives here (06 §6).
+// copy.js — every user-facing sentence in the Porchlamp v2 UI lives here (06 §6).
 // Nothing user-facing is a string literal anywhere else in web/v2/: views
 // and components import names from this module and interpolate data into
 // the templates defined here, never write new prose inline.
@@ -7,7 +7,7 @@
 // source-level parse, not execution) and asserts each one is referenced
 // somewhere under web/v2/, so no string here is dead/orphaned copy.
 
-export const BRAND_NAME = "Contributor Value Index";
+export const BRAND_NAME = "Porchlamp";
 
 export const NAV_LEADERBOARD = "Leaderboard";
 export const NAV_NOT_RANKED = "Not ranked";
@@ -32,7 +32,7 @@ export const PERSONA_NAMES = Object.freeze({
 
 export const COLUMN_RANK = "Rank";
 export const COLUMN_REPOSITORY = "Repository";
-export const COLUMN_CVI = "CVI";
+export const COLUMN_PORCHLAMP = "Score";
 export const COLUMN_COVERAGE = "Coverage";
 export const COLUMN_TIER = "Tier";
 export const COLUMN_QUADRANT = "Quadrant";
@@ -171,7 +171,7 @@ export const NOT_RANKED_EMPTY = "No gated or unrated repositories to show.";
 
 // Persona gate reasons (02-RANKING-DESIGN.md D-PERS-2/3), reused by the
 // leaderboard's persona-hidden disclosure and the drawer's persona section.
-// Keys are the engine's own gate codes (cvi/core/persona.py:185-188); an
+// Keys are the engine's own gate codes (porchlamp/core/persona.py:185-188); an
 // unknown code falls through to personaGateReason's `|| code`.
 const PERSONA_GATE_COPY = Object.freeze({
   ai_hard_ban: "This repository has an explicit ban on AI-assisted contributions.",
@@ -212,7 +212,7 @@ export function personaExtraDisclosure(count) {
 // components/table.js's decidingTieLevel.
 export const TIE_MARK = "=";
 const TIE_LEVEL_LABELS = Object.freeze({
-  1: "the composite CVI",
+  1: "the composite score",
   2: "coverage",
   3: "the responsiveness pillar",
   4: "friction",
@@ -221,7 +221,7 @@ const TIE_LEVEL_LABELS = Object.freeze({
 });
 export function tieTooltip(level) {
   const label = TIE_LEVEL_LABELS[level] || `tie-break level ${level}`;
-  return `Tied on composite CVI; separated from the row above by ${label}.`;
+  return `Tied on composite score; separated from the row above by ${label}.`;
 }
 
 export function emptyLeaderboardText(gatedCount, unratedCount) {
@@ -317,8 +317,8 @@ export const KEYMAP_ENTRIES = Object.freeze([
 
 export const DRAWER_TITLE = "Why this score";
 export const DRAWER_SECTION_IDENTITY = "Identity and gate status";
-// A GATED repository was disqualified before scoring and has no CVI/tier/
-// quadrant at all (`RepoDetailResponse.cvi` etc. are `None`, never a
+// A GATED repository was disqualified before scoring and has no score/tier/
+// quadrant at all (`RepoDetailResponse.porchlamp` etc. are `None`, never a
 // fabricated value), so the composite `<details>` is OMITTED entirely for
 // `kind === "gated"` (`views/drawer.js::renderDrawer`) rather than
 // rendered with a "no composite" placeholder sentence. The other three
@@ -362,7 +362,7 @@ export const FOOTER_CONSTANTS_HASH_LABEL = "Constants hash";
 export const FOOTER_MANIFEST_ROOT_LABEL = "Manifest root";
 
 export const SKIP_LINK_LABEL = "Skip to main content";
-export const MAIN_LANDMARK_LABEL = "CVI leaderboard and repository detail";
+export const MAIN_LANDMARK_LABEL = "Porchlamp leaderboard and repository detail";
 
 
 export function methodologyPercentText(fraction) {
@@ -528,7 +528,7 @@ export function compareUnmeasuredNote(paramLabels) {
 }
 export const COMPARE_ROW_IDENTITY = "Repository";
 export const COMPARE_ROW_GATE_STATUS = "Gate status";
-export const COMPARE_ROW_COMPOSITE = "CVI";
+export const COMPARE_ROW_COMPOSITE = "Score";
 export const COMPARE_ROW_COVERAGE = "Coverage";
 export const COMPARE_RATED_STATUS = "Rated";
 export const COMPARE_UNMEASURED_LABEL = "Unmeasured";
@@ -594,7 +594,7 @@ export const METHODOLOGY_INDEX_LABEL = "On this page";
  * One sentence under each section heading saying what the section answers.
  * Keys are the section keys in views/methodology.js. The detectors line is
  * sourced, not assumed: docs/v2/03 section 6 ("flags on the row ... never
- * silent penalties") and cvi/core/pipeline.py (suspicion is folded on AFTER
+ * silent penalties") and porchlamp/core/pipeline.py (suspicion is folded on AFTER
  * assign_ranks, "so suspicion can never influence rank/tie_key").
  */
 export const METHODOLOGY_SECTION_LEDES = Object.freeze({

@@ -8,7 +8,7 @@ parallel); rebased twice rather than chase it indefinitely:
    evidence, W2-8/W4-2/W2-8b/W2-8c) — 3 conflicts, resolved, see "W1-6
    interaction" below for the one substantive consequence.
 2. Onto **`04d78b8`** (4 more commits: W1-2f, which also touched
-   `cvi/derive/bundle.py` and `tests/derive/test_input_mappings.py`) — 0
+   `porchlamp/derive/bundle.py` and `tests/derive/test_input_mappings.py`) — 0
    conflicts, verified with a fresh mutant re-run of item 5's guard
    (`n = len(prs or [])` still dies both the new and pre-existing test).
 Final commit: `b15d4be` (`git log --oneline -1`); the fix commit itself is
@@ -21,9 +21,9 @@ own logic.
 ## Diffstat (bd0cec4..ee97ef9 — unchanged by the second, conflict-free rebase)
 
 ```
- cvi/collect/envelope.py             |  11 ++
- cvi/collect/pike_signals.py         |  91 ++++++++++++---
- cvi/derive/bundle.py                |  19 ++++
+ porchlamp/collect/envelope.py             |  11 ++
+ porchlamp/collect/pike_signals.py         |  91 ++++++++++++---
+ porchlamp/derive/bundle.py                |  19 ++++
  scripts/derive.py                   |  82 ++++++++++----
  scripts/gather.py                   |   5 +-
  tests/collect/test_w17_pike.py      | 217 +++++++++++++++++++++++++++++++++++-
@@ -39,7 +39,7 @@ to report against it).
 
 ### 1. Crash guard (F1)
 
-`cvi/collect/pike_signals.py`: `derive_w17_fields`'s `openssf_signals` branch
+`porchlamp/collect/pike_signals.py`: `derive_w17_fields`'s `openssf_signals` branch
 called bare `max(ats)` (line ~627 pre-fix) while its `pipeline_defenses`
 sibling 13 lines below already guarded the same pattern — `ValueError` on an
 all-`None` `ats` list. Fixed to `max(ats) if ats else None`, matching the
@@ -55,7 +55,7 @@ and `pipeline_defenses` are set to a new v1 confidence sentinel
 (before and after the hook, including W1-6's governance block right after) is
 unaffected.
 
-`cvi/derive/bundle.py`'s `_resolve_openssf_criticality` / `_resolve_pipeline_defenses`
+`porchlamp/derive/bundle.py`'s `_resolve_openssf_criticality` / `_resolve_pipeline_defenses`
 gained an explicit branch for `confidence_value == "collector_failure"` that
 reads the companion detail key, so the v2 `Unmeasured(reason="collector_failure",
 detail=...)` names the actual exception, not the generic "confidence not
@@ -132,9 +132,9 @@ the zero-fallback and an empty one gets `human_commit_stats`) →
 
 `collect_releases`/`collect_issue_counts` already write `window_anchor` (the
 collector's own `now`) into their envelope `data` — confirmed unchanged.
-Wired the derive-side check only, in `cvi.collect.pike_signals.derive_w17_fields`
+Wired the derive-side check only, in `porchlamp.collect.pike_signals.derive_w17_fields`
 (same module, `now` is already an explicit parameter there — no `as_of`
-threading into `cvi/derive/bundle.py`'s `load()` was needed or added):
+threading into `porchlamp/derive/bundle.py`'s `load()` was needed or added):
 `window_anchor_stale(anchor_iso, now, max_days=WINDOW_STALENESS_DAYS=14)`
 compares via `total_seconds()` (not `.days`, to avoid truncation ambiguity at
 the boundary). A stale `releases` or `issues_counts` anchor sets
@@ -154,15 +154,15 @@ beyond what the packet asked for.
 
 ### 4. Dedupe (F6)
 
-Added `cvi.collect.envelope.raw_envelope_path(data_dir, collector, key)` — the
+Added `porchlamp.collect.envelope.raw_envelope_path(data_dir, collector, key)` — the
 one `<data_dir>/raw/<collector>/<key>.json` formula. `scripts/derive.py`'s
-`src()` and `cvi.collect.pike_signals`'s `env_path()` (inside
+`src()` and `porchlamp.collect.pike_signals`'s `env_path()` (inside
 `derive_w17_fields`) both now call it instead of each defining their own
 `str(data_dir / "raw" / ... )`. `scripts/gather.py` now imports `SLEEP_REST`
-from `cvi.collect.pike_signals.SLEEP_CORE_SECONDS` instead of a second `0.15`
+from `porchlamp.collect.pike_signals.SLEEP_CORE_SECONDS` instead of a second `0.15`
 literal (kept the name `SLEEP_REST` to avoid touching gather.py's many
 existing call sites; picked `pike_signals` as the canonical owner, not
-`gather.py`, to avoid `cvi/` depending on `scripts/` — the wrong layering
+`gather.py`, to avoid `porchlamp/` depending on `scripts/` — the wrong layering
 direction).
 
 Tests: `test_src_and_env_path_share_one_definition` (identity check: both
@@ -184,23 +184,23 @@ Mutant: revert both closures to their original inline `str(data_dir / "raw" /
 
 **Already correct on base** — no source fix was needed. W2-9f (`b9d4820`,
 landed before this packet was dispatched) already made
-`cvi.derive.bundle._resolve_pipeline_defenses` recompute `n` independently
+`porchlamp.derive.bundle._resolve_pipeline_defenses` recompute `n` independently
 from the `pr_window` envelope's own `prs` list
 (`sum(1 for pr in prs if pr.get("mergedAt") is not None)`), matching
-`cvi.collect.pike_signals.code_review_rate`'s own denominator definition
+`porchlamp.collect.pike_signals.code_review_rate`'s own denominator definition
 exactly (same filter, same field — verified by reading both side by side).
 This already differs per fixture (existing test
 `test_pipeline_defenses_proxy_method_counts_merged_prs` pins `n=3` of 5 PRs)
-and is read correctly by `cvi.core.params.rigor.pipeline_defenses`'s
+and is read correctly by `porchlamp.core.params.rigor.pipeline_defenses`'s
 `_apply`/`_required_min_n` (`value.n`, `defn.proxy_min_n=10`).
 
 What was missing was **test coverage tying the two together** end-to-end
-(bundle.py's computed `n` actually reaching `cvi.core.params.rigor`'s 10-PR
+(bundle.py's computed `n` actually reaching `porchlamp.core.params.rigor`'s 10-PR
 floor) — F7's original review finding (`pike_signals.py`'s own meta output
 never carried `n` at all) predates W2-9f's fix and no longer describes the
 code. Added `test_pipeline_defenses_n_feeds_the_rigor_min_n_gate`: builds two
 fixtures (9 and 10 merged PRs, one extra never-merged PR in both that must
-never count), asserts `n` differs (9 vs 10) and that `cvi.core.params.rigor.pipeline_defenses`
+never count), asserts `n` differs (9 vs 10) and that `porchlamp.core.params.rigor.pipeline_defenses`
 reports `insufficient_n` at 9 and a real score at 10.
 
 **COULD NOT VERIFY as a "fail-before" in the usual sense**: since the
@@ -212,7 +212,7 @@ fail-before confirmed via mutant instead (below), which is the honest
 substitute here (per R-9: report the real number, not a fabricated
 regression).
 
-Mutant: in `cvi/derive/bundle.py`, change the proxy `n` computation from
+Mutant: in `porchlamp/derive/bundle.py`, change the proxy `n` computation from
 `sum(1 for pr in (prs or []) if ... pr.get("mergedAt") is not None)` to
 `len(prs or [])` (count every PR, not just merged ones) →
 `test_pipeline_defenses_n_feeds_the_rigor_min_n_gate` dies (`assert (10 ==
@@ -226,11 +226,11 @@ Confirmed the review's/W2-9f's finding precisely:
 `legal_ip_model`/`ai_posture`/`promotion_ladder` recorded a raw
 `https://raw.githubusercontent.com/...` URL as `source` even when the body
 was genuinely cached locally under `raw/bodies/`.
-`cvi.derive.bundle._resolve_envelope` rejects any `http(s)://` string
+`porchlamp.derive.bundle._resolve_envelope` rejects any `http(s)://` string
 outright (by design, per INT-W0-4's ruling), so **every** real value of
 these three fields was `Unmeasured(collector_failure, "v1 source is not an
 envelope: https://...")` at the v2 layer regardless of caching — confirmed by
-temporarily reverting the fix and observing `cvi/derive/bundle.py`'s existing
+temporarily reverting the fix and observing `porchlamp/derive/bundle.py`'s existing
 `_vocab_scalar_resolver` reject the URL exactly as documented.
 
 Fixed by pointing `source` at the local bodies-cache envelope path (via a new
@@ -247,18 +247,18 @@ session) added a governance-evidence block immediately after this one in
 `scripts/derive.py` that **unconditionally overwrites** `ai_posture` and
 `promotion_ladder` with its own evidence-based values and provenance — same
 field names, later `b.set()` call always wins, regardless of whether a
-`governance` envelope exists (confirmed: `cvi.collect.governance.derive_governance_fields`
+`governance` envelope exists (confirmed: `porchlamp.collect.governance.derive_governance_fields`
 always returns dict entries for both fields, and the caller always calls
 `b.set` for them). `legal_ip_model` is untouched by that block (the
 governance module writes a **different**, bare `legal_ip` field —
-`cvi/derive/bundle.py`'s v2 `"legal_ip"` input now reads `meta["legal_ip"]`,
+`porchlamp/derive/bundle.py`'s v2 `"legal_ip"` input now reads `meta["legal_ip"]`,
 not `meta["legal_ip_model"]`, confirmed by reading `INPUT_MAPPINGS`).
 
 Net effect: this fix's `ai_posture`/`promotion_ladder` provenance repair is
 now **dead code** — computed, then always overwritten before the bundle is
 returned, so it is unobservable in any output. `legal_ip_model`'s repair is
 the only one that still matters, and it matters more than originally
-scoped: per `cvi.collect.governance`'s own module docstring, `legal_ip_model`
+scoped: per `porchlamp.collect.governance`'s own module docstring, `legal_ip_model`
 is the field driving the **live v1 production scoring sweep** (00-README's
 non-negotiable "never change a running sweep" — this fix does not change
 its value, only its provenance, so the non-negotiable is respected).
@@ -299,14 +299,14 @@ immediately after this packet's W1-7 block:
   `try/except` wrapper and appending W1-6's governance block unchanged right
   after it (outside the `try`, since it does not depend on `w17_fields`).
 - `scripts/gather.py`: both patches added an import line at the same spot
-  (W2-8c's `from cvi.paths import data_root`, this packet's `SLEEP_REST`
+  (W2-8c's `from porchlamp.paths import data_root`, this packet's `SLEEP_REST`
   import). Kept both.
 - `tests/test_derive.py`: `test_provenance_omits_sha256_for_non_envelope_source`
   had been retargeted on main (commit `0a4968c`) for the same class of bug
   this packet also found and fixed elsewhere; resolved as described in item
   6 above.
 
-`cvi/collect/pike_signals.py`, `cvi/collect/envelope.py`, `cvi/derive/bundle.py`,
+`porchlamp/collect/pike_signals.py`, `porchlamp/collect/envelope.py`, `porchlamp/derive/bundle.py`,
 `tests/collect/test_w17_pike.py`, `tests/derive/test_input_mappings.py` all
 merged with **zero** textual conflicts.
 
@@ -351,11 +351,11 @@ and unrelated (run-by-hand-once fixture-corruption note, not touched by this
 packet).
 
 ```
-$ ruff check cvi/collect/pike_signals.py cvi/collect/envelope.py cvi/derive/bundle.py \
+$ ruff check porchlamp/collect/pike_signals.py porchlamp/collect/envelope.py porchlamp/derive/bundle.py \
     scripts/derive.py scripts/gather.py tests/collect/test_w17_pike.py \
     tests/test_derive.py tests/derive/test_input_mappings.py
 All checks passed!
-$ ruff check cvi/ scripts/ tests/
+$ ruff check porchlamp/ scripts/ tests/
 All checks passed!
 ```
 
@@ -364,18 +364,18 @@ All checks passed!
 ```
 $ git rebase 04d78b8
 Successfully rebased and updated refs/heads/W1-7f.     # 0 conflicts
-$ ruff check cvi/ scripts/ tests/
+$ ruff check porchlamp/ scripts/ tests/
 All checks passed!
 $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .venv/bin/python -B -m pytest tests/ -n 4 -p no:cacheprovider -o addopts=""
 ================ 2041 passed, 1 skipped, 12 warnings in 11.26s =================
 ```
 
-Item 5's mutant (`cvi/derive/bundle.py`'s proxy `n` computation ->
+Item 5's mutant (`porchlamp/derive/bundle.py`'s proxy `n` computation ->
 `len(prs or [])`) re-applied and re-verified on this final tree: both
 `test_pipeline_defenses_n_feeds_the_rigor_min_n_gate` and the pre-existing
 `test_pipeline_defenses_proxy_method_counts_merged_prs` die, restored,
 suite re-confirmed green (chosen because W1-2f — the 4 commits between the
-two rebase targets — also touched `cvi/derive/bundle.py`).
+two rebase targets — also touched `porchlamp/derive/bundle.py`).
 
 ## Live-network attempts: 0
 

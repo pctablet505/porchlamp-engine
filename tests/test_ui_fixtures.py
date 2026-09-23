@@ -1,6 +1,6 @@
 """Fixture <-> contract validation for the v2 UI.
 
-`cvi/serve/contract.py` is the wire contract that both `web/v2/` and the API
+`porchlamp/serve/contract.py` is the wire contract that both `web/v2/` and the API
 answer to. Every fixture under `tests/fixtures/ui/` must validate against
 those pydantic models, and each fixture's internal promises (>= 60 rows, a
 2dp tie group of three, every coverage band with its ceiling, all four
@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from cvi.serve.contract import (
+from porchlamp.serve.contract import (
     EvidenceRow,
     LeaderboardResponse,
     MatrixPoint,
@@ -92,8 +92,8 @@ class TestLeaderboardFixtureInvariants:
         singletons = [r for r in rows if r["tie_group"] is None]
         assert singletons, "expected at least one singleton (non-tied) row"
         for r in singletons:
-            same_cvi = [r2 for r2 in rows if r2["cvi"] == r["cvi"]]
-            assert len(same_cvi) == 1, f"{r['owner']}/{r['name']} has tie_group=None but shares its cvi with another row"
+            same_porchlamp = [r2 for r2 in rows if r2["porchlamp"] == r["porchlamp"]]
+            assert len(same_porchlamp) == 1, f"{r['owner']}/{r['name']} has tie_group=None but shares its porchlamp with another row"
 
     def test_exactly_one_tie_group_of_three_and_one_of_two(self, rows: list[dict]) -> None:
         sizes = Counter(r["tie_group"] for r in rows if r["tie_group"] is not None)
@@ -103,8 +103,8 @@ class TestLeaderboardFixtureInvariants:
     def test_tie_group_of_three_shares_the_same_2dp_composite(self, rows: list[dict]) -> None:
         sizes = Counter(r["tie_group"] for r in rows if r["tie_group"] is not None)
         (group_of_three,) = [g for g, n in sizes.items() if n == 3]
-        cvis = {r["cvi"] for r in rows if r["tie_group"] == group_of_three}
-        assert cvis == {next(iter(cvis))}, "a tie group must share one exact 2dp composite"
+        porchlamps = {r["porchlamp"] for r in rows if r["tie_group"] == group_of_three}
+        assert porchlamps == {next(iter(porchlamps))}, "a tie group must share one exact 2dp composite"
 
     def test_every_coverage_band_present_with_its_ceiling(self, rows: list[dict]) -> None:
         bands: dict[str, list[dict]] = {"full": [], "A": [], "B": []}
@@ -275,16 +275,16 @@ class TestBalancedRankAndDelta:
         assert nonzero >= len(ft_rows) // 2, "expected most rows to have a genuine non-zero delta"
 
     def test_persona_composites_agree_with_the_top_level_reprojected_score(self) -> None:
-        # Review Warning W-1: the table (top-level cvi/coverage/tier) and
+        # Review Warning W-1: the table (top-level porchlamp/coverage/tier) and
         # the drawer's Persona section (persona_composites[persona]) must
         # never disagree about the SAME repo under the SAME lens.
         ft_rows = load("leaderboard-first_timer.json")["rows"]
         checked = 0
         for r in ft_rows:
             composite = r["persona_composites"].get("first_timer")
-            if composite is None or composite["cvi"] is None:
+            if composite is None or composite["porchlamp"] is None:
                 continue
-            assert composite["cvi"] == r["cvi"], f"{r['owner']}/{r['name']}: drawer cvi {composite['cvi']} != table cvi {r['cvi']}"
+            assert composite["porchlamp"] == r["porchlamp"], f"{r['owner']}/{r['name']}: drawer porchlamp {composite['porchlamp']} != table porchlamp {r['porchlamp']}"
             checked += 1
         assert checked >= len(ft_rows) // 2
 
@@ -333,7 +333,7 @@ class TestMatrixContract:
         point = MatrixPoint(
             owner="a", name="b", ecosystem="pypi", leverage=80.0, friction=20.0,
             leverage_coverage=1.0, friction_coverage=1.0, quadrant="Sweet Spot",
-            stars_audited=None, cvi=90.0, coverage=0.97, tier="S",
+            stars_audited=None, porchlamp=90.0, coverage=0.97, tier="S",
         )
         response = MatrixResponse(
             points=[point],
@@ -350,7 +350,7 @@ class TestMatrixContract:
             "leverage": row["leverage"], "friction": row["friction"],
             "leverage_coverage": row["leverage_coverage"], "friction_coverage": row["friction_coverage"],
             "quadrant": row["quadrant"], "stars_audited": row["stars_audited"],
-            "cvi": row["cvi"], "coverage": row["coverage"], "tier": row["tier"],
+            "porchlamp": row["porchlamp"], "coverage": row["coverage"], "tier": row["tier"],
         }
         response = MatrixResponse.model_validate(
             {"points": [point], "excluded_count": leaderboard["counts"]["gated"], "axis_coverage": {}}
@@ -366,7 +366,7 @@ class TestReprojectContract:
     """`ReprojectRequest` weight-vector rules and `ReprojectResponse` shape.
 
     `ReprojectResponse.rows` is `list[ReprojectRow]`: a `LeaderboardRow` plus
-    the five `balanced_*` comparison fields `cvi.store.queries.reproject`
+    the five `balanced_*` comparison fields `porchlamp.store.queries.reproject`
     returns.
     """
 
@@ -407,11 +407,11 @@ class TestReprojectContract:
         row["balanced_rank"] = row["rank"]
         row["rank_delta"] = 0  # LeaderboardRow's own validator: rank_delta == balanced_rank - rank
         row["balanced_tie_group"] = row["tie_group"]
-        row["balanced_cvi"] = row["cvi"]
+        row["balanced_porchlamp"] = row["porchlamp"]
         row["balanced_coverage"] = row["coverage"]
         row["balanced_tier"] = row["tier"]
         response = ReprojectResponse.model_validate({"rows": [row], "total": 1, "lens": "custom"})
-        assert response.rows[0].balanced_cvi == row["cvi"]
+        assert response.rows[0].balanced_porchlamp == row["porchlamp"]
         assert response.lens == "custom"
 
 
@@ -453,7 +453,7 @@ class TestDecidingTieLevelParity:
         def round2(v):
             return None if v is None else round(v, 2)
         levels = [
-            (1, round2(a.get("cvi")), round2(b.get("cvi"))),
+            (1, round2(a.get("porchlamp")), round2(b.get("porchlamp"))),
             (2, a.get("coverage"), b.get("coverage")),
             (3, a.get("p_responsiveness"), b.get("p_responsiveness")),
             (4, a.get("friction"), b.get("friction")),
@@ -469,8 +469,8 @@ class TestDecidingTieLevelParity:
     def test_deciding_tie_level_composite_rounding_parity(self) -> None:
         table_js = (Path(__file__).resolve().parent.parent / "web" / "v2" / "components" / "table.js").read_text()
         assert "Math.round" in table_js
-        assert "round2(a.cvi)" in table_js
+        assert "round2(a.porchlamp)" in table_js
 
-        a = {"cvi": 90.114, "coverage": 0.95, "p_responsiveness": 80, "friction": 20, "leverage": 70, "owner": "a", "name": "a"}
-        b = {"cvi": 90.111, "coverage": 0.85, "p_responsiveness": 80, "friction": 20, "leverage": 70, "owner": "b", "name": "b"}
+        a = {"porchlamp": 90.114, "coverage": 0.95, "p_responsiveness": 80, "friction": 20, "leverage": 70, "owner": "a", "name": "a"}
+        b = {"porchlamp": 90.111, "coverage": 0.85, "p_responsiveness": 80, "friction": 20, "leverage": 70, "owner": "b", "name": "b"}
         assert self.deciding_tie_level(a, b) == 2

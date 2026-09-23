@@ -6,7 +6,7 @@ Verifies:
    - HEAD, Range, Caching (ETag/304, If-Modified-Since/304), query parameters.
    - Method rejection (POST, PUT, DELETE return 405).
 2. API Route Isolation & Hostile Precedence (Anti-Shadowing):
-   - /healthz, /v1/cvi/matrix, /v1/cvi/repos/{o}/{n}, /v1/cvi/leaderboard, /v1/cvi/reproject,
+   - /healthz, /v1/porchlamp/matrix, /v1/porchlamp/repos/{o}/{n}, /v1/porchlamp/leaderboard, /v1/porchlamp/reproject,
      /openapi.json, /docs are never intercepted or shadowed.
    - Active collision attack: mount a directory containing files with exact API route paths.
    - Method enforcement on API routes (POST to GET routes -> 405).
@@ -34,9 +34,9 @@ from typing import Callable
 
 from fastapi.testclient import TestClient
 
-from cvi.api import create_app
-from cvi.lakehouse import OperationalStore
-from cvi.models import Ecosystem, Quadrant, Tier
+from porchlamp.api import create_app
+from porchlamp.lakehouse import OperationalStore
+from porchlamp.models import Ecosystem, Quadrant, Tier
 from tests.test_api import make_pillars, make_result, set_stars
 
 
@@ -193,17 +193,17 @@ class TestRoutePrecedenceAndAntiShadowing:
             assert r_h.headers["content-type"] == "application/json"
             assert r_h.json() == {"status": "ok"}
 
-            r_m = client.get("/v1/cvi/matrix")
+            r_m = client.get("/v1/porchlamp/matrix")
             assert r_m.status_code == 200
             assert r_m.headers["content-type"] == "application/json"
             assert "nodes" in r_m.json()
 
-            r_l = client.get("/v1/cvi/leaderboard")
+            r_l = client.get("/v1/porchlamp/leaderboard")
             assert r_l.status_code == 200
             assert r_l.headers["content-type"] == "application/json"
             assert "items" in r_l.json()
 
-            r_r = client.get("/v1/cvi/repos/testowner/testrepo")
+            r_r = client.get("/v1/porchlamp/repos/testowner/testrepo")
             assert r_r.status_code == 200
             assert r_r.headers["content-type"] == "application/json"
             assert r_r.json()["owner"] == "testowner"
@@ -223,13 +223,13 @@ class TestRoutePrecedenceAndAntiShadowing:
             (web_p / "healthz").write_text("COLLISION_HEALTHZ")
             (web_p / "healthz.html").write_text("COLLISION_HEALTHZ_HTML")
             (web_p / "v1").mkdir()
-            (web_p / "v1" / "cvi").mkdir()
-            (web_p / "v1" / "cvi" / "matrix").write_text("COLLISION_MATRIX")
-            (web_p / "v1" / "cvi" / "leaderboard").write_text("COLLISION_LEADERBOARD")
-            (web_p / "v1" / "cvi" / "reproject").write_text("COLLISION_REPROJECT")
-            (web_p / "v1" / "cvi" / "repos").mkdir()
-            (web_p / "v1" / "cvi" / "repos" / "testowner").mkdir()
-            (web_p / "v1" / "cvi" / "repos" / "testowner" / "testrepo").write_text("COLLISION_REPO")
+            (web_p / "v1" / "porchlamp").mkdir()
+            (web_p / "v1" / "porchlamp" / "matrix").write_text("COLLISION_MATRIX")
+            (web_p / "v1" / "porchlamp" / "leaderboard").write_text("COLLISION_LEADERBOARD")
+            (web_p / "v1" / "porchlamp" / "reproject").write_text("COLLISION_REPROJECT")
+            (web_p / "v1" / "porchlamp" / "repos").mkdir()
+            (web_p / "v1" / "porchlamp" / "repos" / "testowner").mkdir()
+            (web_p / "v1" / "porchlamp" / "repos" / "testowner" / "testrepo").write_text("COLLISION_REPO")
 
             # Plant docs collisions
             (web_p / "openapi.json").write_text("COLLISION_OPENAPI")
@@ -248,30 +248,30 @@ class TestRoutePrecedenceAndAntiShadowing:
                 assert r1.json() == {"status": "ok"}
                 assert "COLLISION" not in r1.text
 
-                # 2. /v1/cvi/matrix must hit API handler
-                r2 = client.get("/v1/cvi/matrix")
+                # 2. /v1/porchlamp/matrix must hit API handler
+                r2 = client.get("/v1/porchlamp/matrix")
                 assert r2.status_code == 200
                 assert r2.headers["content-type"] == "application/json"
                 assert "nodes" in r2.json()
                 assert "COLLISION" not in r2.text
 
-                # 3. /v1/cvi/leaderboard must hit API handler
-                r3 = client.get("/v1/cvi/leaderboard")
+                # 3. /v1/porchlamp/leaderboard must hit API handler
+                r3 = client.get("/v1/porchlamp/leaderboard")
                 assert r3.status_code == 200
                 assert r3.headers["content-type"] == "application/json"
                 assert "items" in r3.json()
                 assert "COLLISION" not in r3.text
 
-                # 4. /v1/cvi/repos/testowner/testrepo must hit API handler
-                r4 = client.get("/v1/cvi/repos/testowner/testrepo")
+                # 4. /v1/porchlamp/repos/testowner/testrepo must hit API handler
+                r4 = client.get("/v1/porchlamp/repos/testowner/testrepo")
                 assert r4.status_code == 200
                 assert r4.headers["content-type"] == "application/json"
                 assert r4.json()["owner"] == "testowner"
                 assert "COLLISION" not in r4.text
 
-                # 5. POST /v1/cvi/reproject must hit API handler
+                # 5. POST /v1/porchlamp/reproject must hit API handler
                 r5 = client.post(
-                    "/v1/cvi/reproject",
+                    "/v1/porchlamp/reproject",
                     json={
                         "weights": {
                             "responsiveness": 0.2,
@@ -316,8 +316,8 @@ class TestRoutePrecedenceAndAntiShadowing:
         client, _ = _create_test_client(use_default_web=True)
         try:
             assert client.post("/healthz").status_code == 405
-            assert client.post("/v1/cvi/matrix").status_code == 405
-            assert client.post("/v1/cvi/leaderboard").status_code == 405
+            assert client.post("/v1/porchlamp/matrix").status_code == 405
+            assert client.post("/v1/porchlamp/leaderboard").status_code == 405
         finally:
             client.__exit__(None, None, None)
 
@@ -412,7 +412,7 @@ class TestWebDirEdgeCases:
         client, _ = _create_test_client(web_dir=None)
         try:
             assert client.get("/healthz").status_code == 200
-            assert client.get("/v1/cvi/matrix").status_code == 200
+            assert client.get("/v1/porchlamp/matrix").status_code == 200
             assert client.get("/").status_code == 404
             assert client.get("/index.html").status_code == 404
         finally:
@@ -483,14 +483,14 @@ class TestStaticServingConcurrency:
     """Stress-test concurrent requests across static and API endpoints."""
 
     def test_high_concurrency_mixed_traffic(self) -> None:
-        """Fire 200 concurrent requests across /, /index.html, /healthz, /v1/cvi/matrix, 404s."""
+        """Fire 200 concurrent requests across /, /index.html, /healthz, /v1/porchlamp/matrix, 404s."""
         client, _ = _create_test_client(use_default_web=True)
         try:
             endpoints = [
                 ("/", 200),
                 ("/index.html", 200),
                 ("/healthz", 200),
-                ("/v1/cvi/matrix", 200),
+                ("/v1/porchlamp/matrix", 200),
                 ("/nonexistent_404", 404),
             ] * 40  # 200 total requests
 

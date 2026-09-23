@@ -1,5 +1,5 @@
 // views/methodology.js — Screen F (06 §3 F): the published methodology
-// (rendered from `GET /v1/cvi/methodology`, itself rendered from the
+// (rendered from `GET /v1/porchlamp/methodology`, itself rendered from the
 // frozen constants module server-side — this file never re-derives or
 // restates a domain number) plus the current snapshot (`state.snapshot`,
 // already loaded for the footer by every screen).

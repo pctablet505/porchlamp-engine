@@ -7,11 +7,11 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from cvi.core.models import ParamScore
-from cvi.core.tiebreak import TieBreakInput, assign_ranks
-from cvi.store import reader, schema
-from cvi.store.migrations import apply_migrations
-from cvi.store.writer import _normalize_utc_z, write_records, write_snapshot
+from porchlamp.core.models import ParamScore
+from porchlamp.core.tiebreak import TieBreakInput, assign_ranks
+from porchlamp.store import reader, schema
+from porchlamp.store.migrations import apply_migrations
+from porchlamp.store.writer import _normalize_utc_z, write_records, write_snapshot
 
 from .helpers import (
     make_gated_record,
@@ -34,14 +34,14 @@ def _fresh_db(path: Path) -> sqlite3.Connection:
 
 
 def test_get_row_get_evidence_get_snapshot(tmp_path) -> None:
-    from cvi.core.models import PersonaComposite
+    from porchlamp.core.models import PersonaComposite
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     record = make_rated_record(
         "snap-1",
         params={"ttfhr_hours": ParamScore(value=90.0, score=90.0, measured=True, reason=None, n=10, window_start=None, window_end=None, method="primary", source="test", fetched_at="2026-09-01T00:00:00+00:00")},
         persona_gates={"ai_assisted": "hard_ban"},
-        persona_composites={"balanced": PersonaComposite(cvi=82.5, coverage=0.9, tier="B", rated=True)},
+        persona_composites={"balanced": PersonaComposite(porchlamp=82.5, coverage=0.9, tier="B", rated=True)},
         suspicion=["lockstep_review"],
     )
     item = make_repo_write(record, inputs={"ttfhr_hours": make_measured(3.0, n=10)})
@@ -49,12 +49,12 @@ def test_get_row_get_evidence_get_snapshot(tmp_path) -> None:
 
     row = reader.get_row(conn, "snap-1", "acme", "demo")
     assert row["owner"] == "acme"
-    assert row["cvi"] == 82.5
+    assert row["porchlamp"] == 82.5
     assert row["benchmark_version"] == "2.0.0-dev"
     assert row["eligible"] is True
     assert row["rated"] is True
     assert row["persona_gates"] == {"ai_assisted": "hard_ban"}
-    assert row["persona_composites"] == {"balanced": {"cvi": 82.5, "coverage": 0.9, "tier": "B", "rated": True}}
+    assert row["persona_composites"] == {"balanced": {"porchlamp": 82.5, "coverage": 0.9, "tier": "B", "rated": True}}
     assert row["suspicion"] == ["lockstep_review"]
     assert row["gate_undecided"] == []
 
@@ -182,7 +182,7 @@ def test_ranked_order_sql_parity_with_tie_key_nulls_at_multiple_levels(tmp_path)
     naive_sql = """
         SELECT owner, name FROM repositories
         WHERE snapshot_id = 'snap-1' AND rated = 1
-        ORDER BY ROUND(cvi, 2) DESC, coverage DESC, p_responsiveness DESC,
+        ORDER BY ROUND(porchlamp, 2) DESC, coverage DESC, p_responsiveness DESC,
                  friction ASC, leverage DESC, ttfhr_p75 ASC,
                  last_human_commit_at DESC, lower(owner || '/' || name) ASC
     """

@@ -5,16 +5,16 @@
   `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adbe955a4084/scratchpad/inflight/W2-4/untracked.tar`.
   Copied in **unchanged**: SHA-256 of each of the four files matches across the live
   `/tmp/cvi-wt-W2-4` tree, the tar archive, and this worktree (verified below). No public
-  API change to `cvi.core.normalize` or `cvi.snapshot.populations` (R-10; W2-5 builds
+  API change to `porchlamp.core.normalize` or `porchlamp.snapshot.populations` (R-10; W2-5 builds
   against them in parallel).
-- PYTHONPATH check: `import cvi; print(cvi.__file__)` printed
+- PYTHONPATH check: `import porchlamp; print(porchlamp.__file__)` printed
   `/home/pctablet505/Projects/cvi-wt-INT-W2-4/cvi/__init__.py` (worktree, not main).
 
 ## Diffstat
 
 ```
- cvi/core/normalize.py              |  58 +++++++++
- cvi/snapshot/populations.py        | 234 +++++++++++++++++++++++++++++++++++++
+ porchlamp/core/normalize.py              |  58 +++++++++
+ porchlamp/snapshot/populations.py        | 234 +++++++++++++++++++++++++++++++++++++
  tests/core/test_normalize_v2.py    |  72 ++++++++++++
  tests/snapshot/test_populations.py | 213 +++++++++++++++++++++++++++++++++
  4 files changed, 577 insertions(+)
@@ -128,11 +128,11 @@ Restored the two real files (`diff` against the pre-swap backups: no output, byt
 restore) and re-ran the same command: `22 passed in 0.03s`, exit 0.
 
 **Independent v1 confirmation (the actual production module, not a seed):** the packet's
-own Acceptance line names `cvi.normalize.compute_ecosystem_percentile` (v1, still live in
-this repo at `cvi/normalize.py`) as the thing being fixed. Ran it directly, unmodified:
+own Acceptance line names `porchlamp.normalize.compute_ecosystem_percentile` (v1, still live in
+this repo at `porchlamp/normalize.py`) as the thing being fixed. Ran it directly, unmodified:
 
 ```python
-from cvi.normalize import compute_ecosystem_percentile
+from porchlamp.normalize import compute_ecosystem_percentile
 population = [42.0]*7
 for v in population:
     print(compute_ecosystem_percentile(v, population))
@@ -162,11 +162,11 @@ collected 3 items
 tests/core/test_import_graph.py ...                                      [100%]
 3 passed in 0.05s
 ```
-Exit code: 0. `cvi/core/normalize.py` is a bare-stdlib leaf inside `cvi/core/` (covered by
+Exit code: 0. `porchlamp/core/normalize.py` is a bare-stdlib leaf inside `porchlamp/core/` (covered by
 `test_core_imports_nothing_outside_core_and_stdlib`, a `CORE_DIR.glob("*.py")` scan);
-`cvi/snapshot/populations.py` imports only `cvi.core.*` (constants_v2, models, normalize)
+`porchlamp/snapshot/populations.py` imports only `porchlamp.core.*` (constants_v2, models, normalize)
 plus stdlib/json/pathlib/dataclasses — consistent with the layering but outside this
-test's own scope (it only globs `cvi/core/*.py` plus `cvi/derive/bundle.py`).
+test's own scope (it only globs `porchlamp/core/*.py` plus `porchlamp/derive/bundle.py`).
 
 ### Full suite
 
@@ -187,12 +187,12 @@ files' count. Failure-set identity: both runs report zero failures.
 
 Packet's four files only:
 ```
-ruff check cvi/core/normalize.py cvi/snapshot/populations.py tests/core/test_normalize_v2.py tests/snapshot/test_populations.py
+ruff check porchlamp/core/normalize.py porchlamp/snapshot/populations.py tests/core/test_normalize_v2.py tests/snapshot/test_populations.py
 All checks passed!
 ```
 Exit code: 0. No `print()`, no `TODO` in the two source files (`grep` exit 1 = no match).
 
-Full lint command per the environment spec (`ruff check cvi/ scripts/ tests/`) exits 1
+Full lint command per the environment spec (`ruff check porchlamp/ scripts/ tests/`) exits 1
 with 23 pre-existing findings, **none in the four packet files** — confirmed by grepping
 the ruff output for the packet's paths (no match) and listing every flagged file:
 `scripts/curate_dataset_llm.py` (marked for deletion by W0-4 per `00-README.md`),
@@ -207,13 +207,13 @@ Copied `/home/pctablet505/Projects/cvi-scratch/sample-200` fresh into
 `manifest.json` to `sample-200` before any script ran). Adapted the previous agent's
 `measure_populations.py` (copied from `/home/pctablet505/Projects/cvi-scratch/W2-4/`) by
 retargeting `WORKTREE` to `/home/pctablet505/Projects/cvi-wt-INT-W2-4` and
-`CVI_DATA_DIR` to my scratch copy; added a small tail block (own-measured /
+`PORCHLAMP_DATA_DIR` to my scratch copy; added a small tail block (own-measured /
 third_party_gap per ecosystem for `downloads_monthly`) that the previous agent's saved
 script no longer reproduces but whose numbers its own `measure-output.txt` and handoff
 prose already state — same `members` data, no new computation path.
 
 Command:
-`CVI_DATA_DIR=/home/pctablet505/Projects/cvi-scratch/INT-W2-4 PYTHONPATH=/home/pctablet505/Projects/cvi-wt-INT-W2-4 .venv/bin/python /home/pctablet505/Projects/cvi-scratch/INT-W2-4/measure_populations.py`
+`PORCHLAMP_DATA_DIR=/home/pctablet505/Projects/cvi-scratch/INT-W2-4 PYTHONPATH=/home/pctablet505/Projects/cvi-wt-INT-W2-4 .venv/bin/python /home/pctablet505/Projects/cvi-scratch/INT-W2-4/measure_populations.py`
 Exit code: 0. Full output: `/home/pctablet505/Projects/cvi-scratch/INT-W2-4/measure-output.txt`.
 
 ```
@@ -267,7 +267,7 @@ Two ECDF params (1.5 `ttm_p90_hours`, 2.1 `dependents_deduped`) have **no popula
 any ecosystem** on the sample — 0 of 67 gate-eligible repos measure them (v1-mapping gaps:
 1.5 needs W1-3's windowed PR/merge-latency collection wired into the v1→v2 bridge; 2.1
 needs W1-2's root-org dependent dedup wired in — both collectors have landed on main but
-`cvi.derive.bundle`'s v1-mapping does not yet read them for these two input ids; that
+`porchlamp.derive.bundle`'s v1-mapping does not yet read them for these two input ids; that
 wiring is outside this packet's and the original W2-4 packet's ownership). Param 2.3
 (`downloads_monthly`) populates: crates (own 13) and npm (own 7) both fall back to the
 20-member global population since both are under `MIN_POPULATION` (30).
@@ -280,8 +280,8 @@ wiring is outside this packet's and the original W2-4 packet's ownership). Param
   D-NORM-1..3. Same deviation the original implementer flagged; not trimmed here per
   instruction (touching the two modules' internals is out of scope for an integration
   packet that must not change their public API).
-- `MIN_POPULATION` lives in `cvi/snapshot/populations.py` rather than
-  `cvi.core.constants_v2` (owned by W2-1, frozen by W2-8). Flagged by the implementer for
+- `MIN_POPULATION` lives in `porchlamp/snapshot/populations.py` rather than
+  `porchlamp.core.constants_v2` (owned by W2-1, frozen by W2-8). Flagged by the implementer for
   relocation when W2-8 lands; not this packet's job to move it.
 - Measure script: extended the previous agent's saved `measure_populations.py` with one
   small tail block (per-ecosystem own-measured / `third_party_gap` counts for
@@ -301,9 +301,9 @@ wiring is outside this packet's and the original W2-4 packet's ownership). Param
 - The store `populations` table schema and its migration: W4-2 owns it;
   `build_populations_table` is exercised only by its own test oracles, not against a real
   migration or a live SQLite table.
-- `populations.json` consumption by a `cvi snapshot` CLI: no such CLI wiring exists yet
+- `populations.json` consumption by a `porchlamp snapshot` CLI: no such CLI wiring exists yet
   (W4-1 owns the snapshot surface); the file is written and re-parsed only by the test
   oracle and by this handoff's measure script.
 - Whether `ttm_p90_hours` (1.5) and `dependents_deduped` (2.1) will populate once
-  `cvi.derive.bundle`'s v1-mapping is extended to read the already-landed W1-2/W1-3
+  `porchlamp.derive.bundle`'s v1-mapping is extended to read the already-landed W1-2/W1-3
   collector outputs: outside this packet's ownership (R-10); not measured here.

@@ -1,6 +1,6 @@
 """Acceptance tests: frozen per-ecosystem ECDF populations.
 
-``cvi.snapshot.populations`` builds one population per (ecosystem, param input)
+``porchlamp.snapshot.populations`` builds one population per (ecosystem, param input)
 over the rated, gate-eligible repos for which the parameter is measured at the
 snapshot: a population of fewer than 30
 repos falls back to the global population and carries the
@@ -18,13 +18,13 @@ import sys
 
 import pytest
 
-from cvi.core import constants
-from cvi.core import engine
-from cvi.core import gates
-from cvi.core import models
-from cvi.core.gates import GateEvidence
-from cvi.core.models import GateResult, ParamScore
-from cvi.snapshot import populations
+from porchlamp.core import constants
+from porchlamp.core import engine
+from porchlamp.core import gates
+from porchlamp.core import models
+from porchlamp.core.gates import GateEvidence
+from porchlamp.core.models import GateResult, ParamScore
+from porchlamp.snapshot import populations
 
 PARAM = "downloads_monthly"
 #: Registry-download input for testing.
@@ -40,8 +40,8 @@ PARAM = "downloads_monthly"
 _ORDER_PROBE_SCRIPT = """
 import sys
 
-from cvi.core.models import GateResult
-from cvi.snapshot import populations
+from porchlamp.core.models import GateResult
+from porchlamp.snapshot import populations
 
 ECOSYSTEMS = ("crates", "go", "maven", "npm", "pypi", "systems")
 PARAMS = ("param_a", "param_b")
@@ -325,15 +325,15 @@ class TestFreeze:
     def test_frozen_document_header_fields_are_pinned(self, result, tmp_path) -> None:
         # Fail-before: neither the document tag nor the version number was
         # asserted against a literal anywhere in the suite, so
-        # POPULATIONS_DOCUMENT_VERSION 1 -> 2 and "cvi-populations" ->
-        # "cvi-populations-v2" both survived every packet test.
+        # POPULATIONS_DOCUMENT_VERSION 1 -> 2 and "porchlamp-populations" ->
+        # "porchlamp-populations-v2" both survived every packet test.
         path = populations.write_populations(result, tmp_path / "populations.json")
         document = json.loads(path.read_text(encoding="utf-8"))
         assert set(document) == {
             "document", "version", "snapshot_id", "benchmark_version",
             "constants_hash", "min_population", "populations",
         }
-        assert document["document"] == "cvi-populations"
+        assert document["document"] == "porchlamp-populations"
         assert populations.POPULATIONS_DOCUMENT_VERSION == 1
         assert document["version"] == 1
         assert document["min_population"] == 30
@@ -360,7 +360,7 @@ class TestFreeze:
 
 
 # --------------------------------------------------------------------------- #
-# build_populations -> cvi.core.engine.score end-to-end, on raw values:
+# build_populations -> porchlamp.core.engine.score end-to-end, on raw values:
 # the production path, not a hand-built Population double. Dependents/downloads
 # curves must rank the same quantity ``build_populations`` freezes: the raw
 # measured value, no transform on either side.
@@ -410,7 +410,7 @@ def _bundle_with_dependents(value: float) -> models.FeatureBundle:
 
 
 class TestEngineRawPopulationIntegration:
-    """Fail-before (W-2): with ``cvi.core.params.criticality`` still querying
+    """Fail-before (W-2): with ``porchlamp.core.params.criticality`` still querying
     ``ecdf(log10(1 + value))`` against a population ``build_populations``
     froze from raw counts, the repo below queries
     ``ecdf(log10(1 + 50000)) = ecdf(4.69897...)`` against the raw population

@@ -13,8 +13,8 @@ Empirically verifies:
    - Ecosystem filtering across all 6 ecosystems with case-insensitivity.
    - Adversarial search inputs (SQLi patterns, wildcards, symbols, unicode, emojis).
    - Dynamic persona re-projection with strict descending score ordering and persona-specific gating:
-     * AI_ASSISTED hard-disqualifies proscribed repos (gentoo -> cvi=0, Tier D, is_gated=1).
-     * SENIOR_SYSTEMS hard-disqualifies elephant_factor < 3 repos (cvi=0, Tier D, is_gated=1).
+     * AI_ASSISTED hard-disqualifies proscribed repos (gentoo -> porchlamp=0, Tier D, is_gated=1).
+     * SENIOR_SYSTEMS hard-disqualifies elephant_factor < 3 repos (porchlamp=0, Tier D, is_gated=1).
 4. Response Latency SLA (< 50ms) & Multi-Threaded Concurrency:
    - Rigorous measurement of p50, p95, p99, and max latencies under sequential query loops.
    - Concurrent load testing across worker threads measuring p95 latency against < 50ms SLA.
@@ -32,10 +32,10 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from cvi.api import create_app
+from porchlamp.api import create_app
 from tests.fixtures.synthetic_catalog import build_benchmark_store
-from cvi.lakehouse import OperationalStore
-from cvi.models import Ecosystem
+from porchlamp.lakehouse import OperationalStore
+from porchlamp.models import Ecosystem
 
 
 @pytest.fixture(scope="module")
@@ -64,7 +64,7 @@ def client_portal(seeded_store: OperationalStore) -> TestClient:
 # ============================================================================ #
 
 class TestLeaderboardBoundaryConditions:
-    """Validate boundary condition enforcement on GET /v1/cvi/leaderboard."""
+    """Validate boundary condition enforcement on GET /v1/porchlamp/leaderboard."""
 
     @pytest.mark.parametrize(
         ("param_name", "param_val"),
@@ -92,7 +92,7 @@ class TestLeaderboardBoundaryConditions:
         self, client_portal: TestClient, param_name: str, param_val: Any
     ) -> None:
         """Every invalid boundary parameter must trigger HTTP 422 Unprocessable Entity."""
-        resp = client_portal.get("/v1/cvi/leaderboard", params={param_name: param_val})
+        resp = client_portal.get("/v1/porchlamp/leaderboard", params={param_name: param_val})
         assert resp.status_code == 422, (
             f"Expected HTTP 422 for {param_name}={param_val!r}, got {resp.status_code}: {resp.text}"
         )
@@ -127,7 +127,7 @@ class TestLeaderboardBoundaryConditions:
         self, client_portal: TestClient, param_name: str, param_val: Any
     ) -> None:
         """Valid boundary values must return HTTP 200 with complete schema."""
-        resp = client_portal.get("/v1/cvi/leaderboard", params={param_name: param_val})
+        resp = client_portal.get("/v1/porchlamp/leaderboard", params={param_name: param_val})
         assert resp.status_code == 200, (
             f"Expected HTTP 200 for {param_name}={param_val!r}, got {resp.status_code}: {resp.text}"
         )
@@ -150,7 +150,7 @@ class TestLeaderboardPaginationStress:
         """Traverse all 20 pages of 50 items and verify exact counts, monotonic ranks, and no duplicates."""
         seen_repo_ids: set[str] = set()
         for page in range(1, 21):
-            resp = client_portal.get("/v1/cvi/leaderboard", params={"page": page, "page_size": 50})
+            resp = client_portal.get("/v1/porchlamp/leaderboard", params={"page": page, "page_size": 50})
             assert resp.status_code == 200
             data = resp.json()
 
@@ -172,7 +172,7 @@ class TestLeaderboardPaginationStress:
 
     def test_maximum_page_size_1000(self, client_portal: TestClient) -> None:
         """Fetch the entire 1,000-repo catalog in a single request."""
-        resp = client_portal.get("/v1/cvi/leaderboard", params={"page": 1, "page_size": 1000})
+        resp = client_portal.get("/v1/porchlamp/leaderboard", params={"page": 1, "page_size": 1000})
         assert resp.status_code == 200
         data = resp.json()
 
@@ -188,7 +188,7 @@ class TestLeaderboardPaginationStress:
     def test_minimum_page_size_1_extremes(self, client_portal: TestClient) -> None:
         """Fetch single items at first, middle, and last page."""
         for target_page in [1, 500, 1000]:
-            resp = client_portal.get("/v1/cvi/leaderboard", params={"page": target_page, "page_size": 1})
+            resp = client_portal.get("/v1/porchlamp/leaderboard", params={"page": target_page, "page_size": 1})
             assert resp.status_code == 200
             data = resp.json()
             assert data["total"] == 1000
@@ -207,7 +207,7 @@ class TestLeaderboardPaginationStress:
             {"page": 1000, "page_size": 10},
         ]
         for params in out_of_bounds_cases:
-            resp = client_portal.get("/v1/cvi/leaderboard", params=params)
+            resp = client_portal.get("/v1/porchlamp/leaderboard", params=params)
             assert resp.status_code == 200
             data = resp.json()
             assert data["total"] == 1000
@@ -218,7 +218,7 @@ class TestLeaderboardPaginationStress:
     def test_deep_offsets_and_overrides(self, client_portal: TestClient) -> None:
         """Verify explicit offset queries and interaction with page."""
         # offset=999, limit=1 -> exactly the 1000th item
-        r_last = client_portal.get("/v1/cvi/leaderboard", params={"offset": 999, "limit": 1})
+        r_last = client_portal.get("/v1/porchlamp/leaderboard", params={"offset": 999, "limit": 1})
         assert r_last.status_code == 200
         d_last = r_last.json()
         assert d_last["total"] == 1000
@@ -226,14 +226,14 @@ class TestLeaderboardPaginationStress:
         assert d_last["items"][0]["rank"] == 1000
 
         # offset=1000, limit=10 -> beyond catalog
-        r_beyond = client_portal.get("/v1/cvi/leaderboard", params={"offset": 1000, "limit": 10})
+        r_beyond = client_portal.get("/v1/porchlamp/leaderboard", params={"offset": 1000, "limit": 10})
         assert r_beyond.status_code == 200
         d_beyond = r_beyond.json()
         assert d_beyond["total"] == 1000
         assert d_beyond["items"] == []
 
         # offset overrides page
-        r_override = client_portal.get("/v1/cvi/leaderboard", params={"page": 1, "offset": 50, "limit": 25})
+        r_override = client_portal.get("/v1/porchlamp/leaderboard", params={"page": 1, "offset": 50, "limit": 25})
         assert r_override.status_code == 200
         d_override = r_override.json()
         assert d_override["page"] == 3  # (50 // 25) + 1 = 3
@@ -253,7 +253,7 @@ class TestLeaderboardFilteringAndPersonaStress:
         self, client_portal: TestClient, eco: Ecosystem
     ) -> None:
         """Verify ecosystem filtering returns exactly matching ecosystem repositories."""
-        resp = client_portal.get("/v1/cvi/leaderboard", params={"ecosystem": eco.value, "page_size": 1000})
+        resp = client_portal.get("/v1/porchlamp/leaderboard", params={"ecosystem": eco.value, "page_size": 1000})
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] >= 100
@@ -262,16 +262,16 @@ class TestLeaderboardFilteringAndPersonaStress:
 
     def test_ecosystem_case_insensitivity(self, client_portal: TestClient) -> None:
         """Verify ecosystem filtering handles mixed case gracefully."""
-        r_lower = client_portal.get("/v1/cvi/leaderboard", params={"ecosystem": "pypi"}).json()
-        r_upper = client_portal.get("/v1/cvi/leaderboard", params={"ecosystem": "PYPI"}).json()
-        r_mixed = client_portal.get("/v1/cvi/leaderboard", params={"ecosystem": "PyPi"}).json()
+        r_lower = client_portal.get("/v1/porchlamp/leaderboard", params={"ecosystem": "pypi"}).json()
+        r_upper = client_portal.get("/v1/porchlamp/leaderboard", params={"ecosystem": "PYPI"}).json()
+        r_mixed = client_portal.get("/v1/porchlamp/leaderboard", params={"ecosystem": "PyPi"}).json()
 
         assert r_lower["total"] == r_upper["total"] == r_mixed["total"]
         assert len(r_lower["items"]) == len(r_upper["items"]) == len(r_mixed["items"])
 
     def test_nonexistent_ecosystem_returns_empty(self, client_portal: TestClient) -> None:
         """Verify querying a nonexistent ecosystem returns total 0 and empty items without error."""
-        resp = client_portal.get("/v1/cvi/leaderboard", params={"ecosystem": "nonexistent_eco_xyz"})
+        resp = client_portal.get("/v1/porchlamp/leaderboard", params={"ecosystem": "nonexistent_eco_xyz"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 0
@@ -300,7 +300,7 @@ class TestLeaderboardFilteringAndPersonaStress:
             "🦀",
         ]
         for term in adversarial_searches:
-            resp = client_portal.get("/v1/cvi/leaderboard", params={"search": term, "page_size": 25})
+            resp = client_portal.get("/v1/porchlamp/leaderboard", params={"search": term, "page_size": 25})
             assert resp.status_code == 200, f"Search failed on term {term!r}: {resp.status_code}"
             data = resp.json()
             assert data["total"] >= 0
@@ -308,34 +308,34 @@ class TestLeaderboardFilteringAndPersonaStress:
 
     def test_persona_reprojection_sorting_and_gating(self, client_portal: TestClient) -> None:
         """Verify persona re-projection sort order and persona-specific hard gating."""
-        # 1. AI_ASSISTED: Proscribed AI repos must be disqualified (cvi=0, Tier D, is_gated=1)
+        # 1. AI_ASSISTED: Proscribed AI repos must be disqualified (porchlamp=0, Tier D, is_gated=1)
         r_ai = client_portal.get(
-            "/v1/cvi/leaderboard", params={"persona": "ai_assisted", "page_size": 1000}
+            "/v1/porchlamp/leaderboard", params={"persona": "ai_assisted", "page_size": 1000}
         )
         assert r_ai.status_code == 200
         ai_items = r_ai.json()["items"]
-        scores = [item["cvi"] for item in ai_items]
+        scores = [item["porchlamp"] for item in ai_items]
         assert scores == sorted(scores, reverse=True)
 
         gentoo = [i for i in ai_items if i["repo_id"] == "gentoo/gentoo"]
         assert len(gentoo) == 1
         assert gentoo[0]["is_gated"] == 1
-        assert gentoo[0]["cvi"] == 0.0
+        assert gentoo[0]["porchlamp"] == 0.0
         assert gentoo[0]["tier"] == "Tier D"
 
         # 2. SENIOR_SYSTEMS: elephant_factor < 3 must be disqualified
         r_sys = client_portal.get(
-            "/v1/cvi/leaderboard", params={"persona": "senior_systems", "page_size": 1000}
+            "/v1/porchlamp/leaderboard", params={"persona": "senior_systems", "page_size": 1000}
         )
         assert r_sys.status_code == 200
         sys_items = r_sys.json()["items"]
-        sys_scores = [item["cvi"] for item in sys_items]
+        sys_scores = [item["porchlamp"] for item in sys_items]
         assert sys_scores == sorted(sys_scores, reverse=True)
 
         for item in sys_items:
             if item["elephant_factor"] < 3:
                 assert item["is_gated"] == 1
-                assert item["cvi"] == 0.0
+                assert item["porchlamp"] == 0.0
                 assert item["tier"] == "Tier D"
 
 
@@ -372,13 +372,13 @@ class TestLeaderboardSLAAndConcurrencyStress:
         ]
 
         # Warmup
-        client_portal.get("/v1/cvi/leaderboard")
+        client_portal.get("/v1/porchlamp/leaderboard")
 
         latencies_ms: list[float] = []
         for i in range(100):
             spec = workloads[i % len(workloads)]
             t0 = time.perf_counter()
-            resp = client_portal.get("/v1/cvi/leaderboard", params=spec)
+            resp = client_portal.get("/v1/porchlamp/leaderboard", params=spec)
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
             assert resp.status_code == 200
             latencies_ms.append(elapsed_ms)
@@ -415,7 +415,7 @@ class TestLeaderboardSLAAndConcurrencyStress:
             for j in range(10):
                 spec = specs[(idx * 10 + j) % len(specs)]
                 t0 = time.perf_counter()
-                r = client_portal.get("/v1/cvi/leaderboard", params=spec)
+                r = client_portal.get("/v1/porchlamp/leaderboard", params=spec)
                 dur = (time.perf_counter() - t0) * 1000.0
                 assert r.status_code == 200
                 worker_latencies.append(dur)
@@ -451,11 +451,11 @@ class TestLeaderboardSLAAndConcurrencyStress:
 
                 latencies: list[float] = []
                 # Warmup
-                client.get("/v1/cvi/leaderboard")
+                client.get("/v1/porchlamp/leaderboard")
 
                 for _ in range(50):
                     t0 = time.perf_counter()
-                    resp = client.get("/v1/cvi/leaderboard", params={"page_size": 50})
+                    resp = client.get("/v1/porchlamp/leaderboard", params={"page_size": 50})
                     elapsed = (time.perf_counter() - t0) * 1000.0
                     assert resp.status_code == 200
                     latencies.append(elapsed)

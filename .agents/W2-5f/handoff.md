@@ -8,20 +8,20 @@ findings W-1..W-4, mutants M10/M12/M13.
 ## Diffstat
 
 ```
-cvi/core/engine.py                    | 163 ++++++++++++++++++++--------
-cvi/core/models.py                    |  46 +++++++-
-cvi/core/params/criticality.py        |  37 ++++---
+porchlamp/core/engine.py                    | 163 ++++++++++++++++++++--------
+porchlamp/core/models.py                    |  46 +++++++-
+porchlamp/core/params/criticality.py        |  37 ++++---
 tests/core/test_engine_v2.py          | 195 ++++++++++++++++++++++++++++++++--
 tests/core/test_params_criticality.py |  26 ++---
 tests/snapshot/test_populations.py    | 102 +++++++++++++++++-
 6 files changed, 480 insertions(+), 89 deletions(-)
 ```
 
-`cvi/core/aggregate.py` and `cvi/core/matrix.py`: no diff (their arithmetic
+`porchlamp/core/aggregate.py` and `porchlamp/core/matrix.py`: no diff (their arithmetic
 was already correct pre-interruption; only untested — see mutants below).
-`cvi/core/normalize.py`, `cvi/snapshot/populations.py` public API,
-`cvi/core/constants_v2.py`, `cvi/core/params/responsiveness.py`,
-`cvi/core/params/curves.py`, `cvi/core/gates.py`: untouched, confirmed by
+`porchlamp/core/normalize.py`, `porchlamp/snapshot/populations.py` public API,
+`porchlamp/core/constants_v2.py`, `porchlamp/core/params/responsiveness.py`,
+`porchlamp/core/params/curves.py`, `porchlamp/core/gates.py`: untouched, confirmed by
 `git diff --stat` against each.
 
 ## 1. Rounding guards (M10/M12/M13)
@@ -77,13 +77,13 @@ POSTRESTORE_EXIT=0
 
 ## 2. Log-space transform deleted (D-NORM-3 amendment)
 
-`cvi/core/params/criticality.py`: `_log_population_score` (queried
+`porchlamp/core/params/criticality.py`: `_log_population_score` (queried
 `ecdf(log10(1+value))`) deleted; `_DEPENDENTS`/`_DOWNLOADS` now use
 `_population_score(value, ecdf) -> ecdf(value)` — the raw measured value,
-matching what `cvi.snapshot.populations.build_populations` freezes. This was
+matching what `porchlamp.snapshot.populations.build_populations` freezes. This was
 not yet done on disk (only the design doc amendment had landed from the
 2026-09-12 lead ruling); the `math` import and both function/curve
-docstrings were removed/updated accordingly. `cvi/core/engine.py`'s module
+docstrings were removed/updated accordingly. `porchlamp/core/engine.py`'s module
 docstring ("Integration finding") rewritten from a live discrepancy report
 to a resolved-history note.
 
@@ -125,9 +125,9 @@ mid-rank arithmetic itself is undisturbed by deleting the transform.
 
 ## 3. `no_population` (W-3)
 
-`cvi/core/engine.py`: the local `PopulationLookup` Protocol gained
+`porchlamp/core/engine.py`: the local `PopulationLookup` Protocol gained
 `population(ecosystem, param) -> object | None` (already public on the real
-`cvi.snapshot.populations.PopulationSet`, not modified). `_score_params` now
+`porchlamp.snapshot.populations.PopulationSet`, not modified). `_score_params` now
 checks population existence before calling `.ecdf(...)`: a `Measured`
 ECDF-kind input with no frozen population for its `(ecosystem, param)`
 returns `ParamScore(score=None, measured=False, reason="no_population",
@@ -136,11 +136,11 @@ n=value.n, method=None)` directly, never reaching `.ecdf()`. An
 `_unused_ecdf`, never consults `.population()` at all — proven by the
 existing eager-fetch regression test).
 
-`cvi/core/models.py`: `"no_population"` added to `Unmeasured.reason`'s
+`porchlamp/core/models.py`: `"no_population"` added to `Unmeasured.reason`'s
 `Literal` (additive, per the packet's explicit scope). Not added to
-`cvi.core.constants_v2.UNMEASURED_REASONS` (out of this packet's owned
+`porchlamp.core.constants_v2.UNMEASURED_REASONS` (out of this packet's owned
 files, and not needed: the engine never constructs a
-`cvi.core.models.Unmeasured(reason="no_population")` — the reason is
+`porchlamp.core.models.Unmeasured(reason="no_population")` — the reason is
 assigned directly to a stage-2 `ParamScore`, whose `reason` field is a plain
 `str | None` with no runtime enum check). Documented as a
 `COULD NOT VERIFY`-adjacent scope note in the `Unmeasured` docstring itself,
@@ -150,7 +150,7 @@ Fail-before (`engine.py` reverted to `a0dd646`, eager `.ecdf()` call):
 ```
 $ pytest tests/core/test_engine_v2.py::test_ecdf_params_missing_population_are_no_population_not_a_crash
 E   LookupError: no population for ecosystem 'pypi', param 'dependents_deduped'
-cvi/snapshot/populations.py:103: LookupError
+porchlamp/snapshot/populations.py:103: LookupError
 1 failed in 0.09s
 FAILBEFORE2_EXIT=1
 ```
@@ -162,7 +162,7 @@ preserved — `n=42` on the one explicitly set to a non-default value).
 
 ## 4. Record contract (W-1)
 
-`cvi/core/models.py`, `ScoreRecord` — six additive fields, all with
+`porchlamp/core/models.py`, `ScoreRecord` — six additive fields, all with
 back-compat defaults so a hand-built fixture in another in-flight packet's
 tests (W2-6/W2-7, unseen by this worktree) does not break:
 - `rated: bool = False`
@@ -172,15 +172,15 @@ tests (W2-6/W2-7, unseen by this worktree) does not break:
 - `friction_coverage: float = 0.0`
 - `provenance_hash: str = ""`
 
-`cvi/core/engine.py`: `gate` is now *always* the unmodified stage-0
+`porchlamp/core/engine.py`: `gate` is now *always* the unmodified stage-0
 `GateResult` from `evaluate_gates` — the previous `final_gate` (which
 overwrote `eligible`/`reason` for the stage-3 unrated case) is deleted.
 `rated`/`unrated_reason` carry the stage-3 outcome instead;
-`unrated_reason` reuses `cvi.core.gates.REASON_INSUFFICIENT_EVIDENCE`
+`unrated_reason` reuses `porchlamp.core.gates.REASON_INSUFFICIENT_EVIDENCE`
 (imported, not re-literaled — one definition per fact). `tier_ceiling` is
 the D-MISS-3 ceiling (`None`/`"B"`/`"A"`); `leverage_coverage`/
 `friction_coverage` copy `Coordinates.leverage_coverage`/
-`friction_coverage` (already present on `cvi/core/matrix.py`'s
+`friction_coverage` (already present on `porchlamp/core/matrix.py`'s
 `Coordinates` from before the interruption, just not copied into the
 record). `score()` gained a `raw_hash: str | None = None` parameter
 (additive — existing 3-positional-arg call sites are unaffected): when
@@ -206,7 +206,7 @@ records, `gate`/`rated`/`unrated_reason` all asserted on each),
 After (1), grepped every `aggregate.py` function for a caller outside its
 own file/tests: `aggregate_pillars`, `composite_coverage`,
 `composite_score_raw`, `composite_score`, `coverage_status`,
-`tier_from_score`, `apply_ceiling` are all called from `cvi/core/engine.py`;
+`tier_from_score`, `apply_ceiling` are all called from `porchlamp/core/engine.py`;
 `_pillar_problems` is called from `aggregate_pillars` in the same file.
 `composite_score` (previously dead per the review's L2-04/W-4 finding) is
 now live. Nothing to delete.
@@ -226,13 +226,13 @@ tests/core + tests/snapshot:
 
 ruff, owned files:
 ```
-$ ruff check cvi/core/engine.py cvi/core/models.py cvi/core/params/criticality.py \
+$ ruff check porchlamp/core/engine.py porchlamp/core/models.py porchlamp/core/params/criticality.py \
     tests/core/test_engine_v2.py tests/core/test_aggregate.py tests/core/test_params_criticality.py \
     tests/snapshot/test_populations.py
 All checks passed!
 exit 0
 ```
-`ruff check cvi/ scripts/ tests/` (repo-wide) reports 4 pre-existing errors,
+`ruff check porchlamp/ scripts/ tests/` (repo-wide) reports 4 pre-existing errors,
 all in `scripts/curate_dataset_llm.py` (unowned, untouched — same 4 errors
 reproduce on `main` at `8760284`, confirmed).
 

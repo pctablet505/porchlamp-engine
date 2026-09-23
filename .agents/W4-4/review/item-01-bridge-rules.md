@@ -6,7 +6,7 @@ real `assign_ranks` ranks and `finalize_snapshot_hash`
 
 | # | Bridge rule | Result | Evidence |
 |---|---|---|---|
-| 1 | persona rows use the `_p` projection in the flat fields | PASS | 64/64 rows: flat `cvi/coverage/tier/tie_group` == `cvi_p/coverage_p/tier_p/tie_group_p`; 61 differ from the balanced value |
+| 1 | persona rows use the `_p` projection in the flat fields | PASS | 64/64 rows: flat `porchlamp/coverage/tier/tie_group` == `porchlamp_p/coverage_p/tier_p/tie_group_p`; 61 differ from the balanced value |
 | 2 | `balanced_rank` + `rank_delta = rank − rank_p` | PASS | 0/64 mismatches vs an independent recomputation; balanced lens leaves both `None`; e.g. `bulk/repo-029 rank=2 balanced_rank=28 rank_delta=26` |
 | 3 | stage-6 gate → UNRATED, `no_external_workflow` | PASS | `unrated_reasons=['no_external_workflow', 'off_platform_routed', 'unrated: insufficient_evidence']`; gated group holds only the 7 universal reasons |
 | 4 | `off_platform_routed` derived from `routed` | PASS | present; mutant RX1 (branch removed) KILLED |

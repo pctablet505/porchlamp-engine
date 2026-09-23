@@ -1,10 +1,10 @@
 """End-to-end ground-truth test matrix (spec 14, docs/ARCHITECTURE.md ~L719-733).
 
-Four ground-truth outcomes pinned through the full ``cvi.engine.score_repository``
+Four ground-truth outcomes pinned through the full ``porchlamp.engine.score_repository``
 pipeline, with the five pillars fixed exactly via the ``pillar_scorers`` DI
 seam so each test is a pure function of pinned values plus the Phase-0 gate:
 
-* ``test_ground_truth_vllm``   - vllm-project/vllm  -> Sweet Spot, CVI = 88.8
+* ``test_ground_truth_vllm``   - vllm-project/vllm  -> Sweet Spot, Porchlamp = 88.8
 * ``test_ground_truth_hub``    - keras-team/keras-hub -> Black Hole (gated),
   plus the spec's pre-gate composite of 46.8 in the Graveyard
 * ``test_ground_truth_linux``  - torvalds/linux     -> Stage-0 off-platform
@@ -27,8 +27,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from cvi.engine import score_repository
-from cvi.models import (
+from porchlamp.engine import score_repository
+from porchlamp.models import (
     AuthorAssociation,
     Ecosystem,
     Persona,
@@ -122,7 +122,7 @@ def pinned_scorers(
 
 
 # --------------------------------------------------------------------------- #
-# 1. vllm-project/vllm -> The Sweet Spot (CVI = 88.8)
+# 1. vllm-project/vllm -> The Sweet Spot (Porchlamp = 88.8)
 # --------------------------------------------------------------------------- #
 # Pinned pillars (resp, crit, gov, rigor, acc): 92.0, 88.0, 90.0, 86.0, 86.0
 #   BALANCED composite = .25*92 + .25*88 + .20*90 + .15*86 + .15*86 = 88.8
@@ -148,7 +148,7 @@ def test_ground_truth_vllm() -> None:
     )
 
     assert result.is_stage0_disqualified is False
-    assert result.overall_cvi == 88.8
+    assert result.overall_porchlamp == 88.8
     assert result.leverage_score == 87.8
     assert result.friction_score == 9.8
     assert result.matrix_quadrant is Quadrant.SWEET_SPOT
@@ -186,7 +186,7 @@ def test_ground_truth_hub() -> None:
     assert gated.is_stage0_disqualified is True
     assert gated.stage0.passed is False
     assert gated.stage0.is_black_hole is True
-    assert gated.overall_cvi == 0.0
+    assert gated.overall_porchlamp == 0.0
     assert gated.rank_tier is Tier.D
     assert gated.matrix_quadrant is Quadrant.GRAVEYARD
     # A hard gate failure short-circuits before any pillar scoring.
@@ -212,7 +212,7 @@ def test_ground_truth_hub() -> None:
     assert pre_gate.is_stage0_disqualified is False
     # 46.8 is the pre-gate composite per spec 14 (what the matrix shows
     # before the Black-Hole gate would zero it on real telemetry).
-    assert pre_gate.overall_cvi == 46.8
+    assert pre_gate.overall_porchlamp == 46.8
     assert pre_gate.leverage_score == 49.6
     assert pre_gate.friction_score == 56.5
     assert pre_gate.matrix_quadrant is Quadrant.GRAVEYARD
@@ -273,7 +273,7 @@ def test_ground_truth_gentoo() -> None:
     assert ai.is_stage0_disqualified is True
     assert ai.stage0.passed is False
     assert ai.stage0.is_ai_ban_disqualified is True
-    assert ai.overall_cvi == 0.0
+    assert ai.overall_porchlamp == 0.0
     assert ai.rank_tier is Tier.D
     assert ai.matrix_quadrant is Quadrant.GRAVEYARD
     assert ai.pillar_scores is None
@@ -291,6 +291,6 @@ def test_ground_truth_gentoo() -> None:
     )
     assert balanced.is_stage0_disqualified is False
     assert balanced.stage0.is_ai_ban_disqualified is False
-    assert balanced.overall_cvi == 75.0
-    assert 70.0 <= balanced.overall_cvi < 80.0
+    assert balanced.overall_porchlamp == 75.0
+    assert 70.0 <= balanced.overall_porchlamp < 80.0
     assert balanced.rank_tier is Tier.A

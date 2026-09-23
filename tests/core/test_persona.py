@@ -1,9 +1,9 @@
-"""Acceptance tests: persona gates and persona composites, ``cvi/core/persona.py``.
+"""Acceptance tests: persona gates and persona composites, ``porchlamp/core/persona.py``.
 
 A gated persona view keeps the balanced score:
 fail-before from real, still-live v1 code rather than a deleted one:
 ``test_v1_lakehouse_mutates_the_gated_row`` reproduces
-``cvi.lakehouse.OperationalStore.leaderboard``'s persona re-projection path
+``porchlamp.lakehouse.OperationalStore.leaderboard``'s persona re-projection path
 (the same scenario ``tests/test_lakehouse.py::test_leaderboard_persona_constraints``
 already covers) and shows it overwrites ``is_stage0_disqualified`` and
 zeroes the score in place;
@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import pytest
 
-from cvi.core import constants
-from cvi.core.models import (
+from porchlamp.core import constants
+from porchlamp.core.models import (
     GateResult,
     Measured,
     ParamValue,
@@ -29,7 +29,7 @@ from cvi.core.models import (
     ScoreRecord,
     Unmeasured,
 )
-from cvi.core.persona import (
+from porchlamp.core.persona import (
     CAREER_CAPITAL_MIN_COVERAGE,
     CAREER_CAPITAL_MIN_CRITICALITY,
     CRITICALITY_PILLAR,
@@ -179,11 +179,11 @@ def test_balanced_preset_is_constants_pillar_weights_not_a_copy() -> None:
 
 def test_non_balanced_presets_match_v1_constants_exactly() -> None:
     """Over-correction guard for the transcription the module docstring
-    explains (cvi.core's import-graph test forbids importing
-    cvi.constants.PERSONA_PRESETS directly): the four non-balanced presets
-    transcribed into cvi/core/persona.py must not silently drift from the
+    explains (porchlamp.core's import-graph test forbids importing
+    porchlamp.constants.PERSONA_PRESETS directly): the four non-balanced presets
+    transcribed into porchlamp/core/persona.py must not silently drift from the
     v1 source of truth."""
-    from cvi.constants import PERSONA_PRESETS as V1_PRESETS
+    from porchlamp.constants import PERSONA_PRESETS as V1_PRESETS
 
     for persona in (PERSONA_FIRST_TIMER, PERSONA_CAREER_CAPITAL, PERSONA_SENIOR_SYSTEMS, PERSONA_AI_ASSISTED):
         assert PERSONA_PRESETS[persona] == V1_PRESETS[persona], persona
@@ -410,7 +410,7 @@ def test_career_capital_gated_when_criticality_unmeasured() -> None:
 
 
 def test_career_capital_gated_when_criticality_pillar_missing() -> None:
-    """A gate-ineligible record's ``pillars`` is ``{}`` (``cvi.core.engine``'s
+    """A gate-ineligible record's ``pillars`` is ``{}`` (``porchlamp.core.engine``'s
     ``_bare_record``); the gate must not raise ``KeyError``, and D-PERS-3
     treats a wholly missing pillar the same as an unmeasured one."""
     record = _record({})
@@ -433,7 +433,7 @@ def test_persona_gates_no_entry_when_fully_qualifying() -> None:
 
 # --------------------------------------------------------------------------- #
 # D-PERS-1 separation: a gated persona view keeps the balanced score.
-# Fail-before: v1's cvi.lakehouse overwrote the row in place.
+# Fail-before: v1's porchlamp.lakehouse overwrote the row in place.
 # --------------------------------------------------------------------------- #
 def test_v1_lakehouse_mutates_the_gated_row() -> None:
     """Fail-before evidence: the still-live v1 defect this packet does not
@@ -444,17 +444,17 @@ def test_v1_lakehouse_mutates_the_gated_row() -> None:
     returned row* -- there is no way for a caller of
     ``OperationalStore.leaderboard`` to recover the balanced score from a
     gated row under that persona."""
-    from cvi.lakehouse import apply_raw_metrics
-    from cvi.lakehouse import OperationalStore
-    from cvi.models import AIPosture, CVICompositeResult, Ecosystem, PillarScores, Quadrant, Tier
+    from porchlamp.lakehouse import apply_raw_metrics
+    from porchlamp.lakehouse import OperationalStore
+    from porchlamp.models import AIPosture, PorchlampCompositeResult, Ecosystem, PillarScores, Quadrant, Tier
 
     store = OperationalStore(":memory:")
     store.upsert_composite(
-        CVICompositeResult(
+        PorchlampCompositeResult(
             owner="o1",
             name="gentoo",
             ecosystem=Ecosystem.PYPI,
-            overall_cvi=80.0,
+            overall_porchlamp=80.0,
             rank_tier=Tier.B,
             matrix_quadrant=Quadrant.SWEET_SPOT,
             leverage_score=60.0,
@@ -470,7 +470,7 @@ def test_v1_lakehouse_mutates_the_gated_row() -> None:
     rows, _ = store.leaderboard(persona="ai_assisted")
     gentoo_row = next(r for r in rows if r["name"] == "gentoo")
     assert gentoo_row["is_stage0_disqualified"] == 1
-    assert gentoo_row["overall_cvi"] == 0.0
+    assert gentoo_row["overall_porchlamp"] == 0.0
     assert gentoo_row["rank_tier"] == "Tier D"
 
 
@@ -499,7 +499,7 @@ def test_persona_gates_and_composite_do_not_mutate_record() -> None:
     assert gates[PERSONA_AI_ASSISTED] == REASON_AI_HARD_BAN
 
     projected = persona_composite(record, PERSONA_AI_ASSISTED)
-    assert (projected.cvi, projected.coverage, projected.tier) != (record.composite, record.coverage, record.tier)
+    assert (projected.porchlamp, projected.coverage, projected.tier) != (record.composite, record.coverage, record.tier)
 
     # The balanced record itself is untouched by either call.
     assert record.composite == 70.3
@@ -564,7 +564,7 @@ def test_persona_composite_arithmetic_every_preset(persona: str) -> None:
     result = persona_composite(_HAND_RECORD, persona)
     assert isinstance(result, PersonaComposite)
     expected_composite, expected_coverage, expected_tier = _EXPECTED_BY_PERSONA[persona]
-    assert result.cvi == pytest.approx(expected_composite)
+    assert result.porchlamp == pytest.approx(expected_composite)
     assert result.coverage == pytest.approx(expected_coverage)
     assert result.tier == expected_tier
     assert result.rated is True  # every preset here has coverage 1.0 >= 0.60
@@ -573,8 +573,8 @@ def test_persona_composite_arithmetic_every_preset(persona: str) -> None:
 def test_persona_composite_equals_aggregate_functions_when_balanced() -> None:
     """Over-correction guard: the generalised reduction is not a second,
     drifting definition of the balanced arithmetic -- it must agree with
-    ``cvi.core.aggregate`` bit for bit when the weights are balanced."""
-    from cvi.core import aggregate
+    ``porchlamp.core.aggregate`` bit for bit when the weights are balanced."""
+    from porchlamp.core import aggregate
 
     for pillars in (
         _HAND_PILLARS,
@@ -590,7 +590,7 @@ def test_persona_composite_equals_aggregate_functions_when_balanced() -> None:
         expected_coverage = aggregate.composite_coverage(pillars)
         rated, ceiling = aggregate.coverage_status(expected_coverage)
         expected_raw = aggregate.composite_score_raw(pillars)
-        # Mirrors cvi.core.engine.score's own "not rated -> no composite, no
+        # Mirrors porchlamp.core.engine.score's own "not rated -> no composite, no
         # tier" branch (_bare_record): aggregate.composite_score itself has
         # no notion of the D-EVID-1 rated gate, so the *caller* -- here and
         # in the engine -- withholds the value below the coverage threshold.
@@ -600,7 +600,7 @@ def test_persona_composite_equals_aggregate_functions_when_balanced() -> None:
         )
 
         result = persona_composite(record, PERSONA_BALANCED)
-        assert result.cvi == expected_composite
+        assert result.porchlamp == expected_composite
         assert result.coverage == expected_coverage
         assert result.tier == expected_tier
         assert result.rated is rated
@@ -612,7 +612,7 @@ def test_persona_composite_matches_the_inline_formula_bit_for_bit() -> None:
     bit for bit across random pillar vectors and persona presets."""
     import random
 
-    from cvi.core import aggregate
+    from porchlamp.core import aggregate
 
     rng = random.Random(20260911)  # arbitrary fixed seed, reproducible
 
@@ -656,11 +656,11 @@ def test_persona_composite_matches_the_inline_formula_bit_for_bit() -> None:
             )
             old_rated, old_ceiling = aggregate.coverage_status(old_coverage)
             if not old_rated or old_composite_raw is None:
-                expected = PersonaComposite(cvi=None, coverage=old_coverage, tier=None, rated=False)
+                expected = PersonaComposite(porchlamp=None, coverage=old_coverage, tier=None, rated=False)
             else:
                 old_composite = round(old_composite_raw, 2)
                 old_tier = aggregate.apply_ceiling(aggregate.tier_from_score(old_composite_raw), old_ceiling)
-                expected = PersonaComposite(cvi=old_composite, coverage=old_coverage, tier=old_tier, rated=True)
+                expected = PersonaComposite(porchlamp=old_composite, coverage=old_coverage, tier=old_tier, rated=True)
 
             result = persona_composite(record, persona)
             assert result == expected, (persona, pillars)
@@ -696,9 +696,9 @@ def test_coverage_under_a_persona_differs_from_balanced_coverage() -> None:
     assert ai.coverage == pytest.approx(0.90)
     assert balanced.coverage != ai.coverage
 
-    assert balanced.cvi == pytest.approx(66.82)
-    assert ai.cvi == pytest.approx(63.0)
-    assert balanced.cvi != ai.cvi
+    assert balanced.porchlamp == pytest.approx(66.82)
+    assert ai.porchlamp == pytest.approx(63.0)
+    assert balanced.porchlamp != ai.porchlamp
 
     assert balanced.tier == "B"
     assert ai.tier == "B"
@@ -708,7 +708,7 @@ def test_coverage_under_a_persona_differs_from_balanced_coverage() -> None:
 
 def test_persona_composite_unrated_below_evidence_threshold() -> None:
     """Coverage below 0.60 (D-EVID-1): no composite, no tier, under any
-    persona -- mirrors ``cvi.core.engine.score``'s unrated shape."""
+    persona -- mirrors ``porchlamp.core.engine.score``'s unrated shape."""
     pillars = {
         "responsiveness": _pillar(None, 0.0),
         "criticality": _pillar(None, 0.0),
@@ -719,7 +719,7 @@ def test_persona_composite_unrated_below_evidence_threshold() -> None:
     record = _record(pillars)
     result = persona_composite(record, PERSONA_BALANCED)
     assert result.coverage == pytest.approx(0.20)
-    assert result.cvi is None
+    assert result.porchlamp is None
     assert result.tier is None
     assert result.rated is False
 
@@ -729,7 +729,7 @@ def test_persona_composite_none_when_every_pillar_unmeasured() -> None:
     record = _record(pillars)
     result = persona_composite(record, PERSONA_BALANCED)
     assert result.coverage == pytest.approx(0.0)
-    assert result.cvi is None
+    assert result.porchlamp is None
     assert result.tier is None
     assert result.rated is False
 
@@ -752,14 +752,14 @@ def test_persona_composite_raises_when_pillars_incomplete() -> None:
 def test_persona_composite_tier_uses_unrounded_composite_not_rounded() -> None:
     """Tier-cutoff comparisons use the *unrounded* composite, never the
     rounded display value. All five pillars at 69.996 round to a displayed
-    ``cvi`` of 70.0, but 69.996 is still below 70.0, so the tier must stay 'B'
+    ``porchlamp`` of 70.0, but 69.996 is still below 70.0, so the tier must stay 'B'
     (55 <= x < 70), not jump to 'A'."""
     pillars = _all_measured_pillars(
         responsiveness=69.996, criticality=69.996, governance=69.996, rigor=69.996, accessibility=69.996
     )
     record = _record(pillars)
     result = persona_composite(record, PERSONA_BALANCED)
-    assert result.cvi == pytest.approx(70.0)
+    assert result.porchlamp == pytest.approx(70.0)
     assert result.coverage == pytest.approx(1.0)
     assert result.tier == "B"
     assert result.rated is True
@@ -779,7 +779,7 @@ def test_persona_composite_applies_binding_ceiling_not_just_tier_by_score() -> N
     record = _record(pillars)
     result = persona_composite(record, PERSONA_FIRST_TIMER)
     assert result.coverage == pytest.approx(0.70)
-    assert result.cvi == pytest.approx(79.86)
+    assert result.porchlamp == pytest.approx(79.86)
     assert result.tier == "B"
     assert result.rated is True
 

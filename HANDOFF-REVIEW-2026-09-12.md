@@ -1,4 +1,4 @@
-# CVI — Comprehensive Handoff for External Review
+# Porchlamp — Comprehensive Handoff for External Review
 **Date:** 2026-09-12 · **Repo:** `/home/pctablet505/Projects/contributor-value-index` · **HEAD:** `3691421` (pushed to `origin/main`) · **Python:** 3.12 (`.venv`) · **Tests:** 853 test functions / 45 files, full suite exit=0
 
 **Purpose of this document:** a self-contained brief for a reviewing model that will (a) audit the design and implementation, (b) assign ~3 months of follow-on work, and (c) answer open questions where owner sign-off is required. Every claim below is tagged **[VERIFIED]** (reproducible evidence exists) or **[CLAIMED]** (asserted but not independently proven).
@@ -7,7 +7,7 @@
 
 ## 1. Problem Statement
 
-Rank open-source repositories by **contributor value** — how good a repo is *as a place to contribute* — not by popularity. The original codebase shipped with ~900 fabricated benchmark repos (`cvi/benchmark_data.py`: hand-typed tuples with pillar scores pinned backwards to force desired quadrants/tiers). The redo mandate:
+Rank open-source repositories by **contributor value** — how good a repo is *as a place to contribute* — not by popularity. The original codebase shipped with ~900 fabricated benchmark repos (`porchlamp/benchmark_data.py`: hand-typed tuples with pillar scores pinned backwards to force desired quadrants/tiers). The redo mandate:
 
 1. Build a **criteria-based universe** (top-N per criterion/ecosystem → union, 1k–10k repos).
 2. Gather data from **independent sources**, cross-verify, and enforce: **only verified data enters SQLite**.
@@ -19,16 +19,16 @@ Rank open-source repositories by **contributor value** — how good a repo is *a
 ```
 Candidate → Phase 0 EBA gates → Phase 1 bot-strip/StarScout → Phase 2 within-ecosystem ECDF
 → Phase 3 five-pillar WAM → Phase 4 2D matrix (leverage × friction) → Phase 5 persona projection
-→ CVI 0-100, Tier A-D, Quadrant {Sweet Spot, Crucible, Graveyard, Nursery}
+→ Porchlamp 0-100, Tier A-D, Quadrant {Sweet Spot, Crucible, Graveyard, Nursery}
 ```
 
-**Phase 0 gates** (`cvi/stage0.py`, order 1→2→4→4b→3, first failure wins) **[VERIFIED]**:
+**Phase 0 gates** (`porchlamp/stage0.py`, order 1→2→4→4b→3, first failure wins) **[VERIFIED]**:
 - G1 maintenance: ≥1 non-bot commit in trailing 180d.
 - G2 black hole: 14-day external-PR ghost rate ≤ 0.50.
 - G4 persona: hard AI ban vs AI-assisted persona; G4b senior_systems requires elephant_factor ≥ 3.
 - G3 off-platform reviews: *routing*, not disqualification.
 
-**Pillar weights** (`cvi/constants.py`, all transcribed from spec): responsiveness .25, criticality .25, governance .20, rigor .15, accessibility .15. Within-pillar params, matrix weights (leverage = .50 crit + .30 rigor + .20 gov; friction = .50 resp + .30 gov + .20 access), tier cutoffs, StarScout thresholds, and `BOT_LOGIN_MARKERS` all live in the same file.
+**Pillar weights** (`porchlamp/constants.py`, all transcribed from spec): responsiveness .25, criticality .25, governance .20, rigor .15, accessibility .15. Within-pillar params, matrix weights (leverage = .50 crit + .30 rigor + .20 gov; friction = .50 resp + .30 gov + .20 access), tier cutoffs, StarScout thresholds, and `BOT_LOGIN_MARKERS` all live in the same file.
 
 ### 2.2 Data plane (the redo)
 ```
@@ -50,8 +50,8 @@ Sources: GitHub REST via `gh` CLI (5k/hr), deps.dev + securityscorecards.dev (ke
 - `clean = not gating_flags`.
 
 ### 2.4 Serving plane
-- `cvi/api.py`: FastAPI, all endpoints `async def`, single shared `OperationalStore` on `app.state`. Endpoints: `/healthz`, `/v1/cvi/matrix` (nodes + quadrant_counts), `/v1/cvi/leaderboard` (page/page_size/offset, ecosystem, persona re-projection, search), `/v1/cvi/repos/{o}/{n}` (row + pillar_scores + optional nested `deep_dive` from `deep_dive_json`), `POST /v1/cvi/reproject` (custom weights, validated 422 before store touch).
-- `cvi/lakehouse.py`: `OperationalStore` (SQLite, 26 spec columns + additive `deep_dive_json` via idempotent `ensure_deep_dive_column`). Leaderboard selects explicit `_COLUMNS` (never the blob); persona re-projection recomputes CVI/tier/gating in Python over all matching rows.
+- `porchlamp/api.py`: FastAPI, all endpoints `async def`, single shared `OperationalStore` on `app.state`. Endpoints: `/healthz`, `/v1/porchlamp/matrix` (nodes + quadrant_counts), `/v1/porchlamp/leaderboard` (page/page_size/offset, ecosystem, persona re-projection, search), `/v1/porchlamp/repos/{o}/{n}` (row + pillar_scores + optional nested `deep_dive` from `deep_dive_json`), `POST /v1/porchlamp/reproject` (custom weights, validated 422 before store touch).
+- `porchlamp/lakehouse.py`: `OperationalStore` (SQLite, 26 spec columns + additive `deep_dive_json` via idempotent `ensure_deep_dive_column`). Leaderboard selects explicit `_COLUMNS` (never the blob); persona re-projection recomputes Porchlamp/tier/gating in Python over all matching rows.
 - `web/index.html`: single-file UI (dual theme, matrix scatter, leaderboard, deep-dive panels incl. survival curve + maintainer playbook, comparator).
 
 ## 3. Implementation Status
@@ -60,8 +60,8 @@ Sources: GitHub REST via `gh` CLI (5k/hr), deps.dev + securityscorecards.dev (ke
 |---|---|---|
 | Universe build | ✅ DONE | 5,753 candidates; checkpointed; `.git`-suffix bug fixed |
 | gather/derive/verify/promote | ✅ DONE | e2e smoke on real repos; promote 3,170 repos to temp DB |
-| Scoring engine | ✅ DONE | discriminates on real data: CVI stdev 31.9, median 56.8; tiers A396/B1278/C206/D1290; quadrants Sweet1681/Grave1298/Cruc166/Nurs25 **[VERIFIED on 3,170 real repos]** |
-| Deep-dive payloads | ✅ DONE | 3,170 scanned: 0 anomalies (monotonic survival curves, potential_cvi ≤ 100, no NaN) **[VERIFIED]** |
+| Scoring engine | ✅ DONE | discriminates on real data: Porchlamp stdev 31.9, median 56.8; tiers A396/B1278/C206/D1290; quadrants Sweet1681/Grave1298/Cruc166/Nurs25 **[VERIFIED on 3,170 real repos]** |
+| Deep-dive payloads | ✅ DONE | 3,170 scanned: 0 anomalies (monotonic survival curves, potential_porchlamp ≤ 100, no NaN) **[VERIFIED]** |
 | API + UI on real data | ✅ DONE | live curl round-trip incl. reproject (esphome rank 22→2 under responsiveness weighting) **[VERIFIED]** |
 | Test suite | ✅ 853 tests, exit=0 **[VERIFIED]** | one wall-clock SLA test flaked under load; since recalibrated by parallel agent (`fae92cd`) |
 | **Full-universe sweep** | 🔄 IN FLIGHT | 3,658/5,753 derived (~20/min, ETA ~100 min at time of writing); checkpointed |
@@ -78,10 +78,10 @@ Sources: GitHub REST via `gh` CLI (5k/hr), deps.dev + securityscorecards.dev (ke
 **[VERIFIED]** — everything in §3 tables marked so; plus: all 9 of this session's fixes have fail-before regression tests (each confirmed to fail with the fix reverted); ECDF inclusivity/empty/monotonicity locked by `tests/test_normalize.py`; promote→serve→UI round-trip on 3,170 real repos; all API endpoints `async def` (shared sqlite conn never leaves the event-loop thread).
 
 **[CLAIMED]** — needs external scrutiny:
-1. **StarScout anti-gaming** (`cvi/starscout.py`, 56 lines): implemented per spec but **never exercised on real burst-farming data**; thresholds (500-star burst, 100× fork ratio) are spec-transcribed, not calibrated.
+1. **StarScout anti-gaming** (`porchlamp/starscout.py`, 56 lines): implemented per spec but **never exercised on real burst-farming data**; thresholds (500-star burst, 100× fork ratio) are spec-transcribed, not calibrated.
 2. **Persona re-projection correctness** for non-balanced personas: unit-tested, but persona *semantics* diverge from Stage-0 (see Q3).
 3. **Kaplan-Meier survival curve** implementation: deterministic + shape-tested; not validated against a reference KM implementation.
-4. **Playbook ROI deltas** (linear additivity of per-action `delta_cvi`): plausible heuristic, not a model; interactions between actions ignored.
+4. **Playbook ROI deltas** (linear additivity of per-action `delta_porchlamp`): plausible heuristic, not a model; interactions between actions ignored.
 5. **ECDF populations from the verified universe itself**: self-referential (percentile within the scored set). Fine for ranking, but "top 5% of repos" claims are universe-relative — the universe is top-starred repos only, so cross-ecosystem comparisons inherit selection bias.
 6. **`deep_dive_json` staleness**: materialized at promote time; no invalidation if raw data changes later.
 7. **SLA numbers** (p50<25ms etc.): machine-specific, single box, no warm-up protocol.
@@ -100,9 +100,9 @@ Sources: GitHub REST via `gh` CLI (5k/hr), deps.dev + securityscorecards.dev (ke
 
 ## 6. Refactoring Guidance (where this codebase will hurt in 6 months)
 
-1. **`cvi/lakehouse.py` (622 lines) is a god-module**: schema + writes + queries + persona re-projection + seeding + deep-dive storage. Split into `schema.py` / `writer.py` / `query.py` (or adopt a thin repository-pattern layer). The persona re-projection currently loads *all* matching rows into Python — fine at 3k, wrong at 100k; design the SQL/window-function path now.
-2. **Two parallel ingestion stacks**: `cvi/ingest.py` (669 lines, the original fetcher, never run in the redo) vs `scripts/gather.py` (the one actually used). Pick one; delete or absorb the other. Same for `scripts/demo_app.py` (synthetic seeding) vs `scripts/serve.py` (production) — demo_app is now a fixture generator, rename or fold into tests.
-3. **Scripts-as-modules**: `verify.py`/`promote.py`/`build_universe.py` are loaded via `importlib.util.spec_from_file_location` in tests. Promote them to a real `cvi.pipeline` package (or `cvi/data/`) with proper imports; the current pattern hides circular-import risk and breaks static analysis.
+1. **`porchlamp/lakehouse.py` (622 lines) is a god-module**: schema + writes + queries + persona re-projection + seeding + deep-dive storage. Split into `schema.py` / `writer.py` / `query.py` (or adopt a thin repository-pattern layer). The persona re-projection currently loads *all* matching rows into Python — fine at 3k, wrong at 100k; design the SQL/window-function path now.
+2. **Two parallel ingestion stacks**: `porchlamp/ingest.py` (669 lines, the original fetcher, never run in the redo) vs `scripts/gather.py` (the one actually used). Pick one; delete or absorb the other. Same for `scripts/demo_app.py` (synthetic seeding) vs `scripts/serve.py` (production) — demo_app is now a fixture generator, rename or fold into tests.
+3. **Scripts-as-modules**: `verify.py`/`promote.py`/`build_universe.py` are loaded via `importlib.util.spec_from_file_location` in tests. Promote them to a real `porchlamp.pipeline` package (or `porchlamp/data/`) with proper imports; the current pattern hides circular-import risk and breaks static analysis.
 4. **Bundle schema is implicit dicts** (`meta`/`pr_events`/`confidence`/`provenance`). Define pydantic/dataclass models with versions (`schema_version` field) and validate at load; today a derive-bug that drops a key fails late or silently defaults.
 5. **`web/index.html` is a ~3.3k-line single file** (UI + styles + logic). If the UI grows further, extract to modules (no framework needed) and add DOM-level tests; `tests/test_webapp.py` currently string-matches HTML.
 6. **Config drift**: `BENCHMARK_NOW` duplicated in `playbook.py`/`benchmark_data.py`; `0.50` black-hole threshold hard-coded in playbook instead of importing `GHOST_RATE_GATE`; `_ghost_rate_14` imported cross-module as a private. Centralize.
@@ -127,7 +127,7 @@ Sources: GitHub REST via `gh` CLI (5k/hr), deps.dev + securityscorecards.dev (ke
 4. **Is the 40.7% Stage-0 disqualification rate a *finding to publish* or a *problem to fix*?** (i.e., does the product surface black holes prominently, or should the default view exclude them?)
 5. **Universe scope**: freeze at 5,753 top-repos, or expand toward the original 1k–10k criteria union including non-top repos? What criteria would the reviewer add?
 6. **Ground truth**: the original spec had pinned anchors (e.g. `torvalds/linux` → gated). What *computed* anchors should exist now? (Suggest: linux→gated, kubernetes→Tier A, a known-black-hole→Tier D, hashbrown→Tier A.) Which repos would the reviewer nominate as validation fixtures?
-7. **Validation of the index itself**: CVI has no outcome label. Candidate proxies: contributor-retention (RR_90 is internal), future star growth, PR-merge-rate for *new* contributors. Which would the reviewer design as the 3-month validation experiment?
+7. **Validation of the index itself**: Porchlamp has no outcome label. Candidate proxies: contributor-retention (RR_90 is internal), future star growth, PR-merge-rate for *new* contributors. Which would the reviewer design as the 3-month validation experiment?
 8. **Scale target**: is 10k repos the ceiling, or should the architecture target 100k+ (decides the SQL re-projection refactor priority)?
 9. **Deep-dive freshness**: promote-time snapshot vs on-demand rebuild vs TTL — which serving model?
 10. **What is the ship definition?** (public URL? paper? dataset release?) — determines whether SLA/UX or data-quality work dominates the 3 months.
@@ -145,7 +145,7 @@ cd /home/pctablet505/Projects/contributor-value-index
 # tests (canonical; result line can hide under warnings — redirect and check exit):
 env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/ -n auto -p no:cacheprovider -q
 # lint gate:
-.venv/bin/ruff check cvi/ scripts/ tests/
+.venv/bin/ruff check porchlamp/ scripts/ tests/
 # sweep progress:
 ls data/derived | wc -l        # of 5,753;  tail -1 /tmp/sweep.log
 # after sweep: re-verify + promote (new code applies advisory/asymmetric fixes + deep-dive):

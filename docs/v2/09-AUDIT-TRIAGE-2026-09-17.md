@@ -26,10 +26,10 @@ current tree before scheduling any work, reading the cited code myself:
 Also confirmed: `D-01` (the coverage denominator uses the full weight sum while
 `aggregate.py` drops a `not_applicable` pillar from both sides), `G2`
 (`axis_coverage={}` hardcoded), `G3` (`excluded_count` incremented on top of the
-store's own), `A-01`/`A-02` (`cvi/pillars/governance.py` documents
+store's own), `A-01`/`A-02` (`porchlamp/pillars/governance.py` documents
 `CORP_CLA_RECIPROCAL`/`CORP_CLA_UNILATERAL` while `constants.py` knows only
 `CORP_CLA`), and `B9` — which I had already found independently while writing
-`08`: `cvi/collect/ratelimit.py` has no importer outside its own tests.
+`08`: `porchlamp/collect/ratelimit.py` has no importer outside its own tests.
 
 **The audit also corrected me.** Finding `B6` showed `08-SUSTAINABLE-COLLECTION.md`
 §1 understated governance: it spends **two** REST calls (`statuses` +
@@ -67,12 +67,12 @@ Briefs at `~/Projects/cvi-scratch/audit-fix-2026-09-17/briefs/`, reports at
 
 | Branch | Findings | Files owned |
 | --- | --- | --- |
-| `AUD-B1B2` | `B1`, `B2` (+ closes the cause of `C-02`) | `cvi/collect/envelope.py`, `scripts/gather.py` |
+| `AUD-B1B2` | `B1`, `B2` (+ closes the cause of `C-02`) | `porchlamp/collect/envelope.py`, `scripts/gather.py` |
 | `AUD-WEB` | `H1`, `H3`, `H6` | `web/v2/{copy.js,views/drawer.js,components/badge.js,styles/components.css}` |
-| `AUD-GATE` | `H2`, `H4`, `G12`, `G13`, `F-02` | `.github/workflows/ci.yml`, `tests/test_ui_{node_suite,js_integrity}.py`, `cvi/audit/sensitivity.py` |
-| `AUD-SERVE` | `G1`, `G4`, `G3`, `G2` | `cvi/serve/{app.py,contract.py}` |
-| `AUD-REPROJECT` | `D-01`, `D-03` | `cvi/store/queries.py` |
-| `AUD-SNAPHASH` | `E-01`, `E-02` | `cvi/snapshot/{build_cmd.py,manifest.py}` |
+| `AUD-GATE` | `H2`, `H4`, `G12`, `G13`, `F-02` | `.github/workflows/ci.yml`, `tests/test_ui_{node_suite,js_integrity}.py`, `porchlamp/audit/sensitivity.py` |
+| `AUD-SERVE` | `G1`, `G4`, `G3`, `G2` | `porchlamp/serve/{app.py,contract.py}` |
+| `AUD-REPROJECT` | `D-01`, `D-03` | `porchlamp/store/queries.py` |
+| `AUD-SNAPHASH` | `E-01`, `E-02` | `porchlamp/snapshot/{build_cmd.py,manifest.py}` |
 
 Batch-1 rules given to every agent: own only the listed files; write the
 failing test first and paste its real failure; never weaken an assertion or add
@@ -85,7 +85,7 @@ While verifying `A-01` I ran a census of all 18 v2 inputs against the live
 corpus. **10 of 18 are never measured on real data**, and the largest
 recoverable cause is a single collector that has never run.
 
-Census over 120 real bundles loaded through `cvi.derive.bundle.load_bundle`
+Census over 120 real bundles loaded through `porchlamp.derive.bundle.load_bundle`
 at `cd8df60`:
 
 | input | weight | measured | dominant unmeasured reason |
@@ -107,7 +107,7 @@ at `cd8df60`:
 
 The three `0 %` rows that are cheapest to fix — `legal_ip`, `promotion_ladder`,
 `ai_posture` — all come from one function,
-`cvi.collect.governance.derive_governance_fields`, which returns `"missing"`
+`porchlamp.collect.governance.derive_governance_fields`, which returns `"missing"`
 for every one of them when the `governance` envelope is absent. It is absent
 for the whole universe: `ls data/raw/governance | wc -l` is **0**.
 
@@ -131,7 +131,7 @@ per repo rather than ~45.
 
 **And a correction.** My first write-up of this — published in
 `RFC-0005` at `cd8df60` — said the cause was a key name: that
-`cvi/derive/bundle.py` read a bare `legal_ip` while `scripts/derive.py` wrote
+`porchlamp/derive/bundle.py` read a bare `legal_ip` while `scripts/derive.py` wrote
 only `legal_ip_model`. That mechanism was wrong, and I published it before
 finishing the trace. `scripts/derive.py:617-634` does write the bare `legal_ip`
 under the correct v2 name. The measurements were right; the explanation was
@@ -243,7 +243,7 @@ Both were found only because the gate was switched on. That is the argument for
 `AUD-STOREWAL` enabled WAL and `busy_timeout` as instructed, then reported that
 the instructed suite was **not** green: 27 failures and 38 errors, every one the
 same exception, `no such table: params`, from
-`cvi/store/writer.py::snapshot_dump_hash`. That function copies the database
+`porchlamp/store/writer.py::snapshot_dump_hash`. That function copies the database
 with `shutil.copyfile` — the main `.db` file only. In rollback-journal mode all
 committed data is in that file; in WAL mode committed-but-un-checkpointed data
 lives in the `-wal` sidecar, so the copy has no tables at all.
@@ -258,7 +258,7 @@ than force the suite green.** Queued as the next packet.
 ### `D-01` is pinned rather than fixed, deliberately
 
 `reproject`'s coverage denominator uses the full weight sum while
-`cvi.core.aggregate` drops a `not_applicable` pillar from both sides (D-MISS-5),
+`porchlamp.core.aggregate` drops a `not_applicable` pillar from both sides (D-MISS-5),
 so one inapplicable pillar moves a repo from coverage 1.0/tier S+ to 0.8/tier A
 on the custom-weights endpoint — and since coverage gates rating, it can vanish
 from that leaderboard. It cannot be fixed in SQL today: `repositories` has no
@@ -283,7 +283,7 @@ The hash does not move, verified three ways rather than claimed:
    real regression guard and not a value recorded after the change.
 2. `canonical_dump_hash` hashes `canonical_dump`'s table CONTENT, not file
    bytes, so WAL's byte-level churn cannot reach it. Read, not assumed.
-3. End to end: `python -m cvi.snapshot store tests/fixtures/snapshot_50`
+3. End to end: `python -m porchlamp.snapshot store tests/fixtures/snapshot_50`
    against a fresh database now reports
    `snapshot_dump_hash 43484221eac344668f3ed4e2f27fc3c23621d21c5065c423c4c09cd459f433f0`
    — the same value this fixture produced before either change, with
@@ -337,6 +337,6 @@ window rather than losing that coverage.
 The three p95 timing tests fail while this is written. That is host load from
 **another project** — AlgoTrading's pytest at 213 % and 186 % CPU on a 32-core
 box, load average 90.5 — not a regression: this change touches only
-`cvi/collect/governance.py`, while those tests import
-`cvi.core.params.governance` and `cvi.pillars.governance`, different modules
+`porchlamp/collect/governance.py`, while those tests import
+`porchlamp.core.params.governance` and `porchlamp.pillars.governance`, different modules
 entirely.

@@ -1,20 +1,20 @@
 """Acceptance tests for the extended methodology document
-(``cvi.audit.methodology_history``) -- the caller that crosses the
-``cvi.core`` import boundary to add detectors, process constants and the
-RFC changelog to ``cvi.core.methodology.methodology_document``.
+(``porchlamp.audit.methodology_history``) -- the caller that crosses the
+``porchlamp.core`` import boundary to add detectors, process constants and the
+RFC changelog to ``porchlamp.core.methodology.methodology_document``.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from cvi.audit import anchors, sensitivity
-from cvi.audit.methodology_history import (
+from porchlamp.audit import anchors, sensitivity
+from porchlamp.audit.methodology_history import (
     methodology_with_history,
     parse_changelog,
 )
-from cvi.core.methodology import methodology_document
-from cvi.verify import detectors
+from porchlamp.core.methodology import methodology_document
+from porchlamp.verify import detectors
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CHANGELOG = REPO_ROOT / "docs" / "v2" / "rfcs" / "CHANGELOG.md"
@@ -56,7 +56,7 @@ def test_not_hashed_process_constants_reads_the_three_named_values() -> None:
     by_name = {row["name"]: row for row in extended["not_hashed_process_constants"]}
     assert set(by_name) == {"MIN_COVERAGE", "TAU_RELEASE_THRESHOLD", "DEFAULT_PERTURBATION_PP"}
     assert by_name["MIN_COVERAGE"]["value"] == anchors.MIN_COVERAGE
-    assert by_name["MIN_COVERAGE"]["module"] == "cvi.audit.anchors"
+    assert by_name["MIN_COVERAGE"]["module"] == "porchlamp.audit.anchors"
     assert by_name["TAU_RELEASE_THRESHOLD"]["value"] == sensitivity.TAU_RELEASE_THRESHOLD
     assert by_name["DEFAULT_PERTURBATION_PP"]["value"] == sensitivity.DEFAULT_PERTURBATION_PP
     for row in extended["not_hashed_process_constants"]:
@@ -68,7 +68,7 @@ def test_not_hashed_process_constants_are_absent_from_constants_dict() -> None:
     scoring inputs (`docs/v2/rfcs/README.md` "Process constants"): confirm
     none of their names collides with a real ``constants_dict()`` key,
     which would mean this packet mis-scoped one of them."""
-    from cvi.core import constants
+    from porchlamp.core import constants
 
     names = {
         row["name"] for row in methodology_with_history(CHANGELOG)["not_hashed_process_constants"]

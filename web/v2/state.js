@@ -14,10 +14,10 @@
 // `reduce`, `countRankChanges`) are exported separately from the store
 // singleton so they stay testable without a DOM or a running server.
 
-const PERSISTED_THEME_KEY = "cvi-v2-theme";
+const PERSISTED_THEME_KEY = "porchlamp-v2-theme";
 
 //: The page sizes the pagination control offers. Mirrors
-//: `cvi.serve.contract.LEADERBOARD_PAGE_SIZES`.
+//: `porchlamp.serve.contract.LEADERBOARD_PAGE_SIZES`.
 export const PAGE_SIZES = Object.freeze([20, 50, 100, 500, 1000]);
 export const DEFAULT_PAGE_SIZE = 20;
 
@@ -39,7 +39,7 @@ export const BALANCED_WEIGHTS = Object.freeze({
   rigor: 0.15,
   accessibility: 0.15,
 });
-//: The five persona presets (`cvi.core.constants.PERSONA_PRESETS`,
+//: The five persona presets (`porchlamp.core.constants.PERSONA_PRESETS`,
 //: transcribed — Configure's preset BUTTONS start a custom vector from one
 //: of these, but the result is immediately relabelled "custom" (U-11): a
 //: preset button is a starting point, not a mode switch back to a persona).
@@ -181,7 +181,7 @@ export function defaultState() {
     evidenceLoading: false,
     evidenceError: null, // { endpoint, status } for the CURRENTLY open repo's evidence, if it failed
 
-    // The drawer's record fetch (GET /v1/cvi/repos/{o}/{n}), independent
+    // The drawer's record fetch (GET /v1/porchlamp/repos/{o}/{n}), independent
     // of which screen (Leaderboard/Matrix/Compare/Configure) opened it --
     // the single source `views/drawer.js::findRow` consults.
     repoDetailByKey: {}, // "owner/name" -> the flat RepoDetailResponse (kind is derived client-side, views/drawer.js::classifyKind)
@@ -198,7 +198,7 @@ export const VALID_PERSONAS = Object.freeze(["balanced", "first_timer", "career_
 
 export const VALID_SORT_FIELDS = Object.freeze(new Set([
   "rank",
-  "cvi",
+  "porchlamp",
   "coverage",
   "tier",
   "p_responsiveness",
@@ -326,7 +326,7 @@ export function resolveOpenTargetKey(cursorKey, focusedRowKey) {
 /**
  * U-7/U-15/U-16: a drawer opened from a URL (`?repo=owner/name`, at boot
  * OR restored by `popstate`) fetches exactly what a click-opened one does
- * (the record via `GET /v1/cvi/repos/{o}/{n}` and its evidence).
+ * (the record via `GET /v1/porchlamp/repos/{o}/{n}` and its evidence).
  * `owner`/`name` are `null` when there is nothing to load (`state.repo`
  * is falsy or malformed), so the caller can `if (parsed)` without a
  * second check.

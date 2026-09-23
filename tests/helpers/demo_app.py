@@ -1,4 +1,4 @@
-"""CVI demo application: deterministic fixture data + the web front end.
+"""Porchlamp demo application: deterministic fixture data + the web front end.
 
 This is the full logic that used to live at `scripts/demo_app.py`, folded into
 a test helper module. `scripts/demo_app.py` is now a one-release deprecation shim
@@ -8,12 +8,12 @@ both keep working unchanged.
 Seeds 26 fictional, fully deterministic repositories (six ecosystems, all
 four quadrants, one gated black-hole repo, two off-platform repos, stars
 spread 10..80000) into an ``OperationalStore`` — in-memory by default,
-``--db PATH`` for a file-backed store — then serves the CVI REST API
-(:func:`cvi.api.create_app`) plus the offline single-page UI in
+``--db PATH`` for a file-backed store — then serves the Porchlamp REST API
+(:func:`porchlamp.api.create_app`) plus the offline single-page UI in
 ``web/index.html`` mounted at ``/``.
 
 Pillar scores are pinned per repo through the documented
-``cvi.engine.score_repository`` ``pillar_scorers`` DI seam, so the stage-0
+``porchlamp.engine.score_repository`` ``pillar_scorers`` DI seam, so the stage-0
 gates, the Phase-4 decomposition, and the Phase-5 balanced projection all
 run for real while the five pillar inputs stay exact and reproducible.
 No randomness anywhere: the same rows every run (``last_indexed_at`` is
@@ -22,7 +22,7 @@ pinned to :data:`DEMO_NOW` as well).
 Run:
     .venv/bin/python scripts/demo_app.py              # in-memory, port 8000
     PORT=8765 .venv/bin/python scripts/demo_app.py    # port override
-    .venv/bin/python scripts/demo_app.py --db /tmp/cvi-demo.sqlite
+    .venv/bin/python scripts/demo_app.py --db /tmp/porchlamp-demo.sqlite
 """
 
 from __future__ import annotations
@@ -37,11 +37,11 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from cvi.api import create_app
-from cvi.deepdive import build_deep_dive
-from cvi.engine import PILLAR_NAMES, score_repository
-from cvi.lakehouse import OperationalStore, apply_raw_metrics
-from cvi.models import (
+from porchlamp.api import create_app
+from porchlamp.deepdive import build_deep_dive
+from porchlamp.engine import PILLAR_NAMES, score_repository
+from porchlamp.lakehouse import OperationalStore, apply_raw_metrics
+from porchlamp.models import (
     AIPosture,
     AuthorAssociation,
     Ecosystem,
@@ -64,7 +64,7 @@ _WEB_DIR: Path = _REPO_ROOT / "web"
 # --------------------------------------------------------------------------- #
 # 26 deterministic repos. Each entry pins the five pillar scores (P1
 # responsiveness, P2 criticality, P3 governance, P4 rigor, P5 accessibility)
-# plus the raw metrics hydrated via cvi.lakehouse.apply_raw_metrics.
+# plus the raw metrics hydrated via porchlamp.lakehouse.apply_raw_metrics.
 #
 # Quadrant spread (boundary 50, >= counts as high):
 #   Sweet Spot  (10): high leverage, low friction   — e.g. atlas-core (91.5, 11.9)
@@ -303,7 +303,7 @@ _FIXTURES: tuple[dict[str, Any], ...] = (
 # Seeding
 # --------------------------------------------------------------------------- #
 def _pinned_scorers(pillars: tuple[float, ...]) -> dict[str, Callable[..., float]]:
-    """Per-repo ``pillar_scorers`` DI seam (cvi.engine.score_repository).
+    """Per-repo ``pillar_scorers`` DI seam (porchlamp.engine.score_repository).
 
     Each replacement is a zero-arg closure returning that repo's pinned
     pillar value; it is called with the same arguments as the default
@@ -446,7 +446,7 @@ def create_demo_app(
     store: Optional[OperationalStore] = None,
     count: int = 1000,
 ) -> FastAPI:
-    """CVI API + the offline web UI mounted at ``/`` (API routes win)."""
+    """Porchlamp API + the offline web UI mounted at ``/`` (API routes win)."""
     if store is None:
         store = build_benchmark_store(count=count)
     app = create_app(store=store)
@@ -455,7 +455,7 @@ def create_demo_app(
 
 
 def main(argv: Optional[list[str]] = None) -> None:
-    parser = argparse.ArgumentParser(description="CVI demo: fixture data + web UI")
+    parser = argparse.ArgumentParser(description="Porchlamp demo: fixture data + web UI")
     parser.add_argument(
         "--db",
         default=":memory:",
@@ -476,8 +476,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     args = parser.parse_args(argv)
     store = build_benchmark_store(args.db, count=args.count)
     app = create_demo_app(store, count=args.count)
-    print(f"CVI demo: seeded {args.count} benchmark repos (db={args.db!r})")
-    print(f"CVI demo: serving http://127.0.0.1:{args.port}/ (API under /v1, /healthz)")
+    print(f"Porchlamp demo: seeded {args.count} benchmark repos (db={args.db!r})")
+    print(f"Porchlamp demo: serving http://127.0.0.1:{args.port}/ (API under /v1, /healthz)")
     uvicorn.run(app, host="127.0.0.1", port=args.port)
 
 

@@ -9,12 +9,12 @@ choice, no live network. ``as_of`` is read from the sample's own
 timestamp, never ``datetime.now()``). Repo selection is a pure function of
 the sample's manifest content (sorted repo keys plus the D-VER-4 anchor
 repos that are present in the sample); scoring is
-``cvi.core.pipeline.score_snapshot``, itself pure. The only I/O this script
+``porchlamp.core.pipeline.score_snapshot``, itself pure. The only I/O this script
 performs is reading the sample corpus and writing the fixture's own output
 files -- re-running it against the same sample produces byte-identical
 output (``tests/snapshot/test_reproduce_fixture.py`` asserts that).
 
-Gate evidence (``cvi.core.gates.GateEvidence``) is not part of the
+Gate evidence (``porchlamp.core.gates.GateEvidence``) is not part of the
 FeatureBundle v2 contract (04 section 3) and no landed collector wires it
 yet. This script therefore derives it directly from the sample's raw
 envelopes (``raw/tree``, ``raw/commits_180d``, ``raw/github_meta``) -- a
@@ -22,12 +22,12 @@ fixture-only, non-authoritative deriver kept local to this script.
 See :func:`gate_evidence_for` for the documented heuristics.
 
 Populations (D-NORM-2/3, stage 4) are frozen from the 50 selected repos
-only, via a two-pass bootstrap :func:`cvi.snapshot.populations.
-build_populations` needs but ``cvi.core.pipeline.score_snapshot`` does not
+only, via a two-pass bootstrap :func:`porchlamp.snapshot.populations.
+build_populations` needs but ``porchlamp.core.pipeline.score_snapshot`` does not
 provide (that function consumes an already-frozen ``PopulationSet`` -- see
 its own docstring): pass 1 scores every bundle against an *empty*
 population set purely to learn each bundle's stage-0/3 gate/rated status
-and its raw ECDF-input values (``cvi.core.engine``'s own documented,
+and its raw ECDF-input values (``porchlamp.core.engine``'s own documented,
 non-raising ``no_population`` fallback makes this safe); pass 2 builds the
 real ``PopulationSet`` from pass 1's rated, gate-eligible repos and scores
 every bundle again, for real, through ``score_snapshot``. See
@@ -42,18 +42,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from cvi.core import constants
-from cvi.core.gates import GateEvidence
-from cvi.snapshot.manifest import merkle_root
-from cvi.core.models import (
+from porchlamp.core import constants
+from porchlamp.core.gates import GateEvidence
+from porchlamp.snapshot.manifest import merkle_root
+from porchlamp.core.models import (
     FeatureBundle,
     Measured,
     canonical_json,
     sha256_hex,
 )
-from cvi.core.pipeline import RepoKey, ScoredSnapshot, repo_key, score_snapshot
-from cvi.derive.bundle import dump_bundle, load_bundle, write_bundle
-from cvi.derive.gate_evidence import (  # noqa: F401
+from porchlamp.core.pipeline import RepoKey, ScoredSnapshot, repo_key, score_snapshot
+from porchlamp.derive.bundle import dump_bundle, load_bundle, write_bundle
+from porchlamp.derive.gate_evidence import (  # noqa: F401
     MANIFEST_MAX_DEPTH,
     RECOGNIZED_MANIFEST_BASENAMES,
     _has_license_file,
@@ -63,8 +63,8 @@ from cvi.derive.gate_evidence import (  # noqa: F401
     _vitality_commit_count,
     gate_evidence_for,
 )
-from cvi.snapshot.populations import PopulationMember, PopulationSet, build_populations, write_populations
-from cvi.snapshot.store_cmd import score_snapshot_with_detectors
+from porchlamp.snapshot.populations import PopulationMember, PopulationSet, build_populations, write_populations
+from porchlamp.snapshot.store_cmd import score_snapshot_with_detectors
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SAMPLE_ROOT = Path.home() / "Projects" / "cvi-scratch" / "sample-200"
@@ -72,7 +72,7 @@ DEFAULT_OUT_DIR = REPO_ROOT / "tests" / "fixtures" / "snapshot_50"
 FIXTURE_SIZE = 50
 SNAPSHOT_ID = "snapshot_50"
 
-#: D-VER-4 anchor repos (``cvi/audit/anchors.py``'s ``ANCHOR_RELATIONS``):
+#: D-VER-4 anchor repos (``porchlamp/audit/anchors.py``'s ``ANCHOR_RELATIONS``):
 #: force-included whenever present in the sample, ahead of the plain
 #: alphabetical fill, so the anchor tests can state which anchors this
 #: fixture actually carries.
@@ -100,9 +100,9 @@ def _basename_for(manifest_repo_entry: Mapping[str, Any]) -> str | None:
 
 def _first_awesome_repo(all_keys: Sequence[RepoKey]) -> list[RepoKey]:
     """D-VER-4's ``awesome_non_software`` relation names no single repo
-    identity (``cvi.audit.anchors._check_awesome`` scans every repo whose
+    identity (``porchlamp.audit.anchors._check_awesome`` scans every repo whose
     name starts with "awesome" broadly) -- but it is still one of the
-    :data:`~cvi.audit.anchors.ANCHOR_RELATIONS` this fixture should give a
+    :data:`~porchlamp.audit.anchors.ANCHOR_RELATIONS` this fixture should give a
     fair chance to pass rather than fail it by omission alone. The
     alphabetically-first ``awesome*`` repo the sample contains (if any) is
     force-included the same way the five identity anchors are."""
@@ -136,7 +136,7 @@ def select_fixture_repo_keys(manifest: Mapping[str, Any], size: int = FIXTURE_SI
 def _bundle_raw_hash(bundle: FeatureBundle) -> str:
     """sha256 of the whole bundle document (03 section 5's ``raw_hash``:
     "hash of its bundle" -- distinct from ``FeatureBundle.provenance_hash``,
-    which covers only the referenced envelope hashes; ``cvi.core.engine.
+    which covers only the referenced envelope hashes; ``porchlamp.core.engine.
     score``'s own docstring recommends exactly this)."""
     return sha256_hex(canonical_json(dump_bundle(bundle)))
 
@@ -236,8 +236,8 @@ def build_fixture(sample_root: Path, *, size: int = FIXTURE_SIZE, snapshot_id: s
     fallback_params = sorted({entry.param for entry in populations.populations if entry.fallback})
 
     # Pass 2: the real, final scoring with frozen populations -- the same
-    # score_snapshot_with_detectors() cvi.snapshot store's own driver calls
-    # (cvi.snapshot.store_cmd), so detectors are wired here exactly the
+    # score_snapshot_with_detectors() porchlamp.snapshot store's own driver calls
+    # (porchlamp.snapshot.store_cmd), so detectors are wired here exactly the
     # same way. previous=None (this script has no previous-snapshot
     # concept of its own): the single-snapshot detectors (closed_unread,
     # label_spam, ...) still fire -- only detect_param_jump needs a real
@@ -277,7 +277,7 @@ def expected_document(snapshot: ScoredSnapshot) -> dict[str, Any]:
     reproducibility pin it exists to be.
     """
     return {
-        "document": "cvi-fixture-snapshot-expected",
+        "document": "porchlamp-fixture-snapshot-expected",
         "version": 1,
         "records_hash": snapshot.records_hash,
         "counts": {
@@ -321,7 +321,7 @@ def rewrite_expected(fixture_dir: Path) -> ScoredSnapshot:
     expectations are now stale *by intent*. The bundles, populations and
     manifest are inputs and are left untouched; only the recorded outputs are
     refreshed, from those same inputs, through the real pipeline
-    (:func:`cvi.snapshot.store_cmd.score_snapshot_with_detectors`, the exact
+    (:func:`porchlamp.snapshot.store_cmd.score_snapshot_with_detectors`, the exact
     entry point ``test_reproduce_matches_expected_hash`` pins against).
 
     This is deliberately a separate, explicitly-invoked mode rather than
@@ -329,7 +329,7 @@ def rewrite_expected(fixture_dir: Path) -> ScoredSnapshot:
     fails is not a pin. Every use must come with a reviewed explanation of
     why the previous expectations were wrong.
     """
-    from cvi.snapshot.store_cmd import score_snapshot_with_detectors
+    from porchlamp.snapshot.store_cmd import score_snapshot_with_detectors
 
     frozen = load_frozen_fixture(fixture_dir)
     snapshot = score_snapshot_with_detectors(
@@ -346,7 +346,7 @@ def rewrite_expected(fixture_dir: Path) -> ScoredSnapshot:
 
 def _populations_leaf(out_dir: Path) -> str:
     """The ``populations.json`` merkle leaf, identical to the one
-    ``cvi.snapshot.build_cmd.build_snapshot_dir`` uses (E-01).
+    ``porchlamp.snapshot.build_cmd.build_snapshot_dir`` uses (E-01).
 
     Two builders write a v2 snapshot manifest -- that command and this
     fixture script -- and the root must mean the same thing in both, or the
@@ -389,7 +389,7 @@ def write_fixture(result: FixtureBuildResult, out_dir: Path) -> None:
         for bundle in sorted(result.bundles, key=lambda b: (b.repo.owner.lower(), b.repo.name.lower()))
     ]
     manifest_doc = {
-        "document": "cvi-fixture-snapshot-manifest",
+        "document": "porchlamp-fixture-snapshot-manifest",
         "version": 1,
         "snapshot_id": result.snapshot.snapshot_id,
         "as_of": result.as_of.isoformat(),
@@ -409,10 +409,10 @@ def write_fixture(result: FixtureBuildResult, out_dir: Path) -> None:
     write_expected(result.snapshot, out_dir / "expected.json")
 
 
-#: Moved to :mod:`cvi.snapshot.fixture_io` so ``cvi.snapshot.store_cmd`` --
-#: the ``cvi.snapshot store`` CLI's driver -- can read a snapshot directory back
+#: Moved to :mod:`porchlamp.snapshot.fixture_io` so ``porchlamp.snapshot.store_cmd`` --
+#: the ``porchlamp.snapshot store`` CLI's driver -- can read a snapshot directory back
 #: without importing this script. Re-exported here under their original names.
-from cvi.snapshot.fixture_io import FrozenFixture, load_frozen_fixture  # noqa: F401
+from porchlamp.snapshot.fixture_io import FrozenFixture, load_frozen_fixture  # noqa: F401
 
 
 def main(argv: Sequence[str] | None = None) -> int:

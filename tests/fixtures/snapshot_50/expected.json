@@ -11,7 +11,7 @@
     "rated": 0,
     "unrated": 24
   },
-  "document": "cvi-fixture-snapshot-expected",
+  "document": "porchlamp-fixture-snapshot-expected",
   "rank_order": [
     "0voice/interview_internal_reference",
     "1995parham/github-do-not-ban-us",
@@ -716,6 +716,6 @@
       "unrated_reason": "unrated: off_platform_routed"
     }
   ],
-  "records_hash": "b364f71c089525a375acb16e72afd956ba2c7caa7c14b008d035bed3cd924f19",
+  "records_hash": "b52ccd6698e360043f29a4a98a84d61e7f46545c73facf0a3996c2fcac13653b",
   "version": 1
 }

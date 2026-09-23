@@ -1,4 +1,4 @@
-# CVI Review & Verification Guidelines
+# Porchlamp Review & Verification Guidelines
 
 Adopted from AlgoTrading's bedrock docs (`SELF_REVIEW.md`, `VERIFICATION.md`,
 `CODE_REVIEW.md`, `TESTING.md`) on 2026-09-12, adapted for this repo.
@@ -25,14 +25,14 @@ These rules bind every change here, human or agent.
 - One test file per source module; orphaned test files deleted.
 - No tautological or mock-only tests; mocks only at external boundaries
   (network, clock, filesystem via tmp_path).
-- Assert values, not shapes: `assert result.cvi == 88.8`, not
-  `assert isinstance(result, CVICompositeResult)`.
+- Assert values, not shapes: `assert result.porchlamp == 88.8`, not
+  `assert isinstance(result, PorchlampCompositeResult)`.
 - A test that kills zero mutants is a Blocker (mutation battery in
   `tests/` must stay green under `scripts/` mutation probes when extended).
 - Tests edited to pass must also change `src/` (CA-1): a green suite after
   test-only edits to a failing test needs a root-cause note.
 
-## 3. Data provenance (CVI-specific, owner rule 2026-09-12)
+## 3. Data provenance (Porchlamp-specific, owner rule 2026-09-12)
 
 - **Only verified data enters SQLite.** Raw fetches live in `data/raw/`
   (git-ignored); `scripts/derive.py` adds per-field provenance + confidence;
@@ -43,7 +43,7 @@ These rules bind every change here, human or agent.
   elephant_factor org-proxy) must never be presented as ground truth.
 - No fabricated repos: every row in a universe/dataset must trace to a
   `candidates.jsonl` criterion or a fetched envelope. The old synthetic
-  `cvi/benchmark_data.py` is test fixture only — never a ranking source.
+  `porchlamp/benchmark_data.py` is test fixture only — never a ranking source.
 - Provenance is unforgeable: a field may claim `verified` only with a
   `data/raw/<collector>/<owner>__<name>.json` envelope path (never a bare
   `http(s)://` URL) belonging to that field's own repository and collector,
@@ -57,14 +57,14 @@ These rules bind every change here, human or agent.
 
 - Gate 0: author self-review — read the whole enclosing function, not the
   hunk; absence inputs (`None/0/""/[]`) must not read as success.
-- Gate 1: deterministic — `ruff check cvi scripts tests` clean; new public
+- Gate 1: deterministic — `ruff check porchlamp scripts tests` clean; new public
   API fully typed with docstrings.
 - Gate 2: adversarial pass over 6 lenses: YAGNI, perf, API, compat,
   observability, layering. Severities: `Blocker:` `Warning:` `Consider:`
   `Nit:` `FYI:` `Praise:`.
 - New symbols with zero readers are a Blocker (caller sweep before adding).
 - Deletion > modification > addition. One definition per fact (constants
-  live in `cvi/constants.py` only).
+  live in `porchlamp/constants.py` only).
 
 ## 5. Auto-reject list
 
@@ -72,7 +72,7 @@ These rules bind every change here, human or agent.
 - Unreconciled collected-count change in pytest output.
 - Golden/expected values re-baselined without root cause.
 - Force-push / `reset --hard` / bare `git stash` without owner confirmation.
-- `print()` in library code (`cvi/`); scripts may print progress.
+- `print()` in library code (`porchlamp/`); scripts may print progress.
 - Inline `TODO` (use the issue backlog).
 - Commit email other than `55033230+pctablet505@users.noreply.github.com`
   (GH007 / employer rules).

@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`cvi.snapshot.reproduce`.
+"""Unit tests for :mod:`porchlamp.snapshot.reproduce`.
 
 Reproduction rebuilds the database from ``raw/`` and compares a canonical dump
 hash (`03` section 5, `04` section 2). The canonical dump is: tables sorted by
@@ -18,9 +18,9 @@ from typing import Any
 
 import pytest
 
-from cvi.collect.envelope import write_envelope
-from cvi.snapshot.manifest import build_manifest, envelope_entries, write_manifest
-from cvi.snapshot.reproduce import (
+from porchlamp.collect.envelope import write_envelope
+from porchlamp.snapshot.manifest import build_manifest, envelope_entries, write_manifest
+from porchlamp.snapshot.reproduce import (
     canonical_dump,
     canonical_dump_hash,
     check_envelopes,

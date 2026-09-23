@@ -1,4 +1,4 @@
-# Contributor Value Index (CVI) E2E Test Infrastructure Specification
+# Porchlamp E2E Test Infrastructure Specification
 
 **Document Version:** 2.0.0  
 **Author:** `teamwork_preview_test_writer` (`test_writer_e2e_1_gen2`)  
@@ -9,7 +9,7 @@
 
 ## 1. Test Architecture Overview
 
-The CVI E2E Test Suite provides an authoritative, opaque-box verification harness ensuring that the Contributor Value Index platform fulfills all user requirements, interface contracts, mathematical invariants, and performance SLAs.
+The Porchlamp E2E Test Suite provides an authoritative, opaque-box verification harness ensuring that the Porchlamp platform fulfills all user requirements, interface contracts, mathematical invariants, and performance SLAs.
 
 The testing architecture is structured into a four-tier testing hierarchy following the Project Pattern:
 
@@ -44,7 +44,7 @@ tests/e2e/
 └── test_tier4_scenarios.py       # Tier 4: Real-World Application Workloads & Landmark Ground Truth (12 tests)
     ├── Landmark PyPI: vllm-project/vllm (Sweet Spot, Tier S/S+, sub-12h TTFHR, DCO)
     ├── Landmark Systems: torvalds/linux (Crucible, Off-Platform LKML Routing)
-    ├── Landmark PyPI: keras-team/keras-hub (Graveyard, Stage 0 Black Hole, 0.0 CVI)
+    ├── Landmark PyPI: keras-team/keras-hub (Graveyard, Stage 0 Black Hole, 0.0 Porchlamp)
     ├── Landmark npm: facebook/react (Sweet Spot Anchor, High Dependents & Scale)
     ├── Landmark Go: kubernetes/kubernetes (Crucible/Sweet Spot, CNCF CLA, Multi-Vendor)
     └── Landmark Systems: gentoo/gentoo (AI Policy Posture Ban: BALANCED vs AI_ASSISTED)
@@ -93,7 +93,7 @@ env -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/e2e/test_tier4_scenarios.
 
 ### 3.3 Running Full Project Suite with Coverage
 ```bash
-env -u PYTEST_ADDOPTS .venv/bin/python -m pytest --cov=cvi --cov-branch --cov-report=term-missing tests/ -n auto -p no:cacheprovider
+env -u PYTEST_ADDOPTS .venv/bin/python -m pytest --cov=porchlamp --cov-branch --cov-report=term-missing tests/ -n auto -p no:cacheprovider
 ```
 
 ---

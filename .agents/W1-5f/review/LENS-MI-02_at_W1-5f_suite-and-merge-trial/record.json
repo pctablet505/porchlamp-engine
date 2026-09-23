@@ -125,7 +125,7 @@
   "observations": [
     "Base 5f5350a suite: 2211 passed, 1 skipped. Branch and merged tree: 2256 passed, 1 skipped. Delta 45 = the counted new test functions.",
     "ruff check . on the merged tree: All checks passed!",
-    "Main advanced from bcdf07b to cf181a4 during the review (W3-1, W5-1a; both touch cvi/derive/bundle.py). The trial was redone onto cf181a4: every code file auto-merged, the single conflict is expected.json's records_hash line (7ac57701 vs 4fbd3b5b), all 50 bundles + manifest.json + populations.json regenerate byte-identically, and expected.json must be re-pinned to b4177bf29fa39678c16d3a05895e80c6d3bcbd6c5d4127bbc3d3b2f5e158ee51.",
+    "Main advanced from bcdf07b to cf181a4 during the review (W3-1, W5-1a; both touch porchlamp/derive/bundle.py). The trial was redone onto cf181a4: every code file auto-merged, the single conflict is expected.json's records_hash line (7ac57701 vs 4fbd3b5b), all 50 bundles + manifest.json + populations.json regenerate byte-identically, and expected.json must be re-pinned to b4177bf29fa39678c16d3a05895e80c6d3bcbd6c5d4127bbc3d3b2f5e158ee51.",
     "With the stale hash the composed tree fails exactly twice (test_reproduce_matches_expected_hash, test_fixture_rebuild_is_byte_identical): 2 failed, 2312 passed, 1 skipped. After the re-pin: 2314 passed, 1 skipped. Main cf181a4 alone: 2269 passed, 1 skipped -- delta +45 again."
   ],
   "not_checked": [

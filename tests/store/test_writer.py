@@ -1,4 +1,4 @@
-"""Tests for ``cvi.store.writer``: writing snapshots, repositories, parameters, and populations."""
+"""Tests for ``porchlamp.store.writer``: writing snapshots, repositories, parameters, and populations."""
 from __future__ import annotations
 
 import sqlite3
@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from cvi.core.models import ParamScore, PersonaComposite, PRWindow, PRWindowEvent
-from cvi.snapshot.populations import Population, PopulationSet
-from cvi.store import schema
-from cvi.store.migrations import apply_migrations
-from cvi.store.writer import (
+from porchlamp.core.models import ParamScore, PersonaComposite, PRWindow, PRWindowEvent
+from porchlamp.snapshot.populations import Population, PopulationSet
+from porchlamp.store import schema
+from porchlamp.store.migrations import apply_migrations
+from porchlamp.store.writer import (
     RepoWrite,
     _normalize_utc_z,
     finalize_snapshot_hash,
@@ -107,7 +107,7 @@ def test_write_records_round_trips_repo_params_and_populations(tmp_path) -> None
     assert counts == (1, 2, 0)
 
     repo_row = conn.execute(
-        "SELECT owner, name, ecosystem, cvi, coverage, rated FROM repositories WHERE snapshot_id='snap-1'"
+        "SELECT owner, name, ecosystem, porchlamp, coverage, rated FROM repositories WHERE snapshot_id='snap-1'"
     ).fetchone()
     assert repo_row == ("acme", "demo", "python", 82.5, 0.9, 1)
 
@@ -157,7 +157,7 @@ def test_write_records_nulls_source_for_a_measured_input_with_no_population(tmp_
 def test_param_row_rejects_an_absolute_source(tmp_path) -> None:
     """The store refuses to write absolute source paths, ensuring only relative
     paths are persisted as evidence."""
-    from cvi.store.writer import _param_row
+    from porchlamp.store.writer import _param_row
 
     param_scores = {
         "ttfhr_hours": ParamScore(
@@ -168,7 +168,7 @@ def test_param_row_rejects_an_absolute_source(tmp_path) -> None:
     }
     record = make_rated_record("snap-1", params=param_scores)
     corrupted = make_measured(4.5, n=42)
-    object.__setattr__(corrupted, "source", "/home/someone/cvi-data/raw/pr_window/acme__demo.json")
+    object.__setattr__(corrupted, "source", "/home/someone/porchlamp-data/raw/pr_window/acme__demo.json")
     item = make_repo_write(record, inputs={"ttfhr_hours": corrupted})
     with pytest.raises(ValueError, match="relative to the data root"):
         _param_row(1, "ttfhr_hours", item)
@@ -311,7 +311,7 @@ def test_write_records_rolls_back_on_failure_leaving_zero_rows_after_a_later_com
 def test_write_records_params_loop_failure_leaves_zero_repositories_rows(tmp_path, monkeypatch) -> None:
     """A failure in the params loop rolls back preceding repository inserts
     within the same call, leaving zero repository rows committed."""
-    import cvi.store.writer as writer_module
+    import porchlamp.store.writer as writer_module
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
@@ -342,7 +342,7 @@ def test_write_snapshot_and_write_records_compose_into_one_transaction(tmp_path,
     join-if-open guard); a failure while writing params leaves NOTHING for
     the id -- not even the ``snapshots`` row -- and a retry with the SAME
     id succeeds."""
-    import cvi.store.writer as writer_module
+    import porchlamp.store.writer as writer_module
 
     db_path = tmp_path / "db.sqlite"
     conn = _fresh_db(db_path)
@@ -566,20 +566,20 @@ def test_snapshot_dump_hash_ignores_legacy_repositories(tmp_path) -> None:
     hash_before = snapshot_dump_hash(db_path, "snap-1")
 
     conn.execute(
-        "CREATE TABLE legacy_repositories (id INTEGER PRIMARY KEY, owner TEXT, name TEXT, overall_cvi REAL)"
+        "CREATE TABLE legacy_repositories (id INTEGER PRIMARY KEY, owner TEXT, name TEXT, overall_porchlamp REAL)"
     )
-    conn.execute("INSERT INTO legacy_repositories (owner, name, overall_cvi) VALUES ('v1co','repo',71.5)")
+    conn.execute("INSERT INTO legacy_repositories (owner, name, overall_porchlamp) VALUES ('v1co','repo',71.5)")
     conn.commit()
     hash_with_legacy = snapshot_dump_hash(db_path, "snap-1")
     assert hash_with_legacy == hash_before  # legacy content must not move the v2 hash
 
-    conn.execute("UPDATE legacy_repositories SET overall_cvi = 99.9 WHERE owner='v1co'")
+    conn.execute("UPDATE legacy_repositories SET overall_porchlamp = 99.9 WHERE owner='v1co'")
     conn.commit()
     hash_after_legacy_edit = snapshot_dump_hash(db_path, "snap-1")
     assert hash_after_legacy_edit == hash_before  # editing legacy content still must not move it
 
     # Sensitivity control: editing the ACTUAL v2 row DOES move the hash.
-    conn.execute("UPDATE repositories SET cvi = 12.0 WHERE snapshot_id='snap-1' AND name='demo'")
+    conn.execute("UPDATE repositories SET porchlamp = 12.0 WHERE snapshot_id='snap-1' AND name='demo'")
     conn.commit()
     hash_after_v2_edit = snapshot_dump_hash(db_path, "snap-1")
     assert hash_after_v2_edit != hash_before
@@ -684,14 +684,14 @@ def test_repo_write_rejects_mismatched_identity() -> None:
 def test_persona_composites_round_trip_via_asdict(tmp_path) -> None:
     """``PersonaComposite`` dataclasses serialize to dicts for JSON storage
     and reconstruct identically on read."""
-    from cvi.store import reader
+    from porchlamp.store import reader
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
     composites = {
-        "balanced": PersonaComposite(cvi=82.5, coverage=0.9, tier="B", rated=True),
-        "senior_systems": PersonaComposite(cvi=71.5, coverage=0.6, tier="C", rated=True),
-        "first_timer": PersonaComposite(cvi=None, coverage=0.2, tier=None, rated=False),
+        "balanced": PersonaComposite(porchlamp=82.5, coverage=0.9, tier="B", rated=True),
+        "senior_systems": PersonaComposite(porchlamp=71.5, coverage=0.6, tier="C", rated=True),
+        "first_timer": PersonaComposite(porchlamp=None, coverage=0.2, tier=None, rated=False),
     }
     record = make_rated_record("snap-1", persona_composites=composites)
     write_records(conn, "snap-1", [make_repo_write(record)])
@@ -709,7 +709,7 @@ def test_writer_raises_a_clear_error_on_the_stale_dict_float_shape() -> None:
     record = replace(record, persona_composites={"balanced": 82.5})  # type: ignore[dict-item]
     item = make_repo_write(record)
     with pytest.raises(TypeError):
-        from cvi.store.writer import _repo_row
+        from porchlamp.store.writer import _repo_row
         _repo_row("snap-1", item)
 
 
@@ -718,7 +718,7 @@ def test_writer_raises_a_clear_error_on_the_stale_dict_float_shape() -> None:
 # --------------------------------------------------------------------- #
 
 def test_gate_undecided_round_trips(tmp_path) -> None:
-    from cvi.store import reader
+    from porchlamp.store import reader
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
@@ -798,7 +798,7 @@ def test_stars_forks_are_null_no_producer(tmp_path) -> None:
 def test_stars_audited_and_forks_written_from_bundle_sidecars(tmp_path) -> None:
     """When a bundle carries stars_audited and forks sidecar facts, write_records
     persists non-null values into repositories."""
-    from cvi.derive.bundle import set_forks_count, set_stars_audited
+    from porchlamp.derive.bundle import set_forks_count, set_stars_audited
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
@@ -832,7 +832,7 @@ def test_stars_audited_legacy_inputs_fallback_still_works(tmp_path) -> None:
 # --------------------------------------------------------------------- #
 
 def test_last_human_commit_at_is_produced_from_the_bundle_sidecar_fact(tmp_path) -> None:
-    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+    from porchlamp.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
@@ -851,12 +851,12 @@ def test_last_human_commit_at_is_produced_from_the_bundle_sidecar_fact(tmp_path)
 
 
 def test_last_human_commit_at_normalizes_a_non_utc_offset_through_the_real_writer(tmp_path) -> None:
-    """The sidecar fact is already ``Z``-formatted by ``cvi.derive.bundle``
+    """The sidecar fact is already ``Z``-formatted by ``porchlamp.derive.bundle``
     in practice, but the writer's own ``_normalize_utc_z`` pass must not be
     a no-op that merely trusts the input -- a non-UTC-offset value must
     still normalize correctly when it flows through the real writer path,
     not just the ``_write_and_rank`` UPDATE-stamp fixtures."""
-    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+    from porchlamp.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
@@ -879,7 +879,7 @@ def test_last_human_commit_at_is_null_for_a_measured_absence(tmp_path) -> None:
     same as an unset/``Unmeasured`` fact, distinguishing "the column has
     no evidence" from "we measured zero non-bot commits" only at the
     ``params``/detail level, never in this ordering column."""
-    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+    from porchlamp.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)
@@ -902,9 +902,9 @@ def test_sql_rank_order_agrees_with_python_when_writer_produces_the_commit_date(
     ``assign_ranks`` (Python) and ``reader.ranked_order_sql`` (SQL) must
     agree once the WRITER produces the column for real, with no UPDATE
     stamp anywhere in this test."""
-    from cvi.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
-    from cvi.core.tiebreak import TieBreakInput, assign_ranks
-    from cvi.store import reader
+    from porchlamp.core.commit_domains import LastNonBotCommitMeasured, set_last_non_bot_commit_at
+    from porchlamp.core.tiebreak import TieBreakInput, assign_ranks
+    from porchlamp.store import reader
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     _write_one_snapshot(conn)

@@ -1,4 +1,4 @@
-"""Concurrency-safe connection settings for ``cvi.store.schema.connect`` (D-02).
+"""Concurrency-safe connection settings for ``porchlamp.store.schema.connect`` (D-02).
 
 The v2 write path (a promote writing a whole snapshot in one transaction)
 runs against the same file the API server holds read connections open on.
@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from cvi.store import schema
-from cvi.store.writer import write_records, write_snapshot
+from porchlamp.store import schema
+from porchlamp.store.writer import write_records, write_snapshot
 
 from .helpers import make_rated_record, make_repo_write
 
@@ -35,7 +35,7 @@ def _seed_snapshots_row(conn: sqlite3.Connection, snapshot_id: str = "snap-1") -
 def test_file_database_is_in_wal_mode(tmp_path: Path) -> None:
     """A store opened at a real file is in WAL mode, so a promote's write
     transaction and the server's reads overlap instead of colliding."""
-    conn = schema.connect(tmp_path / "cvi.db")
+    conn = schema.connect(tmp_path / "porchlamp.db")
     try:
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     finally:
@@ -46,7 +46,7 @@ def test_busy_timeout_is_set(tmp_path: Path) -> None:
     """A contending connection waits ``BUSY_TIMEOUT_MS`` instead of raising on
     the first conflict, which is the right behaviour for a snapshot write that
     takes seconds."""
-    conn = schema.connect(tmp_path / "cvi.db")
+    conn = schema.connect(tmp_path / "porchlamp.db")
     try:
         assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == schema.BUSY_TIMEOUT_MS
     finally:
@@ -58,7 +58,7 @@ def test_reader_does_not_block_writer(tmp_path: Path) -> None:
     second connection to the same file succeeds. Under the old rollback-journal
     mode (the writer holding an exclusive lock, no busy_timeout) this raised
     ``sqlite3.OperationalError: database is locked``."""
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
 
     writer = schema.connect(db_path)
     writer.isolation_level = None  # manual transaction control for the lock test
@@ -95,13 +95,13 @@ def test_wal_mode_conversion_is_reported(tmp_path: Path) -> None:
     """``PRAGMA journal_mode`` returns the resulting mode as a row; on a normal
     file that row must read ``wal`` (the statement can silently fail to change
     mode, so connect reads and the test asserts the real outcome)."""
-    conn = schema.connect(tmp_path / "cvi.db")
+    conn = schema.connect(tmp_path / "porchlamp.db")
     try:
         conn.execute("CREATE TABLE probe (x INTEGER)")
         conn.commit()
     finally:
         conn.close()
-    reopened = sqlite3.connect(tmp_path / "cvi.db")  # plain connect: the mode is persistent per-database
+    reopened = sqlite3.connect(tmp_path / "porchlamp.db")  # plain connect: the mode is persistent per-database
     try:
         assert reopened.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     finally:

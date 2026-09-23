@@ -578,7 +578,7 @@ export function boot(win = window, doc = document) {
   }
 
   /**
-   * Fetches the repo record (`GET /v1/cvi/repos/{o}/{n}`) — called by `openRepo`
+   * Fetches the repo record (`GET /v1/porchlamp/repos/{o}/{n}`) — called by `openRepo`
    * regardless of which screen it was opened from, ensuring the drawer is
    * independent of any state slice a particular screen keeps in memory (Matrix
    * point list, Compare per-chip cache, etc.). Cached per repo, matching
@@ -702,7 +702,7 @@ export function boot(win = window, doc = document) {
         }
       }
       if (!row) {
-        store.dispatch({ type: "COMPARE_REPO_ERROR", key, error: { endpoint: "/v1/cvi/leaderboard", status: 404 } });
+        store.dispatch({ type: "COMPARE_REPO_ERROR", key, error: { endpoint: "/v1/porchlamp/leaderboard", status: 404 } });
         return;
       }
       return api.fetchEvidence(owner, name).then((evidenceResult) => {
@@ -1683,5 +1683,5 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   // lets a real-browser check force a windowed patch synchronously instead
   // of waiting on requestAnimationFrame, which some automated/headless
   // browser contexts throttle indefinitely while a tab lacks OS focus.
-  window.__cviDebug = boot();
+  window.__porchlampDebug = boot();
 }

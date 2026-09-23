@@ -13,7 +13,7 @@ web + v1 demo end to end -- keeps resolving ``demo.build_fixture_store`` /
 Run:
     .venv/bin/python scripts/demo_app.py              # in-memory, port 8000
     PORT=8765 .venv/bin/python scripts/demo_app.py    # port override
-    .venv/bin/python scripts/demo_app.py --db /tmp/cvi-demo.sqlite
+    .venv/bin/python scripts/demo_app.py --db /tmp/porchlamp-demo.sqlite
 """
 
 from __future__ import annotations

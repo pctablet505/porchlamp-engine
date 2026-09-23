@@ -17,12 +17,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L1-13@cvi/collect/github_graphql.py",
+      "item_id": "L1-13@porchlamp/collect/github_graphql.py",
       "checklist_id": "L1-13",
       "level": "L1",
       "lens": "LENS-MI",
       "target": {
-        "path": "cvi/collect/github_graphql.py"
+        "path": "porchlamp/collect/github_graphql.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -77,12 +77,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L0-05@cvi/collect/github_graphql.py",
+      "item_id": "L0-05@porchlamp/collect/github_graphql.py",
       "checklist_id": "L0-05",
       "level": "L0",
       "lens": "LENS-MI",
       "target": {
-        "path": "cvi/collect/github_graphql.py"
+        "path": "porchlamp/collect/github_graphql.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -137,12 +137,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "LENS-DET-01@cvi/collect/github_graphql.py",
+      "item_id": "LENS-DET-01@porchlamp/collect/github_graphql.py",
       "checklist_id": "LENS-DET-01",
       "level": "L1",
       "lens": "LENS-DET",
       "target": {
-        "path": "cvi/collect/github_graphql.py"
+        "path": "porchlamp/collect/github_graphql.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -197,12 +197,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L0-05@cvi/collect/github_graphql.py",
+      "item_id": "L0-05@porchlamp/collect/github_graphql.py",
       "checklist_id": "L0-05",
       "level": "L0",
       "lens": "LENS-MI",
       "target": {
-        "path": "cvi/collect/github_graphql.py"
+        "path": "porchlamp/collect/github_graphql.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -257,12 +257,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L1-14@cvi/collect/github_graphql.py",
+      "item_id": "L1-14@porchlamp/collect/github_graphql.py",
       "checklist_id": "L1-14",
       "level": "L1",
       "lens": "LENS-MI",
       "target": {
-        "path": "cvi/collect/github_graphql.py"
+        "path": "porchlamp/collect/github_graphql.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -305,7 +305,7 @@
           "finding_id": "F-004",
           "severity": "Warning:",
           "statement": "collector_failure is still not emitted and no bundle loader maps the gated fields, so the truthful detail strings reach no consumer.",
-          "file": "cvi/collect/github_graphql.py",
+          "file": "porchlamp/collect/github_graphql.py",
           "line": 1216,
           "quoted_line": "    ``collector_failure`` reason belongs to ``Unmeasured`` objects that",
           "failure_scenario": "A gated repo stores cohort_unmeasured_detail '38 of 62 authors unmeasured' and nothing downstream can read it; three of the four inputs remain _unmapped.",
@@ -328,12 +328,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L1-13@cvi/collect/github_graphql.py",
+      "item_id": "L1-13@porchlamp/collect/github_graphql.py",
       "checklist_id": "L1-13",
       "level": "L1",
       "lens": "LENS-MI",
       "target": {
-        "path": "cvi/collect/github_graphql.py"
+        "path": "porchlamp/collect/github_graphql.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -388,12 +388,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L1-13@cvi/derive/bundle.py",
+      "item_id": "L1-13@porchlamp/derive/bundle.py",
       "checklist_id": "L1-13",
       "level": "L1",
       "lens": "LENS-MI",
       "target": {
-        "path": "cvi/derive/bundle.py"
+        "path": "porchlamp/derive/bundle.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -436,7 +436,7 @@
           "finding_id": "F-001",
           "severity": "Warning:",
           "statement": "DR_90 - the only rate parameter with a live resolver - scores with neither the D-IN-3 eligibility gate nor the per-author cap.",
-          "file": "cvi/derive/bundle.py",
+          "file": "porchlamp/derive/bundle.py",
           "line": null,
           "quoted_line": null,
           "failure_scenario": "A sock puppet with 6 of 10 cohort PRs yields DR_90 0.6 where the per-author cap yields 0.3333, on a 0.25-weight parameter; the cap needs only (login, created_at), both present in the pr_window envelope.",
@@ -459,12 +459,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L0-03@cvi/derive/bundle.py",
+      "item_id": "L0-03@porchlamp/derive/bundle.py",
       "checklist_id": "L0-03",
       "level": "L0",
       "lens": "LENS-MI",
       "target": {
-        "path": "cvi/derive/bundle.py"
+        "path": "porchlamp/derive/bundle.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -507,7 +507,7 @@
           "finding_id": "F-001",
           "severity": "Warning:",
           "statement": "DR_90 - the only rate parameter with a live resolver - scores with neither the D-IN-3 eligibility gate nor the per-author cap.",
-          "file": "cvi/derive/bundle.py",
+          "file": "porchlamp/derive/bundle.py",
           "line": null,
           "quoted_line": null,
           "failure_scenario": "A sock puppet with 6 of 10 cohort PRs yields DR_90 0.6 where the per-author cap yields 0.3333, on a 0.25-weight parameter; the cap needs only (login, created_at), both present in the pr_window envelope.",
@@ -530,12 +530,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L0-03@cvi/derive/bundle.py",
+      "item_id": "L0-03@porchlamp/derive/bundle.py",
       "checklist_id": "L0-03",
       "level": "L0",
       "lens": null,
       "target": {
-        "path": "cvi/derive/bundle.py"
+        "path": "porchlamp/derive/bundle.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -590,12 +590,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L1-05@cvi/core/hygiene.py",
+      "item_id": "L1-05@porchlamp/core/hygiene.py",
       "checklist_id": "L1-05",
       "level": "L1",
       "lens": null,
       "target": {
-        "path": "cvi/core/hygiene.py"
+        "path": "porchlamp/core/hygiene.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -650,12 +650,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L1-05@cvi/core/hygiene.py",
+      "item_id": "L1-05@porchlamp/core/hygiene.py",
       "checklist_id": "L1-05",
       "level": "L1",
       "lens": null,
       "target": {
-        "path": "cvi/core/hygiene.py"
+        "path": "porchlamp/core/hygiene.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -710,12 +710,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L1-05@cvi/verify/detectors.py",
+      "item_id": "L1-05@porchlamp/verify/detectors.py",
       "checklist_id": "L1-05",
       "level": "L1",
       "lens": null,
       "target": {
-        "path": "cvi/verify/detectors.py"
+        "path": "porchlamp/verify/detectors.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -770,12 +770,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "LENS-DET-01@cvi/core/hygiene.py",
+      "item_id": "LENS-DET-01@porchlamp/core/hygiene.py",
       "checklist_id": "LENS-DET-01",
       "level": "L1",
       "lens": "LENS-DET",
       "target": {
-        "path": "cvi/core/hygiene.py"
+        "path": "porchlamp/core/hygiene.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -830,12 +830,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L1-13@cvi/verify/detectors.py",
+      "item_id": "L1-13@porchlamp/verify/detectors.py",
       "checklist_id": "L1-13",
       "level": "L1",
       "lens": null,
       "target": {
-        "path": "cvi/verify/detectors.py"
+        "path": "porchlamp/verify/detectors.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -890,12 +890,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "LENS-PROV-02@cvi/core/constants_v2.py",
+      "item_id": "LENS-PROV-02@porchlamp/core/constants_v2.py",
       "checklist_id": "LENS-PROV-02",
       "level": "L2",
       "lens": "LENS-PROV",
       "target": {
-        "path": "cvi/core/constants_v2.py"
+        "path": "porchlamp/core/constants_v2.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -922,7 +922,7 @@
       "at_source": "date -Is on pctablet505-X870E-AORUS-ELITE-X3D",
       "verdict": "PASS",
       "pass_condition": "The three constants are registered and frozen; the pinned hash equals the computed one; the fixture re-pin is metadata-only.",
-      "evidence_summary": "Recomputed with cvi.core.models.canonical_json = module = pinned = changelog after 748be6e4...; removing the three keys reproduces the before 419091af... exactly. Three _FROZEN_TABLE rows (test_frozen.py:226-228); M4 completeness test present; fixture diff is 3 files, 1 line each.",
+      "evidence_summary": "Recomputed with porchlamp.core.models.canonical_json = module = pinned = changelog after 748be6e4...; removing the three keys reproduces the before 419091af... exactly. Three _FROZEN_TABLE rows (test_frozen.py:226-228); M4 completeness test present; fixture diff is 3 files, 1 line each.",
       "evidence_files": [
         "/home/pctablet505/Projects/cvi-scratch/W3-1-review/check_f1to4.py",
         "/home/pctablet505/Projects/cvi-scratch/W3-1-review/check_din3_coverage.py",
@@ -950,12 +950,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L2-02@cvi/core/hygiene.py",
+      "item_id": "L2-02@porchlamp/core/hygiene.py",
       "checklist_id": "L2-02",
       "level": "L2",
       "lens": null,
       "target": {
-        "path": "cvi/core/hygiene.py"
+        "path": "porchlamp/core/hygiene.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -981,8 +981,8 @@
       "completed_at": "2026-09-13T20:44:52+05:30",
       "at_source": "date -Is on pctablet505-X870E-AORUS-ELITE-X3D",
       "verdict": "PASS",
-      "pass_condition": "cvi/core/hygiene.py is pure and import-graph legal.",
-      "evidence_summary": "AST-derived imports: __future__, datetime, typing, cvi.core.constants_v2 only; zero clock/I-O/randomness tokens; tests/core/test_import_graph.py 4 passed.",
+      "pass_condition": "porchlamp/core/hygiene.py is pure and import-graph legal.",
+      "evidence_summary": "AST-derived imports: __future__, datetime, typing, porchlamp.core.constants_v2 only; zero clock/I-O/randomness tokens; tests/core/test_import_graph.py 4 passed.",
       "evidence_files": [
         "/home/pctablet505/Projects/cvi-scratch/W3-1-review/check_f1to4.py",
         "/home/pctablet505/Projects/cvi-scratch/W3-1-review/check_din3_coverage.py",
@@ -1010,12 +1010,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "LENS-DET-01@cvi/collect/github_graphql.py",
+      "item_id": "LENS-DET-01@porchlamp/collect/github_graphql.py",
       "checklist_id": "LENS-DET-01",
       "level": "L1",
       "lens": "LENS-DET",
       "target": {
-        "path": "cvi/collect/github_graphql.py"
+        "path": "porchlamp/collect/github_graphql.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -1190,12 +1190,12 @@
     {
       "schema_version": "1.0.0",
       "run_id": "2026-09-13-w3-1-1",
-      "item_id": "L0-12@cvi/collect/github_graphql.py",
+      "item_id": "L0-12@porchlamp/collect/github_graphql.py",
       "checklist_id": "L0-12",
       "level": "L0",
       "lens": "LENS-DOC",
       "target": {
-        "path": "cvi/collect/github_graphql.py"
+        "path": "porchlamp/collect/github_graphql.py"
       },
       "agent": {
         "name": "opus-review-W3-1",
@@ -1238,9 +1238,9 @@
           "finding_id": "F-003",
           "severity": "Warning:",
           "statement": "Two shipped-source citations point at RFC-0002 (the StarScout relocation) where they mean RFC-0004.",
-          "file": "cvi/collect/github_graphql.py",
+          "file": "porchlamp/collect/github_graphql.py",
           "line": 500,
-          "quoted_line": "#: cvi.core.constants_v2 (W3-1, RFC-0002) \u2014 this module's own D-IN-4",
+          "quoted_line": "#: porchlamp.core.constants_v2 (W3-1, RFC-0002) \u2014 this module's own D-IN-4",
           "failure_scenario": "A reader following the citation lands on the wrong RFC; the fixup renumbered the file and the changelog but not the in-source references.",
           "measurement_integrity": false
         }

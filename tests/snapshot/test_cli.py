@@ -1,5 +1,5 @@
-"""Tests for :mod:`cvi.snapshot.cli`: ``cvi snapshot freeze`` and
-``cvi snapshot reproduce``.
+"""Tests for :mod:`porchlamp.snapshot.cli`: ``porchlamp snapshot freeze`` and
+``porchlamp snapshot reproduce``.
 
 ``main`` returns the exit code; the CLI layer handles user-facing output.
 The data directory is a synthetic one-repo sample built by
@@ -15,8 +15,8 @@ from typing import Any
 
 import pytest
 
-from cvi.snapshot.cli import main
-from cvi.snapshot.manifest import MANIFEST_FILENAME, load_manifest
+from porchlamp.snapshot.cli import main
+from porchlamp.snapshot.manifest import MANIFEST_FILENAME, load_manifest
 
 FETCHED_AT = "2026-09-11T19:49:53.263996+00:00"
 AS_OF = "2026-09-12T00:00:00+00:00"
@@ -229,12 +229,12 @@ def test_every_name_cli_imports_from_the_snapshot_package_is_exported() -> None:
     """A consumer importing from the package root can name every symbol
     the CLI itself relies on -- EnvelopeScan included, since
     envelope_entries's return type must be nameable too."""
-    import cvi.snapshot as snapshot_pkg
+    import porchlamp.snapshot as snapshot_pkg
 
     source = Path(inspect.getsourcefile(main)).read_text(encoding="utf-8")
     imported: set[str] = set()
     for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("cvi.snapshot."):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("porchlamp.snapshot."):
             imported.update(alias.name for alias in node.names)
     assert imported  # anti-vacuity: the scan actually found cli.py's two import blocks
     assert imported <= set(snapshot_pkg.__all__)
@@ -278,8 +278,8 @@ def test_reproduce_of_a_stale_native_hash_exits_one_and_names_the_key(
 def test_build_creates_v2_snapshot_dir(
     data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """cvi snapshot build creates manifest.json, populations.json, and bundles/*.json."""
-    from cvi.snapshot.fixture_io import load_frozen_fixture
+    """porchlamp snapshot build creates manifest.json, populations.json, and bundles/*.json."""
+    from porchlamp.snapshot.fixture_io import load_frozen_fixture
 
     _legacy(data_dir, "tree", "org__alpha", {"paths": ["pyproject.toml", "LICENSE"]})
     _legacy(data_dir, "commits_180d", "org__alpha", [{"author_login": "alice"}])

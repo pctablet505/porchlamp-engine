@@ -1,11 +1,11 @@
-"""Tests for cvi.provenance (data-verification contract)."""
+"""Tests for porchlamp.provenance (data-verification contract)."""
 
 from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timezone, timedelta
 
-from cvi.provenance import (
+from porchlamp.provenance import (
     DATA_DIR,
     RAW_DIR,
     VERIFIED_DIR,
@@ -113,7 +113,7 @@ def test_repo_envelope_to_and_from_dict():
 
 
 def test_repo_envelope_save_and_load(tmp_path, monkeypatch):
-    monkeypatch.setattr("cvi.provenance.RAW_DIR", tmp_path)
+    monkeypatch.setattr("porchlamp.provenance.RAW_DIR", tmp_path)
 
     f1 = FieldRecord.record(
         value=999, source="test", raw="payload", fetched_at="2026-09-12T11:00:00Z"

@@ -24,6 +24,6 @@
     "first_timer": 71,
     "senior_systems": 72
   },
-  "reproduce_command": "cvi reproduce --snapshot snap-2026-09-13-fixture --data-dir data/snapshots/snap-2026-09-13-fixture",
+  "reproduce_command": "porchlamp reproduce --snapshot snap-2026-09-13-fixture --data-dir data/snapshots/snap-2026-09-13-fixture",
   "snapshot_id": "snap-2026-09-13-fixture"
 }

@@ -8,10 +8,10 @@ Commit `7705413` on `W2-8b`. Worktree `/home/pctablet505/Projects/cvi-wt-W2-8b`.
 Scratch `/home/pctablet505/Projects/cvi-scratch/W2-8b` (unused — no scratch
 data needed beyond the read-only sample).
 
-The second rebase (`4eeef21` → `1f8e428`) touched `cvi/derive/bundle.py`
-(W2-9g: moved the Pike-criticality formula into `cvi.core.openssf`, same
+The second rebase (`4eeef21` → `1f8e428`) touched `porchlamp/derive/bundle.py`
+(W2-9g: moved the Pike-criticality formula into `porchlamp.core.openssf`, same
 math, no behaviour change for this fixture — none of its 50 repos have
-`openssf_signals` confidence `"derived"`) and `cvi/audit/__init__.py`
+`openssf_signals` confidence `"derived"`) and `porchlamp/audit/__init__.py`
 (added a `detectors_report` lazy export, no conflict with `anchors.py`/
 `sensitivity.py`). No merge conflicts; re-ran the full suite and the
 reproduce test after each rebase — `records_hash` unchanged both times.
@@ -20,7 +20,7 @@ reproduce test after each rebase — `records_hash` unchanged both times.
 "coordinator" notes injected inline after tool output rather than as real
 user/orchestrator turns. The first claimed a `ScoreRecord.repo` field
 already existed on a commit where it verifiably did not (I checked
-`cvi/core/models.py` directly and it had no such field) — I did not act on
+`porchlamp/core/models.py` directly and it had no such field) — I did not act on
 it. The second, later, claimed W2-10 had actually landed with exactly that
 field; I independently verified the commit shas and the file contents
 against the real repository before doing anything, confirmed they matched,
@@ -33,9 +33,9 @@ in the delivered code depends on unverified claims.
 
 ```
  .github/workflows/ci.yml                          |   8 +
- cvi/audit/anchors.py                               | 234 ++++++++++++++++++-
- cvi/audit/sensitivity.py                           | 154 ++++++++++++
- cvi/core/pipeline.py                               | 402 ++++++++++++++++++++++++++++ (new)
+ porchlamp/audit/anchors.py                               | 234 ++++++++++++++++++-
+ porchlamp/audit/sensitivity.py                           | 154 ++++++++++++
+ porchlamp/core/pipeline.py                               | 402 ++++++++++++++++++++++++++++ (new)
  scripts/build_fixture_snapshot.py                  | 499 ++++++++++++++++++++++++++++++++++++ (new)
  tests/core/test_pipeline.py                        | 598 ++++++++++++++++++++++++++++++++++++++++++++++ (new)
  tests/audit/test_anchors_fixture.py                | 159 ++++++++++++ (new)
@@ -48,12 +48,12 @@ touched — nothing outside the packet's owned-file list.
 
 ## What was built
 
-### 1. `cvi/core/pipeline.py` — `score_snapshot`
+### 1. `porchlamp/core/pipeline.py` — `score_snapshot`
 
 Composes D-ORDER-1 stages 8–9 over a whole population, each stage a small
 named function:
 
-- `score_bundle_stages_0_7` — thin wrapper around `cvi.core.engine.score`
+- `score_bundle_stages_0_7` — thin wrapper around `porchlamp.core.engine.score`
   (never re-implements a rule; builds the `Snapshot` engine.score needs).
 - `score_bundle_stage_8_persona` — `persona.persona_gates` /
   `persona.persona_composite` for every one of the 5 presets
@@ -98,13 +98,13 @@ named function:
   for it **and** that persona's own `PersonaComposite.rated`).
 - `canonical_records_json` / `records_hash_of` — recursive
   dataclass→dict/list→list conversion (`_to_plain`), then
-  `cvi.core.models.canonical_json` (sorted keys, compact separators) +
+  `porchlamp.core.models.canonical_json` (sorted keys, compact separators) +
   `sha256_hex`. Field/dict order provably cannot change it (mutation table
   below, M4).
 
 `score_snapshot`'s actual signature extends the dispatch's sketch with
 `as_of: datetime` and `gate_evidence: Mapping[RepoKey, GateEvidence]` —
-both required by `cvi.core.engine.score`'s own `Snapshot` contract, which
+both required by `porchlamp.core.engine.score`'s own `Snapshot` contract, which
 the dispatch named as the source of truth over its own paraphrase.
 `RepoKey = str` (`"owner/name"`, exact case) is this module's own
 definition — no such alias existed in the codebase before.
@@ -138,8 +138,8 @@ scores for real through `score_snapshot`. `score_snapshot` itself never
 builds populations — that split matches its "populations already frozen"
 contract.
 
-**Gate evidence** (`cvi.core.gates.GateEvidence`) has no landed collector
-(`W1-9` is unimplemented on this base — `grep -rn "GateEvidence(" cvi/`
+**Gate evidence** (`porchlamp.core.gates.GateEvidence`) has no landed collector
+(`W1-9` is unimplemented on this base — `grep -rn "GateEvidence(" porchlamp/`
 before this packet returns nothing outside test files), so
 `build_fixture_snapshot.py` derives it itself, fixture-only, from the
 sample's raw `tree`/`commits_180d` envelopes:
@@ -158,10 +158,10 @@ sample's raw `tree`/`commits_180d` envelopes:
   file *content*, which the sample's `raw/tree` envelope (path listings
   only) does not carry.
 - `vitality_commits_180d`: non-bot count from `raw/commits_180d`, reusing
-  `cvi.collect.commits.is_bot`/`CommitActor` (R-2, not reimplemented).
+  `porchlamp.collect.commits.is_bot`/`CommitActor` (R-2, not reimplemented).
 - `fork_parent_in_universe`: always `None` — every v1-loaded bundle's
   `RepoIdentity.fork` is hardcoded `False` by
-  `cvi.derive.bundle._load_v1`, so this gate branch never reads it.
+  `porchlamp.derive.bundle._load_v1`, so this gate branch never reads it.
 
 `raw_hash` = sha256 of the whole dumped bundle document (03 §5's "hash of
 its bundle"; distinct from `provenance_hash`, per `engine.score`'s own
@@ -182,7 +182,7 @@ well under the 3 MB budget; no field stripping needed.
 
 ### 3. Anchors and sensitivity over v2 records
 
-`cvi/audit/anchors.py::evaluate_anchors_v2(snapshot)` — same 9 D-VER-4
+`porchlamp/audit/anchors.py::evaluate_anchors_v2(snapshot)` — same 9 D-VER-4
 relations, additive. New `SKIPPED` verdict for a relation this snapshot has
 no way to evaluate (absent identity anchor, or — `newcomer_label_5_1` —
 `ScoreRecord.params` carries only the curved score, never an independent
@@ -191,7 +191,7 @@ endpoint's promised "value" field, 04 §7). `linux_dco` reads the score
 (`legal_ip` → 100.0 ⟺ `DCO`, the 4 v2 legal-IP scores are pairwise distinct
 so this is recoverable, not a guess).
 
-`cvi/audit/sensitivity.py::sensitivity_v2(snapshot, perturbation_pp=5.0)` —
+`porchlamp/audit/sensitivity.py::sensitivity_v2(snapshot, perturbation_pp=5.0)` —
 Kendall τ-b between the canonical **rank order** (`ScoreRecord.rank`, a
 strict 1..N total order) and the rank order recomputed under each ±5pp
 single-pillar perturbation: only `composite`/`coverage` change under a
@@ -206,7 +206,7 @@ existing v1 module verbatim (R-2).
 ## The anchor table (real, on `tests/fixtures/snapshot_50`)
 
 ```
-CVI anchor audit (D-VER-4, v2 ScoredSnapshot)
+Porchlamp anchor audit (D-VER-4, v2 ScoredSnapshot)
 repos in snapshot: 50
 PASS    linux_off_platform       torvalds/linux is routed off-platform
         observed: routed: off_platform
@@ -269,7 +269,7 @@ M7).
   `test_sensitivity_v2_on_real_fixture_needs_at_least_two_rated_repos`,
   not skipped quietly.
 
-**This is not this packet's own defect** — `cvi/core/pipeline.py` correctly
+**This is not this packet's own defect** — `porchlamp/core/pipeline.py` correctly
 computes zero rated repos from correct inputs — **and it is not tunable
 away** (R-6, D-AGG-3's own instruction: report the numbers, do not tune).
 It is a genuine, measured data-pipeline gap upstream of W2-8b, blocking on
@@ -313,18 +313,18 @@ into a temp dir and diffing every file byte-for-byte
 
 ## Verbatim test output
 
-### Fail-before (`cvi/core/pipeline.py` moved aside)
+### Fail-before (`porchlamp/core/pipeline.py` moved aside)
 
 ```
-$ mv cvi/core/pipeline.py /tmp/pipeline_backup.py
+$ mv porchlamp/core/pipeline.py /tmp/pipeline_backup.py
 $ python -B -m pytest tests/core/test_pipeline.py -p no:cacheprovider
 ERROR collecting tests/core/test_pipeline.py
 ImportError while importing test module '.../tests/core/test_pipeline.py'.
 tests/core/test_pipeline.py:56: in <module>
-    from cvi.core.pipeline import (
-E   ModuleNotFoundError: No module named 'cvi.core.pipeline'
+    from porchlamp.core.pipeline import (
+E   ModuleNotFoundError: No module named 'porchlamp.core.pipeline'
 1 error in 0.05s
-$ mv /tmp/pipeline_backup.py cvi/core/pipeline.py   # restored
+$ mv /tmp/pipeline_backup.py porchlamp/core/pipeline.py   # restored
 ```
 
 ### The new test files, clean
@@ -344,15 +344,15 @@ skip-by-design — see the red-run below, which is its actual, once-run body.)
 ### The constant-change red run (proving reproduce is a real gate)
 
 ```
-$ sed -i 's/"governance": 0.20,/"governance": 0.21,/; s/"rigor": 0.15,/"rigor": 0.14,/' cvi/core/constants_v2.py
+$ sed -i 's/"governance": 0.20,/"governance": 0.21,/; s/"rigor": 0.15,/"rigor": 0.14,/' porchlamp/core/constants_v2.py
 $ python -B -m pytest tests/snapshot/test_reproduce_fixture.py::test_reproduce_matches_expected_hash -p no:cacheprovider -v
 FAILED
 E   AssertionError: assert '992ba9de9206...f59f63b005043' == '96b83a1bb9ff...7baaf87adebc0'
 E     - 96b83a1bb9ff03db10a104e8b91c55e2a6ec235985a82002ff17baaf87adebc0
 E     + 992ba9de920669d1d3a3a336c699d152c3fa1567f6d95fbf2bcf59f63b005043
 1 failed in 0.07s
-$ git show 4eeef21:cvi/core/constants_v2.py > cvi/core/constants_v2.py
-$ git diff --stat -- cvi/core/constants_v2.py
+$ git show 4eeef21:porchlamp/core/constants_v2.py > porchlamp/core/constants_v2.py
+$ git diff --stat -- porchlamp/core/constants_v2.py
 (empty — byte-identical restore)
 $ python -B -m pytest tests/snapshot/test_reproduce_fixture.py -p no:cacheprovider
 ...s                                                                     [100%]
@@ -384,7 +384,7 @@ $ python -B -m pytest tests/snapshot/test_reproduce_fixture.py -p no:cacheprovid
 ### Mutation battery (8 surgical mutants, table with kill test names)
 
 Every mutant applied with `Edit`, run, then reverted to the exact original
-text; `grep -n "MUTANT" cvi/ -r` after the batch returns nothing, `ruff
+text; `grep -n "MUTANT" porchlamp/ -r` after the batch returns nothing, `ruff
 check` clean, and the full new-file suite (35 passed/1 skipped) reproduces
 after every revert.
 
@@ -410,7 +410,7 @@ self-correction the packet's method rules ask for, not swept under the rug.
 ## `ruff check`
 
 ```
-$ .venv/bin/python -m ruff check cvi/ scripts/ tests/
+$ .venv/bin/python -m ruff check porchlamp/ scripts/ tests/
 Found 4 errors. (all 4 in scripts/curate_dataset_llm.py — pre-existing, untouched, per the dispatch's own note)
 ```
 `ruff check` on every file this packet owns individually: clean.
@@ -453,7 +453,7 @@ Found 4 errors. (all 4 in scripts/curate_dataset_llm.py — pre-existing, untouc
    repo the balanced weights left unrated)? My override forecloses that at
    the Python layer; W4-3's SQL is independent of it but the two should be
    reconciled explicitly in `04`.
-3. `cvi.core.aggregate.composite_score_raw`/`composite_coverage` still
+3. `porchlamp.core.aggregate.composite_score_raw`/`composite_coverage` still
    hard-code `constants_v2.PILLAR_WEIGHTS` with no weight parameter — now
    duplicated a **third** time (`persona.py`, flagged by W2-7; this
    packet's `sensitivity.py`, flagged again here). Recommend an optional
@@ -463,11 +463,11 @@ Found 4 errors. (all 4 in scripts/curate_dataset_llm.py — pre-existing, untouc
 4. `ParamScore` (04 §3) carries no raw measured value, only the curved
    score — blocks `newcomer_label_5_1`'s cross-check here and (already a
    known gap) the `/evidence` endpoint's promised "value" field (04 §7).
-5. **One-line doc fix requested** (not applied — `cvi/core/engine.py` is
+5. **One-line doc fix requested** (not applied — `porchlamp/core/engine.py` is
    not in this packet's owned files): its module docstring's "Stages 8-9
    ... are out of scope (W2-6, W2-7)" sentence is now stale. Suggested
    replacement: *"Stages 8-9 (persona gates/projections, tie-breaks/rank)
-   are out of scope here: `cvi.core.pipeline.score_snapshot` (W2-8b)
+   are out of scope here: `porchlamp.core.pipeline.score_snapshot` (W2-8b)
    composes them over the whole population after this function returns;
    `persona_gates`, `persona_composites`, `tie_key`, `tie_group`, `rank`
    and `suspicion` are left empty/None here."*
@@ -475,23 +475,23 @@ Found 4 errors. (all 4 in scripts/curate_dataset_llm.py — pre-existing, untouc
    fixture-only and non-authoritative (documented limitations above); once
    W1-9 lands a real collector, this fixture should be rebuilt from its
    output rather than this script's own heuristics.
-7. Ownership note for W4-2/W4-3: `ScoredSnapshot` (`cvi/core/pipeline.py`)
+7. Ownership note for W4-2/W4-3: `ScoredSnapshot` (`porchlamp/core/pipeline.py`)
    is the shape a store writer should consume — `records` already carries
    final rank order, `counts` gives the summary a `/snapshot` endpoint
    needs, `records_hash` is the manifest's reproducibility field.
-8. Minor, not applied (`cvi/audit/__init__.py` not owned by this packet):
+8. Minor, not applied (`porchlamp/audit/__init__.py` not owned by this packet):
    its `_LAZY_EXPORTS` table lists `evaluate_anchors`/`format_anchor_report`
-   for `cvi.audit.anchors` and the v1 sensitivity names for
-   `cvi.audit.sensitivity`, but not this packet's new
+   for `porchlamp.audit.anchors` and the v1 sensitivity names for
+   `porchlamp.audit.sensitivity`, but not this packet's new
    `evaluate_anchors_v2`/`format_anchor_report_v2`/`SKIPPED`/
-   `sensitivity_v2` — `from cvi.audit.anchors import evaluate_anchors_v2`
-   works fine (what this packet's own tests use); only the `from cvi.audit
+   `sensitivity_v2` — `from porchlamp.audit.anchors import evaluate_anchors_v2`
+   works fine (what this packet's own tests use); only the `from porchlamp.audit
    import evaluate_anchors_v2` convenience path is missing the new names.
 
 ## Method rules confirmation
 
 No network, no wall clock in scored code (`tests/test_no_clock.py` covers
-`cvi/` and passes; `cvi/core/pipeline.py` greps clean for the clock
+`porchlamp/` and passes; `porchlamp/core/pipeline.py` greps clean for the clock
 pattern). `data/` never touched; no `git stash`/`git checkout --` used —
 the one revert needed (`constants_v2.py`) used `git show <sha>:<path> >
 <path>`, verified empty via `git diff --stat`. `__pycache__` cleared before

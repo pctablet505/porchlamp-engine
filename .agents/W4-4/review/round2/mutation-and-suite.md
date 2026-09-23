@@ -29,7 +29,7 @@ KILLED by `test_v2_refusal_reasons_refuses_a_fixture_marked_legacy_table`.
 
 ```
 branch ac4b46a : 2541 passed, 1 skipped, 12 warnings in 22.30s
-ruff check cvi/ tests/ scripts/ : All checks passed!
+ruff check porchlamp/ tests/ scripts/ : All checks passed!
 
 main 6899b71  : 2477 passed, 2 skipped, 12 warnings in 13.63s
 cherry-pick of all 15 W4-4 commits: no conflict
@@ -37,7 +37,7 @@ merged        : 2541 passed, 1 skipped, 12 warnings in 22.04s
 ruff (merged) : All checks passed!
 ```
 (The skip count 2 → 1 is W4-6's self-upgrading store-CLI guard test, which
-now runs for real against `cvi/serve/guard.py`.)
+now runs for real against `porchlamp/serve/guard.py`.)
 
 ## Performance (regression check, 10,000 rows, 20 calls, budget 150 ms)
 

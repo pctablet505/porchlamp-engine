@@ -1,4 +1,4 @@
-"""Tests for cvi.paths.data_root and its use in scripts/gather.py and
+"""Tests for porchlamp.paths.data_root and its use in scripts/gather.py and
 scripts/derive.py.
 
 The "override honoured" tests pin that both scripts can be pointed at a
@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from cvi.paths import CVI_DATA_ROOT_ENV, REPO_ROOT, data_root
+from porchlamp.paths import PORCHLAMP_DATA_ROOT_ENV, REPO_ROOT, data_root
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -26,42 +26,42 @@ def _load_script(name: str):
 
 
 def test_default_data_root_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(CVI_DATA_ROOT_ENV, raising=False)
+    monkeypatch.delenv(PORCHLAMP_DATA_ROOT_ENV, raising=False)
     assert data_root() == REPO_ROOT / "data"
 
 
 def test_override_honoured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     scratch = tmp_path / "scratch-root"
-    monkeypatch.setenv(CVI_DATA_ROOT_ENV, str(scratch))
+    monkeypatch.setenv(PORCHLAMP_DATA_ROOT_ENV, str(scratch))
     assert data_root() == scratch.resolve()
 
 
 def test_override_expands_user(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(CVI_DATA_ROOT_ENV, "~/cvi-does-not-need-to-exist")
-    assert data_root() == Path.home() / "cvi-does-not-need-to-exist"
+    monkeypatch.setenv(PORCHLAMP_DATA_ROOT_ENV, "~/porchlamp-does-not-need-to-exist")
+    assert data_root() == Path.home() / "porchlamp-does-not-need-to-exist"
 
 
 def test_gather_default_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(CVI_DATA_ROOT_ENV, raising=False)
+    monkeypatch.delenv(PORCHLAMP_DATA_ROOT_ENV, raising=False)
     gather = _load_script("gather")
     assert gather.DATA == REPO_ROOT / "data" / "raw"
 
 
 def test_gather_override_honoured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     scratch = tmp_path / "scratch-root"
-    monkeypatch.setenv(CVI_DATA_ROOT_ENV, str(scratch))
+    monkeypatch.setenv(PORCHLAMP_DATA_ROOT_ENV, str(scratch))
     gather = _load_script("gather")
     assert gather.DATA == scratch.resolve() / "raw"
 
 
 def test_derive_default_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(CVI_DATA_ROOT_ENV, raising=False)
+    monkeypatch.delenv(PORCHLAMP_DATA_ROOT_ENV, raising=False)
     derive = _load_script("derive")
     assert derive.DATA_DIR == REPO_ROOT / "data"
 
 
 def test_derive_override_honoured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     scratch = tmp_path / "scratch-root"
-    monkeypatch.setenv(CVI_DATA_ROOT_ENV, str(scratch))
+    monkeypatch.setenv(PORCHLAMP_DATA_ROOT_ENV, str(scratch))
     derive = _load_script("derive")
     assert derive.DATA_DIR == scratch.resolve()

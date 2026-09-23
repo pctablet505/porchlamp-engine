@@ -203,19 +203,19 @@
   "not_hashed_process_constants": [
     {
       "gates": "D-VER-4 anchor-check minimum rating coverage (a release gate, not a per-repo score)",
-      "module": "cvi.audit.anchors",
+      "module": "porchlamp.audit.anchors",
       "name": "MIN_COVERAGE",
       "value": 0.9
     },
     {
       "gates": "D-AGG-3's Kendall tau-b release bar for a +/-5pp weight perturbation",
-      "module": "cvi.audit.sensitivity",
+      "module": "porchlamp.audit.sensitivity",
       "name": "TAU_RELEASE_THRESHOLD",
       "value": 0.9
     },
     {
       "gates": "the +/-5pp weight-perturbation size the sensitivity report tests at",
-      "module": "cvi.audit.sensitivity",
+      "module": "porchlamp.audit.sensitivity",
       "name": "DEFAULT_PERTURBATION_PP",
       "value": 5
     }
@@ -619,35 +619,35 @@
       "hash_after": "391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8",
       "hash_before": null,
       "rfc": "genesis",
-      "summary": "Initial v2 constants freeze (packet W2-8 round 2, `d7664f2`): relocated every scored tunable into `cvi.core.constants_v2` and computed `CONSTANTS_HASH` for the first time. No RFC \u2014 the procedure and this changelog begin governing changes only after this commit."
+      "summary": "Initial v2 constants freeze (packet W2-8 round 2, `d7664f2`): relocated every scored tunable into `porchlamp.core.constants_v2` and computed `CONSTANTS_HASH` for the first time. No RFC \u2014 the procedure and this changelog begin governing changes only after this commit."
     },
     {
       "date": "2026-09-13",
       "hash_after": "d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e",
       "hash_before": "391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8",
       "rfc": "RFC-0001",
-      "summary": "Add `AUTHOR_UNMEASURED_MAX_FRACTION = 0.20` (D-MISS-1 collector-failure gate for row 1.2/1.3, W1-4 round-2 review B-2/B-3); relocated out of `cvi.collect.github_graphql`, closing the census escape. No rank movement (no scoring-path consumer yet)."
+      "summary": "Add `AUTHOR_UNMEASURED_MAX_FRACTION = 0.20` (D-MISS-1 collector-failure gate for row 1.2/1.3, W1-4 round-2 review B-2/B-3); relocated out of `porchlamp.collect.github_graphql`, closing the census escape. No rank movement (no scoring-path consumer yet)."
     },
     {
       "date": "2026-09-13",
       "hash_after": "446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0",
       "hash_before": "d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e",
       "rfc": "RFC-0002",
-      "summary": "Relocate the five `STARS_SCOUT_*` universe-entry thresholds (D-IN-5 star-velocity filter, W1-10) from the unhashed `cvi.constants` into `cvi.core.constants_v2`; values unchanged. No rank movement (D-IN-5: stars never enter the composite)."
+      "summary": "Relocate the five `STARS_SCOUT_*` universe-entry thresholds (D-IN-5 star-velocity filter, W1-10) from the unhashed `porchlamp.constants` into `porchlamp.core.constants_v2`; values unchanged. No rank movement (D-IN-5: stars never enter the composite)."
     },
     {
       "date": "2026-09-13",
       "hash_after": "419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9",
       "hash_before": "446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0",
       "rfc": "RFC-0003",
-      "summary": "Add `NOT_APPLICABLE_RULES` (D-MISS-5's closed not_applicable rule list), `OPENSSF_PROXY_MIN_SIGNALS = 8` (row 2.2's `proxy:no_dependents_signal` minimum), and relocate `WINDOW_STALENESS_DAYS = 14` from `cvi.collect.pike_signals` (W1-7f follow-up). No rank movement on the fixture (0 rated repos; `records_hash` moves only from the new hashed constants and `PillarScore.applicable`'s structural addition)."
+      "summary": "Add `NOT_APPLICABLE_RULES` (D-MISS-5's closed not_applicable rule list), `OPENSSF_PROXY_MIN_SIGNALS = 8` (row 2.2's `proxy:no_dependents_signal` minimum), and relocate `WINDOW_STALENESS_DAYS = 14` from `porchlamp.collect.pike_signals` (W1-7f follow-up). No rank movement on the fixture (0 rated repos; `records_hash` moves only from the new hashed constants and `PillarScore.applicable`'s structural addition)."
     },
     {
       "date": "2026-09-13",
       "hash_after": "748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b",
       "hash_before": "419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9",
       "rfc": "RFC-0004",
-      "summary": "Relocate D-IN-3's `MIN_ACCOUNT_AGE_DAYS = 90` / `MIN_PUBLIC_EVENTS = 5` / `AUTHOR_CAP_FRACTION = 0.20` out of `cvi.collect.github_graphql` into `cvi.core.constants_v2` / `cvi.core.hygiene` (W3-1). No rank movement (no scoring-path consumer yet)."
+      "summary": "Relocate D-IN-3's `MIN_ACCOUNT_AGE_DAYS = 90` / `MIN_PUBLIC_EVENTS = 5` / `AUTHOR_CAP_FRACTION = 0.20` out of `porchlamp.collect.github_graphql` into `porchlamp.core.constants_v2` / `porchlamp.core.hygiene` (W3-1). No rank movement (no scoring-path consumer yet)."
     }
   ],
   "schema_version": 2,

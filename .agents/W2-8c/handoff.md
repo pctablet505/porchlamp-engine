@@ -9,7 +9,7 @@ Worktree `/home/pctablet505/Projects/cvi-wt-W2-8c`, branch `W2-8c`, base `fb1f30
 dispatch; main has since advanced independently — that's fine, this branch was never rebased).
 Scratch/data root: `~/Projects/cvi-scratch/W2-8c/data/` (**left untouched, as instructed** — do not
 edit anything under it by hand; only `scripts/gather.py`/`scripts/derive.py` should ever write
-there). Orchestration scripts (not part of the `cvi` package, not committed, already built and
+there). Orchestration scripts (not part of the `porchlamp` package, not committed, already built and
 smoke-tested on 4 real repos) live in `~/Projects/cvi-scratch/W2-8c/`: `gather_50.py`,
 `measure_50.py`, `dr90_amended_cohort.py`, `dmiss5_criticality_proxy.py`.
 
@@ -18,14 +18,14 @@ smoke-tested on 4 real repos) live in `~/Projects/cvi-scratch/W2-8c/`: `gather_5
 Commit `d0231a9` on branch `W2-8c` (base `fb1f30b`). Diffstat:
 
 ```
- cvi/paths.py            | 39 ++++++++++++++++++++++++++++
+ porchlamp/paths.py            | 39 ++++++++++++++++++++++++++++
  scripts/derive.py       |  3 ++-
  scripts/gather.py       |  3 ++-
  tests/test_data_root.py | 68 +++++++++++++++++++++++++++++++++++++++++++++++++
  4 files changed, 111 insertions(+), 2 deletions(-)
 ```
 
-`cvi/paths.py::data_root()` resolves `CVI_DATA_ROOT` if set, else the unchanged default
+`porchlamp/paths.py::data_root()` resolves `PORCHLAMP_DATA_ROOT` if set, else the unchanged default
 `<repo>/data`. `scripts/gather.py`'s `DATA` and `scripts/derive.py`'s `DATA_DIR` now read through
 it. No collector touched. Verified at wrap-up:
 
@@ -33,7 +33,7 @@ it. No collector touched. Verified at wrap-up:
 $ env -u PYTEST_ADDOPTS PYTHONPATH=/home/pctablet505/Projects/cvi-wt-W2-8c /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -B -m pytest tests/ -p no:cacheprovider -n auto
 1728 passed, 68 warnings in 96.69s (exit 0)
 
-$ /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -m ruff check cvi/paths.py scripts/gather.py scripts/derive.py tests/test_data_root.py
+$ /home/pctablet505/Projects/contributor-value-index/.venv/bin/python -m ruff check porchlamp/paths.py scripts/gather.py scripts/derive.py tests/test_data_root.py
 All checks passed! (exit 0)
 ```
 
@@ -43,7 +43,7 @@ All checks passed! (exit 0)
 existence, so this is safe to just re-run):**
 
 ```bash
-CVI_DATA_ROOT=/home/pctablet505/Projects/cvi-scratch/W2-8c/data \
+PORCHLAMP_DATA_ROOT=/home/pctablet505/Projects/cvi-scratch/W2-8c/data \
 PYTHONPATH=/home/pctablet505/Projects/cvi-wt-W2-8c \
 /home/pctablet505/Projects/contributor-value-index/.venv/bin/python \
 /home/pctablet505/Projects/cvi-scratch/W2-8c/gather_50.py
@@ -88,7 +88,7 @@ concurrent agents' usage, not this run's; confirms the token really is shared an
 | downloads | 4 | - | - | 7 | 13 |
 
 `dependents: skip` (13) = go/maven/systems ecosystems, no registry mapping in
-`cvi/collect/depsdev.py::SYSTEM_FOR_ECOSYSTEM` (only pypi/npm/crates map) — no envelope written, by
+`porchlamp/collect/depsdev.py::SYSTEM_FOR_ECOSYSTEM` (only pypi/npm/crates map) — no envelope written, by
 design, not a failure. `dependents: fail` (3) = pypi/npm/crates repos where deps.dev/ecosyste.ms
 returned no count for that package (also no envelope; `collect_dependents`'s own documented "no
 source carries a count" return, not an exception).
@@ -135,17 +135,17 @@ This produces, printed and written to `~/Projects/cvi-scratch/W2-8c/measure_resu
   gather) vs OLD (`~/Projects/cvi-scratch/sample-200`, the same 50 repo keys, v1-format, predates
   the W1 collectors).
 - **Column 1** — coverage histogram (0.1 bins), rated/gated/unrated counts + reasons, **as data
-  derives today** (no amendments), scored via `cvi.core.pipeline.score_snapshot` loaded read-only
+  derives today** (no amendments), scored via `porchlamp.core.pipeline.score_snapshot` loaded read-only
   from `/home/pctablet505/Projects/cvi-wt-W2-8b` (verified byte-identical to main on every file it
-  shares except `cvi/audit/anchors.py`, `cvi/audit/sensitivity.py` — unused by this path — and
+  shares except `porchlamp/audit/anchors.py`, `porchlamp/audit/sensitivity.py` — unused by this path — and
   `pipeline.py` itself, which is new: `git diff --stat 1f8e428 fb1f30b -- . ':!docs'` is empty).
 - **Column 2** — same, **with DR_90 under the amended cohort** (see section 5.1): evidence only,
-  computed by `dr90_amended_cohort.py` directly from raw `pr_window` envelopes, `cvi/derive/
+  computed by `dr90_amended_cohort.py` directly from raw `pr_window` envelopes, `porchlamp/derive/
   bundle.py::INPUT_MAPPINGS` is NOT touched.
 - **Column 3** — same, **with D-MISS-5 + the criticality proxy, on top of column 2** (section 5.2):
   evidence only, `dmiss5_criticality_proxy.py`, via a monkeypatch of
-  `cvi.core.aggregate.aggregate_pillars` scoped to one `score_snapshot` call (restored immediately
-  after) — nothing in `cvi/` is left modified.
+  `porchlamp.core.aggregate.aggregate_pillars` scoped to one `score_snapshot` call (restored immediately
+  after) — nothing in `porchlamp/` is left modified.
 - Per-ecosystem breakdown (go/systems/maven/pypi/npm/crates) of rated/gated/unrated, in all three
   columns (`by_ecosystem` in each column's result dict).
 
@@ -159,7 +159,7 @@ gathered+derived needs no code changes, only more data.
 
 ### 5.1 DR_90 (`dr90_decision_rate`) is structurally unmapped today — ruling: amend the cohort, packet W2-12
 
-`cvi/derive/bundle.py::INPUT_MAPPINGS["dr90_decision_rate"]` is a constant `_unmapped(...)`
+`porchlamp/derive/bundle.py::INPUT_MAPPINGS["dr90_decision_rate"]` is a constant `_unmapped(...)`
 resolver (always `Unmeasured(collector_failure)`) because D-IN-4's original cohort definition
 (`docs/v2/02-RANKING-DESIGN.md` row 1.2: PRs opened in `[now-270d, now-90d]`) falls outside the
 landed W1-3 `pr_window` collector's trailing-180-day window — no amount of gathering fixes it.
@@ -172,9 +172,9 @@ column 2/3's patched bundles.
 
 ### 5.2 `dependents_deduped`/`openssf_criticality` are coupled and capped by ecosystem — ruling: D-MISS-5 + criticality proxy, packets W1-2f / W2-13
 
-`cvi/collect/depsdev.py::SYSTEM_FOR_ECOSYSTEM` maps only pypi/npm/crates to a deps.dev system id;
+`porchlamp/collect/depsdev.py::SYSTEM_FOR_ECOSYSTEM` maps only pypi/npm/crates to a deps.dev system id;
 go/maven/systems get `"skip"` from `collect_dependents` (no envelope, by design — no derivable
-package name). Separately, `cvi/collect/pike_signals.py::derive_pike_signals` hard-requires the
+package name). Separately, `porchlamp/collect/pike_signals.py::derive_pike_signals` hard-requires the
 dependents envelope (`dep.get("deduped_count")`) as one of its five sources for ALL TEN Pike
 signals — so a repo with no dependents envelope can never get `openssf_criticality` either, not
 just `dependents_deduped`. In the 50-repo fixture (go=12, systems=10, maven=8, pypi=8, npm=6,
@@ -182,7 +182,7 @@ crates=6), that's 30/50 (60%) structurally excluded from both inputs regardless 
 **Ruling received:**
 - **D-MISS-5** (a new missingness class, hashed to a design-level rule keyed on a universe-entry
   fact): `Unmeasured(reason="not_applicable")` drops a parameter's weight from BOTH sides of its
-  pillar's coverage ratio (today's `cvi.core.aggregate.aggregate_pillars` only drops it from the
+  pillar's coverage ratio (today's `porchlamp.core.aggregate.aggregate_pillars` only drops it from the
   numerator). Today's one hashed rule: `ecosystem == "systems"` → `dependents_deduped` is
   `not_applicable`. go/maven get a **real** fix instead, in a new packet **W1-2f** (deps.dev module
   path for go, `groupId:artifactId` from the root `pom.xml` for maven) — not implemented here (real
@@ -192,22 +192,22 @@ crates=6), that's 30/50 (60%) structurally excluded from both inputs regardless 
   dependents is `not_applicable` or `third_party_gap` (never `collector_failure` — a genuine fetch
   fault still voids the whole ten-signal set), recompute criticality from the other nine signals,
   weights renormalised over them. `dmiss5_criticality_proxy.py` reuses
-  `cvi.core.openssf.calculate_pike_criticality` UNCHANGED (it already accepts optional
+  `porchlamp.core.openssf.calculate_pike_criticality` UNCHANGED (it already accepts optional
   `weights`/`thresholds` dicts and renormalises over whichever keys `weights` carries) — no
   reimplementation of the formula. **Caveat, recorded honestly:** `derive_pike_signals` gates
   per-*source* (github_meta/commits_365d/releases/issues_counts), not per-signal, so this script
   can only observe the "9 of 9 present" case, a subset of the ruling's ">= 8 of 9" — the
   finer-grained partial case needs W2-13's real implementation to see. Neither `aggregate_pillars`
   nor `pike_signals.py`/`openssf.py` is modified; the D-MISS-5 behaviour is reproduced by
-  monkeypatching `cvi.core.aggregate.aggregate_pillars` for the duration of one `score_snapshot`
+  monkeypatching `porchlamp.core.aggregate.aggregate_pillars` for the duration of one `score_snapshot`
   call only (see `dmiss5_criticality_proxy.py::make_not_applicable_aware_aggregate_pillars`),
   restored immediately after.
 
 ## 6. COULD NOT VERIFY / observations for the lead
 
-- `cvi/collect/labels.py::collect_newcomer_issues` (via `gather.py`'s `_gh` fetch),
-  `cvi/collect/repo_object.py::collect_repo_object`, and
-  `cvi/collect/github_graphql.py::fetch_pr_window` have no internal inter-call pacing (no
+- `porchlamp/collect/labels.py::collect_newcomer_issues` (via `gather.py`'s `_gh` fetch),
+  `porchlamp/collect/repo_object.py::collect_repo_object`, and
+  `porchlamp/collect/github_graphql.py::fetch_pr_window` have no internal inter-call pacing (no
   `time.sleep` between successive `gh api` calls within one repo's own collection) — unlike the
   `rest` loop's `SLEEP_REST`, `pike_signals.py`'s `SLEEP_CORE_SECONDS`/`SLEEP_SEARCH_SECONDS`, and
   the commit-paging closures' sleeps. Not fixed here (collector logic, out of this packet's

@@ -1,6 +1,6 @@
 """Phase 1 StarScout anti-gaming filter tests.
 
-Exact-oracle tests for ``cvi.starscout.filter_fraudulent_star_velocity``.
+Exact-oracle tests for ``porchlamp.starscout.filter_fraudulent_star_velocity``.
 Every assertion pins the returned integer to a hand-computed value for a
 hand-built stargazer population, so any drift in the 90-day window, the
 throwaway-account threshold, the 500-star burst trigger, the 100:1 fork-ratio
@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from cvi.models import StargazerEvent
-from cvi.starscout import StarVelocityAudit, audit_star_velocity, filter_fraudulent_star_velocity
+from porchlamp.models import StargazerEvent
+from porchlamp.starscout import StarVelocityAudit, audit_star_velocity, filter_fraudulent_star_velocity
 
 NOW = datetime(2026, 9, 11, 12, 0, 0)
 

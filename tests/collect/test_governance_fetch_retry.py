@@ -23,7 +23,7 @@ import urllib.error
 
 import pytest
 
-from cvi.collect import governance as gov
+from porchlamp.collect import governance as gov
 
 
 class _Body:

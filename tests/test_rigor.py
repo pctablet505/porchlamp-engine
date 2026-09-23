@@ -22,7 +22,7 @@ import math
 
 import pytest
 
-from cvi.constants import (
+from porchlamp.constants import (
     AI_POSTURE_SCORES,
     PARAM_WEIGHTS,
     PILLAR_WEIGHTS,
@@ -30,8 +30,8 @@ from cvi.constants import (
     REVIEW_DEPTH_SIGMA,
     SCORECARD_MAX,
 )
-from cvi.models import AIPosture, Ecosystem, RepoMeta
-from cvi.pillars.rigor import (
+from porchlamp.models import AIPosture, Ecosystem, RepoMeta
+from porchlamp.pillars.rigor import (
     score_ai_posture,
     score_pipeline,
     score_review_depth,

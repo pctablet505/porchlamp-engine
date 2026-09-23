@@ -10,9 +10,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-_spec = importlib.util.spec_from_file_location("cvi_gather_priority", ROOT / "scripts" / "gather.py")
+_spec = importlib.util.spec_from_file_location("porchlamp_gather_priority", ROOT / "scripts" / "gather.py")
 gather = importlib.util.module_from_spec(_spec)
-sys.modules["cvi_gather_priority"] = gather
+sys.modules["porchlamp_gather_priority"] = gather
 _spec.loader.exec_module(gather)
 
 #: The per-run summary the BFS runner (cvi-scratch/bfs-run/gather_layer.sh)

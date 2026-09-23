@@ -32,13 +32,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cvi.lakehouse import repositories_dump_hash
-from cvi.snapshot import cli as snapshot_cli
-from cvi.snapshot.build_cmd import build_snapshot_dir
-from cvi.snapshot.manifest import code_commit
-from cvi.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
-from cvi.store.migrations import apply_migrations
-from cvi.store.schema import connect as connect_store
+from porchlamp.lakehouse import repositories_dump_hash
+from porchlamp.snapshot import cli as snapshot_cli
+from porchlamp.snapshot.build_cmd import build_snapshot_dir
+from porchlamp.snapshot.manifest import code_commit
+from porchlamp.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
+from porchlamp.store.migrations import apply_migrations
+from porchlamp.store.schema import connect as connect_store
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -165,7 +165,7 @@ def main() -> int:
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--skip-downloads", action="store_true",
                     help="defer pypistats (4/min) to a backfill pass")
-    ap.add_argument("--db", default=str(gather.DATA.parent / "cvi.db"))
+    ap.add_argument("--db", default=str(gather.DATA.parent / "porchlamp.db"))
     a = ap.parse_args()
     repos = _candidates(None if a.all else a.limit)
     tally = {"CLEAN": 0, "FLAG": 0, "FAIL": 0}

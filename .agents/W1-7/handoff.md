@@ -14,7 +14,7 @@ per the hook-chain-order rule). Copied in the five untracked files
 `pike_signals.py`, `tests/collect/test_w17_pike.py`), read them critically,
 and rewrote rather than kept as-is:
 
-**Consolidated 5 collector modules into 1** (`cvi/collect/pike_signals.py`,
+**Consolidated 5 collector modules into 1** (`porchlamp/collect/pike_signals.py`,
 643 lines) — `github_graphql.py` (W1-3) and `commits.py` (W1-5) both bundle
 collection + derivation for one packet's concern in a single file; the draft's
 `gh_rest.py`/`releases.py`/`issues_counts.py`/`runs.py`/`pike_signals.py` split
@@ -29,7 +29,7 @@ dispatch's literal packet-summary text but all three are required by the
 packet instructions given to me verbatim:**
 
 1. **Method string.** The dispatch says `method = "primary" or
-   "proxy:review_ci"` (matching `cvi.core.constants_v2.METHOD_PRIMARY` /
+   "proxy:review_ci"` (matching `porchlamp.core.constants_v2.METHOD_PRIMARY` /
    `PROXY_METHOD_PREFIX`, the v2 vocabulary `measured_problems` validates
    against). The draft used the invented string `"scorecard:subset"` for the
    scorecard-subset branch. Fixed to `"primary"`. (The proxy string,
@@ -46,7 +46,7 @@ packet instructions given to me verbatim:**
 3. **Bot reviewers excluded from the code-review-rate proxy.** The draft's
    `has_non_author_approval` counted an APPROVED review from *any* login
    different from the PR author, including automated accounts (a CI bot that
-   auto-approves certain PRs). `cvi.collect.github_graphql.is_bot_actor`
+   auto-approves certain PRs). `porchlamp.collect.github_graphql.is_bot_actor`
    (already public, W1-3) is now applied to the reviewer, matching the same
    codebase's existing bot-exclusion pattern for review-based signals
    (`_is_maintainer`, `substantive_review`). A new test
@@ -64,7 +64,7 @@ no reason/detail slot to store a free-text name in.
 ## Diffstat
 
 ```
- cvi/collect/pike_signals.py    | 643 ++++++++++++++++++++++++++++++++++++++
+ porchlamp/collect/pike_signals.py    | 643 ++++++++++++++++++++++++++++++++++++++
  scripts/derive.py              |  13 +
  scripts/gather.py              |  15 +
  tests/collect/test_w17_pike.py | 683 +++++++++++++++++++++++++++++++++++++++++
@@ -137,13 +137,13 @@ same guard directly inside the packet test set.
 ## Ruff
 
 ```
-$ .venv/bin/ruff check cvi/collect/pike_signals.py tests/collect/test_w17_pike.py scripts/derive.py scripts/gather.py
+$ .venv/bin/ruff check porchlamp/collect/pike_signals.py tests/collect/test_w17_pike.py scripts/derive.py scripts/gather.py
 All checks passed!
 ```
 Exit code: 0.
 
 ```
-$ .venv/bin/ruff check cvi/ scripts/ tests/
+$ .venv/bin/ruff check porchlamp/ scripts/ tests/
 Found 23 errors. [17 fixable]
 ```
 Exit code: 1. All 23 are in 5 files I did not touch: `scripts/curate_dataset_llm.py`,
@@ -224,7 +224,7 @@ OpenSSF Scorecard record):
 `flask`'s `dependents_count` (12,698) is byte-for-byte the same figure
 `tests/collect/test_depsdev.py`'s docstring recorded for the same repo from
 the W1-2 live capture (`"dependentCount": 12698`), an independent
-cross-check that the collector reused here (`cvi.collect.depsdev`,
+cross-check that the collector reused here (`porchlamp.collect.depsdev`,
 unmodified) is reading the same real upstream fact.
 
 All three repos already carry a Scorecard record, so **the proxy method
@@ -247,7 +247,7 @@ changed one).
 ## Measure
 
 **Before** (frozen `~/Projects/cvi-scratch/sample-200`, read-only, via
-`python -m cvi.audit.coverage --data-dir sample-200 --json`):
+`python -m porchlamp.audit.coverage --data-dir sample-200 --json`):
 - `meta.openssf_signals` missing_rate = **1.0000** (200/200) — matches F8's
   100% exactly.
 - `meta.scorecard_score` missing_rate = **0.3950** (79/200 missing, 121/200
@@ -293,12 +293,12 @@ new hook active over all 200; driver at `.../W1-7s/regen_measure.py`):
 ## Deviations
 
 - Consolidated the in-flight draft's 5 collector modules into 1
-  (`cvi/collect/pike_signals.py`), matching the `github_graphql.py`/
+  (`porchlamp/collect/pike_signals.py`), matching the `github_graphql.py`/
   `commits.py` one-module-per-packet-concern precedent, per the explicit
   instruction to merge modules that remove duplication.
 - Fixed three items in the in-flight draft before accepting it (method
   string, `is:closed` qualifier, bot-reviewer exclusion) — see above.
-- Did not touch `cvi/derive/bundle.py` (the v1-to-v2 `FeatureBundle` mapper):
+- Did not touch `porchlamp/derive/bundle.py` (the v1-to-v2 `FeatureBundle` mapper):
   its `V1_FIELD_TO_INPUT`/`NO_V2_COLLECTOR` tables still route
   `openssf_criticality` and `pipeline_defenses` to a hard-coded
   `Unmeasured(collector_failure, ...)` regardless of what `scripts/derive.py`
@@ -313,11 +313,11 @@ new hook active over all 200; driver at `.../W1-7s/regen_measure.py`):
   an existing, multi-packet-wide gap, not one this packet introduced or was
   asked to close. Flagged as an ownership request below rather than
   expanded into (R-10, R-7).
-- Did not modify `cvi/audit/coverage.py`'s fixed `SPECS` tuple to add a
+- Did not modify `porchlamp/audit/coverage.py`'s fixed `SPECS` tuple to add a
   `pipeline_defenses` row (also outside W1-7's owned files); the Measure
   numbers above for `pipeline_defenses` were computed with a throwaway
   driver (`~/Projects/cvi-scratch/W1-7s/regen_measure.py`) using the same
-  present/missing definition `cvi.audit.coverage` uses (`confidence[field]
+  present/missing definition `porchlamp.audit.coverage` uses (`confidence[field]
   != "missing"`), not by editing the shared tool.
 
 ## COULD NOT VERIFY
@@ -335,7 +335,7 @@ new hook active over all 200; driver at `.../W1-7s/regen_measure.py`):
   a live fetch landing on that branch. A 4th live repo would resolve this
   but exceeds the packet's 3-live-repository bound.
 - Full v2 `FeatureBundle` wiring for `openssf_criticality`/`pipeline_defenses`
-  (see Deviations) — needs `cvi/derive/bundle.py` changes outside this
+  (see Deviations) — needs `porchlamp/derive/bundle.py` changes outside this
   packet's owned files; recorded as an ownership request for the lead
   (the same request applies to `dependents_deduped` from W1-2 and
   `substantive_review_rate` from W1-3, already latent on main).

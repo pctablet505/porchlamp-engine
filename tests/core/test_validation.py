@@ -1,7 +1,7 @@
 """Acceptance tests: strict FeatureBundle validation.
 
-Fail-before (R-1): on the base commit there is no ``cvi.core`` and no
-``cvi.derive``; the v1 deriver (``scripts/derive.py``) filled missing inputs
+Fail-before (R-1): on the base commit there is no ``porchlamp.core`` and no
+``porchlamp.derive``; the v1 deriver (``scripts/derive.py``) filled missing inputs
 with silent defaults (``Bundle.missing(field, default)``), so a bundle with a
 missing input key loaded fine and the default value scored. This module
 proves the v2 loader rejects it instead.
@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from cvi.core import constants
-from cvi.core.models import (
+from porchlamp.core import constants
+from porchlamp.core.models import (
     BundleValidationError,
     Cohorts,
     FeatureBundle,
@@ -21,7 +21,7 @@ from cvi.core.models import (
     RepoIdentity,
     Unmeasured,
 )
-from cvi.derive.bundle import dump_bundle, validate_bundle
+from porchlamp.derive.bundle import dump_bundle, validate_bundle
 
 _HASH = "ab" * 32
 _FETCHED_AT = "2026-09-01T00:00:00+00:00"

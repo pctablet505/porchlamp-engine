@@ -19,8 +19,8 @@ parameter at its 50.0 neutral, the pillar score is 0.40*100 + 0.25*50 =
 52.5 — a different weight assignment yields a different value.
 """
 
-from cvi.models import Ecosystem, RepoMeta
-from cvi.pillars.accessibility import (
+from porchlamp.models import Ecosystem, RepoMeta
+from porchlamp.pillars.accessibility import (
     score_accessibility,
     score_dx,
     score_gfi,

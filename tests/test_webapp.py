@@ -1,9 +1,9 @@
-"""Tests for the CVI web front-end demo (web/index.html + scripts/demo_app.py).
+"""Tests for the Porchlamp web front-end demo (web/index.html + scripts/demo_app.py).
 
 The demo app (scripts/demo_app.py) seeds 26 deterministic fixture repos
 into an OperationalStore; here it runs on an in-memory store (the default
 ``:memory:`` path) — no dependency on the demo's file-backed DB. The app
-is built with ``cvi.api.create_app`` plus the ``web/`` directory mounted
+is built with ``porchlamp.api.create_app`` plus the ``web/`` directory mounted
 at ``/`` exactly like ``demo_app.create_demo_app`` does.
 
 Oracle style: exact expected values everywhere; a test that is easy to
@@ -19,7 +19,7 @@ import pytest
 from fastapi.staticfiles import StaticFiles
 from fastapi.testclient import TestClient
 
-from cvi.api import create_app
+from porchlamp.api import create_app
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = REPO_ROOT / "web"
@@ -82,13 +82,13 @@ class TestIndexServed:
         assert "<!doctype html>" in html
         # The page drives all four API surfaces.
         for marker in (
-            "CVI",
+            "Porchlamp",
             'id="ecosystem"',
             'id="min_stars"',
             'id="exclude_black_holes"',
-            "/v1/cvi/matrix",
-            "/v1/cvi/repos/",
-            "/v1/cvi/reproject",
+            "/v1/porchlamp/matrix",
+            "/v1/porchlamp/repos/",
+            "/v1/porchlamp/reproject",
             "/healthz",
         ):
             assert marker in html, f"missing {marker!r} in index.html"
@@ -115,11 +115,11 @@ class TestIndexServed:
 
 
 # --------------------------------------------------------------------------- #
-# GET /v1/cvi/matrix — demo fixtures through the API
+# GET /v1/porchlamp/matrix — demo fixtures through the API
 # --------------------------------------------------------------------------- #
 class TestDemoMatrix:
     def test_default_params_yield_nodes_with_size(self, client) -> None:
-        body = client.get("/v1/cvi/matrix").json()
+        body = client.get("/v1/porchlamp/matrix").json()
         nodes = body["nodes"]
         assert len(nodes) >= 1
         assert any(node["size"] > 0 for node in nodes)
@@ -128,20 +128,20 @@ class TestDemoMatrix:
         # Every node carries the documented node shape.
         for node in nodes:
             assert {
-                "repo_id", "owner", "name", "x", "y", "cvi",
+                "repo_id", "owner", "name", "x", "y", "porchlamp",
                 "tier", "quadrant", "size", "is_gated",
             } <= set(node)
             assert 0.0 <= node["x"] <= 100.0 and 0.0 <= node["y"] <= 100.0
             assert node["is_gated"] == 0  # default excludes black holes
 
     def test_quadrant_counts_cover_all_four_quadrants(self, client) -> None:
-        body = client.get("/v1/cvi/matrix").json()
+        body = client.get("/v1/porchlamp/matrix").json()
         assert body["quadrant_counts"] == EXPECTED_QUADRANT_COUNTS
 
     def test_black_hole_excluded_by_default_and_included_when_kept(self, client) -> None:
-        default_ids = {n["repo_id"] for n in client.get("/v1/cvi/matrix").json()["nodes"]}
+        default_ids = {n["repo_id"] for n in client.get("/v1/porchlamp/matrix").json()["nodes"]}
         assert "ghost/ghost-maint" not in default_ids
-        kept = client.get("/v1/cvi/matrix", params={"exclude_black_holes": "false"}).json()
+        kept = client.get("/v1/porchlamp/matrix", params={"exclude_black_holes": "false"}).json()
         assert len(kept["nodes"]) == EXPECTED_REPO_COUNT - len(SMALL_REPOS)
         ghost = next(n for n in kept["nodes"] if n["repo_id"] == "ghost/ghost-maint")
         assert ghost["is_gated"] == 1
@@ -150,7 +150,7 @@ class TestDemoMatrix:
 
     def test_min_stars_zero_includes_small_repos(self, client) -> None:
         body = client.get(
-            "/v1/cvi/matrix",
+            "/v1/porchlamp/matrix",
             params={"min_stars": 0, "exclude_black_holes": "false"},
         ).json()
         ids = {n["repo_id"] for n in body["nodes"]}
@@ -158,23 +158,23 @@ class TestDemoMatrix:
         assert len(ids) == EXPECTED_REPO_COUNT
 
     def test_ecosystem_filter(self, client) -> None:
-        nodes = client.get("/v1/cvi/matrix", params={"ecosystem": "pypi"}).json()["nodes"]
+        nodes = client.get("/v1/porchlamp/matrix", params={"ecosystem": "pypi"}).json()["nodes"]
         assert {n["owner"] + "/" + n["name"] for n in nodes} == {
             "helios/atlas-core", "forge/data-mill", "forge/pipelint",
             "monolith/monolith-db", "dust/dusted-lib",
         }
 
     def test_all_quadrants_present_in_default_matrix(self, client) -> None:
-        quadrants = {n["quadrant"] for n in client.get("/v1/cvi/matrix").json()["nodes"]}
+        quadrants = {n["quadrant"] for n in client.get("/v1/porchlamp/matrix").json()["nodes"]}
         assert quadrants == {"Sweet Spot", "Crucible", "Nursery", "Graveyard"}
 
 
 # --------------------------------------------------------------------------- #
-# GET /v1/cvi/repos/{owner}/{name} — deep-dive scorecard
+# GET /v1/porchlamp/repos/{owner}/{name} — deep-dive scorecard
 # --------------------------------------------------------------------------- #
 class TestRepoDeepDive:
     def test_seeded_repo_200_with_pillar_scores(self, client) -> None:
-        resp = client.get("/v1/cvi/repos/lattice/lattice")
+        resp = client.get("/v1/porchlamp/repos/lattice/lattice")
         assert resp.status_code == 200
         body = resp.json()
         assert body["owner"] == "lattice" and body["name"] == "lattice"
@@ -192,18 +192,18 @@ class TestRepoDeepDive:
         assert body["rank_tier"] == "Tier S"
 
     def test_gated_repo_deep_dive_shows_reason(self, client) -> None:
-        body = client.get("/v1/cvi/repos/ghost/ghost-maint").json()
+        body = client.get("/v1/porchlamp/repos/ghost/ghost-maint").json()
         assert body["is_stage0_disqualified"] == 1
         assert "ghost rate" in body["disqualification_reason"]
         # Gate short-circuits: stored pillar columns are the documented 0.0 defaults.
         assert body["pillar_scores"] == dict.fromkeys(("responsiveness", "criticality", "governance", "rigor", "accessibility"), 0.0)
 
     def test_missing_repo_404(self, client) -> None:
-        assert client.get("/v1/cvi/repos/nobody/nothing").status_code == 404
+        assert client.get("/v1/porchlamp/repos/nobody/nothing").status_code == 404
 
 
 # --------------------------------------------------------------------------- #
-# POST /v1/cvi/reproject — persona re-projection
+# POST /v1/porchlamp/reproject — persona re-projection
 # --------------------------------------------------------------------------- #
 class TestReproject:
     #: All weight on accessibility: micro-css (92) is the unique maximum, so
@@ -218,7 +218,7 @@ class TestReproject:
     }
 
     def test_valid_weights_return_ranked_array_with_deltas(self, client) -> None:
-        resp = client.post("/v1/cvi/reproject", json={"weights": self.WEIGHTS})
+        resp = client.post("/v1/porchlamp/reproject", json={"weights": self.WEIGHTS})
         assert resp.status_code == 200
         items = resp.json()
         assert isinstance(items, list)
@@ -239,13 +239,13 @@ class TestReproject:
     def test_invalid_weights_422_before_store_access(self, client) -> None:
         # Sum off by more than 1e-6 -> rejected.
         resp = client.post(
-            "/v1/cvi/reproject",
+            "/v1/porchlamp/reproject",
             json={"weights": dict(self.WEIGHTS, accessibility=0.9)},
         )
         assert resp.status_code == 422
         # Extra key -> rejected.
         resp = client.post(
-            "/v1/cvi/reproject",
+            "/v1/porchlamp/reproject",
             json={"weights": dict(self.WEIGHTS, vibes=0.0)},
         )
         assert resp.status_code == 422
@@ -271,7 +271,7 @@ class TestDeepDivePayloadVerification:
         assert "Legal CLA" in html
 
     def test_seeded_repo_has_full_deep_dive_payload(self, client) -> None:
-        resp = client.get("/v1/cvi/repos/helios/atlas-core")
+        resp = client.get("/v1/porchlamp/repos/helios/atlas-core")
         assert resp.status_code == 200
         body = resp.json()
         assert "deep_dive" in body
@@ -330,7 +330,7 @@ class TestDeepDivePayloadVerification:
         assert 'id="shortcuts-modal"' in html
 
     def test_leaderboard_endpoint(self, client) -> None:
-        resp = client.get("/v1/cvi/leaderboard")
+        resp = client.get("/v1/porchlamp/leaderboard")
         assert resp.status_code == 200
         data = resp.json()
         assert "total" in data and "items" in data
@@ -338,9 +338,9 @@ class TestDeepDivePayloadVerification:
         assert len(items) == EXPECTED_REPO_COUNT
         assert items[0]["rank"] == 1
         assert "pillar_scores" in items[0]
-        assert "cvi" in items[0]
+        assert "porchlamp" in items[0]
         # Filter by ecosystem
-        resp_pypi = client.get("/v1/cvi/leaderboard", params={"ecosystem": "pypi"})
+        resp_pypi = client.get("/v1/porchlamp/leaderboard", params={"ecosystem": "pypi"})
         assert resp_pypi.status_code == 200
         data_pypi = resp_pypi.json()
         pypi_items = data_pypi["items"]
@@ -533,7 +533,7 @@ class TestRepositoryComparator:
 
         # Differential parameters
         for param in (
-            "Overall CVI Score",
+            "Overall Porchlamp Score",
             "Global Rank",
             "Benchmark Tier",
             "Leverage Score (Y-axis)",

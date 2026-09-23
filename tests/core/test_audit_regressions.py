@@ -16,8 +16,8 @@ import datetime
 
 import pytest
 
-from cvi.core import aggregate, constants, gates, matrix, models, tiebreak
-from cvi.core.models import (
+from porchlamp.core import aggregate, constants, gates, matrix, models, tiebreak
+from porchlamp.core.models import (
     BundleValidationError,
     Measured,
     PillarScore,
@@ -133,7 +133,7 @@ def test_a_non_finite_curve_input_raises_rather_than_scoring_100(bad: float) -> 
     -- the point of this test is that the curve does not rely on that earlier
     check having run.
     """
-    from cvi.core.params import PARAMS, curves
+    from porchlamp.core.params import PARAMS, curves
 
     defn = next(d for d in PARAMS.values() if d.kind == curves.KIND_NUMERIC and d.min_n in (None, 0))
     value = _measured(1.0)
@@ -213,7 +213,7 @@ def test_hours_between_agrees_across_equivalent_offsets() -> None:
 
 
 def _keys_for(bundles):
-    from cvi.core.pipeline import _validated_keys, repo_key
+    from porchlamp.core.pipeline import _validated_keys, repo_key
 
     evidence = {repo_key(b): healthy_evidence() for b in bundles}
     hashes = {repo_key(b): "cd" * 32 for b in bundles}
@@ -358,7 +358,7 @@ def test_gates_preserve_an_explicit_offset() -> None:
 # --------------------------------------------------------------------------- #
 
 def test_b_root_org_go_and_maven() -> None:
-    from cvi.collect import depsdev as dd
+    from porchlamp.collect import depsdev as dd
     assert dd.root_org("go", "github.com/gin-gonic/gin") == "gin-gonic"
     assert dd.root_org("go", "github.com/pallets/flask") == "pallets"
     assert dd.root_org("maven", "com.google.guava:guava") == "com.google.guava"
@@ -371,7 +371,7 @@ def test_b_root_org_go_and_maven() -> None:
 
 
 def test_b_parse_maven_coordinates_parent_property_placeholder() -> None:
-    from cvi.collect import depsdev as dd
+    from porchlamp.collect import depsdev as dd
     pom = """<project xmlns="http://maven.apache.org/POM/4.0.0">
   <parent>
     <groupId>com.example.parent</groupId>
@@ -385,7 +385,7 @@ def test_b_parse_maven_coordinates_parent_property_placeholder() -> None:
 
 
 def test_b_package_name_pypi_pep503() -> None:
-    from cvi.collect import depsdev as dd
+    from porchlamp.collect import depsdev as dd
     assert dd.package_name_for_repo("pallets", "Flask_SQLAlchemy", "pypi") == "flask-sqlalchemy"
     assert dd.package_name_for_repo("pallets", "flask.test", "pypi") == "flask-test"
 
@@ -393,7 +393,7 @@ def test_b_package_name_pypi_pep503() -> None:
 def test_b_promotion_ladder_v2_vocabulary() -> None:
     import importlib.util
     from pathlib import Path
-    from cvi.models import PromotionLadder
+    from porchlamp.models import PromotionLadder
     root = Path(__file__).resolve().parents[2]
     spec = importlib.util.spec_from_file_location("promote_script", root / "scripts" / "promote.py")
     promote = importlib.util.module_from_spec(spec)
@@ -405,8 +405,8 @@ def test_b_promotion_ladder_v2_vocabulary() -> None:
 
 
 def test_b_build_detectors_wires_source_drift() -> None:
-    from cvi.core.pipeline import repo_key
-    from cvi.verify import pipeline_hook
+    from porchlamp.core.pipeline import repo_key
+    from porchlamp.verify import pipeline_hook
     bundle = make_bundle([recent_decided_external()])
     key = repo_key(bundle)
     call = pipeline_hook.build_detectors([bundle], source_drift_by_key={key: True})
@@ -419,10 +419,10 @@ def test_b_build_detectors_wires_source_drift() -> None:
 
 
 def test_c_population_member_min_n_guard() -> None:
-    from cvi.core.models import FeatureBundle, RepoIdentity, PRWindow, Cohorts
-    from cvi.core.gates import GateResult
-    from cvi.snapshot.build_cmd import _population_member
-    from cvi.core import constants
+    from porchlamp.core.models import FeatureBundle, RepoIdentity, PRWindow, Cohorts
+    from porchlamp.core.gates import GateResult
+    from porchlamp.snapshot.build_cmd import _population_member
+    from porchlamp.core import constants
     from tests.core.test_validation import make_measured
 
     # ttm_p90_hours has min_n = 5
@@ -464,7 +464,7 @@ def test_c_population_member_min_n_guard() -> None:
 
 
 def test_c_bootstrap_population_lookup_satisfies_protocol() -> None:
-    from cvi.snapshot.build_cmd import _BootstrapPopulationLookup
+    from porchlamp.snapshot.build_cmd import _BootstrapPopulationLookup
     lookup = _BootstrapPopulationLookup()
     assert lookup.population("pypi", "ttm_p90_hours") is not None
     ecdf = lookup.ecdf("pypi", "ttm_p90_hours")
@@ -474,16 +474,16 @@ def test_c_bootstrap_population_lookup_satisfies_protocol() -> None:
 
 def test_c_lakehouse_operational_store_legacy_repositories(tmp_path) -> None:
     import sqlite3
-    from cvi.lakehouse import OperationalStore, repositories_dump_hash
+    from porchlamp.lakehouse import OperationalStore, repositories_dump_hash
 
     db = tmp_path / "migrated.db"
     conn = sqlite3.connect(db)
     # Simulate a migrated DB: legacy_repositories has v1 shape, repositories has v2 shape
     conn.execute(
-        "CREATE TABLE legacy_repositories (id INTEGER PRIMARY KEY, owner TEXT, name TEXT, overall_cvi REAL, rank_tier TEXT, matrix_quadrant TEXT, stars INTEGER, is_stage0_disqualified INTEGER, friction_score REAL, leverage_score REAL, score_responsiveness REAL, score_criticality REAL, score_governance REAL, score_rigor_ai REAL, score_accessibility REAL, last_indexed_at TEXT, ecosystem TEXT)"
+        "CREATE TABLE legacy_repositories (id INTEGER PRIMARY KEY, owner TEXT, name TEXT, overall_porchlamp REAL, rank_tier TEXT, matrix_quadrant TEXT, stars INTEGER, is_stage0_disqualified INTEGER, friction_score REAL, leverage_score REAL, score_responsiveness REAL, score_criticality REAL, score_governance REAL, score_rigor_ai REAL, score_accessibility REAL, last_indexed_at TEXT, ecosystem TEXT)"
     )
     conn.execute(
-        "INSERT INTO legacy_repositories (id, owner, name, overall_cvi, rank_tier, matrix_quadrant, stars, is_stage0_disqualified, score_responsiveness, score_criticality, score_governance, score_rigor_ai, score_accessibility, last_indexed_at, ecosystem) VALUES (1, 'org', 'repo', 80.0, 'A', 'NURTURE', 100, 0, 80, 80, 80, 80, 80, '2026-09-12T00:00:00Z', 'pypi')"
+        "INSERT INTO legacy_repositories (id, owner, name, overall_porchlamp, rank_tier, matrix_quadrant, stars, is_stage0_disqualified, score_responsiveness, score_criticality, score_governance, score_rigor_ai, score_accessibility, last_indexed_at, ecosystem) VALUES (1, 'org', 'repo', 80.0, 'A', 'NURTURE', 100, 0, 80, 80, 80, 80, 80, '2026-09-12T00:00:00Z', 'pypi')"
     )
     conn.execute("CREATE TABLE repositories (id INTEGER PRIMARY KEY, snapshot_id TEXT, owner TEXT, name TEXT)")
     conn.execute("CREATE TABLE snapshots (id TEXT PRIMARY KEY)")

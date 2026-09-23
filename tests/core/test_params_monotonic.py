@@ -13,9 +13,9 @@ import math
 
 import pytest
 
-from cvi.core import constants
-from cvi.core.models import Measured
-from cvi.core.params import PARAMS, ParamDef, monotonicity_violations, substantive_review_rate
+from porchlamp.core import constants
+from porchlamp.core.models import Measured
+from porchlamp.core.params import PARAMS, ParamDef, monotonicity_violations, substantive_review_rate
 
 _HASH = "ab" * 32
 _FETCHED_AT = "2026-09-01T00:00:00+00:00"
@@ -65,7 +65,7 @@ def test_property_check_uses_the_33_point_grid() -> None:
 
 
 def _old_gaussian(value: float) -> float:
-    """The v1 4.3 review-depth Gaussian (cvi/pillars/rigor.py at base commit)."""
+    """The v1 4.3 review-depth Gaussian (porchlamp/pillars/rigor.py at base commit)."""
     z = (value - 3.5) / 1.5
     return 100.0 * math.exp(-0.5 * z * z)
 

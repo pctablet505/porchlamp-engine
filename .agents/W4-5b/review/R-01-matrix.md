@@ -13,14 +13,14 @@ genuinely identical across the budget switch.
   view renders `copy.MATRIX_UNAUDITED_STARS_NOTE`. `starsDomain` is computed over ALL points, not the
   visible subset, so hiding a quadrant does not silently rescale every other marker. Correct.
 - Y-flip: `toSvgY(leverage) = DOMAIN_MAX - leverage`; washes place Sweet Spot at y=0..50 (high
-  leverage, low friction) — matches `cvi/core/matrix.py`'s quadrant rule. The arrow-key bug the
+  leverage, low friction) — matches `porchlamp/core/matrix.py`'s quadrant rule. The arrow-key bug the
   implementer found is genuinely fixed: `nearestMarkerInDirection` computes `cx/cy` through
   `toSvgX/toSvgY` (screen space) and its comment states why — no second sign derivation exists.
 - Gated excluded + caption: `excluded_count` = the snapshot's gated count (mutant M1 killed).
 - Quadrant toggle 1–4 really re-renders: the reducer `delete`s the key on un-hide
   (`state.js:436`) and `shellShape` folds `Object.keys(hidden).sort().join(",")` into the rebuild
   key, so the string changes in BOTH directions. The bug they found is properly fixed.
-- Hover card: name, CVI, coverage badge, tier + open hint; rendered on hover AND focus.
+- Hover card: name, Porchlamp, coverage badge, tier + open hint; rendered on hover AND focus.
 - Click/Enter → drawer via the existing `[data-owner][data-name]` delegation; `repo=` is pushed.
 - Reset view / wheel zoom / arrow pan all wired.
 

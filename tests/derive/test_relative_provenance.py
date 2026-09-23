@@ -1,9 +1,9 @@
 """Every envelope path recorded in a bundle is relative to
 the data root, never absolute.
 
-`cvi.derive.bundle._relative_source` expresses the resolved envelope path
+`porchlamp.derive.bundle._relative_source` expresses the resolved envelope path
 relative to the data root before it reaches a `Measured`/sidecar fact or
-`ctx.referenced`, and `cvi.core.models.Measured.__post_init__` (via
+`ctx.referenced`, and `porchlamp.core.models.Measured.__post_init__` (via
 `measured_problems`) refuses to construct one with an absolute source at
 all -- an enforcement point that both v1 resolution and v2 document
 loading pass through.
@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 from _fixtures import FETCHED_AT, base_document, prov, write_document, write_envelope
 
-from cvi.core.models import BundleValidationError, feature_provenance_hash
-from cvi.derive.bundle import load_bundle
+from porchlamp.core.models import BundleValidationError, feature_provenance_hash
+from porchlamp.derive.bundle import load_bundle
 
 KEY = "acme__widget"
 
@@ -42,7 +42,7 @@ def test_derive_produces_a_relative_source_for_a_resolved_v1_envelope(tmp_path: 
     assert fact.source == f"raw/contributors/{KEY}.json"
     assert not fact.source.startswith("/")
     # The referenced-envelope registry (what provenance_hash is computed
-    # from, cvi.core.models.feature_provenance_hash) keys by the same
+    # from, porchlamp.core.models.feature_provenance_hash) keys by the same
     # relative string -- Measured.source and the hash input never disagree.
     assert bundle.provenance_hash == feature_provenance_hash({fact.source: fact.source_hash})
 
@@ -76,7 +76,7 @@ def test_relative_provenance_is_identical_across_two_simulated_machines(tmp_path
     ``provenance_hash``/per-envelope ``source_hash`` -- because neither is a
     function of where the data root happens to sit on disk.
     """
-    machine_a = tmp_path_factory.mktemp("machine_a_cvi_data")
+    machine_a = tmp_path_factory.mktemp("machine_a_porchlamp_data")
     machine_b = tmp_path_factory.mktemp("machine_b_totally_different_data_root")
 
     path_a = _write_fixture(machine_a)

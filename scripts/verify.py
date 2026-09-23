@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from cvi.collect.envelope import read_envelope
+from porchlamp.collect.envelope import read_envelope
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 STARS_TOL = 0.10  # relative tolerance: GitHub vs deps.dev star counts
@@ -66,8 +66,8 @@ SHA256_HEX_LENGTH = 64
 #: statically fixes for that field's ``verified`` confidence (`03` §5).
 #: Exhaustive over every ``b.set(field, ..., "verified")`` /
 #: ``derive_eligibility`` / ``derive_pr_window_fields`` call in
-#: ``scripts/derive.py`` and the modules it calls (``cvi/collect/repo_object.py``,
-#: ``cvi/collect/github_graphql.py``). ``archived`` and
+#: ``scripts/derive.py`` and the modules it calls (``porchlamp/collect/repo_object.py``,
+#: ``porchlamp/collect/github_graphql.py``). ``archived`` and
 #: ``unlicensed`` accept two collectors: ``repo_object`` when the richer
 #: envelope exists, ``github_meta`` as the fallback (``primary or
 #: "github_meta"`` in ``derive_eligibility``). A field absent from this mapping
@@ -147,7 +147,7 @@ def _claimed_hash(source: str, hash_hint: Any) -> Optional[str]:
     item (a provenance dict's ``sha256`` key, or one element of it for a
     list-valued source — see :func:`_source_items`); a ``<path>#<sha256>``
     suffix on ``source`` itself is the other accepted form
-    (:attr:`cvi.collect.envelope.Envelope.provenance`). ``None`` means the
+    (:attr:`porchlamp.collect.envelope.Envelope.provenance`). ``None`` means the
     provenance repeats no hash at all, which counts as unverifiable rather
     than as "nothing to compare".
     """

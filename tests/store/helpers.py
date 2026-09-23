@@ -10,7 +10,7 @@ Uses ``ScoreRecord.repo: RepoIdentity`` (required first field) and
 """
 from __future__ import annotations
 
-from cvi.core.models import (
+from porchlamp.core.models import (
     Cohorts,
     FeatureBundle,
     GateResult,
@@ -22,8 +22,8 @@ from cvi.core.models import (
     RepoIdentity,
     ScoreRecord,
 )
-from cvi.core.tiebreak import TieBreakInput
-from cvi.store.writer import RepoWrite
+from porchlamp.core.tiebreak import TieBreakInput
+from porchlamp.store.writer import RepoWrite
 
 PILLARS = ("responsiveness", "criticality", "governance", "rigor", "accessibility")
 
@@ -241,10 +241,10 @@ def make_tie(
     forks: int | None = 10,
     downloads: int | None = None,
 ) -> TieBreakInput:
-    """Still needed upstream of the writer: :func:`cvi.core.tiebreak.
+    """Still needed upstream of the writer: :func:`porchlamp.core.tiebreak.
     assign_ranks` takes ``TieBreakInput`` entries to compute ``tie_key``/
     ``rank``/``tie_group`` on the record BEFORE it ever reaches
-    :class:`~cvi.store.writer.RepoWrite`, which does not carry one.
+    :class:`~porchlamp.store.writer.RepoWrite`, which does not carry one.
     Defaults ``owner``/``name`` to the record's own identity."""
     return TieBreakInput(
         record=record,

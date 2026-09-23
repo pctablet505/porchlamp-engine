@@ -12,12 +12,12 @@ the first items, in the order the coordinator gave them.
 ## Diffstat (`8a4846c..HEAD`, this packet's own commits)
 
 ```
- cvi/collect/github_graphql.py                   | 211 ++++++++++++++----------
- cvi/core/constants_v2.py                        |  18 ++
- cvi/core/hygiene.py                             |  97 +++++++++++ (new file)
- cvi/core/models.py                              |  13 +-
- cvi/derive/bundle.py                            |   4 +-
- cvi/verify/detectors.py                         |  64 +++++--
+ porchlamp/collect/github_graphql.py                   | 211 ++++++++++++++----------
+ porchlamp/core/constants_v2.py                        |  18 ++
+ porchlamp/core/hygiene.py                             |  97 +++++++++++ (new file)
+ porchlamp/core/models.py                              |  13 +-
+ porchlamp/derive/bundle.py                            |   4 +-
+ porchlamp/verify/detectors.py                         |  64 +++++--
  docs/v2/rfcs/CHANGELOG.md                       |   1 +
  docs/v2/rfcs/RFC-0004-din3-hygiene-constants.md |  65 ++++++++ (new file)
  tests/collect/test_pr_window.py                 | 138 +++++++++++++++-
@@ -118,12 +118,12 @@ undocumented value outside `scripts/derive.py`'s `verified/derived/
 missing/flag` vocabulary. Checked `docs/v2/02-RANKING-DESIGN.md`'s D-MISS-1:
 its `Unmeasured.reason` vocabulary (`third_party_gap`, `collector_failure`,
 `insufficient_n`, `not_applicable`, `no_population`) is a DIFFERENT layer
-from `scripts/derive.py`'s confidence-string vocabulary — `cvi.derive.
+from `scripts/derive.py`'s confidence-string vocabulary — `porchlamp.derive.
 bundle`'s own resolvers (`_plain_scalar_resolver` et al.) already establish
 the pattern: confidence `"missing"` maps to `Unmeasured(reason=
 missing_reason, detail=missing_detail)`. `collector_failure` is used
 EXCLUSIVELY as an `Unmeasured.reason` (`grep -c '"collector_failure"'
-cvi/derive/bundle.py` = 17, all `Unmeasured(reason=...)`), never as a
+porchlamp/derive/bundle.py` = 17, all `Unmeasured(reason=...)`), never as a
 `scripts/derive.py` confidence string, anywhere in the codebase.
 
 Fix: the gate now emits confidence `"missing"` (the documented value) for
@@ -131,7 +131,7 @@ Fix: the gate now emits confidence `"missing"` (the documented value) for
 `newcomer_conversion[_author_count]`, `rr90_return_rate[_author_count]`.
 The real, per-repo detail (`"<k> of <n> [newcomer ]authors unmeasured"`)
 is carried in `cohort_unmeasured_detail`/`newcomer_unmeasured_detail`
-(confidence `"verified"`, a real checked fact) for a future `cvi.derive.
+(confidence `"verified"`, a real checked fact) for a future `porchlamp.derive.
 bundle` resolver to read dynamically — today's `_plain_scalar_resolver`-
 style pattern only supports a STATIC `missing_detail` per resolver
 definition, so wiring the dynamic detail through is left as part of the
@@ -143,13 +143,13 @@ All four gated-value tests updated from `(None, "unmeasured")` to
 
 ## Item 5 — D-IN-3 in derivation
 
-**MR_first / 5.2 / 5.3**: already fully D-IN-3-adjusted via `cvi.collect.
+**MR_first / 5.2 / 5.3**: already fully D-IN-3-adjusted via `porchlamp.collect.
 github_graphql.derive_cohort_fields` (W1-4 rounds 1-3 plus this packet's
 F-001/F-002/F-003 above). No further change needed.
 
 **1.2 DR_90 via W2-12's new row**: checked main — **W2-12 landed mid-
 packet** (`8a4846c docs(v2): lead log — W2-12 accepted`, tip advanced from
-`d4544ca`; I rebased onto it). `cvi.derive.bundle._resolve_dr90_decision_rate`
+`d4544ca`; I rebased onto it). `porchlamp.derive.bundle._resolve_dr90_decision_rate`
 computes DR_90 directly from the `pr_window` envelope (W1-3's 180-day
 window) over **every** external PR in the cohort — no per-author
 eligibility or cap at all, by explicit design: its own docstring says
@@ -157,20 +157,20 @@ eligibility or cap at all, by explicit design: its own docstring says
 every external author counts."
 
 **Not implemented here — ownership request, not a gap left silently.**
-`cvi/derive/bundle.py` is not an owned file of this packet (W3-1 owns
-`cvi/core/hygiene.py` and `cvi/verify/detectors.py` only), and wiring
+`porchlamp/derive/bundle.py` is not an owned file of this packet (W3-1 owns
+`porchlamp/core/hygiene.py` and `porchlamp/verify/detectors.py` only), and wiring
 D-IN-3 into `_resolve_dr90_decision_rate` is a materially different task
-from applying it in `cvi.collect.github_graphql`: the `pr_window` envelope
+from applying it in `porchlamp.collect.github_graphql`: the `pr_window` envelope
 W2-12 reads carries each PR's `author.createdAt` (account age is
 checkable) but **no per-author event count at all** — that fact only
 exists in the separate `author_history` envelope (W1-4). A correct fix
 needs `_resolve_dr90_decision_rate` to also consult `author_history` when
-present (via `cvi.core.hygiene.account_eligibility`, now ready) and fall
+present (via `porchlamp.core.hygiene.account_eligibility`, now ready) and fall
 back to the current all-external-authors behaviour (with its documented
 caveat) when it is absent — a resolver-shaped change with its own fixture/
 mutation work, not a drop-in call. Recorded as a follow-up for whichever
 packet next touches `_resolve_dr90_decision_rate` (W3-1f or W2-9), with
-`cvi.core.hygiene.account_eligibility`/`apply_author_cap` ready to consume.
+`porchlamp.core.hygiene.account_eligibility`/`apply_author_cap` ready to consume.
 
 **`substantive_review_rate` (02 §4 row 4.3)**: NOT one of D-IN-3's four
 named rate types. D-IN-3's own text: "For rate parameters (merge,
@@ -184,28 +184,28 @@ reading D-IN-3's exact text, not inferred.
 
 **Constants relocated (RFC-0004)**: `MIN_ACCOUNT_AGE_DAYS`,
 `MIN_PUBLIC_EVENTS`, `AUTHOR_CAP_FRACTION` moved from
-`cvi.collect.github_graphql` into `cvi.core.constants_v2`, alongside the
-new `cvi.core.hygiene` module (`is_eligible_account`, `account_eligibility`
+`porchlamp.collect.github_graphql` into `porchlamp.core.constants_v2`, alongside the
+new `porchlamp.core.hygiene` module (`is_eligible_account`, `account_eligibility`
 tri-state, `apply_author_cap` — the exact functions W1-4 wrote, promoted
-so `cvi.derive.bundle`'s future resolvers can share them, per the
-import-graph rule `cvi.core` may import only `cvi.core` + stdlib).
-`cvi.collect.github_graphql` now imports both the constants and the
+so `porchlamp.derive.bundle`'s future resolvers can share them, per the
+import-graph rule `porchlamp.core` may import only `porchlamp.core` + stdlib).
+`porchlamp.collect.github_graphql` now imports both the constants and the
 functions rather than defining local copies. No `BENCHMARK_VERSION` bump
 (same reasoning as RFC-0001: the relocated constants have no scoring-path
 consumer yet).
 
 ## Item 6 — `newcomer_burst` input
 
-`NewcomerAuthor` (`cvi/core/models.py`) gains `account_created_at: str |
+`NewcomerAuthor` (`porchlamp/core/models.py`) gains `account_created_at: str |
 None = None`, threaded from the collector's already-fetched per-author
-`user.createdAt` (`cvi.collect.github_graphql._newcomer_cohort_authors`
+`user.createdAt` (`porchlamp.collect.github_graphql._newcomer_cohort_authors`
 now puts it on the public author dict, which flows into the
-`cohort_newcomer_authors` bundle field) through `cvi.derive.bundle`'s
+`cohort_newcomer_authors` bundle field) through `porchlamp.derive.bundle`'s
 `_cohorts_from` (parse) and `dump_bundle` (serialize) round-trip —
 backward compatible: an old bundle document without the field parses with
 `account_created_at=None` (unmeasured, never guessed).
 
-`cvi.verify.detectors.newcomer_accounts_from_cohorts(cohorts)` builds real
+`porchlamp.verify.detectors.newcomer_accounts_from_cohorts(cohorts)` builds real
 `NewcomerAccountSample` tuples straight from `Cohorts.newcomer_authors`,
 skipping any author whose `account_created_at` is `None`
 (unmeasured-never-fires, same rule every other detector input follows).
@@ -228,7 +228,7 @@ guard (all 5 accounts unmeasured → no fire), the unmeasured-skip test, and
 the followups-considered test for `all_prs_merged`.
 
 **Not implemented**: wiring `newcomer_accounts_from_cohorts`'s output into
-a live `DetectorInputs` at a real call site (i.e. inside `cvi.core.engine`
+a live `DetectorInputs` at a real call site (i.e. inside `porchlamp.core.engine`
 or wherever `run_detectors` is eventually invoked) is W2-8/W2-9's wiring
 request per the module's own R-10 note — `run_detectors` stays pure,
 called by nothing in this packet.
@@ -237,7 +237,7 @@ called by nothing in this packet.
 
 **Packet's own three acceptance oracles** (`docs/v2/05-WORK-PLAN.md`
 W3-1), in `tests/core/test_hygiene.py` against the promoted
-`cvi.core.hygiene` module directly:
+`porchlamp.core.hygiene` module directly:
 
 - `test_apply_author_cap_six_first_timer_prs_capped_to_20_percent`: 6
   first-timer PRs from one author among 10 capped to `floor(0.20*10)=2`
@@ -304,7 +304,7 @@ $ env -u PYTEST_ADDOPTS PYTHONPATH=$PWD .../python -B -m pytest tests/ -n 4 -p n
 2152 passed, 1 skipped, 12 warnings in 10.68s
 EXIT=0
 
-$ .../ruff check cvi/ scripts/ tests/
+$ .../ruff check porchlamp/ scripts/ tests/
 All checks passed!
 ```
 
@@ -317,7 +317,7 @@ All checks passed!
   carry an event-count proxy so DR_90 never needs the separate,
   expensive `author_history` fetch at all) — an owner/lead design
   decision, not something this packet's oracles settle.
-- Whether `cvi.verify.detectors.run_detectors`' real-data wiring (a live
+- Whether `porchlamp.verify.detectors.run_detectors`' real-data wiring (a live
   call site passing a populated `DetectorInputs`) is scheduled for W2-8,
   W2-9, or a new packet — carried from W3-2's own handoff, unchanged by
   this packet.

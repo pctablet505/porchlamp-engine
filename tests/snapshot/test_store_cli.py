@@ -1,4 +1,4 @@
-"""Acceptance tests: ``python -m cvi.snapshot store <snapshot_dir> --db
+"""Acceptance tests: ``python -m porchlamp.snapshot store <snapshot_dir> --db
 <path>`` -- a command that scores a snapshot directory and writes it into a
 store, end to end.
 
@@ -24,14 +24,14 @@ from typing import Optional
 
 import pytest
 
-from cvi.core import constants
-from cvi.core.gates import GateEvidence
-from cvi.core.models import FeatureBundle, Unmeasured, canonical_json, sha256_hex
-from cvi.derive.bundle import dump_bundle, write_bundle
-from cvi.snapshot import cli
-from cvi.snapshot.populations import PopulationSet, write_populations
-from cvi.store import queries, schema
-from cvi.store.migrations import apply_migrations
+from porchlamp.core import constants
+from porchlamp.core.gates import GateEvidence
+from porchlamp.core.models import FeatureBundle, Unmeasured, canonical_json, sha256_hex
+from porchlamp.derive.bundle import dump_bundle, write_bundle
+from porchlamp.snapshot import cli
+from porchlamp.snapshot.populations import PopulationSet, write_populations
+from porchlamp.store import queries, schema
+from porchlamp.store.migrations import apply_migrations
 
 from tests.store.helpers import make_bundle, make_measured
 
@@ -49,12 +49,16 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: -- so this constant is redundant with that check by design, a second,
 #: independent assertion of the same fact).
 #:
-#: Provenance must be relative to the data root; ``cvi.derive.bundle``
+#: Provenance must be relative to the data root; ``porchlamp.derive.bundle``
 #: ensures relative sources for all bundles.
+#:
+#: Regenerated 2026-09-23 (was b364f71c...) by the CVI -> Porchlamp rename:
+#: bundles carry the scoring code's module paths in Unmeasured details and the
+#: populations document tag, so every bundle's raw_hash moved; no score did.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "b364f71c089525a375acb16e72afd956ba2c7caa7c14b008d035bed3cd924f19"
+    "b52ccd6698e360043f29a4a98a84d61e7f46545c73facf0a3996c2fcac13653b"
 )
-# Gated/unrated reflect cvi.core.pipeline.not_ranked_class display classification.
+# Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #
 # Regenerated 2026-09-16 (was rated 0 / gated 31 / unrated 19) after three
 # gate corrections, each of which moves real repos in this fixture:
@@ -92,8 +96,8 @@ def _all_unmeasured_inputs() -> dict:
 def _make_synthetic_bundle(name: str, dr90_value: Optional[float], dr90_n: int = 20) -> FeatureBundle:
     """One repo, eligible, coverage-poor except (optionally) a real
     ``dr90_decision_rate`` measurement -- the one parameter this file uses
-    to trip ``param_jump`` (``cvi.core.params.responsiveness.dr90``:
-    ``min(100, 125*rate)``, ``min_n=10``; ``cvi.verify.detectors.
+    to trip ``param_jump`` (``porchlamp.core.params.responsiveness.dr90``:
+    ``min(100, 125*rate)``, ``min_n=10``; ``porchlamp.verify.detectors.
     PARAM_JUMP_MIN_N`` is also 10, ``PARAM_JUMP_THRESHOLD_POINTS`` 40)."""
     inputs = _all_unmeasured_inputs()
     if dr90_value is not None:
@@ -113,7 +117,7 @@ def _write_snapshot_dir(
     bundles: list,
     expected: Optional[dict] = None,
 ) -> None:
-    """Write a snapshot directory in exactly the shape ``cvi.snapshot.
+    """Write a snapshot directory in exactly the shape ``porchlamp.snapshot.
     fixture_io.load_frozen_fixture`` reads (the same one ``scripts/
     build_fixture_snapshot.py::write_fixture`` produces): ``bundles/
     <owner>__<name>.json``, ``populations.json`` (empty -- none of this
@@ -157,7 +161,7 @@ def _file_sha256(path: Path) -> str:
 # =========================================================================== #
 
 def test_store_snapshot_50_counts_and_hashes(tmp_path, capsys) -> None:
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     code = cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)])
     out = capsys.readouterr().out
     assert code == 0, out
@@ -184,7 +188,7 @@ def test_store_snapshot_50_counts_and_hashes(tmp_path, capsys) -> None:
 
 
 def test_store_snapshot_50_list_ranked_and_not_ranked(tmp_path) -> None:
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)]) == 0
     conn = schema.connect(db_path)
 
@@ -199,7 +203,7 @@ def test_store_snapshot_50_list_ranked_and_not_ranked(tmp_path) -> None:
 
 
 def test_store_twice_is_immutability_error_and_db_unchanged(tmp_path, capsys) -> None:
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)]) == 0
     hash_after_first = _file_sha256(db_path)
 
@@ -215,7 +219,7 @@ def test_served_db_guard_accepts_this_db(tmp_path) -> None:
     """`03` section 5 / the packet dispatch: the served-DB guard must not
     refuse this command's real output.
 
-    ``cvi/serve/guard.py`` verification --
+    ``porchlamp/serve/guard.py`` verification --
     this test calls its real ``v2_refusal_reasons`` against the database
     this command just wrote and finalised (``store_cmd.py`` calls
     ``finalize_snapshot_hash`` itself, ``promoted_at=as_of_text`` -- no
@@ -223,9 +227,9 @@ def test_served_db_guard_accepts_this_db(tmp_path) -> None:
     store: no fixture-clock stamp (this command never writes one), no
     hash tamper (nothing has touched the file since ``finalize_snapshot_
     hash`` ran)."""
-    from cvi.serve import guard
+    from porchlamp.serve import guard
 
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)]) == 0
 
     assert guard.v2_refusal_reasons(str(db_path)) == []
@@ -233,25 +237,25 @@ def test_served_db_guard_accepts_this_db(tmp_path) -> None:
 
 
 def test_create_app_serves_snapshot_and_not_ranked(tmp_path) -> None:
-    """Tests that create_app serves /v1/cvi/snapshot and /v1/cvi/not-ranked."""
+    """Tests that create_app serves /v1/porchlamp/snapshot and /v1/porchlamp/not-ranked."""
     try:
-        from cvi.serve.app import create_app
+        from porchlamp.serve.app import create_app
     except ImportError:
-        pytest.skip("cvi/serve/app.py not available")
+        pytest.skip("porchlamp/serve/app.py not available")
         return
 
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     assert cli.main(["store", str(FIXTURE_DIR), "--db", str(db_path)]) == 0
 
     from starlette.testclient import TestClient
 
     app = create_app(str(db_path), web_dir=tmp_path)  # no v2 web build needed for these two endpoints
     with TestClient(app) as client:
-        snapshot_response = client.get("/v1/cvi/snapshot")
+        snapshot_response = client.get("/v1/porchlamp/snapshot")
         assert snapshot_response.status_code == 200, snapshot_response.text
         assert snapshot_response.json()["snapshot_id"] == "snapshot_50"
 
-        not_ranked_response = client.get("/v1/cvi/not-ranked")
+        not_ranked_response = client.get("/v1/porchlamp/not-ranked")
         assert not_ranked_response.status_code == 200, not_ranked_response.text
         body = not_ranked_response.json()
         assert len(body["gated"]) + len(body["unrated"]) == 50
@@ -284,7 +288,7 @@ def test_previous_wires_param_jump_suspicion(tmp_path) -> None:
     _write_snapshot_dir(current_dir, snapshot_id="synthetic-current", as_of="2026-02-01T00:00:00+00:00",
                          bundles=current_bundles)
 
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     code = cli.main(["store", str(current_dir), "--db", str(db_path), "--previous", str(previous_dir)])
     assert code == 0
 
@@ -307,7 +311,7 @@ def test_expected_json_mismatch_exits_1_without_no_verify(tmp_path) -> None:
         snapshot_dir, snapshot_id="verify-test", as_of="2026-01-01T00:00:00+00:00", bundles=bundles,
         expected={"records_hash": "0" * 64},  # a corrupted/stale hash, guaranteed to mismatch
     )
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
 
     code = cli.main(["store", str(snapshot_dir), "--db", str(db_path)])
     assert code == 1
@@ -321,7 +325,7 @@ def test_expected_json_mismatch_bypassed_by_no_verify(tmp_path) -> None:
         snapshot_dir, snapshot_id="verify-test-2", as_of="2026-01-01T00:00:00+00:00", bundles=bundles,
         expected={"records_hash": "0" * 64},
     )
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
 
     code = cli.main(["store", str(snapshot_dir), "--db", str(db_path), "--no-verify"])
     assert code == 0
@@ -332,9 +336,9 @@ def test_expected_json_mismatch_bypassed_by_no_verify(tmp_path) -> None:
 def test_expected_json_match_exits_0(tmp_path) -> None:
     """The positive control for the two tests above: a correct
     ``expected.json`` (the real ``records_hash`` this directory scores to,
-    computed independently via ``cvi.snapshot.store_cmd.score_snapshot_dir``)
+    computed independently via ``porchlamp.snapshot.store_cmd.score_snapshot_dir``)
     stores cleanly with no ``--no-verify`` needed."""
-    from cvi.snapshot.store_cmd import score_snapshot_dir
+    from porchlamp.snapshot.store_cmd import score_snapshot_dir
 
     snapshot_dir = tmp_path / "snap"
     bundles = [_make_synthetic_bundle("only", dr90_value=0.5, dr90_n=20)]
@@ -344,7 +348,7 @@ def test_expected_json_match_exits_0(tmp_path) -> None:
         json.dumps({"records_hash": scored.records_hash}) + "\n", encoding="utf-8"
     )
 
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     code = cli.main(["store", str(snapshot_dir), "--db", str(db_path)])
     assert code == 0
 
@@ -368,9 +372,9 @@ def test_write_scored_snapshot_is_one_transaction(tmp_path, monkeypatch) -> None
     transaction by the time the induced ``write_records`` failure occurs,
     so the orphaned ``snapshots`` row survives and the assertion below
     fails."""
-    from cvi.snapshot import store_cmd
+    from porchlamp.snapshot import store_cmd
 
-    db_path = tmp_path / "cvi.db"
+    db_path = tmp_path / "porchlamp.db"
     conn = schema.connect(db_path)
     apply_migrations(conn, applied_at="2026-01-01T00:00:00Z")
 

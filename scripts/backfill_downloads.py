@@ -37,12 +37,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from cvi.collect.envelope import write_envelope
+from porchlamp.collect.envelope import write_envelope
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPISTATS_BASE = "https://pypistats.org"
 DEFAULT_MIN_INTERVAL = 15.0  # 4 requests/min; pypistats limit is ~5/min/IP
-USER_AGENT = "cvi-research/0.1 (ranking study)"
+USER_AGENT = "porchlamp-research/0.1 (ranking study)"
 PUBLIC_DATASET_PROJECT = "bigquery-public-data"
 
 #: Ecosystems whose null downloads are retry-able (a registry source exists);
@@ -254,7 +254,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     """CLI entry point (progress printing allowed for scripts, R-8)."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data-dir", type=Path,
-                    default=Path(os.environ.get("CVI_DATA_DIR", REPO_ROOT / "data")))
+                    default=Path(os.environ.get("PORCHLAMP_DATA_DIR", REPO_ROOT / "data")))
     ap.add_argument("--base-url", default=PYPISTATS_BASE)
     ap.add_argument("--interval", type=float, default=DEFAULT_MIN_INTERVAL,
                     help="minimum seconds between pypistats requests (default 15 = 4/min)")

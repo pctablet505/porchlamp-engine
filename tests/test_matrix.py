@@ -1,6 +1,6 @@
 """Phase 4 2D Matrix Coordinate Decomposition tests (spec 2, Phase 4; spec 1).
 
-Exact-oracle tests for ``cvi.matrix``. Every assertion pins the full
+Exact-oracle tests for ``porchlamp.matrix``. Every assertion pins the full
 ``(leverage, friction, quadrant)`` triple to a hand-computed expectation, so
 any drift in weight wiring, inversion (100 - P), rounding, or the quadrant
 boundary convention fails loudly.
@@ -12,9 +12,9 @@ CRUCIBLE. Rounding to 2 decimals happens *before* the quadrant comparison.
 
 from __future__ import annotations
 
-from cvi.constants import FRICTION_WEIGHTS, LEVERAGE_WEIGHTS, QUADRANT_THRESHOLD
-from cvi.matrix import decompose, friction_score, leverage_score
-from cvi.models import PillarScores, Quadrant
+from porchlamp.constants import FRICTION_WEIGHTS, LEVERAGE_WEIGHTS, QUADRANT_THRESHOLD
+from porchlamp.matrix import decompose, friction_score, leverage_score
+from porchlamp.models import PillarScores, Quadrant
 
 
 def _ps(p1=0.0, p2=0.0, p3=0.0, p4=0.0, p5=0.0) -> PillarScores:

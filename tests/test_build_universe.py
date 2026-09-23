@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-import cvi.collect.universe as universe_module
+import porchlamp.collect.universe as universe_module
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("build_universe", ROOT / "scripts" / "build_universe.py")
@@ -38,7 +38,7 @@ def sandbox(tmp_path, monkeypatch):
     # Most tests in this file assert nothing about the star-velocity fields;
     # give them a working, network-free default transport so build() does not
     # raise NotImplementedError from
-    # cvi.collect.universe.default_star_history_transport.
+    # porchlamp.collect.universe.default_star_history_transport.
     monkeypatch.setattr(bu, "STAR_HISTORY_TRANSPORT", _clean_star_fetch)
     return tmp_path
 
@@ -131,8 +131,8 @@ def test_crates_top_strips_git_suffix(monkeypatch):
 
 def test_star_velocity_filter_called_once_per_candidate(sandbox, monkeypatch):
     """Patches where the audit is actually invoked
-    (``cvi.collect.universe.audit_star_velocity``, not
-    ``cvi.starscout.audit_star_velocity`` -- ``cvi.collect.universe``
+    (``porchlamp.collect.universe.audit_star_velocity``, not
+    ``porchlamp.starscout.audit_star_velocity`` -- ``porchlamp.collect.universe``
     imports the name directly, so patching the defining module would not
     affect the call site) and asserts it ran exactly once per candidate
     that made the final cut.

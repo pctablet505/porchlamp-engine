@@ -1,26 +1,26 @@
 """Regression tests ensuring clean import order and resolving circular import:
-``python -c "import cvi.store.writer"`` as the FIRST ``cvi`` import of a fresh process raised
+``python -c "import porchlamp.store.writer"`` as the FIRST ``porchlamp`` import of a fresh process raised
 ``ImportError: cannot import name 'RepoWrite' from partially initialized
-module 'cvi.store.writer' (most likely due to a circular import)``.
+module 'porchlamp.store.writer' (most likely due to a circular import)``.
 
-Root cause (in ``cvi/snapshot/__init__.py``):
-``cvi.store.writer`` imports ``cvi.snapshot.populations``, a submodule
-import that forces Python to run ``cvi/snapshot/__init__.py`` first if
-``cvi.snapshot`` is not already in ``sys.modules``; that ``__init__.py``
-used to eagerly import ``cvi.snapshot.store_cmd``, which imports names
-FROM ``cvi.store.writer`` -- the very module still mid-execution one frame
+Root cause (in ``porchlamp/snapshot/__init__.py``):
+``porchlamp.store.writer`` imports ``porchlamp.snapshot.populations``, a submodule
+import that forces Python to run ``porchlamp/snapshot/__init__.py`` first if
+``porchlamp.snapshot`` is not already in ``sys.modules``; that ``__init__.py``
+used to eagerly import ``porchlamp.snapshot.store_cmd``, which imports names
+FROM ``porchlamp.store.writer`` -- the very module still mid-execution one frame
 up the stack, so those names do not exist on it yet.
 
 The regular test suite never hits this: something always imports
-``cvi.snapshot`` (harmlessly, once the cycle can't form) before any test
-imports ``cvi.store.writer`` for the first time, and pytest's own
+``porchlamp.snapshot`` (harmlessly, once the cycle can't form) before any test
+imports ``porchlamp.store.writer`` for the first time, and pytest's own
 collection/plugin machinery plus every other test module's imports settle
 the module cache long before this file's own tests run. A regular
 in-process ``import`` assertion is therefore not a real test of this bug
-at all (it would pass regardless of the fix, since ``cvi.store.writer`` is
+at all (it would pass regardless of the fix, since ``porchlamp.store.writer`` is
 never truly first once the process is already this far into collection)
 -- each check below launches a FRESH ``python -c "..."`` subprocess, the
-only way to actually control which module is the first ``cvi`` import of
+only way to actually control which module is the first ``porchlamp`` import of
 a process.
 """
 from __future__ import annotations
@@ -50,39 +50,39 @@ def _run_fresh_import(statement: str) -> subprocess.CompletedProcess:
     )
 
 
-def test_cvi_store_writer_is_importable_as_the_first_cvi_import() -> None:
-    """Ensure ``cvi.store.writer`` can be imported first without circular import error."""
-    result = _run_fresh_import("import cvi.store.writer")
+def test_porchlamp_store_writer_is_importable_as_the_first_porchlamp_import() -> None:
+    """Ensure ``porchlamp.store.writer`` can be imported first without circular import error."""
+    result = _run_fresh_import("import porchlamp.store.writer")
     assert result.returncode == 0, (
-        f"`python -c \"import cvi.store.writer\"` failed as the first cvi "
+        f"`python -c \"import porchlamp.store.writer\"` failed as the first porchlamp "
         f"import of a fresh process:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     )
     assert "ImportError" not in result.stderr
     assert "circular import" not in result.stderr
 
 
-def test_cvi_snapshot_store_cmd_is_importable_as_the_first_cvi_import() -> None:
-    """The other side of the same cycle: importing ``cvi.snapshot.
-    store_cmd`` directly (what ``cvi/snapshot/cli.py`` does) must also
+def test_porchlamp_snapshot_store_cmd_is_importable_as_the_first_porchlamp_import() -> None:
+    """The other side of the same cycle: importing ``porchlamp.snapshot.
+    store_cmd`` directly (what ``porchlamp/snapshot/cli.py`` does) must also
     never trip over its own package's ``__init__.py``."""
-    result = _run_fresh_import("import cvi.snapshot.store_cmd")
+    result = _run_fresh_import("import porchlamp.snapshot.store_cmd")
     assert result.returncode == 0, (
-        f"`python -c \"import cvi.snapshot.store_cmd\"` failed as the first "
-        f"cvi import of a fresh process:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        f"`python -c \"import porchlamp.snapshot.store_cmd\"` failed as the first "
+        f"porchlamp import of a fresh process:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     )
     assert "ImportError" not in result.stderr
     assert "circular import" not in result.stderr
 
 
 def test_lazy_names_still_resolve_off_the_package_root() -> None:
-    """The fix (``cvi/snapshot/__init__.py``'s ``__getattr__``, PEP 562)
-    must not just avoid the crash -- ``cvi.snapshot.<name>`` for each of
+    """The fix (``porchlamp/snapshot/__init__.py``'s ``__getattr__``, PEP 562)
+    must not just avoid the crash -- ``porchlamp.snapshot.<name>`` for each of
     the five names it used to import eagerly must still resolve to the
-    real object from ``cvi.snapshot.store_cmd``, from a fresh process,
-    with no prior import of ``cvi.snapshot.store_cmd`` warming the cache."""
+    real object from ``porchlamp.snapshot.store_cmd``, from a fresh process,
+    with no prior import of ``porchlamp.snapshot.store_cmd`` warming the cache."""
     statement = (
-        "import cvi.snapshot as s; "
-        "import cvi.snapshot.store_cmd as sc; "
+        "import porchlamp.snapshot as s; "
+        "import porchlamp.snapshot.store_cmd as sc; "
         "names = ['VerificationError', 'score_snapshot_dir', "
         "'score_snapshot_with_detectors', 'verify_expected', 'write_scored_snapshot']; "
         "assert all(getattr(s, n) is getattr(sc, n) for n in names), "
@@ -95,12 +95,12 @@ def test_lazy_names_still_resolve_off_the_package_root() -> None:
 
 
 def test_every_lazy_name_is_declared_in_all() -> None:
-    """:data:`cvi.snapshot._LAZY_STORE_CMD_NAMES` (the set ``__getattr__``
+    """:data:`porchlamp.snapshot._LAZY_STORE_CMD_NAMES` (the set ``__getattr__``
     actually resolves) must be exactly a subset of ``__all__`` -- a name
     ``__getattr__`` knows how to resolve but that is missing from
     ``__all__`` would be undiscoverable by ``tests/snapshot/
     test_cli.py``'s own export-completeness check, silently."""
-    import cvi.snapshot as snapshot_pkg
+    import porchlamp.snapshot as snapshot_pkg
 
     assert snapshot_pkg._LAZY_STORE_CMD_NAMES <= set(snapshot_pkg.__all__)
 
@@ -111,7 +111,7 @@ def test_unknown_attribute_still_raises_attribute_error() -> None:
     ``AttributeError``, exactly what attribute access on a module without
     a custom ``__getattr__`` would raise -- never silently returning
     ``None`` or swallowing the typo."""
-    import cvi.snapshot as snapshot_pkg
+    import porchlamp.snapshot as snapshot_pkg
 
     with pytest.raises(AttributeError):
         _ = snapshot_pkg.this_name_does_not_exist_anywhere

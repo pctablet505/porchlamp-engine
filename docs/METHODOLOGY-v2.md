@@ -1,23 +1,23 @@
 <!-- GENERATED FILE. Do not hand-edit.
 Regenerate with: PYTHONPATH=$PWD .venv/bin/python scripts/render_methodology.py
-Source: cvi.audit.methodology_history.methodology_with_history (`docs/v2/06-UX-DESIGN.md` section 3 F).
+Source: porchlamp.audit.methodology_history.methodology_with_history (`docs/v2/06-UX-DESIGN.md` section 3 F).
 tests/test_render_methodology.py fails if this file drifts from a fresh render. -->
 
-# CVI v2 Methodology
+# Porchlamp v2 Methodology
 
 **Benchmark version:** `2.0.0-rc1`
 **Schema version:** `2`
 **Constants hash:** `748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b`
 
-Every number below is read directly from `cvi.core.constants` and the
-`cvi.core.params` registry (or, for detectors and the two audit release
+Every number below is read directly from `porchlamp.core.constants` and the
+`porchlamp.core.params` registry (or, for detectors and the two audit release
 bars, their own frozen module) -- this page cannot drift from the code
 that scores a repository, because it is rendered from the same values.
 
 ## Reproducing a snapshot
 
 ```
-cvi reproduce <snapshot dir>
+porchlamp reproduce <snapshot dir>
 ```
 
 Every score this document describes is reproducible byte-for-byte from its
@@ -180,13 +180,13 @@ still goes through the RFC procedure below.
 
 | Name | Module | Value | What it gates |
 |---|---|---|---|
-| `MIN_COVERAGE` | `cvi.audit.anchors` | 0.9 | D-VER-4 anchor-check minimum rating coverage (a release gate, not a per-repo score) |
-| `TAU_RELEASE_THRESHOLD` | `cvi.audit.sensitivity` | 0.9 | D-AGG-3's Kendall tau-b release bar for a +/-5pp weight perturbation |
-| `DEFAULT_PERTURBATION_PP` | `cvi.audit.sensitivity` | 5 | the +/-5pp weight-perturbation size the sensitivity report tests at |
+| `MIN_COVERAGE` | `porchlamp.audit.anchors` | 0.9 | D-VER-4 anchor-check minimum rating coverage (a release gate, not a per-repo score) |
+| `TAU_RELEASE_THRESHOLD` | `porchlamp.audit.sensitivity` | 0.9 | D-AGG-3's Kendall tau-b release bar for a +/-5pp weight perturbation |
+| `DEFAULT_PERTURBATION_PP` | `porchlamp.audit.sensitivity` | 5 | the +/-5pp weight-perturbation size the sensitivity report tests at |
 
 ## Changing a constant: the RFC procedure
 
-Every constant `cvi.core.constants` defines is frozen (D-VER-1/2): a
+Every constant `porchlamp.core.constants` defines is frozen (D-VER-1/2): a
 change requires an RFC filed under `docs/v2/rfcs/`, a re-pinned
 `CONSTANTS_HASH`, a `BENCHMARK_VERSION` bump and a named, independent
 reviewer. The full procedure, its two documented enforcement limits, and
@@ -197,8 +197,8 @@ the pre-release version-bump rule live in
 
 | Date | RFC | Summary | Hash before -> after |
 |---|---|---|---|
-| 2026-09-13 | RFC-0004 | Relocate D-IN-3's `MIN_ACCOUNT_AGE_DAYS = 90` / `MIN_PUBLIC_EVENTS = 5` / `AUTHOR_CAP_FRACTION = 0.20` out of `cvi.collect.github_graphql` into `cvi.core.constants_v2` / `cvi.core.hygiene` (W3-1). No rank movement (no scoring-path consumer yet). | `419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9` -> `748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b` |
-| 2026-09-13 | RFC-0003 | Add `NOT_APPLICABLE_RULES` (D-MISS-5's closed not_applicable rule list), `OPENSSF_PROXY_MIN_SIGNALS = 8` (row 2.2's `proxy:no_dependents_signal` minimum), and relocate `WINDOW_STALENESS_DAYS = 14` from `cvi.collect.pike_signals` (W1-7f follow-up). No rank movement on the fixture (0 rated repos; `records_hash` moves only from the new hashed constants and `PillarScore.applicable`'s structural addition). | `446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0` -> `419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9` |
-| 2026-09-13 | RFC-0002 | Relocate the five `STARS_SCOUT_*` universe-entry thresholds (D-IN-5 star-velocity filter, W1-10) from the unhashed `cvi.constants` into `cvi.core.constants_v2`; values unchanged. No rank movement (D-IN-5: stars never enter the composite). | `d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e` -> `446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0` |
-| 2026-09-13 | RFC-0001 | Add `AUTHOR_UNMEASURED_MAX_FRACTION = 0.20` (D-MISS-1 collector-failure gate for row 1.2/1.3, W1-4 round-2 review B-2/B-3); relocated out of `cvi.collect.github_graphql`, closing the census escape. No rank movement (no scoring-path consumer yet). | `391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8` -> `d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e` |
-| 2026-09-13 | genesis | Initial v2 constants freeze (packet W2-8 round 2, `d7664f2`): relocated every scored tunable into `cvi.core.constants_v2` and computed `CONSTANTS_HASH` for the first time. No RFC — the procedure and this changelog begin governing changes only after this commit. | *(none)* -> `391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8` |
+| 2026-09-13 | RFC-0004 | Relocate D-IN-3's `MIN_ACCOUNT_AGE_DAYS = 90` / `MIN_PUBLIC_EVENTS = 5` / `AUTHOR_CAP_FRACTION = 0.20` out of `porchlamp.collect.github_graphql` into `porchlamp.core.constants_v2` / `porchlamp.core.hygiene` (W3-1). No rank movement (no scoring-path consumer yet). | `419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9` -> `748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b` |
+| 2026-09-13 | RFC-0003 | Add `NOT_APPLICABLE_RULES` (D-MISS-5's closed not_applicable rule list), `OPENSSF_PROXY_MIN_SIGNALS = 8` (row 2.2's `proxy:no_dependents_signal` minimum), and relocate `WINDOW_STALENESS_DAYS = 14` from `porchlamp.collect.pike_signals` (W1-7f follow-up). No rank movement on the fixture (0 rated repos; `records_hash` moves only from the new hashed constants and `PillarScore.applicable`'s structural addition). | `446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0` -> `419091af843a5ab994b23a5776c0f0ce9073ed283b9f540b1d26eca7bcd4d7a9` |
+| 2026-09-13 | RFC-0002 | Relocate the five `STARS_SCOUT_*` universe-entry thresholds (D-IN-5 star-velocity filter, W1-10) from the unhashed `porchlamp.constants` into `porchlamp.core.constants_v2`; values unchanged. No rank movement (D-IN-5: stars never enter the composite). | `d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e` -> `446c6a25db4e8c1f9d528f98a332d52bdf5ba570f07774bd674d9c816fdd09d0` |
+| 2026-09-13 | RFC-0001 | Add `AUTHOR_UNMEASURED_MAX_FRACTION = 0.20` (D-MISS-1 collector-failure gate for row 1.2/1.3, W1-4 round-2 review B-2/B-3); relocated out of `porchlamp.collect.github_graphql`, closing the census escape. No rank movement (no scoring-path consumer yet). | `391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8` -> `d2702ea93a7ad9eb22696942dd3994d63f066ff2bf2e68e52abfc8235433570e` |
+| 2026-09-13 | genesis | Initial v2 constants freeze (packet W2-8 round 2, `d7664f2`): relocated every scored tunable into `porchlamp.core.constants_v2` and computed `CONSTANTS_HASH` for the first time. No RFC — the procedure and this changelog begin governing changes only after this commit. | *(none)* -> `391d10b91e86a230fa8c16e32f57f2bc5d0449c33dc3bcb6c3f96153ef83fed8` |

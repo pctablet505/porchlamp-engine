@@ -1,4 +1,4 @@
-"""F-02: the ``cvi audit sensitivity`` CLI must exit non-zero when the release
+"""F-02: the ``porchlamp audit sensitivity`` CLI must exit non-zero when the release
 gate fails.
 
 ``main`` used to return 0 on every completing path, so a ranking that failed
@@ -16,8 +16,8 @@ from typing import Optional, Sequence
 
 import pytest
 
-from cvi.audit import sensitivity
-from cvi.audit.sensitivity import (
+from porchlamp.audit import sensitivity
+from porchlamp.audit.sensitivity import (
     DEFAULT_PERTURBATION_PP,
     TAU_RELEASE_THRESHOLD,
     PerturbationResult,

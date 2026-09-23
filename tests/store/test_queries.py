@@ -1,8 +1,8 @@
-"""Tests for ``cvi.store.queries`` -- SQL reprojection, filtering, and read paths.
+"""Tests for ``porchlamp.store.queries`` -- SQL reprojection, filtering, and read paths.
 
 Includes parity verification:
 - Tie-break SQL parity: SQL order under balanced and preset personas equals
-  ``cvi.core.tiebreak.assign_ranks`` over a null-bearing synthetic snapshot.
+  ``porchlamp.core.tiebreak.assign_ranks`` over a null-bearing synthetic snapshot.
 - Reprojection parity: SQL composite/coverage/tier/rank match an inline
   reference implementation across randomized weight vectors.
 """
@@ -19,13 +19,13 @@ from typing import Any, Dict, Mapping, Tuple
 
 import pytest
 
-from cvi.core.gates import REASON_INSUFFICIENT_EVIDENCE
-from cvi.core.models import PillarScore
-from cvi.core.persona import PERSONA_PRESETS, persona_composite
-from cvi.core.tiebreak import TieBreakInput, assign_ranks
-from cvi.store import queries, schema
-from cvi.store.migrations import apply_migrations
-from cvi.store.writer import _normalize_utc_z, write_records, write_snapshot
+from porchlamp.core.gates import REASON_INSUFFICIENT_EVIDENCE
+from porchlamp.core.models import PillarScore
+from porchlamp.core.persona import PERSONA_PRESETS, persona_composite
+from porchlamp.core.tiebreak import TieBreakInput, assign_ranks
+from porchlamp.store import queries, schema
+from porchlamp.store.migrations import apply_migrations
+from porchlamp.store.writer import _normalize_utc_z, write_records, write_snapshot
 
 from .helpers import (
     make_gated_record,
@@ -57,7 +57,7 @@ def _with_persona_composites(record):
     ``balanced`` included) so persona-facing tests exercise the same
     production formula the engine writes at score time, rather than
     hand-typed JSON. Not used by the reprojection oracle test below (that
-    one deliberately stays out of ``cvi.core.persona``/``aggregate``)."""
+    one deliberately stays out of ``porchlamp.core.persona``/``aggregate``)."""
     composites = {persona: persona_composite(record, persona) for persona in PERSONA_PRESETS}
     return dc_replace(record, persona_composites=composites)
 
@@ -69,9 +69,9 @@ def _group_membership(entries: list) -> Dict[Any, frozenset]:
 
     An id-NUMBERING-independent way to compare two tie-grouping schemes:
     SQL's ``DENSE_RANK() OVER (ORDER BY composite DESC)``
-    (:func:`cvi.store.queries._tie_group_sql`) assigns a new number to
+    (:func:`porchlamp.store.queries._tie_group_sql`) assigns a new number to
     EVERY distinct composite value it visits, while
-    ``cvi.core.tiebreak.assign_ranks``'s own counter only advances for
+    ``porchlamp.core.tiebreak.assign_ranks``'s own counter only advances for
     composite values that actually recur -- the two schemes agree on WHICH
     rows share a group but not on the group's numeric label. Both null out
     a singleton (R-D), so a non-``None`` id here is always a real,
@@ -85,7 +85,7 @@ def _group_membership(entries: list) -> Dict[Any, frozenset]:
 
 def _stamp_tail_columns(conn: sqlite3.Connection, snapshot_id: str, name: str, ttfhr_p75, last_commit) -> None:
     """``ttfhr_p75``/``last_human_commit_at`` have no writer producer yet
-    (``cvi/store/writer.py``'s own docstring) -- stamped directly via
+    (``porchlamp/store/writer.py``'s own docstring) -- stamped directly via
     ``UPDATE``, the same pattern ``tests/store/test_reader.py`` uses."""
     conn.execute(
         "UPDATE repositories SET ttfhr_p75=?, last_human_commit_at=? WHERE snapshot_id=? AND name=?",
@@ -107,8 +107,8 @@ def test_list_ranked_balanced_basic_order_and_total(tmp_path) -> None:
     rows, total = queries.list_ranked(conn, "snap-1")
     assert total == 3
     assert [row["name"] for row in rows] == ["r0", "r1", "r2"]
-    assert rows[0]["cvi"] == 90.0
-    assert "cvi_p" not in rows[0]  # balanced: no persona-projection fields at all
+    assert rows[0]["porchlamp"] == 90.0
+    assert "porchlamp_p" not in rows[0]  # balanced: no persona-projection fields at all
 
 
 def test_list_ranked_balanced_excludes_gated_and_unrated(tmp_path) -> None:
@@ -256,14 +256,14 @@ def test_list_not_ranked_default_limit_is_20_and_max_is_1000(tmp_path) -> None:
 def test_list_ranked_sort_by_coverage_overrides_composite_as_primary_key(tmp_path) -> None:
     conn = _fresh_db(tmp_path / "db.sqlite")
     items = [
-        make_repo_write(make_rated_record("snap-1", owner="a", name="high-cvi-low-cov", composite=95.0, coverage=0.65)),
-        make_repo_write(make_rated_record("snap-1", owner="a", name="low-cvi-high-cov", composite=80.0, coverage=0.99)),
+        make_repo_write(make_rated_record("snap-1", owner="a", name="high-porchlamp-low-cov", composite=95.0, coverage=0.65)),
+        make_repo_write(make_rated_record("snap-1", owner="a", name="low-porchlamp-high-cov", composite=80.0, coverage=0.99)),
     ]
     write_records(conn, "snap-1", items)
     rows_default, _ = queries.list_ranked(conn, "snap-1")
-    assert [row["name"] for row in rows_default] == ["high-cvi-low-cov", "low-cvi-high-cov"]
+    assert [row["name"] for row in rows_default] == ["high-porchlamp-low-cov", "low-porchlamp-high-cov"]
     rows_cov, _ = queries.list_ranked(conn, "snap-1", sort="coverage")
-    assert [row["name"] for row in rows_cov] == ["low-cvi-high-cov", "high-cvi-low-cov"]
+    assert [row["name"] for row in rows_cov] == ["low-porchlamp-high-cov", "high-porchlamp-low-cov"]
 
 
 def test_list_ranked_sort_by_pillar(tmp_path) -> None:
@@ -335,10 +335,10 @@ def test_list_ranked_descending_flag_reverses_only_the_promoted_level(tmp_path) 
     write_records(conn, "snap-1", items)
 
     field_by_sort = {
-        None: "cvi", "rank": "cvi", "cvi": "cvi", "coverage": "coverage", "tier": "tier",
+        None: "porchlamp", "rank": "porchlamp", "porchlamp": "porchlamp", "coverage": "coverage", "tier": "tier",
         **{p: f"p_{p}" for p in PILLARS},
     }
-    for sort in (None, "rank", "cvi", "coverage", "tier", *PILLARS):
+    for sort in (None, "rank", "porchlamp", "coverage", "tier", *PILLARS):
         rows_desc, total_desc = queries.list_ranked(conn, "snap-1", sort=sort, limit=1000)
         rows_asc, total_asc = queries.list_ranked(conn, "snap-1", sort=sort, descending=False, limit=1000)
         assert total_desc == total_asc == len(dataset), sort
@@ -437,13 +437,13 @@ def test_list_ranked_persona_reads_stored_composite_never_recomputing(tmp_path) 
 
     rows, total = queries.list_ranked(conn, "snap-1", persona="senior_systems")
     assert total == 3
-    expected = sorted(records, key=lambda r: -r.persona_composites["senior_systems"].cvi)
+    expected = sorted(records, key=lambda r: -r.persona_composites["senior_systems"].porchlamp)
     assert [row["name"] for row in rows] == [r.repo.name for r in expected]
-    assert [row["cvi_p"] for row in rows] == [r.persona_composites["senior_systems"].cvi for r in expected]
+    assert [row["porchlamp_p"] for row in rows] == [r.persona_composites["senior_systems"].porchlamp for r in expected]
     assert [row["rank_p"] for row in rows] == [1, 2, 3]
     # The balanced fields on every row are untouched (stored, not recomputed).
     for row in rows:
-        assert row["cvi"] == 50.0
+        assert row["porchlamp"] == 50.0
         assert row["coverage"] == 0.9
 
 
@@ -602,7 +602,7 @@ def test_snapshot_summary_counts_and_detector_summary(tmp_path) -> None:
     assert summary["snapshot_id"] == "snap-1"
     assert summary["counts"] == {"rated": 2, "gated": 1, "unrated": 1, "total": 4}
     assert summary["detector_summary"] == {"param_jump": 2, "star_burst": 1}
-    assert summary["reproduce_command"] == "python -m cvi.snapshot reproduce snap-1"
+    assert summary["reproduce_command"] == "python -m porchlamp.snapshot reproduce snap-1"
     assert summary["persona_visible_counts"]["balanced"] == 2
     assert set(summary["persona_visible_counts"]) == set(PERSONA_PRESETS)
 
@@ -655,7 +655,7 @@ def test_matrix_points_balanced_basic_and_excluded_and_axis_partial(tmp_path) ->
     assert result["axis_partial_share"] == 0.5
 
 
-def test_matrix_points_persona_projects_cvi_coverage_tier_only(tmp_path) -> None:
+def test_matrix_points_persona_projects_porchlamp_coverage_tier_only(tmp_path) -> None:
     conn = _fresh_db(tmp_path / "db.sqlite")
     rec = make_rated_record("snap-1", owner="a", name="r1", composite=70.0, coverage=0.95, leverage=60.0, friction=30.0)
     pillars = {name: PillarScore(score=80.0, coverage=1.0) for name in PILLARS}
@@ -667,8 +667,8 @@ def test_matrix_points_persona_projects_cvi_coverage_tier_only(tmp_path) -> None
     persona = queries.matrix_points(conn, "snap-1", persona="career_capital")["points"][0]
     assert persona["leverage"] == balanced["leverage"] == 60.0  # D-MAT-1: persona-invariant
     assert persona["friction"] == balanced["friction"] == 30.0
-    assert balanced["cvi"] == 70.0
-    assert persona["cvi"] == rec.persona_composites["career_capital"].cvi
+    assert balanced["porchlamp"] == 70.0
+    assert persona["porchlamp"] == rec.persona_composites["career_capital"].porchlamp
 
 
 def test_matrix_points_unknown_persona_raises(tmp_path) -> None:
@@ -682,7 +682,7 @@ def test_matrix_points_unknown_persona_raises(tmp_path) -> None:
 # =========================================================================== #
 
 def test_repo_evidence_shape_and_pillar_lookup(tmp_path) -> None:
-    from cvi.core.models import ParamScore
+    from porchlamp.core.models import ParamScore
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     rec = make_rated_record(
@@ -784,11 +784,11 @@ def test_reproject_renormalises_over_measured_pillars_only(tmp_path) -> None:
     assert total == 1
     measured_weight = 0.3 + 0.2 + 0.2 + 0.1  # governance (weight 0.2) drops out entirely
     expected_raw = (0.3 * 80.0 + 0.2 * 60.0 + 0.2 * 90.0 + 0.1 * 70.0) / measured_weight
-    assert rows[0]["cvi"] == round(expected_raw, 2)
+    assert rows[0]["porchlamp"] == round(expected_raw, 2)
     expected_coverage = 0.3 * 1.0 + 0.2 * 1.0 + 0.2 * 0.0 + 0.2 * 1.0 + 0.1 * 1.0
     assert rows[0]["coverage"] == pytest.approx(expected_coverage)
     assert rows[0]["lens"] == queries.CUSTOM_WEIGHT_LABEL == "custom"
-    assert rows[0]["balanced_cvi"] == 1.0
+    assert rows[0]["balanced_porchlamp"] == 1.0
     assert rows[0]["balanced_coverage"] == 1.0
 
 
@@ -797,7 +797,7 @@ def test_reproject_excludes_a_pillar_whose_coverage_is_zero_even_if_a_score_is_s
     even if a (stray, non-production) score happens to be stored under it --
     D-MISS-2's "over pillars with c > 0" is a coverage test, not merely a
     NULL-score test. Real writer output never produces this combination
-    (``cvi.core.aggregate.aggregate_pillars`` sets ``coverage=0.0`` exactly
+    (``porchlamp.core.aggregate.aggregate_pillars`` sets ``coverage=0.0`` exactly
     when ``score is None``); this is a defensive-SQL check, isolating the
     ``c_pillar > 0`` guard from the ``p_pillar IS NOT NULL`` guard next to
     it (mutation target: dropping the coverage guard alone)."""
@@ -817,7 +817,7 @@ def test_reproject_excludes_a_pillar_whose_coverage_is_zero_even_if_a_score_is_s
     rows, _ = queries.reproject(conn, "snap-1", weights)
     measured_weight = 0.3 + 0.2 + 0.2 + 0.1  # governance excluded despite its stray score
     expected_raw = (0.3 * 80.0 + 0.2 * 60.0 + 0.2 * 90.0 + 0.1 * 70.0) / measured_weight
-    assert rows[0]["cvi"] == round(expected_raw, 2)
+    assert rows[0]["porchlamp"] == round(expected_raw, 2)
 
 
 def _uniform_pillars(score: float, coverage: float) -> Dict[str, PillarScore]:
@@ -849,10 +849,10 @@ def test_reproject_no_ceiling_above_0_95_coverage(tmp_path) -> None:
     assert rows[0]["tier"] == "S+"
 
 
-def test_reproject_cvi_rounds_the_same_way_sql_orders_and_groups_at_a_2dp_half(tmp_path) -> None:
+def test_reproject_porchlamp_rounds_the_same_way_sql_orders_and_groups_at_a_2dp_half(tmp_path) -> None:
     """SQLite's ``ROUND()`` (half-away-from-zero) is used consistently for
-    both displayed CVI and tie grouping so rows sharing a tie group display
-    identical CVI values."""
+    both displayed Porchlamp and tie grouping so rows sharing a tie group display
+    identical Porchlamp values."""
     import sqlite3
 
     probe = sqlite3.connect(":memory:")
@@ -870,18 +870,18 @@ def test_reproject_cvi_rounds_the_same_way_sql_orders_and_groups_at_a_2dp_half(t
     write_records(conn, "snap-1", items)
     rows, _ = queries.reproject(conn, "snap-1", {p: 0.2 for p in PILLARS})
     by_name = {row["name"]: row for row in rows}
-    assert by_name["half-a"]["cvi"] == by_name["half-b"]["cvi"] == sql_rounded == 82.13
+    assert by_name["half-a"]["porchlamp"] == by_name["half-b"]["porchlamp"] == sql_rounded == 82.13
     assert by_name["half-a"]["tie_group"] == by_name["half-b"]["tie_group"] is not None
 
 
-def test_reproject_tier_cutoff_uses_the_unrounded_composite_not_the_displayed_cvi(tmp_path) -> None:
+def test_reproject_tier_cutoff_uses_the_unrounded_composite_not_the_displayed_porchlamp(tmp_path) -> None:
     """Tier cutoff comparisons use the unrounded composite score rather
     than the 2-decimal rounded display value."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     rec = dc_replace(make_rated_record("snap-1", owner="a", name="r1"), pillars=_uniform_pillars(89.997, 1.0))
     write_records(conn, "snap-1", [make_repo_write(rec)])
     rows, _ = queries.reproject(conn, "snap-1", {p: 0.2 for p in PILLARS})
-    assert rows[0]["cvi"] == 90.0  # displayed value: rounds up
+    assert rows[0]["porchlamp"] == 90.0  # displayed value: rounds up
     assert rows[0]["tier"] == "S"  # unrounded 89.997 < 90.0 -- NOT S+
 
 
@@ -907,11 +907,11 @@ def test_list_ranked_persona_rated_boundary_is_inclusive_at_exactly_0_60(tmp_pat
     """Same D-EVID-1 boundary, exercised through the persona projection's
     stored ``coverage_p`` (`04` section 6's ``coverage_p >= 0.60`` filter)."""
     conn = _fresh_db(tmp_path / "db.sqlite")
-    from cvi.core.models import PersonaComposite
+    from porchlamp.core.models import PersonaComposite
 
     rec = make_rated_record(
         "snap-1", owner="a", name="r1",
-        persona_composites={"career_capital": PersonaComposite(cvi=70.0, coverage=0.60, tier="B", rated=True)},
+        persona_composites={"career_capital": PersonaComposite(porchlamp=70.0, coverage=0.60, tier="B", rated=True)},
     )
     write_records(conn, "snap-1", [make_repo_write(rec)])
     rows, total = queries.list_ranked(conn, "snap-1", persona="career_capital")
@@ -950,12 +950,12 @@ def test_rated_p_reflects_the_stored_json_value_not_a_hardcoded_true(tmp_path) -
     not excluded by the column's shape) specifically so the two JSON paths
     diverge: reading ``.rated`` faithfully returns ``False``; the mutant
     reading ``.tier`` would return ``bool('B') = True``."""
-    from cvi.core.models import PersonaComposite
+    from porchlamp.core.models import PersonaComposite
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     rec = make_rated_record(
         "snap-1", owner="a", name="forged",
-        persona_composites={"career_capital": PersonaComposite(cvi=70.0, coverage=0.65, tier="B", rated=False)},
+        persona_composites={"career_capital": PersonaComposite(porchlamp=70.0, coverage=0.65, tier="B", rated=False)},
     )
     write_records(conn, "snap-1", [make_repo_write(rec)])
     rows, total = queries.list_ranked(conn, "snap-1", persona="career_capital")
@@ -1099,9 +1099,9 @@ def test_reproject_parity_with_inline_oracle_over_300_rows_and_20_weight_vectors
         sql_membership = _group_membership([((row["owner"], row["name"]), row["tie_group"]) for row in sql_rows])
         assert sql_membership == oracle_membership
 
-        sql_cvi = {(row["owner"], row["name"]): row["cvi"] for row in sql_rows}
+        sql_porchlamp = {(row["owner"], row["name"]): row["porchlamp"] for row in sql_rows}
         for entry in oracle_entries:
-            assert sql_cvi[(entry.owner, entry.name)] == round(entry.record.composite, 2)
+            assert sql_porchlamp[(entry.owner, entry.name)] == round(entry.record.composite, 2)
 
 
 # =========================================================================== #
@@ -1166,7 +1166,7 @@ def test_sql_tie_break_parity_across_balanced_and_every_persona_200_rows_with_nu
         records.append((rec, row))
 
     # Bake the TRUE balanced rank/tie_group onto each record before writing
-    # (`cvi.core.tiebreak.assign_ranks`), exactly as a real pipeline would --
+    # (`porchlamp.core.tiebreak.assign_ranks`), exactly as a real pipeline would --
     # `list_ranked(persona="balanced")` reads these stored columns verbatim
     # and never recomputes them (the packet's own instruction), so the
     # balanced-lens comparison below is only meaningful if the STORED
@@ -1191,7 +1191,7 @@ def test_sql_tie_break_parity_across_balanced_and_every_persona_200_rows_with_nu
                 composite, coverage = rec.composite, rec.coverage
             else:
                 projected = rec.persona_composites[lens]
-                composite, coverage = projected.cvi, projected.coverage
+                composite, coverage = projected.porchlamp, projected.coverage
             lens_record = dc_replace(rec, composite=composite, coverage=coverage)
             entries.append(TieBreakInput(
                 lens_record, rec.repo.owner, rec.repo.name,
@@ -1233,7 +1233,7 @@ def test_sql_tie_break_parity_across_balanced_and_every_persona_200_rows_with_nu
     # the friction ASC level) gives a DIFFERENT order on this same fixture.
     naive_sql = """
         SELECT owner, name FROM repositories WHERE snapshot_id = 'snap-1' AND rated = 1
-        ORDER BY ROUND(cvi, 2) DESC NULLS LAST, coverage DESC NULLS LAST,
+        ORDER BY ROUND(porchlamp, 2) DESC NULLS LAST, coverage DESC NULLS LAST,
                  p_responsiveness DESC NULLS LAST, friction ASC,
                  leverage DESC NULLS LAST, ttfhr_p75 ASC NULLS LAST,
                  last_human_commit_at DESC NULLS LAST, lower(owner || '/' || name) ASC
@@ -1398,7 +1398,7 @@ def test_reproject_coverage_and_tier_match_canonical_when_a_pillar_is_not_applic
     (``PillarScore.applicable is False`` -- a systems-ecosystem repo's
     inapplicable input, ``constants.NOT_APPLICABLE_RULES``) leaves BOTH sides
     of the composite-coverage ratio in the canonical path
-    (``cvi.core.aggregate.composite_coverage``); its remaining pillars are
+    (``porchlamp.core.aggregate.composite_coverage``); its remaining pillars are
     renormalised over their own weight, so a fully-measured-everywhere-else
     repo reaches coverage 1.0 and its uncapped tier.
 
@@ -1458,7 +1458,7 @@ def test_reproject_tier_cutoff_rounds_the_composite_to_ratio_decimals_like_the_c
     ``composite_score_raw`` rounds that back to exactly 80.0 and tiers S; the
     unfixed tier CASE saw 79.999... < 80 and published A.
     """
-    from cvi.core import aggregate
+    from porchlamp.core import aggregate
 
     conn = _fresh_db(tmp_path / "db.sqlite")
     rec = dc_replace(
@@ -1489,20 +1489,20 @@ def test_reproject_tier_cutoff_rounds_the_composite_to_ratio_decimals_like_the_c
     expected_tier = aggregate.tier_from_score(composite_raw)
     assert expected_tier == "S"
 
-    # The displayed CVI is unaffected (still 2 decimals); only the tier moves.
-    assert rows[0]["cvi"] == 80.0
+    # The displayed Porchlamp is unaffected (still 2 decimals); only the tier moves.
+    assert rows[0]["porchlamp"] == 80.0
     assert rows[0]["tier"] == expected_tier == "S"
 
 
-def test_reproject_displayed_cvi_is_two_decimals_even_when_the_float_is_longer(tmp_path) -> None:
-    """AUD-REPROJECT: the tier fix must not change the displayed ``cvi`` --
+def test_reproject_displayed_porchlamp_is_two_decimals_even_when_the_float_is_longer(tmp_path) -> None:
+    """AUD-REPROJECT: the tier fix must not change the displayed ``porchlamp`` --
     still exactly 2 decimal places (D-AGG-2 / 04 section 8), matching SQLite
     ``ROUND(..., 2)`` (half away from zero)."""
     conn = _fresh_db(tmp_path / "db.sqlite")
     # 0.1 / 0.3 in SQL gives a long float; the tier path now rounds at 12
-    # decimals but the DISPLAYED cvi must stay the 2-decimal SQL round.
+    # decimals but the DISPLAYED porchlamp must stay the 2-decimal SQL round.
     pillars = _uniform_pillars(82.123456789, 1.0)
-    rec = dc_replace(make_rated_record("snap-1", owner="a", name="cvi-2dp"), pillars=pillars)
+    rec = dc_replace(make_rated_record("snap-1", owner="a", name="porchlamp-2dp"), pillars=pillars)
     write_records(conn, "snap-1", [make_repo_write(rec)])
 
     probe = sqlite3.connect(":memory:")
@@ -1511,6 +1511,6 @@ def test_reproject_displayed_cvi_is_two_decimals_even_when_the_float_is_longer(t
 
     rows, _ = queries.reproject(conn, "snap-1", {p: 0.2 for p in PILLARS})
     assert len(rows) == 1
-    assert rows[0]["cvi"] == sql_rounded == 82.12
-    # cvi carries at most 2 decimals regardless of the raw composite's length.
-    assert round(rows[0]["cvi"], 2) == rows[0]["cvi"]
+    assert rows[0]["porchlamp"] == sql_rounded == 82.12
+    # porchlamp carries at most 2 decimals regardless of the raw composite's length.
+    assert round(rows[0]["porchlamp"], 2) == rows[0]["porchlamp"]

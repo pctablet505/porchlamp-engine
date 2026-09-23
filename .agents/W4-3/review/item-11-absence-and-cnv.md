@@ -29,7 +29,7 @@ CORRECT AND HARMLESS today (D-VER-2: one frozen module, covered by
 constants_hash). Verdict: accept. The real exposure is not the import-time
 binding but the missing test for the unrounded-composite rule (W-4b).
 
-CNV-3 "`reproduce_command` follows `cvi/snapshot/cli.py`'s docstring because
-`cvi/cli.py` does not exist" -- CONFIRMED: `ls cvi/cli.py` -> no such file;
-that docstring's invocation is `python -m cvi.snapshot reproduce <id>`.
+CNV-3 "`reproduce_command` follows `porchlamp/snapshot/cli.py`'s docstring because
+`porchlamp/cli.py` does not exist" -- CONFIRMED: `ls porchlamp/cli.py` -> no such file;
+that docstring's invocation is `python -m porchlamp.snapshot reproduce <id>`.
 Verdict: accept, revisit when the unified CLI lands.

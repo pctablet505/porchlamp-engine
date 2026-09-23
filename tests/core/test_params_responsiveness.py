@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import Callable
 
-from cvi.core import constants
-from cvi.core.models import Measured, ParamScore, Unmeasured
-from cvi.core.params import dr90, gr14, mr_first, ttfhr, ttm_p90
+from porchlamp.core import constants
+from porchlamp.core.models import Measured, ParamScore, Unmeasured
+from porchlamp.core.params import dr90, gr14, mr_first, ttfhr, ttm_p90
 
 _HASH = "ab" * 32
 _FETCHED_AT = "2026-09-01T00:00:00+00:00"

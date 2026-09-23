@@ -1,6 +1,6 @@
 # HYG-1 handoff — clear 19 ruff findings in legacy test files (no behaviour change)
 
-- **Status: DONE.** `ruff check cvi/ scripts/ tests/` now reports exactly the
+- **Status: DONE.** `ruff check porchlamp/ scripts/ tests/` now reports exactly the
   4 findings in `scripts/curate_dataset_llm.py` (owned by another packet,
   untouched here) and nothing else. All 19 findings assigned to this packet
   are cleared in exactly the 4 files named in the brief.
@@ -29,7 +29,7 @@ the stat).
 ### tests/benchmark_sla_runner.py (10 findings)
 - F401 x7 (auto-fixed via `ruff check --fix`, scoped to the 4 target files
   only): unused imports `asyncio`, `pathlib.Path`, `typing.Callable`,
-  `cvi.models.{Ecosystem,Persona,Quadrant,Tier}`. Verified by grep that none
+  `porchlamp.models.{Ecosystem,Persona,Quadrant,Tier}`. Verified by grep that none
   of these names are referenced anywhere else in the file (the only
   remaining hits are string literals like `"Persona BALANCED"`, not the
   imported symbols).
@@ -76,7 +76,7 @@ the stat).
   replaced with its ASCII equivalent rather than adding a `noqa`.
 
 ### tests/test_perf_sla_stress.py (3 findings)
-- F401 x2 (auto-fixed): unused `cvi.models.Ecosystem`, `cvi.models.Persona`
+- F401 x2 (auto-fixed): unused `porchlamp.models.Ecosystem`, `porchlamp.models.Persona`
   imports. Verified by grep that remaining occurrences of "Ecosystem" /
   "Persona" in the file are only comments and string literals
   (`"Persona BALANCED"`, etc.), not the imported symbols.
@@ -90,7 +90,7 @@ the stat).
   only occurrence, it's a docstring (not asserted on), so it was normalized
   to ASCII rather than suppressed with `noqa`.
 
-## Ruff — before (baseline on `e29fb79`, `cvi/ scripts/ tests/`)
+## Ruff — before (baseline on `e29fb79`, `porchlamp/ scripts/ tests/`)
 
 23 findings total: 4 in `scripts/curate_dataset_llm.py` (out of scope — owned
 by another packet) + 19 across the four target files (10 + 5 + 3 + 1, matching
@@ -99,7 +99,7 @@ the brief exactly).
 ## Ruff — after (verbatim, exit code included)
 
 ```
-$ /home/pctablet505/Projects/contributor-value-index/.venv/bin/ruff check cvi/ scripts/ tests/
+$ /home/pctablet505/Projects/contributor-value-index/.venv/bin/ruff check porchlamp/ scripts/ tests/
 F401 [*] `time` imported but unused
   --> scripts/curate_dataset_llm.py:16:8
    |
@@ -179,7 +179,7 @@ Exit code 1 is expected: ruff exits non-zero whenever any findings remain,
 and the 4 `scripts/curate_dataset_llm.py` findings are explicitly out of
 scope for this packet (that file is being deleted by another packet). All 19
 findings assigned to HYG-1 are gone; no new findings were introduced in the
-four edited files or anywhere else in `cvi/ scripts/ tests/`.
+four edited files or anywhere else in `porchlamp/ scripts/ tests/`.
 
 ## Pytest — the four edited files (verbatim tail, exit code included)
 

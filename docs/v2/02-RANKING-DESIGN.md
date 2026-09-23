@@ -6,7 +6,7 @@ decision. Numbers in this document are decisions, not estimates, unless marked
 
 ## 0. What the score means and the ordering principle
 
-**D-DEF-1.** CVI estimates the expected value of one hour a contributor invests
+**D-DEF-1.** Porchlamp estimates the expected value of one hour a contributor invests
 in a repository, decomposed as
 
 ```
@@ -38,7 +38,7 @@ sentence in CONTRIBUTING.md). Outcome-anchored parameters get the larger weight.
 | 3 | Evidence gate | `rated` / `unrated` from coverage |
 | 4 | Normalization | ECDF populations from rated repos only, frozen |
 | 5 | Pillar aggregation | pillar score + pillar coverage |
-| 6 | Composite | balanced CVI, coverage, tier with ceiling |
+| 6 | Composite | balanced Porchlamp, coverage, tier with ceiling |
 | 7 | Coordinates & quadrant | leverage, friction, quadrant |
 | 8 | Persona gates & projections | `persona_gates`, per-persona composite |
 | 9 | Ordering | strict rank after tie-breakers, `tie_group` |
@@ -264,7 +264,7 @@ universe changes).
 governance .20, rigor .15, accessibility .15 (mandated by R2; unchanged in v2;
 owner decision O-2 for any v3 change). Persona presets as in the spec §4.
 
-**D-AGG-2 Composite.** `CVI = Σ_p W_p·pillar_p` over measured pillars,
+**D-AGG-2 Composite.** `Porchlamp = Σ_p W_p·pillar_p` over measured pillars,
 renormalised as in D-MISS-2, rounded to 2 decimals after all arithmetic.
 
 **D-AGG-3 Sensitivity requirement.** Each version publishes a sensitivity
@@ -349,7 +349,7 @@ version.
 
 **D-VER-3.** A snapshot is `(as_of, manifest_root, benchmark_version,
 constants_hash, code_commit)`. Scoring reads `as_of` from the snapshot; no
-`datetime.now()` in scoring code (test-enforced). `cvi reproduce <snapshot>`
+`datetime.now()` in scoring code (test-enforced). `porchlamp reproduce <snapshot>`
 must yield a byte-identical database.
 
 **D-VER-4 Anchors.** Relational, computed from real data at every version:

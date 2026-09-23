@@ -12,8 +12,8 @@ the archived draft" below for what changed and why.
 ## Diffstat
 
 ```
- cvi/collect/commits.py               |  25 +-
- cvi/collect/governance.py            | 630 +++++++++++++++++++++++++++++
+ porchlamp/collect/commits.py               |  25 +-
+ porchlamp/collect/governance.py            | 630 +++++++++++++++++++++++++++++
  scripts/derive.py                    |  26 ++
  scripts/gather.py                    |  12 +
  tests/collect/test_depsdev.py        |   5 +
@@ -25,7 +25,7 @@ the archived draft" below for what changed and why.
  10 files changed, 1488 insertions(+), 10 deletions(-)
 ```
 
-Source only (excludes tests): `cvi/collect/commits.py` + `cvi/collect/governance.py`
+Source only (excludes tests): `porchlamp/collect/commits.py` + `porchlamp/collect/governance.py`
 (new) + `scripts/derive.py` + `scripts/gather.py` = 689 insertions / 4 deletions,
 ~685 net new source lines. Packet size **L** (≤ 800) — no size deviation.
 
@@ -37,7 +37,7 @@ appended at the **end** of each file's existing hook chain — after the
 already-landed W1-8 `downloads_status`/`downloads` blocks, which is the true
 end of the chain on `e29fb79` (W1-4 and W1-7 are not yet landed on this base).
 
-## Ownership extension: `cvi/collect/commits.py` (pre-authorized by the dispatch)
+## Ownership extension: `porchlamp/collect/commits.py` (pre-authorized by the dispatch)
 
 The dispatch's own text anticipated this: "the W1-5 commits collector ...
 stores author emails; if commit messages are not stored, extend that
@@ -46,7 +46,7 @@ the message text." `shape_commit_rows` already receives `commit.message` in
 the raw REST response (the same `repos/{o}/{r}/commits` listing W1-5 already
 pages) but discarded it; it now also computes `signed_off: bool` (the
 `Signed-off-by:` trailer) per row and keeps discarding the message text
-itself. No new live call, no message text stored. `cvi.collect.governance`
+itself. No new live call, no message text stored. `porchlamp.collect.governance`
 reads this boolean from the already-collected `commits_365d` envelope for
 3.1's sign-off share — it never fetches commits itself.
 
@@ -56,7 +56,7 @@ reads this boolean from the already-collected `commits_365d` envelope for
    archived `governance.py` re-fetched the trailing 365 d of commits *with
    messages* inside `collect_governance` (`_signoff_commits`, plus its own
    `SIGNOFF_WINDOW_DAYS=365`/`SIGNOFF_COMMIT_CAP=1000`/`SIGNOFF_PAGE_SIZE=100`
-   — an exact re-statement of `cvi.collect.commits`'s
+   — an exact re-statement of `porchlamp.collect.commits`'s
    `COMMIT_WINDOW_DAYS`/`COMMIT_CAP`/`COMMIT_PAGE_SIZE`), storing the message
    text in the envelope. This doubled every commit-listing call the pipeline
    already makes via W1-5, stored message text the spec never asks for, and
@@ -118,19 +118,19 @@ reads this boolean from the already-collected `commits_365d` envelope for
 ## Fail-before proofs (R-1)
 
 Restored pre-change files with `git show e29fb79:<path> > <path>` (module
-absent for `cvi/collect/governance.py`, so it was removed instead), ran the
+absent for `porchlamp/collect/governance.py`, so it was removed instead), ran the
 tests, then restored my versions from a scratch backup (byte-identical,
 verified with `diff -q`) — never `git stash`, never `git checkout --`.
 
 ### Proof 1 — the whole W1-6 packet (governance module + both hooks)
 
 Before (`scripts/derive.py`/`scripts/gather.py` restored to `e29fb79`,
-`cvi/collect/governance.py` removed):
+`porchlamp/collect/governance.py` removed):
 
 ```
 $ pytest tests/collect/test_governance_w16.py -p no:cacheprovider -q
 ERROR collecting tests/collect/test_governance_w16.py
-ImportError: cannot import name 'governance' from 'cvi.collect'
+ImportError: cannot import name 'governance' from 'porchlamp.collect'
 !!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
 exit code: 2
 ```
@@ -144,9 +144,9 @@ $ pytest tests/collect/test_governance_w16.py -p no:cacheprovider -q
 exit code: 0
 ```
 
-### Proof 2 — `cvi/collect/commits.py`'s `signed_off` extension
+### Proof 2 — `porchlamp/collect/commits.py`'s `signed_off` extension
 
-Before (`cvi/collect/commits.py` restored to `e29fb79`):
+Before (`porchlamp/collect/commits.py` restored to `e29fb79`):
 
 ```
 $ pytest tests/test_commits_ef.py -p no:cacheprovider -q
@@ -198,20 +198,20 @@ exit code: 0
 ```
 
 (This is every test file that imports `scripts/derive.py`, `scripts/gather.py`
-or `cvi.collect.commits` — the full blast radius of this packet's changes,
+or `porchlamp.collect.commits` — the full blast radius of this packet's changes,
 found by `grep -rl`.)
 
 ## Ruff
 
 ```
-$ ruff check cvi/collect/governance.py cvi/collect/commits.py scripts/derive.py \
+$ ruff check porchlamp/collect/governance.py porchlamp/collect/commits.py scripts/derive.py \
     scripts/gather.py tests/collect/test_depsdev.py tests/collect/test_pr_window.py \
     tests/test_repo_object.py tests/test_backfill_downloads.py \
     tests/test_commits_ef.py tests/collect/test_governance_w16.py
 All checks passed!
 ```
 
-`ruff check cvi/ scripts/ tests/` reports 23 pre-existing errors, all in
+`ruff check porchlamp/ scripts/ tests/` reports 23 pre-existing errors, all in
 `scripts/curate_dataset_llm.py` (F401/RUF046) and `tests/test_perf_sla_stress.py`
 / `tests/test_webapp.py` (F401/RUF046/RUF002) — none in files this packet
 touches; confirmed identical count (23) on the unmodified main checkout.
@@ -229,8 +229,8 @@ exit code: 0
 
 ## Live-call log (torvalds/linux, kubernetes/kubernetes — 2 of 2 allowed)
 
-Ran the real `cvi.collect.governance.collect_governance` and
-`cvi.collect.commits.collect_commits_365d` (no injected fakes) via a thin
+Ran the real `porchlamp.collect.governance.collect_governance` and
+`porchlamp.collect.commits.collect_commits_365d` (no injected fakes) via a thin
 logging wrapper around the same `gh api`/`urllib` calls the library code
 makes; envelopes written to
 `/home/pctablet505/Projects/cvi-scratch/W1-6s/raw/{governance,commits_365d,pr_window}/`.
@@ -316,7 +316,7 @@ an honest missing-evidence default, per D-VER/O-1.
   beyond one smaller-page-size attempt (which succeeded, `page_size=25`) —
   3.3 live evidence for this repo is supplementary, not part of the packet's
   required acceptance (only 3.1 is specified for live proof).
-* Whether `cvi/core/constants_v2.py`'s bare `promotion_ladder`/`ai_posture`
+* Whether `porchlamp/core/constants_v2.py`'s bare `promotion_ladder`/`ai_posture`
   `PARAM_INPUT_IDS` entries are meant to be filled from this packet's
   `_v2`-suffixed fields by a later integration packet — no such mapping
   exists yet in this tree; flagged for whichever packet wires
@@ -342,7 +342,7 @@ Review: `/tmp/claude-1000/-home-pctablet505-Projects/2a48e84a-2b94-4a2f-8bff-adb
 All four Blockers and W1/W6/W7/W8 fixed. Diffstat:
 
 ```
- cvi/collect/governance.py            | 233 ++++++++++++++++++++++++--------
+ porchlamp/collect/governance.py            | 233 ++++++++++++++++++++++++--------
  scripts/derive.py                    |   9 +-
  tests/collect/test_depsdev.py        |  16 ++-
  tests/collect/test_governance_w16.py | 251 +++++++++++++++++++++++++++++++----
@@ -404,7 +404,7 @@ EasyCLA) under the tightened matcher — over-correction guard holds.
 
 `derive_governance_fields` now computes confidence per parameter instead of
 one blanket `"derived"`: `"missing"` (this v1-format document's spelling of
-Unmeasured — `cvi.derive.bundle._load_v1` maps a `"missing"` confidence to
+Unmeasured — `porchlamp.derive.bundle._load_v1` maps a `"missing"` confidence to
 `Unmeasured(reason="collector_failure")`, the W1-7 F2 template) fires only
 when the relevant envelope(s) were never fetched:
 
@@ -518,7 +518,7 @@ above.
 
 `collect_governance` now records `files[fname] = {"present": True,
 "sha256": sha256_hex(body), "body": body}` (imports `sha256_hex` from
-`cvi.collect.envelope`, the same helper every other per-item hash in this
+`porchlamp.collect.envelope`, the same helper every other per-item hash in this
 codebase would use). Verified directly against a live collector run:
 production keys now equal the fixture keys exactly, `['body', 'present',
 'sha256']`, closing the LENS-TQ-14 field-delta the review measured. No test
@@ -608,23 +608,23 @@ round-2 fix; +24 net new tests added this round.)
 ## Ruff
 
 ```
-$ ruff check cvi/collect/governance.py cvi/collect/commits.py scripts/derive.py \
+$ ruff check porchlamp/collect/governance.py porchlamp/collect/commits.py scripts/derive.py \
     scripts/gather.py tests/conftest.py tests/collect/test_governance_w16.py \
     tests/collect/test_depsdev.py tests/collect/test_pr_window.py \
     tests/test_repo_object.py tests/test_backfill_downloads.py \
     tests/test_commits_ef.py tests/test_derive.py
 All checks passed!
-$ ruff check cvi/ scripts/ tests/
+$ ruff check porchlamp/ scripts/ tests/
 Found 4 errors.   # all four in scripts/curate_dataset_llm.py, a file this packet never touches (pre-existing, same as round 1's Nit N3)
 ```
 
 ## COULD NOT VERIFY (round 2)
 
 * Whether a `_row_sequence`-style guard is also warranted on other
-  `commits_365d` consumers outside this packet (`cvi/collect/commits.py`
-  itself, `cvi/pillars/`); not swept, since W8's scope is this packet's own
+  `commits_365d` consumers outside this packet (`porchlamp/collect/commits.py`
+  itself, `porchlamp/pillars/`); not swept, since W8's scope is this packet's own
   `governance.py` functions.
-* `cvi/derive/bundle.py`'s `V1_FIELD_TO_INPUT` table reads `legal_ip_model`
+* `porchlamp/derive/bundle.py`'s `V1_FIELD_TO_INPUT` table reads `legal_ip_model`
   (the v1 heuristic), not `legal_ip`, for the `legal_ip` v2 input id: this
   packet's own `legal_ip` field is still orphaned from that specific wiring
   path even after W7, because `legal_ip` has no bare-name collision with a
@@ -656,8 +656,8 @@ item records in `.agents/W1-6/review/round2/` (untracked, left as delivered).
 Diffstat (round-3 content only):
 
 ```
- cvi/collect/governance.py            | 181 ++++++++++++++++++++---------------
- cvi/derive/bundle.py                 |  28 +++++-
+ porchlamp/collect/governance.py            | 181 ++++++++++++++++++++---------------
+ porchlamp/derive/bundle.py                 |  28 +++++-
  tests/collect/test_governance_w16.py | 156 +++++++++++++++++++++++++++++-
  tests/collect/test_w17_pike.py       |  13 ++-
  4 files changed, 294 insertions(+), 84 deletions(-)
@@ -721,7 +721,7 @@ full parametrized corpus test (pasted below, `git status --short` empty
 after every restore):
 
 ```
-$ sed -i '/("banned", r"\\b(ban|bans|banned|banning)\\b"),/d' cvi/collect/governance.py
+$ sed -i '/("banned", r"\\b(ban|bans|banned|banning)\\b"),/d' porchlamp/collect/governance.py
 $ pytest -p no:cacheprovider "tests/collect/test_governance_w16.py::test_proscribed_sentence_corpus" -v
 tests/collect/test_governance_w16.py::test_proscribed_sentence_corpus[AI contributions are banned.-True] FAILED
 AssertionError: 'AI contributions are banned.': expected proscribed=True, got False
@@ -729,7 +729,7 @@ AssertionError: 'AI contributions are banned.': expected proscribed=True, got Fa
 ```
 
 ```
-$ sed -i '221,226d' cvi/collect/governance.py   # the negated_ban_verb permission row
+$ sed -i '221,226d' porchlamp/collect/governance.py   # the negated_ban_verb permission row
 $ pytest -p no:cacheprovider "tests/collect/test_governance_w16.py::test_proscribed_sentence_corpus" -v
 9 failed, 24 passed in 0.13s
   ...[We do not ban AI-generated contributions.-False]
@@ -784,7 +784,7 @@ none of the five changes classification between round 2 and round 3).
 
 ## BB3 — wire the three parameters into the v2 scorer
 
-Edited only the three named `INPUT_MAPPINGS` rows in `cvi/derive/bundle.py`
+Edited only the three named `INPUT_MAPPINGS` rows in `porchlamp/derive/bundle.py`
 (970-1010 range):
 
 * `ai_posture` -- unchanged (already correct: an identity vocab over the
@@ -901,7 +901,7 @@ collector's own `sha256_hex`, so a bug shared by both sides could not cancel
 out). Mutant M8 (`sha256_hex(body)` -> `sha256_hex(fname)`) now dies:
 
 ```
-$ sed -i 's/sha256_hex(body)/sha256_hex(fname)/' cvi/collect/governance.py
+$ sed -i 's/sha256_hex(body)/sha256_hex(fname)/' porchlamp/collect/governance.py
 $ pytest -p no:cacheprovider tests/collect/test_governance_w16.py
 FAILED tests/collect/test_governance_w16.py::test_collect_governance_per_file_sha256_matches_independent_recomputation
 AssertionError: GOVERNANCE.md
@@ -937,10 +937,10 @@ own pre-existing marker) -- external, not a regression from this packet;
 it had reappeared by the time of the final rebase run pasted above.
 
 ```
-$ ruff check cvi/collect/governance.py cvi/derive/bundle.py tests/conftest.py \
+$ ruff check porchlamp/collect/governance.py porchlamp/derive/bundle.py tests/conftest.py \
     tests/collect/test_governance_w16.py tests/collect/test_w17_pike.py
 All checks passed!
-$ ruff check cvi/ scripts/ tests/
+$ ruff check porchlamp/ scripts/ tests/
 Found 4 errors.   # all four in scripts/curate_dataset_llm.py, pre-existing, untouched
 ```
 
@@ -950,13 +950,13 @@ Found 4 errors.   # all four in scripts/curate_dataset_llm.py, pre-existing, unt
   found anywhere in this project (repo, review, or scratch); interpreted as
   the 12 `GOVERNANCE_FILES + AI_POLICY_FILES` file-name set and covered via
   the 34-sentence corpus instead (disclosed above).
-* Whether `cvi/lakehouse.py`'s v1 ingest path (flagged NOT CHECKED by the
+* Whether `porchlamp/lakehouse.py`'s v1 ingest path (flagged NOT CHECKED by the
   round-2 review) reads the new `promotion_ladder` v2 spellings correctly --
   out of this packet's owned files, not swept this round either.
 * `hard_ai_ban` (WW6, `scripts/derive.py:377`, computed from the v1 enum
   before the W1-6 block overwrites `ai_posture`) -- unresolved; not named in
   this round's dispatch, left for a future round or the lead's ruling on
-  WW6 (also ties to the `cvi/models.py:196` `promotion_ladder: PromotionLadder`
+  WW6 (also ties to the `porchlamp/models.py:196` `promotion_ladder: PromotionLadder`
   type-vocabulary question).
 * Round-1/round-2's carried-over open items (WW4 pr_window-failure-still-
   measured, WW5 evidence-richness, the sample-200 manifest gap) -- unchanged,
@@ -1073,7 +1073,7 @@ accepted B2/W7 changes overwrite; retargeted to `legal_ip_model`, a field
 this packet never touches, on the same fixture (committed separately,
 `4659099`, before the de-scope commit below).
 
-## What was deleted (`cvi/collect/governance.py`)
+## What was deleted (`porchlamp/collect/governance.py`)
 
 * `BAN_TABLE` (11 rows), `PERMISSION_TABLE` (8 rows) — the entire
   round-3 table-driven ban-detection scheme.
@@ -1088,11 +1088,11 @@ this packet never touches, on the same fixture (committed separately,
 
 `classify_ai_posture` is now REGULATED (an `AI_POLICY_FILES` entry present)
 else AD_HOC — never PROSCRIBED; no code path returns it.
-`cvi.core.constants_v2.AI_POSTURE_VALUES` is untouched (still
+`porchlamp.core.constants_v2.AI_POSTURE_VALUES` is untouched (still
 `REGULATED`/`PROSCRIBED`/`AD_HOC`) — only the producer is narrowed, per the
 dispatch ("the vocabulary stays").
 
-**Net diff, `cvi/collect/governance.py`: 35 insertions, 143 deletions
+**Net diff, `porchlamp/collect/governance.py`: 35 insertions, 143 deletions
 (-108 lines).**
 
 ## Tests (`tests/collect/test_governance_w16.py`)
@@ -1164,7 +1164,7 @@ assert Unmeasured(reason='collector_failure', detail="v1 value 'VERIFIED' for
 1 failed in 0.05s
 ```
 
-Restored (`git diff --stat cvi/derive/bundle.py` empty afterward); re-run
+Restored (`git diff --stat porchlamp/derive/bundle.py` empty afterward); re-run
 green, `32 passed`.
 
 ## Full suite, ruff (real output, twice, both exit 0)
@@ -1177,14 +1177,14 @@ $ pytest tests -p no:cacheprovider -n 4   # re-run, stability check
 ```
 
 ```
-$ ruff check cvi/collect/governance.py tests/collect/test_governance_w16.py tests/derive/test_input_mappings.py
+$ ruff check porchlamp/collect/governance.py tests/collect/test_governance_w16.py tests/derive/test_input_mappings.py
 All checks passed!
 ```
 
 ## Diffstat, this round (three files)
 
 ```
- cvi/collect/governance.py            |  35 insertions(+), 143 deletions(-)
+ porchlamp/collect/governance.py            |  35 insertions(+), 143 deletions(-)
  tests/collect/test_governance_w16.py |  68 insertions(+), 164 deletions(-)
  tests/derive/test_input_mappings.py  |  37 insertions(+),   0 deletions(-)
 ```

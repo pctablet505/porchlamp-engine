@@ -19,13 +19,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.fixtures.synthetic_catalog import build_benchmark_store
-from cvi.constants import (
+from porchlamp.constants import (
     FRICTION_WEIGHTS,
     LEVERAGE_WEIGHTS,
     PARAM_WEIGHTS,
     PILLAR_WEIGHTS,
 )
-from cvi.lakehouse import OperationalStore
+from porchlamp.lakehouse import OperationalStore
 
 
 # =========================================================================== #
@@ -129,15 +129,15 @@ class TestCanonicalWeightsFeature:
         assert PARAM_WEIGHTS["responsiveness"]["ttm_p90"] == 0.20
 
     def test_wam_scoring_mathematical_consistency(self, store: OperationalStore) -> None:
-        """Overall CVI is the exact canonical weighted sum of the 5 pillar scores for non-gated repos."""
+        """Overall Porchlamp is the exact canonical weighted sum of the 5 pillar scores for non-gated repos."""
         cur = store.connection.execute(
             "SELECT score_responsiveness, score_criticality, score_governance, "
-            "score_rigor_ai, score_accessibility, overall_cvi "
+            "score_rigor_ai, score_accessibility, overall_porchlamp "
             "FROM repositories WHERE is_stage0_disqualified = 0 LIMIT 50"
         )
-        for p1, p2, p3, p4, p5, stored_cvi in cur.fetchall():
-            expected_cvi = 0.25 * p1 + 0.25 * p2 + 0.20 * p3 + 0.15 * p4 + 0.15 * p5
-            assert stored_cvi == pytest.approx(expected_cvi, abs=0.15)
+        for p1, p2, p3, p4, p5, stored_porchlamp in cur.fetchall():
+            expected_porchlamp = 0.25 * p1 + 0.25 * p2 + 0.20 * p3 + 0.15 * p4 + 0.15 * p5
+            assert stored_porchlamp == pytest.approx(expected_porchlamp, abs=0.15)
 
     def test_leverage_formula_decomposition(self, store: OperationalStore) -> None:
         """Leverage (Y-axis) decomposes into: 0.50*P2 + 0.30*P4 + 0.20*P3."""
@@ -244,7 +244,7 @@ class TestComparatorScreenEFeature:
     def test_comparator_15_parameters_diff_table(self, web_html: str) -> None:
         """Comparator differential table compares all 15 parameters across 5 categories."""
         for dimension in (
-            "Overall CVI Score",
+            "Overall Porchlamp Score",
             "Global Rank",
             "Benchmark Tier",
             "Leverage Score",
@@ -302,9 +302,9 @@ class TestAPIEndpointsFeature:
         assert elapsed < 0.05, "Healthz response time exceeds 50ms"
 
     def test_api_matrix_spatial_query_sla(self, client: TestClient) -> None:
-        """Spatial query GET /v1/cvi/matrix returns nodes and quadrant totals in <50ms."""
+        """Spatial query GET /v1/porchlamp/matrix returns nodes and quadrant totals in <50ms."""
         t0 = time.perf_counter()
-        resp = client.get("/v1/cvi/matrix")
+        resp = client.get("/v1/porchlamp/matrix")
         elapsed = time.perf_counter() - t0
         assert resp.status_code == 200
         data = resp.json()
@@ -319,8 +319,8 @@ class TestAPIEndpointsFeature:
         assert elapsed < 0.05, f"Matrix query took {elapsed * 1000:.1f}ms (exceeds 50ms SLA)"
 
     def test_api_repo_deep_dive_scorecard_200_and_404(self, client: TestClient) -> None:
-        """Scorecard query GET /v1/cvi/repos/{owner}/{name} returns full payload or 404."""
-        resp = client.get("/v1/cvi/repos/vllm-project/vllm")
+        """Scorecard query GET /v1/porchlamp/repos/{owner}/{name} returns full payload or 404."""
+        resp = client.get("/v1/porchlamp/repos/vllm-project/vllm")
         assert resp.status_code == 200
         body = resp.json()
         assert body["owner"] == "vllm-project"
@@ -329,14 +329,14 @@ class TestAPIEndpointsFeature:
         assert "deep_dive" in body
 
         # Missing repository returns 404 with JSON detail
-        missing = client.get("/v1/cvi/repos/nonexistent/missing-repo")
+        missing = client.get("/v1/porchlamp/repos/nonexistent/missing-repo")
         assert missing.status_code == 404
         assert "not found" in missing.json()["detail"]
 
     def test_api_paginated_leaderboard_endpoint(self, client: TestClient) -> None:
-        """GET /v1/cvi/leaderboard supports pagination and ecosystem filter in <50ms."""
+        """GET /v1/porchlamp/leaderboard supports pagination and ecosystem filter in <50ms."""
         t0 = time.perf_counter()
-        resp = client.get("/v1/cvi/leaderboard?page=1&limit=25")
+        resp = client.get("/v1/porchlamp/leaderboard?page=1&limit=25")
         elapsed = time.perf_counter() - t0
         assert resp.status_code == 200
         data = resp.json()
@@ -346,7 +346,7 @@ class TestAPIEndpointsFeature:
         assert elapsed < 0.05, f"Leaderboard query took {elapsed * 1000:.1f}ms (exceeds 50ms SLA)"
 
     def test_api_persona_reproject_endpoint(self, client: TestClient) -> None:
-        """POST /v1/cvi/reproject re-ranks all repositories under custom 5-pillar weights."""
+        """POST /v1/porchlamp/reproject re-ranks all repositories under custom 5-pillar weights."""
         custom_weights = {
             "responsiveness": 0.40,
             "criticality": 0.20,
@@ -355,7 +355,7 @@ class TestAPIEndpointsFeature:
             "accessibility": 0.10,
         }
         t0 = time.perf_counter()
-        resp = client.post("/v1/cvi/reproject", json={"weights": custom_weights})
+        resp = client.post("/v1/porchlamp/reproject", json={"weights": custom_weights})
         elapsed = time.perf_counter() - t0
         assert resp.status_code == 200
         items = resp.json()
@@ -459,4 +459,4 @@ class TestZeroCDNOfflineFeature:
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
         assert "<!doctype html>" in resp.text.lower()
-        assert "Contributor Value Index" in resp.text
+        assert "Porchlamp" in resp.text

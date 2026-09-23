@@ -78,13 +78,13 @@ a provenance that is not an envelope path (for example the LLM handoff's
 `"ecosystem-intelligence"`) flags `unverifiable_provenance` and blocks
 promotion.
 
-**Snapshot manifest.** `cvi snapshot freeze --as-of <ts>` lists every envelope
+**Snapshot manifest.** `porchlamp snapshot freeze --as-of <ts>` lists every envelope
 hash used, computes a Merkle root, records `benchmark_version`,
 `constants_hash`, `code_commit`, and writes `data/snapshots/<id>/manifest.json`.
 Promotion reads only envelopes in the manifest. Every stored row carries
 `snapshot_id`, `raw_hash` (hash of its bundle) and `constants_hash`.
 
-**Reproducibility.** `cvi reproduce <snapshot_id>` rebuilds the database from
+**Reproducibility.** `porchlamp reproduce <snapshot_id>` rebuilds the database from
 `data/raw` and the manifest and compares a canonical dump hash; CI runs it on a
 committed fixture snapshot (about 50 repos) on every push. Scoring code reads
 time only from `as_of`.

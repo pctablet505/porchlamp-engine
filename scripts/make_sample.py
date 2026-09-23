@@ -4,7 +4,7 @@
 Copies the envelopes of every collector for a stratified sample out of a data
 directory (read-only -- nothing under ``data/`` is written) into a scratch
 sample directory, and writes ``manifest.json`` plus ``MANIFEST.md``.  The
-result is a mini ``data/`` tree, so ``python -m cvi.audit.coverage --data-dir``
+result is a mini ``data/`` tree, so ``python -m porchlamp.audit.coverage --data-dir``
 runs against it unchanged.
 
 Selection: one stratum per ecosystem, ``--per-ecosystem`` repositories each,
@@ -37,7 +37,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from cvi.audit.coverage import COLLECTORS, GITHUB_KEYED_COLLECTORS, discover_repos
+from porchlamp.audit.coverage import COLLECTORS, GITHUB_KEYED_COLLECTORS, discover_repos
 
 __version__ = "1.0.0"
 
@@ -343,7 +343,7 @@ def keys_from_manifest(path: Path) -> List[str]:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """CLI entry point."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0] if __doc__ else None)
-    parser.add_argument("--data-dir", default=os.environ.get("CVI_DATA_DIR", "data"), help="source data dir (read-only)")
+    parser.add_argument("--data-dir", default=os.environ.get("PORCHLAMP_DATA_DIR", "data"), help="source data dir (read-only)")
     parser.add_argument("--out", default="~/Projects/cvi-scratch/sample-200", help="sample output directory")
     parser.add_argument("--per-ecosystem", type=int, default=DEFAULT_PER_ECOSYSTEM)
     parser.add_argument("--total", type=int, default=DEFAULT_TOTAL)

@@ -1,7 +1,7 @@
 // perf-fixtures.js — pure synthetic-row generator for the 10,000-row
 // performance budget (06 §7). Deterministic (no Math.random) so a perf
 // run is reproducible; every row validates against the same shape as
-// `cvi/serve/contract.py`'s LeaderboardRow (checked by
+// `porchlamp/serve/contract.py`'s LeaderboardRow (checked by
 // tests/test_ui_fixtures.py, which loads this file's Node-runnable
 // twin logic only when Node is present).
 //
@@ -25,7 +25,7 @@ function makeRng(seed) {
 
 /**
  * @param {number} n number of rows to synthesize
- * @returns {object[]} rows shaped like `cvi.serve.contract.LeaderboardRow`
+ * @returns {object[]} rows shaped like `porchlamp.serve.contract.LeaderboardRow`
  */
 export function synthesizeRows(n = 10000) {
   const rng = makeRng(20260913);
@@ -37,7 +37,7 @@ export function synthesizeRows(n = 10000) {
       pillarScores[p] = Math.round((30 + rng() * 65) * 100) / 100;
       pillarCoverage[p] = Math.round((0.6 + rng() * 0.4) * 1000) / 1000;
     }
-    const cvi = Math.round(
+    const porchlamp = Math.round(
       PILLARS.reduce((sum, p) => sum + WEIGHTS[p] * pillarScores[p], 0) * 100
     ) / 100;
     const coverage = Math.round(
@@ -54,7 +54,7 @@ export function synthesizeRows(n = 10000) {
     ) / 100;
     const quadrant = QUADRANTS[(leverage >= 50 ? 0 : 2) + (friction >= 50 ? 1 : 0)];
     const tierCeiling = coverage >= 0.95 ? null : coverage >= 0.8 ? "A" : "B";
-    const tierByScore = cvi >= 90 ? "S" : cvi >= 80 ? "A" : cvi >= 70 ? "B" : cvi >= 55 ? "C" : cvi >= 40 ? "D" : "F";
+    const tierByScore = porchlamp >= 90 ? "S" : porchlamp >= 80 ? "A" : porchlamp >= 70 ? "B" : porchlamp >= 55 ? "C" : porchlamp >= 40 ? "D" : "F";
     const tierOrder = { S: 0, A: 1, B: 2, C: 3, D: 4, F: 5 };
     const tier = tierCeiling && tierOrder[tierCeiling] > tierOrder[tierByScore] ? tierCeiling : tierByScore;
 
@@ -64,7 +64,7 @@ export function synthesizeRows(n = 10000) {
       owner: `synthetic-${i % 500}`,
       name: `repo-${i}`,
       ecosystem: ["pypi", "npm", "cargo", "go", "maven"][i % 5],
-      cvi,
+      porchlamp,
       coverage,
       tier,
       tier_ceiling: tierCeiling,

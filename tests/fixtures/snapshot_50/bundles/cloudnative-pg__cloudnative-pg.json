@@ -78,7 +78,7 @@
       "reason": "third_party_gap"
     },
     "pipeline_defenses": {
-      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (cvi.collect.pike_signals.pipeline_defenses)",
+      "detail": "no scorecard envelope with a usable check subset and no pr_window/runs envelopes to derive the review/CI proxy (porchlamp.collect.pike_signals.pipeline_defenses)",
       "kind": "unmeasured",
       "reason": "third_party_gap"
     },
@@ -436,7 +436,7 @@
   },
   "schema_version": 2,
   "top_email_domain_share": {
-    "detail": "214 non-bot commits but none carry an author_email cvi.core.commit_domains.org_key could resolve to an org",
+    "detail": "214 non-bot commits but none carry an author_email porchlamp.core.commit_domains.org_key could resolve to an org",
     "kind": "unmeasured",
     "reason": "collector_failure"
   }

@@ -100,7 +100,7 @@ repo nobody has pushed since 2021.
    up again for every repo the author touches.
 5. **The transport wastes what GitHub gives away.** No keep-alive, no
    `If-None-Match` (the envelope's `etag` field is always `null`), no reading
-   of `X-RateLimit-Remaining`; `cvi/collect/ratelimit.py`'s token bucket, ETag
+   of `X-RateLimit-Remaining`; `porchlamp/collect/ratelimit.py`'s token bucket, ETag
    cache and circuit breaker have **zero callers**. `gh api rate_limit` is
    known-stale in this environment (W2-8c) and nothing else measures budget.
 6. **Search API on the hot path** for counts the issues list endpoint gives
@@ -167,7 +167,7 @@ cache has never seen or whose TTL expired.
 `http.client`, keep-alive) with the token from `gh auth token`; every REST GET
 sends `If-None-Match` from the stored ETag and treats `304` as "unchanged,
 free, advance the watermark"; `X-RateLimit-Remaining/Reset` and GraphQL
-`rateLimit{cost remaining resetAt}` feed `cvi/collect/ratelimit.py`'s token
+`rateLimit{cost remaining resetAt}` feed `porchlamp/collect/ratelimit.py`'s token
 bucket and circuit breaker, which finally get callers. `gh api` is used for
 nothing but the token. Secondary-limit responses (`403` with `Retry-After`)
 open the breaker for the stated time.
@@ -183,7 +183,7 @@ is dearer.
 only appended (a deleted/renamed object gets a tombstone record). A snapshot
 records `as_of` and, per repo, the hash of the *as-of slice* of each ledger
 (all records with `observed_at ≤ as_of`, latest version per object). That
-slice is a pure function of (ledger file, `as_of`), so `cvi.snapshot
+slice is a pure function of (ledger file, `as_of`), so `porchlamp.snapshot
 reproduce <id>` re-derives yesterday's bundles from today's ledgers and must
 reproduce `records_hash`. D-VER-3's `manifest_root` is the Merkle root over
 those slice hashes. Compaction rewrites only records older than the retention
@@ -316,8 +316,8 @@ agents with the lead reviewing.
 
 ## 9. Operations
 
-- `cvi-fingerprint.timer` hourly (58 queries), `cvi-collect.timer` hourly
-  drain under budget, `cvi-snapshot.timer` daily at 02:00 UTC. One instance
+- `porchlamp-fingerprint.timer` hourly (58 queries), `porchlamp-collect.timer` hourly
+  drain under budget, `porchlamp-snapshot.timer` daily at 02:00 UTC. One instance
   each, pidfile-locked (never `pkill -f`).
 - Daily cost report written next to the snapshot: calls by collector, `304`
   ratio, points spent, queue backlog, stale set, wall time. A backlog that
