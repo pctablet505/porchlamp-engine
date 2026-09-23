@@ -75,10 +75,15 @@ jobs:
           /tmp/porchlamp-install-check/bin/pip install --quiet "$(ls dist/*.tar.gz)[server]"
 
       - name: Non-editable install finds the moved/serving modules + migrations
+        # From outside the checkout: at the repo root `python -c` puts the working
+        # directory first on sys.path and imports the SOURCE tree, so this check
+        # passed whatever the install contained.
+        working-directory: ${{ runner.temp }}
         run: |
           /tmp/porchlamp-install-check/bin/python -c "
           import os
           import porchlamp
+          assert 'site-packages' in porchlamp.__file__, f'imported {porchlamp.__file__}, not the installed package'
           import porchlamp.serve.app
           import porchlamp.snapshot.store_cmd
           import porchlamp.collect.ratelimit
