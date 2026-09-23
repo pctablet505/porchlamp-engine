@@ -20,9 +20,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install test dependencies
-        run: pip install "pytest==9.1.1" "pytest-xdist==3.8.0" "fastapi==0.141.1" "httpx==0.28.1" "ruff==0.16.7"
+        run: pip install "pytest==9.1.1" "pytest-xdist==3.8.0" "fastapi==0.141.1" "httpx==0.28.1" "ruff==0.16.7" "pyyaml==6.0.3"
 
-      - name: Lint (gate 1, ratchet: must stay clean)
+      - name: "Lint (gate 1, ratchet: must stay clean)"
         run: ruff check porchlamp/ scripts/ tests/
 
       - name: Set up Node
@@ -69,7 +69,7 @@ jobs:
       - name: sdist contains the store migrations
         run: tar tzf dist/*.tar.gz | grep -q 'porchlamp/store/migrations/.*\.sql'
 
-      - name: Non-editable install (W4-1: package move must survive a real install)
+      - name: "Non-editable install (W4-1: package move must survive a real install)"
         run: |
           python -m venv /tmp/porchlamp-install-check
           /tmp/porchlamp-install-check/bin/pip install --quiet "$(ls dist/*.tar.gz)[server]"
