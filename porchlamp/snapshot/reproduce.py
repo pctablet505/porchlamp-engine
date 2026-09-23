@@ -257,7 +257,14 @@ def _scripts() -> dict[str, ModuleType]:
             raise SnapshotError(f"cannot load pipeline script: {_SCRIPTS / f'{name}.py'}")
         module = importlib.util.module_from_spec(spec)
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            # A half-built module must not stay registered: every later call
+            # would get it back and fail on a missing attribute, hiding the
+            # import error that is the real cause.
+            sys.modules.pop(module_name, None)
+            raise
         loaded[name] = module
     return loaded
 
