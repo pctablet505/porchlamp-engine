@@ -102,9 +102,9 @@ On 2026-09-23 the suite ran 2,774 passed, 1 skipped (a manual procedure) and
 | `porchlamp/engine.py` | `score_repository`: wires the 5-phase pipeline; tier assignment; DI seam `pillar_scorers` |
 | `porchlamp/lakehouse.py` | `OperationalStore` (SQLite `repositories` table per spec 11.2) + matrix/leaderboard/quadrant queries |
 | `porchlamp/api.py` | FastAPI app (`create_app`): matrix, leaderboard, repo deep-dive, reproject, healthz |
-| `porchlamp/ingest.py` | Ingestion: 1.2 req/s token-bucket limiter, ETag-caching HTTP client, rate-limit circuit breaker, GHArchive streamer, raw-metric upsert into the store |
+| `porchlamp/collect/` | Collectors: one network fetch per signal (GitHub GraphQL, commits, governance, labels, deps.dev, ecosyste.ms), each returning a content-hashed envelope (`envelope.py`); rate limiting, ETag delta-hydration and circuit breaking in `ratelimit.py` |
 | `porchlamp/deepdive.py` | Spec-12.2 deep-dive payload: raw metrics, Kaplan–Meier survival curve, legal-IP/EF/GFI detail, and Maintainer Improvement Playbook |
-| `porchlamp/benchmark_data.py` | 1,000-repository benchmark catalog across 6 ecosystems, 4 quadrants, realistic metrics and synthetic PR events |
+| `tests/fixtures/synthetic_catalog.py` | Synthetic 1,000-repository benchmark catalog across 6 ecosystems and 4 quadrants, with a store seeder, for tests (was `benchmark_data.py`) |
 | `web/index.html` | High-density developer UI: Light/Dark mode, 2D matrix, ranked leaderboard, side-by-side comparator, scorecard drawer |
 | `scripts/demo_app.py` | Demo server: seeds 1,000 benchmark repos by default; UI at `http://127.0.0.1:8000/`, API under `/v1/` |
 
