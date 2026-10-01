@@ -548,3 +548,35 @@ def test_cli_main_missing_seed_is_config_error(tmp_path: Path, capsys) -> None:
               transport=FakeTransport())
     assert rc == 2
     assert "--seed is required" in capsys.readouterr().out
+
+
+def test_github_transport_escapes_owner_and_name_in_graphql_query(monkeypatch) -> None:
+    """Regression: GitHubTransport.fetch_live_facts escapes owner and name via json.dumps."""
+    import subprocess
+    from porchlamp.verify import live_sample
+
+    captured_cmd: list[str] = []
+
+    def fake_run(cmd, **kwargs):
+        captured_cmd.extend(cmd)
+        payload = {
+            "data": {
+                "r": {
+                    "stargazerCount": 42,
+                    "forkCount": 7,
+                    "open": {"totalCount": 3},
+                    "latest": {"nodes": [{"number": 15}]},
+                }
+            }
+        }
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setattr(live_sample.subprocess, "run", fake_run)
+    transport = live_sample.GitHubTransport()
+    facts = transport.fetch_live_facts('bad"owner', 'bad"name\ninject')
+    assert facts.stars == 42
+    assert facts.forks == 7
+    query_arg = captured_cmd[-1]
+    assert f"owner: {json.dumps('bad\"owner')}" in query_arg
+    assert f"name: {json.dumps('bad\"name\ninject')}" in query_arg
+

@@ -1391,3 +1391,66 @@ def test_matrix_splits_store_exclusions_from_api_drops(api):
     assert body.unrenderable_count == dropped
     # The two numbers stay separate (never the old merged sum).
     assert body.excluded_count != store_excluded + dropped
+
+
+def test_matrix_populates_axis_coverage_when_pillar_is_missing(tmp_path):
+    """G2: /v1/porchlamp/matrix forwards per-axis worst-missing pillar coverage
+    from queries.matrix_points into MatrixResponse.axis_coverage."""
+    from porchlamp.serve.contract import MatrixResponse
+
+    db_path = tmp_path / "db.sqlite"
+    conn = fresh_db(db_path)
+    build_snapshot(conn, db_path, n_rated=20)
+    conn.execute(
+        "UPDATE repositories SET p_accessibility = NULL, c_accessibility = 0.0, friction_coverage = 0.8 "
+        "WHERE snapshot_id = ? AND rated = 1 AND name IN ('repo-0000', 'repo-0001', 'repo-0002')",
+        (SNAPSHOT_ID,),
+    )
+    conn.commit()
+    finalize(conn, db_path)
+    conn.close()
+
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<html></html>")
+    client = TestClient(create_app(str(db_path), web_dir=web_dir))
+
+    resp = client.get("/v1/porchlamp/matrix")
+    assert resp.status_code == 200
+    body = MatrixResponse(**resp.json())
+    assert "friction" in body.axis_coverage
+    assert body.axis_coverage["friction"].pillar == "accessibility"
+    assert body.axis_coverage["friction"].axis_partial_count == 3
+    assert body.axis_coverage["friction"].axis_partial_share > 0.05
+
+
+def test_v2_connection_sets_busy_timeout(tmp_path):
+    from porchlamp.serve.app import _open_v2_connection
+
+    conn = _open_v2_connection(str(tmp_path / "busy.sqlite"))
+    try:
+        assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+    finally:
+        conn.close()
+
+
+def test_unhandled_500_logs_exception_traceback(tmp_path, caplog):
+    """G7: an unhandled server fault logs the exception while returning the
+    non-leaking 500 JSON error body."""
+    import logging
+
+    client, _fx, db_path = _serve_store(tmp_path, n_rated=10)
+    conn = _raw_conn(db_path)
+    conn.execute(
+        "UPDATE repositories SET quadrant = 'Not A Quadrant' WHERE snapshot_id = ? AND rated = 1",
+        (SNAPSHOT_ID,),
+    )
+    conn.commit()
+    conn.close()
+
+    with caplog.at_level(logging.ERROR, logger="porchlamp.serve.app"):
+        resp = client.get("/v1/porchlamp/leaderboard")
+    assert resp.status_code == 500
+    assert resp.json()["error"]["detail"] == "internal server error"
+    assert any("Unhandled" in rec.message and rec.exc_info is not None for rec in caplog.records)
+

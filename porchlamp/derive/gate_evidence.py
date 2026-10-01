@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from porchlamp.collect.commits import CommitActor, envelope_rows, is_bot
+from porchlamp.core.commit_domains import CommitActor, envelope_rows, is_bot
 from porchlamp.core.gates import GateEvidence
 
 __all__ = [
@@ -77,14 +77,28 @@ def _has_off_platform_marker(paths: Sequence[str]) -> bool:
     return any("documentation/process/submitting-patches" in path.lower() for path in paths)
 
 
-def _tree_paths(raw_root: Path, basename: str) -> list[str]:
+def _tree_envelope(raw_root: Path, basename: str) -> tuple[list[str] | None, bool]:
+    """Read ``(paths, truncated)`` from ``raw/tree/{basename}.json``, or ``(None, False)`` if absent/invalid."""
     path = raw_root / "tree" / f"{basename}.json"
     if not path.is_file():
-        return []
-    document = json.loads(path.read_text(encoding="utf-8"))
+        return None, False
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None, False
     data = document.get("data") if isinstance(document, Mapping) else None
-    paths = data.get("paths") if isinstance(data, Mapping) else None
-    return [p for p in paths if isinstance(p, str)] if isinstance(paths, list) else []
+    if not isinstance(data, Mapping):
+        return None, False
+    paths = data.get("paths")
+    if not isinstance(paths, list):
+        return None, False
+    truncated = bool(data.get("truncated", False))
+    return [p for p in paths if isinstance(p, str)], truncated
+
+
+def _tree_paths(raw_root: Path, basename: str) -> list[str]:
+    paths, _ = _tree_envelope(raw_root, basename)
+    return paths or []
 
 
 def _vitality_commit_count(raw_root: Path, basename: str) -> int | None:
@@ -95,7 +109,10 @@ def _vitality_commit_count(raw_root: Path, basename: str) -> int | None:
     path = raw_root / "commits_180d" / f"{basename}.json"
     if not path.is_file():
         return None
-    document = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
     rows = envelope_rows(document.get("data") if isinstance(document, Mapping) else None)
     if rows is None:
         return None
@@ -103,11 +120,23 @@ def _vitality_commit_count(raw_root: Path, basename: str) -> int | None:
     for entry in rows:
         if not isinstance(entry, Mapping):
             continue
-        login = entry.get("author_login") or ""
-        actor = CommitActor(login=str(login), email="", actor_type="")
-        if not is_bot(actor):
+        actor = CommitActor(
+            login=str(entry.get("author_login") or ""),
+            email=str(entry.get("author_email") or ""),
+            actor_type=str(entry.get("author_type") or ""),
+        )
+        if (actor.login or actor.email or actor.actor_type) and not is_bot(actor):
             count += 1
     return count
+
+
+def _tree_flag(found: bool, truncated: bool) -> bool | None:
+    """Return ``True`` when found, ``None`` (UNDECIDED) when absent in a truncated tree, else ``False``."""
+    if found:
+        return True
+    if truncated:
+        return None
+    return False
 
 
 def gate_evidence_for(raw_root: Path, basename: str) -> GateEvidence:
@@ -118,12 +147,12 @@ def gate_evidence_for(raw_root: Path, basename: str) -> GateEvidence:
     observes a real fork flag), so D-GATE-2's fork branch never reads this
     field for any repo this script scores -- ``None`` is correct, not a
     stand-in for missing data."""
-    paths = _tree_paths(raw_root, basename)
+    paths, truncated = _tree_envelope(raw_root, basename)
     return GateEvidence(
-        manifest_found=_has_recognized_manifest(paths) if paths else None,
+        manifest_found=None if paths is None else _tree_flag(_has_recognized_manifest(paths), truncated),
         is_curated_anchor=False,
-        license_file_present=_has_license_file(paths) if paths else None,
+        license_file_present=None if paths is None else _tree_flag(_has_license_file(paths), truncated),
         fork_parent_in_universe=None,
         vitality_commits_180d=_vitality_commit_count(raw_root, basename),
-        off_platform_marker=_has_off_platform_marker(paths) if paths else None,
+        off_platform_marker=None if paths is None else _tree_flag(_has_off_platform_marker(paths), truncated),
     )

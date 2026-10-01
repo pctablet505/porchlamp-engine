@@ -150,8 +150,8 @@ export function fetchMethodology() {
  * Shares `getJson`'s timeout/typed-error contract (U-15) via a small POST
  * variant rather than a second, drifting error-handling path.
  */
-export async function postReproject(weights, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  const endpoint = "/v1/porchlamp/reproject";
+export async function postReproject(weights, { page, page_size, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  const endpoint = `/v1/porchlamp/reproject${toQueryString({ page, page_size })}`;
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   let response;

@@ -44,8 +44,8 @@ PARITY_JS = REPO_ROOT / "scripts" / "static_parity.mjs"
 #: is meant to pin; each must be caught.
 MUTANTS: tuple[tuple[str, str, str], ...] = (
     ("search ignores case",
-     "sqlLower(row.owner).includes(needle) || sqlLower(row.name).includes(needle)",
-     "row.owner.includes(needle) || row.name.includes(needle)"),
+     "sqlLower(row.owner).includes(needle) || sqlLower(row.name).includes(needle) || sqlLower(`${row.owner}/${row.name}`).includes(needle)",
+     "row.owner.includes(needle) || row.name.includes(needle) || `${row.owner}/${row.name}`.includes(needle)"),
     ("ecosystem filter ignored",
      "(!present(eco) || row.ecosystem === eco)", "true"),
     ("sort order ignored",

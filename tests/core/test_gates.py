@@ -726,3 +726,36 @@ def test_evidence_gate_rejects_out_of_range_coverage() -> None:
         gates.evidence_sufficiency(1.2)
     with pytest.raises(ValueError):
         gates.evidence_sufficiency(True)  # type: ignore[arg-type]
+
+
+def test_spdx_compound_expression_boolean_precedence_and_parentheses() -> None:
+    """Regression: compound SPDX expressions with mixed AND/OR and parentheses
+    are evaluated with proper boolean precedence (WITH > AND > OR)."""
+    from porchlamp.core import gates
+
+    assert gates._is_osi_approved_expression("(MIT OR Apache-2.0) AND Proprietary-1.0") is False
+    assert gates._is_osi_approved_expression("MIT AND (BUSL-1.1 OR Proprietary-1.0)") is False
+    assert gates._is_osi_approved_expression("(MIT OR Proprietary-1.0) AND Apache-2.0") is True
+    assert gates._is_osi_approved_expression("(MIT)OR(Proprietary-1.0)") is True
+    assert gates._is_osi_approved_expression("MIT OR (Apache-2.0 AND Proprietary-1.0)") is True
+    assert gates._is_osi_approved_expression("Proprietary-1.0 OR (MIT AND BUSL-1.1)") is False
+    assert gates._is_osi_approved_expression("(Apache-2.0 WITH LLVM-exception) AND MIT") is True
+    assert gates._is_osi_approved_expression("(Apache-2.0 WITH LLVM-exception) AND BUSL-1.1") is False
+
+    # Verify through evaluate_gates as well
+    res_fail = gates.evaluate_gates(
+        make_bundle(healthy_events(), license_spdx="(MIT OR Apache-2.0) AND Proprietary-1.0"),
+        healthy_evidence(),
+        NOW,
+    )
+    assert res_fail.eligible is False
+    assert res_fail.reason == "unlicensed"
+
+    res_pass = gates.evaluate_gates(
+        make_bundle(healthy_events(), license_spdx="(MIT)OR(Proprietary-1.0)"),
+        healthy_evidence(),
+        NOW,
+    )
+    assert res_pass.eligible is True
+    assert res_pass.reason is None
+

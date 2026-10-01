@@ -737,11 +737,14 @@ def _run_eligibility_query(logins: Sequence[str], transport: GraphqlTransport,
     unresolved: list[str] = []
     for i, login in enumerate(logins):
         node = data.get(f"u{i}")
-        if node is not None:
+        created_at = node.get("createdAt") if isinstance(node, dict) else None
+        events = (((node.get("contributionsCollection") or {})
+                   .get("contributionCalendar") or {}).get("totalContributions")
+                  if isinstance(node, dict) else None)
+        if isinstance(created_at, str) and isinstance(events, int) and not isinstance(events, bool):
             resolved[login] = {
-                "account_created_at": node.get("createdAt"),
-                "public_event_count": ((node.get("contributionsCollection") or {})
-                                       .get("contributionCalendar") or {}).get("totalContributions"),
+                "account_created_at": created_at,
+                "public_event_count": events,
                 "eligibility_unmeasured": False,
             }
         else:

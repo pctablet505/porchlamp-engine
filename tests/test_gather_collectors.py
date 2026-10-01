@@ -120,3 +120,113 @@ def test_main_all_reads_every_candidate(gather: ModuleType, monkeypatch: pytest.
     assert gather.main() == 0
     assert [(o, n) for o, n, *_ in seen] == [("o0", "n0"), ("o1", "n1"), ("o2", "n2"), ("o3", "n3")]
     assert {c for *_, c in seen} == {None}
+
+
+def test_keyless_second_source_429_and_5xx_do_not_write_envelopes(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Transient 429 or 5xx responses from deps.dev/scorecard must record 'fail'
+    and leave no envelope on disk, whereas 404 still caches a negative envelope."""
+    gather._env("github_meta", "org__alpha", "github-graphql", {"default_branch": "main"})
+    responses = {
+        "deps.dev": (None, 429, RuntimeError("429")),
+        "securityscorecards.dev": (None, 503, RuntimeError("503")),
+    }
+
+    def _fake_fetch_json(url: str, headers=None):
+        for host, resp in responses.items():
+            if host in url:
+                return resp
+        raise AssertionError(f"unexpected URL {url}")
+
+    monkeypatch.setattr(gather, "_fetch_json", _fake_fetch_json)
+    monkeypatch.setattr(gather.time, "sleep", lambda s: None)
+    status = gather.gather_repo("org", "alpha", "pypi", collectors=frozenset({"depsdev", "scorecard"}))
+    assert status["depsdev"] == "fail"
+    assert status["scorecard"] == "fail"
+    assert not (gather.DATA / "depsdev" / "org__alpha.json").exists()
+    assert not (gather.DATA / "scorecard" / "org__alpha.json").exists()
+
+    # 404 is a genuine negative lookup and should still write a negative envelope.
+    responses["deps.dev"] = (None, 404, RuntimeError("404"))
+    gather.gather_repo("org", "alpha", "pypi", collectors=frozenset({"depsdev"}))
+    env_path = gather.DATA / "depsdev" / "org__alpha.json"
+    assert env_path.is_file()
+    assert json.loads(env_path.read_text(encoding="utf-8"))["http_status"] == 404
+
+
+def test_gfi_runs_only_via_labels_collector_without_duplicate_rest_call(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Selecting 'gfi' must invoke porchlamp.collect.labels.collect_newcomer_issues
+    once and never hit the removed legacy REST gfi tuple."""
+    touched = _forbid_transports(gather, monkeypatch)
+    gather._env("github_meta", "org__alpha", "github-graphql", {"default_branch": "main"})
+    import porchlamp.collect.labels as labels_mod
+
+    gfi_calls: list[tuple[str, str]] = []
+
+    def _fake_collect_newcomer_issues(gh_fn, owner: str, name: str):
+        gfi_calls.append((owner, name))
+        return labels_mod.GfiResult(
+            issues=[],
+            labels_matched=[],
+            queries=[],
+            truncated=False,
+            fetched_at="2026-09-12T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr(labels_mod, "collect_newcomer_issues", _fake_collect_newcomer_issues)
+    status = gather.gather_repo("org", "alpha", "pypi", collectors=frozenset({"gfi"}))
+    assert status["gfi"] == "ok"
+    assert gfi_calls == [("org", "alpha")]
+    assert touched == []
+
+
+def test_main_isolates_unexpected_gather_repo_exception(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unhandled exception inside gather_repo for one candidate must not
+    abort the entire sweep in main()."""
+    rows = [
+        {"owner": "o0", "name": "boom", "ecosystem": "pypi"},
+        {"owner": "o1", "name": "ok", "ecosystem": "pypi"},
+    ]
+    gather.CANDIDATES.parent.mkdir(parents=True, exist_ok=True)
+    gather.CANDIDATES.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    visited: list[str] = []
+
+    def _flaky_gather(o, n, e, force=False, skip_pypistats=False, collectors=None):
+        visited.append(f"{o}/{n}")
+        if n == "boom":
+            raise RuntimeError("simulated unexpected failure")
+        return {"pr_window": "ok"}
+
+    monkeypatch.setattr(gather, "gather_repo", _flaky_gather)
+    monkeypatch.setattr(sys, "argv", ["gather.py", "--all", "--collectors", "pr_window"])
+    assert gather.main() == 0
+    assert visited == ["o0/boom", "o1/ok"]
+
+
+def test_make_sample_overwrites_readonly_existing_files(tmp_path: Path) -> None:
+    """Re-running copy_sample when destination envelopes are already 0o444 and
+    the source file has changed must succeed instead of raising PermissionError."""
+    spec = importlib.util.spec_from_file_location("porchlamp_make_sample", ROOT / "scripts/make_sample.py")
+    make_sample = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make_sample)
+
+    src_data = tmp_path / "src_data"
+    dst_sample = tmp_path / "dst_sample"
+    meta_file = src_data / "raw" / "github_meta" / "a__b.json"
+    meta_file.parent.mkdir(parents=True)
+    meta_file.write_text('{"stars": 1}', encoding="utf-8")
+    entries = [{"owner": "a", "name": "b", "ecosystem": "pypi", "selected_by": ["test"]}]
+
+    _, stats1 = make_sample.copy_sample(src_data, dst_sample, entries)
+    assert stats1["copied"] == 1
+    meta_file.write_text('{"stars": 2}', encoding="utf-8")
+    _, stats2 = make_sample.copy_sample(src_data, dst_sample, entries)
+    assert stats2["copied"] == 1
+    assert (dst_sample / "raw" / "github_meta" / "a__b.json").read_text(encoding="utf-8") == '{"stars": 2}'
+
+

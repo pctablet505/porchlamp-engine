@@ -360,3 +360,21 @@ def test_main_non_list_file_exits_2(tmp_path: Path, capsys: pytest.CaptureFixtur
     exit_code = main(["--current", str(path)])
     assert exit_code == 2
     assert "cannot load detector rows" in capsys.readouterr().err
+
+
+def test_row_param_ids_includes_all_18_v2_param_input_ids(tmp_path: Path) -> None:
+    """Regression: ROW_PARAM_IDS includes all 18 v2 parameter input IDs."""
+    from porchlamp.audit.detectors_report import ROW_PARAM_IDS
+    from porchlamp.core.constants import PARAM_INPUT_IDS
+
+    assert ROW_PARAM_IDS == PARAM_INPUT_IDS
+    assert len(ROW_PARAM_IDS) == 18
+
+    params_payload = {
+        pid: {"score": 75.0, "measured": True, "n": 20}
+        for pid in PARAM_INPUT_IDS
+    }
+    path = _write_rows(tmp_path, "all_params.json", [{"key": "org/full", "params": params_payload}])
+    row = load_rows(path)["org/full"]
+    assert set(row.record.params.keys()) == set(PARAM_INPUT_IDS)
+

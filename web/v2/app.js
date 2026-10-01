@@ -636,7 +636,7 @@ export function boot(win = window, doc = document) {
     store.dispatch({ type: "REPROJECT_LOADING" });
     const body = {};
     for (const pillar of PILLAR_IDS) body[`weight_${pillar}`] = state.weights[pillar];
-    return api.postReproject(body).then((result) => {
+    return api.postReproject(body, { page_size: 1000 }).then((result) => {
       if (reprojectInFlightSignature !== signature) return; // superseded by a newer drag
       if (!result.ok) {
         store.dispatch({ type: "REPROJECT_ERROR", error: result.error });
@@ -656,7 +656,7 @@ export function boot(win = window, doc = document) {
     const alreadyAdded = new Set(store.getState().compareRepos);
     return Promise.all([
       api.fetchLeaderboard({ q: trimmed, page_size: 20 }),
-      api.fetchNotRanked({ persona: "balanced" }),
+      api.fetchNotRanked({ persona: "balanced", q: trimmed }),
     ]).then(([leaderboardResult, notRankedResult]) => {
       const results = [];
       if (leaderboardResult.ok) {
@@ -685,7 +685,7 @@ export function boot(win = window, doc = document) {
 
     return Promise.all([
       api.fetchLeaderboard({ q: key, page_size: 1000 }),
-      api.fetchNotRanked({ persona: "balanced" }),
+      api.fetchNotRanked({ persona: "balanced", q: key }),
     ]).then(([leaderboardResult, notRankedResult]) => {
       if (!store.getState().compareRepos.includes(key)) return; // removed while in flight
       let kind = null;

@@ -191,6 +191,34 @@ def resolve_snapshot(snapshot: str, data_dir: Optional[os.PathLike[str]] = None)
     return SnapshotRef(str(manifest.get("snapshot_id", snap_dir.name)), as_of, root, snap_dir)
 
 
+def _served_snapshot_id(conn: sqlite3.Connection, cols: set[str]) -> Optional[str]:
+    """Return the active/latest snapshot ID for a v2 database, if any."""
+    has_snapshots = (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshots'"
+        ).fetchone()
+        is not None
+    )
+    if has_snapshots:
+        row = conn.execute(
+            "SELECT id FROM snapshots WHERE promoted_at IS NOT NULL ORDER BY promoted_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+        row = conn.execute(
+            "SELECT id FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+    if "snapshot_id" in cols:
+        row = conn.execute(
+            "SELECT snapshot_id FROM repositories ORDER BY snapshot_id DESC LIMIT 1"
+        ).fetchone()
+        if row is not None:
+            return str(row[0])
+    return None
+
+
 def load_scores(db_path: os.PathLike[str]) -> list[ScoreRow]:
     """Read every ``repositories`` row as a :class:`ScoreRow`, sorted by repo."""
     conn = sqlite3.connect(f"file:{Path(db_path).as_posix()}?mode=ro", uri=True)
@@ -206,7 +234,14 @@ def load_scores(db_path: os.PathLike[str]) -> list[ScoreRow]:
                 "p_accessibility",
                 comp_col,
             ]
-            cursor = conn.execute("SELECT owner, name, rated, " + ", ".join(v2_cols) + " FROM repositories")
+            snap_id = _served_snapshot_id(conn, cols)
+            if snap_id is not None and "snapshot_id" in cols:
+                cursor = conn.execute(
+                    "SELECT owner, name, rated, " + ", ".join(v2_cols) + " FROM repositories WHERE snapshot_id = ?",
+                    (snap_id,),
+                )
+            else:
+                cursor = conn.execute("SELECT owner, name, rated, " + ", ".join(v2_cols) + " FROM repositories")
             rows = [
                 ScoreRow(
                     f"{owner}/{name}",
@@ -268,17 +303,34 @@ def filter_eligible(
     return kept, excluded
 
 
+def _envelope_items(data: Any) -> Sequence[Mapping[str, Any]]:
+    """Extract row mappings from a list-shaped or dict-shaped envelope payload."""
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, Mapping)]
+    if isinstance(data, Mapping):
+        for key in ("commits", "rows", "events", "prs"):
+            items = data.get(key)
+            if isinstance(items, list):
+                return [item for item in items if isinstance(item, Mapping)]
+    return ()
+
+
 def _logins_in_envelope(path: Path, as_of: datetime, ts_field: str) -> tuple[set[str], set[str]]:
     """Logins recorded in one S0 envelope, split by (seen, active before T)."""
     seen, prior = set(), set()
     if not path.is_file():
         return seen, prior
-    for item in read_envelope(path).data or []:
+    for item in _envelope_items(read_envelope(path).data):
         login = item.get("author_login")
-        if not isinstance(login, str):
+        if not isinstance(login, str) and isinstance(item.get("author"), Mapping):
+            login = item["author"].get("login")
+        if not isinstance(login, str) or not login:
             continue
         seen.add(login)
-        stamp = _parse_ts(item.get(ts_field))
+        raw_ts = item.get(ts_field)
+        if raw_ts is None and ts_field == "created_at":
+            raw_ts = item.get("createdAt")
+        stamp = _parse_ts(raw_ts)
         if stamp is not None and stamp < as_of:
             prior.add(login)
     return seen, prior
@@ -289,10 +341,11 @@ def first_timers_from_s0(
 ) -> dict[str, frozenset[str]]:
     """First-timers as recorded in the S0 envelopes (PREREG section 2).
 
-    A login is a first-timer for a repo when the S0 ``commits_180d`` and
-    ``pr_events`` envelopes record no commit or PR authored by the login
-    before ``as_of``. Logins only seen in the new PRs are first-timers:
-    nothing before T is recorded for them. Missing envelopes count as empty.
+    A login is a first-timer for a repo when the S0 ``commits_180d`` (or
+    ``commits_365d``) and ``pr_events`` (or ``pr_window``) envelopes record no
+    commit or PR authored by the login before ``as_of``. Logins only seen in
+    the new PRs are first-timers: nothing before T is recorded for them.
+    Missing envelopes count as empty.
     """
     root = Path(data_dir)
     result: dict[str, frozenset[str]] = {}
@@ -300,10 +353,14 @@ def first_timers_from_s0(
         owner, _, name = repo.partition("/")
         key = f"{owner}__{name}"
         seen, prior = set(), set()
-        for logins, earlier in (
-            _logins_in_envelope(root / "raw" / "commits_180d" / f"{key}.json", as_of, "date"),
-            _logins_in_envelope(root / "raw" / "pr_events" / f"{key}.json", as_of, "created_at"),
-        ):
+        envelope_specs = (
+            (root / "raw" / "commits_180d" / f"{key}.json", "date"),
+            (root / "raw" / "commits_365d" / f"{key}.json", "date"),
+            (root / "raw" / "pr_events" / f"{key}.json", "created_at"),
+            (root / "raw" / "pr_window" / f"{key}.json", "created_at"),
+        )
+        for env_path, ts_field in envelope_specs:
+            logins, earlier = _logins_in_envelope(env_path, as_of, ts_field)
             seen |= logins
             prior |= earlier
         seen |= {pr.author for pr in prs if pr.repo == repo}

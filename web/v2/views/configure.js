@@ -67,7 +67,7 @@ export function normalizeWeights(weights, locks, changedPillar, newValue) {
 }
 
 
-const TIER_ORDER_BEST_FIRST = { S: 0, A: 1, B: 2, C: 3, D: 4, F: 5 };
+const TIER_ORDER_BEST_FIRST = { "S+": 0, S: 1, A: 2, B: 3, C: 4, D: 5, F: 6 };
 
 /**
  * Client-side sort for the already-fully-loaded `/reproject` row set (no
@@ -84,8 +84,8 @@ export function sortReprojectRows(rows, sort) {
   const sorted = [...rows].sort((a, b) => {
     let av, bv;
     if (field === "tier") {
-      av = TIER_ORDER_BEST_FIRST[a.tier] ?? 5;
-      bv = TIER_ORDER_BEST_FIRST[b.tier] ?? 5;
+      av = TIER_ORDER_BEST_FIRST[a.tier] ?? 6;
+      bv = TIER_ORDER_BEST_FIRST[b.tier] ?? 6;
     } else {
       av = a[field];
       bv = b[field];
@@ -126,7 +126,9 @@ export function weightsSum(weights) {
 
 /** Top N movers up and down (by `balanced_rank - rank`) from a `ReprojectResponse.rows`, for the live delta side list. */
 export function topMovers(rows, limit = 5) {
-  const withDelta = rows.map((r) => ({ row: r, delta: r.balanced_rank - r.rank }));
+  const withDelta = rows
+    .filter((r) => r.balanced_rank !== null && r.balanced_rank !== undefined && r.rank !== null && r.rank !== undefined)
+    .map((r) => ({ row: r, delta: r.balanced_rank - r.rank }));
   const up = withDelta.filter((d) => d.delta > 0).sort((a, b) => b.delta - a.delta).slice(0, limit);
   const down = withDelta.filter((d) => d.delta < 0).sort((a, b) => a.delta - b.delta).slice(0, limit);
   return { up, down };

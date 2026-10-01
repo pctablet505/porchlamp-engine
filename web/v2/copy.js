@@ -478,6 +478,9 @@ export const CONFIGURE_DELTA_EMPTY = "No re-projection yet — adjust a slider t
 export const CONFIGURE_TOP_MOVERS_UP = "Top movers up";
 export const CONFIGURE_TOP_MOVERS_DOWN = "Top movers down";
 export function configureDeltaText(row) {
+  if (row.balanced_rank === null || row.balanced_rank === undefined) {
+    return `• ${row.owner}/${row.name}: new → ${row.rank}`;
+  }
   const delta = row.balanced_rank - row.rank;
   const sign = delta > 0 ? "▲" : delta < 0 ? "▼" : "•";
   return `${sign} ${row.owner}/${row.name}: ${row.balanced_rank} → ${row.rank}`;

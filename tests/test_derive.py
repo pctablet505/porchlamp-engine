@@ -261,3 +261,39 @@ def test_downloads_null_is_missing(tmp_path):
     out = run(tmp_path)
     assert out["meta"]["monthly_downloads"] == 0
     assert out["confidence"]["monthly_downloads"] == "missing"
+
+
+def test_body_corrupt_cache_file_and_atomic_write(tmp_path, monkeypatch):
+    """Regression: _body treats corrupt cache JSON as a cache miss and writes atomically."""
+    import io
+
+    cache_file = tmp_path / "raw" / "bodies" / f"{OWNER}__{NAME}__README.md.json"
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text("{corrupt json", encoding="utf-8")
+
+    # With fetch=False, corrupt cache file is treated as a cache miss (no JSONDecodeError)
+    text, at = derive._body(tmp_path, OWNER, NAME, "README.md", fetch=False)
+    assert text is None
+    assert at is None
+
+    # With fetch=True, _body fetches and atomically replaces the corrupt cache file
+    class _FakeResp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(
+        derive.urllib.request,
+        "urlopen",
+        lambda url, timeout=30: _FakeResp(b"Fresh README content"),
+    )
+    text2, at2 = derive._body(tmp_path, OWNER, NAME, "README.md", fetch=True)
+    assert text2 == "Fresh README content"
+    assert isinstance(at2, str)
+    assert cache_file.is_file()
+    assert not cache_file.with_suffix(".json.tmp").exists()
+    saved = json.loads(cache_file.read_text(encoding="utf-8"))
+    assert saved["data"]["body"] == "Fresh README content"
+

@@ -53,6 +53,7 @@ thread that owns the connection. The v2 connection opened uses
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Any, Mapping, Optional
@@ -73,6 +74,7 @@ from porchlamp.serve.contract import (
     EvidenceRow,
     LeaderboardResponse,
     LeaderboardRow,
+    MatrixAxisCoverage,
     MatrixPoint,
     MatrixResponse,
     NotRankedResponse,
@@ -141,6 +143,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
         # paging/weights, all plain `ValueError`s raised by `porchlamp.store.queries`)
         # gets 422 here.
         if isinstance(exc, PydanticValidationError):
+            logging.getLogger(__name__).exception("Unhandled contract validation error on %s", request.url.path)
             return _internal_error_response(request)
         return JSONResponse(status_code=422, content=_error_body(request, 422, str(exc)))
 
@@ -150,6 +153,7 @@ def _register_exception_handlers(app: FastAPI) -> None:
         # (not an HTTPException, not a ValueError/ValidationError, not a
         # RequestValidationError) still reports the same shape instead of
         # Starlette's plain-text 500.
+        logging.getLogger(__name__).exception("Unhandled exception on %s", request.url.path)
         return _internal_error_response(request)
 
 
@@ -630,17 +634,24 @@ def _build_router() -> APIRouter:
         snapshot_id = _require_snapshot(conn)
         result = queries.matrix_points(conn, snapshot_id, persona=persona)
         points: list[MatrixPoint] = []
+        plotted_raw: list[Mapping[str, Any]] = []
         for raw_point in result["points"]:
             point = _matrix_point(raw_point)
             if point is not None:
                 points.append(point)
+                plotted_raw.append(raw_point)
+        raw_axis_cov = result.get("axis_coverage")
+        if raw_axis_cov is None:
+            raw_axis_cov = queries.axis_coverage(plotted_raw)
         # `excluded_count` stays the store's own figure; rows the store listed
         # but the API could not render are counted separately, never merged.
         return MatrixResponse(
             points=points,
             excluded_count=result["excluded_count"],
             unrenderable_count=len(result["points"]) - len(points),
-            axis_coverage={},
+            axis_coverage={
+                axis: MatrixAxisCoverage(**entry) for axis, entry in raw_axis_cov.items()
+            },
         )
 
     @router.get("/repos/{owner}/{name}", response_model=RepoDetailResponse)
@@ -709,6 +720,7 @@ def _open_v2_connection(db_path: str) -> sqlite3.Connection:
     API might grow."""
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
     conn.create_function("py_round", 2, lambda val, n=2: round(float(val), n) if val is not None else None)
     return conn
 

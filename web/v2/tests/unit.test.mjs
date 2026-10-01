@@ -27,7 +27,8 @@ import {
   repoToLoadFromState,
 } from "../state.js";
 import * as copy from "../copy.js";
-import { normalizeWeights, applyPresetRespectingLocks, renderControls } from "../views/configure.js";
+import { postReproject } from "../api.js";
+import { normalizeWeights, applyPresetRespectingLocks, renderControls, sortReprojectRows, topMovers } from "../views/configure.js";
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
 import { nearestMarkerInDirection, hitTestPoint } from "../views/matrix.js";
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY } from "../components/scatter.js";
@@ -1132,3 +1133,50 @@ test("methodology: an empty detector summary says so instead of rendering an emp
   assert.ok(html.includes(copy.METHODOLOGY_DETECTOR_SUMMARY_NONE));
   assert.ok(!html.includes('class="detector-flags"'));
 });
+
+test("configure: sortReprojectRows places tier S+ ahead of S and A", () => {
+  const rows = [
+    { owner: "a", name: "r-a", tier: "A", rank: 3 },
+    { owner: "a", name: "r-splus", tier: "S+", rank: 1 },
+    { owner: "a", name: "r-s", tier: "S", rank: 2 },
+  ];
+  assert.deepEqual(sortReprojectRows(rows, "tier").map((r) => r.tier), ["S+", "S", "A"]);
+  assert.deepEqual(sortReprojectRows(rows, "-tier").map((r) => r.tier), ["A", "S", "S+"]);
+});
+
+test("configure: topMovers excludes rows with null/undefined balanced_rank or rank, and configureDeltaText formats newly rated rows", () => {
+  const rows = [
+    { owner: "a", name: "new-repo", balanced_rank: null, rank: 2 },
+    { owner: "a", name: "undef-repo", balanced_rank: undefined, rank: 3 },
+    { owner: "a", name: "up-repo", balanced_rank: 10, rank: 4 },
+    { owner: "a", name: "down-repo", balanced_rank: 1, rank: 6 },
+  ];
+  const { up, down } = topMovers(rows);
+  assert.deepEqual(up.map((d) => d.row.name), ["up-repo"]);
+  assert.deepEqual(down.map((d) => d.row.name), ["down-repo"]);
+  assert.equal(copy.configureDeltaText(rows[0]), "• a/new-repo: new → 2");
+  assert.equal(copy.configureDeltaText(rows[2]), "▲ a/up-repo: 10 → 4");
+});
+
+test("api: postReproject appends page and page_size when provided and omits query string by default", async () => {
+  const originalFetch = globalThis.fetch;
+  const seenUrls = [];
+  globalThis.fetch = async (url) => {
+    seenUrls.push(url);
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => "application/json" },
+      json: async () => ({ rows: [], total: 0, page: 1, page_size: 1000 }),
+    };
+  };
+  try {
+    await postReproject({ weight_responsiveness: 0.2 });
+    await postReproject({ weight_responsiveness: 0.2 }, { page_size: 1000 });
+    assert.equal(seenUrls[0], "/v1/porchlamp/reproject");
+    assert.equal(seenUrls[1], "/v1/porchlamp/reproject?page_size=1000");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+

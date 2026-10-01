@@ -118,6 +118,7 @@ def test_bucket_of_spreads_repos_over_every_file():
         ('{"x": "someone@example.com"}', "an email address"),
         ('{"x": "ghp_' + "a1" * 18 + '"}', "a GitHub token"),
         ('{"x": "/home/someone/Projects/data"}', "a local home path"),
+        ('{"x": "/Users/someone/Projects/data"}', "a local home path"),
     ],
 )
 def test_export_refuses_to_publish(tmp_path, text, what):

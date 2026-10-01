@@ -52,7 +52,6 @@ ambiguities resolved in favour of the spec text):
 from __future__ import annotations
 
 import json
-import shutil
 import sqlite3
 import tempfile
 from datetime import datetime
@@ -199,7 +198,13 @@ def repositories_dump_hash(db_path: str) -> str:
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         copy_path = Path(tmp_dir) / "repositories_dump.db"
-        shutil.copyfile(db_path, copy_path)
+        source = sqlite3.connect(db_path)
+        target = sqlite3.connect(copy_path)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
         conn = sqlite3.connect(copy_path)
         try:
             tables = [

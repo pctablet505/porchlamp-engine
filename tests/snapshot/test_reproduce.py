@@ -426,3 +426,25 @@ def test_reproduce_fails_when_the_frozen_manifest_records_invalid_json(
     assert report.envelope_check.invalid_json_frozen == ["github_meta/org__ghost"]
     assert report.envelope_check.invalid_json == []
     assert report.dump_hash == degraded["canonical_dump_hash"]
+
+
+def test_rebuild_with_relative_data_dir_creates_valid_raw_symlink(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Relative --data-dir must resolve before symlinking raw/ into the scratch
+    workdir, so work/raw is not a dangling symlink."""
+    monkeypatch.chdir(data_dir.parent)
+    rel_data_dir = Path(data_dir.name)
+    manifest = build_manifest(
+        envelope_entries(rel_data_dir).entries,
+        as_of=AS_OF,
+        code_commit=COMMIT,
+        canonical_dump_hash="x",
+    )
+    db = rebuild(rel_data_dir, manifest, rel_data_dir / "work-rel")
+    assert (data_dir / "work-rel" / "raw").is_dir()
+    assert (data_dir / "work-rel" / "raw" / "github_meta" / f"{REPO_KEY}.json").is_file()
+    dump = "\n".join(canonical_dump(db))
+    assert '"org"' in dump
+    assert '"alpha"' in dump
+

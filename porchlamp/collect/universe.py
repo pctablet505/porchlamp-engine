@@ -40,6 +40,7 @@ document that ``scripts/derive.py``'s universe hook copies them into.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -269,36 +270,41 @@ def star_velocity_evidence(
             detail=f"star-history fetch failed for {owner}/{name}"
         )
     else:
-        envelope = read_envelope(path)
-        data = envelope.data if isinstance(envelope.data, Mapping) else {}
-        events = parse_stargazer_events(data.get("events") or [])
-        forks_delta = data.get("repo_forks_delta_90d")
-        forks_delta = (forks_delta if isinstance(forks_delta, int)
-                       and not isinstance(forks_delta, bool) else 0)
-        audit = audit_star_velocity(events, forks_delta, now)
-        record = StarVelocityRecord(
-            measured=True,
-            star_velocity_flag=audit.penalty_applied,
-            stars_audited=audit.valid_stars,
-            star_velocity={
-                "recent_stars": audit.recent_stars,
-                "window_days": constants.STARS_SCOUT_WINDOW_DAYS,
-            },
-            provenance={
-                # The canonical relative envelope path,
-                # ``raw/<collector>/<key>.json`` -- never ``str(path)``. This
-                # dict is written into a hashed envelope body, and an absolute
-                # path names the machine that collected it, so the record
-                # would neither resolve nor verify anywhere else
-                # (docs/v2/00-README.md non-negotiables). It is built from the
-                # collector and key rather than from ``raw_dir`` so the
-                # recorded form does not depend on how the caller spelled the
-                # directory.
-                "path": f"raw/{STAR_HISTORY_COLLECTOR}/{owner}__{name}.json",
-                "sha256": envelope.sha256,
-                "fetched_at": envelope.fetched_at,
-            },
-        )
+        try:
+            envelope = read_envelope(path)
+            data = envelope.data if isinstance(envelope.data, Mapping) else {}
+            events = parse_stargazer_events(data.get("events") or [])
+            forks_delta = data.get("repo_forks_delta_90d")
+            forks_delta = (forks_delta if isinstance(forks_delta, int)
+                           and not isinstance(forks_delta, bool) else 0)
+            audit = audit_star_velocity(events, forks_delta, now)
+            record = StarVelocityRecord(
+                measured=True,
+                star_velocity_flag=audit.penalty_applied,
+                stars_audited=audit.valid_stars,
+                star_velocity={
+                    "recent_stars": audit.recent_stars,
+                    "window_days": constants.STARS_SCOUT_WINDOW_DAYS,
+                },
+                provenance={
+                    # The canonical relative envelope path,
+                    # ``raw/<collector>/<key>.json`` -- never ``str(path)``. This
+                    # dict is written into a hashed envelope body, and an absolute
+                    # path names the machine that collected it, so the record
+                    # would neither resolve nor verify anywhere else
+                    # (docs/v2/00-README.md non-negotiables). It is built from the
+                    # collector and key rather than from ``raw_dir`` so the
+                    # recorded form does not depend on how the caller spelled the
+                    # directory.
+                    "path": f"raw/{STAR_HISTORY_COLLECTOR}/{owner}__{name}.json",
+                    "sha256": envelope.sha256,
+                    "fetched_at": envelope.fetched_at,
+                },
+            )
+        except (json.JSONDecodeError, OSError, KeyError, TypeError, ValueError):
+            record = unmeasured_star_velocity(
+                detail=f"corrupt star-history envelope for {owner}/{name}"
+            )
     write_envelope(
         raw_dir / UNIVERSE_ENTRY_COLLECTOR / f"{owner}__{name}.json",
         source="porchlamp.collect.universe:star_velocity_filter",

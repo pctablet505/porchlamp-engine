@@ -19,6 +19,7 @@ from typing import Any, Optional
 
 from .constants import (
     BOT_LOGIN_MARKERS,
+    PILLAR_WEIGHTS,
 )
 from .engine import assign_tier, score_repository
 from .matrix import decompose
@@ -129,7 +130,7 @@ def generate_maintainer_playbook(
             current_porchlamp = 0.0
             current_tier = Tier.D.value
             current_quadrant = Quadrant.GRAVEYARD.value
-            base_pillars = normal_pillars
+            base_pillars = normal_pillars if is_black_hole else PillarScores(0.0, 0.0, 0.0, 0.0, 0.0)
         else:
             current_tier = assign_tier(current_porchlamp).value
             _, _, quad = decompose(pillar_scores)
@@ -143,7 +144,7 @@ def generate_maintainer_playbook(
         if scored.is_stage0_disqualified:
             if scored.stage0.is_black_hole:
                 is_black_hole = True
-            base_pillars = normal_pillars
+            base_pillars = normal_pillars if is_black_hole else PillarScores(0.0, 0.0, 0.0, 0.0, 0.0)
         else:
             base_pillars = scored.pillar_scores if scored.pillar_scores is not None else normal_pillars
 
@@ -332,7 +333,43 @@ def generate_maintainer_playbook(
             "delta_P": 0.40 * delta_p,
         })
 
-    # Sort actions descending by delta_porchlamp
+    # Sort actions descending by delta_porchlamp and clamp marginal pillar gain
+    # so actions on a pillar cannot exceed 100.0 - cur_pillars[pillar].
+    pillar_weights = {
+        1: PILLAR_WEIGHTS["responsiveness"],
+        3: PILLAR_WEIGHTS["governance"],
+        4: PILLAR_WEIGHTS["rigor"],
+        5: PILLAR_WEIGHTS["accessibility"],
+    }
+    cur_pillars = {
+        1: base_pillars.responsiveness,
+        3: base_pillars.governance,
+        4: base_pillars.rigor,
+        5: base_pillars.accessibility,
+    }
+
+    pillar_counts: dict[int, int] = {}
+    for a in actions:
+        p_idx = a["pillar"]
+        pillar_counts[p_idx] = pillar_counts.get(p_idx, 0) + 1
+
+    actions.sort(key=lambda a: (-a["delta_porchlamp"], a["delta_friction"], a["bottleneck"]))
+    for a in actions:
+        p_idx = a["pillar"]
+        if p_idx in cur_pillars:
+            if pillar_counts.get(p_idx, 0) > 1:
+                headroom = max(0.0, 100.0 - cur_pillars[p_idx])
+                orig_delta_P = a["delta_P"]
+                eff_delta_P = min(orig_delta_P, headroom)
+                if eff_delta_P < orig_delta_P:
+                    scale = (eff_delta_P / orig_delta_P) if orig_delta_P > 0 else 0.0
+                    a["delta_P"] = eff_delta_P
+                    a["delta_porchlamp"] = round(pillar_weights[p_idx] * eff_delta_P, 2)
+                    a["delta_friction"] = round(a["delta_friction"] * scale, 2)
+            else:
+                eff_delta_P = a["delta_P"]
+            cur_pillars[p_idx] = min(100.0, cur_pillars[p_idx] + eff_delta_P)
+
     actions.sort(key=lambda a: (-a["delta_porchlamp"], a["delta_friction"], a["bottleneck"]))
     for idx, a in enumerate(actions, start=1):
         a["priority"] = idx
@@ -341,18 +378,12 @@ def generate_maintainer_playbook(
     potential_porchlamp = min(100.0, round(current_porchlamp + total_point_gain, 2))
     projected_tier = assign_tier(potential_porchlamp).value
 
-    # Compute projected quadrant
-    p1_gain = sum(a["delta_P"] for a in actions if a["pillar"] == 1)
-    p3_gain = sum(a["delta_P"] for a in actions if a["pillar"] == 3)
-    p4_gain = sum(a["delta_P"] for a in actions if a["pillar"] == 4)
-    p5_gain = sum(a["delta_P"] for a in actions if a["pillar"] == 5)
-
     proj_ps = PillarScores(
-        responsiveness=min(100.0, base_pillars.responsiveness + p1_gain),
+        responsiveness=cur_pillars[1],
         criticality=base_pillars.criticality,
-        governance=min(100.0, base_pillars.governance + p3_gain),
-        rigor=min(100.0, base_pillars.rigor + p4_gain),
-        accessibility=min(100.0, base_pillars.accessibility + p5_gain),
+        governance=cur_pillars[3],
+        rigor=cur_pillars[4],
+        accessibility=cur_pillars[5],
     )
     _, _, proj_quad = decompose(proj_ps)
     projected_quadrant = proj_quad.value

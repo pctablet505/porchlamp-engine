@@ -1979,9 +1979,10 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     "openssf_criticality": _resolve_openssf_criticality,
     "downloads_monthly": _resolve_downloads_monthly,
     # "legal_ip" reads the bare "legal_ip" field (identity vocab matching
-    # constants.LEGAL_IP_VALUES), rather than the legacy regex heuristic.
+    # constants.LEGAL_IP_VALUES plus legacy V1_LEGAL_IP_VALUES), rather than
+    # the legacy regex heuristic.
     "legal_ip": _vocab_scalar_resolver(
-        "legal_ip", {value: value for value in constants.LEGAL_IP_VALUES}),
+        "legal_ip", {value: value for value in constants.LEGAL_IP_VALUES} | V1_LEGAL_IP_VALUES),
     "elephant_factor": _plain_scalar_resolver("elephant_factor"),
     # "promotion_ladder" accepts both the current vocabulary as identity
     # (VERIFIED/DOCUMENTED/AD_HOC/CLOSED) and the legacy v1 spellings via
@@ -2238,9 +2239,10 @@ def _load_v1(document: Mapping[str, Any], raw_root: Union[Path, str, None]) -> F
     def iso(ts: str) -> datetime.datetime:
         return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
+    has_events = bool(events)
     window = PRWindow(
-        start=min(all_created, key=iso) if all_created else None,
-        end=max(all_timestamps, key=iso) if all_timestamps else None,
+        start=min(all_created, key=iso) if (has_events and all_created) else None,
+        end=max(all_timestamps, key=iso) if (has_events and all_timestamps) else None,
         truncated=False,  # the v1 document carries no truncation marker
         events=tuple(events),
     )

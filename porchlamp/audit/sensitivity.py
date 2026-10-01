@@ -48,7 +48,7 @@ from porchlamp.core import aggregate, constants
 from porchlamp.core.constants import PILLAR_WEIGHTS
 from porchlamp.core.models import GateResult, PillarScore, RepoIdentity, ScoreRecord
 from porchlamp.core.pipeline import ScoredSnapshot, SnapshotCounts
-from porchlamp.core.tiebreak import TieBreakInput, assign_ranks
+from porchlamp.core.tiebreak import TieBreakInput, assign_ranks, tie_key as build_tie_key
 
 __version__ = "1.0.0"
 
@@ -377,7 +377,11 @@ def _v2_snapshot_from_db(db_path: str | Path) -> ScoredSnapshot:
             pillars[p_name] = PillarScore(score=p_val, coverage=c_val)
 
         porchlamp_raw = r["porchlamp"] if "porchlamp" in cols and r["porchlamp"] is not None else (r["composite"] if "composite" in cols and r["composite"] is not None else None)
-        porchlamp_val = float(porchlamp_raw) if porchlamp_raw is not None else None
+        if porchlamp_raw is not None:
+            porchlamp_val: Optional[float] = float(porchlamp_raw)
+        else:
+            raw_comp = aggregate.composite_score_raw(pillars)
+            porchlamp_val = round(raw_comp, 2) if raw_comp is not None else None
         cov_val = float(r["coverage"]) if "coverage" in cols and r["coverage"] is not None else 1.0
         lev_val = float(r["leverage"]) if "leverage" in cols and r["leverage"] is not None else None
         fric_val = float(r["friction"]) if "friction" in cols and r["friction"] is not None else None
@@ -412,16 +416,33 @@ def _v2_snapshot_from_db(db_path: str | Path) -> ScoredSnapshot:
         )
         ttfhr = float(r["ttfhr_p75"]) if "ttfhr_p75" in cols and r["ttfhr_p75"] is not None else None
         last_commit = str(r["last_human_commit_at"]) if "last_human_commit_at" in cols and r["last_human_commit_at"] is not None else None
-        entries.append(TieBreakInput(
+        entry = TieBreakInput(
             record=rec,
             owner=owner,
             name=name,
             ttfhr_p75_hours=ttfhr,
             last_non_bot_commit_at=last_commit,
-        ))
+        )
+        if rec.composite is not None:
+            rec = dataclasses.replace(rec, tie_key=build_tie_key(entry))
+            entry = dataclasses.replace(entry, record=rec)
+        entries.append(entry)
 
+    entry_by_key = {(e.owner, e.name): e for e in entries}
     ranked = assign_ranks(entries)
-    records = [rec for rec, _rank, _tg in ranked]
+    records = tuple(
+        dataclasses.replace(
+            rec,
+            tie_key=rec.tie_key if rec.tie_key else (
+                build_tie_key(entry_by_key[(rec.repo.owner, rec.repo.name)])
+                if rec.composite is not None and (rec.repo.owner, rec.repo.name) in entry_by_key
+                else ()
+            ),
+            rank=_rank,
+            tie_group=_tg,
+        )
+        for rec, _rank, _tg in ranked
+    )
     return ScoredSnapshot(
         snapshot_id=snap_id or "s",
         benchmark_version="2.0.0-dev",

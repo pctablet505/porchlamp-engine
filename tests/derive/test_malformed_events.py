@@ -92,3 +92,15 @@ def test_other_malformed_event_shapes_still_reject_the_whole_bundle(tmp_path: Pa
     doc = base_document(pr_events=[broken_event])
     with pytest.raises(BundleValidationError, match="pr_events\\[0\\]"):
         load(tmp_path, doc)
+
+
+def test_all_ghost_author_events_yield_empty_window_with_null_bounds(tmp_path: Path) -> None:
+    """Regression: when all pr_events have ghost authors (events becomes empty),
+    pr_window.start and pr_window.end must be None so PRWindow validation succeeds."""
+    doc = base_document(pr_events=[GHOST_EVENT])
+    bundle = load(tmp_path, doc)
+    assert bundle.pr_window.events == ()
+    assert bundle.pr_window.start is None
+    assert bundle.pr_window.end is None
+    assert dropped_event_count(bundle) == 1
+

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import urllib.request
 from dataclasses import asdict
@@ -180,8 +181,12 @@ def _body(data_dir: Path, owner: str, name: str, fname: str,
     """File body from the bodies cache, optionally fetched + cached."""
     p = _body_cache_path(data_dir, owner, name, fname)
     if p.is_file():
-        env = json.loads(p.read_text(encoding="utf-8"))
-        return (env.get("data") or {}).get("body"), env.get("fetched_at")
+        try:
+            env = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            env = None
+        if isinstance(env, dict):
+            return (env.get("data") or {}).get("body"), env.get("fetched_at")
     if not fetch:
         return None, None
     url = f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{fname}"
@@ -192,8 +197,14 @@ def _body(data_dir: Path, owner: str, name: str, fname: str,
         text = None
     at = utc_now_iso(datetime.now(timezone.utc))
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({"fetched_at": at, "source": url,
-                             "data": {"body": text}}), encoding="utf-8")
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps({"fetched_at": at, "source": url,
+                                   "data": {"body": text}}), encoding="utf-8")
+        os.replace(tmp, p)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     return text, at
 
 

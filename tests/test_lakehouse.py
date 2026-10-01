@@ -957,3 +957,24 @@ def test_operational_store_has_no_synthetic_catalog_seeder():
     silently re-added, which would re-open a production -> fixture import.
     """
     assert not hasattr(OperationalStore, "seed_benchmark_catalog")
+
+
+def test_repositories_dump_hash_sees_uncheckpointed_wal_writes(tmp_path):
+    """repositories_dump_hash must use SQLite's online backup API rather than
+    copying only the main DB file, so uncheckpointed WAL writes are included."""
+    from porchlamp.lakehouse import repositories_dump_hash
+
+    db_path = tmp_path / "wal_store.db"
+    s = OperationalStore(str(db_path))
+    try:
+        s.connection.execute("PRAGMA journal_mode=WAL")
+        s.connection.execute("PRAGMA wal_autocheckpoint=0")
+        h0 = repositories_dump_hash(db_path)
+        s.upsert_composite(make_result(owner="wal", name="repo", overall_porchlamp=77.5))
+        h1 = repositories_dump_hash(db_path)
+    finally:
+        s.close()
+    h2 = repositories_dump_hash(db_path)
+    assert h1 != h0
+    assert h1 == h2
+

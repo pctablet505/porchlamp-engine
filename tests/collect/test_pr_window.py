@@ -2172,3 +2172,21 @@ def test_gather_repo_author_history_status_fail(tmp_path, monkeypatch):
     monkeypatch.setattr(gql, "collect_author_history", raise_transport_error)
     status = gather.gather_repo("acme", "widget", "pypi")
     assert status["author_history"] == "fail"
+
+
+def test_partial_eligibility_alias_missing_contributions_collection_is_unmeasured(tmp_path):
+    """If an eligibility alias returns createdAt but contributionsCollection is
+    null/missing due to a partial GraphQL error, it must remain unmeasured and
+    never be cached or treated as a 0-event account."""
+    cache = UserCache(tmp_path / "users")
+    prs, users = _decision_authors(["d000"])
+    users["d000"] = {"createdAt": "2020-01-01T00:00:00Z", "contributionsCollection": None}
+    fake = W4Transport([_w4_page(prs, False)], [3], [4990], {"d000": {"nodes": []}}, users)
+    gql.collect_author_history(tmp_path / "raw", "acme", "widget", now=NOW,
+                               transport=fake, user_cache=cache)
+    rec = _records(tmp_path / "raw", "acme__widget")["d000"]
+    assert rec["eligibility_unmeasured"] is True
+    assert rec["public_event_count"] is None
+    assert cache.get("d000", NOW) is None
+
+

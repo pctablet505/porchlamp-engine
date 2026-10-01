@@ -392,3 +392,63 @@ def test_coverage_includes_v2_collectors(tmp_path: Path) -> None:
     assert "acme/v2repo" in repos
     report = coverage.audit_universe(tmp_path)
     assert report.n_repos == 1
+
+
+def test_v2_sensitivity_snapshot_populates_tie_key_and_rank(tmp_path: Path) -> None:
+    """Regression test: _v2_snapshot_from_db populates tie_key, rank, and tie_group."""
+    db_path = _build_full_v2_db(tmp_path / "porchlamp_v2.db")
+    snap = sensitivity._v2_snapshot_from_db(db_path)
+    assert snap is not None
+    rated = [r for r in snap.records if r.rank is not None]
+    assert len(rated) == 4
+    for rec in rated:
+        assert len(rec.tie_key) == 8
+        assert rec.tie_key[7] == (rec.repo.owner.lower(), rec.repo.name.lower())
+
+
+def test_v2_anchors_mismatched_gate_reason_fails(tmp_path: Path) -> None:
+    """Regression test: non-empty mismatched gate_reason fails mirror/archived anchor checks."""
+    db_path = tmp_path / "mismatched_anchors.db"
+    conn = schema.connect(db_path)
+    try:
+        apply_migrations(conn, applied_at="2026-09-16T00:00:00Z")
+        write_snapshot(
+            conn,
+            id=SNAPSHOT_ID,
+            as_of="2026-09-16",
+            benchmark_version="2.0.0",
+            constants_hash="c" * 64,
+            code_commit="deadbeef" * 5,
+            manifest_root="r" * 8,
+            created_at="2026-09-16T00:00:00Z",
+        )
+        items = [
+            # Mirror repo gated for "stale" instead of "mirror" -> must FAIL
+            _make_v2_record(
+                "gcc-mirror",
+                "gcc",
+                eligible=False,
+                gate_reason="stale",
+                rated=False,
+                mirror_url="git://gcc.gnu.org/git/gcc.git",
+            ),
+            # Archived repo gated for "stale" instead of "archived" -> must FAIL
+            _make_v2_record(
+                "old-org",
+                "legacy-repo",
+                eligible=False,
+                gate_reason="stale",
+                rated=False,
+                archived=True,
+            ),
+        ]
+        write_records(conn, SNAPSHOT_ID, items)
+        finalize_snapshot_hash(conn, db_path, SNAPSHOT_ID, promoted_at="2026-09-16T00:00:00Z")
+    finally:
+        conn.close()
+
+    report = anchors_report(db_path)
+    by_rel = {r.relation: r for r in report}
+    assert by_rel["gcc_mirror_gated"].verdict == anchors.FAIL
+    assert by_rel["archived_repo_gated"].verdict == anchors.FAIL
+

@@ -276,7 +276,7 @@ def rebuild(data_dir: Path, manifest: dict[str, Any], work_dir: Path) -> Path:
     data dir, and ``work_dir/raw`` is a symlink to the frozen ``raw`` so the
     second-source checks still find their envelopes. Returns the fresh database.
     """
-    root = Path(data_dir)
+    root = Path(data_dir).resolve()
     work = Path(work_dir)
     if work.exists():
         shutil.rmtree(work)
