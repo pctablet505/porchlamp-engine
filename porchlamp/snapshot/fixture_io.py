@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from porchlamp.core.gates import GateEvidence
-from porchlamp.core.models import FeatureBundle
+from porchlamp.core.models import FeatureBundle, sha256_hex
 from porchlamp.core.pipeline import RepoKey
 from porchlamp.derive.bundle import load_bundle
 from porchlamp.snapshot.populations import Population, PopulationSet
@@ -47,6 +47,7 @@ class FrozenFixture:
     gate_evidence: dict[RepoKey, GateEvidence]
     raw_hashes: dict[RepoKey, str]
     expected: Optional[dict[str, Any]]
+    populations_hash: Optional[str] = None
 
 
 def load_frozen_fixture(out_dir: Path) -> FrozenFixture:
@@ -70,7 +71,9 @@ def load_frozen_fixture(out_dir: Path) -> FrozenFixture:
         gate_evidence[key] = GateEvidence(**entry["gate_evidence"])
         raw_hashes[key] = entry["raw_hash"]
 
-    pop_doc = json.loads((out_dir / "populations.json").read_text(encoding="utf-8"))
+    pop_text = (out_dir / "populations.json").read_text(encoding="utf-8")
+    populations_hash = sha256_hex(pop_text)
+    pop_doc = json.loads(pop_text)
     populations = PopulationSet(
         snapshot_id=pop_doc["snapshot_id"],
         benchmark_version=pop_doc["benchmark_version"],
@@ -83,4 +86,5 @@ def load_frozen_fixture(out_dir: Path) -> FrozenFixture:
     return FrozenFixture(
         snapshot_id=manifest["snapshot_id"], as_of=as_of, bundles=bundles, populations=populations,
         gate_evidence=gate_evidence, raw_hashes=raw_hashes, expected=expected,
+        populations_hash=populations_hash,
     )

@@ -393,3 +393,19 @@ def test_write_scored_snapshot_is_one_transaction(tmp_path, monkeypatch) -> None
 
     row = conn.execute("SELECT COUNT(*) FROM snapshots WHERE id = ?", (scored.snapshot_id,)).fetchone()
     assert row[0] == 0, "write_snapshot's insert must not survive write_records's failure"
+
+
+def test_manifest_root_of_includes_populations_hash_and_matches_manifest() -> None:
+    """E-01: manifest_root_of(frozen) must include populations.json's sha256 so
+    it matches manifest.json['merkle_root']."""
+    from dataclasses import replace
+
+    from porchlamp.snapshot.fixture_io import load_frozen_fixture
+    from porchlamp.snapshot.store_cmd import manifest_root_of
+
+    frozen = load_frozen_fixture(FIXTURE_DIR)
+    manifest = json.loads((FIXTURE_DIR / "manifest.json").read_text(encoding="utf-8"))
+    assert frozen.populations_hash is not None
+    assert manifest_root_of(frozen) == manifest["merkle_root"]
+    assert manifest_root_of(replace(frozen, populations_hash="0" * 64)) != manifest["merkle_root"]
+

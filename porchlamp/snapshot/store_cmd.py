@@ -168,13 +168,14 @@ def manifest_root_of(frozen: FrozenFixture) -> str:
     section 5 Merkle root (:func:`porchlamp.snapshot.manifest.merkle_root` -- the
     same function a real ``porchlamp.snapshot freeze`` folds envelope hashes
     with, R-2, no second Merkle implementation) over every bundle's own
-    ``raw_hash`` in this snapshot, sorted for a byte-identical root
-    regardless of dict-iteration order. A scored-snapshot directory carries
-    no envelope-level freeze manifest of its own (:mod:`porchlamp.snapshot.
-    fixture_io`'s module docstring); the bundle raw hashes are the closest
-    real analogue this directory shape has to "which inputs this snapshot
-    covers"."""
-    return merkle_root(sorted(frozen.raw_hashes.values()))
+    ``raw_hash`` in this snapshot plus ``populations_hash`` when present
+    (matching :func:`porchlamp.snapshot.build_cmd.build_snapshot_dir` and
+    :func:`scripts.build_fixture_snapshot.write_fixture`, E-01), sorted for
+    a byte-identical root regardless of dict-iteration order."""
+    leaves = list(frozen.raw_hashes.values())
+    if frozen.populations_hash is not None:
+        leaves.append(frozen.populations_hash)
+    return merkle_root(sorted(leaves))
 
 
 def write_scored_snapshot(

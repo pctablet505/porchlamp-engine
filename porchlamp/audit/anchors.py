@@ -413,7 +413,7 @@ def _check_gated_reason_db_v2(
     mirror_flag = bool(row["mirror"]) if "mirror" in keys and row["mirror"] is not None else False
     if not eligible and (
         (isinstance(gate_reason, str) and marker in gate_reason.lower())
-        or (marker == "mirror" and mirror_flag)
+        or (not gate_reason and marker == "mirror" and mirror_flag)
     ):
         return AnchorResult(
             relation_id, _EXPECTED[relation_id], f"gated: {gate_reason or marker}", PASS
@@ -444,10 +444,11 @@ def _check_archived_db_v2(con: sqlite3.Connection, snap_id: Optional[str]) -> An
         eligible = bool(r[2])
         reason = r[3]
         arch = bool(r[4]) if has_archived_col and len(r) > 4 and r[4] is not None else False
-        is_candidate = arch or (isinstance(reason, str) and "archived" in reason.lower())
+        reason_has_archived = isinstance(reason, str) and "archived" in reason.lower()
+        is_candidate = arch or reason_has_archived
         if is_candidate:
             candidates.append(f"{r[0]}/{r[1]}")
-            if not eligible and ((isinstance(reason, str) and "archived" in reason.lower()) or arch):
+            if not eligible and (reason_has_archived or (not reason and arch)):
                 matches.append(f"{r[0]}/{r[1]}")
     if not candidates:
         return AnchorResult(

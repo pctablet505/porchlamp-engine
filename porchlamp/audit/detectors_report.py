@@ -52,22 +52,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
+from porchlamp.core.constants import PARAM_INPUT_IDS
 from porchlamp.core.models import GateResult, ParamScore, RepoIdentity, ScoreRecord
 from porchlamp.verify.detectors import DETECTOR_NAMES, DetectorInputs, NewcomerAccountSample, run_detectors
 
 __version__ = "1.0.0"
 
-#: Parameter input ids a detector row may carry (porchlamp.verify.detectors'
-#: INPUT_* constants, restated here as the JSON row's allowed ``params``
-#: keys -- this is the I/O layer's own list of *which* inputs it
-#: reads off disk, not a second definition of what they mean).
-ROW_PARAM_IDS: tuple[str, ...] = (
-    "ttfhr_hours",
-    "dr90_decision_rate",
-    "mr_first_rate",
-    "newcomer_conversion",
-    "rr90_return_rate",
-)
+#: Parameter input ids a detector row may carry (all 18 v2 parameter input
+#: ids from ``porchlamp.core.constants.PARAM_INPUT_IDS``, so ``detect_param_jump``
+#: can observe jumps across any of the 18 parameters).
+ROW_PARAM_IDS: tuple[str, ...] = PARAM_INPUT_IDS
 
 _HASH64_PLACEHOLDER = "0" * 64
 

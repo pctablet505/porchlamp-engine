@@ -95,3 +95,31 @@ def test_write_is_atomic_and_leaves_no_temporary_file(tmp_path):
     assert doc["source"] == "github-graphql:AuthorEligibilityBatch"
     assert doc["typename"] == "User"
     assert doc["login"] == "octocat"
+
+
+def test_get_rejects_mismatched_login_in_cached_document(tmp_path):
+    cache = UserCache(tmp_path)
+    (tmp_path / "octocat.json").write_text(json.dumps({
+        "login": "other_user",
+        "account_created_at": "2015-01-01T00:00:00Z",
+        "public_event_count": 40,
+        "observed_at": NOW.isoformat(),
+    }))
+    assert cache.get("octocat", NOW) is None
+    assert cache.stats["unreadable"] == 1
+
+
+def test_put_cleans_up_temp_file_on_replace_failure(tmp_path, monkeypatch):
+    import os
+    import pytest
+
+    cache = UserCache(tmp_path)
+
+    def _fail_replace(src, dst):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(os, "replace", _fail_replace)
+    with pytest.raises(OSError, match="simulated replace failure"):
+        cache.put("octocat", MEASURED, NOW)
+    assert list(tmp_path.iterdir()) == []
+

@@ -387,14 +387,13 @@ def _check_evidence(api: RestTransport, owner: str, name: str,
     :data:`CHECK_EVIDENCE_SHA_CAP` distinct SHAs, newest merge first (D-COL-12).
     ``shas_available`` is how many distinct SHAs there were to choose from, so
     a reader can tell "looked at 5 of 5" from "looked at 5 of 20"; a SHA whose
-    commit 404s is counted as probed, because the call was spent.
+    commit 404s is skipped and not counted as probed.
     """
     checks: list[dict[str, Any]] = []
     distinct = _distinct_head_shas(merged_prs)
     shas_available = len(distinct)
     shas_probed = 0
     for sha, pr in distinct[:CHECK_EVIDENCE_SHA_CAP]:
-        shas_probed += 1
         try:
             statuses = api.call(f"repos/{owner}/{name}/commits/{sha}/statuses",
                                 {"per_page": "100"}) or []
@@ -404,6 +403,7 @@ def _check_evidence(api: RestTransport, owner: str, name: str,
             if e.http_status == 404:
                 continue
             raise
+        shas_probed += 1
         for status in statuses:
             checks.append({
                 "name": status.get("context") or "",

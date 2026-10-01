@@ -715,9 +715,34 @@ def test_landmark_repositories_playbook_recovery() -> None:
 
 def test_stage0_disqualified_non_black_hole() -> None:
     """Verify Stage 0 disqualification due to inactive maintenance (< 1 nonbot commit) is handled."""
-    meta = _make_meta(active_nonbot_commits_180d=0)
+    meta = _make_meta(active_nonbot_commits_180d=0, elephant_factor=2)
     pb = generate_maintainer_playbook(meta, [], now=NOW)
     assert pb["current_porchlamp"] == 0.0
     assert pb["current_tier"] == Tier.D.value
+    assert pb["potential_porchlamp"] == 3.5
     assert pb["projected_tier"] == Tier.D.value
+    assert pb["projected_quadrant"] == Quadrant.GRAVEYARD.value
     assert not any("Stage 0 Black Hole" in a["bottleneck"] for a in pb["actions"])
+
+
+def test_multiple_actions_on_responsiveness_clamped_to_pillar_headroom() -> None:
+    """Regression: when multiple actions target responsiveness, their combined
+    marginal gain cannot exceed remaining pillar headroom (100.0 - base_pillars.responsiveness)."""
+    meta = _make_meta()
+    # TTFHR > 24h (48h -> score 50, raw delta_P = 17.5) and MR_first < 80% (0% -> score 0, raw delta_P = 25.0)
+    prs = [
+        _make_pr(1, 4.0, prior_commits=0, response_latency_hours=48.0, merged=False, closed=True),
+        _make_pr(2, 5.0, prior_commits=0, response_latency_hours=48.0, merged=False, closed=True),
+    ]
+    # Provide explicit pillar_scores with responsiveness=80.0 (only 20.0 pillar headroom -> max 5.00 composite gain)
+    pb = generate_maintainer_playbook(
+        meta,
+        prs,
+        now=NOW,
+        pillar_scores=PillarScores(80.0, 80.0, 80.0, 80.0, 80.0),
+        overall_porchlamp=80.0,
+    )
+    assert len(pb["actions"]) == 2
+    assert pb["total_point_gain"] <= round(0.25 * (100.0 - 80.0), 2)
+    assert pb["total_point_gain"] == pytest.approx(5.0, abs=0.01)
+

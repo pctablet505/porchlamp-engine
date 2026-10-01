@@ -101,7 +101,8 @@ class UserCache:
         account = doc.get("account_created_at") if isinstance(doc, dict) else None
         events = doc.get("public_event_count") if isinstance(doc, dict) else None
         if (observed is None or not isinstance(account, str)
-                or isinstance(events, bool) or not isinstance(events, int)):
+                or isinstance(events, bool) or not isinstance(events, int)
+                or (doc.get("login") is not None and doc.get("login") != login)):
             self.stats["unreadable"] += 1
             return None
         if observed > now or now - observed > self.ttl:
@@ -126,12 +127,16 @@ class UserCache:
             return False
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-        tmp.write_text(json.dumps({
-            "login": login, "typename": "User", "account_created_at": account,
-            "public_event_count": events, "observed_at": observed_at.isoformat(),
-            "source": USER_CACHE_SOURCE,
-        }, sort_keys=True))
-        os.replace(tmp, path)
+        try:
+            tmp.write_text(json.dumps({
+                "login": login, "typename": "User", "account_created_at": account,
+                "public_event_count": events, "observed_at": observed_at.isoformat(),
+                "source": USER_CACHE_SOURCE,
+            }, sort_keys=True))
+            os.replace(tmp, path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
         self.stats["writes"] += 1
         return True
 

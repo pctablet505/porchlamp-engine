@@ -91,7 +91,7 @@ _VERDICT_FETCH_FAILED: str = "live_fetch_failed"
 _VERDICT_RECORD_MISSING: str = "record_missing"
 
 _LIVE_QUERY: str = (
-    '{ r: repository(owner: "%s", name: "%s") {'
+    "{ r: repository(owner: %s, name: %s) {"
     "stargazerCount forkCount"
     " pullRequests(states: [OPEN, MERGED, CLOSED], first: %d,"
     " orderBy: {field: CREATED_AT, direction: DESC}) {"
@@ -249,7 +249,7 @@ class GitHubTransport:
 
     def fetch_live_facts(self, owner: str, name: str) -> LiveFacts:
         """One live fetch for ``(owner, name)``; raises on any transport error."""
-        query = _LIVE_QUERY % (owner, name, PR_HEAD_SIZE)
+        query = _LIVE_QUERY % (json.dumps(owner), json.dumps(name), PR_HEAD_SIZE)
         out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
                              capture_output=True, text=True, timeout=self._timeout)
         if out.returncode != 0:

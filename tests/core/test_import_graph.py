@@ -15,7 +15,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CORE_DIR = REPO_ROOT / "porchlamp" / "core"
-DERIVE_BUNDLE = REPO_ROOT / "porchlamp" / "derive" / "bundle.py"
+DERIVE_DIR = REPO_ROOT / "porchlamp" / "derive"
+DERIVE_BUNDLE = DERIVE_DIR / "bundle.py"
 STORE_DIR = REPO_ROOT / "porchlamp" / "store"
 SERVE_DIR = REPO_ROOT / "porchlamp" / "serve"
 RATELIMIT_MODULE = REPO_ROOT / "porchlamp" / "collect" / "ratelimit.py"
@@ -54,11 +55,15 @@ def test_core_imports_nothing_outside_core_and_stdlib() -> None:
 
 
 def test_derive_bundle_imports_only_core_and_stdlib() -> None:
-    for name in imported_modules(DERIVE_BUNDLE):
-        top = name.split(".")[0]
-        allowed = top in sys.stdlib_module_names or name.startswith("porchlamp.core")
-        assert allowed, f"porchlamp/derive/bundle.py imports {name!r}; "
-        "it may only import porchlamp.core modules plus stdlib"
+    assert DERIVE_DIR.is_dir(), "porchlamp/derive package missing"
+    for path in sorted(DERIVE_DIR.rglob("*.py")):
+        for name in imported_modules(path):
+            top = name.split(".")[0]
+            allowed = top in sys.stdlib_module_names or name.startswith("porchlamp.core")
+            assert allowed, (
+                f"{path.relative_to(REPO_ROOT)} imports {name!r}; "
+                "it may only import porchlamp.core modules plus stdlib"
+            )
 
 
 def test_store_imports_only_core_snapshot_or_stdlib() -> None:

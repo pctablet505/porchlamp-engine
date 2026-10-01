@@ -136,30 +136,74 @@ _SPDX_OPERATORS: frozenset[str] = frozenset({"AND", "OR", "WITH"})
 _SPDX_EXPRESSION = re.compile(r"^[A-Za-z0-9.\-+()\s]+$")
 
 
-def _spdx_licence_ids(expression: str) -> list[str]:
-    """The licence identifiers named by an SPDX ``expression``.
+def _eval_spdx_expression(expression: str, approved: set[str]) -> bool | None:
+    """Evaluate a compound SPDX expression with ``WITH`` > ``AND`` > ``OR``
+    precedence and parentheses; returns ``None`` if syntactically invalid."""
+    tokens = re.findall(r"[()]|[A-Za-z0-9.\-+]+", expression.strip())
+    if not tokens:
+        return None
+    pos = 0
 
-    Splits on the ``AND`` / ``OR`` / ``WITH`` operators and parentheses and
-    returns the remaining tokens with any ``+`` ("or later") suffix removed.
-    Everything to the right of a ``WITH`` is an exception name rather than a
-    licence, so it is dropped: ``Apache-2.0 WITH LLVM-exception`` is still the
-    Apache-2.0 licence for the purposes of this gate.
-    """
-    tokens = re.split(r"[()\s]+", expression.strip())
-    ids: list[str] = []
-    skip_next = False
-    for token in tokens:
-        if not token:
-            continue
-        upper = token.upper()
-        if upper in _SPDX_OPERATORS:
-            skip_next = upper == "WITH"
-            continue
-        if skip_next:
-            skip_next = False
-            continue
-        ids.append(token.rstrip("+"))
-    return ids
+    def parse_or() -> bool | None:
+        nonlocal pos
+        left = parse_and()
+        if left is None:
+            return None
+        result = left
+        while pos < len(tokens) and tokens[pos].upper() == "OR":
+            pos += 1
+            right = parse_and()
+            if right is None:
+                return None
+            result = result or right
+        return result
+
+    def parse_and() -> bool | None:
+        nonlocal pos
+        left = parse_primary()
+        if left is None:
+            return None
+        result = left
+        while pos < len(tokens) and tokens[pos].upper() == "AND":
+            pos += 1
+            right = parse_primary()
+            if right is None:
+                return None
+            result = result and right
+        return result
+
+    def parse_primary() -> bool | None:
+        nonlocal pos
+        if pos >= len(tokens):
+            return None
+        token = tokens[pos]
+        if token == "(":
+            pos += 1
+            inner = parse_or()
+            if inner is None or pos >= len(tokens) or tokens[pos] != ")":
+                return None
+            pos += 1
+            return inner
+        if token == ")" or token.upper() in _SPDX_OPERATORS:
+            return None
+        lic_id = token.rstrip("+")
+        if not lic_id:
+            return None
+        pos += 1
+        if pos < len(tokens) and tokens[pos].upper() == "WITH":
+            pos += 1
+            if pos >= len(tokens):
+                return None
+            exc_tok = tokens[pos]
+            if exc_tok in ("(", ")") or exc_tok.upper() in _SPDX_OPERATORS:
+                return None
+            pos += 1
+        return lic_id.casefold() in approved
+
+    val = parse_or()
+    if val is None or pos != len(tokens):
+        return None
+    return val
 
 
 def _is_parseable_spdx_expression(spdx: str | None) -> bool:
@@ -168,7 +212,7 @@ def _is_parseable_spdx_expression(spdx: str | None) -> bool:
         return False
     if not _SPDX_EXPRESSION.match(spdx):
         return False
-    return bool(_spdx_licence_ids(spdx))
+    return _eval_spdx_expression(spdx, set()) is not None
 
 
 def _is_osi_approved_expression(spdx: str | None) -> bool:
@@ -187,14 +231,10 @@ def _is_osi_approved_expression(spdx: str | None) -> bool:
     readily as ``MIT``). ``AND`` requires every named licence to be approved;
     ``OR`` requires only one, since the recipient may choose that branch.
     """
-    if not _is_parseable_spdx_expression(spdx):
+    if not isinstance(spdx, str) or not spdx.strip() or not _SPDX_EXPRESSION.match(spdx):
         return False
-    assert spdx is not None  # narrowed by _is_parseable_spdx_expression
     approved = {name.casefold() for name in OSI_APPROVED_LICENSES}
-    ids = [name.casefold() for name in _spdx_licence_ids(spdx)]
-    if " or " in f" {spdx.casefold()} ":
-        return any(name in approved for name in ids)
-    return all(name in approved for name in ids)
+    return bool(_eval_spdx_expression(spdx, approved))
 
 
 @dataclass(frozen=True)

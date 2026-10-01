@@ -58,6 +58,7 @@ _FORBIDDEN = (
     (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{40,}\b"), "a GitHub token"),
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z0-9.-]*[A-Za-z]"), "an email address"),
     (re.compile(r"/home/[A-Za-z0-9_.-]+/"), "a local home path"),
+    (re.compile(r"/Users/[A-Za-z0-9_.-]+/"), "a local home path"),
 )
 
 

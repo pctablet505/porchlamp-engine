@@ -269,6 +269,8 @@ def copy_sample(data_dir: Path, out: Path, entries: Sequence[dict]) -> Tuple[Lis
             if destination.exists() and destination.stat().st_size == size and _sha256(destination) == digest:
                 stats["reused"] += 1
             else:
+                if destination.exists():
+                    os.chmod(destination, 0o644)
                 shutil.copy2(source, destination)
                 os.chmod(destination, 0o444)
                 stats["copied"] += 1

@@ -509,3 +509,29 @@ def test_gather_repo_repo_object_status_skip(tmp_path, monkeypatch, block_live_n
     monkeypatch.setattr(ro_mod, "collect_repo_object", must_not_fetch)
     status = gather.gather_repo("acme", "widget", "pypi")
     assert status["repo_object"] == "skip"
+
+
+def test_collect_partial_graphql_null_booleans_remain_none(tmp_path, block_live_network):
+    """When isArchived or isFork is null/missing in a partial GraphQL response,
+    collect_repo_object must store None rather than coercing to False."""
+    raw = tmp_path / "raw"
+    recorded_r = {
+        "isArchived": None,
+        "mirrorUrl": None,
+        "isFork": None,
+        "parent": None,
+        "licenseInfo": {"spdxId": "MIT"},
+        "pullRequests": {"totalCount": 5},
+    }
+    with patch.object(ro_mod, "_gh_graphql", return_value=(recorded_r, [{"message": "partial"}])), \
+         patch.object(ro_mod, "_gh_rest", return_value=None), \
+         patch.object(ro_mod, "_fetch_body", return_value=None):
+        status = ro_mod.collect_repo_object(raw, "acme", "widget", "main")
+    assert status == "ok"
+    d = json.loads((raw / "repo_object" / f"{KEY}.json").read_text(encoding="utf-8"))["data"]
+    assert d["archived"] is None
+    assert d["fork"] is None
+    out = run(tmp_path)
+    assert out["confidence"]["archived"] == "missing"
+    assert out["confidence"]["fork"] == "missing"
+

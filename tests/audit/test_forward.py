@@ -739,3 +739,92 @@ def test_real_collection_requires_snapshot(tmp_path: Path, capsys: pytest.Captur
     )
     assert code == 2
     assert "requires --snapshot" in capsys.readouterr().err
+
+
+def test_load_scores_filters_by_active_snapshot_on_multi_snapshot_v2_db(tmp_path: Path) -> None:
+    """Regression: load_scores filters by active snapshot_id on multi-snapshot v2 DBs."""
+    from porchlamp.audit.forward import load_scores
+
+    db_path = tmp_path / "multi_v2.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        """
+        CREATE TABLE snapshots (
+            id TEXT PRIMARY KEY,
+            created_at TEXT NOT NULL,
+            promoted_at TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE repositories (
+            snapshot_id TEXT NOT NULL,
+            owner TEXT NOT NULL,
+            name TEXT NOT NULL,
+            rated INTEGER NOT NULL,
+            p_responsiveness REAL,
+            p_criticality REAL,
+            p_governance REAL,
+            p_rigor REAL,
+            p_accessibility REAL,
+            porchlamp REAL
+        )
+        """
+    )
+    conn.execute("INSERT INTO snapshots VALUES ('snap-old', '2026-08-01T00:00:00Z', '2026-08-01T01:00:00Z')")
+    conn.execute("INSERT INTO snapshots VALUES ('snap-new', '2026-09-01T00:00:00Z', '2026-09-01T01:00:00Z')")
+    conn.execute("INSERT INTO repositories VALUES ('snap-old', 'org', 'alpha', 1, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0)")
+    conn.execute("INSERT INTO repositories VALUES ('snap-new', 'org', 'alpha', 1, 90.0, 80.0, 85.0, 75.0, 95.0, 86.0)")
+    conn.commit()
+    conn.close()
+
+    rows = load_scores(db_path)
+    assert len(rows) == 1
+    assert rows[0].repo == "org/alpha"
+    assert rows[0].scores["overall_porchlamp"] == 86.0
+
+
+def test_first_timers_from_s0_supports_v2_dict_envelopes(tmp_path: Path) -> None:
+    """Regression: first_timers_from_s0 supports dict-shaped commits_365d and pr_window envelopes."""
+    from porchlamp.audit.forward import first_timers_from_s0
+
+    commits_dir = tmp_path / "raw" / "commits_365d"
+    pr_win_dir = tmp_path / "raw" / "pr_window"
+    commits_dir.mkdir(parents=True)
+    pr_win_dir.mkdir(parents=True)
+
+    (commits_dir / "org__alpha.json").write_text(
+        json.dumps(
+            {
+                "fetched_at": FETCHED_AT,
+                "source": "test",
+                "data": {"commits": [{"author_login": "veteran_commit", "date": (T0 - timedelta(days=10)).isoformat()}]},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (pr_win_dir / "org__alpha.json").write_text(
+        json.dumps(
+            {
+                "fetched_at": FETCHED_AT,
+                "source": "test",
+                "data": {
+                    "events": [
+                        {"author_login": "veteran_pr", "created_at": (T0 - timedelta(days=5)).isoformat()},
+                        {"author": {"login": "newcomer_s0"}, "createdAt": (T0 + timedelta(days=1)).isoformat()},
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    prs = [
+        _pr("org/alpha", 1, T0 + timedelta(days=2), author="veteran_commit"),
+        _pr("org/alpha", 2, T0 + timedelta(days=2), author="veteran_pr"),
+        _pr("org/alpha", 3, T0 + timedelta(days=2), author="brand_new"),
+    ]
+    known = first_timers_from_s0(tmp_path, T0, prs)
+    assert known["org/alpha"] == frozenset({"newcomer_s0", "brand_new"})
+

@@ -127,7 +127,7 @@ SORTABLE_FIELDS = {
 #: once in porchlamp/serve/contract.py, imported here so the fixture server and
 #: the real API can never drift apart on the allowed set.
 ALLOWED_PAGE_SIZES = LEADERBOARD_PAGE_SIZES
-TIER_ORDER = {"S": 0, "A": 1, "B": 2, "C": 3, "D": 4, "F": 5}
+TIER_ORDER = {"S+": 0, "S": 1, "A": 2, "B": 3, "C": 4, "D": 5, "F": 6}
 
 # --------------------------------------------------------------------------- #
 # Matrix (B) — D-MAT-1 axis weights, read here as plain literals               #
@@ -140,9 +140,10 @@ LEVERAGE_AXIS_WEIGHTS = {"criticality": 0.50, "rigor": 0.30, "governance": 0.20}
 FRICTION_AXIS_WEIGHTS = {"responsiveness": 0.50, "governance": 0.30, "accessibility": 0.20}
 
 #: "many" (06 §3 B: "friction computed without accessibility for 12%") is
-#: not itself pinned to a number by 04/06 — this fixture stub's own
-#: documented choice: an axis-contributing pillar unmeasured for >= 5% of
-#: the plotted rows earns a caption naming it.
+#: not itself pinned to a number by 04/06 — mirrored in
+#: `porchlamp.store.queries.AXIS_CAPTION_MIN_MISSING_FRACTION`: an
+#: axis-contributing pillar unmeasured for >= 5% of the plotted rows earns a
+#: caption naming it.
 AXIS_CAPTION_MIN_MISSING_FRACTION = 0.05
 
 
@@ -515,7 +516,7 @@ class FixtureStore:
 
         def sort_key(row: dict[str, Any]):
             if field == "tier":
-                value = TIER_ORDER.get(row.get("tier") or "F", 5)
+                value = TIER_ORDER.get(row.get("tier") or "F", 6)
             else:
                 value = row.get(field)
                 if value is None:

@@ -395,9 +395,9 @@ def collect_repo_object(raw_dir: Path, owner: str, name: str,
     if not r:
         return "fail"
     data: dict[str, Any] = {
-        "archived": bool(r.get("isArchived")),
+        "archived": r.get("isArchived") if isinstance(r.get("isArchived"), bool) else None,
         "mirror_url": r.get("mirrorUrl"),
-        "fork": bool(r.get("isFork")),
+        "fork": r.get("isFork") if isinstance(r.get("isFork"), bool) else None,
         "parent": None,
         "license_spdx_id": (r.get("licenseInfo") or {}).get("spdxId"),
         "pull_requests_total": (r.get("pullRequests") or {}).get("totalCount"),

@@ -148,12 +148,12 @@ function sqlLower(s) {
   return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
 }
 
-/** porchlamp.store.queries._ecosystem_filter + _search_filter: exact ecosystem; `q` a case-insensitive owner or name substring. */
+/** porchlamp.store.queries._ecosystem_filter + _search_filter: exact ecosystem; `q` a case-insensitive owner, name, or `owner/name` substring. */
 function rowFilter(eco, q) {
   const needle = present(q) ? sqlLower(String(q)) : null;
   return (row) =>
     (!present(eco) || row.ecosystem === eco) &&
-    (needle === null || sqlLower(row.owner).includes(needle) || sqlLower(row.name).includes(needle));
+    (needle === null || sqlLower(row.owner).includes(needle) || sqlLower(row.name).includes(needle) || sqlLower(`${row.owner}/${row.name}`).includes(needle));
 }
 
 // ------------------------------------------------------- /leaderboard
@@ -475,8 +475,8 @@ function validatedWeights(endpoint, body, base) {
 /**
  * Screen D (Configure weights): `POST /v1/porchlamp/reproject` with a five-pillar
  * weight vector -> `ReprojectResponse`, computed here. `page`/`page_size`
- * mirror the endpoint's query parameters (the UI sends neither: page 1 of
- * the default page size, as against the API).
+ * mirror the endpoint's query parameters (Screen D sends `page_size: 1000`,
+ * defaulting to page 1 of `base.default_page_size` when omitted).
  */
 export async function postReproject(weights, { page = 1, page_size: pageSize } = {}) {
   const endpoint = "/v1/porchlamp/reproject";

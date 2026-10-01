@@ -2014,3 +2014,28 @@ def test_dr90_decision_rate_ignores_history_unmeasured_when_eligibility_is_measu
         source_hash=expected_hash(data), fetched_at="2026-09-01T00:05:00+00:00",
     )
 
+
+@pytest.mark.parametrize("v1_legal_ip", ["CORP_CLA_RECIPROCAL", "CORP_CLA_UNILATERAL"])
+def test_v1_legal_ip_values_map_to_corp_cla(tmp_path: Path, v1_legal_ip: str) -> None:
+    """Regression: V1_LEGAL_IP_VALUES (CORP_CLA_RECIPROCAL, CORP_CLA_UNILATERAL)
+    map cleanly to CORP_CLA in the legal_ip input resolver."""
+    gov_data = {"legal_ip": v1_legal_ip}
+    write_envelope(tmp_path / "raw", "governance", "acme__widget", gov_data)
+    doc = base_document(
+        meta={"legal_ip": v1_legal_ip},
+        provenance={"legal_ip": prov("governance")},
+        confidence={"legal_ip": "verified"},
+    )
+    bundle = load(tmp_path, doc)
+    assert bundle.inputs["legal_ip"] == Measured(
+        value="CORP_CLA",
+        n=0,
+        window_start=None,
+        window_end=None,
+        method="primary",
+        source="raw/governance/acme__widget.json",
+        source_hash=expected_hash(gov_data),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+

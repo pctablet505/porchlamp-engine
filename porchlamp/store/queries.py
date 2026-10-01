@@ -100,6 +100,7 @@ from porchlamp.core.params import PARAMS
 __all__ = [
     "ORDER_BY_SQL",
     "ALLOWED_SORT_FIELDS",
+    "AXIS_CAPTION_MIN_MISSING_FRACTION",
     "CUSTOM_WEIGHT_LABEL",
     "DEFAULT_LIMIT",
     "MAX_LIMIT",
@@ -110,6 +111,7 @@ __all__ = [
     "list_ranked",
     "list_not_ranked",
     "snapshot_summary",
+    "axis_coverage",
     "matrix_points",
     "repo_evidence",
     "reproject",
@@ -315,7 +317,12 @@ def _search_filter(q: Optional[str]) -> Tuple[str, List[str]]:
     characters."""
     if not q:
         return "", []
-    return " AND (instr(lower(r.owner), lower(?)) > 0 OR instr(lower(r.name), lower(?)) > 0)", [q, q]
+    return (
+        " AND (instr(lower(r.owner), lower(?)) > 0"
+        " OR instr(lower(r.name), lower(?)) > 0"
+        " OR instr(lower(r.owner || '/' || r.name), lower(?)) > 0)",
+        [q, q, q],
+    )
 
 
 def _ecosystem_filter(ecosystem: Optional[str]) -> Tuple[str, List[str]]:
@@ -721,6 +728,40 @@ def snapshot_summary(conn: sqlite3.Connection, snapshot_id: str) -> Optional[Dic
     }
 
 
+#: Minimum fraction of plotted rows missing an axis-contributing pillar before
+#: `axis_coverage` reports that axis's worst-missing pillar (`06` §3 B).
+AXIS_CAPTION_MIN_MISSING_FRACTION: float = 0.05
+
+
+def axis_coverage(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """One entry per axis (``leverage``/``friction``) whose worst-missing
+    contributing pillar is unmeasured for :data:`AXIS_CAPTION_MIN_MISSING_FRACTION`
+    or more of ``rows``."""
+    coverage: Dict[str, Dict[str, Any]] = {}
+    n = len(rows)
+    if n == 0:
+        return coverage
+    for axis, weights in (
+        ("leverage", constants.LEVERAGE_WEIGHTS),
+        ("friction", constants.FRICTION_WEIGHTS),
+    ):
+        worst_pillar = None
+        worst_count = 0
+        worst_fraction = 0.0
+        for pillar in weights:
+            missing = sum(1 for r in rows if r.get(f"p_{pillar}") is None)
+            fraction = missing / n
+            if fraction > worst_fraction:
+                worst_fraction, worst_pillar, worst_count = fraction, pillar, missing
+        if worst_pillar is not None and worst_fraction >= AXIS_CAPTION_MIN_MISSING_FRACTION:
+            coverage[axis] = {
+                "pillar": worst_pillar,
+                "axis_partial_count": worst_count,
+                "axis_partial_share": worst_fraction,
+            }
+    return coverage
+
+
 def matrix_points(
     conn: sqlite3.Connection, snapshot_id: str, *, persona: str = "balanced"
 ) -> Dict[str, Any]:
@@ -737,11 +778,7 @@ def matrix_points(
     ``tier`` follow ``persona`` exactly as :func:`list_ranked` does.
 
     Returns ``{"points": [...], "excluded_count": N, "axis_partial_count":
-    N, "axis_partial_share": frac}`` -- the last two are `06` section 3 B's
-    axis-coverage caption inputs: the count/share of plotted rows whose
-    friction or leverage coordinate was itself computed with at least one
-    unmeasured pillar (``friction_coverage < 1.0 OR leverage_coverage <
-    1.0``)."""
+    N, "axis_partial_share": frac, "axis_coverage": {...}}``."""
     _validate_persona(persona)
     total = conn.execute(
         "SELECT COUNT(*) FROM repositories WHERE snapshot_id = ?", (snapshot_id,)
@@ -767,6 +804,7 @@ def matrix_points(
     sql = f"""
         SELECT r.owner, r.name, r.ecosystem, r.leverage, r.friction,
                r.leverage_coverage, r.friction_coverage, r.quadrant, r.stars_audited,
+               r.p_responsiveness, r.p_criticality, r.p_governance, r.p_rigor, r.p_accessibility,
                {select_extra}
         FROM repositories r
         WHERE {where}
@@ -780,12 +818,18 @@ def matrix_points(
         if (point["friction_coverage"] or 0.0) < 1.0 or (point["leverage_coverage"] or 0.0) < 1.0
     )
     share = partial / len(points) if points else 0.0
+    plottable = [
+        point
+        for point in points
+        if point["quadrant"] is not None and point["leverage"] is not None and point["friction"] is not None
+    ]
 
     return {
         "points": points,
         "excluded_count": total - len(points),
         "axis_partial_count": partial,
         "axis_partial_share": share,
+        "axis_coverage": axis_coverage(plottable),
     }
 
 

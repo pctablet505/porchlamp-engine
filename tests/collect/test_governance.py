@@ -290,6 +290,8 @@ def test_collect_governance_check_evidence_sha_404_skipped(tmp_path):
     assert d["pulls_available"] is True
     assert d["check_names"] == ["DCO"]
     assert [c["sha"] for c in d["checks"]] == ["h2"]
+    assert d["checks_shas_probed"] == 1
+    assert d["checks_shas_available"] == 2
 
 
 def test_collect_governance_transport_error_propagates(tmp_path):

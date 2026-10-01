@@ -163,6 +163,8 @@ def test_list_ranked_q_search_is_case_insensitive_substring_on_owner_or_name(tmp
     assert total == 1 and rows[0]["name"] == "Flask"
     rows2, total2 = queries.list_ranked(conn, "snap-1", q="ACM")
     assert total2 == 1 and rows2[0]["owner"] == "Acme"
+    rows_slash, total_slash = queries.list_ranked(conn, "snap-1", q="acme/fla")
+    assert total_slash == 1 and rows_slash[0]["name"] == "Flask"
     rows3, total3 = queries.list_ranked(conn, "snap-1", q="nomatch")
     assert total3 == 0 and rows3 == []
 

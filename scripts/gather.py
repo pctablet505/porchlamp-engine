@@ -222,14 +222,6 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
          ["-X", "GET", "-f", "per_page=100", "-f", "anon=1"],
          lambda d: [{"login": c.get("login") or c.get("email") or "?",
                      "contributions": c.get("contributions", 0)} for c in d or []]),
-        ("gfi", f"repos/{owner}/{name}/issues",
-         ["-X", "GET", "-f", "state=open", "-f", "per_page=100",
-          "-f", "labels=good-first-issue,help-wanted"],
-         lambda d: [{"number": i["number"],
-                     "assignee": (i.get("assignee") or {}).get("login"),
-                     "updated_at": i["updated_at"],
-                     "labels": [lab["name"] for lab in i.get("labels") or []]}
-                    for i in d or []]),
         ("actions_runs", f"repos/{owner}/{name}/actions/runs",
          ["-X", "GET", "-f", "per_page=30", "-f", "status=completed"],
          lambda d: [{"created_at": w["created_at"],
@@ -291,10 +283,11 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             continue
         time.sleep(SLEEP_KEYLESS)
         body, http_status, _error = _fetch_json(url, hdr)
-        if http_status is None:
-            # Could not reach the source (transport error): write nothing so the
-            # next run retries it -- a failed fetch is not a completed one, and
-            # an envelope here would mark the key permanently "done".
+        if http_status is None or http_status == 429 or http_status >= 500:
+            # Could not reach the source (transport error) or got a transient
+            # rate-limit / 5xx status: write nothing so the next run retries it
+            # -- a failed fetch is not a completed one, and an envelope here
+            # would mark the key permanently "done".
             status[collector] = "fail"
             continue
         # The source answered. A 2xx null or a 404 both mean "nothing here", but
@@ -581,11 +574,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     ok = fail = 0
     print(f"collectors: {'all' if selected is None else ','.join(sorted(selected))}; repos: {len(repos)}")
     for i, (owner, name, eco) in enumerate(repos, 1):
-        st = gather_repo(owner, name, eco, force=a.force, collectors=selected)
-        bad = [k for k, v in st.items() if v == "fail"]
-        ok += not bad
-        fail += bool(bad)
-        print(f"{owner}/{name} [{eco}]: {'OK' if not bad else 'FAIL ' + ','.join(bad)}")
+        try:
+            st = gather_repo(owner, name, eco, force=a.force, collectors=selected)
+        except Exception as e:  # review-ok: gate-network — isolate unexpected per-repo error during sweep
+            fail += 1
+            print(f"{owner}/{name} [{eco}]: FAIL {e}")
+        else:
+            bad = [k for k, v in st.items() if v == "fail"]
+            ok += not bad
+            fail += bool(bad)
+            print(f"{owner}/{name} [{eco}]: {'OK' if not bad else 'FAIL ' + ','.join(bad)}")
         if i == n_first:
             print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
     if _USER_CACHE is not None:

@@ -315,3 +315,18 @@ def test_star_velocity_record_measured_true_rejects_a_reason():
 def test_star_velocity_record_unmeasured_rejects_any_value_field():
     with pytest.raises(ValueError):
         StarVelocityRecord(measured=False, reason="collector_failure", stars_audited=0)
+
+
+def test_star_velocity_evidence_corrupt_cached_envelope_returns_unmeasured(tmp_path: Path, block_live_network):
+    """A pre-existing corrupt star_history envelope on disk must degrade to
+    Unmeasured(collector_failure) rather than crashing star_velocity_evidence."""
+    corrupt_path = tmp_path / STAR_HISTORY_COLLECTOR / "acme__corrupt.json"
+    corrupt_path.parent.mkdir(parents=True, exist_ok=True)
+    corrupt_path.write_text("{not valid json", encoding="utf-8")
+    record = star_velocity_evidence(tmp_path, "acme", "corrupt", NOW, _clean_fetch, FETCHED_AT)
+    assert record.measured is False
+    assert record.reason == "collector_failure"
+    assert record.star_velocity_flag is None
+    assert record.stars_audited is None
+    assert record.star_velocity is None
+
