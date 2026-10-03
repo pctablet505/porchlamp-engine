@@ -43,7 +43,21 @@ def test_vitality_count_filters_bot_by_email_and_actor_type_without_login(tmp_pa
         {"author_login": None, "author_email": None, "author_type": None},
     ]
     write_envelope(tmp_path, "commits_180d", KEY, rows)
-    assert _vitality_commit_count(tmp_path, KEY) == 1
+    # The last row has no identity at all: a commit whose author has no linked
+    # GitHub account. Nothing marks it a bot, so it counts as a person.
+    assert _vitality_commit_count(tmp_path, KEY) == 2
+
+
+def test_vitality_counts_commits_without_a_linked_account(tmp_path: Path) -> None:
+    """Regression (2026-10-03 review of PR #1): scripts/gather.py writes only
+    {"author_login", "date"} per commit, and a commit whose author has no linked
+    GitHub account has author_login "". Requiring an identity counted those as 0,
+    so sqlite/sqlite (300 such commits), LuaJIT and 18 more failed D-GATE-4 as
+    "stale" while actively maintained."""
+    rows = [{"author_login": "", "date": "2026-09-01T00:00:00Z"} for _ in range(3)]
+    rows.append({"author_login": "dependabot[bot]", "date": "2026-09-02T00:00:00Z"})
+    write_envelope(tmp_path, "commits_180d", KEY, rows)
+    assert _vitality_commit_count(tmp_path, KEY) == 3
 
 
 def test_gate_evidence_for_tree_absent_corrupt_truncated_and_empty(tmp_path: Path) -> None:

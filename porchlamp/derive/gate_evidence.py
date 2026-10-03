@@ -125,7 +125,11 @@ def _vitality_commit_count(raw_root: Path, basename: str) -> int | None:
             email=str(entry.get("author_email") or ""),
             actor_type=str(entry.get("author_type") or ""),
         )
-        if (actor.login or actor.email or actor.actor_type) and not is_bot(actor):
+        # A row with no identity is a commit whose author has no linked GitHub
+        # account: a person, unless something marks it a bot. The collector
+        # records only author_login and date, so most such rows have no email
+        # or type to check either.
+        if not is_bot(actor):
             count += 1
     return count
 

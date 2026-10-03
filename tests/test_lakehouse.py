@@ -978,3 +978,18 @@ def test_repositories_dump_hash_sees_uncheckpointed_wal_writes(tmp_path):
     assert h1 != h0
     assert h1 == h2
 
+
+
+def test_repositories_dump_hash_refuses_a_missing_database(tmp_path):
+    """Regression (2026-10-03 review of PR #1): a missing path must raise and
+    leave no file behind, instead of creating an empty database and returning
+    the empty-input hash."""
+    import sqlite3
+
+    import pytest
+
+    from porchlamp.lakehouse import repositories_dump_hash
+    missing = tmp_path / "no-such.db"
+    with pytest.raises(sqlite3.OperationalError):
+        repositories_dump_hash(missing)
+    assert not missing.exists()

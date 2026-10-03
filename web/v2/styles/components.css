@@ -313,6 +313,15 @@ input.control {
 .tier-capped {
   color: var(--text-secondary);
   font-weight: 400;
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+/* No audited stars in the rows on screen: hide the column as a unit (th + td share data-col/data-cell). */
+.stars-unaudited [data-col="stars"],
+.stars-unaudited [data-cell="stars"] {
+  display: none;
 }
 
 .quadrant-glyph {
