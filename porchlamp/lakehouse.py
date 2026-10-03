@@ -198,7 +198,9 @@ def repositories_dump_hash(db_path: str) -> str:
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         copy_path = Path(tmp_dir) / "repositories_dump.db"
-        source = sqlite3.connect(db_path)
+        # Read-only: a wrong path must raise, never create an empty database
+        # whose hash is the empty-input digest.
+        source = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
         target = sqlite3.connect(copy_path)
         try:
             source.backup(target)

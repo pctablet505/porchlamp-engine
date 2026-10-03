@@ -345,6 +345,8 @@ export function boot(win = window, doc = document) {
     } else {
       const tbody = main.querySelector("[data-leaderboard-tbody]");
       if (tbody) {
+        const table = tbody.closest("table");
+        if (table) table.classList.toggle("stars-unaudited", !copy.hasAuditedStars(rows));
         const range = computeVisibleRange(viewport.scrollTop, viewport.height, rows.length);
         patchTableBody(tbody, doc, rows, range, opts);
       }

@@ -89,7 +89,7 @@ function renderIdentity(kind, row) {
 function renderComposite(row) {
   const capped = !!row.tier_ceiling && row.tier === row.tier_ceiling;
   const cappedNote = capped
-    ? `<p>${escapeHtml(copy.tierLabel(row.tier, row.tier_ceiling))}: bound by the coverage ceiling, not the score.</p>`
+    ? `<p>${escapeHtml(copy.TIER_CAPPED_EXPLANATION)}</p>`
     : "";
   const levCov = row.leverage_coverage != null ? Math.round(row.leverage_coverage * 100) + "%" : copy.MISSING_VALUE;
   const fricCov = row.friction_coverage != null ? Math.round(row.friction_coverage * 100) + "%" : copy.MISSING_VALUE;

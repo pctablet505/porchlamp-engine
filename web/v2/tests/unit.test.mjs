@@ -1180,3 +1180,53 @@ test("api: postReproject appends page and page_size when provided and omits quer
   }
 });
 
+
+// ---- Site-polish fixes (2026-10-03) ------------------------------------------------------
+
+import { renderTierCell } from "../components/badge.js";
+
+test("a capped tier pill explains itself; an uncapped one carries no explanation", () => {
+  const capped = renderTierCell("B", "B");
+  assert.match(capped, /B \(capped\)/);
+  assert.ok(capped.includes(`title="${escapeHtml(copy.TIER_CAPPED_EXPLANATION)}"`), capped);
+  assert.match(capped, /tabindex="0"/, "keyboard users can reach the tooltip");
+  const uncapped = renderTierCell("A", "S");
+  assert.equal(uncapped, `<span class="tier-pill">A</span>`);
+  assert.match(copy.TIER_CAPPED_EXPLANATION, /not how good the score is/);
+});
+
+test("hasAuditedStars: the Audited stars column shows only when a row on screen has a value", () => {
+  assert.equal(copy.hasAuditedStars([]), false);
+  assert.equal(copy.hasAuditedStars(undefined), false);
+  assert.equal(copy.hasAuditedStars([{ stars_audited: null }, { stars_audited: undefined }]), false);
+  assert.equal(copy.hasAuditedStars([{ stars_audited: null }, { stars_audited: 0 }]), true, "0 is an audit result, not a missing one");
+  assert.equal(copy.hasAuditedStars([{ stars_audited: 16282 }]), true);
+});
+
+test("the stars-unaudited class hides the column's header and cells together", () => {
+  const css = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "styles", "components.css"), "utf8");
+  const rule = css.match(/\.stars-unaudited \[data-col="stars"\],\s*\.stars-unaudited \[data-cell="stars"\]\s*\{\s*display:\s*none;/);
+  assert.ok(rule, "rule must cover both th[data-col] and td[data-cell]");
+  const header = renderColumnHeader("rank", false);
+  assert.match(header, /<th data-col="stars"/, "the header cell carries the hook the rule targets");
+});
+
+test("index.html carries absolute link-preview tags and the preview image exists", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const html = readFileSync(path.join(here, "..", "index.html"), "utf8");
+  const meta = (attr, name) => {
+    const m = html.match(new RegExp(`<meta ${attr}="${name}" content="([^"]*)"`));
+    return m ? m[1] : null;
+  };
+  // No URL literal here: tests/test_ui_no_external_resources.py scans this file too.
+  const base = meta("property", "og:url");
+  assert.match(base, /^https:\/\/[^/]+\/porchlamp\/$/, "og:url is the absolute site root");
+  assert.equal(meta("property", "og:image"), base + "og.png");
+  assert.equal(meta("name", "twitter:image"), base + "og.png");
+  assert.equal(meta("name", "twitter:card"), "summary_large_image");
+  for (const k of ["og:title", "og:description", "og:image:alt"]) assert.ok(meta("property", k), k);
+  const png = readFileSync(path.join(here, "..", "og.png"));
+  assert.equal(png.subarray(1, 4).toString(), "PNG");
+  assert.equal(png.readUInt32BE(16), 1200, "og:image:width matches the file");
+  assert.equal(png.readUInt32BE(20), 630, "og:image:height matches the file");
+});

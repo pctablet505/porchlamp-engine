@@ -27,7 +27,8 @@ export function renderTierCell(tier, tierCeiling) {
   }
   const capped = !!tierCeiling && tier === tierCeiling;
   const label = copy.tierLabel(tier, tierCeiling);
-  return `<span class="tier-pill${capped ? " tier-capped" : ""}">${escapeHtml(label)}</span>`;
+  if (!capped) return `<span class="tier-pill">${escapeHtml(label)}</span>`;
+  return `<span class="tier-pill tier-capped" tabindex="0" title="${escapeHtml(copy.TIER_CAPPED_EXPLANATION)}">${escapeHtml(label)}</span>`;
 }
 
 /** Quadrant glyph + label — colour-blind-safe dual encoding (spec §5.1). */

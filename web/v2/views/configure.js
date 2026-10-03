@@ -242,6 +242,8 @@ export function patchConfigureTable(main, doc, state) {
   // layer.
   const tbody = main.querySelector("[data-configure-tbody]");
   if (tbody) {
+    const table = tbody.closest("table");
+    if (table) table.classList.toggle("stars-unaudited", !copy.hasAuditedStars(pageRows));
     const previousRowByKey = new Map();
     for (let i = 1; i < pageRows.length; i++) previousRowByKey.set(rowKey(pageRows[i]), pageRows[i - 1]);
     patchRows(
