@@ -30,8 +30,20 @@ EXTERNAL_URL_RE = re.compile(r"""(https?:)?//[a-zA-Z0-9][^\s'"()]*""")
 ALLOWED_URL_SUBSTRINGS: tuple[str, ...] = ()
 
 
+#: Link-preview tags (Open Graph, Twitter cards) must carry absolute URLs --
+#: crawlers do not resolve relative ones -- yet the browser never fetches
+#: them. Only the content of such a <meta> tag is exempt; the same URL
+#: anywhere else in a served file is still a violation.
+LINK_PREVIEW_META_RE = re.compile(r"""<meta\s+(?:property="og:[\w:]+"|name="twitter:\w+")\s+content="[^"]*">""")
+
+
 def served_files() -> list[Path]:
     return [p for p in WEB_V2.rglob("*") if p.is_file() and p.suffix in SERVED_EXTENSIONS]
+
+
+def scannable_text(text: str) -> str:
+    """The text a browser could turn into a request: link-preview <meta> tags removed."""
+    return LINK_PREVIEW_META_RE.sub("", text)
 
 
 class TestNoExternalResources:
@@ -50,7 +62,7 @@ class TestNoExternalResources:
     def test_no_external_urls_anywhere(self) -> None:
         violations: list[str] = []
         for path in served_files():
-            text = path.read_text()
+            text = scannable_text(path.read_text())
             for match in EXTERNAL_URL_RE.finditer(text):
                 url = match.group(0)
                 if any(allowed in url for allowed in ALLOWED_URL_SUBSTRINGS):
@@ -80,3 +92,16 @@ class TestNoExternalResources:
             data = path.read_bytes()
             assert b"\x00" not in data, f"{path}: contains a NUL byte"
             data.decode("utf-8")  # raises UnicodeDecodeError on invalid UTF-8
+
+
+def test_link_preview_exemption_covers_only_preview_meta_tags() -> None:
+    url = "https://example.org/og.png"
+    exempt = f'<meta property="og:image" content="{url}">\n<meta name="twitter:image" content="{url}">'
+    assert not EXTERNAL_URL_RE.search(scannable_text(exempt))
+    for still_flagged in (
+        f'<img src="{url}">',
+        f'<meta http-equiv="refresh" content="0; url={url}">',
+        f'<link rel="preload" href="{url}">',
+        f'const u = "{url}";',
+    ):
+        assert EXTERNAL_URL_RE.search(scannable_text(still_flagged)), still_flagged

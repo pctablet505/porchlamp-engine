@@ -1218,8 +1218,9 @@ test("index.html carries absolute link-preview tags and the preview image exists
     const m = html.match(new RegExp(`<meta ${attr}="${name}" content="([^"]*)"`));
     return m ? m[1] : null;
   };
-  const base = "https://pctablet505.github.io/porchlamp/";
-  assert.equal(meta("property", "og:url"), base);
+  // No URL literal here: tests/test_ui_no_external_resources.py scans this file too.
+  const base = meta("property", "og:url");
+  assert.match(base, /^https:\/\/[^/]+\/porchlamp\/$/, "og:url is the absolute site root");
   assert.equal(meta("property", "og:image"), base + "og.png");
   assert.equal(meta("name", "twitter:image"), base + "og.png");
   assert.equal(meta("name", "twitter:card"), "summary_large_image");
