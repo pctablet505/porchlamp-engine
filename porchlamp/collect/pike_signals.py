@@ -309,12 +309,18 @@ def comments_per_issue(sample: Sequence[Mapping[str, Any]]) -> float:
 #: Single-call GraphQL query for issue counts and the 30-issue comment sample,
 #: replacing 3 separate REST ``/search/issues`` requests (which are throttled by
 #: GitHub's 30 req/min Search API limit and ``SLEEP_SEARCH_SECONDS = 2.1s``).
+#: ``closed_90d`` is the SAME search the REST path runs (``issue_q(..., "closed",
+#: since)``: ``is:issue is:closed closed:>=DATE``), read as ``issueCount``. The
+#: ``issues(filterBy: {since}, states: [CLOSED])`` connection is NOT equivalent:
+#: ``since`` filters on ``updatedAt``, so it counts issues closed AND updated in
+#: the window (flask 17 -> 32, golang/go 1,475 -> 2,493 on the 2026-10-06 review).
+#: ``updated90d`` (``since`` = updatedAt) and the sample match REST.
 ISSUES_COUNTS_GRAPHQL_QUERY = """
-query($owner: String!, $name: String!, $since: DateTime!, $sampleSize: Int!) {
+query($owner: String!, $name: String!, $since: DateTime!, $sampleSize: Int!, $closedQuery: String!) {
+  closed90d: search(type: ISSUE, query: $closedQuery, first: 1) {
+    issueCount
+  }
   repository(owner: $owner, name: $name) {
-    closed90d: issues(filterBy: {since: $since}, states: [CLOSED], first: 1) {
-      totalCount
-    }
     updated90d: issues(filterBy: {since: $since}, first: 1) {
       totalCount
     }
@@ -367,6 +373,7 @@ def collect_issue_counts_graphql(
             "name": name,
             "since": since_iso,
             "sampleSize": ISSUE_SAMPLE_SIZE,
+            "closedQuery": issue_q(owner, name, "closed", since_dt.date().isoformat()),
         },
     )
     data = payload.get("data") if isinstance(payload, Mapping) else None
@@ -376,8 +383,16 @@ def collect_issue_counts_graphql(
         raise RuntimeError(
             f"graphql issues_counts failed for {owner}/{name}: {errors}"
         )
-    closed_total = int(((repo.get("closed90d") or {}).get("totalCount")) or 0)
-    updated_total = int(((repo.get("updated90d") or {}).get("totalCount")) or 0)
+    closed_conn = data.get("closed90d")
+    updated_conn = repo.get("updated90d")
+    if (not isinstance(closed_conn, Mapping) or closed_conn.get("issueCount") is None
+            or not isinstance(updated_conn, Mapping) or updated_conn.get("totalCount") is None):
+        # A count the query did not return is a failed fetch, never a measured 0.
+        raise RuntimeError(
+            f"graphql issues_counts incomplete for {owner}/{name}: {payload.get('errors')}"
+        )
+    closed_total = int(closed_conn["issueCount"])
+    updated_total = int(updated_conn["totalCount"])
     sample_conn = repo.get("sample") or {}
     sample_total = int(sample_conn.get("totalCount") or 0)
     nodes = sample_conn.get("nodes") or []

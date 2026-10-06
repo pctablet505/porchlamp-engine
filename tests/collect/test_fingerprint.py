@@ -1,33 +1,38 @@
-"""Tests for bulk 100-repo/call GraphQL fingerprinting & dirty-only invalidation.
+"""Tests for bulk 25-repo/call GraphQL fingerprinting & dirty-only invalidation.
 
 Subject: ``porchlamp.collect.fingerprint`` (``08-SUSTAINABLE-COLLECTION.md``
 §2 / §3 / §6; ``D-COL-1``, ``D-COL-3``, ``D-COL-4``, ``W6-2``).
 
 Verifies:
-  * 100-repo aliased GraphQL query construction with parameterized variables
-    (``$o0..$o99``, ``$n0..$n99``) and strict slug validation.
-  * Partial-batch error salvage (a deleted/404 repo in a 100-repo batch does
-    not discard the other 99 fingerprints).
+  * 25-repo aliased GraphQL query construction with parameterized variables
+    (``$o0..$o24``, ``$n0..$n24``) and strict slug validation.
+  * Partial-batch error salvage (a deleted/404 repo in a batch does not
+    discard the other fingerprints).
+  * Retry: 5xx with backoff (3 tries), null aliases (RESOURCE_LIMITS_EXCEEDED)
+    in smaller batches; a repo still unresolved is dirty, never clean.
   * Exact cadence tier classification boundaries (hot <= 7d, warm <= 30d,
     cold <= 365d, dormant > 365d or archived/disabled).
   * Per-collector invalidation matrix (``08`` §6): push/HEAD changes, release
     changes, issue timestamp changes, PR timestamp changes, metadata-only
-    changes, and slow-clock (30d) gating for ``SLOW_BRANCH_COLLECTORS``.
-  * Watermark advancement on clean envelopes without mutating payload/sha256.
-  * Two consecutive passes over an unchanged 150-repo universe execute in 2
-    GraphQL calls (2 points) per pass and trigger 0 collector fetches on pass 2.
+    changes.
+  * ``dirty_collectors``: missing envelopes, the weekly clock, the slow clock
+    (30 d AND the branch moved since that collector's last fetch), and the
+    14-day window anchors of ``releases`` / ``issues_counts``.
+  * A pass writes nothing; the fingerprint is persisted per repo, and only
+    when the invalidated collectors succeeded.
+  * Two consecutive passes over an unchanged 150-repo universe execute in 6
+    GraphQL calls (6 points) per pass and trigger 0 collector fetches on pass 2.
 """
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
 import pytest
 
-from porchlamp.collect.envelope import read_envelope, write_envelope
+from porchlamp.collect.envelope import write_envelope
 from porchlamp.collect.fingerprint import (
     ALL_GATHER_COLLECTORS,
     COLD_DAYS,
@@ -36,12 +41,17 @@ from porchlamp.collect.fingerprint import (
     SLOW_BRANCH_COLLECTORS,
     SLOW_FACT_TTL_DAYS,
     WARM_DAYS,
+    WEEKLY_COLLECTORS,
+    WEEKLY_TTL_DAYS,
+    WINDOW_ANCHOR_REFRESH_DAYS,
     RepoFingerprint,
-    advance_envelope_watermarks,
     append_fingerprints,
     build_fingerprint_batch_query,
     classify_cadence_tier,
+    dirty_collectors,
     fetch_fingerprint_batch,
+    fetch_fingerprints_resilient,
+    fingerprint_to_persist,
     invalidated_collectors,
     load_latest_fingerprints,
     run_fingerprint_pass,
@@ -156,12 +166,14 @@ class FakeBatchTransport:
 # --- Query construction & validation ----------------------------------------- #
 
 
-def test_build_fingerprint_batch_query_100_repos_parameterized():
-    assert FINGERPRINT_BATCH_SIZE == 100
+def test_build_fingerprint_batch_query_25_repos_parameterized():
+    # 100 per query returns 502/504 or RESOURCE_LIMITS_EXCEEDED on the live API.
+    assert FINGERPRINT_BATCH_SIZE == 25
     q = build_fingerprint_batch_query(FINGERPRINT_BATCH_SIZE)
     assert "rateLimit { cost remaining resetAt }" in q
     assert "r0: repository(owner: $o0, name: $n0)" in q
-    assert "r99: repository(owner: $o99, name: $n99)" in q
+    assert "r24: repository(owner: $o24, name: $n24)" in q
+    assert "r25:" not in q
 
     with pytest.raises(ValueError, match="count must be >= 1"):
         build_fingerprint_batch_query(0)
@@ -263,22 +275,15 @@ def test_invalidated_collectors_first_observation_invalidates_all():
 def test_invalidated_collectors_unchanged_fingerprint_returns_empty():
     prev = _fp(observed_at=(NOW - timedelta(days=1)).isoformat())
     curr = _fp(observed_at=NOW.isoformat())
-    assert invalidated_collectors(prev, curr, slow_clock_due=True) == frozenset()
+    assert invalidated_collectors(prev, curr) == frozenset()
 
 
-def test_invalidated_collectors_push_and_slow_clock_gating():
-    assert SLOW_FACT_TTL_DAYS == 30
+def test_invalidated_collectors_push_leaves_slow_facts_to_their_own_clock():
     prev = _fp()
     curr = _fp(pushed_at="2026-09-12T10:00:00Z", default_branch_oid="b" * 40)
-
-    # When slow_clock_due=False, SLOW_BRANCH_COLLECTORS are NOT invalidated:
-    inv_fast = invalidated_collectors(prev, curr, slow_clock_due=False)
-    assert inv_fast == frozenset({"github_meta", "commits_180d", "commits_365d", "runs", "actions_runs"})
-    assert not (inv_fast & SLOW_BRANCH_COLLECTORS)
-
-    # When slow_clock_due=True and OID moved, SLOW_BRANCH_COLLECTORS ARE invalidated:
-    inv_slow = invalidated_collectors(prev, curr, slow_clock_due=True)
-    assert inv_slow == inv_fast | SLOW_BRANCH_COLLECTORS
+    inv = invalidated_collectors(prev, curr)
+    assert inv == frozenset({"github_meta", "commits_180d", "commits_365d", "runs", "actions_runs"})
+    assert not (inv & SLOW_BRANCH_COLLECTORS)
 
 
 def test_invalidated_collectors_release_change_invalidates_only_releases():
@@ -307,7 +312,290 @@ def test_invalidated_collectors_stars_change_invalidates_github_meta_only():
     assert invalidated_collectors(prev, curr) == frozenset({"github_meta"})
 
 
-# --- Persistence & watermark advancement ------------------------------------- #
+
+
+# --- Retry: 5xx with backoff, null aliases in smaller batches ----------------- #
+
+
+class _FailFirst:
+    """Raises (as ``GhCliTransport`` does on a 5xx) for the first ``n`` calls."""
+
+    def __init__(self, inner: FakeBatchTransport, n: int) -> None:
+        self.inner = inner
+        self.n = n
+        self.calls = 0
+
+    def execute(self, query: str, variables: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
+        self.calls += 1
+        if self.calls <= self.n:
+            raise RuntimeError("gh api graphql rc=1: HTTP 502")
+        return self.inner.execute(query, variables)
+
+
+class _LimitedAliases:
+    """Answers batches over ``max_aliases`` with null aliases and
+    ``RESOURCE_LIMITS_EXCEEDED`` (the live shape of an oversize batch)."""
+
+    def __init__(self, inner: FakeBatchTransport, max_aliases: int) -> None:
+        self.inner = inner
+        self.max_aliases = max_aliases
+        self.sizes: list[int] = []
+
+    def execute(self, query: str, variables: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
+        n = len(variables or {}) // 2
+        self.sizes.append(n)
+        if n <= self.max_aliases:
+            return self.inner.execute(query, variables)
+        return {
+            "data": {"rateLimit": {"cost": 3, "remaining": 4000}, **{f"r{i}": None for i in range(n)}},
+            "errors": [
+                {"type": "RESOURCE_LIMITS_EXCEEDED", "path": [f"r{i}"], "message": "too big"}
+                for i in range(n)
+            ],
+        }
+
+
+def _universe(n: int) -> list[tuple[str, str]]:
+    return [(f"org{i // 10}", f"repo{i}") for i in range(n)]
+
+
+def test_5xx_is_retried_with_backoff_then_resolves():
+    repos = _universe(3)
+    inner = FakeBatchTransport({slug: _gql_node() for slug in repos})
+    transport = _FailFirst(inner, 2)
+    sleeps: list[float] = []
+    resolved, unresolved, queries, cost, _rem = fetch_fingerprints_resilient(
+        repos, transport, NOW, sleep=sleeps.append
+    )
+    assert len(resolved) == 3 and unresolved == []
+    assert queries == 3 and transport.calls == 3
+    assert sleeps == [2.0, 4.0]
+    assert cost == 1
+
+
+def test_5xx_three_failures_leave_the_batch_unresolved():
+    repos = _universe(3)
+    transport = _FailFirst(FakeBatchTransport({slug: _gql_node() for slug in repos}), 99)
+    sleeps: list[float] = []
+    resolved, unresolved, queries, _cost, _rem = fetch_fingerprints_resilient(
+        repos, transport, NOW, sleep=sleeps.append
+    )
+    assert resolved == {}
+    assert sorted(unresolved) == sorted(f"{o}__{n}" for o, n in repos)
+    assert transport.calls == 3  # at most 3 tries
+    assert queries == 3
+
+
+def test_null_aliases_are_retried_in_smaller_batches():
+    repos = _universe(25)
+    inner = FakeBatchTransport({slug: _gql_node(stars=i) for i, slug in enumerate(repos)})
+    transport = _LimitedAliases(inner, max_aliases=7)
+    resolved, unresolved, queries, _cost, _rem = fetch_fingerprints_resilient(
+        repos, transport, NOW, sleep=lambda s: None
+    )
+    assert unresolved == []
+    assert len(resolved) == 25
+    assert transport.sizes[0] == 25 and max(transport.sizes[1:]) < 25
+    assert queries == len(transport.sizes)
+
+
+def test_not_found_repo_is_final_and_not_retried_but_stays_unresolved():
+    repos = [("acme", "alpha"), ("acme", "deleted")]
+    inner = FakeBatchTransport({("acme", "alpha"): _gql_node(), ("acme", "deleted"): None})
+    resolved, unresolved, queries, _cost, _rem = fetch_fingerprints_resilient(
+        repos, inner, NOW, sleep=lambda s: None
+    )
+    assert set(resolved) == {"acme__alpha"}
+    assert unresolved == ["acme__deleted"]
+    assert queries == 1
+
+
+def test_pass_over_batches_of_25_reports_unresolved_as_dirty(tmp_path: Path):
+    """A repo the pass cannot resolve is dirty (fast collectors), never clean."""
+    repos = _universe(30)
+    inner = FakeBatchTransport({slug: _gql_node() for slug in repos if slug != ("org0", "repo3")})
+    state_file = tmp_path / "state" / "fingerprints.jsonl"
+    res = run_fingerprint_pass(
+        repos, state_file=state_file, raw_dir=tmp_path / "raw", transport=inner, now=NOW,
+        sleep=lambda s: None,
+    )
+    assert res.unresolved_keys == ("org0__repo3",)
+    dirty = res.dirty_by_repo["org0__repo3"]
+    assert dirty and {"pr_window", "commits_365d", "releases"} <= dirty
+    # a resolved repo with no envelopes yet is dirty too (missing envelopes)
+    assert res.dirty_by_repo["org0__repo0"] == ALL_GATHER_COLLECTORS
+
+
+# --- dirty_collectors: missing envelopes, clocks, window anchors --------------- #
+
+
+ECO = "pypi"
+
+
+def _seed(raw_dir: Path, fp: RepoFingerprint, *, fetched_at: datetime,
+          skip: tuple[str, ...] = (), anchors: Optional[Mapping[str, datetime]] = None,
+          ages: Optional[Mapping[str, timedelta]] = None) -> None:
+    for collector in ALL_GATHER_COLLECTORS - set(skip):
+        when = fetched_at - (ages or {}).get(collector, timedelta(0))
+        data: dict[str, Any] = {"x": 1}
+        if anchors and collector in anchors:
+            data["window_anchor"] = anchors[collector].isoformat()
+        elif collector in ("releases", "issues_counts"):
+            data["window_anchor"] = when.isoformat()
+        key = f"{ECO}__{fp.name}" if collector == "downloads" else fp.key
+        write_envelope(raw_dir / collector / f"{key}.json", source="t", data=data,
+                       fetched_at=when.isoformat())
+
+
+def _dirty(raw_dir: Path, previous: Optional[RepoFingerprint], current: Optional[RepoFingerprint],
+           now: datetime = NOW) -> frozenset[str]:
+    return dirty_collectors(previous, current, raw_dir=raw_dir, owner="acme", name="widget",
+                            now=now, ecosystem=ECO)
+
+
+def test_unchanged_repo_with_fresh_envelopes_is_clean(tmp_path: Path):
+    fp = _fp(default_branch_oid="a" * 40)
+    _seed(tmp_path, fp, fetched_at=NOW - timedelta(days=1))
+    assert _dirty(tmp_path, fp, fp) == frozenset()
+
+
+def test_missing_envelope_of_any_collector_is_dirty(tmp_path: Path):
+    fp = _fp()
+    _seed(tmp_path, fp, fetched_at=NOW - timedelta(days=1), skip=("pr_window", "governance", "scorecard"))
+    assert _dirty(tmp_path, fp, fp) == frozenset({"pr_window", "governance", "scorecard"})
+
+
+def test_unresolved_repo_is_dirty_for_every_fingerprint_driven_collector(tmp_path: Path):
+    fp = _fp()
+    _seed(tmp_path, fp, fetched_at=NOW - timedelta(days=1))
+    dirty = _dirty(tmp_path, fp, None)
+    assert dirty
+    assert {"pr_window", "commits_365d", "releases", "issues_counts", "github_meta"} <= dirty
+    assert not (dirty & SLOW_BRANCH_COLLECTORS - {"governance"} - {"contributors", "tree", "repo_object"})
+
+
+def test_weekly_collectors_refetch_on_the_weekly_clock(tmp_path: Path):
+    assert WEEKLY_TTL_DAYS == 7
+    assert WEEKLY_COLLECTORS == {"depsdev", "scorecard", "downloads", "dependents"}
+    fp = _fp()
+    ages = {
+        "depsdev": timedelta(days=6, hours=23),
+        "scorecard": timedelta(days=7),
+        "downloads": timedelta(days=30),
+        "dependents": timedelta(days=8),
+    }
+    _seed(tmp_path, fp, fetched_at=NOW, ages=ages)
+    assert _dirty(tmp_path, fp, fp) == frozenset({"scorecard", "downloads", "dependents"})
+
+
+def test_slow_collector_needs_the_30_day_clock_and_a_branch_move_since_its_last_fetch(tmp_path: Path):
+    assert SLOW_FACT_TTL_DAYS == 30
+    moved = "b" * 40
+    prev = RepoFingerprint(**{**_fp(default_branch_oid="a" * 40).to_dict(),
+                              "slow_oids": {c: "a" * 40 for c in SLOW_BRANCH_COLLECTORS}})
+    cur_moved = _fp(default_branch_oid=moved)
+    cur_same = _fp(default_branch_oid="a" * 40)
+
+    def run(days: float, current: RepoFingerprint) -> frozenset[str]:
+        raw = tmp_path / f"d{days}-{current.default_branch_oid[0]}"
+        _seed(raw, prev, fetched_at=NOW,
+              ages={c: timedelta(days=days) for c in SLOW_BRANCH_COLLECTORS})
+        return _dirty(raw, prev, current) & SLOW_BRANCH_COLLECTORS
+
+    assert run(30, cur_moved) == SLOW_BRANCH_COLLECTORS          # exactly 30 d, moved -> due
+    assert run(31, cur_moved) == SLOW_BRANCH_COLLECTORS
+    assert run(29.9, cur_moved) == frozenset()                   # clock not due yet
+    assert run(31, cur_same) == frozenset()                      # clock due, branch did not move
+    assert run(400, cur_same) == frozenset()
+
+
+def test_slow_collector_branch_move_is_remembered_across_passes(tmp_path: Path):
+    """The branch moved on day 5 and the pass consumed that move (the fingerprint was
+    persisted); at day 31 the slow collector is still due, because its baseline is the
+    oid at ITS last fetch, not the previous pass's oid."""
+    baseline = "a" * 40
+    after_move = "b" * 40
+    prev = RepoFingerprint(**{**_fp(default_branch_oid=after_move).to_dict(),
+                              "slow_oids": {c: baseline for c in SLOW_BRANCH_COLLECTORS}})
+    cur = _fp(default_branch_oid=after_move)  # unchanged vs previous: same pass sees no move
+    _seed(tmp_path, prev, fetched_at=NOW,
+          ages={c: timedelta(days=31) for c in SLOW_BRANCH_COLLECTORS})
+    assert _dirty(tmp_path, prev, cur) == SLOW_BRANCH_COLLECTORS
+
+
+def test_slow_collector_without_a_recorded_baseline_counts_as_moved(tmp_path: Path):
+    prev = _fp()  # no slow_oids
+    _seed(tmp_path, prev, fetched_at=NOW - timedelta(hours=1),
+          ages={c: timedelta(days=31) for c in SLOW_BRANCH_COLLECTORS})
+    assert _dirty(tmp_path, prev, prev) == SLOW_BRANCH_COLLECTORS
+
+
+def test_missing_slow_envelope_is_fetched_at_once(tmp_path: Path):
+    prev = RepoFingerprint(**{**_fp().to_dict(), "slow_oids": {c: "a" * 40 for c in SLOW_BRANCH_COLLECTORS}})
+    _seed(tmp_path, prev, fetched_at=NOW - timedelta(hours=1), skip=("governance",))
+    assert _dirty(tmp_path, prev, prev) == frozenset({"governance"})
+
+
+def test_stale_window_anchor_refetches_releases_and_issues_counts(tmp_path: Path):
+    """derive marks a window anchor older than 14 days Unmeasured (openssf_criticality):
+    --dirty must refresh releases and issues_counts before that, though nothing moved."""
+    assert WINDOW_ANCHOR_REFRESH_DAYS == 13
+    fp = _fp()
+    anchors = {
+        "releases": NOW - timedelta(days=13),
+        "issues_counts": NOW - timedelta(days=12, hours=23),
+    }
+    _seed(tmp_path, fp, fetched_at=NOW - timedelta(hours=1), anchors=anchors)
+    assert _dirty(tmp_path, fp, fp) == frozenset({"releases"})
+    anchors = {"releases": NOW - timedelta(days=20), "issues_counts": NOW - timedelta(days=15)}
+    _seed(tmp_path, fp, fetched_at=NOW - timedelta(hours=1), anchors=anchors)
+    assert _dirty(tmp_path, fp, fp) == frozenset({"releases", "issues_counts"})
+
+
+# --- Persisting the fingerprint ---------------------------------------------- #
+
+
+def test_fingerprint_is_not_persisted_when_an_invalidated_collector_failed():
+    prev = _fp(pr_updated_at="2026-09-09T00:00:00Z")
+    cur = _fp(pr_updated_at="2026-09-12T00:00:00Z")
+    inv = invalidated_collectors(prev, cur)
+    assert fingerprint_to_persist(prev, cur, inv, fetched_ok=inv - {"pr_window"},
+                                  failed={"pr_window"}) is None
+    rec = fingerprint_to_persist(prev, cur, inv, fetched_ok=inv, failed=set())
+    assert rec is not None and rec.pr_updated_at == "2026-09-12T00:00:00Z"
+
+
+def test_persisted_fingerprint_records_the_slow_baseline_of_fetched_collectors():
+    prev = RepoFingerprint(**{**_fp(default_branch_oid="a" * 40).to_dict(),
+                              "slow_oids": {"tree": "a" * 40, "governance": "a" * 40}})
+    cur = _fp(default_branch_oid="b" * 40)
+    inv = invalidated_collectors(prev, cur)
+    rec = fingerprint_to_persist(prev, cur, inv, fetched_ok=inv | {"governance"}, failed=set())
+    assert rec is not None
+    assert rec.slow_oids == {"tree": "a" * 40, "governance": "b" * 40}
+
+
+def test_nothing_persisted_for_an_unchanged_repo():
+    fp = _fp()
+    assert fingerprint_to_persist(fp, _fp(observed_at="2026-09-13T00:00:00+00:00"),
+                                  frozenset(), set(), set()) is None
+
+
+def test_first_observation_with_all_collectors_fetched_is_persisted_with_baselines():
+    cur = _fp(default_branch_oid="c" * 40)
+    rec = fingerprint_to_persist(None, cur, ALL_GATHER_COLLECTORS, ALL_GATHER_COLLECTORS, set())
+    assert rec is not None
+    assert rec.slow_oids == {c: "c" * 40 for c in SLOW_BRANCH_COLLECTORS}
+
+
+def test_slow_oids_round_trip_through_the_state_file(tmp_path: Path):
+    fp = RepoFingerprint(**{**_fp().to_dict(), "slow_oids": {"tree": "a" * 40, "governance": None}})
+    state_file = tmp_path / "fingerprints.jsonl"
+    append_fingerprints(state_file, [fp])
+    assert load_latest_fingerprints(state_file)["acme__widget"].slow_oids == fp.slow_oids
+
+
+# --- Persistence ------------------------------------------------------------- #
 
 
 def test_append_and_load_latest_fingerprints_round_trip(tmp_path: Path):
@@ -321,90 +609,65 @@ def test_append_and_load_latest_fingerprints_round_trip(tmp_path: Path):
     assert loaded["acme__widget"].observed_at == "2026-09-12T00:00:00+00:00"
 
 
-def test_advance_envelope_watermarks_preserves_sha256_and_records_verified_unchanged_at(
-    tmp_path: Path,
-):
-    raw_dir = tmp_path / "raw"
-    old_at = "2026-09-01T00:00:00+00:00"
-    write_envelope(
-        raw_dir / "releases" / "acme__widget.json",
-        source="test",
-        data={"recent_count": 3},
-        fetched_at=old_at,
-    )
-    orig_rel_sha = read_envelope(raw_dir / "releases" / "acme__widget.json").recorded_sha256
-
-    updated = advance_envelope_watermarks(
-        raw_dir,
-        "acme__widget",
-        unchanged_collectors=frozenset({"releases"}),
-        observed_at=NOW,
-    )
-    assert updated == 1
-    rel_env = read_envelope(raw_dir / "releases" / "acme__widget.json")
-    assert rel_env.recorded_sha256 == orig_rel_sha
-    assert rel_env.hash_matches_data
-    doc = json.loads((raw_dir / "releases" / "acme__widget.json").read_text(encoding="utf-8"))
-    assert doc["verified_unchanged_at"] == NOW.isoformat()
-
-
 # --- End-to-end 2-pass sweep (W6-2 / D-COL-1) ------------------------------- #
 
 
+def test_a_pass_writes_nothing_and_does_not_touch_envelopes(tmp_path: Path):
+    """No watermark rewrite: unchanged envelopes are byte-identical after a pass
+    (rewriting ~5,700 repos x 20 collectors each run would wear the SSD), and the
+    pass itself does not append fingerprint state."""
+    repos = _universe(3)
+    transport = FakeBatchTransport({slug: _gql_node() for slug in repos})
+    raw_dir = tmp_path / "raw"
+    for owner, name in repos:
+        _seed(raw_dir, _fp(owner=owner, name=name), fetched_at=NOW - timedelta(days=1))
+    before = {p: p.read_bytes() for p in raw_dir.rglob("*.json")}
+    assert before
+    state_file = tmp_path / "state" / "fingerprints.jsonl"
+    run_fingerprint_pass(repos, state_file=state_file, raw_dir=raw_dir, transport=transport, now=NOW)
+    assert {p: p.read_bytes() for p in raw_dir.rglob("*.json")} == before
+    assert not state_file.exists()
+    assert not list(raw_dir.rglob("*.tmp"))
+
+
 def test_two_fingerprint_passes_unchanged_universe_zero_dirty_on_pass_two(tmp_path: Path):
-    """W6-2 verification: 150 repos take 2 GraphQL batch calls (2 points);
-    pass 2 over an unchanged universe reports 0 dirty repos and advances
-    watermarks on existing envelopes."""
-    repos = [(f"org{i // 10}", f"repo{i}") for i in range(150)]
+    """W6-2 verification: 150 repos take 6 GraphQL batch calls (6 points);
+    after pass 1's fingerprints are persisted, pass 2 over an unchanged universe
+    reports 0 dirty repos."""
+    repos = _universe(150)
     nodes = {slug: _gql_node(stars=i) for i, slug in enumerate(repos)}
     transport = FakeBatchTransport(nodes, cost_per_call=1)
     state_file = tmp_path / "state" / "fingerprints.jsonl"
     raw_dir = tmp_path / "raw"
+    ecosystems = {f"{o}__{n}": ECO for o, n in repos}
 
-    for owner, name in repos:
-        write_envelope(
-            raw_dir / "github_meta" / f"{owner}__{name}.json",
-            source="github-graphql",
-            data={"stars": 1},
-            fetched_at="2026-09-11T00:00:00+00:00",
-        )
-
-    pass1 = run_fingerprint_pass(
-        repos,
-        state_file=state_file,
-        raw_dir=raw_dir,
-        transport=transport,
-        now=NOW - timedelta(hours=6),
-    )
-    assert pass1.queries_executed == 2
-    assert pass1.cost_points == 2
+    pass1 = run_fingerprint_pass(repos, state_file=state_file, raw_dir=raw_dir,
+                                 transport=transport, now=NOW - timedelta(hours=6),
+                                 ecosystems=ecosystems)
+    assert pass1.queries_executed == 6
+    assert pass1.cost_points == 6
     assert len(pass1.fingerprints) == 150
     assert all(inv == ALL_GATHER_COLLECTORS for inv in pass1.invalidated_by_repo.values())
 
-    # Pass 2: 6 hours later, universe unchanged -> 0 invalidated collectors!
-    pass2 = run_fingerprint_pass(
-        repos,
-        state_file=state_file,
-        raw_dir=raw_dir,
-        transport=transport,
-        now=NOW,
-    )
-    assert pass2.queries_executed == 2
-    assert pass2.cost_points == 2
-    assert all(len(inv) == 0 for inv in pass2.invalidated_by_repo.values())
-    doc = json.loads((raw_dir / "github_meta" / "org0__repo0.json").read_text(encoding="utf-8"))
-    assert doc["verified_unchanged_at"] == NOW.isoformat()
+    # The caller gathers every collector, then persists each repo's fingerprint.
+    for fp in pass1.fingerprints.values():
+        _seed(raw_dir, fp, fetched_at=NOW - timedelta(hours=6))
+        rec = fingerprint_to_persist(None, fp, ALL_GATHER_COLLECTORS, ALL_GATHER_COLLECTORS, set())
+        assert rec is not None
+        append_fingerprints(state_file, [rec])
+
+    pass2 = run_fingerprint_pass(repos, state_file=state_file, raw_dir=raw_dir,
+                                 transport=transport, now=NOW, ecosystems=ecosystems)
+    assert pass2.queries_executed == 6
+    assert pass2.cost_points == 6
+    assert all(len(inv) == 0 for inv in pass2.dirty_by_repo.values())
 
     # Pass 3: mutate 1 repo's release timestamp -> only that repo & collector dirty
     transport.nodes_by_slug[("org0", "repo0")] = _gql_node(
         stars=0, release_created_at="2026-09-12T12:00:00Z"
     )
-    pass3 = run_fingerprint_pass(
-        repos,
-        state_file=state_file,
-        raw_dir=raw_dir,
-        transport=transport,
-        now=NOW + timedelta(hours=1),
-    )
-    dirty_repos = {k: v for k, v in pass3.invalidated_by_repo.items() if v}
+    pass3 = run_fingerprint_pass(repos, state_file=state_file, raw_dir=raw_dir,
+                                 transport=transport, now=NOW + timedelta(hours=1),
+                                 ecosystems=ecosystems)
+    dirty_repos = {k: v for k, v in pass3.dirty_by_repo.items() if v}
     assert dirty_repos == {"org0__repo0": frozenset({"releases"})}

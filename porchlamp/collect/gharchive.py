@@ -3,10 +3,18 @@
 Filters hourly GH Archive dumps (``https://data.gharchive.org/YYYY-MM-DD-H.json.gz``)
 against the Porchlamp candidate universe with zero GitHub API quota, appends
 versioned records to ``<data_root>/ledgers/<ledger>/<owner>__<name>.jsonl``
-stamped with ``observed_at`` = the dump hour, and runs the
+stamped with ``observed_at`` = the END of the dump hour (the moment the hour's
+events were complete), and runs the
 :func:`ledger_vs_archive` cross-check detector over any time window to flag
 missing events or count divergences between live collection and the bulk
 archive.
+
+GH Archive trims event payloads (a ``PushEvent`` carries no ``commits``; a
+``PullRequestEvent`` carries no PR state or dates). A record built from such a
+payload would hold nulls and False defaults that look like facts, so
+:func:`shape_gharchive_event` raises :class:`IncompletePayloadError` for an
+in-universe event that lacks the fields its ledger record needs, and the replay
+refuses instead of writing it.
 """
 
 from __future__ import annotations
@@ -18,7 +26,7 @@ import re
 import urllib.request
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -27,10 +35,13 @@ __all__ = [
     "MAX_ARCHIVE_DECOMPRESSED_BYTES",
     "SUPPORTED_EVENT_TYPES",
     "LEDGER_NAMES",
+    "IncompletePayloadError",
     "ArchiveLedgerRecord",
     "ArchiveDiscrepancy",
     "ReplayReport",
+    "hour_start",
     "hour_to_observed_at",
+    "iter_hours",
     "archive_hour_url",
     "shape_gharchive_event",
     "iter_jsonl_bytes",
@@ -78,6 +89,28 @@ def _validate_repo_pair(owner: str, name: str) -> tuple[str, str]:
     return owner, name
 
 
+class IncompletePayloadError(ValueError):
+    """An archive event for a universe repo lacks the fields its ledger record needs."""
+
+
+def _require(event: Mapping[str, Any], container: Any, what: str, keys: Sequence[str],
+             nullable: Sequence[str] = ()) -> None:
+    """Raise :class:`IncompletePayloadError` unless ``container`` is a mapping holding every
+    key with a value (a key in ``nullable`` may hold ``None``: a PR not yet merged)."""
+    missing = [
+        k for k in keys
+        if not isinstance(container, Mapping) or k not in container
+        or (container[k] is None and k not in nullable)
+    ]
+    if missing:
+        raise IncompletePayloadError(
+            f"GH Archive event {event.get('id')!r} ({event.get('type')}) for "
+            f"{(event.get('repo') or {}).get('name')!r} lacks {what} field(s) {missing}: "
+            "GH Archive trims event payloads, and a ledger record built from them would "
+            "hold nulls as facts; refusing to write it"
+        )
+
+
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:
     if not value or not isinstance(value, str):
         return None
@@ -88,11 +121,10 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-def hour_to_observed_at(hour_spec: str) -> datetime:
-    """Parse a GH Archive ``YYYY-MM-DD-H`` hour string into its UTC end-of-hour timestamp.
+def hour_start(hour_spec: str) -> datetime:
+    """Parse a GH Archive ``YYYY-MM-DD-H`` hour string into the UTC START of that hour.
 
-    Each GH Archive dump ``YYYY-MM-DD-H.json.gz`` covers ``[H:00:00, H+1:00:00)``
-    UTC; its canonical ``observed_at`` watermark is ``H:00:00+00:00``.
+    Each GH Archive dump ``YYYY-MM-DD-H.json.gz`` covers ``[H:00:00, H+1:00:00)`` UTC.
     """
     match = _HOUR_SPEC_RE.fullmatch(hour_spec.strip())
     if not match:
@@ -106,9 +138,31 @@ def hour_to_observed_at(hour_spec: str) -> datetime:
     return datetime(year, month, day, hour, 0, 0, tzinfo=timezone.utc)
 
 
+def hour_to_observed_at(hour_spec: str) -> datetime:
+    """The UTC END of a GH Archive hour: its canonical ``observed_at``.
+
+    The dump ``YYYY-MM-DD-H.json.gz`` covers ``[H:00:00, H+1:00:00)`` and is only
+    complete at ``H+1:00:00`` (``2026-09-11-14`` -> ``2026-09-11T15:00:00+00:00``;
+    hour 23 ends at 00:00 of the next day). A record observed at the hour's start
+    would predate the events it holds.
+    """
+    return hour_start(hour_spec) + timedelta(hours=1)
+
+
+def iter_hours(start_spec: str, end_spec: str) -> Iterator[str]:
+    """Every hour spec from ``start_spec`` to ``end_spec``, both inclusive, oldest first."""
+    cursor = hour_start(start_spec)
+    last = hour_start(end_spec)
+    if last < cursor:
+        raise ValueError(f"end hour {end_spec!r} is before start hour {start_spec!r}")
+    while cursor <= last:
+        yield f"{cursor.year:04d}-{cursor.month:02d}-{cursor.day:02d}-{cursor.hour}"
+        cursor += timedelta(hours=1)
+
+
 def archive_hour_url(hour_spec: str) -> str:
     """Build and validate the canonical ``https://data.gharchive.org/YYYY-MM-DD-H.json.gz`` URL."""
-    dt = hour_to_observed_at(hour_spec)
+    dt = hour_start(hour_spec)
     # GH Archive uses non-zero-padded hour (0..23) in filenames.
     url = f"{GHARCHIVE_BASE_URL}/{dt.year:04d}-{dt.month:02d}-{dt.day:02d}-{dt.hour}.json.gz"
     if not _ALLOWED_ARCHIVE_URL_RE.fullmatch(url):
@@ -196,7 +250,9 @@ def shape_gharchive_event(
 
     ``universe_lookup`` maps lowercased ``"owner/name"`` to canonical
     ``(owner, name)``. Events for repositories outside ``universe_lookup`` or
-    event types outside :data:`SUPPORTED_EVENT_TYPES` return ``[]``.
+    event types outside :data:`SUPPORTED_EVENT_TYPES` return ``[]``. An in-universe
+    event whose payload lacks the fields its record needs raises
+    :class:`IncompletePayloadError` (a record of nulls would read as fact).
     """
     event_type = str(event.get("type") or "")
     if event_type not in SUPPORTED_EVENT_TYPES:
@@ -212,7 +268,7 @@ def shape_gharchive_event(
 
     payload = event.get("payload")
     if not isinstance(payload, Mapping):
-        return []
+        _require(event, None, "event", ["payload"])  # raises: nothing to build a record from
     actor = event.get("actor")
     actor_login = str(actor.get("login") or "") if isinstance(actor, Mapping) else ""
     event_id = str(event.get("id") or "")
@@ -225,11 +281,18 @@ def shape_gharchive_event(
         "PullRequestReviewCommentEvent",
     ):
         pr = payload.get("pull_request")
-        if not isinstance(pr, Mapping) or pr.get("number") is None:
-            return []
+        _require(event, pr, "pull_request", ["number"])
         pr_number = int(pr["number"])
+        if event_type == "PullRequestEvent":
+            _require(event, pr, "pull_request", ["state", "created_at"])
+            if "merged" not in pr and "merged_at" not in pr:
+                _require(event, pr, "pull_request", ["merged"])
         review = payload.get("review") if isinstance(payload.get("review"), Mapping) else {}
         comment = payload.get("comment") if isinstance(payload.get("comment"), Mapping) else {}
+        if event_type == "PullRequestReviewEvent":
+            _require(event, review, "review", ["state"])
+        elif event_type == "PullRequestReviewCommentEvent":
+            _require(event, comment, "comment", ["body"], nullable=["body"])
         summary: dict[str, Any] = {
             "number": pr_number,
             "state": pr.get("state"),
@@ -262,10 +325,10 @@ def shape_gharchive_event(
 
     if event_type == "IssuesEvent":
         issue = payload.get("issue")
-        if not isinstance(issue, Mapping) or issue.get("number") is None:
-            return []
+        _require(event, issue, "issue", ["number"])
         if issue.get("pull_request") is not None:
             return []
+        _require(event, issue, "issue", ["state", "updated_at"])
         issue_number = int(issue["number"])
         return [
             ArchiveLedgerRecord(
@@ -290,6 +353,7 @@ def shape_gharchive_event(
         ]
 
     if event_type == "PushEvent":
+        _require(event, payload, "payload", ["commits"])
         commits = payload.get("commits")
         if not isinstance(commits, Sequence) or not commits:
             head = str(payload.get("head") or "")
@@ -342,8 +406,7 @@ def shape_gharchive_event(
 
     if event_type == "ReleaseEvent":
         release = payload.get("release")
-        if not isinstance(release, Mapping):
-            return []
+        _require(event, release, "release", ["published_at"], nullable=["published_at"])
         tag = str(release.get("tag_name") or release.get("id") or "")
         if not tag:
             return []
@@ -423,13 +486,24 @@ def fetch_gharchive_hour_bytes(
     opener: Optional[Callable[[str], bytes]] = None,
     timeout: float = 60.0,
 ) -> bytes:
-    """Download one hourly ``.json.gz`` dump from ``data.gharchive.org``."""
+    """Download one hourly ``.json.gz`` dump from ``data.gharchive.org`` into memory.
+
+    Raises :class:`ValueError` when the dump is larger than
+    :data:`MAX_ARCHIVE_DECOMPRESSED_BYTES` instead of returning a truncated one.
+    """
     url = archive_hour_url(hour_spec)
     if opener is not None:
         return opener(url)
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return resp.read(MAX_ARCHIVE_DECOMPRESSED_BYTES)
+        body = resp.read(MAX_ARCHIVE_DECOMPRESSED_BYTES + 1)
+    if len(body) > MAX_ARCHIVE_DECOMPRESSED_BYTES:
+        # Never hand back a silently truncated dump: a cut gzip stream replays as
+        # a clean-looking hour with the rest of its events missing.
+        raise ValueError(
+            f"GH Archive hour {hour_spec} exceeds the {MAX_ARCHIVE_DECOMPRESSED_BYTES}-byte cap"
+        )
+    return body
 
 
 def load_ledger_records(ledger_file: Path) -> list[ArchiveLedgerRecord]:

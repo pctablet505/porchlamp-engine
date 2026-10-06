@@ -425,109 +425,206 @@ def _check_evidence(api: RestTransport, owner: str, name: str,
     return checks, shas_probed, shas_available
 
 
-#: Single-call GraphQL query fetching the 20 newest merged PRs together with
-#: statusCheckRollup contexts on each head commit, replacing up to 15 REST calls.
-GOVERNANCE_GRAPHQL_QUERY: str = (
-    "query GovernanceMergedPrChecks($owner: String!, $name: String!, $first: Int!) {"
+#: GraphQL twin of :func:`_merged_prs`: the same listing -- closed AND merged PRs, newest
+#: CREATED first, pages of :data:`PULLS_PAGE_SIZE`, at most :data:`PULLS_PAGES_MAX`
+#: pages, keeping the first :data:`MERGED_PR_CAP` merged ones. (Ordering by UPDATED_AT
+#: sampled a different 20 PRs: overlap with REST was 2-11 of 20 on the 2026-10-06 review.)
+GOVERNANCE_PRS_QUERY: str = (
+    "query GovernanceMergedPrs($owner: String!, $name: String!, $first: Int!, $after: String) {"
     " rateLimit { cost remaining }"
     " r: repository(owner: $owner, name: $name) {"
-    " pullRequests(states: [MERGED], first: $first,"
-    " orderBy: {field: UPDATED_AT, direction: DESC}) {"
-    " nodes { number createdAt mergedAt author { login } headRefOid"
-    " commits(last: 1) { nodes { commit { oid statusCheckRollup {"
-    " contexts(first: 100) { nodes { __typename"
-    " ... on CheckRun { name status conclusion }"
-    " ... on StatusContext { context state }"
-    " } } } } } } } } } }"
+    " pullRequests(states: [CLOSED, MERGED], first: $first, after: $after,"
+    " orderBy: {field: CREATED_AT, direction: DESC}) {"
+    " pageInfo { hasNextPage endCursor }"
+    " nodes { number createdAt mergedAt author { login } headRefOid } } } }"
 )
+
+#: Check evidence of the probed head SHAs, one aliased ``object`` per SHA. ``status.contexts``
+#: lists the commit's status contexts (EasyCLA ...) and ``checkSuites { checkRuns }`` every
+#: check run (cla-assistant, google-cla ...), like the REST ``/statuses`` and ``/check-runs``.
+#: ``statusCheckRollup`` is NOT used: it keeps 100 contexts and drops runs REST lists.
+GOVERNANCE_CHECK_SUITES_FIRST: int = 50
+GOVERNANCE_CHECK_RUNS_FIRST: int = 100
+
+#: The REST path reads ``/statuses`` and ``/check-runs`` with ``per_page=100`` and no further
+#: page, so a commit with more entries is TRUNCATED there. GraphQL would return more and the
+#: two paths would disagree on the check names; for such a commit the REST path is used, so
+#: the GraphQL path never differs from it.
+REST_CHECKS_PER_PAGE: int = 100
+
+
+def build_governance_checks_query(count: int) -> str:
+    """The aliased check-evidence query for ``count`` head SHAs (``$s0..``, parameterized)."""
+    decls = ", ".join(f"$s{i}: GitObjectID!" for i in range(count))
+    aliases = " ".join(
+        f"c{i}: object(oid: $s{i}) {{ ... on Commit {{"
+        " status { contexts { context state } }"
+        f" checkSuites(first: {GOVERNANCE_CHECK_SUITES_FIRST}) {{"
+        " pageInfo { hasNextPage }"
+        f" nodes {{ checkRuns(first: {GOVERNANCE_CHECK_RUNS_FIRST}) {{"
+        " pageInfo { hasNextPage } nodes { name status conclusion } } } } } }"
+        for i in range(count)
+    )
+    return (
+        f"query GovernanceChecks($owner: String!, $name: String!, {decls}) {{"
+        f" rateLimit {{ cost remaining }} r: repository(owner: $owner, name: $name) {{ {aliases} }} }}"
+    )
+
+
+def _graphql_repo(doc: Any, owner: str, name: str, what: str) -> Optional[Mapping[str, Any]]:
+    """The ``r`` repository object of a GraphQL answer; ``None`` when GitHub says
+    NOT_FOUND; any other missing answer is an error (never an empty result)."""
+    data = doc.get("data") if isinstance(doc, Mapping) else None
+    repo = data.get("r") if isinstance(data, Mapping) else None
+    if isinstance(repo, Mapping):
+        return repo
+    errors = doc.get("errors") if isinstance(doc, Mapping) else None
+    if errors and any(
+        "NOT_FOUND" in str(e.get("type") or "") for e in errors if isinstance(e, Mapping)
+    ):
+        return None
+    raise RuntimeError(f"governance graphql {what} failed for {owner}/{name}: {str(errors)[:160]}")
+
+
+def _merged_prs_graphql(
+    transport: pr_window.GraphqlTransport, owner: str, name: str
+) -> tuple[list[dict[str, Any]], bool]:
+    """GraphQL twin of :func:`_merged_prs` (same sample, same record schema)."""
+    merged: list[dict[str, Any]] = []
+    after: Optional[str] = None
+    for _page in range(PULLS_PAGES_MAX):
+        variables: dict[str, Any] = {"owner": owner, "name": name, "first": PULLS_PAGE_SIZE}
+        if after is not None:
+            variables["after"] = after
+        repo = _graphql_repo(transport.execute(GOVERNANCE_PRS_QUERY, variables), owner, name, "pulls")
+        if repo is None:
+            return [], False
+        conn = repo.get("pullRequests") or {}
+        for pr in conn.get("nodes") or []:
+            if not isinstance(pr, Mapping) or not pr.get("mergedAt"):
+                continue
+            merged.append({
+                "number": pr.get("number"),
+                "created_at": pr.get("createdAt"),
+                "merged_at": pr.get("mergedAt"),
+                "author_login": str((pr.get("author") or {}).get("login") or ""),
+                "head_sha": str(pr.get("headRefOid") or ""),
+            })
+            if len(merged) >= MERGED_PR_CAP:
+                return merged, True
+        page_info = conn.get("pageInfo") or {}
+        if not page_info.get("hasNextPage"):
+            break
+        after = page_info.get("endCursor")
+        if not after:
+            break
+    return merged, True
+
+
+def _commit_checks_graphql(commit: Mapping[str, Any], pr_number: Any, sha: str
+                           ) -> tuple[list[dict[str, Any]], bool]:
+    """Check rows of one commit, shaped like :func:`_check_evidence`'s; the flag is
+    False when GraphQL could not list every check run (a connection has a next page) or
+    the commit has more statuses / check runs than the REST path reads (see
+    :data:`REST_CHECKS_PER_PAGE`)."""
+    rows: list[dict[str, Any]] = []
+    complete = True
+    contexts = ((commit.get("status") or {}).get("contexts")) or []
+    for ctx in contexts:
+        rows.append({
+            "name": str(ctx.get("context") or ""),
+            "kind": "status",
+            "state": str(ctx.get("state") or "").lower() or None,
+            "conclusion": None,
+            "pr": pr_number,
+            "sha": sha,
+        })
+    suites = commit.get("checkSuites") or {}
+    if (suites.get("pageInfo") or {}).get("hasNextPage"):
+        complete = False
+    for suite in suites.get("nodes") or []:
+        runs = (suite or {}).get("checkRuns") or {}
+        if (runs.get("pageInfo") or {}).get("hasNextPage"):
+            complete = False
+        for run in runs.get("nodes") or []:
+            rows.append({
+                "name": str(run.get("name") or ""),
+                "kind": "check_run",
+                "state": str(run.get("status") or "").lower() or None,
+                "conclusion": (str(run["conclusion"]).lower()
+                               if run.get("conclusion") is not None else None),
+                "pr": pr_number,
+                "sha": sha,
+            })
+    n_status = sum(1 for r in rows if r["kind"] == "status")
+    if n_status >= REST_CHECKS_PER_PAGE or len(rows) - n_status > REST_CHECKS_PER_PAGE:
+        complete = False
+    return rows, complete
+
+
+def _check_evidence_graphql(
+    transport: pr_window.GraphqlTransport,
+    owner: str,
+    name: str,
+    merged_prs: Sequence[Mapping[str, Any]],
+    api: Optional[RestTransport] = None,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """GraphQL twin of :func:`_check_evidence`: same SHAs (newest merge first, at most
+    :data:`CHECK_EVIDENCE_SHA_CAP`), same rows. A SHA whose check runs GraphQL cannot
+    list in full, or that has more than REST reads (:data:`REST_CHECKS_PER_PAGE`), is read
+    through the REST path instead (``api``), so the two paths cannot disagree; without
+    ``api`` that is an error. A SHA GitHub does not know is
+    skipped and not counted as probed, as a REST 404 is."""
+    distinct = _distinct_head_shas(merged_prs)
+    chosen = distinct[:CHECK_EVIDENCE_SHA_CAP]
+    checks: list[dict[str, Any]] = []
+    probed = 0
+    if chosen:
+        variables: dict[str, Any] = {"owner": owner, "name": name}
+        for i, (sha, _pr) in enumerate(chosen):
+            variables[f"s{i}"] = sha
+        repo = _graphql_repo(
+            transport.execute(build_governance_checks_query(len(chosen)), variables),
+            owner, name, "checks")
+        if repo is None:
+            return [], 0, len(distinct)
+        for i, (sha, pr_row) in enumerate(chosen):
+            commit = repo.get(f"c{i}")
+            if not isinstance(commit, Mapping) or not commit:
+                continue
+            rows, complete = _commit_checks_graphql(commit, pr_row.get("number"), sha)
+            if not complete:
+                if api is None:
+                    raise RuntimeError(
+                        f"governance graphql cannot list every check run of {owner}/{name}@{sha}")
+                rest_rows, rest_probed, _avail = _check_evidence(api, owner, name, [pr_row])
+                checks.extend(rest_rows)
+                probed += rest_probed
+                continue
+            probed += 1
+            checks.extend(rows)
+    return checks, probed, len(distinct)
 
 
 def fetch_merged_prs_and_checks_graphql(
     transport: pr_window.GraphqlTransport,
     owner: str,
     name: str,
+    api: Optional[RestTransport] = None,
 ) -> tuple[list[dict[str, Any]], bool, list[dict[str, Any]], int, int]:
-    """Fetch merged PRs and their head-SHA check/status evidence in one GraphQL call.
+    """Merged PRs and their head-SHA check/status evidence over GraphQL.
 
     Returns ``(merged_prs, pulls_available, checks, shas_probed, shas_available)``
-    with the exact same record schema as :func:`_merged_prs` + :func:`_check_evidence`.
+    with the same record schema, the same PR sample (closed PRs newest-created
+    first, merged ones, cap :data:`MERGED_PR_CAP`) and the same probed SHAs as
+    :func:`_merged_prs` + :func:`_check_evidence`: 1-2 GraphQL queries instead of
+    11-15 REST calls.
     """
-    doc = transport.execute(
-        GOVERNANCE_GRAPHQL_QUERY,
-        {"owner": owner, "name": name, "first": MERGED_PR_CAP},
-    )
-    data = doc.get("data") if isinstance(doc, Mapping) else None
-    repo = data.get("r") if isinstance(data, Mapping) else None
-    if repo is None:
-        errors = doc.get("errors") if isinstance(doc, Mapping) else None
-        if errors and any("NOT_FOUND" in str(e.get("type") or "") for e in errors if isinstance(e, Mapping)):
-            return [], False, [], 0, 0
-        raise RuntimeError(f"governance graphql failed for {owner}/{name}: {str(errors)[:160]}")
-
-    nodes = ((repo.get("pullRequests") or {}).get("nodes")) or []
-    merged_prs: list[dict[str, Any]] = []
-    rollup_by_sha: dict[str, list[Mapping[str, Any]]] = {}
-    for pr in nodes:
-        if not isinstance(pr, Mapping) or not pr.get("mergedAt"):
-            continue
-        commit_nodes = ((pr.get("commits") or {}).get("nodes")) or []
-        commit_obj = (
-            (commit_nodes[-1].get("commit") or {})
-            if commit_nodes and isinstance(commit_nodes[-1], Mapping)
-            else {}
-        )
-        head_sha = str(commit_obj.get("oid") or pr.get("headRefOid") or "")
-        merged_prs.append({
-            "number": pr.get("number"),
-            "created_at": pr.get("createdAt"),
-            "merged_at": pr.get("mergedAt"),
-            "author_login": str(((pr.get("author") or {}).get("login")) or ""),
-            "head_sha": head_sha,
-        })
-        if head_sha and head_sha not in rollup_by_sha:
-            rollup = commit_obj.get("statusCheckRollup")
-            ctx_nodes = (
-                ((rollup.get("contexts") or {}).get("nodes")) or []
-                if isinstance(rollup, Mapping)
-                else []
-            )
-            rollup_by_sha[head_sha] = [
-                c for c in ctx_nodes if isinstance(c, Mapping)
-            ]
-        if len(merged_prs) >= MERGED_PR_CAP:
-            break
-
-    distinct = _distinct_head_shas(merged_prs)
-    shas_available = len(distinct)
-    shas_probed = 0
-    checks: list[dict[str, Any]] = []
-    for sha, pr_row in distinct[:CHECK_EVIDENCE_SHA_CAP]:
-        shas_probed += 1
-        for ctx in rollup_by_sha.get(sha, []):
-            typename = str(ctx.get("__typename") or "")
-            if typename == "StatusContext" or "context" in ctx:
-                checks.append({
-                    "name": str(ctx.get("context") or ""),
-                    "kind": "status",
-                    "state": str(ctx.get("state") or "").lower() or None,
-                    "conclusion": None,
-                    "pr": pr_row.get("number"),
-                    "sha": sha,
-                })
-            elif typename == "CheckRun" or "name" in ctx:
-                checks.append({
-                    "name": str(ctx.get("name") or ""),
-                    "kind": "check_run",
-                    "state": str(ctx.get("status") or "").lower() or None,
-                    "conclusion": (
-                        str(ctx["conclusion"]).lower()
-                        if ctx.get("conclusion") is not None
-                        else None
-                    ),
-                    "pr": pr_row.get("number"),
-                    "sha": sha,
-                })
-    return merged_prs, True, checks, shas_probed, shas_available
+    merged_prs, pulls_available = _merged_prs_graphql(transport, owner, name)
+    if not pulls_available:
+        return [], False, [], 0, 0
+    checks, probed, available = _check_evidence_graphql(transport, owner, name, merged_prs, api)
+    return merged_prs, True, checks, probed, available
 
 
 def _row_sequence(rows: Optional[Any]) -> Optional[Sequence[Mapping[str, Any]]]:
@@ -589,9 +686,9 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
     never stores message text. Returns ``"skip"`` when the envelope
     already exists and ``force`` is False. ``api`` / ``fetch_file`` /
     ``graphql_transport`` are injectable transports for the recorded-response
-    oracles; when ``graphql_transport`` is given, merged PRs and their commit
-    check rollups are fetched in a single GraphQL request instead of 11-15
-    REST calls.
+    oracles; when ``graphql_transport`` is given, the same merged-PR sample and
+    check evidence are fetched in 1-2 GraphQL queries instead of 11-15 REST calls
+    (REST is still used for a SHA with more check runs than one GraphQL page or one REST page).
     """
     key = f"{owner}__{name}"
     target = raw_dir / "governance" / f"{key}.json"
@@ -602,7 +699,8 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
 
     if graphql_transport is not None:
         merged_prs, pulls_available, checks, shas_probed, shas_available = (
-            fetch_merged_prs_and_checks_graphql(graphql_transport, owner, name)
+            fetch_merged_prs_and_checks_graphql(
+                graphql_transport, owner, name, api=api or GhApiTransport())
         )
         source_tag = "github-graphql:governance"
     else:

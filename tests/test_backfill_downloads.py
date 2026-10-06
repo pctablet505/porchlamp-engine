@@ -23,6 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
 NOW = datetime(2026, 9, 12, tzinfo=timezone.utc)
@@ -488,21 +490,34 @@ def test_derive_maven_unmeasured(tmp_path):
 
 
 class _FakeBigQueryJob:
-    def __init__(self, rows: list[dict]) -> None:
+    def __init__(self, rows: list[dict], total_bytes_processed: int = 0) -> None:
         self._rows = rows
+        self.total_bytes_processed = total_bytes_processed
 
     def result(self) -> list[dict]:
         return self._rows
 
 
 class _FakeBigQueryClient:
-    def __init__(self, rows: list[dict]) -> None:
+    """Answers a dry run with ``scan_bytes`` and a real query with ``rows``."""
+
+    def __init__(self, rows: list[dict], scan_bytes: int = 5_000_000_000) -> None:
         self.rows = rows
+        self.scan_bytes = scan_bytes
         self.queries: list[tuple[str, Any]] = []
 
     def query(self, sql: str, job_config: Any = None) -> _FakeBigQueryJob:
         self.queries.append((sql, job_config))
+        if getattr(job_config, "dry_run", False):
+            return _FakeBigQueryJob([], self.scan_bytes)
         return _FakeBigQueryJob(self.rows)
+
+
+def _bq_rows() -> list[dict]:
+    return [
+        {"package": "my-pkg", "monthly_downloads": 12345},
+        {"package": "requests", "monthly_downloads": 88000000},
+    ]
 
 
 def test_backfill_bigquery_bulk_single_parameterized_query(tmp_path):
@@ -515,15 +530,10 @@ def test_backfill_bigquery_bulk_single_parameterized_query(tmp_path):
         ["already_done", "My_Pkg", "missing_pkg", "requests"],
         done={"already_done": 999},
     )
-    client = _FakeBigQueryClient(
-        [
-            {"package": "my-pkg", "monthly_downloads": 12345},
-            {"package": "requests", "monthly_downloads": 88000000},
-        ]
-    )
+    client = _FakeBigQueryClient(_bq_rows())
     rep = backfill.backfill_bigquery(data_dir, client=client, now=NOW)
-    assert len(client.queries) == 1
-    sql, job_cfg = client.queries[0]
+    assert len(client.queries) == 2  # the dry run, then the one real query
+    sql, job_cfg = client.queries[1]
     assert "UNNEST(@packages)" in sql
     assert "my-pkg" not in sql  # parameterized, never interpolated into SQL
     assert job_cfg.packages == ("missing-pkg", "my-pkg", "requests")
@@ -537,3 +547,77 @@ def test_backfill_bigquery_bulk_single_parameterized_query(tmp_path):
     assert monthly_of(data_dir, "requests") == 88000000
     assert monthly_of(data_dir, "missing_pkg") is None
 
+
+def test_backfill_bigquery_counts_downloads_the_way_pypistats_does(tmp_path):
+    """pypistats' recent/last_month excludes mirror installers and sums the 30 UTC days
+    ending yesterday; a BigQuery fill-in must use the same definition."""
+    backfill = _load_backfill()
+    assert backfill.PYPISTATS_MIRRORS == ("bandersnatch", "z3c.pypimirror", "Artifactory", "devpi")
+    for mirror in backfill.PYPISTATS_MIRRORS:
+        assert f"'{mirror}'" in backfill.BIGQUERY_PYPI_MONTHLY_SQL
+    assert "details.installer.name NOT IN (" in backfill.BIGQUERY_PYPI_MONTHLY_SQL
+    data_dir = tmp_path / "data"
+    make_data_dir(data_dir, ["requests"])
+    client = _FakeBigQueryClient(_bq_rows())
+    backfill.backfill_bigquery(data_dir, client=client, now=datetime(2026, 9, 12, 13, 30, tzinfo=timezone.utc))
+    cfg = client.queries[1][1]
+    assert (cfg.window_start, cfg.window_end) == ("2026-08-13", "2026-09-12")  # end exclusive: today
+
+
+def test_backfill_bigquery_dry_run_first_then_a_capped_job(tmp_path):
+    backfill = _load_backfill()
+    data_dir = tmp_path / "data"
+    make_data_dir(data_dir, ["requests", "my_pkg"])
+    client = _FakeBigQueryClient(_bq_rows(), scan_bytes=7_000_000_000)
+    backfill.backfill_bigquery(data_dir, client=client, now=NOW)
+    dry, real = client.queries[0][1], client.queries[1][1]
+    assert dry.dry_run is True and real.dry_run is False
+    assert real.maximum_bytes_billed == 100 * 10**9  # default ceiling
+
+
+def test_backfill_bigquery_over_the_cap_refuses_before_running(tmp_path, capsys):
+    backfill = _load_backfill()
+    data_dir = tmp_path / "data"
+    make_data_dir(data_dir, ["requests"])
+    client = _FakeBigQueryClient(_bq_rows(), scan_bytes=2_000_000_000_000)  # 2 TB
+    with pytest.raises(backfill.BigQueryCapExceeded, match="nothing was run"):
+        backfill.backfill_bigquery(data_dir, client=client, now=NOW)
+    assert [q[1].dry_run for q in client.queries] == [True]  # only the dry run was sent
+    assert monthly_of(data_dir, "requests") is None
+    assert "2000.00 GB" in capsys.readouterr().out
+    # an explicit higher ceiling is honoured, and the job carries it
+    backfill.backfill_bigquery(data_dir, client=client, now=NOW, max_bytes=3 * 10**12)
+    assert client.queries[-1][1].maximum_bytes_billed == 3 * 10**12
+
+
+def test_backfill_bigquery_dry_run_only_reports_and_stops(tmp_path, capsys):
+    backfill = _load_backfill()
+    data_dir = tmp_path / "data"
+    make_data_dir(data_dir, ["requests"])
+    client = _FakeBigQueryClient(_bq_rows(), scan_bytes=1_230_000_000)
+    rep = backfill.backfill_bigquery(data_dir, client=client, now=NOW, dry_run_only=True)
+    assert len(client.queries) == 1 and rep.fetched == 0
+    assert "1230000000 bytes (1.23 GB)" in capsys.readouterr().out
+    assert monthly_of(data_dir, "requests") is None
+
+
+def test_bigquery_cli_passes_the_ceiling_and_reports_a_refusal(tmp_path, monkeypatch, capsys):
+    backfill = _load_backfill()
+    seen: dict[str, Any] = {}
+
+    def _fake_backfill(data_dir, **kw):
+        seen.update(kw)
+        if kw["max_bytes"] < 10**9:
+            raise backfill.BigQueryCapExceeded("too big; nothing was run")
+        return backfill.BackfillReport(1, 1, 0, 0, 0.0, 0.0)
+
+    monkeypatch.setattr(backfill, "probe_bigquery",
+                        lambda run_live=False, client=None: backfill.BigQueryProbe("OK", None, "fake"))
+    monkeypatch.setattr(backfill, "backfill_bigquery", _fake_backfill)
+    assert backfill.main(["--data-dir", str(tmp_path), "--bigquery-bulk"]) == 0
+    assert seen["max_bytes"] == 100 * 10**9 and seen["dry_run_only"] is False
+    assert backfill.main(["--data-dir", str(tmp_path), "--bigquery-bulk", "--bigquery-max-gb", "5",
+                          "--bigquery-dry-run"]) == 0
+    assert seen["max_bytes"] == 5 * 10**9 and seen["dry_run_only"] is True
+    assert backfill.main(["--data-dir", str(tmp_path), "--bigquery-bulk", "--bigquery-max-gb", "0.5"]) == 2
+    assert "REFUSED" in capsys.readouterr().out
