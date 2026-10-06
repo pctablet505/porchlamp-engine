@@ -592,6 +592,34 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     for field, (value, conf) in prw_mod.derive_pr_window_fields(prw).items():
         b.set(field, value, src("pr_window", key) if prw is not None else None, prw_at, conf)
 
+    # --- 1.4 GR_14 = D-GATE-5's zero-response share (owner ruling
+    # 2026-10-06: one measurement, per the spec): porchlamp.core.gates.
+    # zero_response_counts over the pr_window envelope at this derivation's
+    # own reference time `now`. D-IN-2 responses and D-IN-1 bot authors are
+    # recomputed from the recorded PR nodes by the function that wrote the
+    # envelope's stored classifications. ---
+    from porchlamp.core import constants as core_constants, gates as core_gates
+    prw_prs = prw.get("prs") if isinstance(prw, dict) else None
+    if isinstance(prw_prs, list):
+        records = [
+            core_gates.GhostRatePR(
+                created_at=pr["createdAt"], is_external=bool(d["is_external"]),
+                is_bot_author=bool(d["is_bot_author"]),
+                first_substantive_response_at=d["first_substantive_response_at"])
+            for pr, d in zip(prw_prs, prw_mod.derive_pr_window(prw_prs))
+            if _parse_dt(pr.get("createdAt")) is not None
+        ]
+        unanswered, gr_n = core_gates.zero_response_counts(records, now)
+        gr_src = src("pr_window", key)
+        b.set("gr14_population_n", gr_n, gr_src, prw_at, "derived")
+        b.set("gr14_ghost_rate", unanswered / gr_n if gr_n else None, gr_src, prw_at, "derived")
+        b.set("gr14_window_start", (now - timedelta(days=core_constants.PR_WINDOW_DAYS)).isoformat(),
+              gr_src, prw_at, "derived")
+        b.set("gr14_window_end", now.isoformat(), gr_src, prw_at, "derived")
+    else:
+        b.missing("gr14_population_n", 0)
+        b.missing("gr14_ghost_rate", None)
+
     # --- Downloads measurement status per ecosystem (D-MISS-1) ---
     try:
         import backfill_downloads as _bdl

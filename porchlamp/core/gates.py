@@ -8,7 +8,9 @@ the snapshot reference time, passed explicitly (D-VER-3: the core owns no
 clock). Every gate is evaluated; the first failing gate in the design's fixed
 order is the ``reason``; a gate whose input is insufficient never fails the
 repo but is recorded in ``GateResult.undecided`` by its decision id
-(``"D-GATE-1"`` .. ``"D-GATE-6"``). D-GATE-6 is routing, not failure: it
+(``"D-GATE-1"`` .. ``"D-GATE-6"``). D-GATE-5 reads the 1.4 ``gr14_ghost_rate`` input, the
+share :func:`zero_response_counts` computed at derive time, so the gate and
+the parameter are one measurement. D-GATE-6 is routing, not failure: it
 passes, routes to the off-platform workflow, or reports
 ``unrated: no_external_workflow``.
 
@@ -31,9 +33,10 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
+from typing import Iterable
 
 from porchlamp.core import constants
-from porchlamp.core.models import FeatureBundle, GateResult, PRWindowEvent
+from porchlamp.core.models import FeatureBundle, GateResult, Measured, PRWindowEvent
 
 #: Decision ids recorded in ``GateResult.undecided`` (02 section 2).
 GATE_1 = "D-GATE-1"  # software project
@@ -283,34 +286,61 @@ class GateEvidence:
             raise ValueError("; ".join(problems))
 
 
-def _zero_substantive_response(event: PRWindowEvent) -> bool:
-    """D-GATE-5 numerator for one PR: no D-IN-2 response within 14 d of opening.
+#: Input id D-GATE-5 reads: 1.4 GR_14 is the same zero-response share, so the
+#: gate and the parameter are one measurement (owner ruling 2026-10-06).
+GHOST_RATE_INPUT_ID: str = "gr14_ghost_rate"
 
-    ``first_human_review_at`` carries the typed-response timestamp (a
-    non-author, non-bot MEMBER/OWNER/COLLABORATOR review or >= 40-character
-    comment); ``None`` means no such response was recorded.
 
-    A MERGE inside the same deadline also counts as a response, even with no
-    review or comment recorded. D-GATE-5 asks whether external contributors
-    are ghosted; merging someone's pull request is the least ambiguous
-    possible answer to that, and a maintainer who reads a small diff and
-    merges it the same hour often leaves no reviewable artefact behind. Left
-    unhandled, the friendliest repositories in the universe -- those merging
-    most external PRs on sight -- would cross the >50% "unanswered" share and
-    be disqualified as ``black_hole``, which is precisely backwards.
+@dataclass(frozen=True)
+class GhostRatePR:
+    """One PR as the D-GATE-5 / 1.4 GR_14 measurement sees it.
 
-    A bare CLOSE is deliberately NOT treated the same way: closing an external
-    PR with no review and no comment is the ghosting behaviour this gate
-    exists to catch, and it already has its own dedicated signal in
-    ``porchlamp.verify.detectors`` (``closed_unread``).
+    Built from the ``pr_window`` envelope (02 section 3 D-IN-4: PRs opened in
+    the trailing 180 d), never from the 30-PR v1 ``pr_events`` sample.
+    ``first_substantive_response_at`` is the D-IN-2 response time: the
+    earliest review (any state) or comment of >= 40 characters by a
+    non-author, non-bot MEMBER/OWNER/COLLABORATOR; ``None`` when there is
+    none. ``is_bot_author`` is D-IN-1 (``__typename == "Bot"``, ``[bot]``
+    suffix, or the exact-match bot login list).
     """
-    created = _parse_iso(event.created_at)
+
+    created_at: str
+    is_external: bool
+    is_bot_author: bool
+    first_substantive_response_at: str | None
+
+
+def zero_response_counts(prs: Iterable[GhostRatePR], now: datetime) -> tuple[int, int]:
+    """``(unanswered, n)`` for D-GATE-5 and 1.4 GR_14 -- the one function
+    both read, so they cannot disagree.
+
+    Population (02 section 2 D-GATE-5, section 4 1.4): external PRs by a
+    non-bot author (D-IN-1), opened in the trailing
+    :data:`constants.PR_WINDOW_DAYS` before ``now`` and at least
+    :data:`GATE5_MIN_AGE_DAYS` old at ``now``. Unanswered: no D-IN-2
+    substantive response within :data:`GATE5_RESPONSE_DEADLINE_DAYS` of
+    opening. A merge is not a response: D-IN-2 defines a substantive
+    response as a maintainer review or a >= 40-character maintainer comment,
+    and neither 1.4 nor D-GATE-5 adds merges to it. ``now`` is the
+    reference time, passed explicitly (D-VER-3).
+    """
+    if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
+        raise ValueError(f"now must be timezone-aware, got {now!r}")
+    window_start = now - timedelta(days=constants.PR_WINDOW_DAYS)
+    youngest = now - timedelta(days=GATE5_MIN_AGE_DAYS)
     deadline = timedelta(days=GATE5_RESPONSE_DEADLINE_DAYS)
-    if event.merged_at is not None and (_parse_iso(event.merged_at) - created) <= deadline:
-        return False
-    if event.first_human_review_at is None:
-        return True
-    return (_parse_iso(event.first_human_review_at) - created) > deadline
+    unanswered = n = 0
+    for pr in prs:
+        if not pr.is_external or pr.is_bot_author:
+            continue
+        created = _parse_iso(pr.created_at)
+        if not window_start <= created <= youngest:
+            continue
+        n += 1
+        response = pr.first_substantive_response_at
+        if response is None or _parse_iso(response) - created > deadline:
+            unanswered += 1
+    return unanswered, n
 
 
 def _has_decided_external_pr(events: tuple[PRWindowEvent, ...], now: datetime) -> bool:
@@ -401,20 +431,15 @@ def evaluate_gates(
     elif evidence.vitality_commits_180d < 1:
         failures.append((4, REASON_STALE))
 
-    # D-GATE-5: not a black hole (windowed denominator, minimum n, D-IN-2
-    # response within 14 d of opening).
-    population = [
-        event
-        for event in events
-        if event.is_external
-        and (now - _parse_iso(event.created_at)) >= timedelta(days=GATE5_MIN_AGE_DAYS)
-    ]
-    if len(population) < GATE5_MIN_N:
+    # D-GATE-5: not a black hole. Reads the 1.4 GR_14 input, which derive
+    # computes with zero_response_counts at its own pinned reference time
+    # from the pr_window envelope: value = the zero-response share, n = the
+    # population. Unmeasured or n below the minimum -> UNDECIDED.
+    ghost = bundle.inputs.get(GHOST_RATE_INPUT_ID)
+    if not isinstance(ghost, Measured) or ghost.n < GATE5_MIN_N:
         undecided.append(GATE_5)
-    else:
-        unanswered = sum(1 for event in population if _zero_substantive_response(event))
-        if unanswered / len(population) > GATE5_MAX_ZERO_RESPONSE_SHARE:
-            failures.append((5, REASON_BLACK_HOLE))
+    elif ghost.value > GATE5_MAX_ZERO_RESPONSE_SHARE:
+        failures.append((5, REASON_BLACK_HOLE))
 
     # D-GATE-6: PR workflow (decided external PR, else off-platform routing,
     # else unrated).

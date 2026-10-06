@@ -1,6 +1,6 @@
 {
   "counts": {
-    "gated": 26,
+    "gated": 18,
     "persona_visible": {
       "ai_assisted": 0,
       "balanced": 0,
@@ -9,7 +9,7 @@
       "senior_systems": 0
     },
     "rated": 0,
-    "unrated": 24
+    "unrated": 32
   },
   "document": "porchlamp-fixture-snapshot-expected",
   "rank_order": [
@@ -93,29 +93,29 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "a-h/templ",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "abel533/Mapper",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -184,16 +184,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "alexellis/k3sup",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -210,16 +210,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "alibaba/canal",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -418,29 +418,29 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "brunodev85/winlator",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "bytecodealliance/rustix",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -509,16 +509,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "charmbracelet/lipgloss",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -639,16 +639,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "black_hole",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "dtolnay/anyhow",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": null
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -716,6 +716,6 @@
       "unrated_reason": "unrated: off_platform_routed"
     }
   ],
-  "records_hash": "b52ccd6698e360043f29a4a98a84d61e7f46545c73facf0a3996c2fcac13653b",
+  "records_hash": "fd6b1e5e363a4a9395c5b76586977528ca96ee53804e3ade924bad910c1572a0",
   "version": 1
 }

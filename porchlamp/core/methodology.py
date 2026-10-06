@@ -361,11 +361,14 @@ def _gate_entries() -> list[GateEntry]:
             "id": _gates.GATE_5,
             "name": "Not a black hole",
             "criterion": (
-                "over the trailing window, the share of external PRs at least "
-                "the minimum age with zero substantive human response within "
-                "the response deadline must not exceed the ceiling (a minimum "
-                "population is required, else the gate is UNDECIDED rather "
-                "than failed)"
+                "over external PRs by non-bot authors (D-IN-1) opened in the "
+                "trailing PR window and at least the minimum age, the share with "
+                "no substantive human response (D-IN-2: a review, or a substantive "
+                "comment, by a non-author, non-bot member, owner or collaborator; a "
+                "merge alone is not a response) within the response deadline of "
+                "opening must not exceed the ceiling (a minimum population is "
+                "required, else the gate is UNDECIDED rather than failed); the same "
+                "share is the gr14_ghost_rate parameter"
             ),
             "reasons": (_gates.REASON_BLACK_HOLE,),
             "cutoffs": {

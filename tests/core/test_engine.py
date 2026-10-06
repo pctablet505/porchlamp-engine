@@ -240,7 +240,8 @@ def test_engine_end_to_end_every_field() -> None:
     assert record.gate.eligible is True
     assert record.gate.reason is None
     assert record.gate.routed is None
-    assert record.gate.undecided == ("D-GATE-5",)
+    # D-GATE-5 reads the fixture's measured gr14 (0 of 10 unanswered): decided.
+    assert record.gate.undecided == ()
 
     assert set(record.params) == set(constants.PARAM_INPUT_IDS)
     for input_id, param_score in record.params.items():

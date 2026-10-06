@@ -1629,6 +1629,40 @@ def _resolve_ttm_p90_hours(ctx: _V1Ctx) -> Measured | Unmeasured:
                      fetched_at=fetched_at)
 
 
+def _resolve_gr14_ghost_rate(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """1.4 GR_14, which D-GATE-5 also reads (owner ruling 2026-10-06). The
+    share and its population ``n`` are computed at derive time by
+    ``porchlamp.core.gates.zero_response_counts`` at derive's own reference
+    time (``gr14_window_end``), from the pr_window envelope; this row only
+    carries them. ``n`` below the minimum stays ``Measured`` with its true
+    ``n``: scoring reports ``insufficient_n`` and the gate is UNDECIDED.
+    ``n == 0`` has no share to carry and is ``insufficient_n`` here."""
+    path, _data, fetched_at = _pr_window_envelope(ctx)
+    if path is None:
+        return Unmeasured(reason="collector_failure", detail=_PR_WINDOW_UNRESOLVABLE_DETAIL)
+    n = ctx.meta.get("gr14_population_n")
+    if ctx.confidence.get("gr14_population_n") != "derived" or not _is_count(n):
+        return Unmeasured(reason="collector_failure",
+                           detail="derive recorded no ghost-rate population (re-derive with this tree)")
+    min_n = constants.PARAM_MIN_N["gr14_ghost_rate"]
+    if n == 0:
+        return Unmeasured(reason="insufficient_n",
+                           detail=f"0 external non-bot PRs >= 14 d old in the window, need >= {min_n}")
+    value = ctx.meta.get("gr14_ghost_rate")
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return Unmeasured(reason="collector_failure", detail=f"gr14_ghost_rate is not numeric: {value!r}")
+    source_hash = _envelope_hash(path)
+    relative = _relative_source(path, ctx.raw_root)
+    ctx.referenced[relative] = source_hash
+    return Measured(value=float(value), n=n, window_start=_valid_iso_string(ctx.meta.get("gr14_window_start")),
+                     window_end=_valid_iso_string(ctx.meta.get("gr14_window_end")), method="primary",
+                     source=relative, source_hash=source_hash, fetched_at=fetched_at)
+
+
+def _is_count(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 def _resolved_source_paths(source_field: Any, raw_root: Union[Path, str, None]) -> list[Path]:
     """Resolve a provenance ``source`` *list* to the subset of entries that
     exist as envelopes; ``[]`` when ``source_field`` is not a non-empty list.
@@ -1954,7 +1988,7 @@ def _unmapped(detail: str) -> InputResolver:
 #: | ttfhr_hours | meta.pr_window_ttfhr_median_hours + .pr_window_external_measured_latency_count | no pr_window envelope -> collector_failure; n<10 -> insufficient_n |
 #: | dr90_decision_rate | raw pr_window envelope: derived[].is_external joined with prs[].{createdAt,mergedAt,closedAt} by number, cohort [anchor-180d,anchor-90d) (D-IN-4 amendment) | no envelope -> collector_failure; cohort n<10 -> insufficient_n; malformed/missing createdAt excluded and named in that detail |
 #: | mr_first_rate | meta.mr_first_rate + .mr_first_pr_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
-#: | gr14_ghost_rate | (none landed) | collector_failure: needs a snapshot as_of the v1-to-v2 loader is never given |
+#: | gr14_ghost_rate | meta.gr14_ghost_rate + .gr14_population_n + .gr14_window_start/_end, computed by derive with porchlamp.core.gates.zero_response_counts (also D-GATE-5's input) | no pr_window envelope -> collector_failure; not derived by this tree -> collector_failure; n=0 -> insufficient_n; n<10 -> insufficient_n at scoring with the true n |
 #: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number | no envelope -> collector_failure; n<5 -> insufficient_n |
 #: | dependents_deduped | meta.dependents_count when confidence=="derived" (dependents hook); meta.ecosystem gates it | ecosystem=="systems" -> not_applicable (D-MISS-5); verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap, maven detail names the uncollected pom.xml, unmapped ecosystem detail names it |
 #: | openssf_criticality | meta.openssf_signals, ten raw Pike signals; C computed locally | confidence missing, or any signal absent -> third_party_gap (never a partial score) |
@@ -1977,11 +2011,7 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
         unset_detail="needs W1-4 author history; the v1 pipeline collected none",
         count_unit="PRs",
     ),
-    "gr14_ghost_rate": _unmapped(
-        "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no "
-        "as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) "
-        "-- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership"
-    ),
+    "gr14_ghost_rate": _resolve_gr14_ghost_rate,
     "ttm_p90_hours": _resolve_ttm_p90_hours,
     "dependents_deduped": _resolve_dependents_deduped,
     "openssf_criticality": _resolve_openssf_criticality,

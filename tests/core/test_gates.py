@@ -15,6 +15,7 @@ from porchlamp.core import constants
 from porchlamp.core.models import (
     Cohorts,
     FeatureBundle,
+    Measured,
     PRWindow,
     PRWindowEvent,
     RepoIdentity,
@@ -85,13 +86,33 @@ def make_event(
     )
 
 
-def make_bundle(events: list[PRWindowEvent], **repo_overrides: Any) -> FeatureBundle:
+def ghost_input(unanswered: int, n: int) -> Measured:
+    """The 1.4 ``gr14_ghost_rate`` input D-GATE-5 reads: share and population."""
+    return Measured(
+        value=unanswered / n, n=n, window_start=_iso(_ago(180)), window_end=_iso(NOW),
+        method="primary", source="raw/pr_window/org__alpha.json", source_hash=_HASH,
+        fetched_at=_iso(NOW),
+    )
+
+
+#: A clean D-GATE-5: 0 of 10 external PRs unanswered.
+HEALTHY_GHOST = ghost_input(0, 10)
+
+
+def make_bundle(
+    events: list[PRWindowEvent], *, ghost: Measured | None = None, **repo_overrides: Any
+) -> FeatureBundle:
     """A valid bundle; the window bounds are null for an empty event list
-    (FeatureBundle invariant: bounds are set exactly when events are present)."""
+    (FeatureBundle invariant: bounds are set exactly when events are present).
+    ``ghost`` is the ``gr14_ghost_rate`` input (D-GATE-5); ``None`` leaves it
+    unmeasured, so D-GATE-5 is UNDECIDED."""
+    inputs = make_inputs()
+    if ghost is not None:
+        inputs["gr14_ghost_rate"] = ghost
     bundle = FeatureBundle(
         schema_version=constants.SCHEMA_VERSION,
         repo=make_repo(**repo_overrides),
-        inputs=make_inputs(),
+        inputs=inputs,
         pr_window=PRWindow(
             start=_iso(_ago(180)) if events else None,
             end=_iso(NOW) if events else None,
@@ -119,8 +140,8 @@ def healthy_evidence() -> Any:
 
 
 def healthy_events() -> list[PRWindowEvent]:
-    """Ten answered, merged external PRs: D-GATE-5 is clean (0/10) and
-    D-GATE-6 sees a decided external PR, so no gate records UNDECIDED."""
+    """Ten answered, merged external PRs: D-GATE-6 sees a decided external
+    PR. (D-GATE-5 reads the gr14 input instead: pass ``HEALTHY_GHOST``.)"""
     return [
         make_event(100 + i, 30, merged_days_after=2, closed_days_after=2, first_human_review_days_after=1)
         for i in range(10)
@@ -128,13 +149,12 @@ def healthy_events() -> list[PRWindowEvent]:
 
 
 def recent_decided_external() -> PRWindowEvent:
-    """An external PR decided three days ago: satisfies D-GATE-6 without
-    entering the D-GATE-5 population (younger than 14 days)."""
+    """An external PR decided three days ago: satisfies D-GATE-6."""
     return make_event(900, 3, merged_days_after=2, closed_days_after=2, first_human_review_days_after=1)
 
 
 # --------------------------------------------------------------------------- #
-# D-GATE-5: black hole with windowed denominator and minimum n                #
+# D-GATE-5 / 1.4 GR_14: one zero-response share, read by the gate as gr14     #
 # --------------------------------------------------------------------------- #
 
 
@@ -182,42 +202,77 @@ def test_v1_semantics_says_black_hole_when_denominator_is_open_only() -> None:
     assert result.is_black_hole is True
 
 
-def test_windowed_denominator_counts_merged_prs() -> None:
-    """Oracle 3: 2 stale open + 28 merged in the window -> 2/30, not a black hole."""
+def ghost_pr(
+    created_days_ago: float,
+    *,
+    external: bool = True,
+    bot: bool = False,
+    response_days_after: float | None = None,
+) -> Any:
     from porchlamp.core import gates
 
-    events = [make_event(1000, 30), make_event(1001, 32)]
-    events += [
-        make_event(2000 + i, 20 + i, merged_days_after=2, closed_days_after=2, first_human_review_days_after=1)
-        for i in range(28)
-    ]
-    result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
-    assert result.eligible is True
-    assert result.reason is None
-    assert result.undecided == ()
+    created = _ago(created_days_ago)
+    return gates.GhostRatePR(
+        created_at=_iso(created),
+        is_external=external,
+        is_bot_author=bot,
+        first_substantive_response_at=(
+            _iso(created + datetime.timedelta(days=response_days_after))
+            if response_days_after is not None else None
+        ),
+    )
 
 
-def test_nine_external_prs_at_least_14_days_old_is_undecided_not_black_hole() -> None:
-    """Oracle 1: n = 9 < 10 -> UNDECIDED, recorded, and never a black hole."""
+def test_population_excludes_bot_authored_prs() -> None:
+    """D-IN-1: 6 unanswered + 4 answered human PRs, plus 5 unanswered bot
+    PRs -> 6/10; counting the bots would read 11/15."""
     from porchlamp.core import gates
 
-    events = [make_event(10 + i, 30) for i in range(9)] + [recent_decided_external()]
-    result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
-    assert result.eligible is True
-    assert result.reason is None
-    assert result.undecided == ("D-GATE-5",)
+    prs = [ghost_pr(30) for _ in range(6)] + [ghost_pr(30, response_days_after=1) for _ in range(4)]
+    prs += [ghost_pr(30, bot=True) for _ in range(5)]
+    assert gates.zero_response_counts(prs, NOW) == (6, 10)
+
+
+def test_population_is_the_trailing_180_day_window() -> None:
+    """Opened 179 d ago: in. Opened 181 d ago: out (02 section 3 D-IN-4)."""
+    from porchlamp.core import gates
+
+    assert gates.zero_response_counts([ghost_pr(179), ghost_pr(181)], NOW) == (1, 1)
+
+
+def test_population_needs_14_days_of_age_at_now() -> None:
+    """Exactly 14 d old: in. 13.5 d old: out -- its deadline has not passed."""
+    from porchlamp.core import gates
+
+    assert gates.zero_response_counts([ghost_pr(14), ghost_pr(13.5)], NOW) == (1, 1)
+
+
+def test_internal_prs_do_not_enter_the_population() -> None:
+    from porchlamp.core import gates
+
+    assert gates.zero_response_counts([ghost_pr(30, external=False) for _ in range(12)], NOW) == (0, 0)
+
+
+def test_response_deadline_is_14_days_after_opening() -> None:
+    """A D-IN-2 response at day 14 counts; at day 15 it does not."""
+    from porchlamp.core import gates
+
+    prs = [ghost_pr(30, response_days_after=14), ghost_pr(30, response_days_after=15)]
+    assert gates.zero_response_counts(prs, NOW) == (1, 2)
+
+
+def test_zero_response_counts_requires_an_aware_now() -> None:
+    from porchlamp.core import gates
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        gates.zero_response_counts([ghost_pr(30)], NOW.replace(tzinfo=None))
 
 
 def test_ten_prs_six_unanswered_is_black_hole() -> None:
-    """Oracle 2: 6 of 10 external PRs opened in the window lack a substantive
-    response within 14 days -> 0.60 > 0.50, gated black_hole."""
+    """Oracle 2: gr14 = 6/10 = 0.60 > 0.50, gated black_hole."""
     from porchlamp.core import gates
 
-    events = [make_event(10 + i, 30) for i in range(6)]
-    events += [
-        make_event(20 + i, 30, first_human_review_days_after=1) for i in range(4)
-    ]
-    result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
+    result = gates.evaluate_gates(make_bundle(healthy_events(), ghost=ghost_input(6, 10)), healthy_evidence(), NOW)
     assert result.eligible is False
     assert result.reason == "black_hole"
     assert result.undecided == ()
@@ -227,49 +282,28 @@ def test_share_exactly_half_is_not_black_hole() -> None:
     """Boundary: 5 of 10 unanswered is exactly 0.50, which the design allows."""
     from porchlamp.core import gates
 
-    events = [make_event(10 + i, 30) for i in range(5)]
-    events += [make_event(20 + i, 30, first_human_review_days_after=1) for i in range(5)]
-    events += [recent_decided_external()]
-    result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
+    result = gates.evaluate_gates(make_bundle(healthy_events(), ghost=ghost_input(5, 10)), healthy_evidence(), NOW)
     assert result.eligible is True
     assert result.reason is None
     assert "D-GATE-5" not in result.undecided
 
 
-def test_prs_younger_than_14_days_do_not_enter_the_population() -> None:
-    """9 stale + 4 recent external PRs: the recent ones are not >= 14 d old, so
-    n stays 9 and the gate is UNDECIDED rather than a black hole."""
+def test_nine_prs_is_undecided_not_black_hole() -> None:
+    """Oracle 1: n = 9 < 10 -> UNDECIDED even at a 9/9 share, never a black hole."""
     from porchlamp.core import gates
 
-    events = [make_event(10 + i, 30) for i in range(9)]
-    events += [make_event(50 + i, 3, first_human_review_days_after=1) for i in range(4)]
-    events += [recent_decided_external()]
-    result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
+    result = gates.evaluate_gates(make_bundle(healthy_events(), ghost=ghost_input(9, 9)), healthy_evidence(), NOW)
     assert result.eligible is True
     assert result.reason is None
     assert result.undecided == ("D-GATE-5",)
 
 
-def test_internal_prs_do_not_enter_the_black_hole_population() -> None:
-    """The gate measures external PRs only: 12 stale internal PRs leave n = 0."""
+def test_unmeasured_ghost_rate_is_undecided() -> None:
     from porchlamp.core import gates
 
-    events = [make_event(10 + i, 30, is_external=False) for i in range(12)]
-    events += [recent_decided_external()]
-    result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
+    result = gates.evaluate_gates(make_bundle(healthy_events()), healthy_evidence(), NOW)
     assert result.eligible is True
-    assert result.reason is None
     assert result.undecided == ("D-GATE-5",)
-
-
-def test_review_after_14_days_does_not_count_as_a_response() -> None:
-    """A response at day 15 is outside the 14-day deadline: 10 of 10 unanswered."""
-    from porchlamp.core import gates
-
-    events = [make_event(10 + i, 30, first_human_review_days_after=15) for i in range(10)]
-    result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
-    assert result.eligible is False
-    assert result.reason == "black_hole"
 
 
 # --------------------------------------------------------------------------- #
@@ -282,7 +316,7 @@ def test_non_software_when_no_manifest_at_depth_two() -> None:
 
     evidence = healthy_evidence()
     result = gates.evaluate_gates(
-        make_bundle(healthy_events()),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST),
         gates.GateEvidence(
             manifest_found=False,
             is_curated_anchor=evidence.is_curated_anchor,
@@ -303,7 +337,7 @@ def test_non_software_undecided_when_tree_unknown() -> None:
 
     evidence = healthy_evidence()
     result = gates.evaluate_gates(
-        make_bundle(healthy_events()),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST),
         gates.GateEvidence(
             manifest_found=None,
             is_curated_anchor=evidence.is_curated_anchor,
@@ -324,7 +358,7 @@ def test_curated_anchor_bypasses_the_manifest_gate() -> None:
 
     evidence = healthy_evidence()
     result = gates.evaluate_gates(
-        make_bundle(healthy_events()),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST),
         gates.GateEvidence(
             manifest_found=None,
             is_curated_anchor=True,
@@ -343,7 +377,7 @@ def test_curated_anchor_bypasses_the_manifest_gate() -> None:
 def test_archived_repo_is_gated() -> None:
     from porchlamp.core import gates
 
-    result = gates.evaluate_gates(make_bundle(healthy_events(), archived=True), healthy_evidence(), NOW)
+    result = gates.evaluate_gates(make_bundle(healthy_events(), ghost=HEALTHY_GHOST, archived=True), healthy_evidence(), NOW)
     assert result.eligible is False
     assert result.reason == "archived"
 
@@ -352,7 +386,7 @@ def test_mirror_repo_is_gated() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events(), mirror_url="https://github.com/upstream/alpha.git"),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, mirror_url="https://github.com/upstream/alpha.git"),
         healthy_evidence(),
         NOW,
     )
@@ -364,7 +398,7 @@ def test_fork_is_gated_when_parent_is_in_the_universe() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events(), fork=True),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, fork=True),
         gates.GateEvidence(
             manifest_found=True,
             is_curated_anchor=False,
@@ -383,7 +417,7 @@ def test_fork_is_allowed_when_parent_is_absent_from_the_universe() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events(), fork=True),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, fork=True),
         gates.GateEvidence(
             manifest_found=True,
             is_curated_anchor=False,
@@ -403,7 +437,7 @@ def test_fork_is_undecided_when_parent_membership_is_unknown() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events(), fork=True),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, fork=True),
         healthy_evidence(),
         NOW,
     )
@@ -416,7 +450,7 @@ def test_unlicensed_when_spdx_undetermined_and_no_license_file() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events(), license_spdx="NOASSERTION"),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, license_spdx="NOASSERTION"),
         gates.GateEvidence(
             manifest_found=True,
             is_curated_anchor=False,
@@ -435,7 +469,7 @@ def test_unlicensed_when_no_spdx_recorded_and_no_license_file() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events(), license_spdx=None),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, license_spdx=None),
         gates.GateEvidence(
             manifest_found=True,
             is_curated_anchor=False,
@@ -454,7 +488,7 @@ def test_undetermined_spdx_with_a_license_file_passes() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events(), license_spdx="OTHER"),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, license_spdx="OTHER"),
         gates.GateEvidence(
             manifest_found=True,
             is_curated_anchor=False,
@@ -474,7 +508,7 @@ def test_license_file_unknown_is_undecided_not_a_failure() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events(), license_spdx="NOASSERTION"),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, license_spdx="NOASSERTION"),
         healthy_evidence(),
         NOW,
     )
@@ -487,7 +521,7 @@ def test_recorded_non_osi_spdx_id_is_gated_unlicensed() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events(), license_spdx="BUSL-1.1"),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, license_spdx="BUSL-1.1"),
         healthy_evidence(),
         NOW,
     )
@@ -499,7 +533,7 @@ def test_osi_approved_spdx_id_passes() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events(), license_spdx="Apache-2.0"),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, license_spdx="Apache-2.0"),
         healthy_evidence(),
         NOW,
     )
@@ -512,7 +546,7 @@ def test_stale_when_zero_non_bot_vitality_commits() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events()),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST),
         gates.GateEvidence(
             manifest_found=True,
             is_curated_anchor=False,
@@ -531,7 +565,7 @@ def test_vitality_unknown_is_undecided_not_stale() -> None:
     from porchlamp.core import gates
 
     result = gates.evaluate_gates(
-        make_bundle(healthy_events()),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST),
         gates.GateEvidence(
             manifest_found=True,
             is_curated_anchor=False,
@@ -622,7 +656,7 @@ def test_off_platform_marker_unknown_is_undecided() -> None:
     assert result.eligible is True
     assert result.reason is None
     assert result.routed is None
-    # D-GATE-6 records UNDECIDED; D-GATE-5 does as well (no PR is >= 14 d old).
+    # D-GATE-6 records UNDECIDED; D-GATE-5 does as well (gr14 unmeasured).
     assert result.undecided == ("D-GATE-5", "D-GATE-6")
 
 
@@ -637,7 +671,7 @@ def test_a_recent_decided_external_pr_satisfies_the_workflow_gate() -> None:
     assert result.eligible is True
     assert result.reason is None
     assert result.routed is None
-    # No PR is >= 14 d old yet, so D-GATE-5 records UNDECIDED while D-GATE-6
+    # gr14 is unmeasured, so D-GATE-5 records UNDECIDED while D-GATE-6
     # passes on the recent decision.
     assert result.undecided == ("D-GATE-5",)
 
@@ -648,12 +682,13 @@ def test_a_recent_decided_external_pr_satisfies_the_workflow_gate() -> None:
 
 
 def test_all_gates_are_evaluated_and_first_failure_wins() -> None:
-    """Archived (gate 2) plus 9 stale PRs (gate 5 UNDECIDED): the reason is the
-    first failure, but gate 5 is still evaluated and recorded."""
+    """Archived (gate 2) plus a 9-PR ghost-rate population (gate 5 UNDECIDED):
+    the reason is the first failure, but gate 5 is still evaluated and recorded."""
     from porchlamp.core import gates
 
     events = [make_event(10 + i, 30) for i in range(9)]
-    result = gates.evaluate_gates(make_bundle(events, archived=True), healthy_evidence(), NOW)
+    result = gates.evaluate_gates(
+        make_bundle(events, ghost=ghost_input(9, 9), archived=True), healthy_evidence(), NOW)
     assert result.eligible is False
     assert result.reason == "archived"
     assert result.undecided == ("D-GATE-5",)
@@ -664,7 +699,7 @@ def test_healthy_repo_passes_every_gate() -> None:
     passes every gate comes back fully eligible with nothing recorded."""
     from porchlamp.core import gates
 
-    result = gates.evaluate_gates(make_bundle(healthy_events()), healthy_evidence(), NOW)
+    result = gates.evaluate_gates(make_bundle(healthy_events(), ghost=HEALTHY_GHOST), healthy_evidence(), NOW)
     assert result.eligible is True
     assert result.reason is None
     assert result.routed is None
@@ -676,7 +711,7 @@ def test_naive_reference_time_is_rejected() -> None:
 
     with pytest.raises(ValueError):
         gates.evaluate_gates(
-            make_bundle(healthy_events()), healthy_evidence(), NOW.replace(tzinfo=None)
+            make_bundle(healthy_events(), ghost=HEALTHY_GHOST), healthy_evidence(), NOW.replace(tzinfo=None)
         )
 
 
@@ -744,7 +779,7 @@ def test_spdx_compound_expression_boolean_precedence_and_parentheses() -> None:
 
     # Verify through evaluate_gates as well
     res_fail = gates.evaluate_gates(
-        make_bundle(healthy_events(), license_spdx="(MIT OR Apache-2.0) AND Proprietary-1.0"),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, license_spdx="(MIT OR Apache-2.0) AND Proprietary-1.0"),
         healthy_evidence(),
         NOW,
     )
@@ -752,7 +787,7 @@ def test_spdx_compound_expression_boolean_precedence_and_parentheses() -> None:
     assert res_fail.reason == "unlicensed"
 
     res_pass = gates.evaluate_gates(
-        make_bundle(healthy_events(), license_spdx="(MIT)OR(Proprietary-1.0)"),
+        make_bundle(healthy_events(), ghost=HEALTHY_GHOST, license_spdx="(MIT)OR(Proprietary-1.0)"),
         healthy_evidence(),
         NOW,
     )
