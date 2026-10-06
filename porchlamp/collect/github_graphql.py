@@ -7,7 +7,9 @@ derives the per-PR responsiveness inputs of ``02`` section 4:
 * D-IN-2 — ``first_substantive_response_at`` / ``ttfhr_hours`` (parameter
   1.1): the earliest review (any state) or comment of at least 40 characters
   posted by a non-author, non-bot account whose ``authorAssociation`` is
-  ``MEMBER``, ``OWNER`` or ``COLLABORATOR``;
+  ``MEMBER``, ``OWNER`` or ``COLLABORATOR``, or that merged at least one PR
+  in the same window (``mergedBy``; owner ruling 2026-10-06: org membership
+  can be private, so a maintainer can show as ``CONTRIBUTOR``);
 * 02 §4.3 — ``substantive_review``: at least one non-bot review with inline
   comments (``comments.totalCount >= 1``) or a review body of at least 80
   characters;
@@ -74,8 +76,11 @@ EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset(
     {"NONE", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR", "CONTRIBUTOR"})
 
 #: The windowed-PR query: PRs in all three states, newest first, with the
-#: typed actors (``__typename``), reviews, issue-style comments and the
+#: typed actors (``__typename``), who merged each PR (``mergedBy``, the
+#: window's mergers set for D-IN-2), reviews, issue-style comments and the
 #: review-thread total. ``rateLimit.cost`` measures the page's point cost.
+#: Envelopes recorded before ``mergedBy`` was requested lack the key; their
+#: mergers set is empty and D-IN-2 is association-only, as it was.
 PR_WINDOW_QUERY: str = (
     "query PrWindow($owner: String!, $name: String!, $first: Int, $after: String) {"
     " rateLimit { cost }"
@@ -83,7 +88,7 @@ PR_WINDOW_QUERY: str = (
     " pullRequests(states: [OPEN, MERGED, CLOSED], first: $first, after: $after,"
     " orderBy: {field: CREATED_AT, direction: DESC}) {"
     " pageInfo { hasNextPage endCursor }"
-    " nodes { number createdAt closedAt mergedAt state"
+    " nodes { number createdAt closedAt mergedAt state mergedBy { login }"
     " author { __typename login ... on User { createdAt } } authorAssociation"
     " reviews(first: 10) { nodes { author { __typename login } state body createdAt"
     " authorAssociation comments { totalCount } } }"
@@ -171,9 +176,25 @@ def _association(value: Any) -> str:
     return str(value or "").upper()
 
 
+def window_mergers(prs: Sequence[dict]) -> frozenset[str]:
+    """The lower-cased logins that merged at least one PR in a recorded
+    window (``mergedBy.login``). Empty for envelopes recorded before the
+    query asked for ``mergedBy``."""
+    out: set[str] = set()
+    for pr in prs:
+        merged_by = pr.get("mergedBy")
+        login = merged_by.get("login") if isinstance(merged_by, dict) else None
+        if login:
+            out.add(str(login).lower())
+    return frozenset(out)
+
+
 def _is_maintainer(login: Any, association: Any, author_login: str,
-                   typename: Any = None) -> bool:
-    """D-IN-2 responder: non-bot, not the PR author, maintainer association.
+                   typename: Any = None, mergers: frozenset[str] = frozenset()) -> bool:
+    """D-IN-2 responder: non-bot, not the PR author, and a maintainer: a
+    MEMBER/OWNER/COLLABORATOR association, or a login in ``mergers`` (the
+    window's :func:`window_mergers`; owner ruling 2026-10-06 -- merging
+    needs write access, whatever the association GitHub shows).
 
     ``typename`` is the actor's GraphQL ``__typename``. It is the
     authoritative bot signal (D-IN-1) -- a ``Bot`` node whose login does not
@@ -186,7 +207,7 @@ def _is_maintainer(login: Any, association: Any, author_login: str,
         return False
     if low and low == author_login:
         return False
-    return _association(association) in MAINTAINER_ASSOCIATIONS
+    return _association(association) in MAINTAINER_ASSOCIATIONS or (bool(low) and low in mergers)
 
 
 # --------------------------------------------------------------------------- #
@@ -201,13 +222,15 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
     ``number``, ``is_external``, ``is_bot_author``, ``decided``, ``merged``,
     ``first_substantive_response_at`` / ``_kind``, ``ttfhr_hours`` and
     ``substantive_review``. A response candidate is a maintainer
-    (D-IN-2) review in any state or a comment of at least 40 characters,
-    never the PR author and never a bot; ``ttfhr_hours`` is the opening-to-
+    (D-IN-2, :func:`_is_maintainer` with the window's
+    :func:`window_mergers`) review in any state or a comment of at least 40
+    characters, never the PR author and never a bot; ``ttfhr_hours`` is the opening-to-
     response span in hours (None when there is no candidate or the recorded
     response predates the opening). ``substantive_review`` (02 §4.3) is any
     review with 1+ inline comments or an 80+ character body, by someone who
     is neither a bot nor the PR's own author.
     """
+    mergers = window_mergers(prs)
     out: list[dict] = []
     for pr in prs:
         author = pr.get("author") or {}
@@ -221,7 +244,7 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
                 raw_author = raw.get("author") or {}
                 ok = _is_maintainer(
                     raw_author.get("login"), raw.get("authorAssociation"),
-                    author_login, raw_author.get("__typename"))
+                    author_login, raw_author.get("__typename"), mergers)
                 if kind == "comment":
                     ok = ok and len(str(raw.get("bodyText") or "")) >= SUBSTANTIVE_COMMENT_CHARS
                 if not ok:

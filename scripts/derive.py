@@ -597,7 +597,10 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # zero_response_counts over the pr_window envelope at this derivation's
     # own reference time `now`. D-IN-2 responses and D-IN-1 bot authors are
     # recomputed from the recorded PR nodes by the function that wrote the
-    # envelope's stored classifications. ---
+    # envelope's stored classifications. A merge within the deadline also
+    # answers (mergedAt), and the 14-d age is judged at min(now, the time
+    # GitHub was read): the earlier of the envelope's fetched_at and its
+    # window_anchor (rulings 2026-10-06). ---
     from porchlamp.core import constants as core_constants, gates as core_gates
     prw_prs = prw.get("prs") if isinstance(prw, dict) else None
     if isinstance(prw_prs, list):
@@ -605,11 +608,14 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
             core_gates.GhostRatePR(
                 created_at=pr["createdAt"], is_external=bool(d["is_external"]),
                 is_bot_author=bool(d["is_bot_author"]),
-                first_substantive_response_at=d["first_substantive_response_at"])
+                first_substantive_response_at=d["first_substantive_response_at"],
+                merged_at=pr["mergedAt"] if _parse_dt(pr.get("mergedAt")) is not None else None)
             for pr, d in zip(prw_prs, prw_mod.derive_pr_window(prw_prs))
             if _parse_dt(pr.get("createdAt")) is not None
         ]
-        unanswered, gr_n = core_gates.zero_response_counts(records, now)
+        read_times = [t for t in (_parse_dt(prw_at), _parse_dt(prw.get("window_anchor"))) if t is not None]
+        unanswered, gr_n = core_gates.zero_response_counts(
+            records, now, observed_at=min(read_times) if read_times else None)
         gr_src = src("pr_window", key)
         b.set("gr14_population_n", gr_n, gr_src, prw_at, "derived")
         b.set("gr14_ghost_rate", unanswered / gr_n if gr_n else None, gr_src, prw_at, "derived")

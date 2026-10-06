@@ -252,10 +252,10 @@ def test_gate_5_does_not_read_the_v1_pr_events_sample() -> None:
     bots included, any first review as the response). Twenty unanswered,
     bare-closed external events with gr14 unmeasured: UNDECIDED, not gated.
 
-    This replaces the A7 merge-on-sight regression: per the spec text a
-    merge is not a D-IN-2 substantive response (02 section 3 D-IN-2, section
-    4 1.4), so merges no longer exempt a PR; see ``tests/derive/
-    test_ghost_rate.py`` for the derive-time population and response rules.
+    The A7 merge-on-sight rule now lives in the measurement the gate reads:
+    a merge within 14 d of opening answers a PR (owner ruling 2026-10-06),
+    see ``tests/core/test_gates.py`` and ``tests/derive/test_ghost_rate.py``
+    for the derive-time population and response rules.
     """
     events = [make_event(100 + i, 30, closed_days_after=1) for i in range(20)]
     result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)

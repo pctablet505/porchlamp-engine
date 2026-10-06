@@ -299,8 +299,11 @@ class GhostRatePR:
     the trailing 180 d), never from the 30-PR v1 ``pr_events`` sample.
     ``first_substantive_response_at`` is the D-IN-2 response time: the
     earliest review (any state) or comment of >= 40 characters by a
-    non-author, non-bot MEMBER/OWNER/COLLABORATOR; ``None`` when there is
-    none. ``is_bot_author`` is D-IN-1 (``__typename == "Bot"``, ``[bot]``
+    non-author, non-bot maintainer -- MEMBER/OWNER/COLLABORATOR, or an
+    account that merged a PR in the same window (owner ruling 2026-10-06,
+    ``porchlamp.collect.github_graphql.derive_pr_window``); ``None`` when
+    there is none. ``merged_at`` is the PR's ``mergedAt`` (``None`` when not
+    merged). ``is_bot_author`` is D-IN-1 (``__typename == "Bot"``, ``[bot]``
     suffix, or the exact-match bot login list).
     """
 
@@ -308,26 +311,35 @@ class GhostRatePR:
     is_external: bool
     is_bot_author: bool
     first_substantive_response_at: str | None
+    merged_at: str | None = None
 
 
-def zero_response_counts(prs: Iterable[GhostRatePR], now: datetime) -> tuple[int, int]:
+def zero_response_counts(prs: Iterable[GhostRatePR], now: datetime,
+                         observed_at: datetime | None = None) -> tuple[int, int]:
     """``(unanswered, n)`` for D-GATE-5 and 1.4 GR_14 -- the one function
     both read, so they cannot disagree.
 
     Population (02 section 2 D-GATE-5, section 4 1.4): external PRs by a
     non-bot author (D-IN-1), opened in the trailing
     :data:`constants.PR_WINDOW_DAYS` before ``now`` and at least
-    :data:`GATE5_MIN_AGE_DAYS` old at ``now``. Unanswered: no D-IN-2
-    substantive response within :data:`GATE5_RESPONSE_DEADLINE_DAYS` of
-    opening. A merge is not a response: D-IN-2 defines a substantive
-    response as a maintainer review or a >= 40-character maintainer comment,
-    and neither 1.4 nor D-GATE-5 adds merges to it. ``now`` is the
-    reference time, passed explicitly (D-VER-3).
+    :data:`GATE5_MIN_AGE_DAYS` old at ``min(now, observed_at)``.
+    ``observed_at`` is when GitHub was read (the envelope's fetch time): a PR
+    observed for less than the minimum age could still have been answered
+    in time after the read, so it is not judged (lead ruling 2026-10-06);
+    ``None`` judges age at ``now``. Unanswered: no D-IN-2 substantive
+    response and no merge within :data:`GATE5_RESPONSE_DEADLINE_DAYS` of
+    opening (owner ruling 2026-10-06: a merge within the deadline is a
+    response, "no human reply, review or merge"). ``now`` is the reference
+    time, passed explicitly (D-VER-3).
     """
     if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
         raise ValueError(f"now must be timezone-aware, got {now!r}")
+    if observed_at is not None and (observed_at.tzinfo is None
+                                    or observed_at.tzinfo.utcoffset(observed_at) is None):
+        raise ValueError(f"observed_at must be timezone-aware, got {observed_at!r}")
+    age_reference = now if observed_at is None else min(now, observed_at)
     window_start = now - timedelta(days=constants.PR_WINDOW_DAYS)
-    youngest = now - timedelta(days=GATE5_MIN_AGE_DAYS)
+    youngest = age_reference - timedelta(days=GATE5_MIN_AGE_DAYS)
     deadline = timedelta(days=GATE5_RESPONSE_DEADLINE_DAYS)
     unanswered = n = 0
     for pr in prs:
@@ -338,8 +350,11 @@ def zero_response_counts(prs: Iterable[GhostRatePR], now: datetime) -> tuple[int
             continue
         n += 1
         response = pr.first_substantive_response_at
-        if response is None or _parse_iso(response) - created > deadline:
-            unanswered += 1
+        if response is not None and _parse_iso(response) - created <= deadline:
+            continue
+        if pr.merged_at is not None and _parse_iso(pr.merged_at) - created <= deadline:
+            continue
+        unanswered += 1
     return unanswered, n
 
 

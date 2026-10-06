@@ -208,10 +208,14 @@ def ghost_pr(
     external: bool = True,
     bot: bool = False,
     response_days_after: float | None = None,
+    merged_days_after: float | None = None,
 ) -> Any:
     from porchlamp.core import gates
 
     created = _ago(created_days_ago)
+    merged: dict[str, Any] = {}
+    if merged_days_after is not None:
+        merged["merged_at"] = _iso(created + datetime.timedelta(days=merged_days_after))
     return gates.GhostRatePR(
         created_at=_iso(created),
         is_external=external,
@@ -220,6 +224,7 @@ def ghost_pr(
             _iso(created + datetime.timedelta(days=response_days_after))
             if response_days_after is not None else None
         ),
+        **merged,
     )
 
 
@@ -259,6 +264,55 @@ def test_response_deadline_is_14_days_after_opening() -> None:
 
     prs = [ghost_pr(30, response_days_after=14), ghost_pr(30, response_days_after=15)]
     assert gates.zero_response_counts(prs, NOW) == (1, 2)
+
+
+def test_merge_within_14_days_answers_and_after_does_not() -> None:
+    """Owner ruling 2026-10-06: a merge within 14 d of opening is a response
+    even with no review or comment ("no human reply, review or merge"). A
+    merge on day 10 answers; a merge on day 15 does not; day 14 is inside."""
+    from porchlamp.core import gates
+
+    assert gates.zero_response_counts([ghost_pr(30, merged_days_after=10)], NOW) == (0, 1)
+    assert gates.zero_response_counts([ghost_pr(30, merged_days_after=14)], NOW) == (0, 1)
+    assert gates.zero_response_counts([ghost_pr(30, merged_days_after=15)], NOW) == (1, 1)
+
+
+def test_late_merge_does_not_cancel_an_early_response() -> None:
+    """Over-correction guard: the merge rule only adds answers. A D-IN-2
+    response on day 2 answers the PR even when the merge came on day 40."""
+    from porchlamp.core import gates
+
+    pr = ghost_pr(60, response_days_after=2, merged_days_after=40)
+    assert gates.zero_response_counts([pr], NOW) == (0, 1)
+
+
+def test_population_needs_14_days_of_observation() -> None:
+    """Owner/lead ruling 2026-10-06: the 14-d age is judged at
+    min(now, observed_at), the time GitHub was read. A PR 20 d old at `now`
+    but observed for only 10 d is out; observed for 14 d it is in."""
+    from porchlamp.core import gates
+
+    pr = ghost_pr(20)
+    observed_10 = NOW - datetime.timedelta(days=10)
+    observed_14 = NOW - datetime.timedelta(days=6)
+    assert gates.zero_response_counts([pr], NOW, observed_at=observed_10) == (0, 0)
+    assert gates.zero_response_counts([pr], NOW, observed_at=observed_14) == (1, 1)
+
+
+def test_observation_after_now_judges_age_at_now() -> None:
+    """Over-correction guard: a fetch later than the reference time does not
+    admit PRs younger than 14 d at `now` (min, not the observation time)."""
+    from porchlamp.core import gates
+
+    later = NOW + datetime.timedelta(days=5)
+    assert gates.zero_response_counts([ghost_pr(14), ghost_pr(13.5)], NOW, observed_at=later) == (1, 1)
+
+
+def test_observed_at_must_be_timezone_aware() -> None:
+    from porchlamp.core import gates
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        gates.zero_response_counts([ghost_pr(30)], NOW, observed_at=NOW.replace(tzinfo=None))
 
 
 def test_zero_response_counts_requires_an_aware_now() -> None:

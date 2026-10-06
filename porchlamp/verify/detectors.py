@@ -264,9 +264,10 @@ def closed_unread_share_from_pr_window(pr_window: PRWindow) -> tuple[Optional[fl
     Population: external PR events in the window. Numerator: those closed
     (``closed_at`` set) and never merged (``merged_at`` is ``None``) with no
     substantive response ever recorded (``first_human_review_at`` is
-    ``None`` -- the same D-IN-2 field ``porchlamp.core.gates``'s D-GATE-5 already
-    reads as "no substantive response", see that module's
-    ``_zero_substantive_response``). ``share`` is ``None`` when the
+    ``None``, the v1 event's typed-response field). D-GATE-5 no longer reads
+    these events: it reads the ``gr14_ghost_rate`` input, computed from the
+    ``pr_window`` envelope by ``porchlamp.core.gates.zero_response_counts``.
+    ``share`` is ``None`` when the
     external-PR population is empty (no evidence, never fires); ``n`` is
     always the population size, 0 included, for the caller to store
     alongside ``share``.

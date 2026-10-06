@@ -61,10 +61,16 @@ def comment(login="bob", typ="User", assoc="MEMBER", body="",
             "authorAssociation": assoc, "bodyText": body, "createdAt": created}
 
 
+_NO_KEY = object()
+
+
 def pr_node(number, created, closed=None, merged=None, assoc="NONE",
             author_login="alice", author_typ="User",
-            reviews=(), comments=(), threads=0) -> dict:
-    return {
+            reviews=(), comments=(), threads=0, merged_by=_NO_KEY) -> dict:
+    """``merged_by`` left at its default omits the ``mergedBy`` key, the
+    shape of an envelope recorded before the query asked for it; a login
+    string records ``{"login": ...}``; ``None`` records a null."""
+    node = {
         "number": number, "createdAt": created, "closedAt": closed,
         "mergedAt": merged,
         "state": "MERGED" if merged else ("CLOSED" if closed else "OPEN"),
@@ -74,6 +80,9 @@ def pr_node(number, created, closed=None, merged=None, assoc="NONE",
         "comments": {"nodes": list(comments)},
         "reviewThreads": {"totalCount": threads},
     }
+    if merged_by is not _NO_KEY:
+        node["mergedBy"] = None if merged_by is None else {"login": merged_by}
+    return node
 
 
 def page(nodes: list[dict], has_next: bool, cursor: str = "") -> dict:
@@ -192,6 +201,86 @@ def test_outsider_and_author_comments_are_not_responses():
     out = gql.derive_pr_window(prs)
     assert out[0]["ttfhr_hours"] is None
     assert out[1]["ttfhr_hours"] is None
+
+
+# --- D-IN-2 maintainers by merge (owner ruling 2026-10-06) -------------------
+
+def test_query_requests_merged_by_login():
+    """The pr_window query records who merged each PR: the mergers set."""
+    assert "mergedBy { login }" in gql.PR_WINDOW_QUERY
+
+
+def _mergers_window(merged_by=_NO_KEY) -> list[dict]:
+    """PR 1: erin's (CONTRIBUTOR) PR, merged by carol when ``merged_by`` is
+    recorded. PRs 2-4: alice's external PRs, each with one 40-character
+    comment, by carol (CONTRIBUTOR association, a merger), by dave
+    (CONTRIBUTOR, merged nothing) and by erin (CONTRIBUTOR, authored a merged
+    PR but merged nothing). PR 5: carol's review on alice's PR."""
+    created = "2026-08-01T00:00:00Z"
+    return [
+        pr_node(1, "2026-07-01T00:00:00Z", closed="2026-07-02T00:00:00Z",
+                merged="2026-07-02T00:00:00Z", assoc="CONTRIBUTOR",
+                author_login="erin", merged_by=merged_by),
+        pr_node(2, created, comments=[comment("carol", assoc="CONTRIBUTOR", body="c" * 40,
+                                              created="2026-08-01T01:00:00Z")]),
+        pr_node(3, created, comments=[comment("dave", assoc="CONTRIBUTOR", body="d" * 40,
+                                              created="2026-08-01T01:00:00Z")]),
+        pr_node(4, created, comments=[comment("erin", assoc="CONTRIBUTOR", body="e" * 40,
+                                              created="2026-08-01T01:00:00Z")]),
+        pr_node(5, created, reviews=[review("carol", assoc="CONTRIBUTOR",
+                                            created="2026-08-01T02:00:00Z")]),
+    ]
+
+
+def test_merger_comment_counts_and_non_merger_does_not():
+    """A comment of 40+ characters by a CONTRIBUTOR-association account that
+    merged a PR in the window is a D-IN-2 response (maintainers whose org
+    membership is private); one by a CONTRIBUTOR who merged nothing is not,
+    and neither is one by the author of a merged PR who did not merge it."""
+    out = gql.derive_pr_window(_mergers_window(merged_by="carol"))
+    assert out[1]["first_substantive_response_at"] == "2026-08-01T01:00:00Z"
+    assert out[1]["first_substantive_response_kind"] == "comment"
+    assert out[1]["ttfhr_hours"] == 1.0
+    assert out[2]["first_substantive_response_at"] is None
+    assert out[3]["first_substantive_response_at"] is None
+    assert out[4]["first_substantive_response_at"] == "2026-08-01T02:00:00Z"
+    assert out[4]["first_substantive_response_kind"] == "review"
+
+
+def test_merger_rule_keeps_the_other_d_in_2_exclusions():
+    """Over-correction guard: a merger's comment on their own PR, a merger's
+    39-character comment, and a bot merger's comment are still not
+    responses."""
+    prs = [
+        pr_node(1, "2026-07-01T00:00:00Z", merged="2026-07-02T00:00:00Z",
+                closed="2026-07-02T00:00:00Z", merged_by="carol"),
+        pr_node(2, "2026-07-03T00:00:00Z", merged="2026-07-04T00:00:00Z",
+                closed="2026-07-04T00:00:00Z", merged_by="mergify[bot]"),
+        pr_node(3, "2026-08-01T00:00:00Z", assoc="CONTRIBUTOR", author_login="carol",
+                comments=[comment("carol", assoc="CONTRIBUTOR", body="c" * 60,
+                                  created="2026-08-01T01:00:00Z")]),
+        pr_node(4, "2026-08-01T00:00:00Z",
+                comments=[comment("carol", assoc="CONTRIBUTOR", body="c" * 39,
+                                  created="2026-08-01T01:00:00Z")]),
+        pr_node(5, "2026-08-01T00:00:00Z",
+                comments=[comment("mergify[bot]", typ="Bot", assoc="CONTRIBUTOR", body="m" * 60,
+                                  created="2026-08-01T01:00:00Z")]),
+    ]
+    out = gql.derive_pr_window(prs)
+    assert [d["first_substantive_response_at"] for d in out[2:]] == [None, None, None]
+
+
+def test_envelope_without_merged_by_behaves_as_before():
+    """Envelopes recorded before the query asked for ``mergedBy``: the
+    mergers set is empty and only MEMBER/OWNER/COLLABORATOR respond. The
+    output is the same with the key absent and with it null, and equals the
+    association-only result written out by hand."""
+    absent = gql.derive_pr_window(_mergers_window())
+    null = gql.derive_pr_window(_mergers_window(merged_by=None))
+    assert absent == null
+    assert [d["first_substantive_response_at"] for d in absent] == [None] * 5
+    assert [d["ttfhr_hours"] for d in absent] == [None] * 5
+    assert [d["is_external"] for d in absent] == [True] * 5
 
 
 # --- 02 §4.3: substantive review flag ------------------------------------------

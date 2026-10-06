@@ -9,8 +9,13 @@ at its own pinned ``now``; ``porchlamp.derive.bundle`` carries it as the
 Spec (02 section 4 1.4, section 2 D-GATE-5, section 3 D-IN-1/D-IN-2):
 external PRs opened in the trailing 180 d, bots excluded, at least 14 d old;
 unanswered = no review (any state) or >= 40-character comment by a
-non-author, non-bot MEMBER/OWNER/COLLABORATOR within 14 d of opening. A
-merge is not a response (D-IN-2 does not list it).
+non-author, non-bot MEMBER/OWNER/COLLABORATOR within 14 d of opening.
+
+Owner rulings 2026-10-06 on top of the spec text: a merge within 14 d of
+opening is a response; the 14-d age is judged at min(now, the envelope's
+fetch time), so a PR observed for under 14 d is not in the population; an
+account that merged a PR in the window responds like a maintainer whatever
+its association.
 
 Every expected count below is by hand from the fixture, not from the code
 under test.
@@ -80,7 +85,7 @@ def counted_prs() -> list[dict[str, Any]]:
         _pr(7, d, comments=(_comment(d, 2, "y" * 39),)),            # 39 chars is not substantive
         _pr(8, d, reviews=(_review(d, 1, login="ci-helper", typename="Bot"),)),  # bot reviewer
         _pr(9, d, reviews=(_review(d, 1, login="outsider", assoc="COLLABORATOR"),)),  # self-review
-        _pr(10, d, merged_after=1),                                 # merged, never answered
+        _pr(10, d, merged_after=15),                                # merged after the deadline
         _pr(11, d, reviews=(_review(d, 15),)),                      # review after the deadline
     ]
 
@@ -95,19 +100,19 @@ def excluded_prs() -> list[dict[str, Any]]:
     ]
 
 
-def _write_window(tmp_path: Path, prs: list[dict[str, Any]]) -> None:
+def _write_window(tmp_path: Path, prs: list[dict[str, Any]], fetched_at: str = FETCHED_AT) -> None:
     from porchlamp.collect import github_graphql
 
-    data = {"window_anchor": FETCHED_AT, "window_days": 180, "cap": 500, "count": len(prs),
+    data = {"window_anchor": fetched_at, "window_days": 180, "cap": 500, "count": len(prs),
             "truncated": False, "cost_points": 1, "prs": prs,
             "derived": github_graphql.derive_pr_window(prs)}
     path = tmp_path / "raw" / "pr_window" / f"{KEY}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"fetched_at": FETCHED_AT, "source": "test", "data": data}), encoding="utf-8")
+    path.write_text(json.dumps({"fetched_at": fetched_at, "source": "test", "data": data}), encoding="utf-8")
 
 
-def _derive(tmp_path: Path, prs: list[dict[str, Any]], now: datetime = NOW):
-    _write_window(tmp_path, prs)
+def _derive(tmp_path: Path, prs: list[dict[str, Any]], now: datetime = NOW, fetched_at: str = FETCHED_AT):
+    _write_window(tmp_path, prs, fetched_at)
     doc = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, tmp_path, fetch=False, now=now)
     return doc, load(tmp_path, json.loads(json.dumps(doc)))
 
@@ -164,13 +169,59 @@ def test_ghost_rate_equals_the_gate_share(tmp_path: Path) -> None:
 
 def test_reference_time_is_the_pinned_now_not_the_wall_clock(tmp_path: Path) -> None:
     """The two 13.5-day-old PRs are excluded at NOW; read against the wall
-    clock (weeks later) they would be in. A later pinned `now` admits them."""
+    clock (weeks later) they would be in. A later pinned `now`, with an
+    envelope fetched at that later time, admits them."""
     doc, bundle = _derive(tmp_path / "now", counted_prs() + excluded_prs())
     assert doc["meta"]["gr14_window_end"] == NOW.isoformat()
     assert bundle.inputs["gr14_ghost_rate"].n == 11
     later = NOW + timedelta(days=1)
-    _, later_bundle = _derive(tmp_path / "later", counted_prs() + excluded_prs(), now=later)
+    _, later_bundle = _derive(tmp_path / "later", counted_prs() + excluded_prs(), now=later,
+                              fetched_at=later.isoformat())
     assert later_bundle.inputs["gr14_ghost_rate"].n == 13
+
+
+def test_merge_within_14_days_answers_through_derive(tmp_path: Path) -> None:
+    """Owner ruling 2026-10-06. Ten unanswered PRs plus two merged with no
+    review or comment: merged on day 10 -> answered (10/12 unanswered);
+    merged on day 15 -> unanswered (12/12). derive must carry mergedAt into
+    the measurement, not only the D-IN-2 response time."""
+    base = [_pr(70 + i, 40) for i in range(10)]
+    _, day10 = _derive(tmp_path / "d10", base + [_pr(80, 40, merged_after=10), _pr(81, 40, merged_after=10)])
+    _, day15 = _derive(tmp_path / "d15", base + [_pr(80, 40, merged_after=15), _pr(81, 40, merged_after=15)])
+    assert (day10.inputs["gr14_ghost_rate"].value, day10.inputs["gr14_ghost_rate"].n) == (10 / 12, 12)
+    assert (day15.inputs["gr14_ghost_rate"].value, day15.inputs["gr14_ghost_rate"].n) == (12 / 12, 12)
+
+
+def test_population_needs_14_days_of_observation_through_derive(tmp_path: Path) -> None:
+    """Owner/lead ruling 2026-10-06. Twelve unanswered PRs 20 d old at NOW
+    plus ten answered PRs 40 d old. Envelope fetched 10 d before NOW: the
+    twelve were observed for 10 d and stay out (0/10). Fetched 6 d before
+    NOW: observed for 14 d, they are in (12/22)."""
+    prs = [_pr(90 + i, 20) for i in range(12)] + [_pr(110 + i, 40, reviews=(_review(40, 1),)) for i in range(10)]
+    _, short = _derive(tmp_path / "short", prs, fetched_at=_at(10))
+    _, full = _derive(tmp_path / "full", prs, fetched_at=_at(6))
+    assert (short.inputs["gr14_ghost_rate"].value, short.inputs["gr14_ghost_rate"].n) == (0.0, 10)
+    assert (full.inputs["gr14_ghost_rate"].value, full.inputs["gr14_ghost_rate"].n) == (12 / 22, 22)
+
+
+def test_merger_comment_answers_through_derive(tmp_path: Path) -> None:
+    """Owner ruling 2026-10-06: a CONTRIBUTOR-association account that merged
+    a PR in the window responds like a maintainer. Twelve PRs with a
+    40-character CONTRIBUTOR comment by `carol` are unanswered while carol
+    merged nothing (12/12) and answered once she merged a PR (0/12; the
+    merged PR itself is internal-authored and not in the population)."""
+    commented = [_pr(130 + i, 30, comments=(_comment(30, 1, "c" * 40, assoc="CONTRIBUTOR"),))
+                 for i in range(12)]
+    for pr in commented:
+        pr["comments"]["nodes"][0]["author"] = {"__typename": "User", "login": "carol"}
+    merged_by_other = _pr(150, 60, author="insider", assoc="MEMBER", merged_after=1)
+    merged_by_other["mergedBy"] = {"login": "maint"}
+    merged_by_carol = _pr(150, 60, author="insider", assoc="MEMBER", merged_after=1)
+    merged_by_carol["mergedBy"] = {"login": "carol"}
+    _, without = _derive(tmp_path / "without", commented + [merged_by_other])
+    _, with_carol = _derive(tmp_path / "with", commented + [merged_by_carol])
+    assert (without.inputs["gr14_ghost_rate"].value, without.inputs["gr14_ghost_rate"].n) == (1.0, 12)
+    assert (with_carol.inputs["gr14_ghost_rate"].value, with_carol.inputs["gr14_ghost_rate"].n) == (0.0, 12)
 
 
 def test_below_min_n_is_insufficient_n_with_the_true_n_and_gate_undecided(tmp_path: Path) -> None:
