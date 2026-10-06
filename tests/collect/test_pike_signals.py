@@ -22,6 +22,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import math
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -911,3 +912,127 @@ def test_gather_repo_w17_collectors_fail(tmp_path, monkeypatch, block_live_netwo
     assert status["releases"] == "fail"
     assert status["issues_counts"] == "fail"
     assert status["runs"] == "fail"
+
+
+# --- Single-call GraphQL issues_counts collector -----------------------------
+
+
+def _iss(number: int, *, state: str, updated: str, closed: Optional[str] = None,
+         comments: int = 0) -> dict:
+    return {"number": number, "state": state, "updated_at": updated,
+            "closed_at": closed, "comments": comments}
+
+
+#: The window is [2026-06-14, 2026-09-12] (anchor NOW, 90 days). Issue 3 was closed
+#: BEFORE the window and updated (commented on) inside it; issue 4 is closed inside
+#: it; issue 5 was closed inside it and reopened (open now); 6 is open and updated.
+ISSUES = [
+    _iss(1, state="closed", updated="2026-09-11T00:00:00Z", closed="2026-09-11T00:00:00Z", comments=4),
+    _iss(2, state="closed", updated="2026-08-01T00:00:00Z", closed="2026-07-01T00:00:00Z", comments=2),
+    _iss(3, state="closed", updated="2026-07-20T00:00:00Z", closed="2026-05-01T00:00:00Z", comments=1),
+    _iss(4, state="closed", updated="2026-06-14T00:00:00Z", closed="2026-06-14T00:00:00Z", comments=0),
+    _iss(5, state="open", updated="2026-09-10T00:00:00Z", closed="2026-08-20T00:00:00Z", comments=7),
+    _iss(6, state="open", updated="2026-09-12T00:00:00Z", comments=3),
+    _iss(7, state="closed", updated="2025-01-01T00:00:00Z", closed="2025-01-01T00:00:00Z", comments=9),
+]
+
+
+class FakeGitHubIssues:
+    """One in-memory repository answering BOTH the Search REST API and the GraphQL
+    ``issues_counts`` query with the semantics GitHub documents, so the two collectors
+    can be compared on the same issues. Search qualifiers are parsed from the query
+    string the collector sends: a mutated qualifier changes the count."""
+
+    def __init__(self, issues: list[dict]) -> None:
+        self.issues = issues
+        self.gql_variables: list[dict] = []
+
+    def _search(self, q: str) -> list[dict]:
+        out = list(self.issues)
+        if "is:closed" in q:
+            out = [i for i in out if i["state"] == "closed"]
+        elif "is:open" in q:
+            out = [i for i in out if i["state"] == "open"]
+        m = re.search(r"closed:>=(\d{4}-\d{2}-\d{2})", q)
+        if m:
+            out = [i for i in out if i["closed_at"] and i["closed_at"][:10] >= m.group(1)]
+        m = re.search(r"updated:>=(\d{4}-\d{2}-\d{2})", q)
+        if m:
+            out = [i for i in out if i["updated_at"][:10] >= m.group(1)]
+        return out
+
+    # REST search/issues
+    def get(self, path: str, **params: Any) -> Any:
+        assert path == "search/issues"
+        found = self._search(params["q"])
+        if params.get("sort") == "updated":
+            found = sorted(found, key=lambda i: i["updated_at"], reverse=True)
+        return {"total_count": len(found), "items": found[: params["per_page"]]}
+
+    # GraphQL
+    def execute(self, query: str, variables=None) -> dict:
+        v = dict(variables or {})
+        self.gql_variables.append(v)
+        # `issues(filterBy: {since})` filters on updatedAt; `states` filters on state.
+        updated = [i for i in self.issues if i["updated_at"] >= v["since"]]
+        recent = sorted(self.issues, key=lambda i: i["updated_at"], reverse=True)
+        closed_conn: dict[str, Any] = {"issueCount": len(self._search(v["closedQuery"]))}
+        return {"data": {
+            "closed90d": closed_conn,
+            "repository": {
+                "updated90d": {"totalCount": len(updated)},
+                "sample": {"totalCount": len(self.issues), "nodes": [
+                    {"number": i["number"], "updatedAt": i["updated_at"],
+                     "comments": {"totalCount": i["comments"]}}
+                    for i in recent[: v["sampleSize"]]]},
+            }}}
+
+
+def test_collect_issue_counts_graphql_single_call_matches_search_envelope(tmp_path):
+    """One GraphQL call replaces 3 Search API calls (and 6.3s sleep) while writing
+    the exact same issues_counts envelope data as the REST path -- ``closed_90d``
+    counts issues CLOSED in the window (``is:closed closed:>=D``), not issues
+    closed and merely updated in it."""
+    fake = FakeGitHubIssues(ISSUES)
+    assert pike.collect_issue_counts_graphql(tmp_path / "gql", OWNER, NAME, now=NOW, transport=fake) == "ok"
+    assert pike.collect_issue_counts(tmp_path / "rest", OWNER, NAME, now=NOW, transport=fake) == "ok"
+    assert len(fake.gql_variables) == 1
+    gql = read_env(tmp_path / "gql", "issues_counts", KEY)
+    rest = read_env(tmp_path / "rest", "issues_counts", KEY)
+    assert gql.source == "github-graphql:issues_counts"
+    assert gql.data["closed_90d"] == 3  # issues 1, 2 and 4 were closed inside the window
+    assert gql.data == rest.data
+    assert gql.data["sample_size"] == 30
+    assert gql.data["window_days"] == 90
+
+
+def test_graphql_closed_90d_uses_the_rest_search_query_string(tmp_path):
+    fake = FakeGitHubIssues(ISSUES)
+    pike.collect_issue_counts_graphql(tmp_path, OWNER, NAME, now=NOW, transport=fake)
+    assert fake.gql_variables[0]["closedQuery"] == issue_q(OWNER, NAME, "closed", "2026-06-14")
+    assert "is:closed closed:>=2026-06-14" in fake.gql_variables[0]["closedQuery"]
+
+
+def test_graphql_closed_90d_differs_from_updated_since_filter(tmp_path):
+    """Issue 3 was closed before the window and commented on inside it: the old
+    ``issues(filterBy: {since}, states: [CLOSED])`` counted it, the search does not."""
+    fake = FakeGitHubIssues(ISSUES)
+    pike.collect_issue_counts_graphql(tmp_path, OWNER, NAME, now=NOW, transport=fake)
+    env = read_env(tmp_path, "issues_counts", KEY)
+    closed_and_updated_in_window = sum(
+        1 for i in ISSUES if i["state"] == "closed" and i["updated_at"][:10] >= "2026-06-14")
+    assert closed_and_updated_in_window == 4  # issues 1, 2, 3, 4
+    assert env.data["closed_90d"] == 3  # issues 1, 2, 4 (closed 2026-09-11, 07-01, 06-14)
+    assert env.data["updated_90d"] == 6  # issues 1-6; issue 7 was last touched in 2025
+
+
+def test_graphql_issue_counts_incomplete_answer_is_a_failure_not_a_zero(tmp_path):
+    class _NoSearch:
+        def execute(self, query, variables=None):
+            return {"data": {"repository": {"updated90d": {"totalCount": 5},
+                                            "sample": {"totalCount": 0, "nodes": []}}},
+                    "errors": [{"message": "search failed"}]}
+
+    with pytest.raises(RuntimeError, match="incomplete"):
+        pike.collect_issue_counts_graphql(tmp_path, OWNER, NAME, now=NOW, transport=_NoSearch())
+    assert not (tmp_path / "issues_counts").exists()

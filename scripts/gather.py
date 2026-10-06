@@ -148,7 +148,9 @@ def _get_json(url: str, headers: Optional[dict] = None) -> Optional[dict]:
 
 def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 skip_pypistats: bool = False,
-                collectors: Optional[frozenset[str]] = None) -> dict[str, str]:
+                collectors: Optional[frozenset[str]] = None,
+                *,
+                graphql_bulk: bool = False) -> dict[str, str]:
     """Fetch every collector for one repo; return {collector: ok|skip|fail}.
 
     ``collectors`` restricts the call to those names -- one breadth-first
@@ -428,9 +430,16 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     # --- Releases, issues search counts, CI runs (02 §4 2.2 / 4.1) ---
     from porchlamp.collect import pike_signals as pike_mod
     for collector, call in (
-        ("releases", lambda: pike_mod.collect_releases(DATA, owner, name)),
-        ("issues_counts", lambda: pike_mod.collect_issue_counts(DATA, owner, name)),
-        ("runs", lambda: pike_mod.collect_runs(DATA, owner, name, branch)),
+        ("releases", lambda: pike_mod.collect_releases(DATA, owner, name, force=force)),
+        (
+            "issues_counts",
+            lambda: (
+                pike_mod.collect_issue_counts_graphql(DATA, owner, name, force=force)
+                if graphql_bulk
+                else pike_mod.collect_issue_counts(DATA, owner, name, force=force)
+            ),
+        ),
+        ("runs", lambda: pike_mod.collect_runs(DATA, owner, name, branch, force=force)),
     ):
         if done(collector):
             status[collector] = "skip"
@@ -448,7 +457,16 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     else:
         from porchlamp.collect import governance as gov_mod
         try:
-            status["governance"] = gov_mod.collect_governance(DATA, owner, name)
+            if graphql_bulk:
+                from porchlamp.collect.github_graphql import GhCliTransport
+
+                status["governance"] = gov_mod.collect_governance(
+                    DATA, owner, name, force=force, graphql_transport=GhCliTransport()
+                )
+            else:
+                status["governance"] = gov_mod.collect_governance(
+                    DATA, owner, name, force=force
+                )
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["governance"] = "fail"
             print(f"  WARN governance {owner}/{name}: {e}")
@@ -459,7 +477,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         from porchlamp.collect import github_graphql as cohort_mod
         try:
             status["author_history"] = cohort_mod.collect_author_history(
-                DATA, owner, name, user_cache=_user_cache())
+                DATA, owner, name, user_cache=_user_cache(), force=force)
         except Exception as e:  # review-ok: gate-network — retry on rerun
             status["author_history"] = "fail"
             print(f"  WARN author_history {owner}/{name}: {e}")
@@ -540,7 +558,51 @@ def order_by_priority(repos: list[tuple[str, str, str]], keys: list[str],
 PRIORITY_DONE_MARKER = "priority segment finished"
 
 
+def _fingerprint_state() -> Path:
+    """Per-repo fingerprint state of the ``--dirty`` pass (D-COL-1), beside ``DATA``."""
+    return DATA.parent / "state" / "fingerprints.jsonl"
+
+
+def _persist_fingerprint(fp_result: Any, owner: str, name: str, ecosystem: str,
+                         status: dict[str, str], started: datetime,
+                         refetched: Any) -> None:
+    """Save the repo's new fingerprint after its gather, if nothing it needs failed.
+
+    A collector counts as fetched when its envelope was rewritten during this
+    gather (``fetched_at >= started``): a source that answered "nothing here"
+    (a scorecard 404) writes an envelope but reports ``fail``, and must not hold
+    the fingerprint back forever. A collector that failed and wrote nothing
+    keeps the repo's old fingerprint, so the next ``--dirty`` run refetches it.
+    """
+    from porchlamp.collect.fingerprint import (
+        append_fingerprints,
+        envelope_fetched_at,
+        fingerprint_to_persist,
+    )
+
+    key = f"{owner}__{name}"
+    fp = fp_result.fingerprints.get(key)
+    if fp is None:
+        return
+    fresh: set[str] = set()
+    failed: set[str] = set()
+    for collector in refetched:
+        fetched = envelope_fetched_at(DATA, collector, owner, name, ecosystem)
+        if fetched is not None and fetched >= started:
+            fresh.add(collector)
+        elif status.get(collector) in (None, "fail"):
+            failed.add(collector)
+    rec = fingerprint_to_persist(
+        fp_result.previous.get(key), fp, fp_result.invalidated_by_repo.get(key, frozenset()),
+        fresh, failed,
+    )
+    if rec is not None:
+        append_fingerprints(_fingerprint_state(), [rec])
+
+
 def main(argv: Optional[list[str]] = None) -> int:
+    from porchlamp.collect.fingerprint import ALL_GATHER_COLLECTORS
+
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, default=10)
     ap.add_argument("--repo", nargs=2, metavar=("OWNER", "NAME"))
@@ -554,6 +616,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--priority-keys", type=Path, default=None,
                     help="file of owner__name keys to gather FIRST; every other "
                          "repo still follows (ordering only, nothing is skipped)")
+    ap.add_argument("--dirty", action="store_true",
+                    help="run the 25-repo/call GraphQL fingerprint pass and fetch only "
+                         "the collectors it, a missing envelope or a clock marks dirty "
+                         "(D-COL-1/D-COL-3/D-COL-4, W6-2); a repo the pass cannot "
+                         "resolve is dirty. A repo's new fingerprint is saved only "
+                         "after its collectors succeeded (and only without --collectors)")
+    ap.add_argument("--fingerprint-only", action="store_true",
+                    help="run the fingerprint pass, report what is dirty, and exit. "
+                         "Writes nothing: it must not consume a change that a later "
+                         "gather would need")
+    ap.add_argument("--graphql-bulk", action="store_true",
+                    help="use single-call GraphQL collectors for governance and "
+                         "issues_counts instead of multi-call REST / Search API")
     a = ap.parse_args(argv)
     selected = parse_collectors(a.collectors)
     if a.repo:
@@ -571,11 +646,62 @@ def main(argv: Optional[list[str]] = None) -> int:
         repos, n_first = order_by_priority(repos, keys)
         print(f"priority: {n_first} of {len(repos)} repos first ({a.priority_keys}; "
               f"{len(set(keys)) - n_first} listed keys are not candidates)")
+
+    dirty_map: Optional[dict[str, frozenset[str]]] = None
+    fp_result: Any = None
+    if a.dirty or a.fingerprint_only:
+        from porchlamp.collect.fingerprint import run_fingerprint_pass
+
+        fp_result = run_fingerprint_pass(
+            [(owner, name) for owner, name, _eco in repos],
+            state_file=_fingerprint_state(),
+            raw_dir=DATA,
+            ecosystems={f"{owner}__{name}": eco for owner, name, eco in repos},
+        )
+        dirty_count = sum(1 for inv in fp_result.dirty_by_repo.values() if inv)
+        print(
+            f"fingerprint: {len(fp_result.fingerprints)} resolved, "
+            f"{len(fp_result.unresolved_keys)} UNRESOLVED (dirty), "
+            f"{dirty_count} dirty, {len(fp_result.dirty_by_repo) - dirty_count} clean, "
+            f"{fp_result.queries_executed} graphql queries ({fp_result.cost_points} pts)"
+        )
+        for key in fp_result.unresolved_keys[:20]:
+            print(f"  UNRESOLVED {key}")
+        if a.fingerprint_only:
+            return 0
+        dirty_map = fp_result.dirty_by_repo
+
     ok = fail = 0
     print(f"collectors: {'all' if selected is None else ','.join(sorted(selected))}; repos: {len(repos)}")
     for i, (owner, name, eco) in enumerate(repos, 1):
+        key = f"{owner}__{name}"
+        repo_collectors = selected
+        repo_force = a.force
+        if dirty_map is not None and not a.force:
+            inv = dirty_map.get(key, ALL_GATHER_COLLECTORS)
+            if not inv:
+                ok += 1
+                print(f"{owner}/{name} [{eco}]: SKIP (clean fingerprint)")
+                if i == n_first:
+                    print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
+                continue
+            repo_collectors = inv if selected is None else (selected & inv)
+            if not repo_collectors:
+                ok += 1
+                print(f"{owner}/{name} [{eco}]: SKIP (selected collectors clean)")
+                if i == n_first:
+                    print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
+                continue
+            repo_force = True
+        started = datetime.now(timezone.utc)
         try:
-            st = gather_repo(owner, name, eco, force=a.force, collectors=selected)
+            if a.graphql_bulk:
+                st = gather_repo(
+                    owner, name, eco, force=repo_force, collectors=repo_collectors,
+                    graphql_bulk=True
+                )
+            else:
+                st = gather_repo(owner, name, eco, force=repo_force, collectors=repo_collectors)
         except Exception as e:  # review-ok: gate-network — isolate unexpected per-repo error during sweep
             fail += 1
             print(f"{owner}/{name} [{eco}]: FAIL {e}")
@@ -584,6 +710,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             ok += not bad
             fail += bool(bad)
             print(f"{owner}/{name} [{eco}]: {'OK' if not bad else 'FAIL ' + ','.join(bad)}")
+            if fp_result is not None and selected is None:
+                _persist_fingerprint(fp_result, owner, name, eco, st, started,
+                                     refetched=ALL_GATHER_COLLECTORS if a.force
+                                     else repo_collectors)
         if i == n_first:
             print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
     if _USER_CACHE is not None:

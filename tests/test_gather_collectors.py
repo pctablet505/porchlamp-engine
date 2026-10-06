@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
 
@@ -230,3 +231,176 @@ def test_make_sample_overwrites_readonly_existing_files(tmp_path: Path) -> None:
     assert (dst_sample / "raw" / "github_meta" / "a__b.json").read_text(encoding="utf-8") == '{"stars": 2}'
 
 
+def test_main_dirty_and_fingerprint_only_skip_clean_repos(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--dirty runs the 25-repo fingerprint pass and only calls gather_repo on
+    dirty repos with their invalidated collector subset; --fingerprint-only exits
+    before calling gather_repo."""
+    import porchlamp.collect.fingerprint as fp_mod
+
+    rows = [
+        {"owner": "acme", "name": "clean_repo", "ecosystem": "pypi"},
+        {"owner": "acme", "name": "dirty_repo", "ecosystem": "pypi"},
+    ]
+    gather.CANDIDATES.parent.mkdir(parents=True, exist_ok=True)
+    gather.CANDIDATES.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+    fake_result = fp_mod.FingerprintSweepResult(
+        fingerprints={},
+        previous={},
+        invalidated_by_repo={
+            "acme__clean_repo": frozenset(),
+            "acme__dirty_repo": frozenset({"releases"}),
+        },
+        dirty_by_repo={
+            "acme__clean_repo": frozenset(),
+            "acme__dirty_repo": frozenset({"releases"}),
+        },
+        tiers_by_repo={"acme__clean_repo": "warm", "acme__dirty_repo": "hot"},
+        unresolved_keys=(),
+        queries_executed=1,
+        cost_points=1,
+        rate_limit_remaining=4999,
+    )
+    monkeypatch.setattr(fp_mod, "run_fingerprint_pass", lambda *a, **k: fake_result)
+
+    gathered: list[tuple[str, str, bool, object]] = []
+
+    def _spy_gather(o, n, e, force=False, skip_pypistats=False, collectors=None, **kw):
+        gathered.append((o, n, force, collectors))
+        return {"releases": "ok"}
+
+    monkeypatch.setattr(gather, "gather_repo", _spy_gather)
+
+    # 1. --fingerprint-only exits after fingerprint pass with 0 gather_repo calls
+    assert gather.main(["--all", "--fingerprint-only"]) == 0
+    assert gathered == []
+
+    # 2. --dirty skips clean_repo and gathers only releases (force=True) on dirty_repo
+    assert gather.main(["--all", "--dirty"]) == 0
+    assert gathered == [("acme", "dirty_repo", True, frozenset({"releases"}))]
+
+
+# --------------------------------------------------------------------------- #
+# --dirty correctness (PR #3 review, blocker 2): offline, fake GraphQL + gather #
+# --------------------------------------------------------------------------- #
+
+
+class _FakeFingerprintTransport:
+    """One repo ``acme/widget``; ``mode`` picks what GitHub answers."""
+
+    def __init__(self) -> None:
+        self.pushed = "2026-10-01T00:00:00Z"
+        self.mode = "ok"  # ok | all_alias_errors | http_502
+
+    def execute(self, query, variables=None):
+        if self.mode == "http_502":
+            raise RuntimeError("gh api graphql rc=1: HTTP 502")
+        if self.mode == "all_alias_errors":  # the live RESOURCE_LIMITS_EXCEEDED shape
+            return {"data": {"rateLimit": {"cost": 3, "remaining": 4000}, "r0": None},
+                    "errors": [{"type": "RESOURCE_LIMITS_EXCEEDED", "path": ["r0"]}]}
+        return {"data": {"rateLimit": {"cost": 1, "remaining": 4000}, "r0": {
+            "pushedAt": self.pushed, "updatedAt": self.pushed, "isArchived": False,
+            "isDisabled": False, "stargazerCount": 1, "forkCount": 1,
+            "pullRequests": {"nodes": [{"updatedAt": self.pushed}]},
+            "issues": {"nodes": []}, "releases": {"nodes": []},
+            "defaultBranchRef": {"target": {"oid": self.pushed}}}}}
+
+
+@pytest.fixture
+def dirty_env(gather: ModuleType, monkeypatch: pytest.MonkeyPatch):
+    """gather.main with a fake GraphQL transport and a gather_repo that writes the
+    envelopes it was asked for (or fails on request); returns (run, state)."""
+    import porchlamp.collect.fingerprint as fp_mod
+
+    gather.CANDIDATES.parent.mkdir(parents=True, exist_ok=True)
+    gather.CANDIDATES.write_text(
+        json.dumps({"owner": "acme", "name": "widget", "ecosystem": "pypi"}) + "\n")
+    transport = _FakeFingerprintTransport()
+    real_pass = fp_mod.run_fingerprint_pass
+    monkeypatch.setattr(
+        fp_mod, "run_fingerprint_pass",
+        lambda repos, **kw: real_pass(repos, transport=transport, sleep=lambda s: None, **kw))
+    calls: list[object] = []
+    behaviour = {"fail": False, "raise": False}
+
+    def _gather(o, n, e, force=False, skip_pypistats=False, collectors=None, **kw):
+        calls.append(sorted(collectors) if collectors else None)
+        if behaviour["raise"]:
+            raise RuntimeError("network")
+        names = collectors if collectors is not None else fp_mod.ALL_GATHER_COLLECTORS
+        status = {}
+        for c in names:
+            if behaviour["fail"] and c == "pr_window":
+                status[c] = "fail"
+                continue
+            key = f"{e}__{n}" if c == "downloads" else f"{o}__{n}"
+            data = {"window_anchor": datetime.now(timezone.utc).isoformat()}
+            gather._env(c, key, "test", data)
+            status[c] = "ok"
+        return status
+
+    monkeypatch.setattr(gather, "gather_repo", _gather)
+
+    def run(*args: str) -> list[object]:
+        calls.clear()
+        assert gather.main(["--all", *args]) == 0
+        return list(calls)
+
+    state = {"transport": transport, "behaviour": behaviour,
+             "state_file": lambda: gather._fingerprint_state()}
+    return run, state
+
+
+def test_dirty_unresolved_repo_is_refetched_not_skipped_as_clean(dirty_env) -> None:
+    run, state = dirty_env
+    assert run("--dirty")  # first pass over a new repo: a full gather, state saved
+    assert run("--dirty") == []  # now clean
+    state["transport"].mode = "all_alias_errors"
+    calls = run("--dirty")
+    assert calls, "a repo the fingerprint could not resolve must be refetched"
+    assert {"pr_window", "commits_365d", "releases"} <= set(calls[0])
+
+
+def test_dirty_survives_a_failed_fingerprint_batch(dirty_env) -> None:
+    run, state = dirty_env
+    state["transport"].mode = "http_502"
+    assert run("--dirty")  # exit 0, the repo is gathered
+
+
+def test_fingerprint_only_does_not_consume_a_change(dirty_env) -> None:
+    run, state = dirty_env
+    run("--dirty")
+    state["transport"].pushed = "2026-10-05T00:00:00Z"  # the repo changes
+    before = state["state_file"]().read_bytes()
+    assert run("--fingerprint-only") == []
+    assert state["state_file"]().read_bytes() == before
+    calls = run("--dirty")
+    assert calls and "pr_window" in calls[0]
+
+
+def test_failed_refetch_keeps_the_old_fingerprint_so_it_is_retried(dirty_env) -> None:
+    run, state = dirty_env
+    run("--dirty")
+    state["transport"].pushed = "2026-10-06T00:00:00Z"
+    state["behaviour"]["raise"] = True
+    assert run("--dirty")
+    state["behaviour"]["raise"] = False
+    state["behaviour"]["fail"] = True  # pr_window reports fail
+    assert run("--dirty")
+    state["behaviour"]["fail"] = False
+    retried = run("--dirty")
+    assert retried and "pr_window" in retried[0]
+    assert run("--dirty") == []  # consumed only after the success
+
+
+def test_collectors_subset_never_persists_the_fingerprint(dirty_env) -> None:
+    run, state = dirty_env
+    run("--dirty")
+    state["transport"].pushed = "2026-10-07T00:00:00Z"
+    assert run("--dirty", "--collectors", "releases") == []  # nothing selected is dirty
+    calls = run("--dirty", "--collectors", "pr_window")
+    assert calls == [["pr_window"]]
+    again = run("--dirty")  # the move was not consumed by the partial run
+    assert again and "commits_365d" in again[0]

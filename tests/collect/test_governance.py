@@ -18,6 +18,7 @@ never fetches commits and never stores commit message text.
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 
 import pytest
@@ -1121,3 +1122,232 @@ def test_an_envelope_without_the_probe_count_keeps_the_old_behaviour(tmp_path):
     fields = gov.derive_governance_fields({"files": {}, "check_names": []}, None, None, False)
     value, confidence = fields["legal_ip"]
     assert (value, confidence) == ("NONE", "derived")
+
+
+# =========================================================================== #
+# GraphQL governance probe: the same sample and the same check evidence as REST
+# =========================================================================== #
+
+
+def _sample_repo() -> list[dict]:
+    """30 closed PRs, created i=1..30. Merge order differs from creation order and the
+    UPDATED order differs from both, so a different sort picks different PRs. The 8
+    newest-created are closed unmerged; the 22 older ones merged."""
+    prs = []
+    for i in range(1, 31):
+        merged = i <= 22
+        prs.append({
+            "number": i,
+            "created_at": f"2026-08-{i:02d}T00:00:00Z",
+            # PR 3 was created early but merged last; PR 20 was commented on last
+            "merged_at": (f"2026-09-{(30 - i) % 28 + 1:02d}T00:00:00Z" if merged else None),
+            "updated_at": f"2026-10-{(i * 7) % 28 + 1:02d}T00:00:00Z",
+            "author": f"user{i % 3}",
+            "head_sha": f"{i:040x}",
+        })
+    return prs
+
+
+class FakeGitHubRepo:
+    """One repository answering BOTH the REST pulls/statuses/check-runs endpoints and the
+    GraphQL governance queries, from the same fixture. The GraphQL side honours the
+    ``states`` and ``orderBy`` it finds in the query text, so a changed query changes the
+    sample."""
+
+    def __init__(self, prs: list[dict], statuses: dict[str, list[dict]],
+                 runs: dict[str, list[dict]], runs_per_suite: int = 50) -> None:
+        self.prs = prs
+        self.statuses = statuses
+        self.runs = runs
+        self.runs_per_suite = runs_per_suite
+        self.gql_calls: list[tuple[str, dict]] = []
+        self.rest_calls: list[str] = []
+
+    # ---- REST ---- #
+    def call(self, path: str, params: Mapping[str, str]) -> Any:
+        self.rest_calls.append(path)
+        if path.endswith("/pulls"):
+            assert params["state"] == "closed" and params["sort"] == "created"
+            rows = sorted(self.prs, key=lambda p: p["created_at"], reverse=params["direction"] == "desc")
+            size, page = int(params["per_page"]), int(params["page"])
+            return [{"number": p["number"], "created_at": p["created_at"], "merged_at": p["merged_at"],
+                     "user": {"login": p["author"]}, "head": {"sha": p["head_sha"]}}
+                    for p in rows[(page - 1) * size: page * size]]
+        sha = path.split("/commits/", 1)[1].split("/", 1)[0]
+        if path.endswith("/statuses"):
+            return [dict(x) for x in self.statuses.get(sha, [])]
+        runs = self.runs.get(sha, [])
+        return {"total_count": len(runs), "check_runs": [dict(x) for x in runs[:100]]}
+
+    # ---- GraphQL ---- #
+    def execute(self, query: str, variables: Optional[Mapping[str, Any]] = None) -> dict:
+        v = dict(variables or {})
+        self.gql_calls.append((query, v))
+        if "GovernanceMergedPrs" in query:
+            states = re.search(r"states: \[([A-Z, ]+)\]", query).group(1)
+            field, direction = re.search(r"orderBy: \{field: (\w+), direction: (\w+)\}", query).groups()
+            assert "CLOSED" in states and "MERGED" in states
+            key = {"CREATED_AT": "created_at", "UPDATED_AT": "updated_at"}[field]
+            rows = sorted(self.prs, key=lambda p: p[key], reverse=direction == "DESC")
+            start = int(v.get("after") or 0)
+            page = rows[start: start + v["first"]]
+            end = start + len(page)
+            return {"data": {"rateLimit": {"cost": 1, "remaining": 4000}, "r": {"pullRequests": {
+                "pageInfo": {"hasNextPage": end < len(rows), "endCursor": str(end)},
+                "nodes": [{"number": p["number"], "createdAt": p["created_at"],
+                           "mergedAt": p["merged_at"], "author": {"login": p["author"]},
+                           "headRefOid": p["head_sha"]} for p in page]}}}}
+        assert "GovernanceChecks" in query
+        repo: dict[str, Any] = {}
+        i = 0
+        while f"s{i}" in v:
+            sha = v[f"s{i}"]
+            known = any(p["head_sha"] == sha for p in self.prs)
+            if not known:
+                repo[f"c{i}"] = None
+            else:
+                runs = self.runs.get(sha, [])
+                size = self.runs_per_suite
+                suites = [runs[j: j + size] for j in range(0, len(runs), size)] or []
+                repo[f"c{i}"] = {
+                    "status": {"contexts": [{"context": x["context"], "state": x["state"].upper()}
+                                            for x in self.statuses.get(sha, [])]},
+                    "checkSuites": {"pageInfo": {"hasNextPage": len(suites) > gov.GOVERNANCE_CHECK_SUITES_FIRST},
+                                    "nodes": [{"checkRuns": {
+                                        "pageInfo": {"hasNextPage": False},
+                                        "nodes": [{"name": r["name"], "status": r["status"].upper(),
+                                                   "conclusion": (r["conclusion"] or "").upper() or None}
+                                                  for r in chunk]}} for chunk in suites[: gov.GOVERNANCE_CHECK_SUITES_FIRST]]},
+                }
+            i += 1
+        return {"data": {"rateLimit": {"cost": 1, "remaining": 4000}, "r": repo}}
+
+
+def _probed_shas(prs: list[dict]) -> list[str]:
+    """The SHAs the collectors probe: the 20 newest-created merged PRs, then the
+    CHECK_EVIDENCE_SHA_CAP newest merges among them."""
+    sample = [p for p in sorted(prs, key=lambda p: p["created_at"], reverse=True)
+              if p["merged_at"]][: gov.MERGED_PR_CAP]
+    rows = [{"merged_at": p["merged_at"], "number": p["number"], "head_sha": p["head_sha"]}
+            for p in sample]
+    return [sha for sha, _ in gov._distinct_head_shas(rows)][: gov.CHECK_EVIDENCE_SHA_CAP]
+
+
+def _sample_fake(**kw: Any) -> FakeGitHubRepo:
+    prs = _sample_repo()
+    probed = _probed_shas(prs)
+    assert len(probed) == 5
+    statuses = {sha: [_status("EasyCLA"), _status("tide", "pending")] for sha in probed[:3]}
+    runs = {sha: [_checkrun("cla/google"), _checkrun("build", "failure")] for sha in probed[:4]}
+    return FakeGitHubRepo(prs, statuses, runs, **kw)
+
+
+def _collect(tmp_path, fake, *, graphql: bool, tag: str):
+    raw = tmp_path / tag
+    kwargs: dict[str, Any] = {"graphql_transport": fake} if graphql else {"api": fake}
+    assert gov.collect_governance(raw, OWNER, NAME, now=NOW, fetch_file=lambda p: None,
+                                  **kwargs, **({"api": fake} if graphql else {})) == "ok"
+    return read_envelope(raw / "governance" / f"{KEY}.json")
+
+
+def test_governance_graphql_probes_the_same_prs_shas_and_checks_as_rest(tmp_path):
+    fake = _sample_fake()
+    rest = _collect(tmp_path, fake, graphql=False, tag="rest")
+    gql = _collect(tmp_path, fake, graphql=True, tag="gql")
+    assert gql.source == "github-graphql:governance"
+    for field in ("pulls_available", "merged_prs", "checks_shas_probed", "checks_shas_available",
+                  "check_names", "merged_pr_cap", "check_sha_cap"):
+        assert gql.data[field] == rest.data[field], field
+    # same rows, in the same order, kind/state/conclusion included
+    assert gql.data["checks"] == rest.data["checks"]
+    assert [p["number"] for p in gql.data["merged_prs"]] == list(range(22, 2, -1))
+    assert gql.data["check_names"] == ["EasyCLA", "build", "cla/google", "tide"]
+
+
+def test_governance_graphql_sample_is_ordered_by_creation_not_by_update(tmp_path):
+    fake = _sample_fake()
+    gql = _collect(tmp_path, fake, graphql=True, tag="gql")
+    pr_query = next(q for q, _ in fake.gql_calls if "GovernanceMergedPrs" in q)
+    assert "field: CREATED_AT, direction: DESC" in pr_query
+    assert "UPDATED_AT" not in pr_query
+    updated_order = [p["number"] for p in sorted(fake.prs, key=lambda p: p["updated_at"], reverse=True)
+                     if p["merged_at"]][: gov.MERGED_PR_CAP]
+    assert [p["number"] for p in gql.data["merged_prs"]] != updated_order
+
+
+def test_governance_graphql_lists_every_check_run_across_suites_without_a_rollup(tmp_path):
+    """100 check runs spread over several suites: all of them are listed by GraphQL (a
+    ``statusCheckRollup`` keeps 100 contexts of any kind and drops runs REST lists), with
+    no REST call, and the rows equal the REST path's."""
+    newest = _probed_shas(_sample_repo())[0]
+    runs = {newest: [_checkrun(f"job-{i}") for i in range(99)] + [_checkrun("cla/google")]}
+    fake = FakeGitHubRepo(_sample_repo(), {}, runs, runs_per_suite=40)
+    gql = _collect(tmp_path, fake, graphql=True, tag="gql")
+    rest = _collect(tmp_path, FakeGitHubRepo(fake.prs, {}, runs), graphql=False, tag="rest")
+    assert "cla/google" in gql.data["check_names"]
+    assert sum(1 for c in gql.data["checks"] if c["kind"] == "check_run") == 100
+    assert gql.data["checks"] == rest.data["checks"]
+    assert not any(path.endswith("/check-runs") for path in fake.rest_calls)
+    assert "statusCheckRollup" not in "".join(q for q, _ in fake.gql_calls)
+
+
+def test_governance_graphql_defers_to_rest_for_a_commit_rest_would_truncate(tmp_path):
+    """REST reads 100 check runs per commit and no more. For a commit with more, GraphQL
+    would return extra names the REST path never sees; the REST path is used instead so
+    the two stay identical."""
+    newest = _probed_shas(_sample_repo())[0]
+    runs = {newest: [_checkrun(f"job-{i}") for i in range(150)] + [_checkrun("cla/google")]}
+    fake = FakeGitHubRepo(_sample_repo(), {}, runs, runs_per_suite=40)
+    gql = _collect(tmp_path, fake, graphql=True, tag="gql")
+    rest = _collect(tmp_path, FakeGitHubRepo(fake.prs, {}, runs), graphql=False, tag="rest")
+    assert gql.data["checks"] == rest.data["checks"]
+    assert "cla/google" not in gql.data["check_names"]  # past REST's 100: not read by either path
+    assert any(path.endswith(f"/commits/{newest}/check-runs") for path in fake.rest_calls)
+
+
+def test_governance_graphql_falls_back_to_rest_for_a_sha_it_cannot_list_in_full(tmp_path):
+    big = _probed_shas(_sample_repo())[0]
+    n_runs = gov.GOVERNANCE_CHECK_SUITES_FIRST + 5  # one run per suite: more suites than one page
+    fake = FakeGitHubRepo(_sample_repo(), {}, {big: [_checkrun(f"job-{i}") for i in range(n_runs)]},
+                          runs_per_suite=1)
+    gql = _collect(tmp_path, fake, graphql=True, tag="gql")
+    assert any(path.endswith(f"/commits/{big}/check-runs") for path in fake.rest_calls)
+    rest = _collect(tmp_path, FakeGitHubRepo(fake.prs, {}, fake.runs), graphql=False, tag="rest")
+    assert gql.data["checks"] == rest.data["checks"]
+
+
+def test_governance_graphql_unknown_sha_is_skipped_like_a_rest_404(tmp_path):
+    fake = _sample_fake()
+    fake.statuses.clear()
+    fake.runs.clear()
+    real_execute = fake.execute
+
+    def hide_newest(query, variables=None):
+        v = dict(variables or {})
+        if "GovernanceChecks" in query:
+            v["s0"] = "f" * 40  # no such commit
+        return real_execute(query, v)
+
+    fake.execute = hide_newest  # type: ignore[method-assign]
+    gql = _collect(tmp_path, fake, graphql=True, tag="gql")
+    assert gql.data["checks_shas_probed"] == gov.CHECK_EVIDENCE_SHA_CAP - 1
+    assert gql.data["checks_shas_available"] == 20
+
+
+def test_governance_graphql_missing_repo_is_pulls_unavailable(tmp_path):
+    class Gone:
+        def execute(self, query, variables=None):
+            return {"data": {"r": None}, "errors": [{"type": "NOT_FOUND", "path": ["r"]}]}
+
+    env = _collect(tmp_path, Gone(), graphql=True, tag="gql")
+    assert env.data["pulls_available"] is False and env.data["merged_prs"] == []
+
+
+def test_governance_graphql_defers_to_rest_for_a_commit_with_100_status_contexts(tmp_path):
+    newest = _probed_shas(_sample_repo())[0]
+    statuses = {newest: [_status(f"ctx-{i}") for i in range(gov.REST_CHECKS_PER_PAGE)]}
+    fake = FakeGitHubRepo(_sample_repo(), statuses, {})
+    gql = _collect(tmp_path, fake, graphql=True, tag="gql")
+    rest = _collect(tmp_path, FakeGitHubRepo(fake.prs, statuses, {}), graphql=False, tag="rest")
+    assert gql.data["checks"] == rest.data["checks"]
+    assert any(path.endswith(f"/commits/{newest}/statuses") for path in fake.rest_calls)
