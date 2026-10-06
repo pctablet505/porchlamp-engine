@@ -480,3 +480,60 @@ def test_derive_maven_unmeasured(tmp_path):
     out = derive.derive_repo("acme", "widget", derive.Ecosystem.MAVEN, tmp_path, now=NOW)
     assert out["meta"]["downloads_status"] == "unmeasured"
     assert out["provenance"]["downloads_status"]["source"] is None
+
+
+# --------------------------------------------------------------------------
+# Bulk BigQuery PyPI monthly downloads backfill
+# --------------------------------------------------------------------------
+
+
+class _FakeBigQueryJob:
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    def result(self) -> list[dict]:
+        return self._rows
+
+
+class _FakeBigQueryClient:
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+        self.queries: list[tuple[str, Any]] = []
+
+    def query(self, sql: str, job_config: Any = None) -> _FakeBigQueryJob:
+        self.queries.append((sql, job_config))
+        return _FakeBigQueryJob(self.rows)
+
+
+def test_backfill_bigquery_bulk_single_parameterized_query(tmp_path):
+    """One parameterized BigQuery query replaces throttled 15s/repo pypistats
+    requests; absent packages stay null (never fabricated as 0)."""
+    backfill = _load_backfill()
+    data_dir = tmp_path / "data"
+    make_data_dir(
+        data_dir,
+        ["already_done", "My_Pkg", "missing_pkg", "requests"],
+        done={"already_done": 999},
+    )
+    client = _FakeBigQueryClient(
+        [
+            {"package": "my-pkg", "monthly_downloads": 12345},
+            {"package": "requests", "monthly_downloads": 88000000},
+        ]
+    )
+    rep = backfill.backfill_bigquery(data_dir, client=client, now=NOW)
+    assert len(client.queries) == 1
+    sql, job_cfg = client.queries[0]
+    assert "UNNEST(@packages)" in sql
+    assert "my-pkg" not in sql  # parameterized, never interpolated into SQL
+    assert job_cfg.packages == ("missing-pkg", "my-pkg", "requests")
+
+    assert rep.total == 4
+    assert rep.already_done == 1
+    assert rep.fetched == 2
+    assert rep.still_null == 1
+    assert monthly_of(data_dir, "already_done") == 999
+    assert monthly_of(data_dir, "My_Pkg") == 12345
+    assert monthly_of(data_dir, "requests") == 88000000
+    assert monthly_of(data_dir, "missing_pkg") is None
+

@@ -306,10 +306,113 @@ def comments_per_issue(sample: Sequence[Mapping[str, Any]]) -> float:
     return total / len(sample)
 
 
+#: Single-call GraphQL query for issue counts and the 30-issue comment sample,
+#: replacing 3 separate REST ``/search/issues`` requests (which are throttled by
+#: GitHub's 30 req/min Search API limit and ``SLEEP_SEARCH_SECONDS = 2.1s``).
+ISSUES_COUNTS_GRAPHQL_QUERY = """
+query($owner: String!, $name: String!, $since: DateTime!, $sampleSize: Int!) {
+  repository(owner: $owner, name: $name) {
+    closed90d: issues(filterBy: {since: $since}, states: [CLOSED], first: 1) {
+      totalCount
+    }
+    updated90d: issues(filterBy: {since: $since}, first: 1) {
+      totalCount
+    }
+    sample: issues(first: $sampleSize, orderBy: {field: UPDATED_AT, direction: DESC}) {
+      totalCount
+      nodes {
+        number
+        updatedAt
+        comments {
+          totalCount
+        }
+      }
+    }
+  }
+}
+""".strip()
+
+
+def collect_issue_counts_graphql(
+    raw_dir: Path,
+    owner: str,
+    name: str,
+    now: Optional[datetime] = None,
+    transport: Optional[Any] = None,
+    force: bool = False,
+) -> str:
+    """Collect ``issues_counts`` in a single GraphQL call instead of 3 Search API calls.
+
+    Writes ``raw_dir/issues_counts/<owner>__<name>.json`` with the exact same
+    envelope data schema as :func:`collect_issue_counts` so downstream derivation
+    is unchanged, while eliminating the 30 req/min Search API bottleneck.
+    """
+    key = f"{owner}__{name}"
+    target = raw_dir / "issues_counts" / f"{key}.json"
+    if target.is_file() and not force:
+        return "skip"
+    now = now or datetime.now(timezone.utc)
+    if transport is None:
+        from porchlamp.collect.github_graphql import GhCliTransport
+
+        transport = GhCliTransport()
+    since_dt = (now - timedelta(days=ISSUES_WINDOW_DAYS)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    since_iso = since_dt.isoformat().replace("+00:00", "Z")
+    payload = transport.execute(
+        ISSUES_COUNTS_GRAPHQL_QUERY,
+        {
+            "owner": owner,
+            "name": name,
+            "since": since_iso,
+            "sampleSize": ISSUE_SAMPLE_SIZE,
+        },
+    )
+    data = payload.get("data") if isinstance(payload, Mapping) else None
+    repo = data.get("repository") if isinstance(data, Mapping) else None
+    if not isinstance(repo, Mapping):
+        errors = payload.get("errors") if isinstance(payload, Mapping) else None
+        raise RuntimeError(
+            f"graphql issues_counts failed for {owner}/{name}: {errors}"
+        )
+    closed_total = int(((repo.get("closed90d") or {}).get("totalCount")) or 0)
+    updated_total = int(((repo.get("updated90d") or {}).get("totalCount")) or 0)
+    sample_conn = repo.get("sample") or {}
+    sample_total = int(sample_conn.get("totalCount") or 0)
+    nodes = sample_conn.get("nodes") or []
+    sample = [
+        {
+            "number": node.get("number"),
+            "comments": int(((node.get("comments") or {}).get("totalCount")) or 0),
+            "updated_at": node.get("updatedAt"),
+        }
+        for node in nodes
+        if isinstance(node, Mapping)
+    ]
+    write_envelope(
+        target,
+        source="github-graphql:issues_counts",
+        data={
+            "window_days": ISSUES_WINDOW_DAYS,
+            "window_anchor": now.isoformat(),
+            "closed_90d": closed_total,
+            "updated_90d": updated_total,
+            "sample_size": ISSUE_SAMPLE_SIZE,
+            "sample_total": sample_total,
+            "sample": sample,
+            "comments_per_issue": round(comments_per_issue(sample), 4),
+        },
+        fetched_at=now.isoformat(),
+    )
+    return "ok"
+
+
 def collect_issue_counts(raw_dir: Path, owner: str, name: str,
                          now: Optional[datetime] = None,
                          transport: Optional[RestTransport] = None,
-                         force: bool = False) -> str:
+                         force: bool = False,
+                         graphql_transport: Optional[Any] = None) -> str:
     """Collect the issue-activity search counts and the 30-issue sample.
 
     Writes ``raw_dir/issues_counts/<owner>__<name>.json`` -- one envelope
@@ -317,7 +420,18 @@ def collect_issue_counts(raw_dir: Path, owner: str, name: str,
     ``total_count`` at the envelope's anchor), the recorded sample and
     ``comments_per_issue`` -- and returns ``"ok"``. Returns ``"skip"`` when
     the envelope already exists and ``force`` is False.
+    When ``graphql_transport`` is supplied, uses :func:`collect_issue_counts_graphql`
+    to fetch all three metrics in a single GraphQL request.
     """
+    if graphql_transport is not None:
+        return collect_issue_counts_graphql(
+            raw_dir,
+            owner,
+            name,
+            now=now,
+            transport=graphql_transport,
+            force=force,
+        )
     key = f"{owner}__{name}"
     target = raw_dir / "issues_counts" / f"{key}.json"
     if target.is_file() and not force:

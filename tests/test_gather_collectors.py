@@ -230,3 +230,51 @@ def test_make_sample_overwrites_readonly_existing_files(tmp_path: Path) -> None:
     assert (dst_sample / "raw" / "github_meta" / "a__b.json").read_text(encoding="utf-8") == '{"stars": 2}'
 
 
+def test_main_dirty_and_fingerprint_only_skip_clean_repos(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--dirty runs the 100-repo fingerprint pass and only calls gather_repo on
+    dirty repos with their invalidated collector subset; --fingerprint-only exits
+    before calling gather_repo."""
+    import porchlamp.collect.fingerprint as fp_mod
+
+    rows = [
+        {"owner": "acme", "name": "clean_repo", "ecosystem": "pypi"},
+        {"owner": "acme", "name": "dirty_repo", "ecosystem": "pypi"},
+    ]
+    gather.CANDIDATES.parent.mkdir(parents=True, exist_ok=True)
+    gather.CANDIDATES.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+
+    fake_result = fp_mod.FingerprintSweepResult(
+        fingerprints={},
+        previous={},
+        invalidated_by_repo={
+            "acme__clean_repo": frozenset(),
+            "acme__dirty_repo": frozenset({"releases"}),
+        },
+        tiers_by_repo={"acme__clean_repo": "warm", "acme__dirty_repo": "hot"},
+        unresolved_keys=(),
+        queries_executed=1,
+        cost_points=1,
+        rate_limit_remaining=4999,
+    )
+    monkeypatch.setattr(fp_mod, "run_fingerprint_pass", lambda *a, **k: fake_result)
+
+    gathered: list[tuple[str, str, bool, object]] = []
+
+    def _spy_gather(o, n, e, force=False, skip_pypistats=False, collectors=None, **kw):
+        gathered.append((o, n, force, collectors))
+        return {"releases": "ok"}
+
+    monkeypatch.setattr(gather, "gather_repo", _spy_gather)
+
+    # 1. --fingerprint-only exits after fingerprint pass with 0 gather_repo calls
+    assert gather.main(["--all", "--fingerprint-only"]) == 0
+    assert gathered == []
+
+    # 2. --dirty skips clean_repo and gathers only releases (force=True) on dirty_repo
+    assert gather.main(["--all", "--dirty"]) == 0
+    assert gathered == [("acme", "dirty_repo", True, frozenset({"releases"}))]
+
+
+

@@ -30,10 +30,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import time
 import urllib.request
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -44,6 +46,18 @@ PYPISTATS_BASE = "https://pypistats.org"
 DEFAULT_MIN_INTERVAL = 15.0  # 4 requests/min; pypistats limit is ~5/min/IP
 USER_AGENT = "porchlamp-research/0.1 (ranking study)"
 PUBLIC_DATASET_PROJECT = "bigquery-public-data"
+BIGQUERY_SOURCE = "bigquery-public-data:pypi.file_downloads"
+
+#: Parameterized BigQuery SQL for trailing 30-day PyPI downloads across an
+#: arbitrary package list in a single query. Never interpolates package names.
+BIGQUERY_PYPI_MONTHLY_SQL = """
+SELECT file.project AS package, COUNT(*) AS monthly_downloads
+FROM `bigquery-public-data.pypi.file_downloads`
+WHERE timestamp >= TIMESTAMP(@window_start)
+  AND timestamp < TIMESTAMP(@window_end)
+  AND file.project IN UNNEST(@packages)
+GROUP BY package
+""".strip()
 
 #: Ecosystems whose null downloads are retry-able (a registry source exists);
 #: the rest have none (go: deps.dev dependents only; maven/systems: none).
@@ -123,9 +137,14 @@ def _write_envelope(data_dir: Path, name: str, monthly: int, source: str) -> Non
     """Atomically replace the pypi download envelope with a measured value."""
     path = data_dir / "raw" / "downloads" / f"pypi__{name}.json"
     tmp = path.with_name(path.name + ".backfill-tmp")
+    envelope_source = (
+        f"{source.rstrip('/')}/api/packages/{name}/recent"
+        if source.startswith(("http://", "https://"))
+        else source
+    )
     write_envelope(
         tmp,
-        source=f"{source.rstrip('/')}/api/packages/{name}/recent",
+        source=envelope_source,
         data={"monthly": monthly},
         fetched_at=datetime.now(timezone.utc).isoformat(),
         http_status=200,
@@ -210,6 +229,139 @@ class BigQueryProbe:
         return self.status if self.reason_code is None else f"{self.status} / {self.reason_code}"
 
 
+@dataclass(frozen=True)
+class BigQueryJobConfigFallback:
+    """Parameterized query configuration used when ``google-cloud-bigquery`` is absent."""
+
+    query_parameters: tuple[dict[str, Any], ...]
+    packages: tuple[str, ...]
+    window_start: str
+    window_end: str
+
+
+def normalize_pypi_package(name: str) -> str:
+    """PEP 503 normalized PyPI package name."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _build_bigquery_job_config(
+    packages: Sequence[str], window_start: str, window_end: str
+) -> Any:
+    pkg_list = list(packages)
+    try:
+        from google.cloud import bigquery
+
+        return bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("packages", "STRING", pkg_list),
+                bigquery.ScalarQueryParameter("window_start", "STRING", window_start),
+                bigquery.ScalarQueryParameter("window_end", "STRING", window_end),
+            ]
+        )
+    except ImportError:
+        return BigQueryJobConfigFallback(
+            query_parameters=(
+                {"name": "packages", "type": "ARRAY<STRING>", "value": tuple(pkg_list)},
+                {"name": "window_start", "type": "STRING", "value": window_start},
+                {"name": "window_end", "type": "STRING", "value": window_end},
+            ),
+            packages=tuple(pkg_list),
+            window_start=window_start,
+            window_end=window_end,
+        )
+
+
+def fetch_bigquery_monthly_bulk(
+    packages: Sequence[str],
+    *,
+    client: Any,
+    now: Optional[datetime] = None,
+) -> dict[str, int]:
+    """Query trailing 30-day PyPI download counts for ``packages`` in one BigQuery job.
+
+    Uses parameterized query parameters (``@packages``, ``@window_start``,
+    ``@window_end``) rather than string interpolation. Returns a mapping from
+    PEP 503 normalized package name to integer monthly downloads for every row
+    returned by the query.
+    """
+    if not packages:
+        return {}
+    anchor = now or datetime.now(timezone.utc)
+    if anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=timezone.utc)
+    window_end_dt = anchor.astimezone(timezone.utc)
+    window_start_dt = window_end_dt - timedelta(days=30)
+    window_start = window_start_dt.isoformat()
+    window_end = window_end_dt.isoformat()
+
+    normalized_set = sorted({normalize_pypi_package(p) for p in packages if p})
+    job_config = _build_bigquery_job_config(normalized_set, window_start, window_end)
+    job = client.query(BIGQUERY_PYPI_MONTHLY_SQL, job_config=job_config)
+    rows = job.result() if hasattr(job, "result") else job
+    counts: dict[str, int] = {}
+    for row in rows:
+        if isinstance(row, Mapping):
+            pkg = row.get("package")
+            dl = row.get("monthly_downloads")
+        else:
+            pkg = getattr(row, "package", None)
+            dl = getattr(row, "monthly_downloads", None)
+            if pkg is None and isinstance(row, (tuple, list)) and len(row) >= 2:
+                pkg, dl = row[0], row[1]
+        if not pkg or isinstance(dl, bool) or not isinstance(dl, int) or dl < 0:
+            continue
+        counts[normalize_pypi_package(str(pkg))] = dl
+    return counts
+
+
+def backfill_bigquery(
+    data_dir: Path,
+    *,
+    client: Optional[Any] = None,
+    now: Optional[datetime] = None,
+    limit: Optional[int] = None,
+) -> BackfillReport:
+    """Bulk-backfill null PyPI download envelopes via one BigQuery public-dataset query.
+
+    Replaces 4+ hours of throttled 15s/repo pypistats polling with a single
+    parameterized query against ``bigquery-public-data.pypi.file_downloads``.
+    Packages not returned by the query stay null (never fabricated as zero, R-4 / D-MISS-1).
+    """
+    names = pypi_packages(data_dir)
+    pending = [n for n in names if envelope_monthly(data_dir, n) is None]
+    total = len(names)
+    done = total - len(pending)
+    if limit is not None:
+        pending = pending[:limit]
+    if not pending:
+        print(f"backfill-bigquery: 0 pending pypi downloads ({total} done) - nothing to do")
+        return BackfillReport(total, total, 0, 0, 0.0, 0.0)
+    if client is None:
+        try:
+            import google.auth
+            from google.cloud import bigquery
+
+            credentials, project = google.auth.default()
+            client = bigquery.Client(project=project, credentials=credentials)
+        except Exception as e:  # review-ok: gate-env — credentials or client library absent
+            raise RuntimeError(f"BigQuery client unavailable: {type(e).__name__}: {e}") from e
+
+    t0 = time.monotonic()
+    counts = fetch_bigquery_monthly_bulk(pending, client=client, now=now)
+    fetched = nulls = 0
+    for name in pending:
+        norm = normalize_pypi_package(name)
+        monthly = counts.get(norm)
+        if monthly is not None:
+            _write_envelope(data_dir, name, monthly, BIGQUERY_SOURCE)
+            fetched += 1
+        else:
+            nulls += 1
+    elapsed = time.monotonic() - t0
+    rate = fetched / elapsed * 60.0 if fetched and elapsed > 0 else 0.0
+    return BackfillReport(total, done, fetched, nulls, elapsed, rate)
+
+
 def probe_bigquery(run_live: bool = False, client: Optional[Any] = None) -> BigQueryProbe:
     """Probe reachability of the ``bigquery-public-data`` dataset.
 
@@ -264,10 +416,22 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="report BigQuery public-dataset availability, then exit")
     ap.add_argument("--probe-bigquery-live", action="store_true",
                     help="also query the dataset when credentials resolve")
+    ap.add_argument("--bigquery-bulk", action="store_true",
+                    help="backfill all pending PyPI downloads in one BigQuery query")
     a = ap.parse_args(argv)
     if a.probe_bigquery or a.probe_bigquery_live:
         probe = probe_bigquery(run_live=a.probe_bigquery_live)
         print(f"BigQuery probe: {probe.label()} - {probe.detail}")
+        return 0
+    if a.bigquery_bulk:
+        probe = probe_bigquery(run_live=True)
+        if probe.status != "OK":
+            print(f"BigQuery bulk backfill: {probe.label()} - {probe.detail}")
+            return 0
+        report = backfill_bigquery(a.data_dir, limit=a.limit)
+        print(f"backfill-bigquery done: {report.fetched} fetched, {report.still_null} still null, "
+              f"{report.already_done} already done, {report.total} total, "
+              f"{report.elapsed_seconds:.1f}s")
         return 0
     report = backfill(a.data_dir, base_url=a.base_url, min_interval=a.interval,
                       limit=a.limit)

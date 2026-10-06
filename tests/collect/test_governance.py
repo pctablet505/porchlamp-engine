@@ -1121,3 +1121,95 @@ def test_an_envelope_without_the_probe_count_keeps_the_old_behaviour(tmp_path):
     fields = gov.derive_governance_fields({"files": {}, "check_names": []}, None, None, False)
     value, confidence = fields["legal_ip"]
     assert (value, confidence) == ("NONE", "derived")
+
+
+# =========================================================================== #
+# Single-call GraphQL governance probe (bulk maintenance optimization)
+# =========================================================================== #
+
+
+class FakeGovGraphQLTransport:
+    """Fake GraphQL transport returning merged PRs, status contexts, and check runs."""
+
+    def __init__(self, pr_nodes: list[dict], repo_missing: bool = False) -> None:
+        self.pr_nodes = pr_nodes
+        self.repo_missing = repo_missing
+        self.calls: list[tuple[str, dict]] = []
+
+    def execute(self, query: str, variables: Optional[Mapping[str, Any]] = None) -> dict:
+        self.calls.append((query, dict(variables or {})))
+        if self.repo_missing:
+            return {"data": {"r": None}}
+        return {
+            "data": {
+                "r": {
+                    "pullRequests": {
+                        "nodes": self.pr_nodes,
+                    }
+                }
+            }
+        }
+
+
+def test_collect_governance_graphql_single_call_matches_rest_verdict(tmp_path):
+    """One GraphQL call replaces 11-15 REST calls while producing the exact same
+    envelope fields and legal-IP classification."""
+    pr_nodes = [
+        {
+            "number": 20 - i,
+            "createdAt": f"2026-08-{20 - i:02d}T00:00:00Z",
+            "mergedAt": f"2026-08-{20 - i:02d}T12:00:00Z",
+            "author": {"login": "alice"},
+            "headRefOid": f"sha{20 - i:02d}",
+            "commits": {
+                "nodes": [
+                    {
+                        "commit": {
+                            "oid": f"sha{20 - i:02d}",
+                            "statusCheckRollup": {
+                                "contexts": {
+                                    "nodes": [
+                                        {
+                                            "__typename": "StatusContext",
+                                            "context": "EasyCLA",
+                                            "state": "SUCCESS",
+                                        },
+                                        {
+                                            "__typename": "CheckRun",
+                                            "name": "ci/unit",
+                                            "conclusion": "SUCCESS",
+                                        },
+                                    ]
+                                }
+                            },
+                        }
+                    }
+                ]
+            },
+        }
+        for i in range(8)
+    ]
+    gql = FakeGovGraphQLTransport(pr_nodes)
+    bodies = {"GOVERNANCE.md": "maintainers are nominated by TSC\n"}
+    assert (
+        gov.collect_governance(
+            tmp_path / "raw",
+            OWNER,
+            NAME,
+            now=NOW,
+            graphql_transport=gql,
+            fetch_file=lambda p: bodies.get(p),
+        )
+        == "ok"
+    )
+    assert len(gql.calls) == 1
+    env = read_envelope(tmp_path / "raw" / "governance" / f"{KEY}.json")
+    assert env.source == "github-graphql:governance"
+    d = env.data
+    assert d["pulls_available"] is True
+    assert len(d["merged_prs"]) == 8
+    assert d["checks_shas_available"] == 8
+    assert d["checks_shas_probed"] == gov.CHECK_EVIDENCE_SHA_CAP
+    assert d["check_names"] == ["EasyCLA", "ci/unit"]
+    assert gov.classify_legal_ip(d["check_names"], None, False)[0] == "FOUNDATION_CLA"
+

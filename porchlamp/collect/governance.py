@@ -425,6 +425,111 @@ def _check_evidence(api: RestTransport, owner: str, name: str,
     return checks, shas_probed, shas_available
 
 
+#: Single-call GraphQL query fetching the 20 newest merged PRs together with
+#: statusCheckRollup contexts on each head commit, replacing up to 15 REST calls.
+GOVERNANCE_GRAPHQL_QUERY: str = (
+    "query GovernanceMergedPrChecks($owner: String!, $name: String!, $first: Int!) {"
+    " rateLimit { cost remaining }"
+    " r: repository(owner: $owner, name: $name) {"
+    " pullRequests(states: [MERGED], first: $first,"
+    " orderBy: {field: UPDATED_AT, direction: DESC}) {"
+    " nodes { number createdAt mergedAt author { login } headRefOid"
+    " commits(last: 1) { nodes { commit { oid statusCheckRollup {"
+    " contexts(first: 100) { nodes { __typename"
+    " ... on CheckRun { name status conclusion }"
+    " ... on StatusContext { context state }"
+    " } } } } } } } } } }"
+)
+
+
+def fetch_merged_prs_and_checks_graphql(
+    transport: pr_window.GraphqlTransport,
+    owner: str,
+    name: str,
+) -> tuple[list[dict[str, Any]], bool, list[dict[str, Any]], int, int]:
+    """Fetch merged PRs and their head-SHA check/status evidence in one GraphQL call.
+
+    Returns ``(merged_prs, pulls_available, checks, shas_probed, shas_available)``
+    with the exact same record schema as :func:`_merged_prs` + :func:`_check_evidence`.
+    """
+    doc = transport.execute(
+        GOVERNANCE_GRAPHQL_QUERY,
+        {"owner": owner, "name": name, "first": MERGED_PR_CAP},
+    )
+    data = doc.get("data") if isinstance(doc, Mapping) else None
+    repo = data.get("r") if isinstance(data, Mapping) else None
+    if repo is None:
+        errors = doc.get("errors") if isinstance(doc, Mapping) else None
+        if errors and any("NOT_FOUND" in str(e.get("type") or "") for e in errors if isinstance(e, Mapping)):
+            return [], False, [], 0, 0
+        raise RuntimeError(f"governance graphql failed for {owner}/{name}: {str(errors)[:160]}")
+
+    nodes = ((repo.get("pullRequests") or {}).get("nodes")) or []
+    merged_prs: list[dict[str, Any]] = []
+    rollup_by_sha: dict[str, list[Mapping[str, Any]]] = {}
+    for pr in nodes:
+        if not isinstance(pr, Mapping) or not pr.get("mergedAt"):
+            continue
+        commit_nodes = ((pr.get("commits") or {}).get("nodes")) or []
+        commit_obj = (
+            (commit_nodes[-1].get("commit") or {})
+            if commit_nodes and isinstance(commit_nodes[-1], Mapping)
+            else {}
+        )
+        head_sha = str(commit_obj.get("oid") or pr.get("headRefOid") or "")
+        merged_prs.append({
+            "number": pr.get("number"),
+            "created_at": pr.get("createdAt"),
+            "merged_at": pr.get("mergedAt"),
+            "author_login": str(((pr.get("author") or {}).get("login")) or ""),
+            "head_sha": head_sha,
+        })
+        if head_sha and head_sha not in rollup_by_sha:
+            rollup = commit_obj.get("statusCheckRollup")
+            ctx_nodes = (
+                ((rollup.get("contexts") or {}).get("nodes")) or []
+                if isinstance(rollup, Mapping)
+                else []
+            )
+            rollup_by_sha[head_sha] = [
+                c for c in ctx_nodes if isinstance(c, Mapping)
+            ]
+        if len(merged_prs) >= MERGED_PR_CAP:
+            break
+
+    distinct = _distinct_head_shas(merged_prs)
+    shas_available = len(distinct)
+    shas_probed = 0
+    checks: list[dict[str, Any]] = []
+    for sha, pr_row in distinct[:CHECK_EVIDENCE_SHA_CAP]:
+        shas_probed += 1
+        for ctx in rollup_by_sha.get(sha, []):
+            typename = str(ctx.get("__typename") or "")
+            if typename == "StatusContext" or "context" in ctx:
+                checks.append({
+                    "name": str(ctx.get("context") or ""),
+                    "kind": "status",
+                    "state": str(ctx.get("state") or "").lower() or None,
+                    "conclusion": None,
+                    "pr": pr_row.get("number"),
+                    "sha": sha,
+                })
+            elif typename == "CheckRun" or "name" in ctx:
+                checks.append({
+                    "name": str(ctx.get("name") or ""),
+                    "kind": "check_run",
+                    "state": str(ctx.get("status") or "").lower() or None,
+                    "conclusion": (
+                        str(ctx["conclusion"]).lower()
+                        if ctx.get("conclusion") is not None
+                        else None
+                    ),
+                    "pr": pr_row.get("number"),
+                    "sha": sha,
+                })
+    return merged_prs, True, checks, shas_probed, shas_available
+
+
 def _row_sequence(rows: Optional[Any]) -> Optional[Sequence[Mapping[str, Any]]]:
     """Defend the ``c365`` (commits_365d) contract: a sequence of row
     mappings, never a bare mapping itself (a dict-shaped ``c365`` iterates
@@ -470,7 +575,8 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
                        now: Optional[datetime] = None,
                        api: Optional[RestTransport] = None,
                        fetch_file: Optional[FileFetcher] = None,
-                       force: bool = False) -> str:
+                       force: bool = False,
+                       graphql_transport: Optional[pr_window.GraphqlTransport] = None) -> str:
     """Collect the governance evidence envelope for one repository.
 
     Writes ``raw_dir/governance/<owner>__<name>.json`` — one envelope whose
@@ -481,20 +587,29 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
     derive time from the already-collected ``commits_365d`` envelope (see
     :func:`signoff_share`), so this collector never fetches commits and
     never stores message text. Returns ``"skip"`` when the envelope
-    already exists and ``force`` is False. ``api`` / ``fetch_file`` are
-    injectable transports for the recorded-response oracles; live by
-    default.
+    already exists and ``force`` is False. ``api`` / ``fetch_file`` /
+    ``graphql_transport`` are injectable transports for the recorded-response
+    oracles; when ``graphql_transport`` is given, merged PRs and their commit
+    check rollups are fetched in a single GraphQL request instead of 11-15
+    REST calls.
     """
     key = f"{owner}__{name}"
     target = raw_dir / "governance" / f"{key}.json"
     if target.is_file() and not force:
         return "skip"
     now = now or datetime.now(timezone.utc)
-    api = api or GhApiTransport()
     fetch_file = fetch_file or fetch_file_text(owner, name)
 
-    merged_prs, pulls_available = _merged_prs(api, owner, name)
-    checks, shas_probed, shas_available = _check_evidence(api, owner, name, merged_prs)
+    if graphql_transport is not None:
+        merged_prs, pulls_available, checks, shas_probed, shas_available = (
+            fetch_merged_prs_and_checks_graphql(graphql_transport, owner, name)
+        )
+        source_tag = "github-graphql:governance"
+    else:
+        api = api or GhApiTransport()
+        merged_prs, pulls_available = _merged_prs(api, owner, name)
+        checks, shas_probed, shas_available = _check_evidence(api, owner, name, merged_prs)
+        source_tag = "github-rest:governance"
     files: dict[str, Optional[dict[str, Any]]] = {}
     for fname in (*GOVERNANCE_FILES, *AI_POLICY_FILES):
         body = fetch_file(fname)
@@ -511,7 +626,7 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
         "check_names": sorted({c["name"] for c in checks if c["name"]}),
         "files": files,
     }
-    write_envelope(target, source="github-rest:governance", data=data,
+    write_envelope(target, source=source_tag, data=data,
                    fetched_at=now.isoformat())
     return "ok"
 

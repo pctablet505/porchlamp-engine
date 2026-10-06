@@ -911,3 +911,55 @@ def test_gather_repo_w17_collectors_fail(tmp_path, monkeypatch, block_live_netwo
     assert status["releases"] == "fail"
     assert status["issues_counts"] == "fail"
     assert status["runs"] == "fail"
+
+
+# --- Single-call GraphQL issues_counts collector -----------------------------
+
+
+class FakeIssuesGraphQLTransport:
+    def __init__(self, closed_total: int, updated_total: int, sample_nodes: list[dict]) -> None:
+        self.closed_total = closed_total
+        self.updated_total = updated_total
+        self.sample_nodes = sample_nodes
+        self.calls: list[tuple[str, dict]] = []
+
+    def execute(self, query: str, variables=None) -> dict:
+        self.calls.append((query, dict(variables or {})))
+        return {
+            "data": {
+                "repository": {
+                    "closed90d": {"totalCount": self.closed_total},
+                    "updated90d": {"totalCount": self.updated_total},
+                    "sample": {
+                        "totalCount": len(self.sample_nodes),
+                        "nodes": self.sample_nodes,
+                    },
+                }
+            }
+        }
+
+
+def test_collect_issue_counts_graphql_single_call_matches_search_envelope(tmp_path):
+    """One GraphQL call replaces 3 Search API calls (and 6.3s sleep) while writing
+    the exact same issues_counts envelope schema."""
+    gql = FakeIssuesGraphQLTransport(
+        closed_total=42,
+        updated_total=120,
+        sample_nodes=[
+            {"number": 1, "updatedAt": "2026-09-10T00:00:00Z", "comments": {"totalCount": 4}},
+            {"number": 2, "updatedAt": "2026-09-11T00:00:00Z", "comments": {"totalCount": 5}},
+            {"number": 3, "updatedAt": "2026-09-11T06:00:00Z", "comments": {"totalCount": 3}},
+        ],
+    )
+    assert pike.collect_issue_counts_graphql(tmp_path, OWNER, NAME, now=NOW, transport=gql) == "ok"
+    assert len(gql.calls) == 1
+    env = read_env(tmp_path, "issues_counts", KEY)
+    assert env.source == "github-graphql:issues_counts"
+    data = env.data
+    assert data["closed_90d"] == 42
+    assert data["updated_90d"] == 120
+    assert data["sample_size"] == 30
+    assert data["sample_total"] == 3
+    assert data["comments_per_issue"] == 4.0
+    assert data["window_days"] == 90
+
