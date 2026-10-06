@@ -1024,10 +1024,15 @@ def _plain_scalar_resolver(
     *,
     missing_reason: str = "collector_failure",
     missing_detail: str = "v1 deriver recorded no value",
+    n_field: Optional[str] = None,
 ) -> InputResolver:
     """Resolver for a v1 meta field carried through unchanged: an int or str
-    value, no enum mapping, ``n=0`` (a scalar, not a sample). Covers
-    ``elephant_factor`` and ``newcomer_issue_supply``."""
+    value, no enum mapping. ``n`` is ``meta[n_field]`` -- the sample the
+    deriver computed the value from -- when ``n_field`` names one and it
+    holds a non-negative int, else ``0`` (a scalar, not a sample; a
+    parameter with a minimum n then scores ``insufficient_n``). Covers
+    ``elephant_factor`` (``n_field="elephant_factor_commit_count"``) and
+    ``newcomer_issue_supply``."""
 
     def resolve(ctx: _V1Ctx) -> Measured | Unmeasured:
         confidence_value = ctx.confidence.get(v1_field)
@@ -1042,7 +1047,10 @@ def _plain_scalar_resolver(
                 source_hash = _envelope_hash(path)
                 relative = _relative_source(path, ctx.raw_root)
                 ctx.referenced[relative] = source_hash
-                return Measured(value=value, n=0, window_start=None, window_end=None, method="primary",
+                n_value = ctx.meta.get(n_field) if n_field is not None else None
+                n = (n_value if isinstance(n_value, int) and not isinstance(n_value, bool) and n_value >= 0
+                     else 0)
+                return Measured(value=value, n=n, window_start=None, window_end=None, method="primary",
                                  source=relative, source_hash=source_hash, fetched_at=fetched_at)
             detail = (f"v1 source is not an envelope: {source!r}" if path is None
                       else f"v1 provenance for {v1_field!r} has no fetched_at")
@@ -1952,7 +1960,7 @@ def _unmapped(detail: str) -> InputResolver:
 #: | openssf_criticality | meta.openssf_signals, ten raw Pike signals; C computed locally | confidence missing, or any signal absent -> third_party_gap (never a partial score) |
 #: | downloads_monthly | meta.monthly_downloads; meta.downloads_status refines the Unmeasured detail | third_party_gap, detail per downloads_status |
 #: | legal_ip | meta.legal_ip, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
-#: | elephant_factor | meta.elephant_factor | collector_failure |
+#: | elephant_factor | meta.elephant_factor; n = meta.elephant_factor_commit_count (non-bot org-attributed commits in the 365 d window; 0 when absent, e.g. the contributors-only fallback) | collector_failure; n<30 -> insufficient_n at scoring, with the true n |
 #: | promotion_ladder | meta.promotion_ladder, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
 #: | pipeline_defenses | meta.pipeline_defenses + .pipeline_defenses_method: "primary" (scorecard) or "proxy:review_ci" (n = merged PRs) | confidence absent or missing -> third_party_gap (TP with proxy) |
 #: | ai_posture | meta.ai_posture, vocab-validated against constants.AI_POSTURE_VALUES (identity map) | collector_failure; an out-of-set value is collector_failure too, never Measured |
@@ -1983,7 +1991,7 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
     # the legacy regex heuristic.
     "legal_ip": _vocab_scalar_resolver(
         "legal_ip", {value: value for value in constants.LEGAL_IP_VALUES} | V1_LEGAL_IP_VALUES),
-    "elephant_factor": _plain_scalar_resolver("elephant_factor"),
+    "elephant_factor": _plain_scalar_resolver("elephant_factor", n_field="elephant_factor_commit_count"),
     # "promotion_ladder" accepts both the current vocabulary as identity
     # (VERIFIED/DOCUMENTED/AD_HOC/CLOSED) and the legacy v1 spellings via
     # V1_LADDER_VALUES as a fallback.

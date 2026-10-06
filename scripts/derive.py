@@ -228,6 +228,15 @@ def elephant_factor(contributors: Optional[list[dict]]) -> int:
     return ef
 
 
+def elephant_factor_sample_n(records: list, now: datetime) -> int:
+    """The number of commits ``commit_domains.elephant_factor(records, now)``
+    divides by: non-bot commits in its trailing window (undated rows kept,
+    as it keeps them) whose author resolves to an org."""
+    window = commit_domains._human_window(  # the EF's own window rule, reused so n counts what EF divides by
+        records, now, commit_domains.COMMIT_WINDOW_DAYS, include_undated=True)
+    return sum(1 for record in window if commit_domains.org_key(record.actor) is not None)
+
+
 def _legal_ip(body: Optional[str], license_spdx: str, owner: str) -> LegalIPModel:
     """Heuristic: CLA mention -> FOUNDATION_CLA (foundation org or Apache-2.0)
     else CORP_CLA_UNILATERAL; DCO sign-off -> DCO; Apache-2.0 + foundation org
@@ -550,6 +559,11 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         ef = commit_domains.elephant_factor(recs, now)
         if ef is not None:
             b.set("elephant_factor", ef, src("commits_365d", key), c365_at, "derived")
+            # The sample EF was computed from (D-PARAM 3.2 min n = 30
+            # commits): the bundle loader passes it as Measured.n, so a
+            # thin window scores insufficient_n with its true n.
+            b.set("elephant_factor_commit_count", elephant_factor_sample_n(recs, now),
+                  src("commits_365d", key), c365_at, "derived")
         else:
             b.missing("elephant_factor", 1)
         bf = commit_domains.bus_factor(recs, now)
