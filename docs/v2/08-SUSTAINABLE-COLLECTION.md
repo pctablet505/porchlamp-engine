@@ -120,16 +120,22 @@ repo nobody has pushed since 2021.
 ## 4. Decisions
 
 **D-COL-1 Change detection before collection.** A *fingerprint* pass runs
-first, every hour or day: one aliased GraphQL query per 100 repos returning
+first, every hour or day: one aliased GraphQL query per 25 repos returning
 `pushedAt`, `updatedAt`, `isArchived`, `isDisabled`, `stargazerCount`,
 `forkCount`, `pullRequests(last:1, orderBy:UPDATED_AT){updatedAt}`,
 `issues(last:1, orderBy:UPDATED_AT){updatedAt}`, `releases(last:1){createdAt}`,
-`defaultBranchRef{target{oid}}`. 58 queries cover the universe. Each field
-maps to the collectors it can invalidate (table in §6). A repo whose
-fingerprint is unchanged **costs nothing further** — and the pass *advances the
-watermarks* of its unchanged collectors, because an unchanged fingerprint is an
-observation that the state is current. That is what keeps cold repos from
-ever going "stale".
+`defaultBranchRef{target{oid}}`. 231 queries (about 231 points, about 19 min)
+cover the 5,753-repo universe. 100 repos per query hit `RESOURCE_LIMITS_EXCEEDED`
+on live GitHub (2026-10-06), so the batch is 25, failed batches are retried in
+halves, and a repo still unresolved counts as changed. Each field maps to the
+collectors it can invalidate (table in §6). A repo whose fingerprint is
+unchanged **costs nothing further**. The pass writes nothing: fingerprint state
+is persisted per repo only after its invalidated collectors succeed, and
+unchanged envelopes are never rewritten (rewriting them wore the SSD for a field
+nothing read). Cold repos are kept current by clocks instead: `releases` and
+`issues_counts` refetch before their window anchor reaches
+`WINDOW_STALENESS_DAYS`, slow collectors follow D-COL-4, and depsdev,
+scorecard, downloads and dependents refresh weekly.
 
 **D-COL-2 Deltas, not windows.** Activity collectors (`pr_window`, issues,
 commits, releases, workflow runs) become **append-only ledgers** keyed by the
@@ -204,9 +210,8 @@ stops at a **reserve** (500 REST calls, 500 points) kept for interactive use.
 Whatever is not drained carries over. At derive time a (repo, collector) whose
 watermark is older than `WINDOW_STALENESS_DAYS` relative to `as_of` is
 `Unmeasured(collector_failure, detail="stale since <watermark>")` — never
-silently old — and the snapshot still builds. Because fingerprints advance
-watermarks (D-COL-1), only a repo the fingerprint pass itself could not reach
-can go stale.
+silently old — and the snapshot still builds. The refresh clocks in D-COL-1
+refetch window collectors before they reach that limit.
 
 **D-COL-13 Read the budget from response headers, never from `/rate_limit`.**
 *(MEASURED 2026-09-20 on the live token; this invalidates the naive reading of
