@@ -1,4 +1,4 @@
-"""Tests for scripts/build_universe.py dedup/merge/cap/checkpoint logic.
+"""Tests for scripts/build_universe.py star-range slicing, floor, carry, dedup/cap/checkpoint, pacing.
 
 Per D-IN-5 (`docs/v2/03-ANTI-MANIPULATION.md` section 6 `star_burst`),
 also covers the star-velocity audit `build()` applies to every
@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -40,7 +41,18 @@ def sandbox(tmp_path, monkeypatch):
     # raise NotImplementedError from
     # porchlamp.collect.universe.default_star_history_transport.
     monkeypatch.setattr(bu, "STAR_HISTORY_TRANSPORT", _clean_star_fetch)
+    # Slicing probes the search total; one result per query means one slice.
+    monkeypatch.setattr(bu, "gh_count", lambda q: 1)
     return tmp_path
+
+
+def _build(**kw):
+    kw.setdefault("min_stars", 0)
+    return bu.build(**kw)
+
+
+def _rows(path):
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 def test_dedup_merges_selected_by(sandbox, monkeypatch):
@@ -52,7 +64,7 @@ def test_dedup_merges_selected_by(sandbox, monkeypatch):
     monkeypatch.setattr(
         bu, "crates_top",
         lambda limit: [{"owner": "same", "name": "repo", "stars": 77}])
-    bu.build(max_per_criterion=100, max_total=10000, only="crates", sleep_s=0)
+    _build(max_per_criterion=100, max_total=10000, only="crates", sleep_s=0)
     rows = [json.loads(line) for line in (sandbox / "candidates.jsonl").read_text().splitlines()]
     same = [r for r in rows if r["name"] == "Repo"]
     assert len(same) == 1  # deduped across criteria (case-insensitive)
@@ -67,7 +79,7 @@ def test_cap_and_sort_by_stars(sandbox, monkeypatch):
         bu, "gh_search",
         lambda q, p, per_page=100: [{"owner": f"o{i}", "name": f"r{i}", "stars": i}
                                     for i in range(1, 6)])
-    bu.build(max_per_criterion=100, max_total=3, only="crates", sleep_s=0)
+    _build(max_per_criterion=100, max_total=3, only="crates", sleep_s=0)
     rows = [json.loads(line) for line in (sandbox / "candidates.jsonl").read_text().splitlines()]
     assert len(rows) == 3
     assert [r["stars_at_selection"] for r in rows] == [5, 4, 3]  # sorted desc
@@ -82,9 +94,9 @@ def test_checkpoint_skips_done_pages(sandbox, monkeypatch):
         return []
 
     monkeypatch.setattr(bu, "gh_search", fake)
-    bu.build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0)
+    _build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0)
     assert calls == [1]
-    bu.build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0)
+    _build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0)
     assert calls == [1]  # second run: page 1 already checkpointed
 
 
@@ -97,7 +109,7 @@ def test_resume_merges_existing_candidates(sandbox, monkeypatch):
     monkeypatch.setattr(
         bu, "gh_search",
         lambda q, p, per_page=100: [{"owner": "new", "name": "one", "stars": 1}])
-    bu.build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0)
+    _build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0)
     rows = [json.loads(line) for line in (sandbox / "candidates.jsonl").read_text().splitlines()]
     assert {r["name"] for r in rows} == {"me", "one"}
 
@@ -150,7 +162,7 @@ def test_star_velocity_filter_called_once_per_candidate(sandbox, monkeypatch):
         lambda q, p, per_page=100: [{"owner": f"o{i}", "name": f"r{i}", "stars": i}
                                     for i in range(1, 6)])
     monkeypatch.setattr(bu, "crates_top", lambda limit: [])
-    bu.build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
+    _build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
     assert len(calls) == 5  # one call per candidate that made the cut
 
 
@@ -159,7 +171,7 @@ def test_candidates_carry_star_velocity_fields(sandbox, monkeypatch):
     monkeypatch.setattr(
         bu, "gh_search",
         lambda q, p, per_page=100: [{"owner": "acme", "name": "widget", "stars": 10}])
-    bu.build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
+    _build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
     rows = [json.loads(line) for line in (sandbox / "candidates.jsonl").read_text().splitlines()]
     assert len(rows) == 1
     row = rows[0]
@@ -185,7 +197,7 @@ def test_flagged_lockstep_candidate_carries_true(sandbox, monkeypatch):
     monkeypatch.setattr(
         bu, "gh_search",
         lambda q, p, per_page=100: [{"owner": "acme", "name": "burst-repo", "stars": 10}])
-    bu.build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
+    _build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
     rows = [json.loads(line) for line in (sandbox / "candidates.jsonl").read_text().splitlines()]
     assert rows[0]["star_velocity_flag"] is True
     assert rows[0]["stars_audited"] == 100
@@ -200,7 +212,7 @@ def test_failed_star_history_fetch_never_silently_false(sandbox, monkeypatch):
     monkeypatch.setattr(
         bu, "gh_search",
         lambda q, p, per_page=100: [{"owner": "acme", "name": "unreachable", "stars": 10}])
-    bu.build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
+    _build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
     rows = [json.loads(line) for line in (sandbox / "candidates.jsonl").read_text().splitlines()]
     row = rows[0]
     assert row["measured"] is False
@@ -217,9 +229,15 @@ def test_dry_run_skips_the_star_velocity_audit_entirely(sandbox, monkeypatch):
     monkeypatch.setattr(
         bu, "gh_search",
         lambda q, p, per_page=100: [{"owner": "acme", "name": "widget", "stars": 10}])
-    bu.build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW, dry_run=True)
+    out = sandbox / "dry" / "out.jsonl"
+    _build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW, dry_run=True, out=out)
     assert calls == []
     assert not (sandbox / "candidates.jsonl").is_file()
+    assert not (sandbox / "universe_checkpoint.json").is_file()
+    assert out.is_file() and (out.parent / "out.jsonl.summary.json").is_file()
+    assert "star_velocity_flag" not in _rows(out)[0]
+    with pytest.raises(ValueError):
+        _build(max_per_criterion=100, only="crates", sleep_s=0, dry_run=True)
 
 
 def test_star_velocity_step_makes_no_live_network_call(sandbox, monkeypatch, block_live_network):
@@ -229,6 +247,217 @@ def test_star_velocity_step_makes_no_live_network_call(sandbox, monkeypatch, blo
     monkeypatch.setattr(
         bu, "gh_search",
         lambda q, p, per_page=100: [{"owner": "acme", "name": "widget", "stars": 10}])
-    bu.build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
+    _build(max_per_criterion=100, max_total=100, only="crates", sleep_s=0, now=NOW)
     rows = [json.loads(line) for line in (sandbox / "candidates.jsonl").read_text().splitlines()]
     assert rows[0]["measured"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Star-range slicing, floor, carry, resume, cap, pacing (fake GitHub).       #
+# --------------------------------------------------------------------------- #
+
+
+class FakeGH:
+    """A search API over an in-memory repo list that enforces GitHub's cap: it
+    returns at most 1,000 results per query and reports the true total_count."""
+
+    def __init__(self, repos, clock=None):
+        self.repos = repos  # (language, owner, name, stars)
+        self.clock = clock
+        self.search_calls = []
+        self.count_calls = []
+
+    def _match(self, q):
+        lang = re.search(r"language:(\S+)", q).group(1)
+        m = re.search(r"stars:>=(\d+)", q)
+        lo, hi = (int(m.group(1)), 10**9) if m else map(int, re.search(r"stars:(\d+)\.\.(\d+)", q).groups())
+        return sorted((r for r in self.repos if r[0] == lang and lo <= r[3] <= hi), key=lambda r: -r[3])
+
+    def count(self, q):
+        self.count_calls.append((q, self.clock() if self.clock else None))
+        return len(self._match(q))
+
+    def search(self, q, page, per_page=100):
+        self.search_calls.append((q, page, self.clock() if self.clock else None))
+        hits = self._match(q)[:1000][(page - 1) * per_page: page * per_page]
+        return [{"owner": o, "name": n, "stars": st} for _, o, n, st in hits]
+
+
+def _install(monkeypatch, gh):
+    monkeypatch.setattr(bu, "gh_count", gh.count)
+    monkeypatch.setattr(bu, "gh_search", gh.search)
+    monkeypatch.setattr(bu, "crates_top", lambda limit: [])
+
+
+def _go(n, lo=1000):
+    return [("Go", f"o{i}", f"r{i}", lo + i) for i in range(n)]
+
+
+def test_plan_slices_splits_a_slice_that_reaches_the_cap():
+    at_cap = FakeGH([("Go", f"o{i}", "r", i + 1) for i in range(1000)])
+    slices = bu.plan_slices("language:Go", 1, 1000, at_cap.count)
+    assert len(slices) > 1  # exactly 1,000 would be truncated, so it splits
+    assert all(n < 1000 for _, _, n in slices)
+    assert sum(n for _, _, n in slices) == 1000
+    assert slices[0][0] == 1 and slices[-1][1] == 1000
+    under = FakeGH([("Go", f"o{i}", "r", i + 1) for i in range(999)])
+    assert bu.plan_slices("language:Go", 1, 1000, under.count) == [(1, 1000, 999)]
+
+
+def test_slices_cover_every_repo_beyond_the_per_query_cap(sandbox, monkeypatch):
+    gh = FakeGH(_go(3000))  # distinct stars 1000..3999: any gap between slices loses a repo
+    _install(monkeypatch, gh)
+    _build(max_total=100000, only="go", sleep_s=0, min_stars=1000)
+    rows = _rows(sandbox / "candidates.jsonl")
+    assert len(rows) == 3000  # one unsliced query would stop at 1,000
+    assert {r["stars_at_selection"] for r in rows} == set(range(1000, 4000))
+    assert all(len(gh._match(q)) < 1000 for q, _, _ in gh.search_calls)  # no slice hit the cap
+
+
+def test_floor_is_respected_and_inclusive(sandbox, monkeypatch):
+    gh = FakeGH([("Go", "a", "below", 999), ("Go", "b", "at", 1000), ("Go", "c", "above", 1500)])
+    _install(monkeypatch, gh)
+    leaky = gh.search
+    monkeypatch.setattr(bu, "gh_search", lambda q, p, per_page=100: leaky(q, p, per_page)
+                        + [{"owner": "x", "name": "leak", "stars": 5}])  # ignores the range
+    _build(max_total=100, only="go", sleep_s=0, min_stars=1000)
+    assert {r["name"] for r in _rows(sandbox / "candidates.jsonl")} == {"at", "above"}
+
+
+def test_effective_floor_rises_to_fit_max_total():
+    gh = FakeGH(_go(2000))
+    qs = ["language:Go"]
+    assert bu.effective_floor(qs, 1000, 5000, gh.count) == 1000  # fewer than max_total: keep the floor
+    f = bu.effective_floor(qs, 1000, 500, gh.count)
+    assert gh.count(f"language:Go stars:>={f}") >= 500
+    assert gh.count(f"language:Go stars:>={f + f // 50 + 1}") < 500  # within about 1%
+
+
+def test_every_current_repo_is_carried_even_below_floor_and_cap(sandbox, monkeypatch):
+    old = [{"owner": "o49", "name": "r49", "ecosystem": "go", "selected_by": ["github-stars:language:Go"],
+            "stars_at_selection": 1049, "added_at": "2026-09-23T01:00:00+00:00"},
+           {"owner": "gone", "name": "low", "ecosystem": "go", "selected_by": ["github-stars:language:Go"],
+            "stars_at_selection": 300, "added_at": "2026-09-23T01:00:00+00:00"},
+           {"owner": "gone", "name": "mid", "ecosystem": "maven", "selected_by": ["github-stars:language:Java"],
+            "stars_at_selection": 5000, "added_at": "2026-09-23T01:00:00+00:00"}]
+    (sandbox / "candidates.jsonl").write_text("".join(json.dumps(r) + "\n" for r in old))
+    _install(monkeypatch, FakeGH(_go(50)))
+    _build(max_total=5, only="go", sleep_s=0, min_stars=1000)
+    by = {(r["owner"], r["name"]): r for r in _rows(sandbox / "candidates.jsonl")}
+    assert {("gone", "low"), ("gone", "mid"), ("o49", "r49")} <= set(by)  # none dropped by floor or cap
+    assert "carried:2026-09-23" in by[("gone", "low")]["selected_by"]
+    assert "carried:2026-09-23" in by[("gone", "mid")]["selected_by"]
+    assert not any(c.startswith("carried:") for c in by[("o49", "r49")]["selected_by"])  # re-qualified
+    assert len(by) == 5  # carried count toward --max-total; the rest filled by stars
+
+
+def test_dedup_across_languages_merges_selected_by(sandbox, monkeypatch):
+    gh = FakeGH([("JavaScript", "Same", "Repo", 5000), ("TypeScript", "same", "repo", 5000),
+                 ("TypeScript", "t", "only", 4000)])
+    _install(monkeypatch, gh)
+    _build(max_total=100, only="npm", sleep_s=0, min_stars=1000)
+    rows = _rows(sandbox / "candidates.jsonl")
+    assert len(rows) == 2
+    both = next(r for r in rows if r["name"].lower() == "repo")
+    assert set(both["selected_by"]) == {"github-stars:language:JavaScript", "github-stars:language:TypeScript"}
+
+
+def test_resume_replays_checkpointed_pages_without_refetching(sandbox, monkeypatch):
+    gh = FakeGH(_go(250))  # 3 pages
+    _install(monkeypatch, gh)
+
+    def dies_on_page_2(q, page, per_page=100):
+        if page == 2:
+            raise SystemExit("killed")
+        return gh.search(q, page, per_page)
+
+    monkeypatch.setattr(bu, "gh_search", dies_on_page_2)
+    with pytest.raises(SystemExit):
+        _build(max_total=1000, only="go", sleep_s=0, min_stars=1000)
+    assert not (sandbox / "candidates.jsonl").is_file()
+    gh.search_calls.clear()
+    monkeypatch.setattr(bu, "gh_search", gh.search)
+    _build(max_total=1000, only="go", sleep_s=0, min_stars=1000)
+    assert [p for _, p, _ in gh.search_calls] == [2, 3]  # page 1 came from the checkpoint
+    assert len(_rows(sandbox / "candidates.jsonl")) == 250  # ... and its items were replayed
+
+
+def test_max_total_keeps_the_highest_stars(sandbox, monkeypatch):
+    _install(monkeypatch, FakeGH(_go(250)))
+    _build(max_total=100, only="go", sleep_s=0, min_stars=1000)
+    stars = [r["stars_at_selection"] for r in _rows(sandbox / "candidates.jsonl")]
+    assert stars == sorted(range(1150, 1250), reverse=True)
+
+
+class _FakeClock:
+    def __init__(self):
+        self.t = 0.0
+        self.sleeps = []
+
+    def __call__(self):
+        return self.t
+
+    def sleep(self, s):
+        self.sleeps.append(s)
+        self.t += s
+
+
+def test_pacer_never_exceeds_30_per_minute_with_a_fake_clock():
+    clk = _FakeClock()
+    pacer = bu.Pacer(2.0, 30, clock=clk, sleep=clk.sleep)
+    for _ in range(95):
+        pacer.wait()
+    s = pacer.stamps
+    assert all(b - a >= 2.0 for a, b in zip(s, s[1:]))
+    assert all(s[i + 30] - s[i] >= 60.0 for i in range(len(s) - 30))  # 31 calls never fit in 60 s
+    assert clk.t > 0
+
+
+def test_build_search_calls_are_paced_to_30_per_minute(sandbox, monkeypatch):
+    clk = _FakeClock()
+    monkeypatch.setattr(bu, "_CLOCK", clk)
+    monkeypatch.setattr(bu, "_SLEEP", clk.sleep)
+    langs = ["Python", "JavaScript", "TypeScript", "Rust", "Go", "Java", "C", "C++"]
+    gh = FakeGH([(lang, f"{lang}{i}", "r", 2000 + i) for lang in langs for i in range(150)], clock=clk)
+    _install(monkeypatch, gh)
+    n = bu.build(max_total=100000, sleep_s=2.0, min_stars=1000, now=NOW)
+    assert n == 150 * 8
+    stamps = sorted([t for _, t in gh.count_calls] + [t for _, _, t in gh.search_calls])
+    assert len(stamps) > 30  # more calls than one minute allows
+    assert all(b - a >= 2.0 for a, b in zip(stamps, stamps[1:]))
+    assert all(stamps[i + 30] - stamps[i] >= 60.0 for i in range(len(stamps) - 30))
+
+
+def test_rate_limit_error_backs_off_and_retries(sandbox, monkeypatch):
+    clk = _FakeClock()
+    monkeypatch.setattr(bu, "_CLOCK", clk)
+    monkeypatch.setattr(bu, "_SLEEP", clk.sleep)
+    gh = FakeGH(_go(5))
+    _install(monkeypatch, gh)
+    hits = []
+
+    def flaky(q, page, per_page=100):
+        if not hits:
+            hits.append(1)
+            raise RuntimeError("gh search failed rc=1: API rate limit exceeded")
+        return gh.search(q, page, per_page)
+
+    monkeypatch.setattr(bu, "gh_search", flaky)
+    _build(max_total=100, only="go", sleep_s=2.0, min_stars=1000)
+    assert 60 in clk.sleeps
+    assert len(_rows(sandbox / "candidates.jsonl")) == 5
+
+
+def test_dry_run_writes_only_out_with_summary_and_carries(sandbox, monkeypatch):
+    old = {"owner": "gone", "name": "low", "ecosystem": "go", "selected_by": ["old"],
+           "stars_at_selection": 300, "added_at": "2026-09-23T01:00:00+00:00"}
+    existing = sandbox / "current.jsonl"
+    existing.write_text(json.dumps(old) + "\n")
+    _install(monkeypatch, FakeGH(_go(30)))
+    out = sandbox / "dry.jsonl"
+    n = bu.build(max_total=100, only="go", sleep_s=0, min_stars=1000, dry_run=True, out=out, existing=existing)
+    assert n == 31
+    summ = json.loads((sandbox / "dry.jsonl.summary.json").read_text())
+    assert summ["total"] == 31 and summ["existing_carried_total"] == 1 and summ["new_repos"] == 30
+    assert summ["per_language"] == {"Go": 30} and summ["min_stars_reached"] == 1000
+    assert not (sandbox / "candidates.jsonl").is_file()
