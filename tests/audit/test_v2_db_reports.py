@@ -353,8 +353,11 @@ def test_v2_snapshot_50_db_reports(tmp_path: Path) -> None:
 
     t_report = ties_report(db_path)
     assert t_report.rated == 0
-    assert t_report.gated == 31
-    assert t_report.unrated == 19
+    # 2026-10-06: was 31 / 19. D-GATE-5 reads gr14, which these frozen
+    # bundles do not carry, so the fixture's eight black holes are UNDECIDED
+    # (tests/snapshot/test_store_cli.py, _SNAPSHOT_50_EXPECTED_COUNTS).
+    assert t_report.gated == 23
+    assert t_report.unrated == 27
     assert t_report.distinct == 0
 
     a_report = anchors_report(db_path)

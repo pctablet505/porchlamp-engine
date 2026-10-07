@@ -13,9 +13,10 @@ read-through of the ``author_history``-derived D-IN-3-adjusted cohort
 rates), ``ttm_p90_hours``, ``dependents_deduped``, ``openssf_criticality``
 (, ), ``downloads_monthly``, ``legal_ip``, ``elephant_factor``,
 ``promotion_ladder``, ``pipeline_defenses`` (, ), ``ai_posture``,
-``substantive_review_rate``, ``newcomer_issue_supply``. Two rows have no
-landed producer yet and are a constant ``Unmeasured(collector_failure, ...)``
-regardless of document content: ``gr14_ghost_rate``, ``dx``.
+``substantive_review_rate``, ``newcomer_issue_supply``. ``gr14_ghost_rate``
+is covered in ``test_ghost_rate.py``. One row has no landed producer yet
+and is a constant ``Unmeasured(collector_failure, ...)`` regardless of
+document content: ``dx``.
 """
 from __future__ import annotations
 
@@ -1264,11 +1265,6 @@ def test_pipeline_defenses_n_feeds_the_rigor_min_n_gate(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 _UNMAPPED_ROWS = {
-    "gr14_ghost_rate": (
-        "1.4 needs a snapshot-relative 'now' to classify PR age; the v1-to-v2 loader receives no "
-        "as_of and must not borrow the pr_window collector's own fetch-time clock as one (04 section 8) "
-        "-- computing this belongs at derive time (scripts/derive.py), out of this packet's ownership"
-    ),
     "dx": "v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
 }
 

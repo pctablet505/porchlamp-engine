@@ -55,8 +55,11 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: Regenerated 2026-09-23 (was b364f71c...) by the CVI -> Porchlamp rename:
 #: bundles carry the scoring code's module paths in Unmeasured details and the
 #: populations document tag, so every bundle's raw_hash moved; no score did.
+#:
+#: Regenerated 2026-10-06 (was b52ccd66...) with D-GATE-5 reading the 1.4
+#: gr14_ghost_rate input (owner ruling 2026-10-06): see the counts note below.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "b52ccd6698e360043f29a4a98a84d61e7f46545c73facf0a3996c2fcac13653b"
+    "fd6b1e5e363a4a9395c5b76586977528ca96ee53804e3ade924bad910c1572a0"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #
@@ -73,7 +76,17 @@ _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
 #   * torvalds/linux is now `unrated: off_platform_routed` rather than
 #     `unrated: insufficient_evidence`: it is routed off-platform, which is
 #     the accurate reason, not a shortage of evidence.
-_SNAPSHOT_50_EXPECTED_COUNTS = {"rated": 0, "gated": 26, "unrated": 24}
+#
+# Regenerated 2026-10-06 (was rated 0 / gated 26 / unrated 24): D-GATE-5 now
+# reads the 1.4 gr14_ghost_rate input (pr_window envelope, bots excluded,
+# D-IN-2 responses; owner ruling 2026-10-06) instead of the 30-PR v1
+# pr_events sample. These frozen bundles predate that input (gr14 is
+# Unmeasured in every one), so D-GATE-5 is UNDECIDED for all 50, and the
+# eight repos the old rule gated `black_hole` (a-h/templ, abel533/Mapper,
+# alexellis/k3sup, alibaba/canal, brunodev85/winlator,
+# bytecodealliance/rustix, charmbracelet/lipgloss, dtolnay/anyhow) are now
+# `unrated: insufficient_evidence`.
+_SNAPSHOT_50_EXPECTED_COUNTS = {"rated": 0, "gated": 18, "unrated": 32}
 
 #: A curated-anchor, empty-PR-window ``GateEvidence`` that clears eligibility
 #: regardless of the repo's other facts.

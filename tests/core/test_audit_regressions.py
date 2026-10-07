@@ -246,39 +246,21 @@ def test_distinct_repos_are_not_treated_as_duplicates() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_a_repo_that_merges_on_sight_is_not_a_black_hole() -> None:
-    """D-GATE-5 asks whether external contributors are ghosted.
+def test_gate_5_does_not_read_the_v1_pr_events_sample() -> None:
+    """D-GATE-5 reads the 1.4 ``gr14_ghost_rate`` input (owner ruling
+    2026-10-06), never ``bundle.pr_window.events`` (the 30-PR v1 sample,
+    bots included, any first review as the response). Twenty unanswered,
+    bare-closed external events with gr14 unmeasured: UNDECIDED, not gated.
 
-    Merging a pull request is the least ambiguous possible answer. A
-    maintainer who reads a small diff and merges it the same hour often
-    leaves no review artefact behind, and the gate must not read that absence
-    as silence -- doing so disqualifies the friendliest repositories in the
-    universe as ``black_hole``, which is exactly backwards. This is real
-    behaviour, not a hypothetical: in ``tests/fixtures/snapshot_50``,
-    boyter/scc merges 25 of its 26 external PRs and was gated by the
-    previous rule.
+    The A7 merge-on-sight rule now lives in the measurement the gate reads:
+    a merge within 14 d of opening answers a PR (owner ruling 2026-10-06),
+    see ``tests/core/test_gates.py`` and ``tests/derive/test_ghost_rate.py``
+    for the derive-time population and response rules.
     """
-    events = [make_event(100 + i, 30, merged_days_after=1, closed_days_after=1) for i in range(20)]
-    result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
-    assert result.eligible, result.reason
-
-
-def test_a_repo_that_closes_without_reading_is_still_a_black_hole() -> None:
-    """The converse: a bare close with no review is the ghosting this gate
-    exists to catch, and is deliberately NOT treated as a response."""
     events = [make_event(100 + i, 30, closed_days_after=1) for i in range(20)]
     result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
-    assert not result.eligible
-    assert result.reason == "black_hole"
-
-
-def test_a_merge_after_the_deadline_does_not_count_as_a_response() -> None:
-    """The response has to arrive inside the 14-day deadline to be one."""
-    late = constants.GATE5_RESPONSE_DEADLINE_DAYS + 5
-    events = [make_event(100 + i, 90, merged_days_after=late, closed_days_after=late) for i in range(20)]
-    result = gates.evaluate_gates(make_bundle(events), healthy_evidence(), NOW)
-    assert not result.eligible
-    assert result.reason == "black_hole"
+    assert result.eligible, result.reason
+    assert gates.GATE_5 in result.undecided
 
 
 def test_gate_6_ignores_a_decision_older_than_its_own_horizon() -> None:
