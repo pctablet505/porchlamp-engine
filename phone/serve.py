@@ -39,7 +39,7 @@ LOCKOUT_RETRY_AFTER_S = 300
 RANGE_FROM = re.compile(r"^bytes=(\d+)-$")
 
 
-class TokenError(Exception):
+class TokenError(ValueError):
     """config/lan_token is missing or too short."""
 
 
@@ -144,10 +144,52 @@ class BoundedServer(ThreadingHTTPServer):
             self._release()
 
 
+class _CountingFile:
+    """A socket file that counts the bytes read from it and written to it."""
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self.count = 0
+
+    def read(self, *args):
+        data = self._inner.read(*args)
+        self.count += len(data)
+        return data
+
+    def readline(self, *args):
+        data = self._inner.readline(*args)
+        self.count += len(data)
+        return data
+
+    def write(self, data) -> int:
+        written = self._inner.write(data)
+        self.count += len(data)
+        return written
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
 class PhoneHandler(BaseHTTPRequestHandler):
     server_version = "porchlamp-phone"
     sys_version = ""
     timeout = SOCKET_TIMEOUT_S  # a client that stalls is dropped
+    _authed = False
+
+    def setup(self) -> None:
+        super().setup()
+        self.rfile = _CountingFile(self.rfile)
+        self.wfile = _CountingFile(self.wfile)
+
+    def finish(self) -> None:
+        """Tell the owner of the server what this connection moved (``server.on_transfer``), then close."""
+        try:
+            super().finish()
+        finally:
+            report = getattr(self.server, "on_transfer", None)
+            if report is not None and getattr(self, "command", None):
+                fetched = self._authed and self.command == "GET" and getattr(self, "_status", 0) in (200, 206)
+                report(self.client_address[0], self.wfile.count, self.rfile.count, fetched)
 
     @property
     def home(self) -> Path:
@@ -224,6 +266,7 @@ class PhoneHandler(BaseHTTPRequestHandler):
             self._deny(category)
             return None
         self._nonce = self.headers.get("X-Porch-Nonce")
+        self._authed = True
         return body
 
     # ---- routes ---------------------------------------------------------------------------------------------------
@@ -235,6 +278,8 @@ class PhoneHandler(BaseHTTPRequestHandler):
             return self._status()
         if path == "/manifest.json":
             return self._json(200, write_manifest(self.home))
+        if path == "/log.txt":
+            return self._log_txt()
         if path.startswith("/archive/"):
             return self._archive(path[len("/archive/"):])
         return self._reply(404)
@@ -270,6 +315,15 @@ class PhoneHandler(BaseHTTPRequestHandler):
             "free_gb": round(shutil.disk_usage(self.home).free / 1e9, 2),
             "lan_token_set": True,
         })
+
+    def _log_txt(self) -> None:
+        """The same redacted technical log the app exports, signed like every reply."""
+        provider = getattr(self.server, "log_text", None)
+        if provider is None:
+            return self._reply(404)
+        body = provider().encode("utf-8", "replace")
+        mac = response_mac(self.server.token, self._nonce, 200, body)  # type: ignore[attr-defined]
+        self._reply(200, body, ctype="text/plain; charset=utf-8", extra=[(MAC_HEADER, mac)])
 
     def _archive(self, name: str) -> None:
         manifest = write_manifest(self.home)
@@ -317,10 +371,13 @@ class PhoneHandler(BaseHTTPRequestHandler):
         sys.stderr.write(f"{getattr(self, 'command', None) or '-'} {getattr(self, '_status', None) or '-'}\n")
 
 
-def make_server(home: Path, bind: str = "127.0.0.1", port: int = 8765, token: str | None = None) -> BoundedServer:
+def make_server(home: Path, bind: str = "127.0.0.1", port: int = 8765, token: str | None = None, *,
+                on_transfer=None, log_text=None) -> BoundedServer:
     """A ready (not yet serving) server bound to ``bind``:``port``; raises TokenError without a usable token.
 
-    A ``token`` passed in is used as is (the app keeps it in memory) and ``config/lan_token`` is not read."""
+    A ``token`` passed in is used as is (the app keeps it in memory) and ``config/lan_token`` is not read.
+    ``on_transfer(client_ip, bytes_sent, bytes_received, fetched)`` is called after each connection (the engine counts
+    it under the client's address); ``log_text()`` returns the text ``GET /log.txt`` serves (404 without it)."""
     home = Path(home)
     if token is None:
         token = load_token(home)
@@ -333,6 +390,8 @@ def make_server(home: Path, bind: str = "127.0.0.1", port: int = 8765, token: st
     server.clock = time.time  # type: ignore[attr-defined]
     server.nonces = NonceStore()  # type: ignore[attr-defined]
     server.throttle = FailureThrottle()  # type: ignore[attr-defined]
+    server.on_transfer = on_transfer  # type: ignore[attr-defined]
+    server.log_text = log_text  # type: ignore[attr-defined]
     return server
 
 

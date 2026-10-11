@@ -117,6 +117,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from porchlamp.collect import ecosystemes as _ecosystemes
+from porchlamp.collect import net
 from porchlamp.collect.envelope import write_envelope
 
 #: Base URL of the deps.dev v3alpha API.
@@ -470,7 +471,7 @@ def _get_json(url: str) -> Optional[dict]:
     """One keyless GET; None on any transport or parse failure."""
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with net.urlopen(req, 30) as response:
             return json.load(response)
     except Exception:  # review-ok: gate-network — keyless source absent -> None
         return None
@@ -486,7 +487,7 @@ def _fetch_status(url: str) -> tuple[Optional[int], Optional[dict]]:
     """
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with net.urlopen(req, 30) as response:
             status = response.status
             try:
                 body = json.load(response)

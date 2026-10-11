@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from porchlamp.collect import ghcli
+from porchlamp.collect import ghcli, net
 from porchlamp.collect.commits import collect_commits_365d
 from porchlamp.collect.envelope import write_envelope
 from porchlamp.collect.names import valid_ref
@@ -129,7 +129,7 @@ def _fetch_json(url: str, headers: Optional[dict] = None) -> tuple[Any, Optional
     """
     req = urllib.request.Request(url, headers=headers or {})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with net.urlopen(req, 30) as r:
             return (json.load(r), getattr(r, "status", 200), None)
     except urllib.error.HTTPError as e:  # the source answered with a non-2xx status
         return (None, e.code, e)

@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 
 from porchlamp.collect import ghcli
+from tests.helpers.gate import installed, loopback_gate
 
 ROOT = Path(__file__).resolve().parents[2]
 DUMMY_TOKEN = "dummy-phone2-token-not-real-0001"
@@ -98,7 +99,8 @@ def fake(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("PORCHLAMP_GH", "http")
     monkeypatch.setenv("PORCHLAMP_GH_API", srv.url)
     monkeypatch.setenv("PORCHLAMP_ALLOW_TEST_API", "1")
-    yield srv
+    with installed(loopback_gate()):  # the HTTP gate admits the fake's loopback address for this test
+        yield srv
     srv.close()
 
 

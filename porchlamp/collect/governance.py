@@ -61,7 +61,7 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
+import subprocess  # noqa: F401  (tests patch this module's subprocess)
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
@@ -70,7 +70,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from porchlamp.collect import commits as commit_domains
-from porchlamp.collect import ghcli
+from porchlamp.collect import ghcli, net
 from porchlamp.collect import github_graphql as pr_window
 from porchlamp.collect.envelope import sha256_hex, write_envelope
 # --------------------------------------------------------------------------- #
@@ -278,7 +278,7 @@ def fetch_file_text(owner: str, name: str,
         last: Exception = RuntimeError("no attempt made")
         for _ in range(max(1, attempts)):
             try:
-                with urllib.request.urlopen(req, timeout=timeout_seconds) as r:
+                with net.urlopen(req, timeout_seconds) as r:
                     return r.read().decode("utf-8", "replace")
             except urllib.error.HTTPError as e:
                 if e.code == 404:

@@ -25,8 +25,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
+
+from porchlamp.collect import net
 
 API_VERSION = "2022-11-28"
 USER_AGENT = "porchlamp-phone/1"
@@ -45,7 +47,8 @@ AUTH_BASE = DEFAULT_BASE
 
 #: resource -> (remaining calls, reset epoch seconds), from the last response.
 _BUDGET: dict[str, tuple[int, float]] = {}
-_sleep = time.sleep
+#: None: the wait goes through the gate (a stop ends it within a second); a test may replace it with a recorder.
+_sleep: Callable[[float], object] | None = None
 _now = time.time
 
 _INT = re.compile(r"-?\d+\Z")
@@ -163,7 +166,7 @@ def _pause(resource: str, remaining: int, seconds: float) -> None:
     print(f"ghcli: waiting {math.ceil(wait)}s for the {resource} reset "
           f"(remaining {remaining})", file=sys.stderr)
     _BUDGET.pop(resource, None)
-    _sleep(wait)
+    net.rate_wait(resource, remaining, wait, _sleep)
 
 
 def _gate(resource: str) -> None:
@@ -228,7 +231,7 @@ def _send(method: str, url: str, body: bytes | None, headers: dict[str, str],
     req = urllib.request.Request(url, data=body, method=method, headers=headers)
     try:
         try:
-            with _OPENER.open(req, timeout=timeout) as resp:
+            with net.urlopen(req, timeout, opener=_OPENER) as resp:
                 return resp.status, resp.headers, _body_text(resp.read())
         except urllib.error.HTTPError as exc:
             return exc.code, exc.headers, _body_text(exc.read())

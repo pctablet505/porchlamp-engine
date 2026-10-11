@@ -27,13 +27,12 @@ from __future__ import annotations
 import json
 import re
 import subprocess  # noqa: F401  (tests patch this module's subprocess)
-import urllib.request
 from collections.abc import Set as AbstractSet
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from porchlamp.collect import ghcli
+from porchlamp.collect import ghcli, net
 from porchlamp.collect.envelope import write_envelope
 
 # --------------------------------------------------------------------------- #
@@ -375,7 +374,7 @@ def _shallow_tree(owner: str, name: str, branch: str) -> tuple[Optional[list[str
 def _fetch_body(url: str) -> Optional[str]:
     """Fetch one raw.githubusercontent.com body; None on any failure."""
     try:
-        with urllib.request.urlopen(url, timeout=30) as r:
+        with net.urlopen(url, 30) as r:
             return r.read().decode("utf-8", "replace")
     except Exception:  # review-ok: gate-network — unreadable body -> no evidence
         return None

@@ -14,6 +14,7 @@ import pytest
 from porchlamp.collect import ghcli, repo_object as ro_mod
 from porchlamp.collect.names import valid_name, valid_ref
 from tests.collect.test_ghcli import FakeGitHub
+from tests.helpers.gate import installed, loopback_gate
 
 ROOT = Path(__file__).resolve().parents[1]
 INJECTION = ('a", name: "b") { object(expression: "HEAD:README.md") { ... on Blob { text } } } '
@@ -45,7 +46,8 @@ def fake(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("PORCHLAMP_GH", "http")
     monkeypatch.setenv("PORCHLAMP_GH_API", srv.url)
     monkeypatch.setenv("PORCHLAMP_ALLOW_TEST_API", "1")
-    yield srv
+    with installed(loopback_gate()):  # the HTTP gate admits the fake's loopback address for this test
+        yield srv
     srv.close()
 
 

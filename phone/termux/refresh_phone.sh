@@ -13,6 +13,7 @@ set -uo pipefail
 PHONE_HOME="${PORCHLAMP_PHONE_HOME:-$HOME/porchlamp}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 RUN="$PHONE_HOME"
+# The GitHub token is placed on the phone only (config/github_token, a classic token with no scopes): nothing here prints or sends it.
 [ -s "$PHONE_HOME/config/github_token" ] && export GH_TOKEN="$(cat "$PHONE_HOME/config/github_token")"
 say() { echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] refresh: $*"; }
 mkdir -p "$RUN/logs"
