@@ -735,14 +735,14 @@ def _cold_status() -> str:
         "tokens": {"github": {"set": False, "state": "untested", "tested_at": None}, "lan": {"set": False}},
         "alerts": [], "health": {"last_error": None, "retries_today": 0, "uptime_s": 0},
         "device": {"power_save": False, "battery_optimized": False, "notifications_enabled": True,
-                   "data_saver": False}})
+                   "data_saver": False, "wifi_ip": None}})
 
 
 def start(files_dir: str, github_token: str | None = None, lan_token: str | None = None) -> None:
     """Start the engine threads once (idempotent). A repeated call with other tokens swaps the tokens in memory."""
     global _ENGINE, _PENDING_DEVICE
     with _LOCK:
-        if _ENGINE is None or str(_ENGINE.files_dir) != str(files_dir):
+        if _ENGINE is None or not runner.same_path(_ENGINE.files_dir, files_dir):
             if _ENGINE is not None:
                 _ENGINE.stop()
             _ENGINE = Engine(files_dir)

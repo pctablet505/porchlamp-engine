@@ -98,18 +98,32 @@ def shutil_free(home: Path | str) -> float:
     return shutil.disk_usage(p).free / 2**30
 
 
+def same_path(a: Path | str, b: Path | str) -> bool:
+    """True when both names lead to the same directory.
+
+    On Android the files directory has two names (``/data/user/0/<pkg>/files`` and the symlink
+    ``/data/data/<pkg>/files``), so paths are never compared as text: the file system decides, and a path that
+    does not exist yet is compared after resolving its links.
+    """
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return Path(a).resolve() == Path(b).resolve()
+
+
 def load_gather(engine: Path, home: Path) -> ModuleType:
     """Import engine/scripts/gather.py by path, once per process.
 
-    gather.py reads PORCHLAMP_DATA_ROOT at import time, so the data root is fixed for the
-    process: a later call with another home raises instead of returning a stale DATA.
+    gather.py reads PORCHLAMP_DATA_ROOT at import time (and resolves it), so the data root is fixed for the
+    process: a later call with another home raises instead of returning a stale DATA. The same directory under
+    another name (a symlink alias) is the same home.
     """
     os.environ["PORCHLAMP_DATA_ROOT"] = str(home)
     path = (Path(engine) / "scripts" / "gather.py").resolve()
     key = str(path)
     if key in _GATHER_CACHE:
         mod = _GATHER_CACHE[key]
-        if mod.DATA != Path(home) / "raw":
+        if not same_path(mod.DATA.parent, home):
             raise RuntimeError(f"gather.py already loaded with data root {mod.DATA.parent}")
         return mod
     if str(engine) not in sys.path:

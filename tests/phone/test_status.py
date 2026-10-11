@@ -41,7 +41,7 @@ def test_the_snapshot_carries_every_field_of_the_contract_and_its_amendments(rig
     assert keys(s["lan"]) >= {"mode", "serving", "address", "share_until", "last_fetch", "ready_steps", "ready_gb"}
     assert keys(s["tokens"]) == {"github", "lan"} and keys(s["tokens"]["github"]) == {"set", "state", "tested_at"}
     assert keys(s["health"]) == {"last_error", "retries_today", "uptime_s"}
-    assert keys(s["device"]) == {"power_save", "battery_optimized", "notifications_enabled", "data_saver"}
+    assert keys(s["device"]) == {"power_save", "battery_optimized", "notifications_enabled", "data_saver", "wifi_ip"}
     assert [x["id"] for x in s["cycle"]["steps"]] == LAYERS
     assert all(isinstance(s[k], str) and s[k] for k in ("headline", "detail", "state"))
 
@@ -425,7 +425,7 @@ def test_health_device_phone_and_lan_blocks(rig):
     s = rig.status()
     assert s["health"]["uptime_s"] == 3661 and s["health"]["retries_today"] == 2
     assert s["device"] == {"power_save": True, "battery_optimized": True, "notifications_enabled": False,
-                           "data_saver": True}
+                           "data_saver": True, "wifi_ip": "192.168.1.3"}
     assert s["phone"]["battery_pct"] == 82 and s["phone"]["charging"] is True and s["phone"]["temp_c"] == 33.0
     assert s["phone"]["free_gb"] == 150.0
     assert s["lan"]["mode"] == "manual" and s["lan"]["serving"] is False and s["lan"]["address"] is None
@@ -447,3 +447,23 @@ def test_data_size_and_ready_steps_are_measured(tmp_path):
     r.eng.datasize.maybe_refresh(force=True, block=True)
     s = r.status()
     assert s["phone"]["data_gb"] == 2.5 and s["lan"]["ready_gb"] == 2.5
+
+
+def test_the_device_block_carries_the_wifi_address_whether_or_not_the_phone_is_sharing(rig):
+    s = rig.status()
+    assert s["device"]["wifi_ip"] == "192.168.1.3"                      # the Wi-Fi row shows it from the start
+    assert s["lan"]["serving"] is False and s["lan"]["address"] is None  # ... although nothing is shared
+    rig.eng.update_device(json.dumps({**WIFI, "wifi_ip": " 10.0.0.7 "}))
+    assert rig.status()["device"]["wifi_ip"] == "10.0.0.7"               # the checked text, trimmed
+    for bad in ("0.0.0.0", "224.0.0.1", "255.255.255.255", "::1", "fe80::1", "not an address", "", 5, ["1.2.3.4"]):
+        rig.eng.update_device(json.dumps({**WIFI, "wifi_ip": bad}))
+        assert rig.status()["device"]["wifi_ip"] is None, bad            # never an address the app cannot use
+    rig.eng.update_device(json.dumps({**WIFI, "wifi_ip": "192.168.1.3"}))
+    rig.eng.update_device(json.dumps({**WIFI, "network": "mobile", "wifi_ip": None}))
+    assert rig.status()["device"]["wifi_ip"] is None                     # off Wi-Fi: no address
+
+
+def test_the_device_block_before_the_first_facts_has_no_wifi_address(monkeypatch):
+    from phone import entry
+    monkeypatch.setattr(entry, "_ENGINE", None)                           # start() has not been called yet
+    assert json.loads(entry.status())["device"]["wifi_ip"] is None

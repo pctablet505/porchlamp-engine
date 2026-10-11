@@ -462,7 +462,8 @@ def build(e: Any) -> dict[str, Any]:
         "device": {"power_save": bool(facts.get("power_save", False)),
                    "battery_optimized": bool(facts.get("battery_optimized", False)),
                    "notifications_enabled": bool(facts.get("notifications_enabled", True)),
-                   "data_saver": bool(facts.get("data_saver", False))},
+                   "data_saver": bool(facts.get("data_saver", False)),
+                   "wifi_ip": facts.get("wifi_ip")},        # the phone's own Wi-Fi IPv4 (checked on the way in), or None
     }
     return snapshot
 
