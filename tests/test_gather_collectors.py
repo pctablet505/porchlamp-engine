@@ -47,9 +47,14 @@ def _forbid_transports(gather: ModuleType, monkeypatch: pytest.MonkeyPatch) -> l
         touched.append(f"http:{url}")
         raise AssertionError(f"unexpected HTTP GET {url}")
 
+    def _fetch_status(url: str):
+        touched.append(f"deps.dev:{url}")
+        raise AssertionError(f"unexpected deps.dev GET {url}")
+
     monkeypatch.setattr(gather, "_gh", _gh)
     monkeypatch.setattr(gather.subprocess, "run", _run)
     monkeypatch.setattr(gather, "_get_json", _get_json)
+    monkeypatch.setattr("porchlamp.collect.depsdev._fetch_status", _fetch_status)
     monkeypatch.setattr(gather.time, "sleep", lambda s: None)
     return touched
 

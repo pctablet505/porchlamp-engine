@@ -303,11 +303,39 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     dl_key = f"{ecosystem}__{name}"
     dl_p = DATA / "downloads" / f"{dl_key}.json"
     try:
-        dl_monthly = (json.loads(dl_p.read_text()).get("data") or {}).get("monthly") \
-            if dl_p.is_file() else None
+        dl_data = (json.loads(dl_p.read_text()).get("data") or {}) if dl_p.is_file() else {}
     except (json.JSONDecodeError, OSError):  # review-ok: gate-cache — corrupt -> refetch
-        dl_monthly = None
-    if selected("downloads") and not (dl_monthly is not None and not force):
+        dl_data = {}
+    dl_monthly = dl_data.get("monthly") if isinstance(dl_data, dict) else None
+    dep_resolution = None
+    if selected("downloads") and ecosystem in _DOWNLOAD_ECOSYSTEMS:
+        # The count is the repo's only if it is the count of the package deps.dev
+        # links to the repo. The file stays keyed <ecosystem>__<repo name>
+        # (verify.py pins that key); the package it counted and the repo that
+        # wrote it are recorded inside, and derive.py compares them.
+        from porchlamp.collect.depsdev import package_key, package_name_for_repo
+        verdict, package, dep_resolution = _repo_package(owner, name, ecosystem)
+        if verdict == "unsettled":
+            status["downloads"] = "fail"
+        elif verdict == "none":
+            status["downloads"] = "skip"
+        else:
+            assert package is not None
+            counted = dl_data.get("package") or package_name_for_repo(owner, name, ecosystem)
+            held_by = dl_data.get("repo")
+            if dl_monthly is not None and not force \
+                    and package_key(ecosystem, str(counted)) == package_key(ecosystem, package):
+                status["downloads"] = "skip"
+            elif dl_monthly is not None and not force and held_by not in (None, f"{owner}/{name}"):
+                # Another repo of the same name already holds this shared file with
+                # its own package's count; a rerun must not flip it back and forth.
+                status["downloads"] = "skip"
+            else:
+                monthly, src = _downloads(ecosystem, package, skip_pypistats=skip_pypistats)
+                _env("downloads", dl_key, src,
+                     {"monthly": monthly, "package": package, "repo": f"{owner}/{name}"})
+                status["downloads"] = "ok" if monthly is not None else "fail"
+    elif selected("downloads") and not (dl_monthly is not None and not force):
         monthly, src = _downloads(ecosystem, name, skip_pypistats=skip_pypistats)
         _env("downloads", dl_key, src, {"monthly": monthly})
         status["downloads"] = "ok" if monthly is not None else "fail"
@@ -401,6 +429,8 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                     dep_kwargs["maven_coordinates"] = coords
                 if "maven_pom_xml" in cd_params and "maven_coordinates" not in cd_params:
                     dep_kwargs["maven_pom_xml"] = pom_xml
+            if dep_resolution is not None:
+                dep_kwargs["resolution"] = dep_resolution
             status["dependents"] = depsdev_mod.collect_dependents(
                 DATA, owner, name, ecosystem, **dep_kwargs
             )
@@ -503,6 +533,47 @@ def _shape_depsdev(d: Optional[dict]) -> Optional[dict]:
             "license": d.get("licenseSpdxId"),
             "usedby_count": d.get("usedByCount"),
             "scorecard_overall": sc}
+
+
+#: Ecosystems whose registry has a downloads source (:func:`_downloads`).
+_DOWNLOAD_ECOSYSTEMS: frozenset[str] = frozenset({"pypi", "npm", "crates"})
+
+
+def _repo_package(owner: str, name: str, ecosystem: str) -> tuple[str, Optional[str], Any]:
+    """The registry package whose downloads belong to this repo.
+
+    A download count is a package's, and the repo name is only a guess at the
+    package name (npm ``router`` is 291 M downloads a month, credited to three
+    repos that are not its owner). Returns ``(verdict, package, resolution)``:
+
+    * ``("package", P, r)``: deps.dev links package ``P`` to the repo. Read from
+      the repo's dependents envelope when the attributing resolver wrote it
+      (it records ``guess_linked``); otherwise resolved now, and ``r`` is that
+      result so the dependents collector does not repeat the lookups.
+    * ``("none", None, r)``: the repo has no linked package (or its source-repo
+      map was cut and showed none): there are no downloads to fetch.
+    * ``("unsettled", None, r)``: deps.dev did not answer; retry later.
+    """
+    from porchlamp.collect import depsdev as depsdev_mod
+
+    try:
+        data = (json.loads((DATA / "dependents" / f"{owner}__{name}.json").read_text())
+                .get("data") or {})
+    except (OSError, ValueError):
+        data = {}
+    if isinstance(data, dict) and "guess_linked" in data:
+        package = data.get("package")
+        if isinstance(package, str) and package:
+            return "package", package, None
+        return "none", None, None
+    resolution = depsdev_mod.resolve_repo_package(owner, name, ecosystem)
+    if resolution is None:
+        return "none", None, None
+    if resolution.verdict == "found" and resolution.package:
+        return "package", resolution.package, resolution
+    if resolution.verdict in ("no_package", "unresolved"):
+        return "none", None, resolution
+    return "unsettled", None, resolution
 
 
 def _downloads(ecosystem: str, name: str,

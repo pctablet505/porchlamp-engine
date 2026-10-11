@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from porchlamp.collect import commits as commit_domains
+from porchlamp.collect.depsdev import package_key, package_name_for_repo
 from porchlamp.collect.envelope import raw_envelope_path, read_envelope, relative_envelope_path
 from porchlamp.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
 from porchlamp.constants import BOT_LOGIN_MARKERS
@@ -170,6 +171,43 @@ def _load(data_dir: Path, collector: str, key: str) -> tuple[Optional[Any], Opti
     return env.get("data"), env.get("fetched_at") or env.get("collected_at")
 
 
+#: Ecosystems whose registry has a downloads source (``scripts/gather.py``).
+_DOWNLOAD_ECOSYSTEMS = frozenset({"pypi", "npm", "crates"})
+
+
+def attributed_downloads(dl: Optional[dict], dep: Optional[dict], ecosystem: str,
+                         owner: str, name: str) -> tuple[Optional[dict], bool]:
+    """``(downloads data to use, whether a count was withheld as not this repo's)``.
+
+    A downloads count belongs to a package, and the downloads file is keyed by
+    the repo's NAME, which is only a guess at the package name: npm ``router``
+    carried 291 M downloads a month on three repos, none of which is its owner.
+    The dependents envelope, when the attributing resolver wrote it (it records
+    ``guess_linked``), names the package deps.dev links to this repo
+    (``package``; None when it links none). The downloads envelope names the
+    package it counted (``package``; absent on a file written before
+    attribution, which counted the name guess). The count is the repo's only
+    when both name the same package. A repo with no linked package has no
+    downloads to show, whatever the file under its name holds.
+
+    Without an attributed dependents envelope (older data, or an ecosystem
+    with no downloads registry) the downloads data passes through unchanged:
+    there is nothing to compare it with.
+    """
+    if ecosystem not in _DOWNLOAD_ECOSYSTEMS or not isinstance(dep, dict) \
+            or "guess_linked" not in dep:
+        return dl, False
+    package = dep.get("package")
+    if not isinstance(package, str) or not package:
+        return None, True
+    if not isinstance(dl, dict):
+        return dl, False
+    counted = dl.get("package") or package_name_for_repo(owner, name, ecosystem)
+    if package_key(ecosystem, str(counted)) != package_key(ecosystem, package):
+        return None, True
+    return dl, False
+
+
 def _body_cache_path(data_dir: Path, owner: str, name: str, fname: str) -> Path:
     """The bodies-cache envelope path for one governance file, shared by
     :func:`_body` and provenance recording."""
@@ -308,6 +346,8 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     sc, sc_at = _load(data_dir, "scorecard", key)
     tree, tree_at = _load(data_dir, "tree", key)
     dl, dl_at = _load(data_dir, "downloads", f"{ecosystem.value}__{name}")
+    dep, dep_at = _load(data_dir, "dependents", key)
+    dl, dl_withheld = attributed_downloads(dl, dep, ecosystem.value, owner, name)
 
     def _rel(p: Path | str) -> str:
         """Provenance path, relative to the data root this derivation is
@@ -581,7 +621,6 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # ecosyste.ms fallback) (D-PARAM 2.1). The v1 usedby_count above is always
     # None; this block overrides it only when a measured envelope exists.
     # "derived": the value passes the documented D-PARAM 2.1 dedup, not a raw source figure. ---
-    dep, dep_at = _load(data_dir, "dependents", key)
     if dep is not None and dep.get("deduped_count") is not None:
         b.set("dependents_count", int(dep["deduped_count"]),
               src("dependents", key), dep_at, "derived")
@@ -633,6 +672,8 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         from scripts import backfill_downloads as _bdl
     _dl_status = _bdl.downloads_status(ecosystem.value,
                                        b.conf.get("monthly_downloads") == "verified")
+    if dl_withheld:
+        _dl_status = "unattributed"
     b.set("downloads_status", _dl_status,
           src("downloads", f"{ecosystem.value}__{name}") if _dl_status == "measured" else None,
           dl_at, "derived")

@@ -944,7 +944,7 @@ GATHER_DONE = {
                    "version": "1.0", "dependent_count": 1,
                    "direct_dependent_count": 1, "indirect_dependent_count": 0,
                    "deduped_count": 1, "dependents": None,
-                   "source_used": "deps.dev"},
+                   "source_used": "deps.dev", "guess_linked": True},
     "pr_window": {"count": 0, "truncated": False, "cost_points": 0,
                   "prs": [], "derived": []},
     # Marking other collectors done avoids taking live calls when gather_repo runs:
