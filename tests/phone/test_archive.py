@@ -58,3 +58,81 @@ def test_manifest_main_done_follows_marker(tmp_path):
     manifest = write_manifest(home)
     assert manifest["main_done"] == "2026-10-11T04:00:00Z"
     assert (home / "archives" / "manifest.json").is_file()
+
+
+# ---- concurrent rebuilds ------------------------------------------------------------------------------------------
+def test_eight_concurrent_gets_during_a_forced_rebuild_never_fail(tmp_path, monkeypatch):
+    import http.client
+    import threading
+    import time
+
+    from phone import archive
+    from phone.auth import sign_request
+    from phone.serve import make_server
+    from tests.phone import DUMMY_TOKEN
+
+    home = make_home(tmp_path / "home", layers=("L1",), files_per=30)
+    builds = []
+    real = archive._write_archive
+
+    def slow(out, files):  # widen the race window so the unlocked code cannot slip through by luck
+        builds.append(1)
+        time.sleep(0.05)
+        real(out, files)
+
+    monkeypatch.setattr(archive, "_write_archive", slow)
+    server = make_server(home, "127.0.0.1", 0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    failures: list = []
+
+    def get(target, barrier):
+        barrier.wait()
+        headers = sign_request(DUMMY_TOKEN, "GET", target, b"")
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+        try:
+            conn.request("GET", target, headers=headers)
+            resp = conn.getresponse()
+            data = resp.read()
+            if resp.status != 200 or not data:
+                failures.append((target, resp.status))
+        except Exception as exc:  # the test must see every kind of failure, not stop at the first
+            failures.append((target, type(exc).__name__))
+        finally:
+            conn.close()
+
+    try:
+        for _ in range(25):
+            (home / "archives" / "L1.tar.gz").unlink(missing_ok=True)  # force a rebuild
+            barrier = threading.Barrier(8)
+            targets = ["/manifest.json", "/archive/L1.tar.gz"] * 4
+            threads = [threading.Thread(target=get, args=(t, barrier)) for t in targets]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(60)
+            deadline = time.monotonic() + 10
+            while server.active and time.monotonic() < deadline:
+                time.sleep(0.01)
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert failures == []
+    assert len(builds) == 25  # one rebuild per forced round, not one per concurrent request
+    assert not list((home / "archives").glob("*.tmp"))
+
+
+def test_temp_files_are_unique_and_none_are_left_behind(tmp_path):
+    home = make_home(tmp_path / "home", layers=("L1", "L0"), files_per=4)
+    write_manifest(home)
+    leftovers = [p.name for p in (home / "archives").iterdir() if p.name.endswith(".tmp")]
+    assert leftovers == []
+    names = set()
+    from phone import archive
+
+    for _ in range(5):
+        raw, tmp = archive._temp_file(home / "archives", "L1.tar.gz")
+        raw.close()
+        names.add(tmp.name)
+        tmp.unlink()
+    assert len(names) == 5 and all(n.startswith("L1.tar.gz.") for n in names)

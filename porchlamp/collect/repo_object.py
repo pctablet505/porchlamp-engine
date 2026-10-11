@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
+import subprocess  # noqa: F401  (tests patch this module's subprocess)
 import urllib.request
 from collections.abc import Set as AbstractSet
 from datetime import datetime, timezone
@@ -103,7 +103,7 @@ ELIGIBILITY_FIELDS: tuple[str, ...] = (
 #: object. ``pullRequests`` over all three states with ``first: 1`` records
 #: the all-time PR total (the PRs-enabled evidence) without fetching nodes.
 REPO_OBJECT_QUERY: str = (
-    '{ r: repository(owner: "%s", name: "%s") {'
+    'query($owner: String!, $name: String!) { r: repository(owner: $owner, name: $name) {'
     "isArchived mirrorUrl isFork"
     " parent { name owner { login } }"
     " licenseInfo { spdxId }"
@@ -283,7 +283,7 @@ def derive_eligibility(ro: Optional[dict],
 # --------------------------------------------------------------------------- #
 
 
-def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
+def _gh_graphql(query: str, variables: Optional[dict[str, str]] = None) -> tuple[Optional[dict], Optional[str]]:
     """Run one ``gh api graphql`` request; return ``(r, error_summary)``.
 
     GitHub returns ``data`` and ``errors`` together whenever some fields are
@@ -299,7 +299,11 @@ def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
     errors and no usable data at all; a lookup that found nothing (no data, no
     errors) returns ``(None, None)``.
     """
-    out = ghcli.run(["api", "graphql", "-f", f"query={query}"], timeout=90)
+    fields = [f"{key}={value}" for key, value in (variables or {}).items()]
+    argv = ["api", "graphql", "-f", f"query={query}"]
+    for field in fields:
+        argv += ["-f", field]
+    out = ghcli.run(argv, timeout=90)
     try:
         payload = json.loads(out.stdout)
     except (json.JSONDecodeError, ValueError) as e:
@@ -391,7 +395,7 @@ def collect_repo_object(raw_dir: Path, owner: str, name: str,
     failures raise for the caller to mark retryable.
     """
     key = f"{owner}__{name}"
-    r, graphql_error = _gh_graphql(REPO_OBJECT_QUERY % (owner, name))
+    r, graphql_error = _gh_graphql(REPO_OBJECT_QUERY, {"owner": owner, "name": name})
     if not r:
         return "fail"
     data: dict[str, Any] = {

@@ -16,7 +16,8 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
+import subprocess  # noqa: F401  (tests patch this module's subprocess)
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -27,6 +28,7 @@ from typing import Any, Optional
 from porchlamp.collect import ghcli
 from porchlamp.collect.commits import collect_commits_365d
 from porchlamp.collect.envelope import write_envelope
+from porchlamp.collect.names import valid_ref
 # SLEEP_REST shares porchlamp.collect.pike_signals' SLEEP_CORE_SECONDS
 # (both 0.15, the same GitHub core-API rate limit) -- one definition imported
 # under this file's existing name.
@@ -171,7 +173,8 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     # --- 1 GraphQL point: meta + PR sample + first reviews ---
     if (collectors is None or collectors & _META_BLOCK) and not _done("github_meta", key, force):
         q = (
-            '{ r: repository(owner: "%s", name: "%s") {'
+            'query($owner: String!, $name: String!) {'
+            ' r: repository(owner: $owner, name: $name) {'
             'stargazerCount forkCount pushedAt isArchived createdAt'
             ' licenseInfo { spdxId } defaultBranchRef { name }'
             ' pullRequests(states: [OPEN, MERGED, CLOSED], first: %d,'
@@ -179,10 +182,11 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             ' nodes { number createdAt closedAt mergedAt'
             ' author { login } authorAssociation'
             ' comments { totalCount } reviews(first: 1) { nodes { createdAt } }'
-            ' } } } }' % (owner, name, PR_SAMPLE)
+            ' } } } }' % (PR_SAMPLE,)
         )
         try:
-            out = ghcli.run(["api", "graphql", "-f", f"query={q}"], timeout=90)
+            out = ghcli.run(["api", "graphql", "-f", f"query={q}", "-f", f"owner={owner}", "-f", f"name={name}"],
+                            timeout=90)
             r = json.loads(out.stdout).get("data", {}).get("r") if out.returncode == 0 else None
         except Exception:  # review-ok: gate-network — transient gh failure, rerun resumes
             r = None
@@ -671,6 +675,40 @@ def _persist_fingerprint(fp_result: Any, owner: str, name: str, ecosystem: str,
         append_fingerprints(_fingerprint_state(), [rec])
 
 
+def _example(value: Any) -> str:
+    """A short, inert rendering of a rejected name: illegal characters become ``?``, at most 20 characters."""
+    return re.sub(r"[^A-Za-z0-9._-]", "?", str(value))[:20]
+
+
+def load_candidates(lines: list[str], limit: Optional[int]) -> list[tuple[str, str, str]]:
+    """``(owner, name, ecosystem)`` for the first ``limit`` lines (all when None).
+
+    A line whose owner or name is not a legal GitHub name is skipped, never passed on; the count and at most five
+    examples (owner/name only, never the whole line) are printed.
+    """
+    repos: list[tuple[str, str, str]] = []
+    skipped: list[str] = []
+    for line in (lines if limit is None else lines[:limit]):
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+        except ValueError:
+            r = None
+        if not isinstance(r, dict):
+            skipped.append("<unparseable line>")
+            continue
+        if not r.get("owner"):
+            continue
+        if not valid_ref(r.get("owner"), r.get("name")):
+            skipped.append(f"{_example(r.get('owner'))}/{_example(r.get('name'))}")
+            continue
+        repos.append((r["owner"], r["name"], r["ecosystem"]))
+    if skipped:
+        print(f"skipped {len(skipped)} invalid candidates (e.g. {', '.join(skipped[:5])})")
+    return repos
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     from porchlamp.collect.fingerprint import ALL_GATHER_COLLECTORS
 
@@ -703,14 +741,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     a = ap.parse_args(argv)
     selected = parse_collectors(a.collectors)
     if a.repo:
+        if not valid_ref(a.repo[0], a.repo[1]):
+            print("error: --repo owner or name is not a legal GitHub name", file=sys.stderr)
+            return 2
         repos = [(a.repo[0], a.repo[1], a.ecosystem)]
     else:
-        repos = []
-        lines = CANDIDATES.read_text().splitlines()
-        for line in (lines if a.all else lines[: a.limit]):
-            r = json.loads(line)
-            if r.get("owner"):
-                repos.append((r["owner"], r["name"], r["ecosystem"]))
+        repos = load_candidates(CANDIDATES.read_text().splitlines(), None if a.all else a.limit)
     n_first = 0
     if a.priority_keys is not None:
         keys = read_priority_keys(a.priority_keys)

@@ -12,6 +12,8 @@ import hashlib
 import json
 import os
 import tarfile
+import tempfile
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -26,6 +28,16 @@ LAYERS: dict[str, tuple[str, ...]] = {
     "LK": ("depsdev", "scorecard", "downloads"),
 }
 MAIN_LAYERS: tuple[str, ...] = tuple(k for k in LAYERS if k != "LK")
+
+#: One build at a time (the server answers from several threads); re-entrant because write_manifest builds layers.
+_BUILD_LOCK = threading.RLock()
+
+
+def _temp_file(folder: Path, name: str):
+    """A new, uniquely named, world-readable temp file beside its final ``name``: returns ``(file object, path)``."""
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=name + ".", suffix=".tmp")
+    os.chmod(tmp, 0o644)
+    return os.fdopen(fd, "wb"), Path(tmp)
 
 
 def _marker_text(path: Path) -> str | None:
@@ -67,21 +79,37 @@ def _sha256_file(path: Path) -> str:
 
 
 def _write_archive(out: Path, files: list[tuple[str, Path]]) -> None:
-    """Write the archive to ``<out>.tmp`` and atomically replace ``out``. Deterministic: no mtimes, no names."""
-    tmp = out.with_name(out.name + ".tmp")
-    # filename="" keeps the gzip header free of the temp path; mtime=0 keeps it free of the clock.
-    with open(tmp, "wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz, \
-            tarfile.open(fileobj=gz, mode="w") as tar:
-        for arcname, path in files:
-            info = tarfile.TarInfo(name=arcname)
-            info.size = path.stat().st_size
-            info.mtime = 0
-            info.mode = 0o644
-            info.uid = info.gid = 0
-            info.uname = info.gname = ""
-            with open(path, "rb") as fh:
-                tar.addfile(info, fh)
-    os.replace(tmp, out)
+    """Write the archive to a unique temp file beside ``out`` and atomically replace ``out``. Deterministic: no
+    mtimes, no names."""
+    raw, tmp = _temp_file(out.parent, out.name)
+    try:
+        # filename="" keeps the gzip header free of the temp path; mtime=0 keeps it free of the clock.
+        with raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz, \
+                tarfile.open(fileobj=gz, mode="w") as tar:
+            for arcname, path in files:
+                info = tarfile.TarInfo(name=arcname)
+                info.size = path.stat().st_size
+                info.mtime = 0
+                info.mode = 0o644
+                info.uid = info.gid = 0
+                info.uname = info.gname = ""
+                with open(path, "rb") as fh:
+                    tar.addfile(info, fh)
+        os.replace(tmp, out)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _write_text_atomic(target: Path, text: str) -> None:
+    raw, tmp = _temp_file(target.parent, target.name)
+    try:
+        with raw:
+            raw.write(text.encode("utf-8"))
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def build_archive(home: Path, layer: str) -> dict:
@@ -93,7 +121,11 @@ def build_archive(home: Path, layer: str) -> dict:
     """
     if layer not in LAYERS:
         raise KeyError(layer)
-    home = Path(home)
+    with _BUILD_LOCK:
+        return _build_archive_locked(Path(home), layer)
+
+
+def _build_archive_locked(home: Path, layer: str) -> dict:
     marker = _complete_marker(home, layer)
     completed_at = _marker_text(marker)
     if completed_at is None:
@@ -116,9 +148,7 @@ def build_archive(home: Path, layer: str) -> dict:
         "files": len(files),
         "completed_at": completed_at,
     }
-    meta_tmp = meta_path.with_name(meta_path.name + ".tmp")
-    meta_tmp.write_text(json.dumps(entry, sort_keys=True), encoding="utf-8")
-    os.replace(meta_tmp, meta_path)
+    _write_text_atomic(meta_path, json.dumps(entry, sort_keys=True))
     return {**entry, "name": out.name}
 
 
@@ -129,7 +159,11 @@ def _candidates_sha256(home: Path) -> str | None:
 
 def write_manifest(home: Path) -> dict:
     """Build missing or outdated archives for completed layers, write ``archives/manifest.json``, return it."""
-    home = Path(home)
+    with _BUILD_LOCK:
+        return _write_manifest_locked(Path(home))
+
+
+def _write_manifest_locked(home: Path) -> dict:
     layers: dict[str, dict] = {}
     for layer in completed_layers(home):
         built = build_archive(home, layer)
@@ -148,7 +182,5 @@ def write_manifest(home: Path) -> dict:
     }
     archives = home / "archives"
     archives.mkdir(parents=True, exist_ok=True)
-    tmp = archives / "manifest.json.tmp"
-    tmp.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, archives / "manifest.json")
+    _write_text_atomic(archives / "manifest.json", json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest

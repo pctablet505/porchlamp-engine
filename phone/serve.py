@@ -1,20 +1,24 @@
 """Read-mostly LAN server for the phone's refresh home. Standard library only.
 
-``python -m phone.serve --home DIR --port 8765 --bind 0.0.0.0``
+``python -m phone.serve --home DIR --port 8765 --bind 127.0.0.1``
 
-Every request needs ``Authorization: Bearer <config/lan_token>``. The server refuses to start without a token of at
-least 24 characters. Writes are limited to two PUT paths, each atomic; nothing else under HOME is ever written.
+Every request must be signed with the LAN token (``config/lan_token``) as described in ``phone.auth``; the token itself
+is never sent. The server refuses to start without a token of at least 24 characters. The only write is
+``PUT /config/candidates.jsonl`` (validated, atomic); nothing else under HOME is ever written. At most 8 connections are
+served at once, a silent client is dropped after 20 s, and an IP with 10 failed authentications in 60 s is locked out
+for 300 s.
 """
 
 from __future__ import annotations
 
 import argparse
-import hmac
 import json
 import os
 import re
 import shutil
 import sys
+import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,10 +26,16 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from phone.archive import LAYERS, completed_layers, write_manifest, _marker_text
+from porchlamp.collect.names import valid_name
+from phone.auth import MAC_HEADER, FailureThrottle, NonceStore, check_request, headers_look_signed, response_mac
 
 TOKEN_MIN_LEN = 24
 CANDIDATES_CAP = 8 * 1024 * 1024
-TOKEN_CAP = 256
+CANDIDATES_MAX_LINES = 20_000
+CANDIDATE_FIELDS = ("owner", "name", "ecosystem")
+SOCKET_TIMEOUT_S = 20
+MAX_CONNECTIONS = 8
+LOCKOUT_RETRY_AFTER_S = 300
 RANGE_FROM = re.compile(r"^bytes=(\d+)-$")
 
 
@@ -49,21 +59,95 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _atomic_write(target: Path, data: bytes, mode: int | None = None) -> None:
-    """Write ``data`` to ``target`` through ``<target>.tmp`` and ``os.replace``; ``mode`` is applied before the rename."""
+def _atomic_write(target: Path, data: bytes) -> None:
+    """Write ``data`` to ``target`` through a unique temp file beside it and ``os.replace``."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(target.name + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if mode is not None else 0o644)
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(data)
-    if mode is not None:
-        os.chmod(tmp, mode)
-    os.replace(tmp, target)
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=target.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, target)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def validate_candidates(body: bytes) -> bool:
+    """True when ``body`` is JSON Lines of objects with string owner, name and ecosystem, within the line cap."""
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    if len(lines) > CANDIDATES_MAX_LINES:
+        return False
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except (ValueError, RecursionError):
+            return False
+        if not isinstance(row, dict):
+            return False
+        for field in CANDIDATE_FIELDS:
+            value = row.get(field)
+            if not valid_name(value):
+                return False
+    return True
+
+
+class BoundedServer(ThreadingHTTPServer):
+    """A threading server that serves at most ``MAX_CONNECTIONS`` connections at once; the next gets 503 and is closed."""
+
+    daemon_threads = True
+
+    def __init__(self, *args, **kwargs):
+        self._slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        self._active = 0
+        self._count_lock = threading.Lock()
+        super().__init__(*args, **kwargs)
+
+    @property
+    def active(self) -> int:
+        return self._active
+
+    def _release(self) -> None:
+        with self._count_lock:
+            self._active -= 1
+        self._slots.release()
+
+    def process_request(self, request, client_address) -> None:
+        if not self._slots.acquire(blocking=False):
+            try:
+                request.settimeout(2)
+                request.sendall(b"HTTP/1.0 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            except OSError:
+                pass  # the refused client is already gone; nothing else to tell it
+            self.shutdown_request(request)
+            return
+        with self._count_lock:
+            self._active += 1
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._release()
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._release()
 
 
 class PhoneHandler(BaseHTTPRequestHandler):
     server_version = "porchlamp-phone"
     sys_version = ""
+    timeout = SOCKET_TIMEOUT_S  # a client that stalls is dropped
 
     @property
     def home(self) -> Path:
@@ -82,24 +166,70 @@ class PhoneHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _json(self, status: int, obj) -> None:
-        self._reply(status, (json.dumps(obj, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+        body = (json.dumps(obj, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        mac = response_mac(self.server.token, self._nonce, status, body)  # type: ignore[attr-defined]
+        self._reply(status, body, extra=[(MAC_HEADER, mac)])
 
-    def _authorized(self) -> bool:
-        got = (self.headers.get("Authorization") or "").encode("utf-8")
-        want = f"Bearer {self.server.token}".encode("utf-8")  # type: ignore[attr-defined]
-        return hmac.compare_digest(got, want)
-
-    def _deny(self) -> None:
+    def _deny(self, category: str) -> None:
+        """The one answer to every authentication failure: 401, empty body. The category goes to stderr only."""
         self.close_connection = True
-        self._reply(401, b"", extra=[("WWW-Authenticate", "Bearer")])
+        self.server.throttle.record_failure(self.client_address[0])  # type: ignore[attr-defined]
+        sys.stderr.write(f"auth-fail {category}\n")
+        self._reply(401)
+
+    def _target(self) -> str:
+        """The request target exactly as the client sent it (path plus query)."""
+        words = self.requestline.split()
+        return words[1] if len(words) >= 2 else self.path
 
     def _path(self) -> str:
         return urlsplit(self.path).path
 
+    def _authenticate(self) -> bytes | None:
+        """The signed request's body when it is genuine; otherwise None after the error reply has been sent."""
+        server = self.server
+        if server.throttle.locked(self.client_address[0]):  # type: ignore[attr-defined]
+            self.close_connection = True
+            self._reply(429, extra=[("Retry-After", str(LOCKOUT_RETRY_AFTER_S))])
+            return None
+        now = server.clock()  # type: ignore[attr-defined]
+        body = b""
+        raw_length = self.headers.get("Content-Length")
+        if self.command == "PUT":
+            try:
+                length = int(raw_length if raw_length is not None else "-1")
+            except ValueError:
+                length = -1
+            if length < 0 or length > CANDIDATES_CAP:
+                # The MAC binds the body, so it cannot be checked without reading it. Unsigned callers still get 401.
+                if not headers_look_signed(self.headers, now):
+                    self._deny("malformed")
+                    return None
+                self.close_connection = True  # do not read the body; nothing is written
+                self._reply(411 if length < 0 else 413)
+                return None
+            try:
+                body = self.rfile.read(length)
+            except OSError:
+                self.close_connection = True  # the client stalled mid-body or vanished
+                return None
+            if len(body) != length:
+                self.close_connection = True
+                return None
+        elif raw_length not in (None, "0"):
+            self.close_connection = True  # a body we will not read must not be parsed as the next request
+        category = check_request(server.token, self.command, self._target(), body,  # type: ignore[attr-defined]
+                                 self.headers, now, server.nonces)  # type: ignore[attr-defined]
+        if category != "ok":
+            self._deny(category)
+            return None
+        self._nonce = self.headers.get("X-Porch-Nonce")
+        return body
+
     # ---- routes ---------------------------------------------------------------------------------------------------
     def do_GET(self) -> None:
-        if not self._authorized():
-            return self._deny()
+        if self._authenticate() is None:
+            return
         path = self._path()
         if path == "/status.json":
             return self._status()
@@ -110,18 +240,16 @@ class PhoneHandler(BaseHTTPRequestHandler):
         return self._reply(404)
 
     def do_PUT(self) -> None:
-        if not self._authorized():
-            return self._deny()
-        path = self._path()
-        if path == "/config/candidates.jsonl":
-            return self._put_body(self.home / "raw" / "candidates.jsonl", CANDIDATES_CAP, None)
-        if path == "/config/github_token":
-            return self._put_body(self.home / "config" / "github_token", TOKEN_CAP, 0o600)
+        body = self._authenticate()
+        if body is None:
+            return
+        if self._path() == "/config/candidates.jsonl":
+            return self._put_candidates(body)
         return self._reply(404)
 
     def _method_not_allowed(self) -> None:
-        if not self._authorized():
-            return self._deny()
+        if self._authenticate() is None:
+            return
         self.close_connection = True
         self._reply(405, b"", extra=[("Allow", "GET, PUT")])
 
@@ -174,46 +302,50 @@ class PhoneHandler(BaseHTTPRequestHandler):
             fh.seek(start)
             shutil.copyfileobj(fh, self.wfile, 1 << 20)
 
-    def _put_body(self, target: Path, cap: int, mode: int | None) -> None:
-        try:
-            length = int(self.headers.get("Content-Length", "-1"))
-        except ValueError:
-            length = -1
-        if length < 0:
-            self.close_connection = True
-            return self._reply(411)
-        if length > cap:
-            self.close_connection = True  # do not read the body; nothing is written
-            return self._reply(413)
-        body = self.rfile.read(length)
-        if len(body) != length:
-            self.close_connection = True
-            return self._reply(400)
-        _atomic_write(target, body, mode)
+    def _put_candidates(self, body: bytes) -> None:
+        if not validate_candidates(body):
+            return self._reply(400)  # nothing is written
+        _atomic_write(self.home / "raw" / "candidates.jsonl", body)
         return self._reply(204)
 
-    def log_message(self, format: str, *args) -> None:  # request line only, never headers
-        sys.stderr.write("%s %s\n" % (self.command, self.path.split("?", 1)[0]))
+    def send_response(self, code: int, message: str | None = None) -> None:
+        self._status = code
+        super().send_response(code, message)
+
+    def log_message(self, format: str, *args) -> None:
+        """Method and status code only: never the path, the query, a header or the library's message text."""
+        sys.stderr.write(f"{getattr(self, 'command', None) or '-'} {getattr(self, '_status', None) or '-'}\n")
 
 
-def make_server(home: Path, bind: str = "127.0.0.1", port: int = 8765) -> ThreadingHTTPServer:
-    """A ready (not yet serving) server bound to ``bind``:``port``; raises TokenError without a usable token."""
+def make_server(home: Path, bind: str = "127.0.0.1", port: int = 8765, token: str | None = None) -> BoundedServer:
+    """A ready (not yet serving) server bound to ``bind``:``port``; raises TokenError without a usable token.
+
+    A ``token`` passed in is used as is (the app keeps it in memory) and ``config/lan_token`` is not read."""
     home = Path(home)
-    token = load_token(home)
-    server = ThreadingHTTPServer((bind, port), PhoneHandler)
-    server.daemon_threads = True
+    if token is None:
+        token = load_token(home)
+    elif len(token) < TOKEN_MIN_LEN:
+        raise TokenError(f"the LAN token is shorter than {TOKEN_MIN_LEN} characters")
+    server = BoundedServer((bind, port), PhoneHandler)
     server.home = home  # type: ignore[attr-defined]
     server.token = token  # type: ignore[attr-defined]
     server.started = time.monotonic()  # type: ignore[attr-defined]
+    server.clock = time.time  # type: ignore[attr-defined]
+    server.nonces = NonceStore()  # type: ignore[attr-defined]
+    server.throttle = FailureThrottle()  # type: ignore[attr-defined]
     return server
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="phone.serve", description=__doc__.splitlines()[0])
     parser.add_argument("--home", required=True, type=Path)
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--bind", default="0.0.0.0")
-    args = parser.parse_args(argv)
+    parser.add_argument("--bind", default="127.0.0.1")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     try:
         server = make_server(args.home, args.bind, args.port)
     except TokenError as exc:

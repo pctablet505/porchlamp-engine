@@ -7,6 +7,10 @@ The HTTPS transport also keeps the rate-limit floor that ``gather_layer.sh``
 enforced by sampling and killing: before a request, when the last response
 for its resource reported fewer calls left than the floor and a reset still
 lies in the future, the transport sleeps until that reset.
+
+Only ``https://api.github.com`` ever receives the Authorization header. ``PORCHLAMP_GH_API`` is a test hook: it is
+honoured only together with ``PORCHLAMP_ALLOW_TEST_API=1`` and only for a loopback host, and the header is not sent to
+it. Redirects are never followed by urllib: a same-origin one is followed here (3 hops at most), any other is refused.
 """
 
 from __future__ import annotations
@@ -33,6 +37,11 @@ RESET_PAD = 15
 MIN_WAIT = 10
 NO_RESET_WAIT = 60
 MAX_RETRIES = 2
+MAX_REDIRECTS = 3
+REDIRECT_CODES = (301, 302, 307, 308)
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+#: The only origin that is sent the Authorization header.
+AUTH_BASE = DEFAULT_BASE
 
 #: resource -> (remaining calls, reset epoch seconds), from the last response.
 _BUDGET: dict[str, tuple[int, float]] = {}
@@ -44,6 +53,10 @@ _INT = re.compile(r"-?\d+\Z")
 
 class _Transport(Exception):
     """A transport failure (DNS, refused, reset); the message has no secrets."""
+
+
+class _Refused(_Transport):
+    """A redirect the transport will not follow; the message is ``<reason> (HTTP <code>)`` with no URL or header."""
 
 
 def run(args: Sequence[str], timeout: float = 90) -> subprocess.CompletedProcess[str]:
@@ -200,12 +213,22 @@ def _is_timeout(exc: BaseException) -> bool:
     return isinstance(exc, TimeoutError) or isinstance(reason, TimeoutError)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Turn every redirect into an HTTPError so the caller decides; urllib never re-sends headers on its own."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def _send(method: str, url: str, body: bytes | None, headers: dict[str, str],
           timeout: float, args: list[str]) -> tuple[int, Any, str]:
     req = urllib.request.Request(url, data=body, method=method, headers=headers)
     try:
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with _OPENER.open(req, timeout=timeout) as resp:
                 return resp.status, resp.headers, _body_text(resp.read())
         except urllib.error.HTTPError as exc:
             return exc.code, exc.headers, _body_text(exc.read())
@@ -213,6 +236,82 @@ def _send(method: str, url: str, body: bytes | None, headers: dict[str, str],
         if _is_timeout(exc):
             raise subprocess.TimeoutExpired(["gh", *args], timeout) from None
         raise _Transport(str(exc)) from None
+
+
+def _origin(url: str) -> tuple[str, str, int | None]:
+    parts = urllib.parse.urlsplit(url)
+    try:
+        port = parts.port
+    except ValueError:
+        port = -1
+    if port is None:
+        port = {"http": 80, "https": 443}.get(parts.scheme)
+    return parts.scheme, (parts.hostname or "").lower(), port
+
+
+def _plain_url(url: str) -> bool:
+    """No backslash, control or non-ASCII character, and no user-info: nothing that two URL parsers could read differently."""
+    return url.isascii() and url.isprintable() and "\\" not in url and " " not in url \
+        and "@" not in urllib.parse.urlsplit(url).netloc
+
+
+_SEGMENT = re.compile(r"[A-Za-z0-9._~%-]+")
+
+
+def _safe_endpoint(endpoint: str) -> bool:
+    """A REST path of plain segments: no empty, ``.`` or ``..`` segment (also percent-encoded), and no ``?``, ``#``, backslash, whitespace or
+    control character (the query string is built from ``-f`` fields only)."""
+    segments = endpoint[1:].split("/") if endpoint.startswith("/") else endpoint.split("/")
+    return all(_SEGMENT.fullmatch(seg) and _decoded_ok(seg) for seg in segments)
+
+
+def _decoded_ok(segment: str) -> bool:
+    """The segment is not ``.`` or ``..`` even after percent-decoding, and decodes to no slash or backslash."""
+    decoded = urllib.parse.unquote(segment)
+    return decoded not in (".", "..") and "/" not in decoded and "\\" not in decoded
+
+
+def _api_base() -> str:
+    """``https://api.github.com``, or the loopback test server when both test variables say so."""
+    override = os.environ.get("PORCHLAMP_GH_API")
+    if override and os.environ.get("PORCHLAMP_ALLOW_TEST_API") == "1":
+        scheme, host, _ = _origin(override)
+        if scheme in ("http", "https") and host in LOOPBACK_HOSTS:
+            return override.rstrip("/")
+    return DEFAULT_BASE
+
+
+def _request_headers(base: str, token: str | None, has_body: bool) -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": API_VERSION,
+        "User-Agent": USER_AGENT,
+    }
+    if token and base == AUTH_BASE:
+        headers["Authorization"] = f"Bearer {token}"
+    if has_body:
+        headers["Content-Type"] = "application/json"
+    return headers
+
+
+def _send_following(method: str, url: str, base: str, body: bytes | None, headers: dict[str, str],
+                    timeout: float, args: list[str]) -> tuple[int, Any, str]:
+    """``_send``, following same-origin redirects by hand (at most ``MAX_REDIRECTS``); a redirect anywhere else is
+    refused and nothing is sent to the other origin."""
+    hops = 0
+    while True:
+        status, resp_headers, text = _send(method, url, body, headers, timeout, args)
+        if not 300 <= status < 400:
+            return status, resp_headers, text
+        location = _header(resp_headers, "location")
+        target = urllib.parse.urljoin(url, location) if location else None
+        same_origin = target is not None and _plain_url(target) and _origin(target) == _origin(base)
+        if status not in REDIRECT_CODES or not same_origin:
+            raise _Refused(f"redirect to another host refused (HTTP {status})")
+        if hops >= MAX_REDIRECTS:
+            raise _Refused(f"too many redirects (HTTP {status})")
+        hops += 1
+        url = target
 
 
 def _message(text: str) -> str | None:
@@ -247,7 +346,9 @@ def _result(args: list[str], is_graphql: bool, status: int, text: str) -> subpro
 
 def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[str]:
     method, endpoint, fields, is_graphql = _parse(args)
-    base = os.environ.get("PORCHLAMP_GH_API", DEFAULT_BASE).rstrip("/")
+    if not is_graphql and not _safe_endpoint(endpoint):
+        return subprocess.CompletedProcess(["gh", *args], 1, "", "gh: refusing an unsafe path\n")
+    base = _api_base()
     resource = _resource_for(endpoint, is_graphql)
     body: bytes | None = None
     if is_graphql:
@@ -261,20 +362,12 @@ def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[st
         url = f"{base}/{endpoint.lstrip('/')}"
         if fields:
             body = json.dumps(dict(fields)).encode("utf-8")
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": API_VERSION,
-        "User-Agent": USER_AGENT,
-    }
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    if body is not None:
-        headers["Content-Type"] = "application/json"
+    headers = _request_headers(base, token, body is not None)
     attempts = 0
     while True:
         _gate(resource)
-        status, resp_headers, text = _send(method, url, body, headers, timeout, args)
+        status, resp_headers, text = _send_following(method, url, base, body, headers, timeout, args)
         _record(resp_headers, resource)
         if status in (403, 429) and attempts < MAX_RETRIES and _limited(resp_headers):
             attempts += 1

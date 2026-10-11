@@ -6,7 +6,8 @@
 
 Exit codes: 0 ok, 1 usage or HTTP/network error, 3 sha256/size mismatch (nothing extracted),
 4 unsafe archive member (nothing extracted), 5 a set-aside target already exists (nothing moved).
-The token is read from --token-file and never printed.
+Every request is signed with the token (the token is never sent); the manifest is used only after its X-Porch-Mac
+reply signature verifies. The token is read from --token-file and never printed.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from urllib import error, request
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from phone.archive import LAYERS, MAIN_LAYERS
+from phone.auth import MAC_HEADER, NONCE_HEADER, sign_request, verify_response
 
 CHUNK = 1 << 20
 TIMEOUT_S = 60
@@ -49,17 +51,44 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _request(url: str, token: str, method: str = "GET", headers=None, data: bytes | None = None):
+class _NoRedirect(request.HTTPRedirectHandler):
+    """The phone never redirects; a signed request must not be forwarded anywhere else."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = request.build_opener(_NoRedirect)
+
+
+def _open(url: str, token: str, method: str = "GET", headers=None, data: bytes | None = None):
+    """Send one signed request; returns ``(response, nonce)``."""
     req = request.Request(url, method=method, data=data)
-    req.add_header("Authorization", f"Bearer {token}")
-    for key, value in (headers or {}).items():
+    signed = sign_request(token, method, req.selector, data or b"")
+    for key, value in {**signed, **(headers or {})}.items():
         req.add_header(key, value)
     try:
-        return request.urlopen(req, timeout=TIMEOUT_S)
+        return _OPENER.open(req, timeout=TIMEOUT_S), signed[NONCE_HEADER]
     except error.HTTPError as exc:
         raise PullError(1, f"{method} {url.split('/', 3)[-1]} failed: HTTP {exc.code}") from None
     except (error.URLError, OSError) as exc:
         raise PullError(1, f"{method} {url.split('/', 3)[-1]} failed: {type(exc).__name__}") from None
+
+
+def _request(url: str, token: str, method: str = "GET", headers=None, data: bytes | None = None):
+    return _open(url, token, method, headers, data)[0]
+
+
+def _get_json(url: str, token: str):
+    """GET a JSON reply and parse it only after its ``X-Porch-Mac`` verifies; otherwise exit 1."""
+    resp, nonce = _open(url, token)
+    with resp:
+        raw = resp.read()
+        mac = resp.headers.get(MAC_HEADER)
+        status = resp.status
+    if not verify_response(token, nonce, status, raw, mac):
+        raise PullError(1, f"GET {url.split('/', 3)[-1]}: reply signature missing or wrong; nothing used")
+    return json.loads(raw.decode("utf-8"))
 
 
 def _download(base: str, token: str, layer: str, entry: dict, part: Path) -> int | None:
@@ -72,12 +101,21 @@ def _download(base: str, token: str, layer: str, entry: dict, part: Path) -> int
     if have == entry["bytes"] and have > 0:
         return have
     headers = {"Range": f"bytes={have}-"} if have else {}
+    limit = entry["bytes"]
     with _request(f"{base}/archive/{layer}.tar.gz", token, headers=headers) as resp:
         resumed = have if resp.status == 206 and have else None
         mode = "ab" if resumed is not None else "wb"
+        total = resumed or 0
         with open(part, mode) as fh:
-            for chunk in iter(lambda: resp.read(CHUNK), b""):
+            while total <= limit:  # read at most one byte past the manifest's count: that byte proves the overrun
+                chunk = resp.read(min(CHUNK, limit + 1 - total))
+                if not chunk:
+                    break
                 fh.write(chunk)
+                total += len(chunk)
+    if total > limit:
+        part.unlink()
+        raise PullError(3, f"{layer}: the phone sent more than the manifest's {limit} bytes; part file deleted")
     return resumed
 
 
@@ -148,8 +186,7 @@ def _push_candidates(base: str, token: str, file: Path) -> None:
 
 
 def pull(base: str, token: str, dest: Path, wanted: list[str] | None) -> None:
-    with _request(f"{base}/manifest.json", token) as resp:
-        manifest = json.loads(resp.read().decode("utf-8"))
+    manifest = _get_json(f"{base}/manifest.json", token)
     layers = manifest["layers"]
     todo = [layer for layer in LAYERS if layer in layers and (wanted is None or layer in wanted)]
     pulled_dir = dest / "state" / "pulled"

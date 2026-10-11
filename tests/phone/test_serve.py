@@ -1,10 +1,9 @@
-"""phone/serve.py: token gate, routes, Range, name checks, atomic PUTs, and no writes outside HOME."""
+"""phone/serve.py: signed-request gate, routes, Range, name checks, atomic validated PUT, and no writes outside HOME."""
 
 from __future__ import annotations
 
 import http.client
 import json
-import os
 import stat
 import subprocess
 import sys
@@ -13,11 +12,13 @@ from pathlib import Path
 
 import pytest
 
+from phone.auth import MAC_HEADER, sign_request
 from phone.serve import CANDIDATES_CAP, make_server
 from tests.phone import DUMMY_TOKEN, make_home
 
 REPO = Path(__file__).resolve().parents[2]
-AUTH = {"Authorization": f"Bearer {DUMMY_TOKEN}"}
+AUTH = "signed"  # sentinel: _req signs the request with DUMMY_TOKEN
+GOOD_ROW = b'{"owner": "a", "name": "b", "ecosystem": "npm"}\n'
 
 
 @pytest.fixture
@@ -32,6 +33,9 @@ def served(tmp_path):
 
 
 def _req(server, method, path, headers=None, body=None):
+    """One request on a fresh connection. ``headers=AUTH`` signs it; a dict is sent as is."""
+    if headers is AUTH:
+        headers = sign_request(DUMMY_TOKEN, method, path, body or b"")
     conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=20)
     try:
         conn.request(method, path, body=body, headers=headers or {})
@@ -67,19 +71,21 @@ def test_serve_refuses_start_without_token_or_short_token(tmp_path):
 
 def test_serve_401_without_or_with_wrong_token(served):
     for headers in ({}, {"Authorization": "Bearer " + "x" * 32}, {"Authorization": "Basic " + DUMMY_TOKEN},
-                    {"Authorization": DUMMY_TOKEN}):
+                    {"Authorization": DUMMY_TOKEN}, {"Authorization": f"Bearer {DUMMY_TOKEN}"},
+                    sign_request("w" * 32, "GET", "/status.json", b"")):
         status, resp, body = _req(served, "GET", "/status.json", headers)
         assert status == 401, headers
         assert body == b""
-        assert resp.get("www-authenticate") == "Bearer"
-    status, _, _ = _req(served, "PUT", "/config/github_token", {"Authorization": "Bearer nope"}, b"x")
+        assert "www-authenticate" not in resp
+    status, _, _ = _req(served, "PUT", "/config/candidates.jsonl", sign_request("w" * 32, "PUT", "/config/candidates.jsonl", GOOD_ROW), GOOD_ROW)
     assert status == 401
-    assert not (served.home / "config" / "github_token").exists()
+    assert not (served.home / "raw" / "candidates.jsonl").exists()
 
 
 def test_serve_200_with_token(served):
-    status, _, body = _req(served, "GET", "/status.json", AUTH)
+    status, resp, body = _req(served, "GET", "/status.json", AUTH)
     assert status == 200
+    assert resp[MAC_HEADER.lower()]  # every JSON reply is signed (verified in test_serve_hardening)
     st = json.loads(body)
     assert st["completed_layers"] == ["L1", "L0"]
     assert st["files"]["pr_window"] == 5 and st["lan_token_set"] is True and st["main_done"] is None
@@ -87,6 +93,7 @@ def test_serve_200_with_token(served):
     assert status == 200 and sorted(json.loads(body)["layers"]) == ["L0", "L1"]
     assert _req(served, "GET", "/nope", AUTH)[0] == 404
     assert _req(served, "POST", "/status.json", AUTH, b"")[0] == 405
+    assert _req(served, "GET", "/archive/L1.tar.gz", AUTH)[1].get(MAC_HEADER.lower()) is None  # archives: sha-checked
 
 
 def test_serve_archive_range_resumes_at_offset(served):
@@ -94,12 +101,14 @@ def test_serve_archive_range_resumes_at_offset(served):
     assert status == 200 and len(full) > 100
     assert full == (served.home / "archives" / "L1.tar.gz").read_bytes()
     size = len(full)
-    status, resp, tail = _req(served, "GET", "/archive/L1.tar.gz", {**AUTH, "Range": "bytes=40-"})
+    status, resp, tail = _req(served, "GET", "/archive/L1.tar.gz",
+                              {**sign_request(DUMMY_TOKEN, "GET", "/archive/L1.tar.gz", b""), "Range": "bytes=40-"})
     assert status == 206
     assert resp["content-range"] == f"bytes 40-{size - 1}/{size}"
     assert resp["content-length"] == str(size - 40)
     assert tail == full[40:]
-    assert _req(served, "GET", "/archive/L1.tar.gz", {**AUTH, "Range": f"bytes={size}-"})[0] == 416
+    assert _req(served, "GET", "/archive/L1.tar.gz",
+                {**sign_request(DUMMY_TOKEN, "GET", "/archive/L1.tar.gz", b""), "Range": f"bytes={size}-"})[0] == 416
 
 
 def test_serve_archive_name_traversal_404(served):
@@ -132,32 +141,27 @@ def test_serve_archive_serves_lower_case_layer_names(tmp_path):
 
 def test_serve_put_candidates_atomic_and_413_over_cap(served):
     target = served.home / "raw" / "candidates.jsonl"
-    body = b'{"repo": "a/b"}\n' * 10
+    body = GOOD_ROW * 10
     assert _req(served, "PUT", "/config/candidates.jsonl", AUTH, body)[0] == 204
     assert target.read_bytes() == body
     assert not (served.home / "raw" / "candidates.jsonl.tmp").exists()
-    exact = b"c" * CANDIDATES_CAP
+    # Exactly the cap is accepted: 8 MiB of valid lines, then one byte over is refused from the headers alone.
+    row = GOOD_ROW.rstrip(b"\n")
+    exact = b"".join(row.ljust(CANDIDATES_CAP // 100 - 1) + b"\n" for _ in range(99))
+    exact += row.ljust(CANDIDATES_CAP - len(exact) - 1) + b"\n"
+    assert len(exact) == CANDIDATES_CAP
     assert _req(served, "PUT", "/config/candidates.jsonl", AUTH, exact)[0] == 204
     assert target.stat().st_size == CANDIDATES_CAP
-    # One byte over the cap: 413 from the headers alone, and the file keeps its previous content.
     conn = http.client.HTTPConnection("127.0.0.1", served.server_address[1], timeout=20)
     conn.putrequest("PUT", "/config/candidates.jsonl")
-    conn.putheader("Authorization", f"Bearer {DUMMY_TOKEN}")
+    for key, value in sign_request(DUMMY_TOKEN, "PUT", "/config/candidates.jsonl", b"x").items():
+        conn.putheader(key, value)
     conn.putheader("Content-Length", str(CANDIDATES_CAP + 1))
     conn.endheaders()
     assert conn.getresponse().status == 413
     conn.close()
     assert target.stat().st_size == CANDIDATES_CAP
     assert not (served.home / "raw" / "candidates.jsonl.tmp").exists()
-
-
-def test_serve_put_github_token_mode_0600(served):
-    token_file = served.home / "config" / "github_token"
-    assert _req(served, "PUT", "/config/github_token", AUTH, b"g" * 40)[0] == 204
-    assert token_file.read_bytes() == b"g" * 40
-    assert stat.S_IMODE(os.stat(token_file).st_mode) == 0o600
-    assert _req(served, "PUT", "/config/github_token", AUTH, b"g" * 257)[0] == 413
-    assert token_file.read_bytes() == b"g" * 40
 
 
 def test_serve_never_writes_outside_home(tmp_path):
@@ -177,6 +181,7 @@ def test_serve_never_writes_outside_home(tmp_path):
             _req(server, "GET", path, AUTH)
         _req(server, "PUT", "/config/../../outside/x", AUTH, b"x")
         _req(server, "PUT", "/config/github_token", AUTH, b"g" * 40)
+        _req(server, "PUT", "/config/candidates.jsonl", AUTH, GOOD_ROW)
         after_all = _tree(tmp_path)
         after_home = _tree(home)
     finally:
@@ -187,5 +192,5 @@ def test_serve_never_writes_outside_home(tmp_path):
     assert outside_changes == set()
     changed = {p for p in set(before_home) | set(after_home) if before_home.get(p) != after_home.get(p)}
     assert changed <= {"archives/L1.tar.gz", "archives/L1.meta.json", "archives/L0.tar.gz", "archives/L0.meta.json",
-                       "archives/manifest.json", "config/github_token"}, changed
-    assert "config/github_token" in changed
+                       "archives/manifest.json", "raw/candidates.jsonl"}, changed
+    assert "raw/candidates.jsonl" in changed and "config/github_token" not in changed
