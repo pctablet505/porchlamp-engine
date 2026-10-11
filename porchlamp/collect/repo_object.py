@@ -33,6 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from porchlamp.collect import ghcli
 from porchlamp.collect.envelope import write_envelope
 
 # --------------------------------------------------------------------------- #
@@ -298,8 +299,7 @@ def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
     errors and no usable data at all; a lookup that found nothing (no data, no
     errors) returns ``(None, None)``.
     """
-    out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
-                         capture_output=True, text=True, timeout=90)
+    out = ghcli.run(["api", "graphql", "-f", f"query={query}"], timeout=90)
     try:
         payload = json.loads(out.stdout)
     except (json.JSONDecodeError, ValueError) as e:
@@ -316,7 +316,7 @@ def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
 
 def _gh_rest(path: str) -> Any:
     """Run one ``gh api`` REST request; return the parsed body (None on empty)."""
-    out = subprocess.run(["gh", "api", path], capture_output=True, text=True, timeout=90)
+    out = ghcli.run(["api", path], timeout=90)
     if out.returncode != 0:
         raise RuntimeError(f"gh api {path} rc={out.returncode}: {out.stderr[:160]}")
     return json.loads(out.stdout) if out.stdout.strip() else None

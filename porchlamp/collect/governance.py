@@ -70,6 +70,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from porchlamp.collect import commits as commit_domains
+from porchlamp.collect import ghcli
 from porchlamp.collect import github_graphql as pr_window
 from porchlamp.collect.envelope import sha256_hex, write_envelope
 # --------------------------------------------------------------------------- #
@@ -210,11 +211,10 @@ class GhApiTransport:
         ``-X GET`` is explicit: ``gh api`` with ``-f`` fields would
         otherwise infer a write method for read endpoints (404).
         """
-        args = ["gh", "api", "-X", "GET", path]
+        args = ["api", "-X", "GET", path]
         for key, value in params.items():
             args += ["-f", f"{key}={value}"]
-        out = subprocess.run(args, capture_output=True, text=True,
-                             timeout=self.timeout_seconds)
+        out = ghcli.run(args, timeout=self.timeout_seconds)
         if out.returncode != 0:
             match = re.search(r"\(HTTP (\d+)\)", out.stderr)
             raise GhApiError(

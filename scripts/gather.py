@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from porchlamp.collect import ghcli
 from porchlamp.collect.commits import collect_commits_365d
 from porchlamp.collect.envelope import write_envelope
 # SLEEP_REST shares porchlamp.collect.pike_signals' SLEEP_CORE_SECONDS
@@ -106,7 +107,7 @@ def _user_cache() -> UserCache:
 
 
 def _gh(*args: str) -> Any:
-    out = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=90)
+    out = ghcli.run(["api", *args], timeout=90)
     if out.returncode != 0:
         raise RuntimeError(f"gh api {' '.join(args[:2])} rc={out.returncode}: {out.stderr[:160]}")
     return json.loads(out.stdout) if out.stdout.strip() else None
@@ -181,8 +182,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             ' } } } }' % (owner, name, PR_SAMPLE)
         )
         try:
-            out = subprocess.run(["gh", "api", "graphql", "-f", f"query={q}"],
-                                 capture_output=True, text=True, timeout=90)
+            out = ghcli.run(["api", "graphql", "-f", f"query={q}"], timeout=90)
             r = json.loads(out.stdout).get("data", {}).get("r") if out.returncode == 0 else None
         except Exception:  # review-ok: gate-network — transient gh failure, rerun resumes
             r = None
