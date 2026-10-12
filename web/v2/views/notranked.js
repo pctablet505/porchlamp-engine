@@ -15,6 +15,7 @@ import {
   syncPager,
   renderTabs,
   renderCountsStrip,
+  renderOnboardingBanner,
   personaDeltaForState,
   personaVisibleForState,
 } from "./leaderboard.js";
@@ -52,14 +53,29 @@ function renderRow(row) {
   );
 }
 
+function filterRows(rows, ecosystem, query) {
+  if (!rows) return [];
+  const eco = ecosystem ? ecosystem.trim().toLowerCase() : "";
+  const q = query ? query.trim().toLowerCase() : "";
+  if (!eco && !q) return rows;
+  return rows.filter((r) => {
+    if (eco && String(r.ecosystem || "").toLowerCase() !== eco) return false;
+    if (q && !`${r.owner}/${r.name}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
 /** Flattens the three groups into one paged sequence, each item tagged with its group label and the group's total count (for the heading). */
-export function flattenGroups(notRanked) {
+export function flattenGroups(notRanked, opts = {}) {
+  if (!notRanked) return [];
+  const { ecosystem = "", query = "" } = opts || {};
+  const gated = filterRows(notRanked.gated, ecosystem, query);
+  const unrated = filterRows(notRanked.unrated, ecosystem, query);
+  const personaHidden = filterRows(notRanked.persona_hidden, ecosystem, query);
   const groups = [
-    [copy.GATED_GROUP_TITLE, notRanked.gated],
-    [copy.UNRATED_GROUP_TITLE, notRanked.unrated],
-    ...(notRanked.persona_hidden && notRanked.persona_hidden.length
-      ? [[copy.PERSONA_HIDDEN_GROUP_TITLE, notRanked.persona_hidden]]
-      : []),
+    [copy.GATED_GROUP_TITLE, gated],
+    [copy.UNRATED_GROUP_TITLE, unrated],
+    ...(personaHidden.length ? [[copy.PERSONA_HIDDEN_GROUP_TITLE, personaHidden]] : []),
   ];
   const flat = [];
   for (const [label, rows] of groups) {
@@ -88,9 +104,9 @@ export function shellShape(state) {
   const { notRankedLoading, notRankedError, notRanked } = state;
   if (notRankedLoading && !notRanked) return "loading";
   if (notRankedError && !notRanked) return "error";
-  if (!notRanked || (notRanked.gated.length === 0 && notRanked.unrated.length === 0 && (!notRanked.persona_hidden || notRanked.persona_hidden.length === 0))) {
-    return "empty";
-  }
+  if (!notRanked) return "empty";
+  const flat = flattenGroups(notRanked, { ecosystem: state.ecosystem, query: state.query });
+  if (flat.length === 0) return "empty";
   return "table";
 }
 
@@ -116,6 +132,7 @@ export function renderShell(state) {
   // to Not-ranked would strand the user with no way back to Ranked.
   const leaderboardCounts = state.leaderboard ? state.leaderboard.counts : null;
   const tabsHtml =
+    renderOnboardingBanner() +
     renderTabs(state.tab, leaderboardCounts, personaVisibleForState(state)) +
     renderCountsStrip(leaderboardCounts, personaDeltaForState(state));
 
@@ -125,7 +142,7 @@ export function renderShell(state) {
     return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}<div class="empty-state">${escapeHtml(copy.NOT_RANKED_EMPTY)}</div></section>`;
   }
 
-  const flat = flattenGroups(notRanked);
+  const flat = flattenGroups(notRanked, { ecosystem: state.ecosystem, query: state.query });
   const pager = renderPager(state.notRankedPage, state.notRankedPageSize, flat.length, "notranked-pager");
   return (
     `<section aria-labelledby="notranked-heading">` +
@@ -142,7 +159,7 @@ export function renderShell(state) {
 export function patchNotRankedBody(root, state) {
   const container = root.querySelector("[data-notranked-rows]");
   if (!container) return;
-  const flat = flattenGroups(state.notRanked);
+  const flat = flattenGroups(state.notRanked, { ecosystem: state.ecosystem, query: state.query });
   const html = renderPageRows(flat, state.notRankedPage, state.notRankedPageSize);
   // This is a whole-body innerHTML
   // replacement, not the keyed patchRows() diff the leaderboard table uses.

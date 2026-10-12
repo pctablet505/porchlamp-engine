@@ -1454,3 +1454,25 @@ def test_unhandled_500_logs_exception_traceback(tmp_path, caplog):
     assert resp.json()["error"]["detail"] == "internal server error"
     assert any("Unhandled" in rec.message and rec.exc_info is not None for rec in caplog.records)
 
+
+def test_leaderboard_non_balanced_persona_computes_tier_ceiling_from_coverage_p(tmp_path):
+    """Regression: under a non-balanced persona, _leaderboard_row must compute
+    tier_ceiling from coverage_p (D-MAT-2 ceiling band [0.60, 0.80) -> 'B')
+    rather than hardcoding None."""
+    client, _fx, db_path = _serve_store(tmp_path, n_rated=10)
+    conn = _raw_conn(db_path)
+    conn.execute(
+        "UPDATE repositories SET persona_composites = json_set("
+        "persona_composites, '$.first_timer.coverage', 0.72, '$.first_timer.tier', 'B') "
+        "WHERE snapshot_id = ? AND name = 'repo-0000'",
+        (SNAPSHOT_ID,),
+    )
+    conn.commit()
+    conn.close()
+
+    resp = client.get("/v1/porchlamp/leaderboard?persona=first_timer&q=repo-0000")
+    assert resp.status_code == 200
+    body = LeaderboardResponse(**resp.json())
+    assert len(body.rows) == 1
+    assert body.rows[0].coverage == 0.72
+    assert body.rows[0].tier_ceiling == "B"

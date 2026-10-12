@@ -61,7 +61,7 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
+import subprocess  # noqa: F401  (tests patch this module's subprocess)
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
@@ -70,6 +70,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from porchlamp.collect import commits as commit_domains
+from porchlamp.collect import ghcli, net, validate
 from porchlamp.collect import github_graphql as pr_window
 from porchlamp.collect.envelope import sha256_hex, write_envelope
 # --------------------------------------------------------------------------- #
@@ -210,11 +211,11 @@ class GhApiTransport:
         ``-X GET`` is explicit: ``gh api`` with ``-f`` fields would
         otherwise infer a write method for read endpoints (404).
         """
-        args = ["gh", "api", "-X", "GET", path]
+        validate.gh_api_path(path)
+        args = ["api", "-X", "GET", path]
         for key, value in params.items():
             args += ["-f", f"{key}={value}"]
-        out = subprocess.run(args, capture_output=True, text=True,
-                             timeout=self.timeout_seconds)
+        out = ghcli.run(args, timeout=self.timeout_seconds)
         if out.returncode != 0:
             match = re.search(r"\(HTTP (\d+)\)", out.stderr)
             raise GhApiError(
@@ -271,14 +272,18 @@ def fetch_file_text(owner: str, name: str,
     is re-raised rather than swallowed -- so this never converts "could not
     reach the CDN" into "the file is not there".
     """
+    validate.github_segment(owner, "owner")
+    validate.github_segment(name, "name")
 
     def fetch(path: str) -> Optional[str]:
-        url = f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{path}"
+        validate.relative_file_path(path, "governance file path")
+        url = validate.https_url(f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{path}",
+                                 validate.RAW_GITHUB_HOSTS, "governance file")
         req = urllib.request.Request(url, headers={"User-Agent": "porchlamp-research/0.1"})
         last: Exception = RuntimeError("no attempt made")
         for _ in range(max(1, attempts)):
             try:
-                with urllib.request.urlopen(req, timeout=timeout_seconds) as r:
+                with net.urlopen(req, timeout_seconds) as r:
                     return r.read().decode("utf-8", "replace")
             except urllib.error.HTTPError as e:
                 if e.code == 404:

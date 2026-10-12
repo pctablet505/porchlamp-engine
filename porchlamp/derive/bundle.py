@@ -1101,9 +1101,21 @@ def _vocab_scalar_resolver(v1_field: str, vocab: Mapping[str, str]) -> InputReso
 
 
 def _resolve_downloads_monthly(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """2.3 Downloads. Reads v1 ``monthly_downloads``. When the ``downloads_status``
-    meta field is present, its "pending" vs "unmeasured" status provides
-    refined detail for ``third_party_gap``."""
+    """2.3 Downloads. Reads v1 ``monthly_downloads``.
+
+    Yields ``Unmeasured(not_applicable)`` for ecosystems defined in
+    ``constants.NOT_APPLICABLE_RULES`` (``go``, ``maven``, ``systems``).
+    When the ``downloads_status`` meta field is present, its "pending" vs
+    "unmeasured" status provides refined detail for ``third_party_gap``."""
+    ecosystem = ctx.meta.get("ecosystem")
+    for rule_param, fact_name, expected_value in constants.NOT_APPLICABLE_RULES:
+        if rule_param != "downloads_monthly" or fact_name != "ecosystem":
+            continue
+        if ecosystem == expected_value:
+            return Unmeasured(
+                reason="not_applicable",
+                detail=f"D-MISS-5: ecosystem == {expected_value} has no public downloads registry (2.3 is undefined)",
+            )
     confidence_value = ctx.confidence.get("monthly_downloads")
     value = ctx.meta.get("monthly_downloads")
     entry = ctx.provenance.get("monthly_downloads")
@@ -1129,6 +1141,10 @@ def _resolve_downloads_monthly(ctx: _V1Ctx) -> Measured | Unmeasured:
         if status == "unmeasured":
             return Unmeasured(reason="third_party_gap",
                                detail="W1-8 downloads_status=unmeasured: ecosystem has no downloads registry")
+        if status == "unattributed":
+            return Unmeasured(reason="third_party_gap",
+                               detail="downloads_status=unattributed: deps.dev links no package of this "
+                                      "registry to the repo, or the count on file is another package's")
         return Unmeasured(reason="third_party_gap", detail="registry returned no downloads data")
     return Unmeasured(reason="collector_failure",
                        detail=f"v1 confidence {confidence_value!r} for 'monthly_downloads' is not recognized")
@@ -1980,6 +1996,74 @@ def _unmapped(detail: str) -> InputResolver:
     return resolve
 
 
+def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
+    """5.4 DX (0.5 CI runtime + 0.5 setup signals, on 0-100, min n = 5 CI runs)."""
+    confidence_value = ctx.confidence.get("dx")
+    if confidence_value in ("derived", "verified"):
+        value = ctx.meta.get("dx")
+        count = ctx.meta.get("dx_run_count")
+        count_ok = isinstance(count, int) and not isinstance(count, bool) and count >= 0
+        min_n = constants.PARAM_MIN_N.get("dx")
+        if count_ok and min_n is not None and count < min_n:
+            return Unmeasured(
+                reason="insufficient_n",
+                detail=f"{count} CI runs with recorded duration, need >= {min_n}",
+            )
+        value_ok = (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+            and 0.0 <= float(value) <= 100.0
+        )
+        if value_ok and count_ok:
+            entry = ctx.provenance.get("dx")
+            source = _first_source(entry)
+            fetched_at = entry.get("fetched_at") if isinstance(entry, Mapping) else None
+            path = _resolve_envelope(source, ctx.raw_root)
+            if path is not None and isinstance(fetched_at, str) and fetched_at:
+                source_hash = _envelope_hash(path)
+                relative = _relative_source(path, ctx.raw_root)
+                ctx.referenced[relative] = source_hash
+                return Measured(
+                    value=float(value), n=count, window_start=None, window_end=None, method="primary",
+                    source=relative, source_hash=source_hash, fetched_at=fetched_at,
+                )
+            detail = (f"v1 source is not an envelope: {source!r}" if path is None
+                      else "v1 provenance for 'dx' has no fetched_at")
+            return Unmeasured(reason="collector_failure", detail=detail)
+        return Unmeasured(
+            reason="collector_failure",
+            detail=f"v1 deriver recorded dx={value!r}, dx_run_count={count!r}: not a usable pair",
+        )
+    if confidence_value == "missing":
+        count = ctx.meta.get("dx_run_count")
+        count_ok = isinstance(count, int) and not isinstance(count, bool) and count >= 0
+        min_n = constants.PARAM_MIN_N.get("dx")
+        if (
+            ctx.confidence.get("dx_run_count") in ("derived", "verified")
+            and count_ok
+            and min_n is not None
+            and count < min_n
+        ):
+            return Unmeasured(
+                reason="insufficient_n",
+                detail=f"{count} CI runs with recorded duration, need >= {min_n}",
+            )
+        return Unmeasured(
+            reason="collector_failure",
+            detail="v1 deriver recorded no dx value (no actions_runs envelope)",
+        )
+    if confidence_value is None:
+        return Unmeasured(
+            reason="collector_failure",
+            detail="v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only",
+        )
+    return Unmeasured(
+        reason="collector_failure",
+        detail=f"v1 confidence {confidence_value!r} for 'dx' is not recognized",
+    )
+
+
 #: The v2 input mapping table: one resolver per
 #: ``constants.PARAM_INPUT_IDS`` entry, in the same pillar order.
 #:
@@ -1992,7 +2076,7 @@ def _unmapped(detail: str) -> InputResolver:
 #: | ttm_p90_hours | raw pr_window envelope: derived[].{is_external,merged} joined with prs[].{createdAt,mergedAt} by number | no envelope -> collector_failure; n<5 -> insufficient_n |
 #: | dependents_deduped | meta.dependents_count when confidence=="derived" (dependents hook); meta.ecosystem gates it | ecosystem=="systems" -> not_applicable (D-MISS-5); verified -> collector_failure (raw usedByCount is not deduped); missing -> third_party_gap, maven detail names the uncollected pom.xml, unmapped ecosystem detail names it |
 #: | openssf_criticality | meta.openssf_signals, ten raw Pike signals; C computed locally | confidence missing, or any signal absent -> third_party_gap (never a partial score) |
-#: | downloads_monthly | meta.monthly_downloads; meta.downloads_status refines the Unmeasured detail | third_party_gap, detail per downloads_status |
+#: | downloads_monthly | meta.monthly_downloads; meta.downloads_status refines the Unmeasured detail | go/maven/systems -> not_applicable (D-MISS-5); otherwise third_party_gap, detail per downloads_status |
 #: | legal_ip | meta.legal_ip, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
 #: | elephant_factor | meta.elephant_factor; n = meta.elephant_factor_commit_count (non-bot org-attributed commits in the 365 d window; 0 when absent, e.g. the contributors-only fallback) | collector_failure; n<30 -> insufficient_n at scoring, with the true n |
 #: | promotion_ladder | meta.promotion_ladder, vocab-mapped | collector_failure; an unmappable enum is this row's own gap, not a whole-bundle rejection |
@@ -2002,7 +2086,7 @@ def _unmapped(detail: str) -> InputResolver:
 #: | newcomer_issue_supply | meta.active_unclaimed_gfis | collector_failure |
 #: | newcomer_conversion | meta.newcomer_conversion + .newcomer_conversion_author_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
 #: | rr90_return_rate | meta.rr90_return_rate + .rr90_return_author_count (D-IN-3-adjusted) | no author_history envelope -> collector_failure (static); unmeasured-fraction gate fired -> collector_failure (dynamic detail); n<5 -> insufficient_n |
-#: | dx | (none landed) | collector_failure: v1 has CI runtime only, not the setup-signal half |
+#: | dx | meta.dx + .dx_run_count (0.5 CI runtime + 0.5 setup signals) | no actions_runs envelope -> collector_failure; n<5 -> insufficient_n |
 INPUT_MAPPINGS: dict[str, InputResolver] = {
     "ttfhr_hours": _resolve_ttfhr_hours,
     "dr90_decision_rate": _resolve_dr90_decision_rate,
@@ -2040,7 +2124,7 @@ INPUT_MAPPINGS: dict[str, InputResolver] = {
         "rr90_return_rate", "rr90_return_author_count", "newcomer_unmeasured_detail",
         unset_detail="v2 5.3 is cohort-based (W1-4); v1 rr_90 approximates author gaps",
     ),
-    "dx": _unmapped("v2 5.4 blends CI runtime with setup signals; v1 stores a CI runtime mean only"),
+    "dx": _resolve_dx,
 }
 
 if set(INPUT_MAPPINGS) != set(constants.PARAM_INPUT_IDS):

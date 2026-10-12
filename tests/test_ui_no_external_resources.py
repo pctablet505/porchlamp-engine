@@ -23,11 +23,12 @@ SERVED_EXTENSIONS = {".html", ".css", ".js", ".mjs"}
 #: from a `//:`-prefixed doc comment (this file's own house style; see
 #: web/v2/state.js), which would otherwise false-positive.
 EXTERNAL_URL_RE = re.compile(r"""(https?:)?//[a-zA-Z0-9][^\s'"()]*""")
-#: The only "//" this codebase may legitimately contain: none — no XML/SVG
-#: namespace URIs are used anywhere in web/v2 (unlike v1's inline SVG
-#: script). Kept as an explicit allowlist so a future legitimate exception
-#: is a one-line change here, not a silently loosened regex.
-ALLOWED_URL_SUBSTRINGS: tuple[str, ...] = ()
+#: The only "//" this codebase may legitimately contain: outbound
+#: `https://github.com/<owner>/<name>` anchor links rendered in the repository
+#: drawer (`web/v2/copy.js::drawerGithubUrl`), which the browser never fetches
+#: automatically as a subresource. Kept as an explicit allowlist so any other
+#: external URL is still flagged.
+ALLOWED_URL_SUBSTRINGS: tuple[str, ...] = ("https://github.com/",)
 
 
 #: Link-preview tags (Open Graph, Twitter cards) must carry absolute URLs --

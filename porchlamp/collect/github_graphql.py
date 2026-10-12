@@ -27,13 +27,13 @@ from __future__ import annotations
 import json
 import random
 import statistics
-import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
+from porchlamp.collect import ghcli
 from porchlamp.collect.envelope import write_envelope
 from porchlamp.collect.user_cache import UserCache
 from porchlamp.core.constants import AUTHOR_UNMEASURED_MAX_FRACTION
@@ -134,12 +134,11 @@ class GhCliTransport:
         whole call still do, via :func:`_raise_on_graphql_errors` on the
         returned doc.
         """
-        cmd: list[str] = ["gh", "api", "graphql", "-f", f"query={query}"]
+        cmd: list[str] = ["api", "graphql", "-f", f"query={query}"]
         for key, value in variables.items():
             flag = "-F" if isinstance(value, int) and not isinstance(value, bool) else "-f"
             cmd += [flag, f"{key}={value}"]
-        out = subprocess.run(cmd, capture_output=True, text=True,
-                             timeout=self.timeout_seconds)
+        out = ghcli.run(cmd, timeout=self.timeout_seconds)
         try:
             return json.loads(out.stdout)
         except (json.JSONDecodeError, ValueError) as e:

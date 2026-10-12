@@ -26,12 +26,21 @@ __all__ = [
 ]
 
 #: D-GATE-1 recognised build/package manifests (02 section 2), exact
-#: basename match plus the two suffix rules the design text also names.
+#: basename match plus the prefix/suffix rules below.
 RECOGNIZED_MANIFEST_BASENAMES: frozenset[str] = frozenset({
     "pyproject.toml", "setup.py", "setup.cfg", "package.json", "Cargo.toml",
-    "go.mod", "pom.xml", "CMakeLists.txt", "Makefile", "meson.build",
-    "configure.ac", "mix.exs", "Gemfile",
+    "go.mod", "pom.xml", "CMakeLists.txt", "Makefile", "GNUmakefile", "Kbuild",
+    "meson.build", "configure.ac", "mix.exs", "Gemfile",
+    "BUILD", "BUILD.bazel", "MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel",
+    "build.zig", "build.zig.zon", "flake.nix", "default.nix", "SConstruct",
+    "vcpkg.json", "conanfile.py", "conanfile.txt", "composer.json",
+    "pubspec.yaml", "Package.swift", "build.sbt", "project.clj", "deps.edn",
+    "stack.yaml", "dune-project",
 })
+RECOGNIZED_MANIFEST_PREFIXES: tuple[str, ...] = ("build.gradle",)
+RECOGNIZED_MANIFEST_SUFFIXES: tuple[str, ...] = (
+    ".cabal", ".csproj", ".fsproj", ".sln", ".rockspec", ".gemspec", ".podspec",
+)
 #: D-GATE-1 depth bound: at most this many "/" separators from the repo root.
 MANIFEST_MAX_DEPTH = 2
 
@@ -46,8 +55,8 @@ def _has_recognized_manifest(paths: Sequence[str]) -> bool:
         base = path.rsplit("/", 1)[-1]
         if (
             base in RECOGNIZED_MANIFEST_BASENAMES
-            or base.endswith(".cabal")
-            or base.startswith("build.gradle")
+            or any(base.startswith(p) for p in RECOGNIZED_MANIFEST_PREFIXES)
+            or any(base.endswith(s) for s in RECOGNIZED_MANIFEST_SUFFIXES)
         ):
             return True
     return False

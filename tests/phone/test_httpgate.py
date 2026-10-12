@@ -1,0 +1,391 @@
+"""The one HTTP function: allow-list, counters, pause and stop, the GitHub budget. Real sockets on loopback."""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+import pytest
+
+from phone import httpgate
+from phone.control import Controls, Settings
+from phone.httpgate import Gate, HostRefused, Stopped, WouldBlock
+from phone.netstats import NetStats
+from tests.helpers.fakes import FakeHTTP, github_responder, loopback_gate_options
+
+pytestmark = pytest.mark.usefixtures("clean_env")
+
+WIFI = {"battery_pct": 80, "temp_c": 30.0, "network": "wifi", "wifi_ip": "127.0.0.1", "data_saver": False}
+CANARY = "ghp_CANARYgate0123456789abcdefABCDEF"
+
+
+class Rig:
+    """A gate with real counters and real controls, writing under ``tmp_path``."""
+
+    def __init__(self, tmp_path: Path, *, loopback: bool = True, facts: dict | None = WIFI, **gate_kw) -> None:
+        self.tmp = tmp_path
+        self.lines: list[str] = []
+        self.stats = NetStats(tmp_path / "netstats.json")
+        self.settings = Settings(tmp_path / "settings.json")
+        self.controls = Controls(self.settings, free_gb=lambda: 100.0, state_dir=tmp_path)
+        if facts is not None:
+            self.controls.update_device(facts)
+        opts = loopback_gate_options() if loopback else {}
+        opts.update(gate_kw)
+        self.gate = Gate(stats=self.stats, controls=self.controls, log=self.lines.append, **opts)
+
+    def get(self, url: str, timeout: float = 5, **kw):
+        with self.gate.urlopen(url, timeout, **kw) as resp:
+            return resp.status, resp.read()
+
+
+@pytest.fixture
+def server():
+    srv = FakeHTTP()
+    yield srv
+    srv.close()
+
+
+def test_an_unlisted_host_is_refused_and_nothing_is_sent(tmp_path, server):
+    # 127.0.0.1 is made reachable for plain http, so the ONLY thing between the request and the socket is the allow-list
+    rig = Rig(tmp_path, loopback=False, http_hosts=frozenset({"127.0.0.1"}))
+    with pytest.raises(HostRefused, match="allow-list"):
+        rig.get(server.url + "/x")
+    assert server.count == 0
+    assert rig.stats.refused_today() == {"127.0.0.1": 1}
+    assert any("REFUSED 127.0.0.1" in line and "nothing was sent" in line for line in rig.lines)
+
+
+def test_a_made_up_host_is_refused_without_a_lookup(tmp_path):
+    rig = Rig(tmp_path, loopback=False)
+    started = time.monotonic()
+    with pytest.raises(HostRefused):
+        rig.get("https://exfiltrate.invalid/steal?x=1")
+    assert time.monotonic() - started < 1.0   # refused before any name lookup could stall
+    assert rig.stats.refused_today() == {"exfiltrate.invalid": 1}
+
+
+@pytest.mark.parametrize("url", [
+    "http://api.github.com/user",              # plain http for a listed host
+    "https://api.github.com:8443/user",        # a port that is not 443
+    "https://user:pw@api.github.com/user",     # user-info in the URL
+    "file:///etc/passwd",                      # not http at all
+    "https://api.github.com.evil.invalid/",    # a look-alike suffix
+])
+def test_unsafe_urls_for_a_listed_host_are_refused(tmp_path, url):
+    rig = Rig(tmp_path, loopback=False)
+    with pytest.raises(HostRefused):
+        rig.get(url)
+    assert rig.stats.bytes_today() == {"wifi": 0, "mobile": 0}   # nothing was sent, so nothing was counted
+
+
+def test_the_token_header_is_refused_for_any_host_but_api_github_com(tmp_path, server):
+    opts = loopback_gate_options()
+    opts["token_hosts"] = httpgate.TOKEN_HOSTS    # the fake is allowed, but is not a token host
+    rig = Rig(tmp_path, loopback=False, **opts)
+    req = urllib.request.Request(server.url + "/user", headers={"Authorization": f"Bearer {CANARY}"})
+    with pytest.raises(HostRefused, match="credential"):
+        rig.gate.urlopen(req, 5)
+    assert server.count == 0
+    assert CANARY not in "\n".join(rig.lines)
+
+
+def test_calls_and_bytes_are_counted_per_host_and_network_and_saved(tmp_path, server):
+    body = b'{"payload": "' + b"x" * 5000 + b'"}'
+    server.responder = lambda req: (200, {"X-Test": "1"}, body)
+    rig = Rig(tmp_path)
+    status, data = rig.get(server.url + "/a")
+    assert (status, data) == (200, body)
+    rig.get(server.url + "/b")
+    hosts = {row["host"]: row for row in rig.stats.hosts()}
+    row = hosts["127.0.0.1"]
+    assert row["calls"] == 2
+    assert row["bytes"] >= 2 * len(body)                 # received payload alone
+    assert row["bytes"] < 2 * len(body) + 2000           # plus a little for headers, not a different order
+    assert rig.stats.bytes_today()["wifi"] == row["bytes"] and rig.stats.bytes_today()["mobile"] == 0
+    rig.stats.flush()
+    saved = json.loads((tmp_path / "netstats.json").read_text())
+    cell = next(iter(saved["days"].values()))["hosts"]["127.0.0.1"]["wifi"]
+    assert cell["calls"] == 2 and cell["recv"] >= 2 * len(body) and cell["sent"] > 0
+
+
+def test_the_same_traffic_on_mobile_data_is_counted_as_mobile(tmp_path, server):
+    rig = Rig(tmp_path)
+    rig.settings.set({"network": "wifi_mobile"})
+    rig.controls.update_device({**WIFI, "network": "mobile", "wifi_ip": None})
+    rig.get(server.url + "/m")
+    today = rig.stats.bytes_today()
+    assert today["mobile"] > 0 and today["wifi"] == 0
+
+
+def test_an_error_reply_keeps_its_body_and_is_counted(tmp_path, server):
+    server.responder = lambda req: (404, {}, b'{"message": "Not Found"}')
+    rig = Rig(tmp_path)
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        rig.get(server.url + "/missing")
+    assert caught.value.code == 404 and json.loads(caught.value.read()) == {"message": "Not Found"}
+    assert rig.stats.hosts()[0]["bytes"] >= len(b'{"message": "Not Found"}')
+
+
+def test_ratelimit_headers_of_a_github_reply_feed_the_budget_and_the_progress_clock(tmp_path):
+    srv = FakeHTTP(github_responder(remaining=77, limit=5000, reset=1_790_003_999))
+    try:
+        rig = Rig(tmp_path)
+        rig.gate.progress_ts = 0.0
+        assert rig.gate.budget() is None
+        rig.get(srv.url + "/user")
+        budget = rig.gate.budget()
+        assert budget["remaining"] == 77 and budget["limit"] == 5000 and budget["reset"] == 1_790_003_999
+        assert rig.gate.progress_ts > 0.0   # a completed reply is progress
+    finally:
+        srv.close()
+
+
+def test_a_reply_from_a_host_that_is_not_github_does_not_touch_the_budget(tmp_path):
+    srv = FakeHTTP(github_responder(remaining=77))
+    try:
+        rig = Rig(tmp_path, budget_hosts=frozenset({"api.github.com"}))
+        rig.get(srv.url + "/user")
+        assert rig.gate.budget() is None
+    finally:
+        srv.close()
+
+
+def test_pause_holds_the_request_until_resume_and_nothing_is_sent_meanwhile(tmp_path, server):
+    rig = Rig(tmp_path)
+    rig.controls.set_user_pause(True)
+    done: list = []
+    worker = threading.Thread(target=lambda: done.append(rig.get(server.url + "/p")), daemon=True)
+    worker.start()
+    time.sleep(1.6)
+    assert server.count == 0 and not done and worker.is_alive()
+    rig.controls.set_user_pause(False)
+    rig.gate.kick()
+    worker.join(5)
+    assert done and done[0][0] == 200 and server.count == 1
+
+
+def test_stop_ends_a_waiting_request_with_stopped_within_two_seconds(tmp_path, server):
+    rig = Rig(tmp_path)
+    rig.controls.set_user_pause(True)
+    outcome: list = []
+
+    def call():
+        try:
+            rig.get(server.url + "/s")
+        except Stopped as exc:
+            outcome.append(exc)
+
+    worker = threading.Thread(target=call, daemon=True)
+    worker.start()
+    time.sleep(0.6)
+    began = time.monotonic()
+    rig.gate.stop()
+    worker.join(3)
+    assert outcome and time.monotonic() - began < 2.0 and server.count == 0
+
+
+def test_stopped_is_not_an_exception_so_the_gatherers_broad_except_cannot_swallow_it(tmp_path, server):
+    rig = Rig(tmp_path)
+    rig.gate.stop()
+    swallowed = []
+    with pytest.raises(Stopped):
+        try:
+            rig.get(server.url + "/z")
+        except Exception as exc:      # the gatherer's pattern: it would count a failed repo and carry on
+            swallowed.append(exc)
+    assert swallowed == [] and not isinstance(Stopped("x"), Exception)
+
+
+def test_wait_false_raises_would_block_instead_of_waiting(tmp_path, server):
+    rig = Rig(tmp_path)
+    rig.controls.update_device({**WIFI, "network": "none", "wifi_ip": None})
+    with pytest.raises(WouldBlock) as caught:
+        rig.get(server.url + "/w", wait=False)
+    assert caught.value.reason.code == "no_wifi" and server.count == 0
+
+
+def test_a_streak_of_timeouts_makes_the_gate_wait_and_a_good_reply_resets_the_streak(tmp_path, server):
+    server.delay = 0.6
+    rig = Rig(tmp_path)
+    rig.settings.set({"timeout_streak": 2})
+    for _ in range(2):
+        with pytest.raises((TimeoutError, urllib.error.URLError)):
+            rig.get(server.url + "/slow", timeout=0.2)
+    assert rig.controls.timeout_streak == 2
+    blocked = rig.controls.block_reason("127.0.0.1", "collect")
+    assert blocked is not None and blocked.code == "slow_network"
+    assert rig.stats.errors_today() >= 2
+
+
+def test_stop_ends_a_rate_limit_wait_within_a_second(tmp_path):
+    rig = Rig(tmp_path)
+    ended = []
+    rig.gate.on_rate_wait_end = lambda resource, seconds: ended.append(resource)
+
+    def waiting():
+        try:
+            rig.gate.rate_wait("core", 10, 600)
+        except Stopped:
+            ended.append("stopped")
+
+    worker = threading.Thread(target=waiting, daemon=True)
+    worker.start()
+    time.sleep(0.7)
+    assert rig.gate.rate_state() is not None and rig.gate.rate_state()[0] == "core"
+    began = time.monotonic()
+    rig.gate.stop()
+    worker.join(3)
+    assert ended == ["stopped"] and time.monotonic() - began < 1.5 and rig.gate.rate_state() is None
+
+
+def test_the_token_never_reaches_the_log_or_the_counters(tmp_path, server):
+    rig = Rig(tmp_path)
+    req = urllib.request.Request(server.url + "/user?access_token=" + CANARY,
+                                 headers={"Authorization": f"Bearer {CANARY}"})
+    with rig.gate.urlopen(req, 5) as resp:
+        resp.read()
+    server.responder = lambda r: (500, {}, b"boom")
+    with pytest.raises(urllib.error.HTTPError):
+        rig.gate.urlopen(urllib.request.Request(server.url + "/z", headers={"Authorization": f"Bearer {CANARY}"}), 5)
+    rig.stats.flush()
+    assert server.seen[0].headers["authorization"] == f"Bearer {CANARY}"   # it WAS sent to the (test) token host
+    assert CANARY not in "\n".join(rig.lines)
+    assert CANARY not in (tmp_path / "netstats.json").read_text()
+    assert any("500" in line for line in rig.lines)                       # the failure was logged, without the token
+    assert rig.stats.hosts()[0]["token_sent"] is True
+
+
+# ---- redirects: every hop is a new request for the gate ------------------------------------------------------------
+def redirect_to(location: str):
+    return lambda req: (302, {"Location": location}, b"")
+
+
+def servers(*hosts: str):
+    """One FakeHTTP per loopback address, so each address stands for a different host."""
+    return [FakeHTTP(bind=h) for h in hosts]
+
+
+@pytest.fixture
+def pair():
+    origin, target = servers("127.0.0.1", "127.0.0.2")
+    yield origin, target
+    origin.close()
+    target.close()
+
+
+def test_a_redirect_from_a_listed_host_to_an_unlisted_host_is_refused_and_the_target_sees_nothing(tmp_path, pair):
+    origin, target = pair
+    origin.responder = redirect_to(target.url + "/secret")
+    opts = loopback_gate_options()                                   # only 127.0.0.1 is listed; 127.0.0.2 is not
+    rig = Rig(tmp_path, loopback=False, **opts)
+    with pytest.raises(HostRefused, match="allow-list"):
+        rig.get(origin.url + "/start")
+    assert origin.count == 1 and target.count == 0
+    assert rig.stats.refused_today() == {"127.0.0.2": 1}
+    assert [h["host"] for h in rig.stats.hosts()] == ["127.0.0.1"]   # the unlisted host is not among the contacts
+    assert any("REFUSED 127.0.0.2" in line for line in rig.lines)
+
+
+def test_a_redirect_to_another_local_address_and_port_is_refused_too(tmp_path):
+    router, origin = servers("127.0.0.1", "127.0.0.2")               # the "router on the owner's network"
+    try:
+        origin.responder = redirect_to(router.url + "/admin")
+        opts = loopback_gate_options()
+        opts.update(allowed=httpgate.PHONE_HOSTS | {"127.0.0.2"}, http_hosts=frozenset({"127.0.0.2"}))
+        rig = Rig(tmp_path, loopback=False, **opts)
+        with pytest.raises(HostRefused):
+            rig.get(origin.url + "/")
+        assert router.count == 0 and origin.count == 1
+    finally:
+        router.close()
+        origin.close()
+
+
+@pytest.mark.parametrize("location", ["http://deps.dev/x", "https://deps.dev:8443/x", "https://user:pw@deps.dev/x",
+                                      "ftp://deps.dev/x", "https://exfiltrate.invalid/x"])
+def test_a_redirect_to_a_downgrade_an_odd_port_user_info_or_a_made_up_host_is_refused_without_a_lookup(
+        tmp_path, location):
+    origin = FakeHTTP(redirect_to(location))
+    try:
+        rig = Rig(tmp_path)
+        began = time.monotonic()
+        with pytest.raises(HostRefused):
+            rig.get(origin.url + "/")
+        assert time.monotonic() - began < 2.0 and origin.count == 1
+        assert sum(rig.stats.refused_today().values()) == 1
+    finally:
+        origin.close()
+
+
+def test_a_redirect_to_another_listed_host_is_followed_and_counted_under_the_host_that_served_it(tmp_path, pair):
+    origin, target = pair
+    body = b'{"data": "' + b"y" * 20_000 + b'"}'
+    origin.responder = redirect_to(target.url + "/final")
+    target.responder = lambda req: (200, {}, body)
+    rig = Rig(tmp_path, loopback=False, **loopback_gate_options("127.0.0.2"))
+    status, data = rig.get(origin.url + "/start")
+    assert (status, data) == (200, body) and origin.count == 1 and target.count == 1
+    hosts = {h["host"]: h for h in rig.stats.hosts()}
+    assert set(hosts) == {"127.0.0.1", "127.0.0.2"}
+    assert hosts["127.0.0.1"]["calls"] == 1 and hosts["127.0.0.2"]["calls"] == 1
+    assert hosts["127.0.0.2"]["bytes"] >= len(body)                  # the payload is the second host's
+    assert hosts["127.0.0.1"]["bytes"] < 2_000                       # the first host only sent the redirect
+    assert sum(h["bytes"] for h in hosts.values()) == sum(rig.stats.bytes_today().values())   # one table, one total
+    assert rig.stats.refused_today() == {}
+
+
+def test_the_credential_is_not_forwarded_after_a_change_of_host_but_stays_on_the_same_host(tmp_path, pair):
+    origin, target = pair
+    origin.responder = lambda req: (302, {"Location": target.url + "/x"}, b"") if req.path == "/start" else (
+        (302, {"Location": "/again"}, b"") if req.path == "/same" else (200, {}, b"{}"))
+    rig = Rig(tmp_path, loopback=False, **loopback_gate_options("127.0.0.2"))   # BOTH may take a token
+    req = urllib.request.Request(origin.url + "/start", headers={"Authorization": f"Bearer {CANARY}"})
+    with rig.gate.urlopen(req, 5) as resp:
+        resp.read()
+    assert origin.seen[0].headers["authorization"] == f"Bearer {CANARY}"
+    assert "authorization" not in target.seen[0].headers
+    req = urllib.request.Request(origin.url + "/same", headers={"Authorization": f"Bearer {CANARY}"})
+    with rig.gate.urlopen(req, 5) as resp:
+        resp.read()
+    assert [r.headers.get("authorization") for r in origin.seen[1:]] == [f"Bearer {CANARY}"] * 2    # same host keeps it
+    hosts = {h["host"]: h for h in rig.stats.hosts()}
+    assert hosts["127.0.0.1"]["token_sent"] is True and hosts["127.0.0.2"]["token_sent"] is False
+    assert CANARY not in "\n".join(rig.lines)
+
+
+def test_the_redirect_limit_of_urllib_still_ends_a_loop(tmp_path):
+    origin = FakeHTTP()
+    origin.responder = redirect_to(origin.url + "/loop")
+    try:
+        rig = Rig(tmp_path)
+        with pytest.raises(urllib.error.HTTPError):
+            rig.get(origin.url + "/loop")
+        assert 2 <= origin.count <= 11
+        assert rig.stats.hosts()[0]["calls"] == origin.count        # every hop was counted as a call
+    finally:
+        origin.close()
+
+
+def test_a_redirect_hop_waits_for_a_pause_like_any_other_request(tmp_path, pair):
+    origin, target = pair
+
+    def first_hop(req):
+        rig.controls.set_user_pause(True)                           # the owner pauses while the redirect is in flight
+        return 302, {"Location": target.url + "/x"}, b""
+
+    origin.responder = first_hop
+    rig = Rig(tmp_path, loopback=False, **loopback_gate_options("127.0.0.2"))
+    done: list = []
+    worker = threading.Thread(target=lambda: done.append(rig.get(origin.url + "/start")), daemon=True)
+    worker.start()
+    time.sleep(1.6)
+    assert target.count == 0 and not done and worker.is_alive()
+    rig.controls.set_user_pause(False)
+    rig.gate.kick()
+    worker.join(5)
+    assert done and target.count == 1

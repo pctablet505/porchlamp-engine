@@ -16,17 +16,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
+import statistics
 import urllib.request
 from dataclasses import asdict
 from itertools import pairwise
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from porchlamp.collect import commits as commit_domains
+from porchlamp.collect import validate
+from porchlamp.collect.depsdev import package_key, package_name_for_repo
 from porchlamp.collect.envelope import raw_envelope_path, read_envelope, relative_envelope_path
 from porchlamp.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
 from porchlamp.constants import BOT_LOGIN_MARKERS
@@ -170,6 +174,43 @@ def _load(data_dir: Path, collector: str, key: str) -> tuple[Optional[Any], Opti
     return env.get("data"), env.get("fetched_at") or env.get("collected_at")
 
 
+#: Ecosystems whose registry has a downloads source (``scripts/gather.py``).
+_DOWNLOAD_ECOSYSTEMS = frozenset({"pypi", "npm", "crates"})
+
+
+def attributed_downloads(dl: Optional[dict], dep: Optional[dict], ecosystem: str,
+                         owner: str, name: str) -> tuple[Optional[dict], bool]:
+    """``(downloads data to use, whether a count was withheld as not this repo's)``.
+
+    A downloads count belongs to a package, and the downloads file is keyed by
+    the repo's NAME, which is only a guess at the package name: npm ``router``
+    carried 291 M downloads a month on three repos, none of which is its owner.
+    The dependents envelope, when the attributing resolver wrote it (it records
+    ``guess_linked``), names the package deps.dev links to this repo
+    (``package``; None when it links none). The downloads envelope names the
+    package it counted (``package``; absent on a file written before
+    attribution, which counted the name guess). The count is the repo's only
+    when both name the same package. A repo with no linked package has no
+    downloads to show, whatever the file under its name holds.
+
+    Without an attributed dependents envelope (older data, or an ecosystem
+    with no downloads registry) the downloads data passes through unchanged:
+    there is nothing to compare it with.
+    """
+    if ecosystem not in _DOWNLOAD_ECOSYSTEMS or not isinstance(dep, dict) \
+            or "guess_linked" not in dep:
+        return dl, False
+    package = dep.get("package")
+    if not isinstance(package, str) or not package:
+        return None, True
+    if not isinstance(dl, dict):
+        return dl, False
+    counted = dl.get("package") or package_name_for_repo(owner, name, ecosystem)
+    if package_key(ecosystem, str(counted)) != package_key(ecosystem, package):
+        return None, True
+    return dl, False
+
+
 def _body_cache_path(data_dir: Path, owner: str, name: str, fname: str) -> Path:
     """The bodies-cache envelope path for one governance file, shared by
     :func:`_body` and provenance recording."""
@@ -189,7 +230,11 @@ def _body(data_dir: Path, owner: str, name: str, fname: str,
             return (env.get("data") or {}).get("body"), env.get("fetched_at")
     if not fetch:
         return None, None
-    url = f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{fname}"
+    validate.github_segment(owner, "owner")
+    validate.github_segment(name, "name")
+    validate.relative_file_path(fname, "governance file name")
+    url = validate.https_url(f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{fname}",
+                             validate.RAW_GITHUB_HOSTS, "raw content")
     try:
         with urllib.request.urlopen(url, timeout=30) as r:
             text = r.read().decode("utf-8", "replace")
@@ -275,6 +320,104 @@ def _promotion_ladder(corpus: str) -> PromotionLadder:
     return PromotionLadder.AD_HOC
 
 
+_DX_SETUP_SCORE_MAP: dict[int, float] = {0: 0.0, 1: 40.0, 2: 70.0, 3: 100.0}
+_DX_CONTRIB_KEYWORDS = (
+    r"\b(?:setup|set\s+up|dev(?:elopment|eloping)?|build(?:ing)?|"
+    r"install(?:ation|ing)?|getting\s+started|local|environment|"
+    r"test(?:ing|s)?|quickstart|quick\s+start|how\s+to\s+contribute)\b"
+)
+_DX_README_KEYWORDS = (
+    r"\b(?:install(?:ation|ing)?|build(?:ing)?|setup|set\s+up|"
+    r"getting\s+started|quick\s*start|usage|development)\b"
+)
+_DX_CONTRIB_SETUP_RX = re.compile(
+    rf"(?:^|\n)\s*(?:#+\s*[^\n]*?{_DX_CONTRIB_KEYWORDS}|[^\n]*?{_DX_CONTRIB_KEYWORDS}[^\n]*\n[=\-]{{3,}})",
+    re.IGNORECASE,
+)
+_DX_README_INSTALL_RX = re.compile(
+    rf"(?:^|\n)\s*(?:#+\s*[^\n]*?{_DX_README_KEYWORDS}|[^\n]*?{_DX_README_KEYWORDS}[^\n]*\n[=\-]{{3,}})",
+    re.IGNORECASE,
+)
+_DX_ENV_BASENAMES: frozenset[str] = frozenset({
+    "devcontainer.json", ".devcontainer.json", "flake.nix", "default.nix", "shell.nix",
+})
+
+
+def _has_dx_env_file(tree_paths: Sequence[str]) -> bool:
+    for p in tree_paths:
+        if not isinstance(p, str):
+            continue
+        low = p.lower()
+        base = low.rsplit("/", 1)[-1]
+        if (
+            ".devcontainer/" in low
+            or low.startswith(".devcontainer")
+            or base in _DX_ENV_BASENAMES
+            or base.startswith("dockerfile")
+            or base.startswith("docker-compose")
+            or base.startswith("compose.y")
+        ):
+            return True
+    return False
+
+
+def _derive_dx_54(
+    runs: Optional[list[dict]],
+    tree: Optional[dict],
+    contrib_body: Optional[str],
+    readme_body: Optional[str],
+    gov: Optional[dict] = None,
+) -> tuple[Optional[float], int]:
+    """02 §4 5.4 DX: 0.5 * runtime_score + 0.5 * setup_signals_score.
+
+    Runtime score: median of last 30 CI runs (``actions_runs`` envelope,
+    ``run_duration_seconds > 0``): 100 if <= 20 min, -5/min after, floor 0;
+    ``None`` (unmeasured) if ``runs`` is None or has no recorded durations.
+    Setup signals (0/1/2/3 -> 0/40/70/100):
+      1. devcontainer or Dockerfile or flake.nix in tree paths,
+      2. CONTRIBUTING.md with a setup/development section,
+      3. README.md with an install/build section.
+    """
+    if runs is None:
+        return None, 0
+    durs: list[float] = []
+    for r in runs[:30]:
+        if not isinstance(r, dict):
+            continue
+        raw_dur = r.get("run_duration_seconds")
+        if (
+            isinstance(raw_dur, (int, float))
+            and not isinstance(raw_dur, bool)
+            and math.isfinite(float(raw_dur))
+            and float(raw_dur) > 0
+        ):
+            durs.append(float(raw_dur))
+    if not durs:
+        return None, 0
+    median_minutes = statistics.median(durs) / 60.0
+    if median_minutes <= 20.0:
+        runtime_score = 100.0
+    else:
+        runtime_score = max(0.0, 100.0 - 5.0 * (median_minutes - 20.0))
+
+    tree_paths = (tree or {}).get("paths") or [] if isinstance(tree, dict) else []
+    sig_env = _has_dx_env_file(tree_paths)
+
+    eff_contrib = contrib_body
+    if not eff_contrib and isinstance(gov, dict):
+        gov_files = gov.get("files") or {}
+        if isinstance(gov_files, dict):
+            c_entry = gov_files.get("CONTRIBUTING.md")
+            if isinstance(c_entry, dict) and isinstance(c_entry.get("body"), str):
+                eff_contrib = c_entry["body"]
+    sig_contrib = bool(eff_contrib and _DX_CONTRIB_SETUP_RX.search(eff_contrib))
+    sig_readme = bool(readme_body and _DX_README_INSTALL_RX.search(readme_body))
+
+    signal_count = int(sig_env) + int(sig_contrib) + int(sig_readme)
+    setup_score = _DX_SETUP_SCORE_MAP[signal_count]
+    return round(0.5 * runtime_score + 0.5 * setup_score, 4), len(durs)
+
+
 def _jsonable(v: Any) -> Any:
     if isinstance(v, PromotionLadder):
         return v.name
@@ -308,6 +451,8 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     sc, sc_at = _load(data_dir, "scorecard", key)
     tree, tree_at = _load(data_dir, "tree", key)
     dl, dl_at = _load(data_dir, "downloads", f"{ecosystem.value}__{name}")
+    dep, dep_at = _load(data_dir, "dependents", key)
+    dl, dl_withheld = attributed_downloads(dl, dep, ecosystem.value, owner, name)
 
     def _rel(p: Path | str) -> str:
         """Provenance path, relative to the data root this derivation is
@@ -581,7 +726,6 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     # ecosyste.ms fallback) (D-PARAM 2.1). The v1 usedby_count above is always
     # None; this block overrides it only when a measured envelope exists.
     # "derived": the value passes the documented D-PARAM 2.1 dedup, not a raw source figure. ---
-    dep, dep_at = _load(data_dir, "dependents", key)
     if dep is not None and dep.get("deduped_count") is not None:
         b.set("dependents_count", int(dep["deduped_count"]),
               src("dependents", key), dep_at, "derived")
@@ -633,6 +777,8 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         from scripts import backfill_downloads as _bdl
     _dl_status = _bdl.downloads_status(ecosystem.value,
                                        b.conf.get("monthly_downloads") == "verified")
+    if dl_withheld:
+        _dl_status = "unattributed"
     b.set("downloads_status", _dl_status,
           src("downloads", f"{ecosystem.value}__{name}") if _dl_status == "measured" else None,
           dl_at, "derived")
@@ -706,6 +852,18 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         or getattr(ai_posture_val, "name", None) == "PROSCRIBED"
     )
     b.set("hard_ai_ban", is_proscribed, "derived from ai_posture", None, "derived")
+
+    # --- 5.4 DX (02 §4 5.4): 0.5 CI runtime + 0.5 setup signals ---
+    dx_val, dx_n = _derive_dx_54(runs, tree, contrib_body, readme_body, gov)
+    if runs is not None and dx_val is not None:
+        b.set("dx", dx_val, src("actions_runs", key), runs_at, "derived")
+        b.set("dx_run_count", dx_n, src("actions_runs", key), runs_at, "derived")
+    elif runs is not None:
+        b.set("dx_run_count", 0, src("actions_runs", key), runs_at, "derived")
+        b.missing("dx", None)
+    else:
+        b.missing("dx_run_count", 0)
+        b.missing("dx", None)
 
     # --- Author-history cohorts (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3):
     # DR_90, MR_first, newcomer conversion, RR_90 (raw and D-IN-3

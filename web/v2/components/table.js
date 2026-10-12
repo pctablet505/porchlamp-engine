@@ -108,6 +108,21 @@ export function renderColumnHeader(sortField, showPersonaDelta) {
       // data-cell), so a column can be shown/hidden as a unit. Without it
       // only sortable columns were addressable, and hiding a body cell
       // without its header shifts every column after it.
+      if (col.key === "pillars") {
+        const pillarButtons = PILLAR_ORDER.map((p) => {
+          const field = `p_${p}`;
+          const isActive = sortField.replace(/^-/, "") === field;
+          const ariaSort = isActive ? ` aria-sort="${sortDirectionLabel(sortField)}"` : "";
+          const shortLabel = copy.PILLAR_SHORT_NAMES[p] || p;
+          const tooltip = copy.pillarSortTooltip(p);
+          return (
+            `<button type="button" class="pillar-sort-btn${isActive ? " is-active" : ""}" ` +
+            `data-sortable="true" data-sort-field="${field}" title="${escapeHtml(tooltip)}" ` +
+            `aria-label="${escapeHtml(tooltip)}"${ariaSort}>${escapeHtml(shortLabel)}</button>`
+          );
+        }).join(`<span class="pillar-sort-sep" aria-hidden="true">·</span>`);
+        return `<th data-col="${col.key}"><span class="pillars-col-header" aria-label="${escapeHtml(col.label)}">${pillarButtons}</span></th>`;
+      }
       if (!col.sortable) {
         const tooltip = col.vanity ? ` title="${escapeHtml(copy.VANITY_TOOLTIP)}"` : "";
         return `<th data-col="${col.key}"${tooltip}>${escapeHtml(col.label)}</th>`;

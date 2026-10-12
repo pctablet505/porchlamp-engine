@@ -1,0 +1,828 @@
+"""The engine's entry points for the Android app (called through Chaquopy by ``app_entry.py``). Standard library only.
+
+Every function of CONTRACT.md lives here: ``start``, ``stop``, ``pause``, ``resume``, ``status``, ``settings_get``,
+``settings_set``, ``override``, ``events``, ``export_log``, ``self_check``, ``test_token``, ``share``, ``danger`` and
+``update_device``. All but ``start``, ``stop``, ``pause``, ``resume``, ``override``, ``share`` and ``update_device``
+return JSON text (``export_log`` returns a path). Python decides everything and writes every sentence; the app only
+draws it and reports device facts.
+
+Secrets: ``start(files_dir, github_token, lan_token)`` takes both tokens in memory. They are never written to a file,
+a log, an event, an export, an archive, a status or an exception text: every outgoing string passes the redactor that
+holds them.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import threading
+import time
+import traceback
+from collections.abc import Callable
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from phone import control, httpgate, runner, serve, status as status_mod, tokencheck
+from phone.control import Controls, LanManager, Reason, Settings
+from phone.events import Redactor, TechLog, Timeline
+from phone.httpgate import Gate, Stopped
+from phone.netstats import NetStats
+from phone.status import DataSize, Progress
+from porchlamp.collect import net as collect_net
+
+ENGINE_ROOT = Path(__file__).resolve().parent.parent
+STUCK_AFTER_S = status_mod.STUCK_AFTER_S
+RUNNER_POLL_S = 30.0
+TOKEN_RETRY_S = 60.0
+TOKEN_BLOCKED_RETRY_S = 5.0
+HALT_WAIT_S = 20.0
+DANGER_ACTIONS = ("reset", "move_data_aside", "remove_tokens")
+REPO_LINE = re.compile(r"^[\w.-]+/[\w.-]+ \[[^\]]*\]: ")
+
+
+def _digest(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _clean(token: object) -> str | None:
+    if not isinstance(token, str):
+        return None
+    token = token.strip()
+    return token or None
+
+
+class Engine:
+    """Everything one running collector owns. ``entry`` keeps one of these per process."""
+
+    def __init__(self, files_dir: str | Path, *, clock: Callable[[], float] = time.time,
+                 free_gb: Callable[[], float] | None = None, gather_main: Callable[[list[str]], int] | None = None,
+                 make_server: Callable[..., Any] | None = None, threads: bool = True, tick_s: float = 2.0,
+                 gate_options: dict[str, Any] | None = None, api_base: str | None = None,
+                 lan_port: int = control.LAN_PORT) -> None:
+        self.files_dir = Path(files_dir)
+        self.home = self.files_dir / "porchlamp"
+        self.exports = self.files_dir / "exports"
+        self.clock = clock
+        self._gather_main = gather_main
+        self._threads_enabled = threads
+        self._tick_s = tick_s
+        self._api_base = api_base
+        for sub in ("raw", "state", "config"):
+            (self.home / sub).mkdir(parents=True, exist_ok=True)
+        state = self.home / "state"
+        self.redactor = Redactor()
+        self.techlog = TechLog(state / "log", clock, self.redactor)
+        self.timeline = Timeline(state / "events.jsonl", clock, self.redactor)
+        self.stats = NetStats(state / "netstats.json", clock)
+        self.settings = Settings(self.home / "config" / "settings.json", on_change=self._settings_changed)
+        options = dict(gate_options or {})
+        options.setdefault("allowed", httpgate.PHONE_HOSTS)      # the phone reaches only what its steps use
+        self.controls = Controls(self.settings, clock=clock, state_dir=state, emit=self.event,
+                                 free_gb=free_gb or (lambda: runner.shutil_free(self.home)),
+                                 on_reason=self._reason_changed,
+                                 github_hosts=options.get("token_hosts", httpgate.TOKEN_HOSTS))
+        self.gate = Gate(stats=self.stats, controls=self.controls, log=self.log, clock=clock, **options)
+        self.gate.on_rate_wait_end = self._rate_wait_ended
+        self.runstate = runner.RunState()
+        self.progress = Progress(self.home, clock)
+        self.datasize = DataSize(self.home, clock)
+        self.lan = LanManager(make_server=make_server or self._make_server, settings=self.settings,
+                              controls=self.controls, clock=clock, port=lan_port, emit=self.event, log=self.log,
+                              persist=lambda ts: self.stats.meta_set("share_until", ts),
+                              share_until=self._saved_share())
+        self.started = False
+        self.stopped = False
+        self.stuck = False
+        self.restart_ts: float | None = None
+        self.start_ts = clock()
+        self._stuck_ts = 0.0
+        self._work_since: float | None = None
+        self._repo_ts = 0.0
+        self._idle_event_for: float | None = None
+        self._engine_error: dict[str, Any] | None = None
+        self._gh_token: str | None = None
+        self._lan_token: str | None = None
+        self._last_test: tuple[str, str, float] | None = None   # (digest, state, time): never the value
+        self._life = threading.RLock()
+        self._shutdown = threading.Event()
+        self._cancel = threading.Event()
+        self._collector: threading.Thread | None = None
+        self._monitor: threading.Thread | None = None
+        self._token_worker: threading.Thread | None = None
+        if self.settings.load_note:
+            self.event("warn", "Settings were reset", self.settings.load_note)
+
+    # ---- small shared pieces ------------------------------------------------------------------------------------
+    def log(self, text: str) -> None:
+        self.techlog.write(text)
+
+    def event(self, level: str, text: str, detail: str = "", kind: str = "progress") -> None:
+        self.timeline.add(level, text, detail, kind)
+        self.techlog.write(f"event {level}: {text}" + (f" -- {detail}" if detail else ""))
+
+    def _saved_share(self) -> float | None:
+        value = self.stats.meta_get("share_until")
+        return float(value) if isinstance(value, (int, float)) and value > self.clock() else None
+
+    def needs_token(self) -> bool:
+        return any(layer != "LK" for layer in self.settings.value("layers"))
+
+    def no_candidates(self) -> bool:
+        return self.progress.candidates() == 0
+
+    def current_reason(self) -> Reason | None:
+        return self.controls.current_reason(self.needs_token())
+
+    def collector_alive(self) -> bool:
+        return self._collector is not None and self._collector.is_alive()
+
+    def next_due(self) -> float | None:
+        return runner.next_due(self.home, self.settings.value("interval_days"))
+
+    def last_fetch(self) -> float | None:
+        value = self.stats.meta_get("lan_last_fetch")
+        return float(value) if isinstance(value, (int, float)) else None
+
+    def last_progress_ts(self) -> float:
+        return max(self.gate.progress_ts, self.progress.changed_ts or 0.0, self._repo_ts)
+
+    def last_finished(self, times: dict[str, float], steps: list[str]) -> float | None:
+        if steps and all(layer in times for layer in steps) and (self.home / "state/refresh/MAIN.done").is_file():
+            return max(times[layer] for layer in steps)
+        return status_mod.previous_finish(self.home)
+
+    def last_error(self) -> dict[str, Any] | None:
+        candidates = [e for e in (self.controls.last_error, self._engine_error) if e]
+        if not candidates:
+            return None
+        newest = max(candidates, key=lambda e: e["t"])
+        return {"ts": status_mod.iso_local(newest["t"]), "text": self.redactor(newest["text"]),
+                "action": self.redactor(newest.get("action", ""))}
+
+    def is_working(self) -> bool:
+        return (self.started and not self.stopped and self.runstate.mode == "running"
+                and self.runstate.layer is not None and self.current_reason() is None
+                and self.gate.rate_state() is None and self.collector_alive())
+
+    # ---- tokens -----------------------------------------------------------------------------------------------------
+    def set_tokens(self, github_token: object, lan_token: object) -> None:
+        gh, lan = _clean(github_token), _clean(lan_token)
+        with self._life:
+            if gh != self._gh_token:
+                old, self._gh_token = self._gh_token, gh
+                self.redactor.discard(old)
+                self.redactor.add(gh)
+                os.environ.pop("GH_TOKEN", None)
+                if gh is None:
+                    self.controls.set_token(False)
+                else:
+                    last = self._last_test
+                    known = last is not None and last[0] == _digest(gh)
+                    self.controls.set_token(True, last[1] if known else "untested", last[2] if known else None)
+                    if known and last[1] == "accepted":
+                        os.environ["GH_TOKEN"] = gh
+                    self.event("info", "GitHub token set" if known else "GitHub token set, not tested yet", "", "network")
+                self.gate.kick()
+            if lan != self._lan_token:
+                old, self._lan_token = self._lan_token, lan
+                self.redactor.discard(old)
+                self.redactor.add(lan)
+                self.lan.set_token(lan)
+
+    @property
+    def lan_token_set(self) -> bool:
+        return self._lan_token is not None
+
+    def check_token(self, token: str) -> dict[str, Any]:
+        """Test ``token`` against GitHub. If it is the token in use, its state and permission to be used follow."""
+        result = tokencheck.check(token, base=self._api_base)
+        state = result["state"]
+        now = self.clock()
+        blocked = bool(result.pop("blocked", False))
+        result.pop("calls_left", None)
+        if state != "unreachable":
+            self._last_test = (_digest(token), state, now)
+            level = {"accepted": "ok", "rejected": "err", "too_powerful": "err"}[state]
+            self.event(level, f"Token tested: {state.replace('_', ' ')}", "", "network")
+            with self._life:
+                if self._gh_token is not None and _digest(self._gh_token) == _digest(token):
+                    self.controls.set_token(True, state, now)
+                    if state == "accepted":
+                        os.environ["GH_TOKEN"] = token
+                    else:
+                        os.environ.pop("GH_TOKEN", None)
+                    self.gate.kick()
+        result["_blocked"] = blocked
+        return result
+
+    def _token_loop(self, cancel: threading.Event) -> None:
+        """Test the token in use until GitHub has answered; collection never uses a token that was not accepted."""
+        self.gate.bind_cancel(cancel)
+        try:
+            while not cancel.is_set() and not self._shutdown.is_set():
+                token = self._gh_token
+                if token is None or self.controls.token_state != "untested":
+                    if cancel.wait(1.0):
+                        return
+                    continue
+                result = self.check_token(token)
+                if result["state"] == "unreachable" and cancel.wait(
+                        TOKEN_BLOCKED_RETRY_S if result["_blocked"] else TOKEN_RETRY_S):
+                    return
+        except Stopped:
+            return
+
+    # ---- life cycle ----------------------------------------------------------------------------------------------
+    def _route_through_gate(self) -> None:
+        """Install this engine's gate and check the collectors really go through it; no token is held before that."""
+        previous = httpgate.install(self.gate)
+        if collect_net._gate is not httpgate or httpgate.current() is not self.gate:
+            httpgate.install(previous)
+            raise RuntimeError("the collectors are not routed through the HTTP gate; the engine will not start")
+
+    def start(self, github_token: object, lan_token: object) -> None:
+        with self._life:
+            self._route_through_gate()
+            self.set_tokens(github_token, lan_token)
+            if self.started and not self.stopped:
+                return
+            was_stopped = self.stopped
+            self.stopped = False
+            self.stuck = False
+            self.gate.rearm()
+            self._shutdown = threading.Event()
+            self.started = True
+            self.start_ts = self.clock()
+            os.environ["PORCHLAMP_GH"] = "http"
+            os.environ["PORCHLAMP_ENGINE"] = str(ENGINE_ROOT)
+            os.environ["PORCHLAMP_RATE_FLOOR"] = str(self.settings.value("rate_floor"))
+            for hook in ("PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API"):
+                os.environ.pop(hook, None)   # the API host is fixed: no hook may move it
+            marker = self.home / "state" / "running"
+            if marker.is_file() and not was_stopped:
+                self.restart_ts = self.clock()
+                self.event("info", "Restarted by Android",
+                           f"The collector was restarted at {status_mod.clock_text(self.restart_ts)}.", "progress")
+            marker.write_text(str(int(self.clock())) + "\n", encoding="utf-8")
+            self.log("engine started")
+            if self._threads_enabled:
+                self._spawn_threads()
+
+    def _spawn_threads(self) -> None:
+        self._cancel = threading.Event()
+        self._monitor = threading.Thread(target=self._monitor_loop, args=(self._shutdown,), daemon=True,
+                                         name="porchlamp-monitor")
+        self._token_worker = threading.Thread(target=self._token_loop, args=(self._shutdown,), daemon=True,
+                                              name="porchlamp-token")
+        self._monitor.start()
+        self._token_worker.start()
+        self._start_collector()
+
+    def _start_collector(self) -> None:
+        cancel = self._cancel
+        self._collector = threading.Thread(target=self._collector_main, args=(cancel,), daemon=True,
+                                           name="porchlamp-collector")
+        self._collector.start()
+
+    def restart_collector(self) -> None:
+        """Abandon the collector thread (its next request raises ``Stopped``) and start a fresh one."""
+        old = self._cancel
+        self._cancel = threading.Event()
+        old.set()
+        self.gate.kick()
+        if self._threads_enabled and self.started and not self.stopped:
+            self._start_collector()
+
+    def halt_collector(self, wait_s: float = HALT_WAIT_S) -> bool:
+        """Stop the collector thread and wait for it. True when it is gone."""
+        self._cancel.set()
+        self.gate.kick()
+        thread = self._collector
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=wait_s)
+        return thread is None or not thread.is_alive()
+
+    def _monitor_loop(self, shutdown: threading.Event) -> None:
+        while not shutdown.wait(self._tick_s):
+            try:
+                self.tick()
+            except Exception:  # the monitor must outlive a bug in one tick; the bug is in the log
+                self.log("monitor error: " + traceback.format_exc())
+
+    def stop(self) -> None:
+        with self._life:
+            if not self.started or self.stopped:
+                return
+            self.stopped = True
+            self._shutdown.set()
+            self.gate.stop()
+            self._cancel.set()
+        self.lan.stop_server()
+        thread = self._collector
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=5)
+        self.stats.flush()
+        (self.home / "state" / "running").unlink(missing_ok=True)
+        self.event("info", "Stopped by you", "Progress is saved. Tap Start to carry on.")
+        self.log("engine stopped")
+
+    def pause(self) -> None:
+        if self.controls.user_paused:
+            return
+        self.controls.set_user_pause(True)
+
+    def resume(self) -> None:
+        self.stuck = False
+        self._work_since = None
+        self.gate.touch_progress()
+        self.controls.set_user_pause(False)
+        self.controls.recheck()
+        self.gate.kick()
+
+    # ---- the collector thread -----------------------------------------------------------------------------------
+    def _sleep(self, seconds: float, cancel: threading.Event) -> None:
+        end = time.monotonic() + seconds
+        while True:
+            if cancel.is_set() or self.gate.stopped:
+                raise Stopped("collection was stopped")
+            left = end - time.monotonic()
+            if left <= 0:
+                return
+            cancel.wait(min(left, 1.0))
+
+    def _runner_log(self, line: str) -> None:
+        if REPO_LINE.match(line):
+            self._repo_ts = self.clock()
+        self.techlog.write(line)
+
+    def _collector_main(self, cancel: threading.Event) -> None:
+        self.gate.bind_cancel(cancel)
+        while not cancel.is_set() and not self._shutdown.is_set():
+            try:
+                main = self._gather_main
+                if main is None:
+                    main = runner.load_gather(ENGINE_ROOT, self.home).main
+                runner.run_forever(
+                    self.home, main,
+                    every_days=lambda: self.settings.value("interval_days"), poll_s=RUNNER_POLL_S,
+                    sleep=lambda s: self._sleep(s, cancel), now=self.clock, log=self._runner_log,
+                    layers=lambda: self.settings.value("layers"), state=self.runstate, notify=self._notify,
+                    ready=lambda: not self.no_candidates())
+                return
+            except Stopped:
+                self.log("collector thread ended")
+                return
+            except Exception as exc:  # the collector survives its own bugs; the error is told, redacted
+                text = self.redactor(f"{type(exc).__name__}: {exc}")
+                self.log("collector error: " + self.redactor(traceback.format_exc()))
+                self._engine_error = {"t": self.clock(), "text": text, "action": "It tries again in a minute."}
+                self.runstate.failures += 1
+                self.runstate.last_failure = text
+                self.event("err", "The collector hit an error", f"{text} It tries again in a minute.")
+                if cancel.wait(60.0):
+                    return
+
+    def _notify(self, name: str, **info: Any) -> None:
+        steps = status_mod.selected_steps(self.settings.value("layers"))
+        layer = info.get("layer")
+        where = f"{steps.index(layer) + 1} of {len(steps)}" if layer in steps else ""
+        if name == "cycle_start":
+            self.controls.cycle_boundary()
+            days = self.settings.value("interval_days")
+            self.event("info", "Started a new cycle", f"{days} days after the last one finished.")
+        elif name == "step_start":
+            self.event("ok", f"Started step {where}: {status_mod.STEP_PHRASE.get(layer, str(layer))}")
+        elif name == "step_done":
+            self.event("ok", f"Finished step {where}: {runner.STEP_NAMES.get(layer, str(layer))}")
+        elif name == "cycle_done":
+            self.controls.cycle_boundary()
+            self.event("ok", "Cycle finished", f"{len(steps)} of {len(steps)} steps. The data is ready to pull.")
+        elif name == "cycle_fail":
+            self.event("err", "A step stopped with an error", f"Code {info.get('rc')}. It tries again in a while.")
+        elif name == "no_candidates":
+            self.event("warn", "No repo list yet", "It starts by itself once the workstation sends the list.")
+        elif name == "idle":
+            due = info.get("next_due")
+            if due is not None and due != self._idle_event_for:
+                self._idle_event_for = due
+                self.event("info", f"Idle. The next cycle is due {status_mod.date_text(due)}")
+
+    # ---- the monitor tick ---------------------------------------------------------------------------------------
+    def tick(self) -> None:
+        """One pass of the monitor: pause rules, the listener, progress counts, the stuck detector, counters."""
+        now = self.clock()
+        self.controls.evaluate()
+        self.lan.update()
+        rs = self.runstate
+        layer = rs.layer if rs.mode == "running" else None
+        working = self.is_working()
+        self.progress.tick(layer, rs.collectors, active=working or self.gate.rate_state() is not None)
+        self._stuck_check(now, working)
+        self.stats.flush(force=False)
+        self.datasize.maybe_refresh()
+
+    def _stuck_check(self, now: float, working: bool) -> None:
+        if not working:
+            self._work_since = None
+            return
+        if self._work_since is None:
+            self._work_since = now
+        if self.stuck:
+            if self.last_progress_ts() > self._stuck_ts:
+                self.stuck = False
+                self.event("ok", "Progress is back", "The collector is moving again.")
+            return
+        if now - max(self._work_since, self.last_progress_ts()) >= STUCK_AFTER_S:
+            self.stuck = True
+            self._stuck_ts = now
+            self.event("warn", "No progress for 25 minutes", "The collector was restarted.")
+            self.log("stuck: no progress for 25 minutes; restarting the collector thread once")
+            self.restart_collector()
+
+    # ---- callbacks ---------------------------------------------------------------------------------------------------
+    def _rate_wait_ended(self, resource: str, seconds: float) -> None:
+        self.event("info", f"Waited {status_mod.span_text(seconds)} for GitHub's hourly limit, then carried on", "",
+                   "network")
+
+    def _reason_changed(self, old: Reason | None, new: Reason | None) -> None:
+        if (old and old.code == "starting") or (new and new.code == "starting"):
+            return
+        s = self.settings.get()
+        facts = self.controls.facts()
+        if new is None:
+            if old is None:
+                return
+            if old.code in ("battery", "heat") and s[f"{old.code}_override"]:
+                self.event("info", "Carrying on, because Keep going anyway is on.")
+                return
+            text, kind = {
+                "user": ("Resumed", "progress"),
+                "battery": (f"Battery is back to {facts.get('battery_pct')}%. Carrying on.", "progress"),
+                "heat": ("The battery cooled down. Carrying on.", "progress"),
+                "disk_low": ("There is space again. Carrying on.", "progress"),
+                "no_wifi": ("Wi-Fi is back. Carrying on." if s["network"] == "wifi" else "The network is back. "
+                            "Carrying on.", "network"),
+                "slow_network": ("Trying again after the slow network", "network"),
+            }.get(old.code, ("Carrying on", "progress"))
+            self.event("info", text, "", kind)
+            return
+        if new.code == "user":
+            self.event("info", "Paused by you", "Progress is saved.")
+        elif new.code == "battery":
+            level = s["battery_pause_pct"]
+            self.event("warn", f"Paused: battery is at {facts.get('battery_pct')}%",
+                       f"The limit is {level}%. It carries on at {level + 5}%.")
+        elif new.code == "heat":
+            self.event("warn", f"Paused: the battery is hot ({facts.get('temp_c', 0):.0f} °C)",
+                       f"It carries on once it cools below {s['heat_pause_c'] - 3} °C.")
+        elif new.code == "disk_low":
+            self.event("warn", f"Paused: only {self.controls.free_gb():.1f} GB of space is left",
+                       "It resumes by itself above 3 GB.")
+        elif new.code == "no_wifi":
+            lost = self.controls.wifi_lost_at
+            self.event("warn", f"Wi-Fi lost at {status_mod.clock_text(lost)}" if lost else new.text.rstrip("."),
+                       new.text, "network")
+
+    def _settings_changed(self, old: dict[str, Any], new: dict[str, Any]) -> None:
+        if old["network"] != new["network"]:
+            self.event("info", "Mobile data switched on" if new["network"] == "wifi_mobile"
+                       else "Mobile data switched off", "", "network")
+        for key, word in (("battery_override", "low battery"), ("heat_override", "a hot battery")):
+            if old[key] != new[key]:
+                self.event("info", f"Keep going anyway turned {'on' if new[key] else 'off'} for {word}",
+                           "It lasts until the current cycle ends." if new[key] else "")
+        if old["rate_floor"] != new["rate_floor"]:
+            os.environ["PORCHLAMP_RATE_FLOOR"] = str(new["rate_floor"])
+        if old["lan_mode"] != new["lan_mode"]:
+            self.event("info", f"Workstation link set to {new['lan_mode']}", "", "network")
+        self.controls._dirty = True
+        self.gate.kick()
+        self.lan.update()
+
+    def _on_transfer(self, ip: str, sent: int, received: int, fetched: bool) -> None:
+        self.stats.add(ip, "wifi", calls=1, sent=sent, recv=received)
+        if fetched:
+            self.stats.meta_set("lan_last_fetch", self.clock())
+
+    def _make_server(self, ip: str, port: int, token: str) -> Any:
+        if control.valid_bind_ip(ip) != ip:
+            raise ValueError("the listener binds only a specific Wi-Fi address")
+        try:
+            return serve.make_server(self.home, bind=ip, port=port, token=token, on_transfer=self._on_transfer,
+                                     log_text=self.techlog.read_text)
+        except serve.TokenError as exc:
+            raise ValueError(str(exc)) from None
+
+    # ---- the contract functions ---------------------------------------------------------------------------------
+    def status(self) -> str:
+        return self.redactor(json.dumps(status_mod.build(self)))
+
+    def settings_set(self, text: str) -> str:
+        try:
+            patch = json.loads(text)
+        except (TypeError, ValueError):
+            patch = None
+        return json.dumps(self.settings.set(patch))
+
+    def override(self, key: str, on: bool) -> None:
+        if key in ("battery", "heat"):
+            self.settings.set({f"{key}_override": bool(on)})
+            self.controls.recheck()
+
+    def events(self, after_id: int, limit: int) -> str:
+        return json.dumps(self.timeline.list(int(after_id), int(limit)))
+
+    def export_log(self) -> str:
+        return str(self.techlog.export(self.exports))
+
+    def update_device(self, text: str) -> None:
+        try:
+            facts = json.loads(text)
+        except (TypeError, ValueError):
+            self.log("update_device: the facts were not readable JSON")
+            return
+        self.controls.update_device(facts)
+        self.lan.update()
+        self.gate.kick()
+
+    def test_token(self, token: str) -> str:
+        result = self.check_token(token if isinstance(token, str) else "")
+        result.pop("_blocked", None)
+        return json.dumps(result)
+
+    def share(self, minutes: Any = control.SHARE_DEFAULT_MIN) -> None:
+        self.lan.share(minutes)
+
+    # ---- the self-check ---------------------------------------------------------------------------------------------
+    def self_check(self) -> str:
+        t0 = time.monotonic()
+        c = self.controls
+        s = self.settings.get()
+        facts = c.facts()
+        now = self.clock()
+        checks: list[dict[str, Any]] = []
+
+        def add(check_id: str, title: str, ok: bool, detail: str) -> None:
+            checks.append({"id": check_id, "title": title, "ok": ok, "detail": detail})
+
+        # 1. the GitHub token (one free GET /rate_limit)
+        if self._gh_token is None:
+            add("github", "GitHub token", not self.needs_token(),
+                "No GitHub token yet. Add it in Settings." if self.needs_token()
+                else "No GitHub token. The selected steps do not need one.")
+        elif c.token_state in ("rejected", "too_powerful"):
+            add("github", "GitHub token", False,
+                "GitHub says the token is " + c.token_state.replace("_", " ") + ". Paste a new one in Settings.")
+        else:
+            rl = tokencheck.rate_limit(self._gh_token, base=self._api_base)
+            if rl.get("blocked"):
+                add("github", "GitHub token", False, "Not checked: there is no usable network right now.")
+            elif rl.get("status") == 200:
+                add("github", "GitHub token", True,
+                    f"Accepted. {rl['remaining']:,} calls left this hour, resets at {status_mod.clock_text(rl['reset'])}.")
+            elif rl.get("status") == 401:
+                c.set_token(True, "rejected", now)
+                add("github", "GitHub token", False, "GitHub rejected the token. Paste a new one in Settings.")
+            else:
+                add("github", "GitHub token", False, "Could not reach GitHub to check it.")
+        # 2. the network
+        net = facts.get("network")
+        if net == "wifi":
+            add("network", "Network", True, "Wi-Fi." + (" Mobile data is on." if s["network"] == "wifi_mobile"
+                                                         else " Mobile data is off."))
+        elif net == "mobile":
+            ok = s["network"] == "wifi_mobile" and not facts.get("data_saver")
+            add("network", "Network", ok, "Mobile data." if ok else "Mobile data only. It waits until Wi-Fi returns.")
+        else:
+            add("network", "Network", False, "No network. It waits until Wi-Fi returns.")
+        # 3. the workstation link: what the phone side can know
+        if not self.lan_token_set:
+            add("link", "Workstation link", False, "The link token is not set. Add it in Settings.")
+        elif self.lan.serving:
+            add("link", "Workstation link", True,
+                f"Listening on {self.lan.address}. Link token is set. Whether the workstation is on is not checked.")
+        elif s["lan_mode"] == "manual":
+            add("link", "Workstation link", True,
+                "Not sharing right now (manual mode). Tap Share to let the workstation fetch. Link token is set.")
+        else:
+            add("link", "Workstation link", False, "Not listening: there is no Wi-Fi address yet. Link token is set.")
+        # 4. free space
+        free = c.free_gb()
+        used = self.datasize.data_gb()
+        add("space", "Free space", free >= control.DISK_PAUSE_GB,
+            f"{free:.0f} GB free. The collector uses {used:.1f} GB." if free >= control.DISK_PAUSE_GB
+            else f"Only {free:.1f} GB free. Free some space.")
+        # 5. progress
+        age = max(0, int(now - self.last_progress_ts()))
+        if self.stuck:
+            add("progress", "Progress", False,
+                f"No progress for {status_mod.span_text(age, up=False)}. It looks stuck.")
+        elif self.runstate.mode == "idle":
+            due = self.next_due()
+            add("progress", "Progress", True, "Idle: nothing to do until "
+                + (status_mod.date_text(due) if due else "the next cycle") + ".")
+        else:
+            add("progress", "Progress", True, f"Last progress {status_mod.span_text(age, up=False)} ago. Not stuck.")
+        # 6. battery and heat
+        pct, temp = facts.get("battery_pct"), facts.get("temp_c")
+        c.evaluate(force=True)
+        held = c.power_held
+        parts = [f"{pct}%" + (" and charging" if facts.get("charging") else "") if pct is not None else "Battery unknown"]
+        if temp is not None:
+            parts.append(f"{temp:.0f} °C battery")
+        rules = [name for name, key in (("battery", "battery_override"), ("heat", "heat_override")) if not s[key]]
+        add("battery", "Battery and heat", not held,
+            ", ".join(parts) + ". " + ("Both pause rules are on." if len(rules) == 2 else
+                                       "A pause rule is switched off by Keep going anyway."
+                                       if rules else "Both pause rules are switched off by Keep going anyway."))
+        return json.dumps({"checks": checks, "all_ok": all(x["ok"] for x in checks),
+                           "took_s": round(time.monotonic() - t0, 2)})
+
+    # ---- the danger zone --------------------------------------------------------------------------------------------
+    def danger(self, action: str, confirm: str) -> str:
+        """Only moves things aside, never deletes. ``confirm`` must equal ``action``."""
+        if action not in DANGER_ACTIONS:
+            return json.dumps({"ok": False, "detail": "That action is not known."})
+        if confirm != action:
+            return json.dumps({"ok": False, "detail": "Confirmation did not match."})
+        if action == "remove_tokens":
+            self._forget_tokens()
+            self.event("warn", "Tokens removed", "Add them again in Settings to carry on.")
+            return json.dumps({"ok": True, "detail": "Both tokens were forgotten. Nothing was deleted."})
+        was_running = self.started and not self.stopped and self._threads_enabled
+        if was_running and not self.halt_collector():
+            return json.dumps({"ok": False, "detail": "The collector could not be stopped in time. "
+                                                      "Nothing was moved. Try again in a minute."})
+        stamp = datetime.fromtimestamp(self.clock(), timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        moved = self._move_aside(action, stamp)
+        self.stuck = False
+        self.runstate.failures = 0
+        self.runstate.last_failure = None
+        self.runstate.mode, self.runstate.layer, self.runstate.run = "starting", None, 0
+        self.progress.tick(None, (), False, force=True)
+        self.datasize.maybe_refresh(force=True)
+        if action == "move_data_aside":
+            self.controls.set_user_pause(True)   # nothing starts again by itself; Resume starts a fresh cycle
+        if was_running:
+            self._cancel = threading.Event()
+            self._start_collector()
+        self.event("warn", "Reset: progress moved aside" if action == "reset" else "Collected data moved aside",
+                   f"Moved to {moved}. Nothing was deleted." if moved else "There was nothing to move.")
+        self.gate.kick()
+        if not moved:
+            return json.dumps({"ok": True, "detail": "There was nothing to move. Nothing was deleted."})
+        extra = " Tap Resume to start a fresh cycle." if action == "move_data_aside" else ""
+        return json.dumps({"ok": True, "detail": f"Moved aside to {moved}. Nothing was deleted.{extra}"})
+
+    def _move_aside(self, action: str, stamp: str) -> str | None:
+        """Rename every collector folder into ``raw-stale-<action>-<stamp>`` and ``state/refresh`` into
+        ``state/refresh-prev-<action>-<stamp>``. Returns the data folder's name, or None if nothing moved."""
+        raw = self.home / "raw"
+        dest = self.home / f"raw-stale-{action}-{stamp}"
+        moved_any = False
+        for src in sorted(p for p in raw.iterdir() if p.is_dir()) if raw.is_dir() else []:
+            dest.mkdir(parents=True, exist_ok=True)
+            src.rename(dest / src.name)
+            moved_any = True
+        markers = self.home / "state" / "refresh"
+        if markers.is_dir() and any(markers.iterdir()):
+            markers.rename(self.home / "state" / f"refresh-prev-{action}-{stamp}")
+            markers.mkdir(parents=True, exist_ok=True)
+            moved_any = True
+        return dest.name if moved_any else None
+
+    def _forget_tokens(self) -> None:
+        with self._life:
+            self.redactor.discard(self._gh_token)
+            self.redactor.discard(self._lan_token)
+            self._gh_token = self._lan_token = None
+            self._last_test = None
+            os.environ.pop("GH_TOKEN", None)
+            self.controls.set_token(False)
+        self.lan.set_token(None)
+        self.gate.kick()
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# The module-level functions the app calls
+# ---------------------------------------------------------------------------------------------------------------
+_ENGINE: Engine | None = None
+_PENDING_DEVICE: str | None = None
+_LOCK = threading.Lock()
+
+
+def engine() -> Engine | None:
+    return _ENGINE
+
+
+def _cold_status() -> str:
+    return json.dumps({
+        "schema": 1, "now": status_mod.iso_local(time.time()), "state": "starting", "headline": "Starting up",
+        "detail": "Getting ready. This takes a few seconds.",
+        "reason": {"code": None, "text": "", "resume_at": None, "override": None},
+        "progress": {"step_index": 0, "step_count": 7, "step_name": "", "done": 0, "total": 0, "pct": 0,
+                     "eta_text": "", "last_progress_s": 0},
+        "cycle": {"started": None, "last_finished": None, "next_due": None, "interval_days": 28, "steps": []},
+        "github": {"calls_left": 0, "limit": 0, "resets_in_s": 0, "floor": 500, "in_use": False},
+        "network": {"type": "none", "mobile_allowed": False, "bytes_today": {"wifi": 0, "mobile": 0},
+                    "bytes_7d": []},
+        "phone": {"battery_pct": None, "charging": False, "temp_c": None, "free_gb": 0.0, "data_gb": 0.0},
+        "contacts": [], "lan": {"mode": "manual", "serving": False, "address": None, "share_until": None,
+                                "last_fetch": None, "ready_steps": 0, "ready_gb": 0.0},
+        "tokens": {"github": {"set": False, "state": "untested", "tested_at": None}, "lan": {"set": False}},
+        "alerts": [], "health": {"last_error": None, "retries_today": 0, "uptime_s": 0},
+        "device": {"power_save": False, "battery_optimized": False, "notifications_enabled": True,
+                   "data_saver": False, "wifi_ip": None}})
+
+
+def start(files_dir: str, github_token: str | None = None, lan_token: str | None = None) -> None:
+    """Start the engine threads once (idempotent). A repeated call with other tokens swaps the tokens in memory."""
+    global _ENGINE, _PENDING_DEVICE
+    with _LOCK:
+        if _ENGINE is None or not runner.same_path(_ENGINE.files_dir, files_dir):
+            if _ENGINE is not None:
+                _ENGINE.stop()
+            _ENGINE = Engine(files_dir)
+        eng, pending, _PENDING_DEVICE = _ENGINE, _PENDING_DEVICE, None
+    eng.start(github_token, lan_token)
+    if pending is not None:
+        eng.update_device(pending)
+
+
+def stop() -> None:
+    if _ENGINE is not None:
+        _ENGINE.stop()
+
+
+def pause() -> None:
+    if _ENGINE is not None:
+        _ENGINE.pause()
+
+
+def resume() -> None:
+    if _ENGINE is not None:
+        _ENGINE.resume()
+
+
+def status() -> str:
+    return _ENGINE.status() if _ENGINE is not None else _cold_status()
+
+
+def settings_get() -> str:
+    return json.dumps(_ENGINE.settings.get() if _ENGINE is not None else control.DEFAULTS)
+
+
+def settings_set(text: str) -> str:
+    if _ENGINE is None:
+        return json.dumps({"ok": False, "errors": {"settings": "The engine has not started yet."},
+                           "settings": control.DEFAULTS})
+    return _ENGINE.settings_set(text)
+
+
+def override(key: str, on: bool) -> None:
+    if _ENGINE is not None:
+        _ENGINE.override(key, on)
+
+
+def events(after_id: int = 0, limit: int = 100) -> str:
+    return _ENGINE.events(after_id, limit) if _ENGINE is not None else "[]"
+
+
+def export_log() -> str:
+    if _ENGINE is None:
+        raise RuntimeError("start() has not been called")
+    return _ENGINE.export_log()
+
+
+def self_check() -> str:
+    if _ENGINE is None:
+        raise RuntimeError("start() has not been called")
+    return _ENGINE.self_check()
+
+
+def test_token(github_token: str) -> str:
+    if _ENGINE is None:
+        raise RuntimeError("start() has not been called")
+    return _ENGINE.test_token(github_token)
+
+
+def share(minutes: int = control.SHARE_DEFAULT_MIN) -> None:
+    if _ENGINE is not None:
+        _ENGINE.share(minutes)
+
+
+def danger(action: str, confirm: str) -> str:
+    if _ENGINE is None:
+        return json.dumps({"ok": False, "detail": "The engine has not started yet."})
+    return _ENGINE.danger(action, confirm)
+
+
+def update_device(text: str) -> None:
+    global _PENDING_DEVICE
+    if _ENGINE is None:
+        _PENDING_DEVICE = text
+        return
+    _ENGINE.update_device(text)

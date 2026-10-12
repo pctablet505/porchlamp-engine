@@ -87,6 +87,7 @@ from porchlamp.serve.contract import (
     SnapshotSummary,
 )
 from porchlamp.serve.guard import run_guard
+from porchlamp.serve.security import MAX_REQUEST_BODY_BYTES, SECURITY_HEADERS
 from porchlamp.store import queries, reader
 
 __all__ = ["create_app"]
@@ -213,12 +214,14 @@ def _require_snapshot(conn: sqlite3.Connection) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _no_ceiling_or_band(coverage: float) -> Optional[str]:
+def _no_ceiling_or_band(coverage: Optional[float]) -> Optional[str]:
     """Ceiling band as a label (not the index `queries._ceiling_index_case_sql`
-    builds for SQL `CASE`). Used only by :func:`_reproject_row`: `queries.reproject`
-    never recomputes `tier_ceiling` for custom coverage, so it is derived
-    here instead from the same frozen constants."""
-    if coverage >= constants.NO_CEILING_MIN_COVERAGE:
+    builds for SQL `CASE`). Used by :func:`_leaderboard_row` (persona branch)
+    and :func:`_reproject_row`: the stored `tier_ceiling` column is the
+    balanced coverage ceiling (and `None` when balanced-unrated), so non-balanced
+    persona and custom-weight views derive `tier_ceiling` from their own
+    projected coverage using the same frozen constants."""
+    if coverage is None or coverage >= constants.NO_CEILING_MIN_COVERAGE:
         return None
     if coverage >= constants.CEILING_A_MIN_COVERAGE:
         return "A"
@@ -299,7 +302,7 @@ def _leaderboard_row(record: Mapping[str, Any], *, persona: str) -> LeaderboardR
         porchlamp=record["porchlamp_p"],
         coverage=record["coverage_p"],
         tier=record["tier_p"],
-        tier_ceiling=record["tier_ceiling"],
+        tier_ceiling=_no_ceiling_or_band(record["coverage_p"]),
         balanced_rank=balanced_rank,
         rank_delta=rank_delta,
     )
@@ -744,6 +747,30 @@ def create_app(db_path, *, web_dir) -> FastAPI:
 
     app = FastAPI(title="Porchlamp API v2")
     app.state.conn = conn
+
+    @app.middleware("http")
+    async def _security_middleware(request: Request, call_next):
+        def finish(response):
+            for name, value in SECURITY_HEADERS.items():
+                response.headers.setdefault(name, value)
+            return response
+
+        def reject(status: int, detail: str):
+            return finish(JSONResponse(status_code=status, content=_error_body(request, status, detail)))
+
+        if "chunked" in request.headers.get("transfer-encoding", "").lower():
+            return reject(411, "a request body must declare its Content-Length")
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                declared = int(content_length)
+            except ValueError:
+                return reject(400, "invalid Content-Length")
+            if declared < 0:
+                return reject(400, "invalid Content-Length")
+            if declared > MAX_REQUEST_BODY_BYTES:
+                return reject(413, f"request body exceeds {MAX_REQUEST_BODY_BYTES} bytes")
+        return finish(await call_next(request))
 
     _register_exception_handlers(app)
     app.include_router(_build_router())

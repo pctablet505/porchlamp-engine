@@ -627,6 +627,27 @@ class TestReprojectParityAgainstHandOracle:
                 f"balanced_rank({row.balanced_rank}) - rank({row.rank})"
             )
 
+    def test_reproject_supports_pagination_query_params(self, server_url: str) -> None:
+        full = httpx.post(f"{server_url}/v1/porchlamp/reproject", json=WEIGHT_VECTORS[0]).json()
+        page1 = httpx.post(
+            f"{server_url}/v1/porchlamp/reproject?page=1&page_size=20", json=WEIGHT_VECTORS[0]
+        ).json()
+        page2 = httpx.post(
+            f"{server_url}/v1/porchlamp/reproject?page=2&page_size=20", json=WEIGHT_VECTORS[0]
+        ).json()
+        assert page1["total"] == page2["total"] == full["total"]
+        assert len(page1["rows"]) == 20
+        assert [(r["owner"], r["name"]) for r in page1["rows"]] == [
+            (r["owner"], r["name"]) for r in full["rows"][:20]
+        ]
+        assert [(r["owner"], r["name"]) for r in page2["rows"]] == [
+            (r["owner"], r["name"]) for r in full["rows"][20:40]
+        ]
+        bad = httpx.post(
+            f"{server_url}/v1/porchlamp/reproject?page=1&page_size=37", json=WEIGHT_VECTORS[0]
+        )
+        assert bad.status_code == 400
+
 
 class TestMatrixEndpoint:
     def test_excludes_gated_repos_and_reports_the_count(self, server_url: str) -> None:

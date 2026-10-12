@@ -75,9 +75,9 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Protocol, Sequence, Union
 
 import json
-import subprocess
 
 from porchlamp.collect import commits as commit_domains
+from porchlamp.collect import ghcli, validate
 from porchlamp.collect.envelope import raw_envelope_path, relative_envelope_path, write_envelope
 from porchlamp.collect.github_graphql import is_bot_actor
 from porchlamp.core import constants
@@ -126,12 +126,13 @@ class GhRestTransport:
         would otherwise default the method to POST (the form fields become
         a body), which the read endpoints reject.
         """
-        cmd = ["gh", "api", "-X", "GET", path]
+        validate.gh_api_path(path)
+        cmd = ["api", "-X", "GET", path]
         for name, value in params.items():
             cmd += ["-f", f"{name}={value}"]
         if self.sleep_seconds > 0:
             time.sleep(self.sleep_seconds)  # review-ok: GitHub API rate-limit pacing (0.15s) to avoid secondary rate limits
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+        out = ghcli.run(cmd, timeout=90)
         if out.returncode != 0:
             raise RuntimeError(
                 f"gh api {path.split('/')[0]} rc={out.returncode}: {out.stderr[:160]}")

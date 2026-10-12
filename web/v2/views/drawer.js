@@ -64,7 +64,41 @@ export function classifyKind(found) {
   return "rated";
 }
 
-function renderIdentity(kind, row) {
+/**
+ * Persona-aware classification for the drawer when a non-balanced lens is
+ * active (`state.persona !== "balanced"`). Preserves `classifyKind(found)`
+ * verbatim for balanced and for the static contract parity test.
+ */
+export function classifyKindForLens(found, persona) {
+  if (!found.eligible) return "gated";
+  if (persona && persona !== "balanced") {
+    if (found.persona_gates && found.persona_gates[persona]) return "persona-gated";
+    const pc = found.persona_composites && found.persona_composites[persona];
+    if (pc) return pc.rated ? "rated" : "unrated";
+  }
+  return classifyKind(found);
+}
+
+/**
+ * Projects the active persona's composite fields (`porchlamp`, `coverage`,
+ * `tier`, `tier_ceiling`, `rated`) onto a shallow copy of `found` when a
+ * non-balanced persona lens is active and has a `persona_composites` entry.
+ */
+export function projectRowForLens(found, persona) {
+  if (!persona || persona === "balanced" || !found.persona_composites) return found;
+  const pc = found.persona_composites[persona];
+  if (!pc) return found;
+  return {
+    ...found,
+    porchlamp: pc.porchlamp,
+    coverage: pc.coverage,
+    tier: pc.tier,
+    tier_ceiling: pc.tier_ceiling,
+    rated: pc.rated,
+  };
+}
+
+function renderIdentity(kind, row, persona) {
   const heading =
     `<div aria-label="${escapeHtml(copy.DRAWER_SECTION_IDENTITY)}">` +
     `<p class="drawer-kicker">${escapeHtml(copy.DRAWER_TITLE)}</p>` +
@@ -75,6 +109,13 @@ function renderIdentity(kind, row) {
     return (
       heading +
       `<div class="gate-banner" role="alert">${escapeHtml(copy.gateReasonText(row.gate_reason))}</div>`
+    );
+  }
+  if (kind === "persona-gated") {
+    const gateCode = row.persona_gates && persona ? row.persona_gates[persona] : "";
+    return (
+      heading +
+      `<div class="gate-banner" role="alert">${escapeHtml(copy.personaGateReason(gateCode))}</div>`
     );
   }
   if (kind === "unrated") {
@@ -106,8 +147,8 @@ function renderComposite(row) {
 }
 
 function renderPillarRadar(row) {
-  const cx = 150;
-  const cy = 120;
+  const cx = 190;
+  const cy = 130;
   const r = 75;
   const n = PILLAR_ORDER.length;
   const angles = PILLAR_ORDER.map((_, i) => -Math.PI / 2 + (i * 2 * Math.PI) / n);
@@ -159,7 +200,7 @@ function renderPillarRadar(row) {
 
   return (
     `<div class="radar-chart-container" aria-hidden="true">` +
-    `<svg class="radar-chart" viewBox="0 0 300 240" role="img" aria-label="5-pillar radar visualization">` +
+    `<svg class="radar-chart" viewBox="0 0 380 260" role="img" aria-label="5-pillar radar visualization">` +
     gridPolygons +
     spokes +
     `<polygon points="${polyPoints}" class="radar-area" />` +
@@ -195,7 +236,7 @@ function renderEvidenceTable(evidenceRows, evidenceError) {
         }
         return (
           `<tr><td title="${escapeHtml(r.param_id)}">${paramLabel}</td>` +
-          `<td class="cell-numeric">${escapeHtml(String(r.value))}</td>` +
+          `<td class="cell-numeric">${r.value != null ? escapeHtml(String(r.value)) : copy.MISSING_VALUE}</td>` +
           `<td class="cell-numeric">${r.score != null ? r.score.toFixed(1) : copy.MISSING_VALUE}</td>` +
           `<td class="cell-numeric">${r.n ?? copy.MISSING_VALUE}</td>` +
           `<td>${escapeHtml(r.window_start || "")}${r.window_start ? " – " : ""}${escapeHtml(r.window_end || "")}</td>` +
@@ -362,17 +403,18 @@ export function renderDrawer(state) {
     );
   }
 
-  // `found` IS the flat `RepoDetailResponse` -- `kind` is derived, `row`
-  // is just a local alias so every render helper below (written against a
-  // LeaderboardRow/NotRankedRow-shaped object, a strict SUBSET of this
-  // flat shape's fields) can consume it directly.
-  const kind = classifyKind(found);
-  const row = found;
+  // `found` IS the flat `RepoDetailResponse` -- `kind` is derived under the
+  // active persona lens (`classifyKindForLens`), and `row` projects the lens's
+  // composite score/coverage/tier when a non-balanced lens is active.
+  const kind = classifyKindForLens(found, state.persona);
+  const row = projectRowForLens(found, state.persona);
   const repoKey = `${row.owner}/${row.name}`;
+  const githubUrl = copy.drawerGithubUrl(row.owner, row.name);
+  const githubLink = `<a class="btn btn-secondary drawer-github-link" href="${escapeHtml(githubUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(copy.DRAWER_GITHUB_LABEL)}</a>`;
   const compareBtn = `<button type="button" class="btn btn-secondary drawer-compare-btn" data-drawer-compare="${escapeHtml(repoKey)}">${escapeHtml(copy.DRAWER_COMPARE_LABEL)}</button>`;
   const closeButton = `<button type="button" class="icon-button" data-drawer-close="true">${escapeHtml(copy.DRAWER_CLOSE_LABEL)}</button>`;
-  const headerActions = `<div class="drawer-actions">${compareBtn}${closeButton}</div>`;
-  const identity = renderIdentity(kind, row);
+  const headerActions = `<div class="drawer-actions">${githubLink}${compareBtn}${closeButton}</div>`;
+  const identity = renderIdentity(kind, row, state.persona);
 
   const evidenceRows = state.evidenceByRepo[state.repo];
   const evidenceError = evidenceRows ? null : state.evidenceError;
@@ -400,7 +442,12 @@ export function renderDrawer(state) {
   }
 
   let sections;
-  if (kind === "unrated") {
+  if (kind === "persona-gated") {
+    sections =
+      renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, false) +
+      renderPersonaSection(row) +
+      renderIntegritySection(row);
+  } else if (kind === "unrated") {
     sections = renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, true);
   } else {
     sections = (

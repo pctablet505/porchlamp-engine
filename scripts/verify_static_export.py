@@ -69,7 +69,13 @@ MUTANTS: tuple[tuple[str, str, str], ...] = (
      "members.get(v.porchlampDisplay) === 1 ? null : denseRank.get(v.porchlampDisplay)", "denseRank.get(v.porchlampDisplay)"),
 )
 
-_NODE_GLOBS = (".local/opt/node-*/bin/node", "tools/node-*/bin/node", ".nvm/versions/node/*/bin/node")
+_NODE_GLOBS = (
+    ".local/opt/node-*/bin/node",
+    "tools/node-*/bin/node",
+    ".nvm/versions/node/*/bin/node",
+    "oss-contributions/node-*/node-*/bin/node",
+    "node-*/bin/node",
+)
 
 
 def _export_static():
@@ -95,6 +101,9 @@ def find_node() -> Optional[str]:
         for candidate in sorted(Path.home().glob(pattern), reverse=True):
             if candidate.is_file() and os.access(candidate, os.X_OK):
                 return str(candidate)
+    for sys_path in ("/opt/homebrew/bin/node", "/usr/local/bin/node"):
+        if Path(sys_path).is_file() and os.access(sys_path, os.X_OK):
+            return sys_path
     return None
 
 

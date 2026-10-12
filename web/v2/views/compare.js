@@ -200,7 +200,11 @@ function repoIdentityCell(key, data) {
   if (data.error) {
     return `<td class="error-banner" role="alert">${escapeHtml(copy.compareErrorText(data.error.endpoint, data.error.status, data.error.detail))}</td>`;
   }
-  return `<td><span class="repo-name">${escapeHtml(key)}</span></td>`;
+  const [owner, name] = key.split("/");
+  return (
+    `<td><button type="button" class="link-button repo-name" ` +
+    `data-owner="${escapeHtml(owner)}" data-name="${escapeHtml(name)}">${escapeHtml(key)}</button></td>`
+  );
 }
 
 function gateStatusCell(data) {
@@ -258,10 +262,35 @@ export function renderTable(state) {
   const repoKeys = state.compareRepos;
   const dataByRepo = state.compareDataByRepo;
   const evidenceByRepo = Object.fromEntries(repoKeys.map((k) => [k, (dataByRepo[k] || {}).evidence || []]));
-  const headerCells = repoKeys.map((k) => `<th scope="col">${escapeHtml(k)}</th>`).join("");
+  const headerCells = repoKeys.map((k) => {
+    const [owner, name] = k.split("/");
+    return (
+      `<th scope="col"><button type="button" class="link-button repo-name" ` +
+      `data-owner="${escapeHtml(owner)}" data-name="${escapeHtml(name)}">${escapeHtml(k)}</button></th>`
+    );
+  }).join("");
 
   const methodologyParams = state.methodology ? state.methodology.parameters : [];
-  const paramRows = methodologyParams.map((p) => parameterRow(p, repoKeys, evidenceByRepo, state.persona)).join("");
+  const paramsByPillar = {};
+  for (const p of methodologyParams) {
+    const pillar = p.pillar || "other";
+    (paramsByPillar[pillar] = paramsByPillar[pillar] || []).push(p);
+  }
+  const orderedPillars = [
+    ...Object.keys(copy.PILLAR_NAMES).filter((p) => paramsByPillar[p]),
+    ...Object.keys(paramsByPillar).filter((p) => !copy.PILLAR_NAMES[p]),
+  ];
+  const paramRows = orderedPillars
+    .map((pillar) => {
+      const groupHeading =
+        `<tr class="compare-section-row"><th scope="colgroup" colspan="${repoKeys.length + 1}">` +
+        `${escapeHtml(copy.PILLAR_NAMES[pillar] || pillar)}</th></tr>`;
+      const rows = (paramsByPillar[pillar] || [])
+        .map((p) => parameterRow(p, repoKeys, evidenceByRepo, state.persona))
+        .join("");
+      return groupHeading + rows;
+    })
+    .join("");
 
   const pillarRows = Object.keys(copy.PILLAR_NAMES)
     .map((pillar) => `<tr><th scope="row">${escapeHtml(copy.PILLAR_NAMES[pillar])}</th>${repoKeys.map((k) => pillarScoreCell(dataByRepo[k], pillar)).join("")}</tr>`)
@@ -280,16 +309,17 @@ export function renderTable(state) {
   }
 
   return (
+    verdictHtml +
     `<div class="table-scroll"><table class="compare-table">` +
     `<thead><tr><th scope="col">${escapeHtml(copy.COMPARE_ROW_IDENTITY)}</th>${headerCells}</tr></thead>` +
     `<tbody>` +
+    `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_IDENTITY)}</th>${repoKeys.map((k) => repoIdentityCell(k, dataByRepo[k])).join("")}</tr>` +
     `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_GATE_STATUS)}</th>${repoKeys.map((k) => gateStatusCell(dataByRepo[k])).join("")}</tr>` +
     `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_COMPOSITE)}</th>${repoKeys.map((k) => compositeCell(dataByRepo[k])).join("")}</tr>` +
     `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_COVERAGE)}</th>${repoKeys.map((k) => coverageCell(dataByRepo[k])).join("")}</tr>` +
     pillarRows +
     paramRows +
-    `</tbody></table></div>` +
-    verdictHtml
+    `</tbody></table></div>`
   );
 }
 
