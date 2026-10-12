@@ -348,7 +348,11 @@ def score(
 
     initial_suspicion: list[str] = (
         [REASON_BLACK_HOLE]
-        if snapshot.rank_black_holes and is_black_hole_bundle(bundle)
+        if snapshot.rank_black_holes
+        and is_black_hole_bundle(bundle)
+        # A repository that hands review off is routed off-platform, not ranked
+        # on GitHub signals it cannot be judged by: no black-hole flag either.
+        and snapshot.gate_evidence.review_handoff is not True
         else []
     )
 

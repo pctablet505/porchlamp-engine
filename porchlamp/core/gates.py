@@ -12,7 +12,10 @@ repo but is recorded in ``GateResult.undecided`` by its decision id
 share :func:`zero_response_counts` computed at derive time, so the gate and
 the parameter are one measurement. D-GATE-6 is routing, not failure: it
 passes, routes to the off-platform workflow, or reports
-``unrated: no_external_workflow``.
+``unrated: no_external_workflow``. A repository whose own notices send
+outside PRs to another review system (``GateEvidence.review_handoff``) is
+routed off-platform and D-GATE-5 is left UNDECIDED for it: GitHub cannot see
+its review, so the ghost rate says nothing about whether it answers.
 
 ``evidence_sufficiency`` is the D-EVID-1 stage-3 gate on the composite
 coverage C (D-MISS-3): C >= 0.60 is rated, below is
@@ -264,10 +267,19 @@ class GateEvidence:
     vitality_commits_180d: int | None = None
     #: D-GATE-6: an off-platform contribution marker.
     off_platform_marker: bool | None = None
+    #: D-GATE-6 review hand-off: ``True`` when the repository's own notices
+    #: send outside PRs to another review system (see
+    #: ``constants.GATE6_HANDOFF_*``), ``False`` when its PR window was read
+    #: and the rule is not met, ``None`` when there is no readable PR window
+    #: (no opinion).
+    review_handoff: bool | None = None
 
     def __post_init__(self) -> None:
         problems: list[str] = []
-        for name in ("manifest_found", "license_file_present", "fork_parent_in_universe", "off_platform_marker"):
+        for name in (
+            "manifest_found", "license_file_present", "fork_parent_in_universe", "off_platform_marker",
+            "review_handoff",
+        ):
             value = getattr(self, name)
             if value is not None and not isinstance(value, bool):
                 problems.append(f"{name} must be a bool or None, got {value!r}")
@@ -413,7 +425,12 @@ def evaluate_gates(
     whose 14-day zero-response rate exceeds :data:`GATE5_MAX_ZERO_RESPONSE_SHARE`;
     instead the repository remains eligible for stage 2-9 scoring and ranking
     (where 1.4 ``gr14_ghost_rate`` scores 0.0 and ``"black_hole"`` is surfaced
-    on ``ScoreRecord.suspicion``)."""
+    on ``ScoreRecord.suspicion``).
+
+    A repository with ``evidence.review_handoff`` true hands review off to
+    another system: D-GATE-5 is recorded UNDECIDED (never failed, whatever its
+    ghost rate) and D-GATE-6 routes it off-platform, whether or not it has a
+    decided external PR. Gates 1-4 still decide as before."""
     if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
         raise ValueError(f"now must be timezone-aware, got {now!r}")
     repo = bundle.repo
@@ -471,16 +488,21 @@ def evaluate_gates(
     # D-GATE-5: not a black hole. Reads the 1.4 GR_14 input, which derive
     # computes with zero_response_counts at its own pinned reference time
     # from the pr_window envelope: value = the zero-response share, n = the
-    # population. Unmeasured or n below the minimum -> UNDECIDED.
+    # population. Unmeasured or n below the minimum -> UNDECIDED. A repository
+    # that hands review off is UNDECIDED too: its PRs are reviewed somewhere
+    # GitHub cannot see, so an unanswered-on-GitHub share is not a verdict.
+    handoff = evidence.review_handoff is True
     ghost = bundle.inputs.get(GHOST_RATE_INPUT_ID)
-    if not isinstance(ghost, Measured) or ghost.n < GATE5_MIN_N:
+    if handoff or not isinstance(ghost, Measured) or ghost.n < GATE5_MIN_N:
         undecided.append(GATE_5)
     elif not rank_black_holes and ghost.value > GATE5_MAX_ZERO_RESPONSE_SHARE:
         failures.append((5, REASON_BLACK_HOLE))
 
-    # D-GATE-6: PR workflow (decided external PR, else off-platform routing,
-    # else unrated).
-    if not _has_decided_external_pr(events, now):
+    # D-GATE-6: PR workflow (a review hand-off routes off-platform; else a
+    # decided external PR, else off-platform routing, else unrated).
+    if handoff:
+        routed = ROUTED_OFF_PLATFORM
+    elif not _has_decided_external_pr(events, now):
         if evidence.off_platform_marker is True:
             routed = ROUTED_OFF_PLATFORM
         elif evidence.off_platform_marker is False:

@@ -106,6 +106,26 @@ GATE5_RESPONSE_DEADLINE_DAYS: int = 14
 GATE5_MAX_ZERO_RESPONSE_SHARE: float = 0.50
 #: D-GATE-6: horizon for a decided external PR.
 GATE6_DECISION_WINDOW_DAYS: int = 365
+#: D-GATE-6 review hand-off (RFC-0007): a repository whose own notices send
+#: outside PRs to another review system (Gerrit, a mailing list, an internal
+#: repository) hands review off, and is routed off-platform instead of being
+#: failed at D-GATE-5. It hands off when at least this many outside PRs carry
+#: such a notice ...
+GATE6_HANDOFF_MIN_PRS: int = 5
+#: ... and those are at least this share of its outside PRs (external, non-bot
+#: authors in the recorded PR window).
+GATE6_HANDOFF_MIN_SHARE: float = 0.5
+#: D-GATE-6 review hand-off: a comment by an account other than the PR's author
+#: is a notice when its text contains one of these phrases (compared
+#: lower-cased)...
+GATE6_HANDOFF_NOTICES: tuple[str, ...] = (
+    "has been imported to gerrit for code review",
+    "welcome to gitgitgadget",
+    "import it to our internal repository for further review",
+)
+#: ... or when its author's login (lower-cased) starts with one of these
+#: (GitGitGadget relays git/git pull requests to the mailing list).
+GATE6_HANDOFF_RELAY_LOGIN_PREFIXES: tuple[str, ...] = ("gitgitgadget",)
 
 #: D-MAT-1 leverage/friction axis weights and the quadrant boundary.
 LEVERAGE_WEIGHTS: Mapping[str, float] = MappingProxyType({
@@ -535,6 +555,10 @@ def constants_dict() -> dict[str, object]:
         "GATE5_MIN_N": GATE5_MIN_N,
         "GATE5_RESPONSE_DEADLINE_DAYS": GATE5_RESPONSE_DEADLINE_DAYS,
         "GATE6_DECISION_WINDOW_DAYS": GATE6_DECISION_WINDOW_DAYS,
+        "GATE6_HANDOFF_MIN_PRS": GATE6_HANDOFF_MIN_PRS,
+        "GATE6_HANDOFF_MIN_SHARE": GATE6_HANDOFF_MIN_SHARE,
+        "GATE6_HANDOFF_NOTICES": GATE6_HANDOFF_NOTICES,
+        "GATE6_HANDOFF_RELAY_LOGIN_PREFIXES": GATE6_HANDOFF_RELAY_LOGIN_PREFIXES,
         "GATED_PERSONAS": GATED_PERSONAS,
         "GHOST_RATE_SLOPE": GHOST_RATE_SLOPE,
         "LEGAL_IP_SCORES": LEGAL_IP_SCORES,
