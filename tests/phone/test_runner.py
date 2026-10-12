@@ -16,7 +16,7 @@ from tests.phone import make_home
 
 REPO = Path(__file__).resolve().parents[2]
 TERMUX = REPO / "phone" / "termux"
-ORIGINAL_DIR = Path(os.environ.get("PORCHLAMP_ORIGINAL_RUNNER", "/home/pctablet505/Projects/porchlamp-work/refresh-run"))
+ORIGINAL_DIR = Path(os.environ.get("PORCHLAMP_ORIGINAL_RUNNER", REPO / "tests" / "fixtures" / "original_runner"))
 
 STUB = '''\
 import os, pathlib, sys
