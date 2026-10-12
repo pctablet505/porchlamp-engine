@@ -90,6 +90,18 @@ confirm the ruling covers this RFC).
 
 ## Reviewer
 
-Not yet reviewed. Written by the implementing agent; per step 5 of the
-procedure a named reviewer distinct from the author reproduces the mutation
-proof before this merges.
+Reviewed on 2026-10-13 by the lead session (Claude Opus 5.5), which wrote the
+spec and did not write the code; the code was written by a separate agent
+(Claude Sonnet 5.5). The reviewer read the diff against the spec and
+reproduced the proof on the reviewed tree:
+
+- the known-answers check on the real data, from a script that does not use
+  the engine's code: the engine agrees on 10,997 of 10,997 repositories;
+- three defects planted by hand, each turning its test red and green again
+  after a byte-identical restore: D-GATE-5 still failing a hand-off repository,
+  the share test weakened from `>=` to `>`, and `review_handoff` dropped from
+  the manifest that `snapshot store` reads;
+- the full suite: 3555 passed, 0 failed (base: 3529 passed, 0 failed).
+
+The no-bump ruling above is confirmed for this RFC: `BENCHMARK_VERSION` stays
+`2.0.0-rc1`, as for RFC-0003 and RFC-0006.
