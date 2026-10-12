@@ -235,3 +235,45 @@ def test_rated_path_ceiling_a_case_with_distinct_axis_coverages() -> None:
     assert record.leverage_coverage != pytest.approx(record.friction_coverage)
     assert record.leverage_coverage > 0.0
     assert record.friction_coverage > 0.0
+
+
+# --------------------------------------------------------------------------- #
+# D-GATE-6 amendment: a project that hands review off is not a black hole      #
+# --------------------------------------------------------------------------- #
+
+
+def _black_hole_bundle() -> FeatureBundle:
+    """A ghost rate of 0.99 over 300 external PRs, everything else as ``FullyMeasured``."""
+    inputs = dict(_base_inputs())
+    inputs["gr14_ghost_rate"] = _m(0.99, n=300)
+    return _make_bundle(inputs)
+
+
+def _ranking_black_holes(review_handoff: bool | None) -> Snapshot:
+    import dataclasses
+
+    return Snapshot(
+        snapshot_id="snap-1", as_of=NOW, rank_black_holes=True,
+        gate_evidence=dataclasses.replace(_healthy_evidence(), review_handoff=review_handoff))
+
+
+def test_handoff_repository_is_unrated_off_platform_and_unflagged() -> None:
+    record = score(_black_hole_bundle(), _populations(), _ranking_black_holes(True))
+
+    assert record.gate.eligible is True
+    assert record.gate.routed == "off_platform"
+    assert record.rated is False
+    assert record.unrated_reason == "unrated: off_platform_routed"
+    assert record.rank is None
+    assert "black_hole" not in record.suspicion
+
+
+def test_a_repository_that_does_not_hand_off_keeps_the_black_hole_flag() -> None:
+    """Over-correction guard: the same bundle without the hand-off is ranked and flagged."""
+    for review_handoff in (False, None):
+        record = score(_black_hole_bundle(), _populations(), _ranking_black_holes(review_handoff))
+
+        assert record.gate.eligible is True, review_handoff
+        assert record.gate.routed is None, review_handoff
+        assert record.rated is True, review_handoff
+        assert "black_hole" in record.suspicion, review_handoff

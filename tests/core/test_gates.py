@@ -361,6 +361,77 @@ def test_unmeasured_ghost_rate_is_undecided() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# D-GATE-5 / D-GATE-6 amendment: a project whose own notices send outside PRs #
+# to another review system is routed off-platform, not failed as a black hole #
+# --------------------------------------------------------------------------- #
+
+
+def handoff_evidence(review_handoff: bool | None) -> Any:
+    """``healthy_evidence`` with ``review_handoff`` set."""
+    import dataclasses
+
+    return dataclasses.replace(healthy_evidence(), review_handoff=review_handoff)
+
+
+#: A ghost rate of 0.99 over 300 external PRs: far past the D-GATE-5 ceiling.
+BLACK_HOLE_GHOST = ghost_input(297, 300)
+
+
+def test_handoff_routes_instead_of_failing_the_black_hole_gate() -> None:
+    from porchlamp.core import gates
+
+    # healthy_events() holds decided external PRs, so D-GATE-6 would pass on
+    # them alone; the hand-off must still route.
+    result = gates.evaluate_gates(
+        make_bundle(healthy_events(), ghost=BLACK_HOLE_GHOST), handoff_evidence(True), NOW)
+    assert result.eligible is True
+    assert result.reason is None
+    assert result.routed == "off_platform"
+    assert "D-GATE-5" in result.undecided
+
+
+def test_handoff_does_not_rescue_an_archived_repository() -> None:
+    from porchlamp.core import gates
+
+    result = gates.evaluate_gates(
+        make_bundle(healthy_events(), ghost=BLACK_HOLE_GHOST, archived=True), handoff_evidence(True), NOW)
+    assert result.eligible is False
+    assert result.reason == "archived"
+    assert result.routed is None
+
+
+def test_no_handoff_keeps_the_black_hole_failure() -> None:
+    from porchlamp.core import gates
+
+    for review_handoff in (False, None):
+        result = gates.evaluate_gates(
+            make_bundle(healthy_events(), ghost=BLACK_HOLE_GHOST), handoff_evidence(review_handoff), NOW)
+        assert result.eligible is False, review_handoff
+        assert result.reason == "black_hole", review_handoff
+        assert result.routed is None, review_handoff
+
+
+def test_handoff_without_a_measured_ghost_rate_still_records_gate_5_undecided_once() -> None:
+    """Gate 5 had no verdict to give here either way: it is recorded once, not twice."""
+    from porchlamp.core import gates
+
+    result = gates.evaluate_gates(make_bundle(healthy_events()), handoff_evidence(True), NOW)
+    assert result.routed == "off_platform"
+    assert result.undecided == ("D-GATE-5",)
+
+
+def test_gate_evidence_rejects_a_non_bool_review_handoff() -> None:
+    from porchlamp.core import gates
+
+    for bad in ("yes", 1, 0.5):
+        with pytest.raises(ValueError, match="review_handoff"):
+            gates.GateEvidence(manifest_found=True, review_handoff=bad)  # type: ignore[arg-type]
+    for good in (True, False, None):
+        assert gates.GateEvidence(manifest_found=True, review_handoff=good).review_handoff is good
+    assert gates.GateEvidence(manifest_found=True).review_handoff is None
+
+
+# --------------------------------------------------------------------------- #
 # D-GATE-1..4: software, archive/mirror/fork, licence, vitality                #
 # --------------------------------------------------------------------------- #
 

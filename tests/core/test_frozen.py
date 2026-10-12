@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "aa6c4cd6f702fdc738cafb68022eb2613491657a9cb74c180fc2a1bd1236e662"
+FROZEN_CONSTANTS_HASH = "aca719a922264ba5edb6adcdab6c0c08eaff7a315d0e5818a567509e5b0d3ba9"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -186,6 +186,20 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     ("AUTHOR_CAP_FRACTION", constants.AUTHOR_CAP_FRACTION, 0.20),
     ("MIN_ACCOUNT_AGE_DAYS", constants.MIN_ACCOUNT_AGE_DAYS, 90),
     ("MIN_PUBLIC_EVENTS", constants.MIN_PUBLIC_EVENTS, 5),
+    # RFC-0007: D-GATE-6 review hand-off (a project whose own notices send outside PRs
+    # to another review system is routed off-platform).
+    ("GATE6_HANDOFF_MIN_PRS", constants.GATE6_HANDOFF_MIN_PRS, 5),
+    ("GATE6_HANDOFF_MIN_SHARE", constants.GATE6_HANDOFF_MIN_SHARE, 0.5),
+    (
+        "GATE6_HANDOFF_NOTICES",
+        constants.GATE6_HANDOFF_NOTICES,
+        (
+            "has been imported to gerrit for code review",
+            "welcome to gitgitgadget",
+            "import it to our internal repository for further review",
+        ),
+    ),
+    ("GATE6_HANDOFF_RELAY_LOGIN_PREFIXES", constants.GATE6_HANDOFF_RELAY_LOGIN_PREFIXES, ("gitgitgadget",)),
 )
 
 

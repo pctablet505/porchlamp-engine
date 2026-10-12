@@ -140,6 +140,32 @@ def test_gates_cover_the_six_gate_ids_plus_evidence_sufficiency() -> None:
     assert by_id["D-GATE-2"]["cutoffs"] == {}
 
 
+def test_gate6_methodology_states_the_handoff_rule() -> None:
+    """D-GATE-6's published entry carries the review hand-off rule: both cutoffs and every
+    notice phrase (the literals here are the frozen values; ``test_frozen`` pins the constants)."""
+    entry = {e["id"]: e for e in methodology_document()["gates"]}["D-GATE-6"]
+    assert entry["cutoffs"]["handoff_min_prs"] == 5
+    assert entry["cutoffs"]["handoff_min_share"] == 0.5
+    assert entry["cutoffs"]["handoff_min_prs"] == constants.GATE6_HANDOFF_MIN_PRS
+    assert entry["cutoffs"]["handoff_min_share"] == constants.GATE6_HANDOFF_MIN_SHARE
+    # the existing cutoff is still there
+    assert entry["cutoffs"]["decision_window_days"] == constants.GATE6_DECISION_WINDOW_DAYS
+    criterion = entry["criterion"]
+    for phrase in (
+        "has been imported to gerrit for code review",
+        "welcome to gitgitgadget",
+        "import it to our internal repository for further review",
+    ):
+        assert phrase in criterion, phrase
+    for phrase in constants.GATE6_HANDOFF_NOTICES:
+        assert phrase in criterion, phrase
+    for prefix in constants.GATE6_HANDOFF_RELAY_LOGIN_PREFIXES:
+        assert prefix in criterion, prefix
+    # and the existing outcomes are still stated
+    assert "no_external_workflow" in criterion
+    assert "off-platform" in criterion
+
+
 def test_missingness_reasons_match_unmeasured_reasons_in_order() -> None:
     doc = methodology_document()
     reasons = [row["reason"] for row in doc["missingness"]["reasons"]]

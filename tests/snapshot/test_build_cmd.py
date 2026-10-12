@@ -116,3 +116,32 @@ def test_merkle_root_matches_documented_recipe(tmp_path):
     populations_leaf = sha256_hex((out_dir / "populations.json").read_text(encoding="utf-8"))
     expected = merkle_root(sorted([*frozen.raw_hashes.values(), populations_leaf]))
     assert _merkle_root_of(out_dir) == expected
+
+
+def test_manifest_carries_the_review_handoff_so_the_stored_snapshot_scores_it(tmp_path):
+    """``snapshot store`` scores the evidence it reads back from ``manifest.json``, so a hand-off
+    found while building must be written there (RFC-0007), not only used in-process."""
+    data_dir = _make_data_dir(tmp_path)
+    first, second = sorted((data_dir / "derived").glob("*.json"))[:2]
+    notice = {"author": {"login": "gopherbot", "__typename": "User"}, "authorAssociation": "NONE",
+              "bodyText": "This PR has been imported to Gerrit for code review.",
+              "createdAt": "2026-09-01T01:00:00Z"}
+    prs = [{"number": n, "author": {"login": f"c{n}", "__typename": "User"}, "authorAssociation": "NONE",
+            "createdAt": "2026-09-01T00:00:00Z", "comments": {"nodes": [notice]}} for n in range(1, 6)]
+    envelope = {"data": {"prs": prs, "derived": [
+        {"number": n, "is_external": True, "is_bot_author": False} for n in range(1, 6)]}}
+    (data_dir / "raw" / "pr_window").mkdir()
+    (data_dir / "raw" / "pr_window" / first.name).write_text(json.dumps(envelope), encoding="utf-8")
+
+    out_dir = tmp_path / "out"
+    frozen = build_snapshot_dir(
+        data_dir, out_dir, snapshot_id="TEST-HANDOFF", as_of=_AS_OF, code_commit_sha=_COMMIT)
+
+    handoff = {key: ev.review_handoff for key, ev in frozen.gate_evidence.items()}
+    first_key = first.stem.replace("__", "/", 1)
+    assert handoff[first_key] is True
+    assert all(value is None for key, value in handoff.items() if key != first_key)
+    manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
+    by_repo = {f"{r['owner']}/{r['name']}": r["gate_evidence"] for r in manifest["repos"]}
+    assert by_repo[first_key]["review_handoff"] is True
+    assert second.stem.replace("__", "/", 1) in by_repo

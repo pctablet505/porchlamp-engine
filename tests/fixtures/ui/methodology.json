@@ -1,7 +1,7 @@
 {
   "benchmark_version": "2.0.0-rc1",
   "schema_version": 2,
-  "constants_hash": "aa6c4cd6f702fdc738cafb68022eb2613491657a9cb74c180fc2a1bd1236e662",
+  "constants_hash": "aca719a922264ba5edb6adcdab6c0c08eaff7a315d0e5818a567509e5b0d3ba9",
   "pillars": [
     {
       "name": "responsiveness",
@@ -390,12 +390,14 @@
     {
       "id": "D-GATE-6",
       "name": "PR workflow",
-      "criterion": ">= 1 external PR decided in the trailing window, or off-platform markers present (routed, not failed); neither means unrated: no_external_workflow",
+      "criterion": ">= 1 external PR decided in the trailing window, or off-platform markers present (routed, not failed); neither means unrated: no_external_workflow. A repository also routes off-platform, whatever its decided PRs, when it hands review off: among its outside PRs (external, non-bot authors in the recorded PR window) at least 5, and at least 50% of them, carry a notice, a comment by an account other than the PR's author that contains \"has been imported to gerrit for code review\", \"welcome to gitgitgadget\" or \"import it to our internal repository for further review\" (any letter case) or is written by an account whose login starts with \"gitgitgadget\". D-GATE-5 is then undecided for it, never failed",
       "reasons": [
         "unrated: no_external_workflow"
       ],
       "cutoffs": {
-        "decision_window_days": 365
+        "decision_window_days": 365,
+        "handoff_min_prs": 5,
+        "handoff_min_share": 0.5
       }
     },
     {
@@ -716,6 +718,13 @@
       "summary": "Add `(\"downloads_monthly\", \"ecosystem\", \"go\")`, `(\"downloads_monthly\", \"ecosystem\", \"maven\")`, and `(\"downloads_monthly\", \"ecosystem\", \"systems\")` to `NOT_APPLICABLE_RULES` (D-MISS-5: ecosystems with no public monthly-downloads registry).",
       "hash_before": "748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b",
       "hash_after": "aa6c4cd6f702fdc738cafb68022eb2613491657a9cb74c180fc2a1bd1236e662"
+    },
+    {
+      "date": "2026-10-13",
+      "rfc": "RFC-0007",
+      "summary": "Add `GATE6_HANDOFF_MIN_PRS = 5`, `GATE6_HANDOFF_MIN_SHARE = 0.5`, `GATE6_HANDOFF_NOTICES` and `GATE6_HANDOFF_RELAY_LOGIN_PREFIXES` (D-GATE-6: a repository whose own notices send outside PRs to another review system, e.g. Gerrit or a mailing list, is routed off-platform and is not failed at D-GATE-5). No rank movement on the fixture (no `pr_window` envelopes in its corpus); on the recorded data six repositories hand off.",
+      "hash_before": "aa6c4cd6f702fdc738cafb68022eb2613491657a9cb74c180fc2a1bd1236e662",
+      "hash_after": "aca719a922264ba5edb6adcdab6c0c08eaff7a315d0e5818a567509e5b0d3ba9"
     }
   ]
 }

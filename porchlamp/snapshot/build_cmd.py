@@ -191,6 +191,7 @@ def build_snapshot_dir(
                 "fork_parent_in_universe": gate_evidence[repo_key(bundle)].fork_parent_in_universe,
                 "vitality_commits_180d": gate_evidence[repo_key(bundle)].vitality_commits_180d,
                 "off_platform_marker": gate_evidence[repo_key(bundle)].off_platform_marker,
+                "review_handoff": gate_evidence[repo_key(bundle)].review_handoff,
             },
         }
         for bundle in sorted(bundles, key=lambda b: (b.repo.owner.lower(), b.repo.name.lower()))

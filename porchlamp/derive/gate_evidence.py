@@ -3,14 +3,16 @@
 Extracted from ``scripts/build_fixture_snapshot.py`` so both the fixture
 builder and production v2 snapshot builder (``porchlamp snapshot build``) share
 one implementation of gate-evidence derivation from ``raw/tree`` and
-``raw/commits_180d`` envelopes.
+``raw/commits_180d`` envelopes, and the D-GATE-6 review hand-off from the
+``raw/pr_window`` envelope.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
+from porchlamp.core import constants
 from porchlamp.core.commit_domains import CommitActor, envelope_rows, is_bot
 from porchlamp.core.gates import GateEvidence
 
@@ -20,6 +22,8 @@ __all__ = [
     "_has_recognized_manifest",
     "_has_license_file",
     "_has_off_platform_marker",
+    "_pr_has_review_handoff_notice",
+    "_review_handoff",
     "_tree_paths",
     "_vitality_commit_count",
     "gate_evidence_for",
@@ -143,6 +147,79 @@ def _vitality_commit_count(raw_root: Path, basename: str) -> int | None:
     return count
 
 
+def _login(node: object) -> str:
+    """The lower-cased ``author.login`` of a PR or comment node (``""`` if none)."""
+    author = node.get("author") if isinstance(node, Mapping) else None
+    login = author.get("login") if isinstance(author, Mapping) else None
+    return login.lower() if isinstance(login, str) else ""
+
+
+def _pr_has_review_handoff_notice(pr: Mapping[str, Any]) -> bool:
+    """D-GATE-6 review hand-off: whether one PR node carries a review-elsewhere notice.
+
+    A notice is a comment, written by an account other than the PR's own author
+    (logins compared case-insensitively), whose text contains one of
+    ``constants.GATE6_HANDOFF_NOTICES`` (case-insensitively) or whose author's
+    login starts with one of ``constants.GATE6_HANDOFF_RELAY_LOGIN_PREFIXES``.
+    A bot's comment counts: the notices are written by bots. Reviews and review
+    threads are not read."""
+    author = _login(pr)
+    comments = pr.get("comments")
+    nodes = comments.get("nodes") if isinstance(comments, Mapping) else None
+    for comment in nodes if isinstance(nodes, list) else ():
+        if not isinstance(comment, Mapping):
+            continue
+        who = _login(comment)
+        if who == author:
+            continue
+        text = comment.get("bodyText")
+        text = text.lower() if isinstance(text, str) else ""
+        if who.startswith(tuple(constants.GATE6_HANDOFF_RELAY_LOGIN_PREFIXES)):
+            return True
+        if any(phrase in text for phrase in constants.GATE6_HANDOFF_NOTICES):
+            return True
+    return False
+
+
+def _review_handoff(raw_root: Path, basename: str) -> bool | None:
+    """D-GATE-6 review hand-off from ``raw/pr_window/{basename}.json``.
+
+    The outside PRs are those the collector's own ``derived`` rows (joined to
+    ``prs`` by PR number) classify as external and not bot-authored, so there
+    is one definition of "external" and "bot" (``derive_pr_window``); no age or
+    date filter. The repository hands review off when
+    ``constants.GATE6_HANDOFF_MIN_PRS`` or more of them, and at least
+    ``constants.GATE6_HANDOFF_MIN_SHARE`` of them, carry a notice
+    (:func:`_pr_has_review_handoff_notice`). ``None`` (no opinion) when the
+    envelope is absent, unreadable, or holds no ``prs`` / ``derived`` lists."""
+    path = raw_root / "pr_window" / f"{basename}.json"
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    data = document.get("data") if isinstance(document, Mapping) else None
+    prs = data.get("prs") if isinstance(data, Mapping) else None
+    derived = data.get("derived") if isinstance(data, Mapping) else None
+    if not isinstance(prs, list) or not isinstance(derived, list):
+        return None
+    classified = {
+        row.get("number"): row for row in derived if isinstance(row, Mapping) and row.get("number") is not None
+    }
+    outside = [
+        pr for pr in prs
+        if isinstance(pr, Mapping)
+        and (row := classified.get(pr.get("number"))) is not None
+        and row.get("is_external") and not row.get("is_bot_author")
+    ]
+    notices = sum(_pr_has_review_handoff_notice(pr) for pr in outside)
+    return bool(
+        notices >= constants.GATE6_HANDOFF_MIN_PRS
+        and notices >= constants.GATE6_HANDOFF_MIN_SHARE * len(outside)
+    )
+
+
 def _tree_flag(found: bool, truncated: bool) -> bool | None:
     """Return ``True`` when found, ``None`` (UNDECIDED) when absent in a truncated tree, else ``False``."""
     if found:
@@ -154,7 +231,7 @@ def _tree_flag(found: bool, truncated: bool) -> bool | None:
 
 def gate_evidence_for(raw_root: Path, basename: str) -> GateEvidence:
     """Derive one repo's :class:`~porchlamp.core.gates.GateEvidence` from the
-    raw ``tree``/``commits_180d`` envelopes. ``fork_parent_in_universe`` stays
+    raw ``tree``/``commits_180d``/``pr_window`` envelopes. ``fork_parent_in_universe`` stays
     ``None`` (undecided): every v1-loaded bundle's ``RepoIdentity.fork`` is
     hardcoded ``False`` by ``porchlamp.derive.bundle._load_v1`` (that loader never
     observes a real fork flag), so D-GATE-2's fork branch never reads this
@@ -168,4 +245,5 @@ def gate_evidence_for(raw_root: Path, basename: str) -> GateEvidence:
         fork_parent_in_universe=None,
         vitality_commits_180d=_vitality_commit_count(raw_root, basename),
         off_platform_marker=None if paths is None else _tree_flag(_has_off_platform_marker(paths), truncated),
+        review_handoff=_review_handoff(raw_root, basename),
     )
