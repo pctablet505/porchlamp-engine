@@ -155,7 +155,7 @@ const GATE_REASON_COPY = Object.freeze({
   unlicensed: "No open-source license — contribution and reuse are not legally clear.",
   stale: "No qualifying human activity in the scoring window.",
   black_hole:
-    "Pull requests go in and never come out — reviews and merges have stalled.",
+    "More than half of outside pull requests got no human reply, review or merge on GitHub within 14 days.",
   non_software: "Not a software repository (docs, data, or list only).",
   fork: "A fork of another repository, not an independent project.",
 });
