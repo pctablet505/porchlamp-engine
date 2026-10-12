@@ -26,7 +26,7 @@ from porchlamp.core.models import BundleValidationError, Unmeasured, canonical_j
 #: recompute intentionally with
 #: `python -c "from porchlamp.core import constants as c; print(c.CONSTANTS_HASH)"`
 #: only as part of that procedure, never to make a red test green.
-FROZEN_CONSTANTS_HASH = "748be6e459b0d9eac279233dac75acd5ede7da9711590c84fd0317a84762cb6b"
+FROZEN_CONSTANTS_HASH = "aa6c4cd6f702fdc738cafb68022eb2613491657a9cb74c180fc2a1bd1236e662"
 
 
 def test_constants_hash_is_pinned() -> None:
@@ -173,7 +173,12 @@ _FROZEN_TABLE: tuple[tuple[str, object, object], ...] = (
     (
         "NOT_APPLICABLE_RULES",
         constants.NOT_APPLICABLE_RULES,
-        (("dependents_deduped", "ecosystem", "systems"),),
+        (
+            ("dependents_deduped", "ecosystem", "systems"),
+            ("downloads_monthly", "ecosystem", "go"),
+            ("downloads_monthly", "ecosystem", "maven"),
+            ("downloads_monthly", "ecosystem", "systems"),
+        ),
     ),
     ("OPENSSF_PROXY_MIN_SIGNALS", constants.OPENSSF_PROXY_MIN_SIGNALS, 8),
     ("WINDOW_STALENESS_DAYS", constants.WINDOW_STALENESS_DAYS, 14),

@@ -30,14 +30,17 @@ PERF_TEST_MJS = REPO_ROOT / "web" / "v2" / "tests" / "render.perf.test.mjs"
 _NODE_GLOBS: tuple[str, ...] = (
     ".local/opt/node-*/bin/node",
     "tools/node-*/bin/node",
+    "oss-contributions/node-*/**/bin/node",
     ".nvm/versions/node/*/bin/node",
     ".volta/tools/image/node/*/bin/node",
+    ".fnm/node-versions/*/installation/bin/node",
+    ".asdf/installs/nodejs/*/bin/node",
 )
 
 
 def find_node() -> str | None:
     """A Node.js interpreter: ``PATH``, then ``PORCHLAMP_NODE_BIN``, then a small
-    set of generic install locations under ``$HOME`` and ``/usr/local``.
+    set of generic install locations under ``$HOME``, ``/opt/homebrew``, and ``/usr/local``.
 
     Returns ``None`` only when no interpreter exists anywhere we look, which
     is the one case that should stop the suite.
@@ -50,7 +53,7 @@ def find_node() -> str | None:
         return override
     home = Path.home()
     candidates = [path for pattern in _NODE_GLOBS for path in sorted(home.glob(pattern), reverse=True)]
-    candidates.append(Path("/usr/local/bin/node"))
+    candidates.extend([Path("/opt/homebrew/bin/node"), Path("/usr/local/bin/node")])
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)

@@ -709,9 +709,28 @@ def make_handler(
             self._serve_static(path)
 
         def do_POST(self) -> None:
-            path, _params = _query_params(self.path)
+            path, params = _query_params(self.path)
 
             if path == "/v1/porchlamp/reproject":
+                has_paging = "page" in params or "page_size" in params
+                if has_paging:
+                    try:
+                        page = int(params.get("page", "1"))
+                        page_size = int(params.get("page_size", str(DEFAULT_PAGE_SIZE)))
+                    except ValueError:
+                        self._send_error_json(400, "page and page_size must be integers")
+                        return
+                    if page < 1:
+                        self._send_error_json(400, "page must be >= 1")
+                        return
+                    if page_size not in ALLOWED_PAGE_SIZES:
+                        self._send_error_json(
+                            400, f"page_size must be one of {ALLOWED_PAGE_SIZES}, got {page_size}"
+                        )
+                        return
+                else:
+                    page = 1
+                    page_size = DEFAULT_PAGE_SIZE
                 length = int(self.headers.get("Content-Length", "0") or "0")
                 raw = self.rfile.read(length) if length > 0 else b"{}"
                 try:
@@ -727,7 +746,21 @@ def make_handler(
                 weights = {pillar: getattr(request, f"weight_{pillar}") for pillar in PILLARS}
                 rows = store.rows_for_persona("balanced")
                 projected = reproject_rows(rows, weights)
-                self._send_json(200, {"rows": projected, "total": len(projected), "lens": "custom"})
+                if has_paging:
+                    start = (page - 1) * page_size
+                    page_rows = projected[start : start + page_size]
+                else:
+                    page_rows = projected
+                self._send_json(
+                    200,
+                    {
+                        "rows": page_rows,
+                        "total": len(projected),
+                        "page": page,
+                        "page_size": page_size,
+                        "lens": "custom",
+                    },
+                )
                 return
 
             if path.startswith("/v1/"):

@@ -2046,3 +2046,71 @@ def test_v1_legal_ip_values_map_to_corp_cla(tmp_path: Path, v1_legal_ip: str) ->
     )
 
 
+@pytest.mark.parametrize("eco", ["go", "maven", "systems"])
+def test_downloads_monthly_not_applicable_ecosystems(tmp_path: Path, eco: str) -> None:
+    """D-MISS-5 / RFC-0006: ecosystems with no public per-package downloads
+    registry (go, maven, systems) resolve downloads_monthly to
+    Unmeasured(reason="not_applicable") rather than third_party_gap."""
+    doc = base_document(
+        meta={"ecosystem": eco, "downloads_status": "unmeasured"},
+        confidence={"monthly_downloads": "missing"},
+    )
+    bundle = load(tmp_path, doc, key=f"acme__{eco}-repo")
+    assert bundle.inputs["downloads_monthly"] == Unmeasured(
+        reason="not_applicable",
+        detail=f"D-MISS-5: ecosystem == {eco} has no public downloads registry (2.3 is undefined)",
+    )
+
+
+def test_dx_resolver_measured_insufficient_n_and_missing(tmp_path: Path) -> None:
+    """5.4 DX resolver: Measured when n >= 5, insufficient_n when n < 5, and
+    collector_failure when actions_runs was never collected."""
+    runs_data = [{"run_duration_seconds": 600} for _ in range(5)]
+    write_envelope(tmp_path / "raw", "actions_runs", "acme__dx-ok", runs_data, "2026-09-01T00:05:00+00:00")
+    doc_ok = base_document(
+        meta={"dx": 72.5, "dx_run_count": 5},
+        provenance={"dx": prov("actions_runs", key="acme__dx-ok")},
+        confidence={"dx": "derived", "dx_run_count": "derived"},
+    )
+    bundle_ok = load(tmp_path, doc_ok, key="acme__dx-ok")
+    assert bundle_ok.inputs["dx"] == Measured(
+        value=72.5,
+        n=5,
+        window_start=None,
+        window_end=None,
+        method="primary",
+        source="raw/actions_runs/acme__dx-ok.json",
+        source_hash=expected_hash(runs_data),
+        fetched_at="2026-09-01T00:05:00+00:00",
+    )
+
+    doc_thin = base_document(
+        meta={"dx": 72.5, "dx_run_count": 4},
+        provenance={"dx": prov("actions_runs", key="acme__dx-ok")},
+        confidence={"dx": "derived", "dx_run_count": "derived"},
+    )
+    bundle_thin = load(tmp_path, doc_thin, key="acme__dx-thin")
+    assert bundle_thin.inputs["dx"] == Unmeasured(
+        reason="insufficient_n",
+        detail="4 CI runs with recorded duration, need >= 5",
+    )
+
+    doc_zero = base_document(
+        meta={"dx": None, "dx_run_count": 0},
+        confidence={"dx": "missing", "dx_run_count": "derived"},
+    )
+    bundle_zero = load(tmp_path, doc_zero, key="acme__dx-zero")
+    assert bundle_zero.inputs["dx"] == Unmeasured(
+        reason="insufficient_n",
+        detail="0 CI runs with recorded duration, need >= 5",
+    )
+
+    doc_missing = base_document(
+        meta={"dx": None, "dx_run_count": 0},
+        confidence={"dx": "missing", "dx_run_count": "missing"},
+    )
+    bundle_missing = load(tmp_path, doc_missing, key="acme__dx-missing")
+    assert bundle_missing.inputs["dx"] == Unmeasured(
+        reason="collector_failure",
+        detail="v1 deriver recorded no dx value (no actions_runs envelope)",
+    )

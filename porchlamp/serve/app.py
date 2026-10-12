@@ -213,12 +213,14 @@ def _require_snapshot(conn: sqlite3.Connection) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _no_ceiling_or_band(coverage: float) -> Optional[str]:
+def _no_ceiling_or_band(coverage: Optional[float]) -> Optional[str]:
     """Ceiling band as a label (not the index `queries._ceiling_index_case_sql`
-    builds for SQL `CASE`). Used only by :func:`_reproject_row`: `queries.reproject`
-    never recomputes `tier_ceiling` for custom coverage, so it is derived
-    here instead from the same frozen constants."""
-    if coverage >= constants.NO_CEILING_MIN_COVERAGE:
+    builds for SQL `CASE`). Used by :func:`_leaderboard_row` (persona branch)
+    and :func:`_reproject_row`: the stored `tier_ceiling` column is the
+    balanced coverage ceiling (and `None` when balanced-unrated), so non-balanced
+    persona and custom-weight views derive `tier_ceiling` from their own
+    projected coverage using the same frozen constants."""
+    if coverage is None or coverage >= constants.NO_CEILING_MIN_COVERAGE:
         return None
     if coverage >= constants.CEILING_A_MIN_COVERAGE:
         return "A"
@@ -299,7 +301,7 @@ def _leaderboard_row(record: Mapping[str, Any], *, persona: str) -> LeaderboardR
         porchlamp=record["porchlamp_p"],
         coverage=record["coverage_p"],
         tier=record["tier_p"],
-        tier_ceiling=record["tier_ceiling"],
+        tier_ceiling=_no_ceiling_or_band(record["coverage_p"]),
         balanced_rank=balanced_rank,
         rank_delta=rank_delta,
     )

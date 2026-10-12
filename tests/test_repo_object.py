@@ -89,12 +89,38 @@ def test_tree_depth_and_filter_le2():
 
 
 def test_has_manifest_recognised_set():
+    from porchlamp.derive import gate_evidence
+
+    assert ro_mod.D_GATE1_MANIFEST_NAMES == gate_evidence.RECOGNIZED_MANIFEST_BASENAMES
+    assert ro_mod.D_GATE1_MANIFEST_SUFFIXES == gate_evidence.RECOGNIZED_MANIFEST_SUFFIXES
     assert ro_mod.has_manifest(["pyproject.toml"]) is True
     assert ro_mod.has_manifest(["src/package.json"]) is True
     assert ro_mod.has_manifest(["a/b/Cargo.toml"]) is True
     assert ro_mod.has_manifest(["sub/build.gradle.kts"]) is True
     assert ro_mod.has_manifest(["d/mylib.cabal"]) is True
     assert ro_mod.has_manifest(["Makefile", "README.md"]) is True
+    for polyglot in (
+        "WORKSPACE",
+        "BUILD.bazel",
+        "MODULE.bazel",
+        "build.zig",
+        "flake.nix",
+        "SConstruct",
+        "vcpkg.json",
+        "conanfile.py",
+        "composer.json",
+        "pubspec.yaml",
+        "Package.swift",
+        "build.sbt",
+        "deps.edn",
+        "stack.yaml",
+        "dune-project",
+        "src/App.csproj",
+        "mylib.rockspec",
+        "mylib.gemspec",
+        "MyPod.podspec",
+    ):
+        assert ro_mod.has_manifest([polyglot]) is True, polyglot
     assert ro_mod.has_manifest(["makefile", "README.md"]) is False  # spec lists Makefile
     assert ro_mod.has_manifest(["README.md", "docs/guide.md"]) is False
 
