@@ -30,6 +30,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from porchlamp.collect import net
+
 __all__ = [
     "GHARCHIVE_BASE_URL",
     "MAX_ARCHIVE_DECOMPRESSED_BYTES",
@@ -495,7 +497,7 @@ def fetch_gharchive_hour_bytes(
     if opener is not None:
         return opener(url)
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with net.urlopen(req, timeout) as resp:
         body = resp.read(MAX_ARCHIVE_DECOMPRESSED_BYTES + 1)
     if len(body) > MAX_ARCHIVE_DECOMPRESSED_BYTES:
         # Never hand back a silently truncated dump: a cut gzip stream replays as

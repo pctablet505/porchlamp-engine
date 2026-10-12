@@ -468,7 +468,8 @@ def test_gather_hook_writes_commits_365d(tmp_path, monkeypatch, block_live_netwo
                             # (api.deps.dev, packages.ecosyste.ms, 3x gh
                             # api) that the block_live_network guard fails.
                             ("repo_object", {}), ("pr_window", {}), ("governance", {}),
-                            ("dependents", {}), ("releases", {}),
+                            ("dependents", {"package": NAME, "guess_linked": True}),
+                            ("releases", {}),
                             ("issues_counts", {}), ("runs", {}),
                             # The author_history hook is network-backed too,
                             # so it is seeded alongside the rest.

@@ -401,6 +401,13 @@ def _seed_all_but_downloads(tmp_path: Path) -> None:
                                  "source": "test",
                                  "data": {"default_branch": "main"}}),
                      encoding="utf-8")
+    # The dependents envelope as the attributing resolver writes it: the package
+    # deps.dev links to acme/widget is "widget", so the downloads collector
+    # fetches that package and makes no lookup of its own.
+    (raw / "dependents" / f"{key}.json").write_text(json.dumps({
+        "fetched_at": "2026-09-12T00:00:00+00:00", "source": "test",
+        "data": {"package": "widget", "guess_linked": True, "deduped_count": 1}}),
+        encoding="utf-8")
     # The per-label gfi collector treats a bare/legacy-shaped envelope as
     # needing re-gather (needs_gather); the new shape's metadata-first
     # record is what actually marks it done.
@@ -443,6 +450,50 @@ def test_gather_pypi_ok_path_unchanged(tmp_path, monkeypatch, block_live_network
     st = gather.gather_repo("acme", "widget", "pypi")
     assert st["downloads"] == "ok"
     assert monthly_of(tmp_path, "widget") == 42
+
+
+def test_backfill_fetches_the_counted_package_and_keeps_the_attribution(tmp_path):
+    """A deferred pypistats envelope records the package gather counted (not
+    always the repo name) and the repo that wrote it; the backfill must fetch
+    that package and keep both fields, or derive.py can no longer tell whose
+    count it is."""
+    server = _start_server({"real-pkg": 321, "widget": 999})
+    try:
+        data_dir = tmp_path / "data"
+        make_data_dir(data_dir, ["widget"])
+        p = data_dir / "raw" / "downloads" / "pypi__widget.json"
+        p.write_text(json.dumps({
+            "fetched_at": "2026-09-12T00:00:00+00:00", "source": "pypistats-deferred",
+            "data": {"monthly": None, "package": "real-pkg", "repo": "acme/widget"}}),
+            encoding="utf-8")
+        backfill = _load_backfill()
+        report = backfill.backfill(
+            data_dir, base_url=f"http://127.0.0.1:{server.server_address[1]}", min_interval=0.0)
+        assert report.fetched == 1
+        assert [n for n, _ in server.seen] == ["real-pkg"]  # not the repo name
+        env = json.loads(p.read_text(encoding="utf-8"))
+        assert env["data"] == {"monthly": 321, "package": "real-pkg", "repo": "acme/widget"}
+        assert env["source"].endswith("/api/packages/real-pkg/recent")
+    finally:
+        server.shutdown()
+
+
+def test_backfill_legacy_envelope_still_fetches_by_name(tmp_path):
+    """Over-correction guard: an envelope with no recorded package is fetched
+    by its file name, as before."""
+    server = _start_server({"widget": 55})
+    try:
+        data_dir = tmp_path / "data"
+        make_data_dir(data_dir, ["widget"])
+        backfill = _load_backfill()
+        backfill.backfill(
+            data_dir, base_url=f"http://127.0.0.1:{server.server_address[1]}", min_interval=0.0)
+        assert [n for n, _ in server.seen] == ["widget"]
+        assert monthly_of(data_dir, "widget") == 55
+        data = json.loads((data_dir / "raw" / "downloads" / "pypi__widget.json").read_text())["data"]
+        assert data == {"monthly": 55}
+    finally:
+        server.shutdown()
 
 
 # --------------------------------------------------------------------------

@@ -497,7 +497,8 @@ GATHER_DONE = {
     # here; marking them done avoids live check-run/file-body/commits/
     # deps.dev/ecosyste.ms/graphql/gh api calls for "acme/widget" below
     # (Blocker B4 round 2).
-    "governance": {}, "commits_365d": [], "dependents": {}, "pr_window": {},
+    "governance": {}, "commits_365d": [],
+    "dependents": {"package": "widget", "guess_linked": True}, "pr_window": {},
     "releases": {}, "issues_counts": {}, "runs": {},
     # author_history hook is tested in its dedicated test module
     # test here; marking it done avoids a live AuthorWindow gh api call —
