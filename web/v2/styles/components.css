@@ -616,6 +616,13 @@ input.control {
   cursor: pointer;
 }
 
+/* The name and its ecosystem chip may shrink and break anywhere: a long name with no break points otherwise
+ * pushes the row past a 320 px screen. */
+.notranked-row > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .notranked-row:hover {
   background: var(--bg-surface-hover);
 }

@@ -165,6 +165,8 @@ def measured(tmp_path_factory):
         )
     ]
     cases += [
+        {"name": "width-notranked-320", "path": "./?tab=notranked", "width": 320, "height": 640,
+         "script": _PAGE_WIDTH % (2500, _LONG_NOT_RANKED_ROW)},
         {"name": "drawer", "path": f"./?repo={repo}", **PHONE, "script": _DRAWER},
         {"name": "header", "path": "./", **PHONE, "script": _HEADER},
         {"name": "active-tab", "path": "./?tab=methodology", **PHONE, "script": _ACTIVE_TAB},
@@ -188,6 +190,12 @@ def measured(tmp_path_factory):
 def test_no_screen_is_wider_than_the_phone(measured, tab):
     got = measured[f"width-{tab}"]
     assert got["innerWidth"] == 375, got  # the browser did not zoom out to fit a wide page
+    assert got["scrollWidth"] <= got["innerWidth"], got
+
+
+def test_a_long_not_ranked_name_fits_a_small_phone(measured):
+    got = measured["width-notranked-320"]
+    assert got["innerWidth"] == 320, got
     assert got["scrollWidth"] <= got["innerWidth"], got
 
 
