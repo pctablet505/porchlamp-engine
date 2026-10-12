@@ -117,7 +117,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from porchlamp.collect import ecosystemes as _ecosystemes
-from porchlamp.collect import net
+from porchlamp.collect import net, validate
 from porchlamp.collect.envelope import write_envelope
 
 #: Base URL of the deps.dev v3alpha API.
@@ -467,8 +467,13 @@ def dedup_dependents(packages: Iterable[tuple[str, str]], system: str,
                              dropped_same_org=tuple(dropped))
 
 
+#: The one host :func:`_get_json` may reach.
+DEPSDEV_HOSTS: frozenset[str] = frozenset({"api.deps.dev"})
+
+
 def _get_json(url: str) -> Optional[dict]:
     """One keyless GET; None on any transport or parse failure."""
+    validate.https_url(url, DEPSDEV_HOSTS, "deps.dev")
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
         with net.urlopen(req, 30) as response:

@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from porchlamp.collect import commits as commit_domains
+from porchlamp.collect import validate
 from porchlamp.collect.depsdev import package_key, package_name_for_repo
 from porchlamp.collect.envelope import raw_envelope_path, read_envelope, relative_envelope_path
 from porchlamp.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
@@ -229,7 +230,11 @@ def _body(data_dir: Path, owner: str, name: str, fname: str,
             return (env.get("data") or {}).get("body"), env.get("fetched_at")
     if not fetch:
         return None, None
-    url = f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{fname}"
+    validate.github_segment(owner, "owner")
+    validate.github_segment(name, "name")
+    validate.relative_file_path(fname, "governance file name")
+    url = validate.https_url(f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{fname}",
+                             validate.RAW_GITHUB_HOSTS, "raw content")
     try:
         with urllib.request.urlopen(url, timeout=30) as r:
             text = r.read().decode("utf-8", "replace")

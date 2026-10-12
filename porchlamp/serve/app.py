@@ -87,6 +87,7 @@ from porchlamp.serve.contract import (
     SnapshotSummary,
 )
 from porchlamp.serve.guard import run_guard
+from porchlamp.serve.security import MAX_REQUEST_BODY_BYTES, SECURITY_HEADERS
 from porchlamp.store import queries, reader
 
 __all__ = ["create_app"]
@@ -746,6 +747,30 @@ def create_app(db_path, *, web_dir) -> FastAPI:
 
     app = FastAPI(title="Porchlamp API v2")
     app.state.conn = conn
+
+    @app.middleware("http")
+    async def _security_middleware(request: Request, call_next):
+        def finish(response):
+            for name, value in SECURITY_HEADERS.items():
+                response.headers.setdefault(name, value)
+            return response
+
+        def reject(status: int, detail: str):
+            return finish(JSONResponse(status_code=status, content=_error_body(request, status, detail)))
+
+        if "chunked" in request.headers.get("transfer-encoding", "").lower():
+            return reject(411, "a request body must declare its Content-Length")
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                declared = int(content_length)
+            except ValueError:
+                return reject(400, "invalid Content-Length")
+            if declared < 0:
+                return reject(400, "invalid Content-Length")
+            if declared > MAX_REQUEST_BODY_BYTES:
+                return reject(413, f"request body exceeds {MAX_REQUEST_BODY_BYTES} bytes")
+        return finish(await call_next(request))
 
     _register_exception_handlers(app)
     app.include_router(_build_router())

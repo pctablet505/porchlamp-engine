@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from porchlamp.collect import ghcli, net
+from porchlamp.collect import ghcli, net, validate
 from porchlamp.collect.commits import collect_commits_365d
 from porchlamp.collect.envelope import write_envelope
 from porchlamp.collect.names import valid_ref
@@ -108,7 +108,22 @@ def _user_cache() -> UserCache:
     return _USER_CACHE
 
 
+#: Hosts :func:`_fetch_json` may reach: the keyless sources the collectors read.
+FETCH_HOSTS: frozenset[str] = frozenset({
+    "api.deps.dev",
+    "api.securityscorecards.dev",
+    "pypistats.org",
+    "api.npmjs.org",
+    "crates.io",
+    "ecosyste.ms",
+    "packages.ecosyste.ms",
+}) | validate.RAW_GITHUB_HOSTS
+
+
 def _gh(*args: str) -> Any:
+    if not args:
+        raise ValueError("gh api requires a REST endpoint path")
+    validate.gh_api_path(args[0])
     out = ghcli.run(["api", *args], timeout=90)
     if out.returncode != 0:
         raise RuntimeError(f"gh api {' '.join(args[:2])} rc={out.returncode}: {out.stderr[:160]}")
@@ -127,6 +142,7 @@ def _fetch_json(url: str, headers: Optional[dict] = None) -> tuple[Any, Optional
         ``(None, None, e)`` -- no status was ever received, so a caller must NOT
         mark the fetch done; the next run should retry.
     """
+    validate.https_url(url, FETCH_HOSTS, "fetch")
     req = urllib.request.Request(url, headers=headers or {})
     try:
         with net.urlopen(req, 30) as r:
@@ -161,6 +177,8 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     other collector is reported ``"skip"`` without touching a transport.
     ``None`` fetches everything, as before.
     """
+    validate.github_segment(owner, "owner")
+    validate.github_segment(name, "name")
     key = f"{owner}__{name}"
     status: dict[str, str] = {}
 

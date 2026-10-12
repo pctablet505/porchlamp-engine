@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import re
 
-NAME_RX = re.compile(r"[A-Za-z0-9._-]{1,100}")
+NAME_RX = re.compile(r"[A-Za-z0-9._][A-Za-z0-9._-]{0,99}")
 
 
 def valid_name(s: object) -> bool:
-    """True iff ``s`` is a string of 1-100 characters from ``A-Za-z0-9._-`` and is not ``.`` or ``..``."""
+    """True iff ``s`` is 1-100 characters from ``A-Za-z0-9._-``, does not start with ``-`` (a command-line flag), and is not ``.`` or ``..``."""
     return isinstance(s, str) and NAME_RX.fullmatch(s) is not None and s not in (".", "..")
 
 

@@ -77,7 +77,7 @@ from typing import Any, Mapping, Optional, Protocol, Sequence, Union
 import json
 
 from porchlamp.collect import commits as commit_domains
-from porchlamp.collect import ghcli
+from porchlamp.collect import ghcli, validate
 from porchlamp.collect.envelope import raw_envelope_path, relative_envelope_path, write_envelope
 from porchlamp.collect.github_graphql import is_bot_actor
 from porchlamp.core import constants
@@ -126,6 +126,7 @@ class GhRestTransport:
         would otherwise default the method to POST (the form fields become
         a body), which the read endpoints reject.
         """
+        validate.gh_api_path(path)
         cmd = ["api", "-X", "GET", path]
         for name, value in params.items():
             cmd += ["-f", f"{name}={value}"]

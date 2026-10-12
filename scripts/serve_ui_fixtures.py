@@ -105,6 +105,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from pydantic import ValidationError
 
+from porchlamp.serve.security import MAX_REQUEST_BODY_BYTES, SECURITY_HEADERS
 from porchlamp.serve.contract import (
     DEFAULT_PAGE_SIZE,
     LEADERBOARD_PAGE_SIZES,
@@ -561,11 +562,16 @@ def make_handler(
         def log_message(self, fmt: str, *args: Any) -> None:  # quieter test runs
             pass
 
+        def _send_security_headers(self) -> None:
+            for name, value in SECURITY_HEADERS.items():
+                self.send_header(name, value)
+
         def _send_json(self, status: int, payload: Any) -> None:
             body = json.dumps(payload).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            self._send_security_headers()
             self.end_headers()
             self.wfile.write(body)
 
@@ -599,6 +605,7 @@ def make_handler(
             self.send_response(200)
             self.send_header("Content-Type", content_type or "application/octet-stream")
             self.send_header("Content-Length", str(len(body)))
+            self._send_security_headers()
             self.end_headers()
             self.wfile.write(body)
 
@@ -731,11 +738,21 @@ def make_handler(
                 else:
                     page = 1
                     page_size = DEFAULT_PAGE_SIZE
-                length = int(self.headers.get("Content-Length", "0") or "0")
+                try:
+                    length = int(self.headers.get("Content-Length", "0") or "0")
+                except ValueError:
+                    self._send_error_json(400, "invalid Content-Length")
+                    return
+                if length < 0:
+                    self._send_error_json(400, "invalid Content-Length")
+                    return
+                if length > MAX_REQUEST_BODY_BYTES:
+                    self._send_error_json(413, f"request body exceeds {MAX_REQUEST_BODY_BYTES} bytes")
+                    return
                 raw = self.rfile.read(length) if length > 0 else b"{}"
                 try:
                     body = json.loads(raw)
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, UnicodeDecodeError):
                     self._send_error_json(400, "request body is not valid JSON")
                     return
                 try:

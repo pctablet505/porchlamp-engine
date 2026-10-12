@@ -12,6 +12,7 @@ from types import ModuleType
 import pytest
 
 from porchlamp.collect import ghcli, repo_object as ro_mod
+from porchlamp.collect import validate
 from porchlamp.collect.names import valid_name, valid_ref
 from tests.collect.test_ghcli import FakeGitHub
 from tests.helpers.gate import installed, loopback_gate
@@ -54,7 +55,7 @@ def fake(monkeypatch: pytest.MonkeyPatch):
 def test_names_module_accepts_only_plain_names():
     for ok in ("a", "A-b_c.9", "x" * 100, "..a", "a..", "...", ".hidden"):
         assert valid_name(ok), ok
-    for bad in ("", ".", "..", "x" * 101, "a b", "a/b", "a\nb", "a\n", 'a"', "a;b", "é", "a\\b", "a%2e", None, 7, b"a",
+    for bad in ("-XPOST", "--hostname=evil.example.com", "-", "--", "", ".", "..", "x" * 101, "a b", "a/b", "a\nb", "a\n", 'a"', "a;b", "é", "a\\b", "a%2e", None, 7, b"a",
                 INJECTION, "../../../../user/repos?x"):
         assert not valid_name(bad), bad
     assert valid_ref("o", "n") and not valid_ref("o", "..") and not valid_ref("", "n") and not valid_ref("o", None)
@@ -104,7 +105,13 @@ def test_main_repo_with_an_invalid_pair_exits_2_and_gathers_nothing(gather, monk
     assert gather.main(["--repo", "my-org", "some_repo.js"]) == 0 and seen == [("my-org", "some_repo.js", "pypi")]
 
 
+def _without_entry_check(monkeypatch):
+    """The entry check rejects INJECTION first; take it away to prove the query layer is safe on its own."""
+    monkeypatch.setattr(validate, "github_segment", lambda value, label="segment": value)
+
+
 def test_gather_meta_query_carries_names_as_variables_not_text(gather, monkeypatch):
+    _without_entry_check(monkeypatch)
     calls = []
 
     def run(args, timeout=90):
@@ -122,6 +129,7 @@ def test_gather_meta_query_carries_names_as_variables_not_text(gather, monkeypat
 
 
 def test_repo_object_query_carries_names_as_variables_not_text(monkeypatch, tmp_path):
+    _without_entry_check(monkeypatch)
     calls = []
 
     def run(args, timeout=90):
@@ -158,3 +166,24 @@ def test_legitimate_names_work_end_to_end_through_the_loader_and_both_queries(ga
     assert r == {"isArchived": False, "pullRequests": {"totalCount": 3}} and err is None
     body = json.loads(fake.seen[-1]["body"])
     assert body["variables"] == {"owner": owner, "name": name} and f'"{owner}"' not in body["query"]
+
+
+def test_validate_rules_refuse_flags_traversal_control_characters_and_other_hosts():
+    assert validate.github_segment("my-org", "owner") == "my-org" and validate.github_segment(".github") == ".github"
+    for bad in ("-XPOST", "--hostname=evil.example.com", "..", ".", "a/b", "a\nb", "", None):
+        with pytest.raises(ValueError, match="invalid GitHub owner"):
+            validate.github_segment(bad, "owner")
+    assert validate.gh_api_path("repos/o/n/git/trees/main") == "repos/o/n/git/trees/main"
+    for bad in ("-HAuthorization:x", "repos/o/../../admin", "repos/o/n\r\nX: 1", "repos/o/n\x00", "", None):
+        with pytest.raises(ValueError, match="invalid gh api path"):
+            validate.gh_api_path(bad)
+    assert validate.relative_file_path("docs/CONTRIBUTING.md", "governance file path") == "docs/CONTRIBUTING.md"
+    for bad in ("/etc/passwd", "../secret", "a/../b", "a\nb", ""):
+        with pytest.raises(ValueError, match="invalid governance file path"):
+            validate.relative_file_path(bad, "governance file path")
+    ok = "https://raw.githubusercontent.com/o/n/HEAD/README.md"
+    assert validate.https_url(ok, validate.RAW_GITHUB_HOSTS, "raw content") == ok
+    for bad in ("http://raw.githubusercontent.com/o/n", "https://evil.example.com/o/n", "file:///etc/passwd",
+                "https://raw.githubusercontent.com/o/n/../../x", "https://169.254.169.254/latest/meta-data/"):
+        with pytest.raises(ValueError, match="disallowed raw content URL"):
+            validate.https_url(bad, validate.RAW_GITHUB_HOSTS, "raw content")

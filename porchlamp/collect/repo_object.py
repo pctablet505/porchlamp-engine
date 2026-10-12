@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from porchlamp.collect import ghcli, net
+from porchlamp.collect import ghcli, net, validate
 from porchlamp.collect.envelope import write_envelope
 
 # --------------------------------------------------------------------------- #
@@ -326,6 +326,7 @@ def _gh_graphql(query: str, variables: Optional[dict[str, str]] = None) -> tuple
 
 def _gh_rest(path: str) -> Any:
     """Run one ``gh api`` REST request; return the parsed body (None on empty)."""
+    validate.gh_api_path(path)
     out = ghcli.run(["api", path], timeout=90)
     if out.returncode != 0:
         raise RuntimeError(f"gh api {path} rc={out.returncode}: {out.stderr[:160]}")
@@ -342,6 +343,8 @@ def _shallow_tree(owner: str, name: str, branch: str) -> tuple[Optional[list[str
     ``truncated=True``, as it is whenever a subtree listing is unreadable or
     node-truncated — a partial path list never reports ``truncated=False``.
     """
+    validate.github_segment(owner, "owner")
+    validate.github_segment(name, "name")
     requests = 1  # the root listing below counts against the budget
     root = _gh_rest(f"repos/{owner}/{name}/git/trees/{branch}")
     if not isinstance(root, dict):
@@ -379,7 +382,8 @@ def _shallow_tree(owner: str, name: str, branch: str) -> tuple[Optional[list[str
 
 
 def _fetch_body(url: str) -> Optional[str]:
-    """Fetch one raw.githubusercontent.com body; None on any failure."""
+    """Fetch one raw.githubusercontent.com body; None on any failure (a URL off that host raises)."""
+    validate.https_url(url, validate.RAW_GITHUB_HOSTS, "raw content")
     try:
         with net.urlopen(url, 30) as r:
             return r.read().decode("utf-8", "replace")
@@ -400,6 +404,8 @@ def collect_repo_object(raw_dir: Path, owner: str, name: str,
     returns ``"fail"`` when the repository lookup found nothing. Transport
     failures raise for the caller to mark retryable.
     """
+    validate.github_segment(owner, "owner")
+    validate.github_segment(name, "name")
     key = f"{owner}__{name}"
     r, graphql_error = _gh_graphql(REPO_OBJECT_QUERY, {"owner": owner, "name": name})
     if not r:
