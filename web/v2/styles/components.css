@@ -1066,6 +1066,6 @@ p.cell-numeric {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-xs) var(--space-md);
-  justify-content: center;
+  justify-content: flex-start; /* with the message above them */
   margin: var(--space-xs) 0 0;
 }
