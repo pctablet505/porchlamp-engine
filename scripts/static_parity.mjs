@@ -8,7 +8,8 @@
 // detail}. `fetch` is replaced by a reader of the site's own files, so the
 // module resolves its data exactly as a browser would (relative to its own
 // URL) with no server in between.
-import { readFile, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -28,14 +29,25 @@ globalThis.fetch = async (input) => {
 
 const api = await import(pathToFileURL(path.resolve(siteDir, apiModule)).href);
 const requests = JSON.parse(await readFile(requestsPath, "utf8"));
-const results = [];
+
+// The results are written one element at a time. A single JSON.stringify of
+// the whole array throws "RangeError: Invalid string length" once the answers
+// pass V8's string limit (about 512 MiB): the 11,000-repo snapshot of 2026-10
+// has 24,904 answers, about 1 GB. Each answer alone is far below the limit.
+const out = createWriteStream(outPath, { encoding: "utf8" });
+const failed = new Promise((_, reject) => out.once("error", reject));
+const emit = (text) =>
+  Promise.race([failed, new Promise((resolve) => (out.write(text) ? resolve() : out.once("drain", resolve)))]);
+await emit("[");
+let first = true;
 for (const { fn, args } of requests) {
   if (typeof api[fn] !== "function") throw new Error(`static_parity: api has no export ${fn}`);
   const result = await api[fn](...args);
-  results.push(
-    result.ok
-      ? { ok: true, data: result.data }
-      : { ok: false, status: result.error.status, detail: result.error.detail ?? null },
-  );
+  const answer = result.ok
+    ? { ok: true, data: result.data }
+    : { ok: false, status: result.error.status, detail: result.error.detail ?? null };
+  await emit((first ? "" : ",") + JSON.stringify(answer));
+  first = false;
 }
-await writeFile(outPath, JSON.stringify(results));
+await emit("]");
+await Promise.race([failed, new Promise((resolve) => out.end(resolve))]);

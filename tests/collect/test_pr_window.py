@@ -464,7 +464,7 @@ GATHER_DONE = {
     "depsdev": None,
     "scorecard": None,
     # Marking other collectors done avoids taking live calls:
-    "commits_365d": [], "dependents": {},
+    "commits_365d": [], "dependents": {"package": "widget", "guess_linked": True},
     "releases": {}, "issues_counts": {}, "runs": {},
 }
 

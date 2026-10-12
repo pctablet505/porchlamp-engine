@@ -26,13 +26,13 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
-import urllib.request
+import subprocess  # noqa: F401  (tests patch this module's subprocess)
 from collections.abc import Set as AbstractSet
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from porchlamp.collect import ghcli, net
 from porchlamp.collect.envelope import write_envelope
 
 # --------------------------------------------------------------------------- #
@@ -102,7 +102,7 @@ ELIGIBILITY_FIELDS: tuple[str, ...] = (
 #: object. ``pullRequests`` over all three states with ``first: 1`` records
 #: the all-time PR total (the PRs-enabled evidence) without fetching nodes.
 REPO_OBJECT_QUERY: str = (
-    '{ r: repository(owner: "%s", name: "%s") {'
+    'query($owner: String!, $name: String!) { r: repository(owner: $owner, name: $name) {'
     "isArchived mirrorUrl isFork"
     " parent { name owner { login } }"
     " licenseInfo { spdxId }"
@@ -282,7 +282,7 @@ def derive_eligibility(ro: Optional[dict],
 # --------------------------------------------------------------------------- #
 
 
-def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
+def _gh_graphql(query: str, variables: Optional[dict[str, str]] = None) -> tuple[Optional[dict], Optional[str]]:
     """Run one ``gh api graphql`` request; return ``(r, error_summary)``.
 
     GitHub returns ``data`` and ``errors`` together whenever some fields are
@@ -298,8 +298,11 @@ def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
     errors and no usable data at all; a lookup that found nothing (no data, no
     errors) returns ``(None, None)``.
     """
-    out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
-                         capture_output=True, text=True, timeout=90)
+    fields = [f"{key}={value}" for key, value in (variables or {}).items()]
+    argv = ["api", "graphql", "-f", f"query={query}"]
+    for field in fields:
+        argv += ["-f", field]
+    out = ghcli.run(argv, timeout=90)
     try:
         payload = json.loads(out.stdout)
     except (json.JSONDecodeError, ValueError) as e:
@@ -316,7 +319,7 @@ def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
 
 def _gh_rest(path: str) -> Any:
     """Run one ``gh api`` REST request; return the parsed body (None on empty)."""
-    out = subprocess.run(["gh", "api", path], capture_output=True, text=True, timeout=90)
+    out = ghcli.run(["api", path], timeout=90)
     if out.returncode != 0:
         raise RuntimeError(f"gh api {path} rc={out.returncode}: {out.stderr[:160]}")
     return json.loads(out.stdout) if out.stdout.strip() else None
@@ -371,7 +374,7 @@ def _shallow_tree(owner: str, name: str, branch: str) -> tuple[Optional[list[str
 def _fetch_body(url: str) -> Optional[str]:
     """Fetch one raw.githubusercontent.com body; None on any failure."""
     try:
-        with urllib.request.urlopen(url, timeout=30) as r:
+        with net.urlopen(url, 30) as r:
             return r.read().decode("utf-8", "replace")
     except Exception:  # review-ok: gate-network — unreadable body -> no evidence
         return None
@@ -391,7 +394,7 @@ def collect_repo_object(raw_dir: Path, owner: str, name: str,
     failures raise for the caller to mark retryable.
     """
     key = f"{owner}__{name}"
-    r, graphql_error = _gh_graphql(REPO_OBJECT_QUERY % (owner, name))
+    r, graphql_error = _gh_graphql(REPO_OBJECT_QUERY, {"owner": owner, "name": name})
     if not r:
         return "fail"
     data: dict[str, Any] = {
