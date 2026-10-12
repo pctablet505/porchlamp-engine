@@ -270,10 +270,14 @@ export function missingValueReason(reason) {
 export const LOADING_LABEL = "Loading…";
 export const LOADING_ROW_SR_TEXT = "Loading repositories…";
 
+const SUSPICION_FLAG_COPY = Object.freeze({
+  black_hole: "PR black hole (>50% of external PRs receive zero substantive response within 14 days)",
+});
 export const SUSPICION_LABEL = "Suspicion flags";
 export function suspicionTooltip(flags) {
   if (!flags || flags.length === 0) return "";
-  return `Flagged by: ${flags.join(", ")}`;
+  const formatted = flags.map((f) => (SUSPICION_FLAG_COPY[f] ? `${f} (${SUSPICION_FLAG_COPY[f]})` : f));
+  return `Flagged by: ${formatted.join(", ")}`;
 }
 
 export const ROW_OPEN_HINT = "Press Enter to view why this score";

@@ -56,11 +56,13 @@ from porchlamp.core import aggregate, constants, matrix
 from porchlamp.core import params as param_fns
 from porchlamp.core.gates import (
     DISPLAY_UNRATED_GATE_REASONS,
+    REASON_BLACK_HOLE,
     REASON_INSUFFICIENT_EVIDENCE,
     REASON_OFF_PLATFORM_ROUTED,
     ROUTED_OFF_PLATFORM,
     GateEvidence,
     evaluate_gates,
+    is_black_hole_bundle,
 )
 from porchlamp.core.models import FeatureBundle, GateResult, Measured, ParamScore, PillarScore, ScoreRecord, Unmeasured
 from porchlamp.core.params.curves import KIND_ECDF
@@ -91,11 +93,14 @@ class Snapshot:
     inherently per-repo (tree/off-platform markers, vitality
     commits, universe fork-parent membership), so the caller builds one
     ``Snapshot`` per (repo, snapshot) call, sharing ``snapshot_id``/``as_of``
-    and varying ``gate_evidence``."""
+    and varying ``gate_evidence``. ``rank_black_holes`` controls whether
+    repositories with ``GR_14 > 0.50`` remain eligible for stage 2-9 ranking
+    with a ``"black_hole"`` flag on ``ScoreRecord.suspicion``."""
 
     snapshot_id: str
     as_of: datetime
     gate_evidence: GateEvidence
+    rank_black_holes: bool = False
 
 
 #: input_id -> the wrapper function that turns the bundle's ParamValue
@@ -247,6 +252,7 @@ def _bare_record(
     unrated_reason: str | None,
     tier_ceiling: str | None,
     raw_hash: str,
+    suspicion: list[str] | None = None,
 ) -> ScoreRecord:
     """The common no-rank/no-tier shape shared by a stage-0 gate failure and
     a stage-3 (D-EVID-1) unrated outcome. ``gate`` is passed through
@@ -280,7 +286,7 @@ def _bare_record(
         tie_key=(),
         tie_group=None,
         rank=None,
-        suspicion=[],
+        suspicion=list(suspicion) if suspicion else [],
     )
 
 
@@ -319,7 +325,12 @@ def score(
     the two facts -- "which envelopes" and "which whole bundle" -- are never
     conflated under one field."""
     resolved_raw_hash = bundle.provenance_hash if raw_hash is None else raw_hash
-    gate = evaluate_gates(bundle, snapshot.gate_evidence, snapshot.as_of)
+    gate = evaluate_gates(
+        bundle,
+        snapshot.gate_evidence,
+        snapshot.as_of,
+        rank_black_holes=snapshot.rank_black_holes,
+    )
     if not gate.eligible:
         # A stage-0 reason the design text words as an UNRATED outcome
         # (``DISPLAY_UNRATED_GATE_REASONS`` -- currently D-GATE-6's
@@ -334,6 +345,12 @@ def score(
             rated=False, unrated_reason=unrated_reason, tier_ceiling=None,
             raw_hash=resolved_raw_hash,
         )
+
+    initial_suspicion: list[str] = (
+        [REASON_BLACK_HOLE]
+        if snapshot.rank_black_holes and is_black_hole_bundle(bundle)
+        else []
+    )
 
     param_scores = _score_params(bundle, populations)
     pillars = aggregate.aggregate_pillars(param_scores)
@@ -356,13 +373,13 @@ def score(
         return _bare_record(
             snapshot, bundle, gate, params=param_scores, pillars=pillars, coverage=coverage,
             rated=False, unrated_reason=REASON_OFF_PLATFORM_ROUTED, tier_ceiling=ceiling,
-            raw_hash=resolved_raw_hash,
+            raw_hash=resolved_raw_hash, suspicion=initial_suspicion,
         )
     if not rated:
         return _bare_record(
             snapshot, bundle, gate, params=param_scores, pillars=pillars, coverage=coverage,
             rated=False, unrated_reason=REASON_INSUFFICIENT_EVIDENCE, tier_ceiling=ceiling,
-            raw_hash=resolved_raw_hash,
+            raw_hash=resolved_raw_hash, suspicion=initial_suspicion,
         )
 
     composite_raw = aggregate.composite_score_raw(pillars)
@@ -396,5 +413,5 @@ def score(
         tie_key=(),
         tie_group=None,
         rank=None,
-        suspicion=[],
+        suspicion=initial_suspicion,
     )

@@ -142,11 +142,17 @@ def score_bundle_stages_0_7(
     as_of: datetime,
     gate_evidence: GateEvidence,
     raw_hash: str,
+    rank_black_holes: bool = False,
 ) -> ScoreRecord:
     """D-ORDER-1 stages 0-7 for one bundle: ``porchlamp.core.engine.score`` exactly
     (this module never re-implements a scoring rule -- engine.score's own
     signature is the source of truth for what it needs per repo)."""
-    snapshot = Snapshot(snapshot_id=snapshot_id, as_of=as_of, gate_evidence=gate_evidence)
+    snapshot = Snapshot(
+        snapshot_id=snapshot_id,
+        as_of=as_of,
+        gate_evidence=gate_evidence,
+        rank_black_holes=rank_black_holes,
+    )
     return score(bundle, populations, snapshot, raw_hash)
 
 
@@ -513,7 +519,12 @@ def apply_suspicion(
         return tuple(records)
     suspicion_by_key = detectors(records, previous)
     return tuple(
-        replace(record, suspicion=sorted(set(suspicion_by_key.get(repo_key(record), ()))))
+        replace(
+            record,
+            suspicion=sorted(
+                set(record.suspicion) | set(suspicion_by_key.get(repo_key(record), ()))
+            ),
+        )
         for record in records
     )
 
@@ -528,6 +539,7 @@ def score_snapshot(
     raw_hashes: Mapping[RepoKey, str],
     previous: "ScoredSnapshot | None" = None,
     detectors: DetectorsCallable | None = None,
+    rank_black_holes: bool = False,
 ) -> ScoredSnapshot:
     """Score a whole snapshot: D-ORDER-1 stages 0-9 over every bundle, then
     stage 10: fold cross-snapshot detector flags onto ``suspicion``.
@@ -591,6 +603,7 @@ def score_snapshot(
             as_of=as_of,
             gate_evidence=gate_evidence[key],
             raw_hash=raw_hashes[key],
+            rank_black_holes=rank_black_holes,
         )
         record = score_bundle_stage_8_persona(record, bundle)
         entries.append(score_bundle_stage_9_tie_input(record, bundle))

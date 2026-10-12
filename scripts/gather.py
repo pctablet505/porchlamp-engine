@@ -693,6 +693,24 @@ def _persist_fingerprint(fp_result: Any, owner: str, name: str, ecosystem: str,
         append_fingerprints(_fingerprint_state(), [rec])
 
 
+def should_skip_ineligible(
+    owner: str,
+    name: str,
+    *,
+    raw_dir: Path,
+    now: datetime,
+    fp: Optional[Any] = None,
+) -> Optional[str]:
+    """Return a :data:`porchlamp.collect.fingerprint.PRUNED_REASONS` string when
+    ``owner/name`` is already known to be closed for contributions or not
+    software (``archived``, ``disabled``, ``stale``, ``unlicensed``,
+    ``non_software``, ``no_external_workflow``), or ``None`` if collection
+    should proceed. ``black_hole`` repositories are never skipped here."""
+    from porchlamp.collect.fingerprint import classify_prune_reason
+
+    return classify_prune_reason(fp, raw_dir=raw_dir, owner=owner, name=name, now=now)
+
+
 def _example(value: Any) -> str:
     """A short, inert rendering of a rejected name: illegal characters become ``?``, at most 20 characters."""
     return re.sub(r"[^A-Za-z0-9._-]", "?", str(value))[:20]
@@ -756,6 +774,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--graphql-bulk", action="store_true",
                     help="use single-call GraphQL collectors for governance and "
                          "issues_counts instead of multi-call REST / Search API")
+    ap.add_argument("--skip-ineligible", action="store_true",
+                    help="skip archived, disabled, stale, unlicensed, non_software, and "
+                         "no_external_workflow repos before running downstream collectors")
     a = ap.parse_args(argv)
     selected = parse_collectors(a.collectors)
     if a.repo:
@@ -782,12 +803,19 @@ def main(argv: Optional[list[str]] = None) -> int:
             state_file=_fingerprint_state(),
             raw_dir=DATA,
             ecosystems={f"{owner}__{name}": eco for owner, name, eco in repos},
+            prune_ineligible=a.skip_ineligible,
         )
         dirty_count = sum(1 for inv in fp_result.dirty_by_repo.values() if inv)
+        pruned_suffix = (
+            f", {len(fp_result.pruned_by_repo)} pruned"
+            if fp_result.pruned_by_repo
+            else ""
+        )
         print(
             f"fingerprint: {len(fp_result.fingerprints)} resolved, "
             f"{len(fp_result.unresolved_keys)} UNRESOLVED (dirty), "
-            f"{dirty_count} dirty, {len(fp_result.dirty_by_repo) - dirty_count} clean, "
+            f"{dirty_count} dirty, {len(fp_result.dirty_by_repo) - dirty_count} clean"
+            f"{pruned_suffix}, "
             f"{fp_result.queries_executed} graphql queries ({fp_result.cost_points} pts)"
         )
         for key in fp_result.unresolved_keys[:20]:
@@ -800,6 +828,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"collectors: {'all' if selected is None else ','.join(sorted(selected))}; repos: {len(repos)}")
     for i, (owner, name, eco) in enumerate(repos, 1):
         key = f"{owner}__{name}"
+        if a.skip_ineligible and not a.force:
+            pruned_reason = (
+                fp_result.pruned_by_repo.get(key)
+                if fp_result is not None
+                else should_skip_ineligible(
+                    owner, name, raw_dir=DATA, now=datetime.now(timezone.utc)
+                )
+            )
+            if pruned_reason is not None:
+                ok += 1
+                print(f"{owner}/{name} [{eco}]: SKIP (ineligible: {pruned_reason})")
+                if i == n_first:
+                    print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
+                continue
         repo_collectors = selected
         repo_force = a.force
         if dirty_map is not None and not a.force:
