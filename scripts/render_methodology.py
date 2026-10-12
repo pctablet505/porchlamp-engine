@@ -285,6 +285,8 @@ snapshot manifest are what a reader checks against this page.
 
 ## Pillars
 
+![Stage 0 gates and the five scoring pillars](assets/animations/anim-2-gates-and-pillars.gif)
+
 {_render_pillars(document)}
 
 ## Parameters
@@ -304,6 +306,8 @@ snapshot manifest are what a reader checks against this page.
 {_render_tie_break(document)}
 
 ## Personas
+
+![Leverage by friction matrix and the five persona lenses](assets/animations/anim-3-matrix-and-personas.gif)
 
 {_render_personas(document)}
 

@@ -1,19 +1,125 @@
-# Implementation Architecture — Porchlamp Platform
-## Empirical Foundation, System Topology, Low-Level Design & UI/UX Architecture (HLD + LLD)
+# Porchlamp v2 — System Architecture
+
+Benchmark `2.0.0-rc1`, schema `2`. This page is the visual overview of v2. The commands and the HTTP API are in the [README](../README.md#architecture), the detailed design is [`v2/04-ARCHITECTURE.md`](v2/04-ARCHITECTURE.md), and every gate, curve, weight and threshold is in [`METHODOLOGY-v2.md`](METHODOLOGY-v2.md), which is generated from the code. The v1 prototype's design document follows as an appendix.
 
 ---
 
-# PART 1: HIGH-LEVEL DESIGN (HLD)
+## 1. Snapshot pipeline
+
+![Snapshot pipeline from collection to the published site](assets/animations/anim-1-snapshot-pipeline.gif)
+
+```mermaid
+flowchart LR
+    G["scripts/gather.py<br/>(collectors in porchlamp/collect/)"] --> RAW
+    PH["phone/ Android collector<br/>pulled by scripts/pull_from_phone.py"] --> RAW
+    RAW["data/raw/<br/>one content-hashed envelope per signal"] --> DER["scripts/derive.py<br/>bundles and gate evidence in data/derived/"]
+    DER --> BUILD["python -m porchlamp.snapshot build<br/>score records and a manifest with a Merkle root"]
+    RAW --> BUILD
+    BUILD --> STORE[("python -m porchlamp.snapshot store<br/>porchlamp.db")]
+    STORE --> SERVE["scripts/serve.py<br/>/v1/porchlamp/* and web/v2/"]
+    STORE --> PUB["scripts/export_static.py<br/>static JSON, 256 repos/ buckets, web/static/api.js"]
+    PUB --> VER["scripts/verify_static_export.py<br/>site checked request by request"]
+```
+
+`python -m porchlamp.snapshot freeze` hashes every envelope into `manifest.json`; `reproduce` rebuilds a snapshot from the raw envelopes and compares the dump hash.
 
 ---
 
-## 1. System Overview & Core Objectives
+## 2. Package boundaries
+
+```mermaid
+flowchart LR
+    subgraph Shells ["I/O shells"]
+        direction TB
+        C["porchlamp/collect/"]
+        PH["phone/"]
+        D["porchlamp/derive/"]
+        S["porchlamp/snapshot/"]
+        ST["porchlamp/store/"]
+        SV["porchlamp/serve/"]
+        AV["porchlamp/audit/ and porchlamp/verify/"]
+    end
+    CORE["porchlamp/core/<br/>pure scoring: standard library only, no I/O, no clock"]
+    PH --> C
+    C --> CORE
+    D --> CORE
+    S --> CORE
+    ST --> CORE
+    SV --> CORE
+    AV --> CORE
+```
+
+Arrows point from importer to imported. `tests/core/test_import_graph.py` keeps `porchlamp/core/` free of I/O, the clock and third-party imports. Each package's role is in the [README](../README.md#architecture).
+
+---
+
+## 3. Scoring
+
+![Stage 0 gates and the five scoring pillars](assets/animations/anim-2-gates-and-pillars.gif)
+
+```mermaid
+flowchart TB
+    R["Repository in the universe"] --> G{"D-GATE-1..5<br/>software · not archived, mirror or fork · licensed<br/>non-bot commit in 180 days · not a black hole"}
+    G -- "fails" --> NR["Listed, never ranked<br/>non_software · archived · mirror · fork<br/>unlicensed · stale · black_hole"]
+    G -- "passes" --> W{"D-GATE-6<br/>external PR workflow"}
+    W -- "off-platform markers" --> OFF["Routed, not failed"]
+    W -- "no PR decided in 365 days" --> UN["Listed as unrated<br/>no_external_workflow or insufficient_evidence"]
+    W -- "PR decided in 365 days" --> P["5 pillars, 18 parameters<br/>responsiveness 0.25 · criticality 0.25 · governance 0.20<br/>rigor 0.15 · accessibility 0.15"]
+    P --> CV{"D-EVID-1: composite coverage C"}
+    CV -- "C < 0.60" --> UN
+    CV -- "0.60 ≤ C < 0.80" --> B["Ranked, tier capped at B"]
+    CV -- "0.80 ≤ C < 0.95" --> A["Ranked, tier capped at A"]
+    CV -- "C ≥ 0.95" --> U["Ranked, tier uncapped"]
+```
+
+The gate criteria, parameter curves, missingness rules and tier cut-offs are in [`METHODOLOGY-v2.md`](METHODOLOGY-v2.md).
+
+---
+
+## 4. Matrix, personas and tie-breaks
+
+![Leverage by friction matrix and the five persona lenses](assets/animations/anim-3-matrix-and-personas.gif)
+
+```mermaid
+flowchart TB
+    subgraph High ["Leverage ≥ 50"]
+        direction LR
+        SS["Sweet Spot<br/>friction < 50"]
+        CR["Crucible<br/>friction ≥ 50"]
+    end
+    subgraph Low ["Leverage < 50"]
+        direction LR
+        NU["Nursery<br/>friction < 50"]
+        GY["Graveyard<br/>friction ≥ 50"]
+    end
+```
+
+- **Coordinates** (`porchlamp/core/matrix.py`): leverage = `0.50·criticality + 0.30·rigor + 0.20·governance`; friction = `0.50·(100−responsiveness) + 0.30·(100−governance) + 0.20·(100−accessibility)`. Both are rounded to 2 decimals, and `≥ 50.0` counts as high on both axes, so `(50, 50)` is a Crucible.
+- **Personas** (`porchlamp/core/persona.py`): `balanced`, `first_timer`, `career_capital`, `senior_systems` and `ai_assisted` re-weight the pillar scores, each with its own inclusion or exclusion gate. `POST /v1/porchlamp/reproject` ranks under custom weights.
+- **Tie-breaks** (`porchlamp/core/tiebreak.py`): eight keys, from the composite score down to `owner/name`. GitHub stars are not one of them.
+
+---
+
+# Appendix: v1 prototype design (historical)
+
+> Kept unchanged for its diagrams, formulas and UX rationale. It is not the current design: a repository that fails a Stage 0 gate is now listed and never ranked (v1 capped it at tier C or D), and scoring uses the 18 parameters in [`METHODOLOGY-v2.md`](METHODOLOGY-v2.md) (this document describes 15). Where it disagrees with the sections above or with `docs/v2/`, those win. Why v1 was replaced: [`v2/01-FINDINGS-2026-09-12.md`](v2/01-FINDINGS-2026-09-12.md).
+
+## Implementation Architecture — Porchlamp Platform
+### Empirical Foundation, System Topology, Low-Level Design & UI/UX Architecture (HLD + LLD)
+
+---
+
+## PART 1: HIGH-LEVEL DESIGN (HLD)
+
+---
+
+### 1. System Overview & Core Objectives
 
 The **Porchlamp Platform** is an empirical analytics engine and discovery platform that evaluates open-source software (OSS) repositories worldwide based on **contributor return-on-investment (ROI)**.
 
 Rather than relying on uncalibrated vanity metrics (stars, raw downloads), the platform models the trade-off between **Contributor Leverage** (long-term career capital, production impact, engineering growth) and **Contributor Friction** (human review latency, PR ghosting, corporate silos, relicensing risk, and toxic interactions).
 
-### The 2D Contributor Discovery Matrix
+#### The 2D Contributor Discovery Matrix
 
 Repositories are evaluated across two orthogonal dimensions and classified into four operational quadrants:
 
@@ -43,7 +149,7 @@ flowchart TB
 
 ---
 
-## 2. Parametric Hierarchy & The 5-Phase Ranking Pipeline
+### 2. Parametric Hierarchy & The 5-Phase Ranking Pipeline
 
 To eliminate rank-reversal pathologies, scale distortions across package managers, and vanity metric gaming, Porchlamp executes ranking through an explicit, sequential 5-phase pipeline:
 
@@ -83,7 +189,7 @@ flowchart TB
     Phase5 --> Output["Final Porchlamp Score (0 - 100), Quadrant and Verified Tier"]
 ```
 
-### Phase Details & Mathematical Rationale
+#### Phase Details & Mathematical Rationale
 
 1. **Phase 0: Elimination-by-Aspects (EBA) Hard Gating (Tversky, 1972)**
    - Prior frameworks fail because high vanity scores (e.g. 50,000 GitHub stars) compensate for complete maintainer abandonment.
@@ -126,7 +232,7 @@ $$
 
 ---
 
-## 3. The 15 Validated Empirical Parameters & Mathematical Formulations
+### 3. The 15 Validated Empirical Parameters & Mathematical Formulations
 
 | Evaluation Pillar & Weight | Validated Parameters & Parameter Weights | Operational Definition & Scope |
 | :--- | :--- | :--- |
@@ -139,9 +245,9 @@ $$
 
 ---
 
-### Pillar 1: Responsiveness & Review Lifecycle (Weight: 25%)
+#### Pillar 1: Responsiveness & Review Lifecycle (Weight: 25%)
 
-#### 1.1 Time-to-First-Human-Response (TTFHR) (Weight: 35%)
+##### 1.1 Time-to-First-Human-Response (TTFHR) (Weight: 35%)
 Evaluates median hours to human response on external pull requests, strictly excluding automated bots (`[bot]`, `*-actions`, `google-cla`, `claude`, `stale`). Benchmarked against CHAOSS's 48-hour operational standard:
 
 $$
@@ -156,7 +262,7 @@ $$
 - $48\text{ hours (2 business days)}$: 50 points
 - $\ge 192\text{ hours (8 days)}$: 0 points
 
-#### 1.2 First-Timer Merge Rate (MR_first) (Weight: 25%)
+##### 1.2 First-Timer Merge Rate (MR_first) (Weight: 25%)
 Measures the ratio of pull requests merged to total pull requests decided for authors with zero prior merged commits in the repository:
 
 $$
@@ -165,7 +271,7 @@ $$
 
 *(An 80% first-timer merge rate achieves the maximum 100 points; accounts for legitimate review feedback).*
 
-#### 1.3 Pull Request Ghost Rate (GR_14) (Weight: 20%)
+##### 1.3 Pull Request Ghost Rate (GR_14) (Weight: 20%)
 Percentage of external pull requests open $> 14$ days with zero human maintainer comments:
 
 $$
@@ -174,7 +280,7 @@ $$
 
 *(A ghost rate of 0% yields 100 points; >= 50% yields 0 points and triggers Stage 0 Black Hole disqualification).*
 
-#### 1.4 Pull Request Merge Latency Tail Risk (TTM_p90) (Weight: 20%)
+##### 1.4 Pull Request Merge Latency Tail Risk (TTM_p90) (Weight: 20%)
 Ecosystem percentile rank of the 90th percentile Time-to-Merge (in hours):
 
 $$
@@ -183,16 +289,16 @@ $$
 
 ---
 
-### Pillar 2: Production Criticality & Impact (Weight: 25%)
+#### Pillar 2: Production Criticality & Impact (Weight: 25%)
 
-#### 2.1 Downstream Registry Dependents (Weight: 40%)
+##### 2.1 Downstream Registry Dependents (Weight: 40%)
 Direct and indirect package dependency count, normalized via ecosystem ECDF:
 
 $$
 \text{Score}_{\text{Dependents}} = R_{\text{pct}}(\log_{10}(\text{Dependents} + 1))
 $$
 
-#### 2.2 Canonical OpenSSF Criticality Score (C) (Weight: 35%)
+##### 2.2 Canonical OpenSSF Criticality Score (C) (Weight: 35%)
 The official Rob Pike multi-signal criticality algorithm evaluating project longevity, maintenance cadence, contributor diversity, and architectural dependencies:
 
 $$
@@ -216,7 +322,7 @@ $$
 \text{Score}_{\text{Criticality}} = C \times 100.0
 $$
 
-#### 2.3 Filtered Active Monthly Downloads (Weight: 25%)
+##### 2.3 Filtered Active Monthly Downloads (Weight: 25%)
 Monthly package downloads, filtered for CI/CD mirror bots and normalized via ecosystem ECDF:
 
 $$
@@ -225,16 +331,16 @@ $$
 
 ---
 
-### Pillar 3: Governance, Safety & Path-to-Power (Weight: 20%)
+#### Pillar 3: Governance, Safety & Path-to-Power (Weight: 20%)
 
-#### 3.1 Legal IP Regime & Relicensing Safety (S_legal) (Weight: 35%)
+##### 3.1 Legal IP Regime & Relicensing Safety (S_legal) (Weight: 35%)
 Protects contributors against unilateral relicensing and corporate enclosure:
 - **100 pts — DCO / Distributed Copyright:** Authors retain copyright; unilateral relicensing legally prohibited (`torvalds/linux`, `vllm-project/vllm`, `rust-lang/rust`).
 - **75 pts — Foundation-Managed CLA:** Assigned to a non-profit 501(c) foundation with open governance charters (Apache Software Foundation, CNCF, Eclipse).
 - **40 pts — Reciprocal Corporate CLA:** Commercial steward with open-source contractual covenants.
 - **10 pts — Unilateral Corporate CLA:** Complete copyright assignment to a single for-profit entity (high historical risk of commercial relicensing, e.g. MongoDB SSPL, Elastic, Redis).
 
-#### 3.2 CHAOSS Elephant Factor / Decentralization (Weight: 35%)
+##### 3.2 CHAOSS Elephant Factor / Decentralization (Weight: 35%)
 Minimum number of distinct organizations whose affiliated contributors author >= 50% of total commits:
 
 $$
@@ -243,7 +349,7 @@ $$
 
 *(An Elephant Factor $\ge 4$ achieves the maximum 100 points; 1 single firm dominating > 50% of commits receives 25 points).*
 
-#### 3.3 Contributor Promotion Ladder (Weight: 30%)
+##### 3.3 Contributor Promotion Ladder (Weight: 30%)
 Evaluates whether external contributors have documented pathways to triage, review, and maintainer roles:
 - Verified promotion of non-sponsor contributors to maintainer roles = 100 pts
 - Documented governance pathway with triage team = 75 pts
@@ -252,22 +358,22 @@ Evaluates whether external contributors have documented pathways to triage, revi
 
 ---
 
-### Pillar 4: Engineering Rigor & AI Alignment (Weight: 15%)
+#### Pillar 4: Engineering Rigor & AI Alignment (Weight: 15%)
 
-#### 4.1 Automated Pipeline Defenses (Weight: 40%)
+##### 4.1 Automated Pipeline Defenses (Weight: 40%)
 OpenSSF Scorecard composite evaluating branch protection, mandatory peer review, automated testing, and SAST:
 
 $$
 \text{Score}_{\text{Pipeline}} = \left(\frac{\text{Scorecard\_Score}}{10.0}\right) \times 100.0
 $$
 
-#### 4.2 Calibrated AI Policy Posture (Weight: 35%)
+##### 4.2 Calibrated AI Policy Posture (Weight: 35%)
 Persona-conditional scoring reflecting the three governance postures:
 - **Regulated Accountability (95 pts):** AI tools permitted with mandatory attribution via commit trailers (e.g. `Assisted-by:`) and human liability (Linux Kernel, Fedora, CPython).
 - **Strict Proscription (25 pts for AI persona / 85 pts for human-only):** Hard bans on generative AI patches (Gentoo Council, QEMU, NetBSD).
 - **Unregulated Ad-Hoc (40 pts):** No stated guidelines; high exposure to unverified hallucinations and code churn.
 
-#### 4.3 Review Depth & Substantive Guidance (Weight: 25%)
+##### 4.3 Review Depth & Substantive Guidance (Weight: 25%)
 Evaluates the depth of inline feedback on external PRs, penalizing both dismissive silence and excessive nitpicking:
 
 $$
@@ -278,16 +384,16 @@ $$
 
 ---
 
-### Pillar 5: Accessibility, DX & Newcomer On-Ramps (Weight: 15%)
+#### Pillar 5: Accessibility, DX & Newcomer On-Ramps (Weight: 15%)
 
-#### 5.1 Freshness of Unclaimed "Good First Issues" (Weight: 40%)
+##### 5.1 Freshness of Unclaimed "Good First Issues" (Weight: 40%)
 Count of unassigned issues labeled `good-first-issue` or `help-wanted` updated within trailing 30 days:
 
 $$
 \text{Score}_{\text{GFI}} = \min\left(100.0, \frac{\text{Active\_Unclaimed\_GFIs}}{10.0} \times 100.0\right)
 $$
 
-#### 5.2 90-Day Newcomer Return Rate (RR_90) (Weight: 35%)
+##### 5.2 90-Day Newcomer Return Rate (RR_90) (Weight: 35%)
 Percentage of first-time successful contributors who return to submit a second pull request within 90 days:
 
 $$
@@ -296,12 +402,12 @@ $$
 
 *(A 50% newcomer return rate achieves the maximum 100 points).*
 
-#### 5.3 Developer Experience & Setup Friction (Weight: 25%)
+##### 5.3 Developer Experience & Setup Friction (Weight: 25%)
 Verification of reproducible devcontainers, Dockerfiles, and CI test suite runtimes under 20 minutes.
 
 ---
 
-## 4. Persona-Specific Adaptive Weight Configurations
+### 4. Persona-Specific Adaptive Weight Configurations
 
 ```mermaid
 flowchart LR
@@ -325,7 +431,7 @@ flowchart LR
 
 ---
 
-## 5. High-Level Ingestion & Lakehouse Storage Architecture
+### 5. High-Level Ingestion & Lakehouse Storage Architecture
 
 ```mermaid
 flowchart TD
@@ -363,11 +469,11 @@ flowchart TD
 
 ---
 
-# PART 2: LOW-LEVEL DESIGN (LLD)
+## PART 2: LOW-LEVEL DESIGN (LLD)
 
 ---
 
-## 6. Component Class Hierarchy & Interface Specifications
+### 6. Component Class Hierarchy & Interface Specifications
 
 ```mermaid
 classDiagram
@@ -419,7 +525,7 @@ classDiagram
 
 ---
 
-## 7. System Ingestion, Cleansing & Scoring State Machine
+### 7. System Ingestion, Cleansing & Scoring State Machine
 
 ```mermaid
 stateDiagram-v2
@@ -446,9 +552,9 @@ stateDiagram-v2
 
 ---
 
-## 8. End-to-End Ingestion & Query Sequences
+### 8. End-to-End Ingestion & Query Sequences
 
-### Zero-Cost Bulk Ingestion & Scoring Sequence
+#### Zero-Cost Bulk Ingestion & Scoring Sequence
 
 ```mermaid
 sequenceDiagram
@@ -478,9 +584,9 @@ sequenceDiagram
 
 ---
 
-## 9. Formal Data Contracts & Entity Schema Specifications
+### 9. Formal Data Contracts & Entity Schema Specifications
 
-### 9.1 Event Ingestion Contract (`RawPREvent`)
+#### 9.1 Event Ingestion Contract (`RawPREvent`)
 
 | Field Name | Logical Type | Nullable | Validation Constraint | Description & Semantics |
 | :--- | :--- | :---: | :--- | :--- |
@@ -499,7 +605,7 @@ sequenceDiagram
 | `response_latency_hours` | Float (64-bit) | Yes | Value >= 0.0 | Elapsed hours between creation and first human response |
 | `maintainer_review_comments` | Integer (Unsigned 32) | No | Value >= 0 | Count of inline review comments by maintainers |
 
-### 9.2 Repository Telemetry & Criticality Contract (`OpenSSFSignals`)
+#### 9.2 Repository Telemetry & Criticality Contract (`OpenSSFSignals`)
 
 | Field Name | Logical Type | Nullable | Normalization Threshold (T_i) | Functional Significance |
 | :--- | :--- | :---: | :--- | :--- |
@@ -514,7 +620,7 @@ sequenceDiagram
 | `comment_frequency` | Float (64-bit) | No | 15 comments / issue | Depth and engagement of architectural discourse |
 | `dependents_count` | Integer (Unsigned 32) | No | 500,000 dependents | Volume of direct downstream package imports |
 
-### 9.3 Scored Composite Contract (`PorchlampCompositeResult`)
+#### 9.3 Scored Composite Contract (`PorchlampCompositeResult`)
 
 | Field Name | Logical Type | Valid Range | Precision | Description |
 | :--- | :--- | :---: | :---: | :--- |
@@ -531,9 +637,9 @@ sequenceDiagram
 
 ---
 
-## 10. Algorithmic Procedural Specifications
+### 10. Algorithmic Procedural Specifications
 
-### 10.1 Algorithm 1: Canonical OpenSSF Criticality Score Procedure
+#### 10.1 Algorithm 1: Canonical OpenSSF Criticality Score Procedure
 
 ```
 Procedure CalculatePikeCriticality(Signals, Weights, Thresholds):
@@ -560,7 +666,7 @@ Procedure CalculatePikeCriticality(Signals, Weights, Thresholds):
     5. Return Clamp(UnboundedScore, Min = 0.0, Max = 1.0)
 ```
 
-### 10.2 Algorithm 2: Ecosystem ECDF Percentile Rank Procedure
+#### 10.2 Algorithm 2: Ecosystem ECDF Percentile Rank Procedure
 
 ```
 Procedure ComputeEcosystemPercentile(TargetValue, EcosystemPopulation):
@@ -580,7 +686,7 @@ Procedure ComputeEcosystemPercentile(TargetValue, EcosystemPopulation):
     5. Return Round(ExactPercentile, Decimals = 2)
 ```
 
-### 10.3 Algorithm 3: StarScout Fraud Detection State Logic
+#### 10.3 Algorithm 3: StarScout Fraud Detection State Logic
 
 ```
 Procedure FilterFraudulentStarVelocity(StargazerEvents, WindowDays = 90, MinEvents = 5):
@@ -608,9 +714,9 @@ Procedure FilterFraudulentStarVelocity(StargazerEvents, WindowDays = 90, MinEven
 
 ---
 
-## 11. Vectorized Analytical Query & Operational Relational Storage Design
+### 11. Vectorized Analytical Query & Operational Relational Storage Design
 
-### 11.1 Analytical Lakehouse Projection Specification
+#### 11.1 Analytical Lakehouse Projection Specification
 The lakehouse executes analytical aggregations directly over partitioned Parquet datasets (`/data/lakehouse/pr_events_*.parquet`) using in-process columnar vectorization:
 - **Predicate Pushdown:** Scans are partitioned by `is_external = true` to isolate community PRs.
 - **Quantile Computation:** Utilizes t-digest / streaming quantile approximation (`quantile_cont`) to compute the exact 50th percentile (median TTFHR) and 90th percentile (tail merge latency $TTM_{p90}$) without full data sorting.
@@ -618,9 +724,9 @@ The lakehouse executes analytical aggregations directly over partitioned Parquet
   - $\text{Score}_{MR} = (\sum \text{MergedExternalPRs}) \times 125.0 / \max(1, \sum \text{DecidedExternalPRs})$
   - $\text{GhostRate} = (\sum \text{UnansweredOpenPRs}_{>14d}) \times 1.0 / \max(1, \sum \text{TotalOpenPRs})$
 
-### 11.2 Operational Relational Table Schema Specifications
+#### 11.2 Operational Relational Table Schema Specifications
 
-#### Repositories Table (`repositories`)
+##### Repositories Table (`repositories`)
 Stores indexed metadata, pillar evaluations, and 2D matrix coordinates.
 
 | Column | Data Type | Constraint | Description |
@@ -659,9 +765,9 @@ Stores indexed metadata, pillar evaluations, and 2D matrix coordinates.
 
 ---
 
-## 12. REST & GraphQL Interface API Specifications
+### 12. REST & GraphQL Interface API Specifications
 
-### 12.1 Matrix Spatial Query (`GET /v1/porchlamp/matrix`)
+#### 12.1 Matrix Spatial Query (`GET /v1/porchlamp/matrix`)
 - **Query Parameters:**
   - `ecosystem`: String (optional, e.g. `pypi`, `crates`, `all`)
   - `domain`: String (optional, e.g. `ai_ml`, `systems`, `devtools`)
@@ -671,7 +777,7 @@ Stores indexed metadata, pillar evaluations, and 2D matrix coordinates.
   - Array of scatter node objects: `[{ repo_id, owner, name, x: friction_score, y: leverage_score, porchlamp: overall_porchlamp, tier, quadrant, size, is_gated }]`
   - Performance SLA: &lt; 50ms response time from in-memory operational cache.
 
-### 12.2 Repository Deep-Dive Scorecard (`GET /v1/porchlamp/repos/{owner}/{name}`)
+#### 12.2 Repository Deep-Dive Scorecard (`GET /v1/porchlamp/repos/{owner}/{name}`)
 - **Path Parameters:**
   - `owner`: Repository owner login
   - `name`: Repository name
@@ -685,7 +791,7 @@ Stores indexed metadata, pillar evaluations, and 2D matrix coordinates.
     - Legal IP classification, CLA hazard level, and AI policy posture details.
     - Curated active Unclaimed Good First Issues (titles, labels, creation dates, URLs).
 
-### 12.3 Dynamic Persona Re-Projection (`POST /v1/porchlamp/reproject`)
+#### 12.3 Dynamic Persona Re-Projection (`POST /v1/porchlamp/reproject`)
 - **Request Payload:**
   - Custom weights vector: `{ responsiveness: 0.35, criticality: 0.20, governance: 0.15, rigor: 0.15, accessibility: 0.15 }` (must sum to 1.0).
 - **Response Structure:**
@@ -693,7 +799,7 @@ Stores indexed metadata, pillar evaluations, and 2D matrix coordinates.
 
 ---
 
-## 13. Concurrency, Rate Limiting & Fault Tolerance Design
+### 13. Concurrency, Rate Limiting & Fault Tolerance Design
 
 ```mermaid
 flowchart LR
@@ -716,7 +822,7 @@ flowchart LR
 
 ---
 
-## 14. Verification & Ground-Truth Test Matrix
+### 14. Verification & Ground-Truth Test Matrix
 
 | Test Suite | Target Component | Verification Assertion |
 |---|---|---|
@@ -731,11 +837,11 @@ flowchart LR
 
 ---
 
-# PART 3: UI & UX DESIGN ARCHITECTURE
+## PART 3: UI & UX DESIGN ARCHITECTURE
 
 ---
 
-## 15. Product UX Vision & 4 Archetypal User Personas
+### 15. Product UX Vision & 4 Archetypal User Personas
 
 ```mermaid
 flowchart TD
@@ -781,24 +887,24 @@ flowchart TD
 
 ---
 
-## 16. Visual UI Mockups & Design System Specifications
+### 16. Visual UI Mockups & Design System Specifications
 
-### 16.1 High-Fidelity Desktop Platform Interfaces
+#### 16.1 High-Fidelity Desktop Platform Interfaces
 
-#### View 1: The Interactive 2D Discovery Matrix & Scorecard Drawer
+##### View 1: The Interactive 2D Discovery Matrix & Scorecard Drawer
 ![Porchlamp Platform 2D Discovery Matrix & Scorecard Drawer Mockup](assets/porchlamp_platform_matrix.svg)
 
-#### View 2: Multi-Ecosystem Ranked Leaderboard & Advanced Filtering Toolbar
+##### View 2: Multi-Ecosystem Ranked Leaderboard & Advanced Filtering Toolbar
 ![Porchlamp Multi-Ecosystem Leaderboard & Advanced Filtering Toolbar Mockup](assets/porchlamp_leaderboard.svg)
 
-#### View 3: Custom Priority & Dynamic Re-Ranking Configurator
+##### View 3: Custom Priority & Dynamic Re-Ranking Configurator
 ![Porchlamp Custom Priority & Dynamic Re-Ranking Configurator Mockup](assets/porchlamp_custom_ranking.svg)
 
 ---
 
-### 16.2 Design Tokens (Dark-Mode First Engineering Aesthetic)
+#### 16.2 Design Tokens (Dark-Mode First Engineering Aesthetic)
 
-#### Foundation Canvas & Neutral Tokens
+##### Foundation Canvas & Neutral Tokens
 - `--bg-base`: `#090D16` (Deep obsidian canvas, background behind 2D matrix)
 - `--bg-surface`: `#0F172A` (Card containers, table headers, drawer surface, modal body)
 - `--bg-surface-elevated`: `#1E293B` (Popovers, hover cards, dropdown menus, slider tracks)
@@ -810,18 +916,18 @@ flowchart TD
 - `--text-secondary`: `#94A3B8` (Descriptions, axis labels, non-primary table column text)
 - `--text-muted`: `#64748B` (Metadata labels, inactive pills, timestamp footers)
 
-#### Quadrant Semantic & Data Visualization Tokens
+##### Quadrant Semantic & Data Visualization Tokens
 - `--quad-sweet-spot`: `#10B981` (Emerald) | Wash: `rgba(16, 185, 129, 0.10)` | Glow: `0 0 24px rgba(16, 185, 129, 0.25)`
 - `--quad-crucible`: `#6366F1` (Indigo) | Wash: `rgba(99, 102, 241, 0.10)` | Glow: `0 0 24px rgba(99, 102, 241, 0.25)`
 - `--quad-nursery`: `#F59E0B` (Amber) | Wash: `rgba(245, 158, 11, 0.10)` | Glow: `0 0 24px rgba(245, 158, 11, 0.25)`
 - `--quad-graveyard`: `#EF4444` (Crimson) | Wash: `rgba(239, 68, 68, 0.10)` | Pulsing warning halo
 
-### 16.3 Typography Stack & Scale
+#### 16.3 Typography Stack & Scale
 - **Primary UI Font:** `Inter`, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif
 - **Monospace Data Font:** `JetBrains Mono`, "SF Mono", Menlo, Consolas, monospace
 - **Tabular Figures:** All numerical tables, coordinates, and metrics enforce `font-variant-numeric: tabular-nums` to eliminate horizontal jitter during live re-projection.
 
-### 16.4 Micro-Interaction State Machine
+#### 16.4 Micro-Interaction State Machine
 
 ```mermaid
 stateDiagram-v2
@@ -839,7 +945,7 @@ stateDiagram-v2
 
 ---
 
-## 17. Detailed UX Architecture Across Views & Tabs
+### 17. Detailed UX Architecture Across Views & Tabs
 
 ```mermaid
 flowchart TD
@@ -863,7 +969,7 @@ flowchart TD
 
 ---
 
-## 18. Comprehensive Filtering System & Filter UX Specifications
+### 18. Comprehensive Filtering System & Filter UX Specifications
 
 The filtering toolbar provides a unified, multi-tier control plane positioned immediately below the global navigation bar across both the 2D Matrix and Leaderboard views:
 
@@ -911,7 +1017,7 @@ flowchart TD
 | **5. Active Chips Bar** | Dismissible Micro-Pills | Dismissible tags for each active filter + `[ Clear All ]` trigger + `[ Export CSV ]` | Dynamic State | Real-time visibility and instant single-click removal of active filter criteria |
 
 
-### 18.1 Filter Control Tiers & Interactive Behaviors
+#### 18.1 Filter Control Tiers & Interactive Behaviors
 
 1. **Ecosystem Single/Multi-Pill Bar:**
    - Visual Style: Segmented pill tabs with active checkmark and subtle glowing outline.
@@ -931,7 +1037,7 @@ flowchart TD
 
 ---
 
-## 19. Custom Ordering & Dynamic Re-Ranking System UX
+### 19. Custom Ordering & Dynamic Re-Ranking System UX
 
 To address varying contributor priorities (e.g. beginner looking for mentorship vs. senior engineer seeking Tier-S career capital), Porchlamp provides an interactive, real-time dynamic re-ranking engine:
 
@@ -961,12 +1067,12 @@ flowchart LR
     Recompute --> URLSync
 ```
 
-### 19.1 Priority Sliders & Lock-and-Normalize Mechanics
+#### 19.1 Priority Sliders & Lock-and-Normalize Mechanics
 - **Proportional Normalization:** The sum of all 5 pillar weights strictly maintains sum(w_j) = 100%. Moving any unlocked slider dynamically redistributes the delta across the remaining unlocked dimensions.
 - **Individual Dimension Locks (🔒):** Clicking the lock icon next to any pillar pins its weight (e.g., pinning Responsiveness at 40%), allowing the user to calibrate the remaining 60% across the other 4 pillars without disturbing the pinned value.
 - **One-Click Persona Presets:** Selecting a preset automatically reconfigures all 5 sliders and unlocks all dimensions to standardized archetypes.
 
-### 19.2 Real-Time Re-Ranking Preview & Position Deltas
+#### 19.2 Real-Time Re-Ranking Preview & Position Deltas
 - As the user drags a slider, the in-memory analytics engine updates all repository scores in &lt; 50ms.
 - The split-screen preview panel displays repository cards shifting positions with animated spring transitions.
 - Each repository card highlights its net rank shift:
@@ -974,7 +1080,7 @@ flowchart LR
   - `▼ -8` (Muted Crimson): Repository drops in rank due to low performance in newly weighted categories.
   - `= 0` (Muted Slate): Positional stability.
 
-### 19.3 Shareable URL State Serialization
+#### 19.3 Shareable URL State Serialization
 Every custom ranking configuration serializes directly into URL search parameters:
 ```
 https://porchlamp.dev/leaderboard?eco=pypi&w_resp=35&w_crit=25&w_gov=15&w_rig=15&w_acc=10&exclude_black_holes=true
@@ -983,7 +1089,7 @@ Users can bookmark, export, or share their exact ranking criteria with teams and
 
 ---
 
-## 20. Accessibility & Responsive Breakpoint Standards
+### 20. Accessibility & Responsive Breakpoint Standards
 
 - **WCAG 2.1 AA Compliance:** Minimum 4.5:1 contrast for normal text and 3:1 for graphical elements. Base text achieves 17.4:1 contrast ratio against `--bg-surface`.
 - **Color-Blind Safe Dual-Encoding:** Scatter points and quadrant badges use distinct geometric shapes in addition to color:
@@ -1004,4 +1110,3 @@ Users can bookmark, export, or share their exact ranking criteria with teams and
   - `Tablet Landscape` (992px - 1199px): Collapsed nav rail.
   - `Tablet Portrait` (768px - 991px): Stacked layout with sheet drawer.
   - `Mobile` (&lt; 768px): Full-screen card list with bottom-sheet scorecard modal.
-

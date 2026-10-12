@@ -10,17 +10,17 @@ request, not by how many stars the project has.
 
 ## Stars don't review pull requests
 
-Measured on the 2026-10-11 snapshot of 11,000 projects:
+Measured on the 2026-10-12 snapshot of 11,000 projects:
 
-- **More than a third of active projects are black holes.** Of the 4,349
+- **More than a third of active projects are black holes.** Of the 4,375
   licensed, maintained software projects that received at least ten outside pull
-  requests in six months, 1,613 (37.1%) left most of them with no human reply,
+  requests in six months, 1,622 (37.1%) left most of them with no human reply,
   review or merge for two weeks. Counting only pull requests opened by people,
-  not bots, gives 56.6%.
+  not bots, gives 56.7%.
 - **More stars, more silence.** The black-hole share rises with popularity: 33%
   of projects with 1k–10k stars, 41% at 10k–50k, and 48% at 50k or more.
-- **Stars barely predict the ranking.** Across the 3,150 ranked projects the
-  rank correlation between stars and the Porchlamp score is 0.10, and 7 of the
+- **Stars barely predict the ranking.** Across the 3,321 ranked projects the
+  rank correlation between stars and the Porchlamp score is 0.12, and 7 of the
   100 most-starred projects make the top 100.
 
 ## Where the numbers come from
@@ -34,6 +34,8 @@ are scored on five pillars and re-weighted for five kinds of contributor. Every
 number traces back to a recorded GitHub response and its content hash.
 
 ## How the ranking works
+
+![Stars Don't Review PRs — 6 Hard Gates & 5 Scoring Pillars](docs/assets/animations/anim-2-gates-and-pillars.gif)
 
 Every number comes from public GitHub activity plus deps.dev, ecosyste.ms and
 OpenSSF data, recorded as content-hashed envelopes. A snapshot is built from
@@ -76,15 +78,17 @@ code always produce the same ranking.
 
    Each has its own inclusion or exclusion gate.
 
+![2D Leverage × Friction Discovery Matrix & 5 Contributor Persona Lenses](docs/assets/animations/anim-3-matrix-and-personas.gif)
+
 The full method, with every curve and threshold, is published with each
 snapshot (the site's Methodology tab, from `porchlamp.core.methodology`).
-Design documents: [docs/METHODOLOGY-v2.md](docs/METHODOLOGY-v2.md) and
-[docs/v2/](docs/v2/00-README.md).
+Design documents: [docs/README.md](docs/README.md), [docs/METHODOLOGY-v2.md](docs/METHODOLOGY-v2.md),
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/v2/](docs/v2/00-README.md).
 
 ## Quickstart
 
 ```bash
-cd /home/pctablet505/Projects/contributor-value-index
+cd contributor-value-index
 
 # venv: .venv — Python 3.12 with pytest + pytest-xdist, fastapi + httpx and
 # uvicorn installed (pyproject extras: `dev` = test deps, `server` = uvicorn).
@@ -99,11 +103,13 @@ On 2026-09-23 the suite ran 2,774 passed, 1 skipped (a manual procedure) and
 
 ## Architecture
 
+![Porchlamp Snapshot Pipeline & Phone Relay](docs/assets/animations/anim-1-snapshot-pipeline.gif)
+
 The pipeline, in order:
 
 | Step | Command | Output |
 |---|---|---|
-| Collect | `scripts/gather.py` (collectors in `porchlamp/collect/`) | one envelope per signal under `data/raw/` |
+| Collect | `scripts/gather.py` (collectors in `porchlamp/collect/`), or the Android collector in `phone/` pulled with `scripts/pull_from_phone.py` | one envelope per signal under `data/raw/` |
 | Derive | `scripts/derive.py OWNER NAME --ecosystem ECO` | one bundle per project under `data/derived/` |
 | Build | `python -m porchlamp.snapshot build --data-dir data --out-dir SNAP --snapshot-id ID --as-of TIME` | score records plus a manifest with a Merkle root |
 | Store | `python -m porchlamp.snapshot store SNAP --db porchlamp.db` | the SQLite store the API reads |
@@ -114,6 +120,7 @@ The pipeline, in order:
 |---|---|
 | `porchlamp/core/` | Pure scoring: gates, parameters (`params/`), normalisation, aggregation, tiers, matrix, personas, tie-breaks, the published methodology. Standard library only, no I/O, no clock; `tests/core/test_import_graph.py` enforces it. |
 | `porchlamp/collect/` | Collectors: one network fetch per signal, each returning a content-hashed envelope; rate limiting and retries in `ratelimit.py`. |
+| `phone/` | Android collector (`entry.py` is the app's entry point; `runner.py`, `control.py`, `httpgate.py`, `archive.py`, `serve.py`, `auth.py`): runs layers `L1..L4, LK` under battery/thermal/Wi-Fi guards, allow-lists outbound hosts, packs deterministic `.tar.gz` archives and serves them over the LAN with HMAC-signed requests (`X-Porch-Mac`, `auth.py`) to `scripts/pull_from_phone.py`. |
 | `porchlamp/derive/` | Turns envelopes into typed bundles and gate evidence. |
 | `porchlamp/snapshot/` | `build`, `store`, `freeze` and `reproduce`: rebuilds a snapshot from its envelopes and checks it against the recorded hash. |
 | `porchlamp/store/` | SQLite schema, forward-only migrations, writer and queries. |

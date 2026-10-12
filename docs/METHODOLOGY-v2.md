@@ -27,6 +27,8 @@ snapshot manifest are what a reader checks against this page.
 
 ## Pillars
 
+![Stage 0 gates and the five scoring pillars](assets/animations/anim-2-gates-and-pillars.gif)
+
 | Pillar | Weight |
 |---|---|
 | responsiveness | 0.25 |
@@ -139,6 +141,8 @@ Composite is rounded to 2 decimal place(s) before comparison.
 | 8 | owner_name_lowercase | ascending | deterministic last resort; never stars, forks or downloads |
 
 ## Personas
+
+![Leverage by friction matrix and the five persona lenses](assets/animations/anim-3-matrix-and-personas.gif)
 
 ### Presets
 
