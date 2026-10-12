@@ -75,7 +75,6 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Protocol, Sequence, Union
 
 import json
-import subprocess
 
 from porchlamp.collect import commits as commit_domains
 from porchlamp.collect import ghcli

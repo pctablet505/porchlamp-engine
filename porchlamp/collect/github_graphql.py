@@ -27,7 +27,6 @@ from __future__ import annotations
 import json
 import random
 import statistics
-import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
