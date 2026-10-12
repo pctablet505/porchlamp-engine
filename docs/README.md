@@ -35,11 +35,12 @@ This directory contains the canonical v2 specification, generated methodology re
 
 ## 3. Animations (`docs/assets/animations/`)
 
-Two animated D2 SVGs and one Manim GIF illustrate the architecture; the Markdown stays the source of truth. They are rendered from `~/Projects/animation-studio-work/` (`d2/cvi_snapshot.d2`, `d2/cvi_gates_pillars.d2`, and `manim/cvi_matrix.py`).
+Two animated D2 SVGs and two Manim GIFs illustrate the architecture and methodology; the Markdown stays the source of truth. They are rendered from `~/Projects/animation-studio-work/` (`d2/cvi_snapshot.d2`, `d2/cvi_gates_pillars.d2`, `manim/cvi_matrix.py`, and `manim/cvi_blackhole.py`).
 
 - [`anim-1-snapshot-pipeline.svg`](assets/animations/anim-1-snapshot-pipeline.svg): dual collectors, SHA-256 snapshot freeze, SQLite + 256 JSON shards, and 11/11 mutation verification gate
 - [`anim-2-gates-and-pillars.svg`](assets/animations/anim-2-gates-and-pillars.svg): Stage 0 viability gates, empirical PR black-hole rate, and 5 weighted pillars
 - [`anim-3-matrix-and-personas.gif`](assets/animations/anim-3-matrix-and-personas.gif): 2D leverage × receptiveness scatter matrix and morphing persona lenses
+- [`cvi_blackhole_and_pillars.gif`](assets/animations/cvi_blackhole_and_pillars.gif): Stage 0 viability funnel, empirical PR black-hole discovery across star tiers, and 5 weighted pillars
 
 Agents: binary animations are excluded via `.claudeignore`; read the Markdown instead.
 

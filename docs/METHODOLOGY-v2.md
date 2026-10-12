@@ -27,7 +27,7 @@ snapshot manifest are what a reader checks against this page.
 
 ## Pillars
 
-![Stage 0 gates and the five scoring pillars](assets/animations/anim-2-gates-and-pillars.gif)
+![Stage 0 gates and the five scoring pillars](assets/animations/cvi_blackhole_and_pillars.gif)
 
 | Pillar | Weight |
 |---|---|
