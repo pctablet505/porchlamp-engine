@@ -155,19 +155,42 @@ def fetch_last_month(base_url: str, name: str, timeout: float = 30.0) -> Optiona
     return monthly
 
 
-def _write_envelope(data_dir: Path, name: str, monthly: int, source: str) -> None:
-    """Atomically replace the pypi download envelope with a measured value."""
+def _stored_data(data_dir: Path, name: str) -> dict[str, Any]:
+    """The ``data`` of the stored pypi download envelope, ``{}`` when unreadable.
+
+    ``scripts/gather.py`` records beside ``monthly`` the ``package`` it counted
+    (not always the repo name) and the ``repo`` that wrote the file; a backfill
+    must fetch that package and keep both fields, or it would undo the
+    attribution ``scripts/derive.py`` checks.
+    """
+    path = data_dir / "raw" / "downloads" / f"pypi__{name}.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")).get("data")
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_envelope(data_dir: Path, name: str, monthly: int, source: str,
+                    keep: Optional[dict[str, Any]] = None) -> None:
+    """Atomically replace the pypi download envelope with a measured value.
+
+    ``keep``: the stored fields to carry over (``package``, ``repo``); the
+    pypistats URL then names the counted package.
+    """
     path = data_dir / "raw" / "downloads" / f"pypi__{name}.json"
     tmp = path.with_name(path.name + ".backfill-tmp")
+    keep = {k: v for k, v in (keep or {}).items() if k in ("package", "repo")}
+    counted = keep.get("package") or name
     envelope_source = (
-        f"{source.rstrip('/')}/api/packages/{name}/recent"
+        f"{source.rstrip('/')}/api/packages/{counted}/recent"
         if source.startswith(("http://", "https://"))
         else source
     )
     write_envelope(
         tmp,
         source=envelope_source,
-        data={"monthly": monthly},
+        data={"monthly": monthly, **keep},
         fetched_at=datetime.now(timezone.utc).isoformat(),
         http_status=200,
     )
@@ -218,9 +241,10 @@ def backfill(data_dir: Path, *, base_url: str = PYPISTATS_BASE,
         if wait > 0:
             time.sleep(wait)
         last_request_at = time.monotonic()
-        monthly = fetch_last_month(base_url, name)
+        stored = _stored_data(data_dir, name)
+        monthly = fetch_last_month(base_url, stored.get("package") or name)
         if monthly is not None:
-            _write_envelope(data_dir, name, monthly, base_url)
+            _write_envelope(data_dir, name, monthly, base_url, stored)
             fetched += 1
         else:
             nulls += 1

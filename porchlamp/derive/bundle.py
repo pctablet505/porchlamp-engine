@@ -1129,6 +1129,10 @@ def _resolve_downloads_monthly(ctx: _V1Ctx) -> Measured | Unmeasured:
         if status == "unmeasured":
             return Unmeasured(reason="third_party_gap",
                                detail="W1-8 downloads_status=unmeasured: ecosystem has no downloads registry")
+        if status == "unattributed":
+            return Unmeasured(reason="third_party_gap",
+                               detail="downloads_status=unattributed: deps.dev links no package of this "
+                                      "registry to the repo, or the count on file is another package's")
         return Unmeasured(reason="third_party_gap", detail="registry returned no downloads data")
     return Unmeasured(reason="collector_failure",
                        detail=f"v1 confidence {confidence_value!r} for 'monthly_downloads' is not recognized")

@@ -453,6 +453,17 @@ def test_downloads_monthly(tmp_path: Path) -> None:
         detail="W1-8 downloads_status=unmeasured: ecosystem has no downloads registry",
     )
 
+    # Negative 2b: downloads_status=unattributed (deps.dev links no package of the
+    # registry to the repo, or the count on file is another package's).
+    unattributed = base_document(meta={"downloads_status": "unattributed"},
+                                 confidence={"monthly_downloads": "missing"})
+    unattributed_bundle = load(tmp_path, unattributed, key="acme__unattributed")
+    assert unattributed_bundle.inputs["downloads_monthly"] == Unmeasured(
+        reason="third_party_gap",
+        detail="downloads_status=unattributed: deps.dev links no package of this "
+               "registry to the repo, or the count on file is another package's",
+    )
+
     # Negative 3: old-format document, no downloads_status hook at all.
     old_format = base_document(confidence={"monthly_downloads": "missing"})
     old_bundle = load(tmp_path, old_format, key="acme__old-format")

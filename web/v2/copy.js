@@ -554,7 +554,7 @@ export const METHODOLOGY_HEADING = "Methodology and snapshot";
 export const WHY_HEADING = "Why Porchlamp";
 export const WHY_PARAGRAPHS = Object.freeze([
   "A porch lamp left on tells a visitor they are expected. Porchlamp ranks open-source projects the same way: by what happens to a stranger's pull request, not by how many stars the project has.",
-  "Stars do not review pull requests. In our measurements about half of active projects leave most pull requests from outside contributors without a human reply, review or merge for two weeks, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.",
+  "Stars do not review pull requests. In our measurements more than a third of active projects leave most pull requests from outside contributors without a human reply, review or merge for two weeks, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.",
   "Every number comes from public GitHub activity: how fast a person answered outside contributors, how many of their pull requests reached a decision, whether first-time contributors came back, and how much other software depends on the project.",
 ]);
 export const METHODOLOGY_LOADING_TEXT = "Loading the methodology…";

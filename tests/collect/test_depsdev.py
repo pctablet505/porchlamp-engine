@@ -37,6 +37,26 @@ Recorded responses (captured 2026-09-12T07:37-07:43Z, keyless, no auth):
 
 The 3.1.3 version is the package's ``isDefault`` version in the recorded
 package payload (version 3.1.0 had dependentCount 139).
+
+Source-repo map, captured 2026-10-10T05:18Z, keyless, no auth:
+
+* ``GET https://api.deps.dev/v3alpha/projects/github.com%2Fniieani%2F
+  hashids.js:packageversions`` (HTTP 200, 17929 bytes, sha256 68a2d8a8
+  13532d89 ... in ``HASHIDS_MAP_SHA``): 92 versions of 4 packages. The
+  npm package ``hashids`` links the repo as ``SOURCE_REPO`` (20 versions,
+  plus 20 as ``ISSUE_TRACKER``); ``@dalongrong/hashids`` once as
+  ``SOURCE_REPO``; ``@titanium/hashids`` 47 times, every one only
+  ``ISSUE_TRACKER``; 3 Go versions of the repo's own module.
+* ``GET https://api.deps.dev/v3alpha/systems/npm/packages/path-to-regexp/
+  versions/8.4.2`` (HTTP 200, 1192 bytes, captured 2026-10-10T05:56Z):
+  ``relatedProjects`` lists github.com/pillarjs/path-to-regexp twice, as
+  ``ISSUE_TRACKER`` and as ``SOURCE_REPO``. The source-repo map of that repo
+  was cut at the 1,500-version cap without the package, which is why the
+  version payload is the second check.
+* ``GET https://api.deps.dev/v3alpha/systems/pypi/packages/inventree/
+  versions/0.23.2`` (HTTP 200, 2102 bytes, same capture): ``relatedProjects``
+  lists only github.com/inventree/inventree-python -- the PyPI name
+  ``inventree`` is that client library, not the InvenTree server repo.
 """
 from __future__ import annotations
 
@@ -46,6 +66,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
+from typing import Optional
 
 
 from porchlamp.collect import depsdev as dd
@@ -62,6 +83,9 @@ FLASK_PACKAGE_SHA = ("653d1d347be1c4c5b10ab09b6d67bdef13d06397a1ada6e285d257f853
 FLASK_DEPENDENTS_SHA = ("f4d460aaeae1627eb7bedf0906a58191e4e5340aa6a0f36ee5f5478a68a1984d")
 ECOSYSTEMES_404_SHA = ("51d0a9e3bd9ffc25483790aaffe7a3597e642edd040dddb16aafc324e6e922ed")
 ECOSYSTEMES_200_SHA = ("a61b10ac2f8182415ddd3982c9411e844ba9bf2a1f32c70a3b2921b2825ed8a0")
+HASHIDS_MAP_SHA = ("68a2d8a813532d89ba5e6dbc690879519593df45e8466377c845b5b2e9e19632")
+PATH_TO_REGEXP_VERSION_SHA = ("471c213dbcc01dba61e52f2f530f8e38c47f84cee045c540cbd2b4612de22962")
+INVENTREE_VERSION_SHA = ("257a78a698343d2ef05ff0b17e28cf1b6e087db27f528a022981d021893baeb9")
 
 
 def _load_script(modname: str, fname: str) -> ModuleType:
@@ -93,7 +117,10 @@ def test_fixture_hashes_match_the_live_capture():
     for fname, want in (("depsdev_flask_package.json", FLASK_PACKAGE_SHA),
                         ("depsdev_flask_3_1_3_dependents.json", FLASK_DEPENDENTS_SHA),
                         ("ecosystemes_flask_not_found.json", ECOSYSTEMES_404_SHA),
-                        ("ecosystemes_flask_package.json", ECOSYSTEMES_200_SHA)):
+                        ("ecosystemes_flask_package.json", ECOSYSTEMES_200_SHA),
+                        ("depsdev_project_hashidsjs_packageversions.json", HASHIDS_MAP_SHA),
+                        ("depsdev_npm_path_to_regexp_8_4_2_version.json", PATH_TO_REGEXP_VERSION_SHA),
+                        ("depsdev_pypi_inventree_0_23_2_version.json", INVENTREE_VERSION_SHA)):
         got = hashlib.sha256((DATA / fname).read_bytes()).hexdigest()
         assert got == want, fname
 
@@ -172,7 +199,7 @@ def test_urls_exact():
 
 def test_ecosystem_system_mapping_exact():
     assert dd.system_for_ecosystem("pypi") == "pypi"
-    assert dd.system_for_ecosystem("crates") == "crates.io"
+    assert dd.system_for_ecosystem("crates") == "cargo"
     assert dd.system_for_ecosystem("npm") == "npm"
     # go/maven have a deps.dev system (module path / groupId:artifactId
     # is still a separate question -- package_name_for_repo, below).
@@ -185,6 +212,17 @@ def test_ecosystem_system_mapping_exact():
     assert ees.registry_for_ecosystem("go") == "proxy.golang.org"
     assert ees.registry_for_ecosystem("maven") == "repo1.maven.org"
     assert ees.registry_for_ecosystem("systems") is None
+
+
+def test_url_segment_is_the_lowercased_canonical_system_id():
+    """deps.dev answers 404 on every route for a segment that is not its own
+    system id in lower case (``crates.io`` for crates, observed 2026-10-10;
+    ``cargo/packages/clap`` is 200). The map payloads spell the canonical id,
+    so the two tables must agree for every ecosystem that has one."""
+    assert set(dd.SYSTEM_FOR_ECOSYSTEM) == set(dd.MAPPED_SYSTEM_FOR_ECOSYSTEM)
+    for eco, segment in dd.SYSTEM_FOR_ECOSYSTEM.items():
+        assert segment == dd.MAPPED_SYSTEM_FOR_ECOSYSTEM[eco].lower(), eco
+    assert dd.package_url("cargo", "clap") == "https://api.deps.dev/v3alpha/systems/cargo/packages/clap"
 
 
 def test_package_name_for_repo():
@@ -356,6 +394,23 @@ def test_dedup_counts_root_orgs_once():
 
 # --- collect_dependents (urllib boundary mocked) --------------------------------
 
+def _entry(system: str, package: str, relation: str = "SOURCE_REPO", n: int = 1) -> list[dict]:
+    return [{"versionKey": {"system": system, "name": package, "version": f"1.{i}.0"},
+             "relationType": relation} for i in range(n)]
+
+
+def _map_lists(monkeypatch, system: str, *packages: str) -> None:
+    """The status-aware boundary: the source-repo map lists ``packages`` (deps.dev
+    system id, upper case) as the repo's SOURCE_REPO packages; every other URL is a 404."""
+    payload = {"versions": [e for p in packages for e in _entry(system, p)]}
+
+    def fetch_status(url: str):
+        if url.startswith(f"{dd.DEPSDEV_API}/projects/"):
+            return 200, payload
+        return 404, None
+    monkeypatch.setattr(dd, "_fetch_status", fetch_status)
+
+
 def _replay(url: str):
     """Recorded payloads keyed by the exact URLs they were captured at."""
     if url == dd.package_url("pypi", "flask"):
@@ -367,6 +422,7 @@ def _replay(url: str):
 
 def test_collect_dependents_primary_writes_envelope(tmp_path, monkeypatch):
     monkeypatch.setattr(dd, "_get_json", _replay)
+    _map_lists(monkeypatch, "PYPI", "flask")
     status = dd.collect_dependents(tmp_path, "pallets", "flask", "pypi")
     assert status == "ok"
     env = read_envelope(tmp_path / "dependents" / f"{KEY}.json")
@@ -380,6 +436,11 @@ def test_collect_dependents_primary_writes_envelope(tmp_path, monkeypatch):
         "direct_dependent_count": 8077, "indirect_dependent_count": 4809,
         "deduped_count": 12698, "dependents": None,
         "source_used": "deps.dev",
+        "guessed_package": "flask", "guess_linked": True,
+        "source_repo_map": dd.project_packages_url("pallets", "flask"),
+        "map_truncated": False,
+        "mapped_candidates": [
+            {"package": "flask", "linked_versions": 1, "dependent_count": 12698}],
     }
 
 
@@ -404,14 +465,13 @@ def test_collect_dependents_systems_writes_not_applicable_envelope(tmp_path, mon
     assert env.sha256 == envelope_hash(env.data)
 
 
-def test_collect_dependents_maven_without_pom_content_is_skip_no_envelope(tmp_path, monkeypatch, block_live_network):
-    """maven has no name-derived default identifier; without a
-    fetched pom.xml nothing can be mapped, so this stays "skip"."""
-    def must_not_fetch(url: str):
-        raise AssertionError("no maven coordinates derivable; nothing may be fetched")
-    monkeypatch.setattr(dd, "_get_json", must_not_fetch)
-    assert dd.collect_dependents(tmp_path, "apache", "thrift", "maven") == "skip"
-    assert not (tmp_path / "dependents").is_dir()
+def test_collect_dependents_maven_without_pom_makes_no_name_guess(tmp_path, monkeypatch, block_live_network):
+    """maven has no name-derived default identifier: without a fetched pom.xml
+    there is no package to look up by name, so the only call is the
+    source-repo map (never a package URL)."""
+    asked = _script_net(monkeypatch, "maven", {}, (404, None))
+    assert dd.collect_dependents(tmp_path, "apache", "thrift", "maven") == "no_package"
+    assert asked == [dd.project_packages_url("apache", "thrift")]
 
 
 def test_collect_dependents_unmapped_ecosystem_is_skip_no_envelope(tmp_path, monkeypatch, block_live_network):
@@ -420,6 +480,7 @@ def test_collect_dependents_unmapped_ecosystem_is_skip_no_envelope(tmp_path, mon
     def must_not_fetch(url: str):
         raise AssertionError("no mapping for this ecosystem; nothing may be fetched")
     monkeypatch.setattr(dd, "_get_json", must_not_fetch)
+    monkeypatch.setattr(dd, "_fetch_status", must_not_fetch)
     assert dd.collect_dependents(tmp_path, "acme", "widget", "conda") == "skip"
     assert not (tmp_path / "dependents").is_dir()
 
@@ -435,6 +496,7 @@ def test_collect_dependents_go_default_module_path_writes_envelope(tmp_path, mon
             return {"dependentCount": 5, "directDependentCount": 4, "indirectDependentCount": 1}
         raise AssertionError(f"unexpected URL: {url}")
     monkeypatch.setattr(dd, "_get_json", replay)
+    _map_lists(monkeypatch, "GO", "github.com/a-h/templ")
     status = dd.collect_dependents(tmp_path, "a-h", "templ", "go")
     assert status == "ok"
     env = read_envelope(tmp_path / "dependents" / "a-h__templ.json")
@@ -444,6 +506,11 @@ def test_collect_dependents_go_default_module_path_writes_envelope(tmp_path, mon
         "direct_dependent_count": 4, "indirect_dependent_count": 1,
         "deduped_count": 5, "dependents": None, "source_used": "deps.dev",
         "identifier_method": "derived:module_path_default",
+        "guessed_package": "github.com/a-h/templ", "guess_linked": True,
+        "source_repo_map": dd.project_packages_url("a-h", "templ"),
+        "map_truncated": False,
+        "mapped_candidates": [{"package": "github.com/a-h/templ",
+                               "linked_versions": 1, "dependent_count": 5}],
     }
 
 
@@ -455,6 +522,7 @@ def test_collect_dependents_go_mod_module_override_recorded(tmp_path, monkeypatc
             return {"dependentCount": 999}
         raise AssertionError(f"unexpected URL: {url}")
     monkeypatch.setattr(dd, "_get_json", replay)
+    _map_lists(monkeypatch, "GO", "google.golang.org/grpc")
     status = dd.collect_dependents(tmp_path, "grpc", "grpc-go", "go",
                                    go_mod_module="google.golang.org/grpc")
     assert status == "ok"
@@ -478,6 +546,7 @@ def test_collect_dependents_maven_with_pom_xml_writes_envelope(tmp_path, monkeyp
             return {"dependentCount": 42}
         raise AssertionError(f"unexpected URL: {url}")
     monkeypatch.setattr(dd, "_get_json", replay)
+    _map_lists(monkeypatch, "MAVEN", "org.apache.thrift:libthrift")
     status = dd.collect_dependents(tmp_path, "apache", "thrift", "maven", maven_pom_xml=pom)
     assert status == "ok"
     env = read_envelope(tmp_path / "dependents" / "apache__thrift.json")
@@ -486,56 +555,656 @@ def test_collect_dependents_maven_with_pom_xml_writes_envelope(tmp_path, monkeyp
     assert env.data["identifier_method"] == "parsed:pom_xml"
 
 
-def test_collect_dependents_go_no_count_anywhere_is_fail(tmp_path, monkeypatch):
+def test_collect_dependents_go_no_count_anywhere_is_fail(tmp_path, monkeypatch, block_live_network):
     """A mapped package deps.dev (and the ecosyste.ms fallback) has no count
-    stays "fail", exactly like the existing pypi/npm/crates contract."""
+    stays "fail", exactly like the existing pypi/npm/crates contract. The
+    source-repo map gets no answer either, so the registry is not shown to
+    lack the package."""
     monkeypatch.setattr(dd, "_get_json", lambda url: None)
+    monkeypatch.setattr(dd, "_fetch_status", lambda url: (None, None))
     assert dd.collect_dependents(tmp_path, "a-h", "templ", "go") == "fail"
     assert not (tmp_path / "dependents").is_dir()
 
 
-def test_collect_dependents_fallback_ecosystemes(tmp_path, monkeypatch):
-    def replay(url: str):
-        # deps.dev package lookup fails; the fallback registry lookup succeeds.
-        if url.startswith(dd.DEPSDEV_API):
-            return None
-        assert url == ees.package_url(ees.registry_for_ecosystem("pypi"), "pytest")
-        return {"name": "pytest", "registry": "pypi", "dependent_packages_count": 7}
-    monkeypatch.setattr(dd, "_get_json", replay)
-    status = dd.collect_dependents(tmp_path, "pytest-dev", "pytest", "pypi")
-    assert status == "ok"
+def test_collect_dependents_ecosystemes_is_the_count(tmp_path, monkeypatch, block_live_network):
+    """ecosyste.ms answers, so its count is the count even when deps.dev has
+    one; deps.dev's latest-version figure rides along for comparison."""
+    payload = {"versions": _entry("PYPI", "pytest")}
+    _script_net(monkeypatch, "pypi", {"pytest": 31}, (200, payload), ecosystems={"pytest": 7})
+    assert dd.collect_dependents(tmp_path, "pytest-dev", "pytest", "pypi") == "ok"
     env = read_envelope(tmp_path / "dependents" / "pytest-dev__pytest.json")
+    assert env.source == ees.package_url("pypi.org", "pytest")
     assert env.data["source_used"] == "ecosyste.ms"
-    assert env.data["dependent_count"] == 7
-    assert env.data["deduped_count"] == 7
-    assert env.data["version"] is None
-    assert env.data["dependents"] is None
+    assert env.data["dependent_count"] == 7 and env.data["deduped_count"] == 7
+    assert env.data["version"] is None and env.data["dependents"] is None
+    assert env.data["depsdev_latest"] == {"version": "1.0.0", "dependent_count": 31,
+                                          "direct_dependent_count": 31, "indirect_dependent_count": 0}
+    assert env.data["mapped_candidates"] == [
+        {"package": "pytest", "linked_versions": 1, "dependent_count": 7}]
+    assert env.sha256 == envelope_hash(env.data)
 
-def test_collect_dependents_fallback_recorded_flask_200(tmp_path, monkeypatch):
-    """With deps.dev empty, the recorded pypi.org 200 for pypi/flask drives
-    the fallback envelope at the exact corrected URL."""
-    def replay(url: str):
-        if url.startswith(dd.DEPSDEV_API):
-            return None
-        assert url == "https://packages.ecosyste.ms/api/v1/registries/pypi.org/packages/flask"
-        return json.loads((DATA / "ecosystemes_flask_package.json").read_text())
-    monkeypatch.setattr(dd, "_get_json", replay)
-    status = dd.collect_dependents(tmp_path, "pallets", "flask", "pypi")
-    assert status == "ok"
+
+def test_collect_dependents_recorded_flask_ecosystemes_200(tmp_path, monkeypatch):
+    """The recorded pypi.org 200 for pypi/flask is the count, at its exact URL;
+    the recorded deps.dev flask figure (12,698, indirect dependents included)
+    is kept beside it."""
+    flask_url = "https://packages.ecosyste.ms/api/v1/registries/pypi.org/packages/flask"
+    recorded = json.loads((DATA / "ecosystemes_flask_package.json").read_text())
+
+    def fetch_status(url: str):
+        if url == flask_url:
+            return 200, recorded
+        if url.startswith(f"{dd.DEPSDEV_API}/projects/"):
+            return 200, {"versions": _entry("PYPI", "flask")}
+        return 404, None
+    monkeypatch.setattr(dd, "_fetch_status", fetch_status)
+    monkeypatch.setattr(dd, "_get_json", _replay)
+    assert dd.collect_dependents(tmp_path, "pallets", "flask", "pypi") == "ok"
     env = read_envelope(tmp_path / "dependents" / f"{KEY}.json")
-    assert env.source == \
-        "https://packages.ecosyste.ms/api/v1/registries/pypi.org/packages/flask"
+    assert env.source == flask_url
     assert env.data["source_used"] == "ecosyste.ms"
-    assert env.data["dependent_count"] == 2451
-    assert env.data["deduped_count"] == 2451
-    assert env.data["version"] is None
-    assert env.data["dependents"] is None
+    assert env.data["dependent_count"] == 2451 and env.data["deduped_count"] == 2451
+    assert env.data["version"] is None and env.data["dependents"] is None
+    assert env.data["depsdev_latest"]["dependent_count"] == 12698
+    assert env.data["depsdev_latest"]["version"] == "3.1.3"
 
 
-def test_collect_dependents_fail_when_no_source(tmp_path, monkeypatch):
+def test_collect_dependents_depsdev_is_the_count_only_when_ecosystemes_has_no_record(tmp_path, monkeypatch, block_live_network):
+    payload = {"versions": _entry("PYPI", "pytest")}
+    _script_net(monkeypatch, "pypi", {"pytest": 31}, (200, payload), ecosystems={})
+    assert dd.collect_dependents(tmp_path, "pytest-dev", "pytest", "pypi") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "pytest-dev__pytest.json")
+    assert env.data["source_used"] == "deps.dev" and env.data["dependent_count"] == 31
+    assert "depsdev_latest" not in env.data
+
+
+def test_collect_dependents_ecosystemes_200_without_a_count_is_no_record(tmp_path, monkeypatch, block_live_network):
+    payload = {"versions": _entry("PYPI", "pytest")}
+    _script_net(monkeypatch, "pypi", {"pytest": 31}, (200, payload), ecosystems={"pytest": "nocount"})
+    assert dd.collect_dependents(tmp_path, "pytest-dev", "pytest", "pypi") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "pytest-dev__pytest.json")
+    assert env.data["source_used"] == "deps.dev" and env.data["dependent_count"] == 31
+
+
+def test_collect_dependents_ecosystemes_down_is_a_retry_not_a_deps_dev_count(tmp_path, monkeypatch, block_live_network):
+    """A throttled or failing ecosyste.ms must not push the repo onto
+    deps.dev's scale: nothing is written, the next run asks again."""
+    payload = {"versions": _entry("PYPI", "pytest")}
+    asked = _script_net(monkeypatch, "pypi", {"pytest": 31}, (200, payload), ecosystems={"pytest": "down"})
+    assert dd.collect_dependents(tmp_path, "pytest-dev", "pytest", "pypi") == "fail"
+    assert not (tmp_path / "dependents" / "pytest-dev__pytest.json").exists()
+    assert dd.version_dependents_url("pypi", "pytest", "1.0.0") not in asked
+
+
+def test_collect_dependents_one_candidate_unanswered_is_a_retry_not_a_win_for_the_other(tmp_path, monkeypatch, block_live_network):
+    """Two packages are linked to the repo; ecosyste.ms answers for one and is
+    down for the other. Judging on the one that answered could crown the wrong
+    package, so the repo is retried."""
+    payload = {"versions": _entry("NPM", "scope-a", n=2) + _entry("NPM", "scope-b", n=1)}
+    _script_net(monkeypatch, "npm", {}, (200, payload), ecosystems={"scope-a": 5, "scope-b": "down"})
+    assert dd.collect_dependents(tmp_path, "acme", "mono", "npm") == "fail"
+    assert not (tmp_path / "dependents" / "acme__mono.json").exists()
+
+
+def test_collect_dependents_candidates_are_ranked_on_the_ecosystemes_count(tmp_path, monkeypatch, block_live_network):
+    """deps.dev would crown ``loud`` (900 against 40); ecosyste.ms, the count we
+    rank on, says ``quiet`` (300 against 5)."""
+    payload = {"versions": _entry("NPM", "loud", n=2) + _entry("NPM", "quiet", n=1)}
+    _script_net(monkeypatch, "npm", {"loud": 900, "quiet": 40}, (200, payload),
+                ecosystems={"loud": 5, "quiet": 300})
+    assert dd.collect_dependents(tmp_path, "acme", "mono", "npm") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "acme__mono.json")
+    assert env.data["package"] == "quiet" and env.data["dependent_count"] == 300
+    assert env.data["depsdev_latest"]["dependent_count"] == 40
+
+
+def test_collect_dependents_crate_is_counted_under_the_spelling_ecosystemes_knows(tmp_path, monkeypatch, block_live_network):
+    """The map spells the crate ``cfg_if``; ecosyste.ms answers to ``cfg-if`` only."""
+    payload = {"versions": _entry("CARGO", "cfg_if", n=3)}
+    _script_net(monkeypatch, "cargo", {}, (200, payload), ecosystems={"cfg-if": 1962})
+    assert dd.collect_dependents(tmp_path, "rust-lang", "cfg-if", "crates") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "rust-lang__cfg-if.json")
+    assert env.data["package"] == "cfg-if" and env.data["dependent_count"] == 1962
+    assert env.data["source_used"] == "ecosyste.ms" and env.data["depsdev_latest"] is None
+
+
+def test_collect_dependents_go_module_path_case_is_part_of_the_name(tmp_path, monkeypatch, block_live_network):
+    """aws/aws-sdk-go: the package metadata spells the module ``github.com/AWS/AWS-SDK-GO``, an empty
+    record on ecosyste.ms; the module with the dependents is ``github.com/aws/aws-sdk-go``. The first
+    spelling that answers is not the package: the one with the most dependents is."""
+    payload = {"versions": _entry("GO", "github.com/AWS/AWS-SDK-GO", n=4)}
+    _script_net(monkeypatch, "go", {}, (200, payload),
+                ecosystems={"github.com/AWS/AWS-SDK-GO": 0, "github.com/aws/aws-sdk-go": 12000})
+    assert dd.collect_dependents(tmp_path, "aws", "aws-sdk-go", "go") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "aws__aws-sdk-go.json")
+    assert env.data["package"] == "github.com/aws/aws-sdk-go" and env.data["dependent_count"] == 12000
+    assert env.source == ees.package_url("proxy.golang.org", "github.com/aws/aws-sdk-go")
+
+
+def test_collect_dependents_go_lower_case_module_is_tried_too(tmp_path, monkeypatch, block_live_network):
+    """The repo list and the package metadata both write ``Rancher``; the module path is lower case."""
+    payload = {"versions": _entry("GO", "github.com/Rancher/rancher")}
+    _script_net(monkeypatch, "go", {}, (200, payload),
+                ecosystems={"github.com/Rancher/rancher": 0, "github.com/rancher/rancher": 800})
+    assert dd.collect_dependents(tmp_path, "Rancher", "rancher", "go") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "Rancher__rancher.json")
+    assert env.data["package"] == "github.com/rancher/rancher" and env.data["dependent_count"] == 800
+
+
+def test_collect_dependents_equal_counts_keep_the_mapped_spelling(tmp_path, monkeypatch, block_live_network):
+    payload = {"versions": _entry("GO", "github.com/Acme/Tool")}
+    _script_net(monkeypatch, "go", {}, (200, payload),
+                ecosystems={"github.com/Acme/Tool": 7, "github.com/acme/tool": 7})
+    assert dd.collect_dependents(tmp_path, "acme", "tool", "go") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "acme__tool.json")
+    assert env.data["package"] == "github.com/Acme/Tool" and env.data["dependent_count"] == 7
+
+
+def test_collect_dependents_one_spelling_unanswered_is_a_retry(tmp_path, monkeypatch, block_live_network):
+    """The second spelling may be the one with the dependents, so one that did not answer cannot be skipped."""
+    payload = {"versions": _entry("GO", "github.com/AWS/AWS-SDK-GO")}
+    _script_net(monkeypatch, "go", {}, (200, payload),
+                ecosystems={"github.com/AWS/AWS-SDK-GO": 0, "github.com/aws/aws-sdk-go": "down"})
+    assert dd.collect_dependents(tmp_path, "aws", "aws-sdk-go", "go") == "fail"
+    assert not (tmp_path / "dependents" / "aws__aws-sdk-go.json").exists()
+
+
+def test_collect_dependents_depsdev_latest_is_none_when_depsdev_has_nothing(tmp_path, monkeypatch, block_live_network):
+    payload = {"versions": _entry("GO", "github.com/acme/tool")}
+    _script_net(monkeypatch, "go", {}, (200, payload), ecosystems={"github.com/acme/tool": 12})
+    assert dd.collect_dependents(tmp_path, "acme", "tool", "go") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "acme__tool.json")
+    assert env.data["dependent_count"] == 12 and env.data["depsdev_latest"] is None
+
+
+def test_ecosystems_count_states(monkeypatch):
+    def answer(status, body):
+        monkeypatch.setattr(dd, "_fetch_status", lambda url: (status, body))
+        return dd._ecosystems_count("pypi", "flask")
+    url = ees.package_url("pypi.org", "flask")
+    assert answer(200, {"dependent_packages_count": 0}) == ("count", 0, url)
+    assert answer(200, {"name": "flask"}) == ("absent", None, url)
+    assert answer(404, None) == ("absent", None, url)
+    assert answer(200, None) == ("no_answer", None, url)       # not a JSON object
+    assert answer(503, None) == ("no_answer", None, url)
+    assert answer(429, None) == ("no_answer", None, url)
+    assert answer(None, None) == ("no_answer", None, url)      # nothing answered
+    assert dd._ecosystems_count("systems", "x") == ("absent", None, None)
+
+
+def test_collect_dependents_fail_when_no_source(tmp_path, monkeypatch, block_live_network):
     monkeypatch.setattr(dd, "_get_json", lambda url: None)
+    monkeypatch.setattr(dd, "_fetch_status", lambda url: (None, None))
     assert dd.collect_dependents(tmp_path, "pallets", "flask", "pypi") == "fail"
     assert not (tmp_path / "dependents").is_dir()
+
+
+# --- the source-repo map ---------------------------------------------------------
+
+def _recorded(fname: str) -> dict:
+    return json.loads((DATA / fname).read_text())
+
+
+def _hashids_map() -> dict:
+    return _recorded("depsdev_project_hashidsjs_packageversions.json")
+
+
+def _related(repo: str, relation: str = "SOURCE_REPO") -> dict:
+    return {"relatedProjects": [{"projectKey": {"id": f"github.com/{repo}"},
+                                 "relationType": relation}]}
+
+
+def _script_net(monkeypatch, system: str, counts: dict[str, int],
+                map_answer: tuple[Optional[int], Optional[dict]],
+                linked: Optional[dict[str, str]] = None,
+                ecosystems: Optional[dict[str, object]] = None) -> list[str]:
+    """A scripted deps.dev: every package in ``counts`` exists with that many
+    dependents, the source-repo map answers ``map_answer``, every other
+    package is a 404. ``linked`` maps a package to the ``owner/name`` its
+    default version names as SOURCE_REPO (the check used when the map is cut).
+    ``ecosystems`` scripts ecosyste.ms, the primary count: package -> count,
+    ``"down"`` (HTTP 503) or ``"nocount"`` (200 without a count); every other
+    package is a 404 there (absent, so deps.dev's figure is the count).
+    Returns the list every asked URL is appended to."""
+    asked: list[str] = []
+    linked = linked or {}
+    ecosystems = ecosystems or {}
+    registry = ees.registry_for_ecosystem({"cargo": "crates"}.get(system, system))
+
+    def ecosystems_status(url: str):
+        for package, answer in ecosystems.items():
+            if url == ees.package_url(registry, package):
+                if answer == "down":
+                    return 503, None
+                if answer == "nocount":
+                    return 200, {"name": package}
+                return 200, {"name": package, "dependent_packages_count": answer}
+        return 404, None
+
+    def get_json(url: str):
+        asked.append(url)
+        for package, n in counts.items():
+            if url == dd.package_url(system, package):
+                return {"versions": [{"versionKey": {"version": "1.0.0"}, "isDefault": True}]}
+            if url == dd.version_dependents_url(system, package, "1.0.0"):
+                return {"dependentCount": n, "directDependentCount": n,
+                        "indirectDependentCount": 0}
+        return None
+
+    def fetch_status(url: str):
+        asked.append(url)
+        if url.startswith(ees.ECOSYSTEMES_API):
+            return ecosystems_status(url)
+        if url.startswith(f"{dd.DEPSDEV_API}/projects/"):
+            return map_answer
+        for package in counts:
+            if url == dd.package_url(system, package):
+                return 200, {"versions": [{"versionKey": {"version": "1.0.0"},
+                                           "isDefault": True}]}
+            if url == dd.version_url(system, package, "1.0.0"):
+                return 200, _related(linked[package]) if package in linked else {}
+        return 404, None
+
+    monkeypatch.setattr(dd, "_get_json", get_json)
+    monkeypatch.setattr(dd, "_fetch_status", fetch_status)
+    return asked
+
+
+def _capped_map(*entries: dict) -> dict:
+    """A source-repo map cut at the 1,500-version cap: filler versions of another
+    system, then the given entries."""
+    filler = [{"versionKey": {"system": "GO", "name": f"filler{i}", "version": "v1"},
+               "relationType": "SOURCE_REPO"} for i in range(dd.MAP_VERSION_CAP - len(entries))]
+    return {"versions": filler + list(entries)}
+
+
+def test_project_packages_url_exact():
+    assert dd.project_packages_url("niieani", "hashids.js") == (
+        "https://api.deps.dev/v3alpha/projects/github.com%2Fniieani%2Fhashids.js:packageversions")
+
+
+def test_version_url_exact():
+    assert dd.version_url("npm", "@a/b", "1.0.0") == (
+        "https://api.deps.dev/v3alpha/systems/npm/packages/%40a%2Fb/versions/1.0.0")
+
+
+def test_mapped_packages_recorded_hashids_keeps_source_repo_relation_only():
+    """Recorded: ``@titanium/hashids`` links the repo in 47 versions, every one
+    only as ISSUE_TRACKER, so it is not the repo's package."""
+    payload = _hashids_map()
+    assert dd.mapped_packages(payload, "npm") == [("hashids", 20), ("@dalongrong/hashids", 1)]
+    assert dd.mapped_packages(payload, "go") == [("github.com/niieani/hashids.js", 3)]
+    assert dd.mapped_packages(payload, "pypi") == []
+
+
+def test_mapped_packages_orders_by_linked_versions_then_name():
+    payload = {"versions": (_entry("NPM", "b", n=2) + _entry("NPM", "a", n=2)
+                            + _entry("NPM", "c", n=3))}
+    assert dd.mapped_packages(payload, "npm") == [("c", 3), ("a", 2), ("b", 2)]
+
+
+def test_mapped_packages_absent_malformed_or_unmapped_is_empty():
+    for bad in (None, {}, {"versions": None}, {"versions": ["x", {"versionKey": "y"}, {}]}):
+        assert dd.mapped_packages(bad, "npm") == []
+    assert dd.mapped_packages({"versions": _entry("NPM", "a")}, "conda") == []
+    assert dd.mapped_packages({"versions": _entry("NPM", "")}, "npm") == []
+
+
+def test_links_repo_recorded_path_to_regexp_names_its_source_repo():
+    """Recorded: npm path-to-regexp 8.4.2 lists pillarjs/path-to-regexp as
+    SOURCE_REPO (and as ISSUE_TRACKER)."""
+    payload = _recorded("depsdev_npm_path_to_regexp_8_4_2_version.json")
+    assert dd.links_repo(payload, "pillarjs", "path-to-regexp") is True
+    assert dd.links_repo(payload, "PillarJS", "Path-To-Regexp") is True   # case-insensitive
+    assert dd.links_repo(payload, "pillarjs", "router") is False
+
+
+def test_links_repo_recorded_pypi_inventree_is_the_client_not_the_server():
+    """Recorded: the PyPI package ``inventree`` names inventree/inventree-python,
+    not the InvenTree server repo whose name it shares."""
+    payload = _recorded("depsdev_pypi_inventree_0_23_2_version.json")
+    assert dd.links_repo(payload, "inventree", "inventree-python") is True
+    assert dd.links_repo(payload, "inventree", "InvenTree") is False
+
+
+def test_links_repo_needs_the_source_repo_relation_and_a_well_formed_payload():
+    assert dd.links_repo(_related("a/b", "ISSUE_TRACKER"), "a", "b") is False
+    assert dd.links_repo(_related("a/b"), "a", "b") is True
+    for bad in (None, {}, {"relatedProjects": None}, {"relatedProjects": ["x", {"projectKey": 3}]},
+                {"relatedProjects": [{"projectKey": {"id": 5}, "relationType": "SOURCE_REPO"}]}):
+        assert dd.links_repo(bad, "a", "b") is False
+
+
+def test_collect_dependents_guess_listed_by_the_map_needs_no_version_check(tmp_path, monkeypatch, block_live_network):
+    asked = _script_net(monkeypatch, "pypi", {"flask": 12698}, (200, {"versions": _entry("PYPI", "flask")}))
+    assert dd.collect_dependents(tmp_path, "pallets", "flask", "pypi") == "ok"
+    assert dd.version_url("pypi", "flask", "1.0.0") not in asked
+    env = read_envelope(tmp_path / "dependents" / f"{KEY}.json")
+    assert env.data["package"] == "flask"
+    assert env.data["guess_linked"] is True
+    assert "identifier_method" not in env.data
+
+
+def test_collect_dependents_guess_not_listed_by_a_complete_map_is_not_attributed(tmp_path, monkeypatch, block_live_network):
+    """inventree/InvenTree: PyPI ``inventree`` exists and has dependents, but it
+    is the Python client of another repo. Its count must not become InvenTree's."""
+    asked = _script_net(monkeypatch, "pypi", {"inventree": 77}, (200, {"versions": []}))
+    assert dd.collect_dependents(tmp_path, "inventree", "InvenTree", "pypi") == "no_package"
+    assert dd.version_dependents_url("pypi", "inventree", "1.0.0") not in asked
+    env = read_envelope(tmp_path / "dependents" / "inventree__InvenTree.json")
+    assert env.data["deduped_count"] is None and env.data["package"] is None
+    assert env.data["guessed_package"] == "inventree" and env.data["guess_linked"] is False
+
+
+def test_collect_dependents_unlinked_guess_loses_to_the_mapped_package(tmp_path, monkeypatch, block_live_network):
+    payload = {"versions": _entry("PYPI", "inventree-server", n=2)}
+    _script_net(monkeypatch, "pypi", {"inventree": 77, "inventree-server": 5}, (200, payload))
+    assert dd.collect_dependents(tmp_path, "inventree", "InvenTree", "pypi") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "inventree__InvenTree.json")
+    assert env.data["package"] == "inventree-server"
+    assert env.data["dependent_count"] == 5
+    assert env.data["guess_linked"] is False
+    assert env.data["identifier_method"] == "deps.dev:source_repo_map"
+    assert [c["package"] for c in env.data["mapped_candidates"]] == ["inventree-server"]
+
+
+def test_collect_dependents_cut_map_accepts_a_guess_whose_version_names_the_repo(tmp_path, monkeypatch, block_live_network):
+    """pillarjs/path-to-regexp: the map is cut at 1,500 versions and lacks the
+    package, but the package's own default version names the repo."""
+    asked = _script_net(monkeypatch, "npm", {"path-to-regexp": 500},
+                        (200, _capped_map()), linked={"path-to-regexp": "pillarjs/path-to-regexp"})
+    assert dd.collect_dependents(tmp_path, "pillarjs", "path-to-regexp", "npm") == "ok"
+    assert dd.version_url("npm", "path-to-regexp", "1.0.0") in asked
+    env = read_envelope(tmp_path / "dependents" / "pillarjs__path-to-regexp.json")
+    assert env.data["package"] == "path-to-regexp"
+    assert env.data["guess_linked"] is True and env.data["map_truncated"] is True
+    assert env.data["mapped_candidates"] == [
+        {"package": "path-to-regexp", "linked_versions": 0, "dependent_count": 500}]
+
+
+def test_collect_dependents_cut_map_verifies_a_crate_on_the_cargo_segment(tmp_path, monkeypatch, block_live_network):
+    """clap-rs/clap: the map is cut and lacks the crate, so the guess is checked
+    through the crate's own default version. That route is ``systems/cargo/...``;
+    on ``crates.io`` it 404s, the guess reads as not linked, and the flagship
+    crate came out unresolved."""
+    asked = _script_net(monkeypatch, "cargo", {"clap": 7289}, (200, _capped_map()),
+                        linked={"clap": "clap-rs/clap"})
+    assert dd.collect_dependents(tmp_path, "clap-rs", "clap", "crates") == "ok"
+    assert dd.version_url("cargo", "clap", "1.0.0") in asked
+    assert not any("/systems/crates.io/" in url for url in asked)
+    env = read_envelope(tmp_path / "dependents" / "clap-rs__clap.json")
+    assert env.data["package"] == "clap" and env.data["deduped_count"] == 7289
+    assert env.data["guess_linked"] is True and env.data["map_truncated"] is True
+    assert env.data["source_used"] == "deps.dev"
+
+
+def test_collect_dependents_cut_map_rejects_a_guess_that_names_another_repo(tmp_path, monkeypatch, block_live_network):
+    """The guess names pillarjs/router, not TanStack/router, so its count is not
+    used; and with the map cut, "no package" cannot be claimed either."""
+    _script_net(monkeypatch, "npm", {"router": 900}, (200, _capped_map()),
+                linked={"router": "pillarjs/router"})
+    assert dd.collect_dependents(tmp_path, "TanStack", "router", "npm") == "unresolved"
+    env = read_envelope(tmp_path / "dependents" / "TanStack__router.json")
+    assert env.data["guess_linked"] is False and env.data["map_truncated"] is True
+    assert env.data["source_used"] == "deps.dev:cut_map_unresolved"
+    assert env.data["deduped_count"] is None and env.data["package"] is None
+
+
+def test_collect_dependents_cut_map_with_nothing_visible_is_unresolved_not_no_package(tmp_path, monkeypatch, block_live_network):
+    """apache/thrift (maven, no pom coordinates): deps.dev returned 1,500
+    versions of other registries' packages and none of Maven Central's."""
+    asked = _script_net(monkeypatch, "maven", {}, (200, _capped_map()))
+    assert dd.collect_dependents(tmp_path, "apache", "thrift", "maven") == "unresolved"
+    assert asked == [dd.project_packages_url("apache", "thrift")]
+    env = read_envelope(tmp_path / "dependents" / "apache__thrift.json")
+    assert env.data["source_used"] == "deps.dev:cut_map_unresolved"
+    assert env.data["map_truncated"] is True and env.data["guessed_package"] is None
+
+
+def test_collect_dependents_cut_map_with_an_unanswered_version_check_is_fail(tmp_path, monkeypatch, block_live_network):
+    _script_net(monkeypatch, "npm", {"router": 900}, (200, _capped_map()))
+    real = dd._fetch_status
+
+    def flaky(url: str):
+        return (503, None) if "/versions/" in url else real(url)
+    monkeypatch.setattr(dd, "_fetch_status", flaky)
+    assert dd.collect_dependents(tmp_path, "pillarjs", "router", "npm") == "fail"
+    assert not (tmp_path / "dependents").is_dir()
+
+
+def test_collect_dependents_cut_map_with_a_guess_deps_dev_does_not_have_is_unresolved(tmp_path, monkeypatch, block_live_network):
+    """A guessed package deps.dev answers 404 for is settled as unlinked, not retried."""
+    _script_net(monkeypatch, "npm", {}, (200, _capped_map()))
+    assert dd.collect_dependents(tmp_path, "acme", "widget", "npm") == "unresolved"
+    assert read_envelope(tmp_path / "dependents" / "acme__widget.json").data["guess_linked"] is False
+
+
+def test_guess_is_linked_outcomes(monkeypatch):
+    """True/False when deps.dev answered, None only when it did not."""
+    package = {"versions": [{"versionKey": {"version": "1.0.0"}, "isDefault": True}]}
+
+    def script(package_answer, version_answer):
+        def fetch_status(url: str):
+            return package_answer if url == dd.package_url("npm", "w") else version_answer
+        monkeypatch.setattr(dd, "_fetch_status", fetch_status)
+
+    script((200, package), (200, _related("a/w")))
+    assert dd._guess_is_linked("npm", "w", "a", "w") is True
+    assert dd._guess_is_linked("npm", "w", "a", "other") is False
+    script((200, package), (404, None))
+    assert dd._guess_is_linked("npm", "w", "a", "w") is False
+    script((200, package), (503, None))
+    assert dd._guess_is_linked("npm", "w", "a", "w") is None
+    script((200, {"versions": []}), (200, _related("a/w")))
+    assert dd._guess_is_linked("npm", "w", "a", "w") is False      # no default version: nothing to verify
+    script((404, None), (200, _related("a/w")))
+    assert dd._guess_is_linked("npm", "w", "a", "w") is False
+    script((502, None), (200, _related("a/w")))
+    assert dd._guess_is_linked("npm", "w", "a", "w") is None
+
+
+def test_collect_dependents_source_repo_map_finds_the_renamed_package(tmp_path, monkeypatch, block_live_network):
+    """microsoft/windows-rs publishes the crate ``windows``; the repo name
+    ``windows-rs`` is a 404 on deps.dev."""
+    payload = {"versions": _entry("CARGO", "windows", n=3)}
+    _script_net(monkeypatch, "cargo", {"windows": 4321}, (200, payload))
+    assert dd.collect_dependents(tmp_path, "microsoft", "windows-rs", "crates") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "microsoft__windows-rs.json")
+    assert env.source == dd.version_dependents_url("cargo", "windows", "1.0.0")
+    assert env.data["package"] == "windows"
+    assert env.data["dependent_count"] == 4321
+    assert env.data["deduped_count"] == 4321
+    assert env.data["identifier_method"] == "deps.dev:source_repo_map"
+    assert env.data["guessed_package"] == "windows-rs" and env.data["guess_linked"] is False
+    assert env.data["source_repo_map"] == dd.project_packages_url("microsoft", "windows-rs")
+    assert env.data["mapped_candidates"] == [
+        {"package": "windows", "linked_versions": 3, "dependent_count": 4321}]
+    assert env.sha256 == envelope_hash(env.data)
+
+
+def test_package_key_is_spelling_independent_only_where_the_registry_says_so():
+    key = dd.package_key
+    assert key("crates", "cfg_if") == key("crates", "CFG-IF") == "cfg-if"
+    assert key("npm", "MathJax") == key("npm", "mathjax")
+    assert key("npm", "mermaid.cli") != key("npm", "mermaid-cli")        # npm: "." and "-" differ
+    assert key("npm", "a_b") != key("npm", "a-b")
+    assert key("pypi", "Foo_Bar.baz") == key("pypi", "foo-bar-baz")      # PEP 503
+    assert key("go", "github.com/RANCHER/rancher") == key("go", "github.com/rancher/rancher")
+    assert key("maven", "Com.Acme:Core") == key("maven", "com.acme:core")
+
+
+def test_collect_dependents_crates_underscore_in_the_map_is_the_hyphenated_crate(tmp_path, monkeypatch, block_live_network):
+    """rust-lang/cfg-if: the map spells the crate ``cfg_if``, the package
+    endpoint answers to ``cfg-if``. Same crate: the guess is linked, and the
+    spelling that answers is the one recorded."""
+    payload = {"versions": _entry("CARGO", "cfg_if", n=17)}
+    _script_net(monkeypatch, "cargo", {"cfg-if": 4000}, (200, payload))
+    assert dd.collect_dependents(tmp_path, "rust-lang", "cfg-if", "crates") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "rust-lang__cfg-if.json")
+    assert env.data["package"] == "cfg-if" and env.data["dependent_count"] == 4000
+    assert env.data["guess_linked"] is True
+    assert "identifier_method" not in env.data                    # it is the guess, respelled
+    assert env.data["mapped_candidates"] == [
+        {"package": "cfg-if", "linked_versions": 17, "dependent_count": 4000}]
+
+
+def test_collect_dependents_npm_case_only_difference_is_the_same_package(tmp_path, monkeypatch, block_live_network):
+    """mathjax/MathJax: the repo is called MathJax, the npm package is lowercase."""
+    payload = {"versions": _entry("NPM", "mathjax", n=3)}
+    _script_net(monkeypatch, "npm", {"mathjax": 70}, (200, payload))
+    assert dd.collect_dependents(tmp_path, "mathjax", "MathJax", "npm") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "mathjax__MathJax.json")
+    assert env.data["package"] == "mathjax" and env.data["guess_linked"] is True
+    assert "identifier_method" not in env.data       # a respelled guess is still the guess
+
+
+def test_collect_dependents_one_package_listed_in_two_spellings_is_one_candidate(tmp_path, monkeypatch, block_live_network):
+    payload = {"versions": _entry("CARGO", "foo_bar", n=3) + _entry("CARGO", "foo-bar", n=2)}
+    _script_net(monkeypatch, "cargo", {"foo-bar": 9}, (200, payload))
+    assert dd.collect_dependents(tmp_path, "acme", "other-name", "crates") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "acme__other-name.json")
+    assert [c["linked_versions"] for c in env.data["mapped_candidates"]] == [5]
+    assert env.data["package"] == "foo-bar"
+
+
+def test_collect_dependents_npm_dot_is_not_hyphen(tmp_path, monkeypatch, block_live_network):
+    """mermaid-js/mermaid-cli: the guess ``mermaid-cli`` is a different npm
+    package from the linked ``mermaid.cli`` and must not be treated as linked."""
+    payload = {"versions": _entry("NPM", "mermaid.cli", n=2)}
+    _script_net(monkeypatch, "npm", {"mermaid-cli": 500, "mermaid.cli": 3}, (200, payload))
+    assert dd.collect_dependents(tmp_path, "mermaid-js", "mermaid-cli", "npm") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "mermaid-js__mermaid-cli.json")
+    assert env.data["package"] == "mermaid.cli" and env.data["guess_linked"] is False
+
+
+def test_collect_dependents_source_repo_map_prefers_most_dependents_over_most_versions(tmp_path, monkeypatch, block_live_network):
+    payload = {"versions": _entry("NPM", "wide", n=9) + _entry("NPM", "popular", n=2)}
+    _script_net(monkeypatch, "npm", {"wide": 10, "popular": 900}, (200, payload))
+    assert dd.collect_dependents(tmp_path, "acme", "widget", "npm") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "acme__widget.json")
+    assert env.data["package"] == "popular"
+    assert env.data["dependent_count"] == 900
+    assert [c["package"] for c in env.data["mapped_candidates"]] == ["wide", "popular"]
+
+
+def test_collect_dependents_source_repo_map_ties_go_to_more_versions_then_lower_name(tmp_path, monkeypatch, block_live_network):
+    payload = {"versions": (_entry("NPM", "few", n=1) + _entry("NPM", "many", n=4)
+                            + _entry("NPM", "b-tie", n=4) + _entry("NPM", "a-tie", n=4))}
+    _script_net(monkeypatch, "npm", {"few": 7, "many": 7, "b-tie": 7, "a-tie": 7}, (200, payload))
+    assert dd.collect_dependents(tmp_path, "acme", "widget", "npm") == "ok"
+    assert read_envelope(tmp_path / "dependents" / "acme__widget.json").data["package"] == "a-tie"
+
+
+def test_collect_dependents_source_repo_map_examines_at_most_the_candidate_limit(tmp_path, monkeypatch, block_live_network):
+    names = [f"pkg{i}" for i in range(dd.MAPPED_CANDIDATE_LIMIT + 2)]
+    payload = {"versions": [e for i, n in enumerate(names) for e in _entry("NPM", n, n=20 - i)]}
+    asked = _script_net(monkeypatch, "npm", {n: 5 for n in names}, (200, payload))
+    assert dd.collect_dependents(tmp_path, "acme", "widget", "npm") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "acme__widget.json")
+    assert [c["package"] for c in env.data["mapped_candidates"]] == names[:dd.MAPPED_CANDIDATE_LIMIT]
+    assert dd.package_url("npm", names[-1]) not in asked
+
+
+def test_collect_dependents_maven_without_pom_uses_the_map(tmp_path, monkeypatch, block_live_network):
+    payload = {"versions": _entry("MAVEN", "com.acme:acme-core", n=2)}
+    _script_net(monkeypatch, "maven", {"com.acme:acme-core": 33}, (200, payload))
+    assert dd.collect_dependents(tmp_path, "acme", "acme-java", "maven") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "acme__acme-java.json")
+    assert env.data["package"] == "com.acme:acme-core"
+    assert env.data["guessed_package"] is None
+    assert env.data["identifier_method"] == "deps.dev:source_repo_map"
+
+
+def test_collect_dependents_no_package_writes_an_envelope_with_no_count(tmp_path, monkeypatch, block_live_network):
+    """deps.dev links the repo to no package of its registry: the repo is
+    recorded as such (and not refetched every pass), still unmeasured --
+    never zero, never not_applicable. A complete map that omits the guess
+    settles it with one call."""
+    asked = _script_net(monkeypatch, "pypi", {}, (200, {"versions": []}))
+    assert dd.collect_dependents(tmp_path, "521xueweihan", "GitHub520", "pypi") == "no_package"
+    assert asked == [dd.project_packages_url("521xueweihan", "GitHub520")]
+    env = read_envelope(tmp_path / "dependents" / "521xueweihan__GitHub520.json")
+    assert env.source == dd.project_packages_url("521xueweihan", "GitHub520")
+    assert env.http_status == 200
+    assert env.data == {
+        "ecosystem": "pypi", "package": None, "system": "pypi", "version": None,
+        "dependent_count": None, "direct_dependent_count": None,
+        "indirect_dependent_count": None, "deduped_count": None, "dependents": None,
+        "source_used": "deps.dev:no_package",
+        "identifier_method": "deps.dev:source_repo_map",
+        "guessed_package": "github520", "guess_linked": False,
+        "source_repo_map_http": 200, "map_truncated": False,
+    }
+    assert env.sha256 == envelope_hash(env.data)
+
+
+def test_collect_dependents_no_package_when_deps_dev_does_not_know_the_repo(tmp_path, monkeypatch, block_live_network):
+    _script_net(monkeypatch, "npm", {}, (404, None))
+    assert dd.collect_dependents(tmp_path, "acme", "widget", "npm") == "no_package"
+    env = read_envelope(tmp_path / "dependents" / "acme__widget.json")
+    assert env.http_status == 404
+    assert env.data["source_repo_map_http"] == 404
+
+
+def test_collect_dependents_unanswered_map_is_fail_and_writes_nothing(tmp_path, monkeypatch, block_live_network):
+    for answer in ((None, None), (500, None), (429, None)):
+        _script_net(monkeypatch, "npm", {}, answer)
+        assert dd.collect_dependents(tmp_path, "acme", "widget", "npm") == "fail"
+        assert not (tmp_path / "dependents").is_dir()
+
+
+def test_resolve_repo_package_unanswered_map_is_fail_with_no_status(monkeypatch, block_live_network):
+    """The resolver's own contract, independent of its caller: a map that did
+    not answer is "fail", never "no_package"."""
+    _script_net(monkeypatch, "npm", {}, (None, None))
+    res = dd.resolve_repo_package("acme", "widget", "npm")
+    assert (res.verdict, res.package, res.found, res.map_status) == ("fail", None, None, None)
+
+
+def test_resolve_repo_package_unmapped_ecosystem_is_none(monkeypatch, block_live_network):
+    def must_not_fetch(url: str):
+        raise AssertionError("no deps.dev system for this ecosystem; nothing may be fetched")
+    monkeypatch.setattr(dd, "_fetch_status", must_not_fetch)
+    monkeypatch.setattr(dd, "_get_json", must_not_fetch)
+    assert dd.resolve_repo_package("acme", "widget", "conda") is None
+
+
+def test_collect_dependents_listed_guess_without_a_count_is_fail_not_no_package(tmp_path, monkeypatch, block_live_network):
+    """The package is linked to the repo but no source carries its count: the
+    registry was NOT shown to lack the package, so the next run retries."""
+    _script_net(monkeypatch, "npm", {}, (200, {"versions": _entry("NPM", "widget")}))
+    assert dd.collect_dependents(tmp_path, "acme", "widget", "npm") == "fail"
+    assert not (tmp_path / "dependents").is_dir()
+
+
+def test_collect_dependents_mapped_candidates_without_a_count_is_fail(tmp_path, monkeypatch, block_live_network):
+    payload = {"versions": _entry("NPM", "ghost", n=3)}
+    _script_net(monkeypatch, "npm", {}, (200, payload))
+    assert dd.collect_dependents(tmp_path, "acme", "widget", "npm") == "fail"
+    assert not (tmp_path / "dependents").is_dir()
+
+
+def test_collect_dependents_zero_dependents_is_a_measured_count_not_no_package(tmp_path, monkeypatch, block_live_network):
+    """A linked package with 0 dependents is a real zero (the registry has the
+    package); only a registry with no linked package is "no_package"."""
+    _script_net(monkeypatch, "npm", {"lonely": 0}, (200, {"versions": _entry("NPM", "lonely")}))
+    assert dd.collect_dependents(tmp_path, "acme", "widget", "npm") == "ok"
+    env = read_envelope(tmp_path / "dependents" / "acme__widget.json")
+    assert env.data["dependent_count"] == 0 and env.data["deduped_count"] == 0
+
+
+def test_collect_dependents_reuses_a_resolution_without_any_lookup(tmp_path, monkeypatch, block_live_network):
+    """The downloads collector resolves the same package first; the dependents
+    collector must write from that result, not look the repo up again."""
+    _script_net(monkeypatch, "pypi", {"flask": 12698}, (200, {"versions": _entry("PYPI", "flask")}))
+    res = dd.resolve_repo_package("pallets", "flask", "pypi")
+
+    def must_not_fetch(url: str):
+        raise AssertionError("resolution already computed; nothing may be fetched")
+    monkeypatch.setattr(dd, "_fetch_status", must_not_fetch)
+    monkeypatch.setattr(dd, "_get_json", must_not_fetch)
+    assert dd.collect_dependents(tmp_path, "pallets", "flask", "pypi", resolution=res) == "ok"
+    assert read_envelope(tmp_path / "dependents" / f"{KEY}.json").data["package"] == "flask"
 
 
 # --- the append-only gather hook --------------------------------------------------
@@ -576,6 +1245,7 @@ def test_gather_repo_dependents_status_ok(tmp_path, monkeypatch, block_live_netw
     gather.DATA = tmp_path / "raw"
     seed_gather_done(gather.DATA)
     monkeypatch.setattr(dd, "_get_json", _replay)
+    _map_lists(monkeypatch, "PYPI", "flask")
     monkeypatch.setattr(gather, "SLEEP_KEYLESS", 0)
     status = gather.gather_repo("pallets", "flask", "pypi")
     assert status["dependents"] == "ok"
@@ -590,13 +1260,26 @@ def test_gather_repo_dependents_status_skip(tmp_path, monkeypatch, block_live_ne
                "version": "3.1.3", "dependent_count": 12698,
                "direct_dependent_count": 8077, "indirect_dependent_count": 4809,
                "deduped_count": 12698, "dependents": None,
-               "source_used": "deps.dev"})
+               "source_used": "deps.dev", "guess_linked": True})
 
     def must_not_fetch(*a, **k):
         raise AssertionError("collector must be skipped when the envelope exists")
     monkeypatch.setattr(dd, "_get_json", must_not_fetch)
     status = gather.gather_repo("pallets", "flask", "pypi")
     assert status["dependents"] == "skip"
+
+
+def test_gather_repo_dependents_status_no_package(tmp_path, monkeypatch, block_live_network):
+    """The gather hook propagates "no_package" (the layer counts it as done,
+    not as a failure) and the written envelope makes the next run skip it."""
+    gather.DATA = tmp_path / "raw"
+    seed_gather_done(gather.DATA)
+    _script_net(monkeypatch, "pypi", {}, (200, {"versions": []}))
+    monkeypatch.setattr(gather, "SLEEP_KEYLESS", 0)
+    status = gather.gather_repo("pallets", "flask", "pypi")
+    assert status["dependents"] == "no_package"
+    assert (gather.DATA / "dependents" / f"{KEY}.json").is_file()
+    assert gather.gather_repo("pallets", "flask", "pypi")["dependents"] == "skip"
 
 
 def test_gather_repo_dependents_systems_not_applicable(tmp_path, monkeypatch, block_live_network):
@@ -644,6 +1327,22 @@ def test_derive_repo_dependents_stays_missing_without_envelope(tmp_path):
     raw = tmp_path / "raw"
     write_env(raw, "github_meta", KEY, GATHER_DONE["github_meta"])
     write_env(raw, "depsdev", KEY, {"stars": 1, "usedby_count": None})
+    out = run_derive(tmp_path)
+    assert out["meta"]["dependents_count"] == 0
+    assert out["confidence"]["dependents_count"] == "missing"
+
+
+def test_derive_repo_dependents_no_package_envelope_stays_missing(tmp_path):
+    """A "no package" envelope carries no count: derive treats it exactly as
+    an absent envelope (unmeasured), never as a measured zero."""
+    raw = tmp_path / "raw"
+    write_env(raw, "github_meta", KEY, GATHER_DONE["github_meta"])
+    write_env(raw, "depsdev", KEY, {"stars": 1, "usedby_count": None})
+    write_env(raw, "dependents", KEY,
+              {"ecosystem": "pypi", "package": None, "system": "pypi", "version": None,
+               "dependent_count": None, "direct_dependent_count": None,
+               "indirect_dependent_count": None, "deduped_count": None,
+               "dependents": None, "source_used": "deps.dev:no_package"})
     out = run_derive(tmp_path)
     assert out["meta"]["dependents_count"] == 0
     assert out["confidence"]["dependents_count"] == "missing"

@@ -862,7 +862,7 @@ def seed_gather_done(raw: Path, key: str = KEY) -> None:
                                         "offplatform_paths": []})
     # Pre-seed envelopes to keep test execution fully offline without network attempts:
     write_env(raw, "commits_365d", key, [])
-    write_env(raw, "dependents", key, {"deduped_count": 0})
+    write_env(raw, "dependents", key, {"deduped_count": 0, "package": name, "guess_linked": True})
     write_env(raw, "pr_window", key, {"window_anchor": "2026-01-01T00:00:00Z",
                                       "window_days": 180, "prs": [], "derived": []})
 

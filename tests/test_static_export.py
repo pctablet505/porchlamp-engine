@@ -107,6 +107,33 @@ def test_the_site_is_web_v2_with_only_api_js_replaced(site):
     assert (out / "data" / SNAPSHOT_ID / "snapshot.json").is_file()
 
 
+def test_answers_past_the_string_limit_are_streamed_not_stringified(tmp_path):
+    """The 11,000-repo snapshot of 2026-10 has about 1 GB of answers, more than V8
+    can hold in one string: one JSON.stringify of them all threw "RangeError:
+    Invalid string length" and the verifier could not run. Three 181 MB answers
+    (543 MB in all, over the 536,870,888-character limit) must come back whole,
+    in order, with an error answer between them kept as an error."""
+    node = verify_static_export.find_node()
+    if node is None:
+        if os.environ.get("PORCHLAMP_ALLOW_MISSING_NODE") == "1":
+            pytest.skip("no Node.js interpreter found (PORCHLAMP_ALLOW_MISSING_NODE=1)")
+        pytest.fail("no Node.js interpreter found on PATH, in PORCHLAMP_NODE_BIN, or in ~/.local/opt/node-*")
+    site_dir = tmp_path / "site"
+    site_dir.mkdir()
+    (site_dir / "api.js").write_text(
+        "export async function big(n, mark) { return { ok: true, data: mark + 'x'.repeat(n) }; }\n"
+        "export async function bad() { return { ok: false, error: { status: 404, detail: 'nope' } }; }\n",
+        encoding="utf-8")
+    size = 181_000_000
+    requests = [{"fn": "big", "args": [size, "a"]}, {"fn": "bad", "args": []},
+                {"fn": "big", "args": [size, "b"]}, {"fn": "big", "args": [size, "c"]}]
+    results = verify_static_export.run_static(node, site_dir, requests)
+    assert len(results) == 4
+    assert [r["data"][0] for r in (results[0], results[2], results[3])] == ["a", "b", "c"]
+    assert all(len(r["data"]) == size + 1 for r in (results[0], results[2], results[3]))
+    assert results[1] == {"ok": False, "status": 404, "detail": "nope"}
+
+
 def test_bucket_of_spreads_repos_over_every_file():
     buckets = {export_static.bucket_of(f"owner{i}", f"repo{i}") for i in range(5000)}
     assert buckets == {f"{b:02x}" for b in range(export_static.BUCKETS)}
