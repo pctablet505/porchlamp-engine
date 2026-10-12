@@ -118,6 +118,15 @@ return { chips: doc.querySelectorAll('[data-compare-remove]').length, focusKept:
 """
 )
 
+_HEADER_CHIP = (
+    _READY
+    + """
+const chip = await until(() => { const c = doc.querySelector('[data-snapshot-chip]'); return c && c.textContent !== 'Loading\u2026' && c; }, 15000);
+if (!chip) return { missing: 'the snapshot chip' };
+return { text: chip.textContent, title: chip.getAttribute('title') };
+"""
+)
+
 _PAGER_REVEAL = (
     """
 const rows = await until(() => doc.querySelectorAll('.leaderboard-table tbody tr').length > 5, 20000);
@@ -171,6 +180,7 @@ def measured(tmp_path_factory):
         {"name": "header", "path": "./", **PHONE, "script": _HEADER},
         {"name": "active-tab", "path": "./?tab=methodology", **PHONE, "script": _ACTIVE_TAB},
         {"name": "pager", "path": "./?page_size=20", **DESKTOP, "script": _PAGER_REVEAL},
+        {"name": "chip", "path": "./", **DESKTOP, "script": _HEADER_CHIP},
         {"name": "compare-enter", "path": "./?tab=compare", **DESKTOP, "script": _COMPARE_ENTER % first["name"]},
     ]
     cases += [
@@ -238,3 +248,11 @@ def test_enter_in_the_compare_search_adds_the_first_match(measured):
     assert "missing" not in got, got
     assert got["chips"] == 1, got
     assert got["focusKept"] is True, got  # the next repository can be typed straight away
+
+
+def test_the_header_shows_the_snapshot_date_not_a_release_candidate_tag(measured):
+    got = measured["chip"]
+    assert "missing" not in got, got
+    assert got["text"] == SNAPSHOT_ID, got
+    assert "rc" not in got["text"], got
+    assert got["title"] and SNAPSHOT_ID in got["title"], got  # the exact version stays one hover away

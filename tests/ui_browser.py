@@ -77,7 +77,7 @@ def serve(site: Path) -> Iterator[str]:
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, format, *args):  # noqa: A002 - the base class's signature
+    def log_message(self, format, *args):  # the base class's signature; the probe's requests are not worth logging
         pass
 
     def end_headers(self):

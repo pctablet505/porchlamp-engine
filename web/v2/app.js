@@ -222,9 +222,14 @@ export function boot(win = window, doc = document) {
         fields.kind === "error"
           ? copy.errorBannerText(fields.endpoint, fields.status, fields.detail)
           : fields.kind === "ok"
-            ? `${fields.snapshot.snapshot_id} · ${fields.snapshot.benchmark_version}`
+            ? fields.snapshot.snapshot_id
             : copy.LOADING_LABEL;
       if (snapshotChip.textContent !== text) snapshotChip.textContent = text;
+      // The header names the snapshot; the exact benchmark version (a release-candidate tag today) is one hover
+      // away here, and in the footer and on the Methodology page.
+      const hover = fields.kind === "ok" ? `${fields.snapshot.snapshot_id} · benchmark ${fields.snapshot.benchmark_version}` : "";
+      if (hover) snapshotChip.setAttribute("title", hover);
+      else snapshotChip.removeAttribute("title");
       snapshotChip.classList.toggle("error-chip", fields.kind === "error");
     }
   }
