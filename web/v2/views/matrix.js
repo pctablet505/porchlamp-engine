@@ -182,13 +182,33 @@ function renderCaptions(matrix) {
   return parts.join("");
 }
 
+export function filterMatrixPoints(points, state) {
+  if (!points) return [];
+  const eco = state && state.ecosystem ? state.ecosystem.trim().toLowerCase() : "";
+  const q = state && state.query ? state.query.trim().toLowerCase() : "";
+  if (!eco && !q) return points;
+  return points.filter((p) => {
+    if (eco && String(p.ecosystem || "").toLowerCase() !== eco) return false;
+    if (q && !`${p.owner}/${p.name}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
 function renderHoverCard(point) {
   if (!point) return `<div class="matrix-hover-card" hidden></div>`;
-  const isRight = (point.friction ?? 0) > 45;
-  const isTop = (point.leverage ?? 0) > 45;
-  const posClass = isRight && isTop ? " matrix-hover-card--top-left" : "";
+  const x = toSvgX(point.friction ?? 50);
+  const y = toSvgY(point.leverage ?? 50);
+  const placeLeft = x > 55;
+  const placeAbove = y > 65;
+  const horizStyle = placeLeft
+    ? `right: ${Math.max(2, Math.min(92, 100 - x + 2)).toFixed(1)}%; left: auto;`
+    : `left: ${Math.max(2, Math.min(70, x + 2)).toFixed(1)}%; right: auto;`;
+  const vertStyle = placeAbove
+    ? `bottom: ${Math.max(2, Math.min(90, 100 - y + 3)).toFixed(1)}%; top: auto;`
+    : `top: ${Math.max(2, Math.min(78, y + 3)).toFixed(1)}%; bottom: auto;`;
+  const posClass = placeLeft && !placeAbove ? " matrix-hover-card--top-left" : "";
   return (
-    `<div class="matrix-hover-card${posClass}" data-matrix-hover-card="true">` +
+    `<div class="matrix-hover-card${posClass}" data-matrix-hover-card="true" style="${horizStyle} ${vertStyle}">` +
     `<p class="repo-name">${escapeHtml(point.owner)}/${escapeHtml(point.name)}</p>` +
     `<p class="cell-numeric">Score ${point.porchlamp != null ? point.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderCoverageBadge(point.coverage)} · ${renderTierCell(point.tier, point.tier_ceiling)}</p>` +
     `<p class="hint">${escapeHtml(copy.MATRIX_OPEN_HINT)}</p>` +
@@ -203,9 +223,10 @@ function renderHoverCard(point) {
  */
 export function renderMatrixBody(state) {
   const matrix = state.matrix;
-  const points = matrix.points;
+  const points = filterMatrixPoints(matrix.points, state);
+  const visiblePoints = points.filter((p) => !state.matrixQuadrantsHidden[p.quadrant]);
   const usesCanvas = points.length > SVG_MARKER_BUDGET;
-  const focused = points.find((p) => pointKey(p) === (state.matrixFocusedKey || state.matrixHoveredKey));
+  const focused = visiblePoints.find((p) => pointKey(p) === (state.matrixFocusedKey || state.matrixHoveredKey));
   const { min: overlayStarsMin, max: overlayStarsMax } = starsDomain(points);
   const surface = usesCanvas
     ? `<div class="matrix-canvas-wrap"><canvas class="matrix-canvas" data-matrix-canvas="true" width="800" height="800"></canvas>${renderFocusOverlaySvg(focused, overlayStarsMin, overlayStarsMax)}` +
@@ -231,19 +252,15 @@ export function renderMatrixBody(state) {
 export function shellShape(state) {
   if (state.matrixLoading && !state.matrix) return "loading";
   if (state.matrixError && !state.matrix) return "error";
-  if (state.matrix && state.matrix.points.length === 0) return "empty";
+  if (state.matrix && filterMatrixPoints(state.matrix.points, state).length === 0) return "empty";
   if (state.matrix) {
-    // A quadrant toggle changes WHICH markers `renderMatrixBody` includes
-    // (filtered before rendering, not hidden after the fact) — folding the
-    // hidden set into the shape key is what makes `syncView` rebuild the
-    // SVG/canvas surface on `1`-`4` instead of the toggle silently doing
-    // nothing to the already-rendered markers (a real bug caught during
-    // live-browser verification, see the handoff). This is a deliberate,
-    // infrequent, discrete action (never a per-frame one like scroll), so
-    // a full rebuild here does not touch U-12's actual target (hover/
-    // scroll-driven churn), which stays on `syncMatrixHover`/`syncViewBox`.
+    // A quadrant toggle or ecosystem/query filter changes WHICH markers
+    // `renderMatrixBody` includes (filtered before rendering, not hidden
+    // after the fact) — folding the hidden set and active filters into the
+    // shape key is what makes `syncView` rebuild the SVG/canvas surface on
+    // `1`-`4` or filter changes instead of silently leaving stale markers.
     const hiddenKey = Object.keys(state.matrixQuadrantsHidden).sort().join(",");
-    return `body:${hiddenKey}`;
+    return `body:${hiddenKey}:${state.ecosystem || ""}:${state.query || ""}`;
   }
   return "loading";
 }
@@ -272,7 +289,9 @@ export function syncViewBox(main, view) {
  */
 export function syncMatrixHover(main, state) {
   const activeKey = state.matrixFocusedKey || state.matrixHoveredKey;
-  const points = state.matrix ? state.matrix.points : [];
+  const points = state.matrix
+    ? filterMatrixPoints(state.matrix.points, state).filter((p) => !state.matrixQuadrantsHidden[p.quadrant])
+    : [];
   for (const marker of main.querySelectorAll(".matrix-marker")) {
     const isActive = marker.dataset.key === activeKey;
     marker.classList.toggle("marker-focused", isActive);

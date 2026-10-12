@@ -100,6 +100,8 @@
   max-width: 720px;
   aspect-ratio: 1 / 1;
   margin: 0 auto;
+  padding: 6px;
+  box-sizing: border-box;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
@@ -115,6 +117,10 @@
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.matrix-svg {
+  overflow: visible;
 }
 
 .matrix-canvas {
@@ -410,6 +416,31 @@
   border-collapse: collapse;
 }
 
+.link-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.link-button:hover {
+  color: var(--accent-cyan);
+  text-decoration: underline;
+}
+
+.compare-section-row th {
+  background: var(--bg-surface-elevated);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px var(--space-sm);
+}
+
 .unmeasured-badge {
   display: inline-block;
   padding: 1px 6px;
@@ -430,7 +461,8 @@
 
 .compare-table thead th {
   position: sticky;
-  top: var(--header-height);
+  top: calc(var(--header-height) + var(--primary-nav-height, 41px));
+  z-index: 2;
   background: var(--bg-surface);
 }
 
@@ -443,7 +475,7 @@
 }
 
 .compare-verdict {
-  margin-top: var(--space-md);
+  margin-bottom: var(--space-md);
   padding: var(--space-md);
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
