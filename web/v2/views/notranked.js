@@ -12,6 +12,7 @@
 import * as copy from "../copy.js";
 import {
   renderPager,
+  renderFilteredEmpty,
   syncPager,
   renderTabs,
   renderCountsStrip,
@@ -139,18 +140,26 @@ export function renderShell(state) {
   if (shape === "loading") return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}${renderSkeleton()}</section>`;
   if (shape === "error") return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}${renderErrorBanner(notRankedError)}</section>`;
   if (shape === "empty") {
-    return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}<div class="empty-state">${escapeHtml(copy.NOT_RANKED_EMPTY)}</div></section>`;
+    const q = (state.query || "").trim();
+    const empty =
+      q || state.ecosystem
+        ? renderFilteredEmpty(q, state.ecosystem || "", "ranked", "gated or unrated")
+        : `<div class="empty-state">${escapeHtml(copy.NOT_RANKED_EMPTY)}</div>`;
+    return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}${empty}</section>`;
   }
 
   const flat = flattenGroups(notRanked, { ecosystem: state.ecosystem, query: state.query });
   const pager = renderPager(state.notRankedPage, state.notRankedPageSize, flat.length, "notranked-pager");
+  const bottomPager = renderPager(state.notRankedPage, state.notRankedPageSize, flat.length, "notranked-pager", { bottom: true });
   return (
     `<section aria-labelledby="notranked-heading">` +
     headerHtml +
     tabsHtml +
     `<div class="error-banner" role="alert" data-notranked-error="true" hidden></div>` +
+    (notRanked.truncated ? `<p class="matrix-caption">${escapeHtml(copy.NOT_RANKED_TRUNCATED)}</p>` : "") +
     pager +
     `<div data-notranked-rows="true"></div>` +
+    bottomPager +
     `</section>`
   );
 }

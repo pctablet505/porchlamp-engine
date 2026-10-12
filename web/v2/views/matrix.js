@@ -164,7 +164,7 @@ function renderLegend(quadrantsHidden) {
       const hidden = !!quadrantsHidden[name];
       return (
         `<button type="button" class="matrix-legend-chip ${cls}" data-matrix-quadrant-toggle="${escapeHtml(name)}" ` +
-        `aria-pressed="${!hidden}" title="${escapeHtml(copy.matrixQuadrantToggleLabel(name))} (${i + 1})">` +
+        `aria-pressed="${!hidden}" title="${escapeHtml(copy.matrixQuadrantToggleLabel(name))} (${i + 1}): ${escapeHtml(copy.QUADRANT_DESCRIPTIONS[name])}">` +
         `<span aria-hidden="true">${glyph}</span> ${escapeHtml(copy.QUADRANT_LABELS[name])}</button>`
       );
     })
@@ -172,13 +172,15 @@ function renderLegend(quadrantsHidden) {
   return `<div class="matrix-legend" role="group" aria-label="${escapeHtml(copy.MATRIX_HEADING)}">${chips}</div>`;
 }
 
-function renderCaptions(matrix) {
+function renderCaptions(matrix, hasStars) {
   const parts = [`<p class="matrix-caption">${escapeHtml(copy.matrixExcludedCaption(matrix.excluded_count))}</p>`];
   for (const [axisName, entry] of Object.entries(matrix.axis_coverage || {})) {
     const text = copy.matrixAxisCoverageCaption(axisName, entry);
     if (text) parts.push(`<p class="matrix-caption">${escapeHtml(text)}</p>`);
   }
-  parts.push(`<p class="matrix-caption matrix-caption-muted">${escapeHtml(copy.MATRIX_UNAUDITED_STARS_NOTE)}</p>`);
+  parts.push(`<p class="matrix-caption">${escapeHtml(copy.MATRIX_HOW_TO_READ)}</p>`);
+  const starsNote = hasStars ? copy.MATRIX_UNAUDITED_STARS_NOTE : copy.MATRIX_NO_STARS_NOTE;
+  parts.push(`<p class="matrix-caption matrix-caption-muted">${escapeHtml(starsNote)}</p>`);
   return parts.join("");
 }
 
@@ -228,9 +230,10 @@ export function renderMatrixBody(state) {
   const usesCanvas = points.length > SVG_MARKER_BUDGET;
   const focused = visiblePoints.find((p) => pointKey(p) === (state.matrixFocusedKey || state.matrixHoveredKey));
   const { min: overlayStarsMin, max: overlayStarsMax } = starsDomain(points);
+  const hasStars = points.some((p) => p.stars_audited !== null && p.stars_audited !== undefined);
+  const surfaceLabel = copy.matrixSvgAriaLabel(copy.MATRIX_AXIS_X_LABEL, copy.MATRIX_AXIS_Y_LABEL);
   const surface = usesCanvas
-    ? `<div class="matrix-canvas-wrap"><canvas class="matrix-canvas" data-matrix-canvas="true" width="800" height="800"></canvas>${renderFocusOverlaySvg(focused, overlayStarsMin, overlayStarsMax)}` +
-      `<p class="matrix-caption">${escapeHtml(copy.MATRIX_CANVAS_FALLBACK_NOTE)}</p></div>`
+    ? `<div class="matrix-canvas-wrap"><canvas class="matrix-canvas" data-matrix-canvas="true" width="800" height="800" role="img" aria-label="${escapeHtml(surfaceLabel)}"></canvas>${renderFocusOverlaySvg(focused, overlayStarsMin, overlayStarsMax)}</div>`
     : renderScatterSvg(points, {
         quadrantsHidden: state.matrixQuadrantsHidden,
         focusedKey: state.matrixFocusedKey,
@@ -244,8 +247,8 @@ export function renderMatrixBody(state) {
     `<button type="button" class="icon-button" data-matrix-zoom-out="true" aria-label="${escapeHtml(copy.MATRIX_ZOOM_OUT_LABEL)}">−</button>` +
     `</div>` +
     `<div class="matrix-axis-labels"><span>${escapeHtml(copy.MATRIX_AXIS_Y_LABEL)} ↑</span><span>${escapeHtml(copy.MATRIX_AXIS_X_LABEL)} →</span></div>` +
-    `<div class="matrix-stage" data-matrix-stage="true" tabindex="0">${surface}${renderHoverCard(focused)}</div>` +
-    renderCaptions(matrix)
+    `<div class="matrix-stage" data-matrix-stage="true" tabindex="0" aria-label="${escapeHtml(`${surfaceLabel}. ${copy.MATRIX_STAGE_LABEL}`)}">${surface}${renderHoverCard(focused)}</div>` +
+    renderCaptions(matrix, hasStars)
   );
 }
 

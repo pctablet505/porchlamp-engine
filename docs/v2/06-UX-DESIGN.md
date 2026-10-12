@@ -193,7 +193,14 @@ replace the "subtree replacement" sentence in §6:
   the current first row visible (recompute the page so that row stays on
   screen). The same controls apply to the Not-ranked list. The API is
   fetched one page at a time (`limit`/`offset`), with the next page
-  prefetched once the current one renders.
+  prefetched once the current one renders. (Amended 2026-10-12.) The list
+  has a second pager below it, with the page buttons and indicator but no
+  page-size select, so a reader at the bottom of a long page goes on without
+  scrolling back up; any page change scrolls the top of the list back under
+  the sticky header. The Not-ranked list on the static site is the whole
+  list (the API's cut at `max_rows` does not apply: `fetchNotRankedFull`),
+  and Configure weights loads every page of its ranking, not the first 1000
+  rows.
 - **U-14 Instant local interactions.** Sort, search and ecosystem filter run
   client-side over the loaded rows with a visible response under 50 ms
   (search debounced ≤ 100 ms). A persona switch is a fetch: the current table

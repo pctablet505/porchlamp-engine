@@ -9,8 +9,10 @@ installed-but-unexported Node.js still gates.
 from __future__ import annotations
 
 import os
+import pwd
 import shutil
 import subprocess
+import types
 from pathlib import Path
 
 import pytest
@@ -38,6 +40,22 @@ _NODE_GLOBS: tuple[str, ...] = (
 )
 
 
+def _homes() -> list[Path]:
+    """``$HOME``, then the account's own home directory.
+
+    A job under the shared test scheduler runs with a throwaway ``$HOME``, which hides a Node.js installed under
+    the real one.
+    """
+    homes = [Path.home()]
+    try:
+        real = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except KeyError:
+        return homes
+    if real not in homes:
+        homes.append(real)
+    return homes
+
+
 def find_node() -> str | None:
     """A Node.js interpreter: ``PATH``, then ``PORCHLAMP_NODE_BIN``, then a small
     set of generic install locations under ``$HOME``, ``/opt/homebrew``, and ``/usr/local``.
@@ -51,13 +69,31 @@ def find_node() -> str | None:
     override = os.environ.get("PORCHLAMP_NODE_BIN")
     if override and Path(override).is_file() and os.access(override, os.X_OK):
         return override
-    home = Path.home()
-    candidates = [path for pattern in _NODE_GLOBS for path in sorted(home.glob(pattern), reverse=True)]
+    candidates = [path for home in _homes() for pattern in _NODE_GLOBS for path in sorted(home.glob(pattern), reverse=True)]
     candidates.extend([Path("/opt/homebrew/bin/node"), Path("/usr/local/bin/node")])
     for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)
     return None
+
+
+def test_find_node_looks_in_the_accounts_real_home_when_home_is_a_throwaway(tmp_path, monkeypatch) -> None:
+    """The shared test scheduler runs a job with a scratch ``$HOME``: a Node.js under the real home must still be found.
+
+    MEASURED 2026-10-12: five node-backed tests sat in the known-failing set under the scheduler for this reason.
+    """
+    real_home = tmp_path / "real"
+    stub = real_home / ".local" / "opt" / "node-v0.0.0-test" / "bin" / "node"
+    stub.parent.mkdir(parents=True)
+    stub.write_text("#!/bin/sh\n")
+    stub.chmod(0o755)
+    scratch = tmp_path / "scratch-home"
+    scratch.mkdir()
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.delenv("PORCHLAMP_NODE_BIN", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: scratch))
+    monkeypatch.setattr(pwd, "getpwuid", lambda uid: types.SimpleNamespace(pw_dir=str(real_home)))
+    assert find_node() == str(stub)
 
 
 def test_node_frontend_unit_and_perf_suite() -> None:

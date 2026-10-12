@@ -23,6 +23,15 @@ export const THEME_TOGGLE_LABEL = "Toggle light/dark theme";
 export const PERSONA_LABEL = "Persona";
 export const ECOSYSTEM_LABEL = "Ecosystem";
 export const ECOSYSTEM_ALL = "All ecosystems";
+/** The filter's options, in the engine's own vocabulary (porchlamp.models.Ecosystem); tests/test_ui_ecosystems.py pins the two together. */
+export const ECOSYSTEMS = Object.freeze([
+  ["npm", "npm (JavaScript)"],
+  ["pypi", "pypi (Python)"],
+  ["crates", "crates (Rust)"],
+  ["go", "go"],
+  ["maven", "maven (Java)"],
+  ["systems", "systems (no package registry)"],
+]);
 
 export const PERSONA_NAMES = Object.freeze({
   balanced: "Balanced",
@@ -238,6 +247,28 @@ export function emptyLeaderboardText(gatedCount, unratedCount) {
   return `No rated repositories match. ${gatedCount} gated and ${unratedCount} unrated are listed under Not ranked.`;
 }
 
+/** The ecosystem filter's label for a value (the value itself when it is not one of ECOSYSTEMS). */
+function ecosystemLabel(value) {
+  const found = ECOSYSTEMS.find(([v]) => v === value);
+  return found ? found[1] : value;
+}
+
+/** "No ranked repositories match “q” in go.": says what was searched, so an empty list is never a mystery. */
+export function emptyFilteredText(query, ecosystem, what = "ranked") {
+  const q = query ? `\u201c${query}\u201d` : "";
+  const eco = ecosystem ? `in ${ecosystemLabel(ecosystem)}` : "";
+  if (q) return `No ${what} repositories match ${q}${eco ? ` ${eco}` : ""}.`;
+  return `No ${what} repositories ${eco}.`;
+}
+export const CLEAR_FILTERS_LABEL = "Clear filters";
+export function searchNotRankedLabel(query) {
+  return `Search Not ranked for \u201c${query}\u201d`;
+}
+export function searchRankedLabel(query) {
+  return `Search Ranked for \u201c${query}\u201d`;
+}
+export const NOT_RANKED_TRUNCATED = "This list is cut short. Search by owner or name to find a specific project.";
+
 // The API's error body carries a `detail` string (`{"error": {endpoint,
 // status, detail}}`) explaining WHAT went wrong, not just that it did —
 // appended after the endpoint and status wherever it is available
@@ -445,7 +476,7 @@ export function matrixErrorText(endpoint, status, detail) {
   return detail ? `${base} ${appendSentence(detail)}` : base;
 }
 export function matrixExcludedCaption(excludedCount) {
-  return `${excludedCount} gated ${excludedCount === 1 ? "repository" : "repositories"} excluded.`;
+  return `${excludedCount} ${excludedCount === 1 ? "repository is" : "repositories are"} not ranked and not plotted.`;
 }
 
 // The caption SENTENCE is composed here, not on the wire (06 §6: "every
@@ -462,14 +493,24 @@ export function matrixAxisCoverageCaption(axisName, entry) {
 }
 export const MATRIX_UNAUDITED_STARS_NOTE =
   "Marker size is audited stars, radius 4\u201312px on a square-root scale; repositories with no audited-star figure are drawn at a default 6px marker (unaudited).";
+export const MATRIX_NO_STARS_NOTE = "Every dot is the same size: no project in this snapshot has an audited star count.";
+// The axes are core/matrix.py's D-MAT-1: leverage = 0.50 criticality + 0.30 rigor + 0.20 governance; friction =
+// 0.50 (100 - responsiveness) + 0.30 (100 - governance) + 0.20 (100 - accessibility); the split is 50 on both.
+export const MATRIX_HOW_TO_READ =
+  "Each dot is a ranked project: select one to see why it scored as it did, or use the arrow keys to move between neighbouring dots. Leverage rises with criticality, rigor and governance. Friction rises when responses are slow, governance is weak and newcomers get little help. Both axes split at 50.";
+export const MATRIX_STAGE_LABEL = "Use the arrow keys to move between projects and Enter to open one.";
+export const QUADRANT_DESCRIPTIONS = Object.freeze({
+  "Sweet Spot": "High leverage, low friction",
+  Crucible: "High leverage, high friction",
+  Nursery: "Low leverage, low friction",
+  Graveyard: "Low leverage, high friction",
+});
 export const MATRIX_RESET_VIEW_LABEL = "Reset view";
 export const MATRIX_ZOOM_IN_LABEL = "Zoom in";
 export const MATRIX_ZOOM_OUT_LABEL = "Zoom out";
 export function matrixQuadrantToggleLabel(quadrantName) {
   return `Toggle ${quadrantName}`;
 }
-export const MATRIX_CANVAS_FALLBACK_NOTE =
-  "Rendering on canvas above 2,000 markers, with an SVG overlay for the focused or hovered marker only.";
 export const MATRIX_OPEN_HINT = "Press Enter to view why this score";
 
 // --------------------------------------------------------------------- //

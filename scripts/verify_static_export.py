@@ -27,6 +27,7 @@ import argparse
 import importlib.util
 import json
 import os
+import pwd
 import random
 import shutil
 import sqlite3
@@ -52,6 +53,9 @@ MUTANTS: tuple[tuple[str, str, str], ...] = (
      "const order = sort === null ? null : board.orders[sort];", "const order = null;"),
     ("not-ranked never truncated",
      "matching.slice(0, list.max_rows)", "matching.slice(0)"),
+    ("not-ranked full list cut at max_rows",
+     "const matching = list.rows.filter((entry) => keep(entry.row));\n    const group = (name) => matching.filter(",
+     "const matching = list.rows.filter((entry) => keep(entry.row)).slice(0, list.max_rows);\n    const group = (name) => matching.filter("),
     ("repo looked up in the wrong bucket",
      "h = Math.imul(h, 0x85ebca6b) >>> 0;", "h = Math.imul(h, 0x85ebca6d) >>> 0;"),
     ("custom coverage divided by the measured weight",
@@ -97,10 +101,18 @@ def find_node() -> Optional[str]:
     override = os.environ.get("PORCHLAMP_NODE_BIN")
     if override and Path(override).is_file():
         return override
-    for pattern in _NODE_GLOBS:
-        for candidate in sorted(Path.home().glob(pattern), reverse=True):
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                return str(candidate)
+    homes = [Path.home()]
+    try:
+        real = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except KeyError:
+        real = None
+    if real is not None and real not in homes:
+        homes.append(real)  # a sandboxed job runs with a throwaway $HOME
+    for home in homes:
+        for pattern in _NODE_GLOBS:
+            for candidate in sorted(home.glob(pattern), reverse=True):
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    return str(candidate)
     for sys_path in ("/opt/homebrew/bin/node", "/usr/local/bin/node"):
         if Path(sys_path).is_file() and os.access(sys_path, os.X_OK):
             return sys_path
@@ -158,6 +170,11 @@ class Grid:
         self.expected.append(answer)
         return answer
 
+    def expect(self, kind: str, fn: str, args: list, expected: dict) -> None:
+        """A request whose expected answer is not one API call's (it is computed from the database)."""
+        self.requests.append({"kind": kind, "fn": fn, "args": args})
+        self.expected.append(expected)
+
     def post_reproject(self, weights: dict, page: Optional[int], page_size: Optional[int]) -> dict:
         params = {k: v for k, v in (("page", page), ("page_size", page_size)) if v is not None}
         answer = self._answer(self.client.post("/v1/porchlamp/reproject", params=params, json=weights))
@@ -171,8 +188,41 @@ def _leaderboard(grid: Grid, params: dict) -> None:
     grid.get("leaderboard", "fetchLeaderboard", [params], "/v1/porchlamp/leaderboard", params)
 
 
-def _not_ranked(grid: Grid, params: dict) -> None:
-    grid.get("not-ranked", "fetchNotRanked", [params], "/v1/porchlamp/not-ranked", params)
+def _not_ranked(grid: Grid, params: dict) -> dict:
+    return grid.get("not-ranked", "fetchNotRanked", [params], "/v1/porchlamp/not-ranked", params)
+
+
+def _not_ranked_full(grid: Grid, conn: sqlite3.Connection, snapshot_id: str, params: dict, served: dict) -> None:
+    """``fetchNotRankedFull`` returns every matching row. The API cuts its answer at ``MAX_LIMIT``: where it did
+    not cut, the two answers are identical; where it did, the whole list comes from the store query and the
+    classification the endpoint itself runs (the same ones ``export_static`` uses), with the API's own counts."""
+    if not served["ok"]:
+        grid.expect("not-ranked-full", "fetchNotRankedFull", [params], served)
+        return
+    if not served["data"]["truncated"]:
+        grid.expect("not-ranked-full", "fetchNotRankedFull", [params], {"ok": True, "data": served["data"]})
+        return
+    from porchlamp.serve import app as serve_app
+    from porchlamp.store import queries
+
+    persona = params.get("persona", "balanced")
+    records: list[dict] = []
+    while True:
+        page, _counts, total = queries.list_not_ranked(
+            conn, snapshot_id, persona=persona, ecosystem=params.get("eco"), q=params.get("q"),
+            limit=queries.MAX_LIMIT, offset=len(records),
+        )
+        records.extend(page)
+        if len(records) >= total or not page:
+            break
+    groups: dict[str, list] = {"gated": [], "unrated": [], "persona_hidden": []}
+    for record in records:
+        group, reason = serve_app._classify_not_ranked(record, persona=persona)
+        groups[group].append(serve_app._not_ranked_row(record, group=group, reason=reason).model_dump(mode="json"))
+    grid.expect(
+        "not-ranked-full", "fetchNotRankedFull", [params],
+        {"ok": True, "data": {**groups, "counts": served["data"]["counts"], "truncated": False}},
+    )
 
 
 def _repo(grid: Grid, owner: str, name: str) -> None:
@@ -204,7 +254,6 @@ def build_grid(db: Path, *, quick: bool, seed: int = 20260923) -> Grid:
     repos = conn.execute(
         "SELECT owner, name FROM repositories WHERE snapshot_id = ? ORDER BY lower(owner || '/' || name)", (sid,)
     ).fetchall()
-    conn.close()
     rng = random.Random(seed)
 
     eco_a = ecosystems[0] if ecosystems else "none"
@@ -231,8 +280,11 @@ def build_grid(db: Path, *, quick: bool, seed: int = 20260923) -> Grid:
     for persona in personas:
         for eco in [None] + ecosystems:
             for q in queries[: 3 if quick else None]:
-                _not_ranked(grid, {k: v for k, v in (("persona", persona), ("eco", eco), ("q", q)) if v is not None})
-    _not_ranked(grid, {"persona": "nope"})
+                nr_params = {k: v for k, v in (("persona", persona), ("eco", eco), ("q", q)) if v is not None}
+                _not_ranked_full(grid, conn, sid, nr_params, _not_ranked(grid, nr_params))
+    nope = {"persona": "nope"}
+    _not_ranked_full(grid, conn, sid, nope, _not_ranked(grid, nope))
+    conn.close()
 
     sample = repos if not quick else rng.sample(repos, min(len(repos), 150))
     for owner, name in sample:

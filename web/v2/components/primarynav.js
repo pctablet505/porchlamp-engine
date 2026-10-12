@@ -45,12 +45,35 @@ export function renderPrimaryNav(activeTab) {
   return `<div class="primary-tabs" role="tablist" aria-label="${escapeHtml(copy.PRIMARY_NAV_LABEL)}">${buttons}</div>`;
 }
 
+/**
+ * The strip's `scrollLeft` that puts the active tab in the middle of the part you can see, clamped to the strip.
+ * On a phone the five tabs are wider than the screen; without this a tab opened by link (Methodology) is off the
+ * right edge.
+ */
+export function centeredScrollLeft(tabLeft, tabWidth, viewWidth, contentWidth) {
+  const target = tabLeft + tabWidth / 2 - viewWidth / 2;
+  return Math.max(0, Math.min(target, Math.max(0, contentWidth - viewWidth)));
+}
+
+/** Scrolls the strip so the active tab is visible. A no-op when the strip is not wider than its box. */
+export function centerActiveTab(container) {
+  const strip = container.querySelector(".primary-tabs");
+  const active = container.querySelector('[aria-selected="true"]');
+  if (!strip || !active || strip.scrollWidth <= strip.clientWidth) return;
+  strip.scrollLeft = centeredScrollLeft(active.offsetLeft, active.offsetWidth, strip.clientWidth, strip.scrollWidth);
+}
+
 /** Patches `aria-selected` on the persistent primary-nav buttons — never a re-render. */
 export function syncPrimaryNav(container, activeTab) {
   const activeScreen = primaryScreenForTab(activeTab);
+  let changed = false;
   for (const btn of container.querySelectorAll("[data-primary-tab]")) {
     const entry = ENTRIES.find((e) => e.tab === btn.dataset.primaryTab);
     const selected = String(entry.id === activeScreen);
-    if (btn.getAttribute("aria-selected") !== selected) btn.setAttribute("aria-selected", selected);
+    if (btn.getAttribute("aria-selected") !== selected) {
+      btn.setAttribute("aria-selected", selected);
+      changed = true;
+    }
   }
+  if (changed) centerActiveTab(container); // only when the tab changed: never fight the reader's own scrolling
 }
