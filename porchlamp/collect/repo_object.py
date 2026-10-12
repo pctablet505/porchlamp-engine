@@ -26,14 +26,13 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
-import urllib.parse
-import urllib.request
+import subprocess  # noqa: F401  (tests patch this module's subprocess)
 from collections.abc import Set as AbstractSet
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from porchlamp.collect import ghcli, net, validate
 from porchlamp.collect.envelope import write_envelope
 
 # --------------------------------------------------------------------------- #
@@ -45,11 +44,18 @@ from porchlamp.collect.envelope import write_envelope
 #: (``build.gradle*`` and ``*.cabal``) are the prefix/suffix tuples below.
 D_GATE1_MANIFEST_NAMES: frozenset[str] = frozenset({
     "pyproject.toml", "setup.py", "setup.cfg", "package.json", "Cargo.toml",
-    "go.mod", "pom.xml", "CMakeLists.txt", "Makefile", "meson.build",
-    "configure.ac", "mix.exs", "Gemfile",
+    "go.mod", "pom.xml", "CMakeLists.txt", "Makefile", "GNUmakefile", "Kbuild",
+    "meson.build", "configure.ac", "mix.exs", "Gemfile",
+    "BUILD", "BUILD.bazel", "MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel",
+    "build.zig", "build.zig.zon", "flake.nix", "default.nix", "SConstruct",
+    "vcpkg.json", "conanfile.py", "conanfile.txt", "composer.json",
+    "pubspec.yaml", "Package.swift", "build.sbt", "project.clj", "deps.edn",
+    "stack.yaml", "dune-project",
 })
 D_GATE1_MANIFEST_PREFIXES: tuple[str, ...] = ("build.gradle",)
-D_GATE1_MANIFEST_SUFFIXES: tuple[str, ...] = (".cabal",)
+D_GATE1_MANIFEST_SUFFIXES: tuple[str, ...] = (
+    ".cabal", ".csproj", ".fsproj", ".sln", ".rockspec", ".gemspec", ".podspec",
+)
 D_GATE1_MAX_DEPTH: int = 2
 
 #: Maximum git-tree REST requests one repo's shallow crawl (:func:`_shallow_tree`)
@@ -103,7 +109,7 @@ ELIGIBILITY_FIELDS: tuple[str, ...] = (
 #: object. ``pullRequests`` over all three states with ``first: 1`` records
 #: the all-time PR total (the PRs-enabled evidence) without fetching nodes.
 REPO_OBJECT_QUERY: str = (
-    '{ r: repository(owner: "%s", name: "%s") {'
+    'query($owner: String!, $name: String!) { r: repository(owner: $owner, name: $name) {'
     "isArchived mirrorUrl isFork"
     " parent { name owner { login } }"
     " licenseInfo { spdxId }"
@@ -283,7 +289,7 @@ def derive_eligibility(ro: Optional[dict],
 # --------------------------------------------------------------------------- #
 
 
-def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
+def _gh_graphql(query: str, variables: Optional[dict[str, str]] = None) -> tuple[Optional[dict], Optional[str]]:
     """Run one ``gh api graphql`` request; return ``(r, error_summary)``.
 
     GitHub returns ``data`` and ``errors`` together whenever some fields are
@@ -299,8 +305,11 @@ def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
     errors and no usable data at all; a lookup that found nothing (no data, no
     errors) returns ``(None, None)``.
     """
-    out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
-                         capture_output=True, text=True, timeout=90)
+    fields = [f"{key}={value}" for key, value in (variables or {}).items()]
+    argv = ["api", "graphql", "-f", f"query={query}"]
+    for field in fields:
+        argv += ["-f", field]
+    out = ghcli.run(argv, timeout=90)
     try:
         payload = json.loads(out.stdout)
     except (json.JSONDecodeError, ValueError) as e:
@@ -315,43 +324,10 @@ def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
     return None, None
 
 
-_REPO_SEGMENT_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
-_ALLOWED_RAW_HOSTS: frozenset[str] = frozenset({"raw.githubusercontent.com"})
-
-
-def _validate_repo_segment(value: str, label: str = "segment") -> str:
-    if not isinstance(value, str) or value in {".", ".."} or not _REPO_SEGMENT_RE.match(value):
-        raise ValueError(f"invalid GitHub {label}: {value!r}")
-    return value
-
-
-def _validate_gh_path(path: str) -> str:
-    if (
-        not isinstance(path, str)
-        or not path
-        or path.startswith("-")
-        or any(ch in path for ch in ("\r", "\n", "\x00"))
-        or ".." in path.split("/")
-    ):
-        raise ValueError(f"invalid gh api path: {path!r}")
-    return path
-
-
-def _validate_raw_github_url(url: str) -> str:
-    parsed = urllib.parse.urlsplit(url)
-    if (
-        parsed.scheme != "https"
-        or parsed.hostname not in _ALLOWED_RAW_HOSTS
-        or ".." in parsed.path.split("/")
-    ):
-        raise ValueError(f"disallowed raw content URL: {url!r}")
-    return url
-
-
 def _gh_rest(path: str) -> Any:
     """Run one ``gh api`` REST request; return the parsed body (None on empty)."""
-    _validate_gh_path(path)
-    out = subprocess.run(["gh", "api", path], capture_output=True, text=True, timeout=90)
+    validate.gh_api_path(path)
+    out = ghcli.run(["api", path], timeout=90)
     if out.returncode != 0:
         raise RuntimeError(f"gh api {path} rc={out.returncode}: {out.stderr[:160]}")
     return json.loads(out.stdout) if out.stdout.strip() else None
@@ -367,8 +343,8 @@ def _shallow_tree(owner: str, name: str, branch: str) -> tuple[Optional[list[str
     ``truncated=True``, as it is whenever a subtree listing is unreadable or
     node-truncated — a partial path list never reports ``truncated=False``.
     """
-    _validate_repo_segment(owner, "owner")
-    _validate_repo_segment(name, "name")
+    validate.github_segment(owner, "owner")
+    validate.github_segment(name, "name")
     requests = 1  # the root listing below counts against the budget
     root = _gh_rest(f"repos/{owner}/{name}/git/trees/{branch}")
     if not isinstance(root, dict):
@@ -406,10 +382,10 @@ def _shallow_tree(owner: str, name: str, branch: str) -> tuple[Optional[list[str
 
 
 def _fetch_body(url: str) -> Optional[str]:
-    """Fetch one raw.githubusercontent.com body; None on any failure."""
-    _validate_raw_github_url(url)
+    """Fetch one raw.githubusercontent.com body; None on any failure (a URL off that host raises)."""
+    validate.https_url(url, validate.RAW_GITHUB_HOSTS, "raw content")
     try:
-        with urllib.request.urlopen(url, timeout=30) as r:
+        with net.urlopen(url, 30) as r:
             return r.read().decode("utf-8", "replace")
     except Exception:  # review-ok: gate-network — unreadable body -> no evidence
         return None
@@ -428,10 +404,10 @@ def collect_repo_object(raw_dir: Path, owner: str, name: str,
     returns ``"fail"`` when the repository lookup found nothing. Transport
     failures raise for the caller to mark retryable.
     """
-    _validate_repo_segment(owner, "owner")
-    _validate_repo_segment(name, "name")
+    validate.github_segment(owner, "owner")
+    validate.github_segment(name, "name")
     key = f"{owner}__{name}"
-    r, graphql_error = _gh_graphql(REPO_OBJECT_QUERY % (owner, name))
+    r, graphql_error = _gh_graphql(REPO_OBJECT_QUERY, {"owner": owner, "name": name})
     if not r:
         return "fail"
     data: dict[str, Any] = {

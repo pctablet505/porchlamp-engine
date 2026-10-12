@@ -61,9 +61,8 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
+import subprocess  # noqa: F401  (tests patch this module's subprocess)
 import urllib.error
-import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
@@ -71,6 +70,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from porchlamp.collect import commits as commit_domains
+from porchlamp.collect import ghcli, net, validate
 from porchlamp.collect import github_graphql as pr_window
 from porchlamp.collect.envelope import sha256_hex, write_envelope
 # --------------------------------------------------------------------------- #
@@ -193,28 +193,6 @@ class GhApiError(RuntimeError):
         self.http_status = http_status
 
 
-_REPO_SEGMENT_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
-_ALLOWED_RAW_HOSTS: frozenset[str] = frozenset({"raw.githubusercontent.com"})
-
-
-def _validate_repo_segment(value: str, label: str = "segment") -> str:
-    if not isinstance(value, str) or value in {".", ".."} or not _REPO_SEGMENT_RE.match(value):
-        raise ValueError(f"invalid GitHub {label}: {value!r}")
-    return value
-
-
-def _validate_gh_path(path: str) -> str:
-    if (
-        not isinstance(path, str)
-        or not path
-        or path.startswith("-")
-        or any(ch in path for ch in ("\r", "\n", "\x00"))
-        or ".." in path.split("/")
-    ):
-        raise ValueError(f"invalid gh api path: {path!r}")
-    return path
-
-
 class GhApiTransport:
     """Live REST transport via ``gh api`` (the gh auth token is used).
 
@@ -233,12 +211,11 @@ class GhApiTransport:
         ``-X GET`` is explicit: ``gh api`` with ``-f`` fields would
         otherwise infer a write method for read endpoints (404).
         """
-        _validate_gh_path(path)
-        args = ["gh", "api", "-X", "GET", path]
+        validate.gh_api_path(path)
+        args = ["api", "-X", "GET", path]
         for key, value in params.items():
             args += ["-f", f"{key}={value}"]
-        out = subprocess.run(args, capture_output=True, text=True,
-                             timeout=self.timeout_seconds)
+        out = ghcli.run(args, timeout=self.timeout_seconds)
         if out.returncode != 0:
             match = re.search(r"\(HTTP (\d+)\)", out.stderr)
             raise GhApiError(
@@ -295,27 +272,18 @@ def fetch_file_text(owner: str, name: str,
     is re-raised rather than swallowed -- so this never converts "could not
     reach the CDN" into "the file is not there".
     """
-    _validate_repo_segment(owner, "owner")
-    _validate_repo_segment(name, "name")
+    validate.github_segment(owner, "owner")
+    validate.github_segment(name, "name")
 
     def fetch(path: str) -> Optional[str]:
-        if (
-            not isinstance(path, str)
-            or not path
-            or path.startswith("/")
-            or any(ch in path for ch in ("\r", "\n", "\x00"))
-            or ".." in path.split("/")
-        ):
-            raise ValueError(f"invalid governance file path: {path!r}")
-        url = f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{path}"
-        parsed = urllib.parse.urlsplit(url)
-        if parsed.scheme != "https" or parsed.hostname not in _ALLOWED_RAW_HOSTS:
-            raise ValueError(f"disallowed governance file URL: {url!r}")
+        validate.relative_file_path(path, "governance file path")
+        url = validate.https_url(f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{path}",
+                                 validate.RAW_GITHUB_HOSTS, "governance file")
         req = urllib.request.Request(url, headers={"User-Agent": "porchlamp-research/0.1"})
         last: Exception = RuntimeError("no attempt made")
         for _ in range(max(1, attempts)):
             try:
-                with urllib.request.urlopen(req, timeout=timeout_seconds) as r:
+                with net.urlopen(req, timeout_seconds) as r:
                     return r.read().decode("utf-8", "replace")
             except urllib.error.HTTPError as e:
                 if e.code == 404:

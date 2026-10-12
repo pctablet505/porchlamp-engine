@@ -46,6 +46,9 @@ REASON_NO_POPULATION: str = "no_population"
 #: never assert ``not_applicable`` on its own.
 NOT_APPLICABLE_RULES: tuple[tuple[str, str, str], ...] = (
     ("dependents_deduped", "ecosystem", "systems"),
+    ("downloads_monthly", "ecosystem", "go"),
+    ("downloads_monthly", "ecosystem", "maven"),
+    ("downloads_monthly", "ecosystem", "systems"),
 )
 
 #: D-MISS-5 consequence for 2.2 (OpenSSF criticality, 02 section 5):

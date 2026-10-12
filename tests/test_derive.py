@@ -297,3 +297,30 @@ def test_body_corrupt_cache_file_and_atomic_write(tmp_path, monkeypatch):
     saved = json.loads(cache_file.read_text(encoding="utf-8"))
     assert saved["data"]["body"] == "Fresh README content"
 
+
+def test_derive_dx_54_blends_runtime_and_setup_signals(tmp_path):
+    """5.4 DX blends 0.5 * runtime_score + 0.5 * setup_score when CI runs exist."""
+    k = f"{OWNER}__{NAME}"
+    # 5 runs of 1500s (25 min) -> runtime_score = 100 - 5.0 * (25 - 20) = 75.0
+    # Tree has .devcontainer/devcontainer.json (signal 1), CONTRIBUTING.md has
+    # a Setup heading (signal 2), and README.md has a Setext Installation heading
+    # (signal 3) -> setup_score = 100.0
+    # Blended dx = 0.5 * 75.0 + 0.5 * 100.0 = 87.5, dx_run_count = 5
+    write(tmp_path, "actions_runs", k, [{"run_duration_seconds": 1500} for _ in range(5)])
+    write(tmp_path, "tree", k, {"paths": [".devcontainer/devcontainer.json", "README.md", "CONTRIBUTING.md"]})
+    body(tmp_path, "CONTRIBUTING.md", "## Development Setup\nRun `pytest` locally.")
+    body(tmp_path, "README.md", "Quick Installation\n==================\npip install widget")
+    out = run(tmp_path)
+    assert out["meta"]["dx"] == 87.5
+    assert out["meta"]["dx_run_count"] == 5
+    assert out["confidence"]["dx"] == "derived"
+    assert out["confidence"]["dx_run_count"] == "derived"
+
+    # Empty runs list -> dx is None (confidence "missing"), dx_run_count is 0 ("derived")
+    empty_tmp = tmp_path / "empty_runs"
+    write(empty_tmp, "actions_runs", k, [])
+    out_empty = derive.derive_repo(OWNER, NAME, derive.Ecosystem.PYPI, empty_tmp, fetch=False, now=NOW)
+    assert out_empty["meta"]["dx"] is None
+    assert out_empty["confidence"]["dx"] == "missing"
+    assert out_empty["meta"]["dx_run_count"] == 0
+    assert out_empty["confidence"]["dx_run_count"] == "derived"

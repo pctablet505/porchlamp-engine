@@ -16,17 +16,19 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
+import subprocess  # noqa: F401  (tests patch this module's subprocess)
+import sys
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from porchlamp.collect import ghcli, net, validate
 from porchlamp.collect.commits import collect_commits_365d
 from porchlamp.collect.envelope import write_envelope
+from porchlamp.collect.names import valid_ref
 # SLEEP_REST shares porchlamp.collect.pike_signals' SLEEP_CORE_SECONDS
 # (both 0.15, the same GitHub core-API rate limit) -- one definition imported
 # under this file's existing name.
@@ -106,53 +108,23 @@ def _user_cache() -> UserCache:
     return _USER_CACHE
 
 
-_REPO_SEGMENT_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
-_ALLOWED_FETCH_HOSTS: frozenset[str] = frozenset({
+#: Hosts :func:`_fetch_json` may reach: the keyless sources the collectors read.
+FETCH_HOSTS: frozenset[str] = frozenset({
     "api.deps.dev",
     "api.securityscorecards.dev",
     "pypistats.org",
     "api.npmjs.org",
     "crates.io",
-    "raw.githubusercontent.com",
     "ecosyste.ms",
     "packages.ecosyste.ms",
-})
-
-
-def _validate_repo_segment(value: str, label: str = "segment") -> str:
-    if not isinstance(value, str) or value in {".", ".."} or not _REPO_SEGMENT_RE.match(value):
-        raise ValueError(f"invalid GitHub {label}: {value!r}")
-    return value
-
-
-def _validate_gh_path(path: str) -> str:
-    if (
-        not isinstance(path, str)
-        or not path
-        or path.startswith("-")
-        or any(ch in path for ch in ("\r", "\n", "\x00"))
-        or ".." in path.split("/")
-    ):
-        raise ValueError(f"invalid gh api path: {path!r}")
-    return path
-
-
-def _validate_fetch_url(url: str) -> str:
-    parsed = urllib.parse.urlsplit(url)
-    if (
-        parsed.scheme != "https"
-        or parsed.hostname not in _ALLOWED_FETCH_HOSTS
-        or ".." in parsed.path.split("/")
-    ):
-        raise ValueError(f"disallowed fetch URL: {url!r}")
-    return url
+}) | validate.RAW_GITHUB_HOSTS
 
 
 def _gh(*args: str) -> Any:
     if not args:
         raise ValueError("gh api requires a REST endpoint path")
-    _validate_gh_path(args[0])
-    out = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=90)
+    validate.gh_api_path(args[0])
+    out = ghcli.run(["api", *args], timeout=90)
     if out.returncode != 0:
         raise RuntimeError(f"gh api {' '.join(args[:2])} rc={out.returncode}: {out.stderr[:160]}")
     return json.loads(out.stdout) if out.stdout.strip() else None
@@ -170,10 +142,10 @@ def _fetch_json(url: str, headers: Optional[dict] = None) -> tuple[Any, Optional
         ``(None, None, e)`` -- no status was ever received, so a caller must NOT
         mark the fetch done; the next run should retry.
     """
-    _validate_fetch_url(url)
+    validate.https_url(url, FETCH_HOSTS, "fetch")
     req = urllib.request.Request(url, headers=headers or {})
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with net.urlopen(req, 30) as r:
             return (json.load(r), getattr(r, "status", 200), None)
     except urllib.error.HTTPError as e:  # the source answered with a non-2xx status
         return (None, e.code, e)
@@ -205,8 +177,8 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     other collector is reported ``"skip"`` without touching a transport.
     ``None`` fetches everything, as before.
     """
-    _validate_repo_segment(owner, "owner")
-    _validate_repo_segment(name, "name")
+    validate.github_segment(owner, "owner")
+    validate.github_segment(name, "name")
     key = f"{owner}__{name}"
     status: dict[str, str] = {}
 
@@ -219,7 +191,8 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     # --- 1 GraphQL point: meta + PR sample + first reviews ---
     if (collectors is None or collectors & _META_BLOCK) and not _done("github_meta", key, force):
         q = (
-            '{ r: repository(owner: "%s", name: "%s") {'
+            'query($owner: String!, $name: String!) {'
+            ' r: repository(owner: $owner, name: $name) {'
             'stargazerCount forkCount pushedAt isArchived createdAt'
             ' licenseInfo { spdxId } defaultBranchRef { name }'
             ' pullRequests(states: [OPEN, MERGED, CLOSED], first: %d,'
@@ -227,11 +200,11 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             ' nodes { number createdAt closedAt mergedAt'
             ' author { login } authorAssociation'
             ' comments { totalCount } reviews(first: 1) { nodes { createdAt } }'
-            ' } } } }' % (owner, name, PR_SAMPLE)
+            ' } } } }' % (PR_SAMPLE,)
         )
         try:
-            out = subprocess.run(["gh", "api", "graphql", "-f", f"query={q}"],
-                                 capture_output=True, text=True, timeout=90)
+            out = ghcli.run(["api", "graphql", "-f", f"query={q}", "-f", f"owner={owner}", "-f", f"name={name}"],
+                            timeout=90)
             r = json.loads(out.stdout).get("data", {}).get("r") if out.returncode == 0 else None
         except Exception:  # review-ok: gate-network — transient gh failure, rerun resumes
             r = None
@@ -352,11 +325,39 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     dl_key = f"{ecosystem}__{name}"
     dl_p = DATA / "downloads" / f"{dl_key}.json"
     try:
-        dl_monthly = (json.loads(dl_p.read_text()).get("data") or {}).get("monthly") \
-            if dl_p.is_file() else None
+        dl_data = (json.loads(dl_p.read_text()).get("data") or {}) if dl_p.is_file() else {}
     except (json.JSONDecodeError, OSError):  # review-ok: gate-cache — corrupt -> refetch
-        dl_monthly = None
-    if selected("downloads") and not (dl_monthly is not None and not force):
+        dl_data = {}
+    dl_monthly = dl_data.get("monthly") if isinstance(dl_data, dict) else None
+    dep_resolution = None
+    if selected("downloads") and ecosystem in _DOWNLOAD_ECOSYSTEMS:
+        # The count is the repo's only if it is the count of the package deps.dev
+        # links to the repo. The file stays keyed <ecosystem>__<repo name>
+        # (verify.py pins that key); the package it counted and the repo that
+        # wrote it are recorded inside, and derive.py compares them.
+        from porchlamp.collect.depsdev import package_key, package_name_for_repo
+        verdict, package, dep_resolution = _repo_package(owner, name, ecosystem)
+        if verdict == "unsettled":
+            status["downloads"] = "fail"
+        elif verdict == "none":
+            status["downloads"] = "skip"
+        else:
+            assert package is not None
+            counted = dl_data.get("package") or package_name_for_repo(owner, name, ecosystem)
+            held_by = dl_data.get("repo")
+            if dl_monthly is not None and not force \
+                    and package_key(ecosystem, str(counted)) == package_key(ecosystem, package):
+                status["downloads"] = "skip"
+            elif dl_monthly is not None and not force and held_by not in (None, f"{owner}/{name}"):
+                # Another repo of the same name already holds this shared file with
+                # its own package's count; a rerun must not flip it back and forth.
+                status["downloads"] = "skip"
+            else:
+                monthly, src = _downloads(ecosystem, package, skip_pypistats=skip_pypistats)
+                _env("downloads", dl_key, src,
+                     {"monthly": monthly, "package": package, "repo": f"{owner}/{name}"})
+                status["downloads"] = "ok" if monthly is not None else "fail"
+    elif selected("downloads") and not (dl_monthly is not None and not force):
         monthly, src = _downloads(ecosystem, name, skip_pypistats=skip_pypistats)
         _env("downloads", dl_key, src, {"monthly": monthly})
         status["downloads"] = "ok" if monthly is not None else "fail"
@@ -450,6 +451,8 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                     dep_kwargs["maven_coordinates"] = coords
                 if "maven_pom_xml" in cd_params and "maven_coordinates" not in cd_params:
                     dep_kwargs["maven_pom_xml"] = pom_xml
+            if dep_resolution is not None:
+                dep_kwargs["resolution"] = dep_resolution
             status["dependents"] = depsdev_mod.collect_dependents(
                 DATA, owner, name, ecosystem, **dep_kwargs
             )
@@ -554,6 +557,47 @@ def _shape_depsdev(d: Optional[dict]) -> Optional[dict]:
             "scorecard_overall": sc}
 
 
+#: Ecosystems whose registry has a downloads source (:func:`_downloads`).
+_DOWNLOAD_ECOSYSTEMS: frozenset[str] = frozenset({"pypi", "npm", "crates"})
+
+
+def _repo_package(owner: str, name: str, ecosystem: str) -> tuple[str, Optional[str], Any]:
+    """The registry package whose downloads belong to this repo.
+
+    A download count is a package's, and the repo name is only a guess at the
+    package name (npm ``router`` is 291 M downloads a month, credited to three
+    repos that are not its owner). Returns ``(verdict, package, resolution)``:
+
+    * ``("package", P, r)``: deps.dev links package ``P`` to the repo. Read from
+      the repo's dependents envelope when the attributing resolver wrote it
+      (it records ``guess_linked``); otherwise resolved now, and ``r`` is that
+      result so the dependents collector does not repeat the lookups.
+    * ``("none", None, r)``: the repo has no linked package (or its source-repo
+      map was cut and showed none): there are no downloads to fetch.
+    * ``("unsettled", None, r)``: deps.dev did not answer; retry later.
+    """
+    from porchlamp.collect import depsdev as depsdev_mod
+
+    try:
+        data = (json.loads((DATA / "dependents" / f"{owner}__{name}.json").read_text())
+                .get("data") or {})
+    except (OSError, ValueError):
+        data = {}
+    if isinstance(data, dict) and "guess_linked" in data:
+        package = data.get("package")
+        if isinstance(package, str) and package:
+            return "package", package, None
+        return "none", None, None
+    resolution = depsdev_mod.resolve_repo_package(owner, name, ecosystem)
+    if resolution is None:
+        return "none", None, None
+    if resolution.verdict == "found" and resolution.package:
+        return "package", resolution.package, resolution
+    if resolution.verdict in ("no_package", "unresolved"):
+        return "none", None, resolution
+    return "unsettled", None, resolution
+
+
 def _downloads(ecosystem: str, name: str,
                skip_pypistats: bool = False) -> tuple[Optional[int], str]:
     if ecosystem == "pypi":
@@ -649,6 +693,40 @@ def _persist_fingerprint(fp_result: Any, owner: str, name: str, ecosystem: str,
         append_fingerprints(_fingerprint_state(), [rec])
 
 
+def _example(value: Any) -> str:
+    """A short, inert rendering of a rejected name: illegal characters become ``?``, at most 20 characters."""
+    return re.sub(r"[^A-Za-z0-9._-]", "?", str(value))[:20]
+
+
+def load_candidates(lines: list[str], limit: Optional[int]) -> list[tuple[str, str, str]]:
+    """``(owner, name, ecosystem)`` for the first ``limit`` lines (all when None).
+
+    A line whose owner or name is not a legal GitHub name is skipped, never passed on; the count and at most five
+    examples (owner/name only, never the whole line) are printed.
+    """
+    repos: list[tuple[str, str, str]] = []
+    skipped: list[str] = []
+    for line in (lines if limit is None else lines[:limit]):
+        if not line.strip():
+            continue
+        try:
+            r = json.loads(line)
+        except ValueError:
+            r = None
+        if not isinstance(r, dict):
+            skipped.append("<unparseable line>")
+            continue
+        if not r.get("owner"):
+            continue
+        if not valid_ref(r.get("owner"), r.get("name")):
+            skipped.append(f"{_example(r.get('owner'))}/{_example(r.get('name'))}")
+            continue
+        repos.append((r["owner"], r["name"], r["ecosystem"]))
+    if skipped:
+        print(f"skipped {len(skipped)} invalid candidates (e.g. {', '.join(skipped[:5])})")
+    return repos
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     from porchlamp.collect.fingerprint import ALL_GATHER_COLLECTORS
 
@@ -681,14 +759,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     a = ap.parse_args(argv)
     selected = parse_collectors(a.collectors)
     if a.repo:
+        if not valid_ref(a.repo[0], a.repo[1]):
+            print("error: --repo owner or name is not a legal GitHub name", file=sys.stderr)
+            return 2
         repos = [(a.repo[0], a.repo[1], a.ecosystem)]
     else:
-        repos = []
-        lines = CANDIDATES.read_text().splitlines()
-        for line in (lines if a.all else lines[: a.limit]):
-            r = json.loads(line)
-            if r.get("owner"):
-                repos.append((r["owner"], r["name"], r["ecosystem"]))
+        repos = load_candidates(CANDIDATES.read_text().splitlines(), None if a.all else a.limit)
     n_first = 0
     if a.priority_keys is not None:
         keys = read_priority_keys(a.priority_keys)

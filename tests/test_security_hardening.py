@@ -117,6 +117,17 @@ def test_fastapi_rejects_oversized_post_body_with_413(fastapi_client: TestClient
     assert "exceeds" in resp.json()["error"]["detail"]
 
 
+def test_fastapi_rejects_a_chunked_body_with_411(fastapi_client: TestClient) -> None:
+    """A chunked body declares no Content-Length, so the cap above would never see it."""
+    resp = fastapi_client.post(
+        "/v1/porchlamp/reproject",
+        content=iter([b'{"weight_responsiveness":0.2}']),
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 411
+    assert "Content-Length" in resp.json()["error"]["detail"]
+
+
 # --------------------------------------------------------------------------- #
 # 2. CWE-693: Mandatory HTTP Security Headers                                 #
 # --------------------------------------------------------------------------- #
