@@ -48,8 +48,29 @@ export function renderErrorBanner(error) {
   return `<div class="error-banner" role="alert">${escapeHtml(copy.errorBannerText(error.endpoint, error.status, error.detail))}</div>`;
 }
 
-export function renderEmptyState(gatedCount, unratedCount) {
-  return `<div class="empty-state">${escapeHtml(copy.emptyLeaderboardText(gatedCount, unratedCount))}</div>`;
+/**
+ * An empty list. With no search and no ecosystem filter it is the plain count message; with one it names what was
+ * searched and offers the ways out: clear the filters, or look in the other list (`otherList` is "notranked" or
+ * "ranked" and picks that button's hook).
+ */
+export function renderEmptyState(gatedCount, unratedCount, { query = "", ecosystem = "", otherList = "notranked" } = {}) {
+  const q = query.trim();
+  if (!q && !ecosystem) return `<div class="empty-state">${escapeHtml(copy.emptyLeaderboardText(gatedCount, unratedCount))}</div>`;
+  return renderFilteredEmpty(q, ecosystem, otherList, otherList === "notranked" ? "ranked" : "gated or unrated");
+}
+
+export function renderFilteredEmpty(query, ecosystem, otherList, what) {
+  const actions =
+    `<button type="button" class="link-button" data-clear-filters="true">${escapeHtml(copy.CLEAR_FILTERS_LABEL)}</button>` +
+    (query
+      ? `<button type="button" class="link-button" data-search-${otherList}="true">${escapeHtml(
+          otherList === "notranked" ? copy.searchNotRankedLabel(query) : copy.searchRankedLabel(query)
+        )}</button>`
+      : "");
+  return (
+    `<div class="empty-state"><p>${escapeHtml(copy.emptyFilteredText(query, ecosystem, what))}</p>` +
+    `<p class="empty-actions">${actions}</p></div>`
+  );
 }
 
 /**
@@ -169,16 +190,23 @@ export function renderTabs(activeTab, counts, visibleCount) {
  * indicator. Shared between the Ranked and Not-ranked lists via the
  * `dataPrefix` param, which namespaces the `data-*` hooks app.js binds to
  * (`pager` for the leaderboard, `notranked-pager` for the not-ranked list).
+ * The list has one pager above it and one below it (`bottom: true`), so a
+ * reader at the end of a long page can go on without scrolling back up.
  */
-export function renderPager(page, pageSize, total, dataPrefix = "pager") {
+export function renderPager(page, pageSize, total, dataPrefix = "pager", { bottom = false } = {}) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const sizeOptions = PAGE_SIZES.map(
     (n) => `<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`
   ).join("");
+  // The pager below the list repeats the buttons and the status, not the page-size select: the one above stays the
+  // only place that setting lives.
+  const sizeSelect = bottom
+    ? ""
+    : `<label>${escapeHtml(copy.PAGE_SIZE_LABEL)} ` +
+      `<select class="control" data-${dataPrefix}-size-select="true">${sizeOptions}</select></label>`;
   return (
-    `<div class="pager">` +
-    `<label>${escapeHtml(copy.PAGE_SIZE_LABEL)} ` +
-    `<select class="control" data-${dataPrefix}-size-select="true">${sizeOptions}</select></label>` +
+    `<div class="pager${bottom ? " pager-bottom" : ""}">` +
+    sizeSelect +
     `<button type="button" data-${dataPrefix}-first="true" aria-label="${escapeHtml(copy.PAGER_FIRST_LABEL)}"${page <= 1 ? " disabled" : ""}>&laquo;</button>` +
     `<button type="button" data-${dataPrefix}-prev="true" aria-label="${escapeHtml(copy.PAGER_PREV_LABEL)}"${page <= 1 ? " disabled" : ""}>&larr;</button>` +
     `<span data-${dataPrefix}-status="true">${escapeHtml(copy.pagerStatusText(page, totalPages, total))}</span>` +
@@ -230,21 +258,23 @@ export function renderShell(state, viewport = { isMobile: false }) {
   } else if (leaderboardError && !leaderboard) {
     body = renderErrorBanner(leaderboardError);
   } else if (leaderboard && leaderboard.rows.length === 0) {
-    body = renderEmptyState(counts.gated, counts.unrated);
+    body = renderEmptyState(counts.gated, counts.unrated, { query: state.query || "", ecosystem: state.ecosystem || "" });
   } else if (leaderboard) {
     const showPersonaDelta = state.persona !== "balanced";
     const progressAndError =
       `<div class="refetch-progress" data-refetch-progress="true" hidden></div>` +
       `<div class="error-banner" role="alert" data-leaderboard-error="true" hidden></div>`;
     const pager = renderPager(state.page, state.pageSize, leaderboard.total, "pager");
+    const bottomPager = renderPager(state.page, state.pageSize, leaderboard.total, "pager", { bottom: true });
     body = viewport.isMobile
-      ? pager + progressAndError + `<div class="leaderboard-cards" data-leaderboard-cards="true"></div>`
+      ? pager + progressAndError + `<div class="leaderboard-cards" data-leaderboard-cards="true"></div>` + bottomPager
       : pager +
         progressAndError +
         `<table class="leaderboard-table" role="table" aria-label="${escapeHtml(copy.NAV_LEADERBOARD)}">` +
         `<thead>${renderColumnHeader(state.sort, showPersonaDelta)}</thead>` +
         `<tbody data-leaderboard-tbody="true"></tbody>` +
-        `</table>`;
+        `</table>` +
+        bottomPager;
   } else {
     body = "";
   }
@@ -266,9 +296,8 @@ export function renderShell(state, viewport = { isMobile: false }) {
  */
 export function syncPager(root, page, pageSize, total, dataPrefix = "pager") {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const status = root.querySelector(`[data-${dataPrefix}-status]`);
-  if (status) {
-    const text = copy.pagerStatusText(page, totalPages, total);
+  const text = copy.pagerStatusText(page, totalPages, total);
+  for (const status of root.querySelectorAll(`[data-${dataPrefix}-status]`)) {
     if (status.textContent !== text) status.textContent = text;
   }
   const sizeSelect = root.querySelector(`[data-${dataPrefix}-size-select]`);
@@ -281,9 +310,20 @@ export function syncPager(root, page, pageSize, total, dataPrefix = "pager") {
     [`[data-${dataPrefix}-next]`, atLast],
     [`[data-${dataPrefix}-last]`, atLast],
   ]) {
-    const el = root.querySelector(selector);
-    if (el && el.disabled !== disabled) el.disabled = disabled;
+    for (const el of root.querySelectorAll(selector)) {
+      if (el.disabled !== disabled) el.disabled = disabled;
+    }
   }
+}
+
+/**
+ * After a page change: how far to scroll (a negative number, up) to bring the pager above the list back into view
+ * just under the sticky header, or `null` when it is already visible. `anchorTop` is the pager's top edge in the
+ * viewport, `stickyHeight` the room the sticky header takes (0 when it is not sticky).
+ */
+export function scrollDeltaToReveal(anchorTop, stickyHeight, gap = 8) {
+  const target = stickyHeight + gap;
+  return anchorTop >= target ? null : anchorTop - target;
 }
 
 /** Which of the four structural shapes `renderShell` would produce — used by app.js to decide whether a full shell replace is needed at all. Includes the mobile/desktop breakpoint since that changes the shell's markup (table vs. card-list container). */

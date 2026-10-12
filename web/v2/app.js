@@ -53,6 +53,7 @@ import {
   patchTableBody,
   patchCardBody,
   syncPager,
+  scrollDeltaToReveal,
   personaDeltaForState,
   personaVisibleForState,
 } from "./views/leaderboard.js";
@@ -68,7 +69,7 @@ import { renderBrand } from "./components/brand.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
 import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel } from "./components/table.js";
 import { synthesizeRows } from "./perf-fixtures.js";
-import { renderPrimaryNav, syncPrimaryNav } from "./components/primarynav.js";
+import { renderPrimaryNav, syncPrimaryNav, centerActiveTab } from "./components/primarynav.js";
 import {
   renderShell as renderMatrixShell,
   shellShape as matrixShellShape,
@@ -88,6 +89,9 @@ import {
   patchConfigureTable,
   normalizeWeights,
   applyPresetRespectingLocks,
+  REPROJECT_PAGE_SIZE,
+  remainingReprojectPages,
+  mergeReprojectPages,
 } from "./views/configure.js";
 import {
   renderShell as renderCompareShell,
@@ -154,14 +158,14 @@ export function boot(win = window, doc = document) {
       `<span class="snapshot-chip" data-snapshot-chip="true">${escapeHtml(copy.LOADING_LABEL)}</span>` +
       `<div class="header-controls">` +
       `<span class="header-filter-group" data-header-persona-group="true">` +
-      `<label class="field-label">${escapeHtml(copy.PERSONA_LABEL)}</label>` +
-      `<select class="control" data-persona-select="true">${personaOptions}</select>` +
+      `<label class="field-label" for="persona-select">${escapeHtml(copy.PERSONA_LABEL)}</label>` +
+      `<select class="control" id="persona-select" data-persona-select="true">${personaOptions}</select>` +
       `</span>` +
       `<span class="header-filter-group" data-header-eco-group="true">` +
-      `<label class="field-label">${escapeHtml(copy.ECOSYSTEM_LABEL)}</label>` +
-      `<select class="control" data-eco-select="true">` +
+      `<label class="field-label" for="eco-select">${escapeHtml(copy.ECOSYSTEM_LABEL)}</label>` +
+      `<select class="control" id="eco-select" data-eco-select="true">` +
       `<option value="">${escapeHtml(copy.ECOSYSTEM_ALL)}</option>` +
-      ["pypi", "npm", "cargo", "go", "maven"].map((e) => `<option value="${e}">${e}</option>`).join("") +
+      copy.ECOSYSTEMS.map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`).join("") +
       `</select>` +
       `</span>` +
       `<span class="header-filter-group" data-header-search-group="true">` +
@@ -174,6 +178,7 @@ export function boot(win = window, doc = document) {
   // ------------------------------------------------------ Primary nav
   function buildPrimaryNavOnce() {
     primaryNav.innerHTML = renderPrimaryNav(store.getState().tab);
+    centerActiveTab(primaryNav);
   }
 
   /** Fetches whatever `tab` needs that has not already loaded — called on boot, a primary-nav click, popstate, and the footer "verify" link. Idempotent: never re-fetches data that is already present. */
@@ -217,9 +222,14 @@ export function boot(win = window, doc = document) {
         fields.kind === "error"
           ? copy.errorBannerText(fields.endpoint, fields.status, fields.detail)
           : fields.kind === "ok"
-            ? `${fields.snapshot.snapshot_id} · ${fields.snapshot.benchmark_version}`
+            ? fields.snapshot.snapshot_id
             : copy.LOADING_LABEL;
       if (snapshotChip.textContent !== text) snapshotChip.textContent = text;
+      // The header names the snapshot; the exact benchmark version (a release-candidate tag today) is one hover
+      // away here, and in the footer and on the Methodology page.
+      const hover = fields.kind === "ok" ? `${fields.snapshot.snapshot_id} · benchmark ${fields.snapshot.benchmark_version}` : "";
+      if (hover) snapshotChip.setAttribute("title", hover);
+      else snapshotChip.removeAttribute("title");
       snapshotChip.classList.toggle("error-chip", fields.kind === "error");
     }
   }
@@ -264,6 +274,18 @@ export function boot(win = window, doc = document) {
     }
     const retryBtn = footer.querySelector("[data-footer-retry]");
     if (retryBtn) retryBtn.hidden = fields.kind !== "error";
+  }
+
+  /**
+   * After a page change the reader is often at the bottom of a long page (they used the pager below the list):
+   * bring the top of the list back in under the sticky header, so the new page starts at its first row.
+   */
+  function revealListTop(selector = ".pager:not(.pager-bottom)") {
+    const anchor = main.querySelector(selector);
+    if (!anchor || typeof win.scrollTo !== "function") return;
+    const sticky = header && win.getComputedStyle(header).position === "sticky" ? header.getBoundingClientRect().height : 0;
+    const delta = scrollDeltaToReveal(anchor.getBoundingClientRect().top, sticky);
+    if (delta !== null) win.scrollTo(0, Math.max(0, win.scrollY + delta));
   }
 
   // --------------------------------------------------------------- Viewport
@@ -566,7 +588,7 @@ export function boot(win = window, doc = document) {
   // --------------------------------------------------------------- Loaders
   function loadNotRanked() {
     store.dispatch({ type: "NOTRANKED_LOADING" });
-    return api.fetchNotRanked({ persona: store.getState().persona }).then((result) => {
+    return api.fetchNotRankedFull({ persona: store.getState().persona }).then((result) => {
       if (!result.ok) {
         store.dispatch({ type: "NOTRANKED_ERROR", error: result.error });
         announce(copy.apiErrorAnnouncement(result.error.endpoint, result.error.status));
@@ -655,13 +677,25 @@ export function boot(win = window, doc = document) {
     store.dispatch({ type: "REPROJECT_LOADING" });
     const body = {};
     for (const pillar of PILLAR_IDS) body[`weight_${pillar}`] = state.weights[pillar];
-    return api.postReproject(body, { page_size: 1000 }).then((result) => {
+    // The endpoint answers at most REPROJECT_PAGE_SIZE rows a page: take the first, then the rest, so the table
+    // and its rank deltas cover the whole ranking.
+    return api.postReproject(body, { page_size: REPROJECT_PAGE_SIZE }).then(async (result) => {
       if (reprojectInFlightSignature !== signature) return; // superseded by a newer drag
       if (!result.ok) {
         store.dispatch({ type: "REPROJECT_ERROR", error: result.error });
         return;
       }
-      store.dispatch({ type: "REPROJECT_OK", data: result.data });
+      const later = [];
+      for (const page of remainingReprojectPages(result.data.total, REPROJECT_PAGE_SIZE)) {
+        const next = await api.postReproject(body, { page, page_size: REPROJECT_PAGE_SIZE });
+        if (reprojectInFlightSignature !== signature) return;
+        if (!next.ok) {
+          store.dispatch({ type: "REPROJECT_ERROR", error: next.error });
+          return;
+        }
+        later.push(next.data);
+      }
+      store.dispatch({ type: "REPROJECT_OK", data: mergeReprojectPages(result.data, later) });
     });
   }
 
@@ -975,6 +1009,7 @@ export function boot(win = window, doc = document) {
     if (newPage < 1) return;
     store.dispatch({ type: "SET_PAGE", page: newPage });
     pushUrl(store.getState());
+    revealListTop();
     loadLeaderboard();
   }
 
@@ -996,6 +1031,7 @@ export function boot(win = window, doc = document) {
 
     store.dispatch({ type: "SET_PAGE_SIZE", pageSize: newPageSize, page: newPage });
     pushUrl(store.getState());
+    revealListTop();
     loadLeaderboard();
   }
 
@@ -1007,11 +1043,22 @@ export function boot(win = window, doc = document) {
       const state = store.getState();
       store.dispatch({ type: "SET_NOTRANKED_PAGE_SIZE", pageSize: parseInt(evt.target.value, 10), page: 1 });
       patchNotRankedBody(main, store.getState());
+      revealListTop();
       void state;
     } else if (evt.target.matches("[data-configure-pager-size-select]")) {
       store.dispatch({ type: "SET_CONFIGURE_PAGE_SIZE", pageSize: parseInt(evt.target.value, 10), page: 1 });
       patchConfigureTable(main, doc, store.getState());
+      revealListTop(".configure-table-col");
     }
+  });
+
+  // Compare: Enter in the search box adds the first match, as every search-and-add box does.
+  main.addEventListener("keydown", (evt) => {
+    if (evt.key !== "Enter" || !evt.target.matches || !evt.target.matches("[data-compare-search]")) return;
+    const first = main.querySelector("[data-compare-add]");
+    if (!first) return;
+    evt.preventDefault();
+    first.click();
   });
 
   main.addEventListener("input", (evt) => {
@@ -1066,6 +1113,14 @@ export function boot(win = window, doc = document) {
       }
       return;
     }
+    // An empty list's ways out: drop the search and the ecosystem, or look in the other list.
+    if (evt.target.closest("[data-clear-filters]")) {
+      changeParamsAndFetch({ ecosystem: "", query: "" });
+      if (store.getState().tab === "notranked") patchNotRankedBody(main, store.getState());
+      return;
+    }
+    if (evt.target.closest("[data-search-notranked]")) return goToTab("notranked");
+    if (evt.target.closest("[data-search-ranked]")) return goToTab("ranked");
     if (evt.target.closest("[data-onboarding-methodology]")) {
       evt.preventDefault();
       goToTab("methodology");
@@ -1121,11 +1176,13 @@ export function boot(win = window, doc = document) {
     if (evt.target.closest("[data-configure-pager-prev]")) {
       store.dispatch({ type: "SET_CONFIGURE_PAGE", page: Math.max(1, store.getState().configurePage - 1) });
       patchConfigureTable(main, doc, store.getState());
+      revealListTop(".configure-table-col");
       return;
     }
     if (evt.target.closest("[data-configure-pager-next]")) {
       store.dispatch({ type: "SET_CONFIGURE_PAGE", page: store.getState().configurePage + 1 });
       patchConfigureTable(main, doc, store.getState());
+      revealListTop(".configure-table-col");
       return;
     }
     if (evt.target.closest("[data-configure-retry]")) {
@@ -1238,6 +1295,7 @@ export function boot(win = window, doc = document) {
     if (page < 1) return;
     store.dispatch({ type: "SET_NOTRANKED_PAGE", page });
     patchNotRankedBody(main, store.getState());
+    revealListTop();
   }
 
   // U-13 (amended): "the page itself scrolls" — the window/document scroll

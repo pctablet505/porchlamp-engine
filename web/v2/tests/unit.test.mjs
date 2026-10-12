@@ -27,10 +27,13 @@ import {
   repoToLoadFromState,
 } from "../state.js";
 import * as copy from "../copy.js";
+import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal } from "../views/leaderboard.js";
+import { renderShell as notRankedRenderShell } from "../views/notranked.js";
+import { centeredScrollLeft } from "../components/primarynav.js";
 import { postReproject } from "../api.js";
-import { normalizeWeights, applyPresetRespectingLocks, renderControls, sortReprojectRows, topMovers } from "../views/configure.js";
+import { normalizeWeights, applyPresetRespectingLocks, renderControls, sortReprojectRows, topMovers, remainingReprojectPages, mergeReprojectPages } from "../views/configure.js";
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
-import { nearestMarkerInDirection, hitTestPoint } from "../views/matrix.js";
+import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody } from "../views/matrix.js";
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY } from "../components/scatter.js";
 import { synthesizeRows } from "../perf-fixtures.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape } from "../views/compare.js";
@@ -1370,3 +1373,219 @@ test("leaderboard: renderOnboardingBanner includes subtitle and methodology link
   assert.ok(html.includes("data-onboarding-methodology"));
 });
 
+
+// ---------------------------------------------------------------- pagers
+// MEASURED 2026-10-12: with 1000 rows a page the only pager sat above the table, so a reader at the bottom had to
+// scroll the whole page back up to go on.
+const PAGER_COUNTS = { total: 100, rated: 40, gated: 40, unrated: 20 };
+
+function occurrences(html, needle) {
+  return html.split(needle).length - 1;
+}
+
+test("pager: Ranked puts a pager above and one below the list, and only the top one has the page-size select", () => {
+  const state = {
+    ...defaultState(),
+    tab: "ranked",
+    page: 2,
+    pageSize: 20,
+    leaderboard: { rows: [{ owner: "a", name: "b" }], total: 100, counts: PAGER_COUNTS },
+  };
+  const html = leaderboardRenderShell(state, { isMobile: false });
+  assert.equal(occurrences(html, 'class="pager'), 2, "two pagers");
+  assert.equal(occurrences(html, "data-pager-next"), 2, "both have a next button");
+  assert.equal(occurrences(html, "data-pager-size-select"), 1, "one page-size select");
+  assert.ok(html.indexOf("data-pager-next") < html.indexOf("<table"), "the first pager is above the table");
+  assert.ok(html.lastIndexOf("data-pager-next") > html.indexOf("</table>"), "the second pager is below the table");
+  const cards = leaderboardRenderShell(state, { isMobile: true });
+  assert.equal(occurrences(cards, "data-pager-next"), 2, "the card list has both pagers too");
+  assert.ok(cards.lastIndexOf("data-pager-next") > cards.indexOf("data-leaderboard-cards"), "the second is below the cards");
+});
+
+test("pager: Not ranked puts a pager above and one below the list", () => {
+  const row = { owner: "a", name: "b", ecosystem: "go", gate_reason: "archived" };
+  const state = {
+    ...defaultState(),
+    tab: "notranked",
+    notRankedPage: 2,
+    notRankedPageSize: 20,
+    notRanked: { gated: [row], unrated: [], persona_hidden: [], counts: PAGER_COUNTS, truncated: false },
+  };
+  const html = notRankedRenderShell(state);
+  assert.equal(occurrences(html, "data-notranked-pager-next"), 2);
+  assert.equal(occurrences(html, "data-notranked-pager-size-select"), 1);
+  assert.ok(html.lastIndexOf("data-notranked-pager-next") > html.indexOf("data-notranked-rows"), "the second pager follows the rows");
+});
+
+test("pager: syncPager updates every pager on the page", () => {
+  const make = (extra = {}) => ({ textContent: "", disabled: false, value: "20", ...extra });
+  const map = {
+    "[data-pager-status]": [make(), make()],
+    "[data-pager-size-select]": [make()],
+    "[data-pager-first]": [make(), make()],
+    "[data-pager-prev]": [make(), make()],
+    "[data-pager-next]": [make(), make()],
+    "[data-pager-last]": [make(), make()],
+  };
+  const root = {
+    querySelector: (sel) => (map[sel] || [])[0] || null,
+    querySelectorAll: (sel) => map[sel] || [],
+  };
+  syncPager(root, 5, 20, 100, "pager");
+  for (const el of map["[data-pager-status]"]) assert.equal(el.textContent, copy.pagerStatusText(5, 5, 100));
+  for (const el of map["[data-pager-next]"].concat(map["[data-pager-last]"])) assert.equal(el.disabled, true, "last page: next and last are off");
+  for (const el of map["[data-pager-first]"].concat(map["[data-pager-prev]"])) assert.equal(el.disabled, false);
+});
+
+test("pager: scrollDeltaToReveal brings the top pager back only when the reader has scrolled past it", () => {
+  assert.equal(scrollDeltaToReveal(300, 60), null, "the pager is already in view");
+  assert.equal(scrollDeltaToReveal(68, 60), null, "just below the sticky header and its gap");
+  assert.equal(scrollDeltaToReveal(-1900, 60), -1968, "scrolled far past it: go up to just under the header");
+  assert.equal(scrollDeltaToReveal(10, 0), null, "a header that is not sticky takes no room");
+  assert.equal(scrollDeltaToReveal(-5, 0), -13);
+});
+
+// ------------------------------------------------------------ tab strip
+test("primary nav: centeredScrollLeft puts the active tab mid-view and stays inside the strip", () => {
+  // 375 px of strip showing 476 px of tabs; Methodology is the last tab, at 360..476.
+  assert.equal(centeredScrollLeft(360, 116, 375, 476), 101, "the last tab: clamped to the strip's end");
+  assert.equal(centeredScrollLeft(0, 90, 375, 476), 0, "the first tab: clamped to the start");
+  assert.equal(centeredScrollLeft(200, 100, 375, 600), 62.5, "a middle tab: centred");
+  assert.equal(centeredScrollLeft(0, 90, 375, 300), 0, "a strip that fits never scrolls");
+});
+
+// ---------------------------------------------------------------- matrix
+// MEASURED 2026-10-12: the Matrix showed "Rendering on canvas above 2,000 markers, with an SVG overlay ..." to
+// visitors, said marker size was audited stars when no project has any, counted "gated" for every unranked
+// repository, left the canvas without a name for assistive technology, and never said what the quadrants mean.
+function matrixState(count, starsAudited = null) {
+  const points = Array.from({ length: count }, (_, i) => ({
+    owner: "o",
+    name: `r${i}`,
+    ecosystem: "go",
+    friction: 20 + (i % 60),
+    leverage: 30 + (i % 50),
+    quadrant: ["Sweet Spot", "Crucible", "Nursery", "Graveyard"][i % 4],
+    porchlamp: 70,
+    coverage: 0.8,
+    tier: "B",
+    tier_ceiling: "B",
+    stars_audited: starsAudited,
+  }));
+  return {
+    ...defaultState(),
+    tab: "matrix",
+    matrix: { points, excluded_count: 7679, axis_coverage: {} },
+    matrixQuadrantsHidden: {},
+  };
+}
+
+test("matrix: no wording about how it is drawn, and a plain how-to-read note", () => {
+  const html = renderMatrixBody(matrixState(2500));
+  assert.ok(!html.includes("Rendering on canvas"), "the drawing technique is not the reader's business");
+  assert.ok(html.includes(escapeHtml(copy.MATRIX_HOW_TO_READ)));
+});
+
+test("matrix: the star note is true for the data: no audited stars means every dot is the same size", () => {
+  const without = renderMatrixBody(matrixState(50, null));
+  assert.ok(without.includes(escapeHtml(copy.MATRIX_NO_STARS_NOTE)));
+  assert.ok(!without.includes("Marker size is audited stars"));
+  const withStars = renderMatrixBody(matrixState(50, 1200));
+  assert.ok(withStars.includes(escapeHtml(copy.MATRIX_UNAUDITED_STARS_NOTE)));
+  assert.ok(!withStars.includes(escapeHtml(copy.MATRIX_NO_STARS_NOTE)));
+});
+
+test("matrix: the excluded count says not ranked, which is what it counts", () => {
+  const html = renderMatrixBody(matrixState(50));
+  assert.ok(html.includes("7679 repositories are not ranked and not plotted."));
+  assert.ok(!html.includes("gated repositories excluded"));
+});
+
+test("matrix: the canvas has a name for assistive technology, and the stage says how to use it", () => {
+  const html = renderMatrixBody(matrixState(SVG_MARKER_BUDGET + 1));
+  assert.match(html, /<canvas[^>]*role="img"[^>]*aria-label="Friction\/Leverage matrix/);
+  assert.match(html, /data-matrix-stage="true"[^>]*aria-label="[^"]*arrow keys/);
+});
+
+test("matrix: each quadrant chip says what the quadrant is", () => {
+  const html = renderMatrixBody(matrixState(50));
+  for (const [name, text] of Object.entries(copy.QUADRANT_DESCRIPTIONS)) {
+    assert.ok(html.includes(`${text}`), `${name} is described`);
+  }
+  assert.equal(Object.keys(copy.QUADRANT_DESCRIPTIONS).length, 4);
+});
+
+// ---------------------------------------------------------- empty states
+// MEASURED 2026-10-12: a search or filter with no ranked match said "No rated repositories match. N gated and M
+// unrated are listed under Not ranked." with no way out, and Not ranked said "No gated or unrated repositories to
+// show." for a search that simply found nothing.
+const EMPTY_COUNTS = { total: 11000, rated: 3321, gated: 6279, unrated: 1400 };
+
+test("empty states: a filtered empty Ranked list names the search and offers both ways out", () => {
+  const state = {
+    ...defaultState(),
+    tab: "ranked",
+    query: "golang/go",
+    ecosystem: "go",
+    leaderboard: { rows: [], total: 0, counts: EMPTY_COUNTS },
+  };
+  const html = leaderboardRenderShell(state, { isMobile: false });
+  assert.ok(html.includes("No ranked repositories match"), "says what was not found");
+  assert.ok(html.includes("golang/go"), "names the search");
+  assert.ok(html.includes("data-clear-filters"), "a way to clear the filters");
+  assert.ok(html.includes("data-search-notranked"), "a way to look in Not ranked");
+});
+
+test("empty states: with no filter the Ranked empty text stays as it was and offers no buttons", () => {
+  const state = { ...defaultState(), tab: "ranked", leaderboard: { rows: [], total: 0, counts: EMPTY_COUNTS } };
+  const html = leaderboardRenderShell(state, { isMobile: false });
+  assert.ok(html.includes(escapeHtml(copy.emptyLeaderboardText(6279, 1400))));
+  assert.ok(!html.includes("data-clear-filters") && !html.includes("data-search-notranked"));
+});
+
+test("empty states: an ecosystem filter alone offers to clear it but not to search Not ranked", () => {
+  const state = { ...defaultState(), tab: "ranked", ecosystem: "systems", leaderboard: { rows: [], total: 0, counts: EMPTY_COUNTS } };
+  const html = leaderboardRenderShell(state, { isMobile: false });
+  assert.ok(html.includes("data-clear-filters"));
+  assert.ok(!html.includes("data-search-notranked"));
+});
+
+test("not ranked: a cut list says so, an uncut one does not", () => {
+  const row = { owner: "a", name: "b", ecosystem: "go", gate_reason: "archived" };
+  const base = { ...defaultState(), tab: "notranked", notRanked: { gated: [row], unrated: [], persona_hidden: [], counts: EMPTY_COUNTS, truncated: true } };
+  assert.ok(notRankedRenderShell(base).includes(escapeHtml(copy.NOT_RANKED_TRUNCATED)));
+  const whole = { ...base, notRanked: { ...base.notRanked, truncated: false } };
+  assert.ok(!notRankedRenderShell(whole).includes(escapeHtml(copy.NOT_RANKED_TRUNCATED)));
+});
+
+test("not ranked: a search with no match says so and offers to clear it or look in Ranked", () => {
+  const state = {
+    ...defaultState(),
+    tab: "notranked",
+    query: "zzz-nothing",
+    notRanked: { gated: [{ owner: "a", name: "b", ecosystem: "go", gate_reason: "archived" }], unrated: [], persona_hidden: [], counts: EMPTY_COUNTS, truncated: false },
+  };
+  const html = notRankedRenderShell(state);
+  assert.ok(html.includes("zzz-nothing"));
+  assert.ok(html.includes("data-clear-filters"));
+  assert.ok(html.includes("data-search-ranked"));
+});
+
+// ------------------------------------------------------------- configure
+// MEASURED 2026-10-12: Configure weights asked for page 1 of 1,000 rows only, so a custom ranking of 3,321 repositories
+// showed "Page 1 of 50 (1000 rows)" and its rank deltas covered the top 1,000 only.
+test("configure: remainingReprojectPages lists the pages after the first, and none for a short ranking", () => {
+  assert.deepEqual(remainingReprojectPages(3321, 1000), [2, 3, 4]);
+  assert.deepEqual(remainingReprojectPages(1000, 1000), []);
+  assert.deepEqual(remainingReprojectPages(1001, 1000), [2]);
+  assert.deepEqual(remainingReprojectPages(0, 1000), []);
+});
+
+test("configure: mergeReprojectPages puts every page's rows in order and keeps the first page's other fields", () => {
+  const first = { rows: [{ k: 1 }, { k: 2 }], total: 5, lens: "custom", page: 1 };
+  const merged = mergeReprojectPages(first, [{ rows: [{ k: 3 }, { k: 4 }] }, { rows: [{ k: 5 }] }]);
+  assert.deepEqual(merged.rows.map((r) => r.k), [1, 2, 3, 4, 5]);
+  assert.equal(merged.total, 5);
+  assert.equal(merged.lens, "custom");
+  assert.deepEqual(first.rows.map((r) => r.k), [1, 2], "the first answer is not changed");
+});

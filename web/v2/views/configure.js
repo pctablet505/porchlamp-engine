@@ -200,6 +200,20 @@ export function renderDeltaList(reproject) {
   );
 }
 
+/** The endpoint's page size for a reproject answer: the largest it allows. */
+export const REPROJECT_PAGE_SIZE = 1000;
+
+/** The pages to fetch after the first, so the table holds the whole ranking and not just its top `pageSize`. */
+export function remainingReprojectPages(total, pageSize) {
+  const pages = Math.ceil(total / pageSize);
+  return pages > 1 ? Array.from({ length: pages - 1 }, (_, i) => i + 2) : [];
+}
+
+/** One answer holding every page's rows, in order; the first page's other fields (total, lens, ...) stay. */
+export function mergeReprojectPages(first, laterPages) {
+  return { ...first, rows: first.rows.concat(...laterPages.map((page) => page.rows)) };
+}
+
 export function renderPager(page, pageSize, total) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const sizeOptions = PAGE_SIZES.map((n) => `<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("");

@@ -87,6 +87,8 @@
 }
 
 .matrix-axis-labels {
+  max-width: 720px; /* the plot's own width: the labels sit over the plot, not at the page edges */
+  margin-inline: auto;
   display: flex;
   justify-content: space-between;
   color: var(--text-secondary);
@@ -304,14 +306,23 @@
 
 .configure-layout {
   display: grid;
-  grid-template-columns: 1fr 280px;
+  grid-template-columns: minmax(0, 1fr) 280px;
   gap: var(--space-md);
   align-items: start;
 }
 
 @media (max-width: 900px) {
   .configure-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Phone: the result table is wider than the screen; it scrolls in its own box instead of widening the page
+ * (MEASURED 2026-10-12: the page was 966 px wide at 375). */
+@media (max-width: 767px) {
+  .configure-table-col {
+    min-width: 0;
+    overflow-x: auto;
   }
 }
 
