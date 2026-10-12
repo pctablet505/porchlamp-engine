@@ -54,8 +54,14 @@ from pathlib import Path
 from typing import Any, Optional
 
 from porchlamp.collect.depsdev import SYSTEM_FOR_ECOSYSTEM
-from porchlamp.collect.github_graphql import GhCliTransport, GraphqlTransport
-from porchlamp.core.constants import WINDOW_STALENESS_DAYS
+from porchlamp.collect.github_graphql import GhCliTransport, GraphqlTransport, is_bot_actor
+from porchlamp.collect.repo_object import derive_eligibility
+from porchlamp.core.constants import GATE4_VITALITY_WINDOW_DAYS, GATE6_DECISION_WINDOW_DAYS, WINDOW_STALENESS_DAYS
+from porchlamp.core.gates import (
+    UNDETERMINED_SPDX,
+    _is_osi_approved_expression,
+    _is_parseable_spdx_expression,
+)
 
 __all__ = [
     "FINGERPRINT_BATCH_SIZE",
@@ -64,10 +70,12 @@ __all__ = [
     "HOT_DAYS",
     "WARM_DAYS",
     "COLD_DAYS",
+    "STALE_PUSH_WINDOW_DAYS",
     "SLOW_FACT_TTL_DAYS",
     "WEEKLY_TTL_DAYS",
     "WINDOW_ANCHOR_REFRESH_DAYS",
     "CADENCE_TIERS",
+    "PRUNED_REASONS",
     "ALL_GATHER_COLLECTORS",
     "SLOW_BRANCH_COLLECTORS",
     "WEEKLY_COLLECTORS",
@@ -80,6 +88,7 @@ __all__ = [
     "load_latest_fingerprints",
     "append_fingerprints",
     "classify_cadence_tier",
+    "classify_prune_reason",
     "invalidated_collectors",
     "envelope_path",
     "envelope_fetched_at",
@@ -102,6 +111,20 @@ BACKOFF_SECONDS: tuple[float, ...] = (2.0, 4.0)
 HOT_DAYS: int = 7
 WARM_DAYS: int = 30
 COLD_DAYS: int = 365
+
+#: D-GATE-4 trailing window for repository vitality (180 days).
+STALE_PUSH_WINDOW_DAYS: int = GATE4_VITALITY_WINDOW_DAYS
+
+#: Closed vocabulary of pre-collection eligibility prune reasons.
+PRUNED_REASONS: tuple[str, ...] = (
+    "archived",
+    "disabled",
+    "mirror",
+    "stale",
+    "unlicensed",
+    "non_software",
+    "no_external_workflow",
+)
 
 #: D-COL-4: slow-fact collectors (governance, contributors, repo_object, tree)
 #: refetch at most every 30 days and only when defaultBranchRef.target.oid moved.
@@ -236,6 +259,8 @@ class FingerprintSweepResult:
     invalidated (the set whose success gates persisting the new fingerprint).
     ``dirty_by_repo`` is every collector to refetch (fingerprint, missing
     envelope, clocks, window anchors); an unresolved repo has an entry too.
+    ``pruned_by_repo`` maps ``owner__name`` keys pruned by ``prune_ineligible``
+    to their :data:`PRUNED_REASONS` classification.
     """
 
     fingerprints: dict[str, RepoFingerprint]
@@ -247,6 +272,7 @@ class FingerprintSweepResult:
     queries_executed: int
     cost_points: int
     rate_limit_remaining: Optional[int]
+    pruned_by_repo: dict[str, str] = field(default_factory=dict)
 
 
 def build_fingerprint_batch_query(count: int) -> str:
@@ -733,6 +759,192 @@ def fingerprint_to_persist(
     return candidate
 
 
+def _scan_prs_for_decided_external(
+    prs: Sequence[Any], horizon: datetime, now: datetime
+) -> bool:
+    for pr in prs:
+        if not isinstance(pr, Mapping):
+            continue
+        is_ext = pr.get("is_external")
+        if is_ext is None:
+            assoc = str(
+                pr.get("author_association") or pr.get("authorAssociation") or "NONE"
+            )
+            is_ext = assoc not in ("OWNER", "MEMBER", "COLLABORATOR")
+        if not is_ext:
+            continue
+        decided_raw = (
+            pr.get("merged_at")
+            or pr.get("mergedAt")
+            or pr.get("closed_at")
+            or pr.get("closedAt")
+        )
+        decided = _parse_iso(decided_raw) if isinstance(decided_raw, str) else None
+        if decided is not None and horizon <= decided <= now:
+            return True
+    return False
+
+
+def _has_decided_external_pr_in_raw(
+    raw_dir: Path, owner: str, name: str, now: datetime
+) -> Optional[bool]:
+    """Check recorded ``pr_window`` or ``pr_events`` envelopes for >=1 decided
+    external PR within ``GATE6_DECISION_WINDOW_DAYS``. Returns ``None`` when
+    no PR envelope is recorded or when a truncated/sample-capped window makes
+    absence inconclusive."""
+    horizon = now - timedelta(days=GATE6_DECISION_WINDOW_DAYS)
+    pr_win_doc = _read_envelope_doc(envelope_path(raw_dir, "pr_window", owner, name))
+    if pr_win_doc is not None:
+        data = pr_win_doc.get("data")
+        truncated = bool(isinstance(data, Mapping) and data.get("truncated") is True)
+        prs = (
+            data.get("pull_requests")
+            if isinstance(data, Mapping) and isinstance(data.get("pull_requests"), Sequence)
+            else (
+                data.get("events")
+                if isinstance(data, Mapping) and isinstance(data.get("events"), Sequence)
+                else (data if isinstance(data, Sequence) else None)
+            )
+        )
+        if isinstance(prs, Sequence) and not isinstance(prs, (str, bytes)):
+            if _scan_prs_for_decided_external(prs, horizon, now):
+                return True
+            return None if truncated else False
+
+    pr_events_doc = _read_envelope_doc(envelope_path(raw_dir, "pr_events", owner, name))
+    if pr_events_doc is not None:
+        ev_data = pr_events_doc.get("data")
+        ev_prs = (
+            ev_data.get("pull_requests")
+            if isinstance(ev_data, Mapping)
+            and isinstance(ev_data.get("pull_requests"), Sequence)
+            else (ev_data if isinstance(ev_data, Sequence) else None)
+        )
+        if isinstance(ev_prs, Sequence) and not isinstance(ev_prs, (str, bytes)):
+            if _scan_prs_for_decided_external(ev_prs, horizon, now):
+                return True
+            if len(ev_prs) < 30:
+                return False
+            return None
+    return None
+
+
+def _has_human_commit_180d(
+    raw_dir: Path, owner: str, name: str, now: datetime
+) -> Optional[bool]:
+    """Return True if ``commits_180d`` records >=1 non-bot commit within
+    :data:`STALE_PUSH_WINDOW_DAYS`, False if it is a complete list with 0 qualifying
+    human commits, or None when no ``commits_180d`` envelope exists or the 300-commit
+    pagination cap was reached inside the 180-day window."""
+    doc = _read_envelope_doc(envelope_path(raw_dir, "commits_180d", owner, name))
+    if doc is None:
+        return None
+    data = doc.get("data")
+    if not isinstance(data, Sequence) or isinstance(data, (str, bytes)):
+        return None
+    horizon = now - timedelta(days=STALE_PUSH_WINDOW_DAYS)
+    oldest_dt: Optional[datetime] = None
+    for item in data:
+        if not isinstance(item, Mapping):
+            continue
+        dt_raw = item.get("date") or item.get("committed_date")
+        dt = _parse_iso(dt_raw) if isinstance(dt_raw, str) else None
+        if dt is not None and (oldest_dt is None or dt < oldest_dt):
+            oldest_dt = dt
+        login = str(item.get("author_login") or "")
+        typename = str(item.get("author_type") or "")
+        if is_bot_actor(typename, login):
+            continue
+        if dt is None or horizon <= dt <= now:
+            return True
+    if len(data) >= 300 and (oldest_dt is None or oldest_dt >= horizon):
+        return None
+    return False
+
+
+def classify_prune_reason(
+    fp: Optional[RepoFingerprint],
+    *,
+    raw_dir: Optional[Path] = None,
+    owner: str,
+    name: str,
+    now: datetime,
+) -> Optional[str]:
+    """Classify whether ``owner/name`` should be pruned before running the
+    20-collector gather pipeline.
+
+    Returns one of :data:`PRUNED_REASONS` (``"archived"``, ``"disabled"``,
+    ``"mirror"``, ``"stale"``, ``"unlicensed"``, ``"non_software"``,
+    ``"no_external_workflow"``) when the fingerprint or existing raw envelopes
+    establish that the repository is closed for contributions or not software,
+    or ``None`` when the repository remains a valid candidate.
+
+    Note: ``black_hole`` repositories are intentionally **never** pruned here —
+    they are active software repositories with external PR workflows whose PR
+    ghost rate is scored and ranked on the leaderboard with a visible
+    ``"black_hole"`` flag.
+    """
+    if fp is not None:
+        if fp.is_archived:
+            return "archived"
+        if fp.is_disabled:
+            return "disabled"
+        pushed = _parse_iso(fp.pushed_at)
+        if pushed is not None and (now - pushed) > timedelta(days=STALE_PUSH_WINDOW_DAYS):
+            return "stale"
+
+    if raw_dir is not None:
+        ro_doc = _read_envelope_doc(envelope_path(raw_dir, "repo_object", owner, name))
+        meta_doc = _read_envelope_doc(envelope_path(raw_dir, "github_meta", owner, name))
+        tree_doc = _read_envelope_doc(envelope_path(raw_dir, "tree", owner, name))
+        ro_data = ro_doc.get("data") if isinstance(ro_doc, Mapping) and isinstance(ro_doc.get("data"), Mapping) else None
+        meta_data = meta_doc.get("data") if isinstance(meta_doc, Mapping) and isinstance(meta_doc.get("data"), Mapping) else None
+        tree_data = tree_doc.get("data") if isinstance(tree_doc, Mapping) and isinstance(tree_doc.get("data"), Mapping) else None
+
+        if ro_data is not None or meta_data is not None or tree_data is not None:
+            elig = derive_eligibility(
+                dict(ro_data) if ro_data is not None else None,
+                dict(meta_data) if meta_data is not None else None,
+                dict(tree_data) if tree_data is not None else None,
+            )
+            if elig["archived"][0]:
+                return "archived"
+            if elig["mirror"][0]:
+                return "mirror"
+            if fp is None and meta_data is not None:
+                meta_pushed = _parse_iso(meta_data.get("pushed_at"))
+                if meta_pushed is not None and (now - meta_pushed) > timedelta(days=STALE_PUSH_WINDOW_DAYS):
+                    return "stale"
+            spdx = (
+                ro_data.get("license_spdx_id")
+                if ro_data is not None
+                else (meta_data.get("license_spdx") if meta_data is not None else None)
+            )
+            if (
+                isinstance(spdx, str)
+                and spdx not in UNDETERMINED_SPDX
+                and _is_parseable_spdx_expression(spdx)
+                and not _is_osi_approved_expression(spdx)
+            ):
+                return "unlicensed"
+            if elig["unlicensed"][0]:
+                return "unlicensed"
+            if elig["non_software"][0]:
+                return "non_software"
+            off_val, off_conf, _ = elig["off_platform"]
+            if elig["no_prs_ever"][0] and not off_val:
+                return "no_external_workflow"
+            if not off_val and off_conf != "missing":
+                has_decided = _has_decided_external_pr_in_raw(raw_dir, owner, name, now)
+                if has_decided is False:
+                    return "no_external_workflow"
+
+        if _has_human_commit_180d(raw_dir, owner, name, now) is False:
+            return "stale"
+
+    return None
+
+
 def run_fingerprint_pass(
     repos: Sequence[tuple[str, str]],
     *,
@@ -743,6 +955,7 @@ def run_fingerprint_pass(
     batch_size: int = FINGERPRINT_BATCH_SIZE,
     ecosystems: Optional[Mapping[str, str]] = None,
     sleep: Callable[[float], None] = time.sleep,
+    prune_ineligible: bool = False,
 ) -> FingerprintSweepResult:
     """Run the D-COL-1 bulk fingerprint pass over ``repos``. Writes nothing.
 
@@ -753,6 +966,11 @@ def run_fingerprint_pass(
        invalidated/dirty collector sets. When ``raw_dir`` is given the dirty set
        also covers missing envelopes, clocks and window anchors
        (:func:`dirty_collectors`); an unresolved repo is dirty too.
+    4. When ``prune_ineligible=True``, any repository classified by
+       :func:`classify_prune_reason` as ``archived``, ``disabled``, ``stale``,
+       ``unlicensed``, ``non_software``, or ``no_external_workflow`` is recorded
+       in ``pruned_by_repo`` and assigned an empty ``dirty_by_repo`` set so zero
+       downstream collectors waste rate limits on it.
 
     The pass neither appends to ``state_file`` nor touches envelopes: the caller
     persists a repo's fingerprint with :func:`fingerprint_to_persist` after its
@@ -796,8 +1014,18 @@ def run_fingerprint_pass(
     invalidated_by_repo: dict[str, frozenset[str]] = {}
     dirty_by_repo: dict[str, frozenset[str]] = {}
     tiers_by_repo: dict[str, str] = {}
+    pruned_by_repo: dict[str, str] = {}
     for key, fp in current.items():
         tiers_by_repo[key] = classify_cadence_tier(fp, now)
+        if prune_ineligible:
+            reason = classify_prune_reason(
+                fp, raw_dir=raw_dir, owner=fp.owner, name=fp.name, now=now
+            )
+            if reason is not None:
+                pruned_by_repo[key] = reason
+                invalidated_by_repo[key] = frozenset()
+                dirty_by_repo[key] = frozenset()
+                continue
         inv = invalidated_collectors(previous.get(key), fp)
         invalidated_by_repo[key] = inv
         dirty_by_repo[key] = (
@@ -810,6 +1038,15 @@ def run_fingerprint_pass(
         )
     for key in unresolved:
         owner, name = pair_by_key[key]
+        if prune_ineligible:
+            reason = classify_prune_reason(
+                previous.get(key), raw_dir=raw_dir, owner=owner, name=name, now=now
+            )
+            if reason is not None:
+                pruned_by_repo[key] = reason
+                invalidated_by_repo[key] = frozenset()
+                dirty_by_repo[key] = frozenset()
+                continue
         invalidated_by_repo[key] = frozenset()
         dirty_by_repo[key] = (
             dirty_collectors(
@@ -830,4 +1067,5 @@ def run_fingerprint_pass(
         queries_executed=queries,
         cost_points=total_cost,
         rate_limit_remaining=remaining,
+        pruned_by_repo=pruned_by_repo,
     )

@@ -227,11 +227,68 @@ def _summary(rows: list[dict[str, Any]], *, min_stars: int, floor: int, carried:
             "search_api_calls": calls, "wall_seconds": round(wall_s, 1)}
 
 
+def build_search_query(
+    query: str,
+    *,
+    exclude_ineligible: bool = False,
+    min_pushed_date: Optional[str] = None,
+) -> str:
+    """Construct a GitHub repository search query, optionally appending
+    pre-collection eligibility filters (``archived:false fork:false mirror:false``
+    and ``pushed:>={min_pushed_date}``)."""
+    if not exclude_ineligible:
+        return query
+    qualifiers = ["archived:false", "fork:false", "mirror:false"]
+    if min_pushed_date:
+        qualifiers.append(f"pushed:>={min_pushed_date}")
+    return f"{query} {' '.join(qualifiers)}"
+
+
+def prune_ineligible_candidates(
+    rows: list[dict[str, Any]],
+    *,
+    raw_dir: Path,
+    now: datetime,
+    state_file: Optional[Path] = None,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Filter out candidate rows whose existing fingerprint or raw envelopes
+    classify them as closed for contributions or non-software
+    (:func:`porchlamp.collect.fingerprint.classify_prune_reason`: ``archived``,
+    ``disabled``, ``stale``, ``unlicensed``, ``non_software``,
+    ``no_external_workflow``).
+
+    Returns ``(kept_rows, pruned_reasons_by_key)`` where ``pruned_reasons_by_key``
+    maps ``owner__name`` to the prune reason. ``black_hole`` repositories are
+    never pruned here — they remain in the candidate universe so they are
+    scored and ranked with a ``"black_hole"`` flag.
+    """
+    from porchlamp.collect.fingerprint import classify_prune_reason, load_latest_fingerprints
+
+    fp_path = state_file or (raw_dir.parent / "state" / "fingerprints.jsonl")
+    latest_fps = load_latest_fingerprints(fp_path)
+    kept: list[dict[str, Any]] = []
+    pruned: dict[str, str] = {}
+    for row in rows:
+        owner = str(row["owner"])
+        name = str(row["name"])
+        key = f"{owner}__{name}"
+        reason = classify_prune_reason(
+            latest_fps.get(key), raw_dir=raw_dir, owner=owner, name=name, now=now
+        )
+        if reason is not None:
+            pruned[key] = reason
+        else:
+            kept.append(row)
+    return kept, pruned
+
+
 def build(max_per_criterion: int = 1000, max_total: int = 11000,
           only: Optional[str] = None, dry_run: bool = False,
           sleep_s: float = 2.0, now: Optional[datetime] = None,
           min_stars: int = 1000, out: Optional[Path] = None,
-          existing: Optional[Path] = None) -> int:
+          existing: Optional[Path] = None,
+          *,
+          prune_ineligible: bool = False) -> int:
     """Run the universe build; return candidate count written.
 
     ``now`` is the D-IN-5 star-velocity audit's reference clock -- an
@@ -245,7 +302,10 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
     ``dry_run`` needs ``out``: it searches live, skips the audit and writes
     only ``out`` (checkpoint ``out + .checkpoint.json``, summary
     ``out + .summary.json``). ``existing`` is the current universe to carry
-    (default: ``CANDIDATES``).
+    (default: ``CANDIDATES``). When ``prune_ineligible=True``, search queries
+    exclude archived/fork/mirror/stale repositories and carried candidates
+    already verified as ineligible (archived, disabled, stale, unlicensed,
+    non_software, no_external_workflow) are pruned before writing.
     """
     if dry_run and out is None:
         raise ValueError("--dry-run needs --out PATH (it writes nothing else)")
@@ -298,16 +358,39 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
                       "selected_by": [crit], "stars_at_selection": stars,
                       "added_at": datetime.now(timezone.utc).isoformat()}
 
-    ecos = [(eco, qs) for eco, qs in SEARCH_CRITERIA.items() if not only or eco == only]
+    from datetime import timedelta
+    from porchlamp.collect.fingerprint import STALE_PUSH_WINDOW_DAYS
+
+    min_pushed_date = (
+        (now - timedelta(days=STALE_PUSH_WINDOW_DAYS)).strftime("%Y-%m-%d")
+        if prune_ineligible
+        else None
+    )
+    ecos = [
+        (
+            eco,
+            [
+                (
+                    q,
+                    build_search_query(
+                        q, exclude_ineligible=prune_ineligible, min_pushed_date=min_pushed_date
+                    ),
+                )
+                for q in qs
+            ],
+        )
+        for eco, qs in SEARCH_CRITERIA.items()
+        if not only or eco == only
+    ]
     floor = min_stars
     try:
-        floor = effective_floor([q for _, qs in ecos for q in qs], min_stars, max_total, count)
+        floor = effective_floor([sq for _, qpairs in ecos for _, sq in qpairs], min_stars, max_total, count)
     except RuntimeError as e:
         print(f"WARN floor probe failed, using --min-stars {min_stars}: {e}")
     print(f"star floor: {floor} (requested {min_stars})")
 
-    for eco, qs in ecos:
-        for query in qs:
+    for eco, qpairs in ecos:
+        for base_query, query in qpairs:
             try:
                 slices = plan_slices(query, floor, STAR_CEILING, count)
             except RuntimeError as e:
@@ -332,7 +415,7 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
                         print(f"{cid}: {len(items)} items")
                     for it in items:
                         if int(it["stars"]) >= floor:
-                            add(it["owner"], it["name"], eco, f"github-stars:{query}",
+                            add(it["owner"], it["name"], eco, f"github-stars:{base_query}",
                                 int(it["stars"]))
         if eco == "crates":
             try:
@@ -354,6 +437,10 @@ def build(max_per_criterion: int = 1000, max_total: int = 11000,
     fresh = sorted((r for k, r in found.items() if k not in prior),
                    key=lambda r: -r["stars_at_selection"])[:max(0, max_total - len(carried_rows))]
     rows = sorted(carried_rows + fresh, key=lambda r: -r["stars_at_selection"])
+    if prune_ineligible:
+        rows, pruned = prune_ineligible_candidates(rows, raw_dir=DATA, now=now)
+        if pruned:
+            print(f"pruned {len(pruned)} ineligible candidate(s) prior to write")
     requalified = sum(1 for k in prior if k in searched)
     print(f"carried {len(prior)} current repos ({len(prior) - requalified} marked carried), "
           f"{len(fresh)} new")
@@ -400,11 +487,14 @@ def main() -> int:
     ap.add_argument("--out", type=Path, help="candidate list path (required with --dry-run)")
     ap.add_argument("--existing", type=Path,
                     help="current universe to carry (default: data/raw/candidates.jsonl)")
+    ap.add_argument("--prune-ineligible", action="store_true",
+                    help="exclude archived, stale, unlicensed, non_software, and "
+                         "no_external_workflow repos at universe build time")
     a = ap.parse_args()
     if a.dry_run and a.out is None:
         ap.error("--dry-run needs --out")
     build(a.max_per_criterion, a.max_total, a.only, a.dry_run, min_stars=a.min_stars,
-          out=a.out, existing=a.existing)
+          out=a.out, existing=a.existing, prune_ineligible=a.prune_ineligible)
     return 0
 
 

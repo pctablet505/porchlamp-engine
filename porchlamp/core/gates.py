@@ -382,8 +382,24 @@ def _has_decided_external_pr(events: tuple[PRWindowEvent, ...], now: datetime) -
     return False
 
 
+def is_black_hole_bundle(bundle: FeatureBundle) -> bool:
+    """Return True iff ``bundle`` has a measured 1.4 GR_14 input that exceeds
+     the D-GATE-5 zero-response ceiling (:data:`GATE5_MAX_ZERO_RESPONSE_SHARE`)
+    with at least :data:`GATE5_MIN_N` qualifying external PRs."""
+    ghost = bundle.inputs.get(GHOST_RATE_INPUT_ID)
+    return (
+        isinstance(ghost, Measured)
+        and ghost.n >= GATE5_MIN_N
+        and ghost.value > GATE5_MAX_ZERO_RESPONSE_SHARE
+    )
+
+
 def evaluate_gates(
-    bundle: FeatureBundle, evidence: GateEvidence, now: datetime
+    bundle: FeatureBundle,
+    evidence: GateEvidence,
+    now: datetime,
+    *,
+    rank_black_holes: bool = False,
 ) -> GateResult:
     """Evaluate D-GATE-1..6 (02 section 2) for one repo at snapshot time.
 
@@ -391,7 +407,13 @@ def evaluate_gates(
     reference time, timezone-aware. All six gates run; the first failure in
     the design's fixed order is ``reason`` (``eligible=False``), UNDECIDED
     gates are recorded in ``undecided`` by decision id, and D-GATE-6 routing
-    is recorded in ``routed`` without failing the repo."""
+    is recorded in ``routed`` without failing the repo.
+
+    When ``rank_black_holes=True``, D-GATE-5 does not disqualify a repository
+    whose 14-day zero-response rate exceeds :data:`GATE5_MAX_ZERO_RESPONSE_SHARE`;
+    instead the repository remains eligible for stage 2-9 scoring and ranking
+    (where 1.4 ``gr14_ghost_rate`` scores 0.0 and ``"black_hole"`` is surfaced
+    on ``ScoreRecord.suspicion``)."""
     if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
         raise ValueError(f"now must be timezone-aware, got {now!r}")
     repo = bundle.repo
@@ -453,7 +475,7 @@ def evaluate_gates(
     ghost = bundle.inputs.get(GHOST_RATE_INPUT_ID)
     if not isinstance(ghost, Measured) or ghost.n < GATE5_MIN_N:
         undecided.append(GATE_5)
-    elif ghost.value > GATE5_MAX_ZERO_RESPONSE_SHARE:
+    elif not rank_black_holes and ghost.value > GATE5_MAX_ZERO_RESPONSE_SHARE:
         failures.append((5, REASON_BLACK_HOLE))
 
     # D-GATE-6: PR workflow (decided external PR, else off-platform routing,
