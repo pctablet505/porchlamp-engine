@@ -664,3 +664,22 @@ export function corpusMeterLabel(counts) {
     `of ${counts.total} repositories in this snapshot`
   );
 }
+
+// --- Outbound repository link, pillar sorting & onboarding strip ---------
+export const DRAWER_GITHUB_LABEL = "View on GitHub ↗";
+export function drawerGithubUrl(owner, name) {
+  return `https://github.com/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
+}
+export const PILLAR_SHORT_NAMES = Object.freeze({
+  responsiveness: "Resp",
+  criticality: "Crit",
+  governance: "Gov",
+  rigor: "Rigor",
+  accessibility: "Acc",
+});
+export function pillarSortTooltip(pillar) {
+  return `Sort by ${PILLAR_NAMES[pillar] || pillar}`;
+}
+export const ONBOARDING_SUBTITLE =
+  "Evidence-based open-source repository ranking across 5 pillars: Responsiveness, Criticality, Governance, Rigor, and Accessibility.";
+export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";

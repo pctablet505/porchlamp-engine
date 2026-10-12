@@ -1230,3 +1230,143 @@ test("index.html carries absolute link-preview tags and the preview image exists
   assert.equal(png.readUInt32BE(16), 1200, "og:image:width matches the file");
   assert.equal(png.readUInt32BE(20), 630, "og:image:height matches the file");
 });
+
+// ---- PR 1 UX/UI fixes ---------------------------------------------------------------------
+
+import { classifyKindForLens, projectRowForLens } from "../views/drawer.js";
+import { flattenGroups } from "../views/notranked.js";
+import { filterMatrixPoints } from "../views/matrix.js";
+import { renderTable as renderCompareTable } from "../views/compare.js";
+import { renderOnboardingBanner } from "../views/leaderboard.js";
+
+test("drawer: classifyKindForLens and projectRowForLens project a persona-rated repo even when balanced is unrated", () => {
+  const personaOnlyRepo = {
+    ...FLAT_UNRATED_DETAIL,
+    owner: "ai-org",
+    name: "ai-repo",
+    persona_composites: {
+      balanced: { porchlamp: null, tier: null, coverage: 0.48, tier_ceiling: null, rated: false },
+      ai_assisted: { porchlamp: 78.4, tier: "A", coverage: 0.68, tier_ceiling: "A", rated: true },
+    },
+    persona_gates: {},
+  };
+  assert.equal(classifyKindForLens(personaOnlyRepo, "balanced"), "unrated");
+  assert.equal(classifyKindForLens(personaOnlyRepo, "ai_assisted"), "rated");
+
+  const projected = projectRowForLens(personaOnlyRepo, "ai_assisted");
+  assert.equal(projected.porchlamp, 78.4);
+  assert.equal(projected.tier, "A");
+  assert.equal(projected.coverage, 0.68);
+  assert.equal(projected.tier_ceiling, "A");
+
+  const state = {
+    ...stateWithRepoDetail(personaOnlyRepo),
+    persona: "ai_assisted",
+  };
+  const html = renderDrawer(state);
+  assert.ok(html.includes(copy.DRAWER_SECTION_COMPOSITE), "persona-rated repo renders Composite section");
+  assert.ok(html.includes("78.40"), "projected persona score renders in drawer");
+});
+
+test("drawer: classifyKindForLens identifies persona-gated repositories under active persona lens", () => {
+  const personaGatedRepo = {
+    ...FLAT_RATED_DETAIL,
+    persona_gates: { senior_systems: "min_elephant_factor" },
+  };
+  assert.equal(classifyKindForLens(personaGatedRepo, "balanced"), "rated");
+  assert.equal(classifyKindForLens(personaGatedRepo, "senior_systems"), "persona-gated");
+});
+
+test("drawer: renders outbound GitHub link with noopener noreferrer", () => {
+  const html = renderDrawer(stateWithRepoDetail(FLAT_RATED_DETAIL));
+  assert.ok(html.includes(copy.DRAWER_GITHUB_LABEL), "drawer includes GitHub outbound link label");
+  assert.ok(html.includes("drawer-github-link"), "drawer includes .drawer-github-link");
+  assert.ok(html.includes('rel="noopener noreferrer"'), "drawer link has rel=noopener noreferrer");
+});
+
+test("table: renderColumnHeader renders interactive sort buttons for all 5 pillars", () => {
+  const html = renderColumnHeader("-p_rigor", false);
+  for (const p of ["responsiveness", "criticality", "governance", "rigor", "accessibility"]) {
+    assert.ok(html.includes(`data-sort-field="p_${p}"`), `missing pillar sort button for p_${p}`);
+    assert.ok(html.includes(escapeHtml(copy.pillarSortTooltip(p))), `missing tooltip for ${p}`);
+  }
+  assert.match(html, /class="pillar-sort-btn is-active"[^>]*data-sort-field="p_rigor"[^>]*aria-sort="ascending"/);
+});
+
+test("notranked: flattenGroups filters by ecosystem and search query", () => {
+  const fixture = {
+    gated: [
+      { owner: "py-org", name: "alpha-lib", ecosystem: "pypi", gate_reason: "stale" },
+      { owner: "rs-org", name: "beta-crate", ecosystem: "cargo", gate_reason: "stale" },
+    ],
+    unrated: [
+      { owner: "py-org", name: "gamma-tool", ecosystem: "pypi", unrated_reason: "insufficient_evidence", coverage: 0.42 },
+    ],
+    persona_hidden: [],
+  };
+  assert.equal(flattenGroups(fixture).length, 3);
+  assert.equal(flattenGroups(fixture, { ecosystem: "pypi" }).length, 2);
+  assert.equal(flattenGroups(fixture, { ecosystem: "pypi", query: "gamma" }).length, 1);
+  assert.equal(flattenGroups(fixture, { ecosystem: "cargo", query: "BETA" })[0].row.name, "beta-crate");
+});
+
+test("matrix: filterMatrixPoints filters by ecosystem and search query", () => {
+  const points = [
+    { owner: "tokio-rs", name: "tokio", ecosystem: "cargo", leverage: 80, friction: 20, quadrant: "sweet_spot" },
+    { owner: "pallets", name: "flask", ecosystem: "pypi", leverage: 75, friction: 25, quadrant: "sweet_spot" },
+  ];
+  assert.equal(filterMatrixPoints(points, { ecosystem: "", query: "" }).length, 2);
+  assert.equal(filterMatrixPoints(points, { ecosystem: "cargo", query: "" }).length, 1);
+  assert.equal(filterMatrixPoints(points, { ecosystem: "", query: "FLASK" })[0].name, "flask");
+});
+
+test("compare: renderCompareTable places verdict above table, groups parameters by pillar, and renders clickable repo buttons", () => {
+  const state = {
+    compareRepos: ["org-a/repo-1", "org-b/repo-2"],
+    compareDataByRepo: {
+      "org-a/repo-1": {
+        detail: {
+          ...FLAT_RATED_DETAIL,
+          owner: "org-a",
+          name: "repo-1",
+          porchlamp_score: 82.0,
+          pillar_responsiveness: 85.0,
+          pillar_criticality: 80.0,
+          pillar_governance: 78.0,
+          pillar_rigor: 84.0,
+          pillar_accessibility: 79.0,
+        },
+        evidence: [],
+      },
+      "org-b/repo-2": {
+        detail: {
+          ...FLAT_RATED_DETAIL,
+          owner: "org-b",
+          name: "repo-2",
+          porchlamp_score: 71.0,
+          pillar_responsiveness: 70.0,
+          pillar_criticality: 72.0,
+          pillar_governance: 74.0,
+          pillar_rigor: 68.0,
+          pillar_accessibility: 71.0,
+        },
+        evidence: [],
+      },
+    },
+    methodology: METHODOLOGY_DOC,
+  };
+  const html = renderCompareTable(state);
+  const verdictIdx = html.indexOf('class="compare-verdict"');
+  const tableIdx = html.indexOf('class="compare-table"');
+  assert.ok(verdictIdx > -1 && tableIdx > -1 && verdictIdx < tableIdx, "verdict appears above compare table");
+  assert.ok(html.includes('class="compare-section-row"'), "parameter rows are grouped by pillar section headers");
+  assert.ok(html.includes('class="link-button repo-name" data-owner="org-a" data-name="repo-1"'), "repo headers are clickable drawer triggers");
+});
+
+test("leaderboard: renderOnboardingBanner includes subtitle and methodology link", () => {
+  const html = renderOnboardingBanner();
+  assert.ok(html.includes(escapeHtml(copy.ONBOARDING_SUBTITLE)));
+  assert.ok(html.includes(escapeHtml(copy.ONBOARDING_METHODOLOGY_LINK)));
+  assert.ok(html.includes("data-onboarding-methodology"));
+});
+
