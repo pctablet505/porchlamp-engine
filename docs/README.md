@@ -35,13 +35,13 @@ This directory contains the canonical v2 specification, generated methodology re
 
 ## 3. Animations (`docs/assets/animations/`)
 
-Three GIFs illustrate the architecture; the Markdown stays the source of truth. They are rendered from `~/Projects/animation-studio-work/porchlamp/animations.html`, which lives outside this repository (`render.py --repo porchlamp`).
+Two animated D2 SVGs and one Manim GIF illustrate the architecture; the Markdown stays the source of truth. They are rendered from `~/Projects/animation-studio-work/` (`d2/cvi_snapshot.d2`, `d2/cvi_gates_pillars.d2`, and `manim/cvi_matrix.py`).
 
-- [`anim-1-snapshot-pipeline.gif`](assets/animations/anim-1-snapshot-pipeline.gif): collection to the published site
-- [`anim-2-gates-and-pillars.gif`](assets/animations/anim-2-gates-and-pillars.gif): Stage 0 gates, pillars and coverage ceilings
-- [`anim-3-matrix-and-personas.gif`](assets/animations/anim-3-matrix-and-personas.gif): leverage × friction matrix and persona lenses
+- [`anim-1-snapshot-pipeline.svg`](assets/animations/anim-1-snapshot-pipeline.svg): dual collectors, SHA-256 snapshot freeze, SQLite + 256 JSON shards, and 11/11 mutation verification gate
+- [`anim-2-gates-and-pillars.svg`](assets/animations/anim-2-gates-and-pillars.svg): Stage 0 viability gates, empirical PR black-hole rate, and 5 weighted pillars
+- [`anim-3-matrix-and-personas.gif`](assets/animations/anim-3-matrix-and-personas.gif): 2D leverage × receptiveness scatter matrix and morphing persona lenses
 
-Agents: the GIFs are excluded via `.claudeignore`; read the Markdown instead.
+Agents: binary animations are excluded via `.claudeignore`; read the Markdown instead.
 
 ---
 

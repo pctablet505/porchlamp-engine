@@ -6,7 +6,7 @@ Benchmark `2.0.0-rc1`, schema `2`. This page is the visual overview of v2. The c
 
 ## 1. Snapshot pipeline
 
-![Snapshot pipeline from collection to the published site](assets/animations/anim-1-snapshot-pipeline.gif)
+![Snapshot pipeline from collection to the published site](assets/animations/anim-1-snapshot-pipeline.svg)
 
 ```mermaid
 flowchart LR
@@ -55,7 +55,7 @@ Arrows point from importer to imported. `tests/core/test_import_graph.py` keeps 
 
 ## 3. Scoring
 
-![Stage 0 gates and the five scoring pillars](assets/animations/anim-2-gates-and-pillars.gif)
+![Stage 0 gates and the five scoring pillars](assets/animations/anim-2-gates-and-pillars.svg)
 
 ```mermaid
 flowchart TB

@@ -35,7 +35,7 @@ number traces back to a recorded GitHub response and its content hash.
 
 ## How the ranking works
 
-![Stars Don't Review PRs — 6 Hard Gates & 5 Scoring Pillars](docs/assets/animations/anim-2-gates-and-pillars.gif)
+![Stars Don't Review PRs — 6 Hard Gates & 5 Scoring Pillars](docs/assets/animations/anim-2-gates-and-pillars.svg)
 
 Every number comes from public GitHub activity plus deps.dev, ecosyste.ms and
 OpenSSF data, recorded as content-hashed envelopes. A snapshot is built from
@@ -103,7 +103,7 @@ On 2026-09-23 the suite ran 2,774 passed, 1 skipped (a manual procedure) and
 
 ## Architecture
 
-![Porchlamp Snapshot Pipeline & Phone Relay](docs/assets/animations/anim-1-snapshot-pipeline.gif)
+![Porchlamp Snapshot Pipeline & Phone Relay](docs/assets/animations/anim-1-snapshot-pipeline.svg)
 
 The pipeline, in order:
 
