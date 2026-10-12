@@ -548,6 +548,24 @@ def _query_params(path: str) -> tuple[str, dict[str, str]]:
     return parsed.path, params
 
 
+MAX_REQUEST_BODY_BYTES = 65_536
+
+_SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "strict-origin-when-cross-origin"),
+    ("Permissions-Policy", "geolocation=(), microphone=(), camera=()"),
+    (
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data: https:; connect-src 'self'; "
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    ),
+)
+
+
 def make_handler(
     store: FixtureStore, web_dir: Path, fail_endpoints: frozenset[str] = frozenset()
 ) -> type[BaseHTTPRequestHandler]:
@@ -561,11 +579,16 @@ def make_handler(
         def log_message(self, fmt: str, *args: Any) -> None:  # quieter test runs
             pass
 
+        def _send_security_headers(self) -> None:
+            for header_name, header_value in _SECURITY_HEADERS:
+                self.send_header(header_name, header_value)
+
         def _send_json(self, status: int, payload: Any) -> None:
             body = json.dumps(payload).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            self._send_security_headers()
             self.end_headers()
             self.wfile.write(body)
 
@@ -599,6 +622,7 @@ def make_handler(
             self.send_response(200)
             self.send_header("Content-Type", content_type or "application/octet-stream")
             self.send_header("Content-Length", str(len(body)))
+            self._send_security_headers()
             self.end_headers()
             self.wfile.write(body)
 
@@ -712,11 +736,24 @@ def make_handler(
             path, _params = _query_params(self.path)
 
             if path == "/v1/porchlamp/reproject":
-                length = int(self.headers.get("Content-Length", "0") or "0")
-                raw = self.rfile.read(length) if length > 0 else b"{}"
+                raw_len = self.headers.get("Content-Length", "0") or "0"
+                try:
+                    length = int(raw_len)
+                except ValueError:
+                    self._send_error_json(400, "invalid Content-Length")
+                    return
+                if length < 0:
+                    self._send_error_json(400, "invalid Content-Length")
+                    return
+                if length > MAX_REQUEST_BODY_BYTES:
+                    self._send_error_json(
+                        413, f"request body exceeds {MAX_REQUEST_BODY_BYTES} bytes"
+                    )
+                    return
+                raw = self.rfile.read(min(length, MAX_REQUEST_BODY_BYTES)) if length > 0 else b"{}"
                 try:
                     body = json.loads(raw)
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, UnicodeDecodeError):
                     self._send_error_json(400, "request body is not valid JSON")
                     return
                 try:

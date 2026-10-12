@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import re
+import urllib.parse
 import urllib.request
 from dataclasses import asdict
 from itertools import pairwise
@@ -176,6 +177,29 @@ def _body_cache_path(data_dir: Path, owner: str, name: str, fname: str) -> Path:
     return data_dir / "raw" / "bodies" / f"{owner}__{name}__{fname}.json"
 
 
+_REPO_SEGMENT_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
+_ALLOWED_RAW_HOSTS: frozenset[str] = frozenset({"raw.githubusercontent.com"})
+
+
+def _validate_raw_body_url(owner: str, name: str, fname: str) -> str:
+    for label, val in (("owner", owner), ("name", name)):
+        if not isinstance(val, str) or val in {".", ".."} or not _REPO_SEGMENT_RE.match(val):
+            raise ValueError(f"invalid GitHub {label}: {val!r}")
+    if (
+        not isinstance(fname, str)
+        or not fname
+        or fname.startswith("/")
+        or any(ch in fname for ch in ("\r", "\n", "\x00"))
+        or ".." in fname.split("/")
+    ):
+        raise ValueError(f"invalid governance file name: {fname!r}")
+    url = f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{fname}"
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "https" or parsed.hostname not in _ALLOWED_RAW_HOSTS:
+        raise ValueError(f"disallowed raw content URL: {url!r}")
+    return url
+
+
 def _body(data_dir: Path, owner: str, name: str, fname: str,
           fetch: bool) -> tuple[Optional[str], Optional[str]]:
     """File body from the bodies cache, optionally fetched + cached."""
@@ -189,7 +213,7 @@ def _body(data_dir: Path, owner: str, name: str, fname: str,
             return (env.get("data") or {}).get("body"), env.get("fetched_at")
     if not fetch:
         return None, None
-    url = f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{fname}"
+    url = _validate_raw_body_url(owner, name, fname)
     try:
         with urllib.request.urlopen(url, timeout=30) as r:
             text = r.read().decode("utf-8", "replace")

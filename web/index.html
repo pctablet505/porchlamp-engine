@@ -2180,7 +2180,7 @@ function renderLeaderboard() {
 
     tr.innerHTML = `
       <td style="text-align: center;"><input type="checkbox" class="lb-row-cb" data-repo="${esc(repo.repo_id)}" ${isChecked ? 'checked' : ''}></td>
-      <td class="mono-num" style="font-weight: 700; color: var(--text-muted);">#${repo.rank || "—"}</td>
+      <td class="mono-num" style="font-weight: 700; color: var(--text-muted);">#${esc(String(repo.rank || "—"))}</td>
       <td>
         <div class="repo-identity">
           <span class="repo-name">${esc(repo.owner)}/${esc(repo.name)}</span>
@@ -2211,7 +2211,7 @@ function renderLeaderboard() {
       <td class="mono-num">${Number(repo.stars || 0).toLocaleString("en-US")}</td>
       <td class="mono-num">${Number(repo.monthly_downloads || 0).toLocaleString("en-US")}</td>
       <td class="mono-num">${Number(repo.dependents_count || 0).toLocaleString("en-US")}</td>
-      <td><span class="${efClass}">EF ${ef}</span></td>
+      <td><span class="${efClass}">EF ${esc(String(ef))}</span></td>
       <td>
         <button type="button" class="btn-primary" style="padding: 3px 8px; font-size: 11.5px;" data-inspect="${esc(repo.repo_id)}">
           Inspect →
@@ -2387,8 +2387,12 @@ async function renderComparator() {
     chip.innerHTML = `
       <span style="color: ${COMP_COLORS[idx % COMP_COLORS.length]}; font-weight: bold;">●</span>
       <b>${esc(r.repo_id)}</b>
-      <button type="button" title="Remove" onclick="removeCompareRepo('${esc(r.repo_id)}')">✕</button>
+      <button type="button" title="Remove" data-remove-repo="${esc(r.repo_id)}">✕</button>
     `;
+    const removeBtn = chip.querySelector("button[data-remove-repo]");
+    if (removeBtn) {
+      removeBtn.addEventListener("click", () => removeCompareRepo(r.repo_id));
+    }
     chipsWrap.appendChild(chip);
   });
 
@@ -2532,7 +2536,7 @@ function renderComparatorDiffTable(repos) {
   let tbodyHtml = "";
   for (const item of rows) {
     if (item.cat) {
-      tbodyHtml += `<tr class="category-row"><td colspan="${repos.length + 1}">${item.cat}</td></tr>`;
+      tbodyHtml += `<tr class="category-row"><td colspan="${repos.length + 1}">${esc(item.cat)}</td></tr>`;
       continue;
     }
 
@@ -2573,7 +2577,7 @@ function renderComparatorVerdict(repos) {
     <b>Highest Composite Benchmark:</b> <span style="color: var(--sweet); font-weight: 700;">${esc(bestOverall.repo_id)}</span> (Porchlamp: ${Number(bestOverall.overall_porchlamp).toFixed(1)}, ${esc(bestOverall.rank_tier)}) delivers the optimal balance of maintainer velocity and downstream production footprint.<br><br>
     • <b>For First-Time Contributors:</b> Choose <b>${esc(bestResp.repo_id)}</b> — leads in review responsiveness (${Number(bestResp.pillar_scores?.responsiveness || 0).toFixed(0)} P1 score).<br>
     • <b>For Career Capital & Resume Proof:</b> Choose <b>${esc(bestImpact.repo_id)}</b> — commands the largest production ecosystem footprint (${Number(bestImpact.stars || 0).toLocaleString()} stars).<br>
-    • <b>For Governance & Legal Safety:</b> <b>${esc(bestGov.repo_id)}</b> provides the most decentralized organizational backing (Elephant Factor ${bestGov.elephant_factor ?? 1}).
+    • <b>For Governance & Legal Safety:</b> <b>${esc(bestGov.repo_id)}</b> provides the most decentralized organizational backing (Elephant Factor ${esc(String(bestGov.elephant_factor ?? 1))}).
   `;
 }
 
@@ -2629,7 +2633,7 @@ function renderDrawer(body) {
   const ef = body.elephant_factor ?? deepDive?.elephant_breakdown?.elephant_factor ?? 1;
   const isMultiVendor = ef >= 3;
   const efBadgeClass = isMultiVendor ? "badge sweet" : "badge nursery";
-  const efLabel = isMultiVendor ? `Multi-Vendor (EF ${ef})` : `Single-Vendor Risk (EF ${ef})`;
+  const efLabel = isMultiVendor ? `Multi-Vendor (EF ${esc(String(ef))})` : `Single-Vendor Risk (EF ${esc(String(ef))})`;
 
   const legalModel = body.legal_ip_model ?? deepDive?.legal_ip?.model ?? "DCO";
   const claHazard = deepDive?.legal_ip?.cla_hazard || (
@@ -2637,7 +2641,7 @@ function renderDrawer(body) {
     (legalModel === "CORP_CLA_RECIPROCAL" ? "medium" : "high")
   );
   const claBadgeClass = claHazard === "low" ? "badge sweet" : (claHazard === "medium" ? "badge nursery" : "badge graveyard");
-  const claLabel = `Legal CLA: ${esc(legalModel)} [${claHazard.toUpperCase()}]`;
+  const claLabel = `Legal CLA: ${esc(legalModel)} [${esc(String(claHazard).toUpperCase())}]`;
 
   const aiPosture = body.ai_posture ?? deepDive?.legal_ip?.ai_policy_posture ?? "AD_HOC";
   const aiBadgeClass = aiPosture === "REGULATED" ? "badge accent" : (aiPosture === "PROSCRIBED" ? "badge graveyard" : "badge");
@@ -2666,7 +2670,7 @@ function renderDrawer(body) {
       ${playbook.actions.map(act => `
         <div class="playbook-action">
           <div class="playbook-action-header">
-            <span class="playbook-action-title"><span>${act.icon}</span> ${esc(act.title)}</span>
+            <span class="playbook-action-title"><span>${esc(act.icon)}</span> ${esc(act.title)}</span>
             <span class="playbook-action-badge">${esc(act.badge)}</span>
           </div>
           <p class="playbook-action-desc">${esc(act.description)}</p>
@@ -2689,7 +2693,7 @@ function renderDrawer(body) {
           ${body.license ? `<span class="badge">${esc(body.license)}</span>` : ''}
         </div>
       </div>
-      <button type="button" class="drawer-close-btn" onclick="closeDrawer()" title="Close (Esc)">✕</button>
+      <button type="button" class="drawer-close-btn" data-drawer-close="true" title="Close (Esc)">✕</button>
     </div>
 
     ${gatedNote}
@@ -2706,7 +2710,7 @@ function renderDrawer(body) {
     </div>
 
     <div style="display: flex; gap: 8px;">
-      <button type="button" class="btn-primary" style="flex: 1; justify-content: center; padding: 7px 12px;" onclick="addCurrentToCompare('${esc(body.owner)}/${esc(body.name)}')">
+      <button type="button" class="btn-primary" style="flex: 1; justify-content: center; padding: 7px 12px;" data-add-compare="${esc(body.owner)}/${esc(body.name)}">
         <span>⚖️</span> Compare in Screen E
       </button>
     </div>
@@ -2736,7 +2740,7 @@ function renderDrawer(body) {
       <span class="${efBadgeClass}" title="CHAOSS Elephant Factor">Elephant Factor: ${efLabel}</span>
       <span class="${claBadgeClass}" title="Legal CLA Regime">${claLabel}</span>
       <span class="${aiBadgeClass}" title="AI Contribution Policy">AI: ${esc(aiPosture)}</span>
-      <span class="${gfiBadgeClass}" title="Active Unclaimed Good First Issues">GFIs: <b>${gfiCount}</b></span>
+      <span class="${gfiBadgeClass}" title="Active Unclaimed Good First Issues">GFIs: <b>${esc(String(gfiCount))}</b></span>
     </div>
 
     <!-- Production Footprint -->
@@ -2748,6 +2752,12 @@ function renderDrawer(body) {
       <div class="kv-item"><span>Dependents</span><b>${Number(body.dependents_count || 0).toLocaleString("en-US")}</b></div>
     </div>
   `;
+  const closeBtn = drawer.querySelector("button[data-drawer-close]");
+  if (closeBtn) closeBtn.addEventListener("click", closeDrawer);
+  const compareBtn = drawer.querySelector("button[data-add-compare]");
+  if (compareBtn) {
+    compareBtn.addEventListener("click", () => addCurrentToCompare(`${body.owner}/${body.name}`));
+  }
 }
 
 function addCurrentToCompare(repoId) {
@@ -3130,14 +3140,22 @@ async function submitReproject() {
     return;
   }
 
-  $("reproject-results").innerHTML = items.map((item) => `
-    <li onclick="openDeepDive({ owner: '${esc(item.owner)}', name: '${esc(item.name)}', repo_id: '${esc(item.repo_id)}' })">
-      <span class="rank">#${item.new_rank}</span>
+  const resultsEl = $("reproject-results");
+  resultsEl.innerHTML = "";
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <span class="rank">#${esc(String(item.new_rank))}</span>
       <span class="repo" title="${esc(item.repo_id)} · ${esc(item.quadrant || '')}">${esc(item.repo_id)}</span>
-      <span class="move">${item.old_rank} → ${item.new_rank}</span>
-      ${deltaBadge(item.delta)}
+      <span class="move">${esc(String(item.old_rank))} → ${esc(String(item.new_rank))}</span>
+      ${deltaBadge(Number(item.delta) || 0)}
       <span class="score">${Number(item.new_score).toFixed(2)}</span>
-    </li>`).join("");
+    `;
+    li.addEventListener("click", () => {
+      openDeepDive({ owner: item.owner, name: item.name, repo_id: item.repo_id });
+    });
+    resultsEl.appendChild(li);
+  }
 }
 
 $("reproject-btn").addEventListener("click", submitReproject);

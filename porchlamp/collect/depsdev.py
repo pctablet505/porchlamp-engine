@@ -334,8 +334,23 @@ def dedup_dependents(packages: Iterable[tuple[str, str]], system: str,
                              dropped_same_org=tuple(dropped))
 
 
+_ALLOWED_DEPSDEV_HOSTS: frozenset[str] = frozenset({"api.deps.dev"})
+
+
+def _validate_depsdev_url(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in _ALLOWED_DEPSDEV_HOSTS
+        or ".." in parsed.path.split("/")
+    ):
+        raise ValueError(f"disallowed deps.dev URL: {url!r}")
+    return url
+
+
 def _get_json(url: str) -> Optional[dict]:
     """One keyless GET; None on any transport or parse failure."""
+    _validate_depsdev_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=30) as response:

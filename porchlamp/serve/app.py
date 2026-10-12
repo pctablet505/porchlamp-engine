@@ -725,6 +725,23 @@ def _open_v2_connection(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+MAX_REQUEST_BODY_BYTES = 65_536
+
+_SECURITY_HEADERS: dict[str, str] = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src 'self' https://fonts.gstatic.com data:; "
+        "img-src 'self' data: https:; connect-src 'self'; "
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    ),
+}
+
+
 def create_app(db_path, *, web_dir) -> FastAPI:
     """The Porchlamp v2 API app factory.
 
@@ -744,6 +761,43 @@ def create_app(db_path, *, web_dir) -> FastAPI:
 
     app = FastAPI(title="Porchlamp API v2")
     app.state.conn = conn
+
+    @app.middleware("http")
+    async def _security_middleware(request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                parsed_len = int(content_length)
+            except ValueError:
+                response = JSONResponse(
+                    status_code=400,
+                    content=_error_body(request, 400, "invalid Content-Length"),
+                )
+                for k, v in _SECURITY_HEADERS.items():
+                    response.headers.setdefault(k, v)
+                return response
+            if parsed_len < 0:
+                response = JSONResponse(
+                    status_code=400,
+                    content=_error_body(request, 400, "invalid Content-Length"),
+                )
+                for k, v in _SECURITY_HEADERS.items():
+                    response.headers.setdefault(k, v)
+                return response
+            if parsed_len > MAX_REQUEST_BODY_BYTES:
+                response = JSONResponse(
+                    status_code=413,
+                    content=_error_body(
+                        request, 413, f"request body exceeds {MAX_REQUEST_BODY_BYTES} bytes"
+                    ),
+                )
+                for k, v in _SECURITY_HEADERS.items():
+                    response.headers.setdefault(k, v)
+                return response
+        response = await call_next(request)
+        for k, v in _SECURITY_HEADERS.items():
+            response.headers.setdefault(k, v)
+        return response
 
     _register_exception_handlers(app)
     app.include_router(_build_router())

@@ -19,6 +19,7 @@ import re
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -105,7 +106,52 @@ def _user_cache() -> UserCache:
     return _USER_CACHE
 
 
+_REPO_SEGMENT_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
+_ALLOWED_FETCH_HOSTS: frozenset[str] = frozenset({
+    "api.deps.dev",
+    "api.securityscorecards.dev",
+    "pypistats.org",
+    "api.npmjs.org",
+    "crates.io",
+    "raw.githubusercontent.com",
+    "ecosyste.ms",
+    "packages.ecosyste.ms",
+})
+
+
+def _validate_repo_segment(value: str, label: str = "segment") -> str:
+    if not isinstance(value, str) or value in {".", ".."} or not _REPO_SEGMENT_RE.match(value):
+        raise ValueError(f"invalid GitHub {label}: {value!r}")
+    return value
+
+
+def _validate_gh_path(path: str) -> str:
+    if (
+        not isinstance(path, str)
+        or not path
+        or path.startswith("-")
+        or any(ch in path for ch in ("\r", "\n", "\x00"))
+        or ".." in path.split("/")
+    ):
+        raise ValueError(f"invalid gh api path: {path!r}")
+    return path
+
+
+def _validate_fetch_url(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in _ALLOWED_FETCH_HOSTS
+        or ".." in parsed.path.split("/")
+    ):
+        raise ValueError(f"disallowed fetch URL: {url!r}")
+    return url
+
+
 def _gh(*args: str) -> Any:
+    if not args:
+        raise ValueError("gh api requires a REST endpoint path")
+    _validate_gh_path(args[0])
     out = subprocess.run(["gh", "api", *args], capture_output=True, text=True, timeout=90)
     if out.returncode != 0:
         raise RuntimeError(f"gh api {' '.join(args[:2])} rc={out.returncode}: {out.stderr[:160]}")
@@ -124,6 +170,7 @@ def _fetch_json(url: str, headers: Optional[dict] = None) -> tuple[Any, Optional
         ``(None, None, e)`` -- no status was ever received, so a caller must NOT
         mark the fetch done; the next run should retry.
     """
+    _validate_fetch_url(url)
     req = urllib.request.Request(url, headers=headers or {})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -158,6 +205,8 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     other collector is reported ``"skip"`` without touching a transport.
     ``None`` fetches everything, as before.
     """
+    _validate_repo_segment(owner, "owner")
+    _validate_repo_segment(name, "name")
     key = f"{owner}__{name}"
     status: dict[str, str] = {}
 

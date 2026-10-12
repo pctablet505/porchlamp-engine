@@ -75,6 +75,7 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Protocol, Sequence, Union
 
 import json
+import re
 import subprocess
 
 from porchlamp.collect import commits as commit_domains
@@ -98,6 +99,26 @@ from porchlamp.models import OpenSSFSignals
 SLEEP_CORE_SECONDS: float = 0.15
 #: Inter-call sleep for search transports (30 req/min authenticated ceiling).
 SLEEP_SEARCH_SECONDS: float = 2.1
+
+_REPO_SEGMENT_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
+
+
+def _validate_repo_segment(value: str, label: str = "segment") -> str:
+    if not isinstance(value, str) or value in {".", ".."} or not _REPO_SEGMENT_RE.match(value):
+        raise ValueError(f"invalid GitHub {label}: {value!r}")
+    return value
+
+
+def _validate_gh_path(path: str) -> str:
+    if (
+        not isinstance(path, str)
+        or not path
+        or path.startswith("-")
+        or any(ch in path for ch in ("\r", "\n", "\x00"))
+        or ".." in path.split("/")
+    ):
+        raise ValueError(f"invalid gh api path: {path!r}")
+    return path
 
 
 class RestTransport(Protocol):
@@ -126,6 +147,7 @@ class GhRestTransport:
         would otherwise default the method to POST (the form fields become
         a body), which the read endpoints reject.
         """
+        _validate_gh_path(path)
         cmd = ["gh", "api", "-X", "GET", path]
         for name, value in params.items():
             cmd += ["-f", f"{name}={value}"]

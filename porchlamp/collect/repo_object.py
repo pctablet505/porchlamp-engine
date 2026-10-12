@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import urllib.parse
 import urllib.request
 from collections.abc import Set as AbstractSet
 from datetime import datetime, timezone
@@ -314,8 +315,42 @@ def _gh_graphql(query: str) -> tuple[Optional[dict], Optional[str]]:
     return None, None
 
 
+_REPO_SEGMENT_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
+_ALLOWED_RAW_HOSTS: frozenset[str] = frozenset({"raw.githubusercontent.com"})
+
+
+def _validate_repo_segment(value: str, label: str = "segment") -> str:
+    if not isinstance(value, str) or value in {".", ".."} or not _REPO_SEGMENT_RE.match(value):
+        raise ValueError(f"invalid GitHub {label}: {value!r}")
+    return value
+
+
+def _validate_gh_path(path: str) -> str:
+    if (
+        not isinstance(path, str)
+        or not path
+        or path.startswith("-")
+        or any(ch in path for ch in ("\r", "\n", "\x00"))
+        or ".." in path.split("/")
+    ):
+        raise ValueError(f"invalid gh api path: {path!r}")
+    return path
+
+
+def _validate_raw_github_url(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname not in _ALLOWED_RAW_HOSTS
+        or ".." in parsed.path.split("/")
+    ):
+        raise ValueError(f"disallowed raw content URL: {url!r}")
+    return url
+
+
 def _gh_rest(path: str) -> Any:
     """Run one ``gh api`` REST request; return the parsed body (None on empty)."""
+    _validate_gh_path(path)
     out = subprocess.run(["gh", "api", path], capture_output=True, text=True, timeout=90)
     if out.returncode != 0:
         raise RuntimeError(f"gh api {path} rc={out.returncode}: {out.stderr[:160]}")
@@ -332,6 +367,8 @@ def _shallow_tree(owner: str, name: str, branch: str) -> tuple[Optional[list[str
     ``truncated=True``, as it is whenever a subtree listing is unreadable or
     node-truncated — a partial path list never reports ``truncated=False``.
     """
+    _validate_repo_segment(owner, "owner")
+    _validate_repo_segment(name, "name")
     requests = 1  # the root listing below counts against the budget
     root = _gh_rest(f"repos/{owner}/{name}/git/trees/{branch}")
     if not isinstance(root, dict):
@@ -370,6 +407,7 @@ def _shallow_tree(owner: str, name: str, branch: str) -> tuple[Optional[list[str
 
 def _fetch_body(url: str) -> Optional[str]:
     """Fetch one raw.githubusercontent.com body; None on any failure."""
+    _validate_raw_github_url(url)
     try:
         with urllib.request.urlopen(url, timeout=30) as r:
             return r.read().decode("utf-8", "replace")
@@ -390,6 +428,8 @@ def collect_repo_object(raw_dir: Path, owner: str, name: str,
     returns ``"fail"`` when the repository lookup found nothing. Transport
     failures raise for the caller to mark retryable.
     """
+    _validate_repo_segment(owner, "owner")
+    _validate_repo_segment(name, "name")
     key = f"{owner}__{name}"
     r, graphql_error = _gh_graphql(REPO_OBJECT_QUERY % (owner, name))
     if not r:
