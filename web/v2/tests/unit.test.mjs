@@ -256,6 +256,20 @@ test("countRankChanges: only counts rows whose rank actually differs, matched by
 // functions are exported); a code the map actually covers must translate
 // to something OTHER than the raw code itself (the functions' fallback is
 // `|| reason`, which would otherwise silently pass this test on a typo).
+// The black-hole sentence is shown on named projects, so it may only say what
+// D-GATE-5 measures: human responses, on GitHub, inside 14 days. It measures
+// nothing about whether reviews happen elsewhere (golang/go reviews in Gerrit)
+// or whether merges have stopped.
+test("copy.js: the black-hole reason states the measurement, not a verdict", () => {
+  const text = copy.gateReasonText("black_hole");
+  for (const needed of ["on GitHub", "14 days", "human"]) {
+    assert.ok(text.includes(needed), `black-hole reason must say "${needed}": ${text}`);
+  }
+  for (const verdict of ["never", "stalled"]) {
+    assert.ok(!text.includes(verdict), `black-hole reason claims more than is measured ("${verdict}"): ${text}`);
+  }
+});
+
 test("copy.js: gate and unrated reason text covers every code the fixtures use", () => {
   for (const code of ["mirror", "archived", "unlicensed", "stale", "black_hole", "non_software", "fork"]) {
     const text = copy.gateReasonText(code);
