@@ -93,7 +93,7 @@ def _neutral_inputs(**overrides: ParamValue) -> dict[str, ParamValue]:
     """Values that gate no persona (used so each test isolates one gate)."""
     base: dict[str, ParamValue] = {
         "ai_posture": _measured("REGULATED"),
-        "elephant_factor": _measured(5.0),
+        "elephant_factor": _measured(5.0, n=30),
         "mr_first_rate": _measured(0.90, n=20),
         "newcomer_issue_supply": _measured(10),
     }
@@ -226,14 +226,14 @@ def test_ai_assisted_not_gated_for_regulated_or_ad_hoc() -> None:
 # --------------------------------------------------------------------------- #
 def test_senior_systems_gated_when_ef_measured_below_3() -> None:
     record = _record({})
-    inputs = _neutral_inputs(elephant_factor=_measured(SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR - 1.0))
+    inputs = _neutral_inputs(elephant_factor=_measured(SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR - 1.0, n=30))
     assert persona_gates(record, inputs)[PERSONA_SENIOR_SYSTEMS] == REASON_LOW_ELEPHANT_FACTOR
 
 
 def test_senior_systems_not_gated_when_ef_measured_at_3() -> None:
     """Boundary: EF == 3 is not "below 3" (>= is the qualifying side)."""
     record = _record({})
-    inputs = _neutral_inputs(elephant_factor=_measured(SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR))
+    inputs = _neutral_inputs(elephant_factor=_measured(SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR, n=30))
     assert PERSONA_SENIOR_SYSTEMS not in persona_gates(record, inputs)
 
 
@@ -242,6 +242,16 @@ def test_senior_systems_not_gated_when_ef_unmeasured() -> None:
     record = _record({})
     inputs = _neutral_inputs(elephant_factor=_unmeasured())
     assert PERSONA_SENIOR_SYSTEMS not in persona_gates(record, inputs)
+
+
+def test_senior_systems_not_gated_when_ef_insufficient_n() -> None:
+    """D-MISS-1 / D-PARAM 3.2: an elephant_factor sample with n < 30 (e.g.
+    n == 0 from the legacy contributors login-proxy or n == 29 from a thin
+    365d commit window) scores insufficient_n and must not gate senior_systems."""
+    record = _record({})
+    for thin_n in (0, 29):
+        inputs = _neutral_inputs(elephant_factor=_measured(1, n=thin_n))
+        assert PERSONA_SENIOR_SYSTEMS not in persona_gates(record, inputs), thin_n
 
 
 # --------------------------------------------------------------------------- #

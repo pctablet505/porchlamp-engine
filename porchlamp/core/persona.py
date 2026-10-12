@@ -33,9 +33,11 @@ the record's already pillar-renormalised scores:
   design text names, and ``Unmeasured`` (whatever the reason) is the
   "without evidence" case. Recorded as an ownership request below.
 - ``senior_systems`` -- multi-vendor: gated when the ``elephant_factor``
-  input is ``Measured`` and its raw value is below 3. An ``Unmeasured``
+  input is ``Measured`` with at least the minimum sample
+  (``n >= 30``, ``constants.PARAM_MIN_N["elephant_factor"]``) and its raw
+  value is below 3. An ``Unmeasured`` or ``insufficient_n`` (``n < 30``)
   elephant factor does not gate (D-MISS-1: no evidence is not evidence of
-  the opposite; nobody is punished for a collector gap).
+  the opposite; nobody is punished for a collector gap or thin commit sample).
 - ``first_timer`` -- low barrier: gated *unless* the decided first-timer
   cohort is large enough and welcoming (``mr_first_rate`` -- "merged/decided
   among external first-time authors", ``porchlamp/core/params/responsiveness.py``
@@ -201,7 +203,12 @@ def _ai_assisted_gated(bundle_inputs: Mapping[str, ParamValue]) -> bool:
 
 def _senior_systems_gated(bundle_inputs: Mapping[str, ParamValue]) -> bool:
     value = bundle_inputs[INPUT_ELEPHANT_FACTOR]
-    return isinstance(value, Measured) and value.value < SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR
+    min_n = constants.PARAM_MIN_N.get(INPUT_ELEPHANT_FACTOR)
+    return (
+        isinstance(value, Measured)
+        and (min_n is None or value.n >= min_n)
+        and value.value < SENIOR_SYSTEMS_MIN_ELEPHANT_FACTOR
+    )
 
 
 def _first_timer_reason(bundle_inputs: Mapping[str, ParamValue]) -> str | None:

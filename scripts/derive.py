@@ -16,15 +16,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
+import statistics
 import urllib.request
 from dataclasses import asdict
 from itertools import pairwise
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from porchlamp.collect import commits as commit_domains
 from porchlamp.collect.envelope import raw_envelope_path, read_envelope, relative_envelope_path
@@ -273,6 +275,104 @@ def _promotion_ladder(corpus: str) -> PromotionLadder:
                  r"steering|tsc|core team|career path", corpus, re.I):
         return PromotionLadder.DOCUMENTED_PATHWAY
     return PromotionLadder.AD_HOC
+
+
+_DX_SETUP_SCORE_MAP: dict[int, float] = {0: 0.0, 1: 40.0, 2: 70.0, 3: 100.0}
+_DX_CONTRIB_KEYWORDS = (
+    r"\b(?:setup|set\s+up|dev(?:elopment|eloping)?|build(?:ing)?|"
+    r"install(?:ation|ing)?|getting\s+started|local|environment|"
+    r"test(?:ing|s)?|quickstart|quick\s+start|how\s+to\s+contribute)\b"
+)
+_DX_README_KEYWORDS = (
+    r"\b(?:install(?:ation|ing)?|build(?:ing)?|setup|set\s+up|"
+    r"getting\s+started|quick\s*start|usage|development)\b"
+)
+_DX_CONTRIB_SETUP_RX = re.compile(
+    rf"(?:^|\n)\s*(?:#+\s*[^\n]*?{_DX_CONTRIB_KEYWORDS}|[^\n]*?{_DX_CONTRIB_KEYWORDS}[^\n]*\n[=\-]{{3,}})",
+    re.IGNORECASE,
+)
+_DX_README_INSTALL_RX = re.compile(
+    rf"(?:^|\n)\s*(?:#+\s*[^\n]*?{_DX_README_KEYWORDS}|[^\n]*?{_DX_README_KEYWORDS}[^\n]*\n[=\-]{{3,}})",
+    re.IGNORECASE,
+)
+_DX_ENV_BASENAMES: frozenset[str] = frozenset({
+    "devcontainer.json", ".devcontainer.json", "flake.nix", "default.nix", "shell.nix",
+})
+
+
+def _has_dx_env_file(tree_paths: Sequence[str]) -> bool:
+    for p in tree_paths:
+        if not isinstance(p, str):
+            continue
+        low = p.lower()
+        base = low.rsplit("/", 1)[-1]
+        if (
+            ".devcontainer/" in low
+            or low.startswith(".devcontainer")
+            or base in _DX_ENV_BASENAMES
+            or base.startswith("dockerfile")
+            or base.startswith("docker-compose")
+            or base.startswith("compose.y")
+        ):
+            return True
+    return False
+
+
+def _derive_dx_54(
+    runs: Optional[list[dict]],
+    tree: Optional[dict],
+    contrib_body: Optional[str],
+    readme_body: Optional[str],
+    gov: Optional[dict] = None,
+) -> tuple[Optional[float], int]:
+    """02 §4 5.4 DX: 0.5 * runtime_score + 0.5 * setup_signals_score.
+
+    Runtime score: median of last 30 CI runs (``actions_runs`` envelope,
+    ``run_duration_seconds > 0``): 100 if <= 20 min, -5/min after, floor 0;
+    ``None`` (unmeasured) if ``runs`` is None or has no recorded durations.
+    Setup signals (0/1/2/3 -> 0/40/70/100):
+      1. devcontainer or Dockerfile or flake.nix in tree paths,
+      2. CONTRIBUTING.md with a setup/development section,
+      3. README.md with an install/build section.
+    """
+    if runs is None:
+        return None, 0
+    durs: list[float] = []
+    for r in runs[:30]:
+        if not isinstance(r, dict):
+            continue
+        raw_dur = r.get("run_duration_seconds")
+        if (
+            isinstance(raw_dur, (int, float))
+            and not isinstance(raw_dur, bool)
+            and math.isfinite(float(raw_dur))
+            and float(raw_dur) > 0
+        ):
+            durs.append(float(raw_dur))
+    if not durs:
+        return None, 0
+    median_minutes = statistics.median(durs) / 60.0
+    if median_minutes <= 20.0:
+        runtime_score = 100.0
+    else:
+        runtime_score = max(0.0, 100.0 - 5.0 * (median_minutes - 20.0))
+
+    tree_paths = (tree or {}).get("paths") or [] if isinstance(tree, dict) else []
+    sig_env = _has_dx_env_file(tree_paths)
+
+    eff_contrib = contrib_body
+    if not eff_contrib and isinstance(gov, dict):
+        gov_files = gov.get("files") or {}
+        if isinstance(gov_files, dict):
+            c_entry = gov_files.get("CONTRIBUTING.md")
+            if isinstance(c_entry, dict) and isinstance(c_entry.get("body"), str):
+                eff_contrib = c_entry["body"]
+    sig_contrib = bool(eff_contrib and _DX_CONTRIB_SETUP_RX.search(eff_contrib))
+    sig_readme = bool(readme_body and _DX_README_INSTALL_RX.search(readme_body))
+
+    signal_count = int(sig_env) + int(sig_contrib) + int(sig_readme)
+    setup_score = _DX_SETUP_SCORE_MAP[signal_count]
+    return round(0.5 * runtime_score + 0.5 * setup_score, 4), len(durs)
 
 
 def _jsonable(v: Any) -> Any:
@@ -706,6 +806,18 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
         or getattr(ai_posture_val, "name", None) == "PROSCRIBED"
     )
     b.set("hard_ai_ban", is_proscribed, "derived from ai_posture", None, "derived")
+
+    # --- 5.4 DX (02 §4 5.4): 0.5 CI runtime + 0.5 setup signals ---
+    dx_val, dx_n = _derive_dx_54(runs, tree, contrib_body, readme_body, gov)
+    if runs is not None and dx_val is not None:
+        b.set("dx", dx_val, src("actions_runs", key), runs_at, "derived")
+        b.set("dx_run_count", dx_n, src("actions_runs", key), runs_at, "derived")
+    elif runs is not None:
+        b.set("dx_run_count", 0, src("actions_runs", key), runs_at, "derived")
+        b.missing("dx", None)
+    else:
+        b.missing("dx_run_count", 0)
+        b.missing("dx", None)
 
     # --- Author-history cohorts (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3):
     # DR_90, MR_first, newcomer conversion, RR_90 (raw and D-IN-3

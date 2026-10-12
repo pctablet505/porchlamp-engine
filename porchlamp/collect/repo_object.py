@@ -44,11 +44,18 @@ from porchlamp.collect.envelope import write_envelope
 #: (``build.gradle*`` and ``*.cabal``) are the prefix/suffix tuples below.
 D_GATE1_MANIFEST_NAMES: frozenset[str] = frozenset({
     "pyproject.toml", "setup.py", "setup.cfg", "package.json", "Cargo.toml",
-    "go.mod", "pom.xml", "CMakeLists.txt", "Makefile", "meson.build",
-    "configure.ac", "mix.exs", "Gemfile",
+    "go.mod", "pom.xml", "CMakeLists.txt", "Makefile", "GNUmakefile", "Kbuild",
+    "meson.build", "configure.ac", "mix.exs", "Gemfile",
+    "BUILD", "BUILD.bazel", "MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel",
+    "build.zig", "build.zig.zon", "flake.nix", "default.nix", "SConstruct",
+    "vcpkg.json", "conanfile.py", "conanfile.txt", "composer.json",
+    "pubspec.yaml", "Package.swift", "build.sbt", "project.clj", "deps.edn",
+    "stack.yaml", "dune-project",
 })
 D_GATE1_MANIFEST_PREFIXES: tuple[str, ...] = ("build.gradle",)
-D_GATE1_MANIFEST_SUFFIXES: tuple[str, ...] = (".cabal",)
+D_GATE1_MANIFEST_SUFFIXES: tuple[str, ...] = (
+    ".cabal", ".csproj", ".fsproj", ".sln", ".rockspec", ".gemspec", ".podspec",
+)
 D_GATE1_MAX_DEPTH: int = 2
 
 #: Maximum git-tree REST requests one repo's shallow crawl (:func:`_shallow_tree`)

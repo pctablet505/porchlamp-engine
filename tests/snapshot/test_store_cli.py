@@ -59,7 +59,7 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: Regenerated 2026-10-06 (was b52ccd66...) with D-GATE-5 reading the 1.4
 #: gr14_ghost_rate input (owner ruling 2026-10-06): see the counts note below.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "fd6b1e5e363a4a9395c5b76586977528ca96ee53804e3ade924bad910c1572a0"
+    "41192403460b517d1348eccc830d64f4302d2bd93eb222e25e986f057151c50b"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #
