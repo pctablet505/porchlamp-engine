@@ -79,6 +79,16 @@
   flex-wrap: wrap;
 }
 
+.header-filter-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.header-filter-group[hidden] {
+  display: none;
+}
+
 .field-label {
   font-size: var(--text-caption);
   color: var(--text-secondary);
@@ -140,6 +150,24 @@ input.control {
 .primary-tab[aria-selected="true"] {
   color: var(--text-primary);
   border-bottom-color: var(--accent-violet);
+}
+
+/* ---- Onboarding subtitle ---- */
+.onboarding-banner {
+  margin: 0 0 var(--space-xs);
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.onboarding-link {
+  color: var(--accent-cyan);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.onboarding-link:hover {
+  text-decoration: underline;
 }
 
 /* ---- Tabs (Leaderboard's own Ranked/Not-ranked sub-tabs) ---- */
@@ -387,10 +415,10 @@ input.control {
 /* Owner instruction 2026-09-13: "the page itself scrolls with a sticky
  * header row." The document/window scrolls now (not a bounded `main` box),
  * so the thead sticks relative to the viewport, offset by the also-sticky
- * app header's height so the two never overlap. */
+ * app header + primary nav height so they never overlap. */
 .leaderboard-table thead th {
   position: sticky;
-  top: var(--header-height);
+  top: calc(var(--header-height) + var(--primary-nav-height, 41px));
   z-index: 2;
   background: var(--bg-surface);
 }
@@ -409,8 +437,35 @@ input.control {
   cursor: pointer;
 }
 
-.leaderboard-table th[data-sortable="true"]:hover {
+.leaderboard-table th[data-sortable="true"]:hover,
+.leaderboard-table th[data-sortable="true"].is-active {
   color: var(--text-primary);
+}
+
+.pillars-col-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pillar-sort-btn {
+  border: 0;
+  background: transparent;
+  padding: 2px 3px;
+  border-radius: var(--radius-badge);
+  font: inherit;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.pillar-sort-btn:hover,
+.pillar-sort-btn.is-active {
+  color: var(--text-primary);
+  background: var(--bg-surface-elevated);
+}
+
+.pillar-sort-sep {
+  color: var(--text-muted);
 }
 
 .leaderboard-table td {
@@ -705,7 +760,7 @@ input.control {
 }
 
 .drawer {
-  width: 420px;
+  width: 520px;
   max-width: 100%;
   background: var(--bg-surface);
   border-left: 1px solid var(--border-strong);
@@ -742,7 +797,8 @@ input.control {
   flex-shrink: 0;
 }
 
-.drawer-compare-btn {
+.drawer-compare-btn,
+.drawer-github-link {
   padding: 4px var(--space-sm);
   font-size: var(--text-caption);
   font-weight: 500;
@@ -752,9 +808,11 @@ input.control {
   color: var(--text-primary);
   cursor: pointer;
   white-space: nowrap;
+  text-decoration: none;
 }
 
-.drawer-compare-btn:hover {
+.drawer-compare-btn:hover,
+.drawer-github-link:hover {
   background: var(--bg-surface-hover);
 }
 
@@ -790,7 +848,7 @@ input.control {
 }
 
 .radar-chart {
-  max-width: 280px;
+  max-width: 340px;
   width: 100%;
   height: auto;
 }
@@ -820,13 +878,13 @@ input.control {
 }
 
 .radar-label {
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 500;
   fill: var(--text-secondary);
 }
 
 .radar-score {
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 600;
   fill: var(--text-primary);
 }

@@ -74,6 +74,7 @@ import {
   shellShape as matrixShellShape,
   syncViewBox as syncMatrixViewBox,
   syncMatrixHover,
+  filterMatrixPoints,
   zoomView,
   panView,
   nearestMarkerInDirection,
@@ -152,14 +153,20 @@ export function boot(win = window, doc = document) {
       renderBrand() +
       `<span class="snapshot-chip" data-snapshot-chip="true">${escapeHtml(copy.LOADING_LABEL)}</span>` +
       `<div class="header-controls">` +
+      `<span class="header-filter-group" data-header-persona-group="true">` +
       `<label class="field-label">${escapeHtml(copy.PERSONA_LABEL)}</label>` +
       `<select class="control" data-persona-select="true">${personaOptions}</select>` +
+      `</span>` +
+      `<span class="header-filter-group" data-header-eco-group="true">` +
       `<label class="field-label">${escapeHtml(copy.ECOSYSTEM_LABEL)}</label>` +
       `<select class="control" data-eco-select="true">` +
       `<option value="">${escapeHtml(copy.ECOSYSTEM_ALL)}</option>` +
       ["pypi", "npm", "cargo", "go", "maven"].map((e) => `<option value="${e}">${e}</option>`).join("") +
       `</select>` +
+      `</span>` +
+      `<span class="header-filter-group" data-header-search-group="true">` +
       `<input class="control" type="search" data-search-input="true" placeholder="${escapeHtml(copy.SEARCH_PLACEHOLDER)}" aria-label="${escapeHtml(copy.SEARCH_LABEL)}">` +
+      `</span>` +
       `<button type="button" class="icon-button" data-theme-toggle="true" aria-label="${escapeHtml(copy.THEME_TOGGLE_LABEL)}">◐</button>` +
       `</div>`;
   }
@@ -190,6 +197,14 @@ export function boot(win = window, doc = document) {
     const ecoSelect = header.querySelector("[data-eco-select]");
     const searchInput = header.querySelector("[data-search-input]");
     const snapshotChip = header.querySelector("[data-snapshot-chip]");
+    const personaGroup = header.querySelector("[data-header-persona-group]");
+    const ecoGroup = header.querySelector("[data-header-eco-group]");
+    const searchGroup = header.querySelector("[data-header-search-group]");
+    const showPersona = state.tab === "ranked" || state.tab === "notranked" || state.tab === "compare";
+    const showEcoAndSearch = state.tab === "ranked" || state.tab === "notranked" || state.tab === "matrix";
+    if (personaGroup) personaGroup.hidden = !showPersona;
+    if (ecoGroup) ecoGroup.hidden = !showEcoAndSearch;
+    if (searchGroup) searchGroup.hidden = !showEcoAndSearch;
     if (personaSelect && personaSelect.value !== state.persona) personaSelect.value = state.persona;
     if (ecoSelect && ecoSelect.value !== state.ecosystem) ecoSelect.value = state.ecosystem;
     if (searchInput && doc.activeElement !== searchInput && searchInput.value !== state.query) {
@@ -265,11 +280,12 @@ export function boot(win = window, doc = document) {
     };
   }
 
-  /** Updates only the `<th>` `aria-sort` attributes to match `state.sort` — never a shell rebuild. */
+  /** Updates only the `<th>` / button `aria-sort` attributes to match `state.sort` — never a shell rebuild. */
   function syncSortHeaders(state) {
     const headers = main.querySelectorAll("[data-sort-field]");
     for (const th of headers) {
       const isActive = state.sort.replace(/^-/, "") === th.dataset.sortField;
+      th.classList.toggle("is-active", isActive);
       if (!isActive) {
         if (th.hasAttribute("aria-sort")) th.removeAttribute("aria-sort");
         continue;
@@ -403,7 +419,8 @@ export function boot(win = window, doc = document) {
       Graveyard: styles.getPropertyValue("--quad-graveyard").trim(),
     };
     const ctx = canvas.getContext("2d");
-    drawMatrixCanvas(ctx, state.matrix.points, { quadrantsHidden: state.matrixQuadrantsHidden, colors, width, height });
+    const filteredPoints = filterMatrixPoints(state.matrix.points, state);
+    drawMatrixCanvas(ctx, filteredPoints, { quadrantsHidden: state.matrixQuadrantsHidden, colors, width, height });
   }
 
   function syncView(state) {
@@ -1040,13 +1057,18 @@ export function boot(win = window, doc = document) {
         // plot size (same reasoning as components/scatter.js's radius
         // pixel-anchoring).
         const toleranceDomainUnits = (15 / rect.width) * 100;
-        const visiblePoints = s.matrix.points.filter((p) => !s.matrixQuadrantsHidden[p.quadrant]);
+        const visiblePoints = filterMatrixPoints(s.matrix.points, s).filter((p) => !s.matrixQuadrantsHidden[p.quadrant]);
         const hit = hitTestPoint(visiblePoints, domainX, domainY, toleranceDomainUnits);
         if (hit) {
           store.dispatch({ type: "MATRIX_SET_FOCUS", key: matrixPointKey(hit) });
           openRepo(hit.owner, hit.name);
         }
       }
+      return;
+    }
+    if (evt.target.closest("[data-onboarding-methodology]")) {
+      evt.preventDefault();
+      goToTab("methodology");
       return;
     }
     const tabBtn = evt.target.closest("[data-tab]");
@@ -1091,7 +1113,7 @@ export function boot(win = window, doc = document) {
     if (evt.target.closest("[data-notranked-pager-next]")) return goToNotRankedPage(store.getState().notRankedPage + 1);
     if (evt.target.closest("[data-notranked-pager-last]")) {
       const s = store.getState();
-      const flat = s.notRanked ? flattenGroups(s.notRanked) : [];
+      const flat = s.notRanked ? flattenGroups(s.notRanked, { ecosystem: s.ecosystem, query: s.query }) : [];
       const totalPages = Math.max(1, Math.ceil(flat.length / s.notRankedPageSize));
       return goToNotRankedPage(totalPages);
     }
@@ -1346,6 +1368,12 @@ export function boot(win = window, doc = document) {
       return;
     }
 
+    if ((evt.key === "Enter" || evt.key === " ") && doc.activeElement?.matches?.("th[data-sort-field]")) {
+      evt.preventDefault();
+      doc.activeElement.click();
+      return;
+    }
+
     const action = actionForKeyEvent(evt, { isInputFocused, isInteractiveFocused });
     if (!action) return;
 
@@ -1360,7 +1388,9 @@ export function boot(win = window, doc = document) {
         if (isInputFocused) return;
         evt.preventDefault();
         if (s.tab === "matrix") {
-          const points = s.matrix ? s.matrix.points : [];
+          const points = s.matrix
+            ? filterMatrixPoints(s.matrix.points, s).filter((p) => !s.matrixQuadrantsHidden[p.quadrant])
+            : [];
           if (points.length === 0) return;
           const curIdx = points.findIndex((p) => matrixPointKey(p) === s.matrixFocusedKey);
           const delta = action === "cursor-down" ? 1 : -1;
@@ -1398,7 +1428,8 @@ export function boot(win = window, doc = document) {
         // navigate a virtual marker index in that mode (panning stays
         // available via wheel and +/- buttons). Below the budget, the
         // SVG disambiguation applies: stage focus pans, marker focus navigates.
-        const usesCanvas = s.matrix.points.length > SVG_MARKER_BUDGET;
+        const visiblePoints = filterMatrixPoints(s.matrix.points, s).filter((p) => !s.matrixQuadrantsHidden[p.quadrant]);
+        const usesCanvas = visiblePoints.length > SVG_MARKER_BUDGET;
         const markerFocused = !usesCanvas && doc.activeElement?.classList.contains("matrix-marker");
         if (!usesCanvas && !markerFocused) {
           // The stage itself (not a marker) has focus: arrow keys PAN
@@ -1409,7 +1440,7 @@ export function boot(win = window, doc = document) {
           store.dispatch({ type: "MATRIX_SET_VIEW", view: panView(s.matrixView, pan[0], pan[1]) });
           return;
         }
-        const next = nearestMarkerInDirection(s.matrix.points, s.matrixFocusedKey, direction);
+        const next = nearestMarkerInDirection(visiblePoints, s.matrixFocusedKey, direction);
         if (!next) return;
         evt.preventDefault();
         const key = matrixPointKey(next);

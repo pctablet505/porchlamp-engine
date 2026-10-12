@@ -382,10 +382,14 @@ export function reduce(state, action) {
   switch (action.type) {
     case "SET_PARAMS": {
       const personaChanged = action.payload && action.payload.persona && action.payload.persona !== state.persona;
+      const filterChanged =
+        action.payload &&
+        ((action.payload.ecosystem !== undefined && action.payload.ecosystem !== state.ecosystem) ||
+          (action.payload.query !== undefined && action.payload.query !== state.query));
       return {
         ...state,
         ...action.payload,
-        ...(personaChanged ? { notRanked: null, notRankedError: null, notRankedPage: 1 } : {}),
+        ...(personaChanged ? { notRanked: null, notRankedError: null, notRankedPage: 1 } : filterChanged ? { notRankedPage: 1 } : {}),
       };
     }
     case "SET_PERSONA":

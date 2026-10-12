@@ -123,6 +123,7 @@
    * see the handoff's COULD NOT VERIFY note on multi-row header widths).
    * The table's `thead` sticks just below this. */
   --header-height: 60px;
+  --primary-nav-height: 41px;
 
   /* Radius */
   --radius-badge: 4px;

@@ -207,10 +207,20 @@ export function personaVisibleForState(state) {
   return personaVisibleCount(counts, state.snapshot, state.persona);
 }
 
+export function renderOnboardingBanner() {
+  return (
+    `<div class="onboarding-banner" data-onboarding-banner="true">` +
+    `<span>${escapeHtml(copy.ONBOARDING_SUBTITLE)}</span> ` +
+    `<a href="#methodology" class="onboarding-link" data-onboarding-methodology="true">${escapeHtml(copy.ONBOARDING_METHODOLOGY_LINK)}</a>` +
+    `</div>`
+  );
+}
+
 export function renderShell(state, viewport = { isMobile: false }) {
   const { leaderboardLoading, leaderboardError, leaderboard } = state;
   const counts = leaderboard ? leaderboard.counts : null;
   const header =
+    renderOnboardingBanner() +
     renderTabs(state.tab, counts, personaVisibleForState(state)) +
     renderCountsStrip(counts, personaDeltaForState(state));
 
