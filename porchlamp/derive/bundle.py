@@ -1997,7 +1997,7 @@ def _unmapped(detail: str) -> InputResolver:
 
 
 def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
-    """5.4 DX (0.5 CI runtime + 0.5 setup signals, on 0-100, min n = 5 CI runs)."""
+    """5.4 DX (0.5 CI runtime + 0.5 setup signals, on 0-100, min n = 5 pull-request commits)."""
     confidence_value = ctx.confidence.get("dx")
     if confidence_value in ("derived", "verified"):
         value = ctx.meta.get("dx")
@@ -2007,7 +2007,7 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
         if count_ok and min_n is not None and count < min_n:
             return Unmeasured(
                 reason="insufficient_n",
-                detail=f"{count} CI runs with recorded duration, need >= {min_n}",
+                detail=f"{count} pull-request commits with a finished CI run, need >= {min_n}",
             )
         value_ok = (
             isinstance(value, (int, float))
@@ -2047,7 +2047,7 @@ def _resolve_dx(ctx: _V1Ctx) -> Measured | Unmeasured:
         ):
             return Unmeasured(
                 reason="insufficient_n",
-                detail=f"{count} CI runs with recorded duration, need >= {min_n}",
+                detail=f"{count} pull-request commits with a finished CI run, need >= {min_n}",
             )
         return Unmeasured(
             reason="collector_failure",

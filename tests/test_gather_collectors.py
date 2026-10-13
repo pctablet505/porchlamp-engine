@@ -409,3 +409,105 @@ def test_collectors_subset_never_persists_the_fingerprint(dirty_env) -> None:
     assert calls == [["pr_window"]]
     again = run("--dirty")  # the move was not consumed by the partial run
     assert again and "commits_365d" in again[0]
+
+
+def _pr_run(sha: str, conclusion: str, minutes: int) -> dict:
+    return {
+        "head_sha": sha, "status": "completed", "conclusion": conclusion, "workflow_id": 1, "run_attempt": 1,
+        "created_at": "2026-10-01T00:00:00Z", "run_started_at": "2026-10-01T00:00:00Z",
+        "updated_at": f"2026-10-01T00:{minutes:02d}:00Z",
+    }
+
+
+def _serve_pages(gather: ModuleType, monkeypatch: pytest.MonkeyPatch, pages: list[list[dict]]) -> list[tuple[str, ...]]:
+    calls: list[tuple[str, ...]] = []
+
+    def _gh(path: str, *flags: str):
+        calls.append((path, *flags))
+        page = int(next(f for f in flags if f.startswith("page=")).split("=")[1])
+        return {"workflow_runs": pages[page - 1] if page <= len(pages) else []}
+
+    monkeypatch.setattr(gather, "_gh", _gh)
+    monkeypatch.setattr(gather.time, "sleep", lambda _s: None)
+    return calls
+
+
+def test_pr_runs_asks_for_day_old_pull_request_runs_and_stops_after_one_short_page(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _serve_pages(gather, monkeypatch, [[_pr_run("a", "success", 12), _pr_run("a", "skipped", 0)]])
+    rows = gather._fetch_pr_runs("acme", "widget", now=datetime(2026, 10, 13, 2, 30, 15, tzinfo=timezone.utc))
+    assert calls == [("repos/acme/widget/actions/runs", "-X", "GET", "-f", "per_page=100",
+                      "-f", "event=pull_request", "-f", "created=<=2026-10-12T02:30:15Z", "-f", "page=1")]
+    assert [(r["head_sha"], r["conclusion"], r["run_duration_seconds"]) for r in rows] == [
+        ("a", "success", 720), ("a", "skipped", 0)]
+
+
+def test_pr_runs_fetches_no_second_page_once_five_commits_have_a_wait(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A full first page whose complete commits already give the 5.4 minimum
+    sample costs one call; the commit the page cut through is not stored."""
+    page = [_pr_run(f"c{i // 10}", "success", 5) for i in range(100)]  # 10 commits x 10 runs; c9 may be cut
+    calls = _serve_pages(gather, monkeypatch, [page, [_pr_run("never", "success", 5)]])
+    rows = gather._fetch_pr_runs("acme", "widget")
+    assert len(calls) == 1
+    assert {r["head_sha"] for r in rows} == {f"c{i}" for i in range(9)}
+
+
+def test_pr_runs_fetches_another_page_while_fewer_than_five_commits_have_a_wait(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Twenty-five runs per commit: a full page holds four commits, one of
+    them cut. The second page completes it and adds more."""
+    first = [_pr_run(f"c{i // 25}", "success", 5) for i in range(100)]            # c0..c3
+    second = [_pr_run(f"c{4 + i // 25}", "success", 5) for i in range(60)]        # c4, c5, part of c6; a short page
+    calls = _serve_pages(gather, monkeypatch, [first, second])
+    rows = gather._fetch_pr_runs("acme", "widget")
+    assert [c[-1] for c in calls] == ["page=1", "page=2"]
+    assert {r["head_sha"] for r in rows} == {"c0", "c1", "c2", "c3", "c4", "c5", "c6"}
+
+
+def test_pr_runs_stops_at_the_page_cap_and_drops_the_cut_commit(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every commit superseded (a cancelled run on each): no page ever gives
+    five waits, so the fetch stops at the cap instead of walking the history."""
+    def full(page_no: int) -> list[dict]:
+        return [_pr_run(f"p{page_no}c{i // 50}", "cancelled", 5) for i in range(100)]
+
+    calls = _serve_pages(gather, monkeypatch, [full(1), full(2), full(3), full(4)])
+    rows = gather._fetch_pr_runs("acme", "widget")
+    assert [c[-1] for c in calls] == ["page=1", "page=2", "page=3"]
+    assert "p3c1" not in {r["head_sha"] for r in rows} and "p3c0" in {r["head_sha"] for r in rows}
+
+
+def test_gather_repo_writes_the_pr_runs_envelope(gather: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    _serve_pages(gather, monkeypatch, [[_pr_run("a", "success", 12)]])
+    status = gather.gather_repo("acme", "widget", "pypi", collectors=frozenset({"actions_runs"}))
+    assert status["actions_runs"] == "ok"
+    envelope = json.loads((gather.DATA / "actions_runs" / "acme__widget.json").read_text())
+    assert envelope["source"] == "github-rest:repos/acme/widget/actions/runs"
+    assert [(r["head_sha"], r["run_duration_seconds"]) for r in envelope["data"]] == [("a", 720)]
+
+
+
+
+def test_a_fetch_that_fails_on_a_later_page_writes_no_envelope(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Page 1 answers with too few usable commits, page 2 fails. Half a
+    listing must not be stored as the repository's CI record: the next run
+    retries it."""
+    first = [_pr_run(f"c{i // 50}", "cancelled", 5) for i in range(100)]
+
+    def _gh(path: str, *flags: str):
+        if "page=1" in flags:
+            return {"workflow_runs": first}
+        raise RuntimeError("gh api rc=1: HTTP 502")
+
+    monkeypatch.setattr(gather, "_gh", _gh)
+    monkeypatch.setattr(gather.time, "sleep", lambda _s: None)
+    status = gather.gather_repo("acme", "widget", "pypi", collectors=frozenset({"actions_runs"}))
+    assert status["actions_runs"] == "fail"
+    assert not (gather.DATA / "actions_runs" / "acme__widget.json").exists()

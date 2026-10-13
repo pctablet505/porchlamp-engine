@@ -27,7 +27,7 @@ one.
 | Collector | Calls per repo (from the code) | Sweep total | Budget it draws on | Hours per sweep |
 |---|---|---|---|---|
 | `github_meta`+`pr_events`+`pr_reviews` | 1 GraphQL | 5,753 | GraphQL | ~1.2 |
-| `contributors`, `actions_runs`, `tree`, `gfi` (legacy) | 4 REST | 23k | REST | ~4.6 |
+| `contributors`, `actions_runs`, `tree`, `gfi` (legacy) | 4 to 6 REST (`actions_runs` is 1 page for most repos, at most 3; amended 2026-10-13) | 23k and up | REST | ~4.6 and up |
 | `commits_180d` | ≤3 REST | ≤17k | REST | ~3.5 |
 | `commits_365d` | ≤10 REST | ≤58k (busy repos) | REST | up to 11 |
 | `repo_object` | 1–2 REST | ~9k | REST | ~2 |
