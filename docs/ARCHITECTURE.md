@@ -6,8 +6,6 @@ Benchmark `2.0.0-rc1`, schema `2`. This page is the visual overview of v2. The c
 
 ## 1. Snapshot pipeline
 
-![Snapshot pipeline from collection to the published site](assets/animations/anim-1-snapshot-pipeline.svg)
-
 ```mermaid
 flowchart LR
     G["scripts/gather.py<br/>(collectors in porchlamp/collect/)"] --> RAW
@@ -49,20 +47,18 @@ flowchart LR
     AV --> CORE
 ```
 
-Arrows point from importer to imported. `tests/core/test_import_graph.py` keeps `porchlamp/core/` free of I/O, the clock and third-party imports. Each package's role is in the [README](../README.md#architecture).
+Arrows point from importer to imported. `tests/core/test_import_graph.py` limits `porchlamp/core/` to standard-library and `porchlamp.core` imports; no clock or I/O call exists there today, but no test forbids one. Each package's role is in the [README](../README.md#architecture).
 
 ---
 
 ## 3. Scoring
 
-![Stage 0 gates and the five scoring pillars](assets/animations/anim-2-gates-and-pillars.svg)
-
 ```mermaid
 flowchart TB
-    R["Repository in the universe"] --> G{"D-GATE-1..5<br/>software · not archived, mirror or fork · licensed<br/>non-bot commit in 180 days · not a black hole"}
+    R["Repository in the universe"] --> G{"D-GATE-1..5<br/>software · not archived, mirror or fork · licensed<br/>non-bot commit in 180 days · not a black hole<br/>(a review handoff leaves D-GATE-5 undecided, never failed)"}
     G -- "fails" --> NR["Listed, never ranked<br/>non_software · archived · mirror · fork<br/>unlicensed · stale · black_hole"]
     G -- "passes" --> W{"D-GATE-6<br/>external PR workflow"}
-    W -- "off-platform markers" --> OFF["Routed, not failed"]
+    W -- "off-platform markers or a review handoff" --> OFF["Listed as unrated<br/>off_platform_routed<br/>ranked under no lens"]
     W -- "no PR decided in 365 days" --> UN["Listed as unrated<br/>no_external_workflow or insufficient_evidence"]
     W -- "PR decided in 365 days" --> P["5 pillars, 18 parameters<br/>responsiveness 0.25 · criticality 0.25 · governance 0.20<br/>rigor 0.15 · accessibility 0.15"]
     P --> CV{"D-EVID-1: composite coverage C"}
@@ -77,8 +73,6 @@ The gate criteria, parameter curves, missingness rules and tier cut-offs are in 
 ---
 
 ## 4. Matrix, personas and tie-breaks
-
-![Leverage by friction matrix and the five persona lenses](assets/animations/anim-3-matrix-and-personas.gif)
 
 ```mermaid
 flowchart TB
@@ -95,7 +89,7 @@ flowchart TB
 ```
 
 - **Coordinates** (`porchlamp/core/matrix.py`): leverage = `0.50·criticality + 0.30·rigor + 0.20·governance`; friction = `0.50·(100−responsiveness) + 0.30·(100−governance) + 0.20·(100−accessibility)`. Both are rounded to 2 decimals, and `≥ 50.0` counts as high on both axes, so `(50, 50)` is a Crucible.
-- **Personas** (`porchlamp/core/persona.py`): `balanced`, `first_timer`, `career_capital`, `senior_systems` and `ai_assisted` re-weight the pillar scores, each with its own inclusion or exclusion gate. `POST /v1/porchlamp/reproject` ranks under custom weights.
+- **Personas** (`porchlamp/core/persona.py`): `balanced`, `first_timer`, `career_capital`, `senior_systems` and `ai_assisted` re-weight the pillar scores, four of them with their own inclusion or exclusion gate (`balanced` has none). `POST /v1/porchlamp/reproject` ranks under custom weights.
 - **Tie-breaks** (`porchlamp/core/tiebreak.py`): eight keys, from the composite score down to `owner/name`. GitHub stars are not one of them.
 
 ---

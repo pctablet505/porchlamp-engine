@@ -35,8 +35,6 @@ number traces back to a recorded GitHub response and its content hash.
 
 ## How the ranking works
 
-![Stars Don't Review PRs — 6 Hard Gates & 5 Scoring Pillars](docs/assets/animations/anim-2-gates-and-pillars.svg)
-
 Every number comes from public GitHub activity plus deps.dev, ecosyste.ms and
 OpenSSF data, recorded as content-hashed envelopes. A snapshot is built from
 those envelopes at one fixed reference time (`--as-of`), so the same data and
@@ -78,8 +76,6 @@ code always produce the same ranking.
 
    Each has its own inclusion or exclusion gate.
 
-![2D Leverage × Friction Discovery Matrix & 5 Contributor Persona Lenses](docs/assets/animations/anim-3-matrix-and-personas.gif)
-
 The full method, with every curve and threshold, is published with each
 snapshot (the site's Methodology tab, from `porchlamp.core.methodology`).
 Design documents: [docs/README.md](docs/README.md), [docs/METHODOLOGY-v2.md](docs/METHODOLOGY-v2.md),
@@ -88,7 +84,7 @@ Design documents: [docs/README.md](docs/README.md), [docs/METHODOLOGY-v2.md](doc
 ## Quickstart
 
 ```bash
-cd contributor-value-index
+cd porchlamp-engine
 
 # venv: .venv — Python 3.12 with pytest + pytest-xdist, fastapi + httpx and
 # uvicorn installed (pyproject extras: `dev` = test deps, `server` = uvicorn).
@@ -102,8 +98,6 @@ On 2026-09-23 the suite ran 2,774 passed, 1 skipped (a manual procedure) and
 1 xfailed (a documented reproject limitation). CI runs on Python 3.12.
 
 ## Architecture
-
-![Porchlamp Snapshot Pipeline & Phone Relay](docs/assets/animations/anim-1-snapshot-pipeline.svg)
 
 The pipeline, in order:
 
