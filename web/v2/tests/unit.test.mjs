@@ -279,6 +279,13 @@ test("copy.js: gate and unrated reason text covers every code the fixtures use",
     const text = copy.unratedReasonText(code, 0.42);
     assert.notEqual(text, code, `no unrated reason copy for ${code} (fell through to the raw code)`);
   }
+  // A project record carries the engine's own spelling, the Not-ranked list the bare one: same sentence.
+  for (const bare of ["insufficient_evidence", "no_external_workflow", "off_platform_routed"]) {
+    assert.equal(copy.unratedReasonText(`unrated: ${bare}`, 0.42), copy.unratedReasonText(bare, 0.42));
+  }
+  // "unrated: no_external_workflow" reaches the drawer as a GATE reason (the record is not eligible).
+  assert.equal(copy.gateReasonText("unrated: no_external_workflow"), copy.unratedReasonText("no_external_workflow"));
+  assert.equal(copy.gateReasonText("some_new_gate"), "some_new_gate");
   assert.equal(
     copy.personaGateReason("insufficient_evidence:decided_first_timer_prs"),
     "Not enough evidence to show under this lens."
@@ -1302,17 +1309,35 @@ test("drawer: a routed repo shows the off-platform reason under a persona lens",
     ...FLAT_UNRATED_DETAIL,
     owner: "kernel-org",
     name: "mailing-list-repo",
-    unrated_reason: "off_platform_routed",
+    // The project record's own spelling (the published golang/go record), not the list's bare one.
+    unrated_reason: "unrated: off_platform_routed",
     persona_composites: {},
     persona_gates: {},
   };
   assert.equal(classifyKindForLens(routedRepo, "first_timer"), "unrated");
 
-  const html = renderDrawer({ ...stateWithRepoDetail(routedRepo), persona: "first_timer" });
-  assert.ok(
-    html.includes(escapeHtml(copy.unratedReasonText("off_platform_routed"))),
-    "the drawer must show the off-platform sentence under the First-timer lens",
-  );
+  for (const persona of ["balanced", "first_timer"]) {
+    const html = renderDrawer({ ...stateWithRepoDetail(routedRepo), persona });
+    assert.ok(
+      html.includes(escapeHtml("Contribution activity happens off-platform and cannot be measured here.")),
+      `the drawer must show the off-platform sentence under the ${persona} lens`,
+    );
+    assert.ok(!html.includes("unrated: off_platform_routed"), `the drawer shows the raw reason code under the ${persona} lens`);
+  }
+});
+
+test("drawer: a project with no external workflow shows the sentence, not the reason code", () => {
+  // The published seemoo-lab/opendrop record: not eligible, and both reason fields carry the engine's spelling.
+  const noWorkflow = {
+    ...FLAT_GATED_DETAIL,
+    owner: "seemoo-lab",
+    name: "opendrop",
+    gate_reason: "unrated: no_external_workflow",
+    unrated_reason: "unrated: no_external_workflow",
+  };
+  const html = renderDrawer(stateWithRepoDetail(noWorkflow));
+  assert.ok(html.includes(escapeHtml("No external contribution workflow was found to measure.")));
+  assert.ok(!html.includes("unrated: no_external_workflow"), "the drawer shows the raw reason code");
 });
 
 test("drawer: renders outbound GitHub link with noopener noreferrer", () => {

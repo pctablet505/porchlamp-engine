@@ -159,27 +159,31 @@ const GATE_REASON_COPY = Object.freeze({
   non_software: "Not a software repository (docs, data, or list only).",
   fork: "A fork of another repository, not an independent project.",
 });
+// A project record carries the engine's own spelling of an unrated reason
+// ("unrated: off_platform_routed", porchlamp/core/gates.py); the Not-ranked
+// list sends it bare ("off_platform_routed"). Both read the same sentence.
+function bareUnratedReason(reason) {
+  return typeof reason === "string" ? reason.replace(/^unrated: /, "") : reason;
+}
 export function gateReasonText(reason) {
-  return GATE_REASON_COPY[reason] || reason;
+  // "unrated: no_external_workflow" is a gate reason on the record, worded
+  // as an unrated outcome.
+  return GATE_REASON_COPY[reason] || UNRATED_REASON_COPY[bareUnratedReason(reason)] || reason;
 }
 
-// Both spellings of the evidence-floor reason resolve to the same
-// sentence: the engine's own constant is "unrated: insufficient_evidence";
-// "insufficient_evidence" is accepted for any producer that sends the
-// plain form.
 const UNRATED_REASON_COPY = Object.freeze({
   insufficient_evidence: "Not enough measured evidence to rank",
-  "unrated: insufficient_evidence": "Not enough measured evidence to rank",
   no_external_workflow: "No external contribution workflow was found to measure.",
   off_platform_routed:
     "Contribution activity happens off-platform and cannot be measured here.",
 });
 export function unratedReasonText(reason, coverage) {
-  if (reason === "insufficient_evidence" || reason === "unrated: insufficient_evidence") {
+  const bare = bareUnratedReason(reason);
+  if (bare === "insufficient_evidence") {
     const pct = typeof coverage === "number" ? `${Math.round(coverage * 100)}%` : "unknown";
-    return `${UNRATED_REASON_COPY[reason]} (coverage ${pct}, below the 60% floor).`;
+    return `${UNRATED_REASON_COPY[bare]} (coverage ${pct}, below the 60% floor).`;
   }
-  return UNRATED_REASON_COPY[reason] || reason;
+  return UNRATED_REASON_COPY[bare] || reason;
 }
 
 export const RATED_GROUP_TITLE = "Rated";
