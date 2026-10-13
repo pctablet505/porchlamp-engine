@@ -45,6 +45,7 @@ _FIXTURE_CATCHES = (
     "ecosystem filter ignored",
     "repo looked up in the wrong bucket",
     "custom tie groups keep singletons",
+    "custom coverage not clamped to 1",
 )
 
 
