@@ -48,11 +48,12 @@ SUPERSEDED_CONCLUSION = "cancelled"
 #: 6 min on the newest runs, 75 min on runs a day old).
 SETTLE_HOURS = 24
 
-#: A verdict run longer than this is a wait for approval, not CI: GitHub stops
-#: a hosted job at 6 hours. On the first 2,742 envelopes collected, 8.2 % of
-#: success/failure runs were longer, 98 % of those were failures, and more than
-#: half ended exactly 30 days after they were created; ``vuejs/vue`` run
-#: 34053110597 is one (failure, 0 jobs, 30 days). Its commit is left out.
+#: A verdict run longer than this is almost always a wait for approval, not
+#: CI: GitHub stops a hosted job at 6 hours. On the first 2,742 envelopes
+#: collected, 8.2 % of success/failure runs were longer, 97 % of those were
+#: failures, and more than half ended exactly 30 days after they were created;
+#: ``vuejs/vue`` run 34053110597 is one (failure, 0 jobs, 30 days). The commit
+#: of such a run is left out.
 MAX_RUN_HOURS = 6
 
 #: REST page size (the API maximum) and how many pages one repository may cost.
