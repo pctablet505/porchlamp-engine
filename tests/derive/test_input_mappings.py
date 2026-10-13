@@ -2092,7 +2092,7 @@ def test_dx_resolver_measured_insufficient_n_and_missing(tmp_path: Path) -> None
     bundle_thin = load(tmp_path, doc_thin, key="acme__dx-thin")
     assert bundle_thin.inputs["dx"] == Unmeasured(
         reason="insufficient_n",
-        detail="4 CI runs with recorded duration, need >= 5",
+        detail="4 pull-request commits with a finished CI run, need >= 5",
     )
 
     doc_zero = base_document(
@@ -2102,7 +2102,7 @@ def test_dx_resolver_measured_insufficient_n_and_missing(tmp_path: Path) -> None
     bundle_zero = load(tmp_path, doc_zero, key="acme__dx-zero")
     assert bundle_zero.inputs["dx"] == Unmeasured(
         reason="insufficient_n",
-        detail="0 CI runs with recorded duration, need >= 5",
+        detail="0 pull-request commits with a finished CI run, need >= 5",
     )
 
     doc_missing = base_document(

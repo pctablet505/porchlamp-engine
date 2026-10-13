@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import re
 import statistics
@@ -30,6 +29,7 @@ from typing import Any, Optional, Sequence
 
 from porchlamp.collect import commits as commit_domains
 from porchlamp.collect import validate
+from porchlamp.collect.ci_runs import commit_waits
 from porchlamp.collect.depsdev import package_key, package_name_for_repo
 from porchlamp.collect.envelope import raw_envelope_path, read_envelope, relative_envelope_path
 from porchlamp.collect.universe import UNIVERSE_ENTRY_COLLECTOR, StarVelocityRecord
@@ -321,6 +321,14 @@ def _promotion_ladder(corpus: str) -> PromotionLadder:
 
 
 _DX_SETUP_SCORE_MAP: dict[int, float] = {0: 0.0, 1: 40.0, 2: 70.0, 3: 100.0}
+#: D-IN-4 "CI runs": the median is taken over at most this many commits.
+_DX_MAX_COMMITS = 30
+
+
+def _dx_commit_waits(runs: Optional[list[dict]]) -> list[float]:
+    """Seconds each of the newest pull-request commits waited for CI
+    (``porchlamp.collect.ci_runs.commit_waits``), capped at D-IN-4's window."""
+    return commit_waits(runs or [])[:_DX_MAX_COMMITS]
 _DX_CONTRIB_KEYWORDS = (
     r"\b(?:setup|set\s+up|dev(?:elopment|eloping)?|build(?:ing)?|"
     r"install(?:ation|ing)?|getting\s+started|local|environment|"
@@ -370,9 +378,12 @@ def _derive_dx_54(
 ) -> tuple[Optional[float], int]:
     """02 §4 5.4 DX: 0.5 * runtime_score + 0.5 * setup_signals_score.
 
-    Runtime score: median of last 30 CI runs (``actions_runs`` envelope,
-    ``run_duration_seconds > 0``): 100 if <= 20 min, -5/min after, floor 0;
-    ``None`` (unmeasured) if ``runs`` is None or has no recorded durations.
+    Runtime score: the median CI wait over the newest 30 pull-request commits
+    with a usable wait (``porchlamp.collect.ci_runs.commit_waits`` over the
+    ``actions_runs`` envelope: a commit's wait is its slowest workflow run):
+    100 if <= 20 min, -5/min after, floor 0; ``None`` (unmeasured) if ``runs``
+    is None or no commit has a usable wait. The count returned is the number
+    of commits the median is taken over.
     Setup signals (0/1/2/3 -> 0/40/70/100):
       1. devcontainer or Dockerfile or flake.nix in tree paths,
       2. CONTRIBUTING.md with a setup/development section,
@@ -380,21 +391,10 @@ def _derive_dx_54(
     """
     if runs is None:
         return None, 0
-    durs: list[float] = []
-    for r in runs[:30]:
-        if not isinstance(r, dict):
-            continue
-        raw_dur = r.get("run_duration_seconds")
-        if (
-            isinstance(raw_dur, (int, float))
-            and not isinstance(raw_dur, bool)
-            and math.isfinite(float(raw_dur))
-            and float(raw_dur) > 0
-        ):
-            durs.append(float(raw_dur))
-    if not durs:
+    waits = _dx_commit_waits(runs)
+    if not waits:
         return None, 0
-    median_minutes = statistics.median(durs) / 60.0
+    median_minutes = statistics.median(waits) / 60.0
     if median_minutes <= 20.0:
         runtime_score = 100.0
     else:
@@ -415,7 +415,7 @@ def _derive_dx_54(
 
     signal_count = int(sig_env) + int(sig_contrib) + int(sig_readme)
     setup_score = _DX_SETUP_SCORE_MAP[signal_count]
-    return round(0.5 * runtime_score + 0.5 * setup_score, 4), len(durs)
+    return round(0.5 * runtime_score + 0.5 * setup_score, 4), len(waits)
 
 
 def _jsonable(v: Any) -> Any:
@@ -599,10 +599,10 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     else:
         b.missing("rr_90", 0.0)
 
-    # --- dx_ci_minutes: mean run_duration_seconds / 60 (0 = unknown sentinel) ---
-    durs = [int(r.get("run_duration_seconds") or 0) for r in runs or []]
-    if durs:
-        b.set("dx_ci_minutes", round(sum(durs) / len(durs) / 60.0, 4), src("actions_runs", key), runs_at, "verified")
+    # --- dx_ci_minutes: median CI wait per pull-request commit, in minutes (0 = unknown sentinel) ---
+    ci_waits = _dx_commit_waits(runs)
+    if ci_waits:
+        b.set("dx_ci_minutes", round(statistics.median(ci_waits) / 60.0, 4), src("actions_runs", key), runs_at, "verified")
     else:
         b.missing("dx_ci_minutes", 0.0)
 

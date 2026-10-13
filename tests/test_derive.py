@@ -70,8 +70,10 @@ def seed_full(tmp: Path) -> None:
         {"number": 13, "assignee": None, "updated_at": "2026-07-01T00:00:00Z",
          "labels": ["good-first-issue"]},
     ])
-    write(tmp, "actions_runs", k, [{"run_duration_seconds": 600, "created_at": "2026-09-01T00:00:00Z"},
-                                    {"run_duration_seconds": 1200, "created_at": "2026-09-02T00:00:00Z"}])
+    write(tmp, "actions_runs", k, [
+        {"head_sha": "c2", "status": "completed", "conclusion": "success", "run_duration_seconds": 1200, "created_at": "2026-09-02T00:00:00Z"},
+        {"head_sha": "c1", "status": "completed", "conclusion": "success", "run_duration_seconds": 600, "created_at": "2026-09-01T00:00:00Z"},
+    ])
     write(tmp, "depsdev", k, {"stars": 990, "forks": 49, "open_issues": 5,
                               "license": "Apache-2.0", "usedby_count": 777,
                               "scorecard_overall": 8.8})
@@ -301,12 +303,16 @@ def test_body_corrupt_cache_file_and_atomic_write(tmp_path, monkeypatch):
 def test_derive_dx_54_blends_runtime_and_setup_signals(tmp_path):
     """5.4 DX blends 0.5 * runtime_score + 0.5 * setup_score when CI runs exist."""
     k = f"{OWNER}__{NAME}"
-    # 5 runs of 1500s (25 min) -> runtime_score = 100 - 5.0 * (25 - 20) = 75.0
+    # 5 pull-request commits, each with one 1500s (25 min) run and one quicker lint run: the commit's wait is
+    # its slowest run -> median 25 min -> runtime_score = 100 - 5.0 * (25 - 20) = 75.0
     # Tree has .devcontainer/devcontainer.json (signal 1), CONTRIBUTING.md has
     # a Setup heading (signal 2), and README.md has a Setext Installation heading
     # (signal 3) -> setup_score = 100.0
     # Blended dx = 0.5 * 75.0 + 0.5 * 100.0 = 87.5, dx_run_count = 5
-    write(tmp_path, "actions_runs", k, [{"run_duration_seconds": 1500} for _ in range(5)])
+    write(tmp_path, "actions_runs", k, [
+        {"head_sha": f"c{i}", "status": "completed", "conclusion": "success", "run_duration_seconds": seconds}
+        for i in range(5) for seconds in (30, 1500)
+    ])
     write(tmp_path, "tree", k, {"paths": [".devcontainer/devcontainer.json", "README.md", "CONTRIBUTING.md"]})
     body(tmp_path, "CONTRIBUTING.md", "## Development Setup\nRun `pytest` locally.")
     body(tmp_path, "README.md", "Quick Installation\n==================\npip install widget")
