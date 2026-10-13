@@ -25,7 +25,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from porchlamp.collect import ci_runs, ghcli, net, validate
+from porchlamp.collect import ghcli, net, validate
+from porchlamp.collect import ci_runs
 from porchlamp.collect.commits import collect_commits_365d
 from porchlamp.collect.envelope import write_envelope
 from porchlamp.collect.names import valid_ref

@@ -102,7 +102,7 @@ first-timers are the cheapest way to inflate merge and return rates.
 | Newcomer cohorts | first PR in [now−365 d, now−180 d] | 20 authors sampled per repo | gives 180 d to convert and 90 d to return |
 | Commits | trailing 365 d (EF, bus factor), trailing 180 d (vitality) | 1,000 | email domains collected |
 | Issues with newcomer labels | open, updated in trailing 90 d | 200 | label aliases per repo (D-PARAM 5.1) |
-| CI runs | last 30 completed runs on the default branch | 30 | `run_timing.runDurationMs` only |
+| CI runs | `pull_request` runs created at least 24 h before the fetch, grouped by commit (amended 2026-10-13: was "last 30 completed runs on the default branch") | newest 30 commits; 100 runs per page, a second and third page only while fewer than 5 commits have a wait | a run's time is `updated_at − run_started_at` (the runs list carries no `run_timing`; the difference matched the per-run timing endpoint within seconds on 24 sampled runs). A commit's wait is its slowest run that ended in success or failure; a commit with a cancelled or unfinished run is left out. The median over single runs was dropped because Actions lists one run per workflow file, most of them small: it read under 20 min for 19 of 20 sampled projects, and 4 min for `pytorch/pytorch`, whose day-old pull-request commits wait 75 min |
 | Stargazers | trailing 90 d | – | universe entry only (StarScout) |
 
 **D-IN-5 StarScout scope.** Stars never enter the composite. StarScout runs
@@ -177,7 +177,7 @@ measurable from review threads.
 | 5.1 | Newcomer-issue supply | open, unassigned issues carrying a newcomer label (canonical: `good first issue`, `help wanted`, plus per-repo aliases matching `/good.?first|beginner|easy|newcomer|first.?timers?|help.?wanted|starter/i` from the repo's label list), updated within 90 d; capped | .35 | 5.25 | – | `min(100, 10·count)` | RC |
 | 5.2 | Newcomer conversion **(new)** | share of newcomer-cohort authors (D-IN-4) whose first PR was merged within 180 d | .35 | 5.25 | 5 authors | `min(100, 200·r)` | N |
 | 5.3 | RR_90 return rate | of newcomer-cohort authors with a merged first PR, share with a second PR within 90 d | .15 | 2.25 | 5 authors | `min(100, 200·r)` | N |
-| 5.4 | DX | 0.5·runtime score (median of last 30 CI runs: 100 if ≤ 20 min, −5/min after, floor 0; unmeasured if no `run_timing`) + 0.5·setup signals (devcontainer or Dockerfile or flake.nix; CONTRIBUTING.md with a setup/development section; README with install/build section: 0/1/2/3 → 0/40/70/100) | .15 | 2.25 | 5 runs | as stated | RC (signals), TP (runtime) |
+| 5.4 | DX | 0.5·runtime score (median CI wait over the newest 30 pull-request commits, D-IN-4 "CI runs": 100 if ≤ 20 min, −5/min after, floor 0; unmeasured when no commit has a wait) + 0.5·setup signals (devcontainer or Dockerfile or flake.nix; CONTRIBUTING.md with a setup/development section; README with install/build section: 0/1/2/3 → 0/40/70/100) | .15 | 2.25 | 5 commits | as stated | RC (signals), TP (runtime) |
 
 Why conversion outranks return: a newcomer whose first PR is merged got the
 value; returning is a second-order effect and needs the most expensive
