@@ -8,9 +8,9 @@ def _row(sha: str, conclusion: str | None, seconds: int | None, status: str = "c
     return {"head_sha": sha, "status": status, "conclusion": conclusion, "run_duration_seconds": seconds}
 
 
-def test_shape_run_times_a_run_from_its_start_not_its_creation() -> None:
-    """A run approved two days after it was created is timed on what it ran,
-    not on the days it waited (the old created->updated reading)."""
+def test_shape_run_times_a_rerun_on_its_own_attempt() -> None:
+    """A second attempt started two days after the run was created is timed
+    from that attempt's start, not from the run's creation."""
     row = ci_runs.shape_run({
         "id": 4242, "head_sha": "abc", "status": "completed", "conclusion": "success", "workflow_id": 7, "run_attempt": 2,
         "created_at": "2026-10-01T00:00:00Z",
@@ -60,6 +60,26 @@ def test_a_commit_with_a_run_still_going_is_left_out() -> None:
         _row("done", "success", 5400),
     ]
     assert ci_runs.commit_waits(rows) == [5400.0]
+
+
+def test_a_run_closed_after_thirty_days_awaiting_approval_leaves_its_commit_out() -> None:
+    """vuejs/vue run 34053110597 as the REST list returned it: never approved,
+    no job ever ran, closed as a failure 30 days after it was created. It is
+    not a 30-day CI wait, and the quick check beside it is not the wait either."""
+    expired = ci_runs.shape_run({
+        "id": 34053110597, "head_sha": "fork-pr", "status": "completed", "conclusion": "failure", "run_attempt": 1,
+        "created_at": "2026-09-06T18:52:53Z", "run_started_at": "2026-09-06T18:52:53Z",
+        "updated_at": "2026-10-06T18:56:55Z",
+    })
+    assert expired["run_duration_seconds"] == 2592242
+    rows = [expired, _row("fork-pr", "success", 40), _row("normal", "success", 900)]
+    assert ci_runs.commit_waits(rows) == [900.0]
+
+
+def test_the_bound_is_six_hours_and_a_run_at_the_bound_counts() -> None:
+    assert ci_runs.MAX_RUN_HOURS == 6
+    rows = [_row("at-bound", "success", 6 * 3600), _row("over-bound", "success", 6 * 3600 + 1)]
+    assert ci_runs.commit_waits(rows) == [21600.0]
 
 
 def test_created_filter_asks_for_runs_at_least_a_day_old() -> None:

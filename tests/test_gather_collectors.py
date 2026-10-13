@@ -490,3 +490,24 @@ def test_gather_repo_writes_the_pr_runs_envelope(gather: ModuleType, monkeypatch
     assert envelope["source"] == "github-rest:repos/acme/widget/actions/runs"
     assert [(r["head_sha"], r["run_duration_seconds"]) for r in envelope["data"]] == [("a", 720)]
 
+
+
+
+def test_a_fetch_that_fails_on_a_later_page_writes_no_envelope(
+    gather: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Page 1 answers with too few usable commits, page 2 fails. Half a
+    listing must not be stored as the repository's CI record: the next run
+    retries it."""
+    first = [_pr_run(f"c{i // 50}", "cancelled", 5) for i in range(100)]
+
+    def _gh(path: str, *flags: str):
+        if "page=1" in flags:
+            return {"workflow_runs": first}
+        raise RuntimeError("gh api rc=1: HTTP 502")
+
+    monkeypatch.setattr(gather, "_gh", _gh)
+    monkeypatch.setattr(gather.time, "sleep", lambda _s: None)
+    status = gather.gather_repo("acme", "widget", "pypi", collectors=frozenset({"actions_runs"}))
+    assert status["actions_runs"] == "fail"
+    assert not (gather.DATA / "actions_runs" / "acme__widget.json").exists()

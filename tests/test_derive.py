@@ -303,15 +303,16 @@ def test_body_corrupt_cache_file_and_atomic_write(tmp_path, monkeypatch):
 def test_derive_dx_54_blends_runtime_and_setup_signals(tmp_path):
     """5.4 DX blends 0.5 * runtime_score + 0.5 * setup_score when CI runs exist."""
     k = f"{OWNER}__{NAME}"
-    # 5 pull-request commits, each with one 1500s (25 min) run and one quicker lint run: the commit's wait is
-    # its slowest run -> median 25 min -> runtime_score = 100 - 5.0 * (25 - 20) = 75.0
+    # 5 pull-request commits, each with a quick lint run and a slow test run of 600, 900, 1500, 1800 and 6000 s:
+    # a commit's wait is its slowest run -> median 1500 s = 25 min (the mean would be 36 min)
+    # -> runtime_score = 100 - 5.0 * (25 - 20) = 75.0
     # Tree has .devcontainer/devcontainer.json (signal 1), CONTRIBUTING.md has
     # a Setup heading (signal 2), and README.md has a Setext Installation heading
     # (signal 3) -> setup_score = 100.0
     # Blended dx = 0.5 * 75.0 + 0.5 * 100.0 = 87.5, dx_run_count = 5
     write(tmp_path, "actions_runs", k, [
         {"head_sha": f"c{i}", "status": "completed", "conclusion": "success", "run_duration_seconds": seconds}
-        for i in range(5) for seconds in (30, 1500)
+        for i, slow in enumerate((600, 6000, 1500, 900, 1800)) for seconds in (30, slow)
     ])
     write(tmp_path, "tree", k, {"paths": [".devcontainer/devcontainer.json", "README.md", "CONTRIBUTING.md"]})
     body(tmp_path, "CONTRIBUTING.md", "## Development Setup\nRun `pytest` locally.")
@@ -319,6 +320,7 @@ def test_derive_dx_54_blends_runtime_and_setup_signals(tmp_path):
     out = run(tmp_path)
     assert out["meta"]["dx"] == 87.5
     assert out["meta"]["dx_run_count"] == 5
+    assert out["meta"]["dx_ci_minutes"] == 25.0
     assert out["confidence"]["dx"] == "derived"
     assert out["confidence"]["dx_run_count"] == "derived"
 
@@ -330,3 +332,21 @@ def test_derive_dx_54_blends_runtime_and_setup_signals(tmp_path):
     assert out_empty["confidence"]["dx"] == "missing"
     assert out_empty["meta"]["dx_run_count"] == 0
     assert out_empty["confidence"]["dx_run_count"] == "derived"
+
+
+
+def test_derive_dx_54_takes_the_median_over_the_newest_thirty_commits_only(tmp_path):
+    """Forty commits, newest first: of the newest 30, sixteen waited 25 min
+    and fourteen 10 min (median 25 min, runtime 75); the ten older ones waited
+    10 min. Counting all forty would make the median 10 min (runtime 100)."""
+    k = f"{OWNER}__{NAME}"
+    waits = [1500] * 16 + [600] * 14 + [600] * 10
+    write(tmp_path, "actions_runs", k, [
+        {"head_sha": f"c{i:02d}", "status": "completed", "conclusion": "success", "run_duration_seconds": seconds}
+        for i, seconds in enumerate(waits)
+    ])
+    write(tmp_path, "tree", k, {"paths": ["README.md"]})
+    out = run(tmp_path)
+    assert out["meta"]["dx_run_count"] == 30
+    assert out["meta"]["dx_ci_minutes"] == 25.0
+    assert out["meta"]["dx"] == 0.5 * 75.0 + 0.5 * 0.0

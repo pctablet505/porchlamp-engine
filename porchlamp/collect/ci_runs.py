@@ -5,12 +5,27 @@ request. GitHub Actions reports one *workflow run* per workflow file, so the
 most recent runs of a repository are mostly small ones (a labeler, a lint
 job): their median reads under a minute even where the test suite takes
 hours. The wait a contributor sees on a commit is its SLOWEST workflow, so
-this module groups the completed ``pull_request`` runs by commit and takes
-the longest run of each.
+this module groups the ``pull_request`` runs by commit and takes the longest
+finished run of each.
 
 Pure functions over the rows the ``actions_runs`` collector stores; shared by
 ``scripts/gather.py`` (how many pages to fetch) and ``scripts/derive.py``
 (the score), so the two cannot disagree on what a usable commit is.
+
+What the runs list cannot show, and this measure therefore does not see:
+
+- CI that is not a ``pull_request`` Actions run (an external CI service, or
+  runs triggered by ``pull_request_target``, ``merge_group`` or
+  ``workflow_run``). A repository whose only ``pull_request`` workflow is a
+  quick check reads as seconds; one with none is unmeasured.
+- Whether a run did any work. A run that waited for a maintainer's approval
+  is timed from its creation (``run_started_at`` does not move when it is
+  approved), and one never approved is closed as a ``failure`` after 30 days
+  with no job in it. :data:`MAX_RUN_HOURS` removes the long ones; an approval
+  granted within that bound still counts as wait.
+- Earlier attempts of a re-run: the list returns the latest attempt only.
+- A commit that fails fast reads short: this is the wait for a verdict, not
+  the time to green.
 """
 
 from __future__ import annotations
@@ -32,6 +47,13 @@ SUPERSEDED_CONCLUSION = "cancelled"
 #: ones still run, which reads as a short wait (pytorch/pytorch, 2026-10-13:
 #: 6 min on the newest runs, 75 min on runs a day old).
 SETTLE_HOURS = 24
+
+#: A verdict run longer than this is a wait for approval, not CI: GitHub stops
+#: a hosted job at 6 hours. On the first 2,742 envelopes collected, 8.2 % of
+#: success/failure runs were longer, 98 % of those were failures, and more than
+#: half ended exactly 30 days after they were created; ``vuejs/vue`` run
+#: 34053110597 is one (failure, 0 jobs, 30 days). Its commit is left out.
+MAX_RUN_HOURS = 6
 
 #: REST page size (the API maximum) and how many pages one repository may cost.
 PAGE_SIZE = 100
@@ -60,10 +82,11 @@ def shape_run(run: dict) -> dict:
     """One stored row from one REST ``workflow_run``.
 
     ``run_duration_seconds`` is ``updated_at - run_started_at``: the list
-    endpoint carries no duration field, and this difference matched the
-    per-run timing endpoint within seconds on 24 sampled runs (2026-10-13).
-    ``run_started_at`` restarts on a re-run, so a re-run is timed on its own
-    attempt; ``created_at`` would add the days a run waited to be approved.
+    endpoint carries no duration field, and this difference is what the
+    per-run timing endpoint reports (within seconds on 24 sampled runs,
+    2026-10-13). ``run_started_at`` restarts on a re-run, so a re-run is timed
+    on its own attempt. It does not restart when a waiting run is approved:
+    see :data:`MAX_RUN_HOURS`.
     """
     return {
         "id": run.get("id"),
@@ -97,9 +120,11 @@ def commit_waits(rows: list[dict]) -> list[float]:
 
     A commit's wait is the longest run on it that reached a verdict
     (:data:`VERDICT_CONCLUSIONS`) with a positive duration. A commit is left
-    out when one of its runs has not completed, when one was cancelled, or
-    when none reached a verdict.
+    out when one of its runs has not completed, when one was cancelled, when a
+    verdict run on it lasted longer than :data:`MAX_RUN_HOURS`, or when none
+    reached a verdict.
     """
+    max_seconds = MAX_RUN_HOURS * 3600
     order: list[str] = []
     longest: dict[str, float] = {}
     left_out: set[str] = set()
@@ -118,11 +143,14 @@ def commit_waits(rows: list[dict]) -> list[float]:
             continue
         seconds = row.get("run_duration_seconds")
         if (
-            conclusion in VERDICT_CONCLUSIONS
-            and isinstance(seconds, (int, float))
-            and not isinstance(seconds, bool)
-            and math.isfinite(seconds)
-            and seconds > longest[sha]
+            conclusion not in VERDICT_CONCLUSIONS
+            or not isinstance(seconds, (int, float))
+            or isinstance(seconds, bool)
+            or not math.isfinite(seconds)
         ):
+            continue
+        if seconds > max_seconds:
+            left_out.add(sha)
+        elif seconds > longest[sha]:
             longest[sha] = float(seconds)
     return [longest[sha] for sha in order if sha not in left_out and longest[sha] > 0]

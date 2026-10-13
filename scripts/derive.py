@@ -329,6 +329,8 @@ def _dx_commit_waits(runs: Optional[list[dict]]) -> list[float]:
     """Seconds each of the newest pull-request commits waited for CI
     (``porchlamp.collect.ci_runs.commit_waits``), capped at D-IN-4's window."""
     return commit_waits(runs or [])[:_DX_MAX_COMMITS]
+
+
 _DX_CONTRIB_KEYWORDS = (
     r"\b(?:setup|set\s+up|dev(?:elopment|eloping)?|build(?:ing)?|"
     r"install(?:ation|ing)?|getting\s+started|local|environment|"

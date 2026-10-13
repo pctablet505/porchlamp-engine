@@ -265,7 +265,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             status[collector] = "fail"
             print(f"  WARN {collector} {owner}/{name}: {e}")
 
-    # actions_runs (paged: the completed pull_request runs behind 5.4's CI wait)
+    # actions_runs (paged: the settled pull_request runs behind 5.4's CI wait)
     if done("actions_runs"):
         status["actions_runs"] = "skip"
     else:
