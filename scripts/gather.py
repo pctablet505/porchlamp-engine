@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from porchlamp.collect import ghcli, net, validate
+from porchlamp.collect import ci_runs
 from porchlamp.collect.commits import collect_commits_365d
 from porchlamp.collect.envelope import write_envelope
 from porchlamp.collect.names import valid_ref
@@ -34,6 +35,7 @@ from porchlamp.collect.names import valid_ref
 # under this file's existing name.
 from porchlamp.collect.pike_signals import SLEEP_CORE_SECONDS as SLEEP_REST
 from porchlamp.collect.user_cache import UserCache
+from porchlamp.core.constants import PARAM_MIN_N
 from porchlamp.paths import data_root
 
 DATA = data_root() / "raw"
@@ -246,12 +248,6 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
          ["-X", "GET", "-f", "per_page=100", "-f", "anon=1"],
          lambda d: [{"login": c.get("login") or c.get("email") or "?",
                      "contributions": c.get("contributions", 0)} for c in d or []]),
-        ("actions_runs", f"repos/{owner}/{name}/actions/runs",
-         ["-X", "GET", "-f", "per_page=30", "-f", "status=completed"],
-         lambda d: [{"created_at": w["created_at"],
-                     "run_duration_seconds": s} for w in
-                    (w for w in (d or {}).get("workflow_runs", []))
-                    if w.get("created_at") and (s := _run_secs(w)) is not None]),
         ("tree", f"repos/{owner}/{name}/git/trees/{branch}",
          ["-X", "GET", "-f", "recursive=1"],
          lambda d: {"paths": [t["path"] for t in (d or {}).get("tree", [])],
@@ -268,6 +264,19 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         except Exception as e:  # review-ok: gate-network — per-collector retry on rerun
             status[collector] = "fail"
             print(f"  WARN {collector} {owner}/{name}: {e}")
+
+    # actions_runs (paged: the settled pull_request runs behind 5.4's CI wait)
+    if done("actions_runs"):
+        status["actions_runs"] = "skip"
+    else:
+        time.sleep(SLEEP_REST)
+        try:
+            _env("actions_runs", key, f"github-rest:repos/{owner}/{name}/actions/runs",
+                 _fetch_pr_runs(owner, name))
+            status["actions_runs"] = "ok"
+        except Exception as e:  # review-ok: gate-network — per-collector retry on rerun
+            status["actions_runs"] = "fail"
+            print(f"  WARN actions_runs {owner}/{name}: {e}")
 
     # commits_180d (paged, capped)
     if not done("commits_180d"):
@@ -536,14 +545,27 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     return status
 
 
-def _run_secs(w: dict) -> Optional[int]:
-    """Wall-clock run seconds from run_timing only; the created/updated
-    fallback spans queue days and inflates dx_ci_minutes (verified on
-    rust-lang/hashbrown: 2884 min vs true ~10 min). None = unusable."""
-    rt = w.get("run_timing") or {}
-    if rt.get("runDurationMs"):
-        return int(rt["runDurationMs"]) // 1000
-    return None
+def _fetch_pr_runs(owner: str, name: str, now: Optional[datetime] = None) -> list[dict]:
+    """The newest settled ``pull_request`` runs, as ``ci_runs.shape_run``
+    rows (D-IN-4 "CI runs"): runs created at least ``ci_runs.SETTLE_HOURS``
+    before ``now``. One page of 100 answers most repositories; a further page
+    is fetched only while fewer commits than the 5.4 minimum sample have a
+    usable CI wait, up to ``ci_runs.MAX_PAGES``."""
+    created = ci_runs.created_filter(now or datetime.now(timezone.utc))
+    rows: list[dict] = []
+    for page in range(1, ci_runs.MAX_PAGES + 1):
+        if page > 1:
+            time.sleep(SLEEP_REST)
+        listing = _gh(f"repos/{owner}/{name}/actions/runs", "-X", "GET",
+                      "-f", f"per_page={ci_runs.PAGE_SIZE}", "-f", "event=pull_request",
+                      "-f", f"created={created}", "-f", f"page={page}") or {}
+        batch = listing.get("workflow_runs", [])
+        rows.extend(ci_runs.shape_run(run) for run in batch)
+        more_exist = len(batch) == ci_runs.PAGE_SIZE
+        complete = ci_runs.complete_commits(rows, more_exist=more_exist)
+        if not more_exist or len(ci_runs.commit_waits(complete)) >= PARAM_MIN_N["dx"]:
+            return complete
+    return complete
 
 
 def _shape_depsdev(d: Optional[dict]) -> Optional[dict]:

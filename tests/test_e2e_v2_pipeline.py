@@ -116,8 +116,8 @@ def _seed_raw_envelopes(data_dir: Path) -> None:
         "actions_runs",
         key,
         [
-            {"run_duration_seconds": 600, "created_at": "2026-09-01T00:00:00Z"},
-            {"run_duration_seconds": 1200, "created_at": "2026-09-02T00:00:00Z"},
+            {"head_sha": "c2", "status": "completed", "conclusion": "success", "run_duration_seconds": 1200, "created_at": "2026-09-02T00:00:00Z"},
+            {"head_sha": "c1", "status": "completed", "conclusion": "success", "run_duration_seconds": 600, "created_at": "2026-09-01T00:00:00Z"},
         ],
     )
     write(

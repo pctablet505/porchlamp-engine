@@ -105,6 +105,15 @@ export function fetchNotRanked(params = {}) {
   return getJson(`/v1/porchlamp/not-ranked${toQueryString(params)}`);
 }
 
+/**
+ * The not-ranked list the page pages and filters on the client. Against the API this is `fetchNotRanked`, whose
+ * answer is cut at the endpoint's limit and says so (`truncated`); the static build (web/static/api.js) has the
+ * whole list and returns it.
+ */
+export function fetchNotRankedFull(params = {}) {
+  return fetchNotRanked(params);
+}
+
 export function fetchEvidence(owner, name) {
   return getJson(`/v1/porchlamp/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/evidence`);
 }

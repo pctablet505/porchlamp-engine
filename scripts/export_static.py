@@ -212,7 +212,9 @@ _REPROJECT_STORED = (
 
 
 def _export_reproject(conn: sqlite3.Connection, snapshot_id: str, details: dict[tuple[str, str], dict]) -> dict:
-    """What ``queries.reproject`` reads, for every stage-0 eligible repo: the
+    """What ``queries.reproject`` reads, for every repo it may rank
+    (``queries.REPROJECT_CANDIDATE_SQL``: stage-0 eligible and not routed
+    off-platform, the one definition the API and this export share): the
     stored pillar columns and D-TIE-1 tail columns it orders by, and the
     stored record fields a ``ReprojectRow`` carries (from the API's own
     ``/repos/{owner}/{name}`` answer), plus the constants its SQL embeds."""
@@ -224,12 +226,12 @@ def _export_reproject(conn: sqlite3.Connection, snapshot_id: str, details: dict[
     pillars = constants.PILLAR_NAMES
     tail = conn.execute(
         "SELECT owner, name, ttfhr_p75, last_human_commit_at FROM repositories "
-        "WHERE snapshot_id = ? AND eligible = 1 ORDER BY lower(owner || '/' || name)",
+        f"WHERE snapshot_id = ? AND {queries.REPROJECT_CANDIDATE_SQL} ORDER BY lower(owner || '/' || name)",
         (snapshot_id,),
     ).fetchall()
     lowered = [f"{o}/{n}".lower() for o, n, _t, _l in tail]
     if len(set(lowered)) != len(lowered):
-        raise SystemExit("export: two eligible repos share lower(owner/name); D-TIE-1's last level is not total")
+        raise SystemExit("export: two reprojection candidates share lower(owner/name); D-TIE-1's last level is not total")
     rows = []
     for owner, name, ttfhr_p75, last_commit in tail:
         if not (ttfhr_p75 is None or isinstance(ttfhr_p75, (int, float))):

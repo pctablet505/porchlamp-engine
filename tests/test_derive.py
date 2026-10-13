@@ -70,8 +70,10 @@ def seed_full(tmp: Path) -> None:
         {"number": 13, "assignee": None, "updated_at": "2026-07-01T00:00:00Z",
          "labels": ["good-first-issue"]},
     ])
-    write(tmp, "actions_runs", k, [{"run_duration_seconds": 600, "created_at": "2026-09-01T00:00:00Z"},
-                                    {"run_duration_seconds": 1200, "created_at": "2026-09-02T00:00:00Z"}])
+    write(tmp, "actions_runs", k, [
+        {"head_sha": "c2", "status": "completed", "conclusion": "success", "run_duration_seconds": 1200, "created_at": "2026-09-02T00:00:00Z"},
+        {"head_sha": "c1", "status": "completed", "conclusion": "success", "run_duration_seconds": 600, "created_at": "2026-09-01T00:00:00Z"},
+    ])
     write(tmp, "depsdev", k, {"stars": 990, "forks": 49, "open_issues": 5,
                               "license": "Apache-2.0", "usedby_count": 777,
                               "scorecard_overall": 8.8})
@@ -301,18 +303,24 @@ def test_body_corrupt_cache_file_and_atomic_write(tmp_path, monkeypatch):
 def test_derive_dx_54_blends_runtime_and_setup_signals(tmp_path):
     """5.4 DX blends 0.5 * runtime_score + 0.5 * setup_score when CI runs exist."""
     k = f"{OWNER}__{NAME}"
-    # 5 runs of 1500s (25 min) -> runtime_score = 100 - 5.0 * (25 - 20) = 75.0
+    # 5 pull-request commits, each with a quick lint run and a slow test run of 600, 900, 1500, 1800 and 6000 s:
+    # a commit's wait is its slowest run -> median 1500 s = 25 min (the mean would be 36 min)
+    # -> runtime_score = 100 - 5.0 * (25 - 20) = 75.0
     # Tree has .devcontainer/devcontainer.json (signal 1), CONTRIBUTING.md has
     # a Setup heading (signal 2), and README.md has a Setext Installation heading
     # (signal 3) -> setup_score = 100.0
     # Blended dx = 0.5 * 75.0 + 0.5 * 100.0 = 87.5, dx_run_count = 5
-    write(tmp_path, "actions_runs", k, [{"run_duration_seconds": 1500} for _ in range(5)])
+    write(tmp_path, "actions_runs", k, [
+        {"head_sha": f"c{i}", "status": "completed", "conclusion": "success", "run_duration_seconds": seconds}
+        for i, slow in enumerate((600, 6000, 1500, 900, 1800)) for seconds in (30, slow)
+    ])
     write(tmp_path, "tree", k, {"paths": [".devcontainer/devcontainer.json", "README.md", "CONTRIBUTING.md"]})
     body(tmp_path, "CONTRIBUTING.md", "## Development Setup\nRun `pytest` locally.")
     body(tmp_path, "README.md", "Quick Installation\n==================\npip install widget")
     out = run(tmp_path)
     assert out["meta"]["dx"] == 87.5
     assert out["meta"]["dx_run_count"] == 5
+    assert out["meta"]["dx_ci_minutes"] == 25.0
     assert out["confidence"]["dx"] == "derived"
     assert out["confidence"]["dx_run_count"] == "derived"
 
@@ -324,3 +332,21 @@ def test_derive_dx_54_blends_runtime_and_setup_signals(tmp_path):
     assert out_empty["confidence"]["dx"] == "missing"
     assert out_empty["meta"]["dx_run_count"] == 0
     assert out_empty["confidence"]["dx_run_count"] == "derived"
+
+
+
+def test_derive_dx_54_takes_the_median_over_the_newest_thirty_commits_only(tmp_path):
+    """Forty commits, newest first: of the newest 30, sixteen waited 25 min
+    and fourteen 10 min (median 25 min, runtime 75); the ten older ones waited
+    10 min. Counting all forty would make the median 10 min (runtime 100)."""
+    k = f"{OWNER}__{NAME}"
+    waits = [1500] * 16 + [600] * 14 + [600] * 10
+    write(tmp_path, "actions_runs", k, [
+        {"head_sha": f"c{i:02d}", "status": "completed", "conclusion": "success", "run_duration_seconds": seconds}
+        for i, seconds in enumerate(waits)
+    ])
+    write(tmp_path, "tree", k, {"paths": ["README.md"]})
+    out = run(tmp_path)
+    assert out["meta"]["dx_run_count"] == 30
+    assert out["meta"]["dx_ci_minutes"] == 25.0
+    assert out["meta"]["dx"] == 0.5 * 75.0 + 0.5 * 0.0

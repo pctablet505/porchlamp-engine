@@ -11,7 +11,9 @@
 //     persona's full ranked list, in the order the API returns for `sort`
 //     (exported as index lists: the ORDER BY is never re-implemented here);
 //   - /not-ranked: the same filtering, then the endpoint's own truncation
-//     to its first `max_rows` rows and split into groups;
+//     to its first `max_rows` rows and split into groups; and
+//     `fetchNotRankedFull`, the same without the truncation (what the page
+//     uses: it pages and filters the list itself);
 //   - /reproject (custom weights): the one real computation — a port of
 //     porchlamp.store.queries.reproject's SQL over the stored pillar columns.
 
@@ -208,6 +210,31 @@ async function rankedList(endpoint, persona, sort, snapshot) {
 }
 
 // -------------------------------------------------------- /not-ranked
+/**
+ * The list the page pages and filters on the client: every matching row, split into groups. The API cuts its
+ * answer at `max_rows` (`fetchNotRanked`, which scripts/verify_static_export.py pins to the API's own answer);
+ * a static site has the whole list in one file, so this one does not cut.
+ */
+export function fetchNotRankedFull(params = {}) {
+  const endpoint = `/v1/porchlamp/not-ranked${toQueryString(params)}`;
+  return answer(endpoint, async () => {
+    const snapshot = await loadJson("snapshot.json");
+    const persona = present(params.persona) ? String(params.persona) : "balanced";
+    if (persona !== "balanced") validatePersona(endpoint, persona, snapshot);
+    const list = await loadJson(`not-ranked-${persona}.json`);
+    const keep = rowFilter(params.eco, params.q);
+    const matching = list.rows.filter((entry) => keep(entry.row));
+    const group = (name) => matching.filter((entry) => entry.group === name).map((entry) => entry.row);
+    return {
+      gated: group("gated"),
+      unrated: group("unrated"),
+      persona_hidden: group("persona_hidden"),
+      counts: list.counts,
+      truncated: false,
+    };
+  });
+}
+
 export function fetchNotRanked(params = {}) {
   const endpoint = `/v1/porchlamp/not-ranked${toQueryString(params)}`;
   return answer(endpoint, async () => {
@@ -366,7 +393,8 @@ function reprojectAll(base, weights) {
       cov += w[i] * (c === null ? 0 : c);
     }
     const composite = den === 0 ? null : num / den;
-    const coverage = cov / totalWeight;
+    // queries.reproject: MIN(1.0, ...). Products added left to right over the compensated total can come to 1.0000000000000002.
+    const coverage = Math.min(1, cov / totalWeight);
     if (composite === null || !(coverage >= base.rated_min_coverage)) continue;
     const scored = sqlRound(composite, base.ratio_decimals);
     let scoreTier = tierIndex("D");

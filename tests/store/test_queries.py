@@ -12,6 +12,7 @@ import os
 import hashlib
 import random
 import sqlite3
+import sys
 import time
 from dataclasses import replace as dc_replace
 from pathlib import Path
@@ -34,6 +35,9 @@ from .helpers import (
     make_repo_write,
     make_unrated_record,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # tests/ on sys.path for `serve.helpers`
+from serve.helpers import routed_pair_records
 
 PILLARS: Tuple[str, ...] = ("responsiveness", "criticality", "governance", "rigor", "accessibility")
 BALANCED_WEIGHTS: Dict[str, float] = {
@@ -588,6 +592,117 @@ def test_list_ranked_and_list_not_ranked_partition_every_row_under_every_lens(tm
 
 
 # =========================================================================== #
+# A repository routed off-platform (D-GATE-6) is ranked under no lens.
+#
+# GitHub cannot see its review, so its responsiveness cannot be compared with
+# anyone's: the balanced board withholds its rating, and neither a persona
+# lens nor custom weights may rank it either. The routed repository and its
+# unrouted twin are built through the real code path
+# (``tests/serve/helpers.py::routed_pair_records``: evidence -> gates ->
+# ``score`` -> stage 8), then written by the store writer.
+# =========================================================================== #
+
+_ROUTED_REASON = "unrated: off_platform_routed"
+_NON_BALANCED_PRESETS = tuple(p for p in PERSONA_PRESETS if p != "balanced")
+
+
+def _db_with_routed_pair(tmp_path):
+    """A snapshot holding the routed repo, its unrouted twin (same pillars)
+    and three controls: a rated repo covered 0.9 on every pillar, a repo
+    unrated for thin evidence, and a gated repo."""
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    routed, twin = routed_pair_records("snap-1")
+    controls = [
+        _with_persona_composites(make_rated_record("snap-1", owner="a", name="covered")),
+        make_unrated_record("snap-1", owner="a", name="thin"),
+        make_gated_record("snap-1", owner="a", name="gated"),
+    ]
+    write_records(conn, "snap-1", [make_repo_write(r) for r in (routed, twin, *controls)])
+    return conn, (routed.repo.owner, routed.repo.name), (twin.repo.owner, twin.repo.name)
+
+
+def _every_ranked_page(conn, persona: str) -> set:
+    """Every ``(owner, name)`` the leaderboard shows under ``persona``, read
+    page by page (two rows a page, so a repo cannot hide behind page one)."""
+    seen = set()
+    total = None
+    offset = 0
+    while total is None or offset < total:
+        rows, total = queries.list_ranked(conn, "snap-1", persona=persona, limit=2, offset=offset)
+        assert rows or total == 0, (persona, offset, total)
+        seen.update((row["owner"], row["name"]) for row in rows)
+        offset += 2
+    return seen
+
+
+def test_no_persona_ranks_a_stored_routed_repo(tmp_path) -> None:
+    conn, routed, twin = _db_with_routed_pair(tmp_path)
+    ranked_twin_under = []
+    for persona in _NON_BALANCED_PRESETS:
+        ranked = _every_ranked_page(conn, persona)
+        assert routed not in ranked, persona
+        if twin in ranked:
+            ranked_twin_under.append(persona)
+
+        rows, counts, total = queries.list_not_ranked(conn, "snap-1", persona=persona, limit=queries.MAX_LIMIT)
+        by_identity = {(row["owner"], row["name"]): row for row in rows}
+        assert routed in by_identity, persona
+        assert by_identity[routed]["reason"] == _ROUTED_REASON, persona
+        assert sum(counts.values()) == total, persona
+    # The control: the twin has the routed repo's pillars and is ranked under
+    # at least one lens, so the routed repo's absence is the routing's doing.
+    assert ranked_twin_under, "the twin must be ranked under some persona, or this test proves nothing"
+
+
+def test_matrix_has_no_point_for_a_stored_routed_repo_under_any_persona(tmp_path) -> None:
+    conn, routed, twin = _db_with_routed_pair(tmp_path)
+    twin_plotted_under = []
+    for persona in PERSONA_PRESETS:
+        identities = {(point["owner"], point["name"]) for point in queries.matrix_points(conn, "snap-1", persona=persona)["points"]}
+        assert routed not in identities, persona
+        if twin in identities:
+            twin_plotted_under.append(persona)
+    assert twin_plotted_under, "the twin must be plotted under some persona, or this test proves nothing"
+
+
+def _projection_clears_floor(row: Mapping[str, Any], weights: Mapping[str, float]) -> bool:
+    """An independent restatement of what ``reproject`` ranks: weighted
+    coverage at or above 0.60, and at least one measured pillar to average."""
+    coverage = sum(weights[p] * (row[f"c_{p}"] or 0.0) for p in PILLARS)
+    measured_weight = sum(weights[p] for p in PILLARS if (row[f"c_{p}"] or 0.0) > 0 and row[f"p_{p}"] is not None)
+    return coverage >= 0.60 and measured_weight > 0
+
+
+def test_reproject_never_ranks_a_stored_routed_repo(tmp_path) -> None:
+    conn, routed, twin = _db_with_routed_pair(tmp_path)
+    cursor = conn.execute("SELECT * FROM repositories WHERE snapshot_id = 'snap-1'")
+    columns = [description[0] for description in cursor.description]
+    stored = [dict(zip(columns, row)) for row in cursor.fetchall()]
+    by_identity = {(row["owner"], row["name"]): row for row in stored}
+    assert by_identity[routed]["routed"] == "off_platform" and by_identity[twin]["routed"] is None
+
+    vectors = [("balanced", BALANCED_WEIGHTS)]
+    vectors += [(f"only-{pillar}", {p: 1.0 if p == pillar else 0.0 for p in PILLARS}) for pillar in PILLARS]
+    twin_present_under = []
+    for label, weights in vectors:
+        rows, total = queries.reproject(conn, "snap-1", weights, limit=queries.MAX_LIMIT)
+        identities = {(row["owner"], row["name"]) for row in rows}
+        assert routed not in identities, label
+        expected = [
+            identity for identity, row in by_identity.items()
+            if row["eligible"] == 1 and row["routed"] != "off_platform" and _projection_clears_floor(row, weights)
+        ]
+        assert total == len(expected) == len(rows), label
+        assert identities == set(expected), label
+        if twin in identities:
+            twin_present_under.append(label)
+        # A vector the routed repo's pillars clear: its absence is the rule's doing.
+        if _projection_clears_floor(by_identity[routed], weights):
+            assert twin in identities, label
+    assert twin_present_under, "the twin must clear the floor under some vector, or this test proves nothing"
+
+
+# =========================================================================== #
 # snapshot_summary
 # =========================================================================== #
 
@@ -841,6 +956,31 @@ def test_reproject_applies_ceiling_a_band(tmp_path) -> None:
     write_records(conn, "snap-1", [make_repo_write(rec)])
     rows, _ = queries.reproject(conn, "snap-1", {p: 0.2 for p in PILLARS})
     assert rows[0]["tier"] == "A"
+
+
+#: Sums to 1 (within tolerance), and added left to right (as SQLite adds the five terms) comes to 1.0000000000000002,
+#: while CPython's compensated ``sum`` of the same five values is exactly 1.0.
+_WEIGHTS_THAT_ADD_UP_TO_MORE_THAN_ONE = {
+    "responsiveness": 0.25, "criticality": 0.05, "governance": 0.55, "rigor": 0.05, "accessibility": 0.1,
+}
+
+
+def test_reproject_coverage_never_exceeds_one_for_a_fully_covered_repo(tmp_path) -> None:
+    """A repo measured in full on every pillar has coverage 1.0 under ANY weights. The sum of weight times
+    coverage, divided by the compensated total, came to 1.0000000000000002 for the vector above, and the API
+    refuses a coverage over 1 (``LeaderboardRow``): the whole page failed."""
+    weights = _WEIGHTS_THAT_ADD_UP_TO_MORE_THAN_ONE
+    left_to_right = 0.0
+    for w in weights.values():
+        left_to_right += w
+    assert left_to_right > sum(weights.values()) == 1.0, "the vector no longer exercises the rounding"
+
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    rec = dc_replace(make_rated_record("snap-1", owner="a", name="r1"), pillars=_uniform_pillars(80.0, 1.0))
+    write_records(conn, "snap-1", [make_repo_write(rec)])
+    rows, total = queries.reproject(conn, "snap-1", weights)
+    assert total == 1
+    assert rows[0]["coverage"] == 1.0
 
 
 def test_reproject_no_ceiling_above_0_95_coverage(tmp_path) -> None:

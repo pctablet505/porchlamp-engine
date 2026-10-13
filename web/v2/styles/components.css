@@ -591,6 +591,8 @@ input.control {
 /* ---- Reason chips (Not ranked) ---- */
 .reason-chip {
   display: inline-block;
+  max-width: 100%;
+  white-space: normal;
   padding: 2px var(--space-sm);
   border-radius: var(--radius-pill);
   background: var(--bg-surface-elevated);
@@ -605,12 +607,20 @@ input.control {
 
 .notranked-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: var(--space-md);
   padding: var(--space-sm);
   border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
+}
+
+/* The name and its ecosystem chip may shrink and break anywhere: a long name with no break points otherwise
+ * pushes the row past a 320 px screen. */
+.notranked-row > :first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .notranked-row:hover {
@@ -766,6 +776,7 @@ input.control {
   border-left: 1px solid var(--border-strong);
   box-shadow: var(--shadow-drawer);
   overflow-y: auto;
+  overflow-x: hidden; /* the wide tables inside scroll in their own .table-scroll box */
   padding: var(--space-md);
   transition: transform var(--motion-duration) var(--motion-easing);
 }
@@ -787,7 +798,16 @@ input.control {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
   margin-bottom: var(--space-md);
+}
+
+/* The title takes the room the buttons leave and breaks a long owner/name instead of pushing the panel wider. */
+.drawer-header > :first-child {
+  flex: 1 1 12ch;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .drawer-actions {
@@ -960,4 +980,92 @@ p.cell-numeric {
   height: 1px;
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
+}
+
+/* The pager below the list: the same controls, spaced off the last row. */
+.pager-bottom {
+  margin-top: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+/* ---- Phone header and tab bar ----
+ * MEASURED 2026-10-12 at 375 px: the sticky header wrapped to 330 px (40% of the screen, on every screen) and the
+ * five tabs ran off the right edge with no hint. Now: the header scrolls away with the page, its three controls
+ * sit in two rows, the tab bar is the one thing that stays, and it fades at an edge that has more behind it. */
+@media (max-width: 767px) {
+  :root {
+    --header-height: 0px; /* the header no longer sticks: whatever sticks, sticks under the tab bar */
+  }
+
+  .app-header {
+    position: static;
+    gap: var(--space-xs) var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .header-controls {
+    display: contents;
+  }
+
+  /* Rows: brand and snapshot / persona and ecosystem / search and the theme toggle. */
+  .header-controls > [data-theme-toggle] {
+    order: 5;
+    flex: 0 0 auto;
+    align-self: flex-end;
+  }
+
+  .header-filter-group {
+    order: 3;
+    flex: 1 1 calc(50% - var(--space-sm));
+    min-width: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+
+  .header-filter-group[data-header-search-group] {
+    order: 4;
+    flex: 1 1 calc(100% - 64px); /* a row of its own, with room beside it for the theme toggle */
+  }
+
+  .header-filter-group[hidden] {
+    display: none;
+  }
+
+  .header-filter-group select.control,
+  .header-filter-group input.control {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .header-filter-group .field-label {
+    margin: 0;
+  }
+
+  .app-primary-nav {
+    position: sticky;
+    top: 0;
+    z-index: 19;
+  }
+
+  .primary-tabs {
+    position: relative; /* its own offsetParent: the active tab is centred from its offsetLeft */
+    padding: 0 var(--space-xs);
+    gap: 0;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--space-sm), #000 calc(100% - var(--space-xl)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--space-sm), #000 calc(100% - var(--space-xl)), transparent 100%);
+  }
+
+  .primary-tab {
+    padding: var(--space-sm);
+  }
+}
+
+/* The ways out of an empty list: side by side, wrapping on a phone. */
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+  justify-content: flex-start; /* with the message above them */
+  margin: var(--space-xs) 0 0;
 }

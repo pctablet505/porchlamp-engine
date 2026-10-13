@@ -63,7 +63,7 @@ export function synthesizeRows(n = 10000) {
       tie_group: i + 1,
       owner: `synthetic-${i % 500}`,
       name: `repo-${i}`,
-      ecosystem: ["pypi", "npm", "cargo", "go", "maven"][i % 5],
+      ecosystem: ["pypi", "npm", "crates", "go", "maven", "systems"][i % 6],
       porchlamp,
       coverage,
       tier,

@@ -58,8 +58,12 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #:
 #: Regenerated 2026-10-06 (was b52ccd66...) with D-GATE-5 reading the 1.4
 #: gr14_ghost_rate input (owner ruling 2026-10-06): see the counts note below.
+#:
+#: Regenerated 2026-10-13 (was de07ceb8...) when stage 8 stopped scoring a
+#: repository routed off-platform under the persona lenses: torvalds/linux
+#: lost its persona composites and gates; no other record and no count moved.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "41192403460b517d1348eccc830d64f4302d2bd93eb222e25e986f057151c50b"
+    "507887cd98736044ee7a4841c6466b4ad406c8490ea5136230dde674d5d2c4c9"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #

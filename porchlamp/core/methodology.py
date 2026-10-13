@@ -312,6 +312,12 @@ def _parameter_entry(input_id: str) -> ParameterEntry:
 # --------------------------------------------------------------------------- #
 
 
+def _quoted_alternatives(items: tuple[str, ...]) -> str:
+    """``"a"``, ``"a" or "b"``, ``"a", "b" or "c"``: the items quoted, for prose."""
+    quoted = [f'"{item}"' for item in items]
+    return quoted[0] if len(quoted) == 1 else ", ".join(quoted[:-1]) + " or " + quoted[-1]
+
+
 def _gate_entries() -> list[GateEntry]:
     undetermined = sorted(v for v in _gates.UNDETERMINED_SPDX if v is not None)
     if None in _gates.UNDETERMINED_SPDX:
@@ -389,10 +395,23 @@ def _gate_entries() -> list[GateEntry]:
             "criterion": (
                 ">= 1 external PR decided in the trailing window, or "
                 "off-platform markers present (routed, not failed); neither "
-                "means unrated: no_external_workflow"
+                "means unrated: no_external_workflow. A repository also routes "
+                "off-platform, whatever its decided PRs, when it hands review off: "
+                "among its outside PRs (external, non-bot authors in the recorded "
+                f"PR window) at least {constants.GATE6_HANDOFF_MIN_PRS}, and at least "
+                f"{constants.GATE6_HANDOFF_MIN_SHARE:.0%} of them, carry a notice, a "
+                "comment by an account other than the PR's author that contains "
+                f"{_quoted_alternatives(constants.GATE6_HANDOFF_NOTICES)} "
+                "(any letter case) or is written by an account whose login starts "
+                f"with {_quoted_alternatives(constants.GATE6_HANDOFF_RELAY_LOGIN_PREFIXES)}. "
+                "D-GATE-5 is then undecided for it, never failed"
             ),
             "reasons": (_gates.REASON_NO_EXTERNAL_WORKFLOW,),
-            "cutoffs": {"decision_window_days": constants.GATE6_DECISION_WINDOW_DAYS},
+            "cutoffs": {
+                "decision_window_days": constants.GATE6_DECISION_WINDOW_DAYS,
+                "handoff_min_prs": constants.GATE6_HANDOFF_MIN_PRS,
+                "handoff_min_share": constants.GATE6_HANDOFF_MIN_SHARE,
+            },
         },
         {
             "id": "D-EVID-1",
