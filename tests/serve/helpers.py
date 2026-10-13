@@ -12,18 +12,23 @@ from __future__ import annotations
 import random
 import sqlite3
 from dataclasses import replace as dc_replace
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
-from porchlamp.core.gates import REASON_FORK
-from porchlamp.core.models import ParamScore
+from porchlamp.core import constants
+from porchlamp.core.gates import REASON_FORK, ROUTED_OFF_PLATFORM, GateEvidence
+from porchlamp.core.models import ParamScore, ScoreRecord, Unmeasured
 from porchlamp.core.persona import PERSONA_PRESETS, persona_composite
+from porchlamp.core.pipeline import score_bundle_stage_8_persona, score_bundle_stages_0_7
 from porchlamp.core.tiebreak import TieBreakInput, assign_ranks
+from porchlamp.snapshot.populations import Population, PopulationSet
 from porchlamp.store import schema
 from porchlamp.store.migrations import apply_migrations
 from porchlamp.store.writer import write_records, write_snapshot, finalize_snapshot_hash
 
 from store.helpers import (
+    make_bundle,
     make_gated_record,
     make_measured,
     make_rated_record,
@@ -69,6 +74,72 @@ def finalize(conn: sqlite3.Connection, db_path: Path, *, snapshot_id: str = SNAP
     return finalize_snapshot_hash(conn, db_path, snapshot_id, promoted_at="2026-09-13T01:00:00Z")
 
 
+#: The owner of the repositories :func:`routed_pair_records` builds.
+ROUTED_PAIR_OWNER = "lens-org"
+
+#: Measured inputs of a routed repository and its twin. Responsiveness is
+#: left unmeasured (a routed repository's review is invisible to GitHub);
+#: criticality, governance and rigor are fully measured and accessibility
+#: only 0.35. Balanced coverage is then 0.6525 (>= 0.60), and per persona:
+#: first_timer 0.455 (below the floor, so gated by ``insufficient_evidence:coverage``),
+#: career_capital 0.67, senior_systems 0.8175, ai_assisted 0.735 (all clear it).
+_PAIR_MEASURED = {
+    "dependents_deduped": 999999.0, "openssf_criticality": 1.0, "downloads_monthly": 999999999.0,
+    "legal_ip": "DCO", "elephant_factor": 5.0, "promotion_ladder": "VERIFIED",
+    "pipeline_defenses": 100.0, "ai_posture": "AD_HOC", "substantive_review_rate": 0.8,
+    "newcomer_issue_supply": 10.0,
+}
+
+
+def _pair_populations() -> PopulationSet:
+    """Every ``python`` ECDF population sits below the pair's values, so all
+    three ECDF curves score 100.0."""
+    return PopulationSet(
+        snapshot_id=SNAPSHOT_ID, benchmark_version=constants.BENCHMARK_VERSION,
+        constants_hash=constants.CONSTANTS_HASH,
+        populations=(
+            Population("python", "ttm_p90_hours", 4, False, {"a": 5.0, "b": 10.0, "c": 20.0, "d": 30.0}),
+            Population("python", "dependents_deduped", 4, False, {"a": 0.0, "b": 1.0, "c": 2.0, "d": 3.0}),
+            Population("python", "downloads_monthly", 3, False, {"a": 0.0, "b": 1.0, "c": 2.0}),
+        ),
+    )
+
+
+def routed_pair_records(
+    snapshot_id: str,
+    *,
+    routed_name: str = "routed-repo",
+    twin_name: str = "twin-repo",
+) -> Tuple[ScoreRecord, ScoreRecord]:
+    """A repository D-GATE-6 routes off-platform and its unrouted twin, each
+    scored through the real code path: ``GateEvidence`` -> ``evaluate_gates``
+    -> ``engine.score`` (:func:`score_bundle_stages_0_7`) -> stage 8, never a
+    hand-written row. Both carry the same inputs, so their pillars are
+    identical; only ``GateEvidence.review_handoff`` differs (the routed one
+    hands review off). Returns ``(routed, twin)``, both eligible; the twin is
+    rated, and ``rank`` is still unset on both."""
+    inputs = {key: Unmeasured(reason="not_applicable") for key in constants.PARAM_INPUT_IDS}
+    inputs.update({key: make_measured(value, n=30) for key, value in _PAIR_MEASURED.items()})
+    records = []
+    for name, review_handoff, raw_hash in ((routed_name, True, "f" * 64), (twin_name, None, "9" * 64)):
+        bundle = make_bundle(ROUTED_PAIR_OWNER, name, inputs=inputs)
+        bundle.validate()
+        evidence = GateEvidence(manifest_found=True, vitality_commits_180d=5, review_handoff=review_handoff)
+        record = score_bundle_stages_0_7(
+            bundle, _pair_populations(), snapshot_id=snapshot_id,
+            as_of=datetime(2026, 9, 13, tzinfo=timezone.utc), gate_evidence=evidence, raw_hash=raw_hash,
+        )
+        records.append(score_bundle_stage_8_persona(record, bundle))
+    routed, twin = records
+    # What the helper promises, checked where it is built: a silent change to
+    # the engine must fail here, not make the tests that use it vacuous.
+    assert routed.gate.eligible and routed.gate.routed == ROUTED_OFF_PLATFORM and routed.rated is False
+    assert twin.gate.eligible and twin.gate.routed is None and twin.rated is True
+    assert {n: p.score for n, p in routed.pillars.items()} == {n: p.score for n, p in twin.pillars.items()}
+    return routed, twin
+
+
+
 class SnapshotFixture:
     """Everything a test needs to assert against, alongside the written
     rows themselves: which owner/name pairs landed in which bucket, and
@@ -85,6 +156,8 @@ class SnapshotFixture:
         self.gated: Dict[str, str] = {}  # name -> gate_reason (raw store value)
         self.unrated: Dict[str, str] = {}  # name -> reason category: "plain" | "routed"
         self.evidence_inputs: Dict[str, dict] = {}  # name -> extra bundle.inputs (Measured values)
+        self.routed_name: Optional[str] = None  # set by ``with_routed_pair``: owner is ``ROUTED_PAIR_OWNER``
+        self.twin_name: Optional[str] = None
 
 
 def build_snapshot(
@@ -94,6 +167,7 @@ def build_snapshot(
     snapshot_id: str = SNAPSHOT_ID,
     n_rated: int = 285,
     seed: int = 20260913,
+    with_routed_pair: bool = False,
 ) -> SnapshotFixture:
     """A snapshot with >= 300 total rows: ``n_rated`` rated rows (a mix of
     unique composites, one explicit 3-way tie, one explicit 2-way tie with
@@ -103,6 +177,13 @@ def build_snapshot(
     translates), ~15 unrated rows (plain insufficient-evidence and
     ``routed="off_platform"``). Returns a :class:`SnapshotFixture` naming
     exactly what landed where, for assertions.
+
+    ``with_routed_pair=True`` adds, through the real code path
+    (:func:`routed_pair_records`), a repository routed off-platform whose
+    pillars clear the 0.60 coverage floor under balanced weights, and its
+    unrouted twin (a rated row ranked with the rest); their names are ``fixture.routed_name`` / ``fixture.twin_name``
+    under ``ROUTED_PAIR_OWNER``. Off by default: the UI fixtures and the other
+    tests pin this builder's default rows.
     """
     rng = random.Random(seed)
     fixture = SnapshotFixture()
@@ -171,6 +252,15 @@ def build_snapshot(
     )
     plain_records.append((persona_gated, dict(ttfhr_p75_hours=9.0, last_non_bot_commit_at="2026-08-11T00:00:00Z")))
     fixture.persona_gated["persona-gated-repo"] = "high_barrier_to_entry"
+
+    # -- A repository routed off-platform and its unrouted twin (opt-in). -- #
+    routed_pair_item = None
+    if with_routed_pair:
+        routed_record, twin_record = routed_pair_records(snapshot_id)
+        plain_records.append((twin_record, dict(ttfhr_p75_hours=14.0, last_non_bot_commit_at="2026-08-12T00:00:00Z")))
+        routed_pair_item = make_repo_write(routed_record)
+        fixture.routed_name = routed_record.repo.name
+        fixture.twin_name = twin_record.repo.name
 
     # -- The remaining unique-composite rated rows. -- #
     used_composites = {73.42, 40.5, 91.0, 88.0}
@@ -245,6 +335,10 @@ def build_snapshot(
         routed = dc_replace(base, gate=dc_replace(base.gate, routed="off_platform"))
         items.append(make_repo_write(routed))
         fixture.unrated[name] = "routed"
+
+    if routed_pair_item is not None:
+        items.append(routed_pair_item)
+        fixture.unrated[fixture.routed_name] = "routed"
 
     write_records(conn, snapshot_id, items)
     conn.commit()

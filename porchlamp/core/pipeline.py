@@ -26,7 +26,8 @@ testable alone:
 - :func:`score_bundle_stage_8_persona` -- stage 8: ``persona.persona_gates``
   and ``persona.persona_composite`` for every preset, folded onto the record
   with ``dataclasses.replace`` (never mutated; see the docstring below for the
-  two cases ``persona.py``'s own documented contract forbids calling it plainly on).
+  two cases ``persona.py``'s own documented contract forbids calling it plainly on,
+  and the one it deliberately does not apply a persona lens to at all).
 - :func:`score_bundle_stage_9_tie_input` -- prepares the
   :class:`~porchlamp.core.tiebreak.TieBreakInput` evidence
   :class:`~porchlamp.core.models.ScoreRecord` does not itself carry (repo identity,
@@ -51,9 +52,10 @@ testable alone:
   dataclass becomes a ``{field name: value}`` dict, and
   ``porchlamp.core.models.canonical_json`` sorts every dict's keys).
 
-Stage 8 on a gated or unrated record (D-PERS-1/2/3, ``02`` section 9).
+Stage 8 on a gated, unrated or routed record (D-PERS-1/2/3, ``02`` section 9).
 Two cases ``persona.py``'s own contract does not let a caller treat like a normal
-rated record, both handled by :func:`score_bundle_stage_8_persona`:
+rated record, both handled by :func:`score_bundle_stage_8_persona`, and a third
+that is not scored at all:
 
 - ``record.gate.eligible is False`` (a stage-0 gate failure): ``pillars``
   is ``{}`` (``porchlamp.core.engine._bare_record``), and
@@ -86,6 +88,18 @@ rated record, both handled by :func:`score_bundle_stage_8_persona`:
   as a rated record. A persona clearing both bars is simply absent from
   ``persona_gates``, which is what makes the repo visible under that lens,
   the same rule a rated record already follows.
+- ``record.gate.eligible is True`` and ``record.gate.routed ==``
+  :data:`~porchlamp.core.gates.ROUTED_OFF_PLATFORM` (D-GATE-6: the repository's
+  review happens on a mailing list, in Gerrit or in an internal repository):
+  GitHub cannot see that review, so its responsiveness cannot be compared with
+  anyone's, and the balanced board already withholds its rating
+  (``porchlamp.core.engine.score``). No persona lens is applied either:
+  ``persona_gates`` and ``persona_composites`` are both ``{}``, so there is no
+  per-lens score and no per-lens gate, and every lens reads the reason from the
+  record's own ``gate.routed`` / ``unrated_reason``. This is not the unrated
+  case above: a record unrated for thin evidence keeps its persona composites,
+  because a persona's own weights may cover what the balanced weights do not;
+  routing is a property of the repository, not of any weight vector.
 """
 from __future__ import annotations
 
@@ -98,6 +112,7 @@ from porchlamp.core.commit_domains import LastNonBotCommitMeasured
 from porchlamp.core.engine import PopulationLookup, Snapshot, score
 from porchlamp.core.gates import (
     DISPLAY_UNRATED_GATE_REASONS as _DISPLAY_UNRATED_GATE_REASONS,
+    ROUTED_OFF_PLATFORM,
     GateEvidence,
 )
 from porchlamp.core.models import (
@@ -168,9 +183,13 @@ def score_bundle_stage_8_persona(record: ScoreRecord, bundle: FeatureBundle) -> 
     shared reason).
 
     A gate-ineligible record fails every persona for the same D-GATE reason
-    and has no persona composites at all. Otherwise each gated persona gets
-    exactly one reason, chosen by what the reason *claims* rather than by
-    which check produced it:
+    and has no persona composites at all. An eligible record routed
+    off-platform (``gate.routed == ROUTED_OFF_PLATFORM``, D-GATE-6) is ranked
+    under no lens: no persona was applied, so ``persona_gates`` and
+    ``persona_composites`` are both ``{}`` (the record's own ``gate.routed`` and
+    ``unrated_reason`` are the reason on every lens). Otherwise each gated
+    persona gets exactly one reason, chosen by what the reason *claims* rather
+    than by which check produced it:
 
     1. A substantive D-PERS-2 gate (``ai_hard_ban``,
        ``high_barrier_to_entry``, ``criticality_below_threshold``). These
@@ -191,9 +210,13 @@ def score_bundle_stage_8_persona(record: ScoreRecord, bundle: FeatureBundle) -> 
        is otherwise well enough covered to be shown -- then the one missing
        input is exactly the thing to name.
     """
+    composites: dict[str, PersonaComposite]
     if not record.gate.eligible:
         gates = {p: record.gate.reason for p in persona.GATED_PERSONAS}
-        composites: dict[str, PersonaComposite] = {}
+        composites = {}
+    elif record.gate.routed == ROUTED_OFF_PLATFORM:
+        gates = {}
+        composites = {}
     else:
         composites = {p: persona.persona_composite(record, p) for p in persona.PERSONA_PRESETS}
         own_gates = persona.persona_gates(record, bundle.inputs)
@@ -263,7 +286,9 @@ class SnapshotCounts:
     records for which that persona is absent from ``persona_gates`` *and*
     that persona's own :class:`~porchlamp.core.models.PersonaComposite` is
     ``rated`` (04 section 6's per-persona-rated ruling: a persona's
-    visibility is never read off the balanced ``rated`` flag).
+    visibility is never read off the balanced ``rated`` flag). A record
+    routed off-platform (D-GATE-6) has no persona composites at stage 8, so no
+    persona's count includes it.
 
     ``suspicion_counts`` is a per-detector-name histogram over every
     record's final ``suspicion`` list: ``{name: number of records carrying
