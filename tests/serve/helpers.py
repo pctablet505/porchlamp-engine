@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Tuple
 
 from porchlamp.core import constants
 from porchlamp.core.gates import REASON_FORK, ROUTED_OFF_PLATFORM, GateEvidence
-from porchlamp.core.models import ParamScore, ScoreRecord, Unmeasured
+from porchlamp.core.models import ParamScore, PillarScore, ScoreRecord, Unmeasured
 from porchlamp.core.persona import PERSONA_PRESETS, persona_composite
 from porchlamp.core.pipeline import score_bundle_stage_8_persona, score_bundle_stages_0_7
 from porchlamp.core.tiebreak import TieBreakInput, assign_ranks
@@ -158,6 +158,7 @@ class SnapshotFixture:
         self.evidence_inputs: Dict[str, dict] = {}  # name -> extra bundle.inputs (Measured values)
         self.routed_name: Optional[str] = None  # set by ``with_routed_pair``: owner is ``ROUTED_PAIR_OWNER``
         self.twin_name: Optional[str] = None
+        self.full_coverage_name: Optional[str] = None  # set by ``with_full_coverage_repo``: owner is ``acme``
 
 
 def build_snapshot(
@@ -168,6 +169,7 @@ def build_snapshot(
     n_rated: int = 285,
     seed: int = 20260913,
     with_routed_pair: bool = False,
+    with_full_coverage_repo: bool = False,
 ) -> SnapshotFixture:
     """A snapshot with >= 300 total rows: ``n_rated`` rated rows (a mix of
     unique composites, one explicit 3-way tie, one explicit 2-way tie with
@@ -184,6 +186,10 @@ def build_snapshot(
     unrouted twin (a rated row ranked with the rest); their names are ``fixture.routed_name`` / ``fixture.twin_name``
     under ``ROUTED_PAIR_OWNER``. Off by default: the UI fixtures and the other
     tests pin this builder's default rows.
+
+    ``with_full_coverage_repo=True`` adds one rated row whose five pillars are all measured in full
+    (pillar coverage exactly 1.0), named ``fixture.full_coverage_name`` under ``acme``. The default rows
+    stop at 0.9, so no custom weight vector could ever sum their coverage past 1.0; this one can.
     """
     rng = random.Random(seed)
     fixture = SnapshotFixture()
@@ -261,6 +267,15 @@ def build_snapshot(
         routed_pair_item = make_repo_write(routed_record)
         fixture.routed_name = routed_record.repo.name
         fixture.twin_name = twin_record.repo.name
+
+    if with_full_coverage_repo:
+        full = make_rated_record(
+            snapshot_id, owner="acme", name="full-coverage", raw_hash="e" * 64,
+            composite=77.77, coverage=1.0, pillar_scores={n: 80.0 for n in PILLARS},
+        )
+        full = dc_replace(full, pillars={n: PillarScore(score=80.0, coverage=1.0) for n in PILLARS})
+        plain_records.append((full, dict(ttfhr_p75_hours=9.0, last_non_bot_commit_at="2026-08-10T00:00:00Z")))
+        fixture.full_coverage_name = "full-coverage"
 
     # -- The remaining unique-composite rated rows. -- #
     used_composites = {73.42, 40.5, 91.0, 88.0}

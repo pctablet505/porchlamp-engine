@@ -65,6 +65,24 @@ def api(tmp_path):
 
 
 @pytest.fixture
+def api_with_full_coverage_repo(tmp_path):
+    """The same synthetic snapshot plus one rated repository measured in full on every pillar
+    (``build_snapshot(with_full_coverage_repo=True)``)."""
+    db_path = tmp_path / "db.sqlite"
+    conn = fresh_db(db_path)
+    fx = build_snapshot(conn, db_path, with_full_coverage_repo=True)
+    finalize(conn, db_path)
+    conn.close()
+
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<html><body>v2 shell</body></html>")
+
+    app = create_app(str(db_path), web_dir=web_dir)
+    yield TestClient(app), fx, db_path
+
+
+@pytest.fixture
 def api_with_routed_pair(tmp_path):
     """The same synthetic snapshot plus a repository routed off-platform
     and its unrouted twin (``build_snapshot(with_routed_pair=True)``)."""
@@ -622,6 +640,18 @@ def test_reproject_parity_with_store_queries(api):
         assert row["coverage"] == store_row["coverage"]
         assert row["tier"] == store_row["tier"]
         assert row["balanced_rank"] == store_row["balanced_rank"]
+
+
+def test_reproject_answers_for_weights_whose_sum_rounds_a_full_coverage_past_one(api_with_full_coverage_repo):
+    """A fully covered repo under a weight vector whose terms add up to 1.0000000000000002 left to right: the
+    endpoint answers, with coverage exactly 1.0, instead of failing the response model's range check."""
+    client, fx, _db = api_with_full_coverage_repo
+    weights = {"weight_responsiveness": 0.25, "weight_criticality": 0.05, "weight_governance": 0.55,
+               "weight_rigor": 0.05, "weight_accessibility": 0.1}
+    resp = client.post("/v1/porchlamp/reproject?page_size=1000", json=weights)
+    assert resp.status_code == 200, resp.text
+    full = [r for r in resp.json()["rows"] if r["name"] == fx.full_coverage_name]
+    assert [r["coverage"] for r in full] == [1.0]
 
 
 def test_reproject_rejects_negative_weight(api):
