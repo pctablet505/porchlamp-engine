@@ -958,6 +958,31 @@ def test_reproject_applies_ceiling_a_band(tmp_path) -> None:
     assert rows[0]["tier"] == "A"
 
 
+#: Sums to 1 (within tolerance), and added left to right (as SQLite adds the five terms) comes to 1.0000000000000002,
+#: while CPython's compensated ``sum`` of the same five values is exactly 1.0.
+_WEIGHTS_THAT_ADD_UP_TO_MORE_THAN_ONE = {
+    "responsiveness": 0.25, "criticality": 0.05, "governance": 0.55, "rigor": 0.05, "accessibility": 0.1,
+}
+
+
+def test_reproject_coverage_never_exceeds_one_for_a_fully_covered_repo(tmp_path) -> None:
+    """A repo measured in full on every pillar has coverage 1.0 under ANY weights. The sum of weight times
+    coverage, divided by the compensated total, came to 1.0000000000000002 for the vector above, and the API
+    refuses a coverage over 1 (``LeaderboardRow``): the whole page failed."""
+    weights = _WEIGHTS_THAT_ADD_UP_TO_MORE_THAN_ONE
+    left_to_right = 0.0
+    for w in weights.values():
+        left_to_right += w
+    assert left_to_right > sum(weights.values()) == 1.0, "the vector no longer exercises the rounding"
+
+    conn = _fresh_db(tmp_path / "db.sqlite")
+    rec = dc_replace(make_rated_record("snap-1", owner="a", name="r1"), pillars=_uniform_pillars(80.0, 1.0))
+    write_records(conn, "snap-1", [make_repo_write(rec)])
+    rows, total = queries.reproject(conn, "snap-1", weights)
+    assert total == 1
+    assert rows[0]["coverage"] == 1.0
+
+
 def test_reproject_no_ceiling_above_0_95_coverage(tmp_path) -> None:
     conn = _fresh_db(tmp_path / "db.sqlite")
     rec = dc_replace(make_rated_record("snap-1", owner="a", name="r1"), pillars=_uniform_pillars(95.0, 0.97))

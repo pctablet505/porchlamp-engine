@@ -59,7 +59,7 @@ def site(tmp_path_factory):
     conn = fresh_db(db)
     # The pair is a repository routed off-platform that clears the coverage floor
     # (so the static reprojection could rank it) and its unrouted twin.
-    build_snapshot(conn, db, with_routed_pair=True)
+    build_snapshot(conn, db, with_routed_pair=True, with_full_coverage_repo=True)
     # The helpers write every row as "python"; with one ecosystem the filter is a no-op.
     conn.execute("UPDATE repositories SET ecosystem = 'rust' WHERE snapshot_id = ? AND rowid % 3 = 0", (SNAPSHOT_ID,))
     conn.commit()

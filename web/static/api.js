@@ -393,7 +393,8 @@ function reprojectAll(base, weights) {
       cov += w[i] * (c === null ? 0 : c);
     }
     const composite = den === 0 ? null : num / den;
-    const coverage = cov / totalWeight;
+    // queries.reproject: MIN(1.0, ...). Products added left to right over the compensated total can come to 1.0000000000000002.
+    const coverage = Math.min(1, cov / totalWeight);
     if (composite === null || !(coverage >= base.rated_min_coverage)) continue;
     const scored = sqlRound(composite, base.ratio_decimals);
     let scoreTier = tierIndex("D");

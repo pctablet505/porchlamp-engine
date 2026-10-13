@@ -59,7 +59,9 @@ MUTANTS: tuple[tuple[str, str, str], ...] = (
     ("repo looked up in the wrong bucket",
      "h = Math.imul(h, 0x85ebca6b) >>> 0;", "h = Math.imul(h, 0x85ebca6d) >>> 0;"),
     ("custom coverage divided by the measured weight",
-     "const coverage = cov / totalWeight;", "const coverage = cov / (den || totalWeight);"),
+     "const coverage = Math.min(1, cov / totalWeight);", "const coverage = Math.min(1, cov / (den || totalWeight));"),
+    ("custom coverage not clamped to 1",
+     "const coverage = Math.min(1, cov / totalWeight);", "const coverage = cov / totalWeight;"),
     ("custom tier ignores the coverage ceiling",
      "base.tier_order[Math.min(scoreTier, ceiling)]", "base.tier_order[scoreTier]"),
     ("custom composite truncated instead of rounded",
@@ -298,7 +300,10 @@ def build_grid(db: Path, *, quick: bool, seed: int = 20260923) -> Grid:
 
     presets = [[constants.PERSONA_PRESETS[p][q] for q in pillars] for p in sorted(constants.PERSONA_PRESETS)]
     one_hot = [[1.0 if i == j else 0.0 for i in range(len(pillars))] for j in range(len(pillars))]
-    vectors = presets + one_hot + [[0.2] * len(pillars)]
+    #: Terms that add up to 1.0000000000000002 left to right but to exactly 1.0 compensated: for a repo measured in
+    #: full on every pillar, the coverage is 1.0 only if it is clamped (the API refuses a coverage over 1).
+    over_one = [0.25, 0.05, 0.55, 0.05, 0.1]
+    vectors = presets + one_hot + [[0.2] * len(pillars), over_one]
     for _ in range(12 if quick else 60):
         raw = [rng.random() ** 2 for _ in pillars]
         if rng.random() < 0.3:  # some pillars weighted out entirely
