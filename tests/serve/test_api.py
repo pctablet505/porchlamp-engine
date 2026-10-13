@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # tests/ on sys
 
 from porchlamp.core.methodology import methodology_document, methodology_hash
 from porchlamp.core.models import canonical_json, sha256_hex
+from porchlamp.core.persona import PERSONA_PRESETS
 from porchlamp.serve.app import create_app
 from porchlamp.serve.contract import (
     EvidenceRow,
@@ -32,7 +33,7 @@ from porchlamp.serve.contract import (
 )
 from porchlamp.store import queries
 
-from serve.helpers import SNAPSHOT_ID, build_snapshot, finalize, fresh_db
+from serve.helpers import ROUTED_PAIR_OWNER, SNAPSHOT_ID, build_snapshot, finalize, fresh_db
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "ui"
 
@@ -61,6 +62,23 @@ def api(tmp_path):
     app = create_app(str(db_path), web_dir=web_dir)
     client = TestClient(app)
     yield client, fx, db_path
+
+
+@pytest.fixture
+def api_with_routed_pair(tmp_path):
+    """The same synthetic snapshot plus a repository routed off-platform
+    and its unrouted twin (``build_snapshot(with_routed_pair=True)``)."""
+    db_path = tmp_path / "db.sqlite"
+    conn = fresh_db(db_path)
+    fx = build_snapshot(conn, db_path, with_routed_pair=True)
+    finalize(conn, db_path)
+    conn.close()
+
+    web_dir = tmp_path / "web"
+    web_dir.mkdir()
+    (web_dir / "index.html").write_text("<html><body>v2 shell</body></html>")
+
+    yield TestClient(create_app(str(db_path), web_dir=web_dir)), fx
 
 
 def _raw_conn(db_path) -> sqlite3.Connection:
@@ -357,6 +375,48 @@ def test_persona_visible_counts_reflect_the_one_persona_gated_row(api):
     assert snapshot.persona_visible_counts[fx.persona_gate_persona] == len(fx.rated_names) - 1
     for persona in ("career_capital", "senior_systems", "ai_assisted"):
         assert snapshot.persona_visible_counts[persona] == len(fx.rated_names)
+
+
+def test_api_never_ranks_a_routed_repo_under_any_lens(api_with_routed_pair):
+    """A repository D-GATE-6 routes off-platform is ranked nowhere: not under
+    any persona lens, not under custom weights, and every lens gives the
+    same reason for it."""
+    client, fx = api_with_routed_pair
+    routed = (ROUTED_PAIR_OWNER, fx.routed_name)
+    twin = (ROUTED_PAIR_OWNER, fx.twin_name)
+    twin_ranked_under = []
+    snapshot = SnapshotSummary(**client.get("/v1/porchlamp/snapshot").json())
+
+    for persona in PERSONA_PRESETS:
+        ranked = set()
+        page, total = 1, None
+        while total is None or (page - 1) * 100 < total:
+            body = LeaderboardResponse(**client.get(f"/v1/porchlamp/leaderboard?persona={persona}&page={page}&page_size=100").json())
+            ranked.update((row.owner, row.name) for row in body.rows)
+            total, page = body.total, page + 1
+        assert routed not in ranked, persona
+        if twin in ranked:
+            twin_ranked_under.append(persona)
+
+        not_ranked = NotRankedResponse(**client.get(f"/v1/porchlamp/not-ranked?persona={persona}").json())
+        assert not not_ranked.truncated
+        in_unrated = [row for row in not_ranked.unrated if (row.owner, row.name) == routed]
+        assert [row.unrated_reason for row in in_unrated] == ["off_platform_routed"], persona
+        assert routed not in {(row.owner, row.name) for row in not_ranked.gated + not_ranked.persona_hidden}, persona
+
+        assert snapshot.persona_visible_counts[persona] == total, persona
+        assert not_ranked.counts.rated == total, persona
+    assert twin_ranked_under, "the twin must be ranked under some lens, or this test proves nothing"
+
+    reprojected = client.post("/v1/porchlamp/reproject?page_size=1000", json=_WEIGHTS).json()
+    identities = {(row["owner"], row["name"]) for row in reprojected["rows"]}
+    assert reprojected["total"] == len(reprojected["rows"])
+    assert routed not in identities
+    assert twin in identities
+
+    detail = client.get(f"/v1/porchlamp/repos/{routed[0]}/{routed[1]}").json()
+    assert detail["rated"] is False
+    assert detail["persona_composites"] == {} and detail["persona_gates"] == {}
 
 
 # --------------------------------------------------------------------------- #

@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 
 from porchlamp.core import constants, persona
-from porchlamp.core.gates import GateEvidence
+from porchlamp.core.gates import ROUTED_OFF_PLATFORM, GateEvidence
 from porchlamp.core.models import (
     Cohorts,
     FeatureBundle,
@@ -690,6 +690,84 @@ def test_build_snapshot_counts_matches_hand_count() -> None:
     assert counts.persona_visible[persona.PERSONA_BALANCED] == 8
     # ai_assisted hides exactly the one PROSCRIBED repo among the 8 rated.
     assert counts.persona_visible[persona.PERSONA_AI_ASSISTED] == 7
+
+
+# --------------------------------------------------------------------------- #
+# A repository D-GATE-6 routes off-platform is ranked under no lens.
+# --------------------------------------------------------------------------- #
+#: Inputs for a routed repository and its unrouted twin. Responsiveness is
+#: unmeasured (a routed repository's review is invisible to GitHub);
+#: criticality, governance and rigor are fully measured and accessibility
+#: only 0.35, so balanced coverage is 0.6525 and, per persona: first_timer
+#: 0.455 (below 0.60, so it is gated), career_capital 0.67, senior_systems
+#: 0.8175 and ai_assisted 0.735 (all clear it).
+_ROUTED_PAIR_MEASURED: dict[str, Measured] = {
+    "dependents_deduped": _m(999999.0), "openssf_criticality": _m(1.0), "downloads_monthly": _m(999999999.0),
+    "legal_ip": _m("DCO"), "elephant_factor": _m(5.0, n=30), "promotion_ladder": _m("VERIFIED"),
+    "pipeline_defenses": _m(100.0), "ai_posture": _m("AD_HOC"), "substantive_review_rate": _m(0.8, n=10),
+    "newcomer_issue_supply": _m(10.0),
+}
+
+
+def _routed_and_unrouted_twin() -> tuple[tuple[ScoreRecord, FeatureBundle], tuple[ScoreRecord, FeatureBundle]]:
+    """``((routed, bundle), (twin, bundle))`` after stages 0-7 only: the same
+    inputs, so identical pillars; the first hands its review off (so
+    ``evaluate_gates`` routes it off-platform), the second does not."""
+    pair = []
+    for name, review_handoff in (("routed", True), ("twin", None)):
+        bundle = _bundle(_repo("lens", name), _full_inputs(_ROUTED_PAIR_MEASURED))
+        evidence = dataclasses.replace(_HEALTHY_EVIDENCE, review_handoff=review_handoff)
+        record = score_bundle_stages_0_7(
+            bundle, _Fixture12.populations(), snapshot_id=_SNAPSHOT_ID, as_of=NOW,
+            gate_evidence=evidence, raw_hash=_HASH64,
+        )
+        pair.append((record, bundle))
+    return pair[0], pair[1]
+
+
+def test_stage8_gives_a_routed_record_no_persona_composites_or_gates() -> None:
+    (routed, routed_bundle), (twin, twin_bundle) = _routed_and_unrouted_twin()
+    assert routed.gate.eligible is True and routed.gate.routed == ROUTED_OFF_PLATFORM
+    assert routed.rated is False and routed.unrated_reason == "unrated: off_platform_routed"
+    # The pillars clear 0.60 under at least one persona ...
+    assert any(persona.persona_composite(routed, name).rated for name in persona.GATED_PERSONAS)
+    # ... and the same pillars, scored, leave some persona gated: an empty
+    # persona_gates below is the routing's doing, not the pillars'.
+    scored = score_bundle_stage_8_persona(twin, twin_bundle)
+    assert scored.persona_gates and any(c.rated for c in scored.persona_composites.values())
+
+    result = score_bundle_stage_8_persona(routed, routed_bundle)
+
+    assert result.persona_composites == {}
+    assert result.persona_gates == {}
+    assert result.gate == routed.gate and result.unrated_reason == routed.unrated_reason
+
+
+def test_stage8_still_scores_an_unrouted_balanced_unrated_record_under_personas() -> None:
+    """Over-correction guard (04 section 6 ruling): thin evidence on the
+    balanced board is not a reason to withhold a persona lens; only routing
+    off-platform is."""
+    bundle = _hand_built_bundle_for_persona_divergence()
+    record = _hand_built_unrated_divergent_record(bundle)
+    assert record.gate.eligible is True and record.gate.routed is None and record.rated is False
+
+    result = score_bundle_stage_8_persona(record, bundle)
+
+    assert set(result.persona_composites) == set(persona.PERSONA_PRESETS)
+    assert any(composite.rated is True for composite in result.persona_composites.values())
+
+
+def test_snapshot_counts_do_not_count_a_routed_record_under_any_persona() -> None:
+    (routed, routed_bundle), (twin, twin_bundle) = _routed_and_unrouted_twin()
+    assert {n: p.score for n, p in routed.pillars.items()} == {n: p.score for n, p in twin.pillars.items()}
+    routed = score_bundle_stage_8_persona(routed, routed_bundle)
+    twin = score_bundle_stage_8_persona(twin, twin_bundle)
+
+    alone = build_snapshot_counts([twin]).persona_visible
+    both = build_snapshot_counts([routed, twin]).persona_visible
+
+    assert any(alone[name] == 1 for name in persona.PERSONA_PRESETS), "the twin must be visible somewhere"
+    assert dict(both) == dict(alone)
 
 
 # --------------------------------------------------------------------------- #

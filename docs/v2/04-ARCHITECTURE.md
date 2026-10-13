@@ -334,6 +334,12 @@ query above therefore filters on `porchlamp_p IS NOT NULL AND coverage_p >= 0.60
 where `coverage_p` is computed from the pillar coverages with the persona
 weights, and applies the tier ceiling from `coverage_p`.
 
+A repository routed off-platform (D-GATE-6) is rated under no persona and is not
+a reprojection candidate: stage 8 gives it no persona composites or gates, and
+custom weights (`reproject`) skip it, so every lens gives the same reason
+(`unrated: off_platform_routed`). A repository unrated for thin evidence is not
+routed, and keeps its persona composites.
+
 No Python loop over all rows for any endpoint.
 
 ## 7. API v2 (additive)

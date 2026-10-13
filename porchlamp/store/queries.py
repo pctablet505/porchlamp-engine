@@ -93,7 +93,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from porchlamp.core import constants
 from porchlamp.core.aggregate import RATIO_DECIMALS, validate_pillar_weights
-from porchlamp.core.gates import REASON_INSUFFICIENT_EVIDENCE
+from porchlamp.core.gates import REASON_INSUFFICIENT_EVIDENCE, ROUTED_OFF_PLATFORM
 from porchlamp.core.pipeline import DISPLAY_UNRATED_GATE_REASONS
 from porchlamp.core.params import PARAMS
 
@@ -102,6 +102,7 @@ __all__ = [
     "ALLOWED_SORT_FIELDS",
     "AXIS_CAPTION_MIN_MISSING_FRACTION",
     "CUSTOM_WEIGHT_LABEL",
+    "REPROJECT_CANDIDATE_SQL",
     "DEFAULT_LIMIT",
     "MAX_LIMIT",
     "row_to_dict",
@@ -133,6 +134,16 @@ _PERSONA_PRESETS: Dict[str, Dict[str, float]] = constants.PERSONA_PRESETS
 #: U-11: a custom weight vector is labelled "custom" everywhere it is
 #: applied and is never called a persona.
 CUSTOM_WEIGHT_LABEL: str = "custom"
+
+#: The ONE definition of which stored rows a custom-weight reprojection may
+#: rank: stage-0 eligible and not routed off-platform (D-GATE-6). GitHub cannot
+#: see a routed repository's review, so its responsiveness cannot be compared
+#: with anyone's, under any weights. :func:`reproject` filters with it and
+#: ``scripts/export_static.py`` exports the rows the static site reprojects
+#: with it, so the API and the static site cannot disagree on the set. Column
+#: names are unqualified so it reads the same with or without a table alias;
+#: ``routed`` is NULL for an unrouted row, hence ``IS NOT``, never ``!=``.
+REPROJECT_CANDIDATE_SQL: str = f"eligible = 1 AND routed IS NOT '{ROUTED_OFF_PLATFORM}'"
 
 #: `06` section 3 A / D-TIE-1: the only columns a leaderboard may sort on --
 #: vanity fields (stars, forks, downloads) are never sortable (U-3).
@@ -565,9 +576,13 @@ def list_not_ranked(
     Any other ``persona``: the exact complement of :func:`list_ranked`'s
     persona branch (``_persona_visible_where_sql`` negated) -- stage-0
     gated (as above), persona-gated (`02` D-PERS-1/2/3: reason = that
-    persona's own ``persona_gates`` entry), or persona-unrated (eligible,
-    not persona-gated, but ``porchlamp_p`` is null or ``coverage_p`` is below
-    0.60 under this persona's weights -- reason =
+    persona's own ``persona_gates`` entry), routed off-platform (D-GATE-6:
+    eligible with ``routed == ROUTED_OFF_PLATFORM``, which stage 8 gives no
+    persona composites or gates -- reason = its stored ``unrated_reason``,
+    ``"unrated: off_platform_routed"``, the same reason as under the balanced
+    lens), or persona-unrated (eligible, not persona-gated, not routed, but
+    ``porchlamp_p`` is null or ``coverage_p`` is below 0.60 under this
+    persona's weights -- reason =
     ``porchlamp.core.gates.REASON_INSUFFICIENT_EVIDENCE``, the same string the
     balanced path uses for the same underlying fact, generalised to a
     persona's own coverage).
@@ -626,6 +641,8 @@ def list_not_ranked(
         record = row_to_dict(columns, raw)
         if not record["eligible"]:
             reason = record["gate_reason"]
+        elif record["routed"] == ROUTED_OFF_PLATFORM:
+            reason = record["unrated_reason"]
         elif record["persona_gate_reason"] is not None:
             reason = record["persona_gate_reason"]
         else:
@@ -977,10 +994,12 @@ def reproject(
     ("live rank deltas in a side list"). ``lens`` is always
     :data:`CUSTOM_WEIGHT_LABEL` (U-11: never a persona name).
 
-    Only eligible (stage-0, persona-independent) repos are candidates; gate
-    status itself never changes under a reprojection (D-PERS-1's
-    separation, generalised: a custom weight vector reweights pillars, it
-    does not un-gate a mirror or an archived repo).
+    Only eligible (stage-0, persona-independent) repos not routed off-platform
+    are candidates (:data:`REPROJECT_CANDIDATE_SQL`); gate status itself never
+    changes under a reprojection (D-PERS-1's separation, generalised: a
+    custom weight vector reweights pillars, it does not un-gate a mirror or
+    an archived repo), and neither does routing (D-GATE-6): a repository
+    whose review GitHub cannot see is ranked under no weights.
 
     ``limit``/``offset``: same 1..``MAX_LIMIT``/``>= 0`` bound as
     :func:`list_ranked` (:func:`_validate_paging`, `06` U-13).
@@ -1023,7 +1042,7 @@ def reproject(
             {composite_raw_sql} AS composite_raw,
             {coverage_sql} AS coverage_custom
         FROM repositories r
-        WHERE r.snapshot_id = ? AND r.eligible = 1
+        WHERE r.snapshot_id = ? AND {REPROJECT_CANDIDATE_SQL}
     """
     proj_full_params = [*proj_params, snapshot_id]
 

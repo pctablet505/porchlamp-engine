@@ -9,8 +9,10 @@ An absent Node.js interpreter fails this module, as it fails
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import shutil
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -19,7 +21,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))  # serve.helpers -> store.helpers
 
-from serve.helpers import SNAPSHOT_ID, build_snapshot, finalize, fresh_db  # noqa: E402
+from serve.helpers import ROUTED_PAIR_OWNER, SNAPSHOT_ID, build_snapshot, finalize, fresh_db  # noqa: E402
 
 
 def _load_script(name: str):
@@ -55,7 +57,9 @@ def site(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("static")
     db = tmp / "db.sqlite"
     conn = fresh_db(db)
-    build_snapshot(conn, db)
+    # The pair is a repository routed off-platform that clears the coverage floor
+    # (so the static reprojection could rank it) and its unrouted twin.
+    build_snapshot(conn, db, with_routed_pair=True)
     # The helpers write every row as "python"; with one ecosystem the filter is a no-op.
     conn.execute("UPDATE repositories SET ecosystem = 'rust' WHERE snapshot_id = ? AND rowid % 3 = 0", (SNAPSHOT_ID,))
     conn.commit()
@@ -75,6 +79,33 @@ def test_every_static_answer_is_the_apis(site):
     assert missing == [], f"mutant targets absent from api.js: {missing}"
     survived = [name for name in _FIXTURE_CATCHES if not result["mutants"][name]]
     assert survived == [], f"the parity check cannot see: {survived}"
+
+
+def test_static_reproject_export_holds_no_routed_repo(site):
+    """The browser's custom-weights reprojection ranks every row of
+    ``reproject.json``, so a repository routed off-platform must not be in
+    it. The snapshot holds one that clears the coverage floor (and the
+    comparison with the API above runs on it) and its unrouted twin."""
+    db, out = site
+    reproject = json.loads((out / "data" / SNAPSHOT_ID / "reproject.json").read_text(encoding="utf-8"))
+    exported = {(row["owner"], row["name"]) for row in reproject["rows"]}
+
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    routed = conn.execute(
+        "SELECT owner, name, c_responsiveness, c_criticality, c_governance, c_rigor, c_accessibility "
+        "FROM repositories WHERE snapshot_id = ? AND eligible = 1 AND routed = 'off_platform'", (SNAPSHOT_ID,),
+    ).fetchall()
+    twins = conn.execute(
+        "SELECT owner, name FROM repositories WHERE snapshot_id = ? AND owner = ? AND routed IS NULL",
+        (SNAPSHOT_ID, ROUTED_PAIR_OWNER),
+    ).fetchall()
+    conn.close()
+
+    balanced = (0.25, 0.25, 0.20, 0.15, 0.15)
+    clearing = [(o, n) for o, n, *coverages in routed if sum(w * c for w, c in zip(balanced, coverages)) >= 0.60]
+    assert clearing, "the snapshot must hold a routed repository that clears the floor, or this test proves nothing"
+    assert {(o, n) for o, n, *_ in routed}.isdisjoint(exported)
+    assert len(twins) == 1 and tuple(twins[0]) in exported
 
 
 def test_a_mutant_is_not_credited_with_what_the_site_already_gets_wrong(site, tmp_path, monkeypatch):

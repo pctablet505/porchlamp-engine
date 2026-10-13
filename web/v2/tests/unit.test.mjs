@@ -1294,6 +1294,27 @@ test("drawer: classifyKindForLens identifies persona-gated repositories under ac
   assert.equal(classifyKindForLens(personaGatedRepo, "senior_systems"), "persona-gated");
 });
 
+test("drawer: a routed repo shows the off-platform reason under a persona lens", () => {
+  // The API sends a repository D-GATE-6 routed off-platform with no persona
+  // composites and no persona gates, so the drawer falls back to the balanced
+  // classification: unrated, with the off-platform sentence, on every lens.
+  const routedRepo = {
+    ...FLAT_UNRATED_DETAIL,
+    owner: "kernel-org",
+    name: "mailing-list-repo",
+    unrated_reason: "off_platform_routed",
+    persona_composites: {},
+    persona_gates: {},
+  };
+  assert.equal(classifyKindForLens(routedRepo, "first_timer"), "unrated");
+
+  const html = renderDrawer({ ...stateWithRepoDetail(routedRepo), persona: "first_timer" });
+  assert.ok(
+    html.includes(escapeHtml(copy.unratedReasonText("off_platform_routed"))),
+    "the drawer must show the off-platform sentence under the First-timer lens",
+  );
+});
+
 test("drawer: renders outbound GitHub link with noopener noreferrer", () => {
   const html = renderDrawer(stateWithRepoDetail(FLAT_RATED_DETAIL));
   assert.ok(html.includes(copy.DRAWER_GITHUB_LABEL), "drawer includes GitHub outbound link label");
