@@ -226,6 +226,38 @@ return {
 """
 )
 
+_CONFIGURE_1100 = (
+    _READY
+    + """
+await until(() => doc.querySelector('[data-configure-tbody] tr'), 15000);
+await sleep(300);
+const table = doc.querySelector('.configure-table-col .leaderboard-table').getBoundingClientRect();
+const col = doc.querySelector('.configure-table-col').getBoundingClientRect();
+return {
+  innerWidth: win.innerWidth,
+  scrollWidth: doc.documentElement.scrollWidth,
+  tableRight: table.right,
+  colRight: col.right,
+};
+"""
+)
+
+_MOBILE_CARD_LONG_NAME = (
+    _READY
+    + """
+const card = await until(() => doc.querySelector('.leaderboard-card'), 15000);
+if (!card) return { missing: 'leaderboard-card' };
+card.querySelector('.repo-name').textContent = 'an_extraordinarily_long_repository_name_without_any_natural_break_opportunities_at_all';
+await sleep(200);
+return {
+  clientHeight: card.clientHeight,
+  scrollHeight: card.scrollHeight,
+  clientWidth: card.clientWidth,
+  scrollWidth: card.scrollWidth,
+};
+"""
+)
+
 
 @pytest.fixture(scope="module")
 def measured(tmp_path_factory):
@@ -271,6 +303,8 @@ def measured(tmp_path_factory):
         {"name": "desktop-sticky-nav", "path": "./", **DESKTOP, "script": _DESKTOP_STICKY_NAV},
         {"name": "matrix-corners", "path": "./?tab=matrix", **DESKTOP, "script": _MATRIX_CORNERS},
         {"name": "configure-thead", "path": "./?tab=configure", **DESKTOP, "script": _CONFIGURE_THEAD},
+        {"name": "configure-1100", "path": "./?tab=configure", "width": 1100, "height": 800, "script": _CONFIGURE_1100},
+        {"name": "mobile-card-long-name", "path": "./", **PHONE, "script": _MOBILE_CARD_LONG_NAME},
     ]
     cases += [
         {"name": f"names-{tab}", "path": path, **DESKTOP, "script": _UNNAMED_CONTROLS % settle}
@@ -381,3 +415,18 @@ def test_configure_sticky_thead_does_not_overlap_first_row_at_scroll_zero(measur
     got = measured["configure-thead"]
     assert got["thPosition"] == "sticky", got
     assert got["thBottom"] <= got["tr0Top"] + 1, got
+
+
+def test_configure_1100px_table_fits_inside_its_column_without_overflow(measured):
+    got = measured["configure-1100"]
+    assert got["innerWidth"] == 1100, got
+    assert got["scrollWidth"] <= got["innerWidth"], got
+    assert got["tableRight"] <= got["colRight"] + 1, got
+
+
+def test_mobile_card_clamps_long_repository_name_within_fixed_card_height(measured):
+    got = measured["mobile-card-long-name"]
+    assert "missing" not in got, got
+    assert got["scrollHeight"] <= got["clientHeight"], got
+    assert got["scrollWidth"] <= got["clientWidth"], got
+

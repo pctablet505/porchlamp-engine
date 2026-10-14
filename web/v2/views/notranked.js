@@ -33,7 +33,10 @@ export function renderSkeleton(rowCount = 8) {
 }
 
 export function renderErrorBanner(error) {
-  return `<div class="error-banner" role="alert">${escapeHtml(copy.errorBannerText(error.endpoint, error.status, error.detail))}</div>`;
+  return (
+    `<div class="error-banner" role="alert">${escapeHtml(copy.errorBannerText(error.endpoint, error.status, error.detail))}` +
+    ` <button type="button" class="icon-button" data-notranked-retry="true">${escapeHtml(copy.RETRY_LABEL)}</button></div>`
+  );
 }
 
 function renderReasonChip(row) {
@@ -178,14 +181,6 @@ export function patchNotRankedBody(root, state) {
   const totalPages = Math.max(1, Math.ceil(flat.length / state.notRankedPageSize));
   const page = Math.min(Math.max(1, state.notRankedPage), totalPages);
   const html = renderPageRows(flat, page, state.notRankedPageSize, state.selectedRepoKey);
-  // This is a whole-body innerHTML
-  // replacement, not the keyed patchRows() diff the leaderboard table uses.
-  // Safe today because no interaction here holds DOM focus on a row while a
-  // page rebuild can land under it (the client only ever paginates a
-  // preloaded, already-fetched page of the not-ranked list). It becomes a
-  // real correctness/focus concern once this list is server-paged like the
-  // leaderboard (prefetch-next-page, page-size-change-preserves-row, etc.) —
-  // at that point switch this to patchRows()-style keyed diffing too.
   if (container.innerHTML !== html) container.innerHTML = html;
   syncPager(root, page, state.notRankedPageSize, flat.length, "notranked-pager");
   const notRankedCountEl = root.querySelector('[data-tab="notranked"] .count');
@@ -197,11 +192,18 @@ export function patchNotRankedBody(root, state) {
   if (rankedCountEl && typeof rankedCount === "number" && rankedCountEl.textContent !== String(rankedCount)) {
     rankedCountEl.textContent = String(rankedCount);
   }
+  const strip = root.querySelector("[data-counts-strip]");
+  if (strip && state.leaderboard) {
+    const replaced = renderCountsStrip(state.leaderboard.counts, personaDeltaForState(state));
+    if (strip.outerHTML !== replaced) strip.outerHTML = replaced;
+  }
   const errBanner = root.querySelector("[data-notranked-error]");
   if (errBanner) {
     if (state.notRankedError) {
       errBanner.hidden = false;
-      errBanner.textContent = copy.errorBannerText(state.notRankedError.endpoint, state.notRankedError.status, state.notRankedError.detail);
+      errBanner.innerHTML =
+        `${escapeHtml(copy.errorBannerText(state.notRankedError.endpoint, state.notRankedError.status, state.notRankedError.detail))}` +
+        ` <button type="button" class="icon-button" data-notranked-retry="true">${escapeHtml(copy.RETRY_LABEL)}</button>`;
     } else {
       errBanner.hidden = true;
     }

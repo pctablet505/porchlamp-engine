@@ -123,7 +123,7 @@ const QUAD_CLASS = {
 };
 
 /** One marker's shape as an inline SVG fragment (no wrapping `<g>` — the caller adds the transform/attributes). Colour comes from CSS (`class`, `currentColor`); shape is the dual encoding U-3 requires. */
-function markerShapeSvg(quadrant, r) {
+export function markerShapeSvg(quadrant, r) {
   if (quadrant === "Sweet Spot") {
     // Diamond
     return `<path d="M 0 ${-r} L ${r} 0 L 0 ${r} L ${-r} 0 Z" />`;
@@ -202,14 +202,18 @@ export function renderScatterBackdropSvg(viewBox = "0 0 100 100") {
  * `data-owner`/`data-name` so app.js's existing delegated click/keydown
  * handlers (the same ones the leaderboard rows use) work unchanged.
  */
-export function renderScatterSvg(points, { quadrantsHidden = {}, focusedKey = null, hoveredKey = null, axisLabels = { x: copy.MATRIX_AXIS_X_LABEL, y: copy.MATRIX_AXIS_Y_LABEL } } = {}) {
+export function renderScatterSvg(points, { quadrantsHidden = {}, focusedKey = null, hoveredKey = null, viewBox = "0 0 100 100", axisLabels = { x: copy.MATRIX_AXIS_X_LABEL, y: copy.MATRIX_AXIS_Y_LABEL } } = {}) {
   const { min: starsMin, max: starsMax } = starsDomain(points);
   const visible = points.filter((p) => !quadrantsHidden[p.quadrant]);
+  const vbParts = String(viewBox).trim().split(/\s+/).map(Number);
+  const span = vbParts.length === 4 && Number.isFinite(vbParts[2]) && vbParts[2] > 0 ? vbParts[2] : 100;
+  const zoomRatio = span / 100;
 
   const markers = visible
     .map((p) => {
       const cls = QUAD_CLASS[p.quadrant] || "quad-nursery";
-      const r = radiusForStars(p.stars_audited, starsMin, starsMax);
+      const baseR = radiusForStars(p.stars_audited, starsMin, starsMax);
+      const r = baseR * zoomRatio;
       const key = pointKey(p);
       const focused = key === focusedKey || key === hoveredKey;
       const shape = markerShapeSvg(p.quadrant, r);
@@ -217,13 +221,14 @@ export function renderScatterSvg(points, { quadrantsHidden = {}, focusedKey = nu
         `<g class="matrix-marker ${cls}${focused ? " marker-focused" : ""}" ` +
         `transform="translate(${toSvgX(p.friction)},${toSvgY(p.leverage)})" ` +
         `tabindex="0" role="img" data-owner="${escapeHtml(p.owner)}" data-name="${escapeHtml(p.name)}" ` +
+        `data-quadrant="${escapeHtml(p.quadrant || "Nursery")}" data-base-r="${baseR}" ` +
         `data-key="${escapeHtml(key)}" aria-label="${escapeHtml(`${p.owner}/${p.name}`)}">${shape}</g>`
       );
     })
     .join("");
 
   return (
-    `<svg class="matrix-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" role="group" ` +
+    `<svg class="matrix-svg" viewBox="${escapeHtml(viewBox)}" preserveAspectRatio="xMidYMid meet" role="group" ` +
     `aria-label="${escapeHtml(copy.matrixSvgAriaLabel(axisLabels.x, axisLabels.y))}">` +
     renderWashesAndGridSvg() +
     `<g class="matrix-markers">${markers}</g>` +

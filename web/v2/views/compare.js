@@ -75,9 +75,11 @@ export function betterRepoKey(paramEntry, valuesByRepoKey, persona) {
 }
 
 /** `{ owner/name -> rawValue|null }` for one `param_id`, across the compared repos' evidence. */
-export function valuesForParam(paramId, evidenceByRepo) {
+export function valuesForParam(paramId, evidenceByRepo, repoKeys = null) {
   const out = {};
-  for (const [key, evidence] of Object.entries(evidenceByRepo)) {
+  const keys = Array.isArray(repoKeys) ? repoKeys : Object.keys(evidenceByRepo);
+  for (const key of keys) {
+    const evidence = evidenceByRepo[key];
     const row = (evidence || []).find((e) => e.param_id === paramId);
     out[key] = row && row.measured ? row.value : null;
   }
@@ -96,7 +98,7 @@ export function computeVerdict(methodologyParams, evidenceByRepo, repoKeys, pers
   const wins = Object.fromEntries(repoKeys.map((k) => [k, 0]));
 
   for (const paramEntry of methodologyParams) {
-    const values = valuesForParam(paramEntry.input_id, evidenceByRepo);
+    const values = valuesForParam(paramEntry.input_id, evidenceByRepo, repoKeys);
     const measuredOnAll = repoKeys.every((k) => values[k] !== null && values[k] !== undefined);
     if (!measuredOnAll) {
       notMeasuredEverywhere.push(paramEntry.input_id);
@@ -104,7 +106,7 @@ export function computeVerdict(methodologyParams, evidenceByRepo, repoKeys, pers
     }
     measuredEverywhere.push(paramEntry.input_id);
     const winner = betterRepoKey(paramEntry, values, persona);
-    if (winner) wins[winner] += 1;
+    if (winner && Object.prototype.hasOwnProperty.call(wins, winner)) wins[winner] += 1;
   }
 
   const maxWins = Math.max(0, ...Object.values(wins));
@@ -199,7 +201,10 @@ export function patchTable(main, state) {
 function repoIdentityCell(key, data) {
   if (!data || data.loading) return `<td>${escapeHtml(copy.COMPARE_LOADING_TEXT)}</td>`;
   if (data.error) {
-    return `<td class="error-banner" role="alert">${escapeHtml(copy.compareErrorText(data.error.endpoint, data.error.status, data.error.detail))}</td>`;
+    return (
+      `<td class="error-banner" role="alert">${escapeHtml(copy.compareErrorText(data.error.endpoint, data.error.status, data.error.detail))}` +
+      ` <button type="button" class="icon-button" data-compare-retry="${escapeHtml(key)}">${escapeHtml(copy.RETRY_LABEL)}</button></td>`
+    );
   }
   const [owner, name] = key.split("/");
   return (
@@ -256,7 +261,7 @@ function pillarScoreCell(data, pillar) {
 }
 
 function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
-  const values = valuesForParam(paramEntry.input_id, evidenceByRepo);
+  const values = valuesForParam(paramEntry.input_id, evidenceByRepo, repoKeys);
   const winner = betterRepoKey(paramEntry, values, persona);
   const humanParamName = copy.paramName(paramEntry.input_id);
   const paramLabel = escapeHtml(humanParamName);

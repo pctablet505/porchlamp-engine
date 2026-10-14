@@ -27,6 +27,7 @@ import {
   renderScatterSvg,
   renderScatterBackdropSvg,
   renderFocusOverlaySvg,
+  markerShapeSvg,
   pointKey,
   toSvgX,
   toSvgY,
@@ -163,10 +164,21 @@ export function renderLoading() {
 }
 
 export function renderError(error) {
-  return `<div class="error-banner" role="alert">${escapeHtml(copy.matrixErrorText(error.endpoint, error.status, error.detail))}</div>`;
+  return (
+    `<div class="error-banner" role="alert">${escapeHtml(copy.matrixErrorText(error.endpoint, error.status, error.detail))}` +
+    ` <button type="button" class="icon-button" data-matrix-retry="true">${escapeHtml(copy.RETRY_LABEL)}</button></div>`
+  );
 }
 
-export function renderEmpty() {
+export function renderEmpty(state = {}) {
+  const q = state && state.query ? state.query.trim() : "";
+  const eco = state && state.ecosystem ? state.ecosystem.trim() : "";
+  if (q || eco) {
+    return (
+      `<div class="empty-state"><p>${escapeHtml(copy.emptyFilteredText(q, eco, "rated"))}</p>` +
+      `<p class="empty-actions"><button type="button" class="link-button" data-clear-filters="true">${escapeHtml(copy.CLEAR_FILTERS_LABEL)}</button></p></div>`
+    );
+  }
   return `<div class="empty-state">${escapeHtml(copy.MATRIX_EMPTY_TEXT)}</div>`;
 }
 
@@ -236,18 +248,24 @@ export function filterMatrixPoints(points, state) {
   });
 }
 
-function renderHoverCard(point) {
+export function renderHoverCard(point, view = DEFAULT_VIEW) {
   if (!point) return `<div class="matrix-hover-card" hidden></div>`;
-  const x = toSvgX(point.friction ?? 50);
-  const y = toSvgY(point.leverage ?? 50);
-  const placeLeft = x > 55;
-  const placeAbove = y > 65;
+  const scale = view && view.scale ? view.scale : 1;
+  const span = (DOMAIN_MAX - DOMAIN_MIN) / scale;
+  const vx = view && typeof view.x === "number" ? Math.min(Math.max(view.x, DOMAIN_MIN), DOMAIN_MAX - span) : 0;
+  const vy = view && typeof view.y === "number" ? Math.min(Math.max(view.y, DOMAIN_MIN), DOMAIN_MAX - span) : 0;
+  const rawX = ((toSvgX(point.friction ?? 50) - vx) / span) * 100;
+  const rawY = ((toSvgY(point.leverage ?? 50) - vy) / span) * 100;
+  const x = Math.max(0, Math.min(100, rawX));
+  const y = Math.max(0, Math.min(100, rawY));
+  const placeLeft = x > 50;
+  const placeAbove = y > 50;
   const horizStyle = placeLeft
-    ? `right: ${Math.max(2, Math.min(92, 100 - x + 2)).toFixed(1)}%; left: auto;`
-    : `left: ${Math.max(2, Math.min(70, x + 2)).toFixed(1)}%; right: auto;`;
+    ? `right: ${Math.max(2, Math.min(85, 100 - x + 2)).toFixed(1)}%; left: auto;`
+    : `left: ${Math.max(2, Math.min(55, x + 2)).toFixed(1)}%; right: auto;`;
   const vertStyle = placeAbove
-    ? `bottom: ${Math.max(2, Math.min(90, 100 - y + 3)).toFixed(1)}%; top: auto;`
-    : `top: ${Math.max(2, Math.min(78, y + 3)).toFixed(1)}%; bottom: auto;`;
+    ? `bottom: ${Math.max(2, Math.min(82, 100 - y + 3)).toFixed(1)}%; top: auto;`
+    : `top: ${Math.max(2, Math.min(68, y + 3)).toFixed(1)}%; bottom: auto;`;
   const posClass = placeLeft && !placeAbove ? " matrix-hover-card--top-left" : "";
   return (
     `<div class="matrix-hover-card${posClass}" data-matrix-hover-card="true" style="${horizStyle} ${vertStyle}">` +
@@ -259,7 +277,7 @@ function renderHoverCard(point) {
 }
 
 /**
- * The full Screen B markup for one state snapshot. `points.length` decides
+ * The full Screen B markup for one state snapshot. `visiblePoints.length` decides
  * SVG vs. canvas (module docstring / `components/scatter.js`); the canvas
  * path still renders an SVG overlay for the focused/hovered marker only.
  */
@@ -267,18 +285,21 @@ export function renderMatrixBody(state) {
   const matrix = state.matrix;
   const points = filterMatrixPoints(matrix.points, state);
   const visiblePoints = points.filter((p) => !state.matrixQuadrantsHidden[p.quadrant]);
-  const usesCanvas = points.length > SVG_MARKER_BUDGET;
-  const focused = visiblePoints.find((p) => pointKey(p) === (state.matrixFocusedKey || state.matrixHoveredKey));
+  const usesCanvas = visiblePoints.length > SVG_MARKER_BUDGET;
+  const activeKey = state.matrixHoveredKey || state.matrixFocusedKey;
+  const focused = visiblePoints.find((p) => pointKey(p) === activeKey);
   const { min: overlayStarsMin, max: overlayStarsMax } = starsDomain(points);
   const hasStars = points.some((p) => p.stars_audited !== null && p.stars_audited !== undefined);
   const surfaceLabel = copy.matrixSvgAriaLabel(copy.MATRIX_AXIS_X_LABEL, copy.MATRIX_AXIS_Y_LABEL);
-  const viewBox = computeViewBox(state.matrixView || DEFAULT_VIEW);
+  const view = state.matrixView || DEFAULT_VIEW;
+  const viewBox = computeViewBox(view);
   const surface = usesCanvas
     ? `<div class="matrix-canvas-wrap">${renderScatterBackdropSvg(viewBox)}<canvas class="matrix-canvas" data-matrix-canvas="true" width="800" height="800" role="img" aria-label="${escapeHtml(surfaceLabel)}"></canvas>${renderFocusOverlaySvg(focused, overlayStarsMin, overlayStarsMax, viewBox)}</div>`
     : renderScatterSvg(points, {
         quadrantsHidden: state.matrixQuadrantsHidden,
         focusedKey: state.matrixFocusedKey,
         hoveredKey: state.matrixHoveredKey,
+        viewBox,
       });
   return (
     `<div class="matrix-toolbar">` +
@@ -288,7 +309,7 @@ export function renderMatrixBody(state) {
     `<button type="button" class="icon-button" data-matrix-zoom-out="true" aria-label="${escapeHtml(copy.MATRIX_ZOOM_OUT_LABEL)}">−</button>` +
     `</div>` +
     `<div class="matrix-axis-labels"><span>${escapeHtml(copy.MATRIX_AXIS_Y_LABEL)} ↑</span><span>${escapeHtml(copy.MATRIX_AXIS_X_LABEL)} →</span></div>` +
-    `<div class="matrix-stage" data-matrix-stage="true" tabindex="0" aria-label="${escapeHtml(`${surfaceLabel}. ${copy.MATRIX_STAGE_LABEL}`)}">${surface}${renderQuadrantCornerLabels(state.matrixQuadrantsHidden)}${renderHoverCard(focused)}</div>` +
+    `<div class="matrix-stage" data-matrix-stage="true" tabindex="0" aria-label="${escapeHtml(`${surfaceLabel}. ${copy.MATRIX_STAGE_LABEL}`)}">${surface}${renderQuadrantCornerLabels(state.matrixQuadrantsHidden)}${renderHoverCard(focused, view)}</div>` +
     renderCaptions(matrix, hasStars)
   );
 }
@@ -296,7 +317,9 @@ export function renderMatrixBody(state) {
 export function shellShape(state) {
   if (state.matrixLoading && !state.matrix) return "loading";
   if (state.matrixError && !state.matrix) return "error";
-  if (state.matrix && filterMatrixPoints(state.matrix.points, state).length === 0) return "empty";
+  if (state.matrix && filterMatrixPoints(state.matrix.points, state).length === 0) {
+    return `empty:${state.ecosystem || ""}:${state.query || ""}`;
+  }
   if (state.matrix) {
     // A quadrant toggle or ecosystem/query filter changes WHICH markers
     // `renderMatrixBody` includes (filtered before rendering, not hidden
@@ -314,15 +337,26 @@ export function renderShell(state) {
   const heading = `<h1 class="view-heading">${escapeHtml(copy.MATRIX_HEADING)}</h1>`;
   if (shape === "loading") return heading + renderLoading();
   if (shape === "error") return heading + renderError(state.matrixError);
-  if (shape === "empty") return heading + renderEmpty();
+  if (shape.startsWith("empty")) return heading + renderEmpty(state);
   return heading + renderMatrixBody(state);
 }
 
-/** Applies the current `viewBox` to all rendered SVG surfaces (including the canvas backdrop and focus overlay) without a full re-render. */
+/** Applies the current `viewBox` to all rendered SVG surfaces (including the canvas backdrop and focus overlay) and rescales SVG marker geometries without a full re-render. */
 export function syncViewBox(main, view) {
   const viewBox = computeViewBox(view);
   for (const svg of main.querySelectorAll(".matrix-svg")) {
     svg.setAttribute("viewBox", viewBox);
+  }
+  const vbParts = String(viewBox).trim().split(/\s+/).map(Number);
+  const span = vbParts.length === 4 && Number.isFinite(vbParts[2]) && vbParts[2] > 0 ? vbParts[2] : 100;
+  const zoomRatio = span / 100;
+  for (const marker of main.querySelectorAll(".matrix-marker[data-base-r]")) {
+    const baseR = Number(marker.getAttribute("data-base-r"));
+    const quadrant = marker.getAttribute("data-quadrant") || "Nursery";
+    if (Number.isFinite(baseR) && baseR > 0) {
+      const nextShape = markerShapeSvg(quadrant, baseR * zoomRatio);
+      if (marker.innerHTML !== nextShape) marker.innerHTML = nextShape;
+    }
   }
 }
 
@@ -334,27 +368,25 @@ export function syncViewBox(main, view) {
  * per-field syncs).
  */
 export function syncMatrixHover(main, state) {
-  const activeKey = state.matrixFocusedKey || state.matrixHoveredKey;
+  const activeKey = state.matrixHoveredKey || state.matrixFocusedKey;
   const points = state.matrix
     ? filterMatrixPoints(state.matrix.points, state).filter((p) => !state.matrixQuadrantsHidden[p.quadrant])
     : [];
   for (const marker of main.querySelectorAll(".matrix-marker")) {
-    const isActive = marker.dataset.key === activeKey;
+    const isActive = marker.dataset.key === state.matrixFocusedKey || marker.dataset.key === state.matrixHoveredKey;
     marker.classList.toggle("marker-focused", isActive);
   }
   const point = points.find((p) => pointKey(p) === activeKey) || null;
-  // Rebuilding this one small card (never an ancestor of a focused MARKER —
-  // it is a sibling element) on every hover/focus change is well within
-  // budget; `outerHTML` replaces just this node, not the SVG/canvas surface.
+  const view = state.matrixView || DEFAULT_VIEW;
   const card = main.querySelector(".matrix-hover-card");
-  if (card) card.outerHTML = renderHoverCard(point);
+  if (card) card.outerHTML = renderHoverCard(point, view);
 
   const overlayHost = main.querySelector(".matrix-canvas-wrap");
   if (overlayHost) {
     const existingOverlay = overlayHost.querySelector(".matrix-focus-overlay");
     if (existingOverlay) existingOverlay.remove();
     const { min: overlayStarsMin, max: overlayStarsMax } = starsDomain(points);
-    const viewBox = computeViewBox(state.matrixView || DEFAULT_VIEW);
+    const viewBox = computeViewBox(view);
     const nextOverlay = renderFocusOverlaySvg(point, overlayStarsMin, overlayStarsMax, viewBox);
     if (nextOverlay) overlayHost.insertAdjacentHTML("beforeend", nextOverlay);
   }

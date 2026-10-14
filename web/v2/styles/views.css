@@ -241,9 +241,14 @@
   vector-effect: non-scaling-stroke;
 }
 
-.matrix-marker.marker-focused > *,
-.matrix-marker:focus-visible > * {
+.matrix-marker.marker-focused > :not(line),
+.matrix-marker:focus-visible > :not(line) {
   vector-effect: non-scaling-stroke;
+}
+
+.matrix-marker.quad-graveyard.marker-focused,
+.matrix-marker.quad-graveyard:focus-visible {
+  filter: drop-shadow(0 0 2px var(--border-focus));
 }
 
 .matrix-hover-card {
@@ -259,6 +264,26 @@
   max-width: 220px;
   font-size: var(--text-body-md);
   z-index: 10;
+}
+
+.matrix-hover-card p {
+  margin: 0 0 2px;
+}
+
+.matrix-hover-card p:last-child {
+  margin-bottom: 0;
+}
+
+.matrix-hover-card .repo-name {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .matrix-hover-card {
+    max-width: min(170px, 45%);
+    padding: var(--space-xs);
+    font-size: var(--text-caption);
+  }
 }
 
 .matrix-hover-card--top-left {
@@ -389,9 +414,22 @@
   align-items: start;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1439px) {
+  .configure-table-col .leaderboard-table [data-col="stars"],
+  .configure-table-col .leaderboard-table [data-cell="stars"],
+  .configure-table-col .leaderboard-table [data-col="suspicion"],
+  .configure-table-col .leaderboard-table [data-cell="suspicion"] {
+    display: none;
+  }
+}
+
+@media (max-width: 1279px) {
   .configure-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .configure-delta-col {
+    position: static;
   }
 }
 
@@ -451,6 +489,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   background: var(--bg-surface-elevated);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-pill);
@@ -568,7 +608,7 @@
   background: var(--bg-surface-elevated);
 }
 
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   [data-compare-table-host] > .table-scroll {
     overflow-x: auto;
   }
