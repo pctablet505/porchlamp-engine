@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import time
 import urllib.request
+import urllib.response
+from http.client import HTTPMessage
 from pathlib import Path
 
 import pytest
@@ -14,6 +17,7 @@ import pytest
 from phone import entry, httpgate, runner
 from phone.entry import Engine
 from phone.httpgate import HostRefused, WouldBlock
+from porchlamp.collect import ghcli
 from porchlamp.collect import net as collect_net
 from tests.helpers.fakes import FakeHTTP, github_responder, loopback_gate_options
 from tests.helpers.rig import GH, LAN, T0, WIFI, Rig, leaks
@@ -214,6 +218,54 @@ def test_remove_tokens_forgets_both_and_stops_the_listener_and_deletes_nothing(t
     assert all(after.get(rel) == digest for rel, digest in before.items() if not rel.startswith("state/"))
     assert not leaks(r.home, [GH, LAN])
     assert r.eng.redactor(LAN) == LAN                                    # forgotten: no exact secret is held any more
+
+
+LIST_CANARY = "ghp_CANARYlist0123456789abcdefABCDEFG"
+ENV_CANARY = "ghp_CANARYenv00123456789abcdefABCDEFGH"
+TOKEN_ENV = ("PORCHLAMP_GH_TOKENS", "GITHUB_TOKEN")
+
+
+class RecordingOpener:
+    """ghcli's opener, replaced: records each request's Authorization header and answers 200 with ``{}``."""
+
+    def __init__(self) -> None:
+        self.auth: list[str | None] = []
+
+    def open(self, req, timeout=None):
+        self.auth.append(req.get_header("Authorization"))
+        return urllib.response.addinfourl(io.BytesIO(b"{}"), HTTPMessage(), req.full_url, 200)
+
+
+def test_tokens_env_cannot_outrank_accepted_token(tmp_path, github, monkeypatch):
+    opener = RecordingOpener()
+    monkeypatch.setattr(ghcli, "_OPENER", opener)
+    r = token_rig(tmp_path, github)
+    assert json.loads(r.eng.test_token(GH))["state"] == "accepted"
+    r.eng.stop()                                                         # Start again: the token is the same, so only start() pops
+    monkeypatch.setenv("PORCHLAMP_GH_TOKENS", f"{LIST_CANARY},{LIST_CANARY}-2")
+    monkeypatch.setenv("GITHUB_TOKEN", ENV_CANARY)
+    r.eng.start(GH, LAN)
+    assert r.eng.controls.block_reason("api.github.com") is None         # so the request below cannot wait
+    assert ghcli.run(["api", "repos/o/n"]).returncode == 0
+    assert opener.auth == [f"Bearer {GH}"]                               # the accepted token, and no canary in any header
+    assert [n for n in TOKEN_ENV if n in os.environ] == []
+
+
+def test_set_tokens_pops_tokens_env(tmp_path, github, monkeypatch):
+    r = token_rig(tmp_path, github)
+    monkeypatch.setenv("PORCHLAMP_GH_TOKENS", LIST_CANARY)
+    monkeypatch.setenv("GITHUB_TOKEN", ENV_CANARY)
+    r.eng.set_tokens(GH + "-new", LAN)                                   # a different token: GH_TOKEN is popped, so are they
+    assert [n for n in TOKEN_ENV if n in os.environ] == []
+
+
+def test_forget_tokens_clears_token_env(tmp_path, github, monkeypatch):
+    r = token_rig(tmp_path, github)
+    assert json.loads(r.eng.test_token(GH))["state"] == "accepted" and os.environ["GH_TOKEN"] == GH
+    monkeypatch.setenv("PORCHLAMP_GH_TOKENS", LIST_CANARY)
+    monkeypatch.setenv("GITHUB_TOKEN", ENV_CANARY)
+    assert json.loads(r.eng.danger("remove_tokens", "remove_tokens"))["ok"] is True
+    assert [n for n in ("GH_TOKEN", *TOKEN_ENV) if n in os.environ] == []
 
 
 # ---- danger ---------------------------------------------------------------------------------------------------------

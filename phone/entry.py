@@ -40,6 +40,7 @@ TOKEN_RETRY_S = 60.0
 TOKEN_BLOCKED_RETRY_S = 5.0
 HALT_WAIT_S = 20.0
 DANGER_ACTIONS = ("reset", "move_data_aside", "remove_tokens")
+TOKEN_ENV = ("PORCHLAMP_GH_TOKENS", "GITHUB_TOKEN")   # ghcli reads these ahead of, or in place of, GH_TOKEN
 REPO_LINE = re.compile(r"^[\w.-]+/[\w.-]+ \[[^\]]*\]: ")
 
 
@@ -175,7 +176,8 @@ class Engine:
                 old, self._gh_token = self._gh_token, gh
                 self.redactor.discard(old)
                 self.redactor.add(gh)
-                os.environ.pop("GH_TOKEN", None)
+                for name in ("GH_TOKEN", *TOKEN_ENV):
+                    os.environ.pop(name, None)
                 if gh is None:
                     self.controls.set_token(False)
                 else:
@@ -259,8 +261,8 @@ class Engine:
             os.environ["PORCHLAMP_GH"] = "http"
             os.environ["PORCHLAMP_ENGINE"] = str(ENGINE_ROOT)
             os.environ["PORCHLAMP_RATE_FLOOR"] = str(self.settings.value("rate_floor"))
-            for hook in ("PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API"):
-                os.environ.pop(hook, None)   # the API host is fixed: no hook may move it
+            for hook in ("PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API", *TOKEN_ENV):
+                os.environ.pop(hook, None)   # the API host is fixed, and only the accepted token is used
             marker = self.home / "state" / "running"
             if marker.is_file() and not was_stopped:
                 self.restart_ts = self.clock()
@@ -700,7 +702,8 @@ class Engine:
             self.redactor.discard(self._lan_token)
             self._gh_token = self._lan_token = None
             self._last_test = None
-            os.environ.pop("GH_TOKEN", None)
+            for name in ("GH_TOKEN", *TOKEN_ENV):
+                os.environ.pop(name, None)
             self.controls.set_token(False)
         self.lan.set_token(None)
         self.gate.kick()

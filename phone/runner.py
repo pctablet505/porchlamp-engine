@@ -28,6 +28,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Callable
 
+from phone import archive
+
 #: A layer's name in plain words (the app's vocabulary is "step", never "layer").
 STEP_NAMES: dict[str, str] = {
     "L1": "Pull requests",
@@ -48,6 +50,18 @@ MAIN_LAYERS: list[tuple[str, str]] = [
     ("L4", "author_history"),
 ]
 KEYLESS_LAYER = ("LK", "depsdev,scorecard,downloads")
+
+#: Extra gather.py flags per step. ``--skip-ineligible`` prunes ineligible repos and stops a confirmed black hole after
+#: its pull-request fetch; it reads github_meta and tree (L0), pr_window (L1) and repo_object (L2) from disk, so it goes
+#: only on the steps after those were refreshed in the same cycle. Never ``--dirty``: under ``--collectors`` it forces
+#: every repo on every run.
+LAYER_FLAGS: dict[str, tuple[str, ...]] = {
+    "L2": ("--skip-ineligible",),
+    "L3g": ("--skip-ineligible",),
+    "L3c": ("--skip-ineligible",),
+    "L4": ("--skip-ineligible",),
+    "LK": ("--skip-ineligible",),
+}
 
 PAGE = 25
 PAGE_RETRY = 10
@@ -262,7 +276,7 @@ def run_layer(
         tee = _Tee(log)
         try:
             with contextlib.redirect_stdout(tee):  # type: ignore[arg-type]
-                gather_main(["--all", "--graphql-bulk", "--collectors", collectors])
+                gather_main(["--all", "--graphql-bulk", "--collectors", collectors, *LAYER_FLAGS.get(layer, ())])
         except (Exception, SystemExit):
             tee.finish()
             log(f"{layer}: gatherer raised in run {run}")
@@ -279,6 +293,10 @@ def run_layer(
             _write_marker(marker_dir / f"{layer}.complete", now)
             log(f"{layer}: COMPLETE, two runs agree on {fail} failures")
             _note(notify, "step_done", layer=layer)
+            try:
+                archive.build_archive(home, layer)  # so GET /manifest.json answers at once, not after minutes of gzip
+            except OSError as exc:
+                log(f"archive for {layer} not built: {exc}; the pull builds it")
             return 0
         prev = fail
     log(f"{layer}: NOT confirmed after {max_runs} runs")
