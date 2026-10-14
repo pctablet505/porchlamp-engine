@@ -67,10 +67,28 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://pctablet505.github.io/porchlamp/?tab=notranked</loc>
+    <lastmod>2026-10-14</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://pctablet505.github.io/porchlamp/?tab=matrix</loc>
     <lastmod>2026-10-14</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://pctablet505.github.io/porchlamp/?tab=compare</loc>
+    <lastmod>2026-10-14</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://pctablet505.github.io/porchlamp/?tab=configure</loc>
+    <lastmod>2026-10-14</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://pctablet505.github.io/porchlamp/?tab=methodology</loc>

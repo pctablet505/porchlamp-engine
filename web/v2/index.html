@@ -58,13 +58,16 @@
           <li><strong>Accessibility (15%):</strong> Active Good First Issues, Newcomer Conversion, Newcomer Return Rate (90d), and Developer Experience.</li>
         </ul>
         <p>
-          Explore rankings by contributor lens:
-          <a href="?persona=balanced">Balanced Leaderboard</a> ·
+          Explore rankings by contributor lens and screen:
+          <a href="./">Balanced Leaderboard</a> ·
           <a href="?persona=first_timer">Best Open-Source Projects for First-Timers</a> ·
           <a href="?persona=career_capital">Career Capital</a> ·
           <a href="?persona=senior_systems">Senior Systems</a> ·
           <a href="?persona=ai_assisted">AI-Assisted Contributors</a> ·
+          <a href="?tab=notranked">Not Ranked (Gated &amp; Unrated)</a> ·
           <a href="?tab=matrix">Leverage vs. Friction Matrix</a> ·
+          <a href="?tab=compare">Compare Repositories</a> ·
+          <a href="?tab=configure">Configure Custom Weights</a> ·
           <a href="?tab=methodology">Full Methodology &amp; Verification Hashes</a>
         </p>
         <p>
@@ -76,34 +79,42 @@
           <a href="?eco=maven">Java (Maven)</a> ·
           <a href="?eco=systems">Systems (C/C++/Zig)</a>
         </p>
-        <h2>Top ranked open-source repositories (Balanced snapshot 2026-10-13c, 3,407 ranked of 11,000 evaluated)</h2>
-        <table>
-          <thead>
-            <tr><th>Rank</th><th>Repository</th><th>Ecosystem</th><th>Porchlamp Score</th><th>Quadrant</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>1</td><td>meshery/meshery</td><td>npm</td><td>81.09</td><td>Sweet Spot</td></tr>
-            <tr><td>2</td><td>WordPress/gutenberg</td><td>npm</td><td>80.80</td><td>Sweet Spot</td></tr>
-            <tr><td>3</td><td>ggml-org/llama.cpp</td><td>systems</td><td>80.78</td><td>Sweet Spot</td></tr>
-            <tr><td>4</td><td>rust-lang/rust</td><td>crates</td><td>80.69</td><td>Sweet Spot</td></tr>
-            <tr><td>5</td><td>prometheus/prometheus</td><td>go</td><td>79.11</td><td>Sweet Spot</td></tr>
-            <tr><td>6</td><td>servo/rust-smallvec</td><td>crates</td><td>78.98</td><td>Sweet Spot</td></tr>
-            <tr><td>7</td><td>kornia/kornia</td><td>pypi</td><td>78.62</td><td>Sweet Spot</td></tr>
-            <tr><td>8</td><td>rust-lang/libc</td><td>crates</td><td>78.07</td><td>Sweet Spot</td></tr>
-            <tr><td>9</td><td>freeCodeCamp/freeCodeCamp</td><td>npm</td><td>77.50</td><td>Sweet Spot</td></tr>
-            <tr><td>10</td><td>ant-design/ant-design</td><td>npm</td><td>77.49</td><td>Sweet Spot</td></tr>
-            <tr><td>11</td><td>kedacore/keda</td><td>go</td><td>77.00</td><td>Sweet Spot</td></tr>
-            <tr><td>12</td><td>external-secrets/external-secrets</td><td>go</td><td>76.61</td><td>Sweet Spot</td></tr>
-            <tr><td>13</td><td>organicmaps/organicmaps</td><td>systems</td><td>76.39</td><td>Sweet Spot</td></tr>
-            <tr><td>14</td><td>webdriverio/webdriverio</td><td>npm</td><td>76.31</td><td>Sweet Spot</td></tr>
-            <tr><td>15</td><td>apache/airflow</td><td>pypi</td><td>76.09</td><td>Sweet Spot</td></tr>
-            <tr><td>16</td><td>onnx/onnx</td><td>pypi</td><td>75.87</td><td>Sweet Spot</td></tr>
-            <tr><td>17</td><td>matplotlib/matplotlib</td><td>pypi</td><td>75.83</td><td>Sweet Spot</td></tr>
-            <tr><td>18</td><td>kubernetes-sigs/cluster-api</td><td>go</td><td>75.37</td><td>Sweet Spot</td></tr>
-            <tr><td>19</td><td>biomejs/biome</td><td>crates</td><td>75.21</td><td>Sweet Spot</td></tr>
-            <tr><td>20</td><td>moby/moby</td><td>go</td><td>74.85</td><td>Sweet Spot</td></tr>
-          </tbody>
-        </table>
+        <h2>Top ranked open-source repositories (Balanced snapshot 2026-10-13c)</h2>
+        <p>
+          3,407 ranked, 6,267 gated, and 1,326 unrated of 11,000 evaluated repositories (<a href="?tab=notranked">Not ranked</a> lists every gated and unrated repository with its plain-English reason). Tier is capped when parameter coverage is below 95%.
+        </p>
+        <div class="seo-fallback-table-wrap">
+          <table>
+            <thead>
+              <tr><th>Rank</th><th>Repository</th><th>Ecosystem</th><th>Porchlamp</th><th>Coverage</th><th>Tier</th><th>Quadrant</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1</td><td><a href="?repo=meshery%2Fmeshery">meshery/meshery</a></td><td>npm</td><td>81.09</td><td>65%</td><td>B (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>2</td><td><a href="?repo=WordPress%2Fgutenberg">WordPress/gutenberg</a></td><td>npm</td><td>80.80</td><td>61%</td><td>B (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>3</td><td><a href="?repo=ggml-org%2Fllama.cpp">ggml-org/llama.cpp</a></td><td>systems</td><td>80.78</td><td>78%</td><td>B (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>4</td><td><a href="?repo=rust-lang%2Frust">rust-lang/rust</a></td><td>crates</td><td>80.69</td><td>61%</td><td>B (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>5</td><td><a href="?repo=prometheus%2Fprometheus">prometheus/prometheus</a></td><td>go</td><td>79.11</td><td>81%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>6</td><td><a href="?repo=servo%2Frust-smallvec">servo/rust-smallvec</a></td><td>crates</td><td>78.98</td><td>94%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>7</td><td><a href="?repo=kornia%2Fkornia">kornia/kornia</a></td><td>pypi</td><td>78.62</td><td>81%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>8</td><td><a href="?repo=rust-lang%2Flibc">rust-lang/libc</a></td><td>crates</td><td>78.07</td><td>92%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>9</td><td><a href="?repo=freeCodeCamp%2FfreeCodeCamp">freeCodeCamp/freeCodeCamp</a></td><td>npm</td><td>77.50</td><td>65%</td><td>B (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>10</td><td><a href="?repo=ant-design%2Fant-design">ant-design/ant-design</a></td><td>npm</td><td>77.49</td><td>65%</td><td>B (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>11</td><td><a href="?repo=kedacore%2Fkeda">kedacore/keda</a></td><td>go</td><td>77.00</td><td>92%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>12</td><td><a href="?repo=external-secrets%2Fexternal-secrets">external-secrets/external-secrets</a></td><td>go</td><td>76.61</td><td>92%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>13</td><td><a href="?repo=organicmaps%2Forganicmaps">organicmaps/organicmaps</a></td><td>systems</td><td>76.39</td><td>92%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>14</td><td><a href="?repo=webdriverio%2Fwebdriverio">webdriverio/webdriverio</a></td><td>npm</td><td>76.31</td><td>81%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>15</td><td><a href="?repo=apache%2Fairflow">apache/airflow</a></td><td>pypi</td><td>76.09</td><td>61%</td><td>B (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>16</td><td><a href="?repo=onnx%2Fonnx">onnx/onnx</a></td><td>pypi</td><td>75.87</td><td>92%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>17</td><td><a href="?repo=matplotlib%2Fmatplotlib">matplotlib/matplotlib</a></td><td>pypi</td><td>75.83</td><td>92%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>18</td><td><a href="?repo=kubernetes-sigs%2Fcluster-api">kubernetes-sigs/cluster-api</a></td><td>go</td><td>75.37</td><td>92%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>19</td><td><a href="?repo=biomejs%2Fbiome">biomejs/biome</a></td><td>crates</td><td>75.21</td><td>65%</td><td>B (capped)</td><td>Sweet Spot</td></tr>
+              <tr><td>20</td><td><a href="?repo=moby%2Fmoby">moby/moby</a></td><td>go</td><td>74.85</td><td>81%</td><td>A (capped)</td><td>Sweet Spot</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="seo-fallback-meta">
+          Snapshot <code>2026-10-13c</code> · benchmark <code>2.0.0-rc1</code> · constants <code>aca719a92226…</code> · manifest <code>64813656fcfd…</code> · reproduce: <code>python -m porchlamp.snapshot reproduce 2026-10-13c</code>
+        </p>
       </article>
     </main>
     <footer class="app-footer" id="app-footer"></footer>

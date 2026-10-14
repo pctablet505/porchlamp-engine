@@ -21,6 +21,9 @@ import {
   reduce,
   parseSearch,
   serializeSearch,
+  canonicalHrefForState,
+  VALID_PERSONAS,
+  VALID_TABS,
   countRankChanges,
   resolveOpenTargetKey,
   footerFieldsFor,
@@ -1260,6 +1263,98 @@ test("index.html carries absolute link-preview tags and the preview image exists
   assert.equal(png.subarray(1, 4).toString(), "PNG");
   assert.equal(png.readUInt32BE(16), 1200, "og:image:width matches the file");
   assert.equal(png.readUInt32BE(20), 630, "og:image:height matches the file");
+});
+
+test("SEO: canonicalHrefForState, robots.txt, sitemap.xml, Search Console verification, and U-1/U-2/U-6 static fallback", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const webRoot = path.join(here, "..");
+  const html = readFileSync(path.join(webRoot, "index.html"), "utf8");
+  const base = html.match(/<link rel="canonical" href="([^"]*)">/)[1];
+
+  // 1. canonicalHrefForState strips pre-existing query strings and serializes canonical state
+  assert.equal(canonicalHrefForState("", defaultState()), "");
+  assert.equal(canonicalHrefForState(base, defaultState()), base);
+  assert.equal(
+    canonicalHrefForState(`${base}?persona=balanced&page=1`, { ...defaultState(), ...parseSearch("?persona=balanced&page=1") }),
+    base,
+    "default persona and page=1 canonicalize to bare site root"
+  );
+  assert.equal(
+    canonicalHrefForState(base, { ...defaultState(), ...parseSearch("?persona=first_timer") }),
+    `${base}?persona=first_timer`
+  );
+  assert.equal(
+    canonicalHrefForState(base, { ...defaultState(), ...parseSearch("?tab=methodology") }),
+    `${base}?tab=methodology`
+  );
+
+  // 2. robots.txt allows root and points to the canonical sitemap.xml
+  const robots = readFileSync(path.join(webRoot, "robots.txt"), "utf8");
+  assert.match(robots, /^User-agent: \*\nAllow: \/\n\nSitemap: /, "robots.txt header");
+  assert.ok(robots.trim().endsWith(`Sitemap: ${base}sitemap.xml`), "robots.txt names canonical sitemap");
+
+  // 3. Google Search Console verification file
+  const gscFile = "googled8fac072696a3851.html";
+  const gsc = readFileSync(path.join(webRoot, gscFile), "utf8").trim();
+  assert.equal(gsc, `google-site-verification: ${gscFile}`);
+
+  // 4. sitemap.xml: every <loc> starts with base, is unique, and round-trips through canonicalHrefForState
+  const sitemap = readFileSync(path.join(webRoot, "sitemap.xml"), "utf8");
+  const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+  assert.equal(locs.length, 16, "root + 4 non-default personas + 6 ecosystems + 5 non-default primary tabs");
+  assert.equal(new Set(locs).size, locs.length, "no duplicate <loc> in sitemap.xml");
+  for (const loc of locs) {
+    assert.ok(loc.startsWith(base), `sitemap <loc> starts with base: ${loc}`);
+    const query = loc.slice(base.length);
+    const hydrated = { ...defaultState(), ...parseSearch(query) };
+    assert.equal(
+      canonicalHrefForState(base, hydrated),
+      loc,
+      `sitemap <loc> ${loc} must equal its canonical serialized state`
+    );
+  }
+  for (const persona of VALID_PERSONAS.filter((p) => p !== "balanced")) {
+    assert.ok(locs.includes(`${base}?persona=${persona}`), `sitemap includes persona=${persona}`);
+  }
+  for (const [eco] of copy.ECOSYSTEMS) {
+    assert.ok(locs.includes(`${base}?eco=${eco}`), `sitemap includes eco=${eco}`);
+  }
+  for (const tab of VALID_TABS.filter((t) => t !== "ranked")) {
+    assert.ok(locs.includes(`${base}?tab=${tab}`), `sitemap includes tab=${tab}`);
+  }
+
+  // 5. index.html .seo-fallback: every internal link is canonical, U-2 excluded counts and U-6 hashes are present,
+  //    and all 20 rows carry U-1 coverage, tier, and ?repo= drawer links.
+  const articleMatch = html.match(/<article class="seo-fallback">([\s\S]*?)<\/article>/);
+  assert.ok(articleMatch, ".seo-fallback article exists");
+  const article = articleMatch[1];
+  assert.match(article, /3,407 ranked, 6,267 gated, and 1,326 unrated of 11,000 evaluated/, "U-2 excluded counts");
+  assert.match(article, /python -m porchlamp\.snapshot reproduce 2026-10-13c/, "U-6 reproduce command");
+
+  const hrefs = [...article.matchAll(/<a href="([^"]+)">/g)].map((m) => m[1]);
+  assert.ok(hrefs.length >= 30, "persona, tab, ecosystem, and top-20 repo links");
+  for (const href of hrefs) {
+    if (href === "./") continue;
+    const hydrated = { ...defaultState(), ...parseSearch(href) };
+    assert.equal(
+      serializeSearch(hydrated),
+      href,
+      `fallback link ${href} must already be in canonical serializeSearch form`
+    );
+  }
+
+  const rows = [...article.match(/<tbody>([\s\S]*?)<\/tbody>/)[1].matchAll(/<tr>([\s\S]*?)<\/tr>/g)];
+  assert.equal(rows.length, 20, "top-20 balanced repositories pre-rendered");
+  rows.forEach((rowMatch, idx) => {
+    const cells = [...rowMatch[1].matchAll(/<td>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
+    assert.equal(cells.length, 7, `row ${idx + 1} has 7 columns (Rank, Repository, Ecosystem, Porchlamp, Coverage, Tier, Quadrant)`);
+    assert.equal(cells[0], String(idx + 1), "rank cell");
+    assert.match(cells[1], /^<a href="\?repo=[^"]+">[^<]+\/[^<]+<\/a>$/, "U-1 repo cell links to evidence drawer");
+    assert.match(cells[3], /^\d+\.\d{2}$/, "Porchlamp score formatted to 2 decimals");
+    assert.match(cells[4], /^\d+%$/, "U-1 coverage percentage present");
+    assert.match(cells[5], /^(?:S\+|S|A|B|C)(?: \(capped\))?$/, "U-1 tier with ceiling note present");
+    assert.equal(cells[6], "Sweet Spot");
+  });
 });
 
 // ---- PR 1 UX/UI fixes ---------------------------------------------------------------------
