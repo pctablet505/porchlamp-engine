@@ -263,6 +263,11 @@ class BlackHoleEvidence(StrictModel):
     source_sha256: str | None = None
     excluded: BlackHoleExcludedCounts = BlackHoleExcludedCounts()
     counted_prs: list[BlackHoleCountedPR] = []
+    #: True when the raw envelope's PR nodes carry the RFC-0008 fields
+    #: (`isDraft`, ready/close timeline), so the draft and self-closed
+    #: exclusions were applied; False when the data predates them (those
+    #: counts are not measured zeros); absent (None) = unknown.
+    rule_inputs_measured: bool | None = None
 
 
 class RepoDetailResponse(StrictModel):

@@ -1,9 +1,11 @@
-"""Acceptance tests for Black-Hole Determination Evidence API & derivation.
+"""Black-hole evidence: the raw-window breakdown and the API's refusal to
+show a panel the raw envelope does not support.
 
-Tests that GET /v1/porchlamp/repos/{owner}/{name} returns accurate black_hole_evidence
-for black_hole gated repositories (and None for non-black-hole repositories),
-and that black_hole_window_breakdown_from_raw populates counted_prs and excluded
-without exposing contributor logins (Privacy & Security).
+black_hole_window_breakdown_from_raw populates counted_prs and excluded
+without exposing contributor logins (Privacy & Security). The API headline is
+recomputed from the raw envelope at the snapshot clock (never from a params
+row: the store writes none for a gated repository); the store-built path is
+tests/serve/test_black_hole_evidence_store_built.py.
 """
 from __future__ import annotations
 
@@ -16,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi.testclient import TestClient
 
-from porchlamp.core import gates
 from porchlamp.derive.gate_evidence import black_hole_window_breakdown_from_raw
 from porchlamp.serve.app import create_app
 from serve.helpers import SNAPSHOT_ID, finalize, fresh_db
@@ -39,34 +40,7 @@ def test_black_hole_evidence_api_and_derivation(tmp_path: Path) -> None:
             0, "black_hole", 0, 0.0, "{}", "{}", "[]",
         ),
     )
-    bh_repo_id = conn.execute(
-        "SELECT id FROM repositories WHERE owner = ? AND name = ?",
-        ("ghost-org", "abandoned-lib"),
-    ).fetchone()[0]
-
-    # 2. Insert gr14_ghost_rate parameter evidence
-    conn.execute(
-        """
-        INSERT INTO params (
-            repo_id, param_id, raw_value, score, measured, n, window_start, window_end, source, source_hash, fetched_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            bh_repo_id,
-            "gr14_ghost_rate",
-            "0.80",
-            20.0,
-            1,
-            15,
-            "2026-03-01T00:00:00Z",
-            "2026-09-01T00:00:00Z",
-            "raw/pr_window/ghost-org__abandoned-lib.json",
-            "h" * 64,
-            "2026-09-01T01:00:00Z",
-        ),
-    )
-
-    # 3. Insert a healthy, rated repository (not a black hole)
+    # 2. Insert a healthy, rated repository (not a black hole)
     conn.execute(
         """
         INSERT INTO repositories (
@@ -80,7 +54,7 @@ def test_black_hole_evidence_api_and_derivation(tmp_path: Path) -> None:
         ),
     )
 
-    # 4. Write raw pr_window envelope on disk under tmp_path / "raw" / "pr_window"
+    # 3. Write raw pr_window envelope on disk under tmp_path / "raw" / "pr_window"
     raw_root = tmp_path / "raw"
     pr_window_dir = raw_root / "pr_window"
     pr_window_dir.mkdir(parents=True, exist_ok=True)
@@ -206,38 +180,9 @@ def test_black_hole_evidence_api_and_derivation(tmp_path: Path) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["gate_reason"] == "black_hole"
-    assert data["black_hole_evidence"] is not None
-
-    bh = data["black_hole_evidence"]
-    assert bh["unanswered"] == 12
-    assert bh["population_n"] == 15
-    assert bh["unanswered_share"] == 0.80
-    expected_w_lb = round(gates.wilson_lower_bound_from_share(0.80, 15), 4)
-    assert bh["wilson_lower_bound"] == expected_w_lb
-    assert bh["window_start"] == "2026-03-01T00:00:00Z"
-    assert bh["window_end"] == "2026-09-01T00:00:00Z"
-    assert bh["source"] == "raw/pr_window/ghost-org__abandoned-lib.json"
-    assert bh["source_sha256"] == "h" * 64
-
-    # Check counted PRs and exclusions in API response
-    assert bh["excluded"]["draft"] == 1
-    assert bh["excluded"]["self_closed"] == 1
-    api_pr_numbers = [pr["number"] for pr in bh["counted_prs"]]
-    assert api_pr_numbers == [101, 102]
-
-    # PRIVACY: contributor logins must NEVER appear in the response payload
-    bh_json_str = json.dumps(bh)
-    for forbidden in (
-        "alice",
-        "bob",
-        "carol",
-        "dan",
-        "eve",
-        "secret",
-        "external-alice",
-        "maintainer-carol",
-    ):
-        assert forbidden not in bh_json_str, f"contributor login leak detected: {forbidden}"
+    # The raw window says 1 of 2 unanswered: not a black hole, so the API
+    # shows no panel rather than one that contradicts the stored verdict.
+    assert data["black_hole_evidence"] is None
 
     # Non-black-hole repo returns None for black_hole_evidence
     resp2 = client.get("/v1/porchlamp/repos/active-org/healthy-lib")

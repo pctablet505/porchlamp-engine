@@ -520,8 +520,12 @@ export function renderBlackHoleEvidence(row, evidenceRows) {
     let excludedCountsHtml = "";
     if (excluded) {
       const parts = [];
-      if (excluded.draft > 0) parts.push(`${excluded.draft} draft`);
-      if (excluded.self_closed > 0) parts.push(`${excluded.self_closed} author self-closed`);
+      // Draft and self-closed counts exist only when the envelope recorded
+      // the RFC-0008 fields; otherwise their zeros are not measurements.
+      if (evidence.rule_inputs_measured === true) {
+        if (excluded.draft > 0) parts.push(`${excluded.draft} draft`);
+        if (excluded.self_closed > 0) parts.push(`${excluded.self_closed} author self-closed`);
+      }
       if (excluded.new_account > 0) parts.push(`${excluded.new_account} new account (<90d)`);
       if (excluded.bot > 0) parts.push(`${excluded.bot} bot`);
       if (excluded.internal > 0) parts.push(`${excluded.internal} internal/maintainer`);
@@ -564,6 +568,9 @@ export function renderBlackHoleEvidence(row, evidenceRows) {
       windowHtml +
       sourceHtml +
       `<p class="black-hole-exclusions">${escapeHtml(copy.BLACK_HOLE_EXCLUSIONS_TEXT)}</p>` +
+      (evidence && evidence.rule_inputs_measured === false
+        ? `<p class="black-hole-not-measured">${escapeHtml(copy.BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT)}</p>`
+        : "") +
       excludedCountsHtml +
       prTableHtml +
       `<p class="black-hole-recheck">${escapeHtml(copy.BLACK_HOLE_RECHECK_TEXT)}</p>`;

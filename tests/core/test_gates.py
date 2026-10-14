@@ -1180,3 +1180,92 @@ def test_rfc0008_evaluate_gate5_window_breakdown() -> None:
     assert bd.excluded_under_14d == 1
     assert bd.is_black_hole is False
 
+
+
+def _window_pr(created: datetime.datetime, **fields: Any) -> Any:
+    from porchlamp.core import gates
+
+    return gates.GhostRatePR(
+        created_at=created.isoformat(), is_external=True, is_bot_author=False,
+        first_substantive_response_at=fields.pop("response_at", None), **fields,
+    )
+
+
+def test_rfc0008_rule1_reply_during_the_draft_period_answers() -> None:
+    """Finding 3 (R1 probe_r1b): draft opened 60 d ago, maintainer reply on day
+    5, ready on day 13, a second reply on day 15. The PR-node mapping keeps the
+    earliest reply (day 5, before the clock start). Lead ruling 2026-10-14: a
+    reply made while the PR was still a draft counts, so the PR is answered."""
+    from porchlamp.core import gates
+
+    created = NOW - datetime.timedelta(days=60)
+    pr = _window_pr(created, is_draft=True,
+                    ready_for_review_at=(created + datetime.timedelta(days=13)).isoformat(),
+                    response_at=(created + datetime.timedelta(days=5)).isoformat())
+    bd = gates.evaluate_gate5_window([pr], NOW)
+    assert (bd.unanswered, bd.population_n) == (0, 1)
+    assert bd.counted_prs[0].response_kind == "review_or_comment"
+
+
+def test_rfc0008_rule1_ready_age_boundary_and_min_age_constant(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Finding 6: the 14-d observation age is GATE5_MIN_AGE_DAYS (the value the
+    methodology page publishes), not the response deadline. Ready 13 d ago is
+    too young, ready 14 d ago is counted; raising the minimum age to 20 moves
+    the 14-d PR out while the deadline stays 14."""
+    from porchlamp.core import gates
+
+    created = NOW - datetime.timedelta(days=60)
+    young = _window_pr(created, ready_for_review_at=(NOW - datetime.timedelta(days=13)).isoformat())
+    ripe = _window_pr(created, ready_for_review_at=(NOW - datetime.timedelta(days=14)).isoformat())
+    bd = gates.evaluate_gate5_window([young, ripe], NOW)
+    assert (bd.population_n, bd.excluded_under_14d) == (1, 1)
+
+    monkeypatch.setattr(gates, "GATE5_MIN_AGE_DAYS", 20)
+    bd = gates.evaluate_gate5_window([young, ripe], NOW)
+    assert (bd.population_n, bd.excluded_under_14d) == (0, 2)
+
+
+def test_is_black_hole_counts_needs_ten_prs() -> None:
+    """Mutant M2: 9 of 9 unanswered (Wilson bound about 0.77) is below the
+    minimum population and is not a black hole; 10 of 10 is."""
+    from porchlamp.core import gates
+
+    assert gates.is_black_hole_counts(9, 9) is False
+    assert gates.is_black_hole_counts(10, 10) is True
+
+
+def test_rfc0008_rule3_account_age_boundary() -> None:
+    """Mutants M5/M6: an account 89 d old when the PR opened is excluded; 90 d
+    and 91 d old are counted (>= MIN_ACCOUNT_AGE_DAYS)."""
+    from porchlamp.core import gates
+
+    created = NOW - datetime.timedelta(days=30)
+    for age_days, excluded in ((89, 1), (90, 0), (91, 0)):
+        pr = _window_pr(created, author_created_at=(created - datetime.timedelta(days=age_days)).isoformat())
+        bd = gates.evaluate_gate5_window([pr], NOW)
+        assert (bd.excluded_new_account, bd.population_n) == (excluded, 1 - excluded), age_days
+
+
+def test_rfc0008_rule2_reply_at_exactly_closed_at_keeps_the_pr() -> None:
+    """Mutant M10: the author closes at the very instant of a (late) maintainer
+    reply. The reply is at-or-before the close, so the PR is not self-closed
+    silence: it stays counted, and unanswered (the reply came after 14 d)."""
+    from porchlamp.core import gates
+
+    created = NOW - datetime.timedelta(days=60)
+    at = (created + datetime.timedelta(days=20)).isoformat()
+    pr = _window_pr(created, response_at=at, closed_at=at, closed_by_author=True)
+    bd = gates.evaluate_gate5_window([pr], NOW)
+    assert (bd.excluded_self_closed, bd.population_n, bd.unanswered) == (0, 1, 1)
+
+
+def test_rfc0008_rule4_maintainer_close_at_exactly_14_days_answers() -> None:
+    """Mutant M12: a maintainer close exactly 14 d after the clock start is
+    inside the deadline and answers the PR."""
+    from porchlamp.core import gates
+
+    created = NOW - datetime.timedelta(days=60)
+    pr = _window_pr(created, closed_by_maintainer_at=(created + datetime.timedelta(days=14)).isoformat())
+    bd = gates.evaluate_gate5_window([pr], NOW)
+    assert (bd.unanswered, bd.population_n) == (0, 1)
+    assert bd.counted_prs[0].response_kind == "closed_by_maintainer"

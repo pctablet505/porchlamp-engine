@@ -1,7 +1,7 @@
 {
   "benchmark_version": "2.0.0-rc1",
   "schema_version": 2,
-  "constants_hash": "aca719a922264ba5edb6adcdab6c0c08eaff7a315d0e5818a567509e5b0d3ba9",
+  "constants_hash": "6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94",
   "pillars": [
     {
       "name": "responsiveness",
@@ -376,7 +376,7 @@
     {
       "id": "D-GATE-5",
       "name": "Not a black hole",
-      "criterion": "over external PRs by non-bot authors (D-IN-1) opened in the trailing PR window and at least the minimum age, the share with no human reply, review or merge within the response deadline of opening must not exceed the ceiling (a minimum population is required, else the gate is UNDECIDED rather than failed); the same share is the gr14_ghost_rate parameter. A reply or review counts when it is substantive (D-IN-2: any review, or a comment of 40+ characters, by a non-author, non-bot member, owner or collaborator, or by an account that merged a PR in the window, since org membership can be private); a merge within the deadline counts on its own; the minimum age is judged at the earlier of the reference time and the time GitHub was read, so a PR observed for less than the minimum age is not judged (rulings 2026-10-06)",
+      "criterion": "over external PRs by non-bot authors (D-IN-1) opened in the trailing PR window and at least the minimum age, the 95% one-sided Wilson lower confidence bound (z = 1.6448536269514722) on the zero-response share must not exceed the ceiling (a minimum population of 10 is required, else the gate is UNDECIDED rather than failed); the raw share is the gr14_ghost_rate parameter. A reply or review counts when it is substantive (D-IN-2: any review, or a comment of 40+ characters, by a non-author, non-bot member, owner or collaborator, or by an account that merged a PR in the window, since org membership can be private); a merge or maintainer close within the deadline counts on its own. Five false-positive exclusions apply (RFC-0008): draft PRs are excluded until marked ready for review (clock starts at ready_at); author self-closed PRs without prior maintainer response are excluded; accounts under 90 days old (MIN_ACCOUNT_AGE_DAYS) are excluded; maintainer closes within 14 days count as responses; and the 14-day observation age is judged from clock start against min(now, observed_at)",
       "reasons": [
         "black_hole"
       ],
@@ -725,6 +725,13 @@
       "summary": "Add `GATE6_HANDOFF_MIN_PRS = 5`, `GATE6_HANDOFF_MIN_SHARE = 0.5`, `GATE6_HANDOFF_NOTICES` and `GATE6_HANDOFF_RELAY_LOGIN_PREFIXES` (D-GATE-6: a repository whose own notices send outside PRs to another review system, e.g. Gerrit or a mailing list, is routed off-platform and is not failed at D-GATE-5). No rank movement on the fixture (no `pr_window` envelopes in its corpus); on the recorded data six repositories hand off.",
       "hash_before": "aa6c4cd6f702fdc738cafb68022eb2613491657a9cb74c180fc2a1bd1236e662",
       "hash_after": "aca719a922264ba5edb6adcdab6c0c08eaff7a315d0e5818a567509e5b0d3ba9"
+    },
+    {
+      "date": "2026-10-14",
+      "rfc": "RFC-0008",
+      "summary": "Add `GATE5_WILSON_Z = 1.6448536269514722` (D-GATE-5: 95% one-sided Wilson lower confidence bound on zero-response share, plus 5 false-positive reduction rules: draft exclusion/ready clock start, author self-close exclusion, <90d account exclusion, maintainer close within 14d as response). No rank movement on the fixture (no `pr_window` envelopes in its corpus).",
+      "hash_before": "aca719a922264ba5edb6adcdab6c0c08eaff7a315d0e5818a567509e5b0d3ba9",
+      "hash_after": "6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94"
     }
   ]
 }

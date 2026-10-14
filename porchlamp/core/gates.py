@@ -458,7 +458,7 @@ def evaluate_gate5_window(
             clock_start = created
 
         # 14-day observation age judged against clock_start
-        if (age_reference - clock_start) < deadline:
+        if (age_reference - clock_start) < timedelta(days=GATE5_MIN_AGE_DAYS):
             excluded_under_14d += 1
             continue
 
@@ -466,7 +466,7 @@ def evaluate_gate5_window(
         responses: list[tuple[datetime, str, str]] = []
         if pr.first_substantive_response_at is not None:
             resp_dt = _parse_iso(pr.first_substantive_response_at)
-            if clock_start <= resp_dt <= clock_start + deadline:
+            if resp_dt <= clock_start + deadline:
                 responses.append((resp_dt, "review_or_comment", pr.first_substantive_response_at))
 
         if pr.merged_at is not None:

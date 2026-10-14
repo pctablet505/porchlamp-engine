@@ -484,7 +484,10 @@ def black_hole_window_breakdown_from_raw(
     else:
         return None
 
-    observed_at = fetched_dt if fetched_dt is not None else (anchor_dt if now is not None else None)
+    # The verdict's rule (scripts/derive.py): age is judged at the earlier of
+    # the envelope's fetched_at and its window_anchor, whichever exist.
+    read_times = [t for t in (fetched_dt, anchor_dt) if t is not None]
+    observed_at = min(read_times) if read_times else None
 
     records = _ghost_rate_prs_from_nodes(prs)
     try:

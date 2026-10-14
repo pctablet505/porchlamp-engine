@@ -2019,6 +2019,7 @@ const FLAT_BLACK_HOLE_DETAIL = {
       internal: 5,
       under_14d: 6,
     },
+    rule_inputs_measured: true,
     counted_prs: [
       {
         number: 101,
@@ -2082,6 +2083,40 @@ test("renderBlackHoleEvidence: escapes untrusted strings against XSS", () => {
   assert.ok(!html.includes("<img src=x"));
   assert.ok(html.includes("&lt;script&gt;alert("));
   assert.ok(html.includes("&lt;img src=x"));
+});
+
+test("renderBlackHoleEvidence: data recorded before the RFC-0008 fields hides the draft and self-closed counts and says so", () => {
+  assert.equal(typeof copy.BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT, "string");
+  assert.ok(!copy.BLACK_HOLE_EXCLUSIONS_TEXT.includes("applied"));
+  const notMeasured = renderBlackHoleEvidence({
+    ...FLAT_BLACK_HOLE_DETAIL,
+    black_hole_evidence: { ...FLAT_BLACK_HOLE_DETAIL.black_hole_evidence, rule_inputs_measured: false },
+  });
+  assert.ok(notMeasured.includes(escapeHtml(copy.BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT)));
+  assert.ok(!notMeasured.includes("2 draft"));
+  assert.ok(!notMeasured.includes("author self-closed"));
+  assert.ok(notMeasured.includes("3 new account"));
+  const measured = renderBlackHoleEvidence(FLAT_BLACK_HOLE_DETAIL);
+  assert.ok(!measured.includes(escapeHtml(copy.BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT)));
+  assert.ok(measured.includes("2 draft"));
+});
+
+test("renderBlackHoleEvidence: an XSS payload in counted_prs[].created_at is rendered inert", () => {
+  const evidence = FLAT_BLACK_HOLE_DETAIL.black_hole_evidence;
+  const html = renderBlackHoleEvidence({
+    ...FLAT_BLACK_HOLE_DETAIL,
+    black_hole_evidence: {
+      ...evidence,
+      counted_prs: [{ ...evidence.counted_prs[0], created_at: '<svg onload=alert("created")>' }],
+    },
+  });
+  assert.ok(!html.includes("<svg onload="));
+  assert.ok(html.includes("&lt;svg onload="));
+});
+
+test("renderBlackHoleEvidence: an owner name that needs URL encoding produces an encoded PR link", () => {
+  const html = renderBlackHoleEvidence({ ...FLAT_BLACK_HOLE_DETAIL, owner: "org with space&co" });
+  assert.ok(html.includes('href="https://github.com/org%20with%20space%26co/abandoned-lib/pull/101"'));
 });
 
 test("renderDrawer: a black_hole gated repo renders the evidence panel while preserving 3 collapsed <details> sections and gate sentence precedence", () => {

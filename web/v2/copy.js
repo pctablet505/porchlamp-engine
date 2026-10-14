@@ -340,7 +340,9 @@ export const BLACK_HOLE_EVIDENCE_HEADING = "How this Black hole status was deter
 export const BLACK_HOLE_RULE_TEXT =
   "Rule (D-GATE-5, RFC-0008): A repository is classified as a Black hole only when at least 10 eligible external non-bot PRs were observed for 14+ days in the 180-day window and the 95% one-sided Wilson lower confidence bound on the 14-day unanswered share exceeds 50%.";
 export const BLACK_HOLE_EXCLUSIONS_TEXT =
-  "False-positive protections applied: Draft PRs (until marked ready for review), PRs closed by their own author before any maintainer response, and PRs from accounts under 90 days old are excluded. A maintainer review, >= 40-character comment, merge, or PR close within 14 days counts as a response.";
+  "False-positive protections (RFC-0008): Draft PRs (until marked ready for review), PRs closed by their own author before any maintainer response, and PRs from accounts under 90 days old are excluded. A maintainer review, >= 40-character comment, merge, or PR close within 14 days counts as a response.";
+export const BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT =
+  "The data of this snapshot was collected before drafts and self-closed pull requests were recorded, so those two exclusions were not applied.";
 export const BLACK_HOLE_RECHECK_TEXT =
   "Automatic recovery: Porchlamp re-evaluates the 180-day PR window whenever repository activity moves. If this project reviews patches off-GitHub (mailing list, Gerrit, Phabricator), open a re-check issue to route it under D-GATE-6 (RFC-0007).";
 
