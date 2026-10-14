@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { decidingTieLevel, SORTABLE_COLUMNS, renderColumnHeader } from "../components/table.js";
+import { decidingTieLevel, SORTABLE_COLUMNS, renderColumnHeader, sortColumnLabel } from "../components/table.js";
 import { KEY_ACTIONS, actionForKeyEvent } from "../components/keymap.js";
 import { renderCoverageBadge } from "../components/badge.js";
 import { renderBrand } from "../components/brand.js";
@@ -27,17 +27,17 @@ import {
   repoToLoadFromState,
 } from "../state.js";
 import * as copy from "../copy.js";
-import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal } from "../views/leaderboard.js";
+import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal, renderMobileSortBar, personaVisibleForState } from "../views/leaderboard.js";
 import { renderShell as notRankedRenderShell } from "../views/notranked.js";
 import { centeredScrollLeft } from "../components/primarynav.js";
 import { postReproject } from "../api.js";
-import { normalizeWeights, applyPresetRespectingLocks, renderControls, sortReprojectRows, topMovers, remainingReprojectPages, mergeReprojectPages } from "../views/configure.js";
+import { normalizeWeights, applyPresetRespectingLocks, renderControls, sortReprojectRows, filterReprojectRows, renderPager as renderConfigurePager, topMovers, remainingReprojectPages, mergeReprojectPages } from "../views/configure.js";
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
-import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody } from "../views/matrix.js";
+import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, clientToDomainCoords } from "../views/matrix.js";
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY } from "../components/scatter.js";
 import { synthesizeRows } from "../perf-fixtures.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape } from "../views/compare.js";
-import { renderDrawer, classifyKind, findRow } from "../views/drawer.js";
+import { renderDrawer, classifyKind, classifyKindForLens, renderPillarRadar, findRow } from "../views/drawer.js";
 import {
   personaVisibleCount,
   personaDelta,
@@ -829,14 +829,16 @@ test("findRow + classifyKind: an UNRATED repo renders its evidence table, not a 
   const html = renderDrawer(state);
   assert.ok(html.includes("repo-insufficient_evidence-0"));
 
-  // An unrated repo renders exactly one open <details> section, with
-  // persona, integrity, and composite sections omitted.
+  // An unrated repo renders open Pillars and evidence plus collapsed Persona view and Integrity,
+  // with Composite and Playbook omitted.
   const detailsTags = html.match(/<details[^>]*>/g) || [];
-  assert.equal(detailsTags.length, 1, "unrated must still render exactly one <details> section");
-  assert.ok(/\bopen\b/.test(detailsTags[0]), "unrated's single section must stay open, unchanged");
-  assert.ok(!html.includes(copy.DRAWER_SECTION_PERSONAS), "no Persona view section for unrated (unchanged)");
-  assert.ok(!html.includes(copy.DRAWER_SECTION_INTEGRITY), "no Integrity section for unrated (unchanged)");
-  assert.ok(!html.includes(copy.DRAWER_SECTION_COMPOSITE), "no Composite section for unrated (unchanged)");
+  assert.equal(detailsTags.length, 3, "unrated renders Pillars and evidence (open) + Persona view + Integrity");
+  assert.ok(/\bopen\b/.test(detailsTags[0]), "unrated's Pillars and evidence section is open");
+  assert.ok(!/\bopen\b/.test(detailsTags[1]), "unrated's Persona view section is collapsed by default");
+  assert.ok(!/\bopen\b/.test(detailsTags[2]), "unrated's Integrity section is collapsed by default");
+  assert.ok(html.includes(copy.DRAWER_SECTION_PERSONAS), "Persona view section renders for unrated");
+  assert.ok(html.includes(copy.DRAWER_SECTION_INTEGRITY), "Integrity section renders for unrated");
+  assert.ok(!html.includes(copy.DRAWER_SECTION_COMPOSITE), "no Composite section for unrated");
 });
 
 // --------------------------------------------------------------------- //
@@ -1257,7 +1259,8 @@ test("index.html carries absolute link-preview tags and the preview image exists
 
 // ---- PR 1 UX/UI fixes ---------------------------------------------------------------------
 
-import { classifyKindForLens, projectRowForLens } from "../views/drawer.js";
+import { projectRowForLens, deriveTierCeiling } from "../views/drawer.js";
+import { createRowElement, createCardElement } from "../components/table.js";
 import { flattenGroups } from "../views/notranked.js";
 import { filterMatrixPoints } from "../views/matrix.js";
 import { renderTable as renderCompareTable } from "../views/compare.js";
@@ -1269,8 +1272,8 @@ test("drawer: classifyKindForLens and projectRowForLens project a persona-rated 
     owner: "ai-org",
     name: "ai-repo",
     persona_composites: {
-      balanced: { porchlamp: null, tier: null, coverage: 0.48, tier_ceiling: null, rated: false },
-      ai_assisted: { porchlamp: 78.4, tier: "A", coverage: 0.68, tier_ceiling: "A", rated: true },
+      balanced: { porchlamp: null, tier: null, coverage: 0.48, rated: false },
+      ai_assisted: { porchlamp: 78.4, tier: "B", coverage: 0.68, rated: true },
     },
     persona_gates: {},
   };
@@ -1279,9 +1282,9 @@ test("drawer: classifyKindForLens and projectRowForLens project a persona-rated 
 
   const projected = projectRowForLens(personaOnlyRepo, "ai_assisted");
   assert.equal(projected.porchlamp, 78.4);
-  assert.equal(projected.tier, "A");
+  assert.equal(projected.tier, "B");
   assert.equal(projected.coverage, 0.68);
-  assert.equal(projected.tier_ceiling, "A");
+  assert.equal(projected.tier_ceiling, "B", "derives tier_ceiling B from coverage 0.68 when omitted on wire");
 
   const state = {
     ...stateWithRepoDetail(personaOnlyRepo),
@@ -1290,6 +1293,34 @@ test("drawer: classifyKindForLens and projectRowForLens project a persona-rated 
   const html = renderDrawer(state);
   assert.ok(html.includes(copy.DRAWER_SECTION_COMPOSITE), "persona-rated repo renders Composite section");
   assert.ok(html.includes("78.40"), "projected persona score renders in drawer");
+  assert.ok(html.includes("B (capped)"), "derived tier_ceiling shows (capped) badge in drawer");
+});
+
+test("drawer: deriveTierCeiling matches backend _no_ceiling_or_band coverage thresholds", () => {
+  assert.equal(deriveTierCeiling(0.96), null);
+  assert.equal(deriveTierCeiling(0.85), "A");
+  assert.equal(deriveTierCeiling(0.68), "B");
+  assert.equal(deriveTierCeiling(0.45), null);
+  assert.equal(deriveTierCeiling(0.68, "A"), "A", "explicit ceiling takes precedence when present");
+});
+
+test("drawer: renderDrawer renders Persona view table for a rated repository (unrated_reason: null) with populated persona_composites", () => {
+  const ratedWithPersonas = {
+    ...FLAT_RATED_DETAIL,
+    unrated_reason: null,
+    gate_reason: null,
+    persona_composites: {
+      balanced: { porchlamp: 81.2, tier: "A", coverage: 0.96, rated: true },
+      first_timer: { porchlamp: null, tier: null, coverage: 0.42, rated: false },
+    },
+    persona_gates: {
+      senior_systems: "min_elephant_factor",
+    },
+  };
+  const html = renderDrawer(stateWithRepoDetail(ratedWithPersonas));
+  assert.ok(html.includes(copy.DRAWER_SECTION_PERSONAS));
+  assert.ok(html.includes("81.20"));
+  assert.ok(html.includes(escapeHtml(copy.NOT_RATED_LABEL)));
 });
 
 test("drawer: classifyKindForLens identifies persona-gated repositories under active persona lens", () => {
@@ -1334,6 +1365,10 @@ test("drawer: a project with no external workflow shows the sentence, not the re
     name: "opendrop",
     gate_reason: "unrated: no_external_workflow",
     unrated_reason: "unrated: no_external_workflow",
+    persona_gates: {
+      balanced: "unrated: no_external_workflow",
+      first_timer: "unrated: no_external_workflow",
+    },
   };
   const html = renderDrawer(stateWithRepoDetail(noWorkflow));
   assert.ok(html.includes(escapeHtml("No external contribution workflow was found to measure.")));
@@ -1515,10 +1550,12 @@ test("matrix: filterMatrixPoints filters by ecosystem and search query", () => {
 
 test("compare: renderCompareTable places verdict above table, groups parameters by pillar, and renders clickable repo buttons", () => {
   const state = {
+    persona: "senior_systems",
     compareRepos: ["org-a/repo-1", "org-b/repo-2"],
     compareDataByRepo: {
       "org-a/repo-1": {
-        detail: {
+        kind: "rated",
+        row: {
           ...FLAT_RATED_DETAIL,
           owner: "org-a",
           name: "repo-1",
@@ -1528,11 +1565,16 @@ test("compare: renderCompareTable places verdict above table, groups parameters 
           pillar_governance: 78.0,
           pillar_rigor: 84.0,
           pillar_accessibility: 79.0,
+          persona_composites: {
+            ...FLAT_RATED_DETAIL.persona_composites,
+            senior_systems: { porchlamp: 86.25, tier: "B", coverage: 0.68, rated: true },
+          },
         },
         evidence: [],
       },
       "org-b/repo-2": {
-        detail: {
+        kind: "rated",
+        row: {
           ...FLAT_RATED_DETAIL,
           owner: "org-b",
           name: "repo-2",
@@ -1542,6 +1584,9 @@ test("compare: renderCompareTable places verdict above table, groups parameters 
           pillar_governance: 74.0,
           pillar_rigor: 68.0,
           pillar_accessibility: 71.0,
+          persona_gates: {
+            senior_systems: "min_elephant_factor",
+          },
         },
         evidence: [],
       },
@@ -1554,6 +1599,9 @@ test("compare: renderCompareTable places verdict above table, groups parameters 
   assert.ok(verdictIdx > -1 && tableIdx > -1 && verdictIdx < tableIdx, "verdict appears above compare table");
   assert.ok(html.includes('class="compare-section-row"'), "parameter rows are grouped by pillar section headers");
   assert.ok(html.includes('class="link-button repo-name" data-owner="org-a" data-name="repo-1"'), "repo headers are clickable drawer triggers");
+  assert.ok(html.includes("86.25"), "projects active persona composite score in compare table");
+  assert.ok(html.includes("B (capped)"), "derives tier_ceiling from persona coverage in compare table");
+  assert.ok(html.includes(escapeHtml(copy.personaGateReason("min_elephant_factor"))), "shows persona gate reason for persona-gated repo in compare table");
 });
 
 test("leaderboard: renderOnboardingBanner includes subtitle and methodology link", () => {
@@ -1778,4 +1826,166 @@ test("configure: mergeReprojectPages puts every page's rows in order and keeps t
   assert.equal(merged.total, 5);
   assert.equal(merged.lens, "custom");
   assert.deepEqual(first.rows.map((r) => r.k), [1, 2], "the first answer is not changed");
+});
+
+// ------------------------------------------------------------- issue #20 regressions
+test("copy.formatParameterValue: rounds long floats to 4 decimals without trailing zeros while preserving integers, small floats, and non-finite guards", () => {
+  assert.equal(copy.formatParameterValue(0.41509433962264153), "0.4151");
+  assert.equal(copy.formatParameterValue(148.94787916666666), "148.9479");
+  assert.equal(copy.formatParameterValue(42), "42");
+  assert.equal(copy.formatParameterValue(0.5), "0.5");
+  assert.equal(copy.formatParameterValue(0.000042), "0.000042");
+  assert.equal(copy.formatParameterValue(-0), "0");
+  assert.equal(copy.formatParameterValue(NaN), copy.MISSING_VALUE);
+  assert.equal(copy.formatParameterValue(Infinity), copy.MISSING_VALUE);
+  assert.equal(copy.formatParameterValue("permissive"), "permissive");
+});
+
+test("copy.sortedAnnouncement: includes both column label and sort direction", () => {
+  assert.equal(copy.sortedAnnouncement("Score", "descending"), "Sorted by Score (descending).");
+  assert.equal(copy.sortedAnnouncement("Rank", "ascending"), "Sorted by Rank (ascending).");
+  assert.equal(copy.sortedAnnouncement("Score"), "Sorted by Score.");
+});
+
+test("table.sortColumnLabel: maps raw sort field IDs to human-readable column names", () => {
+  assert.equal(sortColumnLabel("rank"), "Rank");
+  assert.equal(sortColumnLabel("-porchlamp"), "Score");
+  assert.equal(sortColumnLabel("p_responsiveness"), "Responsiveness");
+  assert.equal(sortColumnLabel("-p_rigor"), "Rigor");
+});
+
+test("table.renderColumnHeader: includes visual sort arrow indicator and is-active class on the active sort column", () => {
+  const html = renderColumnHeader("-porchlamp", false);
+  assert.ok(html.includes('data-sort-field="porchlamp"'), "porchlamp header exists");
+  assert.ok(html.includes('class="sort-arrow"'), "visual sort arrow rendered");
+  assert.ok(html.includes("↑"), "-porchlamp is ascending, so ↑ arrow renders");
+  const defaultHtml = renderColumnHeader("porchlamp", false);
+  assert.ok(defaultHtml.includes("↓"), "porchlamp is descending (best-first), so ↓ arrow renders");
+});
+
+test("table.createRowElement and createCardElement: honor opts.selected on initial creation", () => {
+  const fakeDoc = {
+    createElement(tag) {
+      return {
+        tagName: tag.toUpperCase(),
+        className: "",
+        classList: { add() {} },
+        dataset: {},
+        attributes: {},
+        children: [],
+        setAttribute(k, v) { this.attributes[k] = v; },
+        appendChild(c) { this.children.push(c); },
+      };
+    },
+  };
+  const row = {
+    owner: "a",
+    name: "b",
+    ecosystem: "cargo",
+    rank: 1,
+    porchlamp: 85.0,
+    tier: "A",
+    coverage: 0.9,
+  };
+  const tr = createRowElement(fakeDoc, row, { selected: true });
+  assert.ok(tr.className.split(" ").includes("row-selected"), "tr carries row-selected when opts.selected is true");
+  const card = createCardElement(fakeDoc, row, { selected: true });
+  assert.ok(card.className.split(" ").includes("row-selected"), "card carries row-selected when opts.selected is true");
+});
+
+test("state.reduce SET_TAB: isolates rankedPage/rankedSort from Configure and Matrix tab switches", () => {
+  let s = defaultState();
+  s = reduce(s, { type: "SET_PAGE", page: 3 });
+  s = reduce(s, { type: "SET_PARAMS", payload: { sort: "-porchlamp", page: 3 } });
+  assert.equal(s.page, 3);
+  assert.equal(s.sort, "-porchlamp");
+
+  // Switch to Configure and sort/page there
+  s = reduce(s, { type: "SET_TAB", tab: "configure" });
+  s = reduce(s, { type: "SET_CONFIGURE_SORT", sort: "p_rigor" });
+  s = reduce(s, { type: "SET_CONFIGURE_PAGE", page: 2 });
+  assert.equal(s.rankedPage, 3, "rankedPage preserved while on Configure");
+  assert.equal(s.rankedSort, "-porchlamp", "rankedSort preserved while on Configure");
+
+  // Switch to Matrix: URL must not inherit Configure's sort or page
+  s = reduce(s, { type: "SET_TAB", tab: "matrix" });
+  const matrixUrl = serializeSearch(s);
+  assert.ok(!matrixUrl.includes("sort="), `Matrix URL should not leak sort: ${matrixUrl}`);
+  assert.ok(!matrixUrl.includes("page="), `Matrix URL should not leak page: ${matrixUrl}`);
+
+  // Switch back to Ranked: restores page 3 and -porchlamp
+  s = reduce(s, { type: "SET_TAB", tab: "ranked" });
+  assert.equal(s.page, 3);
+  assert.equal(s.sort, "-porchlamp");
+});
+
+test("leaderboard.renderMobileSortBar: renders mobile sort select and direction toggle", () => {
+  const html = renderMobileSortBar("porchlamp");
+  assert.ok(html.includes("data-mobile-sort-select"));
+  assert.ok(html.includes("data-mobile-sort-dir"));
+  assert.ok(html.includes("↓"));
+});
+
+test("drawer.classifyKindForLens: classifies eligible=false with 'unrated: ...' gate_reason as unrated", () => {
+  const unratedFromApi = {
+    owner: "org",
+    name: "repo",
+    eligible: false,
+    rated: false,
+    gate_reason: "unrated: insufficient_evidence",
+    coverage: 0.45,
+  };
+  assert.equal(classifyKindForLens(unratedFromApi, "balanced"), "unrated");
+});
+
+test("drawer.renderPillarRadar: omits unmeasured pillars from polygon area instead of plotting them as 0 at the origin, and uses polyline for 2 measured pillars", () => {
+  const row = {
+    p_responsiveness: 80.0,
+    p_criticality: 75.0,
+    p_governance: null,
+    p_rigor: 85.0,
+    p_accessibility: 70.0,
+  };
+  const svg = renderPillarRadar(row);
+  const polyMatch = svg.match(/<polygon points="([^"]+)" class="radar-area"/);
+  assert.ok(polyMatch, "radar polygon renders when >= 3 pillars are measured");
+  const vertices = polyMatch[1].trim().split(/\s+/);
+  assert.equal(vertices.length, 4, "only the 4 measured pillars form the polygon vertices (unmeasured governance is not plotted at center 190,130)");
+  assert.ok(!vertices.includes("190.0,130.0"), "center origin (190.0,130.0) is not used as a false 0 vertex");
+  assert.ok(svg.includes("radar-point-unmeasured"), "unmeasured pillar has a distinct hollow marker on the outer ring");
+
+  const twoPillarRow = {
+    p_responsiveness: 80.0,
+    p_criticality: 75.0,
+    p_governance: null,
+    p_rigor: null,
+    p_accessibility: null,
+  };
+  const svg2 = renderPillarRadar(twoPillarRow);
+  assert.ok(svg2.includes('<polyline points="'), "2 measured pillars render as a <polyline> connector");
+  assert.ok(!/<polygon[^>]*class="radar-area"/.test(svg2), "2 measured pillars do not render a degenerate radar-area <polygon>");
+});
+
+test("matrix.clientToDomainCoords: accounts for zoomed and panned viewBox when mapping client coordinates", () => {
+  const rect = { left: 100, top: 50, width: 500, height: 500 };
+  const zoomedView = { scale: 2, x: 25, y: 25 };
+  const coords = clientToDomainCoords(350, 300, rect, zoomedView);
+  assert.equal(coords.domainX, 50);
+  assert.equal(coords.domainY, 50);
+  assert.equal(coords.toleranceDomainUnits, (15 / 500) * 50);
+});
+
+test("configure.filterReprojectRows and renderConfigurePager: filters by ecosystem/query and renders First/Last buttons", () => {
+  const rows = [
+    { owner: "PyO3", name: "pyo3", ecosystem: "cargo", rank: 1 },
+    { owner: "pallets", name: "flask", ecosystem: "pypi", rank: 2 },
+  ];
+  assert.equal(filterReprojectRows(rows, { ecosystem: "cargo", query: "" }).length, 1);
+  assert.equal(filterReprojectRows(rows, { ecosystem: "", query: "flask" }).length, 1);
+  const topPager = renderConfigurePager(1, 20, 100);
+  assert.ok(topPager.includes("data-configure-pager-first"));
+  assert.ok(topPager.includes("data-configure-pager-last"));
+  assert.ok(topPager.includes("data-configure-pager-size-select"));
+  const bottomPager = renderConfigurePager(1, 20, 100, { bottom: true });
+  assert.ok(!bottomPager.includes("data-configure-pager-size-select"));
 });

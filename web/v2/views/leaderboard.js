@@ -27,6 +27,8 @@ import {
   columnCount,
   renderColumnHeader,
   renderCardList,
+  sortDirectionLabel,
+  PILLAR_ORDER,
   ROW_HEIGHT_PX,
   CARD_HEIGHT_PX,
 } from "../components/table.js";
@@ -169,19 +171,76 @@ export function renderCountsStrip(counts, delta) {
   );
 }
 
-export function renderTabs(activeTab, counts, visibleCount) {
+export function renderTabs(activeTab, counts, visibleCount, notRankedCount = null) {
   // The Ranked count must be what the table under it actually pages, which
-  // under a lens is NOT counts.rated — see personaVisibleCount.
-  const rated = counts ? (typeof visibleCount === "number" ? visibleCount : counts.rated) : "";
-  const notRankedCount = counts ? counts.gated + counts.unrated : "";
+  // under a lens or active filter is NOT counts.rated — see personaVisibleCount.
+  const rated = counts
+    ? typeof visibleCount === "number"
+      ? visibleCount
+      : counts.rated
+    : typeof visibleCount === "number"
+      ? visibleCount
+      : "";
+  const notRanked =
+    typeof notRankedCount === "number"
+      ? notRankedCount
+      : counts
+        ? counts.gated + counts.unrated
+        : "";
   return (
     `<div class="tabs" role="tablist">` +
     `<button type="button" class="tab" role="tab" aria-selected="${activeTab === "ranked"}" data-tab="ranked">` +
     `${escapeHtml(copy.TAB_RANKED)}<span class="count">${rated}</span></button>` +
     `<button type="button" class="tab" role="tab" aria-selected="${activeTab === "notranked"}" data-tab="notranked">` +
-    `${escapeHtml(copy.TAB_NOT_RANKED)}<span class="count">${notRankedCount}</span></button>` +
+    `${escapeHtml(copy.TAB_NOT_RANKED)}<span class="count">${notRanked}</span></button>` +
     `</div>`
   );
+}
+
+const MOBILE_SORT_FIELDS = [
+  ["rank", () => copy.COLUMN_RANK],
+  ["porchlamp", () => copy.COLUMN_PORCHLAMP],
+  ["coverage", () => copy.COLUMN_COVERAGE],
+  ["tier", () => copy.COLUMN_TIER],
+  ...PILLAR_ORDER.map((p) => [`p_${p}`, () => `${copy.COLUMN_PILLARS}: ${copy.PILLAR_NAMES[p] || p}`]),
+];
+
+/**
+ * Compact sort bar rendered above the `< 768px` card list so mobile users
+ * have full sort field + direction parity with desktop's `<th>` headers.
+ */
+export function renderMobileSortBar(sort = "rank") {
+  const safeSort = sort || "rank";
+  const activeField = safeSort.replace(/^-/, "");
+  const dir = sortDirectionLabel(safeSort);
+  const arrow = dir === "ascending" ? "↑" : "↓";
+  const options = MOBILE_SORT_FIELDS.map(
+    ([field, getLabel]) =>
+      `<option value="${field}"${field === activeField ? " selected" : ""}>${escapeHtml(getLabel())}</option>`
+  ).join("");
+  return (
+    `<div class="mobile-sort-bar" data-mobile-sort-bar="true">` +
+    `<label>${escapeHtml(copy.SORT_LABEL)} ` +
+    `<select class="control" data-mobile-sort-select="true" aria-label="${escapeHtml(copy.SORT_LABEL)}">${options}</select></label>` +
+    `<button type="button" class="icon-button" data-mobile-sort-dir="true" ` +
+    `aria-label="${escapeHtml(copy.SORT_DIRECTION_TOGGLE_LABEL)}" ` +
+    `title="${escapeHtml(copy.SORT_DIRECTION_TOGGLE_LABEL)} (${dir})">${arrow}</button>` +
+    `</div>`
+  );
+}
+
+export function syncMobileSortBar(root, sort = "rank") {
+  const safeSort = sort || "rank";
+  const activeField = safeSort.replace(/^-/, "");
+  const dir = sortDirectionLabel(safeSort);
+  const arrow = dir === "ascending" ? "↑" : "↓";
+  const select = root.querySelector("[data-mobile-sort-select]");
+  if (select && select.value !== activeField) select.value = activeField;
+  const dirBtn = root.querySelector("[data-mobile-sort-dir]");
+  if (dirBtn) {
+    if (dirBtn.textContent !== arrow) dirBtn.textContent = arrow;
+    dirBtn.setAttribute("title", `${copy.SORT_DIRECTION_TOGGLE_LABEL} (${dir})`);
+  }
 }
 
 /**
@@ -229,8 +288,15 @@ export function personaDeltaForState(state) {
   return personaDelta(counts, state.snapshot, state.persona);
 }
 
-/** Rows the active lens ranks, for a whole app state. */
+/** Rows the active lens (and any active ecosystem/query filter) ranks, for a whole app state. */
 export function personaVisibleForState(state) {
+  if (
+    state.leaderboard &&
+    typeof state.leaderboard.total === "number" &&
+    Boolean(state.ecosystem || (state.query && state.query.trim()))
+  ) {
+    return state.leaderboard.total;
+  }
   const counts = state.leaderboard ? state.leaderboard.counts : null;
   return personaVisibleCount(counts, state.snapshot, state.persona);
 }
@@ -267,7 +333,11 @@ export function renderShell(state, viewport = { isMobile: false }) {
     const pager = renderPager(state.page, state.pageSize, leaderboard.total, "pager");
     const bottomPager = renderPager(state.page, state.pageSize, leaderboard.total, "pager", { bottom: true });
     body = viewport.isMobile
-      ? pager + progressAndError + `<div class="leaderboard-cards" data-leaderboard-cards="true"></div>` + bottomPager
+      ? renderMobileSortBar(state.sort) +
+        pager +
+        progressAndError +
+        `<div class="leaderboard-cards" data-leaderboard-cards="true"></div>` +
+        bottomPager
       : pager +
         progressAndError +
         `<table class="leaderboard-table" role="table" aria-label="${escapeHtml(copy.NAV_LEADERBOARD)}">` +
@@ -366,6 +436,7 @@ export function patchTableBody(tbody, doc, rows, range, opts) {
         ? createRowElement(doc, item.row, {
             previousRow: item.index > 0 ? rows[item.index - 1] : null,
             showPersonaDelta,
+            selected: selectedRepoKey === rowKey(item.row),
           })
         : createSpacerElement(doc, `__${item.kind}__`, colCount, item.height),
     (node, item) => {
@@ -403,6 +474,7 @@ export function patchCardBody(container, doc, rows, range, opts) {
         ? createCardElement(doc, item.row, {
             previousRow: item.index > 0 ? rows[item.index - 1] : null,
             showPersonaDelta,
+            selected: selectedRepoKey === rowKey(item.row),
           })
         : createCardSpacerElement(doc, `__${item.kind}__`),
     (node, item) => {

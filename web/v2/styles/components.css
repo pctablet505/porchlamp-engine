@@ -117,10 +117,15 @@ input.control {
 }
 
 /* ---- Primary nav (06 §2 Leaderboard/Matrix/Compare/Configure/Methodology) ---- */
-.primary-tabs {
+.app-primary-nav {
   position: sticky;
   top: var(--header-height);
   z-index: 19;
+  background: var(--bg-base);
+}
+
+.primary-tabs {
+  position: relative;
   display: flex;
   gap: var(--space-xs);
   padding: 0 var(--space-md);
@@ -419,8 +424,8 @@ input.control {
 .leaderboard-table thead th {
   position: sticky;
   top: calc(var(--header-height) + var(--primary-nav-height, 41px));
-  z-index: 2;
-  background: var(--bg-surface);
+  z-index: 18;
+  background: var(--bg-surface-elevated);
 }
 
 .leaderboard-table th {
@@ -440,6 +445,12 @@ input.control {
 .leaderboard-table th[data-sortable="true"]:hover,
 .leaderboard-table th[data-sortable="true"].is-active {
   color: var(--text-primary);
+}
+
+.sort-arrow {
+  margin-left: 3px;
+  color: var(--accent-cyan);
+  font-size: 0.9em;
 }
 
 .pillars-col-header {
@@ -472,6 +483,34 @@ input.control {
   padding: var(--space-xs) var(--space-sm);
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .leaderboard-table {
+    font-size: var(--text-caption);
+  }
+
+  .leaderboard-table th,
+  .leaderboard-table td {
+    padding: var(--space-xs) 3px;
+  }
+
+  .pillar-sort-btn {
+    padding: 1px 1px;
+  }
+
+  .leaderboard-table [data-col="stars"],
+  .leaderboard-table [data-cell="stars"],
+  .leaderboard-table [data-col="suspicion"],
+  .leaderboard-table [data-cell="suspicion"] {
+    display: none;
+  }
+
+  .leaderboard-table td[data-cell="repository"] {
+    max-width: 135px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 /* Fixed row height so the DOM's real rendered height matches
@@ -563,6 +602,28 @@ input.control {
  * fixed number that matches components/table.js's CARD_HEIGHT_PX exactly —
  * the same fixed-height contract the desktop table's rows keep, needed for
  * the windowing spacers' inline heights to line up with real content. */
+.mobile-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+}
+
+.mobile-sort-bar label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex: 1;
+  min-width: 0;
+}
+
+.mobile-sort-bar select.control {
+  flex: 1;
+  min-width: 0;
+}
+
 .leaderboard-cards {
   display: block;
 }
@@ -575,7 +636,7 @@ input.control {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-  padding: var(--space-sm);
+  padding: 8px var(--space-sm);
 }
 
 .leaderboard-card.row-tied {
@@ -586,6 +647,14 @@ input.control {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
+}
+
+.leaderboard-card-line-4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-2xs);
 }
 
 /* ---- Reason chips (Not ranked) ---- */
@@ -804,10 +873,28 @@ input.control {
 }
 
 /* The title takes the room the buttons leave and breaks a long owner/name instead of pushing the panel wider. */
-.drawer-header > :first-child {
-  flex: 1 1 12ch;
+.drawer-header > :first-child,
+.drawer-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  flex: 1 1 16ch;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.drawer-identity .eco-chip {
+  display: inline-block;
+  width: fit-content;
+  margin-left: 0;
+}
+
+.drawer-header .gate-banner {
+  flex: 1 1 100%;
+  order: 3;
+  margin-top: var(--space-xs);
+  margin-bottom: 0;
 }
 
 .drawer-actions {
@@ -818,7 +905,13 @@ input.control {
 }
 
 .drawer-compare-btn,
-.drawer-github-link {
+.drawer-github-link,
+.drawer [data-drawer-close] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  box-sizing: border-box;
   padding: 4px var(--space-sm);
   font-size: var(--text-caption);
   font-weight: 500;
@@ -887,6 +980,11 @@ input.control {
   opacity: 0.8;
 }
 
+.radar-spoke-unmeasured {
+  stroke-dasharray: 1, 3;
+  opacity: 0.45;
+}
+
 .radar-area {
   fill: rgba(99, 102, 241, 0.2);
   stroke: var(--accent-violet, #6366f1);
@@ -895,6 +993,13 @@ input.control {
 
 .radar-point {
   fill: var(--accent-violet, #6366f1);
+}
+
+.radar-point-unmeasured {
+  fill: var(--bg-surface);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 2, 1;
 }
 
 .radar-label {

@@ -25,6 +25,7 @@ import * as copy from "../copy.js";
 import { renderCoverageBadge, renderTierCell } from "../components/badge.js";
 import {
   renderScatterSvg,
+  renderScatterBackdropSvg,
   renderFocusOverlaySvg,
   pointKey,
   toSvgX,
@@ -113,6 +114,24 @@ export function nearestMarkerInDirection(points, currentKey, direction) {
 }
 
 /**
+ * Converts pointer `(clientX, clientY)` on a `<canvas>` bounding rect into
+ * view-adjusted domain `(0..100)` coordinates and a 15px hit tolerance in
+ * domain units, accounting for any active `view` pan/zoom (`x`, `y`, `scale`).
+ */
+export function clientToDomainCoords(clientX, clientY, rect, view = DEFAULT_VIEW) {
+  const scale = view && view.scale ? view.scale : 1;
+  const span = (DOMAIN_MAX - DOMAIN_MIN) / scale;
+  const vx = view && typeof view.x === "number" ? Math.min(Math.max(view.x, DOMAIN_MIN), DOMAIN_MAX - span) : 0;
+  const vy = view && typeof view.y === "number" ? Math.min(Math.max(view.y, DOMAIN_MIN), DOMAIN_MAX - span) : 0;
+  const width = rect && rect.width ? rect.width : 1;
+  const height = rect && rect.height ? rect.height : 1;
+  const domainX = vx + ((clientX - rect.left) / width) * span;
+  const domainY = vy + ((clientY - rect.top) / height) * span;
+  const toleranceDomainUnits = (15 / width) * span;
+  return { domainX, domainY, toleranceDomainUnits };
+}
+
+/**
  * Finds the point nearest a CLICK on the canvas surface: above
  * `SVG_MARKER_BUDGET` markers have no per-marker DOM node, so the
  * browser's own click hit-testing has nothing to land on and this simple
@@ -170,6 +189,27 @@ function renderLegend(quadrantsHidden) {
     })
     .join("");
   return `<div class="matrix-legend" role="group" aria-label="${escapeHtml(copy.MATRIX_HEADING)}">${chips}</div>`;
+}
+
+function renderQuadrantCornerLabels(quadrantsHidden = {}) {
+  const corners = [
+    ["Sweet Spot", "top-left"],
+    ["Crucible", "top-right"],
+    ["Nursery", "bottom-left"],
+    ["Graveyard", "bottom-right"],
+  ];
+  return corners
+    .map(([name, pos]) => {
+      const cls = `quad-${name.toLowerCase().replace(/\s+/g, "-")}`;
+      const hidden = !!quadrantsHidden[name];
+      return (
+        `<div class="matrix-corner-label matrix-corner-${pos} ${cls}"${hidden ? " hidden" : ""} aria-hidden="true">` +
+        `<span class="matrix-corner-title">${copy.QUADRANT_GLYPHS[name]} ${escapeHtml(copy.QUADRANT_LABELS[name])}</span>` +
+        `<span class="matrix-corner-desc">${escapeHtml(copy.QUADRANT_DESCRIPTIONS[name])}</span>` +
+        `</div>`
+      );
+    })
+    .join("");
 }
 
 function renderCaptions(matrix, hasStars) {
@@ -232,8 +272,9 @@ export function renderMatrixBody(state) {
   const { min: overlayStarsMin, max: overlayStarsMax } = starsDomain(points);
   const hasStars = points.some((p) => p.stars_audited !== null && p.stars_audited !== undefined);
   const surfaceLabel = copy.matrixSvgAriaLabel(copy.MATRIX_AXIS_X_LABEL, copy.MATRIX_AXIS_Y_LABEL);
+  const viewBox = computeViewBox(state.matrixView || DEFAULT_VIEW);
   const surface = usesCanvas
-    ? `<div class="matrix-canvas-wrap"><canvas class="matrix-canvas" data-matrix-canvas="true" width="800" height="800" role="img" aria-label="${escapeHtml(surfaceLabel)}"></canvas>${renderFocusOverlaySvg(focused, overlayStarsMin, overlayStarsMax)}</div>`
+    ? `<div class="matrix-canvas-wrap">${renderScatterBackdropSvg(viewBox)}<canvas class="matrix-canvas" data-matrix-canvas="true" width="800" height="800" role="img" aria-label="${escapeHtml(surfaceLabel)}"></canvas>${renderFocusOverlaySvg(focused, overlayStarsMin, overlayStarsMax, viewBox)}</div>`
     : renderScatterSvg(points, {
         quadrantsHidden: state.matrixQuadrantsHidden,
         focusedKey: state.matrixFocusedKey,
@@ -247,7 +288,7 @@ export function renderMatrixBody(state) {
     `<button type="button" class="icon-button" data-matrix-zoom-out="true" aria-label="${escapeHtml(copy.MATRIX_ZOOM_OUT_LABEL)}">−</button>` +
     `</div>` +
     `<div class="matrix-axis-labels"><span>${escapeHtml(copy.MATRIX_AXIS_Y_LABEL)} ↑</span><span>${escapeHtml(copy.MATRIX_AXIS_X_LABEL)} →</span></div>` +
-    `<div class="matrix-stage" data-matrix-stage="true" tabindex="0" aria-label="${escapeHtml(`${surfaceLabel}. ${copy.MATRIX_STAGE_LABEL}`)}">${surface}${renderHoverCard(focused)}</div>` +
+    `<div class="matrix-stage" data-matrix-stage="true" tabindex="0" aria-label="${escapeHtml(`${surfaceLabel}. ${copy.MATRIX_STAGE_LABEL}`)}">${surface}${renderQuadrantCornerLabels(state.matrixQuadrantsHidden)}${renderHoverCard(focused)}</div>` +
     renderCaptions(matrix, hasStars)
   );
 }
@@ -277,10 +318,12 @@ export function renderShell(state) {
   return heading + renderMatrixBody(state);
 }
 
-/** Applies the current `viewBox` to an already-rendered SVG surface without a full re-render (pan/zoom only ever touches this one attribute). */
+/** Applies the current `viewBox` to all rendered SVG surfaces (including the canvas backdrop and focus overlay) without a full re-render. */
 export function syncViewBox(main, view) {
-  const svg = main.querySelector(".matrix-svg:not(.matrix-focus-overlay)");
-  if (svg) svg.setAttribute("viewBox", computeViewBox(view));
+  const viewBox = computeViewBox(view);
+  for (const svg of main.querySelectorAll(".matrix-svg")) {
+    svg.setAttribute("viewBox", viewBox);
+  }
 }
 
 /**
@@ -311,7 +354,8 @@ export function syncMatrixHover(main, state) {
     const existingOverlay = overlayHost.querySelector(".matrix-focus-overlay");
     if (existingOverlay) existingOverlay.remove();
     const { min: overlayStarsMin, max: overlayStarsMax } = starsDomain(points);
-    const nextOverlay = renderFocusOverlaySvg(point, overlayStarsMin, overlayStarsMax);
+    const viewBox = computeViewBox(state.matrixView || DEFAULT_VIEW);
+    const nextOverlay = renderFocusOverlaySvg(point, overlayStarsMin, overlayStarsMax, viewBox);
     if (nextOverlay) overlayHost.insertAdjacentHTML("beforeend", nextOverlay);
   }
 }
