@@ -1304,6 +1304,25 @@ test("drawer: deriveTierCeiling matches backend _no_ceiling_or_band coverage thr
   assert.equal(deriveTierCeiling(0.68, "A"), "A", "explicit ceiling takes precedence when present");
 });
 
+test("drawer: renderDrawer renders Persona view table for a rated repository (unrated_reason: null) with populated persona_composites", () => {
+  const ratedWithPersonas = {
+    ...FLAT_RATED_DETAIL,
+    unrated_reason: null,
+    gate_reason: null,
+    persona_composites: {
+      balanced: { porchlamp: 81.2, tier: "A", coverage: 0.96, rated: true },
+      first_timer: { porchlamp: null, tier: null, coverage: 0.42, rated: false },
+    },
+    persona_gates: {
+      senior_systems: "min_elephant_factor",
+    },
+  };
+  const html = renderDrawer(stateWithRepoDetail(ratedWithPersonas));
+  assert.ok(html.includes(copy.DRAWER_SECTION_PERSONAS));
+  assert.ok(html.includes("81.20"));
+  assert.ok(html.includes(escapeHtml(copy.NOT_RATED_LABEL)));
+});
+
 test("drawer: classifyKindForLens identifies persona-gated repositories under active persona lens", () => {
   const personaGatedRepo = {
     ...FLAT_RATED_DETAIL,

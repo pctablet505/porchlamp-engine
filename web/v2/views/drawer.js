@@ -374,7 +374,7 @@ function renderPersonaSection(row) {
           }
           const ceiling = deriveTierCeiling(composite.coverage, composite.tier_ceiling);
           const unratedStatus =
-            row.unrated_reason || isDisplayUnratedGateReason(row.gate_reason)
+            row.unrated_reason || isUnratedGate
               ? copy.unratedReasonText(row.unrated_reason || row.gate_reason, composite.coverage ?? row.coverage)
               : copy.NOT_RATED_LABEL;
           return (

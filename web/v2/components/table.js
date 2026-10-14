@@ -178,7 +178,7 @@ export function syncHeaderSortDom(thead, sortField, doc = thead?.ownerDocument) 
     const glyph = dir === "ascending" ? "↑" : "↓";
     if (existingArrow) {
       if (existingArrow.textContent !== glyph) existingArrow.textContent = glyph;
-    } else if (el.tagName !== "BUTTON" && doc && typeof doc.createElement === "function" && typeof el.appendChild === "function") {
+    } else if (doc && typeof doc.createElement === "function" && typeof el.appendChild === "function") {
       const span = doc.createElement("span");
       span.className = "sort-arrow";
       span.setAttribute("aria-hidden", "true");
