@@ -9,12 +9,14 @@ one implementation of gate-evidence derivation from ``raw/tree`` and
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from porchlamp.core import constants
+from porchlamp.collect import github_graphql
+from porchlamp.core import constants, gates
 from porchlamp.core.commit_domains import CommitActor, envelope_rows, is_bot
-from porchlamp.core.gates import GateEvidence
+from porchlamp.core.gates import Gate5WindowBreakdown, GateEvidence, _parse_iso
 
 __all__ = [
     "RECOGNIZED_MANIFEST_BASENAMES",
@@ -26,6 +28,7 @@ __all__ = [
     "_review_handoff",
     "_tree_paths",
     "_vitality_commit_count",
+    "black_hole_window_breakdown_from_raw",
     "gate_evidence_for",
 ]
 
@@ -247,3 +250,65 @@ def gate_evidence_for(raw_root: Path, basename: str) -> GateEvidence:
         off_platform_marker=None if paths is None else _tree_flag(_has_off_platform_marker(paths), truncated),
         review_handoff=_review_handoff(raw_root, basename),
     )
+
+
+def black_hole_window_breakdown_from_raw(
+    raw_root: Path,
+    basename: str,
+    now: datetime | None = None,
+) -> Gate5WindowBreakdown | None:
+    """Evaluate D-GATE-5 window breakdown from raw pr_window envelope."""
+    path = raw_root / "pr_window" / f"{basename}.json"
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    if not isinstance(document, Mapping):
+        return None
+    data = document.get("data")
+    if not isinstance(data, Mapping):
+        return None
+    prs = data.get("prs")
+    if not isinstance(prs, list):
+        return None
+
+    anchor_str = data.get("window_anchor")
+    fetched_str = (
+        document.get("fetched_at")
+        if isinstance(document.get("fetched_at"), str)
+        else (data.get("fetched_at") if isinstance(data.get("fetched_at"), str) else None)
+    )
+
+    anchor_dt: datetime | None = None
+    if isinstance(anchor_str, str):
+        try:
+            anchor_dt = _parse_iso(anchor_str)
+        except (ValueError, TypeError):
+            anchor_dt = None
+
+    fetched_dt: datetime | None = None
+    if isinstance(fetched_str, str):
+        try:
+            fetched_dt = _parse_iso(fetched_str)
+        except (ValueError, TypeError):
+            fetched_dt = None
+
+    if now is not None:
+        ref_now = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    elif anchor_dt is not None:
+        ref_now = anchor_dt
+    elif fetched_dt is not None:
+        ref_now = fetched_dt
+    else:
+        return None
+
+    observed_at = fetched_dt if fetched_dt is not None else (anchor_dt if now is not None else None)
+
+    records = github_graphql.ghost_rate_prs_from_window(prs)
+    try:
+        return gates.evaluate_gate5_window(records, ref_now, observed_at=observed_at)
+    except ValueError:
+        return None
+

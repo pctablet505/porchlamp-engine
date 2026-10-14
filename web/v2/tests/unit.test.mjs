@@ -37,7 +37,7 @@ import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, clientToDomai
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY } from "../components/scatter.js";
 import { synthesizeRows } from "../perf-fixtures.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape } from "../views/compare.js";
-import { renderDrawer, classifyKind, classifyKindForLens, renderPillarRadar, findRow } from "../views/drawer.js";
+import { renderDrawer, classifyKind, classifyKindForLens, renderPillarRadar, findRow, renderBlackHoleEvidence } from "../views/drawer.js";
 import {
   personaVisibleCount,
   personaDelta,
@@ -1989,3 +1989,160 @@ test("configure.filterReprojectRows and renderConfigurePager: filters by ecosyst
   const bottomPager = renderConfigurePager(1, 20, 100, { bottom: true });
   assert.ok(!bottomPager.includes("data-configure-pager-size-select"));
 });
+
+// --------------------------------------------------------------------- //
+// Black-hole determination evidence (D-GATE-5, Packet 4)
+// --------------------------------------------------------------------- //
+
+const FLAT_BLACK_HOLE_DETAIL = {
+  ...FLAT_GATED_DETAIL,
+  owner: "ghost-org",
+  name: "abandoned-lib",
+  gate_reason: "black_hole",
+  black_hole_evidence: {
+    unanswered: 12,
+    population_n: 15,
+    unanswered_share: 0.8,
+    wilson_lower_bound: 0.5982,
+    threshold_share: 0.5,
+    min_n: 10,
+    window_start: "2026-03-01T00:00:00Z",
+    window_end: "2026-09-01T00:00:00Z",
+    fetched_at: "2026-09-01T01:00:00Z",
+    source: "raw/pr_window/ghost-org__abandoned-lib.json",
+    source_sha256: "c".repeat(64),
+    excluded: {
+      draft: 2,
+      self_closed: 1,
+      new_account: 3,
+      bot: 4,
+      internal: 5,
+      under_14d: 6,
+    },
+    counted_prs: [
+      {
+        number: 101,
+        created_at: "2026-04-01T12:00:00Z",
+        answered_within_14d: false,
+        first_response_at: null,
+        response_kind: "none",
+      },
+      {
+        number: 102,
+        created_at: "2026-05-01T12:00:00Z",
+        answered_within_14d: true,
+        first_response_at: "2026-05-03T12:00:00Z",
+        response_kind: "review_or_comment",
+      },
+    ],
+  },
+};
+
+test("renderBlackHoleEvidence: renders exact counts, percentage, Wilson lower bound, window dates, exclusions, and PR links without contributor usernames", () => {
+  const html = renderBlackHoleEvidence(FLAT_BLACK_HOLE_DETAIL);
+  assert.ok(html.includes('data-black-hole-evidence="true"'));
+  assert.ok(html.includes(copy.BLACK_HOLE_EVIDENCE_HEADING));
+  assert.ok(html.includes(copy.BLACK_HOLE_RULE_TEXT));
+  assert.ok(html.includes("12 of 15 (80.0%) external non-bot PRs had no maintainer response, merge, or close within 14 days"));
+  assert.ok(html.includes("95% Wilson lower confidence bound: 59.8% (threshold: &gt; 50.0%, min n = 10)"));
+  assert.ok(html.includes("2026-03-01T00:00:00Z – 2026-09-01T00:00:00Z"));
+  assert.ok(html.includes("Source: raw/pr_window/ghost-org__abandoned-lib.json"));
+  assert.ok(html.includes(escapeHtml(copy.BLACK_HOLE_EXCLUSIONS_TEXT)));
+  assert.ok(html.includes("2 draft"));
+  assert.ok(html.includes("1 author self-closed"));
+  assert.ok(html.includes("3 new account"));
+  assert.ok(html.includes("4 bot"));
+  assert.ok(html.includes("5 internal/maintainer"));
+  assert.ok(html.includes("6 open &lt;14d"));
+  assert.ok(html.includes(copy.BLACK_HOLE_RECHECK_TEXT));
+
+  // PR links (#101, #102)
+  assert.ok(html.includes('<a href="https://github.com/ghost-org/abandoned-lib/pull/101" target="_blank" rel="noopener noreferrer">#101</a>'));
+  assert.ok(html.includes('<a href="https://github.com/ghost-org/abandoned-lib/pull/102" target="_blank" rel="noopener noreferrer">#102</a>'));
+
+  // Privacy: never include contributor usernames/logins
+  for (const forbiddenLogin of ["octocat", "author", "contributor", "login", "maintainer_login"]) {
+    assert.ok(!html.includes(`@${forbiddenLogin}`));
+  }
+});
+
+test("renderBlackHoleEvidence: escapes untrusted strings against XSS", () => {
+  const xssDetail = {
+    ...FLAT_BLACK_HOLE_DETAIL,
+    owner: '<script>alert("owner")</script>',
+    name: 'repo"onmouseover="alert(1)',
+    black_hole_evidence: {
+      ...FLAT_BLACK_HOLE_DETAIL.black_hole_evidence,
+      source: '<script>alert("source")</script>',
+      window_start: '<img src=x onerror=alert(1)>',
+    },
+  };
+  const html = renderBlackHoleEvidence(xssDetail);
+  assert.ok(!html.includes("<script>alert("));
+  assert.ok(!html.includes("<img src=x"));
+  assert.ok(html.includes("&lt;script&gt;alert("));
+  assert.ok(html.includes("&lt;img src=x"));
+});
+
+test("renderDrawer: a black_hole gated repo renders the evidence panel while preserving 3 collapsed <details> sections and gate sentence precedence", () => {
+  const state = stateWithRepoDetail(FLAT_BLACK_HOLE_DETAIL);
+  const html = renderDrawer(state);
+
+  const gateSentence = copy.gateReasonText(FLAT_BLACK_HOLE_DETAIL.gate_reason);
+  const gateSentenceIndex = html.indexOf(gateSentence);
+  const firstDetailsIndex = html.indexOf("<details");
+  const evidencePanelIndex = html.indexOf('data-black-hole-evidence="true"');
+
+  assert.ok(gateSentenceIndex >= 0, "the gate reason sentence must render");
+  assert.ok(evidencePanelIndex >= 0, "black-hole evidence panel must render");
+  assert.ok(firstDetailsIndex >= 0, "at least one <details> section must render");
+  assert.ok(gateSentenceIndex < firstDetailsIndex, "gate sentence must render before any <details> section");
+  assert.ok(evidencePanelIndex < firstDetailsIndex, "evidence panel must render before any <details> section");
+
+  // Preserves exactly 3 <details> sections
+  const detailsTags = html.match(/<details(?:\s+open)?>/g) || [];
+  assert.equal(detailsTags.length, 3, "must preserve exactly 3 <details> sections (pillars, personas, integrity)");
+
+  // Evidence panel does NOT repeat the exact gateReasonText("black_hole")
+  const evidenceBox = html.slice(evidencePanelIndex, html.indexOf("</div>", evidencePanelIndex + 100));
+  assert.ok(!evidenceBox.includes(gateSentence), "evidence panel must not repeat exact gate reason sentence");
+});
+
+test("renderBlackHoleEvidence: falls back to gr14_ghost_rate from evidenceRows when black_hole_evidence is absent", () => {
+  const noEvidenceDetail = {
+    ...FLAT_BLACK_HOLE_DETAIL,
+    black_hole_evidence: null,
+  };
+  const evidenceRows = [
+    {
+      param_id: "gr14_ghost_rate",
+      value: 0.75,
+      score: 25.0,
+      n: 20,
+      window_start: "2026-03-01T00:00:00Z",
+      window_end: "2026-09-01T00:00:00Z",
+      method: "windowed_share",
+      source: "raw/pr_window/ghost-org__abandoned-lib.json",
+      source_sha256: "d".repeat(64),
+      fetched_at: "2026-09-01T01:00:00Z",
+    },
+  ];
+  const html = renderBlackHoleEvidence(noEvidenceDetail, evidenceRows);
+  assert.ok(html.includes("15 of 20 (75.0%) external non-bot PRs had no maintainer response"));
+  assert.ok(html.includes("95% Wilson lower confidence bound:"));
+  assert.ok(html.includes("Source: raw/pr_window/ghost-org__abandoned-lib.json"));
+});
+
+test("renderBlackHoleEvidence: renders rule, exclusions, and recovery note when no evidence rows or black_hole_evidence exist", () => {
+  const noEvidenceDetail = {
+    ...FLAT_BLACK_HOLE_DETAIL,
+    black_hole_evidence: null,
+  };
+  const html = renderBlackHoleEvidence(noEvidenceDetail, []);
+  assert.ok(html.includes(copy.BLACK_HOLE_EVIDENCE_HEADING));
+  assert.ok(html.includes(copy.BLACK_HOLE_RULE_TEXT));
+  assert.ok(html.includes(escapeHtml(copy.BLACK_HOLE_EXCLUSIONS_TEXT)));
+  assert.ok(html.includes(copy.BLACK_HOLE_RECHECK_TEXT));
+  assert.ok(!html.includes("external non-bot PRs had no maintainer response"));
+});
+

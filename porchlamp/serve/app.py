@@ -53,6 +53,7 @@ thread that owns the connection. The v2 connection opened uses
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 from pathlib import Path
@@ -66,11 +67,16 @@ from pydantic import ValidationError as PydanticValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from porchlamp.audit.methodology_history import methodology_with_history
-from porchlamp.core import constants
+from porchlamp.core import constants, gates
 from porchlamp.core.methodology import MethodologyDocument
 from porchlamp.core.pipeline import DISPLAY_UNRATED_GATE_REASONS
+from porchlamp.derive.gate_evidence import black_hole_window_breakdown_from_raw
+from porchlamp.paths import data_root
 from porchlamp.serve.contract import (
     DEFAULT_PAGE_SIZE,
+    BlackHoleCountedPR,
+    BlackHoleEvidence,
+    BlackHoleExcludedCounts,
     EvidenceRow,
     LeaderboardResponse,
     LeaderboardRow,
@@ -356,7 +362,140 @@ def _reproject_row(record: Mapping[str, Any]) -> ReprojectRow:
     )
 
 
-def _repo_detail(record: Mapping[str, Any]) -> RepoDetailResponse:
+def _find_raw_root_for_pr_window(conn: sqlite3.Connection, source: str | None, owner: str, name: str) -> Path | None:
+    basename = f"{owner}__{name}"
+    candidate_roots: list[Path] = [data_root() / "raw"]
+    db_dirs: list[Path] = []
+    try:
+        db_rows = conn.execute("PRAGMA database_list").fetchall()
+        for r in db_rows:
+            if r and len(r) > 2 and r[2]:
+                db_dir = Path(r[2]).parent
+                db_dirs.append(db_dir)
+                candidate_roots.extend([db_dir / "raw", db_dir / "data" / "raw", db_dir])
+    except Exception:
+        pass
+
+    if source:
+        p_data = (data_root() / source).resolve()
+        if p_data.is_file() and p_data.parent.name == "pr_window":
+            return p_data.parent.parent
+        for db_dir in db_dirs:
+            p_db = (db_dir / source).resolve()
+            if p_db.is_file() and p_db.parent.name == "pr_window":
+                return p_db.parent.parent
+
+    for root in candidate_roots:
+        target = root / "pr_window" / f"{basename}.json"
+        if target.is_file():
+            return root
+    return None
+
+
+def _build_black_hole_evidence(
+    conn: sqlite3.Connection,
+    snapshot_id: str,
+    record: Mapping[str, Any],
+) -> Optional[BlackHoleEvidence]:
+    is_bh_gate = record.get("gate_reason") == "black_hole"
+    suspicion = record.get("suspicion") or []
+    is_bh_suspicion = "black_hole" in suspicion
+    if not (is_bh_gate or is_bh_suspicion):
+        return None
+
+    owner = record.get("owner")
+    name = record.get("name")
+    if not owner or not name:
+        return None
+
+    cursor = conn.execute(
+        """
+        SELECT p.raw_value, p.n, p.window_start, p.window_end, p.source, p.source_hash, p.fetched_at
+        FROM params p
+        JOIN repositories r ON p.repo_id = r.id
+        WHERE r.snapshot_id = ? AND r.owner = ? AND r.name = ? AND p.param_id = 'gr14_ghost_rate'
+        """,
+        (snapshot_id, owner, name),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+
+    raw_value, n, window_start, window_end, source, source_sha256, fetched_at = row
+    if raw_value is None or n is None:
+        return None
+
+    try:
+        share = float(json.loads(raw_value))
+        pop_n = int(n)
+    except (ValueError, TypeError):
+        return None
+
+    if pop_n <= 0:
+        return None
+
+    unanswered = round(share * pop_n)
+    w_lb = round(gates.wilson_lower_bound_from_share(share, pop_n), 4)
+
+    excluded = BlackHoleExcludedCounts()
+    counted_prs: list[BlackHoleCountedPR] = []
+
+    raw_root = _find_raw_root_for_pr_window(conn, source, owner, name)
+    if raw_root is not None:
+        breakdown = black_hole_window_breakdown_from_raw(raw_root, f"{owner}__{name}")
+        if breakdown is not None:
+            excluded = BlackHoleExcludedCounts(
+                draft=breakdown.excluded_draft,
+                self_closed=breakdown.excluded_self_closed,
+                new_account=breakdown.excluded_new_account,
+                bot=breakdown.excluded_bot,
+                internal=breakdown.excluded_internal,
+                under_14d=breakdown.excluded_under_14d,
+            )
+            for pr in breakdown.counted_prs:
+                if pr.number is not None:
+                    try:
+                        num = int(pr.number)
+                        if num > 0:
+                            kind = (
+                                pr.response_kind
+                                if pr.response_kind in ("review_or_comment", "merged", "closed_by_maintainer", "none")
+                                else "none"
+                            )
+                            counted_prs.append(
+                                BlackHoleCountedPR(
+                                    number=num,
+                                    created_at=pr.created_at,
+                                    answered_within_14d=pr.answered_within_14d,
+                                    first_response_at=pr.first_response_at,
+                                    response_kind=kind,
+                                )
+                            )
+                    except (ValueError, TypeError):
+                        continue
+
+    return BlackHoleEvidence(
+        unanswered=unanswered,
+        population_n=pop_n,
+        unanswered_share=share,
+        wilson_lower_bound=w_lb,
+        threshold_share=0.50,
+        min_n=10,
+        window_start=window_start,
+        window_end=window_end,
+        fetched_at=fetched_at,
+        source=source,
+        source_sha256=source_sha256,
+        excluded=excluded,
+        counted_prs=counted_prs,
+    )
+
+
+def _repo_detail(
+    record: Mapping[str, Any],
+    *,
+    black_hole_evidence: Optional[BlackHoleEvidence] = None,
+) -> RepoDetailResponse:
     fields: dict[str, Any] = {
         "owner": record["owner"],
         "name": record["name"],
@@ -383,6 +522,7 @@ def _repo_detail(record: Mapping[str, Any]) -> RepoDetailResponse:
         "persona_composites": record["persona_composites"],
         "suspicion": record["suspicion"],
         "stars_audited": record["stars_audited"],
+        "black_hole_evidence": black_hole_evidence,
     }
     for pillar in _PILLARS:
         fields[f"p_{pillar}"] = record[f"p_{pillar}"]
@@ -665,7 +805,8 @@ def _build_router() -> APIRouter:
         row = reader.get_row(conn, snapshot_id, owner, name)
         if row is None:
             raise HTTPException(status_code=404, detail=f"no repository {owner}/{name} in snapshot {snapshot_id}")
-        return _repo_detail(row)
+        bh_evidence = _build_black_hole_evidence(conn, snapshot_id, row)
+        return _repo_detail(row, black_hole_evidence=bh_evidence)
 
     @router.get("/repos/{owner}/{name}/evidence", response_model=list[EvidenceRow])
     async def get_evidence(

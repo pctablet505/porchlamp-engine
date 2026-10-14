@@ -228,6 +228,43 @@ class LeaderboardRow(StrictModel):
         return self
 
 
+class BlackHoleCountedPR(StrictModel):
+    """One counted external PR in the D-GATE-5 (black_hole) 180-day window.
+    Carries PR number, timestamps, and response classification only (never contributor logins)."""
+    number: int
+    created_at: str
+    answered_within_14d: bool
+    first_response_at: str | None = None
+    response_kind: Literal["review_or_comment", "merged", "closed_by_maintainer", "none"] = "none"
+
+
+class BlackHoleExcludedCounts(StrictModel):
+    """Counts of PRs excluded from the D-GATE-5 denominator by RFC-0008 false-positive rules."""
+    draft: int = 0
+    self_closed: int = 0
+    new_account: int = 0
+    bot: int = 0
+    internal: int = 0
+    under_14d: int = 0
+
+
+class BlackHoleEvidence(StrictModel):
+    """Transparent mathematical determination evidence for D-GATE-5 (`black_hole`)."""
+    unanswered: int
+    population_n: int
+    unanswered_share: float
+    wilson_lower_bound: float
+    threshold_share: float = 0.50
+    min_n: int = 10
+    window_start: str | None = None
+    window_end: str | None = None
+    fetched_at: str | None = None
+    source: str | None = None
+    source_sha256: str | None = None
+    excluded: BlackHoleExcludedCounts = BlackHoleExcludedCounts()
+    counted_prs: list[BlackHoleCountedPR] = []
+
+
 class RepoDetailResponse(StrictModel):
     """`GET /v1/porchlamp/repos/{owner}/{name}`: one repository's stored record plus
     its persona view, for the score detail drawer (which supports rated, gated,
@@ -280,6 +317,7 @@ class RepoDetailResponse(StrictModel):
     persona_composites: dict[str, PersonaComposite] = {}
     suspicion: list[str] = []
     stars_audited: int | None
+    black_hole_evidence: BlackHoleEvidence | None = None
 
     @model_validator(mode="after")
     def _rank_requires_rated_and_coverage_is_bounded(self) -> "RepoDetailResponse":
@@ -788,6 +826,9 @@ __all__ = [
     "GateReason",
     "UnratedReason",
     "StrictModel",
+    "BlackHoleCountedPR",
+    "BlackHoleExcludedCounts",
+    "BlackHoleEvidence",
     "PersonaComposite",
     "LeaderboardRow",
     "RepoDetailResponse",

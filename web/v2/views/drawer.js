@@ -453,6 +453,135 @@ function renderPlaybookSection() {
   );
 }
 
+export function renderBlackHoleEvidence(row, evidenceRows) {
+  if (!row) return "";
+  const isBlackHole =
+    row.gate_reason === "black_hole" ||
+    (Array.isArray(row.suspicion) && row.suspicion.includes("black_hole"));
+  if (!isBlackHole) return "";
+
+  const evidence = row.black_hole_evidence;
+  let unanswered = null;
+  let populationN = null;
+  let unansweredShare = null;
+  let wilsonLowerBound = null;
+  let windowStart = null;
+  let windowEnd = null;
+  let source = null;
+  let excluded = null;
+  let countedPrs = [];
+
+  if (evidence) {
+    unanswered = evidence.unanswered;
+    populationN = evidence.population_n;
+    unansweredShare = evidence.unanswered_share;
+    wilsonLowerBound = evidence.wilson_lower_bound;
+    windowStart = evidence.window_start;
+    windowEnd = evidence.window_end;
+    source = evidence.source;
+    excluded = evidence.excluded;
+    countedPrs = Array.isArray(evidence.counted_prs) ? evidence.counted_prs : [];
+  } else if (Array.isArray(evidenceRows)) {
+    const grRow = evidenceRows.find((r) => r.param_id === "gr14_ghost_rate");
+    if (grRow && typeof grRow.value === "number" && typeof grRow.n === "number" && grRow.n > 0) {
+      unansweredShare = grRow.value;
+      populationN = grRow.n;
+      unanswered = Math.round(unansweredShare * populationN);
+      const z = 1.644853;
+      const denom = 1 + (z * z) / populationN;
+      const center = unansweredShare + (z * z) / (2 * populationN);
+      const spread = z * Math.sqrt((unansweredShare * (1 - unansweredShare) + (z * z) / (4 * populationN)) / populationN);
+      wilsonLowerBound = Math.max(0, (center - spread) / denom);
+      windowStart = grRow.window_start;
+      windowEnd = grRow.window_end;
+      source = grRow.source;
+    }
+  }
+
+  const hasData = typeof unanswered === "number" && typeof populationN === "number" && populationN > 0;
+
+  let bodyHtml = "";
+  if (hasData) {
+    const pct = typeof unansweredShare === "number" ? (unansweredShare * 100).toFixed(1) : "0.0";
+    const wPct = typeof wilsonLowerBound === "number" ? (wilsonLowerBound * 100).toFixed(1) : "0.0";
+
+    const statHtml = `<p class="black-hole-stat">${escapeHtml(unanswered)} of ${escapeHtml(populationN)} (${escapeHtml(pct)}%) external non-bot PRs had no maintainer response, merge, or close within 14 days</p>`;
+    const wilsonHtml = `<p class="black-hole-wilson">95% Wilson lower confidence bound: ${escapeHtml(wPct)}% (threshold: &gt; 50.0%, min n = 10)</p>`;
+
+    let windowHtml = "";
+    if (windowStart && windowEnd) {
+      windowHtml = `<p class="black-hole-window">${escapeHtml(windowStart)} – ${escapeHtml(windowEnd)}</p>`;
+    }
+    let sourceHtml = "";
+    if (source) {
+      sourceHtml = `<p class="black-hole-source">Source: ${escapeHtml(source)}</p>`;
+    }
+
+    let excludedCountsHtml = "";
+    if (excluded) {
+      const parts = [];
+      if (excluded.draft > 0) parts.push(`${excluded.draft} draft`);
+      if (excluded.self_closed > 0) parts.push(`${excluded.self_closed} author self-closed`);
+      if (excluded.new_account > 0) parts.push(`${excluded.new_account} new account (<90d)`);
+      if (excluded.bot > 0) parts.push(`${excluded.bot} bot`);
+      if (excluded.internal > 0) parts.push(`${excluded.internal} internal/maintainer`);
+      if (excluded.under_14d > 0) parts.push(`${excluded.under_14d} open <14d`);
+      if (parts.length > 0) {
+        excludedCountsHtml = `<p class="black-hole-excluded-counts">Excluded: ${escapeHtml(parts.join(", "))}</p>`;
+      }
+    }
+
+    let prTableHtml = "";
+    const validPrs = countedPrs.filter(
+      (pr) => typeof pr.number === "number" && Number.isInteger(pr.number) && pr.number > 0
+    );
+    if (validPrs.length > 0) {
+      const prRows = validPrs
+        .map((pr) => {
+          const num = Number(pr.number);
+          const prUrl = `https://github.com/${encodeURIComponent(row.owner)}/${encodeURIComponent(row.name)}/pull/${num}`;
+          const statusText = pr.answered_within_14d
+            ? (pr.response_kind ? `Answered (${escapeHtml(pr.response_kind)})` : "Answered")
+            : "No response within 14d";
+          return (
+            `<tr>` +
+            `<td><a href="${escapeHtml(prUrl)}" target="_blank" rel="noopener noreferrer">#${num}</a></td>` +
+            `<td>${escapeHtml(pr.created_at || "")}</td>` +
+            `<td>${statusText}</td>` +
+            `</tr>`
+          );
+        })
+        .join("");
+      prTableHtml =
+        `<div class="table-scroll"><table class="evidence-table black-hole-pr-table"><thead><tr>` +
+        `<th>PR</th><th>Opened</th><th>14-day status</th>` +
+        `</tr></thead><tbody>${prRows}</tbody></table></div>`;
+    }
+
+    bodyHtml =
+      statHtml +
+      wilsonHtml +
+      windowHtml +
+      sourceHtml +
+      `<p class="black-hole-exclusions">${escapeHtml(copy.BLACK_HOLE_EXCLUSIONS_TEXT)}</p>` +
+      excludedCountsHtml +
+      prTableHtml +
+      `<p class="black-hole-recheck">${escapeHtml(copy.BLACK_HOLE_RECHECK_TEXT)}</p>`;
+  } else {
+    bodyHtml =
+      `<p class="black-hole-exclusions">${escapeHtml(copy.BLACK_HOLE_EXCLUSIONS_TEXT)}</p>` +
+      `<p class="black-hole-recheck">${escapeHtml(copy.BLACK_HOLE_RECHECK_TEXT)}</p>`;
+  }
+
+  return (
+    `<div class="black-hole-evidence" data-black-hole-evidence="true">` +
+    `<h3>${escapeHtml(copy.BLACK_HOLE_EVIDENCE_HEADING)}</h3>` +
+    `<p class="black-hole-rule">${escapeHtml(copy.BLACK_HOLE_RULE_TEXT)}</p>` +
+    bodyHtml +
+    `</div>`
+  );
+}
+
 /**
  * `opts.siteBaseUrl` is the public site's address for the README badge's
  * Markdown; app.js reads it from index.html, since this module never reads
@@ -507,6 +636,11 @@ export function renderDrawer(state, opts = {}) {
   const evidenceRows = state.evidenceByRepo[state.repo];
   const evidenceError = evidenceRows ? null : state.evidenceError;
 
+  const isBlackHole =
+    row.gate_reason === "black_hole" ||
+    (Array.isArray(row.suspicion) && row.suspicion.includes("black_hole"));
+  const blackHoleEvidenceHtml = isBlackHole ? renderBlackHoleEvidence(row, evidenceRows) : "";
+
   if (kind === "gated") {
     // The gate sentence (in `identity` above) stays "the reason
     // sentence and nothing else above the fold" (06 §3 C) — every section
@@ -524,6 +658,7 @@ export function renderDrawer(state, opts = {}) {
       `<div class="drawer-backdrop" data-drawer-backdrop="true">` +
       `<div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">` +
       `<div class="drawer-header">${identity}${headerActions}</div>` +
+      blackHoleEvidenceHtml +
       sections +
       `</div></div>`
     );
@@ -560,6 +695,7 @@ export function renderDrawer(state, opts = {}) {
     `<div class="drawer-backdrop" data-drawer-backdrop="true">` +
     `<div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">` +
     `<div class="drawer-header">${identity}${headerActions}</div>` +
+    blackHoleEvidenceHtml +
     sections +
     `</div></div>`
   );

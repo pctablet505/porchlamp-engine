@@ -326,7 +326,8 @@ export const LOADING_LABEL = "Loading…";
 export const LOADING_ROW_SR_TEXT = "Loading repositories…";
 
 const SUSPICION_FLAG_COPY = Object.freeze({
-  black_hole: "PR black hole (>50% of external PRs receive zero substantive response within 14 days)",
+  black_hole:
+    "Black hole (>50% of external non-bot PRs received zero response within 14 days and 95% one-sided Wilson lower confidence bound > 50% over n >= 10 external PRs)",
 });
 export const SUSPICION_LABEL = "Suspicion flags";
 export function suspicionTooltip(flags) {
@@ -334,6 +335,15 @@ export function suspicionTooltip(flags) {
   const formatted = flags.map((f) => (SUSPICION_FLAG_COPY[f] ? `${f} (${SUSPICION_FLAG_COPY[f]})` : f));
   return `Flagged by: ${formatted.join(", ")}`;
 }
+
+export const BLACK_HOLE_EVIDENCE_HEADING = "How this Black hole status was determined (D-GATE-5)";
+export const BLACK_HOLE_RULE_TEXT =
+  "Rule (D-GATE-5, RFC-0008): A repository is classified as a Black hole only when at least 10 eligible external non-bot PRs were observed for 14+ days in the 180-day window and the 95% one-sided Wilson lower confidence bound on the 14-day unanswered share exceeds 50%.";
+export const BLACK_HOLE_EXCLUSIONS_TEXT =
+  "False-positive protections applied: Draft PRs (until marked ready for review), PRs closed by their own author before any maintainer response, and PRs from accounts under 90 days old are excluded. A maintainer review, >= 40-character comment, merge, or PR close within 14 days counts as a response.";
+export const BLACK_HOLE_RECHECK_TEXT =
+  "Automatic recovery: Porchlamp re-evaluates the 180-day PR window whenever repository activity moves. If this project reviews patches off-GitHub (mailing list, Gerrit, Phabricator), open a re-check issue to route it under D-GATE-6 (RFC-0007).";
+
 
 export const ROW_OPEN_HINT = "Press Enter to view why this score";
 
