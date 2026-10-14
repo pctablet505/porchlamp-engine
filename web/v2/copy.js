@@ -732,3 +732,62 @@ export function pillarSortTooltip(pillar) {
 export const ONBOARDING_SUBTITLE =
   "Evidence-based open-source repository ranking across 5 pillars: Responsiveness, Criticality, Governance, Rigor, and Accessibility.";
 export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";
+
+// --- Maintainer README badge (Screen C: Composite section) ----------------
+export const MAINTAINER_BADGE_HEADING = "Maintainer README badge";
+export const MAINTAINER_BADGE_NOTE =
+  "Canonical Balanced rating — paste into README.md to link directly to this repository's live evidence drawer.";
+export const MAINTAINER_BADGE_COPY_LABEL = "Copy Markdown";
+export const MAINTAINER_BADGE_COPIED_LABEL = "Copied";
+
+const MAINTAINER_BADGE_VARIANTS = Object.freeze({
+  sweet_spot: { id: "sweet-spot", file: "badges/sweet-spot.svg", label: `${QUADRANT_GLYPHS["Sweet Spot"]} ${QUADRANT_LABELS["Sweet Spot"]}` },
+  "S+": { id: "tier-s-plus", file: "badges/tier-s-plus.svg", label: "Tier S+" },
+  S: { id: "tier-s", file: "badges/tier-s.svg", label: "Tier S" },
+  A: { id: "tier-a", file: "badges/tier-a.svg", label: "Tier A" },
+});
+
+/**
+ * Resolves the canonical Maintainer Badge specification for a repository record.
+ * Eligibility requires:
+ *   1. Stage-0 eligible and canonically rated under the `balanced` composite (U-4).
+ *   2. Zero active suspicion flags (03-ANTI-MANIPULATION.md).
+ *   3. Either `quadrant === "Sweet Spot"` or canonical `tier` in `{"S+", "S", "A"}`.
+ * Embeds the complete U-1 (score, coverage + band, tier + ceiling) and U-6
+ * (`snapshot_id`) evidence tuple into `alt`.
+ */
+export function maintainerBadgeSpec(row) {
+  if (!row || !row.eligible || !row.rated) return null;
+  if (Array.isArray(row.suspicion) && row.suspicion.length > 0) return null;
+  let variant = null;
+  if (row.quadrant === "Sweet Spot") {
+    variant = MAINTAINER_BADGE_VARIANTS.sweet_spot;
+  } else if (row.tier && MAINTAINER_BADGE_VARIANTS[row.tier]) {
+    variant = MAINTAINER_BADGE_VARIANTS[row.tier];
+  }
+  if (!variant) return null;
+
+  const scoreText = typeof row.porchlamp === "number" ? row.porchlamp.toFixed(2) : MISSING_VALUE;
+  const tierText = tierLabel(row.tier, row.tier_ceiling);
+  const covText = typeof row.coverage === "number" ? coverageBadgeText(row.coverage) : MISSING_VALUE;
+  const safeSnapshot = row.snapshot_id ? String(row.snapshot_id).replace(/["[\]\\]/g, "") : "";
+  const snapshotSuffix = safeSnapshot ? ` · ${SNAPSHOT_ID_LABEL} ${safeSnapshot}` : "";
+  const alt = `${BRAND_NAME}: ${variant.label} · ${COLUMN_PORCHLAMP} ${scoreText} · ${COLUMN_TIER} ${tierText} · ${COLUMN_COVERAGE} ${covText}${snapshotSuffix}`;
+  return {
+    id: variant.id,
+    file: variant.file,
+    label: variant.label,
+    alt,
+  };
+}
+
+export function maintainerBadgeMarkdown(row, baseUrl = "/") {
+  const spec = maintainerBadgeSpec(row);
+  if (!spec) return "";
+  const normalizedBase = baseUrl ? (baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`) : "";
+  const repoParam = `${encodeURIComponent(row.owner)}%2F${encodeURIComponent(row.name)}`;
+  const imageUrl = `${normalizedBase}${spec.file}`;
+  const targetUrl = `${normalizedBase}?repo=${repoParam}`;
+  return `[![${spec.alt}](${imageUrl})](${targetUrl} "${spec.alt}")`;
+}
+

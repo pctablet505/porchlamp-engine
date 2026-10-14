@@ -127,7 +127,40 @@ function renderIdentity(kind, row, persona) {
   return heading;
 }
 
-function renderComposite(row) {
+function resolveSiteBaseUrl(state) {
+  if (state && typeof state.siteBaseUrl === "string" && state.siteBaseUrl) {
+    return state.siteBaseUrl;
+  }
+  const metaOgUrl = globalThis.document?.querySelector?.('meta[property="og:url"]')?.getAttribute?.("content");
+  if (metaOgUrl) return metaOgUrl;
+  const canonical = globalThis.document?.querySelector?.('link[rel="canonical"]')?.getAttribute?.("href");
+  if (canonical) return canonical;
+  if (globalThis.location && globalThis.location.origin) {
+    return `${globalThis.location.origin}${globalThis.location.pathname}`;
+  }
+  return "/";
+}
+
+export function renderMaintainerBadge(canonicalRow, baseUrl = "/") {
+  const spec = copy.maintainerBadgeSpec(canonicalRow);
+  if (!spec) return "";
+  const markdown = copy.maintainerBadgeMarkdown(canonicalRow, baseUrl);
+  return (
+    `<div class="maintainer-badge-box" data-maintainer-badge="${escapeHtml(spec.id)}">` +
+    `<div class="maintainer-badge-head">` +
+    `<div class="maintainer-badge-title-group">` +
+    `<span class="identity-label">${escapeHtml(copy.MAINTAINER_BADGE_HEADING)}</span>` +
+    `<img class="maintainer-badge-preview" src="${escapeHtml(spec.file)}" alt="${escapeHtml(spec.alt)}" height="20" loading="lazy">` +
+    `</div>` +
+    `<button type="button" class="reproduce-copy" data-badge-copy="true">${escapeHtml(copy.MAINTAINER_BADGE_COPY_LABEL)}</button>` +
+    `</div>` +
+    `<p class="maintainer-badge-note">${escapeHtml(copy.MAINTAINER_BADGE_NOTE)}</p>` +
+    `<pre class="reproduce-command maintainer-badge-snippet" data-badge-markdown="true">${escapeHtml(markdown)}</pre>` +
+    `</div>`
+  );
+}
+
+function renderComposite(row, canonicalRow = row, baseUrl = "/") {
   const capped = !!row.tier_ceiling && row.tier === row.tier_ceiling;
   const cappedNote = capped
     ? `<p>${escapeHtml(copy.TIER_CAPPED_EXPLANATION)}</p>`
@@ -142,6 +175,7 @@ function renderComposite(row) {
     `<p class="cell-numeric">Score ${row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderCoverageBadge(row.coverage)} · ${renderTierCell(row.tier, row.tier_ceiling)}</p>` +
     cappedNote +
     `<p>${renderQuadrant(row.quadrant)} — ${escapeHtml(copy.COORDINATES_LABEL)}: leverage ${lev} (coverage ${levCov}), friction ${fric} (coverage ${fricCov})</p>` +
+    renderMaintainerBadge(canonicalRow, baseUrl) +
     `</details>`
   );
 }
@@ -451,7 +485,7 @@ export function renderDrawer(state) {
     sections = renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, true);
   } else {
     sections = (
-      renderComposite(row) +
+      renderComposite(row, found, resolveSiteBaseUrl(state)) +
       renderPillarSection(row, evidenceRows, evidenceError) +
       renderPersonaSection(row) +
       renderIntegritySection(row) +

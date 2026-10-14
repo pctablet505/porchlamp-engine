@@ -1649,3 +1649,93 @@ test("configure: mergeReprojectPages puts every page's rows in order and keeps t
   assert.equal(merged.lens, "custom");
   assert.deepEqual(first.rows.map((r) => r.k), [1, 2], "the first answer is not changed");
 });
+
+// ------------------------------------------------ Maintainer README badge
+import { renderMaintainerBadge } from "../views/drawer.js";
+
+test("maintainer badge: eligibility gates on canonical rated status, zero suspicion flags, and Sweet Spot or Tier S+/S/A", () => {
+  // Sweet Spot takes priority when a repository sits in the Sweet Spot quadrant
+  const sweetSpotSpec = copy.maintainerBadgeSpec(FLAT_RATED_DETAIL);
+  assert.ok(sweetSpotSpec);
+  assert.equal(sweetSpotSpec.id, "sweet-spot");
+  assert.equal(sweetSpotSpec.file, "badges/sweet-spot.svg");
+
+  // Tier S+, S, and A outside Sweet Spot (e.g. Nursery) each map to their own tier badge
+  for (const [tier, expectedId, expectedFile] of [
+    ["S+", "tier-s-plus", "badges/tier-s-plus.svg"],
+    ["S", "tier-s", "badges/tier-s.svg"],
+    ["A", "tier-a", "badges/tier-a.svg"],
+  ]) {
+    const spec = copy.maintainerBadgeSpec({ ...FLAT_RATED_DETAIL, quadrant: "Nursery", tier });
+    assert.ok(spec, `tier ${tier} in Nursery must earn a tier badge`);
+    assert.equal(spec.id, expectedId);
+    assert.equal(spec.file, expectedFile);
+  }
+
+  // Tier B/C/D outside Sweet Spot do not earn a badge
+  for (const tier of ["B", "C", "D"]) {
+    assert.equal(copy.maintainerBadgeSpec({ ...FLAT_RATED_DETAIL, quadrant: "Crucible", tier }), null);
+  }
+
+  // Gated, unrated, or suspicion-flagged repositories never receive a badge
+  assert.equal(copy.maintainerBadgeSpec(FLAT_GATED_DETAIL), null);
+  assert.equal(copy.maintainerBadgeSpec(FLAT_UNRATED_DETAIL), null);
+  assert.equal(copy.maintainerBadgeSpec({ ...FLAT_RATED_DETAIL, suspicion: ["black_hole"] }), null);
+});
+
+test("maintainer badge: Markdown snippet carries U-1 (score, coverage band, tier ceiling) and U-6 (snapshot_id) evidence", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const indexHtml = readFileSync(path.join(here, "..", "index.html"), "utf8");
+  const baseUrl = indexHtml.match(/<meta property="og:url" content="([^"]*)"/)[1];
+
+  const cappedRow = {
+    ...FLAT_RATED_DETAIL,
+    porchlamp: 84.5,
+    coverage: 0.85,
+    tier: "A",
+    tier_ceiling: "A",
+    quadrant: "Sweet Spot",
+    snapshot_id: "2026-10-13c",
+  };
+  const md = copy.maintainerBadgeMarkdown(cappedRow, baseUrl);
+  assert.ok(md.includes(`${baseUrl}badges/sweet-spot.svg`), "references self-hosted SVG on canonical site");
+  assert.ok(md.includes(`${baseUrl}?repo=riverline%2Fhttpkit`), "deep-links to ?repo=owner%2Fname");
+  assert.ok(md.includes("Score 84.50"), "U-1: includes composite score");
+  assert.ok(md.includes("Tier A (capped)"), "U-1: includes binding tier ceiling");
+  assert.ok(md.includes("Coverage 85% · Ceiling A"), "U-1: includes coverage percentage and band");
+  assert.ok(md.includes("Snapshot 2026-10-13c"), "U-6: includes reproducible snapshot_id");
+});
+
+test("maintainer badge: U-4 guard prevents minting a badge via persona lens cherry-picking", () => {
+  // Unrated under canonical balanced, but Tier A under ai_assisted: must NOT render a badge
+  const personaOnlyRepo = {
+    ...FLAT_UNRATED_DETAIL,
+    owner: "ai-org",
+    name: "ai-repo",
+    persona_composites: {
+      balanced: { porchlamp: null, tier: null, coverage: 0.48, tier_ceiling: null, rated: false },
+      ai_assisted: { porchlamp: 78.4, tier: "A", coverage: 0.68, tier_ceiling: "A", rated: true },
+    },
+    persona_gates: {},
+  };
+  const personaHtml = renderDrawer({ ...stateWithRepoDetail(personaOnlyRepo), persona: "ai_assisted" });
+  assert.ok(!personaHtml.includes("data-maintainer-badge"), "persona-only Tier A must not mint a canonical README badge");
+
+  // Canonically eligible repository renders the badge inside Composite with copy button
+  const canonicalHtml = renderDrawer(stateWithRepoDetail(FLAT_RATED_DETAIL));
+  assert.ok(canonicalHtml.includes('data-maintainer-badge="sweet-spot"'));
+  assert.ok(canonicalHtml.includes('data-badge-copy="true"'));
+  assert.ok(canonicalHtml.includes('data-badge-markdown="true"'));
+  assert.equal(renderMaintainerBadge(FLAT_GATED_DETAIL), "");
+});
+
+test("maintainer badge: every self-hosted SVG badge file exists on disk with the Porch Lamp symbol", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  for (const file of ["badges/sweet-spot.svg", "badges/tier-s-plus.svg", "badges/tier-s.svg", "badges/tier-a.svg"]) {
+    const svg = readFileSync(path.join(here, "..", file), "utf8");
+    assert.match(svg, /^<svg[^>]*role="img"/, `${file} is an accessible SVG`);
+    assert.ok(svg.includes("<title>Porchlamp:"), `${file} carries a <title>`);
+    assert.ok(svg.includes("#fbbf24"), `${file} carries the Porch Lamp amber glow`);
+  }
+});
+

@@ -1375,6 +1375,23 @@ export function boot(win = window, doc = document) {
       loadEvidence(owner, name);
       return;
     }
+    const badgeCopyBtn = evt.target.closest("[data-badge-copy]");
+    if (badgeCopyBtn) {
+      const pre = drawerRoot.querySelector("[data-badge-markdown]");
+      if (pre && win.navigator.clipboard) {
+        win.navigator.clipboard
+          .writeText(pre.textContent)
+          .then(() => {
+            const original = badgeCopyBtn.textContent;
+            badgeCopyBtn.textContent = copy.MAINTAINER_BADGE_COPIED_LABEL;
+            win.setTimeout(() => {
+              badgeCopyBtn.textContent = original;
+            }, 1200);
+          })
+          .catch(() => {});
+      }
+      return;
+    }
     if (evt.target.closest("[data-repo-detail-retry]")) {
       const repo = store.getState().repo;
       if (!repo) return;
