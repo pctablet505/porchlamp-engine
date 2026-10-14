@@ -31,11 +31,13 @@ EXTERNAL_URL_RE = re.compile(r"""(https?:)?//[a-zA-Z0-9][^\s'"()]*""")
 ALLOWED_URL_SUBSTRINGS: tuple[str, ...] = ("https://github.com/",)
 
 
-#: Link-preview tags (Open Graph, Twitter cards) must carry absolute URLs --
-#: crawlers do not resolve relative ones -- yet the browser never fetches
-#: them. Only the content of such a <meta> tag is exempt; the same URL
-#: anywhere else in a served file is still a violation.
-LINK_PREVIEW_META_RE = re.compile(r"""<meta\s+(?:property="og:[\w:]+"|name="twitter:\w+")\s+content="[^"]*">""")
+#: Link-preview and canonical tags (Open Graph, Twitter cards, rel="canonical")
+#: must carry absolute URLs -- crawlers do not resolve relative ones -- yet the
+#: browser never fetches them as subresources. Only the content/href of such a
+#: tag is exempt; the same URL anywhere else in a served file is still a violation.
+LINK_PREVIEW_META_RE = re.compile(
+    r"""<meta\s+(?:property="og:[\w:]+"|name="twitter:\w+")\s+content="[^"]*">|<link\s+rel="canonical"\s+href="[^"]*">"""
+)
 
 
 def served_files() -> list[Path]:
@@ -43,7 +45,7 @@ def served_files() -> list[Path]:
 
 
 def scannable_text(text: str) -> str:
-    """The text a browser could turn into a request: link-preview <meta> tags removed."""
+    """The text a browser could turn into a request: link-preview <meta> and canonical <link> tags removed."""
     return LINK_PREVIEW_META_RE.sub("", text)
 
 
@@ -56,7 +58,7 @@ class TestNoExternalResources:
         for path in served_files():
             if path.suffix != ".html":
                 continue
-            html = path.read_text()
+            html = scannable_text(path.read_text())
             assert "<script src=\"http" not in html, f"{path}: external <script src>"
             assert "<link" not in html or 'href="http' not in html, f"{path}: external <link>"
 
@@ -97,12 +99,17 @@ class TestNoExternalResources:
 
 def test_link_preview_exemption_covers_only_preview_meta_tags() -> None:
     url = "https://example.org/og.png"
-    exempt = f'<meta property="og:image" content="{url}">\n<meta name="twitter:image" content="{url}">'
+    exempt = (
+        f'<meta property="og:image" content="{url}">\n'
+        f'<meta name="twitter:image" content="{url}">\n'
+        f'<link rel="canonical" href="{url}">'
+    )
     assert not EXTERNAL_URL_RE.search(scannable_text(exempt))
     for still_flagged in (
         f'<img src="{url}">',
         f'<meta http-equiv="refresh" content="0; url={url}">',
         f'<link rel="preload" href="{url}">',
+        f'<link rel="stylesheet" href="{url}">',
         f'const u = "{url}";',
     ):
         assert EXTERNAL_URL_RE.search(scannable_text(still_flagged)), still_flagged

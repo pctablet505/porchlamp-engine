@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Porchlamp</title>
-  <meta name="description" content="Porchlamp ranks open-source projects by what happens to a stranger's pull request, not by stars. Find the projects that leave the light on.">
+  <title>Porchlamp — Find the projects that leave the light on</title>
+  <meta name="description" content="A porch lamp left on tells a visitor they are expected. Porchlamp ranks 11,000 open-source projects by what happens to a stranger's pull request, not by stars. Find the projects that leave the light on.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="canonical" href="https://pctablet505.github.io/porchlamp/">
   <!-- Link previews. Absolute URLs: crawlers do not resolve relative ones. -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Porchlamp">
@@ -30,7 +31,26 @@
   <div class="app-shell">
     <header class="app-header" id="app-header-controls"></header>
     <nav class="app-primary-nav" id="app-primary-nav"></nav>
-    <main class="app-main" id="app-main" tabindex="-1"></main>
+    <main class="app-main" id="app-main" tabindex="-1">
+      <article class="seo-fallback">
+        <img src="favicon.svg" width="48" height="48" alt="Porchlamp's symbol: a porch lamp with its light on">
+        <h1>Porchlamp</h1>
+        <p><strong>Find the projects that leave the light on.</strong></p>
+        <p>
+          A porch lamp left on tells a visitor they are expected. Porchlamp ranks open-source projects the same way: by what happens to a stranger's pull request, not by how many stars the project has.
+        </p>
+        <h2>Stars don't review pull requests</h2>
+        <ul>
+          <li><strong>More than a third of active projects are black holes.</strong> Of the 4,358 licensed, maintained software projects that received at least ten outside pull requests in six months, 1,610 (36.9%) left most of them with no human reply, review or merge for two weeks. Counting only pull requests opened by people, not bots, gives 56.3%.</li>
+          <li><strong>More stars, more silence.</strong> The black-hole share rises with popularity: 33% of projects with 1k–10k stars, 40% at 10k–50k, and 48% at 50k or more.</li>
+          <li><strong>Stars barely predict the ranking.</strong> Across the 3,407 ranked projects the rank correlation between stars and the Porchlamp score is 0.13, and 9 of the 100 most-starred projects make the top 100.</li>
+        </ul>
+        <h2>Where the numbers come from</h2>
+        <p>
+          We followed 212,390 pull requests from 110,605 outside contributors to 11,000 projects over six months across npm, PyPI, crates.io, Go, Maven, and systems software: who got an answer, how fast, how many reached a decision, whether first-time contributors came back, and how much other software depends on each project. Black holes, and projects that are archived, unmaintained, unlicensed or not software, are listed but never ranked. The rest are scored on five pillars (Responsiveness, Criticality, Governance, Rigor, Accessibility) and re-weighted for five kinds of contributor (Balanced, First-timer, Career capital, Senior systems, AI-assisted). Every number traces back to a recorded GitHub response and its content hash.
+        </p>
+      </article>
+    </main>
     <footer class="app-footer" id="app-footer"></footer>
   </div>
   <div id="app-drawer-root"></div>

@@ -1245,10 +1245,15 @@ test("index.html carries absolute link-preview tags and the preview image exists
   // No URL literal here: tests/test_ui_no_external_resources.py scans this file too.
   const base = meta("property", "og:url");
   assert.match(base, /^https:\/\/[^/]+\/porchlamp\/$/, "og:url is the absolute site root");
+  const canonical = html.match(/<link rel="canonical" href="([^"]*)">/);
+  assert.ok(canonical && canonical[1] === base, "rel=canonical matches og:url");
   assert.equal(meta("property", "og:image"), base + "og.png");
   assert.equal(meta("name", "twitter:image"), base + "og.png");
   assert.equal(meta("name", "twitter:card"), "summary_large_image");
   for (const k of ["og:title", "og:description", "og:image:alt"]) assert.ok(meta("property", k), k);
+  assert.match(html, /<title>Porchlamp — Find the projects that leave the light on<\/title>/);
+  assert.match(html, /<main class="app-main" id="app-main" tabindex="-1">\s*<article class="seo-fallback">/);
+  assert.match(html, /Stars don't review pull requests/);
   const png = readFileSync(path.join(here, "..", "og.png"));
   assert.equal(png.subarray(1, 4).toString(), "PNG");
   assert.equal(png.readUInt32BE(16), 1200, "og:image:width matches the file");
