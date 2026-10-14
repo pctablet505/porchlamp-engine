@@ -342,7 +342,7 @@ export const BLACK_HOLE_RULE_TEXT =
 export const BLACK_HOLE_EXCLUSIONS_TEXT =
   "False-positive protections (RFC-0008): Draft PRs (until marked ready for review), PRs closed by their own author before any maintainer response, and PRs from accounts under 90 days old are excluded. A maintainer review, >= 40-character comment, merge, or PR close within 14 days counts as a response.";
 export const BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT =
-  "The data of this snapshot was collected before drafts and self-closed pull requests were recorded, so those two exclusions were not applied.";
+  "The data of this snapshot was collected before drafts, self-closed pull requests and closes by a maintainer were recorded, so those two exclusions were not applied and a maintainer close was not counted as a response.";
 export const BLACK_HOLE_RECHECK_TEXT =
   "Automatic recovery: Porchlamp re-evaluates the 180-day PR window whenever repository activity moves. If this project reviews patches off-GitHub (mailing list, Gerrit, Phabricator), open a re-check issue to route it under D-GATE-6 (RFC-0007).";
 
