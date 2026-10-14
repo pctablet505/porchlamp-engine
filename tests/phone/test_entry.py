@@ -414,21 +414,14 @@ def test_no_progress_for_twenty_five_minutes_while_working_raises_stuck_once_and
     assert "Progress is back" in [e["text"] for e in r.eng.timeline.list(0, 3)]
 
 
-def test_progress_in_the_folders_or_a_finished_repo_keeps_it_from_being_stuck(tmp_path):
+def test_a_finished_repo_keeps_it_from_being_stuck(tmp_path):
     r, restarts = working(tmp_path)
     r.eng.tick()
-    for minute in range(1, 60):
+    for _ in range(59):
         r.clock.advance(60)
-        r.envelopes("pr_window", minute - 1, minute)             # one envelope a minute
+        r.eng._runner_log("pallets/flask [pypi]: OK")            # gather says it finished a repo
         r.eng.tick()
     assert restarts.calls == 0 and r.eng.stuck is False
-    r2, restarts2 = working(tmp_path / "second")
-    r2.eng.tick()
-    for _ in range(59):
-        r2.clock.advance(60)
-        r2.eng._runner_log("pallets/flask [pypi]: OK")            # gather says it finished a repo
-        r2.eng.tick()
-    assert restarts2.calls == 0 and r2.eng.stuck is False
 
 
 def test_a_pause_a_wait_or_a_rate_limit_is_not_stuck_and_resume_starts_the_clock_afresh(tmp_path):
@@ -577,6 +570,18 @@ def test_a_full_cycle_runs_the_selected_steps_only_and_tells_the_timeline(tmp_pa
         assert wait_until(lambda: "Idle, next cycle due" in eng.techlog.read_text(), 10)
     finally:
         eng.stop()
+
+
+def test_step_done_event_carries_the_counts(tmp_path):
+    r = Rig(tmp_path)
+    r.eng._notify("step_done", layer="L2", checked=11000, stopped=1131)
+    r.eng._notify("step_done", layer="L1", checked=40, stopped=0)
+    r.eng._notify("step_done", layer="L0")                            # a run without a state has no counts to tell
+    newest, middle, oldest = r.eng.timeline.list(0, 3)
+    assert (oldest["text"], oldest["detail"]) == ("Finished step 3 of 7: Dependents and releases",
+                                                  "11,000 projects checked \u00b7 1,131 need only the pull-request check")
+    assert (middle["text"], middle["detail"]) == ("Finished step 1 of 7: Pull requests", "40 projects checked")
+    assert (newest["text"], newest["detail"]) == ("Finished step 2 of 7: Project details", "")
 
 
 def test_a_gatherer_that_raises_with_the_secret_in_its_message_leaves_no_secret_behind(tmp_path):

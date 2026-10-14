@@ -5,9 +5,9 @@ runs report the same failure count, then writes a marker. There is no rate-limit
 no kill, no threads and no shards: the GitHub rate-limit wait lives in PHONE-2's transport,
 and pause and stop live in the HTTP gate (``phone.httpgate``).
 
-``run_forever`` also tells the app what it is doing: a ``RunState`` (the current step, the pass
-number) for the status screen, a ``notify(name, **info)`` callback for the timeline, the owner's
-layer selection and interval read afresh on every pass, and an "Idle, next cycle due DATE" line
+``run_forever`` also tells the app what it is doing: a ``RunState`` (the current step, the pass number,
+the pass's per-repo counts) for the status screen, a ``notify(name, **info)`` callback for the timeline, the
+owner's layer selection and interval read afresh on every pass, and an "Idle, next cycle due DATE" line
 instead of a silent sleep. Standard library only.
 """
 
@@ -67,6 +67,11 @@ PAGE = 25
 PAGE_RETRY = 10
 _HEAVY = ("504", "502", "end of JSON", "timed out", "timeout", "Timeout")
 _DONE = re.compile(r"done: (\d+) clean, (\d+) with failures")
+#: The one line gather.main prints per repo (the prefix is ``phone.entry.REPO_LINE``) and the run's size line.
+_OUTCOME = re.compile(r"^[\w.-]+/[\w.-]+ \[[^\]]*\]: (?:(?P<stopped>OK \(stopped at black_hole\))|(?P<ok>OK)"
+                      r"|(?P<pruned>SKIP \(ineligible: [^)]+\))"
+                      r"|(?P<clean>SKIP \((?:clean fingerprint|selected collectors clean)\))|(?P<failed>FAIL .*))$")
+_REPOS = re.compile(r"^collectors: .*; repos: (\d+)$")
 _GATHER_CACHE: dict[str, ModuleType] = {}
 
 GatherMain = Callable[[list[str]], int]
@@ -82,12 +87,30 @@ class RunState:
         self.collectors: tuple[str, ...] = ()
         self.run = 0                     # gather run number inside the step (2 or more = confirming pass)
         self.max_runs = 0
+        self.checked = 0                 # repo lines of this gather run (reset at each run): looked at in this pass
+        self.stopped = 0                 # ... of which stopped at the black-hole check
+        self.pruned = 0                  # ... of which ineligible
+        self.failed = 0                  # ... of which failed (retried in the next pass)
+        self.total = 0                   # the run's repo count from gather's "repos: N" line; 0 = not yet known
         self.cycle_started: float | None = None
         self.idle_next_due: float | None = None
         self.failures = 0                # cycle passes in a row that ended with a non-zero rc
         self.last_rc: int | None = None
         self.last_failure: str | None = None
         self.finished_at: float | None = None   # when the last cycle of this run completed
+
+
+def count_line(state: RunState, line: str) -> None:
+    """Count one gather output line: ``repos: N`` sets the total; a repo line is checked, and maybe stopped, pruned or failed."""
+    m = _REPOS.match(line)
+    if m:
+        state.total = int(m.group(1))
+        return
+    m = _OUTCOME.match(line)
+    if m:
+        state.checked += 1
+        if m.lastgroup in ("stopped", "pruned", "failed"):
+            setattr(state, m.lastgroup, getattr(state, m.lastgroup) + 1)
 
 
 def _note(notify: Notify | None, name: str, **info: object) -> None:
@@ -259,21 +282,29 @@ def run_layer(
         return 0
     if state is not None:
         state.layer, state.collectors, state.run, state.max_runs = layer, tuple(collectors.split(",")), 0, max_runs
+        state.checked = state.stopped = state.pruned = state.failed = state.total = 0
     _note(notify, "step_start", layer=layer)
     if not (marker_dir / f"{layer}.staged").exists():
         rc = _stage(home, layer, [c for c in collectors.split(",") if c], now, log)
         if rc:
             return rc
+
+    def counted(line: str) -> None:
+        if state is not None:
+            count_line(state, line)
+        log(line)
+
     prev: int | None = None
     for run in range(1, max_runs + 1):
         if state is not None:
             state.run = run
+            state.checked = state.stopped = state.pruned = state.failed = state.total = 0
         free = free_gb(home)
         if free < min_free_gb:
             log(f"{layer}: BLOCKED free disk {free:.1f} GB under {min_free_gb} GB")
             return 6
         log(f"{layer}: === gather run {run} of {max_runs} (collectors: {collectors}) ===")
-        tee = _Tee(log)
+        tee = _Tee(counted)
         try:
             with contextlib.redirect_stdout(tee):  # type: ignore[arg-type]
                 gather_main(["--all", "--graphql-bulk", "--collectors", collectors, *LAYER_FLAGS.get(layer, ())])
@@ -292,7 +323,8 @@ def run_layer(
         if prev is not None and fail == prev:
             _write_marker(marker_dir / f"{layer}.complete", now)
             log(f"{layer}: COMPLETE, two runs agree on {fail} failures")
-            _note(notify, "step_done", layer=layer)
+            counts = {} if state is None else {"checked": state.checked, "stopped": state.stopped}
+            _note(notify, "step_done", layer=layer, **counts)
             try:
                 archive.build_archive(home, layer)  # so GET /manifest.json answers at once, not after minutes of gzip
             except OSError as exc:

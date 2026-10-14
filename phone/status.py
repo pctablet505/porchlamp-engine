@@ -1,9 +1,10 @@
 """The snapshot ``status()`` returns, and every sentence the app shows. Standard library only.
 
 The app draws what this module says; it adds no wording of its own. Every number is measured: progress from the
-envelopes in the current step's collector folders against the candidate count, the ETA from the recent rate, the
-reset time as a clock time, the next cycle in whole days. The folder counts and the data size are measured by the
-monitor thread on a timer (``Progress``, ``DataSize``), so ``build`` itself only reads memory and a few marker files.
+engine's per-repo lines of the current pass (``RunState``) against the pass's repo count, the ETA from the recent
+rate, the reset time as a clock time, the next cycle in whole days. The progress samples and the data size are taken
+by the monitor thread on a timer (``Progress``, ``DataSize``), so ``build`` itself only reads memory and a few marker
+files.
 """
 
 from __future__ import annotations
@@ -84,6 +85,11 @@ def days_text(n: int) -> str:
     return "today" if n == 0 else f"in {plural(n, 'day')}"
 
 
+def stopped_note(k: int) -> str:
+    """' · K need only the pull-request check' (projects stopped at the black-hole check), or '' when there are none."""
+    return f" \u00b7 {k:,} {'needs' if k == 1 else 'need'} only the pull-request check" if k else ""
+
+
 def eta_words(seconds: float) -> str:
     if seconds < 60:
         return "Less than a minute left in this step"
@@ -115,7 +121,7 @@ def count_json(folder: Path) -> int:
 
 
 class Progress:
-    """The current step's envelope count against the candidate count, and the rate those counts imply."""
+    """The current pass's checked-repo count against its repo count, and the rate those counts imply."""
 
     TTL_S = 15.0
     SAMPLE_EVERY_S = 60.0
@@ -126,6 +132,7 @@ class Progress:
         self._clock = clock
         self._lock = threading.Lock()
         self.layer: str | None = None
+        self.run = 0
         self.done = 0
         self.total = 0
         self.changed_ts: float | None = None
@@ -162,23 +169,22 @@ class Progress:
             self._cand_key, self._cand_n = key, n
         return self._cand_n
 
-    def tick(self, layer: str | None, collectors: tuple[str, ...], active: bool, force: bool = False) -> None:
+    def tick(self, layer: str | None, run: int, checked: int, total: int, active: bool, force: bool = False) -> None:
         now = self._clock()
         with self._lock:
             dt = 0.0 if self._last_tick is None else min(max(now - self._last_tick, 0.0), 30.0)
             self._last_tick = now
             if active:
                 self._active_s += dt
-            if layer != self.layer:
-                self.layer, self.done, self.total = layer, 0, 0
+            if (layer, run) != (self.layer, self.run):
+                self.layer, self.run, self.done, self.total = layer, run, 0, 0
                 self._samples, self._counted_at = [], -1e9
             if layer is None:
                 return
             if not force and now - self._counted_at < self.TTL_S:
                 return
             self._counted_at = now
-            done = max((count_json(self.home / "raw" / c) for c in collectors), default=0)
-            total = self.candidates()
+            done, total = checked, total or self.candidates()
             if done > self.done:
                 self.changed_ts = now
             self.done, self.total = done, total
@@ -366,6 +372,7 @@ def build(e: Any) -> dict[str, Any]:
     layer = rs.layer if rs.mode == "running" else None
     idx = steps_sel.index(layer) + 1 if layer in steps_sel else 0
     done, total = e.progress.snapshot() if layer else (0, 0)
+    stopped, pruned, failed = (rs.stopped, rs.pruned, rs.failed) if layer else (0, 0, 0)
     pct = max(0, min(100, int(100 * done / total))) if total > 0 else 0
     free_gb = c.free_gb()
     reason = e.current_reason()
@@ -378,8 +385,8 @@ def build(e: Any) -> dict[str, Any]:
     last_finished = e.last_finished(times, steps_sel)
 
     state, code, headline, detail, reason_text = _words(
-        e, now=now, reason=reason, layer=layer, idx=idx, n_steps=n_steps, done=done, total=total, due=due,
-        last_finished=last_finished, finished_recent=finished_recent, net_type=net_type, free_gb=free_gb,
+        e, now=now, reason=reason, layer=layer, idx=idx, n_steps=n_steps, done=done, total=total, stopped=stopped,
+        due=due, last_finished=last_finished, finished_recent=finished_recent, net_type=net_type, free_gb=free_gb,
         restart_note=restart_note, facts=facts, s=s)
 
     budget = e.gate.budget()
@@ -435,6 +442,7 @@ def build(e: Any) -> dict[str, Any]:
                    "override": override},
         "progress": {"step_index": idx, "step_count": n_steps, "step_name": STEP_NAMES.get(layer or "", ""),
                      "done": done, "total": total, "pct": 100 if state in ("idle", "finished") else pct,
+                     "checked": done, "stopped": stopped, "pruned": pruned, "failed": failed,
                      "eta_text": e.progress.eta_text() if state == "working" else "",
                      "last_progress_s": max(0, int(now - e.last_progress_ts()))},
         "cycle": {"started": iso_local(rs.cycle_started) if rs.cycle_started and rs.mode == "running" else None,
@@ -472,8 +480,8 @@ Words = tuple[str, "str | None", str, str, str]
 
 
 def _words(e: Any, *, now: float, reason: Any, layer: str | None, idx: int, n_steps: int, done: int, total: int,
-           due: float | None, last_finished: float | None, finished_recent: bool, net_type: str, free_gb: float,
-           restart_note: str, facts: dict[str, Any], s: dict[str, Any]) -> Words:
+           stopped: int, due: float | None, last_finished: float | None, finished_recent: bool, net_type: str,
+           free_gb: float, restart_note: str, facts: dict[str, Any], s: dict[str, Any]) -> Words:
     """``(state, reason code, headline, detail, reason text)`` for the moment."""
     c = e.controls
     rs = e.runstate
@@ -548,7 +556,7 @@ def _words(e: Any, *, now: float, reason: Any, layer: str | None, idx: int, n_st
         return ("starting", None, "Starting up", "Getting ready. This takes a few seconds.", "")
     pass_note = f" \u00b7 pass {rs.run}" if rs.run >= 2 else ""
     mobile_note = " \u00b7 using mobile data" if net_type == "mobile" else ""
-    count = f" \u00b7 {done:,} of {total:,} projects" if total else ""
+    count = f" \u00b7 {done:,} of {total:,} projects checked{stopped_note(stopped)}" if total else ""
     return ("working", None, f"Collecting {STEP_PHRASE[layer]}",
             f"Step {idx} of {n_steps}{count}{pass_note}{mobile_note}{restart_note}", "")
 

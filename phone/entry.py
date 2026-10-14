@@ -398,7 +398,10 @@ class Engine:
         elif name == "step_start":
             self.event("ok", f"Started step {where}: {status_mod.STEP_PHRASE.get(layer, str(layer))}")
         elif name == "step_done":
-            self.event("ok", f"Finished step {where}: {runner.STEP_NAMES.get(layer, str(layer))}")
+            checked = info.get("checked")
+            detail = "" if checked is None else (f"{checked:,} projects checked"
+                                                 f"{status_mod.stopped_note(info.get('stopped', 0))}")
+            self.event("ok", f"Finished step {where}: {runner.STEP_NAMES.get(layer, str(layer))}", detail)
         elif name == "cycle_done":
             self.controls.cycle_boundary()
             self.event("ok", "Cycle finished", f"{len(steps)} of {len(steps)} steps. The data is ready to pull.")
@@ -421,7 +424,8 @@ class Engine:
         rs = self.runstate
         layer = rs.layer if rs.mode == "running" else None
         working = self.is_working()
-        self.progress.tick(layer, rs.collectors, active=working or self.gate.rate_state() is not None)
+        self.progress.tick(layer, rs.run, rs.checked, rs.total,
+                           active=working or self.gate.rate_state() is not None)
         self._stuck_check(now, working)
         self.stats.flush(force=False)
         self.datasize.maybe_refresh()
@@ -664,7 +668,7 @@ class Engine:
         self.runstate.failures = 0
         self.runstate.last_failure = None
         self.runstate.mode, self.runstate.layer, self.runstate.run = "starting", None, 0
-        self.progress.tick(None, (), False, force=True)
+        self.progress.tick(None, 0, 0, 0, False, force=True)
         self.datasize.maybe_refresh(force=True)
         if action == "move_data_aside":
             self.controls.set_user_pause(True)   # nothing starts again by itself; Resume starts a fresh cycle
@@ -727,7 +731,7 @@ def _cold_status() -> str:
         "detail": "Getting ready. This takes a few seconds.",
         "reason": {"code": None, "text": "", "resume_at": None, "override": None},
         "progress": {"step_index": 0, "step_count": 7, "step_name": "", "done": 0, "total": 0, "pct": 0,
-                     "eta_text": "", "last_progress_s": 0},
+                     "checked": 0, "stopped": 0, "pruned": 0, "failed": 0, "eta_text": "", "last_progress_s": 0},
         "cycle": {"started": None, "last_finished": None, "next_due": None, "interval_days": 28, "steps": []},
         "github": {"calls_left": 0, "limit": 0, "resets_in_s": 0, "floor": 500, "in_use": False},
         "network": {"type": "none", "mobile_allowed": False, "bytes_today": {"wifi": 0, "mobile": 0},
