@@ -472,7 +472,7 @@ input.control {
 .pillar-sort-btn:hover,
 .pillar-sort-btn.is-active {
   color: var(--text-primary);
-  background: var(--bg-surface-elevated);
+  background: var(--bg-surface-hover);
 }
 
 .pillar-sort-sep {
@@ -485,7 +485,13 @@ input.control {
   vertical-align: middle;
 }
 
-@media (min-width: 768px) and (max-width: 1023px) {
+.leaderboard-table td[data-cell="repository"] {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1023px) {
   .leaderboard-table {
     font-size: var(--text-caption);
   }
@@ -637,10 +643,23 @@ input.control {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
   padding: 8px var(--space-sm);
+  cursor: pointer;
+}
+
+.leaderboard-card > div:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .leaderboard-card.row-tied {
   background: var(--tie-row-band);
+}
+
+.leaderboard-card:hover,
+.leaderboard-card.row-selected {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
 }
 
 .leaderboard-card-header {
@@ -692,7 +711,8 @@ input.control {
   overflow-wrap: anywhere;
 }
 
-.notranked-row:hover {
+.notranked-row:hover,
+.notranked-row.row-selected {
   background: var(--bg-surface-hover);
 }
 
@@ -755,9 +775,9 @@ input.control {
  * of a full-page skeleton. */
 .refetch-progress {
   position: sticky;
-  top: 0;
+  top: calc(var(--header-height) + var(--primary-nav-height, 41px));
   left: 0;
-  z-index: 3;
+  z-index: 19;
   height: 2px;
   overflow: hidden;
   background: var(--bg-surface-elevated);
@@ -1087,6 +1107,21 @@ p.cell-numeric {
   margin-bottom: var(--space-xs);
 }
 
+.maintainer-badge-head .reproduce-copy {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  padding: 3px var(--space-xs);
+  font-size: var(--text-caption);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.maintainer-badge-head .reproduce-copy:hover {
+  background: var(--bg-surface-hover);
+}
+
 .maintainer-badge-preview {
   display: block;
   max-width: 100%;
@@ -1111,7 +1146,9 @@ p.cell-numeric {
   font-size: var(--text-caption);
   white-space: pre-wrap;
   word-break: normal;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
+  max-height: 6.5rem;
+  overflow-y: auto;
   -webkit-user-select: all;
   user-select: all;
 }

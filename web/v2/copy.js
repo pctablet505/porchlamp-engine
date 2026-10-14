@@ -805,15 +805,17 @@ export function maintainerBadgeSpec(row) {
   if (Array.isArray(row.suspicion) && row.suspicion.length > 0) return null;
   if (typeof row.porchlamp !== "number" || typeof row.coverage !== "number") return null;
   const band = coverageBandForValue(row.coverage);
-  const capped = !!row.tier_ceiling && row.tier === row.tier_ceiling;
+  const effectiveCeiling =
+    row.tier_ceiling !== undefined ? row.tier_ceiling : band === "A" || band === "B" ? band : null;
+  const capped = !!effectiveCeiling && row.tier === effectiveCeiling;
   const tierFile = BADGE_TIER_FILES[`${row.tier}|${band}|${capped ? "capped" : "open"}`];
   if (!tierFile) return null;
   const sweetSpot = row.quadrant === BADGE_QUADRANT;
   const quadrantText = `${QUADRANT_GLYPHS[BADGE_QUADRANT]} ${QUADRANT_LABELS[BADGE_QUADRANT]}`;
-  const tierText = `${COLUMN_TIER} ${tierLabel(row.tier, row.tier_ceiling)}`;
+  const tierText = `${COLUMN_TIER} ${tierLabel(row.tier, effectiveCeiling)}`;
   const headline = sweetSpot ? `${quadrantText} · ${tierText}` : tierText;
   // Characters that would end a Markdown alt text or link title early never reach the snippet.
-  const snapshot = row.snapshot_id ? String(row.snapshot_id).replace(/["[\]\\]/g, "") : "";
+  const snapshot = row.snapshot_id ? String(row.snapshot_id).replace(/["[\]\\\r\n]/g, "") : "";
   const alt = [
     `${BRAND_NAME}: ${headline}`,
     `${COLUMN_PORCHLAMP} ${row.porchlamp.toFixed(2)}`,
@@ -834,6 +836,8 @@ export function maintainerBadgeMarkdown(row, baseUrl = "") {
   const spec = maintainerBadgeSpec(row);
   if (!spec) return "";
   const base = !baseUrl || baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-  const target = `${base}?repo=${encodeURIComponent(row.owner)}%2F${encodeURIComponent(row.name)}`;
+  const encodeMdUrlPart = (val) =>
+    encodeURIComponent(val).replace(/[()]/g, (ch) => (ch === "(" ? "%28" : "%29"));
+  const target = `${base}?repo=${encodeMdUrlPart(row.owner)}%2F${encodeMdUrlPart(row.name)}`;
   return `[![${spec.alt}](${base}${spec.file})](${target} "${spec.alt}")`;
 }

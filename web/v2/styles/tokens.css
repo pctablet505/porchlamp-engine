@@ -179,6 +179,8 @@
     --spec-bar: #0284c7;
 
     --tie-row-band: rgba(2, 132, 199, 0.08);
+    --shadow-popover: 0 10px 25px -5px rgba(15, 23, 42, 0.16);
+    --shadow-drawer: -15px 0 40px rgba(15, 23, 42, 0.22);
   }
 }
 
@@ -219,6 +221,8 @@
   --spec-bar: #0284c7;
 
   --tie-row-band: rgba(2, 132, 199, 0.08);
+  --shadow-popover: 0 10px 25px -5px rgba(15, 23, 42, 0.16);
+  --shadow-drawer: -15px 0 40px rgba(15, 23, 42, 0.22);
 }
 
 @media (prefers-reduced-motion: reduce) {

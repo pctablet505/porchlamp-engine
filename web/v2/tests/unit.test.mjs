@@ -17,6 +17,7 @@ import { renderCoverageBadge } from "../components/badge.js";
 import { renderBrand } from "../components/brand.js";
 import { escapeHtml } from "../components/table.js";
 import {
+  createStore,
   defaultState,
   reduce,
   parseSearch,
@@ -31,10 +32,10 @@ import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal, 
 import { renderShell as notRankedRenderShell } from "../views/notranked.js";
 import { centeredScrollLeft } from "../components/primarynav.js";
 import { postReproject } from "../api.js";
-import { normalizeWeights, applyPresetRespectingLocks, renderControls, sortReprojectRows, filterReprojectRows, renderPager as renderConfigurePager, topMovers, remainingReprojectPages, mergeReprojectPages } from "../views/configure.js";
+import { normalizeWeights, applyPresetRespectingLocks, renderControls, renderShell as renderConfigureShell, sortReprojectRows, filterReprojectRows, renderPager as renderConfigurePager, topMovers, remainingReprojectPages, mergeReprojectPages } from "../views/configure.js";
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
-import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, clientToDomainCoords } from "../views/matrix.js";
-import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY } from "../components/scatter.js";
+import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, renderShell as renderMatrixShell, shellShape as matrixShellShape, clientToDomainCoords } from "../views/matrix.js";
+import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY, renderScatterSvg } from "../components/scatter.js";
 import { synthesizeRows } from "../perf-fixtures.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape } from "../views/compare.js";
 import { renderDrawer, classifyKind, classifyKindForLens, renderPillarRadar, findRow, renderBlackHoleEvidence } from "../views/drawer.js";
@@ -1981,6 +1982,7 @@ test("configure.filterReprojectRows and renderConfigurePager: filters by ecosyst
     { owner: "pallets", name: "flask", ecosystem: "pypi", rank: 2 },
   ];
   assert.equal(filterReprojectRows(rows, { ecosystem: "cargo", query: "" }).length, 1);
+  assert.equal(filterReprojectRows(rows, { ecosystem: "PyPI", query: "" }).length, 1, "case-insensitive ecosystem match");
   assert.equal(filterReprojectRows(rows, { ecosystem: "", query: "flask" }).length, 1);
   const topPager = renderConfigurePager(1, 20, 100);
   assert.ok(topPager.includes("data-configure-pager-first"));
@@ -2179,5 +2181,132 @@ test("renderBlackHoleEvidence: renders rule, exclusions, and recovery note when 
   assert.ok(html.includes(escapeHtml(copy.BLACK_HOLE_EXCLUSIONS_TEXT)));
   assert.ok(html.includes(copy.BLACK_HOLE_RECHECK_TEXT));
   assert.ok(!html.includes("external non-bot PRs had no maintainer response"));
+});
+
+test("state.reduce OPEN_REPO and createStore(?repo=): immediately enter loading state to prevent synchronous not-found flash, and guard stale repo responses", () => {
+  const store = createStore("?repo=org/alpha");
+  const hydrated = store.getState();
+  assert.equal(hydrated.repo, "org/alpha");
+  assert.equal(hydrated.repoDetailLoading, true);
+  assert.equal(hydrated.evidenceLoading, true);
+  const hydratedDrawerHtml = renderDrawer(hydrated);
+  assert.ok(!hydratedDrawerHtml.includes(copy.DRAWER_NOT_FOUND_TEXT), "URL-hydrated drawer shows skeleton instead of not-found error");
+
+  const malformedStore = createStore("?repo=malformed-no-slash");
+  const malformedState = malformedStore.getState();
+  assert.equal(malformedState.repoDetailLoading, false, "malformed repo key does not stick in loading state");
+  const malformedHtml = renderDrawer(malformedState);
+  assert.ok(malformedHtml.includes(copy.DRAWER_NOT_FOUND_TEXT), "malformed repo key immediately renders not-found state");
+  assert.ok(!malformedHtml.includes("undefined"), "malformed repo key never renders /undefined in heading");
+
+  let s = defaultState();
+  s = reduce(s, { type: "OPEN_REPO", repo: "org/alpha" });
+  assert.equal(s.repoDetailLoading, true);
+  assert.equal(s.evidenceLoading, true);
+  assert.ok(!renderDrawer(s).includes(copy.DRAWER_NOT_FOUND_TEXT), "OPEN_REPO immediately shows loading skeleton before fetch dispatch");
+
+  // User switches to org/beta while org/alpha is still in flight
+  s = reduce(s, { type: "OPEN_REPO", repo: "org/beta" });
+  s = reduce(s, { type: "REPO_DETAIL_OK", repo: "org/alpha", data: { owner: "org", name: "alpha", rated: true, eligible: true } });
+  s = reduce(s, { type: "EVIDENCE_OK", repo: "org/alpha", data: [] });
+  s = reduce(s, { type: "REPO_DETAIL_ERROR", repo: "org/alpha", error: { status: 500 } });
+  s = reduce(s, { type: "EVIDENCE_ERROR", repo: "org/alpha", error: { status: 500 } });
+  assert.equal(s.repoDetailLoading, true, "stale REPO_DETAIL_OK/ERROR for org/alpha does not clear loading flag for org/beta");
+  assert.equal(s.evidenceLoading, true, "stale EVIDENCE_OK/ERROR for org/alpha does not clear loading flag for org/beta");
+  assert.equal(s.repoDetailError, null, "stale REPO_DETAIL_ERROR for org/alpha does not pollute org/beta");
+  assert.ok(s.repoDetailByKey["org/alpha"], "stale REPO_DETAIL_OK still caches org/alpha");
+
+  // SET_PARAMS with resetTabSlices resets non-active tab slices without leaking resetTabSlices onto state
+  s = { ...s, rankedPage: 4, notRankedPage: 3, configurePage: 2, configureSort: "-porchlamp" };
+  s = reduce(s, { type: "SET_PARAMS", resetTabSlices: true, payload: { tab: "ranked", page: 1, sort: "rank" } });
+  assert.equal(s.notRankedPage, 1);
+  assert.equal(s.configurePage, 1);
+  assert.equal(s.configureSort, "rank");
+  assert.equal("resetTabSlices" in s, false, "resetTabSlices does not leak onto state");
+});
+
+test("copy.maintainerBadgeSpec and maintainerBadgeMarkdown: derives coverage-band ceiling when tier_ceiling is omitted and escapes parentheses in URLs", () => {
+  const rowWithoutCeiling = badgeRow({
+    owner: "org",
+    name: "repo(v2)",
+    porchlamp: 84.5,
+    tier: "A",
+    coverage: 0.85,
+    tier_ceiling: undefined,
+    snapshot_id: "2026-09-01\r\n",
+  });
+  const spec = copy.maintainerBadgeSpec(rowWithoutCeiling);
+  assert.ok(spec, "Coverage band A repo with tier A qualifies for Tier A (capped) badge even when tier_ceiling is omitted");
+  assert.equal(spec.id, "sweet-spot-tier-a-capped", "derives effective ceiling A from coverage band A when tier_ceiling is undefined");
+  assert.ok(spec.alt.includes("Snapshot 2026-09-01"), "strips CR/LF from snapshot_id");
+  const md = copy.maintainerBadgeMarkdown(rowWithoutCeiling, SITE_BASE);
+  assert.ok(!md.includes("(v2))"), "parentheses inside repo URL are percent-encoded so Markdown link syntax never breaks");
+  assert.ok(md.includes("repo%28v2%29"), "escapes '(' and ')' in Markdown link target");
+});
+
+test("drawer.renderDrawer: scopes persona lens to tabs that expose persona selector and preserves maintainer badge on persona-gated repos", () => {
+  const repoRow = badgeRow({
+    owner: "org",
+    name: "fast-lib",
+    persona_gates: { first_timer: "G_FIRST_TIMER" },
+  });
+  const baseState = {
+    ...defaultState(),
+    persona: "first_timer",
+    repo: "org/fast-lib",
+    repoDetailLoading: false,
+    evidenceLoading: false,
+    repoDetailByKey: { "org/fast-lib": repoRow },
+    evidenceByRepo: { "org/fast-lib": [] },
+  };
+  // On Ranked with first_timer, persona_gates.first_timer gates the repo for first_timer,
+  // but its balanced Tier S maintainer badge must still be rendered (U-4).
+  const rankedDrawer = renderDrawer({ ...baseState, tab: "ranked" }, { siteBaseUrl: SITE_BASE });
+  assert.ok(rankedDrawer.includes("gate-banner"), "Ranked drawer applies first_timer persona gate");
+  assert.ok(rankedDrawer.includes('data-badge-markdown="true"'), "persona-gated drawer still renders the balanced README maintainer badge");
+
+  // On Matrix (where the persona selector is hidden), the drawer uses the balanced lens.
+  const matrixDrawer = renderDrawer({ ...baseState, tab: "matrix" }, { siteBaseUrl: SITE_BASE });
+  assert.ok(!matrixDrawer.includes("gate-banner"), "Matrix drawer uses balanced lens instead of hidden persona filter");
+});
+
+test("scatter.renderScatterSvg and matrix.renderMatrixShell: scales SVG marker radii with viewBox zoom and offers Clear filters on filtered-empty Matrix", () => {
+  const points = [
+    { owner: "a", name: "one", quadrant: "Sweet Spot", friction: 50, leverage: 50, stars_audited: 1000 },
+  ];
+  const unzoomedSvg = renderScatterSvg(points, { viewBox: "0 0 100 100" });
+  const zoomedSvg = renderScatterSvg(points, { viewBox: "40 40 20 20" });
+  const unzoomedPath = unzoomedSvg.match(/<path d="M 0 -([0-9.]+)/);
+  const zoomedPath = zoomedSvg.match(/<path d="M 0 -([0-9.]+)/);
+  assert.ok(unzoomedPath && zoomedPath);
+  assert.ok(
+    Math.abs(parseFloat(zoomedPath[1]) - parseFloat(unzoomedPath[1]) * 0.2) < 1e-6,
+    "5x zoomed SVG scales marker domain radius by 0.2x so screen pixel size stays constant"
+  );
+
+  const emptyFilteredMatrixState = {
+    ...defaultState(),
+    tab: "matrix",
+    ecosystem: "maven",
+    matrix: { points, excluded_count: 0, axis_coverage: {} },
+  };
+  assert.equal(matrixShellShape(emptyFilteredMatrixState), "empty:maven:");
+  const emptyMatrixHtml = renderMatrixShell(emptyFilteredMatrixState);
+  assert.ok(emptyMatrixHtml.includes('data-clear-filters="true"'), "filtered-empty Matrix renders Clear filters button");
+});
+
+test("error banners across views include retry buttons", () => {
+  const err = { endpoint: "/v1/porchlamp/test", status: 503, detail: "unavailable" };
+  const lbHtml = leaderboardRenderShell({ ...defaultState(), leaderboardError: err }, { isMobile: false });
+  assert.ok(lbHtml.includes('data-leaderboard-retry="true"'));
+
+  const nrHtml = notRankedRenderShell({ ...defaultState(), notRankedError: err });
+  assert.ok(nrHtml.includes('data-notranked-retry="true"'));
+
+  const mxHtml = renderMatrixShell({ ...defaultState(), matrixError: err });
+  assert.ok(mxHtml.includes('data-matrix-retry="true"'));
+
+  const mdHtml = renderMethodologyShell({ ...defaultState(), methodologyError: err });
+  assert.ok(mdHtml.includes('data-methodology-retry="true"'));
 });
 

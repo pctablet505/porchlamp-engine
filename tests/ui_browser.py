@@ -55,11 +55,20 @@ document.getElementById("result").textContent = JSON.stringify(out);
 </script>"""
 
 
+_MAC_CHROME_PATHS = (
+    Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+    Path("/Applications/Chromium.app/Contents/MacOS/Chromium"),
+)
+
+
 def find_chrome() -> str | None:
     for name in CHROME_NAMES:
         found = shutil.which(name)
         if found:
             return found
+    for candidate in _MAC_CHROME_PATHS:
+        if candidate.is_file():
+            return str(candidate)
     return None
 
 
