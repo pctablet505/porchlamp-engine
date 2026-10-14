@@ -137,16 +137,17 @@ def test_measured_share_and_n_follow_the_spec(tmp_path: Path) -> None:
 
 
 def test_gate_reads_the_same_share_and_fires_above_half(tmp_path: Path) -> None:
-    """5/11 passes D-GATE-5; two more unanswered PRs make 7/13 > 0.50 and the
-    same input gates the repo as a black hole."""
+    """5/11 passes D-GATE-5; nine more unanswered PRs make 14/20 > 0.50 (with Wilson
+    lower bound > 0.50) and the same input gates the repo as a black hole."""
     _, passing = _derive(tmp_path / "pass", counted_prs() + excluded_prs())
     result = gates.evaluate_gates(passing, _evidence(), NOW)
     assert gates.GATE_5 not in result.undecided and result.reason is None
 
-    extra = [_pr(50 + i, 20) for i in range(2)]
+    extra = [_pr(50 + i, 20) for i in range(9)]
     _, failing = _derive(tmp_path / "fail", counted_prs() + excluded_prs() + extra)
     ghost = failing.inputs["gr14_ghost_rate"]
-    assert (ghost.value, ghost.n) == (7 / 13, 13)
+    assert (ghost.value, ghost.n) == (14 / 20, 20)
+    assert gates.wilson_lower_bound(14, 20) > 0.50
     result = gates.evaluate_gates(failing, _evidence(), NOW)
     assert result.reason == gates.REASON_BLACK_HOLE
 
@@ -158,10 +159,7 @@ def test_ghost_rate_equals_the_gate_share(tmp_path: Path) -> None:
 
     prs = counted_prs() + excluded_prs()
     _, bundle = _derive(tmp_path, prs)
-    records = [gates.GhostRatePR(created_at=p["createdAt"], is_external=d["is_external"],
-                                 is_bot_author=d["is_bot_author"],
-                                 first_substantive_response_at=d["first_substantive_response_at"])
-               for p, d in zip(prs, github_graphql.derive_pr_window(prs))]
+    records = github_graphql.ghost_rate_prs_from_window(prs)
     unanswered, n = gates.zero_response_counts(records, NOW)
     ghost = bundle.inputs["gr14_ghost_rate"]
     assert (ghost.value, ghost.n) == (unanswered / n, n) == (5 / 11, 11)

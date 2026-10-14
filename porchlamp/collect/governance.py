@@ -72,7 +72,7 @@ from typing import Any, Optional, Protocol
 from porchlamp.collect import commits as commit_domains
 from porchlamp.collect import ghcli, net, validate
 from porchlamp.collect import github_graphql as pr_window
-from porchlamp.collect.envelope import sha256_hex, write_envelope
+from porchlamp.collect.envelope import read_envelope, sha256_hex, write_envelope
 # --------------------------------------------------------------------------- #
 # 02 §4 constants (defined here, once)                                        #
 # --------------------------------------------------------------------------- #
@@ -117,6 +117,8 @@ AI_POLICY_FILES: tuple[str, ...] = (
     "AI.md", "AI_POLICY.md", "AIPOLICY.md", "AI-POLICY.md",
     ".github/AI.md", ".github/copilot-instructions.md", "AGENTS.md",
     "CLAUDE.md")
+#: All policy and governance files checked by collect_governance.
+POLICY_FILES: tuple[str, ...] = (*GOVERNANCE_FILES, *AI_POLICY_FILES)
 
 #: A genuine CLA check/status name -- the shared "is this even a CLA check"
 #: test both branches below require (a bare
@@ -713,8 +715,25 @@ def collect_governance(raw_dir: Path, owner: str, name: str,
         merged_prs, pulls_available = _merged_prs(api, owner, name)
         checks, shas_probed, shas_available = _check_evidence(api, owner, name, merged_prs)
         source_tag = "github-rest:governance"
+    tree_envelope_path = raw_dir / "tree" / f"{key}.json"
+    tree_paths: Optional[set[str]] = None
+    if tree_envelope_path.is_file():
+        try:
+            tree_env = read_envelope(tree_envelope_path)
+            if (
+                isinstance(tree_env.data, Mapping)
+                and tree_env.data.get("truncated") is False
+                and isinstance(tree_env.data.get("paths"), list)
+            ):
+                tree_paths = set(tree_env.data["paths"])
+        except Exception:
+            tree_paths = None
+
     files: dict[str, Optional[dict[str, Any]]] = {}
-    for fname in (*GOVERNANCE_FILES, *AI_POLICY_FILES):
+    for fname in POLICY_FILES:
+        if tree_paths is not None and fname not in tree_paths:
+            files[fname] = None
+            continue
         body = fetch_file(fname)
         files[fname] = None if body is None else {"present": True, "sha256": sha256_hex(body), "body": body}
     data: dict[str, Any] = {

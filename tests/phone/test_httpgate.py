@@ -389,3 +389,16 @@ def test_a_redirect_hop_waits_for_a_pause_like_any_other_request(tmp_path, pair)
     rig.gate.kick()
     worker.join(5)
     assert done and target.count == 1
+
+
+def test_installed_is_false_for_the_gate_made_at_import_and_true_for_an_engines_own(tmp_path):
+    before = httpgate.install(httpgate._IMPORT_GATE)
+    try:
+        assert not httpgate.installed()
+        mine = Gate(**loopback_gate_options())
+        httpgate.install(mine)
+        assert httpgate.installed() and httpgate.current() is mine
+        httpgate.install(httpgate._IMPORT_GATE)
+        assert not httpgate.installed()
+    finally:
+        httpgate.install(before)

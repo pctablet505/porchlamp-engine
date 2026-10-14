@@ -102,6 +102,8 @@ GATE5_MIN_N: int = 10
 GATE5_MIN_AGE_DAYS: int = 14
 #: D-GATE-5: the substantive-response deadline after opening.
 GATE5_RESPONSE_DEADLINE_DAYS: int = 14
+#: D-GATE-5: 95% one-sided standard normal quantile for the Wilson lower confidence bound (RFC-0008).
+GATE5_WILSON_Z: float = 1.6448536269514722
 #: D-GATE-5: pass ceiling on the share with zero substantive response.
 GATE5_MAX_ZERO_RESPONSE_SHARE: float = 0.50
 #: D-GATE-6: horizon for a decided external PR.
@@ -554,6 +556,7 @@ def constants_dict() -> dict[str, object]:
         "GATE5_MIN_AGE_DAYS": GATE5_MIN_AGE_DAYS,
         "GATE5_MIN_N": GATE5_MIN_N,
         "GATE5_RESPONSE_DEADLINE_DAYS": GATE5_RESPONSE_DEADLINE_DAYS,
+        "GATE5_WILSON_Z": GATE5_WILSON_Z,
         "GATE6_DECISION_WINDOW_DAYS": GATE6_DECISION_WINDOW_DAYS,
         "GATE6_HANDOFF_MIN_PRS": GATE6_HANDOFF_MIN_PRS,
         "GATE6_HANDOFF_MIN_SHARE": GATE6_HANDOFF_MIN_SHARE,

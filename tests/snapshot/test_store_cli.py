@@ -62,8 +62,10 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: Regenerated 2026-10-13 (was de07ceb8...) when stage 8 stopped scoring a
 #: repository routed off-platform under the persona lenses: torvalds/linux
 #: lost its persona composites and gates; no other record and no count moved.
+#: Regenerated 2026-10-14 (was 507887cd...) for RFC-0008 (GATE5_WILSON_Z
+#: added to porchlamp.core.constants, moving ScoreRecord.constants_hash).
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "507887cd98736044ee7a4841c6466b4ad406c8490ea5136230dde674d5d2c4c9"
+    "debe68b8836d004e484cb1123258262137188d46ad748795732290808e91e9c3"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #

@@ -368,18 +368,21 @@ def _gate_entries() -> list[GateEntry]:
             "name": "Not a black hole",
             "criterion": (
                 "over external PRs by non-bot authors (D-IN-1) opened in the "
-                "trailing PR window and at least the minimum age, the share with "
-                "no human reply, review or merge within the response deadline of "
-                "opening must not exceed the ceiling (a minimum population is "
-                "required, else the gate is UNDECIDED rather than failed); the same "
-                "share is the gr14_ghost_rate parameter. A reply or review counts "
-                "when it is substantive (D-IN-2: any review, or a comment of 40+ "
-                "characters, by a non-author, non-bot member, owner or collaborator, "
-                "or by an account that merged a PR in the window, since org "
-                "membership can be private); a merge within the deadline counts "
-                "on its own; the minimum age is judged at the earlier of the "
-                "reference time and the time GitHub was read, so a PR observed "
-                "for less than the minimum age is not judged (rulings 2026-10-06)"
+                "trailing PR window and at least the minimum age, the 95% one-sided "
+                f"Wilson lower confidence bound (z = {constants.GATE5_WILSON_Z}) on the "
+                "zero-response share must not exceed the ceiling (a minimum population of "
+                f"{constants.GATE5_MIN_N} is required, else the gate is UNDECIDED rather "
+                "than failed); the raw share is the gr14_ghost_rate parameter. A reply "
+                "or review counts when it is substantive (D-IN-2: any review, or a comment "
+                "of 40+ characters, by a non-author, non-bot member, owner or collaborator, "
+                "or by an account that merged a PR in the window, since org membership can "
+                "be private); a merge or maintainer close within the deadline counts on its "
+                "own. Five false-positive exclusions apply (RFC-0008): draft PRs are excluded "
+                "until marked ready for review (clock starts at ready_at); author self-closed "
+                "PRs without prior maintainer response are excluded; accounts under 90 days old "
+                "(MIN_ACCOUNT_AGE_DAYS) are excluded; maintainer closes within 14 days count "
+                "as responses; and the 14-day observation age is judged from clock start against "
+                "min(now, observed_at)"
             ),
             "reasons": (_gates.REASON_BLACK_HOLE,),
             "cutoffs": {

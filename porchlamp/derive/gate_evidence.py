@@ -9,12 +9,13 @@ one implementation of gate-evidence derivation from ``raw/tree`` and
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from porchlamp.core import constants
+from porchlamp.core import constants, gates
 from porchlamp.core.commit_domains import CommitActor, envelope_rows, is_bot
-from porchlamp.core.gates import GateEvidence
+from porchlamp.core.gates import Gate5WindowBreakdown, GateEvidence, _parse_iso
 
 __all__ = [
     "RECOGNIZED_MANIFEST_BASENAMES",
@@ -26,6 +27,7 @@ __all__ = [
     "_review_handoff",
     "_tree_paths",
     "_vitality_commit_count",
+    "black_hole_window_breakdown_from_raw",
     "gate_evidence_for",
 ]
 
@@ -247,3 +249,249 @@ def gate_evidence_for(raw_root: Path, basename: str) -> GateEvidence:
         off_platform_marker=None if paths is None else _tree_flag(_has_off_platform_marker(paths), truncated),
         review_handoff=_review_handoff(raw_root, basename),
     )
+
+
+_EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset(
+    {"NONE", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR", "CONTRIBUTOR"}
+)
+_MAINTAINER_ASSOCIATIONS: frozenset[str] = frozenset(
+    {"MEMBER", "OWNER", "COLLABORATOR"}
+)
+_SUBSTANTIVE_COMMENT_CHARS: int = 40
+
+
+def _is_bot_node(actor: Mapping[str, Any] | None) -> bool:
+    if not isinstance(actor, Mapping):
+        return False
+    return is_bot(
+        CommitActor(
+            login=str(actor.get("login") or ""),
+            email="",
+            actor_type=str(actor.get("__typename") or ""),
+        )
+    )
+
+
+def _ghost_rate_prs_from_nodes(prs: Sequence[Mapping[str, Any]]) -> list[gates.GhostRatePR]:
+    mergers: set[str] = set()
+    for pr in prs:
+        if not isinstance(pr, Mapping):
+            continue
+        mb = pr.get("mergedBy")
+        login = mb.get("login") if isinstance(mb, Mapping) else None
+        if isinstance(login, str) and login:
+            mergers.add(login.lower())
+
+    out: list[gates.GhostRatePR] = []
+    for pr in prs:
+        if not isinstance(pr, Mapping):
+            continue
+        created_raw = pr.get("createdAt")
+        if not isinstance(created_raw, str):
+            continue
+        try:
+            _parse_iso(created_raw)
+        except (ValueError, TypeError):
+            continue
+
+        author = pr.get("author") if isinstance(pr.get("author"), Mapping) else {}
+        author_login = str(author.get("login") or "").lower()
+        assoc = str(pr.get("authorAssociation") or "").upper()
+        is_external = assoc in _EXTERNAL_ASSOCIATIONS
+        bot_author = _is_bot_node(author)
+
+        best_at: str | None = None
+        best_dt: datetime | None = None
+        for kind, source in (("review", "reviews"), ("comment", "comments")):
+            conn_node = pr.get(source)
+            nodes = conn_node.get("nodes") if isinstance(conn_node, Mapping) else None
+            for raw in nodes if isinstance(nodes, list) else ():
+                if not isinstance(raw, Mapping):
+                    continue
+                raw_author = raw.get("author") if isinstance(raw.get("author"), Mapping) else {}
+                raw_login = str(raw_author.get("login") or "").lower()
+                if _is_bot_node(raw_author):
+                    continue
+                if raw_login and raw_login == author_login:
+                    continue
+                raw_assoc = str(raw.get("authorAssociation") or "").upper()
+                is_maint = raw_assoc in _MAINTAINER_ASSOCIATIONS or (bool(raw_login) and raw_login in mergers)
+                if not is_maint:
+                    continue
+                if kind == "comment" and len(str(raw.get("bodyText") or "")) < _SUBSTANTIVE_COMMENT_CHARS:
+                    continue
+                ts = raw.get("createdAt")
+                if not isinstance(ts, str):
+                    continue
+                try:
+                    dt = _parse_iso(ts)
+                except (ValueError, TypeError):
+                    continue
+                if best_dt is None or dt < best_dt:
+                    best_dt, best_at = dt, ts
+
+        merged_raw = pr.get("mergedAt")
+        merged_at: str | None = None
+        if isinstance(merged_raw, str):
+            try:
+                _parse_iso(merged_raw)
+                merged_at = merged_raw
+            except (ValueError, TypeError):
+                merged_at = None
+
+        closed_raw = pr.get("closedAt")
+        closed_at: str | None = None
+        if isinstance(closed_raw, str):
+            try:
+                _parse_iso(closed_raw)
+                closed_at = closed_raw
+            except (ValueError, TypeError):
+                closed_at = None
+
+        ready_for_review_at: str | None = (
+            pr.get("readyForReviewAt") if isinstance(pr.get("readyForReviewAt"), str) else None
+        )
+        closed_by_author: bool = bool(pr.get("closedByAuthor", False))
+        closed_by_maint_at = pr.get("closedByMaintainerAt")
+        if (
+            closed_by_maint_at is None
+            and pr.get("state") == "CLOSED"
+            and not merged_at
+            and pr.get("closedByMaintainer") is True
+        ):
+            closed_by_maint_at = closed_at
+
+        timeline_conn = pr.get("timelineItems")
+        timeline_nodes = timeline_conn.get("nodes") if isinstance(timeline_conn, Mapping) else None
+        if isinstance(timeline_nodes, list):
+            latest_ready_dt: datetime | None = None
+            latest_ready_at: str | None = None
+            latest_close_dt: datetime | None = None
+            latest_close_event: Mapping[str, Any] | None = None
+            for ev in timeline_nodes:
+                if not isinstance(ev, Mapping):
+                    continue
+                ev_type = ev.get("__typename")
+                ev_ts = ev.get("createdAt")
+                ev_dt: datetime | None = None
+                if isinstance(ev_ts, str):
+                    try:
+                        ev_dt = _parse_iso(ev_ts)
+                    except (ValueError, TypeError):
+                        ev_dt = None
+                if ev_type == "ReadyForReviewEvent" and isinstance(ev_ts, str) and ev_dt is not None:
+                    if latest_ready_dt is None or ev_dt >= latest_ready_dt:
+                        latest_ready_dt, latest_ready_at = ev_dt, ev_ts
+                elif ev_type == "ClosedEvent" and (
+                    latest_close_event is None
+                    or (ev_dt is not None and (latest_close_dt is None or ev_dt >= latest_close_dt))
+                ):
+                    latest_close_dt, latest_close_event = ev_dt, ev
+            if ready_for_review_at is None and latest_ready_at is not None:
+                ready_for_review_at = latest_ready_at
+            if (
+                latest_close_event is not None
+                and not merged_at
+                and not closed_by_author
+                and closed_by_maint_at is None
+            ):
+                actor = latest_close_event.get("actor")
+                actor_map = actor if isinstance(actor, Mapping) else {}
+                actor_login = str(actor_map.get("login") or "").lower()
+                if actor_login and actor_login == author_login:
+                    closed_by_author = True
+                elif actor_login and not _is_bot_node(actor_map):
+                    ev_created = latest_close_event.get("createdAt")
+                    if isinstance(ev_created, str):
+                        try:
+                            _parse_iso(ev_created)
+                            closed_by_maint_at = ev_created
+                        except (ValueError, TypeError):
+                            closed_by_maint_at = closed_at
+                    else:
+                        closed_by_maint_at = closed_at
+
+        author_created_at = author.get("createdAt") if isinstance(author.get("createdAt"), str) else None
+        num = pr.get("number")
+        out.append(
+            gates.GhostRatePR(
+                created_at=created_raw,
+                is_external=is_external,
+                is_bot_author=bot_author,
+                first_substantive_response_at=best_at,
+                merged_at=merged_at,
+                is_draft=bool(pr.get("isDraft", False)),
+                ready_for_review_at=ready_for_review_at,
+                closed_at=closed_at,
+                closed_by_author=closed_by_author,
+                closed_by_maintainer_at=closed_by_maint_at if isinstance(closed_by_maint_at, str) else None,
+                author_created_at=author_created_at,
+                number=num if isinstance(num, int) and not isinstance(num, bool) else None,
+            )
+        )
+    return out
+
+
+def black_hole_window_breakdown_from_raw(
+    raw_root: Path,
+    basename: str,
+    now: datetime | None = None,
+) -> Gate5WindowBreakdown | None:
+    """Evaluate D-GATE-5 window breakdown from raw pr_window envelope."""
+    path = raw_root / "pr_window" / f"{basename}.json"
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    if not isinstance(document, Mapping):
+        return None
+    data = document.get("data")
+    if not isinstance(data, Mapping):
+        return None
+    prs = data.get("prs")
+    if not isinstance(prs, list):
+        return None
+
+    anchor_str = data.get("window_anchor")
+    fetched_str = (
+        document.get("fetched_at")
+        if isinstance(document.get("fetched_at"), str)
+        else (data.get("fetched_at") if isinstance(data.get("fetched_at"), str) else None)
+    )
+
+    anchor_dt: datetime | None = None
+    if isinstance(anchor_str, str):
+        try:
+            anchor_dt = _parse_iso(anchor_str)
+        except (ValueError, TypeError):
+            anchor_dt = None
+
+    fetched_dt: datetime | None = None
+    if isinstance(fetched_str, str):
+        try:
+            fetched_dt = _parse_iso(fetched_str)
+        except (ValueError, TypeError):
+            fetched_dt = None
+
+    if now is not None:
+        ref_now = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    elif anchor_dt is not None:
+        ref_now = anchor_dt
+    elif fetched_dt is not None:
+        ref_now = fetched_dt
+    else:
+        return None
+
+    # The verdict's rule (scripts/derive.py): age is judged at the earlier of
+    # the envelope's fetched_at and its window_anchor, whichever exist.
+    read_times = [t for t in (fetched_dt, anchor_dt) if t is not None]
+    observed_at = min(read_times) if read_times else None
+
+    records = _ghost_rate_prs_from_nodes(prs)
+    try:
+        return gates.evaluate_gate5_window(records, ref_now, observed_at=observed_at)
+    except ValueError:
+        return None
+
