@@ -132,6 +132,8 @@ def shape_commit_rows(raw_commits: Sequence[Mapping[str, Any]]) -> list[dict[str
 def collect_commits_365d(
     fetch_page: Callable[[int, str], Sequence[Mapping[str, Any]]],
     now: Optional[datetime] = None,
+    *,
+    existing_rows: Optional[Sequence[Mapping[str, Any]]] = None,
 ) -> dict[str, Any]:
     """Collect the trailing 365 d of commits, newest first, capped.
 
@@ -143,28 +145,43 @@ def collect_commits_365d(
     gathered; a repo with more commits than the cap records its newest
     :data:`COMMIT_CAP` commits (a sub-365 d slice).
 
-    Returns the envelope ``data`` as a window-metadata dict recording the
-    cap as a fact, the same convention :mod:`porchlamp.collect.github_graphql`
-    uses for its capped windows: ``count`` (rows kept), ``cap``
-    (:data:`COMMIT_CAP`), ``truncated`` (whether the fetch stopped on the
-    cap, so a cap-hit window is distinguishable from one holding exactly
-    the cap's worth of commits) and ``rows`` (the shaped rows). A
-    truncated window is a biased sample -- the newest :data:`COMMIT_CAP`
-    commits -- and every statistic derived from it inherits that bias.
+    When ``existing_rows`` is supplied (W6-4 incremental ledger refresh),
+    stops paging once a commit already present in ``existing_rows`` is
+    encountered and merges the delta via :func:`porchlamp.collect.ledger.merge_commits_365d_delta`.
     """
+    from porchlamp.collect import ledger
+
     now = now or datetime.now(timezone.utc)
     since = (now - timedelta(days=COMMIT_WINDOW_DAYS)).isoformat()
+    existing_keys: set[Any] = set()
+    if existing_rows:
+        existing_keys = {ledger._commit_key(r) for r in existing_rows if isinstance(r, Mapping)}
+
     rows: list[dict[str, Any]] = []
     truncated = False
     for page in range(1, COMMIT_CAP // COMMIT_PAGE_SIZE + 1):
         raw = list(fetch_page(page, since))
-        rows.extend(shape_commit_rows(raw))
+        shaped = shape_commit_rows(raw)
+        rows.extend(shaped)
+        if existing_keys and any(ledger._commit_key(s) in existing_keys for s in shaped):
+            break
         if len(raw) < COMMIT_PAGE_SIZE:
             break
         if len(rows) >= COMMIT_CAP:
             truncated = True
             break
-    rows = rows[:COMMIT_CAP]
+
+    if existing_rows:
+        rows = ledger.merge_commits_365d_delta(
+            existing_rows,
+            rows,
+            now=now,
+            window_days=COMMIT_WINDOW_DAYS,
+            cap=COMMIT_CAP,
+        )
+        truncated = len(rows) >= COMMIT_CAP
+    else:
+        rows = rows[:COMMIT_CAP]
     return {
         "count": len(rows),
         "cap": COMMIT_CAP,

@@ -348,6 +348,10 @@ def _ghost_rate_prs_from_nodes(prs: Sequence[Mapping[str, Any]]) -> list[gates.G
             except (ValueError, TypeError):
                 closed_at = None
 
+        ready_for_review_at: str | None = (
+            pr.get("readyForReviewAt") if isinstance(pr.get("readyForReviewAt"), str) else None
+        )
+        closed_by_author: bool = bool(pr.get("closedByAuthor", False))
         closed_by_maint_at = pr.get("closedByMaintainerAt")
         if (
             closed_by_maint_at is None
@@ -356,6 +360,56 @@ def _ghost_rate_prs_from_nodes(prs: Sequence[Mapping[str, Any]]) -> list[gates.G
             and pr.get("closedByMaintainer") is True
         ):
             closed_by_maint_at = closed_at
+
+        timeline_conn = pr.get("timelineItems")
+        timeline_nodes = timeline_conn.get("nodes") if isinstance(timeline_conn, Mapping) else None
+        if isinstance(timeline_nodes, list):
+            latest_ready_dt: datetime | None = None
+            latest_ready_at: str | None = None
+            latest_close_dt: datetime | None = None
+            latest_close_event: Mapping[str, Any] | None = None
+            for ev in timeline_nodes:
+                if not isinstance(ev, Mapping):
+                    continue
+                ev_type = ev.get("__typename")
+                ev_ts = ev.get("createdAt")
+                ev_dt: datetime | None = None
+                if isinstance(ev_ts, str):
+                    try:
+                        ev_dt = _parse_iso(ev_ts)
+                    except (ValueError, TypeError):
+                        ev_dt = None
+                if ev_type == "ReadyForReviewEvent" and isinstance(ev_ts, str) and ev_dt is not None:
+                    if latest_ready_dt is None or ev_dt >= latest_ready_dt:
+                        latest_ready_dt, latest_ready_at = ev_dt, ev_ts
+                elif ev_type == "ClosedEvent" and (
+                    latest_close_event is None
+                    or (ev_dt is not None and (latest_close_dt is None or ev_dt >= latest_close_dt))
+                ):
+                    latest_close_dt, latest_close_event = ev_dt, ev
+            if ready_for_review_at is None and latest_ready_at is not None:
+                ready_for_review_at = latest_ready_at
+            if (
+                latest_close_event is not None
+                and not merged_at
+                and not closed_by_author
+                and closed_by_maint_at is None
+            ):
+                actor = latest_close_event.get("actor")
+                actor_map = actor if isinstance(actor, Mapping) else {}
+                actor_login = str(actor_map.get("login") or "").lower()
+                if actor_login and actor_login == author_login:
+                    closed_by_author = True
+                elif actor_login and not _is_bot_node(actor_map):
+                    ev_created = latest_close_event.get("createdAt")
+                    if isinstance(ev_created, str):
+                        try:
+                            _parse_iso(ev_created)
+                            closed_by_maint_at = ev_created
+                        except (ValueError, TypeError):
+                            closed_by_maint_at = closed_at
+                    else:
+                        closed_by_maint_at = closed_at
 
         author_created_at = author.get("createdAt") if isinstance(author.get("createdAt"), str) else None
         num = pr.get("number")
@@ -367,9 +421,9 @@ def _ghost_rate_prs_from_nodes(prs: Sequence[Mapping[str, Any]]) -> list[gates.G
                 first_substantive_response_at=best_at,
                 merged_at=merged_at,
                 is_draft=bool(pr.get("isDraft", False)),
-                ready_for_review_at=pr.get("readyForReviewAt") if isinstance(pr.get("readyForReviewAt"), str) else None,
+                ready_for_review_at=ready_for_review_at,
                 closed_at=closed_at,
-                closed_by_author=bool(pr.get("closedByAuthor", False)),
+                closed_by_author=closed_by_author,
                 closed_by_maintainer_at=closed_by_maint_at if isinstance(closed_by_maint_at, str) else None,
                 author_created_at=author_created_at,
                 number=num if isinstance(num, int) and not isinstance(num, bool) else None,

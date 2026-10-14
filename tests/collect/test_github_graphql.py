@@ -122,3 +122,91 @@ def test_ghost_rate_prs_from_window() -> None:
     assert r.is_external is True
     assert r.is_bot_author is False
     assert r.author_created_at == "2025-01-01T00:00:00Z"
+
+
+def test_derive_pr_window_extracts_timeline_items() -> None:
+    """Live GraphQL responses populate RFC-0008 fields via timelineItems."""
+    assert "timelineItems" in github_graphql.PR_WINDOW_QUERY
+    assert "ReadyForReviewEvent" in github_graphql.PR_WINDOW_QUERY
+    assert "ClosedEvent" in github_graphql.PR_WINDOW_QUERY
+
+    prs: list[dict[str, Any]] = [
+        # Draft converted to ready via ReadyForReviewEvent
+        {
+            "number": 201,
+            "createdAt": "2026-08-01T00:00:00Z",
+            "isDraft": False,
+            "author": {"__typename": "User", "login": "alice"},
+            "authorAssociation": "NONE",
+            "state": "OPEN",
+            "timelineItems": {
+                "nodes": [
+                    {"__typename": "ReadyForReviewEvent", "createdAt": "2026-08-03T00:00:00Z"},
+                    {"__typename": "ReadyForReviewEvent", "createdAt": "2026-08-07T12:00:00Z"},
+                ]
+            },
+        },
+        # Closed by author via ClosedEvent
+        {
+            "number": 202,
+            "createdAt": "2026-08-02T00:00:00Z",
+            "closedAt": "2026-08-02T06:00:00Z",
+            "author": {"__typename": "User", "login": "Bob"},
+            "authorAssociation": "NONE",
+            "state": "CLOSED",
+            "timelineItems": {
+                "nodes": [
+                    {
+                        "__typename": "ClosedEvent",
+                        "createdAt": "2026-08-02T06:00:00Z",
+                        "actor": {"__typename": "User", "login": "bob"},
+                    }
+                ]
+            },
+        },
+        # Closed by maintainer via ClosedEvent
+        {
+            "number": 203,
+            "createdAt": "2026-08-02T00:00:00Z",
+            "closedAt": "2026-08-04T10:00:00Z",
+            "author": {"__typename": "User", "login": "charlie"},
+            "authorAssociation": "NONE",
+            "state": "CLOSED",
+            "timelineItems": {
+                "nodes": [
+                    {
+                        "__typename": "ClosedEvent",
+                        "createdAt": "2026-08-04T10:00:00Z",
+                        "actor": {"__typename": "User", "login": "maint-user"},
+                    }
+                ]
+            },
+        },
+        # Closed by bot via ClosedEvent -> not closed_by_maintainer_at
+        {
+            "number": 204,
+            "createdAt": "2026-08-02T00:00:00Z",
+            "closedAt": "2026-08-10T10:00:00Z",
+            "author": {"__typename": "User", "login": "dave"},
+            "authorAssociation": "NONE",
+            "state": "CLOSED",
+            "timelineItems": {
+                "nodes": [
+                    {
+                        "__typename": "ClosedEvent",
+                        "createdAt": "2026-08-10T10:00:00Z",
+                        "actor": {"__typename": "Bot", "login": "stale"},
+                    }
+                ]
+            },
+        },
+    ]
+    derived = github_graphql.derive_pr_window(prs)
+    assert derived[0]["ready_for_review_at"] == "2026-08-07T12:00:00Z"
+    assert derived[1]["closed_by_author"] is True
+    assert derived[1]["closed_by_maintainer_at"] is None
+    assert derived[2]["closed_by_author"] is False
+    assert derived[2]["closed_by_maintainer_at"] == "2026-08-04T10:00:00Z"
+    assert derived[3]["closed_by_author"] is False
+    assert derived[3]["closed_by_maintainer_at"] is None
+

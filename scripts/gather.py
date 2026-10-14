@@ -191,7 +191,9 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 collectors: Optional[frozenset[str]] = None,
                 *,
                 graphql_bulk: bool = False,
-                skip_ineligible: bool = False) -> dict[str, Any]:
+                skip_ineligible: bool = False,
+                incremental_ledgers: bool = False,
+                light_author_history: bool = False) -> dict[str, Any]:
     """Fetch every collector for one repo; return {collector: ok|skip|fail}.
 
     ``collectors`` restricts the call to those names -- one breadth-first
@@ -360,7 +362,12 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         with _collector_scope(key, "pr_window"):
             from porchlamp.collect import github_graphql as prw_mod
             try:
-                status["pr_window"] = prw_mod.collect_pr_window(DATA, owner, name)
+                if incremental_ledgers:
+                    status["pr_window"] = prw_mod.collect_pr_window(
+                        DATA, owner, name, force=force, incremental_ledger=True
+                    )
+                else:
+                    status["pr_window"] = prw_mod.collect_pr_window(DATA, owner, name)
             except Exception as e:  # review-ok: gate-network — retry on rerun
                 status["pr_window"] = "fail"
                 print(f"  WARN pr_window {owner}/{name}: {e}")
@@ -506,7 +513,22 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                            "-f", f"page={page}") or []
 
             try:
-                c365_data = collect_commits_365d(_page)
+                existing_c365: Optional[list[dict]] = None
+                if incremental_ledgers:
+                    c365_p = DATA / "commits_365d" / f"{key}.json"
+                    if c365_p.is_file():
+                        try:
+                            prev_c365 = json.loads(c365_p.read_text(encoding="utf-8")).get("data")
+                            if isinstance(prev_c365, dict):
+                                rows_or_commits = prev_c365.get("rows") or prev_c365.get("commits")
+                                if isinstance(rows_or_commits, list):
+                                    existing_c365 = rows_or_commits
+                        except Exception:
+                            existing_c365 = None
+                if existing_c365 is not None:
+                    c365_data = collect_commits_365d(_page, existing_rows=existing_c365)
+                else:
+                    c365_data = collect_commits_365d(_page)
                 _env("commits_365d", key, "github-rest:commits", c365_data)
                 status["commits_365d"] = "ok"
                 # Materialize commits_180d if missing and derivable
@@ -628,8 +650,13 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         with _collector_scope(key, "author_history"):
             from porchlamp.collect import github_graphql as cohort_mod
             try:
-                status["author_history"] = cohort_mod.collect_author_history(
-                    DATA, owner, name, user_cache=_user_cache(), force=force)
+                if light_author_history:
+                    status["author_history"] = cohort_mod.collect_author_history(
+                        DATA, owner, name, user_cache=_user_cache(), force=force, light_history=True
+                    )
+                else:
+                    status["author_history"] = cohort_mod.collect_author_history(
+                        DATA, owner, name, user_cache=_user_cache(), force=force)
             except Exception as e:  # review-ok: gate-network — retry on rerun
                 status["author_history"] = "fail"
                 print(f"  WARN author_history {owner}/{name}: {e}")
@@ -893,6 +920,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--skip-ineligible", action="store_true",
                     help="skip archived, disabled, stale, unlicensed, non_software, and "
                          "no_external_workflow repos before running downstream collectors")
+    ap.add_argument("--incremental-ledgers", action="store_true",
+                    help="merge delta PRs and commits into existing envelopes (W6-3/W6-4)")
+    ap.add_argument("--light-author-history", action="store_true",
+                    help="use repo-wide light PR history pagination instead of per-author Search (RFC-0009)")
     ap.add_argument("--gh-cli", action="store_true",
                     help="use gh CLI subprocesses instead of direct HTTP transport")
     ap.add_argument("--cost-log", type=Path, default=None,
@@ -1007,6 +1038,10 @@ def _run_main(a: argparse.Namespace) -> int:
                 kwargs["graphql_bulk"] = a.graphql_bulk
             if "skip_ineligible" in gr_params or has_var_kw:
                 kwargs["skip_ineligible"] = a.skip_ineligible
+            if getattr(a, "incremental_ledgers", False) and ("incremental_ledgers" in gr_params or has_var_kw):
+                kwargs["incremental_ledgers"] = True
+            if getattr(a, "light_author_history", False) and ("light_author_history" in gr_params or has_var_kw):
+                kwargs["light_author_history"] = True
             st = gather_repo(owner, name, eco, **kwargs)
         except Exception as e:  # review-ok: gate-network — isolate unexpected per-repo error during sweep
             fail += 1

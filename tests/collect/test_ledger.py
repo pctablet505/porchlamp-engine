@@ -264,3 +264,174 @@ def test_is_cached_author_reusable() -> None:
         checked_at="2026-01-01T00:00:00Z",
     )
     assert is_cached_author_reusable(none_entry, "2026-06-01T00:00:00Z") is False
+
+
+def test_collect_pr_window_incremental_ledger_reuses_settled_prs(tmp_path) -> None:
+    from porchlamp.collect import envelope as env_mod
+    from porchlamp.collect import github_graphql as gql
+
+    now = datetime(2026, 4, 15, 0, 0, 0, tzinfo=timezone.utc)
+    settled_pr = {
+        "number": 100,
+        "createdAt": "2026-02-01T00:00:00Z",
+        "mergedAt": "2026-02-02T00:00:00Z",
+        "closedAt": "2026-02-02T00:00:00Z",
+        "state": "MERGED",
+        "isDraft": False,
+        "authorAssociation": "NONE",
+        "author": {"__typename": "User", "login": "alice"},
+        "reviews": {"totalCount": 1, "nodes": []},
+        "comments": {"totalCount": 0, "nodes": []},
+        "reviewThreads": {"totalCount": 0, "nodes": []},
+    }
+    target = tmp_path / "pr_window" / "org__repo.json"
+    env_mod.write_envelope(
+        target,
+        source="graphql:pr_window(org/repo)",
+        fetched_at="2026-04-01T00:00:00Z",
+        data={
+            "window_anchor": "2026-04-01T00:00:00Z",
+            "window_days": 90,
+            "cap": 500,
+            "count": 1,
+            "truncated": False,
+            "cost_points": 1,
+            "rate_limit_remaining": 4999,
+            "prs": [settled_pr],
+        },
+    )
+
+    new_pr = {
+        "number": 101,
+        "createdAt": "2026-04-10T00:00:00Z",
+        "mergedAt": None,
+        "closedAt": None,
+        "state": "OPEN",
+        "isDraft": False,
+        "authorAssociation": "NONE",
+        "author": {"__typename": "User", "login": "bob"},
+        "reviews": {"totalCount": 0, "nodes": []},
+        "comments": {"totalCount": 0, "nodes": []},
+        "reviewThreads": {"totalCount": 0, "nodes": []},
+    }
+    calls: list[dict] = []
+
+    class FakeTransport:
+        def execute(self, query: str, variables: dict):
+            calls.append(dict(variables))
+            # Page 1 returns new_pr and settled_pr; pagination stops immediately
+            # even though hasNextPage is True because settled_pr (100) is already settled!
+            return {
+                "data": {
+                    "rateLimit": {"cost": 1, "remaining": 4998},
+                    "r": {
+                        "pullRequests": {
+                            "pageInfo": {"hasNextPage": True, "endCursor": "cursor-2"},
+                            "nodes": [new_pr, settled_pr],
+                        }
+                    },
+                }
+            }
+
+    res = gql.collect_pr_window(
+        tmp_path, "org", "repo", now=now, transport=FakeTransport(),
+        force=True, incremental_ledger=True,
+    )
+    assert res == "ok"
+    assert len(calls) == 1
+    out = env_mod.read_envelope(target)
+    nums = [p["number"] for p in out.data["prs"]]
+    assert nums == [101, 100]
+
+
+def test_collect_author_history_light_mode_avoids_search_and_reuses_settled_eligibility(tmp_path) -> None:
+    from porchlamp.collect import envelope as env_mod
+    from porchlamp.collect import github_graphql as gql
+
+    now = datetime(2026, 4, 15, 0, 0, 0, tzinfo=timezone.utc)
+    target = tmp_path / "author_history" / "org__repo.json"
+    env_mod.write_envelope(
+        target,
+        source="graphql:author_history(org/repo)",
+        fetched_at="2026-04-01T00:00:00Z",
+        data={
+            "window_anchor": "2026-04-01T00:00:00Z",
+            "author_records": [
+                {
+                    "login": "alice",
+                    "account_created_at": "2020-01-01T00:00:00Z",
+                    "public_event_count": 12,
+                    "eligibility_unmeasured": False,
+                    "eligibility_observed_at": "2026-04-01T00:00:00Z",
+                    "prs": [],
+                }
+            ],
+        },
+    )
+
+    queries: list[str] = []
+
+    class FakeTransport:
+        def execute(self, query: str, variables: dict):
+            queries.append(query)
+            if "AuthorWindow" in query:
+                return {
+                    "data": {
+                        "rateLimit": {"cost": 1, "remaining": 4990},
+                        "r": {
+                            "pullRequests": {
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                "nodes": [
+                                    {
+                                        "number": 10,
+                                        "createdAt": "2025-12-01T00:00:00Z",
+                                        "mergedAt": "2025-12-02T00:00:00Z",
+                                        "closedAt": "2025-12-02T00:00:00Z",
+                                        "state": "MERGED",
+                                        "isDraft": False,
+                                        "authorAssociation": "FIRST_TIME_CONTRIBUTOR",
+                                        "author": {"__typename": "User", "login": "alice"},
+                                    }
+                                ],
+                            }
+                        },
+                    }
+                }
+            if "LightPrHistory" in query:
+                return {
+                    "data": {
+                        "rateLimit": {"cost": 1, "remaining": 4989},
+                        "repository": {
+                            "pullRequests": {
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                "nodes": [
+                                    {
+                                        "number": 10,
+                                        "createdAt": "2025-12-01T00:00:00Z",
+                                        "mergedAt": "2025-12-02T00:00:00Z",
+                                        "closedAt": "2025-12-02T00:00:00Z",
+                                        "state": "MERGED",
+                                        "authorAssociation": "FIRST_TIME_CONTRIBUTOR",
+                                        "author": {"__typename": "User", "login": "alice", "createdAt": "2020-01-01T00:00:00Z"},
+                                    }
+                                ],
+                            }
+                        },
+                    }
+                }
+            raise AssertionError(f"Unexpected query: {query}")
+
+    res = gql.collect_author_history(
+        tmp_path, "org", "repo", now=now, transport=FakeTransport(),
+        force=True, light_history=True,
+    )
+    assert res == "ok"
+    assert any("LightPrHistory" in q for q in queries)
+    assert not any("search(" in q for q in queries)
+    out = env_mod.read_envelope(target)
+    records = out.data["author_records"]
+    assert len(records) == 1
+    assert records[0]["login"] == "alice"
+    assert records[0]["account_created_at"] == "2020-01-01T00:00:00Z"
+    assert len(records[0]["prs"]) == 1
+

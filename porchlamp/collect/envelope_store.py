@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Protocol, Union, runtime_checkable
@@ -149,6 +150,7 @@ class SqliteShardEnvelopeStore:
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self.num_shards = num_shards
         self._connections: dict[int, sqlite3.Connection] = {}
+        self._lock = threading.Lock()
 
     def _shard_index(self, collector: str, key: str) -> int:
         return fnv1a_32(f"{collector}/{key}") % self.num_shards
@@ -161,7 +163,7 @@ class SqliteShardEnvelopeStore:
     def _get_connection(self, shard_idx: int) -> sqlite3.Connection:
         if shard_idx not in self._connections:
             shard_path = self._shard_path(shard_idx)
-            conn = sqlite3.connect(shard_path)
+            conn = sqlite3.connect(shard_path, check_same_thread=False)
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA synchronous=NORMAL;")
             conn.execute(
@@ -192,17 +194,18 @@ class SqliteShardEnvelopeStore:
         if not shard_path.exists():
             return None
 
-        conn = self._get_connection(shard_idx)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT fetched_at, source, sha256, data_json, http_status, etag, collector_version
-            FROM envelopes
-            WHERE collector = ? AND repo_key = ?
-            """,
-            (col, k),
-        )
-        row = cur.fetchone()
+        with self._lock:
+            conn = self._get_connection(shard_idx)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT fetched_at, source, sha256, data_json, http_status, etag, collector_version
+                FROM envelopes
+                WHERE collector = ? AND repo_key = ?
+                """,
+                (col, k),
+            )
+            row = cur.fetchone()
         if row is None:
             return None
 
@@ -238,16 +241,17 @@ class SqliteShardEnvelopeStore:
         sha = envelope_hash(plain_data)
 
         shard_idx = self._shard_index(col, k)
-        conn = self._get_connection(shard_idx)
-        with conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO envelopes
-                (collector, repo_key, fetched_at, source, sha256, data_json, http_status, etag, collector_version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (col, k, ts, source, sha, data_json, 200, None, COLLECTOR_VERSION),
-            )
+        with self._lock:
+            conn = self._get_connection(shard_idx)
+            with conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO envelopes
+                    (collector, repo_key, fetched_at, source, sha256, data_json, http_status, etag, collector_version)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (col, k, ts, source, sha, data_json, 200, None, COLLECTOR_VERSION),
+                )
 
         loaded_data = json.loads(data_json)
         return Envelope(
@@ -271,31 +275,34 @@ class SqliteShardEnvelopeStore:
         if not shard_path.exists():
             return False
 
-        conn = self._get_connection(shard_idx)
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT 1 FROM envelopes WHERE collector = ? AND repo_key = ? LIMIT 1",
-            (col, k),
-        )
-        return cur.fetchone() is not None
+        with self._lock:
+            conn = self._get_connection(shard_idx)
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM envelopes WHERE collector = ? AND repo_key = ? LIMIT 1",
+                (col, k),
+            )
+            return cur.fetchone() is not None
 
     def list_keys(self, collector: str) -> list[str]:
         """List all repo keys stored under collector across all shards."""
         col = _validate_segment(collector)
         keys: set[str] = set()
-        for shard_idx in range(self.num_shards):
-            shard_path = self._shard_path(shard_idx)
-            if not shard_path.exists():
-                continue
-            conn = self._get_connection(shard_idx)
-            cur = conn.cursor()
-            cur.execute("SELECT repo_key FROM envelopes WHERE collector = ?", (col,))
-            for row in cur.fetchall():
-                keys.add(row[0])
+        with self._lock:
+            for shard_idx in range(self.num_shards):
+                shard_path = self._shard_path(shard_idx)
+                if not shard_path.exists():
+                    continue
+                conn = self._get_connection(shard_idx)
+                cur = conn.cursor()
+                cur.execute("SELECT repo_key FROM envelopes WHERE collector = ?", (col,))
+                for row in cur.fetchall():
+                    keys.add(row[0])
         return sorted(keys)
 
     def close(self) -> None:
         """Close all open SQLite shard connections."""
-        for conn in self._connections.values():
-            conn.close()
-        self._connections.clear()
+        with self._lock:
+            for conn in self._connections.values():
+                conn.close()
+            self._connections.clear()

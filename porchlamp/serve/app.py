@@ -435,7 +435,7 @@ def _build_black_hole_evidence(
         return None
 
     unanswered = round(share * pop_n)
-    w_lb = round(gates.wilson_lower_bound_from_share(share, pop_n), 4)
+    w_lb = round(gates.wilson_lower_bound(unanswered, pop_n), 4)
 
     excluded = BlackHoleExcludedCounts()
     counted_prs: list[BlackHoleCountedPR] = []

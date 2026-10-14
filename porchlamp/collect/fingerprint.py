@@ -888,17 +888,36 @@ def _pr_has_review_handoff_notice(pr: Mapping[str, Any]) -> bool:
     """True when any comment on ``pr`` contains a review-handoff notice phrase
     or comes from a relay login prefix (``GATE6_HANDOFF_NOTICES`` /
     ``GATE6_HANDOFF_RELAY_LOGIN_PREFIXES``)."""
+    pr_author_node = pr.get("author")
+    pr_author = (
+        str(pr_author_node.get("login") or "").lower()
+        if isinstance(pr_author_node, Mapping)
+        else str(pr.get("author_login") or "").lower()
+    )
     comments = pr.get("comments")
-    if isinstance(comments, Sequence) and not isinstance(comments, (str, bytes)):
-        for comment in comments:
-            if not isinstance(comment, Mapping):
-                continue
-            author = str(comment.get("author_login") or "").lower()
-            if any(author.startswith(prefix) for prefix in constants.GATE6_HANDOFF_RELAY_LOGIN_PREFIXES):
-                return True
-            body = str(comment.get("body") or "").lower()
-            if any(notice in body for notice in constants.GATE6_HANDOFF_NOTICES):
-                return True
+    if isinstance(comments, Mapping):
+        nodes = comments.get("nodes")
+        comment_iter = nodes if isinstance(nodes, list) else ()
+    elif isinstance(comments, Sequence) and not isinstance(comments, (str, bytes)):
+        comment_iter = comments
+    else:
+        comment_iter = ()
+    for comment in comment_iter:
+        if not isinstance(comment, Mapping):
+            continue
+        comment_author_node = comment.get("author")
+        author = (
+            str(comment_author_node.get("login") or "").lower()
+            if isinstance(comment_author_node, Mapping)
+            else str(comment.get("author_login") or "").lower()
+        )
+        if pr_author and author == pr_author:
+            continue
+        if any(author.startswith(prefix) for prefix in constants.GATE6_HANDOFF_RELAY_LOGIN_PREFIXES):
+            return True
+        body = str(comment.get("bodyText") or comment.get("body") or "").lower()
+        if any(notice in body for notice in constants.GATE6_HANDOFF_NOTICES):
+            return True
     return False
 
 
@@ -987,15 +1006,34 @@ def is_confirmed_black_hole_in_raw(
             "is_bot_author": bool(d.get("is_bot_author", False)),
             "first_substantive_response_at": d.get("first_substantive_response_at"),
             "merged_at": pr.get("mergedAt") or pr.get("merged_at"),
-            "is_draft": pr.get("isDraft") if pr.get("isDraft") is not None else pr.get("is_draft", False),
-            "ready_for_review_at": pr.get("readyForReviewAt") or pr.get("ready_for_review_at"),
+            "is_draft": (
+                bool(d.get("is_draft"))
+                if d.get("is_draft") is not None
+                else bool(pr.get("isDraft") if pr.get("isDraft") is not None else pr.get("is_draft", False))
+            ),
+            "ready_for_review_at": (
+                d.get("ready_for_review_at")
+                or pr.get("readyForReviewAt")
+                or pr.get("ready_for_review_at")
+            ),
             "closed_at": pr.get("closedAt") or pr.get("closed_at"),
-            "closed_by_author": pr.get("closed_by_author", False),
-            "closed_by_maintainer_at": pr.get("closed_by_maintainer_at"),
+            "closed_by_author": bool(
+                d.get("closed_by_author")
+                or pr.get("closedByAuthor")
+                or pr.get("closed_by_author", False)
+            ),
+            "closed_by_maintainer_at": (
+                d.get("closed_by_maintainer_at")
+                or pr.get("closedByMaintainerAt")
+                or pr.get("closed_by_maintainer_at")
+            ),
             "author_created_at": (
-                (pr.get("author") or {}).get("createdAt")
-                if isinstance(pr.get("author"), Mapping)
-                else pr.get("author_created_at")
+                d.get("author_created_at")
+                or (
+                    (pr.get("author") or {}).get("createdAt")
+                    if isinstance(pr.get("author"), Mapping)
+                    else pr.get("author_created_at")
+                )
             ),
             "number": pr.get("number"),
         }

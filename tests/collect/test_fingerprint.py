@@ -783,3 +783,57 @@ def test_run_fingerprint_pass_black_hole_strips_deep_collectors(tmp_path: Path):
     assert "pr_window" in dirty
     assert "github_meta" in dirty
 
+
+def test_is_confirmed_black_hole_in_raw_graphql_comments_and_timeline_items(tmp_path: Path):
+    from porchlamp.collect.fingerprint import is_confirmed_black_hole_in_raw
+    raw_dir = tmp_path / "raw"
+
+    # 1. GraphQL comments.nodes shape for review handoff -> returns False
+    prs_handoff = [
+        {
+            "number": i,
+            "createdAt": (NOW - timedelta(days=30 + i)).isoformat(),
+            "authorAssociation": "NONE",
+            "author": {"login": f"user{i}", "__typename": "User"},
+            "comments": {
+                "nodes": [
+                    {
+                        "author": {"login": "gitgitgadget", "__typename": "Bot"},
+                        "bodyText": "welcome to gitgitgadget",
+                    }
+                ]
+            },
+            "reviews": {"nodes": []},
+        }
+        for i in range(1, 11)
+    ]
+    _make_pr_window_envelope(raw_dir, "git", "graphql-shape", prs_handoff, NOW.isoformat())
+    assert is_confirmed_black_hole_in_raw(raw_dir, "git", "graphql-shape", now=NOW) is False
+
+    # 2. PRs closed within 14d by maintainer via timelineItems ClosedEvent -> answered, not black hole
+    prs_maint_closed = [
+        {
+            "number": i,
+            "createdAt": (NOW - timedelta(days=30 + i)).isoformat(),
+            "closedAt": (NOW - timedelta(days=28 + i)).isoformat(),
+            "state": "CLOSED",
+            "authorAssociation": "NONE",
+            "author": {"login": f"user{i}", "__typename": "User"},
+            "timelineItems": {
+                "nodes": [
+                    {
+                        "__typename": "ClosedEvent",
+                        "createdAt": (NOW - timedelta(days=28 + i)).isoformat(),
+                        "actor": {"__typename": "User", "login": "maint-user"},
+                    }
+                ]
+            },
+            "comments": {"nodes": []},
+            "reviews": {"nodes": []},
+        }
+        for i in range(1, 16)
+    ]
+    _make_pr_window_envelope(raw_dir, "active", "maint-closed", prs_maint_closed, NOW.isoformat())
+    assert is_confirmed_black_hole_in_raw(raw_dir, "active", "maint-closed", now=NOW) is False
+
+

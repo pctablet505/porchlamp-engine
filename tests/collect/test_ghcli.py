@@ -620,3 +620,44 @@ def test_cached_gh_auth_token(monkeypatch: pytest.MonkeyPatch) -> None:
     assert tokens_local == []
     assert len(calls) == 0
 
+
+def test_sqlite_etag_cache_persists_across_in_memory_reset(fake: FakeGitHub, tmp_path: Path) -> None:
+    db_path = tmp_path / "state" / "http_cache.sqlite"
+    ghcli.configure_etag_cache(db_path)
+
+    cached_payload = json.dumps({"name": "persisted", "id": 999})
+    etag = 'W/"sqlite-etag-1"'
+    fake.replies = [(200, {"ETag": etag}, cached_payload)]
+    out1 = ghcli.run(["api", "repos/octo/persisted"])
+    assert out1.returncode == 0
+    assert out1.stdout == cached_payload
+
+    # Simulate process restart: clear in-memory dict, re-configure SQLite DB
+    ghcli.clear_etag_cache()
+    assert ghcli._ETAG_CACHE == {}
+    ghcli.configure_etag_cache(db_path)
+
+    fake.replies = [(304, {"x-ratelimit-remaining": "4800", "x-ratelimit-reset": str(int(NOW) + 3600)}, "")]
+    out2 = ghcli.run(["api", "repos/octo/persisted"])
+    assert out2.returncode == 0
+    assert out2.stdout == cached_payload
+    assert fake.seen[-1]["headers"]["if-none-match"] == etag
+
+
+def test_concurrent_pooled_requests_do_not_serialize_under_pool_lock(
+    fake: FakeGitHub, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    monkeypatch.setattr(net, "_gate", None)
+    ghcli.close_pool()
+
+    fake.replies = [_ok(body='{"ok": true}')]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda i: ghcli.run(["api", f"repos/x/r{i}"]), range(8)))
+    assert all(r.returncode == 0 for r in results)
+    assert len(ghcli._POOL) == 1
+    ghcli.close_pool()
+    assert ghcli._POOL == {} and ghcli._POOL_IDLE == {}
+
+
