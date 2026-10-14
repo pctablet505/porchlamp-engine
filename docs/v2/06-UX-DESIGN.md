@@ -93,6 +93,16 @@ kept): the actions and their projected deltas, labelled "model, not a
 promise". Keyboard: Esc closes and returns focus to the originating row;
 sections are `<details>` groups navigable by Tab.
 
+README badge (inside section 2): when the repository's balanced record is
+rated at tier A or above with no suspicion flag, the composite section ends
+with a badge for the project's README: a static image from `web/v2/badges/`
+naming the tier ("A (capped)" when the ceiling bound), its coverage band
+(U-1) and, in the Sweet Spot, the quadrant, with Markdown that links it to
+this drawer (`?repo=owner/name`) and alt text carrying the score, the exact
+coverage and the snapshot id. It is always the balanced rating, whatever lens
+is active (U-4). The image does not change when a later snapshot changes the
+rating; the drawer behind the link is the record.
+
 ### D. Configure weights
 
 Five sliders with lock toggles and proportional normalisation (from the

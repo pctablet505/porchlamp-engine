@@ -733,61 +733,75 @@ export const ONBOARDING_SUBTITLE =
   "Evidence-based open-source repository ranking across 5 pillars: Responsiveness, Criticality, Governance, Rigor, and Accessibility.";
 export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";
 
-// --- Maintainer README badge (Screen C: Composite section) ----------------
+// --- Maintainer README badge (Screen C, inside the Composite section) -----
+// Offered when a repository's canonical (balanced) record is rated at tier A
+// or above with no suspicion flag. The image is one of the static files in
+// web/v2/badges/; the Markdown links it to the repository's drawer, which is
+// the part that stays current when a later snapshot changes the rating.
 export const MAINTAINER_BADGE_HEADING = "Maintainer README badge";
 export const MAINTAINER_BADGE_NOTE =
-  "Canonical Balanced rating — paste into README.md to link directly to this repository's live evidence drawer.";
+  "The Balanced rating from this snapshot, for the project's README. The image does not change when the rating does; its link always opens the current rating and its evidence.";
 export const MAINTAINER_BADGE_COPY_LABEL = "Copy Markdown";
 export const MAINTAINER_BADGE_COPIED_LABEL = "Copied";
 
-const MAINTAINER_BADGE_VARIANTS = Object.freeze({
-  sweet_spot: { id: "sweet-spot", file: "badges/sweet-spot.svg", label: `${QUADRANT_GLYPHS["Sweet Spot"]} ${QUADRANT_LABELS["Sweet Spot"]}` },
-  "S+": { id: "tier-s-plus", file: "badges/tier-s-plus.svg", label: "Tier S+" },
-  S: { id: "tier-s", file: "badges/tier-s.svg", label: "Tier S" },
-  A: { id: "tier-a", file: "badges/tier-a.svg", label: "Tier A" },
+// U-1 on the image itself: a badge names its tier, "(capped)" when the
+// ceiling binds, and the coverage band behind it (D-MISS-3's bands).
+const BADGE_COVERAGE_TEXT = Object.freeze({ full: "coverage 95–100%", A: "coverage 80–95%" });
+// The tier states a badge image exists for, as tier|coverage band|ceiling.
+// S+ and S never carry a binding ceiling: a ceiling caps the tier at A or B
+// (porchlamp/core/aggregate.py apply_ceiling), so a capped badge is always A.
+const BADGE_TIER_FILES = Object.freeze({
+  "S+|full|open": "tier-s-plus",
+  "S|full|open": "tier-s",
+  "A|full|open": "tier-a",
+  "A|A|capped": "tier-a-capped",
 });
+const BADGE_QUADRANT = "Sweet Spot";
 
 /**
- * Resolves the canonical Maintainer Badge specification for a repository record.
- * Eligibility requires:
- *   1. Stage-0 eligible and canonically rated under the `balanced` composite (U-4).
- *   2. Zero active suspicion flags (03-ANTI-MANIPULATION.md).
- *   3. Either `quadrant === "Sweet Spot"` or canonical `tier` in `{"S+", "S", "A"}`.
- * Embeds the complete U-1 (score, coverage + band, tier + ceiling) and U-6
- * (`snapshot_id`) evidence tuple into `alt`.
+ * The README badge a repository's record earns, or null. Pass the balanced
+ * record, never a persona projection (U-4): a lens must not mint a badge the
+ * balanced rating does not support. Tier A or above is required; the Sweet
+ * Spot quadrant marks a badge but never earns one. MEASURED on snapshot
+ * 2026-10-13c: "Sweet Spot or tier A+" offered a badge to 1,213 of 3,407
+ * rated repositories, 182 of them tier C; tier A+ with no flag is 65.
+ * `imageText` is what the image says; `alt` adds the score, the exact
+ * coverage and the snapshot id (U-1, U-6) for the README's alt text and title.
  */
 export function maintainerBadgeSpec(row) {
   if (!row || !row.eligible || !row.rated) return null;
   if (Array.isArray(row.suspicion) && row.suspicion.length > 0) return null;
-  let variant = null;
-  if (row.quadrant === "Sweet Spot") {
-    variant = MAINTAINER_BADGE_VARIANTS.sweet_spot;
-  } else if (row.tier && MAINTAINER_BADGE_VARIANTS[row.tier]) {
-    variant = MAINTAINER_BADGE_VARIANTS[row.tier];
-  }
-  if (!variant) return null;
-
-  const scoreText = typeof row.porchlamp === "number" ? row.porchlamp.toFixed(2) : MISSING_VALUE;
-  const tierText = tierLabel(row.tier, row.tier_ceiling);
-  const covText = typeof row.coverage === "number" ? coverageBadgeText(row.coverage) : MISSING_VALUE;
-  const safeSnapshot = row.snapshot_id ? String(row.snapshot_id).replace(/["[\]\\]/g, "") : "";
-  const snapshotSuffix = safeSnapshot ? ` · ${SNAPSHOT_ID_LABEL} ${safeSnapshot}` : "";
-  const alt = `${BRAND_NAME}: ${variant.label} · ${COLUMN_PORCHLAMP} ${scoreText} · ${COLUMN_TIER} ${tierText} · ${COLUMN_COVERAGE} ${covText}${snapshotSuffix}`;
-  return {
-    id: variant.id,
-    file: variant.file,
-    label: variant.label,
-    alt,
-  };
+  if (typeof row.porchlamp !== "number" || typeof row.coverage !== "number") return null;
+  const band = coverageBandForValue(row.coverage);
+  const capped = !!row.tier_ceiling && row.tier === row.tier_ceiling;
+  const tierFile = BADGE_TIER_FILES[`${row.tier}|${band}|${capped ? "capped" : "open"}`];
+  if (!tierFile) return null;
+  const sweetSpot = row.quadrant === BADGE_QUADRANT;
+  const quadrantText = `${QUADRANT_GLYPHS[BADGE_QUADRANT]} ${QUADRANT_LABELS[BADGE_QUADRANT]}`;
+  const tierText = `${COLUMN_TIER} ${tierLabel(row.tier, row.tier_ceiling)}`;
+  const headline = sweetSpot ? `${quadrantText} · ${tierText}` : tierText;
+  // Characters that would end a Markdown alt text or link title early never reach the snippet.
+  const snapshot = row.snapshot_id ? String(row.snapshot_id).replace(/["[\]\\]/g, "") : "";
+  const alt = [
+    `${BRAND_NAME}: ${headline}`,
+    `${COLUMN_PORCHLAMP} ${row.porchlamp.toFixed(2)}`,
+    `${COLUMN_COVERAGE} ${coverageBadgeText(row.coverage)}`,
+    snapshot ? `${SNAPSHOT_ID_LABEL} ${snapshot}` : "",
+  ].filter(Boolean).join(" · ");
+  const id = `${sweetSpot ? "sweet-spot-" : ""}${tierFile}`;
+  return { id, file: `badges/${id}.svg`, imageText: `${headline} · ${BADGE_COVERAGE_TEXT[band]}`, alt };
 }
 
-export function maintainerBadgeMarkdown(row, baseUrl = "/") {
+/**
+ * The README Markdown: the badge image, linked to the repository's drawer on
+ * the public site. `baseUrl` is that site's address (app.js reads it from
+ * index.html), so a badge copied from a local server still points at the
+ * public one.
+ */
+export function maintainerBadgeMarkdown(row, baseUrl = "") {
   const spec = maintainerBadgeSpec(row);
   if (!spec) return "";
-  const normalizedBase = baseUrl ? (baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`) : "";
-  const repoParam = `${encodeURIComponent(row.owner)}%2F${encodeURIComponent(row.name)}`;
-  const imageUrl = `${normalizedBase}${spec.file}`;
-  const targetUrl = `${normalizedBase}?repo=${repoParam}`;
-  return `[![${spec.alt}](${imageUrl})](${targetUrl} "${spec.alt}")`;
+  const base = !baseUrl || baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  const target = `${base}?repo=${encodeURIComponent(row.owner)}%2F${encodeURIComponent(row.name)}`;
+  return `[![${spec.alt}](${base}${spec.file})](${target} "${spec.alt}")`;
 }
-

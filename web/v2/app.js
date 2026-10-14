@@ -837,8 +837,16 @@ export function boot(win = window, doc = document) {
   }
 
   // ------------------------------------------------------------- Rendering
+  // The README badge's Markdown must point at the public site, not at whichever
+  // host served this page: index.html names it (og:url, then rel=canonical); this
+  // page's own directory is the fallback for a copy that names neither.
+  const siteBaseUrl =
+    doc.querySelector('meta[property="og:url"]')?.getAttribute("content") ||
+    doc.querySelector('link[rel="canonical"]')?.getAttribute("href") ||
+    new URL(".", win.location.href).href;
+
   function renderDrawerAndKeymap(state) {
-    const drawerHtml = renderDrawer(state);
+    const drawerHtml = renderDrawer(state, { siteBaseUrl });
     if (drawerRoot.dataset.lastHtml !== drawerHtml) {
       // A content-only update (e.g. evidence arriving after the drawer is
       // ALREADY open) still replaces drawerRoot's innerHTML wholesale — the
@@ -1388,7 +1396,10 @@ export function boot(win = window, doc = document) {
               badgeCopyBtn.textContent = original;
             }, 1200);
           })
-          .catch(() => {});
+          .catch(() => {
+            // Clipboard refused (permission or an insecure origin): the snippet stays
+            // selectable, and one click selects all of it (user-select: all).
+          });
       }
       return;
     }

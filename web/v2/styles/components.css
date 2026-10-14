@@ -962,6 +962,9 @@ p.cell-numeric {
   font-size: var(--text-caption);
 }
 
+/* README badge box, the last thing in the drawer's Composite section. The
+ * preview keeps its own line: the widest badge is 397 px, wider than a phone's
+ * drawer, so it scales down (proportionally) instead of overflowing. */
 .maintainer-badge-box {
   margin-top: var(--space-sm);
   padding: var(--space-sm);
@@ -976,21 +979,14 @@ p.cell-numeric {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--space-xs) var(--space-sm);
-  margin-bottom: var(--space-2xs);
-}
-
-.maintainer-badge-title-group {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
+  margin-bottom: var(--space-xs);
 }
 
 .maintainer-badge-preview {
   display: block;
-  height: 20px;
-  width: auto;
-  border-radius: var(--radius-badge);
+  max-width: 100%;
+  height: auto;
+  margin-bottom: var(--space-xs);
 }
 
 .maintainer-badge-note {
