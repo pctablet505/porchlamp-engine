@@ -47,15 +47,19 @@ from __future__ import annotations
 import json
 import re
 import time
+import dataclasses
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from porchlamp.collect import github_graphql
 from porchlamp.collect.depsdev import SYSTEM_FOR_ECOSYSTEM
+from porchlamp.collect.envelope import read_envelope
 from porchlamp.collect.github_graphql import GhCliTransport, GraphqlTransport, is_bot_actor
 from porchlamp.collect.repo_object import derive_eligibility
+from porchlamp.core import constants, gates
 from porchlamp.core.constants import GATE4_VITALITY_WINDOW_DAYS, GATE6_DECISION_WINDOW_DAYS, WINDOW_STALENESS_DAYS
 from porchlamp.core.gates import (
     UNDETERMINED_SPDX,
@@ -80,6 +84,7 @@ __all__ = [
     "SLOW_BRANCH_COLLECTORS",
     "WEEKLY_COLLECTORS",
     "WINDOW_ANCHOR_COLLECTORS",
+    "DEEP_COLLECTORS_SKIPPED_ON_BLACK_HOLE",
     "RepoFingerprint",
     "FingerprintSweepResult",
     "build_fingerprint_batch_query",
@@ -89,6 +94,7 @@ __all__ = [
     "append_fingerprints",
     "classify_cadence_tier",
     "classify_prune_reason",
+    "is_confirmed_black_hole_in_raw",
     "invalidated_collectors",
     "envelope_path",
     "envelope_fetched_at",
@@ -166,6 +172,22 @@ WINDOW_ANCHOR_COLLECTORS: frozenset[str] = frozenset({"releases", "issues_counts
 _FAST_COLLECTORS: frozenset[str] = (
     ALL_GATHER_COLLECTORS - SLOW_BRANCH_COLLECTORS - WEEKLY_COLLECTORS
 )
+
+#: Deep collectors skipped for confirmed black-hole repositories (W6-6).
+DEEP_COLLECTORS_SKIPPED_ON_BLACK_HOLE: frozenset[str] = frozenset({
+    "governance",
+    "commits_365d",
+    "author_history",
+    "dependents",
+    "downloads",
+    "scorecard",
+    "depsdev",
+    "gfi",
+    "actions_runs",
+    "releases",
+    "issues_counts",
+    "runs",
+})
 
 #: Strict GitHub owner/name identifier pattern.
 _SAFE_SLUG_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
@@ -862,6 +884,140 @@ def _has_human_commit_180d(
     return False
 
 
+def _pr_has_review_handoff_notice(pr: Mapping[str, Any]) -> bool:
+    """True when any comment on ``pr`` contains a review-handoff notice phrase
+    or comes from a relay login prefix (``GATE6_HANDOFF_NOTICES`` /
+    ``GATE6_HANDOFF_RELAY_LOGIN_PREFIXES``)."""
+    comments = pr.get("comments")
+    if isinstance(comments, Sequence) and not isinstance(comments, (str, bytes)):
+        for comment in comments:
+            if not isinstance(comment, Mapping):
+                continue
+            author = str(comment.get("author_login") or "").lower()
+            if any(author.startswith(prefix) for prefix in constants.GATE6_HANDOFF_RELAY_LOGIN_PREFIXES):
+                return True
+            body = str(comment.get("body") or "").lower()
+            if any(notice in body for notice in constants.GATE6_HANDOFF_NOTICES):
+                return True
+    return False
+
+
+def _review_handoff(raw_root: Path, basename: str) -> bool | None:
+    """D-GATE-6 review hand-off from ``raw/pr_window/{basename}.json``."""
+    path = raw_root / "pr_window" / f"{basename}.json"
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    data = document.get("data") if isinstance(document, Mapping) else None
+    prs = data.get("prs") if isinstance(data, Mapping) else None
+    derived = data.get("derived") if isinstance(data, Mapping) else None
+    if not isinstance(prs, list) or not isinstance(derived, list):
+        return None
+    classified = {
+        row.get("number"): row for row in derived if isinstance(row, Mapping) and row.get("number") is not None
+    }
+    outside = [
+        pr for pr in prs
+        if isinstance(pr, Mapping)
+        and (row := classified.get(pr.get("number"))) is not None
+        and row.get("is_external") and not row.get("is_bot_author")
+    ]
+    notices = sum(_pr_has_review_handoff_notice(pr) for pr in outside)
+    return bool(
+        notices >= constants.GATE6_HANDOFF_MIN_PRS
+        and notices >= constants.GATE6_HANDOFF_MIN_SHARE * len(outside)
+    )
+
+
+def is_confirmed_black_hole_in_raw(
+    raw_dir: Path, owner: str, name: str, now: Optional[datetime] = None
+) -> bool:
+    """True when the recorded pr_window envelope confirms the repo is a D-GATE-5 black hole.
+
+    Returns False for review-handoff repositories (which are routed off-platform),
+    when pr_window is missing/unreadable, or when the 14-day zero-response count does
+    not satisfy the black-hole threshold.
+    """
+    key = f"{owner}__{name}"
+    if _review_handoff(raw_dir, key) is True:
+        return False
+    prw_path = raw_dir / "pr_window" / f"{key}.json"
+    if not prw_path.is_file():
+        return False
+    try:
+        env = read_envelope(prw_path)
+    except Exception:
+        return False
+    data = env.data
+    if not isinstance(data, Mapping):
+        return False
+    prs = data.get("prs")
+    if not isinstance(prs, list):
+        return False
+
+    anchor_dt = _parse_iso(data.get("window_anchor")) if isinstance(data, Mapping) else None
+    fetched_dt = _parse_iso(getattr(env, "fetched_at", None))
+    if now is not None:
+        ref_now = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    else:
+        ref_now = anchor_dt or fetched_dt or datetime.now(timezone.utc)
+
+    obs_candidates = [dt for dt in (fetched_dt, anchor_dt) if dt is not None]
+    observed_at = min(obs_candidates) if obs_candidates else None
+
+    derived = github_graphql.derive_pr_window(prs)
+    derived_by_num = {
+        d.get("number"): d for d in derived if isinstance(d, Mapping) and d.get("number") is not None
+    }
+    field_names = {f.name for f in dataclasses.fields(gates.GhostRatePR)}
+    records: list[gates.GhostRatePR] = []
+    for idx, pr in enumerate(prs):
+        if not isinstance(pr, Mapping):
+            continue
+        num = pr.get("number")
+        d = derived_by_num.get(num) if num is not None else (derived[idx] if idx < len(derived) else {})
+        if d is None:
+            d = {}
+        kwargs: dict[str, Any] = {
+            "created_at": str(pr.get("createdAt") or pr.get("created_at") or ""),
+            "is_external": bool(d.get("is_external", False)),
+            "is_bot_author": bool(d.get("is_bot_author", False)),
+            "first_substantive_response_at": d.get("first_substantive_response_at"),
+            "merged_at": pr.get("mergedAt") or pr.get("merged_at"),
+            "is_draft": pr.get("isDraft") if pr.get("isDraft") is not None else pr.get("is_draft", False),
+            "ready_for_review_at": pr.get("readyForReviewAt") or pr.get("ready_for_review_at"),
+            "closed_at": pr.get("closedAt") or pr.get("closed_at"),
+            "closed_by_author": pr.get("closed_by_author", False),
+            "closed_by_maintainer_at": pr.get("closed_by_maintainer_at"),
+            "author_created_at": (
+                (pr.get("author") or {}).get("createdAt")
+                if isinstance(pr.get("author"), Mapping)
+                else pr.get("author_created_at")
+            ),
+            "number": pr.get("number"),
+        }
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k in field_names}
+        records.append(gates.GhostRatePR(**filtered_kwargs))
+
+    unanswered, gr_n = gates.zero_response_counts(records, ref_now, observed_at=observed_at)
+    if hasattr(gates, "is_black_hole_counts"):
+        return bool(gates.is_black_hole_counts(unanswered, gr_n))
+    min_n = getattr(constants, "GATE5_MIN_N", 10)
+    if gr_n < min_n:
+        return False
+    p_hat = unanswered / gr_n
+    z = float(getattr(constants, "GATE5_WILSON_Z", 1.6448536269514722))
+    denominator = 1.0 + (z * z) / gr_n
+    center = p_hat + (z * z) / (2.0 * gr_n)
+    spread = z * ((p_hat * (1.0 - p_hat) / gr_n + (z * z) / (4.0 * gr_n * gr_n)) ** 0.5)
+    wilson_lower = (center - spread) / denominator
+    max_share = float(getattr(constants, "GATE5_MAX_ZERO_RESPONSE_SHARE", 0.50))
+    return wilson_lower > max_share
+
+
 def classify_prune_reason(
     fp: Optional[RepoFingerprint],
     *,
@@ -879,10 +1035,11 @@ def classify_prune_reason(
     establish that the repository is closed for contributions or not software,
     or ``None`` when the repository remains a valid candidate.
 
-    Note: ``black_hole`` repositories are intentionally **never** pruned here —
-    they are active software repositories with external PR workflows whose PR
-    ghost rate is scored and ranked on the leaderboard with a visible
-    ``"black_hole"`` flag.
+    Note: ``black_hole`` (D-GATE-5) is evaluated after ``pr_window`` via
+    :func:`is_confirmed_black_hole_in_raw` to skip
+    :data:`DEEP_COLLECTORS_SKIPPED_ON_BLACK_HOLE` while keeping ``pr_window``
+    active on future fingerprint moves (allowing a recovering repo to exit the
+    black-hole state).
     """
     if fp is not None:
         if fp.is_archived:
@@ -1036,6 +1193,11 @@ def run_fingerprint_pass(
             if raw_dir is not None
             else inv
         )
+        if prune_ineligible and raw_dir is not None and is_confirmed_black_hole_in_raw(raw_dir, fp.owner, fp.name, now):
+            dirty_by_repo[key] = frozenset(dirty_by_repo[key] - DEEP_COLLECTORS_SKIPPED_ON_BLACK_HOLE)
+            invalidated_by_repo[key] = frozenset(invalidated_by_repo[key] - DEEP_COLLECTORS_SKIPPED_ON_BLACK_HOLE)
+            if not dirty_by_repo[key]:
+                dirty_by_repo.pop(key, None)
     for key in unresolved:
         owner, name = pair_by_key[key]
         if prune_ineligible:
@@ -1056,6 +1218,11 @@ def run_fingerprint_pass(
             if raw_dir is not None
             else _FAST_COLLECTORS
         )
+        if prune_ineligible and raw_dir is not None and is_confirmed_black_hole_in_raw(raw_dir, owner, name, now):
+            dirty_by_repo[key] = frozenset(dirty_by_repo[key] - DEEP_COLLECTORS_SKIPPED_ON_BLACK_HOLE)
+            invalidated_by_repo[key] = frozenset(invalidated_by_repo[key] - DEEP_COLLECTORS_SKIPPED_ON_BLACK_HOLE)
+            if not dirty_by_repo[key]:
+                dirty_by_repo.pop(key, None)
 
     return FingerprintSweepResult(
         fingerprints=current,

@@ -82,6 +82,8 @@ __all__ = [
     "records_from_rows",
     "shape_commit_rows",
     "collect_commits_365d",
+    "derive_commits_180d_rows",
+    "can_derive_180d_from_365d",
     "elephant_factor",
     "bus_factor",
     "is_vital",
@@ -264,3 +266,98 @@ def is_vital(records: Sequence[CommitRecord], now: datetime,
         if record.date is not None and record.date >= cutoff and not is_bot(record.actor):
             return True
     return False
+
+
+def _parse_commit_date(value: Any) -> Optional[datetime]:
+    """Parse an ISO-8601 author date string into an aware UTC datetime."""
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def _extract_c365_commits(c365_data: Mapping[str, Any]) -> Optional[list[Any]]:
+    """Extract the commit list from a commits_365d payload ('commits' or 'rows')."""
+    if not isinstance(c365_data, Mapping):
+        return None
+    commits = c365_data.get("commits")
+    if isinstance(commits, list):
+        return commits
+    rows = c365_data.get("rows")
+    if isinstance(rows, list):
+        return rows
+    return None
+
+
+def derive_commits_180d_rows(
+    c365_data: Mapping[str, Any],
+    now: Optional[datetime] = None,
+    window_days: int = VITALITY_WINDOW_DAYS,
+) -> list[dict[str, Any]]:
+    """Derive 180-day vitality commit rows from a commits_365d data payload.
+
+    Given ``c365_data`` (holding ``commits`` or ``rows``), filters commits whose
+    ``date`` parses as ISO-8601 and falls within ``[now - window_days, now]``.
+    Each matching commit is projected to ``{"author_login", "author_type", "date"}``,
+    preserving newest-first order and capped at 300 rows.
+    """
+    commits = _extract_c365_commits(c365_data)
+    if not commits:
+        return []
+    if now is None:
+        now = datetime.now(timezone.utc)
+    ref_now = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    cutoff = ref_now - timedelta(days=window_days)
+    rows: list[dict[str, Any]] = []
+    for c in commits:
+        if not isinstance(c, Mapping):
+            continue
+        date_str = c.get("date") or c.get("author_date")
+        dt = _parse_commit_date(date_str)
+        if dt is not None and cutoff <= dt <= ref_now:
+            rows.append({
+                "author_login": c.get("author_login"),
+                "author_type": c.get("author_type"),
+                "date": date_str,
+            })
+            if len(rows) >= 300:
+                break
+    return rows[:300]
+
+
+def can_derive_180d_from_365d(
+    c365_data: Mapping[str, Any],
+    now: Optional[datetime] = None,
+    window_days: int = VITALITY_WINDOW_DAYS,
+) -> bool:
+    """Return True if commits_180d can be derived from commits_365d with 0 API calls.
+
+    Returns True when ``c365_data`` is a Mapping with a commit list, and either:
+    - ``truncated`` is False,
+    - the list contains >= 300 commits, or
+    - the oldest commit date is <= ``now - window_days``.
+    """
+    if not isinstance(c365_data, Mapping):
+        return False
+    commits = _extract_c365_commits(c365_data)
+    if not isinstance(commits, list):
+        return False
+    if not c365_data.get("truncated", False):
+        return True
+    if len(commits) >= 300:
+        return True
+    if now is None:
+        now = datetime.now(timezone.utc)
+    ref_now = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    cutoff = ref_now - timedelta(days=window_days)
+    for c in reversed(commits):
+        if isinstance(c, Mapping):
+            date_str = c.get("date") or c.get("author_date")
+            dt = _parse_commit_date(date_str)
+            if dt is not None:
+                return dt <= cutoff
+    return False
+
