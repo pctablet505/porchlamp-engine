@@ -45,9 +45,9 @@ function renderReasonChip(row) {
   return `<span class="reason-chip">${escapeHtml(text)}</span>`;
 }
 
-function renderRow(row) {
+function renderRow(row, selected = false) {
   return (
-    `<div class="notranked-row" data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(row.owner)}/${escapeHtml(row.name)}">` +
+    `<div class="notranked-row${selected ? " row-selected" : ""}" data-owner="${escapeHtml(row.owner)}" data-name="${escapeHtml(row.name)}" tabindex="0" role="button" aria-label="Open ${escapeHtml(row.owner)}/${escapeHtml(row.name)}">` +
     `<span><span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span><span class="eco-chip">${escapeHtml(row.ecosystem)}</span></span>` +
     renderReasonChip(row) +
     `</div>`
@@ -86,7 +86,7 @@ export function flattenGroups(notRanked, opts = {}) {
 }
 
 /** Renders one page's slice, inserting a group heading whenever the slice reaches a new group's first row. */
-export function renderPageRows(flat, page, pageSize) {
+export function renderPageRows(flat, page, pageSize, selectedRepoKey = null) {
   const start = (page - 1) * pageSize;
   const slice = flat.slice(start, start + pageSize);
   let html = "";
@@ -96,7 +96,8 @@ export function renderPageRows(flat, page, pageSize) {
       currentLabel = item.label;
       html += `<h2 class="view-heading">${escapeHtml(item.label)} (${item.groupTotal})</h2>`;
     }
-    html += renderRow(item.row);
+    const key = `${item.row.owner}/${item.row.name}`;
+    html += renderRow(item.row, selectedRepoKey === key);
   }
   return html;
 }
@@ -121,7 +122,9 @@ export function shellShape(state) {
  * `"empty-counted"`).
  */
 export function rebuildKey(state) {
-  return `${shellShape(state)}${state.leaderboard ? "-counted" : ""}`;
+  const shape = shellShape(state);
+  const filterSuffix = shape === "empty" ? `:${state.ecosystem || ""}:${state.query || ""}` : "";
+  return `${shape}${state.leaderboard ? "-counted" : ""}${filterSuffix}`;
 }
 
 export function renderShell(state) {
@@ -132,9 +135,11 @@ export function renderShell(state) {
   // them) must stay reachable from EITHER view — without this, switching
   // to Not-ranked would strand the user with no way back to Ranked.
   const leaderboardCounts = state.leaderboard ? state.leaderboard.counts : null;
+  const flat = notRanked ? flattenGroups(notRanked, { ecosystem: state.ecosystem, query: state.query }) : null;
+  const notRankedCount = flat ? flat.length : null;
   const tabsHtml =
     renderOnboardingBanner() +
-    renderTabs(state.tab, leaderboardCounts, personaVisibleForState(state)) +
+    renderTabs(state.tab, leaderboardCounts, personaVisibleForState(state), notRankedCount) +
     renderCountsStrip(leaderboardCounts, personaDeltaForState(state));
 
   if (shape === "loading") return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}${renderSkeleton()}</section>`;
@@ -148,9 +153,10 @@ export function renderShell(state) {
     return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}${empty}</section>`;
   }
 
-  const flat = flattenGroups(notRanked, { ecosystem: state.ecosystem, query: state.query });
-  const pager = renderPager(state.notRankedPage, state.notRankedPageSize, flat.length, "notranked-pager");
-  const bottomPager = renderPager(state.notRankedPage, state.notRankedPageSize, flat.length, "notranked-pager", { bottom: true });
+  const totalPages = Math.max(1, Math.ceil(flat.length / state.notRankedPageSize));
+  const page = Math.min(Math.max(1, state.notRankedPage), totalPages);
+  const pager = renderPager(page, state.notRankedPageSize, flat.length, "notranked-pager");
+  const bottomPager = renderPager(page, state.notRankedPageSize, flat.length, "notranked-pager", { bottom: true });
   return (
     `<section aria-labelledby="notranked-heading">` +
     headerHtml +
@@ -169,7 +175,9 @@ export function patchNotRankedBody(root, state) {
   const container = root.querySelector("[data-notranked-rows]");
   if (!container) return;
   const flat = flattenGroups(state.notRanked, { ecosystem: state.ecosystem, query: state.query });
-  const html = renderPageRows(flat, state.notRankedPage, state.notRankedPageSize);
+  const totalPages = Math.max(1, Math.ceil(flat.length / state.notRankedPageSize));
+  const page = Math.min(Math.max(1, state.notRankedPage), totalPages);
+  const html = renderPageRows(flat, page, state.notRankedPageSize, state.selectedRepoKey);
   // This is a whole-body innerHTML
   // replacement, not the keyed patchRows() diff the leaderboard table uses.
   // Safe today because no interaction here holds DOM focus on a row while a
@@ -179,7 +187,16 @@ export function patchNotRankedBody(root, state) {
   // leaderboard (prefetch-next-page, page-size-change-preserves-row, etc.) —
   // at that point switch this to patchRows()-style keyed diffing too.
   if (container.innerHTML !== html) container.innerHTML = html;
-  syncPager(root, state.notRankedPage, state.notRankedPageSize, flat.length, "notranked-pager");
+  syncPager(root, page, state.notRankedPageSize, flat.length, "notranked-pager");
+  const notRankedCountEl = root.querySelector('[data-tab="notranked"] .count');
+  if (notRankedCountEl && notRankedCountEl.textContent !== String(flat.length)) {
+    notRankedCountEl.textContent = String(flat.length);
+  }
+  const rankedCount = personaVisibleForState(state);
+  const rankedCountEl = root.querySelector('[data-tab="ranked"] .count');
+  if (rankedCountEl && typeof rankedCount === "number" && rankedCountEl.textContent !== String(rankedCount)) {
+    rankedCountEl.textContent = String(rankedCount);
+  }
   const errBanner = root.querySelector("[data-notranked-error]");
   if (errBanner) {
     if (state.notRankedError) {

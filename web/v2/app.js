@@ -53,6 +53,7 @@ import {
   patchTableBody,
   patchCardBody,
   syncPager,
+  syncMobileSortBar,
   scrollDeltaToReveal,
   personaDeltaForState,
   personaVisibleForState,
@@ -64,10 +65,10 @@ import {
   patchNotRankedBody,
   flattenGroups,
 } from "./views/notranked.js";
-import { renderDrawer } from "./views/drawer.js";
+import { renderDrawer, classifyKindForLens } from "./views/drawer.js";
 import { renderBrand } from "./components/brand.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
-import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel } from "./components/table.js";
+import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel, sortColumnLabel, syncHeaderSortDom } from "./components/table.js";
 import { synthesizeRows } from "./perf-fixtures.js";
 import { renderPrimaryNav, syncPrimaryNav, centerActiveTab } from "./components/primarynav.js";
 import {
@@ -78,6 +79,7 @@ import {
   filterMatrixPoints,
   zoomView,
   panView,
+  clientToDomainCoords,
   nearestMarkerInDirection,
   hitTestPoint,
   DEFAULT_VIEW as MATRIX_DEFAULT_VIEW,
@@ -89,6 +91,8 @@ import {
   patchConfigureTable,
   normalizeWeights,
   applyPresetRespectingLocks,
+  filterReprojectRows,
+  sortReprojectRows,
   REPROJECT_PAGE_SIZE,
   remainingReprojectPages,
   mergeReprojectPages,
@@ -148,6 +152,17 @@ export function boot(win = window, doc = document) {
     if (liveRegion) liveRegion.textContent = text;
   }
 
+  function syncStickyOffsets() {
+    if (!doc || !doc.documentElement || !doc.documentElement.style || typeof win.getComputedStyle !== "function") return;
+    const hRect = header && typeof header.getBoundingClientRect === "function" ? header.getBoundingClientRect() : { height: 0 };
+    const nRect = primaryNav && typeof primaryNav.getBoundingClientRect === "function" ? primaryNav.getBoundingClientRect() : { height: 0 };
+    if (hRect.height <= 0 && nRect.height <= 0) return;
+    const headerSticky = header && win.getComputedStyle(header).position === "sticky" ? Math.round(hRect.height) : 0;
+    const navSticky = primaryNav && win.getComputedStyle(primaryNav).position === "sticky" ? Math.round(nRect.height) : 0;
+    doc.documentElement.style.setProperty("--header-height", `${headerSticky}px`);
+    doc.documentElement.style.setProperty("--primary-nav-height", `${navSticky}px`);
+  }
+
   // ---------------------------------------------------------------- Header
   function buildHeaderOnce() {
     const personaOptions = PERSONAS.map(
@@ -184,7 +199,9 @@ export function boot(win = window, doc = document) {
   /** Fetches whatever `tab` needs that has not already loaded — called on boot, a primary-nav click, popstate, and the footer "verify" link. Idempotent: never re-fetches data that is already present. */
   function loadDataForTab(tab) {
     const state = store.getState();
-    if (tab === "ranked" && !state.leaderboard && !state.leaderboardLoading) loadLeaderboard();
+    const needsLeaderboard =
+      !state.leaderboard || state.leaderboardSignature !== requestSignature(state);
+    if (tab === "ranked" && needsLeaderboard && !state.leaderboardLoading) loadLeaderboard();
     if (tab === "matrix" && !state.matrix && !state.matrixLoading) loadMatrix();
     if (tab === "configure" && !state.reproject && !state.reprojectLoading) runReproject();
     if (tab === "methodology" && !state.methodology && !state.methodologyLoading) loadMethodology();
@@ -206,7 +223,7 @@ export function boot(win = window, doc = document) {
     const ecoGroup = header.querySelector("[data-header-eco-group]");
     const searchGroup = header.querySelector("[data-header-search-group]");
     const showPersona = state.tab === "ranked" || state.tab === "notranked" || state.tab === "compare";
-    const showEcoAndSearch = state.tab === "ranked" || state.tab === "notranked" || state.tab === "matrix";
+    const showEcoAndSearch = state.tab === "ranked" || state.tab === "notranked" || state.tab === "matrix" || state.tab === "configure";
     if (personaGroup) personaGroup.hidden = !showPersona;
     if (ecoGroup) ecoGroup.hidden = !showEcoAndSearch;
     if (searchGroup) searchGroup.hidden = !showEcoAndSearch;
@@ -232,6 +249,7 @@ export function boot(win = window, doc = document) {
       else snapshotChip.removeAttribute("title");
       snapshotChip.classList.toggle("error-chip", fields.kind === "error");
     }
+    syncStickyOffsets();
   }
 
   // ---------------------------------------------------------------- Footer
@@ -283,7 +301,9 @@ export function boot(win = window, doc = document) {
   function revealListTop(selector = ".pager:not(.pager-bottom)") {
     const anchor = main.querySelector(selector);
     if (!anchor || typeof win.scrollTo !== "function") return;
-    const sticky = header && win.getComputedStyle(header).position === "sticky" ? header.getBoundingClientRect().height : 0;
+    const headerSticky = header && win.getComputedStyle(header).position === "sticky" ? header.getBoundingClientRect().height : 0;
+    const navSticky = primaryNav && win.getComputedStyle(primaryNav).position === "sticky" ? primaryNav.getBoundingClientRect().height : 0;
+    const sticky = headerSticky + navSticky;
     const delta = scrollDeltaToReveal(anchor.getBoundingClientRect().top, sticky);
     if (delta !== null) win.scrollTo(0, Math.max(0, win.scrollY + delta));
   }
@@ -302,23 +322,10 @@ export function boot(win = window, doc = document) {
     };
   }
 
-  /** Updates only the `<th>` / button `aria-sort` attributes to match `state.sort` — never a shell rebuild. */
+  /** Updates only the `<th>` / button `aria-sort` attributes and sort arrows to match `state.sort` — never a shell rebuild. */
   function syncSortHeaders(state) {
-    const headers = main.querySelectorAll("[data-sort-field]");
-    for (const th of headers) {
-      const isActive = state.sort.replace(/^-/, "") === th.dataset.sortField;
-      th.classList.toggle("is-active", isActive);
-      if (!isActive) {
-        if (th.hasAttribute("aria-sort")) th.removeAttribute("aria-sort");
-        continue;
-      }
-      // sortDirectionLabel is the single source of truth for the
-      // effective direction (see components/table.js) — a field's
-      // "best first" convention (descending for scores, ascending for
-      // rank/tier) is not simply "no '-' prefix = ascending".
-      const dir = sortDirectionLabel(state.sort);
-      if (th.getAttribute("aria-sort") !== dir) th.setAttribute("aria-sort", dir);
-    }
+    syncHeaderSortDom(main, state.sort, doc);
+    syncMobileSortBar(main, state.sort);
   }
 
   function syncCountsStrip(state) {
@@ -361,6 +368,15 @@ export function boot(win = window, doc = document) {
     const rankedCountEl = main.querySelector('[data-tab="ranked"] .count');
     if (rankedCountEl && typeof rankedCount === "number" && rankedCountEl.textContent !== String(rankedCount)) {
       rankedCountEl.textContent = String(rankedCount);
+    }
+    const notRankedCountEl = main.querySelector('[data-tab="notranked"] .count');
+    if (notRankedCountEl) {
+      const notRankedCount = state.notRanked
+        ? flattenGroups(state.notRanked, { ecosystem: state.ecosystem, query: state.query }).length
+        : (state.leaderboard.counts?.gated ?? 0) + (state.leaderboard.counts?.unrated ?? 0);
+      if (notRankedCountEl.textContent !== String(notRankedCount)) {
+        notRankedCountEl.textContent = String(notRankedCount);
+      }
     }
   }
 
@@ -442,7 +458,13 @@ export function boot(win = window, doc = document) {
     };
     const ctx = canvas.getContext("2d");
     const filteredPoints = filterMatrixPoints(state.matrix.points, state);
-    drawMatrixCanvas(ctx, filteredPoints, { quadrantsHidden: state.matrixQuadrantsHidden, colors, width, height });
+    drawMatrixCanvas(ctx, filteredPoints, {
+      quadrantsHidden: state.matrixQuadrantsHidden,
+      colors,
+      width,
+      height,
+      view: state.matrixView,
+    });
   }
 
   function syncView(state) {
@@ -520,10 +542,11 @@ export function boot(win = window, doc = document) {
 
     const viewport = currentViewport();
     const shape = shellShape(state, viewport);
-    if (currentTab !== "ranked" || shape !== currentShellShape) {
+    const shellKey = shape === "empty" ? `${shape}:${state.ecosystem}:${state.query}` : shape;
+    if (currentTab !== "ranked" || shellKey !== currentShellShape) {
       main.innerHTML = renderShell(state, viewport);
       currentTab = "ranked";
-      currentShellShape = shape;
+      currentShellShape = shellKey;
       forgetOtherShapes("ranked");
     }
     if (shape.startsWith("table")) patchLeaderboardBody(state);
@@ -711,24 +734,33 @@ export function boot(win = window, doc = document) {
       api.fetchLeaderboard({ q: trimmed, page_size: 20 }),
       api.fetchNotRanked({ persona: "balanced", q: trimmed }),
     ]).then(([leaderboardResult, notRankedResult]) => {
-      const results = [];
+      const ratedResults = [];
+      const unrankedResults = [];
       if (leaderboardResult.ok) {
         for (const r of leaderboardResult.data.rows) {
-          results.push({ owner: r.owner, name: r.name, ecosystem: r.ecosystem, kind: "rated" });
+          if (!alreadyAdded.has(`${r.owner}/${r.name}`)) {
+            ratedResults.push({ owner: r.owner, name: r.name, ecosystem: r.ecosystem, kind: "rated" });
+          }
         }
       }
       if (notRankedResult.ok) {
         const qLower = trimmed.toLowerCase();
         for (const group of ["gated", "unrated"]) {
           for (const r of notRankedResult.data[group]) {
-            if (`${r.owner}/${r.name}`.toLowerCase().includes(qLower)) {
-              results.push({ owner: r.owner, name: r.name, ecosystem: r.ecosystem, kind: group === "gated" ? "gated" : "unrated" });
+            const key = `${r.owner}/${r.name}`;
+            if (!alreadyAdded.has(key) && key.toLowerCase().includes(qLower)) {
+              unrankedResults.push({ owner: r.owner, name: r.name, ecosystem: r.ecosystem, kind: group === "gated" ? "gated" : "unrated" });
             }
           }
         }
       }
-      const deduped = results.filter((r) => !alreadyAdded.has(`${r.owner}/${r.name}`));
-      store.dispatch({ type: "COMPARE_SET_RESULTS", results: deduped.slice(0, 8) });
+      const combined = [];
+      const maxLen = Math.max(ratedResults.length, unrankedResults.length);
+      for (let i = 0; i < maxLen && combined.length < 8; i++) {
+        if (i < ratedResults.length) combined.push(ratedResults[i]);
+        if (combined.length < 8 && i < unrankedResults.length) combined.push(unrankedResults[i]);
+      }
+      store.dispatch({ type: "COMPARE_SET_RESULTS", results: combined });
     });
   }
 
@@ -736,34 +768,58 @@ export function boot(win = window, doc = document) {
     const [owner, name] = key.split("/");
     store.dispatch({ type: "COMPARE_REPO_LOADING", key });
 
-    return Promise.all([
-      api.fetchLeaderboard({ q: key, page_size: 1000 }),
-      api.fetchNotRanked({ persona: "balanced", q: key }),
-    ]).then(([leaderboardResult, notRankedResult]) => {
-      if (!store.getState().compareRepos.includes(key)) return; // removed while in flight
-      let kind = null;
-      let row = null;
-      if (leaderboardResult.ok) {
-        row = leaderboardResult.data.rows.find((r) => r.owner === owner && r.name === name);
-        if (row) kind = "rated";
+    const detailPromise =
+      typeof api.fetchRepoDetail === "function"
+        ? api.fetchRepoDetail(owner, name)
+        : Promise.resolve({ ok: false });
+
+    return detailPromise.then((detailResult) => {
+      if (!store.getState().compareRepos.includes(key)) return;
+      if (detailResult && detailResult.ok && detailResult.data) {
+        const row = detailResult.data;
+        const kind = classifyKindForLens(row, "balanced") || "rated";
+        return api.fetchEvidence(owner, name).then((evidenceResult) => {
+          store.dispatch({
+            type: "COMPARE_REPO_OK",
+            key,
+            data: { kind, row, evidence: evidenceResult.ok ? evidenceResult.data : [] },
+          });
+        });
       }
-      if (!row && notRankedResult.ok) {
-        row = notRankedResult.data.gated.find((r) => r.owner === owner && r.name === name);
-        if (row) kind = "gated";
-        if (!row) {
-          row = notRankedResult.data.unrated.find((r) => r.owner === owner && r.name === name);
-          if (row) kind = "unrated";
+      return Promise.all([
+        api.fetchLeaderboard({ q: key, page_size: 1000 }),
+        api.fetchNotRanked({ persona: "balanced", q: key }),
+      ]).then(([leaderboardResult, notRankedResult]) => {
+        if (!store.getState().compareRepos.includes(key)) return; // removed while in flight
+        let kind = null;
+        let row = null;
+        if (leaderboardResult.ok) {
+          row = leaderboardResult.data.rows.find((r) => r.owner === owner && r.name === name);
+          if (row) kind = "rated";
         }
-      }
-      if (!row) {
-        store.dispatch({ type: "COMPARE_REPO_ERROR", key, error: { endpoint: "/v1/porchlamp/leaderboard", status: 404 } });
-        return;
-      }
-      return api.fetchEvidence(owner, name).then((evidenceResult) => {
-        store.dispatch({
-          type: "COMPARE_REPO_OK",
-          key,
-          data: { kind, row, evidence: evidenceResult.ok ? evidenceResult.data : [] },
+        if (!row && notRankedResult.ok) {
+          const foundGated = notRankedResult.data.gated.find((r) => r.owner === owner && r.name === name);
+          if (foundGated) {
+            row = { ...foundGated, eligible: false, rated: false };
+            kind = "gated";
+          } else {
+            const foundUnrated = notRankedResult.data.unrated.find((r) => r.owner === owner && r.name === name);
+            if (foundUnrated) {
+              row = { ...foundUnrated, eligible: !foundUnrated.gate_reason, rated: false };
+              kind = "unrated";
+            }
+          }
+        }
+        if (!row) {
+          store.dispatch({ type: "COMPARE_REPO_ERROR", key, error: { endpoint: "/v1/porchlamp/leaderboard", status: 404 } });
+          return;
+        }
+        return api.fetchEvidence(owner, name).then((evidenceResult) => {
+          store.dispatch({
+            type: "COMPARE_REPO_OK",
+            key,
+            data: { kind, row, evidence: evidenceResult.ok ? evidenceResult.data : [] },
+          });
         });
       });
     });
@@ -774,9 +830,9 @@ export function boot(win = window, doc = document) {
       persona: state.persona,
       eco: state.ecosystem,
       q: state.query,
-      sort: state.sort,
-      page: state.page,
-      page_size: state.pageSize,
+      sort: state.tab === "ranked" ? state.sort : (state.rankedSort || "rank"),
+      page: state.tab === "ranked" ? state.page : (state.rankedPage ?? 1),
+      page_size: state.tab === "ranked" ? state.pageSize : (state.rankedPageSize ?? 20),
     };
   }
 
@@ -829,7 +885,7 @@ export function boot(win = window, doc = document) {
       announce(copy.apiErrorAnnouncement(result.error.endpoint, result.error.status));
       return;
     }
-    store.dispatch({ type: "LEADERBOARD_OK", data: result.data });
+    store.dispatch({ type: "LEADERBOARD_OK", data: result.data, signature });
     if (requestedFromState.persona !== "balanced" && requestedFromState.persona === store.getState().persona) {
       announce(copy.reprojectedAnnouncement(copy.PERSONA_NAMES[requestedFromState.persona], countRankChanges(previousRows, result.data.rows)));
     }
@@ -837,8 +893,16 @@ export function boot(win = window, doc = document) {
   }
 
   // ------------------------------------------------------------- Rendering
+  // The README badge's Markdown must point at the public site, not at whichever
+  // host served this page: index.html names it (og:url, then rel=canonical); this
+  // page's own directory is the fallback for a copy that names neither.
+  const siteBaseUrl =
+    doc.querySelector('meta[property="og:url"]')?.getAttribute("content") ||
+    doc.querySelector('link[rel="canonical"]')?.getAttribute("href") ||
+    new URL(".", win.location.href).href;
+
   function renderDrawerAndKeymap(state) {
-    const drawerHtml = renderDrawer(state);
+    const drawerHtml = renderDrawer(state, { siteBaseUrl });
     if (drawerRoot.dataset.lastHtml !== drawerHtml) {
       // A content-only update (e.g. evidence arriving after the drawer is
       // ALREADY open) still replaces drawerRoot's innerHTML wholesale — the
@@ -949,8 +1013,8 @@ export function boot(win = window, doc = document) {
       const isSystemDark = win.matchMedia && win.matchMedia("(prefers-color-scheme: dark)").matches;
       const isDark = currentTheme === "dark" || (currentTheme === "system" && isSystemDark);
       const next = isDark ? "light" : "dark";
-      store.dispatch({ type: "SET_THEME", theme: next });
       applyTheme(next, doc);
+      store.dispatch({ type: "SET_THEME", theme: next });
       writePersistedTheme(win.localStorage, next);
       const btn = header.querySelector("[data-theme-toggle]");
       if (btn) {
@@ -1007,6 +1071,11 @@ export function boot(win = window, doc = document) {
   /** Ruling: "changing the page size keeps the current first visible row on screen". Anchors on the cursor row if one is selected, else the current page's first loaded row. */
   function goToPage(newPage) {
     if (newPage < 1) return;
+    const s = store.getState();
+    if (s.leaderboard) {
+      const totalPages = Math.max(1, Math.ceil((s.leaderboard.total || 0) / s.pageSize));
+      if (newPage > totalPages) return;
+    }
     store.dispatch({ type: "SET_PAGE", page: newPage });
     pushUrl(store.getState());
     revealListTop();
@@ -1035,19 +1104,37 @@ export function boot(win = window, doc = document) {
     loadLeaderboard();
   }
 
+  function goToConfigurePage(newPage) {
+    if (newPage < 1) return;
+    const s = store.getState();
+    if (s.reproject) {
+      const filtered = filterReprojectRows(s.reproject.rows, { ecosystem: s.ecosystem, query: s.query });
+      const totalPages = Math.max(1, Math.ceil(filtered.length / s.configurePageSize));
+      if (newPage > totalPages) return;
+    }
+    store.dispatch({ type: "SET_CONFIGURE_PAGE", page: newPage });
+    pushUrl(store.getState());
+    revealListTop(".configure-table-col");
+  }
+
   main.addEventListener("change", (evt) => {
+    if (evt.target.matches("[data-mobile-sort-select]")) {
+      const nextSort = evt.target.value;
+      changeParamsAndFetch({ sort: nextSort });
+      announce(copy.sortedAnnouncement(sortColumnLabel(nextSort), sortDirectionLabel(nextSort)));
+      return;
+    }
     if (evt.target.matches("[data-sort-field]")) return; // handled via click on <th>, not a <select>
     if (evt.target.matches("[data-pager-size-select]")) {
       goToPageSize(parseInt(evt.target.value, 10));
     } else if (evt.target.matches("[data-notranked-pager-size-select]")) {
-      const state = store.getState();
       store.dispatch({ type: "SET_NOTRANKED_PAGE_SIZE", pageSize: parseInt(evt.target.value, 10), page: 1 });
+      pushUrl(store.getState());
       patchNotRankedBody(main, store.getState());
       revealListTop();
-      void state;
     } else if (evt.target.matches("[data-configure-pager-size-select]")) {
       store.dispatch({ type: "SET_CONFIGURE_PAGE_SIZE", pageSize: parseInt(evt.target.value, 10), page: 1 });
-      patchConfigureTable(main, doc, store.getState());
+      pushUrl(store.getState());
       revealListTop(".configure-table-col");
     }
   });
@@ -1096,14 +1183,7 @@ export function boot(win = window, doc = document) {
       const s = store.getState();
       if (s.tab === "matrix" && s.matrix) {
         const rect = canvas.getBoundingClientRect();
-        const domainX = ((evt.clientX - rect.left) / rect.width) * 100;
-        const domainY = ((evt.clientY - rect.top) / rect.height) * 100;
-        // A click within ~15 real screen pixels of a point's centre counts
-        // as hitting it — converted to domain units at THIS canvas's own
-        // rendered width, so the tolerance is consistent regardless of
-        // plot size (same reasoning as components/scatter.js's radius
-        // pixel-anchoring).
-        const toleranceDomainUnits = (15 / rect.width) * 100;
+        const { domainX, domainY, toleranceDomainUnits } = clientToDomainCoords(evt.clientX, evt.clientY, rect, s.matrixView);
         const visiblePoints = filterMatrixPoints(s.matrix.points, s).filter((p) => !s.matrixQuadrantsHidden[p.quadrant]);
         const hit = hitTestPoint(visiblePoints, domainX, domainY, toleranceDomainUnits);
         if (hit) {
@@ -1111,6 +1191,13 @@ export function boot(win = window, doc = document) {
           openRepo(hit.owner, hit.name);
         }
       }
+      return;
+    }
+    if (evt.target.closest("[data-mobile-sort-dir]")) {
+      const current = store.getState().sort;
+      const next = current.startsWith("-") ? current.slice(1) : `-${current}`;
+      changeParamsAndFetch({ sort: next });
+      announce(copy.sortedAnnouncement(sortColumnLabel(next), sortDirectionLabel(next)));
       return;
     }
     // An empty list's ways out: drop the search and the ecosystem, or look in the other list.
@@ -1131,7 +1218,7 @@ export function boot(win = window, doc = document) {
       const tab = tabBtn.dataset.tab;
       store.dispatch({ type: "SET_TAB", tab });
       pushUrl(store.getState());
-      if (tab === "notranked" && !store.getState().notRanked) loadNotRanked();
+      loadDataForTab(tab);
       return;
     }
     const sortHeader = evt.target.closest("[data-sort-field]");
@@ -1146,13 +1233,15 @@ export function boot(win = window, doc = document) {
         const current = store.getState().configureSort;
         const next = current === field ? `-${field}` : field;
         store.dispatch({ type: "SET_CONFIGURE_SORT", sort: next });
+        pushUrl(store.getState());
+        announce(copy.sortedAnnouncement(sortColumnLabel(field), sortDirectionLabel(next)));
         return;
       }
       if (currentTabValue !== "ranked") return; // the header is only ever meaningfully sortable on these two tabs
       const current = store.getState().sort;
       const next = current === field ? `-${field}` : field;
       changeParamsAndFetch({ sort: next });
-      announce(copy.sortedAnnouncement(field));
+      announce(copy.sortedAnnouncement(sortColumnLabel(field), sortDirectionLabel(next)));
       return;
     }
     if (evt.target.closest("[data-pager-first]")) return goToPage(1);
@@ -1173,17 +1262,14 @@ export function boot(win = window, doc = document) {
       return goToNotRankedPage(totalPages);
     }
     // ------------------------------------------------- Configure (D)
-    if (evt.target.closest("[data-configure-pager-prev]")) {
-      store.dispatch({ type: "SET_CONFIGURE_PAGE", page: Math.max(1, store.getState().configurePage - 1) });
-      patchConfigureTable(main, doc, store.getState());
-      revealListTop(".configure-table-col");
-      return;
-    }
-    if (evt.target.closest("[data-configure-pager-next]")) {
-      store.dispatch({ type: "SET_CONFIGURE_PAGE", page: store.getState().configurePage + 1 });
-      patchConfigureTable(main, doc, store.getState());
-      revealListTop(".configure-table-col");
-      return;
+    if (evt.target.closest("[data-configure-pager-first]")) return goToConfigurePage(1);
+    if (evt.target.closest("[data-configure-pager-prev]")) return goToConfigurePage(store.getState().configurePage - 1);
+    if (evt.target.closest("[data-configure-pager-next]")) return goToConfigurePage(store.getState().configurePage + 1);
+    if (evt.target.closest("[data-configure-pager-last]")) {
+      const s = store.getState();
+      const filtered = s.reproject ? filterReprojectRows(s.reproject.rows, { ecosystem: s.ecosystem, query: s.query }) : [];
+      const totalPages = Math.max(1, Math.ceil(filtered.length / s.configurePageSize));
+      return goToConfigurePage(totalPages);
     }
     if (evt.target.closest("[data-configure-retry]")) {
       runReproject();
@@ -1293,7 +1379,14 @@ export function boot(win = window, doc = document) {
 
   function goToNotRankedPage(page) {
     if (page < 1) return;
+    const s = store.getState();
+    if (s.notRanked) {
+      const flat = flattenGroups(s.notRanked, { ecosystem: s.ecosystem, query: s.query });
+      const totalPages = Math.max(1, Math.ceil(flat.length / s.notRankedPageSize));
+      if (page > totalPages) return;
+    }
     store.dispatch({ type: "SET_NOTRANKED_PAGE", page });
+    pushUrl(store.getState());
     patchNotRankedBody(main, store.getState());
     revealListTop();
   }
@@ -1342,6 +1435,23 @@ export function boot(win = window, doc = document) {
     if (marker && !evt.relatedTarget?.closest(".matrix-marker")) {
       store.dispatch({ type: "MATRIX_SET_HOVER", key: null });
     }
+    if (evt.target.matches?.("[data-matrix-canvas]")) {
+      store.dispatch({ type: "MATRIX_SET_HOVER", key: null });
+    }
+  });
+  main.addEventListener("mousemove", (evt) => {
+    const s = store.getState();
+    if (s.tab !== "matrix" || !s.matrix) return;
+    const canvas = evt.target.closest?.("[data-matrix-canvas]");
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const { domainX, domainY, toleranceDomainUnits } = clientToDomainCoords(evt.clientX, evt.clientY, rect, s.matrixView);
+    const visiblePoints = filterMatrixPoints(s.matrix.points, s).filter((p) => !s.matrixQuadrantsHidden[p.quadrant]);
+    const hit = hitTestPoint(visiblePoints, domainX, domainY, toleranceDomainUnits);
+    const nextKey = hit ? matrixPointKey(hit) : null;
+    if (s.matrixHoveredKey !== nextKey) {
+      store.dispatch({ type: "MATRIX_SET_HOVER", key: nextKey });
+    }
   });
   main.addEventListener("focusin", (evt) => {
     if (store.getState().tab !== "matrix") return;
@@ -1373,6 +1483,26 @@ export function boot(win = window, doc = document) {
       const [owner, name] = repo.split("/");
       store.dispatch({ type: "EVIDENCE_LOADING" });
       loadEvidence(owner, name);
+      return;
+    }
+    const badgeCopyBtn = evt.target.closest("[data-badge-copy]");
+    if (badgeCopyBtn) {
+      const pre = drawerRoot.querySelector("[data-badge-markdown]");
+      if (pre && win.navigator.clipboard) {
+        win.navigator.clipboard
+          .writeText(pre.textContent)
+          .then(() => {
+            const original = badgeCopyBtn.textContent;
+            badgeCopyBtn.textContent = copy.MAINTAINER_BADGE_COPIED_LABEL;
+            win.setTimeout(() => {
+              badgeCopyBtn.textContent = original;
+            }, 1200);
+          })
+          .catch(() => {
+            // Clipboard refused (permission or an insecure origin): the snippet stays
+            // selectable, and one click selects all of it (user-select: all).
+          });
+      }
       return;
     }
     if (evt.target.closest("[data-repo-detail-retry]")) {
@@ -1458,6 +1588,38 @@ export function boot(win = window, doc = document) {
           main.querySelector(`[data-key="${CSS.escape(key)}"]`)?.focus();
           return;
         }
+        if (s.tab === "notranked") {
+          const flat = s.notRanked ? flattenGroups(s.notRanked, { ecosystem: s.ecosystem, query: s.query }) : [];
+          if (flat.length === 0) return;
+          const totalPages = Math.max(1, Math.ceil(flat.length / s.notRankedPageSize));
+          const page = Math.min(s.notRankedPage, totalPages);
+          const start = (page - 1) * s.notRankedPageSize;
+          const pageRows = flat.slice(start, start + s.notRankedPageSize).map((item) => item.row);
+          if (pageRows.length === 0) return;
+          const curIdx = pageRows.findIndex((r) => rowKey(r) === s.selectedRepoKey);
+          const delta = action === "cursor-down" ? 1 : -1;
+          const nextIdx = Math.min(Math.max((curIdx === -1 ? -1 : curIdx) + delta, 0), pageRows.length - 1);
+          const nextKey = rowKey(pageRows[nextIdx]);
+          store.dispatch({ type: "SET_CURSOR", key: nextKey });
+          focusRowByKey(nextKey);
+          return;
+        }
+        if (s.tab === "configure") {
+          const filtered = s.reproject ? filterReprojectRows(s.reproject.rows, { ecosystem: s.ecosystem, query: s.query }) : [];
+          const sorted = sortReprojectRows(filtered, s.configureSort || "rank");
+          const totalPages = Math.max(1, Math.ceil(sorted.length / s.configurePageSize));
+          const page = Math.min(s.configurePage, totalPages);
+          const start = (page - 1) * s.configurePageSize;
+          const pageRows = sorted.slice(start, start + s.configurePageSize);
+          if (pageRows.length === 0) return;
+          const curIdx = pageRows.findIndex((r) => rowKey(r) === s.selectedRepoKey);
+          const delta = action === "cursor-down" ? 1 : -1;
+          const nextIdx = Math.min(Math.max((curIdx === -1 ? -1 : curIdx) + delta, 0), pageRows.length - 1);
+          const nextKey = rowKey(pageRows[nextIdx]);
+          store.dispatch({ type: "SET_CURSOR", key: nextKey });
+          focusRowByKey(nextKey);
+          return;
+        }
         const rows = s.leaderboard ? s.leaderboard.rows : [];
         if (rows.length === 0) return;
         const curIdx = rows.findIndex((r) => rowKey(r) === s.selectedRepoKey);
@@ -1486,8 +1648,9 @@ export function boot(win = window, doc = document) {
         // navigate a virtual marker index in that mode (panning stays
         // available via wheel and +/- buttons). Below the budget, the
         // SVG disambiguation applies: stage focus pans, marker focus navigates.
-        const visiblePoints = filterMatrixPoints(s.matrix.points, s).filter((p) => !s.matrixQuadrantsHidden[p.quadrant]);
-        const usesCanvas = visiblePoints.length > SVG_MARKER_BUDGET;
+        const allPoints = filterMatrixPoints(s.matrix.points, s);
+        const visiblePoints = allPoints.filter((p) => !s.matrixQuadrantsHidden[p.quadrant]);
+        const usesCanvas = allPoints.length > SVG_MARKER_BUDGET;
         const markerFocused = !usesCanvas && doc.activeElement?.classList.contains("matrix-marker");
         if (!usesCanvas && !markerFocused) {
           // The stage itself (not a marker) has focus: arrow keys PAN
@@ -1576,11 +1739,15 @@ export function boot(win = window, doc = document) {
         break;
       case "next-page":
         if (isInputFocused || s.repo || s.keymapOpen) return;
-        goToPage(s.page + 1);
+        if (s.tab === "notranked") goToNotRankedPage(s.notRankedPage + 1);
+        else if (s.tab === "configure") goToConfigurePage(s.configurePage + 1);
+        else goToPage(s.page + 1);
         break;
       case "prev-page":
         if (isInputFocused || s.repo || s.keymapOpen) return;
-        goToPage(s.page - 1);
+        if (s.tab === "notranked") goToNotRankedPage(s.notRankedPage - 1);
+        else if (s.tab === "configure") goToConfigurePage(s.configurePage - 1);
+        else goToPage(s.page - 1);
         break;
       case "open-persona-menu":
         header.querySelector("[data-persona-select]")?.focus();
@@ -1648,10 +1815,12 @@ export function boot(win = window, doc = document) {
   }, listenerOpts());
 
   win.addEventListener("resize", () => {
+    syncStickyOffsets();
     // A resize can cross the 768px breakpoint (table <-> card list), which
     // is a shell-shape change (shellShape folds isMobile in), so this goes
     // through syncView rather than a bare patch.
     if (store.getState().tab === "ranked") syncView(store.getState());
+    if (store.getState().tab === "matrix") drawMatrixCanvasIfPresent(store.getState());
   }, listenerOpts());
 
   // ------------------------------------------------------------ Boot
@@ -1668,6 +1837,7 @@ export function boot(win = window, doc = document) {
   buildHeaderOnce();
   buildFooterOnce();
   buildPrimaryNavOnce();
+  syncStickyOffsets();
 
   const persisted = readPersistedTheme(win.localStorage);
   store.dispatch({ type: "SET_THEME", theme: persisted });

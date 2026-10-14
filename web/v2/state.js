@@ -120,6 +120,10 @@ export function defaultState() {
     sort: "rank",
     page: 1,
     pageSize: DEFAULT_PAGE_SIZE,
+    rankedSort: "rank",
+    rankedPage: 1,
+    rankedPageSize: DEFAULT_PAGE_SIZE,
+    leaderboardSignature: null,
     tab: "ranked", // "ranked" | "notranked" | "matrix" | "compare" | "configure" | "methodology"
     repo: null, // "owner/name" | null
     theme: "system", // "system" | "light" | "dark"
@@ -278,7 +282,10 @@ export function weightsEqual(a, b) {
 
 /** The exact key identifying which request a leaderboard payload answers — used to validate the prefetch cache and to detect a stale in-flight response. */
 export function requestSignature(state) {
-  return `${state.persona}|${state.ecosystem}|${state.query}|${state.sort}|${state.page}|${state.pageSize}`;
+  const sort = state.tab === "ranked" ? state.sort : (state.rankedSort ?? state.sort);
+  const page = state.tab === "ranked" ? state.page : (state.rankedPage ?? state.page);
+  const pageSize = state.tab === "ranked" ? state.pageSize : (state.rankedPageSize ?? state.pageSize);
+  return `${state.persona}|${state.ecosystem}|${state.query}|${sort}|${page}|${pageSize}`;
 }
 
 /**
@@ -381,15 +388,34 @@ export function urlSyncMode(trigger) {
 export function reduce(state, action) {
   switch (action.type) {
     case "SET_PARAMS": {
-      const personaChanged = action.payload && action.payload.persona && action.payload.persona !== state.persona;
+      const payload = action.payload || {};
+      const nextTab = payload.tab !== undefined ? payload.tab : state.tab;
+      const personaChanged = payload.persona && payload.persona !== state.persona;
       const filterChanged =
-        action.payload &&
-        ((action.payload.ecosystem !== undefined && action.payload.ecosystem !== state.ecosystem) ||
-          (action.payload.query !== undefined && action.payload.query !== state.query));
+        (payload.ecosystem !== undefined && payload.ecosystem !== state.ecosystem) ||
+        (payload.query !== undefined && payload.query !== state.query);
+      const tabSync = {};
+      if (nextTab === "ranked") {
+        if (payload.page !== undefined) tabSync.rankedPage = payload.page;
+        if (payload.pageSize !== undefined) tabSync.rankedPageSize = payload.pageSize;
+        if (payload.sort !== undefined) tabSync.rankedSort = payload.sort;
+      } else if (nextTab === "notranked") {
+        if (payload.page !== undefined) tabSync.notRankedPage = payload.page;
+        if (payload.pageSize !== undefined) tabSync.notRankedPageSize = payload.pageSize;
+      } else if (nextTab === "configure") {
+        if (payload.page !== undefined) tabSync.configurePage = payload.page;
+        if (payload.pageSize !== undefined) tabSync.configurePageSize = payload.pageSize;
+        if (payload.sort !== undefined) tabSync.configureSort = payload.sort;
+      }
       return {
         ...state,
-        ...action.payload,
-        ...(personaChanged ? { notRanked: null, notRankedError: null, notRankedPage: 1 } : filterChanged ? { notRankedPage: 1 } : {}),
+        ...payload,
+        ...(personaChanged
+          ? { notRanked: null, notRankedError: null, notRankedPage: 1, rankedPage: 1 }
+          : filterChanged
+            ? { notRankedPage: 1, configurePage: 1, rankedPage: 1 }
+            : {}),
+        ...tabSync,
       };
     }
     case "SET_PERSONA":
@@ -399,17 +425,69 @@ export function reduce(state, action) {
         notRanked: null,
         notRankedError: null,
         notRankedPage: 1,
+        rankedPage: 1,
       };
-    case "SET_TAB":
-      return { ...state, tab: action.tab };
+    case "SET_TAB": {
+      if (action.tab === state.tab) return state;
+      if (action.tab === "notranked") {
+        return {
+          ...state,
+          tab: action.tab,
+          page: state.notRankedPage,
+          pageSize: state.notRankedPageSize,
+          sort: "rank",
+        };
+      }
+      if (action.tab === "configure") {
+        return {
+          ...state,
+          tab: action.tab,
+          page: state.configurePage,
+          pageSize: state.configurePageSize,
+          sort: state.configureSort || "rank",
+        };
+      }
+      if (action.tab === "ranked") {
+        return {
+          ...state,
+          tab: action.tab,
+          page: state.rankedPage ?? 1,
+          pageSize: state.rankedPageSize ?? DEFAULT_PAGE_SIZE,
+          sort: state.rankedSort || "rank",
+        };
+      }
+      return {
+        ...state,
+        tab: action.tab,
+        page: 1,
+        pageSize: DEFAULT_PAGE_SIZE,
+        sort: "rank",
+      };
+    }
     case "SET_PAGE":
-      return { ...state, page: action.page };
-    case "SET_PAGE_SIZE":
-      return { ...state, pageSize: action.pageSize, page: action.page ?? state.page };
+      return { ...state, page: action.page, rankedPage: action.page };
+    case "SET_PAGE_SIZE": {
+      const nextPage = action.page ?? state.page;
+      return {
+        ...state,
+        pageSize: action.pageSize,
+        page: nextPage,
+        rankedPageSize: action.pageSize,
+        rankedPage: nextPage,
+      };
+    }
     case "SET_NOTRANKED_PAGE":
-      return { ...state, notRankedPage: action.page };
-    case "SET_NOTRANKED_PAGE_SIZE":
-      return { ...state, notRankedPageSize: action.pageSize, notRankedPage: action.page ?? state.notRankedPage };
+      return { ...state, notRankedPage: action.page, page: action.page };
+    case "SET_NOTRANKED_PAGE_SIZE": {
+      const nextPage = action.page ?? state.notRankedPage;
+      return {
+        ...state,
+        notRankedPageSize: action.pageSize,
+        notRankedPage: nextPage,
+        pageSize: action.pageSize,
+        page: nextPage,
+      };
+    }
     case "OPEN_REPO":
       return { ...state, repo: action.repo, evidenceError: null, repoDetailError: null };
     case "CLOSE_DRAWER":
@@ -432,6 +510,7 @@ export function reduce(state, action) {
         leaderboardLoading: false,
         leaderboardRefetching: false,
         leaderboard: action.data,
+        leaderboardSignature: action.signature ?? requestSignature(state),
         leaderboardError: null,
       };
     case "LEADERBOARD_ERROR":
@@ -441,7 +520,7 @@ export function reduce(state, action) {
     case "NOTRANKED_LOADING":
       return { ...state, notRankedLoading: true, notRankedError: null };
     case "NOTRANKED_OK":
-      return { ...state, notRankedLoading: false, notRanked: action.data, notRankedError: null, notRankedPage: 1 };
+      return { ...state, notRankedLoading: false, notRanked: action.data, notRankedError: null };
     case "NOTRANKED_ERROR":
       return { ...state, notRankedLoading: false, notRankedError: action.error };
     case "SNAPSHOT_LOADING":
@@ -499,15 +578,23 @@ export function reduce(state, action) {
 
     // -------------------------------------------------- Configure weights (D)
     case "SET_WEIGHTS":
-      return { ...state, weights: action.weights, configurePage: 1 };
+      return { ...state, weights: action.weights, configurePage: 1, page: 1 };
     case "TOGGLE_WEIGHT_LOCK":
       return { ...state, weightLocks: { ...state.weightLocks, [action.pillar]: !state.weightLocks[action.pillar] } };
     case "SET_CONFIGURE_SORT":
-      return { ...state, configureSort: action.sort, configurePage: 1 };
+      return { ...state, configureSort: action.sort, configurePage: 1, sort: action.sort, page: 1 };
     case "SET_CONFIGURE_PAGE":
-      return { ...state, configurePage: action.page };
-    case "SET_CONFIGURE_PAGE_SIZE":
-      return { ...state, configurePageSize: action.pageSize, configurePage: action.page ?? 1 };
+      return { ...state, configurePage: action.page, page: action.page };
+    case "SET_CONFIGURE_PAGE_SIZE": {
+      const nextPage = action.page ?? 1;
+      return {
+        ...state,
+        configurePageSize: action.pageSize,
+        configurePage: nextPage,
+        pageSize: action.pageSize,
+        page: nextPage,
+      };
+    }
     case "REPROJECT_LOADING":
       return { ...state, reprojectLoading: !state.reproject, reprojectRefetching: !!state.reproject, reprojectError: null };
     case "REPROJECT_OK":
@@ -579,7 +666,20 @@ export function writePersistedTheme(storage, theme) {
 
 /** Creates the mutable store singleton the app uses. */
 export function createStore(initialSearch = "") {
-  let state = { ...defaultState(), ...parseSearch(initialSearch) };
+  const parsed = parseSearch(initialSearch);
+  let state = { ...defaultState(), ...parsed };
+  if (state.tab === "ranked") {
+    state.rankedPage = state.page;
+    state.rankedPageSize = state.pageSize;
+    state.rankedSort = state.sort;
+  } else if (state.tab === "notranked") {
+    state.notRankedPage = state.page;
+    state.notRankedPageSize = state.pageSize;
+  } else if (state.tab === "configure") {
+    state.configurePage = state.page;
+    state.configurePageSize = state.pageSize;
+    state.configureSort = state.sort;
+  }
   const subscribers = new Set();
 
   function notify(action) {

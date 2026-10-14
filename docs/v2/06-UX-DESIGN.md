@@ -39,7 +39,7 @@ Drawer (C): repository detail, opened from A, B, E; URL-addressable
 Footer: snapshot id · benchmark version · constants hash · manifest root · "verify" link to F
 ```
 
-URL state (U-9): `?persona=&eco=&q=&sort=&page=&repo=owner/name&tab=` — every view is
+URL state (U-9): `?persona=&eco=&q=&sort=&page=&page_size=&repo=owner/name&tab=&w=&cmp=` — every view is
 shareable and reload-safe; persona and ecosystem changes rewrite the URL.
 
 ## 3. Screens
@@ -92,6 +92,16 @@ snapshot id, suspicion flags with detector names; (6) playbook (v1 feature,
 kept): the actions and their projected deltas, labelled "model, not a
 promise". Keyboard: Esc closes and returns focus to the originating row;
 sections are `<details>` groups navigable by Tab.
+
+README badge (inside section 2): when the repository's balanced record is
+rated at tier A or above with no suspicion flag, the composite section ends
+with a badge for the project's README: a static image from `web/v2/badges/`
+naming the tier ("A (capped)" when the ceiling bound), its coverage band
+(U-1) and, in the Sweet Spot, the quadrant, with Markdown that links it to
+this drawer (`?repo=owner/name`) and alt text carrying the score, the exact
+coverage and the snapshot id. It is always the balanced rating, whatever lens
+is active (U-4). The image does not change when a later snapshot changes the
+rating; the drawer behind the link is the record.
 
 ### D. Configure weights
 
@@ -209,7 +219,7 @@ replace the "subtree replacement" sentence in §6:
 - **U-15 Every request has an error state.** A 404, a 5xx or a 5 s timeout
   renders the error block naming the endpoint and status, with a retry;
   "Loading…" is never a resting state.
-- **U-16 URL is the view.** `?persona=&eco=&q=&sort=&repo=&tab=` via
+- **U-16 URL is the view.** `?persona=&eco=&q=&sort=&page=&page_size=&repo=&tab=&w=&cmp=` via
   `history.pushState` (replaceState for `q` while typing); `popstate` restores;
   any URL reloads to the same view.
 - **U-17 Announcements are true.** "N rows moved" is the count of rows whose

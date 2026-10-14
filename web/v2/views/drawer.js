@@ -21,6 +21,11 @@
 // since individual parameters may be partially measured even though
 // composite coverage fell below the 0.60 floor.
 //
+// Section 2 ends with the README badge box (`renderMaintainerBadge`) when the
+// repository's balanced record earns one (copy.js `maintainerBadgeSpec`): the
+// badge is the balanced rating whatever lens is active (U-4), and its
+// Markdown points at the public site's address, which app.js passes in.
+//
 // Focus trap and Esc-to-close-and-restore-focus are DOM concerns handled by
 // app.js; this module only produces markup.
 
@@ -70,13 +75,32 @@ export function classifyKind(found) {
  * verbatim for balanced and for the static contract parity test.
  */
 export function classifyKindForLens(found, persona) {
-  if (!found.eligible) return "gated";
+  if (!found.eligible) {
+    if (typeof found.gate_reason === "string" && found.gate_reason.startsWith("unrated:")) {
+      return "unrated";
+    }
+    return "gated";
+  }
   if (persona && persona !== "balanced") {
     if (found.persona_gates && found.persona_gates[persona]) return "persona-gated";
     const pc = found.persona_composites && found.persona_composites[persona];
     if (pc) return pc.rated ? "rated" : "unrated";
   }
   return classifyKind(found);
+}
+
+/**
+ * Derives the coverage ceiling band (`null`, `"A"`, or `"B"`) from a persona's
+ * coverage fraction when `PersonaComposite` does not carry `tier_ceiling`
+ * explicitly on the wire (matching `porchlamp/serve/app.py::_no_ceiling_or_band`).
+ */
+export function deriveTierCeiling(coverage, explicitCeiling) {
+  if (explicitCeiling !== undefined) return explicitCeiling;
+  if (typeof coverage !== "number" || !Number.isFinite(coverage)) return null;
+  if (coverage >= 0.95) return null;
+  if (coverage >= 0.8) return "A";
+  if (coverage >= 0.6) return "B";
+  return null;
 }
 
 /**
@@ -93,14 +117,14 @@ export function projectRowForLens(found, persona) {
     porchlamp: pc.porchlamp,
     coverage: pc.coverage,
     tier: pc.tier,
-    tier_ceiling: pc.tier_ceiling,
+    tier_ceiling: deriveTierCeiling(pc.coverage, pc.tier_ceiling),
     rated: pc.rated,
   };
 }
 
 function renderIdentity(kind, row, persona) {
   const heading =
-    `<div aria-label="${escapeHtml(copy.DRAWER_SECTION_IDENTITY)}">` +
+    `<div class="drawer-identity" aria-label="${escapeHtml(copy.DRAWER_SECTION_IDENTITY)}">` +
     `<p class="drawer-kicker">${escapeHtml(copy.DRAWER_TITLE)}</p>` +
     `<h1 id="drawer-title">${escapeHtml(row.owner)}/${escapeHtml(row.name)}</h1>` +
     `<p class="eco-chip">${escapeHtml(row.ecosystem)}</p>` +
@@ -121,13 +145,35 @@ function renderIdentity(kind, row, persona) {
   if (kind === "unrated") {
     return (
       heading +
-      `<div class="gate-banner" role="alert">${escapeHtml(copy.unratedReasonText(row.unrated_reason, row.coverage))}</div>`
+      `<div class="gate-banner" role="alert">${escapeHtml(copy.unratedReasonText(row.unrated_reason || row.gate_reason, row.coverage))}</div>`
     );
   }
   return heading;
 }
 
-function renderComposite(row) {
+/**
+ * The README badge box at the end of the Composite section: a preview of the
+ * image, the Markdown to paste and a copy button (app.js copies the
+ * `[data-badge-markdown]` text). `canonicalRow` is the balanced record, never
+ * the lens projection (U-4); `baseUrl` is the public site's address.
+ */
+export function renderMaintainerBadge(canonicalRow, baseUrl = "") {
+  const spec = copy.maintainerBadgeSpec(canonicalRow);
+  if (!spec) return "";
+  return (
+    `<div class="maintainer-badge-box" data-maintainer-badge="${escapeHtml(spec.id)}">` +
+    `<div class="maintainer-badge-head">` +
+    `<span class="identity-label">${escapeHtml(copy.MAINTAINER_BADGE_HEADING)}</span>` +
+    `<button type="button" class="reproduce-copy" data-badge-copy="true">${escapeHtml(copy.MAINTAINER_BADGE_COPY_LABEL)}</button>` +
+    `</div>` +
+    `<img class="maintainer-badge-preview" src="${escapeHtml(spec.file)}" alt="${escapeHtml(spec.alt)}">` +
+    `<p class="maintainer-badge-note">${escapeHtml(copy.MAINTAINER_BADGE_NOTE)}</p>` +
+    `<pre class="maintainer-badge-snippet" data-badge-markdown="true">${escapeHtml(copy.maintainerBadgeMarkdown(canonicalRow, baseUrl))}</pre>` +
+    `</div>`
+  );
+}
+
+function renderComposite(row, canonicalRow, baseUrl) {
   const capped = !!row.tier_ceiling && row.tier === row.tier_ceiling;
   const cappedNote = capped
     ? `<p>${escapeHtml(copy.TIER_CAPPED_EXPLANATION)}</p>`
@@ -142,11 +188,12 @@ function renderComposite(row) {
     `<p class="cell-numeric">Score ${row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderCoverageBadge(row.coverage)} · ${renderTierCell(row.tier, row.tier_ceiling)}</p>` +
     cappedNote +
     `<p>${renderQuadrant(row.quadrant)} — ${escapeHtml(copy.COORDINATES_LABEL)}: leverage ${lev} (coverage ${levCov}), friction ${fric} (coverage ${fricCov})</p>` +
+    renderMaintainerBadge(canonicalRow, baseUrl) +
     `</details>`
   );
 }
 
-function renderPillarRadar(row) {
+export function renderPillarRadar(row) {
   const cx = 190;
   const cy = 130;
   const r = 75;
@@ -161,41 +208,57 @@ function renderPillarRadar(row) {
     })
     .join("");
 
-  const spokes = angles
-    .map((a) => {
-      const x2 = (cx + r * Math.cos(a)).toFixed(1);
-      const y2 = (cy + r * Math.sin(a)).toFixed(1);
-      return `<line x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}" class="radar-spoke" />`;
-    })
-    .join("");
-
   const dataPoints = PILLAR_ORDER.map((p, i) => {
     const rawVal = row[`p_${p}`];
-    const val = typeof rawVal === "number" ? Math.max(0, Math.min(100, rawVal)) : 0;
-    const norm = val / 100;
+    const measured = typeof rawVal === "number" && Number.isFinite(rawVal);
+    const val = measured ? Math.max(0, Math.min(100, rawVal)) : null;
+    const norm = measured ? val / 100 : 0;
     const a = angles[i];
     return {
       x: cx + r * norm * Math.cos(a),
       y: cy + r * norm * Math.sin(a),
+      outerX: cx + r * Math.cos(a),
+      outerY: cy + r * Math.sin(a),
       val: rawVal,
+      measured,
       pillar: p,
     };
   });
 
-  const polyPoints = dataPoints.map((pt) => `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(" ");
+  const spokes = angles
+    .map((a, i) => {
+      const x2 = (cx + r * Math.cos(a)).toFixed(1);
+      const y2 = (cy + r * Math.sin(a)).toFixed(1);
+      const unmeasuredCls = dataPoints[i].measured ? "" : " radar-spoke-unmeasured";
+      return `<line x1="${cx}" y1="${cy}" x2="${x2}" y2="${y2}" class="radar-spoke${unmeasuredCls}" />`;
+    })
+    .join("");
+
+  const measuredPoints = dataPoints.filter((pt) => pt.measured);
+  const polyPoints = measuredPoints.map((pt) => `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(" ");
+  const polygonHtml =
+    measuredPoints.length >= 3
+      ? `<polygon points="${polyPoints}" class="radar-area" />`
+      : measuredPoints.length === 2
+        ? `<polyline points="${polyPoints}" class="radar-area" />`
+        : "";
 
   const labels = PILLAR_ORDER.map((p, i) => {
     const a = angles[i];
     const lx = cx + (r + 18) * Math.cos(a);
     const ly = cy + (r + 14) * Math.sin(a);
     const name = copy.PILLAR_NAMES[p] || p;
-    const score = typeof row[`p_${p}`] === "number" ? row[`p_${p}`].toFixed(1) : copy.MISSING_VALUE;
+    const score = dataPoints[i].measured ? row[`p_${p}`].toFixed(1) : copy.MISSING_VALUE;
     const anchor = Math.abs(Math.cos(a)) < 0.2 ? "middle" : Math.cos(a) > 0 ? "start" : "end";
     return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${anchor}" class="radar-label">${escapeHtml(name)} <tspan class="radar-score">${score}</tspan></text>`;
   }).join("");
 
   const markers = dataPoints
-    .map((pt) => `<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="3" class="radar-point" />`)
+    .map((pt) =>
+      pt.measured
+        ? `<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="3" class="radar-point" data-pillar="${pt.pillar}" />`
+        : `<circle cx="${pt.outerX.toFixed(1)}" cy="${pt.outerY.toFixed(1)}" r="3" class="radar-point-unmeasured" data-pillar="${pt.pillar}" />`
+    )
     .join("");
 
   return (
@@ -203,7 +266,7 @@ function renderPillarRadar(row) {
     `<svg class="radar-chart" viewBox="0 0 380 260" role="img" aria-label="5-pillar radar visualization">` +
     gridPolygons +
     spokes +
-    `<polygon points="${polyPoints}" class="radar-area" />` +
+    polygonHtml +
     markers +
     labels +
     `</svg></div>`
@@ -236,7 +299,7 @@ function renderEvidenceTable(evidenceRows, evidenceError) {
         }
         return (
           `<tr><td title="${escapeHtml(r.param_id)}">${paramLabel}</td>` +
-          `<td class="cell-numeric">${r.value != null ? escapeHtml(String(r.value)) : copy.MISSING_VALUE}</td>` +
+          `<td class="cell-numeric">${r.value != null ? escapeHtml(copy.formatParameterValue(r.value)) : copy.MISSING_VALUE}</td>` +
           `<td class="cell-numeric">${r.score != null ? r.score.toFixed(1) : copy.MISSING_VALUE}</td>` +
           `<td class="cell-numeric">${r.n ?? copy.MISSING_VALUE}</td>` +
           `<td>${escapeHtml(r.window_start || "")}${r.window_start ? " – " : ""}${escapeHtml(r.window_end || "")}</td>` +
@@ -278,14 +341,8 @@ function renderPillarSection(row, evidenceRows, evidenceError) {
 }
 
 /**
- * Shared by the "unrated" branch (always `open`) and the "gated" branch
- * (always collapsed): neither kind has any
- * `p_<pillar>`/`c_<pillar>` score to summarise (`RepoDetailResponse`
- * returns `None` for both — a gated/unrated repo never reaches
- * `porchlamp.core.engine`'s pillar computation), so unlike `renderPillarSection`
- * above (the "rated" case) this never calls `renderPillarSummary` — only
- * the evidence table, which is populated independently of `kind`
- * (individual parameters may still be measured/unmeasured with reasons).
+ * Shared by the "unrated" branch (always `open` when no pillar scores exist)
+ * and the "gated" branch (always collapsed).
  */
 function renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, open) {
   return (
@@ -323,22 +380,48 @@ function renderPersonaSectionAllGated(row) {
 }
 
 function renderPersonaSection(row) {
-  const rows = Object.entries(row.persona_composites || {})
-    .map(([persona, composite]) => {
-      const gateReason = row.persona_gates ? row.persona_gates[persona] : undefined;
-      const name = copy.PERSONA_NAMES[persona] || persona;
-      if (gateReason) {
-        return `<tr><td>${escapeHtml(name)}</td><td colspan="3">${escapeHtml(copy.personaGateReason(gateReason))}</td></tr>`;
-      }
-      return (
-        `<tr><td>${escapeHtml(name)}</td>` +
-        `<td class="cell-numeric">${composite.porchlamp != null ? composite.porchlamp.toFixed(2) : copy.MISSING_VALUE}</td>` +
-        `<td>${renderTierCell(composite.tier, composite.tier_ceiling)}</td>` +
-        `<td>${composite.rated ? escapeHtml(copy.RATED_LABEL) : escapeHtml(copy.NOT_RATED_LABEL)}</td>` +
-        `</tr>`
-      );
-    })
-    .join("");
+  const composites = row.persona_composites || {};
+  const canonicalKeys = Object.keys(copy.PERSONA_NAMES);
+  const extraKeys = Object.keys(composites).filter((k) => !canonicalKeys.includes(k));
+  const orderedKeys = [...canonicalKeys.filter((k) => k in composites), ...extraKeys];
+  const isUnratedGate = typeof row.gate_reason === "string" && row.gate_reason.startsWith("unrated:");
+  const fallbackReason =
+    row.unrated_reason || isUnratedGate
+      ? copy.unratedReasonText(row.unrated_reason || row.gate_reason, row.coverage)
+      : row.gate_reason
+        ? copy.gateReasonText(row.gate_reason)
+        : copy.NOT_RATED_LABEL;
+  const rows = orderedKeys.length
+    ? orderedKeys
+        .map((persona) => {
+          const composite = composites[persona];
+          const gateReason = row.persona_gates ? row.persona_gates[persona] : undefined;
+          const name = copy.PERSONA_NAMES[persona] || persona;
+          if (gateReason) {
+            return `<tr><td>${escapeHtml(name)}</td><td colspan="3">${escapeHtml(copy.personaGateReason(gateReason))}</td></tr>`;
+          }
+          const ceiling = deriveTierCeiling(composite.coverage, composite.tier_ceiling);
+          const unratedStatus =
+            row.unrated_reason || isUnratedGate
+              ? copy.unratedReasonText(row.unrated_reason || row.gate_reason, composite.coverage ?? row.coverage)
+              : copy.NOT_RATED_LABEL;
+          return (
+            `<tr><td>${escapeHtml(name)}</td>` +
+            `<td class="cell-numeric">${composite.porchlamp != null ? composite.porchlamp.toFixed(2) : copy.MISSING_VALUE}</td>` +
+            `<td>${renderTierCell(composite.tier, ceiling)}</td>` +
+            `<td>${composite.rated ? escapeHtml(copy.RATED_LABEL) : escapeHtml(unratedStatus)}</td>` +
+            `</tr>`
+          );
+        })
+        .join("")
+    : canonicalKeys
+        .map((persona) => {
+          const gateReason = row.persona_gates ? row.persona_gates[persona] : undefined;
+          const name = copy.PERSONA_NAMES[persona] || persona;
+          const text = gateReason ? copy.personaGateReason(gateReason) : fallbackReason;
+          return `<tr><td>${escapeHtml(name)}</td><td colspan="3">${escapeHtml(text)}</td></tr>`;
+        })
+        .join("");
   return (
     `<details>` +
     `<summary>${escapeHtml(copy.DRAWER_SECTION_PERSONAS)}</summary>` +
@@ -370,7 +453,12 @@ function renderPlaybookSection() {
   );
 }
 
-export function renderDrawer(state) {
+/**
+ * `opts.siteBaseUrl` is the public site's address for the README badge's
+ * Markdown; app.js reads it from index.html, since this module never reads
+ * the DOM.
+ */
+export function renderDrawer(state, opts = {}) {
   if (!state.repo) return "";
   const [owner, name] = state.repo.split("/");
   const found = findRow(state, owner, name);
@@ -443,15 +531,24 @@ export function renderDrawer(state) {
 
   let sections;
   if (kind === "persona-gated") {
+    const hasPillarScores = PILLAR_ORDER.some((p) => row[`p_${p}`] != null);
     sections =
-      renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, false) +
+      (hasPillarScores
+        ? `<details><summary>${escapeHtml(copy.DRAWER_SECTION_PILLARS)}</summary>${renderPillarRadar(row)}${renderPillarSummary(row)}${renderEvidenceTable(evidenceRows, evidenceError)}</details>`
+        : renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, false)) +
       renderPersonaSection(row) +
       renderIntegritySection(row);
   } else if (kind === "unrated") {
-    sections = renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, true);
+    const hasPillarScores = PILLAR_ORDER.some((p) => row[`p_${p}`] != null);
+    sections =
+      (hasPillarScores
+        ? renderPillarSection(row, evidenceRows, evidenceError)
+        : renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, true)) +
+      renderPersonaSection(row) +
+      renderIntegritySection(row);
   } else {
     sections = (
-      renderComposite(row) +
+      renderComposite(row, found, opts.siteBaseUrl) +
       renderPillarSection(row, evidenceRows, evidenceError) +
       renderPersonaSection(row) +
       renderIntegritySection(row) +
