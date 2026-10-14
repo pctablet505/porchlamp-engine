@@ -132,9 +132,11 @@ export function renderShell(state) {
   // them) must stay reachable from EITHER view — without this, switching
   // to Not-ranked would strand the user with no way back to Ranked.
   const leaderboardCounts = state.leaderboard ? state.leaderboard.counts : null;
+  const flat = notRanked ? flattenGroups(notRanked, { ecosystem: state.ecosystem, query: state.query }) : null;
+  const notRankedCount = flat ? flat.length : null;
   const tabsHtml =
     renderOnboardingBanner() +
-    renderTabs(state.tab, leaderboardCounts, personaVisibleForState(state)) +
+    renderTabs(state.tab, leaderboardCounts, personaVisibleForState(state), notRankedCount) +
     renderCountsStrip(leaderboardCounts, personaDeltaForState(state));
 
   if (shape === "loading") return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}${renderSkeleton()}</section>`;
@@ -148,7 +150,6 @@ export function renderShell(state) {
     return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}${empty}</section>`;
   }
 
-  const flat = flattenGroups(notRanked, { ecosystem: state.ecosystem, query: state.query });
   const pager = renderPager(state.notRankedPage, state.notRankedPageSize, flat.length, "notranked-pager");
   const bottomPager = renderPager(state.notRankedPage, state.notRankedPageSize, flat.length, "notranked-pager", { bottom: true });
   return (
@@ -180,6 +181,15 @@ export function patchNotRankedBody(root, state) {
   // at that point switch this to patchRows()-style keyed diffing too.
   if (container.innerHTML !== html) container.innerHTML = html;
   syncPager(root, state.notRankedPage, state.notRankedPageSize, flat.length, "notranked-pager");
+  const notRankedCountEl = root.querySelector('[data-tab="notranked"] .count');
+  if (notRankedCountEl && notRankedCountEl.textContent !== String(flat.length)) {
+    notRankedCountEl.textContent = String(flat.length);
+  }
+  const rankedCount = personaVisibleForState(state);
+  const rankedCountEl = root.querySelector('[data-tab="ranked"] .count');
+  if (rankedCountEl && typeof rankedCount === "number" && rankedCountEl.textContent !== String(rankedCount)) {
+    rankedCountEl.textContent = String(rankedCount);
+  }
   const errBanner = root.querySelector("[data-notranked-error]");
   if (errBanner) {
     if (state.notRankedError) {

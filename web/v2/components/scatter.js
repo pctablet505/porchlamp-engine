@@ -147,16 +147,7 @@ function markerShapeSvg(quadrant, r) {
   return `<circle r="${r}" />`;
 }
 
-/**
- * The full inline SVG for the SVG-budget path (`points.length <=
- * SVG_MARKER_BUDGET`): quadrant washes, axis labels, one marker per
- * point. Each marker is focusable (`tabindex="0"`) and carries
- * `data-owner`/`data-name` so app.js's existing delegated click/keydown
- * handlers (the same ones the leaderboard rows use) work unchanged.
- */
-export function renderScatterSvg(points, { quadrantsHidden = {}, focusedKey = null, hoveredKey = null, axisLabels = { x: copy.MATRIX_AXIS_X_LABEL, y: copy.MATRIX_AXIS_Y_LABEL } } = {}) {
-  const { min: starsMin, max: starsMax } = starsDomain(points);
-  const visible = points.filter((p) => !quadrantsHidden[p.quadrant]);
+function renderWashesAndGridSvg() {
   const washes = [
     { quadrant: "Nursery", x: 0, y: QUADRANT_THRESHOLD, w: QUADRANT_THRESHOLD, h: QUADRANT_THRESHOLD },
     { quadrant: "Graveyard", x: QUADRANT_THRESHOLD, y: QUADRANT_THRESHOLD, w: QUADRANT_THRESHOLD, h: QUADRANT_THRESHOLD },
@@ -167,22 +158,6 @@ export function renderScatterSvg(points, { quadrantsHidden = {}, focusedKey = nu
       (w) =>
         `<rect class="matrix-wash matrix-wash-${QUAD_CLASS[w.quadrant]}" x="${w.x}" y="${w.y}" width="${w.w}" height="${w.h}" />`
     )
-    .join("");
-
-  const markers = visible
-    .map((p) => {
-      const cls = QUAD_CLASS[p.quadrant] || "quad-nursery";
-      const r = radiusForStars(p.stars_audited, starsMin, starsMax);
-      const key = pointKey(p);
-      const focused = key === focusedKey || key === hoveredKey;
-      const shape = markerShapeSvg(p.quadrant, r);
-      return (
-        `<g class="matrix-marker ${cls}${focused ? " marker-focused" : ""}" ` +
-        `transform="translate(${toSvgX(p.friction)},${toSvgY(p.leverage)})" ` +
-        `tabindex="0" role="img" data-owner="${escapeHtml(p.owner)}" data-name="${escapeHtml(p.name)}" ` +
-        `data-key="${escapeHtml(key)}" aria-label="${escapeHtml(`${p.owner}/${p.name}`)}">${shape}</g>`
-      );
-    })
     .join("");
 
   const ticks = [25, 50, 75];
@@ -200,12 +175,57 @@ export function renderScatterSvg(points, { quadrantsHidden = {}, focusedKey = nu
     .join("");
 
   return (
-    `<svg class="matrix-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" role="group" ` +
-    `aria-label="${escapeHtml(copy.matrixSvgAriaLabel(axisLabels.x, axisLabels.y))}">` +
     `<g class="matrix-washes">${washes}</g>` +
     `<g class="matrix-grid">${gridLines}</g>` +
     `<line class="matrix-axis-line" x1="${QUADRANT_THRESHOLD}" y1="0" x2="${QUADRANT_THRESHOLD}" y2="100" />` +
-    `<line class="matrix-axis-line" x1="0" y1="${QUADRANT_THRESHOLD}" x2="100" y2="${QUADRANT_THRESHOLD}" />` +
+    `<line class="matrix-axis-line" x1="0" y1="${QUADRANT_THRESHOLD}" x2="100" y2="${QUADRANT_THRESHOLD}" />`
+  );
+}
+
+/**
+ * The decorative SVG backdrop (quadrant washes, gridlines, 50/50 split axes)
+ * placed behind `<canvas>` when `points.length > SVG_MARKER_BUDGET` so canvas
+ * mode preserves the exact same visual context as SVG mode.
+ */
+export function renderScatterBackdropSvg(viewBox = "0 0 100 100") {
+  return (
+    `<svg class="matrix-svg matrix-backdrop-svg" viewBox="${escapeHtml(viewBox)}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">` +
+    renderWashesAndGridSvg() +
+    `</svg>`
+  );
+}
+
+/**
+ * The full inline SVG for the SVG-budget path (`points.length <=
+ * SVG_MARKER_BUDGET`): quadrant washes, axis labels, one marker per
+ * point. Each marker is focusable (`tabindex="0"`) and carries
+ * `data-owner`/`data-name` so app.js's existing delegated click/keydown
+ * handlers (the same ones the leaderboard rows use) work unchanged.
+ */
+export function renderScatterSvg(points, { quadrantsHidden = {}, focusedKey = null, hoveredKey = null, axisLabels = { x: copy.MATRIX_AXIS_X_LABEL, y: copy.MATRIX_AXIS_Y_LABEL } } = {}) {
+  const { min: starsMin, max: starsMax } = starsDomain(points);
+  const visible = points.filter((p) => !quadrantsHidden[p.quadrant]);
+
+  const markers = visible
+    .map((p) => {
+      const cls = QUAD_CLASS[p.quadrant] || "quad-nursery";
+      const r = radiusForStars(p.stars_audited, starsMin, starsMax);
+      const key = pointKey(p);
+      const focused = key === focusedKey || key === hoveredKey;
+      const shape = markerShapeSvg(p.quadrant, r);
+      return (
+        `<g class="matrix-marker ${cls}${focused ? " marker-focused" : ""}" ` +
+        `transform="translate(${toSvgX(p.friction)},${toSvgY(p.leverage)})" ` +
+        `tabindex="0" role="img" data-owner="${escapeHtml(p.owner)}" data-name="${escapeHtml(p.name)}" ` +
+        `data-key="${escapeHtml(key)}" aria-label="${escapeHtml(`${p.owner}/${p.name}`)}">${shape}</g>`
+      );
+    })
+    .join("");
+
+  return (
+    `<svg class="matrix-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" role="group" ` +
+    `aria-label="${escapeHtml(copy.matrixSvgAriaLabel(axisLabels.x, axisLabels.y))}">` +
+    renderWashesAndGridSvg() +
     `<g class="matrix-markers">${markers}</g>` +
     `</svg>`
   );
@@ -217,7 +237,7 @@ export function renderScatterSvg(points, { quadrantsHidden = {}, focusedKey = nu
  * module docstring). Same shape/colour encoding as `renderScatterSvg`'s
  * per-marker fragment.
  */
-export function renderFocusOverlaySvg(point, domainMin = 0, domainMax = 0) {
+export function renderFocusOverlaySvg(point, domainMin = 0, domainMax = 0, viewBox = "0 0 100 100") {
   if (!point) return "";
   const cls = QUAD_CLASS[point.quadrant] || "quad-nursery";
   // `domainMin`/`domainMax` (the caller's `starsDomain(points)`) make the
@@ -227,7 +247,7 @@ export function renderFocusOverlaySvg(point, domainMin = 0, domainMax = 0) {
   // focus/hover.
   const r = radiusForStars(point.stars_audited, domainMin, domainMax) + 0.8;
   return (
-    `<svg class="matrix-svg matrix-focus-overlay" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">` +
+    `<svg class="matrix-svg matrix-focus-overlay" viewBox="${escapeHtml(viewBox)}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">` +
     `<g class="matrix-marker ${cls} marker-focused" transform="translate(${toSvgX(point.friction)},${toSvgY(point.leverage)})">` +
     markerShapeSvg(point.quadrant, r) +
     `</g></svg>`
@@ -246,15 +266,17 @@ export function renderFocusOverlaySvg(point, domainMin = 0, domainMax = 0) {
  * `REFERENCE_PLOT_WIDTH_PX` exceed the 4-12px guarantee; this way the cap
  * holds regardless of canvas size.
  */
-export function drawMatrixCanvas(ctx, points, { quadrantsHidden = {}, colors, width, height }) {
+export function drawMatrixCanvas(ctx, points, { quadrantsHidden = {}, colors, width, height, view = { x: 0, y: 0, scale: 1 } }) {
   ctx.clearRect(0, 0, width, height);
   const visible = points.filter((p) => !quadrantsHidden[p.quadrant]);
   const { min: starsMin, max: starsMax } = starsDomain(points);
-  const sx = width / 100;
-  const sy = height / 100;
+  const scale = view && view.scale ? view.scale : 1;
+  const span = (DOMAIN_MAX - DOMAIN_MIN) / scale;
+  const vx = view && typeof view.x === "number" ? Math.min(Math.max(view.x, DOMAIN_MIN), DOMAIN_MAX - span) : 0;
+  const vy = view && typeof view.y === "number" ? Math.min(Math.max(view.y, DOMAIN_MIN), DOMAIN_MAX - span) : 0;
   for (const p of visible) {
-    const x = toSvgX(p.friction) * sx;
-    const y = toSvgY(p.leverage) * sy;
+    const x = ((toSvgX(p.friction) - vx) / span) * width;
+    const y = ((toSvgY(p.leverage) - vy) / span) * height;
     const r = radiusPxForStars(p.stars_audited, starsMin, starsMax);
     ctx.fillStyle = colors[p.quadrant] || colors.Nursery;
     ctx.beginPath();

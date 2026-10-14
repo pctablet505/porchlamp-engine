@@ -45,6 +45,17 @@ export function sortDirectionLabel(sortField) {
   return effectiveDescending ? "descending" : "ascending";
 }
 
+/** Human-readable column label for a `sort` field (`p_rigor` -> "Rigor", `porchlamp` -> "Score", etc.). */
+export function sortColumnLabel(sortField) {
+  const field = String(sortField || "").replace(/^-/, "");
+  if (field.startsWith("p_")) {
+    const pillar = field.slice(2);
+    return copy.PILLAR_NAMES[pillar] || pillar;
+  }
+  const col = COLUMNS.find((c) => c.key === field);
+  return col ? col.label : field;
+}
+
 export const ROW_HEIGHT_PX = 40;
 
 const COLUMNS = [
@@ -112,13 +123,15 @@ export function renderColumnHeader(sortField, showPersonaDelta) {
         const pillarButtons = PILLAR_ORDER.map((p) => {
           const field = `p_${p}`;
           const isActive = sortField.replace(/^-/, "") === field;
-          const ariaSort = isActive ? ` aria-sort="${sortDirectionLabel(sortField)}"` : "";
+          const dir = isActive ? sortDirectionLabel(sortField) : null;
+          const ariaSort = dir ? ` aria-sort="${dir}"` : "";
+          const arrow = dir ? `<span class="sort-arrow" aria-hidden="true">${dir === "ascending" ? "↑" : "↓"}</span>` : "";
           const shortLabel = copy.PILLAR_SHORT_NAMES[p] || p;
           const tooltip = copy.pillarSortTooltip(p);
           return (
             `<button type="button" class="pillar-sort-btn${isActive ? " is-active" : ""}" ` +
             `data-sortable="true" data-sort-field="${field}" title="${escapeHtml(tooltip)}" ` +
-            `aria-label="${escapeHtml(tooltip)}"${ariaSort}>${escapeHtml(shortLabel)}</button>`
+            `aria-label="${escapeHtml(tooltip)}"${ariaSort}>${escapeHtml(shortLabel)}${arrow}</button>`
           );
         }).join(`<span class="pillar-sort-sep" aria-hidden="true">·</span>`);
         return `<th data-col="${col.key}"><span class="pillars-col-header" aria-label="${escapeHtml(col.label)}">${pillarButtons}</span></th>`;
@@ -128,10 +141,13 @@ export function renderColumnHeader(sortField, showPersonaDelta) {
         return `<th data-col="${col.key}"${tooltip}>${escapeHtml(col.label)}</th>`;
       }
       const isActive = sortField.replace(/^-/, "") === col.key;
-      const ariaSort = isActive ? ` aria-sort="${sortDirectionLabel(sortField)}"` : "";
+      const dir = isActive ? sortDirectionLabel(sortField) : null;
+      const ariaSort = dir ? ` aria-sort="${dir}"` : "";
+      const activeCls = isActive ? ` class="is-active"` : "";
+      const arrow = dir ? `<span class="sort-arrow" aria-hidden="true">${dir === "ascending" ? "↑" : "↓"}</span>` : "";
       return (
-        `<th data-col="${col.key}" data-sortable="true" data-sort-field="${col.key}" tabindex="0" role="button"` +
-        `${ariaSort}>${escapeHtml(col.label)}</th>`
+        `<th data-col="${col.key}"${activeCls} data-sortable="true" data-sort-field="${col.key}" tabindex="0" role="button"` +
+        `${ariaSort}>${escapeHtml(col.label)}${arrow}</th>`
       );
     })
     .join("");
@@ -309,7 +325,7 @@ function cardInnerHtml(row, opts) {
     `</div>` +
     `<div><span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span><span class="eco-chip">${escapeHtml(row.ecosystem)}</span></div>` +
     `<div class="cell-numeric">${copy.COLUMN_PORCHLAMP} ${row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderTierCell(row.tier, row.tier_ceiling)}</div>` +
-    `<div>${renderQuadrant(row.quadrant)} ${pillarBarsHtml(row)}${showPersonaDelta ? ` ${deltaHtml(row)}` : ""}</div>` +
+    `<div class="leaderboard-card-line-4">${renderQuadrant(row.quadrant)} ${pillarBarsHtml(row)}${showPersonaDelta ? ` ${deltaHtml(row)}` : ""}</div>` +
     `<div>${renderSuspicionIcon(row.suspicion)}</div>`;
   return { html, tied };
 }

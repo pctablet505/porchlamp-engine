@@ -214,15 +214,34 @@ export function mergeReprojectPages(first, laterPages) {
   return { ...first, rows: first.rows.concat(...laterPages.map((page) => page.rows)) };
 }
 
-export function renderPager(page, pageSize, total) {
+/**
+ * Client-side filter for the already-loaded `/reproject` row set by ecosystem
+ * and substring search on `owner/name` (matching `notranked.js` and `matrix.js`).
+ */
+export function filterReprojectRows(rows, { ecosystem = "", query = "" } = {}) {
+  if (!rows) return [];
+  const qLower = query ? query.trim().toLowerCase() : "";
+  return rows.filter((r) => {
+    if (ecosystem && r.ecosystem !== ecosystem) return false;
+    if (qLower && !`${r.owner}/${r.name}`.toLowerCase().includes(qLower)) return false;
+    return true;
+  });
+}
+
+export function renderPager(page, pageSize, total, { bottom = false } = {}) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const sizeOptions = PAGE_SIZES.map((n) => `<option value="${n}"${n === pageSize ? " selected" : ""}>${n}</option>`).join("");
+  const sizeControl = bottom
+    ? ""
+    : `<label>${escapeHtml(copy.PAGE_SIZE_LABEL)} <select class="control" data-configure-pager-size-select="true">${sizeOptions}</select></label>`;
   return (
-    `<div class="pager">` +
-    `<label>${escapeHtml(copy.PAGE_SIZE_LABEL)} <select class="control" data-configure-pager-size-select="true">${sizeOptions}</select></label>` +
-    `<button type="button" data-configure-pager-prev="true"${page <= 1 ? " disabled" : ""}>&larr;</button>` +
-    `<span>${escapeHtml(copy.pagerStatusText(page, totalPages, total))}</span>` +
-    `<button type="button" data-configure-pager-next="true"${page >= totalPages ? " disabled" : ""}>&rarr;</button>` +
+    `<div class="pager${bottom ? " pager-bottom" : ""}">` +
+    sizeControl +
+    `<button type="button" data-configure-pager-first="true" aria-label="${escapeHtml(copy.PAGER_FIRST_LABEL)}"${page <= 1 ? " disabled" : ""}>&laquo;</button>` +
+    `<button type="button" data-configure-pager-prev="true" aria-label="${escapeHtml(copy.PAGER_PREV_LABEL)}"${page <= 1 ? " disabled" : ""}>&larr;</button>` +
+    `<span data-configure-pager-status="true">${escapeHtml(copy.pagerStatusText(page, totalPages, total))}</span>` +
+    `<button type="button" data-configure-pager-next="true" aria-label="${escapeHtml(copy.PAGER_NEXT_LABEL)}"${page >= totalPages ? " disabled" : ""}>&rarr;</button>` +
+    `<button type="button" data-configure-pager-last="true" aria-label="${escapeHtml(copy.PAGER_LAST_LABEL)}"${page >= totalPages ? " disabled" : ""}>&raquo;</button>` +
     `</div>`
   );
 }
@@ -237,14 +256,27 @@ export function renderTableShell() {
 }
 
 export function patchConfigureTable(main, doc, state) {
-  const rows = state.reproject ? sortReprojectRows(state.reproject.rows, state.configureSort || "rank") : [];
+  const filteredRows = state.reproject
+    ? filterReprojectRows(state.reproject.rows, { ecosystem: state.ecosystem, query: state.query })
+    : [];
+  const rows = sortReprojectRows(filteredRows, state.configureSort || "rank");
   const totalPages = Math.max(1, Math.ceil(rows.length / state.configurePageSize));
   const page = Math.min(state.configurePage, totalPages);
   const start = (page - 1) * state.configurePageSize;
   const pageRows = rows.slice(start, start + state.configurePageSize);
 
   const thead = main.querySelector("[data-configure-thead]");
-  if (thead) thead.innerHTML = renderColumnHeader(state.configureSort || "rank", false);
+  if (thead) {
+    const focusedSortField =
+      doc && doc.activeElement && typeof thead.contains === "function" && thead.contains(doc.activeElement)
+        ? doc.activeElement.dataset?.sortField || null
+        : null;
+    thead.innerHTML = renderColumnHeader(state.configureSort || "rank", false);
+    if (focusedSortField && typeof thead.querySelector === "function") {
+      const esc = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(focusedSortField) : focusedSortField;
+      thead.querySelector(`[data-sort-field="${esc}"]`)?.focus?.();
+    }
+  }
 
   // Unlike the leaderboard's leaderboard.js, this table is never
   // windowed within a page: `/reproject` returns the WHOLE eligible set
@@ -264,13 +296,15 @@ export function patchConfigureTable(main, doc, state) {
       tbody,
       pageRows,
       rowKey,
-      (row) => createRowElement(doc, row, { previousRow: previousRowByKey.get(rowKey(row)) || null, showPersonaDelta: false }),
-      (node, row) => updateRowElement(node, row, { previousRow: previousRowByKey.get(rowKey(row)) || null, showPersonaDelta: false })
+      (row) => createRowElement(doc, row, { previousRow: previousRowByKey.get(rowKey(row)) || null, showPersonaDelta: false, selected: rowKey(row) === state.selectedRepoKey }),
+      (node, row) => updateRowElement(node, row, { previousRow: previousRowByKey.get(rowKey(row)) || null, showPersonaDelta: false, selected: rowKey(row) === state.selectedRepoKey })
     );
   }
 
+  const topPagerHost = main.querySelector("[data-configure-pager-top-host]");
+  if (topPagerHost) topPagerHost.innerHTML = renderPager(page, state.configurePageSize, rows.length);
   const pagerHost = main.querySelector("[data-configure-pager-host]");
-  if (pagerHost) pagerHost.innerHTML = renderPager(page, state.configurePageSize, rows.length);
+  if (pagerHost) pagerHost.innerHTML = renderPager(page, state.configurePageSize, rows.length, { bottom: true });
 
   const deltaHost = main.querySelector("[data-configure-delta-host]");
   if (deltaHost) deltaHost.innerHTML = renderDeltaList(state.reproject);
@@ -311,7 +345,7 @@ export function renderShell(state) {
     controls +
     `<div class="refetch-progress" data-configure-progress="true" hidden></div>` +
     `<div class="configure-layout">` +
-    `<div class="configure-table-col">${renderTableShell()}<div data-configure-pager-host="true"></div></div>` +
+    `<div class="configure-table-col"><div data-configure-pager-top-host="true"></div>${renderTableShell()}<div data-configure-pager-host="true"></div></div>` +
     `<aside class="configure-delta-col" data-configure-delta-host="true"></aside>` +
     `</div>`
   );

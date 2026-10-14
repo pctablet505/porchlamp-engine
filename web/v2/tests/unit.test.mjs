@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { decidingTieLevel, SORTABLE_COLUMNS, renderColumnHeader } from "../components/table.js";
+import { decidingTieLevel, SORTABLE_COLUMNS, renderColumnHeader, sortColumnLabel } from "../components/table.js";
 import { KEY_ACTIONS, actionForKeyEvent } from "../components/keymap.js";
 import { renderCoverageBadge } from "../components/badge.js";
 import { renderBrand } from "../components/brand.js";
@@ -27,17 +27,17 @@ import {
   repoToLoadFromState,
 } from "../state.js";
 import * as copy from "../copy.js";
-import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal } from "../views/leaderboard.js";
+import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal, renderMobileSortBar, personaVisibleForState } from "../views/leaderboard.js";
 import { renderShell as notRankedRenderShell } from "../views/notranked.js";
 import { centeredScrollLeft } from "../components/primarynav.js";
 import { postReproject } from "../api.js";
-import { normalizeWeights, applyPresetRespectingLocks, renderControls, sortReprojectRows, topMovers, remainingReprojectPages, mergeReprojectPages } from "../views/configure.js";
+import { normalizeWeights, applyPresetRespectingLocks, renderControls, sortReprojectRows, filterReprojectRows, renderPager as renderConfigurePager, topMovers, remainingReprojectPages, mergeReprojectPages } from "../views/configure.js";
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
-import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody } from "../views/matrix.js";
+import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, clientToDomainCoords } from "../views/matrix.js";
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY } from "../components/scatter.js";
 import { synthesizeRows } from "../perf-fixtures.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape } from "../views/compare.js";
-import { renderDrawer, classifyKind, findRow } from "../views/drawer.js";
+import { renderDrawer, classifyKind, classifyKindForLens, renderPillarRadar, findRow } from "../views/drawer.js";
 import {
   personaVisibleCount,
   personaDelta,
@@ -829,14 +829,16 @@ test("findRow + classifyKind: an UNRATED repo renders its evidence table, not a 
   const html = renderDrawer(state);
   assert.ok(html.includes("repo-insufficient_evidence-0"));
 
-  // An unrated repo renders exactly one open <details> section, with
-  // persona, integrity, and composite sections omitted.
+  // An unrated repo renders open Pillars and evidence plus collapsed Persona view and Integrity,
+  // with Composite and Playbook omitted.
   const detailsTags = html.match(/<details[^>]*>/g) || [];
-  assert.equal(detailsTags.length, 1, "unrated must still render exactly one <details> section");
-  assert.ok(/\bopen\b/.test(detailsTags[0]), "unrated's single section must stay open, unchanged");
-  assert.ok(!html.includes(copy.DRAWER_SECTION_PERSONAS), "no Persona view section for unrated (unchanged)");
-  assert.ok(!html.includes(copy.DRAWER_SECTION_INTEGRITY), "no Integrity section for unrated (unchanged)");
-  assert.ok(!html.includes(copy.DRAWER_SECTION_COMPOSITE), "no Composite section for unrated (unchanged)");
+  assert.equal(detailsTags.length, 3, "unrated renders Pillars and evidence (open) + Persona view + Integrity");
+  assert.ok(/\bopen\b/.test(detailsTags[0]), "unrated's Pillars and evidence section is open");
+  assert.ok(!/\bopen\b/.test(detailsTags[1]), "unrated's Persona view section is collapsed by default");
+  assert.ok(!/\bopen\b/.test(detailsTags[2]), "unrated's Integrity section is collapsed by default");
+  assert.ok(html.includes(copy.DRAWER_SECTION_PERSONAS), "Persona view section renders for unrated");
+  assert.ok(html.includes(copy.DRAWER_SECTION_INTEGRITY), "Integrity section renders for unrated");
+  assert.ok(!html.includes(copy.DRAWER_SECTION_COMPOSITE), "no Composite section for unrated");
 });
 
 // --------------------------------------------------------------------- //
@@ -1257,7 +1259,7 @@ test("index.html carries absolute link-preview tags and the preview image exists
 
 // ---- PR 1 UX/UI fixes ---------------------------------------------------------------------
 
-import { classifyKindForLens, projectRowForLens } from "../views/drawer.js";
+import { projectRowForLens } from "../views/drawer.js";
 import { flattenGroups } from "../views/notranked.js";
 import { filterMatrixPoints } from "../views/matrix.js";
 import { renderTable as renderCompareTable } from "../views/compare.js";
@@ -1649,3 +1651,89 @@ test("configure: mergeReprojectPages puts every page's rows in order and keeps t
   assert.equal(merged.lens, "custom");
   assert.deepEqual(first.rows.map((r) => r.k), [1, 2], "the first answer is not changed");
 });
+
+// ------------------------------------------------------------- issue #20 regressions
+test("copy.formatParameterValue: rounds long floats to 4 decimals without trailing zeros while preserving integers and strings", () => {
+  assert.equal(copy.formatParameterValue(0.41509433962264153), "0.4151");
+  assert.equal(copy.formatParameterValue(148.94787916666666), "148.9479");
+  assert.equal(copy.formatParameterValue(42), "42");
+  assert.equal(copy.formatParameterValue(0.5), "0.5");
+  assert.equal(copy.formatParameterValue("permissive"), "permissive");
+});
+
+test("table.sortColumnLabel: maps raw sort field IDs to human-readable column names", () => {
+  assert.equal(sortColumnLabel("rank"), "Rank");
+  assert.equal(sortColumnLabel("-porchlamp"), "Score");
+  assert.equal(sortColumnLabel("p_responsiveness"), "Responsiveness");
+  assert.equal(sortColumnLabel("-p_rigor"), "Rigor");
+});
+
+test("table.renderColumnHeader: includes visual sort arrow indicator and is-active class on the active sort column", () => {
+  const html = renderColumnHeader("-porchlamp", false);
+  assert.ok(html.includes('data-sort-field="porchlamp"'), "porchlamp header exists");
+  assert.ok(html.includes('class="sort-arrow"'), "visual sort arrow rendered");
+  assert.ok(html.includes("↑"), "-porchlamp is ascending, so ↑ arrow renders");
+  const defaultHtml = renderColumnHeader("porchlamp", false);
+  assert.ok(defaultHtml.includes("↓"), "porchlamp is descending (best-first), so ↓ arrow renders");
+});
+
+test("leaderboard.renderMobileSortBar: renders mobile sort select and direction toggle", () => {
+  const html = renderMobileSortBar("porchlamp");
+  assert.ok(html.includes("data-mobile-sort-select"));
+  assert.ok(html.includes("data-mobile-sort-dir"));
+  assert.ok(html.includes("↓"));
+});
+
+test("drawer.classifyKindForLens: classifies eligible=false with 'unrated: ...' gate_reason as unrated", () => {
+  const unratedFromApi = {
+    owner: "org",
+    name: "repo",
+    eligible: false,
+    rated: false,
+    gate_reason: "unrated: insufficient_evidence",
+    coverage: 0.45,
+  };
+  assert.equal(classifyKindForLens(unratedFromApi, "balanced"), "unrated");
+});
+
+test("drawer.renderPillarRadar: omits unmeasured pillars from polygon area instead of plotting them as 0 at the origin", () => {
+  const row = {
+    p_responsiveness: 80.0,
+    p_criticality: 75.0,
+    p_governance: null,
+    p_rigor: 85.0,
+    p_accessibility: 70.0,
+  };
+  const svg = renderPillarRadar(row);
+  const polyMatch = svg.match(/<polygon points="([^"]+)" class="radar-area"/);
+  assert.ok(polyMatch, "radar polygon renders when >= 2 pillars are measured");
+  const vertices = polyMatch[1].trim().split(/\s+/);
+  assert.equal(vertices.length, 4, "only the 4 measured pillars form the polygon vertices (unmeasured governance is not plotted at center 190,130)");
+  assert.ok(!vertices.includes("190.0,130.0"), "center origin (190.0,130.0) is not used as a false 0 vertex");
+  assert.ok(svg.includes("radar-point-unmeasured"), "unmeasured pillar has a distinct hollow marker on the outer ring");
+});
+
+test("matrix.clientToDomainCoords: accounts for zoomed and panned viewBox when mapping client coordinates", () => {
+  const rect = { left: 100, top: 50, width: 500, height: 500 };
+  const zoomedView = { scale: 2, x: 25, y: 25 };
+  const coords = clientToDomainCoords(350, 300, rect, zoomedView);
+  assert.equal(coords.domainX, 50);
+  assert.equal(coords.domainY, 50);
+  assert.equal(coords.toleranceDomainUnits, (15 / 500) * 50);
+});
+
+test("configure.filterReprojectRows and renderConfigurePager: filters by ecosystem/query and renders First/Last buttons", () => {
+  const rows = [
+    { owner: "PyO3", name: "pyo3", ecosystem: "cargo", rank: 1 },
+    { owner: "pallets", name: "flask", ecosystem: "pypi", rank: 2 },
+  ];
+  assert.equal(filterReprojectRows(rows, { ecosystem: "cargo", query: "" }).length, 1);
+  assert.equal(filterReprojectRows(rows, { ecosystem: "", query: "flask" }).length, 1);
+  const topPager = renderConfigurePager(1, 20, 100);
+  assert.ok(topPager.includes("data-configure-pager-first"));
+  assert.ok(topPager.includes("data-configure-pager-last"));
+  assert.ok(topPager.includes("data-configure-pager-size-select"));
+  const bottomPager = renderConfigurePager(1, 20, 100, { bottom: true });
+  assert.ok(!bottomPager.includes("data-configure-pager-size-select"));
+});
+

@@ -8,6 +8,7 @@
 import * as copy from "../copy.js";
 import { renderCoverageBadge, renderTierCell } from "../components/badge.js";
 import { COMPARE_MIN, COMPARE_MAX } from "../state.js";
+import { classifyKindForLens, projectRowForLens } from "./drawer.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -207,22 +208,43 @@ function repoIdentityCell(key, data) {
   );
 }
 
-function gateStatusCell(data) {
+function resolveCompareLens(data, persona) {
+  if (!data || !data.row) return { kind: data ? data.kind : null, row: null };
+  const hasExplicitFlags = typeof data.row.eligible === "boolean" || typeof data.row.rated === "boolean";
+  let kind = data.kind;
+  if (hasExplicitFlags) {
+    kind = classifyKindForLens(data.row, persona) || data.kind;
+  } else if (persona && persona !== "balanced" && data.row.persona_gates && data.row.persona_gates[persona]) {
+    kind = "persona-gated";
+  }
+  const row = projectRowForLens(data.row, persona);
+  return { kind, row };
+}
+
+function gateStatusCell(data, persona = "balanced") {
   if (!data || data.loading || data.error) return `<td>${copy.MISSING_VALUE}</td>`;
-  if (data.kind === "gated") return `<td>${escapeHtml(copy.gateReasonText(data.row.gate_reason))}</td>`;
-  if (data.kind === "unrated") return `<td>${escapeHtml(copy.unratedReasonText(data.row.unrated_reason, data.row.coverage))}</td>`;
+  const { kind, row } = resolveCompareLens(data, persona);
+  if (kind === "gated") return `<td>${escapeHtml(copy.gateReasonText(row.gate_reason))}</td>`;
+  if (kind === "persona-gated") {
+    const rawReason = row.persona_gates && persona ? row.persona_gates[persona] : "";
+    return `<td>${escapeHtml(copy.personaGateReason(rawReason))}</td>`;
+  }
+  if (kind === "unrated") return `<td>${escapeHtml(copy.unratedReasonText(row.unrated_reason || row.gate_reason, row.coverage))}</td>`;
   return `<td>${escapeHtml(copy.COMPARE_RATED_STATUS)}</td>`;
 }
 
-function compositeCell(data) {
-  if (!data || data.loading || data.error || data.kind !== "rated" || !data.row) return `<td>${copy.MISSING_VALUE}</td>`;
-  const porchlampVal = data.row.porchlamp != null ? data.row.porchlamp.toFixed(2) : copy.MISSING_VALUE;
-  return `<td class="cell-numeric">${porchlampVal} · ${renderTierCell(data.row.tier, data.row.tier_ceiling)}</td>`;
+function compositeCell(data, persona = "balanced") {
+  if (!data || data.loading || data.error || !data.row) return `<td>${copy.MISSING_VALUE}</td>`;
+  const { kind, row } = resolveCompareLens(data, persona);
+  if (kind !== "rated" || !row) return `<td>${copy.MISSING_VALUE}</td>`;
+  const porchlampVal = row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE;
+  return `<td class="cell-numeric">${porchlampVal} · ${renderTierCell(row.tier, row.tier_ceiling)}</td>`;
 }
 
-function coverageCell(data) {
+function coverageCell(data, persona = "balanced") {
   if (!data || data.loading || data.error) return `<td>${copy.MISSING_VALUE}</td>`;
-  return `<td>${renderCoverageBadge(data.row ? data.row.coverage : null)}</td>`;
+  const { row } = resolveCompareLens(data, persona);
+  return `<td>${renderCoverageBadge(row ? row.coverage : null)}</td>`;
 }
 
 function pillarScoreCell(data, pillar) {
@@ -235,7 +257,8 @@ function pillarScoreCell(data, pillar) {
 function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
   const values = valuesForParam(paramEntry.input_id, evidenceByRepo);
   const winner = betterRepoKey(paramEntry, values, persona);
-  const paramLabel = escapeHtml(copy.paramName(paramEntry.input_id));
+  const humanParamName = copy.paramName(paramEntry.input_id);
+  const paramLabel = escapeHtml(humanParamName);
   const cells = repoKeys
     .map((key) => {
       const raw = values[key];
@@ -249,10 +272,12 @@ function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
       const title = evidenceRow
         ? copy.compareEvidenceSourceTitle(evidenceRow.source, evidenceRow.fetched_at)
         : "";
+      const betterTitle = copy.compareBetterTitle(humanParamName);
       const mark = isBetter
-        ? `<span class="compare-better-mark" title="${escapeHtml(copy.compareBetterTitle(paramEntry.input_id))}" aria-label="${escapeHtml(copy.compareBetterTitle(paramEntry.input_id))}">${copy.COMPARE_BETTER_MARK}</span>`
+        ? `<span class="compare-better-mark" title="${escapeHtml(betterTitle)}" aria-label="${escapeHtml(betterTitle)}">${copy.COMPARE_BETTER_MARK}</span>`
         : "";
-      return `<td class="cell-numeric${isBetter ? " compare-better-cell" : ""}" tabindex="0" title="${escapeHtml(title)}">${escapeHtml(String(raw))} ${mark}</td>`;
+      const formattedRaw = copy.formatParameterValue(raw);
+      return `<td class="cell-numeric${isBetter ? " compare-better-cell" : ""}" tabindex="0" title="${escapeHtml(title)}">${escapeHtml(formattedRaw)} ${mark}</td>`;
     })
     .join("");
   return `<tr><th scope="row" title="${escapeHtml(paramEntry.input_id)}">${paramLabel}</th>${cells}</tr>`;
@@ -261,6 +286,7 @@ function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
 export function renderTable(state) {
   const repoKeys = state.compareRepos;
   const dataByRepo = state.compareDataByRepo;
+  const persona = state.persona || "balanced";
   const evidenceByRepo = Object.fromEntries(repoKeys.map((k) => [k, (dataByRepo[k] || {}).evidence || []]));
   const headerCells = repoKeys.map((k) => {
     const [owner, name] = k.split("/");
@@ -286,7 +312,7 @@ export function renderTable(state) {
         `<tr class="compare-section-row"><th scope="colgroup" colspan="${repoKeys.length + 1}">` +
         `${escapeHtml(copy.PILLAR_NAMES[pillar] || pillar)}</th></tr>`;
       const rows = (paramsByPillar[pillar] || [])
-        .map((p) => parameterRow(p, repoKeys, evidenceByRepo, state.persona))
+        .map((p) => parameterRow(p, repoKeys, evidenceByRepo, persona))
         .join("");
       return groupHeading + rows;
     })
@@ -299,8 +325,9 @@ export function renderTable(state) {
   const allLoaded = repoKeys.every((k) => dataByRepo[k] && !dataByRepo[k].loading && !dataByRepo[k].error);
   let verdictHtml = "";
   if (allLoaded && state.methodology && repoKeys.length >= COMPARE_MIN) {
-    const verdict = computeVerdict(methodologyParams, evidenceByRepo, repoKeys, state.persona);
-    const unmeasuredNote = copy.compareUnmeasuredNote(verdict.notMeasuredEverywhere);
+    const verdict = computeVerdict(methodologyParams, evidenceByRepo, repoKeys, persona);
+    const unmeasuredNames = verdict.notMeasuredEverywhere.map((id) => copy.paramName(id));
+    const unmeasuredNote = copy.compareUnmeasuredNote(unmeasuredNames);
     verdictHtml =
       `<div class="compare-verdict"><h2>${escapeHtml(copy.COMPARE_VERDICT_HEADING)}</h2>` +
       `<p>${escapeHtml(verdict.text)}</p>` +
@@ -308,15 +335,19 @@ export function renderTable(state) {
       `</div>`;
   }
 
+  const statusRowHtml = !allLoaded
+    ? `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_IDENTITY)}</th>${repoKeys.map((k) => repoIdentityCell(k, dataByRepo[k])).join("")}</tr>`
+    : "";
+
   return (
     verdictHtml +
     `<div class="table-scroll"><table class="compare-table">` +
     `<thead><tr><th scope="col">${escapeHtml(copy.COMPARE_ROW_IDENTITY)}</th>${headerCells}</tr></thead>` +
     `<tbody>` +
-    `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_IDENTITY)}</th>${repoKeys.map((k) => repoIdentityCell(k, dataByRepo[k])).join("")}</tr>` +
-    `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_GATE_STATUS)}</th>${repoKeys.map((k) => gateStatusCell(dataByRepo[k])).join("")}</tr>` +
-    `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_COMPOSITE)}</th>${repoKeys.map((k) => compositeCell(dataByRepo[k])).join("")}</tr>` +
-    `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_COVERAGE)}</th>${repoKeys.map((k) => coverageCell(dataByRepo[k])).join("")}</tr>` +
+    statusRowHtml +
+    `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_GATE_STATUS)}</th>${repoKeys.map((k) => gateStatusCell(dataByRepo[k], persona)).join("")}</tr>` +
+    `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_COMPOSITE)}</th>${repoKeys.map((k) => compositeCell(dataByRepo[k], persona)).join("")}</tr>` +
+    `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_COVERAGE)}</th>${repoKeys.map((k) => coverageCell(dataByRepo[k], persona)).join("")}</tr>` +
     pillarRows +
     paramRows +
     `</tbody></table></div>`

@@ -39,7 +39,7 @@ Drawer (C): repository detail, opened from A, B, E; URL-addressable
 Footer: snapshot id · benchmark version · constants hash · manifest root · "verify" link to F
 ```
 
-URL state (U-9): `?persona=&eco=&q=&sort=&page=&repo=owner/name&tab=` — every view is
+URL state (U-9): `?persona=&eco=&q=&sort=&page=&page_size=&repo=owner/name&tab=&w=&cmp=` — every view is
 shareable and reload-safe; persona and ecosystem changes rewrite the URL.
 
 ## 3. Screens
@@ -209,7 +209,7 @@ replace the "subtree replacement" sentence in §6:
 - **U-15 Every request has an error state.** A 404, a 5xx or a 5 s timeout
   renders the error block naming the endpoint and status, with a retry;
   "Loading…" is never a resting state.
-- **U-16 URL is the view.** `?persona=&eco=&q=&sort=&repo=&tab=` via
+- **U-16 URL is the view.** `?persona=&eco=&q=&sort=&page=&page_size=&repo=&tab=&w=&cmp=` via
   `history.pushState` (replaceState for `q` while typing); `popstate` restores;
   any URL reloads to the same view.
 - **U-17 Announcements are true.** "N rows moved" is the count of rows whose

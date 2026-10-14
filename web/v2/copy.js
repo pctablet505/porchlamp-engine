@@ -51,6 +51,8 @@ export const COLUMN_PILLARS = "Pillars";
 export const COLUMN_DELTA = "Δ rank";
 export const COLUMN_SUSPICION = "Flags";
 export const COLUMN_STARS = "Audited stars";
+export const SORT_LABEL = "Sort by";
+export const SORT_DIRECTION_TOGGLE_LABEL = "Toggle sort direction";
 
 // U-3: vanity columns (audited stars) are never sortable; this is the
 // tooltip that says so wherever such a column header appears.
@@ -300,6 +302,19 @@ export function missingValueReason(reason) {
   if (!reason) return "Not measured for this repository.";
   const label = UNMEASURED_REASON_NAMES[reason] || reason;
   return `Not shown: ${label}`;
+}
+
+/**
+ * Formats a numeric or string parameter value for display in the drawer and
+ * comparison table, rounding IEEE-754 floating-point noise (e.g.
+ * 0.14040000000000002 -> 0.1404) without altering integers or strings.
+ */
+export function formatParameterValue(value) {
+  if (value === null || value === undefined) return MISSING_VALUE;
+  if (typeof value === "number" && Number.isFinite(value) && !Number.isInteger(value)) {
+    return String(Math.round(value * 10000) / 10000);
+  }
+  return String(value);
 }
 
 export const LOADING_LABEL = "Loading…";
