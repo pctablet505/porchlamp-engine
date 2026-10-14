@@ -323,13 +323,31 @@ def test_zero_response_counts_requires_an_aware_now() -> None:
 
 
 def test_ten_prs_six_unanswered_is_black_hole() -> None:
-    """Oracle 2: gr14 = 6/10 = 0.60 > 0.50, gated black_hole."""
+    """RFC-0008: 6/10 (wilson lower bound <= 0.50) is protected from false-positive
+    black-hole gating; 8/10 (wilson lower bound > 0.50) fails as black_hole."""
     from porchlamp.core import gates
 
-    result = gates.evaluate_gates(make_bundle(healthy_events(), ghost=ghost_input(6, 10)), healthy_evidence(), NOW)
-    assert result.eligible is False
-    assert result.reason == "black_hole"
-    assert result.undecided == ()
+    # 6/10 unanswered: raw share 0.60 > 0.50, but Wilson lower bound <= 0.50 -> eligible
+    lb_6 = gates.wilson_lower_bound(6, 10)
+    assert abs(lb_6 - 0.352) < 0.01
+    assert lb_6 <= 0.50
+    result_6 = gates.evaluate_gates(
+        make_bundle(healthy_events(), ghost=ghost_input(6, 10)), healthy_evidence(), NOW
+    )
+    assert result_6.eligible is True
+    assert result_6.reason is None
+    assert "D-GATE-5" not in result_6.undecided
+
+    # 8/10 unanswered: Wilson lower bound > 0.50 -> fails black_hole
+    lb_8 = gates.wilson_lower_bound(8, 10)
+    assert abs(lb_8 - 0.541) < 0.01
+    assert lb_8 > 0.50
+    result_8 = gates.evaluate_gates(
+        make_bundle(healthy_events(), ghost=ghost_input(8, 10)), healthy_evidence(), NOW
+    )
+    assert result_8.eligible is False
+    assert result_8.reason == "black_hole"
+    assert result_8.undecided == ()
 
 
 def test_share_exactly_half_is_not_black_hole() -> None:
@@ -918,4 +936,247 @@ def test_spdx_compound_expression_boolean_precedence_and_parentheses() -> None:
     )
     assert res_pass.eligible is True
     assert res_pass.reason is None
+
+
+def test_rfc0008_rule1_draft_pr_exclusion_and_ready_clock_start() -> None:
+    from datetime import timedelta
+    from porchlamp.core import gates
+
+    created_iso = (NOW - timedelta(days=30)).isoformat()
+    # A draft PR that is never marked ready is excluded
+    draft_pr = gates.GhostRatePR(
+        created_at=created_iso,
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=None,
+        is_draft=True,
+    )
+    b_draft = gates.evaluate_gate5_window([draft_pr], NOW)
+    assert b_draft.excluded_draft == 1
+    assert b_draft.population_n == 0
+
+    # A draft marked ready 10 days ago (20 days after created) has clock_start at ready_at
+    ready_iso = (NOW - timedelta(days=20)).isoformat()
+    ready_pr = gates.GhostRatePR(
+        created_at=created_iso,
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=None,
+        is_draft=True,
+        ready_for_review_at=ready_iso,
+    )
+    b_ready = gates.evaluate_gate5_window([ready_pr], NOW)
+    assert b_ready.excluded_draft == 0
+    assert b_ready.population_n == 1
+    assert b_ready.counted_prs[0].clock_start_at == ready_iso
+
+
+def test_rfc0008_rule2_author_self_closed_pr_exclusion() -> None:
+    from datetime import timedelta
+    from porchlamp.core import gates
+
+    created_iso = (NOW - timedelta(days=30)).isoformat()
+    closed_iso = (NOW - timedelta(days=28)).isoformat()
+
+    # Author closed PR without any maintainer response -> excluded
+    self_closed = gates.GhostRatePR(
+        created_at=created_iso,
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=None,
+        closed_at=closed_iso,
+        closed_by_author=True,
+    )
+    b_closed = gates.evaluate_gate5_window([self_closed], NOW)
+    assert b_closed.excluded_self_closed == 1
+    assert b_closed.population_n == 0
+
+    # Author closed AFTER a substantive maintainer response -> counted (and answered)
+    resp_iso = (NOW - timedelta(days=29)).isoformat()
+    with_resp = gates.GhostRatePR(
+        created_at=created_iso,
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=resp_iso,
+        closed_at=closed_iso,
+        closed_by_author=True,
+    )
+    b_with_resp = gates.evaluate_gate5_window([with_resp], NOW)
+    assert b_with_resp.excluded_self_closed == 0
+    assert b_with_resp.population_n == 1
+    assert b_with_resp.unanswered == 0
+
+
+def test_rfc0008_rule3_account_age_hygiene() -> None:
+    from datetime import timedelta
+    from porchlamp.core import gates
+
+    created_dt = NOW - timedelta(days=30)
+    # Account created 10 days before PR (< 90 days) -> excluded
+    new_acc_iso = (created_dt - timedelta(days=10)).isoformat()
+    new_acc_pr = gates.GhostRatePR(
+        created_at=created_dt.isoformat(),
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=None,
+        author_created_at=new_acc_iso,
+    )
+    b_new = gates.evaluate_gate5_window([new_acc_pr], NOW)
+    assert b_new.excluded_new_account == 1
+    assert b_new.population_n == 0
+
+    # Account created 100 days before PR (>= 90 days) -> counted
+    old_acc_iso = (created_dt - timedelta(days=100)).isoformat()
+    old_acc_pr = gates.GhostRatePR(
+        created_at=created_dt.isoformat(),
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=None,
+        author_created_at=old_acc_iso,
+    )
+    b_old = gates.evaluate_gate5_window([old_acc_pr], NOW)
+    assert b_old.excluded_new_account == 0
+    assert b_old.population_n == 1
+
+
+def test_rfc0008_rule4_maintainer_close_counts_as_response() -> None:
+    from datetime import timedelta
+    from porchlamp.core import gates
+
+    created_dt = NOW - timedelta(days=30)
+    # Maintainer closed within 5 days of opening -> answered
+    closed_maint_iso = (created_dt + timedelta(days=5)).isoformat()
+    maint_closed_pr = gates.GhostRatePR(
+        created_at=created_dt.isoformat(),
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=None,
+        closed_by_maintainer_at=closed_maint_iso,
+    )
+    b_maint = gates.evaluate_gate5_window([maint_closed_pr], NOW)
+    assert b_maint.population_n == 1
+    assert b_maint.unanswered == 0
+    assert b_maint.counted_prs[0].answered_within_14d is True
+    assert b_maint.counted_prs[0].response_kind == "closed_by_maintainer"
+
+    # Maintainer closed after 15 days (> 14 days deadline) -> unanswered
+    late_closed_maint_iso = (created_dt + timedelta(days=15)).isoformat()
+    late_maint_closed_pr = gates.GhostRatePR(
+        created_at=created_dt.isoformat(),
+        is_external=True,
+        is_bot_author=False,
+        first_substantive_response_at=None,
+        closed_by_maintainer_at=late_closed_maint_iso,
+    )
+    b_late = gates.evaluate_gate5_window([late_maint_closed_pr], NOW)
+    assert b_late.population_n == 1
+    assert b_late.unanswered == 1
+    assert b_late.counted_prs[0].answered_within_14d is False
+    assert b_late.counted_prs[0].response_kind == "none"
+
+
+def test_rfc0008_evaluate_gate5_window_breakdown() -> None:
+    from datetime import timedelta
+    from porchlamp.core import gates
+
+    created_dt = NOW - timedelta(days=30)
+    prs = [
+        # Counted & answered via review
+        gates.GhostRatePR(
+            created_at=created_dt.isoformat(),
+            is_external=True,
+            is_bot_author=False,
+            first_substantive_response_at=(created_dt + timedelta(days=1)).isoformat(),
+            number=1,
+        ),
+        # Counted & answered via merge
+        gates.GhostRatePR(
+            created_at=created_dt.isoformat(),
+            is_external=True,
+            is_bot_author=False,
+            first_substantive_response_at=None,
+            merged_at=(created_dt + timedelta(days=2)).isoformat(),
+            number=2,
+        ),
+        # Counted & answered via maintainer close
+        gates.GhostRatePR(
+            created_at=created_dt.isoformat(),
+            is_external=True,
+            is_bot_author=False,
+            first_substantive_response_at=None,
+            closed_by_maintainer_at=(created_dt + timedelta(days=3)).isoformat(),
+            number=3,
+        ),
+        # Counted & unanswered
+        gates.GhostRatePR(
+            created_at=created_dt.isoformat(),
+            is_external=True,
+            is_bot_author=False,
+            first_substantive_response_at=None,
+            number=4,
+        ),
+        # Excluded draft
+        gates.GhostRatePR(
+            created_at=created_dt.isoformat(),
+            is_external=True,
+            is_bot_author=False,
+            first_substantive_response_at=None,
+            is_draft=True,
+            number=5,
+        ),
+        # Excluded self-closed
+        gates.GhostRatePR(
+            created_at=created_dt.isoformat(),
+            is_external=True,
+            is_bot_author=False,
+            first_substantive_response_at=None,
+            closed_at=(created_dt + timedelta(days=1)).isoformat(),
+            closed_by_author=True,
+            number=6,
+        ),
+        # Excluded new account (<90d)
+        gates.GhostRatePR(
+            created_at=created_dt.isoformat(),
+            is_external=True,
+            is_bot_author=False,
+            first_substantive_response_at=None,
+            author_created_at=(created_dt - timedelta(days=20)).isoformat(),
+            number=7,
+        ),
+        # Excluded bot
+        gates.GhostRatePR(
+            created_at=created_dt.isoformat(),
+            is_external=True,
+            is_bot_author=True,
+            first_substantive_response_at=None,
+            number=8,
+        ),
+        # Excluded internal
+        gates.GhostRatePR(
+            created_at=created_dt.isoformat(),
+            is_external=False,
+            is_bot_author=False,
+            first_substantive_response_at=None,
+            number=9,
+        ),
+        # Excluded under 14d
+        gates.GhostRatePR(
+            created_at=(NOW - timedelta(days=5)).isoformat(),
+            is_external=True,
+            is_bot_author=False,
+            first_substantive_response_at=None,
+            number=10,
+        ),
+    ]
+    bd = gates.evaluate_gate5_window(prs, NOW)
+    assert bd.population_n == 4
+    assert bd.unanswered == 1
+    assert bd.unanswered_share == 0.25
+    assert bd.excluded_draft == 1
+    assert bd.excluded_self_closed == 1
+    assert bd.excluded_new_account == 1
+    assert bd.excluded_bot == 1
+    assert bd.excluded_internal == 1
+    assert bd.excluded_under_14d == 1
+    assert bd.is_black_hole is False
 

@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import random
 import statistics
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,6 +36,7 @@ from typing import Any, Optional, Protocol
 from porchlamp.collect import ghcli
 from porchlamp.collect.envelope import write_envelope
 from porchlamp.collect.user_cache import UserCache
+from porchlamp.core import gates
 from porchlamp.core.constants import AUTHOR_UNMEASURED_MAX_FRACTION
 from porchlamp.core.hygiene import (
     account_eligibility as _hygiene_account_eligibility,
@@ -88,7 +89,7 @@ PR_WINDOW_QUERY: str = (
     " pullRequests(states: [OPEN, MERGED, CLOSED], first: $first, after: $after,"
     " orderBy: {field: CREATED_AT, direction: DESC}) {"
     " pageInfo { hasNextPage endCursor }"
-    " nodes { number createdAt closedAt mergedAt state mergedBy { login }"
+    " nodes { number createdAt closedAt mergedAt state isDraft mergedBy { login }"
     " author { __typename login ... on User { createdAt } } authorAssociation"
     " reviews(first: 10) { nodes { author { __typename login } state body createdAt"
     " authorAssociation comments { totalCount } } }"
@@ -267,6 +268,20 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
             and (int((raw.get("comments") or {}).get("totalCount") or 0) >= 1
                  or len(str(raw.get("body") or "")) >= SUBSTANTIVE_REVIEW_BODY_CHARS)
             for raw in ((pr.get("reviews") or {}).get("nodes") or []))
+        closed_by_maint_at = pr.get("closedByMaintainerAt")
+        if (
+            closed_by_maint_at is None
+            and pr.get("state") == "CLOSED"
+            and not pr.get("mergedAt")
+            and pr.get("closedByMaintainer") is True
+        ):
+            closed_by_maint_at = pr.get("closedAt")
+        author_node = pr.get("author")
+        author_created_at = (
+            author_node.get("createdAt")
+            if isinstance(author_node, Mapping)
+            else None
+        )
         out.append({
             "number": pr.get("number"),
             "is_external": _association(pr.get("authorAssociation")) in EXTERNAL_ASSOCIATIONS,
@@ -278,7 +293,43 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
             "first_substantive_response_kind": best_kind,
             "ttfhr_hours": ttfhr,
             "substantive_review": substantive_review,
+            "is_draft": bool(pr.get("isDraft", False)),
+            "ready_for_review_at": pr.get("readyForReviewAt"),
+            "closed_by_author": bool(pr.get("closedByAuthor", False)),
+            "closed_by_maintainer_at": closed_by_maint_at,
+            "author_created_at": author_created_at,
         })
+    return out
+
+
+def ghost_rate_prs_from_window(
+    prs: Sequence[Mapping[str, Any]],
+) -> list[gates.GhostRatePR]:
+    """Pair recorded PR nodes with their derived attributes for D-GATE-5.
+
+    Skips entries with unparseable ``createdAt`` and populates all
+    :class:`~porchlamp.core.gates.GhostRatePR` fields.
+    """
+    out: list[gates.GhostRatePR] = []
+    for pr, d in zip(prs, derive_pr_window(prs)):
+        if _parse_iso(pr.get("createdAt")) is None:
+            continue
+        out.append(
+            gates.GhostRatePR(
+                created_at=str(pr["createdAt"]),
+                is_external=bool(d["is_external"]),
+                is_bot_author=bool(d["is_bot_author"]),
+                first_substantive_response_at=d["first_substantive_response_at"],
+                merged_at=pr.get("mergedAt") if _parse_iso(pr.get("mergedAt")) is not None else None,
+                is_draft=bool(d.get("is_draft", False)),
+                ready_for_review_at=d.get("ready_for_review_at"),
+                closed_at=pr.get("closedAt") if _parse_iso(pr.get("closedAt")) is not None else None,
+                closed_by_author=bool(d.get("closed_by_author", False)),
+                closed_by_maintainer_at=d.get("closed_by_maintainer_at"),
+                author_created_at=d.get("author_created_at"),
+                number=d.get("number"),
+            )
+        )
     return out
 
 
