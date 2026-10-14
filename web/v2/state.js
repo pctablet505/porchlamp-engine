@@ -345,6 +345,12 @@ export function repoToLoadFromState(state) {
   return { owner: parts[0], name: parts[1] };
 }
 
+function isValidRepoKey(repo) {
+  if (typeof repo !== "string" || !repo) return false;
+  const parts = repo.split("/");
+  return parts.length === 2 && Boolean(parts[0]) && Boolean(parts[1]);
+}
+
 /**
  * U-15/U-7: the footer/snapshot-chip strip carries U-6's reproducibility
  * claim, so it must never rest on a fabricated "Loading..." forever when
@@ -388,12 +394,26 @@ export function urlSyncMode(trigger) {
 export function reduce(state, action) {
   switch (action.type) {
     case "SET_PARAMS": {
-      const payload = action.payload || {};
+      const rawPayload = action.payload || {};
+      const { resetTabSlices: payloadReset, ...payload } = rawPayload;
+      const shouldResetSlices = Boolean(action.resetTabSlices || payloadReset);
       const nextTab = payload.tab !== undefined ? payload.tab : state.tab;
       const personaChanged = payload.persona && payload.persona !== state.persona;
       const filterChanged =
         (payload.ecosystem !== undefined && payload.ecosystem !== state.ecosystem) ||
         (payload.query !== undefined && payload.query !== state.query);
+      const resetSlices = shouldResetSlices
+        ? {
+            rankedPage: 1,
+            rankedPageSize: DEFAULT_PAGE_SIZE,
+            rankedSort: "rank",
+            notRankedPage: 1,
+            notRankedPageSize: DEFAULT_PAGE_SIZE,
+            configurePage: 1,
+            configurePageSize: DEFAULT_PAGE_SIZE,
+            configureSort: "rank",
+          }
+        : {};
       const tabSync = {};
       if (nextTab === "ranked") {
         if (payload.page !== undefined) tabSync.rankedPage = payload.page;
@@ -407,13 +427,43 @@ export function reduce(state, action) {
         if (payload.pageSize !== undefined) tabSync.configurePageSize = payload.pageSize;
         if (payload.sort !== undefined) tabSync.configureSort = payload.sort;
       }
+      const repoChanged = payload.repo !== undefined && payload.repo !== state.repo;
+      const validRepo = isValidRepoKey(payload.repo);
+      const repoSync = repoChanged
+        ? validRepo
+          ? {
+              repoDetailLoading: !(state.repoDetailByKey && state.repoDetailByKey[payload.repo]),
+              evidenceLoading: !(state.evidenceByRepo && state.evidenceByRepo[payload.repo]),
+              repoDetailError: null,
+              evidenceError: null,
+            }
+          : {
+              repoDetailLoading: false,
+              evidenceLoading: false,
+              repoDetailError: null,
+              evidenceError: null,
+            }
+        : {};
       return {
         ...state,
+        ...resetSlices,
         ...payload,
+        ...repoSync,
         ...(personaChanged
-          ? { notRanked: null, notRankedError: null, notRankedPage: 1, rankedPage: 1 }
+          ? {
+              notRanked: null,
+              notRankedError: null,
+              notRankedPage: 1,
+              rankedPage: 1,
+              ...(payload.page === undefined ? { page: 1 } : {}),
+            }
           : filterChanged
-            ? { notRankedPage: 1, configurePage: 1, rankedPage: 1 }
+            ? {
+                notRankedPage: 1,
+                configurePage: 1,
+                rankedPage: 1,
+                ...(payload.page === undefined ? { page: 1 } : {}),
+              }
             : {}),
         ...tabSync,
       };
@@ -426,6 +476,7 @@ export function reduce(state, action) {
         notRankedError: null,
         notRankedPage: 1,
         rankedPage: 1,
+        page: 1,
       };
     case "SET_TAB": {
       if (action.tab === state.tab) return state;
@@ -488,10 +539,28 @@ export function reduce(state, action) {
         page: nextPage,
       };
     }
-    case "OPEN_REPO":
-      return { ...state, repo: action.repo, evidenceError: null, repoDetailError: null };
+    case "OPEN_REPO": {
+      const validRepo = isValidRepoKey(action.repo);
+      const hasDetail = !!(state.repoDetailByKey && state.repoDetailByKey[action.repo]);
+      const hasEvidence = !!(state.evidenceByRepo && state.evidenceByRepo[action.repo]);
+      return {
+        ...state,
+        repo: action.repo,
+        repoDetailLoading: validRepo && !hasDetail,
+        evidenceLoading: validRepo && !hasEvidence,
+        evidenceError: null,
+        repoDetailError: null,
+      };
+    }
     case "CLOSE_DRAWER":
-      return { ...state, repo: null, evidenceError: null, repoDetailError: null };
+      return {
+        ...state,
+        repo: null,
+        repoDetailLoading: false,
+        evidenceLoading: false,
+        evidenceError: null,
+        repoDetailError: null,
+      };
     case "SET_THEME":
       return { ...state, theme: action.theme };
     case "SET_CURSOR":
@@ -531,28 +600,38 @@ export function reduce(state, action) {
       return { ...state, snapshotLoading: false, snapshotError: action.error };
     case "EVIDENCE_LOADING":
       return { ...state, evidenceLoading: true, evidenceError: null };
-    case "EVIDENCE_OK":
+    case "EVIDENCE_OK": {
+      const isCurrentRepo = !action.repo || !state.repo || action.repo === state.repo;
       return {
         ...state,
-        evidenceLoading: false,
-        evidenceError: null,
+        evidenceLoading: isCurrentRepo ? false : state.evidenceLoading,
+        evidenceError: isCurrentRepo ? null : state.evidenceError,
         evidenceByRepo: { ...state.evidenceByRepo, [action.repo]: action.data },
       };
-    case "EVIDENCE_ERROR":
+    }
+    case "EVIDENCE_ERROR": {
+      const isCurrentRepo = !action.repo || !state.repo || action.repo === state.repo;
+      if (!isCurrentRepo) return state;
       return { ...state, evidenceLoading: false, evidenceError: action.error };
+    }
 
     // ------------------------------------------ drawer record fetch (Screen C)
     case "REPO_DETAIL_LOADING":
       return { ...state, repoDetailLoading: true, repoDetailError: null };
-    case "REPO_DETAIL_OK":
+    case "REPO_DETAIL_OK": {
+      const isCurrentRepo = !action.repo || !state.repo || action.repo === state.repo;
       return {
         ...state,
-        repoDetailLoading: false,
-        repoDetailError: null,
+        repoDetailLoading: isCurrentRepo ? false : state.repoDetailLoading,
+        repoDetailError: isCurrentRepo ? null : state.repoDetailError,
         repoDetailByKey: { ...state.repoDetailByKey, [action.repo]: action.data },
       };
-    case "REPO_DETAIL_ERROR":
+    }
+    case "REPO_DETAIL_ERROR": {
+      const isCurrentRepo = !action.repo || !state.repo || action.repo === state.repo;
+      if (!isCurrentRepo) return state;
       return { ...state, repoDetailLoading: false, repoDetailError: action.error };
+    }
 
     // ------------------------------------------------------------ Matrix (B)
     case "MATRIX_LOADING":
@@ -679,6 +758,10 @@ export function createStore(initialSearch = "") {
     state.configurePage = state.page;
     state.configurePageSize = state.pageSize;
     state.configureSort = state.sort;
+  }
+  if (isValidRepoKey(state.repo)) {
+    state.repoDetailLoading = true;
+    state.evidenceLoading = true;
   }
   const subscribers = new Set();
 

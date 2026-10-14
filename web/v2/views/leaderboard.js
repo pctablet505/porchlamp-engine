@@ -47,7 +47,10 @@ export function renderSkeleton(rowCount = 12) {
 }
 
 export function renderErrorBanner(error) {
-  return `<div class="error-banner" role="alert">${escapeHtml(copy.errorBannerText(error.endpoint, error.status, error.detail))}</div>`;
+  return (
+    `<div class="error-banner" role="alert">${escapeHtml(copy.errorBannerText(error.endpoint, error.status, error.detail))}` +
+    ` <button type="button" class="icon-button" data-leaderboard-retry="true">${escapeHtml(copy.RETRY_LABEL)}</button></div>`
+  );
 }
 
 /**

@@ -221,9 +221,10 @@ export function mergeReprojectPages(first, laterPages) {
  */
 export function filterReprojectRows(rows, { ecosystem = "", query = "" } = {}) {
   if (!rows) return [];
+  const ecoLower = ecosystem ? ecosystem.trim().toLowerCase() : "";
   const qLower = query ? query.trim().toLowerCase() : "";
   return rows.filter((r) => {
-    if (ecosystem && r.ecosystem !== ecosystem) return false;
+    if (ecoLower && String(r.ecosystem || "").toLowerCase() !== ecoLower) return false;
     if (qLower && !`${r.owner}/${r.name}`.toLowerCase().includes(qLower)) return false;
     return true;
   });
@@ -275,19 +276,14 @@ export function patchConfigureTable(main, doc, state) {
     }
   }
 
-  // Unlike the leaderboard's leaderboard.js, this table is never
-  // windowed within a page: `/reproject` returns the WHOLE eligible set
-  // in one call (no server-side paging fields at all — see
-  // scripts/serve_ui_fixtures.py's own docstring), so pagination here is
-  // purely a client-side slice of an already-small in-memory array; a
-  // full page (up to 1000 rows, the same ceiling the leaderboard allows)
-  // patches through `patchRows` in one pass without a separate windowing
-  // layer.
   const tbody = main.querySelector("[data-configure-tbody]");
   if (tbody) {
     const table = tbody.closest("table");
     if (table) table.classList.toggle("stars-unaudited", !copy.hasAuditedStars(pageRows));
     const previousRowByKey = new Map();
+    if (pageRows.length > 0 && start > 0) {
+      previousRowByKey.set(rowKey(pageRows[0]), rows[start - 1]);
+    }
     for (let i = 1; i < pageRows.length; i++) previousRowByKey.set(rowKey(pageRows[i]), pageRows[i - 1]);
     patchRows(
       tbody,
@@ -312,7 +308,39 @@ export function patchConfigureTable(main, doc, state) {
   if (deltaHost) deltaHost.innerHTML = renderDeltaList(state.reproject);
 
   const table = main.querySelector("[data-configure-table]");
-  if (table) table.classList.toggle("stale-table", !!state.reprojectRefetching);
+  const isFilteredEmpty = Boolean(state.reproject && rows.length === 0 && (state.ecosystem || (state.query && state.query.trim())));
+  const emptyHost = main.querySelector("[data-configure-empty-host]");
+  if (emptyHost) {
+    if (isFilteredEmpty) {
+      const q = (state.query || "").trim();
+      const eco = (state.ecosystem || "").trim();
+      emptyHost.hidden = false;
+      emptyHost.innerHTML =
+        `<div class="empty-state"><p>${escapeHtml(copy.emptyFilteredText(q, eco, "rated"))}</p>` +
+        `<p class="empty-actions"><button type="button" class="link-button" data-clear-filters="true">${escapeHtml(copy.CLEAR_FILTERS_LABEL)}</button></p></div>`;
+    } else {
+      emptyHost.hidden = true;
+    }
+  }
+  if (table) {
+    table.hidden = isFilteredEmpty;
+    table.classList.toggle("stale-table", !!(state.reprojectRefetching || state.reprojectError));
+  }
+  if (topPagerHost) topPagerHost.hidden = isFilteredEmpty;
+  if (pagerHost) pagerHost.hidden = isFilteredEmpty;
+
+  const errBanner = main.querySelector("[data-configure-error]");
+  if (errBanner) {
+    if (state.reprojectError) {
+      errBanner.hidden = false;
+      errBanner.innerHTML =
+        `${escapeHtml(copy.configureErrorText(state.reprojectError.endpoint, state.reprojectError.status, state.reprojectError.detail))}` +
+        ` <button type="button" class="icon-button" data-configure-retry="true">${escapeHtml(copy.CONFIGURE_RETRY_LABEL)}</button>`;
+    } else {
+      errBanner.hidden = true;
+    }
+  }
+
   const progress = main.querySelector("[data-configure-progress]");
   if (progress) progress.hidden = !state.reprojectRefetching;
 }
@@ -346,8 +374,9 @@ export function renderShell(state) {
     heading +
     controls +
     `<div class="refetch-progress" data-configure-progress="true" hidden></div>` +
+    `<div class="error-banner" role="alert" data-configure-error="true" hidden></div>` +
     `<div class="configure-layout">` +
-    `<div class="configure-table-col"><div data-configure-pager-top-host="true"></div>${renderTableShell()}<div data-configure-pager-host="true"></div></div>` +
+    `<div class="configure-table-col"><div data-configure-empty-host="true" hidden></div><div data-configure-pager-top-host="true"></div>${renderTableShell()}<div data-configure-pager-host="true"></div></div>` +
     `<aside class="configure-delta-col" data-configure-delta-host="true"></aside>` +
     `</div>`
   );
