@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from porchlamp.collect import github_graphql
 from porchlamp.core import constants, gates
 from porchlamp.core.commit_domains import CommitActor, envelope_rows, is_bot
 from porchlamp.core.gates import Gate5WindowBreakdown, GateEvidence, _parse_iso
@@ -252,6 +251,133 @@ def gate_evidence_for(raw_root: Path, basename: str) -> GateEvidence:
     )
 
 
+_EXTERNAL_ASSOCIATIONS: frozenset[str] = frozenset(
+    {"NONE", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR", "CONTRIBUTOR"}
+)
+_MAINTAINER_ASSOCIATIONS: frozenset[str] = frozenset(
+    {"MEMBER", "OWNER", "COLLABORATOR"}
+)
+_SUBSTANTIVE_COMMENT_CHARS: int = 40
+
+
+def _is_bot_node(actor: Mapping[str, Any] | None) -> bool:
+    if not isinstance(actor, Mapping):
+        return False
+    return is_bot(
+        CommitActor(
+            login=str(actor.get("login") or ""),
+            email="",
+            actor_type=str(actor.get("__typename") or ""),
+        )
+    )
+
+
+def _ghost_rate_prs_from_nodes(prs: Sequence[Mapping[str, Any]]) -> list[gates.GhostRatePR]:
+    mergers: set[str] = set()
+    for pr in prs:
+        if not isinstance(pr, Mapping):
+            continue
+        mb = pr.get("mergedBy")
+        login = mb.get("login") if isinstance(mb, Mapping) else None
+        if isinstance(login, str) and login:
+            mergers.add(login.lower())
+
+    out: list[gates.GhostRatePR] = []
+    for pr in prs:
+        if not isinstance(pr, Mapping):
+            continue
+        created_raw = pr.get("createdAt")
+        if not isinstance(created_raw, str):
+            continue
+        try:
+            _parse_iso(created_raw)
+        except (ValueError, TypeError):
+            continue
+
+        author = pr.get("author") if isinstance(pr.get("author"), Mapping) else {}
+        author_login = str(author.get("login") or "").lower()
+        assoc = str(pr.get("authorAssociation") or "").upper()
+        is_external = assoc in _EXTERNAL_ASSOCIATIONS
+        bot_author = _is_bot_node(author)
+
+        best_at: str | None = None
+        best_dt: datetime | None = None
+        for kind, source in (("review", "reviews"), ("comment", "comments")):
+            conn_node = pr.get(source)
+            nodes = conn_node.get("nodes") if isinstance(conn_node, Mapping) else None
+            for raw in nodes if isinstance(nodes, list) else ():
+                if not isinstance(raw, Mapping):
+                    continue
+                raw_author = raw.get("author") if isinstance(raw.get("author"), Mapping) else {}
+                raw_login = str(raw_author.get("login") or "").lower()
+                if _is_bot_node(raw_author):
+                    continue
+                if raw_login and raw_login == author_login:
+                    continue
+                raw_assoc = str(raw.get("authorAssociation") or "").upper()
+                is_maint = raw_assoc in _MAINTAINER_ASSOCIATIONS or (bool(raw_login) and raw_login in mergers)
+                if not is_maint:
+                    continue
+                if kind == "comment" and len(str(raw.get("bodyText") or "")) < _SUBSTANTIVE_COMMENT_CHARS:
+                    continue
+                ts = raw.get("createdAt")
+                if not isinstance(ts, str):
+                    continue
+                try:
+                    dt = _parse_iso(ts)
+                except (ValueError, TypeError):
+                    continue
+                if best_dt is None or dt < best_dt:
+                    best_dt, best_at = dt, ts
+
+        merged_raw = pr.get("mergedAt")
+        merged_at: str | None = None
+        if isinstance(merged_raw, str):
+            try:
+                _parse_iso(merged_raw)
+                merged_at = merged_raw
+            except (ValueError, TypeError):
+                merged_at = None
+
+        closed_raw = pr.get("closedAt")
+        closed_at: str | None = None
+        if isinstance(closed_raw, str):
+            try:
+                _parse_iso(closed_raw)
+                closed_at = closed_raw
+            except (ValueError, TypeError):
+                closed_at = None
+
+        closed_by_maint_at = pr.get("closedByMaintainerAt")
+        if (
+            closed_by_maint_at is None
+            and pr.get("state") == "CLOSED"
+            and not merged_at
+            and pr.get("closedByMaintainer") is True
+        ):
+            closed_by_maint_at = closed_at
+
+        author_created_at = author.get("createdAt") if isinstance(author.get("createdAt"), str) else None
+        num = pr.get("number")
+        out.append(
+            gates.GhostRatePR(
+                created_at=created_raw,
+                is_external=is_external,
+                is_bot_author=bot_author,
+                first_substantive_response_at=best_at,
+                merged_at=merged_at,
+                is_draft=bool(pr.get("isDraft", False)),
+                ready_for_review_at=pr.get("readyForReviewAt") if isinstance(pr.get("readyForReviewAt"), str) else None,
+                closed_at=closed_at,
+                closed_by_author=bool(pr.get("closedByAuthor", False)),
+                closed_by_maintainer_at=closed_by_maint_at if isinstance(closed_by_maint_at, str) else None,
+                author_created_at=author_created_at,
+                number=num if isinstance(num, int) and not isinstance(num, bool) else None,
+            )
+        )
+    return out
+
+
 def black_hole_window_breakdown_from_raw(
     raw_root: Path,
     basename: str,
@@ -306,7 +432,7 @@ def black_hole_window_breakdown_from_raw(
 
     observed_at = fetched_dt if fetched_dt is not None else (anchor_dt if now is not None else None)
 
-    records = github_graphql.ghost_rate_prs_from_window(prs)
+    records = _ghost_rate_prs_from_nodes(prs)
     try:
         return gates.evaluate_gate5_window(records, ref_now, observed_at=observed_at)
     except ValueError:

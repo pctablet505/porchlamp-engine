@@ -190,7 +190,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 skip_pypistats: bool = False,
                 collectors: Optional[frozenset[str]] = None,
                 *,
-                graphql_bulk: bool = True,
+                graphql_bulk: bool = False,
                 skip_ineligible: bool = False) -> dict[str, Any]:
     """Fetch every collector for one repo; return {collector: ok|skip|fail}.
 
@@ -862,8 +862,6 @@ def load_candidates(lines: list[str], limit: Optional[int]) -> list[tuple[str, s
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    from porchlamp.collect.fingerprint import ALL_GATHER_COLLECTORS
-
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, default=10)
     ap.add_argument("--repo", nargs=2, metavar=("OWNER", "NAME"))
@@ -900,9 +898,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--cost-log", type=Path, default=None,
                     help="path to write cost accounting log JSONL")
     a = ap.parse_args(argv)
-    if not a.gh_cli:
-        import os
-        os.environ.setdefault("PORCHLAMP_GH", "http")
+    import os as _os
+    _prev_gh_env = _os.environ.get("PORCHLAMP_GH")
+    if not a.gh_cli and _prev_gh_env is None:
+        _os.environ["PORCHLAMP_GH"] = "http"
+    try:
+        return _run_main(a)
+    finally:
+        if not a.gh_cli and _prev_gh_env is None:
+            _os.environ.pop("PORCHLAMP_GH", None)
+
+
+def _run_main(a: argparse.Namespace) -> int:
+    from porchlamp.collect.fingerprint import ALL_GATHER_COLLECTORS
+
     selected = parse_collectors(a.collectors)
     if a.repo:
         if not valid_ref(a.repo[0], a.repo[1]):

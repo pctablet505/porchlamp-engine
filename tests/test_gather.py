@@ -201,19 +201,21 @@ def test_cli_flags_graphql_bulk_default_and_overrides(
     candidates.write_text(json.dumps({"owner": "a", "name": "b", "ecosystem": "pypi"}) + "\n")
 
     captured_kwargs: list[dict] = []
+    captured_gh_env: list[str | None] = []
 
     def _spy_gather(owner, name, eco, **kwargs):
         captured_kwargs.append(kwargs)
+        captured_gh_env.append(os.environ.get("PORCHLAMP_GH"))
         return {"pr_window": "ok"}
 
     monkeypatch.setattr(gather_mod, "gather_repo", _spy_gather)
 
-    # 1. Default invocation: graphql_bulk is True, PORCHLAMP_GH becomes "http"
+    # 1. Default invocation: graphql_bulk is True, PORCHLAMP_GH is "http" during run
     monkeypatch.delenv("PORCHLAMP_GH", raising=False)
     monkeypatch.setattr(sys, "argv", ["gather.py", "--limit", "1"])
     gather_mod.main()
     assert captured_kwargs[-1]["graphql_bulk"] is True
-    assert os.environ.get("PORCHLAMP_GH") == "http"
+    assert captured_gh_env[-1] == "http"
 
     # 2. --no-graphql-bulk overrides to False
     monkeypatch.setattr(sys, "argv", ["gather.py", "--limit", "1", "--no-graphql-bulk"])
@@ -224,6 +226,7 @@ def test_cli_flags_graphql_bulk_default_and_overrides(
     monkeypatch.delenv("PORCHLAMP_GH", raising=False)
     monkeypatch.setattr(sys, "argv", ["gather.py", "--limit", "1", "--gh-cli"])
     gather_mod.main()
+    assert captured_gh_env[-1] is None
     assert "PORCHLAMP_GH" not in os.environ
 
 
