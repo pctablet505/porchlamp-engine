@@ -47,8 +47,63 @@
         </ul>
         <h2>Where the numbers come from</h2>
         <p>
-          We followed 212,390 pull requests from 110,605 outside contributors to 11,000 projects over six months across npm, PyPI, crates.io, Go, Maven, and systems software: who got an answer, how fast, how many reached a decision, whether first-time contributors came back, and how much other software depends on each project. Black holes, and projects that are archived, unmaintained, unlicensed or not software, are listed but never ranked. The rest are scored on five pillars (Responsiveness, Criticality, Governance, Rigor, Accessibility) and re-weighted for five kinds of contributor (Balanced, First-timer, Career capital, Senior systems, AI-assisted). Every number traces back to a recorded GitHub response and its content hash.
+          We followed 212,390 pull requests from 110,605 outside contributors to 11,000 projects over six months across npm (JavaScript/TypeScript), PyPI (Python), crates.io (Rust), Go, Maven (Java), and systems software: who got an answer, how fast, how many reached a decision, whether first-time contributors came back, and how much other software depends on each project. Black holes, and projects that are archived, unmaintained, unlicensed or not software, are listed but never ranked. Every number traces back to a recorded GitHub response and its content hash (by Rahul Kumar, pctablet505).
         </p>
+        <h2>18 parameters across 5 pillars and 5 contributor personas</h2>
+        <ul>
+          <li><strong>Responsiveness (25%):</strong> Time to First Response (TTFHR), Decision Rate (90d), First-timer Merge Rate, PR Ghost Rate (14d), and Time to Merge (p90).</li>
+          <li><strong>Criticality (25%):</strong> Deduplicated Dependents, OpenSSF Criticality Score, and Monthly Registry Downloads.</li>
+          <li><strong>Governance (20%):</strong> Legal IP Regime (OSI license &amp; CLA/DCO), Elephant Factor, Promotion Ladder, and Bus Factor.</li>
+          <li><strong>Rigor (15%):</strong> OpenSSF Scorecard Pipeline Defenses, AI Policy Posture, and Substantive Review Rate.</li>
+          <li><strong>Accessibility (15%):</strong> Active Good First Issues, Newcomer Conversion, Newcomer Return Rate (90d), and Developer Experience.</li>
+        </ul>
+        <p>
+          Explore rankings by contributor lens:
+          <a href="?persona=balanced">Balanced Leaderboard</a> ·
+          <a href="?persona=first_timer">Best Open-Source Projects for First-Timers</a> ·
+          <a href="?persona=career_capital">Career Capital</a> ·
+          <a href="?persona=senior_systems">Senior Systems</a> ·
+          <a href="?persona=ai_assisted">AI-Assisted Contributors</a> ·
+          <a href="?tab=matrix">Leverage vs. Friction Matrix</a> ·
+          <a href="?tab=methodology">Full Methodology &amp; Verification Hashes</a>
+        </p>
+        <p>
+          Filter by language &amp; package ecosystem:
+          <a href="?eco=pypi">Python (PyPI)</a> ·
+          <a href="?eco=npm">JavaScript &amp; TypeScript (npm)</a> ·
+          <a href="?eco=crates">Rust (crates.io)</a> ·
+          <a href="?eco=go">Go</a> ·
+          <a href="?eco=maven">Java (Maven)</a> ·
+          <a href="?eco=systems">Systems (C/C++/Zig)</a>
+        </p>
+        <h2>Top ranked open-source repositories (Balanced snapshot 2026-10-13c, 3,407 ranked of 11,000 evaluated)</h2>
+        <table>
+          <thead>
+            <tr><th>Rank</th><th>Repository</th><th>Ecosystem</th><th>Porchlamp Score</th><th>Quadrant</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td>meshery/meshery</td><td>npm</td><td>81.09</td><td>Sweet Spot</td></tr>
+            <tr><td>2</td><td>WordPress/gutenberg</td><td>npm</td><td>80.80</td><td>Sweet Spot</td></tr>
+            <tr><td>3</td><td>ggml-org/llama.cpp</td><td>systems</td><td>80.78</td><td>Sweet Spot</td></tr>
+            <tr><td>4</td><td>rust-lang/rust</td><td>crates</td><td>80.69</td><td>Sweet Spot</td></tr>
+            <tr><td>5</td><td>prometheus/prometheus</td><td>go</td><td>79.11</td><td>Sweet Spot</td></tr>
+            <tr><td>6</td><td>servo/rust-smallvec</td><td>crates</td><td>78.98</td><td>Sweet Spot</td></tr>
+            <tr><td>7</td><td>kornia/kornia</td><td>pypi</td><td>78.62</td><td>Sweet Spot</td></tr>
+            <tr><td>8</td><td>rust-lang/libc</td><td>crates</td><td>78.07</td><td>Sweet Spot</td></tr>
+            <tr><td>9</td><td>freeCodeCamp/freeCodeCamp</td><td>npm</td><td>77.50</td><td>Sweet Spot</td></tr>
+            <tr><td>10</td><td>ant-design/ant-design</td><td>npm</td><td>77.49</td><td>Sweet Spot</td></tr>
+            <tr><td>11</td><td>kedacore/keda</td><td>go</td><td>77.00</td><td>Sweet Spot</td></tr>
+            <tr><td>12</td><td>external-secrets/external-secrets</td><td>go</td><td>76.61</td><td>Sweet Spot</td></tr>
+            <tr><td>13</td><td>organicmaps/organicmaps</td><td>systems</td><td>76.39</td><td>Sweet Spot</td></tr>
+            <tr><td>14</td><td>webdriverio/webdriverio</td><td>npm</td><td>76.31</td><td>Sweet Spot</td></tr>
+            <tr><td>15</td><td>apache/airflow</td><td>pypi</td><td>76.09</td><td>Sweet Spot</td></tr>
+            <tr><td>16</td><td>onnx/onnx</td><td>pypi</td><td>75.87</td><td>Sweet Spot</td></tr>
+            <tr><td>17</td><td>matplotlib/matplotlib</td><td>pypi</td><td>75.83</td><td>Sweet Spot</td></tr>
+            <tr><td>18</td><td>kubernetes-sigs/cluster-api</td><td>go</td><td>75.37</td><td>Sweet Spot</td></tr>
+            <tr><td>19</td><td>biomejs/biome</td><td>crates</td><td>75.21</td><td>Sweet Spot</td></tr>
+            <tr><td>20</td><td>moby/moby</td><td>go</td><td>74.85</td><td>Sweet Spot</td></tr>
+          </tbody>
+        </table>
       </article>
     </main>
     <footer class="app-footer" id="app-footer"></footer>
