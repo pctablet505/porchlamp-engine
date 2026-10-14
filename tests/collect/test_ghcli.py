@@ -23,6 +23,7 @@ from typing import Any
 
 import pytest
 
+from phone import httpgate
 from porchlamp.collect import cost, ghcli, net
 from tests.helpers.gate import installed, loopback_gate
 
@@ -627,7 +628,9 @@ def test_multi_token_rotation_when_quota_exhausted(fake: FakeGitHub, monkeypatch
 
 
 def test_cached_gh_auth_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(net, "_gate", None)  # the gh fallback is a workstation feature: no gate installed
+    # A workstation run with the checkout on PYTHONPATH imports ``phone`` (``net._gate`` is set) but installs no gate.
+    monkeypatch.setattr(httpgate, "_GATE", httpgate._IMPORT_GATE)
+    assert net._gate is httpgate and not httpgate.installed()
     calls = []
 
     def fake_subprocess_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -747,9 +750,10 @@ def test_gh_cli_fallback_never_runs_behind_the_gate(authed: FakeGitHub, monkeypa
     monkeypatch.delenv("GH_TOKEN")
     monkeypatch.setattr(ghcli, "DEFAULT_BASE", authed.url)
     spawns = _gh_spawns(monkeypatch, token="token-from-gh-cli")
-    assert net._gate is not None
-    for i in range(2):
-        assert ghcli.run(["api", f"repos/x/y{i}"]).returncode == 0
+    with installed(loopback_gate()):
+        assert net._gate.installed()
+        for i in range(2):
+            assert ghcli.run(["api", f"repos/x/y{i}"]).returncode == 0
     assert spawns == []
     assert len(authed.seen) == 2
     assert all("authorization" not in seen["headers"] for seen in authed.seen)

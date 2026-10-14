@@ -335,7 +335,7 @@ def _configured_tokens(base: str) -> list[str]:
     tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if tok:
         return [tok]
-    if base == DEFAULT_BASE and net._gate is None:  # behind the gate only a token that passed the token check is used
+    if base == DEFAULT_BASE and not (net._gate is not None and net._gate.installed()):  # behind an engine's gate only a token that passed the token check is used
         global _CACHED_GH_CLI_TOKEN
         with _TOKEN_LOCK:
             if _CACHED_GH_CLI_TOKEN is None:
