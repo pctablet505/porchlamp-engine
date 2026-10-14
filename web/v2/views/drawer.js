@@ -166,7 +166,7 @@ export function renderMaintainerBadge(canonicalRow, baseUrl = "") {
     `<span class="identity-label">${escapeHtml(copy.MAINTAINER_BADGE_HEADING)}</span>` +
     `<button type="button" class="reproduce-copy" data-badge-copy="true">${escapeHtml(copy.MAINTAINER_BADGE_COPY_LABEL)}</button>` +
     `</div>` +
-    `<img class="maintainer-badge-preview" src="${escapeHtml(spec.file)}" alt="${escapeHtml(spec.alt)}">` +
+    `<img class="maintainer-badge-preview" src="${escapeHtml(spec.file)}" alt="${escapeHtml(spec.alt)}" height="20">` +
     `<p class="maintainer-badge-note">${escapeHtml(copy.MAINTAINER_BADGE_NOTE)}</p>` +
     `<pre class="maintainer-badge-snippet" data-badge-markdown="true">${escapeHtml(copy.maintainerBadgeMarkdown(canonicalRow, baseUrl))}</pre>` +
     `</div>`
@@ -250,7 +250,8 @@ export function renderPillarRadar(row) {
     const name = copy.PILLAR_NAMES[p] || p;
     const score = dataPoints[i].measured ? row[`p_${p}`].toFixed(1) : copy.MISSING_VALUE;
     const anchor = Math.abs(Math.cos(a)) < 0.2 ? "middle" : Math.cos(a) > 0 ? "start" : "end";
-    return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${anchor}" class="radar-label">${escapeHtml(name)} <tspan class="radar-score">${score}</tspan></text>`;
+    const dyAttr = Math.sin(a) > 0.3 ? ' dy="0.7em"' : "";
+    return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}"${dyAttr} text-anchor="${anchor}" class="radar-label">${escapeHtml(name)} <tspan class="radar-score">${score}</tspan></text>`;
   }).join("");
 
   const markers = dataPoints
@@ -263,7 +264,7 @@ export function renderPillarRadar(row) {
 
   return (
     `<div class="radar-chart-container" aria-hidden="true">` +
-    `<svg class="radar-chart" viewBox="0 0 380 260" role="img" aria-label="5-pillar radar visualization">` +
+    `<svg class="radar-chart" viewBox="-10 10 400 230" role="img" aria-label="5-pillar radar visualization">` +
     gridPolygons +
     spokes +
     polygonHtml +
@@ -461,7 +462,7 @@ function renderPlaybookSection() {
 export function renderDrawer(state, opts = {}) {
   if (!state.repo) return "";
   const [owner, name] = state.repo.split("/");
-  const found = findRow(state, owner, name);
+  const found = owner && name ? findRow(state, owner, name) : null;
 
   if (!found) {
     let body;
@@ -481,10 +482,11 @@ export function renderDrawer(state, opts = {}) {
     } else {
       body = `<div class="empty-state">${escapeHtml(copy.DRAWER_NOT_FOUND_TEXT)}</div>`;
     }
+    const fallbackTitle = name ? `${escapeHtml(owner)}/${escapeHtml(name)}` : escapeHtml(state.repo);
     return (
       `<div class="drawer-backdrop" data-drawer-backdrop="true">` +
       `<div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">` +
-      `<div class="drawer-header"><h1 id="drawer-title">${escapeHtml(owner)}/${escapeHtml(name)}</h1>` +
+      `<div class="drawer-header"><h1 id="drawer-title">${fallbackTitle}</h1>` +
       `<button type="button" class="icon-button" data-drawer-close="true">${escapeHtml(copy.DRAWER_CLOSE_LABEL)}</button></div>` +
       body +
       `</div></div>`
@@ -493,16 +495,20 @@ export function renderDrawer(state, opts = {}) {
 
   // `found` IS the flat `RepoDetailResponse` -- `kind` is derived under the
   // active persona lens (`classifyKindForLens`), and `row` projects the lens's
-  // composite score/coverage/tier when a non-balanced lens is active.
-  const kind = classifyKindForLens(found, state.persona);
-  const row = projectRowForLens(found, state.persona);
+  // composite score/coverage/tier when a non-balanced lens is active on a tab
+  // that exposes the persona selector (`ranked`, `notranked`, `compare`).
+  const lensActiveOnTab =
+    !state.tab || state.tab === "ranked" || state.tab === "notranked" || state.tab === "compare";
+  const activePersona = lensActiveOnTab ? state.persona : "balanced";
+  const kind = classifyKindForLens(found, activePersona);
+  const row = projectRowForLens(found, activePersona);
   const repoKey = `${row.owner}/${row.name}`;
   const githubUrl = copy.drawerGithubUrl(row.owner, row.name);
   const githubLink = `<a class="btn btn-secondary drawer-github-link" href="${escapeHtml(githubUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(copy.DRAWER_GITHUB_LABEL)}</a>`;
   const compareBtn = `<button type="button" class="btn btn-secondary drawer-compare-btn" data-drawer-compare="${escapeHtml(repoKey)}">${escapeHtml(copy.DRAWER_COMPARE_LABEL)}</button>`;
   const closeButton = `<button type="button" class="icon-button" data-drawer-close="true">${escapeHtml(copy.DRAWER_CLOSE_LABEL)}</button>`;
   const headerActions = `<div class="drawer-actions">${githubLink}${compareBtn}${closeButton}</div>`;
-  const identity = renderIdentity(kind, row, state.persona);
+  const identity = renderIdentity(kind, row, activePersona);
 
   const evidenceRows = state.evidenceByRepo[state.repo];
   const evidenceError = evidenceRows ? null : state.evidenceError;
@@ -533,6 +539,7 @@ export function renderDrawer(state, opts = {}) {
   if (kind === "persona-gated") {
     const hasPillarScores = PILLAR_ORDER.some((p) => row[`p_${p}`] != null);
     sections =
+      renderMaintainerBadge(found, opts.siteBaseUrl) +
       (hasPillarScores
         ? `<details><summary>${escapeHtml(copy.DRAWER_SECTION_PILLARS)}</summary>${renderPillarRadar(row)}${renderPillarSummary(row)}${renderEvidenceTable(evidenceRows, evidenceError)}</details>`
         : renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, false)) +
@@ -541,6 +548,7 @@ export function renderDrawer(state, opts = {}) {
   } else if (kind === "unrated") {
     const hasPillarScores = PILLAR_ORDER.some((p) => row[`p_${p}`] != null);
     sections =
+      renderMaintainerBadge(found, opts.siteBaseUrl) +
       (hasPillarScores
         ? renderPillarSection(row, evidenceRows, evidenceError)
         : renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, true)) +
