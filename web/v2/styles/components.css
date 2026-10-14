@@ -962,6 +962,55 @@ p.cell-numeric {
   font-size: var(--text-caption);
 }
 
+/* README badge box, the last thing in the drawer's Composite section. The
+ * preview keeps its own line: the widest badge is 397 px, wider than a phone's
+ * drawer, so it scales down (proportionally) instead of overflowing. */
+.maintainer-badge-box {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--bg-surface-elevated);
+}
+
+.maintainer-badge-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.maintainer-badge-preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-bottom: var(--space-xs);
+}
+
+.maintainer-badge-note {
+  margin: 0 0 var(--space-xs);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+}
+
+.maintainer-badge-snippet {
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: break-word;
+  -webkit-user-select: all;
+  user-select: all;
+}
+
 /* ---- Footer ---- */
 .app-footer {
   display: flex;

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="397" height="20" viewBox="0 0 397 20" role="img" aria-label="Porchlamp: ♦ Sweet Spot · Tier A (capped) · coverage 80–95%">
+<title>Porchlamp: ♦ Sweet Spot · Tier A (capped) · coverage 80–95%</title>
+<clipPath id="porchlamp-badge"><rect width="397" height="20" rx="3" fill="#fff"/></clipPath>
+<g clip-path="url(#porchlamp-badge)">
+<rect width="98" height="20" fill="#0f172a"/>
+<rect x="98" width="299" height="20" fill="#155e75"/>
+</g>
+<rect x="0.5" y="0.5" width="396" height="19" rx="2.5" fill="none" stroke="#64748b"/>
+<g transform="translate(5 2) scale(0.6667)" fill="none" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.2" y="13.2" width="2.4" height="8.4" rx="1" fill="#e2e8f0"/><path d="M4.6 17.6H12.4V15.2" stroke="#e2e8f0"/><path d="M8.6 7.6L12.4 4.2L16.2 7.6Z" fill="#e2e8f0" stroke="#e2e8f0"/><circle cx="12.4" cy="2.9" r="0.8" fill="#e2e8f0"/><rect x="9.4" y="7.6" width="6" height="7.6" rx="0.9" stroke="#e2e8f0"/><rect x="10.9" y="9.1" width="3" height="4.6" rx="1.5" fill="#fbbf24"/><path d="M18.6 9.2L20.8 8.1M18.6 11.4H21.2M18.6 13.6L20.8 14.7" stroke="#fbbf24"/></g>
+<path d="M108 6L112 10L108 14L104 10Z" fill="#6ee7b7"/>
+<g font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+<text x="25" y="14" fill="#f8fafc" font-weight="bold" textLength="65.8" lengthAdjust="spacingAndGlyphs">Porchlamp</text>
+<text x="117" y="14" fill="#ecfeff" textLength="273.2" lengthAdjust="spacingAndGlyphs">Sweet Spot · Tier A (capped) · coverage 80–95%</text>
+</g>
+</svg>

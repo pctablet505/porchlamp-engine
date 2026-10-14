@@ -732,3 +732,76 @@ export function pillarSortTooltip(pillar) {
 export const ONBOARDING_SUBTITLE =
   "Evidence-based open-source repository ranking across 5 pillars: Responsiveness, Criticality, Governance, Rigor, and Accessibility.";
 export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";
+
+// --- Maintainer README badge (Screen C, inside the Composite section) -----
+// Offered when a repository's canonical (balanced) record is rated at tier A
+// or above with no suspicion flag. The image is one of the static files in
+// web/v2/badges/; the Markdown links it to the repository's drawer, which is
+// the part that stays current when a later snapshot changes the rating.
+export const MAINTAINER_BADGE_HEADING = "Maintainer README badge";
+export const MAINTAINER_BADGE_NOTE =
+  "The Balanced rating from this snapshot, for the project's README. The image does not change when the rating does; its link always opens the current rating and its evidence.";
+export const MAINTAINER_BADGE_COPY_LABEL = "Copy Markdown";
+export const MAINTAINER_BADGE_COPIED_LABEL = "Copied";
+
+// U-1 on the image itself: a badge names its tier, "(capped)" when the
+// ceiling binds, and the coverage band behind it (D-MISS-3's bands).
+const BADGE_COVERAGE_TEXT = Object.freeze({ full: "coverage 95–100%", A: "coverage 80–95%" });
+// The tier states a badge image exists for, as tier|coverage band|ceiling.
+// S+ and S never carry a binding ceiling: a ceiling caps the tier at A or B
+// (porchlamp/core/aggregate.py apply_ceiling), so a capped badge is always A.
+const BADGE_TIER_FILES = Object.freeze({
+  "S+|full|open": "tier-s-plus",
+  "S|full|open": "tier-s",
+  "A|full|open": "tier-a",
+  "A|A|capped": "tier-a-capped",
+});
+const BADGE_QUADRANT = "Sweet Spot";
+
+/**
+ * The README badge a repository's record earns, or null. Pass the balanced
+ * record, never a persona projection (U-4): a lens must not mint a badge the
+ * balanced rating does not support. Tier A or above is required; the Sweet
+ * Spot quadrant marks a badge but never earns one. MEASURED on snapshot
+ * 2026-10-13c: "Sweet Spot or tier A+" offered a badge to 1,213 of 3,407
+ * rated repositories, 182 of them tier C; tier A+ with no flag is 65.
+ * `imageText` is what the image says; `alt` adds the score, the exact
+ * coverage and the snapshot id (U-1, U-6) for the README's alt text and title.
+ */
+export function maintainerBadgeSpec(row) {
+  if (!row || !row.eligible || !row.rated) return null;
+  if (Array.isArray(row.suspicion) && row.suspicion.length > 0) return null;
+  if (typeof row.porchlamp !== "number" || typeof row.coverage !== "number") return null;
+  const band = coverageBandForValue(row.coverage);
+  const capped = !!row.tier_ceiling && row.tier === row.tier_ceiling;
+  const tierFile = BADGE_TIER_FILES[`${row.tier}|${band}|${capped ? "capped" : "open"}`];
+  if (!tierFile) return null;
+  const sweetSpot = row.quadrant === BADGE_QUADRANT;
+  const quadrantText = `${QUADRANT_GLYPHS[BADGE_QUADRANT]} ${QUADRANT_LABELS[BADGE_QUADRANT]}`;
+  const tierText = `${COLUMN_TIER} ${tierLabel(row.tier, row.tier_ceiling)}`;
+  const headline = sweetSpot ? `${quadrantText} · ${tierText}` : tierText;
+  // Characters that would end a Markdown alt text or link title early never reach the snippet.
+  const snapshot = row.snapshot_id ? String(row.snapshot_id).replace(/["[\]\\]/g, "") : "";
+  const alt = [
+    `${BRAND_NAME}: ${headline}`,
+    `${COLUMN_PORCHLAMP} ${row.porchlamp.toFixed(2)}`,
+    `${COLUMN_COVERAGE} ${coverageBadgeText(row.coverage)}`,
+    snapshot ? `${SNAPSHOT_ID_LABEL} ${snapshot}` : "",
+  ].filter(Boolean).join(" · ");
+  const id = `${sweetSpot ? "sweet-spot-" : ""}${tierFile}`;
+  return { id, file: `badges/${id}.svg`, imageText: `${headline} · ${BADGE_COVERAGE_TEXT[band]}`, alt };
+}
+
+/**
+ * The README Markdown: the badge image, linked to the repository's drawer on
+ * the public site. `baseUrl` is that site's address (app.js reads it from
+ * index.html), so a badge copied from a local server still points at the
+ * public one.
+ */
+export function maintainerBadgeMarkdown(row, baseUrl = "") {
+  const spec = maintainerBadgeSpec(row);
+  if (!spec) return "";
+  const base = !baseUrl || baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  const target = `${base}?repo=${encodeURIComponent(row.owner)}%2F${encodeURIComponent(row.name)}`;
+  return `[![${spec.alt}](${base}${spec.file})](${target} "${spec.alt}")`;
+}

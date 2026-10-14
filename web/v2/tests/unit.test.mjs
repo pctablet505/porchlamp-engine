@@ -1347,6 +1347,136 @@ test("drawer: renders outbound GitHub link with noopener noreferrer", () => {
   assert.ok(html.includes('rel="noopener noreferrer"'), "drawer link has rel=noopener noreferrer");
 });
 
+// ------------------------------------------------ Maintainer README badge
+// MEASURED on snapshot 2026-10-13c (3,407 rated): "Sweet Spot or tier A+" offered
+// 1,213 repositories a badge, 182 of them tier C, and the tier images named no
+// coverage (U-1) although 44 of the 71 tier-A repositories are capped. A badge is
+// for a balanced tier of A or above (65 repositories); the Sweet Spot marks it.
+import { readdirSync } from "node:fs";
+import { renderMaintainerBadge } from "../views/drawer.js";
+
+const BADGES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "badges");
+// The public site's address is read from index.html's og:url, never written here (this file is scanned for URLs).
+const SITE_BASE = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "index.html"), "utf8")
+  .match(/<meta property="og:url" content="([^"]*)"/)[1];
+const COVERAGE_FULL = "coverage 95\u2013100%";
+const COVERAGE_CEILING_A = "coverage 80\u201395%";
+
+/** A balanced record; FLAT_RATED_DETAIL is tier S, full coverage, in the Sweet Spot. */
+function badgeRow(overrides) {
+  return { ...FLAT_RATED_DETAIL, ...overrides };
+}
+
+// Every tier state a badge image exists for, plain and in the Sweet Spot.
+const BADGE_CASES = [
+  [{ tier: "S+", tier_ceiling: null, coverage: 1.0, quadrant: "Nursery" }, "tier-s-plus"],
+  [{ tier: "S", tier_ceiling: null, coverage: 0.97, quadrant: "Crucible" }, "tier-s"],
+  [{ tier: "A", tier_ceiling: null, coverage: 0.96, quadrant: "Nursery" }, "tier-a"],
+  [{ tier: "A", tier_ceiling: "A", coverage: 0.85, quadrant: "Nursery" }, "tier-a-capped"],
+  [{ tier: "S+", tier_ceiling: null, coverage: 1.0, quadrant: "Sweet Spot" }, "sweet-spot-tier-s-plus"],
+  [{ tier: "S", tier_ceiling: null, coverage: 0.97, quadrant: "Sweet Spot" }, "sweet-spot-tier-s"],
+  [{ tier: "A", tier_ceiling: null, coverage: 0.96, quadrant: "Sweet Spot" }, "sweet-spot-tier-a"],
+  [{ tier: "A", tier_ceiling: "A", coverage: 0.85, quadrant: "Sweet Spot" }, "sweet-spot-tier-a-capped"],
+];
+
+test("maintainer badge: offered for a balanced tier of A or above with no suspicion flag; the Sweet Spot marks a badge but never earns one", () => {
+  for (const [overrides, id] of BADGE_CASES) {
+    const spec = copy.maintainerBadgeSpec(badgeRow(overrides));
+    assert.ok(spec, `${id}: expected a badge`);
+    assert.equal(spec.id, id);
+    assert.equal(spec.file, `badges/${id}.svg`);
+  }
+  // The measured hole: the Sweet Spot below tier A earns nothing.
+  for (const tier of ["B", "C", "D"]) {
+    const row = badgeRow({ tier, tier_ceiling: null, coverage: 0.97, quadrant: "Sweet Spot" });
+    assert.equal(copy.maintainerBadgeSpec(row), null, `Sweet Spot at tier ${tier}`);
+  }
+  assert.equal(copy.maintainerBadgeSpec(badgeRow({ suspicion: ["closed_unread"] })), null, "a flagged row is under review, not promoted");
+  assert.equal(copy.maintainerBadgeSpec(FLAT_GATED_DETAIL), null);
+  assert.equal(copy.maintainerBadgeSpec(FLAT_UNRATED_DETAIL), null);
+  // Guard: a tier whose coverage band has no truthful image gets no badge rather than a wrong one.
+  assert.equal(copy.maintainerBadgeSpec(badgeRow({ tier: "A", tier_ceiling: null, coverage: 0.7 })), null);
+});
+
+test("maintainer badge: each image states its tier, '(capped)' when the ceiling binds, and its coverage band (U-1); no image is orphaned", () => {
+  const mark = `${copy.QUADRANT_GLYPHS["Sweet Spot"]} `;
+  const ids = [];
+  for (const [overrides, id] of BADGE_CASES) {
+    const row = badgeRow(overrides);
+    const spec = copy.maintainerBadgeSpec(row);
+    ids.push(spec.id);
+    const capped = row.tier_ceiling === row.tier;
+    assert.ok(spec.imageText.includes(`Tier ${row.tier}${capped ? " (capped)" : ""} \u00b7 `), `${id}: tier and ceiling in "${spec.imageText}"`);
+    assert.ok(spec.imageText.endsWith(capped ? COVERAGE_CEILING_A : COVERAGE_FULL), `${id}: coverage band in "${spec.imageText}"`);
+    assert.equal(spec.imageText.startsWith(mark), row.quadrant === "Sweet Spot", `${id}: the Sweet Spot mark`);
+
+    const svg = readFileSync(path.join(BADGES_DIR, `${id}.svg`), "utf8");
+    assert.match(svg, /^<svg[^>]*role="img"/, `${id}: an image to assistive technology`);
+    assert.ok(svg.includes(`aria-label="Porchlamp: ${spec.imageText}"`), `${id}: aria-label matches copy.js`);
+    assert.ok(svg.includes(`<title>Porchlamp: ${spec.imageText}</title>`), `${id}: title matches copy.js`);
+    // The diamond is drawn as a shape, so the visible words are imageText without it.
+    const words = spec.imageText.startsWith(mark) ? spec.imageText.slice(mark.length) : spec.imageText;
+    const visible = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]);
+    assert.deepEqual(visible, ["Porchlamp", words], `${id}: the visible words`);
+    assert.ok(svg.includes("#fbbf24"), `${id}: the lamp is lit`);
+  }
+  const files = readdirSync(BADGES_DIR).filter((f) => f.endsWith(".svg")).sort();
+  assert.deepEqual(files, ids.map((id) => `${id}.svg`).sort(), "every badge file is reachable, and only those exist");
+});
+
+test("maintainer badge: the Markdown links the image to the repository's drawer on the public site, with score, coverage and snapshot in alt and title (U-1, U-6)", () => {
+  const row = badgeRow({ porchlamp: 84.5, coverage: 0.85, tier: "A", tier_ceiling: "A", snapshot_id: "2026-10-13c" });
+  const spec = copy.maintainerBadgeSpec(row);
+  assert.equal(
+    spec.alt,
+    "Porchlamp: \u2666 Sweet Spot \u00b7 Tier A (capped) \u00b7 Score 84.50 \u00b7 Coverage 85% \u00b7 Ceiling A \u00b7 Snapshot 2026-10-13c",
+  );
+  const md = copy.maintainerBadgeMarkdown(row, SITE_BASE);
+  assert.equal(md, `[![${spec.alt}](${SITE_BASE}badges/sweet-spot-tier-a-capped.svg)](${SITE_BASE}?repo=riverline%2Fhttpkit "${spec.alt}")`);
+  assert.equal(copy.maintainerBadgeMarkdown(row, SITE_BASE.replace(/\/$/, "")), md, "a base without its trailing slash gives the same links");
+  // Nothing that could end the alt text or the title early reaches the snippet.
+  const hostile = copy.maintainerBadgeSpec({ ...row, snapshot_id: 'x"] [y\\' });
+  assert.ok(!/["[\]\\]/.test(hostile.alt), hostile.alt);
+  assert.equal(copy.maintainerBadgeMarkdown(FLAT_GATED_DETAIL, SITE_BASE), "");
+});
+
+test("maintainer badge: the drawer shows the balanced badge at the end of Composite, never one a persona lens would mint (U-4, D-DEF-2)", () => {
+  const html = renderDrawer(stateWithRepoDetail(FLAT_RATED_DETAIL), { siteBaseUrl: SITE_BASE });
+  const box = html.indexOf('data-maintainer-badge="sweet-spot-tier-s"');
+  const composite = html.indexOf(`<summary>${escapeHtml(copy.DRAWER_SECTION_COMPOSITE)}</summary>`);
+  const pillars = html.indexOf(`<summary>${escapeHtml(copy.DRAWER_SECTION_PILLARS)}</summary>`);
+  assert.ok(composite > -1 && composite < box && box < pillars, "the badge box is inside the Composite section");
+  assert.equal((html.match(/<details[^>]*>/g) || []).length, 5, "a rated drawer still has five sections");
+  assert.ok(html.includes('data-badge-copy="true"') && html.includes('data-badge-markdown="true"'));
+  assert.ok(html.includes(escapeHtml(`${SITE_BASE}?repo=riverline%2Fhttpkit`)), "the Markdown uses the address app.js passes in");
+  assert.ok(html.includes('src="badges/sweet-spot-tier-s.svg"'), "the preview loads from this site");
+
+  // Balanced tier B, tier A under a lens: Composite shows the lens's A, but no badge is minted from it.
+  const lensOnly = {
+    ...FLAT_RATED_DETAIL, owner: "lens-org", name: "lens-repo", porchlamp: 66.1, tier: "B", tier_ceiling: "A", coverage: 0.9,
+    persona_composites: { ai_assisted: { porchlamp: 81.2, tier: "A", coverage: 0.9, tier_ceiling: "A", rated: true } },
+  };
+  const lensHtml = renderDrawer({ ...stateWithRepoDetail(lensOnly), persona: "ai_assisted" }, { siteBaseUrl: SITE_BASE });
+  assert.ok(lensHtml.includes("81.20"), "the lens's own score is shown");
+  assert.ok(!lensHtml.includes("data-maintainer-badge"), "but no badge: the balanced tier is B");
+
+  // Balanced tier S seen through a lens that scores it lower: the badge is still the balanced one.
+  const demoted = {
+    ...FLAT_RATED_DETAIL,
+    persona_composites: { first_timer: { porchlamp: 61.0, tier: "B", coverage: 1.0, tier_ceiling: null, rated: true } },
+  };
+  const demotedHtml = renderDrawer({ ...stateWithRepoDetail(demoted), persona: "first_timer" }, { siteBaseUrl: SITE_BASE });
+  assert.ok(demotedHtml.includes('data-maintainer-badge="sweet-spot-tier-s"'));
+
+  // Unrated under balanced, rated under a lens: no badge either.
+  const personaOnly = {
+    ...FLAT_UNRATED_DETAIL, owner: "ai-org", name: "ai-repo",
+    persona_composites: { ai_assisted: { porchlamp: 78.4, tier: "A", coverage: 0.68, tier_ceiling: "A", rated: true } },
+  };
+  assert.ok(!renderDrawer({ ...stateWithRepoDetail(personaOnly), persona: "ai_assisted" }).includes("data-maintainer-badge"));
+  assert.equal(renderMaintainerBadge(FLAT_GATED_DETAIL, SITE_BASE), "");
+});
+
 test("table: renderColumnHeader renders interactive sort buttons for all 5 pillars", () => {
   const html = renderColumnHeader("-p_rigor", false);
   for (const p of ["responsiveness", "criticality", "governance", "rigor", "accessibility"]) {

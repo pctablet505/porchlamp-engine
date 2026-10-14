@@ -21,6 +21,11 @@
 // since individual parameters may be partially measured even though
 // composite coverage fell below the 0.60 floor.
 //
+// Section 2 ends with the README badge box (`renderMaintainerBadge`) when the
+// repository's balanced record earns one (copy.js `maintainerBadgeSpec`): the
+// badge is the balanced rating whatever lens is active (U-4), and its
+// Markdown points at the public site's address, which app.js passes in.
+//
 // Focus trap and Esc-to-close-and-restore-focus are DOM concerns handled by
 // app.js; this module only produces markup.
 
@@ -127,7 +132,29 @@ function renderIdentity(kind, row, persona) {
   return heading;
 }
 
-function renderComposite(row) {
+/**
+ * The README badge box at the end of the Composite section: a preview of the
+ * image, the Markdown to paste and a copy button (app.js copies the
+ * `[data-badge-markdown]` text). `canonicalRow` is the balanced record, never
+ * the lens projection (U-4); `baseUrl` is the public site's address.
+ */
+export function renderMaintainerBadge(canonicalRow, baseUrl = "") {
+  const spec = copy.maintainerBadgeSpec(canonicalRow);
+  if (!spec) return "";
+  return (
+    `<div class="maintainer-badge-box" data-maintainer-badge="${escapeHtml(spec.id)}">` +
+    `<div class="maintainer-badge-head">` +
+    `<span class="identity-label">${escapeHtml(copy.MAINTAINER_BADGE_HEADING)}</span>` +
+    `<button type="button" class="reproduce-copy" data-badge-copy="true">${escapeHtml(copy.MAINTAINER_BADGE_COPY_LABEL)}</button>` +
+    `</div>` +
+    `<img class="maintainer-badge-preview" src="${escapeHtml(spec.file)}" alt="${escapeHtml(spec.alt)}">` +
+    `<p class="maintainer-badge-note">${escapeHtml(copy.MAINTAINER_BADGE_NOTE)}</p>` +
+    `<pre class="maintainer-badge-snippet" data-badge-markdown="true">${escapeHtml(copy.maintainerBadgeMarkdown(canonicalRow, baseUrl))}</pre>` +
+    `</div>`
+  );
+}
+
+function renderComposite(row, canonicalRow, baseUrl) {
   const capped = !!row.tier_ceiling && row.tier === row.tier_ceiling;
   const cappedNote = capped
     ? `<p>${escapeHtml(copy.TIER_CAPPED_EXPLANATION)}</p>`
@@ -142,6 +169,7 @@ function renderComposite(row) {
     `<p class="cell-numeric">Score ${row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderCoverageBadge(row.coverage)} · ${renderTierCell(row.tier, row.tier_ceiling)}</p>` +
     cappedNote +
     `<p>${renderQuadrant(row.quadrant)} — ${escapeHtml(copy.COORDINATES_LABEL)}: leverage ${lev} (coverage ${levCov}), friction ${fric} (coverage ${fricCov})</p>` +
+    renderMaintainerBadge(canonicalRow, baseUrl) +
     `</details>`
   );
 }
@@ -370,7 +398,12 @@ function renderPlaybookSection() {
   );
 }
 
-export function renderDrawer(state) {
+/**
+ * `opts.siteBaseUrl` is the public site's address for the README badge's
+ * Markdown; app.js reads it from index.html, since this module never reads
+ * the DOM.
+ */
+export function renderDrawer(state, opts = {}) {
   if (!state.repo) return "";
   const [owner, name] = state.repo.split("/");
   const found = findRow(state, owner, name);
@@ -451,7 +484,7 @@ export function renderDrawer(state) {
     sections = renderEvidenceOnlyPillarSection(evidenceRows, evidenceError, true);
   } else {
     sections = (
-      renderComposite(row) +
+      renderComposite(row, found, opts.siteBaseUrl) +
       renderPillarSection(row, evidenceRows, evidenceError) +
       renderPersonaSection(row) +
       renderIntegritySection(row) +
