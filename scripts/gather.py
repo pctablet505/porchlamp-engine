@@ -77,6 +77,9 @@ COLLECTORS: tuple[str, ...] = (
 )
 _META_BLOCK: frozenset[str] = frozenset({"github_meta", "pr_events", "pr_reviews"})
 
+#: Said in the help of the two opt-in ledger flags and on stderr whenever either is active.
+EXPERIMENTAL = "EXPERIMENTAL: not equivalent to a full fetch; do not use for a published snapshot."
+
 
 def parse_collectors(text: str) -> Optional[frozenset[str]]:
     """``--collectors`` value -> the selected set, or ``None`` for everything.
@@ -94,19 +97,20 @@ def parse_collectors(text: str) -> Optional[frozenset[str]]:
 
 
 def _env(collector: str, key: str, source: str, data: Any,
-         http_status: int = 200) -> Path:
+         http_status: int = 200, fetched_at: Optional[str] = None) -> Path:
     """Write one envelope with its hash, status and collector version (`03` section 5).
 
     ``http_status`` records the status the transport actually saw. The ``200``
     default is for the paths whose transport raises on a non-2xx (``gh api``
     exits non-zero, ``urllib`` raises ``HTTPError``), so a response that reached
     them was accepted; a caller that swallows an error must pass the real status.
+    ``fetched_at`` defaults to now; a value derived from another envelope passes that one's.
     """
     return write_envelope(
         DATA / collector / f"{key}.json",
         source=source,
         data=data,
-        fetched_at=datetime.now(timezone.utc).isoformat(),
+        fetched_at=fetched_at or datetime.now(timezone.utc).isoformat(),
         http_status=http_status,
     )
 
@@ -318,40 +322,27 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 status["repo_object"] = "fail"
                 print(f"  WARN repo_object {owner}/{name}: {e}")
 
-    # --- commits_180d (paged, capped, or derived from commits_365d) ---
+    # --- commits_180d (paged, capped) ---
     if not done("commits_180d"):
         with _collector_scope(key, "commits_180d"):
-            c365_path = DATA / "commits_365d" / f"{key}.json"
-            derived_ok = False
-            if c365_path.is_file():
-                try:
-                    c365_data = json.loads(c365_path.read_text(encoding="utf-8")).get("data")
-                    if can_derive_180d_from_365d(c365_data):
-                        derived_rows = derive_commits_180d_rows(c365_data)
-                        _env("commits_180d", key, "derived:commits_365d", derived_rows)
-                        status["commits_180d"] = "ok"
-                        derived_ok = True
-                except Exception:
-                    derived_ok = False
-            if not derived_ok:
-                since = (datetime.now(timezone.utc) - timedelta(days=180)).isoformat()
-                rows: list[dict] = []
-                try:
-                    for page in range(1, COMMIT_PAGES + 1):
-                        time.sleep(SLEEP_REST)
-                        d = _gh(f"repos/{owner}/{name}/commits", "-X", "GET",
-                                "-f", "per_page=100", "-f", f"since={since}",
-                                "-f", f"page={page}") or []
-                        rows.extend({"author_login": (c.get("author") or {}).get("login") or "",
-                                     "date": (c.get("commit") or {}).get("author", {}).get("date")}
-                                    for c in d)
-                        if len(d) < 100:
-                            break
-                    _env("commits_180d", key, "github-rest:commits", rows)
-                    status["commits_180d"] = "ok"
-                except Exception as e:  # review-ok: gate-network — retry on rerun
-                    status["commits_180d"] = "fail"
-                    print(f"  WARN commits {owner}/{name}: {e}")
+            since = (datetime.now(timezone.utc) - timedelta(days=180)).isoformat()
+            rows: list[dict] = []
+            try:
+                for page in range(1, COMMIT_PAGES + 1):
+                    time.sleep(SLEEP_REST)
+                    d = _gh(f"repos/{owner}/{name}/commits", "-X", "GET",
+                            "-f", "per_page=100", "-f", f"since={since}",
+                            "-f", f"page={page}") or []
+                    rows.extend({"author_login": (c.get("author") or {}).get("login") or "",
+                                 "date": (c.get("commit") or {}).get("author", {}).get("date")}
+                                for c in d)
+                    if len(d) < 100:
+                        break
+                _env("commits_180d", key, "github-rest:commits", rows)
+                status["commits_180d"] = "ok"
+            except Exception as e:  # review-ok: gate-network — retry on rerun
+                status["commits_180d"] = "fail"
+                print(f"  WARN commits {owner}/{name}: {e}")
     else:
         status["commits_180d"] = "skip"
 
@@ -529,12 +520,14 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                     c365_data = collect_commits_365d(_page, existing_rows=existing_c365)
                 else:
                     c365_data = collect_commits_365d(_page)
-                _env("commits_365d", key, "github-rest:commits", c365_data)
+                c365_at = datetime.now(timezone.utc).isoformat()
+                _env("commits_365d", key, "github-rest:commits", c365_data, fetched_at=c365_at)
                 status["commits_365d"] = "ok"
-                # Materialize commits_180d if missing and derivable
+                # Materialize commits_180d if missing and derivable, from the commits_365d fetched just now
                 c180_path = DATA / "commits_180d" / f"{key}.json"
                 if not c180_path.is_file() and can_derive_180d_from_365d(c365_data):
-                    _env("commits_180d", key, "derived:commits_365d", derive_commits_180d_rows(c365_data))
+                    _env("commits_180d", key, "derived:commits_365d", derive_commits_180d_rows(c365_data),
+                         fetched_at=c365_at)
                     if status.get("commits_180d") in (None, "fail", "skip") and selected("commits_180d"):
                         status["commits_180d"] = "ok"
             except Exception as e:  # review-ok: gate-network - retry on rerun
@@ -921,9 +914,9 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="skip archived, disabled, stale, unlicensed, non_software, and "
                          "no_external_workflow repos before running downstream collectors")
     ap.add_argument("--incremental-ledgers", action="store_true",
-                    help="merge delta PRs and commits into existing envelopes (W6-3/W6-4)")
+                    help=EXPERIMENTAL + " Merge delta PRs and commits into existing envelopes (W6-3/W6-4)")
     ap.add_argument("--light-author-history", action="store_true",
-                    help="use repo-wide light PR history pagination instead of per-author Search (RFC-0009)")
+                    help=EXPERIMENTAL + " Use repo-wide light PR history pagination instead of per-author Search (RFC-0009)")
     ap.add_argument("--gh-cli", action="store_true",
                     help="use gh CLI subprocesses instead of direct HTTP transport")
     ap.add_argument("--cost-log", type=Path, default=None,
@@ -943,6 +936,10 @@ def main(argv: Optional[list[str]] = None) -> int:
 def _run_main(a: argparse.Namespace) -> int:
     from porchlamp.collect.fingerprint import ALL_GATHER_COLLECTORS
 
+    if a.incremental_ledgers or a.light_author_history:
+        print(EXPERIMENTAL, file=sys.stderr)
+    if a.cost_log:
+        cost.retain_records()
     selected = parse_collectors(a.collectors)
     if a.repo:
         if not valid_ref(a.repo[0], a.repo[1]):

@@ -68,12 +68,11 @@ _POOL: dict[tuple[str, str, int], http.client.HTTPConnection] = {}
 _POOL_IDLE: dict[tuple[str, str, int], list[http.client.HTTPConnection]] = {}
 _POOL_LOCK = threading.Lock()
 
-#: ETag cache mapping URL -> (etag, response_headers_dict, body_text).
-_ETAG_CACHE: dict[str, tuple[str, dict[str, str], str]] = {}
+#: The ETag cache lives only in the SQLite database, when one is configured; nothing is kept in memory.
 _ETAG_DB_PATH: Path | None = None
 _ETAG_CACHE_LOCK = threading.Lock()
 
-#: Cached `gh auth token` when no environment token is set.
+#: Cached `gh auth token` when no environment token is set; "" is a lookup that found none (it is not repeated).
 _CACHED_GH_CLI_TOKEN: str | None = None
 _TOKEN_LOCK = threading.Lock()
 
@@ -152,9 +151,6 @@ def _active_etag_db() -> Path | None:
 
 def _etag_get(url: str) -> tuple[str, dict[str, str], str] | None:
     with _ETAG_CACHE_LOCK:
-        cached = _ETAG_CACHE.get(url)
-        if cached is not None:
-            return cached
         db = _active_etag_db()
         if db is None or not db.is_file():
             return None
@@ -166,10 +162,7 @@ def _etag_get(url: str) -> tuple[str, dict[str, str], str] | None:
                 ).fetchone()
             if row is not None:
                 etag, headers_json, body = row
-                headers_dict = json.loads(headers_json)
-                entry = (str(etag), dict(headers_dict), str(body))
-                _ETAG_CACHE[url] = entry
-                return entry
+                return str(etag), dict(json.loads(headers_json)), str(body)
         except Exception:
             return None
         return None
@@ -177,7 +170,6 @@ def _etag_get(url: str) -> tuple[str, dict[str, str], str] | None:
 
 def _etag_put(url: str, etag: str, headers_dict: dict[str, str], body: str) -> None:
     with _ETAG_CACHE_LOCK:
-        _ETAG_CACHE[url] = (etag, headers_dict, body)
         db = _active_etag_db()
         if db is None:
             return
@@ -209,10 +201,9 @@ def _etag_put(url: str, etag: str, headers_dict: dict[str, str], body: str) -> N
 
 
 def clear_etag_cache() -> None:
-    """Clear the conditional ETag cache."""
+    """Forget the configured ETag database (its rows stay on disk)."""
     global _ETAG_DB_PATH
     with _ETAG_CACHE_LOCK:
-        _ETAG_CACHE.clear()
         _ETAG_DB_PATH = None
 
 
@@ -344,10 +335,11 @@ def _configured_tokens(base: str) -> list[str]:
     tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if tok:
         return [tok]
-    if base == DEFAULT_BASE:
+    if base == DEFAULT_BASE and net._gate is None:  # behind the gate only a token that passed the token check is used
         global _CACHED_GH_CLI_TOKEN
         with _TOKEN_LOCK:
             if _CACHED_GH_CLI_TOKEN is None:
+                _CACHED_GH_CLI_TOKEN = ""
                 try:
                     res = subprocess.run(
                         ["gh", "auth", "token"],
@@ -355,7 +347,7 @@ def _configured_tokens(base: str) -> list[str]:
                         text=True,
                         timeout=10,
                     )
-                    if res.returncode == 0 and res.stdout.strip():
+                    if res.returncode == 0:
                         _CACHED_GH_CLI_TOKEN = res.stdout.strip()
                 except (OSError, subprocess.SubprocessError):
                     pass
@@ -364,10 +356,7 @@ def _configured_tokens(base: str) -> list[str]:
     return []
 
 
-def _select_token(resource: str, base: str | None = None) -> str | None:
-    if base is None:
-        base = _api_base()
-    tokens = _configured_tokens(base)
+def _select_token(resource: str, tokens: list[str]) -> str | None:
     if not tokens:
         return None
     if len(tokens) == 1:
@@ -731,8 +720,8 @@ def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[st
     is_get = (method == "GET" and body is None)
 
     while True:
-        token = _select_token(resource, base)
         tokens = _configured_tokens(base)
+        token = _select_token(resource, tokens)
         token_idx = tokens.index(token) if (token and token in tokens) else None
 
         headers = _request_headers(base, token, body is not None)

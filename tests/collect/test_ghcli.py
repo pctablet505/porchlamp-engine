@@ -7,12 +7,15 @@ so no test reaches the network. A dummy token only.
 
 from __future__ import annotations
 
+import gc
 import json
 import re
 import socket
+import sqlite3
 import subprocess
 import threading
 import time
+import tracemalloc
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -25,6 +28,7 @@ from tests.helpers.gate import installed, loopback_gate
 
 ROOT = Path(__file__).resolve().parents[2]
 DUMMY_TOKEN = "dummy-phone2-token-not-real-0001"
+CANARY_TOKEN = "canary-token-not-real-fixb-7c1e9a"
 NOW = 1000.0
 
 
@@ -128,6 +132,31 @@ def _closed_port_url() -> str:
 
 def _ok(headers: dict[str, str] | None = None, body: str = "{}") -> tuple:
     return (200, headers or {}, body)
+
+
+@pytest.fixture
+def costs_kept():
+    """Cost records are kept in memory only on request (``--cost-log`` asks for them)."""
+    cost.retain_records(True)
+    yield
+    cost.retain_records(False)
+
+
+def _gh_spawns(monkeypatch: pytest.MonkeyPatch, token: str | None = None) -> list[list[str]]:
+    """Replace ``subprocess.run`` and return the list of every argv it was asked to spawn.
+
+    With ``token`` a ``gh auth token`` call prints it; without, there is no ``gh`` binary.
+    """
+    spawns: list[list[str]] = []
+
+    def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        spawns.append(list(argv))
+        if token is None:
+            raise FileNotFoundError(2, "No such file or directory: 'gh'")
+        return subprocess.CompletedProcess(argv, 0, token + "\n", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    return spawns
 
 
 def test_default_mode_runs_the_gh_subprocess_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -484,7 +513,10 @@ def test_graphql_is_not_subject_to_the_rest_path_check(authed: FakeGitHub) -> No
     assert out.returncode == 0 and json.loads(authed.seen[0]["body"])["variables"] == {"owner": "../x?y"}
 
 
-def test_etag_conditional_get_returns_cached_payload_and_records_status_304(fake: FakeGitHub) -> None:
+def test_etag_conditional_get_returns_cached_payload_and_records_status_304(
+    fake: FakeGitHub, tmp_path: Path, costs_kept: None
+) -> None:
+    ghcli.configure_etag_cache(tmp_path / "etag.sqlite")
     cached_payload = json.dumps({"name": "octocat", "id": 123})
     etag = 'W/"abc"'
 
@@ -591,10 +623,11 @@ def test_multi_token_rotation_when_quota_exhausted(fake: FakeGitHub, monkeypatch
         (200, {"x-ratelimit-remaining": "5", "x-ratelimit-reset": str(int(NOW) + 100)}, '{"token": "b3"}')
     ]
     ghcli.run(["api", "repos/x/y"])
-    assert ghcli._select_token("core", fake.url) == "tok_b"
+    assert ghcli._select_token("core", ghcli._configured_tokens(fake.url)) == "tok_b"
 
 
 def test_cached_gh_auth_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(net, "_gate", None)  # the gh fallback is a workstation feature: no gate installed
     calls = []
 
     def fake_subprocess_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
@@ -632,9 +665,9 @@ def test_sqlite_etag_cache_persists_across_in_memory_reset(fake: FakeGitHub, tmp
     assert out1.returncode == 0
     assert out1.stdout == cached_payload
 
-    # Simulate process restart: clear in-memory dict, re-configure SQLite DB
+    # Simulate process restart: forget the configured DB, then re-configure it
     ghcli.clear_etag_cache()
-    assert ghcli._ETAG_CACHE == {}
+    assert ghcli._etag_get(f"{fake.url}/repos/octo/persisted") is None
     ghcli.configure_etag_cache(db_path)
 
     fake.replies = [(304, {"x-ratelimit-remaining": "4800", "x-ratelimit-reset": str(int(NOW) + 3600)}, "")]
@@ -661,3 +694,121 @@ def test_concurrent_pooled_requests_do_not_serialize_under_pool_lock(
     assert ghcli._POOL == {} and ghcli._POOL_IDLE == {}
 
 
+
+
+@pytest.mark.parametrize("with_db", [False, True], ids=["no-db", "db"])
+def test_etag_cache_keeps_no_response_body_in_memory(fake: FakeGitHub, tmp_path: Path, with_db: bool) -> None:
+    """400 distinct GETs of a 128 KB body (51 MB in all) leave under 8 MiB behind, with or without a database."""
+    if with_db:
+        ghcli.configure_etag_cache(tmp_path / "etag.sqlite")
+    body = json.dumps({"tree": "x" * (128 * 1024)})
+    fake.replies = [(200, {"ETag": '"tree-etag"'}, body)]
+    gc.collect()
+    tracemalloc.start()
+    try:
+        before = tracemalloc.get_traced_memory()[0]
+        for i in range(400):
+            out = ghcli.run(["api", f"repos/o/r{i}/git/trees/main"])
+            assert out.returncode == 0 and len(out.stdout) == len(body)
+        del out
+        gc.collect()
+        retained = tracemalloc.get_traced_memory()[0] - before
+    finally:
+        tracemalloc.stop()
+    assert retained < 8 * 2**20, f"{retained / 2**20:.1f} MiB retained after 400 GETs"
+
+
+def test_default_run_keeps_no_cost_record(fake: FakeGitHub) -> None:
+    fake.replies = [_ok()]
+    for i in range(3):
+        assert ghcli.run(["api", f"repos/o/r{i}"]).returncode == 0
+    assert cost.get_records() == []
+
+
+def test_without_a_database_no_if_none_match_is_sent(fake: FakeGitHub) -> None:
+    fake.replies = [(200, {"ETag": '"e1"'}, '{"n": 1}')]
+    for _ in range(2):
+        assert ghcli.run(["api", "repos/octo/cat"]).stdout == '{"n": 1}'
+    assert [("if-none-match" in seen["headers"]) for seen in fake.seen] == [False, False]
+
+
+def test_a_304_returns_the_body_stored_in_the_database(fake: FakeGitHub, tmp_path: Path) -> None:
+    ghcli.configure_etag_cache(tmp_path / "etag.sqlite")
+    fake.replies = [(200, {"ETag": '"e1"'}, '{"n": 1}'), (304, {}, "")]
+    first = ghcli.run(["api", "repos/octo/cat"])
+    second = ghcli.run(["api", "repos/octo/cat"])
+    assert (first.returncode, first.stdout) == (0, '{"n": 1}')
+    assert (second.returncode, second.stdout) == (0, '{"n": 1}')
+    assert fake.seen[1]["headers"]["if-none-match"] == '"e1"'
+
+
+def test_gh_cli_fallback_never_runs_behind_the_gate(authed: FakeGitHub, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A gate is installed (the phone): a token that passed no token check is never taken from ``gh``."""
+    monkeypatch.delenv("GH_TOKEN")
+    monkeypatch.setattr(ghcli, "DEFAULT_BASE", authed.url)
+    spawns = _gh_spawns(monkeypatch, token="token-from-gh-cli")
+    assert net._gate is not None
+    for i in range(2):
+        assert ghcli.run(["api", f"repos/x/y{i}"]).returncode == 0
+    assert spawns == []
+    assert len(authed.seen) == 2
+    assert all("authorization" not in seen["headers"] for seen in authed.seen)
+
+
+def test_a_failed_gh_cli_lookup_is_cached_for_the_process(authed: FakeGitHub, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GH_TOKEN")
+    monkeypatch.setattr(net, "_gate", None)
+    ghcli.close_pool()
+    monkeypatch.setattr(ghcli, "DEFAULT_BASE", authed.url)
+    spawns = _gh_spawns(monkeypatch)
+    for i in range(3):
+        assert ghcli.run(["api", f"repos/x/y{i}"]).returncode == 0
+    assert spawns == [["gh", "auth", "token"]]
+    assert len(authed.seen) == 3
+
+
+def test_each_request_looks_up_its_tokens_once(authed: FakeGitHub, monkeypatch: pytest.MonkeyPatch) -> None:
+    looked_up: list[str] = []
+    real = ghcli._configured_tokens
+
+    def counting(base: str) -> list[str]:
+        looked_up.append(base)
+        return real(base)
+
+    monkeypatch.setattr(ghcli, "_configured_tokens", counting)
+    assert ghcli.run(["api", "repos/x/y"]).returncode == 0
+    assert looked_up == [authed.url]
+
+
+def test_a_token_reaches_no_file_and_no_log_line(
+    authed: FakeGitHub, tmp_path: Path, costs_kept: None,
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], caplog: pytest.LogCaptureFixture,
+) -> None:
+    """With the ETag database and the cost log in use, the token sits in no byte written under the temp dir."""
+    monkeypatch.setenv("GH_TOKEN", CANARY_TOKEN)
+    db_path = tmp_path / "state" / "etag.sqlite"
+    ghcli.configure_etag_cache(db_path)
+    limits = {"x-ratelimit-remaining": "4900", "x-ratelimit-reset": str(int(NOW) + 3600)}
+    authed.replies = [(200, {"ETag": '"e1"', **limits}, '{"ok": true}')]
+    for i in range(3):
+        ghcli.run(["api", f"repos/o/r{i}"])
+    authed.replies = [(304, limits, "")]
+    ghcli.run(["api", "repos/o/r0"])
+    authed.replies = [(500, {}, "server exploded")]
+    ghcli.run(["api", "repos/o/failing"])
+    authed.replies = [_ok(body='{"data": {}}')]
+    ghcli.run(["api", "graphql", "-f", "query={ viewer { login } }"])
+    cost_log = tmp_path / "cost.jsonl"
+    cost.write_cost_log(cost_log)
+
+    assert len(authed.seen) == 6
+    assert all(seen["headers"]["authorization"] == f"Bearer {CANARY_TOKEN}" for seen in authed.seen)
+    written = [p for p in tmp_path.rglob("*") if p.is_file()]
+    assert {db_path, cost_log} <= set(written)
+    assert len(cost_log.read_text(encoding="utf-8").splitlines()) == 6
+    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM http_etag_cache").fetchone()[0] == 3
+    for path in written:
+        assert CANARY_TOKEN.encode() not in path.read_bytes(), path.name
+    captured = capsys.readouterr()
+    assert CANARY_TOKEN not in captured.out + captured.err + caplog.text

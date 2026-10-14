@@ -11,8 +11,20 @@ from porchlamp.collect import cost
 
 
 @pytest.fixture(autouse=True)
-def clean_records() -> None:
+def clean_records():
     cost.clear_records()
+    cost.retain_records(True)
+    yield
+    cost.retain_records(False)
+
+
+def test_records_are_dropped_unless_retention_is_on() -> None:
+    cost.retain_records(False)
+    cost.record_call(endpoint="/a", method="GET", status=200)
+    assert cost.get_records() == []
+    cost.retain_records(True)
+    cost.record_call(endpoint="/a", method="GET", status=200)
+    assert len(cost.get_records()) == 1
 
 
 def test_default_scope_is_unscoped() -> None:

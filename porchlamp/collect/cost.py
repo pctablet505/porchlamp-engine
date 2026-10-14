@@ -39,7 +39,14 @@ _CURRENT_SCOPE: ContextVar[tuple[str, str]] = ContextVar(
 )
 
 _RECORDS: list[CostRecord] = []
+_RETAIN = False
 _LOCK = threading.Lock()
+
+
+def retain_records(on: bool = True) -> None:
+    """Keep every recorded call in memory (``--cost-log`` needs them); off by default, so a long-lived process does not grow."""
+    global _RETAIN
+    _RETAIN = on
 
 
 def current_scope() -> tuple[str, str]:
@@ -70,7 +77,7 @@ def record_call(
     collector: str | None = None,
     timestamp: str | None = None,
 ) -> CostRecord:
-    """Record an API call in the in-memory ledger."""
+    """Record an API call; it joins the in-memory ledger only while ``retain_records`` is on."""
     scope_repo, scope_collector = current_scope()
     if repo_key is None:
         repo_key = scope_repo
@@ -93,8 +100,9 @@ def record_call(
         bytes_in=bytes_in,
         duration_ms=duration_ms,
     )
-    with _LOCK:
-        _RECORDS.append(record)
+    if _RETAIN:
+        with _LOCK:
+            _RECORDS.append(record)
     return record
 
 

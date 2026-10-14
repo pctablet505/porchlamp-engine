@@ -119,20 +119,20 @@ def test_gather_one_black_hole_stops_deep_collectors(
     assert "author_history" not in status
 
 
-def test_commits_180d_derived_from_commits_365d(
+def test_commits_180d_is_not_derived_from_a_commits_365d_envelope_on_disk(
     gather_mod: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When commits_365d envelope is present and valid, commits_180d is derived
+    """A commits_365d envelope left by an earlier run is stale: when commits_365d is not fetched in this call,
 
-    directly without making any REST API calls.
+    commits_180d is fetched by its own collector, as before the derive.
     """
     owner = "org"
     name = "repo"
     key = f"{owner}__{name}"
 
     now = datetime.now(timezone.utc)
-    c365_data = {
+    stale_c365 = {
         "earliest_date": (now - timedelta(days=250)).isoformat(),
         "truncated": False,
         "commits": [
@@ -146,28 +146,17 @@ def test_commits_180d_derived_from_commits_365d(
                 "has_co_authors": False,
                 "has_signed_off_by": False,
             },
-            {
-                "sha": "b" * 40,
-                "author_login": "dev2",
-                "author_email": "dev2@example.com",
-                "author_type": "User",
-                "date": (now - timedelta(days=220)).isoformat(),
-                "committer_date": (now - timedelta(days=220)).isoformat(),
-                "has_co_authors": False,
-                "has_signed_off_by": False,
-            },
         ],
     }
-
-    # Pre-populate commits_365d
-    gather_mod._env("commits_365d", key, "github-rest:commits", c365_data)
-    # Pre-populate github_meta
+    gather_mod._env("commits_365d", key, "github-rest:commits", stale_c365)
     gather_mod._env("github_meta", key, "github-graphql", {"default_branch": "main"})
 
-    def _fail_gh(*args, **kwargs):
-        raise AssertionError(f"Unexpected _gh call: {args}")
-
-    monkeypatch.setattr(gather_mod, "_gh", _fail_gh)
+    landed_since = {
+        "commit": {"author": {"date": (now - timedelta(days=1)).isoformat(), "email": "new@example.com"}, "message": "m"},
+        "author": {"login": "newcomer", "type": "User"},
+    }
+    monkeypatch.setattr(gather_mod, "_gh", lambda *a, **k: [landed_since])
+    monkeypatch.setattr(gather_mod.time, "sleep", lambda s: None)
 
     status = gather_mod.gather_one(
         owner,
@@ -177,13 +166,40 @@ def test_commits_180d_derived_from_commits_365d(
     )
 
     assert status["commits_180d"] == "ok"
-    c180_file = gather_mod.DATA / "commits_180d" / f"{key}.json"
-    assert c180_file.is_file()
-    payload = json.loads(c180_file.read_text(encoding="utf-8"))
-    assert payload["source"] == "derived:commits_365d"
-    rows = payload["data"]
-    assert len(rows) == 1
-    assert rows[0]["author_login"] == "dev1"
+    payload = json.loads((gather_mod.DATA / "commits_180d" / f"{key}.json").read_text(encoding="utf-8"))
+    assert payload["source"] == "github-rest:commits"
+    assert [r["author_login"] for r in payload["data"]] == ["newcomer"]
+
+
+def test_commits_180d_holds_a_commit_that_landed_since_the_last_run(
+    gather_mod: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both collectors refreshed twice with a new commit between the runs: the second commits_180d holds it."""
+    now = datetime.now(timezone.utc)
+
+    def commit(sha: str, days_ago: int, login: str) -> dict:
+        when = (now - timedelta(days=days_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {"sha": sha, "commit": {"author": {"date": when, "email": f"{login}@x.org"}, "message": "m"},
+                "author": {"login": login, "type": "User"}}
+
+    history = [commit(f"{i:040x}", 20 + i, "alice") for i in range(30)]
+
+    def fake_gh(path: str, *flags: str) -> list[dict]:
+        page = int(next(f for f in flags if f.startswith("page=")).split("=")[1])
+        return history[(page - 1) * 100: page * 100]
+
+    monkeypatch.setattr(gather_mod, "_gh", fake_gh)
+    monkeypatch.setattr(gather_mod.time, "sleep", lambda s: None)
+    both = frozenset({"commits_180d", "commits_365d"})
+
+    gather_mod.gather_repo("o", "n", "pypi", force=True, collectors=both)
+    history.insert(0, commit("f" * 40, 1, "bob"))
+    gather_mod.gather_repo("o", "n", "pypi", force=True, collectors=both)
+
+    c180 = json.loads((gather_mod.DATA / "commits_180d" / "o__n.json").read_text(encoding="utf-8"))
+    assert c180["data"][0]["author_login"] == "bob"
+    assert len(c180["data"]) == 31
 
 
 def test_cli_flags_graphql_bulk_default_and_overrides(
@@ -230,29 +246,38 @@ def test_cli_flags_graphql_bulk_default_and_overrides(
     assert "PORCHLAMP_GH" not in os.environ
 
 
-def test_cli_cost_log_written_when_specified(
-    gather_mod: ModuleType,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Specifying --cost-log invokes cost.write_cost_log at exit."""
+@pytest.fixture
+def cost_ledger():
+    """The in-memory cost ledger, empty before and after the test and not retaining at the end of it."""
     from porchlamp.collect import cost
 
-    cost_path = tmp_path / "test_costs" / "gather-cost.jsonl"
     cost.clear_records()
-    cost.record_call(
-        endpoint="repos/a/b",
-        method="GET",
-        status=200,
-        repo_key="a__b",
-        collector="test",
-    )
+    yield cost
+    cost.retain_records(False)
+    cost.clear_records()
 
+
+def _one_candidate_that_records_a_call(gather_mod: ModuleType, monkeypatch: pytest.MonkeyPatch, cost: ModuleType) -> None:
     candidates = gather_mod.DATA / "candidates.jsonl"
     candidates.parent.mkdir(parents=True, exist_ok=True)
     candidates.write_text(json.dumps({"owner": "a", "name": "b", "ecosystem": "pypi"}) + "\n")
 
-    monkeypatch.setattr(gather_mod, "gather_repo", lambda *a, **k: {"pr_window": "ok"})
+    def gather_repo(*args: object, **kwargs: object) -> dict[str, str]:
+        cost.record_call(endpoint="repos/a/b", method="GET", status=200, repo_key="a__b", collector="test")
+        return {"pr_window": "ok"}
+
+    monkeypatch.setattr(gather_mod, "gather_repo", gather_repo)
+
+
+def test_cli_cost_log_written_when_specified(
+    gather_mod: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    cost_ledger: ModuleType,
+) -> None:
+    """Specifying --cost-log keeps the calls made during the run and writes them with cost.write_cost_log at exit."""
+    cost_path = tmp_path / "test_costs" / "gather-cost.jsonl"
+    _one_candidate_that_records_a_call(gather_mod, monkeypatch, cost_ledger)
     monkeypatch.setattr(sys, "argv", ["gather.py", "--limit", "1", "--cost-log", str(cost_path)])
 
     gather_mod.main()
@@ -262,6 +287,41 @@ def test_cli_cost_log_written_when_specified(
     record = json.loads(lines[0])
     assert record["collector"] == "test"
     assert record["repo_key"] == "a__b"
+
+
+def test_cli_keeps_no_cost_record_without_cost_log(
+    gather_mod: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    cost_ledger: ModuleType,
+) -> None:
+    """Without --cost-log nothing is kept: a process that runs gather for days must not grow."""
+    _one_candidate_that_records_a_call(gather_mod, monkeypatch, cost_ledger)
+    monkeypatch.setattr(sys, "argv", ["gather.py", "--limit", "1"])
+
+    gather_mod.main()
+    assert cost_ledger.get_records() == []
+
+
+EXPERIMENTAL = "EXPERIMENTAL: not equivalent to a full fetch; do not use for a published snapshot."
+
+
+@pytest.mark.parametrize("flag", ["--incremental-ledgers", "--light-author-history"])
+def test_experimental_flags_say_so_in_help_and_on_stderr(
+    gather_mod: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    flag: str,
+) -> None:
+    with pytest.raises(SystemExit):
+        gather_mod.main(["--help"])
+    assert f"{flag} {EXPERIMENTAL}" in " ".join(capsys.readouterr().out.split())
+
+    monkeypatch.setattr(gather_mod, "gather_repo", lambda *a, **k: {"pr_window": "ok"})
+    gather_mod.main(["--repo", "a", "b", flag])
+    assert capsys.readouterr().err.splitlines().count(EXPERIMENTAL) == 1
+
+    gather_mod.main(["--repo", "a", "b"])
+    assert EXPERIMENTAL not in capsys.readouterr().err
 
 
 def test_commits_365d_materializes_commits_180d_when_missing(
@@ -307,6 +367,8 @@ def test_commits_365d_materializes_commits_180d_when_missing(
     assert c180_payload["source"] == "derived:commits_365d"
     assert len(c180_payload["data"]) == 1
     assert c180_payload["data"][0]["author_login"] == "dev1"
+    c365_payload = json.loads((gather_mod.DATA / "commits_365d" / f"{key}.json").read_text(encoding="utf-8"))
+    assert c180_payload["fetched_at"] == c365_payload["fetched_at"]
 
 
 def test_gather_one_proceeds_to_deep_when_not_black_hole(

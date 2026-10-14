@@ -129,3 +129,24 @@ def test_file_envelope_store_path_traversal_rejection(tmp_path: Path) -> None:
         store.put("collector", "../evil", source="test", data={})
     with pytest.raises(ValueError):
         store.exists("collector/sub", "key")
+
+
+def test_sqlite_shard_envelope_store_data_survives_close_and_reopen(tmp_path: Path) -> None:
+    """A put is committed: a new store instance over the same directory reads it back."""
+    shards = tmp_path / "sqlite_shards"
+    first = SqliteShardEnvelopeStore(shards, num_shards=4)
+    written = first.put(
+        "github_meta", "owner__repo", source="test", data={"stars": 5}, fetched_at="2026-10-14T00:00:00Z"
+    )
+    first.close()
+
+    second = SqliteShardEnvelopeStore(shards, num_shards=4)
+    loaded = second.get("github_meta", "owner__repo")
+    assert loaded is not None
+    assert loaded.data == {"stars": 5}
+    assert loaded.source == "test"
+    assert loaded.fetched_at == "2026-10-14T00:00:00Z"
+    assert loaded.sha256 == written.sha256
+    assert second.exists("github_meta", "owner__repo") is True
+    assert second.list_keys("github_meta") == ["owner__repo"]
+    second.close()
