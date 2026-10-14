@@ -8,7 +8,7 @@
 import * as copy from "../copy.js";
 import { renderCoverageBadge, renderTierCell } from "../components/badge.js";
 import { COMPARE_MIN, COMPARE_MAX } from "../state.js";
-import { classifyKindForLens, projectRowForLens } from "./drawer.js";
+import { classifyKindForLens, projectRowForLens, deriveTierCeiling } from "./drawer.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -238,7 +238,8 @@ function compositeCell(data, persona = "balanced") {
   const { kind, row } = resolveCompareLens(data, persona);
   if (kind !== "rated" || !row) return `<td>${copy.MISSING_VALUE}</td>`;
   const porchlampVal = row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE;
-  return `<td class="cell-numeric">${porchlampVal} · ${renderTierCell(row.tier, row.tier_ceiling)}</td>`;
+  const ceiling = deriveTierCeiling(row.coverage, row.tier_ceiling);
+  return `<td class="cell-numeric">${porchlampVal} · ${renderTierCell(row.tier, ceiling)}</td>`;
 }
 
 function coverageCell(data, persona = "balanced") {

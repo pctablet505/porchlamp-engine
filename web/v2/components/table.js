@@ -154,6 +154,40 @@ export function renderColumnHeader(sortField, showPersonaDelta) {
   return `<tr>${cells}</tr>`;
 }
 
+/**
+ * Updates `aria-sort`, `.is-active`, and `.sort-arrow` (`↑`/`↓`) in place on
+ * an existing `<thead>` without replacing `thead.innerHTML` (preserving focus).
+ */
+export function syncHeaderSortDom(thead, sortField, doc = thead?.ownerDocument) {
+  if (!thead || typeof thead.querySelectorAll !== "function") return;
+  const activeField = String(sortField || "rank").replace(/^-/, "");
+  const dir = sortDirectionLabel(sortField || "rank");
+  for (const el of thead.querySelectorAll("[data-sort-field]")) {
+    const field = el.dataset?.sortField || (typeof el.getAttribute === "function" ? el.getAttribute("data-sort-field") : null);
+    const isActive = field === activeField;
+    el.classList?.toggle("is-active", isActive);
+    const existingArrow = typeof el.querySelector === "function" ? el.querySelector(".sort-arrow") : null;
+    if (!isActive) {
+      if (typeof el.hasAttribute === "function" ? el.hasAttribute("aria-sort") : true) {
+        el.removeAttribute?.("aria-sort");
+      }
+      if (existingArrow) existingArrow.remove();
+      continue;
+    }
+    if (el.getAttribute?.("aria-sort") !== dir) el.setAttribute?.("aria-sort", dir);
+    const glyph = dir === "ascending" ? "↑" : "↓";
+    if (existingArrow) {
+      if (existingArrow.textContent !== glyph) existingArrow.textContent = glyph;
+    } else if (el.tagName !== "BUTTON" && doc && typeof doc.createElement === "function" && typeof el.appendChild === "function") {
+      const span = doc.createElement("span");
+      span.className = "sort-arrow";
+      span.setAttribute("aria-hidden", "true");
+      span.textContent = glyph;
+      el.appendChild(span);
+    }
+  }
+}
+
 function pillarBarsHtml(row) {
   const pillars = PILLAR_ORDER.map((p) => ({
     id: p,
@@ -212,6 +246,7 @@ function rowAriaLabel(row) {
 
 /** Builds a brand-new `<tr>` DOM node (only for a key not already present). */
 export function createRowElement(doc, row, opts) {
+  const { selected = false } = opts || {};
   const { cells, tied } = rowCells(row, opts);
   const tr = doc.createElement("tr");
   tr.dataset.owner = row.owner;
@@ -220,7 +255,7 @@ export function createRowElement(doc, row, opts) {
   tr.setAttribute("role", "button");
   tr.setAttribute("aria-label", rowAriaLabel(row));
   tr.setAttribute("title", copy.ROW_OPEN_HINT);
-  tr.className = tied ? "row-tied" : "";
+  tr.className = [tied ? "row-tied" : "", selected ? "row-selected" : ""].filter(Boolean).join(" ");
   for (const cell of cells) {
     const td = doc.createElement("td");
     td.dataset.cell = cell.key;
@@ -342,6 +377,7 @@ export function renderCard(row, opts) {
 /** DOM builders for the < 768px card list, windowed via `patchRows` exactly
  * like the desktop table (the keyed-diff path applies at every breakpoint). */
 export function createCardElement(doc, row, opts) {
+  const { selected = false } = opts || {};
   const div = doc.createElement("div");
   div.dataset.owner = row.owner;
   div.dataset.name = row.name;
@@ -350,7 +386,7 @@ export function createCardElement(doc, row, opts) {
   div.setAttribute("aria-label", rowAriaLabel(row));
   div.setAttribute("title", copy.ROW_OPEN_HINT);
   const { html, tied } = cardInnerHtml(row, opts);
-  div.className = `leaderboard-card${tied ? " row-tied" : ""}`;
+  div.className = ["leaderboard-card", tied ? "row-tied" : "", selected ? "row-selected" : ""].filter(Boolean).join(" ");
   div.innerHTML = html;
   div.dataset.rendered = html;
   return div;

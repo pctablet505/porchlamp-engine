@@ -125,9 +125,7 @@ input.control {
 }
 
 .primary-tabs {
-  position: sticky;
-  top: var(--header-height);
-  z-index: 19;
+  position: relative;
   display: flex;
   gap: var(--space-xs);
   padding: 0 var(--space-md);
@@ -488,13 +486,30 @@ input.control {
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {
+  .leaderboard-table {
+    font-size: var(--text-caption);
+  }
+
   .leaderboard-table th,
   .leaderboard-table td {
-    padding: var(--space-xs) 4px;
+    padding: var(--space-xs) 3px;
   }
 
   .pillar-sort-btn {
-    padding: 1px 2px;
+    padding: 1px 1px;
+  }
+
+  .leaderboard-table [data-col="stars"],
+  .leaderboard-table [data-cell="stars"],
+  .leaderboard-table [data-col="suspicion"],
+  .leaderboard-table [data-cell="suspicion"] {
+    display: none;
+  }
+
+  .leaderboard-table td[data-cell="repository"] {
+    max-width: 135px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
@@ -621,7 +636,7 @@ input.control {
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-  padding: var(--space-sm);
+  padding: 8px var(--space-sm);
 }
 
 .leaderboard-card.row-tied {

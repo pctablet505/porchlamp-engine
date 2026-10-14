@@ -215,7 +215,8 @@ export function personaGateReason(code) {
   if (code.startsWith("insufficient_evidence:")) {
     return PERSONA_INSUFFICIENT_EVIDENCE_TEXT;
   }
-  return PERSONA_GATE_COPY[code] || code;
+  const bare = bareUnratedReason(code);
+  return PERSONA_GATE_COPY[code] || GATE_REASON_COPY[code] || UNRATED_REASON_COPY[bare] || code;
 }
 export function personaHiddenDisclosure(count) {
   return `Hidden by this lens (${count})`;
@@ -311,7 +312,11 @@ export function missingValueReason(reason) {
  */
 export function formatParameterValue(value) {
   if (value === null || value === undefined) return MISSING_VALUE;
-  if (typeof value === "number" && Number.isFinite(value) && !Number.isInteger(value)) {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return MISSING_VALUE;
+    if (Object.is(value, -0) || value === 0) return "0";
+    if (Number.isInteger(value)) return String(value);
+    if (Math.abs(value) < 0.0001) return String(Number(value.toPrecision(4)));
     return String(Math.round(value * 10000) / 10000);
   }
   return String(value);
@@ -354,8 +359,8 @@ export function reprojectedAnnouncement(personaName, count) {
 // coverage-like field, ascending for rank/tier. A leading "-" reverses it.
 // First click on an unsorted column applies the default; a second click
 // on the SAME column toggles the "-" prefix.
-export function sortedAnnouncement(columnLabel) {
-  return `Sorted by ${columnLabel}.`;
+export function sortedAnnouncement(columnLabel, direction) {
+  return direction ? `Sorted by ${columnLabel} (${direction}).` : `Sorted by ${columnLabel}.`;
 }
 
 export const KEYMAP_TITLE = "Keyboard shortcuts";

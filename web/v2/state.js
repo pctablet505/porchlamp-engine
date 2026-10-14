@@ -120,6 +120,10 @@ export function defaultState() {
     sort: "rank",
     page: 1,
     pageSize: DEFAULT_PAGE_SIZE,
+    rankedSort: "rank",
+    rankedPage: 1,
+    rankedPageSize: DEFAULT_PAGE_SIZE,
+    leaderboardSignature: null,
     tab: "ranked", // "ranked" | "notranked" | "matrix" | "compare" | "configure" | "methodology"
     repo: null, // "owner/name" | null
     theme: "system", // "system" | "light" | "dark"
@@ -278,7 +282,10 @@ export function weightsEqual(a, b) {
 
 /** The exact key identifying which request a leaderboard payload answers — used to validate the prefetch cache and to detect a stale in-flight response. */
 export function requestSignature(state) {
-  return `${state.persona}|${state.ecosystem}|${state.query}|${state.sort}|${state.page}|${state.pageSize}`;
+  const sort = state.tab === "ranked" ? state.sort : (state.rankedSort ?? state.sort);
+  const page = state.tab === "ranked" ? state.page : (state.rankedPage ?? state.page);
+  const pageSize = state.tab === "ranked" ? state.pageSize : (state.rankedPageSize ?? state.pageSize);
+  return `${state.persona}|${state.ecosystem}|${state.query}|${sort}|${page}|${pageSize}`;
 }
 
 /**
@@ -388,7 +395,11 @@ export function reduce(state, action) {
         (payload.ecosystem !== undefined && payload.ecosystem !== state.ecosystem) ||
         (payload.query !== undefined && payload.query !== state.query);
       const tabSync = {};
-      if (nextTab === "notranked") {
+      if (nextTab === "ranked") {
+        if (payload.page !== undefined) tabSync.rankedPage = payload.page;
+        if (payload.pageSize !== undefined) tabSync.rankedPageSize = payload.pageSize;
+        if (payload.sort !== undefined) tabSync.rankedSort = payload.sort;
+      } else if (nextTab === "notranked") {
         if (payload.page !== undefined) tabSync.notRankedPage = payload.page;
         if (payload.pageSize !== undefined) tabSync.notRankedPageSize = payload.pageSize;
       } else if (nextTab === "configure") {
@@ -399,12 +410,12 @@ export function reduce(state, action) {
       return {
         ...state,
         ...payload,
-        ...tabSync,
         ...(personaChanged
-          ? { notRanked: null, notRankedError: null, notRankedPage: 1 }
+          ? { notRanked: null, notRankedError: null, notRankedPage: 1, rankedPage: 1 }
           : filterChanged
-            ? { notRankedPage: 1, configurePage: 1 }
+            ? { notRankedPage: 1, configurePage: 1, rankedPage: 1 }
             : {}),
+        ...tabSync,
       };
     }
     case "SET_PERSONA":
@@ -414,11 +425,18 @@ export function reduce(state, action) {
         notRanked: null,
         notRankedError: null,
         notRankedPage: 1,
+        rankedPage: 1,
       };
     case "SET_TAB": {
       if (action.tab === state.tab) return state;
       if (action.tab === "notranked") {
-        return { ...state, tab: action.tab, page: state.notRankedPage, pageSize: state.notRankedPageSize };
+        return {
+          ...state,
+          tab: action.tab,
+          page: state.notRankedPage,
+          pageSize: state.notRankedPageSize,
+          sort: "rank",
+        };
       }
       if (action.tab === "configure") {
         return {
@@ -426,18 +444,38 @@ export function reduce(state, action) {
           tab: action.tab,
           page: state.configurePage,
           pageSize: state.configurePageSize,
-          sort: state.configureSort,
+          sort: state.configureSort || "rank",
         };
       }
       if (action.tab === "ranked") {
-        return { ...state, tab: action.tab, page: 1 };
+        return {
+          ...state,
+          tab: action.tab,
+          page: state.rankedPage ?? 1,
+          pageSize: state.rankedPageSize ?? DEFAULT_PAGE_SIZE,
+          sort: state.rankedSort || "rank",
+        };
       }
-      return { ...state, tab: action.tab };
+      return {
+        ...state,
+        tab: action.tab,
+        page: 1,
+        pageSize: DEFAULT_PAGE_SIZE,
+        sort: "rank",
+      };
     }
     case "SET_PAGE":
-      return { ...state, page: action.page };
-    case "SET_PAGE_SIZE":
-      return { ...state, pageSize: action.pageSize, page: action.page ?? state.page };
+      return { ...state, page: action.page, rankedPage: action.page };
+    case "SET_PAGE_SIZE": {
+      const nextPage = action.page ?? state.page;
+      return {
+        ...state,
+        pageSize: action.pageSize,
+        page: nextPage,
+        rankedPageSize: action.pageSize,
+        rankedPage: nextPage,
+      };
+    }
     case "SET_NOTRANKED_PAGE":
       return { ...state, notRankedPage: action.page, page: action.page };
     case "SET_NOTRANKED_PAGE_SIZE": {
@@ -472,6 +510,7 @@ export function reduce(state, action) {
         leaderboardLoading: false,
         leaderboardRefetching: false,
         leaderboard: action.data,
+        leaderboardSignature: action.signature ?? requestSignature(state),
         leaderboardError: null,
       };
     case "LEADERBOARD_ERROR":
@@ -629,7 +668,11 @@ export function writePersistedTheme(storage, theme) {
 export function createStore(initialSearch = "") {
   const parsed = parseSearch(initialSearch);
   let state = { ...defaultState(), ...parsed };
-  if (state.tab === "notranked") {
+  if (state.tab === "ranked") {
+    state.rankedPage = state.page;
+    state.rankedPageSize = state.pageSize;
+    state.rankedSort = state.sort;
+  } else if (state.tab === "notranked") {
     state.notRankedPage = state.page;
     state.notRankedPageSize = state.pageSize;
   } else if (state.tab === "configure") {

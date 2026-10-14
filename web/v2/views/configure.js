@@ -9,7 +9,8 @@
 
 import * as copy from "../copy.js";
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, PAGE_SIZES } from "../state.js";
-import { renderColumnHeader, createRowElement, updateRowElement, rowKey, SORTABLE_COLUMNS } from "../components/table.js";
+import { renderColumnHeader, syncHeaderSortDom, createRowElement, updateRowElement, rowKey, SORTABLE_COLUMNS } from "../components/table.js";
+import { syncPager } from "./leaderboard.js";
 import { patchRows } from "../components/patch.js";
 
 function escapeHtml(value) {
@@ -246,10 +247,10 @@ export function renderPager(page, pageSize, total, { bottom = false } = {}) {
   );
 }
 
-export function renderTableShell() {
+export function renderTableShell(sortField = "rank") {
   return (
     `<table class="leaderboard-table" data-configure-table="true">` +
-    `<thead><tr data-configure-thead="true"></tr></thead>` +
+    `<thead data-configure-thead="true">${renderColumnHeader(sortField, false)}</thead>` +
     `<tbody data-configure-tbody="true"></tbody>` +
     `</table>`
   );
@@ -267,14 +268,10 @@ export function patchConfigureTable(main, doc, state) {
 
   const thead = main.querySelector("[data-configure-thead]");
   if (thead) {
-    const focusedSortField =
-      doc && doc.activeElement && typeof thead.contains === "function" && thead.contains(doc.activeElement)
-        ? doc.activeElement.dataset?.sortField || null
-        : null;
-    thead.innerHTML = renderColumnHeader(state.configureSort || "rank", false);
-    if (focusedSortField && typeof thead.querySelector === "function") {
-      const esc = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(focusedSortField) : focusedSortField;
-      thead.querySelector(`[data-sort-field="${esc}"]`)?.focus?.();
+    if (!thead.querySelector || !thead.querySelector("[data-sort-field]")) {
+      thead.innerHTML = renderColumnHeader(state.configureSort || "rank", false);
+    } else {
+      syncHeaderSortDom(thead, state.configureSort || "rank");
     }
   }
 
@@ -302,9 +299,14 @@ export function patchConfigureTable(main, doc, state) {
   }
 
   const topPagerHost = main.querySelector("[data-configure-pager-top-host]");
-  if (topPagerHost) topPagerHost.innerHTML = renderPager(page, state.configurePageSize, rows.length);
+  if (topPagerHost && (!topPagerHost.querySelector || !topPagerHost.querySelector("[data-configure-pager-status]"))) {
+    topPagerHost.innerHTML = renderPager(page, state.configurePageSize, rows.length);
+  }
   const pagerHost = main.querySelector("[data-configure-pager-host]");
-  if (pagerHost) pagerHost.innerHTML = renderPager(page, state.configurePageSize, rows.length, { bottom: true });
+  if (pagerHost && (!pagerHost.querySelector || !pagerHost.querySelector("[data-configure-pager-status]"))) {
+    pagerHost.innerHTML = renderPager(page, state.configurePageSize, rows.length, { bottom: true });
+  }
+  syncPager(main, page, state.configurePageSize, rows.length, "configure-pager");
 
   const deltaHost = main.querySelector("[data-configure-delta-host]");
   if (deltaHost) deltaHost.innerHTML = renderDeltaList(state.reproject);

@@ -85,6 +85,20 @@ export function classifyKindForLens(found, persona) {
 }
 
 /**
+ * Derives the coverage ceiling band (`null`, `"A"`, or `"B"`) from a persona's
+ * coverage fraction when `PersonaComposite` does not carry `tier_ceiling`
+ * explicitly on the wire (matching `porchlamp/serve/app.py::_no_ceiling_or_band`).
+ */
+export function deriveTierCeiling(coverage, explicitCeiling) {
+  if (explicitCeiling !== undefined) return explicitCeiling;
+  if (typeof coverage !== "number" || !Number.isFinite(coverage)) return null;
+  if (coverage >= 0.95) return null;
+  if (coverage >= 0.8) return "A";
+  if (coverage >= 0.6) return "B";
+  return null;
+}
+
+/**
  * Projects the active persona's composite fields (`porchlamp`, `coverage`,
  * `tier`, `tier_ceiling`, `rated`) onto a shallow copy of `found` when a
  * non-balanced persona lens is active and has a `persona_composites` entry.
@@ -98,7 +112,7 @@ export function projectRowForLens(found, persona) {
     porchlamp: pc.porchlamp,
     coverage: pc.coverage,
     tier: pc.tier,
-    tier_ceiling: pc.tier_ceiling,
+    tier_ceiling: deriveTierCeiling(pc.coverage, pc.tier_ceiling),
     rated: pc.rated,
   };
 }
@@ -194,7 +208,12 @@ export function renderPillarRadar(row) {
 
   const measuredPoints = dataPoints.filter((pt) => pt.measured);
   const polyPoints = measuredPoints.map((pt) => `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`).join(" ");
-  const polygonHtml = measuredPoints.length >= 2 ? `<polygon points="${polyPoints}" class="radar-area" />` : "";
+  const polygonHtml =
+    measuredPoints.length >= 3
+      ? `<polygon points="${polyPoints}" class="radar-area" />`
+      : measuredPoints.length === 2
+        ? `<polyline points="${polyPoints}" class="radar-area" />`
+        : "";
 
   const labels = PILLAR_ORDER.map((p, i) => {
     const a = angles[i];
@@ -333,31 +352,41 @@ function renderPersonaSectionAllGated(row) {
 }
 
 function renderPersonaSection(row) {
-  const entries = Object.entries(row.persona_composites || {});
+  const composites = row.persona_composites || {};
+  const canonicalKeys = Object.keys(copy.PERSONA_NAMES);
+  const extraKeys = Object.keys(composites).filter((k) => !canonicalKeys.includes(k));
+  const orderedKeys = [...canonicalKeys.filter((k) => k in composites), ...extraKeys];
+  const isUnratedGate = typeof row.gate_reason === "string" && row.gate_reason.startsWith("unrated:");
   const fallbackReason =
-    row.unrated_reason || (typeof row.gate_reason === "string" && row.gate_reason.startsWith("unrated:"))
+    row.unrated_reason || isUnratedGate
       ? copy.unratedReasonText(row.unrated_reason || row.gate_reason, row.coverage)
       : row.gate_reason
         ? copy.gateReasonText(row.gate_reason)
         : copy.NOT_RATED_LABEL;
-  const rows = entries.length
-    ? entries
-        .map(([persona, composite]) => {
+  const rows = orderedKeys.length
+    ? orderedKeys
+        .map((persona) => {
+          const composite = composites[persona];
           const gateReason = row.persona_gates ? row.persona_gates[persona] : undefined;
           const name = copy.PERSONA_NAMES[persona] || persona;
           if (gateReason) {
             return `<tr><td>${escapeHtml(name)}</td><td colspan="3">${escapeHtml(copy.personaGateReason(gateReason))}</td></tr>`;
           }
+          const ceiling = deriveTierCeiling(composite.coverage, composite.tier_ceiling);
+          const unratedStatus =
+            row.unrated_reason || isDisplayUnratedGateReason(row.gate_reason)
+              ? copy.unratedReasonText(row.unrated_reason || row.gate_reason, composite.coverage ?? row.coverage)
+              : copy.NOT_RATED_LABEL;
           return (
             `<tr><td>${escapeHtml(name)}</td>` +
             `<td class="cell-numeric">${composite.porchlamp != null ? composite.porchlamp.toFixed(2) : copy.MISSING_VALUE}</td>` +
-            `<td>${renderTierCell(composite.tier, composite.tier_ceiling)}</td>` +
-            `<td>${composite.rated ? escapeHtml(copy.RATED_LABEL) : escapeHtml(copy.NOT_RATED_LABEL)}</td>` +
+            `<td>${renderTierCell(composite.tier, ceiling)}</td>` +
+            `<td>${composite.rated ? escapeHtml(copy.RATED_LABEL) : escapeHtml(unratedStatus)}</td>` +
             `</tr>`
           );
         })
         .join("")
-    : Object.keys(copy.PERSONA_NAMES)
+    : canonicalKeys
         .map((persona) => {
           const gateReason = row.persona_gates ? row.persona_gates[persona] : undefined;
           const name = copy.PERSONA_NAMES[persona] || persona;

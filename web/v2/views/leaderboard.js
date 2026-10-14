@@ -436,6 +436,7 @@ export function patchTableBody(tbody, doc, rows, range, opts) {
         ? createRowElement(doc, item.row, {
             previousRow: item.index > 0 ? rows[item.index - 1] : null,
             showPersonaDelta,
+            selected: selectedRepoKey === rowKey(item.row),
           })
         : createSpacerElement(doc, `__${item.kind}__`, colCount, item.height),
     (node, item) => {
@@ -473,6 +474,7 @@ export function patchCardBody(container, doc, rows, range, opts) {
         ? createCardElement(doc, item.row, {
             previousRow: item.index > 0 ? rows[item.index - 1] : null,
             showPersonaDelta,
+            selected: selectedRepoKey === rowKey(item.row),
           })
         : createCardSpacerElement(doc, `__${item.kind}__`),
     (node, item) => {

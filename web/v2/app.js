@@ -68,7 +68,7 @@ import {
 import { renderDrawer, classifyKindForLens } from "./views/drawer.js";
 import { renderBrand } from "./components/brand.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
-import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel, sortColumnLabel } from "./components/table.js";
+import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel, sortColumnLabel, syncHeaderSortDom } from "./components/table.js";
 import { synthesizeRows } from "./perf-fixtures.js";
 import { renderPrimaryNav, syncPrimaryNav, centerActiveTab } from "./components/primarynav.js";
 import {
@@ -199,7 +199,9 @@ export function boot(win = window, doc = document) {
   /** Fetches whatever `tab` needs that has not already loaded — called on boot, a primary-nav click, popstate, and the footer "verify" link. Idempotent: never re-fetches data that is already present. */
   function loadDataForTab(tab) {
     const state = store.getState();
-    if (tab === "ranked" && !state.leaderboard && !state.leaderboardLoading) loadLeaderboard();
+    const needsLeaderboard =
+      !state.leaderboard || state.leaderboardSignature !== requestSignature(state);
+    if (tab === "ranked" && needsLeaderboard && !state.leaderboardLoading) loadLeaderboard();
     if (tab === "matrix" && !state.matrix && !state.matrixLoading) loadMatrix();
     if (tab === "configure" && !state.reproject && !state.reprojectLoading) runReproject();
     if (tab === "methodology" && !state.methodology && !state.methodologyLoading) loadMethodology();
@@ -322,33 +324,7 @@ export function boot(win = window, doc = document) {
 
   /** Updates only the `<th>` / button `aria-sort` attributes and sort arrows to match `state.sort` — never a shell rebuild. */
   function syncSortHeaders(state) {
-    const headers = main.querySelectorAll("[data-sort-field]");
-    for (const th of headers) {
-      const isActive = state.sort.replace(/^-/, "") === th.dataset.sortField;
-      th.classList.toggle("is-active", isActive);
-      const existingArrow = typeof th.querySelector === "function" ? th.querySelector(".sort-arrow") : null;
-      if (!isActive) {
-        if (th.hasAttribute("aria-sort")) th.removeAttribute("aria-sort");
-        if (existingArrow) existingArrow.remove();
-        continue;
-      }
-      // sortDirectionLabel is the single source of truth for the
-      // effective direction (see components/table.js) — a field's
-      // "best first" convention (descending for scores, ascending for
-      // rank/tier) is not simply "no '-' prefix = ascending".
-      const dir = sortDirectionLabel(state.sort);
-      if (th.getAttribute("aria-sort") !== dir) th.setAttribute("aria-sort", dir);
-      const glyph = dir === "ascending" ? "↑" : "↓";
-      if (existingArrow) {
-        if (existingArrow.textContent !== glyph) existingArrow.textContent = glyph;
-      } else if (doc && typeof doc.createElement === "function" && typeof th.appendChild === "function") {
-        const span = doc.createElement("span");
-        span.className = "sort-arrow";
-        span.setAttribute("aria-hidden", "true");
-        span.textContent = glyph;
-        th.appendChild(span);
-      }
-    }
+    syncHeaderSortDom(main, state.sort, doc);
     syncMobileSortBar(main, state.sort);
   }
 
@@ -566,10 +542,11 @@ export function boot(win = window, doc = document) {
 
     const viewport = currentViewport();
     const shape = shellShape(state, viewport);
-    if (currentTab !== "ranked" || shape !== currentShellShape) {
+    const shellKey = shape === "empty" ? `${shape}:${state.ecosystem}:${state.query}` : shape;
+    if (currentTab !== "ranked" || shellKey !== currentShellShape) {
       main.innerHTML = renderShell(state, viewport);
       currentTab = "ranked";
-      currentShellShape = shape;
+      currentShellShape = shellKey;
       forgetOtherShapes("ranked");
     }
     if (shape.startsWith("table")) patchLeaderboardBody(state);
@@ -821,11 +798,16 @@ export function boot(win = window, doc = document) {
           if (row) kind = "rated";
         }
         if (!row && notRankedResult.ok) {
-          row = notRankedResult.data.gated.find((r) => r.owner === owner && r.name === name);
-          if (row) kind = "gated";
-          if (!row) {
-            row = notRankedResult.data.unrated.find((r) => r.owner === owner && r.name === name);
-            if (row) kind = "unrated";
+          const foundGated = notRankedResult.data.gated.find((r) => r.owner === owner && r.name === name);
+          if (foundGated) {
+            row = { ...foundGated, eligible: false, rated: false };
+            kind = "gated";
+          } else {
+            const foundUnrated = notRankedResult.data.unrated.find((r) => r.owner === owner && r.name === name);
+            if (foundUnrated) {
+              row = { ...foundUnrated, eligible: !foundUnrated.gate_reason, rated: false };
+              kind = "unrated";
+            }
           }
         }
         if (!row) {
@@ -848,9 +830,9 @@ export function boot(win = window, doc = document) {
       persona: state.persona,
       eco: state.ecosystem,
       q: state.query,
-      sort: state.sort,
-      page: state.page,
-      page_size: state.pageSize,
+      sort: state.tab === "ranked" ? state.sort : (state.rankedSort || "rank"),
+      page: state.tab === "ranked" ? state.page : (state.rankedPage ?? 1),
+      page_size: state.tab === "ranked" ? state.pageSize : (state.rankedPageSize ?? 20),
     };
   }
 
@@ -903,7 +885,7 @@ export function boot(win = window, doc = document) {
       announce(copy.apiErrorAnnouncement(result.error.endpoint, result.error.status));
       return;
     }
-    store.dispatch({ type: "LEADERBOARD_OK", data: result.data });
+    store.dispatch({ type: "LEADERBOARD_OK", data: result.data, signature });
     if (requestedFromState.persona !== "balanced" && requestedFromState.persona === store.getState().persona) {
       announce(copy.reprojectedAnnouncement(copy.PERSONA_NAMES[requestedFromState.persona], countRankChanges(previousRows, result.data.rows)));
     }
@@ -1124,7 +1106,6 @@ export function boot(win = window, doc = document) {
     }
     store.dispatch({ type: "SET_CONFIGURE_PAGE", page: newPage });
     pushUrl(store.getState());
-    patchConfigureTable(main, doc, store.getState());
     revealListTop(".configure-table-col");
   }
 
@@ -1132,7 +1113,7 @@ export function boot(win = window, doc = document) {
     if (evt.target.matches("[data-mobile-sort-select]")) {
       const nextSort = evt.target.value;
       changeParamsAndFetch({ sort: nextSort });
-      announce(copy.sortedAnnouncement(sortColumnLabel(nextSort)));
+      announce(copy.sortedAnnouncement(sortColumnLabel(nextSort), sortDirectionLabel(nextSort)));
       return;
     }
     if (evt.target.matches("[data-sort-field]")) return; // handled via click on <th>, not a <select>
@@ -1146,7 +1127,6 @@ export function boot(win = window, doc = document) {
     } else if (evt.target.matches("[data-configure-pager-size-select]")) {
       store.dispatch({ type: "SET_CONFIGURE_PAGE_SIZE", pageSize: parseInt(evt.target.value, 10), page: 1 });
       pushUrl(store.getState());
-      patchConfigureTable(main, doc, store.getState());
       revealListTop(".configure-table-col");
     }
   });
@@ -1209,7 +1189,7 @@ export function boot(win = window, doc = document) {
       const current = store.getState().sort;
       const next = current.startsWith("-") ? current.slice(1) : `-${current}`;
       changeParamsAndFetch({ sort: next });
-      announce(copy.sortedAnnouncement(sortColumnLabel(next)));
+      announce(copy.sortedAnnouncement(sortColumnLabel(next), sortDirectionLabel(next)));
       return;
     }
     // An empty list's ways out: drop the search and the ecosystem, or look in the other list.
@@ -1230,7 +1210,7 @@ export function boot(win = window, doc = document) {
       const tab = tabBtn.dataset.tab;
       store.dispatch({ type: "SET_TAB", tab });
       pushUrl(store.getState());
-      if (tab === "notranked" && !store.getState().notRanked) loadNotRanked();
+      loadDataForTab(tab);
       return;
     }
     const sortHeader = evt.target.closest("[data-sort-field]");
@@ -1246,14 +1226,14 @@ export function boot(win = window, doc = document) {
         const next = current === field ? `-${field}` : field;
         store.dispatch({ type: "SET_CONFIGURE_SORT", sort: next });
         pushUrl(store.getState());
-        announce(copy.sortedAnnouncement(sortColumnLabel(field)));
+        announce(copy.sortedAnnouncement(sortColumnLabel(field), sortDirectionLabel(next)));
         return;
       }
       if (currentTabValue !== "ranked") return; // the header is only ever meaningfully sortable on these two tabs
       const current = store.getState().sort;
       const next = current === field ? `-${field}` : field;
       changeParamsAndFetch({ sort: next });
-      announce(copy.sortedAnnouncement(sortColumnLabel(field)));
+      announce(copy.sortedAnnouncement(sortColumnLabel(field), sortDirectionLabel(next)));
       return;
     }
     if (evt.target.closest("[data-pager-first]")) return goToPage(1);
@@ -1609,7 +1589,6 @@ export function boot(win = window, doc = document) {
           const nextIdx = Math.min(Math.max((curIdx === -1 ? -1 : curIdx) + delta, 0), pageRows.length - 1);
           const nextKey = rowKey(pageRows[nextIdx]);
           store.dispatch({ type: "SET_CURSOR", key: nextKey });
-          patchConfigureTable(main, doc, store.getState());
           focusRowByKey(nextKey);
           return;
         }
@@ -1641,8 +1620,9 @@ export function boot(win = window, doc = document) {
         // navigate a virtual marker index in that mode (panning stays
         // available via wheel and +/- buttons). Below the budget, the
         // SVG disambiguation applies: stage focus pans, marker focus navigates.
-        const visiblePoints = filterMatrixPoints(s.matrix.points, s).filter((p) => !s.matrixQuadrantsHidden[p.quadrant]);
-        const usesCanvas = visiblePoints.length > SVG_MARKER_BUDGET;
+        const allPoints = filterMatrixPoints(s.matrix.points, s);
+        const visiblePoints = allPoints.filter((p) => !s.matrixQuadrantsHidden[p.quadrant]);
+        const usesCanvas = allPoints.length > SVG_MARKER_BUDGET;
         const markerFocused = !usesCanvas && doc.activeElement?.classList.contains("matrix-marker");
         if (!usesCanvas && !markerFocused) {
           // The stage itself (not a marker) has focus: arrow keys PAN

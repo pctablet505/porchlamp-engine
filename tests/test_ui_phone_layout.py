@@ -192,6 +192,40 @@ return {
 """
 )
 
+_MATRIX_CORNERS = (
+    _READY
+    + """
+await until(() => doc.querySelectorAll('.matrix-corner-label').length === 4, 15000);
+await sleep(300);
+const stage = doc.querySelector('.matrix-stage').getBoundingClientRect();
+const midX = stage.left + stage.width / 2;
+const midY = stage.top + stage.height / 2;
+const corners = {};
+for (const cls of ['top-left', 'top-right', 'bottom-left', 'bottom-right']) {
+  const el = doc.querySelector('.matrix-corner-' + cls);
+  const r = el.getBoundingClientRect();
+  corners[cls] = { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+}
+return { midX, midY, corners };
+"""
+)
+
+_CONFIGURE_THEAD = (
+    _READY
+    + """
+const tr0 = await until(() => doc.querySelector('[data-configure-tbody] tr'), 15000);
+await sleep(300);
+const th = doc.querySelector('[data-configure-thead] th');
+const thRect = th.getBoundingClientRect();
+const tr0Rect = tr0.getBoundingClientRect();
+return {
+  thPosition: win.getComputedStyle(th).position,
+  thBottom: thRect.bottom,
+  tr0Top: tr0Rect.top,
+};
+"""
+)
+
 
 @pytest.fixture(scope="module")
 def measured(tmp_path_factory):
@@ -232,8 +266,11 @@ def measured(tmp_path_factory):
         {"name": "chip", "path": "./", **DESKTOP, "script": _HEADER_CHIP},
         {"name": "compare-enter", "path": "./?tab=compare", **DESKTOP, "script": _COMPARE_ENTER % first["name"]},
         {"name": "tablet-ranked", "path": "./", **TABLET, "script": _TABLET_RANKED},
+        {"name": "tablet-persona", "path": "./?persona=senior_systems", **TABLET, "script": _TABLET_RANKED},
         {"name": "mobile-sort", "path": "./", **PHONE, "script": _MOBILE_SORT},
         {"name": "desktop-sticky-nav", "path": "./", **DESKTOP, "script": _DESKTOP_STICKY_NAV},
+        {"name": "matrix-corners", "path": "./?tab=matrix", **DESKTOP, "script": _MATRIX_CORNERS},
+        {"name": "configure-thead", "path": "./?tab=configure", **DESKTOP, "script": _CONFIGURE_THEAD},
     ]
     cases += [
         {"name": f"names-{tab}", "path": path, **DESKTOP, "script": _UNNAMED_CONTROLS % settle}
@@ -311,11 +348,12 @@ def test_the_header_shows_the_snapshot_date_not_a_release_candidate_tag(measured
 
 
 def test_tablet_768px_ranked_table_fits_without_overflow_or_header_overlap(measured):
-    got = measured["tablet-ranked"]
-    assert got["innerWidth"] == 768, got
-    assert got["scrollWidth"] <= got["innerWidth"], got
-    assert got["visibleHeaderCount"] >= 6, got
-    assert got["overlaps"] == [], got
+    for key in ("tablet-ranked", "tablet-persona"):
+        got = measured[key]
+        assert got["innerWidth"] == 768, got
+        assert got["scrollWidth"] <= got["innerWidth"], got
+        assert got["visibleHeaderCount"] >= 6, got
+        assert got["overlaps"] == [], got
 
 
 def test_phone_ranked_shows_mobile_sort_bar(measured):
@@ -329,3 +367,17 @@ def test_desktop_primary_nav_stays_sticky_below_header(measured):
     assert got["position"] == "sticky", got
     assert got["topPx"] >= 40, got
 
+
+def test_matrix_corner_labels_sit_in_all_four_corners(measured):
+    got = measured["matrix-corners"]
+    c = got["corners"]
+    assert c["top-left"]["cx"] < got["midX"] and c["top-left"]["cy"] < got["midY"], got
+    assert c["top-right"]["cx"] > got["midX"] and c["top-right"]["cy"] < got["midY"], got
+    assert c["bottom-left"]["cx"] < got["midX"] and c["bottom-left"]["cy"] > got["midY"], got
+    assert c["bottom-right"]["cx"] > got["midX"] and c["bottom-right"]["cy"] > got["midY"], got
+
+
+def test_configure_sticky_thead_does_not_overlap_first_row_at_scroll_zero(measured):
+    got = measured["configure-thead"]
+    assert got["thPosition"] == "sticky", got
+    assert got["thBottom"] <= got["tr0Top"] + 1, got

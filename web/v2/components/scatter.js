@@ -244,8 +244,12 @@ export function renderFocusOverlaySvg(point, domainMin = 0, domainMax = 0, viewB
   // overlay match the REAL marker's own stars-scaled radius, with a small
   // constant bump so the focus ring stays visible over the canvas layer
   // regardless of size — the highlighted marker never changes size on
-  // focus/hover.
-  const r = radiusForStars(point.stars_audited, domainMin, domainMax) + 0.8;
+  // focus/hover. Scale by `span / 100` so when `viewBox` is zoomed in, the
+  // SVG overlay stays the same pixel radius as the unscaled canvas dot.
+  const vbParts = String(viewBox).trim().split(/\s+/).map(Number);
+  const span = vbParts.length === 4 && Number.isFinite(vbParts[2]) && vbParts[2] > 0 ? vbParts[2] : 100;
+  const zoomRatio = span / 100;
+  const r = (radiusForStars(point.stars_audited, domainMin, domainMax) + 0.8) * zoomRatio;
   return (
     `<svg class="matrix-svg matrix-focus-overlay" viewBox="${escapeHtml(viewBox)}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">` +
     `<g class="matrix-marker ${cls} marker-focused" transform="translate(${toSvgX(point.friction)},${toSvgY(point.leverage)})">` +
