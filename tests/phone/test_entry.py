@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import time
 import urllib.request
+import urllib.response
+from http.client import HTTPMessage
 from pathlib import Path
 
 import pytest
@@ -14,6 +17,7 @@ import pytest
 from phone import entry, httpgate, runner
 from phone.entry import Engine
 from phone.httpgate import HostRefused, WouldBlock
+from porchlamp.collect import ghcli
 from porchlamp.collect import net as collect_net
 from tests.helpers.fakes import FakeHTTP, github_responder, loopback_gate_options
 from tests.helpers.rig import GH, LAN, T0, WIFI, Rig, leaks
@@ -216,6 +220,54 @@ def test_remove_tokens_forgets_both_and_stops_the_listener_and_deletes_nothing(t
     assert r.eng.redactor(LAN) == LAN                                    # forgotten: no exact secret is held any more
 
 
+LIST_CANARY = "ghp_CANARYlist0123456789abcdefABCDEFG"
+ENV_CANARY = "ghp_CANARYenv00123456789abcdefABCDEFGH"
+TOKEN_ENV = ("PORCHLAMP_GH_TOKENS", "GITHUB_TOKEN")
+
+
+class RecordingOpener:
+    """ghcli's opener, replaced: records each request's Authorization header and answers 200 with ``{}``."""
+
+    def __init__(self) -> None:
+        self.auth: list[str | None] = []
+
+    def open(self, req, timeout=None):
+        self.auth.append(req.get_header("Authorization"))
+        return urllib.response.addinfourl(io.BytesIO(b"{}"), HTTPMessage(), req.full_url, 200)
+
+
+def test_tokens_env_cannot_outrank_accepted_token(tmp_path, github, monkeypatch):
+    opener = RecordingOpener()
+    monkeypatch.setattr(ghcli, "_OPENER", opener)
+    r = token_rig(tmp_path, github)
+    assert json.loads(r.eng.test_token(GH))["state"] == "accepted"
+    r.eng.stop()                                                         # Start again: the token is the same, so only start() pops
+    monkeypatch.setenv("PORCHLAMP_GH_TOKENS", f"{LIST_CANARY},{LIST_CANARY}-2")
+    monkeypatch.setenv("GITHUB_TOKEN", ENV_CANARY)
+    r.eng.start(GH, LAN)
+    assert r.eng.controls.block_reason("api.github.com") is None         # so the request below cannot wait
+    assert ghcli.run(["api", "repos/o/n"]).returncode == 0
+    assert opener.auth == [f"Bearer {GH}"]                               # the accepted token, and no canary in any header
+    assert [n for n in TOKEN_ENV if n in os.environ] == []
+
+
+def test_set_tokens_pops_tokens_env(tmp_path, github, monkeypatch):
+    r = token_rig(tmp_path, github)
+    monkeypatch.setenv("PORCHLAMP_GH_TOKENS", LIST_CANARY)
+    monkeypatch.setenv("GITHUB_TOKEN", ENV_CANARY)
+    r.eng.set_tokens(GH + "-new", LAN)                                   # a different token: GH_TOKEN is popped, so are they
+    assert [n for n in TOKEN_ENV if n in os.environ] == []
+
+
+def test_forget_tokens_clears_token_env(tmp_path, github, monkeypatch):
+    r = token_rig(tmp_path, github)
+    assert json.loads(r.eng.test_token(GH))["state"] == "accepted" and os.environ["GH_TOKEN"] == GH
+    monkeypatch.setenv("PORCHLAMP_GH_TOKENS", LIST_CANARY)
+    monkeypatch.setenv("GITHUB_TOKEN", ENV_CANARY)
+    assert json.loads(r.eng.danger("remove_tokens", "remove_tokens"))["ok"] is True
+    assert [n for n in ("GH_TOKEN", *TOKEN_ENV) if n in os.environ] == []
+
+
 # ---- danger ---------------------------------------------------------------------------------------------------------
 def populated(tmp_path) -> Rig:
     r = Rig(tmp_path)
@@ -362,21 +414,14 @@ def test_no_progress_for_twenty_five_minutes_while_working_raises_stuck_once_and
     assert "Progress is back" in [e["text"] for e in r.eng.timeline.list(0, 3)]
 
 
-def test_progress_in_the_folders_or_a_finished_repo_keeps_it_from_being_stuck(tmp_path):
+def test_a_finished_repo_keeps_it_from_being_stuck(tmp_path):
     r, restarts = working(tmp_path)
     r.eng.tick()
-    for minute in range(1, 60):
+    for _ in range(59):
         r.clock.advance(60)
-        r.envelopes("pr_window", minute - 1, minute)             # one envelope a minute
+        r.eng._runner_log("pallets/flask [pypi]: OK")            # gather says it finished a repo
         r.eng.tick()
     assert restarts.calls == 0 and r.eng.stuck is False
-    r2, restarts2 = working(tmp_path / "second")
-    r2.eng.tick()
-    for _ in range(59):
-        r2.clock.advance(60)
-        r2.eng._runner_log("pallets/flask [pypi]: OK")            # gather says it finished a repo
-        r2.eng.tick()
-    assert restarts2.calls == 0 and r2.eng.stuck is False
 
 
 def test_a_pause_a_wait_or_a_rate_limit_is_not_stuck_and_resume_starts_the_clock_afresh(tmp_path):
@@ -525,6 +570,18 @@ def test_a_full_cycle_runs_the_selected_steps_only_and_tells_the_timeline(tmp_pa
         assert wait_until(lambda: "Idle, next cycle due" in eng.techlog.read_text(), 10)
     finally:
         eng.stop()
+
+
+def test_step_done_event_carries_the_counts(tmp_path):
+    r = Rig(tmp_path)
+    r.eng._notify("step_done", layer="L2", checked=11000, stopped=1131)
+    r.eng._notify("step_done", layer="L1", checked=40, stopped=0)
+    r.eng._notify("step_done", layer="L0")                            # a run without a state has no counts to tell
+    newest, middle, oldest = r.eng.timeline.list(0, 3)
+    assert (oldest["text"], oldest["detail"]) == ("Finished step 3 of 7: Dependents and releases",
+                                                  "11,000 projects checked \u00b7 1,131 need only the pull-request check")
+    assert (middle["text"], middle["detail"]) == ("Finished step 1 of 7: Pull requests", "40 projects checked")
+    assert (newest["text"], newest["detail"]) == ("Finished step 2 of 7: Project details", "")
 
 
 def test_a_gatherer_that_raises_with_the_secret_in_its_message_leaves_no_secret_behind(tmp_path):

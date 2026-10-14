@@ -4,14 +4,22 @@ diff against the workstation originals (only allowed hunks may differ)."""
 from __future__ import annotations
 
 import difflib
+import hashlib
+import json
 import os
 import re
 import subprocess
 import sys
+import tarfile
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from phone import archive, runner
+from porchlamp.collect import github_graphql, governance
+from porchlamp.collect.envelope import write_envelope
 from tests.phone import make_home
 
 REPO = Path(__file__).resolve().parents[2]
@@ -190,3 +198,154 @@ def test_runner_diff_against_original_only_in_allowed_hunks():
                 rejected.append(f"{phone.name}: {line}")
     assert checked > 0
     assert rejected == [], "\n".join(rejected)
+
+
+# ---- the engine runner's per-step argv: the black-hole stop goes to the deep steps only (A-2) ------------------------
+BASE = ["--all", "--graphql-bulk"]
+SKIP = "--skip-ineligible"
+LAYER_ARGV = {                       # all seven pinned: the flag is on L2, L3g, L3c, L4 and LK, and never anywhere else
+    "L1": [*BASE, "--collectors", "pr_window"],
+    "L0": [*BASE, "--collectors", "github_meta,pr_events,pr_reviews,contributors,actions_runs,tree,commits_180d"],
+    "L2": [*BASE, "--collectors", "repo_object,gfi,dependents,releases,runs", SKIP],
+    "L3g": [*BASE, "--collectors", "governance", SKIP],
+    "L3c": [*BASE, "--collectors", "commits_365d,issues_counts", SKIP],
+    "L4": [*BASE, "--collectors", "author_history", SKIP],
+    "LK": [*BASE, "--collectors", "depsdev,scorecard,downloads", SKIP],
+}
+
+
+def _argv_per_layer(tmp_path: Path) -> dict[str, list[list[str]]]:
+    """Every argv ``run_layer`` hands the gatherer, for each of the seven steps (a stub gatherer that always agrees)."""
+    seen: dict[str, list[list[str]]] = {}
+    for layer, cols in [*runner.MAIN_LAYERS, runner.KEYLESS_LAYER]:
+        calls = seen.setdefault(layer, [])
+
+        def gather_main(argv: list[str], calls: list[list[str]] = calls) -> int:
+            calls.append(list(argv))
+            print("done: 1 clean, 0 with failures")
+            return 0
+
+        assert runner.run_layer(tmp_path / "home", layer, cols, gather_main, free_gb=lambda _h: 100.0,
+                                log=lambda _line: None) == 0
+    return seen
+
+
+def test_layer_argv_exact(tmp_path):
+    seen = _argv_per_layer(tmp_path)
+    assert {layer: runs[0] for layer, runs in seen.items()} == LAYER_ARGV
+    assert all(argv == runs[0] for runs in seen.values() for argv in runs)       # every pass of a step alike
+
+
+def test_no_dirty_flag_any_layer(tmp_path):
+    seen = _argv_per_layer(tmp_path)
+    assert len(seen) == 7 and all(runs for runs in seen.values())
+    assert [layer for layer, runs in seen.items() if any("--dirty" in argv for argv in runs)] == []
+
+
+def _write_black_hole(raw: Path) -> None:
+    """o/bh's pr_window envelope confirms a black hole: 12 outside PRs, 30 days old, no maintainer answer (as in
+    probes/p4_blackhole_progress.py)."""
+    now = datetime.now(timezone.utc)
+    created = (now - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    prs = [{"number": i, "createdAt": created, "closedAt": None, "mergedAt": None, "state": "OPEN", "isDraft": False,
+            "mergedBy": None, "author": {"__typename": "User", "login": f"ext{i}", "createdAt": "2015-01-01T00:00:00Z"},
+            "authorAssociation": "NONE", "reviews": {"nodes": []}, "comments": {"nodes": []},
+            "timelineItems": {"nodes": []}} for i in range(1, 13)]
+    write_envelope(raw / "pr_window" / "o__bh.json", "github-graphql:pr_window",
+                   {"window_anchor": now.isoformat(), "window_days": 180, "prs": prs, "derived": []}, now.isoformat())
+
+
+@pytest.mark.usefixtures("clean_env")
+def test_black_hole_stops_deep_step_not_pr_window(tmp_path, monkeypatch):
+    home = tmp_path / "phone"
+    (home / "raw").mkdir(parents=True)
+    (home / "raw" / "candidates.jsonl").write_text(
+        "".join(json.dumps({"owner": "o", "name": n, "ecosystem": "pypi"}) + "\n" for n in ("bh", "ok")),
+        encoding="utf-8")
+    _write_black_hole(home / "raw")                                              # last cycle's envelope, staged away by L1
+    gather = runner.load_gather(REPO, home)                                      # the real scripts/gather.py
+    for name in ("SLEEP_REST", "SLEEP_KEYLESS", "SLEEP_PYPISTATS"):
+        monkeypatch.setattr(gather, name, 0.0)
+    window: list[str] = []
+    deep: list[str] = []
+
+    def collect_pr_window(raw_dir, owner, name, **kwargs):
+        window.append(f"{owner}/{name}")
+        if name == "bh":
+            _write_black_hole(Path(raw_dir))                                     # the fresh fetch confirms it again
+        return "ok"
+
+    def collect_governance(raw_dir, owner, name, force=False, graphql_transport=None):
+        deep.append(f"{owner}/{name}")
+        write_envelope(Path(raw_dir) / "governance" / f"{owner}__{name}.json", "stub", {"files": {}}, "2026-10-14T00:00:00Z")
+        return "ok"
+
+    monkeypatch.setattr(github_graphql, "collect_pr_window", collect_pr_window)
+    monkeypatch.setattr(governance, "collect_governance", collect_governance)
+    log: list[str] = []
+    kw = {"free_gb": lambda _h: 100.0, "log": log.append}
+    assert runner.run_layer(home, "L1", "pr_window", gather.main, **kw) == 0
+    assert {"o/bh", "o/ok"} <= set(window)                                       # the pull-request fetch runs for the black hole
+    assert runner.run_layer(home, "L3g", "governance", gather.main, **kw) == 0
+    assert deep == ["o/ok"]                                                      # the deep collector is not reached for it
+    assert any("o/bh" in line and "stopped at black_hole" in line for line in log)
+
+
+# ---- the engine runner builds a step's archive when the step completes (A-7) --------------------------------------
+def _writing_gatherer(home: Path):
+    """A stub gatherer: one envelope in each selected collector's folder, then an agreeing done line."""
+    def gather_main(argv: list[str]) -> int:
+        for collector in argv[argv.index("--collectors") + 1].split(","):
+            (home / "raw" / collector).mkdir(parents=True, exist_ok=True)
+            (home / "raw" / collector / "o__a.json").write_text("{}", encoding="utf-8")
+        print("done: 1 clean, 0 with failures")
+        return 0
+    return gather_main
+
+
+def test_step_completion_prebuilds_archive(tmp_path):
+    home = tmp_path / "home"
+    assert runner.run_layer(home, "L1", "pr_window", _writing_gatherer(home), free_gb=lambda _h: 100.0,
+                            log=lambda _line: None) == 0
+    out, meta = home / "archives" / "L1.tar.gz", home / "archives" / "L1.meta.json"
+    assert out.is_file() and meta.is_file()
+    with tarfile.open(out) as tar:
+        assert tar.getnames() == ["raw/pr_window/o__a.json"]
+    # the manifest the puller asks for now finds the archive current: it is not built again
+    t0 = time.time()
+    os.utime(home / "state" / "refresh" / "L1.complete", (t0 - 100, t0 - 100))
+    os.utime(out, (t0 - 50, t0 - 50))
+    stamp = out.stat().st_mtime_ns
+    manifest = archive.write_manifest(home)
+    assert out.stat().st_mtime_ns == stamp
+    assert manifest["layers"]["L1"]["sha256"] == hashlib.sha256(out.read_bytes()).hexdigest()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can write into a read-only folder")
+def test_archive_build_failure_does_not_stop_cycle(tmp_path):
+    home = tmp_path / "home"
+    (home / "archives").mkdir(parents=True)
+    (home / "archives").chmod(0o555)
+    log: list[str] = []
+    try:
+        for layer, cols in (("L1", "pr_window"), ("L0", "github_meta,tree")):
+            assert runner.run_layer(home, layer, cols, _writing_gatherer(home), free_gb=lambda _h: 100.0,
+                                    log=log.append) == 0
+    finally:
+        (home / "archives").chmod(0o755)
+    assert (home / "state" / "refresh" / "L1.complete").is_file() and (home / "state" / "refresh" / "L0.complete").is_file()
+    assert [line.split(":")[0] for line in log if "the pull builds it" in line] == ["archive for L1 not built",
+                                                                                    "archive for L0 not built"]
+    assert not list((home / "archives").glob("*.tar.gz"))
+    assert sorted(archive.write_manifest(home)["layers"]) == ["L0", "L1"]            # and the pull does build them
+
+
+def test_archive_build_bug_is_not_swallowed(tmp_path, monkeypatch):
+    def build_archive(_home, _layer):
+        raise ValueError("a bug, not a full disk")
+
+    monkeypatch.setattr(archive, "build_archive", build_archive)
+    home = tmp_path / "home"
+    with pytest.raises(ValueError):
+        runner.run_layer(home, "L1", "pr_window", _writing_gatherer(home), free_gb=lambda _h: 100.0,
+                         log=lambda _line: None)

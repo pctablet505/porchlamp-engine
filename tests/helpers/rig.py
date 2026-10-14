@@ -72,7 +72,7 @@ class Rig:
         rs = self.eng.runstate
         rs.mode, rs.layer, rs.run = "running", layer, run
         rs.collectors = tuple(dict(runner.MAIN_LAYERS + [runner.KEYLESS_LAYER])[layer].split(","))
-        self.eng.progress.tick(layer, rs.collectors, active=True, force=True)
+        self.eng.progress.tick(layer, rs.run, rs.checked, rs.total, active=True, force=True)
 
     def status(self) -> dict:
         return json.loads(self.eng.status())

@@ -40,6 +40,7 @@ TOKEN_RETRY_S = 60.0
 TOKEN_BLOCKED_RETRY_S = 5.0
 HALT_WAIT_S = 20.0
 DANGER_ACTIONS = ("reset", "move_data_aside", "remove_tokens")
+TOKEN_ENV = ("PORCHLAMP_GH_TOKENS", "GITHUB_TOKEN")   # ghcli reads these ahead of, or in place of, GH_TOKEN
 REPO_LINE = re.compile(r"^[\w.-]+/[\w.-]+ \[[^\]]*\]: ")
 
 
@@ -175,7 +176,8 @@ class Engine:
                 old, self._gh_token = self._gh_token, gh
                 self.redactor.discard(old)
                 self.redactor.add(gh)
-                os.environ.pop("GH_TOKEN", None)
+                for name in ("GH_TOKEN", *TOKEN_ENV):
+                    os.environ.pop(name, None)
                 if gh is None:
                     self.controls.set_token(False)
                 else:
@@ -259,8 +261,8 @@ class Engine:
             os.environ["PORCHLAMP_GH"] = "http"
             os.environ["PORCHLAMP_ENGINE"] = str(ENGINE_ROOT)
             os.environ["PORCHLAMP_RATE_FLOOR"] = str(self.settings.value("rate_floor"))
-            for hook in ("PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API"):
-                os.environ.pop(hook, None)   # the API host is fixed: no hook may move it
+            for hook in ("PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API", *TOKEN_ENV):
+                os.environ.pop(hook, None)   # the API host is fixed, and only the accepted token is used
             marker = self.home / "state" / "running"
             if marker.is_file() and not was_stopped:
                 self.restart_ts = self.clock()
@@ -396,7 +398,10 @@ class Engine:
         elif name == "step_start":
             self.event("ok", f"Started step {where}: {status_mod.STEP_PHRASE.get(layer, str(layer))}")
         elif name == "step_done":
-            self.event("ok", f"Finished step {where}: {runner.STEP_NAMES.get(layer, str(layer))}")
+            checked = info.get("checked")
+            detail = "" if checked is None else (f"{checked:,} projects checked"
+                                                 f"{status_mod.stopped_note(info.get('stopped', 0))}")
+            self.event("ok", f"Finished step {where}: {runner.STEP_NAMES.get(layer, str(layer))}", detail)
         elif name == "cycle_done":
             self.controls.cycle_boundary()
             self.event("ok", "Cycle finished", f"{len(steps)} of {len(steps)} steps. The data is ready to pull.")
@@ -419,7 +424,8 @@ class Engine:
         rs = self.runstate
         layer = rs.layer if rs.mode == "running" else None
         working = self.is_working()
-        self.progress.tick(layer, rs.collectors, active=working or self.gate.rate_state() is not None)
+        self.progress.tick(layer, rs.run, rs.checked, rs.total,
+                           active=working or self.gate.rate_state() is not None)
         self._stuck_check(now, working)
         self.stats.flush(force=False)
         self.datasize.maybe_refresh()
@@ -662,7 +668,7 @@ class Engine:
         self.runstate.failures = 0
         self.runstate.last_failure = None
         self.runstate.mode, self.runstate.layer, self.runstate.run = "starting", None, 0
-        self.progress.tick(None, (), False, force=True)
+        self.progress.tick(None, 0, 0, 0, False, force=True)
         self.datasize.maybe_refresh(force=True)
         if action == "move_data_aside":
             self.controls.set_user_pause(True)   # nothing starts again by itself; Resume starts a fresh cycle
@@ -700,7 +706,8 @@ class Engine:
             self.redactor.discard(self._lan_token)
             self._gh_token = self._lan_token = None
             self._last_test = None
-            os.environ.pop("GH_TOKEN", None)
+            for name in ("GH_TOKEN", *TOKEN_ENV):
+                os.environ.pop(name, None)
             self.controls.set_token(False)
         self.lan.set_token(None)
         self.gate.kick()
@@ -724,7 +731,7 @@ def _cold_status() -> str:
         "detail": "Getting ready. This takes a few seconds.",
         "reason": {"code": None, "text": "", "resume_at": None, "override": None},
         "progress": {"step_index": 0, "step_count": 7, "step_name": "", "done": 0, "total": 0, "pct": 0,
-                     "eta_text": "", "last_progress_s": 0},
+                     "checked": 0, "stopped": 0, "pruned": 0, "failed": 0, "eta_text": "", "last_progress_s": 0},
         "cycle": {"started": None, "last_finished": None, "next_due": None, "interval_days": 28, "steps": []},
         "github": {"calls_left": 0, "limit": 0, "resets_in_s": 0, "floor": 500, "in_use": False},
         "network": {"type": "none", "mobile_allowed": False, "bytes_today": {"wifi": 0, "mobile": 0},
