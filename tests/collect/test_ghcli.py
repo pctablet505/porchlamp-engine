@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from porchlamp.collect import ghcli
+from porchlamp.collect import cost, ghcli, net
 from tests.helpers.gate import installed, loopback_gate
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +29,8 @@ NOW = 1000.0
 
 
 class _Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
     def _serve(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length).decode("utf-8") if length else ""
@@ -82,11 +84,16 @@ class FakeGitHub:
 @pytest.fixture(autouse=True)
 def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     """Isolate module state, pin the clock, and record every gate sleep."""
+    ghcli.clear_etag_cache()
+    ghcli.close_pool()
+    ghcli.clear_token_cache()
+    cost.clear_records()
     recorded: list[float] = []
     monkeypatch.setattr(ghcli, "_BUDGET", {})
+    monkeypatch.setattr(ghcli, "_LIMITS", ghcli._BUDGET)
     monkeypatch.setattr(ghcli, "_sleep", recorded.append)
     monkeypatch.setattr(ghcli, "_now", lambda: NOW)
-    for name in ("GH_TOKEN", "GITHUB_TOKEN", "PORCHLAMP_GH", "PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API",
+    for name in ("GH_TOKEN", "GITHUB_TOKEN", "PORCHLAMP_GH_TOKENS", "PORCHLAMP_GH", "PORCHLAMP_GH_API", "PORCHLAMP_ALLOW_TEST_API",
                  "PORCHLAMP_RATE_FLOOR"):
         monkeypatch.delenv(name, raising=False)
     return recorded
@@ -436,7 +443,7 @@ def test_seven_call_sites_use_ghcli() -> None:
     assert sum(t.count("ghcli.run(") for t in texts.values()) == 7
     for rel, text in texts.items():
         assert '["gh"' not in text, rel
-        assert "from porchlamp.collect import ghcli" in text, rel
+        assert re.search(r"from porchlamp\.collect.* import .*\bghcli\b", text), rel
 
 
 UNSAFE_PATHS = [
@@ -475,3 +482,141 @@ def test_plain_rest_paths_still_go_through(authed: FakeGitHub, path: str) -> Non
 def test_graphql_is_not_subject_to_the_rest_path_check(authed: FakeGitHub) -> None:
     out = ghcli.run(["api", "graphql", "-f", "query={ viewer { login } }", "-f", "owner=../x?y"])
     assert out.returncode == 0 and json.loads(authed.seen[0]["body"])["variables"] == {"owner": "../x?y"}
+
+
+def test_etag_conditional_get_returns_cached_payload_and_records_status_304(fake: FakeGitHub) -> None:
+    cached_payload = json.dumps({"name": "octocat", "id": 123})
+    etag = 'W/"abc"'
+
+    # First GET returns 200 with ETag header
+    fake.replies = [(200, {"ETag": etag}, cached_payload)]
+    out1 = ghcli.run(["api", "repos/octo/cat"])
+    assert out1.returncode == 0
+    assert out1.stdout == cached_payload
+    assert len(fake.seen) == 1
+    assert "if-none-match" not in fake.seen[0]["headers"]
+
+    records1 = cost.get_records()
+    assert len(records1) == 1
+    assert records1[0].status == 200
+    assert records1[0].status_304 is False
+    assert records1[0].endpoint == "/repos/octo/cat"
+
+    # Second GET: server returns 304 Not Modified
+    fake.replies = [(304, {"x-ratelimit-remaining": "4900", "x-ratelimit-reset": str(int(NOW) + 3600)}, "")]
+    out2 = ghcli.run(["api", "repos/octo/cat"])
+    assert out2.returncode == 0
+    assert out2.stdout == cached_payload
+    assert len(fake.seen) == 2
+    assert fake.seen[1]["headers"]["if-none-match"] == etag
+
+    records2 = cost.get_records()
+    assert len(records2) == 2
+    last_rec = records2[-1]
+    assert last_rec.status == 304
+    assert last_rec.status_304 is True
+    assert last_rec.bytes_in == 0
+    assert last_rec.endpoint == "/repos/octo/cat"
+    assert ghcli._BUDGET["core"][0] == 4900
+
+
+def test_persistent_keep_alive_connection_reuse_and_recovery(fake: FakeGitHub, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(net, "_gate", None)
+    ghcli.close_pool()
+
+    fake.replies = [_ok(body='{"call": 1}'), _ok(body='{"call": 2}')]
+    out1 = ghcli.run(["api", "repos/x/y"])
+    assert out1.returncode == 0 and json.loads(out1.stdout) == {"call": 1}
+    assert len(ghcli._POOL) == 1
+
+    scheme, host, port = ghcli._origin(fake.url)
+    if port is None:
+        port = 80
+    pooled_conn = ghcli._POOL.get((scheme, host, port))
+    assert pooled_conn is not None
+    orig_sock = pooled_conn.sock
+    assert orig_sock is not None
+
+    out2 = ghcli.run(["api", "repos/x/z"])
+    assert out2.returncode == 0 and json.loads(out2.stdout) == {"call": 2}
+    assert ghcli._POOL.get((scheme, host, port)) is pooled_conn
+    assert pooled_conn.sock is orig_sock
+
+    # Recovery from abrupt socket close
+    orig_sock.close()
+    fake.replies = [_ok(body='{"call": 3}')]
+    out3 = ghcli.run(["api", "repos/x/recovered"])
+    assert out3.returncode == 0 and json.loads(out3.stdout) == {"call": 3}
+    new_conn = ghcli._POOL.get((scheme, host, port))
+    assert new_conn is not None
+    assert new_conn is not pooled_conn
+
+    # Clean close recovery
+    new_conn.close()
+    fake.replies = [_ok(body='{"call": 4}')]
+    out4 = ghcli.run(["api", "repos/x/clean_recovered"])
+    assert out4.returncode == 0 and json.loads(out4.stdout) == {"call": 4}
+
+
+def test_multi_token_rotation_when_quota_exhausted(fake: FakeGitHub, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ghcli, "AUTH_BASE", fake.url)
+    monkeypatch.setenv("PORCHLAMP_GH_TOKENS", "tok_a,tok_b")
+
+    # tok_a is selected first; reports low remaining quota
+    fake.replies = [
+        (200, {"x-ratelimit-remaining": "10", "x-ratelimit-reset": str(int(NOW) + 300)}, '{"token": "a"}')
+    ]
+    out1 = ghcli.run(["api", "repos/x/y"])
+    assert out1.returncode == 0
+    assert fake.seen[-1]["headers"]["authorization"] == "Bearer tok_a"
+
+    # tok_a is below floor; rotates to tok_b
+    fake.replies = [
+        (200, {"x-ratelimit-remaining": "4950", "x-ratelimit-reset": str(int(NOW) + 3600)}, '{"token": "b"}')
+    ]
+    out2 = ghcli.run(["api", "repos/x/y"])
+    assert out2.returncode == 0
+    assert fake.seen[-1]["headers"]["authorization"] == "Bearer tok_b"
+
+    # tok_b has higher quota; continues with tok_b
+    fake.replies = [
+        (200, {"x-ratelimit-remaining": "4949", "x-ratelimit-reset": str(int(NOW) + 3600)}, '{"token": "b2"}')
+    ]
+    out3 = ghcli.run(["api", "repos/x/y"])
+    assert out3.returncode == 0
+    assert fake.seen[-1]["headers"]["authorization"] == "Bearer tok_b"
+
+    # If all tokens are below floor, picks token with earliest reset
+    fake.replies = [
+        (200, {"x-ratelimit-remaining": "5", "x-ratelimit-reset": str(int(NOW) + 100)}, '{"token": "b3"}')
+    ]
+    ghcli.run(["api", "repos/x/y"])
+    assert ghcli._select_token("core", fake.url) == "tok_b"
+
+
+def test_cached_gh_auth_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    def fake_subprocess_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(argv)
+        if argv == ["gh", "auth", "token"]:
+            return subprocess.CompletedProcess(argv, 0, "token-from-gh-cli\n", "")
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+    tokens = ghcli._configured_tokens(ghcli.DEFAULT_BASE)
+    assert tokens == ["token-from-gh-cli"]
+    assert calls == [["gh", "auth", "token"]]
+
+    # Cached on subsequent lookup
+    tokens2 = ghcli._configured_tokens(ghcli.DEFAULT_BASE)
+    assert tokens2 == ["token-from-gh-cli"]
+    assert len(calls) == 1
+
+    # Local test base never executes gh auth token
+    calls.clear()
+    ghcli.clear_token_cache()
+    tokens_local = ghcli._configured_tokens("http://127.0.0.1:8000")
+    assert tokens_local == []
+    assert len(calls) == 0
+

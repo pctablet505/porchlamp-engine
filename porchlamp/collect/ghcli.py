@@ -15,20 +15,23 @@ it. Redirects are never followed by urllib: a same-origin one is followed here (
 
 from __future__ import annotations
 
+import contextlib
+import http.client
 import json
 import math
 import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
-from porchlamp.collect import net
+from porchlamp.collect import cost, net
 
 API_VERSION = "2022-11-28"
 USER_AGENT = "porchlamp-phone/1"
@@ -45,13 +48,43 @@ LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 #: The only origin that is sent the Authorization header.
 AUTH_BASE = DEFAULT_BASE
 
+
+class _Limit(NamedTuple):
+    remaining: int
+    reset: float
+
+
 #: resource -> (remaining calls, reset epoch seconds), from the last response.
 _BUDGET: dict[str, tuple[int, float]] = {}
+_LIMITS: dict[str, tuple[int, float]] = _BUDGET
+_TOKEN_LIMITS: dict[int, dict[str, _Limit]] = {}
+
+#: Persistent keep-alive connection pool for workstation mode.
+_POOL: dict[tuple[str, str, int], http.client.HTTPConnection] = {}
+_POOL_LOCK = threading.Lock()
+
+#: ETag cache mapping URL -> (etag, response_headers_dict, body_text).
+_ETAG_CACHE: dict[str, tuple[str, dict[str, str], str]] = {}
+_ETAG_CACHE_LOCK = threading.Lock()
+
+#: Cached `gh auth token` when no environment token is set.
+_CACHED_GH_CLI_TOKEN: str | None = None
+_TOKEN_LOCK = threading.Lock()
+
 #: None: the wait goes through the gate (a stop ends it within a second); a test may replace it with a recorder.
 _sleep: Callable[[float], object] | None = None
 _now = time.time
 
 _INT = re.compile(r"-?\d+\Z")
+
+_RETRY_EXC = (
+    http.client.RemoteDisconnected,
+    http.client.CannotSendRequest,
+    BrokenPipeError,
+    ConnectionResetError,
+    TimeoutError,
+    OSError,
+)
 
 
 class _Transport(Exception):
@@ -60,6 +93,29 @@ class _Transport(Exception):
 
 class _Refused(_Transport):
     """A redirect the transport will not follow; the message is ``<reason> (HTTP <code>)`` with no URL or header."""
+
+
+def close_pool() -> None:
+    """Close all open keep-alive connections and clear the pool."""
+    with _POOL_LOCK:
+        for conn in list(_POOL.values()):
+            with contextlib.suppress(Exception):
+                conn.close()
+        _POOL.clear()
+
+
+def clear_etag_cache() -> None:
+    """Clear the conditional ETag cache."""
+    with _ETAG_CACHE_LOCK:
+        _ETAG_CACHE.clear()
+
+
+def clear_token_cache() -> None:
+    """Clear cached gh CLI token and per-token rate limit records."""
+    global _CACHED_GH_CLI_TOKEN
+    with _TOKEN_LOCK:
+        _CACHED_GH_CLI_TOKEN = None
+        _TOKEN_LIMITS.clear()
 
 
 def run(args: Sequence[str], timeout: float = 90) -> subprocess.CompletedProcess[str]:
@@ -149,34 +205,127 @@ def _header(headers: Any, name: str) -> str | None:
     return None if headers is None else headers.get(name)
 
 
-def _record(headers: Any, default: str) -> None:
+def _configured_tokens(base: str) -> list[str]:
+    tokens_env = os.environ.get("PORCHLAMP_GH_TOKENS")
+    if tokens_env:
+        toks = [t.strip() for t in tokens_env.split(",") if t.strip()]
+        if toks:
+            return toks
+    tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if tok:
+        return [tok]
+    if base == DEFAULT_BASE:
+        global _CACHED_GH_CLI_TOKEN
+        with _TOKEN_LOCK:
+            if _CACHED_GH_CLI_TOKEN is None:
+                try:
+                    res = subprocess.run(
+                        ["gh", "auth", "token"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if res.returncode == 0 and res.stdout.strip():
+                        _CACHED_GH_CLI_TOKEN = res.stdout.strip()
+                except (OSError, subprocess.SubprocessError):
+                    pass
+            if _CACHED_GH_CLI_TOKEN:
+                return [_CACHED_GH_CLI_TOKEN]
+    return []
+
+
+def _select_token(resource: str, base: str | None = None) -> str | None:
+    if base is None:
+        base = _api_base()
+    tokens = _configured_tokens(base)
+    if not tokens:
+        return None
+    if len(tokens) == 1:
+        return tokens[0]
+
+    floor = _floor(resource)
+    now = _now()
+
+    best_tok: str | None = None
+    best_remaining: float = -1.0
+    all_below_floor = True
+
+    for i, tok in enumerate(tokens):
+        limit = _TOKEN_LIMITS.get(i, {}).get(resource)
+        if limit is None:
+            remaining = float("inf")
+        else:
+            remaining = float(limit.remaining)
+            if limit.reset <= now:
+                remaining = float("inf")
+
+        if remaining >= floor:
+            all_below_floor = False
+
+        if remaining > best_remaining:
+            best_remaining = remaining
+            best_tok = tok
+
+    if all_below_floor:
+        earliest_tok: str | None = None
+        earliest_reset = float("inf")
+        for i, tok in enumerate(tokens):
+            limit = _TOKEN_LIMITS.get(i, {}).get(resource)
+            reset = limit.reset if limit else 0.0
+            if reset < earliest_reset:
+                earliest_reset = reset
+                earliest_tok = tok
+        return earliest_tok or tokens[0]
+
+    return best_tok or tokens[0]
+
+
+def _record(headers: Any, default: str, token_idx: int | None = None) -> None:
     remaining = _header(headers, "x-ratelimit-remaining")
     reset = _header(headers, "x-ratelimit-reset")
     if remaining is None or reset is None:
         return
     key = _header(headers, "x-ratelimit-resource") or default
     try:
-        _BUDGET[key] = (int(remaining), float(reset))
+        limit = _Limit(int(remaining), float(reset))
+        _BUDGET[key] = limit
+        _LIMITS[key] = limit
+        if token_idx is not None:
+            if token_idx not in _TOKEN_LIMITS:
+                _TOKEN_LIMITS[token_idx] = {}
+            _TOKEN_LIMITS[token_idx][key] = limit
     except ValueError:
         return
 
 
-def _pause(resource: str, remaining: int, seconds: float) -> None:
+def _pause(resource: str, remaining: int, seconds: float, token_idx: int | None = None) -> None:
     wait = max(MIN_WAIT, seconds)
-    print(f"ghcli: waiting {math.ceil(wait)}s for the {resource} reset "
-          f"(remaining {remaining})", file=sys.stderr)
-    _BUDGET.pop(resource, None)
+    sys.stderr.write(
+        f"ghcli: waiting {math.ceil(wait)}s for the {resource} reset "
+        f"(remaining {remaining})\n"
+    )
+    if token_idx is not None:
+        if token_idx in _TOKEN_LIMITS:
+            _TOKEN_LIMITS[token_idx].pop(resource, None)
+    else:
+        _BUDGET.pop(resource, None)
+        _LIMITS.pop(resource, None)
+        for t_limits in _TOKEN_LIMITS.values():
+            t_limits.pop(resource, None)
     net.rate_wait(resource, remaining, wait, _sleep)
 
 
-def _gate(resource: str) -> None:
-    record = _BUDGET.get(resource)
+def _gate(resource: str, token_idx: int | None = None) -> None:
+    if token_idx is not None:
+        record = _TOKEN_LIMITS.get(token_idx, {}).get(resource)
+    else:
+        record = _BUDGET.get(resource)
     if record is None:
         return
     remaining, reset = record
     now = _now()
     if remaining < _floor(resource) and reset > now:
-        _pause(resource, remaining, reset - now + RESET_PAD)
+        _pause(resource, remaining, reset - now + RESET_PAD, token_idx=token_idx)
 
 
 def _limited(headers: Any) -> bool:
@@ -226,19 +375,82 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_NoRedirect)
 
 
+def _send_pooled(method: str, url: str, body: bytes | None, headers: dict[str, str],
+                 timeout: float, args: list[str]) -> tuple[int, Any, str]:
+    scheme, host, port = _origin(url)
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    pool_key = (scheme, host, port)
+
+    req_headers = dict(headers)
+    req_headers.setdefault("Connection", "keep-alive")
+
+    parts = urllib.parse.urlsplit(url)
+    selector = parts.path or "/"
+    if parts.query:
+        selector = f"{selector}?{parts.query}"
+
+    with _POOL_LOCK:
+        was_pooled = pool_key in _POOL
+        conn = _POOL.get(pool_key)
+        if conn is None:
+            if scheme == "https":
+                conn = http.client.HTTPSConnection(host, port, timeout=timeout)
+            else:
+                conn = http.client.HTTPConnection(host, port, timeout=timeout)
+            _POOL[pool_key] = conn
+
+        try:
+            conn.request(method, selector, body=body, headers=req_headers)
+            resp = conn.getresponse()
+            raw = resp.read()
+            return resp.status, resp.headers, _body_text(raw)
+        except _RETRY_EXC as exc:
+            _POOL.pop(pool_key, None)
+            with contextlib.suppress(Exception):
+                conn.close()
+
+            if not was_pooled:
+                if _is_timeout(exc):
+                    raise subprocess.TimeoutExpired(["gh", *args], timeout) from None
+                raise _Transport(str(exc)) from None
+
+            # Retry once on a fresh connection
+            try:
+                if scheme == "https":
+                    fresh_conn = http.client.HTTPSConnection(host, port, timeout=timeout)
+                else:
+                    fresh_conn = http.client.HTTPConnection(host, port, timeout=timeout)
+                _POOL[pool_key] = fresh_conn
+                fresh_conn.request(method, selector, body=body, headers=req_headers)
+                resp = fresh_conn.getresponse()
+                raw = resp.read()
+                return resp.status, resp.headers, _body_text(raw)
+            except _RETRY_EXC as retry_exc:
+                _POOL.pop(pool_key, None)
+                with contextlib.suppress(Exception):
+                    fresh_conn.close()
+                if _is_timeout(retry_exc):
+                    raise subprocess.TimeoutExpired(["gh", *args], timeout) from None
+                raise _Transport(str(retry_exc)) from None
+
+
 def _send(method: str, url: str, body: bytes | None, headers: dict[str, str],
           timeout: float, args: list[str]) -> tuple[int, Any, str]:
-    req = urllib.request.Request(url, data=body, method=method, headers=headers)
-    try:
+    if net._gate is not None:
+        req = urllib.request.Request(url, data=body, method=method, headers=headers)
         try:
-            with net.urlopen(req, timeout, opener=_OPENER) as resp:
-                return resp.status, resp.headers, _body_text(resp.read())
-        except urllib.error.HTTPError as exc:
-            return exc.code, exc.headers, _body_text(exc.read())
-    except OSError as exc:
-        if _is_timeout(exc):
-            raise subprocess.TimeoutExpired(["gh", *args], timeout) from None
-        raise _Transport(str(exc)) from None
+            try:
+                with net.urlopen(req, timeout, opener=_OPENER) as resp:
+                    return resp.status, resp.headers, _body_text(resp.read())
+            except urllib.error.HTTPError as exc:
+                return exc.code, exc.headers, _body_text(exc.read())
+        except OSError as exc:
+            if _is_timeout(exc):
+                raise subprocess.TimeoutExpired(["gh", *args], timeout) from None
+            raise _Transport(str(exc)) from None
+
+    return _send_pooled(method, url, body, headers, timeout, args)
 
 
 def _origin(url: str) -> tuple[str, str, int | None]:
@@ -304,12 +516,12 @@ def _send_following(method: str, url: str, base: str, body: bytes | None, header
     hops = 0
     while True:
         status, resp_headers, text = _send(method, url, body, headers, timeout, args)
-        if not 300 <= status < 400:
+        if status == 304 or not 300 <= status < 400:
             return status, resp_headers, text
         location = _header(resp_headers, "location")
         target = urllib.parse.urljoin(url, location) if location else None
         same_origin = target is not None and _plain_url(target) and _origin(target) == _origin(base)
-        if status not in REDIRECT_CODES or not same_origin:
+        if not same_origin:
             raise _Refused(f"redirect to another host refused (HTTP {status})")
         if hops >= MAX_REDIRECTS:
             raise _Refused(f"too many redirects (HTTP {status})")
@@ -365,17 +577,95 @@ def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[st
         url = f"{base}/{endpoint.lstrip('/')}"
         if fields:
             body = json.dumps(dict(fields)).encode("utf-8")
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    headers = _request_headers(base, token, body is not None)
+
     attempts = 0
+    norm_endpoint = f"/{endpoint.lstrip('/')}"
+    is_get = (method == "GET" and body is None)
+
     while True:
-        _gate(resource)
-        status, resp_headers, text = _send_following(method, url, base, body, headers, timeout, args)
-        _record(resp_headers, resource)
+        token = _select_token(resource, base)
+        tokens = _configured_tokens(base)
+        token_idx = tokens.index(token) if (token and token in tokens) else None
+
+        headers = _request_headers(base, token, body is not None)
+        if is_get:
+            with _ETAG_CACHE_LOCK:
+                cached = _ETAG_CACHE.get(url)
+                if cached is not None:
+                    headers["If-None-Match"] = cached[0]
+
+        _gate(resource, token_idx)
+        t0 = time.perf_counter()
+        try:
+            status, resp_headers, text = _send_following(method, url, base, body, headers, timeout, args)
+        except (_Transport, subprocess.TimeoutExpired):
+            duration_ms = (time.perf_counter() - t0) * 1000.0
+            cost.record_call(
+                endpoint=norm_endpoint,
+                method=method,
+                status=0,
+                status_304=False,
+                graphql_points=0,
+                bytes_in=0,
+                duration_ms=duration_ms,
+            )
+            raise
+
+        duration_ms = (time.perf_counter() - t0) * 1000.0
+
+        if status == 304 and is_get and url in _ETAG_CACHE:
+            _record(resp_headers, resource, token_idx)
+            cost.record_call(
+                endpoint=norm_endpoint,
+                method=method,
+                status=304,
+                status_304=True,
+                graphql_points=0,
+                bytes_in=0,
+                duration_ms=duration_ms,
+            )
+            with _ETAG_CACHE_LOCK:
+                _, cached_headers, cached_body = _ETAG_CACHE[url]
+            return _result(args, is_graphql, 200, cached_body)
+
+        _record(resp_headers, resource, token_idx)
+
+        graphql_points = 0
+        if is_graphql and status == 200:
+            graphql_points = 1
+            try:
+                payload = json.loads(text)
+                if isinstance(payload, dict):
+                    rl = payload.get("data", {}).get("rateLimit")
+                    if isinstance(rl, dict) and isinstance(rl.get("cost"), int):
+                        graphql_points = rl["cost"]
+            except Exception:
+                pass
+
+        bytes_in = len(text.encode("utf-8"))
+        cost.record_call(
+            endpoint=norm_endpoint,
+            method=method,
+            status=status,
+            status_304=False,
+            graphql_points=graphql_points,
+            bytes_in=bytes_in,
+            duration_ms=duration_ms,
+        )
+
+        if is_get and status == 200:
+            etag_val = _header(resp_headers, "etag")
+            if etag_val:
+                headers_dict = {str(k): str(v) for k, v in resp_headers.items()}
+                for k, v in list(headers_dict.items()):
+                    headers_dict[k.lower()] = v
+                with _ETAG_CACHE_LOCK:
+                    _ETAG_CACHE[url] = (etag_val, headers_dict, text)
+
         if status in (403, 429) and attempts < MAX_RETRIES and _limited(resp_headers):
             attempts += 1
             key = _header(resp_headers, "x-ratelimit-resource") or resource
             remaining = _header(resp_headers, "x-ratelimit-remaining") or "0"
-            _pause(key, int(remaining) if remaining.isdigit() else 0, _retry_seconds(resp_headers))
+            _pause(key, int(remaining) if remaining.isdigit() else 0, _retry_seconds(resp_headers), token_idx=token_idx)
             continue
         return _result(args, is_graphql, status, text)
