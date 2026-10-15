@@ -16,17 +16,21 @@ this file re-checks the Python side against them and
 
 from __future__ import annotations
 
+from datetime import datetime
 import inspect
 import json
 import re
 from pathlib import Path
+import tempfile
 
 from porchlamp.collect import github_graphql
 from porchlamp.core import constants, gates
 from porchlamp.core import methodology as methodology_module
 from porchlamp.core.commit_domains import KNOWN_BOT_LOGINS, CommitActor, is_bot
+from porchlamp.derive import bundle as bundle_module
 from porchlamp.derive import gate_evidence
 from porchlamp.serve.security import SECURITY_HEADERS
+from scripts import gather
 
 WEB_V2 = Path(__file__).resolve().parent.parent / "web" / "v2"
 LIVECHECK_JS = (WEB_V2 / "livecheck.js").read_text(encoding="utf-8")
@@ -46,6 +50,12 @@ def js_number(name: str) -> int:
     match = re.search(rf"export const {name} = (\d+);", LIVECHECK_JS)
     assert match, f"livecheck.js has no numeric constant {name}"
     return int(match.group(1))
+
+
+def js_float(name: str) -> float:
+    match = re.search(rf"export const {name} = (\d+(?:\.\d+)?);", LIVECHECK_JS)
+    assert match, f"livecheck.js has no float constant {name}"
+    return float(match.group(1))
 
 
 def js_string(name: str) -> str:
@@ -89,10 +99,13 @@ class TestMirroredConstants:
         assert set(js_string_list("UNDETERMINED_SPDX")) == {v for v in gates.UNDETERMINED_SPDX if v is not None}
         assert None in gates.UNDETERMINED_SPDX
 
-    def test_windows(self) -> None:
+    def test_windows_and_pr_sample(self) -> None:
         assert js_number("PR_WINDOW_DAYS") == constants.PR_WINDOW_DAYS
         assert js_number("VITALITY_WINDOW_DAYS") == constants.GATE4_VITALITY_WINDOW_DAYS
         assert js_number("DECISION_WINDOW_DAYS") == constants.GATE6_DECISION_WINDOW_DAYS
+        assert js_number("LIVE_PR_SAMPLE") == gather.PR_SAMPLE
+        assert js_number("GATE6_HANDOFF_MIN_PRS") == constants.GATE6_HANDOFF_MIN_PRS
+        assert js_float("GATE6_HANDOFF_MIN_SHARE") == constants.GATE6_HANDOFF_MIN_SHARE
 
     def test_off_platform_marker(self) -> None:
         marker = js_string("OFF_PLATFORM_MARKER")
@@ -119,6 +132,7 @@ class TestSharedCases:
 
     def test_gate_rule_cases_hold_for_the_engine(self) -> None:
         doc = json.loads((CASES / "gate_rules.json").read_text(encoding="utf-8"))
+        ref_now = datetime.fromisoformat(doc["ref_now"].replace("Z", "+00:00"))
         for case in doc["bots"]:
             actor = CommitActor(login=case["login"], email=case["email"], actor_type=case["type"])
             assert is_bot(actor) is case["expected"], case
@@ -128,9 +142,39 @@ class TestSharedCases:
             assert gate_evidence._has_license_file(case["paths"]) is case["expected"], case
         for case in doc["markers"]:
             assert gate_evidence._has_off_platform_marker(case["paths"]) is case["expected"], case
-        # Each section exercises both outcomes, or it pins nothing.
-        for section in ("bots", "manifests", "license_files", "markers"):
+        for case in doc["vitality_commits"]:
+            derived = [
+                {"author_login": (c.get("author") or {}).get("login") or "", "date": "2026-10-01T00:00:00Z"}
+                for c in case["commits"]
+            ]
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                (root / "commits_180d").mkdir()
+                (root / "commits_180d" / "case.json").write_text(json.dumps({"data": derived}), encoding="utf-8")
+                assert gate_evidence._vitality_commit_count(root, "case") == case["expected"], case
+        for case in doc["decided_prs"]:
+            events = []
+            for idx, p in enumerate(case["prs"]):
+                login = "" if p["login"].lower() == "ghost" else p["login"]
+                assoc = p["author_association"] or "NONE"
+                entry = {
+                    "pr_number": p["number"],
+                    "created_at": p["created_at"],
+                    "closed_at": p["closed_at"],
+                    "merged_at": p["merged_at"],
+                    "author_login": login,
+                    "author_association": assoc,
+                    "is_external": assoc in github_graphql.EXTERNAL_ASSOCIATIONS,
+                    "first_human_review_at": None,
+                }
+                ev = bundle_module._pr_event_or_none(entry, idx, [])
+                if ev is not None:
+                    events.append(ev)
+            assert gates._has_decided_external_pr(tuple(events), ref_now) is case["expected"], case
+        # Each boolean section exercises both outcomes, or it pins nothing.
+        for section in ("bots", "manifests", "license_files", "markers", "decided_prs"):
             assert {case["expected"] for case in doc[section]} == {True, False}, section
+        assert {case["expected"] for case in doc["vitality_commits"]} == {0, 1}
 
 
 class TestContentSecurityPolicy:

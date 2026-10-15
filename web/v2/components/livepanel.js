@@ -97,21 +97,23 @@ function renderError(error, key, nowMs) {
 }
 
 /**
- * The not-in-snapshot drawer body. A key that is not a name GitHub accepts
- * keeps the plain not-found sentence and offers no check: nothing that fails
- * `parseRepoSlug` can reach a request.
+ * The not-in-snapshot drawer body. Only an already-normalised `owner/name`
+ * that GitHub accepts offers a live check (`state.js` normalises URLs and
+ * `.git` suffixes before the detail fetch runs); anything else keeps the plain
+ * not-found sentence and never makes a claim about a different key.
  */
-export function renderNotInSnapshot(state, repoKey, { nowMs = Date.now() } = {}) {
+export function renderNotInSnapshot(state, repoKey, { nowMs } = {}) {
   const slug = parseRepoSlug(repoKey);
-  if (!slug) return `<div class="empty-state">${escapeHtml(copy.DRAWER_NOT_FOUND_TEXT)}</div>`;
-  const key = `${slug.owner}/${slug.name}`;
+  const key = slug ? `${slug.owner}/${slug.name}` : "";
+  if (!slug || key !== repoKey) return `<div class="empty-state">${escapeHtml(copy.DRAWER_NOT_FOUND_TEXT)}</div>`;
   const snapshotId = state.snapshot && state.snapshot.snapshot_id;
   const entry = state.liveCheckByKey ? state.liveCheckByKey[key] : undefined;
+  const effectiveNowMs = nowMs ?? (entry && entry.atMs) ?? Date.now();
   let body;
   if (!entry) body = renderStart(key);
   else if (entry.status === "loading") body = `<p class="live-check-status" role="status">${escapeHtml(copy.LIVE_CHECK_LOADING_TEXT)}</p>`;
   else if (entry.outcome && entry.outcome.ok) body = renderResult(entry.outcome.result, key);
-  else body = renderError(entry.outcome ? entry.outcome.error : null, key, nowMs);
+  else body = renderError(entry.outcome ? entry.outcome.error : null, key, effectiveNowMs);
   return (
     `<section class="live-check" data-live-check-region="true" tabindex="-1" aria-labelledby="live-check-title">` +
     `<p class="live-check-lede">${escapeHtml(copy.liveNotInSnapshotText(key, snapshotId))}</p>` +

@@ -56,9 +56,11 @@ const replies = {
 };
 win.fetch = async (input, init) => {
   const url = String(input && input.url ? input.url : input);
-  if (!url.startsWith(API + '/')) return realFetch(input, init);
-  seen.push({ url, credentials: init && init.credentials, referrerPolicy: init && init.referrerPolicy });
-  const p = new URL(url).pathname;
+  const resolved = new URL(url, win.location.href);
+  if (resolved.origin === win.location.origin) return realFetch(input, init);
+  if (resolved.origin !== API) throw new TypeError('Unexpected external origin: ' + resolved.origin);
+  seen.push({ url: resolved.href, credentials: init && init.credentials, referrerPolicy: init && init.referrerPolicy });
+  const p = resolved.pathname;
   const route = p === '/rate_limit' ? 'rate_limit' : p.includes('/git/trees/') ? 'tree'
     : p.endsWith('/commits') ? 'commits' : p.endsWith('/pulls') ? 'pulls' : 'repo';
   return new win.Response(JSON.stringify(replies[route]), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -122,7 +124,7 @@ await until(() => doc.querySelector('#app-main') && doc.querySelector('#app-main
 const violations = [];
 doc.addEventListener('securitypolicyviolation', (e) => violations.push({ blocked: e.blockedURI, directive: e.effectiveDirective }));
 let outcome = 'allowed';
-try { await win.fetch('https://example.org/porchlamp-csp-probe'); } catch (err) { outcome = 'refused'; }
+try { await win.fetch('https://example.invalid/porchlamp-csp-probe'); } catch (err) { outcome = 'refused'; }
 await sleep(500);
 return {
   outcome,
@@ -139,6 +141,20 @@ const label = look.textContent;
 look.click();
 const btn = await until(() => doc.querySelector('.drawer [data-live-check]'), 20000);
 return { label, drawerOffersCheck: Boolean(btn), key: btn ? btn.dataset.liveCheck : null, search: win.location.search };
+"""
+
+_CASE_INSENSITIVE_IN_SNAPSHOT = """
+const title = await until(() => {
+  const el = doc.querySelector('#drawer-title');
+  return el && el.textContent.trim() === 'bulk/repo-0133' ? el : null;
+}, 20000);
+const scored = await until(() => doc.querySelector('.drawer [data-drawer-compare="bulk/repo-0133"]'), 20000);
+return {
+  title: title ? title.textContent.trim() : null,
+  hasComposite: Boolean(scored),
+  hasLivePanel: Boolean(doc.querySelector('.live-check-panel')),
+  search: win.location.search,
+};
 """
 
 
@@ -163,6 +179,7 @@ def measured(tmp_path_factory):
         {"name": "rate-limited", "path": MISSING_PATH, **PHONE, "script": _RATE_LIMITED % {**same_name, "remaining": 0}},
         {"name": "csp", "path": "./", **DESKTOP, "script": _CSP_ENFORCED},
         {"name": "lookup", "path": f"./?q={MISSING.replace('/', '%2F')}", **DESKTOP, "script": _SEARCH_LOOKUP},
+        {"name": "case-insensitive", "path": "./?repo=BULK%2FREPO-0133.git", **DESKTOP, "script": _CASE_INSENSITIVE_IN_SNAPSHOT},
     ]
     return ui_browser.probe(site, cases, tmp)
 
@@ -228,7 +245,7 @@ def test_the_page_csp_refuses_any_other_origin(measured):
     got = measured["csp"]
     assert got["meta"] and got["booted"], got  # the app runs under its own policy (no inline script, no eval)
     assert got["outcome"] == "refused", got
-    assert any(v["directive"] == "connect-src" and v["blocked"].startswith("https://example.org") for v in got["violations"]), got
+    assert any(v["directive"] == "connect-src" and v["blocked"].startswith("https://example.invalid") for v in got["violations"]), got
 
 
 def test_a_search_for_a_missing_repository_offers_to_look_it_up(measured):
@@ -237,3 +254,12 @@ def test_a_search_for_a_missing_repository_offers_to_look_it_up(measured):
     assert got["label"] == f"Look up {MISSING}", got
     assert got["drawerOffersCheck"], got
     assert got["key"] == MISSING, got
+
+
+def test_a_differently_cased_or_git_suffixed_in_snapshot_repo_loads_its_snapshot_record(measured):
+    got = measured["case-insensitive"]
+    assert got["title"] == "bulk/repo-0133", got
+    assert got["hasComposite"], got
+    assert not got["hasLivePanel"], got
+    assert "repo=bulk%2Frepo-0133" in got["search"], got
+

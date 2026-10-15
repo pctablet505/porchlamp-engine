@@ -22,22 +22,30 @@
 
 //: The only external origin this module (or any module) contacts.
 export const LIVE_API_BASE = "https://api.github.com";
-//: GitHub requests one check spends; `GET /rate_limit` is free and not counted.
+//: GitHub requests one check spends; `GET /rate_limit` is free and not counted,
+//: and a renamed repository costs 1 more for the 301 redirect (reserved in the pre-check).
 export const LIVE_REQUESTS_PER_CHECK = 4;
-//: Rows per list request (GitHub's maximum page size).
+//: Rows per commits request (GitHub's maximum page size).
 export const LIVE_PAGE_SIZE = 100;
+//: scripts/gather.py::PR_SAMPLE -- the 30 newest pull requests by creation, any state.
+export const LIVE_PR_SAMPLE = 30;
 //: Per-request timeout; the recursive tree of a very large repository is several MB.
 export const LIVE_TIMEOUT_MS = 8000;
 export const LIVE_TREE_TIMEOUT_MS = 15000;
 //: Longest repository description shown (GitHub allows 350 characters).
 export const LIVE_DESCRIPTION_MAX = 350;
+//: Longest string `parseRepoSlug` inspects ("https://github.com/" + 39 + "/" + 100 + ".git/" = 164).
+export const MAX_REPO_SLUG_INPUT = 256;
 
-//: porchlamp.core.constants.PR_WINDOW_DAYS -- the trailing window a PR must be opened in.
+//: porchlamp.core.constants.PR_WINDOW_DAYS.
 export const PR_WINDOW_DAYS = 180;
 //: porchlamp.core.constants.GATE4_VITALITY_WINDOW_DAYS.
 export const VITALITY_WINDOW_DAYS = 180;
 //: porchlamp.core.constants.GATE6_DECISION_WINDOW_DAYS.
 export const DECISION_WINDOW_DAYS = 365;
+//: porchlamp.core.constants.GATE6_HANDOFF_MIN_PRS and GATE6_HANDOFF_MIN_SHARE.
+export const GATE6_HANDOFF_MIN_PRS = 5;
+export const GATE6_HANDOFF_MIN_SHARE = 0.5;
 //: porchlamp.derive.gate_evidence.MANIFEST_MAX_DEPTH ("/" separators from the root).
 export const MANIFEST_MAX_DEPTH = 2;
 //: porchlamp.derive.gate_evidence.RECOGNIZED_MANIFEST_BASENAMES.
@@ -131,8 +139,10 @@ const GITHUB_ADDRESS_RE = /^(?:https?:\/\/)?(?:www\.)?github\.com[/]/i;
  * search can never become a path traversal or a request to another endpoint.
  */
 export function parseRepoSlug(text) {
-  if (typeof text !== "string") return null;
-  const trimmed = text.trim().replace(GITHUB_ADDRESS_RE, "").replace(/\/+$/, "").replace(/\.git$/i, "");
+  if (typeof text !== "string" || text.length > MAX_REPO_SLUG_INPUT) return null;
+  let trimmed = text.trim().replace(GITHUB_ADDRESS_RE, "");
+  while (trimmed.endsWith("/")) trimmed = trimmed.slice(0, -1);
+  trimmed = trimmed.replace(/\.git$/i, "");
   const parts = trimmed.split("/");
   if (parts.length !== 2) return null;
   const [owner, name] = parts;
@@ -306,14 +316,17 @@ export function evaluateLiveGates(facts, now) {
   else if (spdx === null || UNDETERMINED_SET.has(spdx) || !isParseableSpdxExpression(spdx)) {
     const file = tree ? findLicenseFile(tree.paths) : null;
     if (file) checks.push({ id: "D-GATE-3", status: "pass", reason: "license_file", detail: { file } });
-    else if (!tree || tree.truncated) checks.push({ id: "D-GATE-3", status: "undecided", reason: "license_unknown", detail: {} });
-    else checks.push({ id: "D-GATE-3", status: "fail", reason: "no_license", detail: {} });
+    else if (!tree || tree.truncated) {
+      checks.push({ id: "D-GATE-3", status: "undecided", reason: "license_unknown", detail: { truncated: Boolean(tree && tree.truncated) } });
+    } else checks.push({ id: "D-GATE-3", status: "fail", reason: "no_license", detail: {} });
   } else checks.push({ id: "D-GATE-3", status: "fail", reason: "not_osi", detail: { spdx } });
 
   // D-GATE-4: >= 1 non-bot commit on the default branch in the trailing window.
+  // Mirrors scripts/gather.py:336-338 + gate_evidence._vitality_commit_count,
+  // which record and inspect `author_login` only (unlinked commits have login "").
   if (!commits) checks.push({ id: "D-GATE-4", status: "undecided", reason: "commits_unreadable", detail: {} });
   else {
-    const human = commits.rows.filter((c) => !isBotActor(c)).length;
+    const human = commits.rows.filter((c) => !isBotActor({ login: c.login })).length;
     if (human > 0) {
       checks.push({ id: "D-GATE-4", status: "pass", reason: "human_commits", detail: { count: human, more: !commits.complete, days: VITALITY_WINDOW_DAYS } });
     } else if (commits.complete) {
@@ -326,21 +339,25 @@ export function evaluateLiveGates(facts, now) {
   // D-GATE-5: never decided here -- it needs replies and reviews on every outside PR.
   checks.push({ id: "D-GATE-5", status: "not_checked", reason: "needs_pipeline", detail: {} });
 
-  // D-GATE-6: an external PR opened in the PR window and decided in the
-  // decision window, else an off-platform marker routes it, else unrated.
-  // As in the engine (gates._has_decided_external_pr) and the published
-  // criterion, "external" is the author association alone -- a missing one
-  // reads as NONE, as scripts/derive.py reads it -- so a bot's PR counts too;
-  // a person's is the one named when there is one.
+  // D-GATE-6: >= 1 external PR decided in the trailing 365 d among the 30
+  // newest PRs by creation (scripts/gather.py::PR_SAMPLE + gates._has_decided_external_pr),
+  // else an off-platform marker routes it, else unrated. Deleted/ghost accounts
+  // are dropped as in porchlamp/derive/bundle.py::_pr_event_or_none.
+  // Review hand-off notices in PR comments (gate_evidence._review_handoff:
+  // >= GATE6_HANDOFF_MIN_PRS outside human PRs and >= GATE6_HANDOFF_MIN_SHARE)
+  // are not fetched live; when the repo can have >= GATE6_HANDOFF_MIN_PRS
+  // outside human PRs, `handoffPossible` qualifies the pass copy.
   if (!pulls) checks.push({ id: "D-GATE-6", status: "undecided", reason: "prs_unreadable", detail: {} });
   else {
-    const openedAfter = nowMs - PR_WINDOW_DAYS * DAY_MS;
     const decidedAfter = nowMs - DECISION_WINDOW_DAYS * DAY_MS;
-    const qualifying = pulls.rows.filter((pr) => {
-      if (!EXTERNAL_SET.has(String(pr.association || "NONE").toUpperCase())) return false;
-      const opened = Date.parse(pr.createdAt);
+    const isExternal = (pr) => EXTERNAL_SET.has(String(pr.association || "NONE").toUpperCase());
+    const validRows = pulls.rows.filter((pr) => Boolean(pr.login) && pr.login.toLowerCase() !== "ghost");
+    const outsideHumanCount = validRows.filter((pr) => isExternal(pr) && !isBotActor(pr)).length;
+    const handoffPossible = !pulls.complete || outsideHumanCount >= GATE6_HANDOFF_MIN_PRS;
+    const qualifying = validRows.filter((pr) => {
+      if (!isExternal(pr)) return false;
       const when = Date.parse(pr.mergedAt || pr.closedAt || "");
-      return Number.isFinite(opened) && opened >= openedAfter && Number.isFinite(when) && when >= decidedAfter && when <= nowMs;
+      return Number.isFinite(when) && when >= decidedAfter && when <= nowMs;
     });
     const decided = qualifying.find((pr) => !isBotActor(pr)) || qualifying[0];
     const marker = !tree ? null : hasOffPlatformMarker(tree.paths) ? true : tree.truncated ? null : false;
@@ -349,16 +366,24 @@ export function evaluateLiveGates(facts, now) {
         id: "D-GATE-6",
         status: "pass",
         reason: "decided_external_pr",
-        detail: { number: decided.number, days: PR_WINDOW_DAYS, bot: isBotActor(decided) },
+        detail: {
+          number: decided.number,
+          days: DECISION_WINDOW_DAYS,
+          bot: isBotActor(decided),
+          handoffPossible,
+        },
       });
     } else if (marker === true) {
-      checks.push({ id: "D-GATE-6", status: "routed", reason: "off_platform_marker", detail: {} });
-    } else if (!pulls.complete) {
-      checks.push({ id: "D-GATE-6", status: "undecided", reason: "prs_partial", detail: { pageSize: LIVE_PAGE_SIZE } });
+      checks.push({ id: "D-GATE-6", status: "routed", reason: "off_platform_marker", detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS } });
     } else if (marker === false) {
-      checks.push({ id: "D-GATE-6", status: "fail", reason: "no_external_pr", detail: { days: PR_WINDOW_DAYS } });
+      checks.push({ id: "D-GATE-6", status: "fail", reason: "no_external_pr", detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS } });
     } else {
-      checks.push({ id: "D-GATE-6", status: "undecided", reason: "prs_marker_unknown", detail: {} });
+      checks.push({
+        id: "D-GATE-6",
+        status: "undecided",
+        reason: "prs_marker_unknown",
+        detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS, truncated: Boolean(tree && tree.truncated) },
+      });
     }
   }
   return checks;
@@ -392,41 +417,38 @@ export function repoFactsFrom(data) {
 }
 
 /**
- * `{ paths, truncated }` from a recursive tree, `{ paths: [], truncated: false }`
- * for an empty repository, else null. Every entry's path -- folders and
- * submodules too -- as the engine's own tree envelope records them
- * (scripts/gather.py), so a root `LICENSES/` folder counts here as it does there.
+ * `{ paths, truncated }` from a recursive tree, else null (including a 409
+ * empty repository, which has no tree envelope in scripts/gather.py and
+ * therefore yields UNDECIDED in gate_evidence.gate_evidence_for). Every
+ * entry's path -- folders and submodules too -- is kept as the engine's own
+ * tree envelope records them, so a root `LICENSES/` folder counts here as it does there.
  */
 export function treeFactsFrom(res) {
-  if (res.ok) {
-    const entries = res.data && Array.isArray(res.data.tree) ? res.data.tree : [];
-    const paths = entries.filter((e) => e && typeof e.path === "string" && e.path).map((e) => e.path);
-    return { paths, truncated: !!(res.data && res.data.truncated) };
-  }
-  return res.error.kind === "empty" ? { paths: [], truncated: false } : null;
-}
-
-/** `{ rows: [{ login, type, email }], complete }` from one page of commits, or null. */
-export function commitFactsFrom(res) {
-  if (res.ok) {
-    const rows = (Array.isArray(res.data) ? res.data : []).map((c) => {
-      const author = c && c.author && typeof c.author === "object" ? c.author : {};
-      const gitAuthor = c && c.commit && c.commit.author && typeof c.commit.author === "object" ? c.commit.author : {};
-      return { login: str(author.login), type: str(author.type), email: str(gitAuthor.email) };
-    });
-    return { rows, complete: rows.length < LIVE_PAGE_SIZE };
-  }
-  return res.error.kind === "empty" ? { rows: [], complete: true } : null;
+  if (!res.ok) return null;
+  const entries = res.data && Array.isArray(res.data.tree) ? res.data.tree : [];
+  const paths = entries.filter((e) => e && typeof e.path === "string" && e.path).map((e) => e.path);
+  return { paths, truncated: !!(res.data && res.data.truncated) };
 }
 
 /**
- * `{ rows, complete }` from one page of closed PRs, newest-updated first, or
- * null. The page is complete when it is short, or when its last row was
- * updated before the PR window opened: a PR opened inside the window was
- * updated no earlier than it was opened, so it would sort above that row.
+ * `{ rows: [{ login }], complete }` from one page of commits, or null.
+ * Mirrors scripts/gather.py:336-338, which records `author_login` only.
  */
-export function pullFactsFrom(res, now) {
-  if (!res.ok) return res.error.kind === "empty" ? { rows: [], complete: true } : null;
+export function commitFactsFrom(res) {
+  if (!res.ok) return null;
+  const rows = (Array.isArray(res.data) ? res.data : []).map((c) => {
+    const author = c && c.author && typeof c.author === "object" ? c.author : {};
+    return { login: str(author.login) };
+  });
+  return { rows, complete: rows.length < LIVE_PAGE_SIZE };
+}
+
+/**
+ * `{ rows, complete }` from the `LIVE_PR_SAMPLE` newest pull requests by
+ * creation date (any state), matching scripts/gather.py:231-260, or null.
+ */
+export function pullFactsFrom(res) {
+  if (!res.ok) return null;
   const list = Array.isArray(res.data) ? res.data : [];
   const rows = list.map((pr) => {
     const user = pr && pr.user && typeof pr.user === "object" ? pr.user : {};
@@ -435,15 +457,12 @@ export function pullFactsFrom(res, now) {
       createdAt: str(pr && pr.created_at),
       closedAt: str(pr && pr.closed_at),
       mergedAt: str(pr && pr.merged_at),
-      updatedAt: str(pr && pr.updated_at),
       association: str(pr && pr.author_association),
       login: str(user.login),
       type: str(user.type),
     };
   });
-  const last = rows.length ? Date.parse(rows[rows.length - 1].updatedAt) : NaN;
-  const windowOpened = now.getTime() - PR_WINDOW_DAYS * DAY_MS;
-  return { rows, complete: rows.length < LIVE_PAGE_SIZE || (Number.isFinite(last) && last < windowOpened) };
+  return { rows, complete: rows.length < LIVE_PR_SAMPLE };
 }
 
 // --------------------------------------------------------------------- //
@@ -513,23 +532,25 @@ async function parentInUniverseOf(isInUniverse, parentFullName) {
  * requests } }` or `{ ok: false, error }` (see `githubGet`, plus "invalid").
  * Never throws. `LIVE_REQUESTS_PER_CHECK` counted requests (one more when
  * GitHub redirects a renamed repository's old name), after a free quota
- * check that stops BEFORE spending any when too few are left, so a visitor
- * never gets half a result for part of their allowance.
+ * check that stops BEFORE spending any when fewer than
+ * `LIVE_REQUESTS_PER_CHECK + 1` are left, so even a renamed repository
+ * never leaves the visitor with half a result for part of their allowance.
  *
  * `isInUniverse(owner, name)` answers D-GATE-2's fork question from
  * Porchlamp's own snapshot (true / false / null for "could not tell").
  */
 export async function runLiveCheck(owner, name, { fetchImpl, now = new Date(), isInUniverse = async () => null } = {}) {
-  const fetchFn = fetchImpl || (typeof fetch === "function" ? fetch : null);
   const slug = parseRepoSlug(`${owner}/${name}`);
-  if (!slug || !fetchFn) return { ok: false, error: { kind: "invalid" } };
+  if (!slug) return { ok: false, error: { kind: "invalid" } };
+  const fetchFn = fetchImpl !== undefined ? fetchImpl : (typeof fetch === "function" ? fetch : null);
+  if (typeof fetchFn !== "function") return { ok: false, error: { kind: "network" } };
   const get = (url, ms = LIVE_TIMEOUT_MS) => githubGet(fetchFn, url, ms);
   const repoUrl = ({ owner: o, name: n }) => `${LIVE_API_BASE}/repos/${encodeURIComponent(o)}/${encodeURIComponent(n)}`;
   try {
     const quota = await get(`${LIVE_API_BASE}/rate_limit`);
     if (quota.ok) {
       const core = quota.data && quota.data.resources && quota.data.resources.core;
-      if (core && typeof core.remaining === "number" && core.remaining < LIVE_REQUESTS_PER_CHECK) {
+      if (core && typeof core.remaining === "number" && core.remaining < LIVE_REQUESTS_PER_CHECK + 1) {
         return { ok: false, error: { kind: "rate_limited", resetAt: num(core.reset) } };
       }
     } else if (quota.error.kind === "network" || quota.error.kind === "timeout") {
@@ -549,7 +570,7 @@ export async function runLiveCheck(owner, name, { fetchImpl, now = new Date(), i
     const [treeRes, commitsRes, pullsRes, parentInUniverse] = await Promise.all([
       get(`${base}/git/trees/HEAD?recursive=1`, LIVE_TREE_TIMEOUT_MS),
       get(`${base}/commits?since=${encodeURIComponent(since)}&per_page=${LIVE_PAGE_SIZE}`),
-      get(`${base}/pulls?state=closed&sort=updated&direction=desc&per_page=${LIVE_PAGE_SIZE}`),
+      get(`${base}/pulls?state=all&sort=created&direction=desc&per_page=${LIVE_PR_SAMPLE}`),
       repo.fork ? parentInUniverseOf(isInUniverse, repo.parentFullName) : Promise.resolve(null),
     ]);
     // The allowance ran out part-way (another tab, a shared network): say so
@@ -562,7 +583,7 @@ export async function runLiveCheck(owner, name, { fetchImpl, now = new Date(), i
       parentInUniverse,
       tree: treeFactsFrom(treeRes),
       commits: commitFactsFrom(commitsRes),
-      pulls: pullFactsFrom(pullsRes, now),
+      pulls: pullFactsFrom(pullsRes),
     };
     return {
       ok: true,

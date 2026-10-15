@@ -17,12 +17,15 @@ import {
   LIVE_API_BASE,
   LIVE_REQUESTS_PER_CHECK,
   LIVE_PAGE_SIZE,
+  LIVE_PR_SAMPLE,
   LIVE_TIMEOUT_MS,
   LIVE_DESCRIPTION_MAX,
   LIVE_GATE_IDS,
   MANIFEST_MAX_DEPTH,
   PR_WINDOW_DAYS,
   VITALITY_WINDOW_DAYS,
+  DECISION_WINDOW_DAYS,
+  GATE6_HANDOFF_MIN_PRS,
   parseRepoSlug,
   isBotActor,
   findRecognizedManifest,
@@ -40,7 +43,7 @@ import {
 import { renderNotInSnapshot } from "../components/livepanel.js";
 import { escapeHtml } from "../components/table.js";
 import { renderFilteredEmpty } from "../views/leaderboard.js";
-import { defaultState, reduce } from "../state.js";
+import { defaultState, reduce, parseSearch } from "../state.js";
 import * as copy from "../copy.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -75,7 +78,7 @@ test("parseRepoSlug: accepts owner/name and pasted github.com addresses", () => 
   for (const [text, owner, name] of cases) assert.deepEqual(parseRepoSlug(text), { owner, name }, text);
 });
 
-test("parseRepoSlug: rejects anything that is not exactly one GitHub owner and one name", () => {
+test("parseRepoSlug: rejects anything that is not exactly one GitHub owner and one name, in O(1) on pathological inputs", () => {
   const rejected = [
     "", "   ", null, undefined, 42, {}, "facebook", "a/b/c", "/b", "a/", "-bad/x", "a_b/c", "a/..", "a/.",
     "a b/c", "a/b c", "a/b?x=1", "a/b#frag", "../etc/passwd", "a/%2e%2e", "o/<script>", "o/r\"x",
@@ -83,6 +86,9 @@ test("parseRepoSlug: rejects anything that is not exactly one GitHub owner and o
     address("https", "evil.example/github.com/a/b"), "a/.git", "a\\b/c",
   ];
   for (const text of rejected) assert.equal(parseRepoSlug(text), null, String(text));
+  const t0 = performance.now();
+  assert.equal(parseRepoSlug(`https://github.com/a/b${"/".repeat(100_000)}x`), null);
+  assert.ok(performance.now() - t0 < 5, "length cap prevents polynomial regex backtracking");
 });
 
 // --------------------------------------------------------------------- //
@@ -98,12 +104,32 @@ test("SPDX reading matches porchlamp.core.gates on every shared case (cases/spdx
   }
 });
 
-test("bot, manifest, licence-file and marker rules match the engine on every shared case (cases/gate_rules.json)", () => {
+test("bot, manifest, licence-file, marker, vitality-commit and decided-PR rules match the engine on every shared case (cases/gate_rules.json)", () => {
   const doc = readCases("gate_rules.json");
+  const refNow = new Date(doc.ref_now);
   for (const c of doc.bots) assert.equal(isBotActor({ type: c.type, login: c.login, email: c.email }), c.expected, JSON.stringify(c));
   for (const c of doc.manifests) assert.equal(Boolean(findRecognizedManifest(c.paths)), c.expected, JSON.stringify(c.paths));
   for (const c of doc.license_files) assert.equal(Boolean(findLicenseFile(c.paths)), c.expected, JSON.stringify(c.paths));
   for (const c of doc.markers) assert.equal(hasOffPlatformMarker(c.paths), c.expected, JSON.stringify(c.paths));
+  for (const c of doc.vitality_commits) {
+    const cf = commitFactsFrom({ ok: true, data: c.commits });
+    const g4 = byId(evaluateLiveGates(facts({ commits: cf }), refNow))["D-GATE-4"];
+    const actual = g4.status === "pass" ? g4.detail.count : 0;
+    assert.equal(actual, c.expected, JSON.stringify(c));
+  }
+  for (const c of doc.decided_prs) {
+    const rawRows = c.prs.map((p) => ({
+      number: p.number,
+      created_at: p.created_at,
+      closed_at: p.closed_at,
+      merged_at: p.merged_at,
+      author_association: p.author_association,
+      user: p.login ? { login: p.login, type: "User" } : null,
+    }));
+    const pf = pullFactsFrom({ ok: true, data: rawRows });
+    const g6 = byId(evaluateLiveGates(facts({ pulls: pf }), refNow))["D-GATE-6"];
+    assert.equal(g6.status === "pass", c.expected, JSON.stringify(c));
+  }
 });
 
 test("findRecognizedManifest / findLicenseFile name the first matching path", () => {
@@ -137,7 +163,6 @@ function pr(overrides = {}) {
     createdAt: daysAgo(30),
     closedAt: daysAgo(20),
     mergedAt: daysAgo(20),
-    updatedAt: daysAgo(20),
     association: "CONTRIBUTOR",
     login: "outsider",
     type: "User",
@@ -150,7 +175,7 @@ function facts(overrides = {}) {
     repo: { ...BASE_REPO, ...(overrides.repo || {}) },
     parentInUniverse: "parentInUniverse" in overrides ? overrides.parentInUniverse : null,
     tree: "tree" in overrides ? overrides.tree : { paths: ["package.json", "LICENSE", "src", "src/index.js"], truncated: false },
-    commits: "commits" in overrides ? overrides.commits : { rows: [{ login: "alice", type: "User", email: "alice@example.com" }], complete: true },
+    commits: "commits" in overrides ? overrides.commits : { rows: [{ login: "alice" }], complete: true },
     pulls: "pulls" in overrides ? overrides.pulls : { rows: [pr()], complete: true },
   };
 }
@@ -167,7 +192,7 @@ test("evaluateLiveGates: a healthy repository passes every gate it can check, in
   assert.deepEqual(g["D-GATE-3"].detail, { spdx: "MIT" });
   assert.deepEqual(g["D-GATE-4"].detail, { count: 1, more: false, days: VITALITY_WINDOW_DAYS });
   assert.equal(g["D-GATE-5"].reason, "needs_pipeline");
-  assert.deepEqual(g["D-GATE-6"].detail, { number: 7, days: PR_WINDOW_DAYS, bot: false });
+  assert.deepEqual(g["D-GATE-6"].detail, { number: 7, days: DECISION_WINDOW_DAYS, bot: false, handoffPossible: false });
 });
 
 test("evaluateLiveGates D-GATE-1: no manifest fails only on a complete tree", () => {
@@ -204,8 +229,12 @@ test("evaluateLiveGates D-GATE-3: OSI expression passes; undetermined or unreada
   assert.equal(g3("OTHER", complete(["LICENSES"])).reason, "license_file");
   assert.equal(g3("NOASSERTION", complete(["README"])).reason, "no_license");
   assert.equal(g3("NOASSERTION", complete(["README"])).status, "fail");
-  assert.equal(g3("NOASSERTION", { paths: ["README"], truncated: true }).status, "undecided");
-  assert.equal(g3(null, null).reason, "license_unknown");
+  assert.deepEqual(g3("NOASSERTION", { paths: ["README"], truncated: true }), {
+    id: "D-GATE-3", status: "undecided", reason: "license_unknown", detail: { truncated: true },
+  });
+  assert.deepEqual(g3(null, null), {
+    id: "D-GATE-3", status: "undecided", reason: "license_unknown", detail: { truncated: false },
+  });
   // Unreadable as an expression: not a verdict on the licence, so the file decides.
   assert.equal(g3("MIT/X11 style", complete(["README"])).reason, "no_license");
   assert.equal(g3("MIT/X11 style", complete(["LICENSE"])).status, "pass");
@@ -213,20 +242,21 @@ test("evaluateLiveGates D-GATE-3: OSI expression passes; undetermined or unreada
 });
 
 test("evaluateLiveGates D-GATE-4: a person's commit passes; bots alone fail only when the page holds the whole window", () => {
-  const bots = Array.from({ length: 3 }, (_, i) => ({ login: `renovate`, type: "Bot", email: `${i}@x` }));
+  const bots = Array.from({ length: 3 }, () => ({ login: "renovate" }));
   assert.equal(gate("D-GATE-4", { commits: { rows: bots, complete: true } }).reason, "no_human_commits");
   assert.equal(gate("D-GATE-4", { commits: { rows: bots, complete: true } }).status, "fail");
   assert.equal(gate("D-GATE-4", { commits: { rows: [], complete: true } }).status, "fail");
   assert.deepEqual(gate("D-GATE-4", { commits: { rows: bots, complete: false } }), {
     id: "D-GATE-4", status: "undecided", reason: "commits_partial", detail: { pageSize: LIVE_PAGE_SIZE },
   });
-  const mixed = [...bots, { login: "", type: "", email: "someone@example.com" }];
+  const mixed = [...bots, { login: "" }];
   assert.deepEqual(gate("D-GATE-4", { commits: { rows: mixed, complete: false } }).detail, { count: 1, more: true, days: VITALITY_WINDOW_DAYS });
   assert.equal(gate("D-GATE-4", { commits: null }).reason, "commits_unreadable");
 });
 
-test("evaluateLiveGates D-GATE-6: an outside PR opened in the window and decided by now passes", () => {
+test("evaluateLiveGates D-GATE-6: an outside PR decided in the 365d window passes regardless of when it was opened", () => {
   assert.equal(gate("D-GATE-6", { pulls: { rows: [pr({ mergedAt: "" })], complete: true } }).status, "pass", "closed unmerged is decided too");
+  assert.equal(gate("D-GATE-6", { pulls: { rows: [pr({ createdAt: daysAgo(PR_WINDOW_DAYS + 50), mergedAt: daysAgo(10) })], complete: true } }).status, "pass");
   assert.equal(gate("D-GATE-6", { pulls: { rows: [pr({ association: "contributor" })], complete: true } }).status, "pass");
   assert.equal(gate("D-GATE-6", { pulls: { rows: [pr({ association: "" })], complete: true } }).status, "pass", "missing reads as NONE, as the engine reads it");
   for (const association of ["NONE", "FIRST_TIMER", "FIRST_TIME_CONTRIBUTOR"]) {
@@ -234,31 +264,46 @@ test("evaluateLiveGates D-GATE-6: an outside PR opened in the window and decided
   }
 });
 
-test("evaluateLiveGates D-GATE-6: maintainers' PRs, PRs opened before the window, undecided and future-dated decisions do not count", () => {
+test("evaluateLiveGates D-GATE-6: maintainers' PRs, ghost/deleted authors, decisions older than 365d, undecided and future-dated decisions do not count", () => {
   const none = (row) => gate("D-GATE-6", { pulls: { rows: [row], complete: true } });
   for (const association of ["MEMBER", "OWNER", "COLLABORATOR"]) assert.equal(none(pr({ association })).reason, "no_external_pr", association);
-  assert.equal(none(pr({ createdAt: daysAgo(PR_WINDOW_DAYS + 1) })).reason, "no_external_pr");
-  assert.equal(none(pr({ createdAt: daysAgo(PR_WINDOW_DAYS - 1) })).reason, "decided_external_pr");
+  assert.equal(none(pr({ login: "" })).reason, "no_external_pr");
+  assert.equal(none(pr({ login: "ghost" })).reason, "no_external_pr");
+  assert.equal(none(pr({ login: "Ghost" })).reason, "no_external_pr");
+  assert.equal(none(pr({ mergedAt: daysAgo(DECISION_WINDOW_DAYS + 1), closedAt: daysAgo(DECISION_WINDOW_DAYS + 1) })).reason, "no_external_pr");
+  assert.equal(none(pr({ mergedAt: daysAgo(DECISION_WINDOW_DAYS - 1), closedAt: daysAgo(DECISION_WINDOW_DAYS - 1) })).reason, "decided_external_pr");
   assert.equal(none(pr({ mergedAt: "", closedAt: "" })).reason, "no_external_pr");
   assert.equal(none(pr({ mergedAt: "", closedAt: new Date(NOW.getTime() + DAY_MS).toISOString() })).reason, "no_external_pr");
-  assert.equal(none(pr({ createdAt: "not a date" })).reason, "no_external_pr");
+  assert.equal(none(pr({ mergedAt: "not a date", closedAt: "not a date" })).reason, "no_external_pr");
 });
 
-test("evaluateLiveGates D-GATE-6: a bot's outside PR counts, as in the engine, but a person's is the one named", () => {
+test("evaluateLiveGates D-GATE-6: a bot's outside PR counts, as in the engine, but a person's is the one named; handoffPossible flags >= 5 outside human PRs or an incomplete sample", () => {
   const bot = pr({ number: 1, login: "dependabot[bot]", type: "Bot", association: "NONE" });
-  assert.deepEqual(gate("D-GATE-6", { pulls: { rows: [bot], complete: true } }).detail, { number: 1, days: PR_WINDOW_DAYS, bot: true });
-  assert.deepEqual(gate("D-GATE-6", { pulls: { rows: [bot, pr({ number: 2 })], complete: true } }).detail, { number: 2, days: PR_WINDOW_DAYS, bot: false });
+  assert.deepEqual(gate("D-GATE-6", { pulls: { rows: [bot], complete: true } }).detail, {
+    number: 1, days: DECISION_WINDOW_DAYS, bot: true, handoffPossible: false,
+  });
+  assert.deepEqual(gate("D-GATE-6", { pulls: { rows: [bot, pr({ number: 2 })], complete: true } }).detail, {
+    number: 2, days: DECISION_WINDOW_DAYS, bot: false, handoffPossible: false,
+  });
+  const fiveHuman = Array.from({ length: GATE6_HANDOFF_MIN_PRS }, (_, i) => pr({ number: i + 10 }));
+  assert.equal(gate("D-GATE-6", { pulls: { rows: fiveHuman, complete: true } }).detail.handoffPossible, true);
+  assert.equal(gate("D-GATE-6", { pulls: { rows: [pr({ number: 2 })], complete: false } }).detail.handoffPossible, true);
 });
 
-test("evaluateLiveGates D-GATE-6: without a decided outside PR, a marker routes; an incomplete page or tree cannot fail", () => {
+test("evaluateLiveGates D-GATE-6: without a decided outside PR in the 30-PR sample, a marker routes; an incomplete or missing tree cannot fail", () => {
   const nothing = { rows: [pr({ association: "MEMBER" })], complete: true };
   const marker = { paths: ["Documentation/process/submitting-patches.rst", "Makefile"], truncated: false };
   assert.equal(gate("D-GATE-6", { pulls: nothing, tree: marker }).status, "routed");
   assert.equal(gate("D-GATE-6", { pulls: { ...nothing, complete: false }, tree: marker }).status, "routed");
-  assert.equal(gate("D-GATE-6", { pulls: { ...nothing, complete: false } }).reason, "prs_partial");
-  assert.deepEqual(gate("D-GATE-6", { pulls: nothing }), { id: "D-GATE-6", status: "fail", reason: "no_external_pr", detail: { days: PR_WINDOW_DAYS } });
-  assert.equal(gate("D-GATE-6", { pulls: nothing, tree: { paths: ["Makefile"], truncated: true } }).reason, "prs_marker_unknown");
-  assert.equal(gate("D-GATE-6", { pulls: nothing, tree: null }).reason, "prs_marker_unknown");
+  assert.deepEqual(gate("D-GATE-6", { pulls: nothing }), {
+    id: "D-GATE-6", status: "fail", reason: "no_external_pr", detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS },
+  });
+  assert.deepEqual(gate("D-GATE-6", { pulls: nothing, tree: { paths: ["Makefile"], truncated: true } }), {
+    id: "D-GATE-6", status: "undecided", reason: "prs_marker_unknown", detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS, truncated: true },
+  });
+  assert.deepEqual(gate("D-GATE-6", { pulls: nothing, tree: null }), {
+    id: "D-GATE-6", status: "undecided", reason: "prs_marker_unknown", detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS, truncated: false },
+  });
   assert.equal(gate("D-GATE-6", { pulls: null }).reason, "prs_unreadable");
 });
 
@@ -285,41 +330,40 @@ test("repoFactsFrom: reads only well-typed fields and caps the description", () 
   assert.equal(repoFactsFrom({ license: { spdx_id: "NOASSERTION" } }).licenseSpdx, "NOASSERTION");
 });
 
-test("treeFactsFrom: every entry's path (folders too, as the engine's envelope records them), empty repository, unreadable", () => {
+test("treeFactsFrom: every entry's path (folders too, as the engine's envelope records them); any non-ok response (including 409 empty) is null", () => {
   const res = { ok: true, data: { truncated: true, tree: [
     { path: "LICENSES", type: "tree" }, { path: "LICENSES/MIT.txt", type: "blob" }, { path: "vendor/lib", type: "commit" },
     { type: "blob" }, null, { path: "", type: "blob" },
   ] } };
   assert.deepEqual(treeFactsFrom(res), { paths: ["LICENSES", "LICENSES/MIT.txt", "vendor/lib"], truncated: true });
-  assert.deepEqual(treeFactsFrom({ ok: false, error: { kind: "empty" } }), { paths: [], truncated: false });
+  assert.equal(treeFactsFrom({ ok: false, error: { kind: "empty" } }), null);
   assert.equal(treeFactsFrom({ ok: false, error: { kind: "http", status: 500 } }), null);
 });
 
-test("commitFactsFrom: a full page is incomplete; the linked account and the git email are both read", () => {
+test("commitFactsFrom: a full page is incomplete; only author.login is read, matching scripts/gather.py", () => {
   const row = { author: { login: "Alice", type: "User" }, commit: { author: { email: "a@x" } } };
   const page = (n) => ({ ok: true, data: Array.from({ length: n }, () => row) });
   assert.equal(commitFactsFrom(page(LIVE_PAGE_SIZE)).complete, false);
   assert.equal(commitFactsFrom(page(LIVE_PAGE_SIZE - 1)).complete, true);
-  assert.deepEqual(commitFactsFrom(page(1)).rows, [{ login: "Alice", type: "User", email: "a@x" }]);
-  assert.deepEqual(commitFactsFrom({ ok: true, data: [{ author: null, commit: null }] }).rows, [{ login: "", type: "", email: "" }]);
-  assert.deepEqual(commitFactsFrom({ ok: false, error: { kind: "empty" } }), { rows: [], complete: true });
+  assert.deepEqual(commitFactsFrom(page(1)).rows, [{ login: "Alice" }]);
+  assert.deepEqual(commitFactsFrom({ ok: true, data: [{ author: null, commit: null }] }).rows, [{ login: "" }]);
+  assert.equal(commitFactsFrom({ ok: false, error: { kind: "empty" } }), null);
   assert.equal(commitFactsFrom({ ok: false, error: { kind: "timeout" } }), null);
 });
 
-test("pullFactsFrom: a full page is complete only once it reaches back past the PR window", () => {
-  const rows = (n, lastUpdated) => Array.from({ length: n }, (_, i) => ({
+test("pullFactsFrom: complete when fewer than LIVE_PR_SAMPLE (30) PRs are returned", () => {
+  const rows = (n) => Array.from({ length: n }, (_, i) => ({
     number: i + 1, created_at: daysAgo(10), closed_at: daysAgo(5), merged_at: null,
-    updated_at: i === n - 1 ? lastUpdated : daysAgo(1), author_association: "NONE", user: { login: "u", type: "User" },
+    author_association: "NONE", user: { login: "u", type: "User" },
   }));
-  assert.equal(pullFactsFrom({ ok: true, data: rows(3, daysAgo(1)) }, NOW).complete, true);
-  assert.equal(pullFactsFrom({ ok: true, data: rows(LIVE_PAGE_SIZE, daysAgo(PR_WINDOW_DAYS + 1)) }, NOW).complete, true);
-  assert.equal(pullFactsFrom({ ok: true, data: rows(LIVE_PAGE_SIZE, daysAgo(PR_WINDOW_DAYS - 1)) }, NOW).complete, false);
-  assert.equal(pullFactsFrom({ ok: true, data: rows(LIVE_PAGE_SIZE, "garbage") }, NOW).complete, false);
-  assert.deepEqual(pullFactsFrom({ ok: true, data: rows(1, daysAgo(1)) }, NOW).rows[0], {
-    number: 1, createdAt: daysAgo(10), closedAt: daysAgo(5), mergedAt: "", updatedAt: daysAgo(1), association: "NONE", login: "u", type: "User",
+  assert.equal(pullFactsFrom({ ok: true, data: rows(3) }).complete, true);
+  assert.equal(pullFactsFrom({ ok: true, data: rows(LIVE_PR_SAMPLE - 1) }).complete, true);
+  assert.equal(pullFactsFrom({ ok: true, data: rows(LIVE_PR_SAMPLE) }).complete, false);
+  assert.deepEqual(pullFactsFrom({ ok: true, data: rows(1) }).rows[0], {
+    number: 1, createdAt: daysAgo(10), closedAt: daysAgo(5), mergedAt: "", association: "NONE", login: "u", type: "User",
   });
-  assert.deepEqual(pullFactsFrom({ ok: false, error: { kind: "empty" } }, NOW), { rows: [], complete: true });
-  assert.equal(pullFactsFrom({ ok: false, error: { kind: "network" } }, NOW), null);
+  assert.equal(pullFactsFrom({ ok: false, error: { kind: "empty" } }), null);
+  assert.equal(pullFactsFrom({ ok: false, error: { kind: "network" } }), null);
 });
 
 // --------------------------------------------------------------------- //
@@ -400,13 +444,14 @@ test("runLiveCheck: one free quota check, then exactly LIVE_REQUESTS_PER_CHECK G
   assert.equal(urls.commits.searchParams.get("since"), new Date(NOW.getTime() - VITALITY_WINDOW_DAYS * DAY_MS).toISOString());
   assert.equal(urls.commits.searchParams.get("per_page"), String(LIVE_PAGE_SIZE));
   assert.equal(urls.commits.searchParams.has("sha"), false, "the default branch, as the engine reads it");
-  assert.equal(urls.pulls.searchParams.get("state"), "closed");
-  assert.equal(urls.pulls.searchParams.get("sort"), "updated");
+  assert.equal(urls.pulls.searchParams.get("state"), "all");
+  assert.equal(urls.pulls.searchParams.get("sort"), "created");
   assert.equal(urls.pulls.searchParams.get("direction"), "desc");
+  assert.equal(urls.pulls.searchParams.get("per_page"), String(LIVE_PR_SAMPLE));
 });
 
-test("runLiveCheck: too little allowance left stops after the free quota check, spending nothing", async () => {
-  const gh = fakeGitHub({ rate_limit: () => reply({ resources: { core: { remaining: LIVE_REQUESTS_PER_CHECK - 1, reset: 1792080404 } } }) });
+test("runLiveCheck: too little allowance left (fewer than LIVE_REQUESTS_PER_CHECK + 1 for a redirect) stops after the free quota check, spending nothing", async () => {
+  const gh = fakeGitHub({ rate_limit: () => reply({ resources: { core: { remaining: LIVE_REQUESTS_PER_CHECK, reset: 1792080404 } } }) });
   const outcome = await runLiveCheck("acme", "widget", { fetchImpl: gh.fetchImpl, now: NOW });
   assert.deepEqual(outcome, { ok: false, error: { kind: "rate_limited", resetAt: 1792080404 } });
   assert.equal(gh.calls.length, 1);
@@ -443,7 +488,7 @@ test("runLiveCheck: an allowance that runs out part-way is reported as such, not
   assert.deepEqual(await runLiveCheck("acme", "widget", { fetchImpl: gh.fetchImpl, now: NOW }), { ok: false, error: { kind: "rate_limited", resetAt: 1792080404 } });
 });
 
-test("runLiveCheck: an empty repository (409s) is checked, not an error", async () => {
+test("runLiveCheck: an empty repository (409s) leaves tree/commit gates undecided, matching scripts/gather.py", async () => {
   const gh = fakeGitHub({
     repo: () => reply({ ...REPO_JSON, license: null }),
     tree: () => reply({ message: "Git Repository is empty." }, { status: 409 }),
@@ -453,10 +498,14 @@ test("runLiveCheck: an empty repository (409s) is checked, not an error", async 
   const outcome = await runLiveCheck("acme", "widget", { fetchImpl: gh.fetchImpl, now: NOW });
   assert.equal(outcome.ok, true);
   const g = byId(outcome.result.checks);
-  assert.equal(g["D-GATE-1"].reason, "no_manifest");
-  assert.equal(g["D-GATE-3"].reason, "no_license");
-  assert.equal(g["D-GATE-4"].reason, "no_human_commits");
-  assert.equal(g["D-GATE-6"].reason, "no_external_pr");
+  assert.equal(g["D-GATE-1"].status, "undecided");
+  assert.equal(g["D-GATE-1"].reason, "tree_unreadable");
+  assert.equal(g["D-GATE-3"].status, "undecided");
+  assert.equal(g["D-GATE-3"].reason, "license_unknown");
+  assert.equal(g["D-GATE-4"].status, "undecided");
+  assert.equal(g["D-GATE-4"].reason, "commits_unreadable");
+  assert.equal(g["D-GATE-6"].status, "undecided");
+  assert.equal(g["D-GATE-6"].reason, "prs_marker_unknown");
 });
 
 test("runLiveCheck: a failed sub-request leaves only its gates undecided", async () => {
@@ -509,12 +558,14 @@ test("runLiveCheck: a fork's parent is looked up in Porchlamp's snapshot, never 
   assert.equal(called, false, "an unreadable parent name is never looked up");
 });
 
-test("runLiveCheck: an invalid name makes no request at all", async () => {
+test("runLiveCheck: an invalid name makes no request at all, even when fetch is absent", async () => {
   for (const [owner, name] of [["acme", "../x"], ["-x", "y"], ["a/b", "c"], ["acme", ""]]) {
     const gh = fakeGitHub();
     assert.deepEqual(await runLiveCheck(owner, name, { fetchImpl: gh.fetchImpl, now: NOW }), { ok: false, error: { kind: "invalid" } });
     assert.equal(gh.calls.length, 0);
+    assert.deepEqual(await runLiveCheck(owner, name, { fetchImpl: null, now: NOW }), { ok: false, error: { kind: "invalid" } });
   }
+  assert.deepEqual(await runLiveCheck("acme", "widget", { fetchImpl: null, now: NOW }), { ok: false, error: { kind: "network" } });
 });
 
 function abortable(init, settle) {
@@ -604,9 +655,8 @@ test("renderNotInSnapshot: before the click, the lede, the heading, the button a
   assert.ok(!html.includes("live-gates"));
 });
 
-test("renderNotInSnapshot: a pasted address is normalised to the owner/name it names; an invalid key offers no check", () => {
-  assert.ok(renderNotInSnapshot(panelState(null), "https://github.com/acme/widget").includes(`data-live-check="acme/widget"`));
-  for (const key of ["malformed-no-slash", "a/b/c", "x/<img src=x>", ""]) {
+test("renderNotInSnapshot: only a canonical owner/name offers a check; non-normalised or invalid keys offer no check", () => {
+  for (const key of ["https://github.com/acme/widget", "acme/widget.git", "malformed-no-slash", "a/b/c", "x/<img src=x>", ""]) {
     const html = renderNotInSnapshot(panelState(null), key);
     assert.ok(html.includes(copy.DRAWER_NOT_FOUND_TEXT), key);
     assert.ok(!html.includes("data-live-check"), key);
@@ -663,7 +713,7 @@ test("renderNotInSnapshot: everything GitHub returns is escaped", () => {
 });
 
 test("renderNotInSnapshot: errors say why; only a retry that could change the answer is offered", () => {
-  const render = (error) => renderNotInSnapshot(panelState({ status: "done", outcome: { ok: false, error } }), "acme/widget", { nowMs: NOW.getTime() });
+  const render = (error) => renderNotInSnapshot(panelState({ status: "done", outcome: { ok: false, error }, atMs: NOW.getTime() }), "acme/widget");
   const resetAt = Math.floor(NOW.getTime() / 1000) + 90;
   const limited = render({ kind: "rate_limited", resetAt });
   assert.ok(limited.includes(escapeHtml(copy.liveErrorText({ kind: "rate_limited", resetAt }, NOW.getTime()))));
@@ -672,6 +722,7 @@ test("renderNotInSnapshot: errors say why; only a retry that could change the an
   for (const kind of ["rate_limited", "timeout", "network", "http"]) assert.ok(render({ kind, status: 500 }).includes(`data-live-check="acme/widget"`), kind);
   for (const kind of ["not_found", "unavailable", "invalid"]) assert.ok(!render({ kind }).includes("data-live-check=\""), kind);
   assert.ok(render({ kind: "http", status: 502 }).includes("status 502"));
+  assert.ok(render({ kind: "http", status: 200 }).includes("unreadable response"));
 });
 
 // --------------------------------------------------------------------- //
@@ -680,8 +731,12 @@ test("renderNotInSnapshot: errors say why; only a retry that could change the an
 
 test("copy: every reason code livecheck.js can produce has its own sentence; every status and gate has a label", () => {
   const reasons = [...new Set([...source("livecheck.js").matchAll(/reason: "([a-z_]+)"/g)].map((m) => m[1]))];
-  assert.ok(reasons.length >= 25, `found only ${reasons.length} reason codes`);
-  const detail = { path: "p", depth: 2, parent: "o/r", spdx: "MIT", file: "LICENSE", count: 1, more: false, days: 180, pageSize: 100, number: 1, bot: false };
+  assert.ok(reasons.length >= 24, `found only ${reasons.length} reason codes`);
+  const detail = {
+    path: "p", depth: 2, parent: "o/r", spdx: "MIT", file: "LICENSE",
+    count: 1, more: false, days: 180, pageSize: 100, sample: 30, number: 1, bot: false,
+    handoffPossible: false, truncated: false,
+  };
   for (const reason of reasons) {
     const text = copy.liveReasonText(reason, detail);
     assert.notEqual(text, copy.MISSING_VALUE, reason);
@@ -690,16 +745,25 @@ test("copy: every reason code livecheck.js can produce has its own sentence; eve
   assert.equal(copy.liveReasonText("no_such_reason", {}), copy.MISSING_VALUE);
   for (const status of ["pass", "fail", "undecided", "routed", "not_checked"]) assert.ok(copy.LIVE_STATUS_LABELS[status], status);
   for (const id of LIVE_GATE_IDS) assert.ok(copy.LIVE_GATE_NAMES[id], id);
-  assert.match(copy.liveReasonText("decided_external_pr", { number: 9, days: 180, bot: true }), /bot/);
-  assert.doesNotMatch(copy.liveReasonText("decided_external_pr", { number: 9, days: 180, bot: false }), /bot/);
+  assert.match(copy.liveReasonText("decided_external_pr", { number: 9, days: 365, bot: true, handoffPossible: false }), /bot/);
+  assert.doesNotMatch(copy.liveReasonText("decided_external_pr", { number: 9, days: 365, bot: false, handoffPossible: false }), /bot/);
+  assert.match(copy.liveReasonText("decided_external_pr", { number: 9, days: 365, bot: false, handoffPossible: true }), /Gerrit/);
+  assert.match(copy.liveReasonText("human_commits", { count: 1, more: false, days: 180 }), /1 commit\b/);
+  assert.match(copy.liveReasonText("human_commits", { count: 2, more: false, days: 180 }), /2 commits\b/);
+  assert.match(copy.liveReasonText("license_unknown", { truncated: true }), /too incomplete/);
+  assert.match(copy.liveReasonText("license_unknown", { truncated: false }), /did not return/);
+  assert.match(copy.liveReasonText("prs_marker_unknown", { truncated: true }), /too incomplete/);
+  assert.match(copy.liveReasonText("prs_marker_unknown", { truncated: false }), /did not return/);
 });
 
-test("copy: the announcement counts only the checks that ran, a routed one as passing", () => {
+test("copy: the announcement counts only the checks that ran, a routed one as passing, and mentions undecided checks", () => {
   const checks = [
     { id: "D-GATE-1", status: "pass" }, { id: "D-GATE-2", status: "fail" }, { id: "D-GATE-3", status: "undecided" },
     { id: "D-GATE-4", status: "pass" }, { id: "D-GATE-5", status: "not_checked" }, { id: "D-GATE-6", status: "routed" },
   ];
-  assert.equal(copy.liveCheckAnnouncement({ ok: true, result: { checks } }), "Live check done: 3 of 5 checks pass.");
+  assert.equal(copy.liveCheckAnnouncement({ ok: true, result: { checks } }), "Live check done: 3 of 5 checks pass (1 can't tell).");
+  const allPass = checks.map((c) => (c.status === "undecided" || c.status === "fail" ? { ...c, status: "pass" } : c));
+  assert.equal(copy.liveCheckAnnouncement({ ok: true, result: { checks: allPass } }), "Live check done: 5 of 5 checks pass.");
   assert.equal(copy.liveCheckAnnouncement({ ok: false, error: { kind: "not_found" } }), copy.liveErrorText({ kind: "not_found" }));
 });
 
@@ -717,15 +781,24 @@ test("copy: rate-limit wording rounds the reset up to whole minutes, never below
 // state.js and the leaderboard's way in
 // --------------------------------------------------------------------- //
 
-test("state: live checks are kept per repository for the session, without touching other keys", () => {
+test("state: live checks are kept per repository (and under canonical fullName) for the session, and repo params normalise slugs", () => {
   const s0 = defaultState();
   assert.deepEqual(s0.liveCheckByKey, {});
   const s1 = reduce(s0, { type: "LIVE_CHECK_LOADING", key: "a/b" });
   assert.deepEqual(s1.liveCheckByKey, { "a/b": { status: "loading" } });
   assert.deepEqual(s0.liveCheckByKey, {}, "the reducer does not mutate");
   const outcome = { ok: false, error: { kind: "network" } };
-  const s2 = reduce(reduce(s1, { type: "LIVE_CHECK_LOADING", key: "c/d" }), { type: "LIVE_CHECK_DONE", key: "a/b", outcome });
-  assert.deepEqual(s2.liveCheckByKey, { "a/b": { status: "done", outcome }, "c/d": { status: "loading" } });
+  const s2 = reduce(reduce(s1, { type: "LIVE_CHECK_LOADING", key: "c/d" }), { type: "LIVE_CHECK_DONE", key: "a/b", outcome, atMs: 1234 });
+  assert.deepEqual(s2.liveCheckByKey, { "a/b": { status: "done", outcome, atMs: 1234 }, "c/d": { status: "loading" } });
+
+  const renamed = okOutcome({ repo: { fullName: "Acme/Widget" } });
+  const s3 = reduce(s0, { type: "LIVE_CHECK_DONE", key: "acme/widget", outcome: renamed, atMs: 5678 });
+  assert.equal(s3.liveCheckByKey["acme/widget"].outcome, renamed);
+  assert.equal(s3.liveCheckByKey["Acme/Widget"].outcome, renamed);
+
+  assert.equal(parseSearch("?repo=bulk%2Frepo-0133.git").repo, "bulk/repo-0133");
+  assert.equal(parseSearch("?repo=https%3A%2F%2Fgithub.com%2Fbulk%2Frepo-0133%2F").repo, "bulk/repo-0133");
+  assert.equal(reduce(s0, { type: "OPEN_REPO", repo: "bulk/repo-0133.git" }).repo, "bulk/repo-0133");
 });
 
 test("renderFilteredEmpty: a search that is a repository name offers to look it up; any other search does not", () => {

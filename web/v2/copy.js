@@ -454,14 +454,14 @@ export function liveNotInSnapshotText(repoKey, snapshotId) {
 export const LIVE_CHECK_HEADING = "Live check from GitHub";
 export const LIVE_CHECK_BUTTON_LABEL = "Check it live on GitHub";
 export function liveCheckNoteText(requests) {
-  return `Your browser asks GitHub directly: ${requests} requests to api.github.com, out of the 60 an hour GitHub allows your network without signing in. Nothing is sent to Porchlamp.`;
+  return `Your browser asks GitHub directly: ${requests} of the 60 hourly requests GitHub allows your network without signing in (plus a free allowance check, and 1 more if the repository was renamed). Nothing is sent to Porchlamp.`;
 }
 export const LIVE_CHECK_LOADING_TEXT = "Asking GitHub\u2026";
 export const LIVE_CHECK_DISCLAIMER =
   "Not a Porchlamp score, and not part of the verified snapshot: these are the eligibility checks your browser can run on public GitHub data right now. Scoring and the black-hole check need the full pipeline.";
 export function liveCheckedAtText(isoTime, requests) {
   const when = typeof isoTime === "string" && isoTime.length >= 16 ? `${isoTime.slice(0, 10)} ${isoTime.slice(11, 16)} UTC` : MISSING_VALUE;
-  return `Checked ${when}, with ${requests} requests from your browser to api.github.com.`;
+  return `Checked ${when}, spending ${requests} of your hourly requests to api.github.com (plus a free allowance check).`;
 }
 export function liveRenamedText(fullName) {
   return `GitHub knows this repository as ${fullName}.`;
@@ -503,11 +503,17 @@ export function liveReasonText(reason, detail = {}) {
     case "mirror":
       return "A mirror of a repository hosted elsewhere.";
     case "fork_parent_in_universe":
-      return `A fork of ${detail.parent}, which Porchlamp already covers.`;
+      return detail.parent
+        ? `A fork of ${detail.parent}, which Porchlamp already covers.`
+        : "A fork of a repository Porchlamp already covers.";
     case "fork_parent_outside":
-      return `A fork of ${detail.parent}, which Porchlamp does not cover, so the fork counts on its own.`;
+      return detail.parent
+        ? `A fork of ${detail.parent}, which Porchlamp does not cover, so the fork counts on its own.`
+        : "A fork whose original Porchlamp does not cover, so the fork counts on its own.";
     case "fork_parent_unknown":
-      return `A fork of ${detail.parent}; could not tell whether Porchlamp covers the original.`;
+      return detail.parent
+        ? `A fork of ${detail.parent}; could not tell whether Porchlamp covers the original.`
+        : "A fork; GitHub did not name the original repository, so the check could not tell whether Porchlamp covers it.";
     case "osi_spdx":
       return `${detail.spdx}, an OSI-approved license.`;
     case "license_file":
@@ -517,9 +523,13 @@ export function liveReasonText(reason, detail = {}) {
     case "no_license":
       return "No license GitHub recognises, and no LICENSE or COPYING file at the top level.";
     case "license_unknown":
-      return "GitHub could not name the license, and the file list was too incomplete to look for a license file.";
-    case "human_commits":
-      return `${detail.count}${detail.more ? "+" : ""} commits by people on the default branch in the last ${detail.days} days.`;
+      return detail.truncated
+        ? "GitHub could not name the license, and the file list was too incomplete to look for a license file."
+        : "GitHub could not name the license, and GitHub did not return the file list to look for a license file.";
+    case "human_commits": {
+      const noun = detail.count === 1 && !detail.more ? "commit" : "commits";
+      return `${detail.count}${detail.more ? "+" : ""} ${noun} by people on the default branch in the last ${detail.days} days.`;
+    }
     case "no_human_commits":
       return `No commits by people on the default branch in the last ${detail.days} days.`;
     case "commits_partial":
@@ -528,18 +538,24 @@ export function liveReasonText(reason, detail = {}) {
       return "GitHub did not return the commit history.";
     case "needs_pipeline":
       return "Needs the replies and reviews on every outside pull request, which only the full pipeline reads.";
-    case "decided_external_pr":
+    case "decided_external_pr": {
+      const caveat = detail.handoffPossible
+        ? " (Passes unless PR comments hand review off to another tool such as Gerrit, which is not checked live.)"
+        : "";
       return detail.bot
-        ? `Pull request #${detail.number}, from a bot account outside the maintainer team and opened in the last ${detail.days} days, has been merged or closed. The snapshot's rule counts bot pull requests too.`
-        : `Pull request #${detail.number}, from an outside contributor and opened in the last ${detail.days} days, has been merged or closed.`;
+        ? `Pull request #${detail.number}, from a bot account outside the maintainer team, was merged or closed in the last ${detail.days} days; the snapshot's rule counts bot pull requests too.${caveat}`
+        : `Pull request #${detail.number}, from an outside contributor, was merged or closed in the last ${detail.days} days.${caveat}`;
+    }
     case "off_platform_marker":
-      return "No outside pull request has been decided on GitHub, but the project's patch-submission guide sends contributions to another review process.";
+      return `None of the ${detail.sample || 30} newest pull requests is an outside one decided in the last ${detail.days || 365} days, and the project's patch-submission guide sends contributions to another review process.`;
     case "no_external_pr":
-      return `No pull request from an outside contributor opened in the last ${detail.days} days has been merged or closed.`;
+      return `None of the ${detail.sample || 30} newest pull requests is from an outside contributor and merged or closed in the last ${detail.days || 365} days.`;
     case "prs_partial":
       return `None of the ${detail.pageSize} most recently updated closed pull requests is a decided outside one, and the check reads no further.`;
     case "prs_marker_unknown":
-      return "No outside pull request has been decided, and the file list was too incomplete to look for another review process.";
+      return detail.truncated
+        ? `None of the ${detail.sample || 30} newest pull requests is an outside one decided in the last ${detail.days || 365} days, and the file list was too incomplete to look for another review process.`
+        : `None of the ${detail.sample || 30} newest pull requests is an outside one decided in the last ${detail.days || 365} days, and GitHub did not return the file list to look for another review process.`;
     case "prs_unreadable":
       return "GitHub did not return the pull requests.";
     default:
@@ -567,7 +583,11 @@ export function liveErrorText(error, nowMs = Date.now()) {
   if (kind === "unavailable") return "GitHub has made this repository unavailable.";
   if (kind === "timeout") return "GitHub did not answer in time.";
   if (kind === "network") return "Could not reach GitHub.";
-  if (kind === "http") return `GitHub answered with an error (status ${error.status}).`;
+  if (kind === "http") {
+    return typeof error.status === "number" && error.status >= 400
+      ? `GitHub answered with an error (status ${error.status}).`
+      : "GitHub returned an unreadable response.";
+  }
   return "This is not a repository name GitHub accepts.";
 }
 export function liveCheckAnnouncement(outcome) {
@@ -575,6 +595,10 @@ export function liveCheckAnnouncement(outcome) {
   // D-GATE-5 is never decided live: counting it would read as a failure that never happened.
   const run = outcome.result.checks.filter((c) => c.status !== "not_checked");
   const passed = run.filter((c) => c.status === "pass" || c.status === "routed").length;
+  const undecided = run.filter((c) => c.status === "undecided").length;
+  if (undecided > 0) {
+    return `Live check done: ${passed} of ${run.length} checks pass (${undecided} can't tell).`;
+  }
   return `Live check done: ${passed} of ${run.length} checks pass.`;
 }
 export function drawerErrorText(endpoint, status, detail) {
