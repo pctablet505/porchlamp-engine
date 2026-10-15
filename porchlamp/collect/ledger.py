@@ -40,10 +40,11 @@ def is_pr_settled(pr: Mapping[str, Any], anchor: datetime) -> bool:
     1. Its state is in ("MERGED", "CLOSED").
     2. Its createdAt timestamp is at least SETTLED_MATURITY_DAYS (14 days)
        before anchor.
-    3. At least one of closedAt or mergedAt is present and <= anchor.
+    3. At least one of closedAt or mergedAt is present and at least
+       SETTLED_MATURITY_DAYS (14 days) before anchor.
 
-    Returns False if pr state is "OPEN", if younger than 14 days at anchor,
-    or if timestamps are missing or invalid.
+    Returns False if pr state is "OPEN", if created/closed younger than 14 days
+    at anchor, or if timestamps are missing or invalid.
     """
     state = str(pr.get("state") or "").upper()
     if state not in ("MERGED", "CLOSED"):

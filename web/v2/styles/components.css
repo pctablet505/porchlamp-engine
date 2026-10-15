@@ -1268,13 +1268,13 @@ p.cell-numeric {
   padding: var(--space-md);
   background: var(--bg-surface-elevated);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-card);
 }
 
 .black-hole-evidence h3 {
   margin: 0 0 var(--space-xs) 0;
   font-size: var(--text-body-md);
-  font-weight: var(--weight-semibold);
+  font-weight: 600;
   color: var(--text-primary);
 }
 
@@ -1291,7 +1291,7 @@ p.cell-numeric {
 .black-hole-stat {
   margin: var(--space-sm) 0 var(--space-xs) 0;
   font-size: var(--text-body-lg);
-  font-weight: var(--weight-semibold);
+  font-weight: 600;
   color: var(--text-primary);
 }
 
@@ -1321,7 +1321,7 @@ p.cell-numeric {
   overflow: auto;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
 }
 
 .black-hole-pr-table {

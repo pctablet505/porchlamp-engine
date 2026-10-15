@@ -809,8 +809,8 @@ const BADGE_QUADRANT = "Sweet Spot";
  * record, never a persona projection (U-4): a lens must not mint a badge the
  * balanced rating does not support. Tier A or above is required; the Sweet
  * Spot quadrant marks a badge but never earns one. MEASURED on snapshot
- * 2026-10-13c: "Sweet Spot or tier A+" offered a badge to 1,213 of 3,407
- * rated repositories, 182 of them tier C; tier A+ with no flag is 65.
+ * 2026-10-14: "Sweet Spot or tier A+" offered a badge to 1,412 of 3,833
+ * rated repositories, 214 of them tier C; tier A+ with no flag is 91.
  * `imageText` is what the image says; `alt` adds the score, the exact
  * coverage and the snapshot id (U-1, U-6) for the README's alt text and title.
  */

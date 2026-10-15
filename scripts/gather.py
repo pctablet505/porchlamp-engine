@@ -505,6 +505,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
 
             try:
                 existing_c365: Optional[list[dict]] = None
+                existing_c365_truncated: bool = False
                 if incremental_ledgers:
                     c365_p = DATA / "commits_365d" / f"{key}.json"
                     if c365_p.is_file():
@@ -514,10 +515,15 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                                 rows_or_commits = prev_c365.get("rows") or prev_c365.get("commits")
                                 if isinstance(rows_or_commits, list):
                                     existing_c365 = rows_or_commits
+                                    existing_c365_truncated = bool(prev_c365.get("truncated"))
                         except Exception:
                             existing_c365 = None
                 if existing_c365 is not None:
-                    c365_data = collect_commits_365d(_page, existing_rows=existing_c365)
+                    c365_data = collect_commits_365d(
+                        _page,
+                        existing_rows=existing_c365,
+                        existing_truncated=existing_c365_truncated,
+                    )
                 else:
                     c365_data = collect_commits_365d(_page)
                 c365_at = datetime.now(timezone.utc).isoformat()

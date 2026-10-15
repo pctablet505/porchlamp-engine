@@ -76,6 +76,8 @@ class EnvelopeStore(Protocol):
         source: str,
         data: Any,
         fetched_at: Optional[str] = None,
+        http_status: int = 200,
+        etag: Optional[str] = None,
     ) -> Envelope:
         """Store an envelope and return the recorded Envelope instance."""
         ...
@@ -118,11 +120,20 @@ class FileEnvelopeStore:
         source: str,
         data: Any,
         fetched_at: Optional[str] = None,
+        http_status: int = 200,
+        etag: Optional[str] = None,
     ) -> Envelope:
         """Write envelope to atomic JSON file on disk and return parsed Envelope."""
         target = self._target_path(collector, key)
         ts = fetched_at or datetime.now(timezone.utc).isoformat()
-        written = write_envelope(target, source=source, data=data, fetched_at=ts)
+        written = write_envelope(
+            target,
+            source=source,
+            data=data,
+            fetched_at=ts,
+            http_status=http_status,
+            etag=etag,
+        )
         return read_envelope(written)
 
     def exists(self, collector: str, key: str) -> bool:

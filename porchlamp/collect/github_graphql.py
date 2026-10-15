@@ -434,18 +434,14 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
             if isinstance(ep, Mapping) and ep.get("number") is not None:
                 try:
                     num = int(ep["number"])
-                    created = _parse_iso(ep.get("createdAt"))
-                    if created is not None and created >= window_start and ledger.is_pr_settled(ep, ref_anchor):
-                        settled_nums.add(num)
                 except (TypeError, ValueError):
-                    pass
-        for num in ledger.unsettled_pr_numbers(existing_prs, ref_anchor, window_days=PR_WINDOW_DAYS):
-            for ep in existing_prs:
-                if isinstance(ep, Mapping) and ep.get("number") == num:
-                    created = _parse_iso(ep.get("createdAt"))
-                    if created is None or created >= window_start:
-                        remaining_unsettled.add(num)
-                    break
+                    continue
+                created = _parse_iso(ep.get("createdAt"))
+                if ledger.is_pr_settled(ep, ref_anchor):
+                    if created is not None and created >= window_start:
+                        settled_nums.add(num)
+                elif created is None or created >= window_start:
+                    remaining_unsettled.add(num)
 
     stopped_early = False
     stopped_on_settled = False

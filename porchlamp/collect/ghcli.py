@@ -119,7 +119,7 @@ _ETAG_INITIALIZED_DBS: set[str] = set()
 
 def _ensure_etag_schema(db: Path) -> None:
     db_key = str(db.resolve())
-    if db_key in _ETAG_INITIALIZED_DBS and db.is_file():
+    if db_key in _ETAG_INITIALIZED_DBS and db.is_file() and db.stat().st_size > 0:
         return
     db.parent.mkdir(parents=True, exist_ok=True)
     with contextlib.closing(sqlite3.connect(str(db))) as conn:
@@ -204,6 +204,7 @@ def clear_etag_cache() -> None:
     global _ETAG_DB_PATH
     with _ETAG_CACHE_LOCK:
         _ETAG_DB_PATH = None
+        _ETAG_INITIALIZED_DBS.clear()
 
 
 def clear_token_cache() -> None:

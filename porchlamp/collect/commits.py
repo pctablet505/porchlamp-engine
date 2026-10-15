@@ -134,6 +134,7 @@ def collect_commits_365d(
     now: Optional[datetime] = None,
     *,
     existing_rows: Optional[Sequence[Mapping[str, Any]]] = None,
+    existing_truncated: bool = False,
 ) -> dict[str, Any]:
     """Collect the trailing 365 d of commits, newest first, capped.
 
@@ -159,11 +160,13 @@ def collect_commits_365d(
 
     rows: list[dict[str, Any]] = []
     truncated = False
+    stopped_on_existing = False
     for page in range(1, COMMIT_CAP // COMMIT_PAGE_SIZE + 1):
         raw = list(fetch_page(page, since))
         shaped = shape_commit_rows(raw)
         rows.extend(shaped)
         if existing_keys and any(ledger._commit_key(s) in existing_keys for s in shaped):
+            stopped_on_existing = True
             break
         if len(raw) < COMMIT_PAGE_SIZE:
             break
@@ -180,7 +183,7 @@ def collect_commits_365d(
             window_days=COMMIT_WINDOW_DAYS,
             cap=COMMIT_CAP,
         )
-        truncated = paged_hit_cap or len(rows) >= COMMIT_CAP
+        truncated = paged_hit_cap or len(rows) >= COMMIT_CAP or (stopped_on_existing and existing_truncated)
     else:
         rows = rows[:COMMIT_CAP]
     return {
