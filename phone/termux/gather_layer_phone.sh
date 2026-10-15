@@ -98,7 +98,7 @@ warn_storm() {  # warn_storm LOGFILE: >=8 recent WARN lines that mention 403/429
 }
 
 disk_ok() {  # stop rule: free disk under 5 GB (phone)
-  local free_kb; free_kb=$(df --output=avail -k "$DATAROOT" | tail -1)
+  local free_kb; free_kb=$(df --output=avail -k "$DATAROOT" 2>/dev/null | tail -1); [ -n "$free_kb" ] || free_kb=$(df -Pk "$DATAROOT" | awk 'NR==2{print $4}')
   [ "${free_kb:-0}" -ge $((5*1024*1024)) ]
 }
 

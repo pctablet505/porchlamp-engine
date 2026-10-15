@@ -1329,8 +1329,8 @@ test("SEO: canonicalHrefForState, robots.txt, sitemap.xml, Search Console verifi
   const articleMatch = html.match(/<article class="seo-fallback">([\s\S]*?)<\/article>/);
   assert.ok(articleMatch, ".seo-fallback article exists");
   const article = articleMatch[1];
-  assert.match(article, /3,407 ranked, 6,267 gated, and 1,326 unrated of 11,000 evaluated/, "U-2 excluded counts");
-  assert.match(article, /python -m porchlamp\.snapshot reproduce 2026-10-13c/, "U-6 reproduce command");
+  assert.match(article, /3,833 ranked, 5,790 gated, and 1,377 unrated of 11,000 evaluated/, "U-2 excluded counts");
+  assert.match(article, /python -m porchlamp\.snapshot reproduce 2026-10-14/, "U-6 reproduce command");
 
   const hrefs = [...article.matchAll(/<a href="([^"]+)">/g)].map((m) => m[1]);
   assert.ok(hrefs.length >= 30, "persona, tab, ecosystem, and top-20 repo links");
@@ -2410,3 +2410,30 @@ test("error banners across views include retry buttons", () => {
   assert.ok(mdHtml.includes('data-methodology-retry="true"'));
 });
 
+test("renderBlackHoleEvidence: formats response_kind into human prose and computes missing share/Wilson bound", () => {
+  const html = renderBlackHoleEvidence({
+    ...FLAT_BLACK_HOLE_DETAIL,
+    black_hole_evidence: {
+      ...FLAT_BLACK_HOLE_DETAIL.black_hole_evidence,
+      unanswered_share: null,
+      wilson_lower_bound: null,
+      counted_prs: [
+        { number: 1, created_at: "2026-04-01T00:00:00Z", answered_within_14d: false, response_kind: "none" },
+        { number: 2, created_at: "2026-04-02T00:00:00Z", answered_within_14d: true, response_kind: "review_or_comment" },
+        { number: 3, created_at: "2026-04-03T00:00:00Z", answered_within_14d: true, response_kind: "closed_by_maintainer" },
+        { number: 4, created_at: "2026-04-04T00:00:00Z", answered_within_14d: true, response_kind: "merged" },
+        { number: 5, created_at: "2026-04-05T00:00:00Z", answered_within_14d: true, response_kind: "none" },
+      ],
+    },
+  });
+  assert.ok(html.includes("12 of 15 (80.0%) external non-bot PRs"));
+  assert.ok(html.includes("95% Wilson lower confidence bound: 59.1%"));
+  assert.ok(html.includes("No response within 14d"));
+  assert.ok(html.includes("Answered (review or comment)"));
+  assert.ok(html.includes("Answered (closed by maintainer)"));
+  assert.ok(html.includes("Answered (merged)"));
+  assert.ok(!html.includes("Answered (review_or_comment)"));
+  assert.ok(!html.includes("Answered (closed_by_maintainer)"));
+  assert.ok(!html.includes("Answered (none)"));
+  assert.ok(html.includes("black-hole-pr-scroll"));
+});

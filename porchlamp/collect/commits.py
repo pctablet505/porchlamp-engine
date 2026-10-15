@@ -172,6 +172,7 @@ def collect_commits_365d(
             break
 
     if existing_rows:
+        paged_hit_cap = truncated
         rows = ledger.merge_commits_365d_delta(
             existing_rows,
             rows,
@@ -179,7 +180,7 @@ def collect_commits_365d(
             window_days=COMMIT_WINDOW_DAYS,
             cap=COMMIT_CAP,
         )
-        truncated = len(rows) >= COMMIT_CAP
+        truncated = paged_hit_cap or len(rows) >= COMMIT_CAP
     else:
         rows = rows[:COMMIT_CAP]
     return {

@@ -65,7 +65,7 @@ def is_pr_settled(pr: Mapping[str, Any], anchor: datetime) -> bool:
     if not valid_decided:
         return False
 
-    return any(d <= anchor_utc for d in valid_decided)
+    return any(d <= anchor_utc - timedelta(days=SETTLED_MATURITY_DAYS) for d in valid_decided)
 
 
 def merge_pr_window_delta(
@@ -149,6 +149,10 @@ def _commit_key(c: Mapping[str, Any]) -> Any:
         return str(sha)
     date_str = str(c.get("date") or (c.get("commit") or {}).get("author", {}).get("date") or "")
     author_login = str(c.get("author_login") or (c.get("author") or {}).get("login") or "")
+    author_email = str(c.get("author_email") or (c.get("commit") or {}).get("author", {}).get("email") or "")
+    signed_off = c.get("signed_off")
+    if author_email or signed_off is not None:
+        return (date_str, author_login, author_email, bool(signed_off))
     return (date_str, author_login)
 
 

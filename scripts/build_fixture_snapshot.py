@@ -408,6 +408,7 @@ def write_fixture(result: FixtureBuildResult, out_dir: Path) -> None:
                 "fork_parent_in_universe": result.gate_evidence[repo_key(bundle)].fork_parent_in_universe,
                 "vitality_commits_180d": result.gate_evidence[repo_key(bundle)].vitality_commits_180d,
                 "off_platform_marker": result.gate_evidence[repo_key(bundle)].off_platform_marker,
+                "review_handoff": result.gate_evidence[repo_key(bundle)].review_handoff,
             },
         }
         for bundle in sorted(result.bundles, key=lambda b: (b.repo.owner.lower(), b.repo.name.lower()))

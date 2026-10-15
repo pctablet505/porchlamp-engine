@@ -191,10 +191,10 @@ class SqliteShardEnvelopeStore:
         k = _validate_segment(key)
         shard_idx = self._shard_index(col, k)
         shard_path = self._shard_path(shard_idx)
-        if not shard_path.exists():
-            return None
 
         with self._lock:
+            if not shard_path.exists():
+                return None
             conn = self._get_connection(shard_idx)
             cur = conn.cursor()
             cur.execute(
@@ -231,6 +231,8 @@ class SqliteShardEnvelopeStore:
         source: str,
         data: Any,
         fetched_at: Optional[str] = None,
+        http_status: int = 200,
+        etag: Optional[str] = None,
     ) -> Envelope:
         """Store envelope in corresponding SQLite shard and return Envelope."""
         col = _validate_segment(collector)
@@ -250,7 +252,7 @@ class SqliteShardEnvelopeStore:
                     (collector, repo_key, fetched_at, source, sha256, data_json, http_status, etag, collector_version)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (col, k, ts, source, sha, data_json, 200, None, COLLECTOR_VERSION),
+                    (col, k, ts, source, sha, data_json, http_status, etag, COLLECTOR_VERSION),
                 )
 
         loaded_data = json.loads(data_json)
@@ -258,8 +260,8 @@ class SqliteShardEnvelopeStore:
             path=f"sqlite://shard_{shard_idx:02x}.sqlite/{col}/{k}",
             source=source,
             fetched_at=ts,
-            http_status=200,
-            etag=None,
+            http_status=http_status,
+            etag=etag,
             collector_version=COLLECTOR_VERSION,
             data=loaded_data,
             recorded_sha256=sha,
@@ -272,10 +274,10 @@ class SqliteShardEnvelopeStore:
         k = _validate_segment(key)
         shard_idx = self._shard_index(col, k)
         shard_path = self._shard_path(shard_idx)
-        if not shard_path.exists():
-            return False
 
         with self._lock:
+            if not shard_path.exists():
+                return False
             conn = self._get_connection(shard_idx)
             cur = conn.cursor()
             cur.execute(

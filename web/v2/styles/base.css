@@ -115,12 +115,12 @@ a {
 }
 
 .seo-fallback h1 {
-  font-size: var(--text-title-lg);
+  font-size: var(--text-h1);
   margin: var(--space-xs) 0;
 }
 
 .seo-fallback h2 {
-  font-size: var(--text-title-sm);
+  font-size: var(--text-h2);
   margin: var(--space-lg) 0 var(--space-xs);
 }
 
@@ -144,7 +144,7 @@ a {
 .seo-fallback table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--text-body-sm);
+  font-size: var(--text-body-md);
   font-variant-numeric: tabular-nums;
 }
 

@@ -472,11 +472,16 @@ export function renderBlackHoleEvidence(row, evidenceRows) {
   let excluded = null;
   let countedPrs = [];
 
+  let thresholdShare = 0.5;
+  let minN = 10;
+
   if (evidence) {
     unanswered = evidence.unanswered;
     populationN = evidence.population_n;
     unansweredShare = evidence.unanswered_share;
     wilsonLowerBound = evidence.wilson_lower_bound;
+    if (typeof evidence.threshold_share === "number") thresholdShare = evidence.threshold_share;
+    if (typeof evidence.min_n === "number") minN = evidence.min_n;
     windowStart = evidence.window_start;
     windowEnd = evidence.window_end;
     source = evidence.source;
@@ -484,18 +489,25 @@ export function renderBlackHoleEvidence(row, evidenceRows) {
     countedPrs = Array.isArray(evidence.counted_prs) ? evidence.counted_prs : [];
   } else if (Array.isArray(evidenceRows)) {
     const grRow = evidenceRows.find((r) => r.param_id === "gr14_ghost_rate");
-    if (grRow && typeof grRow.value === "number" && typeof grRow.n === "number" && grRow.n > 0) {
-      unansweredShare = grRow.value;
+    if (grRow && typeof grRow.value === "number" && typeof grRow.n === "number" && grRow.n >= minN) {
       populationN = grRow.n;
-      unanswered = Math.round(unansweredShare * populationN);
+      unanswered = Math.round(grRow.value * populationN);
+      unansweredShare = unanswered / populationN;
       const z = 1.644853;
       const denom = 1 + (z * z) / populationN;
       const center = unansweredShare + (z * z) / (2 * populationN);
       const spread = z * Math.sqrt((unansweredShare * (1 - unansweredShare) + (z * z) / (4 * populationN)) / populationN);
-      wilsonLowerBound = Math.max(0, (center - spread) / denom);
-      windowStart = grRow.window_start;
-      windowEnd = grRow.window_end;
-      source = grRow.source;
+      const computedWilson = Math.max(0, (center - spread) / denom);
+      if (computedWilson > thresholdShare) {
+        wilsonLowerBound = computedWilson;
+        windowStart = grRow.window_start;
+        windowEnd = grRow.window_end;
+        source = grRow.source;
+      } else {
+        unanswered = null;
+        populationN = null;
+        unansweredShare = null;
+      }
     }
   }
 
@@ -503,11 +515,22 @@ export function renderBlackHoleEvidence(row, evidenceRows) {
 
   let bodyHtml = "";
   if (hasData) {
-    const pct = typeof unansweredShare === "number" ? (unansweredShare * 100).toFixed(1) : "0.0";
-    const wPct = typeof wilsonLowerBound === "number" ? (wilsonLowerBound * 100).toFixed(1) : "0.0";
+    const effectiveShare =
+      typeof unansweredShare === "number" ? unansweredShare : unanswered / populationN;
+    let effectiveWilson = wilsonLowerBound;
+    if (typeof effectiveWilson !== "number") {
+      const z = 1.644853;
+      const denom = 1 + (z * z) / populationN;
+      const center = effectiveShare + (z * z) / (2 * populationN);
+      const spread = z * Math.sqrt((effectiveShare * (1 - effectiveShare) + (z * z) / (4 * populationN)) / populationN);
+      effectiveWilson = Math.max(0, (center - spread) / denom);
+    }
+    const pct = (effectiveShare * 100).toFixed(1);
+    const wPct = (effectiveWilson * 100).toFixed(1);
+    const threshPct = (thresholdShare * 100).toFixed(1);
 
     const statHtml = `<p class="black-hole-stat">${escapeHtml(unanswered)} of ${escapeHtml(populationN)} (${escapeHtml(pct)}%) external non-bot PRs had no maintainer response, merge, or close within 14 days</p>`;
-    const wilsonHtml = `<p class="black-hole-wilson">95% Wilson lower confidence bound: ${escapeHtml(wPct)}% (threshold: &gt; 50.0%, min n = 10)</p>`;
+    const wilsonHtml = `<p class="black-hole-wilson">95% Wilson lower confidence bound: ${escapeHtml(wPct)}% (threshold: &gt; ${escapeHtml(threshPct)}%, min n = ${escapeHtml(minN)})</p>`;
 
     let windowHtml = "";
     if (windowStart && windowEnd) {
@@ -545,9 +568,9 @@ export function renderBlackHoleEvidence(row, evidenceRows) {
         .map((pr) => {
           const num = Number(pr.number);
           const prUrl = `https://github.com/${encodeURIComponent(row.owner)}/${encodeURIComponent(row.name)}/pull/${num}`;
-          const statusText = pr.answered_within_14d
-            ? (pr.response_kind ? `Answered (${escapeHtml(pr.response_kind)})` : "Answered")
-            : "No response within 14d";
+          const statusText = escapeHtml(
+            copy.blackHolePrResponseText(Boolean(pr.answered_within_14d), pr.response_kind)
+          );
           return (
             `<tr>` +
             `<td><a href="${escapeHtml(prUrl)}" target="_blank" rel="noopener noreferrer">#${num}</a></td>` +
@@ -558,7 +581,7 @@ export function renderBlackHoleEvidence(row, evidenceRows) {
         })
         .join("");
       prTableHtml =
-        `<div class="table-scroll"><table class="evidence-table black-hole-pr-table"><thead><tr>` +
+        `<div class="table-scroll black-hole-pr-scroll"><table class="evidence-table black-hole-pr-table"><thead><tr>` +
         `<th>PR</th><th>Opened</th><th>14-day status</th>` +
         `</tr></thead><tbody>${prRows}</tbody></table></div>`;
     }

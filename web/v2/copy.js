@@ -346,6 +346,20 @@ export const BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT =
 export const BLACK_HOLE_RECHECK_TEXT =
   "Automatic recovery: Porchlamp re-evaluates the 180-day PR window whenever repository activity moves. If this project reviews patches off-GitHub (mailing list, Gerrit, Phabricator), open a re-check issue to route it under D-GATE-6 (RFC-0007).";
 
+const BLACK_HOLE_RESPONSE_KIND_LABELS = Object.freeze({
+  review_or_comment: "review or comment",
+  merged: "merged",
+  closed_by_maintainer: "closed by maintainer",
+});
+
+export function blackHolePrResponseText(answeredWithin14d, responseKind) {
+  if (!answeredWithin14d) return "No response within 14d";
+  if (!responseKind || responseKind === "none") return "Answered";
+  const label = BLACK_HOLE_RESPONSE_KIND_LABELS[responseKind] || String(responseKind).replace(/_/g, " ");
+  return `Answered (${label})`;
+}
+
+
 
 export const ROW_OPEN_HINT = "Press Enter to view why this score";
 
@@ -635,7 +649,7 @@ export const METHODOLOGY_HEADING = "Methodology and snapshot";
 export const WHY_HEADING = "Why Porchlamp";
 export const WHY_PARAGRAPHS = Object.freeze([
   "A porch lamp left on tells a visitor they are expected. Porchlamp ranks open-source projects the same way: by what happens to a stranger's pull request, not by how many stars the project has.",
-  "Stars do not review pull requests. In our measurements more than a third of active projects leave most pull requests from outside contributors without a human reply, review or merge for two weeks, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.",
+  "Stars do not review pull requests. In our measurements more than 1 in 4 active projects leave most pull requests from outside contributors without a human reply, review or merge for two weeks, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.",
   "Every number comes from public GitHub activity: how fast a person answered outside contributors, how many of their pull requests reached a decision, whether first-time contributors came back, and how much other software depends on the project.",
 ]);
 export const METHODOLOGY_LOADING_TEXT = "Loading the methodology…";

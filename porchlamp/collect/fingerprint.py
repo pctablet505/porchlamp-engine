@@ -782,12 +782,33 @@ def fingerprint_to_persist(
 
 
 def _scan_prs_for_decided_external(
-    prs: Sequence[Any], horizon: datetime, now: datetime
+    prs: Sequence[Any],
+    horizon: datetime,
+    now: datetime,
+    derived_by_num: Optional[Mapping[Any, Mapping[str, Any]]] = None,
 ) -> bool:
     for pr in prs:
         if not isinstance(pr, Mapping):
             continue
+        d = derived_by_num.get(pr.get("number")) if derived_by_num and pr.get("number") is not None else None
+        author_node = pr.get("author") if isinstance(pr.get("author"), Mapping) else {}
+        bot_flag = pr.get("is_bot_author")
+        if bot_flag is None and isinstance(d, Mapping):
+            bot_flag = d.get("is_bot_author")
+        if bot_flag is None:
+            login = str(author_node.get("login") or pr.get("author_login") or "")
+            typename = str(
+                author_node.get("__typename")
+                or author_node.get("type")
+                or pr.get("author_type")
+                or ""
+            )
+            bot_flag = is_bot_actor(typename, login) if (login or typename) else False
+        if bot_flag:
+            continue
         is_ext = pr.get("is_external")
+        if is_ext is None and isinstance(d, Mapping):
+            is_ext = d.get("is_external")
         if is_ext is None:
             assoc = str(
                 pr.get("author_association") or pr.get("authorAssociation") or "NONE"
@@ -819,19 +840,41 @@ def _has_decided_external_pr_in_raw(
     if pr_win_doc is not None:
         data = pr_win_doc.get("data")
         truncated = bool(isinstance(data, Mapping) and data.get("truncated") is True)
+        used_prs_key = isinstance(data, Mapping) and isinstance(data.get("prs"), Sequence)
         prs = (
-            data.get("pull_requests")
-            if isinstance(data, Mapping) and isinstance(data.get("pull_requests"), Sequence)
+            data.get("prs")
+            if used_prs_key
             else (
-                data.get("events")
-                if isinstance(data, Mapping) and isinstance(data.get("events"), Sequence)
-                else (data if isinstance(data, Sequence) else None)
+                data.get("pull_requests")
+                if isinstance(data, Mapping) and isinstance(data.get("pull_requests"), Sequence)
+                else (
+                    data.get("events")
+                    if isinstance(data, Mapping) and isinstance(data.get("events"), Sequence)
+                    else (data if isinstance(data, Sequence) else None)
+                )
             )
         )
+        derived_raw = data.get("derived") if isinstance(data, Mapping) else None
+        derived_by_num = (
+            {
+                row.get("number"): row
+                for row in derived_raw
+                if isinstance(row, Mapping) and row.get("number") is not None
+            }
+            if isinstance(derived_raw, Sequence) and not isinstance(derived_raw, (str, bytes))
+            else None
+        )
         if isinstance(prs, Sequence) and not isinstance(prs, (str, bytes)):
-            if _scan_prs_for_decided_external(prs, horizon, now):
+            if _scan_prs_for_decided_external(prs, horizon, now, derived_by_num):
                 return True
-            return None if truncated else False
+            if not truncated:
+                if not used_prs_key:
+                    return False
+                ro_doc = _read_envelope_doc(envelope_path(raw_dir, "repo_object", owner, name))
+                ro_data = ro_doc.get("data") if isinstance(ro_doc, Mapping) else None
+                ro_total = ro_data.get("pull_requests_total") if isinstance(ro_data, Mapping) else None
+                if isinstance(ro_total, int) and not isinstance(ro_total, bool) and ro_total <= len(prs):
+                    return False
 
     pr_events_doc = _read_envelope_doc(envelope_path(raw_dir, "pr_events", owner, name))
     if pr_events_doc is not None:
@@ -956,13 +999,25 @@ def is_confirmed_black_hole_in_raw(
 ) -> bool:
     """True when the recorded pr_window envelope confirms the repo is a D-GATE-5 black hole.
 
-    Returns False for review-handoff repositories (which are routed off-platform),
-    when pr_window is missing/unreadable, or when the 14-day zero-response count does
-    not satisfy the black-hole threshold.
+    Returns False for review-handoff or off-platform repositories (which are routed
+    off-platform), when pr_window is missing/unreadable, or when the 14-day zero-response
+    count does not satisfy the black-hole threshold.
     """
     key = f"{owner}__{name}"
     if _review_handoff(raw_dir, key) is True:
         return False
+    ro_doc = _read_envelope_doc(envelope_path(raw_dir, "repo_object", owner, name))
+    tree_doc = _read_envelope_doc(envelope_path(raw_dir, "tree", owner, name))
+    ro_data = ro_doc.get("data") if isinstance(ro_doc, Mapping) and isinstance(ro_doc.get("data"), Mapping) else None
+    tree_data = tree_doc.get("data") if isinstance(tree_doc, Mapping) and isinstance(tree_doc.get("data"), Mapping) else None
+    if ro_data is not None or tree_data is not None:
+        elig = derive_eligibility(
+            dict(ro_data) if ro_data is not None else None,
+            None,
+            dict(tree_data) if tree_data is not None else None,
+        )
+        if elig["off_platform"][0]:
+            return False
     prw_path = raw_dir / "pr_window" / f"{key}.json"
     if not prw_path.is_file():
         return False
@@ -1126,10 +1181,11 @@ def classify_prune_reason(
                 return "unlicensed"
             if elig["non_software"][0]:
                 return "non_software"
-            off_val, off_conf, _ = elig["off_platform"]
-            if elig["no_prs_ever"][0] and not off_val:
-                return "no_external_workflow"
-            if not off_val and off_conf != "missing":
+            off_val, off_conf, off_src = elig["off_platform"]
+            handoff = _review_handoff(raw_dir, f"{owner}__{name}") is True
+            if not off_val and not handoff and off_src == "repo_object":
+                if elig["no_prs_ever"][0]:
+                    return "no_external_workflow"
                 has_decided = _has_decided_external_pr_in_raw(raw_dir, owner, name, now)
                 if has_decided is False:
                     return "no_external_workflow"

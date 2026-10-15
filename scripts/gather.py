@@ -1047,7 +1047,7 @@ def _run_main(a: argparse.Namespace) -> int:
             bad = [k for k, v in st.items() if v == "fail"]
             ok += not bad
             fail += bool(bad)
-            if st.get("skipped_deep_black_hole") is True:
+            if st.get("skipped_deep_black_hole") is True and not bad:
                 print(f"{owner}/{name} [{eco}]: OK (stopped at black_hole)")
             else:
                 print(f"{owner}/{name} [{eco}]: {'OK' if not bad else 'FAIL ' + ','.join(bad)}")

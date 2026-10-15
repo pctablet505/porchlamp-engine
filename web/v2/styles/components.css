@@ -1260,3 +1260,78 @@ p.cell-numeric {
   justify-content: flex-start; /* with the message above them */
   margin: var(--space-xs) 0 0;
 }
+
+/* Black-hole determination evidence panel (D-GATE-5, Packet 4) */
+.black-hole-evidence {
+  margin-top: var(--space-md);
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.black-hole-evidence h3 {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: var(--text-body-md);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.black-hole-rule,
+.black-hole-exclusions,
+.black-hole-not-measured,
+.black-hole-recheck {
+  margin: var(--space-xs) 0;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.black-hole-stat {
+  margin: var(--space-sm) 0 var(--space-xs) 0;
+  font-size: var(--text-body-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+
+.black-hole-wilson {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: var(--text-caption);
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.black-hole-window,
+.black-hole-source,
+.black-hole-excluded-counts {
+  margin: 2px 0;
+  font-size: var(--text-caption);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.black-hole-source {
+  overflow-wrap: anywhere;
+}
+
+.black-hole-pr-scroll {
+  margin: var(--space-sm) 0;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.black-hole-pr-table {
+  width: 100%;
+  font-size: var(--text-caption);
+}
+
+.black-hole-pr-table a {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  text-decoration: underline;
+}
+

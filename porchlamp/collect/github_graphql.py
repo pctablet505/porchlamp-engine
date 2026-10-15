@@ -406,7 +406,9 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
                     transport: GraphqlTransport,
                     page_size: int = PAGE_SIZE,
                     *,
-                    existing_prs: Optional[Sequence[dict]] = None) -> PrWindowResult:
+                    existing_prs: Optional[Sequence[dict]] = None,
+                    existing_anchor: Optional[datetime] = None,
+                    existing_truncated: bool = False) -> PrWindowResult:
     """Fetch the PRs ``owner/name`` opened in the trailing 180 days.
 
     Pages newest-first and stops when a returned PR was opened before the
@@ -426,20 +428,27 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
     after: Optional[str] = None
     settled_nums: set[int] = set()
     remaining_unsettled: set[int] = set()
+    ref_anchor = existing_anchor or now
     if existing_prs is not None:
         for ep in existing_prs:
             if isinstance(ep, Mapping) and ep.get("number") is not None:
                 try:
                     num = int(ep["number"])
-                    if ledger.is_pr_settled(ep, now):
+                    created = _parse_iso(ep.get("createdAt"))
+                    if created is not None and created >= window_start and ledger.is_pr_settled(ep, ref_anchor):
                         settled_nums.add(num)
                 except (TypeError, ValueError):
                     pass
-        remaining_unsettled = set(
-            ledger.unsettled_pr_numbers(existing_prs, now, window_days=PR_WINDOW_DAYS)
-        )
+        for num in ledger.unsettled_pr_numbers(existing_prs, ref_anchor, window_days=PR_WINDOW_DAYS):
+            for ep in existing_prs:
+                if isinstance(ep, Mapping) and ep.get("number") == num:
+                    created = _parse_iso(ep.get("createdAt"))
+                    if created is None or created >= window_start:
+                        remaining_unsettled.add(num)
+                    break
 
     stopped_early = False
+    stopped_on_settled = False
     while len(prs) < PR_CAP:
         variables: dict[str, Any] = {"owner": owner, "name": name, "first": page_size}
         if after is not None:
@@ -465,6 +474,7 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
                 if existing_prs is not None and raw_num in settled_nums and not remaining_unsettled:
                     prs.append(raw)
                     stopped_early = True
+                    stopped_on_settled = True
                     break
             prs.append(raw)
             if len(prs) >= PR_CAP:
@@ -480,7 +490,12 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
         merged = ledger.merge_pr_window_delta(
             existing_prs, prs, now=now, window_days=PR_WINDOW_DAYS, cap=PR_CAP
         )
-        return PrWindowResult(owner, name, now, len(merged) >= PR_CAP, cost, tuple(merged))
+        trunc = (
+            (not stopped_early and len(prs) >= PR_CAP)
+            or len(merged) >= PR_CAP
+            or (stopped_on_settled and existing_truncated)
+        )
+        return PrWindowResult(owner, name, now, trunc, cost, tuple(merged))
     return PrWindowResult(owner, name, now, not stopped_early and len(prs) >= PR_CAP, cost, tuple(prs))
 
 
@@ -511,15 +526,26 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
         return "skip"
     now = now or datetime.now(timezone.utc)
     existing_prs: Optional[list[dict]] = None
+    existing_anchor: Optional[datetime] = None
+    existing_truncated: bool = False
     if incremental_ledger and target.is_file():
         try:
             prev_env = read_envelope(target)
             if isinstance(prev_env.data, Mapping) and isinstance(prev_env.data.get("prs"), list):
                 existing_prs = prev_env.data["prs"]
+                existing_anchor = (
+                    _parse_iso(prev_env.data.get("window_anchor"))
+                    or _parse_iso(getattr(prev_env, "fetched_at", None))
+                )
+                existing_truncated = bool(prev_env.data.get("truncated") is True)
         except Exception:
             existing_prs = None
+            existing_anchor = None
+            existing_truncated = False
     result = fetch_pr_window(owner, name, now, transport or GhCliTransport(),
-                             page_size=page_size, existing_prs=existing_prs)
+                             page_size=page_size, existing_prs=existing_prs,
+                             existing_anchor=existing_anchor,
+                             existing_truncated=existing_truncated)
     data: dict[str, Any] = {
         "window_anchor": now.isoformat(),
         "window_days": PR_WINDOW_DAYS,

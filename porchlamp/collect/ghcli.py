@@ -114,6 +114,31 @@ def close_pool() -> None:
         _POOL_IDLE.clear()
 
 
+_ETAG_INITIALIZED_DBS: set[str] = set()
+
+
+def _ensure_etag_schema(db: Path) -> None:
+    db_key = str(db.resolve())
+    if db_key in _ETAG_INITIALIZED_DBS and db.is_file():
+        return
+    db.parent.mkdir(parents=True, exist_ok=True)
+    with contextlib.closing(sqlite3.connect(str(db))) as conn:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS http_etag_cache (
+                url TEXT PRIMARY KEY,
+                etag TEXT NOT NULL,
+                headers_json TEXT NOT NULL,
+                body TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    _ETAG_INITIALIZED_DBS.add(db_key)
+
+
 def configure_etag_cache(db_path: Path | str | None = None) -> None:
     """Configure optional SQLite persistence for conditional ETag responses."""
     global _ETAG_DB_PATH
@@ -122,21 +147,7 @@ def configure_etag_cache(db_path: Path | str | None = None) -> None:
             _ETAG_DB_PATH = None
             return
         resolved = Path(db_path)
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(str(resolved)) as conn:
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS http_etag_cache (
-                    url TEXT PRIMARY KEY,
-                    etag TEXT NOT NULL,
-                    headers_json TEXT NOT NULL,
-                    body TEXT NOT NULL,
-                    updated_at REAL NOT NULL
-                )
-                """
-            )
-            conn.commit()
+        _ensure_etag_schema(resolved)
         _ETAG_DB_PATH = resolved
 
 
@@ -155,7 +166,7 @@ def _etag_get(url: str) -> tuple[str, dict[str, str], str] | None:
         if db is None or not db.is_file():
             return None
         try:
-            with sqlite3.connect(str(db)) as conn:
+            with contextlib.closing(sqlite3.connect(str(db))) as conn:
                 row = conn.execute(
                     "SELECT etag, headers_json, body FROM http_etag_cache WHERE url = ?",
                     (url,),
@@ -174,20 +185,8 @@ def _etag_put(url: str, etag: str, headers_dict: dict[str, str], body: str) -> N
         if db is None:
             return
         try:
-            db.parent.mkdir(parents=True, exist_ok=True)
-            with sqlite3.connect(str(db)) as conn:
-                conn.execute("PRAGMA journal_mode=WAL;")
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS http_etag_cache (
-                        url TEXT PRIMARY KEY,
-                        etag TEXT NOT NULL,
-                        headers_json TEXT NOT NULL,
-                        body TEXT NOT NULL,
-                        updated_at REAL NOT NULL
-                    )
-                    """
-                )
+            _ensure_etag_schema(db)
+            with contextlib.closing(sqlite3.connect(str(db))) as conn:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO http_etag_cache (url, etag, headers_json, body, updated_at)
