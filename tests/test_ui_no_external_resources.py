@@ -31,12 +31,13 @@ EXTERNAL_URL_RE = re.compile(r"""(https?:)?//[a-zA-Z0-9][^\s'"()]*""")
 ALLOWED_URL_SUBSTRINGS: tuple[str, ...] = ("https://github.com/",)
 
 
-#: Link-preview and canonical tags (Open Graph, Twitter cards, rel="canonical")
-#: must carry absolute URLs -- crawlers do not resolve relative ones -- yet the
-#: browser never fetches them as subresources. Only the content/href of such a
-#: tag is exempt; the same URL anywhere else in a served file is still a violation.
+#: Link-preview, canonical, alternate (hreflang/feed), and JSON-LD structured
+#: data tags must carry absolute URLs -- crawlers do not resolve relative ones
+#: -- yet the browser never fetches them as subresources. Only the content/href
+#: of such an inert SEO tag is exempt; the same URL anywhere else in a served
+#: file is still a violation.
 LINK_PREVIEW_META_RE = re.compile(
-    r"""<meta\s+(?:property="og:[\w:]+"|name="twitter:\w+")\s+content="[^"]*">|<link\s+rel="canonical"\s+href="[^"]*">"""
+    r"""<meta\s+(?:property="og:[\w:]+"|name="twitter:[\w:]+")\s+content="[^"]*">|<link\s+rel="(?:canonical|alternate)"[^>]*href="[^"]*">|<script\s+type="application/ld\+json">[\s\S]*?</script>"""
 )
 
 

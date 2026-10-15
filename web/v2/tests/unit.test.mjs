@@ -1289,10 +1289,25 @@ test("SEO: canonicalHrefForState, robots.txt, sitemap.xml, Search Console verifi
     `${base}?tab=methodology`
   );
 
-  // 2. robots.txt allows root and points to the canonical sitemap.xml
+  // 2. robots.txt allows root and multi-engine crawlers, and points to the canonical sitemap.xml
   const robots = readFileSync(path.join(webRoot, "robots.txt"), "utf8");
-  assert.match(robots, /^User-agent: \*\nAllow: \/\n\nSitemap: /, "robots.txt header");
+  assert.match(robots, /^User-agent: \*\nAllow: \/\n\n/, "robots.txt header");
+  for (const bot of ["Googlebot", "Bingbot", "DuckDuckBot", "Bravebot", "Slurp", "Yandex", "Applebot", "OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "ClaudeBot"]) {
+    assert.ok(robots.includes(`User-agent: ${bot}\nAllow: /`), `robots.txt allows ${bot}`);
+  }
   assert.ok(robots.trim().endsWith(`Sitemap: ${base}sitemap.xml`), "robots.txt names canonical sitemap");
+
+  // 2b. JSON-LD @graph, feed.xml, llms.txt, and IndexNow key file
+  const ldMatch = html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/);
+  assert.ok(ldMatch, "JSON-LD structured data block present in index.html");
+  const ldJson = JSON.parse(ldMatch[1]);
+  assert.ok(Array.isArray(ldJson["@graph"]) && ldJson["@graph"].length >= 5, "JSON-LD @graph contains rich entities");
+  const feedXml = readFileSync(path.join(webRoot, "feed.xml"), "utf8");
+  assert.ok(feedXml.includes(`<id>${base}</id>`), "feed.xml uses canonical base id");
+  const llmsTxt = readFileSync(path.join(webRoot, "llms.txt"), "utf8");
+  assert.ok(llmsTxt.includes("212,390 pull requests"), "llms.txt documents empirical dataset");
+  const indexNowKey = "7c9d4a2e8b1f6a3c5d8e9f0a1b2c3d4e";
+  assert.equal(readFileSync(path.join(webRoot, `${indexNowKey}.txt`), "utf8").trim(), indexNowKey);
 
   // 3. Google Search Console verification file
   const gscFile = "googled8fac072696a3851.html";

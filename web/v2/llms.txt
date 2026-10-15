@@ -1,0 +1,74 @@
+# Porchlamp — Open-Source Contributor Value Index (https://pctablet505.github.io/porchlamp/)
+
+> A porch lamp left on tells a visitor they are expected. Porchlamp ranks 11,000 open-source projects by what happens to a stranger's pull request, not by how many stars the project has. Every score traces back to recorded GitHub responses and SHA-256 content hashes (by Rahul Kumar, `pctablet505`).
+
+## Core Empirical Findings (Snapshot `2026-10-14`, Benchmark `2.0.0-rc1`)
+- **Dataset Scale:** 212,390 pull requests from 110,605 outside contributors tracked across 11,000 open-source repositories over six months across 6 ecosystems: `npm` (JavaScript/TypeScript), `pypi` (Python), `crates` (Rust), `go` (Go), `maven` (Java), and `systems` (C/C++/Zig).
+- **More than 1 in 4 Active Projects Are Black Holes:** Of 4,297 licensed, maintained software projects that received at least 10 outside pull requests in six months, 1,133 (`26.4%`) left the majority of stranger pull requests with no human reply, review, or merge within 14 days.
+- **More Stars, More Silence:** The black-hole rate increases with popularity: `21%` at 1k–10k stars, `31%` at 10k–50k stars, and `39%` at 50k+ stars (nearly 4 in 10 of the most-starred repositories on GitHub).
+- **Stars Barely Predict Contributor Experience:** Across all 3,833 ranked projects, the rank correlation between GitHub stars and the Porchlamp score is `0.13`, and only `9` of the 100 most-starred projects make the top 100.
+- **Universe Breakdown (11,000 Total):**
+  - `3,833` **Ranked (Rated)** under the default Balanced lens (`>=60%` parameter coverage and passing all Stage-0 gates).
+  - `5,790` **Gated (Stage 0):** Black holes, archived, unmaintained, unlicensed, or non-software repositories (listed transparently under Not Ranked, never ranked).
+  - `1,377` **Unrated:** Repositories passing Stage-0 gates but with `<60%` measured parameter coverage.
+- **Coverage Tier Ceilings:** Repositories with `<95%` parameter coverage have their tier capped (`A (capped)` for `[80%, 95%)`, `B (capped)` for `[60%, 80%)`) so missing data never inflates a rank tier.
+
+## 5 Pillars & 18 Parameters (Balanced Weights)
+1. **Responsiveness (25%):** Time to First Human Response (TTFHR), Decision Rate (90d), First-Timer Merge Rate, PR Ghost Rate (14d), and Time to Merge (p90).
+2. **Criticality (25%):** Deduplicated Dependents, OpenSSF Criticality Score, and Monthly Registry Downloads.
+3. **Governance (20%):** Legal IP Regime (OSI license & CLA/DCO), Elephant Factor, Promotion Ladder, and Bus Factor.
+4. **Rigor (15%):** OpenSSF Scorecard Pipeline Defenses, AI Policy Posture, and Substantive Review Rate.
+5. **Accessibility (15%):** Active Good First Issues, Newcomer Conversion, Newcomer Return Rate (90d), and Developer Experience.
+
+## Top 20 Ranked Open-Source Repositories (Balanced Snapshot `2026-10-14`)
+1. `meshery/meshery` (`npm`) — Score `81.16` · Coverage `65%` · Tier `B (capped)` · `Sweet Spot`
+2. `WordPress/gutenberg` (`npm`) — Score `80.93` · Coverage `61%` · Tier `B (capped)` · `Sweet Spot`
+3. `ggml-org/llama.cpp` (`systems`) — Score `80.83` · Coverage `78%` · Tier `B (capped)` · `Sweet Spot`
+4. `rust-lang/rust` (`crates`) — Score `80.79` · Coverage `61%` · Tier `B (capped)` · `Sweet Spot`
+5. `prometheus/prometheus` (`go`) — Score `79.11` · Coverage `81%` · Tier `A (capped)` · `Sweet Spot`
+6. `servo/rust-smallvec` (`crates`) — Score `78.99` · Coverage `94%` · Tier `A (capped)` · `Sweet Spot`
+7. `kornia/kornia` (`pypi`) — Score `78.47` · Coverage `81%` · Tier `A (capped)` · `Sweet Spot`
+8. `rust-lang/libc` (`crates`) — Score `78.14` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
+9. `freeCodeCamp/freeCodeCamp` (`npm`) — Score `78.02` · Coverage `65%` · Tier `B (capped)` · `Sweet Spot`
+10. `ant-design/ant-design` (`npm`) — Score `77.51` · Coverage `65%` · Tier `B (capped)` · `Sweet Spot`
+11. `kedacore/keda` (`go`) — Score `76.99` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
+12. `external-secrets/external-secrets` (`go`) — Score `76.80` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
+13. `organicmaps/organicmaps` (`systems`) — Score `76.49` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
+14. `webdriverio/webdriverio` (`npm`) — Score `76.23` · Coverage `81%` · Tier `A (capped)` · `Sweet Spot`
+15. `apache/airflow` (`pypi`) — Score `76.15` · Coverage `61%` · Tier `B (capped)` · `Sweet Spot`
+16. `onnx/onnx` (`pypi`) — Score `75.86` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
+17. `matplotlib/matplotlib` (`pypi`) — Score `75.81` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
+18. `kubernetes-sigs/cluster-api` (`go`) — Score `75.38` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
+19. `biomejs/biome` (`crates`) — Score `75.27` · Coverage `65%` · Tier `B (capped)` · `Sweet Spot`
+20. `moby/moby` (`go`) — Score `74.90` · Coverage `81%` · Tier `A (capped)` · `Sweet Spot`
+
+## Canonical Views, Contributor Lenses & Ecosystem Filters
+- [Balanced Leaderboard (Default, 3,833 ranked)](https://pctablet505.github.io/porchlamp/)
+- [First-Timer Persona (1,968 ranked)](https://pctablet505.github.io/porchlamp/?persona=first_timer)
+- [Career Capital Persona (823 ranked)](https://pctablet505.github.io/porchlamp/?persona=career_capital)
+- [Senior Systems Persona (1,206 ranked)](https://pctablet505.github.io/porchlamp/?persona=senior_systems)
+- [AI-Assisted Persona (3,929 ranked)](https://pctablet505.github.io/porchlamp/?persona=ai_assisted)
+- [Not Ranked — Gated & Unrated Repositories (5,790 gated + 1,377 unrated)](https://pctablet505.github.io/porchlamp/?tab=notranked)
+- [Leverage vs. Friction 2D Matrix](https://pctablet505.github.io/porchlamp/?tab=matrix)
+- [Side-by-Side Repository Comparator](https://pctablet505.github.io/porchlamp/?tab=compare)
+- [Custom Pillar Weight Configurator](https://pctablet505.github.io/porchlamp/?tab=configure)
+- [Full Methodology & SHA-256 Verification Hashes](https://pctablet505.github.io/porchlamp/?tab=methodology)
+- **Ecosystem Filters:**
+  - [Python (PyPI)](https://pctablet505.github.io/porchlamp/?eco=pypi)
+  - [JavaScript & TypeScript (npm)](https://pctablet505.github.io/porchlamp/?eco=npm)
+  - [Rust (crates.io)](https://pctablet505.github.io/porchlamp/?eco=crates)
+  - [Go](https://pctablet505.github.io/porchlamp/?eco=go)
+  - [Java (Maven)](https://pctablet505.github.io/porchlamp/?eco=maven)
+  - [Systems (C/C++/Zig)](https://pctablet505.github.io/porchlamp/?eco=systems)
+
+## Machine-Readable Static JSON Data Endpoints
+- [Snapshot Provenance & Verification Hashes](https://pctablet505.github.io/porchlamp/data/2026-10-14/snapshot.json)
+- [Balanced Leaderboard JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/leaderboard-balanced.json)
+- [First-Timer Leaderboard JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/leaderboard-first_timer.json)
+- [Career Capital Leaderboard JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/leaderboard-career_capital.json)
+- [Senior Systems Leaderboard JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/leaderboard-senior_systems.json)
+- [AI-Assisted Leaderboard JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/leaderboard-ai_assisted.json)
+- [2D Matrix Coordinates JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/matrix.json)
+- [Methodology Specification JSON](https://pctablet505.github.io/porchlamp/data/2026-10-14/methodology.json)
+- [Atom 1.0 Syndication Feed](https://pctablet505.github.io/porchlamp/feed.xml)
+- [XML Sitemap](https://pctablet505.github.io/porchlamp/sitemap.xml)
