@@ -1257,13 +1257,32 @@ test("index.html carries absolute link-preview tags and the preview image exists
   assert.equal(meta("name", "twitter:image"), base + "og.png");
   assert.equal(meta("name", "twitter:card"), "summary_large_image");
   for (const k of ["og:title", "og:description", "og:image:alt"]) assert.ok(meta("property", k), k);
-  assert.match(html, /<title>Porchlamp — Find the projects that leave the light on<\/title>/);
+  assert.match(html, /<title>Porchlamp rankings: find the projects that leave the light on<\/title>/);
   assert.match(html, /<main class="app-main" id="app-main" tabindex="-1">\s*<article class="seo-fallback">/);
   assert.match(html, /Stars don't review pull requests/);
   const png = readFileSync(path.join(here, "..", "og.png"));
   assert.equal(png.subarray(1, 4).toString(), "PNG");
   assert.equal(png.readUInt32BE(16), 1200, "og:image:width matches the file");
   assert.equal(png.readUInt32BE(20), 630, "og:image:height matches the file");
+});
+
+test('SEO: "Porchlamp rankings" leads the title, description, static h1, structured data and the leaderboard heading', () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const html = readFileSync(path.join(here, "..", "index.html"), "utf8");
+  const title = html.match(/<title>([^<]*)<\/title>/)[1];
+  const description = html.match(/<meta name="description" content="([^"]*)"/)[1];
+  assert.match(title, /^Porchlamp rankings\b/);
+  assert.ok(title.length <= 65, `title is ${title.length} chars, search results cut it near 60`);
+  assert.match(description, /^Porchlamp rankings: /);
+  assert.ok(description.length <= 160, `description is ${description.length} chars`);
+  assert.match(html, /<h1>Porchlamp rankings<\/h1>/);
+  const ld = JSON.parse(html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/)[1]);
+  const site = ld["@graph"].find((n) => n["@type"] === "WebSite");
+  assert.ok(site.alternateName.includes("Porchlamp rankings"));
+  assert.equal(ld["@graph"].find((n) => n["@type"] === "WebPage").name, title);
+  assert.equal(copy.LEADERBOARD_HEADING, "Porchlamp rankings");
+  const view = readFileSync(path.join(here, "..", "views", "leaderboard.js"), "utf8");
+  assert.match(view, /id="leaderboard-heading"[^`]*\$\{escapeHtml\(copy\.LEADERBOARD_HEADING\)\}/);
 });
 
 test("SEO: canonicalHrefForState, robots.txt, sitemap.xml, Search Console verification, and U-1/U-2/U-6 static fallback", () => {

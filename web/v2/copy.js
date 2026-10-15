@@ -12,6 +12,8 @@ export const BRAND_NAME = "Porchlamp";
 export const BRAND_TAGLINE = "Find the projects that leave the light on.";
 
 export const NAV_LEADERBOARD = "Leaderboard";
+/** The leaderboard view's own heading (visually hidden): the name people search for. */
+export const LEADERBOARD_HEADING = "Porchlamp rankings";
 export const NAV_NOT_RANKED = "Not ranked";
 
 export const TAB_RANKED = "Ranked";
