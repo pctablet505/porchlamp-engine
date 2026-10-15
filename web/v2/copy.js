@@ -563,17 +563,20 @@ export function matrixQuadrantToggleLabel(quadrantName) {
 }
 export const MATRIX_OPEN_HINT = "Press Enter to view why this score";
 export const MATRIX_SPOTLIGHT_HEADING = "Quadrant breakdown & top repositories";
+// The quadrant buttons are toggles (aria-pressed), exactly like the legend chips and keys 1-4: they show or hide.
 export const MATRIX_SPOTLIGHT_SUBTITLE =
-  "Click any quadrant filter to isolate it on the plot, or select a top-scoring repository to inspect its full evidence.";
+  "Select a quadrant to show or hide it on the plot, or pick a repository to see why it scored as it did.";
+// Worded only from the D-MAT-1 axes above (leverage: criticality, rigor, governance; friction: slow responses,
+// weak governance, little newcomer help) -- no claim the formula does not make.
 export const MATRIX_QUADRANT_GUIDANCE = Object.freeze({
   "Sweet Spot":
-    "High ecosystem criticality and rigor paired with fast, welcoming maintainer responses — ideal for outside contributors.",
+    "Critical, rigorous projects that also respond quickly and help newcomers: an outside contribution here is likely to be answered and to matter.",
   Crucible:
-    "Foundational, high-rigor projects where high PR volume or strict governance makes landing changes slower and more demanding.",
+    "High-leverage projects where slow responses, weak governance or little help for newcomers make an outside contribution harder to land.",
   Nursery:
-    "Accessible, responsive projects with lower downstream blast radius — a gentle proving ground for first contributions.",
+    "Lower-leverage projects that respond quickly and help newcomers: a gentle place for a first contribution.",
   Graveyard:
-    "Low ecosystem leverage combined with high contributor friction and slow response times.",
+    "Lower-leverage projects where responses are slow, governance is weak or newcomers get little help.",
 });
 export const MATRIX_TOP_REPOS_LABEL = "Highest Porchlamp score";
 export const MATRIX_QUADRANT_EMPTY = "No repositories in this quadrant match the current filter.";
@@ -656,11 +659,19 @@ export function compareVerdictTieText(measuredCount, totalParams) {
 export function compareVerdictNoDataText() {
   return "No parameter is measured on every compared repository — a verdict cannot be computed.";
 }
-export function compareRatedSubsetVerdictText(winnerKey, measuredCount, totalParams, ratedCount) {
-  return `Among the ${ratedCount} rated repositories with measured evidence (${measuredCount} of ${totalParams} shared parameters), ${winnerKey} leads.`;
+/** A compared repository with NO measured parameter (e.g. a gated one) is left out of the verdict, by name. */
+export function compareExcludedReposText(repoKeys) {
+  const names =
+    repoKeys.length <= 2 ? repoKeys.join(" and ") : `${repoKeys.slice(0, -1).join(", ")} and ${repoKeys[repoKeys.length - 1]}`;
+  return repoKeys.length === 1
+    ? `${names} has no measured parameters in this snapshot, so the verdict leaves it out.`
+    : `${names} have no measured parameters in this snapshot, so the verdict leaves them out.`;
 }
-export function compareRatedSubsetTieText(measuredCount, totalParams, ratedCount) {
-  return `Among the ${ratedCount} rated repositories with measured evidence (${measuredCount} of ${totalParams} shared parameters), the comparison is tied.`;
+export function compareSubsetVerdictText(winnerKey, measuredCount, totalParams, subsetCount) {
+  return `Based on ${measuredCount} of ${totalParams} parameters measured on the other ${subsetCount} repositories, ${winnerKey} leads.`;
+}
+export function compareSubsetTieText(measuredCount, totalParams, subsetCount) {
+  return `Based on ${measuredCount} of ${totalParams} parameters measured on the other ${subsetCount} repositories, the comparison is tied.`;
 }
 export function compareUnmeasuredNote(paramLabels) {
   if (paramLabels.length === 0) return "";
@@ -672,36 +683,39 @@ export const COMPARE_ROW_COMPOSITE = "Score";
 export const COMPARE_ROW_COVERAGE = "Coverage";
 export const COMPARE_RATED_STATUS = "Rated";
 export const COMPARE_UNMEASURED_LABEL = "Unmeasured";
-export const COMPARE_PRESETS_HEADING = "Quick-start comparison sets";
+export const COMPARE_PRESETS_HEADING = "Quick-start comparisons";
 export const COMPARE_PRESETS_SUBTITLE =
-  "Load a curated set of repositories to compare immediately, or search above to build your own.";
+  "Load a set of well-known projects to compare, or search above to build your own.";
+// Examples only: each description says what the projects ARE, never how they rank, which quadrant they sit in or
+// whether they are gated. Those are per-snapshot facts the comparison itself shows; a hard-coded "top-ranked" or
+// "black hole" label goes false on the next snapshot. Every repository here is in the 2026-10-14 universe.
 export const COMPARE_PRESETS = Object.freeze([
   {
-    id: "top_sweet_spot",
-    label: "Top Sweet Spot leaders",
-    description: "Compare three top-ranked Sweet Spot repositories across Rust and Python.",
-    repos: ["PyO3/pyo3", "tokio-rs/tokio", "typst/typst"],
+    id: "rust_foundations",
+    label: "Rust foundations",
+    description: "The Rust compiler, the Tokio async runtime and the PyO3 Python bindings.",
+    repos: ["rust-lang/rust", "tokio-rs/tokio", "PyO3/pyo3"],
   },
   {
     id: "python_data",
-    label: "Python data & science",
-    description: "Compare maintainer responsiveness and rigor across major scientific Python ecosystems.",
-    repos: ["pandas-dev/pandas", "scikit-learn/scikit-learn", "pola-rs/polars"],
+    label: "Python data stack",
+    description: "Array computing, DataFrames and machine learning: NumPy, pandas and scikit-learn.",
+    repos: ["numpy/numpy", "pandas-dev/pandas", "scikit-learn/scikit-learn"],
   },
   {
-    id: "rated_vs_gated",
-    label: "Rated vs Black-Hole gate",
-    description: "See how a gated repository compares alongside two high-scoring rated projects.",
-    repos: ["PyO3/pyo3", "astral-sh/uv", "tokio-rs/tokio"],
+    id: "web_frameworks",
+    label: "JavaScript web frameworks",
+    description: "Next.js, Vue and Svelte, side by side.",
+    repos: ["vercel/next.js", "vuejs/core", "sveltejs/svelte"],
   },
 ]);
-export const COMPARE_SUGGESTIONS_HEADING = "Popular repositories to add";
+export const COMPARE_SUGGESTIONS_HEADING = "Or add one of these";
 export const COMPARE_SUGGESTIONS = Object.freeze([
-  "PyO3/pyo3",
   "tokio-rs/tokio",
-  "typst/typst",
-  "pola-rs/polars",
-  "pandas-dev/pandas",
+  "scikit-learn/scikit-learn",
+  "kubernetes/kubernetes",
+  "vercel/next.js",
+  "prometheus/prometheus",
   "astral-sh/uv",
 ]);
 export const COMPARE_CARDS_HEADING = "Side-by-side summary";
@@ -756,7 +770,7 @@ export const METHODOLOGY_COL_MODULE = "Module";
 export const METHODOLOGY_COL_VALUE = "Value";
 export const METHODOLOGY_COL_GATES = "Gates";
 export const METHODOLOGY_COL_HASH_CHANGE = "Hash change";
-export const METHODOLOGY_COL_ID = "ID";
+export const METHODOLOGY_COL_PARAMETER = "Parameter";
 export const METHODOLOGY_COL_NAME = "Name";
 export const METHODOLOGY_COL_DOMAIN = "Domain";
 export const METHODOLOGY_COL_PROXY = "Proxy";

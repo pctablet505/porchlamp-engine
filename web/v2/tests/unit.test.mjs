@@ -1094,7 +1094,7 @@ test("methodology: a parameter naming a pillar the pillar list lacks still gets 
 
 test("methodology: every parameter is a row of the rendered table (grouping drops nothing)", () => {
   const html = methodologyShell(SNAPSHOT_DOC);
-  const rowIds = [...html.matchAll(/<th scope="row" class="cell-id"><code>([^<]+)<\/code><\/th>/g)].map((m) => m[1]);
+  const rowIds = [...html.matchAll(/<th scope="row" class="cell-id">(?:<span class="param-label">[^<]*<\/span>)?<code>([^<]+)<\/code><\/th>/g)].map((m) => m[1]);
   for (const p of METHODOLOGY_DOC.parameters) assert.ok(rowIds.includes(p.input_id), `${p.input_id} is rendered`);
 });
 
@@ -2438,17 +2438,23 @@ test("renderBlackHoleEvidence: formats response_kind into human prose and comput
   assert.ok(html.includes("black-hole-pr-scroll"));
 });
 
-test("methodology: parameters table includes human-readable Name column and Why Porchlamp renders 3-column kicker grid", () => {
+test("methodology: the parameters table keeps seven columns with the readable name in the row header, and Why Porchlamp renders a 3-column kicker grid", () => {
   const html = methodologyShell(SNAPSHOT_DOC);
   for (const kicker of copy.WHY_KICKERS) {
     assert.ok(html.includes(escapeHtml(kicker)), `Why Porchlamp includes kicker ${kicker}`);
   }
   for (const p of METHODOLOGY_DOC.parameters) {
     assert.ok(
-      html.includes(escapeHtml(copy.paramName(p.input_id))),
-      `parameters table includes human-readable name for ${p.input_id}`
+      html.includes(`<span class="param-label">${escapeHtml(copy.paramName(p.input_id))}</span><code>${escapeHtml(p.input_id)}</code>`),
+      `the row header for ${p.input_id} carries its readable name above the identifier`
     );
   }
+  // An eighth column made the table scroll beside the rail at 1200-1279 px
+  // (MEASURED 2026-10-15): the views.css stacking note sizes it for seven.
+  const table = html.slice(html.indexOf("spec-table-parameters"));
+  const headRow = table.slice(table.indexOf("<thead>"), table.indexOf("</thead>"));
+  assert.equal((headRow.match(/<th scope="col"/g) || []).length, 7, "the parameters table has seven columns");
+  assert.ok(headRow.includes(escapeHtml(copy.METHODOLOGY_COL_PARAMETER)));
   assert.ok(html.includes("persona-cell-bar"), "personas table includes visual weight bars");
 });
 
@@ -2459,9 +2465,38 @@ test("matrix: renderMatrixBody includes Quadrant breakdown & top repositories sp
   for (const guidance of Object.values(copy.MATRIX_QUADRANT_GUIDANCE)) {
     assert.ok(html.includes(escapeHtml(guidance)));
   }
+  // The quadrant buttons toggle (aria-pressed); the subtitle must not promise to "isolate".
+  assert.ok(!/isolate/i.test(copy.MATRIX_SPOTLIGHT_SUBTITLE));
+  // D-MAT-1: friction rises with WEAK governance; strong governance never adds friction.
+  assert.ok(!/strict governance/i.test(copy.MATRIX_QUADRANT_GUIDANCE.Crucible));
 });
 
-test("compare: empty and partial states render quick-start presets and popular suggestions, and rated-subset verdict works when a gated repo is included", () => {
+test("matrix: a spotlight row shows a coverage-capped tier as '(capped)' without nesting a tab stop in its button", () => {
+  const state = matrixState(4);
+  // Real matrix points carry coverage but no tier_ceiling: the ceiling is derived (0.65 -> B).
+  state.matrix.points = state.matrix.points.map((p) => {
+    const { tier_ceiling: _dropped, ...rest } = p;
+    return { ...rest, coverage: 0.65, tier: "B" };
+  });
+  const html = renderMatrixBody(state);
+  const row = html.slice(html.indexOf('data-matrix-spotlight-key="o/r0"'));
+  const button = row.slice(0, row.indexOf("</button>"));
+  assert.ok(button.includes(escapeHtml(copy.tierLabel("B", "B"))), "the capped tier reads like the leaderboard's");
+  assert.ok(!button.includes("tabindex"), "nothing inside the row's <button> is a second tab stop");
+  assert.ok(button.includes("70.00"), "scores use the two decimals every other screen uses");
+});
+
+test("compare: preset and suggestion copy never asserts a per-snapshot fact (rank, quadrant, gate, popularity)", () => {
+  const claims = /top-ranked|\bleaders?\b|sweet spot|crucible|nursery|graveyard|black.?hole|\bgated\b|\brated\b|popular/i;
+  for (const preset of copy.COMPARE_PRESETS) {
+    assert.ok(!claims.test(preset.label), `preset label makes no data claim: ${preset.label}`);
+    assert.ok(!claims.test(preset.description), `preset description makes no data claim: ${preset.description}`);
+    assert.ok(preset.repos.length >= 2 && preset.repos.length <= 4, "a preset loads a comparable 2-4 repositories");
+  }
+  assert.ok(!claims.test(copy.COMPARE_SUGGESTIONS_HEADING));
+});
+
+test("compare: empty and partial states render quick-start presets and suggestions, and a subset verdict names the repo it leaves out", () => {
   const emptyHtml = renderCompareShell({ ...defaultState(), tab: "compare", compareRepos: [] });
   assert.ok(emptyHtml.includes('data-compare-preset='));
   assert.ok(emptyHtml.includes('data-compare-quick-add='));
@@ -2470,31 +2505,49 @@ test("compare: empty and partial states render quick-start presets and popular s
   const methodologyParams = [
     { input_id: "ttfhr_hours", pillar: "responsiveness", value_domain: { kind: "numeric", higher_is_better: false } },
     { input_id: "dr90_decision_rate", pillar: "responsiveness", value_domain: { kind: "numeric", higher_is_better: true } },
+    { input_id: "mr_first_rate", pillar: "responsiveness", value_domain: { kind: "numeric", higher_is_better: true } },
   ];
   const evidenceByRepo = {
     "PyO3/pyo3": [
       { param_id: "ttfhr_hours", measured: true, value: 4.2 },
       { param_id: "dr90_decision_rate", measured: true, value: 0.91 },
+      { param_id: "mr_first_rate", measured: true, value: 0.5 },
     ],
     "tokio-rs/tokio": [
       { param_id: "ttfhr_hours", measured: true, value: 8.5 },
       { param_id: "dr90_decision_rate", measured: true, value: 0.84 },
+      { param_id: "mr_first_rate", measured: false, value: null, unmeasured_reason: "insufficient_n" },
     ],
     "astral-sh/uv": [
       { param_id: "ttfhr_hours", measured: false, value: null, unmeasured_reason: "gated" },
       { param_id: "dr90_decision_rate", measured: false, value: null, unmeasured_reason: "gated" },
+      { param_id: "mr_first_rate", measured: false, value: null, unmeasured_reason: "gated" },
     ],
   };
-  const v = computeVerdict(
-    methodologyParams,
-    evidenceByRepo,
-    ["PyO3/pyo3", "tokio-rs/tokio", "astral-sh/uv"],
-    "balanced"
-  );
+  const keys = ["PyO3/pyo3", "tokio-rs/tokio", "astral-sh/uv"];
+  const v = computeVerdict(methodologyParams, evidenceByRepo, keys, "balanced");
   assert.equal(v.measuredCount, 0);
   assert.ok(v.subsetText.includes("PyO3/pyo3 leads"), `subsetText should name PyO3/pyo3: ${v.subsetText}`);
+  assert.ok(!/\brated\b/i.test(v.subsetText), "the subset is 'repositories with measured evidence', not 'rated' ones");
   assert.equal(v.effectiveWins["PyO3/pyo3"], 2);
   assert.equal(v.effectiveWins["tokio-rs/tokio"], 0);
   assert.equal(v.effectiveWins["astral-sh/uv"], null);
+  assert.deepEqual(v.excludedRepoKeys, ["astral-sh/uv"]);
+  assert.deepEqual(v.subsetNotMeasured, ["mr_first_rate"]);
+
+  // Rendered: the subset result and the excluded repo, never ALSO "cannot be
+  // computed", and "Not compared" lists only what the subset skipped.
+  const row = (owner, name) => ({ kind: "rated", row: { ...FLAT_RATED_DETAIL, owner, name }, evidence: evidenceByRepo[`${owner}/${name}`] });
+  const html = renderCompareTable({
+    persona: "balanced",
+    compareRepos: keys,
+    compareDataByRepo: { "PyO3/pyo3": row("PyO3", "pyo3"), "tokio-rs/tokio": row("tokio-rs", "tokio"), "astral-sh/uv": row("astral-sh", "uv") },
+    methodology: { ...METHODOLOGY_DOC, parameters: methodologyParams },
+  });
+  const verdict = html.slice(html.indexOf('class="compare-verdict"'), html.indexOf("compare-cards-section"));
+  assert.ok(verdict.includes(escapeHtml(v.subsetText)));
+  assert.ok(verdict.includes(escapeHtml(copy.compareExcludedReposText(["astral-sh/uv"]))));
+  assert.ok(!verdict.includes(escapeHtml(copy.compareVerdictNoDataText())), "no contradictory 'cannot be computed' line");
+  assert.ok(verdict.includes(escapeHtml(copy.compareUnmeasuredNote([copy.paramName("mr_first_rate")]))));
 });
 

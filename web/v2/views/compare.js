@@ -112,14 +112,17 @@ export function computeVerdict(methodologyParams, evidenceByRepo, repoKeys, pers
   const maxWins = Math.max(0, ...Object.values(wins));
   const leaders = Object.entries(wins).filter(([, w]) => w === maxWins && maxWins > 0).map(([k]) => k);
 
-  // When at least one compared repository is gated/unrated (0 measured
-  // parameters), `measuredEverywhere` is empty, but if >= 2 compared
-  // repositories DO have measured parameters, also compute a head-to-head
-  // verdict across that rated subset so comparing 2 rated repos + 1 gated
-  // repo still yields an actionable comparison.
+  // When at least one compared repository has NO measured parameter (e.g. a
+  // gated one), `measuredEverywhere` is empty. If >= 2 compared repositories
+  // DO have measured parameters, compute the verdict across that subset
+  // instead -- still only from parameters measured on every repository in it
+  // (06 §3 E) -- and name the repositories it leaves out
+  // (`excludedRepoKeys`) so the line never reads as a verdict on them.
   let subsetText = "";
   let effectiveWins = wins;
   let effectiveMeasuredCount = measuredEverywhere.length;
+  let excludedRepoKeys = [];
+  let subsetNotMeasured = [];
   const activeRepoKeys = repoKeys.filter((k) =>
     methodologyParams.some((p) => {
       const v = valuesForParam(p.input_id, evidenceByRepo, [k])[k];
@@ -130,10 +133,14 @@ export function computeVerdict(methodologyParams, evidenceByRepo, repoKeys, pers
     const subsetWins = Object.fromEntries(repoKeys.map((k) => [k, null]));
     for (const k of activeRepoKeys) subsetWins[k] = 0;
     let subsetMeasuredCount = 0;
+    const subsetSkipped = [];
     for (const paramEntry of methodologyParams) {
       const subValues = valuesForParam(paramEntry.input_id, evidenceByRepo, activeRepoKeys);
       const onAllSub = activeRepoKeys.every((k) => subValues[k] !== null && subValues[k] !== undefined);
-      if (!onAllSub) continue;
+      if (!onAllSub) {
+        subsetSkipped.push(paramEntry.input_id);
+        continue;
+      }
       subsetMeasuredCount += 1;
       const w = betterRepoKey(paramEntry, subValues, persona);
       if (w && subsetWins[w] !== null && subsetWins[w] !== undefined) subsetWins[w] += 1;
@@ -143,10 +150,12 @@ export function computeVerdict(methodologyParams, evidenceByRepo, repoKeys, pers
       const subLeaders = activeRepoKeys.filter((k) => subsetWins[k] === maxSub && maxSub > 0);
       subsetText =
         subLeaders.length === 1
-          ? copy.compareRatedSubsetVerdictText(subLeaders[0], subsetMeasuredCount, methodologyParams.length, activeRepoKeys.length)
-          : copy.compareRatedSubsetTieText(subsetMeasuredCount, methodologyParams.length, activeRepoKeys.length);
+          ? copy.compareSubsetVerdictText(subLeaders[0], subsetMeasuredCount, methodologyParams.length, activeRepoKeys.length)
+          : copy.compareSubsetTieText(subsetMeasuredCount, methodologyParams.length, activeRepoKeys.length);
       effectiveWins = subsetWins;
       effectiveMeasuredCount = subsetMeasuredCount;
+      excludedRepoKeys = repoKeys.filter((k) => !activeRepoKeys.includes(k));
+      subsetNotMeasured = subsetSkipped;
     }
   }
 
@@ -158,6 +167,8 @@ export function computeVerdict(methodologyParams, evidenceByRepo, repoKeys, pers
     effectiveWins,
     effectiveMeasuredCount,
     subsetText,
+    excludedRepoKeys,
+    subsetNotMeasured,
     text:
       measuredEverywhere.length === 0
         ? copy.compareVerdictNoDataText()
@@ -558,15 +569,19 @@ export function renderTable(state) {
   let verdictHtml = "";
   if (allLoaded && state.methodology && repoKeys.length >= COMPARE_MIN) {
     verdict = computeVerdict(methodologyParams, evidenceByRepo, repoKeys, persona);
-    const unmeasuredNames = verdict.notMeasuredEverywhere.map((id) => copy.paramName(id));
-    const unmeasuredNote = copy.compareUnmeasuredNote(unmeasuredNames);
-    const subsetLine = verdict.subsetText
-      ? `<p class="compare-verdict-subset">${escapeHtml(verdict.subsetText)}</p>`
-      : "";
+    // A subset verdict replaces the "cannot be computed" line rather than
+    // contradicting it: the result first, then which repository it leaves
+    // out, then only the parameters skipped within the subset.
+    const usesSubset = Boolean(verdict.subsetText);
+    const unmeasuredIds = usesSubset ? verdict.subsetNotMeasured : verdict.notMeasuredEverywhere;
+    const unmeasuredNote = copy.compareUnmeasuredNote(unmeasuredIds.map((id) => copy.paramName(id)));
+    const mainLine = usesSubset
+      ? `<p class="compare-verdict-subset">${escapeHtml(verdict.subsetText)}</p>` +
+        `<p class="compare-verdict-main">${escapeHtml(copy.compareExcludedReposText(verdict.excludedRepoKeys))}</p>`
+      : `<p class="compare-verdict-main">${escapeHtml(verdict.text)}</p>`;
     verdictHtml =
       `<div class="compare-verdict"><h2>${escapeHtml(copy.COMPARE_VERDICT_HEADING)}</h2>` +
-      `<p class="compare-verdict-main">${escapeHtml(verdict.text)}</p>` +
-      subsetLine +
+      mainLine +
       (unmeasuredNote ? `<p class="matrix-caption">${escapeHtml(unmeasuredNote)}</p>` : "") +
       `</div>`;
   }

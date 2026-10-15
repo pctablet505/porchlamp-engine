@@ -249,9 +249,11 @@ export function parameterGroups(parameters, pillars) {
 }
 
 function parametersBody(parameters, pillars) {
+  // The readable name shares the row-header cell with the identifier rather
+  // than taking an eighth column: the table's measured seven-column minimum
+  // (see the stacking note in views.css) is what fits beside the rail.
   const columns = [
-    { label: copy.METHODOLOGY_COL_ID, cls: "col-id" },
-    { label: copy.METHODOLOGY_COL_NAME, cls: "col-param-name" },
+    { label: copy.METHODOLOGY_COL_PARAMETER, cls: "col-id" },
     { label: copy.METHODOLOGY_COL_WEIGHT, cls: "num" },
     { label: copy.METHODOLOGY_COL_MIN_N, cls: "num" },
     { label: copy.METHODOLOGY_COL_WINDOW, cls: "num" },
@@ -267,8 +269,7 @@ function parametersBody(parameters, pillars) {
         .map(
           (p) =>
             `<tr>` +
-            `<th scope="row" class="cell-id"><code>${escapeHtml(p.input_id)}</code></th>` +
-            labelledCell("cell-param-name", copy.METHODOLOGY_COL_NAME, escapeHtml(copy.paramName(p.input_id))) +
+            `<th scope="row" class="cell-id"><span class="param-label">${escapeHtml(copy.paramName(p.input_id))}</span><code>${escapeHtml(p.input_id)}</code></th>` +
             labelledCell("num", copy.METHODOLOGY_COL_WEIGHT, escapeHtml(copy.methodologyPercentText(p.weight_within_pillar))) +
             labelledCell("num", copy.METHODOLOGY_COL_MIN_N, escapeHtml(copy.methodologyIntText(p.min_n))) +
             labelledCell("num", copy.METHODOLOGY_COL_WINDOW, escapeHtml(copy.methodologyWindowDaysText(p.window_days))) +

@@ -23,6 +23,7 @@
 
 import * as copy from "../copy.js";
 import { renderCoverageBadge, renderTierCell } from "../components/badge.js";
+import { deriveTierCeiling } from "./drawer.js";
 import {
   renderScatterSvg,
   renderScatterBackdropSvg,
@@ -229,6 +230,21 @@ function renderQuadrantCornerLabels(quadrantsHidden = {}) {
     .join("");
 }
 
+/**
+ * A spotlight row's tier, worded like the leaderboard ("B (capped)"). Matrix
+ * points carry `coverage` but no `tier_ceiling`, so the ceiling is derived
+ * the way Compare and the drawer derive it. Plain text, never
+ * `renderTierCell`: its capped pill is a tab stop, and this sits inside a
+ * <button>.
+ */
+function spotlightTierHtml(point) {
+  if (!point.tier) return "";
+  const ceiling = deriveTierCeiling(point.coverage, point.tier_ceiling);
+  const capped = !!ceiling && point.tier === ceiling;
+  const title = capped ? ` title="${escapeHtml(copy.TIER_CAPPED_EXPLANATION)}"` : "";
+  return `<span class="tier-pill${capped ? " tier-capped" : ""}"${title}>${escapeHtml(copy.tierLabel(point.tier, ceiling))}</span>`;
+}
+
 function renderQuadrantSpotlight(points, quadrantsHidden = {}, activeKey = null) {
   const quadrantOrder = ["Sweet Spot", "Crucible", "Nursery", "Graveyard"];
   const total = points.length;
@@ -247,14 +263,14 @@ function renderQuadrantSpotlight(points, quadrantsHidden = {}, activeKey = null)
             .map((p) => {
               const key = pointKey(p);
               const isFocused = key === activeKey;
-              const scoreText = typeof p.porchlamp === "number" ? p.porchlamp.toFixed(1) : copy.MISSING_VALUE;
+              const scoreText = typeof p.porchlamp === "number" ? p.porchlamp.toFixed(2) : copy.MISSING_VALUE;
               return (
                 `<li>` +
                 `<button type="button" class="matrix-top-repo-btn${isFocused ? " is-active" : ""}" ` +
                 `data-owner="${escapeHtml(p.owner)}" data-name="${escapeHtml(p.name)}" ` +
                 `data-matrix-spotlight-key="${escapeHtml(key)}">` +
-                `<span class="matrix-top-repo-name">${escapeHtml(p.owner)}/${escapeHtml(p.name)}</span>` +
-                `<span class="matrix-top-repo-meta">${renderTierCell(p.tier, p.tier_ceiling)}<span class="matrix-top-repo-score">${escapeHtml(scoreText)}</span></span>` +
+                `<span class="matrix-top-repo-name">${escapeHtml(p.owner)}/<wbr>${escapeHtml(p.name)}</span>` +
+                `<span class="matrix-top-repo-meta">${spotlightTierHtml(p)}<span class="matrix-top-repo-score">${escapeHtml(scoreText)}</span></span>` +
                 `</button></li>`
               );
             })

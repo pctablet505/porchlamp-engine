@@ -939,6 +939,13 @@
   color: var(--text-secondary);
 }
 
+/* Gate and unrated reasons are sentences that wrap; a pill radius on a
+ * multi-line box reads as a lozenge. */
+.compare-status-pill.is-gated,
+.compare-status-pill.is-unrated {
+  border-radius: var(--radius-control);
+}
+
 .compare-card-hero {
   display: flex;
   align-items: flex-end;
@@ -1042,10 +1049,30 @@
   color: var(--text-primary);
 }
 
+/* Side by side means equal columns: a fixed layout splits the width evenly
+ * between the compared repositories after the label column. With the auto
+ * layout one long gate reason took 798 px of a 1,408 px table at 1440 px,
+ * leaving 153-249 px for the others (MEASURED 2026-10-15). */
 .compare-table {
   width: 100%;
   min-width: 480px;
   border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.compare-table thead th:first-child {
+  width: 15rem;
+}
+
+@media (max-width: 767px) {
+  .compare-table thead th:first-child {
+    width: 9rem;
+  }
+}
+
+.compare-table .repo-name {
+  overflow-wrap: break-word;
+  max-width: 100%;
 }
 
 .link-button {
@@ -1183,6 +1210,13 @@
   border-radius: 0 var(--radius-control) var(--radius-control) 0;
   color: var(--text-primary);
   font-size: var(--text-body-md);
+}
+
+/* Under a subset verdict the next line says which repository it leaves out:
+ * an explanation, not the result. */
+.compare-verdict-subset + .compare-verdict-main {
+  color: var(--text-secondary);
+  font-weight: 400;
 }
 
 .app-main code,
@@ -1500,10 +1534,19 @@
   white-space: nowrap;
 }
 
-.spec-table .cell-param-name {
+/* The readable name above the identifier in the parameters table's row header.
+ * It may wrap (normal white-space never lowers min-content below one word), so
+ * the nowrap identifier stays what sizes the column. */
+.spec-table .cell-id .param-label {
+  display: block;
+  margin-bottom: 2px;
   color: var(--text-primary);
   font-weight: 500;
-  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.spec-table .cell-id .param-label + code {
+  color: var(--text-secondary);
 }
 
 /* An identifier must never split: `.app-main code` breaks anywhere (it
@@ -1517,20 +1560,16 @@
   overflow-wrap: break-word;
 }
 
-.spec-table .col-param-name {
-  width: 15%;
-}
-
 .spec-table .col-prose {
-  width: 31%;
+  width: 40%;
 }
 
 .spec-table .col-meta {
-  width: 10%;
+  width: 12%;
 }
 
 .spec-table .col-domain {
-  width: 17%;
+  width: 19%;
 }
 
 /* An enum domain: levels worst to best, one per line, each with its score. */
@@ -1559,14 +1598,17 @@
   color: var(--text-secondary);
 }
 
-/* A 5x5 matrix of weights with visual inline bars fills the card cleanly. */
+/* A 5x5 matrix of weights is read across a row: at 100% width its columns
+ * sat ~180 px apart, so it shrinks to its content instead. Each weight's bar
+ * has one FIXED length (never a % of its cell): cells are as wide as their
+ * header, so a % bar drew the same weight shorter under "Rigor" than under
+ * "Responsiveness" (columns measured 84 vs 174 px) -- not one scale. */
 .spec-table-personas {
-  width: 100%;
-  max-width: 52rem;
+  width: auto;
 }
 
 .spec-table-personas .num {
-  padding-left: var(--space-md);
+  padding-left: var(--space-lg);
 }
 
 .persona-weight-cell {
@@ -1578,8 +1620,7 @@
 
 .persona-cell-bar {
   display: block;
-  width: 100%;
-  max-width: 72px;
+  width: 64px;
   height: 5px;
   border-radius: var(--radius-pill);
   background: var(--bg-surface-elevated);
@@ -1617,8 +1658,15 @@
 
 /* Narrow screens: a stackable table becomes one block per row -- the
  * identifier on its own line, numbers inline, prose and meta as labelled
- * blocks (labels from each cell's data-label). */
-@media (max-width: 1079px) {
+ * blocks (labels from each cell's data-label). The parameters table's
+ * narrowest possible width is 806 px (seven columns, three fixed), which
+ * a card fits from ~890 px of viewport without the rail and ~1,120 px
+ * with it -- hence stacking below 960 px and the rail only from 1200 px.
+ * MEASURED before this at
+ * 390 px: the parameters table showed only ID / Weight / Min n in its
+ * scroll box, with rows ~100 px tall and blank because the off-screen
+ * Curve column was wrapping. */
+@media (max-width: 959px) {
   .spec-table-stack,
   .spec-table-stack tbody {
     display: block;
