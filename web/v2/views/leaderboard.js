@@ -354,7 +354,7 @@ export function renderShell(state, viewport = { isMobile: false }) {
 
   return (
     `<section aria-labelledby="leaderboard-heading">` +
-    `<h1 id="leaderboard-heading" class="view-heading sr-only">${escapeHtml(copy.NAV_LEADERBOARD)}</h1>` +
+    `<h1 id="leaderboard-heading" class="view-heading sr-only">${escapeHtml(copy.LEADERBOARD_HEADING)}</h1>` +
     header +
     body +
     `</section>`
