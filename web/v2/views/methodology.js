@@ -251,6 +251,7 @@ export function parameterGroups(parameters, pillars) {
 function parametersBody(parameters, pillars) {
   const columns = [
     { label: copy.METHODOLOGY_COL_ID, cls: "col-id" },
+    { label: copy.METHODOLOGY_COL_NAME, cls: "col-param-name" },
     { label: copy.METHODOLOGY_COL_WEIGHT, cls: "num" },
     { label: copy.METHODOLOGY_COL_MIN_N, cls: "num" },
     { label: copy.METHODOLOGY_COL_WINDOW, cls: "num" },
@@ -267,6 +268,7 @@ function parametersBody(parameters, pillars) {
           (p) =>
             `<tr>` +
             `<th scope="row" class="cell-id"><code>${escapeHtml(p.input_id)}</code></th>` +
+            labelledCell("cell-param-name", copy.METHODOLOGY_COL_NAME, escapeHtml(copy.paramName(p.input_id))) +
             labelledCell("num", copy.METHODOLOGY_COL_WEIGHT, escapeHtml(copy.methodologyPercentText(p.weight_within_pillar))) +
             labelledCell("num", copy.METHODOLOGY_COL_MIN_N, escapeHtml(copy.methodologyIntText(p.min_n))) +
             labelledCell("num", copy.METHODOLOGY_COL_WINDOW, escapeHtml(copy.methodologyWindowDaysText(p.window_days))) +
@@ -330,7 +332,15 @@ function personasBody(personas) {
     .map(
       ([persona, weights]) =>
         `<tr><th scope="row">${escapeHtml(copy.PERSONA_NAMES[persona] || persona)}</th>` +
-        pillarIds.map((p) => `<td class="num">${escapeHtml(copy.methodologyPercentText(weights[p]))}</td>`).join("") +
+        pillarIds
+          .map(
+            (p) =>
+              `<td class="num"><div class="persona-weight-cell">` +
+              `<span class="persona-weight-num">${escapeHtml(copy.methodologyPercentText(weights[p]))}</span>` +
+              `<span class="persona-cell-bar" aria-hidden="true"><span class="persona-cell-bar-fill" style="--w:${escapeHtml(weights[p])}"></span></span>` +
+              `</div></td>`
+          )
+          .join("") +
         `</tr>`
     )
     .join("");
@@ -557,7 +567,15 @@ export function renderShell(state) {
     `<p class="doc-lede">${escapeHtml(copy.methodologyBenchmarkLine(doc.benchmark_version, doc.constants_hash, doc.schema_version))}</p></div>` +
     `<section class="why-card" aria-labelledby="why-porchlamp-title">` +
     `<h2 class="why-title" id="why-porchlamp-title">${escapeHtml(copy.WHY_HEADING)}</h2>` +
-    copy.WHY_PARAGRAPHS.map((p) => `<p>${escapeHtml(p)}</p>`).join("") +
+    `<div class="why-grid">` +
+    copy.WHY_PARAGRAPHS.map(
+      (p, idx) =>
+        `<div class="why-item">` +
+        `<span class="why-kicker">${escapeHtml(copy.WHY_KICKERS[idx] || "")}</span>` +
+        `<p>${escapeHtml(p)}</p>` +
+        `</div>`
+    ).join("") +
+    `</div>` +
     `</section>` +
     `<div class="doc-layout" id="methodology">` +
     renderIndex(sectionIndex(doc, state.snapshot)) +

@@ -562,6 +562,31 @@ export function matrixQuadrantToggleLabel(quadrantName) {
   return `Toggle ${quadrantName}`;
 }
 export const MATRIX_OPEN_HINT = "Press Enter to view why this score";
+export const MATRIX_SPOTLIGHT_HEADING = "Quadrant breakdown & top repositories";
+export const MATRIX_SPOTLIGHT_SUBTITLE =
+  "Click any quadrant filter to isolate it on the plot, or select a top-scoring repository to inspect its full evidence.";
+export const MATRIX_QUADRANT_GUIDANCE = Object.freeze({
+  "Sweet Spot":
+    "High ecosystem criticality and rigor paired with fast, welcoming maintainer responses — ideal for outside contributors.",
+  Crucible:
+    "Foundational, high-rigor projects where high PR volume or strict governance makes landing changes slower and more demanding.",
+  Nursery:
+    "Accessible, responsive projects with lower downstream blast radius — a gentle proving ground for first contributions.",
+  Graveyard:
+    "Low ecosystem leverage combined with high contributor friction and slow response times.",
+});
+export const MATRIX_TOP_REPOS_LABEL = "Highest Porchlamp score";
+export const MATRIX_QUADRANT_EMPTY = "No repositories in this quadrant match the current filter.";
+export function matrixQuadrantCountText(count, total) {
+  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+  return `${count} ${count === 1 ? "repo" : "repos"} · ${pct}%`;
+}
+export function matrixPlottedCountText(visibleCount, totalRated) {
+  if (visibleCount === totalRated) {
+    return `${totalRated} rated ${totalRated === 1 ? "repository" : "repositories"} plotted`;
+  }
+  return `Showing ${visibleCount} of ${totalRated} rated ${totalRated === 1 ? "repository" : "repositories"}`;
+}
 
 // --------------------------------------------------------------------- //
 // Screen D: Configure weights
@@ -604,6 +629,7 @@ export const COMPARE_SEARCH_PLACEHOLDER = "Add a repository (owner/repo)…";
 export const COMPARE_SEARCH_LABEL = "Search repositories to compare";
 export const COMPARE_ADD_LABEL = "Add to comparison";
 export const COMPARE_REMOVE_LABEL = "Remove from comparison";
+export const COMPARE_CLEAR_ALL_LABEL = "Clear all";
 export const COMPARE_EMPTY_TEXT = "Add 2 to 4 repositories to compare them side by side.";
 export const COMPARE_MIN_TEXT = "Add at least one more repository (2 minimum).";
 export const COMPARE_MAX_TEXT = "You can compare up to 4 repositories at a time.";
@@ -630,6 +656,12 @@ export function compareVerdictTieText(measuredCount, totalParams) {
 export function compareVerdictNoDataText() {
   return "No parameter is measured on every compared repository — a verdict cannot be computed.";
 }
+export function compareRatedSubsetVerdictText(winnerKey, measuredCount, totalParams, ratedCount) {
+  return `Among the ${ratedCount} rated repositories with measured evidence (${measuredCount} of ${totalParams} shared parameters), ${winnerKey} leads.`;
+}
+export function compareRatedSubsetTieText(measuredCount, totalParams, ratedCount) {
+  return `Among the ${ratedCount} rated repositories with measured evidence (${measuredCount} of ${totalParams} shared parameters), the comparison is tied.`;
+}
 export function compareUnmeasuredNote(paramLabels) {
   if (paramLabels.length === 0) return "";
   return `Not compared (unmeasured on at least one repository): ${paramLabels.join(", ")}.`;
@@ -640,6 +672,46 @@ export const COMPARE_ROW_COMPOSITE = "Score";
 export const COMPARE_ROW_COVERAGE = "Coverage";
 export const COMPARE_RATED_STATUS = "Rated";
 export const COMPARE_UNMEASURED_LABEL = "Unmeasured";
+export const COMPARE_PRESETS_HEADING = "Quick-start comparison sets";
+export const COMPARE_PRESETS_SUBTITLE =
+  "Load a curated set of repositories to compare immediately, or search above to build your own.";
+export const COMPARE_PRESETS = Object.freeze([
+  {
+    id: "top_sweet_spot",
+    label: "Top Sweet Spot leaders",
+    description: "Compare three top-ranked Sweet Spot repositories across Rust and Python.",
+    repos: ["PyO3/pyo3", "tokio-rs/tokio", "typst/typst"],
+  },
+  {
+    id: "python_data",
+    label: "Python data & science",
+    description: "Compare maintainer responsiveness and rigor across major scientific Python ecosystems.",
+    repos: ["pandas-dev/pandas", "scikit-learn/scikit-learn", "pola-rs/polars"],
+  },
+  {
+    id: "rated_vs_gated",
+    label: "Rated vs Black-Hole gate",
+    description: "See how a gated repository compares alongside two high-scoring rated projects.",
+    repos: ["PyO3/pyo3", "astral-sh/uv", "tokio-rs/tokio"],
+  },
+]);
+export const COMPARE_SUGGESTIONS_HEADING = "Popular repositories to add";
+export const COMPARE_SUGGESTIONS = Object.freeze([
+  "PyO3/pyo3",
+  "tokio-rs/tokio",
+  "typst/typst",
+  "pola-rs/polars",
+  "pandas-dev/pandas",
+  "astral-sh/uv",
+]);
+export const COMPARE_CARDS_HEADING = "Side-by-side summary";
+export const COMPARE_WINS_LABEL = "Parameter wins";
+export function compareWinScoreText(wins, totalMeasured) {
+  return `${wins} / ${totalMeasured} won`;
+}
+export const COMPARE_DIRECTION_HIGHER = "↑ higher is better";
+export const COMPARE_DIRECTION_LOWER = "↓ lower is better";
+export const COMPARE_DIRECTION_ENUM = "scale";
 
 // --------------------------------------------------------------------- //
 // Screen F: Methodology and snapshot
@@ -647,6 +719,11 @@ export const COMPARE_UNMEASURED_LABEL = "Unmeasured";
 export const METHODOLOGY_HEADING = "Methodology and snapshot";
 /** "Why Porchlamp", above the methodology: the one idea, the finding behind it, and where the numbers come from. */
 export const WHY_HEADING = "Why Porchlamp";
+export const WHY_KICKERS = Object.freeze([
+  "The Idea",
+  "The Finding",
+  "The Evidence",
+]);
 export const WHY_PARAGRAPHS = Object.freeze([
   "A porch lamp left on tells a visitor they are expected. Porchlamp ranks open-source projects the same way: by what happens to a stranger's pull request, not by how many stars the project has.",
   "Stars do not review pull requests. In our measurements more than 1 in 4 active projects leave most pull requests from outside contributors without a human reply, review or merge for two weeks, and the more stars a project has, the more likely it is to be one of them. We call these projects black holes; they are listed under Not ranked, never ranked.",

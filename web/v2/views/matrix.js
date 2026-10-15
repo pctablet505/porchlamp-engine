@@ -182,7 +182,11 @@ export function renderEmpty(state = {}) {
   return `<div class="empty-state">${escapeHtml(copy.MATRIX_EMPTY_TEXT)}</div>`;
 }
 
-function renderLegend(quadrantsHidden) {
+function renderLegend(quadrantsHidden, points = []) {
+  const counts = { "Sweet Spot": 0, Crucible: 0, Nursery: 0, Graveyard: 0 };
+  for (const p of points) {
+    if (counts[p.quadrant] !== undefined) counts[p.quadrant] += 1;
+  }
   const entries = [
     ["Sweet Spot", copy.QUADRANT_GLYPHS["Sweet Spot"]],
     ["Crucible", copy.QUADRANT_GLYPHS.Crucible],
@@ -196,7 +200,8 @@ function renderLegend(quadrantsHidden) {
       return (
         `<button type="button" class="matrix-legend-chip ${cls}" data-matrix-quadrant-toggle="${escapeHtml(name)}" ` +
         `aria-pressed="${!hidden}" title="${escapeHtml(copy.matrixQuadrantToggleLabel(name))} (${i + 1}): ${escapeHtml(copy.QUADRANT_DESCRIPTIONS[name])}">` +
-        `<span aria-hidden="true">${glyph}</span> ${escapeHtml(copy.QUADRANT_LABELS[name])}</button>`
+        `<span aria-hidden="true">${glyph}</span> ${escapeHtml(copy.QUADRANT_LABELS[name])}` +
+        `<span class="matrix-legend-count">${counts[name] || 0}</span></button>`
       );
     })
     .join("");
@@ -224,6 +229,71 @@ function renderQuadrantCornerLabels(quadrantsHidden = {}) {
     .join("");
 }
 
+function renderQuadrantSpotlight(points, quadrantsHidden = {}, activeKey = null) {
+  const quadrantOrder = ["Sweet Spot", "Crucible", "Nursery", "Graveyard"];
+  const total = points.length;
+  const cards = quadrantOrder
+    .map((name) => {
+      const cls = `quad-${name.toLowerCase().replace(/\s+/g, "-")}`;
+      const hidden = !!quadrantsHidden[name];
+      const qPoints = points
+        .filter((p) => p.quadrant === name)
+        .sort((a, b) => (b.porchlamp ?? -1) - (a.porchlamp ?? -1));
+      const sharePct = total > 0 ? Math.round((qPoints.length / total) * 100) : 0;
+      const topRepos = qPoints.slice(0, 5);
+      const repoItems = topRepos.length
+        ? `<ul class="matrix-top-repos" role="list">` +
+          topRepos
+            .map((p) => {
+              const key = pointKey(p);
+              const isFocused = key === activeKey;
+              const scoreText = typeof p.porchlamp === "number" ? p.porchlamp.toFixed(1) : copy.MISSING_VALUE;
+              return (
+                `<li>` +
+                `<button type="button" class="matrix-top-repo-btn${isFocused ? " is-active" : ""}" ` +
+                `data-owner="${escapeHtml(p.owner)}" data-name="${escapeHtml(p.name)}" ` +
+                `data-matrix-spotlight-key="${escapeHtml(key)}">` +
+                `<span class="matrix-top-repo-name">${escapeHtml(p.owner)}/${escapeHtml(p.name)}</span>` +
+                `<span class="matrix-top-repo-meta">${renderTierCell(p.tier, p.tier_ceiling)}<span class="matrix-top-repo-score">${escapeHtml(scoreText)}</span></span>` +
+                `</button></li>`
+              );
+            })
+            .join("") +
+          `</ul>`
+        : `<p class="matrix-quad-empty">${escapeHtml(copy.MATRIX_QUADRANT_EMPTY)}</p>`;
+
+      return (
+        `<article class="matrix-quad-card ${cls}${hidden ? " is-quad-hidden" : ""}">` +
+        `<div class="matrix-quad-card-head">` +
+        `<button type="button" class="matrix-quad-card-toggle ${cls}" data-matrix-quadrant-toggle="${escapeHtml(name)}" aria-pressed="${!hidden}">` +
+        `<span aria-hidden="true">${copy.QUADRANT_GLYPHS[name]}</span> ` +
+        `<span class="matrix-quad-card-title">${escapeHtml(copy.QUADRANT_LABELS[name])}</span>` +
+        `</button>` +
+        `<span class="matrix-quad-card-count">${escapeHtml(copy.matrixQuadrantCountText(qPoints.length, total))}</span>` +
+        `</div>` +
+        `<div class="matrix-quad-bar" aria-hidden="true"><span class="matrix-quad-bar-fill ${cls}" style="width:${sharePct}%"></span></div>` +
+        `<p class="matrix-quad-axes">${escapeHtml(copy.QUADRANT_DESCRIPTIONS[name])}</p>` +
+        `<p class="matrix-quad-guidance">${escapeHtml(copy.MATRIX_QUADRANT_GUIDANCE[name] || "")}</p>` +
+        `<div class="matrix-quad-top-section">` +
+        `<p class="matrix-quad-top-label">${escapeHtml(copy.MATRIX_TOP_REPOS_LABEL)}</p>` +
+        repoItems +
+        `</div>` +
+        `</article>`
+      );
+    })
+    .join("");
+
+  return (
+    `<aside class="matrix-spotlight" aria-label="${escapeHtml(copy.MATRIX_SPOTLIGHT_HEADING)}">` +
+    `<div class="matrix-spotlight-head">` +
+    `<h2 class="matrix-spotlight-title">${escapeHtml(copy.MATRIX_SPOTLIGHT_HEADING)}</h2>` +
+    `<p class="matrix-spotlight-sub">${escapeHtml(copy.MATRIX_SPOTLIGHT_SUBTITLE)}</p>` +
+    `</div>` +
+    `<div class="matrix-quad-grid">${cards}</div>` +
+    `</aside>`
+  );
+}
+
 function renderCaptions(matrix, hasStars) {
   const parts = [`<p class="matrix-caption">${escapeHtml(copy.matrixExcludedCaption(matrix.excluded_count))}</p>`];
   for (const [axisName, entry] of Object.entries(matrix.axis_coverage || {})) {
@@ -233,7 +303,7 @@ function renderCaptions(matrix, hasStars) {
   parts.push(`<p class="matrix-caption">${escapeHtml(copy.MATRIX_HOW_TO_READ)}</p>`);
   const starsNote = hasStars ? copy.MATRIX_UNAUDITED_STARS_NOTE : copy.MATRIX_NO_STARS_NOTE;
   parts.push(`<p class="matrix-caption matrix-caption-muted">${escapeHtml(starsNote)}</p>`);
-  return parts.join("");
+  return `<div class="matrix-captions">${parts.join("")}</div>`;
 }
 
 export function filterMatrixPoints(points, state) {
@@ -303,14 +373,22 @@ export function renderMatrixBody(state) {
       });
   return (
     `<div class="matrix-toolbar">` +
-    renderLegend(state.matrixQuadrantsHidden) +
+    renderLegend(state.matrixQuadrantsHidden, points) +
+    `<div class="matrix-toolbar-controls">` +
+    `<span class="matrix-plotted-pill">${escapeHtml(copy.matrixPlottedCountText(visiblePoints.length, points.length))}</span>` +
     `<button type="button" class="icon-button" data-matrix-reset-view="true">${escapeHtml(copy.MATRIX_RESET_VIEW_LABEL)}</button>` +
     `<button type="button" class="icon-button" data-matrix-zoom-in="true" aria-label="${escapeHtml(copy.MATRIX_ZOOM_IN_LABEL)}">+</button>` +
     `<button type="button" class="icon-button" data-matrix-zoom-out="true" aria-label="${escapeHtml(copy.MATRIX_ZOOM_OUT_LABEL)}">−</button>` +
     `</div>` +
+    `</div>` +
+    `<div class="matrix-layout">` +
+    `<div class="matrix-plot-col">` +
     `<div class="matrix-axis-labels"><span>${escapeHtml(copy.MATRIX_AXIS_Y_LABEL)} ↑</span><span>${escapeHtml(copy.MATRIX_AXIS_X_LABEL)} →</span></div>` +
     `<div class="matrix-stage" data-matrix-stage="true" tabindex="0" aria-label="${escapeHtml(`${surfaceLabel}. ${copy.MATRIX_STAGE_LABEL}`)}">${surface}${renderQuadrantCornerLabels(state.matrixQuadrantsHidden)}${renderHoverCard(focused, view)}</div>` +
-    renderCaptions(matrix, hasStars)
+    renderCaptions(matrix, hasStars) +
+    `</div>` +
+    renderQuadrantSpotlight(points, state.matrixQuadrantsHidden, activeKey) +
+    `</div>`
   );
 }
 
@@ -375,6 +453,9 @@ export function syncMatrixHover(main, state) {
   for (const marker of main.querySelectorAll(".matrix-marker")) {
     const isActive = marker.dataset.key === state.matrixFocusedKey || marker.dataset.key === state.matrixHoveredKey;
     marker.classList.toggle("marker-focused", isActive);
+  }
+  for (const btn of main.querySelectorAll("[data-matrix-spotlight-key]")) {
+    btn.classList.toggle("is-active", btn.dataset.matrixSpotlightKey === activeKey);
   }
   const point = points.find((p) => pointKey(p) === activeKey) || null;
   const view = state.matrixView || DEFAULT_VIEW;

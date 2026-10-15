@@ -40,7 +40,7 @@ import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.j
 import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, renderShell as renderMatrixShell, shellShape as matrixShellShape, clientToDomainCoords } from "../views/matrix.js";
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY, renderScatterSvg } from "../components/scatter.js";
 import { synthesizeRows } from "../perf-fixtures.js";
-import { shellKey as compareShellKey, shellShape as compareShellShape } from "../views/compare.js";
+import { shellKey as compareShellKey, shellShape as compareShellShape, renderShell as renderCompareShell, computeVerdict } from "../views/compare.js";
 import { renderDrawer, classifyKind, classifyKindForLens, renderPillarRadar, findRow, renderBlackHoleEvidence } from "../views/drawer.js";
 import {
   personaVisibleCount,
@@ -2437,3 +2437,64 @@ test("renderBlackHoleEvidence: formats response_kind into human prose and comput
   assert.ok(!html.includes("Answered (none)"));
   assert.ok(html.includes("black-hole-pr-scroll"));
 });
+
+test("methodology: parameters table includes human-readable Name column and Why Porchlamp renders 3-column kicker grid", () => {
+  const html = methodologyShell(SNAPSHOT_DOC);
+  for (const kicker of copy.WHY_KICKERS) {
+    assert.ok(html.includes(escapeHtml(kicker)), `Why Porchlamp includes kicker ${kicker}`);
+  }
+  for (const p of METHODOLOGY_DOC.parameters) {
+    assert.ok(
+      html.includes(escapeHtml(copy.paramName(p.input_id))),
+      `parameters table includes human-readable name for ${p.input_id}`
+    );
+  }
+  assert.ok(html.includes("persona-cell-bar"), "personas table includes visual weight bars");
+});
+
+test("matrix: renderMatrixBody includes Quadrant breakdown & top repositories spotlight cards", () => {
+  const html = renderMatrixBody(matrixState(40));
+  assert.ok(html.includes(escapeHtml(copy.MATRIX_SPOTLIGHT_HEADING)));
+  assert.ok(html.includes('data-matrix-spotlight-key="o/r0"'));
+  for (const guidance of Object.values(copy.MATRIX_QUADRANT_GUIDANCE)) {
+    assert.ok(html.includes(escapeHtml(guidance)));
+  }
+});
+
+test("compare: empty and partial states render quick-start presets and popular suggestions, and rated-subset verdict works when a gated repo is included", () => {
+  const emptyHtml = renderCompareShell({ ...defaultState(), tab: "compare", compareRepos: [] });
+  assert.ok(emptyHtml.includes('data-compare-preset='));
+  assert.ok(emptyHtml.includes('data-compare-quick-add='));
+  assert.ok(!emptyHtml.includes('data-compare-add='), "quick-add buttons do not collide with search dropdown [data-compare-add]");
+
+  const methodologyParams = [
+    { input_id: "ttfhr_hours", pillar: "responsiveness", value_domain: { kind: "numeric", higher_is_better: false } },
+    { input_id: "dr90_decision_rate", pillar: "responsiveness", value_domain: { kind: "numeric", higher_is_better: true } },
+  ];
+  const evidenceByRepo = {
+    "PyO3/pyo3": [
+      { param_id: "ttfhr_hours", measured: true, value: 4.2 },
+      { param_id: "dr90_decision_rate", measured: true, value: 0.91 },
+    ],
+    "tokio-rs/tokio": [
+      { param_id: "ttfhr_hours", measured: true, value: 8.5 },
+      { param_id: "dr90_decision_rate", measured: true, value: 0.84 },
+    ],
+    "astral-sh/uv": [
+      { param_id: "ttfhr_hours", measured: false, value: null, unmeasured_reason: "gated" },
+      { param_id: "dr90_decision_rate", measured: false, value: null, unmeasured_reason: "gated" },
+    ],
+  };
+  const v = computeVerdict(
+    methodologyParams,
+    evidenceByRepo,
+    ["PyO3/pyo3", "tokio-rs/tokio", "astral-sh/uv"],
+    "balanced"
+  );
+  assert.equal(v.measuredCount, 0);
+  assert.ok(v.subsetText.includes("PyO3/pyo3 leads"), `subsetText should name PyO3/pyo3: ${v.subsetText}`);
+  assert.equal(v.effectiveWins["PyO3/pyo3"], 2);
+  assert.equal(v.effectiveWins["tokio-rs/tokio"], 0);
+  assert.equal(v.effectiveWins["astral-sh/uv"], null);
+});
+

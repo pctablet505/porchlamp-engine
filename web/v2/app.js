@@ -1462,6 +1462,43 @@ export function boot(win = window, doc = document) {
       if (!store.getState().methodology && !store.getState().methodologyLoading) loadMethodology();
       return;
     }
+    const quickAddBtn = evt.target.closest("[data-compare-quick-add]");
+    if (quickAddBtn) {
+      const key = quickAddBtn.dataset.compareQuickAdd;
+      clearTimeout(compareSearchDebounce);
+      compareSearchDebounce = null;
+      store.dispatch({ type: "COMPARE_ADD_REPO", key });
+      pushUrl(store.getState());
+      if (!store.getState().compareDataByRepo[key]) loadCompareRepo(key);
+      if (!store.getState().methodology && !store.getState().methodologyLoading) loadMethodology();
+      return;
+    }
+    const comparePresetBtn = evt.target.closest("[data-compare-preset]");
+    if (comparePresetBtn) {
+      const repos = (comparePresetBtn.dataset.comparePreset || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      clearTimeout(compareSearchDebounce);
+      compareSearchDebounce = null;
+      for (const existing of [...store.getState().compareRepos]) {
+        store.dispatch({ type: "COMPARE_REMOVE_REPO", key: existing });
+      }
+      for (const key of repos) {
+        store.dispatch({ type: "COMPARE_ADD_REPO", key });
+        if (!store.getState().compareDataByRepo[key]) loadCompareRepo(key);
+      }
+      pushUrl(store.getState());
+      if (!store.getState().methodology && !store.getState().methodologyLoading) loadMethodology();
+      return;
+    }
+    if (evt.target.closest("[data-compare-clear]")) {
+      for (const existing of [...store.getState().compareRepos]) {
+        store.dispatch({ type: "COMPARE_REMOVE_REPO", key: existing });
+      }
+      pushUrl(store.getState());
+      return;
+    }
     const removeBtn = evt.target.closest("[data-compare-remove]");
     if (removeBtn) {
       store.dispatch({ type: "COMPARE_REMOVE_REPO", key: removeBtn.dataset.compareRemove });
@@ -1587,12 +1624,21 @@ export function boot(win = window, doc = document) {
   main.addEventListener("mouseover", (evt) => {
     if (store.getState().tab !== "matrix") return;
     const marker = evt.target.closest(".matrix-marker");
-    if (marker) store.dispatch({ type: "MATRIX_SET_HOVER", key: marker.dataset.key });
+    if (marker) {
+      store.dispatch({ type: "MATRIX_SET_HOVER", key: marker.dataset.key });
+      return;
+    }
+    const spotBtn = evt.target.closest("[data-matrix-spotlight-key]");
+    if (spotBtn) store.dispatch({ type: "MATRIX_SET_HOVER", key: spotBtn.dataset.matrixSpotlightKey });
   });
   main.addEventListener("mouseout", (evt) => {
     if (store.getState().tab !== "matrix") return;
     const marker = evt.target.closest(".matrix-marker");
     if (marker && !evt.relatedTarget?.closest(".matrix-marker")) {
+      store.dispatch({ type: "MATRIX_SET_HOVER", key: null });
+    }
+    const spotBtn = evt.target.closest("[data-matrix-spotlight-key]");
+    if (spotBtn && !evt.relatedTarget?.closest("[data-matrix-spotlight-key]")) {
       store.dispatch({ type: "MATRIX_SET_HOVER", key: null });
     }
     if (evt.target.matches?.("[data-matrix-canvas]")) {
@@ -1616,7 +1662,12 @@ export function boot(win = window, doc = document) {
   main.addEventListener("focusin", (evt) => {
     if (store.getState().tab !== "matrix") return;
     const marker = evt.target.closest(".matrix-marker");
-    if (marker) store.dispatch({ type: "MATRIX_SET_FOCUS", key: marker.dataset.key });
+    if (marker) {
+      store.dispatch({ type: "MATRIX_SET_FOCUS", key: marker.dataset.key });
+      return;
+    }
+    const spotBtn = evt.target.closest("[data-matrix-spotlight-key]");
+    if (spotBtn) store.dispatch({ type: "MATRIX_SET_FOCUS", key: spotBtn.dataset.matrixSpotlightKey });
   });
 
   drawerRoot.addEventListener("click", (evt) => {

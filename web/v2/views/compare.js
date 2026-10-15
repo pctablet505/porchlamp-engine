@@ -112,10 +112,52 @@ export function computeVerdict(methodologyParams, evidenceByRepo, repoKeys, pers
   const maxWins = Math.max(0, ...Object.values(wins));
   const leaders = Object.entries(wins).filter(([, w]) => w === maxWins && maxWins > 0).map(([k]) => k);
 
+  // When at least one compared repository is gated/unrated (0 measured
+  // parameters), `measuredEverywhere` is empty, but if >= 2 compared
+  // repositories DO have measured parameters, also compute a head-to-head
+  // verdict across that rated subset so comparing 2 rated repos + 1 gated
+  // repo still yields an actionable comparison.
+  let subsetText = "";
+  let effectiveWins = wins;
+  let effectiveMeasuredCount = measuredEverywhere.length;
+  const activeRepoKeys = repoKeys.filter((k) =>
+    methodologyParams.some((p) => {
+      const v = valuesForParam(p.input_id, evidenceByRepo, [k])[k];
+      return v !== null && v !== undefined;
+    })
+  );
+  if (measuredEverywhere.length === 0 && activeRepoKeys.length >= 2) {
+    const subsetWins = Object.fromEntries(repoKeys.map((k) => [k, null]));
+    for (const k of activeRepoKeys) subsetWins[k] = 0;
+    let subsetMeasuredCount = 0;
+    for (const paramEntry of methodologyParams) {
+      const subValues = valuesForParam(paramEntry.input_id, evidenceByRepo, activeRepoKeys);
+      const onAllSub = activeRepoKeys.every((k) => subValues[k] !== null && subValues[k] !== undefined);
+      if (!onAllSub) continue;
+      subsetMeasuredCount += 1;
+      const w = betterRepoKey(paramEntry, subValues, persona);
+      if (w && subsetWins[w] !== null && subsetWins[w] !== undefined) subsetWins[w] += 1;
+    }
+    if (subsetMeasuredCount > 0) {
+      const maxSub = Math.max(0, ...activeRepoKeys.map((k) => subsetWins[k] || 0));
+      const subLeaders = activeRepoKeys.filter((k) => subsetWins[k] === maxSub && maxSub > 0);
+      subsetText =
+        subLeaders.length === 1
+          ? copy.compareRatedSubsetVerdictText(subLeaders[0], subsetMeasuredCount, methodologyParams.length, activeRepoKeys.length)
+          : copy.compareRatedSubsetTieText(subsetMeasuredCount, methodologyParams.length, activeRepoKeys.length);
+      effectiveWins = subsetWins;
+      effectiveMeasuredCount = subsetMeasuredCount;
+    }
+  }
+
   return {
     measuredCount: measuredEverywhere.length,
     totalParams: methodologyParams.length,
     notMeasuredEverywhere,
+    wins,
+    effectiveWins,
+    effectiveMeasuredCount,
+    subsetText,
     text:
       measuredEverywhere.length === 0
         ? copy.compareVerdictNoDataText()
@@ -133,7 +175,47 @@ function renderChips(compareRepos) {
         `<button type="button" data-compare-remove="${escapeHtml(key)}" aria-label="${escapeHtml(copy.COMPARE_REMOVE_LABEL)}: ${escapeHtml(key)}">×</button></span>`
     )
     .join("");
-  return `<div class="compare-chips" data-compare-chips="true">${chips}</div>`;
+  const clearBtn =
+    compareRepos.length > 0
+      ? `<button type="button" class="link-button compare-clear-btn" data-compare-clear="true">${escapeHtml(copy.COMPARE_CLEAR_ALL_LABEL)}</button>`
+      : "";
+  return `<div class="compare-chips" data-compare-chips="true">${chips}${clearBtn}</div>`;
+}
+
+function renderCompareOnboarding(compareRepos) {
+  const presets = copy.COMPARE_PRESETS.map(
+    (preset) =>
+      `<button type="button" class="compare-preset-card" data-compare-preset="${escapeHtml(preset.repos.join(","))}">` +
+      `<span class="compare-preset-title">${escapeHtml(preset.label)}</span>` +
+      `<span class="compare-preset-desc">${escapeHtml(preset.description)}</span>` +
+      `<span class="compare-preset-repos">${preset.repos.map((r) => `<code class="spec-chip">${escapeHtml(r)}</code>`).join("")}</span>` +
+      `</button>`
+  ).join("");
+
+  const availableSuggestions = copy.COMPARE_SUGGESTIONS.filter((r) => !compareRepos.includes(r));
+  const suggestions = availableSuggestions
+    .map(
+      (repo) =>
+        `<button type="button" class="compare-quick-chip" data-compare-quick-add="${escapeHtml(repo)}">` +
+        `<span aria-hidden="true">+</span> ${escapeHtml(repo)}</button>`
+    )
+    .join("");
+
+  return (
+    `<section class="compare-onboarding" aria-label="${escapeHtml(copy.COMPARE_PRESETS_HEADING)}">` +
+    `<div class="compare-presets-block">` +
+    `<h2 class="compare-onboarding-title">${escapeHtml(copy.COMPARE_PRESETS_HEADING)}</h2>` +
+    `<p class="compare-onboarding-sub">${escapeHtml(copy.COMPARE_PRESETS_SUBTITLE)}</p>` +
+    `<div class="compare-presets-grid">${presets}</div>` +
+    `</div>` +
+    (suggestions
+      ? `<div class="compare-suggestions-block">` +
+        `<h3 class="compare-suggestions-title">${escapeHtml(copy.COMPARE_SUGGESTIONS_HEADING)}</h3>` +
+        `<div class="compare-suggestions-row">${suggestions}</div>` +
+        `</div>`
+      : "") +
+    `</section>`
+  );
 }
 
 /**
@@ -229,13 +311,13 @@ function resolveCompareLens(data, persona) {
 function gateStatusCell(data, persona = "balanced") {
   if (!data || data.loading || data.error) return `<td>${copy.MISSING_VALUE}</td>`;
   const { kind, row } = resolveCompareLens(data, persona);
-  if (kind === "gated") return `<td>${escapeHtml(copy.gateReasonText(row.gate_reason))}</td>`;
+  if (kind === "gated") return `<td><span class="compare-status-pill is-gated">${escapeHtml(copy.gateReasonText(row.gate_reason))}</span></td>`;
   if (kind === "persona-gated") {
     const rawReason = row.persona_gates && persona ? row.persona_gates[persona] : "";
-    return `<td>${escapeHtml(copy.personaGateReason(rawReason))}</td>`;
+    return `<td><span class="compare-status-pill is-gated">${escapeHtml(copy.personaGateReason(rawReason))}</span></td>`;
   }
-  if (kind === "unrated") return `<td>${escapeHtml(copy.unratedReasonText(row.unrated_reason || row.gate_reason, row.coverage))}</td>`;
-  return `<td>${escapeHtml(copy.COMPARE_RATED_STATUS)}</td>`;
+  if (kind === "unrated") return `<td><span class="compare-status-pill is-unrated">${escapeHtml(copy.unratedReasonText(row.unrated_reason || row.gate_reason, row.coverage))}</span></td>`;
+  return `<td><span class="compare-status-pill is-rated">${escapeHtml(copy.COMPARE_RATED_STATUS)}</span></td>`;
 }
 
 function compositeCell(data, persona = "balanced") {
@@ -253,18 +335,44 @@ function coverageCell(data, persona = "balanced") {
   return `<td>${renderCoverageBadge(row ? row.coverage : null)}</td>`;
 }
 
-function pillarScoreCell(data, pillar) {
+function pillarScoreCell(data, pillar, isBest = false, pillarLabel = "") {
   if (!data || data.loading || data.error || !data.row) return `<td>${copy.MISSING_VALUE}</td>`;
   const score = data.row[`p_${pillar}`];
   if (score == null) return `<td class="cell-missing">${copy.MISSING_VALUE}</td>`;
-  return `<td class="cell-numeric">${score.toFixed(1)}</td>`;
+  const pct = Math.max(0, Math.min(100, Math.round(score)));
+  const betterTitle = copy.compareBetterTitle(pillarLabel || pillar);
+  const mark = isBest
+    ? ` <span class="compare-better-mark" title="${escapeHtml(betterTitle)}" aria-label="${escapeHtml(betterTitle)}">${copy.COMPARE_BETTER_MARK}</span>`
+    : "";
+  return (
+    `<td class="cell-numeric${isBest ? " compare-better-cell" : ""}">` +
+    `<div class="compare-cell-metric">` +
+    `<span class="compare-cell-val">${score.toFixed(1)}${mark}</span>` +
+    `<span class="compare-inline-bar" aria-hidden="true"><span class="compare-inline-bar-fill" style="width:${pct}%"></span></span>` +
+    `</div></td>`
+  );
+}
+
+function directionBadgeHtml(direction) {
+  if (direction === "higher") {
+    return `<span class="compare-dir-badge">${escapeHtml(copy.COMPARE_DIRECTION_HIGHER)}</span>`;
+  }
+  if (direction === "lower") {
+    return `<span class="compare-dir-badge">${escapeHtml(copy.COMPARE_DIRECTION_LOWER)}</span>`;
+  }
+  if (direction && direction.kind === "enum-order") {
+    return `<span class="compare-dir-badge">${escapeHtml(copy.COMPARE_DIRECTION_ENUM)}</span>`;
+  }
+  return "";
 }
 
 function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
   const values = valuesForParam(paramEntry.input_id, evidenceByRepo, repoKeys);
   const winner = betterRepoKey(paramEntry, values, persona);
+  const direction = parameterDirection(paramEntry, persona);
   const humanParamName = copy.paramName(paramEntry.input_id);
   const paramLabel = escapeHtml(humanParamName);
+  const dirBadge = directionBadgeHtml(direction);
   const cells = repoKeys
     .map((key) => {
       const raw = values[key];
@@ -286,7 +394,105 @@ function parameterRow(paramEntry, repoKeys, evidenceByRepo, persona) {
       return `<td class="cell-numeric${isBetter ? " compare-better-cell" : ""}" tabindex="0" title="${escapeHtml(title)}">${escapeHtml(formattedRaw)} ${mark}</td>`;
     })
     .join("");
-  return `<tr><th scope="row" title="${escapeHtml(paramEntry.input_id)}">${paramLabel}</th>${cells}</tr>`;
+  return (
+    `<tr><th scope="row" title="${escapeHtml(paramEntry.input_id)}">` +
+    `<div class="compare-param-th"><span>${paramLabel}</span>${dirBadge}</div>` +
+    `</th>${cells}</tr>`
+  );
+}
+
+function renderSummaryCards(repoKeys, dataByRepo, persona, verdict) {
+  const pillarIds = Object.keys(copy.PILLAR_NAMES);
+  const cards = repoKeys
+    .map((key) => {
+      const data = dataByRepo[key];
+      const [owner, name] = key.split("/");
+      if (!data || data.loading) {
+        return (
+          `<article class="compare-repo-card is-loading">` +
+          `<h3 class="compare-card-repo">${escapeHtml(key)}</h3>` +
+          `<p class="compare-card-status">${escapeHtml(copy.COMPARE_LOADING_TEXT)}</p>` +
+          `</article>`
+        );
+      }
+      if (data.error || !data.row) {
+        return (
+          `<article class="compare-repo-card is-error">` +
+          `<h3 class="compare-card-repo">${escapeHtml(key)}</h3>` +
+          `<p class="compare-card-status">${copy.MISSING_VALUE}</p>` +
+          `</article>`
+        );
+      }
+      const { kind, row } = resolveCompareLens(data, persona);
+      const isRated = kind === "rated" && row && typeof row.porchlamp === "number";
+      const scoreHtml = isRated ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE;
+      const ceiling = row ? deriveTierCeiling(row.coverage, row.tier_ceiling) : null;
+      const tierHtml = isRated ? renderTierCell(row.tier, ceiling) : "";
+      const covHtml = renderCoverageBadge(row ? row.coverage : null);
+      const quadName = isRated && row.quadrant ? row.quadrant : null;
+      const quadCls = quadName ? `quad-${quadName.toLowerCase().replace(/\s+/g, "-")}` : "";
+      const quadHtml = quadName
+        ? `<span class="compare-card-quad ${quadCls}">${copy.QUADRANT_GLYPHS[quadName] || ""} ${escapeHtml(copy.QUADRANT_LABELS[quadName] || quadName)}</span>`
+        : "";
+      let statusBadge = "";
+      if (kind === "gated") {
+        statusBadge = `<span class="compare-status-pill is-gated">${escapeHtml(copy.gateReasonText(row.gate_reason))}</span>`;
+      } else if (kind === "persona-gated") {
+        const rawReason = row.persona_gates && persona ? row.persona_gates[persona] : "";
+        statusBadge = `<span class="compare-status-pill is-gated">${escapeHtml(copy.personaGateReason(rawReason))}</span>`;
+      } else if (kind === "unrated") {
+        statusBadge = `<span class="compare-status-pill is-unrated">${escapeHtml(copy.unratedReasonText(row.unrated_reason || row.gate_reason, row.coverage))}</span>`;
+      } else {
+        statusBadge = `<span class="compare-status-pill is-rated">${escapeHtml(copy.COMPARE_RATED_STATUS)}</span>`;
+      }
+
+      const winCount = verdict && verdict.effectiveWins ? verdict.effectiveWins[key] : null;
+      const winTotal = verdict ? verdict.effectiveMeasuredCount : 0;
+      const winHtml =
+        winCount !== null && winCount !== undefined && winTotal > 0
+          ? `<div class="compare-card-wins"><span class="compare-card-wins-label">${escapeHtml(copy.COMPARE_WINS_LABEL)}</span><strong class="compare-card-wins-val">${escapeHtml(copy.compareWinScoreText(winCount, winTotal))}</strong></div>`
+          : "";
+
+      const miniPillars = pillarIds
+        .map((p) => {
+          const val = data.row[`p_${p}`];
+          const pct = typeof val === "number" ? Math.max(0, Math.min(100, Math.round(val))) : 0;
+          const text = typeof val === "number" ? val.toFixed(0) : copy.MISSING_VALUE;
+          return (
+            `<div class="compare-mini-pillar">` +
+            `<span class="compare-mini-pillar-name">${escapeHtml(copy.PILLAR_SHORT_NAMES[p] || p)}</span>` +
+            `<span class="compare-mini-pillar-bar" aria-hidden="true"><span class="compare-mini-pillar-fill" style="width:${pct}%"></span></span>` +
+            `<span class="compare-mini-pillar-val">${escapeHtml(text)}</span>` +
+            `</div>`
+          );
+        })
+        .join("");
+
+      return (
+        `<article class="compare-repo-card${isRated ? " is-rated" : " is-not-rated"}">` +
+        `<div class="compare-card-head">` +
+        `<button type="button" class="link-button repo-name compare-card-title" data-owner="${escapeHtml(owner)}" data-name="${escapeHtml(name)}">${escapeHtml(key)}</button>` +
+        statusBadge +
+        `</div>` +
+        `<div class="compare-card-hero">` +
+        `<div class="compare-card-score-block">` +
+        `<span class="compare-card-score-label">${escapeHtml(copy.COMPARE_ROW_COMPOSITE)}</span>` +
+        `<span class="compare-card-score-num">${escapeHtml(scoreHtml)}</span>` +
+        `</div>` +
+        `<div class="compare-card-badges">${tierHtml}${covHtml}${quadHtml}</div>` +
+        `</div>` +
+        winHtml +
+        `<div class="compare-card-pillars">${miniPillars}</div>` +
+        `</article>`
+      );
+    })
+    .join("");
+
+  return (
+    `<section class="compare-cards-section" aria-label="${escapeHtml(copy.COMPARE_CARDS_HEADING)}">` +
+    `<div class="compare-cards-grid">${cards}</div>` +
+    `</section>`
+  );
 }
 
 export function renderTable(state) {
@@ -325,21 +531,47 @@ export function renderTable(state) {
     .join("");
 
   const pillarRows = Object.keys(copy.PILLAR_NAMES)
-    .map((pillar) => `<tr><th scope="row">${escapeHtml(copy.PILLAR_NAMES[pillar])}</th>${repoKeys.map((k) => pillarScoreCell(dataByRepo[k], pillar)).join("")}</tr>`)
+    .map((pillar) => {
+      const pillarLabel = copy.PILLAR_NAMES[pillar];
+      const scores = repoKeys
+        .map((k) => {
+          const d = dataByRepo[k];
+          const v = d && d.row && typeof d.row[`p_${pillar}`] === "number" ? d.row[`p_${pillar}`] : null;
+          return [k, v];
+        })
+        .filter(([, v]) => v !== null);
+      let bestPillarKey = null;
+      if (scores.length >= 2) {
+        const maxVal = Math.max(...scores.map(([, v]) => v));
+        const tied = scores.filter(([, v]) => v === maxVal);
+        if (tied.length === 1) bestPillarKey = tied[0][0];
+      }
+      const cells = repoKeys
+        .map((k) => pillarScoreCell(dataByRepo[k], pillar, bestPillarKey === k, pillarLabel))
+        .join("");
+      return `<tr class="compare-pillar-row"><th scope="row">${escapeHtml(pillarLabel)}</th>${cells}</tr>`;
+    })
     .join("");
 
   const allLoaded = repoKeys.every((k) => dataByRepo[k] && !dataByRepo[k].loading && !dataByRepo[k].error);
+  let verdict = null;
   let verdictHtml = "";
   if (allLoaded && state.methodology && repoKeys.length >= COMPARE_MIN) {
-    const verdict = computeVerdict(methodologyParams, evidenceByRepo, repoKeys, persona);
+    verdict = computeVerdict(methodologyParams, evidenceByRepo, repoKeys, persona);
     const unmeasuredNames = verdict.notMeasuredEverywhere.map((id) => copy.paramName(id));
     const unmeasuredNote = copy.compareUnmeasuredNote(unmeasuredNames);
+    const subsetLine = verdict.subsetText
+      ? `<p class="compare-verdict-subset">${escapeHtml(verdict.subsetText)}</p>`
+      : "";
     verdictHtml =
       `<div class="compare-verdict"><h2>${escapeHtml(copy.COMPARE_VERDICT_HEADING)}</h2>` +
-      `<p>${escapeHtml(verdict.text)}</p>` +
+      `<p class="compare-verdict-main">${escapeHtml(verdict.text)}</p>` +
+      subsetLine +
       (unmeasuredNote ? `<p class="matrix-caption">${escapeHtml(unmeasuredNote)}</p>` : "") +
       `</div>`;
   }
+
+  const summaryCardsHtml = renderSummaryCards(repoKeys, dataByRepo, persona, verdict);
 
   const statusRowHtml = !allLoaded
     ? `<tr><th scope="row">${escapeHtml(copy.COMPARE_ROW_IDENTITY)}</th>${repoKeys.map((k) => repoIdentityCell(k, dataByRepo[k])).join("")}</tr>`
@@ -347,6 +579,7 @@ export function renderTable(state) {
 
   return (
     verdictHtml +
+    summaryCardsHtml +
     `<div class="table-scroll"><table class="compare-table">` +
     `<thead><tr><th scope="col">${escapeHtml(copy.COMPARE_ROW_IDENTITY)}</th>${headerCells}</tr></thead>` +
     `<tbody>` +
@@ -389,10 +622,22 @@ export function renderShell(state) {
   const picker = renderPickerShell(state);
   const shape = shellShape(state);
   if (shape === "empty") {
-    return heading + chips + picker + `<div class="empty-state">${escapeHtml(copy.COMPARE_EMPTY_TEXT)}</div>`;
+    return (
+      heading +
+      chips +
+      picker +
+      `<div class="empty-state">${escapeHtml(copy.COMPARE_EMPTY_TEXT)}</div>` +
+      renderCompareOnboarding(state.compareRepos)
+    );
   }
   if (shape === "partial-min") {
-    return heading + chips + picker + `<div class="empty-state">${escapeHtml(copy.COMPARE_MIN_TEXT)}</div>`;
+    return (
+      heading +
+      chips +
+      picker +
+      `<div class="empty-state">${escapeHtml(copy.COMPARE_MIN_TEXT)}</div>` +
+      renderCompareOnboarding(state.compareRepos)
+    );
   }
   // Empty host: content is patched in immediately after by `patchTable`
   // (called unconditionally right after every shell (re)build, in

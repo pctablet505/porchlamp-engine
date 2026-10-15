@@ -283,11 +283,15 @@ export function drawMatrixCanvas(ctx, points, { quadrantsHidden = {}, colors, wi
   const span = (DOMAIN_MAX - DOMAIN_MIN) / scale;
   const vx = view && typeof view.x === "number" ? Math.min(Math.max(view.x, DOMAIN_MIN), DOMAIN_MAX - span) : 0;
   const vy = view && typeof view.y === "number" ? Math.min(Math.max(view.y, DOMAIN_MIN), DOMAIN_MAX - span) : 0;
+  const densityScale = visible.length > 2000 ? 0.62 : visible.length > 500 ? 0.78 : 1;
+  const prevAlpha = ctx.globalAlpha;
   for (const p of visible) {
     const x = ((toSvgX(p.friction) - vx) / span) * width;
     const y = ((toSvgY(p.leverage) - vy) / span) * height;
-    const r = radiusPxForStars(p.stars_audited, starsMin, starsMax);
-    ctx.fillStyle = colors[p.quadrant] || colors.Nursery;
+    const r = radiusPxForStars(p.stars_audited, starsMin, starsMax) * densityScale;
+    const color = colors[p.quadrant] || colors.Nursery;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
     ctx.beginPath();
     if (p.quadrant === "Sweet Spot") {
       ctx.moveTo(x, y - r);
@@ -307,7 +311,7 @@ export function drawMatrixCanvas(ctx, points, { quadrantsHidden = {}, colors, wi
     } else if (p.quadrant === "Graveyard") {
       const s = r * 0.72;
       ctx.lineWidth = Math.max(1, r * 0.35);
-      ctx.strokeStyle = ctx.fillStyle;
+      ctx.globalAlpha = 0.65;
       ctx.moveTo(x - s, y - s);
       ctx.lineTo(x + s, y + s);
       ctx.moveTo(x - s, y + s);
@@ -317,6 +321,11 @@ export function drawMatrixCanvas(ctx, points, { quadrantsHidden = {}, colors, wi
     } else {
       ctx.arc(x, y, r, 0, Math.PI * 2);
     }
+    ctx.globalAlpha = 0.44;
     ctx.fill();
+    ctx.globalAlpha = 0.85;
+    ctx.lineWidth = 1;
+    ctx.stroke();
   }
+  ctx.globalAlpha = prevAlpha !== undefined ? prevAlpha : 1;
 }
