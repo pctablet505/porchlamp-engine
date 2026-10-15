@@ -332,6 +332,30 @@ def rewrite_expected(fixture_dir: Path) -> ScoredSnapshot:
     from porchlamp.snapshot.store_cmd import score_snapshot_with_detectors
 
     frozen = load_frozen_fixture(fixture_dir)
+    pop_path = fixture_dir / "populations.json"
+    if pop_path.is_file():
+        pop_doc = json.loads(pop_path.read_text(encoding="utf-8"))
+        if pop_doc.get("constants_hash") != constants.CONSTANTS_HASH:
+            pop_doc["constants_hash"] = constants.CONSTANTS_HASH
+            pop_path.write_text(
+                json.dumps(pop_doc, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+    manifest_path = fixture_dir / "manifest.json"
+    if manifest_path.is_file():
+        manifest_doc = json.loads(manifest_path.read_text(encoding="utf-8"))
+        new_merkle = merkle_root(
+            sorted([*frozen.raw_hashes.values(), _populations_leaf(fixture_dir)])
+        )
+        if (
+            manifest_doc.get("constants_hash") != constants.CONSTANTS_HASH
+            or manifest_doc.get("merkle_root") != new_merkle
+        ):
+            manifest_doc["constants_hash"] = constants.CONSTANTS_HASH
+            manifest_doc["merkle_root"] = new_merkle
+            manifest_path.write_text(
+                json.dumps(manifest_doc, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+    frozen = load_frozen_fixture(fixture_dir)
     snapshot = score_snapshot_with_detectors(
         frozen.bundles,
         frozen.populations,

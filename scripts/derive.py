@@ -750,15 +750,7 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
     from porchlamp.core import constants as core_constants, gates as core_gates
     prw_prs = prw.get("prs") if isinstance(prw, dict) else None
     if isinstance(prw_prs, list):
-        records = [
-            core_gates.GhostRatePR(
-                created_at=pr["createdAt"], is_external=bool(d["is_external"]),
-                is_bot_author=bool(d["is_bot_author"]),
-                first_substantive_response_at=d["first_substantive_response_at"],
-                merged_at=pr["mergedAt"] if _parse_dt(pr.get("mergedAt")) is not None else None)
-            for pr, d in zip(prw_prs, prw_mod.derive_pr_window(prw_prs))
-            if _parse_dt(pr.get("createdAt")) is not None
-        ]
+        records = prw_mod.ghost_rate_prs_from_window(prw_prs)
         read_times = [t for t in (_parse_dt(prw_at), _parse_dt(prw.get("window_anchor"))) if t is not None]
         unanswered, gr_n = core_gates.zero_response_counts(
             records, now, observed_at=min(read_times) if read_times else None)
@@ -888,19 +880,71 @@ def derive_repo(owner: str, name: str, ecosystem: Ecosystem,
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    """CLI: derive one repo's bundle from the cache."""
+    """CLI: derive one repo's bundle from the cache, or batch derive with --all."""
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("owner")
-    ap.add_argument("name")
+    ap.add_argument("owner", nargs="?", default=None)
+    ap.add_argument("name", nargs="?", default=None)
+    ap.add_argument("--all", action="store_true", help="derive all repos found in candidates.jsonl or raw/ cache")
+    ap.add_argument("--workers", type=int, default=1, help="concurrency for batch derivation")
     ap.add_argument("--ecosystem", default="pypi", choices=[e.value for e in Ecosystem])
     ap.add_argument("--data-dir", type=Path, default=DATA_DIR)
     ap.add_argument("--fetch", action="store_true", help="fetch uncached file bodies")
     a = ap.parse_args(argv)
-    bundle = derive_repo(a.owner, a.name, Ecosystem(a.ecosystem), a.data_dir, fetch=a.fetch)
-    out = a.data_dir / "derived" / f"{a.owner}__{a.name}.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(bundle, indent=2, sort_keys=True), encoding="utf-8")
-    print(out)
+    if not a.all:
+        if not a.owner or not a.name:
+            ap.error("the following arguments are required: owner, name (or pass --all)")
+        bundle = derive_repo(a.owner, a.name, Ecosystem(a.ecosystem), a.data_dir, fetch=a.fetch)
+        out = a.data_dir / "derived" / f"{a.owner}__{a.name}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(bundle, indent=2, sort_keys=True), encoding="utf-8")
+        print(out)
+        return 0
+
+    candidates_file = a.data_dir / "raw" / "candidates.jsonl"
+    if not candidates_file.is_file():
+        candidates_file = a.data_dir / "candidates.jsonl"
+    repos: list[tuple[str, str, Ecosystem]] = []
+    if candidates_file.is_file():
+        for line in candidates_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            r = json.loads(line)
+            if r.get("owner") and r.get("name"):
+                eco_str = r.get("ecosystem", a.ecosystem)
+                try:
+                    eco = Ecosystem(eco_str)
+                except ValueError:
+                    eco = Ecosystem(a.ecosystem)
+                repos.append((r["owner"], r["name"], eco))
+    else:
+        raw_dir = a.data_dir / "raw"
+        if raw_dir.is_dir():
+            seen: set[tuple[str, str]] = set()
+            for p in sorted(raw_dir.glob("*/*__*.json")):
+                parts = p.stem.split("__", 1)
+                if len(parts) == 2:
+                    seen.add((parts[0], parts[1]))
+            for o, n in sorted(seen):
+                repos.append((o, n, Ecosystem(a.ecosystem)))
+
+    def _derive_one(item: tuple[str, str, Ecosystem]) -> Path:
+        owner, name, eco = item
+        b = derive_repo(owner, name, eco, a.data_dir, fetch=a.fetch)
+        out_path = a.data_dir / "derived" / f"{owner}__{name}.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(b, indent=2, sort_keys=True), encoding="utf-8")
+        return out_path
+
+    if a.workers > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=a.workers) as executor:
+            for out_path in executor.map(_derive_one, repos):
+                print(out_path)
+    else:
+        for item in repos:
+            print(_derive_one(item))
     return 0
 
 

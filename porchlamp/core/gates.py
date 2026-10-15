@@ -33,10 +33,11 @@ could itself drift.
 """
 from __future__ import annotations
 
+import math
 import re
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from porchlamp.core import constants
 from porchlamp.core.models import FeatureBundle, GateResult, Measured, PRWindowEvent
@@ -101,6 +102,8 @@ GATE5_MIN_N: int = constants.GATE5_MIN_N
 GATE5_MIN_AGE_DAYS: int = constants.GATE5_MIN_AGE_DAYS
 #: D-GATE-5: the substantive-response deadline after opening.
 GATE5_RESPONSE_DEADLINE_DAYS: int = constants.GATE5_RESPONSE_DEADLINE_DAYS
+#: D-GATE-5: 95% one-sided standard normal quantile for the Wilson lower confidence bound (RFC-0008).
+GATE5_WILSON_Z: float = constants.GATE5_WILSON_Z
 #: D-GATE-5: pass ceiling on the share with zero substantive response.
 GATE5_MAX_ZERO_RESPONSE_SHARE: float = constants.GATE5_MAX_ZERO_RESPONSE_SHARE
 #: D-GATE-6: horizon for a decided external PR.
@@ -324,10 +327,216 @@ class GhostRatePR:
     is_bot_author: bool
     first_substantive_response_at: str | None
     merged_at: str | None = None
+    is_draft: bool = False
+    ready_for_review_at: str | None = None
+    closed_at: str | None = None
+    closed_by_author: bool = False
+    closed_by_maintainer_at: str | None = None
+    author_created_at: str | None = None
+    number: int | None = None
 
 
-def zero_response_counts(prs: Iterable[GhostRatePR], now: datetime,
-                         observed_at: datetime | None = None) -> tuple[int, int]:
+def wilson_lower_bound_from_share(
+    p_hat: float,
+    n: int,
+    z: float = constants.GATE5_WILSON_Z,
+) -> float:
+    """Compute the one-sided Wilson lower confidence bound for a sample share.
+
+    Returns 0.0 when n <= 0 or p_hat <= 0.0. p_hat is clamped to [0.0, 1.0].
+    """
+    if n <= 0 or p_hat <= 0.0:
+        return 0.0
+    p = min(1.0, max(0.0, float(p_hat)))
+    z2 = z * z
+    term1 = p + z2 / (2.0 * n)
+    radicand = (p * (1.0 - p) + z2 / (4.0 * n)) / n
+    term2 = z * math.sqrt(max(0.0, radicand))
+    denom = 1.0 + z2 / n
+    return max(0.0, float((term1 - term2) / denom))
+
+
+def wilson_lower_bound(
+    unanswered: int,
+    n: int,
+    z: float = constants.GATE5_WILSON_Z,
+) -> float:
+    """Compute the one-sided Wilson lower confidence bound from counts."""
+    if n <= 0 or unanswered <= 0:
+        return 0.0
+    return wilson_lower_bound_from_share(unanswered / n, n, z)
+
+
+def is_black_hole_counts(unanswered: int, n: int) -> bool:
+    """Return True iff a population meets GATE5_MIN_N and its Wilson lower bound
+    exceeds GATE5_MAX_ZERO_RESPONSE_SHARE."""
+    return (
+        n >= constants.GATE5_MIN_N
+        and wilson_lower_bound(unanswered, n) > constants.GATE5_MAX_ZERO_RESPONSE_SHARE
+    )
+
+
+@dataclass(frozen=True)
+class Gate5CountedPR:
+    number: int | None
+    created_at: str
+    clock_start_at: str
+    answered_within_14d: bool
+    first_response_at: str | None
+    response_kind: str  # "review_or_comment", "merged", "closed_by_maintainer", or "none"
+
+
+@dataclass(frozen=True)
+class Gate5WindowBreakdown:
+    unanswered: int
+    population_n: int
+    unanswered_share: float | None
+    wilson_lower_bound: float
+    is_black_hole: bool
+    counted_prs: tuple[Gate5CountedPR, ...]
+    excluded_draft: int
+    excluded_self_closed: int
+    excluded_new_account: int
+    excluded_bot: int
+    excluded_internal: int
+    excluded_under_14d: int
+
+
+def evaluate_gate5_window(
+    prs: Sequence[GhostRatePR] | Iterable[GhostRatePR],
+    now: datetime,
+    *,
+    observed_at: datetime | None = None,
+) -> Gate5WindowBreakdown:
+    """Evaluate D-GATE-5 window with the 5 false-positive reduction rules (RFC-0008)."""
+    if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
+        raise ValueError(f"now must be timezone-aware, got {now!r}")
+    if observed_at is not None and (
+        observed_at.tzinfo is None or observed_at.tzinfo.utcoffset(observed_at) is None
+    ):
+        raise ValueError(f"observed_at must be timezone-aware, got {observed_at!r}")
+    age_reference = now if observed_at is None else min(now, observed_at)
+    window_start = now - timedelta(days=constants.PR_WINDOW_DAYS)
+    deadline = timedelta(days=GATE5_RESPONSE_DEADLINE_DAYS)
+    min_account_age = timedelta(days=constants.MIN_ACCOUNT_AGE_DAYS)
+
+    unanswered = 0
+    counted_prs: list[Gate5CountedPR] = []
+    excluded_draft = 0
+    excluded_self_closed = 0
+    excluded_new_account = 0
+    excluded_bot = 0
+    excluded_internal = 0
+    excluded_under_14d = 0
+
+    for pr in prs:
+        created = _parse_iso(pr.created_at)
+        if not window_start <= created <= now:
+            continue
+        if not pr.is_external:
+            excluded_internal += 1
+            continue
+        if pr.is_bot_author:
+            excluded_bot += 1
+            continue
+
+        # Rule 3 (Account-age hygiene): author account must be >= 90 days old when PR was created
+        if pr.author_created_at is not None:
+            author_created = _parse_iso(pr.author_created_at)
+            if (created - author_created) < min_account_age:
+                excluded_new_account += 1
+                continue
+
+        # Rule 1 (Draft PR exclusion / clock start)
+        if pr.ready_for_review_at is not None:
+            ready_at = _parse_iso(pr.ready_for_review_at)
+            clock_start = max(created, ready_at)
+        elif pr.is_draft:
+            excluded_draft += 1
+            continue
+        else:
+            clock_start = created
+
+        # 14-day observation age judged against clock_start
+        if (age_reference - clock_start) < timedelta(days=GATE5_MIN_AGE_DAYS):
+            excluded_under_14d += 1
+            continue
+
+        # Rule 4 (Maintainer response / merge / maintainer close within 14d)
+        responses: list[tuple[datetime, str, str]] = []
+        if pr.first_substantive_response_at is not None:
+            resp_dt = _parse_iso(pr.first_substantive_response_at)
+            if resp_dt <= clock_start + deadline:
+                responses.append((resp_dt, "review_or_comment", pr.first_substantive_response_at))
+
+        if pr.merged_at is not None:
+            merged_dt = _parse_iso(pr.merged_at)
+            if clock_start <= merged_dt <= clock_start + deadline:
+                responses.append((merged_dt, "merged", pr.merged_at))
+
+        if pr.closed_by_maintainer_at is not None:
+            closed_m_dt = _parse_iso(pr.closed_by_maintainer_at)
+            if clock_start <= closed_m_dt <= clock_start + deadline:
+                responses.append((closed_m_dt, "closed_by_maintainer", pr.closed_by_maintainer_at))
+
+        answered_within_14d = bool(responses)
+        if answered_within_14d:
+            responses.sort(key=lambda r: r[0])
+            first_response_at: str | None = responses[0][2]
+            response_kind: str = responses[0][1]
+        else:
+            first_response_at = None
+            response_kind = "none"
+
+        # Rule 2 (Author self-closed PR exclusion)
+        # If closed by author and NOT answered within 14d, and has no substantive response at or before closed_at
+        if pr.closed_by_author and not answered_within_14d:
+            had_prior_response = False
+            if pr.first_substantive_response_at is not None and pr.closed_at is not None:
+                had_prior_response = _parse_iso(pr.first_substantive_response_at) <= _parse_iso(pr.closed_at)
+            if not had_prior_response:
+                excluded_self_closed += 1
+                continue
+
+        counted_prs.append(
+            Gate5CountedPR(
+                number=pr.number,
+                created_at=pr.created_at,
+                clock_start_at=clock_start.isoformat(),
+                answered_within_14d=answered_within_14d,
+                first_response_at=first_response_at,
+                response_kind=response_kind,
+            )
+        )
+        if not answered_within_14d:
+            unanswered += 1
+
+    population_n = len(counted_prs)
+    unanswered_share = (unanswered / population_n) if population_n > 0 else None
+    w_lb = wilson_lower_bound(unanswered, population_n)
+    is_bh = is_black_hole_counts(unanswered, population_n)
+
+    return Gate5WindowBreakdown(
+        unanswered=unanswered,
+        population_n=population_n,
+        unanswered_share=unanswered_share,
+        wilson_lower_bound=w_lb,
+        is_black_hole=is_bh,
+        counted_prs=tuple(counted_prs),
+        excluded_draft=excluded_draft,
+        excluded_self_closed=excluded_self_closed,
+        excluded_new_account=excluded_new_account,
+        excluded_bot=excluded_bot,
+        excluded_internal=excluded_internal,
+        excluded_under_14d=excluded_under_14d,
+    )
+
+
+def zero_response_counts(
+    prs: Iterable[GhostRatePR],
+    now: datetime,
+    observed_at: datetime | None = None,
+) -> tuple[int, int]:
     """``(unanswered, n)`` for D-GATE-5 and 1.4 GR_14 -- the one function
     both read, so they cannot disagree.
 
@@ -339,35 +548,11 @@ def zero_response_counts(prs: Iterable[GhostRatePR], now: datetime,
     observed for less than the minimum age could still have been answered
     in time after the read, so it is not judged (lead ruling 2026-10-06);
     ``None`` judges age at ``now``. Unanswered: no D-IN-2 substantive
-    response and no merge within :data:`GATE5_RESPONSE_DEADLINE_DAYS` of
-    opening (owner ruling 2026-10-06: a merge within the deadline is a
-    response, "no human reply, review or merge"). ``now`` is the reference
-    time, passed explicitly (D-VER-3).
+    response, merge, or maintainer close within :data:`GATE5_RESPONSE_DEADLINE_DAYS` of
+    clock start (RFC-0008). ``now`` is the reference time, passed explicitly (D-VER-3).
     """
-    if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
-        raise ValueError(f"now must be timezone-aware, got {now!r}")
-    if observed_at is not None and (observed_at.tzinfo is None
-                                    or observed_at.tzinfo.utcoffset(observed_at) is None):
-        raise ValueError(f"observed_at must be timezone-aware, got {observed_at!r}")
-    age_reference = now if observed_at is None else min(now, observed_at)
-    window_start = now - timedelta(days=constants.PR_WINDOW_DAYS)
-    youngest = age_reference - timedelta(days=GATE5_MIN_AGE_DAYS)
-    deadline = timedelta(days=GATE5_RESPONSE_DEADLINE_DAYS)
-    unanswered = n = 0
-    for pr in prs:
-        if not pr.is_external or pr.is_bot_author:
-            continue
-        created = _parse_iso(pr.created_at)
-        if not window_start <= created <= youngest:
-            continue
-        n += 1
-        response = pr.first_substantive_response_at
-        if response is not None and _parse_iso(response) - created <= deadline:
-            continue
-        if pr.merged_at is not None and _parse_iso(pr.merged_at) - created <= deadline:
-            continue
-        unanswered += 1
-    return unanswered, n
+    breakdown = evaluate_gate5_window(prs, now, observed_at=observed_at)
+    return breakdown.unanswered, breakdown.population_n
 
 
 def _has_decided_external_pr(events: tuple[PRWindowEvent, ...], now: datetime) -> bool:
@@ -396,13 +581,14 @@ def _has_decided_external_pr(events: tuple[PRWindowEvent, ...], now: datetime) -
 
 def is_black_hole_bundle(bundle: FeatureBundle) -> bool:
     """Return True iff ``bundle`` has a measured 1.4 GR_14 input that exceeds
-     the D-GATE-5 zero-response ceiling (:data:`GATE5_MAX_ZERO_RESPONSE_SHARE`)
-    with at least :data:`GATE5_MIN_N` qualifying external PRs."""
+    the D-GATE-5 zero-response ceiling (:data:`GATE5_MAX_ZERO_RESPONSE_SHARE`)
+    under the Wilson lower confidence bound with at least :data:`GATE5_MIN_N`
+    qualifying external PRs."""
     ghost = bundle.inputs.get(GHOST_RATE_INPUT_ID)
     return (
         isinstance(ghost, Measured)
         and ghost.n >= GATE5_MIN_N
-        and ghost.value > GATE5_MAX_ZERO_RESPONSE_SHARE
+        and wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE
     )
 
 
@@ -495,7 +681,7 @@ def evaluate_gates(
     ghost = bundle.inputs.get(GHOST_RATE_INPUT_ID)
     if handoff or not isinstance(ghost, Measured) or ghost.n < GATE5_MIN_N:
         undecided.append(GATE_5)
-    elif not rank_black_holes and ghost.value > GATE5_MAX_ZERO_RESPONSE_SHARE:
+    elif not rank_black_holes and wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE:
         failures.append((5, REASON_BLACK_HOLE))
 
     # D-GATE-6: PR workflow (a review hand-off routes off-platform; else a

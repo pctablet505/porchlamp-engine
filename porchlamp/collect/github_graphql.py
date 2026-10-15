@@ -27,15 +27,16 @@ from __future__ import annotations
 import json
 import random
 import statistics
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
-from porchlamp.collect import ghcli
-from porchlamp.collect.envelope import write_envelope
+from porchlamp.collect import ghcli, ledger
+from porchlamp.collect.envelope import read_envelope, write_envelope
 from porchlamp.collect.user_cache import UserCache
+from porchlamp.core import gates
 from porchlamp.core.constants import AUTHOR_UNMEASURED_MAX_FRACTION
 from porchlamp.core.hygiene import (
     account_eligibility as _hygiene_account_eligibility,
@@ -88,8 +89,11 @@ PR_WINDOW_QUERY: str = (
     " pullRequests(states: [OPEN, MERGED, CLOSED], first: $first, after: $after,"
     " orderBy: {field: CREATED_AT, direction: DESC}) {"
     " pageInfo { hasNextPage endCursor }"
-    " nodes { number createdAt closedAt mergedAt state mergedBy { login }"
+    " nodes { number createdAt closedAt mergedAt state isDraft mergedBy { login }"
     " author { __typename login ... on User { createdAt } } authorAssociation"
+    " timelineItems(itemTypes: [READY_FOR_REVIEW_EVENT, CLOSED_EVENT], last: 5) {"
+    " nodes { __typename ... on ReadyForReviewEvent { createdAt }"
+    " ... on ClosedEvent { createdAt actor { __typename login } } } }"
     " reviews(first: 10) { nodes { author { __typename login } state body createdAt"
     " authorAssociation comments { totalCount } } }"
     " comments(first: 20) { nodes { author { __typename login } authorAssociation"
@@ -267,6 +271,70 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
             and (int((raw.get("comments") or {}).get("totalCount") or 0) >= 1
                  or len(str(raw.get("body") or "")) >= SUBSTANTIVE_REVIEW_BODY_CHARS)
             for raw in ((pr.get("reviews") or {}).get("nodes") or []))
+        ready_for_review_at: Optional[str] = (
+            pr.get("readyForReviewAt") if isinstance(pr.get("readyForReviewAt"), str) else None
+        )
+        closed_by_author: bool = bool(pr.get("closedByAuthor", False))
+        closed_by_maint_at: Optional[str] = (
+            pr.get("closedByMaintainerAt") if isinstance(pr.get("closedByMaintainerAt"), str) else None
+        )
+        if (
+            closed_by_maint_at is None
+            and pr.get("state") == "CLOSED"
+            and not pr.get("mergedAt")
+            and pr.get("closedByMaintainer") is True
+        ):
+            closed_by_maint_at = pr.get("closedAt") if isinstance(pr.get("closedAt"), str) else None
+
+        timeline_conn = pr.get("timelineItems")
+        timeline_nodes = timeline_conn.get("nodes") if isinstance(timeline_conn, Mapping) else None
+        if isinstance(timeline_nodes, list):
+            latest_ready_dt: Optional[datetime] = None
+            latest_ready_at: Optional[str] = None
+            latest_close_dt: Optional[datetime] = None
+            latest_close_event: Optional[Mapping[str, Any]] = None
+            for ev in timeline_nodes:
+                if not isinstance(ev, Mapping):
+                    continue
+                ev_type = ev.get("__typename")
+                ev_ts = ev.get("createdAt")
+                ev_dt = _parse_iso(ev_ts) if isinstance(ev_ts, str) else None
+                if ev_type == "ReadyForReviewEvent" and isinstance(ev_ts, str) and ev_dt is not None:
+                    if latest_ready_dt is None or ev_dt >= latest_ready_dt:
+                        latest_ready_dt, latest_ready_at = ev_dt, ev_ts
+                elif ev_type == "ClosedEvent" and (
+                    latest_close_event is None
+                    or (ev_dt is not None and (latest_close_dt is None or ev_dt >= latest_close_dt))
+                ):
+                    latest_close_dt, latest_close_event = ev_dt, ev
+            if ready_for_review_at is None and latest_ready_at is not None:
+                ready_for_review_at = latest_ready_at
+            if (
+                latest_close_event is not None
+                and not pr.get("mergedAt")
+                and not closed_by_author
+                and closed_by_maint_at is None
+            ):
+                actor = latest_close_event.get("actor")
+                actor_map = actor if isinstance(actor, Mapping) else {}
+                actor_login = str(actor_map.get("login") or "").lower()
+                actor_typename = actor_map.get("__typename")
+                if actor_login and actor_login == author_login:
+                    closed_by_author = True
+                elif actor_login and not is_bot_actor(actor_typename, actor_login):
+                    ev_created = latest_close_event.get("createdAt")
+                    closed_by_maint_at = (
+                        ev_created
+                        if isinstance(ev_created, str) and _parse_iso(ev_created) is not None
+                        else (pr.get("closedAt") if isinstance(pr.get("closedAt"), str) else None)
+                    )
+
+        author_node = pr.get("author")
+        author_created_at = (
+            author_node.get("createdAt")
+            if isinstance(author_node, Mapping)
+            else None
+        )
         out.append({
             "number": pr.get("number"),
             "is_external": _association(pr.get("authorAssociation")) in EXTERNAL_ASSOCIATIONS,
@@ -278,7 +346,43 @@ def derive_pr_window(prs: Sequence[dict]) -> list[dict]:
             "first_substantive_response_kind": best_kind,
             "ttfhr_hours": ttfhr,
             "substantive_review": substantive_review,
+            "is_draft": bool(pr.get("isDraft", False)),
+            "ready_for_review_at": ready_for_review_at,
+            "closed_by_author": closed_by_author,
+            "closed_by_maintainer_at": closed_by_maint_at,
+            "author_created_at": author_created_at,
         })
+    return out
+
+
+def ghost_rate_prs_from_window(
+    prs: Sequence[Mapping[str, Any]],
+) -> list[gates.GhostRatePR]:
+    """Pair recorded PR nodes with their derived attributes for D-GATE-5.
+
+    Skips entries with unparseable ``createdAt`` and populates all
+    :class:`~porchlamp.core.gates.GhostRatePR` fields.
+    """
+    out: list[gates.GhostRatePR] = []
+    for pr, d in zip(prs, derive_pr_window(prs)):
+        if _parse_iso(pr.get("createdAt")) is None:
+            continue
+        out.append(
+            gates.GhostRatePR(
+                created_at=str(pr["createdAt"]),
+                is_external=bool(d["is_external"]),
+                is_bot_author=bool(d["is_bot_author"]),
+                first_substantive_response_at=d["first_substantive_response_at"],
+                merged_at=pr.get("mergedAt") if _parse_iso(pr.get("mergedAt")) is not None else None,
+                is_draft=bool(d.get("is_draft", False)),
+                ready_for_review_at=d.get("ready_for_review_at"),
+                closed_at=pr.get("closedAt") if _parse_iso(pr.get("closedAt")) is not None else None,
+                closed_by_author=bool(d.get("closed_by_author", False)),
+                closed_by_maintainer_at=d.get("closed_by_maintainer_at"),
+                author_created_at=d.get("author_created_at"),
+                number=d.get("number"),
+            )
+        )
     return out
 
 
@@ -300,13 +404,18 @@ class PrWindowResult:
 
 def fetch_pr_window(owner: str, name: str, now: datetime,
                     transport: GraphqlTransport,
-                    page_size: int = PAGE_SIZE) -> PrWindowResult:
+                    page_size: int = PAGE_SIZE,
+                    *,
+                    existing_prs: Optional[Sequence[dict]] = None) -> PrWindowResult:
     """Fetch the PRs ``owner/name`` opened in the trailing 180 days.
 
     Pages newest-first and stops when a returned PR was opened before the
     window start (the boundary is exclusive, a PR opened exactly at
     ``now - 180 d`` is inside), when no page remains, or when :data:`PR_CAP`
     records are collected — in which case ``truncated`` is True (D-IN-4).
+    When ``existing_prs`` is supplied (W6-3 incremental ledger refresh),
+    stops paging once all unsettled PRs in the window have been refreshed and
+    a settled PR is reached, then merges the delta with ``existing_prs``.
     ``cost_points`` sums each page's ``rateLimit.cost``. Raises
     ``RuntimeError`` on GraphQL errors, a missing repository, or transport
     failure.
@@ -315,6 +424,22 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
     prs: list[dict] = []
     cost = 0
     after: Optional[str] = None
+    settled_nums: set[int] = set()
+    remaining_unsettled: set[int] = set()
+    if existing_prs is not None:
+        for ep in existing_prs:
+            if isinstance(ep, Mapping) and ep.get("number") is not None:
+                try:
+                    num = int(ep["number"])
+                    if ledger.is_pr_settled(ep, now):
+                        settled_nums.add(num)
+                except (TypeError, ValueError):
+                    pass
+        remaining_unsettled = set(
+            ledger.unsettled_pr_numbers(existing_prs, now, window_days=PR_WINDOW_DAYS)
+        )
+
+    stopped_early = False
     while len(prs) < PR_CAP:
         variables: dict[str, Any] = {"owner": owner, "name": name, "first": page_size}
         if after is not None:
@@ -332,15 +457,31 @@ def fetch_pr_window(owner: str, name: str, now: datetime,
         for raw in connection.get("nodes") or []:
             created = _parse_iso(raw.get("createdAt"))
             if created is not None and created < window_start:
-                return PrWindowResult(owner, name, now, False, cost, tuple(prs))
+                stopped_early = True
+                break
+            raw_num = raw.get("number")
+            if isinstance(raw_num, int) and not isinstance(raw_num, bool):
+                remaining_unsettled.discard(raw_num)
+                if existing_prs is not None and raw_num in settled_nums and not remaining_unsettled:
+                    prs.append(raw)
+                    stopped_early = True
+                    break
             prs.append(raw)
             if len(prs) >= PR_CAP:
                 break
+        if stopped_early:
+            break
         page_info = connection.get("pageInfo") or {}
         if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
             break
         after = page_info["endCursor"]
-    return PrWindowResult(owner, name, now, len(prs) >= PR_CAP, cost, tuple(prs))
+
+    if existing_prs is not None:
+        merged = ledger.merge_pr_window_delta(
+            existing_prs, prs, now=now, window_days=PR_WINDOW_DAYS, cap=PR_CAP
+        )
+        return PrWindowResult(owner, name, now, len(merged) >= PR_CAP, cost, tuple(merged))
+    return PrWindowResult(owner, name, now, not stopped_early and len(prs) >= PR_CAP, cost, tuple(prs))
 
 
 # --------------------------------------------------------------------------- #
@@ -351,7 +492,9 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
                       now: Optional[datetime] = None,
                       transport: Optional[GraphqlTransport] = None,
                       force: bool = False,
-                      page_size: int = PAGE_SIZE) -> str:
+                      page_size: int = PAGE_SIZE,
+                      *,
+                      incremental_ledger: bool = False) -> str:
     """Collect the windowed PR envelope for one repository.
 
     Writes ``raw_dir/pr_window/<owner>__<name>.json`` — one envelope whose
@@ -364,11 +507,19 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
     """
     key = f"{owner}__{name}"
     target = raw_dir / "pr_window" / f"{key}.json"
-    if target.is_file() and not force:
+    if target.is_file() and not force and not incremental_ledger:
         return "skip"
     now = now or datetime.now(timezone.utc)
+    existing_prs: Optional[list[dict]] = None
+    if incremental_ledger and target.is_file():
+        try:
+            prev_env = read_envelope(target)
+            if isinstance(prev_env.data, Mapping) and isinstance(prev_env.data.get("prs"), list):
+                existing_prs = prev_env.data["prs"]
+        except Exception:
+            existing_prs = None
     result = fetch_pr_window(owner, name, now, transport or GhCliTransport(),
-                          page_size=page_size)
+                             page_size=page_size, existing_prs=existing_prs)
     data: dict[str, Any] = {
         "window_anchor": now.isoformat(),
         "window_days": PR_WINDOW_DAYS,
@@ -957,12 +1108,77 @@ def _eligibility_with_cache(logins: Sequence[str], transport: GraphqlTransport,
     return out, cost, remaining
 
 
+def fetch_light_pr_history(
+    owner: str,
+    name: str,
+    transport: GraphqlTransport,
+    *,
+    page_size: int = PAGE_SIZE,
+    cap: int = 2000,
+) -> tuple[dict[str, list[dict]], int, Optional[int], bool]:
+    """Fetch repo-wide light PR history (RFC-0009 / W6-5) via ``LIGHT_PR_HISTORY_QUERY``.
+
+    Pages newest-first at 1 GraphQL point per page (no ``search(type: ISSUE)`` calls)
+    and groups up to :data:`AUTHOR_SEARCH_FIRST` PRs per author login.
+    Returns ``(by_author, cost_points, remaining, ok)``.
+    """
+    by_author: dict[str, list[dict]] = {}
+    total_seen = 0
+    cost = 0
+    remaining: Optional[int] = None
+    after: Optional[str] = None
+    while total_seen < cap:
+        variables: dict[str, Any] = {"owner": owner, "name": name, "first": page_size}
+        if after is not None:
+            variables["after"] = after
+        try:
+            doc = transport.execute(ledger.LIGHT_PR_HISTORY_QUERY, variables)
+        except RuntimeError:
+            return {}, cost, remaining, False
+        if doc.get("errors"):
+            return {}, cost, remaining, False
+        data = doc.get("data") or {}
+        rl = data.get("rateLimit") or {}
+        cost += int(rl.get("cost") or 0)
+        if rl.get("remaining") is not None:
+            remaining = int(rl["remaining"])
+        repo_node = data.get("repository") or data.get("r")
+        if not isinstance(repo_node, Mapping):
+            return {}, cost, remaining, False
+        connection = repo_node.get("pullRequests") or {}
+        nodes = connection.get("nodes") or []
+        for raw in nodes:
+            if not isinstance(raw, Mapping):
+                continue
+            total_seen += 1
+            login = _login_of(dict(raw))
+            if login:
+                bucket = by_author.setdefault(login, [])
+                if len(bucket) < AUTHOR_SEARCH_FIRST:
+                    bucket.append({
+                        "number": raw.get("number"),
+                        "createdAt": raw.get("createdAt"),
+                        "closedAt": raw.get("closedAt"),
+                        "mergedAt": raw.get("mergedAt"),
+                        "state": raw.get("state"),
+                    })
+            if total_seen >= cap:
+                break
+        page_info = connection.get("pageInfo") or {}
+        if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+            break
+        after = page_info["endCursor"]
+    return by_author, cost, remaining, True
+
+
 def collect_author_history(raw_dir: Path, owner: str, name: str,
                            now: Optional[datetime] = None,
                            transport: Optional[GraphqlTransport] = None,
                            force: bool = False,
                            page_size: int = PAGE_SIZE,
-                           user_cache: Optional[UserCache] = None) -> str:
+                           user_cache: Optional[UserCache] = None,
+                           *,
+                           light_history: bool = False) -> str:
     """Collect the author-history envelope for one repository.
 
     Writes ``raw_dir/author_history/<owner>__<name>.json`` — one envelope
@@ -984,11 +1200,10 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     (``history_unmeasured``), excluded from MR_first's population entirely
     (:func:`_no_prior_merged`) rather than assumed a first-timer.
 
-    The searches run :data:`AUTHOR_SEARCH_BATCH_SIZE` to a call
-    (:func:`_fetch_author_searches`), and eligibility is read from
-    ``user_cache`` (08 D-COL-5) before any lookup is made
-    (:func:`_eligibility_with_cache`); each record's
-    ``eligibility_observed_at`` says when its eligibility was fetched.
+    When ``light_history`` is True (RFC-0009 / W6-5), replaces the per-author
+    ``search(type: ISSUE)`` queries and :data:`AUTHOR_SEARCH_CAP` sampling with
+    repo-wide ``pullRequests`` pagination (:func:`fetch_light_pr_history`) and
+    reuses settled author eligibility (:func:`ledger.is_cached_author_reusable`).
     """
     key = f"{owner}__{name}"
     target = raw_dir / "author_history" / f"{key}.json"
@@ -996,6 +1211,21 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
         return "skip"
     now = now or datetime.now(timezone.utc)
     t = transport or GhCliTransport()
+
+    prev_records_by_login: dict[str, dict] = {}
+    prev_anchor_iso: str = ""
+    if light_history and target.is_file():
+        try:
+            prev_env = read_envelope(target)
+            if isinstance(prev_env.data, Mapping):
+                prev_anchor_iso = str(prev_env.data.get("window_anchor") or "")
+                for rec in prev_env.data.get("author_records") or []:
+                    if isinstance(rec, Mapping) and isinstance(rec.get("login"), str):
+                        prev_records_by_login[rec["login"].lower()] = dict(rec)
+        except Exception:
+            prev_records_by_login = {}
+            prev_anchor_iso = ""
+
     window = fetch_author_window(owner, name, now, t, page_size=page_size)
     cost = window.cost_points
     remaining = window.remaining
@@ -1003,34 +1233,76 @@ def collect_author_history(raw_dir: Path, owner: str, name: str,
     newcomers = sorted(set(sample))
     decision_logins = sorted(set(_decision_cohort_logins(window.prs, now)))
     needed = sorted(set(decision_logins) | set(newcomers))
-    remaining_cap = max(0, AUTHOR_SEARCH_CAP - len(newcomers))
-    other_logins = sorted(set(decision_logins) - set(newcomers))
-    search_sample = set(newcomers) | set(_seeded_sample(other_logins, remaining_cap))
 
-    histories, search_cost, search_remaining = _fetch_author_searches(
-        owner, name, [login for login in needed if login in search_sample], t)
-    cost += search_cost
-    if search_remaining is not None:
-        remaining = search_remaining
     author_records: list[dict] = []
-    for login in needed:
-        record: dict[str, Any] = {
-            "login": login, "account_created_at": None, "public_event_count": None,
-            "prs": [], "history_unmeasured": False, "history_unsampled": False,
-            "eligibility_unmeasured": False,
-        }
-        if login not in search_sample:
-            record["history_unsampled"] = True
-        elif histories.get(login) is None:
-            record["history_unmeasured"] = True  # unresolved at every width: a failed search
-        else:
-            record["prs"] = histories[login]
-        author_records.append(record)
+    reused_elig: dict[str, dict] = {}
+    if light_history:
+        light_by_author, light_cost, light_rem, light_ok = (
+            fetch_light_pr_history(owner, name, t, page_size=page_size)
+            if needed
+            else ({}, 0, None, True)
+        )
+        cost += light_cost
+        if light_rem is not None:
+            remaining = light_rem
 
-    elig, elig_cost, elig_remaining = _eligibility_with_cache(needed, t, now, user_cache)
+        for login in needed:
+            prev_rec = prev_records_by_login.get(login)
+            if prev_rec is not None and not prev_rec.get("eligibility_unmeasured", True):
+                entry = ledger.AuthorEligibilityEntry(
+                    login=login,
+                    account_created_at=prev_rec.get("account_created_at"),
+                    prior_commits=int(prev_rec.get("public_event_count") or 0),
+                    checked_at=str(prev_rec.get("eligibility_observed_at") or prev_anchor_iso),
+                )
+                if ledger.is_cached_author_reusable(entry, now.isoformat()):
+                    reused_elig[login] = {
+                        "account_created_at": prev_rec.get("account_created_at"),
+                        "public_event_count": prev_rec.get("public_event_count"),
+                        "eligibility_unmeasured": False,
+                        "eligibility_observed_at": prev_rec.get("eligibility_observed_at") or prev_anchor_iso,
+                    }
+
+            record: dict[str, Any] = {
+                "login": login, "account_created_at": None, "public_event_count": None,
+                "prs": [], "history_unmeasured": False, "history_unsampled": False,
+                "eligibility_unmeasured": False,
+            }
+            if not light_ok:
+                record["history_unmeasured"] = True
+            else:
+                record["prs"] = light_by_author.get(login, [])
+            author_records.append(record)
+    else:
+        remaining_cap = max(0, AUTHOR_SEARCH_CAP - len(newcomers))
+        other_logins = sorted(set(decision_logins) - set(newcomers))
+        search_sample = set(newcomers) | set(_seeded_sample(other_logins, remaining_cap))
+
+        histories, search_cost, search_remaining = _fetch_author_searches(
+            owner, name, [login for login in needed if login in search_sample], t)
+        cost += search_cost
+        if search_remaining is not None:
+            remaining = search_remaining
+        for login in needed:
+            record = {
+                "login": login, "account_created_at": None, "public_event_count": None,
+                "prs": [], "history_unmeasured": False, "history_unsampled": False,
+                "eligibility_unmeasured": False,
+            }
+            if login not in search_sample:
+                record["history_unsampled"] = True
+            elif histories.get(login) is None:
+                record["history_unmeasured"] = True  # unresolved at every width: a failed search
+            else:
+                record["prs"] = histories[login]
+            author_records.append(record)
+
+    elig_needed = [login for login in needed if login not in reused_elig]
+    elig, elig_cost, elig_remaining = _eligibility_with_cache(elig_needed, t, now, user_cache)
     cost += elig_cost
     if elig_remaining is not None:
         remaining = elig_remaining
+    elig.update(reused_elig)
     for record in author_records:
         record.update(elig[record["login"]])
 

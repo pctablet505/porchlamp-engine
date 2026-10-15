@@ -484,6 +484,7 @@ class Gate:
 
 
 _GATE = Gate()
+_IMPORT_GATE = _GATE
 
 
 def install(gate: Gate) -> Gate:
@@ -495,6 +496,11 @@ def install(gate: Gate) -> Gate:
 
 def current() -> Gate:
     return _GATE
+
+
+def installed() -> bool:
+    """True once an engine has installed its own gate; False for the one made at import."""
+    return _GATE is not _IMPORT_GATE
 
 
 def urlopen(req: urllib.request.Request | str, timeout: float = 30, *, opener: Any = None,

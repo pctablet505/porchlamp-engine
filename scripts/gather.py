@@ -17,6 +17,7 @@ import argparse
 import json
 import re
 import subprocess  # noqa: F401  (tests patch this module's subprocess)
+import contextlib
 import sys
 import time
 import urllib.error
@@ -25,9 +26,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from porchlamp.collect import ghcli, net, validate
-from porchlamp.collect import ci_runs
-from porchlamp.collect.commits import collect_commits_365d
+from porchlamp.collect import ci_runs, ghcli, net, validate
+from porchlamp.collect.commits import (
+    can_derive_180d_from_365d,
+    collect_commits_365d,
+    derive_commits_180d_rows,
+)
 from porchlamp.collect.envelope import write_envelope
 from porchlamp.collect.names import valid_ref
 # SLEEP_REST shares porchlamp.collect.pike_signals' SLEEP_CORE_SECONDS
@@ -37,6 +41,21 @@ from porchlamp.collect.pike_signals import SLEEP_CORE_SECONDS as SLEEP_REST
 from porchlamp.collect.user_cache import UserCache
 from porchlamp.core.constants import PARAM_MIN_N
 from porchlamp.paths import data_root
+
+try:
+    from porchlamp.collect import cost
+except ImportError:
+    cost = None
+
+
+@contextlib.contextmanager
+def _collector_scope(key: str, collector: str):
+    if cost is not None and hasattr(cost, "collector_scope"):
+        with cost.collector_scope(key, collector):
+            yield
+    else:
+        yield
+
 
 DATA = data_root() / "raw"
 CANDIDATES = DATA / "candidates.jsonl"
@@ -51,12 +70,15 @@ COMMIT_PAGES = 3
 #: takes a comma-separated subset of these. ``github_meta``/``pr_events``/``pr_reviews``
 #: come from one GraphQL request, so naming any of the three runs that request.
 COLLECTORS: tuple[str, ...] = (
-    "github_meta", "pr_events", "pr_reviews", "contributors", "gfi", "actions_runs", "tree",
-    "commits_180d", "depsdev", "scorecard", "downloads", "repo_object", "commits_365d",
-    "dependents", "pr_window", "releases", "issues_counts", "runs", "governance",
-    "author_history",
+    "github_meta", "pr_events", "pr_reviews", "tree", "contributors", "repo_object",
+    "commits_180d", "pr_window", "actions_runs", "depsdev", "scorecard", "downloads",
+    "gfi", "commits_365d", "dependents", "releases", "issues_counts", "runs",
+    "governance", "author_history",
 )
 _META_BLOCK: frozenset[str] = frozenset({"github_meta", "pr_events", "pr_reviews"})
+
+#: Said in the help of the two opt-in ledger flags and on stderr whenever either is active.
+EXPERIMENTAL = "EXPERIMENTAL: not equivalent to a full fetch; do not use for a published snapshot."
 
 
 def parse_collectors(text: str) -> Optional[frozenset[str]]:
@@ -75,19 +97,20 @@ def parse_collectors(text: str) -> Optional[frozenset[str]]:
 
 
 def _env(collector: str, key: str, source: str, data: Any,
-         http_status: int = 200) -> Path:
+         http_status: int = 200, fetched_at: Optional[str] = None) -> Path:
     """Write one envelope with its hash, status and collector version (`03` section 5).
 
     ``http_status`` records the status the transport actually saw. The ``200``
     default is for the paths whose transport raises on a non-2xx (``gh api``
     exits non-zero, ``urllib`` raises ``HTTPError``), so a response that reached
     them was accepted; a caller that swallows an error must pass the real status.
+    ``fetched_at`` defaults to now; a value derived from another envelope passes that one's.
     """
     return write_envelope(
         DATA / collector / f"{key}.json",
         source=source,
         data=data,
-        fetched_at=datetime.now(timezone.utc).isoformat(),
+        fetched_at=fetched_at or datetime.now(timezone.utc).isoformat(),
         http_status=http_status,
     )
 
@@ -171,7 +194,10 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                 skip_pypistats: bool = False,
                 collectors: Optional[frozenset[str]] = None,
                 *,
-                graphql_bulk: bool = False) -> dict[str, str]:
+                graphql_bulk: bool = False,
+                skip_ineligible: bool = False,
+                incremental_ledgers: bool = False,
+                light_author_history: bool = False) -> dict[str, Any]:
     """Fetch every collector for one repo; return {collector: ok|skip|fail}.
 
     ``collectors`` restricts the call to those names -- one breadth-first
@@ -182,7 +208,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     validate.github_segment(owner, "owner")
     validate.github_segment(name, "name")
     key = f"{owner}__{name}"
-    status: dict[str, str] = {}
+    status: dict[str, Any] = {}
 
     def selected(collector: str) -> bool:
         return collectors is None or collector in collectors
@@ -190,51 +216,56 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
     def done(collector: str) -> bool:
         return not selected(collector) or _done(collector, key, force)
 
+    # =========================================================================
+    # Phase 1: Cheap / Gate Collectors
+    # =========================================================================
+
     # --- 1 GraphQL point: meta + PR sample + first reviews ---
     if (collectors is None or collectors & _META_BLOCK) and not _done("github_meta", key, force):
-        q = (
-            'query($owner: String!, $name: String!) {'
-            ' r: repository(owner: $owner, name: $name) {'
-            'stargazerCount forkCount pushedAt isArchived createdAt'
-            ' licenseInfo { spdxId } defaultBranchRef { name }'
-            ' pullRequests(states: [OPEN, MERGED, CLOSED], first: %d,'
-            ' orderBy: {field: CREATED_AT, direction: DESC}) {'
-            ' nodes { number createdAt closedAt mergedAt'
-            ' author { login } authorAssociation'
-            ' comments { totalCount } reviews(first: 1) { nodes { createdAt } }'
-            ' } } } }' % (PR_SAMPLE,)
-        )
-        try:
-            out = ghcli.run(["api", "graphql", "-f", f"query={q}", "-f", f"owner={owner}", "-f", f"name={name}"],
-                            timeout=90)
-            r = json.loads(out.stdout).get("data", {}).get("r") if out.returncode == 0 else None
-        except Exception:  # review-ok: gate-network — transient gh failure, rerun resumes
-            r = None
-        if r:
-            _env("github_meta", key, "github-graphql", {
-                "stars": r["stargazerCount"], "forks": r["forkCount"],
-                "pushed_at": r["pushedAt"], "archived": r["isArchived"],
-                "created_at": r["createdAt"],
-                "license_spdx": (r.get("licenseInfo") or {}).get("spdxId") or "NOASSERTION",
-                "default_branch": (r.get("defaultBranchRef") or {}).get("name") or "main"})
-            nodes = (r.get("pullRequests") or {}).get("nodes") or []
-            _env("pr_events", key, "github-graphql", [{
-                "number": n["number"], "created_at": n["createdAt"],
-                "closed_at": n["closedAt"], "merged_at": n["mergedAt"],
-                "author_login": (n.get("author") or {}).get("login") or "",
-                "author_association": n.get("authorAssociation") or "NONE",
-                "comments_total": (n.get("comments") or {}).get("totalCount", 0),
-                "state": "merged" if n["mergedAt"] else
-                         ("closed" if n["closedAt"] else "open"),
-            } for n in nodes])
-            _env("pr_reviews", key, "github-graphql", {
-                str(n["number"]): ((n.get("reviews") or {}).get("nodes") or [{}])[0]
-                .get("createdAt") for n in nodes})
-            status.update(github_meta="ok", pr_events="ok", pr_reviews="ok")
-            branch = (r.get("defaultBranchRef") or {}).get("name") or "main"
-        else:
-            status.update(github_meta="fail", pr_events="fail", pr_reviews="fail")
-            branch = "main"
+        with _collector_scope(key, "github_meta"):
+            q = (
+                'query($owner: String!, $name: String!) {'
+                ' r: repository(owner: $owner, name: $name) {'
+                'stargazerCount forkCount pushedAt isArchived createdAt'
+                ' licenseInfo { spdxId } defaultBranchRef { name }'
+                ' pullRequests(states: [OPEN, MERGED, CLOSED], first: %d,'
+                ' orderBy: {field: CREATED_AT, direction: DESC}) {'
+                ' nodes { number createdAt closedAt mergedAt'
+                ' author { login } authorAssociation'
+                ' comments { totalCount } reviews(first: 1) { nodes { createdAt } }'
+                ' } } } }' % (PR_SAMPLE,)
+            )
+            try:
+                out = ghcli.run(["api", "graphql", "-f", f"query={q}", "-f", f"owner={owner}", "-f", f"name={name}"],
+                                timeout=90)
+                r = json.loads(out.stdout).get("data", {}).get("r") if out.returncode == 0 else None
+            except Exception:  # review-ok: gate-network — transient gh failure, rerun resumes
+                r = None
+            if r:
+                _env("github_meta", key, "github-graphql", {
+                    "stars": r["stargazerCount"], "forks": r["forkCount"],
+                    "pushed_at": r["pushedAt"], "archived": r["isArchived"],
+                    "created_at": r["createdAt"],
+                    "license_spdx": (r.get("licenseInfo") or {}).get("spdxId") or "NOASSERTION",
+                    "default_branch": (r.get("defaultBranchRef") or {}).get("name") or "main"})
+                nodes = (r.get("pullRequests") or {}).get("nodes") or []
+                _env("pr_events", key, "github-graphql", [{
+                    "number": n["number"], "created_at": n["createdAt"],
+                    "closed_at": n["closedAt"], "merged_at": n["mergedAt"],
+                    "author_login": (n.get("author") or {}).get("login") or "",
+                    "author_association": n.get("authorAssociation") or "NONE",
+                    "comments_total": (n.get("comments") or {}).get("totalCount", 0),
+                    "state": "merged" if n["mergedAt"] else
+                             ("closed" if n["closedAt"] else "open"),
+                } for n in nodes])
+                _env("pr_reviews", key, "github-graphql", {
+                    str(n["number"]): ((n.get("reviews") or {}).get("nodes") or [{}])[0]
+                    .get("createdAt") for n in nodes})
+                status.update(github_meta="ok", pr_events="ok", pr_reviews="ok")
+                branch = (r.get("defaultBranchRef") or {}).get("name") or "main"
+            else:
+                status.update(github_meta="fail", pr_events="fail", pr_reviews="fail")
+                branch = "main"
     else:
         try:
             branch = json.loads((DATA / "github_meta" / f"{key}.json")
@@ -243,65 +274,124 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
             branch = "main"
         status.update(github_meta="skip", pr_events="skip", pr_reviews="skip")
 
-    rest = [
-        ("contributors", f"repos/{owner}/{name}/contributors",
-         ["-X", "GET", "-f", "per_page=100", "-f", "anon=1"],
-         lambda d: [{"login": c.get("login") or c.get("email") or "?",
-                     "contributions": c.get("contributions", 0)} for c in d or []]),
-        ("tree", f"repos/{owner}/{name}/git/trees/{branch}",
-         ["-X", "GET", "-f", "recursive=1"],
-         lambda d: {"paths": [t["path"] for t in (d or {}).get("tree", [])],
-                    "truncated": bool((d or {}).get("truncated"))}),
-    ]
-    for collector, path, flags, shape in rest:
-        if done(collector):
-            status[collector] = "skip"
-            continue
-        time.sleep(SLEEP_REST)
-        try:
-            _env(collector, key, f"github-rest:{path}", shape(_gh(path, *flags)))
-            status[collector] = "ok"
-        except Exception as e:  # review-ok: gate-network — per-collector retry on rerun
-            status[collector] = "fail"
-            print(f"  WARN {collector} {owner}/{name}: {e}")
+    # --- tree ---
+    if done("tree"):
+        status["tree"] = "skip"
+    else:
+        with _collector_scope(key, "tree"):
+            time.sleep(SLEEP_REST)
+            try:
+                tree_res = _gh(f"repos/{owner}/{name}/git/trees/{branch}", "-X", "GET", "-f", "recursive=1")
+                tree_data = {
+                    "paths": [t["path"] for t in (tree_res or {}).get("tree", [])],
+                    "truncated": bool((tree_res or {}).get("truncated")),
+                }
+                _env("tree", key, f"github-rest:repos/{owner}/{name}/git/trees/{branch}", tree_data)
+                status["tree"] = "ok"
+            except Exception as e:  # review-ok: gate-network — per-collector retry on rerun
+                status["tree"] = "fail"
+                print(f"  WARN tree {owner}/{name}: {e}")
+
+    # --- contributors ---
+    if done("contributors"):
+        status["contributors"] = "skip"
+    else:
+        with _collector_scope(key, "contributors"):
+            time.sleep(SLEEP_REST)
+            try:
+                contrib_res = _gh(f"repos/{owner}/{name}/contributors", "-X", "GET", "-f", "per_page=100", "-f", "anon=1")
+                contrib_data = [
+                    {"login": c.get("login") or c.get("email") or "?", "contributions": c.get("contributions", 0)}
+                    for c in contrib_res or []
+                ]
+                _env("contributors", key, f"github-rest:repos/{owner}/{name}/contributors", contrib_data)
+                status["contributors"] = "ok"
+            except Exception as e:  # review-ok: gate-network — per-collector retry on rerun
+                status["contributors"] = "fail"
+                print(f"  WARN contributors {owner}/{name}: {e}")
+
+    # --- Repo-object eligibility envelope (D-GATE-1/2/3/6) ---
+    if done("repo_object"):
+        status["repo_object"] = "skip"
+    else:
+        with _collector_scope(key, "repo_object"):
+            from porchlamp.collect.repo_object import collect_repo_object
+            try:
+                status["repo_object"] = collect_repo_object(DATA, owner, name, branch)
+            except Exception as e:  # review-ok: gate-network — retry on rerun
+                status["repo_object"] = "fail"
+                print(f"  WARN repo_object {owner}/{name}: {e}")
+
+    # --- commits_180d (paged, capped) ---
+    if not done("commits_180d"):
+        with _collector_scope(key, "commits_180d"):
+            since = (datetime.now(timezone.utc) - timedelta(days=180)).isoformat()
+            rows: list[dict] = []
+            try:
+                for page in range(1, COMMIT_PAGES + 1):
+                    time.sleep(SLEEP_REST)
+                    d = _gh(f"repos/{owner}/{name}/commits", "-X", "GET",
+                            "-f", "per_page=100", "-f", f"since={since}",
+                            "-f", f"page={page}") or []
+                    rows.extend({"author_login": (c.get("author") or {}).get("login") or "",
+                                 "date": (c.get("commit") or {}).get("author", {}).get("date")}
+                                for c in d)
+                    if len(d) < 100:
+                        break
+                _env("commits_180d", key, "github-rest:commits", rows)
+                status["commits_180d"] = "ok"
+            except Exception as e:  # review-ok: gate-network — retry on rerun
+                status["commits_180d"] = "fail"
+                print(f"  WARN commits {owner}/{name}: {e}")
+    else:
+        status["commits_180d"] = "skip"
+
+    # --- Windowed PRs, typed actors (D-IN-1/2/4, 02 §4 1.1/1.4/4.3) ---
+    if done("pr_window"):
+        status["pr_window"] = "skip"
+    else:
+        with _collector_scope(key, "pr_window"):
+            from porchlamp.collect import github_graphql as prw_mod
+            try:
+                if incremental_ledgers:
+                    status["pr_window"] = prw_mod.collect_pr_window(
+                        DATA, owner, name, force=force, incremental_ledger=True
+                    )
+                else:
+                    status["pr_window"] = prw_mod.collect_pr_window(DATA, owner, name)
+            except Exception as e:  # review-ok: gate-network — retry on rerun
+                status["pr_window"] = "fail"
+                print(f"  WARN pr_window {owner}/{name}: {e}")
+
+    # =========================================================================
+    # Gate Stop: Confirmed Black-Hole Early Return (W6-6)
+    # =========================================================================
+    if skip_ineligible:
+        from porchlamp.collect.fingerprint import is_confirmed_black_hole_in_raw
+
+        if is_confirmed_black_hole_in_raw(DATA, owner, name):
+            status["skipped_deep_black_hole"] = True
+            return status
+
+    # =========================================================================
+    # Phase 2: Deep Collectors
+    # =========================================================================
 
     # actions_runs (paged: the settled pull_request runs behind 5.4's CI wait)
     if done("actions_runs"):
         status["actions_runs"] = "skip"
     else:
-        time.sleep(SLEEP_REST)
-        try:
-            _env("actions_runs", key, f"github-rest:repos/{owner}/{name}/actions/runs",
-                 _fetch_pr_runs(owner, name))
-            status["actions_runs"] = "ok"
-        except Exception as e:  # review-ok: gate-network — per-collector retry on rerun
-            status["actions_runs"] = "fail"
-            print(f"  WARN actions_runs {owner}/{name}: {e}")
+        with _collector_scope(key, "actions_runs"):
+            time.sleep(SLEEP_REST)
+            try:
+                _env("actions_runs", key, f"github-rest:repos/{owner}/{name}/actions/runs",
+                     _fetch_pr_runs(owner, name))
+                status["actions_runs"] = "ok"
+            except Exception as e:  # review-ok: gate-network — per-collector retry on rerun
+                status["actions_runs"] = "fail"
+                print(f"  WARN actions_runs {owner}/{name}: {e}")
 
-    # commits_180d (paged, capped)
-    if not done("commits_180d"):
-        since = (datetime.now(timezone.utc) - timedelta(days=180)).isoformat()
-        rows: list[dict] = []
-        try:
-            for page in range(1, COMMIT_PAGES + 1):
-                time.sleep(SLEEP_REST)
-                d = _gh(f"repos/{owner}/{name}/commits", "-X", "GET",
-                        "-f", "per_page=100", "-f", f"since={since}",
-                        "-f", f"page={page}") or []
-                rows.extend({"author_login": (c.get("author") or {}).get("login") or "",
-                             "date": (c.get("commit") or {}).get("author", {}).get("date")}
-                            for c in d)
-                if len(d) < 100:
-                    break
-            _env("commits_180d", key, "github-rest:commits", rows)
-            status["commits_180d"] = "ok"
-        except Exception as e:  # review-ok: gate-network — retry on rerun
-            status["commits_180d"] = "fail"
-            print(f"  WARN commits {owner}/{name}: {e}")
-    else:
-        status["commits_180d"] = "skip"
-
-    # keyless second sources
+    # keyless second sources: depsdev & scorecard
     for collector, url, hdr, shape in [
         ("depsdev", f"https://api.deps.dev/v3/projects/github.com%2F{owner}%2F{name}",
          {}, _shape_depsdev),
@@ -314,20 +404,21 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         if done(collector):
             status[collector] = "skip"
             continue
-        time.sleep(SLEEP_KEYLESS)
-        body, http_status, _error = _fetch_json(url, hdr)
-        if http_status is None or http_status == 429 or http_status >= 500:
-            # Could not reach the source (transport error) or got a transient
-            # rate-limit / 5xx status: write nothing so the next run retries it
-            # -- a failed fetch is not a completed one, and an envelope here
-            # would mark the key permanently "done".
-            status[collector] = "fail"
-            continue
-        # The source answered. A 2xx null or a 404 both mean "nothing here", but
-        # the envelope carries the real status rather than a blanket 200.
-        shaped = shape(body) if body else None
-        _env(collector, key, url, shaped, http_status=http_status)
-        status[collector] = "ok" if shaped else "fail"
+        with _collector_scope(key, collector):
+            time.sleep(SLEEP_KEYLESS)
+            body, http_status, _error = _fetch_json(url, hdr)
+            if http_status is None or http_status == 429 or http_status >= 500:
+                # Could not reach the source (transport error) or got a transient
+                # rate-limit / 5xx status: write nothing so the next run retries it
+                # -- a failed fetch is not a completed one, and an envelope here
+                # would mark the key permanently "done".
+                status[collector] = "fail"
+                continue
+            # The source answered. A 2xx null or a 404 both mean "nothing here", but
+            # the envelope carries the real status rather than a blanket 200.
+            shaped = shape(body) if body else None
+            _env(collector, key, url, shaped, http_status=http_status)
+            status[collector] = "ok" if shaped else "fail"
 
     # downloads (registry per ecosystem). A null monthly (rate-limited
     # pypistats etc.) is NOT complete: reruns refetch it.
@@ -339,49 +430,51 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         dl_data = {}
     dl_monthly = dl_data.get("monthly") if isinstance(dl_data, dict) else None
     dep_resolution = None
-    if selected("downloads") and ecosystem in _DOWNLOAD_ECOSYSTEMS:
-        # The count is the repo's only if it is the count of the package deps.dev
-        # links to the repo. The file stays keyed <ecosystem>__<repo name>
-        # (verify.py pins that key); the package it counted and the repo that
-        # wrote it are recorded inside, and derive.py compares them.
-        from porchlamp.collect.depsdev import package_key, package_name_for_repo
-        verdict, package, dep_resolution = _repo_package(owner, name, ecosystem)
-        if verdict == "unsettled":
-            status["downloads"] = "fail"
-        elif verdict == "none":
-            status["downloads"] = "skip"
-        else:
-            assert package is not None
-            counted = dl_data.get("package") or package_name_for_repo(owner, name, ecosystem)
-            held_by = dl_data.get("repo")
-            if dl_monthly is not None and not force \
-                    and package_key(ecosystem, str(counted)) == package_key(ecosystem, package):
-                status["downloads"] = "skip"
-            elif dl_monthly is not None and not force and held_by not in (None, f"{owner}/{name}"):
-                # Another repo of the same name already holds this shared file with
-                # its own package's count; a rerun must not flip it back and forth.
+    with _collector_scope(key, "downloads"):
+        if selected("downloads") and ecosystem in _DOWNLOAD_ECOSYSTEMS:
+            # The count is the repo's only if it is the count of the package deps.dev
+            # links to the repo. The file stays keyed <ecosystem>__<repo name>
+            # (verify.py pins that key); the package it counted and the repo that
+            # wrote it are recorded inside, and derive.py compares them.
+            from porchlamp.collect.depsdev import package_key, package_name_for_repo
+            verdict, package, dep_resolution = _repo_package(owner, name, ecosystem)
+            if verdict == "unsettled":
+                status["downloads"] = "fail"
+            elif verdict == "none":
                 status["downloads"] = "skip"
             else:
-                monthly, src = _downloads(ecosystem, package, skip_pypistats=skip_pypistats)
-                _env("downloads", dl_key, src,
-                     {"monthly": monthly, "package": package, "repo": f"{owner}/{name}"})
-                status["downloads"] = "ok" if monthly is not None else "fail"
-    elif selected("downloads") and not (dl_monthly is not None and not force):
-        monthly, src = _downloads(ecosystem, name, skip_pypistats=skip_pypistats)
-        _env("downloads", dl_key, src, {"monthly": monthly})
-        status["downloads"] = "ok" if monthly is not None else "fail"
-    else:
-        status["downloads"] = "skip"
-    # Repo-object eligibility envelope (D-GATE-1/2/3/6)
-    if done("repo_object"):
-        status["repo_object"] = "skip"
-    else:
-        from porchlamp.collect.repo_object import collect_repo_object
-        try:
-            status["repo_object"] = collect_repo_object(DATA, owner, name, branch)
-        except Exception as e:  # review-ok: gate-network — retry on rerun
-            status["repo_object"] = "fail"
-            print(f"  WARN repo_object {owner}/{name}: {e}")
+                assert package is not None
+                counted = dl_data.get("package") or package_name_for_repo(owner, name, ecosystem)
+                held_by = dl_data.get("repo")
+                if dl_monthly is not None and not force \
+                        and package_key(ecosystem, str(counted)) == package_key(ecosystem, package):
+                    status["downloads"] = "skip"
+                elif dl_monthly is not None and not force and held_by not in (None, f"{owner}/{name}"):
+                    # Another repo of the same name already holds this shared file with
+                    # its own package's count; a rerun must not flip it back and forth.
+                    status["downloads"] = "skip"
+                else:
+                    monthly, src = _downloads(ecosystem, package, skip_pypistats=skip_pypistats)
+                    _env("downloads", dl_key, src,
+                         {"monthly": monthly, "package": package, "repo": f"{owner}/{name}"})
+                    status["downloads"] = "ok" if monthly is not None else "fail"
+        elif selected("downloads") and not (dl_monthly is not None and not force):
+            monthly, src = _downloads(ecosystem, name, skip_pypistats=skip_pypistats)
+            _env("downloads", dl_key, src, {"monthly": monthly})
+            status["downloads"] = "ok" if monthly is not None else "fail"
+        else:
+            status["downloads"] = "skip"
+
+        # Downloads null is retry-able, not a hard failure (D-MISS-1):
+        # pypi/npm/crates -> "pending" (pypi via scripts/backfill_downloads.py at
+        # <= 4/min); go (deps.dev dependents only), maven, systems -> "unmeasured".
+        if status.get("downloads") == "fail":
+            try:
+                import backfill_downloads as _bdl
+            except ImportError:
+                from scripts import backfill_downloads as _bdl
+            status["downloads"] = ("pending" if ecosystem in _bdl.RETRYABLE_ECOSYSTEMS
+                                   else "unmeasured")
 
     # --- Per-label newcomer-label GFI collection: when the gfi envelope is missing or
     # legacy, fetch the repo's label list once, query each alias-matching
@@ -390,104 +483,112 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
 
     gfi_path = DATA / "gfi" / f"{key}.json"
     if selected("gfi") and porchlamp_labels.needs_gather(gfi_path, force):
-        try:
-            result = porchlamp_labels.collect_newcomer_issues(_gh, owner, name)
-            porchlamp_labels.write_gfi_envelope(owner, name, result, gfi_path)
-            status["gfi"] = "ok"
-        except Exception as e:  # review-ok: gate-network — retry on rerun
-            status["gfi"] = "fail"
-            print(f"  WARN gfi {owner}/{name}: {e}")
+        with _collector_scope(key, "gfi"):
+            try:
+                result = porchlamp_labels.collect_newcomer_issues(_gh, owner, name)
+                porchlamp_labels.write_gfi_envelope(owner, name, result, gfi_path)
+                status["gfi"] = "ok"
+            except Exception as e:  # review-ok: gate-network — retry on rerun
+                status["gfi"] = "fail"
+                print(f"  WARN gfi {owner}/{name}: {e}")
     else:
         status["gfi"] = "skip"
 
     # --- commits_365d (365 d, cap 1000; author email/login/type) ---
     if not done("commits_365d"):
-        def _page(page: int, since: str) -> list[dict]:
-            time.sleep(SLEEP_REST)
-            return _gh(f"repos/{owner}/{name}/commits", "-X", "GET",
-                       "-f", "per_page=100", "-f", f"since={since}",
-                       "-f", f"page={page}") or []
+        with _collector_scope(key, "commits_365d"):
+            def _page(page: int, since: str) -> list[dict]:
+                time.sleep(SLEEP_REST)
+                return _gh(f"repos/{owner}/{name}/commits", "-X", "GET",
+                           "-f", "per_page=100", "-f", f"since={since}",
+                           "-f", f"page={page}") or []
 
-        try:
-            _env("commits_365d", key, "github-rest:commits",
-                 collect_commits_365d(_page))
-            status["commits_365d"] = "ok"
-        except Exception as e:  # review-ok: gate-network - retry on rerun
-            status["commits_365d"] = "fail"
-            print(f"  WARN commits_365d {owner}/{name}: {e}")
+            try:
+                existing_c365: Optional[list[dict]] = None
+                if incremental_ledgers:
+                    c365_p = DATA / "commits_365d" / f"{key}.json"
+                    if c365_p.is_file():
+                        try:
+                            prev_c365 = json.loads(c365_p.read_text(encoding="utf-8")).get("data")
+                            if isinstance(prev_c365, dict):
+                                rows_or_commits = prev_c365.get("rows") or prev_c365.get("commits")
+                                if isinstance(rows_or_commits, list):
+                                    existing_c365 = rows_or_commits
+                        except Exception:
+                            existing_c365 = None
+                if existing_c365 is not None:
+                    c365_data = collect_commits_365d(_page, existing_rows=existing_c365)
+                else:
+                    c365_data = collect_commits_365d(_page)
+                c365_at = datetime.now(timezone.utc).isoformat()
+                _env("commits_365d", key, "github-rest:commits", c365_data, fetched_at=c365_at)
+                status["commits_365d"] = "ok"
+                # Materialize commits_180d if missing and derivable, from the commits_365d fetched just now
+                c180_path = DATA / "commits_180d" / f"{key}.json"
+                if not c180_path.is_file() and can_derive_180d_from_365d(c365_data):
+                    _env("commits_180d", key, "derived:commits_365d", derive_commits_180d_rows(c365_data),
+                         fetched_at=c365_at)
+                    if status.get("commits_180d") in (None, "fail", "skip") and selected("commits_180d"):
+                        status["commits_180d"] = "ok"
+            except Exception as e:  # review-ok: gate-network - retry on rerun
+                status["commits_365d"] = "fail"
+                print(f"  WARN commits_365d {owner}/{name}: {e}")
     else:
         status["commits_365d"] = "skip"
+
     # Package-level dependents — deps.dev primary, ecosyste.ms
     # fallback; "skip" = no registry mapping for this ecosystem (module
     # docstring of porchlamp.collect.depsdev), no envelope, no fetch.
     if done("dependents"):
         status["dependents"] = "skip"
     else:
-        from porchlamp.collect import depsdev as depsdev_mod
-        try:
-            dep_kwargs: dict[str, Any] = {}
-            if ecosystem == "maven":
-                pom_xml: Optional[str] = None
-                try:
-                    import inspect as _inspect
-                    from porchlamp.collect import repo_object as _ro_mod
-                    ro_params = _inspect.signature(_ro_mod._fetch_body).parameters
-                    if len(ro_params) >= 3:
-                        pom_xml = _ro_mod._fetch_body(owner, name, "pom.xml")
-                    else:
-                        pom_xml = _ro_mod._fetch_body(
-                            f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/pom.xml"
-                        )
-                except Exception:  # review-ok: gate-network — fallback to _gh
-                    pom_xml = None
-                if pom_xml is None:
+        with _collector_scope(key, "dependents"):
+            from porchlamp.collect import depsdev as depsdev_mod
+            try:
+                dep_kwargs: dict[str, Any] = {}
+                if ecosystem == "maven":
+                    pom_xml: Optional[str] = None
                     try:
-                        import base64
-                        res = _gh(f"repos/{owner}/{name}/contents/pom.xml")
-                        if isinstance(res, dict) and res.get("content"):
-                            pom_xml = base64.b64decode(res["content"]).decode("utf-8", "replace")
-                        elif isinstance(res, str):
-                            pom_xml = res
-                    except Exception:  # review-ok: gate-network — unreadable pom.xml
+                        import inspect as _inspect
+                        from porchlamp.collect import repo_object as _ro_mod
+                        ro_params = _inspect.signature(_ro_mod._fetch_body).parameters
+                        if len(ro_params) >= 3:
+                            pom_xml = _ro_mod._fetch_body(owner, name, "pom.xml")
+                        else:
+                            pom_xml = _ro_mod._fetch_body(
+                                f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/pom.xml"
+                            )
+                    except Exception:  # review-ok: gate-network — fallback to _gh
                         pom_xml = None
-                coords = depsdev_mod.parse_maven_coordinates(pom_xml) if pom_xml else None
-                import inspect as _inspect
-                cd_params = _inspect.signature(depsdev_mod.collect_dependents).parameters
-                has_var_kw = any(
-                    p.kind == _inspect.Parameter.VAR_KEYWORD for p in cd_params.values()
+                    if pom_xml is None:
+                        try:
+                            import base64
+                            res = _gh(f"repos/{owner}/{name}/contents/pom.xml")
+                            if isinstance(res, dict) and res.get("content"):
+                                pom_xml = base64.b64decode(res["content"]).decode("utf-8", "replace")
+                            elif isinstance(res, str):
+                                pom_xml = res
+                        except Exception:  # review-ok: gate-network — unreadable pom.xml
+                            pom_xml = None
+                    coords = depsdev_mod.parse_maven_coordinates(pom_xml) if pom_xml else None
+                    import inspect as _inspect
+                    cd_params = _inspect.signature(depsdev_mod.collect_dependents).parameters
+                    has_var_kw = any(
+                        p.kind == _inspect.Parameter.VAR_KEYWORD for p in cd_params.values()
+                    )
+                    if "maven_coordinates" in cd_params or has_var_kw:
+                        dep_kwargs["maven_coordinates"] = coords
+                    if "maven_pom_xml" in cd_params and "maven_coordinates" not in cd_params:
+                        dep_kwargs["maven_pom_xml"] = pom_xml
+                if dep_resolution is not None:
+                    dep_kwargs["resolution"] = dep_resolution
+                status["dependents"] = depsdev_mod.collect_dependents(
+                    DATA, owner, name, ecosystem, **dep_kwargs
                 )
-                if "maven_coordinates" in cd_params or has_var_kw:
-                    dep_kwargs["maven_coordinates"] = coords
-                if "maven_pom_xml" in cd_params and "maven_coordinates" not in cd_params:
-                    dep_kwargs["maven_pom_xml"] = pom_xml
-            if dep_resolution is not None:
-                dep_kwargs["resolution"] = dep_resolution
-            status["dependents"] = depsdev_mod.collect_dependents(
-                DATA, owner, name, ecosystem, **dep_kwargs
-            )
-        except Exception as e:  # review-ok: gate-network — retry on rerun
-            status["dependents"] = "fail"
-            print(f"  WARN dependents {owner}/{name}: {e}")
-    # Windowed PRs, typed actors (D-IN-1/2/4, 02 §4 1.1/1.4/4.3)
-    if done("pr_window"):
-        status["pr_window"] = "skip"
-    else:
-        from porchlamp.collect import github_graphql as prw_mod
-        try:
-            status["pr_window"] = prw_mod.collect_pr_window(DATA, owner, name)
-        except Exception as e:  # review-ok: gate-network — retry on rerun
-            status["pr_window"] = "fail"
-            print(f"  WARN pr_window {owner}/{name}: {e}")
-    # Downloads null is retry-able, not a hard failure (D-MISS-1):
-    # pypi/npm/crates -> "pending" (pypi via scripts/backfill_downloads.py at
-    # <= 4/min); go (deps.dev dependents only), maven, systems -> "unmeasured".
-    if status.get("downloads") == "fail":
-        try:
-            import backfill_downloads as _bdl
-        except ImportError:
-            from scripts import backfill_downloads as _bdl
-        status["downloads"] = ("pending" if ecosystem in _bdl.RETRYABLE_ECOSYSTEMS
-                               else "unmeasured")
+            except Exception as e:  # review-ok: gate-network — retry on rerun
+                status["dependents"] = "fail"
+                print(f"  WARN dependents {owner}/{name}: {e}")
+
     # --- Releases, issues search counts, CI runs (02 §4 2.2 / 4.1) ---
     from porchlamp.collect import pike_signals as pike_mod
     for collector, call in (
@@ -505,44 +606,57 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
         if done(collector):
             status[collector] = "skip"
             continue
-        try:
-            status[collector] = call()
-        except Exception as e:  # review-ok: gate-network — retry on rerun
-            status[collector] = "fail"
-            print(f"  WARN {collector} {owner}/{name}: {e}")
+        with _collector_scope(key, collector):
+            try:
+                status[collector] = call()
+            except Exception as e:  # review-ok: gate-network — retry on rerun
+                status[collector] = "fail"
+                print(f"  WARN {collector} {owner}/{name}: {e}")
+
     # --- Governance evidence envelope (02 §4 3.1/3.3/4.2) — check
     # names on the 20 newest merged PRs, 365 d sign-off commits and the
     # GOVERNANCE/MAINTAINERS/CONTRIBUTING/SECURITY + AI-policy files. ---
     if done("governance"):
         status["governance"] = "skip"
     else:
-        from porchlamp.collect import governance as gov_mod
-        try:
-            if graphql_bulk:
-                from porchlamp.collect.github_graphql import GhCliTransport
+        with _collector_scope(key, "governance"):
+            from porchlamp.collect import governance as gov_mod
+            try:
+                if graphql_bulk:
+                    from porchlamp.collect.github_graphql import GhCliTransport
 
-                status["governance"] = gov_mod.collect_governance(
-                    DATA, owner, name, force=force, graphql_transport=GhCliTransport()
-                )
-            else:
-                status["governance"] = gov_mod.collect_governance(
-                    DATA, owner, name, force=force
-                )
-        except Exception as e:  # review-ok: gate-network — retry on rerun
-            status["governance"] = "fail"
-            print(f"  WARN governance {owner}/{name}: {e}")
+                    status["governance"] = gov_mod.collect_governance(
+                        DATA, owner, name, force=force, graphql_transport=GhCliTransport()
+                    )
+                else:
+                    status["governance"] = gov_mod.collect_governance(
+                        DATA, owner, name, force=force
+                    )
+            except Exception as e:  # review-ok: gate-network — retry on rerun
+                status["governance"] = "fail"
+                print(f"  WARN governance {owner}/{name}: {e}")
+
     # Author history + cohorts (D-IN-3/D-IN-4, 02 §4 1.2/1.3/5.2/5.3)
     if done("author_history"):
         status["author_history"] = "skip"
     else:
-        from porchlamp.collect import github_graphql as cohort_mod
-        try:
-            status["author_history"] = cohort_mod.collect_author_history(
-                DATA, owner, name, user_cache=_user_cache(), force=force)
-        except Exception as e:  # review-ok: gate-network — retry on rerun
-            status["author_history"] = "fail"
-            print(f"  WARN author_history {owner}/{name}: {e}")
+        with _collector_scope(key, "author_history"):
+            from porchlamp.collect import github_graphql as cohort_mod
+            try:
+                if light_author_history:
+                    status["author_history"] = cohort_mod.collect_author_history(
+                        DATA, owner, name, user_cache=_user_cache(), force=force, light_history=True
+                    )
+                else:
+                    status["author_history"] = cohort_mod.collect_author_history(
+                        DATA, owner, name, user_cache=_user_cache(), force=force)
+            except Exception as e:  # review-ok: gate-network — retry on rerun
+                status["author_history"] = "fail"
+                print(f"  WARN author_history {owner}/{name}: {e}")
     return status
+
+
+gather_one = gather_repo
 
 
 def _fetch_pr_runs(owner: str, name: str, now: Optional[datetime] = None) -> list[dict]:
@@ -768,8 +882,6 @@ def load_candidates(lines: list[str], limit: Optional[int]) -> list[tuple[str, s
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    from porchlamp.collect.fingerprint import ALL_GATHER_COLLECTORS
-
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, default=10)
     ap.add_argument("--repo", nargs=2, metavar=("OWNER", "NAME"))
@@ -793,13 +905,41 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="run the fingerprint pass, report what is dirty, and exit. "
                          "Writes nothing: it must not consume a change that a later "
                          "gather would need")
-    ap.add_argument("--graphql-bulk", action="store_true",
+    ap.add_argument("--graphql-bulk", action="store_true", default=True,
                     help="use single-call GraphQL collectors for governance and "
-                         "issues_counts instead of multi-call REST / Search API")
+                         "issues_counts instead of multi-call REST / Search API (default: True)")
+    ap.add_argument("--no-graphql-bulk", dest="graphql_bulk", action="store_false",
+                    help="disable single-call GraphQL collectors; use REST / Search API")
     ap.add_argument("--skip-ineligible", action="store_true",
                     help="skip archived, disabled, stale, unlicensed, non_software, and "
                          "no_external_workflow repos before running downstream collectors")
+    ap.add_argument("--incremental-ledgers", action="store_true",
+                    help=EXPERIMENTAL + " Merge delta PRs and commits into existing envelopes (W6-3/W6-4)")
+    ap.add_argument("--light-author-history", action="store_true",
+                    help=EXPERIMENTAL + " Use repo-wide light PR history pagination instead of per-author Search (RFC-0009)")
+    ap.add_argument("--gh-cli", action="store_true",
+                    help="use gh CLI subprocesses instead of direct HTTP transport")
+    ap.add_argument("--cost-log", type=Path, default=None,
+                    help="path to write cost accounting log JSONL")
     a = ap.parse_args(argv)
+    import os as _os
+    _prev_gh_env = _os.environ.get("PORCHLAMP_GH")
+    if not a.gh_cli and _prev_gh_env is None:
+        _os.environ["PORCHLAMP_GH"] = "http"
+    try:
+        return _run_main(a)
+    finally:
+        if not a.gh_cli and _prev_gh_env is None:
+            _os.environ.pop("PORCHLAMP_GH", None)
+
+
+def _run_main(a: argparse.Namespace) -> int:
+    from porchlamp.collect.fingerprint import ALL_GATHER_COLLECTORS
+
+    if a.incremental_ledgers or a.light_author_history:
+        print(EXPERIMENTAL, file=sys.stderr)
+    if a.cost_log:
+        cost.retain_records()
     selected = parse_collectors(a.collectors)
     if a.repo:
         if not valid_ref(a.repo[0], a.repo[1]):
@@ -884,13 +1024,22 @@ def main(argv: Optional[list[str]] = None) -> int:
             repo_force = True
         started = datetime.now(timezone.utc)
         try:
-            if a.graphql_bulk:
-                st = gather_repo(
-                    owner, name, eco, force=repo_force, collectors=repo_collectors,
-                    graphql_bulk=True
-                )
-            else:
-                st = gather_repo(owner, name, eco, force=repo_force, collectors=repo_collectors)
+            import inspect as _inspect
+            gr_params = _inspect.signature(gather_repo).parameters
+            has_var_kw = any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in gr_params.values())
+            kwargs: dict[str, Any] = {
+                "force": repo_force,
+                "collectors": repo_collectors,
+            }
+            if "graphql_bulk" in gr_params or has_var_kw:
+                kwargs["graphql_bulk"] = a.graphql_bulk
+            if "skip_ineligible" in gr_params or has_var_kw:
+                kwargs["skip_ineligible"] = a.skip_ineligible
+            if getattr(a, "incremental_ledgers", False) and ("incremental_ledgers" in gr_params or has_var_kw):
+                kwargs["incremental_ledgers"] = True
+            if getattr(a, "light_author_history", False) and ("light_author_history" in gr_params or has_var_kw):
+                kwargs["light_author_history"] = True
+            st = gather_repo(owner, name, eco, **kwargs)
         except Exception as e:  # review-ok: gate-network — isolate unexpected per-repo error during sweep
             fail += 1
             print(f"{owner}/{name} [{eco}]: FAIL {e}")
@@ -898,7 +1047,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             bad = [k for k, v in st.items() if v == "fail"]
             ok += not bad
             fail += bool(bad)
-            print(f"{owner}/{name} [{eco}]: {'OK' if not bad else 'FAIL ' + ','.join(bad)}")
+            if st.get("skipped_deep_black_hole") is True:
+                print(f"{owner}/{name} [{eco}]: OK (stopped at black_hole)")
+            else:
+                print(f"{owner}/{name} [{eco}]: {'OK' if not bad else 'FAIL ' + ','.join(bad)}")
             if fp_result is not None and selected is None:
                 _persist_fingerprint(fp_result, owner, name, eco, st, started,
                                      refetched=ALL_GATHER_COLLECTORS if a.force
@@ -907,6 +1059,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"{PRIORITY_DONE_MARKER}: {n_first} repos ({fail} failed)", flush=True)
     if _USER_CACHE is not None:
         print(_USER_CACHE.summary())
+    if a.cost_log and cost is not None and hasattr(cost, "write_cost_log"):
+        cost.write_cost_log(a.cost_log)
     print(f"done: {ok} clean, {fail} with failures")
     return 0
 

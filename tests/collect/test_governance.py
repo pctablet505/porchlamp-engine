@@ -1351,3 +1351,65 @@ def test_governance_graphql_defers_to_rest_for_a_commit_with_100_status_contexts
     rest = _collect(tmp_path, FakeGitHubRepo(fake.prs, statuses, {}), graphql=False, tag="rest")
     assert gql.data["checks"] == rest.data["checks"]
     assert any(path.endswith(f"/commits/{newest}/statuses") for path in fake.rest_calls)
+
+
+def test_collect_governance_skips_fetch_for_files_absent_from_non_truncated_tree(tmp_path):
+    raw_dir = tmp_path / "raw"
+    tree_dir = raw_dir / "tree"
+    tree_dir.mkdir(parents=True, exist_ok=True)
+    # Tree contains only CONTRIBUTING.md and CLAUDE.md
+    write_envelope(
+        tree_dir / f"{KEY}.json",
+        source="test-tree",
+        data={"paths": ["README.md", "CONTRIBUTING.md", "CLAUDE.md"], "truncated": False},
+        fetched_at="2026-09-12T00:00:00Z",
+    )
+
+    fetched_files: list[str] = []
+
+    def fetch_file(path: str) -> Optional[str]:
+        fetched_files.append(path)
+        return f"# Content of {path}\n"
+
+    fake = FakeApi([[]])
+    res = gov.collect_governance(raw_dir, OWNER, NAME, now=NOW, api=fake, fetch_file=fetch_file)
+    assert res == "ok"
+
+    # Only files present in the tree should be fetched
+    assert set(fetched_files) == {"CONTRIBUTING.md", "CLAUDE.md"}
+    d = read_envelope(raw_dir / "governance" / f"{KEY}.json").data
+    assert d["files"]["CONTRIBUTING.md"]["present"] is True
+    assert d["files"]["CLAUDE.md"]["present"] is True
+    assert d["files"]["GOVERNANCE.md"] is None
+    assert d["files"]["SECURITY.md"] is None
+
+
+def test_collect_governance_falls_back_when_tree_truncated_or_missing(tmp_path):
+    raw_dir = tmp_path / "raw"
+    fetched_files: list[str] = []
+
+    def fetch_file(path: str) -> Optional[str]:
+        fetched_files.append(path)
+        return None
+
+    fake = FakeApi([[]])
+
+    # 1. Missing tree envelope -> fetches all POLICY_FILES
+    gov.collect_governance(raw_dir, OWNER, NAME, now=NOW, api=fake, fetch_file=fetch_file, force=True)
+    assert len(fetched_files) == len(gov.POLICY_FILES)
+    assert set(fetched_files) == set(gov.POLICY_FILES)
+
+    # 2. Truncated tree envelope -> falls back and fetches all POLICY_FILES
+    fetched_files.clear()
+    tree_dir = raw_dir / "tree"
+    tree_dir.mkdir(parents=True, exist_ok=True)
+    write_envelope(
+        tree_dir / f"{KEY}.json",
+        source="test-tree",
+        data={"paths": ["README.md"], "truncated": True},
+        fetched_at="2026-09-12T00:00:00Z",
+    )
+    gov.collect_governance(raw_dir, OWNER, NAME, now=NOW, api=fake, fetch_file=fetch_file, force=True)
+    assert len(fetched_files) == len(gov.POLICY_FILES)
+    assert set(fetched_files) == set(gov.POLICY_FILES)
+

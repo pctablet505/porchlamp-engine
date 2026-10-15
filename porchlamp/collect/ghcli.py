@@ -15,20 +15,25 @@ it. Redirects are never followed by urllib: a same-origin one is followed here (
 
 from __future__ import annotations
 
+import contextlib
+import http.client
 import json
 import math
 import os
 import re
+import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Sequence
-from typing import Any
+from pathlib import Path
+from typing import Any, NamedTuple
 
-from porchlamp.collect import net
+from porchlamp.collect import cost, net
 
 API_VERSION = "2022-11-28"
 USER_AGENT = "porchlamp-phone/1"
@@ -45,13 +50,46 @@ LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 #: The only origin that is sent the Authorization header.
 AUTH_BASE = DEFAULT_BASE
 
+
+class _Limit(NamedTuple):
+    remaining: int
+    reset: float
+
+
 #: resource -> (remaining calls, reset epoch seconds), from the last response.
 _BUDGET: dict[str, tuple[int, float]] = {}
+_LIMITS: dict[str, tuple[int, float]] = _BUDGET
+_TOKEN_LIMITS: dict[int, dict[str, _Limit]] = {}
+
+#: Persistent keep-alive connection pool for workstation mode.
+#: ``_POOL`` holds the primary idle connection per origin; ``_POOL_IDLE`` holds
+#: overflow idle connections when multiple worker threads run concurrently.
+_POOL: dict[tuple[str, str, int], http.client.HTTPConnection] = {}
+_POOL_IDLE: dict[tuple[str, str, int], list[http.client.HTTPConnection]] = {}
+_POOL_LOCK = threading.Lock()
+
+#: The ETag cache lives only in the SQLite database, when one is configured; nothing is kept in memory.
+_ETAG_DB_PATH: Path | None = None
+_ETAG_CACHE_LOCK = threading.Lock()
+
+#: Cached `gh auth token` when no environment token is set; "" is a lookup that found none (it is not repeated).
+_CACHED_GH_CLI_TOKEN: str | None = None
+_TOKEN_LOCK = threading.Lock()
+
 #: None: the wait goes through the gate (a stop ends it within a second); a test may replace it with a recorder.
 _sleep: Callable[[float], object] | None = None
 _now = time.time
 
 _INT = re.compile(r"-?\d+\Z")
+
+_RETRY_EXC = (
+    http.client.RemoteDisconnected,
+    http.client.CannotSendRequest,
+    BrokenPipeError,
+    ConnectionResetError,
+    TimeoutError,
+    OSError,
+)
 
 
 class _Transport(Exception):
@@ -62,10 +100,149 @@ class _Refused(_Transport):
     """A redirect the transport will not follow; the message is ``<reason> (HTTP <code>)`` with no URL or header."""
 
 
+def close_pool() -> None:
+    """Close all open keep-alive connections and clear the pool."""
+    with _POOL_LOCK:
+        for conn in list(_POOL.values()):
+            with contextlib.suppress(Exception):
+                conn.close()
+        _POOL.clear()
+        for conns in list(_POOL_IDLE.values()):
+            for conn in conns:
+                with contextlib.suppress(Exception):
+                    conn.close()
+        _POOL_IDLE.clear()
+
+
+def configure_etag_cache(db_path: Path | str | None = None) -> None:
+    """Configure optional SQLite persistence for conditional ETag responses."""
+    global _ETAG_DB_PATH
+    with _ETAG_CACHE_LOCK:
+        if db_path is None:
+            _ETAG_DB_PATH = None
+            return
+        resolved = Path(db_path)
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(str(resolved)) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS http_etag_cache (
+                    url TEXT PRIMARY KEY,
+                    etag TEXT NOT NULL,
+                    headers_json TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+                """
+            )
+            conn.commit()
+        _ETAG_DB_PATH = resolved
+
+
+def _active_etag_db() -> Path | None:
+    if _ETAG_DB_PATH is not None:
+        return _ETAG_DB_PATH
+    env_db = os.environ.get("PORCHLAMP_ETAG_CACHE_DB")
+    if env_db:
+        return Path(env_db)
+    return None
+
+
+def _etag_get(url: str) -> tuple[str, dict[str, str], str] | None:
+    with _ETAG_CACHE_LOCK:
+        db = _active_etag_db()
+        if db is None or not db.is_file():
+            return None
+        try:
+            with sqlite3.connect(str(db)) as conn:
+                row = conn.execute(
+                    "SELECT etag, headers_json, body FROM http_etag_cache WHERE url = ?",
+                    (url,),
+                ).fetchone()
+            if row is not None:
+                etag, headers_json, body = row
+                return str(etag), dict(json.loads(headers_json)), str(body)
+        except Exception:
+            return None
+        return None
+
+
+def _etag_put(url: str, etag: str, headers_dict: dict[str, str], body: str) -> None:
+    with _ETAG_CACHE_LOCK:
+        db = _active_etag_db()
+        if db is None:
+            return
+        try:
+            db.parent.mkdir(parents=True, exist_ok=True)
+            with sqlite3.connect(str(db)) as conn:
+                conn.execute("PRAGMA journal_mode=WAL;")
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS http_etag_cache (
+                        url TEXT PRIMARY KEY,
+                        etag TEXT NOT NULL,
+                        headers_json TEXT NOT NULL,
+                        body TEXT NOT NULL,
+                        updated_at REAL NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO http_etag_cache (url, etag, headers_json, body, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (url, etag, json.dumps(headers_dict), body, _now()),
+                )
+                conn.commit()
+        except Exception:
+            pass
+
+
+def clear_etag_cache() -> None:
+    """Forget the configured ETag database (its rows stay on disk)."""
+    global _ETAG_DB_PATH
+    with _ETAG_CACHE_LOCK:
+        _ETAG_DB_PATH = None
+
+
+def clear_token_cache() -> None:
+    """Clear cached gh CLI token and per-token rate limit records."""
+    global _CACHED_GH_CLI_TOKEN
+    with _TOKEN_LOCK:
+        _CACHED_GH_CLI_TOKEN = None
+        _TOKEN_LIMITS.clear()
+
+
 def run(args: Sequence[str], timeout: float = 90) -> subprocess.CompletedProcess[str]:
     """Run one ``gh`` call; ``args`` is what followed ``gh`` on the command line."""
     if os.environ.get("PORCHLAMP_GH") != "http":
-        return subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout)
+        t0 = time.perf_counter()
+        proc = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=timeout)
+        duration_ms = (time.perf_counter() - t0) * 1000.0
+        with contextlib.suppress(Exception):
+            method, endpoint, _fields, is_graphql = _parse(list(args))
+            norm_endpoint = f"/{endpoint.lstrip('/')}"
+            status = 200 if proc.returncode == 0 else 500
+            gql_pts = 0
+            if is_graphql and proc.returncode == 0:
+                gql_pts = 1
+                with contextlib.suppress(Exception):
+                    payload = json.loads(proc.stdout)
+                    rl = payload.get("data", {}).get("rateLimit") if isinstance(payload, dict) else None
+                    if isinstance(rl, dict) and isinstance(rl.get("cost"), int):
+                        gql_pts = rl["cost"]
+            cost.record_call(
+                endpoint=norm_endpoint,
+                method=method,
+                status=status,
+                status_304=False,
+                graphql_points=gql_pts,
+                bytes_in=len((proc.stdout or "").encode("utf-8")),
+                duration_ms=duration_ms,
+            )
+        return proc
     try:
         return _http_run(list(args), timeout)
     except _Transport as exc:
@@ -149,34 +326,125 @@ def _header(headers: Any, name: str) -> str | None:
     return None if headers is None else headers.get(name)
 
 
-def _record(headers: Any, default: str) -> None:
+def _configured_tokens(base: str) -> list[str]:
+    tokens_env = os.environ.get("PORCHLAMP_GH_TOKENS")
+    if tokens_env:
+        toks = [t.strip() for t in tokens_env.split(",") if t.strip()]
+        if toks:
+            return toks
+    tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if tok:
+        return [tok]
+    if base == DEFAULT_BASE and not (net._gate is not None and net._gate.installed()):  # behind an engine's gate only a token that passed the token check is used
+        global _CACHED_GH_CLI_TOKEN
+        with _TOKEN_LOCK:
+            if _CACHED_GH_CLI_TOKEN is None:
+                _CACHED_GH_CLI_TOKEN = ""
+                try:
+                    res = subprocess.run(
+                        ["gh", "auth", "token"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if res.returncode == 0:
+                        _CACHED_GH_CLI_TOKEN = res.stdout.strip()
+                except (OSError, subprocess.SubprocessError):
+                    pass
+            if _CACHED_GH_CLI_TOKEN:
+                return [_CACHED_GH_CLI_TOKEN]
+    return []
+
+
+def _select_token(resource: str, tokens: list[str]) -> str | None:
+    if not tokens:
+        return None
+    if len(tokens) == 1:
+        return tokens[0]
+
+    floor = _floor(resource)
+    now = _now()
+
+    best_tok: str | None = None
+    best_remaining: float = -1.0
+    all_below_floor = True
+
+    for i, tok in enumerate(tokens):
+        limit = _TOKEN_LIMITS.get(i, {}).get(resource)
+        if limit is None:
+            remaining = float("inf")
+        else:
+            remaining = float(limit.remaining)
+            if limit.reset <= now:
+                remaining = float("inf")
+
+        if remaining >= floor:
+            all_below_floor = False
+
+        if remaining > best_remaining:
+            best_remaining = remaining
+            best_tok = tok
+
+    if all_below_floor:
+        earliest_tok: str | None = None
+        earliest_reset = float("inf")
+        for i, tok in enumerate(tokens):
+            limit = _TOKEN_LIMITS.get(i, {}).get(resource)
+            reset = limit.reset if limit else 0.0
+            if reset < earliest_reset:
+                earliest_reset = reset
+                earliest_tok = tok
+        return earliest_tok or tokens[0]
+
+    return best_tok or tokens[0]
+
+
+def _record(headers: Any, default: str, token_idx: int | None = None) -> None:
     remaining = _header(headers, "x-ratelimit-remaining")
     reset = _header(headers, "x-ratelimit-reset")
     if remaining is None or reset is None:
         return
     key = _header(headers, "x-ratelimit-resource") or default
     try:
-        _BUDGET[key] = (int(remaining), float(reset))
+        limit = _Limit(int(remaining), float(reset))
+        _BUDGET[key] = limit
+        _LIMITS[key] = limit
+        if token_idx is not None:
+            if token_idx not in _TOKEN_LIMITS:
+                _TOKEN_LIMITS[token_idx] = {}
+            _TOKEN_LIMITS[token_idx][key] = limit
     except ValueError:
         return
 
 
-def _pause(resource: str, remaining: int, seconds: float) -> None:
+def _pause(resource: str, remaining: int, seconds: float, token_idx: int | None = None) -> None:
     wait = max(MIN_WAIT, seconds)
-    print(f"ghcli: waiting {math.ceil(wait)}s for the {resource} reset "
-          f"(remaining {remaining})", file=sys.stderr)
-    _BUDGET.pop(resource, None)
+    sys.stderr.write(
+        f"ghcli: waiting {math.ceil(wait)}s for the {resource} reset "
+        f"(remaining {remaining})\n"
+    )
+    if token_idx is not None:
+        if token_idx in _TOKEN_LIMITS:
+            _TOKEN_LIMITS[token_idx].pop(resource, None)
+    else:
+        _BUDGET.pop(resource, None)
+        _LIMITS.pop(resource, None)
+        for t_limits in _TOKEN_LIMITS.values():
+            t_limits.pop(resource, None)
     net.rate_wait(resource, remaining, wait, _sleep)
 
 
-def _gate(resource: str) -> None:
-    record = _BUDGET.get(resource)
+def _gate(resource: str, token_idx: int | None = None) -> None:
+    if token_idx is not None:
+        record = _TOKEN_LIMITS.get(token_idx, {}).get(resource)
+    else:
+        record = _BUDGET.get(resource)
     if record is None:
         return
     remaining, reset = record
     now = _now()
     if remaining < _floor(resource) and reset > now:
-        _pause(resource, remaining, reset - now + RESET_PAD)
+        _pause(resource, remaining, reset - now + RESET_PAD, token_idx=token_idx)
 
 
 def _limited(headers: Any) -> bool:
@@ -226,19 +494,100 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _OPENER = urllib.request.build_opener(_NoRedirect)
 
 
+def _checkout_conn(pool_key: tuple[str, str, int]) -> tuple[http.client.HTTPConnection | None, bool]:
+    with _POOL_LOCK:
+        if pool_key in _POOL:
+            conn = _POOL.pop(pool_key)
+            idle = _POOL_IDLE.get(pool_key)
+            if idle:
+                _POOL[pool_key] = idle.pop()
+            return conn, True
+        idle = _POOL_IDLE.get(pool_key)
+        if idle:
+            return idle.pop(), True
+        return None, False
+
+
+def _checkin_conn(pool_key: tuple[str, str, int], conn: http.client.HTTPConnection) -> None:
+    with _POOL_LOCK:
+        if pool_key not in _POOL:
+            _POOL[pool_key] = conn
+        else:
+            _POOL_IDLE.setdefault(pool_key, []).append(conn)
+
+
+def _new_conn(scheme: str, host: str, port: int, timeout: float) -> http.client.HTTPConnection:
+    if scheme == "https":
+        return http.client.HTTPSConnection(host, port, timeout=timeout)
+    return http.client.HTTPConnection(host, port, timeout=timeout)
+
+
+def _send_pooled(method: str, url: str, body: bytes | None, headers: dict[str, str],
+                 timeout: float, args: list[str]) -> tuple[int, Any, str]:
+    scheme, host, port = _origin(url)
+    if port is None:
+        port = 443 if scheme == "https" else 80
+    pool_key = (scheme, host, port)
+
+    req_headers = dict(headers)
+    req_headers.setdefault("Connection", "keep-alive")
+
+    parts = urllib.parse.urlsplit(url)
+    selector = parts.path or "/"
+    if parts.query:
+        selector = f"{selector}?{parts.query}"
+
+    conn, was_pooled = _checkout_conn(pool_key)
+    if conn is None:
+        conn = _new_conn(scheme, host, port, timeout)
+
+    try:
+        conn.request(method, selector, body=body, headers=req_headers)
+        resp = conn.getresponse()
+        raw = resp.read()
+        _checkin_conn(pool_key, conn)
+        return resp.status, resp.headers, _body_text(raw)
+    except _RETRY_EXC as exc:
+        with contextlib.suppress(Exception):
+            conn.close()
+
+        if not was_pooled:
+            if _is_timeout(exc):
+                raise subprocess.TimeoutExpired(["gh", *args], timeout) from None
+            raise _Transport(str(exc)) from None
+
+        # Retry once on a fresh connection outside the pool lock
+        fresh_conn = _new_conn(scheme, host, port, timeout)
+        try:
+            fresh_conn.request(method, selector, body=body, headers=req_headers)
+            resp = fresh_conn.getresponse()
+            raw = resp.read()
+            _checkin_conn(pool_key, fresh_conn)
+            return resp.status, resp.headers, _body_text(raw)
+        except _RETRY_EXC as retry_exc:
+            with contextlib.suppress(Exception):
+                fresh_conn.close()
+            if _is_timeout(retry_exc):
+                raise subprocess.TimeoutExpired(["gh", *args], timeout) from None
+            raise _Transport(str(retry_exc)) from None
+
+
 def _send(method: str, url: str, body: bytes | None, headers: dict[str, str],
           timeout: float, args: list[str]) -> tuple[int, Any, str]:
-    req = urllib.request.Request(url, data=body, method=method, headers=headers)
-    try:
+    if net._gate is not None:
+        req = urllib.request.Request(url, data=body, method=method, headers=headers)
         try:
-            with net.urlopen(req, timeout, opener=_OPENER) as resp:
-                return resp.status, resp.headers, _body_text(resp.read())
-        except urllib.error.HTTPError as exc:
-            return exc.code, exc.headers, _body_text(exc.read())
-    except OSError as exc:
-        if _is_timeout(exc):
-            raise subprocess.TimeoutExpired(["gh", *args], timeout) from None
-        raise _Transport(str(exc)) from None
+            try:
+                with net.urlopen(req, timeout, opener=_OPENER) as resp:
+                    return resp.status, resp.headers, _body_text(resp.read())
+            except urllib.error.HTTPError as exc:
+                return exc.code, exc.headers, _body_text(exc.read())
+        except OSError as exc:
+            if _is_timeout(exc):
+                raise subprocess.TimeoutExpired(["gh", *args], timeout) from None
+            raise _Transport(str(exc)) from None
+
+    return _send_pooled(method, url, body, headers, timeout, args)
 
 
 def _origin(url: str) -> tuple[str, str, int | None]:
@@ -304,12 +653,12 @@ def _send_following(method: str, url: str, base: str, body: bytes | None, header
     hops = 0
     while True:
         status, resp_headers, text = _send(method, url, body, headers, timeout, args)
-        if not 300 <= status < 400:
+        if status == 304 or not 300 <= status < 400:
             return status, resp_headers, text
         location = _header(resp_headers, "location")
         target = urllib.parse.urljoin(url, location) if location else None
         same_origin = target is not None and _plain_url(target) and _origin(target) == _origin(base)
-        if status not in REDIRECT_CODES or not same_origin:
+        if not same_origin:
             raise _Refused(f"redirect to another host refused (HTTP {status})")
         if hops >= MAX_REDIRECTS:
             raise _Refused(f"too many redirects (HTTP {status})")
@@ -365,17 +714,90 @@ def _http_run(args: list[str], timeout: float) -> subprocess.CompletedProcess[st
         url = f"{base}/{endpoint.lstrip('/')}"
         if fields:
             body = json.dumps(dict(fields)).encode("utf-8")
-    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    headers = _request_headers(base, token, body is not None)
+
     attempts = 0
+    norm_endpoint = f"/{endpoint.lstrip('/')}"
+    is_get = (method == "GET" and body is None)
+
     while True:
-        _gate(resource)
-        status, resp_headers, text = _send_following(method, url, base, body, headers, timeout, args)
-        _record(resp_headers, resource)
+        tokens = _configured_tokens(base)
+        token = _select_token(resource, tokens)
+        token_idx = tokens.index(token) if (token and token in tokens) else None
+
+        headers = _request_headers(base, token, body is not None)
+        cached_entry = _etag_get(url) if is_get else None
+        if cached_entry is not None:
+            headers["If-None-Match"] = cached_entry[0]
+
+        _gate(resource, token_idx)
+        t0 = time.perf_counter()
+        try:
+            status, resp_headers, text = _send_following(method, url, base, body, headers, timeout, args)
+        except (_Transport, subprocess.TimeoutExpired):
+            duration_ms = (time.perf_counter() - t0) * 1000.0
+            cost.record_call(
+                endpoint=norm_endpoint,
+                method=method,
+                status=0,
+                status_304=False,
+                graphql_points=0,
+                bytes_in=0,
+                duration_ms=duration_ms,
+            )
+            raise
+
+        duration_ms = (time.perf_counter() - t0) * 1000.0
+
+        if status == 304 and is_get and cached_entry is not None:
+            _record(resp_headers, resource, token_idx)
+            cost.record_call(
+                endpoint=norm_endpoint,
+                method=method,
+                status=304,
+                status_304=True,
+                graphql_points=0,
+                bytes_in=0,
+                duration_ms=duration_ms,
+            )
+            return _result(args, is_graphql, 200, cached_entry[2])
+
+        _record(resp_headers, resource, token_idx)
+
+        graphql_points = 0
+        if is_graphql and status == 200:
+            graphql_points = 1
+            try:
+                payload = json.loads(text)
+                if isinstance(payload, dict):
+                    rl = payload.get("data", {}).get("rateLimit")
+                    if isinstance(rl, dict) and isinstance(rl.get("cost"), int):
+                        graphql_points = rl["cost"]
+            except Exception:
+                pass
+
+        bytes_in = len(text.encode("utf-8"))
+        cost.record_call(
+            endpoint=norm_endpoint,
+            method=method,
+            status=status,
+            status_304=False,
+            graphql_points=graphql_points,
+            bytes_in=bytes_in,
+            duration_ms=duration_ms,
+        )
+
+        if is_get and status == 200:
+            etag_val = _header(resp_headers, "etag")
+            if etag_val:
+                headers_dict = {str(k): str(v) for k, v in resp_headers.items()}
+                for k, v in list(headers_dict.items()):
+                    headers_dict[k.lower()] = v
+                _etag_put(url, etag_val, headers_dict, text)
+
         if status in (403, 429) and attempts < MAX_RETRIES and _limited(resp_headers):
             attempts += 1
             key = _header(resp_headers, "x-ratelimit-resource") or resource
             remaining = _header(resp_headers, "x-ratelimit-remaining") or "0"
-            _pause(key, int(remaining) if remaining.isdigit() else 0, _retry_seconds(resp_headers))
+            _pause(key, int(remaining) if remaining.isdigit() else 0, _retry_seconds(resp_headers), token_idx=token_idx)
             continue
         return _result(args, is_graphql, status, text)

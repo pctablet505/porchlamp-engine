@@ -112,6 +112,72 @@ def fkw(kw):
     return {k: v for k, v in kw.items() if k != "free_gb"}
 
 
+def test_outcome_lines_are_classified():
+    none = (0, 0, 0, 0, 0)                      # (checked, stopped, pruned, failed, total) after one line
+    cases = [
+        ("collectors: governance; repos: 3", (0, 0, 0, 0, 3)),
+        ("o/r.x-1 [pypi]: SKIP (ineligible: no_external_workflow)", (1, 0, 1, 0, 0)),
+        ("o/r.x-1 [pypi]: SKIP (clean fingerprint)", (1, 0, 0, 0, 0)),
+        ("o/r.x-1 [pypi]: SKIP (selected collectors clean)", (1, 0, 0, 0, 0)),
+        ("o/r.x-1 [pypi]: FAIL HTTP 502: Bad Gateway", (1, 0, 0, 1, 0)),
+        ("o/r.x-1 [pypi]: OK (stopped at black_hole)", (1, 1, 0, 0, 0)),
+        ("o/r.x-1 [pypi]: OK", (1, 0, 0, 0, 0)),
+        ("o/r.x-1 [pypi]: FAIL governance,gfi", (1, 0, 0, 1, 0)),
+        ("o/r.x-1 [pypi]: FAIL ", (1, 0, 0, 1, 0)),
+        ("done: 2 clean, 0 with failures", none),
+        ("  WARN tree o/r.x-1: HTTP 502: Bad Gateway", none),
+    ]
+    for line, want in cases:
+        state = R.RunState()
+        R.count_line(state, line)
+        assert (state.checked, state.stopped, state.pruned, state.failed, state.total) == want, line
+
+
+def _p4_gather(argv):
+    """Stub gather.main printing the lines of probe P4 under --skip-ineligible: one project is stopped, one is OK."""
+    print("collectors: x; repos: 2")
+    print("o/ok [pypi]: OK")
+    print("o/bh [pypi]: OK (stopped at black_hole)")
+    print("done: 2 clean, 0 with failures")
+    return 0
+
+
+def test_counts_reset_each_run(home, kw):
+    state, seen = R.RunState(), []
+
+    def log(line):
+        if line.startswith("o/"):                                       # the counts as the app would read them
+            seen.append((state.run, state.checked, state.stopped))
+
+    assert R.run_layer(home, "L3g", "governance", _p4_gather, state=state, **{**kw, "log": log}) == 0
+    assert seen == [(1, 1, 0), (1, 2, 1), (2, 1, 0), (2, 2, 1)]        # the second run starts again from 0
+    assert _ex(home, "L3g.complete")                                    # two runs agree: the step completes at run 2
+
+
+def test_counts_reset_at_step_start(home, kw):
+    state, at_start = R.RunState(), []
+
+    def notify(name, **info):
+        if name == "step_start":
+            at_start.append((info["layer"], state.checked, state.total))
+
+    for layer, cols in (("L3g", "governance"), ("L3c", "commits_365d,issues_counts")):
+        assert R.run_layer(home, layer, cols, _p4_gather, state=state, notify=notify, **kw) == 0
+    assert at_start == [("L3g", 0, 0), ("L3c", 0, 0)]                   # the second step does not inherit the first's
+
+
+def test_step_done_carries_the_last_runs_counts(home, kw):
+    told = []
+
+    def notify(name, **info):
+        told.append((name, info))
+
+    R.run_layer(home, "L3g", "governance", _p4_gather, state=R.RunState(), notify=notify, **kw)
+    R.run_layer(home, "L3c", "commits_365d,issues_counts", _p4_gather, notify=notify, **kw)   # no state, no counts
+    assert [x for x in told if x[0] == "step_done"] == [
+        ("step_done", {"layer": "L3g", "checked": 2, "stopped": 1}), ("step_done", {"layer": "L3c"})]
+
+
 def test_two_agreeing_runs_complete_a_layer(home, kw):
     g = Gather(lambda c, n: 3)
     assert R.run_layer(home, "L1", PR, g, **kw) == 0

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from phone import entry, runner
 from tests.helpers.rig import GH, LAN, LAYERS, T0, WIFI, Rig, idle_rig
 
 pytestmark = pytest.mark.usefixtures("clean_env", "utc")
@@ -22,6 +23,37 @@ def keys(d: dict) -> set[str]:
     return set(d)
 
 
+def repo_lines(n: int, upto: int, stop_every: int = 0, prune_every: int = 0, fail_every: int = 0) -> list[str]:
+    """What gather prints for a run of ``n`` projects, up to the ``upto``-th: the size line, then one line per project
+    (every ``stop_every``-th stopped at the black-hole check, else every ``prune_every``-th pruned, else every
+    ``fail_every``-th failed)."""
+    out = [f"collectors: repo_object; repos: {n}"]
+    for i in range(1, upto + 1):
+        if stop_every and i % stop_every == 0:
+            what = "OK (stopped at black_hole)"
+        elif prune_every and i % prune_every == 0:
+            what = "SKIP (ineligible: stale)"
+        elif fail_every and i % fail_every == 0:
+            what = "FAIL governance"
+        else:
+            what = "OK"
+        out.append(f"o{i}/n{i} [pypi]: {what}")
+    return out
+
+
+#: What `gather.main --skip-ineligible` printed for the two projects of probe P4 (one stops at the black-hole check).
+P4_LINES = ["collectors: governance; repos: 2", "o/bh [pypi]: OK (stopped at black_hole)", "o/ok [pypi]: OK",
+            "done: 2 clean, 0 with failures"]
+
+
+def replay(rig: Rig, lines: list[str]) -> None:
+    """Count gather's lines into the run state, then let the monitor's progress sample them at once."""
+    rs = rig.eng.runstate
+    for line in lines:
+        runner.count_line(rs, line)
+    rig.eng.progress.tick(rs.layer, rs.run, rs.checked, rs.total, active=True, force=True)
+
+
 # ---- the schema -----------------------------------------------------------------------------------------------
 def test_the_snapshot_carries_every_field_of_the_contract_and_its_amendments(rig):
     rig.run_on()
@@ -31,7 +63,7 @@ def test_the_snapshot_carries_every_field_of_the_contract_and_its_amendments(rig
     assert s["schema"] == 1 and datetime.fromisoformat(s["now"]).timestamp() == pytest.approx(T0, abs=1)
     assert keys(s["reason"]) == {"code", "text", "resume_at", "override"}
     assert keys(s["progress"]) == {"step_index", "step_count", "step_name", "done", "total", "pct", "eta_text",
-                                   "last_progress_s"}
+                                   "last_progress_s", "checked", "stopped", "pruned", "failed"}
     assert keys(s["cycle"]) == {"started", "last_finished", "next_due", "interval_days", "steps"}
     assert keys(s["cycle"]["steps"][0]) == {"id", "name", "state", "pct", "finished"}
     assert keys(s["github"]) >= {"calls_left", "limit", "resets_in_s", "floor", "in_use"}
@@ -98,35 +130,22 @@ def test_a_token_that_has_not_been_tested_yet_says_so(tmp_path):
 
 
 # ---- working --------------------------------------------------------------------------------------------------------
-def test_working_numbers_are_measured_from_the_envelopes_against_the_candidate_count(rig):
-    rig.envelopes("pr_window", 0, 40)
+def test_working_numbers_are_measured_from_the_outcome_lines_against_the_candidate_count(rig):
     rig.run_on("L1")
+    replay(rig, ["o/r [pypi]: OK"] * 40)
     rig.clock.advance(12)
     s = rig.status()
     assert s["state"] == "working" and s["reason"]["code"] is None
     assert s["headline"] == "Collecting pull requests"
-    assert s["detail"] == "Step 1 of 7 · 40 of 100 projects"
+    assert s["detail"] == "Step 1 of 7 · 40 of 100 projects checked"
     p = s["progress"]
     assert (p["step_index"], p["step_count"], p["step_name"]) == (1, 7, "Pull requests")
     assert (p["done"], p["total"], p["pct"]) == (40, 100, 40)
-    assert p["last_progress_s"] == 12                                  # since the last envelope was counted
+    assert p["last_progress_s"] == 12                                  # since the last line was counted
     steps = {x["id"]: x for x in s["cycle"]["steps"]}
     assert steps["L1"]["state"] == "now" and steps["L1"]["pct"] == 40
     assert all(steps[i]["state"] == "later" for i in LAYERS[1:])
     assert s["github"]["in_use"] is True and s["cycle"]["next_due"] is None
-
-
-def test_the_count_is_the_fullest_collector_of_the_step_and_follows_the_files(rig):
-    rig.envelopes("github_meta", 0, 30)
-    rig.envelopes("pr_events", 0, 55)
-    rig.envelopes("tree", 0, 10)
-    rig.run_on("L0")
-    p = rig.status()["progress"]
-    assert (p["done"], p["total"], p["step_index"], p["step_name"]) == (55, 100, 2, "Project details")
-    rig.envelopes("pr_events", 55, 90)
-    rig.clock.advance(20)
-    rig.eng.tick()
-    assert rig.status()["progress"]["done"] == 90
 
 
 def test_the_owners_layer_selection_changes_the_step_numbers(rig):
@@ -147,7 +166,7 @@ def test_a_confirming_pass_and_mobile_data_and_a_restart_show_in_the_detail(tmp_
     r.run_on("L1", run=2)
     assert r.eng.restart_ts == T0
     s = r.status()
-    assert s["detail"] == ("Step 1 of 7 \u00b7 0 of 100 projects \u00b7 pass 2 \u00b7 using mobile data "
+    assert s["detail"] == ("Step 1 of 7 \u00b7 0 of 100 projects checked \u00b7 pass 2 \u00b7 using mobile data "
                            "\u00b7 restarted by Android at 10:00")
     assert s["network"]["type"] == "mobile" and s["network"]["mobile_allowed"] is True
     assert "Restarted by Android" in [e["text"] for e in r.eng.timeline.list(0, 50)]
@@ -163,7 +182,7 @@ def test_eta_says_the_estimate_improves_until_twenty_minutes_of_data_then_measur
     text = {}
     for tick in range(1, 101):
         r.clock.advance(15)
-        r.envelopes("pr_window", tick - 1, tick)
+        runner.count_line(r.eng.runstate, "o/r [pypi]: OK")
         r.eng.tick()
         if tick in (1, 79, 80, 100):
             text[tick] = r.status()["progress"]["eta_text"]
@@ -175,9 +194,9 @@ def test_eta_says_the_estimate_improves_until_twenty_minutes_of_data_then_measur
 def test_eta_does_not_count_time_spent_paused(tmp_path):
     r = Rig(tmp_path, candidates=1000)
     r.run_on("L1")
-    for tick in range(1, 6):
+    for _ in range(5):
         r.clock.advance(15)
-        r.envelopes("pr_window", tick - 1, tick)
+        runner.count_line(r.eng.runstate, "o/r [pypi]: OK")
         r.eng.tick()
     r.eng.pause()
     for _ in range(200):                                               # fifty minutes of pause
@@ -186,6 +205,103 @@ def test_eta_does_not_count_time_spent_paused(tmp_path):
     r.eng.resume()
     assert r.eng.progress._active_s < 120                              # the pause added nothing to the active time
     assert r.status()["progress"]["eta_text"] == "Estimate improves as it runs"
+
+
+def test_progress_counts_outcome_lines(rig):
+    rig.run_on("L3g")
+    replay(rig, P4_LINES)                           # probe P4: one project stops at the black-hole check, no envelope
+    s = rig.status()
+    p = s["progress"]
+    assert (p["done"], p["total"], p["pct"]) == (2, 2, 100)
+    assert (p["checked"], p["stopped"], p["pruned"], p["failed"]) == (2, 1, 0, 0)
+    assert s["detail"] == "Step 4 of 7 \u00b7 2 of 2 projects checked \u00b7 1 needs only the pull-request check"
+
+
+def test_one_stopped_project_reads_needs(rig):
+    rig.run_on("L3g")
+    replay(rig, P4_LINES)
+    assert rig.status()["detail"].endswith("\u00b7 1 needs only the pull-request check")
+
+
+def test_a_failed_project_counts_as_checked(rig):
+    rig.run_on("L4")
+    replay(rig, repo_lines(100, 100, stop_every=14, fail_every=50))
+    s = rig.status()
+    p = s["progress"]
+    assert (p["checked"], p["stopped"], p["pruned"], p["failed"], p["total"], p["pct"]) == (100, 7, 0, 2, 100, 100)
+    assert s["detail"] == "Step 6 of 7 \u00b7 100 of 100 projects checked \u00b7 7 need only the pull-request check"
+    assert p["eta_text"] == "Finishing this step"
+
+
+def test_pruned_projects_count_but_say_nothing(rig):
+    rig.eng.settings.set({"layers": ["L0", "LK"]})
+    rig.run_on("LK")
+    replay(rig, repo_lines(40, 40, prune_every=5))
+    s = rig.status()
+    p = s["progress"]
+    assert (p["checked"], p["stopped"], p["pruned"], p["failed"], p["total"], p["pct"]) == (40, 0, 8, 0, 40, 100)
+    assert s["detail"] == "Step 2 of 2 \u00b7 40 of 40 projects checked"
+
+
+def test_the_four_counts_are_zero_when_no_step_runs_and_in_the_cold_snapshot(rig):
+    rig.run_on("L2")
+    replay(rig, repo_lines(10, 10, stop_every=2, prune_every=3, fail_every=5))
+    rs = rig.eng.runstate
+    assert (rs.stopped, rs.pruned, rs.failed) == (5, 2, 1)             # the last pass's counts stay on the run state
+    rs.mode, rs.layer = "idle", None
+    p = rig.status()["progress"]
+    assert (p["checked"], p["stopped"], p["pruned"], p["failed"]) == (0, 0, 0, 0)
+    cold = json.loads(entry._cold_status())["progress"]
+    assert keys(cold) == keys(p)
+    assert (cold["checked"], cold["stopped"], cold["pruned"], cold["failed"]) == (0, 0, 0, 0)
+
+
+def test_total_is_the_runs_repo_count(rig):
+    rig.run_on("L1")                                # the candidates file has 100 rows; gather drops two illegal names
+    replay(rig, repo_lines(98, 98))
+    p = rig.status()["progress"]
+    assert (p["done"], p["total"], p["pct"]) == (98, 98, 100)
+    assert p["eta_text"] == "Finishing this step"
+
+
+def test_total_falls_back_to_the_candidate_count(rig):
+    rig.run_on("L1")                                # before gather prints its size line
+    s = rig.status()
+    assert (s["progress"]["done"], s["progress"]["total"]) == (0, 100)
+    assert s["detail"] == "Step 1 of 7 \u00b7 0 of 100 projects checked"
+
+
+def test_eta_reaches_finishing(tmp_path):
+    r = Rig(tmp_path, candidates=120)
+    r.run_on("L1")
+    text = {}
+    for tick in range(1, 121):
+        r.clock.advance(15)
+        runner.count_line(r.eng.runstate, "o/r [pypi]: OK")             # one project a tick
+        r.eng.tick()
+        if tick in (1, 79, 80, 100, 120):
+            text[tick] = r.status()["progress"]["eta_text"]
+    assert text[1] == text[79] == "Estimate improves as it runs"
+    assert text[80] == "About 10 minutes left in this step"
+    assert text[100] == "About 5 minutes left in this step"
+    assert text[120] == "Finishing this step"                              # checked == total, not "less than a minute"
+
+
+def test_a_new_pass_starts_the_estimate_afresh(tmp_path):
+    r = Rig(tmp_path, candidates=120)
+    r.run_on("L1")
+    rs = r.eng.runstate
+    for _ in range(80):                                                 # twenty minutes of lines in pass 1
+        r.clock.advance(15)
+        runner.count_line(rs, "o/r [pypi]: OK")
+        r.eng.tick()
+    assert r.status()["progress"]["eta_text"] == "About 10 minutes left in this step"
+    rs.run = 2                                                          # what run_layer does at the start of a pass
+    rs.checked = rs.stopped = rs.pruned = rs.failed = rs.total = 0
+    r.clock.advance(15)
+    r.eng.tick()
+    p = r.status()["progress"]
+    assert p["done"] == 0 and p["eta_text"] == "Estimate improves as it runs"
 
 
 # ---- waiting, retrying ----------------------------------------------------------------------------------------------
