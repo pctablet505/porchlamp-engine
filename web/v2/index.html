@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <!-- The page's own scripts only (no inline, no eval). connect-src names one
+       external origin: api.github.com, which only the opt-in live check
+       contacts (livecheck.js). Mirrors porchlamp/serve/security.py. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Porchlamp rankings: find the projects that leave the light on</title>
   <meta name="description" content="Porchlamp rankings: 11,000 open-source projects ranked by what happens to a stranger's pull request, not by stars. Find the projects that leave the light on.">

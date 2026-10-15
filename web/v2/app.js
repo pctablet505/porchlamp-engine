@@ -67,6 +67,7 @@ import {
   flattenGroups,
 } from "./views/notranked.js";
 import { renderDrawer, classifyKindForLens } from "./views/drawer.js";
+import { parseRepoSlug, runLiveCheck } from "./livecheck.js";
 import { renderBrand } from "./components/brand.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
 import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel, sortColumnLabel, syncHeaderSortDom } from "./components/table.js";
@@ -974,6 +975,9 @@ export function boot(win = window, doc = document) {
         else if (doc.activeElement.matches?.(".drawer-github-link")) restoreSelector = ".drawer-github-link";
         else if (doc.activeElement.matches?.("[data-repo-detail-retry]")) restoreSelector = "[data-repo-detail-retry]";
         else if (doc.activeElement.matches?.("[data-evidence-retry]")) restoreSelector = "[data-evidence-retry]";
+        // The live check replaces its own button (button -> "Asking GitHub…" -> result):
+        // keep focus on its panel rather than jumping to the close button.
+        else if (doc.activeElement.closest?.("[data-live-check-region]")) restoreSelector = "[data-live-check-region]";
         else if (doc.activeElement.tagName === "SUMMARY") {
           restoreSummaryIndex = Array.from(drawerRoot.querySelectorAll("summary")).indexOf(doc.activeElement);
         }
@@ -1151,6 +1155,36 @@ export function boot(win = window, doc = document) {
     pushUrl(store.getState());
     loadRepoDetail(owner, name);
     loadEvidence(owner, name);
+  }
+
+  // ------------------------------------- live check (outside the snapshot)
+  /** D-GATE-2's fork question, from Porchlamp's own snapshot (no GitHub request): true, false, or null. */
+  async function isInUniverse(owner, name) {
+    const result = await api.fetchRepoDetail(owner, name);
+    if (result.ok) return true;
+    return result.error && result.error.status === 404 ? false : null;
+  }
+
+  /**
+   * Runs ONLY from the button the not-in-snapshot drawer shows
+   * (components/livepanel.js): the site contacts api.github.com for no other
+   * reason. One check per repository at a time; a finished one is kept in
+   * memory (`liveCheckByKey`) until the page reloads, so reopening the drawer
+   * costs nothing.
+   */
+  function startLiveCheck(rawKey) {
+    const slug = parseRepoSlug(rawKey);
+    if (!slug) return;
+    const key = `${slug.owner}/${slug.name}`;
+    const existing = store.getState().liveCheckByKey[key];
+    if (existing && existing.status === "loading") return;
+    store.dispatch({ type: "LIVE_CHECK_LOADING", key });
+    const fetchImpl = typeof win.fetch === "function" ? win.fetch.bind(win) : undefined;
+    runLiveCheck(slug.owner, slug.name, { fetchImpl, isInUniverse }).then((outcome) => {
+      store.dispatch({ type: "LIVE_CHECK_DONE", key, outcome });
+      const open = parseRepoSlug(store.getState().repo || "");
+      if (open && `${open.owner}/${open.name}` === key) announce(copy.liveCheckAnnouncement(outcome));
+    });
   }
 
   function closeDrawer() {
@@ -1686,6 +1720,19 @@ export function boot(win = window, doc = document) {
     }
     if (evt.target.closest("[data-drawer-close]") || evt.target.matches("[data-drawer-backdrop]")) {
       closeDrawer();
+      return;
+    }
+    const liveCheckBtn = evt.target.closest("[data-live-check]");
+    if (liveCheckBtn) {
+      startLiveCheck(liveCheckBtn.dataset.liveCheck);
+      return;
+    }
+    const liveOpenBtn = evt.target.closest("[data-live-open]");
+    if (liveOpenBtn) {
+      // GitHub knows the repository by another name (renamed, or different
+      // casing) -- which the snapshot may well hold: open that drawer.
+      const slug = parseRepoSlug(liveOpenBtn.dataset.liveOpen);
+      if (slug) openRepo(slug.owner, slug.name);
       return;
     }
     if (evt.target.closest("[data-evidence-retry]")) {

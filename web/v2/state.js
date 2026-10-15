@@ -191,6 +191,10 @@ export function defaultState() {
     repoDetailByKey: {}, // "owner/name" -> the flat RepoDetailResponse (kind is derived client-side, views/drawer.js::classifyKind)
     repoDetailLoading: false,
     repoDetailError: null, // { endpoint, status, detail } for the CURRENTLY open repo, if it failed
+    // Opt-in live checks for repositories outside the snapshot (web/v2/livecheck.js),
+    // kept in memory until the page reloads, so reopening a drawer never spends the visitor's
+    // GitHub allowance twice: "owner/name" -> { status: "loading" } | { status: "done", outcome }.
+    liveCheckByKey: {},
 
     selectedRepoKey: null, // "owner/name" — J/K cursor; survives patches (keyed, not index-based)
     announcement: "", // aria-live polite text
@@ -643,6 +647,12 @@ export function reduce(state, action) {
       if (!isCurrentRepo) return state;
       return { ...state, repoDetailLoading: false, repoDetailError: action.error };
     }
+
+    // ---------------- live check for a repository outside the snapshot (C)
+    case "LIVE_CHECK_LOADING":
+      return { ...state, liveCheckByKey: { ...state.liveCheckByKey, [action.key]: { status: "loading" } } };
+    case "LIVE_CHECK_DONE":
+      return { ...state, liveCheckByKey: { ...state.liveCheckByKey, [action.key]: { status: "done", outcome: action.outcome } } };
 
     // ------------------------------------------------------------ Matrix (B)
     case "MATRIX_LOADING":

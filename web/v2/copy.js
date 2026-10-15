@@ -276,6 +276,10 @@ export function searchNotRankedLabel(query) {
 export function searchRankedLabel(query) {
   return `Search Ranked for \u201c${query}\u201d`;
 }
+/** Offered when an empty search is a repository name: opens its drawer, which says whether the snapshot has it. */
+export function lookUpRepoLabel(repoKey) {
+  return `Look up ${repoKey}`;
+}
 export const NOT_RANKED_TRUNCATED = "This list is cut short. Search by owner or name to find a specific project.";
 
 // The API's error body carries a `detail` string (`{"error": {endpoint,
@@ -436,6 +440,143 @@ export const DRAWER_COMPARE_LABEL = "Compare";
 export const DRAWER_NO_EVIDENCE_TEXT = "No detailed evidence telemetry recorded for this repository.";
 export const DRAWER_LOADING_TEXT = "Loading evidence…";
 export const DRAWER_NOT_FOUND_TEXT = "This repository could not be found in the current snapshot.";
+
+// --------------------------------------------------------------------- //
+// Live check: an opt-in look at public GitHub data for a repository the
+// snapshot does not hold (06 §3 C; web/v2/livecheck.js). Every sentence
+// names only what the check itself read -- never a score, a rank or a tier.
+// --------------------------------------------------------------------- //
+export function liveNotInSnapshotText(repoKey, snapshotId) {
+  return snapshotId
+    ? `${repoKey} is not in the ${snapshotId} snapshot, so Porchlamp has no score for it.`
+    : `${repoKey} is not in this snapshot, so Porchlamp has no score for it.`;
+}
+export const LIVE_CHECK_HEADING = "Live check from GitHub";
+export const LIVE_CHECK_BUTTON_LABEL = "Check it live on GitHub";
+export function liveCheckNoteText(requests) {
+  return `Your browser asks GitHub directly: ${requests} requests to api.github.com, out of the 60 an hour GitHub allows your network without signing in. Nothing is sent to Porchlamp.`;
+}
+export const LIVE_CHECK_LOADING_TEXT = "Asking GitHub\u2026";
+export const LIVE_CHECK_DISCLAIMER =
+  "Not a Porchlamp score, and not part of the verified snapshot: these are the eligibility checks your browser can run on public GitHub data right now. Scoring and the black-hole check need the full pipeline.";
+export function liveCheckedAtText(isoTime, requests) {
+  const when = typeof isoTime === "string" && isoTime.length >= 16 ? `${isoTime.slice(0, 10)} ${isoTime.slice(11, 16)} UTC` : MISSING_VALUE;
+  return `Checked ${when}, with ${requests} requests from your browser to api.github.com.`;
+}
+export function liveRenamedText(fullName) {
+  return `GitHub knows this repository as ${fullName}.`;
+}
+export function liveOpenCanonicalLabel(fullName) {
+  return `Open ${fullName}`;
+}
+//: The gate names the Methodology page shows (methodology.json `gates[].name`).
+export const LIVE_GATE_NAMES = Object.freeze({
+  "D-GATE-1": "Software project",
+  "D-GATE-2": "Not archived, not a mirror, not a fork",
+  "D-GATE-3": "Licensed",
+  "D-GATE-4": "Vitality",
+  "D-GATE-5": "Not a black hole",
+  "D-GATE-6": "PR workflow",
+});
+export const LIVE_STATUS_LABELS = Object.freeze({
+  pass: "Passes",
+  fail: "Fails",
+  undecided: "Can't tell",
+  routed: "Reviewed off GitHub",
+  not_checked: "Not checked live",
+});
+/** One sentence per `livecheck.js::evaluateLiveGates` reason code, from the facts in `detail`. */
+export function liveReasonText(reason, detail = {}) {
+  switch (reason) {
+    case "manifest_found":
+      return `Found ${detail.path}, a recognised build or package manifest.`;
+    case "no_manifest":
+      return `No recognised build or package manifest within ${detail.depth} folders of the top level.`;
+    case "tree_truncated":
+      return "GitHub sent only part of the file list, and no manifest was in that part.";
+    case "tree_unreadable":
+      return "GitHub did not return the file list.";
+    case "original":
+      return "Not archived, not a mirror and not a fork.";
+    case "archived":
+      return "Archived on GitHub.";
+    case "mirror":
+      return "A mirror of a repository hosted elsewhere.";
+    case "fork_parent_in_universe":
+      return `A fork of ${detail.parent}, which Porchlamp already covers.`;
+    case "fork_parent_outside":
+      return `A fork of ${detail.parent}, which Porchlamp does not cover, so the fork counts on its own.`;
+    case "fork_parent_unknown":
+      return `A fork of ${detail.parent}; could not tell whether Porchlamp covers the original.`;
+    case "osi_spdx":
+      return `${detail.spdx}, an OSI-approved license.`;
+    case "license_file":
+      return `GitHub could not name the license, but ${detail.file} is at the top level.`;
+    case "not_osi":
+      return `${detail.spdx} is not an OSI-approved license.`;
+    case "no_license":
+      return "No license GitHub recognises, and no LICENSE or COPYING file at the top level.";
+    case "license_unknown":
+      return "GitHub could not name the license, and the file list was too incomplete to look for a license file.";
+    case "human_commits":
+      return `${detail.count}${detail.more ? "+" : ""} commits by people on the default branch in the last ${detail.days} days.`;
+    case "no_human_commits":
+      return `No commits by people on the default branch in the last ${detail.days} days.`;
+    case "commits_partial":
+      return `The ${detail.pageSize} most recent commits are all by bots, and the check reads no further.`;
+    case "commits_unreadable":
+      return "GitHub did not return the commit history.";
+    case "needs_pipeline":
+      return "Needs the replies and reviews on every outside pull request, which only the full pipeline reads.";
+    case "decided_external_pr":
+      return detail.bot
+        ? `Pull request #${detail.number}, from a bot account outside the maintainer team and opened in the last ${detail.days} days, has been merged or closed. The snapshot's rule counts bot pull requests too.`
+        : `Pull request #${detail.number}, from an outside contributor and opened in the last ${detail.days} days, has been merged or closed.`;
+    case "off_platform_marker":
+      return "No outside pull request has been decided on GitHub, but the project's patch-submission guide sends contributions to another review process.";
+    case "no_external_pr":
+      return `No pull request from an outside contributor opened in the last ${detail.days} days has been merged or closed.`;
+    case "prs_partial":
+      return `None of the ${detail.pageSize} most recently updated closed pull requests is a decided outside one, and the check reads no further.`;
+    case "prs_marker_unknown":
+      return "No outside pull request has been decided, and the file list was too incomplete to look for another review process.";
+    case "prs_unreadable":
+      return "GitHub did not return the pull requests.";
+    default:
+      return MISSING_VALUE;
+  }
+}
+export const LIVE_FACT_LABELS = Object.freeze({
+  stars: "Stars (GitHub's count, not audited)",
+  language: "Main language",
+  created: "Created",
+  pushed: "Last push",
+  license: "License (SPDX)",
+});
+/** Why a live check could not run; `nowMs` turns a rate-limit reset into minutes. */
+export function liveErrorText(error, nowMs = Date.now()) {
+  const kind = error && error.kind;
+  if (kind === "rate_limited") {
+    if (error.resetAt) {
+      const minutes = Math.max(1, Math.ceil((error.resetAt * 1000 - nowMs) / 60000));
+      return `GitHub's hourly allowance for your network is used up. It resets in about ${minutes} minute${minutes === 1 ? "" : "s"}.`;
+    }
+    return "GitHub's hourly allowance for your network is used up. Try again later.";
+  }
+  if (kind === "not_found") return "GitHub has no public repository by this name.";
+  if (kind === "unavailable") return "GitHub has made this repository unavailable.";
+  if (kind === "timeout") return "GitHub did not answer in time.";
+  if (kind === "network") return "Could not reach GitHub.";
+  if (kind === "http") return `GitHub answered with an error (status ${error.status}).`;
+  return "This is not a repository name GitHub accepts.";
+}
+export function liveCheckAnnouncement(outcome) {
+  if (!outcome || !outcome.ok) return liveErrorText(outcome && outcome.error);
+  // D-GATE-5 is never decided live: counting it would read as a failure that never happened.
+  const run = outcome.result.checks.filter((c) => c.status !== "not_checked");
+  const passed = run.filter((c) => c.status === "pass" || c.status === "routed").length;
+  return `Live check done: ${passed} of ${run.length} checks pass.`;
+}
 export function drawerErrorText(endpoint, status, detail) {
   const base = `Could not load evidence from ${endpoint} (status ${status}).`;
   return detail ? `${base} ${appendSentence(detail)}` : base;

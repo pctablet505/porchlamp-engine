@@ -32,6 +32,7 @@
 import * as copy from "../copy.js";
 import { renderCoverageBadge, renderQuadrant, renderTierCell, renderSuspicionIcon } from "../components/badge.js";
 import { PILLAR_ORDER } from "../components/table.js";
+import { renderNotInSnapshot } from "../components/livepanel.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -628,9 +629,9 @@ export function renderDrawer(state, opts = {}) {
     // A 404 from `GET /v1/porchlamp/repos/{o}/{n}` arrives as
     // `state.repoDetailError` like any other non-2xx
     // (api.js/app.js::loadRepoDetail treat them the same way), but it is
-    // a genuine not-found: retrying would 404 again, so it gets
-    // `DRAWER_NOT_FOUND_TEXT` and no retry button. Every OTHER status
-    // (500, timeout, a network failure) keeps the retry banner.
+    // a genuine not-found: retrying would 404 again, so it gets the
+    // not-in-snapshot panel (components/livepanel.js) and no retry button.
+    // Every OTHER status (500, timeout, a network failure) keeps the retry banner.
     if (state.repoDetailLoading) {
       body = `<p>${escapeHtml(copy.DRAWER_LOADING_TEXT)}</p>`;
     } else if (state.repoDetailError && state.repoDetailError.status !== 404) {
@@ -638,7 +639,12 @@ export function renderDrawer(state, opts = {}) {
       body =
         `<div class="error-banner" role="alert">${escapeHtml(copy.drawerErrorText(err.endpoint, err.status, err.detail))}` +
         ` <button type="button" class="icon-button" data-repo-detail-retry="true">${escapeHtml(copy.RETRY_LABEL)}</button></div>`;
+    } else if (state.repoDetailError) {
+      // A confirmed 404 -- not in the snapshot: say so, and offer the opt-in
+      // live check (components/livepanel.js). Rendering it fetches nothing.
+      body = renderNotInSnapshot(state, state.repo);
     } else {
+      // No record and no answer to explain it (a malformed key never fetches).
       body = `<div class="empty-state">${escapeHtml(copy.DRAWER_NOT_FOUND_TEXT)}</div>`;
     }
     const fallbackTitle = name ? `${escapeHtml(owner)}/${escapeHtml(name)}` : escapeHtml(state.repo);

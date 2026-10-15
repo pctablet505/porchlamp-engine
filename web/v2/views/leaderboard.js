@@ -34,6 +34,7 @@ import {
 } from "../components/table.js";
 import { patchRows } from "../components/patch.js";
 import { PAGE_SIZES } from "../state.js";
+import { parseRepoSlug } from "../livecheck.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -65,11 +66,20 @@ export function renderEmptyState(gatedCount, unratedCount, { query = "", ecosyst
 }
 
 export function renderFilteredEmpty(query, ecosystem, otherList, what) {
+  // A search that is a repository name gets one more way out: open its drawer
+  // (the generic [data-owner][data-name] click), which shows the record when the
+  // snapshot holds it under another list, else offers the opt-in live check.
+  const slug = query ? parseRepoSlug(query) : null;
   const actions =
     `<button type="button" class="link-button" data-clear-filters="true">${escapeHtml(copy.CLEAR_FILTERS_LABEL)}</button>` +
     (query
       ? `<button type="button" class="link-button" data-search-${otherList}="true">${escapeHtml(
           otherList === "notranked" ? copy.searchNotRankedLabel(query) : copy.searchRankedLabel(query)
+        )}</button>`
+      : "") +
+    (slug
+      ? `<button type="button" class="link-button" data-owner="${escapeHtml(slug.owner)}" data-name="${escapeHtml(slug.name)}">${escapeHtml(
+          copy.lookUpRepoLabel(`${slug.owner}/${slug.name}`)
         )}</button>`
       : "");
   return (

@@ -1,0 +1,296 @@
+{
+  "_comment": "Gate evidence rules pinned for the engine (porchlamp.core.commit_domains.is_bot; porchlamp.derive.gate_evidence._has_recognized_manifest, _has_license_file, _has_off_platform_marker) and their port web/v2/livecheck.js. Expected values were produced by the Python functions; tests/test_ui_livecheck_port.py and web/v2/tests/livecheck.test.mjs each check their own implementation against this file.",
+  "bots": [
+    {
+      "type": "Bot",
+      "login": "",
+      "email": "",
+      "expected": true
+    },
+    {
+      "type": "",
+      "login": "dependabot[bot]",
+      "email": "",
+      "expected": true
+    },
+    {
+      "type": "",
+      "login": "Dependabot",
+      "email": "",
+      "expected": true
+    },
+    {
+      "type": "User",
+      "login": "renovate",
+      "email": "",
+      "expected": true
+    },
+    {
+      "type": "User",
+      "login": "stale",
+      "email": "",
+      "expected": true
+    },
+    {
+      "type": "User",
+      "login": "octocat",
+      "email": "",
+      "expected": false
+    },
+    {
+      "type": "User",
+      "login": "botanist",
+      "email": "",
+      "expected": false
+    },
+    {
+      "type": "User",
+      "login": "my-bot",
+      "email": "",
+      "expected": false
+    },
+    {
+      "type": "",
+      "login": "",
+      "email": "49699333+dependabot[bot]@users.noreply.github.com",
+      "expected": true
+    },
+    {
+      "type": "",
+      "login": "",
+      "email": "github-actions@github.com",
+      "expected": true
+    },
+    {
+      "type": "",
+      "login": "",
+      "email": "  Stale@Example.com  ",
+      "expected": true
+    },
+    {
+      "type": "",
+      "login": "",
+      "email": "renovate[bot]@example.com",
+      "expected": true
+    },
+    {
+      "type": "",
+      "login": "",
+      "email": "alice@example.com",
+      "expected": false
+    },
+    {
+      "type": "",
+      "login": "",
+      "email": "no-at-sign",
+      "expected": false
+    },
+    {
+      "type": "",
+      "login": "",
+      "email": "a@b@renovate",
+      "expected": false
+    },
+    {
+      "type": "",
+      "login": "",
+      "email": "",
+      "expected": false
+    },
+    {
+      "type": "Organization",
+      "login": "acme",
+      "email": "bot@acme.example",
+      "expected": false
+    }
+  ],
+  "manifests": [
+    {
+      "paths": [
+        "package.json"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "a/b/Cargo.toml"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "a/b/c/Cargo.toml"
+      ],
+      "expected": false
+    },
+    {
+      "paths": [
+        "build.gradle.kts"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "src/app.csproj"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "README.md",
+        "docs/index.md"
+      ],
+      "expected": false
+    },
+    {
+      "paths": [
+        "makefile"
+      ],
+      "expected": false
+    },
+    {
+      "paths": [
+        "Makefile"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [],
+      "expected": false
+    },
+    {
+      "paths": [
+        "x/requirements.txt"
+      ],
+      "expected": false
+    },
+    {
+      "paths": [
+        "foo.gemspec"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "deep/er/still/pyproject.toml",
+        "setup.py"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "tools/BUILD.bazel"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "src/package.json.bak"
+      ],
+      "expected": false
+    }
+  ],
+  "license_files": [
+    {
+      "paths": [
+        "LICENSE"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "LICENSE.md"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "license.txt"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "COPYING"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "COPYING.LESSER"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "docs/LICENSE"
+      ],
+      "expected": false
+    },
+    {
+      "paths": [
+        "LICENSES"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "UNLICENSE"
+      ],
+      "expected": false
+    },
+    {
+      "paths": [
+        "README",
+        "src/main.c"
+      ],
+      "expected": false
+    },
+    {
+      "paths": [],
+      "expected": false
+    },
+    {
+      "paths": [
+        "Licence"
+      ],
+      "expected": false
+    }
+  ],
+  "markers": [
+    {
+      "paths": [
+        "Documentation/process/submitting-patches.rst"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "documentation/process/submitting-patches.md"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "docs/process/submitting-patches.rst"
+      ],
+      "expected": false
+    },
+    {
+      "paths": [
+        "kernel/Documentation/process/submitting-patches.rst"
+      ],
+      "expected": true
+    },
+    {
+      "paths": [
+        "Documentation/process"
+      ],
+      "expected": false
+    },
+    {
+      "paths": [],
+      "expected": false
+    }
+  ]
+}

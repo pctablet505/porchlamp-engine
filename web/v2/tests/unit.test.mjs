@@ -654,25 +654,33 @@ test("compareShellKey: a chip-count shape transition (empty / partial-min / tabl
 });
 
 // --------------------------------------------------------------------- //
-// Repo-detail error rendering: a 404 renders copy.DRAWER_NOT_FOUND_TEXT
-// without a retry button, while 500/timeout/network errors render the
-// retry banner.
+// Repo-detail error rendering: a 404 renders the not-in-snapshot panel
+// (components/livepanel.js) without a retry button, while
+// 500/timeout/network errors render the retry banner.
 // --------------------------------------------------------------------- //
 
 function drawerStateFor(overrides) {
   return { ...defaultState(), repo: "nobody/nothing", repoDetailByKey: {}, repoDetailLoading: false, repoDetailError: null, ...overrides };
 }
 
-test("renderDrawer: a 404 (genuinely not found) shows copy.DRAWER_NOT_FOUND_TEXT and no retry button", () => {
+test("renderDrawer: a 404 (genuinely not found) shows the not-in-snapshot panel with the live-check button and no retry button", () => {
   const html = renderDrawer(drawerStateFor({ repoDetailError: { endpoint: "/v1/porchlamp/repos/nobody/nothing", status: 404, detail: "no such repo: nobody/nothing" } }));
-  assert.ok(html.includes(copy.DRAWER_NOT_FOUND_TEXT), "must render the not-found copy for a 404");
+  assert.ok(html.includes(escapeHtml(copy.liveNotInSnapshotText("nobody/nothing", null))), "must say the repository is not in the snapshot");
+  assert.ok(html.includes('data-live-check="nobody/nothing"'), "a 404 offers the opt-in live check");
   assert.ok(!html.includes("data-repo-detail-retry"), "a genuine 404 must not offer a retry button (it will 404 again)");
+});
+
+test("renderDrawer: no record and no error (a malformed key never fetches) keeps the plain not-found copy and offers no live check", () => {
+  const html = renderDrawer(drawerStateFor({}));
+  assert.ok(html.includes(copy.DRAWER_NOT_FOUND_TEXT));
+  assert.ok(!html.includes("data-live-check"));
 });
 
 test("renderDrawer: a non-404 error (500/timeout/network) shows the retry banner, not the not-found copy", () => {
   for (const status of [500, "timeout", 0]) {
     const html = renderDrawer(drawerStateFor({ repoDetailError: { endpoint: "/v1/porchlamp/repos/nobody/nothing", status, detail: "boom" } }));
     assert.ok(!html.includes(copy.DRAWER_NOT_FOUND_TEXT), `status=${status}: must not show the not-found copy`);
+    assert.ok(!html.includes("data-live-check"), `status=${status}: must not offer the live check (the snapshot may hold it)`);
     assert.ok(html.includes("data-repo-detail-retry"), `status=${status}: must offer a retry button`);
   }
 });
@@ -681,6 +689,7 @@ test("renderDrawer: still loading shows the loading copy, neither not-found nor 
   const html = renderDrawer(drawerStateFor({ repoDetailLoading: true }));
   assert.ok(html.includes(copy.DRAWER_LOADING_TEXT));
   assert.ok(!html.includes(copy.DRAWER_NOT_FOUND_TEXT));
+  assert.ok(!html.includes("data-live-check"));
   assert.ok(!html.includes("data-repo-detail-retry"));
 });
 
