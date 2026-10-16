@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://porchlamp.org/sitemap.xml
