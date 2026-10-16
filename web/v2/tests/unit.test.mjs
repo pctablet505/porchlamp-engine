@@ -7,7 +7,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -22,7 +22,6 @@ import {
   reduce,
   parseSearch,
   serializeSearch,
-  canonicalHrefForState,
   VALID_PERSONAS,
   VALID_TABS,
   countRankChanges,
@@ -1285,42 +1284,31 @@ test('SEO: "Porchlamp rankings" leads the title, description, static h1, structu
   assert.match(view, /id="leaderboard-heading"[^`]*\$\{escapeHtml\(copy\.LEADERBOARD_HEADING\)\}/);
 });
 
-test("SEO: canonicalHrefForState, robots.txt, sitemap.xml, Search Console verification, and U-1/U-2/U-6 static fallback", () => {
+test("SEO: static canonical, no subpath robots.txt, canonical-only sitemap, lean head, Search Console verification, and U-1/U-2/U-6 static fallback", () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const webRoot = path.join(here, "..");
   const html = readFileSync(path.join(webRoot, "index.html"), "utf8");
   const base = html.match(/<link rel="canonical" href="([^"]*)">/)[1];
 
-  // 1. canonicalHrefForState strips pre-existing query strings and serializes canonical state
-  assert.equal(canonicalHrefForState("", defaultState()), "");
-  assert.equal(canonicalHrefForState(base, defaultState()), base);
-  assert.equal(
-    canonicalHrefForState(`${base}?persona=balanced&page=1`, { ...defaultState(), ...parseSearch("?persona=balanced&page=1") }),
-    base,
-    "default persona and page=1 canonicalize to bare site root"
-  );
-  assert.equal(
-    canonicalHrefForState(base, { ...defaultState(), ...parseSearch("?persona=first_timer") }),
-    `${base}?persona=first_timer`
-  );
-  assert.equal(
-    canonicalHrefForState(base, { ...defaultState(), ...parseSearch("?tab=methodology") }),
-    `${base}?tab=methodology`
-  );
+  // 1. The canonical link is static: app.js never rewrites it, so every query view consolidates to the site root.
+  const appSrc = readFileSync(path.join(webRoot, "app.js"), "utf8");
+  assert.doesNotMatch(appSrc, /canonical[^\n]*\.setAttribute\(|setAttribute\(\s*["']href["'][^\n]*canonical/i, "app.js must not rewrite rel=canonical");
+  assert.doesNotMatch(appSrc, /canonicalHrefForState|syncCanonicalLink/, "no canonical rewrite helper in app.js");
 
-  // 2. robots.txt allows root and multi-engine crawlers, and points to the canonical sitemap.xml
-  const robots = readFileSync(path.join(webRoot, "robots.txt"), "utf8");
-  assert.match(robots, /^User-agent: \*\nAllow: \/\n\n/, "robots.txt header");
-  for (const bot of ["Googlebot", "Bingbot", "DuckDuckBot", "Bravebot", "Slurp", "Yandex", "Applebot", "OAI-SearchBot", "ChatGPT-User", "PerplexityBot", "ClaudeBot"]) {
-    assert.ok(robots.includes(`User-agent: ${bot}\nAllow: /`), `robots.txt allows ${bot}`);
-  }
-  assert.ok(robots.trim().endsWith(`Sitemap: ${base}sitemap.xml`), "robots.txt names canonical sitemap");
+  // 2. No robots.txt under the subpath: crawlers read robots.txt only at the host root, so a copy here is inert.
+  assert.ok(!existsSync(path.join(webRoot, "robots.txt")), "web/v2/robots.txt must not exist");
+
+  // 2a. Lean head: no meta keywords, no googlebot/bingbot copies of the robots tag, no hreflang on a one-language site.
+  assert.doesNotMatch(html, /<meta name="(keywords|googlebot|bingbot)"/, "no ignored or duplicate meta tags");
+  assert.doesNotMatch(html, /hreflang=/, "no hreflang links");
+  assert.match(html, /<meta name="robots" content="index, follow/, "one robots meta tag stays");
 
   // 2b. JSON-LD @graph, feed.xml, llms.txt, and IndexNow key file
   const ldMatch = html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/);
   assert.ok(ldMatch, "JSON-LD structured data block present in index.html");
   const ldJson = JSON.parse(ldMatch[1]);
   assert.ok(Array.isArray(ldJson["@graph"]) && ldJson["@graph"].length >= 5, "JSON-LD @graph contains rich entities");
+  assert.ok(!ldJson["@graph"].some((n) => n["@type"] === "FAQPage"), "no FAQPage markup for text the page does not show");
   const feedXml = readFileSync(path.join(webRoot, "feed.xml"), "utf8");
   assert.ok(feedXml.includes(`<id>${base}</id>`), "feed.xml uses canonical base id");
   const llmsTxt = readFileSync(path.join(webRoot, "llms.txt"), "utf8");
@@ -1333,30 +1321,12 @@ test("SEO: canonicalHrefForState, robots.txt, sitemap.xml, Search Console verifi
   const gsc = readFileSync(path.join(webRoot, gscFile), "utf8").trim();
   assert.equal(gsc, `google-site-verification: ${gscFile}`);
 
-  // 4. sitemap.xml: every <loc> starts with base, is unique, and round-trips through canonicalHrefForState
+  // 4. sitemap.xml lists canonical addresses only (today: the site root), with no priority or changefreq.
   const sitemap = readFileSync(path.join(webRoot, "sitemap.xml"), "utf8");
   const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
-  assert.equal(locs.length, 16, "root + 4 non-default personas + 6 ecosystems + 5 non-default primary tabs");
-  assert.equal(new Set(locs).size, locs.length, "no duplicate <loc> in sitemap.xml");
-  for (const loc of locs) {
-    assert.ok(loc.startsWith(base), `sitemap <loc> starts with base: ${loc}`);
-    const query = loc.slice(base.length);
-    const hydrated = { ...defaultState(), ...parseSearch(query) };
-    assert.equal(
-      canonicalHrefForState(base, hydrated),
-      loc,
-      `sitemap <loc> ${loc} must equal its canonical serialized state`
-    );
-  }
-  for (const persona of VALID_PERSONAS.filter((p) => p !== "balanced")) {
-    assert.ok(locs.includes(`${base}?persona=${persona}`), `sitemap includes persona=${persona}`);
-  }
-  for (const [eco] of copy.ECOSYSTEMS) {
-    assert.ok(locs.includes(`${base}?eco=${eco}`), `sitemap includes eco=${eco}`);
-  }
-  for (const tab of VALID_TABS.filter((t) => t !== "ranked")) {
-    assert.ok(locs.includes(`${base}?tab=${tab}`), `sitemap includes tab=${tab}`);
-  }
+  assert.deepEqual(locs, [base], "sitemap lists only the canonical root");
+  for (const loc of locs) assert.ok(!loc.includes("?"), `no query address in sitemap: ${loc}`);
+  assert.doesNotMatch(sitemap, /<(priority|changefreq)>/, "no priority or changefreq");
 
   // 5. index.html .seo-fallback: every internal link is canonical, U-2 excluded counts and U-6 hashes are present,
   //    and all 20 rows carry U-1 coverage, tier, and ?repo= drawer links.
