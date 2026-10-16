@@ -30,7 +30,6 @@ import {
   createStore,
   parseSearch,
   serializeSearch,
-  canonicalHrefForState,
   requestSignature,
   readPersistedTheme,
   writePersistedTheme,
@@ -625,16 +624,6 @@ export function boot(win = window, doc = document) {
   // navigation step (pushState); `q` while typing is not — debounced
   // keystrokes use replaceState, and only an explicit commit (Enter or
   // blur) creates a pushState history entry.
-  const canonicalLink = typeof doc.querySelector === "function" ? doc.querySelector('link[rel="canonical"]') : null;
-  const canonicalBase = canonicalLink && typeof canonicalLink.getAttribute === "function"
-    ? (canonicalLink.getAttribute("href") || "").split("?")[0]
-    : "";
-
-  function syncCanonicalLink(state) {
-    if (canonicalLink && canonicalBase && typeof canonicalLink.setAttribute === "function") {
-      canonicalLink.setAttribute("href", canonicalHrefForState(canonicalBase, state));
-    }
-  }
   function pushUrl(state, opts = {}) {
     const search = serializeSearch(state);
     const target = `${win.location.pathname}${search}`;
@@ -642,12 +631,10 @@ export function boot(win = window, doc = document) {
     if (opts.force || target !== current) {
       win.history.pushState(null, "", target);
     }
-    syncCanonicalLink(state);
   }
   function replaceUrl(state) {
     const search = serializeSearch(state);
     win.history.replaceState(null, "", `${win.location.pathname}${search}`);
-    syncCanonicalLink(state);
   }
 
   // --------------------------------------------------------------- Loaders
@@ -2096,7 +2083,6 @@ export function boot(win = window, doc = document) {
       payload: { ...defaults, ...parseSearch(win.location.search) },
     });
     const s = store.getState();
-    syncCanonicalLink(s);
     const paramsChanged =
       s.persona !== previousState.persona || s.ecosystem !== previousState.ecosystem ||
       s.query !== previousState.query || s.sort !== previousState.sort ||

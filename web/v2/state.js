@@ -276,16 +276,6 @@ export function serializeSearch(state) {
   return s ? `?${s}` : "";
 }
 
-/**
- * Combine the canonical root href (from `<link rel="canonical">`) with the
- * state's canonical query string (`serializeSearch(state)`), stripping any
- * pre-existing query string on `baseHref`.
- */
-export function canonicalHrefForState(baseHref, state) {
-  if (!baseHref) return "";
-  const root = String(baseHref).split("?")[0];
-  return `${root}${serializeSearch(state)}`;
-}
 
 export function weightsEqual(a, b) {
   return PILLAR_IDS.every((p) => Math.abs((a[p] ?? 0) - (b[p] ?? 0)) < 1e-9);
