@@ -102,18 +102,17 @@ function renderError(error, key, nowMs) {
  * `.git` suffixes before the detail fetch runs); anything else keeps the plain
  * not-found sentence and never makes a claim about a different key.
  */
-export function renderNotInSnapshot(state, repoKey, { nowMs } = {}) {
+export function renderNotInSnapshot(state, repoKey, { nowMs = Date.now() } = {}) {
   const slug = parseRepoSlug(repoKey);
   const key = slug ? `${slug.owner}/${slug.name}` : "";
   if (!slug || key !== repoKey) return `<div class="empty-state">${escapeHtml(copy.DRAWER_NOT_FOUND_TEXT)}</div>`;
   const snapshotId = state.snapshot && state.snapshot.snapshot_id;
   const entry = state.liveCheckByKey ? state.liveCheckByKey[key] : undefined;
-  const effectiveNowMs = nowMs ?? (entry && entry.atMs) ?? Date.now();
   let body;
   if (!entry) body = renderStart(key);
   else if (entry.status === "loading") body = `<p class="live-check-status" role="status">${escapeHtml(copy.LIVE_CHECK_LOADING_TEXT)}</p>`;
   else if (entry.outcome && entry.outcome.ok) body = renderResult(entry.outcome.result, key);
-  else body = renderError(entry.outcome ? entry.outcome.error : null, key, effectiveNowMs);
+  else body = renderError(entry.outcome ? entry.outcome.error : null, key, nowMs);
   return (
     `<section class="live-check" data-live-check-region="true" tabindex="-1" aria-labelledby="live-check-title">` +
     `<p class="live-check-lede">${escapeHtml(copy.liveNotInSnapshotText(key, snapshotId))}</p>` +

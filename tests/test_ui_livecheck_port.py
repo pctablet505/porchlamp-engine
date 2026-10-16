@@ -196,5 +196,10 @@ class TestContentSecurityPolicy:
         assert csp_directive(policy, "base-uri") == "'self'"
 
     def test_static_page_has_no_inline_script_the_meta_would_block(self) -> None:
-        assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", INDEX_HTML), "inline <script> would be blocked by script-src 'self'"
+        for tag in re.findall(r"<script\b[^>]*>", INDEX_HTML, re.IGNORECASE):
+            if re.search(r"\bsrc\s*=", tag, re.IGNORECASE):
+                continue
+            assert re.search(r'\btype\s*=\s*"application/ld\+json"', tag, re.IGNORECASE), (
+                f"executable inline <script> would be blocked by script-src 'self': {tag}"
+            )
         assert not re.search(r"\son[a-z]+\s*=", INDEX_HTML), "inline event handler would be blocked by script-src 'self'"

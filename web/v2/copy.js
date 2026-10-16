@@ -508,8 +508,8 @@ export function liveReasonText(reason, detail = {}) {
         : "A fork of a repository Porchlamp already covers.";
     case "fork_parent_outside":
       return detail.parent
-        ? `A fork of ${detail.parent}, which Porchlamp does not cover, so the fork counts on its own.`
-        : "A fork whose original Porchlamp does not cover, so the fork counts on its own.";
+        ? `A fork of ${detail.parent}, which this snapshot does not hold under that name, so the fork counts on its own.`
+        : "A fork whose original repository this snapshot does not hold under that name, so the fork counts on its own.";
     case "fork_parent_unknown":
       return detail.parent
         ? `A fork of ${detail.parent}; could not tell whether Porchlamp covers the original.`
@@ -550,8 +550,8 @@ export function liveReasonText(reason, detail = {}) {
       return `None of the ${detail.sample || 30} newest pull requests is an outside one decided in the last ${detail.days || 365} days, and the project's patch-submission guide sends contributions to another review process.`;
     case "no_external_pr":
       return `None of the ${detail.sample || 30} newest pull requests is from an outside contributor and merged or closed in the last ${detail.days || 365} days.`;
-    case "prs_partial":
-      return `None of the ${detail.pageSize} most recently updated closed pull requests is a decided outside one, and the check reads no further.`;
+    case "prs_handoff_unknown":
+      return `None of the ${detail.sample || 30} newest pull requests is an outside one decided in the last ${detail.days || 365} days, and whether PR comments hand review off to another tool such as Gerrit is not checked live.`;
     case "prs_marker_unknown":
       return detail.truncated
         ? `None of the ${detail.sample || 30} newest pull requests is an outside one decided in the last ${detail.days || 365} days, and the file list was too incomplete to look for another review process.`

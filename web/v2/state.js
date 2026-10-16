@@ -671,7 +671,7 @@ export function reduce(state, action) {
     case "LIVE_CHECK_LOADING":
       return { ...state, liveCheckByKey: { ...state.liveCheckByKey, [action.key]: { status: "loading" } } };
     case "LIVE_CHECK_DONE": {
-      const entry = { status: "done", outcome: action.outcome, atMs: action.atMs ?? Date.now() };
+      const entry = { status: "done", outcome: action.outcome };
       const next = { ...state.liveCheckByKey, [action.key]: entry };
       const fullName =
         action.outcome && action.outcome.ok && action.outcome.result && action.outcome.result.repo

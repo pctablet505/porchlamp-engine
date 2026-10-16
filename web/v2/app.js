@@ -765,6 +765,20 @@ export function boot(win = window, doc = document) {
             }
             return;
           }
+          if (canonical === undefined) {
+            if (store.getState().repo === key) {
+              store.dispatch({
+                type: "REPO_DETAIL_ERROR",
+                repo: key,
+                error: {
+                  endpoint: result.error.endpoint || `/v1/porchlamp/repos/${owner}/${name}`,
+                  status: 503,
+                  detail: "could not confirm whether the snapshot holds this repository under different casing",
+                },
+              });
+            }
+            return;
+          }
         }
         if (store.getState().repo === key) {
           store.dispatch({ type: "REPO_DETAIL_ERROR", repo: key, error: result.error });

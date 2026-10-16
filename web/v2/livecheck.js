@@ -375,6 +375,8 @@ export function evaluateLiveGates(facts, now) {
       });
     } else if (marker === true) {
       checks.push({ id: "D-GATE-6", status: "routed", reason: "off_platform_marker", detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS } });
+    } else if (marker === false && handoffPossible) {
+      checks.push({ id: "D-GATE-6", status: "undecided", reason: "prs_handoff_unknown", detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS } });
     } else if (marker === false) {
       checks.push({ id: "D-GATE-6", status: "fail", reason: "no_external_pr", detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS } });
     } else {

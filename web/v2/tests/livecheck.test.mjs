@@ -290,11 +290,18 @@ test("evaluateLiveGates D-GATE-6: a bot's outside PR counts, as in the engine, b
   assert.equal(gate("D-GATE-6", { pulls: { rows: [pr({ number: 2 })], complete: false } }).detail.handoffPossible, true);
 });
 
-test("evaluateLiveGates D-GATE-6: without a decided outside PR in the 30-PR sample, a marker routes; an incomplete or missing tree cannot fail", () => {
+test("evaluateLiveGates D-GATE-6: without a decided outside PR in the 30-PR sample, a marker routes; an incomplete sample, >= 5 outside human PRs, or a missing/truncated tree cannot fail", () => {
   const nothing = { rows: [pr({ association: "MEMBER" })], complete: true };
   const marker = { paths: ["Documentation/process/submitting-patches.rst", "Makefile"], truncated: false };
   assert.equal(gate("D-GATE-6", { pulls: nothing, tree: marker }).status, "routed");
   assert.equal(gate("D-GATE-6", { pulls: { ...nothing, complete: false }, tree: marker }).status, "routed");
+  assert.deepEqual(gate("D-GATE-6", { pulls: { ...nothing, complete: false } }), {
+    id: "D-GATE-6", status: "undecided", reason: "prs_handoff_unknown", detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS },
+  });
+  const fiveOpenOutside = Array.from({ length: GATE6_HANDOFF_MIN_PRS }, (_, i) => pr({ number: i + 1, mergedAt: "", closedAt: "" }));
+  assert.deepEqual(gate("D-GATE-6", { pulls: { rows: fiveOpenOutside, complete: true } }), {
+    id: "D-GATE-6", status: "undecided", reason: "prs_handoff_unknown", detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS },
+  });
   assert.deepEqual(gate("D-GATE-6", { pulls: nothing }), {
     id: "D-GATE-6", status: "fail", reason: "no_external_pr", detail: { sample: LIVE_PR_SAMPLE, days: DECISION_WINDOW_DAYS },
   });
@@ -713,7 +720,7 @@ test("renderNotInSnapshot: everything GitHub returns is escaped", () => {
 });
 
 test("renderNotInSnapshot: errors say why; only a retry that could change the answer is offered", () => {
-  const render = (error) => renderNotInSnapshot(panelState({ status: "done", outcome: { ok: false, error }, atMs: NOW.getTime() }), "acme/widget");
+  const render = (error) => renderNotInSnapshot(panelState({ status: "done", outcome: { ok: false, error } }), "acme/widget", { nowMs: NOW.getTime() });
   const resetAt = Math.floor(NOW.getTime() / 1000) + 90;
   const limited = render({ kind: "rate_limited", resetAt });
   assert.ok(limited.includes(escapeHtml(copy.liveErrorText({ kind: "rate_limited", resetAt }, NOW.getTime()))));
@@ -731,7 +738,7 @@ test("renderNotInSnapshot: errors say why; only a retry that could change the an
 
 test("copy: every reason code livecheck.js can produce has its own sentence; every status and gate has a label", () => {
   const reasons = [...new Set([...source("livecheck.js").matchAll(/reason: "([a-z_]+)"/g)].map((m) => m[1]))];
-  assert.ok(reasons.length >= 24, `found only ${reasons.length} reason codes`);
+  assert.ok(reasons.length >= 25, `found only ${reasons.length} reason codes`);
   const detail = {
     path: "p", depth: 2, parent: "o/r", spdx: "MIT", file: "LICENSE",
     count: 1, more: false, days: 180, pageSize: 100, sample: 30, number: 1, bot: false,
@@ -748,6 +755,8 @@ test("copy: every reason code livecheck.js can produce has its own sentence; eve
   assert.match(copy.liveReasonText("decided_external_pr", { number: 9, days: 365, bot: true, handoffPossible: false }), /bot/);
   assert.doesNotMatch(copy.liveReasonText("decided_external_pr", { number: 9, days: 365, bot: false, handoffPossible: false }), /bot/);
   assert.match(copy.liveReasonText("decided_external_pr", { number: 9, days: 365, bot: false, handoffPossible: true }), /Gerrit/);
+  assert.match(copy.liveReasonText("prs_handoff_unknown", { sample: 30, days: 365 }), /Gerrit/);
+  assert.match(copy.liveReasonText("fork_parent_outside", { parent: "o/r" }), /under that name/);
   assert.match(copy.liveReasonText("human_commits", { count: 1, more: false, days: 180 }), /1 commit\b/);
   assert.match(copy.liveReasonText("human_commits", { count: 2, more: false, days: 180 }), /2 commits\b/);
   assert.match(copy.liveReasonText("license_unknown", { truncated: true }), /too incomplete/);
@@ -788,11 +797,11 @@ test("state: live checks are kept per repository (and under canonical fullName) 
   assert.deepEqual(s1.liveCheckByKey, { "a/b": { status: "loading" } });
   assert.deepEqual(s0.liveCheckByKey, {}, "the reducer does not mutate");
   const outcome = { ok: false, error: { kind: "network" } };
-  const s2 = reduce(reduce(s1, { type: "LIVE_CHECK_LOADING", key: "c/d" }), { type: "LIVE_CHECK_DONE", key: "a/b", outcome, atMs: 1234 });
-  assert.deepEqual(s2.liveCheckByKey, { "a/b": { status: "done", outcome, atMs: 1234 }, "c/d": { status: "loading" } });
+  const s2 = reduce(reduce(s1, { type: "LIVE_CHECK_LOADING", key: "c/d" }), { type: "LIVE_CHECK_DONE", key: "a/b", outcome });
+  assert.deepEqual(s2.liveCheckByKey, { "a/b": { status: "done", outcome }, "c/d": { status: "loading" } });
 
   const renamed = okOutcome({ repo: { fullName: "Acme/Widget" } });
-  const s3 = reduce(s0, { type: "LIVE_CHECK_DONE", key: "acme/widget", outcome: renamed, atMs: 5678 });
+  const s3 = reduce(s0, { type: "LIVE_CHECK_DONE", key: "acme/widget", outcome: renamed });
   assert.equal(s3.liveCheckByKey["acme/widget"].outcome, renamed);
   assert.equal(s3.liveCheckByKey["Acme/Widget"].outcome, renamed);
 

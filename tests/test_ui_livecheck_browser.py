@@ -152,7 +152,7 @@ const scored = await until(() => doc.querySelector('.drawer [data-drawer-compare
 return {
   title: title ? title.textContent.trim() : null,
   hasComposite: Boolean(scored),
-  hasLivePanel: Boolean(doc.querySelector('.live-check-panel')),
+  hasLivePanel: Boolean(doc.querySelector('.drawer [data-live-check-region]')),
   search: win.location.search,
 };
 """
