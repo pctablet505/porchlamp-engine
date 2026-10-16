@@ -1249,7 +1249,7 @@ test("index.html carries absolute link-preview tags and the preview image exists
   };
   // No URL literal here: tests/test_ui_no_external_resources.py scans this file too.
   const base = meta("property", "og:url");
-  assert.match(base, /^https:\/\/[^/]+\/porchlamp\/$/, "og:url is the absolute site root");
+  assert.match(base, /^https:\/\/[^/]+\/$/, "og:url is the absolute site root, a host root on the site's own domain");
   const canonical = html.match(/<link rel="canonical" href="([^"]*)">/);
   assert.ok(canonical && canonical[1] === base, "rel=canonical matches og:url");
   assert.equal(meta("property", "og:image"), base + "og.png");
@@ -1292,7 +1292,7 @@ test("SEO: the Dataset markup carries the data license CC BY 4.0", () => {
   assert.match(dataset.license, /^https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/$/);
 });
 
-test("SEO: static canonical, no subpath robots.txt, canonical-only sitemap, lean head, Search Console verification, and U-1/U-2/U-6 static fallback", () => {
+test("SEO: static canonical, root robots.txt on the site's own domain, canonical-only sitemap, lean head, Search Console verification, and U-1/U-2/U-6 static fallback", () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const webRoot = path.join(here, "..");
   const html = readFileSync(path.join(webRoot, "index.html"), "utf8");
@@ -1303,8 +1303,17 @@ test("SEO: static canonical, no subpath robots.txt, canonical-only sitemap, lean
   assert.doesNotMatch(appSrc, /canonical[^\n]*\.setAttribute\(|setAttribute\(\s*["']href["'][^\n]*canonical/i, "app.js must not rewrite rel=canonical");
   assert.doesNotMatch(appSrc, /canonicalHrefForState|syncCanonicalLink/, "no canonical rewrite helper in app.js");
 
-  // 2. No robots.txt under the subpath: crawlers read robots.txt only at the host root, so a copy here is inert.
-  assert.ok(!existsSync(path.join(webRoot, "robots.txt")), "web/v2/robots.txt must not exist");
+  // 2. The site is the root of its own domain, so robots.txt here is the host's robots.txt: it blocks nothing and names the sitemap.
+  const site = new URL(base);
+  assert.equal(site.pathname, "/", "the canonical base is a host root");
+  assert.equal(readFileSync(path.join(webRoot, "CNAME"), "utf8").trim(), site.host, "CNAME names the canonical host");
+  const robots = readFileSync(path.join(webRoot, "robots.txt"), "utf8");
+  assert.match(robots, /^User-agent: \*$/m);
+  assert.doesNotMatch(robots, /^Disallow: \S/m, "robots.txt blocks nothing");
+  assert.ok(robots.includes(`Sitemap: ${base}sitemap.xml`), "robots.txt names the canonical sitemap");
+  for (const f of ["index.html", "sitemap.xml", "feed.xml", "llms.txt", "robots.txt"]) {
+    assert.ok(!readFileSync(path.join(webRoot, f), "utf8").includes("pctablet505.github.io/porchlamp"), `${f} keeps no old github.io address`);
+  }
 
   // 2a. Lean head: no meta keywords, no googlebot/bingbot copies of the robots tag, no hreflang on a one-language site.
   assert.doesNotMatch(html, /<meta name="(keywords|googlebot|bingbot)"/, "no ignored or duplicate meta tags");
