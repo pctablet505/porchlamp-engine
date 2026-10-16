@@ -1341,7 +1341,14 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
   // 4. sitemap.xml lists canonical addresses only (today: the site root), with no priority or changefreq.
   const sitemap = readFileSync(path.join(webRoot, "sitemap.xml"), "utf8");
   const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
-  assert.deepEqual(locs, [base], "sitemap lists only the canonical root");
+  const snapshotId = html.match(/Snapshot <code>([\d-]+)<\/code>/)[1];
+  assert.deepEqual(
+    locs,
+    [base, `${base}black-holes/`, `${base}black-holes/${snapshotId}/`, `${base}methodology/`],
+    "sitemap lists the canonical root, the report (latest and frozen) and the methodology page"
+  );
+  const llms = readFileSync(path.join(webRoot, "llms.txt"), "utf8");
+  for (const loc of locs.slice(1)) assert.ok(llms.includes(loc), `llms.txt names ${loc}`);
   for (const loc of locs) assert.ok(!loc.includes("?"), `no query address in sitemap: ${loc}`);
   assert.doesNotMatch(sitemap, /<(priority|changefreq)>/, "no priority or changefreq");
 
@@ -1355,8 +1362,17 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
 
   const hrefs = [...article.matchAll(/<a href="([^"]+)">/g)].map((m) => m[1]);
   assert.ok(hrefs.length >= 30, "persona, tab, ecosystem, and top-20 repo links");
+  // S2: the static article links the report after the findings and the methodology page where the numbers come from.
+  assert.match(
+    article,
+    /<\/ul>\s*<p><a href="black-holes\/">Read the report: Stars don't review pull requests<\/a><\/p>/,
+    "report link follows the findings list"
+  );
+  const whereFrom = article.match(/<h2>Where the numbers come from<\/h2>([\s\S]*?)<h2>/)[1];
+  assert.match(whereFrom, /<a href="methodology\/">[^<]+<\/a>/, "methodology link in 'Where the numbers come from'");
+  const pageLinks = ["black-holes/", "methodology/"];
   for (const href of hrefs) {
-    if (href === "./") continue;
+    if (href === "./" || pageLinks.includes(href)) continue;
     const hydrated = { ...defaultState(), ...parseSearch(href) };
     assert.equal(
       serializeSearch(hydrated),
@@ -2572,3 +2588,34 @@ test("compare: empty and partial states render quick-start presets and suggestio
   assert.ok(verdict.includes(escapeHtml(copy.compareUnmeasuredNote([copy.paramName("mr_first_rate")]))));
 });
 
+
+
+// ---- E2: links to the static report and methodology pages (S2) ---------------------------------
+
+import { renderShell } from "../views/leaderboard.js";
+
+test("leaderboard: one visible findings line under the header links to the static report with a real relative href", () => {
+  assert.equal(
+    copy.FINDINGS_LINE,
+    "More than 1 in 4 active projects leave most strangers' pull requests unanswered for two weeks."
+  );
+  const html = renderShell({ ...defaultState(), leaderboardLoading: true, leaderboard: null });
+  assert.ok(html.includes(escapeHtml(copy.FINDINGS_LINE)), "the line is on the page");
+  assert.match(html, /<a href="black-holes\/"[^>]*>Read the findings<\/a>/);
+  assert.ok(
+    html.indexOf("data-onboarding-banner") < html.indexOf("data-findings-line"),
+    "the line sits under the onboarding banner"
+  );
+  assert.ok(html.indexOf("data-findings-line") < html.indexOf("data-primary-tab") || !html.includes("data-primary-tab"));
+});
+
+test("footer: Report and Methodology are real relative links", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const app = readFileSync(path.join(here, "..", "app.js"), "utf8");
+  assert.equal(copy.REPORT_PAGE_HREF, "black-holes/");
+  assert.equal(copy.METHODOLOGY_PAGE_HREF, "methodology/");
+  assert.match(app, /<a href="\$\{escapeHtml\(copy\.REPORT_PAGE_HREF\)\}"[^>]*>\$\{escapeHtml\(copy\.FOOTER_REPORT_LABEL\)\}<\/a>/);
+  assert.match(app, /<a href="\$\{escapeHtml\(copy\.METHODOLOGY_PAGE_HREF\)\}"[^>]*>\$\{escapeHtml\(copy\.FOOTER_METHODOLOGY_LABEL\)\}<\/a>/);
+  assert.equal(copy.FOOTER_REPORT_LABEL, "Report");
+  assert.equal(copy.FOOTER_METHODOLOGY_LABEL, "Methodology");
+});

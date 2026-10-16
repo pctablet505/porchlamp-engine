@@ -313,11 +313,22 @@ export function renderOnboardingBanner() {
   );
 }
 
+/** One visible line under the onboarding banner: the headline finding and a link to the static report. */
+export function renderFindingsLine() {
+  return (
+    `<p class="onboarding-banner" data-findings-line="true">` +
+    `<span>${escapeHtml(copy.FINDINGS_LINE)}</span> ` +
+    `<a href="${escapeHtml(copy.REPORT_PAGE_HREF)}" class="onboarding-link" data-findings-link="true">${escapeHtml(copy.FINDINGS_LINK_LABEL)}</a>` +
+    `</p>`
+  );
+}
+
 export function renderShell(state, viewport = { isMobile: false }) {
   const { leaderboardLoading, leaderboardError, leaderboard } = state;
   const counts = leaderboard ? leaderboard.counts : null;
   const header =
     renderOnboardingBanner() +
+    renderFindingsLine() +
     renderTabs(state.tab, counts, personaVisibleForState(state)) +
     renderCountsStrip(counts, personaDeltaForState(state));
 

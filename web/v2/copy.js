@@ -872,6 +872,16 @@ export const ONBOARDING_SUBTITLE =
   "Evidence-based open-source repository ranking across 5 pillars: Responsiveness, Criticality, Governance, Rigor, and Accessibility.";
 export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";
 
+// --- Links to the static report and methodology pages (scripts/export_static.py --stats) ---------------
+// Relative, so they work from the site root and from a local copy. Real <a href> elements: a crawler that
+// runs the app finds the finding and the link to its page without a click.
+export const FINDINGS_LINE = "More than 1 in 4 active projects leave most strangers' pull requests unanswered for two weeks.";
+export const FINDINGS_LINK_LABEL = "Read the findings";
+export const REPORT_PAGE_HREF = "black-holes/";
+export const METHODOLOGY_PAGE_HREF = "methodology/";
+export const FOOTER_REPORT_LABEL = "Report";
+export const FOOTER_METHODOLOGY_LABEL = "Methodology";
+
 // --- Maintainer README badge (Screen C, inside the Composite section) -----
 // Offered when a repository's canonical (balanced) record is rated at tier A
 // or above with no suspicion flag. The image is one of the static files in

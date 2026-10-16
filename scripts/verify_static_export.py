@@ -20,15 +20,25 @@ error, never a pass.
 
     PYTHONPATH=<clean worktree> .venv/bin/python scripts/verify_static_export.py \\
         --db cvi-L4a2.db --site ../cvi-scratch/static-site
+
+With ``--stats`` it also proves the report and methodology pages (``verify_report``): every number on
+``black-holes/``, ``black-holes/<snapshot_id>/`` and ``methodology/`` and every row of the CSV is recomputed
+from the database, the API and the stats file and compared with what the page prints (set
+``PORCHLAMP_DATA_ROOT`` so the API can serve the black-hole evidence); ``--report-only`` skips the request
+grid. Whatever the flags, every ``<loc>`` of ``sitemap.xml`` must have a page in the site.
 """
 from __future__ import annotations
 
 import argparse
+import csv
+import hashlib
+import html
 import importlib.util
 import json
 import os
 import pwd
 import random
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -408,14 +418,355 @@ def passed(result: dict) -> bool:
     return not result["mismatches"] and all(result["mutants"].values())
 
 
+# --------------------------------------------------------------------------- #
+# The report and methodology pages
+# --------------------------------------------------------------------------- #
+SITE_ORIGIN = "https://porchlamp.org"
+
+
+def check_sitemap(site: Path) -> list[str]:
+    """Every ``<loc>`` of ``sitemap.xml`` is a page of the export: the root -> ``index.html``, ``/a/b/`` ->
+    ``a/b/index.html``. Returns the problems."""
+    sitemap = site / "sitemap.xml"
+    if not sitemap.is_file():
+        return ["sitemap.xml is missing"]
+    locs = re.findall(r"<loc>([^<]+)</loc>", sitemap.read_text(encoding="utf-8"))
+    problems = [] if locs else ["sitemap.xml lists no <loc>"]
+    for loc in locs:
+        if not loc.startswith(SITE_ORIGIN + "/") or "?" in loc or "#" in loc:
+            problems.append(f"sitemap <loc> {loc} is not a canonical address of {SITE_ORIGIN}/")
+            continue
+        path = loc[len(SITE_ORIGIN) + 1:]
+        page = site / path / "index.html" if (path == "" or path.endswith("/")) else site / path
+        if not page.is_file():
+            problems.append(f"sitemap <loc> {loc} has no page in the export ({page.relative_to(site)} is missing)")
+    return problems
+
+
+def _token_in(text: str, token: str) -> bool:
+    """``token`` stands alone in ``text`` (``1,133`` is not found inside ``11,133`` or ``1,1334``)."""
+    return re.search(r"(?<![\d,.])" + re.escape(token) + r"(?!\d|[,.]\d)", text) is not None
+
+
+def _plain(fragment: str) -> str:
+    return html.unescape(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", fragment))).strip()
+
+
+def _by_id(page: str, ident: str) -> str:
+    match = re.search(rf'<(p|svg)[^>]* id="{re.escape(ident)}"[^>]*>(.*?)</\1>', page, re.S)
+    return _plain(match.group(2)) if match else ""
+
+
+def _svg_label(page: str, ident: str) -> str:
+    match = re.search(rf'<svg[^>]* id="{re.escape(ident)}"[^>]* aria-label="([^"]*)"', page)
+    return html.unescape(match.group(1)) if match else ""
+
+
+def _section(page: str, ident: str) -> str:
+    match = re.search(rf'<h2 id="{re.escape(ident)}">(.*?)(?=<h2 id=|<footer)', page, re.S)
+    return match.group(1) if match else ""
+
+
+def _rows(fragment: str) -> list[list[str]]:
+    body = re.search(r"<tbody>(.*?)</tbody>", fragment, re.S)
+    rows = re.findall(r"<tr>(.*?)</tr>", body.group(1), re.S) if body else []
+    return [[_plain(c) for c in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", row, re.S)] for row in rows]
+
+
+def _items(fragment: str) -> list[str]:
+    return [_plain(li) for li in re.findall(r"<li>(.*?)</li>", fragment, re.S)]
+
+
+class _Ledger:
+    """Counts every number compared and keeps the mismatches."""
+
+    def __init__(self) -> None:
+        self.checked = 0
+        self.errors: list[str] = []
+
+    def token(self, where: str, text: str, token: str) -> None:
+        self.checked += 1
+        if not _token_in(text, token):
+            self.errors.append(f"{where}: expected {token!r}, not found in {text[:140]!r}")
+
+    def contains(self, where: str, text: str, part: str) -> None:
+        self.checked += 1
+        if part not in text:
+            self.errors.append(f"{where}: expected {part!r}, not found in {text[:140]!r}")
+
+    def equal(self, where: str, found: Any, expected: Any) -> None:
+        self.checked += 1
+        if found != expected:
+            self.errors.append(f"{where}: expected {expected!r}, found {found!r}")
+
+
+def verify_report(db: Path, stats_path: Path, site: Path, *, log=print) -> dict:
+    """Recompute every number on the report pages, the methodology page and the CSV from the database, the
+    API and the stats file, and compare. ``{"checked": n, "errors": [...]}``; passing means no errors.
+
+    The expected values come from sources the exporter's page code does not read in this function: the
+    judged / black-hole counts from their own SQL on the database, the ranked count, the leaderboards and
+    the black-hole evidence from the API, the star bands, correlation and corpus from the stats file."""
+    from fastapi.testclient import TestClient
+
+    from porchlamp.core import constants
+    from porchlamp.serve import report_pages as rp
+    from porchlamp.serve.app import create_app
+
+    ledger = _Ledger()
+    csv_cells = 0
+    stats = json.loads(stats_path.read_text(encoding="utf-8"))
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = Path(tmp) / "snapshot.db"
+        source, target = sqlite3.connect(f"file:{db}?mode=ro", uri=True), sqlite3.connect(copy)
+        source.backup(target)
+        source.close()
+        target.close()
+        conn = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
+        client = TestClient(create_app(str(copy), web_dir=str(Path(tmp) / "__no_web__")))
+
+        def api(path: str, **params: Any) -> Any:
+            response = client.get(path, params=params)
+            if response.status_code != 200:
+                raise SystemExit(f"verify: GET {path} -> {response.status_code}")
+            return response.json()
+
+        snapshot = api("/v1/porchlamp/snapshot")
+        methodology = api("/v1/porchlamp/methodology")
+        sid = snapshot["snapshot_id"]
+        rows = conn.execute(
+            "SELECT ecosystem, COUNT(*), SUM(gate_reason = 'black_hole') FROM repositories WHERE snapshot_id = ? "
+            "AND (gate_reason IS NULL OR gate_reason IN ('black_hole', 'unrated: no_external_workflow')) "
+            "AND COALESCE(gate_undecided, '[]') NOT LIKE '%D-GATE-5%' GROUP BY ecosystem", (sid,),
+        ).fetchall()
+        conn.close()
+        per_eco = {eco: (n, bh or 0) for eco, n, bh in rows}
+        judged, black_holes = sum(n for n, _ in per_eco.values()), sum(b for _, b in per_eco.values())
+        boards = {}
+        for lens in sorted(constants.PERSONA_PRESETS):
+            collected, page_no = [], 1
+            while True:
+                body = api("/v1/porchlamp/leaderboard", persona=lens, page=page_no, page_size=1000)
+                collected.extend(body["rows"])
+                if len(collected) >= body["total"] or not body["rows"]:
+                    break
+                page_no += 1
+            boards[lens] = collected
+        ranked = len(boards["balanced"])
+        evidence = []
+        for row in conn_names(copy, sid):
+            detail = api(f"/v1/porchlamp/repos/{quote(row[0], safe='')}/{quote(row[1], safe='')}")
+            if detail["black_hole_evidence"]:
+                evidence.append(detail["black_hole_evidence"])
+        black_hole_records = len(conn_names(copy, sid))
+    if len(evidence) != black_hole_records:
+        ledger.errors.append(
+            f"only {len(evidence)} of {black_hole_records} black-hole records carry evidence (set PORCHLAMP_DATA_ROOT)"
+        )
+    unanswered, counted = sum(e["unanswered"] for e in evidence), sum(e["population_n"] for e in evidence)
+    window = {(e["window_start"][:10], e["window_end"][:10]) for e in evidence}
+    ledger.equal("black-hole records", black_hole_records, black_holes)
+    ledger.equal("evidence windows", len(window), 1)
+    if len(window) != 1:
+        for error in ledger.errors:
+            log(f"REPORT MISMATCH {error}")
+        return {"checked": ledger.checked, "csv_cells": 0, "errors": ledger.errors}
+
+    fmt, pct0, pct1 = rp.fmt_int, rp.pct0, rp.pct1
+    share = pct1(black_holes, judged)
+    bands = [(key, stats["by_stars"][key]) for key in rp.STAR_BANDS]
+    eco_order = sorted(per_eco, key=lambda e: -per_eco[e][1] / per_eco[e][0])
+    corpus = stats["corpus"]
+    start, end = sorted(window)[0] if window else ("", "")
+    ds, de = (rp._iso_date(start, "start"), rp._iso_date(end, "end")) if window else (None, None)
+    gate5 = next(g for g in methodology["gates"] if g["id"] == "D-GATE-5")
+    min_n, deadline = gate5["cutoffs"]["min_n"], gate5["cutoffs"]["response_deadline_days"]
+    db_sha = hashlib.sha256(db.read_bytes()).hexdigest()
+    pages = {"black-holes/index.html": "latest", f"black-holes/{sid}/index.html": "frozen"}
+    texts = {}
+    for rel, label in pages.items():
+        path = site / rel
+        if not path.is_file():
+            ledger.errors.append(f"{rel} is missing")
+            continue
+        page = path.read_text(encoding="utf-8")
+        texts[label] = page
+        w = rel
+        when = f"snapshot {sid}" if label == "frozen" else f"{rp._iso_date(sid, 'snapshot id'):%B %Y}"
+        ledger.contains(f"{w} <title>", _plain(re.search(r"<title>(.*?)</title>", page, re.S).group(1)), f"({when})")
+        description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', page).group(1))
+        ledger.token(f"{w} meta description share", description, share + "%")
+        ledger.token(f"{w} meta description projects", description, fmt(corpus["derived_repos"]))
+        finding = lambda ident, page=page: _by_id(page, ident)  # noqa: E731
+        for token in (fmt(black_holes), fmt(judged), share + "%"):
+            ledger.token(f"{w} #finding-share", finding("finding-share"), token)
+        ledger.token(f"{w} #finding-share", finding("finding-share"), str(deadline))
+        for _key, band in bands:
+            ledger.token(f"{w} #finding-stars", finding("finding-stars"), pct0(band["black_holes"], band["n"]) + "%")
+        for token in sorted({fmt(n) for key, _ in bands for n in rp._band_bounds(key) if n is not None}):
+            ledger.token(f"{w} #finding-stars", finding("finding-stars"), token)
+        ledger.token(f"{w} #finding-top100", finding("finding-top100"), str(stats["top100_stars_fate"]["black_hole"]))
+        ledger.token(f"{w} #finding-top100", finding("finding-top100"), str(stats["top100_overlap"]))
+        ledger.token(f"{w} #finding-correlation", finding("finding-correlation"), fmt(ranked))
+        ledger.token(f"{w} #finding-correlation", finding("finding-correlation"), rp.rho_text(stats["spearman"]["porchlamp"]["rho"]))
+        ledger.token(f"{w} #finding-prs", finding("finding-prs"), fmt(unanswered))
+        ledger.token(f"{w} #finding-prs", finding("finding-prs"), fmt(counted))
+        # the charts' text alternatives and the tables behind them
+        label_stars = _svg_label(page, "chart-stars")
+        for _key, band in bands:
+            ledger.token(f"{w} stars chart label", label_stars, pct0(band["black_holes"], band["n"]) + "%")
+            ledger.token(f"{w} stars chart label", label_stars, fmt(band["n"]))
+        table = _rows(_section(page, "stars"))
+        ledger.equal(f"{w} stars table", [r[1:] for r in table], [
+            [fmt(b["n"]), fmt(b["black_holes"]), pct0(b["black_holes"], b["n"]) + "%"] for _, b in bands
+        ])
+        label_eco = _svg_label(page, "chart-ecosystems")
+        for eco in eco_order:
+            n, bh = per_eco[eco]
+            ledger.token(f"{w} ecosystem chart label ({eco})", label_eco, pct1(bh, n) + "%")
+            ledger.token(f"{w} ecosystem chart label ({eco})", label_eco, fmt(n))
+        table = _rows(_section(page, "ecosystems"))
+        ledger.equal(f"{w} ecosystem table", [r[1:] for r in table], [
+            [fmt(per_eco[e][0]), fmt(per_eco[e][1]), pct1(per_eco[e][1], per_eco[e][0]) + "%"] for e in eco_order
+        ])
+        # how we measured
+        bullets = _items(_section(page, "how-we-measured"))
+        ledger.equal(f"{w} how-we-measured bullet count", len(bullets), 5)
+        if len(bullets) == 5:
+            for token in (fmt(corpus["human_outside_prs"]), fmt(corpus["distinct_outside_authors"]), fmt(corpus["derived_repos"]),
+                          str(ds.day), str(de.day), str(de.year)):
+                ledger.token(f"{w} how-we-measured bullet 1", bullets[0], token)
+            ledger.token(f"{w} how-we-measured bullet 2", bullets[1], str(min_n))
+            ledger.token(f"{w} how-we-measured bullet 3", bullets[2], str(deadline))
+            ledger.token(f"{w} how-we-measured bullet 3", bullets[2], "95%")
+            for name, mon in ((bullets[0], ds.strftime("%B")), (bullets[0], de.strftime("%B"))):
+                ledger.checked += 1
+                if mon not in name:
+                    ledger.errors.append(f"{w} how-we-measured bullet 1: month {mon} not found")
+        ledger.token(f"{w} download", _plain(_section(page, "download")), fmt(ranked))
+        ledger.contains(f"{w} download", _plain(_section(page, "download")), f"porchlamp-{sid}-ranked.csv")
+        cite = _plain(_section(page, "cite"))
+        for token in (sid, str(ds.year if ds else "")):
+            ledger.token(f"{w} cite", cite, token)
+        ledger.equal(f"{w} cite: database sha256", db_sha in cite, True)
+        ledger.equal(f"{w} cite: constants hash", snapshot["constants_hash"] in cite, True)
+        # canonical, JSON-LD
+        canonical = re.search(r'<link rel="canonical" href="([^"]*)"', page).group(1)
+        expected_url = f"{SITE_ORIGIN}/black-holes/" + (f"{sid}/" if label == "frozen" else "")
+        ledger.equal(f"{w} canonical", canonical, expected_url)
+        ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', page, re.S).group(1))
+        nodes = {n["@type"]: n for n in ld["@graph"]}
+        dataset = nodes["Dataset"]
+        ledger.equal(f"{w} Dataset license", dataset["license"], "https://creativecommons.org/licenses/by/4.0/")
+        ledger.equal(f"{w} Dataset temporalCoverage", dataset["temporalCoverage"], f"{start}/{end}")
+        ledger.equal(f"{w} Dataset CSV link", [d["contentUrl"] for d in dataset["distribution"]],
+                     [f"{SITE_ORIGIN}/black-holes/{sid}/porchlamp-{sid}-ranked.csv"])
+        ledger.equal(f"{w} Dataset encodingFormat", dataset["distribution"][0]["encodingFormat"], "text/csv")
+        ledger.token(f"{w} Dataset description share", dataset["description"], share + "%")
+        ledger.token(f"{w} Dataset description", dataset["description"], fmt(black_holes))
+        ledger.token(f"{w} Dataset description", dataset["description"], fmt(judged))
+        ledger.equal(f"{w} Article headline", nodes["Article"]["headline"], rp.REPORT_H1)
+        ledger.equal(f"{w} Dataset url", dataset["url"], expected_url)
+    if "latest" in texts and "frozen" in texts:
+        for ident in ("finding-share", "finding-stars", "finding-top100", "finding-correlation", "finding-prs"):
+            ledger.equal(f"latest and frozen agree on #{ident}", _by_id(texts["latest"], ident), _by_id(texts["frozen"], ident))
+
+    # the CSV: every ranked project, each lens rank, no one else
+    csv_path = site / "black-holes" / sid / f"porchlamp-{sid}-ranked.csv"
+    if csv_path.is_file():
+        with csv_path.open(newline="", encoding="utf-8") as handle:
+            table = list(csv.reader(handle))
+        lenses = sorted(boards)
+        ledger.equal("CSV header", table[0], list(rp.CSV_COLUMNS) + [f"rank_{lens}" for lens in lenses])
+        ledger.equal("CSV data rows", len(table) - 1, ranked)
+        lens_rank = {lens: {(r["owner"], r["name"]): str(r["rank"]) for r in boards[lens]} for lens in lenses}
+        wrong = 0
+        for row, expected in zip(table[1:], boards["balanced"]):
+            want = [str(expected["rank"]), expected["owner"], expected["name"], expected["ecosystem"], str(expected["porchlamp"]),
+                    expected["tier"] or "", str(expected["coverage"]), expected["quadrant"] or ""]
+            want += [lens_rank[lens].get((expected["owner"], expected["name"]), "") for lens in lenses]
+            if row != want:
+                wrong += 1
+                if wrong <= 3:
+                    ledger.errors.append(f"CSV row {row[:3]}: expected {want!r}, found {row!r}")
+        csv_cells = ranked * (len(rp.CSV_COLUMNS) + len(lenses))
+        if wrong > 3:
+            ledger.errors.append(f"CSV: {wrong} rows differ from the API's leaderboards")
+    else:
+        ledger.errors.append(f"{csv_path.relative_to(site)} is missing")
+
+    # the methodology page
+    meth_path = site / "methodology" / "index.html"
+    if meth_path.is_file():
+        page = meth_path.read_text(encoding="utf-8")
+        ledger.equal("methodology canonical", re.search(r'<link rel="canonical" href="([^"]*)"', page).group(1), f"{SITE_ORIGIN}/methodology/")
+        text = _plain(page)
+        for gate in methodology["gates"]:
+            squeeze = lambda s: re.sub(r"[\s`]", "", s)  # noqa: E731
+            ledger.equal(f"methodology gate {gate['id']} criterion", squeeze(gate["criterion"]) in squeeze(text), True)
+        for key in ("constants_hash", "manifest_root", "canonical_dump_hash", "code_commit", "reproduce_command"):
+            ledger.equal(f"methodology {key}", snapshot[key] in text, True)
+        ledger.equal("methodology database sha256", db_sha in text, True)
+        pillars = _rows(_section(page, "pillars"))
+        ledger.equal("methodology pillar weights", [r[1] for r in pillars], [f"{round(p['weight'] * 100)}%" for p in methodology["pillars"]])
+        lenses = _rows(_section(page, "lenses"))
+        ledger.equal("methodology lens weights", [r[1:] for r in lenses],
+                     [[f"{round(w[p['name']] * 100)}%" for p in methodology["pillars"]] for w in methodology["personas"]["presets"].values()])
+        params = _rows(_section(page, "parameters"))
+        ledger.equal("methodology parameter count", len(params), len(methodology["parameters"]))
+        ledger.equal("methodology parameter weights", [r[2] for r in params],
+                     [f"{round(p['weight_within_pillar'] * 100)}%" for p in methodology["parameters"]])
+        ledger.equal("methodology parameter min counts", [r[3] for r in params], ["n/a" if p["min_n"] is None else str(p["min_n"]) for p in methodology["parameters"]])
+    else:
+        ledger.errors.append("methodology/index.html is missing")
+
+    titles = []
+    for rel in (*pages, "methodology/index.html"):
+        if (site / rel).is_file():
+            titles.append(re.search(r"<title>(.*?)</title>", (site / rel).read_text(encoding="utf-8"), re.S).group(1))
+    ledger.equal("the three titles differ", len(set(titles)), 3)
+    log(
+        f"verify: report pages: checked {ledger.checked} numbers and values on {len(pages) + 1} pages, "
+        f"and {csv_cells} CSV cells"
+    )
+    for error in ledger.errors:
+        log(f"REPORT MISMATCH {error}")
+    return {"checked": ledger.checked, "csv_cells": csv_cells, "errors": ledger.errors}
+
+
+def conn_names(db: Path, snapshot_id: str) -> list[tuple[str, str]]:
+    """``(owner, name)`` of the snapshot's black-hole records."""
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    try:
+        return conn.execute(
+            "SELECT owner, name FROM repositories WHERE snapshot_id = ? AND gate_reason = 'black_hole' ORDER BY owner, name",
+            (snapshot_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--site", type=Path, required=True)
     parser.add_argument("--quick", action="store_true", help="a smaller grid (a repo sample, fewer filters)")
     parser.add_argument("--no-mutants", action="store_true")
+    parser.add_argument("--stats", type=Path, default=None, help="stats file: also prove the report and methodology pages")
+    parser.add_argument("--report-only", action="store_true", help="with --stats: only the report pages and the sitemap")
     args = parser.parse_args(argv)
-    ok = passed(verify(args.db.resolve(), args.site.resolve(), quick=args.quick, mutants=not args.no_mutants))
+    site = args.site.resolve()
+    if args.report_only and args.stats is None:
+        parser.error("--report-only needs --stats")
+    ok = True
+    if not args.report_only:
+        ok = passed(verify(args.db.resolve(), site, quick=args.quick, mutants=not args.no_mutants))
+    problems = check_sitemap(site)
+    for problem in problems:
+        print(f"SITEMAP {problem}")
+    ok = ok and not problems
+    if args.stats is not None:
+        ok = not verify_report(args.db.resolve(), args.stats.resolve(), site)["errors"] and ok
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
 
