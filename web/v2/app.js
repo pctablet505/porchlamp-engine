@@ -266,7 +266,9 @@ export function boot(win = window, doc = document) {
       `<span data-footer-hash="true"></span>` +
       `<span data-footer-manifest="true"></span>` +
       `<button type="button" class="icon-button" data-footer-retry="true" hidden>${escapeHtml(copy.RETRY_LABEL)}</button>` +
-      `<a href="#methodology" data-footer-verify="true">${escapeHtml(copy.FOOTER_VERIFY_LABEL)}</a>`;
+      `<a href="#methodology" data-footer-verify="true">${escapeHtml(copy.FOOTER_VERIFY_LABEL)}</a>` +
+      `<a href="${escapeHtml(copy.REPORT_PAGE_HREF)}" data-footer-report="true">${escapeHtml(copy.FOOTER_REPORT_LABEL)}</a>` +
+      `<a href="${escapeHtml(copy.METHODOLOGY_PAGE_HREF)}" data-footer-methodology-page="true">${escapeHtml(copy.FOOTER_METHODOLOGY_LABEL)}</a>`;
   }
 
   /**

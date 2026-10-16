@@ -13,6 +13,12 @@
   - `1,377` **Unrated:** Repositories passing Stage-0 gates but with `<60%` measured parameter coverage.
 - **Coverage Tier Ceilings:** Repositories with `<95%` parameter coverage have their tier capped (`A (capped)` for `[80%, 95%)`, `B (capped)` for `[60%, 80%)`) so missing data never inflates a rank tier.
 
+## Static Pages (readable without JavaScript)
+- [Stars don't review pull requests: the state of open-source black holes (latest snapshot)](https://porchlamp.org/black-holes/)
+- [The same report, frozen for citation (Snapshot `2026-10-14`)](https://porchlamp.org/black-holes/2026-10-14/)
+- [CSV of the 3,833 ranked projects (CC BY 4.0)](https://porchlamp.org/black-holes/2026-10-14/porchlamp-2026-10-14-ranked.csv)
+- [Methodology: every gate, pillar, lens, weight and parameter](https://porchlamp.org/methodology/)
+
 ## 5 Pillars & 18 Parameters (Balanced Weights)
 1. **Responsiveness (25%):** Time to First Human Response (TTFHR), Decision Rate (90d), First-Timer Merge Rate, PR Ghost Rate (14d), and Time to Merge (p90).
 2. **Criticality (25%):** Deduplicated Dependents, OpenSSF Criticality Score, and Monthly Registry Downloads.
