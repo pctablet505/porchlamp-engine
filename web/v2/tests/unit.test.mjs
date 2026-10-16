@@ -1338,19 +1338,33 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
   const gsc = readFileSync(path.join(webRoot, gscFile), "utf8").trim();
   assert.equal(gsc, `google-site-verification: ${gscFile}`);
 
-  // 4. sitemap.xml lists canonical addresses only (today: the site root), with no priority or changefreq.
+  // 4. sitemap.xml is a sitemap index naming the two child sitemaps; the pages sitemap lists canonical addresses only,
+  //    with no priority or changefreq. (sitemap-projects.xml is written by the exporter, one entry per project page.)
   const sitemap = readFileSync(path.join(webRoot, "sitemap.xml"), "utf8");
-  const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+  assert.match(sitemap, /<sitemapindex xmlns="http:\/\/www\.sitemaps\.org\/schemas\/sitemap\/0\.9">/, "sitemap.xml is a sitemap index");
+  assert.doesNotMatch(sitemap, /<urlset/, "the index lists sitemaps, not pages");
+  const children = [...sitemap.matchAll(/<sitemap>\s*<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+  assert.deepEqual(
+    children,
+    [`${base}sitemap-pages.xml`, `${base}sitemap-projects.xml`],
+    "the sitemap index names both child sitemaps"
+  );
+  const pagesSitemap = readFileSync(path.join(webRoot, "sitemap-pages.xml"), "utf8");
+  const locs = [...pagesSitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
   const snapshotId = html.match(/Snapshot <code>([\d-]+)<\/code>/)[1];
   assert.deepEqual(
     locs,
-    [base, `${base}black-holes/`, `${base}black-holes/${snapshotId}/`, `${base}methodology/`],
-    "sitemap lists the canonical root, the report (latest and frozen) and the methodology page"
+    [base, `${base}black-holes/`, `${base}black-holes/${snapshotId}/`, `${base}methodology/`, `${base}check/`],
+    "the pages sitemap lists the canonical root, the report (latest and frozen), the methodology page and the check page"
   );
   const llms = readFileSync(path.join(webRoot, "llms.txt"), "utf8");
   for (const loc of locs.slice(1)) assert.ok(llms.includes(loc), `llms.txt names ${loc}`);
-  for (const loc of locs) assert.ok(!loc.includes("?"), `no query address in sitemap: ${loc}`);
-  assert.doesNotMatch(sitemap, /<(priority|changefreq)>/, "no priority or changefreq");
+  for (const loc of [...children, ...locs]) assert.ok(!loc.includes("?"), `no query address in sitemap: ${loc}`);
+  for (const text of [sitemap, pagesSitemap]) assert.doesNotMatch(text, /<(priority|changefreq)>/, "no priority or changefreq");
+  assert.ok(
+    llms.includes(`To check a project, open ${base}projects/<owner>/<name>/ (lower case).`),
+    "llms.txt states the address of a project's page"
+  );
 
   // 5. index.html .seo-fallback: every internal link is canonical, U-2 excluded counts and U-6 hashes are present,
   //    and all 20 rows carry U-1 coverage, tier, and ?repo= drawer links.
@@ -1597,7 +1611,7 @@ test("maintainer badge: each image states its tier, '(capped)' when the ceiling 
   assert.deepEqual(files, ids.map((id) => `${id}.svg`).sort(), "every badge file is reachable, and only those exist");
 });
 
-test("maintainer badge: the Markdown links the image to the repository's drawer on the public site, with score, coverage and snapshot in alt and title (U-1, U-6)", () => {
+test("maintainer badge: the Markdown links the image to the project's own page on the public site, with score, coverage and snapshot in alt and title (U-1, U-6)", () => {
   const row = badgeRow({ porchlamp: 84.5, coverage: 0.85, tier: "A", tier_ceiling: "A", snapshot_id: "2026-10-13c" });
   const spec = copy.maintainerBadgeSpec(row);
   assert.equal(
@@ -1605,7 +1619,7 @@ test("maintainer badge: the Markdown links the image to the repository's drawer 
     "Porchlamp: \u2666 Sweet Spot \u00b7 Tier A (capped) \u00b7 Score 84.50 \u00b7 Coverage 85% \u00b7 Ceiling A \u00b7 Snapshot 2026-10-13c",
   );
   const md = copy.maintainerBadgeMarkdown(row, SITE_BASE);
-  assert.equal(md, `[![${spec.alt}](${SITE_BASE}badges/sweet-spot-tier-a-capped.svg)](${SITE_BASE}?repo=riverline%2Fhttpkit "${spec.alt}")`);
+  assert.equal(md, `[![${spec.alt}](${SITE_BASE}badges/sweet-spot-tier-a-capped.svg)](${SITE_BASE}projects/riverline/httpkit/ "${spec.alt}")`);
   assert.equal(copy.maintainerBadgeMarkdown(row, SITE_BASE.replace(/\/$/, "")), md, "a base without its trailing slash gives the same links");
   // Nothing that could end the alt text or the title early reaches the snippet.
   const hostile = copy.maintainerBadgeSpec({ ...row, snapshot_id: 'x"] [y\\' });
@@ -1621,7 +1635,7 @@ test("maintainer badge: the drawer shows the balanced badge at the end of Compos
   assert.ok(composite > -1 && composite < box && box < pillars, "the badge box is inside the Composite section");
   assert.equal((html.match(/<details[^>]*>/g) || []).length, 5, "a rated drawer still has five sections");
   assert.ok(html.includes('data-badge-copy="true"') && html.includes('data-badge-markdown="true"'));
-  assert.ok(html.includes(escapeHtml(`${SITE_BASE}?repo=riverline%2Fhttpkit`)), "the Markdown uses the address app.js passes in");
+  assert.ok(html.includes(escapeHtml(`${SITE_BASE}projects/riverline/httpkit/`)), "the Markdown uses the address app.js passes in");
   assert.ok(html.includes('src="badges/sweet-spot-tier-s.svg"'), "the preview loads from this site");
 
   // Balanced tier B, tier A under a lens: Composite shows the lens's A, but no badge is minted from it.
@@ -2618,4 +2632,104 @@ test("footer: Report and Methodology are real relative links", () => {
   assert.match(app, /<a href="\$\{escapeHtml\(copy\.METHODOLOGY_PAGE_HREF\)\}"[^>]*>\$\{escapeHtml\(copy\.FOOTER_METHODOLOGY_LABEL\)\}<\/a>/);
   assert.equal(copy.FOOTER_REPORT_LABEL, "Report");
   assert.equal(copy.FOOTER_METHODOLOGY_LABEL, "Methodology");
+});
+
+// ------------------------------------------------ E3: project pages (rows link to them; the badge targets them; /check/)
+import { rowCells, renderCard, handleRepoLinkClick, repoLinkHtml } from "../components/table.js";
+import { projectAddress, normalizeQuery, matchProjects, renderResults } from "../check.js";
+
+const E3_ROW = { owner: "FreeCAD", name: "FreeCAD", ecosystem: "systems", rank: 37, porchlamp: 70.1, tier: "B", tier_ceiling: "A", coverage: 0.9, quadrant: "Sweet Spot" };
+
+/** A click as the DOM delivers it: `target` answers `closest` for the link it is on (or none), and the two calls are recorded. */
+function clickOn(onLink, init = {}) {
+  const calls = [];
+  const evt = {
+    button: 0, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false,
+    target: { closest: (selector) => (onLink && selector === "a.repo-link" ? {} : null) },
+    preventDefault: () => calls.push("preventDefault"),
+    stopPropagation: () => calls.push("stopPropagation"),
+    ...init,
+  };
+  return { evt, calls };
+}
+
+test("E3: a ranked row and a card render the repository name as a real link to the lower-case project page", () => {
+  const repo = rowCells(E3_ROW, {}).cells.find((cell) => cell.key === "repository").html;
+  assert.match(repo, /^<a class="repo-link"[^>]* href="projects\/freecad\/freecad\/">/, "the cell starts with a real link");
+  assert.ok(repo.includes('<span class="repo-owner">FreeCAD/</span><span class="repo-name">FreeCAD</span></a>'), "the real spelling is shown");
+  assert.ok(repo.includes('<span class="eco-chip">systems</span>'), "the ecosystem chip is still there, outside the link");
+  assert.ok(renderCard(E3_ROW, {}).includes('href="projects/freecad/freecad/"'), "the card links too");
+  assert.ok(!repo.includes("style="), "the link carries no inline style");
+  const css = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "styles", "components.css"), "utf8");
+  assert.match(css, /\.repo-link \{\s*color: inherit;\s*text-decoration: none;\s*\}/, "components.css keeps the link looking like the row did");
+  assert.equal(repoLinkHtml({ ...E3_ROW, owner: "a<b" }).includes("<b"), false, "a name is escaped");
+  assert.equal(copy.projectPath("Ggml-Org", "Llama.CPP"), "projects/ggml-org/llama.cpp/");
+});
+
+test("E3: a plain left click on the link is kept from navigating (the drawer opens), a modified click follows the link", () => {
+  const plain = clickOn(true);
+  handleRepoLinkClick(plain.evt);
+  assert.deepEqual(plain.calls, ["preventDefault"], "a plain click prevents the navigation and goes on to the drawer");
+  for (const modifier of ["ctrlKey", "metaKey", "shiftKey", "altKey"]) {
+    const modified = clickOn(true, { [modifier]: true });
+    handleRepoLinkClick(modified.evt);
+    assert.deepEqual(modified.calls, ["stopPropagation"], `${modifier}: the link is followed and the drawer stays shut`);
+  }
+  const middle = clickOn(true, { button: 1 });
+  handleRepoLinkClick(middle.evt);
+  assert.deepEqual(middle.calls, ["stopPropagation"], "a non-primary button follows the link");
+  const elsewhere = clickOn(false);
+  handleRepoLinkClick(elsewhere.evt);
+  assert.deepEqual(elsewhere.calls, [], "a click anywhere else on the row is untouched");
+});
+
+test("E3: createRowElement and createCardElement listen for the link click", () => {
+  const seen = [];
+  const doc = {
+    createElement(tag) {
+      return {
+        tagName: tag.toUpperCase(), className: "", classList: { add() {} }, dataset: {}, children: [],
+        setAttribute() {}, appendChild() {},
+        addEventListener(type, handler) { seen.push([tag, type, handler]); },
+      };
+    },
+  };
+  createRowElement(doc, E3_ROW, {});
+  createCardElement(doc, E3_ROW, {});
+  const clicks = seen.filter(([, type]) => type === "click");
+  assert.deepEqual(clicks.map(([tag]) => tag), ["tr", "div"]);
+  for (const [, , handler] of clicks) assert.equal(handler, handleRepoLinkClick);
+});
+
+test("E3: the maintainer badge links to the project's page, and an old ?repo= link is not what a new badge carries", () => {
+  const row = badgeRow({ owner: "Riverline", name: "HttpKit" });
+  const md = copy.maintainerBadgeMarkdown(row, SITE_BASE);
+  assert.ok(md.includes(`](${SITE_BASE}projects/riverline/httpkit/ "`), md);
+  assert.ok(!md.includes("?repo="), md);
+  assert.ok(md.includes(`(${SITE_BASE}badges/`), "the image is unchanged");
+});
+
+test("E3: the sitemap index names both child sitemaps, and each is a file of the site", () => {
+  const webRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const index = readFileSync(path.join(webRoot, "sitemap.xml"), "utf8");
+  const children = [...index.matchAll(/<sitemap>\s*<loc>https:\/\/porchlamp\.org\/([^<]+)<\/loc>/g)].map((m) => m[1]);
+  assert.deepEqual(children, ["sitemap-pages.xml", "sitemap-projects.xml"]);
+  assert.ok(existsSync(path.join(webRoot, "sitemap-pages.xml")), "sitemap-pages.xml ships with the site");
+});
+
+test("E3: /check/ search: the address rule, pasted GitHub addresses, ranking of matches and real links", () => {
+  assert.equal(projectAddress("ggml-org/llama.cpp"), "projects/ggml-org/llama.cpp/");
+  assert.equal(projectAddress("FreeCAD/FreeCAD"), "projects/freecad/freecad/");
+  assert.equal(normalizeQuery("  https://github.com/Pallets/Flask/ "), "pallets/flask");
+  const names = ["psf/requests", "pallets/flask", "someone/flask-extras", "pallets/click", "FreeCAD/FreeCAD"];
+  assert.deepEqual(matchProjects(names, "flask"), ["pallets/flask", "someone/flask-extras"], "both start the name: rank order is kept");
+  assert.deepEqual(matchProjects(["ab/xflask", "cd/flask"], "flask"), ["cd/flask", "ab/xflask"], "a name that starts with it comes before one that only contains it");
+  assert.deepEqual(matchProjects(names, "pallets/flask"), ["pallets/flask"]);
+  assert.deepEqual(matchProjects(names, "FREECAD"), ["FreeCAD/FreeCAD"]);
+  assert.deepEqual(matchProjects(names, "   "), []);
+  assert.equal(matchProjects(names, "a", 2).length, 2, "the limit holds");
+  const html = renderResults(["FreeCAD/FreeCAD"], "freecad");
+  assert.equal(html, '<li><a href="../projects/freecad/freecad/">FreeCAD/FreeCAD</a></li>');
+  assert.ok(renderResults([], 'x<y"').includes("No ranked project matches"), "an empty result says so");
+  assert.ok(!renderResults([], "<img>").includes("<img>"), "the query is escaped");
 });

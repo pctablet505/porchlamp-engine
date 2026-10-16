@@ -18,6 +18,11 @@
 - [The same report, frozen for citation (Snapshot `2026-10-14`)](https://porchlamp.org/black-holes/2026-10-14/)
 - [CSV of the 3,833 ranked projects (CC BY 4.0)](https://porchlamp.org/black-holes/2026-10-14/porchlamp-2026-10-14-ranked.csv)
 - [Methodology: every gate, pillar, lens, weight and parameter](https://porchlamp.org/methodology/)
+- [Check any project: a search over the 3,833 ranked projects](https://porchlamp.org/check/)
+
+## One page per ranked project (readable without JavaScript)
+To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case).
+Each page opens with the project's median time to a first human reply to an outside pull request, the share that got no reply within 14 days, and its rank overall and for first-time contributors. Example: [ggml-org/llama.cpp](https://porchlamp.org/projects/ggml-org/llama.cpp/)
 
 ## 5 Pillars & 18 Parameters (Balanced Weights)
 1. **Responsiveness (25%):** Time to First Human Response (TTFHR), Decision Rate (90d), First-Timer Merge Rate, PR Ghost Rate (14d), and Time to Merge (p90).
@@ -77,4 +82,4 @@
 - [2D Matrix Coordinates JSON](https://porchlamp.org/data/2026-10-14/matrix.json)
 - [Methodology Specification JSON](https://porchlamp.org/data/2026-10-14/methodology.json)
 - [Atom 1.0 Syndication Feed](https://porchlamp.org/feed.xml)
-- [XML Sitemap](https://porchlamp.org/sitemap.xml)
+- [XML Sitemap index](https://porchlamp.org/sitemap.xml): [pages](https://porchlamp.org/sitemap-pages.xml) and [projects](https://porchlamp.org/sitemap-projects.xml)

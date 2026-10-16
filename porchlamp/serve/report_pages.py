@@ -428,15 +428,24 @@ def ranked_csv(boards: Mapping[str, Mapping[str, Any]], lenses: Sequence[str], b
 # The in-app copy, reused: copy.js is the single source of the names
 # --------------------------------------------------------------------------- #
 def copy_js_map(name: str, web_dir: Path = WEB_V2) -> dict[str, str]:
-    """``export const NAME = Object.freeze({ key: "value", ... })`` from ``web/v2/copy.js``."""
+    """``[export ]const NAME = Object.freeze({ key: "value", ... })`` from ``web/v2/copy.js``."""
     text = (web_dir / "copy.js").read_text(encoding="utf-8")
-    match = re.search(rf"export const {name} = Object\.freeze\(\{{(.*?)\}}\);", text, re.S)
+    match = re.search(rf"(?:export )?const {name} = Object\.freeze\(\{{(.*?)\}}\);", text, re.S)
     if not match:
-        raise ReportError(f"web/v2/copy.js has no `export const {name} = Object.freeze({{...}})`")
+        raise ReportError(f"web/v2/copy.js has no `const {name} = Object.freeze({{...}})`")
     pairs = re.findall(r'(\w+):\s*"((?:[^"\\]|\\.)*)"', match.group(1))
     if not pairs:
         raise ReportError(f"copy.js {name} holds no strings")
     return {key: json.loads(f'"{value}"') for key, value in pairs}
+
+
+def copy_js_string(name: str, web_dir: Path = WEB_V2) -> str:
+    """``[export ]const NAME = "text";`` (the string may start on the next line) from ``web/v2/copy.js``."""
+    text = (web_dir / "copy.js").read_text(encoding="utf-8")
+    match = re.search(rf'(?:export )?const {name} =\s*"((?:[^"\\]|\\.)*)";', text)
+    if not match:
+        raise ReportError(f"web/v2/copy.js has no `const {name} = \"...\";`")
+    return json.loads(f'"{match.group(1)}"')
 
 
 # --------------------------------------------------------------------------- #
@@ -461,9 +470,10 @@ def _ld(payload: Any) -> str:
 
 
 def page(
-    *, title: str, description: str, canonical: str, rel: str, body: str, ld: Any, nav_current: str
+    *, title: str, description: str, canonical: str, rel: str, body: str, ld: Any, nav_current: str, scripts: str = ""
 ) -> str:
-    """One page of the site. ``rel`` is the path back to the site root ("../", "../../")."""
+    """One page of the site. ``rel`` is the path back to the site root ("../", "../../").
+    ``scripts`` is markup placed after the page body (the /check/ page's one local script); none by default."""
     current = ' aria-current="page"'
     nav = "".join(
         f'<a href="{_a(rel + href)}"{current if key == nav_current else ""}>{_t(label)}</a>'
@@ -508,6 +518,7 @@ def page(
         f"{body}\n"
         "    </main>\n"
         "  </div>\n"
+        f"{scripts}"
         "</body>\n</html>\n"
     )
 
@@ -900,6 +911,7 @@ def render_methodology(
         <pre class="reproduce"><code>{_t(f.reproduce_command)}</code></pre>
         <h2 id="hashes">Hashes</h2>
         <ul class="hashes">{hash_items}</ul>
+        <p>To check a project, open https://porchlamp.org/projects/&lt;owner&gt;/&lt;name&gt;/ (lower case), or search on the <a href="{rel}check/">check page</a>.</p>
         {_site_links(rel)}
       </article>"""
     ld = {

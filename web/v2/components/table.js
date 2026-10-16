@@ -222,7 +222,7 @@ export function rowCells(row, opts) {
     { key: "rank", html: `${row.rank}${tieMark}`, numeric: true },
     {
       key: "repository",
-      html: `<span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span><span class="eco-chip">${escapeHtml(row.ecosystem)}</span>`,
+      html: `${repoLinkHtml(row)}<span class="eco-chip">${escapeHtml(row.ecosystem)}</span>`,
     },
     { key: "porchlamp", html: row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE, numeric: true },
     { key: "coverage", html: renderCoverageBadge(row.coverage) },
@@ -238,6 +238,34 @@ export function rowCells(row, opts) {
     numeric: true,
   });
   return { cells, tied };
+}
+
+/**
+ * The repository name as a real link to the project's own page (D8), so a crawler, a middle click and "open in
+ * a new tab" reach it. A plain click is taken over by `handleRepoLinkClick` and still opens the drawer.
+ */
+export function repoLinkHtml(row) {
+  return (
+    `<a class="repo-link" href="${escapeHtml(copy.projectPath(row.owner, row.name))}">` +
+    `<span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span></a>`
+  );
+}
+
+/** A click that is only "go here" in this tab: the left button, no modifier key. */
+export function isPlainLeftClick(evt) {
+  return evt.button === 0 && !evt.ctrlKey && !evt.metaKey && !evt.shiftKey && !evt.altKey;
+}
+
+/**
+ * Listens on the row or card (before the page's delegated click handler sees the event). A plain left click on
+ * the repository link does not navigate: the event goes on to open the drawer, as it always did. A ctrl, cmd,
+ * shift or alt click follows the link in a new tab or window, and is kept from opening the drawer too.
+ */
+export function handleRepoLinkClick(evt) {
+  const link = evt.target && typeof evt.target.closest === "function" ? evt.target.closest("a.repo-link") : null;
+  if (!link) return;
+  if (isPlainLeftClick(evt)) evt.preventDefault();
+  else evt.stopPropagation();
 }
 
 function rowAriaLabel(row) {
@@ -256,6 +284,7 @@ export function createRowElement(doc, row, opts) {
   tr.setAttribute("aria-label", rowAriaLabel(row));
   tr.setAttribute("title", copy.ROW_OPEN_HINT);
   tr.className = [tied ? "row-tied" : "", selected ? "row-selected" : ""].filter(Boolean).join(" ");
+  tr.addEventListener?.("click", handleRepoLinkClick); // the hand-made documents of some tests have no listeners
   for (const cell of cells) {
     const td = doc.createElement("td");
     td.dataset.cell = cell.key;
@@ -358,7 +387,7 @@ function cardInnerHtml(row, opts) {
     `<span class="cell-numeric">#${row.rank}${tieMark}</span>` +
     `<span>${renderCoverageBadge(row.coverage)}</span>` +
     `</div>` +
-    `<div><span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span><span class="eco-chip">${escapeHtml(row.ecosystem)}</span></div>` +
+    `<div>${repoLinkHtml(row)}<span class="eco-chip">${escapeHtml(row.ecosystem)}</span></div>` +
     `<div class="cell-numeric">${copy.COLUMN_PORCHLAMP} ${row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderTierCell(row.tier, row.tier_ceiling)}</div>` +
     `<div class="leaderboard-card-line-4">${renderQuadrant(row.quadrant)} ${pillarBarsHtml(row)}${showPersonaDelta ? ` ${deltaHtml(row)}` : ""}</div>` +
     `<div>${renderSuspicionIcon(row.suspicion)}</div>`;
@@ -387,6 +416,7 @@ export function createCardElement(doc, row, opts) {
   div.setAttribute("title", copy.ROW_OPEN_HINT);
   const { html, tied } = cardInnerHtml(row, opts);
   div.className = ["leaderboard-card", tied ? "row-tied" : "", selected ? "row-selected" : ""].filter(Boolean).join(" ");
+  div.addEventListener?.("click", handleRepoLinkClick);
   div.innerHTML = html;
   div.dataset.rendered = html;
   return div;

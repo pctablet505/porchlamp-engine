@@ -25,7 +25,14 @@ With ``--stats`` it also proves the report and methodology pages (``verify_repor
 ``black-holes/``, ``black-holes/<snapshot_id>/`` and ``methodology/`` and every row of the CSV is recomputed
 from the database, the API and the stats file and compared with what the page prints (set
 ``PORCHLAMP_DATA_ROOT`` so the API can serve the black-hole evidence); ``--report-only`` skips the request
-grid. Whatever the flags, every ``<loc>`` of ``sitemap.xml`` must have a page in the site.
+grid. Whatever the flags, every ``<loc>`` of ``sitemap.xml`` (and, for a sitemap index, of each child sitemap it
+names) must have a page in the site.
+
+``verify_projects`` (also run by ``--stats``) proves the project pages and /check/: every ranked project has its page
+at ``projects/<owner>/<name>/`` and no other page exists; every value on each page (the two answer sentences, the tier,
+the five pillars and their coverage, each lens rank or reason, each parameter's value, count and window, the five similar
+projects, the record hash and links) is recomputed from the API and compared; ``sitemap-projects.xml`` lists the top 1,000
+by balanced rank; ``check/projects.json`` lists the ranked projects.
 """
 from __future__ import annotations
 
@@ -35,6 +42,7 @@ import hashlib
 import html
 import importlib.util
 import json
+import math
 import os
 import pwd
 import random
@@ -44,6 +52,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import quote
@@ -424,22 +433,40 @@ def passed(result: dict) -> bool:
 SITE_ORIGIN = "https://porchlamp.org"
 
 
-def check_sitemap(site: Path) -> list[str]:
-    """Every ``<loc>`` of ``sitemap.xml`` is a page of the export: the root -> ``index.html``, ``/a/b/`` ->
-    ``a/b/index.html``. Returns the problems."""
-    sitemap = site / "sitemap.xml"
-    if not sitemap.is_file():
-        return ["sitemap.xml is missing"]
-    locs = re.findall(r"<loc>([^<]+)</loc>", sitemap.read_text(encoding="utf-8"))
-    problems = [] if locs else ["sitemap.xml lists no <loc>"]
+def _check_locs(site: Path, locs: list[str], where: str) -> list[str]:
+    problems = []
     for loc in locs:
         if not loc.startswith(SITE_ORIGIN + "/") or "?" in loc or "#" in loc:
-            problems.append(f"sitemap <loc> {loc} is not a canonical address of {SITE_ORIGIN}/")
+            problems.append(f"{where} <loc> {loc} is not a canonical address of {SITE_ORIGIN}/")
             continue
         path = loc[len(SITE_ORIGIN) + 1:]
         page = site / path / "index.html" if (path == "" or path.endswith("/")) else site / path
         if not page.is_file():
-            problems.append(f"sitemap <loc> {loc} has no page in the export ({page.relative_to(site)} is missing)")
+            problems.append(f"{where} <loc> {loc} has no page in the export ({page.relative_to(site)} is missing)")
+    return problems
+
+
+def check_sitemap(site: Path) -> list[str]:
+    """Every ``<loc>`` of ``sitemap.xml`` is a page of the export: the root -> ``index.html``, ``/a/b/`` ->
+    ``a/b/index.html``. When ``sitemap.xml`` is a sitemap index, each child sitemap it names is a file of the
+    site and every ``<loc>`` of each child is checked the same way. Returns the problems."""
+    sitemap = site / "sitemap.xml"
+    if not sitemap.is_file():
+        return ["sitemap.xml is missing"]
+    text = sitemap.read_text(encoding="utf-8")
+    locs = re.findall(r"<loc>([^<]+)</loc>", text)
+    problems = [] if locs else ["sitemap.xml lists no <loc>"]
+    if "<sitemapindex" not in text:
+        return problems + _check_locs(site, locs, "sitemap")
+    problems += _check_locs(site, locs, "sitemap.xml")
+    for loc in locs:
+        child = site / loc[len(SITE_ORIGIN) + 1:]
+        if not child.is_file() or not loc.endswith(".xml"):
+            continue
+        child_locs = re.findall(r"<loc>([^<]+)</loc>", child.read_text(encoding="utf-8"))
+        if not child_locs:
+            problems.append(f"{child.name} lists no <loc>")
+        problems += _check_locs(site, child_locs, child.name)
     return problems
 
 
@@ -707,6 +734,11 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, log=print) -> dict:
         for key in ("constants_hash", "manifest_root", "canonical_dump_hash", "code_commit", "reproduce_command"):
             ledger.equal(f"methodology {key}", snapshot[key] in text, True)
         ledger.equal("methodology database sha256", db_sha in text, True)
+        ledger.contains(
+            "methodology check-a-project line", page,
+            "To check a project, open https://porchlamp.org/projects/&lt;owner&gt;/&lt;name&gt;/ (lower case), "
+            'or search on the <a href="../check/">check page</a>.',
+        )
         pillars = _rows(_section(page, "pillars"))
         ledger.equal("methodology pillar weights", [r[1] for r in pillars], [f"{round(p['weight'] * 100)}%" for p in methodology["pillars"]])
         lenses = _rows(_section(page, "lenses"))
@@ -732,6 +764,340 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, log=print) -> dict:
     for error in ledger.errors:
         log(f"REPORT MISMATCH {error}")
     return {"checked": ledger.checked, "csv_cells": csv_cells, "errors": ledger.errors}
+
+
+# --------------------------------------------------------------------------- #
+# The project pages, /check/ and the sitemaps
+# --------------------------------------------------------------------------- #
+PROJECT_PAGE_LIMIT_IN_SITEMAP = 1000
+_BAD_TEXT = re.compile(r"\b(?:null|None|NaN|undefined)\b")
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+
+
+def _tofixed(x: float, places: int) -> str:
+    """JavaScript's ``toFixed`` for a positive number: the double's exact value, half up (exact rational arithmetic)."""
+    from fractions import Fraction
+
+    scaled = math.floor(Fraction(x) * 10 ** places + Fraction(1, 2))
+    digits = f"{scaled:0{places + 1}d}"
+    return f"{digits[:-places]}.{digits[-places:]}" if places else digits
+
+
+def _half_up(x: float, scale: int) -> int:
+    """``x * scale`` rounded half up, from the digits the record prints (``0.575`` is 57.5%, not 57.49999...%)."""
+    from fractions import Fraction
+
+    return math.floor(Fraction(repr(x)) * scale + Fraction(1, 2))
+
+
+def _tenths(x: float) -> str:
+    """``x`` rounded half up to one decimal, a trailing ``.0`` dropped."""
+    tenths = _half_up(x, 10)
+    return f"{tenths // 10}" if tenths % 10 == 0 else f"{tenths // 10}.{tenths % 10}"
+
+
+def _reply_time(hours: float) -> str:
+    if hours < 48:
+        shown = _tenths(hours)
+        if shown == "0":
+            return "under 0.1 hours"
+        return f"{shown} {'hour' if shown == '1' else 'hours'}"
+    return f"{_tenths(hours / 24)} days"
+
+
+def _date_range(start: str, end: str) -> str:
+    a, b = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
+    left = f"{a.day} {_MONTHS[a.month - 1]}" + ("" if a.year == b.year else f" {a.year}")
+    return f"{left} to {b.day} {_MONTHS[b.month - 1]} {b.year}"
+
+
+def _param_value(v: Any) -> str:
+    if v is None:
+        return "—"
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        if v == 0:
+            return "0"
+        if float(v).is_integer():
+            return str(int(v))
+        if abs(v) < 0.0001:
+            return f"{v:.4g}"
+        return f"{math.floor(v * 10000 + 0.5) / 10000:.4f}".rstrip("0").rstrip(".")
+    return str(v)
+
+
+def _expected_answer(detail: dict, evidence: list[dict], min_n: dict[str, int]) -> tuple[str, str, str]:
+    """``(first sentence, the rest, description)`` of the reply answer, from the API's own evidence rows and the
+    methodology's minimum samples."""
+    ev = {e["param_id"]: e for e in evidence}
+    t, g = ev["ttfhr_hours"], ev["gr14_ghost_rate"]
+    t_ok, g_ok = t["unmeasured_reason"] is None, g["unmeasured_reason"] is None
+    name = detail["name"]
+
+    def prs(n: int) -> str:
+        return f"{n:,} pull request" + ("" if n == 1 else "s")
+
+    if t_ok:
+        bracket = f" ({prs(t['n'])}, {_date_range(t['window_start'], t['window_end'])})"
+        reply = f"Outside pull requests to {name} got a first human reply in a median of {_reply_time(t['value'])}"
+        if g_ok:
+            first, rest = f"{reply}{bracket}; {_half_up(g['value'], 100)}% got none within 14 days.", ""
+        else:
+            first = f"{reply}{bracket}."
+            rest = f"The share with no reply within 14 days has too small a sample to measure ({prs(g['n'])} counted; {min_n['gr14_ghost_rate']} needed)."
+    elif g_ok:
+        bracket = ""
+        first = f"The reply time has too small a sample to measure ({prs(t['n'])} counted; {min_n['ttfhr_hours']} needed)."
+        noun = "pull request" if g["n"] == 1 else "pull requests"
+        rest = f"{_half_up(g['value'], 100)}% of {g['n']:,} outside {noun} got no reply within 14 days ({_date_range(g['window_start'], g['window_end'])})."
+    else:
+        bracket = ""
+        lo, hi = min_n["ttfhr_hours"], min_n["gr14_ghost_rate"]
+        needed = f"{lo} needed" if lo == hi else f"{lo} and {hi} needed"
+        first = f"The reply time and the share with no reply within 14 days both have too small a sample to measure ({t['n']:,} and {prs(g['n'])} counted; {needed})."
+        rest = ""
+    if len(first) < 160:
+        return first, rest, first
+    short = first.replace(bracket, "") if bracket else first
+    if len(short) < 160:
+        return first, rest, short
+    if ";" in short and len(short.split(";")[0] + ".") < 160:
+        return first, rest, short.split(";")[0] + "."
+    return first, rest, short[:158].rsplit(" ", 1)[0].rstrip(" ;,:") + "\u2026"
+
+
+def check_sitemap_files(site: Path) -> list[str]:
+    """Each child sitemap the index names holds at most 50,000 addresses."""
+    sitemap = site / "sitemap.xml"
+    if not sitemap.is_file():
+        return []
+    problems = []
+    for loc in re.findall(r"<loc>([^<]+)</loc>", sitemap.read_text(encoding="utf-8")):
+        child = site / loc[len(SITE_ORIGIN) + 1:]
+        if loc.endswith(".xml") and child.is_file():
+            count = len(re.findall(r"<loc>", child.read_text(encoding="utf-8")))
+            if count > 50000:
+                problems.append(f"{child.name} lists {count} addresses; the limit is 50,000")
+    return problems
+
+
+def verify_projects(db: Path, site: Path, *, log=print) -> dict:
+    """Recompute every value on every project page from the API (the leaderboards, ``/repos/{owner}/{name}`` and its
+    ``/evidence``) and compare with what the page prints; check the page set, the sitemaps and /check/.
+    ``{"checked": n, "pages": m, "errors": [...]}``."""
+    from fastapi.testclient import TestClient
+
+    from porchlamp.core import constants
+    from porchlamp.serve import project_pages as pp
+    from porchlamp.serve import report_pages as rp
+    from porchlamp.serve.app import create_app
+
+    ledger = _Ledger()
+    export_static = _export_static()
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = Path(tmp) / "snapshot.db"
+        source, target = sqlite3.connect(f"file:{db}?mode=ro", uri=True), sqlite3.connect(copy)
+        source.backup(target)
+        source.close()
+        target.close()
+        client = TestClient(create_app(str(copy), web_dir=str(Path(tmp) / "__no_web__")))
+
+        def api(path: str, **params: Any) -> Any:
+            response = client.get(path, params=params)
+            if response.status_code != 200:
+                raise SystemExit(f"verify: GET {path} -> {response.status_code}")
+            return response.json()
+
+        snapshot = api("/v1/porchlamp/snapshot")
+        methodology = api("/v1/porchlamp/methodology")
+        boards = {}
+        for lens in sorted(constants.PERSONA_PRESETS):
+            collected, page_no = [], 1
+            while True:
+                body = api("/v1/porchlamp/leaderboard", persona=lens, page=page_no, page_size=1000)
+                collected.extend(body["rows"])
+                if len(collected) >= body["total"] or not body["rows"]:
+                    break
+                page_no += 1
+            boards[lens] = (collected, body["total"])
+        records = {}
+        for row in boards["balanced"][0]:
+            path = f"/v1/porchlamp/repos/{quote(row['owner'], safe='')}/{quote(row['name'], safe='')}"
+            records[(row["owner"], row["name"])] = (api(path), api(path + "/evidence"))
+
+    sid, ranked = snapshot["snapshot_id"], boards["balanced"][0]
+    as_of = snapshot["as_of"][:10]
+    copy_pillars, copy_personas = rp.copy_js_map("PILLAR_NAMES"), rp.copy_js_map("PERSONA_NAMES")
+    copy_params, copy_unmeasured = rp.copy_js_map("PARAM_NAMES"), rp.copy_js_map("UNMEASURED_REASON_NAMES")
+    gate_copy = rp.copy_js_map("PERSONA_GATE_COPY")
+    insufficient = rp.copy_js_string("PERSONA_INSUFFICIENT_EVIDENCE_TEXT")
+    capped_text = rp.copy_js_string("TIER_CAPPED_EXPLANATION")
+    band_labels = rp.copy_js_map("COVERAGE_BAND_LABELS")
+    order = [p["input_id"] for p in methodology["parameters"]]
+    min_n = {p["input_id"]: p["min_n"] for p in methodology["parameters"]}
+    lens_rank = {lens: {(r["owner"], r["name"]): r["rank"] for r in rows} for lens, (rows, _t) in boards.items()}
+    lens_total = {lens: total for lens, (_r, total) in boards.items()}
+    by_eco: dict[str, list[int]] = {}  # ecosystem -> places (in the balanced order) of its ranked projects
+    for place, r in enumerate(ranked):
+        by_eco.setdefault(r["ecosystem"], []).append(place)
+    place_of = {(r["owner"], r["name"]): place for place, r in enumerate(ranked)}
+    rank_of = {(r["owner"], r["name"]): r["rank"] for r in ranked}
+
+    # The set of pages
+    expected_dirs = {f"projects/{o.lower()}/{n.lower()}" for o, n in rank_of}
+    ledger.equal("ranked projects equal the balanced leaderboard total", len(rank_of), lens_total["balanced"])
+    ledger.equal("no two ranked projects share a lower-case address", len(expected_dirs), len(rank_of))
+    found_dirs = {p.parent.relative_to(site).as_posix() for p in (site / "projects").rglob("index.html")} if (site / "projects").is_dir() else set()
+    ledger.equal("project pages in the export", len(found_dirs), len(expected_dirs))
+    for missing in sorted(expected_dirs - found_dirs)[:5]:
+        ledger.errors.append(f"project page {missing}/ is missing")
+    for extra in sorted(found_dirs - expected_dirs)[:5]:
+        ledger.errors.append(f"project page {extra}/ is not a ranked project")
+
+    titles, canonicals = [], []
+    for (owner, name), (detail, evidence) in records.items():
+        rel = f"projects/{owner.lower()}/{name.lower()}/index.html"
+        who = rel
+        path = site / rel
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        plain = _plain(text)
+        ledger.checked += 1
+        scanned = " ".join(_plain(part) for part in (
+            _by_id(text, "answer"), re.search(r'<ul class="facts">(.*?)</ul>', text, re.S).group(1),
+            _section(text, "pillars"), _section(text, "lenses")))
+        found_bad = _BAD_TEXT.search(scanned.replace(f"{owner}/{name}", "").replace(name, ""))  # a project may be called "null"
+        if found_bad:
+            ledger.errors.append(f"{who}: the page prints {found_bad.group(0)!r}")
+        canonical = re.search(r'<link rel="canonical" href="([^"]*)"', text).group(1)
+        ledger.equal(f"{who} canonical", canonical, f"{SITE_ORIGIN}/projects/{owner.lower()}/{name.lower()}/")
+        canonicals.append(canonical)
+        title = html.unescape(re.search(r"<title>(.*?)</title>", text, re.S).group(1))
+        titles.append(title)
+        ledger.equal(f"{who} <title>", title, f"{owner}/{name}: pull request response time and contributor experience | Porchlamp")
+        ledger.equal(f"{who} <h1>", _plain(re.search(r"<h1>(.*?)</h1>", text, re.S).group(1)), f"{owner}/{name}")
+        s1, s1_rest, description = _expected_answer(detail, evidence, min_n)
+        found_description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', text).group(1))
+        ledger.equal(f"{who} meta description", found_description, description)
+        ledger.equal(f"{who} meta description is under 160 characters", len(found_description) < 160, True)
+
+        # the two answer sentences
+        bal = lens_rank["balanced"][(owner, name)]
+        first_rank = lens_rank["first_timer"].get((owner, name))
+        if first_rank is not None:
+            s2 = f"It ranks {bal:,} of {lens_total['balanced']:,} overall and {first_rank:,} of {lens_total['first_timer']:,} for first-time contributors."
+        else:
+            code = detail["persona_gates"]["first_timer"]
+            reason = insufficient if code.startswith("insufficient_evidence:") else gate_copy[code]
+            reason = reason.rstrip(".")
+            s2 = f"It ranks {bal:,} of {lens_total['balanced']:,} overall. It is not ranked for first-time contributors: {reason[:1].lower() + reason[1:]}."
+        ledger.equal(f"{who} #answer", _by_id(text, "answer"), " ".join(part for part in (s1, s1_rest, s2) if part))
+        ledger.equal(f"{who} lede", _plain(re.search(r'<p class="lede">(.*?)</p>', text, re.S).group(1)),
+                     f"What happens to a stranger's pull request here, in the Porchlamp snapshot of {int(sid[8:10])} {_MONTHS[int(sid[5:7]) - 1]} {sid[:4]}.")
+
+        # rating
+        facts = _items(re.search(r'<ul class="facts">(.*?)</ul>', text, re.S).group(1))
+        cov = detail["coverage"]
+        band = "Full" if cov >= 0.95 else band_labels["A"] if cov >= 0.8 else band_labels["B"] if cov >= 0.6 else "Below floor"
+        capped = bool(detail["tier_ceiling"]) and detail["tier"] == detail["tier_ceiling"]
+        ledger.equal(f"{who} rating", facts, [
+            f"Score: {_tofixed(detail['porchlamp'], 2)}",
+            f"Coverage: {math.floor(cov * 100 + 0.5)}% · {band}",
+            f"Tier: {detail['tier']}{' (capped)' if capped else ''}",
+            f"Quadrant: {detail['quadrant']}",
+            f"Ecosystem: {rp.ECOSYSTEM_NAMES[detail['ecosystem']]}",
+        ])
+        ledger.equal(f"{who} capped note", capped_text in plain, capped)
+        pillars = _rows(_section(text, "pillars"))
+        ledger.equal(f"{who} pillar scores and coverage", pillars, [
+            [copy_pillars[p], _tofixed(detail[f"p_{p}"], 1) if detail[f"p_{p}"] is not None else "—",
+             f"{math.floor((detail[f'c_{p}'] or 0) * 100 + 0.5)}%"]
+            for p in copy_pillars
+        ])
+
+        # lens ranks
+        expected_lenses = []
+        for lens in pp.LENS_ORDER:
+            r = lens_rank[lens].get((owner, name))
+            if r is not None:
+                status = f"Rank {r:,} of {lens_total[lens]:,}"
+            else:
+                code = detail["persona_gates"][lens]
+                status = "Not ranked: " + (insufficient if code.startswith("insufficient_evidence:") else gate_copy[code])
+            expected_lenses.append([copy_personas[lens], status])
+        ledger.equal(f"{who} lens ranks", _rows(_section(text, "lenses")), expected_lenses)
+
+        # parameters
+        details_html = re.search(r"<details>(.*?)</details>", text, re.S).group(1)
+        by_id = {e["param_id"]: e for e in evidence}
+        expected_params = []
+        for pid in order:
+            e = by_id[pid]
+            if e["unmeasured_reason"]:
+                expected_params.append([copy_params[pid], f"Not shown: {copy_unmeasured[e['unmeasured_reason']]}", "—", "—", pp.PARAM_MEANINGS[pid]])
+            else:
+                window = _date_range(e["window_start"], e["window_end"]) if e["window_start"] and e["window_end"] else "—"
+                expected_params.append([copy_params[pid], _param_value(e["value"]), f"{e['n']:,}" if e["n"] else "—", window, pp.PARAM_MEANINGS[pid]])
+        ledger.equal(f"{who} parameters", _rows(details_html), expected_params)
+
+        # similar projects: the five nearest by balanced rank in the same ecosystem
+        here = place_of[(owner, name)]
+        near = sorted((q for q in by_eco[detail["ecosystem"]] if q != here), key=lambda q: (abs(q - here), q))[:5]
+        expected_similar = [f"projects/{ranked[q]['owner'].lower()}/{ranked[q]['name'].lower()}/" for q in sorted(near)]
+        similar = _section(text, "similar")
+        ledger.equal(f"{who} similar projects", re.findall(r'<li><a href="\.\./\.\./\.\./([^"]+)">', similar), expected_similar)
+        ledger.equal(f"{who} similar projects' ranks", [int(n.replace(",", "")) for n in re.findall(r"\(rank ([\d,]+)\)", similar)], [ranked[q]["rank"] for q in sorted(near)])
+        ledger.equal(f"{who} similar projects' names", re.findall(r'">([^<]+)</a> \(rank', similar), [f"{ranked[q]['owner']}/{ranked[q]['name']}" for q in sorted(near)])
+
+        # evidence and the correction link
+        evid = _section(text, "evidence")
+        ledger.contains(f"{who} record hash", evid, f"<code>{detail['raw_hash']}</code>")
+        bucket = export_static.bucket_of(owner, name)
+        ledger.contains(f"{who} JSON record link", evid, f'href="../../../data/{sid}/repos/{bucket}.json"')
+        ledger.contains(f"{who} data date", evid, f"data as of {int(as_of[8:10])} {_MONTHS[int(as_of[5:7]) - 1]} {as_of[:4]}")
+        ledger.contains(f"{who} issue link", text, 'href="https://github.com/pctablet505/porchlamp/issues/new?title=' + quote(f"Porchlamp record: {owner}/{name}", safe="") + '"')
+        for back in ('href="../../../"', 'href="../../../black-holes/"', 'href="../../../methodology/"'):
+            ledger.contains(f"{who} link back", text, back)
+        ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1))
+        ledger.equal(f"{who} breadcrumb", ld, {
+            "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
+                {"@type": "ListItem", "position": 1, "name": "Porchlamp", "item": f"{SITE_ORIGIN}/"},
+                {"@type": "ListItem", "position": 2, "name": f"{owner}/{name}", "item": canonical}]})
+    ledger.equal("project page titles are all different", len(set(titles)), len(titles))
+    ledger.equal("project page canonicals are all different", len(set(canonicals)), len(canonicals))
+
+    # sitemaps
+    projects_sitemap = site / "sitemap-projects.xml"
+    if projects_sitemap.is_file():
+        locs = re.findall(r"<loc>([^<]+)</loc>", projects_sitemap.read_text(encoding="utf-8"))
+        ledger.equal("sitemap-projects.xml lists the top 1,000 by balanced rank", locs, [
+            f"{SITE_ORIGIN}/projects/{r['owner'].lower()}/{r['name'].lower()}/" for r in ranked[:PROJECT_PAGE_LIMIT_IN_SITEMAP]])
+        lastmods = set(re.findall(r"<lastmod>([^<]+)</lastmod>", projects_sitemap.read_text(encoding="utf-8")))
+        ledger.equal("sitemap-projects.xml lastmod is the snapshot's as_of date", lastmods, {as_of})
+    else:
+        ledger.errors.append("sitemap-projects.xml is missing")
+    for problem in check_sitemap_files(site):
+        ledger.errors.append(problem)
+
+    # /check/
+    check_page = site / "check" / "index.html"
+    if check_page.is_file() and (site / "check" / "projects.json").is_file():
+        text = check_page.read_text(encoding="utf-8")
+        ledger.equal("check canonical", re.search(r'<link rel="canonical" href="([^"]*)"', text).group(1), f"{SITE_ORIGIN}/check/")
+        ledger.contains("check address pattern", _plain(text), "To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case).")
+        ledger.equal("check scripts", re.findall(r"<script[^>]*\ssrc=\"([^\"]*)\"", text), ["../check.js"])
+        listed = json.loads((site / "check" / "projects.json").read_text(encoding="utf-8"))
+        ledger.equal("check index lists the ranked projects in rank order", listed, [f"{r['owner']}/{r['name']}" for r in ranked])
+        ledger.equal("check.js ships with the site", (site / "check.js").is_file(), True)
+    else:
+        ledger.errors.append("check/index.html or check/projects.json is missing")
+
+    log(f"verify: project pages: checked {ledger.checked} values on {len(found_dirs & expected_dirs)} of {len(expected_dirs)} pages")
+    for error in ledger.errors[:50]:
+        log(f"PROJECT MISMATCH {error}")
+    if len(ledger.errors) > 50:
+        log(f"PROJECT MISMATCH ... and {len(ledger.errors) - 50} more")
+    return {"checked": ledger.checked, "pages": len(found_dirs & expected_dirs), "errors": ledger.errors}
 
 
 def conn_names(db: Path, snapshot_id: str) -> list[tuple[str, str]]:
@@ -767,6 +1133,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     ok = ok and not problems
     if args.stats is not None:
         ok = not verify_report(args.db.resolve(), args.stats.resolve(), site)["errors"] and ok
+        ok = not verify_projects(args.db.resolve(), site)["errors"] and ok
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
 

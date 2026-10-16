@@ -93,6 +93,39 @@ def _stats(conn: sqlite3.Connection, snapshot_id: str) -> dict:
     }
 
 
+def _add_evidence(conn: sqlite3.Connection, snapshot_id: str) -> None:
+    """Every rated project gets a row for each of the 18 parameters, as a production record has. The reply time
+    and the 14-day ghost rate cycle through the four cases a project page words: both measured, only the reply
+    time, only the ghost rate, neither (a too-small sample keeps its value but is not shown)."""
+    from porchlamp.core import constants
+
+    window = ("2026-04-10T13:41:50+00:00", "2026-10-07T13:41:50+00:00")
+    repos = conn.execute(
+        "SELECT id FROM repositories WHERE snapshot_id = ? AND rated = 1 ORDER BY id", (snapshot_id,)
+    ).fetchall()
+    for position, (repo_id,) in enumerate(repos):
+        have_reply, have_ghost = position % 4 in (0, 1), position % 4 in (0, 2)
+        for param_id in constants.PARAM_INPUT_IDS:
+            conn.execute("DELETE FROM params WHERE repo_id = ? AND param_id = ?", (repo_id, param_id))
+            if param_id == "ttfhr_hours":
+                row = (6.0 + position * 7.3, 100.0, 1, None, 40 + position, *window) if have_reply else (None, None, 0, "insufficient_n", 3, None, None)
+            elif param_id == "gr14_ghost_rate":
+                row = (0.2 + position / 1000, 60.0, 1, None, 25 + position, *window) if have_ghost else (0.5, None, 0, "insufficient_n", 4, *window)
+            elif param_id in ("legal_ip", "ai_posture", "promotion_ladder"):
+                row = ("DCO" if param_id == "legal_ip" else "AD_HOC", 70.0, 1, None, 0, None, None)
+            elif param_id == "dependents_deduped":
+                row = (None, None, 0, "not_applicable", 0, None, None)
+            else:
+                row = (0.5 + position / 10000, 50.0, 1, None, 12, None, None)
+            value, score, measured, reason, n, start, end = row
+            conn.execute(
+                "INSERT INTO params (repo_id, param_id, raw_value, score, measured, reason, n, window_start, window_end) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (repo_id, param_id, None if value is None else json.dumps(value), score, measured, reason, n, start, end),
+            )
+    conn.commit()
+
+
 @pytest.fixture(scope="module")
 def built(tmp_path_factory):
     """``(site dir, db, stats path, stats dict)``."""
@@ -116,6 +149,7 @@ def built(tmp_path_factory):
     holes = conn.execute("SELECT owner, name FROM repositories WHERE snapshot_id = ? AND gate_reason = 'black_hole'", (SNAPSHOT,)).fetchall()
     for owner, name in holes:
         (raw / f"{owner}__{name}.json").write_text(json.dumps(_envelope(11, 1)), encoding="utf-8")
+    _add_evidence(conn, SNAPSHOT)
     stats = _stats(conn, SNAPSHOT)
     finalize(conn, db, snapshot_id=SNAPSHOT)
     conn.close()
@@ -452,6 +486,10 @@ def test_methodology_page_lists_gates_pillars_lenses_parameters_and_hashes(built
     assert "python -m porchlamp.snapshot reproduce" in page
     assert ">None<" not in page and ">n/a<" in page  # a parameter with no minimum count reads n/a, not Python's None
     assert 'href="../black-holes/"' in page and 'href="../"' in page
+    assert (
+        "To check a project, open https://porchlamp.org/projects/&lt;owner&gt;/&lt;name&gt;/ (lower case), "
+        'or search on the <a href="../check/">check page</a>.' in page
+    )
 
 
 def test_copy_js_names_cover_every_parameter_and_lens():
@@ -474,3 +512,365 @@ def test_formatting_rounds_half_up_like_the_site():
     assert report_pages.rho_text(0.1255) == "0.13"
     assert report_pages.band_range_text("[1000,10000)") == "1,000 to 10,000"
     assert report_pages.band_range_text("[50000,inf)") == "50,000 or more"
+
+
+# ---- E3: one static page per ranked project, /check/ and the project sitemap ------------------------------------
+
+from porchlamp.serve import project_pages  # noqa: E402
+
+
+def _ranked(db: Path) -> list[tuple[str, str]]:
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    rows = conn.execute("SELECT owner, name FROM repositories WHERE rated = 1 ORDER BY owner, name").fetchall()
+    conn.close()
+    return rows
+
+
+def _project_files(site: Path) -> list[Path]:
+    return sorted((site / "projects").rglob("index.html"))
+
+
+def _verify_projects(db: Path, site: Path) -> dict:
+    return verify_static_export.verify_projects(db, site, log=lambda _line: None)
+
+
+def test_every_ranked_project_has_one_page_and_nothing_else_has(built):
+    site, db, _stats_path, _stats_dict, holes = built
+    ranked = _ranked(db)
+    assert len(ranked) > 100
+    expected = {f"projects/{o.lower()}/{n.lower()}/index.html" for o, n in ranked}
+    found = {p.relative_to(site).as_posix() for p in _project_files(site)}
+    assert found == expected
+    assert not any("bh-org" in path for path in found), "a black-hole project has no page"
+
+
+def test_verify_projects_proves_every_value_on_every_page(built):
+    site, db, _stats_path, _stats_dict, _holes = built
+    result = _verify_projects(db, site)
+    assert result["errors"] == []
+    assert result["pages"] == len(_ranked(db)) and result["checked"] > 20 * result["pages"]
+    assert verify_static_export.check_sitemap(site) == []
+
+
+def _answers(site: Path) -> list[str]:
+    return [
+        re.search(r'<p class="answer" id="answer">(.*?)</p>', p.read_text(encoding="utf-8"), re.S).group(1)
+        for p in _project_files(site)
+    ]
+
+
+def test_the_four_ways_a_reply_time_and_a_ghost_rate_are_worded_all_occur(built):
+    answers = _answers(built[0])
+    both = [a for a in answers if "got a first human reply in a median of" in a and "got none within 14 days." in a]
+    reply_only = [a for a in answers if "median of" in a and "The share with no reply within 14 days has too small a sample to measure (" in a]
+    ghost_only = [a for a in answers if a.startswith("The reply time has too small a sample to measure (")]
+    neither = [a for a in answers if a.startswith("The reply time and the share with no reply within 14 days both have too small a sample")]
+    assert both and reply_only and ghost_only and neither
+    assert len(both) + len(reply_only) + len(ghost_only) + len(neither) == len(answers)
+    assert all("not enough outside pull requests" not in a for a in answers)
+    assert any("It is not ranked for first-time contributors: " in a for a in answers), "the unranked-lens wording occurs"
+    assert all(re.search(r"It ranks [\d,]+ of [\d,]+ overall", a) for a in answers)
+    # the counts and the minimum are the record's and the methodology's: the fixture's unmeasured samples are 3 and 4, 10 needed
+    assert all("(3 pull requests counted; 10 needed)" in a for a in ghost_only)
+    assert all("(4 pull requests counted; 10 needed)" in a for a in reply_only)
+    assert all("(3 and 4 pull requests counted; 10 needed)" in a for a in neither)
+
+
+MIN_N = {"ttfhr_hours": 10, "gr14_ghost_rate": 10}
+
+
+def _evidence(reply: dict, ghost: dict) -> list[dict]:
+    base = {"unmeasured_reason": None, "value": None, "n": 0, "window_start": None, "window_end": None}
+    return [{"param_id": "ttfhr_hours", **base, **reply}, {"param_id": "gr14_ghost_rate", **base, **ghost}]
+
+
+LLAMA = {"owner": "ggml-org", "name": "llama.cpp"}
+WINDOW = {"window_start": "2026-04-10T13:41:50+00:00", "window_end": "2026-10-07T13:41:50+00:00"}
+
+
+def test_a_measured_reply_time_beside_a_small_ghost_sample_names_both_counts_and_never_says_not_enough_requests():
+    """llama.cpp: 208 pull requests for the reply time, 6 for the 14-day share (10 needed). The old wording said
+    'not enough outside pull requests' next to 208."""
+    evidence = _evidence({"value": 4.0904, "n": 208, **WINDOW}, {"value": 0.667, "n": 6, "unmeasured_reason": "insufficient_n", **WINDOW})
+    first, rest = project_pages.answer_reply(LLAMA, evidence, MIN_N)
+    assert first == "Outside pull requests to llama.cpp got a first human reply in a median of 4.1 hours (208 pull requests, 10 April to 7 October 2026)."
+    assert rest == "The share with no reply within 14 days has too small a sample to measure (6 pull requests counted; 10 needed)."
+    assert "not enough outside pull requests" not in first + rest
+
+
+def test_the_other_unmeasured_wordings_use_each_parameters_own_count_and_minimum():
+    answer = project_pages.answer_reply
+    ghost_only = _evidence({"n": 1, "unmeasured_reason": "insufficient_n"}, {"value": 0.575, "n": 40, **WINDOW})
+    assert answer(LLAMA, ghost_only, MIN_N) == (
+        "The reply time has too small a sample to measure (1 pull request counted; 10 needed).",
+        "58% of 40 outside pull requests got no reply within 14 days (10 April to 7 October 2026).",
+    )
+    neither = _evidence({"n": 0, "unmeasured_reason": "insufficient_n"}, {"n": 1, "unmeasured_reason": "insufficient_n"})
+    assert answer(LLAMA, neither, MIN_N)[0] == (
+        "The reply time and the share with no reply within 14 days both have too small a sample to measure (0 and 1 pull request counted; 10 needed)."
+    )
+    assert "(0 and 1 pull request counted; 10 and 5 needed)" in answer(LLAMA, neither, {"ttfhr_hours": 10, "gr14_ghost_rate": 5})[0]
+    both = _evidence({"value": 6.0, "n": 12, **WINDOW}, {"value": 0.1, "n": 11, **WINDOW})
+    assert answer(LLAMA, both, MIN_N) == (
+        "Outside pull requests to llama.cpp got a first human reply in a median of 6 hours (12 pull requests, 10 April to 7 October 2026); 10% got none within 14 days.", "")
+    with pytest.raises(report_pages.ReportError, match="minimum sample"):
+        answer(LLAMA, both, {})
+
+
+def test_project_pages_have_a_self_canonical_a_unique_title_an_answer_and_no_placeholder_text(built):
+    site = built[0]
+    titles, canonicals = [], []
+    for path in _project_files(site):
+        text = path.read_text(encoding="utf-8")
+        rel = path.relative_to(site).parent.as_posix() + "/"
+        canonical = re.search(r'<link rel="canonical" href="([^"]*)"', text).group(1)
+        assert canonical == f"https://porchlamp.org/{rel}"
+        canonicals.append(canonical)
+        titles.append(re.search(r"<title>(.*?)</title>", text, re.S).group(1))
+        answer = re.search(r'<p class="answer" id="answer">(.*?)</p>', text, re.S).group(1)
+        assert len(answer) > 40
+        visible = re.sub(r"<script.*?</script>", "", text, flags=re.S)
+        body = re.search(r"<main.*?</main>", visible, re.S).group(0)
+        body = re.sub(r'<h2 id="similar">.*?<h2 id="evidence">', "", body, flags=re.S)  # other projects' names are theirs
+        shown = re.sub(r"<[^>]+>", " ", body).replace(rel.split("/", 1)[1].rstrip("/"), "")
+        owner_name = re.search(r"<h1>(.*?)</h1>", text).group(1)
+        shown = shown.replace(owner_name, "").replace(owner_name.split("/")[1], "")  # a project may be called "null"
+        assert not re.search(r"\b(?:null|None|NaN|undefined)\b", shown), rel
+        description = re.search(r'<meta name="description" content="([^"]*)"', text).group(1)
+        assert 0 < len(description) < 160 and "None" not in description
+        assert external_violations(text) == [] and "<script" not in visible
+        ld = _ld(text)
+        assert ld["@type"] == "BreadcrumbList" and [i["position"] for i in ld["itemListElement"]] == [1, 2]
+        assert ld["itemListElement"][1]["item"] == canonical
+    assert len(set(titles)) == len(titles) == len(_project_files(site))
+    assert len(set(canonicals)) == len(canonicals)
+
+
+def test_a_script_planted_in_a_project_page_turns_the_guard_red(built, monkeypatch):
+    site = built[0]
+    clean = _project_files(site)[0].read_text(encoding="utf-8")
+    assert external_violations(clean) == []
+    planted = clean.replace("</body>", '<script src="https://cdn.example.com/x.js"></script></body>')
+    assert external_violations(planted), "the guard did not see the planted script"
+
+
+def test_the_check_page_states_the_pattern_loads_one_local_script_and_lists_every_ranked_project(built):
+    site, db, _stats_path, _stats, _holes = built
+    text = _page(site, "check/index.html")
+    assert "To check a project, open https://porchlamp.org/projects/&lt;owner&gt;/&lt;name&gt;/ (lower case)." in text
+    assert re.findall(r'<script[^>]*\ssrc="([^"]*)"', text) == ["../check.js"]
+    assert external_violations(text.replace('src="../check.js"', "")) == []
+    listed = json.loads(_page(site, "check/projects.json"))
+    assert sorted(listed) == sorted(f"{o}/{n}" for o, n in _ranked(db))
+    assert (site / "check.js").is_file()
+    assert external_violations((site / "check.js").read_text(encoding="utf-8")) == []
+
+
+def test_no_two_ranked_projects_share_a_lower_case_address(built):
+    ranked = _ranked(built[1])
+    project_pages.check_no_collisions(ranked)
+    with pytest.raises(report_pages.ReportError, match="share the address projects/acme/widget/"):
+        project_pages.check_no_collisions([*ranked, ("Acme", "Widget"), ("acme", "WIDGET")])
+    with pytest.raises(report_pages.ReportError, match="plain path segment"):
+        project_pages.project_path("acme", "..")
+
+
+def test_the_project_sitemap_lists_the_top_projects_by_rank_with_the_data_date(built):
+    site, db, _stats_path, _stats, _holes = built
+    text = _page(site, "sitemap-projects.xml")
+    locs = re.findall(r"<loc>([^<]+)</loc>", text)
+    assert len(locs) == min(len(_ranked(db)), project_pages.SITEMAP_PROJECTS_LIMIT)
+    assert len(set(re.findall(r"<lastmod>([^<]+)</lastmod>", text))) == 1
+    top_row = json.loads(_page(site, "check/projects.json"))[0]
+    assert locs[0] == f"https://porchlamp.org/projects/{top_row.lower()}/"
+
+
+def test_the_sitemap_limit_cuts_the_list_and_keeps_the_rank_order(project_index):
+    index = project_index
+    short = project_pages.sitemap_projects(index, date(2026, 10, 13), limit=3)
+    assert re.findall(r"<loc>([^<]+)</loc>", short) == [project_pages.project_url(o, n) for o, n in index.keys[:3]]
+    assert "<lastmod>2026-10-13</lastmod>" in short
+
+
+@pytest.fixture(scope="module")
+def project_index(built):
+    """The leaderboards of the built fixture, as the exporter holds them, and the index the pages are built from."""
+    from fastapi.testclient import TestClient
+
+    from porchlamp.serve.app import create_app
+
+    db = built[1]
+    client = TestClient(create_app(str(db), web_dir=str(db.parent / "__none__")))
+    boards = {}
+    for lens in project_pages.LENS_ORDER:
+        rows, page_no = [], 1
+        while True:
+            body = client.get("/v1/porchlamp/leaderboard", params={"persona": lens, "page": page_no, "page_size": 1000}).json()
+            rows.extend(body["rows"])
+            if len(rows) >= body["total"] or not body["rows"]:
+                break
+            page_no += 1
+        boards[lens] = {"rows": rows, "total": body["total"]}
+    return project_pages.ProjectIndex(boards, project_pages.Copy.load())
+
+
+# ---- the verifier catches a wrong number, a missing page and a phantom sitemap address ---------------------------
+
+def _copy_site(site: Path, tmp_path: Path) -> Path:
+    target = tmp_path / "site"
+    shutil.copytree(site, target)
+    return target
+
+
+def test_a_planted_wrong_number_on_a_project_page_fails_verification_naming_page_and_number(built, tmp_path):
+    site, db, *_ = built
+    copy_dir = _copy_site(site, tmp_path)
+    rel = _project_files(copy_dir)[0].relative_to(copy_dir).as_posix()
+    text = (copy_dir / rel).read_text(encoding="utf-8")
+    rank = re.search(r"It ranks ([\d,]+) of", text).group(1)
+    wrong = f"{int(rank.replace(',', '')) + 1:,}"
+    (copy_dir / rel).write_text(text.replace(f"It ranks {rank} of", f"It ranks {wrong} of", 1), encoding="utf-8")
+    result = _verify_projects(db, copy_dir)
+    assert any(rel in e and "#answer" in e and rank in e and wrong in e for e in result["errors"]), result["errors"][:3]
+    (copy_dir / rel).write_text(text, encoding="utf-8")  # restored: green again
+    assert _verify_projects(db, copy_dir)["errors"] == []
+
+
+def test_a_planted_wrong_parameter_pillar_and_lens_cell_each_fail_verification(built, tmp_path):
+    site, db, *_ = built
+    copy_dir = _copy_site(site, tmp_path)
+    path = _project_files(copy_dir)[0]
+    rel = path.relative_to(copy_dir).as_posix()
+    text = path.read_text(encoding="utf-8")
+    pillar = re.search(r'<th scope="row">Responsiveness</th><td>([^<]+)</td>', text)
+    param = re.search(r'<td data-label="Count">(\d[\d,]*)</td>', text)
+    lens = re.search(r"<td>Rank ([\d,]+) of", text)
+    for what, match in (("pillar", pillar), ("count", param), ("lens", lens)):
+        bad = text.replace(match.group(0), match.group(0).replace(match.group(1), "999", 1), 1)
+        path.write_text(bad, encoding="utf-8")
+        errors = _verify_projects(db, copy_dir)["errors"]
+        assert any(rel in e for e in errors), (what, errors[:2])
+    path.write_text(text, encoding="utf-8")
+    assert _verify_projects(db, copy_dir)["errors"] == []
+
+
+def test_a_missing_project_page_and_an_extra_one_fail_verification(built, tmp_path):
+    site, db, *_ = built
+    copy_dir = _copy_site(site, tmp_path)
+    victim = _project_files(copy_dir)[0]
+    saved = victim.read_text(encoding="utf-8")
+    victim.unlink()
+    errors = _verify_projects(db, copy_dir)["errors"]
+    assert any("project pages in the export" in e for e in errors) and any("is missing" in e for e in errors)
+    victim.write_text(saved, encoding="utf-8")
+    extra = copy_dir / "projects" / "stranger" / "repo"
+    extra.mkdir(parents=True)
+    (extra / "index.html").write_text(saved, encoding="utf-8")
+    assert any("is not a ranked project" in e for e in _verify_projects(db, copy_dir)["errors"])
+
+
+def test_a_sitemap_address_with_no_page_fails_the_sitemap_check_and_the_project_list_check(built, tmp_path):
+    site, db, *_ = built
+    copy_dir = _copy_site(site, tmp_path)
+    sitemap = copy_dir / "sitemap-projects.xml"
+    original = sitemap.read_text(encoding="utf-8")
+    sitemap.write_text(original.replace("</urlset>", "  <url><loc>https://porchlamp.org/projects/ghost/none/</loc></url>\n</urlset>"), encoding="utf-8")
+    problems = verify_static_export.check_sitemap(copy_dir)
+    assert len(problems) == 1 and "projects/ghost/none/" in problems[0] and "sitemap-projects.xml" in problems[0]
+    assert any("sitemap-projects.xml lists" in e for e in _verify_projects(db, copy_dir)["errors"])
+    sitemap.write_text(original, encoding="utf-8")
+    assert verify_static_export.check_sitemap(copy_dir) == []
+    (copy_dir / "sitemap-pages.xml").unlink()
+    assert any("sitemap-pages.xml" in p for p in verify_static_export.check_sitemap(copy_dir))
+
+
+# ---- the words and the numbers ---------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("hours, text", [
+    (6.0, "6 hours"), (1.5, "1.5 hours"), (4.0904, "4.1 hours"), (1.0, "1 hour"), (0.96, "1 hour"), (0.04, "under 0.1 hours"),
+    (47.94, "47.9 hours"), (47.96, "48 hours"), (48.0, "2 days"), (76.8, "3.2 days"), (121.3189, "5.1 days"),
+])
+def test_reply_time_is_hours_under_48_and_days_after(hours, text):
+    assert project_pages.reply_time_text(hours) == text
+
+
+def test_numbers_are_rounded_the_way_the_drawer_does():
+    assert project_pages.percent_text(0.575) == "58%" and project_pages.percent_text(0.6667) == "67%"
+    assert project_pages.percent_text(0.0) == "0%" and project_pages.percent_text(1.0) == "100%"
+    assert project_pages.js_fixed(65.25, 1) == "65.3" and project_pages.js_fixed(76.75, 1) == "76.8"
+    assert project_pages.js_fixed(80.83, 2) == "80.83" and project_pages.js_fixed(0.285, 2) == "0.28"  # the double is below .285
+    assert project_pages.coverage_percent(0.775) == "78%" and project_pages.coverage_percent(0.6) == "60%"
+    fmt = project_pages.format_parameter_value
+    assert [fmt(v) for v in (None, 0, 5, 5.0, 4.0904, 0.14040000000000002, 0.00001234, "DCO", 121.31894)] == [
+        "—", "0", "5", "5", "4.0904", "0.1404", "0.00001234", "DCO", "121.3189"]
+    assert project_pages.window_text("2026-04-10T13:41:50+00:00", "2026-10-07T00:00:00+00:00") == "10 April to 7 October 2026"
+    assert project_pages.window_text("2025-12-30T00:00:00+00:00", "2026-06-01T00:00:00+00:00") == "30 December 2025 to 1 June 2026"
+
+
+def test_the_meta_description_is_cut_cleanly_under_160_characters():
+    cut = project_pages.meta_description
+    short = "Outside pull requests to x got a first human reply in a median of 6 hours; 4% got none within 14 days."
+    assert cut(short) == short
+    long_name = "a" * 40
+    with_bracket = (f"Outside pull requests to {long_name} got a first human reply in a median of 3.2 days "
+                    "(1,234 pull requests, 10 April to 7 October 2026); 12% got none within 14 days.")
+    assert len(with_bracket) >= 160
+    assert cut(with_bracket) == f"Outside pull requests to {long_name} got a first human reply in a median of 3.2 days; 12% got none within 14 days."
+    clause = f"Outside pull requests to {'b' * 60} got a first human reply in a median of 3.2 days (1,234 pull requests, 10 April to 7 October 2026); there were not enough outside pull requests to measure the share."
+    assert cut(clause).endswith("3.2 days.") and len(cut(clause)) < 160
+    word_cut = cut("word " * 60)
+    assert len(word_cut) < 160 and word_cut.endswith("…") and " …" not in word_cut
+
+
+def test_param_meanings_cover_exactly_the_methodology_parameters_and_copy_js_names_them():
+    from porchlamp.core import constants
+
+    assert set(project_pages.PARAM_MEANINGS) == set(constants.PARAM_INPUT_IDS)
+    assert set(project_pages.PARAM_MEANINGS) <= set(report_pages.copy_js_map("PARAM_NAMES"))
+    assert all(text.endswith(".") and "null" not in text.lower() for text in project_pages.PARAM_MEANINGS.values())
+
+
+def test_the_drawer_wording_is_read_from_copy_js():
+    copy = project_pages.Copy.load()
+    assert copy.tier_label("B", "B") == "B (capped)" and copy.tier_label("A", "B") == "A" and copy.tier_label(None, None) == "—"
+    assert copy.coverage_band(0.775) == "78% · Ceiling B" and copy.coverage_band(0.85) == "85% · Ceiling A"
+    assert copy.coverage_band(0.97) == "97% · Full"
+    assert copy.missing_value("insufficient_n") == "Not shown: Insufficient sample size"
+    assert copy.persona_gate_reason("high_barrier_to_entry").startswith("This repository does not show a low enough barrier")
+    assert copy.persona_gate_reason("insufficient_evidence:coverage") == "Not enough evidence to show under this lens."
+    assert copy.tier_capped_explanation.startswith("Capped: this tier can go no higher")
+    with pytest.raises(report_pages.ReportError, match="no wording in copy.js"):
+        copy.persona_gate_reason("a_code_nobody_wrote_copy_for")
+
+
+def test_a_reason_the_answer_has_no_wording_for_stops_the_export_instead_of_guessing(built):
+    base = {"owner": "o", "name": "n"}
+    evidence = [
+        {"param_id": "ttfhr_hours", "unmeasured_reason": "collector_failure", "value": None, "n": 0, "window_start": None, "window_end": None},
+        {"param_id": "gr14_ghost_rate", "unmeasured_reason": None, "value": 0.1, "n": 20, "window_start": "2026-04-10", "window_end": "2026-10-07"},
+    ]
+    with pytest.raises(report_pages.ReportError, match="collector_failure"):
+        project_pages.answer_reply(base, evidence, MIN_N)
+    evidence[0].update(unmeasured_reason=None, value=3.0, n=30, window_start=None)
+    with pytest.raises(report_pages.ReportError, match="no window"):
+        project_pages.answer_reply(base | {"name": "n"}, evidence, MIN_N)
+
+
+def test_a_lens_without_a_rank_and_without_a_reason_stops_the_export(project_index):
+    index = project_index
+    hidden = next(k for k in index.keys if k not in index.rank["first_timer"])
+    detail = {"owner": hidden[0], "name": hidden[1], "persona_gates": {}}
+    with pytest.raises(report_pages.ReportError, match="carries no reason"):
+        index.standing("first_timer", detail)
+
+
+def test_similar_projects_are_the_five_nearest_in_the_same_ecosystem(project_index):
+    index = project_index
+    owner, name = index.keys[len(index.keys) // 2]
+    ecosystem = index.balanced[len(index.keys) // 2]["ecosystem"]
+    near = index.similar(owner, name)
+    assert len(near) == 5 and all(row["ecosystem"] == ecosystem for row in near)
+    assert (owner, name) not in [(r["owner"], r["name"]) for r in near]
+    here = len(index.keys) // 2
+    places = sorted(i for i, row in enumerate(index.balanced) if row["ecosystem"] == ecosystem and i != here)
+    assert [index.balanced[i] for i in sorted(sorted(places, key=lambda i: (abs(i - here), i))[:5])] == near
