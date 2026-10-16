@@ -1289,7 +1289,7 @@ test("SEO: the Dataset markup carries the data license CC BY 4.0", () => {
   const html = readFileSync(path.join(here, "..", "index.html"), "utf8");
   const ld = JSON.parse(html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/)[1]);
   const dataset = ld["@graph"].find((n) => n["@type"] === "Dataset");
-  assert.equal(dataset.license, "https://creativecommons.org/licenses/by/4.0/");
+  assert.match(dataset.license, /^https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/$/);
 });
 
 test("SEO: static canonical, no subpath robots.txt, canonical-only sitemap, lean head, Search Console verification, and U-1/U-2/U-6 static fallback", () => {
