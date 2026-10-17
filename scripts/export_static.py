@@ -28,7 +28,7 @@ With ``--stats <stats-YYYY-MM-DD.json>`` (from ``surprise_stats.py``) the export
 (``porchlamp/serve/report_pages.py``): ``black-holes/index.html`` and ``black-holes/<snapshot_id>/index.html`` with
 the CSV of the ranked projects beside it, then one page per ranked project (``porchlamp/serve/project_pages.py``:
 ``projects/<owner>/<name>/index.html``, lower case), ``check/index.html`` with its search index
-``check/projects.json``, and ``sitemap-projects.xml`` (the top 1,000 by balanced rank), then ten landing pages
+``check/projects.json``, and ``sitemap-projects.xml`` (every project page, in balanced-rank order), then ten landing pages
 (``porchlamp/serve/landing_pages.py``): ``rust/``, ``python/``, ``javascript/``, ``go/``, ``java/``, ``c-cpp/`` and the lenses
 ``first-timers/``, ``career/``, ``senior-systems/``, ``ai-assisted/``. The black-hole evidence the report sums is recomputed from the raw ``pr_window``
 envelopes the stored snapshot pinned: pass ``--snapshot-dir`` (the directory ``porchlamp.snapshot store`` read)
