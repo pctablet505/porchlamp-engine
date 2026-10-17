@@ -411,7 +411,7 @@ def test_the_verify_command_answers_the_grid_on_every_cpu(tmp_path, monkeypatch)
         return {"requests": 0, "mismatches": {}, "mutants": {}}
 
     monkeypatch.setattr(verify_static_export, "verify", recording_verify)
-    for page_check in ("verify_chrome", "verify_methodology", "verify_lists"):  # every page of the site: not what this test is about
+    for page_check in ("verify_chrome", "verify_methodology", "verify_lists", "verify_not_ranked_lists"):  # every page of the site: not what this test is about
         monkeypatch.setattr(verify_static_export, page_check, lambda db, site, **_options: {"errors": []})
     (tmp_path / "site").mkdir()
     verify_static_export.main(["--db", str(tmp_path / "db.sqlite"), "--site", str(tmp_path / "site")])

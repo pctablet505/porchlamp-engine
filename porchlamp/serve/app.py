@@ -59,7 +59,7 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -393,6 +393,10 @@ class PinnedEvidenceFiles:
         self.snapshot_dir = Path(snapshot_dir)
         self.data_dir = Path(data_dir)
         self._manifest: Optional[tuple[str, dict[tuple[str, str], Mapping[str, Any]]]] = None
+        #: ``(snapshot_id, owner, name, raw_hash)`` -> a black-hole record's
+        #: ``(unanswered, counted)`` (:func:`_black_hole_counts`): every
+        #: not-ranked list holds every black hole, read from these same files.
+        self.black_hole_counts: dict[tuple[str, str, str, str], Optional[tuple[int, int]]] = {}
 
     def _entries(self, snapshot_id: str) -> dict[tuple[str, str], Mapping[str, Any]]:
         if self._manifest is None:
@@ -616,7 +620,30 @@ def _classify_not_ranked(record: Mapping[str, Any], *, persona: str) -> tuple:
     return "unrated", record.get("reason", "insufficient_coverage")
 
 
-def _not_ranked_row(record: Mapping[str, Any], *, group: str, reason: str) -> NotRankedRow:
+def _black_hole_counts(
+    conn: sqlite3.Connection,
+    snapshot_id: str,
+    record: Mapping[str, Any],
+    files: Optional[PinnedEvidenceFiles],
+) -> Optional[tuple[int, int]]:
+    """``(unanswered, counted)`` for a black-hole record's not-ranked row: the
+    ``unanswered`` and ``population_n`` of its evidence
+    (:func:`_build_black_hole_evidence`, what ``/repos`` shows). ``None`` for
+    any other gate reason, without evidence files, or where the evidence does
+    not say black hole. Kept per stored record on ``files``."""
+    if files is None or record.get("gate_reason") != "black_hole":
+        return None
+    key = (snapshot_id, record["owner"], record["name"], record["raw_hash"])
+    if key not in files.black_hole_counts:
+        evidence = _build_black_hole_evidence(conn, snapshot_id, record, files)
+        files.black_hole_counts[key] = None if evidence is None else (evidence.unanswered, evidence.population_n)
+    return files.black_hole_counts[key]
+
+
+def _not_ranked_row(
+    record: Mapping[str, Any], *, group: str, reason: str, counts: Optional[tuple[int, int]] = None
+) -> NotRankedRow:
+    """One not-ranked row; ``counts`` is a black hole's ``(unanswered, counted)`` (:func:`_black_hole_counts`)."""
     return NotRankedRow(
         owner=record["owner"],
         name=record["name"],
@@ -625,17 +652,19 @@ def _not_ranked_row(record: Mapping[str, Any], *, group: str, reason: str) -> No
         gate_reason=reason if group == "gated" else None,
         unrated_reason=reason if group == "unrated" else None,
         persona_gate_reason=reason if group == "persona_hidden" else None,
+        unanswered=counts[0] if counts else None,
+        counted=counts[1] if counts else None,
     )
 
 
-def _split_not_ranked(rows: list, *, persona: str) -> tuple:
+def _split_not_ranked(rows: list, *, persona: str, counts_of: Callable[[Mapping[str, Any]], Optional[tuple[int, int]]]) -> tuple:
     gated: list[NotRankedRow] = []
     unrated: list[NotRankedRow] = []
     persona_hidden: list[NotRankedRow] = []
     buckets = {"gated": gated, "unrated": unrated, "persona_hidden": persona_hidden}
     for record in rows:
         group, reason = _classify_not_ranked(record, persona=persona)
-        buckets[group].append(_not_ranked_row(record, group=group, reason=reason))
+        buckets[group].append(_not_ranked_row(record, group=group, reason=reason, counts=counts_of(record)))
     return gated, unrated, persona_hidden
 
 
@@ -801,7 +830,9 @@ def _build_router(evidence_files: Optional[PinnedEvidenceFiles] = None) -> APIRo
         # split comes from the snapshot summary instead, same numbers `/snapshot`
         # serves. Stage-0 gating is persona-invariant, so `counts.gated` needs no
         # persona adjustment; the persona view only changes the rated side.
-        gated, unrated, persona_hidden = _split_not_ranked(rows, persona=persona)
+        gated, unrated, persona_hidden = _split_not_ranked(
+            rows, persona=persona, counts_of=lambda record: _black_hole_counts(conn, snapshot_id, record, evidence_files)
+        )
         summary = _require_snapshot_summary(conn, snapshot_id)
         universe = summary["counts"]["total"]
         gated_count = summary["counts"]["gated"]

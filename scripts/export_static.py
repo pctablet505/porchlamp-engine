@@ -224,13 +224,14 @@ def _export_leaderboard(api: _Api, persona: str, sorts: tuple[str, ...]) -> dict
     return {"persona": persona, "total": total, "max_page_size": PAGE_MAX, "rows": rows, "orders": orders}
 
 
-def _export_not_ranked(api: _Api, conn: sqlite3.Connection, snapshot_id: str, persona: str) -> dict:
+def _export_not_ranked(api: _Api, conn: sqlite3.Connection, snapshot_id: str, persona: str, evidence_files: Any) -> dict:
     """Every not-ranked row for ``persona`` in the API's order, each with the
     group the API files it under. ``/not-ranked`` itself returns only the
     first ``queries.MAX_LIMIT`` of a filtered list, so the full list comes
     from the same store query and the same classification the endpoint
-    runs (``porchlamp.serve.app._classify_not_ranked``/``_not_ranked_row``), then
-    is checked against the endpoint's own unfiltered answer."""
+    runs (``porchlamp.serve.app._classify_not_ranked``/``_not_ranked_row``, with
+    a black hole's numbers from ``evidence_files``), then is checked against
+    the endpoint's own unfiltered answer."""
     from porchlamp.serve import app as serve_app
     from porchlamp.store import queries
 
@@ -245,7 +246,8 @@ def _export_not_ranked(api: _Api, conn: sqlite3.Connection, snapshot_id: str, pe
     rows = []
     for record in records:
         group, reason = serve_app._classify_not_ranked(record, persona=persona)
-        row = serve_app._not_ranked_row(record, group=group, reason=reason).model_dump(mode="json")
+        counts = serve_app._black_hole_counts(conn, snapshot_id, record, evidence_files)
+        row = serve_app._not_ranked_row(record, group=group, reason=reason, counts=counts).model_dump(mode="json")
         rows.append({"group": group, "row": row})
 
     served = api.get("/v1/porchlamp/not-ranked", persona=persona)
@@ -388,21 +390,33 @@ def view_page(route: dict, template: Path = APP_SHELL) -> str:
 VIEWS_WRITTEN_ELSEWHERE = frozenset({"report"})
 
 
-def route_instances(route: dict, boards: dict[str, dict]) -> list[str]:
+def not_ranked_reason(row: dict) -> str:
+    """A not-ranked row's reason as the route table names it (a list's ``fixed.reason``): its gate or unrated reason,
+    without the engine's ``"unrated: "`` prefix (copy.js ``bareUnratedReason``)."""
+    return (row["gate_reason"] or row["unrated_reason"]).removeprefix("unrated: ")
+
+
+def route_instances(route: dict, boards: dict[str, dict], not_ranked: dict[str, dict]) -> list[str]:
     """The addresses a route answers at: its path, or, for a path with ``{page}``, one per page of the list its fixed
-    state names (its lens, all ecosystems or one), ``fixed.page_size`` rows a page, counted in ``boards`` (each
-    lens's leaderboard: ``{"rows", ...}``, the API's own rows)."""
+    state names, ``fixed.page_size`` rows a page: a ranking (its lens, all ecosystems or one), counted in ``boards``
+    (each lens's leaderboard: ``{"rows", ...}``, the API's own rows), or the not-ranked projects of one reason,
+    counted in ``not_ranked`` (each lens's not-ranked list: ``{"rows": [{"group", "row"}, ...]}``). A ranking always
+    has its first page; a reason no project has gets no page."""
     path = route["path"]
     if "{page}" not in path:
         return [path]
     fixed = route.get("fixed") or {}
     persona, eco = fixed.get("persona") or "balanced", fixed.get("eco")
-    listed = sum(1 for row in boards[persona]["rows"] if eco is None or row["ecosystem"] == eco)
-    pages = max(1, -(-listed // fixed["page_size"]))
+    if "reason" in fixed:
+        listed = sum(1 for entry in not_ranked[persona]["rows"] if not_ranked_reason(entry["row"]) == fixed["reason"])
+        pages = -(-listed // fixed["page_size"])
+    else:
+        listed = sum(1 for row in boards[persona]["rows"] if eco is None or row["ecosystem"] == eco)
+        pages = max(1, -(-listed // fixed["page_size"]))
     return [path.replace("{page}", str(n)) for n in range(1, pages + 1)]
 
 
-def _write_view_pages(out: Path, boards: dict[str, dict]) -> list[dict]:
+def _write_view_pages(out: Path, boards: dict[str, dict], not_ranked: dict[str, dict]) -> list[dict]:
     """The app's page at each address of each view it draws in place (``shell`` in the route table; every page of a
     route with ``{page}``, :func:`route_instances`), so a static host serves every view at its own path; ``/`` is
     ``index.html`` itself. Written after every other page: a path two pages claim stops the export. Returns each page
@@ -411,7 +425,7 @@ def _write_view_pages(out: Path, boards: dict[str, dict]) -> list[dict]:
     for route in app_routes():
         if not route["shell"] or route["path"] == "/" or route["id"] in VIEWS_WRITTEN_ELSEWHERE:
             continue
-        for address in route_instances(route, boards):
+        for address in route_instances(route, boards, not_ranked):
             if not re.fullmatch(r"(/[a-z0-9-]+)+/", address):
                 raise SystemExit(f"export: the {route['id']} view's address {address!r} is not a plain directory path")
             target = out / address.strip("/") / "index.html"
@@ -423,10 +437,11 @@ def _write_view_pages(out: Path, boards: dict[str, dict]) -> list[dict]:
     return written
 
 
-def listed_addresses(boards: dict[str, dict]) -> list[str]:
+def listed_addresses(boards: dict[str, dict], not_ranked: dict[str, dict]) -> list[str]:
     """The list views' addresses the sitemap names: every address of every preset route (one with ``fixed``), in the
     route table's order."""
-    return [address for route in app_routes() if route.get("fixed") and route["shell"] for address in route_instances(route, boards)]
+    return [address for route in app_routes() if route.get("fixed") and route["shell"]
+            for address in route_instances(route, boards, not_ranked)]
 
 
 def data_version_js(snapshot_id: str) -> str:
@@ -705,12 +720,14 @@ def export(
         personas = sorted(constants.PERSONA_PRESETS)
         sorts = sort_keys(constants.PILLAR_NAMES)
         boards: dict[str, dict] = {}
+        not_ranked: dict[str, dict] = {}
         for persona in personas:
             name = f"leaderboard-{persona}.json"
             boards[persona] = _export_leaderboard(api, persona, sorts)
             sizes[name] = _dump(data / name, boards[persona])
             name = f"not-ranked-{persona}.json"
-            sizes[name] = _dump(data / name, _export_not_ranked(api, conn, snapshot_id, persona))
+            not_ranked[persona] = _export_not_ranked(api, conn, snapshot_id, persona, evidence_files)
+            sizes[name] = _dump(data / name, not_ranked[persona])
 
         # Every bucket is written, empty ones too: a repo absent from the snapshot
         # must read as a 404 for that repo, never as a missing data file.
@@ -749,10 +766,10 @@ def export(
         pages += _write_report_pages(out, facts, boards, manifest)
         pages += _write_project_pages(out, facts, methodology, boards, buckets, snapshot)
         _write_home(out, out / "data" / snapshot_id)
-    pages += _write_view_pages(out, boards)
+    pages += _write_view_pages(out, boards, not_ranked)
     (out / "data-version.js").write_text(data_version_js(snapshot_id), encoding="utf-8")
     _prerender(out, pages)
-    (out / "sitemap-pages.xml").write_text(_sitemap_pages(out, snapshot_id, snapshot["as_of"], listed_addresses(boards)), encoding="utf-8")
+    (out / "sitemap-pages.xml").write_text(_sitemap_pages(out, snapshot_id, snapshot["as_of"], listed_addresses(boards, not_ranked)), encoding="utf-8")
     (out / ".nojekyll").write_text("", encoding="utf-8")
     _scan_for_forbidden(out)
     return manifest

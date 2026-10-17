@@ -280,6 +280,24 @@ return {
 )
 
 
+#: A name longer than its table cell (240 px) or its card: the name ends in "…" and the ecosystem chip beside it stays
+#: whole, inside the cell or the card. A chip pushed past the cell's edge loses its text and shows an empty pill.
+_CHIP_BESIDE_LONG_NAME = (
+    _READY
+    + """
+const item = await until(() => doc.querySelector(%r), 15000);
+if (!item) return { missing: %r };
+item.querySelector('.repo-name').textContent = 'an_extraordinarily_long_repository_name_without_any_natural_break_opportunities_at_all';
+await sleep(300);
+const box = (%s).getBoundingClientRect();
+const chip = item.querySelector('.eco-chip');
+const rect = chip.getBoundingClientRect();
+return { boxLeft: box.left, boxRight: box.right, boxTop: box.top, boxBottom: box.bottom,
+         chipLeft: rect.left, chipRight: rect.right, chipTop: rect.top, chipBottom: rect.bottom, chipText: chip.textContent };
+"""
+)
+
+
 @pytest.fixture(scope="module")
 def measured(tmp_path_factory):
     if ui_browser.find_chrome() is None:
@@ -326,6 +344,9 @@ def measured(tmp_path_factory):
         {"name": "configure-thead", "path": "./weights/", **DESKTOP, "script": _CONFIGURE_THEAD},
         {"name": "configure-1100", "path": "./weights/", "width": 1100, "height": 800, "script": _CONFIGURE_1100},
         {"name": "mobile-card-long-name", "path": "./", **PHONE, "script": _MOBILE_CARD_LONG_NAME},
+        {"name": "chip-table", "path": "./", **DESKTOP, "script": _CHIP_BESIDE_LONG_NAME % (
+            ".leaderboard-table tbody tr[data-owner]", "a table row", "item.querySelector('td[data-cell=repository]')")},
+        {"name": "chip-card", "path": "./", **PHONE, "script": _CHIP_BESIDE_LONG_NAME % (".leaderboard-card", "a card", "item")},
     ]
     cases += [
         {"name": f"names-{tab}", "path": path, **DESKTOP, "script": _UNNAMED_CONTROLS % settle}
@@ -460,3 +481,11 @@ def test_mobile_card_clamps_long_repository_name_within_fixed_card_height(measur
     assert got["scrollHeight"] <= got["clientHeight"], got
     assert got["scrollWidth"] <= got["clientWidth"], got
 
+
+@pytest.mark.parametrize("case", ["chip-table", "chip-card"])
+def test_a_long_name_keeps_its_ecosystem_chip_whole_beside_it(measured, case):
+    got = measured[case]
+    assert "missing" not in got, got
+    assert got["chipText"] and got["chipRight"] > got["chipLeft"], got
+    assert got["boxLeft"] - 0.5 <= got["chipLeft"] and got["chipRight"] <= got["boxRight"] + 0.5, got
+    assert got["boxTop"] - 0.5 <= got["chipTop"] and got["chipBottom"] <= got["boxBottom"] + 0.5, got

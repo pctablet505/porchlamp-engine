@@ -26,6 +26,10 @@
 // state.js serializeLocation picks, among the routes of a view, the one whose fixed fields the state has and whose
 // query holds every other field the state sets off its default; the most fixed fields win, then table order.
 // "{ecosystem}", "{lens}", "{first}", "{last}" and "{total}" in a title are filled from copy.js and the data.
+//
+// A list of the not-ranked projects by reason ("view": "notranked") fixes `reason` too: the bare reason code its rows
+// carry (state.notRankedReason), and pages its rows 200 a page. "{list}" in its title is the list's name, and
+// "{page_of}" its page part, empty when the list has one page (copy.js NOT_RANKED_LIST_NAMES, NOT_RANKED_LIST_PAGE_OF).
 
 export const ROUTES = deepFreeze([
   // routes:begin
@@ -55,6 +59,16 @@ export const ROUTES = deepFreeze([
   {"id": "java-fastest-replies", "view": "ranked", "path": "/java/fastest-replies/", "title": "Fastest first reply to pull requests: {ecosystem} projects | Porchlamp", "query": [], "fixed": {"sort": "first_reply", "persona": "balanced", "eco": "maven"}, "defaults": {"page_size": 50}, "top": true, "shell": true},
   {"id": "c-cpp-fastest-replies", "view": "ranked", "path": "/c-cpp/fastest-replies/", "title": "Fastest first reply to pull requests: {ecosystem} projects | Porchlamp", "query": [], "fixed": {"sort": "first_reply", "persona": "balanced", "eco": "systems"}, "defaults": {"page_size": 50}, "top": true, "shell": true},
   {"id": "notranked", "path": "/not-ranked/", "title": "Not ranked: the gated and unrated projects, with their reasons | Porchlamp", "query": ["persona", "eco", "q", "page", "page_size"], "shell": true},
+  {"id": "notranked-stale", "view": "notranked", "path": "/not-ranked/stale/{page}/", "title": "Not ranked: {list}{page_of} | Porchlamp", "query": [], "fixed": {"reason": "stale", "persona": "balanced", "eco": null, "q": null, "page_size": 200}, "shell": true},
+  {"id": "notranked-not-software", "view": "notranked", "path": "/not-ranked/not-software/{page}/", "title": "Not ranked: {list}{page_of} | Porchlamp", "query": [], "fixed": {"reason": "non_software", "persona": "balanced", "eco": null, "q": null, "page_size": 200}, "shell": true},
+  {"id": "notranked-archived", "view": "notranked", "path": "/not-ranked/archived/{page}/", "title": "Not ranked: {list}{page_of} | Porchlamp", "query": [], "fixed": {"reason": "archived", "persona": "balanced", "eco": null, "q": null, "page_size": 200}, "shell": true},
+  {"id": "notranked-unlicensed", "view": "notranked", "path": "/not-ranked/unlicensed/{page}/", "title": "Not ranked: {list}{page_of} | Porchlamp", "query": [], "fixed": {"reason": "unlicensed", "persona": "balanced", "eco": null, "q": null, "page_size": 200}, "shell": true},
+  {"id": "notranked-unanswered", "view": "notranked", "path": "/not-ranked/unanswered/{page}/", "title": "Not ranked: {list}{page_of} | Porchlamp", "query": [], "fixed": {"reason": "black_hole", "persona": "balanced", "eco": null, "q": null, "page_size": 200}, "shell": true},
+  {"id": "notranked-fork", "view": "notranked", "path": "/not-ranked/fork/{page}/", "title": "Not ranked: {list}{page_of} | Porchlamp", "query": [], "fixed": {"reason": "fork", "persona": "balanced", "eco": null, "q": null, "page_size": 200}, "shell": true},
+  {"id": "notranked-mirror", "view": "notranked", "path": "/not-ranked/mirror/{page}/", "title": "Not ranked: {list}{page_of} | Porchlamp", "query": [], "fixed": {"reason": "mirror", "persona": "balanced", "eco": null, "q": null, "page_size": 200}, "shell": true},
+  {"id": "notranked-insufficient-evidence", "view": "notranked", "path": "/not-ranked/insufficient-evidence/{page}/", "title": "Not ranked: {list}{page_of} | Porchlamp", "query": [], "fixed": {"reason": "insufficient_evidence", "persona": "balanced", "eco": null, "q": null, "page_size": 200}, "shell": true},
+  {"id": "notranked-no-contribution-workflow", "view": "notranked", "path": "/not-ranked/no-contribution-workflow/{page}/", "title": "Not ranked: {list}{page_of} | Porchlamp", "query": [], "fixed": {"reason": "no_external_workflow", "persona": "balanced", "eco": null, "q": null, "page_size": 200}, "shell": true},
+  {"id": "notranked-off-platform", "view": "notranked", "path": "/not-ranked/off-platform/{page}/", "title": "Not ranked: {list}{page_of} | Porchlamp", "query": [], "fixed": {"reason": "off_platform_routed", "persona": "balanced", "eco": null, "q": null, "page_size": 200}, "shell": true},
   {"id": "matrix", "path": "/matrix/", "title": "Leverage vs. friction matrix of open-source projects | Porchlamp", "query": ["eco", "q"], "shell": true},
   {"id": "compare", "path": "/compare/", "title": "Compare open-source projects side by side | Porchlamp", "query": ["persona", "cmp"], "shell": true},
   {"id": "configure", "path": "/weights/", "title": "Rank open-source projects with your own pillar weights | Porchlamp", "query": ["eco", "q", "sort", "page", "page_size", "w"], "shell": true},
@@ -172,5 +186,5 @@ export function projectPath(owner, name) {
 /** The document title of a route; a project's title carries its real spelling. */
 export function routeTitle(id, params = {}) {
   const route = BY_ID.get(id) || BY_ID.get("notfound");
-  return route.title.replace(/\{([a-z]+)\}/g, (_slot, key) => String(params[key] ?? ""));
+  return route.title.replace(/\{([a-z_]+)\}/g, (_slot, key) => String(params[key] ?? ""));
 }
