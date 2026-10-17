@@ -326,32 +326,46 @@ def _inputs(built):
 
 def test_the_fixture_inputs_pass_every_guard(built):
     facts = report_pages.build_facts(**_inputs(built))
-    assert facts.black_holes * 4 > facts.judged
+    assert (facts.one_in - 1) * facts.black_holes <= facts.judged < facts.one_in * facts.black_holes
     assert [e.key for e in facts.ecosystems][:2] == ["pypi", "npm"]
     assert facts.unanswered == 11 * facts.black_holes and facts.counted == 12 * facts.black_holes
     assert (str(facts.window_start), str(facts.window_end)) == ("2026-03-17", "2026-09-13")
 
 
-def test_a_share_of_a_quarter_or_less_fails_the_export_guard(built):
+def test_a_share_of_exactly_a_quarter_is_more_than_1_in_5_never_1_in_4(built):
+    """The headline's N is computed: the smallest whole number with N * black_holes > judged. At exactly 25% the
+    true claim is "more than 1 in 5"; "more than 1 in 4" would be false."""
     inputs = _inputs(built)
     # Drop black holes from the database's rows (and the stats) until the share is 25%.
     rows = [r for r in inputs["db_rows"] if r[1] != "black_hole"]
+    # 25% exactly needs the judged projects that are not black holes to be a multiple of 3: drop up to two judged
+    # PyPI rows (a higher PyPI share keeps the ecosystem guard true).
+    surplus = sum(j for j, _ in report_pages.decided_counts(rows).values()) % 3
+    for _ in range(surplus):
+        rows.remove(next(r for r in rows if r[0] == "pypi" and report_pages.decided_counts([r])))
     judged_plain = report_pages.decided_counts(rows)
     base_judged = sum(j for j, _ in judged_plain.values())
+    assert base_judged % 3 == 0
     keep = base_judged // 3  # bh / (base + bh) = 25% exactly
     holes = [r for r in inputs["db_rows"] if r[1] == "black_hole"][:keep]
     inputs["db_rows"] = rows + holes
     inputs["stats"].update(gate5_decided=base_judged + keep, black_holes=keep)
     inputs["api_black_holes"] = keep
     inputs["evidence"] = inputs["evidence"][:keep]
+    # Star bands whose shares still rise at every step (the report's band guard), adding up to the same totals.
+    n1, n2 = base_judged // 2, 4
+    n3, bh3 = base_judged + keep - n1 - n2, keep - 2
     inputs["stats"]["by_stars"] = {
         "[0,1000)": {"n": 0, "black_holes": 0, "share": 0.0},
-        "[1000,10000)": {"n": base_judged // 2, "black_holes": 0, "share": 0.0},
-        "[10000,50000)": {"n": 1, "black_holes": 0, "share": 0.0},
-        "[50000,inf)": {"n": base_judged + keep - base_judged // 2 - 1, "black_holes": keep, "share": round(keep / (base_judged + keep - base_judged // 2 - 1), 4)},
+        "[1000,10000)": {"n": n1, "black_holes": 1, "share": round(1 / n1, 4)},
+        "[10000,50000)": {"n": n2, "black_holes": 1, "share": 0.25},
+        "[50000,inf)": {"n": n3, "black_holes": bh3, "share": round(bh3 / n3, 4)},
     }
-    with pytest.raises(report_pages.ReportError, match="guard: 'more than 1 in 4'"):
-        report_pages.build_facts(**inputs)
+    assert 1 / n1 < 0.25 < bh3 / n3
+    facts = report_pages.build_facts(**inputs)
+    assert facts.black_holes * 4 == facts.judged
+    assert facts.one_in == 5
+    assert {i: lead for i, lead, _rest in report_pages.finding_paragraphs(facts)}["finding-share"] == "More than 1 in 5."
 
 
 def test_a_star_band_below_the_one_before_it_fails_the_guard(built):
@@ -990,3 +1004,30 @@ def test_the_hand_written_facts_come_from_the_database_and_agree_with_the_stats(
     assert (facts["judged"], facts["black_holes"]) == (stats["gate5_decided"], stats["black_holes"])
     assert facts["below_floor"] <= facts["unrated"] and sum(facts["unrated_by_reason"].values()) == facts["unrated"]
     assert len(facts["top"]) == 20 and [row[0] for row in facts["top"]] == [str(n) for n in range(1, 21)]
+
+
+def test_projects_left_undecided_for_their_records_get_their_own_measurement_bullet(built):
+    """The stats file's gate5_undecided_rule_inputs is printed after the "judged only when" bullet, in the words the
+    verifier rebuilds on its own; none gives no bullet; a stats file without the count is refused."""
+    inputs = _inputs(built)
+
+    def bullets(count):
+        inputs["stats"]["gate5_undecided_rule_inputs"] = count
+        facts = report_pages.build_facts(**inputs)
+        page = report_pages.render_report(facts, frozen=False, exported_on=date(2026, 10, 17), source_db_sha256="a" * 64)
+        return facts, verify_static_export._items(verify_static_export._section(page, "how-we-measured"))
+
+    facts, with_count = bullets(1234)
+    rebuilt = verify_static_export._report_sentences(
+        sid="S", judged=10, black_holes=1, deadline=14, min_n=facts.min_n,
+        bands=[(key, {"n": 10, "black_holes": 1}) for key in report_pages.STAR_BANDS], top100_black_holes=0,
+        top100_overlap=0, ranked=1, rho=0.1, unanswered=1, counted=10, corpus={"derived_repos": 1}, start=None,
+        end=None, ecosystems=[], undecided=1234,
+    )
+    assert len(with_count) == 6 and with_count[2] == rebuilt["bullet-undecided"]
+    assert with_count[2].startswith("Another 1,234 licensed, maintained projects with at least 10 outside pull requests")
+    _facts, without = bullets(0)
+    assert len(without) == 5 and not any("not judged yet" in bullet for bullet in without)
+    del inputs["stats"]["gate5_undecided_rule_inputs"]
+    with pytest.raises(report_pages.ReportError, match="gate5_undecided_rule_inputs"):
+        report_pages.build_facts(**inputs)

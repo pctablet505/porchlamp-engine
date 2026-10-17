@@ -298,11 +298,12 @@ def test_a_planted_placeholder_text_a_script_and_a_duplicate_title_fail_verifica
 
 
 def test_the_sitemap_and_llms_txt_list_all_ten_and_the_verifier_notices_one_missing(built, tmp_path):
-    for name in ("sitemap-pages.xml", "llms.txt"):
-        text = (ROOT / "web" / "v2" / name).read_text(encoding="utf-8")
+    site, db, *_ = built
+    # the export writes the page sitemap; llms.txt is written by hand
+    for name, path in (("sitemap-pages.xml", site / "sitemap-pages.xml"), ("llms.txt", ROOT / "web" / "v2" / "llms.txt")):
+        text = path.read_text(encoding="utf-8")
         for slug in SLUGS:
             assert text.count(f"https://porchlamp.org/{slug}/") == 1, (name, slug)
-    site, db, *_ = built
     copy_dir = _copy_site(site, tmp_path)
     _edit(copy_dir, "sitemap-pages.xml", "<loc>https://porchlamp.org/career/</loc>", "<loc>https://porchlamp.org/careers/</loc>")
     errors = _verify(db, copy_dir)["errors"]
@@ -438,16 +439,28 @@ def test_each_e7_rule_fails_on_its_own_plant(built, tmp_path):
 
     assert any("?repo=meshery" in e and "project page address" in e for e in _plant(fresh("old"), old_address))
 
+    def item_path(index: int) -> str:
+        """The ``<owner>/<name>/`` of the home list's item ``index``, whichever project ranks there."""
+        ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>',
+                                  (base / "index.html").read_text(encoding="utf-8"), re.S).group(1))
+        url = next(n for n in ld["@graph"] if n["@type"] == "ItemList")["itemListElement"][index]["url"]
+        return url.split("/projects/", 1)[1]
+
+    second = item_path(1)
+
     def upper_case(ld):
         item = next(n for n in ld["@graph"] if n["@type"] == "ItemList")["itemListElement"][1]
-        item["url"] = item["url"].replace("wordpress", "WordPress")
+        item["url"] = item["url"].replace(second, second.upper())
 
-    assert any("WordPress" in e and "project page address" in e for e in _plant(fresh("case"), upper_case))
+    assert second != second.upper()
+    errors = _plant(fresh("case"), upper_case)
+    assert any(second.upper() in e and "project page address" in e for e in errors), errors
 
+    first = item_path(0)
     gone = fresh("gone")
-    shutil.rmtree(gone / "projects" / "meshery")
+    shutil.rmtree(gone / "projects" / first.split("/")[0])
     errors = _verify_home(gone)
-    assert any("projects/meshery/meshery/" in e and "has a page in the export" in e for e in errors), errors
+    assert any(f"projects/{first}" in e and "has a page in the export" in e for e in errors), errors
 
 
 def test_the_home_article_links_the_six_ecosystem_pages_and_the_verifier_notices_a_missing_line(built, tmp_path):

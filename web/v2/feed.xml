@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <title>Porchlamp — Find the projects that leave the light on</title>
-  <subtitle>Open-source projects ranked by what happens to a stranger's pull request, not by stars. 212,390 pull requests across 11,000 repositories audited with cryptographic provenance.</subtitle>
+  <subtitle>Open-source projects ranked by what happens to a stranger's pull request, not by stars. 615,200 pull requests across 11,000 repositories audited with cryptographic provenance.</subtitle>
   <link href="https://porchlamp.org/feed.xml" rel="self" type="application/atom+xml" />
   <link href="https://porchlamp.org/" rel="alternate" type="text/html" />
   <id>https://porchlamp.org/</id>
-  <updated>2026-10-14T00:00:00Z</updated>
+  <updated>2026-10-17T00:00:00Z</updated>
   <logo>https://porchlamp.org/og.png</logo>
   <icon>https://porchlamp.org/favicon.svg</icon>
   <author>
@@ -14,50 +14,50 @@
   </author>
 
   <entry>
-    <title>Porchlamp Snapshot 2026-10-14 (Benchmark 2.0.0-rc1): 11,000 Open-Source Repositories Audited</title>
+    <title>Porchlamp Snapshot 2026-10-17 (Benchmark 2.0.0-rc1): 11,000 Open-Source Repositories Audited</title>
     <link href="https://porchlamp.org/" rel="alternate" />
-    <id>https://porchlamp.org/#snapshot-2026-10-14</id>
-    <updated>2026-10-14T00:00:00Z</updated>
-    <summary>Six-month empirical audit of 212,390 pull requests from 110,605 outside contributors across 11,000 repositories in npm, PyPI, crates.io, Go, Maven, and Systems. 3,833 repositories ranked, 5,790 gated at Stage 0 (including 1,133 pull-request black holes), and 1,377 unrated (&lt;60% parameter coverage).</summary>
+    <id>https://porchlamp.org/#snapshot-2026-10-17</id>
+    <updated>2026-10-17T00:00:00Z</updated>
+    <summary>Six-month empirical audit of 615,200 pull requests from 148,801 outside contributors across 11,000 repositories in npm, PyPI, crates.io, Go, Maven, and Systems. 4,322 repositories ranked, 5,381 gated at Stage 0 (including 720 pull-request black holes), and 1,297 unrated (1,194 with &lt;60% parameter coverage, 95 with no outside pull-request workflow, 8 that review off GitHub).</summary>
   </entry>
 
   <entry>
-    <title>Stars Don't Review Pull Requests: 26.4% of Active Open-Source Projects Are Black Holes</title>
+    <title>Stars Don't Review Pull Requests: 19.9% of Active Open-Source Projects Are Black Holes</title>
     <link href="https://porchlamp.org/?tab=notranked" rel="alternate" />
     <id>https://porchlamp.org/?tab=notranked</id>
-    <updated>2026-10-14T00:00:00Z</updated>
-    <summary>Of 4,297 licensed, maintained software projects receiving at least 10 outside pull requests in six months, 1,133 (26.4%) left most stranger pull requests with no human reply, review, or merge for 14 days. The black-hole share rises with star count: 21% at 1k–10k stars, 31% at 10k–50k, and 39% at 50k+ stars.</summary>
+    <updated>2026-10-17T00:00:00Z</updated>
+    <summary>Of 3,613 licensed, maintained software projects receiving at least 10 outside pull requests in six months, 720 (19.9%) left most stranger pull requests with no human reply, review, or merge for 14 days. The black-hole share rises with star count: 16% at 1k–10k stars, 25% at 10k–50k, and 28% at 50k+ stars.</summary>
   </entry>
 
   <entry>
-    <title>Best Open-Source Projects for First-Time Contributors (1,968 Ranked Repositories)</title>
+    <title>Best Open-Source Projects for First-Time Contributors (2,132 Ranked Repositories)</title>
     <link href="https://porchlamp.org/?persona=first_timer" rel="alternate" />
     <id>https://porchlamp.org/?persona=first_timer</id>
-    <updated>2026-10-14T00:00:00Z</updated>
+    <updated>2026-10-17T00:00:00Z</updated>
     <summary>Repositories re-weighted for first-time contributors: prioritizing fast Time to First Human Response, First-Timer Merge Rate, Active Good First Issues, Newcomer Conversion, and low 14-day PR Ghost Rate.</summary>
   </entry>
 
   <entry>
-    <title>Best Open-Source Projects for AI-Assisted Contributors (3,929 Ranked Repositories)</title>
+    <title>Best Open-Source Projects for AI-Assisted Contributors (4,440 Ranked Repositories)</title>
     <link href="https://porchlamp.org/?persona=ai_assisted" rel="alternate" />
     <id>https://porchlamp.org/?persona=ai_assisted</id>
-    <updated>2026-10-14T00:00:00Z</updated>
+    <updated>2026-10-17T00:00:00Z</updated>
     <summary>Repositories evaluated under the AI-Assisted contributor lens, combining explicit AI Policy Posture, automated CI/CD pipeline defenses, and maintainer responsiveness to outside pull requests.</summary>
   </entry>
 
   <entry>
-    <title>Leverage vs. Friction 2D Discovery Matrix (Sweet Spot, Crucible, Nursery, Low Priority)</title>
+    <title>Leverage vs. Friction 2D Discovery Matrix (Sweet Spot, Crucible, Nursery, Graveyard)</title>
     <link href="https://porchlamp.org/?tab=matrix" rel="alternate" />
     <id>https://porchlamp.org/?tab=matrix</id>
-    <updated>2026-10-14T00:00:00Z</updated>
-    <summary>Interactive two-dimensional mapping of ecosystem leverage (dependents, criticality, downloads) against contributor friction (response latency, ghost rate, governance barriers) to isolate Sweet Spot repositories.</summary>
+    <updated>2026-10-17T00:00:00Z</updated>
+    <summary>Interactive two-dimensional mapping of leverage (criticality 50%, rigor 30%, governance 20%) against contributor friction (responsiveness 50%, governance 30%, accessibility 20%) to isolate Sweet Spot repositories.</summary>
   </entry>
 
   <entry>
     <title>Porchlamp Methodology, 18 Parameters, Stage-0 Gates &amp; SHA-256 Verification Hashes</title>
     <link href="https://porchlamp.org/?tab=methodology" rel="alternate" />
     <id>https://porchlamp.org/?tab=methodology</id>
-    <updated>2026-10-14T00:00:00Z</updated>
-    <summary>Complete specification of Porchlamp's 5 pillars, 18 parameters, coverage-based tier ceilings (D-MISS-3), Stage-0 gating rules, and deterministic reproduction hashes (constants_hash 6e4f3e8e1d0c…, manifest_root 85d93789d7a5…).</summary>
+    <updated>2026-10-17T00:00:00Z</updated>
+    <summary>Complete specification of Porchlamp's 5 pillars, 18 parameters, coverage-based tier ceilings (D-MISS-3), Stage-0 gating rules, and deterministic reproduction hashes (constants_hash 6e4f3e8e1d0c…, manifest_root f2eb5fc971de…).</summary>
   </entry>
 </feed>
