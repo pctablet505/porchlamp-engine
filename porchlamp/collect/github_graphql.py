@@ -34,7 +34,7 @@ from typing import Any, Optional, Protocol
 from porchlamp.collect import ghcli, ledger
 from porchlamp.collect.envelope import read_envelope, sha256_hex, write_envelope
 from porchlamp.collect.user_cache import UserCache
-from porchlamp.core import gates
+from porchlamp.core import constants, gates
 from porchlamp.core.constants import AUTHOR_UNMEASURED_MAX_FRACTION
 from porchlamp.core.hygiene import (
     account_eligibility as _hygiene_account_eligibility,
@@ -55,15 +55,10 @@ PAGE_SIZE: int = 100
 #: 02 §4.3: a review counts as substantive at an 80-char body or 1 inline.
 SUBSTANTIVE_REVIEW_BODY_CHARS: int = 80
 
-#: D-IN-1: exact-match bot logins (case-insensitive). Substring matching is
-#: removed (F12); ``__typename == "Bot"`` and the ``[bot]`` suffix cover the
-#: rest.
-BOT_LOGINS: frozenset[str] = frozenset({
-    "dependabot", "renovate", "github-actions", "codecov", "stale",
-    "google-cla", "cla-bot", "easycla", "mergify", "pre-commit-ci",
-    "allcontributors", "semantic-release", "imgbot", "netlify",
-    "vercel", "sonarcloud", "snyk-bot", "greenkeeper", "copilot", "claude",
-})
+#: D-IN-1: exact-match bot logins (case-insensitive), the one list
+#: :data:`porchlamp.core.constants.BOT_LOGINS`. Substring matching is removed
+#: (F12); ``__typename == "Bot"`` and the ``[bot]`` suffix cover the rest.
+BOT_LOGINS: frozenset[str] = constants.BOT_LOGINS
 
 #: External (non-maintainer) associations, matching the v1 ``EXTERNAL_ASSOC``
 #: set used by ``scripts/derive.py`` for the same fact.

@@ -72,11 +72,13 @@ rank and no tier.
 
 **D-IN-1 Bot identity.** An actor is a bot if GraphQL `__typename == "Bot"`, or
 the login ends with `[bot]`, or the login is in an exact-match list kept in the
-frozen constants (`dependabot`, `renovate`, `github-actions`, `codecov`,
-`stale`, `google-cla`, `cla-bot`, `easycla`, `mergify`, `pre-commit-ci`,
-`allcontributors`, `semantic-release`, `imgbot`, `netlify`, `vercel`,
-`sonarcloud`, `snyk-bot`, `greenkeeper`, `copilot`, `claude`). Substring
-matching is removed (F12).
+frozen constants (`porchlamp.core.constants.BOT_LOGINS`): the generic bot accounts
+(`dependabot`, `renovate`, `github-actions`, `codecov`, `stale`, `google-cla`,
+`cla-bot`, `easycla`, `mergify`, `pre-commit-ci`, `allcontributors`,
+`semantic-release`, `imgbot`, `netlify`, `vercel`, `sonarcloud`, `snyk-bot`,
+`greenkeeper`, `copilot`, `claude`), and the service accounts GitHub types as
+users that the recorded data shows answering pull requests as bots (RFC-0012
+gives the method and the evidence for each). Substring matching is removed (F12).
 
 **D-IN-2 Substantive human response.** A PR received a substantive response
 when a non-author, non-bot account whose `authorAssociation` is `MEMBER`,

@@ -43,6 +43,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional, Sequence, Union
 
+from porchlamp.core import constants
 from porchlamp.core.models import FeatureBundle, Unmeasured
 
 #: GitHub private-email domain: its local part is an account id (or
@@ -104,29 +105,9 @@ PERSONAL_DOMAINS: frozenset[str] = frozenset({
 })
 
 #: D-IN-1 exact-match bot logins (compared after lowercasing the recorded
-#: login; the ``[bot]`` suffix rule is separate, see :func:`is_bot`).
-KNOWN_BOT_LOGINS: frozenset[str] = frozenset({
-    "allcontributors",
-    "cla-bot",
-    "claude",
-    "codecov",
-    "copilot",
-    "dependabot",
-    "easycla",
-    "github-actions",
-    "google-cla",
-    "greenkeeper",
-    "imgbot",
-    "mergify",
-    "netlify",
-    "pre-commit-ci",
-    "renovate",
-    "semantic-release",
-    "snyk-bot",
-    "sonarcloud",
-    "stale",
-    "vercel",
-})
+#: login; the ``[bot]`` suffix rule is separate, see :func:`is_bot`): the one
+#: list, :data:`porchlamp.core.constants.BOT_LOGINS` (hashed, RFC-0012).
+KNOWN_BOT_LOGINS: frozenset[str] = constants.BOT_LOGINS
 
 
 @dataclass(frozen=True)

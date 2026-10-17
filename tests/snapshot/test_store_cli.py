@@ -75,8 +75,11 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: Regenerated 2026-10-17 (was 5a9fdb0c...) for RFC-0011 (D-IN-2's comment
 #: constants and Meta's import notices added to porchlamp.core.constants,
 #: moving ScoreRecord.constants_hash); no other field of any record moved.
+#: Regenerated 2026-10-17 (was df009986...) for RFC-0012 (D-IN-1's exact login
+#: list moved into porchlamp.core.constants with 75 service accounts, moving
+#: ScoreRecord.constants_hash); no other field of any record moved.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "df009986680defb6c14028e5a50ad7d6b1209851a637255ac04f42d3f427c767"
+    "97b96c1c7ac10baf3b97cfdf3da307e1eca7af9488879c5cbb80b0ceb90a9487"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #
