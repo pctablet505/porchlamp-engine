@@ -5,16 +5,20 @@
 // (app/views/report.js). Their data comes through the site's own api.js (web/static/api.js in the export), the same
 // calls the app makes, fetchSnapshot, fetchMethodology, fetchManifest and fetchReport, reading the exported files: the
 // page holds what the app draws from them, and the app takes it over on load without drawing it again (app.js,
-// `data-prerendered`). The report's frozen copy is drawn the same way and loads no app, so nothing redraws it. A
-// reader or a crawler without JavaScript gets the whole page. The output depends on nothing but the files: no clock,
-// no locale. This file lives outside web/app, so the export never publishes it.
+// `data-prerendered`). The report's frozen copy is drawn the same way and loads no app, so nothing redraws it. A ranked
+// project's page gets the project view (app/views/project.js) in page mode, from the calls the app's side panel makes
+// for the same project: fetchRepoDetail, fetchEvidence and fetchProjectExtras. A reader or a crawler without
+// JavaScript gets the whole page. The output depends on nothing but the files: no clock, no locale. This file lives
+// outside web/app, so the export never publishes it.
 //
 //   node web/prerender.mjs <site> <pages.json>   draw the pages pages.json names, in place
 //   node web/prerender.mjs --chrome <snapshot.json> <page.json>   print the header, nav and footer of one page
 //
 // pages.json is {"pages": [...]}. A page of the app names its view (routes.js id): {"path": "methodology/index.html",
 // "view": "methodology"}; the report's frozen copy is {"path": "black-holes/<sid>/index.html", "view": "report",
-// "frozen": true}; any other page the nav entry it belongs to, or null: {"path": "check/index.html", "nav": null}.
+// "frozen": true}; any other page the nav entry it belongs to, or null: {"path": "check/index.html", "nav": null}; a
+// project's page names the project too: {"path": "projects/<owner>/<name>/index.html", "nav": null, "project":
+// "<owner>/<name>"}.
 // Each page must still have the empty frame of web/app/404.html.
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -27,6 +31,7 @@ import { navEntryFor, renderAppHeader, renderFooter, renderHeader, renderNav } f
 import { escapeHtml } from "./app/components/table.js";
 import { defaultState } from "./app/state.js";
 import { renderShell as renderMethodology } from "./app/views/methodology.js";
+import { renderProject } from "./app/views/project.js";
 import { renderShell as renderReport } from "./app/views/report.js";
 
 //: The frame every page has, empty, from web/app/404.html: what this fills.
@@ -54,6 +59,11 @@ const VIEWS = Object.freeze({
   },
 });
 
+/** A project's page: its view in page mode, from what `loadProject` read for it. */
+function projectView(project) {
+  return renderProject(project.record, { mode: "page", recordFile: project.recordFile });
+}
+
 /** The header, nav and footer of `page` ({view} or {nav}) as the export draws them from `snapshot`. */
 export function chromeFor(page, snapshot) {
   return {
@@ -69,7 +79,10 @@ function replaceOnce(html, old, now, what) {
   return html.slice(0, at) + now + html.slice(at + old.length);
 }
 
-/** `html` (a page the export wrote) with its chrome drawn, and its view if it is one drawn here. */
+/**
+ * `html` (a page the export wrote) with its chrome drawn, and its view if it is one drawn here. A project's page takes
+ * its project from `data.project` (`loadProject`).
+ */
 export function drawPage(html, page, data) {
   const chrome = chromeFor(page, data.snapshot);
   let out = replaceOnce(html, FRAME.header, FRAME.header.replace("></header>", `>${chrome.header}</header>`), page.path);
@@ -80,13 +93,14 @@ export function drawPage(html, page, data) {
     page.path
   );
   out = replaceOnce(out, FRAME.footer, FRAME.footer.replace("></footer>", `>${chrome.footer}</footer>`), page.path);
-  const view = page.view ? VIEWS[page.view] : undefined;
+  const view = page.view ? VIEWS[page.view] : page.project ? () => projectView(data.project) : undefined;
   if (view) {
     const mains = [...out.matchAll(MAIN)];
-    if (mains.length !== 1) throw new Error(`${page.path}: the page has no single <main> for the ${page.view} view`);
+    if (mains.length !== 1) throw new Error(`${page.path}: the page has no single <main> for the ${page.view || "project"} view`);
     const [whole, indent] = mains[0];
-    // The app takes over a page it loads on (data-prerendered); the frozen copy loads no app.
-    const marker = page.frozen ? "" : ` data-prerendered="${page.view}"`;
+    // The app takes over a page of its own it loads on (data-prerendered); the frozen copy and a project's page load
+    // no app.
+    const marker = page.frozen || !page.view ? "" : ` data-prerendered="${page.view}"`;
     const drawn = `<main class="app-main" id="app-main" tabindex="-1"${marker}>\n${view(data)}\n${indent}</main>`;
     out = out.slice(0, mains[0].index) + drawn + out.slice(mains[0].index + whole.length);
   }
@@ -114,9 +128,14 @@ async function readSiteFile(input) {
  * methodology, the report (null where the site has none: an export without the stats file) and the database digest
  * from the manifest (null where the site has none, as the app then has none).
  */
-export async function loadData(site) {
+/** The site's own api.js, reading the site's files. One module per site: each data file is read once. */
+async function siteApi(site) {
   globalThis.fetch = readSiteFile;
-  const api = await import(pathToFileURL(path.join(path.resolve(site), "api.js")).href);
+  return import(pathToFileURL(path.join(path.resolve(site), "api.js")).href);
+}
+
+export async function loadData(site) {
+  const api = await siteApi(site);
   const [snapshot, methodology, manifest, report] = await Promise.all([
     api.fetchSnapshot(), api.fetchMethodology(), api.fetchManifest(), api.fetchReport(),
   ]);
@@ -131,6 +150,24 @@ export async function loadData(site) {
   };
 }
 
+/**
+ * A ranked project's record, "owner/name" (`key`), as the app's side panel loads it: the API's detail and evidence,
+ * and the answer, lens standings and similar projects the export wrote beside them; with its record file.
+ */
+export async function loadProject(site, key) {
+  const api = await siteApi(site);
+  const [owner, name] = key.split("/");
+  const [detail, evidence, extras] = await Promise.all([
+    api.fetchRepoDetail(owner, name), api.fetchEvidence(owner, name), api.fetchProjectExtras(owner, name),
+  ]);
+  for (const [what, answer] of [["record", detail], ["evidence", evidence], ["answer and standings", extras]]) {
+    if (!answer.ok) throw new Error(`the site's api.js could not load ${key}'s ${what}: ${answer.error && answer.error.message}`);
+  }
+  if (!extras.data || !extras.data.answer) throw new Error(`${key} has a page, but its record has no rank`);
+  const { recordFile, ...rest } = extras.data;
+  return { record: { detail: detail.data, evidence: evidence.data, ...rest }, recordFile };
+}
+
 async function main(argv) {
   if (argv[0] === "--chrome") {
     const [snapshot, page] = await Promise.all([readJson(argv[1]), readJson(argv[2])]);
@@ -143,7 +180,8 @@ async function main(argv) {
   const data = await loadData(site);
   for (const page of job.pages) {
     const file = path.join(site, page.path);
-    await writeFile(file, drawPage(await readFile(file, "utf8"), page, data), "utf8");
+    const pageData = page.project ? { ...data, project: await loadProject(site, page.project) } : data;
+    await writeFile(file, drawPage(await readFile(file, "utf8"), page, pageData), "utf8");
   }
   process.stdout.write(`prerender: drew ${job.pages.length} pages\n`);
 }

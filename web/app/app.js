@@ -714,6 +714,22 @@ export function boot(win = window, doc = document) {
   }
 
   /**
+   * A project's record file and, when it is ranked, its answer, lens standings and similar projects, for its panel
+   * (`api.fetchProjectExtras`), cached per repo like `loadEvidence`. A failed load is not cached and shows nothing: the panel draws the record without
+   * them, and opening the project again retries.
+   */
+  const projectExtrasInFlight = new Set();
+  function loadProjectExtras(owner, name) {
+    const key = `${owner}/${name}`;
+    if (key in store.getState().projectExtrasByKey || projectExtrasInFlight.has(key)) return Promise.resolve();
+    projectExtrasInFlight.add(key);
+    return api.fetchProjectExtras(owner, name).then((result) => {
+      projectExtrasInFlight.delete(key);
+      if (result.ok) store.dispatch({ type: "PROJECT_EXTRAS_OK", repo: key, data: result.data });
+    });
+  }
+
+  /**
    * Case-insensitive resolution against the snapshot: `fetchRepoDetail` is
    * exact-case (FNV shard hash on `owner/name` in static mode, `owner = ? AND
    * name = ?` in SQL), whereas `q` search is case-insensitive. Returns
@@ -786,6 +802,7 @@ export function boot(win = window, doc = document) {
               replaceUrl(store.getState());
               loadRepoDetail(canonical.owner, canonical.name);
               loadEvidence(canonical.owner, canonical.name);
+              loadProjectExtras(canonical.owner, canonical.name);
             }
             return;
           }
@@ -1322,6 +1339,7 @@ export function boot(win = window, doc = document) {
     pushUrl(store.getState());
     loadRepoDetail(o, n);
     loadEvidence(o, n);
+    loadProjectExtras(o, n);
   }
 
   // ------------------------------------- live check (outside the snapshot)
@@ -2289,6 +2307,7 @@ export function boot(win = window, doc = document) {
     if (repoToLoad) {
       loadRepoDetail(repoToLoad.owner, repoToLoad.name);
       loadEvidence(repoToLoad.owner, repoToLoad.name);
+      loadProjectExtras(repoToLoad.owner, repoToLoad.name);
     }
     const weightsChanged = PILLAR_IDS.some((p) => s.weights[p] !== previousState.weights[p]);
     if (weightsChanged || (s.tab === "configure" && !s.reproject)) runReproject();
@@ -2347,6 +2366,7 @@ export function boot(win = window, doc = document) {
     store.dispatch({ type: "SET_CURSOR", key: initialState.repo });
     loadRepoDetail(bootRepoToLoad.owner, bootRepoToLoad.name);
     loadEvidence(bootRepoToLoad.owner, bootRepoToLoad.name);
+    loadProjectExtras(bootRepoToLoad.owner, bootRepoToLoad.name);
   }
   loadSnapshot();
 

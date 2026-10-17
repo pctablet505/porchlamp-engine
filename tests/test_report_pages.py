@@ -795,7 +795,7 @@ def test_formatting_rounds_half_up_like_the_site():
     assert report_pages.band_range_text("[50000,inf)") == "50,000 or more"
 
 
-# ---- E3: one static page per ranked project, /check/ and the project sitemap ------------------------------------
+# ---- E3: one page per ranked project (drawn by the app's project view at export), /check/, the project sitemap ---
 
 from porchlamp.serve import project_pages  # noqa: E402
 
@@ -829,13 +829,13 @@ def test_verify_projects_proves_every_value_on_every_page(built):
     site, db, _stats_path, _stats_dict, _holes = built
     result = _verify_projects(db, site)
     assert result["errors"] == []
-    assert result["pages"] == len(_ranked(db)) and result["checked"] > 20 * result["pages"]
+    assert result["pages"] == len(_ranked(db)) and result["checked"] > 60 * result["pages"]
     assert verify_static_export.check_sitemap(site) == []
 
 
 def _answers(site: Path) -> list[str]:
     return [
-        re.search(r'<p class="answer" id="answer">(.*?)</p>', p.read_text(encoding="utf-8"), re.S).group(1)
+        html.unescape(re.search(r'<p class="project-answer" id="answer" data-v="answer">(.*?)</p>', p.read_text(encoding="utf-8"), re.S).group(1))
         for p in _project_files(site)
     ]
 
@@ -844,13 +844,14 @@ def test_the_four_ways_a_reply_time_and_a_ghost_rate_are_worded_all_occur(built)
     answers = _answers(built[0])
     both = [a for a in answers if "got a first human reply in a median of" in a and "got none within 14 days." in a]
     reply_only = [a for a in answers if "median of" in a and "The share with no reply within 14 days has too small a sample to measure (" in a]
-    ghost_only = [a for a in answers if a.startswith("The reply time has too small a sample to measure (")]
-    neither = [a for a in answers if a.startswith("The reply time and the share with no reply within 14 days both have too small a sample")]
+    ghost_only = [a for a in answers if re.match(r"For [^ ]+/[^ ]+, the reply time has too small a sample to measure \(", a)]
+    neither = [a for a in answers if re.match(r"For [^ ]+/[^ ]+, the reply time and the share with no reply within 14 days both have too small a sample", a)]
     assert both and reply_only and ghost_only and neither
     assert len(both) + len(reply_only) + len(ghost_only) + len(neither) == len(answers)
     assert all("not enough outside pull requests" not in a for a in answers)
     assert any("It is not ranked for first-time contributors: " in a for a in answers), "the unranked-lens wording occurs"
-    assert all(re.search(r"It ranks [\d,]+ of [\d,]+ overall", a) for a in answers)
+    assert any(re.search(r"For first-time contributors it ranks [\d,]+ of [\d,]+ \(the (top|bottom) \d+%\)\.", a) for a in answers)
+    assert all(re.search(r"It ranks [\d,]+ of [\d,]+ overall\.", a) for a in answers)
     # the counts and the minimum are the record's and the methodology's: the fixture's unmeasured samples are 3 and 4, 10 needed
     assert all("(3 pull requests counted; 10 needed)" in a for a in ghost_only)
     assert all("(4 pull requests counted; 10 needed)" in a for a in reply_only)
@@ -873,29 +874,159 @@ def test_a_measured_reply_time_beside_a_small_ghost_sample_names_both_counts_and
     """llama.cpp: 208 pull requests for the reply time, 6 for the 14-day share (10 needed). The old wording said
     'not enough outside pull requests' next to 208."""
     evidence = _evidence({"value": 4.0904, "n": 208, **WINDOW}, {"value": 0.667, "n": 6, "unmeasured_reason": "insufficient_n", **WINDOW})
-    first, rest = project_pages.answer_reply(LLAMA, evidence, MIN_N)
-    assert first == "Outside pull requests to llama.cpp got a first human reply in a median of 4.1 hours (208 pull requests, 10 April to 7 October 2026)."
-    assert rest == "The share with no reply within 14 days has too small a sample to measure (6 pull requests counted; 10 needed)."
-    assert "not enough outside pull requests" not in first + rest
+    reply = project_pages.answer_reply(LLAMA, evidence, MIN_N)
+    assert reply.first == (
+        "Outside pull requests to ggml-org/llama.cpp got a first human reply in a median of 4.1 hours "
+        "(208 pull requests, 10 April to 7 October 2026).")
+    assert reply.rest == "The share with no reply within 14 days has too small a sample to measure (6 pull requests counted; 10 needed)."
+    assert reply.short == "Outside pull requests got a first human reply in a median of 4.1 hours."
+    assert "not enough outside pull requests" not in reply.first + reply.rest
 
 
-def test_the_other_unmeasured_wordings_use_each_parameters_own_count_and_minimum():
+def test_the_other_unmeasured_wordings_name_the_project_and_use_each_parameters_own_count_and_minimum():
     answer = project_pages.answer_reply
     ghost_only = _evidence({"n": 1, "unmeasured_reason": "insufficient_n"}, {"value": 0.575, "n": 40, **WINDOW})
-    assert answer(LLAMA, ghost_only, MIN_N) == (
-        "The reply time has too small a sample to measure (1 pull request counted; 10 needed).",
+    assert answer(LLAMA, ghost_only, MIN_N) == project_pages.Reply(
+        "For ggml-org/llama.cpp, the reply time has too small a sample to measure (1 pull request counted; 10 needed).",
         "58% of 40 outside pull requests got no reply within 14 days (10 April to 7 October 2026).",
+        "The reply time has too small a sample to measure.",
     )
     neither = _evidence({"n": 0, "unmeasured_reason": "insufficient_n"}, {"n": 1, "unmeasured_reason": "insufficient_n"})
-    assert answer(LLAMA, neither, MIN_N)[0] == (
-        "The reply time and the share with no reply within 14 days both have too small a sample to measure (0 and 1 pull request counted; 10 needed)."
+    assert answer(LLAMA, neither, MIN_N) == project_pages.Reply(
+        "For ggml-org/llama.cpp, the reply time and the share with no reply within 14 days both have too small a sample to "
+        "measure (0 and 1 pull request counted; 10 needed).",
+        "",
+        "The reply time and the share with no reply within 14 days both have too small a sample to measure.",
     )
-    assert "(0 and 1 pull request counted; 10 and 5 needed)" in answer(LLAMA, neither, {"ttfhr_hours": 10, "gr14_ghost_rate": 5})[0]
+    assert "(0 and 1 pull request counted; 10 and 5 needed)" in answer(LLAMA, neither, {"ttfhr_hours": 10, "gr14_ghost_rate": 5}).first
     both = _evidence({"value": 6.0, "n": 12, **WINDOW}, {"value": 0.1, "n": 11, **WINDOW})
-    assert answer(LLAMA, both, MIN_N) == (
-        "Outside pull requests to llama.cpp got a first human reply in a median of 6 hours (12 pull requests, 10 April to 7 October 2026); 10% got none within 14 days.", "")
+    assert answer(LLAMA, both, MIN_N) == project_pages.Reply(
+        "Outside pull requests to ggml-org/llama.cpp got a first human reply in a median of 6 hours (12 pull requests, "
+        "10 April to 7 October 2026); 10% got none within 14 days.",
+        "",
+        "Outside pull requests got a first human reply in a median of 6 hours; 10% got none within 14 days.",
+    )
     with pytest.raises(report_pages.ReportError, match="minimum sample"):
         answer(LLAMA, both, {})
+
+
+@pytest.mark.parametrize("rank, total, band", [
+    # the ends: rank 1 and rank = total
+    (1, 2132, "the top 1%"), (2132, 2132, "the bottom 1%"), (3, 4322, "the top 1%"),
+    # rank = total / 2 is the upper half's last; with an odd total, the halves meet between two ranks
+    (1066, 2132, "the top 50%"), (1067, 2132, "the bottom 50%"), (1065, 2131, "the top 50%"), (1066, 2131, "the bottom 51%"),
+    # rounded up: 21 of 2,132 is 0.98% (top 1%), 22 is 1.03% (top 2%); 2,039 is the 94th from the bottom, 4.4%
+    (21, 2132, "the top 1%"), (22, 2132, "the top 2%"), (2039, 2132, "the bottom 5%"),
+])
+def test_a_rank_is_placed_in_the_top_or_bottom_share_rounded_up_so_the_claim_holds(rank, total, band):
+    """The top N% in the upper half (rank <= total / 2), else the bottom N%, N rounded up so the claim always holds:
+    2,039 of 2,132 is the 94th from the bottom, 4.4% of the list, so "the bottom 4%" would be false."""
+    assert project_pages.rank_band(rank, total) == band
+
+
+def test_the_first_timer_sentence_gives_the_rank_and_its_share_or_the_reason():
+    standing = project_pages.Standing
+    assert project_pages.first_timer_sentence(standing("first_timer", 2039, 2132, None)) == (
+        "For first-time contributors it ranks 2,039 of 2,132 (the bottom 5%).")
+    assert project_pages.first_timer_sentence(standing("first_timer", None, 2132, "Not enough evidence to show under this lens.")) == (
+        "It is not ranked for first-time contributors: not enough evidence to show under this lens.")
+    assert project_pages.rank_sentence(standing("balanced", 2531, 4322, None)) == "It ranks 2,531 of 4,322 overall."
+
+
+def test_the_head_description_names_the_project_and_its_rank_in_at_most_155_characters():
+    describe, standing = project_pages.head_description, project_pages.Standing("balanced", 2531, 4322, None)
+    both = project_pages.Reply("", "", "Outside pull requests got a first human reply in a median of 6.2 days; 34% got none within 14 days.")
+    assert describe("keras-team/keras", standing, both) == (
+        "keras-team/keras ranks 2,531 of 4,322. Outside pull requests got a first human reply in a median of 6.2 days; "
+        "34% got none within 14 days.")
+    long_name = f"{'a' * 30}/{'b' * 30}"
+    clause = describe(long_name, standing, both)
+    assert clause == f"{long_name} ranks 2,531 of 4,322. Outside pull requests got a first human reply in a median of 6.2 days."
+    longer = f"{'a' * 60}/{'b' * 40}"
+    cut = describe(longer, standing, both)
+    assert len(cut) <= 155 and cut.startswith(f"{longer} ranks 2,531 of 4,322.") and cut.endswith("\u2026") and " \u2026" not in cut
+    for reply in (both, project_pages.Reply("", "", "The reply time has too small a sample to measure.")):
+        for name in ("o/n", long_name, longer):
+            text = describe(name, standing, reply)
+            assert len(text) <= 155 and text.startswith(f"{name} ranks 2,531 of 4,322."), text
+    with pytest.raises(report_pages.ReportError, match="needs a ruling"):
+        describe("x" * 150, standing, both)
+
+
+def test_the_export_writes_the_answer_standings_and_similar_projects_into_ranked_records_only(built, project_index):
+    site, db, *_ = built
+    ranked = set(_ranked(db))
+    records = {}
+    for path in (site / "data" / SNAPSHOT / "repos").glob("*.json"):
+        records.update(json.loads(path.read_text(encoding="utf-8")))
+    with_extras = {tuple(key.split("/", 1)) for key, record in records.items() if "answer" in record}
+    assert with_extras == ranked and len(records) > len(ranked)
+    for key in sorted(with_extras)[:40]:
+        record = records["/".join(key)]
+        assert set(record) == {"detail", "evidence", "answer", "standings", "similar"}
+        standings = {lens: project_index.standing(lens, record["detail"]) for lens in project_pages.LENS_ORDER}
+        assert record["standings"] == {lens: {"rank": s.rank, "total": s.total, "reason": s.reason} for lens, s in standings.items()}
+        assert record["answer"][-2] == project_pages.rank_sentence(standings["balanced"])
+        assert record["answer"][-1] == project_pages.first_timer_sentence(standings["first_timer"])
+        assert record["similar"] == [{"owner": r["owner"], "name": r["name"], "rank": r["rank"]} for r in project_index.similar(*key)]
+    assert all(set(record) == {"detail", "evidence"} for key, record in records.items() if tuple(key.split("/", 1)) not in ranked)
+
+
+#: Three real records of the 2026-10-17 export (vllm and keras ranked, 3b1b/manim a black hole), each with its record file.
+PROJECT_FIXTURES = ROOT / "tests" / "fixtures" / "project"
+_RENDER_BOTH_MODES = """
+import { readFileSync } from "node:fs";
+import { renderProject } from "%(view)s";
+const out = {};
+for (const path of JSON.parse(process.argv[1])) {
+  const { recordFile, ...record } = JSON.parse(readFileSync(path, "utf8"));
+  out[path] = { page: renderProject(record, { mode: "page", recordFile }), panel: renderProject(record, { mode: "panel", recordFile }) };
+}
+process.stdout.write(JSON.stringify(out));
+"""
+
+
+def _drawn_in_both_modes() -> dict[Path, dict[str, str]]:
+    """Each fixture record as views/project.js draws it in page and in panel mode, through Node."""
+    import subprocess
+
+    paths = sorted(PROJECT_FIXTURES.glob("*.json"))
+    script = _RENDER_BOTH_MODES % {"view": (ROOT / "web" / "app" / "views" / "project.js").as_uri()}
+    ran = subprocess.run([export_static.find_node(), "--input-type=module", "-e", script, json.dumps([str(p) for p in paths])],
+                         capture_output=True, text=True, check=False)
+    assert ran.returncode == 0, ran.stderr[-1500:]
+    return {Path(path): modes for path, modes in json.loads(ran.stdout).items()}
+
+
+def _expected_hooks(record: dict, mode: str) -> dict[str, str]:
+    words, labels = verify_static_export._project_copy()
+    standings = {lens: (s["rank"], s["total"], s["reason"]) for lens, s in record["standings"].items()} if record.get("standings") else None
+    answer = " ".join(record["answer"]) if record.get("answer") else None
+    return verify_static_export._expected_project_hooks(
+        record["detail"], record["evidence"], standings, record.get("similar"), answer, words, labels, mode=mode)
+
+
+def test_the_project_view_prints_each_value_as_the_verifier_formats_it_in_page_and_panel_mode():
+    drawn = _drawn_in_both_modes()
+    assert {p.name for p in drawn} == {"vllm-project__vllm.json", "keras-team__keras.json", "3b1b__manim.json"}
+    for path, modes in drawn.items():
+        record = json.loads(path.read_text(encoding="utf-8"))
+        for mode, markup in modes.items():
+            ledger = verify_static_export._Ledger()
+            verify_static_export._compare_hooks(ledger, f"{path.name} {mode}", verify_static_export.read_page(markup).hooks, _expected_hooks(record, mode))
+            assert ledger.errors == [] and ledger.checked > 40, (ledger.errors[:5], ledger.checked)
+    # the black hole's card is among them
+    assert "bh.unanswered_share" in _expected_hooks(json.loads((PROJECT_FIXTURES / "3b1b__manim.json").read_text(encoding="utf-8")), "panel")
+
+    # the comparison can fail: one wrong value in the panel is named
+    path = PROJECT_FIXTURES / "keras-team__keras.json"
+    markup = drawn[path]["panel"]
+    planted = re.sub(r'(data-v="evidence\.ttfhr_hours\.value">)([^<]+)', lambda m: m.group(1) + m.group(2).replace("148.3", "148.4"), markup, count=1)
+    assert planted != markup
+    ledger = verify_static_export._Ledger()
+    verify_static_export._compare_hooks(ledger, "keras panel", verify_static_export.read_page(planted).hooks,
+                                        _expected_hooks(json.loads(path.read_text(encoding="utf-8")), "panel"))
+    assert [e for e in ledger.errors if "'evidence.ttfhr_hours.value'" in e and "148.4" in e], ledger.errors
 
 
 def test_project_pages_have_a_self_canonical_a_unique_title_an_answer_and_no_placeholder_text(built):
@@ -908,17 +1039,16 @@ def test_project_pages_have_a_self_canonical_a_unique_title_an_answer_and_no_pla
         assert canonical == f"https://porchlamp.org/{rel}"
         canonicals.append(canonical)
         titles.append(re.search(r"<title>(.*?)</title>", text, re.S).group(1))
-        answer = re.search(r'<p class="answer" id="answer">(.*?)</p>', text, re.S).group(1)
+        answer = re.search(r'<p class="project-answer" id="answer" data-v="answer">(.*?)</p>', text, re.S).group(1)
         assert len(answer) > 40
         visible = re.sub(r"<script.*?</script>", "", text, flags=re.S)
         body = re.search(r"<main.*?</main>", visible, re.S).group(0)
-        body = re.sub(r'<h2 id="similar">.*?<h2 id="evidence">', "", body, flags=re.S)  # other projects' names are theirs
-        shown = re.sub(r"<[^>]+>", " ", body).replace(rel.split("/", 1)[1].rstrip("/"), "")
-        owner_name = re.search(r"<h1>(.*?)</h1>", text).group(1)
-        shown = shown.replace(owner_name, "").replace(owner_name.split("/")[1], "")  # a project may be called "null"
-        assert not re.search(r"\b(?:null|None|NaN|undefined)\b", shown), rel
-        description = re.search(r'<meta name="description" content="([^"]*)"', text).group(1)
-        assert 0 < len(description) < 160 and "None" not in description
+        body = re.sub(r'<section class="project-card" id="similar".*?</section>', "", body, flags=re.S)  # other projects' names are theirs
+        owner_name = html.unescape(re.sub(r"<[^>]+>", "", re.search(r'<h1 id="project-title"[^>]*>(.*?)</h1>', text, re.S).group(1)))
+        shown = html.unescape(re.sub(r"<[^>]+>", " ", body)).replace(owner_name, "").replace(owner_name.split("/")[1], "")
+        assert not re.search(r"\b(?:null|None|NaN|undefined)\b", shown), rel  # a project may be called "null"
+        description = html.unescape(re.search(r'<meta name="description" content="([^"]*)"', text).group(1))
+        assert 0 < len(description) <= 155 and description.startswith(f"{owner_name} ranks ") and "None" not in description
         # The shared theme script, then one more: Back and Forward between the app's entries at this address load the
         # app (the page is also the project's side panel); nothing else runs, and nothing loads from outside.
         assert script_srcs(text) == list(report_pages.PAGE_SCRIPTS["project"]), rel
@@ -1024,7 +1154,7 @@ def test_a_planted_wrong_number_on_a_project_page_fails_verification_naming_page
     wrong = f"{int(rank.replace(',', '')) + 1:,}"
     (copy_dir / rel).write_text(text.replace(f"It ranks {rank} of", f"It ranks {wrong} of", 1), encoding="utf-8")
     result = _verify_projects(db, copy_dir)
-    assert any(rel in e and "#answer" in e and rank in e and wrong in e for e in result["errors"]), result["errors"][:3]
+    assert any(rel in e and "'answer'" in e and rank in e and wrong in e for e in result["errors"]), result["errors"][:3]
     (copy_dir / rel).write_text(text, encoding="utf-8")  # restored: green again
     assert _verify_projects(db, copy_dir)["errors"] == []
 
@@ -1035,9 +1165,10 @@ def test_a_planted_wrong_parameter_pillar_and_lens_cell_each_fail_verification(b
     path = _project_files(copy_dir)[0]
     rel = path.relative_to(copy_dir).as_posix()
     text = path.read_text(encoding="utf-8")
-    pillar = re.search(r'<th scope="row">Responsiveness</th><td>([^<]+)</td>', text)
-    param = re.search(r'<td data-label="Count">(\d[\d,]*)</td>', text)
-    lens = re.search(r"<td>Rank ([\d,]+) of", text)
+    pillar = re.search(r'<span data-v="detail.p_responsiveness">([^<]+)</span>', text)
+    param = re.search(r'<span data-v="evidence\.[a-z0-9_]+\.n">(\d[\d,]*)</span>', text)
+    lens = re.search(r'<span data-v="standings\.career_capital\.rank">([\d,]+)</span>', text) or re.search(
+        r'<span data-v="standings\.[a-z_]+\.rank">([\d,]+)</span>', text)
     for what, match in (("pillar", pillar), ("count", param), ("lens", lens)):
         bad = text.replace(match.group(0), match.group(0).replace(match.group(1), "999", 1), 1)
         path.write_text(bad, encoding="utf-8")
@@ -1087,51 +1218,29 @@ def test_reply_time_is_hours_under_48_and_days_after(hours, text):
     assert project_pages.reply_time_text(hours) == text
 
 
-def test_numbers_are_rounded_the_way_the_drawer_does():
+def test_numbers_are_rounded_the_way_the_sentences_print_them():
     assert project_pages.percent_text(0.575) == "58%" and project_pages.percent_text(0.6667) == "67%"
     assert project_pages.percent_text(0.0) == "0%" and project_pages.percent_text(1.0) == "100%"
     assert project_pages.js_fixed(65.25, 1) == "65.3" and project_pages.js_fixed(76.75, 1) == "76.8"
     assert project_pages.js_fixed(80.83, 2) == "80.83" and project_pages.js_fixed(0.285, 2) == "0.28"  # the double is below .285
-    assert project_pages.coverage_percent(0.775) == "78%" and project_pages.coverage_percent(0.6) == "60%"
-    fmt = project_pages.format_parameter_value
-    assert [fmt(v) for v in (None, 0, 5, 5.0, 4.0904, 0.14040000000000002, 0.00001234, "DCO", 121.31894)] == [
-        "—", "0", "5", "5", "4.0904", "0.1404", "0.00001234", "DCO", "121.3189"]
     assert project_pages.window_text("2026-04-10T13:41:50+00:00", "2026-10-07T00:00:00+00:00") == "10 April to 7 October 2026"
     assert project_pages.window_text("2025-12-30T00:00:00+00:00", "2026-06-01T00:00:00+00:00") == "30 December 2025 to 1 June 2026"
 
 
-def test_the_meta_description_is_cut_cleanly_under_160_characters():
-    cut = project_pages.meta_description
-    short = "Outside pull requests to x got a first human reply in a median of 6 hours; 4% got none within 14 days."
-    assert cut(short) == short
-    long_name = "a" * 40
-    with_bracket = (f"Outside pull requests to {long_name} got a first human reply in a median of 3.2 days "
-                    "(1,234 pull requests, 10 April to 7 October 2026); 12% got none within 14 days.")
-    assert len(with_bracket) >= 160
-    assert cut(with_bracket) == f"Outside pull requests to {long_name} got a first human reply in a median of 3.2 days; 12% got none within 14 days."
-    clause = f"Outside pull requests to {'b' * 60} got a first human reply in a median of 3.2 days (1,234 pull requests, 10 April to 7 October 2026); there were not enough outside pull requests to measure the share."
-    assert cut(clause).endswith("3.2 days.") and len(cut(clause)) < 160
-    word_cut = cut("word " * 60)
-    assert len(word_cut) < 160 and word_cut.endswith("…") and " …" not in word_cut
-
-
-def test_param_meanings_cover_exactly_the_methodology_parameters_and_copy_js_names_them():
+def test_param_meanings_in_copy_js_cover_exactly_the_methodology_parameters():
     from porchlamp.core import constants
 
-    assert set(project_pages.PARAM_MEANINGS) == set(constants.PARAM_INPUT_IDS)
-    assert set(project_pages.PARAM_MEANINGS) <= set(report_pages.copy_js_map("PARAM_NAMES"))
-    assert all(text.endswith(".") and "null" not in text.lower() for text in project_pages.PARAM_MEANINGS.values())
+    meanings = report_pages.copy_js_map("PARAM_MEANINGS")
+    assert set(meanings) == set(constants.PARAM_INPUT_IDS)
+    assert set(meanings) <= set(report_pages.copy_js_map("PARAM_NAMES"))
+    assert all(text.endswith(".") and "null" not in text.lower() for text in meanings.values())
 
 
-def test_the_drawer_wording_is_read_from_copy_js():
+def test_the_lens_reasons_and_the_tier_label_are_read_from_copy_js():
     copy = project_pages.Copy.load()
     assert copy.tier_label("B", "B") == "B (capped)" and copy.tier_label("A", "B") == "A" and copy.tier_label(None, None) == "—"
-    assert copy.coverage_band(0.775) == "78% · Ceiling B" and copy.coverage_band(0.85) == "85% · Ceiling A"
-    assert copy.coverage_band(0.97) == "97% · Full"
-    assert copy.missing_value("insufficient_n") == "Not shown: Insufficient sample size"
     assert copy.persona_gate_reason("high_barrier_to_entry").startswith("This repository does not show a low enough barrier")
     assert copy.persona_gate_reason("insufficient_evidence:coverage") == "Not enough evidence to show under this lens."
-    assert copy.tier_capped_explanation.startswith("Capped: this tier can go no higher")
     with pytest.raises(report_pages.ReportError, match="no wording in copy.js"):
         copy.persona_gate_reason("a_code_nobody_wrote_copy_for")
 

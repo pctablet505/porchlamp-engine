@@ -93,7 +93,7 @@ export const PILLAR_NAMES = Object.freeze({
   accessibility: "Accessibility",
 });
 
-export const PARAM_NAMES = Object.freeze({
+const PARAM_NAMES = Object.freeze({
   ttfhr_hours: "Time to First Response",
   dr90_decision_rate: "Decision Rate (90d)",
   mr_first_rate: "First-timer Merge Rate",
@@ -443,24 +443,11 @@ export const KEYMAP_ENTRIES = Object.freeze([
 ]);
 
 export const DRAWER_TITLE = "Why this score";
-export const DRAWER_SECTION_IDENTITY = "Identity and gate status";
-// A GATED repository was disqualified before scoring and has no score/tier/
-// quadrant at all (`RepoDetailResponse.porchlamp` etc. are `None`, never a
-// fabricated value), so the composite `<details>` is OMITTED entirely for
-// `kind === "gated"` (`views/drawer.js::renderDrawer`) rather than
-// rendered with a "no composite" placeholder sentence. The other three
-// post-identity sections (pillars/evidence, persona view, integrity)
-// still render, collapsed, below the gate sentence (06 §3 C: "the reason
-// sentence and nothing else ABOVE THE FOLD" — collapsed sections below
-// the fold are fine).
+// A project that was disqualified before scoring (GATED) has no score, tier or quadrant, so its page and panel
+// draw the reason sentence and no Composite (views/project.js).
 export const DRAWER_SECTION_COMPOSITE = "Composite";
-export const DRAWER_SECTION_PILLARS = "Pillars and evidence";
 export const DRAWER_SECTION_PERSONAS = "Persona view";
 export const DRAWER_SECTION_INTEGRITY = "Integrity";
-export const DRAWER_SECTION_PLAYBOOK = "Playbook";
-export const PLAYBOOK_DISCLAIMER = "This is a model, not a promise.";
-export const PLAYBOOK_STUB_TEXT =
-  "Action recommendations are not computed by this snapshot yet.";
 export const DRAWER_CLOSE_LABEL = "Close";
 export const DRAWER_COMPARE_LABEL = "Compare";
 /** The link from a ranked project's side panel to its own page (the same address, loaded as a page). */
@@ -1230,3 +1217,164 @@ export function maintainerBadgeMarkdown(row, baseUrl = "") {
   const target = `${base}${projectPath(row.owner, row.name).slice(1)}`;
   return `[![${spec.alt}](${base}${spec.file})](${target} "${spec.alt}")`;
 }
+
+// --- The project view (views/project.js)
+// The words of a project's page and side panel. A sentence that carries a measured number is a template whose
+// {slots} the view fills inside hooks (components/fill.js); the sentences of the answer come from the record
+// (`answer`), written by Python. Flat `Object.freeze({key: "text"})` maps and plain string constants, so the
+// verifier can read them from this file.
+
+/** What each parameter measures (porchlamp/serve/project_pages.py PARAM_MEANINGS, moved here). */
+export const PARAM_MEANINGS = Object.freeze({
+  ttfhr_hours: "Median hours from an outside pull request opening to its first substantive human reply.",
+  dr90_decision_rate: "Share of outside pull requests that were merged or closed within 90 days.",
+  mr_first_rate: "Share of first-time outside authors' decided pull requests that were merged.",
+  gr14_ghost_rate: "Share of outside pull requests with no maintainer response, merge or close within 14 days.",
+  ttm_p90_hours: "Hours within which 90% of merged outside pull requests were merged.",
+  dependents_deduped: "Packages in the registry that depend on this project, counted once each.",
+  openssf_criticality: "OpenSSF criticality score from 0 to 1, computed from the project's public activity signals.",
+  downloads_monthly: "Downloads from the package registry in a month.",
+  legal_ip: "The contributor licence regime: DCO, none, a foundation CLA or a corporate CLA.",
+  elephant_factor: "The fewest organisations that account for half of the last year's commits.",
+  promotion_ladder: "How openly a contributor can become a maintainer, from closed to verified.",
+  pipeline_defenses: "How well the project's build and review pipeline defends against bad changes, 0 to 100.",
+  ai_posture: "Whether the project has a written policy on AI-assisted contributions.",
+  substantive_review_rate: "Share of decided pull requests that received a substantive review.",
+  newcomer_issue_supply: "Open, unassigned, up-to-date issues marked for newcomers.",
+  newcomer_conversion: "Share of first-time authors whose first pull request merged within 180 days.",
+  rr90_return_rate: "Share of those merged first-time authors who sent a second pull request within 90 days.",
+  dx: "Developer experience, 0 to 100: half CI run time, half setup signals.",
+});
+
+/** The page's lede; {date} is the snapshot date. */
+export const PROJECT_LEDE = "What happens to a stranger's pull request here, in the Porchlamp snapshot of {date}.";
+
+export const PROJECT_PILLARS_HEADING = "Five pillars";
+export const PROJECT_PILLARS_CAPTION = "Score out of 100, and how much of the pillar was measured";
+export const PROJECT_PARAMETERS_HEADING = "The measured parameters";
+export const PROJECT_KEY_FACTS_CAPTION = "Key facts";
+export const PROJECT_CRUMB_LABEL = "Breadcrumb";
+export const PROJECT_COMPARE_HREF = "/compare/?cmp=";
+
+/** Table column heads of the view. The rank and coverage heads are COLUMN_RANK and COLUMN_COVERAGE. */
+export const PROJECT_COLUMNS = Object.freeze({
+  pillar: "Pillar",
+  parameter: "Parameter",
+  value: "Value",
+  score: "Score",
+  count: "Count",
+  window: "Window",
+  source: "Source",
+  persona: "Persona",
+  status: "Status",
+  pr: "PR",
+  opened: "Opened",
+  pr_status: "14-day status",
+});
+
+/** The key-facts rows that have no label elsewhere. The others are COLUMN_RANK, COLUMN_PORCHLAMP, COLUMN_TIER,
+ *  ECOSYSTEM_LABEL and the window's column head. */
+export const KEY_FACT_LABELS = Object.freeze({
+  reply_time: "Median first reply",
+  no_reply_share: "14-day no-reply share",
+  first_timer_rank: "First-timer rank",
+});
+
+/** A rank beside its total; the Composite card prints the total after the big rank figure. */
+export const OF_TOTAL = "{rank} of {total}";
+export const OF_TOTAL_SUFFIX = "of {total}";
+/** The Composite card's note on the two coordinates (COORDINATES_LABEL names them). */
+export const COORDINATES_LINE =
+  "{label}: leverage {leverage} (coverage {leverage_coverage}), friction {friction} (coverage {friction_coverage})";
+
+export const SIMILAR_HEADING = "Similar projects";
+export const SIMILAR_LEAD = "The ranked projects nearest this one in the same ecosystem.";
+export const SIMILAR_NONE = "No other ranked project in this ecosystem.";
+export const SIMILAR_RANK = "(rank {rank})";
+
+export const RECORD_FILE_LEAD = "The full record is in";
+export const RECORD_FILE_KEY = ", under the key";
+export const METHOD_LINK_LEAD = "How every number is measured:";
+export const METHOD_LINK_LABEL = "Porchlamp methodology";
+export const ISSUE_LINK_LABEL = "Open an issue about this record";
+export const ISSUE_LINK_TAIL = " and say what looks wrong.";
+export const ISSUE_TITLE_PREFIX = "Porchlamp record: ";
+export const ISSUE_BASE = "https://github.com/pctablet505/porchlamp/issues/new?title=";
+
+/** One cite line at the end of Integrity. */
+export const SITE_ADDRESS = "https://porchlamp.org";
+export const PROJECT_CITE_LINE = "Porchlamp ({year}). {project}. Snapshot {snapshot}. {url}. CC BY 4.0.";
+
+/** The black-hole evidence block's own sentences (moved from views/drawer.js, unchanged). */
+export const BLACK_HOLE_WILSON_LINE = "95% Wilson lower confidence bound: {wilson}% (threshold: > {threshold}%, min n = {min_n})";
+export const BLACK_HOLE_SOURCE_LEAD = "Source:";
+export const BLACK_HOLE_EXCLUDED_LEAD = "Excluded:";
+export const BLACK_HOLE_EXCLUDED_LABELS = Object.freeze({
+  draft: "draft",
+  self_closed: "author self-closed",
+  new_account: "new account (<90d)",
+  bot: "bot",
+  internal: "internal/maintainer",
+  under_14d: "open <14d",
+});
+
+/** Month names for the view's dates: it formats them itself, with no locale API, so every renderer prints the
+ *  same bytes (porchlamp/serve/project_pages.py long_date and window_text, in JavaScript). */
+export const MONTHS = Object.freeze([
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+]);
+
+/** The path of each ecosystem's landing page (porchlamp/serve/report_pages.py ECOSYSTEM_SLUGS). */
+export const ECOSYSTEM_SLUGS = Object.freeze({
+  pypi: "python",
+  npm: "javascript",
+  go: "go",
+  systems: "c-cpp",
+  crates: "rust",
+  maven: "java",
+});
+
+/** The units of the parameter table. {slots} are filled by views/project.js formatParameterValue. */
+export const PARAM_UNIT_WORDS = Object.freeze({
+  hours_and_days: "{hours} hours ({days} days)",
+  share: "{percent}%",
+  downloads_million: "{count} million downloads a month",
+  downloads: "{count} downloads a month",
+});
+
+/** The median first reply in the key facts (porchlamp/serve/project_pages.py reply_time_text). */
+export const REPLY_TIME_WORDS = Object.freeze({
+  under_tenth_hour: "under 0.1 hours",
+  hour: "{n} hour",
+  hours: "{n} hours",
+  days: "{n} days",
+  days_and_hours: "{days} days ({hours} hours)",
+});
+
+// The plain label of each enum code a parameter can hold. Each states what the engine's classifier looks for, in
+// factual words and without judgement: how a CLA scores is under the owner's review. The comment beside a label
+// is its definition (the code list is porchlamp/core/constants.py:510-516).
+
+/** legal_ip, classified by porchlamp/collect/governance.py classify_legal_ip. */
+export const LEGAL_IP_LABELS = Object.freeze({
+  DCO: "Sign-off on commits (DCO)", // governance.py:786 a check named "dco"; :788-789 or the Signed-off-by share of commits is at least SIGNOFF_THRESHOLD (:111, 0.5)
+  NONE: "No CLA or sign-off found", // governance.py:790 none of the checks below, no sign-off evidence
+  FOUNDATION_CLA: "Foundation CLA", // governance.py:780-782 a foundation CLA check (:148) or an owner on the foundation list
+  CORP_CLA: "Company CLA", // governance.py:783-784 a CLA check (:132) that is not foundation-branded
+});
+
+/** ai_posture, classified by porchlamp/collect/governance.py classify_ai_posture. */
+export const AI_POSTURE_LABELS = Object.freeze({
+  REGULATED: "Written AI policy", // governance.py:911-912 a policy file of AI_POLICY_FILES (:116) is present
+  PROSCRIBED: "AI ban stated in a written policy", // docs/v2/02-RANKING-DESIGN.md:165 an explicit ban sentence in a policy file; governance.py:24-31 the collector never returns it
+  AD_HOC: "No written AI policy", // governance.py:913 no policy file found
+});
+
+/** promotion_ladder, classified by porchlamp/collect/governance.py classify_promotion_ladder. */
+export const PROMOTION_LADDER_LABELS = Object.freeze({
+  VERIFIED: "An outside contributor became a member or collaborator", // governance.py:865 a promotion seen in the pull request window (PROMOTION_TARGET_ASSOCIATIONS, :166)
+  DOCUMENTED: "A written path to becoming a maintainer", // governance.py:891 a governance file names a nomination process (NOMINATION_PATTERN, :169)
+  AD_HOC: "No written path to becoming a maintainer", // governance.py:892 no promotion seen and no nomination text found
+  CLOSED: "Merged pull requests all came from one organisation", // governance.py:887 no outside merge, and every merged author belongs to one email-domain organisation
+});

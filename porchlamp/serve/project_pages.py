@@ -1,21 +1,20 @@
-"""One static page per ranked project, and the /check/ page (``scripts/export_static.py --stats``).
+"""What a ranked project's page says first, and its head; the /check/ page (``scripts/export_static.py``).
 
 ``/projects/<owner>/<name>/`` (lower case) answers "is <project> responsive to pull requests?" in its first
-two sentences, for a reader or a crawler that does not run JavaScript. Nothing here is recomputed or typed
-by hand: every value is read from the records the drawer shows (the API's ``/repos/{owner}/{name}`` and its
-``/evidence``) and from the leaderboards; the labels, the tier note and the lens reasons are read from
-``web/app/copy.js``, the single source the drawer uses (:func:`report_pages.copy_js_map`). The one thing written
-here is the one-line meaning of each parameter (:data:`PARAM_MEANINGS`), pinned to the methodology's parameter
-list by a test.
+sentences, for a reader or a crawler that does not run JavaScript. The page is drawn by the app's own view
+(``web/app/views/project.js``) at export (``web/prerender.mjs``), from the project's record in
+``data/<sid>/repos/<bucket>.json``. This module writes what the view only prints: the record's answer sentences, its
+place in each lens and its similar projects (:func:`record_extras`, from the leaderboards), and the page's head
+(:func:`project_page`). The lens reasons are read from ``web/app/copy.js``, the single source the app uses
+(:func:`report_pages.copy_js_map`).
 
 A value that was not measured is said plainly; a reason this code does not know stops the export
 (:class:`report_pages.ReportError`) instead of printing a guess. ``scripts/verify_static_export.py`` recomputes
-every number on every page from the API and compares.
+every sentence and number on every page from the API and compares.
 """
 from __future__ import annotations
 
 import json
-import math
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -23,18 +22,18 @@ from decimal import ROUND_HALF_UP, Decimal
 from html import escape
 from pathlib import Path
 from typing import Any, Mapping, Sequence
-from urllib.parse import quote
 
 from porchlamp.serve.report_pages import (
-    ECOSYSTEM_NAMES,
-    ECOSYSTEM_SLUGS,
-    GITHUB_REPO,
+    PAGE_SCRIPTS,
     SITE,
     WEB_APP,
     Facts,
     ReportError,
     _a,
+    _article_head,
     _t,
+    _with_ld,
+    app_page,
     copy_js_map,
     copy_js_string,
     fmt_int,
@@ -50,31 +49,6 @@ BALANCED = "balanced"
 LENS_ORDER = ("balanced", "first_timer", "career_capital", "senior_systems", "ai_assisted")
 #: ``owner`` and ``name`` as GitHub allows them, lower-cased: also safe as directory names.
 _SEGMENT = re.compile(r"[a-z0-9._-]+")
-
-#: One line on what each parameter measures. The names are copy.js's (``PARAM_NAMES``); these lines are the
-#: only prose typed for the project pages. They follow the methodology's curve text and the engine's
-#: parameter docstrings (``porchlamp/core/params``). A test pins the keys to the methodology's parameter list.
-PARAM_MEANINGS = {
-    "ttfhr_hours": "Median hours from an outside pull request opening to its first substantive human reply.",
-    "dr90_decision_rate": "Share of outside pull requests that were merged or closed within 90 days.",
-    "mr_first_rate": "Share of first-time outside authors' decided pull requests that were merged.",
-    "gr14_ghost_rate": "Share of outside pull requests with no maintainer response, merge or close within 14 days.",
-    "ttm_p90_hours": "Hours within which 90% of merged outside pull requests were merged.",
-    "dependents_deduped": "Packages in the registry that depend on this project, counted once each.",
-    "openssf_criticality": "OpenSSF criticality score from 0 to 1, computed from the project's public activity signals.",
-    "downloads_monthly": "Downloads from the package registry in a month.",
-    "legal_ip": "The contributor licence regime: DCO, none, a foundation CLA or a corporate CLA.",
-    "elephant_factor": "The fewest organisations that account for half of the last year's commits.",
-    "promotion_ladder": "How openly a contributor can become a maintainer, from closed to verified.",
-    "pipeline_defenses": "How well the project's build and review pipeline defends against bad changes, 0 to 100.",
-    "ai_posture": "Whether the project has a written policy on AI-assisted contributions.",
-    "substantive_review_rate": "Share of decided pull requests that received a substantive review.",
-    "newcomer_issue_supply": "Open, unassigned, up-to-date issues marked for newcomers.",
-    "newcomer_conversion": "Share of first-time authors whose first pull request merged within 180 days.",
-    "rr90_return_rate": "Share of those merged first-time authors who sent a second pull request within 90 days.",
-    "dx": "Developer experience, 0 to 100: half CI run time, half setup signals.",
-}
-
 
 # --------------------------------------------------------------------------- #
 # Addresses
@@ -104,16 +78,11 @@ def check_no_collisions(keys: Sequence[tuple[str, str]]) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Formatting: the drawer's rules, in Python
+# Formatting
 # --------------------------------------------------------------------------- #
 def js_fixed(value: float, places: int) -> str:
     """``value.toFixed(places)`` as JavaScript prints it: the double's exact value, rounded half up."""
     return str(Decimal(value).quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP))
-
-
-def js_round(value: float) -> int:
-    """``Math.round(value)``."""
-    return math.floor(value + 0.5)
 
 
 def percent_text(fraction: float) -> str:
@@ -121,29 +90,13 @@ def percent_text(fraction: float) -> str:
     return f"{(Decimal(repr(fraction)) * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP)}%"
 
 
-def coverage_percent(coverage: float) -> str:
-    """``Math.round(coverage * 100)`` and a percent sign, as the drawer prints a coverage."""
-    return f"{js_round(coverage * 100)}%"
-
-
-def format_parameter_value(value: Any) -> str:
-    """copy.js ``formatParameterValue``: integers as they are, 4 decimals at most, strings untouched."""
-    if value is None:
-        return "—"
-    if isinstance(value, bool):
-        return str(value).lower()
-    if isinstance(value, (int, float)):
-        number = float(value)
-        if not math.isfinite(number):
-            return "—"
-        if number == 0:
-            return "0"
-        if number.is_integer():
-            return str(int(number))
-        if abs(number) < 0.0001:
-            return format(Decimal(f"{number:.4g}"), "f")
-        return format(Decimal(repr(js_round(number * 10000) / 10000)), "f")
-    return str(value)
+def rank_band(rank: int, total: int) -> str:
+    """Where a rank sits among ``total``: ``the top N%`` in the upper half, else ``the bottom N%``. N is rounded up, so
+    the claim holds for every rank (1 of 2,132 is in the top 1%, never "the top 0%"; 2,039 of 2,132, the 94th from
+    the bottom, is in the bottom 5%, not the bottom 4%)."""
+    if rank * 2 <= total:
+        return f"the top {-(-rank * 100 // total)}%"
+    return f"the bottom {-(-(total - rank + 1) * 100 // total)}%"
 
 
 def reply_time_text(hours: float) -> str:
@@ -181,33 +134,23 @@ def _sentence_end(text: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# The copy the drawer uses
+# The copy the app uses
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class Copy:
-    """Everything the pages take from ``web/app/copy.js``."""
+    """What the lens reasons and the landing pages take from ``web/app/copy.js``."""
 
     pillar_names: Mapping[str, str]
-    persona_names: Mapping[str, str]
-    param_names: Mapping[str, str]
-    unmeasured_reasons: Mapping[str, str]
     persona_gate_reasons: Mapping[str, str]
     insufficient_evidence: str
-    coverage_bands: Mapping[str, str]
-    tier_capped_explanation: str
     capped_suffix: str = " (capped)"
 
     @classmethod
     def load(cls, web_dir: Path = WEB_APP) -> "Copy":
         return cls(
             pillar_names=copy_js_map("PILLAR_NAMES", web_dir),
-            persona_names=copy_js_map("PERSONA_NAMES", web_dir),
-            param_names=copy_js_map("PARAM_NAMES", web_dir),
-            unmeasured_reasons=copy_js_map("UNMEASURED_REASON_NAMES", web_dir),
             persona_gate_reasons=copy_js_map("PERSONA_GATE_COPY", web_dir),
             insufficient_evidence=copy_js_string("PERSONA_INSUFFICIENT_EVIDENCE_TEXT", web_dir),
-            coverage_bands=copy_js_map("COVERAGE_BAND_LABELS", web_dir),
-            tier_capped_explanation=copy_js_string("TIER_CAPPED_EXPLANATION", web_dir),
         )
 
     def tier_label(self, tier: str | None, ceiling: str | None) -> str:
@@ -215,24 +158,6 @@ class Copy:
         if not tier:
             return "—"
         return f"{tier}{self.capped_suffix}" if ceiling and tier == ceiling else tier
-
-    def coverage_band(self, coverage: float) -> str:
-        """copy.js ``coverageBadgeText``: ``78% · Ceiling B``."""
-        if coverage >= 0.95:
-            band = "Full"
-        elif coverage >= 0.8:
-            band = self.coverage_bands["A"]
-        elif coverage >= 0.6:
-            band = self.coverage_bands["B"]
-        else:
-            band = "Below floor"
-        return f"{coverage_percent(coverage)} · {band}"
-
-    def missing_value(self, reason: str | None) -> str:
-        """copy.js ``missingValueReason``."""
-        if not reason:
-            return "Not measured for this repository."
-        return f"Not shown: {self.unmeasured_reasons.get(reason, reason)}"
 
     def persona_gate_reason(self, code: str) -> str:
         """copy.js ``personaGateReason`` for the codes a ranked project can carry; an unknown code stops the export."""
@@ -341,193 +266,132 @@ def _min_n(min_n: Mapping[str, Any], param_id: str) -> int:
     return value
 
 
-def answer_reply(
-    detail: Mapping[str, Any], evidence: Sequence[Mapping[str, Any]], min_n: Mapping[str, Any]
-) -> tuple[str, str]:
-    """``(first sentence, the rest)`` of the reply answer: the median first human reply and the 14-day no-reply
-    share, or, for a value with too small a sample, the counts and the minimum the methodology asks for (each
-    parameter has its own sample, so the two counts can differ). The rest is empty when both are measured."""
+@dataclass(frozen=True)
+class Reply:
+    """The reply answer: its first sentence, which names the project; the rest (empty when both values are measured);
+    and the first sentence as the head's description says it, after the project's name and rank (:func:`head_description`):
+    without the name and without the bracket of counts and dates."""
+
+    first: str
+    rest: str
+    short: str
+
+
+def answer_reply(detail: Mapping[str, Any], evidence: Sequence[Mapping[str, Any]], min_n: Mapping[str, Any]) -> Reply:
+    """The median first human reply and the 14-day no-reply share, or, for a value with too small a sample, the counts
+    and the minimum the methodology asks for (each parameter has its own sample, so the two counts can differ)."""
     who = f"{detail['owner']}/{detail['name']}"
     ttfhr, ghost = _param(evidence, "ttfhr_hours"), _param(evidence, "gr14_ghost_rate")
     have_reply, have_ghost = _measured(ttfhr, who), _measured(ghost, who)
     min_reply, min_ghost = _min_n(min_n, "ttfhr_hours"), _min_n(min_n, "gr14_ghost_rate")
-    if have_reply and have_ghost:
-        return (
-            f"Outside pull requests to {detail['name']} got a first human reply in a median of "
-            f"{reply_time_text(ttfhr['value'])} ({_pull_requests(ttfhr['n'])}, {_window(ttfhr, who)}); "
-            f"{percent_text(ghost['value'])} got none within 14 days.",
-            "",
-        )
     if have_reply:
-        return (
-            f"Outside pull requests to {detail['name']} got a first human reply in a median of "
-            f"{reply_time_text(ttfhr['value'])} ({_pull_requests(ttfhr['n'])}, {_window(ttfhr, who)}).",
+        median = f"got a first human reply in a median of {reply_time_text(ttfhr['value'])}"
+        bracket = f" ({_pull_requests(ttfhr['n'])}, {_window(ttfhr, who)})"
+        if have_ghost:
+            tail = f"; {percent_text(ghost['value'])} got none within 14 days."
+            return Reply(f"Outside pull requests to {who} {median}{bracket}{tail}", "", f"Outside pull requests {median}{tail}")
+        return Reply(
+            f"Outside pull requests to {who} {median}{bracket}.",
             "The share with no reply within 14 days has too small a sample to measure "
             f"({_pull_requests(ghost['n'])} counted; {min_ghost} needed).",
+            f"Outside pull requests {median}.",
         )
     if have_ghost:
         noun = "pull request" if ghost["n"] == 1 else "pull requests"
-        return (
-            f"The reply time has too small a sample to measure ({_pull_requests(ttfhr['n'])} counted; {min_reply} needed).",
+        return Reply(
+            f"For {who}, the reply time has too small a sample to measure ({_pull_requests(ttfhr['n'])} counted; {min_reply} needed).",
             f"{percent_text(ghost['value'])} of {fmt_int(ghost['n'])} outside {noun} got no reply within 14 days "
             f"({_window(ghost, who)}).",
+            "The reply time has too small a sample to measure.",
         )
     needed = f"{min_reply} needed" if min_reply == min_ghost else f"{min_reply} and {min_ghost} needed"
-    return (
-        "The reply time and the share with no reply within 14 days both have too small a sample to measure "
-        f"({fmt_int(ttfhr['n'])} and {_pull_requests(ghost['n'])} counted; {needed}).",
+    both = "the reply time and the share with no reply within 14 days both have too small a sample to measure"
+    return Reply(
+        f"For {who}, {both} ({fmt_int(ttfhr['n'])} and {_pull_requests(ghost['n'])} counted; {needed}).",
         "",
+        f"{both[:1].upper()}{both[1:]}.",
     )
 
 
-def answer_second(standings: Mapping[str, Standing], copy: Copy) -> str:
-    """Sentence 2: the overall rank and the first-timer rank, or the plain reason there is none."""
-    overall, first = standings[BALANCED], standings[FIRST_TIMER]
+def rank_sentence(overall: Standing) -> str:
+    """The overall rank: ``It ranks 3 of 4,322 overall.``"""
     if overall.rank is None:
         raise ReportError("a project page needs a balanced rank")
-    head = f"It ranks {fmt_int(overall.rank)} of {fmt_int(overall.total)} overall"
+    return f"It ranks {fmt_int(overall.rank)} of {fmt_int(overall.total)} overall."
+
+
+def first_timer_sentence(first: Standing) -> str:
+    """The first-timer rank and where it sits (:func:`rank_band`), or the plain reason there is none."""
     if first.rank is not None:
-        return f"{head} and {fmt_int(first.rank)} of {fmt_int(first.total)} for first-time contributors."
-    return f"{head}. It is not ranked for first-time contributors: {_lowercase_first(_sentence_end(first.reason or ''))}"
+        return (
+            f"For first-time contributors it ranks {fmt_int(first.rank)} of {fmt_int(first.total)} "
+            f"({rank_band(first.rank, first.total)})."
+        )
+    return f"It is not ranked for first-time contributors: {_lowercase_first(_sentence_end(first.reason or ''))}"
 
 
-def meta_description(sentence: str, limit: int = 160) -> str:
-    """The first answer sentence (the first sentence only), under ``limit`` characters: whole; else without its bracket; else up to its
-    ``;``; else cut at a word with an ellipsis."""
-    if len(sentence) < limit:
-        return sentence
-    shorter = re.sub(r" \([^)]*\)(?=[;.])", "", sentence)
-    if len(shorter) < limit:
-        return shorter
-    if ";" in shorter:
-        clause = shorter.split(";", 1)[0] + "."
-        if len(clause) < limit:
+#: The longest head description: what a search result shows of it without cutting.
+DESCRIPTION_LIMIT = 155
+
+
+def head_description(who: str, overall: Standing, reply: Reply, limit: int = DESCRIPTION_LIMIT) -> str:
+    """The page's description: the project, its rank, and its reply answer (``keras-team/keras ranks 2,531 of 4,322.
+    Outside pull requests got a first human reply in a median of 6.2 days; 34% got none within 14 days.``), at most
+    ``limit`` characters: whole; else up to the reply's ``;``; else cut at a word with an ellipsis. The name and the
+    rank are never cut."""
+    if overall.rank is None:
+        raise ReportError("a project page needs a balanced rank")
+    lead = f"{who} ranks {fmt_int(overall.rank)} of {fmt_int(overall.total)}."
+    whole = f"{lead} {reply.short}"
+    if len(whole) <= limit:
+        return whole
+    if ";" in reply.short:
+        clause = f"{lead} {reply.short.split(';', 1)[0]}."
+        if len(clause) <= limit:
             return clause
-    cut = shorter[: limit - 2].rsplit(" ", 1)[0].rstrip(" ;,:")
-    return f"{cut}\u2026"
+    if len(lead) + 2 > limit:
+        raise ReportError(f"{who}: the name and rank alone are longer than {limit} characters; the description needs a ruling")
+    cut = whole[: limit - 1].rsplit(" ", 1)[0].rstrip(" ;,:.")
+    return f"{cut}\u2026" if len(cut) > len(lead) else lead
 
 
-def project_title(owner: str, name: str) -> str:
-    return f"{owner}/{name}: pull request response time and contributor experience | Porchlamp"
-
-
-def issue_link(owner: str, name: str) -> str:
-    return f"{GITHUB_REPO}/issues/new?title=" + quote(f"Porchlamp record: {owner}/{name}", safe="")
+def record_extras(
+    index: ProjectIndex, detail: Mapping[str, Any], evidence: Sequence[Mapping[str, Any]], min_n: Mapping[str, Any]
+) -> dict | None:
+    """What a ranked project's record carries beside the API's ``detail`` and ``evidence``, for the view to print: the
+    answer sentences, its standing in each lens and its similar projects. None for a project without a balanced rank
+    (it has no page)."""
+    owner, name = detail["owner"], detail["name"]
+    if (owner, name) not in index.rank[BALANCED]:
+        return None
+    standings = {lens: index.standing(lens, detail) for lens in LENS_ORDER}
+    reply = answer_reply(detail, evidence, min_n)
+    answer = [part for part in (reply.first, reply.rest) if part]
+    answer += [rank_sentence(standings[BALANCED]), first_timer_sentence(standings[FIRST_TIMER])]
+    return {
+        "answer": answer,
+        "standings": {lens: {"rank": s.rank, "total": s.total, "reason": s.reason} for lens, s in standings.items()},
+        "similar": [{"owner": r["owner"], "name": r["name"], "rank": r["rank"]} for r in index.similar(owner, name)],
+    }
 
 
 # --------------------------------------------------------------------------- #
 # The page
 # --------------------------------------------------------------------------- #
-def _link(rel: str, row: Mapping[str, Any]) -> str:
-    return f'<a href="{_a(rel + project_path(row["owner"], row["name"]))}">{_t(row["owner"])}/{_t(row["name"])}</a>'
+def project_title(owner: str, name: str) -> str:
+    return f"{owner}/{name}: pull request response time and contributor experience | Porchlamp"
 
 
-def _parameter_rows(
-    evidence: Sequence[Mapping[str, Any]], copy: Copy, order: Sequence[str]
-) -> list[tuple[str, str, str, str, str, str]]:
-    """``(param_id, name, value, count, window, meaning)`` per parameter, in the methodology's order."""
-    by_id = {row["param_id"]: row for row in evidence}
-    unknown = sorted(set(by_id) - set(order))
-    if unknown:
-        raise ReportError(f"evidence rows {unknown} are not in the methodology's parameter list")
-    rows = []
-    for param_id in order:
-        row = by_id.get(param_id)
-        if row is None:
-            continue
-        name = copy.param_names.get(param_id, param_id)
-        meaning = PARAM_MEANINGS[param_id]
-        if row["unmeasured_reason"]:
-            rows.append((param_id, name, copy.missing_value(row["unmeasured_reason"]), "—", "—", meaning))
-            continue
-        count = fmt_int(row["n"]) if row["n"] else "—"
-        window = window_text(row["window_start"], row["window_end"]) if row["window_start"] and row["window_end"] else "—"
-        rows.append((param_id, name, format_parameter_value(row["value"]), count, window, meaning))
-    return rows
-
-
-def render_project(
-    f: Facts,
-    *,
-    detail: Mapping[str, Any],
-    evidence: Sequence[Mapping[str, Any]],
-    index: ProjectIndex,
-    copy: Copy,
-    param_order: Sequence[str],
-    min_n: Mapping[str, Any],
-    bucket: str,
-    as_of: date,
-) -> str:
-    """One project's page, from its API record and evidence."""
-    owner, name = detail["owner"], detail["name"]
-    canonical = project_url(owner, name)
-    rel = "../../../"
-    standings = {lens: index.standing(lens, detail) for lens in LENS_ORDER}
-    first, rest = answer_reply(detail, evidence, min_n)
-    answer = " ".join(part for part in (first, rest, answer_second(standings, copy)) if part)
-    title, description = project_title(owner, name), meta_description(first)
-
-    tier = copy.tier_label(detail["tier"], detail["tier_ceiling"])
-    capped = bool(detail["tier_ceiling"]) and detail["tier"] == detail["tier_ceiling"]
-    capped_note = f'<p class="note">{_t(copy.tier_capped_explanation)}</p>' if capped else ""
-    ecosystem = ECOSYSTEM_NAMES[detail["ecosystem"]]
-    composite = (
-        f"<li>Score: {js_fixed(detail['porchlamp'], 2)}</li>"
-        f"<li>Coverage: {_t(copy.coverage_band(detail['coverage']))}</li>"
-        f"<li>Tier: {_t(tier)}</li>"
-        f"<li>Quadrant: {_t(detail['quadrant'])}</li>"
-        f'<li>Ecosystem: <a href="{rel}{ECOSYSTEM_SLUGS[detail["ecosystem"]]}/">{_t(ecosystem)}</a></li>'
+def project_page(owner: str, name: str, description: str) -> str:
+    """A ranked project's page for ``web/prerender.mjs`` to draw the header, nav, footer and the project view into:
+    the app's page with the project's head (title, description, canonical address, link previews, breadcrumb). The
+    page's own script (``back-forward.js``) loads the app again when Back or Forward returns to one of its entries:
+    the page's address is also the project's side panel in the app."""
+    title, canonical = project_title(owner, name), project_url(owner, name)
+    built = app_page(
+        title=title, description=description, head=_article_head(title=title, description=description, canonical=canonical),
+        scripts=PAGE_SCRIPTS["project"][1:],
     )
-    pillar_rows = "".join(
-        f'<tr><th scope="row">{_t(label)}</th><td>{js_fixed(detail[f"p_{pillar}"], 1) if detail[f"p_{pillar}"] is not None else "&mdash;"}</td>'
-        f'<td>{coverage_percent(detail[f"c_{pillar}"] or 0)}</td></tr>'
-        for pillar, label in copy.pillar_names.items()
-    )
-    lens_rows = ""
-    for lens in LENS_ORDER:
-        s = standings[lens]
-        status = f"Rank {fmt_int(s.rank)} of {fmt_int(s.total)}" if s.rank is not None else f"Not ranked: {s.reason}"
-        lens_rows += f'<tr><th scope="row">{_t(copy.persona_names[lens])}</th><td>{_t(status)}</td></tr>'
-    param_rows = "".join(
-        f'<tr><th scope="row" title="{_a(pid)}">{_t(label)}</th><td data-label="Value">{_t(value)}</td>'
-        f'<td data-label="Count">{_t(count)}</td><td data-label="Window">{_t(window)}</td>'
-        f'<td data-label="Meaning">{_t(meaning)}</td></tr>'
-        for pid, label, value, count, window, meaning in _parameter_rows(evidence, copy, param_order)
-    )
-    similar = index.similar(owner, name)
-    similar_html = (
-        "<ul>" + "".join(f"<li>{_link(rel, row)} (rank {fmt_int(row['rank'])})</li>" for row in similar) + "</ul>"
-        if similar
-        else "<p>No other ranked project in this ecosystem.</p>"
-    )
-    record_file = f"data/{f.snapshot_id}/repos/{bucket}.json"
-    body = f"""      <article class="seo-fallback report project">
-        <h1>{_t(owner)}/{_t(name)}</h1>
-        <p class="lede">What happens to a stranger's pull request here, in the Porchlamp snapshot of {_t(long_date(f.snapshot_date))}.</p>
-        <p class="answer" id="answer">{_t(answer)}</p>
-        <h2 id="rating">Rating</h2>
-        <ul class="facts">{composite}</ul>
-        {capped_note}
-        <h2 id="pillars">Five pillars</h2>
-        <div class="seo-fallback-table-wrap"><table><caption>Score out of 100, and how much of the pillar was measured</caption><thead><tr><th scope="col">Pillar</th><th scope="col">Score</th><th scope="col">Coverage</th></tr></thead><tbody>{pillar_rows}</tbody></table></div>
-        <h2 id="lenses">Rank in each lens</h2>
-        <div class="seo-fallback-table-wrap"><table><thead><tr><th scope="col">Lens</th><th scope="col">Standing</th></tr></thead><tbody>{lens_rows}</tbody></table></div>
-        <details><summary>The measured parameters</summary>
-        <div class="seo-fallback-table-wrap"><table class="wrap-cells"><thead><tr><th scope="col">Parameter</th><th scope="col">Value</th><th scope="col">Count</th><th scope="col">Window</th><th scope="col">What it measures</th></tr></thead><tbody>{param_rows}</tbody></table></div>
-        </details>
-        <h2 id="similar">Similar projects</h2>
-        <p>The ranked projects nearest this one in the same ecosystem.</p>
-        {similar_html}
-        <h2 id="evidence">Evidence</h2>
-        <ul class="evidence">
-          <li>Snapshot {_t(f.snapshot_id)}, data as of {_t(long_date(as_of))}.</li>
-          <li>Record hash: <code>{_t(detail['raw_hash'])}</code></li>
-          <li>The full record is in <a href="{_a(rel + record_file)}">{_t(record_file)}</a>, under the key <code>{_t(owner)}/{_t(name)}</code>.</li>
-          <li>How every number is measured: <a href="{rel}methodology/">Porchlamp methodology</a>.</li>
-        </ul>
-        <h2 id="correction">Is something wrong?</h2>
-        <p><a href="{_a(issue_link(owner, name))}">Open an issue about this record</a> and say what looks wrong.</p>
-      </article>"""
     ld = {
         "@context": "https://schema.org",
         "@type": "BreadcrumbList",
@@ -536,11 +400,7 @@ def render_project(
             {"@type": "ListItem", "position": 2, "name": f"{owner}/{name}", "item": canonical},
         ],
     }
-    # The page's address is also the project's side panel in the app: web/app/back-forward.js lets Back and Forward
-    # between the app's entries load the app again (the page's own script).
-    return page(
-        title=title, description=description, canonical=canonical, body=body, ld=ld, scripts=("/back-forward.js",),
-    )
+    return _with_ld(built, ld)
 
 
 # --------------------------------------------------------------------------- #

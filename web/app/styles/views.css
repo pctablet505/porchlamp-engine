@@ -2695,3 +2695,571 @@
     content: attr(data-label) ": ";
   }
 }
+
+/* ---- Project (views/project.js) ---- */
+.project-view {
+  container: project / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  font-size: var(--text-body-lg);
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.project-view.is-page {
+  max-width: 70rem;
+  margin: 0 auto;
+}
+
+.project-view.is-panel {
+  gap: var(--space-md);
+}
+
+.project-view p {
+  margin: 0;
+}
+
+.project-crumb {
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.project-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-sm) var(--space-lg);
+}
+
+.project-identity {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  flex: 1 1 24ch;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.project-view .drawer-kicker {
+  margin: 0;
+}
+
+.project-title {
+  margin: 0;
+  font-size: var(--text-h1);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.project-title .repo-owner {
+  font-weight: 400;
+}
+
+.project-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-md);
+}
+
+.project-view .project-eco {
+  margin-left: 0;
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+a.project-eco:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.project-view .drawer-page-link {
+  font-size: var(--text-body-md);
+}
+
+.project-intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin-top: calc(-1 * var(--space-sm));
+}
+
+.project-lede {
+  max-width: 72ch;
+  color: var(--text-secondary);
+}
+
+.project-card {
+  min-width: 0;
+  padding: var(--space-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height) + var(--space-md));
+}
+
+.project-view .black-hole-evidence {
+  margin: 0;
+  background: var(--bg-surface);
+}
+
+.project-view .black-hole-evidence .project-h2 {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-h2);
+  font-weight: 600;
+}
+
+.project-view .black-hole-stat {
+  margin: 0 0 var(--space-xs);
+}
+
+.project-h2 {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--text-h2);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.project-h3 {
+  margin: var(--space-lg) 0 var(--space-2xs);
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+}
+
+.project-h2 + .project-h3 {
+  margin-top: 0;
+}
+
+.project-view .project-card p + p,
+.project-view .project-card dl + p {
+  margin-top: var(--space-xs);
+}
+
+.project-note,
+.project-reason,
+.project-muted {
+  color: var(--text-secondary);
+}
+
+.project-note {
+  max-width: 72ch;
+  font-size: var(--text-body-md);
+}
+
+.project-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+  overflow-wrap: anywhere;
+}
+
+/* The lead: the composite facts as one strip, then the answer in plain words. */
+.project-lead {
+  border-left: 3px solid var(--lamp-glow);
+}
+
+.project-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-md) var(--space-lg);
+  margin: 0 0 var(--space-md);
+}
+
+.project-fact dt {
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.project-fact dd {
+  margin: 0;
+  font-size: var(--text-h2);
+  font-weight: 600;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-figure {
+  font-size: var(--text-display);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.project-figure-of {
+  font-size: var(--text-body-lg);
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.project-facts .badge {
+  padding: 0;
+  font-size: var(--text-h2);
+  font-family: var(--font-ui);
+}
+
+.project-facts .badge-dot {
+  width: 10px;
+  height: 10px;
+}
+
+.project-facts .tier-pill {
+  font-family: var(--font-ui);
+}
+
+.project-answer {
+  max-width: 72ch;
+}
+
+.project-gate {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-control);
+}
+
+/* Tables: one style for every table in the view (pillars, personas, parameters, black-hole PRs). */
+.project-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-table caption {
+  margin-bottom: var(--space-xs);
+  text-align: left;
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.project-table th,
+.project-table td {
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.project-table thead th {
+  font-size: var(--text-body-md);
+  font-weight: 600;
+  color: var(--text-secondary);
+  vertical-align: bottom;
+}
+
+.project-table tbody th {
+  font-weight: 500;
+}
+
+.project-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.project-table th:first-child,
+.project-table td:first-child {
+  padding-left: 0;
+}
+
+.project-table th:last-child,
+.project-table td:last-child {
+  padding-right: 0;
+}
+
+/* Parameters: the name carries its one-line meaning; source in mono. Fixed columns, so the five pillar tables
+ * line up under each other. */
+.param-table {
+  table-layout: fixed;
+}
+
+.param-table th:nth-child(1) { width: 26%; }
+.param-table th:nth-child(2) { width: 21%; }
+.param-table th:nth-child(3) { width: 7%; }
+.param-table th:nth-child(4) { width: 7%; }
+.param-table th:nth-child(5) { width: 17%; }
+
+.param-label {
+  display: block;
+}
+
+.param-meaning {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-body-md);
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.param-value {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.param-source {
+  font-size: var(--text-body-md);
+  color: var(--text-secondary);
+}
+
+.param-source .project-mono {
+  display: block;
+}
+
+.persona-table .tier-pill {
+  font-size: var(--text-body-lg);
+}
+
+.similar-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-lg);
+  margin: var(--space-sm) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-md);
+  margin: 0 0 var(--space-xs);
+}
+
+.project-dl > div {
+  display: contents;
+}
+
+.project-dl dt {
+  color: var(--text-secondary);
+}
+
+.project-dl dd {
+  margin: 0;
+}
+
+.project-hash {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+.project-view .black-hole-pr-scroll {
+  max-height: 16rem;
+}
+
+.project-view .black-hole-pr-table th,
+.project-view .black-hole-pr-table td {
+  padding-left: var(--space-sm);
+  font-size: var(--text-body-md);
+}
+
+/* Cards side by side when the view is wide (the page at 1280); one column in the panel and on a phone. */
+.project-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: inherit;
+}
+
+.project-pair:empty {
+  display: none;
+}
+
+@container project (min-width: 900px) {
+  .project-pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* ---- Narrow: the panel (520 px) and a phone. Rows stack; every value keeps its label. ---- */
+@container project (max-width: 699px) {
+  .project-card {
+    padding: var(--space-md);
+  }
+
+  .project-table thead {
+    display: none;
+  }
+
+  .project-table caption {
+    display: block;
+  }
+
+  /* A dash (no count, no window) carries nothing in a stacked row; the wide table still shows it. */
+  .project-table td.is-empty {
+    display: none;
+  }
+
+  .project-table,
+  .project-table tbody {
+    display: block;
+  }
+
+  .project-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--space-md);
+    padding: var(--space-xs) 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .project-table tbody th,
+  .project-table tbody td {
+    padding: 0;
+    border: 0;
+    text-align: left;
+  }
+
+  .project-table tbody th {
+    flex: 1 1 100%;
+  }
+
+  .project-table td[data-label]::before {
+    content: attr(data-label) " ";
+    font-weight: 400;
+    color: var(--text-secondary);
+  }
+
+  .project-table td.project-reason {
+    flex: 1 1 100%;
+  }
+
+  .param-table {
+    table-layout: auto;
+  }
+
+  .param-source,
+  .param-window {
+    flex: 1 1 100%;
+  }
+
+  .param-source .project-mono {
+    display: inline;
+    margin-left: var(--space-2xs);
+  }
+}
+
+@media (max-width: 767px) {
+  .project-view {
+    gap: var(--space-md);
+  }
+}
+
+/* The quadrant word in --text-primary, its glyph in the quadrant colour: --quad-crucible on the dark card is
+ * 4.0:1 (measured), under AA for 18 px text; the glyph is a graphic and needs 3:1 (WCAG 1.4.11). */
+.project-view [class^="quad-"] {
+  color: var(--text-primary);
+}
+
+.project-view .quad-sweet-spot .quadrant-glyph { color: var(--quad-sweet-spot); }
+.project-view .quad-crucible .quadrant-glyph { color: var(--quad-crucible); }
+.project-view .quad-nursery .quadrant-glyph { color: var(--quad-nursery); }
+.project-view .quad-graveyard .quadrant-glyph { color: var(--quad-graveyard); }
+
+/* The actions at the reading size (the drawer's buttons are --text-caption, 11 px). */
+.project-view .drawer-actions .btn,
+.project-view .drawer-actions [data-drawer-close] {
+  height: auto;
+  min-height: 30px;
+  font-size: var(--text-body-md);
+}
+
+/* Key facts: one small table of row headers right after the answer. */
+.key-facts-card {
+  padding: var(--space-md) var(--space-lg);
+}
+
+.key-facts th,
+.key-facts td {
+  padding-top: var(--space-2xs);
+  padding-bottom: var(--space-2xs);
+}
+
+.key-facts tbody th {
+  width: 14rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.key-facts tbody tr:last-child th,
+.key-facts tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.project-cite {
+  margin-top: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
+  overflow-wrap: anywhere;
+}
+
+/* Pillars: the radar, and under it the same five as a table. The labels are 13 px or more where the column is as
+ * wide as the viewBox (280), which a phone's column is (294 px in the panel on a 375 px screen, measured). */
+.radar-chart-container {
+  display: flex;
+  justify-content: center;
+  margin: var(--space-xs) 0 var(--space-sm);
+}
+
+.radar-chart {
+  width: 100%;
+  max-width: 340px;
+  height: auto;
+}
+
+.radar-grid {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 0.8;
+}
+
+.radar-spoke {
+  stroke: var(--border-strong);
+  stroke-width: 0.8;
+  stroke-dasharray: 2, 2;
+}
+
+.radar-spoke-unmeasured {
+  stroke-dasharray: 1, 3;
+  opacity: 0.6;
+}
+
+.radar-area {
+  fill: var(--spec-bar);
+  fill-opacity: 0.25;
+  stroke: var(--spec-bar);
+  stroke-width: 1.5;
+}
+
+.radar-point {
+  fill: var(--spec-bar);
+}
+
+.radar-point-unmeasured {
+  fill: var(--bg-surface);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 2, 1;
+}
+
+.radar-label {
+  font-size: 13px;
+  font-weight: 500;
+  fill: var(--text-primary);
+}
+
+.pillar-table {
+  max-width: 36rem;
+  margin: 0 auto;
+}
+
+.pillar-table .num {
+  width: 6rem;
+}
+
+@container project (max-width: 699px) {
+  .key-facts tbody th {
+    flex: 0 0 8.5rem;
+  }
+
+  .key-facts tbody td {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}

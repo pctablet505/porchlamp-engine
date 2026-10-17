@@ -1,0 +1,404 @@
+{
+  "detail": {
+    "owner": "vllm-project",
+    "name": "vllm",
+    "ecosystem": "pypi",
+    "snapshot_id": "2026-10-17",
+    "benchmark_version": "2.0.0-rc1",
+    "raw_hash": "1da5902eecd486b199777f3b28fb34580272c65b3ce49821e206395d1e365ffd",
+    "eligible": true,
+    "gate_reason": null,
+    "rated": true,
+    "unrated_reason": null,
+    "rank": 3,
+    "tie_group": null,
+    "porchlamp": 80.37,
+    "coverage": 0.775,
+    "tier": "B",
+    "tier_ceiling": "B",
+    "quadrant": "Sweet Spot",
+    "leverage": 67.07,
+    "friction": 7.68,
+    "leverage_coverage": 1.0,
+    "friction_coverage": 0.6,
+    "p_responsiveness": 97.245489690722,
+    "c_responsiveness": 0.4,
+    "p_criticality": 64.471323369998,
+    "c_criticality": 1.0,
+    "p_governance": 82.0,
+    "c_governance": 1.0,
+    "p_rigor": 61.44918,
+    "c_rigor": 1.0,
+    "p_accessibility": 95.5,
+    "c_accessibility": 0.5,
+    "persona_gates": {},
+    "persona_composites": {
+      "ai_assisted": {
+        "porchlamp": 75.7,
+        "coverage": 0.83,
+        "tier": "A",
+        "rated": true
+      },
+      "balanced": {
+        "porchlamp": 80.37,
+        "coverage": 0.775,
+        "tier": "B",
+        "rated": true
+      },
+      "career_capital": {
+        "porchlamp": 79.56,
+        "coverage": 0.78,
+        "tier": "B",
+        "rated": true
+      },
+      "first_timer": {
+        "porchlamp": 87.58,
+        "coverage": 0.64,
+        "tier": "B",
+        "rated": true
+      },
+      "senior_systems": {
+        "porchlamp": 74.72,
+        "coverage": 0.885,
+        "tier": "A",
+        "rated": true
+      }
+    },
+    "suspicion": [],
+    "stars_audited": null,
+    "black_hole_evidence": null
+  },
+  "evidence": [
+    {
+      "param_id": "ai_posture",
+      "pillar": "rigor",
+      "measured": true,
+      "value": "REGULATED",
+      "score": 95.0,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/governance/vllm-project__vllm.json",
+      "source_sha256": "8eab5010a7c2f071d7fd5517df5da8e825118496e31c337fe893dea4d1c8dc61",
+      "fetched_at": "2026-10-10T03:11:44.827719+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "dependents_deduped",
+      "pillar": "criticality",
+      "measured": true,
+      "value": 46,
+      "score": 68.130081300813,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/dependents/vllm-project__vllm.json",
+      "source_sha256": "50ad1ffe0d388f4c69e9baca9b634606a832938e7eb33c66d5e2925bb7168efd",
+      "fetched_at": "2026-10-10T14:02:13.180502+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "downloads_monthly",
+      "pillar": "criticality",
+      "measured": true,
+      "value": 1857414,
+      "score": 67.07516339869281,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/downloads/pypi__vllm.json",
+      "source_sha256": "851bb03788506c007005d6c982ee80a119ae9b9e567aea8a70c32ee99b6ec25d",
+      "fetched_at": "2026-10-07T13:54:11.083694+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "dr90_decision_rate",
+      "pillar": "responsiveness",
+      "measured": false,
+      "value": null,
+      "score": null,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": null,
+      "source": null,
+      "source_sha256": null,
+      "fetched_at": null,
+      "unmeasured_reason": "insufficient_n"
+    },
+    {
+      "param_id": "dx",
+      "pillar": "accessibility",
+      "measured": true,
+      "value": 85.0,
+      "score": 85.0,
+      "n": 16,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/actions_runs/vllm-project__vllm.json",
+      "source_sha256": "8a1d6152947e02e3738c1a08f0a1e317c747e3c7a229d83484885e01d2bb9fb5",
+      "fetched_at": "2026-10-13T02:26:28.003391+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "elephant_factor",
+      "pillar": "governance",
+      "measured": true,
+      "value": 25,
+      "score": 100.0,
+      "n": 1000,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/commits_365d/vllm-project__vllm.json",
+      "source_sha256": "4688d9dbcf03e405ae61e19e0952e964ed530c7d39d29247c4eb6295a595067b",
+      "fetched_at": "2026-10-10T11:51:28.078481+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "gr14_ghost_rate",
+      "pillar": "responsiveness",
+      "measured": false,
+      "value": null,
+      "score": null,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": null,
+      "source": null,
+      "source_sha256": null,
+      "fetched_at": null,
+      "unmeasured_reason": "insufficient_n"
+    },
+    {
+      "param_id": "legal_ip",
+      "pillar": "governance",
+      "measured": true,
+      "value": "DCO",
+      "score": 100.0,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/governance/vllm-project__vllm.json",
+      "source_sha256": "8eab5010a7c2f071d7fd5517df5da8e825118496e31c337fe893dea4d1c8dc61",
+      "fetched_at": "2026-10-10T03:11:44.827719+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "mr_first_rate",
+      "pillar": "responsiveness",
+      "measured": false,
+      "value": null,
+      "score": null,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": null,
+      "source": null,
+      "source_sha256": null,
+      "fetched_at": null,
+      "unmeasured_reason": "insufficient_n"
+    },
+    {
+      "param_id": "newcomer_conversion",
+      "pillar": "accessibility",
+      "measured": false,
+      "value": null,
+      "score": null,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": null,
+      "source": null,
+      "source_sha256": null,
+      "fetched_at": null,
+      "unmeasured_reason": "insufficient_n"
+    },
+    {
+      "param_id": "newcomer_issue_supply",
+      "pillar": "accessibility",
+      "measured": true,
+      "value": 13,
+      "score": 100.0,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/gfi/vllm-project__vllm.json",
+      "source_sha256": "71ce9291d63844f944bbabac09c73dd6db1829e6cc75544d21d15e2b4ebdbd33",
+      "fetched_at": "2026-10-09T02:17:20.458658+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "openssf_criticality",
+      "pillar": "criticality",
+      "measured": true,
+      "value": 0.5843,
+      "score": 58.43000000000001,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/github_meta/vllm-project__vllm.json",
+      "source_sha256": "9c6bf7ca99507522fd1500562546359f2898ccb28265baeba8e036ded3188a63",
+      "fetched_at": "2026-10-10T14:02:13.180502+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "pipeline_defenses",
+      "pillar": "rigor",
+      "measured": true,
+      "value": 65.0667,
+      "score": 65.0667,
+      "n": 75,
+      "window_start": null,
+      "window_end": null,
+      "method": "proxy:review_ci",
+      "source": "raw/pr_window/vllm-project__vllm.json",
+      "source_sha256": "ab7db1bbc78939e20dd8be4559384d1bc983c6d96b3c6cc9e7bf23727a046bb3",
+      "fetched_at": "2026-10-14T19:29:36.056012+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "promotion_ladder",
+      "pillar": "governance",
+      "measured": true,
+      "value": "AD_HOC",
+      "score": 40.0,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": "primary",
+      "source": "raw/governance/vllm-project__vllm.json",
+      "source_sha256": "8eab5010a7c2f071d7fd5517df5da8e825118496e31c337fe893dea4d1c8dc61",
+      "fetched_at": "2026-10-10T03:11:44.827719+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "rr90_return_rate",
+      "pillar": "accessibility",
+      "measured": false,
+      "value": null,
+      "score": null,
+      "n": 0,
+      "window_start": null,
+      "window_end": null,
+      "method": null,
+      "source": null,
+      "source_sha256": null,
+      "fetched_at": null,
+      "unmeasured_reason": "insufficient_n"
+    },
+    {
+      "param_id": "substantive_review_rate",
+      "pillar": "rigor",
+      "measured": true,
+      "value": 0.1846,
+      "score": 23.075,
+      "n": 65,
+      "window_start": "2026-04-17T19:29:36.056012+00:00",
+      "window_end": "2026-10-14T19:29:36.056012+00:00",
+      "method": "primary",
+      "source": "raw/pr_window/vllm-project__vllm.json",
+      "source_sha256": "ab7db1bbc78939e20dd8be4559384d1bc983c6d96b3c6cc9e7bf23727a046bb3",
+      "fetched_at": "2026-10-14T19:29:36.056012+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "ttfhr_hours",
+      "pillar": "responsiveness",
+      "measured": true,
+      "value": 3.9156,
+      "score": 100.0,
+      "n": 82,
+      "window_start": "2026-04-17T19:29:36.056012+00:00",
+      "window_end": "2026-10-14T19:29:36.056012+00:00",
+      "method": "primary",
+      "source": "raw/pr_window/vllm-project__vllm.json",
+      "source_sha256": "ab7db1bbc78939e20dd8be4559384d1bc983c6d96b3c6cc9e7bf23727a046bb3",
+      "fetched_at": "2026-10-14T19:29:36.056012+00:00",
+      "unmeasured_reason": null
+    },
+    {
+      "param_id": "ttm_p90_hours",
+      "pillar": "responsiveness",
+      "measured": true,
+      "value": 41.2108,
+      "score": 88.98195876288659,
+      "n": 45,
+      "window_start": "2026-04-17T19:29:36.056012+00:00",
+      "window_end": "2026-10-14T19:29:36.056012+00:00",
+      "method": "primary",
+      "source": "raw/pr_window/vllm-project__vllm.json",
+      "source_sha256": "ab7db1bbc78939e20dd8be4559384d1bc983c6d96b3c6cc9e7bf23727a046bb3",
+      "fetched_at": "2026-10-14T19:29:36.056012+00:00",
+      "unmeasured_reason": null
+    }
+  ],
+  "answer": [
+    "Outside pull requests to vllm-project/vllm got a first human reply in a median of 3.9 hours (82 pull requests, 17 April to 14 October 2026).",
+    "The share with no reply within 14 days has too small a sample to measure (0 pull requests counted; 10 needed).",
+    "It ranks 3 of 4,322 overall.",
+    "For first-time contributors it ranks 1 of 2,132 (the top 1%)."
+  ],
+  "standings": {
+    "balanced": {
+      "rank": 3,
+      "total": 4322,
+      "reason": null
+    },
+    "first_timer": {
+      "rank": 1,
+      "total": 2132,
+      "reason": null
+    },
+    "career_capital": {
+      "rank": 3,
+      "total": 907,
+      "reason": null
+    },
+    "senior_systems": {
+      "rank": 17,
+      "total": 1346,
+      "reason": null
+    },
+    "ai_assisted": {
+      "rank": 17,
+      "total": 4440,
+      "reason": null
+    }
+  },
+  "similar": [
+    {
+      "owner": "kornia",
+      "name": "kornia",
+      "rank": 10
+    },
+    {
+      "owner": "apache",
+      "name": "airflow",
+      "rank": 18
+    },
+    {
+      "owner": "matplotlib",
+      "name": "matplotlib",
+      "rank": 19
+    },
+    {
+      "owner": "onnx",
+      "name": "onnx",
+      "rank": 20
+    },
+    {
+      "owner": "ray-project",
+      "name": "ray",
+      "rank": 27
+    }
+  ],
+  "recordFile": "data/2026-10-17/repos/8f.json"
+}

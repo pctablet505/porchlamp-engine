@@ -81,10 +81,11 @@ class TestStylesheetsNeverCollapseATableColumn:
     def test_the_scan_actually_reads_the_real_stylesheets(self) -> None:
         names = {p.name for p in STYLES.glob("*.css")}
         assert {"components.css", "views.css"} <= names
-        # The drawer rule this defect lived in is still a cell rule the scan sees.
-        css = _COMMENT_RE.sub("", (STYLES / "components.css").read_text(encoding="utf-8"))
+        # The project view's first-column cell rule, where the drawer's parameter table (this defect's home) now lives,
+        # is a cell rule the scan sees.
+        css = _COMMENT_RE.sub("", (STYLES / "views.css").read_text(encoding="utf-8"))
         assert any(
-            targets_table_cell(s) for sels, _ in _RULE_RE.findall(css) for s in sels.split(",") if "evidence-table td:first-child" in s
+            targets_table_cell(s) for sels, _ in _RULE_RE.findall(css) for s in sels.split(",") if "project-table td:first-child" in s
         )
 
 
