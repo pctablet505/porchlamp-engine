@@ -24,7 +24,9 @@ from tests.test_report_pages import (  # noqa: F401  (fixtures)
     _page,
     built,
     external_violations,
+    inline_scripts,
     project_index,
+    script_srcs,
     verify_static_export,
 )
 
@@ -77,10 +79,16 @@ def test_export_writes_ten_pages_each_with_its_own_canonical_and_no_external_loa
         text = _page(site, f"{slug}/index.html")
         assert re.findall(r'<link rel="canonical" href="([^"]*)"', text) == [f"https://porchlamp.org/{slug}/"]
         assert external_violations(text) == []
-        assert "<script" not in text.replace('<script type="application/ld+json">', "")
+        assert script_srcs(text) == list(report_pages.PAGE_SCRIPTS["page"])
+        assert inline_scripts(text) == ['<script type="application/ld+json">']
         shown = re.sub(r'<th scope="row">.*?</th>', " ", text)  # a project may be called "null"
         assert not re.search(r"\b(?:null|None|NaN|undefined)\b", re.sub(r"<[^>]+>", " ", shown)), slug
-        assert 'class="report-nav"' in text and 'href="../methodology/"' in text and 'href="../black-holes/"' in text
+        # The shared chrome's nav (drawn by the prerender) is on the page; the body keeps its own links.
+        assert '<nav class="app-primary-nav" id="app-primary-nav" aria-label="Primary">' in text
+        nav = re.search(r'<nav class="app-primary-nav".*?</nav>', text, re.S).group(0)
+        assert re.findall(r'<a class="primary-tab" href="([^"]*)"', nav) == ["/", "/matrix/", "/compare/", "/weights/", "/methodology/", "/black-holes/"]
+        assert 'aria-current' not in nav  # a landing page is none of the nav's pages
+        assert 'href="../methodology/"' in text and 'href="../black-holes/"' in text
         assert f'href="../black-holes/{SNAPSHOT}/porchlamp-{SNAPSHOT}-ranked.csv"' in text
         ld = _ld(text)
         assert ld["@type"] == "BreadcrumbList" and ld["itemListElement"][1]["item"] == f"https://porchlamp.org/{slug}/"
@@ -189,13 +197,12 @@ def test_an_ecosystem_with_no_judged_project_stops_the_export_instead_of_printin
         landing_pages.ecosystem_landing(slow, spec, project_index, copy)
 
 
-def test_a_script_planted_in_the_landing_template_turns_the_guard_red(built, project_index, monkeypatch):
+def test_a_script_planted_in_the_landing_template_turns_the_guard_red(built, project_index):
     facts = report_pages.build_facts(**_inputs(built))
     landing = landing_pages.build_landings(facts, _inputs(built)["methodology"], project_index, project_pages.Copy.load())[0]
     assert external_violations(landing_pages.render_landing(facts, landing)) == []
-    original = landing_pages._footer
-    monkeypatch.setattr(landing_pages, "_footer", lambda rel: original(rel) + '<script src="https://cdn.example.com/x.js"></script>')
-    assert external_violations(landing_pages.render_landing(facts, landing)), "the guard did not see the planted script"
+    planted = landing_pages.render_landing(facts, landing).replace("</body>", '<script src="https://cdn.example.com/x.js"></script></body>')
+    assert external_violations(planted), "the guard did not see the planted script"
 
 
 # ---- the verifier proves every number and every row, and fails on a plant ---------------------------------------
@@ -294,7 +301,7 @@ def test_a_planted_placeholder_text_a_script_and_a_duplicate_title_fail_verifica
     assert any("rust/index.html" in e and "NaN" in e for e in _verify(db, copy_dir)["errors"])
     (copy_dir / "rust/index.html").write_text(text, encoding="utf-8")
     _edit(copy_dir, "rust/index.html", "</body>", '<script src="https://cdn.example.com/x.js"></script></body>')
-    assert any("rust/index.html loads no script" in e for e in _verify(db, copy_dir)["errors"])
+    assert any(e.startswith("rust/index.html scripts:") for e in _verify(db, copy_dir)["errors"])
 
 
 def test_the_sitemap_and_llms_txt_list_all_ten_and_the_verifier_notices_one_missing(built, tmp_path):

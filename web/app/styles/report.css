@@ -1,7 +1,11 @@
-/* The static report and methodology pages (scripts/export_static.py --stats).
- * Tokens, the page shell and the article/table styles come from tokens.css and base.css;
- * this file only sets the reading size, the findings, the two SVG charts and the page footer.
- * No external resources: system fonts, inline SVG, no scripts. */
+/* The text of the pages the app does not draw: the report, the project and landing pages and /check/
+ * (scripts/export_static.py --stats). Their header, nav and footer are the app's (components/chrome.js, styled in
+ * components.css); tokens, the page shell and the article/table styles come from tokens.css and base.css. This file
+ * sets the reading size, the findings and the two SVG charts. No external resources: system fonts, inline SVG.
+ *
+ * A frozen report copy published before the shared chrome (/black-holes/2026-10-14/, carried from the published
+ * tree, never re-rendered) still has its own nav and footer and links this file: the .report-nav and .report-footer
+ * rules and the plain anchor offsets below keep it looking as it was published. */
 
 .report-nav {
   display: flex;
@@ -60,6 +64,14 @@
   border-left: 3px solid var(--lamp-glow);
   border-radius: 0 var(--radius-card) var(--radius-card) 0;
   scroll-margin-top: var(--space-md);
+}
+
+/* On a page with the shared chrome (its <main> is the app's #app-main) an anchor clears the sticky header and nav;
+ * --header-height is 0 on a phone, where the header scrolls away. */
+#app-main .report h2,
+#app-main .report h3,
+#app-main .report .finding {
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md));
 }
 
 .report .finding:target {

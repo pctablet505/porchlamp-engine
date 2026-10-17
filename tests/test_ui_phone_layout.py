@@ -119,6 +119,27 @@ return { chips: doc.querySelectorAll('[data-compare-remove]').length, focusKept:
 """
 )
 
+#: The header's search is the same on every page; on a view that lists no projects (the methodology) it opens the
+#: rankings with the query, in place, as its plain form would on a page without the app.
+_SEARCH_FROM_METHODOLOGY = (
+    _READY
+    + """
+await until(() => doc.querySelector('.doc-page'), 15000);
+const input = doc.querySelector('[data-search-input]');
+const form = input && input.closest('form');
+if (!form || form.hidden) return { missing: 'the header search on the methodology page' };
+input.value = %r;
+input.dispatchEvent(new win.Event('input', { bubbles: true }));
+form.requestSubmit();
+const rows = await until(() => win.location.pathname === '/' && doc.querySelectorAll('[data-owner]').length > 0 && doc.querySelectorAll('[data-owner]'), 15000);
+if (!rows) return { missing: 'the rankings after the search', path: win.location.pathname, search: win.location.search };
+return {
+  path: win.location.pathname, search: win.location.search, inPlace: win.document === doc, query: input.value,
+  names: [...rows].map((r) => `${r.dataset.owner}/${r.dataset.name}`), navCurrent: doc.querySelector('.primary-tab[aria-current="page"]').textContent,
+};
+"""
+)
+
 _HEADER_CHIP = (
     _READY
     + """
@@ -296,6 +317,7 @@ def measured(tmp_path_factory):
         {"name": "pager", "path": "./?page_size=20", **DESKTOP, "script": _PAGER_REVEAL},
         {"name": "chip", "path": "./", **DESKTOP, "script": _HEADER_CHIP},
         {"name": "compare-enter", "path": "./compare/", **DESKTOP, "script": _COMPARE_ENTER % first["name"]},
+        {"name": "search-from-methodology", "path": "./methodology/", **DESKTOP, "script": _SEARCH_FROM_METHODOLOGY % first["name"]},
         {"name": "tablet-ranked", "path": "./", **TABLET, "script": _TABLET_RANKED},
         {"name": "tablet-persona", "path": "./?persona=senior_systems", **TABLET, "script": _TABLET_RANKED},
         {"name": "mobile-sort", "path": "./", **PHONE, "script": _MOBILE_SORT},
@@ -370,6 +392,15 @@ def test_enter_in_the_compare_search_adds_the_first_match(measured):
     assert "missing" not in got, got
     assert got["chips"] == 1, got
     assert got["focusKept"] is True, got  # the next repository can be typed straight away
+
+
+def test_the_header_search_on_the_methodology_page_opens_the_rankings_with_the_query(measured):
+    got = measured["search-from-methodology"]
+    assert "missing" not in got, got
+    assert got["path"] == "/" and got["search"].startswith("?q="), got
+    assert got["inPlace"] is True, got  # the app moved there itself, without a page load
+    assert got["names"] and all(got["query"].lower() in name.lower() for name in got["names"]), got  # the rankings, filtered
+    assert got["navCurrent"] == "Leaderboard", got
 
 
 def test_the_header_shows_the_snapshot_date_not_a_release_candidate_tag(measured):

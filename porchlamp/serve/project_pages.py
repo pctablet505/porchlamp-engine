@@ -527,7 +527,6 @@ def render_project(
         </ul>
         <h2 id="correction">Is something wrong?</h2>
         <p><a href="{_a(issue_link(owner, name))}">Open an issue about this record</a> and say what looks wrong.</p>
-        <footer class="report-footer"><p><a href="{rel}">Porchlamp rankings</a> · <a href="{rel}black-holes/">Report</a> · <a href="{rel}methodology/">Methodology</a> · <a href="{GITHUB_REPO}">Data on GitHub</a></p></footer>
       </article>"""
     ld = {
         "@context": "https://schema.org",
@@ -538,10 +537,9 @@ def render_project(
         ],
     }
     # The page's address is also the project's side panel in the app: web/app/back-forward.js lets Back and Forward
-    # between the app's entries load the app again (the page's one script).
+    # between the app's entries load the app again (the page's own script).
     return page(
-        title=title, description=description, canonical=canonical, rel=rel, body=body, ld=ld, nav_current="",
-        scripts=f'  <script type="module" src="{rel}back-forward.js"></script>\n',
+        title=title, description=description, canonical=canonical, body=body, ld=ld, scripts=("/back-forward.js",),
     )
 
 
@@ -575,7 +573,6 @@ def render_check(f: Facts, *, ranked: int, example: Mapping[str, Any]) -> str:
         <ul class="check-results" id="check-results" aria-live="polite" data-check-results></ul>
         <noscript><p>Search needs JavaScript. Without it, open the address above, or browse the <a href="{rel}">rankings</a>.</p></noscript>
         <p class="note">Only the {_t(fmt_int(ranked))} ranked projects have a page. A project that is not ranked, and the reason, is listed under <a href="{rel}not-ranked/">Not ranked</a>.</p>
-        <footer class="report-footer"><p><a href="{rel}">Porchlamp rankings</a> · <a href="{rel}black-holes/">Report</a> · <a href="{rel}methodology/">Methodology</a> · <a href="{GITHUB_REPO}">Data on GitHub</a></p></footer>
       </article>"""
     ld = {
         "@context": "https://schema.org",
@@ -585,10 +582,7 @@ def render_check(f: Facts, *, ranked: int, example: Mapping[str, Any]) -> str:
             {"@type": "ListItem", "position": 2, "name": "Check a project", "item": canonical},
         ],
     }
-    return page(
-        title=CHECK_TITLE, description=CHECK_DESCRIPTION, canonical=canonical, rel=rel, body=body, ld=ld,
-        nav_current="", scripts=f'  <script type="module" src="{rel}check.js"></script>\n',
-    )
+    return page(title=CHECK_TITLE, description=CHECK_DESCRIPTION, canonical=canonical, body=body, ld=ld, scripts=("/check.js",))
 
 
 def sitemap_projects(index: ProjectIndex, as_of: date) -> str:

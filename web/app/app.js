@@ -35,8 +35,6 @@ import {
   hrefFor,
   titleForState,
   requestSignature,
-  readPersistedTheme,
-  writePersistedTheme,
   countRankChanges,
   shouldRestoreFocusAfterRebuild,
   resolveOpenTargetKey,
@@ -72,11 +70,20 @@ import {
 } from "./views/notranked.js";
 import { renderDrawer, classifyKindForLens } from "./views/drawer.js";
 import { parseRepoSlug, runLiveCheck } from "./livecheck.js";
-import { renderBrand } from "./components/brand.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
 import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel, sortColumnLabel, syncHeaderSortDom, isPlainLeftClick } from "./components/table.js";
-import { renderPrimaryNav, syncPrimaryNav, centerActiveTab } from "./components/primarynav.js";
-import { matchRoute, routePath } from "./routes.js";
+import {
+  renderAppHeader,
+  renderChip,
+  renderFooter,
+  footerFieldsHtml,
+  renderNav,
+  syncNav,
+  centerCurrentLink,
+  navEntryFor,
+  headerControlsFor,
+} from "./components/chrome.js";
+import { matchRoute, routeById } from "./routes.js";
 import { renderShell as renderNotFoundShell } from "./views/notfound.js";
 import {
   renderShell as renderMatrixShell,
@@ -113,8 +120,6 @@ import {
 } from "./views/compare.js";
 import { renderShell as renderMethodologyShell, shellShape as methodologyShellShape } from "./views/methodology.js";
 
-const PERSONAS = ["balanced", "first_timer", "career_capital", "senior_systems", "ai_assisted"];
-
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
@@ -144,6 +149,12 @@ export function boot(win = window, doc = document) {
   const drawerRoot = doc.getElementById("app-drawer-root");
   const keymapRoot = doc.getElementById("app-keymap-root");
   const primaryNav = doc.getElementById("app-primary-nav");
+
+  // A view the export already drew into the page (web/prerender.mjs marks <main> with it). syncView keeps it while
+  // the app's own data for it loads, then takes it over without drawing it again: the page holds what the app came
+  // to load, from the same files.
+  let prerendered = (main.dataset && main.dataset.prerendered) || null;
+  if (prerendered) main.removeAttribute("data-prerendered");
 
   // --- Structural bookkeeping (never re-derived from the DOM: these are
   // the "did the SHAPE change" flags that decide shell-rebuild vs patch). ---
@@ -184,38 +195,22 @@ export function boot(win = window, doc = document) {
     doc.documentElement.style.setProperty("--primary-nav-height", `${navSticky}px`);
   }
 
-  // ---------------------------------------------------------------- Header
+  // ------------------------------------------------- Header, nav and footer (components/chrome.js)
+  // A page the export wrote arrives with its chrome drawn from the snapshot it was built from (web/prerender.mjs):
+  // the app keeps that markup and keeps it in step, so nothing is redrawn and nothing flashes "Loading…". On a page
+  // served with an empty frame (the API's own server), the app draws the same markup itself.
+  const chromeDrawn = header.childElementCount > 0;
+  let chipHtml = null;
+  let footerHtml = null;
+
   function buildHeaderOnce() {
-    const personaOptions = PERSONAS.map(
-      (p) => `<option value="${p}">${escapeHtml(copy.PERSONA_NAMES[p])}</option>`
-    ).join("");
-    header.innerHTML =
-      renderBrand() +
-      `<span class="snapshot-chip" data-snapshot-chip="true">${escapeHtml(copy.LOADING_LABEL)}</span>` +
-      `<div class="header-controls">` +
-      `<span class="header-filter-group" data-header-persona-group="true">` +
-      `<label class="field-label" for="persona-select">${escapeHtml(copy.PERSONA_LABEL)}</label>` +
-      `<select class="control" id="persona-select" data-persona-select="true">${personaOptions}</select>` +
-      `</span>` +
-      `<span class="header-filter-group" data-header-eco-group="true">` +
-      `<label class="field-label" for="eco-select">${escapeHtml(copy.ECOSYSTEM_LABEL)}</label>` +
-      `<select class="control" id="eco-select" data-eco-select="true">` +
-      `<option value="">${escapeHtml(copy.ECOSYSTEM_ALL)}</option>` +
-      copy.ECOSYSTEMS.map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`).join("") +
-      `</select>` +
-      `</span>` +
-      `<span class="header-filter-group" data-header-search-group="true">` +
-      `<input class="control" type="search" data-search-input="true" placeholder="${escapeHtml(copy.SEARCH_PLACEHOLDER)}" aria-label="${escapeHtml(copy.SEARCH_LABEL)}">` +
-      `</span>` +
-      `<button type="button" class="icon-button" data-theme-toggle="true" aria-label="${escapeHtml(copy.THEME_TOGGLE_LABEL)}">◐</button>` +
-      `</div>`;
+    if (!chromeDrawn) header.innerHTML = renderAppHeader(store.getState().tab);
   }
 
-  // ------------------------------------------------------ Primary nav
   function buildPrimaryNavOnce() {
     primaryNav.setAttribute("aria-label", copy.PRIMARY_NAV_LABEL);
-    primaryNav.innerHTML = renderPrimaryNav(store.getState());
-    centerActiveTab(primaryNav);
+    if (!chromeDrawn) primaryNav.innerHTML = renderNav(navEntryFor(store.getState().tab), store.getState());
+    centerCurrentLink(primaryNav);
   }
 
   /** Fetches whatever `tab` needs that has not already loaded — called on boot, a primary-nav click, popstate, and the footer "verify" link. Idempotent: never re-fetches data that is already present. */
@@ -229,6 +224,7 @@ export function boot(win = window, doc = document) {
     if (tab === "matrix" && !state.matrix && !state.matrixLoading) loadMatrix();
     if (tab === "configure" && !state.reproject && !state.reprojectLoading) runReproject();
     if (tab === "methodology" && !state.methodology && !state.methodologyLoading) loadMethodology();
+    if (tab === "methodology" && state.manifestLoad === "idle") loadManifest();
     if (tab === "compare") {
       if (!state.methodology && !state.methodologyLoading) loadMethodology();
       for (const key of state.compareRepos) {
@@ -242,79 +238,51 @@ export function boot(win = window, doc = document) {
     const personaSelect = header.querySelector("[data-persona-select]");
     const ecoSelect = header.querySelector("[data-eco-select]");
     const searchInput = header.querySelector("[data-search-input]");
-    const snapshotChip = header.querySelector("[data-snapshot-chip]");
     const personaGroup = header.querySelector("[data-header-persona-group]");
     const ecoGroup = header.querySelector("[data-header-eco-group]");
     const searchGroup = header.querySelector("[data-header-search-group]");
-    const showPersona = state.tab === "ranked" || state.tab === "notranked" || state.tab === "compare";
-    const showEcoAndSearch = state.tab === "ranked" || state.tab === "notranked" || state.tab === "matrix" || state.tab === "configure";
-    if (personaGroup) personaGroup.hidden = !showPersona;
-    if (ecoGroup) ecoGroup.hidden = !showEcoAndSearch;
-    if (searchGroup) searchGroup.hidden = !showEcoAndSearch;
+    const shown = headerControlsFor(state.tab);
+    if (personaGroup) personaGroup.hidden = !shown.persona;
+    if (ecoGroup) ecoGroup.hidden = !shown.ecosystem;
+    if (searchGroup) searchGroup.hidden = !shown.search;
     if (personaSelect && personaSelect.value !== state.persona) personaSelect.value = state.persona;
     if (ecoSelect && ecoSelect.value !== state.ecosystem) ecoSelect.value = state.ecosystem;
     if (searchInput && doc.activeElement !== searchInput && searchInput.value !== state.query) {
       searchInput.value = state.query;
     }
-    if (snapshotChip) {
-      // A snapshot fetch failure must not leave "Loading..." indefinitely on the chip.
-      const fields = footerFieldsFor(state);
-      const text =
-        fields.kind === "error"
-          ? copy.errorBannerText(fields.endpoint, fields.status, fields.detail)
-          : fields.kind === "ok"
-            ? fields.snapshot.snapshot_id
-            : copy.LOADING_LABEL;
-      if (snapshotChip.textContent !== text) snapshotChip.textContent = text;
-      // The header names the snapshot; the exact benchmark version (a release-candidate tag today) is one hover
-      // away here, and in the footer and on the Methodology page.
-      const hover = fields.kind === "ok" ? `${fields.snapshot.snapshot_id} · benchmark ${fields.snapshot.benchmark_version}` : "";
-      if (hover) snapshotChip.setAttribute("title", hover);
-      else snapshotChip.removeAttribute("title");
-      snapshotChip.classList.toggle("error-chip", fields.kind === "error");
+    // The chip names the snapshot, or the error when it could not load (never "Loading…" for good). While it is
+    // loading, a chip the export drew keeps the snapshot it was built from.
+    const fields = footerFieldsFor(state);
+    const chip = header.querySelector("[data-snapshot-chip]");
+    if (chip && !(fields.kind === "loading" && chromeDrawn && chipHtml === null)) {
+      const html = renderChip(fields);
+      if (html !== chipHtml) {
+        chip.outerHTML = html;
+        chipHtml = html;
+      }
     }
     syncStickyOffsets();
   }
 
-  // ---------------------------------------------------------------- Footer
   function buildFooterOnce() {
-    footer.innerHTML =
-      `<span data-footer-snapshot="true"></span>` +
-      `<span data-footer-version="true"></span>` +
-      `<span data-footer-hash="true"></span>` +
-      `<span data-footer-manifest="true"></span>` +
-      `<button type="button" class="icon-button" data-footer-retry="true" hidden>${escapeHtml(copy.RETRY_LABEL)}</button>` +
-      `<a href="${escapeHtml(routePath("methodology"))}" data-route-tab="methodology" data-footer-verify="true">${escapeHtml(copy.FOOTER_VERIFY_LABEL)}</a>` +
-      `<a href="${escapeHtml(copy.REPORT_PAGE_HREF)}" data-footer-report="true">${escapeHtml(copy.FOOTER_REPORT_LABEL)}</a>` +
-      `<a href="${escapeHtml(routePath("methodology"))}" data-route-tab="methodology" data-footer-methodology-page="true">${escapeHtml(copy.FOOTER_METHODOLOGY_LABEL)}</a>`;
+    if (!chromeDrawn) footer.innerHTML = renderFooter(footerFieldsFor(store.getState()));
   }
 
   /**
-   * Updates the footer view based on state. If `SNAPSHOT_ERROR` was reduced into
-   * state, displays the error details instead of a perpetual loading indicator.
+   * The footer's snapshot fields, from state: the snapshot once it has loaded, or the error (with its retry button)
+   * instead of a loading line that never ends. Only the four fields are rewritten, never the retry button or the
+   * links, which may hold focus. While loading, a footer the export drew keeps the snapshot it was built from.
    */
   function syncFooter(state) {
     const fields = footerFieldsFor(state);
-    const set = (sel, text) => {
-      const el2 = footer.querySelector(sel);
-      if (el2 && el2.textContent !== text) el2.textContent = text;
-    };
-    if (fields.kind === "error") {
-      set("[data-footer-snapshot]", copy.errorBannerText(fields.endpoint, fields.status, fields.detail));
-      set("[data-footer-version]", "");
-      set("[data-footer-hash]", "");
-      set("[data-footer-manifest]", "");
-    } else if (fields.kind === "ok") {
-      const snap = fields.snapshot;
-      set("[data-footer-snapshot]", `${copy.FOOTER_SNAPSHOT_LABEL}: ${snap.snapshot_id}`);
-      set("[data-footer-version]", `${copy.FOOTER_VERSION_LABEL}: ${snap.benchmark_version}`);
-      set("[data-footer-hash]", `${copy.FOOTER_CONSTANTS_HASH_LABEL}: ${snap.constants_hash.slice(0, 12)}…`);
-      set("[data-footer-manifest]", `${copy.FOOTER_MANIFEST_ROOT_LABEL}: ${snap.manifest_root.slice(0, 12)}…`);
-    } else {
-      set("[data-footer-snapshot]", copy.LOADING_LABEL);
-      set("[data-footer-version]", "");
-      set("[data-footer-hash]", "");
-      set("[data-footer-manifest]", "");
+    if (fields.kind === "loading" && chromeDrawn && footerHtml === null) return;
+    const parts = footerFieldsHtml(fields);
+    const key = JSON.stringify(parts);
+    if (key === footerHtml) return;
+    footerHtml = key;
+    for (const [name, html] of Object.entries(parts)) {
+      const field = footer.querySelector(`[data-footer-${name}]`);
+      if (field) field.innerHTML = html;
     }
     const retryBtn = footer.querySelector("[data-footer-retry]");
     if (retryBtn) retryBtn.hidden = fields.kind !== "error";
@@ -506,6 +474,7 @@ export function boot(win = window, doc = document) {
   }
 
   function syncView(state) {
+    if (prerendered && state.tab !== prerendered) prerendered = null;
     if (state.tab === "notfound") {
       const shape = state.missingPath || "";
       if (currentTab !== "notfound" || shape !== currentNotFoundShape) {
@@ -585,6 +554,19 @@ export function boot(win = window, doc = document) {
 
     if (state.tab === "methodology") {
       const shape = methodologyShellShape(state);
+      if (prerendered) {
+        const pending =
+          (!state.methodology && !state.methodologyError) ||
+          (!state.snapshot && !state.snapshotError) ||
+          state.manifestLoad !== "done";
+        if (pending) return;
+        // Settled: the page shows this data already, or, if a load failed, the same data the export read.
+        prerendered = null;
+        currentTab = "methodology";
+        currentMethodologyShape = shape;
+        forgetOtherShapes("methodology");
+        return;
+      }
       if (currentTab !== "methodology" || shape !== currentMethodologyShape) {
         main.innerHTML = renderMethodologyShell(state);
         currentTab = "methodology";
@@ -827,6 +809,14 @@ export function boot(win = window, doc = document) {
         return;
       }
       store.dispatch({ type: "METHODOLOGY_OK", data: result.data });
+    });
+  }
+
+  /** The published site's manifest, for the database digest the methodology prints; the API's server has none. */
+  function loadManifest() {
+    store.dispatch({ type: "MANIFEST_LOADING" });
+    return api.fetchManifest().then((result) => {
+      store.dispatch({ type: "MANIFEST_DONE", sourceDbSha256: result.ok && result.data ? result.data.source_db_sha256 : null });
     });
   }
 
@@ -1145,7 +1135,7 @@ export function boot(win = window, doc = document) {
     if (doc.title !== title) doc.title = title;
     syncHeaderControls(state);
     syncFooter(state);
-    syncPrimaryNav(primaryNav, state);
+    syncNav(primaryNav, navEntryFor(state.tab), state);
     syncView(state);
     syncRouteLinks(state);
     renderDrawerAndKeymap(state);
@@ -1229,23 +1219,24 @@ export function boot(win = window, doc = document) {
     true
   );
 
-  header.addEventListener("click", (evt) => {
-    if (evt.target.closest("[data-theme-toggle]")) {
-      const currentTheme = store.getState().theme;
-      const isSystemDark = win.matchMedia && win.matchMedia("(prefers-color-scheme: dark)").matches;
-      const isDark = currentTheme === "dark" || (currentTheme === "system" && isSystemDark);
-      const next = isDark ? "light" : "dark";
-      applyTheme(next, doc);
-      store.dispatch({ type: "SET_THEME", theme: next });
-      writePersistedTheme(win.localStorage, next);
-      const btn = header.querySelector("[data-theme-toggle]");
-      if (btn) {
-        btn.textContent = next === "dark" ? "🌙" : "☀";
-        btn.setAttribute("title", `Active theme: ${next}`);
-      }
-      return;
+  // The header's search is a form to the rankings, so it works on every page before the app runs. Here the app
+  // answers it in place: a view that lists projects has already applied the query as it was typed; any other view
+  // opens the rankings with it.
+  header.addEventListener("submit", (evt) => {
+    const form = evt.target.closest("[data-header-search-group]");
+    if (!form) return;
+    evt.preventDefault();
+    const state = store.getState();
+    if (!routeById(state.tab)?.query.includes("q")) {
+      navigateTo(hrefFor({ ...state, query: form.querySelector("[data-search-input]").value, page: 1 }, "ranked"));
     }
   });
+
+  // The theme is theme-init.js's on every page: it applies the choice and answers the toggle, and says so with this
+  // event. The store keeps the theme in force, so a view drawn in the theme's colours (the matrix canvas) redraws.
+  doc.addEventListener("porchlamp-themechange", (evt) => {
+    store.dispatch({ type: "SET_THEME", theme: evt.detail.theme });
+  }, listenerOpts());
 
   function goToTab(tab) {
     store.dispatch({ type: "SET_TAB", tab });
@@ -2284,12 +2275,6 @@ export function boot(win = window, doc = document) {
   }, listenerOpts());
 
   // ------------------------------------------------------------ Boot
-  function applyTheme(theme, document_ = doc) {
-    const root = document_.documentElement;
-    if (theme === "system") delete root.dataset.theme;
-    else root.dataset.theme = theme;
-  }
-
   const skipLink = doc.querySelector(".skip-link");
   if (skipLink) skipLink.textContent = copy.SKIP_LINK_LABEL;
   main.setAttribute("aria-label", copy.MAIN_LANDMARK_LABEL);
@@ -2299,16 +2284,7 @@ export function boot(win = window, doc = document) {
   buildPrimaryNavOnce();
   syncStickyOffsets();
 
-  const persisted = readPersistedTheme(win.localStorage);
-  store.dispatch({ type: "SET_THEME", theme: persisted });
-  applyTheme(persisted, doc);
-  const initialThemeBtn = header.querySelector("[data-theme-toggle]");
-  if (initialThemeBtn) {
-    const isSystemDark = win.matchMedia && win.matchMedia("(prefers-color-scheme: dark)").matches;
-    const isDark = persisted === "dark" || (persisted === "system" && isSystemDark);
-    initialThemeBtn.textContent = isDark ? "🌙" : "☀";
-    initialThemeBtn.setAttribute("title", `Active theme: ${isDark ? "dark" : "light"}`);
-  }
+  store.dispatch({ type: "SET_THEME", theme: doc.documentElement.dataset.theme || "system" });
 
   replaceUrl(store.getState());
   render();

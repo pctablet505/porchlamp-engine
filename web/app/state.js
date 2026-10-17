@@ -18,11 +18,6 @@
 import { parseRepoSlug } from "./livecheck.js";
 import { matchRoute, projectPath, routeById, routePath, routeTitle } from "./routes.js";
 
-const PERSISTED_THEME_KEY = "porchlamp-theme";
-//: Where earlier builds kept the theme choice. `readPersistedTheme` moves a
-//: value found there to PERSISTED_THEME_KEY, so a returning visitor keeps it.
-const FORMER_THEME_KEY = "porchlamp-v2-theme";
-
 //: The page sizes the pagination control offers. Mirrors
 //: `porchlamp.serve.contract.LEADERBOARD_PAGE_SIZES`.
 export const PAGE_SIZES = Object.freeze([20, 50, 100, 500, 1000]);
@@ -149,7 +144,7 @@ export function defaultState() {
     tab: "ranked", // a routes.js view: "ranked" | "notranked" | "matrix" | "compare" | "configure" | "methodology" | "notfound"
     repo: null, // "owner/name" | null: the open side panel, at /projects/<owner>/<name>/
     missingPath: null, // the address a "notfound" view answers (kept, so the address stays what was asked for)
-    theme: "system", // "system" | "light" | "dark"
+    theme: "system", // the theme in force, as theme-init.js applied it: "system" | "light" | "dark"
 
     // ----------------------------------------------------------- Matrix (B)
     matrix: null, // the MatrixResponse
@@ -182,6 +177,10 @@ export function defaultState() {
     methodology: null,
     methodologyLoading: false,
     methodologyError: null,
+    // The digest of the database file the published site was exported from (api.js fetchManifest): null where there
+    // is none (the API's own server) or until it has loaded; `manifestLoad` is "idle" | "loading" | "done".
+    sourceDbSha256: null,
+    manifestLoad: "idle",
 
     leaderboard: null, // the CURRENT page's LeaderboardResponse
     leaderboardLoading: false, // true only when there is NO data yet (skeleton)
@@ -886,37 +885,13 @@ export function reduce(state, action) {
       return { ...state, methodologyLoading: false, methodology: action.data, methodologyError: null };
     case "METHODOLOGY_ERROR":
       return { ...state, methodologyLoading: false, methodologyError: action.error };
+    case "MANIFEST_LOADING":
+      return { ...state, manifestLoad: "loading" };
+    case "MANIFEST_DONE":
+      return { ...state, manifestLoad: "done", sourceDbSha256: action.sourceDbSha256 || null };
 
     default:
       return state;
-  }
-}
-
-export function readPersistedTheme(storage) {
-  let value = null;
-  try {
-    value = storage.getItem(PERSISTED_THEME_KEY);
-    if (value === null) {
-      value = storage.getItem(FORMER_THEME_KEY);
-      if (value !== null) {
-        storage.setItem(PERSISTED_THEME_KEY, value);
-        storage.removeItem(FORMER_THEME_KEY);
-      }
-    }
-  } catch {
-    // Storage unavailable (private mode, disabled site data), or the move
-    // could not be written: the value read so far applies to this visit.
-  }
-  return value === "light" || value === "dark" ? value : "system";
-}
-
-export function writePersistedTheme(storage, theme) {
-  try {
-    if (theme === "system") storage.removeItem(PERSISTED_THEME_KEY);
-    else storage.setItem(PERSISTED_THEME_KEY, theme);
-  } catch {
-    // Storage unavailable (private mode, disabled site data): theme just
-    // does not persist across reloads for this viewer.
   }
 }
 

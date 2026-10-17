@@ -14,7 +14,9 @@ exported in ``reproject.json``.
 ``web/static/api.js``, the app's page at each of its views' addresses (``web/app/404.html`` with that view's title
 and canonical address, at each path ``web/app/routes.js`` marks ``shell``: ``not-ranked/``, ``matrix/``, ...), a
 generated ``data-version.js`` naming the data directory, and ``.nojekyll``. GitHub Pages answers any other missing
-address with ``404.html``, where the app shows a project's panel or "page not found".
+address with ``404.html``, where the app shows a project's panel or "page not found". Every page is built from
+``web/app/404.html``; once all are written, ``web/prerender.mjs`` (Node) draws the one header, nav and footer into
+each (``web/app/components/chrome.js``) and the methodology view into ``methodology/`` (:func:`_prerender`).
 ``scripts/verify_static_export.py`` checks the exported site against the API, request by request.
 
 The primary checkout cannot import ``porchlamp.serve.app`` while it carries the
@@ -46,8 +48,11 @@ import hashlib
 import html
 import json
 import re
+import os
+import pwd
 import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 from datetime import date, datetime, timezone
@@ -63,6 +68,17 @@ STATIC_API = REPO_ROOT / "web" / "static" / "api.js"
 ROUTES_JS = WEB_APP / "routes.js"
 APP_SHELL = WEB_APP / "404.html"
 _ROUTES_BEGIN, _ROUTES_END = "// routes:begin", "// routes:end"
+#: Draws the chrome into every page, and the views it can into theirs. Outside web/app, so it is never published.
+PRERENDER = REPO_ROOT / "web" / "prerender.mjs"
+
+#: Where a per-user Node.js install sits, under a home directory.
+_NODE_GLOBS = (
+    ".local/opt/node-*/bin/node",
+    "tools/node-*/bin/node",
+    ".nvm/versions/node/*/bin/node",
+    "oss-contributions/node-*/node-*/bin/node",
+    "node-*/bin/node",
+)
 
 #: ``web/app`` entries the page never loads: its own test suite and the Node
 #: package marker that suite needs.
@@ -83,6 +99,33 @@ _FORBIDDEN = (
     (re.compile(r"/home/[A-Za-z0-9_.-]+/"), "a local home path"),
     (re.compile(r"/Users/[A-Za-z0-9_.-]+/"), "a local home path"),
 )
+
+
+def find_node() -> Optional[str]:
+    """``PATH``, then ``PORCHLAMP_NODE_BIN``, then the usual per-user installs
+    (``tests/test_ui_node_suite.py``'s ``find_node``)."""
+    on_path = shutil.which("node")
+    if on_path:
+        return on_path
+    override = os.environ.get("PORCHLAMP_NODE_BIN")
+    if override and Path(override).is_file():
+        return override
+    homes = [Path.home()]
+    try:
+        real = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except KeyError:
+        real = None
+    if real is not None and real not in homes:
+        homes.append(real)  # a sandboxed job runs with a throwaway $HOME
+    for home in homes:
+        for pattern in _NODE_GLOBS:
+            for candidate in sorted(home.glob(pattern), reverse=True):
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    return str(candidate)
+    for sys_path in ("/opt/homebrew/bin/node", "/usr/local/bin/node"):
+        if Path(sys_path).is_file() and os.access(sys_path, os.X_OK):
+            return sys_path
+    return None
 
 
 def bucket_of(owner: str, name: str) -> str:
@@ -313,25 +356,24 @@ def app_routes() -> list[dict]:
     return routes
 
 
-def _view_page(shell: str, route: dict) -> str:
+def view_page(route: dict, template: Path = APP_SHELL) -> str:
     """``404.html`` with one view's title and canonical address: the app's page at that view's path."""
-    from porchlamp.serve.report_pages import SITE
+    from porchlamp.serve import report_pages
 
-    head = (
-        f"<title>{html.escape(route['title'], quote=False)}</title>\n"
-        f'  <link rel="canonical" href="{html.escape(SITE + route["path"])}">'
-    )
-    page, found = re.subn(r"<title>[^<]*</title>", lambda _match: head, shell, count=1)
-    if not found:
-        raise SystemExit(f"export: {APP_SHELL.name} has no <title> for each view's page to replace")
-    return page
+    try:
+        return report_pages.app_page(
+            title=route["title"],
+            head=f'\n  <link rel="canonical" href="{html.escape(report_pages.SITE + route["path"])}">',
+            template=template,
+        )
+    except report_pages.ReportError as error:
+        raise SystemExit(f"export: {error}") from error
 
 
-def _write_view_pages(out: Path) -> list[str]:
+def _write_view_pages(out: Path) -> list[dict]:
     """The app's page at the address of each view it draws in place (``shell`` in the route table), so a static host
     serves every view at its own path; ``/`` is ``index.html`` itself. Written after every other page: a path two
-    pages claim stops the export."""
-    shell = APP_SHELL.read_text(encoding="utf-8")
+    pages claim stops the export. Returns each page for :func:`_prerender`."""
     written = []
     for route in app_routes():
         if not route["shell"] or route["path"] == "/":
@@ -342,9 +384,34 @@ def _write_view_pages(out: Path) -> list[str]:
         if target.exists():
             raise SystemExit(f"export: {target.relative_to(out)} is both the {route['id']} view and another page")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(_view_page(shell, route), encoding="utf-8")
-        written.append(route["path"])
+        target.write_text(view_page(route), encoding="utf-8")
+        written.append({"path": target.relative_to(out).as_posix(), "view": route["id"]})
     return written
+
+
+def data_version_js(snapshot_id: str) -> str:
+    """``data-version.js``: the data directory the site's api.js (``web/static/api.js``) reads."""
+    return (
+        "// Generated by scripts/export_static.py: the data directory this build reads.\n"
+        f"export const DATA_VERSION = {json.dumps(snapshot_id)};\n"
+    )
+
+
+def _prerender(out: Path, pages: list[dict]) -> None:
+    """Draws every page's header, nav and footer, and the methodology view into its page (``web/prerender.mjs``), from
+    the data this export wrote, loaded through the site's own api.js. ``pages``: ``{"path", "view"}`` for a page of
+    the app, ``{"path", "nav"}`` (its nav entry, or None) for any other. The page list lives outside the site."""
+    node = find_node()
+    if node is None:
+        raise SystemExit("export: no Node.js interpreter for web/prerender.mjs (PATH, PORCHLAMP_NODE_BIN or ~/.local/opt/node-*)")
+    with tempfile.TemporaryDirectory() as tmp:
+        job = Path(tmp) / "pages.json"
+        job.write_text(json.dumps({"pages": pages}), encoding="utf-8")
+        ran = subprocess.run(
+            [node, str(PRERENDER), str(out), str(job)], capture_output=True, text=True, timeout=900, check=False,
+        )
+    if ran.returncode != 0:
+        raise SystemExit(f"export: web/prerender.mjs failed ({ran.returncode}): {ran.stderr[-3000:]}")
 
 
 def _scan_for_forbidden(out: Path) -> None:
@@ -422,8 +489,8 @@ def _report_facts(
         raise SystemExit(f"export: {error}") from error
 
 
-def _write_report_pages(out: Path, facts: Any, boards: dict[str, dict], manifest: dict) -> None:
-    """The report (latest and frozen) and its CSV."""
+def _write_report_pages(out: Path, facts: Any, boards: dict[str, dict], manifest: dict) -> list[dict]:
+    """The report (latest and frozen) and its CSV; returns the two pages for :func:`_prerender`."""
     from porchlamp.core import constants
     from porchlamp.serve import report_pages
 
@@ -438,14 +505,15 @@ def _write_report_pages(out: Path, facts: Any, boards: dict[str, dict], manifest
             encoding="utf-8",
         )
     (frozen / facts.csv_name).write_text(report_pages.ranked_csv(boards, lenses), encoding="utf-8")
+    return [{"path": f"black-holes/{p}index.html", "nav": "report"} for p in ("", f"{facts.snapshot_id}/")]
 
 
 def _write_project_pages(
     out: Path, facts: Any, methodology: dict, boards: dict[str, dict], buckets: dict[str, dict[str, dict]], snapshot: dict
-) -> None:
+) -> list[dict]:
     """One page per ranked project (``projects/<owner>/<name>/``), the /check/ page with its search index, and
     ``sitemap-projects.xml``. Every page is rendered from the project's own API record and evidence, as the
-    drawer shows them."""
+    drawer shows them. Returns the pages for :func:`_prerender`: none of them is a nav entry's."""
     from porchlamp.serve import project_pages as pp
     from porchlamp.serve import report_pages
 
@@ -458,6 +526,7 @@ def _write_project_pages(
         if missing:
             raise report_pages.ReportError(f"no one-line meaning for the parameters {missing}")
         as_of = date.fromisoformat(snapshot["as_of"][:10])
+        pages = []
         for owner, name in index.keys:
             bucket = bucket_of(owner, name)
             record = buckets[bucket][f"{owner}/{name}"]
@@ -470,6 +539,7 @@ def _write_project_pages(
                 ),
                 encoding="utf-8",
             )
+            pages.append({"path": f"{pp.project_path(owner, name)}index.html", "nav": None})
         (out / "check").mkdir(parents=True, exist_ok=True)
         top = index.balanced[0]
         (out / "check" / "index.html").write_text(
@@ -479,10 +549,12 @@ def _write_project_pages(
         (out / "sitemap-projects.xml").write_text(pp.sitemap_projects(index, as_of), encoding="utf-8")
     except report_pages.ReportError as error:
         raise SystemExit(f"export: {error}") from error
+    return [*pages, {"path": "check/index.html", "nav": None}]
 
 
-def _write_landing_pages(out: Path, facts: Any, methodology: dict, boards: dict[str, dict]) -> None:
-    """The six ecosystem pages and the four lens pages (``<slug>/index.html``), each with its top-50 table."""
+def _write_landing_pages(out: Path, facts: Any, methodology: dict, boards: dict[str, dict]) -> list[dict]:
+    """The six ecosystem pages and the four lens pages (``<slug>/index.html``), each with its top-50 table; returns
+    them for :func:`_prerender` (the leaderboard's presets one day, no nav entry's today)."""
     from porchlamp.serve import landing_pages as lp
     from porchlamp.serve import project_pages as pp
     from porchlamp.serve import report_pages
@@ -490,11 +562,13 @@ def _write_landing_pages(out: Path, facts: Any, methodology: dict, boards: dict[
     try:
         copy = pp.Copy.load()
         index = pp.ProjectIndex(boards, copy)
-        for landing in lp.build_landings(facts, methodology, index, copy):
+        landings = lp.build_landings(facts, methodology, index, copy)
+        for landing in landings:
             (out / landing.slug).mkdir(parents=True, exist_ok=True)
             (out / landing.slug / "index.html").write_text(lp.render_landing(facts, landing), encoding="utf-8")
     except report_pages.ReportError as error:
         raise SystemExit(f"export: {error}") from error
+    return [{"path": f"{landing.slug}/index.html", "nav": None} for landing in landings]
 
 
 def _sitemap_pages(out: Path, snapshot_id: str, as_of: str) -> str:
@@ -598,17 +672,15 @@ def export(
     }
     _dump(data / "manifest.json", manifest)
     _copy_web(out)
+    pages = [{"path": "index.html", "view": "ranked"}, {"path": "404.html", "view": "notfound"}]
     if facts is not None:
-        _write_report_pages(out, facts, boards, manifest)
-        _write_project_pages(out, facts, methodology, boards, buckets, snapshot)
-        _write_landing_pages(out, facts, methodology, boards)
-    _write_view_pages(out)
+        pages += _write_report_pages(out, facts, boards, manifest)
+        pages += _write_project_pages(out, facts, methodology, boards, buckets, snapshot)
+        pages += _write_landing_pages(out, facts, methodology, boards)
+    pages += _write_view_pages(out)
+    (out / "data-version.js").write_text(data_version_js(snapshot_id), encoding="utf-8")
+    _prerender(out, pages)
     (out / "sitemap-pages.xml").write_text(_sitemap_pages(out, snapshot_id, snapshot["as_of"]), encoding="utf-8")
-    (out / "data-version.js").write_text(
-        f"// Generated by scripts/export_static.py: the data directory this build reads.\n"
-        f"export const DATA_VERSION = {json.dumps(snapshot_id)};\n",
-        encoding="utf-8",
-    )
     (out / ".nojekyll").write_text("", encoding="utf-8")
     _scan_for_forbidden(out)
     return manifest

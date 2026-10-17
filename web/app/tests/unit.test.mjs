@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import vm from "node:vm";
 
 import { decidingTieLevel, SORTABLE_COLUMNS, renderColumnHeader, sortColumnLabel } from "../components/table.js";
 import { KEY_ACTIONS, actionForKeyEvent } from "../components/keymap.js";
@@ -33,15 +34,13 @@ import {
   resolveOpenTargetKey,
   footerFieldsFor,
   repoToLoadFromState,
-  readPersistedTheme,
-  writePersistedTheme,
 } from "../state.js";
 import * as copy from "../copy.js";
 import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal, renderMobileSortBar, personaVisibleForState } from "../views/leaderboard.js";
 import { renderShell as notRankedRenderShell } from "../views/notranked.js";
-import { centeredScrollLeft, renderPrimaryNav } from "../components/primarynav.js";
+import { centeredScrollLeft, renderNav, navEntryFor, renderFooter, renderHeader, renderAppHeader, headerControlsFor } from "../components/chrome.js";
 import { ROUTES, matchRoute, projectPath, routeById, routePath, routeTitle } from "../routes.js";
-import { postReproject } from "../api.js";
+import { fetchManifest, postReproject } from "../api.js";
 import { normalizeWeights, applyPresetRespectingLocks, renderControls, renderShell as renderConfigureShell, sortReprojectRows, filterReprojectRows, renderPager as renderConfigurePager, topMovers, remainingReprojectPages, mergeReprojectPages } from "../views/configure.js";
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
 import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, renderShell as renderMatrixShell, shellShape as matrixShellShape, clientToDomainCoords } from "../views/matrix.js";
@@ -240,10 +239,9 @@ test("reduce: SET_PAGE_SIZE can jump to a recomputed page in the same action", (
   assert.equal(state.page, 1);
 });
 
-// ------------------------------------------------------- theme (state.js)
-// The theme choice is kept in localStorage under "porchlamp-theme". Earlier
-// builds kept it under "porchlamp-v2-theme"; a returning visitor's choice is
-// read from there when "porchlamp-theme" is absent, and moved to it.
+// ------------------------------------------------------- theme (theme-init.js)
+// Every page runs theme-init.js in <head>, before it draws anything. The choice is kept in localStorage under
+// "porchlamp-theme"; earlier builds kept it under "porchlamp-v2-theme", which a returning visitor's first page moves.
 function memoryStorage(entries = {}) {
   const items = new Map(Object.entries(entries));
   return {
@@ -258,40 +256,71 @@ function memoryStorage(entries = {}) {
   };
 }
 
-test("theme: the choice is stored under porchlamp-theme, and the system theme stores nothing", () => {
-  const storage = memoryStorage();
-  writePersistedTheme(storage, "dark");
-  assert.deepEqual(storage.items(), { "porchlamp-theme": "dark" });
-  assert.equal(readPersistedTheme(storage), "dark");
-  writePersistedTheme(storage, "system");
-  assert.deepEqual(storage.items(), {});
-  assert.equal(readPersistedTheme(storage), "system");
+const THEME_INIT = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "theme-init.js"), "utf8");
+
+/** theme-init.js as a page runs it in <head>: a document with only its root element, this storage and a system that
+ *  asks for light or not. Returns the root, the storage, a click on the page and the events the script fired. */
+function runThemeInit({ storage = memoryStorage(), systemLight = false } = {}) {
+  const root = { dataset: {} };
+  const listeners = {};
+  const fired = [];
+  const document = {
+    documentElement: root,
+    addEventListener: (type, fn) => {
+      listeners[type] = fn;
+    },
+    dispatchEvent: (evt) => {
+      fired.push(evt);
+      return true;
+    },
+  };
+  vm.runInNewContext(THEME_INIT, {
+    document,
+    localStorage: storage,
+    matchMedia: (query) => ({ matches: query === "(prefers-color-scheme: light)" && systemLight }),
+    CustomEvent: class {
+      constructor(type, init) {
+        this.type = type;
+        this.detail = init.detail;
+      }
+    },
+  });
+  const toggle = { closest: (selector) => (selector === "[data-theme-toggle]" ? toggle : null) };
+  const elsewhere = { closest: () => null };
+  return { root, storage, fired, clickToggle: () => listeners.click({ target: toggle }), clickElsewhere: () => listeners.click({ target: elsewhere }) };
+}
+
+test("theme: a stored choice is on <html> before the page draws anything; with none the page follows the system", () => {
+  for (const theme of ["light", "dark"]) {
+    assert.equal(runThemeInit({ storage: memoryStorage({ "porchlamp-theme": theme }) }).root.dataset.theme, theme);
+  }
+  assert.equal(runThemeInit().root.dataset.theme, undefined);
 });
 
 test("theme: a returning visitor keeps the choice stored under the former key, moved once to porchlamp-theme", () => {
   for (const theme of ["light", "dark"]) {
-    const storage = memoryStorage({ "porchlamp-v2-theme": theme });
-    assert.equal(readPersistedTheme(storage), theme);
+    const { root, storage } = runThemeInit({ storage: memoryStorage({ "porchlamp-v2-theme": theme }) });
+    assert.equal(root.dataset.theme, theme);
     assert.deepEqual(storage.items(), { "porchlamp-theme": theme });
-    assert.equal(readPersistedTheme(storage), theme);
+    assert.equal(runThemeInit({ storage }).root.dataset.theme, theme);
   }
 });
 
 test("theme: a choice under porchlamp-theme wins over the former key", () => {
   const storage = memoryStorage({ "porchlamp-theme": "light", "porchlamp-v2-theme": "dark" });
-  assert.equal(readPersistedTheme(storage), "light");
+  assert.equal(runThemeInit({ storage }).root.dataset.theme, "light");
 });
 
-test("theme: when the move cannot be written, this visit still gets the former choice and the next visit retries", () => {
+test("theme: when the move cannot be written, this page still gets the former choice and the next one retries", () => {
   const storage = memoryStorage({ "porchlamp-v2-theme": "dark" });
   storage.setItem = () => {
     throw new Error("QuotaExceededError");
   };
-  assert.equal(readPersistedTheme(storage), "dark");
+  assert.equal(runThemeInit({ storage }).root.dataset.theme, "dark");
   assert.deepEqual(storage.items(), { "porchlamp-v2-theme": "dark" });
 });
 
-test("theme: unavailable storage or an unknown stored value gives the system theme", () => {
+test("theme: unavailable storage or an unknown stored value follows the system", () => {
   const unavailable = {
     getItem: () => {
       throw new Error("SecurityError");
@@ -303,9 +332,28 @@ test("theme: unavailable storage or an unknown stored value gives the system the
       throw new Error("SecurityError");
     },
   };
-  assert.equal(readPersistedTheme(unavailable), "system");
-  assert.doesNotThrow(() => writePersistedTheme(unavailable, "dark"));
-  assert.equal(readPersistedTheme(memoryStorage({ "porchlamp-theme": "blue" })), "system");
+  const page = runThemeInit({ storage: unavailable });
+  assert.equal(page.root.dataset.theme, undefined);
+  assert.doesNotThrow(() => page.clickToggle(), "the toggle still works for this page");
+  assert.equal(page.root.dataset.theme, "light");
+  assert.equal(runThemeInit({ storage: memoryStorage({ "porchlamp-theme": "blue" }) }).root.dataset.theme, undefined);
+});
+
+test("theme: the toggle switches the theme in force, stores it and tells the app; a click elsewhere does nothing", () => {
+  // tokens.css is dark unless the system asks for light: the first click goes to the other one either way.
+  for (const [systemLight, first, second] of [[true, "dark", "light"], [false, "light", "dark"]]) {
+    const page = runThemeInit({ systemLight });
+    page.clickElsewhere();
+    assert.equal(page.root.dataset.theme, undefined);
+    assert.equal(page.fired.length, 0);
+    page.clickToggle();
+    assert.equal(page.root.dataset.theme, first);
+    assert.deepEqual(page.storage.items(), { "porchlamp-theme": first });
+    page.clickToggle();
+    assert.equal(page.root.dataset.theme, second);
+    assert.deepEqual(page.storage.items(), { "porchlamp-theme": second });
+    assert.deepEqual(page.fired.map((evt) => [evt.type, evt.detail.theme]), [["porchlamp-themechange", first], ["porchlamp-themechange", second]]);
+  }
 });
 
 // -------------------------------------------------------------- U-17
@@ -1115,10 +1163,34 @@ test("methodology: the index and the body come from one list (same ids, same ord
   const index = sectionIndex(METHODOLOGY_DOC, SNAPSHOT_DOC);
   const sectionIds = [...html.matchAll(/<section class="doc-section" id="([^"]+)"/g)].map((m) => m[1]);
   const jumpIds = [...html.matchAll(/class="doc-index-link" href="#[^"]+" data-doc-jump="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(index.length, 10, "snapshot + the nine methodology sections");
+  assert.equal(index.length, 11, "snapshot + the ten methodology sections (Limits among them)");
   assert.deepEqual(sectionIds, index.map((e) => e.id));
   assert.deepEqual(jumpIds, index.map((e) => e.id));
   assert.equal(new Set(sectionIds).size, sectionIds.length, "section ids are unique");
+});
+
+test("methodology: the database digest row shows fetchManifest's digest; the API's server has none, so no row", async () => {
+  const realFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = () => {
+    requests += 1;
+    return Promise.reject(new Error("fetchManifest makes no request against the API"));
+  };
+  try {
+    assert.deepEqual(await fetchManifest(), { ok: true, data: null });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  assert.equal(requests, 0, "answered without a request");
+  const digest = "ab".repeat(32);
+  const shown = renderMethodologyShell({
+    methodology: METHODOLOGY_DOC, snapshot: SNAPSHOT_DOC, methodologyLoading: false, methodologyError: null, sourceDbSha256: digest,
+  });
+  const hidden = methodologyShell(SNAPSHOT_DOC);
+  assert.ok(shown.includes(`<code data-v="snapshot.source_db_sha256">${digest}</code>`), "a manifest's digest is printed");
+  assert.ok(shown.includes(escapeHtml(copy.METHODOLOGY_DB_SHA256_LABEL)));
+  assert.ok(!hidden.includes("snapshot.source_db_sha256"), "no manifest: no row");
+  assert.ok(!hidden.includes(escapeHtml(copy.METHODOLOGY_DB_SHA256_LABEL)));
 });
 
 test("brand: the header carries the symbol (decorative), the name and the slogan, all from copy.js", () => {
@@ -1951,7 +2023,7 @@ test("pager: scrollDeltaToReveal brings the top pager back only when the reader 
 });
 
 // ------------------------------------------------------------ tab strip
-test("primary nav: centeredScrollLeft puts the active tab mid-view and stays inside the strip", () => {
+test("primary nav: centeredScrollLeft puts the current link mid-view and stays inside the strip", () => {
   // 375 px of strip showing 476 px of tabs; Methodology is the last tab, at 360..476.
   assert.equal(centeredScrollLeft(360, 116, 375, 476), 101, "the last tab: clamped to the strip's end");
   assert.equal(centeredScrollLeft(0, 90, 375, 476), 0, "the first tab: clamped to the start");
@@ -2736,15 +2808,20 @@ test("leaderboard: one visible findings line under the header links to the stati
   assert.ok(html.indexOf("data-findings-line") < html.indexOf("data-primary-tab") || !html.includes("data-primary-tab"));
 });
 
-test("footer: Report and Methodology are real links from the site root", () => {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const app = readFileSync(path.join(here, "..", "app.js"), "utf8");
-  assert.equal(copy.REPORT_PAGE_HREF, "/black-holes/");
-  assert.equal(routePath("methodology"), "/methodology/");
-  assert.match(app, /<a href="\$\{escapeHtml\(copy\.REPORT_PAGE_HREF\)\}"[^>]*>\$\{escapeHtml\(copy\.FOOTER_REPORT_LABEL\)\}<\/a>/);
-  assert.match(app, /<a href="\$\{escapeHtml\(routePath\("methodology"\)\)\}" data-route-tab="methodology"[^>]*>\$\{escapeHtml\(copy\.FOOTER_METHODOLOGY_LABEL\)\}<\/a>/);
-  assert.equal(copy.FOOTER_REPORT_LABEL, "Report");
-  assert.equal(copy.FOOTER_METHODOLOGY_LABEL, "Methodology");
+test("footer: one methodology link, the report and the data, real links from the site root", () => {
+  const footer = renderFooter({ kind: "ok", snapshot: { snapshot_id: "2026-10-17", benchmark_version: "2.0.0", constants_hash: "a".repeat(64), manifest_root: "b".repeat(64) } });
+  assert.deepEqual([...footer.matchAll(/<a href="([^"]*)"( data-route-tab="[^"]*")?>([^<]*)<\/a>/g)].map((m) => [m[1], m[3]]), [
+    ["/methodology/", "Methodology"],
+    ["/black-holes/", "Report"],
+    ["https://github.com/pctablet505/porchlamp", "Data on GitHub"],
+  ]);
+  assert.ok(footer.includes('<a href="/methodology/" data-route-tab="methodology">'), "the app opens the methodology in place");
+  for (const [id, value] of [["footer.snapshot_id", "2026-10-17"], ["footer.benchmark_version", "2.0.0"], ["footer.constants_hash", "a".repeat(12)], ["footer.manifest_root", "b".repeat(12)]]) {
+    assert.ok(footer.includes(`<span data-v="${id}">${value}</span>`), id);
+  }
+  assert.match(renderFooter({ kind: "loading" }), /<span data-footer-snapshot="true">Loading…<\/span>/);
+  const failed = renderFooter({ kind: "error", endpoint: "/v1/porchlamp/snapshot", status: 500 });
+  assert.ok(failed.includes('data-footer-retry="true">') && !failed.includes("data-v="), "an error offers the retry and hooks nothing");
 });
 
 // ------------------------------------------------ E3: project pages (rows link to them; the badge targets them; /check/)
@@ -3146,26 +3223,49 @@ test("routes: every old link lands on its view's address, keeping every other fi
   for (const tab of VALID_TABS) assert.ok(routeById(tab)?.shell, tab);
 });
 
-test("routes: every primary nav link is a view's address, opened in place, with the shown view current", () => {
+test("routes: every primary nav link is a view's address, opened in place, or the report's page, with the shown view current", () => {
   for (const tab of ["ranked", "notranked", "matrix", "compare", "configure", "methodology", "notfound"]) {
     const state = { ...defaultState(), tab, persona: "first_timer", ecosystem: "npm", query: "widget", missingPath: tab === "notfound" ? "/x/" : null };
-    const links = [...renderPrimaryNav(state).matchAll(/<a class="primary-tab" href="([^"]*)"( data-route-tab="([^"]*)")?( aria-current="page")?>/g)];
-    assert.equal(links.length, 5, `${tab}: five links`);
-    for (const [, rawHref, , linkTab] of links) {
+    const links = [...renderNav(navEntryFor(tab), state).matchAll(/<a class="primary-tab" href="([^"]*)"( data-route-tab="([^"]*)")?( aria-current="page")?>/g)];
+    assert.equal(links.length, 6, `${tab}: six links`);
+    const [report, ...views] = [links[5], ...links.slice(0, 5)];
+    for (const [, rawHref, , linkTab] of views) {
       const href = rawHref.replace(/&amp;/g, "&");
       const { route } = matchRoute(new URL(href, SITE_BASE).pathname);
       assert.ok(route.shell, `${tab}: ${href} is the address of a view the app draws`);
       assert.equal(linkTab, route.id, `${tab}: ${href} opens its own view in place`);
       assert.equal(href, hrefFor(state, route.id), `${tab}: ${href} is where a click goes from here`);
     }
+    assert.deepEqual([report[1], report[3]], ["/black-holes/", undefined], `${tab}: the report is a page of its own, loaded`);
     const current = links.filter((link) => link[4]).map((link) => link[3]);
     assert.deepEqual(current, tab === "notfound" ? [] : [tab === "notranked" ? "ranked" : tab], `${tab}: the current entry`);
   }
+  assert.match(renderNav("report"), /<a class="primary-tab" href="\/black-holes\/" aria-current="page">Report<\/a><\/div>$/, "the report's own page marks it");
   // The Leaderboard's Ranked and Not ranked links are addresses too, carrying the reader's lens and filters.
   const lb = leaderboardRenderShell({ ...defaultState(), persona: "first_timer", ecosystem: "npm", leaderboardLoading: true });
   assert.ok(lb.includes('<a class="tab" href="/?persona=first_timer&amp;eco=npm" data-route-tab="ranked" aria-current="page">'), lb);
   assert.ok(lb.includes('<a class="tab" href="/not-ranked/?persona=first_timer&amp;eco=npm" data-route-tab="notranked">'), lb);
   assert.ok(!/role="tab"|aria-selected/.test(lb), "no tab roles left on links");
+});
+
+test("header: the brand links home, the search is a form to the rankings, and the app's selects show where the view reads them", () => {
+  const snapshot = { snapshot_id: "2026-10-17", benchmark_version: "2.0.0-rc1" };
+  const page = renderHeader({ snapshot });
+  assert.ok(page.startsWith('<a class="brand-link" href="/" aria-label="Porchlamp">'), page.slice(0, 80));
+  assert.ok(page.includes('<form class="header-filter-group" data-header-search-group="true" role="search" action="/" method="get"><input class="control" type="search" name="q"'), "the search works without the app");
+  assert.ok(page.includes('title="2026-10-17 · benchmark 2.0.0-rc1"><span data-v="header.snapshot_id">2026-10-17</span>'), "the chip names the snapshot");
+  assert.ok(page.includes('data-theme-toggle="true" aria-label="Toggle light/dark theme"'), "the toggle (theme-init.js answers it)");
+  assert.ok(!page.includes("<select"), "a page the app does not draw has no selects");
+  for (const view of ["ranked", "notranked", "matrix", "compare", "configure", "methodology", "notfound"]) {
+    const header = renderAppHeader(view, snapshot);
+    const shown = headerControlsFor(view);
+    const hidden = (group) => new RegExp(`data-header-${group}-group="true"[^>]* hidden>`).test(header);
+    assert.equal(hidden("persona"), !shown.persona, `${view}: persona`);
+    assert.equal(hidden("eco"), !shown.ecosystem, `${view}: ecosystem`);
+    assert.equal(hidden("search"), !shown.search, `${view}: search`);
+  }
+  assert.deepEqual(["ranked", "notranked", "matrix", "configure", "methodology", "notfound"].map((v) => headerControlsFor(v).search), Array(6).fill(true));
+  assert.equal(headerControlsFor("compare").search, false, "Compare's own search box adds a repository");
 });
 
 test("routes: a view's link brings that view back with its own page and sort", () => {
@@ -3257,7 +3357,7 @@ test("routes: on a ranked project's static page, Back and Forward between the ap
   }
   assert.equal(reloads, 1, "a Back or Forward loads the address it moved to");
   const projectPages = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "porchlamp", "serve", "project_pages.py"), "utf8");
-  assert.match(projectPages, /<script type="module" src="\{rel\}back-forward\.js"><\/script>/, "every project page loads it");
+  assert.match(projectPages, /scripts=\("\/back-forward\.js",\)/, "every project page loads it");
 });
 
 test("routes: the panel's README badge preview loads from the site root, since the panel is open at a project's address", () => {

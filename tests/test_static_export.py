@@ -126,15 +126,47 @@ def test_a_mutant_is_not_credited_with_what_the_site_already_gets_wrong(site, tm
     assert not verify_static_export.passed(result)
 
 
+#: What the export's prerender draws into a page, each as (the frame element it fills, the same element empty).
+_DRAWN = (
+    (r'<header class="app-header" id="app-header-controls">.*?</header>', '<header class="app-header" id="app-header-controls"></header>'),
+    (r'<nav class="app-primary-nav" id="app-primary-nav" aria-label="Primary">.*?</nav>', '<nav class="app-primary-nav" id="app-primary-nav"></nav>'),
+    (r'<footer class="app-footer" id="app-footer">.*?</footer>', '<footer class="app-footer" id="app-footer"></footer>'),
+)
+_MAIN = r'<main class="app-main" id="app-main" tabindex="-1"[^>]*>.*?</main>'
+
+
+def _undraw(page: str, main: str | None = None) -> str:
+    """The page as the app's frame had it before the prerender: the header, the nav (and its aria-label) and the footer
+    put back to the empty frame elements and, given the frame's ``<main>``, the methodology view's main put back to it.
+    Each drawn element must be on the page exactly once and hold something, so a page the prerender skipped fails here
+    instead of passing as an already-empty frame."""
+    for drawn, empty in _DRAWN:
+        found = re.findall(drawn, page, re.S)
+        assert len(found) == 1, f"{drawn[:40]} is on the page {len(found)} times"
+        assert found[0] != empty, f"{empty} was not drawn"
+        page = re.sub(drawn, lambda _match, empty=empty: empty, page, flags=re.S)
+    if main is not None:
+        assert len(re.findall(_MAIN, page, re.S)) == 1
+        page = re.sub(_MAIN, lambda _match: main, page, flags=re.S)
+    return page
+
+
 def test_the_site_is_web_app_with_only_api_js_replaced(site):
     _db, out = site
     assert (out / "api.js").read_bytes() == export_static.STATIC_API.read_bytes()
+    drawn_pages = {Path("index.html"), Path("404.html")}  # the prerender draws the chrome into these two
     for entry in export_static.WEB_APP.rglob("*"):
         relative = entry.relative_to(export_static.WEB_APP)
         if entry.is_dir() or relative.parts[0] in export_static._WEB_SKIP or relative == Path("api.js"):
             continue
-        assert (out / relative).read_bytes() == entry.read_bytes(), relative
+        if relative in drawn_pages:
+            assert _undraw((out / relative).read_text(encoding="utf-8")) == entry.read_text(encoding="utf-8"), relative
+        else:
+            assert (out / relative).read_bytes() == entry.read_bytes(), relative
+    assert drawn_pages <= {e.relative_to(export_static.WEB_APP) for e in export_static.WEB_APP.iterdir()}
     assert not (out / "tests").exists() and not (out / "package.json").exists()
+    # what draws the pages at export is not part of the site: the prerender, and the page list it was given (ENG-15)
+    assert not list(out.rglob("*.mjs")) and not list(out.rglob("pages.json"))
     assert (out / ".nojekyll").exists()  # GitHub Pages must not run Jekyll over the data
     assert f'"{SNAPSHOT_ID}"' in (out / "data-version.js").read_text()
     assert (out / "data" / SNAPSHOT_ID / "snapshot.json").is_file()
@@ -149,14 +181,24 @@ def test_the_export_writes_the_app_s_page_at_every_view_s_address_and_404_html(s
     shell = (export_static.WEB_APP / "404.html").read_text(encoding="utf-8")
     views = [route for route in export_static.app_routes() if route["shell"]]
     assert [route["path"] for route in views] == ["/", "/not-ranked/", "/matrix/", "/compare/", "/weights/", "/methodology/"]
-    assert (out / "index.html").read_bytes() == (export_static.WEB_APP / "index.html").read_bytes()
-    assert (out / "404.html").read_text(encoding="utf-8") == shell
+    uncommented = re.sub(r"\n *<!--.*?-->", "", shell, flags=re.S)
+    frame_main = re.search(_MAIN, shell, re.S).group(0)
+    assert _undraw((out / "index.html").read_text(encoding="utf-8")) == (export_static.WEB_APP / "index.html").read_text(encoding="utf-8")
+    assert _undraw((out / "404.html").read_text(encoding="utf-8")) == shell
     for route in views[1:]:
         page = (out / route["path"].strip("/") / "index.html").read_text(encoding="utf-8")
+        # the view's own page, with the chrome drawn; the methodology view also has its own text drawn into <main>
+        prerendered = 'data-prerendered="methodology"' in page
+        assert prerendered == (route["id"] == "methodology"), route["id"]
+        undrawn = _undraw(page, main=frame_main if prerendered else None)
+        assert undrawn == export_static.view_page(route), route["id"]
+        page = undrawn
         assert re.findall(r"<title>([^<]*)</title>", page) == [route["title"]], route["id"]
         assert re.findall(r'<link rel="canonical" href="([^"]*)">', page) == [f"https://porchlamp.org{route['path']}"], route["id"]
-        # apart from the title and the canonical address, the page is 404.html: the app, with no page text of its own
-        assert re.sub(r'<title>[^<]*</title>\n  <link rel="canonical" href="[^"]*">', "", page) == re.sub(r"<title>[^<]*</title>", "", shell)
+        # apart from the title and the canonical address, the page is 404.html (its comments left out): the app, with
+        # no page text of its own
+        stripped = re.sub(r'\n  <link rel="canonical" href="[^"]*">', "", re.sub(r"<title>[^<]*</title>", "", page))
+        assert stripped == re.sub(r"<title>[^<]*</title>", "", uncommented), route["id"]
     for page in [out / "index.html", out / "404.html", *(out / r["path"].strip("/") / "index.html" for r in views[1:])]:
         urls = re.findall(r'<(?:link rel="(?:icon|stylesheet)"[^>]*href|script[^>]*src|img[^>]*src)="([^"]*)"', page.read_text(encoding="utf-8"))
         assert len(urls) >= 6, (page, urls)
@@ -360,6 +402,8 @@ def test_the_verify_command_answers_the_grid_on_every_cpu(tmp_path, monkeypatch)
         return {"requests": 0, "mismatches": {}, "mutants": {}}
 
     monkeypatch.setattr(verify_static_export, "verify", recording_verify)
+    for page_check in ("verify_chrome", "verify_methodology"):  # every page of the site: not what this test is about
+        monkeypatch.setattr(verify_static_export, page_check, lambda db, site: {"errors": []})
     (tmp_path / "site").mkdir()
     verify_static_export.main(["--db", str(tmp_path / "db.sqlite"), "--site", str(tmp_path / "site")])
     assert "workers" in seen and seen["workers"] is None
