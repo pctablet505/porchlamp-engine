@@ -36,7 +36,7 @@ This directory contains the canonical v2 specification, generated methodology re
 
 ## 3. Historical v1 Baseline Specifications
 
-These files document the original v1 prototype (retained for historical reference alongside the `/legacy/` API compatibility layer):
+These files document the original v1 prototype, retained for historical reference (its UI and API were removed on 2026-10-17):
 
 - [`BENCHMARK_SPECIFICATION.md`](BENCHMARK_SPECIFICATION.md) — v1.0.0 16-parameter mathematical specification
 - [`UI_UX_SPECIFICATION.md`](UI_UX_SPECIFICATION.md) — v1.0.0 frontend specification

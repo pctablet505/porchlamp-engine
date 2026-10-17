@@ -99,7 +99,7 @@ def test_promote_materializes_deep_dive(tmp_path):
     assert n == 1
     dd = _deep_dive_json(db, "acme", "widget")
     assert dd is not None, "promote must populate deep_dive_json for the UI"
-    # The UI reads exactly these sections (web/index.html).
+    # The first-generation UI read exactly these sections (that UI was removed).
     assert set(dd) >= {"raw_metrics", "survival_curve", "maintainer_playbook",
                        "legal_ip", "elephant_breakdown", "good_first_issues"}
     assert set(dd["raw_metrics"]) >= {"ttfhr_hours", "ghost_rate_14d",

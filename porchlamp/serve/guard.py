@@ -5,17 +5,21 @@ Both the v1 guard's reusable logic and the v2 guard live HERE;
 `scripts/serve.py` imports FROM this module (the correct direction --
 `scripts/` may import `porchlamp.*`, `porchlamp/serve` must never import `scripts.*`,
 enforced by the `porchlamp/serve` edge rule in `tests/core/
-test_import_graph.py`) and re-exports the v1 names, so
+test_import_graph.py`) and re-exports `refusal_reasons` and `count_repos`, so
+`scripts/promote.py` (`from scripts.serve import refusal_reasons`) and
 `tests/test_serve.py` (`from scripts import serve; serve.refusal_reasons`)
-resolves them there.
+resolve them there.
 
 Two independent guards live here, because a database can fail either, both
 or neither:
 
 * **The v1 guard** (`refusal_reasons`/`matching_snapshot_id`/
-  `count_repos`/`open_or_exit`): a fixture-clock row (`last_indexed_at`
-  matching `_FIXTURE_CLOCK_SENTINEL`) or a content-hash mismatch against
-  `snapshot_meta`, over `porchlamp.lakehouse.OperationalStore`.
+  `count_repos`): a fixture-clock row (`last_indexed_at`
+  matching `_FIXTURE_CLOCK_SENTINEL`), no `snapshot_meta` row, or a
+  content-hash mismatch against `snapshot_meta`, over
+  `porchlamp.lakehouse.OperationalStore`. `scripts/promote.py` runs it before
+  its swap. The server does not: it serves no v1 rows (the first-generation
+  API that read them was removed).
 
   `_FIXTURE_CLOCK_SENTINEL` is a LITERAL rather than an import of
   `tests.fixtures.synthetic_catalog.BENCHMARK_NOW`, which is never
@@ -63,7 +67,6 @@ __all__ = [
     "count_repos",
     "matching_snapshot_id",
     "refusal_reasons",
-    "open_or_exit",
     "served_snapshot_id",
     "v2_refusal_reasons",
     "run_guard",
@@ -84,7 +87,8 @@ def _refusal_message(db_path: str, reasons: List[str]) -> str:
 
 # --------------------------------------------------------------------------- #
 # v1 guard (`03` §5), over the v1 `OperationalStore` shape. `scripts.serve`
-# re-exports these same names, and `tests/test_serve.py` imports them there.
+# re-exports `refusal_reasons` and `count_repos`; `scripts/promote.py` and
+# `tests/test_serve.py` import them there.
 # --------------------------------------------------------------------------- #
 
 
@@ -162,17 +166,6 @@ def refusal_reasons(store: OperationalStore, db_path: str) -> List[str]:
     return reasons
 
 
-def open_or_exit(db_path: str) -> OperationalStore:
-    """Open ``db_path`` as a v1 :class:`OperationalStore` and enforce the
-    guard: ``SystemExit`` with every :func:`refusal_reasons` sentence, one
-    per line, if any apply."""
-    store = OperationalStore(db_path)
-    reasons = refusal_reasons(store, db_path)
-    if reasons:
-        raise SystemExit(_refusal_message(db_path, reasons))
-    return store
-
-
 # --------------------------------------------------------------------------- #
 # v2 guard. Uses a PLAIN ``sqlite3.connect`` (not
 # ``porchlamp.store.schema.connect``, and never ``OperationalStore``, which
@@ -239,10 +232,9 @@ def _v1_fixture_reasons(conn: sqlite3.Connection) -> List[str]:
 
 def _v1_hash_tamper_reasons(conn: sqlite3.Connection, db_path: str) -> List[str]:
     """`repositories_dump_hash` tamper check against `snapshot_meta`, for
-    a v1-only database opened directly by `porchlamp.serve.app` (never mounted
-    at `/legacy` in that case -- see `_run_served_db_guard` -- but the v2
-    API's own guard must still refuse a tampered legacy row set rather
-    than silently ignore it because `/legacy` happens not to be mounted).
+    a v1-only database opened directly by `porchlamp.serve.app`. The server
+    serves none of its v1 rows, but a v1 row set modified after its
+    promotion means the database file was modified, so it is refused.
     A no-op when `snapshot_meta` does not exist (a v2-only database, or
     one already renamed to `legacy_repositories` -- `snapshot_meta` is
     v1-specific and is not part of the rename)."""
@@ -291,21 +283,13 @@ def v2_refusal_reasons(db_path: str) -> List[str]:
     return reasons
 
 
-def run_guard(db_path: str) -> Optional[OperationalStore]:
+def run_guard(db_path: str) -> None:
     """The one function both `scripts/serve.py`'s `main` and `porchlamp.serve.
-    app.create_app` call: runs the v2 guard first (raises `SystemExit` on
-    any v2-guard reason -- a tampered or fixture-marked database is
-    refused regardless of whether a v1 shape is even present to mount at
-    `/legacy`), then the v1 guard ONLY IF the database has a v1 shape at
-    all (`OperationalStore.__init__` succeeds; a `sqlite3.OperationalError`
-    means no v1 shape -- nothing to refuse on that front, nothing to mount
-    either, `None` is the correct, non-error return). A genuine v1-shaped
-    refusal raises exactly the message :func:`open_or_exit` produces.
+    app.create_app` call: raises `SystemExit` on any v2-guard reason (a
+    tampered or fixture-marked database), else returns `None`. A v1 row set
+    with no `snapshot_meta` row is not refused here -- the server serves no
+    v1 rows; :func:`refusal_reasons` refuses it at promote time.
     """
     v2_reasons = v2_refusal_reasons(db_path)
     if v2_reasons:
         raise SystemExit(_refusal_message(db_path, v2_reasons))
-    try:
-        return open_or_exit(db_path)
-    except sqlite3.OperationalError:
-        return None

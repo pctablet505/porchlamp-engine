@@ -143,8 +143,8 @@ def test_served_snapshot_id_none_when_no_snapshots_table(tmp_path):
 
 
 def test_run_guard_returns_none_for_a_v2_only_database(tmp_path):
-    """No v1 shape at all -- nothing to refuse on that front, nothing to
-    mount at `/legacy`, and definitely not a `SystemExit`."""
+    """No v1 shape at all -- nothing to refuse on that front, and
+    definitely not a `SystemExit`."""
     db_path = tmp_path / "db.sqlite"
     conn = _build_and_finalize(db_path)
     conn.close()
@@ -164,17 +164,13 @@ def test_run_guard_raises_systemexit_for_a_tampered_v2_database(tmp_path):
     assert SNAPSHOT_ID in str(excinfo.value)
 
 
-def test_run_guard_raises_systemexit_for_a_v1_database_with_no_snapshot_meta(tmp_path):
-    """Distinguishes `run_guard`'s v1 branch (`open_or_exit`) from the v2
-    guard's OWN fixture-clock/hash checks: a v1 database with a real,
-    non-fixture-marked, non-tampered row but NO `snapshot_meta` row at all
-    (never promoted against a frozen snapshot) is refused ONLY by
-    `refusal_reasons`'s own "no snapshot_meta row" check -- `v2_refusal_
-    reasons` has nothing to say about it (no v2 tables, no fixture stamp,
-    no tamper). A mutant that swallows `open_or_exit`'s `SystemExit`
-    inside `run_guard` is caught here even though it survives against a
-    fixture-marked/tampered database (which the v2 guard ALSO independently
-    refuses)."""
+def test_run_guard_leaves_unpromoted_lakehouse_rows_to_the_promote_check(tmp_path):
+    """The server serves no `porchlamp.lakehouse.OperationalStore` rows (the
+    first-generation API that read them was removed), so a database whose
+    lakehouse table was never promoted -- a real, non-fixture-marked,
+    non-tampered row but NO `snapshot_meta` row -- is not refused at serve
+    time. `refusal_reasons`, which `scripts/promote.py` runs before its swap,
+    still names the missing row."""
     from porchlamp.lakehouse import apply_raw_metrics
     from porchlamp.lakehouse import OperationalStore
     from porchlamp.models import PorchlampCompositeResult, Ecosystem, PillarScores, Quadrant, Tier
@@ -190,7 +186,10 @@ def test_run_guard_raises_systemexit_for_a_v1_database_with_no_snapshot_meta(tmp
     apply_raw_metrics(store, "numpy", "numpy", stars=32721, forks=12769)
     store.close()
 
-    assert guard.v2_refusal_reasons(str(db_path)) == []  # nothing for the v2 guard to say
-    with pytest.raises(SystemExit) as excinfo:
-        guard.run_guard(str(db_path))
-    assert "no snapshot_meta row" in str(excinfo.value)
+    assert guard.run_guard(str(db_path)) is None
+    store = OperationalStore(str(db_path))
+    try:
+        reasons = guard.refusal_reasons(store, str(db_path))
+    finally:
+        store.close()
+    assert len(reasons) == 1 and "no snapshot_meta row" in reasons[0]

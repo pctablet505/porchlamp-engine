@@ -123,9 +123,10 @@ The pipeline, in order:
 | `web/v2/` | The UI: leaderboard, matrix, compare, configure weights, methodology. |
 | `web/static/api.js` | The static site's stand-in for the API: answers every request from precomputed JSON. |
 
-The v1 modules at the top of `porchlamp/` (`engine.py`, `api.py` and friends) back the
-legacy API, mounted under `/legacy/` only when the database still has a v1 shape.
-The serve guard still uses `porchlamp/lakehouse.py` for its dump hash.
+The v1 modules at the top of `porchlamp/` (`engine.py`, `lakehouse.py` and friends) are
+no longer served: the first-generation UI and its API were removed on 2026-10-17.
+`scripts/promote.py` still writes the v1 store, and the serve guard still uses
+`porchlamp/lakehouse.py` for its dump hash.
 
 ## API
 

@@ -776,8 +776,7 @@ def test_ui_fixtures_validate_against_the_api_contract_models():
 
 
 # --------------------------------------------------------------------------- #
-# Zero external requests through the v2 static mount (extends the existing
-# `tests/test_webapp.py::TestZeroCDNAssurance` pattern to `porchlamp.serve.app`'s
+# Zero external requests through the v2 static mount (`porchlamp.serve.app`'s
 # own mount; proves the mount + fallback mechanism never introduces an
 # external reference of its own, using a controlled `index.html`).
 # --------------------------------------------------------------------------- #
@@ -1025,23 +1024,13 @@ def test_bare_healthz_returns_200_with_the_snapshot_id(api):
     assert body["snapshot_id"] == SNAPSHOT_ID
 
 
-def test_legacy_prefix_unmounted_is_a_json_404_not_the_spa_shell(api):
-    """No v1 shape in this fixture's database -- `/legacy` mounts no real
-    v1 app, but registers an explanatory 404 route in its place (never
-    the SPA shell, never the bare "no route matches" fallback)."""
-    client, _fx, _db = api
-    resp = client.get("/legacy/healthz")
-    assert resp.status_code == 404
-    assert resp.headers["content-type"].startswith("application/json")
-    assert "v1 shape" in resp.json()["error"]["detail"]
-
-
 def test_create_app_serves_v1_porchlamp_endpoints_as_503_not_500_on_a_legitimate_v1_db(tmp_path):
     """Blocker B-1's per-request half, at the `create_app` layer directly
     (the subprocess tests above exercise it through `main()`; this proves
     the SAME fix on a database that is a LEGITIMATE, promoted v1 store --
-    not fixture-marked, not tampered -- which must start cleanly, mount
-    `/legacy` with real v1 data, and answer every `/v1/porchlamp/*` call with a
+    not fixture-marked, not tampered -- which must start cleanly, serve no
+    first-generation API (its `/legacy` mount was removed, so those paths are
+    ordinary pages of the site), and answer every `/v1/porchlamp/*` call with a
     clean 503 (no `snapshots` table at all) rather than a bare 500."""
     import importlib.util
 
@@ -1085,8 +1074,11 @@ def test_create_app_serves_v1_porchlamp_endpoints_as_503_not_500_on_a_legitimate
     app = create_app(str(db_path), web_dir=web_dir)  # must NOT raise
     client = TestClient(app)
 
-    legacy = client.get("/legacy/healthz")
-    assert legacy.status_code == 200 and legacy.json() == {"status": "ok"}
+    shell = client.get("/")
+    for path in ("/legacy", "/legacy/", "/legacy/healthz"):
+        page = client.get(path)
+        assert (page.status_code, page.text) == (200, shell.text), path
+        assert page.headers["content-type"].startswith("text/html"), path
 
     for path in ("/v1/porchlamp/leaderboard", "/v1/porchlamp/snapshot", "/v1/porchlamp/not-ranked"):
         resp = client.get(path)

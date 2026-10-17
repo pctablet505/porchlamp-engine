@@ -1,6 +1,6 @@
 """Tests for the spec 12.2 repository deep-dive enrichment.
 
-Covers three layers:
+Covers two layers:
 
 1. ``porchlamp.lakehouse`` — the additive optional ``deep_dive_json`` column:
    ensure-on-fresh-store, upsert round-trip, missing-repo semantics, and
@@ -10,9 +10,6 @@ Covers three layers:
    population with hand-computed TTFHR / MR_first / GR_14 / p90 values
    and a hand-computed Kaplan-Meier curve (incl. censored PRs, the
    risk-set convention at tied times, and deterministic thinning).
-3. ``porchlamp.api`` — the deep-dive route surfaces the stored payload under
-   ``deep_dive`` when present and omits the key when it is not; 404
-   behavior unchanged.
 
 Oracle style: exact expected values everywhere; a test that is easy to
 pass is a defect.
@@ -22,11 +19,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Callable
 
-from fastapi.testclient import TestClient
-
-from porchlamp.api import create_app
 from porchlamp.deepdive import build_deep_dive
 from porchlamp.lakehouse import OperationalStore
 from porchlamp.models import (
@@ -35,7 +28,6 @@ from porchlamp.models import (
     PorchlampCompositeResult,
     Ecosystem,
     LegalIPModel,
-    PillarScores,
     Quadrant,
     RawPREvent,
     RepoMeta,
@@ -449,120 +441,3 @@ class TestFeedPendingAndMetaSections:
         assert "projected_quadrant" in playbook
         assert "total_point_gain" in playbook
         assert "actions" in playbook
-
-
-# --------------------------------------------------------------------------- #
-# API: deep-dive route
-# --------------------------------------------------------------------------- #
-def make_result(owner: str, name: str) -> PorchlampCompositeResult:
-    return PorchlampCompositeResult(
-        owner=owner,
-        name=name,
-        ecosystem=Ecosystem.PYPI,
-        overall_porchlamp=92.5,
-        rank_tier=Tier.S_PLUS,
-        matrix_quadrant=Quadrant.SWEET_SPOT,
-        leverage_score=80.0,
-        friction_score=20.0,
-        is_stage0_disqualified=False,
-    )
-
-
-def make_pillars() -> PillarScores:
-    return PillarScores(
-        responsiveness=90.0,
-        criticality=80.0,
-        governance=70.0,
-        rigor=60.0,
-        accessibility=50.0,
-    )
-
-
-def seed_deep_dive_store() -> OperationalStore:
-    """Two repos: alpha/repo carries a stored deep-dive payload,
-    beta/repo does not."""
-    store = OperationalStore()
-    store.upsert_composite(make_result("alpha", "repo"), pillar_scores=make_pillars())
-    store.upsert_composite(make_result("beta", "repo"), pillar_scores=make_pillars())
-    payload = build_deep_dive(make_meta(), population(), NOW)
-    assert store.upsert_deep_dive("alpha", "repo", payload) == 1
-    return store
-
-
-def open_client(seed: Callable[[], OperationalStore]) -> TestClient:
-    """Enter a TestClient and rebuild the store on the ASGI portal thread.
-
-    sqlite3 connections are thread-bound, and starlette's TestClient
-    dispatches requests onto its blocking-portal thread, so a store
-    created on the test thread cannot be touched by the app (same
-    pattern as tests/test_api.py).
-    """
-    app = create_app()
-    client = TestClient(app)
-    client.__enter__()
-    app.state.store = client.portal.call(seed)
-    return client
-
-
-class TestApiDeepDive:
-    def test_seeded_repo_includes_deep_dive(self) -> None:
-        client = open_client(seed_deep_dive_store)
-        try:
-            resp = client.get("/v1/porchlamp/repos/alpha/repo")
-            assert resp.status_code == 200
-            body = resp.json()
-            expected_payload = build_deep_dive(make_meta(), population(), NOW)
-            assert body["deep_dive"] == expected_payload
-            # The raw serialized column still rides along in the row.
-            assert json.loads(body["deep_dive_json"]) == expected_payload
-            # ...and every other field is unchanged.
-            assert body["owner"] == "alpha"
-            assert body["name"] == "repo"
-            assert body["overall_porchlamp"] == 92.5
-            assert body["rank_tier"] == "Tier S+"
-            assert body["matrix_quadrant"] == "Sweet Spot"
-            assert body["pillar_scores"] == {
-                "responsiveness": 90.0,
-                "criticality": 80.0,
-                "governance": 70.0,
-                "rigor": 60.0,
-                "accessibility": 50.0,
-            }
-        finally:
-            client.__exit__(None, None, None)
-
-    def test_unseeded_repo_omits_deep_dive_key(self) -> None:
-        client = open_client(seed_deep_dive_store)
-        try:
-            resp = client.get("/v1/porchlamp/repos/beta/repo")
-            assert resp.status_code == 200
-            body = resp.json()
-            # Column exists (alpha's upsert materialized it) but is NULL:
-            # no deep_dive key, and all other fields unchanged.
-            assert "deep_dive" not in body
-            assert body["deep_dive_json"] is None
-            assert body["owner"] == "beta"
-            assert body["overall_porchlamp"] == 92.5
-            assert body["pillar_scores"] == {
-                "responsiveness": 90.0,
-                "criticality": 80.0,
-                "governance": 70.0,
-                "rigor": 60.0,
-                "accessibility": 50.0,
-            }
-            # beta's key set equals alpha's minus the parsed deep_dive.
-            alpha_keys = set(
-                client.get("/v1/porchlamp/repos/alpha/repo").json()
-            ) - {"deep_dive"}
-            assert set(body) == alpha_keys
-        finally:
-            client.__exit__(None, None, None)
-
-    def test_missing_repo_404_unchanged(self) -> None:
-        client = open_client(seed_deep_dive_store)
-        try:
-            resp = client.get("/v1/porchlamp/repos/nobody/nothing")
-            assert resp.status_code == 404
-            assert "detail" in resp.json()
-        finally:
-            client.__exit__(None, None, None)

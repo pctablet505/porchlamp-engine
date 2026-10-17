@@ -131,24 +131,20 @@ def test_no_production_import_of_the_synthetic_catalog_fixture() -> None:
     """``tests/fixtures/synthetic_catalog.py`` is never importable from ``porchlamp/``
     or ``scripts/``: a production package importing a test package is prohibited.
     ``porchlamp/`` has no legitimate reason to import anything under ``tests.*``.
-
-    ``scripts/demo_app.py`` is the one script allowed to import a
-    ``tests.*`` helper (``tests.helpers.demo_app``).
     """
     for path in sorted(PORCHLAMP_DIR.rglob("*.py")):
         for name in imported_modules(path):
             assert not name.startswith("tests."), (
                 f"{path.relative_to(REPO_ROOT)} imports {name!r} -- "
                 "porchlamp/ must never import anything under tests. (no exception: "
-                "unlike scripts/demo_app.py, no porchlamp/ module needs a test helper)"
+                "no porchlamp/ module needs a test helper)"
             )
     for path in sorted(SCRIPTS_DIR.rglob("*.py")):
         for name in imported_modules(path):
             assert not name.startswith("tests.fixtures.synthetic_catalog"), (
                 f"{path.relative_to(REPO_ROOT)} imports {name!r} -- "
                 "scripts/ must never import the test fixture "
-                "tests/fixtures/synthetic_catalog.py (tests.helpers.demo_app "
-                "remains legal for the demo_app shim)"
+                "tests/fixtures/synthetic_catalog.py"
             )
 
 

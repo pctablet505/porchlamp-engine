@@ -1,29 +1,22 @@
 """Porchlamp production serving entrypoint: verified SQLite + the web front end.
 
-Unlike ``scripts/demo_app.py`` (which seeds synthetic ``benchmark_data``
-fixtures), this opens the ALREADY-PROMOTED operational store written by
+This opens the ALREADY-PROMOTED operational store written by
 ``scripts/run_all.py`` / ``scripts/promote.py`` — the only rows are bundles
 that passed ``scripts/verify.py`` — and serves the v2 API + v2 front end
-(``porchlamp.serve.app.create_app``; v1 stays reachable, unchanged, at
-``/legacy`` for as long as a database has a v1 shape to guard — ``04``
-section 10's strangler migration). No seeding happens here: an empty DB
+(``porchlamp.serve.app.create_app``). No seeding happens here: an empty DB
 serves an empty (but honest) dashboard.
 
 The served-DB guard (``03`` section 5, F1) lives in
-:mod:`porchlamp.serve.guard` — this module re-exports its v1 names
-(``count_repos``, ``matching_snapshot_id``, ``refusal_reasons``,
-``open_or_exit``) so every caller of ``scripts.serve.<name>`` resolves the
-identical function, with the identical behaviour. See that module's own
-docstring for the two-guard design (v1 fixture-clock + content-hash; v2
-tamper + fixture-clock-on-a-migrated-table).
+:mod:`porchlamp.serve.guard` — this module re-exports two of its v1 names
+(``count_repos``, ``refusal_reasons``) because ``scripts/promote.py`` and
+``tests/test_serve.py`` import them from here, so every caller of
+``scripts.serve.<name>`` resolves the identical function, with the identical
+behaviour. See that module's own docstring for the two-guard design.
 
 ``main()`` calls :func:`porchlamp.serve.guard.run_guard` — the SAME function
 :func:`porchlamp.serve.app.create_app` calls — which raises ``SystemExit`` on a
-genuine refusal (v1- or v2-shaped) and otherwise returns the v1 store to
-report on, or ``None`` when the database has no v1 shape at all (a normal,
-non-error state: nothing to report, no ``/legacy`` to mount, the v2 API
-still starts and serves whatever v2 data the database has, even if that is
-none yet).
+genuine refusal and otherwise returns ``None``: the v2 API starts and serves
+whatever v2 data the database has, even if that is none yet.
 
 Run:
     .venv/bin/python scripts/serve.py                        # data/cvi.db, port 8000
@@ -39,50 +32,22 @@ from pathlib import Path
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 
-from porchlamp.api import create_app
-from porchlamp.lakehouse import OperationalStore
-from porchlamp.serve.app import create_app as create_app_v2
-from porchlamp.serve.guard import (
-    count_repos,
-    matching_snapshot_id,
-    open_or_exit,
-    refusal_reasons,
-    run_guard,
-)
+from porchlamp.serve.app import create_app
+from porchlamp.serve.guard import count_repos, refusal_reasons, run_guard
 
 __all__ = [
     "count_repos",
-    "matching_snapshot_id",
     "refusal_reasons",
-    "open_or_exit",
-    "create_serve_app",
     "main",
 ]
 
 _REPO_ROOT: Path = Path(__file__).resolve().parent.parent
-_WEB_DIR: Path = _REPO_ROOT / "web"
 #: `06` sections 6/6.1: the v2 front end. `porchlamp.serve.app.create_app` mounts
 #: it with ``check_dir=False`` so a missing directory never crashes app
 #: construction, only requests for a page it cannot find.
 _WEB_V2_DIR: Path = _REPO_ROOT / "web" / "v2"
 _DEFAULT_DB: str = str(_REPO_ROOT / "data" / "porchlamp.db")
-
-
-def create_serve_app(store: OperationalStore) -> FastAPI:
-    """Porchlamp **v1** API over ``store`` + the offline v1 web UI mounted at
-    ``/``. This is the v1-only smoke path ``tests/test_serve.py`` exercises
-    directly for guard/mounting coverage; :func:`main` serves the v2 app
-    instead.
-
-    API routes are registered first (inside :func:`porchlamp.api.create_app`), so
-    they win over the static mount, mirroring ``scripts.demo_app``.
-    """
-    app = create_app(store=store)
-    app.mount("/", StaticFiles(directory=_WEB_DIR, html=True), name="web")
-    return app
 
 
 def main(argv: Optional[list[str]] = None) -> None:
@@ -108,27 +73,16 @@ def main(argv: Optional[list[str]] = None) -> None:
             "(gather -> derive -> verify -> promote)."
         )
 
-    # run_guard() runs the v2 guard (always) and the v1 guard
-    # (only if the database has a v1 shape at all) in one call, raising
-    # SystemExit on a genuine refusal from either. `store` is `None` for a
-    # v2-only database -- a normal state, not an error: no v1 banner to
-    # print, no `/legacy` to mount.
-    legacy_store = run_guard(args.db)
-    if legacy_store is not None:
-        snapshot = matching_snapshot_id(legacy_store, args.db)
-        n = count_repos(legacy_store)
-        v1_banner = f"{n} verified repos from {args.db!r} (snapshot {snapshot})"
-    else:
-        v1_banner = "no v1 data at this path (a v2-only database, or nothing promoted yet)"
+    # run_guard() raises SystemExit on a genuine refusal.
+    run_guard(args.db)
 
-    # create_app_v2 re-runs the exact same guard on `args.db` itself
+    # create_app re-runs the exact same guard on `args.db` itself
     # (`porchlamp.serve.app`'s own call to `porchlamp.serve.guard.run_guard`) before it
     # ever touches the v2 store connection or mounts anything --
     # belt-and-suspenders: a database refused here never reaches this line
     # at all.
-    app = create_app_v2(args.db, web_dir=_WEB_V2_DIR)
-    print(f"Porchlamp serve: {v1_banner}")
-    print(f"Porchlamp serve: http://127.0.0.1:{args.port}/ (API under /v1/porchlamp, legacy under /legacy)")
+    app = create_app(args.db, web_dir=_WEB_V2_DIR)
+    print(f"Porchlamp serve: http://127.0.0.1:{args.port}/ (API under /v1/porchlamp)")
     uvicorn.run(app, host="127.0.0.1", port=args.port)
 
 

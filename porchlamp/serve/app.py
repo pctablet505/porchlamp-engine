@@ -702,17 +702,15 @@ def _require_snapshot_summary(conn: sqlite3.Connection, snapshot_id: str) -> dic
 
 
 # --------------------------------------------------------------------------- #
-# Served-DB guard: both the v1 and v2 guards live in `porchlamp.serve.guard`.
-# `porchlamp.serve.guard.run_guard` runs the v2 guard unconditionally (refuses a
-# tampered or fixture-marked v2-shaped database) and the v1 guard only if the
-# database has a v1 shape.
+# Served-DB guard: lives in `porchlamp.serve.guard`. `porchlamp.serve.guard.run_guard`
+# refuses a tampered or fixture-marked database before anything is served.
 # --------------------------------------------------------------------------- #
 
 
 #: Paths this mount must never SPA-fallback, ensuring that unrecognised API routes
 #: or method mismatches return genuine 404/405 responses rather than index.html.
-_API_RESERVED_PREFIXES = ("v1/", "legacy/")
-_API_RESERVED_EXACT = ("v1", "legacy", "healthz")
+_API_RESERVED_PREFIXES = ("v1/",)
+_API_RESERVED_EXACT = ("v1", "healthz")
 
 
 class _SPAStaticFiles(StaticFiles):
@@ -919,9 +917,7 @@ def create_app(db_path, *, web_dir, evidence_files: Optional[PinnedEvidenceFiles
     `GET /v1/porchlamp/repos/{owner}/{name}[/evidence]`, and `POST /v1/porchlamp/reproject`
     with responses typed through `porchlamp.serve.contract` models.
 
-    Legacy v1 API (`porchlamp.api.create_app`) is mounted at `/legacy/` when `db_path`
-    contains a v1 schema. Static files from `web_dir` are mounted at `/` with
-    SPA routing fallback.
+    Static files from `web_dir` are mounted at `/` with SPA routing fallback.
 
     `evidence_files` names the stored snapshot's directory and data root the
     black-hole evidence is read from (:class:`PinnedEvidenceFiles`); without
@@ -929,7 +925,7 @@ def create_app(db_path, *, web_dir, evidence_files: Optional[PinnedEvidenceFiles
 
     Raises `SystemExit` if the served-DB guard refuses `db_path`."""
     db_path = str(db_path)
-    legacy_store = run_guard(db_path)
+    run_guard(db_path)
 
     conn = _open_v2_connection(db_path)
 
@@ -966,18 +962,6 @@ def create_app(db_path, *, web_dir, evidence_files: Optional[PinnedEvidenceFiles
     @app.get("/healthz")
     async def healthz(conn: sqlite3.Connection = Depends(_get_conn)) -> dict:
         return {"status": "ok", "snapshot_id": _current_snapshot_id(conn)}
-
-    if legacy_store is not None:
-        from porchlamp.api import create_app as _create_legacy_app
-
-        app.mount("/legacy", _create_legacy_app(store=legacy_store))
-    else:
-        @app.get("/legacy/{path:path}")
-        async def legacy_not_mounted(path: str) -> None:
-            raise HTTPException(
-                status_code=404,
-                detail="/legacy is not mounted: this database has no v1 shape for the legacy API to read",
-            )
 
     app.mount("/", _SPAStaticFiles(directory=str(web_dir), html=True, check_dir=False), name="web")
 

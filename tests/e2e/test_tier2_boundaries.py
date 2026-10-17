@@ -1,13 +1,9 @@
 """Tier 2: Boundary Value Analysis & Corner Cases E2E Tests.
 
 Verifies boundary conditions and corner cases:
-- Empty and malformed inputs (empty search, whitespace search, empty ecosystem)
-- Limit and offset boundaries (limit=1, limit=1000, limit=0/1001 422, offset=0/999/1000, offset=-1 422)
 - Exact cardinal tier cutoffs (89.99 vs 90.0, 79.99 vs 80.0, 69.99 vs 70.0, 54.99 vs 55.0, 39.99 vs 40.0)
 - Exact (50.0, 50.0) coordinates boundary and all quadrant bisection edges
 - Zero PRs / no events telemetry handling without division by zero
-- Persona weight constraints and tolerances (sum != 1.0 within 1e-6, missing/extra keys)
-- Star count boundaries (min_stars=0, min_stars=-1 422, extreme min_stars)
 - Stage 0 gating boundaries (exact 50.0% vs 50.01% ghost rate, 0 vs 1 commits in 180d)
 """
 
@@ -16,7 +12,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
-from fastapi.testclient import TestClient
 
 from porchlamp.engine import assign_tier, score_repository
 from porchlamp.matrix import decompose
@@ -144,161 +139,6 @@ class TestMatrixCoordinateBoundaries:
         """The four extreme coordinate corners map unambiguously to the four quadrants."""
         _, _, quad = decompose(pillars)
         assert quad == expected_quadrant
-
-
-# =========================================================================== #
-# Limit and Offset Boundaries
-# =========================================================================== #
-class TestLimitAndOffsetBoundaries:
-    """Boundary conditions on pagination parameters for GET /v1/porchlamp/leaderboard."""
-
-    def test_limit_minimum_boundary(self, client: TestClient) -> None:
-        """limit=1 returns exactly 1 item and total=1000."""
-        resp = client.get("/v1/porchlamp/leaderboard?limit=1&offset=0")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["total"] == 1000
-        assert len(data["items"]) == 1
-        assert data["items"][0]["rank"] == 1
-
-    def test_limit_maximum_boundary(self, client: TestClient) -> None:
-        """limit=1000 returns all 1,000 items in a single response."""
-        resp = client.get("/v1/porchlamp/leaderboard?limit=1000&offset=0")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["total"] == 1000
-        assert len(data["items"]) == 1000
-        assert data["items"][0]["rank"] == 1
-        assert data["items"][-1]["rank"] == 1000
-
-    def test_limit_zero_is_rejected_422(self, client: TestClient) -> None:
-        """limit=0 violates ge=1 constraint -> HTTP 422."""
-        resp = client.get("/v1/porchlamp/leaderboard?limit=0")
-        assert resp.status_code == 422
-
-    def test_limit_over_1000_is_rejected_422(self, client: TestClient) -> None:
-        """limit=1001 violates le=1000 constraint -> HTTP 422."""
-        resp = client.get("/v1/porchlamp/leaderboard?limit=1001")
-        assert resp.status_code == 422
-
-    def test_offset_zero_boundary(self, client: TestClient) -> None:
-        """offset=0 starts at rank 1."""
-        resp = client.get("/v1/porchlamp/leaderboard?limit=10&offset=0")
-        assert resp.status_code == 200
-        assert resp.json()["items"][0]["rank"] == 1
-
-    def test_offset_last_item_boundary(self, client: TestClient) -> None:
-        """offset=999 with limit=10 returns exactly 1 item at rank 1000."""
-        resp = client.get("/v1/porchlamp/leaderboard?limit=10&offset=999")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert len(data["items"]) == 1
-        assert data["items"][0]["rank"] == 1000
-
-    def test_offset_out_of_bounds_boundary(self, client: TestClient) -> None:
-        """offset=1000 beyond total returns empty items list gracefully (not 500)."""
-        resp = client.get("/v1/porchlamp/leaderboard?limit=10&offset=1000")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["total"] == 1000
-        assert data["items"] == []
-
-    def test_offset_negative_is_rejected_422(self, client: TestClient) -> None:
-        """offset=-1 violates ge=0 constraint -> HTTP 422."""
-        resp = client.get("/v1/porchlamp/leaderboard?offset=-1")
-        assert resp.status_code == 422
-
-
-# =========================================================================== #
-# Empty and Malformed Inputs
-# =========================================================================== #
-class TestEmptyAndMalformedInputs:
-    """Opaque-box handling of empty, whitespace, and non-matching queries."""
-
-    def test_empty_search_returns_unfiltered_leaderboard(self, client: TestClient) -> None:
-        """Empty search query string returns full catalog without error."""
-        resp = client.get("/v1/porchlamp/leaderboard?search=&limit=10")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["total"] == 1000
-        assert len(data["items"]) == 10
-
-    def test_whitespace_search_returns_unfiltered_leaderboard(self, client: TestClient) -> None:
-        """Search query containing only spaces is stripped and returns full catalog."""
-        resp = client.get("/v1/porchlamp/leaderboard?search=%20%20%20&limit=10")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["total"] == 1000
-
-    def test_search_with_no_matches_returns_empty_items(self, client: TestClient) -> None:
-        """Search term matching no repository returns total=0 and items=[]."""
-        resp = client.get("/v1/porchlamp/leaderboard?search=nonexistent_xyz_query_12345")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["total"] == 0
-        assert data["items"] == []
-
-    def test_min_stars_negative_is_rejected_422(self, client: TestClient) -> None:
-        """min_stars=-5 violates ge=0 constraint on /leaderboard and /matrix -> HTTP 422."""
-        resp_lb = client.get("/v1/porchlamp/leaderboard?min_stars=-5")
-        assert resp_lb.status_code == 422
-        resp_mat = client.get("/v1/porchlamp/matrix?min_stars=-1")
-        assert resp_mat.status_code == 422
-
-    def test_min_stars_extreme_threshold(self, client: TestClient) -> None:
-        """Very large min_stars threshold returns empty nodes list gracefully."""
-        resp = client.get("/v1/porchlamp/matrix?min_stars=999999999")
-        assert resp.status_code == 200
-        assert resp.json()["nodes"] == []
-
-
-# =========================================================================== #
-# Persona Weights Tolerance & Constraint Boundaries
-# =========================================================================== #
-class TestPersonaWeightsBoundaries:
-    """Validation boundaries for POST /v1/porchlamp/reproject."""
-
-    VALID_BASE = {
-        "responsiveness": 0.25,
-        "criticality": 0.25,
-        "governance": 0.20,
-        "rigor": 0.15,
-        "accessibility": 0.15,
-    }
-
-    def test_weights_summing_to_exact_1_accepted(self, client: TestClient) -> None:
-        """Exact sum 1.0 is accepted."""
-        resp = client.post("/v1/porchlamp/reproject", json={"weights": self.VALID_BASE})
-        assert resp.status_code == 200
-
-    def test_weights_sum_within_micro_tolerance_accepted(self, client: TestClient) -> None:
-        """Sum differing by <= 1e-6 (e.g. 1.0 + 5e-7) is accepted within floating tolerance."""
-        tolerated = dict(self.VALID_BASE, responsiveness=0.2500005)
-        resp = client.post("/v1/porchlamp/reproject", json={"weights": tolerated})
-        assert resp.status_code == 200
-
-    def test_weights_sum_exceeding_tolerance_rejected_422(self, client: TestClient) -> None:
-        """Sum differing by > 1e-6 (e.g. 1.0001) is rejected with HTTP 422."""
-        too_high = dict(self.VALID_BASE, responsiveness=0.2501)
-        resp = client.post("/v1/porchlamp/reproject", json={"weights": too_high})
-        assert resp.status_code == 422
-        assert "weights must sum to 1.0" in resp.text
-
-    def test_weights_missing_pillar_key_rejected_422(self, client: TestClient) -> None:
-        """Weight vector missing any of the 5 pillar keys is rejected with HTTP 422."""
-        incomplete = dict(self.VALID_BASE)
-        del incomplete["accessibility"]
-        incomplete["responsiveness"] = 0.40  # sum = 1.0, but missing key
-        resp = client.post("/v1/porchlamp/reproject", json={"weights": incomplete})
-        assert resp.status_code == 422
-        assert "missing=" in resp.text
-
-    def test_weights_extra_unknown_key_rejected_422(self, client: TestClient) -> None:
-        """Weight vector with extraneous keys is rejected with HTTP 422."""
-        extra = dict(self.VALID_BASE, vibes=0.0)
-        resp = client.post("/v1/porchlamp/reproject", json={"weights": extra})
-        assert resp.status_code == 422
-        assert "extra=" in resp.text
 
 
 # =========================================================================== #
