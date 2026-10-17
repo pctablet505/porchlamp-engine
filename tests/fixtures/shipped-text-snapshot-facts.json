@@ -2,19 +2,19 @@
  "snapshot_id": "2026-10-17",
  "benchmark_version": "2.0.0-rc1",
  "constants_hash": "6e4f3e8e1d0c0fcd829d9c8c386a65179eadb5f936595f96e9eba98712d55b94",
- "manifest_root": "d825b879161312b66aa75d561a7a57d28c7020b72b0c85a56729478a22a2d7b5",
+ "manifest_root": "f2eb5fc971de3fc0840b3bd1e828f229879a093ed03bfce8980cf0cec503da03",
  "reproduce_command": "python -m porchlamp.snapshot reproduce 2026-10-17",
  "total": 11000,
- "ranked": 4313,
+ "ranked": 4322,
  "gated": 5381,
- "unrated": 1306,
+ "unrated": 1297,
  "unrated_by_reason": {
-  "unrated: insufficient_evidence": 1135,
-  "unrated: no_external_workflow": 163,
+  "unrated: insufficient_evidence": 1194,
+  "unrated: no_external_workflow": 95,
   "unrated: off_platform_routed": 8
  },
  "coverage_floor": 60,
- "below_floor": 1135,
+ "below_floor": 1194,
  "judged": 3613,
  "black_holes": 720,
  "share": "19.9",
@@ -32,11 +32,11 @@
   "pr_windows": 10998
  },
  "lens_ranked": {
-  "ai_assisted": 4431,
-  "balanced": 4313,
-  "career_capital": 906,
+  "ai_assisted": 4440,
+  "balanced": 4322,
+  "career_capital": 907,
   "first_timer": 2132,
-  "senior_systems": 1322
+  "senior_systems": 1346
  },
  "ecosystems": 6,
  "parameters": 18,
@@ -107,7 +107,7 @@
    "7",
    "webdriverio/webdriverio",
    "npm",
-   "78.64",
+   "78.66",
    "81%",
    "A (capped)",
    "Sweet Spot"
@@ -125,7 +125,7 @@
    "9",
    "rust-lang/libc",
    "crates",
-   "78.57",
+   "78.58",
    "93%",
    "A (capped)",
    "Sweet Spot"
@@ -152,7 +152,7 @@
    "12",
    "kedacore/keda",
    "go",
-   "77.33",
+   "77.34",
    "93%",
    "A (capped)",
    "Sweet Spot"
@@ -161,7 +161,7 @@
    "13",
    "external-secrets/external-secrets",
    "go",
-   "76.93",
+   "76.94",
    "93%",
    "A (capped)",
    "Sweet Spot"
@@ -188,7 +188,7 @@
    "16",
    "vercel/next.js",
    "npm",
-   "76.13",
+   "76.14",
    "78%",
    "B (capped)",
    "Sweet Spot"

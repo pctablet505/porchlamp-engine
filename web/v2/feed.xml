@@ -18,7 +18,7 @@
     <link href="https://porchlamp.org/" rel="alternate" />
     <id>https://porchlamp.org/#snapshot-2026-10-17</id>
     <updated>2026-10-17T00:00:00Z</updated>
-    <summary>Six-month empirical audit of 615,200 pull requests from 148,801 outside contributors across 11,000 repositories in npm, PyPI, crates.io, Go, Maven, and Systems. 4,313 repositories ranked, 5,381 gated at Stage 0 (including 720 pull-request black holes), and 1,306 unrated (1,135 with &lt;60% parameter coverage, 163 with no outside pull-request workflow, 8 that review off GitHub).</summary>
+    <summary>Six-month empirical audit of 615,200 pull requests from 148,801 outside contributors across 11,000 repositories in npm, PyPI, crates.io, Go, Maven, and Systems. 4,322 repositories ranked, 5,381 gated at Stage 0 (including 720 pull-request black holes), and 1,297 unrated (1,194 with &lt;60% parameter coverage, 95 with no outside pull-request workflow, 8 that review off GitHub).</summary>
   </entry>
 
   <entry>
@@ -38,7 +38,7 @@
   </entry>
 
   <entry>
-    <title>Best Open-Source Projects for AI-Assisted Contributors (4,431 Ranked Repositories)</title>
+    <title>Best Open-Source Projects for AI-Assisted Contributors (4,440 Ranked Repositories)</title>
     <link href="https://porchlamp.org/?persona=ai_assisted" rel="alternate" />
     <id>https://porchlamp.org/?persona=ai_assisted</id>
     <updated>2026-10-17T00:00:00Z</updated>
@@ -58,6 +58,6 @@
     <link href="https://porchlamp.org/?tab=methodology" rel="alternate" />
     <id>https://porchlamp.org/?tab=methodology</id>
     <updated>2026-10-17T00:00:00Z</updated>
-    <summary>Complete specification of Porchlamp's 5 pillars, 18 parameters, coverage-based tier ceilings (D-MISS-3), Stage-0 gating rules, and deterministic reproduction hashes (constants_hash 6e4f3e8e1d0c…, manifest_root d825b8791613…).</summary>
+    <summary>Complete specification of Porchlamp's 5 pillars, 18 parameters, coverage-based tier ceilings (D-MISS-3), Stage-0 gating rules, and deterministic reproduction hashes (constants_hash 6e4f3e8e1d0c…, manifest_root f2eb5fc971de…).</summary>
   </entry>
 </feed>

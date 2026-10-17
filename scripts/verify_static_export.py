@@ -548,7 +548,7 @@ _FINDINGS = ("finding-share", "finding-stars", "finding-top100", "finding-correl
 def _report_sentences(
     *, sid: str, judged: int, black_holes: int, deadline: int, min_n: int, bands: list, top100_black_holes: int,
     top100_overlap: int, ranked: int, rho: float, unanswered: int, counted: int, corpus: dict, start: Optional[date],
-    end: Optional[date], ecosystems: list,
+    end: Optional[date], ecosystems: list, undecided: int = 0,
 ) -> dict[str, str]:
     """Every report sentence that carries a number, rebuilt here from the data (the page's text after tags are
     dropped; a finding ends with its ``#`` link). Written independently of ``report_pages``' templates, so a
@@ -608,6 +608,12 @@ def _report_sentences(
             f"reply, review or merge within {deadline} days."
         ),
     }
+    if undecided:
+        out["bullet-undecided"] = (
+            f"Another {fmt(undecided)} licensed, maintained projects with at least {min_n} outside pull requests on "
+            "record are not judged yet: those records were fetched before drafts and closes were recorded, and the "
+            "rules need both."
+        )
     if start is not None and end is not None:
         out["bullet-1"] = (
             f"We followed {fmt(corpus['human_outside_prs'])} pull requests from {fmt(corpus['distinct_outside_authors'])} "
@@ -757,7 +763,9 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         top100_black_holes=stats["top100_stars_fate"]["black_hole"], top100_overlap=stats["top100_overlap"],
         ranked=ranked, rho=stats["spearman"]["porchlamp"]["rho"], unanswered=unanswered, counted=counted,
         corpus=corpus, start=ds, end=de, ecosystems=[(rp.ECOSYSTEM_NAMES.get(e, e), *per_eco[e]) for e in eco_order],
+        undecided=stats.get("gate5_undecided_rule_inputs", 0),
     )
+    bullet_ids = ["bullet-1", "bullet-2", *(["bullet-undecided"] if "bullet-undecided" in expected else []), "bullet-3"]
     # the sentences that hold only for some numbers
     band_shares = [Decimal(b["black_holes"]) / Decimal(b["n"]) for _, b in bands]
     ledger.equal("'the share rises with stars' holds", all(a < b for a, b in zip(band_shares, band_shares[1:])), True)
@@ -795,10 +803,10 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         ])
         # how we measured
         bullets = _items(_section(page, "how-we-measured"))
-        ledger.equal(f"{w} how-we-measured bullet count", len(bullets), 5)
-        if len(bullets) == 5:
-            for number, bullet in enumerate(bullets[:3], 1):
-                ledger.equal(f"{w} how-we-measured bullet {number}", bullet, expected[f"bullet-{number}"])
+        ledger.equal(f"{w} how-we-measured bullet count", len(bullets), len(bullet_ids) + 2)
+        if len(bullets) == len(bullet_ids) + 2:
+            for ident, bullet in zip(bullet_ids, bullets):
+                ledger.equal(f"{w} how-we-measured {ident}", bullet, expected[ident])
         ledger.token(f"{w} download", _plain(_section(page, "download")), fmt(ranked))
         ledger.contains(f"{w} download", _plain(_section(page, "download")), f"porchlamp-{sid}-ranked.csv")
         cite = _plain(_section(page, "cite"))

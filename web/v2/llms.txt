@@ -6,19 +6,19 @@
 - **Dataset Scale:** 615,200 pull requests from 148,801 outside contributors tracked across 11,000 open-source repositories over six months across 6 ecosystems: `npm` (JavaScript/TypeScript), `pypi` (Python), `crates` (Rust), `go` (Go), `maven` (Java), and `systems` (C/C++/Zig).
 - **More than 1 in 6 Active Projects Are Black Holes:** Of 3,613 licensed, maintained software projects that received at least 10 outside pull requests in six months, 720 (`19.9%`) left the majority of stranger pull requests with no human reply, review, or merge within 14 days.
 - **More Stars, More Silence:** The black-hole rate increases with popularity: `16%` at 1k–10k stars, `25%` at 10k–50k stars, and `28%` at 50k+ stars (more than 1 in 4 of the most-starred repositories on GitHub).
-- **Stars Barely Predict Contributor Experience:** Across all 4,313 ranked projects, the rank correlation between GitHub stars and the Porchlamp score is `0.09`, and only `9` of the 100 most-starred projects make the top 100.
+- **Stars Barely Predict Contributor Experience:** Across all 4,322 ranked projects, the rank correlation between GitHub stars and the Porchlamp score is `0.09`, and only `9` of the 100 most-starred projects make the top 100.
 - **Universe Breakdown (11,000 Total):**
-  - `4,313` **Ranked (Rated)** under the default Balanced lens (`>=60%` parameter coverage and passing all Stage-0 gates).
+  - `4,322` **Ranked (Rated)** under the default Balanced lens (`>=60%` parameter coverage and passing all Stage-0 gates).
   - `5,381` **Gated (Stage 0):** Black holes, archived, unmaintained, unlicensed, or non-software repositories (listed transparently under Not Ranked, never ranked).
-  - `1,306` **Unrated:** Repositories passing Stage-0 gates but not ranked: `1,135` with `<60%` measured parameter coverage, `163` with no outside pull-request workflow, `8` that review off GitHub.
+  - `1,297` **Unrated:** Repositories passing Stage-0 gates but not ranked: `1,194` with `<60%` measured parameter coverage, `95` with no outside pull-request workflow, `8` that review off GitHub.
 - **Coverage Tier Ceilings:** Repositories with `<95%` parameter coverage have their tier capped (`A (capped)` for `[80%, 95%)`, `B (capped)` for `[60%, 80%)`) so missing data never inflates a rank tier.
 
 ## Static Pages (readable without JavaScript)
 - [Stars don't review pull requests: the state of open-source black holes (latest snapshot)](https://porchlamp.org/black-holes/)
 - [The same report, frozen for citation (Snapshot `2026-10-17`)](https://porchlamp.org/black-holes/2026-10-17/)
-- [CSV of the 4,313 ranked projects (CC BY 4.0)](https://porchlamp.org/black-holes/2026-10-17/porchlamp-2026-10-17-ranked.csv)
+- [CSV of the 4,322 ranked projects (CC BY 4.0)](https://porchlamp.org/black-holes/2026-10-17/porchlamp-2026-10-17-ranked.csv)
 - [Methodology: every gate, pillar, lens, weight and parameter](https://porchlamp.org/methodology/)
-- [Check any project: a search over the 4,313 ranked projects](https://porchlamp.org/check/)
+- [Check any project: a search over the 4,322 ranked projects](https://porchlamp.org/check/)
 
 ## One page per ranked project (readable without JavaScript)
 To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case).
@@ -51,28 +51,28 @@ Each page lists the top 50 projects of its cut, with score and tier, and each na
 4. `rust-lang/rust` (`crates`) — Score `80.15` · Coverage `61%` · Tier `B (capped)` · `Sweet Spot`
 5. `servo/rust-smallvec` (`crates`) — Score `79.43` · Coverage `94%` · Tier `A (capped)` · `Sweet Spot`
 6. `meshery/meshery` (`npm`) — Score `79.10` · Coverage `65%` · Tier `B (capped)` · `Sweet Spot`
-7. `webdriverio/webdriverio` (`npm`) — Score `78.64` · Coverage `81%` · Tier `A (capped)` · `Sweet Spot`
+7. `webdriverio/webdriverio` (`npm`) — Score `78.66` · Coverage `81%` · Tier `A (capped)` · `Sweet Spot`
 8. `prometheus/prometheus` (`go`) — Score `78.64` · Coverage `81%` · Tier `A (capped)` · `Sweet Spot`
-9. `rust-lang/libc` (`crates`) — Score `78.57` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
+9. `rust-lang/libc` (`crates`) — Score `78.58` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
 10. `kornia/kornia` (`pypi`) — Score `78.21` · Coverage `81%` · Tier `A (capped)` · `Sweet Spot`
 11. `freeCodeCamp/freeCodeCamp` (`npm`) — Score `77.64` · Coverage `65%` · Tier `B (capped)` · `Sweet Spot`
-12. `kedacore/keda` (`go`) — Score `77.33` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
-13. `external-secrets/external-secrets` (`go`) — Score `76.93` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
+12. `kedacore/keda` (`go`) — Score `77.34` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
+13. `external-secrets/external-secrets` (`go`) — Score `76.94` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
 14. `ant-design/ant-design` (`npm`) — Score `76.86` · Coverage `65%` · Tier `B (capped)` · `Sweet Spot`
 15. `organicmaps/organicmaps` (`systems`) — Score `76.45` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
-16. `vercel/next.js` (`npm`) — Score `76.13` · Coverage `78%` · Tier `B (capped)` · `Sweet Spot`
+16. `vercel/next.js` (`npm`) — Score `76.14` · Coverage `78%` · Tier `B (capped)` · `Sweet Spot`
 17. `moby/moby` (`go`) — Score `76.08` · Coverage `81%` · Tier `A (capped)` · `Sweet Spot`
 18. `apache/airflow` (`pypi`) — Score `76.05` · Coverage `61%` · Tier `B (capped)` · `Sweet Spot`
 19. `matplotlib/matplotlib` (`pypi`) — Score `75.72` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
 20. `onnx/onnx` (`pypi`) — Score `75.63` · Coverage `93%` · Tier `A (capped)` · `Sweet Spot`
 
 ## Canonical Views, Contributor Lenses & Ecosystem Filters
-- [Balanced Leaderboard (Default, 4,313 ranked)](https://porchlamp.org/)
+- [Balanced Leaderboard (Default, 4,322 ranked)](https://porchlamp.org/)
 - [First-Timer Persona (2,132 ranked)](https://porchlamp.org/?persona=first_timer)
-- [Career Capital Persona (906 ranked)](https://porchlamp.org/?persona=career_capital)
-- [Senior Systems Persona (1,322 ranked)](https://porchlamp.org/?persona=senior_systems)
-- [AI-Assisted Persona (4,431 ranked)](https://porchlamp.org/?persona=ai_assisted)
-- [Not Ranked — Gated & Unrated Repositories (5,381 gated + 1,306 unrated)](https://porchlamp.org/?tab=notranked)
+- [Career Capital Persona (907 ranked)](https://porchlamp.org/?persona=career_capital)
+- [Senior Systems Persona (1,346 ranked)](https://porchlamp.org/?persona=senior_systems)
+- [AI-Assisted Persona (4,440 ranked)](https://porchlamp.org/?persona=ai_assisted)
+- [Not Ranked — Gated & Unrated Repositories (5,381 gated + 1,297 unrated)](https://porchlamp.org/?tab=notranked)
 - [Leverage vs. Friction 2D Matrix](https://porchlamp.org/?tab=matrix)
 - [Side-by-Side Repository Comparator](https://porchlamp.org/?tab=compare)
 - [Custom Pillar Weight Configurator](https://porchlamp.org/?tab=configure)

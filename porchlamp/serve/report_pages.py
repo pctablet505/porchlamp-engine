@@ -179,6 +179,8 @@ class Facts:
     corpus_prs: int
     corpus_authors: int
     corpus_projects: int
+    #: Projects judged out for when their data was fetched: their PR records lack the fields the rules read.
+    undecided_rule_inputs: int
     min_n: int
     deadline_days: int
     ci_percent: int
@@ -350,6 +352,8 @@ def build_facts(
     corpus = stats["corpus"]
     if corpus["derived_repos"] != snapshot["counts"]["total"]:
         raise ReportError("the stats file's corpus size differs from the snapshot's project count")
+    if not isinstance(stats.get("gate5_undecided_rule_inputs"), int):
+        raise ReportError("the stats file has no gate5_undecided_rule_inputs: rebuild it with `porchlamp.snapshot stats`")
 
     facts = Facts(
         snapshot_id=snapshot_id,
@@ -377,6 +381,7 @@ def build_facts(
         corpus_prs=corpus["human_outside_prs"],
         corpus_authors=corpus["distinct_outside_authors"],
         corpus_projects=corpus["derived_repos"],
+        undecided_rule_inputs=stats["gate5_undecided_rule_inputs"],
         min_n=min_n,
         deadline_days=deadline_days,
         ci_percent=ci_percent,
@@ -585,6 +590,18 @@ def _bar_chart(rows: Sequence[tuple[str, str, Decimal, str]], summary: str, iden
     )
 
 
+def undecided_bullet(f: Facts) -> str:
+    """The measurement bullet that says how many projects were left undecided for when their data was fetched
+    (with its line break), or nothing when none was."""
+    if not f.undecided_rule_inputs:
+        return ""
+    return (
+        f"          <li>Another {fmt_int(f.undecided_rule_inputs)} licensed, maintained projects with at least {f.min_n} "
+        "outside pull requests on record are not judged yet: those records were fetched before drafts and closes "
+        "were recorded, and the rules need both.</li>\n"
+    )
+
+
 def finding_paragraphs(f: Facts) -> list[tuple[str, str, str]]:
     """``(id, bold lead, rest)`` of the five findings."""
     b1, b2, b3 = f.bands
@@ -783,7 +800,7 @@ def render_report(f: Facts, *, frozen: bool, exported_on: date, source_db_sha256
         <ul>
           <li>We followed {fmt_int(f.corpus_prs)} pull requests from {fmt_int(f.corpus_authors)} outside contributors to {fmt_int(f.corpus_projects)} GitHub projects, from {_t(start_text)} to {_t(end_text)}.</li>
           <li>A project is judged only when it is licensed, maintained software with at least {f.min_n} counted outside pull requests.</li>
-          <li>It is a black hole when, with {f.ci_percent}% confidence, more than half of those pull requests got no substantive reply, review or merge within {f.deadline_days} days.</li>
+{undecided_bullet(f)}          <li>It is a black hole when, with {f.ci_percent}% confidence, more than half of those pull requests got no substantive reply, review or merge within {f.deadline_days} days.</li>
           <li>Bots, drafts, pull requests their authors closed, brand-new accounts and the project's own members are not counted.</li>
           <li>Every parameter, gate and weight: <a href="{rel}methodology/">Porchlamp methodology</a>.</li>
         </ul>

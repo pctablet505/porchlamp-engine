@@ -1004,3 +1004,30 @@ def test_the_hand_written_facts_come_from_the_database_and_agree_with_the_stats(
     assert (facts["judged"], facts["black_holes"]) == (stats["gate5_decided"], stats["black_holes"])
     assert facts["below_floor"] <= facts["unrated"] and sum(facts["unrated_by_reason"].values()) == facts["unrated"]
     assert len(facts["top"]) == 20 and [row[0] for row in facts["top"]] == [str(n) for n in range(1, 21)]
+
+
+def test_projects_left_undecided_for_their_records_get_their_own_measurement_bullet(built):
+    """The stats file's gate5_undecided_rule_inputs is printed after the "judged only when" bullet, in the words the
+    verifier rebuilds on its own; none gives no bullet; a stats file without the count is refused."""
+    inputs = _inputs(built)
+
+    def bullets(count):
+        inputs["stats"]["gate5_undecided_rule_inputs"] = count
+        facts = report_pages.build_facts(**inputs)
+        page = report_pages.render_report(facts, frozen=False, exported_on=date(2026, 10, 17), source_db_sha256="a" * 64)
+        return facts, verify_static_export._items(verify_static_export._section(page, "how-we-measured"))
+
+    facts, with_count = bullets(1234)
+    rebuilt = verify_static_export._report_sentences(
+        sid="S", judged=10, black_holes=1, deadline=14, min_n=facts.min_n,
+        bands=[(key, {"n": 10, "black_holes": 1}) for key in report_pages.STAR_BANDS], top100_black_holes=0,
+        top100_overlap=0, ranked=1, rho=0.1, unanswered=1, counted=10, corpus={"derived_repos": 1}, start=None,
+        end=None, ecosystems=[], undecided=1234,
+    )
+    assert len(with_count) == 6 and with_count[2] == rebuilt["bullet-undecided"]
+    assert with_count[2].startswith("Another 1,234 licensed, maintained projects with at least 10 outside pull requests")
+    _facts, without = bullets(0)
+    assert len(without) == 5 and not any("not judged yet" in bullet for bullet in without)
+    del inputs["stats"]["gate5_undecided_rule_inputs"]
+    with pytest.raises(report_pages.ReportError, match="gate5_undecided_rule_inputs"):
+        report_pages.build_facts(**inputs)
