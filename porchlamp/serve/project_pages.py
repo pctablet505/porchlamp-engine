@@ -42,8 +42,6 @@ from porchlamp.serve.report_pages import (
     page,
 )
 
-#: How many projects the first sitemap lists (the rest are built and linked, and join later).
-SITEMAP_PROJECTS_LIMIT = 1000
 #: Similar projects shown on a page.
 SIMILAR_COUNT = 5
 #: The lens whose users the second answer sentence names.
@@ -593,12 +591,14 @@ def render_check(f: Facts, *, ranked: int, example: Mapping[str, Any]) -> str:
     )
 
 
-def sitemap_projects(index: ProjectIndex, as_of: date, limit: int = SITEMAP_PROJECTS_LIMIT) -> str:
-    """``sitemap-projects.xml``: the top ``limit`` projects by balanced rank, each with the snapshot's ``as_of`` date."""
+def sitemap_projects(index: ProjectIndex, as_of: date) -> str:
+    """``sitemap-projects.xml``: every ranked project's page in balanced-rank order, each with the snapshot's ``as_of`` date.
+
+    One file holds them all: a sitemap may list 50,000 addresses."""
     stamp = as_of.isoformat()
     urls = "".join(
         f"  <url>\n    <loc>{escape(project_url(owner, name), quote=False)}</loc>\n    <lastmod>{stamp}</lastmod>\n  </url>\n"
-        for owner, name in index.keys[:limit]
+        for owner, name in index.keys
     )
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'

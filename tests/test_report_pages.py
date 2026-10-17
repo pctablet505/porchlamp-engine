@@ -736,21 +736,27 @@ def test_no_two_ranked_projects_share_a_lower_case_address(built):
         project_pages.project_path("acme", "..")
 
 
-def test_the_project_sitemap_lists_the_top_projects_by_rank_with_the_data_date(built):
+def test_the_project_sitemap_lists_every_ranked_project_by_rank_with_the_data_date(built, project_index):
     site, db, _stats_path, _stats, _holes = built
     text = _page(site, "sitemap-projects.xml")
     locs = re.findall(r"<loc>([^<]+)</loc>", text)
-    assert len(locs) == min(len(_ranked(db)), project_pages.SITEMAP_PROJECTS_LIMIT)
+    assert len(locs) == len(_ranked(db))
+    assert locs == [project_pages.project_url(o, n) for o, n in project_index.keys]
     assert len(set(re.findall(r"<lastmod>([^<]+)</lastmod>", text))) == 1
     top_row = json.loads(_page(site, "check/projects.json"))[0]
     assert locs[0] == f"https://porchlamp.org/projects/{top_row.lower()}/"
 
 
-def test_the_sitemap_limit_cuts_the_list_and_keeps_the_rank_order(project_index):
-    index = project_index
-    short = project_pages.sitemap_projects(index, date(2026, 10, 13), limit=3)
-    assert re.findall(r"<loc>([^<]+)</loc>", short) == [project_pages.project_url(o, n) for o, n in index.keys[:3]]
-    assert "<lastmod>2026-10-13</lastmod>" in short
+def test_the_project_sitemap_has_no_cap_beyond_a_thousand_projects():
+    """Search engines find a project page through the sitemap, so every ranked project is listed, in rank order."""
+    count = 1_200
+    rows = [{"owner": f"owner{i}", "name": f"repo{i}", "rank": i, "ecosystem": "python"} for i in range(1, count + 1)]
+    boards = {lens: {"rows": rows, "total": count} for lens in project_pages.LENS_ORDER}
+    index = project_pages.ProjectIndex(boards, project_pages.Copy.load())
+    text = project_pages.sitemap_projects(index, date(2026, 10, 13))
+    locs = re.findall(r"<loc>([^<]+)</loc>", text)
+    assert locs == [project_pages.project_url(f"owner{i}", f"repo{i}") for i in range(1, count + 1)]
+    assert re.findall(r"<lastmod>([^<]+)</lastmod>", text) == ["2026-10-13"] * count
 
 
 @pytest.fixture(scope="module")
