@@ -22,12 +22,19 @@ Run:
     .venv/bin/python scripts/serve.py                        # data/cvi.db, port 8000
     .venv/bin/python scripts/serve.py --db /path/porchlamp.db
     PORT=8765 .venv/bin/python scripts/serve.py              # port override
+
+``--site <dir>`` instead previews an exported static site (``scripts/export_static.py --out``) the way GitHub
+Pages serves it (:class:`StaticSiteHandler`), so every view's address and ``404.html`` behave as they will live:
+    .venv/bin/python scripts/serve.py --site /tmp/site --port 8796
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
+import http.server
 import os
+from http import HTTPStatus
 from pathlib import Path
 from typing import Optional
 
@@ -39,6 +46,7 @@ from porchlamp.serve.guard import count_repos, refusal_reasons, run_guard
 __all__ = [
     "count_repos",
     "refusal_reasons",
+    "StaticSiteHandler",
     "main",
 ]
 
@@ -48,6 +56,47 @@ _REPO_ROOT: Path = Path(__file__).resolve().parent.parent
 #: construction, only requests for a page it cannot find.
 _WEB_APP_DIR: Path = _REPO_ROOT / "web" / "app"
 _DEFAULT_DB: str = str(_REPO_ROOT / "data" / "porchlamp.db")
+
+
+class StaticSiteHandler(http.server.SimpleHTTPRequestHandler):
+    """An exported site, answered the way GitHub Pages answers it: a file at its path, a directory's ``index.html``
+    at the directory's address (a path without its closing slash is redirected there), and ``404.html`` with status
+    404 for an address with no file, where the app shows a project's side panel or "page not found". A directory
+    without ``index.html`` is an address with no file: Pages lists no directory. Nothing is cached, so a preview
+    always shows the latest export."""
+
+    def end_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def log_message(self, format, *args) -> None:  # the base class's signature; a preview's requests are not worth logging
+        pass
+
+    def list_directory(self, path):
+        self.send_error(HTTPStatus.NOT_FOUND)
+        return None
+
+    def send_error(self, code, message=None, explain=None) -> None:
+        page = Path(self.directory) / "404.html"
+        if code != HTTPStatus.NOT_FOUND or not page.is_file():
+            super().send_error(code, message, explain)
+            return
+        body = page.read_bytes()
+        self.send_response(HTTPStatus.NOT_FOUND)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+
+def serve_site(site: Path, port: int) -> None:
+    """Preview an exported site on loopback (:class:`StaticSiteHandler`) until interrupted."""
+    if not (site / "index.html").is_file():
+        raise SystemExit(f"No exported site at {site!s} (it has no index.html). Run scripts/export_static.py first.")
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), functools.partial(StaticSiteHandler, directory=str(site)))
+    print(f"Porchlamp site preview: http://127.0.0.1:{port}/ ({site})")
+    server.serve_forever()
 
 
 def main(argv: Optional[list[str]] = None) -> None:
@@ -65,7 +114,17 @@ def main(argv: Optional[list[str]] = None) -> None:
         default=int(os.environ.get("PORT", 8000)),
         help="Port to serve on (default: $PORT or 8000).",
     )
+    parser.add_argument(
+        "--site",
+        default=None,
+        help="An exported static site (scripts/export_static.py --out) to preview the way GitHub Pages serves it, "
+        "instead of the API and the database.",
+    )
     args = parser.parse_args(argv)
+
+    if args.site is not None:
+        serve_site(Path(args.site), args.port)
+        return
 
     if not Path(args.db).exists() and args.db != ":memory:":
         raise SystemExit(

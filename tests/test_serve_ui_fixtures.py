@@ -89,7 +89,7 @@ class TestHealthAndStatic:
         resp = httpx.get(f"{server_url}/")
         assert resp.status_code == 200
         assert "<!doctype html>" in resp.text.lower()
-        assert 'src="app.js"' in resp.text
+        assert 'src="/app.js"' in resp.text  # from the site root: the app runs at every view's address
 
     def test_app_js_served_as_javascript(self, server_url: str) -> None:
         resp = httpx.get(f"{server_url}/app.js")

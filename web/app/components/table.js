@@ -8,6 +8,7 @@
 import * as copy from "../copy.js";
 import { renderCoverageBadge, renderQuadrant, renderSuspicionIcon, renderTierCell } from "./badge.js";
 import { renderSparkbarGroup } from "./sparkbar.js";
+import { projectPath } from "../routes.js";
 
 export const PILLAR_ORDER = ["responsiveness", "criticality", "governance", "rigor", "accessibility"];
 
@@ -252,7 +253,7 @@ export function repoLinkHtml(row, onLens = false) {
     `<span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span>`;
   const hasProjectPage = !onLens || (row.balanced_rank !== null && row.balanced_rank !== undefined);
   if (!hasProjectPage) return name;
-  return `<a class="repo-link" href="${escapeHtml(copy.projectPath(row.owner, row.name))}">${name}</a>`;
+  return `<a class="repo-link" href="${escapeHtml(projectPath(row.owner, row.name))}">${name}</a>`;
 }
 
 /** A click that is only "go here" in this tab: the left button, no modifier key. */

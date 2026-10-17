@@ -28,8 +28,12 @@ import * as copy from "./copy.js";
 import * as api from "./api.js";
 import {
   createStore,
-  parseSearch,
-  serializeSearch,
+  stateFromLocation,
+  serializeLocation,
+  historyEntryFor,
+  redirectTarget,
+  hrefFor,
+  titleForState,
   requestSignature,
   readPersistedTheme,
   writePersistedTheme,
@@ -70,8 +74,10 @@ import { renderDrawer, classifyKindForLens } from "./views/drawer.js";
 import { parseRepoSlug, runLiveCheck } from "./livecheck.js";
 import { renderBrand } from "./components/brand.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
-import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel, sortColumnLabel, syncHeaderSortDom } from "./components/table.js";
+import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel, sortColumnLabel, syncHeaderSortDom, isPlainLeftClick } from "./components/table.js";
 import { renderPrimaryNav, syncPrimaryNav, centerActiveTab } from "./components/primarynav.js";
+import { matchRoute, routePath } from "./routes.js";
+import { renderShell as renderNotFoundShell } from "./views/notfound.js";
 import {
   renderShell as renderMatrixShell,
   shellShape as matrixShellShape,
@@ -116,11 +122,20 @@ function escapeHtml(value) {
 }
 
 export function boot(win = window, doc = document) {
+  // An old query link (`?tab=`, `?repo=`, `#methodology`) or a project address in another letter case goes to
+  // the view's own address first (state.js redirectTarget): loaded afresh, or, for a panel, opened in place.
+  const redirect = redirectTarget(win.location.pathname, win.location.search, win.location.hash);
+  if (redirect && redirect.load) {
+    win.location.replace(redirect.href);
+    return null;
+  }
+  if (redirect) win.history.replaceState({ under: redirect.under, repo: redirect.repo }, "", redirect.href);
+
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const signal = controller ? controller.signal : undefined;
   const listenerOpts = (opts = {}) => (signal ? { ...opts, signal } : opts);
 
-  const store = createStore(win.location.search);
+  const store = createStore(stateFromLocation(win.location.pathname, win.location.search, win.history.state));
 
   const header = doc.getElementById("app-header-controls");
   const main = doc.getElementById("app-main");
@@ -139,6 +154,7 @@ export function boot(win = window, doc = document) {
   let currentConfigureShape = null;
   let currentCompareShape = null;
   let currentMethodologyShape = null;
+  let currentNotFoundShape = null;
   let scrollPatchScheduled = false;
   let wasDrawerOpen = false;
   let wasKeymapOpen = false;
@@ -197,7 +213,8 @@ export function boot(win = window, doc = document) {
 
   // ------------------------------------------------------ Primary nav
   function buildPrimaryNavOnce() {
-    primaryNav.innerHTML = renderPrimaryNav(store.getState().tab);
+    primaryNav.setAttribute("aria-label", copy.PRIMARY_NAV_LABEL);
+    primaryNav.innerHTML = renderPrimaryNav(store.getState());
     centerActiveTab(primaryNav);
   }
 
@@ -267,9 +284,9 @@ export function boot(win = window, doc = document) {
       `<span data-footer-hash="true"></span>` +
       `<span data-footer-manifest="true"></span>` +
       `<button type="button" class="icon-button" data-footer-retry="true" hidden>${escapeHtml(copy.RETRY_LABEL)}</button>` +
-      `<a href="#methodology" data-footer-verify="true">${escapeHtml(copy.FOOTER_VERIFY_LABEL)}</a>` +
+      `<a href="${escapeHtml(routePath("methodology"))}" data-route-tab="methodology" data-footer-verify="true">${escapeHtml(copy.FOOTER_VERIFY_LABEL)}</a>` +
       `<a href="${escapeHtml(copy.REPORT_PAGE_HREF)}" data-footer-report="true">${escapeHtml(copy.FOOTER_REPORT_LABEL)}</a>` +
-      `<a href="${escapeHtml(copy.METHODOLOGY_PAGE_HREF)}" data-footer-methodology-page="true">${escapeHtml(copy.FOOTER_METHODOLOGY_LABEL)}</a>`;
+      `<a href="${escapeHtml(routePath("methodology"))}" data-route-tab="methodology" data-footer-methodology-page="true">${escapeHtml(copy.FOOTER_METHODOLOGY_LABEL)}</a>`;
   }
 
   /**
@@ -374,11 +391,11 @@ export function boot(win = window, doc = document) {
     // The Ranked tab count is lens-dependent too (it must equal the row
     // count the pager reports), so it has to be synced here as well.
     const rankedCount = personaVisibleForState(state);
-    const rankedCountEl = main.querySelector('[data-tab="ranked"] .count');
+    const rankedCountEl = main.querySelector('[data-route-tab="ranked"] .count');
     if (rankedCountEl && typeof rankedCount === "number" && rankedCountEl.textContent !== String(rankedCount)) {
       rankedCountEl.textContent = String(rankedCount);
     }
-    const notRankedCountEl = main.querySelector('[data-tab="notranked"] .count');
+    const notRankedCountEl = main.querySelector('[data-route-tab="notranked"] .count');
     if (notRankedCountEl) {
       const notRankedCount = state.notRanked
         ? flattenGroups(state.notRanked, { ecosystem: state.ecosystem, query: state.query }).length
@@ -445,6 +462,7 @@ export function boot(win = window, doc = document) {
     if (keep !== "configure") currentConfigureShape = null;
     if (keep !== "compare") currentCompareShape = null;
     if (keep !== "methodology") currentMethodologyShape = null;
+    if (keep !== "notfound") currentNotFoundShape = null;
   }
 
   /**
@@ -488,15 +506,26 @@ export function boot(win = window, doc = document) {
   }
 
   function syncView(state) {
+    if (state.tab === "notfound") {
+      const shape = state.missingPath || "";
+      if (currentTab !== "notfound" || shape !== currentNotFoundShape) {
+        main.innerHTML = renderNotFoundShell(state);
+        currentTab = "notfound";
+        currentNotFoundShape = shape;
+        forgetOtherShapes("notfound");
+      }
+      return;
+    }
+
     if (state.tab === "notranked") {
       const key = notRankedRebuildKey(state);
       if (currentTab !== "notranked" || key !== currentNotRankedShape) {
         const focusedSubTab =
           doc.activeElement && main.contains(doc.activeElement)
-            ? doc.activeElement.getAttribute?.("data-sub-tab")
+            ? doc.activeElement.getAttribute?.("data-route-tab")
             : null;
         main.innerHTML = renderNotRankedShell(state);
-        if (focusedSubTab) main.querySelector(`[data-sub-tab="${focusedSubTab}"]`)?.focus();
+        if (focusedSubTab) main.querySelector(`[data-route-tab="${focusedSubTab}"]`)?.focus();
         currentTab = "notranked";
         currentNotRankedShape = key;
         forgetOtherShapes("notranked");
@@ -571,10 +600,10 @@ export function boot(win = window, doc = document) {
     if (currentTab !== "ranked" || shellKey !== currentShellShape) {
       const focusedSubTab =
         doc.activeElement && main.contains(doc.activeElement)
-          ? doc.activeElement.getAttribute?.("data-sub-tab")
+          ? doc.activeElement.getAttribute?.("data-route-tab")
           : null;
       main.innerHTML = renderShell(state, viewport);
-      if (focusedSubTab) main.querySelector(`[data-sub-tab="${focusedSubTab}"]`)?.focus();
+      if (focusedSubTab) main.querySelector(`[data-route-tab="${focusedSubTab}"]`)?.focus();
       currentTab = "ranked";
       currentShellShape = shellKey;
       forgetOtherShapes("ranked");
@@ -621,21 +650,22 @@ export function boot(win = window, doc = document) {
   }
 
   // ------------------------------------------------------------- URL sync
-  // URL sync: persona/eco/sort/page/page_size/tab/repo changes are each a real
-  // navigation step (pushState); `q` while typing is not — debounced
-  // keystrokes use replaceState, and only an explicit commit (Enter or
-  // blur) creates a pushState history entry.
+  // URL sync: the address names the view and its fields (state.js
+  // serializeLocation). A view change, an opened or closed panel, and a
+  // persona/eco/sort/page/page_size change are each a real navigation step
+  // (pushState); `q` while typing is not — debounced keystrokes use
+  // replaceState, and only an explicit commit (Enter or blur) creates a
+  // pushState history entry. An open panel's entry records the view under it
+  // (historyEntryFor), so Back and Forward bring back both.
   function pushUrl(state, opts = {}) {
-    const search = serializeSearch(state);
-    const target = `${win.location.pathname}${search}`;
+    const target = serializeLocation(state);
     const current = `${win.location.pathname}${win.location.search}`;
     if (opts.force || target !== current) {
-      win.history.pushState(null, "", target);
+      win.history.pushState(historyEntryFor(state), "", target);
     }
   }
   function replaceUrl(state) {
-    const search = serializeSearch(state);
-    win.history.replaceState(null, "", `${win.location.pathname}${search}`);
+    win.history.replaceState(historyEntryFor(state), "", serializeLocation(state));
   }
 
   // --------------------------------------------------------------- Loaders
@@ -1017,12 +1047,15 @@ export function boot(win = window, doc = document) {
 
   // ------------------------------------------------------------- Rendering
   // The README badge's Markdown must point at the public site, not at whichever
-  // host served this page: index.html names it (og:url, then rel=canonical); this
-  // page's own directory is the fallback for a copy that names neither.
-  const siteBaseUrl =
+  // host served this page: the page names it (og:url, then rel=canonical, whose
+  // root is the site's, at any view's address); this host's root is the fallback
+  // for a page that names neither (404.html).
+  const siteBaseUrl = new URL(
+    "/",
     doc.querySelector('meta[property="og:url"]')?.getAttribute("content") ||
-    doc.querySelector('link[rel="canonical"]')?.getAttribute("href") ||
-    new URL(".", win.location.href).href;
+      doc.querySelector('link[rel="canonical"]')?.getAttribute("href") ||
+      win.location.href
+  ).href;
 
   function renderDrawerAndKeymap(state) {
     const drawerHtml = renderDrawer(state, { siteBaseUrl });
@@ -1044,6 +1077,7 @@ export function boot(win = window, doc = document) {
       let restoreSummaryIndex = -1;
       if (focusWasInDrawer && doc.activeElement) {
         if (doc.activeElement.matches?.("[data-badge-copy]")) restoreSelector = "[data-badge-copy]";
+        else if (doc.activeElement.matches?.("[data-drawer-page]")) restoreSelector = "[data-drawer-page]";
         else if (doc.activeElement.matches?.("[data-drawer-compare]")) restoreSelector = "[data-drawer-compare]";
         else if (doc.activeElement.matches?.(".drawer-github-link")) restoreSelector = ".drawer-github-link";
         else if (doc.activeElement.matches?.("[data-repo-detail-retry]")) restoreSelector = "[data-repo-detail-retry]";
@@ -1097,12 +1131,23 @@ export function boot(win = window, doc = document) {
     wasKeymapOpen = !!state.keymapOpen;
   }
 
+  /** The Ranked/Not ranked links (and any other link to a view) keep naming where they go from the reader's state. */
+  function syncRouteLinks(state) {
+    for (const link of main.querySelectorAll("a[data-route-tab]")) {
+      const href = hrefFor(state, link.getAttribute("data-route-tab"));
+      if (link.getAttribute("href") !== href) link.setAttribute("href", href);
+    }
+  }
+
   function render() {
     const state = store.getState();
+    const title = titleForState(state);
+    if (doc.title !== title) doc.title = title;
     syncHeaderControls(state);
     syncFooter(state);
-    syncPrimaryNav(primaryNav, state.tab);
+    syncPrimaryNav(primaryNav, state);
     syncView(state);
+    syncRouteLinks(state);
     renderDrawerAndKeymap(state);
   }
 
@@ -1208,22 +1253,34 @@ export function boot(win = window, doc = document) {
     loadDataForTab(tab);
   }
 
-  primaryNav.addEventListener("click", (evt) => {
-    const btn = evt.target.closest("[data-primary-tab]");
-    if (btn) goToTab(btn.dataset.primaryTab);
-  });
+  // A plain click on a link to a view the app draws opens it in place (pushState), so the page never reloads
+  // between views; every other link, and a ctrl, cmd, shift, alt or middle click, is left to the browser. A
+  // nav or Ranked/Not ranked link (`data-route-tab`) opens its view with its own page and sort (`goToTab`,
+  // whose address is the link's href); any other view link opens exactly its address.
+  doc.addEventListener("click", (evt) => {
+    if (evt.defaultPrevented || !isPlainLeftClick(evt)) return;
+    const link = evt.target && typeof evt.target.closest === "function" ? evt.target.closest("a[href]") : null;
+    if (!link || (link.target && link.target !== "_self") || link.hasAttribute("download")) return;
+    const url = new URL(link.getAttribute("href"), win.location.href);
+    if (url.origin !== win.location.origin) return;
+    if (url.hash && url.pathname === win.location.pathname && url.search === win.location.search) return;
+    const { route } = matchRoute(url.pathname);
+    if (!route.shell) return;
+    evt.preventDefault();
+    const tab = link.getAttribute("data-route-tab");
+    if (tab === route.id) {
+      const hadFocus = doc.activeElement === link && main.contains(link);
+      goToTab(tab);
+      if (hadFocus) main.querySelector(`[data-route-tab="${CSS.escape(tab)}"]`)?.focus();
+      return;
+    }
+    navigateTo(`${url.pathname}${url.search}`);
+  }, listenerOpts());
 
-  // The footer's retry button (shown only while snapshotError is set)
-  // and the "verify" link, which routes to the Methodology screen
-  // instead of a bare same-page anchor jump.
+  // The footer's retry button (shown only while snapshotError is set).
   footer.addEventListener("click", (evt) => {
     if (evt.target.closest("[data-footer-retry]")) {
       loadSnapshot();
-      return;
-    }
-    if (evt.target.closest("[data-footer-verify]")) {
-      evt.preventDefault();
-      goToTab("methodology");
     }
   });
 
@@ -1480,23 +1537,6 @@ export function boot(win = window, doc = document) {
     }
     if (evt.target.closest("[data-search-notranked]")) return goToTab("notranked");
     if (evt.target.closest("[data-search-ranked]")) return goToTab("ranked");
-    if (evt.target.closest("[data-onboarding-methodology]")) {
-      evt.preventDefault();
-      goToTab("methodology");
-      return;
-    }
-    const tabBtn = evt.target.closest("[data-tab]");
-    if (tabBtn) {
-      const tab = tabBtn.dataset.tab;
-      const tabHadFocus = doc.activeElement === tabBtn;
-      store.dispatch({ type: "SET_TAB", tab });
-      pushUrl(store.getState());
-      loadDataForTab(tab);
-      if (tabHadFocus) {
-        main.querySelector(`[data-tab="${CSS.escape(tab)}"]`)?.focus();
-      }
-      return;
-    }
     const sortHeader = evt.target.closest("[data-sort-field]");
     if (sortHeader) {
       const field = sortHeader.dataset.sortField;
@@ -1647,10 +1687,10 @@ export function boot(win = window, doc = document) {
 
     // ------------------------------------------------ Methodology (F)
     // The "On this page" index (and the snapshot's detector-flag links).
-    // Handled here rather than as a plain #fragment jump: routing lives in
-    // the query string, and a fragment navigation would push a history
-    // entry the router does not own. Focus follows the scroll so keyboard
-    // and screen-reader users continue from the section they chose.
+    // Handled here rather than as a plain #fragment jump: a fragment
+    // navigation would push a history entry the router does not own. Focus
+    // follows the scroll so keyboard and screen-reader users continue from
+    // the section they chose.
     const docJump = evt.target.closest("[data-doc-jump]");
     if (docJump) {
       const target = doc.getElementById(docJump.getAttribute("data-doc-jump"));
@@ -1926,31 +1966,6 @@ export function boot(win = window, doc = document) {
       return;
     }
 
-    if (
-      !s.repo &&
-      !s.keymapOpen &&
-      (evt.key === "ArrowLeft" || evt.key === "ArrowRight" || evt.key === "Home" || evt.key === "End") &&
-      doc.activeElement?.getAttribute?.("role") === "tab"
-    ) {
-      const tablist = doc.activeElement.closest?.('[role="tablist"]');
-      if (tablist) {
-        const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
-        const idx = tabs.indexOf(doc.activeElement);
-        if (idx !== -1 && tabs.length > 0) {
-          evt.preventDefault();
-          let nextIdx = idx;
-          if (evt.key === "ArrowRight") nextIdx = (idx + 1) % tabs.length;
-          else if (evt.key === "ArrowLeft") nextIdx = (idx - 1 + tabs.length) % tabs.length;
-          else if (evt.key === "Home") nextIdx = 0;
-          else if (evt.key === "End") nextIdx = tabs.length - 1;
-          const nextTabEl = tabs[nextIdx];
-          nextTabEl.focus();
-          nextTabEl.click();
-          return;
-        }
-      }
-    }
-
     const action = actionForKeyEvent(evt, { isInputFocused, isInteractiveFocused });
     if (!action) return;
 
@@ -2205,7 +2220,11 @@ export function boot(win = window, doc = document) {
     main.querySelector(`[data-owner="${CSS.escape(owner)}"][data-name="${CSS.escape(name)}"]`)?.focus();
   }
 
-  win.addEventListener("popstate", () => {
+  /**
+   * Shows what an address names (`stateFromLocation`): on Back and Forward (popstate), and for a link to a view
+   * that is not a plain view switch (`navigateTo`).
+   */
+  function applyLocationState(located) {
     clearTimeout(searchDebounce);
     clearTimeout(reprojectDebounce);
     clearTimeout(compareSearchDebounce);
@@ -2214,19 +2233,18 @@ export function boot(win = window, doc = document) {
     compareSearchDebounce = null;
     searchDirty = false;
     const previousState = store.getState();
-    // popstate must be able to CLEAR a param that is absent from the new
-    // URL (e.g. navigating from ?eco=pypi back to no eco at all), so every
-    // URL-owned field is reset to its default before re-applying whatever
-    // parseSearch finds in the new location.
+    // An address must be able to CLEAR a field it does not name (e.g.
+    // going from ?eco=pypi back to no eco at all), so every address-owned
+    // field is reset to its default before re-applying what the address names.
     const defaults = {
       persona: "balanced", ecosystem: "", query: "", sort: "rank",
-      page: 1, pageSize: DEFAULT_PAGE_SIZE, tab: "ranked", repo: null,
+      page: 1, pageSize: DEFAULT_PAGE_SIZE, tab: "ranked", repo: null, missingPath: null,
       weights: { ...BALANCED_WEIGHTS }, compareRepos: [],
     };
     store.dispatch({
       type: "SET_PARAMS",
       resetTabSlices: true,
-      payload: { ...defaults, ...parseSearch(win.location.search) },
+      payload: { ...defaults, ...located },
     });
     const s = store.getState();
     const paramsChanged =
@@ -2243,7 +2261,18 @@ export function boot(win = window, doc = document) {
     const weightsChanged = PILLAR_IDS.some((p) => s.weights[p] !== previousState.weights[p]);
     if (weightsChanged || (s.tab === "configure" && !s.reproject)) runReproject();
     loadDataForTab(s.tab);
+  }
+
+  win.addEventListener("popstate", (evt) => {
+    applyLocationState(stateFromLocation(win.location.pathname, win.location.search, evt.state));
   }, listenerOpts());
+
+  /** Opens the address of a link to a view in place, as a new history entry. */
+  function navigateTo(href) {
+    const cut = href.indexOf("?");
+    applyLocationState(stateFromLocation(cut < 0 ? href : href.slice(0, cut), cut < 0 ? "" : href.slice(cut), null));
+    pushUrl(store.getState());
+  }
 
   win.addEventListener("resize", () => {
     syncStickyOffsets();
@@ -2287,7 +2316,7 @@ export function boot(win = window, doc = document) {
   const initialTab = initialState.tab;
   if (initialTab === "ranked" || initialTab === "notranked") loadLeaderboard();
   loadDataForTab(initialTab);
-  // U-7/U-15/U-16: a drawer opened straight from a URL (?repo=owner/name,
+  // U-7/U-15/U-16: a drawer opened straight from an address (/projects/<owner>/<name>/,
   // no click ever happened) must fetch the same record+evidence a
   // click-opened one does — see repoToLoadFromState's own docstring.
   // `openRepo` is not reused here because the URL is already authoritative

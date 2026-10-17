@@ -6,6 +6,9 @@
 // tests/test_ui_copy_usage.py enumerates every exported name in this file (via a
 // source-level parse, not execution) and asserts each one is referenced
 // somewhere under web/app/, so no string here is dead/orphaned copy.
+// The document titles of the views are in routes.js, with the addresses they name.
+
+import { projectPath } from "./routes.js";
 
 export const BRAND_NAME = "Porchlamp";
 /** The slogan, beside the brand in the header (hidden on narrow screens). */
@@ -443,6 +446,8 @@ export const PLAYBOOK_STUB_TEXT =
   "Action recommendations are not computed by this snapshot yet.";
 export const DRAWER_CLOSE_LABEL = "Close";
 export const DRAWER_COMPARE_LABEL = "Compare";
+/** The link from a ranked project's side panel to its own page (the same address, loaded as a page). */
+export const DRAWER_PAGE_LABEL = "Full page →";
 export const DRAWER_NO_EVIDENCE_TEXT = "No detailed evidence telemetry recorded for this repository.";
 export const DRAWER_LOADING_TEXT = "Loading evidence…";
 export const DRAWER_NOT_FOUND_TEXT = "This repository could not be found in the current snapshot.";
@@ -630,6 +635,15 @@ export const FOOTER_CONSTANTS_HASH_LABEL = "Constants hash";
 export const FOOTER_MANIFEST_ROOT_LABEL = "Manifest root";
 
 export const SKIP_LINK_LABEL = "Skip to main content";
+
+// --- An address no view answers (404.html runs the app there) -------------------------------------------
+export const NOT_FOUND_HEADING = "Page not found";
+export function notFoundText(path) {
+  return `Porchlamp has no page at ${path}.`;
+}
+export const NOT_FOUND_SEARCH_LABEL = "Search the ranked projects";
+export const NOT_FOUND_SEARCH_BUTTON = "Search";
+export const NOT_FOUND_HOME_LINK = "See the rankings";
 export const MAIN_LANDMARK_LABEL = "Porchlamp leaderboard and repository detail";
 
 
@@ -1043,13 +1057,13 @@ export const ONBOARDING_SUBTITLE =
   "Evidence-based open-source repository ranking across 5 pillars: Responsiveness, Criticality, Governance, Rigor, and Accessibility.";
 export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";
 
-// --- Links to the static report and methodology pages (scripts/export_static.py --stats) ---------------
-// Relative, so they work from the site root and from a local copy. Real <a href> elements: a crawler that
-// runs the app finds the finding and the link to its page without a click.
+// --- Link to the static report page (scripts/export_static.py --stats) ---------------------------------
+// From the site root, since the app runs at every view's address. A real <a href> element: a crawler that
+// runs the app finds the finding and the link to its page without a click. (The methodology page's address
+// is in routes.js.)
 export const FINDINGS_LINE = "More than 1 in 6 active projects leave most strangers' pull requests unanswered for two weeks.";
 export const FINDINGS_LINK_LABEL = "Read the findings";
-export const REPORT_PAGE_HREF = "black-holes/";
-export const METHODOLOGY_PAGE_HREF = "methodology/";
+export const REPORT_PAGE_HREF = "/black-holes/";
 export const FOOTER_REPORT_LABEL = "Report";
 export const FOOTER_METHODOLOGY_LABEL = "Methodology";
 
@@ -1115,17 +1129,6 @@ export function maintainerBadgeSpec(row) {
 }
 
 /**
- * The address, relative to the site root, of a ranked project's own page: the
- * exporter writes `projects/<owner>/<name>/` in lower case
- * (porchlamp/serve/project_pages.py `project_path`). GitHub names have no
- * characters that need escaping; the encoding is a guard.
- */
-export function projectPath(owner, name) {
-  const part = (value) => encodeURIComponent(String(value).toLowerCase()).replace(/[()]/g, (ch) => (ch === "(" ? "%28" : "%29"));
-  return `projects/${part(owner)}/${part(name)}/`;
-}
-
-/**
  * The README Markdown: the badge image, linked to the project's own page on
  * the public site (a README written before that page existed links the
  * drawer, `?repo=`, which still opens). `baseUrl` is that site's address
@@ -1136,6 +1139,7 @@ export function maintainerBadgeMarkdown(row, baseUrl = "") {
   const spec = maintainerBadgeSpec(row);
   if (!spec) return "";
   const base = !baseUrl || baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-  const target = `${base}${projectPath(row.owner, row.name)}`;
+  // routes.js's address starts at the site root; the base names that root.
+  const target = `${base}${projectPath(row.owner, row.name).slice(1)}`;
   return `[![${spec.alt}](${base}${spec.file})](${target} "${spec.alt}")`;
 }

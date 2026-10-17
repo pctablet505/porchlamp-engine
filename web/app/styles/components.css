@@ -146,13 +146,14 @@ input.control {
   color: var(--text-secondary);
   font-weight: 600;
   white-space: nowrap;
+  text-decoration: none;
 }
 
 .primary-tab:hover {
   color: var(--text-primary);
 }
 
-.primary-tab[aria-selected="true"] {
+.primary-tab[aria-current="page"] {
   color: var(--text-primary);
   border-bottom-color: var(--accent-violet);
 }
@@ -188,9 +189,10 @@ input.control {
   border-bottom: 2px solid transparent;
   color: var(--text-secondary);
   font-weight: 500;
+  text-decoration: none;
 }
 
-.tab[aria-selected="true"] {
+.tab[aria-current="page"] {
   color: var(--text-primary);
   border-bottom-color: var(--accent-cyan);
 }
@@ -953,6 +955,18 @@ input.control {
 .drawer-compare-btn:hover,
 .drawer-github-link:hover {
   background: var(--bg-surface-hover);
+}
+
+/* A ranked project's own page, under its name in the side panel (views/drawer.js renderIdentity). */
+.drawer-page-link {
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--accent-cyan);
+  text-decoration: none;
+}
+
+.drawer-page-link:hover {
+  text-decoration: underline;
 }
 
 /* The not-in-snapshot drawer body and its opt-in live check (06 §3 C;

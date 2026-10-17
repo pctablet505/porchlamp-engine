@@ -33,6 +33,7 @@ import * as copy from "../copy.js";
 import { renderCoverageBadge, renderQuadrant, renderTierCell, renderSuspicionIcon } from "../components/badge.js";
 import { PILLAR_ORDER } from "../components/table.js";
 import { renderNotInSnapshot } from "../components/livepanel.js";
+import { projectPath } from "../routes.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -123,12 +124,19 @@ export function projectRowForLens(found, persona) {
   };
 }
 
-function renderIdentity(kind, row, persona) {
+/**
+ * `pageHref` is the project's own page, for a project that has one (ranked under the balanced lens): a link under
+ * its name, so the side panel stays the quick view and the full page is one click away.
+ */
+function renderIdentity(kind, row, persona, pageHref = null) {
   const heading =
     `<div class="drawer-identity" aria-label="${escapeHtml(copy.DRAWER_SECTION_IDENTITY)}">` +
     `<p class="drawer-kicker">${escapeHtml(copy.DRAWER_TITLE)}</p>` +
     `<h1 id="drawer-title">${escapeHtml(row.owner)}/${escapeHtml(row.name)}</h1>` +
     `<p class="eco-chip">${escapeHtml(row.ecosystem)}</p>` +
+    (pageHref
+      ? `<a class="drawer-page-link" href="${escapeHtml(pageHref)}" data-drawer-page="true">${escapeHtml(copy.DRAWER_PAGE_LABEL)}</a>`
+      : "") +
     `</div>`;
   if (kind === "gated") {
     return (
@@ -167,7 +175,8 @@ export function renderMaintainerBadge(canonicalRow, baseUrl = "") {
     `<span class="identity-label">${escapeHtml(copy.MAINTAINER_BADGE_HEADING)}</span>` +
     `<button type="button" class="reproduce-copy" data-badge-copy="true">${escapeHtml(copy.MAINTAINER_BADGE_COPY_LABEL)}</button>` +
     `</div>` +
-    `<img class="maintainer-badge-preview" src="${escapeHtml(spec.file)}" alt="${escapeHtml(spec.alt)}" height="20">` +
+    // From the site root: the panel is open at its project's address (/projects/<owner>/<name>/).
+    `<img class="maintainer-badge-preview" src="${escapeHtml(`/${spec.file}`)}" alt="${escapeHtml(spec.alt)}" height="20">` +
     `<p class="maintainer-badge-note">${escapeHtml(copy.MAINTAINER_BADGE_NOTE)}</p>` +
     `<pre class="maintainer-badge-snippet" data-badge-markdown="true">${escapeHtml(copy.maintainerBadgeMarkdown(canonicalRow, baseUrl))}</pre>` +
     `</div>`
@@ -677,7 +686,10 @@ export function renderDrawer(state, opts = {}) {
   const compareBtn = `<button type="button" class="btn btn-secondary drawer-compare-btn" data-drawer-compare="${escapeHtml(repoKey)}">${escapeHtml(copy.DRAWER_COMPARE_LABEL)}</button>`;
   const closeButton = `<button type="button" class="icon-button" data-drawer-close="true">${escapeHtml(copy.DRAWER_CLOSE_LABEL)}</button>`;
   const headerActions = `<div class="drawer-actions">${githubLink}${compareBtn}${closeButton}</div>`;
-  const identity = renderIdentity(kind, row, activePersona);
+  // A project ranked under the balanced lens has its own page at the panel's address (the export writes one per
+  // ranked project); a plain link loads it. Any other project's address answers with this panel only.
+  const pageHref = classifyKind(found) === "rated" ? projectPath(found.owner, found.name) : null;
+  const identity = renderIdentity(kind, row, activePersona, pageHref);
 
   const evidenceRows = state.evidenceByRepo[state.repo];
   const evidenceError = evidenceRows ? null : state.evidenceError;

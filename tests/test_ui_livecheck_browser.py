@@ -34,7 +34,8 @@ from test_static_export import export_static  # noqa: E402
 PHONE = {"width": 375, "height": 812}
 DESKTOP = {"width": 1280, "height": 800}
 MISSING = "nobody-here/nothing-here"
-MISSING_PATH = f"./?repo={MISSING.replace('/', '%2F')}"
+#: A project the snapshot lacks has no page of its own: its address is answered by 404.html, which opens its panel.
+MISSING_PATH = f"./projects/{MISSING}/"
 
 #: A stand-in for api.github.com installed on the page's own `window.fetch` (what app.js hands the check):
 #: it records every API call and answers it; every other URL (the snapshot's data files) goes to the real fetch.
@@ -140,7 +141,7 @@ if (!look) return { missing: 'the look-up button' };
 const label = look.textContent;
 look.click();
 const btn = await until(() => doc.querySelector('.drawer [data-live-check]'), 20000);
-return { label, drawerOffersCheck: Boolean(btn), key: btn ? btn.dataset.liveCheck : null, search: win.location.search };
+return { label, drawerOffersCheck: Boolean(btn), key: btn ? btn.dataset.liveCheck : null, address: win.location.pathname };
 """
 
 _CASE_INSENSITIVE_IN_SNAPSHOT = """
@@ -153,7 +154,7 @@ return {
   title: title ? title.textContent.trim() : null,
   hasComposite: Boolean(scored),
   hasLivePanel: Boolean(doc.querySelector('.drawer [data-live-check-region]')),
-  search: win.location.search,
+  address: win.location.pathname + win.location.search,
 };
 """
 
@@ -254,6 +255,7 @@ def test_a_search_for_a_missing_repository_offers_to_look_it_up(measured):
     assert got["label"] == f"Look up {MISSING}", got
     assert got["drawerOffersCheck"], got
     assert got["key"] == MISSING, got
+    assert got["address"] == f"/projects/{MISSING}/", got  # the panel opened at its project's address
 
 
 def test_a_differently_cased_or_git_suffixed_in_snapshot_repo_loads_its_snapshot_record(measured):
@@ -261,5 +263,5 @@ def test_a_differently_cased_or_git_suffixed_in_snapshot_repo_loads_its_snapshot
     assert got["title"] == "bulk/repo-0133", got
     assert got["hasComposite"], got
     assert not got["hasLivePanel"], got
-    assert "repo=bulk%2Frepo-0133" in got["search"], got
+    assert got["address"] == "/projects/bulk/repo-0133/", got  # the old ?repo= link now names the panel's address
 

@@ -33,7 +33,8 @@ import {
   CARD_HEIGHT_PX,
 } from "../components/table.js";
 import { patchRows } from "../components/patch.js";
-import { PAGE_SIZES } from "../state.js";
+import { PAGE_SIZES, hrefFor } from "../state.js";
+import { routePath } from "../routes.js";
 import { parseRepoSlug } from "../livecheck.js";
 
 function escapeHtml(value) {
@@ -184,7 +185,11 @@ export function renderCountsStrip(counts, delta) {
   );
 }
 
-export function renderTabs(activeTab, counts, visibleCount, notRankedCount = null) {
+/**
+ * The Leaderboard's Ranked and Not ranked lists: two real links to their addresses, `aria-current` on the one
+ * shown. `hrefs` carries the addresses for the reader's state (`tabHrefs`); without it, each list's plain path.
+ */
+export function renderTabs(activeTab, counts, visibleCount, notRankedCount = null, hrefs = null) {
   // The Ranked count must be what the table under it actually pages, which
   // under a lens or active filter is NOT counts.rated — see personaVisibleCount.
   const rated = counts
@@ -200,14 +205,21 @@ export function renderTabs(activeTab, counts, visibleCount, notRankedCount = nul
       : counts
         ? counts.gated + counts.unrated
         : "";
+  const href = (tab) => escapeHtml((hrefs && hrefs[tab]) || routePath(tab));
+  const current = (tab) => (activeTab === tab ? ` aria-current="page"` : "");
   return (
-    `<div class="tabs" role="tablist">` +
-    `<button type="button" class="tab" role="tab" aria-selected="${activeTab === "ranked"}" data-tab="ranked">` +
-    `${escapeHtml(copy.TAB_RANKED)}<span class="count">${rated}</span></button>` +
-    `<button type="button" class="tab" role="tab" aria-selected="${activeTab === "notranked"}" data-tab="notranked">` +
-    `${escapeHtml(copy.TAB_NOT_RANKED)}<span class="count">${notRanked}</span></button>` +
+    `<div class="tabs">` +
+    `<a class="tab" href="${href("ranked")}" data-route-tab="ranked"${current("ranked")}>` +
+    `${escapeHtml(copy.TAB_RANKED)}<span class="count">${rated}</span></a>` +
+    `<a class="tab" href="${href("notranked")}" data-route-tab="notranked"${current("notranked")}>` +
+    `${escapeHtml(copy.TAB_NOT_RANKED)}<span class="count">${notRanked}</span></a>` +
     `</div>`
   );
+}
+
+/** The addresses of the Ranked and Not ranked lists from where the reader is (`hrefFor`). */
+export function tabHrefs(state) {
+  return { ranked: hrefFor(state, "ranked"), notranked: hrefFor(state, "notranked") };
 }
 
 const MOBILE_SORT_FIELDS = [
@@ -318,7 +330,7 @@ export function renderOnboardingBanner() {
   return (
     `<div class="onboarding-banner" data-onboarding-banner="true">` +
     `<span>${escapeHtml(copy.ONBOARDING_SUBTITLE)}</span> ` +
-    `<a href="#methodology" class="onboarding-link" data-onboarding-methodology="true">${escapeHtml(copy.ONBOARDING_METHODOLOGY_LINK)}</a>` +
+    `<a href="${escapeHtml(routePath("methodology"))}" class="onboarding-link" data-route-tab="methodology" data-onboarding-methodology="true">${escapeHtml(copy.ONBOARDING_METHODOLOGY_LINK)}</a>` +
     `</div>`
   );
 }
@@ -339,7 +351,7 @@ export function renderShell(state, viewport = { isMobile: false }) {
   const header =
     renderOnboardingBanner() +
     renderFindingsLine() +
-    renderTabs(state.tab, counts, personaVisibleForState(state)) +
+    renderTabs(state.tab, counts, personaVisibleForState(state), null, tabHrefs(state)) +
     renderCountsStrip(counts, personaDeltaForState(state));
 
   let body;

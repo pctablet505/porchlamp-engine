@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- The app with no page text of its own (routes.js). GitHub Pages answers an address it has no file for with
+       this page, and the app shows what the address names: a project's side panel, or "page not found".
+       scripts/export_static.py also writes it at each view's address (/matrix/, ...) with that view's title and
+       canonical address. The head and the body's frame are index.html's (tests/test_app_routes.py), without the
+       home page's own text and data. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Page not found | Porchlamp</title>
+  <meta name="description" content="Porchlamp ranks open-source projects by what happens to a stranger's pull request, not by stars.">
+  <meta name="theme-color" content="#0f1419">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles/tokens.css">
+  <link rel="stylesheet" href="/styles/base.css">
+  <link rel="stylesheet" href="/styles/components.css">
+  <link rel="stylesheet" href="/styles/views.css">
+</head>
+<body>
+  <a class="skip-link" href="#app-main">Skip to main content</a>
+  <div class="app-shell">
+    <header class="app-header" id="app-header-controls"></header>
+    <nav class="app-primary-nav" id="app-primary-nav"></nav>
+    <main class="app-main" id="app-main" tabindex="-1">
+      <noscript><p>Porchlamp needs JavaScript to show this page. Without it, read the <a href="/">rankings</a>, the <a href="/black-holes/">report</a> and the <a href="/methodology/">methodology</a>.</p></noscript>
+    </main>
+    <footer class="app-footer" id="app-footer"></footer>
+  </div>
+  <div id="app-drawer-root"></div>
+  <div id="app-keymap-root"></div>
+  <div id="app-live-region" class="app-live-region" role="status" aria-live="polite"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

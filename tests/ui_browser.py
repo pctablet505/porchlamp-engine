@@ -1,6 +1,7 @@
 """A headless Chrome probe for layout tests: measure the real page at a real width.
 
-``probe(site, cases)`` serves a built static site on loopback, opens each case in an ``<iframe>`` of an exact width
+``probe(site, cases)`` serves a built static site on loopback the way GitHub Pages does (``scripts/serve.py``'s
+``StaticSiteHandler``: an address with no file gets ``404.html``), opens each case in an ``<iframe>`` of an exact width
 (an iframe's width is the page's layout viewport, so the stylesheet's media queries see it), runs the case's script
 inside the page and returns what the scripts returned. Chrome does the rendering; nothing is mocked.
 
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import functools
 import http.server
+import importlib.util
 import json
 import re
 import shutil
@@ -72,9 +74,19 @@ def find_chrome() -> str | None:
     return None
 
 
+@functools.cache
+def _site_handler() -> type:
+    """``scripts/serve.py``'s ``StaticSiteHandler``, loaded by path: ``scripts/`` on ``sys.path`` would let
+    ``scripts/serve.py`` shadow ``tests/serve``."""
+    spec = importlib.util.spec_from_file_location("serve_script", Path(__file__).resolve().parent.parent / "scripts" / "serve.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.StaticSiteHandler
+
+
 @contextmanager
 def serve(site: Path) -> Iterator[str]:
-    handler = functools.partial(_QuietHandler, directory=str(site))
+    handler = functools.partial(_site_handler(), directory=str(site))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -83,15 +95,6 @@ def serve(site: Path) -> Iterator[str]:
     finally:
         server.shutdown()
         server.server_close()
-
-
-class _QuietHandler(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, format, *args):  # the base class's signature; the probe's requests are not worth logging
-        pass
-
-    def end_headers(self):
-        self.send_header("Cache-Control", "no-store")
-        super().end_headers()
 
 
 def probe(site: Path, cases: list[dict], tmp: Path, *, budget_ms: int = 60000) -> dict:

@@ -54,6 +54,29 @@
   margin: 0 0 var(--space-sm);
 }
 
+/* ---- An address no view answers (views/notfound.js) ---- */
+.not-found {
+  max-width: 640px;
+}
+
+.not-found-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: var(--space-md) 0;
+}
+
+.not-found-search .field-label {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.not-found-search input.control {
+  flex: 1 1 16ch;
+  min-width: 0;
+}
+
 /* ---- Screen B: Matrix (06 §3 B) ---- */
 .matrix-toolbar {
   display: flex;

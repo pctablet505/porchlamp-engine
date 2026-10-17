@@ -39,8 +39,11 @@ Drawer (C): repository detail, opened from A, B, E; URL-addressable
 Footer: snapshot id · benchmark version · constants hash · manifest root · "verify" link to F
 ```
 
-URL state (U-9): `?persona=&eco=&q=&sort=&page=&page_size=&repo=owner/name&tab=&w=&cmp=` — every view is
-shareable and reload-safe; persona and ecosystem changes rewrite the URL.
+URL state (U-9): each view has its own path (`web/app/routes.js`: `/`, `/not-ranked/`, `/matrix/`, `/compare/`,
+`/weights/`, `/methodology/`, and the drawer at `/projects/<owner>/<name>/`, where a reload shows a ranked
+project's own page), with the fields that view reads in the query (`persona eco q sort page page_size w cmp`);
+every view is shareable and reload-safe; persona and ecosystem changes rewrite the URL. The old `?tab=` and
+`?repo=` links redirect to these addresses.
 
 ## 3. Screens
 
@@ -98,7 +101,7 @@ rated at tier A or above with no suspicion flag, the composite section ends
 with a badge for the project's README: a static image from `web/v2/badges/`
 naming the tier ("A (capped)" when the ceiling bound), its coverage band
 (U-1) and, in the Sweet Spot, the quadrant, with Markdown that links it to
-this drawer (`?repo=owner/name`) and alt text carrying the score, the exact
+the project's address (`/projects/<owner>/<name>/`) and alt text carrying the score, the exact
 coverage and the snapshot id. It is always the balanced rating, whatever lens
 is active (U-4). The image does not change when a later snapshot changes the
 rating; the drawer behind the link is the record.
@@ -260,7 +263,7 @@ replace the "subtree replacement" sentence in §6:
 - **U-15 Every request has an error state.** A 404, a 5xx or a 5 s timeout
   renders the error block naming the endpoint and status, with a retry;
   "Loading…" is never a resting state.
-- **U-16 URL is the view.** `?persona=&eco=&q=&sort=&page=&page_size=&repo=&tab=&w=&cmp=` via
+- **U-16 URL is the view.** The view's path plus the fields it reads (U-9) via
   `history.pushState` (replaceState for `q` while typing); `popstate` restores;
   any URL reloads to the same view.
 - **U-17 Announcements are true.** "N rows moved" is the count of rows whose

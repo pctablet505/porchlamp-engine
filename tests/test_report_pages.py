@@ -215,10 +215,12 @@ def _evidence_files(built):
     return PinnedEvidenceFiles(built[0].parent / "snapshot", built[0].parent / "data")
 
 
-PAGES = ("black-holes/index.html", f"black-holes/{SNAPSHOT}/index.html", "methodology/index.html")
+PAGES = ("black-holes/index.html", f"black-holes/{SNAPSHOT}/index.html")
+#: The methodology is the app's own view at its address (owner, 2026-10-17): the export writes the app's page there.
+METHODOLOGY = "methodology/index.html"
 
 
-def test_the_export_writes_the_four_files_and_the_csv_lists_ranked_projects_only(built):
+def test_the_export_writes_the_report_pages_and_the_csv_lists_ranked_projects_only(built):
     site, db, _stats_path, _stats_dict, holes = built
     for rel in PAGES:
         assert (site / rel).stat().st_size > 1000, rel
@@ -516,7 +518,7 @@ def test_each_page_is_its_own_canonical_and_the_titles_differ(built):
     expected = {
         PAGES[0]: "https://porchlamp.org/black-holes/",
         PAGES[1]: f"https://porchlamp.org/black-holes/{SNAPSHOT}/",
-        PAGES[2]: "https://porchlamp.org/methodology/",
+        METHODOLOGY: "https://porchlamp.org/methodology/",
     }
     titles = []
     for rel, canonical in expected.items():
@@ -543,23 +545,6 @@ def test_the_report_copy_follows_the_brief(built):
     assert 'href="../methodology/"' in page and 'href="https://github.com/pctablet505/porchlamp"' in page
     frozen = _page(site, PAGES[1])
     assert 'href="../../methodology/"' in frozen
-
-
-def test_methodology_page_lists_gates_pillars_lenses_parameters_and_hashes(built):
-    site = built[0]
-    page = _page(site, PAGES[2])
-    methodology = json.loads((site / "data" / SNAPSHOT / "methodology.json").read_text(encoding="utf-8"))
-    for gate in methodology["gates"]:
-        assert f">{gate['id']}: " in page
-    assert page.count("<details>") == 1 and "<summary>All 18 parameters</summary>" in page
-    assert json.loads((site / "data" / SNAPSHOT / "snapshot.json").read_text(encoding="utf-8"))["constants_hash"] in page
-    assert "python -m porchlamp.snapshot reproduce" in page
-    assert ">None<" not in page and ">n/a<" in page  # a parameter with no minimum count reads n/a, not Python's None
-    assert 'href="../black-holes/"' in page and 'href="../"' in page
-    assert (
-        "To check a project, open https://porchlamp.org/projects/&lt;owner&gt;/&lt;name&gt;/ (lower case), "
-        'or search on the <a href="../check/">check page</a>.' in page
-    )
 
 
 def test_copy_js_names_cover_every_parameter_and_lens():
@@ -708,7 +693,11 @@ def test_project_pages_have_a_self_canonical_a_unique_title_an_answer_and_no_pla
         assert not re.search(r"\b(?:null|None|NaN|undefined)\b", shown), rel
         description = re.search(r'<meta name="description" content="([^"]*)"', text).group(1)
         assert 0 < len(description) < 160 and "None" not in description
-        assert external_violations(text) == [] and "<script" not in visible
+        # One local script: Back and Forward between the app's entries at this address load the app (the page is
+        # also the project's side panel); nothing else runs, and nothing loads from outside.
+        assert re.findall(r'<script[^>]*\ssrc="([^"]*)"', text) == ["../../../back-forward.js"], rel
+        assert external_violations(text.replace('<script type="module" src="../../../back-forward.js"></script>', "")) == []
+        assert "<script" not in visible
         ld = _ld(text)
         assert ld["@type"] == "BreadcrumbList" and [i["position"] for i in ld["itemListElement"]] == [1, 2]
         assert ld["itemListElement"][1]["item"] == canonical
@@ -718,8 +707,10 @@ def test_project_pages_have_a_self_canonical_a_unique_title_an_answer_and_no_pla
 
 def test_a_script_planted_in_a_project_page_turns_the_guard_red(built, monkeypatch):
     site = built[0]
-    clean = _project_files(site)[0].read_text(encoding="utf-8")
-    assert external_violations(clean) == []
+    page = _project_files(site)[0].read_text(encoding="utf-8")
+    own = '<script type="module" src="../../../back-forward.js"></script>'  # the page's one local script
+    clean = page.replace(own, "")
+    assert own in page and external_violations(clean) == []
     planted = clean.replace("</body>", '<script src="https://cdn.example.com/x.js"></script></body>')
     assert external_violations(planted), "the guard did not see the planted script"
 

@@ -15,6 +15,7 @@ import {
   renderFilteredEmpty,
   syncPager,
   renderTabs,
+  tabHrefs,
   renderCountsStrip,
   renderOnboardingBanner,
   personaDeltaForState,
@@ -142,7 +143,7 @@ export function renderShell(state) {
   const notRankedCount = flat ? flat.length : null;
   const tabsHtml =
     renderOnboardingBanner() +
-    renderTabs(state.tab, leaderboardCounts, personaVisibleForState(state), notRankedCount) +
+    renderTabs(state.tab, leaderboardCounts, personaVisibleForState(state), notRankedCount, tabHrefs(state)) +
     renderCountsStrip(leaderboardCounts, personaDeltaForState(state));
 
   if (shape === "loading") return `<section aria-labelledby="notranked-heading">${headerHtml}${tabsHtml}${renderSkeleton()}</section>`;
@@ -183,12 +184,12 @@ export function patchNotRankedBody(root, state) {
   const html = renderPageRows(flat, page, state.notRankedPageSize, state.selectedRepoKey);
   if (container.innerHTML !== html) container.innerHTML = html;
   syncPager(root, page, state.notRankedPageSize, flat.length, "notranked-pager");
-  const notRankedCountEl = root.querySelector('[data-tab="notranked"] .count');
+  const notRankedCountEl = root.querySelector('[data-route-tab="notranked"] .count');
   if (notRankedCountEl && notRankedCountEl.textContent !== String(flat.length)) {
     notRankedCountEl.textContent = String(flat.length);
   }
   const rankedCount = personaVisibleForState(state);
-  const rankedCountEl = root.querySelector('[data-tab="ranked"] .count');
+  const rankedCountEl = root.querySelector('[data-route-tab="ranked"] .count');
   if (rankedCountEl && typeof rankedCount === "number" && rankedCountEl.textContent !== String(rankedCount)) {
     rankedCountEl.textContent = String(rankedCount);
   }

@@ -1,16 +1,19 @@
-// components/primarynav.js — the PRIMARY tab bar (06 §2: "Primary tabs:
+// components/primarynav.js — the PRIMARY nav (06 §2: "Primary tabs:
 // Leaderboard (A) · Matrix (B) · Compare (E) · Configure weights (D) ·
-// Methodology (F)"). Distinct from views/leaderboard.js's `renderTabs`,
-// which is the Leaderboard screen's OWN Ranked/Not-ranked sub-tab bar —
-// this component owns none of that screen's internals.
+// Methodology (F)"): one real link per view, to that view's address
+// (routes.js), with `aria-current="page"` on the view shown. Distinct from
+// views/leaderboard.js's `renderTabs`, the Leaderboard's own Ranked/Not
+// ranked links — this component owns none of that screen's internals.
 //
 // Rendered ONCE by app.js into its own persistent DOM node
 // (`#app-primary-nav`, never inside `main`, so switching screens never
-// rebuilds it) and kept in sync via `syncPrimaryNav` (an `aria-selected`
-// attribute flip only — never innerHTML on this node after the first
-// render, matching U-12's "never innerHTML on an ancestor of focus").
+// rebuilds it) and kept in sync via `syncPrimaryNav` (attribute writes
+// only — never innerHTML on this node after the first render, matching
+// U-12's "never innerHTML on an ancestor of focus").
 
 import * as copy from "../copy.js";
+import { routeById } from "../routes.js";
+import { hrefFor } from "../state.js";
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (ch) => (
@@ -18,62 +21,73 @@ function escapeHtml(value) {
   ));
 }
 
-//: `state.tab` -> which primary-nav entry is active. "ranked"/"notranked"
-//: both belong to the "leaderboard" primary tab (06 §2's sub-tab nesting).
+//: `state.tab` -> which primary-nav entry is current. "ranked"/"notranked"
+//: both belong to the Leaderboard entry (06 §2's sub-tab nesting).
 export function primaryScreenForTab(tab) {
-  if (tab === "ranked" || tab === "notranked") return "leaderboard";
-  return tab; // "matrix" | "compare" | "configure" | "methodology"
+  if (tab === "ranked" || tab === "notranked") return "ranked";
+  return tab; // "matrix" | "compare" | "configure" | "methodology" | "notfound" (no entry)
 }
 
-//: One entry per 06 §2 primary tab: `id` is the SCREEN id (see
-//: `primaryScreenForTab`), `tab` is the `state.tab` value clicking it sets.
+//: One entry per 06 §2 primary tab: `tab` is the routes.js view it links to.
 const ENTRIES = [
-  { id: "leaderboard", tab: "ranked", label: () => copy.PRIMARY_NAV_LEADERBOARD },
-  { id: "matrix", tab: "matrix", label: () => copy.PRIMARY_NAV_MATRIX },
-  { id: "compare", tab: "compare", label: () => copy.PRIMARY_NAV_COMPARE },
-  { id: "configure", tab: "configure", label: () => copy.PRIMARY_NAV_CONFIGURE },
-  { id: "methodology", tab: "methodology", label: () => copy.PRIMARY_NAV_METHODOLOGY },
+  { tab: "ranked", label: () => copy.PRIMARY_NAV_LEADERBOARD },
+  { tab: "matrix", label: () => copy.PRIMARY_NAV_MATRIX },
+  { tab: "compare", label: () => copy.PRIMARY_NAV_COMPARE },
+  { tab: "configure", label: () => copy.PRIMARY_NAV_CONFIGURE },
+  { tab: "methodology", label: () => copy.PRIMARY_NAV_METHODOLOGY },
 ];
 
-export function renderPrimaryNav(activeTab) {
-  const activeScreen = primaryScreenForTab(activeTab);
-  const buttons = ENTRIES.map(
-    (entry) =>
-      `<button type="button" class="primary-tab" role="tab" aria-selected="${entry.id === activeScreen}" ` +
-      `data-primary-tab="${entry.tab}">${escapeHtml(entry.label())}</button>`
-  ).join("");
-  return `<div class="primary-tabs" role="tablist" aria-label="${escapeHtml(copy.PRIMARY_NAV_LABEL)}">${buttons}</div>`;
+/**
+ * The nav's links for a state. A view the app draws carries `data-route-tab`, so app.js opens it in place (its
+ * href is where that goes: `hrefFor`); the methodology page is a plain link, loaded like any other page.
+ */
+export function renderPrimaryNav(state) {
+  const current = primaryScreenForTab(state.tab);
+  const links = ENTRIES.map((entry) => {
+    const inApp = routeById(entry.tab).shell;
+    return (
+      `<a class="primary-tab" href="${escapeHtml(hrefFor(state, entry.tab))}"` +
+      (inApp ? ` data-route-tab="${entry.tab}"` : "") +
+      (entry.tab === current ? ` aria-current="page"` : "") +
+      `>${escapeHtml(entry.label())}</a>`
+    );
+  }).join("");
+  return `<div class="primary-tabs">${links}</div>`;
 }
 
 /**
- * The strip's `scrollLeft` that puts the active tab in the middle of the part you can see, clamped to the strip.
- * On a phone the five tabs are wider than the screen; without this a tab opened by link (Methodology) is off the
- * right edge.
+ * The strip's `scrollLeft` that puts the current link in the middle of the part you can see, clamped to the strip.
+ * On a phone the five links are wider than the screen; without this a view opened by its address (Configure
+ * weights) is off the right edge.
  */
 export function centeredScrollLeft(tabLeft, tabWidth, viewWidth, contentWidth) {
   const target = tabLeft + tabWidth / 2 - viewWidth / 2;
   return Math.max(0, Math.min(target, Math.max(0, contentWidth - viewWidth)));
 }
 
-/** Scrolls the strip so the active tab is visible. A no-op when the strip is not wider than its box. */
+/** Scrolls the strip so the current link is visible. A no-op when the strip is not wider than its box. */
 export function centerActiveTab(container) {
   const strip = container.querySelector(".primary-tabs");
-  const active = container.querySelector('[aria-selected="true"]');
+  const active = container.querySelector('[aria-current="page"]');
   if (!strip || !active || strip.scrollWidth <= strip.clientWidth) return;
   strip.scrollLeft = centeredScrollLeft(active.offsetLeft, active.offsetWidth, strip.clientWidth, strip.scrollWidth);
 }
 
-/** Patches `aria-selected` on the persistent primary-nav buttons — never a re-render. */
-export function syncPrimaryNav(container, activeTab) {
-  const activeScreen = primaryScreenForTab(activeTab);
+/** Patches each link's href and `aria-current` on the persistent nav — never a re-render. */
+export function syncPrimaryNav(container, state) {
+  const current = primaryScreenForTab(state.tab);
   let changed = false;
-  for (const btn of container.querySelectorAll("[data-primary-tab]")) {
-    const entry = ENTRIES.find((e) => e.tab === btn.dataset.primaryTab);
-    const selected = String(entry.id === activeScreen);
-    if (btn.getAttribute("aria-selected") !== selected) {
-      btn.setAttribute("aria-selected", selected);
+  container.querySelectorAll(".primary-tab").forEach((link, i) => {
+    const entry = ENTRIES[i];
+    if (!entry) return;
+    const href = hrefFor(state, entry.tab);
+    if (link.getAttribute("href") !== href) link.setAttribute("href", href);
+    const isCurrent = entry.tab === current;
+    if ((link.getAttribute("aria-current") === "page") !== isCurrent) {
+      if (isCurrent) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
       changed = true;
     }
-  }
-  if (changed) centerActiveTab(container); // only when the tab changed: never fight the reader's own scrolling
+  });
+  if (changed) centerActiveTab(container); // only when the view changed: never fight the reader's own scrolling
 }

@@ -20,8 +20,13 @@ import {
   createStore,
   defaultState,
   reduce,
-  parseSearch,
-  serializeSearch,
+  parseLocation,
+  serializeLocation,
+  stateFromLocation,
+  historyEntryFor,
+  redirectTarget,
+  hrefFor,
+  titleForState,
   VALID_PERSONAS,
   VALID_TABS,
   countRankChanges,
@@ -34,7 +39,8 @@ import {
 import * as copy from "../copy.js";
 import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal, renderMobileSortBar, personaVisibleForState } from "../views/leaderboard.js";
 import { renderShell as notRankedRenderShell } from "../views/notranked.js";
-import { centeredScrollLeft } from "../components/primarynav.js";
+import { centeredScrollLeft, renderPrimaryNav } from "../components/primarynav.js";
+import { ROUTES, matchRoute, projectPath, routeById, routePath, routeTitle } from "../routes.js";
 import { postReproject } from "../api.js";
 import { normalizeWeights, applyPresetRespectingLocks, renderControls, renderShell as renderConfigureShell, sortReprojectRows, filterReprojectRows, renderPager as renderConfigurePager, topMovers, remainingReprojectPages, mergeReprojectPages } from "../views/configure.js";
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
@@ -186,32 +192,31 @@ test("resolveOpenTargetKey returns null when neither a cursor nor a focused row 
 });
 
 // ------------------------------------------------------------- U-16 (state.js)
-test("parseSearch / serializeSearch round-trip (incl. page/page_size), and clear a param absent from a new URL", () => {
+test("parseLocation / serializeLocation round-trip (incl. page/page_size), and name nothing at the defaults", () => {
   const s1 = {
     ...defaultState(), persona: "first_timer", ecosystem: "pypi", query: "flask", sort: "-porchlamp",
-    page: 3, pageSize: 100, tab: "notranked", repo: "a/b",
+    page: 3, pageSize: 100,
   };
-  const qs = serializeSearch(s1);
-  assert.equal(qs, "?persona=first_timer&eco=pypi&q=flask&sort=-porchlamp&page=3&page_size=100&repo=a%2Fb&tab=notranked");
-  const parsed = parseSearch(qs);
+  const address = serializeLocation(s1);
+  assert.equal(address, "/?persona=first_timer&eco=pypi&q=flask&sort=-porchlamp&page=3&page_size=100");
+  const parsed = parseLocation("/", address.slice(1));
+  assert.equal(parsed.tab, "ranked");
   assert.equal(parsed.persona, "first_timer");
   assert.equal(parsed.ecosystem, "pypi");
   assert.equal(parsed.query, "flask");
   assert.equal(parsed.sort, "-porchlamp");
   assert.equal(parsed.page, 3);
   assert.equal(parsed.pageSize, 100);
-  assert.equal(parsed.tab, "notranked");
-  assert.equal(parsed.repo, "a/b");
 
-  // A bare "" (every param at its default) must serialize to the empty
-  // string, and parsing it back must find nothing (the caller resets to
-  // defaults itself before applying this — see app.js's popstate handler).
-  assert.equal(serializeSearch(defaultState()), "");
-  assert.deepEqual(parseSearch(""), {});
+  // Every field at its default writes the bare root, and parsing it back
+  // names only the view (the caller resets to defaults itself before
+  // applying this — see app.js's applyLocationState).
+  assert.equal(serializeLocation(defaultState()), "/");
+  assert.deepEqual(parseLocation("/", ""), { tab: "ranked" });
 });
 
-test("parseSearch rejects a page_size outside the allowed set", () => {
-  const parsed = parseSearch("?page_size=37");
+test("parseLocation rejects a page_size outside the allowed set", () => {
+  const parsed = parseLocation("/", "?page_size=37");
   assert.equal(parsed.pageSize, undefined);
 });
 
@@ -583,14 +588,15 @@ test("renderControls: every slider carries aria-label, a matching aria-labelledb
 // from URL query params (e.g. ?repo=owner/name).
 // --------------------------------------------------------------------- //
 
-test("repoToLoadFromState: a full URL round-trip finds the repo to load", () => {
-  const parsed = parseSearch("?repo=riverline%2Fhttpkit&tab=matrix");
+test("repoToLoadFromState: a panel address over the matrix finds the repo to load", () => {
+  const parsed = stateFromLocation("/projects/riverline/httpkit/", "", { under: "/matrix/" });
   const state = { ...defaultState(), ...parsed };
+  assert.equal(state.tab, "matrix");
   assert.deepEqual(repoToLoadFromState(state), { owner: "riverline", name: "httpkit" });
 });
 
-test("repoToLoadFromState: repo= with no tab= at all still resolves (06 §3: 'with or without tab=')", () => {
-  const parsed = parseSearch("?repo=riverline%2Fhttpkit");
+test("repoToLoadFromState: a panel address loaded directly still resolves (06 §3: 'with or without tab=')", () => {
+  const parsed = parseLocation("/projects/riverline/httpkit/", "");
   const state = { ...defaultState(), ...parsed };
   assert.deepEqual(repoToLoadFromState(state), { owner: "riverline", name: "httpkit" });
 });
@@ -1488,14 +1494,17 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
   );
   const whereFrom = article.match(/<h2>Where the numbers come from<\/h2>([\s\S]*?)<h2>/)[1];
   assert.match(whereFrom, /<a href="methodology\/">[^<]+<\/a>/, "methodology link in 'Where the numbers come from'");
-  const pageLinks = ["black-holes/", "methodology/", ...ECOSYSTEM_SLUGS.map((slug) => `${slug}/`)];
+  const pageLinks = ["black-holes/", ...ECOSYSTEM_SLUGS.map((slug) => `${slug}/`)];
   for (const href of hrefs) {
     if (href === "./" || pageLinks.includes(href) || /^projects\/[^/]+\/[^/]+\/$/.test(href)) continue;
-    const hydrated = { ...defaultState(), ...parseSearch(href) };
+    // Every other link is a view of the app (routes.js), already at its one address.
+    const url = new URL(href, base);
+    const hydrated = { ...defaultState(), ...parseLocation(url.pathname, url.search) };
+    assert.notEqual(hydrated.tab, "notfound", `fallback link ${href} names a view`);
     assert.equal(
-      serializeSearch(hydrated),
-      href,
-      `fallback link ${href} must already be in canonical serializeSearch form`
+      serializeLocation(hydrated),
+      `${url.pathname}${url.search}`,
+      `fallback link ${href} must already be in canonical serializeLocation form`
     );
   }
 
@@ -1742,7 +1751,7 @@ test("maintainer badge: the drawer shows the balanced badge at the end of Compos
   assert.equal((html.match(/<details[^>]*>/g) || []).length, 5, "a rated drawer still has five sections");
   assert.ok(html.includes('data-badge-copy="true"') && html.includes('data-badge-markdown="true"'));
   assert.ok(html.includes(escapeHtml(`${SITE_BASE}projects/riverline/httpkit/`)), "the Markdown uses the address app.js passes in");
-  assert.ok(html.includes('src="badges/sweet-spot-tier-s.svg"'), "the preview loads from this site");
+  assert.ok(html.includes('src="/badges/sweet-spot-tier-s.svg"'), "the preview loads from this site's root");
 
   // Balanced tier B, tier A under a lens: Composite shows the lens's A, but no badge is minted from it.
   const lensOnly = {
@@ -2167,7 +2176,7 @@ test("state.reduce SET_TAB: isolates rankedPage/rankedSort from Configure and Ma
 
   // Switch to Matrix: URL must not inherit Configure's sort or page
   s = reduce(s, { type: "SET_TAB", tab: "matrix" });
-  const matrixUrl = serializeSearch(s);
+  const matrixUrl = serializeLocation(s);
   assert.ok(!matrixUrl.includes("sort="), `Matrix URL should not leak sort: ${matrixUrl}`);
   assert.ok(!matrixUrl.includes("page="), `Matrix URL should not leak page: ${matrixUrl}`);
 
@@ -2440,8 +2449,8 @@ test("renderBlackHoleEvidence: renders rule, exclusions, and recovery note when 
   assert.ok(!html.includes("external non-bot PRs had no maintainer response"));
 });
 
-test("state.reduce OPEN_REPO and createStore(?repo=): immediately enter loading state to prevent synchronous not-found flash, and guard stale repo responses", () => {
-  const store = createStore("?repo=org/alpha");
+test("state.reduce OPEN_REPO and createStore(panel address): immediately enter loading state to prevent synchronous not-found flash, and guard stale repo responses", () => {
+  const store = createStore(stateFromLocation("/projects/org/alpha/", ""));
   const hydrated = store.getState();
   assert.equal(hydrated.repo, "org/alpha");
   assert.equal(hydrated.repoDetailLoading, true);
@@ -2449,7 +2458,7 @@ test("state.reduce OPEN_REPO and createStore(?repo=): immediately enter loading 
   const hydratedDrawerHtml = renderDrawer(hydrated);
   assert.ok(!hydratedDrawerHtml.includes(copy.DRAWER_NOT_FOUND_TEXT), "URL-hydrated drawer shows skeleton instead of not-found error");
 
-  const malformedStore = createStore("?repo=malformed-no-slash");
+  const malformedStore = createStore({ repo: "malformed-no-slash" });
   const malformedState = malformedStore.getState();
   assert.equal(malformedState.repoDetailLoading, false, "malformed repo key does not stick in loading state");
   const malformedHtml = renderDrawer(malformedState);
@@ -2714,12 +2723,12 @@ test("compare: empty and partial states render quick-start presets and suggestio
 
 import { renderShell } from "../views/leaderboard.js";
 
-test("leaderboard: one visible findings line under the header links to the static report with a real relative href", () => {
+test("leaderboard: one visible findings line under the header links to the static report with a real href from the site root", () => {
   // The number is checked against the snapshot's data by scripts/verify_static_export.py (check_hand_written).
   assert.match(copy.FINDINGS_LINE, /^More than 1 in \d+ active projects leave most strangers' pull requests unanswered for two weeks\.$/);
   const html = renderShell({ ...defaultState(), leaderboardLoading: true, leaderboard: null });
   assert.ok(html.includes(escapeHtml(copy.FINDINGS_LINE)), "the line is on the page");
-  assert.match(html, /<a href="black-holes\/"[^>]*>Read the findings<\/a>/);
+  assert.match(html, /<a href="\/black-holes\/"[^>]*>Read the findings<\/a>/);
   assert.ok(
     html.indexOf("data-onboarding-banner") < html.indexOf("data-findings-line"),
     "the line sits under the onboarding banner"
@@ -2727,13 +2736,13 @@ test("leaderboard: one visible findings line under the header links to the stati
   assert.ok(html.indexOf("data-findings-line") < html.indexOf("data-primary-tab") || !html.includes("data-primary-tab"));
 });
 
-test("footer: Report and Methodology are real relative links", () => {
+test("footer: Report and Methodology are real links from the site root", () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const app = readFileSync(path.join(here, "..", "app.js"), "utf8");
-  assert.equal(copy.REPORT_PAGE_HREF, "black-holes/");
-  assert.equal(copy.METHODOLOGY_PAGE_HREF, "methodology/");
+  assert.equal(copy.REPORT_PAGE_HREF, "/black-holes/");
+  assert.equal(routePath("methodology"), "/methodology/");
   assert.match(app, /<a href="\$\{escapeHtml\(copy\.REPORT_PAGE_HREF\)\}"[^>]*>\$\{escapeHtml\(copy\.FOOTER_REPORT_LABEL\)\}<\/a>/);
-  assert.match(app, /<a href="\$\{escapeHtml\(copy\.METHODOLOGY_PAGE_HREF\)\}"[^>]*>\$\{escapeHtml\(copy\.FOOTER_METHODOLOGY_LABEL\)\}<\/a>/);
+  assert.match(app, /<a href="\$\{escapeHtml\(routePath\("methodology"\)\)\}" data-route-tab="methodology"[^>]*>\$\{escapeHtml\(copy\.FOOTER_METHODOLOGY_LABEL\)\}<\/a>/);
   assert.equal(copy.FOOTER_REPORT_LABEL, "Report");
   assert.equal(copy.FOOTER_METHODOLOGY_LABEL, "Methodology");
 });
@@ -2759,15 +2768,15 @@ function clickOn(onLink, init = {}) {
 
 test("E3: a ranked row and a card render the repository name as a real link to the lower-case project page", () => {
   const repo = rowCells(E3_ROW, {}).cells.find((cell) => cell.key === "repository").html;
-  assert.match(repo, /^<a class="repo-link"[^>]* href="projects\/freecad\/freecad\/">/, "the cell starts with a real link");
+  assert.match(repo, /^<a class="repo-link"[^>]* href="\/projects\/freecad\/freecad\/">/, "the cell starts with a real link");
   assert.ok(repo.includes('<span class="repo-owner">FreeCAD/</span><span class="repo-name">FreeCAD</span></a>'), "the real spelling is shown");
   assert.ok(repo.includes('<span class="eco-chip">systems</span>'), "the ecosystem chip is still there, outside the link");
-  assert.ok(renderCard(E3_ROW, {}).includes('href="projects/freecad/freecad/"'), "the card links too");
+  assert.ok(renderCard(E3_ROW, {}).includes('href="/projects/freecad/freecad/"'), "the card links too");
   assert.ok(!repo.includes("style="), "the link carries no inline style");
   const css = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "styles", "components.css"), "utf8");
   assert.match(css, /\.repo-link \{\s*color: inherit;\s*text-decoration: none;\s*\}/, "components.css keeps the link looking like the row did");
   assert.equal(repoLinkHtml({ ...E3_ROW, owner: "a<b" }).includes("<b"), false, "a name is escaped");
-  assert.equal(copy.projectPath("Ggml-Org", "Llama.CPP"), "projects/ggml-org/llama.cpp/");
+  assert.equal(projectPath("Ggml-Org", "Llama.CPP"), "/projects/ggml-org/llama.cpp/");
 });
 
 test("E3: a plain left click on the link is kept from navigating (the drawer opens), a modified click follows the link", () => {
@@ -2899,8 +2908,8 @@ test("repoLinkHtml: under a lens, a row with no balanced rank is plain text; els
   assert.ok(!plain.includes("<a"), plain);
   assert.ok(!plain.includes("href"), plain);
   assert.ok(plain.includes('<span class="repo-owner">FreeCAD/</span><span class="repo-name">FreeCAD</span>'), "the name still shows");
-  assert.ok(repoLinkHtml(LENS_ROW_WITH_BALANCED_RANK, true).includes('href="projects/freecad/freecad/"'), "balanced rank: linked");
-  assert.ok(repoLinkHtml(LENS_ROW_WITHOUT_BALANCED_RANK, false).includes('href="projects/freecad/freecad/"'), "balanced lens: linked");
+  assert.ok(repoLinkHtml(LENS_ROW_WITH_BALANCED_RANK, true).includes('href="/projects/freecad/freecad/"'), "balanced rank: linked");
+  assert.ok(repoLinkHtml(LENS_ROW_WITHOUT_BALANCED_RANK, false).includes('href="/projects/freecad/freecad/"'), "balanced lens: linked");
   assert.ok(repoLinkHtml({ ...E3_ROW, balanced_rank: undefined }, true).indexOf("<a") === -1, "an absent balanced rank is not a rank");
   assert.ok(repoLinkHtml({ ...E3_ROW, balanced_rank: 0 }, true).includes("href"), "a balanced rank of 0 is still a rank");
 });
@@ -2911,8 +2920,8 @@ test("rows and cards on a lens link only the projects that have a page", () => {
   assert.ok(!cell(LENS_ROW_WITHOUT_BALANCED_RANK, lens).includes("<a"));
   assert.ok(cell(LENS_ROW_WITH_BALANCED_RANK, lens).includes("<a"));
   assert.ok(cell(LENS_ROW_WITHOUT_BALANCED_RANK, { showPersonaDelta: false }).includes("<a"));
-  assert.ok(!renderCard(LENS_ROW_WITHOUT_BALANCED_RANK, lens).includes('href="projects/'));
-  assert.ok(renderCard(LENS_ROW_WITH_BALANCED_RANK, lens).includes('href="projects/freecad/freecad/"'));
+  assert.ok(!renderCard(LENS_ROW_WITHOUT_BALANCED_RANK, lens).includes('href="/projects/'));
+  assert.ok(renderCard(LENS_ROW_WITH_BALANCED_RANK, lens).includes('href="/projects/freecad/freecad/"'));
 });
 
 test("lastPageWhenPastEnd: a page past the end of a non-empty result goes to the last page; nothing else moves", () => {
@@ -3000,4 +3009,260 @@ test("matrix hover card: the tier shows '(capped)' like the table and the drawer
   // the card agrees with the table row for the same project
   const tableTier = rowCells({ ...E3_ROW, coverage: 0.9, tier: "A", tier_ceiling: "A" }, {}).cells.find((c) => c.key === "tier").html;
   assert.ok(tableTier.includes("A (capped)"));
+});
+
+// ------------------------------------------------ routes: every view at one real address (web/app/routes.js)
+import { renderShell as renderNotFoundShell } from "../views/notfound.js";
+
+//: The plan's route table (overhaul web audit §2.5, with the owner's rulings of 2026-10-17): each view's address
+//: and the query fields it keeps, in the order the address writes them.
+const EXPECTED_ROUTES = {
+  ranked: ["/", ["persona", "eco", "q", "sort", "page", "page_size"]],
+  notranked: ["/not-ranked/", ["persona", "eco", "q", "page", "page_size"]],
+  matrix: ["/matrix/", ["eco", "q"]],
+  compare: ["/compare/", ["persona", "cmp"]],
+  configure: ["/weights/", ["eco", "q", "sort", "page", "page_size", "w"]],
+  methodology: ["/methodology/", []],
+  project: ["/projects/{owner}/{name}/", ["persona"]],
+  notfound: [null, []],
+};
+//: For each query field: the state field it fills, a value that is not the default as it stands in an address,
+//: and that value as state.
+const FIELD_SAMPLES = {
+  persona: ["persona", "first_timer", "first_timer"],
+  eco: ["ecosystem", "pypi", "pypi"],
+  q: ["query", "flask", "flask"],
+  sort: ["sort", "-porchlamp", "-porchlamp"],
+  page: ["page", "3", 3],
+  page_size: ["pageSize", "100", 100],
+  w: ["weights", "0.3,0.2,0.2,0.2,0.1", { responsiveness: 0.3, criticality: 0.2, governance: 0.2, rigor: 0.2, accessibility: 0.1 }],
+  cmp: ["compareRepos", "a/b,c/d", ["a/b", "c/d"]],
+};
+/** An address of the route itself: a project's for the project route, a missing page's for "notfound". */
+function addressOf(route) {
+  if (route.id === "project") return "/projects/acme/widget/";
+  if (route.id === "notfound") return "/no/such/page/";
+  return route.path;
+}
+
+test("routes: the table holds every view at its address, with the query fields it keeps", () => {
+  assert.deepEqual(Object.fromEntries(ROUTES.map((route) => [route.id, [route.path, [...route.query]]])), EXPECTED_ROUTES);
+  assert.deepEqual(ROUTES.filter((route) => route.shell).map((route) => route.id), ["ranked", "notranked", "matrix", "compare", "configure", "methodology"]);
+});
+
+test("routes: every route round-trips through parseLocation and serializeLocation", () => {
+  for (const route of ROUTES) {
+    const qs = new URLSearchParams(route.query.map((key) => [key, FIELD_SAMPLES[key][1]]));
+    const search = route.query.length ? `?${qs}` : "";
+    const parsed = parseLocation(addressOf(route), search);
+    assert.equal(parsed.tab, route.id === "project" ? "ranked" : route.id, route.id);
+    if (route.id === "project") assert.equal(parsed.repo, "acme/widget");
+    if (route.id === "notfound") assert.equal(parsed.missingPath, "/no/such/page/");
+    for (const key of route.query) assert.deepEqual(parsed[FIELD_SAMPLES[key][0]], FIELD_SAMPLES[key][2], `${route.id} reads ${key}`);
+
+    const address = serializeLocation({ ...defaultState(), ...parsed });
+    const back = new URL(address, SITE_BASE);
+    assert.equal(back.pathname, addressOf(route), `${route.id} writes its own path`);
+    assert.deepEqual([...back.searchParams.keys()], route.query, `${route.id} writes exactly its fields, in order`);
+    for (const key of route.query) assert.equal(back.searchParams.get(key), FIELD_SAMPLES[key][1], `${route.id} writes ${key}`);
+    assert.equal(serializeLocation({ ...defaultState(), ...parseLocation(back.pathname, back.search) }), address, `${route.id} is stable`);
+  }
+});
+
+test("routes: a query field the view does not read is neither read from its address nor written to it", () => {
+  const every = Object.keys(FIELD_SAMPLES);
+  const full = Object.fromEntries(every.map((key) => [FIELD_SAMPLES[key][0], FIELD_SAMPLES[key][2]]));
+  for (const route of ROUTES.filter((r) => r.id !== "notfound")) {
+    const foreign = every.filter((key) => !route.query.includes(key));
+    const parsed = parseLocation(addressOf(route), `?${new URLSearchParams(foreign.map((key) => [key, FIELD_SAMPLES[key][1]]))}`);
+    for (const key of foreign) assert.equal(parsed[FIELD_SAMPLES[key][0]], undefined, `${route.id} ignores ${key}`);
+    const state = { ...defaultState(), ...full, tab: route.id === "project" ? "ranked" : route.id, repo: route.id === "project" ? "acme/widget" : null };
+    const written = new URL(serializeLocation(state), SITE_BASE).searchParams;
+    for (const key of foreign) assert.ok(!written.has(key), `${route.id} does not write ${key}`);
+  }
+});
+
+test("routes: an address no route claims, or a project part that is not a GitHub name, is the not-found view", () => {
+  for (const path of ["/projects/acme/", "/projects/acme/widget/extra/", "/projects/%2e%2e/widget/", "/projects/a%2Fb/c/", "/PROJECTS/acme/widget/", "/rust/", "/nope"]) {
+    assert.equal(matchRoute(path).route.id, "notfound", path);
+  }
+  assert.equal(matchRoute("/matrix").route.id, "matrix", "the closing slash is optional, as a static host's redirect makes it");
+  assert.equal(matchRoute("/matrix/index.html").route.id, "matrix", "a directory's index.html is the directory");
+  assert.equal(matchRoute("/index.html").route.id, "ranked");
+  assert.deepEqual(matchRoute("/projects/Acme/Widget.js/"), { route: routeById("project"), owner: "Acme", name: "Widget.js" });
+  assert.equal(projectPath("Acme", "Widget.js"), "/projects/acme/widget.js/");
+});
+
+//: The old query links (overhaul web audit §2.5, brief 2026-10-17): the old address, the address it lands on, and how:
+//: "load" (location.replace) or "panel over <view address>" (opened in place). Each carries a field its view reads
+//: and, where there is one, a field it does not.
+const OLD_LINKS = [
+  ["/?tab=ranked&q=flask&page=2", "/?q=flask&page=2", "load"],
+  ["/?tab=notranked&persona=first_timer&eco=npm&page=2&page_size=50&w=0.3,0.2,0.2,0.2,0.1", "/not-ranked/?persona=first_timer&eco=npm&page=2&page_size=50", "load"],
+  ["/?tab=matrix&eco=npm&q=widget&persona=first_timer", "/matrix/?eco=npm&q=widget", "load"],
+  ["/?tab=compare&cmp=a/b,c/d&persona=career_capital&eco=npm", "/compare/?persona=career_capital&cmp=a%2Fb%2Cc%2Fd", "load"],
+  ["/?tab=configure&w=0.3,0.2,0.2,0.2,0.1&eco=npm&persona=first_timer", "/weights/?eco=npm&w=0.3%2C0.2%2C0.2%2C0.2%2C0.1", "load"],
+  ["/?tab=methodology&persona=first_timer", "/methodology/", "load"],
+  ["/?tab=methodology#gates", "/methodology/#gates", "load"],
+  ["/#methodology", "/methodology/", "load"],
+  ["/?tab=something-else&q=flask", "/?q=flask", "load"],
+  ["/index.html?tab=matrix", "/matrix/", "load"],
+  ["/?repo=WordPress/gutenberg", "/projects/wordpress/gutenberg/", "panel over /"],
+  ["/?repo=https%3A%2F%2Fgithub.com%2FWordPress%2Fgutenberg.git", "/projects/wordpress/gutenberg/", "panel over /"],
+  ["/?tab=matrix&eco=npm&repo=ggml-org%2Fllama.cpp", "/projects/ggml-org/llama.cpp/", "panel over /matrix/?eco=npm"],
+  ["/?tab=notranked&persona=first_timer&repo=a/b", "/projects/a/b/?persona=first_timer", "panel over /not-ranked/?persona=first_timer"],
+  ["/projects/WordPress/Gutenberg/?persona=first_timer", "/projects/wordpress/gutenberg/?persona=first_timer", "load"],
+];
+
+test("routes: every old link lands on its view's address, keeping every other field that view reads", () => {
+  for (const [old, expected, how] of OLD_LINKS) {
+    const url = new URL(old, SITE_BASE);
+    const target = redirectTarget(url.pathname, url.search, url.hash);
+    assert.ok(target, `${old} goes somewhere`);
+    assert.equal(target.href, expected, old);
+    assert.equal(target.load ? "load" : `panel over ${target.under}`, how, old);
+    // the fields: kept where the view it lands on reads them, left out where it does not, never an old link again
+    const landed = new URL(target.load ? target.href : target.under, SITE_BASE);
+    const view = matchRoute(landed.pathname).route;
+    for (const [key, value] of url.searchParams) {
+      if (key === "tab" || key === "repo") {
+        assert.ok(!new URL(target.href, SITE_BASE).searchParams.has(key), `${old}: no ${key}= is left`);
+      } else if (view.query.includes(key)) {
+        assert.equal(landed.searchParams.get(key), value, `${old} keeps ${key}`);
+      } else {
+        assert.ok(!landed.searchParams.has(key), `${old} leaves out ${key}, which the ${view.id} view does not read`);
+      }
+    }
+  }
+  const panel = redirectTarget("/", "?repo=WordPress%2FGutenberg");
+  assert.equal(panel.repo, "WordPress/Gutenberg", "the panel keeps the project as the link spelled it");
+  // A view's own address, the leaderboard's filters and its search stay where they are (?q= is the site's
+  // search address; ?eco= and ?persona= move with the ecosystem and lens pages, a later step).
+  for (const stays of ["/", "/?q=flask", "/?persona=first_timer&eco=pypi", "/matrix/?eco=npm", "/projects/acme/widget/", "/no/such/page/"]) {
+    const url = new URL(stays, SITE_BASE);
+    assert.equal(redirectTarget(url.pathname, url.search, url.hash), null, stays);
+  }
+  // every old tab= value named a view the table still holds
+  for (const tab of VALID_TABS) assert.ok(routeById(tab)?.shell, tab);
+});
+
+test("routes: every primary nav link is a view's address, opened in place, with the shown view current", () => {
+  for (const tab of ["ranked", "notranked", "matrix", "compare", "configure", "methodology", "notfound"]) {
+    const state = { ...defaultState(), tab, persona: "first_timer", ecosystem: "npm", query: "widget", missingPath: tab === "notfound" ? "/x/" : null };
+    const links = [...renderPrimaryNav(state).matchAll(/<a class="primary-tab" href="([^"]*)"( data-route-tab="([^"]*)")?( aria-current="page")?>/g)];
+    assert.equal(links.length, 5, `${tab}: five links`);
+    for (const [, rawHref, , linkTab] of links) {
+      const href = rawHref.replace(/&amp;/g, "&");
+      const { route } = matchRoute(new URL(href, SITE_BASE).pathname);
+      assert.ok(route.shell, `${tab}: ${href} is the address of a view the app draws`);
+      assert.equal(linkTab, route.id, `${tab}: ${href} opens its own view in place`);
+      assert.equal(href, hrefFor(state, route.id), `${tab}: ${href} is where a click goes from here`);
+    }
+    const current = links.filter((link) => link[4]).map((link) => link[3]);
+    assert.deepEqual(current, tab === "notfound" ? [] : [tab === "notranked" ? "ranked" : tab], `${tab}: the current entry`);
+  }
+  // The Leaderboard's Ranked and Not ranked links are addresses too, carrying the reader's lens and filters.
+  const lb = leaderboardRenderShell({ ...defaultState(), persona: "first_timer", ecosystem: "npm", leaderboardLoading: true });
+  assert.ok(lb.includes('<a class="tab" href="/?persona=first_timer&amp;eco=npm" data-route-tab="ranked" aria-current="page">'), lb);
+  assert.ok(lb.includes('<a class="tab" href="/not-ranked/?persona=first_timer&amp;eco=npm" data-route-tab="notranked">'), lb);
+  assert.ok(!/role="tab"|aria-selected/.test(lb), "no tab roles left on links");
+});
+
+test("routes: a view's link brings that view back with its own page and sort", () => {
+  let s = reduce(defaultState(), { type: "SET_PARAMS", payload: { sort: "-porchlamp", page: 3 } });
+  s = reduce(s, { type: "SET_TAB", tab: "notranked" });
+  assert.equal(hrefFor(s, "ranked"), "/?sort=-porchlamp&page=3");
+  assert.equal(hrefFor(s, "matrix"), "/matrix/");
+  assert.equal(hrefFor({ ...s, repo: "a/b" }, "compare"), "/compare/", "a view's link never carries the open panel");
+});
+
+test("routes: every route sets its own document title, and the pages the export serves carry the same", () => {
+  const titles = new Map();
+  for (const route of ROUTES) {
+    const state = route.id === "project"
+      ? { ...defaultState(), repo: "acme/widget" }
+      : { ...defaultState(), tab: route.id, missingPath: route.id === "notfound" ? "/x/" : null };
+    const title = titleForState(state);
+    assert.ok(title.includes("Porchlamp"), `${route.id}: ${title}`);
+    assert.equal(title, routeTitle(route.id, { owner: "acme", name: "widget" }), route.id);
+    titles.set(route.id, title);
+  }
+  assert.equal(new Set(titles.values()).size, ROUTES.length, "no two views share a title");
+  const loaded = { ...defaultState(), repo: "acme/widget", repoDetailByKey: { "acme/widget": { owner: "Acme", name: "Widget" } } };
+  assert.equal(titleForState(loaded), routeTitle("project", { owner: "Acme", name: "Widget" }), "the record's spelling once it has loaded");
+  const webRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const titleOf = (file) => readFileSync(path.join(webRoot, file), "utf8").match(/<title>([^<]*)<\/title>/)[1];
+  assert.equal(titleOf("index.html"), titles.get("ranked"), "index.html is the leaderboard's page");
+  assert.equal(titleOf("404.html"), titles.get("notfound"), "404.html is the not-found page");
+  const app = readFileSync(path.join(webRoot, "app.js"), "utf8");
+  assert.match(app, /const title = titleForState\(state\);\s*if \(doc\.title !== title\) doc\.title = title;/, "app.js sets it on every render");
+});
+
+test("routes: a panel's history entry brings back the view under it; loaded directly it opens over the leaderboard", () => {
+  const over = { ...defaultState(), tab: "matrix", ecosystem: "npm", repo: "Acme/Widget" };
+  assert.equal(serializeLocation(over), "/projects/acme/widget/");
+  const entry = historyEntryFor(over);
+  assert.deepEqual(entry, { under: "/matrix/?eco=npm", repo: "Acme/Widget" });
+  const back = stateFromLocation("/projects/acme/widget/", "", entry);
+  assert.deepEqual([back.tab, back.ecosystem, back.repo], ["matrix", "npm", "Acme/Widget"], "the view under it, and the project's spelling");
+  const direct = stateFromLocation("/projects/acme/widget/", "", null);
+  assert.deepEqual([direct.tab, direct.repo], ["ranked", "acme/widget"]);
+  const elsewhere = stateFromLocation("/projects/other/thing/", "", entry);
+  assert.equal(elsewhere.repo, "other/thing", "a spelling kept for another project is not used");
+  assert.equal(historyEntryFor({ ...over, repo: null }), null, "no panel, nothing to keep");
+  // the lens of the list under a panel stays in the panel's address; the matrix has no lens
+  assert.equal(serializeLocation({ ...defaultState(), persona: "first_timer", repo: "a/b" }), "/projects/a/b/?persona=first_timer");
+  assert.equal(serializeLocation({ ...defaultState(), tab: "matrix", persona: "first_timer", repo: "a/b" }), "/projects/a/b/");
+});
+
+test("routes: the side panel links a ranked project's own page, and only a ranked project's", () => {
+  const ranked = renderDrawer(stateWithRepoDetail(FLAT_RATED_DETAIL));
+  assert.ok(ranked.includes(`<a class="drawer-page-link" href="/projects/riverline/httpkit/" data-drawer-page="true">${escapeHtml(copy.DRAWER_PAGE_LABEL)}</a>`), ranked);
+  const identity = ranked.match(/<div class="drawer-identity"[\s\S]*?<\/div>/)[0];
+  assert.ok(identity.includes("data-drawer-page"), "under the project's name, not among the buttons");
+  for (const detail of [FLAT_GATED_DETAIL, FLAT_UNRATED_DETAIL]) {
+    assert.ok(!renderDrawer(stateWithRepoDetail(detail)).includes("data-drawer-page"), `${detail.owner}: no page, no link`);
+  }
+});
+
+test("routes: the not-found view says what was asked for and searches the ranked projects without the app", () => {
+  const html = renderNotFoundShell({ ...defaultState(), tab: "notfound", missingPath: "/projects/<x>/" });
+  assert.ok(html.includes(`<h1 id="not-found-heading" class="view-heading">${copy.NOT_FOUND_HEADING}</h1>`));
+  assert.ok(html.includes(escapeHtml(copy.notFoundText("/projects/<x>/"))), "the address, escaped");
+  assert.match(html, /<form class="not-found-search" action="\/" method="get" role="search">/);
+  assert.match(html, /<input class="control" id="not-found-q" type="search" name="q"/);
+  assert.match(html, /<a href="\/" data-route-tab="ranked">/);
+});
+
+test("routes: on a ranked project's static page, Back and Forward between the app's entries load the address", async () => {
+  // The page shares its address with the project's side panel, so the app's history entries can land on it
+  // (a reload of an open panel, or its Full page link): the page loads the address so the app draws it.
+  const listeners = [];
+  let reloads = 0;
+  const saved = { addEventListener: globalThis.addEventListener, location: globalThis.location };
+  globalThis.addEventListener = (type, handler) => listeners.push([type, handler]);
+  globalThis.location = { reload: () => { reloads += 1; } };
+  try {
+    await import("../back-forward.js");
+  } finally {
+    globalThis.addEventListener = saved.addEventListener;
+    globalThis.location = saved.location;
+  }
+  assert.deepEqual(listeners.map(([type]) => type), ["popstate"], "it listens for Back and Forward only");
+  globalThis.location = { reload: () => { reloads += 1; } };
+  try {
+    listeners[0][1]({ state: { under: "/" } });
+  } finally {
+    globalThis.location = saved.location;
+  }
+  assert.equal(reloads, 1, "a Back or Forward loads the address it moved to");
+  const projectPages = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "porchlamp", "serve", "project_pages.py"), "utf8");
+  assert.match(projectPages, /<script type="module" src="\{rel\}back-forward\.js"><\/script>/, "every project page loads it");
+});
+
+test("routes: the panel's README badge preview loads from the site root, since the panel is open at a project's address", () => {
+  const html = renderMaintainerBadge(badgeRow({}), SITE_BASE);
+  const src = html.match(/<img class="maintainer-badge-preview" src="([^"]*)"/)[1];
+  assert.match(src, /^\/badges\/[a-z0-9-]+\.svg$/, src);
+  assert.ok(existsSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", src.slice(1))), `${src} is a file of the site`);
 });

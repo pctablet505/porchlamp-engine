@@ -1,9 +1,10 @@
-"""The static report and methodology pages (``scripts/export_static.py --stats``).
+"""The static report pages (``scripts/export_static.py --stats``).
 
-Three pages that a crawler or a reader can read without JavaScript:
-``/black-holes/`` (the latest snapshot's report), ``/black-holes/<snapshot_id>/``
-(the same report, frozen for citations) and ``/methodology/``, plus one CSV of
-the ranked projects. Nothing here is typed by hand:
+Two pages that a crawler or a reader can read without JavaScript:
+``/black-holes/`` (the latest snapshot's report) and ``/black-holes/<snapshot_id>/``
+(the same report, frozen for citations), plus one CSV of the ranked projects. The
+methodology is the app's own view at ``/methodology/`` (owner, 2026-10-17: one
+methodology page, the app's). Nothing here is typed by hand:
 
 * the judged / black-hole counts, overall and per ecosystem, come from the
   snapshot database (:func:`decided_counts`, the definition
@@ -45,7 +46,6 @@ WEB_APP = Path(__file__).resolve().parents[2] / "web" / "app"
 
 REPORT_H1 = "Stars don't review pull requests"
 CITE_TITLE = "Stars don't review pull requests: the state of open-source black holes"
-METHODOLOGY_H1 = "How Porchlamp measures a project"
 
 #: The star bands the report charts: the stats producer's bands from 1,000 stars up (their keys in the stats file).
 STAR_BANDS = tuple(bucket_label(lo, hi) for lo, hi in STAR_BUCKETS if lo >= 1000)
@@ -475,11 +475,6 @@ def _a(text: str) -> str:
     return escape(text, quote=True)
 
 
-def _inline_code(text: str) -> str:
-    """Payload prose with its `backtick` spans set as code; escaped first, like the app's ``inlineCodeHtml``."""
-    return re.sub(r"`([^`]+)`", r"<code>\1</code>", _t(text))
-
-
 def _ld(payload: Any) -> str:
     text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
@@ -820,164 +815,3 @@ def render_report(f: Facts, *, frozen: bool, exported_on: date, source_db_sha256
         title=report_title(f, frozen=frozen), description=report_description(f), canonical=canonical, rel=rel, body=body,
         ld=report_jsonld(f, canonical=canonical, exported_on=exported_on), nav_current="report",
     )
-
-
-# --------------------------------------------------------------------------- #
-# The methodology page
-# --------------------------------------------------------------------------- #
-def methodology_title() -> str:
-    return "Porchlamp methodology: how open-source projects are measured and ranked | Porchlamp"
-
-
-METHODOLOGY_DESCRIPTION = (
-    "Every gate, pillar, lens, weight and parameter behind the Porchlamp ranking of open-source projects, "
-    "generated from the constants the ranking code uses."
-)
-
-
-def _percent_text(fraction: float | None) -> str:
-    return "n/a" if fraction is None else f"{round(fraction * 100 + 1e-9)}%"
-
-
-def render_methodology(
-    methodology: Mapping[str, Any], f: Facts, *, source_db_sha256: str, web_dir: Path = WEB_APP
-) -> str:
-    """``/methodology/`` from the same ``methodology.json`` the API serves."""
-    canonical = f"{SITE}/methodology/"
-    rel = "../"
-    pillar_names = copy_js_map("PILLAR_NAMES", web_dir)
-    pillar_short = copy_js_map("PILLAR_SHORT_NAMES", web_dir)
-    persona_names = copy_js_map("PERSONA_NAMES", web_dir)
-    param_names = copy_js_map("PARAM_NAMES", web_dir)
-    ledes = copy_js_map("METHODOLOGY_SECTION_LEDES", web_dir)
-
-    pillars = methodology["pillars"]
-    pillar_order = [p["name"] for p in pillars]
-    gates = "\n".join(
-        f'        <h3 id="{_a(g["id"].lower())}">{_t(g["id"])}: {_t(g["name"])}</h3>\n'
-        f"        <p>{_inline_code(g['criterion'])}</p>"
-        for g in methodology["gates"]
-    )
-    pillar_rows = [(pillar_names.get(p["name"], p["name"]), _percent_text(p["weight"])) for p in pillars]
-    lens_head = "".join(
-        f'<th scope="col"><abbr title="{_a(pillar_names.get(p, p))}">{_t(pillar_short.get(p, p))}</abbr></th>'
-        for p in pillar_order
-    )
-
-    def lens_cell(name: str) -> str:
-        label = _t(persona_names.get(name, name))
-        return f'<a href="{rel}{LENS_SLUGS[name]}/">{label}</a>' if name in LENS_SLUGS else label
-
-    lens_rows = "".join(
-        f'<tr><th scope="row">{lens_cell(name)}</th>'
-        + "".join(f"<td>{_percent_text(weights.get(p))}</td>" for p in pillar_order)
-        + "</tr>"
-        for name, weights in methodology["personas"]["presets"].items()
-    )
-    lens_gates = "".join(
-        f"<li><strong>{_t(persona_names.get(g['persona'], g['persona']))}:</strong> {_inline_code(g['description'])}</li>"
-        for g in methodology["personas"]["gates"]
-    )
-    param_rows = []
-    for pillar in pillar_order:
-        for p in (x for x in methodology["parameters"] if x["pillar"] == pillar):
-            window = "n/a" if p["window_days"] is None else f"{p['window_days']} days"
-            param_rows.append(
-                f"<tr><th scope=\"row\">{_t(param_names.get(p['input_id'], p['input_id']))}</th>"
-                f"<td data-label=\"Pillar\">{_t(pillar_names.get(pillar, pillar))}</td>"
-                f"<td data-label=\"Weight in pillar\">{_percent_text(p['weight_within_pillar'])}</td>"
-                f"<td data-label=\"Min count\">{'n/a' if p['min_n'] is None else p['min_n']}</td><td data-label=\"Window\">{_t(window)}</td>"
-                f"<td data-label=\"Scoring curve\">{_inline_code(p['curve'])}</td></tr>"
-            )
-    param_table = (
-        '<div class="seo-fallback-table-wrap"><table class="wrap-cells"><thead><tr><th scope="col">Parameter</th>'
-        '<th scope="col">Pillar</th><th scope="col">Weight in pillar</th><th scope="col">Min count</th>'
-        '<th scope="col">Window</th><th scope="col">Scoring curve</th></tr></thead><tbody>'
-        + "".join(param_rows) + "</tbody></table></div>"
-    )
-    miss = methodology["missingness"]
-    threshold_labels = copy_js_map("METHODOLOGY_COVERAGE_THRESHOLD_LABELS", web_dir)
-    thresholds = "".join(
-        f"<li>{_t(threshold_labels.get(k, k))}: {_percent_text(v)}</li>"
-        for k, v in sorted(miss["coverage_thresholds"].items(), key=lambda kv: kv[1])
-    )
-    reasons = "".join(
-        f"<li><code>{_t(r['reason'])}</code>: {_inline_code(r['semantics'])}</li>" for r in miss["reasons"]
-    )
-    tie = "".join(
-        f"<li><code>{_t(level['field'])}</code>, {_t(level['direction'])}"
-        + (f": {_t(level['note'])}" if level.get("note") else "")
-        + "</li>"
-        for level in methodology["tie_break_levels"]["levels"]
-    )
-    limits = "".join(f"<li>{_t(item)}</li>" for item in LIMITS)
-    hashes = (
-        ("Benchmark version", f.benchmark_version),
-        ("Methodology constants hash", f.constants_hash),
-        ("Manifest root", f.manifest_root),
-        ("Canonical dump hash", f.canonical_dump_hash),
-        ("Code commit", f.code_commit),
-        ("Snapshot database SHA-256", source_db_sha256),
-    )
-    hash_items = "".join(f"<li>{_t(label)}: <code>{_t(value)}</code></li>" for label, value in hashes)
-
-    body = f"""      <article class="seo-fallback report">
-        <h1>{_t(METHODOLOGY_H1)}</h1>
-        <p class="lede">Porchlamp ranks open-source projects by what happens to a stranger's pull request. This page lists every rule, weight and parameter behind the ranking, generated from the same constants the ranking code uses.</p>
-        <p>This page describes snapshot {_t(f.snapshot_id)}. The <a href="{rel}black-holes/">black-hole report</a> and the <a href="{rel}">rankings</a> use the same rules.</p>
-        <h2 id="gates">Gates</h2>
-        <p>{_t(ledes['gates'])}</p>
-{gates}
-        <h2 id="pillars">Pillars</h2>
-        <p>{_t(ledes['pillars'])}</p>
-        {_table(("Pillar", "Weight in the balanced composite"), pillar_rows)}
-        <h2 id="lenses">Lenses</h2>
-        <p>{_t(ledes['personas'])}</p>
-        <div class="seo-fallback-table-wrap"><table><thead><tr><th scope="col">Lens</th>{lens_head}</tr></thead><tbody>{lens_rows}</tbody></table></div>
-        <ul>{lens_gates}</ul>
-        <h2 id="parameters">Parameters</h2>
-        <p>{_t(ledes['parameters'])}</p>
-        <details><summary>All {len(methodology['parameters'])} parameters</summary>
-        {param_table}
-        </details>
-        <h2 id="missing-data">Missing data</h2>
-        <p>{_t(ledes['missingness'])}</p>
-        <ul>{thresholds}</ul>
-        <p>Why a measurement can be missing:</p>
-        <ul>{reasons}</ul>
-        <h2 id="tie-break">Tie-break order</h2>
-        <p>{_t(ledes['tie_break'])}</p>
-        <ol>{tie}</ol>
-        <h2 id="limits">Limits</h2>
-        <ul>{limits}</ul>
-        <h2 id="reproduce">Reproduce it</h2>
-        <pre class="reproduce"><code>{_t(f.reproduce_command)}</code></pre>
-        <h2 id="hashes">Hashes</h2>
-        <ul class="hashes">{hash_items}</ul>
-        <p>To check a project, open https://porchlamp.org/projects/&lt;owner&gt;/&lt;name&gt;/ (lower case), or search on the <a href="{rel}check/">check page</a>.</p>
-        {_site_links(rel)}
-      </article>"""
-    ld = {
-        "@context": "https://schema.org",
-        "@graph": [
-            {
-                "@type": "Person", "@id": CREATOR_ID, "name": "Rahul Kumar", "alternateName": "pctablet505",
-                "url": "https://github.com/pctablet505",
-            },
-            {
-                "@type": "TechArticle",
-                "@id": f"{canonical}#article",
-                "headline": METHODOLOGY_H1,
-                "description": METHODOLOGY_DESCRIPTION,
-                "url": canonical,
-                "mainEntityOfPage": canonical,
-                "inLanguage": "en",
-                "author": {"@id": CREATOR_ID},
-            },
-        ],
-    }
-    return page(
-        title=methodology_title(), description=METHODOLOGY_DESCRIPTION, canonical=canonical, rel=rel, body=body, ld=ld,
-        nav_current="methodology",
-    )
-
