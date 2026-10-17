@@ -215,3 +215,46 @@
     padding: var(--space-xs) var(--space-sm);
   }
 }
+
+/* A project page (porchlamp/serve/project_pages.py) and the /check/ page. */
+.report .answer {
+  margin: var(--space-sm) 0;
+  padding: var(--space-xs) var(--space-md);
+  background: var(--bg-surface);
+  border-left: 3px solid var(--lamp-glow);
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
+}
+
+.report ul.facts,
+.report ul.evidence {
+  padding-left: var(--space-lg);
+}
+
+.report .check-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin: var(--space-md) 0;
+}
+
+.report .check-form input {
+  width: 100%;
+  max-width: 28rem;
+  box-sizing: border-box;
+  padding: var(--space-xs) var(--space-sm);
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-card);
+}
+
+.report ul.check-results {
+  padding-left: var(--space-lg);
+}
+
+.report .check-empty {
+  list-style: none;
+  margin-left: calc(var(--space-lg) * -1);
+  color: var(--text-secondary);
+}

@@ -944,17 +944,27 @@ export function maintainerBadgeSpec(row) {
 }
 
 /**
- * The README Markdown: the badge image, linked to the repository's drawer on
- * the public site. `baseUrl` is that site's address (app.js reads it from
- * index.html), so a badge copied from a local server still points at the
- * public one.
+ * The address, relative to the site root, of a ranked project's own page: the
+ * exporter writes `projects/<owner>/<name>/` in lower case
+ * (porchlamp/serve/project_pages.py `project_path`). GitHub names have no
+ * characters that need escaping; the encoding is a guard.
+ */
+export function projectPath(owner, name) {
+  const part = (value) => encodeURIComponent(String(value).toLowerCase()).replace(/[()]/g, (ch) => (ch === "(" ? "%28" : "%29"));
+  return `projects/${part(owner)}/${part(name)}/`;
+}
+
+/**
+ * The README Markdown: the badge image, linked to the project's own page on
+ * the public site (a README written before that page existed links the
+ * drawer, `?repo=`, which still opens). `baseUrl` is that site's address
+ * (app.js reads it from index.html), so a badge copied from a local server
+ * still points at the public one.
  */
 export function maintainerBadgeMarkdown(row, baseUrl = "") {
   const spec = maintainerBadgeSpec(row);
   if (!spec) return "";
   const base = !baseUrl || baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-  const encodeMdUrlPart = (val) =>
-    encodeURIComponent(val).replace(/[()]/g, (ch) => (ch === "(" ? "%28" : "%29"));
-  const target = `${base}?repo=${encodeMdUrlPart(row.owner)}%2F${encodeMdUrlPart(row.name)}`;
+  const target = `${base}${projectPath(row.owner, row.name)}`;
   return `[![${spec.alt}](${base}${spec.file})](${target} "${spec.alt}")`;
 }

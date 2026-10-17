@@ -581,6 +581,12 @@ input.control {
   color: var(--text-secondary);
 }
 
+/* The repository name is a real link to the project's page; the row looks as it did, not cyan and underlined. */
+.repo-link {
+  color: inherit;
+  text-decoration: none;
+}
+
 .eco-chip {
   font-size: var(--text-caption);
   color: var(--text-secondary);
