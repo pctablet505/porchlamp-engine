@@ -280,16 +280,24 @@ class GateEvidence:
     #: window carries the fields the exclusion rules read (``isDraft`` and the
     #: ready-for-review / close-actor timeline), ``False`` when the window was
     #: read and some node lacks them, ``None`` when nobody looked (no opinion).
-    #: A missing field can only add unanswered PRs (a draft counted, an
-    #: author's own close or a maintainer's close read as silence), so a
-    #: ``False`` here leaves a would-be black hole UNDECIDED; a pass stands.
+    #: A ``False`` leaves D-GATE-5 UNDECIDED whatever the share: a missing
+    #: field moves the share both ways (a draft that was answered is counted
+    #: as answered and lowers it; an author's own close read as silence
+    #: raises it), so neither a pass nor a failure can be read from it.
     pr_rule_inputs_recorded: bool | None = None
+    #: D-GATE-6 from the recorded PR envelopes (``pr_window`` and the 365-day
+    #: ``author_history``): ``True`` when one of them holds an external PR
+    #: merged or closed in the trailing :data:`GATE6_DECISION_WINDOW_DAYS`,
+    #: ``False`` when none does and the record is complete, ``None`` when
+    #: there is no complete record (no opinion). See
+    #: :func:`porchlamp.derive.gate_evidence.gate_evidence_for`.
+    decided_external_pr: bool | None = None
 
     def __post_init__(self) -> None:
         problems: list[str] = []
         for name in (
             "manifest_found", "license_file_present", "fork_parent_in_universe", "off_platform_marker",
-            "review_handoff", "pr_rule_inputs_recorded",
+            "review_handoff", "pr_rule_inputs_recorded", "decided_external_pr",
         ):
             value = getattr(self, name)
             if value is not None and not isinstance(value, bool):
@@ -569,16 +577,14 @@ def zero_response_counts(
 
 
 def _has_decided_external_pr(events: tuple[PRWindowEvent, ...], now: datetime) -> bool:
-    """D-GATE-6: >= 1 external PR decided (merged or closed) in the trailing 365 d.
+    """D-GATE-6 on the bundle's v1 ``pr_events``: True when one of them is an
+    external PR merged or closed in the trailing
+    :data:`GATE6_DECISION_WINDOW_DAYS`, decided at or before ``now``.
 
-    Every event in the 180-day PR window was opened inside that window, so a
-    decision recorded on it necessarily falls inside the 365-day horizon; the
-    horizon is nonetheless checked explicitly against
-    :data:`GATE6_DECISION_WINDOW_DAYS` rather than left implied by the caller's
-    window, so the constant the methodology document publishes for this gate is
-    the constant the gate actually applies -- and so widening the PR window
-    later cannot silently widen this gate too. The decision timestamp is also
-    required to be ``<= now`` (decided as of the snapshot)."""
+    Those events are the 30 newest PRs of any age, so they can show that a
+    decided external PR exists but never that none does: in an active
+    repository the newest 30 are mostly still open. A ``False`` here is no
+    verdict; :attr:`GateEvidence.decided_external_pr` gives the negative."""
     horizon = now - timedelta(days=GATE6_DECISION_WINDOW_DAYS)
     for event in events:
         if not event.is_external:
@@ -630,9 +636,11 @@ def evaluate_gates(
     another system: D-GATE-5 is recorded UNDECIDED (never failed, whatever its
     ghost rate) and D-GATE-6 routes it off-platform, whether or not it has a
     decided external PR. A repository whose ``evidence.pr_rule_inputs_recorded``
-    is ``False`` is never failed at D-GATE-5: a bound over the ceiling is
-    recorded UNDECIDED, because the exclusion rules could not run. Gates 1-4
-    still decide as before."""
+    is ``False`` is neither passed nor failed at D-GATE-5: it is recorded
+    UNDECIDED, because the exclusion rules could not run. D-GATE-6 fails a
+    repository only when ``evidence.decided_external_pr`` is ``False`` (a
+    complete PR record with no decided external PR); the v1 ``pr_events`` can
+    add a pass, never a failure. Gates 1-4 still decide as before."""
     if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
         raise ValueError(f"now must be timezone-aware, got {now!r}")
     repo = bundle.repo
@@ -693,26 +701,32 @@ def evaluate_gates(
     # population. Unmeasured or n below the minimum -> UNDECIDED. A repository
     # that hands review off is UNDECIDED too: its PRs are reviewed somewhere
     # GitHub cannot see, so an unanswered-on-GitHub share is not a verdict.
-    # A window whose PR records lack the exclusion rules' inputs cannot fail
-    # the gate: the share it measured is an upper bound, so it is UNDECIDED.
+    # A window whose PR records lack the exclusion rules' inputs is UNDECIDED
+    # whatever its share: the missing fields move the share both ways.
     handoff = evidence.review_handoff is True
     ghost = bundle.inputs.get(GHOST_RATE_INPUT_ID)
-    if handoff or not isinstance(ghost, Measured) or ghost.n < GATE5_MIN_N:
+    if (
+        handoff
+        or evidence.pr_rule_inputs_recorded is False
+        or not isinstance(ghost, Measured)
+        or ghost.n < GATE5_MIN_N
+    ):
         undecided.append(GATE_5)
-    elif wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE:
-        if evidence.pr_rule_inputs_recorded is False:
-            undecided.append(GATE_5)
-        elif not rank_black_holes:
-            failures.append((5, REASON_BLACK_HOLE))
+    elif (
+        wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE
+        and not rank_black_holes
+    ):
+        failures.append((5, REASON_BLACK_HOLE))
 
     # D-GATE-6: PR workflow (a review hand-off routes off-platform; else a
-    # decided external PR, else off-platform routing, else unrated).
+    # decided external PR, else off-platform routing, else unrated -- but only
+    # when a complete PR record shows no decided external PR).
     if handoff:
         routed = ROUTED_OFF_PLATFORM
-    elif not _has_decided_external_pr(events, now):
+    elif not (evidence.decided_external_pr is True or _has_decided_external_pr(events, now)):
         if evidence.off_platform_marker is True:
             routed = ROUTED_OFF_PLATFORM
-        elif evidence.off_platform_marker is False:
+        elif evidence.off_platform_marker is False and evidence.decided_external_pr is False:
             failures.append((6, REASON_NO_EXTERNAL_WORKFLOW))
         else:
             undecided.append(GATE_6)

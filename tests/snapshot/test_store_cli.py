@@ -66,8 +66,13 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: added to porchlamp.core.constants, moving ScoreRecord.constants_hash).
 #: ``closed_unread`` requires CLOSED_UNREAD_MIN_N external PRs, so 9 repos
 #: fire (3 more have the share on fewer PRs).
+#: Regenerated 2026-10-17 (was 41fb9b07...) when D-GATE-6 stopped failing a
+#: repository without a complete PR record: the fixture records no pr_window,
+#: and the 30 newest PRs cannot show that no external PR was decided, so
+#: blender, ceph, SpringBlade, cockroach and electron move from
+#: "unrated: no_external_workflow" to "unrated: insufficient_evidence".
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "41fb9b07e946975120b15581502f3b0cbdb956b4de12096998878880f9c702e2"
+    "7e16a867f0bf6277a4a3f4577cd287d50414a16a756a8631b363c9974ffdd981"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #

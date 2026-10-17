@@ -218,10 +218,10 @@ def _pr_has_review_handoff_notice(pr: Mapping[str, Any]) -> bool:
     return False
 
 
-def _pr_window_data(raw_root: Path, basename: str) -> Mapping[str, Any] | None:
-    """The ``data`` of ``raw/pr_window/{basename}.json``; ``None`` when the
+def _envelope_data(raw_root: Path, layer: str, basename: str) -> Mapping[str, Any] | None:
+    """The ``data`` of ``raw/{layer}/{basename}.json``; ``None`` when the
     envelope is absent or unreadable."""
-    path = raw_root / "pr_window" / f"{basename}.json"
+    path = raw_root / layer / f"{basename}.json"
     if not path.is_file():
         return None
     try:
@@ -230,6 +230,72 @@ def _pr_window_data(raw_root: Path, basename: str) -> Mapping[str, Any] | None:
         return None
     data = document.get("data") if isinstance(document, Mapping) else None
     return data if isinstance(data, Mapping) else None
+
+
+def pr_window_data(raw_root: Path, basename: str) -> Mapping[str, Any] | None:
+    """The ``data`` of the repository's ``pr_window`` envelope: the PRs opened
+    in the 180 days before the fetch; ``None`` when absent or unreadable."""
+    return _envelope_data(raw_root, "pr_window", basename)
+
+
+def _decided_external_pr_in(
+    pr_window: Mapping[str, Any] | None,
+    author_history: Mapping[str, Any] | None,
+    as_of: datetime | None,
+) -> bool | None:
+    """D-GATE-6 from the recorded PR envelopes.
+
+    ``True`` when the ``pr_window`` (PRs opened in 180 days) or the
+    ``author_history`` (365 days) data holds an external PR -- an external
+    author association, the set D-GATE-5 reads -- merged or closed in the
+    :data:`~porchlamp.core.constants.GATE6_DECISION_WINDOW_DAYS` ending at
+    ``as_of`` (without ``as_of``, any recorded decision). ``False`` when
+    neither does and the longer record read is complete (``truncated`` is
+    false): the 365-day history, or the 180-day window when no history was
+    recorded. ``None`` otherwise: no record, or a truncated one, can show that
+    a decided external PR exists but not that none does."""
+    records = [d for d in (author_history, pr_window) if d is not None and isinstance(d.get("prs"), list)]
+    if not records:
+        return None
+    horizon = as_of - timedelta(days=constants.GATE6_DECISION_WINDOW_DAYS) if as_of is not None else None
+    for data in records:
+        for pr in data["prs"]:
+            if not isinstance(pr, Mapping):
+                continue
+            if str(pr.get("authorAssociation") or "").upper() not in _EXTERNAL_ASSOCIATIONS:
+                continue
+            decided_raw = pr.get("mergedAt") or pr.get("closedAt")
+            if not isinstance(decided_raw, str):
+                continue
+            try:
+                decided = _parse_iso(decided_raw)
+            except (ValueError, TypeError):
+                continue
+            if as_of is None or horizon <= decided <= as_of:
+                return True
+    return False if records[0].get("truncated") is False else None
+
+
+def outside_pr_authors(prs: Sequence[Any], *, start: datetime, end: datetime) -> list[str]:
+    """One entry per outside PR opened in ``[start, end]``: an external
+    author association and a non-bot author (D-IN-1), the PRs D-GATE-5
+    starts from. The entry is the author's lowercased login, ``""`` for a
+    deleted account."""
+    out: list[str] = []
+    for pr in prs:
+        if not isinstance(pr, Mapping) or not isinstance(pr.get("createdAt"), str):
+            continue
+        try:
+            created = _parse_iso(pr["createdAt"])
+        except (ValueError, TypeError):
+            continue
+        if not start <= created <= end:
+            continue
+        author = pr.get("author") if isinstance(pr.get("author"), Mapping) else {}
+        if str(pr.get("authorAssociation") or "").upper() not in _EXTERNAL_ASSOCIATIONS or _is_bot_node(author):
+            continue
+        out.append(str(author.get("login") or "").lower())
+    return out
 
 
 def pr_rule_inputs_recorded(prs: Sequence[Any]) -> bool:
@@ -261,7 +327,7 @@ def _rule_inputs_in(data: Mapping[str, Any] | None) -> bool | None:
 def _review_handoff(raw_root: Path, basename: str) -> bool | None:
     """D-GATE-6 review hand-off from ``raw/pr_window/{basename}.json``
     (:func:`_review_handoff_in`)."""
-    return _review_handoff_in(_pr_window_data(raw_root, basename))
+    return _review_handoff_in(pr_window_data(raw_root, basename))
 
 
 def _review_handoff_in(data: Mapping[str, Any] | None) -> bool | None:
@@ -308,18 +374,20 @@ def _tree_flag(found: bool, truncated: bool) -> bool | None:
 
 def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None = None) -> GateEvidence:
     """Derive one repo's :class:`~porchlamp.core.gates.GateEvidence` from the
-    raw ``tree``/``commits_180d``/``pr_window`` envelopes. ``as_of`` is the
-    snapshot's reference time: D-GATE-4 counts only commits in the 180 days
-    ending there (:func:`_vitality_commit_count`). The ``pr_window`` envelope is
-    read once, for the review hand-off and the D-GATE-5 rule inputs.
-    ``fork_parent_in_universe`` stays
+    raw ``tree``/``commits_180d``/``pr_window``/``author_history`` envelopes.
+    ``as_of`` is the snapshot's reference time: D-GATE-4 counts only commits in
+    the 180 days ending there (:func:`_vitality_commit_count`), and D-GATE-6
+    only decisions in the 365 days ending there (:func:`_decided_external_pr_in`).
+    The ``pr_window`` envelope is read once, for the review hand-off, the
+    D-GATE-5 rule inputs and D-GATE-6. ``fork_parent_in_universe`` stays
     ``None`` (undecided): every v1-loaded bundle's ``RepoIdentity.fork`` is
     hardcoded ``False`` by ``porchlamp.derive.bundle._load_v1`` (that loader never
     observes a real fork flag), so D-GATE-2's fork branch never reads this
     field for any repo this script scores -- ``None`` is correct, not a
     stand-in for missing data."""
     paths, truncated = _tree_envelope(raw_root, basename)
-    pr_window = _pr_window_data(raw_root, basename)
+    pr_window = pr_window_data(raw_root, basename)
+    author_history = _envelope_data(raw_root, "author_history", basename)
     return GateEvidence(
         manifest_found=None if paths is None else _tree_flag(_has_recognized_manifest(paths), truncated),
         is_curated_anchor=False,
@@ -329,6 +397,7 @@ def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None =
         off_platform_marker=None if paths is None else _tree_flag(_has_off_platform_marker(paths), truncated),
         review_handoff=_review_handoff_in(pr_window),
         pr_rule_inputs_recorded=_rule_inputs_in(pr_window),
+        decided_external_pr=_decided_external_pr_in(pr_window, author_history, as_of),
     )
 
 

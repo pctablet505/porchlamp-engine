@@ -373,8 +373,9 @@ def _gate_entries() -> list[GateEntry]:
                 "zero-response share must not exceed the ceiling (a minimum population of "
                 f"{constants.GATE5_MIN_N} is required, else the gate is UNDECIDED rather "
                 "than failed, and a repository whose PR records lack the fields the exclusions "
-                "below read is UNDECIDED rather than failed); the raw share is the "
-                "gr14_ghost_rate parameter. A reply "
+                "below read is UNDECIDED, neither passed nor failed: the missing fields move the "
+                "share both ways); the raw share is the gr14_ghost_rate parameter, computed for "
+                "such a repository without the exclusions those fields feed. A reply "
                 "or review counts when it is substantive (D-IN-2: any review, or a comment "
                 "of 40+ characters, by a non-author, non-bot member, owner or collaborator, "
                 "or by an account that merged a PR in the window, since org membership can "
@@ -400,9 +401,13 @@ def _gate_entries() -> list[GateEntry]:
             "id": _gates.GATE_6,
             "name": "PR workflow",
             "criterion": (
-                ">= 1 external PR decided in the trailing window, or "
-                "off-platform markers present (routed, not failed); neither "
-                "means unrated: no_external_workflow. A repository also routes "
+                ">= 1 external PR decided (merged or closed) in the trailing "
+                "decision window, read from the recorded PR window and the 365-day "
+                "author history, or off-platform markers present (routed, not "
+                "failed); neither means unrated: no_external_workflow, but only when "
+                "the longer of those records is complete (not truncated): otherwise "
+                "the gate is UNDECIDED. The 30 newest PRs can show a decided external "
+                "PR, never its absence. A repository also routes "
                 "off-platform, whatever its decided PRs, when it hands review off: "
                 "among its outside PRs (external, non-bot authors in the recorded "
                 f"PR window) at least {constants.GATE6_HANDOFF_MIN_PRS}, and at least "

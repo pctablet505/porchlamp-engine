@@ -13,6 +13,7 @@ from porchlamp.snapshot.stats import StatsError, compute_stats
 
 AS_OF = "2026-10-13T00:00:00+00:00"
 OLD, YOUNG = "2026-09-01T00:00:00Z", "2026-10-10T00:00:00Z"  # 42 and 3 days before AS_OF
+EARLY = "2026-04-01T00:00:00Z"  # before AS_OF's 180-day PR window opens (2026-04-16)
 
 #: name: (gate_reason, gate_undecided, rated, p_responsiveness, score, rank, ttfhr_p75, stars or None)
 PROJECTS = {
@@ -28,10 +29,16 @@ PROJECTS = {
 }
 
 
-def _event(login: str, created: str = OLD, *, external: bool = True, merged: str | None = None,
-           reviewed: str | None = None) -> dict:
-    return {"author_login": login, "is_external": external, "created_at": created,
-            "merged_at": merged, "first_human_review_at": reviewed}
+def _pr(login: str, created: str = OLD, *, association: str = "CONTRIBUTOR", typename: str = "User") -> dict:
+    """One recorded ``pr_window`` node, with the fields the corpus count reads."""
+    return {"createdAt": created, "authorAssociation": association,
+            "author": {"__typename": typename, "login": login}}
+
+
+def _event(login: str) -> dict:
+    """One v1 ``pr_events`` entry: the 30-newest sample the corpus must not count."""
+    return {"author_login": login, "is_external": True, "created_at": OLD,
+            "merged_at": None, "first_human_review_at": None}
 
 
 def _snapshot(tmp_path: Path) -> tuple[Path, Path]:
@@ -50,24 +57,26 @@ def _snapshot(tmp_path: Path) -> tuple[Path, Path]:
     conn.close()
 
     data = tmp_path / "data"
-    meta, derived = data / "raw" / "github_meta", data / "derived"
+    meta, derived, window = data / "raw" / "github_meta", data / "derived", data / "raw" / "pr_window"
     meta.mkdir(parents=True)
     derived.mkdir()
+    window.mkdir()
     for name, row in PROJECTS.items():
         if row[-1] is not None:
             (meta / f"Org__{name}.json").write_text(json.dumps({"data": {"stars": row[-1]}}), encoding="utf-8")
-    # d: 10 outside human PRs old enough to judge, 6 unanswered (one answered after 15 days), 4 merged
-    # within 14 days; a bot's PR and a 3-day-old PR are not judged. A black hole once bots are removed.
-    d_events = [_event(f"u{k}") for k in range(5)]
-    d_events.append(_event("u5", reviewed="2026-09-16T00:00:00Z"))
-    d_events += [_event(f"u{k}", merged="2026-09-05T00:00:00Z") for k in range(6, 10)]
-    d_events += [_event("dependabot[bot]"), _event("U0", YOUNG)]
-    # a: 10 outside PRs, each reviewed after a day, plus a member's PR (not outside)
-    a_events = [_event(f"v{k}", reviewed="2026-09-02T00:00:00Z") for k in range(10)]
-    a_events.append(_event("maintainer", external=False))
-    (derived / "Org__d.json").write_text(json.dumps({"pr_events": d_events}), encoding="utf-8")
-    (derived / "Org__a.json").write_text(json.dumps({"pr_events": a_events}), encoding="utf-8")
-    (derived / "Org__zz.json").write_text("{not json", encoding="utf-8")  # unreadable: not counted
+    # d: 10 outside PRs by u0..u9 and one more by U0 (u0 again), all in the window; not counted: two bots
+    # (a Bot account, and renovate on the D-IN-1 login list), a member's PR, and one opened before the window.
+    d_prs = [_pr(f"u{k}") for k in range(10)] + [_pr("U0", YOUNG)]
+    d_prs += [_pr("dependabot", typename="Bot"), _pr("renovate"), _pr("lead", association="MEMBER"), _pr("early1", EARLY)]
+    # a: 10 outside PRs by v0..v9, plus the owner's
+    a_prs = [_pr(f"v{k}") for k in range(10)] + [_pr("maintainer", association="OWNER")]
+    for name, prs in (("d", d_prs), ("a", a_prs)):
+        (window / f"Org__{name}.json").write_text(json.dumps({"data": {"prs": prs}}), encoding="utf-8")
+    (window / "Org__b.json").write_text("{not json", encoding="utf-8")  # unreadable: no window recorded
+    # the derived bundles' 30-newest samples hold other PRs, which the corpus must not count
+    (derived / "Org__d.json").write_text(json.dumps({"pr_events": [_event("renovate"), _event("x1")]}), encoding="utf-8")
+    (derived / "Org__a.json").write_text(json.dumps({"pr_events": [_event("x2")]}), encoding="utf-8")
+    (derived / "Org__b.json").write_text(json.dumps({"pr_events": [_event("x3")]}), encoding="utf-8")
     return db, data
 
 
@@ -88,20 +97,20 @@ def test_every_field_matches_the_hand_worked_values(tmp_path):
         "spearman": {"p_responsiveness": {"n": 3, "rho": -1.0}, "porchlamp": {"n": 3, "rho": 1.0},
                      "ttfhr_p75": {"n": 3, "rho": -1.0}},
         "top100_overlap": 3, "top100_stars_min": -1,
-        "bots_excluded": {"n": 2, "black_holes": 1, "share": 0.5, "by_stars": {"[50000,inf)": {"n": 2, "share": 0.5}}},
-        "corpus": {"derived_repos": 2, "human_outside_prs": 21, "distinct_outside_authors": 20},
+        # 11 outside PRs to d (u0..u9, then U0 = u0) and 10 to a; b has no readable window
+        "corpus": {"derived_repos": 3, "pr_windows": 2, "human_outside_prs": 21, "distinct_outside_authors": 20},
     }
     # most first; ties keep the order of the most-starred project that has them
     assert list(stats["top100_stars_fate"].items()) == [
         ("rated", 3), ("black_hole", 2), ("unrated", 2), ("stale", 1), ("unrated: no_external_workflow", 1)]
 
 
-def test_as_of_moves_the_age_cut(tmp_path):
-    """At an as_of 10 days after the PRs opened, none of them is old enough to judge."""
+def test_as_of_moves_the_pr_window(tmp_path):
+    """At an as_of of 11 September the window runs from 15 March: early1's PR is in it, U0's (10 October) is not."""
     db, data = _snapshot(tmp_path)
     stats = compute_stats(db, data, as_of="2026-09-11T00:00:00+00:00")
     assert stats["as_of"] == "2026-09-11T00:00:00+00:00"
-    assert stats["bots_excluded"] == {"n": 0, "black_holes": 0, "share": None, "by_stars": {}}
+    assert stats["corpus"] == {"derived_repos": 3, "pr_windows": 2, "human_outside_prs": 21, "distinct_outside_authors": 21}
 
 
 def test_the_cli_prints_the_same_stats(tmp_path, capsys):

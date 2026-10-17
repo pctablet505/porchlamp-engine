@@ -392,16 +392,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "unrated: no_external_workflow",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "blender/blender",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": "unrated: no_external_workflow"
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -457,16 +457,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "unrated: no_external_workflow",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "ceph/ceph",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": "unrated: no_external_workflow"
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -522,16 +522,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "unrated: no_external_workflow",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "chillzhuang/SpringBlade",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": "unrated: no_external_workflow"
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -561,16 +561,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "unrated: no_external_workflow",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "cockroachdb/cockroach",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": "unrated: no_external_workflow"
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -678,16 +678,16 @@
     },
     {
       "composite": null,
-      "coverage": 0.0,
-      "eligible": false,
-      "gate_reason": "unrated: no_external_workflow",
+      "coverage": 0.0525,
+      "eligible": true,
+      "gate_reason": null,
       "rank": null,
       "rated": false,
       "repo": "electron/electron",
       "routed": null,
       "tie_group": null,
       "tier": null,
-      "unrated_reason": "unrated: no_external_workflow"
+      "unrated_reason": "unrated: insufficient_evidence"
     },
     {
       "composite": null,
@@ -716,6 +716,6 @@
       "unrated_reason": "unrated: off_platform_routed"
     }
   ],
-  "records_hash": "41fb9b07e946975120b15581502f3b0cbdb956b4de12096998878880f9c702e2",
+  "records_hash": "7e16a867f0bf6277a4a3f4577cd287d50414a16a756a8631b363c9974ffdd981",
   "version": 1
 }
