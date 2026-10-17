@@ -452,13 +452,28 @@ def test_missing_evidence_stops_the_export_with_the_fix(built):
 ALLOWED = guard.ALLOWED_URL_SUBSTRINGS + ("https://porchlamp.org/",)
 
 
+#: An address that is not on the site: it has a scheme (``https:``, ``data:``) or starts with ``//``.
+OFF_SITE = re.compile(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|//)")
+
+
+def script_srcs(text: str) -> list[str]:
+    """The ``src`` of every script tag, in page order."""
+    return re.findall(r"<script[^>]*\ssrc=[\"']([^\"']*)[\"']", text)
+
+
+def inline_scripts(text: str) -> list[str]:
+    """The opening tag of every script that has no ``src``: only the JSON-LD block may be one."""
+    return [tag for tag in re.findall(r"<script\b[^>]*>", text) if not re.search(r"\ssrc=", tag)]
+
+
 def external_violations(text: str) -> list[str]:
     found = []
     scannable = guard.scannable_text(text)
     for match in guard.EXTERNAL_URL_RE.finditer(scannable):
         if not any(allowed in match.group(0) for allowed in ALLOWED):
             found.append(match.group(0))
-    if re.search(r"<script[^>]*\ssrc=", scannable) or re.search(r"<link[^>]*rel=\"(?:stylesheet|preload)\"[^>]*href=\"https?:", scannable):
+    stylesheets = re.findall(r"<link[^>]*rel=[\"'](?:stylesheet|preload)[\"'][^>]*href=[\"']([^\"']*)[\"']", scannable)
+    if any(OFF_SITE.match(src) for src in script_srcs(scannable) + stylesheets):
         found.append("an external script or stylesheet tag")
     return found
 
@@ -468,7 +483,8 @@ def test_pages_load_nothing_from_outside(built, rel):
     site = built[0]
     text = _page(site, rel)
     assert external_violations(text) == []
-    assert "<script" not in text.replace('<script type="application/ld+json">', "")
+    assert script_srcs(text) == list(report_pages.PAGE_SCRIPTS["page"])
+    assert inline_scripts(text) == ['<script type="application/ld+json">']
     assert "@font-face" not in text and "fonts.googleapis" not in text
 
 
@@ -477,9 +493,11 @@ def test_a_script_planted_in_the_template_turns_the_guard_red(built, monkeypatch
     facts = report_pages.build_facts(**inputs)
     clean = report_pages.render_report(facts, frozen=False, exported_on=date(2026, 10, 17), source_db_sha256="a" * 64)
     assert external_violations(clean) == []
-    original = report_pages._site_links
+    original = report_pages.app_page
     monkeypatch.setattr(
-        report_pages, "_site_links", lambda rel: original(rel) + '<script src="https://cdn.example.com/x.js"></script>'
+        report_pages,
+        "app_page",
+        lambda *a, **k: original(*a, **k).replace("</body>", '<script src="https://cdn.example.com/x.js"></script></body>'),
     )
     planted = report_pages.render_report(facts, frozen=False, exported_on=date(2026, 10, 17), source_db_sha256="a" * 64)
     assert external_violations(planted), "the guard did not see the planted script"
@@ -540,8 +558,9 @@ def test_the_report_copy_follows_the_brief(built):
                     "Download the data", "Cite this report"):
         assert f">{heading}</h2>" in page, heading
     assert page.count("<details><summary>The numbers behind the chart</summary>") == 2
-    assert page.count("<svg ") == 2 and page.count('role="img"') == 2
-    assert "<title>" in re.search(r"<svg.*?</svg>", page, re.S).group(0)
+    body = re.search(r"<main.*?</main>", page, re.S).group(0)  # the chrome draws its own icons outside <main>
+    assert body.count("<svg ") == 2 and body.count('role="img"') == 2
+    assert "<title>" in re.search(r"<svg.*?</svg>", body, re.S).group(0)
     assert 'href="../methodology/"' in page and 'href="https://github.com/pctablet505/porchlamp"' in page
     frozen = _page(site, PAGES[1])
     assert 'href="../../methodology/"' in frozen
@@ -693,10 +712,10 @@ def test_project_pages_have_a_self_canonical_a_unique_title_an_answer_and_no_pla
         assert not re.search(r"\b(?:null|None|NaN|undefined)\b", shown), rel
         description = re.search(r'<meta name="description" content="([^"]*)"', text).group(1)
         assert 0 < len(description) < 160 and "None" not in description
-        # One local script: Back and Forward between the app's entries at this address load the app (the page is
-        # also the project's side panel); nothing else runs, and nothing loads from outside.
-        assert re.findall(r'<script[^>]*\ssrc="([^"]*)"', text) == ["../../../back-forward.js"], rel
-        assert external_violations(text.replace('<script type="module" src="../../../back-forward.js"></script>', "")) == []
+        # The shared theme script, then one more: Back and Forward between the app's entries at this address load the
+        # app (the page is also the project's side panel); nothing else runs, and nothing loads from outside.
+        assert script_srcs(text) == list(report_pages.PAGE_SCRIPTS["project"]), rel
+        assert external_violations(text.replace('<script type="module" src="/back-forward.js"></script>', "")) == []
         assert "<script" not in visible
         ld = _ld(text)
         assert ld["@type"] == "BreadcrumbList" and [i["position"] for i in ld["itemListElement"]] == [1, 2]
@@ -708,7 +727,7 @@ def test_project_pages_have_a_self_canonical_a_unique_title_an_answer_and_no_pla
 def test_a_script_planted_in_a_project_page_turns_the_guard_red(built, monkeypatch):
     site = built[0]
     page = _project_files(site)[0].read_text(encoding="utf-8")
-    own = '<script type="module" src="../../../back-forward.js"></script>'  # the page's one local script
+    own = '<script type="module" src="/back-forward.js"></script>'  # the page's own script, after the theme script
     clean = page.replace(own, "")
     assert own in page and external_violations(clean) == []
     planted = clean.replace("</body>", '<script src="https://cdn.example.com/x.js"></script></body>')
@@ -719,8 +738,8 @@ def test_the_check_page_states_the_pattern_loads_one_local_script_and_lists_ever
     site, db, _stats_path, _stats, _holes = built
     text = _page(site, "check/index.html")
     assert "To check a project, open https://porchlamp.org/projects/&lt;owner&gt;/&lt;name&gt;/ (lower case)." in text
-    assert re.findall(r'<script[^>]*\ssrc="([^"]*)"', text) == ["../check.js"]
-    assert external_violations(text.replace('src="../check.js"', "")) == []
+    assert script_srcs(text) == list(report_pages.PAGE_SCRIPTS["check"])
+    assert external_violations(text) == []
     listed = json.loads(_page(site, "check/projects.json"))
     assert sorted(listed) == sorted(f"{o}/{n}" for o, n in _ranked(db))
     assert (site / "check.js").is_file()

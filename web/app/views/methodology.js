@@ -28,8 +28,16 @@
 // character per line (rows 132-163 px tall at a 1440 px viewport). Tables
 // now type every cell (identifier / number / prose / meta), and the three
 // prose-heavy lists (gates, detectors, change log) are entry lists.
+//
+// THE PAGE AT /methodology/ (step 3 of the web plan). web/prerender.mjs draws this view into the page at export,
+// from the same methodology.json and snapshot.json the app loads, so a reader or a crawler without JavaScript
+// gets all of it; the app takes the page over without redrawing it. Every value printed from the payload sits in
+// a hook (`data-v`, components/fill.js) that scripts/verify_static_export.py compares with the API. The ids of the
+// static methodology page this view replaced (#gates, #lenses, #d-gate-5, #reproduce, #hashes, ...) stay, on the
+// matching section heads and entries, so old deep links still land.
 
 import * as copy from "../copy.js";
+import { fill, hook } from "../components/fill.js";
 import { renderCountsStrip } from "./leaderboard.js";
 
 function escapeHtml(value) {
@@ -76,9 +84,10 @@ function chips(values) {
   return values.map((v) => `<code class="spec-chip">${escapeHtml(v)}</code>`).join("");
 }
 
-function pairChips(obj) {
+/** `key value` chips; each value is the hook `<prefix>.<key>`. */
+function pairChips(obj, prefix) {
   return Object.entries(obj || {})
-    .map(([k, v]) => `<code class="spec-chip">${escapeHtml(k)}<span class="spec-chip-value">${escapeHtml(v)}</span></code>`)
+    .map(([k, v]) => `<code class="spec-chip">${escapeHtml(k)}<span class="spec-chip-value" data-v="${escapeHtml(`${prefix}.${k}`)}">${escapeHtml(v)}</span></code>`)
     .join("");
 }
 
@@ -129,12 +138,12 @@ function proxyHtml(proxy) {
  * Nobody READS a manifest root -- they look one up or copy it -- so the value
  * gets `user-select: all` (one click selects the whole digest).
  */
-function identityRow(label, value) {
+function identityRow(label, value, id) {
   if (value === null || value === undefined || value === "") return "";
   return (
     `<div class="identity-row">` +
     `<dt class="identity-label">${escapeHtml(label)}</dt>` +
-    `<dd class="identity-value"><code>${escapeHtml(value)}</code></dd>` +
+    `<dd class="identity-value"><code data-v="${escapeHtml(id)}">${escapeHtml(value)}</code></dd>` +
     `</div>`
   );
 }
@@ -154,7 +163,7 @@ function detectorSummary(summary, detectors) {
       const label = defined.has(name)
         ? `<a href="#${escapeHtml(id)}" data-doc-jump="${escapeHtml(id)}"><code>${escapeHtml(name)}</code></a>`
         : `<code>${escapeHtml(name)}</code>`;
-      return `<li class="detector-flag">${label}<span class="detector-flag-count">${escapeHtml(copy.methodologyDetectorCountText(count))}</span></li>`;
+      return `<li class="detector-flag">${label}<span class="detector-flag-count" data-v="${escapeHtml(`detector.${name}.flagged`)}">${escapeHtml(copy.methodologyDetectorCountText(count))}</span></li>`;
     })
     .join("");
   const body = entries.length
@@ -163,24 +172,36 @@ function detectorSummary(summary, detectors) {
   return `<div class="snapshot-detectors"><p class="identity-label">${escapeHtml(copy.METHODOLOGY_DETECTOR_SUMMARY_LABEL)}</p>${body}</div>`;
 }
 
-function snapshotBody(snapshot, doc) {
+/**
+ * The build: its id and date, the corpus meter, its hashes (and, on the published site, the digest of the database
+ * file, from the export's manifest), the detector flags, the command that reproduces it, and how to look up one
+ * project's record.
+ */
+function snapshotBody(snapshot, doc, sourceDbSha256) {
   return (
-    `<p class="snapshot-line">${escapeHtml(copy.methodologySnapshotLine(snapshot.snapshot_id, snapshot.as_of))}</p>` +
+    `<p class="snapshot-line">${fill(copy.METHODOLOGY_SNAPSHOT_LINE, {
+      snapshot_id: hook("snapshot.snapshot_id", snapshot.snapshot_id),
+      as_of: hook("snapshot.as_of", snapshot.as_of),
+    })}</p>` +
     // Reuses the leaderboard's corpus meter rather than recomputing shares
     // here: a percentage needs a literal this file may not contain.
     renderCountsStrip(snapshot.counts, null) +
-    `<dl class="identity-grid">` +
-    identityRow(copy.METHODOLOGY_MANIFEST_ROOT_LABEL, snapshot.manifest_root) +
-    identityRow(copy.METHODOLOGY_CONSTANTS_HASH_LABEL, snapshot.constants_hash) +
-    identityRow(copy.METHODOLOGY_CANONICAL_DUMP_HASH_LABEL, snapshot.canonical_dump_hash) +
-    identityRow(copy.METHODOLOGY_CODE_COMMIT_LABEL, snapshot.code_commit) +
+    `<dl class="identity-grid" id="hashes">` +
+    identityRow(copy.METHODOLOGY_MANIFEST_ROOT_LABEL, snapshot.manifest_root, "snapshot.manifest_root") +
+    identityRow(copy.METHODOLOGY_CONSTANTS_HASH_LABEL, snapshot.constants_hash, "snapshot.constants_hash") +
+    identityRow(copy.METHODOLOGY_CANONICAL_DUMP_HASH_LABEL, snapshot.canonical_dump_hash, "snapshot.canonical_dump_hash") +
+    identityRow(copy.METHODOLOGY_CODE_COMMIT_LABEL, snapshot.code_commit, "snapshot.code_commit") +
+    identityRow(copy.METHODOLOGY_DB_SHA256_LABEL, sourceDbSha256, "snapshot.source_db_sha256") +
     `</dl>` +
     detectorSummary(snapshot.detector_summary, doc.detectors) +
-    `<div class="reproduce">` +
+    `<div class="reproduce" id="reproduce">` +
     `<div class="reproduce-head"><p class="identity-label">${escapeHtml(copy.METHODOLOGY_REPRODUCE_LABEL)}</p>` +
     `<button type="button" class="reproduce-copy" data-methodology-copy="true">${escapeHtml(copy.METHODOLOGY_COPY_LABEL)}</button></div>` +
-    `<pre class="reproduce-command" data-reproduce-command="true">${escapeHtml(snapshot.reproduce_command)}</pre>` +
-    `</div>`
+    `<pre class="reproduce-command" data-reproduce-command="true" data-v="snapshot.reproduce_command">${escapeHtml(snapshot.reproduce_command)}</pre>` +
+    `</div>` +
+    `<p class="snapshot-check">${fill(copy.METHODOLOGY_CHECK_LINE, {
+      check_page: `<a href="${escapeHtml(copy.CHECK_PAGE_HREF)}">${escapeHtml(copy.METHODOLOGY_CHECK_LINK_LABEL)}</a>`,
+    })}</p>`
   );
 }
 
@@ -190,12 +211,13 @@ function gatesBody(gates) {
   const items = gates
     .map((g) => {
       const facts = [factRow(copy.METHODOLOGY_COL_REASONS, chips(g.reasons || []))];
-      if (hasEntries(g.cutoffs)) facts.push(factRow(copy.METHODOLOGY_COL_CUTOFFS, pairChips(g.cutoffs)));
+      if (hasEntries(g.cutoffs)) facts.push(factRow(copy.METHODOLOGY_COL_CUTOFFS, pairChips(g.cutoffs, `gate.${g.id}.cutoff`)));
       return (
-        `<li class="spec-entry">` +
+        // The id is the static page's anchor for this gate (#d-gate-5).
+        `<li class="spec-entry" id="${escapeHtml(g.id.toLowerCase())}">` +
         `<div class="spec-entry-head"><code class="spec-entry-id">${escapeHtml(g.id)}</code>` +
         `<h3 class="spec-entry-title">${escapeHtml(g.name)}</h3></div>` +
-        `<div class="spec-entry-body"><p class="spec-prose">${inlineCodeHtml(g.criterion)}</p>` +
+        `<div class="spec-entry-body"><p class="spec-prose" data-v="${escapeHtml(`gate.${g.id}.criterion`)}">${inlineCodeHtml(g.criterion)}</p>` +
         `<dl class="spec-facts">${facts.join("")}</dl></div>` +
         `</li>`
       );
@@ -216,7 +238,7 @@ function pillarsBody(pillars) {
         `<tr><th scope="row">${escapeHtml(copy.PILLAR_NAMES[p.name] || p.name)}</th>` +
         `<td><div class="pillar-weight">` +
         `<span class="pillar-bar" aria-hidden="true"><span class="pillar-bar-fill" style="--w:${escapeHtml(p.weight)}"></span></span>` +
-        `<span class="pillar-weight-value">${escapeHtml(copy.methodologyPercentText(p.weight))}</span>` +
+        `<span class="pillar-weight-value" data-v="${escapeHtml(`pillar.${p.name}.weight`)}">${escapeHtml(copy.methodologyPercentText(p.weight))}</span>` +
         `</div></td></tr>`
     )
     .join("");
@@ -270,9 +292,9 @@ function parametersBody(parameters, pillars) {
           (p) =>
             `<tr>` +
             `<th scope="row" class="cell-id"><span class="param-label">${escapeHtml(copy.paramName(p.input_id))}</span><code>${escapeHtml(p.input_id)}</code></th>` +
-            labelledCell("num", copy.METHODOLOGY_COL_WEIGHT, escapeHtml(copy.methodologyPercentText(p.weight_within_pillar))) +
-            labelledCell("num", copy.METHODOLOGY_COL_MIN_N, escapeHtml(copy.methodologyIntText(p.min_n))) +
-            labelledCell("num", copy.METHODOLOGY_COL_WINDOW, escapeHtml(copy.methodologyWindowDaysText(p.window_days))) +
+            labelledCell("num", copy.METHODOLOGY_COL_WEIGHT, hook(`parameter.${p.input_id}.weight`, copy.methodologyPercentText(p.weight_within_pillar))) +
+            labelledCell("num", copy.METHODOLOGY_COL_MIN_N, hook(`parameter.${p.input_id}.min_n`, copy.methodologyIntText(p.min_n))) +
+            labelledCell("num", copy.METHODOLOGY_COL_WINDOW, hook(`parameter.${p.input_id}.window`, copy.methodologyWindowDaysText(p.window_days))) +
             labelledCell("cell-prose", copy.METHODOLOGY_COL_CURVE, inlineCodeHtml(p.curve)) +
             labelledCell("cell-meta", copy.METHODOLOGY_COL_DOMAIN, domainHtml(p.value_domain)) +
             labelledCell(p.proxy ? "cell-meta" : "cell-meta is-empty", copy.METHODOLOGY_COL_PROXY, proxyHtml(p.proxy)) +
@@ -292,8 +314,8 @@ function parametersBody(parameters, pillars) {
 
 // ------------------------------------------------------------ Missingness
 
-function stat(label, value) {
-  return `<div class="spec-stat"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`;
+function stat(label, value, id) {
+  return `<div class="spec-stat"><dt>${escapeHtml(label)}</dt><dd data-v="${escapeHtml(id)}">${escapeHtml(value)}</dd></div>`;
 }
 
 function missingnessBody(missingness) {
@@ -301,9 +323,13 @@ function missingnessBody(missingness) {
   // repository appears in the ranking at all.
   const thresholds = Object.entries(missingness.coverage_thresholds || {})
     .sort(([, a], [, b]) => a - b)
-    .map(([key, value]) => stat(copy.METHODOLOGY_COVERAGE_THRESHOLD_LABELS[key] || key, copy.methodologyPercentText(value)))
+    .map(([key, value]) => stat(copy.METHODOLOGY_COVERAGE_THRESHOLD_LABELS[key] || key, copy.methodologyPercentText(value), `missingness.${key}`))
     .join("");
-  const proxy = stat(copy.METHODOLOGY_OPENSSF_PROXY_MIN_SIGNALS_LABEL, copy.methodologyIntText(missingness.openssf_proxy_min_signals));
+  const proxy = stat(
+    copy.METHODOLOGY_OPENSSF_PROXY_MIN_SIGNALS_LABEL,
+    copy.methodologyIntText(missingness.openssf_proxy_min_signals),
+    "missingness.openssf_proxy_min_signals"
+  );
   const reasons = missingness.reasons
     .map((r) => `<div class="spec-def"><dt><code>${escapeHtml(r.reason)}</code></dt><dd>${inlineCodeHtml(r.semantics)}</dd></div>`)
     .join("");
@@ -329,15 +355,21 @@ function personasBody(personas) {
   const head =
     `<th scope="col">${escapeHtml(copy.METHODOLOGY_COL_PERSONA)}</th>` +
     pillarIds.map((p) => `<th scope="col" class="num">${escapeHtml(copy.PILLAR_NAMES[p])}</th>`).join("");
+  // A lens with a page of its own (/first-timers/, ...) links to it; the balanced lens is the rankings themselves.
+  const lensName = (persona) => {
+    const name = escapeHtml(copy.PERSONA_NAMES[persona] || persona);
+    const href = copy.LENS_PAGE_HREFS[persona];
+    return href ? `<a href="${escapeHtml(href)}">${name}</a>` : name;
+  };
   const rows = Object.entries(personas.presets)
     .map(
       ([persona, weights]) =>
-        `<tr><th scope="row">${escapeHtml(copy.PERSONA_NAMES[persona] || persona)}</th>` +
+        `<tr><th scope="row">${lensName(persona)}</th>` +
         pillarIds
           .map(
             (p) =>
               `<td class="num"><div class="persona-weight-cell">` +
-              `<span class="persona-weight-num">${escapeHtml(copy.methodologyPercentText(weights[p]))}</span>` +
+              `<span class="persona-weight-num" data-v="${escapeHtml(`persona.${persona}.${p}`)}">${escapeHtml(copy.methodologyPercentText(weights[p]))}</span>` +
               `<span class="persona-cell-bar" aria-hidden="true"><span class="persona-cell-bar-fill" style="--w:${escapeHtml(weights[p])}"></span></span>` +
               `</div></td>`
           )
@@ -348,7 +380,7 @@ function personasBody(personas) {
   const gates = (personas.gates || [])
     .map((g) => {
       const facts = hasEntries(g.thresholds)
-        ? `<dl class="spec-facts">${factRow(copy.METHODOLOGY_COL_THRESHOLDS, pairChips(g.thresholds))}</dl>`
+        ? `<dl class="spec-facts">${factRow(copy.METHODOLOGY_COL_THRESHOLDS, pairChips(g.thresholds, `persona.${g.persona}.threshold`))}</dl>`
         : "";
       return (
         `<li class="spec-entry">` +
@@ -387,7 +419,7 @@ function detectorsBody(detectors) {
   const items = detectors
     .map((d) => {
       const facts = [factRow(copy.METHODOLOGY_COL_DIRECTION, `<span class="spec-tag">${escapeHtml(d.direction)}</span>`)];
-      if (hasEntries(d.thresholds)) facts.push(factRow(copy.METHODOLOGY_COL_THRESHOLDS, pairChips(d.thresholds)));
+      if (hasEntries(d.thresholds)) facts.push(factRow(copy.METHODOLOGY_COL_THRESHOLDS, pairChips(d.thresholds, `detector.${d.name}.threshold`)));
       return (
         `<li class="spec-entry" id="${escapeHtml(detectorAnchorId(d.name))}" tabindex="-1">` +
         `<div class="spec-entry-head"><h3 class="spec-entry-title"><code>${escapeHtml(d.name)}</code></h3></div>` +
@@ -407,7 +439,7 @@ function processConstantsBody(constants) {
     .map(
       (c) =>
         `<tr><th scope="row" class="cell-id"><code>${escapeHtml(c.name)}</code></th>` +
-        labelledCell("num", copy.METHODOLOGY_COL_VALUE, escapeHtml(String(c.value))) +
+        labelledCell("num", copy.METHODOLOGY_COL_VALUE, hook(`constant.${c.name}.value`, String(c.value))) +
         labelledCell("cell-prose", copy.METHODOLOGY_COL_GATES, inlineCodeHtml(c.gates)) +
         labelledCell("cell-id is-muted", copy.METHODOLOGY_COL_MODULE, `<code>${escapeHtml(c.module)}</code>`) +
         `</tr>`
@@ -465,7 +497,25 @@ function rfcLogBody(rfcLog, constantsHash) {
   return `<ol class="spec-entries" role="list">${items}</ol>`;
 }
 
+// ------------------------------------------------------------ Limits
+
+/** What the numbers cannot tell a reader: copy.js's one list, which the report prints as well. */
+function limitsBody() {
+  return `<ul class="spec-rules">${copy.LIMITS.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
 // ------------------------------------------------------------ Document
+
+//: The anchors of the static methodology page this view replaced, on the matching section heads.
+const FORMER_SECTION_IDS = Object.freeze({
+  gates: "gates",
+  pillars: "pillars",
+  parameters: "parameters",
+  missingness: "missing-data",
+  personas: "lenses",
+  tie_break: "tie-break",
+  limits: "limits",
+});
 
 /**
  * Every section in reading order: pipeline order (who is eligible, how they
@@ -473,10 +523,10 @@ function rfcLogBody(rfcLog, constantsHash) {
  * integrity flags, release constants, history). The ONE list both the index
  * and the body are built from.
  */
-function sectionList(doc, snapshot) {
+function sectionList(doc, snapshot, sourceDbSha256 = null) {
   const list = [];
   if (snapshot) {
-    list.push({ key: "snapshot", label: copy.METHODOLOGY_SECTION_SNAPSHOT, count: null, body: () => snapshotBody(snapshot, doc) });
+    list.push({ key: "snapshot", label: copy.METHODOLOGY_SECTION_SNAPSHOT, count: null, body: () => snapshotBody(snapshot, doc, sourceDbSha256) });
   }
   list.push(
     { key: "gates", label: copy.METHODOLOGY_SECTION_GATES, count: doc.gates.length, body: () => gatesBody(doc.gates) },
@@ -486,6 +536,7 @@ function sectionList(doc, snapshot) {
     { key: "personas", label: copy.METHODOLOGY_SECTION_PERSONAS, count: Object.keys(doc.personas.presets).length, body: () => personasBody(doc.personas) },
     { key: "tie_break", label: copy.METHODOLOGY_SECTION_TIE_BREAK, count: doc.tie_break_levels.levels.length, body: () => tieBreakBody(doc.tie_break_levels) },
     { key: "detectors", label: copy.METHODOLOGY_SECTION_DETECTORS, count: doc.detectors.length, body: () => detectorsBody(doc.detectors) },
+    { key: "limits", label: copy.METHODOLOGY_SECTION_LIMITS, count: null, body: limitsBody },
     { key: "process_constants", label: copy.METHODOLOGY_SECTION_PROCESS_CONSTANTS, count: doc.not_hashed_process_constants.length, body: () => processConstantsBody(doc.not_hashed_process_constants) },
     { key: "rfc_log", label: copy.METHODOLOGY_SECTION_RFC_LOG, count: doc.rfc_log.length, body: () => rfcLogBody(doc.rfc_log, doc.constants_hash) }
   );
@@ -493,12 +544,13 @@ function sectionList(doc, snapshot) {
 }
 
 /** The table of contents: `{id, label, count}` per section, in page order. */
-export function sectionIndex(doc, snapshot) {
-  return sectionList(doc, snapshot).map(({ key, label, count }) => ({ id: SECTION_ID_PREFIX + key, label, count }));
+export function sectionIndex(doc, snapshot, sourceDbSha256 = null) {
+  return sectionList(doc, snapshot, sourceDbSha256).map(({ key, label, count }) => ({ id: SECTION_ID_PREFIX + key, label, count }));
 }
 
-function countBadge(count, cls) {
-  return typeof count === "number" ? `<span class="${cls}">${escapeHtml(copy.methodologyIntText(count))}</span>` : "";
+function countBadge(count, cls, sectionKey) {
+  if (typeof count !== "number") return "";
+  return `<span class="${cls}" data-v="${escapeHtml(`section.${sectionKey}.count`)}">${escapeHtml(copy.methodologyIntText(count))}</span>`;
 }
 
 function renderIndex(entries) {
@@ -506,7 +558,7 @@ function renderIndex(entries) {
     .map(
       (e) =>
         `<li><a class="doc-index-link" href="#${e.id}" data-doc-jump="${e.id}">` +
-        `<span>${escapeHtml(e.label)}</span>${countBadge(e.count, "doc-index-count")}</a></li>`
+        `<span>${escapeHtml(e.label)}</span>${countBadge(e.count, "doc-index-count", e.id.slice(SECTION_ID_PREFIX.length))}</a></li>`
     )
     .join("");
   return (
@@ -521,11 +573,11 @@ function renderSection(section) {
   const lede = copy.METHODOLOGY_SECTION_LEDES[section.key];
   return (
     `<section class="doc-section" id="${id}" aria-labelledby="${id}-title">` +
-    `<div class="doc-section-head">` +
+    `<div class="doc-section-head"${FORMER_SECTION_IDS[section.key] ? ` id="${FORMER_SECTION_IDS[section.key]}"` : ""}>` +
     // tabindex=-1: the index moves focus here after it scrolls, so keyboard
     // and screen-reader users continue from the section they chose.
     `<h2 class="doc-section-title" id="${id}-title" tabindex="-1">${escapeHtml(section.label)}</h2>` +
-    countBadge(section.count, "section-count") +
+    countBadge(section.count, "section-count", section.key) +
     `</div>` +
     (lede ? `<p class="doc-section-lede">${escapeHtml(lede)}</p>` : "") +
     section.body() +
@@ -543,8 +595,9 @@ export function shellShape(state) {
   // makes `syncView` rebuild the shell when it lands after the methodology
   // payload already did, instead of the two payloads racing and the
   // snapshot section silently never appearing (a real bug caught during
-  // live-browser verification, see the handoff).
-  return `body:${state.snapshot ? "snap" : "nosnap"}`;
+  // live-browser verification, see the handoff). The database digest is a
+  // third fetch (the published site's manifest) and adds a row the same way.
+  return `body:${state.snapshot ? "snap" : "nosnap"}${state.sourceDbSha256 ? ":db" : ""}`;
 }
 
 export function renderShell(state) {
@@ -561,11 +614,16 @@ export function renderShell(state) {
   if (shape === "empty") return heading + `<div class="empty-state">${escapeHtml(copy.METHODOLOGY_EMPTY_TEXT)}</div>`;
 
   const doc = state.methodology;
-  const sections = sectionList(doc, state.snapshot);
+  const sections = sectionList(doc, state.snapshot, state.sourceDbSha256);
+  const lede = fill(copy.METHODOLOGY_BENCHMARK_LINE, {
+    benchmark_version: hook("methodology.benchmark_version", doc.benchmark_version),
+    schema_version: hook("methodology.schema_version", String(doc.schema_version)),
+    constants_hash: hook("methodology.constants_hash", copy.shortHashText(doc.constants_hash)),
+  });
   return (
     `<div class="doc-page">` +
     `<div class="doc-page-head">${heading}` +
-    `<p class="doc-lede">${escapeHtml(copy.methodologyBenchmarkLine(doc.benchmark_version, doc.constants_hash, doc.schema_version))}</p></div>` +
+    `<p class="doc-lede">${lede}</p></div>` +
     `<section class="why-card" aria-labelledby="why-porchlamp-title">` +
     `<h2 class="why-title" id="why-porchlamp-title">${escapeHtml(copy.WHY_HEADING)}</h2>` +
     `<div class="why-grid">` +
@@ -579,7 +637,7 @@ export function renderShell(state) {
     `</div>` +
     `</section>` +
     `<div class="doc-layout" id="methodology">` +
-    renderIndex(sectionIndex(doc, state.snapshot)) +
+    renderIndex(sectionIndex(doc, state.snapshot, state.sourceDbSha256)) +
     `<div class="doc-body">${sections.map(renderSection).join("")}</div>` +
     `</div></div>`
   );

@@ -4,11 +4,14 @@
   <meta charset="utf-8">
   <!-- The app with no page text of its own (routes.js). GitHub Pages answers an address it has no file for with
        this page, and the app shows what the address names: a project's side panel, or "page not found".
-       scripts/export_static.py also writes it at each view's address (/matrix/, ...) with that view's title and
-       canonical address. The head and the body's frame are index.html's (tests/test_app_routes.py), without the
-       home page's own text and data. -->
+       Every page of the site is built from it: scripts/export_static.py writes it at each view's address (/matrix/,
+       ...) with that view's title and canonical address, and the pages the app does not draw (the report, the
+       project and landing pages, /check/) with their own head and text in place of the app's script; then
+       web/prerender.mjs draws the header, nav and footer into every page (components/chrome.js). The head and the
+       body's frame are index.html's (tests/test_app_routes.py), without the home page's own text and data. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.github.com; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="/theme-init.js"></script>
   <title>Page not found | Porchlamp</title>
   <meta name="description" content="Porchlamp ranks open-source projects by what happens to a stranger's pull request, not by stars.">
   <meta name="theme-color" content="#0f1419">

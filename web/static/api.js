@@ -313,6 +313,14 @@ export function fetchMethodology() {
   return answer("/v1/porchlamp/methodology", () => loadJson("methodology.json"));
 }
 
+/**
+ * The export's own record of what it published (manifest.json: no API answers it): the methodology prints the
+ * digest of the database file the site was exported from, `source_db_sha256`.
+ */
+export function fetchExportManifest() {
+  return answer("manifest.json", () => loadJson("manifest.json"));
+}
+
 // ---------------------------------------------------------- /reproject
 /**
  * SQLite's ROUND(x, n) for the values a composite takes (0..100). Exact

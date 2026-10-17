@@ -20,7 +20,12 @@ methodology page, the app's). Nothing here is typed by hand:
 
 Every sentence whose truth depends on a number is guarded (:func:`build_facts`):
 a guard that fails raises :class:`ReportError` and the export stops, so a false
-sentence is never written. No script, font or library is loaded by any page.
+sentence is never written.
+
+Every page of the site is the app's page (``web/app/404.html``: one policy, one head, one frame) with its own head
+and text (:func:`app_page`); ``web/prerender.mjs`` then draws the one header, nav and footer into it
+(``web/app/components/chrome.js``). The scripts a page may load are :data:`PAGE_SCRIPTS`; no font or library
+is loaded by any page.
 """
 from __future__ import annotations
 
@@ -43,6 +48,17 @@ CC_BY_4 = "https://creativecommons.org/licenses/by/4.0/"
 GITHUB_REPO = "https://github.com/pctablet505/porchlamp"
 CREATOR_ID = f"{SITE}/#creator"
 WEB_APP = Path(__file__).resolve().parents[2] / "web" / "app"
+#: The app's page with no text of its own, which every page of the site is built from (:func:`app_page`).
+APP_PAGE = WEB_APP / "404.html"
+#: Every script a page loads, by kind of page, in order: theme-init.js in ``<head>`` on every one (the reader's
+#: theme before the first paint, and the header's toggle), then the app on its own pages, and at most one small
+#: script of its own on a page the app does not draw. These pages used to load no script at all (ENG-07).
+PAGE_SCRIPTS = {
+    "app": ("/theme-init.js", "/app.js"),
+    "page": ("/theme-init.js",),
+    "project": ("/theme-init.js", "/back-forward.js"),
+    "check": ("/theme-init.js", "/check.js"),
+}
 
 REPORT_H1 = "Stars don't review pull requests"
 CITE_TITLE = "Stars don't review pull requests: the state of open-source black holes"
@@ -76,13 +92,6 @@ CRITERION_MARKERS = (
     "self-closed",
     "accounts under",
     "95% one-sided",
-)
-
-LIMITS = (
-    "Not a verdict on the people who maintain these projects. Review time is scarce, and popular projects "
-    "receive far more pull requests than anyone can read.",
-    "GitHub only. Projects that review on Gerrit or a mailing list are left undecided, not failed.",
-    "One six-month window. The numbers will change at the next snapshot.",
 )
 
 
@@ -455,6 +464,18 @@ def copy_js_map(name: str, web_dir: Path = WEB_APP) -> dict[str, str]:
     return {key: json.loads(f'"{value}"') for key, value in pairs}
 
 
+def copy_js_list(name: str, web_dir: Path = WEB_APP) -> list[str]:
+    """``[export ]const NAME = Object.freeze([ "text", ... ]);`` from ``web/app/copy.js``."""
+    text = (web_dir / "copy.js").read_text(encoding="utf-8")
+    match = re.search(rf"(?:export )?const {name} = Object\.freeze\(\[(.*?)\]\);", text, re.S)
+    if not match:
+        raise ReportError(f"web/app/copy.js has no `const {name} = Object.freeze([...])`")
+    items = re.findall(r'"((?:[^"\\]|\\.)*)"', match.group(1))
+    if not items:
+        raise ReportError(f"copy.js {name} holds no strings")
+    return [json.loads(f'"{item}"') for item in items]
+
+
 def copy_js_string(name: str, web_dir: Path = WEB_APP) -> str:
     """``[export ]const NAME = "text";`` (the string may start on the next line) from ``web/app/copy.js``."""
     text = (web_dir / "copy.js").read_text(encoding="utf-8")
@@ -480,68 +501,70 @@ def _ld(payload: Any) -> str:
     return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
-def page(
-    *, title: str, description: str, canonical: str, rel: str, body: str, ld: Any, nav_current: str, scripts: str = ""
+def _once(page: str, old: str, new: str) -> str:
+    if page.count(old) != 1:
+        raise ReportError(f"web/app/404.html has no single {old.strip()[:60]!r} to build a page from")
+    return page.replace(old, new)
+
+
+def app_page(
+    *, title: str, head: str = "", description: str | None = None, main: str | None = None,
+    stylesheet: str | None = None, scripts: Sequence[str] | None = None, template: Path = APP_PAGE,
 ) -> str:
-    """One page of the site. ``rel`` is the path back to the site root ("../", "../../").
-    ``scripts`` is markup placed after the page body (the /check/ page's one local script); none by default."""
-    current = ' aria-current="page"'
-    nav = "".join(
-        f'<a href="{_a(rel + href)}"{current if key == nav_current else ""}>{_t(label)}</a>'
-        for key, href, label in (
-            ("rankings", "", "Porchlamp rankings"),
-            ("report", "black-holes/", "Report"),
-            ("methodology", "methodology/", "Methodology"),
-        )
-    )
-    return (
-        "<!doctype html>\n"
-        '<html lang="en">\n<head>\n'
-        '  <meta charset="utf-8">\n'
-        '  <meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        f"  <title>{_t(title)}</title>\n"
-        f'  <meta name="description" content="{_a(description)}">\n'
-        '  <meta name="author" content="Rahul Kumar (pctablet505)">\n'
-        '  <meta name="theme-color" content="#0f1419">\n'
-        f'  <link rel="icon" href="{rel}favicon.svg" type="image/svg+xml">\n'
-        f'  <link rel="canonical" href="{_a(canonical)}">\n'
-        '  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">\n'
-        '  <meta property="og:type" content="article">\n'
-        '  <meta property="og:locale" content="en_US">\n'
-        '  <meta property="og:site_name" content="Porchlamp">\n'
-        f'  <meta property="og:title" content="{_a(title)}">\n'
-        f'  <meta property="og:description" content="{_a(description)}">\n'
-        f'  <meta property="og:url" content="{_a(canonical)}">\n'
-        f'  <meta property="og:image" content="{SITE}/og.png">\n'
-        '  <meta name="twitter:card" content="summary_large_image">\n'
-        f'  <meta name="twitter:title" content="{_a(title)}">\n'
-        f'  <meta name="twitter:description" content="{_a(description)}">\n'
-        f'  <meta name="twitter:image" content="{SITE}/og.png">\n'
-        f'  <link rel="stylesheet" href="{rel}styles/tokens.css">\n'
-        f'  <link rel="stylesheet" href="{rel}styles/base.css">\n'
-        f'  <link rel="stylesheet" href="{rel}styles/report.css">\n'
-        f'  <script type="application/ld+json">\n  {_ld(ld)}\n  </script>\n'
-        "</head>\n<body>\n"
-        '  <a class="skip-link" href="#report-main">Skip to main content</a>\n'
-        '  <div class="app-shell">\n'
-        f'    <nav class="report-nav" aria-label="Porchlamp"><img src="{rel}favicon.svg" width="28" height="28" alt="">{nav}</nav>\n'
-        '    <main class="app-main" id="report-main" tabindex="-1">\n'
-        f"{body}\n"
-        "    </main>\n"
-        "  </div>\n"
-        f"{scripts}"
-        "</body>\n</html>\n"
-    )
+    """A page of the site, built from the app's page (``web/app/404.html``: its policy, its head and its frame) with
+    this ``title`` and the ``head`` tags (after the description); optionally its own ``description``, its text in
+    ``<main>`` (``main``, in place of the app's), a ``stylesheet`` in place of the app views' styles, and ``scripts``
+    (its own module scripts, by address from the site root) in place of the app. The template's comments are left
+    out. Its header, nav and footer are drawn into it at export (``web/prerender.mjs``)."""
+    page = re.sub(r"\n *<!--.*?-->", "", template.read_text(encoding="utf-8"), flags=re.S)
+    if len(re.findall(r"<title>[^<]*</title>", page)) != 1:
+        raise ReportError("web/app/404.html has no single <title> to build a page from")
+    page = re.sub(r"<title>[^<]*</title>", lambda _m: f"<title>{_t(title)}</title>", page)
+    found = re.findall(r'<meta name="description" content="[^"]*">', page)
+    if len(found) != 1:
+        raise ReportError("web/app/404.html has no single description to build a page from")
+    tag = found[0] if description is None else f'<meta name="description" content="{_a(description)}">'
+    page = _once(page, found[0], tag + head)
+    if stylesheet is not None:
+        page = _once(page, '<link rel="stylesheet" href="/styles/views.css">', f'<link rel="stylesheet" href="{_a(stylesheet)}">')
+    if main is not None:
+        frame = re.search(r'(<main class="app-main" id="app-main" tabindex="-1">)(.*?)(\n *</main>)', page, re.S)
+        if not frame:
+            raise ReportError("web/app/404.html has no <main> to build a page from")
+        page = page[: frame.start(2)] + "\n" + main + page[frame.end(2) :]
+    if scripts is not None:
+        own = "".join(f'  <script type="module" src="{_a(src)}"></script>\n' for src in scripts)
+        page = _once(page, '  <script type="module" src="/app.js"></script>\n', own)
+    return page
 
 
-def _site_links(rel: str) -> str:
-    return (
-        '<footer class="report-footer"><p>'
-        f'<a href="{rel}">Porchlamp rankings</a> · '
-        f'<a href="{rel}methodology/">Methodology</a> · '
-        f'<a href="{GITHUB_REPO}">Data on GitHub</a>'
-        "</p></footer>"
+def page(
+    *, title: str, description: str, canonical: str, body: str, ld: Any, scripts: Sequence[str] = (),
+) -> str:
+    """A page the app does not draw (the report, a project or landing page, /check/): :func:`app_page` with this
+    page's description, canonical address, link previews and structured data, its ``body`` in ``<main>``, the pages'
+    stylesheet in place of the app views', and its own local ``scripts`` (:data:`PAGE_SCRIPTS`) in place of the
+    app."""
+    head = (
+        '\n  <meta name="author" content="Rahul Kumar (pctablet505)">'
+        f'\n  <link rel="canonical" href="{_a(canonical)}">'
+        '\n  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">'
+        '\n  <meta property="og:type" content="article">'
+        '\n  <meta property="og:locale" content="en_US">'
+        '\n  <meta property="og:site_name" content="Porchlamp">'
+        f'\n  <meta property="og:title" content="{_a(title)}">'
+        f'\n  <meta property="og:description" content="{_a(description)}">'
+        f'\n  <meta property="og:url" content="{_a(canonical)}">'
+        f'\n  <meta property="og:image" content="{SITE}/og.png">'
+        '\n  <meta name="twitter:card" content="summary_large_image">'
+        f'\n  <meta name="twitter:title" content="{_a(title)}">'
+        f'\n  <meta name="twitter:description" content="{_a(description)}">'
+        f'\n  <meta name="twitter:image" content="{SITE}/og.png">'
     )
+    built = app_page(
+        title=title, description=description, head=head, main=body, stylesheet="/styles/report.css", scripts=scripts,
+    )
+    return _once(built, "</head>", f'  <script type="application/ld+json">\n  {_ld(ld)}\n  </script>\n</head>')
 
 
 def _table(
@@ -801,7 +824,7 @@ def render_report(f: Facts, *, frozen: bool, exported_on: date, source_db_sha256
         </ul>
         <h2 id="what-this-is-not">What this is not</h2>
         <ul>
-{"".join(f"          <li>{_t(item)}</li>{chr(10)}" for item in LIMITS)}          <li>This page names no project. Each project's record, with the pull requests behind it, is on <a href="{rel}">the Porchlamp rankings</a>.</li>
+{"".join(f"          <li>{_t(item)}</li>{chr(10)}" for item in copy_js_list("LIMITS"))}          <li>This page names no project. Each project's record, with the pull requests behind it, is on <a href="{rel}">the Porchlamp rankings</a>.</li>
         </ul>
         <h2 id="download">Download the data</h2>
         <p><a href="{_a(csv_href)}">{_t(f.csv_name)}</a>: the {fmt_int(f.ranked)} ranked projects with rank, owner, name, ecosystem, score, tier, coverage, quadrant and the rank in each lens. Released under CC BY 4.0.</p>
@@ -809,9 +832,8 @@ def render_report(f: Facts, *, frozen: bool, exported_on: date, source_db_sha256
         <h2 id="cite">Cite this report</h2>
         <p class="cite">Porchlamp ({f.snapshot_date.year}). {_t(CITE_TITLE)}. Snapshot {_t(f.snapshot_id)}. {_t(frozen_url)}</p>
         <p class="hashes">Data licence: CC BY 4.0. Snapshot database SHA-256: <code>{_t(source_db_sha256)}</code>. Methodology constants hash: <code>{_t(f.constants_hash)}</code>.</p>
-        {_site_links(rel)}
       </article>"""
     return page(
-        title=report_title(f, frozen=frozen), description=report_description(f), canonical=canonical, rel=rel, body=body,
-        ld=report_jsonld(f, canonical=canonical, exported_on=exported_on), nav_current="report",
+        title=report_title(f, frozen=frozen), description=report_description(f), canonical=canonical, body=body,
+        ld=report_jsonld(f, canonical=canonical, exported_on=exported_on),
     )

@@ -29,7 +29,12 @@ ALLOWED_URL_SUBSTRINGS: tuple[str, ...] = ("https://github.com/",)
 #: must name. Only the opt-in live check (06 §3 C, `web/app/livecheck.js`) may
 #: name api.github.com: it contacts it solely when the visitor presses its
 #: button, never on load, so the page still makes no external request on its own.
-PER_FILE_ALLOWED: dict[str, tuple[str, ...]] = {"livecheck.js": ("https://api.github.com",)}
+#: copy.js may print the site's own address in a sentence (the methodology says
+#: where a project's page is): text a reader reads, never a request.
+PER_FILE_ALLOWED: dict[str, tuple[str, ...]] = {
+    "livecheck.js": ("https://api.github.com",),
+    "copy.js": ("https://porchlamp.org",),
+}
 #: The GitHub API origin as an address (scheme-relative too), not as prose.
 GITHUB_API_ADDRESS_RE = re.compile(r"(https?:)?//api\.github\.com", re.IGNORECASE)
 
@@ -147,3 +152,6 @@ def test_per_file_allowance_is_one_exact_origin_in_one_file() -> None:
         assert not url_allowed(look_alike, "livecheck.js"), look_alike
     assert not url_allowed("https://api.github.com", "app.js")
     assert not url_allowed("https://api.github.com", "views/livecheck.js")
+    assert url_allowed("https://porchlamp.org/projects/<owner>/<name>/", "copy.js")
+    assert not url_allowed("https://porchlamp.org/projects/<owner>/<name>/", "views/methodology.js")
+    assert not url_allowed("https://porchlamp.org.example.com/x", "copy.js")

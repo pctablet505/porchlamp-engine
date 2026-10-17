@@ -167,8 +167,8 @@ export function renderCountsStrip(counts, delta) {
         `<span class="corpus-key">` +
         `<span class="corpus-swatch corpus-seg-${s.key}" aria-hidden="true"></span>` +
         `${escapeHtml(s.label)}` +
-        `<b class="corpus-count">${s.value}</b>` +
-        `<span class="corpus-pct">${escapeHtml(copy.corpusShareText(pct(s.value)))}</span>` +
+        `<b class="corpus-count" data-v="counts.${s.key}">${s.value}</b>` +
+        `<span class="corpus-pct" data-v="counts.${s.key}.share">${escapeHtml(copy.corpusShareText(pct(s.value)))}</span>` +
         `</span>`
     )
     .join("");

@@ -15,6 +15,15 @@
   flex-wrap: wrap;
 }
 
+/* The brand is a link to the rankings (components/chrome.js), laid out as the brand and slogan were. */
+.brand-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-md);
+  color: inherit;
+  text-decoration: none;
+}
+
 .brand {
   display: inline-flex;
   align-items: center;
@@ -89,6 +98,11 @@
   display: none;
 }
 
+/* The search is a real form to the rankings, so it works on every page before (and without) the app. */
+form.header-filter-group {
+  margin: 0;
+}
+
 .field-label {
   font-size: var(--text-caption);
   color: var(--text-secondary);
@@ -114,6 +128,23 @@ input.control {
 
 .icon-button:hover {
   background: var(--bg-surface-hover);
+}
+
+/* The theme toggle shows the theme in force, as tokens.css decides it: dark on bare :root, light for a system that
+ * asks for light unless the reader chose dark, and the reader's choice (data-theme, set by theme-init.js before the
+ * first paint). Drawn here rather than by a script, so it is right from the first paint on every page. */
+.theme-toggle::before {
+  content: "🌙";
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .theme-toggle::before {
+    content: "☀";
+  }
+}
+
+:root[data-theme="light"] .theme-toggle::before {
+  content: "☀";
 }
 
 /* ---- Primary nav (06 §2 Leaderboard/Matrix/Compare/Configure/Methodology) ---- */
@@ -156,6 +187,10 @@ input.control {
 .primary-tab[aria-current="page"] {
   color: var(--text-primary);
   border-bottom-color: var(--accent-violet);
+  /* On a phone the strip is wider than the screen: it opens with the current link in view, on every page (the app
+   * also keeps it in view as the reader moves between its views: components/chrome.js centerCurrentLink). */
+  scroll-initial-target: nearest;
+  scroll-snap-align: center;
 }
 
 /* ---- Onboarding subtitle ---- */

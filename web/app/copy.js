@@ -25,6 +25,10 @@ export const TAB_NOT_RANKED = "Not ranked";
 export const SEARCH_PLACEHOLDER = "Search owner/repo…";
 export const SEARCH_LABEL = "Search repositories";
 export const THEME_TOGGLE_LABEL = "Toggle light/dark theme";
+/** The snapshot chip's hover text: the exact benchmark version (a release-candidate tag today) beside the id. */
+export function snapshotChipTitle(snapshotId, benchmarkVersion) {
+  return `${snapshotId} · benchmark ${benchmarkVersion}`;
+}
 export const PERSONA_LABEL = "Persona";
 export const ECOSYSTEM_LABEL = "Ecosystem";
 export const ECOSYSTEM_ALL = "All ecosystems";
@@ -628,7 +632,6 @@ export const RATED_LABEL = "Rated";
 export const NOT_RATED_LABEL = "Not rated under this lens";
 export const COORDINATES_LABEL = "Coordinates";
 
-export const FOOTER_VERIFY_LABEL = "Verify";
 export const FOOTER_SNAPSHOT_LABEL = "Snapshot";
 export const FOOTER_VERSION_LABEL = "Benchmark version";
 export const FOOTER_CONSTANTS_HASH_LABEL = "Constants hash";
@@ -946,6 +949,7 @@ export const METHODOLOGY_SECTION_DETECTORS = "Detectors";
 export const METHODOLOGY_SECTION_PROCESS_CONSTANTS = "Process constants";
 export const METHODOLOGY_SECTION_RFC_LOG = "Change log";
 export const METHODOLOGY_SECTION_SNAPSHOT = "Snapshot";
+export const METHODOLOGY_SECTION_LIMITS = "Limits";
 export const METHODOLOGY_COL_WEIGHT = "Weight";
 export const METHODOLOGY_COL_MIN_N = "Min n";
 export const METHODOLOGY_COL_WINDOW = "Window";
@@ -967,11 +971,19 @@ export const METHODOLOGY_COL_PERSONA = "Persona";
 export const METHODOLOGY_REPRODUCE_LABEL = "Reproduce command";
 export const METHODOLOGY_COPY_LABEL = "Copy";
 export const METHODOLOGY_COPIED_LABEL = "Copied";
-export function methodologyBenchmarkLine(benchmarkVersion, constantsHash, schemaVersion) {
-  return `Benchmark ${benchmarkVersion} · schema ${schemaVersion} · constants hash ${constantsHash.slice(0, 12)}…`;
-}
-export function methodologySnapshotLine(snapshotId, asOf) {
-  return `${snapshotId} · as of ${asOf}`;
+// The lines below are templates: each {slot} is filled with a value from the payload, inside the hook the
+// verifier reads it back from (components/fill.js).
+export const METHODOLOGY_BENCHMARK_LINE = "Benchmark {benchmark_version} · schema {schema_version} · constants hash {constants_hash}…";
+export const METHODOLOGY_SNAPSHOT_LINE = "{snapshot_id} · as of {as_of}";
+/** How a project's own record is found: its page's address, or the search on the check page ({check_page}). */
+export const METHODOLOGY_CHECK_LINE =
+  "To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case), or search on the {check_page}.";
+export const METHODOLOGY_CHECK_LINK_LABEL = "check page";
+/** The digest of the database file this snapshot was published from (the export's manifest.json). */
+export const METHODOLOGY_DB_SHA256_LABEL = "Snapshot database SHA-256";
+/** The first characters of a digest, where a line names one without printing all of it. */
+export function shortHashText(hash) {
+  return String(hash).slice(0, 12);
 }
 export const METHODOLOGY_NO_PROXY_TEXT = "No proxy path.";
 export function methodologyProxyText(proxy) {
@@ -1066,6 +1078,30 @@ export const FINDINGS_LINK_LABEL = "Read the findings";
 export const REPORT_PAGE_HREF = "/black-holes/";
 export const FOOTER_REPORT_LABEL = "Report";
 export const FOOTER_METHODOLOGY_LABEL = "Methodology";
+/** The footer's last link: the published data and code. */
+export const FOOTER_DATA_LABEL = "Data on GitHub";
+export const FOOTER_DATA_HREF = "https://github.com/pctablet505/porchlamp";
+
+// --- Pages the app does not draw (scripts/export_static.py --stats writes them), linked from its views ----------
+/** Each lens's own page; the balanced lens is the rankings themselves. porchlamp/serve/report_pages.py LENS_SLUGS
+ *  names the same addresses (tests/test_site_chrome.py). */
+export const LENS_PAGE_HREFS = Object.freeze({
+  first_timer: "/first-timers/",
+  career_capital: "/career/",
+  senior_systems: "/senior-systems/",
+  ai_assisted: "/ai-assisted/",
+});
+export const CHECK_PAGE_HREF = "/check/";
+
+/**
+ * What the numbers cannot tell a reader. The report prints them under "What this is not" and the methodology under
+ * METHODOLOGY_SECTION_LIMITS: one list, read by porchlamp/serve/report_pages.py for the report (copy_js_list).
+ */
+export const LIMITS = Object.freeze([
+  "Not a verdict on the people who maintain these projects. Review time is scarce, and popular projects receive far more pull requests than anyone can read.",
+  "GitHub only. Projects that review on Gerrit or a mailing list are left undecided, not failed.",
+  "One six-month window. The numbers will change at the next snapshot.",
+]);
 
 // --- Maintainer README badge (Screen C, inside the Composite section) -----
 // Offered when a repository's canonical (balanced) record is rated at tier A

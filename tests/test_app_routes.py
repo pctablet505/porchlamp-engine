@@ -70,7 +70,7 @@ def test_the_route_table_reader_stops_on_a_table_that_is_not_json(tmp_path, monk
         export_static.app_routes()
 
 
-#: What a page of the app shares with ``index.html``: the policy, the viewport, the icon, the stylesheets, the script,
+#: What a page of the app shares with ``index.html``: the policy, the viewport, the icon, the stylesheets, the scripts,
 #: and the frame the app draws into.
 _SHARED_HEAD = (
     r'<meta http-equiv="Content-Security-Policy" content="[^"]*">',
@@ -78,6 +78,7 @@ _SHARED_HEAD = (
     r'<meta name="theme-color" content="[^"]*">',
     r'<link rel="icon" href="[^"]*" type="image/svg\+xml">',
     r'<link rel="stylesheet" href="[^"]*">',
+    r'<script src="/theme-init\.js"></script>',
     r'<script type="module" src="[^"]*"></script>',
 )
 _FRAME_IDS = (
@@ -97,6 +98,8 @@ def test_404_html_is_the_app_with_index_html_s_head_and_frame_and_no_home_text()
     for pattern in _SHARED_HEAD:
         assert re.findall(pattern, missing) == re.findall(pattern, index), pattern
         assert re.findall(pattern, index), f"index.html has no {pattern}"
+    for text in (index, missing):  # the theme is applied before the first stylesheet, so the first paint has it
+        assert text.index('<script src="/theme-init.js"></script>') < text.index('<link rel="stylesheet"')
     frame = lambda text: re.findall(r'<[a-z]+ (?:class="[^"]*" )?id="(app-[a-z-]+)"', text)  # noqa: E731
     assert frame(missing) == frame(index) == list(_FRAME_IDS)
     # The home page's own text and data stay on the home page.

@@ -1457,6 +1457,17 @@
   gap: var(--space-xs);
 }
 
+/* The static methodology page's anchors (#gates, #lenses, #missing-data, ...) are on the section heads, #reproduce and
+ * #hashes on those blocks: a deep link lands where the section's own link would, under the sticky header and nav. */
+.doc-section-head[id] {
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md) + var(--space-lg));
+}
+
+.identity-grid[id],
+.reproduce[id] {
+  scroll-margin-top: calc(var(--header-height) + var(--primary-nav-height, 41px) + var(--space-md));
+}
+
 .doc-section-title {
   margin: 0;
   color: var(--text-primary);
@@ -2236,6 +2247,13 @@
   color: var(--text-secondary);
   font-size: var(--text-body-md);
   font-variant-numeric: tabular-nums;
+}
+
+/* How to look up one project's record, under the reproduce command. */
+.snapshot-check {
+  margin: var(--space-sm) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-body-md);
 }
 
 .reproduce-head {

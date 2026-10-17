@@ -69,8 +69,8 @@ class TestNoHandWrittenUserFacingStringsOutsideCopy:
         offenders = []
         for pattern in ["components/*.js", "views/*.js"]:
             for path in WEB_APP.glob(pattern):
-                if path.name == "patch.js":
-                    continue  # a pure DOM-diffing utility, no copy of its own
+                if path.name in ("patch.js", "fill.js"):
+                    continue  # pure utilities with no copy of their own: DOM diffing, and filling copy.js's templates
                 text = path.read_text()
                 if 'from "../copy.js"' not in text:
                     offenders.append(str(path.relative_to(WEB_APP)))

@@ -154,6 +154,15 @@ export function fetchMethodology() {
 }
 
 /**
+ * The export's own record of what it published (web/static/api.js answers it on the published site, where the
+ * methodology prints the digest of the database file it came from). The API publishes no database file, so it has
+ * none: an answer without a request.
+ */
+export function fetchExportManifest() {
+  return Promise.resolve({ ok: false, error: new ApiError("manifest.json", 404, "the API serves no export manifest") });
+}
+
+/**
  * Screen D (Configure weights): `POST /v1/porchlamp/reproject` with a
  * five-pillar weight vector (`ReprojectRequest`) -> `ReprojectResponse`.
  * Shares `getJson`'s timeout/typed-error contract (U-15) via a small POST

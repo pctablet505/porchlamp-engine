@@ -37,6 +37,12 @@ the five pillars and their coverage, each lens rank or reason, each parameter's 
 projects, the record hash and links) is recomputed from the API and compared; ``sitemap-projects.xml`` lists the top 1,000
 by balanced rank; ``check/projects.json`` lists the ranked projects.
 
+Whatever the flags, ``verify_chrome`` proves every page carries the one header, nav and footer
+(``web/app/components/chrome.js``, drawn at export by ``web/prerender.mjs``), one Content-Security-Policy and only the
+scripts its kind allows, and ``verify_methodology`` proves the methodology page drawn at export: every value it prints
+(a ``data-v`` hook) against the API, its headings and links, and byte for byte against a fresh draw from the API's
+own answers.
+
 ``verify_landing`` (also run by ``--stats``) proves the ten landing pages (six ecosystems, four lenses): each intro sentence
 and number, each of the top-50 table rows (rank, owner/name, score, tier and link target), the method links, the titles, and
 that the sitemap and ``llms.txt`` list them. ``verify_home`` proves the home page's JSON-LD (no SoftwareApplication, no Dataset,
@@ -46,23 +52,23 @@ from __future__ import annotations
 
 import argparse
 import csv
+import functools
 import hashlib
 import html
 import importlib.util
 import json
 import math
 import os
-import pwd
 import random
 import re
-import shutil
 import sqlite3
 import subprocess
 import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import quote
@@ -104,15 +110,7 @@ MUTANTS: tuple[tuple[str, str, str], ...] = (
      "members.get(v.porchlampDisplay) === 1 ? null : denseRank.get(v.porchlampDisplay)", "denseRank.get(v.porchlampDisplay)"),
 )
 
-_NODE_GLOBS = (
-    ".local/opt/node-*/bin/node",
-    "tools/node-*/bin/node",
-    ".nvm/versions/node/*/bin/node",
-    "oss-contributions/node-*/node-*/bin/node",
-    "node-*/bin/node",
-)
-
-
+@functools.cache
 def _export_static():
     """``scripts/export_static.py``, loaded by path: putting ``scripts/`` on
     ``sys.path`` would let ``scripts/serve.py`` shadow ``tests/serve`` for
@@ -124,30 +122,8 @@ def _export_static():
 
 
 def find_node() -> Optional[str]:
-    """``PATH``, then ``PORCHLAMP_NODE_BIN``, then the usual per-user installs
-    (``tests/test_ui_node_suite.py``'s ``find_node``)."""
-    on_path = shutil.which("node")
-    if on_path:
-        return on_path
-    override = os.environ.get("PORCHLAMP_NODE_BIN")
-    if override and Path(override).is_file():
-        return override
-    homes = [Path.home()]
-    try:
-        real = Path(pwd.getpwuid(os.getuid()).pw_dir)
-    except KeyError:
-        real = None
-    if real is not None and real not in homes:
-        homes.append(real)  # a sandboxed job runs with a throwaway $HOME
-    for home in homes:
-        for pattern in _NODE_GLOBS:
-            for candidate in sorted(home.glob(pattern), reverse=True):
-                if candidate.is_file() and os.access(candidate, os.X_OK):
-                    return str(candidate)
-    for sys_path in ("/opt/homebrew/bin/node", "/usr/local/bin/node"):
-        if Path(sys_path).is_file() and os.access(sys_path, os.X_OK):
-            return sys_path
-    return None
+    """The Node.js interpreter the export draws its pages with (``scripts/export_static.py`` ``find_node``)."""
+    return _export_static().find_node()
 
 
 def differs(a: Any, b: Any, path: str = "$") -> Optional[str]:
@@ -943,6 +919,365 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
 
 
 # --------------------------------------------------------------------------- #
+# Every page: the one chrome, the one policy, the scripts its kind allows; the methodology view
+# --------------------------------------------------------------------------- #
+#: The empty frame web/app/404.html gives every page, which web/prerender.mjs fills (web/app/components/chrome.js).
+_CHROME_ELEMENTS = (
+    ("header", '<header class="app-header" id="app-header-controls">', "</header>"),
+    ("nav", '<nav class="app-primary-nav" id="app-primary-nav" aria-label="{nav_label}">', "</nav>"),
+    ("footer", '<footer class="app-footer" id="app-footer">', "</footer>"),
+)
+_CSP = re.compile(r'<meta http-equiv="Content-Security-Policy" content="([^"]*)">')
+_SCRIPT_TAG = re.compile(r"<script\b([^>]*)>")
+
+
+class _PageReader(HTMLParser):
+    """A page as a reader without JavaScript gets it, through Python's own HTML parser: every ``data-v`` hook (its id and
+    the text inside it), the h1 and h2 headings, every element id and every link."""
+
+    _VOID = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"})
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.hooks: list[tuple[str, str]] = []
+        self.headings: list[tuple[str, str]] = []
+        self.ids: set[str] = set()
+        self.links: list[str] = []
+        self._open: list[tuple[str, Optional[str], list[str]]] = []  # (tag, hook id or heading, text so far)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        found = dict(attrs)
+        if found.get("id"):
+            self.ids.add(found["id"])
+        if tag == "a" and found.get("href") is not None:
+            self.links.append(found["href"])
+        if tag in self._VOID:
+            return
+        mark = f"v:{found['data-v']}" if found.get("data-v") is not None else (f"h:{tag}" if tag in ("h1", "h2") else None)
+        self._open.append((tag, mark, []))
+
+    def handle_endtag(self, tag: str) -> None:
+        if all(open_tag != tag for open_tag, _mark, _text in self._open):
+            return  # a stray end tag closes nothing
+        while self._open:
+            open_tag, mark, parts = self._open.pop()
+            text = "".join(parts)
+            if mark and mark.startswith("v:"):
+                self.hooks.append((mark[2:], text))
+            elif mark:
+                self.headings.append((mark[2:], re.sub(r"\s+", " ", text).strip()))
+            if self._open:
+                self._open[-1][2].append(text)
+            if open_tag == tag:
+                return
+
+    def handle_data(self, data: str) -> None:
+        if self._open:
+            self._open[-1][2].append(data)
+
+
+def read_page(text: str) -> _PageReader:
+    reader = _PageReader()
+    reader.feed(text)
+    reader.close()
+    return reader
+
+
+def _js_number(value: Any) -> str:
+    """JavaScript's ``String(value)`` for a JSON number (``3.0`` is ``3``, ``1e-7`` is ``1e-7``), or the value's text."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if not isinstance(value, (int, float)):
+        return str(value)
+    if value == 0:
+        return "0"
+    exact = Decimal(repr(value)).normalize()
+    sign, digits, exponent = exact.as_tuple()
+    k, n = len(digits), len(digits) + exponent
+    text = "".join(map(str, digits))
+    if k <= n <= 21:
+        out = text + "0" * (n - k)
+    elif 0 < n <= 21:
+        out = f"{text[:n]}.{text[n:]}"
+    elif -6 < n <= 0:
+        out = "0." + "0" * -n + text
+    else:
+        out = (f"{text[0]}.{text[1:]}" if k > 1 else text) + f"e{'+' if n > 0 else '-'}{abs(n - 1)}"
+    return ("-" if sign else "") + out
+
+
+def _js_percent(fraction: Optional[float]) -> str:
+    """``copy.methodologyPercentText``: ``Math.round(fraction * 100)`` and a percent sign, or a dash."""
+    if fraction is None:
+        return "—"
+    return f"{math.floor(Decimal(fraction * 100) + Decimal('0.5'))}%"
+
+
+def _js_fixed(value: float, places: int) -> str:
+    """JavaScript's ``Number.prototype.toFixed``: the exact binary value, halves rounded up."""
+    return str(Decimal(value).quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP))
+
+
+def methodology_hooks(snapshot: dict, methodology: dict, source_db_sha256: Optional[str], pillar_order: list[str]) -> dict[str, str]:
+    """Every hook the methodology view prints, with the value it must hold, worked out from the API's answers and the
+    database file's digest with this script's own formatters (never from the exported files)."""
+    m, s = methodology, snapshot
+    hooks = {
+        "methodology.benchmark_version": m["benchmark_version"],
+        "methodology.schema_version": _js_number(m["schema_version"]),
+        "methodology.constants_hash": m["constants_hash"][:12],
+        "snapshot.snapshot_id": s["snapshot_id"],
+        "snapshot.as_of": s["as_of"],
+        "snapshot.reproduce_command": s["reproduce_command"],
+    }
+    for key in ("manifest_root", "constants_hash", "canonical_dump_hash", "code_commit"):
+        if s.get(key) not in (None, ""):
+            hooks[f"snapshot.{key}"] = s[key]
+    if source_db_sha256:
+        hooks["snapshot.source_db_sha256"] = source_db_sha256
+    counts = s["counts"]
+    total = counts.get("total") or 0
+    for key in ("rated", "gated", "unrated"):
+        hooks[f"counts.{key}"] = _js_number(counts[key])
+        hooks[f"counts.{key}.share"] = _js_fixed(counts[key] * 100 / total if total > 0 else 0, 1) + "%"
+    for name, count in (s.get("detector_summary") or {}).items():
+        hooks[f"detector.{name}.flagged"] = f"{_js_number(count)} {'row' if count == 1 else 'rows'}"
+    for key, items in (
+        ("gates", m["gates"]), ("pillars", m["pillars"]), ("parameters", m["parameters"]),
+        ("missingness", m["missingness"]["reasons"]), ("personas", m["personas"]["presets"]),
+        ("tie_break", m["tie_break_levels"]["levels"]), ("detectors", m["detectors"]),
+        ("process_constants", m["not_hashed_process_constants"]), ("rfc_log", m["rfc_log"]),
+    ):
+        hooks[f"section.{key}.count"] = _js_number(len(items))
+    for gate in m["gates"]:
+        hooks[f"gate.{gate['id']}.criterion"] = re.sub(r"`([^`]+)`", r"\1", gate["criterion"])
+        for key, value in (gate.get("cutoffs") or {}).items():
+            hooks[f"gate.{gate['id']}.cutoff.{key}"] = _js_number(value)
+    for pillar in m["pillars"]:
+        hooks[f"pillar.{pillar['name']}.weight"] = _js_percent(pillar["weight"])
+    for p in m["parameters"]:
+        hooks[f"parameter.{p['input_id']}.weight"] = _js_percent(p["weight_within_pillar"])
+        hooks[f"parameter.{p['input_id']}.min_n"] = "—" if p["min_n"] is None else _js_number(p["min_n"])
+        hooks[f"parameter.{p['input_id']}.window"] = "—" if p["window_days"] is None else f"{_js_number(p['window_days'])} days"
+    missing = m["missingness"]
+    for key, value in (missing.get("coverage_thresholds") or {}).items():
+        hooks[f"missingness.{key}"] = _js_percent(value)
+    signals = missing.get("openssf_proxy_min_signals")
+    hooks["missingness.openssf_proxy_min_signals"] = "—" if signals is None else _js_number(signals)
+    for lens, weights in m["personas"]["presets"].items():
+        for pillar in pillar_order:
+            hooks[f"persona.{lens}.{pillar}"] = _js_percent(weights.get(pillar))
+    for gate in m["personas"].get("gates") or []:
+        for key, value in (gate.get("thresholds") or {}).items():
+            hooks[f"persona.{gate['persona']}.threshold.{key}"] = _js_number(value)
+    for detector in m["detectors"]:
+        for key, value in (detector.get("thresholds") or {}).items():
+            hooks[f"detector.{detector['name']}.threshold.{key}"] = _js_number(value)
+    for constant in m["not_hashed_process_constants"]:
+        hooks[f"constant.{constant['name']}.value"] = _js_number(constant["value"])
+    return hooks
+
+
+def _compare_hooks(ledger: "_Ledger", where: str, found: list[tuple[str, str]], expected: dict[str, str]) -> None:
+    """Each hook id printed at least once, every printing of it equal to its value, and no hook this check does not know."""
+    by_id: dict[str, list[str]] = {}
+    for ident, value in found:
+        by_id.setdefault(ident, []).append(value)
+    for ident, value in expected.items():
+        ledger.checked += 1
+        shown = by_id.get(ident)
+        if not shown:
+            ledger.errors.append(f"{where}: no hook {ident!r} (expected {value!r})")
+        elif any(v != value for v in shown):
+            ledger.errors.append(f"{where}: hook {ident!r} shows {sorted(set(shown))!r}, expected {value!r}")
+    for ident in sorted(set(by_id) - set(expected)):
+        ledger.errors.append(f"{where}: hook {ident!r} has no expected value here")
+
+
+def _api_answers(db: Path, *paths: str) -> list[Any]:
+    """The API's answers to ``paths``, over a private copy of ``db``."""
+    from fastapi.testclient import TestClient
+
+    from porchlamp.serve.app import create_app
+
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = Path(tmp) / "snapshot.db"
+        source, target = sqlite3.connect(f"file:{db}?mode=ro", uri=True), sqlite3.connect(copy)
+        source.backup(target)
+        source.close()
+        target.close()
+        client = TestClient(create_app(str(copy), web_dir=str(Path(tmp) / "__no_web__")))
+        answers = []
+        for path in paths:
+            response = client.get(path)
+            if response.status_code != 200:
+                raise SystemExit(f"verify: GET {path} -> {response.status_code}")
+            answers.append(response.json())
+    return answers
+
+
+def _page_kinds(site: Path, report_ids: list[str]) -> dict[str, dict]:
+    """Each page of the site (every ``index.html``, and ``404.html``), with what the export drew it as: a page of the
+    app (``view``) or another page (``nav``, its nav entry or None) of a script ``kind`` (``report_pages.PAGE_SCRIPTS``)."""
+    pages: dict[str, dict] = {"404.html": {"view": "notfound", "kind": "app"}}
+    for route in _export_static().app_routes():
+        if route["shell"]:
+            pages[f"{route['path'].strip('/')}/index.html".lstrip("/")] = {"view": route["id"], "kind": "app"}
+    for path in sorted(site.rglob("index.html")):
+        rel = path.relative_to(site).as_posix()
+        if rel.startswith("data/") or rel in pages:
+            continue
+        if rel.startswith("black-holes/") and any(rel == f"black-holes/{i}index.html" for i in report_ids):
+            pages[rel] = {"nav": "report", "kind": "page"}
+        elif rel.startswith("projects/"):
+            pages[rel] = {"nav": None, "kind": "project"}
+        elif rel == "check/index.html":
+            pages[rel] = {"nav": None, "kind": "check"}
+        else:
+            pages[rel] = {"nav": None, "kind": "page"}
+    return pages
+
+
+def verify_chrome(db: Path, site: Path, *, log=print) -> dict:
+    """Every page the site serves carries the one header, nav and footer (``web/app/components/chrome.js``, drawn at
+    export by ``web/prerender.mjs``) for its kind and nav entry, from this database's snapshot; the snapshot values the
+    chrome prints (hooks) equal the API's; one Content-Security-Policy, the same everywhere (``web/app/404.html``'s);
+    ``theme-init.js`` first in ``<head>``; and exactly the scripts its kind allows (``report_pages.PAGE_SCRIPTS``),
+    with no inline script but JSON-LD. ``{"checked", "pages", "errors"}``."""
+    from porchlamp.serve import report_pages as rp
+
+    ledger = _Ledger()
+    node = find_node()
+    if node is None:
+        raise SystemExit("verify: no Node.js interpreter (PATH, PORCHLAMP_NODE_BIN, ~/.local/opt/node-*)")
+    [snapshot] = _api_answers(db, "/v1/porchlamp/snapshot")
+    sid = snapshot["snapshot_id"]
+    pages = _page_kinds(site, ["", f"{sid}/"])
+    policy = _CSP.findall((REPO_ROOT / "web" / "app" / "404.html").read_text(encoding="utf-8"))
+    nav_label = html.escape(rp.copy_js_string("PRIMARY_NAV_LABEL"))
+    expected_hooks = {
+        "header.snapshot_id": sid, "footer.snapshot_id": sid, "footer.benchmark_version": snapshot["benchmark_version"],
+        "footer.constants_hash": snapshot["constants_hash"][:12], "footer.manifest_root": snapshot["manifest_root"][:12],
+    }
+    drawn: dict[str, dict] = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "snapshot.json").write_text(json.dumps(snapshot), encoding="utf-8")
+        for page in pages.values():
+            key = json.dumps({k: page[k] for k in ("view", "nav") if k in page}, sort_keys=True)
+            if key in drawn:
+                continue
+            (Path(tmp) / "page.json").write_text(key, encoding="utf-8")
+            ran = subprocess.run(
+                [node, str(REPO_ROOT / "web" / "prerender.mjs"), "--chrome", str(Path(tmp) / "snapshot.json"), str(Path(tmp) / "page.json")],
+                capture_output=True, text=True, timeout=120, check=False,
+            )
+            if ran.returncode != 0:
+                raise SystemExit(f"verify: web/prerender.mjs --chrome failed: {ran.stderr[-1500:]}")
+            drawn[key] = json.loads(ran.stdout)
+    counts: dict[str, int] = {}
+    for rel, page in pages.items():
+        path = site / rel
+        if not path.is_file():
+            ledger.errors.append(f"{rel} is missing")
+            continue
+        text = path.read_text(encoding="utf-8")
+        counts[page["kind"]] = counts.get(page["kind"], 0) + 1
+        want = drawn[json.dumps({k: page[k] for k in ("view", "nav") if k in page}, sort_keys=True)]
+        for name, opening, closing in _CHROME_ELEMENTS:
+            opening = opening.format(nav_label=nav_label)
+            ledger.equal(f"{rel} {name}", text.count(opening), 1)
+            start = text.find(opening)
+            end = text.find(closing, start) if start >= 0 else -1
+            inner = text[start + len(opening) : end] if end >= 0 else None
+            ledger.equal(f"{rel} {name} is chrome.js's", inner, want[name])
+        hooks = [hook for hook in read_page(text).hooks if hook[0].split(".")[0] in ("header", "footer")]
+        _compare_hooks(ledger, rel, hooks, expected_hooks)
+        ledger.equal(f"{rel} Content-Security-Policy", _CSP.findall(text), policy)
+        head = text[: text.find("</head>")]
+        theme = head.find('<script src="/theme-init.js"></script>')
+        ledger.equal(f"{rel} theme-init.js in <head>, before the stylesheets", 0 <= theme < head.find('<link rel="stylesheet"'), True)
+        scripts = [re.search(r'\ssrc="([^"]*)"', attrs) for attrs in _SCRIPT_TAG.findall(text)]
+        ledger.equal(f"{rel} scripts", [m.group(1) for m in scripts if m], list(rp.PAGE_SCRIPTS[page["kind"]]))
+        inline = [attrs for attrs, m in zip(_SCRIPT_TAG.findall(text), scripts) if not m and 'type="application/ld+json"' not in attrs]
+        ledger.equal(f"{rel} inline scripts", inline, [])
+    log(
+        f"verify: page chrome: {sum(counts.values())} pages ("
+        + ", ".join(f"{kind} {n}" for kind, n in sorted(counts.items()))
+        + f"), each with the header, nav and footer chrome.js draws, one policy, its kind's scripts; "
+        f"{len(expected_hooks)} hooks per page; checked {ledger.checked}"
+    )
+    for error in ledger.errors[:50]:
+        log(f"CHROME MISMATCH {error}")
+    if len(ledger.errors) > 50:
+        log(f"CHROME MISMATCH ... and {len(ledger.errors) - 50} more")
+    return {"checked": ledger.checked, "pages": sum(counts.values()), "errors": ledger.errors}
+
+
+#: The static methodology page's anchors, which the view keeps (old deep links still land).
+METHODOLOGY_FORMER_IDS = ("gates", "pillars", "parameters", "missing-data", "lenses", "tie-break", "limits", "reproduce", "hashes")
+#: The view's sections, in page order, by their copy.js label names.
+METHODOLOGY_SECTIONS = (
+    "SNAPSHOT", "GATES", "PILLARS", "PARAMETERS", "MISSINGNESS", "PERSONAS", "TIE_BREAK", "DETECTORS", "LIMITS",
+    "PROCESS_CONSTANTS", "RFC_LOG",
+)
+
+
+def verify_methodology(db: Path, site: Path, *, log=print) -> dict:
+    """``/methodology/``, the app's own view, drawn into the page at export so it reads without JavaScript: every hook
+    it prints equals the value worked out here from the API and the database file (:func:`methodology_hooks`); its h1
+    and h2 are the view's; the lens names link the lens pages, the check line links /check/, the old anchors stay and
+    the Limits are copy.js's; and the page is byte for byte what ``web/prerender.mjs`` draws from the API's own answers
+    (ENG-17). ``{"checked", "hooks", "errors"}``."""
+    from porchlamp.serve import report_pages as rp
+
+    ledger = _Ledger()
+    path = site / "methodology" / "index.html"
+    if not path.is_file():
+        return {"checked": 0, "hooks": 0, "errors": ["methodology/index.html is missing"]}
+    text = path.read_text(encoding="utf-8")
+    snapshot, methodology = _api_answers(db, "/v1/porchlamp/snapshot", "/v1/porchlamp/methodology")
+    db_sha = hashlib.sha256(db.read_bytes()).hexdigest()
+    page = read_page(text)
+    hooks = [hook for hook in page.hooks if hook[0].split(".")[0] not in ("header", "footer")]  # the chrome's: verify_chrome
+    expected = methodology_hooks(snapshot, methodology, db_sha, list(rp.copy_js_map("PILLAR_NAMES")))
+    _compare_hooks(ledger, "methodology", hooks, expected)
+    labels = [rp.copy_js_string(f"METHODOLOGY_SECTION_{name}") for name in METHODOLOGY_SECTIONS]
+    ledger.equal("methodology h1", [t for tag, t in page.headings if tag == "h1"], [rp.copy_js_string("METHODOLOGY_HEADING")])
+    ledger.equal("methodology h2", [t for tag, t in page.headings if tag == "h2"], [rp.copy_js_string("WHY_HEADING"), *labels])
+    lens_links = [f"/{rp.LENS_SLUGS[lens]}/" for lens in methodology["personas"]["presets"] if lens in rp.LENS_SLUGS]
+    ledger.equal("methodology links the lens pages", [link for link in page.links if link in lens_links], lens_links)
+    ledger.equal("methodology links /check/", "/check/" in page.links, True)
+    gate_ids = [gate["id"].lower() for gate in methodology["gates"]]
+    ledger.equal("methodology keeps the old anchors", sorted(set(METHODOLOGY_FORMER_IDS + tuple(gate_ids)) - page.ids), [])
+    limits = re.search(r'id="limits">.*?<ul class="spec-rules">(.*?)</ul>', text, re.S)
+    ledger.equal("methodology Limits are copy.js's", _items(limits.group(1)) if limits else None, rp.copy_js_list("LIMITS"))
+    # the page again, from the API's answers: the export's own page skeleton, drawn by the prerender
+    export_static = _export_static()
+    node = find_node()
+    route = next(r for r in export_static.app_routes() if r["id"] == "methodology")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        data = root / "data" / snapshot["snapshot_id"]
+        data.mkdir(parents=True)
+        for name, payload in (("snapshot", snapshot), ("methodology", methodology), ("manifest", {"source_db_sha256": db_sha})):
+            (data / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
+        (root / "methodology").mkdir()
+        (root / "methodology" / "index.html").write_text(export_static.view_page(route), encoding="utf-8")
+        (root / "job.json").write_text(json.dumps({"data": f"data/{snapshot['snapshot_id']}", "pages": [
+            {"path": "methodology/index.html", "view": "methodology"}]}), encoding="utf-8")
+        ran = subprocess.run([node, str(REPO_ROOT / "web" / "prerender.mjs"), str(root), str(root / "job.json")],
+                             capture_output=True, text=True, timeout=120, check=False)
+        again = (root / "methodology" / "index.html").read_text(encoding="utf-8") if ran.returncode == 0 else ran.stderr
+    ledger.equal("methodology is what the prerender draws from the API's answers (bytes)", again == text, True)
+    distinct = len({ident for ident, _v in hooks})
+    log(f"verify: methodology page: {len(hooks)} hooks ({distinct} distinct), checked {ledger.checked} values; "
+        f"re-drawn from the API {'byte-identical' if again == text else 'DIFFERENT'}")
+    for error in ledger.errors[:50]:
+        log(f"METHODOLOGY MISMATCH {error}")
+    return {"checked": ledger.checked, "hooks": len(hooks), "errors": ledger.errors}
+
+
+# --------------------------------------------------------------------------- #
 # The hand-written numbers: the home page's static article, llms.txt, feed.xml
 # --------------------------------------------------------------------------- #
 #: A count or a plain number, as the hand-written files print one (``11,000``, ``823``, ``9``).
@@ -1530,8 +1865,7 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
         ledger.contains(f"{who} JSON record link", evid, f'href="../../../data/{sid}/repos/{bucket}.json"')
         ledger.contains(f"{who} data date", evid, f"data as of {int(as_of[8:10])} {_MONTHS[int(as_of[5:7]) - 1]} {as_of[:4]}")
         ledger.contains(f"{who} issue link", text, 'href="https://github.com/pctablet505/porchlamp/issues/new?title=' + quote(f"Porchlamp record: {owner}/{name}", safe="") + '"')
-        for back in ('href="../../../"', 'href="../../../black-holes/"', 'href="../../../methodology/"'):
-            ledger.contains(f"{who} link back", text, back)
+        ledger.contains(f"{who} link to the methodology", evid, 'href="../../../methodology/"')
         ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1))
         ledger.equal(f"{who} breadcrumb", ld, {
             "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
@@ -1559,7 +1893,7 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
         text = check_page.read_text(encoding="utf-8")
         ledger.equal("check canonical", re.search(r'<link rel="canonical" href="([^"]*)"', text).group(1), f"{SITE_ORIGIN}/check/")
         ledger.contains("check address pattern", _plain(text), "To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case).")
-        ledger.equal("check scripts", re.findall(r"<script[^>]*\ssrc=\"([^\"]*)\"", text), ["../check.js"])
+        ledger.equal("check scripts", re.findall(r"<script[^>]*\ssrc=\"([^\"]*)\"", text), list(rp.PAGE_SCRIPTS["check"]))
         listed = json.loads((site / "check" / "projects.json").read_text(encoding="utf-8"))
         ledger.equal("check index lists the ranked projects in rank order", listed, [f"{r['owner']}/{r['name']}" for r in ranked])
         ledger.equal("check.js ships with the site", (site / "check.js").is_file(), True)
@@ -1743,13 +2077,13 @@ def verify_landing(db: Path, site: Path, *, log=print) -> dict:
         found_bad = _BAD_TEXT.search(scanned)
         if found_bad:
             ledger.errors.append(f"{rel}: the page prints {found_bad.group(0)!r}")
-        # links to the method, the report and the ranked table; no script
+        # links to the method, the report and the ranked table; the scripts a page of its kind may load
         method = _section_after(text, "method")
         for target, label in (("../methodology/", "methodology"), ("../black-holes/", "report"),
                               (f"../black-holes/{sid}/{csv_name}", "ranked CSV")):
             ledger.contains(f"{rel} link to the {label}", method, f'href="{target}"')
         ledger.token(f"{rel} ranked count", _plain(method), fmt(ranked))
-        ledger.equal(f"{rel} loads no script", re.findall(r"<script[^>]*\ssrc=", text), [])
+        ledger.equal(f"{rel} scripts", re.findall(r"<script[^>]*\ssrc=\"([^\"]*)\"", text), list(rp.PAGE_SCRIPTS["page"]))
         ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1))
         ledger.equal(f"{rel} breadcrumb", ld, {
             "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
@@ -1869,6 +2203,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     for problem in problems:
         print(f"SITEMAP {problem}")
     ok = ok and not problems
+    ok = not verify_chrome(args.db.resolve(), site)["errors"] and ok
+    ok = not verify_methodology(args.db.resolve(), site)["errors"] and ok
     if args.stats is not None:
         ok = not verify_report(args.db.resolve(), args.stats.resolve(), site, evidence_files=evidence_files)["errors"] and ok
         ok = not verify_hand_written(args.db.resolve(), args.stats.resolve(), site)["errors"] and ok

@@ -20,7 +20,6 @@ from typing import Any, Mapping, Sequence
 from porchlamp.serve.project_pages import BALANCED, Copy, ProjectIndex, js_fixed, project_path
 from porchlamp.serve.report_pages import (
     ECOSYSTEM_SLUGS,
-    GITHUB_REPO,
     LENS_SLUGS,
     SITE,
     Facts,
@@ -215,13 +214,6 @@ def build_landings(f: Facts, methodology: Mapping[str, Any], index: ProjectIndex
     return pages
 
 
-def _footer(rel: str) -> str:
-    return (
-        f'<footer class="report-footer"><p><a href="{rel}">Porchlamp rankings</a> · <a href="{rel}black-holes/">Report</a> · '
-        f'<a href="{rel}methodology/">Methodology</a> · <a href="{GITHUB_REPO}">Data on GitHub</a></p></footer>'
-    )
-
-
 def _name_cell(r: Row, rel: str) -> str:
     label = f"{_t(r.owner)}/<wbr>{_t(r.name)}"
     return f'<a href="{_a(rel + project_path(r.owner, r.name))}">{label}</a>' if r.linked else label
@@ -249,7 +241,6 @@ def render_landing(f: Facts, landing: Landing) -> str:
           <li>Why stars do not decide it: <a href="{rel}black-holes/">the black-hole report</a>.</li>
           <li>All {_t(fmt_int(f.ranked))} ranked projects as a table: <a href="{_a(csv_href)}">{_t(f.csv_name)}</a>. Released under CC BY 4.0.</li>
         </ul>
-        {_footer(rel)}
       </article>"""
     ld = {
         "@context": "https://schema.org",
@@ -259,4 +250,4 @@ def render_landing(f: Facts, landing: Landing) -> str:
             {"@type": "ListItem", "position": 2, "name": landing.h1, "item": canonical},
         ],
     }
-    return page(title=landing.title, description=landing.description, canonical=canonical, rel=rel, body=body, ld=ld, nav_current="")
+    return page(title=landing.title, description=landing.description, canonical=canonical, body=body, ld=ld)
