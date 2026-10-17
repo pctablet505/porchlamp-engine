@@ -41,18 +41,24 @@ def _event(login: str) -> dict:
             "merged_at": None, "first_human_review_at": None}
 
 
-def _snapshot(tmp_path: Path) -> tuple[Path, Path]:
+def _snapshot(tmp_path: Path, *, h_population: int = 12) -> tuple[Path, Path]:
+    """The nine projects; ``h_population`` is the population of h's measured gate-5 share."""
     db = tmp_path / "snapshot.db"
     conn = sqlite3.connect(db)
     conn.execute("CREATE TABLE snapshots (id TEXT, as_of TEXT)")
     conn.execute("INSERT INTO snapshots VALUES ('S1', ?)", (AS_OF,))
     conn.execute(
-        "CREATE TABLE repositories (snapshot_id TEXT, owner TEXT, name TEXT, gate_reason TEXT, gate_undecided TEXT, "
-        "rated INTEGER, p_responsiveness REAL, porchlamp REAL, rank INTEGER, ttfhr_p75 REAL)"
+        "CREATE TABLE repositories (id INTEGER PRIMARY KEY, snapshot_id TEXT, owner TEXT, name TEXT, gate_reason TEXT, "
+        "gate_undecided TEXT, rated INTEGER, p_responsiveness REAL, porchlamp REAL, rank INTEGER, ttfhr_p75 REAL)"
     )
+    conn.execute("CREATE TABLE params (repo_id INTEGER, param_id TEXT, measured INTEGER, n INTEGER)")
     for name, (gate, undecided, rated, p, score, rank, ttfhr, _stars) in PROJECTS.items():
-        conn.execute("INSERT INTO repositories VALUES ('S1', 'Org', ?, ?, ?, ?, ?, ?, ?, ?)",
-                     (name, gate, undecided, rated, p, score, rank, ttfhr))
+        cur = conn.execute(
+            "INSERT INTO repositories (snapshot_id, owner, name, gate_reason, gate_undecided, rated, p_responsiveness, "
+            "porchlamp, rank, ttfhr_p75) VALUES ('S1', 'Org', ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, gate, undecided, rated, p, score, rank, ttfhr))
+        population = h_population if name == "h" else 20
+        conn.execute("INSERT INTO params VALUES (?, 'gr14_ghost_rate', 1, ?)", (cur.lastrowid, population))
     conn.commit()
     conn.close()
 
@@ -115,16 +121,40 @@ def test_as_of_moves_the_pr_window(tmp_path):
     assert stats["corpus"] == {"derived_repos": 3, "pr_windows": 2, "human_outside_prs": 21, "distinct_outside_authors": 21}
 
 
-def test_a_gate_5_undecided_project_whose_window_lacks_the_rule_inputs_is_counted(tmp_path):
-    """h passed gates 1 to 4 and is undecided on gate 5: counted while its window's PRs lack isDraft and the
-    timeline, not once they carry them."""
-    db, data = _snapshot(tmp_path)
+def _h_window(data: Path, prs: list[dict]) -> None:
+    """h's derived bundle and its recorded PR window, with the collector's own classifications."""
+    from porchlamp.collect.github_graphql import derive_pr_window
+
     (data / "derived" / "Org__h.json").write_text(json.dumps({"pr_events": []}), encoding="utf-8")
-    window = data / "raw" / "pr_window" / "Org__h.json"
-    window.write_text(json.dumps({"data": {"prs": [_pr("w1")]}}), encoding="utf-8")
+    (data / "raw" / "pr_window" / "Org__h.json").write_text(
+        json.dumps({"data": {"prs": prs, "derived": derive_pr_window(prs)}}), encoding="utf-8")
+
+
+def test_a_gate_5_undecided_project_whose_window_lacks_the_rule_inputs_is_counted(tmp_path):
+    """h passed gates 1 to 4 and is undecided on gate 5 with a measured share over 12 PRs: counted while its
+    window's PRs lack isDraft and the timeline, not once they carry them."""
+    db, data = _snapshot(tmp_path)
+    _h_window(data, [_pr("w1")])
     assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 1
-    recorded = {**_pr("w1"), "isDraft": False, "timelineItems": {"nodes": []}}
-    window.write_text(json.dumps({"data": {"prs": [recorded]}}), encoding="utf-8")
+    _h_window(data, [{**_pr("w1"), "isDraft": False, "timelineItems": {"nodes": []}}])
+    assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 0
+
+
+def test_an_undecided_project_below_the_minimum_population_is_not_counted(tmp_path):
+    """Over 9 PRs gate 5 is undecided whatever the records hold, so the missing fields did not leave it out."""
+    db, data = _snapshot(tmp_path, h_population=9)
+    _h_window(data, [_pr("w1")])
+    assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 0
+
+
+def test_an_undecided_project_that_hands_review_off_is_not_counted(tmp_path):
+    """Five outside PRs, each with a Gerrit import notice: review is handed off, so gate 5 is undecided anyway."""
+    db, data = _snapshot(tmp_path)
+    notice = {"author": {"login": "gopherbot", "__typename": "User"}, "authorAssociation": "NONE",
+              "bodyText": "This change has been imported to Gerrit for code review.", "createdAt": OLD}
+    prs = [{**_pr(f"w{k}"), "number": k + 1, "comments": {"nodes": [notice]}, "reviews": {"nodes": []}}
+           for k in range(5)]
+    _h_window(data, prs)
     assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 0
 
 

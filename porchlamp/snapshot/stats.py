@@ -27,9 +27,10 @@ The definitions:
     how many of the 100 most-starred projects are in the top 100 by rank; ``top100_stars_fate``
     is what happened to those 100 (rated, or their gate reason);
 ``gate5_undecided_rule_inputs``
-    projects that passed gates 1 to 4 and are undecided on gate 5 because their recorded PR window
-    lacks the fields its rules read (:func:`porchlamp.derive.gate_evidence.pr_rule_inputs_recorded`):
-    left out of ``gate5_decided`` for when their data was fetched, not for what it shows;
+    projects that passed gates 1 to 4 and are undecided on gate 5 although their measured share has at
+    least the minimum population and they hand no review off: their recorded PR window lacks the fields
+    the rules read (:func:`porchlamp.derive.gate_evidence.pr_rule_inputs_recorded`), so they are left
+    out of ``gate5_decided`` for when their data was fetched, not for what it shows;
 ``corpus``
     derived bundle files (``derived_repos``), how many of them have a recorded PR window
     (``pr_windows``), the outside PRs opened in the PR window ending at ``--as-of``
@@ -49,8 +50,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-from porchlamp.core.constants import PR_WINDOW_DAYS
-from porchlamp.derive.gate_evidence import outside_pr_authors, pr_rule_inputs_recorded, pr_window_data
+from porchlamp.core.constants import GATE5_MIN_N, PR_WINDOW_DAYS
+from porchlamp.derive.gate_evidence import _review_handoff, outside_pr_authors, pr_rule_inputs_recorded, pr_window_data
 
 __all__ = ["STAR_BUCKETS", "bucket_label", "compute_stats", "open_snapshot_db", "spearman"]
 
@@ -153,6 +154,12 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
             "SELECT owner, name, gate_reason, gate_undecided, rated, p_responsiveness, "
             f"{score}, rank, ttfhr_p75 FROM repositories"
         ).fetchall()
+        # gate 5 had enough pull requests to decide: a measured share over at least the minimum population
+        populated = {
+            (owner.lower(), name.lower()) for owner, name in con.execute(
+                "SELECT r.owner, r.name FROM repositories r JOIN params p ON p.repo_id = r.id "
+                "AND p.param_id = 'gr14_ghost_rate' WHERE p.measured = 1 AND p.n >= ?", (GATE5_MIN_N,))
+        }
     finally:
         con.close()
 
@@ -204,6 +211,7 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
     gate5_undecided = {
         key(r) for r in rows
         if r[2] in (None, "black_hole", "unrated: no_external_workflow") and "D-GATE-5" in json.loads(r[3] or "[]")
+        and key(r) in populated
     }
     window_start = now - timedelta(days=PR_WINDOW_DAYS)
     n_repo = n_window = n_pr = n_rule_inputs = 0
@@ -216,7 +224,8 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
             continue
         n_window += 1
         owner, _, name = path.stem.partition("__")
-        if (owner.lower(), name.lower()) in gate5_undecided and not pr_rule_inputs_recorded(prs):
+        if ((owner.lower(), name.lower()) in gate5_undecided and not pr_rule_inputs_recorded(prs)
+                and _review_handoff(raw, path.stem) is not True):
             n_rule_inputs += 1
         logins = outside_pr_authors(prs, start=window_start, end=now)
         n_pr += len(logins)

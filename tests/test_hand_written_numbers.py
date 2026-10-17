@@ -1,5 +1,6 @@
 """``scripts/verify_static_export.py``'s check of the hand-written numbers in ``web/v2/index.html`` (the static
-article, its head and the top-20 table), ``web/v2/llms.txt`` and ``web/v2/feed.xml``.
+article, its head and the top-20 table), ``web/v2/llms.txt``, ``web/v2/feed.xml`` and the app's finding line in
+``web/v2/copy.js``.
 
 ``tests/fixtures/shipped-text-snapshot-facts.json`` holds the facts of the snapshot those files name, as
 ``hand_written_facts(<snapshot database>, <stats file>)`` read them from that snapshot's database and stats file.
@@ -21,16 +22,21 @@ _spec.loader.exec_module(verify_static_export)
 
 SHIPPED = ROOT / "web" / "v2"
 FACTS = json.loads((ROOT / "tests" / "fixtures" / "shipped-text-snapshot-facts.json").read_text(encoding="utf-8"))
-FILES = ("index.html", "llms.txt", "feed.xml")
-#: The two lines that call every unrated project a coverage shortfall, and a true wording of each.
-COVERAGE_LINES = {
-    "llms.txt": ("`1,377` **Unrated:** Repositories passing Stage-0 gates but with `<60%` measured parameter coverage.",
-                 "`1,377` **Unrated:** Repositories passing Stage-0 gates but not ranked: `1,067` with `<60%` measured "
-                 "parameter coverage, `302` with no outside pull-request workflow, `8` that review off GitHub."),
-    "feed.xml": ("and 1,377 unrated (&lt;60% parameter coverage).",
-                 "and 1,377 unrated (1,067 with &lt;60% parameter coverage, 302 with no outside pull-request workflow, "
-                 "8 that review off GitHub)."),
-}
+FILES = verify_static_export.HAND_WRITTEN_FILES
+_N = lambda n: f"{n:,}"  # noqa: E731
+_UNRATED = _N(FACTS["unrated"])
+_REASONS = FACTS["unrated_by_reason"]
+_BELOW, _NOEXT, _OFFP = (_N(_REASONS.get(k, 0)) for k in (
+    "unrated: insufficient_evidence", "unrated: no_external_workflow", "unrated: off_platform_routed"))
+#: The coverage wording the shipped files used to have: every unrated project called a coverage shortfall.
+FALSE_COVERAGE_LINES = (
+    ("llms.txt", f"`{_UNRATED}` **Unrated:** Repositories passing Stage-0 gates but not ranked: `{_BELOW}` with `<60%` "
+                 f"measured parameter coverage, `{_NOEXT}` with no outside pull-request workflow, `{_OFFP}` that review off GitHub.",
+     f"`{_UNRATED}` **Unrated:** Repositories passing Stage-0 gates but with `<60%` measured parameter coverage."),
+    ("feed.xml", f"and {_UNRATED} unrated ({_BELOW} with &lt;60% parameter coverage, {_NOEXT} with no outside "
+                 f"pull-request workflow, {_OFFP} that review off GitHub).",
+     f"and {_UNRATED} unrated (&lt;60% parameter coverage)."),
+)
 
 
 def _site(tmp_path: Path, edits: tuple[tuple[str, str, str], ...] = ()) -> Path:
@@ -46,46 +52,69 @@ def _site(tmp_path: Path, edits: tuple[tuple[str, str, str], ...] = ()) -> Path:
     return site
 
 
-def test_the_shipped_files_agree_with_their_snapshot_except_the_two_coverage_lines(tmp_path):
+def test_the_shipped_files_agree_with_their_snapshot(tmp_path):
     result = verify_static_export.check_hand_written(_site(tmp_path), FACTS)
     assert result["checked"] > 60
+    assert result["errors"] == []
+
+
+def test_a_line_that_calls_every_unrated_project_a_coverage_shortfall_fails(tmp_path):
+    result = verify_static_export.check_hand_written(_site(tmp_path, FALSE_COVERAGE_LINES), FACTS)
     assert sorted(error.split(":")[0] for error in result["errors"]) == ["feed.xml", "llms.txt"], result["errors"]
     for error in result["errors"]:
-        assert "coverage below 60%" in error and "gives 1,377" in error and "1,067 projects" in error, error
+        assert "coverage below 60%" in error and f"gives {_UNRATED}" in error and f"{_BELOW} projects" in error, error
 
 
-def test_the_corrected_coverage_lines_pass(tmp_path):
-    site = _site(tmp_path, CORRECTED)
-    assert verify_static_export.check_hand_written(site, FACTS)["errors"] == []
+_TOP = FACTS["top"][0]  # rank, repo, ecosystem, score, coverage, tier, quadrant
+_JUDGED, _HOLES, _SHARE = _N(FACTS["judged"]), _N(FACTS["black_holes"]), FACTS["share"]
+_B1, _B2, _B3 = FACTS["band_percents"]
+_PRS = _N(FACTS["corpus"]["human_outside_prs"])
+_FIRST = FACTS["lens_ranked"]["first_timer"]
+_ONE_IN = FACTS["judged"] // FACTS["black_holes"] + 1
+_TOP_BAND_ONE_IN = FACTS["top_band"]["n"] // FACTS["top_band"]["black_holes"] + 1
 
 
-CORRECTED = tuple((name, old, new) for name, (old, new) in COVERAGE_LINES.items())
+def _off_by_a_cent(score: str) -> str:
+    return f"{float(score) + 0.01:.2f}"
+
+
+#: name: (file, the shipped text, the planted text, the start of the one error it must give)
 PLANTS = {
-    "home-top-20-score": ("index.html", "<td>81.16</td>", "<td>81.17</td>", "index.html top-20 table"),
-    "llms-top-20-tier": ("llms.txt", "Score `81.16` · Coverage `65%` · Tier `B (capped)`",
-                                  "Score `81.16` · Coverage `65%` · Tier `B`", "llms.txt top-20 list"),
+    "home-top-20-score": ("index.html", f"<td>{_TOP[3]}</td>", f"<td>{_off_by_a_cent(_TOP[3])}</td>",
+                          "index.html top-20 table"),
+    "llms-top-20-tier": ("llms.txt", f"Score `{_TOP[3]}` · Coverage `{_TOP[4]}` · Tier `{_TOP[5]}`",
+                         f"Score `{_TOP[3]}` · Coverage `{_TOP[4]}` · Tier `{_TOP[5]}x`", "llms.txt top-20 list"),
     "home-judged-and-black-holes-swapped": (
-        "index.html", "Of the 4,297 licensed, maintained software projects that received at least ten outside pull "
-        "requests in six months, 1,133 (26.4%)", "Of the 1,133 licensed, maintained software projects that received at "
-        "least ten outside pull requests in six months, 4,297 (26.4%)", "index.html: black-hole share"),
-    "llms-star-bands-swapped": ("llms.txt", "`21%` at 1k\u201310k stars, `31%` at 10k\u201350k stars, and `39%` at 50k+",
-                               "`39%` at 1k\u201310k stars, `31%` at 10k\u201350k stars, and `21%` at 50k+", "llms.txt: star bands"),
-    "feed-lens-count": ("feed.xml", "(1,968 Ranked Repositories)", "(1,969 Ranked Repositories)", "feed.xml: first-timer lens"),
-    "home-more-than-1-in-3-at-26.4%": ("index.html", "More than 1 in 4 active", "More than 1 in 3 active",
-                                    "index.html: more than 1 in N"),
-    "feed-constants-hash-prefix": ("feed.xml", "constants_hash 6e4f3e8e1d0c…", "constants_hash 6e4f3e8e1d0d…", "feed.xml: hashes"),
-    "home-article-corpus": ("index.html", "We followed 212,390 pull requests", "We followed 212,930 pull requests",
-                            "index.html: corpus"),
+        "index.html", f"Of the {_JUDGED} licensed, maintained software projects that received at least ten outside pull "
+        f"requests in six months, {_HOLES} ({_SHARE}%)", f"Of the {_HOLES} licensed, maintained software projects that "
+        f"received at least ten outside pull requests in six months, {_JUDGED} ({_SHARE}%)", "index.html: black-hole share"),
+    "llms-star-bands-swapped": ("llms.txt", f"`{_B1}%` at 1k\u201310k stars, `{_B2}%` at 10k\u201350k stars, and `{_B3}%` at 50k+",
+                                f"`{_B3}%` at 1k\u201310k stars, `{_B2}%` at 10k\u201350k stars, and `{_B1}%` at 50k+",
+                                "llms.txt: star bands"),
+    "feed-lens-count": ("feed.xml", f"({_N(_FIRST)} Ranked Repositories)", f"({_N(_FIRST + 1)} Ranked Repositories)",
+                        "feed.xml: first-timer lens"),
+    "home-more-than-1-in-n-one-too-small": ("index.html", f"More than 1 in {_ONE_IN} active",
+                                            f"More than 1 in {_ONE_IN - 1} active", "index.html: more than 1 in N"),
+    "home-most-starred-one-too-small": ("index.html", f"more than 1 in {_TOP_BAND_ONE_IN} of the most-starred",
+                                        f"more than 1 in {_TOP_BAND_ONE_IN - 1} of the most-starred",
+                                        "index.html: most-starred band, more than 1 in N"),
+    "app-finding-line-one-too-small": ("copy.js", f'FINDINGS_LINE = "More than 1 in {_ONE_IN} active',
+                                       f'FINDINGS_LINE = "More than 1 in {_ONE_IN - 1} active', "copy.js: more than 1 in N"),
+    "feed-constants-hash-prefix": ("feed.xml", f"constants_hash {FACTS['constants_hash'][:12]}…",
+                                   f"constants_hash {FACTS['constants_hash'][:11]}{'0' if FACTS['constants_hash'][11] != '0' else '1'}…",
+                                   "feed.xml: hashes"),
+    "home-article-corpus": ("index.html", f"We followed {_PRS} pull requests",
+                            f"We followed {_N(FACTS['corpus']['human_outside_prs'] + 540)} pull requests", "index.html: corpus"),
     "llms-statement-dropped": ("llms.txt", "Universe Breakdown (11,000 Total)", "Universe Breakdown",
-                            "llms.txt: universe total: statement not found"),
+                               "llms.txt: universe total: statement not found"),
 }
 
 
 @pytest.mark.parametrize("plant", sorted(PLANTS))
 def test_a_planted_wrong_hand_written_number_fails_by_name(tmp_path, plant):
-    """On the corrected copy (no other error), one planted defect gives exactly one error, naming it."""
+    """On the shipped files (no other error), one planted defect gives exactly one error, naming it."""
     name, old, new, expected = PLANTS[plant]
-    errors = verify_static_export.check_hand_written(_site(tmp_path, (*CORRECTED, (name, old, new))), FACTS)["errors"]
+    errors = verify_static_export.check_hand_written(_site(tmp_path, ((name, old, new),)), FACTS)["errors"]
     assert len(errors) == 1 and errors[0].startswith(expected), errors
 
 

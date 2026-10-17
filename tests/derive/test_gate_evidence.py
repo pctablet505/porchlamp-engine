@@ -413,6 +413,11 @@ def test_a_truncated_record_beside_a_small_sample_gives_no_opinion(tmp_path: Pat
     assert _decided_external_pr(tmp_path, window=window, sample=[_sampled(pr) for pr in _UNDECIDED_PRS]) is None
 
 
+def test_a_record_without_its_truncated_flag_beside_a_small_sample_gives_no_opinion(tmp_path: Path) -> None:
+    window = {"prs": _UNDECIDED_PRS}
+    assert _decided_external_pr(tmp_path, window=window, sample=[_sampled(pr) for pr in _UNDECIDED_PRS]) is None
+
+
 def test_the_365_day_history_finds_a_pr_the_180_day_window_cannot_hold(tmp_path: Path) -> None:
     """Opened 200 days before as_of and merged 100 days before: in the decision horizon, outside the window."""
     window = {"prs": [_decided(1, opened=3, decided=None)], "truncated": False}
