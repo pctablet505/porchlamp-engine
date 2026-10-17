@@ -449,3 +449,38 @@ def test_gather_one_proceeds_to_deep_when_not_black_hole(
     assert status.get("skipped_deep_black_hole") is not True
     assert "governance" in deep_called
     assert "releases" in deep_called
+
+
+def test_gather_force_refetches_an_existing_pr_window_file(
+    gather_mod: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``gather --force`` (``gather_repo(force=True)``) refetches a pr_window
+    envelope that already exists, instead of keeping it."""
+    from porchlamp.collect import github_graphql as gql
+    from porchlamp.collect.envelope import read_envelope, write_envelope
+
+    target = gather_mod.DATA / "pr_window" / "o__n.json"
+    write_envelope(target, "github-graphql:pr-window", {"count": 0, "prs": [], "derived": []},
+                   "2026-01-01T00:00:00+00:00")
+    created = (datetime.now(timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    node = {"number": 7, "createdAt": created, "closedAt": None, "mergedAt": None, "state": "OPEN",
+            "isDraft": False, "author": {"__typename": "User", "login": "alice"}, "authorAssociation": "NONE",
+            "timelineItems": {"nodes": []}, "reviews": {"nodes": []}, "comments": {"nodes": []},
+            "reviewThreads": {"totalCount": 0}}
+    calls: list[dict] = []
+
+    class FakeTransport:
+        def execute(self, query: str, variables: dict) -> dict:
+            calls.append(variables)
+            return {"data": {"rateLimit": {"cost": 1}, "r": {"pullRequests": {
+                "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": [node]}}}}
+
+    monkeypatch.setattr(gql, "GhCliTransport", FakeTransport)
+    status = gather_mod.gather_repo("o", "n", "pypi", force=True, collectors=frozenset({"pr_window"}))
+
+    assert status["pr_window"] == "ok"
+    assert len(calls) == 1
+    data = read_envelope(target).data
+    assert [p["number"] for p in data["prs"]] == [7]
+    assert data["query_sha256"] == gql.PR_WINDOW_QUERY_SHA256

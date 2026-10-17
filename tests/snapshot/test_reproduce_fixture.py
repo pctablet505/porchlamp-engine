@@ -3,8 +3,8 @@
 Scoring the frozen fixture through ``porchlamp.snapshot.store_cmd.
 score_snapshot_with_detectors`` (the reproduce pin reflects the real pipeline,
 detectors included -- ``previous=None`` here, a fixture has no previous snapshot,
-but the single-snapshot detectors still fire: ``closed_unread`` genuinely finds 12
-of these 50 real repos) reproduces ``expected.json``'s ``records_hash``
+but the single-snapshot detectors still fire: ``closed_unread`` genuinely finds 9
+of these 50 real repos, each over at least CLOSED_UNREAD_MIN_N external PRs) reproduces ``expected.json``'s ``records_hash``
 exactly -- the reproducibility handle ``ScoredSnapshot`` defines. This is the CI
 gate ``.github/workflows/ci.yml``'s "Anchors, sensitivity, reproduce (fixture snapshot)"
 step runs.
@@ -63,8 +63,8 @@ def test_reproduce_matches_expected_hash() -> None:
     assert snapshot.snapshot_id == frozen.expected.get("snapshot_id", snapshot.snapshot_id) or True
     assert [f"{r.repo.owner}/{r.repo.name}" for r in snapshot.records] == frozen.expected["rank_order"]
     # detectors are really wired here, not decorative: real evidence on
-    # real data (12 of these 50 repos genuinely trip closed_unread).
-    assert snapshot.counts.suspicion_counts == {"closed_unread": 12}
+    # real data (9 of these 50 repos genuinely trip closed_unread).
+    assert snapshot.counts.suspicion_counts == {"closed_unread": 9}
 
 
 def test_fixture_rebuild_is_byte_identical(tmp_path: Path) -> None:

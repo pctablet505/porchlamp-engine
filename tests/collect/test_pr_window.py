@@ -9,6 +9,7 @@ status entry) and ``scripts/derive.py`` (the ``pr_window_*`` bundle fields).
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import sys
 from datetime import datetime, timedelta, timezone
@@ -21,6 +22,7 @@ from porchlamp.collect import github_graphql as gql
 from porchlamp.collect.envelope import envelope_hash, read_envelope, write_envelope
 from porchlamp.collect import user_cache as gql_user_cache
 from porchlamp.collect.user_cache import UserCache
+from porchlamp.derive.gate_evidence import pr_rule_inputs_recorded
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 NOW = datetime(2026, 9, 12, 0, 0, 0, tzinfo=timezone.utc)
@@ -2279,3 +2281,75 @@ def test_partial_eligibility_alias_missing_contributions_collection_is_unmeasure
     assert cache.get("d000", NOW) is None
 
 
+
+
+# --- the query that fetched an envelope -----------------------------------------
+
+def _rule_input_fields(node: dict) -> dict:
+    """``node`` as the current query records it: ``isDraft`` and the timeline."""
+    return {**node, "isDraft": False, "timelineItems": {"nodes": []}}
+
+
+def test_a_pr_window_envelope_records_the_query_that_fetched_it(tmp_path):
+    fake = FakeTransport([page([pr_node(5, "2026-09-01T00:00:00Z")], False)], [1])
+    raw = tmp_path / "raw"
+    assert gql.collect_pr_window(raw, "acme", "widget", now=NOW, transport=fake) == "ok"
+    data = read_envelope(raw / "pr_window" / "acme__widget.json").data
+    assert data["query_sha256"] == gql.PR_WINDOW_QUERY_SHA256
+    assert gql.PR_WINDOW_QUERY_SHA256 == hashlib.sha256(gql.PR_WINDOW_QUERY.encode("utf-8")).hexdigest()
+    assert gql.pr_window_query_is_current(data)
+    assert not gql.pr_window_query_is_current({**data, "query_sha256": "0" * 64})
+    assert not gql.pr_window_query_is_current({k: v for k, v in data.items() if k != "query_sha256"})
+
+
+@pytest.mark.parametrize("recorded_query", [None, "0" * 64])
+def test_an_incremental_refresh_refetches_an_envelope_from_an_older_query(tmp_path, recorded_query):
+    """The existing envelope was fetched by another query (no hash, or another
+    one): its settled record (PR 1, without ``isDraft``) is not reused. The
+    refresh pages the window in full, and the envelope it writes holds only the
+    refetched records, stamped with the current query."""
+    raw = tmp_path / "raw"
+    old = {"window_anchor": (NOW - timedelta(days=5)).isoformat(), "window_days": 180, "cap": 500,
+           "count": 2, "truncated": False, "cost_points": 1, "derived": [],
+           "prs": [pr_node(2, "2026-08-20T00:00:00Z", merged="2026-08-21T00:00:00Z"),
+                   pr_node(1, "2026-08-01T00:00:00Z", merged="2026-08-02T00:00:00Z")]}
+    if recorded_query is not None:
+        old["query_sha256"] = recorded_query
+    write_envelope(raw / "pr_window" / "acme__widget.json", "github-graphql:pr-window", old,
+                   (NOW - timedelta(days=5)).isoformat())
+    fresh = [_rule_input_fields(pr_node(3, "2026-09-05T00:00:00Z")),
+             _rule_input_fields(pr_node(2, "2026-08-20T00:00:00Z", merged="2026-08-21T00:00:00Z"))]
+    tail = [_rule_input_fields(pr_node(1, "2026-08-01T00:00:00Z", merged="2026-08-02T00:00:00Z"))]
+    fake = FakeTransport([page(fresh, True, "c1"), page(tail, False)], [1, 1])
+    assert gql.collect_pr_window(raw, "acme", "widget", now=NOW, transport=fake,
+                                 force=True, incremental_ledger=True) == "ok"
+    assert len(fake.calls) == 2  # paged past the settled PR 2: nothing was reused
+    data = read_envelope(raw / "pr_window" / "acme__widget.json").data
+    assert data["query_sha256"] == gql.PR_WINDOW_QUERY_SHA256
+    assert [p["number"] for p in data["prs"]] == [3, 2, 1]
+    assert pr_rule_inputs_recorded(data["prs"])
+
+
+def test_an_incremental_refresh_reuses_an_envelope_from_the_current_query(tmp_path):
+    """Over-correction guard: an envelope stamped with the current query keeps
+    its settled records; paging stops at the first settled PR."""
+    raw = tmp_path / "raw"
+    settled = _rule_input_fields(pr_node(2, "2026-08-20T00:00:00Z", merged="2026-08-21T00:00:00Z"))
+    old = {"window_anchor": (NOW - timedelta(days=5)).isoformat(), "window_days": 180, "cap": 500,
+           "count": 1, "truncated": False, "cost_points": 1, "derived": [], "prs": [settled],
+           "query_sha256": gql.PR_WINDOW_QUERY_SHA256}
+    write_envelope(raw / "pr_window" / "acme__widget.json", "github-graphql:pr-window", old,
+                   (NOW - timedelta(days=5)).isoformat())
+    fake = FakeTransport([page([_rule_input_fields(pr_node(3, "2026-09-05T00:00:00Z")), settled], True, "c1")], [1])
+    assert gql.collect_pr_window(raw, "acme", "widget", now=NOW, transport=fake,
+                                 force=True, incremental_ledger=True) == "ok"
+    assert len(fake.calls) == 1
+
+
+def test_pr_rule_inputs_recorded_needs_the_draft_flag_and_the_timeline_on_every_pr():
+    current = _rule_input_fields(pr_node(1, "2026-09-01T00:00:00Z"))
+    assert pr_rule_inputs_recorded([current, current])
+    old = pr_node(2, "2026-09-01T00:00:00Z")
+    assert not pr_rule_inputs_recorded([current, old])
+    assert not pr_rule_inputs_recorded([{**old, "isDraft": False}])
+    assert not pr_rule_inputs_recorded([{**old, "timelineItems": {"nodes": []}}])

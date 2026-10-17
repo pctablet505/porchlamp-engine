@@ -18,7 +18,7 @@ from porchlamp.core import constants
 from porchlamp.serve import landing_pages, project_pages, report_pages
 from tests.test_report_pages import (  # noqa: F401  (fixtures)
     SNAPSHOT,
-    _data_root,
+    _evidence_files,
     _inputs,
     _ld,
     _page,
@@ -350,11 +350,11 @@ def test_a_planted_wrong_link_in_the_report_a_project_page_and_the_methodology_e
     report = f"black-holes/{SNAPSHOT}/index.html"
     text = (copy_dir / report).read_text(encoding="utf-8")
     _edit(copy_dir, report, 'href="../../rust/"', 'href="../../rusty/"')
-    errors = verify_static_export.verify_report(db, stats_path, copy_dir, log=lambda _line: None)["errors"]
+    errors = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)["errors"]
     assert any(report in e and "links to the ecosystem pages" in e for e in errors), errors
     (copy_dir / report).write_text(text, encoding="utf-8")
     _edit(copy_dir, "methodology/index.html", 'href="../career/"', 'href="../careers/"')
-    errors = verify_static_export.verify_report(db, stats_path, copy_dir, log=lambda _line: None)["errors"]
+    errors = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)["errors"]
     assert any("methodology lens names link to the lens pages" in e for e in errors), errors
     project = sorted((copy_dir / "projects").rglob("index.html"))[0]
     rel = project.relative_to(copy_dir).as_posix()

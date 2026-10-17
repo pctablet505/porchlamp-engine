@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from porchlamp.collect import ghcli, ledger
-from porchlamp.collect.envelope import read_envelope, write_envelope
+from porchlamp.collect.envelope import read_envelope, sha256_hex, write_envelope
 from porchlamp.collect.user_cache import UserCache
 from porchlamp.core import gates
 from porchlamp.core.constants import AUTHOR_UNMEASURED_MAX_FRACTION
@@ -101,6 +101,18 @@ PR_WINDOW_QUERY: str = (
     " reviewThreads { totalCount } }"
     " } } }"
 )
+
+#: The identity of :data:`PR_WINDOW_QUERY`'s text, recorded in every
+#: ``pr_window`` envelope's ``data`` as ``query_sha256``. An envelope that
+#: records another value, or none, was fetched by a different query and may
+#: lack fields this one asks for; a refresh refetches it in full.
+PR_WINDOW_QUERY_SHA256: str = sha256_hex(PR_WINDOW_QUERY)
+
+
+def pr_window_query_is_current(data: Any) -> bool:
+    """Whether a ``pr_window`` envelope ``data`` was fetched by the current
+    :data:`PR_WINDOW_QUERY` (its recorded ``query_sha256`` matches)."""
+    return isinstance(data, Mapping) and data.get("query_sha256") == PR_WINDOW_QUERY_SHA256
 
 
 # --------------------------------------------------------------------------- #
@@ -510,11 +522,16 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
 
     Writes ``raw_dir/pr_window/<owner>__<name>.json`` — one envelope whose
     ``data`` carries the window metadata (``count``, ``truncated``,
-    ``cost_points``, ``window_days``, ``cap``), the recorded PR nodes and
+    ``cost_points``, ``window_days``, ``cap``, ``query_sha256``), the recorded PR nodes and
     the per-PR derivation — and returns ``"ok"``. Returns ``"skip"`` when
     the envelope already exists and ``force`` is False. ``page_size`` is
     the GraphQL ``first`` per page; drop it for very active repositories
     whose full page exceeds the server-side query time budget.
+
+    With ``incremental_ledger`` the existing envelope's settled PRs are
+    reused only when it was fetched by the current query
+    (:func:`pr_window_query_is_current`); an envelope from an older query is
+    refetched in full, so its records cannot outlive the query change.
     """
     key = f"{owner}__{name}"
     target = raw_dir / "pr_window" / f"{key}.json"
@@ -527,7 +544,11 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
     if incremental_ledger and target.is_file():
         try:
             prev_env = read_envelope(target)
-            if isinstance(prev_env.data, Mapping) and isinstance(prev_env.data.get("prs"), list):
+            if (
+                isinstance(prev_env.data, Mapping)
+                and isinstance(prev_env.data.get("prs"), list)
+                and pr_window_query_is_current(prev_env.data)
+            ):
                 existing_prs = prev_env.data["prs"]
                 existing_anchor = (
                     _parse_iso(prev_env.data.get("window_anchor"))
@@ -544,6 +565,7 @@ def collect_pr_window(raw_dir: Path, owner: str, name: str,
                              existing_truncated=existing_truncated)
     data: dict[str, Any] = {
         "window_anchor": now.isoformat(),
+        "query_sha256": PR_WINDOW_QUERY_SHA256,
         "window_days": PR_WINDOW_DAYS,
         "cap": PR_CAP,
         "count": len(result.prs),

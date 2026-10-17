@@ -1,9 +1,11 @@
 """Run the full verified-data pipeline over the candidate universe.
 
-Chains, per candidate repo: gather (raw cache) -> derive (feature bundle) ->
-verify (cross-source). Then freezes a snapshot manifest and promotes all CLEAN
-bundles into SQLite once. Checkpointed via the raw cache (existing envelopes
-are skipped), so reruns resume. --skip-downloads runs a fast pass (GitHub +
+Gathers every candidate repo (raw cache), then derives (feature bundle) and
+verifies (cross-source) each one, then freezes a snapshot manifest and promotes
+all CLEAN bundles into SQLite once. One ``as_of`` runs through every derivation,
+the freeze and the scoring: ``--as-of``, or else the clock read once after the
+gather sweep, so no bundle is derived at its own clock time. Checkpointed via
+the raw cache (existing envelopes are skipped), so reruns resume. --skip-downloads runs a fast pass (GitHub +
 deps.dev + scorecard + npm/crates) and defers pypistats (4/min) to a later
 backfill.
 
@@ -70,10 +72,9 @@ def _candidates(limit: int | None) -> list[tuple[str, str, str]]:
     return out
 
 
-def run_one(owner: str, name: str, eco: str, skip_pypistats: bool) -> str:
-    """gather->derive->verify one repo; return CLEAN|FLAG|FAIL."""
-    gather.gather_repo(owner, name, eco, skip_pypistats=skip_pypistats)
-    bundle = derive.derive_repo(owner, name, derive.Ecosystem(eco))
+def derive_and_verify(owner: str, name: str, eco: str, as_of: datetime) -> str:
+    """derive->verify one gathered repo at ``as_of``; return CLEAN|FLAG."""
+    bundle = derive.derive_repo(owner, name, derive.Ecosystem(eco), now=as_of)
     out = derive.DATA_DIR / "derived" / f"{owner}__{name}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(bundle, indent=2, sort_keys=True), encoding="utf-8")
@@ -159,28 +160,52 @@ def freeze_and_promote(db: str, data_dir: Path, as_of: datetime) -> int:
     return 0
 
 
-def main() -> int:
+def _parse_as_of(text: str) -> datetime:
+    as_of = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if as_of.tzinfo is None:
+        raise ValueError(f"--as-of needs a UTC offset: {text!r}")
+    return as_of
+
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int)
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--skip-downloads", action="store_true",
                     help="defer pypistats (4/min) to a backfill pass")
     ap.add_argument("--db", default=str(gather.DATA.parent / "porchlamp.db"))
-    a = ap.parse_args()
+    ap.add_argument("--as-of", default=None,
+                    help="reference time (ISO-8601 with an offset) for every derivation, the freeze and "
+                         "the scoring; default: the clock, read once after the gather sweep")
+    a = ap.parse_args(argv)
+    try:
+        pinned = _parse_as_of(a.as_of) if a.as_of is not None else None
+    except ValueError as error:
+        ap.error(str(error))
     repos = _candidates(None if a.all else a.limit)
     tally = {"CLEAN": 0, "FLAG": 0, "FAIL": 0}
+    gathered = []
     for i, (owner, name, eco) in enumerate(repos, 1):
         try:
-            result = run_one(owner, name, eco, a.skip_downloads)
+            gather.gather_repo(owner, name, eco, skip_pypistats=a.skip_downloads)
+            gathered.append((owner, name, eco))
+        except Exception as e:  # review-ok: gate-network — one repo must not abort the sweep
+            tally["FAIL"] += 1
+            print(f"  [{i}] {owner}/{name}: gather {type(e).__name__}: {str(e)[:120]}")
+    as_of = pinned or datetime.now(timezone.utc)
+    print(f"gather done ({len(gathered)} of {len(repos)}); deriving at as_of {as_of.isoformat()}")
+    for i, (owner, name, eco) in enumerate(gathered, 1):
+        try:
+            result = derive_and_verify(owner, name, eco, as_of)
         except Exception as e:  # review-ok: gate-network — one repo must not abort the sweep
             result = "FAIL"
             print(f"  [{i}] {owner}/{name}: {type(e).__name__}: {str(e)[:120]}")
         tally[result] += 1
         if i % 25 == 0 or result != "CLEAN":
-            print(f"[{i}/{len(repos)}] {owner}/{name} {eco}: {result} | {tally}")
+            print(f"[{i}/{len(gathered)}] {owner}/{name} {eco}: {result} | {tally}")
     print(f"sweep done: {tally}")
     if not a.skip_downloads:
-        return freeze_and_promote(a.db, gather.DATA.parent, datetime.now(timezone.utc))
+        return freeze_and_promote(a.db, gather.DATA.parent, as_of)
     return 0
 
 

@@ -394,6 +394,27 @@ def test_closed_unread_unmeasured_never_fires() -> None:
     assert detect_closed_unread(_record(), None, inputs) is False
 
 
+def test_closed_unread_with_n_1_does_not_fire() -> None:
+    """One external PR, closed unread, is a share of 1.0 from a sample of one:
+    below CLOSED_UNREAD_MIN_N, so the flag does not fire."""
+    inputs = DetectorInputs(closed_unread_share=1.0, closed_unread_n=1)
+    assert detect_closed_unread(_record(), None, inputs) is False
+
+
+def test_closed_unread_fires_from_the_minimum_sample() -> None:
+    from porchlamp.verify.detectors import CLOSED_UNREAD_MIN_N
+
+    below = DetectorInputs(closed_unread_share=0.5, closed_unread_n=CLOSED_UNREAD_MIN_N - 1)
+    at = DetectorInputs(closed_unread_share=0.5, closed_unread_n=CLOSED_UNREAD_MIN_N)
+    assert detect_closed_unread(_record(), None, below) is False
+    assert detect_closed_unread(_record(), None, at) is True
+
+
+def test_closed_unread_without_a_reported_population_does_not_fire() -> None:
+    inputs = DetectorInputs(closed_unread_share=0.9, closed_unread_n=None)
+    assert detect_closed_unread(_record(), None, inputs) is False
+
+
 def _pr_event(pr_number: int, *, is_external: bool, closed: bool, merged: bool, responded: bool) -> PRWindowEvent:
     created = BASE
     return PRWindowEvent(

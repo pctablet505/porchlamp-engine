@@ -391,9 +391,12 @@ def detect_closed_unread(
     ``inputs.closed_unread_share`` (see
     :func:`closed_unread_share_from_pr_window`). Unmeasured-never-fires:
     ``None`` (no external-PR population, or the caller had nothing to
-    report) never fires."""
+    report) never fires, and neither does a share over fewer than
+    :data:`CLOSED_UNREAD_MIN_N` external PRs (``closed_unread_n``), or one
+    whose population was not reported."""
     share = inputs.closed_unread_share
-    if share is None:
+    n = inputs.closed_unread_n
+    if share is None or n is None or n < CLOSED_UNREAD_MIN_N:
         return False
     return share >= CLOSED_UNREAD_SHARE_MIN
 

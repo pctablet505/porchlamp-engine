@@ -2,8 +2,8 @@
 straight off the v2 store (`porchlamp/store/queries.py` + `porchlamp/store/reader.py`)
 through the wire contract (`porchlamp/serve/contract.py`).
 
-:func:`create_app` is the app factory: `create_app(db_path, *, web_dir) ->
-FastAPI`. Every route is a thin projection -- store row(s) in, one exact
+:func:`create_app` is the app factory: `create_app(db_path, *, web_dir,
+evidence_files=None) -> FastAPI`. Every route is a thin projection -- store row(s) in, one exact
 contract model out (`response_model=`) -- never a raw store dict. The store
 functions this module calls (`porchlamp.store.queries`, `porchlamp.store.reader`) provide
 the data; nothing here recomputes a score, a tier, a coverage band, or a tie
@@ -72,8 +72,10 @@ from porchlamp.audit.methodology_history import methodology_with_history
 from porchlamp.core import constants
 from porchlamp.core.methodology import MethodologyDocument
 from porchlamp.core.pipeline import DISPLAY_UNRATED_GATE_REASONS
-from porchlamp.derive.gate_evidence import black_hole_window_breakdown_from_raw
-from porchlamp.paths import data_root
+from porchlamp.collect.envelope import envelope_hash
+from porchlamp.core.gates import GHOST_RATE_INPUT_ID
+from porchlamp.core.models import canonical_json, sha256_hex
+from porchlamp.derive.gate_evidence import black_hole_window_breakdown_from_raw, pr_rule_inputs_recorded
 from porchlamp.serve.contract import (
     DEFAULT_PAGE_SIZE,
     BlackHoleCountedPR,
@@ -98,7 +100,7 @@ from porchlamp.serve.guard import run_guard
 from porchlamp.serve.security import MAX_REQUEST_BODY_BYTES, SECURITY_HEADERS
 from porchlamp.store import queries, reader
 
-__all__ = ["create_app"]
+__all__ = ["EvidencePinError", "PinnedEvidenceFiles", "create_app"]
 
 _REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 _CHANGELOG_PATH: Path = _REPO_ROOT / "docs" / "v2" / "rfcs" / "CHANGELOG.md"
@@ -364,35 +366,99 @@ def _reproject_row(record: Mapping[str, Any]) -> ReprojectRow:
     )
 
 
-def _find_raw_root_for_pr_window(conn: sqlite3.Connection, owner: str, name: str) -> Path | None:
-    basename = f"{owner}__{name}"
-    candidate_roots: list[Path] = [data_root() / "raw"]
-    try:
-        db_rows = conn.execute("PRAGMA database_list").fetchall()
-        for r in db_rows:
-            if r and len(r) > 2 and r[2]:
-                db_dir = Path(r[2]).parent
-                candidate_roots.extend([db_dir / "raw", db_dir / "data" / "raw", db_dir])
-    except Exception:
-        pass
+class EvidencePinError(ValueError):
+    """A black-hole evidence file is not the one the stored snapshot used: the
+    snapshot directory's manifest or bundle, or the raw ``pr_window``
+    envelope, differs from the hash recorded when the snapshot was stored, or
+    is missing. Served as HTTP 409, so an export stops with the message."""
 
-    for root in candidate_roots:
-        target = root / "pr_window" / f"{basename}.json"
-        if target.is_file():
-            return root
-    return None
+
+class PinnedEvidenceFiles:
+    """The files black-hole evidence is read from, each checked against the
+    hash the stored snapshot recorded for it.
+
+    ``snapshot_dir`` is the directory ``porchlamp.snapshot store`` read: its
+    ``manifest.json`` names each repository's bundle, and the database's
+    ``repositories.raw_hash`` is the hash of that bundle. The bundle's
+    ``gr14_ghost_rate`` input names the ``pr_window`` envelope (``source``,
+    relative to ``data_dir``) and the envelope hash it was scored from
+    (``source_hash``). Evidence is computed only from an envelope whose hash
+    still matches; any break in that chain raises :class:`EvidencePinError`."""
+
+    def __init__(self, snapshot_dir: Path | str, data_dir: Path | str) -> None:
+        self.snapshot_dir = Path(snapshot_dir)
+        self.data_dir = Path(data_dir)
+        self._manifest: Optional[tuple[str, dict[tuple[str, str], Mapping[str, Any]]]] = None
+
+    def _entries(self, snapshot_id: str) -> dict[tuple[str, str], Mapping[str, Any]]:
+        if self._manifest is None:
+            path = self.snapshot_dir / "manifest.json"
+            try:
+                manifest = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as error:
+                raise EvidencePinError(f"cannot read the snapshot manifest {path}: {error}") from error
+            entries = {
+                (entry["owner"], entry["name"]): entry
+                for entry in manifest.get("repos") or ()
+                if isinstance(entry, Mapping)
+            }
+            self._manifest = (str(manifest.get("snapshot_id")), entries)
+        manifest_id, entries = self._manifest
+        if manifest_id != snapshot_id:
+            raise EvidencePinError(
+                f"the snapshot directory holds snapshot {manifest_id!r}, the database serves {snapshot_id!r}"
+            )
+        return entries
+
+    def pr_window_bytes(self, snapshot_id: str, owner: str, name: str, raw_hash: str) -> tuple[str, bytes]:
+        """``(source, bytes)`` of the ``pr_window`` envelope the stored verdict
+        was scored from, after checking bundle and envelope against their pins."""
+        entry = self._entries(snapshot_id).get((owner, name))
+        if entry is None:
+            raise EvidencePinError(f"{owner}/{name} is not in the snapshot manifest of {snapshot_id}")
+        bundle_path = self.snapshot_dir / str(entry.get("bundle_file"))
+        try:
+            bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise EvidencePinError(f"cannot read the stored bundle of {owner}/{name}: {error}") from error
+        bundle_hash = sha256_hex(canonical_json(bundle))
+        if bundle_hash != raw_hash:
+            raise EvidencePinError(
+                f"the bundle of {owner}/{name} changed after snapshot {snapshot_id} was stored "
+                f"(stored raw_hash {raw_hash}, bundle on disk {bundle_hash})"
+            )
+        gr14 = (bundle.get("inputs") or {}).get(GHOST_RATE_INPUT_ID)
+        source = gr14.get("source") if isinstance(gr14, Mapping) else None
+        pinned = gr14.get("source_hash") if isinstance(gr14, Mapping) else None
+        if source != f"raw/pr_window/{owner}__{name}.json" or not isinstance(pinned, str):
+            raise EvidencePinError(f"the stored bundle of {owner}/{name} pins no pr_window envelope")
+        path = self.data_dir / source
+        try:
+            raw_bytes = path.read_bytes()
+            on_disk = envelope_hash(json.loads(raw_bytes)["data"])
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise EvidencePinError(f"cannot read {source} for {owner}/{name}: {error}") from error
+        if on_disk != pinned:
+            raise EvidencePinError(
+                f"{source} changed after snapshot {snapshot_id} was stored "
+                f"(pinned sha256 {pinned}, on disk {on_disk}); refusing its evidence"
+            )
+        return source, raw_bytes
 
 
 def _build_black_hole_evidence(
     conn: sqlite3.Connection,
     snapshot_id: str,
     record: Mapping[str, Any],
+    files: Optional[PinnedEvidenceFiles] = None,
 ) -> Optional[BlackHoleEvidence]:
-    """D-GATE-5 evidence for a black-hole record, recomputed from its raw
-    ``pr_window`` envelope at the snapshot's own clock (``snapshots.as_of``,
-    the ``now`` derive used for the verdict). ``None`` when the envelope is
-    missing or its breakdown does not say black hole: the panel never
-    contradicts the verdict it explains."""
+    """D-GATE-5 evidence for a black-hole record, recomputed from the raw
+    ``pr_window`` envelope the stored snapshot pinned (``files``, see
+    :class:`PinnedEvidenceFiles`) at the snapshot's own clock
+    (``snapshots.as_of``, the ``now`` derive used for the verdict). ``None``
+    when no evidence files were given or the breakdown does not say black
+    hole: the panel never contradicts the verdict it explains. A pinned file
+    that changed raises :class:`EvidencePinError`."""
     is_bh_gate = record.get("gate_reason") == "black_hole"
     suspicion = record.get("suspicion") or []
     is_bh_suspicion = "black_hole" in suspicion
@@ -404,17 +470,15 @@ def _build_black_hole_evidence(
     if not owner or not name:
         return None
 
-    raw_root = _find_raw_root_for_pr_window(conn, owner, name)
-    if raw_root is None:
+    if files is None:
         return None
+    source, raw_bytes = files.pr_window_bytes(snapshot_id, owner, name, record["raw_hash"])
     basename = f"{owner}__{name}"
     as_of_text = conn.execute("SELECT as_of FROM snapshots WHERE id = ?", (snapshot_id,)).fetchone()[0]
     as_of = datetime.fromisoformat(as_of_text)
-    breakdown = black_hole_window_breakdown_from_raw(raw_root, basename, now=as_of)
+    breakdown = black_hole_window_breakdown_from_raw(files.data_dir / "raw", basename, now=as_of)
     if breakdown is None or not breakdown.is_black_hole:
         return None
-    # The breakdown accepted this envelope's shape; read its bytes for the hash.
-    raw_bytes = (raw_root / "pr_window" / f"{basename}.json").read_bytes()
     envelope = json.loads(raw_bytes)
     prs = envelope["data"]["prs"]
 
@@ -459,11 +523,11 @@ def _build_black_hole_evidence(
         window_start=(as_of - timedelta(days=constants.PR_WINDOW_DAYS)).isoformat(),
         window_end=as_of.isoformat(),
         fetched_at=envelope.get("fetched_at"),
-        source=f"raw/pr_window/{basename}.json",
+        source=source,
         source_sha256=hashlib.sha256(raw_bytes).hexdigest(),
         excluded=excluded,
         counted_prs=counted_prs,
-        rule_inputs_measured=any(isinstance(pr, Mapping) and "isDraft" in pr for pr in prs),
+        rule_inputs_measured=pr_rule_inputs_recorded(prs),
     )
 
 
@@ -681,7 +745,7 @@ def _get_conn(request: Request) -> sqlite3.Connection:
     return request.app.state.conn
 
 
-def _build_router() -> APIRouter:
+def _build_router(evidence_files: Optional[PinnedEvidenceFiles] = None) -> APIRouter:
     router = APIRouter(prefix="/v1/porchlamp")
 
     @router.get("/leaderboard", response_model=LeaderboardResponse)
@@ -781,7 +845,10 @@ def _build_router() -> APIRouter:
         row = reader.get_row(conn, snapshot_id, owner, name)
         if row is None:
             raise HTTPException(status_code=404, detail=f"no repository {owner}/{name} in snapshot {snapshot_id}")
-        bh_evidence = _build_black_hole_evidence(conn, snapshot_id, row)
+        try:
+            bh_evidence = _build_black_hole_evidence(conn, snapshot_id, row, evidence_files)
+        except EvidencePinError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         return _repo_detail(row, black_hole_evidence=bh_evidence)
 
     @router.get("/repos/{owner}/{name}/evidence", response_model=list[EvidenceRow])
@@ -845,7 +912,7 @@ def _open_v2_connection(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def create_app(db_path, *, web_dir) -> FastAPI:
+def create_app(db_path, *, web_dir, evidence_files: Optional[PinnedEvidenceFiles] = None) -> FastAPI:
     """The Porchlamp v2 API app factory.
 
     Exposes `GET /v1/porchlamp/{leaderboard,not-ranked,matrix,snapshot,methodology}`,
@@ -855,6 +922,10 @@ def create_app(db_path, *, web_dir) -> FastAPI:
     Legacy v1 API (`porchlamp.api.create_app`) is mounted at `/legacy/` when `db_path`
     contains a v1 schema. Static files from `web_dir` are mounted at `/` with
     SPA routing fallback.
+
+    `evidence_files` names the stored snapshot's directory and data root the
+    black-hole evidence is read from (:class:`PinnedEvidenceFiles`); without
+    it a record's `black_hole_evidence` is null.
 
     Raises `SystemExit` if the served-DB guard refuses `db_path`."""
     db_path = str(db_path)
@@ -890,7 +961,7 @@ def create_app(db_path, *, web_dir) -> FastAPI:
         return finish(await call_next(request))
 
     _register_exception_handlers(app)
-    app.include_router(_build_router())
+    app.include_router(_build_router(evidence_files))
 
     @app.get("/healthz")
     async def healthz(conn: sqlite3.Connection = Depends(_get_conn)) -> dict:

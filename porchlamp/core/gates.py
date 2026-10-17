@@ -276,12 +276,20 @@ class GateEvidence:
     #: and the rule is not met, ``None`` when there is no readable PR window
     #: (no opinion).
     review_handoff: bool | None = None
+    #: D-GATE-5 rule inputs: ``True`` when every recorded PR node of the
+    #: window carries the fields the exclusion rules read (``isDraft`` and the
+    #: ready-for-review / close-actor timeline), ``False`` when the window was
+    #: read and some node lacks them, ``None`` when nobody looked (no opinion).
+    #: A missing field can only add unanswered PRs (a draft counted, an
+    #: author's own close or a maintainer's close read as silence), so a
+    #: ``False`` here leaves a would-be black hole UNDECIDED; a pass stands.
+    pr_rule_inputs_recorded: bool | None = None
 
     def __post_init__(self) -> None:
         problems: list[str] = []
         for name in (
             "manifest_found", "license_file_present", "fork_parent_in_universe", "off_platform_marker",
-            "review_handoff",
+            "review_handoff", "pr_rule_inputs_recorded",
         ):
             value = getattr(self, name)
             if value is not None and not isinstance(value, bool):
@@ -488,13 +496,18 @@ def evaluate_gate5_window(
             first_response_at = None
             response_kind = "none"
 
-        # Rule 2 (Author self-closed PR exclusion)
-        # If closed by author and NOT answered within 14d, and has no substantive response at or before closed_at
-        if pr.closed_by_author and not answered_within_14d:
-            had_prior_response = False
-            if pr.first_substantive_response_at is not None and pr.closed_at is not None:
-                had_prior_response = _parse_iso(pr.first_substantive_response_at) <= _parse_iso(pr.closed_at)
-            if not had_prior_response:
+        # Rule 2 (Author self-closed PR exclusion): an unanswered PR its author
+        # closed within the response deadline (from clock_start), with no
+        # substantive response at or before the close, is excluded. A close
+        # after the deadline came too late to excuse the silence: the PR
+        # stays counted, unanswered.
+        if pr.closed_by_author and not answered_within_14d and pr.closed_at is not None:
+            closed_dt = _parse_iso(pr.closed_at)
+            had_prior_response = (
+                pr.first_substantive_response_at is not None
+                and _parse_iso(pr.first_substantive_response_at) <= closed_dt
+            )
+            if closed_dt <= clock_start + deadline and not had_prior_response:
                 excluded_self_closed += 1
                 continue
 
@@ -616,7 +629,10 @@ def evaluate_gates(
     A repository with ``evidence.review_handoff`` true hands review off to
     another system: D-GATE-5 is recorded UNDECIDED (never failed, whatever its
     ghost rate) and D-GATE-6 routes it off-platform, whether or not it has a
-    decided external PR. Gates 1-4 still decide as before."""
+    decided external PR. A repository whose ``evidence.pr_rule_inputs_recorded``
+    is ``False`` is never failed at D-GATE-5: a bound over the ceiling is
+    recorded UNDECIDED, because the exclusion rules could not run. Gates 1-4
+    still decide as before."""
     if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
         raise ValueError(f"now must be timezone-aware, got {now!r}")
     repo = bundle.repo
@@ -677,12 +693,17 @@ def evaluate_gates(
     # population. Unmeasured or n below the minimum -> UNDECIDED. A repository
     # that hands review off is UNDECIDED too: its PRs are reviewed somewhere
     # GitHub cannot see, so an unanswered-on-GitHub share is not a verdict.
+    # A window whose PR records lack the exclusion rules' inputs cannot fail
+    # the gate: the share it measured is an upper bound, so it is UNDECIDED.
     handoff = evidence.review_handoff is True
     ghost = bundle.inputs.get(GHOST_RATE_INPUT_ID)
     if handoff or not isinstance(ghost, Measured) or ghost.n < GATE5_MIN_N:
         undecided.append(GATE_5)
-    elif not rank_black_holes and wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE:
-        failures.append((5, REASON_BLACK_HOLE))
+    elif wilson_lower_bound_from_share(float(ghost.value), int(ghost.n)) > GATE5_MAX_ZERO_RESPONSE_SHARE:
+        if evidence.pr_rule_inputs_recorded is False:
+            undecided.append(GATE_5)
+        elif not rank_black_holes:
+            failures.append((5, REASON_BLACK_HOLE))
 
     # D-GATE-6: PR workflow (a review hand-off routes off-platform; else a
     # decided external PR, else off-platform routing, else unrated).

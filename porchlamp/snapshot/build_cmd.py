@@ -111,7 +111,8 @@ def build_snapshot_dir(
     1. Loads all ``*.json`` bundles in ``data_dir / "derived"`` using
        ``load_bundle(path, raw_root=data_dir / "raw")``.
     2. Derives ``GateEvidence`` for each repository via
-       ``gate_evidence_for(data_dir / "raw", f"{owner}__{name}")``.
+       ``gate_evidence_for(data_dir / "raw", f"{owner}__{name}", as_of=as_of)``
+       (D-GATE-4 counts commits in the 180 days ending at ``as_of``).
     3. Computes ``raw_hash = sha256_hex(canonical_json(dump_bundle(bundle)))``.
     4. Pass 1: scores every bundle against an empty ``PopulationSet`` via
        ``score_snapshot`` to determine gate eligibility and rated status.
@@ -138,7 +139,7 @@ def build_snapshot_dir(
         bundles.append(bundle)
         key = repo_key(bundle)
         basename = f"{bundle.repo.owner}__{bundle.repo.name}"
-        gate_evidence[key] = gate_evidence_for(raw_dir, basename)
+        gate_evidence[key] = gate_evidence_for(raw_dir, basename, as_of=as_of)
         raw_hashes[key] = _bundle_raw_hash(bundle)
 
     # Pass 1: score against bootstrap populations to obtain gate/rated status
@@ -192,6 +193,7 @@ def build_snapshot_dir(
                 "vitality_commits_180d": gate_evidence[repo_key(bundle)].vitality_commits_180d,
                 "off_platform_marker": gate_evidence[repo_key(bundle)].off_platform_marker,
                 "review_handoff": gate_evidence[repo_key(bundle)].review_handoff,
+                "pr_rule_inputs_recorded": gate_evidence[repo_key(bundle)].pr_rule_inputs_recorded,
             },
         }
         for bundle in sorted(bundles, key=lambda b: (b.repo.owner.lower(), b.repo.name.lower()))

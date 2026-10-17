@@ -358,7 +358,7 @@ def gather_repo(owner: str, name: str, ecosystem: str, force: bool = False,
                         DATA, owner, name, force=force, incremental_ledger=True
                     )
                 else:
-                    status["pr_window"] = prw_mod.collect_pr_window(DATA, owner, name)
+                    status["pr_window"] = prw_mod.collect_pr_window(DATA, owner, name, force=force)
             except Exception as e:  # review-ok: gate-network — retry on rerun
                 status["pr_window"] = "fail"
                 print(f"  WARN pr_window {owner}/{name}: {e}")

@@ -112,3 +112,36 @@ def test_freeze_and_promote_refuses_when_the_freeze_covers_nothing_to_promote(tm
     rc = run_all.freeze_and_promote(db, tmp_path, as_of)
     assert rc == 1
     assert not Path(db).exists()
+
+
+def _record_sweep(monkeypatch, tmp_path, repos):
+    """Replace the network steps of ``run_all.main`` (gather, verify) and the freeze with recorders."""
+    calls: list[tuple] = []
+    monkeypatch.setattr(run_all, "_candidates", lambda limit: list(repos))
+    monkeypatch.setattr(run_all.gather, "gather_repo",
+                        lambda owner, name, eco, skip_pypistats: calls.append(("gather", owner)))
+
+    def derive_repo(owner, name, eco, data_dir=None, fetch=False, now=None):
+        calls.append(("derive", owner, now))
+        return {"repo": f"{owner}/{name}"}
+
+    monkeypatch.setattr(run_all.derive, "derive_repo", derive_repo)
+    monkeypatch.setattr(run_all.derive, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(run_all.verify, "verify_repo", lambda owner, name: {"clean": True})
+    monkeypatch.setattr(run_all, "freeze_and_promote", lambda db, data_dir, as_of: calls.append(("freeze", as_of)) or 0)
+    return calls
+
+
+def test_one_as_of_runs_through_every_derivation_and_the_freeze(monkeypatch, tmp_path):
+    repos = [("a", "x", "pypi"), ("b", "y", "npm"), ("c", "z", "go")]
+    calls = _record_sweep(monkeypatch, tmp_path, repos)
+    assert run_all.main(["--all"]) == 0
+    kinds = [c[0] for c in calls]
+    assert kinds == ["gather"] * 3 + ["derive"] * 3 + ["freeze"], "derivation starts only after the gather sweep"
+    stamps = {c[-1] for c in calls if c[0] in ("derive", "freeze")}
+    assert len(stamps) == 1 and None not in stamps
+
+    calls.clear()
+    assert run_all.main(["--all", "--as-of", "2026-10-13T04:32:26Z"]) == 0
+    stamps = {c[-1] for c in calls if c[0] in ("derive", "freeze")}
+    assert stamps == {datetime(2026, 10, 13, 4, 32, 26, tzinfo=timezone.utc)}

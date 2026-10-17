@@ -3,13 +3,13 @@
 Extracted from ``scripts/build_fixture_snapshot.py`` so both the fixture
 builder and production v2 snapshot builder (``porchlamp snapshot build``) share
 one implementation of gate-evidence derivation from ``raw/tree`` and
-``raw/commits_180d`` envelopes, and the D-GATE-6 review hand-off from the
-``raw/pr_window`` envelope.
+``raw/commits_180d`` envelopes, and the D-GATE-6 review hand-off and the
+D-GATE-5 rule inputs from the ``raw/pr_window`` envelope.
 """
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -29,6 +29,7 @@ __all__ = [
     "_vitality_commit_count",
     "black_hole_window_breakdown_from_raw",
     "gate_evidence_for",
+    "pr_rule_inputs_recorded",
 ]
 
 #: D-GATE-1 recognised build/package manifests (02 section 2), exact
@@ -116,11 +117,29 @@ def _tree_paths(raw_root: Path, basename: str) -> list[str]:
     return paths or []
 
 
-def _vitality_commit_count(raw_root: Path, basename: str) -> int | None:
-    """D-GATE-4: non-bot commit count over the sample's own ``commits_180d``
-    envelope (already the trailing-180-day window -- D-IN-4's own window for
-    this gate). ``None`` (UNDECIDED, never a guessed 0) when the envelope is
-    absent."""
+def _in_vitality_window(entry: Mapping[str, Any], as_of: datetime) -> bool:
+    """The commit's ``date`` falls in ``[as_of - 180 d, as_of]`` (D-GATE-4's window).
+
+    A row with no readable date cannot be placed in the window and is not counted."""
+    raw = entry.get("date")
+    if not isinstance(raw, str) or not raw:
+        return False
+    try:
+        when = _parse_iso(raw)
+    except ValueError:
+        return False
+    return as_of - timedelta(days=constants.GATE4_VITALITY_WINDOW_DAYS) <= when <= as_of
+
+
+def _vitality_commit_count(raw_root: Path, basename: str, as_of: datetime | None = None) -> int | None:
+    """D-GATE-4: non-bot commit count in the ``commits_180d`` envelope.
+
+    With ``as_of`` (the snapshot's reference time) only commits dated in
+    ``[as_of - 180 d, as_of]`` count: the envelope's own window ends at its
+    fetch time, which can be days or weeks before or after the snapshot's.
+    The date is the row's recorded ``date`` (the collector records the author
+    date). Without ``as_of`` every row counts. ``None`` (UNDECIDED, never a
+    guessed 0) when the envelope is absent."""
     path = raw_root / "commits_180d" / f"{basename}.json"
     if not path.is_file():
         return None
@@ -134,6 +153,8 @@ def _vitality_commit_count(raw_root: Path, basename: str) -> int | None:
     count = 0
     for entry in rows:
         if not isinstance(entry, Mapping):
+            continue
+        if as_of is not None and not _in_vitality_window(entry, as_of):
             continue
         actor = CommitActor(
             login=str(entry.get("author_login") or ""),
@@ -183,8 +204,54 @@ def _pr_has_review_handoff_notice(pr: Mapping[str, Any]) -> bool:
     return False
 
 
+def _pr_window_data(raw_root: Path, basename: str) -> Mapping[str, Any] | None:
+    """The ``data`` of ``raw/pr_window/{basename}.json``; ``None`` when the
+    envelope is absent or unreadable."""
+    path = raw_root / "pr_window" / f"{basename}.json"
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    data = document.get("data") if isinstance(document, Mapping) else None
+    return data if isinstance(data, Mapping) else None
+
+
+def pr_rule_inputs_recorded(prs: Sequence[Any]) -> bool:
+    """Whether every recorded PR node carries the fields D-GATE-5's exclusion
+    rules read: ``isDraft`` (the draft rule) and the ``timelineItems``
+    connection (the ready-for-review clock start and the close actor, which
+    decide the author self-close and maintainer-close rules).
+
+    A node recorded by an older query has neither key; reading the absence as
+    "not a draft, nobody closed it" is what turned unknowns into unanswered PRs.
+    """
+    for pr in prs:
+        if not isinstance(pr, Mapping) or not isinstance(pr.get("isDraft"), bool):
+            return False
+        timeline = pr.get("timelineItems")
+        if not isinstance(timeline, Mapping) or not isinstance(timeline.get("nodes"), list):
+            return False
+    return True
+
+
+def _rule_inputs_in(data: Mapping[str, Any] | None) -> bool | None:
+    """D-GATE-5 rule inputs of a ``pr_window`` envelope ``data``
+    (:func:`pr_rule_inputs_recorded`); ``None`` (no opinion) when there is no
+    envelope or it holds no ``prs`` list."""
+    prs = data.get("prs") if data is not None else None
+    return pr_rule_inputs_recorded(prs) if isinstance(prs, list) else None
+
+
 def _review_handoff(raw_root: Path, basename: str) -> bool | None:
-    """D-GATE-6 review hand-off from ``raw/pr_window/{basename}.json``.
+    """D-GATE-6 review hand-off from ``raw/pr_window/{basename}.json``
+    (:func:`_review_handoff_in`)."""
+    return _review_handoff_in(_pr_window_data(raw_root, basename))
+
+
+def _review_handoff_in(data: Mapping[str, Any] | None) -> bool | None:
+    """D-GATE-6 review hand-off from a ``pr_window`` envelope's ``data``.
 
     The outside PRs are those the collector's own ``derived`` rows (joined to
     ``prs`` by PR number) classify as external and not bot-authored, so there
@@ -194,16 +261,10 @@ def _review_handoff(raw_root: Path, basename: str) -> bool | None:
     ``constants.GATE6_HANDOFF_MIN_SHARE`` of them, carry a notice
     (:func:`_pr_has_review_handoff_notice`). ``None`` (no opinion) when the
     envelope is absent, unreadable, or holds no ``prs`` / ``derived`` lists."""
-    path = raw_root / "pr_window" / f"{basename}.json"
-    if not path.is_file():
+    if data is None:
         return None
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
-        return None
-    data = document.get("data") if isinstance(document, Mapping) else None
-    prs = data.get("prs") if isinstance(data, Mapping) else None
-    derived = data.get("derived") if isinstance(data, Mapping) else None
+    prs = data.get("prs")
+    derived = data.get("derived")
     if not isinstance(prs, list) or not isinstance(derived, list):
         return None
     classified = {
@@ -231,23 +292,29 @@ def _tree_flag(found: bool, truncated: bool) -> bool | None:
     return False
 
 
-def gate_evidence_for(raw_root: Path, basename: str) -> GateEvidence:
+def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None = None) -> GateEvidence:
     """Derive one repo's :class:`~porchlamp.core.gates.GateEvidence` from the
-    raw ``tree``/``commits_180d``/``pr_window`` envelopes. ``fork_parent_in_universe`` stays
+    raw ``tree``/``commits_180d``/``pr_window`` envelopes. ``as_of`` is the
+    snapshot's reference time: D-GATE-4 counts only commits in the 180 days
+    ending there (:func:`_vitality_commit_count`). The ``pr_window`` envelope is
+    read once, for the review hand-off and the D-GATE-5 rule inputs.
+    ``fork_parent_in_universe`` stays
     ``None`` (undecided): every v1-loaded bundle's ``RepoIdentity.fork`` is
     hardcoded ``False`` by ``porchlamp.derive.bundle._load_v1`` (that loader never
     observes a real fork flag), so D-GATE-2's fork branch never reads this
     field for any repo this script scores -- ``None`` is correct, not a
     stand-in for missing data."""
     paths, truncated = _tree_envelope(raw_root, basename)
+    pr_window = _pr_window_data(raw_root, basename)
     return GateEvidence(
         manifest_found=None if paths is None else _tree_flag(_has_recognized_manifest(paths), truncated),
         is_curated_anchor=False,
         license_file_present=None if paths is None else _tree_flag(_has_license_file(paths), truncated),
         fork_parent_in_universe=None,
-        vitality_commits_180d=_vitality_commit_count(raw_root, basename),
+        vitality_commits_180d=_vitality_commit_count(raw_root, basename, as_of),
         off_platform_marker=None if paths is None else _tree_flag(_has_off_platform_marker(paths), truncated),
-        review_handoff=_review_handoff(raw_root, basename),
+        review_handoff=_review_handoff_in(pr_window),
+        pr_rule_inputs_recorded=_rule_inputs_in(pr_window),
     )
 
 

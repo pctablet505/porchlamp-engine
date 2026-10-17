@@ -279,3 +279,29 @@ def test_handoff_reads_its_thresholds_and_phrases_from_the_constants(
     assert gate_evidence_for(tmp_path, KEY).review_handoff is False  # the phrases
     monkeypatch.setattr(constants, "GATE6_HANDOFF_RELAY_LOGIN_PREFIXES", ("gopher",))
     assert gate_evidence_for(tmp_path, KEY).review_handoff is True  # the relay login prefix
+
+
+def test_vitality_counts_only_commits_in_the_180_days_ending_at_as_of(tmp_path: Path) -> None:
+    """D-GATE-4's window ends at the snapshot's ``as_of``, not at the envelope's fetch time: a commit
+    181 days before ``as_of`` is outside it, one exactly 180 days before is inside, and one dated after
+    ``as_of`` (fetched later than the snapshot) is outside."""
+    from datetime import datetime, timedelta, timezone
+
+    as_of = datetime(2026, 10, 13, 4, 32, 26, tzinfo=timezone.utc)
+
+    def at(days: float) -> str:
+        return (as_of - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+
+    write_envelope(tmp_path, "commits_180d", KEY, [{"author_login": "alice", "date": at(181)}])
+    assert _vitality_commit_count(tmp_path, KEY) == 1  # no as_of: every row counts
+    assert _vitality_commit_count(tmp_path, KEY, as_of) == 0
+    assert gate_evidence_for(tmp_path, KEY, as_of=as_of).vitality_commits_180d == 0
+
+    write_envelope(tmp_path, "commits_180d", KEY, [
+        {"author_login": "alice", "date": at(180)},
+        {"author_login": "bob", "date": at(0)},
+        {"author_login": "carol", "date": at(-1)},
+        {"author_login": "dave"},
+        {"author_login": "dependabot[bot]", "date": at(1)},
+    ])
+    assert _vitality_commit_count(tmp_path, KEY, as_of) == 2

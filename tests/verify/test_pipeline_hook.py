@@ -13,8 +13,8 @@ fixture (each on sourceable inputs -- only ``source_drift`` needs a
 
 * ``param_jump`` on ``jump/repo``: ``dr90_decision_rate`` moves from 0.0
   (score 0.0) to 1.0 (score 100.0), n=20 both sides.
-* ``closed_unread`` on ``closed/repo``: two external PRs, closed unmerged,
-  no recorded human review (share 1.0). This repo is *absent* from the
+* ``closed_unread`` on ``closed/repo``: ``CLOSED_UNREAD_MIN_N`` external PRs,
+  closed unmerged, no recorded human review (share 1.0). This repo is *absent* from the
   previous snapshot entirely (the other deliverable case: "a repo absent
   from previous can still fire the single-snapshot detectors") -- it is
   also given the same dr90 jump as ``jump/repo`` to prove that specific
@@ -56,7 +56,7 @@ from porchlamp.core.models import (
 )
 from porchlamp.core.pipeline import ScoredSnapshot, repo_key, score_snapshot
 from porchlamp.snapshot.populations import PopulationSet
-from porchlamp.verify.detectors import DETECTOR_NAMES
+from porchlamp.verify.detectors import CLOSED_UNREAD_MIN_N, DETECTOR_NAMES
 from porchlamp.verify.pipeline_hook import build_detectors, detector_inputs_from_bundle
 
 NOW = datetime.datetime(2026, 9, 12, 0, 0, tzinfo=datetime.timezone.utc)
@@ -143,7 +143,7 @@ def _current_bundles() -> list[FeatureBundle]:
     owner, name = _owner_name(KEY_CLOSED_UNREAD)
     closed_unread_bundle = _bundle(
         _repo(owner, name), _full_inputs({"dr90_decision_rate": _m(1.0, n=20)}),
-        events=(_closed_unmerged_unread_event(1), _closed_unmerged_unread_event(2)),
+        events=tuple(_closed_unmerged_unread_event(i) for i in range(1, CLOSED_UNREAD_MIN_N + 1)),
     )
 
     owner, name = _owner_name(KEY_LABEL_SPAM)

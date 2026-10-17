@@ -30,8 +30,13 @@ methodology pages (``porchlamp/serve/report_pages.py``): ``black-holes/index.htm
 ``check/projects.json``, and ``sitemap-projects.xml`` (the top 1,000 by balanced rank), then ten landing pages
 (``porchlamp/serve/landing_pages.py``): ``rust/``, ``python/``, ``javascript/``, ``go/``, ``java/``, ``c-cpp/`` and the lenses
 ``first-timers/``, ``career/``, ``senior-systems/``, ``ai-assisted/``. The black-hole evidence the report sums is recomputed from the raw ``pr_window``
-envelopes, so set ``PORCHLAMP_DATA_ROOT`` to the data root that holds them. The export refuses when the
-stats file is for another snapshot or disagrees with the database, or when a guarded sentence would be false.
+envelopes the stored snapshot pinned: pass ``--snapshot-dir`` (the directory ``porchlamp.snapshot store`` read)
+and ``--data-dir`` (the data root holding ``raw/``); an envelope that changed since the store stops the export.
+The export refuses when the stats file is for another snapshot or disagrees with the database, or when a guarded
+sentence would be false. It also refuses any black-hole verdict whose evidence says the exclusion rules' inputs
+were not recorded (``rule_inputs_measured`` is not true), and, when evidence files are given, any black hole the
+pinned envelope does not explain; with ``--stats`` and no evidence files the report refuses, since it sums that
+evidence.
 """
 from __future__ import annotations
 
@@ -109,13 +114,13 @@ def _dump(path: Path, payload: Any) -> int:
 class _Api:
     """The v2 API over one database, called in-process."""
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, evidence_files: Any = None) -> None:
         from fastapi.testclient import TestClient
 
         from porchlamp.serve.app import create_app
 
         with tempfile.TemporaryDirectory() as empty_web:
-            self.client = TestClient(create_app(db_path, web_dir=empty_web))
+            self.client = TestClient(create_app(db_path, web_dir=empty_web, evidence_files=evidence_files))
 
     def get(self, path: str, **params: Any) -> Any:
         response = self.client.get(path, params={k: v for k, v in params.items() if v is not None})
@@ -310,6 +315,29 @@ def _load_stats(path: Path) -> dict:
     return stats
 
 
+def _refuse_black_holes_without_rule_inputs(details: dict[tuple[str, str], dict], *, evidence_read: bool) -> None:
+    """Stop the export when a black-hole verdict would be published without the inputs its rules need: its
+    evidence says the draft and close-actor fields were not recorded, or (when evidence was read) there is no
+    evidence for it at all. Without evidence files the verdicts carry no evidence; the report (``--stats``) then
+    refuses, since it sums that evidence."""
+    black_holes = [d for d in details.values() if d["gate_reason"] == "black_hole"]
+    unmeasured = sum(
+        1 for d in black_holes
+        if d["black_hole_evidence"] is not None and d["black_hole_evidence"].get("rule_inputs_measured") is not True
+    )
+    unexplained = sum(1 for d in black_holes if d["black_hole_evidence"] is None) if evidence_read else 0
+    if unmeasured:
+        raise SystemExit(
+            f"export: {unmeasured} of {len(black_holes)} black-hole verdicts lack the exclusion rules' inputs "
+            "(rule_inputs_measured is not true); not publishing"
+        )
+    if unexplained:
+        raise SystemExit(
+            f"export: {unexplained} of {len(black_holes)} black-hole verdicts have no evidence from their pinned "
+            "pr_window envelope; not publishing"
+        )
+
+
 def _db_rows_for_report(conn: sqlite3.Connection, snapshot_id: str) -> tuple[list[tuple], int]:
     rows = conn.execute(
         "SELECT ecosystem, gate_reason, gate_undecided FROM repositories WHERE snapshot_id = ?", (snapshot_id,)
@@ -422,9 +450,16 @@ def _write_landing_pages(out: Path, facts: Any, methodology: dict, boards: dict[
         raise SystemExit(f"export: {error}") from error
 
 
-def export(db: Path, out: Path, stats_path: Optional[Path] = None) -> dict:
+def export(
+    db: Path, out: Path, stats_path: Optional[Path] = None, *,
+    snapshot_dir: Optional[Path] = None, data_dir: Optional[Path] = None,
+) -> dict:
     from porchlamp.core import constants
-    from porchlamp.serve.app import _current_snapshot_id, _open_v2_connection
+    from porchlamp.serve.app import PinnedEvidenceFiles, _current_snapshot_id, _open_v2_connection
+
+    if (snapshot_dir is None) != (data_dir is None):
+        raise SystemExit("export: --snapshot-dir and --data-dir go together (the black-hole evidence needs both)")
+    evidence_files = PinnedEvidenceFiles(snapshot_dir, data_dir) if snapshot_dir is not None else None
 
     stats = _load_stats(stats_path) if stats_path is not None else None
 
@@ -441,7 +476,7 @@ def export(db: Path, out: Path, stats_path: Optional[Path] = None) -> dict:
         source.close()
         target.close()
 
-        api = _Api(copy)
+        api = _Api(copy, evidence_files)
         conn = _open_v2_connection(str(copy))
         snapshot_id = _current_snapshot_id(conn)
         snapshot = api.get("/v1/porchlamp/snapshot")
@@ -478,6 +513,7 @@ def export(db: Path, out: Path, stats_path: Optional[Path] = None) -> dict:
         for owner, name, record in _repo_records(api, conn, snapshot_id):
             buckets.setdefault(bucket_of(owner, name), {})[f"{owner}/{name}"] = record
             details[(owner, name)] = record["detail"]
+        _refuse_black_holes_without_rule_inputs(details, evidence_read=evidence_files is not None)
         facts = None
         if stats is not None:
             facts = _report_facts(conn, snapshot, methodology, stats, boards, details)
@@ -522,8 +558,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--stats", type=Path, default=None,
         help="surprise_stats.py's stats-<snapshot>.json: also write the report and methodology pages",
     )
+    parser.add_argument(
+        "--snapshot-dir", type=Path, default=None,
+        help="the snapshot directory the database was stored from (pins each black hole's pr_window envelope)",
+    )
+    parser.add_argument("--data-dir", type=Path, default=None, help="the data root holding raw/pr_window/")
     args = parser.parse_args(argv)
-    manifest = export(args.db.resolve(), args.out.resolve(), args.stats.resolve() if args.stats else None)
+    manifest = export(
+        args.db.resolve(), args.out.resolve(), args.stats.resolve() if args.stats else None,
+        snapshot_dir=args.snapshot_dir.resolve() if args.snapshot_dir else None,
+        data_dir=args.data_dir.resolve() if args.data_dir else None,
+    )
     print(json.dumps({k: manifest[k] for k in ("snapshot_id", "counts", "repos", "bytes")}, indent=2))
     return 0
 
