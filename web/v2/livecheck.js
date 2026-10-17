@@ -340,8 +340,10 @@ export function evaluateLiveGates(facts, now) {
   checks.push({ id: "D-GATE-5", status: "not_checked", reason: "needs_pipeline", detail: {} });
 
   // D-GATE-6: >= 1 external PR decided in the trailing 365 d among the 30
-  // newest PRs by creation (scripts/gather.py::PR_SAMPLE + gates._has_decided_external_pr),
-  // else an off-platform marker routes it, else unrated. Deleted/ghost accounts
+  // newest PRs by creation (scripts/gather.py::PR_SAMPLE; the snapshot also reads its
+  // recorded PR window and author history, gate_evidence._decided_external_pr_in).
+  // Without one, an off-platform marker routes the repo, and only a complete PR list
+  // fails it, as only the whole PR history does in the snapshot. Deleted/ghost accounts
   // are dropped as in porchlamp/derive/bundle.py::_pr_event_or_none.
   // Review hand-off notices in PR comments (gate_evidence._review_handoff:
   // >= GATE6_HANDOFF_MIN_PRS outside human PRs and >= GATE6_HANDOFF_MIN_SHARE)

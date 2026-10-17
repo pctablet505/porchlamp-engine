@@ -12,6 +12,7 @@ duplicated here.
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime
 
 import pytest
@@ -271,7 +272,8 @@ def test_gate_6_ignores_a_decision_older_than_its_own_horizon() -> None:
     here rather than assumed from the caller's window.
     """
     stale = make_event(1, constants.GATE6_DECISION_WINDOW_DAYS + 400, merged_days_after=1, closed_days_after=1)
-    result = gates.evaluate_gates(make_bundle([stale]), healthy_evidence(), NOW)
+    complete_record_without_one = dataclasses.replace(healthy_evidence(), decided_external_pr=False)
+    result = gates.evaluate_gates(make_bundle([stale]), complete_record_without_one, NOW)
     assert not result.eligible
     assert result.reason == gates.REASON_NO_EXTERNAL_WORKFLOW
 

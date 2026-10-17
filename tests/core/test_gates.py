@@ -749,21 +749,22 @@ def test_off_platform_marker_routes_the_repo() -> None:
     assert result.routed == "off_platform"
 
 
+def _decided_external_pr(value: bool | None) -> Any:
+    """Healthy evidence whose PR records say ``value`` about a decided external PR."""
+    import dataclasses
+
+    return dataclasses.replace(healthy_evidence(), decided_external_pr=value)
+
+
+def _no_decided_external_pr() -> Any:
+    """Healthy evidence whose records hold the whole PR history, with no decided external PR."""
+    return _decided_external_pr(False)
+
+
 def test_no_external_workflow_is_unrated() -> None:
     from porchlamp.core import gates
 
-    result = gates.evaluate_gates(
-        make_bundle([]),
-        gates.GateEvidence(
-            manifest_found=True,
-            is_curated_anchor=False,
-            license_file_present=None,
-            fork_parent_in_universe=None,
-            vitality_commits_180d=3,
-            off_platform_marker=False,
-        ),
-        NOW,
-    )
+    result = gates.evaluate_gates(make_bundle([]), _no_decided_external_pr(), NOW)
     assert result.eligible is False
     assert result.reason == "unrated: no_external_workflow"
     assert result.routed is None
@@ -774,11 +775,49 @@ def test_internal_decided_prs_do_not_count_as_an_external_workflow() -> None:
 
     result = gates.evaluate_gates(
         make_bundle([make_event(1, 30, is_external=False, merged_days_after=2, closed_days_after=2)]),
-        healthy_evidence(),
+        _no_decided_external_pr(),
         NOW,
     )
     assert result.eligible is False
     assert result.reason == "unrated: no_external_workflow"
+
+
+def test_without_a_complete_pr_record_the_workflow_gate_is_undecided_not_failed() -> None:
+    """The bundle's PR events are the 30 newest PRs; in an active repository they are mostly still
+    open. None of them decided is no evidence that the repository takes no outside PRs."""
+    from porchlamp.core import gates
+
+    no_record = healthy_evidence()  # decided_external_pr None: no complete PR record was read
+    newest_30_open = [make_event(100 + i, 2 + i * 0.1) for i in range(30)]
+    result = gates.evaluate_gates(make_bundle(newest_30_open, ghost=HEALTHY_GHOST), no_record, NOW)
+    assert (result.eligible, result.reason, result.undecided) == (True, None, ("D-GATE-6",))
+    empty = gates.evaluate_gates(make_bundle([], ghost=HEALTHY_GHOST), no_record, NOW)
+    assert (empty.eligible, empty.reason, empty.undecided) == (True, None, ("D-GATE-6",))
+
+
+def test_a_decided_external_pr_in_the_recorded_window_passes_when_the_newest_30_show_none() -> None:
+    from porchlamp.core import gates
+
+    newest_30_open = [make_event(100 + i, 2 + i * 0.1) for i in range(30)]
+    evidence = _decided_external_pr(True)
+    result = gates.evaluate_gates(make_bundle(newest_30_open, ghost=HEALTHY_GHOST), evidence, NOW)
+    assert (result.eligible, result.reason, result.routed, result.undecided) == (True, None, None, ())
+
+
+def test_a_decided_external_pr_among_the_newest_30_passes_whatever_the_record_says() -> None:
+    """The sample can show a decided external PR the record missed (one opened before the record's window)."""
+    from porchlamp.core import gates
+
+    events = [make_event(1, 300, merged_days_after=10, closed_days_after=10)]
+    result = gates.evaluate_gates(make_bundle(events, ghost=HEALTHY_GHOST), _no_decided_external_pr(), NOW)
+    assert (result.eligible, result.reason, result.undecided) == (True, None, ())
+
+
+def test_decided_external_pr_must_be_a_bool_or_none() -> None:
+    from porchlamp.core import gates
+
+    with pytest.raises(ValueError, match="decided_external_pr"):
+        gates.GateEvidence(manifest_found=True, decided_external_pr=1)
 
 
 def test_off_platform_marker_unknown_is_undecided() -> None:
@@ -831,7 +870,7 @@ def test_all_gates_are_evaluated_and_first_failure_wins() -> None:
 
     events = [make_event(10 + i, 30) for i in range(9)]
     result = gates.evaluate_gates(
-        make_bundle(events, ghost=ghost_input(9, 9), archived=True), healthy_evidence(), NOW)
+        make_bundle(events, ghost=ghost_input(9, 9), archived=True), _no_decided_external_pr(), NOW)
     assert result.eligible is False
     assert result.reason == "archived"
     assert result.undecided == ("D-GATE-5",)
@@ -1327,16 +1366,18 @@ def test_a_repo_whose_pr_records_lack_the_rule_inputs_is_undecided_not_a_black_h
     assert "D-GATE-5" in ranked.undecided
 
 
-def test_missing_rule_inputs_do_not_unsettle_a_pass() -> None:
-    """A missing field can only add unanswered PRs, so a repository that passes
-    on records without them still passes, decided."""
+def test_missing_rule_inputs_leave_a_pass_undecided_too() -> None:
+    """13 of 20 unanswered passes when the rule inputs were recorded; from records without them the
+    share is no bound in either direction (an answered draft lowers it), so nothing is decided."""
     from porchlamp.core import gates
 
-    result = gates.evaluate_gates(
-        make_bundle(healthy_events(), ghost=ghost_input(13, 20)), _evidence_with_rule_inputs(False), NOW
-    )
-    assert (result.eligible, result.reason) == (True, None)
-    assert "D-GATE-5" not in result.undecided
+    bundle = make_bundle(healthy_events(), ghost=ghost_input(13, 20))
+    recorded = gates.evaluate_gates(bundle, _evidence_with_rule_inputs(True), NOW)
+    assert (recorded.eligible, recorded.reason, recorded.undecided) == (True, None, ())
+
+    missing = gates.evaluate_gates(bundle, _evidence_with_rule_inputs(False), NOW)
+    assert (missing.eligible, missing.reason) == (True, None)
+    assert missing.undecided == ("D-GATE-5",)
 
 
 def test_pr_rule_inputs_recorded_must_be_a_bool_or_none() -> None:

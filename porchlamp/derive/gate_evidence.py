@@ -29,7 +29,10 @@ __all__ = [
     "_vitality_commit_count",
     "black_hole_window_breakdown_from_raw",
     "gate_evidence_for",
+    "outside_pr_authors",
     "pr_rule_inputs_recorded",
+    "pr_window_data",
+    "PR_SAMPLE_SIZE",
 ]
 
 #: D-GATE-1 recognised build/package manifests (02 section 2), exact
@@ -218,10 +221,10 @@ def _pr_has_review_handoff_notice(pr: Mapping[str, Any]) -> bool:
     return False
 
 
-def _pr_window_data(raw_root: Path, basename: str) -> Mapping[str, Any] | None:
-    """The ``data`` of ``raw/pr_window/{basename}.json``; ``None`` when the
+def _envelope_data(raw_root: Path, layer: str, basename: str) -> Mapping[str, Any] | None:
+    """The ``data`` of ``raw/{layer}/{basename}.json``; ``None`` when the
     envelope is absent or unreadable."""
-    path = raw_root / "pr_window" / f"{basename}.json"
+    path = raw_root / layer / f"{basename}.json"
     if not path.is_file():
         return None
     try:
@@ -230,6 +233,104 @@ def _pr_window_data(raw_root: Path, basename: str) -> Mapping[str, Any] | None:
         return None
     data = document.get("data") if isinstance(document, Mapping) else None
     return data if isinstance(data, Mapping) else None
+
+
+def pr_window_data(raw_root: Path, basename: str) -> Mapping[str, Any] | None:
+    """The ``data`` of the repository's ``pr_window`` envelope: the PRs opened
+    in the 180 days before the fetch; ``None`` when absent or unreadable."""
+    return _envelope_data(raw_root, "pr_window", basename)
+
+
+#: The v1 ``pr_events`` sample size: the collector records the newest this-many PRs of any age
+#: (``scripts/gather.py`` ``PR_SAMPLE``; a test pins the two equal). A sample holding fewer is the
+#: repository's whole PR history at the time it was fetched.
+PR_SAMPLE_SIZE: int = 30
+
+
+def _pr_sample(raw_root: Path, basename: str) -> list[Any] | None:
+    """The PRs of ``raw/pr_events/{basename}.json`` (the v1 sample); ``None`` when absent or unreadable."""
+    path = raw_root / "pr_events" / f"{basename}.json"
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    data = document.get("data") if isinstance(document, Mapping) else None
+    return data if isinstance(data, list) else None
+
+
+def _is_decided_external(pr: Mapping[str, Any], horizon: datetime | None, as_of: datetime | None) -> bool:
+    """An external PR (author association in :data:`_EXTERNAL_ASSOCIATIONS`) merged or closed in
+    ``[horizon, as_of]``; any recorded decision without ``as_of``. Reads both recorded spellings: the
+    GraphQL nodes' ``authorAssociation``/``mergedAt``/``closedAt`` and the v1 sample's snake case."""
+    association = pr.get("authorAssociation", pr.get("author_association"))
+    if str(association or "").upper() not in _EXTERNAL_ASSOCIATIONS:
+        return False
+    decided_raw = pr.get("mergedAt") or pr.get("merged_at") or pr.get("closedAt") or pr.get("closed_at")
+    if not isinstance(decided_raw, str):
+        return False
+    try:
+        decided = _parse_iso(decided_raw)
+    except (ValueError, TypeError):
+        return False
+    return as_of is None or horizon <= decided <= as_of
+
+
+def _decided_external_pr_in(
+    pr_window: Mapping[str, Any] | None,
+    author_history: Mapping[str, Any] | None,
+    sample: Sequence[Any] | None,
+    as_of: datetime | None,
+) -> bool | None:
+    """D-GATE-6 from the recorded PR envelopes.
+
+    ``True`` when the ``pr_window`` (PRs opened in 180 days), the ``author_history`` (opened in 365 days)
+    or the v1 ``pr_events`` sample (the newest :data:`PR_SAMPLE_SIZE` PRs of any age) holds an external PR
+    merged or closed in the :data:`~porchlamp.core.constants.GATE6_DECISION_WINDOW_DAYS` ending at
+    ``as_of``. Bots count: D-GATE-6 asks whether a repository works through GitHub pull requests at all,
+    and D-GATE-5 then judges the outside human ones.
+
+    ``False`` only when the records hold the repository's whole PR history and none of them has one: the
+    sample held fewer than :data:`PR_SAMPLE_SIZE` PRs (so it was every PR the repository had when it was
+    fetched), and every window or history read beside it says it is complete (``truncated`` false; they
+    add the PRs opened since). Each record shows decisions up to its own fetch.
+    ``None`` otherwise: a record of the newest PRs, or of the PRs opened in a window, can show that a
+    decided external PR exists, but not that none does, because a PR opened before it may have been
+    decided inside the horizon."""
+    records = [d["prs"] for d in (author_history, pr_window) if d is not None and isinstance(d.get("prs"), list)]
+    if sample is not None:
+        records.append(sample)
+    if not records:
+        return None
+    horizon = as_of - timedelta(days=constants.GATE6_DECISION_WINDOW_DAYS) if as_of is not None else None
+    if any(isinstance(pr, Mapping) and _is_decided_external(pr, horizon, as_of) for prs in records for pr in prs):
+        return True
+    whole_history = sample is not None and len(sample) < PR_SAMPLE_SIZE
+    complete = all(d.get("truncated") is False for d in (author_history, pr_window) if d is not None)
+    return False if whole_history and complete else None
+
+
+def outside_pr_authors(prs: Sequence[Any], *, start: datetime, end: datetime) -> list[str]:
+    """One entry per outside PR opened in ``[start, end]``: an external
+    author association and a non-bot author (D-IN-1), the PRs D-GATE-5
+    starts from. The entry is the author's lowercased login, ``""`` for a
+    deleted account."""
+    out: list[str] = []
+    for pr in prs:
+        if not isinstance(pr, Mapping) or not isinstance(pr.get("createdAt"), str):
+            continue
+        try:
+            created = _parse_iso(pr["createdAt"])
+        except (ValueError, TypeError):
+            continue
+        if not start <= created <= end:
+            continue
+        author = pr.get("author") if isinstance(pr.get("author"), Mapping) else {}
+        if str(pr.get("authorAssociation") or "").upper() not in _EXTERNAL_ASSOCIATIONS or _is_bot_node(author):
+            continue
+        out.append(str(author.get("login") or "").lower())
+    return out
 
 
 def pr_rule_inputs_recorded(prs: Sequence[Any]) -> bool:
@@ -261,7 +362,7 @@ def _rule_inputs_in(data: Mapping[str, Any] | None) -> bool | None:
 def _review_handoff(raw_root: Path, basename: str) -> bool | None:
     """D-GATE-6 review hand-off from ``raw/pr_window/{basename}.json``
     (:func:`_review_handoff_in`)."""
-    return _review_handoff_in(_pr_window_data(raw_root, basename))
+    return _review_handoff_in(pr_window_data(raw_root, basename))
 
 
 def _review_handoff_in(data: Mapping[str, Any] | None) -> bool | None:
@@ -308,18 +409,20 @@ def _tree_flag(found: bool, truncated: bool) -> bool | None:
 
 def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None = None) -> GateEvidence:
     """Derive one repo's :class:`~porchlamp.core.gates.GateEvidence` from the
-    raw ``tree``/``commits_180d``/``pr_window`` envelopes. ``as_of`` is the
-    snapshot's reference time: D-GATE-4 counts only commits in the 180 days
-    ending there (:func:`_vitality_commit_count`). The ``pr_window`` envelope is
-    read once, for the review hand-off and the D-GATE-5 rule inputs.
-    ``fork_parent_in_universe`` stays
+    raw ``tree``/``commits_180d``/``pr_window``/``author_history``/``pr_events`` envelopes.
+    ``as_of`` is the snapshot's reference time: D-GATE-4 counts only commits in
+    the 180 days ending there (:func:`_vitality_commit_count`), and D-GATE-6
+    only decisions in the 365 days ending there (:func:`_decided_external_pr_in`).
+    The ``pr_window`` envelope is read once, for the review hand-off, the
+    D-GATE-5 rule inputs and D-GATE-6. ``fork_parent_in_universe`` stays
     ``None`` (undecided): every v1-loaded bundle's ``RepoIdentity.fork`` is
     hardcoded ``False`` by ``porchlamp.derive.bundle._load_v1`` (that loader never
     observes a real fork flag), so D-GATE-2's fork branch never reads this
     field for any repo this script scores -- ``None`` is correct, not a
     stand-in for missing data."""
     paths, truncated = _tree_envelope(raw_root, basename)
-    pr_window = _pr_window_data(raw_root, basename)
+    pr_window = pr_window_data(raw_root, basename)
+    author_history = _envelope_data(raw_root, "author_history", basename)
     return GateEvidence(
         manifest_found=None if paths is None else _tree_flag(_has_recognized_manifest(paths), truncated),
         is_curated_anchor=False,
@@ -329,6 +432,7 @@ def gate_evidence_for(raw_root: Path, basename: str, *, as_of: datetime | None =
         off_platform_marker=None if paths is None else _tree_flag(_has_off_platform_marker(paths), truncated),
         review_handoff=_review_handoff_in(pr_window),
         pr_rule_inputs_recorded=_rule_inputs_in(pr_window),
+        decided_external_pr=_decided_external_pr_in(pr_window, author_history, _pr_sample(raw_root, basename), as_of),
     )
 
 

@@ -8,8 +8,9 @@
   derived from. Their ``data.stars`` is the only star count used: the database stores none
   (``stars_audited`` is NULL), so this is where every star band, the rank correlation and the
   top-100 figures come from;
-* ``<data root>/derived/<owner>__<name>.json``: the derived bundles' ``pr_events``, for the
-  bots-excluded recomputation and the corpus totals.
+* ``<data root>/derived/<owner>__<name>.json``: the derived bundles, counted for the corpus size;
+* ``<data root>/raw/pr_window/<owner>__<name>.json``: the recorded PR windows D-GATE-5 reads, for the
+  corpus's pull requests and contributors.
 
 The definitions:
 
@@ -25,12 +26,17 @@ The definitions:
 ``top100_overlap``
     how many of the 100 most-starred projects are in the top 100 by rank; ``top100_stars_fate``
     is what happened to those 100 (rated, or their gate reason);
-``bots_excluded``
-    the black-hole test recomputed from the derived ``pr_events`` with bot logins removed
-    (``is_external`` alone keeps bots): at least 10 outside human PRs at least 14 days old, and
-    more than half of them neither merged nor first reviewed by a human within 14 days;
+``gate5_undecided_rule_inputs``
+    projects that passed gates 1 to 4 and are undecided on gate 5 although their measured share has at
+    least the minimum population and they hand no review off: their recorded PR window lacks the fields
+    the rules read (:func:`porchlamp.derive.gate_evidence.pr_rule_inputs_recorded`), so they are left
+    out of ``gate5_decided`` for when their data was fetched, not for what it shows;
 ``corpus``
-    derived bundles read, outside human PRs in them, and distinct outside authors.
+    derived bundle files (``derived_repos``), how many of them have a recorded PR window
+    (``pr_windows``), the outside PRs opened in the PR window ending at ``--as-of``
+    (``human_outside_prs``: an external author association and a non-bot author, D-IN-1, the
+    PRs D-GATE-5 starts from; :func:`porchlamp.derive.gate_evidence.outside_pr_authors`) and their
+    distinct authors (``distinct_outside_authors``).
 
 Nothing here reads the wall clock: PR ages are judged at ``--as-of``, by default the database's
 ``snapshots.as_of``.
@@ -44,16 +50,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-from porchlamp.constants import BOT_LOGIN_MARKERS
+from porchlamp.core.constants import GATE5_MIN_N, PR_WINDOW_DAYS
+from porchlamp.derive.gate_evidence import _review_handoff, outside_pr_authors, pr_rule_inputs_recorded, pr_window_data
 
 __all__ = ["STAR_BUCKETS", "bucket_label", "compute_stats", "open_snapshot_db", "spearman"]
 
 #: Star bands, ``[lo, hi)``; the last one is open-ended.
 STAR_BUCKETS: tuple[tuple[int, int], ...] = ((0, 1000), (1000, 10000), (10000, 50000), (50000, 10**9))
 _OPEN_END = 10**9
-_FOURTEEN_DAYS = timedelta(days=14)
-#: The bots-excluded test needs at least this many outside human PRs old enough to judge.
-_MIN_HUMAN_PRS = 10
 
 
 class StatsError(RuntimeError):
@@ -64,11 +68,6 @@ def _parse(ts: str) -> datetime:
     """An ISO-8601 timestamp; one without an offset is read as UTC."""
     parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
-
-
-def _is_bot(login: str) -> bool:
-    login = login.lower()
-    return any(marker in login for marker in BOT_LOGIN_MARKERS)
 
 
 def _ranks(xs: Sequence[Any]) -> list[float]:
@@ -130,23 +129,14 @@ def _read_stars(meta_dir: Path) -> dict[tuple[str, str], int]:
     return stars
 
 
-def _unanswered(event: dict) -> bool:
-    """Neither merged nor first reviewed by a human within 14 days of opening."""
-    created = _parse(event["created_at"])
-    if event.get("merged_at") and _parse(event["merged_at"]) - created <= _FOURTEEN_DAYS:
-        return False
-    if not event.get("first_human_review_at"):
-        return True
-    return _parse(event["first_human_review_at"]) - created > _FOURTEEN_DAYS
-
-
 def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_label: Optional[str] = None) -> dict:
     """The stats file for the snapshot in ``db``; see the module docstring for every field.
 
     ``as_of`` (ISO 8601) overrides the database's ``snapshots.as_of`` as the PR-age reference;
     ``db_label`` is what the ``db`` field records (default: ``str(db)``)."""
     data_dir = Path(data_dir)
-    meta_dir, derived = data_dir / "raw" / "github_meta", data_dir / "derived"
+    raw, derived = data_dir / "raw", data_dir / "derived"
+    meta_dir = raw / "github_meta"
     out: dict[str, Any] = {"db": db_label if db_label is not None else str(db)}
     stars = _read_stars(meta_dir)
 
@@ -164,10 +154,12 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
             "SELECT owner, name, gate_reason, gate_undecided, rated, p_responsiveness, "
             f"{score}, rank, ttfhr_p75 FROM repositories"
         ).fetchall()
-        candidates = con.execute(
-            "SELECT owner, name FROM repositories WHERE gate_reason IS NULL "
-            "OR gate_reason IN ('black_hole','unrated: no_external_workflow')"
-        ).fetchall()
+        # gate 5 had enough pull requests to decide: a measured share over at least the minimum population
+        populated = {
+            (owner.lower(), name.lower()) for owner, name in con.execute(
+                "SELECT r.owner, r.name FROM repositories r JOIN params p ON p.repo_id = r.id "
+                "AND p.param_id = 'gr14_ghost_rate' WHERE p.measured = 1 AND p.n >= ?", (GATE5_MIN_N,))
+        }
     finally:
         con.close()
 
@@ -214,48 +206,33 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
         fate[k] = fate.get(k, 0) + 1
     out["top100_stars_fate"] = dict(sorted(fate.items(), key=lambda x: -x[1]))
 
-    # bots excluded: the black-hole test recomputed from derived pr_events
-    acc = {b: [0, 0] for b in STAR_BUCKETS}
-    total = [0, 0]
-    for owner, name in candidates:
-        bundle_path, meta_path = derived / f"{owner}__{name}.json", meta_dir / f"{owner}__{name}.json"
-        if not bundle_path.exists() or not meta_path.exists():
-            continue
-        s = json.loads(meta_path.read_text(encoding="utf-8"))["data"].get("stars")
-        events = json.loads(bundle_path.read_text(encoding="utf-8")).get("pr_events") or []
-        population = [
-            e for e in events
-            if e.get("author_login") and e.get("is_external") and not _is_bot(e["author_login"])
-            and now - _parse(e["created_at"]) >= _FOURTEEN_DAYS
-        ]
-        if len(population) < _MIN_HUMAN_PRS or not isinstance(s, int):
-            continue
-        hole = sum(_unanswered(e) for e in population) / len(population) > 0.5
-        total[0] += 1
-        total[1] += hole
-        for lo, hi in STAR_BUCKETS:
-            if lo <= s < hi:
-                acc[(lo, hi)][0] += 1
-                acc[(lo, hi)][1] += hole
-    out["bots_excluded"] = {
-        "n": total[0], "black_holes": total[1],
-        "share": round(total[1] / total[0], 4) if total[0] else None,
-        "by_stars": {bucket_label(*b): {"n": n, "share": round(h / n, 4)} for b, (n, h) in acc.items() if n},
+    # the corpus: outside PRs opened in the PR window, from the recorded pr_window envelopes; and the
+    # gate-5 undecided projects whose window lacks the rules' inputs
+    gate5_undecided = {
+        key(r) for r in rows
+        if r[2] in (None, "black_hole", "unrated: no_external_workflow") and "D-GATE-5" in json.loads(r[3] or "[]")
+        and key(r) in populated
     }
-
-    # the corpus: human outside PRs and distinct outside authors
-    n_repo = n_pr = 0
+    window_start = now - timedelta(days=PR_WINDOW_DAYS)
+    n_repo = n_window = n_pr = n_rule_inputs = 0
     authors: set[str] = set()
     for path in derived.glob("*.json"):
-        try:
-            events = json.loads(path.read_text(encoding="utf-8")).get("pr_events") or []
-        except (OSError, ValueError):
-            continue
         n_repo += 1
-        for e in events:
-            login = e.get("author_login")
-            if login and e.get("is_external") and not _is_bot(login):
-                n_pr += 1
-                authors.add(login.lower())
-    out["corpus"] = {"derived_repos": n_repo, "human_outside_prs": n_pr, "distinct_outside_authors": len(authors)}
+        window = pr_window_data(raw, path.stem)
+        prs = window.get("prs") if window is not None else None
+        if not isinstance(prs, list):
+            continue
+        n_window += 1
+        owner, _, name = path.stem.partition("__")
+        if ((owner.lower(), name.lower()) in gate5_undecided and not pr_rule_inputs_recorded(prs)
+                and _review_handoff(raw, path.stem) is not True):
+            n_rule_inputs += 1
+        logins = outside_pr_authors(prs, start=window_start, end=now)
+        n_pr += len(logins)
+        authors.update(login for login in logins if login)
+    out["gate5_undecided_rule_inputs"] = n_rule_inputs
+    out["corpus"] = {
+        "derived_repos": n_repo, "pr_windows": n_window,
+        "human_outside_prs": n_pr, "distinct_outside_authors": len(authors),
+    }
     return out
