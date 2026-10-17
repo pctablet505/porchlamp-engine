@@ -2879,6 +2879,10 @@ test("matrix hover card: the tier shows '(capped)' like the table and the drawer
   assert.ok(!renderHoverCard({ ...point, coverage: 0.99 }).includes("capped"), "full coverage has no ceiling");
   assert.ok(renderHoverCard({ ...point, coverage: 0.7, tier: "B" }).includes("B (capped)"), "coverage 0.7 puts the ceiling at B");
   assert.ok(!renderHoverCard({ ...point, tier_ceiling: null }).includes("capped"), "an explicit ceiling of none wins");
+  // The card is rebuilt on every hover or focus move and ignores the pointer: it must hold no tab stop.
+  assert.doesNotMatch(renderHoverCard(point), /tabindex/, "a capped tier in the card is not a tab stop");
+  assert.doesNotMatch(renderHoverCard({ ...point, tier: undefined }), /tabindex/, "a missing tier in the card is not a tab stop");
+  assert.ok(renderHoverCard({ ...point, tier: undefined }).includes(copy.MISSING_VALUE), "a missing tier still shows the missing-value mark");
   // the card agrees with the table row for the same project
   const tableTier = rowCells({ ...E3_ROW, coverage: 0.9, tier: "A", tier_ceiling: "A" }, {}).cells.find((c) => c.key === "tier").html;
   assert.ok(tableTier.includes("A (capped)"));

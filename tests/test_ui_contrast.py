@@ -127,7 +127,8 @@ LINK_AND_QUADRANT_TEXT_TOKENS = [
     "quad-nursery",
     "quad-graveyard",
 ]
-TEXT_SURFACES = ["bg-base", "bg-surface", "bg-surface-elevated"]
+#: Includes the hovered and selected row surface, which these colours also paint on.
+TEXT_SURFACES = ["bg-base", "bg-surface", "bg-surface-elevated", "bg-surface-hover"]
 LIGHT_THEMES = ("light", "light-system")
 
 
