@@ -16,7 +16,7 @@
 //
 // Fidelity: the rule constants below MIRROR the engine's, each named next to
 // its Python source; tests/test_ui_livecheck_port.py fails if one drifts, and
-// web/v2/tests/cases/spdx_osi.json pins the licence-expression reading for
+// web/app/tests/cases/spdx_osi.json pins the licence-expression reading for
 // both the Python gate and this port. Every function except `runLiveCheck`
 // is pure.
 

@@ -1,6 +1,6 @@
-"""``scripts/verify_static_export.py``'s check of the hand-written numbers in ``web/v2/index.html`` (the static
-article, its head and the top-20 table), ``web/v2/llms.txt``, ``web/v2/feed.xml`` and the app's finding line in
-``web/v2/copy.js``.
+"""``scripts/verify_static_export.py``'s check of the hand-written numbers in ``web/app/index.html`` (the static
+article, its head and the top-20 table), ``web/app/llms.txt``, ``web/app/feed.xml`` and the app's finding line in
+``web/app/copy.js``.
 
 ``tests/fixtures/shipped-text-snapshot-facts.json`` holds the facts of the snapshot those files name, as
 ``hand_written_facts(<snapshot database>, <stats file>)`` read them from that snapshot's database and stats file.
@@ -20,7 +20,7 @@ _spec = importlib.util.spec_from_file_location("verify_static_export", ROOT / "s
 verify_static_export = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(verify_static_export)
 
-SHIPPED = ROOT / "web" / "v2"
+SHIPPED = ROOT / "web" / "app"
 FACTS = json.loads((ROOT / "tests" / "fixtures" / "shipped-text-snapshot-facts.json").read_text(encoding="utf-8"))
 FILES = verify_static_export.HAND_WRITTEN_FILES
 _N = lambda n: f"{n:,}"  # noqa: E731

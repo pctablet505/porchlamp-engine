@@ -1,4 +1,4 @@
-"""Static integrity and parity test suite for frontend ES modules (``web/v2/**/*.js``).
+"""Static integrity and parity test suite for frontend ES modules (``web/app/**/*.js``).
 
 Because Node.js is not required on every test runner, this suite parses and
 verifies the frontend ES module graph, keymap handler parity, and core
@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-WEB_V2_DIR = REPO_ROOT / "web" / "v2"
+WEB_APP_DIR = REPO_ROOT / "web" / "app"
 
 _ARROW_KEY_MAP: dict[str, str] = {
     "↑": "arrowup",
@@ -31,14 +31,14 @@ def _strip_js_comments(source: str) -> str:
 
 
 def _iter_production_js_files() -> list[Path]:
-    """Return all .js files under web/v2/ excluding web/v2/tests/."""
-    assert WEB_V2_DIR.is_dir(), f"Missing frontend directory: {WEB_V2_DIR}"
+    """Return all .js files under web/app/ excluding web/app/tests/."""
+    assert WEB_APP_DIR.is_dir(), f"Missing frontend directory: {WEB_APP_DIR}"
     files = [
         path
-        for path in sorted(WEB_V2_DIR.rglob("*.js"))
-        if "tests" not in path.relative_to(WEB_V2_DIR).parts
+        for path in sorted(WEB_APP_DIR.rglob("*.js"))
+        if "tests" not in path.relative_to(WEB_APP_DIR).parts
     ]
-    assert files, "No production .js files found under web/v2/"
+    assert files, "No production .js files found under web/app/"
     return files
 
 
@@ -147,7 +147,7 @@ def _namespace_property_reads(source: str, alias: str) -> set[str]:
 
 def test_es_module_import_export_graph_integrity() -> None:
     """Verify every relative ES module import resolves to a real file under
-    web/v2/ and every named symbol imported is exported by the target module."""
+    web/app/ and every named symbol imported is exported by the target module."""
     js_files = _iter_production_js_files()
     exports_by_path: dict[Path, set[str]] = {}
 
@@ -170,7 +170,7 @@ def test_es_module_import_export_graph_integrity() -> None:
                 f"(expected {target_path})"
             )
             assert target_path in exports_by_path, (
-                f"{rel_importer}: target module {target_path} is outside tracked web/v2/ production modules"
+                f"{rel_importer}: target module {target_path} is outside tracked web/app/ production modules"
             )
 
             target_exports = exports_by_path[target_path]
@@ -221,17 +221,17 @@ def _expand_keymap_entry_keys(keys_str: str) -> list[str]:
 
 
 def test_keymap_overlay_and_handler_table_parity() -> None:
-    """Verify KEYMAP_ENTRIES in web/v2/copy.js and KEY_ACTIONS in
-    web/v2/components/keymap.js have 1-to-1 key coverage and non-empty actions."""
-    copy_source = _strip_js_comments((WEB_V2_DIR / "copy.js").read_text(encoding="utf-8"))
-    keymap_source = _strip_js_comments((WEB_V2_DIR / "components" / "keymap.js").read_text(encoding="utf-8"))
+    """Verify KEYMAP_ENTRIES in web/app/copy.js and KEY_ACTIONS in
+    web/app/components/keymap.js have 1-to-1 key coverage and non-empty actions."""
+    copy_source = _strip_js_comments((WEB_APP_DIR / "copy.js").read_text(encoding="utf-8"))
+    keymap_source = _strip_js_comments((WEB_APP_DIR / "components" / "keymap.js").read_text(encoding="utf-8"))
 
     # Extract KEYMAP_ENTRIES block from copy.js
     entries_block_match = re.search(
         r"export\s+const\s+KEYMAP_ENTRIES\s*=\s*Object\.freeze\(\s*\[([\s\S]*?)\]\s*\)",
         copy_source,
     )
-    assert entries_block_match, "Could not locate KEYMAP_ENTRIES in web/v2/copy.js"
+    assert entries_block_match, "Could not locate KEYMAP_ENTRIES in web/app/copy.js"
     entries_block = entries_block_match.group(1)
 
     entry_pattern = re.compile(
@@ -239,7 +239,7 @@ def test_keymap_overlay_and_handler_table_parity() -> None:
     )
     raw_matches = entry_pattern.findall(entries_block)
     documented_entries = [(m[0] or m[1], m[2] or m[3]) for m in raw_matches]
-    assert documented_entries, "No entries parsed from KEYMAP_ENTRIES in web/v2/copy.js"
+    assert documented_entries, "No entries parsed from KEYMAP_ENTRIES in web/app/copy.js"
 
     expanded_documented_keys: list[str] = []
     for keys_label, action_desc in documented_entries:
@@ -252,7 +252,7 @@ def test_keymap_overlay_and_handler_table_parity() -> None:
         r"export\s+const\s+KEY_ACTIONS\s*=\s*Object\.freeze\(\s*\[([\s\S]*?)\]\s*\)",
         keymap_source,
     )
-    assert actions_block_match, "Could not locate KEY_ACTIONS in web/v2/components/keymap.js"
+    assert actions_block_match, "Could not locate KEY_ACTIONS in web/app/components/keymap.js"
     actions_block = actions_block_match.group(1)
 
     action_row_pattern = re.compile(
@@ -260,7 +260,7 @@ def test_keymap_overlay_and_handler_table_parity() -> None:
     )
     raw_action_matches = action_row_pattern.findall(actions_block)
     handler_rows = [(m[0] or m[1], m[2] or m[3]) for m in raw_action_matches]
-    assert handler_rows, "No rows parsed from KEY_ACTIONS in web/v2/components/keymap.js"
+    assert handler_rows, "No rows parsed from KEY_ACTIONS in web/app/components/keymap.js"
 
     handler_keys: list[str] = []
     for key_name, action_name in handler_rows:
@@ -276,14 +276,14 @@ def test_keymap_overlay_and_handler_table_parity() -> None:
 
 
 def _extract_classify_kind_evaluator():
-    """Parse classifyKind(found) from web/v2/views/drawer.js and construct an
+    """Parse classifyKind(found) from web/app/views/drawer.js and construct an
     equivalent Python function directly from its JS conditional branches."""
-    drawer_source = _strip_js_comments((WEB_V2_DIR / "views" / "drawer.js").read_text(encoding="utf-8"))
+    drawer_source = _strip_js_comments((WEB_APP_DIR / "views" / "drawer.js").read_text(encoding="utf-8"))
     match = re.search(
         r"export\s+function\s+classifyKind\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\{([\s\S]*?)\}",
         drawer_source,
     )
-    assert match, "Could not find export function classifyKind in web/v2/views/drawer.js"
+    assert match, "Could not find export function classifyKind in web/app/views/drawer.js"
     param_name = match.group(1)
     body = match.group(2)
 
@@ -330,7 +330,7 @@ def _extract_classify_kind_evaluator():
 
 
 def test_classify_kind_matches_backend_contract() -> None:
-    """Verify classifyKind(eligible, rated) in web/v2/views/drawer.js matches
+    """Verify classifyKind(eligible, rated) in web/app/views/drawer.js matches
     the backend contract:
       - not eligible -> 'gated'
       - eligible and not rated -> 'unrated'

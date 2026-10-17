@@ -126,11 +126,11 @@ def test_a_mutant_is_not_credited_with_what_the_site_already_gets_wrong(site, tm
     assert not verify_static_export.passed(result)
 
 
-def test_the_site_is_web_v2_with_only_api_js_replaced(site):
+def test_the_site_is_web_app_with_only_api_js_replaced(site):
     _db, out = site
     assert (out / "api.js").read_bytes() == export_static.STATIC_API.read_bytes()
-    for entry in export_static.WEB_V2.rglob("*"):
-        relative = entry.relative_to(export_static.WEB_V2)
+    for entry in export_static.WEB_APP.rglob("*"):
+        relative = entry.relative_to(export_static.WEB_APP)
         if entry.is_dir() or relative.parts[0] in export_static._WEB_SKIP or relative == Path("api.js"):
             continue
         assert (out / relative).read_bytes() == entry.read_bytes(), relative

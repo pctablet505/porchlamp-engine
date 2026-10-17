@@ -29,7 +29,7 @@ function escapeHtml(value) {
  * at 0 is allowed both as `newValue` and as a rescaled result.
  *
  * Property this function must hold for every input (exercised by
- * `web/v2/tests/unit.test.mjs`): `sum(normalizeWeights(...)) === 1` (within
+ * `web/app/tests/unit.test.mjs`): `sum(normalizeWeights(...)) === 1` (within
  * float epsilon), every LOCKED pillar's value is byte-identical to the
  * input, and no returned value is negative.
  */

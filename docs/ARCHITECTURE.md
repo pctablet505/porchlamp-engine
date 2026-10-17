@@ -14,7 +14,7 @@ flowchart LR
     DER --> BUILD["python -m porchlamp.snapshot build<br/>score records and a manifest with a Merkle root"]
     RAW --> BUILD
     BUILD --> STORE[("python -m porchlamp.snapshot store<br/>porchlamp.db")]
-    STORE --> SERVE["scripts/serve.py<br/>/v1/porchlamp/* and web/v2/"]
+    STORE --> SERVE["scripts/serve.py<br/>/v1/porchlamp/* and web/app/"]
     STORE --> PUB["scripts/export_static.py<br/>static JSON, 256 repos/ buckets, web/static/api.js"]
     PUB --> VER["scripts/verify_static_export.py<br/>site checked request by request"]
 ```

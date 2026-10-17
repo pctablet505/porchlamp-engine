@@ -1,5 +1,5 @@
 {
-  "_note": "Shared exact-value test cases for views/configure.js::normalizeWeights / applyPresetRespectingLocks, asserted identically by web/v2/tests/unit.test.mjs and tests/test_ui_weights_port.py. Floating-point: compare with a small epsilon (1e-9), not exact equality.",
+  "_note": "Shared exact-value test cases for views/configure.js::normalizeWeights / applyPresetRespectingLocks, asserted identically by web/app/tests/unit.test.mjs and tests/test_ui_weights_port.py. Floating-point: compare with a small epsilon (1e-9), not exact equality.",
   "pillar_ids": [
     "responsiveness",
     "criticality",

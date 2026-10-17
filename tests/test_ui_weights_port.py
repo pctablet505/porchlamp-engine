@@ -1,7 +1,7 @@
-"""N1 (round-3 review, 2026-09-14): the B-1 fix to `web/v2/views/
+"""N1 (round-3 review, 2026-09-14): the B-1 fix to `web/app/views/
 configure.js::normalizeWeights` (locking
 four pillars and dragging the fifth DOWN left the sum at 0.87, not 1) was
-guarded ONLY by `web/v2/tests/unit.test.mjs`, which cannot execute on this
+guarded ONLY by `web/app/tests/unit.test.mjs`, which cannot execute on this
 box (no Node). This file is a FAITHFUL, line-for-line PORT of
 `normalizeWeights` and `applyPresetRespectingLocks` into Python — not a
 reimplementation from the docstring, a direct translation of the JS
@@ -9,13 +9,13 @@ source, kept in a docstring comment above each function pointing at the
 exact JS lines it mirrors — so it can be property- and case-tested with
 plain pytest.
 
-Ported from `web/v2/views/configure.js` at round-3 dispatch time (post the
+Ported from `web/app/views/configure.js` at round-3 dispatch time (post the
 B-1 fix, commit `314ce2c`). If either function's JS changes, re-check this
 port for drift — the two are independent code, not a shared source of
 truth; that's exactly why `tests/cases/normalize_weights.json` exists: it
 lets a drift between this port and the real JS show up as ONE of the two
 test suites failing its own copy of the same expected numbers (this file's
-`TestSharedJsonCases`, and `web/v2/tests/unit.test.mjs`'s equivalent).
+`TestSharedJsonCases`, and `web/app/tests/unit.test.mjs`'s equivalent).
 
 Started life as the round-2 reviewer's own property-test script
 property test suite ported
@@ -41,13 +41,13 @@ BALANCED_WEIGHTS = {
 
 EPS = 1e-9
 
-CASES_PATH = Path(__file__).resolve().parent.parent / "web" / "v2" / "tests" / "cases" / "normalize_weights.json"
+CASES_PATH = Path(__file__).resolve().parent.parent / "web" / "app" / "tests" / "cases" / "normalize_weights.json"
 
 
 def normalize_weights(
     weights: dict[str, float], locks: dict[str, bool], changed_pillar: str, new_value: float
 ) -> dict[str, float]:
-    """Port of `web/v2/views/configure.js::normalizeWeights` (round-3
+    """Port of `web/app/views/configure.js::normalizeWeights` (round-3
     dispatch tip, post B-1 fix):
 
         const clamped = Math.max(0, Math.min(1, newValue));
@@ -104,7 +104,7 @@ def normalize_weights(
 def apply_preset_respecting_locks(
     weights: dict[str, float], locks: dict[str, bool], preset: dict[str, float]
 ) -> dict[str, float]:
-    """Port of `web/v2/views/configure.js::applyPresetRespectingLocks`:
+    """Port of `web/app/views/configure.js::applyPresetRespectingLocks`:
 
         const lockedSum = PILLAR_IDS.filter((p) => locks[p]).reduce((s, p) => s + weights[p], 0);
         const free = PILLAR_IDS.filter((p) => !locks[p]);
@@ -202,7 +202,7 @@ def _load_cases() -> dict[str, Any]:
 
 
 class TestSharedJsonCases:
-    """The SAME numbers `web/v2/tests/unit.test.mjs` asserts against the
+    """The SAME numbers `web/app/tests/unit.test.mjs` asserts against the
     real JS -- a drift between this Python port and the real
     `normalizeWeights`/`applyPresetRespectingLocks` shows up as one suite
     failing its own copy of these cases."""

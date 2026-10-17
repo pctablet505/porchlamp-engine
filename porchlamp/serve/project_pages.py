@@ -4,7 +4,7 @@
 two sentences, for a reader or a crawler that does not run JavaScript. Nothing here is recomputed or typed
 by hand: every value is read from the records the drawer shows (the API's ``/repos/{owner}/{name}`` and its
 ``/evidence``) and from the leaderboards; the labels, the tier note and the lens reasons are read from
-``web/v2/copy.js``, the single source the drawer uses (:func:`report_pages.copy_js_map`). The one thing written
+``web/app/copy.js``, the single source the drawer uses (:func:`report_pages.copy_js_map`). The one thing written
 here is the one-line meaning of each parameter (:data:`PARAM_MEANINGS`), pinned to the methodology's parameter
 list by a test.
 
@@ -30,7 +30,7 @@ from porchlamp.serve.report_pages import (
     ECOSYSTEM_SLUGS,
     GITHUB_REPO,
     SITE,
-    WEB_V2,
+    WEB_APP,
     Facts,
     ReportError,
     _a,
@@ -187,7 +187,7 @@ def _sentence_end(text: str) -> str:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class Copy:
-    """Everything the pages take from ``web/v2/copy.js``."""
+    """Everything the pages take from ``web/app/copy.js``."""
 
     pillar_names: Mapping[str, str]
     persona_names: Mapping[str, str]
@@ -200,7 +200,7 @@ class Copy:
     capped_suffix: str = " (capped)"
 
     @classmethod
-    def load(cls, web_dir: Path = WEB_V2) -> "Copy":
+    def load(cls, web_dir: Path = WEB_APP) -> "Copy":
         return cls(
             pillar_names=copy_js_map("PILLAR_NAMES", web_dir),
             persona_names=copy_js_map("PERSONA_NAMES", web_dir),

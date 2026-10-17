@@ -1,5 +1,5 @@
 {
-  "_comment": "D-GATE-3 SPDX reading, pinned for porchlamp.core.gates (_is_parseable_spdx_expression, _is_osi_approved_expression) and its port web/v2/livecheck.js. Expected values were produced by the Python gate; tests/test_ui_livecheck_port.py and web/v2/tests/livecheck.test.mjs each check their own implementation against this file.",
+  "_comment": "D-GATE-3 SPDX reading, pinned for porchlamp.core.gates (_is_parseable_spdx_expression, _is_osi_approved_expression) and its port web/app/livecheck.js. Expected values were produced by the Python gate; tests/test_ui_livecheck_port.py and web/app/tests/livecheck.test.mjs each check their own implementation against this file.",
   "cases": [
     {
       "expression": "MIT",

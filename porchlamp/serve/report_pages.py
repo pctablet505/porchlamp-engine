@@ -41,7 +41,7 @@ SITE = "https://porchlamp.org"
 CC_BY_4 = "https://creativecommons.org/licenses/by/4.0/"
 GITHUB_REPO = "https://github.com/pctablet505/porchlamp"
 CREATOR_ID = f"{SITE}/#creator"
-WEB_V2 = Path(__file__).resolve().parents[2] / "web" / "v2"
+WEB_APP = Path(__file__).resolve().parents[2] / "web" / "app"
 
 REPORT_H1 = "Stars don't review pull requests"
 CITE_TITLE = "Stars don't review pull requests: the state of open-source black holes"
@@ -443,24 +443,24 @@ def ranked_csv(boards: Mapping[str, Mapping[str, Any]], lenses: Sequence[str], b
 # --------------------------------------------------------------------------- #
 # The in-app copy, reused: copy.js is the single source of the names
 # --------------------------------------------------------------------------- #
-def copy_js_map(name: str, web_dir: Path = WEB_V2) -> dict[str, str]:
-    """``[export ]const NAME = Object.freeze({ key: "value", ... })`` from ``web/v2/copy.js``."""
+def copy_js_map(name: str, web_dir: Path = WEB_APP) -> dict[str, str]:
+    """``[export ]const NAME = Object.freeze({ key: "value", ... })`` from ``web/app/copy.js``."""
     text = (web_dir / "copy.js").read_text(encoding="utf-8")
     match = re.search(rf"(?:export )?const {name} = Object\.freeze\(\{{(.*?)\}}\);", text, re.S)
     if not match:
-        raise ReportError(f"web/v2/copy.js has no `const {name} = Object.freeze({{...}})`")
+        raise ReportError(f"web/app/copy.js has no `const {name} = Object.freeze({{...}})`")
     pairs = re.findall(r'(\w+):\s*"((?:[^"\\]|\\.)*)"', match.group(1))
     if not pairs:
         raise ReportError(f"copy.js {name} holds no strings")
     return {key: json.loads(f'"{value}"') for key, value in pairs}
 
 
-def copy_js_string(name: str, web_dir: Path = WEB_V2) -> str:
-    """``[export ]const NAME = "text";`` (the string may start on the next line) from ``web/v2/copy.js``."""
+def copy_js_string(name: str, web_dir: Path = WEB_APP) -> str:
+    """``[export ]const NAME = "text";`` (the string may start on the next line) from ``web/app/copy.js``."""
     text = (web_dir / "copy.js").read_text(encoding="utf-8")
     match = re.search(rf'(?:export )?const {name} =\s*"((?:[^"\\]|\\.)*)";', text)
     if not match:
-        raise ReportError(f"web/v2/copy.js has no `const {name} = \"...\";`")
+        raise ReportError(f"web/app/copy.js has no `const {name} = \"...\";`")
     return json.loads(f'"{match.group(1)}"')
 
 
@@ -840,7 +840,7 @@ def _percent_text(fraction: float | None) -> str:
 
 
 def render_methodology(
-    methodology: Mapping[str, Any], f: Facts, *, source_db_sha256: str, web_dir: Path = WEB_V2
+    methodology: Mapping[str, Any], f: Facts, *, source_db_sha256: str, web_dir: Path = WEB_APP
 ) -> str:
     """``/methodology/`` from the same ``methodology.json`` the API serves."""
     canonical = f"{SITE}/methodology/"

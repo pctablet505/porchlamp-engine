@@ -1,6 +1,6 @@
 """Fixture <-> contract validation for the v2 UI.
 
-`porchlamp/serve/contract.py` is the wire contract that both `web/v2/` and the API
+`porchlamp/serve/contract.py` is the wire contract that both `web/app/` and the API
 answer to. Every fixture under `tests/fixtures/ui/` must validate against
 those pydantic models, and each fixture's internal promises (>= 60 rows, a
 2dp tie group of three, every coverage band with its ceiling, all four
@@ -446,7 +446,7 @@ class TestMethodologyContract:
 
 
 class TestDecidingTieLevelParity:
-    """Parity test for web/v2/components/table.js::decidingTieLevel with D-TIE-1."""
+    """Parity test for web/app/components/table.js::decidingTieLevel with D-TIE-1."""
 
     @staticmethod
     def deciding_tie_level(a: dict, b: dict) -> int:
@@ -467,7 +467,7 @@ class TestDecidingTieLevelParity:
         return 8
 
     def test_deciding_tie_level_composite_rounding_parity(self) -> None:
-        table_js = (Path(__file__).resolve().parent.parent / "web" / "v2" / "components" / "table.js").read_text()
+        table_js = (Path(__file__).resolve().parent.parent / "web" / "app" / "components" / "table.js").read_text()
         assert "Math.round" in table_js
         assert "round2(a.porchlamp)" in table_js
 

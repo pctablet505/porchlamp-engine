@@ -1,7 +1,7 @@
-// api.js, static build — the same exports as web/v2/api.js, answered from
+// api.js, static build — the same exports as web/app/api.js, answered from
 // the JSON files scripts/export_static.py wrote under data/<DATA_VERSION>/
 // instead of the v2 API. scripts/export_static.py copies this file over
-// web/v2/api.js in the built site; nothing else in the UI changes.
+// web/app/api.js in the built site; nothing else in the UI changes.
 //
 // Every answer has the shape and the values the API gives for the same
 // request (scripts/verify_static_export.py checks that against the API,

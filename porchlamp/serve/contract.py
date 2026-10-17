@@ -1,10 +1,10 @@
-"""The Porchlamp v2 wire contract: pydantic models for every payload the UI (`web/v2/`)
+"""The Porchlamp v2 wire contract: pydantic models for every payload the UI (`web/app/`)
 consumes over HTTP.
 
 This module is the contract both sides test against:
 `tests/fixtures/ui/*.json` validate against these models
 (`tests/test_ui_fixtures.py`), and `scripts/serve_ui_fixtures.py` answers
-the v2 endpoints from those fixtures so the front end under `web/v2/` can
+the v2 endpoints from those fixtures so the front end under `web/app/` can
 be exercised without a store. The real store-backed API serves these same
 shapes — any field the UI needs beyond what is defined here is an API change,
 never a client-side derivation (`docs/v2/06-UX-DESIGN.md` §4).

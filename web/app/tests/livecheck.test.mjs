@@ -1,11 +1,11 @@
 // tests/livecheck.test.mjs — Node unit tests for the opt-in live check for a
 // repository the snapshot does not hold (06 §3 C, "Repositories outside the
-// snapshot: live check"): web/v2/livecheck.js, components/livepanel.js, and
+// snapshot: live check"): web/app/livecheck.js, components/livepanel.js, and
 // the copy / state / leaderboard pieces they touch.
 //
 // Every network call here goes to a fake `fetchImpl`: no test reaches GitHub.
 //
-// Run: node --test web/v2/tests/livecheck.test.mjs
+// Run: node --test web/app/tests/livecheck.test.mjs
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -47,16 +47,16 @@ import { defaultState, reduce, parseSearch } from "../state.js";
 import * as copy from "../copy.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const WEB_V2 = path.resolve(HERE, "..");
+const WEB_APP = path.resolve(HERE, "..");
 const readCases = (name) => JSON.parse(readFileSync(path.join(HERE, "cases", name), "utf8"));
-const source = (relative) => readFileSync(path.join(WEB_V2, relative), "utf8");
+const source = (relative) => readFileSync(path.join(WEB_APP, relative), "utf8");
 
 const NOW = new Date("2026-10-15T12:00:00Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
 const daysAgo = (n) => new Date(NOW.getTime() - n * DAY_MS).toISOString();
 const byId = (checks) => Object.fromEntries(checks.map((c) => [c.id, c]));
 //: Off-site addresses are assembled, not written out: tests/test_ui_no_external_resources.py
-//: scans every file under web/v2 (these tests included) for literal external URLs, and
+//: scans every file under web/app (these tests included) for literal external URLs, and
 //: these are inputs to a parser, never requests.
 const address = (scheme, rest) => `${scheme}:${"/".repeat(2)}${rest}`;
 

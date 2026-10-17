@@ -1,4 +1,4 @@
-<img src="web/v2/favicon.svg" width="72" height="72" alt="Porchlamp's symbol: a porch lamp with its light on">
+<img src="web/app/favicon.svg" width="72" height="72" alt="Porchlamp's symbol: a porch lamp with its light on">
 
 # Porchlamp
 
@@ -107,7 +107,7 @@ The pipeline, in order:
 | Derive | `scripts/derive.py OWNER NAME --ecosystem ECO` | one bundle per project under `data/derived/` |
 | Build | `python -m porchlamp.snapshot build --data-dir data --out-dir SNAP --snapshot-id ID --as-of TIME` | score records plus a manifest with a Merkle root |
 | Store | `python -m porchlamp.snapshot store SNAP --db porchlamp.db` | the SQLite store the API reads |
-| Serve | `scripts/serve.py --db porchlamp.db` | the API under `/v1/porchlamp/` and the UI in `web/v2/` |
+| Serve | `scripts/serve.py --db porchlamp.db` | the API under `/v1/porchlamp/` and the UI in `web/app/` |
 | Publish | `scripts/export_static.py --db porchlamp.db --stats STATS --out SITE`, then `scripts/verify_static_export.py --db porchlamp.db --stats STATS --site SITE`, with `PORCHLAMP_DATA_ROOT` set to the snapshot's raw data (the report needs the black-hole evidence) | the static site, checked request by request against the API; with `--stats`, also the report (`black-holes/`), its frozen copy, the ranked CSV and the methodology page, one page per ranked project (`projects/<owner>/<name>/`, lower case), `check/` (search any project) and the project sitemap, and ten landing pages (`rust/`, `python/`, `javascript/`, `go/`, `java/`, `c-cpp/`, `first-timers/`, `career/`, `senior-systems/`, `ai-assisted/`), every number checked |
 
 | Package | Role |
@@ -120,7 +120,7 @@ The pipeline, in order:
 | `porchlamp/store/` | SQLite schema, forward-only migrations, writer and queries. |
 | `porchlamp/serve/` | FastAPI app, wire contract, and the guard that refuses to serve an unverified database. |
 | `porchlamp/audit/`, `porchlamp/verify/` | Read-only audits (coverage, anchors, sensitivity, ties, detectors) and a live re-verification canary. |
-| `web/v2/` | The UI: leaderboard, matrix, compare, configure weights, methodology. |
+| `web/app/` | The UI: leaderboard, matrix, compare, configure weights, methodology. |
 | `web/static/api.js` | The static site's stand-in for the API: answers every request from precomputed JSON. |
 
 The v1 modules at the top of `porchlamp/` (`engine.py`, `lakehouse.py` and friends) are

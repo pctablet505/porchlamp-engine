@@ -1,7 +1,7 @@
-"""Serve `web/v2/` plus the v2 API surface from static JSON fixtures.
+"""Serve `web/app/` plus the v2 API surface from static JSON fixtures.
 
 This is a stdlib-only (`http.server`, no FastAPI, no third-party deps) stand-in so
-`web/v2/` can be built and exercised against the wire contract in
+`web/app/` can be built and exercised against the wire contract in
 `porchlamp/serve/contract.py`. Filtering, sorting and paging
 happen here in Python over the fixture files under `tests/fixtures/ui/` — the
 UI's query parameters are genuinely exercised, not just echoed.
@@ -15,7 +15,7 @@ Endpoints (all under `/v1/porchlamp/`, matching `docs/v2/04-ARCHITECTURE.md` §7
     GET /v1/porchlamp/snapshot
     GET /healthz
 
-Everything else is served as a static file from `web/v2/` (default `/` ->
+Everything else is served as a static file from `web/app/` (default `/` ->
 `index.html`).
 
 Query parameter semantics (fixture-server contract):
@@ -37,8 +37,8 @@ Query parameter semantics (fixture-server contract):
   server rejects any other value with 400). A leading `-` reverses the
   field's natural "best first" direction. Default `rank` (ascending — rank 1
   first). `tier` sorts by tier ordinal S > A > B > C > D > F. This encoding
-  is mirrored exactly by `web/v2/components/table.js`'s `sortDirectionLabel`
-  (the header's `aria-sort` label) and `web/v2/app.js`'s click-to-toggle
+  is mirrored exactly by `web/app/components/table.js`'s `sortDirectionLabel`
+  (the header's `aria-sort` label) and `web/app/app.js`'s click-to-toggle
   handler — all three must agree on which fields default to descending vs
   ascending.
 - `page`, `page_size`: 1-based page, `page_size` one of
@@ -68,7 +68,7 @@ are excluded" — unrated rows carry no coordinate fields at all in the
 the doc's own caption wording only ever names gated repos).
 `axis_coverage` (pillar id, missing count, missing share per axis --
 never pre-rendered prose) is computed by :func:`axis_coverage` below;
-`web/v2/copy.js` composes the caption sentence client-side from those numbers.
+`web/app/copy.js` composes the caption sentence client-side from those numbers.
 
 `GET /v1/porchlamp/methodology` serves `tests/fixtures/ui/methodology.json`
 verbatim. That file is the genuine output of
@@ -115,7 +115,7 @@ from porchlamp.serve.contract import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_WEB_DIR = REPO_ROOT / "web" / "v2"
+DEFAULT_WEB_DIR = REPO_ROOT / "web" / "app"
 DEFAULT_FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures" / "ui"
 
 #: Screen A: sort only on rank, Porchlamp, coverage, tier, pillars (U-3: vanity
@@ -258,7 +258,7 @@ def reproject_rows(rows: list[dict[str, Any]], weights: dict[str, float]) -> lis
       `friction` asc, `leverage` desc, `owner/name` asc. **Levels 6 (TTFHR
       p75) and 7 (last non-bot commit date) are skipped** — `06` §4 never
       sends those two fields to the client at all (the same documented gap
-      `web/v2/components/table.js::decidingTieLevel` has for the client-side
+      `web/app/components/table.js::decidingTieLevel` has for the client-side
       tie-tooltip derivation); two rows that would only be separated by one
       of those two levels in the real engine tie here instead and fall
       through to owner/name.
@@ -580,7 +580,7 @@ def make_handler(
             # not a bare string -- this fixture server mirrors that shape
             # exactly so `api.js`'s error handling is exercised against the
             # real contract. `endpoint` is the request path with any query
-            # string stripped (matching how `web/v2/api.js`'s `ApiError`
+            # string stripped (matching how `web/app/api.js`'s `ApiError`
             # names an endpoint).
             endpoint = self.path.split("?", 1)[0]
             self._send_json(status, {"error": {"endpoint": endpoint, "status": status, "detail": message}})

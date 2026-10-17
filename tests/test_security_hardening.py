@@ -34,7 +34,7 @@ from scripts import serve_ui_fixtures
 from serve.helpers import build_snapshot, finalize, fresh_db
 
 
-WEB_V2_DIR = serve_ui_fixtures.DEFAULT_WEB_DIR
+WEB_APP_DIR = serve_ui_fixtures.DEFAULT_WEB_DIR
 FIXTURES_DIR = serve_ui_fixtures.DEFAULT_FIXTURES_DIR
 
 
@@ -43,7 +43,7 @@ def fixture_server():
     httpd = serve_ui_fixtures.serve(
         host="127.0.0.1",
         port=0,
-        web_dir=WEB_V2_DIR,
+        web_dir=WEB_APP_DIR,
         fixtures_dir=FIXTURES_DIR,
     )
     port = httpd.server_address[1]
@@ -63,7 +63,7 @@ def fastapi_client(tmp_path: Path) -> TestClient:
     build_snapshot(conn, db_path)
     finalize(conn, db_path)
     conn.close()
-    app = create_app(db_path, web_dir=WEB_V2_DIR)
+    app = create_app(db_path, web_dir=WEB_APP_DIR)
     return TestClient(app)
 
 

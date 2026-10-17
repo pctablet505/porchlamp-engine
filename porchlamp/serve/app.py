@@ -1,4 +1,4 @@
-"""Porchlamp v2 API: the endpoints `web/v2/` consumes, served
+"""Porchlamp v2 API: the endpoints `web/app/` consumes, served
 straight off the v2 store (`porchlamp/store/queries.py` + `porchlamp/store/reader.py`)
 through the wire contract (`porchlamp/serve/contract.py`).
 

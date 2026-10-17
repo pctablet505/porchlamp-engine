@@ -3,7 +3,7 @@
 //
 // Written to run cleanly under `node --test` (Node >= 18, stdlib only).
 //
-// Run: node --test web/v2/tests/unit.test.mjs
+// Run: node --test web/app/tests/unit.test.mjs
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -28,6 +28,8 @@ import {
   resolveOpenTargetKey,
   footerFieldsFor,
   repoToLoadFromState,
+  readPersistedTheme,
+  writePersistedTheme,
 } from "../state.js";
 import * as copy from "../copy.js";
 import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal, renderMobileSortBar, personaVisibleForState } from "../views/leaderboard.js";
@@ -231,6 +233,74 @@ test("reduce: SET_PAGE_SIZE can jump to a recomputed page in the same action", (
   state = reduce(state, { type: "SET_PAGE_SIZE", pageSize: 100, page: 1 });
   assert.equal(state.pageSize, 100);
   assert.equal(state.page, 1);
+});
+
+// ------------------------------------------------------- theme (state.js)
+// The theme choice is kept in localStorage under "porchlamp-theme". Earlier
+// builds kept it under "porchlamp-v2-theme"; a returning visitor's choice is
+// read from there when "porchlamp-theme" is absent, and moved to it.
+function memoryStorage(entries = {}) {
+  const items = new Map(Object.entries(entries));
+  return {
+    items: () => Object.fromEntries(items),
+    getItem: (key) => (items.has(key) ? items.get(key) : null),
+    setItem: (key, value) => {
+      items.set(key, String(value));
+    },
+    removeItem: (key) => {
+      items.delete(key);
+    },
+  };
+}
+
+test("theme: the choice is stored under porchlamp-theme, and the system theme stores nothing", () => {
+  const storage = memoryStorage();
+  writePersistedTheme(storage, "dark");
+  assert.deepEqual(storage.items(), { "porchlamp-theme": "dark" });
+  assert.equal(readPersistedTheme(storage), "dark");
+  writePersistedTheme(storage, "system");
+  assert.deepEqual(storage.items(), {});
+  assert.equal(readPersistedTheme(storage), "system");
+});
+
+test("theme: a returning visitor keeps the choice stored under the former key, moved once to porchlamp-theme", () => {
+  for (const theme of ["light", "dark"]) {
+    const storage = memoryStorage({ "porchlamp-v2-theme": theme });
+    assert.equal(readPersistedTheme(storage), theme);
+    assert.deepEqual(storage.items(), { "porchlamp-theme": theme });
+    assert.equal(readPersistedTheme(storage), theme);
+  }
+});
+
+test("theme: a choice under porchlamp-theme wins over the former key", () => {
+  const storage = memoryStorage({ "porchlamp-theme": "light", "porchlamp-v2-theme": "dark" });
+  assert.equal(readPersistedTheme(storage), "light");
+});
+
+test("theme: when the move cannot be written, this visit still gets the former choice and the next visit retries", () => {
+  const storage = memoryStorage({ "porchlamp-v2-theme": "dark" });
+  storage.setItem = () => {
+    throw new Error("QuotaExceededError");
+  };
+  assert.equal(readPersistedTheme(storage), "dark");
+  assert.deepEqual(storage.items(), { "porchlamp-v2-theme": "dark" });
+});
+
+test("theme: unavailable storage or an unknown stored value gives the system theme", () => {
+  const unavailable = {
+    getItem: () => {
+      throw new Error("SecurityError");
+    },
+    setItem: () => {
+      throw new Error("SecurityError");
+    },
+    removeItem: () => {
+      throw new Error("SecurityError");
+    },
+  };
+  assert.equal(readPersistedTheme(unavailable), "system");
+  assert.doesNotThrow(() => writePersistedTheme(unavailable, "dark"));
+  assert.equal(readPersistedTheme(memoryStorage({ "porchlamp-theme": "blue" })), "system");
 });
 
 // -------------------------------------------------------------- U-17
@@ -867,7 +937,7 @@ test("copy.js: tierLabel keeps S+ distinct from S and caps it only when the ceil
 });
 
 // --------------------------------------------------------------------- //
-// AUD-WEB H1: web/v2/views/drawer.js:351 reads copy.RETRY_LABEL for
+// AUD-WEB H1: web/app/views/drawer.js:351 reads copy.RETRY_LABEL for
 // the repo-detail retry button. That export was missing, so the button read
 // the literal text "undefined". It must be a real, non-empty label.
 // --------------------------------------------------------------------- //

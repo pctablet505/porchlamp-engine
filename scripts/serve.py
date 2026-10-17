@@ -46,7 +46,7 @@ _REPO_ROOT: Path = Path(__file__).resolve().parent.parent
 #: `06` sections 6/6.1: the v2 front end. `porchlamp.serve.app.create_app` mounts
 #: it with ``check_dir=False`` so a missing directory never crashes app
 #: construction, only requests for a page it cannot find.
-_WEB_V2_DIR: Path = _REPO_ROOT / "web" / "v2"
+_WEB_APP_DIR: Path = _REPO_ROOT / "web" / "app"
 _DEFAULT_DB: str = str(_REPO_ROOT / "data" / "porchlamp.db")
 
 
@@ -81,7 +81,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     # ever touches the v2 store connection or mounts anything --
     # belt-and-suspenders: a database refused here never reaches this line
     # at all.
-    app = create_app(args.db, web_dir=_WEB_V2_DIR)
+    app = create_app(args.db, web_dir=_WEB_APP_DIR)
     print(f"Porchlamp serve: http://127.0.0.1:{args.port}/ (API under /v1/porchlamp)")
     uvicorn.run(app, host="127.0.0.1", port=args.port)
 

@@ -7,7 +7,7 @@ read from the snapshot, then a static table of the top 50 projects of that cut, 
 (:mod:`porchlamp.serve.project_pages`).
 
 Nothing is typed that a record holds. The counts come from the leaderboards (ranked) and the report's facts (judged,
-black holes: :func:`report_pages.build_facts`); the lens names come from ``web/v2/copy.js`` and the lens weights from
+black holes: :func:`report_pages.build_facts`); the lens names come from ``web/app/copy.js`` and the lens weights from
 ``methodology.json``. What is typed here is the display names of the ecosystems and the one natural phrase for each
 lens in a title (:data:`ECOSYSTEM_PAGES`, :data:`LENS_PAGES`); a test pins both lists to the engine's own keys.
 ``scripts/verify_static_export.py`` recomputes every number and every table row and compares.
