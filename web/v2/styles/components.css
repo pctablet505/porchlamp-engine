@@ -955,6 +955,168 @@ input.control {
   background: var(--bg-surface-hover);
 }
 
+/* The not-in-snapshot drawer body and its opt-in live check (06 §3 C;
+ * components/livepanel.js). Every status pill carries its label as text, so
+ * colour is never the only signal. */
+.live-check {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.live-check:focus {
+  outline: none;
+}
+
+.live-check:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 4px;
+}
+
+.live-check-lede {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-body-md);
+}
+
+.live-check-title {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--text-h2);
+  font-weight: 600;
+}
+
+.live-check-start {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 var(--space-md);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-focus);
+  background: var(--bg-surface-elevated);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.live-check-start:hover {
+  background: var(--bg-surface-hover);
+}
+
+.live-check-note,
+.live-check-disclaimer,
+.live-check-foot {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.live-check-disclaimer {
+  padding: var(--space-xs) var(--space-sm);
+  border-left: 3px solid var(--border-strong);
+  background: var(--bg-surface-elevated);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+
+.live-check-status,
+.live-check-renamed,
+.live-check-description {
+  margin: 0;
+  font-size: var(--text-body-md);
+  color: var(--text-primary);
+}
+
+.live-check-description {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.live-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-xs) var(--space-md);
+  width: 100%;
+  margin: 0;
+}
+
+.live-fact dt {
+  font-size: var(--text-caption);
+  color: var(--text-muted);
+}
+
+.live-fact dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-body-md);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.live-gates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.live-gate {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.live-gate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.live-gate-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.live-gate-reason {
+  margin: 2px 0 0;
+  font-size: var(--text-caption);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.live-pill {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-strong);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.live-pill.is-pass,
+.live-pill.is-routed {
+  border-color: var(--coverage-full);
+}
+
+.live-pill.is-fail {
+  border-color: var(--coverage-below);
+}
+
+.live-pill.is-undecided,
+.live-pill.is-not-checked {
+  border-style: dashed;
+  color: var(--text-secondary);
+}
+
 .drawer h1 {
   font-size: var(--text-h1);
   margin: 0 0 var(--space-2xs);

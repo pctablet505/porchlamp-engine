@@ -283,7 +283,8 @@ class TestRepoDetailEndpoint:
     distinct from the `/evidence` sub-resource above) had NO test at all,
     positive or negative. The 404 case specifically matters because
     `views/drawer.js::renderDrawer` has a dedicated "genuinely not found"
-    copy (`copy.DRAWER_NOT_FOUND_TEXT`, see the sibling render test in
+    panel (`components/livepanel.js::renderNotInSnapshot`, which offers the
+    opt-in live check; see the sibling render test in
     `web/v2/tests/unit.test.mjs`) that is only reachable for a REAL 404 —
     an empty `200 {}` would leave the drawer silently rendering nothing
     useful instead. `test_unknown_repo_is_404` is written to fail red

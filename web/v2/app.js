@@ -67,6 +67,7 @@ import {
   flattenGroups,
 } from "./views/notranked.js";
 import { renderDrawer, classifyKindForLens } from "./views/drawer.js";
+import { parseRepoSlug, runLiveCheck } from "./livecheck.js";
 import { renderBrand } from "./components/brand.js";
 import { renderKeymapOverlay, actionForKeyEvent } from "./components/keymap.js";
 import { computeVisibleRange, rowKey, ROW_HEIGHT_PX, CARD_HEIGHT_PX, sortDirectionLabel, sortColumnLabel, syncHeaderSortDom } from "./components/table.js";
@@ -676,20 +677,98 @@ export function boot(win = window, doc = document) {
   }
 
   /**
+   * Case-insensitive resolution against the snapshot: `fetchRepoDetail` is
+   * exact-case (FNV shard hash on `owner/name` in static mode, `owner = ? AND
+   * name = ?` in SQL), whereas `q` search is case-insensitive. Returns
+   * `{ owner, name }` when the snapshot holds the repository under another
+   * letter casing, `null` when both ranked and not-ranked searches confirm it
+   * is absent, or `undefined` when a search could not tell.
+   */
+  async function resolveCanonicalInSnapshot(owner, name) {
+    const ownerLow = owner.toLowerCase();
+    const nameLow = name.toLowerCase();
+    const same = (r) =>
+      r && typeof r.owner === "string" && typeof r.name === "string" &&
+      r.owner.toLowerCase() === ownerLow && r.name.toLowerCase() === nameLow;
+    const s = store.getState();
+    for (const k of Object.keys(s.repoDetailByKey || {})) {
+      const [o, n] = k.split("/");
+      if (o && n && o.toLowerCase() === ownerLow && n.toLowerCase() === nameLow) return { owner: o, name: n };
+    }
+    for (const list of [
+      s.leaderboard && s.leaderboard.rows,
+      s.notRanked && s.notRanked.gated,
+      s.notRanked && s.notRanked.unrated,
+      s.notRanked && s.notRanked.persona_hidden,
+      s.matrix && s.matrix.points,
+    ]) {
+      const hit = Array.isArray(list) ? list.find(same) : null;
+      if (hit) return { owner: hit.owner, name: hit.name };
+    }
+    const q = `${owner}/${name}`;
+    const [lb, nr] = await Promise.all([
+      api.fetchLeaderboard({ q, page_size: 100 }),
+      api.fetchNotRankedFull({ persona: "balanced", q }),
+    ]);
+    if (lb && lb.ok && Array.isArray(lb.data.rows)) {
+      const hit = lb.data.rows.find(same);
+      if (hit) return { owner: hit.owner, name: hit.name };
+    }
+    if (nr && nr.ok && nr.data) {
+      for (const group of ["gated", "unrated", "persona_hidden"]) {
+        const hit = Array.isArray(nr.data[group]) ? nr.data[group].find(same) : null;
+        if (hit) return { owner: hit.owner, name: hit.name };
+      }
+    }
+    const lbComplete = Boolean(lb && lb.ok && Array.isArray(lb.data.rows) && (lb.data.total || 0) <= lb.data.rows.length);
+    const nrComplete = Boolean(nr && nr.ok && nr.data && !nr.data.truncated);
+    return lbComplete && nrComplete ? null : undefined;
+  }
+
+  /**
    * Fetches the repo record (`GET /v1/porchlamp/repos/{o}/{n}`) — called by `openRepo`
    * regardless of which screen it was opened from, ensuring the drawer is
    * independent of any state slice a particular screen keeps in memory (Matrix
    * point list, Compare per-chip cache, etc.). Cached per repo, matching
-   * `loadEvidence`.
+   * `loadEvidence`. On a 404, checks whether the snapshot holds the repository
+   * under another letter casing before asserting that it is absent.
    */
   function loadRepoDetail(owner, name) {
     const key = `${owner}/${name}`;
     if (store.getState().repoDetailByKey[key]) return Promise.resolve();
     store.dispatch({ type: "REPO_DETAIL_LOADING" });
-    return api.fetchRepoDetail(owner, name).then((result) => {
+    return api.fetchRepoDetail(owner, name).then(async (result) => {
       if (!result.ok) {
+        if (result.error && result.error.status === 404) {
+          const canonical = await resolveCanonicalInSnapshot(owner, name);
+          if (canonical && (canonical.owner !== owner || canonical.name !== name)) {
+            if (store.getState().repo === key) {
+              const canonicalKey = `${canonical.owner}/${canonical.name}`;
+              store.dispatch({ type: "SET_CURSOR", key: canonicalKey });
+              store.dispatch({ type: "OPEN_REPO", repo: canonicalKey });
+              replaceUrl(store.getState());
+              loadRepoDetail(canonical.owner, canonical.name);
+              loadEvidence(canonical.owner, canonical.name);
+            }
+            return;
+          }
+          if (canonical === undefined) {
+            if (store.getState().repo === key) {
+              store.dispatch({
+                type: "REPO_DETAIL_ERROR",
+                repo: key,
+                error: {
+                  endpoint: result.error.endpoint || `/v1/porchlamp/repos/${owner}/${name}`,
+                  status: 503,
+                  detail: "could not confirm whether the snapshot holds this repository under different casing",
+                },
+              });
+            }
+            return;
+          }
+        }
         if (store.getState().repo === key) {
-          store.dispatch({ type: "REPO_DETAIL_ERROR", error: result.error });
+          store.dispatch({ type: "REPO_DETAIL_ERROR", repo: key, error: result.error });
         }
         return;
       }
@@ -969,6 +1048,12 @@ export function boot(win = window, doc = document) {
         else if (doc.activeElement.matches?.(".drawer-github-link")) restoreSelector = ".drawer-github-link";
         else if (doc.activeElement.matches?.("[data-repo-detail-retry]")) restoreSelector = "[data-repo-detail-retry]";
         else if (doc.activeElement.matches?.("[data-evidence-retry]")) restoreSelector = "[data-evidence-retry]";
+        // Keep focus on the live-check or canonical-open button when it still
+        // exists after a re-render; when the button was replaced by the status
+        // line or result, fall back to its enclosing `[data-live-check-region]`.
+        else if (doc.activeElement.matches?.("[data-live-check]")) restoreSelector = "[data-live-check]";
+        else if (doc.activeElement.matches?.("[data-live-open]")) restoreSelector = "[data-live-open]";
+        else if (doc.activeElement.closest?.("[data-live-check-region]")) restoreSelector = "[data-live-check-region]";
         else if (doc.activeElement.tagName === "SUMMARY") {
           restoreSummaryIndex = Array.from(drawerRoot.querySelectorAll("summary")).indexOf(doc.activeElement);
         }
@@ -979,7 +1064,10 @@ export function boot(win = window, doc = document) {
         const target =
           restoreSummaryIndex >= 0
             ? drawerRoot.querySelectorAll("summary")[restoreSummaryIndex]
-            : drawerRoot.querySelector(restoreSelector);
+            : drawerRoot.querySelector(restoreSelector) ||
+              ((restoreSelector === "[data-live-check]" || restoreSelector === "[data-live-open]")
+                ? drawerRoot.querySelector("[data-live-check-region]")
+                : null);
         (target || drawerRoot.querySelector("[data-drawer-close]"))?.focus();
       }
     }
@@ -1140,12 +1228,49 @@ export function boot(win = window, doc = document) {
   });
 
   function openRepo(owner, name) {
-    const key = `${owner}/${name}`;
+    const slug = parseRepoSlug(`${owner}/${name}`);
+    const o = slug ? slug.owner : owner;
+    const n = slug ? slug.name : name;
+    const key = `${o}/${n}`;
     store.dispatch({ type: "SET_CURSOR", key });
     store.dispatch({ type: "OPEN_REPO", repo: key });
     pushUrl(store.getState());
-    loadRepoDetail(owner, name);
-    loadEvidence(owner, name);
+    loadRepoDetail(o, n);
+    loadEvidence(o, n);
+  }
+
+  // ------------------------------------- live check (outside the snapshot)
+  /** D-GATE-2's fork question, from Porchlamp's own snapshot (no GitHub request): true, false, or null. */
+  async function isInUniverse(owner, name) {
+    const result = await api.fetchRepoDetail(owner, name);
+    if (result.ok) return true;
+    if (!result.error || result.error.status !== 404) return null;
+    const canonical = await resolveCanonicalInSnapshot(owner, name);
+    if (canonical) return true;
+    return canonical === null ? false : null;
+  }
+
+  /**
+   * Runs ONLY from the button the not-in-snapshot drawer shows
+   * (components/livepanel.js): the site contacts api.github.com for no other
+   * reason. One check per repository at a time; a finished one is kept in
+   * memory (`liveCheckByKey`) until the page reloads, so reopening the drawer
+   * costs nothing.
+   */
+  function startLiveCheck(rawKey) {
+    const slug = parseRepoSlug(rawKey);
+    if (!slug) return;
+    const key = `${slug.owner}/${slug.name}`;
+    const existing = store.getState().liveCheckByKey[key];
+    if (existing && existing.status === "loading") return;
+    store.dispatch({ type: "LIVE_CHECK_LOADING", key });
+    const fetchImpl = typeof win.fetch === "function" ? win.fetch.bind(win) : undefined;
+    runLiveCheck(slug.owner, slug.name, { fetchImpl, isInUniverse }).then((outcome) => {
+      store.dispatch({ type: "LIVE_CHECK_DONE", key, outcome });
+      const open = parseRepoSlug(store.getState().repo || "");
+      // Error banners carry `role="alert"` and are announced by the browser; announce only a completed check.
+      if (outcome.ok && open && `${open.owner}/${open.name}` === key) announce(copy.liveCheckAnnouncement(outcome));
+    });
   }
 
   function closeDrawer() {
@@ -1681,6 +1806,19 @@ export function boot(win = window, doc = document) {
     }
     if (evt.target.closest("[data-drawer-close]") || evt.target.matches("[data-drawer-backdrop]")) {
       closeDrawer();
+      return;
+    }
+    const liveCheckBtn = evt.target.closest("[data-live-check]");
+    if (liveCheckBtn) {
+      startLiveCheck(liveCheckBtn.dataset.liveCheck);
+      return;
+    }
+    const liveOpenBtn = evt.target.closest("[data-live-open]");
+    if (liveOpenBtn) {
+      // GitHub knows the repository by another name (renamed, or different
+      // casing) -- which the snapshot may well hold: open that drawer.
+      const slug = parseRepoSlug(liveOpenBtn.dataset.liveOpen);
+      if (slug) openRepo(slug.owner, slug.name);
       return;
     }
     if (evt.target.closest("[data-evidence-retry]")) {

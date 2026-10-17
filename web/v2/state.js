@@ -14,6 +14,8 @@
 // `reduce`, `countRankChanges`) are exported separately from the store
 // singleton so they stay testable without a DOM or a running server.
 
+import { parseRepoSlug } from "./livecheck.js";
+
 const PERSISTED_THEME_KEY = "porchlamp-v2-theme";
 
 //: The page sizes the pagination control offers. Mirrors
@@ -112,6 +114,21 @@ export function serializeCompareParam(repos) {
   return repos.join(",");
 }
 
+/**
+ * Normalise a repository parameter (`"owner/name"`, a `.git`-suffixed name,
+ * trailing spaces or a pasted `github.com` URL) to `"owner/name"` when
+ * `parseRepoSlug` accepts it, so `?repo=bulk/repo-0133.git` or
+ * `?repo=bulk/repo-0133%20` opens the real record instead of 404ing on the raw
+ * suffix and then claiming the trimmed name is absent from the snapshot.
+ * Malformed strings that fail `parseRepoSlug` stay untouched so the drawer
+ * still renders the plain not-found state for them.
+ */
+export function normalizeRepoParam(value) {
+  if (typeof value !== "string" || !value) return null;
+  const slug = parseRepoSlug(value);
+  return slug ? `${slug.owner}/${slug.name}` : value;
+}
+
 export function defaultState() {
   return {
     persona: "balanced",
@@ -191,6 +208,10 @@ export function defaultState() {
     repoDetailByKey: {}, // "owner/name" -> the flat RepoDetailResponse (kind is derived client-side, views/drawer.js::classifyKind)
     repoDetailLoading: false,
     repoDetailError: null, // { endpoint, status, detail } for the CURRENTLY open repo, if it failed
+    // Opt-in live checks for repositories outside the snapshot (web/v2/livecheck.js),
+    // kept in memory until the page reloads, so reopening a drawer never spends the visitor's
+    // GitHub allowance twice: "owner/name" -> { status: "loading" } | { status: "done", outcome, atMs }.
+    liveCheckByKey: {},
 
     selectedRepoKey: null, // "owner/name" — J/K cursor; survives patches (keyed, not index-based)
     announcement: "", // aria-live polite text
@@ -235,7 +256,7 @@ export function parseSearch(search) {
     const n = parseInt(qs.get("page_size"), 10);
     if (PAGE_SIZES.includes(n)) out.pageSize = n;
   }
-  if (qs.has("repo")) out.repo = qs.get("repo") || null;
+  if (qs.has("repo")) out.repo = normalizeRepoParam(qs.get("repo"));
   if (qs.has("tab")) {
     const tab = qs.get("tab");
     out.tab = VALID_TABS.includes(tab) ? tab : "ranked";
@@ -397,6 +418,7 @@ export function reduce(state, action) {
     case "SET_PARAMS": {
       const rawPayload = action.payload || {};
       const { resetTabSlices: payloadReset, ...payload } = rawPayload;
+      if (payload.repo !== undefined) payload.repo = normalizeRepoParam(payload.repo);
       const shouldResetSlices = Boolean(action.resetTabSlices || payloadReset);
       const nextTab = payload.tab !== undefined ? payload.tab : state.tab;
       const personaChanged = payload.persona && payload.persona !== state.persona;
@@ -541,12 +563,13 @@ export function reduce(state, action) {
       };
     }
     case "OPEN_REPO": {
-      const validRepo = isValidRepoKey(action.repo);
-      const hasDetail = !!(state.repoDetailByKey && state.repoDetailByKey[action.repo]);
-      const hasEvidence = !!(state.evidenceByRepo && state.evidenceByRepo[action.repo]);
+      const repo = normalizeRepoParam(action.repo);
+      const validRepo = isValidRepoKey(repo);
+      const hasDetail = !!(state.repoDetailByKey && state.repoDetailByKey[repo]);
+      const hasEvidence = !!(state.evidenceByRepo && state.evidenceByRepo[repo]);
       return {
         ...state,
-        repo: action.repo,
+        repo,
         repoDetailLoading: validRepo && !hasDetail,
         evidenceLoading: validRepo && !hasEvidence,
         evidenceError: null,
@@ -632,6 +655,24 @@ export function reduce(state, action) {
       const isCurrentRepo = !action.repo || !state.repo || action.repo === state.repo;
       if (!isCurrentRepo) return state;
       return { ...state, repoDetailLoading: false, repoDetailError: action.error };
+    }
+
+    // ---------------- live check for a repository outside the snapshot (C)
+    case "LIVE_CHECK_LOADING":
+      return { ...state, liveCheckByKey: { ...state.liveCheckByKey, [action.key]: { status: "loading" } } };
+    case "LIVE_CHECK_DONE": {
+      const entry = { status: "done", outcome: action.outcome };
+      const next = { ...state.liveCheckByKey, [action.key]: entry };
+      const fullName =
+        action.outcome && action.outcome.ok && action.outcome.result && action.outcome.result.repo
+          ? action.outcome.result.repo.fullName
+          : "";
+      const canonical = fullName ? parseRepoSlug(fullName) : null;
+      if (canonical) {
+        const canonicalKey = `${canonical.owner}/${canonical.name}`;
+        if (!next[canonicalKey]) next[canonicalKey] = entry;
+      }
+      return { ...state, liveCheckByKey: next };
     }
 
     // ------------------------------------------------------------ Matrix (B)

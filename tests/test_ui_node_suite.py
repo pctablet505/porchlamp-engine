@@ -1,6 +1,6 @@
 """Pytest wrapper for the Node.js frontend test suite (`web/v2/tests/`).
 
-Executes `node --test` on `unit.test.mjs` and `render.perf.test.mjs`. An
+Executes `node --test` on `unit.test.mjs`, `render.perf.test.mjs` and `livecheck.test.mjs`. An
 absent Node.js interpreter is a failure, not a silent skip (H4): the suite
 only skips when `PORCHLAMP_ALLOW_MISSING_NODE=1` is set explicitly. `find_node`
 looks on `PATH`, then `PORCHLAMP_NODE_BIN`, then the usual install locations, so an
@@ -20,6 +20,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 UNIT_TEST_MJS = REPO_ROOT / "web" / "v2" / "tests" / "unit.test.mjs"
 PERF_TEST_MJS = REPO_ROOT / "web" / "v2" / "tests" / "render.perf.test.mjs"
+LIVECHECK_TEST_MJS = REPO_ROOT / "web" / "v2" / "tests" / "livecheck.test.mjs"
 
 #: Where to look for a Node.js interpreter, in order, when it is not on
 #: ``PATH``. The point of this suite is that the JavaScript tests actually
@@ -108,7 +109,7 @@ def test_node_frontend_unit_and_perf_suite() -> None:
             "at an interpreter, or set PORCHLAMP_ALLOW_MISSING_NODE=1 to skip it explicitly."
         )
     result = subprocess.run(
-        [node_bin, "--test", str(UNIT_TEST_MJS), str(PERF_TEST_MJS)],
+        [node_bin, "--test", str(UNIT_TEST_MJS), str(PERF_TEST_MJS), str(LIVECHECK_TEST_MJS)],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,

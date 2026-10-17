@@ -1,0 +1,180 @@
+{
+  "_comment": "D-GATE-3 SPDX reading, pinned for porchlamp.core.gates (_is_parseable_spdx_expression, _is_osi_approved_expression) and its port web/v2/livecheck.js. Expected values were produced by the Python gate; tests/test_ui_livecheck_port.py and web/v2/tests/livecheck.test.mjs each check their own implementation against this file.",
+  "cases": [
+    {
+      "expression": "MIT",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "mit",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "Apache-2.0",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "MIT OR Apache-2.0",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "(MIT OR Apache-2.0) AND BSD-3-Clause",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "Apache-2.0 WITH LLVM-exception",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "GPL-2.0+",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "GPL-2.0-or-later",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "MIT AND BUSL-1.1",
+      "parseable": true,
+      "osi": false
+    },
+    {
+      "expression": "MIT OR BUSL-1.1",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "BUSL-1.1",
+      "parseable": true,
+      "osi": false
+    },
+    {
+      "expression": "SSPL-1.0",
+      "parseable": true,
+      "osi": false
+    },
+    {
+      "expression": "Elastic-2.0",
+      "parseable": true,
+      "osi": false
+    },
+    {
+      "expression": "NOASSERTION",
+      "parseable": true,
+      "osi": false
+    },
+    {
+      "expression": "OTHER",
+      "parseable": true,
+      "osi": false
+    },
+    {
+      "expression": "MIT/X11",
+      "parseable": false,
+      "osi": false
+    },
+    {
+      "expression": "MIT,Apache-2.0",
+      "parseable": false,
+      "osi": false
+    },
+    {
+      "expression": "",
+      "parseable": false,
+      "osi": false
+    },
+    {
+      "expression": "   ",
+      "parseable": false,
+      "osi": false
+    },
+    {
+      "expression": "(MIT",
+      "parseable": false,
+      "osi": false
+    },
+    {
+      "expression": "MIT)",
+      "parseable": false,
+      "osi": false
+    },
+    {
+      "expression": "MIT OR",
+      "parseable": false,
+      "osi": false
+    },
+    {
+      "expression": "OR MIT",
+      "parseable": false,
+      "osi": false
+    },
+    {
+      "expression": "MIT WITH",
+      "parseable": false,
+      "osi": false
+    },
+    {
+      "expression": "MIT AND (Apache-2.0 OR BSD-2-Clause)",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "LicenseRef-Proprietary",
+      "parseable": true,
+      "osi": false
+    },
+    {
+      "expression": "Unlicense",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "0BSD",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "CC0-1.0",
+      "parseable": true,
+      "osi": false
+    },
+    {
+      "expression": "CC-BY-4.0",
+      "parseable": true,
+      "osi": false
+    },
+    {
+      "expression": "WTFPL",
+      "parseable": true,
+      "osi": false
+    },
+    {
+      "expression": "Zlib",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "zlib",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "ISC",
+      "parseable": true,
+      "osi": true
+    },
+    {
+      "expression": "MPL-2.0 WITH (x)",
+      "parseable": false,
+      "osi": false
+    }
+  ]
+}

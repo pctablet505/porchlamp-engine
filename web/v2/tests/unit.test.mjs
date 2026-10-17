@@ -653,25 +653,33 @@ test("compareShellKey: a chip-count shape transition (empty / partial-min / tabl
 });
 
 // --------------------------------------------------------------------- //
-// Repo-detail error rendering: a 404 renders copy.DRAWER_NOT_FOUND_TEXT
-// without a retry button, while 500/timeout/network errors render the
-// retry banner.
+// Repo-detail error rendering: a 404 renders the not-in-snapshot panel
+// (components/livepanel.js) without a retry button, while
+// 500/timeout/network errors render the retry banner.
 // --------------------------------------------------------------------- //
 
 function drawerStateFor(overrides) {
   return { ...defaultState(), repo: "nobody/nothing", repoDetailByKey: {}, repoDetailLoading: false, repoDetailError: null, ...overrides };
 }
 
-test("renderDrawer: a 404 (genuinely not found) shows copy.DRAWER_NOT_FOUND_TEXT and no retry button", () => {
+test("renderDrawer: a 404 (genuinely not found) shows the not-in-snapshot panel with the live-check button and no retry button", () => {
   const html = renderDrawer(drawerStateFor({ repoDetailError: { endpoint: "/v1/porchlamp/repos/nobody/nothing", status: 404, detail: "no such repo: nobody/nothing" } }));
-  assert.ok(html.includes(copy.DRAWER_NOT_FOUND_TEXT), "must render the not-found copy for a 404");
+  assert.ok(html.includes(escapeHtml(copy.liveNotInSnapshotText("nobody/nothing", null))), "must say the repository is not in the snapshot");
+  assert.ok(html.includes('data-live-check="nobody/nothing"'), "a 404 offers the opt-in live check");
   assert.ok(!html.includes("data-repo-detail-retry"), "a genuine 404 must not offer a retry button (it will 404 again)");
+});
+
+test("renderDrawer: no record and no error (a malformed key never fetches) keeps the plain not-found copy and offers no live check", () => {
+  const html = renderDrawer(drawerStateFor({}));
+  assert.ok(html.includes(copy.DRAWER_NOT_FOUND_TEXT));
+  assert.ok(!html.includes("data-live-check"));
 });
 
 test("renderDrawer: a non-404 error (500/timeout/network) shows the retry banner, not the not-found copy", () => {
   for (const status of [500, "timeout", 0]) {
     const html = renderDrawer(drawerStateFor({ repoDetailError: { endpoint: "/v1/porchlamp/repos/nobody/nothing", status, detail: "boom" } }));
     assert.ok(!html.includes(copy.DRAWER_NOT_FOUND_TEXT), `status=${status}: must not show the not-found copy`);
+    assert.ok(!html.includes("data-live-check"), `status=${status}: must not offer the live check (the snapshot may hold it)`);
     assert.ok(html.includes("data-repo-detail-retry"), `status=${status}: must offer a retry button`);
   }
 });
@@ -680,6 +688,7 @@ test("renderDrawer: still loading shows the loading copy, neither not-found nor 
   const html = renderDrawer(drawerStateFor({ repoDetailLoading: true }));
   assert.ok(html.includes(copy.DRAWER_LOADING_TEXT));
   assert.ok(!html.includes(copy.DRAWER_NOT_FOUND_TEXT));
+  assert.ok(!html.includes("data-live-check"));
   assert.ok(!html.includes("data-repo-detail-retry"));
 });
 
@@ -2849,7 +2858,8 @@ test("lastPageWhenPastEnd: a page past the end of a non-empty result goes to the
   assert.equal(lastPageWhenPastEnd({ rows: [], total: undefined }, 2, 20), null);
 });
 
-/** The text of every string literal in JavaScript source, with comments skipped. */
+/** The text of every string literal in JavaScript source, with comments skipped, and object keys (a literal between
+ * `{` or `,` and `:`) skipped too: a key is looked up, never shown. */
 function stringLiterals(source) {
   const literals = [];
   let i = 0;
@@ -2867,7 +2877,12 @@ function stringLiterals(source) {
         if (source[j] === "\\") { text += source[j + 1]; j += 2; continue; }
         text += source[j++];
       }
-      literals.push(text);
+      let before = i - 1;
+      while (before >= 0 && /\s/.test(source[before])) before--;
+      let after = j + 1;
+      while (after < source.length && /\s/.test(source[after])) after++;
+      const isObjectKey = (source[before] === "{" || source[before] === ",") && source[after] === ":";
+      if (!isObjectKey) literals.push(text);
       i = j + 1;
     } else {
       i++;
@@ -2881,6 +2896,10 @@ const REGISTER_ID = /D-[A-Z]+-\d|RFC-\d/;
 test("copy.js: no visible string holds a register id such as D-GATE-5 or RFC-0008", () => {
   assert.ok(REGISTER_ID.test(stringLiterals('const x = "Rule (D-GATE-5, RFC-0008)"; // D-GATE-1')[0]), "the scan finds an id in a string");
   assert.deepEqual(stringLiterals('// "D-GATE-5"\nconst k = 1; /* RFC-0008 */'), [], "comments are skipped");
+  assert.deepEqual(stringLiterals('const m = { "D-GATE-1": "Software project",\n  "D-GATE-2": "Licensed" };'),
+    ["Software project", "Licensed"], "object keys are skipped, their values are not");
+  assert.deepEqual(stringLiterals('const s = ok ? "D-GATE-5 passed" : "D-GATE-5 failed";'),
+    ["D-GATE-5 passed", "D-GATE-5 failed"], "both branches of a ternary are values");
   const literals = stringLiterals(readFileSync(path.join(WEB_ROOT, "copy.js"), "utf8"));
   assert.ok(literals.length > 200, `the scan must cover the file (${literals.length} literals)`);
   assert.deepEqual(literals.filter((text) => REGISTER_ID.test(text)), []);

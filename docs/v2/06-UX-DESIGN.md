@@ -103,6 +103,47 @@ coverage and the snapshot id. It is always the balanced rating, whatever lens
 is active (U-4). The image does not change when a later snapshot changes the
 rating; the drawer behind the link is the record.
 
+#### Repositories outside the snapshot: live check
+
+A drawer opened for a repository the snapshot does not hold (a real 404 from
+the detail fetch, after checking whether the snapshot already holds that
+`owner/name` under different casing) says so — "owner/name is not in the
+{snapshot id} snapshot, so Porchlamp has no score for it" — and offers one
+button, "Check it live on GitHub". A Ranked or Not-ranked search that finds
+nothing and is itself a repository name (`owner/name`, or a pasted github.com
+address) offers "Look up owner/name", which opens that drawer.
+
+Nothing is requested until the visitor presses the button. Then their own
+browser (`web/v2/livecheck.js`) asks `api.github.com` for four public answers —
+the repository, its recursive file tree, one page of default-branch commits
+from the vitality window, and the 30 newest pull requests across all states —
+after a free `GET /rate_limit` that stops before spending anything when fewer
+than five of the 60 unauthenticated requests an hour GitHub allows the
+visitor's network are left (four requests, plus one reserved in case a renamed
+repository costs a GitHub redirect). No credentials, no referrer, no token, no
+Porchlamp server and no write: the project runs and pays for nothing, and the
+only allowance spent is the visitor's.
+
+The panel then shows GitHub's facts (stars labelled as unaudited, language,
+dates, SPDX id) and the verdict of each eligibility gate public data can
+decide — D-GATE-1..4 and D-GATE-6 — with the snapshot's own rules: the rule
+constants mirror the engine's and `tests/test_ui_livecheck_port.py` fails when
+one drifts; the SPDX, bot, manifest, licence-file, marker, vitality-commit and
+decided-PR readings are pinned by case files the Python functions produced
+(`web/v2/tests/cases/spdx_osi.json`, `gate_rules.json`). A fork's parent is
+looked up in the snapshot itself, never on GitHub. Where one page, the 30-PR
+sample, an unreadable/empty endpoint or a truncated tree cannot settle a gate,
+it reads "Can't tell" — never a guessed pass or fail — and when five or more
+outside human PRs are present (or the 30-PR sample is full) a D-GATE-6 pass
+notes that PR-comment review hand-off to another tool is not checked live.
+D-GATE-5 (black hole) is always "Not checked live": it needs the replies and
+reviews on every outside pull request. The result is never a score, a tier or
+a rank, and is labelled "not part of the verified snapshot"; it is kept in
+memory until the page reloads, so reopening the drawer costs nothing.
+Everything GitHub returns is escaped, and the page's Content-Security-Policy
+(`index.html` meta and `porchlamp/serve/security.py`) allows `connect-src` to
+`api.github.com` and nowhere else.
+
 ### D. Configure weights
 
 Five sliders with lock toggles and proportional normalisation (from the
@@ -256,4 +297,6 @@ replace the "subtree replacement" sentence in §6:
    fixtures.
 8. Keymap works for every key in §5; focus returns to the row on Esc.
 9. Contrast test passes for both themes.
-10. Zero external requests (existing test).
+10. Zero external requests (existing test). One opt-in exception: the live
+    check (§3 C) contacts `api.github.com` only after its button is pressed;
+    no other module may name that origin (`tests/test_ui_no_external_resources.py`).
