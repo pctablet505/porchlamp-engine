@@ -1250,3 +1250,39 @@ def test_projects_left_undecided_for_their_records_get_their_own_measurement_bul
     del inputs["stats"]["gate5_undecided_rule_inputs"]
     with pytest.raises(report_pages.ReportError, match="gate5_undecided_rule_inputs"):
         report_pages.build_facts(**inputs)
+
+
+def test_projects_whose_pr_record_is_cut_get_their_own_measurement_bullet(built):
+    """The stats file's gate5_undecided_cut_record is printed after the rule-inputs bullet, with the one cap the cut
+    records stopped at and the window's start; each number is a slot, so the view prints it as a hook. None gives no
+    bullet; a stats file without the count, or whose cut records name no single cap, is refused."""
+    inputs = _inputs(built)
+
+    def bullets(rule_inputs, cut, caps):
+        inputs["stats"].update(
+            gate5_undecided_rule_inputs=rule_inputs, gate5_undecided_cut_record=cut, gate5_undecided_cut_record_caps=caps
+        )
+        facts = report_pages.build_facts(**inputs)
+        record = report_pages.report_json(facts)
+        return facts, record, [_fill(t, record["values"]) for t in record["sentences"]["method"]]
+
+    facts, record, both = bullets(1234, 868, [500])
+    start = f"{facts.window_start.day} {facts.window_start:%B}"
+    assert len(both) == 5 and both[2].startswith("Another 1,234 licensed, maintained projects")
+    assert both[3] == (
+        f"We could not judge 868 busy projects yet: we hold only the newest 500 pull requests of each, and they do not "
+        f"reach back to {start}."
+    )
+    assert (record["values"]["undecided_cut"], record["values"]["pr_cap"]) == ("868", "500")
+    assert all(f"{{{slot}}}" in record["sentences"]["method"][3] for slot in ("undecided_cut", "pr_cap", "window_start"))
+    _facts, record, alone = bullets(0, 2001, [300])
+    assert len(alone) == 4 and alone[2].startswith("We could not judge 2,001 busy projects yet: we hold only the newest 300 ")
+    _facts, record, none = bullets(0, 0, [])
+    assert len(none) == 3 and not any("could not judge" in bullet for bullet in none)
+    assert "undecided_cut" not in record["values"] and "pr_cap" not in record["values"]
+    for caps in ([], [500, 1000], [None], [None, 500], None):
+        with pytest.raises(report_pages.ReportError, match="gate5_undecided_cut_record_caps"):
+            bullets(0, 7, caps)
+    del inputs["stats"]["gate5_undecided_cut_record"]
+    with pytest.raises(report_pages.ReportError, match="gate5_undecided_cut_record"):
+        report_pages.build_facts(**inputs)
