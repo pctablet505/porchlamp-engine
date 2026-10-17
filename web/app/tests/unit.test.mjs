@@ -1130,8 +1130,8 @@ test("table: every column header carries data-col so th and td can be targeted t
 const UI_FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tests", "fixtures", "ui");
 const METHODOLOGY_DOC = JSON.parse(readFileSync(path.join(UI_FIXTURES, "methodology.json"), "utf8"));
 const SNAPSHOT_DOC = JSON.parse(readFileSync(path.join(UI_FIXTURES, "snapshot.json"), "utf8"));
-function methodologyShell(snapshot, doc = METHODOLOGY_DOC) {
-  return renderMethodologyShell({ methodology: doc, snapshot, methodologyLoading: false, methodologyError: null });
+function methodologyShell(snapshot, doc = METHODOLOGY_DOC, report = null) {
+  return renderMethodologyShell({ methodology: doc, snapshot, report, methodologyLoading: false, methodologyError: null });
 }
 
 test("methodology: the index and the body come from one list (same ids, same order, each once)", () => {
@@ -1177,13 +1177,14 @@ test("brand: the header carries the symbol (decorative), the name and the slogan
 });
 
 test("methodology: Why Porchlamp sits above the document, each paragraph once, and only once the document has loaded", () => {
-  const html = methodologyShell(SNAPSHOT_DOC);
+  const html = methodologyShell(SNAPSHOT_DOC, METHODOLOGY_DOC, REPORT_EXAMPLE);
   const why = html.indexOf('<section class="why-card"');
   assert.ok(why > -1, "the Why section renders");
   assert.ok(why < html.indexOf('<div class="doc-layout"'), "and comes before the document");
   assert.ok(html.includes(`>${escapeHtml(copy.WHY_HEADING)}</h2>`));
   for (const paragraph of copy.WHY_PARAGRAPHS) {
-    assert.equal(html.split(`<p>${escapeHtml(paragraph)}</p>`).length - 1, 1, paragraph.slice(0, 40));
+    const drawn = paragraph === copy.WHY_FINDING_TEMPLATE ? fillFromReport(paragraph, REPORT_EXAMPLE) : escapeHtml(paragraph);
+    assert.equal(html.split(`<p>${drawn}</p>`).length - 1, 1, paragraph.slice(0, 40));
   }
   const loading = renderMethodologyShell({ methodology: null, snapshot: null, methodologyLoading: true, methodologyError: null });
   assert.ok(!loading.includes("why-card"), "no Why section while the document is loading");
@@ -1390,15 +1391,15 @@ test("index.html carries absolute link-preview tags and the preview image exists
   assert.equal(meta("name", "twitter:card"), "summary_large_image");
   for (const k of ["og:title", "og:description", "og:image:alt"]) assert.ok(meta("property", k), k);
   assert.match(html, /<title>Porchlamp rankings: find the projects that leave the light on<\/title>/);
-  assert.match(html, /<main class="app-main" id="app-main" tabindex="-1">\s*<article class="seo-fallback">/);
-  assert.match(html, /Stars don't review pull requests/);
+  // The frame is empty: the export's prerender draws the ranked view into it (web/prerender.mjs).
+  assert.match(html, /<main class="app-main" id="app-main" tabindex="-1">\s*<\/main>/);
   const png = readFileSync(path.join(here, "..", "og.png"));
   assert.equal(png.subarray(1, 4).toString(), "PNG");
   assert.equal(png.readUInt32BE(16), 1200, "og:image:width matches the file");
   assert.equal(png.readUInt32BE(20), 630, "og:image:height matches the file");
 });
 
-test('SEO: "Porchlamp rankings" leads the title, description, static h1, structured data and the leaderboard heading', () => {
+test('SEO: "Porchlamp rankings" leads the title, description and the leaderboard heading', () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const html = readFileSync(path.join(here, "..", "index.html"), "utf8");
   const title = html.match(/<title>([^<]*)<\/title>/)[1];
@@ -1407,43 +1408,12 @@ test('SEO: "Porchlamp rankings" leads the title, description, static h1, structu
   assert.ok(title.length <= 65, `title is ${title.length} chars, search results cut it near 60`);
   assert.match(description, /^Porchlamp rankings: /);
   assert.ok(description.length <= 160, `description is ${description.length} chars`);
-  assert.match(html, /<h1>Porchlamp rankings<\/h1>/);
-  const ld = JSON.parse(html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/)[1]);
-  const site = ld["@graph"].find((n) => n["@type"] === "WebSite");
-  assert.ok(site.alternateName.includes("Porchlamp rankings"));
-  assert.equal(ld["@graph"].find((n) => n["@type"] === "WebPage").name, title);
   assert.equal(copy.LEADERBOARD_HEADING, "Porchlamp rankings");
   const view = readFileSync(path.join(here, "..", "views", "leaderboard.js"), "utf8");
   assert.match(view, /id="leaderboard-heading"[^`]*\$\{escapeHtml\(copy\.LEADERBOARD_HEADING\)\}/);
 });
 
-// E7: the Dataset lives on the report page (its licence is pinned in tests/test_report_pages.py); the home page
-// keeps the site, the person, the page and the top-10 list, and points the page's `about` at the report's Dataset.
-test("E7: the home JSON-LD has no SoftwareApplication or Dataset, names the report's Dataset, and lists project pages", () => {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const html = readFileSync(path.join(here, "..", "index.html"), "utf8");
-  const base = html.match(/<link rel="canonical" href="([^"]*)">/)[1];
-  const ld = JSON.parse(html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/)[1]);
-  const types = ld["@graph"].map((n) => n["@type"]);
-  assert.ok(!types.includes("SoftwareApplication"), "no software-application markup");
-  assert.ok(!types.includes("Dataset"), "the report page carries the Dataset");
-  assert.deepEqual(types, ["Person", "WebSite", "WebPage", "ItemList"]);
-  const webpage = ld["@graph"].find((n) => n["@type"] === "WebPage");
-  assert.deepEqual(webpage.about, { "@id": `${base}black-holes/#dataset` }, "about names the report's Dataset @id");
-  const items = ld["@graph"].find((n) => n["@type"] === "ItemList").itemListElement;
-  assert.equal(items.length, 10);
-  for (const item of items) {
-    assert.ok(item.url.startsWith(`${base}projects/`), item.url);
-    assert.match(item.url.slice(base.length), /^projects\/[a-z0-9._-]+\/[a-z0-9._-]+\/$/, "a lower-case project page address");
-  }
-  assert.ok(!JSON.stringify(ld).includes("?repo="), "no address in the JSON-LD is a ?repo= link");
-});
-
-// The ten landing pages (porchlamp/serve/landing_pages.py): six ecosystems, then four lenses.
-const ECOSYSTEM_SLUGS = ["rust", "python", "javascript", "go", "java", "c-cpp"];
-const LANDING_SLUGS = [...ECOSYSTEM_SLUGS, "first-timers", "career", "senior-systems", "ai-assisted"];
-
-test("SEO: static canonical, root robots.txt on the site's own domain, canonical-only sitemap, lean head, Search Console verification, and U-1/U-2/U-6 static fallback", () => {
+test("SEO: static canonical, root robots.txt on the site's own domain, canonical-only sitemap, lean head and Search Console verification", () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const webRoot = path.join(here, "..");
   const html = readFileSync(path.join(webRoot, "index.html"), "utf8");
@@ -1462,7 +1432,7 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
   assert.match(robots, /^User-agent: \*$/m);
   assert.doesNotMatch(robots, /^Disallow: \S/m, "robots.txt blocks nothing");
   assert.ok(robots.includes(`Sitemap: ${base}sitemap.xml`), "robots.txt names the canonical sitemap");
-  for (const f of ["index.html", "sitemap.xml", "feed.xml", "llms.txt", "robots.txt"]) {
+  for (const f of ["index.html", "sitemap.xml", "robots.txt"]) {
     assert.ok(!readFileSync(path.join(webRoot, f), "utf8").includes("pctablet505.github.io/porchlamp"), `${f} keeps no old github.io address`);
   }
 
@@ -1471,17 +1441,7 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
   assert.doesNotMatch(html, /hreflang=/, "no hreflang links");
   assert.match(html, /<meta name="robots" content="index, follow/, "one robots meta tag stays");
 
-  // 2b. JSON-LD @graph, feed.xml, llms.txt, and IndexNow key file
-  const ldMatch = html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/);
-  assert.ok(ldMatch, "JSON-LD structured data block present in index.html");
-  const ldJson = JSON.parse(ldMatch[1]);
-  assert.ok(Array.isArray(ldJson["@graph"]) && ldJson["@graph"].length >= 4, "JSON-LD @graph contains rich entities");
-  assert.ok(!ldJson["@graph"].some((n) => n["@type"] === "FAQPage"), "no FAQPage markup for text the page does not show");
-  const feedXml = readFileSync(path.join(webRoot, "feed.xml"), "utf8");
-  assert.ok(feedXml.includes(`<id>${base}</id>`), "feed.xml uses canonical base id");
-  const llmsTxt = readFileSync(path.join(webRoot, "llms.txt"), "utf8");
-  // The values are the snapshot's (checked by scripts/verify_static_export.py check_hand_written); here only the shape.
-  assert.match(llmsTxt, /\d{1,3}(,\d{3})* pull requests from \d{1,3}(,\d{3})* outside contributors/, "llms.txt documents empirical dataset");
+  // 2b. The IndexNow key file. (The JSON-LD, feed.xml and llms.txt are generated at export: tests/test_home_pages.py.)
   const indexNowKey = "7c9d4a2e8b1f6a3c5d8e9f0a1b2c3d4e";
   assert.equal(readFileSync(path.join(webRoot, `${indexNowKey}.txt`), "utf8").trim(), indexNowKey);
 
@@ -1503,73 +1463,8 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
   );
   // sitemap-pages.xml is written by the exporter for its own snapshot (scripts/export_static.py _sitemap_pages).
   assert.ok(!existsSync(path.join(webRoot, "sitemap-pages.xml")), "the pages sitemap is not shipped by hand");
-  const snapshotId = html.match(/Snapshot <code>([\d-]+)<\/code>/)[1];
-  const pageAddresses = [
-    `${base}black-holes/`, `${base}black-holes/${snapshotId}/`, `${base}methodology/`, `${base}check/`,
-    ...LANDING_SLUGS.map((slug) => `${base}${slug}/`),
-  ];
-  const llms = readFileSync(path.join(webRoot, "llms.txt"), "utf8");
-  for (const loc of pageAddresses) assert.ok(llms.includes(loc), `llms.txt names ${loc}`);
   for (const loc of children) assert.ok(!loc.includes("?"), `no query address in the sitemap index: ${loc}`);
   assert.doesNotMatch(sitemap, /<(priority|changefreq)>/, "no priority or changefreq");
-  assert.ok(
-    llms.includes(`To check a project, open ${base}projects/<owner>/<name>/ (lower case).`),
-    "llms.txt states the address of a project's page"
-  );
-
-  // 5. index.html .seo-fallback: every internal link is canonical, U-2 excluded counts and U-6 hashes are present,
-  //    and all 20 rows carry U-1 coverage, tier, and ?repo= drawer links.
-  const articleMatch = html.match(/<article class="seo-fallback">([\s\S]*?)<\/article>/);
-  assert.ok(articleMatch, ".seo-fallback article exists");
-  const article = articleMatch[1];
-  // The values are checked against the snapshot's data by scripts/verify_static_export.py (check_hand_written).
-  assert.match(article, /[\d,]+ ranked, [\d,]+ gated, and [\d,]+ unrated of [\d,]+ evaluated/, "U-2 excluded counts");
-  assert.match(article, /python -m porchlamp\.snapshot reproduce \d{4}-\d\d-\d\d\w*/, "U-6 reproduce command");
-
-  const hrefs = [...article.matchAll(/<a href="([^"]+)">/g)].map((m) => m[1]);
-  assert.ok(hrefs.length >= 30, "persona, tab, ecosystem, and top-20 repo links");
-  // S2: the static article links the report after the findings and the methodology page where the numbers come from.
-  assert.match(
-    article,
-    /<\/ul>\s*<p><a href="black-holes\/">Read the report: Stars don't review pull requests<\/a><\/p>/,
-    "report link follows the findings list"
-  );
-  // E4: one line links the six ecosystem pages.
-  assert.match(
-    article,
-    /Browse by ecosystem:\s*<a href="rust\/">Rust<\/a> ·\s*<a href="python\/">Python<\/a> ·\s*<a href="javascript\/">JavaScript and TypeScript<\/a> ·\s*<a href="go\/">Go<\/a> ·\s*<a href="java\/">Java<\/a> ·\s*<a href="c-cpp\/">C, C\+\+ and Zig<\/a>/,
-    "the Browse by ecosystem line"
-  );
-  const whereFrom = article.match(/<h2>Where the numbers come from<\/h2>([\s\S]*?)<h2>/)[1];
-  assert.match(whereFrom, /<a href="methodology\/">[^<]+<\/a>/, "methodology link in 'Where the numbers come from'");
-  const pageLinks = ["black-holes/", ...ECOSYSTEM_SLUGS.map((slug) => `${slug}/`)];
-  for (const href of hrefs) {
-    if (href === "./" || pageLinks.includes(href) || /^projects\/[^/]+\/[^/]+\/$/.test(href)) continue;
-    // Every other link is a view of the app (routes.js), already at its one address.
-    const url = new URL(href, base);
-    const hydrated = { ...defaultState(), ...parseLocation(url.pathname, url.search) };
-    assert.notEqual(hydrated.tab, "notfound", `fallback link ${href} names a view`);
-    assert.equal(
-      serializeLocation(hydrated),
-      `${url.pathname}${url.search}`,
-      `fallback link ${href} must already be in canonical serializeLocation form`
-    );
-  }
-
-  const rows = [...article.match(/<tbody>([\s\S]*?)<\/tbody>/)[1].matchAll(/<tr>([\s\S]*?)<\/tr>/g)];
-  assert.equal(rows.length, 20, "top-20 balanced repositories pre-rendered");
-  rows.forEach((rowMatch, idx) => {
-    const cells = [...rowMatch[1].matchAll(/<td>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
-    assert.equal(cells.length, 7, `row ${idx + 1} has 7 columns (Rank, Repository, Ecosystem, Porchlamp, Coverage, Tier, Quadrant)`);
-    assert.equal(cells[0], String(idx + 1), "rank cell");
-    const link = cells[1].match(/^<a href="([^"]+)">([^<]+\/[^<]+)<\/a>$/);
-    assert.ok(link, "U-1 repo cell is one link");
-    assert.equal(link[1], `projects/${link[2].toLowerCase()}/`, "U-1 repo cell links to the project's own page, as the app's rows do");
-    assert.match(cells[3], /^\d+\.\d{2}$/, "Porchlamp score formatted to 2 decimals");
-    assert.match(cells[4], /^\d+%$/, "U-1 coverage percentage present");
-    assert.match(cells[5], /^(?:S\+|S|A|B|C)(?: \(capped\))?$/, "U-1 tier with ceiling note present");
-    assert.equal(cells[6], "Sweet Spot");
-  });
 });
 
 // ---- PR 1 UX/UI fixes ---------------------------------------------------------------------
@@ -2637,7 +2532,7 @@ test("black-hole card: formats response_kind into human prose, and prints no sha
 });
 
 test("methodology: the parameters table keeps seven columns with the readable name in the row header, and Why Porchlamp renders a 3-column kicker grid", () => {
-  const html = methodologyShell(SNAPSHOT_DOC);
+  const html = methodologyShell(SNAPSHOT_DOC, METHODOLOGY_DOC, REPORT_EXAMPLE);
   for (const kicker of copy.WHY_KICKERS) {
     assert.ok(html.includes(escapeHtml(kicker)), `Why Porchlamp includes kicker ${kicker}`);
   }
@@ -2753,13 +2648,12 @@ test("compare: empty and partial states render quick-start presets and suggestio
 
 // ---- E2: links to the static report and methodology pages (S2) ---------------------------------
 
-import { renderShell } from "../views/leaderboard.js";
+import { renderShell, fillFromReport } from "../views/leaderboard.js";
 
 test("leaderboard: one visible findings line under the header links to the static report with a real href from the site root", () => {
-  // The number is checked against the snapshot's data by scripts/verify_static_export.py (check_hand_written).
-  assert.match(copy.FINDINGS_LINE, /^More than 1 in \d+ active projects leave most strangers' pull requests unanswered for two weeks\.$/);
-  const html = renderShell({ ...defaultState(), leaderboardLoading: true, leaderboard: null });
-  assert.ok(html.includes(escapeHtml(copy.FINDINGS_LINE)), "the line is on the page");
+  // The numbers come from report.json (fillFromReport); the verifier reads them back by their hooks.
+  const html = renderShell({ ...defaultState(), report: REPORT_EXAMPLE, leaderboardLoading: true, leaderboard: null });
+  assert.ok(html.includes(fillFromReport(copy.FINDINGS_LINE, REPORT_EXAMPLE)), "the line is on the page");
   assert.match(html, /<a href="\/black-holes\/"[^>]*>Read the findings<\/a>/);
   assert.ok(
     html.indexOf("data-onboarding-banner") < html.indexOf("data-findings-line"),
@@ -2807,13 +2701,23 @@ test("E3: a ranked row and a card render the repository name as a real link to t
   const repo = rowCells(E3_ROW, {}).cells.find((cell) => cell.key === "repository").html;
   assert.match(repo, /^<a class="repo-link"[^>]* href="\/projects\/freecad\/freecad\/">/, "the cell starts with a real link");
   assert.ok(repo.includes('<span class="repo-owner">FreeCAD/</span><span class="repo-name">FreeCAD</span></a>'), "the real spelling is shown");
-  assert.ok(repo.includes('<span class="eco-chip">systems</span>'), "the ecosystem chip is still there, outside the link");
+  assert.ok(repo.includes('<span class="eco-chip">C and C++</span>'), "the ecosystem chip is still there, outside the link");
   assert.ok(renderCard(E3_ROW, {}).includes('href="/projects/freecad/freecad/"'), "the card links too");
   assert.ok(!repo.includes("style="), "the link carries no inline style");
   const css = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "styles", "components.css"), "utf8");
   assert.match(css, /\.repo-link \{\s*color: inherit;\s*text-decoration: none;\s*\}/, "components.css keeps the link looking like the row did");
   assert.equal(repoLinkHtml({ ...E3_ROW, owner: "a<b" }).includes("<b"), false, "a name is escaped");
   assert.equal(projectPath("Ggml-Org", "Llama.CPP"), "/projects/ggml-org/llama.cpp/");
+});
+
+test("a row's and a card's ecosystem chip print the plain name, never the engine's code", () => {
+  for (const [code, name] of copy.ECOSYSTEMS) {
+    const row = { ...E3_ROW, ecosystem: code };
+    const chip = `<span class="eco-chip">${escapeHtml(name)}</span>`;
+    assert.ok(rowCells(row, {}).cells.find((cell) => cell.key === "repository").html.includes(chip), code);
+    assert.ok(renderCard(row, {}).includes(chip), code);
+  }
+  assert.equal(copy.ecosystemName("cran"), "cran", "a code the list does not have is printed as it is");
 });
 
 test("E3: a plain left click on the link is kept from navigating (the drawer opens), a modified click follows the link", () => {
@@ -3935,4 +3839,392 @@ test("project: the drawer's loading, error and not-found bodies name the dialog 
     assert.ok(html.includes('<h2 id="drawer-title" class="drawer-fallback-title">'), html);
     assert.ok(!html.includes("<h1"), "the list behind the dialog owns the h1");
   }
+});
+
+// --- home (the prerendered ranked view)
+// The export draws the first page of the ranked view into `/` (web/prerender.mjs, views/leaderboard.js
+// `renderPrerenderedBoard`) and the app takes it over without drawing it again (`adoptPrerenderedBoard`). The report's
+// numbers fill the findings line and the Finding paragraph; the stars cell prints the same bytes in every locale.
+
+import { FakeDocument } from "./fakedom.mjs";
+import { drawPage } from "../../prerender.mjs";
+import {
+  renderPrerenderedBoard,
+  renderRowHtml,
+  renderCardHtml,
+  adoptPrerenderedBoard,
+  prerenderedBoardKey,
+  renderFindingsLine,
+  syncFindingsLine,
+  renderBrowseLinks,
+  patchTableBody,
+  patchCardBody,
+  PRERENDERED_BOARD_CLASS,
+} from "../views/leaderboard.js";
+import { CARD_HEIGHT_PX, computeVisibleRange } from "../components/table.js";
+import { requestSignature } from "../state.js";
+
+// ---- a small reader of the board's markup into the fake DOM (the fake has no parser)
+const HTML_VOID = new Set(["br", "img", "input", "hr", "meta", "link"]);
+const decodeAttr = (v) => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+
+function matchesSimple(el, selector) {
+  const attr = /^\[([\w-]+)\]$/.exec(selector);
+  if (attr) return el._attrs.has(attr[1]);
+  const cls = /^\.([\w-]+)$/.exec(selector);
+  if (cls) return dumpClasses(el).includes(cls[1]);
+  throw new Error(`the test reader does not know the selector ${selector}`);
+}
+
+function dumpClasses(el) {
+  return [...new Set([...(el._attrs.get("class") || "").split(/\s+/), ...el._className.split(/\s+/), ...el.classList._set])].filter(Boolean).sort();
+}
+
+function wireParsed(el) {
+  el._listeners = [];
+  el.addEventListener = (type, fn) => el._listeners.push([type, fn]);
+  el.remove = () => el.parentNode.removeChild(el);
+  el.querySelector = (selector) => {
+    const wanted = selector.split(",").map((s) => s.trim());
+    const walk = (node) => {
+      for (const child of node.children) {
+        if (child.tagName !== "#TEXT" && wanted.some((s) => matchesSimple(child, s))) return child;
+        const inner = walk(child);
+        if (inner) return inner;
+      }
+      return null;
+    };
+    return walk(el);
+  };
+  // class is held as the fake's own className/classList, so removing the attribute clears both
+  const removeAttribute = el.removeAttribute.bind(el);
+  el.removeAttribute = (name) => {
+    if (name === "class") {
+      el._className = "";
+      el.classList._set.clear();
+      el._attrs.delete("class");
+    } else removeAttribute(name);
+  };
+  return el;
+}
+
+function parseAttributes(text) {
+  return [...text.matchAll(/([a-zA-Z_:][-\w:.]*)(?:="([^"]*)")?/g)].map((m) => [m[1], m[2] === undefined ? "" : decodeAttr(m[2])]);
+}
+
+function applyAttribute(el, name, value) {
+  if (name === "class") {
+    el._className = value;
+    for (const token of value.split(/\s+/).filter(Boolean)) el.classList._set.add(token);
+  } else if (name === "tabindex") el._tabIndex = Number(value);
+  else if (name === "hidden") el._hidden = true;
+  else if (name === "style") {
+    const height = /height:\s*([^;]+);?/.exec(value);
+    if (height) el._style.height = height[1];
+  } else el._attrs.set(name, value);
+}
+
+/** `html` (one element, or a list of them) as fake elements under a new `<div>`. `td` and `th` keep their content raw. */
+function parseHtml(doc, html) {
+  const root = wireParsed(doc.createElement("div"));
+  const stack = [root];
+  const token = /<(\/?)([a-zA-Z][\w-]*)((?:[^>"]|"[^"]*")*)>|([^<]+)/g;
+  let m;
+  while ((m = token.exec(html))) {
+    const top = stack[stack.length - 1];
+    if (m[4] !== undefined) {
+      const text = wireParsed(doc.createElement("#text"));
+      text._text = m[4];
+      top.children.push(text);
+      text.parentNode = top;
+    } else if (m[1]) {
+      stack.pop();
+    } else {
+      const tag = m[2].toLowerCase();
+      const el = wireParsed(doc.createElement(tag));
+      for (const [name, value] of parseAttributes(m[3].replace(/\/$/, ""))) applyAttribute(el, name, value);
+      top.children.push(el);
+      el.parentNode = top;
+      const raw = el._attrs.get("data-rendered"); // a row's cell or a card: the builders keep the content raw, and say what it is
+      if (raw !== undefined) {
+        assert.ok(html.startsWith(raw, token.lastIndex), "the content is what data-rendered says");
+        el._innerHTML = raw;
+        token.lastIndex += raw.length;
+        stack.push(el);
+      } else if (tag === "th") {
+        const end = html.indexOf(`</${tag}>`, token.lastIndex);
+        assert.ok(end >= 0, "a th is closed");
+        el._innerHTML = html.slice(token.lastIndex, end);
+        token.lastIndex = end + `</${tag}>`.length;
+      } else if (!HTML_VOID.has(tag) && !m[3].endsWith("/")) stack.push(el);
+    }
+  }
+  return root.children[0];
+}
+
+/** A node as comparable text: tag, attributes (order aside), raw content, children. */
+function dumpNode(el) {
+  if (el.tagName === "#TEXT") return JSON.stringify(el._text);
+  const attrs = new Map([...el._attrs].filter(([name]) => name !== "class"));
+  const classes = dumpClasses(el);
+  if (classes.length) attrs.set("class", classes.join(" "));
+  if (el._tabIndex !== -1) attrs.set("tabindex", String(el._tabIndex));
+  if (el._hidden) attrs.set("hidden", "");
+  if (el._style.height !== undefined) attrs.set("style", `height:${el._style.height}`);
+  const open = [...attrs].sort(([a], [b]) => (a < b ? -1 : 1)).map(([name, value]) => `${name}=${JSON.stringify(value)}`).join(" ");
+  return `<${el.tagName.toLowerCase()} ${open}>${el._innerHTML}${el.children.map(dumpNode).join("")}</>`;
+}
+
+/** The names a DOM builder set on `el`, in the order it set them (the fake logs each change), `class` left out. */
+function attributeOrder(doc, el) {
+  const names = [];
+  for (const { el: target, prop } of doc.mutationLog) {
+    if (target !== el) continue;
+    const name = prop.startsWith("attr:") ? prop.slice(5) : prop === "tabIndex" ? "tabindex" : null;
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
+const HOME_ROWS = (() => {
+  const rows = synthesizeRows(20);
+  rows[3].tie_group = rows[2].tie_group; // a tied pair
+  rows[5].stars_audited = null;
+  rows[6].stars_audited = 1234567;
+  rows[7].owner = 'o&"<x>';
+  rows[7].name = "it's";
+  return rows;
+})();
+const HOME_COUNTS = { total: 11000, rated: 4322, gated: 5381, unrated: 1297 };
+const HOME_LEADERBOARD = { rows: HOME_ROWS, total: 4322, counts: HOME_COUNTS, page: 1, page_size: 20, persona: "balanced" };
+const homeState = (extra = {}) => ({
+  ...defaultState(),
+  tab: "ranked",
+  leaderboard: HOME_LEADERBOARD,
+  snapshot: SNAPSHOT_DOC,
+  report: REPORT_EXAMPLE,
+  ...extra,
+});
+const DESKTOP = { isMobile: false, scrollTop: 0, height: 900 };
+const PHONE = { isMobile: true, scrollTop: 0, height: 812 };
+const rowOptsAt = (rows, i) => ({ previousRow: i > 0 ? rows[i - 1] : null, showPersonaDelta: false, selected: false });
+
+/** What app.js patchLeaderboardBody does to the body, for the layout `viewport` draws. */
+function patchHomeBody(main, doc, state, viewport) {
+  const rows = state.leaderboard.rows;
+  const opts = { showPersonaDelta: state.persona !== "balanced", selectedRepoKey: null };
+  if (viewport.isMobile) {
+    const range = computeVisibleRange(viewport.scrollTop, viewport.height, rows.length, 8, CARD_HEIGHT_PX);
+    patchCardBody(main.querySelector("[data-leaderboard-cards]"), doc, rows, range, opts);
+  } else {
+    const tbody = main.querySelector("[data-leaderboard-tbody]");
+    tbody.parentNode.classList.toggle("stars-unaudited", !copy.hasAuditedStars(rows));
+    patchTableBody(tbody, doc, rows, computeVisibleRange(viewport.scrollTop, viewport.height, rows.length), opts);
+  }
+}
+
+test("home: the prerendered board is keyed by the default state and holds 20 rows, 20 cards and a spacer pair in each layout", () => {
+  const html = renderPrerenderedBoard(homeState());
+  assert.equal(requestSignature(defaultState()), "balanced|||rank|1|20");
+  assert.ok(html.includes(`class="${PRERENDERED_BOARD_CLASS}" data-prerendered-board="${requestSignature(defaultState())}"`), "its key is the default state's");
+  assert.equal((html.match(/<tr data-owner=/g) || []).length, 20, "20 rows");
+  assert.equal((html.match(/<div data-owner=/g) || []).length, 20, "20 cards");
+  assert.equal((html.match(/data-key="__spacer-top__"/g) || []).length, 2, "a top spacer in the table and in the cards");
+  assert.equal((html.match(/data-key="__spacer-bottom__"/g) || []).length, 2);
+  const at = (needle) => html.indexOf(needle);
+  assert.ok(
+    at("data-mobile-sort-bar") < at('class="pager"') && at('class="pager"') < at("<table") && at("<table") < at("data-leaderboard-cards") &&
+      at("data-leaderboard-cards") < at("pager-bottom"),
+    "the sort bar, the pager, the table, the cards, the bottom pager"
+  );
+  assert.ok(html.includes("data-findings-text") && html.includes(fillFromReport(copy.FINDINGS_LINE, REPORT_EXAMPLE)), "the findings line, filled");
+  assert.throws(() => renderPrerenderedBoard(homeState({ leaderboard: { ...HOME_LEADERBOARD, rows: [] } })), /page of rows/);
+});
+
+test("home: each prerendered row and card is what the DOM builders make for it, attributes in the order they set them", () => {
+  const doc = new FakeDocument();
+  HOME_ROWS.forEach((row, i) => {
+    const opts = rowOptsAt(HOME_ROWS, i);
+    const built = createRowElement(doc, row, opts);
+    built.dataset.key = `${row.owner}/${row.name}`;
+    const drawn = parseHtml(doc, renderRowHtml(row, opts));
+    assert.equal(dumpNode(drawn), dumpNode(built), `row ${row.rank}`);
+    const openTag = renderRowHtml(row, opts).match(/^<tr ([^>]*)>/)[1];
+    assert.deepEqual(
+      parseAttributes(openTag).map(([n]) => n).filter((n) => n !== "class"),
+      attributeOrder(doc, built),
+      `row ${row.rank}: same attributes, same order`
+    );
+    const card = createCardElement(doc, row, opts);
+    card.dataset.key = `${row.owner}/${row.name}`;
+    assert.equal(dumpNode(parseHtml(doc, renderCardHtml(row, opts))), dumpNode(card), `card ${row.rank}`);
+  });
+  assert.ok(renderRowHtml(HOME_ROWS[3], rowOptsAt(HOME_ROWS, 3)).includes('class="row-tied"'), "a tied row is marked as the builder marks it");
+  assert.ok(renderCardHtml(HOME_ROWS[3], rowOptsAt(HOME_ROWS, 3)).includes('class="leaderboard-card row-tied"'));
+});
+
+for (const [name, viewport] of [["desktop", DESKTOP], ["phone", PHONE]]) {
+  test(`home: on a ${name}, the app adopts the prerendered board and the result is the shell patched in place, no row replaced`, () => {
+    const doc = new FakeDocument();
+    const state = homeState();
+    const drawn = parseHtml(doc, renderPrerenderedBoard(state));
+    const container = () => drawn.querySelector(viewport.isMobile ? "[data-leaderboard-cards]" : "[data-leaderboard-tbody]");
+    const before = [...container().children];
+    assert.equal(prerenderedBoardKey(drawn.parentNode ? drawn.parentNode : { querySelector: () => drawn }), requestSignature(state));
+    assert.equal(adoptPrerenderedBoard({ querySelector: (s) => (s === "[data-prerendered-board]" ? drawn : null) }, state, viewport), true);
+    for (const el of before.filter((n) => n.getAttribute("data-owner") !== null)) {
+      assert.deepEqual(el._listeners.map(([type, fn]) => [type, fn]), [["click", handleRepoLinkClick]], "the click listener is attached");
+    }
+    patchHomeBody(drawn, doc, state, viewport);
+    patchHomeBody(drawn, doc, state, viewport);
+    const kept = viewport.isMobile ? computeVisibleRange(0, viewport.height, 20, 8, CARD_HEIGHT_PX).end : 20;
+    const after = [...container().children];
+    assert.equal(after.length, kept + 2, "the rows in the window and the two spacers");
+    after.forEach((node, i) => {
+      const came = before.find((b) => b.getAttribute("data-key") === node.getAttribute("data-key"));
+      assert.ok(came === node, `node ${i} (${node.getAttribute("data-key")}) is the one the page came with`);
+    });
+
+    const fresh = parseHtml(doc, renderShell(state, viewport));
+    patchHomeBody(fresh, doc, state, viewport);
+    patchHomeBody(fresh, doc, state, viewport);
+    assert.equal(dumpNode(drawn), dumpNode(fresh), "main equals renderShell plus the patched rows");
+    assert.ok(!dumpNode(drawn).includes("prerendered-board") && !dumpNode(drawn).includes("data-prerendered-board"), "the marks are gone");
+    assert.equal(drawn.querySelector(viewport.isMobile ? ".leaderboard-table" : "[data-leaderboard-cards]"), null, "the other layout is gone");
+  });
+}
+
+test("home: a board that shows another state is left as it is and not adopted, so the shell is drawn", () => {
+  const doc = new FakeDocument();
+  const drawn = parseHtml(doc, renderPrerenderedBoard(homeState()));
+  const root = { querySelector: (s) => (s === "[data-prerendered-board]" ? drawn : null) };
+  const before = dumpNode(drawn);
+  for (const other of [{ persona: "first_timer" }, { page: 2 }, { ecosystem: "npm" }, { query: "x" }, { sort: "-coverage" }, { pageSize: 50 }]) {
+    assert.equal(adoptPrerenderedBoard(root, homeState(other), DESKTOP), false, JSON.stringify(other));
+  }
+  assert.equal(adoptPrerenderedBoard(root, homeState({ leaderboard: null, leaderboardError: { endpoint: "/x", status: 500 } }), DESKTOP), false, "an error is not a page of rows");
+  assert.equal(dumpNode(drawn), before, "nothing was touched");
+  assert.equal(adoptPrerenderedBoard({ querySelector: () => null }, homeState(), DESKTOP), false, "a page without a board");
+  const app = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "app.js"), "utf8");
+  const take = app.slice(app.indexOf("if (prerendered) {\n      // The export drew the first page"));
+  assert.match(take, /prerenderedBoardKey\(main\) !== requestSignature\(state\)\) \{\s*prerendered = null;/, "a different key gives the page up at once");
+  assert.ok(take.indexOf("adoptPrerenderedBoard(main, state, viewport)") < take.indexOf("main.innerHTML = renderShell(state, viewport)"), "adopt first, else the shell");
+  assert.match(take, /\(!state\.leaderboard && !state\.leaderboardError\)[\s\S]*\(!state\.snapshot && !state\.snapshotError\)[\s\S]*\(!state\.report && !state\.reportError\)/, "waits for the page, the snapshot and the report");
+  assert.match(app, /if \(prerendered\) return;\n    syncSortHeaders\(state\);/, "no patching of a page not yet taken over");
+});
+
+test("home: the ranked page is what the prerender draws, marked for the app", () => {
+  const frame =
+    '<header class="app-header" id="app-header-controls"></header><nav class="app-primary-nav" id="app-primary-nav"></nav>\n' +
+    '<main class="app-main" id="app-main" tabindex="-1">\n    </main><footer class="app-footer" id="app-footer"></footer>';
+  const page = drawPage(frame, { path: "index.html", view: "ranked" }, { snapshot: SNAPSHOT_DOC, report: REPORT_EXAMPLE, leaderboard: HOME_LEADERBOARD });
+  assert.ok(page.includes('<main class="app-main" id="app-main" tabindex="-1" data-prerendered="ranked">'));
+  assert.ok(page.includes(renderPrerenderedBoard({ ...defaultState(), leaderboard: HOME_LEADERBOARD, snapshot: SNAPSHOT_DOC, report: REPORT_EXAMPLE })));
+  assert.throws(() => drawPage(frame, { path: "index.html", view: "ranked" }, { snapshot: SNAPSHOT_DOC, report: null, leaderboard: null }), /no leaderboard/);
+});
+
+test("home: the findings line fills every slot from report.json as hooks, and draws only its link without a report", () => {
+  const slots = [...copy.FINDINGS_LINE.matchAll(/\{([a-z_]+)\}/g)].map((m) => m[1]);
+  assert.deepEqual(slots, ["one_in", "deadline_days"]);
+  const html = renderFindingsLine(REPORT_EXAMPLE);
+  for (const id of slots) assert.ok(html.includes(`<span data-v="${id}">${REPORT_EXAMPLE.values[id]}</span>`), id);
+  assert.ok(!html.includes("{"), "no slot left unfilled");
+  assert.match(html, /<a href="\/black-holes\/"[^>]*>Read the findings<\/a>/);
+  for (const none of [null, undefined, {}, { values: { one_in: "6" } }]) {
+    const bare = renderFindingsLine(none);
+    assert.ok(!bare.includes("data-findings-text") && !bare.includes("data-v="), JSON.stringify(none));
+    assert.match(bare, /^<p class="onboarding-banner" data-findings-line="true"><a href="\/black-holes\/"[^>]*>Read the findings<\/a><\/p>$/);
+  }
+  const shell = renderShell({ ...defaultState(), leaderboardLoading: true, leaderboard: null, report: REPORT_EXAMPLE });
+  assert.ok(shell.includes(html), "the shell draws the line from state.report");
+});
+
+test("home: a report arriving after the shell is drawn is put into the line in place, and only a changed value is rewritten", () => {
+  const written = [];
+  const line = { insertAdjacentHTML: (where, html) => written.push([where, html]), querySelector: () => null };
+  const rootWith = (el) => ({ querySelector: (s) => (s === "[data-findings-line]" ? el : null) });
+  syncFindingsLine(rootWith(line), null);
+  assert.deepEqual(written, [], "no report, nothing written");
+  syncFindingsLine(rootWith(line), REPORT_EXAMPLE);
+  assert.deepEqual(written, [["afterbegin", `<span data-findings-text="true">${fillFromReport(copy.FINDINGS_LINE, REPORT_EXAMPLE)}</span> `]]);
+  const writes = [];
+  const slot = (id, text) => {
+    let current = text;
+    return { get textContent() { return current; }, set textContent(v) { current = v; writes.push([id, v]); } };
+  };
+  const hooks = { one_in: slot("one_in", REPORT_EXAMPLE.values.one_in), deadline_days: slot("deadline_days", "7") };
+  const withText = { querySelector: (s) => (s === "[data-findings-text]" ? { querySelector: (h) => hooks[h.match(/"([a-z_]+)"/)[1]] } : null) };
+  syncFindingsLine(rootWith(withText), REPORT_EXAMPLE);
+  assert.deepEqual(writes, [["deadline_days", REPORT_EXAMPLE.values.deadline_days]], "only the value that differs");
+});
+
+test("home: the Finding paragraph is filled from report.json as hooks and left out, kicker and all, without a report", () => {
+  const withReport = methodologyShell(SNAPSHOT_DOC, METHODOLOGY_DOC, REPORT_EXAMPLE);
+  for (const id of ["one_in", "deadline_days"]) assert.ok(withReport.includes(`<span data-v="${id}">${REPORT_EXAMPLE.values[id]}</span>`), id);
+  assert.ok(withReport.includes(copy.WHY_KICKERS[1]));
+  for (const none of [null, { values: {} }]) {
+    const without = methodologyShell(SNAPSHOT_DOC, METHODOLOGY_DOC, none);
+    assert.ok(!without.includes("Stars do not review") && !without.includes(copy.WHY_KICKERS[1]), JSON.stringify(none));
+    assert.ok(without.includes(copy.WHY_KICKERS[0]) && without.includes(copy.WHY_KICKERS[2]), "the other two stay");
+  }
+});
+
+test("home: no digit is typed into the findings line or the Finding template", () => {
+  // "1 in {one_in}" is the claim's own wording; every other digit would be a number typed by hand.
+  for (const [name, template] of [["FINDINGS_LINE", copy.FINDINGS_LINE], ["WHY_FINDING_TEMPLATE", copy.WHY_FINDING_TEMPLATE]]) {
+    assert.equal((template.match(/\b1 in \{one_in\}/g) || []).length, 1, name);
+    assert.doesNotMatch(template.replace(/\b1 in \{one_in\}/, ""), /\d/, name);
+  }
+  assert.ok(copy.WHY_PARAGRAPHS.includes(copy.WHY_FINDING_TEMPLATE), "the paragraph is the template");
+});
+
+test("home: the browse block links the six ecosystem pages and the four lens pages as real paths, in order, with copy.js words", () => {
+  const html = renderBrowseLinks();
+  assert.match(html, /^<nav class="onboarding-banner" aria-label="Browse"/);
+  const links = [...html.matchAll(/<a href="([^"]+)" class="onboarding-link">([^<]+)<\/a>/g)].map((m) => [m[1], m[2]]);
+  assert.deepEqual(links, [
+    ["/rust/", "Rust"], ["/python/", "Python"], ["/javascript/", "JavaScript"], ["/go/", "Go"], ["/java/", "Java"], ["/c-cpp/", "C and C++"],
+    ["/first-timers/", "First-timer"], ["/career/", "Career capital"], ["/senior-systems/", "Senior systems"], ["/ai-assisted/", "AI-assisted"],
+  ]);
+  assert.ok(html.includes(`<span>${copy.HOME_BROWSE_ECOSYSTEMS_LABEL}</span>`) && copy.HOME_BROWSE_ECOSYSTEMS_LABEL === "Browse by ecosystem:");
+  assert.ok(html.includes(`<span>${copy.HOME_BROWSE_LENSES_LABEL}</span>`) && copy.HOME_BROWSE_LENSES_LABEL === "Browse by contributor lens:");
+  assert.ok(html.indexOf(copy.HOME_BROWSE_ECOSYSTEMS_LABEL) < html.indexOf("/rust/") && html.indexOf("/c-cpp/") < html.indexOf(copy.HOME_BROWSE_LENSES_LABEL));
+  const shell = renderShell(homeState({ leaderboardLoading: false }));
+  assert.ok(shell.indexOf("data-findings-line") < shell.indexOf("data-home-browse") && shell.indexOf("data-home-browse") < shell.indexOf('class="tabs"'), "right after the findings line");
+  assert.equal(renderPrerenderedBoard(homeState()).split(html).length - 1, 1, "and on the prerendered page");
+  assert.ok(html.includes('>Java</a> · <a href="/c-cpp/"') && html.includes('>Career capital</a> · <a href="/senior-systems/"'),
+    "a middle dot between two names, so a name of several words reads as one");
+});
+
+test("home: the stars cell prints the same bytes in every locale", () => {
+  const stars = (n) => rowCells({ ...HOME_ROWS[0], stars_audited: n }, {}).cells.find((c) => c.key === "stars").html;
+  assert.deepEqual([stars(0), stars(999), stars(1000), stars(1234567), stars(null)], ["0", "999", "1,000", "1,234,567", copy.MISSING_VALUE]);
+  assert.notEqual((1234567).toLocaleString("de-DE"), "1,234,567", "a locale prints this number differently");
+  const saved = Number.prototype.toLocaleString;
+  try {
+    Number.prototype.toLocaleString = function () { return saved.call(this, "de-DE"); };
+    assert.equal(stars(1234567), "1,234,567", "under German as the default locale");
+    Number.prototype.toLocaleString = function () { return saved.call(this, "hi-IN"); };
+    assert.equal(stars(1234567), "1,234,567", "under Hindi as the default locale");
+  } finally {
+    Number.prototype.toLocaleString = saved;
+  }
+});
+
+test("home: under the board's class the stylesheet shows the table from 768px and the cards below, the app's own breakpoint", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const css = readFileSync(path.join(here, "..", "styles", "views.css"), "utf8");
+  const app = readFileSync(path.join(here, "..", "app.js"), "utf8");
+  assert.match(app, /isMobile: win\.innerWidth < 768/, "the app draws cards below 768px");
+  const compact = css.replace(new RegExp("/\\*[\\s\\S]*?\\*/", "g"), "").replace(/\s+/g, " ");
+  assert.ok(
+    compact.includes("@media (max-width: 767px) { .prerendered-board .leaderboard-table { display: none; } }"),
+    "below 768px the table is hidden"
+  );
+  assert.ok(
+    compact.includes("@media (min-width: 768px) { .prerendered-board .leaderboard-cards, .prerendered-board .mobile-sort-bar { display: none; } }"),
+    "from 768px the cards and their sort bar are hidden"
+  );
+  const outside = compact.replace(/@media \([^)]*\) \{ (?:[^{}]*\{[^{}]*\} ?)+\}/g, "");
+  assert.ok(!outside.includes("prerendered-board"), "no rule of the board's class applies at every width");
 });

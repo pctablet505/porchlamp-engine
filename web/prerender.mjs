@@ -1,9 +1,10 @@
 // prerender.mjs — draws the site's pages at export; scripts/export_static.py runs it once it has written them.
 //
 // Into every page it draws the one header, nav and footer (app/components/chrome.js). Into the page of a view the app
-// can draw without a browser it draws that view too: the methodology (app/views/methodology.js) and the report
-// (app/views/report.js). Their data comes through the site's own api.js (web/static/api.js in the export), the same
-// calls the app makes, fetchSnapshot, fetchMethodology, fetchManifest and fetchReport, reading the exported files: the
+// can draw without a browser it draws that view too: the ranked view with its first page of rows
+// (app/views/leaderboard.js), the methodology (app/views/methodology.js) and the report (app/views/report.js). Their
+// data comes through the site's own api.js (web/static/api.js in the export), the same calls the app makes,
+// fetchSnapshot, fetchMethodology, fetchManifest, fetchReport and fetchLeaderboard, reading the exported files: the
 // page holds what the app draws from them, and the app takes it over on load without drawing it again (app.js,
 // `data-prerendered`). The report's frozen copy is drawn the same way and loads no app, so nothing redraws it. A ranked
 // project's page gets the project view (app/views/project.js) in page mode, from the calls the app's side panel makes
@@ -30,6 +31,7 @@ import * as copy from "./app/copy.js";
 import { navEntryFor, renderAppHeader, renderFooter, renderHeader, renderNav } from "./app/components/chrome.js";
 import { escapeHtml } from "./app/components/table.js";
 import { defaultState } from "./app/state.js";
+import { renderPrerenderedBoard } from "./app/views/leaderboard.js";
 import { renderShell as renderMethodology } from "./app/views/methodology.js";
 import { renderProject } from "./app/views/project.js";
 import { renderShell as renderReport } from "./app/views/report.js";
@@ -44,12 +46,17 @@ const MAIN = /<main class="app-main" id="app-main" tabindex="-1">[\s\S]*?\n( *)<
 
 //: The views drawn here, from the site's data as the app loads it (`loadData`).
 const VIEWS = Object.freeze({
+  ranked: (data) => {
+    if (!data.leaderboard) throw new Error("the site has no leaderboard page for the ranked view");
+    return renderPrerenderedBoard({ ...defaultState(), tab: "ranked", leaderboard: data.leaderboard, snapshot: data.snapshot, report: data.report });
+  },
   methodology: (data) =>
     renderMethodology({
       ...defaultState(),
       tab: "methodology",
       methodology: data.methodology,
       snapshot: data.snapshot,
+      report: data.report,
       sourceDbSha256: data.sourceDbSha256,
       manifestLoad: "done",
     }),
@@ -125,7 +132,8 @@ async function readSiteFile(input) {
 
 /**
  * The data the pages are drawn from, through the site's own api.js, as the app loads it: the snapshot, the
- * methodology, the report (null where the site has none: an export without the stats file) and the database digest
+ * methodology, the report (null where the site has none: an export without the stats file), the ranked view's first
+ * page (`leaderboard`, null where the site has none) and the database digest
  * from the manifest (null where the site has none, as the app then has none).
  */
 /** The site's own api.js, reading the site's files. One module per site: each data file is read once. */
@@ -136,8 +144,11 @@ async function siteApi(site) {
 
 export async function loadData(site) {
   const api = await siteApi(site);
-  const [snapshot, methodology, manifest, report] = await Promise.all([
+  // The ranked view's first page: the call the app makes at `/`, with the parameters of its default state.
+  const start = defaultState();
+  const [snapshot, methodology, manifest, report, leaderboard] = await Promise.all([
     api.fetchSnapshot(), api.fetchMethodology(), api.fetchManifest(), api.fetchReport(),
+    api.fetchLeaderboard({ persona: start.persona, eco: start.ecosystem, q: start.query, sort: start.sort, page: start.page, page_size: start.pageSize }),
   ]);
   for (const [what, answer] of [["snapshot", snapshot], ["methodology", methodology]]) {
     if (!answer.ok) throw new Error(`the site's api.js could not load the ${what}: ${answer.error && answer.error.message}`);
@@ -146,6 +157,7 @@ export async function loadData(site) {
     snapshot: snapshot.data,
     methodology: methodology.data,
     report: report.ok ? report.data : null,
+    leaderboard: leaderboard.ok ? leaderboard.data : null,
     sourceDbSha256: manifest.ok && manifest.data ? manifest.data.source_db_sha256 || null : null,
   };
 }
