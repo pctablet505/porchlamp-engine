@@ -24,6 +24,19 @@
 To check a project, open https://porchlamp.org/projects/<owner>/<name>/ (lower case).
 Each page opens with the project's median time to a first human reply to an outside pull request, the share that got no reply within 14 days, and its rank overall and for first-time contributors. Example: [ggml-org/llama.cpp](https://porchlamp.org/projects/ggml-org/llama.cpp/)
 
+## Ecosystem and lens pages (readable without JavaScript)
+Each page lists the top 50 projects of its cut, with score and tier, and each name opens that project's page.
+- [Rust projects that answer outside pull requests](https://porchlamp.org/rust/)
+- [Python projects that answer outside pull requests](https://porchlamp.org/python/)
+- [JavaScript and TypeScript projects that answer outside pull requests](https://porchlamp.org/javascript/)
+- [Go projects that answer outside pull requests](https://porchlamp.org/go/)
+- [Java projects that answer outside pull requests](https://porchlamp.org/java/)
+- [C, C++ and Zig projects that answer outside pull requests](https://porchlamp.org/c-cpp/)
+- [Open-source projects for first-time contributors](https://porchlamp.org/first-timers/)
+- [Open-source projects for building career capital](https://porchlamp.org/career/)
+- [Open-source projects for senior systems engineers](https://porchlamp.org/senior-systems/)
+- [Open-source projects for AI-assisted contributors](https://porchlamp.org/ai-assisted/)
+
 ## 5 Pillars & 18 Parameters (Balanced Weights)
 1. **Responsiveness (25%):** Time to First Human Response (TTFHR), Decision Rate (90d), First-Timer Merge Rate, PR Ghost Rate (14d), and Time to Merge (p90).
 2. **Criticality (25%):** Deduplicated Dependents, OpenSSF Criticality Score, and Monthly Registry Downloads.

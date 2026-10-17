@@ -27,6 +27,7 @@ from urllib.parse import quote
 
 from porchlamp.serve.report_pages import (
     ECOSYSTEM_NAMES,
+    ECOSYSTEM_SLUGS,
     GITHUB_REPO,
     SITE,
     WEB_V2,
@@ -266,6 +267,7 @@ class ProjectIndex:
             raise ReportError(f"the leaderboards lack the lenses {missing}")
         self.copy = copy
         self.balanced = list(boards[BALANCED]["rows"])
+        self.lens_rows = {lens: list(boards[lens]["rows"]) for lens in LENS_ORDER}
         self.totals = {lens: boards[lens]["total"] for lens in LENS_ORDER}
         for lens in LENS_ORDER:
             if len(boards[lens]["rows"]) != self.totals[lens]:
@@ -476,7 +478,7 @@ def render_project(
         f"<li>Coverage: {_t(copy.coverage_band(detail['coverage']))}</li>"
         f"<li>Tier: {_t(tier)}</li>"
         f"<li>Quadrant: {_t(detail['quadrant'])}</li>"
-        f"<li>Ecosystem: {_t(ecosystem)}</li>"
+        f'<li>Ecosystem: <a href="{rel}{ECOSYSTEM_SLUGS[detail["ecosystem"]]}/">{_t(ecosystem)}</a></li>'
     )
     pillar_rows = "".join(
         f'<tr><th scope="row">{_t(label)}</th><td>{js_fixed(detail[f"p_{pillar}"], 1) if detail[f"p_{pillar}"] is not None else "&mdash;"}</td>'

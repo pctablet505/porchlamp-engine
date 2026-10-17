@@ -258,3 +258,20 @@
   margin-left: calc(var(--space-lg) * -1);
   color: var(--text-secondary);
 }
+
+/* A landing page (porchlamp/serve/landing_pages.py): a four-column top-50 table that must fit a 390 px screen. */
+.report .landing-table {
+  width: 100%;
+}
+
+.report .landing-table td {
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .report .landing-table th,
+  .report .landing-table td {
+    padding-left: var(--space-xs);
+    padding-right: var(--space-xs);
+  }
+}

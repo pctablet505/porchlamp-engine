@@ -1284,13 +1284,31 @@ test('SEO: "Porchlamp rankings" leads the title, description, static h1, structu
   assert.match(view, /id="leaderboard-heading"[^`]*\$\{escapeHtml\(copy\.LEADERBOARD_HEADING\)\}/);
 });
 
-test("SEO: the Dataset markup carries the data license CC BY 4.0", () => {
+// E7: the Dataset lives on the report page (its licence is pinned in tests/test_report_pages.py); the home page
+// keeps the site, the person, the page and the top-10 list, and points the page's `about` at the report's Dataset.
+test("E7: the home JSON-LD has no SoftwareApplication or Dataset, names the report's Dataset, and lists project pages", () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const html = readFileSync(path.join(here, "..", "index.html"), "utf8");
+  const base = html.match(/<link rel="canonical" href="([^"]*)">/)[1];
   const ld = JSON.parse(html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/)[1]);
-  const dataset = ld["@graph"].find((n) => n["@type"] === "Dataset");
-  assert.match(dataset.license, /^https:\/\/creativecommons\.org\/licenses\/by\/4\.0\/$/);
+  const types = ld["@graph"].map((n) => n["@type"]);
+  assert.ok(!types.includes("SoftwareApplication"), "no software-application markup");
+  assert.ok(!types.includes("Dataset"), "the report page carries the Dataset");
+  assert.deepEqual(types, ["Person", "WebSite", "WebPage", "ItemList"]);
+  const webpage = ld["@graph"].find((n) => n["@type"] === "WebPage");
+  assert.deepEqual(webpage.about, { "@id": `${base}black-holes/#dataset` }, "about names the report's Dataset @id");
+  const items = ld["@graph"].find((n) => n["@type"] === "ItemList").itemListElement;
+  assert.equal(items.length, 10);
+  for (const item of items) {
+    assert.ok(item.url.startsWith(`${base}projects/`), item.url);
+    assert.match(item.url.slice(base.length), /^projects\/[a-z0-9._-]+\/[a-z0-9._-]+\/$/, "a lower-case project page address");
+  }
+  assert.ok(!JSON.stringify(ld).includes("?repo="), "no address in the JSON-LD is a ?repo= link");
 });
+
+// The ten landing pages (porchlamp/serve/landing_pages.py): six ecosystems, then four lenses.
+const ECOSYSTEM_SLUGS = ["rust", "python", "javascript", "go", "java", "c-cpp"];
+const LANDING_SLUGS = [...ECOSYSTEM_SLUGS, "first-timers", "career", "senior-systems", "ai-assisted"];
 
 test("SEO: static canonical, root robots.txt on the site's own domain, canonical-only sitemap, lean head, Search Console verification, and U-1/U-2/U-6 static fallback", () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -1324,7 +1342,7 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
   const ldMatch = html.match(/<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/);
   assert.ok(ldMatch, "JSON-LD structured data block present in index.html");
   const ldJson = JSON.parse(ldMatch[1]);
-  assert.ok(Array.isArray(ldJson["@graph"]) && ldJson["@graph"].length >= 5, "JSON-LD @graph contains rich entities");
+  assert.ok(Array.isArray(ldJson["@graph"]) && ldJson["@graph"].length >= 4, "JSON-LD @graph contains rich entities");
   assert.ok(!ldJson["@graph"].some((n) => n["@type"] === "FAQPage"), "no FAQPage markup for text the page does not show");
   const feedXml = readFileSync(path.join(webRoot, "feed.xml"), "utf8");
   assert.ok(feedXml.includes(`<id>${base}</id>`), "feed.xml uses canonical base id");
@@ -1354,8 +1372,11 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
   const snapshotId = html.match(/Snapshot <code>([\d-]+)<\/code>/)[1];
   assert.deepEqual(
     locs,
-    [base, `${base}black-holes/`, `${base}black-holes/${snapshotId}/`, `${base}methodology/`, `${base}check/`],
-    "the pages sitemap lists the canonical root, the report (latest and frozen), the methodology page and the check page"
+    [
+      base, `${base}black-holes/`, `${base}black-holes/${snapshotId}/`, `${base}methodology/`, `${base}check/`,
+      ...LANDING_SLUGS.map((slug) => `${base}${slug}/`),
+    ],
+    "the pages sitemap lists the canonical root, the report (latest and frozen), the methodology page, the check page and the ten landing pages"
   );
   const llms = readFileSync(path.join(webRoot, "llms.txt"), "utf8");
   for (const loc of locs.slice(1)) assert.ok(llms.includes(loc), `llms.txt names ${loc}`);
@@ -1382,9 +1403,15 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
     /<\/ul>\s*<p><a href="black-holes\/">Read the report: Stars don't review pull requests<\/a><\/p>/,
     "report link follows the findings list"
   );
+  // E4: one line links the six ecosystem pages.
+  assert.match(
+    article,
+    /Browse by ecosystem:\s*<a href="rust\/">Rust<\/a> ·\s*<a href="python\/">Python<\/a> ·\s*<a href="javascript\/">JavaScript and TypeScript<\/a> ·\s*<a href="go\/">Go<\/a> ·\s*<a href="java\/">Java<\/a> ·\s*<a href="c-cpp\/">C, C\+\+ and Zig<\/a>/,
+    "the Browse by ecosystem line"
+  );
   const whereFrom = article.match(/<h2>Where the numbers come from<\/h2>([\s\S]*?)<h2>/)[1];
   assert.match(whereFrom, /<a href="methodology\/">[^<]+<\/a>/, "methodology link in 'Where the numbers come from'");
-  const pageLinks = ["black-holes/", "methodology/"];
+  const pageLinks = ["black-holes/", "methodology/", ...ECOSYSTEM_SLUGS.map((slug) => `${slug}/`)];
   for (const href of hrefs) {
     if (href === "./" || pageLinks.includes(href)) continue;
     const hydrated = { ...defaultState(), ...parseSearch(href) };
