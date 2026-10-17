@@ -16,4 +16,34 @@
   <url>
     <loc>https://porchlamp.org/check/</loc>
   </url>
+  <url>
+    <loc>https://porchlamp.org/rust/</loc>
+  </url>
+  <url>
+    <loc>https://porchlamp.org/python/</loc>
+  </url>
+  <url>
+    <loc>https://porchlamp.org/javascript/</loc>
+  </url>
+  <url>
+    <loc>https://porchlamp.org/go/</loc>
+  </url>
+  <url>
+    <loc>https://porchlamp.org/java/</loc>
+  </url>
+  <url>
+    <loc>https://porchlamp.org/c-cpp/</loc>
+  </url>
+  <url>
+    <loc>https://porchlamp.org/first-timers/</loc>
+  </url>
+  <url>
+    <loc>https://porchlamp.org/career/</loc>
+  </url>
+  <url>
+    <loc>https://porchlamp.org/senior-systems/</loc>
+  </url>
+  <url>
+    <loc>https://porchlamp.org/ai-assisted/</loc>
+  </url>
 </urlset>

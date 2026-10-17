@@ -54,6 +54,9 @@ ECOSYSTEM_NAMES = {
     "crates": "crates.io (Rust)",
     "maven": "Maven (Java)",
 }
+#: Ecosystem key -> the address of its landing page (``porchlamp.serve.landing_pages``); lens key -> likewise.
+ECOSYSTEM_SLUGS = {"pypi": "python", "npm": "javascript", "go": "go", "systems": "c-cpp", "crates": "rust", "maven": "java"}
+LENS_SLUGS = {"first_timer": "first-timers", "career_capital": "career", "senior_systems": "senior-systems", "ai_assisted": "ai-assisted"}
 #: Wording guard: PyPI and npm are said to go quiet more often than these four.
 GUARD_QUIET = ("pypi", "npm")
 GUARD_BUSY = ("crates", "go", "maven", "systems")
@@ -533,10 +536,20 @@ def _site_links(rel: str) -> str:
     )
 
 
-def _table(headers: Sequence[str], rows: Sequence[Sequence[str]], *, caption: str | None = None) -> str:
+def _table(
+    headers: Sequence[str], rows: Sequence[Sequence[str]], *, caption: str | None = None,
+    first_links: Sequence[str] | None = None,
+) -> str:
+    """``first_links``: one address per row; the row's first cell then links to it."""
     head = "".join(f'<th scope="col">{_t(h)}</th>' for h in headers)
-    first = lambda cells: f'<th scope="row">{_t(cells[0])}</th>' + "".join(f"<td>{_t(c)}</td>" for c in cells[1:])  # noqa: E731
-    body = "".join(f"<tr>{first(r)}</tr>" for r in rows)
+
+    def first_cell(i: int, text: str) -> str:
+        inner = _t(text) if first_links is None else f'<a href="{_a(first_links[i])}">{_t(text)}</a>'
+        return f'<th scope="row">{inner}</th>'
+
+    body = "".join(
+        f"<tr>{first_cell(i, r[0])}" + "".join(f"<td>{_t(c)}</td>" for c in r[1:]) + "</tr>" for i, r in enumerate(rows)
+    )
     cap = f"<caption>{_t(caption)}</caption>" if caption else ""
     return f'<div class="seo-fallback-table-wrap"><table>{cap}<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
@@ -755,7 +768,7 @@ def render_report(f: Facts, *, frozen: bool, exported_on: date, source_db_sha256
         <p>PyPI and npm projects go quiet more often than Rust, Go, Java or systems projects. Each share is computed within its own ecosystem.</p>
         {eco_chart}
         <details><summary>The numbers behind the chart</summary>
-        {_table(("Ecosystem", "Projects judged", "Black holes", "Share"), eco_rows)}
+        {_table(("Ecosystem", "Projects judged", "Black holes", "Share"), eco_rows, first_links=[f"{rel}{ECOSYSTEM_SLUGS[e.key]}/" for e in f.ecosystems])}
         </details>
         <p>Size is not controlled for. Bigger projects go quiet more often in general, so part of a gap can come from size.</p>
         <h2 id="how-we-measured">How we measured</h2>
@@ -825,8 +838,13 @@ def render_methodology(
         f'<th scope="col"><abbr title="{_a(pillar_names.get(p, p))}">{_t(pillar_short.get(p, p))}</abbr></th>'
         for p in pillar_order
     )
+
+    def lens_cell(name: str) -> str:
+        label = _t(persona_names.get(name, name))
+        return f'<a href="{rel}{LENS_SLUGS[name]}/">{label}</a>' if name in LENS_SLUGS else label
+
     lens_rows = "".join(
-        f'<tr><th scope="row">{_t(persona_names.get(name, name))}</th>'
+        f'<tr><th scope="row">{lens_cell(name)}</th>'
         + "".join(f"<td>{_percent_text(weights.get(p))}</td>" for p in pillar_order)
         + "</tr>"
         for name, weights in methodology["personas"]["presets"].items()

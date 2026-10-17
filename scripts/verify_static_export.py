@@ -33,6 +33,11 @@ at ``projects/<owner>/<name>/`` and no other page exists; every value on each pa
 the five pillars and their coverage, each lens rank or reason, each parameter's value, count and window, the five similar
 projects, the record hash and links) is recomputed from the API and compared; ``sitemap-projects.xml`` lists the top 1,000
 by balanced rank; ``check/projects.json`` lists the ranked projects.
+
+``verify_landing`` (also run by ``--stats``) proves the ten landing pages (six ecosystems, four lenses): each intro sentence
+and number, each of the top-50 table rows (rank, owner/name, score, tier and link target), the method links, the titles, and
+that the sitemap and ``llms.txt`` list them. ``verify_home`` proves the home page's JSON-LD (no SoftwareApplication, no Dataset,
+``about`` names the report's Dataset, every ItemList address is a project page of the export) and its ecosystem links.
 """
 from __future__ import annotations
 
@@ -527,6 +532,38 @@ class _Ledger:
             self.errors.append(f"{where}: expected {expected!r}, found {found!r}")
 
 
+#: The ten landing pages, typed again here (double entry against ``porchlamp/serve/landing_pages.py``):
+#: slug -> (ecosystem key, name in the title, registry or name in "the judged ... projects").
+LANDING_ECOSYSTEMS = {
+    "rust": ("crates", "Rust", "crates.io"),
+    "python": ("pypi", "Python", "PyPI"),
+    "javascript": ("npm", "JavaScript and TypeScript", "npm"),
+    "go": ("go", "Go", "Go"),
+    "java": ("maven", "Java", "Maven"),
+    "c-cpp": ("systems", "C, C++ and Zig", "C, C++ and Zig"),
+}
+#: slug -> (lens key, the phrase after "projects for").
+LANDING_LENSES = {
+    "first-timers": ("first_timer", "first-time contributors"),
+    "career": ("career_capital", "building career capital"),
+    "senior-systems": ("senior_systems", "senior systems engineers"),
+    "ai-assisted": ("ai_assisted", "AI-assisted contributors"),
+}
+ECOSYSTEM_PAGE_SLUGS = {key: slug for slug, (key, _n, _r) in LANDING_ECOSYSTEMS.items()}
+LENS_PAGE_SLUGS = {key: slug for slug, (key, _p) in LANDING_LENSES.items()}
+LANDING_TOP = 50
+
+
+def _judged_by_ecosystem(conn: sqlite3.Connection, sid: str) -> dict[str, tuple[int, int]]:
+    """``{ecosystem: (judged, black_holes)}``: D-GATE-5 decided projects, by their own SQL on the database."""
+    rows = conn.execute(
+        "SELECT ecosystem, COUNT(*), SUM(gate_reason = 'black_hole') FROM repositories WHERE snapshot_id = ? "
+        "AND (gate_reason IS NULL OR gate_reason IN ('black_hole', 'unrated: no_external_workflow')) "
+        "AND COALESCE(gate_undecided, '[]') NOT LIKE '%D-GATE-5%' GROUP BY ecosystem", (sid,),
+    ).fetchall()
+    return {eco: (n, bh or 0) for eco, n, bh in rows}
+
+
 def verify_report(db: Path, stats_path: Path, site: Path, *, log=print) -> dict:
     """Recompute every number on the report pages, the methodology page and the CSV from the database, the
     API and the stats file, and compare. ``{"checked": n, "errors": [...]}``; passing means no errors.
@@ -561,13 +598,8 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, log=print) -> dict:
         snapshot = api("/v1/porchlamp/snapshot")
         methodology = api("/v1/porchlamp/methodology")
         sid = snapshot["snapshot_id"]
-        rows = conn.execute(
-            "SELECT ecosystem, COUNT(*), SUM(gate_reason = 'black_hole') FROM repositories WHERE snapshot_id = ? "
-            "AND (gate_reason IS NULL OR gate_reason IN ('black_hole', 'unrated: no_external_workflow')) "
-            "AND COALESCE(gate_undecided, '[]') NOT LIKE '%D-GATE-5%' GROUP BY ecosystem", (sid,),
-        ).fetchall()
+        per_eco = _judged_by_ecosystem(conn, sid)
         conn.close()
-        per_eco = {eco: (n, bh or 0) for eco, n, bh in rows}
         judged, black_holes = sum(n for n, _ in per_eco.values()), sum(b for _, b in per_eco.values())
         boards = {}
         for lens in sorted(constants.PERSONA_PRESETS):
@@ -655,6 +687,10 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, log=print) -> dict:
         table = _rows(_section(page, "ecosystems"))
         ledger.equal(f"{w} ecosystem table", [r[1:] for r in table], [
             [fmt(per_eco[e][0]), fmt(per_eco[e][1]), pct1(per_eco[e][1], per_eco[e][0]) + "%"] for e in eco_order
+        ])
+        eco_links = re.findall(r'<th scope="row"><a href="([^"]*)">', _section(page, "ecosystems"))
+        ledger.equal(f"{w} ecosystem table links to the ecosystem pages", eco_links, [
+            f"{'../' if label == 'latest' else '../../'}{ECOSYSTEM_PAGE_SLUGS[e]}/" for e in eco_order
         ])
         # how we measured
         bullets = _items(_section(page, "how-we-measured"))
@@ -744,6 +780,9 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, log=print) -> dict:
         lenses = _rows(_section(page, "lenses"))
         ledger.equal("methodology lens weights", [r[1:] for r in lenses],
                      [[f"{round(w[p['name']] * 100)}%" for p in methodology["pillars"]] for w in methodology["personas"]["presets"].values()])
+        ledger.equal("methodology lens names link to the lens pages",
+                     re.findall(r'<th scope="row"><a href="([^"]*)">', _section(page, "lenses")),
+                     [f"../{LENS_PAGE_SLUGS[name]}/" for name in methodology["personas"]["presets"] if name in LENS_PAGE_SLUGS])
         params = _rows(_section(page, "parameters"))
         ledger.equal("methodology parameter count", len(params), len(methodology["parameters"]))
         ledger.equal("methodology parameter weights", [r[2] for r in params],
@@ -1007,6 +1046,10 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
             f"Quadrant: {detail['quadrant']}",
             f"Ecosystem: {rp.ECOSYSTEM_NAMES[detail['ecosystem']]}",
         ])
+        ledger.contains(
+            f"{who} ecosystem link", text,
+            f'<li>Ecosystem: <a href="../../../{ECOSYSTEM_PAGE_SLUGS[detail["ecosystem"]]}/">',
+        )
         ledger.equal(f"{who} capped note", capped_text in plain, capped)
         pillars = _rows(_section(text, "pillars"))
         ledger.equal(f"{who} pillar scores and coverage", pillars, [
@@ -1100,6 +1143,257 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
     return {"checked": ledger.checked, "pages": len(found_dirs & expected_dirs), "errors": ledger.errors}
 
 
+# --------------------------------------------------------------------------- #
+# The ten landing pages and the home page
+# --------------------------------------------------------------------------- #
+_NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
+
+
+def _weight_percent(weight: float) -> str:
+    from decimal import ROUND_HALF_UP, Decimal
+
+    return f"{(Decimal(repr(weight)) * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP)}%"
+
+
+def _joined(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _landing_table(text: str) -> list[tuple[list[str], Optional[str]]]:
+    """``(cells, link target or None)`` of each row of the page's top-50 table."""
+    table = re.search(r'<table class="landing-table">.*?</table>', text, re.S)
+    body = re.search(r"<tbody>(.*?)</tbody>", table.group(0), re.S) if table else None
+    out = []
+    for tr in re.findall(r"<tr>(.*?)</tr>", body.group(1), re.S) if body else []:
+        cells = [_plain(c) for c in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", tr, re.S)]
+        href = re.search(r'<a href="([^"]*)"', tr)
+        out.append((cells, html.unescape(href.group(1)) if href else None))
+    return out
+
+
+def verify_landing(db: Path, site: Path, *, log=print) -> dict:
+    """Recompute every number and every table row of the ten landing pages from the database and the API and compare.
+    ``{"checked": values, "rows": table rows, "pages": n, "errors": [...]}``."""
+    from fastapi.testclient import TestClient
+
+    from porchlamp.core import constants
+    from porchlamp.serve import report_pages as rp
+    from porchlamp.serve.app import create_app
+
+    ledger = _Ledger()
+    table_rows = 0
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = Path(tmp) / "snapshot.db"
+        source, target = sqlite3.connect(f"file:{db}?mode=ro", uri=True), sqlite3.connect(copy)
+        source.backup(target)
+        source.close()
+        target.close()
+        client = TestClient(create_app(str(copy), web_dir=str(Path(tmp) / "__no_web__")))
+
+        def api(path: str, **params: Any) -> Any:
+            response = client.get(path, params=params)
+            if response.status_code != 200:
+                raise SystemExit(f"verify: GET {path} -> {response.status_code}")
+            return response.json()
+
+        snapshot, methodology = api("/v1/porchlamp/snapshot"), api("/v1/porchlamp/methodology")
+        sid = snapshot["snapshot_id"]
+        conn = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
+        per_eco = _judged_by_ecosystem(conn, sid)
+        conn.close()
+        boards = {}
+        for lens in sorted(constants.PERSONA_PRESETS):
+            collected, page_no = [], 1
+            while True:
+                body = api("/v1/porchlamp/leaderboard", persona=lens, page=page_no, page_size=1000)
+                collected.extend(body["rows"])
+                if len(collected) >= body["total"] or not body["rows"]:
+                    break
+                page_no += 1
+            boards[lens] = (collected, body["total"])
+
+    fmt, pct1 = rp.fmt_int, rp.pct1
+    month_year = f"{_MONTHS[int(sid[5:7]) - 1]} {sid[:4]}"
+    snapshot_day = f"{int(sid[8:10])} {month_year}"
+    overall = pct1(sum(b for _, b in per_eco.values()), sum(n for n, _ in per_eco.values()))
+    in_balanced = {(r["owner"], r["name"]) for r in boards["balanced"][0]}
+    pillar_names = rp.copy_js_map("PILLAR_NAMES")
+    pillar_order = [p["name"] for p in methodology["pillars"]]
+    csv_name = f"porchlamp-{sid}-ranked.csv"
+    ranked = boards["balanced"][1]
+
+    def tier_text(row: dict) -> str:
+        if not row["tier"]:
+            return "—"
+        return f"{row['tier']} (capped)" if row["tier_ceiling"] and row["tier"] == row["tier_ceiling"] else row["tier"]
+
+    expected: dict[str, dict] = {}
+    for slug, (key, name, judged_name) in LANDING_ECOSYSTEMS.items():
+        cut = [r for r in boards["balanced"][0] if r["ecosystem"] == key]
+        judged, holes = per_eco[key]
+        rows = [(i + 1, r) for i, r in enumerate(cut[:LANDING_TOP])]
+        intro = (
+            f"Porchlamp ranks {fmt(len(cut))} {name} projects by what happens to a stranger's pull request. "
+            f"Among the {fmt(judged)} judged {judged_name} projects, {pct1(holes, judged)}% left most outside pull requests "
+            f"unanswered for two weeks, against {overall}% across all {_NUMBER_WORDS[len(per_eco)]} ecosystems."
+        )
+        expected[slug] = {
+            "title": f"{name} open-source projects that answer outside pull requests ({month_year}) | Porchlamp",
+            "h1": f"{name} projects that answer outside pull requests", "intro": intro, "rows": rows, "scope": "by the balanced ranking",
+            "numbers": [fmt(len(cut)), fmt(judged), pct1(holes, judged) + "%", overall + "%"],
+        }
+    for slug, (lens, phrase) in LANDING_LENSES.items():
+        weights = methodology["personas"]["presets"][lens]
+        ordered = sorted((p for p in pillar_order if weights.get(p)), key=lambda p: (-weights[p], pillar_order.index(p)))
+        weights_text = _joined([f"{pillar_names[p].lower()} {_weight_percent(weights[p])}" for p in ordered])
+        rows_all, total = boards[lens]
+        intro = f"This view ranks {fmt(total)} projects for {phrase}. It weighs {weights_text}."
+        expected[slug] = {
+            "title": f"Open-source projects for {phrase}, ranked by who answers ({month_year}) | Porchlamp",
+            "h1": f"Open-source projects for {phrase}", "intro": intro, "scope": "in this view",
+            "rows": [(r["rank"], r) for r in rows_all[:LANDING_TOP]],
+            "numbers": [fmt(total)] + [_weight_percent(weights[p]) for p in ordered],
+        }
+
+    titles = []
+    for slug, want in expected.items():
+        rel = f"{slug}/index.html"
+        path = site / rel
+        if not path.is_file():
+            ledger.errors.append(f"{rel} is missing")
+            continue
+        text = path.read_text(encoding="utf-8")
+        ledger.checked += 1
+        canonical = re.search(r'<link rel="canonical" href="([^"]*)"', text).group(1)
+        ledger.equal(f"{rel} canonical", canonical, f"{SITE_ORIGIN}/{slug}/")
+        title = html.unescape(re.search(r"<title>(.*?)</title>", text, re.S).group(1))
+        titles.append(title)
+        ledger.equal(f"{rel} <title>", title, want["title"])
+        ledger.equal(f"{rel} <h1>", _plain(re.search(r"<h1>(.*?)</h1>", text, re.S).group(1)), want["h1"])
+        ledger.equal(f"{rel} lede", _plain(re.search(r'<p class="lede">(.*?)</p>', text, re.S).group(1)),
+                     f"In the Porchlamp snapshot of {snapshot_day}.")
+        intro = _by_id(text, "intro")
+        for number in want["numbers"]:
+            ledger.token(f"{rel} #intro", intro, number)
+        ledger.equal(f"{rel} #intro", intro, want["intro"])
+        ledger.equal(f"{rel} meta description", html.unescape(re.search(r'<meta name="description" content="([^"]*)"', text).group(1)), want["intro"])
+
+        # the table: every row, in order
+        rows = _landing_table(text)
+        ledger.equal(f"{rel} table row count", len(rows), len(want["rows"]))
+        names_without_page = []
+        for found, (rank, row) in zip(rows, want["rows"]):
+            cells, href = found
+            owner, name = row["owner"], row["name"]
+            linked = (owner, name) in in_balanced
+            if not linked:
+                names_without_page.append(f"{owner}/{name}")
+            who = f"{rel} row {rank} ({owner}/{name})"
+            ledger.equal(f"{who} cell count", len(cells), 4)
+            cells = (cells + [""] * 4)[:4]
+            for label, got, want_cell in (
+                ("rank", cells[0], fmt(rank)), ("owner/name", cells[1], f"{owner}/{name}"),
+                ("score", cells[2], _tofixed(row["porchlamp"], 2)), ("tier", cells[3], tier_text(row)),
+            ):
+                ledger.equal(f"{who} {label}", got, want_cell)
+            ledger.equal(f"{who} link target", href, f"../projects/{owner.lower()}/{name.lower()}/" if linked else None)
+            table_rows += 1
+        verb, cause = ("has", "it is") if len(names_without_page) == 1 else ("have", "they are")
+        note = f"The table lists the top {fmt(len(want['rows']))} {want['scope']}."
+        note += (
+            " Each name opens that project's page."
+            if not names_without_page
+            else f" Each name opens that project's page, except {_joined(names_without_page)}, which {verb} no page "
+                 f"because {cause} not in the balanced ranking."
+        )
+        ledger.equal(f"{rel} #table-note", _by_id(text, "table-note"), note)
+        # what the reader is told is also what the page shows
+        scanned = " ".join([intro, _by_id(text, "table-note")] + [c for cells, _h in rows for c in (cells[0], *cells[2:])])
+        found_bad = _BAD_TEXT.search(scanned)
+        if found_bad:
+            ledger.errors.append(f"{rel}: the page prints {found_bad.group(0)!r}")
+        # links to the method, the report and the ranked table; no script
+        method = _section_after(text, "method")
+        for target, label in (("../methodology/", "methodology"), ("../black-holes/", "report"),
+                              (f"../black-holes/{sid}/{csv_name}", "ranked CSV")):
+            ledger.contains(f"{rel} link to the {label}", method, f'href="{target}"')
+        ledger.token(f"{rel} ranked count", _plain(method), fmt(ranked))
+        ledger.equal(f"{rel} loads no script", re.findall(r"<script[^>]*\ssrc=", text), [])
+        ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1))
+        ledger.equal(f"{rel} breadcrumb", ld, {
+            "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
+                {"@type": "ListItem", "position": 1, "name": "Porchlamp", "item": f"{SITE_ORIGIN}/"},
+                {"@type": "ListItem", "position": 2, "name": want["h1"], "item": canonical}]})
+    ledger.equal("the ten landing titles differ", len(set(titles)), len(expected))
+
+    # the sitemap and llms.txt list all ten
+    sitemap = site / "sitemap-pages.xml"
+    locs = re.findall(r"<loc>([^<]+)</loc>", sitemap.read_text(encoding="utf-8")) if sitemap.is_file() else []
+    llms = (site / "llms.txt").read_text(encoding="utf-8") if (site / "llms.txt").is_file() else ""
+    for slug in expected:
+        address = f"{SITE_ORIGIN}/{slug}/"
+        ledger.equal(f"sitemap-pages.xml lists {address}", locs.count(address), 1)
+        ledger.contains("llms.txt", llms, address)
+
+    log(f"verify: landing pages: checked {ledger.checked} values and {table_rows} table rows on {len(titles)} of {len(expected)} pages")
+    for error in ledger.errors[:50]:
+        log(f"LANDING MISMATCH {error}")
+    if len(ledger.errors) > 50:
+        log(f"LANDING MISMATCH ... and {len(ledger.errors) - 50} more")
+    return {"checked": ledger.checked, "rows": table_rows, "pages": len(titles), "errors": ledger.errors}
+
+
+def _section_after(page: str, ident: str) -> str:
+    match = re.search(rf'<h2 id="{re.escape(ident)}">(.*?)(?=<footer)', page, re.S)
+    return match.group(1) if match else ""
+
+
+_PROJECT_ADDRESS = re.compile(r"https://porchlamp\.org/projects/([a-z0-9._-]+)/([a-z0-9._-]+)/")
+
+
+def verify_home(site: Path, *, log=print) -> dict:
+    """The home page's JSON-LD and ecosystem links: no SoftwareApplication, no Dataset (the report page carries it),
+    the WebPage's ``about`` names the report's Dataset ``@id``, every ItemList address is a project page of this export;
+    the static article links the six ecosystem pages."""
+    ledger = _Ledger()
+    home = site / "index.html"
+    report = site / "black-holes" / "index.html"
+    if not home.is_file() or not report.is_file():
+        return {"checked": 0, "errors": ["index.html or black-holes/index.html is missing"]}
+    text = home.read_text(encoding="utf-8")
+    ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1))
+    graph = ld["@graph"]
+    types = [n["@type"] for n in graph]
+    for gone in ("SoftwareApplication", "Dataset"):
+        ledger.equal(f"home JSON-LD has no {gone}", gone in types, False)
+    report_ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', report.read_text(encoding="utf-8"), re.S).group(1))
+    dataset_ids = [n["@id"] for n in report_ld["@graph"] if n["@type"] == "Dataset"]
+    ledger.equal("the report page carries one Dataset", len(dataset_ids), 1)
+    webpage = next((n for n in graph if n["@type"] == "WebPage"), {})
+    ledger.equal("home WebPage about names the report's Dataset @id", webpage.get("about"), {"@id": dataset_ids[0]} if dataset_ids else None)
+    items = next((n for n in graph if n["@type"] == "ItemList"), {}).get("itemListElement", [])
+    ledger.equal("home ItemList has items", len(items) > 0, True)
+    ledger.equal("home ItemList numberOfItems", next((n for n in graph if n["@type"] == "ItemList"), {}).get("numberOfItems"), len(items))
+    for item in items:
+        url = item.get("url", "")
+        match = _PROJECT_ADDRESS.fullmatch(url)
+        ledger.equal(f"home ItemList address {url} is a project page address", match is not None, True)
+        if match:
+            ledger.equal(f"home ItemList address {url} has a page in the export",
+                         (site / "projects" / match.group(1) / match.group(2) / "index.html").is_file(), True)
+    article = re.search(r'<article class="seo-fallback">(.*?)</article>', text, re.S)
+    browse = re.search(r"Browse by ecosystem:(.*?)</p>", article.group(1), re.S) if article else None
+    ledger.equal("home article has a 'Browse by ecosystem' line", browse is not None, True)
+    if browse:
+        ledger.equal("home 'Browse by ecosystem' links", re.findall(r'<a href="([^"]*)">([^<]*)</a>', browse.group(1)), [
+            ("rust/", "Rust"), ("python/", "Python"), ("javascript/", "JavaScript and TypeScript"), ("go/", "Go"),
+            ("java/", "Java"), ("c-cpp/", "C, C++ and Zig")])
+    log(f"verify: home page: checked {ledger.checked} values")
+    for error in ledger.errors:
+        log(f"HOME MISMATCH {error}")
+    return {"checked": ledger.checked, "errors": ledger.errors}
+
+
 def conn_names(db: Path, snapshot_id: str) -> list[tuple[str, str]]:
     """``(owner, name)`` of the snapshot's black-hole records."""
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
@@ -1134,6 +1428,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.stats is not None:
         ok = not verify_report(args.db.resolve(), args.stats.resolve(), site)["errors"] and ok
         ok = not verify_projects(args.db.resolve(), site)["errors"] and ok
+        ok = not verify_landing(args.db.resolve(), site)["errors"] and ok
+        ok = not verify_home(site)["errors"] and ok
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
 
