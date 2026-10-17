@@ -925,7 +925,7 @@ def verify_report(db: Path, stats_path: Path, site: Path, *, evidence_files: Any
         "'Python and JavaScript go quiet more often than the other four' holds",
         all(shares[q] > shares[b] for q in ("pypi", "npm") for b in ("crates", "go", "maven", "systems")), True,
     )
-    ledger.equal("'Stars barely predict an answer' holds (|rho| < 0.3)", abs(Decimal(str(rho))) < Decimal("0.3"), True)
+    ledger.equal("'Stars barely predict an answer' holds (|rho| < 0.2)", abs(Decimal(str(rho))) < Decimal("0.2"), True)
     ledger.equal("'Fame is no guarantee' holds (a black hole in the 100 most-starred)", top100_black_holes > 0, True)
     ledger.equal("'Most of those pull requests waited' holds", unanswered * 2 > counted, True)
 

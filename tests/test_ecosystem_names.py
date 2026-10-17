@@ -31,8 +31,9 @@ REGISTRY_NAMES = {
     "npm": re.compile(r"\bnpm\b"),
 }
 
-#: Not scanned, each with the reason: the home page's hand-typed article and the two machine-read files that repeat it
-#: still carry registry names. The home step replaces all three; this list then goes, and so does the exception.
+#: The one exception (lead ruling, 2026-10-17): not scanned, each with the reason, the home page's hand-typed article and
+#: the two machine-read files that repeat it, which still carry registry names. Step 6 replaces all three with
+#: generated files; the test below fails as soon as a file here no longer names a registry, so the list has to empty.
 NOT_SCANNED_UNTIL_THE_HOME_STEP = {
     "index.html": "the hand-typed article under the app shell",
     "llms.txt": "a hand-typed summary for language models",
@@ -151,3 +152,13 @@ def test_the_pages_left_out_exist_and_are_named_with_their_reason():
     assert NOT_SCANNED_UNTIL_THE_HOME_STEP.keys() == {"index.html", "llms.txt", "feed.xml"}
     for name, reason in NOT_SCANNED_UNTIL_THE_HOME_STEP.items():
         assert (WEB / name).is_file() and reason, name
+
+
+def test_a_file_left_out_still_names_a_registry_or_leaves_the_list():
+    """The exception lasts only while its reason does: a file here that no longer prints a registry name (step 6 makes
+    it generated, from the list) must leave NOT_SCANNED_UNTIL_THE_HOME_STEP, and be scanned like every other page."""
+    for name in NOT_SCANNED_UNTIL_THE_HOME_STEP:
+        text = (WEB / name).read_text(encoding="utf-8")
+        assert any(pattern.search(text) for pattern in REGISTRY_NAMES.values()), (
+            f"{name} names no registry any more: take it off NOT_SCANNED_UNTIL_THE_HOME_STEP"
+        )

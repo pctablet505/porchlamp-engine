@@ -430,14 +430,25 @@ def test_python_and_javascript_must_each_beat_the_other_four_ecosystems(built):
         report_pages.build_facts(**inputs)
 
 
-@pytest.mark.parametrize("rho", [0.6, -0.6, 0.3])
-def test_stars_barely_predict_an_answer_needs_a_rank_correlation_under_three_tenths(built, rho):
+@pytest.mark.parametrize("rho", [0.6, -0.6, 0.2, -0.2])
+def test_stars_barely_predict_an_answer_needs_a_rank_correlation_under_two_tenths(built, rho):
+    """"Barely" is a very weak correlation, under 0.2 either way (Evans' scale); at 0.2 the sentence would overstate it,
+    and the export stops for new words instead of choosing them."""
     inputs = _inputs(built)
     inputs["stats"]["spearman"]["porchlamp"]["rho"] = rho
-    with pytest.raises(report_pages.ReportError, match="guard: 'Stars barely predict an answer' needs a rank correlation under 0.3"):
+    with pytest.raises(
+        report_pages.ReportError,
+        match=r"guard: 'Stars barely predict an answer' needs a rank correlation under 0\.2 either way, got .*: the sentence "
+        r"needs new words, and new words need the owner",
+    ):
         report_pages.build_facts(**inputs)
-    inputs["stats"]["spearman"]["porchlamp"]["rho"] = -0.29
-    assert report_pages.build_facts(**inputs).rho == -0.29
+
+
+@pytest.mark.parametrize("rho", [0.19, -0.19])
+def test_a_rank_correlation_just_under_two_tenths_keeps_stars_barely_predict_an_answer(built, rho):
+    inputs = _inputs(built)
+    inputs["stats"]["spearman"]["porchlamp"]["rho"] = rho
+    assert report_pages.build_facts(**inputs).rho == rho
 
 
 def test_fame_is_no_guarantee_needs_a_black_hole_among_the_most_starred(built):

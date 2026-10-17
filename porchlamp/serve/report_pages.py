@@ -72,9 +72,9 @@ LENS_SLUGS = {"first_timer": "first-timers", "career_capital": "career", "senior
 #: Wording guard: Python and JavaScript are said to go quiet more often than these four.
 GUARD_QUIET = ("pypi", "npm")
 GUARD_BUSY = ("crates", "go", "maven", "systems")
-#: Wording guard: "Stars barely predict an answer" holds while the rank correlation between stars and the score stays
-#: under the usual edge of a weak correlation (Cohen: 0.1 small, 0.3 medium), whichever its sign.
-RHO_BARELY = Decimal("0.3")
+#: Wording guard: "Stars barely predict an answer" holds while the rank correlation between stars and the score is very
+#: weak, whichever its sign: under 0.2 (Evans' scale: 0.00-0.19 very weak, 0.20-0.39 weak; lead ruling, 2026-10-17).
+RHO_BARELY = Decimal("0.2")
 
 CSV_COLUMNS = ("rank", "owner", "name", "ecosystem", "score", "tier", "coverage", "quadrant")
 
@@ -422,7 +422,8 @@ def check_wording_guards(facts: Facts) -> None:
         )
     if not abs(Decimal(str(facts.rho))) < RHO_BARELY:
         raise ReportError(
-            f"guard: 'Stars barely predict an answer' needs a rank correlation under {RHO_BARELY} either way, got {facts.rho}"
+            f"guard: 'Stars barely predict an answer' needs a rank correlation under {RHO_BARELY} either way, got {facts.rho}: "
+            "the sentence needs new words, and new words need the owner"
         )
     if not facts.top100_black_holes > 0:
         raise ReportError("guard: 'Fame is no guarantee' needs a black hole among the 100 most-starred projects, got none")
