@@ -2,7 +2,8 @@
 report_pages.py`` renders them, and ``scripts/verify_static_export.py`` proves every number on them.
 
 The fixture is ``tests/serve``'s synthetic snapshot with black-hole projects added (each with the raw
-``pr_window`` envelope the API recomputes its evidence from) and a stats file built from the database.
+``pr_window`` envelope the API recomputes its evidence from) and the stats file ``porchlamp.snapshot.stats``
+computes from the database, a star count per project and a derived bundle per project.
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tests"))  # serve.helpers -> store.helpers
 
 from porchlamp.serve import report_pages  # noqa: E402
+from porchlamp.snapshot.stats import compute_stats  # noqa: E402
 from serve.helpers import build_snapshot, finalize, fresh_db  # noqa: E402
 
 SNAPSHOT = "2026-10-14"  # the id the shipped sitemap names: its report address must exist in the fixture site
@@ -64,7 +66,7 @@ def _envelope(unanswered: int, answered: int) -> dict:
         return {
             "number": number, "createdAt": "2026-05-01T12:00:00Z", "authorAssociation": "NONE",
             "author": {"login": f"outsider-{number}", "__typename": "User", "createdAt": "2020-01-01T00:00:00Z"},
-            "isDraft": False, "closedAt": None, "mergedAt": None,
+            "isDraft": False, "timelineItems": {"nodes": []}, "closedAt": None, "mergedAt": None,
             "comments": {"nodes": comments}, "reviews": {"nodes": []},
         }
 
@@ -72,25 +74,64 @@ def _envelope(unanswered: int, answered: int) -> dict:
     return {"fetched_at": "2026-09-01T01:00:00Z", "data": {"window_anchor": "2026-09-01T00:00:00Z", "window_days": 180, "prs": prs}}
 
 
-def _stats(conn: sqlite3.Connection, snapshot_id: str) -> dict:
-    rows = conn.execute("SELECT ecosystem, gate_reason, gate_undecided FROM repositories WHERE snapshot_id = ?", (snapshot_id,)).fetchall()
-    per_eco = report_pages.decided_counts(rows)
-    judged = sum(j for j, _ in per_eco.values())
-    black_holes = sum(b for _, b in per_eco.values())
-    rated = conn.execute("SELECT COUNT(*) FROM repositories WHERE snapshot_id = ? AND rated = 1", (snapshot_id,)).fetchone()[0]
-    total = conn.execute("SELECT COUNT(*) FROM repositories WHERE snapshot_id = ?", (snapshot_id,)).fetchone()[0]
-    n0, n1, n2 = 1, judged // 2, judged // 3
-    n3 = judged - n0 - n1 - n2
+def _pin_black_holes(conn: sqlite3.Connection, snapshot_dir: Path, holes: list, envelope: dict) -> None:
+    """The stored-snapshot files the evidence reader checks: a manifest naming each black hole's bundle, a bundle
+    whose ``gr14_ghost_rate`` pins the raw envelope's hash, and the bundle's hash as the stored ``raw_hash``."""
+    from porchlamp.collect.envelope import envelope_hash
+    from porchlamp.core.models import canonical_json, sha256_hex
+
+    (snapshot_dir / "bundles").mkdir(parents=True)
+    entries = []
+    for owner, name in holes:
+        bundle = {"inputs": {"gr14_ghost_rate": {
+            "kind": "measured", "source": f"raw/pr_window/{owner}__{name}.json",
+            "source_hash": envelope_hash(envelope["data"]),
+        }}}
+        bundle_file = f"bundles/{owner}__{name}.json"
+        (snapshot_dir / bundle_file).write_text(json.dumps(bundle), encoding="utf-8")
+        entries.append({"owner": owner, "name": name, "bundle_file": bundle_file})
+        conn.execute(
+            "UPDATE repositories SET raw_hash = ? WHERE snapshot_id = ? AND owner = ? AND name = ?",
+            (sha256_hex(canonical_json(bundle)), SNAPSHOT, owner, name),
+        )
+    (snapshot_dir / "manifest.json").write_text(json.dumps({"snapshot_id": SNAPSHOT, "repos": entries}), encoding="utf-8")
+    conn.commit()
+
+
+def _write_stats_inputs(db: Path, data: Path, snapshot_id: str) -> None:
+    """What ``porchlamp.snapshot stats`` reads besides the database: a GitHub metadata envelope with a star
+    count for every project, and a derived bundle with two outside pull requests for every project.
+
+    Stars are dealt so that the black-hole share climbs with stars, as the report says: one judged project
+    under 1,000 stars, then half, a third and the rest of the judged projects in the three charted bands,
+    with a quarter, then 30%, then the remaining black holes. Projects that are not judged get under 1,000."""
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    rows = conn.execute(
+        "SELECT owner, name, gate_reason, gate_undecided FROM repositories WHERE snapshot_id = ? ORDER BY id", (snapshot_id,)
+    ).fetchall()
+    conn.close()
+    decided = [r for r in rows if r[2] in (None, "black_hole", "unrated: no_external_workflow")
+               and "D-GATE-5" not in json.loads(r[3] or "[]")]
+    holes = iter([r for r in decided if r[2] == "black_hole"])
+    plain = iter([r for r in decided if r[2] != "black_hole"])
+    judged, n_holes = len(decided), sum(r[2] == "black_hole" for r in decided)
+    n1, n2 = judged // 2, judged // 3
+    n3 = judged - 1 - n1 - n2
     bh1, bh2 = int(0.25 * n1), int(0.30 * n2)
-    bh3 = black_holes - bh1 - bh2
-    bands = {"[0,1000)": (n0, 0), "[1000,10000)": (n1, bh1), "[10000,50000)": (n2, bh2), "[50000,inf)": (n3, bh3)}
-    return {
-        "snapshot_id": snapshot_id, "rated": rated, "gate5_decided": judged, "black_holes": black_holes,
-        "by_stars": {k: {"n": n, "black_holes": b, "share": round(b / n, 4)} for k, (n, b) in bands.items()},
-        "spearman": {"porchlamp": {"n": rated, "rho": 0.1255}},
-        "top100_overlap": 9, "top100_stars_fate": {"rated": 50, "black_hole": 25},
-        "corpus": {"derived_repos": total, "human_outside_prs": 2123, "distinct_outside_authors": 1106},
-    }
+    stars: dict[tuple[str, str], int] = {}
+    for low, n, bh in ((500, 1, 0), (1_000, n1, bh1), (10_000, n2, bh2), (50_000, n3, n_holes - bh1 - bh2)):
+        for i in range(n):
+            owner, name, *_ = next(holes) if i < bh else next(plain)
+            stars[(owner, name)] = low + i
+    meta, derived = data / "raw" / "github_meta", data / "derived"
+    meta.mkdir(parents=True, exist_ok=True)
+    derived.mkdir(parents=True, exist_ok=True)
+    for index, (owner, name, *_) in enumerate(rows):
+        count = stars.get((owner, name), 100 + index % 800)
+        (meta / f"{owner}__{name}.json").write_text(json.dumps({"data": {"stars": count}}), encoding="utf-8")
+        events = [{"author_login": f"outsider-{index}-{k}", "is_external": True, "created_at": "2026-05-01T12:00:00Z",
+                   "merged_at": None, "first_human_review_at": None} for k in range(2)]
+        (derived / f"{owner}__{name}.json").write_text(json.dumps({"pr_events": events}), encoding="utf-8")
 
 
 def _add_evidence(conn: sqlite3.Connection, snapshot_id: str) -> None:
@@ -149,20 +190,17 @@ def built(tmp_path_factory):
     holes = conn.execute("SELECT owner, name FROM repositories WHERE snapshot_id = ? AND gate_reason = 'black_hole'", (SNAPSHOT,)).fetchall()
     for owner, name in holes:
         (raw / f"{owner}__{name}.json").write_text(json.dumps(_envelope(11, 1)), encoding="utf-8")
+    _pin_black_holes(conn, tmp / "snapshot", holes, _envelope(11, 1))
     _add_evidence(conn, SNAPSHOT)
-    stats = _stats(conn, SNAPSHOT)
     finalize(conn, db, snapshot_id=SNAPSHOT)
     conn.close()
+    _write_stats_inputs(db, tmp / "data", SNAPSHOT)
+    stats = compute_stats(db, tmp / "data")
     stats_path = tmp / "stats.json"
     stats_path.write_text(json.dumps(stats), encoding="utf-8")
 
-    patch = pytest.MonkeyPatch()
-    patch.setenv("PORCHLAMP_DATA_ROOT", str(tmp / "data"))
-    try:
-        out = tmp / "site"
-        export_static.export(db, out, stats_path)
-    finally:
-        patch.undo()
+    out = tmp / "site"
+    export_static.export(db, out, stats_path, snapshot_dir=tmp / "snapshot", data_dir=tmp / "data")
     return out, db, stats_path, stats, holes
 
 
@@ -170,10 +208,11 @@ def _page(site: Path, rel: str) -> str:
     return (site / rel).read_text(encoding="utf-8")
 
 
-@pytest.fixture(autouse=True)
-def _data_root(built, monkeypatch):
-    """The API serves black-hole evidence only where it finds the raw ``pr_window`` envelopes."""
-    monkeypatch.setenv("PORCHLAMP_DATA_ROOT", str(built[0].parent / "data"))
+def _evidence_files(built):
+    """The files the export read the black-hole evidence from: the stored snapshot and the data root."""
+    from porchlamp.serve.app import PinnedEvidenceFiles
+
+    return PinnedEvidenceFiles(built[0].parent / "snapshot", built[0].parent / "data")
 
 
 PAGES = ("black-holes/index.html", f"black-holes/{SNAPSHOT}/index.html", "methodology/index.html")
@@ -203,7 +242,7 @@ def test_the_export_writes_the_four_files_and_the_csv_lists_ranked_projects_only
 
 def test_verify_report_proves_every_number_and_checks_more_than_thirty(built):
     site, db, stats_path, _stats_dict, _holes = built
-    result = verify_static_export.verify_report(db, stats_path, site, log=lambda _line: None)
+    result = verify_static_export.verify_report(db, stats_path, site, evidence_files=_evidence_files(built), log=lambda _line: None)
     assert result["errors"] == []
     assert result["checked"] > 30
     assert verify_static_export.check_sitemap(site) == []
@@ -219,8 +258,25 @@ def test_a_planted_wrong_number_on_a_report_page_fails_verification_by_name(buil
     paragraph = re.search(r'<p class="finding" id="finding-share">.*?</p>', page, re.S).group(0)
     assert wrong in paragraph
     (copy_dir / rel).write_text(page.replace(paragraph, paragraph.replace(wrong, f"{stats['black_holes'] + 1:,}", 1)), encoding="utf-8")
-    result = verify_static_export.verify_report(db, stats_path, copy_dir, log=lambda _line: None)
+    result = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)
     assert any(rel in error and "finding-share" in error and wrong in error for error in result["errors"]), result["errors"]
+
+
+def test_the_checker_api_serves_the_black_hole_evidence_the_export_wrote(built):
+    """The request grid compares the site's files with the API's own answers. The export read each black hole's
+    evidence from the stored snapshot's files, so the grid's API must read the same files: without them its
+    answer carries no evidence and every black hole would be a mismatch."""
+    site, db, _stats_path, _stats, holes = built
+    owner, name = holes[0]
+    exported = None
+    for bucket in sorted(site.glob("data/*/repos/*.json")):
+        records = json.loads(bucket.read_text(encoding="utf-8"))
+        if f"{owner}/{name}" in records:
+            exported = records[f"{owner}/{name}"]["detail"]["black_hole_evidence"]
+    assert exported is not None, "the export wrote the black hole's evidence"
+    grid = verify_static_export.Grid(db, _evidence_files(built))
+    answer = grid.client.get(f"/v1/porchlamp/repos/{owner}/{name}").json()
+    assert answer["black_hole_evidence"] == exported
 
 
 def test_a_planted_wrong_csv_cell_fails_verification(built, tmp_path):
@@ -233,7 +289,7 @@ def test_a_planted_wrong_csv_cell_fails_verification(built, tmp_path):
     cells[4] = str(float(cells[4]) + 0.01)  # the score column
     lines[5] = ",".join(cells)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    result = verify_static_export.verify_report(db, stats_path, copy_dir, log=lambda _line: None)
+    result = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)
     assert any(error.startswith("CSV row") for error in result["errors"]), result["errors"]
 
 
@@ -369,7 +425,7 @@ def test_method_sentences_are_checked_against_the_gate(built):
 def test_missing_evidence_stops_the_export_with_the_fix(built):
     inputs = _inputs(built)
     inputs["evidence"] = inputs["evidence"][:-1]
-    with pytest.raises(report_pages.ReportError, match="PORCHLAMP_DATA_ROOT"):
+    with pytest.raises(report_pages.ReportError, match="--snapshot-dir"):
         report_pages.build_facts(**inputs)
 
 
@@ -874,3 +930,63 @@ def test_similar_projects_are_the_five_nearest_in_the_same_ecosystem(project_ind
     here = len(index.keys) // 2
     places = sorted(i for i, row in enumerate(index.balanced) if row["ecosystem"] == ecosystem and i != here)
     assert [index.balanced[i] for i in sorted(sorted(places, key=lambda i: (abs(i - here), i))[:5])] == near
+
+
+def _swap_first(text: str, a: str, b: str) -> str:
+    """``text`` with the first stand-alone ``a`` and the first stand-alone ``b`` exchanged."""
+    def first(token: str) -> re.Match:
+        match = re.search(r"(?<![\d,.])" + re.escape(token) + r"(?![\d%]|[,.]\d)", text)
+        assert match, (token, text)
+        return match
+    ma, mb = sorted((first(a), first(b)), key=lambda m: m.start())
+    return text[:ma.start()] + mb.group(0) + text[ma.end():mb.start()] + ma.group(0) + text[mb.end():]
+
+
+@pytest.mark.parametrize("ident", ["finding-share", "finding-top100", "finding-stars", "finding-prs"])
+def test_two_numbers_swapped_inside_a_finding_fail_verification(built, tmp_path, ident):
+    """Every number still appears in its sentence, but in the other's place: the sentence is false. Both
+    report pages carry the swap, as a swapped template would write it."""
+    site, db, stats_path, _stats, _holes = built
+    facts = report_pages.build_facts(**_inputs(built))
+    b1, _b2, b3 = facts.bands
+    a, b = {
+        "finding-share": (f"{facts.black_holes:,}", f"{facts.judged:,}"),
+        "finding-top100": (str(facts.top100_black_holes), str(facts.top100_overlap)),
+        "finding-stars": (report_pages.pct0(b1.black_holes, b1.judged) + "%", report_pages.pct0(b3.black_holes, b3.judged) + "%"),
+        "finding-prs": (f"{facts.unanswered:,}", f"{facts.counted:,}"),
+    }[ident]
+    assert a != b, "the fixture must give two different numbers to swap"
+    copy_dir = tmp_path / "site"
+    shutil.copytree(site, copy_dir)
+    for rel in PAGES[:2]:
+        page = (copy_dir / rel).read_text(encoding="utf-8")
+        paragraph = re.search(rf'<p class="finding" id="{ident}">.*?</p>', page, re.S).group(0)
+        planted = _swap_first(paragraph, a, b)
+        assert planted != paragraph
+        (copy_dir / rel).write_text(page.replace(paragraph, planted), encoding="utf-8")
+    result = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)
+    for rel in PAGES[:2]:
+        assert any(error.startswith(f"{rel} #{ident}:") for error in result["errors"]), result["errors"]
+
+
+def test_a_stats_file_that_its_producer_does_not_reproduce_fails_verification(built, tmp_path):
+    """The star figures are recomputed from the database and the data root, not taken on the file's word."""
+    site, db, _stats_path, stats, _holes = built
+    planted = copy.deepcopy(stats)
+    planted["spearman"]["p_responsiveness"]["rho"] = 0.5 if planted["spearman"]["p_responsiveness"]["rho"] != 0.5 else 0.25
+    planted["top100_stars_min"] += 1
+    path = tmp_path / "stats.json"
+    path.write_text(json.dumps(planted), encoding="utf-8")
+    result = verify_static_export.verify_report(db, path, site, evidence_files=_evidence_files(built), log=lambda _line: None)
+    named = {error.split(" (")[0] for error in result["errors"]}
+    assert named == {"stats file spearman", "stats file top100_stars_min"}, result["errors"]
+
+
+def test_the_hand_written_facts_come_from_the_database_and_agree_with_the_stats(built):
+    _site, db, _stats_path, stats, _holes = built
+    facts = verify_static_export.hand_written_facts(db, stats)
+    assert facts["total"] == facts["ranked"] + facts["gated"] + facts["unrated"] == stats["repos"]
+    assert facts["ranked"] == stats["rated"] == facts["lens_ranked"]["balanced"]
+    assert (facts["judged"], facts["black_holes"]) == (stats["gate5_decided"], stats["black_holes"])
+    assert facts["below_floor"] <= facts["unrated"] and sum(facts["unrated_by_reason"].values()) == facts["unrated"]
+    assert len(facts["top"]) == 20 and [row[0] for row in facts["top"]] == [str(n) for n in range(1, 21)]

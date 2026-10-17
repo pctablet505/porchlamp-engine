@@ -7,7 +7,7 @@ Two fixture shapes feed these tests:
 * ``tests/fixtures/snapshot_50`` --
   proves the CLI on real data: counts, ``list_ranked``/``list_not_ranked``,
   ``snapshot_summary``, the served-DB guard, and (real-data bonus) that
-  ``build_detectors`` genuinely fires on unmodified data (12 of 50 repos
+  ``build_detectors`` genuinely fires on unmodified data (9 of 50 repos
   trip ``closed_unread``).
 * A small, hand-built synthetic directory (:func:`_write_snapshot_dir`) --
   proves the ``previous``/``param_jump`` wiring and the ``expected.json``
@@ -40,7 +40,7 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: ``tests/fixtures/snapshot_50/expected.json``'s own pinned ``records_hash``
 #: (regenerated 2026-09-16 from the sample corpus, so the committed bundles
 #: and manifest are again what ``scripts/build_fixture_snapshot.py`` builds --
-#: ``test_fixture_rebuild_is_byte_identical``): 12 of the 50 real repos
+#: ``test_fixture_rebuild_is_byte_identical``): 9 of the 50 real repos
 #: genuinely trip ``closed_unread``, 0 trip anything else on a first-ever
 #: snapshot with no ``previous``. Restated here as a named constant so a
 #: silent, unnoticed drift in that shared fixture file shows up as a
@@ -64,8 +64,10 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: lost its persona composites and gates; no other record and no count moved.
 #: Regenerated 2026-10-14 (was 507887cd...) for RFC-0008 (GATE5_WILSON_Z
 #: added to porchlamp.core.constants, moving ScoreRecord.constants_hash).
+#: ``closed_unread`` requires CLOSED_UNREAD_MIN_N external PRs, so 9 repos
+#: fire (3 more have the share on fewer PRs).
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "debe68b8836d004e484cb1123258262137188d46ad748795732290808e91e9c3"
+    "41fb9b07e946975120b15581502f3b0cbdb956b4de12096998878880f9c702e2"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #
@@ -203,7 +205,7 @@ def test_store_snapshot_50_counts_and_hashes(tmp_path, capsys) -> None:
     assert summary["benchmark_version"] == manifest["benchmark_version"]
     assert summary["constants_hash"] == manifest["constants_hash"]
     # build_detectors is really wired: this is real data, not injected.
-    assert summary["detector_summary"] == {"closed_unread": 12}
+    assert summary["detector_summary"] == {"closed_unread": 9}
 
 
 def test_store_snapshot_50_list_ranked_and_not_ranked(tmp_path) -> None:

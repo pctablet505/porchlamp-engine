@@ -54,6 +54,7 @@ from porchlamp.snapshot.reproduce import (
     rebuild,
     reproduce,
 )
+from porchlamp.snapshot.stats import StatsError, compute_stats
 
 #: Names ``porchlamp.snapshot.store_cmd`` exposes, resolved lazily by
 #: :func:`__getattr__` below -- never imported at this package's own
@@ -93,11 +94,13 @@ __all__ = [
     "REASON_STALE_HASH",
     "SNAPSHOTS_DIRNAME",
     "SnapshotError",
+    "StatsError",
     "VerificationError",
     "build_manifest",
     "canonical_dump",
     "canonical_dump_hash",
     "code_commit",
+    "compute_stats",
     "constants_hash",
     "envelope_entries",
     "load_manifest",

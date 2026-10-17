@@ -298,6 +298,7 @@ def test_collect_pr_window_incremental_ledger_reuses_settled_prs(tmp_path) -> No
             "cost_points": 1,
             "rate_limit_remaining": 4999,
             "prs": [settled_pr],
+            "query_sha256": gql.PR_WINDOW_QUERY_SHA256,
         },
     )
 

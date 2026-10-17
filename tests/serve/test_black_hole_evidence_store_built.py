@@ -6,13 +6,17 @@ The store writes no ``params`` row for a gated repository, so the panel must
 be recomputed from the raw ``pr_window`` envelope at the snapshot's own clock
 (``snapshots.as_of``) with the verdict's observation rule (the earlier of the
 envelope's ``fetched_at`` and ``window_anchor``). Each expected headline is
-read from the bundle derive wrote (``gr14_*``), never from the store.
+read from the bundle derive wrote (``gr14_*``), never from the store. The
+envelope is read only through the stored snapshot's pins
+(``PinnedEvidenceFiles``): a changed file is refused.
 """
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import importlib.util
 import json
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -21,7 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from porchlamp.collect.envelope import write_envelope
-from porchlamp.serve.app import create_app
+from porchlamp.serve.app import PinnedEvidenceFiles, create_app
 from porchlamp.snapshot.build_cmd import build_snapshot_dir
 from porchlamp.snapshot.store_cmd import score_snapshot_dir, write_scored_snapshot
 from porchlamp.store.migrations import apply_migrations
@@ -101,6 +105,23 @@ def _silent_prs(*, answered: bool = False) -> list[dict[str, Any]]:
     return prs
 
 
+def _store(data_dir: Path, root: Path) -> tuple[Path, Path]:
+    """Build, score and store the derived bundles under ``root``: ``(snapshot dir, database)``."""
+    snapshot_dir = root / "snapshots_v2" / "bh-store-built"
+    build_snapshot_dir(data_dir, snapshot_dir, snapshot_id="bh-store-built", as_of=AS_OF,
+                       code_commit_sha="0123456")
+    scored, frozen = score_snapshot_dir(snapshot_dir)
+    db_path = root / "store" / "porchlamp.db"
+    db_path.parent.mkdir(parents=True)
+    conn = connect_store(db_path)
+    try:
+        apply_migrations(conn, applied_at=AS_OF.isoformat())
+        write_scored_snapshot(conn, db_path, scored, frozen, code_commit="0123456")
+    finally:
+        conn.close()
+    return snapshot_dir, db_path
+
+
 @pytest.fixture
 def built(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     data_dir = tmp_path / "data"
@@ -123,20 +144,11 @@ def built(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         meta = json.loads(path.read_text(encoding="utf-8"))["meta"]
         gr14[name] = {k: v for k, v in meta.items() if k.startswith("gr14_")}
 
-    snapshot_dir = tmp_path / "snapshots_v2" / "bh-store-built"
-    build_snapshot_dir(data_dir, snapshot_dir, snapshot_id="bh-store-built", as_of=AS_OF,
-                       code_commit_sha="0123456")
-    scored, frozen = score_snapshot_dir(snapshot_dir)
-    db_path = tmp_path / "store" / "porchlamp.db"
-    db_path.parent.mkdir()
-    conn = connect_store(db_path)
-    try:
-        apply_migrations(conn, applied_at=AS_OF.isoformat())
-        write_scored_snapshot(conn, db_path, scored, frozen, code_commit="0123456")
-    finally:
-        conn.close()
-    client = TestClient(create_app(db_path, web_dir=tmp_path))
-    return {"client": client, "gr14": gr14, "data_dir": data_dir}
+    snapshot_dir, db_path = _store(data_dir, tmp_path)
+    files = PinnedEvidenceFiles(snapshot_dir, data_dir)
+    client = TestClient(create_app(db_path, web_dir=tmp_path, evidence_files=files))
+    return {"client": client, "gr14": gr14, "data_dir": data_dir, "db_path": db_path,
+            "snapshot_dir": snapshot_dir, "tmp_path": tmp_path}
 
 
 def _detail(client: TestClient, name: str) -> dict[str, Any]:
@@ -187,25 +199,75 @@ def test_store_built_evidence_uses_the_verdicts_observation_time(built: dict[str
     assert ev["window_start"] == built["gr14"][EARLY_ANCHOR]["gr14_window_start"]
 
 
-def test_store_built_evidence_is_withheld_when_raw_contradicts_the_verdict(built: dict[str, Any]) -> None:
-    """(d) the raw envelope changes after the build so every PR is answered:
-    the stored verdict still says black hole, the breakdown does not, and the
-    API returns no evidence rather than a panel that contradicts the verdict."""
+def test_a_raw_file_changed_after_the_snapshot_was_stored_is_refused(built: dict[str, Any]) -> None:
+    """(d) the raw envelope changes after the store so every PR is answered.
+    Its hash no longer matches the one the stored bundle pinned, so the
+    evidence reader refuses it (HTTP 409, naming the file) instead of computing
+    a panel from data the verdict was not scored on."""
     client = built["client"]
     assert _detail(client, SILENT)["black_hole_evidence"] is not None
     _write_pr_window(built["data_dir"], SILENT, _silent_prs(answered=True),
                      window_anchor=AS_OF, fetched_at=AS_OF - timedelta(days=1))
+    resp = client.get(f"/v1/porchlamp/repos/{OWNER}/{SILENT}")
+    assert resp.status_code == 409
+    detail = resp.json()["error"]["detail"]
+    assert f"raw/pr_window/{OWNER}__{SILENT}.json changed after snapshot bh-store-built was stored" in detail
+
+
+def test_a_stored_bundle_changed_after_the_store_is_refused(built: dict[str, Any]) -> None:
+    bundle = built["snapshot_dir"] / "bundles" / f"{OWNER}__{SILENT}.json"
+    doc = json.loads(bundle.read_text(encoding="utf-8"))
+    doc["inputs"]["gr14_ghost_rate"]["source_hash"] = "0" * 64
+    bundle.write_text(json.dumps(doc), encoding="utf-8")
+    resp = built["client"].get(f"/v1/porchlamp/repos/{OWNER}/{SILENT}")
+    assert resp.status_code == 409
+    assert "bundle" in resp.json()["error"]["detail"]
+
+
+def test_without_evidence_files_no_evidence_is_served(built: dict[str, Any]) -> None:
+    """No guessed data directory: PORCHLAMP_DATA_ROOT points at the data, but
+    an app given no evidence files serves no black-hole evidence."""
+    client = TestClient(create_app(built["db_path"], web_dir=built["tmp_path"]))
     body = _detail(client, SILENT)
     assert body["gate_reason"] == "black_hole"
     assert body["black_hole_evidence"] is None
 
 
-def test_rule_inputs_measured_tells_recorded_fields_from_missing_ones(built: dict[str, Any]) -> None:
-    """Finding 4: an envelope whose PR nodes carry isDraft says the draft and
-    self-closed exclusions were applied; one recorded before those fields says
-    they were not (its zero counts are not measurements)."""
-    client = built["client"]
-    assert _detail(client, SILENT)["black_hole_evidence"]["rule_inputs_measured"] is True
+def test_the_export_refuses_a_stored_black_hole_whose_rule_inputs_were_not_measured(
+    built: dict[str, Any], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A store built before D-GATE-5 read the rule inputs named OLD_SHAPE (PR records without isDraft and the
+    timeline) a black hole. Its evidence says rule_inputs_measured false, and the export stops, naming the
+    count, instead of publishing it."""
+    from porchlamp.snapshot import build_cmd
+
+    reads_inputs = build_cmd.gate_evidence_for
+    monkeypatch.setattr(build_cmd, "gate_evidence_for", lambda *args, **kwargs: dataclasses.replace(
+        reads_inputs(*args, **kwargs), pr_rule_inputs_recorded=None))
+    snapshot_dir, db_path = _store(built["data_dir"], built["tmp_path"] / "earlier")
+    files = PinnedEvidenceFiles(snapshot_dir, built["data_dir"])
+    client = TestClient(create_app(db_path, web_dir=built["tmp_path"], evidence_files=files))
     old = _detail(client, OLD_SHAPE)
     assert old["gate_reason"] == "black_hole"
     assert old["black_hole_evidence"]["rule_inputs_measured"] is False
+    spec = importlib.util.spec_from_file_location("export_static_bh", ROOT / "scripts" / "export_static.py")
+    export_static = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(export_static)
+    with pytest.raises(SystemExit, match=r"1 of 3 black-hole verdicts lack the exclusion rules' inputs"):
+        export_static.export(db_path, built["tmp_path"] / "site", snapshot_dir=snapshot_dir, data_dir=built["data_dir"])
+
+
+def test_a_window_without_the_rule_inputs_is_stored_undecided_never_a_black_hole(built: dict[str, Any]) -> None:
+    """The pipeline end to end: OLD_SHAPE's twelve unanswered PRs were recorded before the query asked for drafts
+    and close actors, so the exclusion rules could not run. D-GATE-5 is stored UNDECIDED, not failed, and no
+    black-hole evidence is served for it; SILENT's records carry the fields, and its evidence says so."""
+    client = built["client"]
+    assert _detail(client, SILENT)["black_hole_evidence"]["rule_inputs_measured"] is True
+    old = _detail(client, OLD_SHAPE)
+    assert old["gate_reason"] != "black_hole"
+    assert old["black_hole_evidence"] is None
+    conn = sqlite3.connect(f"file:{built['db_path']}?mode=ro&immutable=1", uri=True)
+    (undecided,) = conn.execute(
+        "SELECT gate_undecided FROM repositories WHERE owner = ? AND name = ?", (OWNER, OLD_SHAPE)).fetchone()
+    conn.close()
+    assert "D-GATE-5" in json.loads(undecided)

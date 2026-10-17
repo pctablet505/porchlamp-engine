@@ -11,6 +11,12 @@ Confidence vocabulary:
   derived   heuristic / approximation (documented at each derivation site)
   missing   no source file (or null value); the default is emitted
   flag      two sources disagree beyond tolerance (scorecard cross-check)
+
+``--as-of <ISO-8601>`` is the reference time every window is measured against (the
+snapshot's ``as_of``). It is required with ``--all``, so a batch derivation never reads
+the wall clock and two runs over the same cache give identical bundles. A pinned
+derivation reads only the cache: ``--fetch`` (which stamps its own fetch time) is refused
+with it.
 """
 from __future__ import annotations
 
@@ -889,11 +895,25 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--ecosystem", default="pypi", choices=[e.value for e in Ecosystem])
     ap.add_argument("--data-dir", type=Path, default=DATA_DIR)
     ap.add_argument("--fetch", action="store_true", help="fetch uncached file bodies")
+    ap.add_argument("--as-of", default=None,
+                    help="reference time, ISO-8601 with an offset (the snapshot's as_of); required with --all")
     a = ap.parse_args(argv)
+    now: Optional[datetime] = None
+    if a.as_of is not None:
+        try:
+            now = datetime.fromisoformat(a.as_of.replace("Z", "+00:00"))
+        except ValueError:
+            ap.error(f"--as-of is not an ISO-8601 timestamp: {a.as_of!r}")
+        if now.tzinfo is None:
+            ap.error(f"--as-of needs a UTC offset: {a.as_of!r}")
+        if a.fetch:
+            ap.error("--fetch cannot be pinned to --as-of: fetch the bodies first, then derive offline")
+    elif a.all:
+        ap.error("--all needs --as-of: a batch derivation is pinned to one reference time")
     if not a.all:
         if not a.owner or not a.name:
             ap.error("the following arguments are required: owner, name (or pass --all)")
-        bundle = derive_repo(a.owner, a.name, Ecosystem(a.ecosystem), a.data_dir, fetch=a.fetch)
+        bundle = derive_repo(a.owner, a.name, Ecosystem(a.ecosystem), a.data_dir, fetch=a.fetch, now=now)
         out = a.data_dir / "derived" / f"{a.owner}__{a.name}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(bundle, indent=2, sort_keys=True), encoding="utf-8")
@@ -930,7 +950,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     def _derive_one(item: tuple[str, str, Ecosystem]) -> Path:
         owner, name, eco = item
-        b = derive_repo(owner, name, eco, a.data_dir, fetch=a.fetch)
+        b = derive_repo(owner, name, eco, a.data_dir, fetch=a.fetch, now=now)
         out_path = a.data_dir / "derived" / f"{owner}__{name}.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(b, indent=2, sort_keys=True), encoding="utf-8")

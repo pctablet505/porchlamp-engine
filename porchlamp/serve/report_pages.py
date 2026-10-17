@@ -7,11 +7,13 @@ the ranked projects. Nothing here is typed by hand:
 
 * the judged / black-hole counts, overall and per ecosystem, come from the
   snapshot database (:func:`decided_counts`, the definition
-  ``surprise_stats.py`` uses);
+  :mod:`porchlamp.snapshot.stats` uses);
 * the ranked count and the outside-pull-request totals come from the API's
   records, the window dates from their ``black_hole_evidence``;
 * the star bands, the rank correlation, the top-100 figures and the corpus
-  size come from the stats file (star counts are not in the database);
+  size come from the stats file that ``python -m porchlamp.snapshot stats``
+  (:mod:`porchlamp.snapshot.stats`) computes from the database and the data
+  root's ``raw/github_meta`` star counts (the database stores none);
 * the method sentences are checked against ``methodology.json`` (the gates'
   own criterion and cutoffs) before they are printed.
 
@@ -33,6 +35,8 @@ from pathlib import Path
 from statistics import NormalDist
 from typing import Any, Iterable, Mapping, Sequence
 
+from porchlamp.snapshot.stats import STAR_BUCKETS, bucket_label
+
 SITE = "https://porchlamp.org"
 CC_BY_4 = "https://creativecommons.org/licenses/by/4.0/"
 GITHUB_REPO = "https://github.com/pctablet505/porchlamp"
@@ -43,8 +47,8 @@ REPORT_H1 = "Stars don't review pull requests"
 CITE_TITLE = "Stars don't review pull requests: the state of open-source black holes"
 METHODOLOGY_H1 = "How Porchlamp measures a project"
 
-#: The star bands the report charts (the keys ``surprise_stats.py`` writes).
-STAR_BANDS = ("[1000,10000)", "[10000,50000)", "[50000,inf)")
+#: The star bands the report charts: the stats producer's bands from 1,000 stars up (their keys in the stats file).
+STAR_BANDS = tuple(bucket_label(lo, hi) for lo, hi in STAR_BUCKETS if lo >= 1000)
 #: Ecosystem key -> display name (the report's wording).
 ECOSYSTEM_NAMES = {
     "pypi": "PyPI",
@@ -202,7 +206,7 @@ def decided_counts(rows: Iterable[tuple]) -> dict[str, tuple[int, int]]:
 
     Judged = D-GATE-5 decided: ``gate_reason`` is NULL, ``black_hole`` or
     ``unrated: no_external_workflow``, and ``D-GATE-5`` is not among the
-    undecided gates (``surprise_stats.py``'s definition, lines 100 to 106)."""
+    undecided gates (the definition :func:`porchlamp.snapshot.stats.compute_stats` uses)."""
     out: dict[str, list[int]] = {}
     for ecosystem, gate_reason, gate_undecided in rows:
         if gate_reason not in (None, "black_hole", "unrated: no_external_workflow"):
@@ -307,8 +311,8 @@ def build_facts(
     # Outside pull requests inside the black holes, and the window they were counted in.
     if len(evidence) != black_holes:
         raise ReportError(
-            f"{len(evidence)} of {black_holes} black-hole records carry evidence; set PORCHLAMP_DATA_ROOT to the "
-            "data root that holds raw/pr_window so the API can serve it"
+            f"{len(evidence)} of {black_holes} black-hole records carry evidence; pass the export --snapshot-dir and "
+            "--data-dir (the stored snapshot and the data root holding raw/pr_window) so the API can serve it"
         )
     unanswered = sum(e["unanswered"] for e in evidence)
     counted = sum(e["population_n"] for e in evidence)

@@ -145,3 +145,59 @@ def test_manifest_carries_the_review_handoff_so_the_stored_snapshot_scores_it(tm
     by_repo = {f"{r['owner']}/{r['name']}": r["gate_evidence"] for r in manifest["repos"]}
     assert by_repo[first_key]["review_handoff"] is True
     assert second.stem.replace("__", "/", 1) in by_repo
+
+
+def test_the_stored_snapshot_reads_back_whether_each_pr_window_recorded_the_rule_inputs(tmp_path):
+    """``snapshot store`` scores the gate evidence it reads back from ``manifest.json``. A window fetched
+    before the query asked for drafts and close actors must reach that scoring as "inputs not recorded",
+    so D-GATE-5 cannot fail it; a current window as "recorded"; a repository with no window as no opinion."""
+    from porchlamp.snapshot.fixture_io import load_frozen_fixture
+
+    data_dir = _make_data_dir(tmp_path)
+    old, current, absent = sorted((data_dir / "derived").glob("*.json"))
+    pr = {"number": 1, "author": {"login": "c1", "__typename": "User"}, "authorAssociation": "NONE",
+          "createdAt": "2026-09-01T00:00:00Z", "comments": {"nodes": []}}
+    windows = {old: [pr], current: [{**pr, "isDraft": False, "timelineItems": {"nodes": []}}]}
+    (data_dir / "raw" / "pr_window").mkdir()
+    for path, prs in windows.items():
+        envelope = {"data": {"prs": prs, "derived": [{"number": 1, "is_external": True, "is_bot_author": False}]}}
+        (data_dir / "raw" / "pr_window" / path.name).write_text(json.dumps(envelope), encoding="utf-8")
+
+    out_dir = tmp_path / "out"
+    build_snapshot_dir(data_dir, out_dir, snapshot_id="TEST-RULE-INPUTS", as_of=_AS_OF, code_commit_sha=_COMMIT)
+
+    read_back = load_frozen_fixture(out_dir).gate_evidence
+    key = lambda path: path.stem.replace("__", "/", 1)  # noqa: E731
+    assert read_back[key(old)].pr_rule_inputs_recorded is False
+    assert read_back[key(current)].pr_rule_inputs_recorded is True
+    assert read_back[key(absent)].pr_rule_inputs_recorded is None
+
+
+def test_a_project_whose_last_human_commit_is_181_days_before_as_of_fails_the_vitality_gate(tmp_path):
+    """D-GATE-4 is judged on the 180 days ending at the snapshot's ``as_of``. The ``commits_180d`` envelope
+    was fetched later than ``as_of`` here, so its own window still holds a commit 181 days before
+    ``as_of``; that commit must not keep the project out of ``stale``. A commit 179 days before passes."""
+    from datetime import timedelta
+
+    from porchlamp.snapshot.store_cmd import score_snapshot_dir
+
+    data_dir = _make_data_dir(tmp_path, count=2)
+    old, recent = sorted((data_dir / "derived").glob("*.json"))
+    commits = data_dir / "raw" / "commits_180d"
+    commits.mkdir()
+    for path, days in ((old, 181), (recent, 179)):
+        when = (_AS_OF - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+        envelope = {"fetched_at": (_AS_OF + timedelta(days=20)).isoformat(),
+                    "data": [{"author_login": "maintainer", "date": when}]}
+        (commits / path.name).write_text(json.dumps(envelope), encoding="utf-8")
+
+    out_dir = tmp_path / "out"
+    frozen = build_snapshot_dir(data_dir, out_dir, snapshot_id="TEST-VITALITY", as_of=_AS_OF, code_commit_sha=_COMMIT)
+    old_key, recent_key = (p.stem.replace("__", "/", 1) for p in (old, recent))
+    assert frozen.gate_evidence[old_key].vitality_commits_180d == 0
+    assert frozen.gate_evidence[recent_key].vitality_commits_180d == 1
+
+    scored, _ = score_snapshot_dir(out_dir)
+    reasons = {f"{r.repo.owner}/{r.repo.name}": r.gate.reason for r in scored.records}
+    assert reasons[old_key] == "stale"
+    assert reasons[recent_key] != "stale"

@@ -1,5 +1,5 @@
-"""``porchlamp snapshot freeze``, ``porchlamp snapshot reproduce``, and
-``porchlamp snapshot store``.
+"""``porchlamp snapshot freeze``, ``porchlamp snapshot reproduce``,
+``porchlamp snapshot store``, ``porchlamp snapshot build`` and ``porchlamp snapshot stats``.
 
 The CLI layer owns the wall clock and every ``print``; the modules
 behind it are pure. ``--data-dir`` is a data directory (or a copied sample) with
@@ -16,11 +16,16 @@ Invocation before ``porchlamp/cli.py`` exists::
     .venv/bin/python -m porchlamp.snapshot freeze --as-of 2026-09-12T00:00:00+00:00
     .venv/bin/python -m porchlamp.snapshot reproduce <snapshot-id>
     .venv/bin/python -m porchlamp.snapshot store <snapshot-dir> --db data/cvi.db
+    .venv/bin/python -m porchlamp.snapshot stats <snapshot.db> --data-dir data > stats-<snapshot-id>.json
+
+``stats`` prints the report's stats file (``porchlamp.snapshot.stats``): the star
+figures and corpus totals ``scripts/export_static.py --stats`` reads.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Sequence
@@ -40,6 +45,7 @@ from porchlamp.snapshot.manifest import (
     write_manifest,
 )
 from porchlamp.snapshot.reproduce import SnapshotError, canonical_dump_hash, rebuild, reproduce
+from porchlamp.snapshot.stats import StatsError, compute_stats
 from porchlamp.snapshot.store_cmd import VerificationError, score_snapshot_dir, verify_expected, write_scored_snapshot
 from porchlamp.store.migrations import apply_migrations
 from porchlamp.store.schema import connect as connect_store
@@ -209,6 +215,17 @@ def _build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _stats(args: argparse.Namespace) -> int:
+    """Print the stats file for the snapshot database ``args.db``."""
+    try:
+        stats = compute_stats(Path(args.db), Path(args.data_dir), as_of=args.as_of)
+    except StatsError as error:
+        print(f"StatsError: {error}")
+        return 2
+    print(json.dumps(stats, indent=2))
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     """Build the ``freeze`` / ``reproduce`` argument parser."""
     parser = argparse.ArgumentParser(
@@ -262,6 +279,17 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--as-of", required=True, help=_AS_OF_HELP)
     build.add_argument("--code-commit", default=None,
                        help="override the recorded commit (tests, out-of-tree builds)")
+
+    stats = commands.add_parser(
+        "stats", help="print the report's stats file (star figures, corpus totals) for a snapshot database"
+    )
+    stats.add_argument("db", help="the snapshot database (opened read-only)")
+    stats.add_argument(
+        "--data-dir", required=True,
+        help="data dir the snapshot was derived from: raw/github_meta/ (the star counts) and derived/ (pr_events)",
+    )
+    stats.add_argument("--as-of", default=None,
+                       help="PR-age reference time, ISO-8601; default: the database's snapshots.as_of")
     return parser
 
 
@@ -272,7 +300,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.command is None:
         parser.print_usage()
         return 2
-    handlers = {"freeze": _freeze, "reproduce": _reproduce, "store": _store, "build": _build}
+    handlers = {"freeze": _freeze, "reproduce": _reproduce, "store": _store, "build": _build, "stats": _stats}
     try:
         return handlers[str(args.command)](args)
     except (SnapshotError, FileNotFoundError) as error:

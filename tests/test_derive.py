@@ -350,3 +350,80 @@ def test_derive_dx_54_takes_the_median_over_the_newest_thirty_commits_only(tmp_p
     assert out["meta"]["dx_run_count"] == 30
     assert out["meta"]["dx_ci_minutes"] == 25.0
     assert out["meta"]["dx"] == 0.5 * 75.0 + 0.5 * 0.0
+
+
+_REAL_DATETIME = datetime
+_NUMPY_ENVELOPES = ROOT / "tests" / "fixtures" / "numpy-envelopes"
+_PINNED = "2026-09-12T00:00:00+00:00"
+
+
+class _ClockMeta(type):
+    """Keeps ``isinstance(value, derive.datetime)`` true for real datetimes while the clock is replaced."""
+
+    def __instancecheck__(cls, obj) -> bool:
+        return isinstance(obj, _REAL_DATETIME)
+
+
+def _clock_at(when: datetime) -> type:
+    class _Clock(_REAL_DATETIME, metaclass=_ClockMeta):
+        @classmethod
+        def now(cls, tz=None):
+            return when if tz is None else when.astimezone(tz)
+
+    return _Clock
+
+
+def _numpy_data_dir(tmp_path: Path) -> Path:
+    data = tmp_path / "data"
+    for collector in sorted(p for p in _NUMPY_ENVELOPES.iterdir() if p.is_dir()):
+        src = collector / "numpy__numpy.json"
+        if src.is_file():
+            dest = data / "raw" / collector.name / src.name
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(src.read_bytes())
+    # a pull-request window: its reported window ends at the derivation's reference time, so the
+    # bundle depends on the clock whenever the clock is read
+    write(data, "pr_window", "numpy__numpy", {"prs": [], "window_anchor": "2026-09-11T00:00:00Z"})
+    (data / "raw" / "candidates.jsonl").write_text(
+        json.dumps({"owner": "numpy", "name": "numpy", "ecosystem": "pypi"}) + "\n", encoding="utf-8")
+    return data
+
+
+def test_batch_derivations_pinned_to_one_as_of_on_different_days_give_identical_bundles(tmp_path, monkeypatch):
+    """``derive.py --all --as-of T`` reads no wall clock: run on two different days it writes the same bytes.
+    The control shows the replaced clock does reach an unpinned derivation, so the check can fail."""
+    data = _numpy_data_dir(tmp_path)
+    days = (_REAL_DATETIME(2026, 10, 1, tzinfo=timezone.utc), _REAL_DATETIME(2027, 3, 1, tzinfo=timezone.utc))
+    pinned, unpinned = [], []
+    for day in days:
+        monkeypatch.setattr(derive, "datetime", _clock_at(day))
+        assert derive.main(["--all", "--as-of", _PINNED, "--data-dir", str(data)]) == 0
+        pinned.append((data / "derived" / "numpy__numpy.json").read_bytes())
+        unpinned.append(json.dumps(derive.derive_repo("numpy", "numpy", derive.Ecosystem("pypi"), data), sort_keys=True))
+    assert pinned[0] == pinned[1]
+    assert unpinned[0] != unpinned[1], "control: the replaced clock never reached derive_repo"
+    expected = derive.derive_repo("numpy", "numpy", derive.Ecosystem("pypi"), data, now=datetime.fromisoformat(_PINNED))
+    assert json.loads(pinned[0]) == json.loads(json.dumps(expected, sort_keys=True))
+
+
+def test_a_batch_derivation_without_as_of_exits_non_zero(tmp_path, capsys):
+    data = _numpy_data_dir(tmp_path)
+    try:
+        code = derive.main(["--all", "--data-dir", str(data)])
+    except SystemExit as stop:
+        code = stop.code
+    assert code not in (0, None)
+    assert "--as-of" in capsys.readouterr().err
+    assert not (data / "derived").exists()
+
+
+def test_as_of_without_an_offset_or_with_fetch_is_refused(tmp_path, capsys):
+    data = _numpy_data_dir(tmp_path)
+    for argv, message in ((["--all", "--as-of", "2026-09-12T00:00:00"], "UTC offset"),
+                          (["--all", "--as-of", _PINNED, "--fetch"], "--fetch")):
+        try:
+            code = derive.main([*argv, "--data-dir", str(data)])
+        except SystemExit as stop:
+            code = stop.code
+        assert code not in (0, None)
+        assert message in capsys.readouterr().err

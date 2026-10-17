@@ -1269,3 +1269,131 @@ def test_rfc0008_rule4_maintainer_close_at_exactly_14_days_answers() -> None:
     bd = gates.evaluate_gate5_window([pr], NOW)
     assert (bd.unanswered, bd.population_n) == (0, 1)
     assert bd.counted_prs[0].response_kind == "closed_by_maintainer"
+
+
+# --------------------------------------------------------------------------- #
+# D-GATE-5 boundary at the engine's z (one-sided 95%, z = 1.6449)              #
+# --------------------------------------------------------------------------- #
+
+def test_thirteen_of_twenty_unanswered_is_eligible_because_the_gate_reads_the_lower_bound() -> None:
+    """13 of 20 unanswered: the raw share 0.65 is over the 0.50 ceiling, but the
+    Wilson lower bound at z = 1.6449 is 0.4665, under it. The gate compares the
+    bound, so the repository passes D-GATE-5."""
+    from porchlamp.core import gates
+
+    assert constants.GATE5_WILSON_Z == pytest.approx(1.6449, abs=1e-4)
+    assert 13 / 20 > constants.GATE5_MAX_ZERO_RESPONSE_SHARE
+    assert gates.wilson_lower_bound(13, 20) == pytest.approx(0.4665, abs=1e-4)
+    result = gates.evaluate_gates(make_bundle(healthy_events(), ghost=ghost_input(13, 20)), healthy_evidence(), NOW)
+    assert (result.eligible, result.reason) == (True, None)
+    assert "D-GATE-5" not in result.undecided
+
+
+def test_fourteen_of_twenty_unanswered_is_a_black_hole() -> None:
+    """14 of 20 unanswered: the Wilson lower bound at z = 1.6449 is 0.5162,
+    over the 0.50 ceiling, so the repository fails D-GATE-5."""
+    from porchlamp.core import gates
+
+    assert gates.wilson_lower_bound(14, 20) == pytest.approx(0.5162, abs=1e-4)
+    result = gates.evaluate_gates(make_bundle(healthy_events(), ghost=ghost_input(14, 20)), healthy_evidence(), NOW)
+    assert (result.eligible, result.reason) == (False, "black_hole")
+
+
+# --------------------------------------------------------------------------- #
+# D-GATE-5 needs the exclusion rules' inputs to fail a repository             #
+# --------------------------------------------------------------------------- #
+
+def _evidence_with_rule_inputs(recorded: bool | None) -> Any:
+    import dataclasses
+
+    return dataclasses.replace(healthy_evidence(), pr_rule_inputs_recorded=recorded)
+
+
+def test_a_repo_whose_pr_records_lack_the_rule_inputs_is_undecided_not_a_black_hole() -> None:
+    """14 of 20 unanswered fails the gate when the draft and close-actor fields
+    were recorded; the same counts from records without them leave D-GATE-5
+    UNDECIDED, and the repository is not failed."""
+    from porchlamp.core import gates
+
+    bundle = make_bundle(healthy_events(), ghost=ghost_input(14, 20))
+    recorded = gates.evaluate_gates(bundle, _evidence_with_rule_inputs(True), NOW)
+    assert (recorded.eligible, recorded.reason) == (False, "black_hole")
+
+    missing = gates.evaluate_gates(bundle, _evidence_with_rule_inputs(False), NOW)
+    assert (missing.eligible, missing.reason) == (True, None)
+    assert "D-GATE-5" in missing.undecided
+
+    ranked = gates.evaluate_gates(bundle, _evidence_with_rule_inputs(False), NOW, rank_black_holes=True)
+    assert "D-GATE-5" in ranked.undecided
+
+
+def test_missing_rule_inputs_do_not_unsettle_a_pass() -> None:
+    """A missing field can only add unanswered PRs, so a repository that passes
+    on records without them still passes, decided."""
+    from porchlamp.core import gates
+
+    result = gates.evaluate_gates(
+        make_bundle(healthy_events(), ghost=ghost_input(13, 20)), _evidence_with_rule_inputs(False), NOW
+    )
+    assert (result.eligible, result.reason) == (True, None)
+    assert "D-GATE-5" not in result.undecided
+
+
+def test_pr_rule_inputs_recorded_must_be_a_bool_or_none() -> None:
+    from porchlamp.core import gates
+
+    with pytest.raises(ValueError, match="pr_rule_inputs_recorded"):
+        gates.GateEvidence(manifest_found=True, pr_rule_inputs_recorded="yes")
+
+
+# --------------------------------------------------------------------------- #
+# Author self-close: excluded only within the response deadline               #
+# --------------------------------------------------------------------------- #
+
+def _self_closed(created: datetime.datetime, closed_days_after_clock: float, **fields: Any) -> Any:
+    clock = datetime.datetime.fromisoformat(fields["ready_for_review_at"]) if "ready_for_review_at" in fields else created
+    return _window_pr(created, closed_at=(clock + datetime.timedelta(days=closed_days_after_clock)).isoformat(),
+                      closed_by_author=True, **fields)
+
+
+def test_an_author_self_close_on_day_10_is_excluded_and_on_day_15_counts_as_unanswered() -> None:
+    from porchlamp.core import gates
+
+    created = NOW - datetime.timedelta(days=60)
+    day_10 = gates.evaluate_gate5_window([_self_closed(created, 10)], NOW)
+    assert (day_10.excluded_self_closed, day_10.population_n, day_10.unanswered) == (1, 0, 0)
+
+    day_15 = gates.evaluate_gate5_window([_self_closed(created, 15)], NOW)
+    assert (day_15.excluded_self_closed, day_15.population_n, day_15.unanswered) == (0, 1, 1)
+    assert day_15.counted_prs[0].response_kind == "none"
+
+
+def test_a_self_close_exactly_at_the_deadline_is_excluded() -> None:
+    """The limit is inclusive, like the response deadline itself."""
+    from porchlamp.core import gates
+
+    created = NOW - datetime.timedelta(days=60)
+    bd = gates.evaluate_gate5_window([_self_closed(created, constants.GATE5_RESPONSE_DEADLINE_DAYS)], NOW)
+    assert (bd.excluded_self_closed, bd.population_n) == (1, 0)
+
+
+def test_a_former_drafts_self_close_limit_runs_from_ready_for_review() -> None:
+    """Opened 40 d before the close, marked ready 30 d before it: the close is
+    on day 10 of the clock (excluded); a close 20 d after ready is counted."""
+    from porchlamp.core import gates
+
+    created = NOW - datetime.timedelta(days=100)
+    ready = (created + datetime.timedelta(days=30)).isoformat()
+    early = gates.evaluate_gate5_window([_self_closed(created, 10, is_draft=False, ready_for_review_at=ready)], NOW)
+    assert (early.excluded_self_closed, early.population_n) == (1, 0)
+    late = gates.evaluate_gate5_window([_self_closed(created, 20, is_draft=False, ready_for_review_at=ready)], NOW)
+    assert (late.excluded_self_closed, late.population_n, late.unanswered) == (0, 1, 1)
+
+
+def test_the_self_close_limit_is_the_response_deadline_constant(monkeypatch: pytest.MonkeyPatch) -> None:
+    from porchlamp.core import gates
+
+    created = NOW - datetime.timedelta(days=60)
+    monkeypatch.setattr(gates, "GATE5_RESPONSE_DEADLINE_DAYS", 20)
+    bd = gates.evaluate_gate5_window([_self_closed(created, 15)], NOW)
+    assert (bd.excluded_self_closed, bd.population_n) == (1, 0)
