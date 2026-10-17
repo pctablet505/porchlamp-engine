@@ -38,7 +38,7 @@ import { normalizeWeights, applyPresetRespectingLocks, renderControls, renderShe
 import { PILLAR_IDS, PERSONA_PRESET_WEIGHTS, BALANCED_WEIGHTS } from "../state.js";
 import { nearestMarkerInDirection, hitTestPoint, renderMatrixBody, renderShell as renderMatrixShell, shellShape as matrixShellShape, clientToDomainCoords } from "../views/matrix.js";
 import { pointKey, SVG_MARKER_BUDGET, toSvgX, toSvgY, renderScatterSvg } from "../components/scatter.js";
-import { synthesizeRows } from "../perf-fixtures.js";
+import { synthesizeRows } from "./synthetic-rows.js";
 import { shellKey as compareShellKey, shellShape as compareShellShape, renderShell as renderCompareShell, computeVerdict } from "../views/compare.js";
 import { renderDrawer, classifyKind, classifyKindForLens, renderPillarRadar, findRow, renderBlackHoleEvidence } from "../views/drawer.js";
 import {
@@ -373,7 +373,7 @@ function assertValidDistribution(weights, locks, before, label) {
   }
 }
 
-// Deterministic LCG (same shape as perf-fixtures.js's) so a "randomised"
+// Deterministic LCG (same shape as synthetic-rows.js's) so a "randomised"
 // walk is reproducible.
 function makeRng(seed) {
   let state = seed >>> 0;
@@ -540,7 +540,7 @@ test("repoToLoadFromState: a malformed repo (no slash) loads nothing rather than
 
 const PERF_POINTS = synthesizeRows(5000);
 
-test("perf-fixtures generates enough points to exceed SVG_MARKER_BUDGET (the canvas path this suite exercises)", () => {
+test("synthetic-rows generates enough points to exceed SVG_MARKER_BUDGET (the canvas path this suite exercises)", () => {
   assert.ok(PERF_POINTS.length > SVG_MARKER_BUDGET);
 });
 
@@ -2732,4 +2732,158 @@ test("E3: /check/ search: the address rule, pasted GitHub addresses, ranking of 
   assert.equal(html, '<li><a href="../projects/freecad/freecad/">FreeCAD/FreeCAD</a></li>');
   assert.ok(renderResults([], 'x<y"').includes("No ranked project matches"), "an empty result says so");
   assert.ok(!renderResults([], "<img>").includes("<img>"), "the query is escaped");
+});
+
+// ------------------------------------------------ live-site fixes: no test harness, honest links, wording
+
+import { lastPageWhenPastEnd } from "../views/leaderboard.js";
+import { renderHoverCard } from "../views/matrix.js";
+
+const WEB_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+/** Every relative module a file imports (`import ... from "./x.js"`, `import "./x.js"`), as absolute paths. */
+function relativeImports(file) {
+  const source = readFileSync(file, "utf8");
+  const found = [];
+  for (const m of source.matchAll(/(?:^|\n)\s*(?:import|export)\s[^;]*?from\s+["'](\.[^"']+)["']|(?:^|\n)\s*import\s+["'](\.[^"']+)["']/g)) {
+    found.push(path.resolve(path.dirname(file), m[1] || m[2]));
+  }
+  return found;
+}
+
+/** Every file reachable from `entry` through relative imports. */
+function moduleGraph(entry) {
+  const seen = new Set();
+  const queue = [entry];
+  while (queue.length) {
+    const file = queue.pop();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    queue.push(...relativeImports(file));
+  }
+  return seen;
+}
+
+test("the page's module graph holds no synthetic-row generator and no perf harness entry", () => {
+  const graph = moduleGraph(path.join(WEB_ROOT, "app.js"));
+  assert.ok(graph.size > 10, `the walk must reach the real modules (reached ${graph.size})`);
+  assert.ok(graph.has(path.join(WEB_ROOT, "views", "leaderboard.js")), "the walk reaches views/leaderboard.js");
+  for (const file of graph) {
+    assert.ok(!file.includes(`${path.sep}tests${path.sep}`), `${file} is a test module imported by the page`);
+    assert.doesNotMatch(readFileSync(file, "utf8"), /synthesizeRows/, `${file} uses the synthetic-row generator`);
+  }
+  assert.ok(!existsSync(path.join(WEB_ROOT, "perf-fixtures.js")), "the generator no longer sits beside the shipped modules");
+  assert.ok(existsSync(path.join(WEB_ROOT, "tests", "synthetic-rows.js")), "the generator lives with the tests");
+});
+
+test("boot() reads no ?perf or ?perfmatrix parameter, so those addresses show the real board", () => {
+  const app = readFileSync(path.join(WEB_ROOT, "app.js"), "utf8");
+  const bootBody = app.slice(app.indexOf("export function boot("));
+  assert.ok(bootBody.length > 1000, "boot() was found");
+  assert.doesNotMatch(bootBody, /get\(\s*["']perf/, "boot() must not branch on a perf parameter");
+  assert.doesNotMatch(app, /perfmatrix/);
+  assert.doesNotMatch(app, /\[perf\]/);
+  // The real boot path is the one that loads the leaderboard.
+  assert.match(bootBody, /if \(initialTab === "ranked" \|\| initialTab === "notranked"\) loadLeaderboard\(\);/);
+});
+
+const LENS_ROW_WITHOUT_BALANCED_RANK = { ...E3_ROW, rank: 4, balanced_rank: null, rank_delta: null };
+const LENS_ROW_WITH_BALANCED_RANK = { ...E3_ROW, rank: 4, balanced_rank: 9, rank_delta: 5 };
+
+test("repoLinkHtml: under a lens, a row with no balanced rank is plain text; elsewhere the project page is linked", () => {
+  const plain = repoLinkHtml(LENS_ROW_WITHOUT_BALANCED_RANK, true);
+  assert.ok(!plain.includes("<a"), plain);
+  assert.ok(!plain.includes("href"), plain);
+  assert.ok(plain.includes('<span class="repo-owner">FreeCAD/</span><span class="repo-name">FreeCAD</span>'), "the name still shows");
+  assert.ok(repoLinkHtml(LENS_ROW_WITH_BALANCED_RANK, true).includes('href="projects/freecad/freecad/"'), "balanced rank: linked");
+  assert.ok(repoLinkHtml(LENS_ROW_WITHOUT_BALANCED_RANK, false).includes('href="projects/freecad/freecad/"'), "balanced lens: linked");
+  assert.ok(repoLinkHtml({ ...E3_ROW, balanced_rank: undefined }, true).indexOf("<a") === -1, "an absent balanced rank is not a rank");
+  assert.ok(repoLinkHtml({ ...E3_ROW, balanced_rank: 0 }, true).includes("href"), "a balanced rank of 0 is still a rank");
+});
+
+test("rows and cards on a lens link only the projects that have a page", () => {
+  const lens = { showPersonaDelta: true };
+  const cell = (row, opts) => rowCells(row, opts).cells.find((c) => c.key === "repository").html;
+  assert.ok(!cell(LENS_ROW_WITHOUT_BALANCED_RANK, lens).includes("<a"));
+  assert.ok(cell(LENS_ROW_WITH_BALANCED_RANK, lens).includes("<a"));
+  assert.ok(cell(LENS_ROW_WITHOUT_BALANCED_RANK, { showPersonaDelta: false }).includes("<a"));
+  assert.ok(!renderCard(LENS_ROW_WITHOUT_BALANCED_RANK, lens).includes('href="projects/'));
+  assert.ok(renderCard(LENS_ROW_WITH_BALANCED_RANK, lens).includes('href="projects/freecad/freecad/"'));
+});
+
+test("lastPageWhenPastEnd: a page past the end of a non-empty result goes to the last page; nothing else moves", () => {
+  const empty = (total) => ({ rows: [], total });
+  assert.equal(lastPageWhenPastEnd(empty(95), 99999, 20), 5);
+  assert.equal(lastPageWhenPastEnd(empty(100), 6, 20), 5, "an exact multiple of the page size");
+  assert.equal(lastPageWhenPastEnd(empty(95), 5, 20), null, "the last page itself, empty for another reason, stays put");
+  assert.equal(lastPageWhenPastEnd(empty(0), 3, 20), null, "nothing matched: the empty state is right");
+  assert.equal(lastPageWhenPastEnd({ rows: [{ owner: "a", name: "b" }], total: 95 }, 2, 20), null, "a page with rows stays");
+  assert.equal(lastPageWhenPastEnd(null, 2, 20), null);
+  assert.equal(lastPageWhenPastEnd({ rows: [], total: undefined }, 2, 20), null);
+});
+
+/** The text of every string literal in JavaScript source, with comments skipped. */
+function stringLiterals(source) {
+  const literals = [];
+  let i = 0;
+  while (i < source.length) {
+    const c = source[i];
+    if (c === "/" && source[i + 1] === "/") {
+      while (i < source.length && source[i] !== "\n") i++;
+    } else if (c === "/" && source[i + 1] === "*") {
+      i = source.indexOf("*/", i + 2) + 2;
+      if (i < 2) break;
+    } else if (c === '"' || c === "'" || c === "`") {
+      let j = i + 1;
+      let text = "";
+      while (j < source.length && source[j] !== c) {
+        if (source[j] === "\\") { text += source[j + 1]; j += 2; continue; }
+        text += source[j++];
+      }
+      literals.push(text);
+      i = j + 1;
+    } else {
+      i++;
+    }
+  }
+  return literals;
+}
+
+const REGISTER_ID = /D-[A-Z]+-\d|RFC-\d/;
+
+test("copy.js: no visible string holds a register id such as D-GATE-5 or RFC-0008", () => {
+  assert.ok(REGISTER_ID.test(stringLiterals('const x = "Rule (D-GATE-5, RFC-0008)"; // D-GATE-1')[0]), "the scan finds an id in a string");
+  assert.deepEqual(stringLiterals('// "D-GATE-5"\nconst k = 1; /* RFC-0008 */'), [], "comments are skipped");
+  const literals = stringLiterals(readFileSync(path.join(WEB_ROOT, "copy.js"), "utf8"));
+  assert.ok(literals.length > 200, `the scan must cover the file (${literals.length} literals)`);
+  assert.deepEqual(literals.filter((text) => REGISTER_ID.test(text)), []);
+});
+
+test("black-hole stat: the 'no response' sentence claims only what was counted", () => {
+  const measured = renderBlackHoleEvidence(FLAT_BLACK_HOLE_DETAIL);
+  assert.ok(measured.includes("12 of 15 (80.0%) external non-bot PRs had no maintainer response, merge, or close within 14 days"));
+  const notMeasured = renderBlackHoleEvidence({
+    ...FLAT_BLACK_HOLE_DETAIL,
+    black_hole_evidence: { ...FLAT_BLACK_HOLE_DETAIL.black_hole_evidence, rule_inputs_measured: false },
+  });
+  const stat = notMeasured.match(/<p class="black-hole-stat">(.*?)<\/p>/)[1];
+  assert.ok(stat.startsWith("12 of 15 (80.0%) external non-bot PRs had no maintainer review, comment or merge within 14 days"), stat);
+  assert.doesNotMatch(stat, /or close|response, merge/, "a close by a maintainer was not counted, so the sentence must not say it was");
+  assert.ok(stat.includes("a close by a maintainer was not counted"), stat);
+});
+
+test("matrix hover card: the tier shows '(capped)' like the table and the drawer, from the coverage ceiling", () => {
+  const point = { owner: "a", name: "b", porchlamp: 80.8, coverage: 0.9, tier: "A", friction: 10, leverage: 70, quadrant: "Sweet Spot" };
+  assert.ok(renderHoverCard(point).includes("A (capped)"), "coverage 0.9 puts the ceiling at A");
+  assert.ok(!renderHoverCard({ ...point, tier: "B" }).includes("capped"), "a tier below the ceiling is not capped");
+  assert.ok(!renderHoverCard({ ...point, coverage: 0.99 }).includes("capped"), "full coverage has no ceiling");
+  assert.ok(renderHoverCard({ ...point, coverage: 0.7, tier: "B" }).includes("B (capped)"), "coverage 0.7 puts the ceiling at B");
+  assert.ok(!renderHoverCard({ ...point, tier_ceiling: null }).includes("capped"), "an explicit ceiling of none wins");
+  // The card is rebuilt on every hover or focus move and ignores the pointer: it must hold no tab stop.
+  assert.doesNotMatch(renderHoverCard(point), /tabindex/, "a capped tier in the card is not a tab stop");
+  assert.doesNotMatch(renderHoverCard({ ...point, tier: undefined }), /tabindex/, "a missing tier in the card is not a tab stop");
+  assert.ok(renderHoverCard({ ...point, tier: undefined }).includes(copy.MISSING_VALUE), "a missing tier still shows the missing-value mark");
+  // the card agrees with the table row for the same project
+  const tableTier = rowCells({ ...E3_ROW, coverage: 0.9, tier: "A", tier_ceiling: "A" }, {}).cells.find((c) => c.key === "tier").html;
+  assert.ok(tableTier.includes("A (capped)"));
 });

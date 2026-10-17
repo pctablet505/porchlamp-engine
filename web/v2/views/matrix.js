@@ -22,7 +22,7 @@
 // own click targeting.
 
 import * as copy from "../copy.js";
-import { renderCoverageBadge, renderTierCell } from "../components/badge.js";
+import { renderCoverageBadge } from "../components/badge.js";
 import { deriveTierCeiling } from "./drawer.js";
 import {
   renderScatterSvg,
@@ -235,7 +235,7 @@ function renderQuadrantCornerLabels(quadrantsHidden = {}) {
  * points carry `coverage` but no `tier_ceiling`, so the ceiling is derived
  * the way Compare and the drawer derive it. Plain text, never
  * `renderTierCell`: its capped pill is a tab stop, and this sits inside a
- * <button>.
+ * <button> and in the hover card, which is rebuilt on every move.
  */
 function spotlightTierHtml(point) {
   if (!point.tier) return "";
@@ -356,7 +356,7 @@ export function renderHoverCard(point, view = DEFAULT_VIEW) {
   return (
     `<div class="matrix-hover-card${posClass}" data-matrix-hover-card="true" style="${horizStyle} ${vertStyle}">` +
     `<p class="repo-name">${escapeHtml(point.owner)}/${escapeHtml(point.name)}</p>` +
-    `<p class="cell-numeric">Score ${point.porchlamp != null ? point.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderCoverageBadge(point.coverage)} · ${renderTierCell(point.tier, point.tier_ceiling)}</p>` +
+    `<p class="cell-numeric">Score ${point.porchlamp != null ? point.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderCoverageBadge(point.coverage)} · ${point.tier ? spotlightTierHtml(point) : copy.MISSING_VALUE}</p>` +
     `<p class="hint">${escapeHtml(copy.MATRIX_OPEN_HINT)}</p>` +
     `</div>`
   );

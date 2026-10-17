@@ -338,15 +338,21 @@ export function suspicionTooltip(flags) {
   return `Flagged by: ${formatted.join(", ")}`;
 }
 
-export const BLACK_HOLE_EVIDENCE_HEADING = "How this Black hole status was determined (D-GATE-5)";
+export const BLACK_HOLE_EVIDENCE_HEADING = "How this Black hole status was determined";
 export const BLACK_HOLE_RULE_TEXT =
-  "Rule (D-GATE-5, RFC-0008): A repository is classified as a Black hole only when at least 10 eligible external non-bot PRs were observed for 14+ days in the 180-day window and the 95% one-sided Wilson lower confidence bound on the 14-day unanswered share exceeds 50%.";
+  "Black hole rule: A repository is classified as a Black hole only when at least 10 eligible external non-bot PRs were observed for 14+ days in the 180-day window and the 95% one-sided Wilson lower confidence bound on the 14-day unanswered share exceeds 50%.";
 export const BLACK_HOLE_EXCLUSIONS_TEXT =
-  "False-positive protections (RFC-0008): Draft PRs (until marked ready for review), PRs closed by their own author before any maintainer response, and PRs from accounts under 90 days old are excluded. A maintainer review, >= 40-character comment, merge, or PR close within 14 days counts as a response.";
+  "False-positive protections: Draft PRs (until marked ready for review), PRs closed by their own author before any maintainer response, and PRs from accounts under 90 days old are excluded. A maintainer review, >= 40-character comment, merge, or PR close within 14 days counts as a response.";
+/** What the "no response" count counted, ending the sentence that starts with "N of M (P%)". */
+export const BLACK_HOLE_STAT_PREDICATE =
+  "external non-bot PRs had no maintainer response, merge, or close within 14 days";
+/** The same, when this snapshot did not record a maintainer close: only a review, comment or merge was counted. */
+export const BLACK_HOLE_STAT_PREDICATE_CLOSE_NOT_COUNTED =
+  "external non-bot PRs had no maintainer review, comment or merge within 14 days (a close by a maintainer was not counted)";
 export const BLACK_HOLE_RULE_INPUTS_NOT_MEASURED_TEXT =
   "The data of this snapshot was collected before drafts, self-closed pull requests and closes by a maintainer were recorded, so those two exclusions were not applied and a maintainer close was not counted as a response.";
 export const BLACK_HOLE_RECHECK_TEXT =
-  "Automatic recovery: Porchlamp re-evaluates the 180-day PR window whenever repository activity moves. If this project reviews patches off-GitHub (mailing list, Gerrit, Phabricator), open a re-check issue to route it under D-GATE-6 (RFC-0007).";
+  "Automatic recovery: Porchlamp re-evaluates the 180-day PR window whenever repository activity moves. If this project reviews patches off-GitHub (mailing list, Gerrit, Phabricator), open a re-check issue to have it judged by the off-GitHub review rule.";
 
 const BLACK_HOLE_RESPONSE_KIND_LABELS = Object.freeze({
   review_or_comment: "review or comment",
