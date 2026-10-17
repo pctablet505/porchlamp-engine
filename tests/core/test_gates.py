@@ -450,6 +450,35 @@ def test_gate_evidence_rejects_a_non_bool_review_handoff() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# D-GATE-5 judges only a PR record that covers the whole window (RFC-0011)     #
+# --------------------------------------------------------------------------- #
+
+
+def test_a_record_that_stops_short_of_the_window_leaves_gate_5_undecided() -> None:
+    import dataclasses
+
+    from porchlamp.core import gates
+
+    bundle = make_bundle(healthy_events(), ghost=BLACK_HOLE_GHOST)
+    cut = dataclasses.replace(healthy_evidence(), pr_window_complete=False, pr_window_cutoff="2026-09-08T00:18:00Z")
+    result = gates.evaluate_gates(bundle, cut, NOW)
+    assert (result.eligible, result.reason, result.undecided) == (True, None, ("D-GATE-5",))
+    for covered in (True, None):
+        result = gates.evaluate_gates(bundle, dataclasses.replace(healthy_evidence(), pr_window_complete=covered), NOW)
+        assert result.reason == "black_hole", covered
+
+
+def test_gate_evidence_rejects_invalid_window_coverage() -> None:
+    from porchlamp.core import gates
+
+    with pytest.raises(ValueError, match="pr_window_complete"):
+        gates.GateEvidence(manifest_found=True, pr_window_complete="no")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="pr_window_cutoff"):
+        gates.GateEvidence(manifest_found=True, pr_window_cutoff=5)  # type: ignore[arg-type]
+    assert gates.GateEvidence(manifest_found=True).pr_window_complete is None
+
+
+# --------------------------------------------------------------------------- #
 # D-GATE-1..4: software, archive/mirror/fork, licence, vitality                #
 # --------------------------------------------------------------------------- #
 

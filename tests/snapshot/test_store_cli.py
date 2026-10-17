@@ -72,8 +72,11 @@ FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "snapshot_50"
 #: the 30 newest PRs to the recorded PR window: the fixture records none, so
 #: the 9 flags the 30-PR sample gave are gone; no other field of any record
 #: moved.
+#: Regenerated 2026-10-17 (was 5a9fdb0c...) for RFC-0011 (D-IN-2's comment
+#: constants and Meta's import notices added to porchlamp.core.constants,
+#: moving ScoreRecord.constants_hash); no other field of any record moved.
 _SNAPSHOT_50_RECORDS_HASH_WITH_DETECTORS = (
-    "5a9fdb0cc887f9ee740066c4e0b3313b61d6e53d9bff00a4b1e64963144ef31c"
+    "df009986680defb6c14028e5a50ad7d6b1209851a637255ac04f42d3f427c767"
 )
 # Gated/unrated reflect porchlamp.core.pipeline.not_ranked_class display classification.
 #
