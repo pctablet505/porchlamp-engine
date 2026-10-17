@@ -338,20 +338,30 @@ def test_a_share_of_exactly_a_quarter_is_more_than_1_in_5_never_1_in_4(built):
     inputs = _inputs(built)
     # Drop black holes from the database's rows (and the stats) until the share is 25%.
     rows = [r for r in inputs["db_rows"] if r[1] != "black_hole"]
+    # 25% exactly needs the judged projects that are not black holes to be a multiple of 3: drop up to two judged
+    # PyPI rows (a higher PyPI share keeps the ecosystem guard true).
+    surplus = sum(j for j, _ in report_pages.decided_counts(rows).values()) % 3
+    for _ in range(surplus):
+        rows.remove(next(r for r in rows if r[0] == "pypi" and report_pages.decided_counts([r])))
     judged_plain = report_pages.decided_counts(rows)
     base_judged = sum(j for j, _ in judged_plain.values())
+    assert base_judged % 3 == 0
     keep = base_judged // 3  # bh / (base + bh) = 25% exactly
     holes = [r for r in inputs["db_rows"] if r[1] == "black_hole"][:keep]
     inputs["db_rows"] = rows + holes
     inputs["stats"].update(gate5_decided=base_judged + keep, black_holes=keep)
     inputs["api_black_holes"] = keep
     inputs["evidence"] = inputs["evidence"][:keep]
+    # Star bands whose shares still rise at every step (the report's band guard), adding up to the same totals.
+    n1, n2 = base_judged // 2, 4
+    n3, bh3 = base_judged + keep - n1 - n2, keep - 2
     inputs["stats"]["by_stars"] = {
         "[0,1000)": {"n": 0, "black_holes": 0, "share": 0.0},
-        "[1000,10000)": {"n": base_judged // 2, "black_holes": 0, "share": 0.0},
-        "[10000,50000)": {"n": 1, "black_holes": 0, "share": 0.0},
-        "[50000,inf)": {"n": base_judged + keep - base_judged // 2 - 1, "black_holes": keep, "share": round(keep / (base_judged + keep - base_judged // 2 - 1), 4)},
+        "[1000,10000)": {"n": n1, "black_holes": 1, "share": round(1 / n1, 4)},
+        "[10000,50000)": {"n": n2, "black_holes": 1, "share": 0.25},
+        "[50000,inf)": {"n": n3, "black_holes": bh3, "share": round(bh3 / n3, 4)},
     }
+    assert 1 / n1 < 0.25 < bh3 / n3
     facts = report_pages.build_facts(**inputs)
     assert facts.black_holes * 4 == facts.judged
     assert facts.one_in == 5

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import os
 import shutil
 import sqlite3
@@ -192,3 +193,19 @@ def test_export_scan_passes_what_the_site_legitimately_carries(tmp_path):
         encoding="utf-8",
     )
     export_static._scan_for_forbidden(tmp_path)  # no SystemExit
+
+
+def test_the_page_sitemap_lists_only_the_pages_the_export_wrote_dated_with_the_snapshot(tmp_path):
+    """The root, the report, its frozen copy, the methodology, /check/ and the landing pages, in that order; a page
+    the export did not write (here the methodology and every landing page but one) is not listed."""
+    from porchlamp.serve import landing_pages
+
+    written = ["", "black-holes/", "black-holes/2026-10-17/", "check/", f"{landing_pages.SLUGS[0]}/"]
+    for rel in written:
+        (tmp_path / rel).mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    (tmp_path / "methodology").mkdir()  # a folder without a page is not a page
+    xml = export_static._sitemap_pages(tmp_path, "2026-10-17", "2026-10-17T05:35:00+00:00")
+    assert xml.startswith('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n')
+    assert re.findall(r"<loc>([^<]*)</loc>", xml) == [f"https://porchlamp.org/{rel}" for rel in written]
+    assert re.findall(r"<lastmod>([^<]*)</lastmod>", xml) == ["2026-10-17"] * len(written)

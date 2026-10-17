@@ -1356,7 +1356,8 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
   const feedXml = readFileSync(path.join(webRoot, "feed.xml"), "utf8");
   assert.ok(feedXml.includes(`<id>${base}</id>`), "feed.xml uses canonical base id");
   const llmsTxt = readFileSync(path.join(webRoot, "llms.txt"), "utf8");
-  assert.ok(llmsTxt.includes("212,390 pull requests"), "llms.txt documents empirical dataset");
+  // The values are the snapshot's (checked by scripts/verify_static_export.py check_hand_written); here only the shape.
+  assert.match(llmsTxt, /\d{1,3}(,\d{3})* pull requests from \d{1,3}(,\d{3})* outside contributors/, "llms.txt documents empirical dataset");
   const indexNowKey = "7c9d4a2e8b1f6a3c5d8e9f0a1b2c3d4e";
   assert.equal(readFileSync(path.join(webRoot, `${indexNowKey}.txt`), "utf8").trim(), indexNowKey);
 
@@ -1419,7 +1420,7 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
   assert.match(whereFrom, /<a href="methodology\/">[^<]+<\/a>/, "methodology link in 'Where the numbers come from'");
   const pageLinks = ["black-holes/", "methodology/", ...ECOSYSTEM_SLUGS.map((slug) => `${slug}/`)];
   for (const href of hrefs) {
-    if (href === "./" || pageLinks.includes(href)) continue;
+    if (href === "./" || pageLinks.includes(href) || /^projects\/[^/]+\/[^/]+\/$/.test(href)) continue;
     const hydrated = { ...defaultState(), ...parseSearch(href) };
     assert.equal(
       serializeSearch(hydrated),
@@ -1434,7 +1435,9 @@ test("SEO: static canonical, root robots.txt on the site's own domain, canonical
     const cells = [...rowMatch[1].matchAll(/<td>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
     assert.equal(cells.length, 7, `row ${idx + 1} has 7 columns (Rank, Repository, Ecosystem, Porchlamp, Coverage, Tier, Quadrant)`);
     assert.equal(cells[0], String(idx + 1), "rank cell");
-    assert.match(cells[1], /^<a href="\?repo=[^"]+">[^<]+\/[^<]+<\/a>$/, "U-1 repo cell links to evidence drawer");
+    const link = cells[1].match(/^<a href="([^"]+)">([^<]+\/[^<]+)<\/a>$/);
+    assert.ok(link, "U-1 repo cell is one link");
+    assert.equal(link[1], `projects/${link[2].toLowerCase()}/`, "U-1 repo cell links to the project's own page, as the app's rows do");
     assert.match(cells[3], /^\d+\.\d{2}$/, "Porchlamp score formatted to 2 decimals");
     assert.match(cells[4], /^\d+%$/, "U-1 coverage percentage present");
     assert.match(cells[5], /^(?:S\+|S|A|B|C)(?: \(capped\))?$/, "U-1 tier with ceiling note present");
