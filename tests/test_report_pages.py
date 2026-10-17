@@ -911,11 +911,16 @@ def test_the_other_unmeasured_wordings_name_the_project_and_use_each_parameters_
 
 
 @pytest.mark.parametrize("rank, total, band", [
-    (1, 2132, "the top 1%"), (2039, 2132, "the bottom 5%"), (2132, 2132, "the bottom 1%"), (1066, 2132, "the top 50%"),
-    (1067, 2132, "the bottom 50%"), (22, 2132, "the top 2%"), (21, 2132, "the top 1%"), (3, 4322, "the top 1%"),
+    # the ends: rank 1 and rank = total
+    (1, 2132, "the top 1%"), (2132, 2132, "the bottom 1%"), (3, 4322, "the top 1%"),
+    # rank = total / 2 is the upper half's last; with an odd total, the halves meet between two ranks
+    (1066, 2132, "the top 50%"), (1067, 2132, "the bottom 50%"), (1065, 2131, "the top 50%"), (1066, 2131, "the bottom 51%"),
+    # rounded up: 21 of 2,132 is 0.98% (top 1%), 22 is 1.03% (top 2%); 2,039 is the 94th from the bottom, 4.4%
+    (21, 2132, "the top 1%"), (22, 2132, "the top 2%"), (2039, 2132, "the bottom 5%"),
 ])
 def test_a_rank_is_placed_in_the_top_or_bottom_share_rounded_up_so_the_claim_holds(rank, total, band):
-    """2,039 of 2,132 is the 94th from the bottom: 4.4% of the list, so "the bottom 4%" would be false."""
+    """The top N% in the upper half (rank <= total / 2), else the bottom N%, N rounded up so the claim always holds:
+    2,039 of 2,132 is the 94th from the bottom, 4.4% of the list, so "the bottom 4%" would be false."""
     assert project_pages.rank_band(rank, total) == band
 
 
