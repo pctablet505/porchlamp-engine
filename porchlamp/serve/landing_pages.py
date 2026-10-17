@@ -8,8 +8,9 @@ read from the snapshot, then a static table of the top 50 projects of that cut, 
 
 Nothing is typed that a record holds. The counts come from the leaderboards (ranked) and the report's facts (judged,
 black holes: :func:`report_pages.build_facts`); the lens names come from ``web/app/copy.js`` and the lens weights from
-``methodology.json``. What is typed here is the display names of the ecosystems and the one natural phrase for each
-lens in a title (:data:`ECOSYSTEM_PAGES`, :data:`LENS_PAGES`); a test pins both lists to the engine's own keys.
+``methodology.json``. The ecosystem names come from ``copy.js`` ``ECOSYSTEM_NAMES`` (``report_pages.ECOSYSTEM_NAMES``), in
+plain language: Rust, Python, JavaScript, Go, Java, C and C++, never a registry's name. What is typed here is the one
+natural phrase for each lens in a title (:data:`LENS_PAGES`); a test pins both lists to the engine's own keys.
 ``scripts/verify_static_export.py`` recomputes every number and every table row and compares.
 """
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import Any, Mapping, Sequence
 
 from porchlamp.serve.project_pages import BALANCED, Copy, ProjectIndex, js_fixed, project_path
 from porchlamp.serve.report_pages import (
+    ECOSYSTEM_NAMES,
     ECOSYSTEM_SLUGS,
     LENS_SLUGS,
     SITE,
@@ -41,13 +43,7 @@ NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven"
 class EcosystemPage:
     key: str  # the engine's ecosystem key
     slug: str
-    name: str  # as a searcher says it
-    registry: str | None  # the package registry, when there is one
-
-    @property
-    def judged_name(self) -> str:
-        """The noun in "the 586 judged crates.io projects": the registry, else the name."""
-        return self.registry or self.name
+    name: str  # copy.js's plain-language name, as a searcher says it
 
 
 @dataclass(frozen=True)
@@ -57,18 +53,8 @@ class LensPage:
     phrase: str  # "first-time contributors": the words a title uses after "projects for"
 
 
-#: Display names. Rust and the rest are what people search for; the registry is what Porchlamp's ecosystem means.
-ECOSYSTEM_PAGES = tuple(
-    EcosystemPage(key, ECOSYSTEM_SLUGS[key], name, registry)
-    for key, name, registry in (
-        ("crates", "Rust", "crates.io"),
-        ("pypi", "Python", "PyPI"),
-        ("npm", "JavaScript and TypeScript", "npm"),
-        ("go", "Go", None),
-        ("maven", "Java", "Maven"),
-        ("systems", "C, C++ and Zig", None),
-    )
-)
+#: The six pages. The name is ``ECOSYSTEM_NAMES[key]`` (copy.js): one list, used everywhere.
+ECOSYSTEM_PAGES = tuple(EcosystemPage(key, ECOSYSTEM_SLUGS[key], ECOSYSTEM_NAMES[key]) for key in ("crates", "pypi", "npm", "go", "maven", "systems"))
 #: The phrase each lens's title uses, from the wording of ``copy.js`` (``PERSONA_GATE_COPY`` and ``PERSONA_NAMES``).
 LENS_PAGES = tuple(
     LensPage(key, LENS_SLUGS[key], phrase)
@@ -152,7 +138,7 @@ def ecosystem_landing(f: Facts, spec: EcosystemPage, index: ProjectIndex, copy: 
     rows = tuple(_row(i + 1, r, index, copy) for i, r in enumerate(cut[:TOP]))
     first = f"Porchlamp ranks {fmt_int(len(cut))} {spec.name} projects by what happens to a stranger's pull request."
     second = (
-        f"Among the {fmt_int(eco.judged)} judged {spec.judged_name} projects, {pct1(eco.black_holes, eco.judged)}% left most "
+        f"Among the {fmt_int(eco.judged)} judged {spec.name} projects, {pct1(eco.black_holes, eco.judged)}% left most "
         f"outside pull requests unanswered for two weeks, against {f.share_text}% across all {NUMBER_WORDS[len(f.ecosystems)]} ecosystems."
     )
     note = table_note("by the balanced ranking", rows)

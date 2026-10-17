@@ -66,6 +66,7 @@ def test_the_ten_pages_exist_and_the_slugs_are_the_addresses_in_the_brief():
 
 def test_the_lists_follow_the_engines_own_keys_and_the_copy_js_names():
     assert {p.key for p in landing_pages.ECOSYSTEM_PAGES} == set(report_pages.ECOSYSTEM_NAMES)
+    assert {p.key: p.name for p in landing_pages.ECOSYSTEM_PAGES} == report_pages.ECOSYSTEM_NAMES
     lenses = set(constants.PERSONA_PRESETS) - {"balanced"}
     assert {p.key for p in landing_pages.LENS_PAGES} == lenses
     assert set(report_pages.LENS_SLUGS) == lenses and set(report_pages.ECOSYSTEM_SLUGS) == set(report_pages.ECOSYSTEM_NAMES)
@@ -108,15 +109,15 @@ def test_every_static_title_is_unique_across_the_whole_site(built):
 
 def test_the_ecosystem_copy_follows_the_brief(built):
     site = built[0]
-    for slug, name, judged in (("rust", "Rust", "crates.io"), ("python", "Python", "PyPI"), ("go", "Go", "Go"),
-                               ("c-cpp", "C, C++ and Zig", "C, C++ and Zig")):
+    for slug, name in (("rust", "Rust"), ("python", "Python"), ("javascript", "JavaScript"), ("go", "Go"),
+                       ("java", "Java"), ("c-cpp", "C and C++")):
         text = _page(site, f"{slug}/index.html")
         assert f"<title>{name} open-source projects that answer outside pull requests (October 2026) | Porchlamp</title>" in text
         assert f"<h1>{name} projects that answer outside pull requests</h1>" in text
         intro = re.search(r'<p class="answer" id="intro">(.*?)</p>', text, re.S).group(1)
         assert re.fullmatch(
             rf"Porchlamp ranks [\d,]+ {re.escape(name)} projects by what happens to a stranger's pull request\. "
-            rf"Among the [\d,]+ judged {re.escape(judged)} projects, \d+\.\d% left most outside pull requests unanswered "
+            rf"Among the [\d,]+ judged {re.escape(name)} projects, \d+\.\d% left most outside pull requests unanswered "
             r"for two weeks, against \d+\.\d% across all six ecosystems\.", intro), intro
         note = re.search(r'<p id="table-note">(.*?)</p>', text).group(1)
         assert re.fullmatch(r"The table lists the top \d+ by the balanced ranking\. Each name opens that project's page\.", note), note
@@ -322,11 +323,11 @@ def test_the_sitemap_and_llms_txt_list_all_ten_and_the_verifier_notices_one_miss
 
 def test_the_report_names_its_ecosystems_with_links_to_their_pages(built):
     site = built[0]
-    for rel, prefix in (("black-holes/index.html", "../"), (f"black-holes/{SNAPSHOT}/index.html", "../../")):
+    for rel in ("black-holes/index.html", f"black-holes/{SNAPSHOT}/index.html"):
         text = _page(site, rel)
-        section = re.search(r'<h2 id="ecosystems">(.*?)<h2 id="how-we-measured">', text, re.S).group(1)
-        links = re.findall(r'<th scope="row"><a href="([^"]*)">([^<]*)</a></th>', section)
-        assert sorted(href for href, _n in links) == sorted(f"{prefix}{slug}/" for slug in ECOSYSTEM_SLUGS)
+        section = re.search(r'<section class="report-section" aria-labelledby="ecosystems">(.*?)</section>', text, re.S).group(1)
+        links = re.findall(r'<a href="([^"]*)"><span data-v="ecosystems\.\d+\.name">([^<]*)</span></a>', section)
+        assert sorted(href for href, _n in links) == sorted(f"/{slug}/" for slug in ECOSYSTEM_SLUGS)
         assert {name for _h, name in links} == set(report_pages.ECOSYSTEM_NAMES.values())
 
 
@@ -347,9 +348,9 @@ def test_a_planted_wrong_link_in_the_report_and_a_project_page_each_fail_verific
     copy_dir = _copy_site(site, tmp_path)
     report = f"black-holes/{SNAPSHOT}/index.html"
     text = (copy_dir / report).read_text(encoding="utf-8")
-    _edit(copy_dir, report, 'href="../../rust/"', 'href="../../rusty/"')
+    _edit(copy_dir, report, 'href="/rust/"', 'href="/rusty/"')
     errors = verify_static_export.verify_report(db, stats_path, copy_dir, evidence_files=_evidence_files(built), log=lambda _line: None)["errors"]
-    assert any(report in e and "links to the ecosystem pages" in e for e in errors), errors
+    assert any(report in e and "ecosystem rows link their pages" in e for e in errors), errors
     (copy_dir / report).write_text(text, encoding="utf-8")
     project = sorted((copy_dir / "projects").rglob("index.html"))[0]
     rel = project.relative_to(copy_dir).as_posix()

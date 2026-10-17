@@ -15,9 +15,9 @@ export function hook(id, text) {
 /** `template` with each `{slot}` replaced by `slots[slot]` (markup); a slot the caller did not give is an error. */
 export function fill(template, slots) {
   return String(template)
-    .split(/(\{[a-z_]+\})/)
+    .split(/(\{[a-z][a-z0-9_]*\})/)
     .map((part) => {
-      const slot = /^\{([a-z_]+)\}$/.exec(part);
+      const slot = /^\{([a-z][a-z0-9_]*)\}$/.exec(part);
       if (!slot) return escapeHtml(part);
       if (!Object.prototype.hasOwnProperty.call(slots, slot[1])) throw new Error(`no value for the slot {${slot[1]}}`);
       return slots[slot[1]];

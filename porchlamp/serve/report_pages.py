@@ -1,10 +1,11 @@
-"""The static report pages (``scripts/export_static.py --stats``).
+"""The report's data and its pages' heads (``scripts/export_static.py --stats``).
 
-Two pages that a crawler or a reader can read without JavaScript:
-``/black-holes/`` (the latest snapshot's report) and ``/black-holes/<snapshot_id>/``
-(the same report, frozen for citations), plus one CSV of the ranked projects. The
-methodology is the app's own view at ``/methodology/`` (owner, 2026-10-17: one
-methodology page, the app's). Nothing here is typed by hand:
+The report is the app's own view (``web/app/views/report.js``) over ``data/<snapshot_id>/report.json``, which
+:func:`report_json` writes from :class:`Facts`: ``/black-holes/`` (the latest snapshot's report, the app's page) and
+``/black-holes/<snapshot_id>/`` (the same report, frozen for citations), drawn into their pages at export by
+``web/prerender.mjs``, plus one CSV of the ranked projects. Python keeps the numbers, the sentences the numbers decide
+(each worded beside the guard that keeps it true), and the pages' heads (:func:`report_page`). Nothing here is typed
+by hand:
 
 * the judged / black-hole counts, overall and per ecosystem, come from the
   snapshot database (:func:`decided_counts`, the definition
@@ -25,7 +26,8 @@ sentence is never written.
 Every page of the site is the app's page (``web/app/404.html``: one policy, one head, one frame) with its own head
 and text (:func:`app_page`); ``web/prerender.mjs`` then draws the one header, nav and footer into it
 (``web/app/components/chrome.js``). The scripts a page may load are :data:`PAGE_SCRIPTS`; no font or library
-is loaded by any page.
+is loaded by any page. :func:`page` builds the pages the app does not draw yet: the project and landing pages and
+``/check/``.
 """
 from __future__ import annotations
 
@@ -60,26 +62,19 @@ PAGE_SCRIPTS = {
     "check": ("/theme-init.js", "/check.js"),
 }
 
-REPORT_H1 = "Stars don't review pull requests"
 CITE_TITLE = "Stars don't review pull requests: the state of open-source black holes"
 
 #: The star bands the report charts: the stats producer's bands from 1,000 stars up (their keys in the stats file).
 STAR_BANDS = tuple(bucket_label(lo, hi) for lo, hi in STAR_BUCKETS if lo >= 1000)
-#: Ecosystem key -> display name (the report's wording).
-ECOSYSTEM_NAMES = {
-    "pypi": "PyPI",
-    "npm": "npm",
-    "go": "Go",
-    "systems": "systems (C, C++ and Zig)",
-    "crates": "crates.io (Rust)",
-    "maven": "Maven (Java)",
-}
 #: Ecosystem key -> the address of its landing page (``porchlamp.serve.landing_pages``); lens key -> likewise.
 ECOSYSTEM_SLUGS = {"pypi": "python", "npm": "javascript", "go": "go", "systems": "c-cpp", "crates": "rust", "maven": "java"}
 LENS_SLUGS = {"first_timer": "first-timers", "career_capital": "career", "senior_systems": "senior-systems", "ai_assisted": "ai-assisted"}
-#: Wording guard: PyPI and npm are said to go quiet more often than these four.
+#: Wording guard: Python and JavaScript are said to go quiet more often than these four.
 GUARD_QUIET = ("pypi", "npm")
 GUARD_BUSY = ("crates", "go", "maven", "systems")
+#: Wording guard: "Stars barely predict an answer" holds while the rank correlation between stars and the score is very
+#: weak, whichever its sign: under 0.2 (Evans' scale: 0.00-0.19 very weak, 0.20-0.39 weak; lead ruling, 2026-10-17).
+RHO_BARELY = Decimal("0.2")
 
 CSV_COLUMNS = ("rank", "owner", "name", "ecosystem", "score", "tier", "coverage", "quadrant")
 
@@ -412,7 +407,7 @@ def check_wording_guards(facts: Facts) -> None:
         for busy in GUARD_BUSY:
             if quiet not in shares or busy not in shares or not shares[quiet] > shares[busy]:
                 raise ReportError(
-                    f"guard: 'PyPI and npm go quiet more often than Rust, Go, Java or systems projects' is false: "
+                    f"guard: '{ecosystems_answer()}' is false: "
                     f"{quiet} {float(shares.get(quiet, 0)):.4f} is not above {busy} {float(shares.get(busy, 0)):.4f}"
                 )
     band_shares = [Decimal(b.black_holes) / Decimal(b.judged) for b in facts.bands]
@@ -425,6 +420,24 @@ def check_wording_guards(facts: Facts) -> None:
         raise ReportError(
             f"guard: 'Most of those pull requests waited' needs more than half, got {facts.unanswered} of {facts.counted}"
         )
+    if not abs(Decimal(str(facts.rho))) < RHO_BARELY:
+        raise ReportError(
+            f"guard: 'Stars barely predict an answer' needs a rank correlation under {RHO_BARELY} either way, got {facts.rho}: "
+            "the sentence needs new words, and new words need the owner"
+        )
+    if not facts.top100_black_holes > 0:
+        raise ReportError("guard: 'Fame is no guarantee' needs a black hole among the 100 most-starred projects, got none")
+    if len(facts.bands) != 3:
+        raise ReportError(f"the stars finding names three star bands; the stats file has {len(facts.bands)}")
+
+
+def ecosystems_answer() -> str:
+    """The ecosystem chart's answer, in copy.js's names: the two that go quiet more often than the other four."""
+    busy = [ECOSYSTEM_NAMES[key] for key in GUARD_BUSY]
+    return (
+        f"{' and '.join(ECOSYSTEM_NAMES[key] for key in GUARD_QUIET)} projects go quiet more often than "
+        f"{', '.join(busy[:-1])} or {busy[-1]} projects."
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -485,6 +498,12 @@ def copy_js_string(name: str, web_dir: Path = WEB_APP) -> str:
     return json.loads(f'"{match.group(1)}"')
 
 
+#: Ecosystem key -> its name, in plain language: copy.js's one list (owner, 2026-10-17), which the app's filter uses too.
+ECOSYSTEM_NAMES = copy_js_map("ECOSYSTEM_NAMES")
+#: The report's title, as its view prints it (the structured data's headline).
+REPORT_H1 = copy_js_string("REPORT_H1")
+
+
 # --------------------------------------------------------------------------- #
 # HTML
 # --------------------------------------------------------------------------- #
@@ -509,13 +528,15 @@ def _once(page: str, old: str, new: str) -> str:
 
 def app_page(
     *, title: str, head: str = "", description: str | None = None, main: str | None = None,
-    stylesheet: str | None = None, scripts: Sequence[str] | None = None, template: Path = APP_PAGE,
+    stylesheet: str | None = None, stylesheets: Sequence[str] | None = None, scripts: Sequence[str] | None = None,
+    template: Path = APP_PAGE,
 ) -> str:
     """A page of the site, built from the app's page (``web/app/404.html``: its policy, its head and its frame) with
     this ``title`` and the ``head`` tags (after the description); optionally its own ``description``, its text in
-    ``<main>`` (``main``, in place of the app's), a ``stylesheet`` in place of the app views' styles, and ``scripts``
-    (its own module scripts, by address from the site root) in place of the app. The template's comments are left
-    out. Its header, nav and footer are drawn into it at export (``web/prerender.mjs``)."""
+    ``<main>`` (``main``, in place of the app's), a ``stylesheet`` in place of the app views' styles, or
+    ``stylesheets`` in place of all the template's, and ``scripts`` (its own module scripts, by address from the site
+    root) in place of the app. The template's comments are left out. Its header, nav and footer are drawn into it at
+    export (``web/prerender.mjs``)."""
     page = re.sub(r"\n *<!--.*?-->", "", template.read_text(encoding="utf-8"), flags=re.S)
     if len(re.findall(r"<title>[^<]*</title>", page)) != 1:
         raise ReportError("web/app/404.html has no single <title> to build a page from")
@@ -527,6 +548,14 @@ def app_page(
     page = _once(page, found[0], tag + head)
     if stylesheet is not None:
         page = _once(page, '<link rel="stylesheet" href="/styles/views.css">', f'<link rel="stylesheet" href="{_a(stylesheet)}">')
+    if stylesheets is not None:
+        links = re.findall(r'\n *<link rel="stylesheet" href="[^"]*">', page)
+        if not links:
+            raise ReportError("web/app/404.html has no stylesheet to build a page from")
+        own = "".join(f'\n  <link rel="stylesheet" href="{_a(href)}">' for href in stylesheets)
+        page = _once(page, links[0], own)
+        for link in links[1:]:
+            page = _once(page, link, "")
     if main is not None:
         frame = re.search(r'(<main class="app-main" id="app-main" tabindex="-1">)(.*?)(\n *</main>)', page, re.S)
         if not frame:
@@ -538,14 +567,10 @@ def app_page(
     return page
 
 
-def page(
-    *, title: str, description: str, canonical: str, body: str, ld: Any, scripts: Sequence[str] = (),
-) -> str:
-    """A page the app does not draw (the report, a project or landing page, /check/): :func:`app_page` with this
-    page's description, canonical address, link previews and structured data, its ``body`` in ``<main>``, the pages'
-    stylesheet in place of the app views', and its own local ``scripts`` (:data:`PAGE_SCRIPTS`) in place of the
-    app."""
-    head = (
+def _article_head(*, title: str, description: str, canonical: str) -> str:
+    """The head tags of a page that a search or a link preview shows as an article: its author, canonical address,
+    robots rule and link previews."""
+    return (
         '\n  <meta name="author" content="Rahul Kumar (pctablet505)">'
         f'\n  <link rel="canonical" href="{_a(canonical)}">'
         '\n  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">'
@@ -561,113 +586,24 @@ def page(
         f'\n  <meta name="twitter:description" content="{_a(description)}">'
         f'\n  <meta name="twitter:image" content="{SITE}/og.png">'
     )
-    built = app_page(
-        title=title, description=description, head=head, main=body, stylesheet="/styles/report.css", scripts=scripts,
-    )
+
+
+def _with_ld(built: str, ld: Any) -> str:
     return _once(built, "</head>", f'  <script type="application/ld+json">\n  {_ld(ld)}\n  </script>\n</head>')
 
 
-def _table(
-    headers: Sequence[str], rows: Sequence[Sequence[str]], *, caption: str | None = None,
-    first_links: Sequence[str] | None = None,
+def page(
+    *, title: str, description: str, canonical: str, body: str, ld: Any, scripts: Sequence[str] = (),
 ) -> str:
-    """``first_links``: one address per row; the row's first cell then links to it."""
-    head = "".join(f'<th scope="col">{_t(h)}</th>' for h in headers)
-
-    def first_cell(i: int, text: str) -> str:
-        inner = _t(text) if first_links is None else f'<a href="{_a(first_links[i])}">{_t(text)}</a>'
-        return f'<th scope="row">{inner}</th>'
-
-    body = "".join(
-        f"<tr>{first_cell(i, r[0])}" + "".join(f"<td>{_t(c)}</td>" for c in r[1:]) + "</tr>" for i, r in enumerate(rows)
+    """A page the app does not draw (a project or landing page, /check/): :func:`app_page` with this page's
+    description, canonical address, link previews and structured data, its ``body`` in ``<main>``, the pages'
+    stylesheet in place of the app views', and its own local ``scripts`` (:data:`PAGE_SCRIPTS`) in place of the
+    app."""
+    head = _article_head(title=title, description=description, canonical=canonical)
+    built = app_page(
+        title=title, description=description, head=head, main=body, stylesheet="/styles/report.css", scripts=scripts,
     )
-    cap = f"<caption>{_t(caption)}</caption>" if caption else ""
-    return f'<div class="seo-fallback-table-wrap"><table>{cap}<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
-
-
-def _bar_chart(rows: Sequence[tuple[str, str, Decimal, str]], summary: str, ident: str) -> str:
-    """A horizontal bar chart as inline SVG. ``rows`` are ``(label, detail, share, value_text)``;
-    bars start at zero and are scaled to the largest share. Text sits above each bar so it stays
-    readable when the chart shrinks to a phone screen (viewBox 360 wide)."""
-    width, left, bar_max, row_h = 360, 0, 268, 58
-    top = max(share for _, _, share, _ in rows)
-    parts = []
-    for i, (label, detail, share, value) in enumerate(rows):
-        y = i * row_h
-        length = max(2, int(bar_max * share / top))
-        parts.append(
-            f'<text class="chart-label" x="{left}" y="{y + 18}">{_t(label)}</text>'
-            f'<text class="chart-n" x="{width}" y="{y + 18}" text-anchor="end">{_t(detail)}</text>'
-            f'<rect class="chart-bar" x="{left}" y="{y + 26}" width="{length}" height="20" rx="3"/>'
-            f'<text class="chart-value" x="{left + length + 8}" y="{y + 42}">{_t(value)}</text>'
-        )
-    height = len(rows) * row_h
-    return (
-        f'<svg class="chart" id="{ident}" viewBox="0 0 {width} {height}" role="img" '
-        f'aria-label="{_a(summary)}"><title>{_t(summary)}</title>{"".join(parts)}</svg>'
-    )
-
-
-def undecided_bullet(f: Facts) -> str:
-    """The measurement bullet that says how many projects were left undecided for when their data was fetched
-    (with its line break), or nothing when none was."""
-    if not f.undecided_rule_inputs:
-        return ""
-    return (
-        f"          <li>Another {fmt_int(f.undecided_rule_inputs)} licensed, maintained projects with at least {f.min_n} "
-        "outside pull requests on record are not judged yet: those records were fetched before drafts and closes "
-        "were recorded, and the rules need both.</li>\n"
-    )
-
-
-def finding_paragraphs(f: Facts) -> list[tuple[str, str, str]]:
-    """``(id, bold lead, rest)`` of the five findings."""
-    b1, b2, b3 = f.bands
-    return [
-        (
-            "finding-share",
-            f"More than 1 in {f.one_in}.",
-            f"In Porchlamp's {f.snapshot_id} snapshot, {fmt_int(f.black_holes)} of {fmt_int(f.judged)} active "
-            f"open-source projects ({f.share_text}%) left most outside pull requests with no human reply, review or "
-            f"merge within {f.deadline_days} days.",
-        ),
-        (
-            "finding-stars",
-            "More stars, more silence.",
-            f"The share rises with stars: {pct0(b1.black_holes, b1.judged)}% of projects with {b1.label} stars, "
-            f"{pct0(b2.black_holes, b2.judged)}% at {b2.label}, and {pct0(b3.black_holes, b3.judged)}% at {b3.label}.",
-        ),
-        (
-            "finding-top100",
-            "Fame is no guarantee.",
-            f"{f.top100_black_holes} of the 100 most-starred projects are black holes, and only {f.top100_overlap} "
-            "of them reach Porchlamp's top 100.",
-        ),
-        (
-            "finding-correlation",
-            "Stars barely predict an answer.",
-            f"Across {fmt_int(f.ranked)} ranked projects, the rank correlation between stars and the Porchlamp "
-            f"score is {rho_text(f.rho)}.",
-        ),
-        (
-            "finding-prs",
-            "Most of those pull requests waited.",
-            f"Inside the black-hole projects, {fmt_int(f.unanswered)} of {fmt_int(f.counted)} counted outside pull "
-            f"requests got no human reply within {f.deadline_days} days.",
-        ),
-    ]
-
-
-def band_chart_summary(f: Facts) -> str:
-    parts = [
-        f"{pct0(b.black_holes, b.judged)}% of {fmt_int(b.judged)} projects with {b.label} stars" for b in f.bands
-    ]
-    return "Black-hole share by stars: " + "; ".join(parts) + "."
-
-
-def eco_chart_summary(f: Facts) -> str:
-    parts = [f"{e.name} {pct1(e.black_holes, e.judged)}% of {fmt_int(e.judged)}" for e in f.ecosystems]
-    return "Black-hole share by package ecosystem, highest first: " + "; ".join(parts) + "."
+    return _with_ld(built, ld)
 
 
 def report_title(f: Facts, *, frozen: bool = False) -> str:
@@ -749,91 +685,193 @@ def report_jsonld(f: Facts, *, canonical: str, exported_on: date) -> dict:
     }
 
 
-def render_report(f: Facts, *, frozen: bool, exported_on: date, source_db_sha256: str) -> str:
-    """The report page: the latest address (``frozen=False``) or the citation copy (``frozen=True``)."""
-    latest, frozen_url, _ = report_urls(f)
-    canonical = frozen_url if frozen else latest
-    rel = "../../" if frozen else "../"
-    csv_href = f.csv_name if frozen else f"{f.snapshot_id}/{f.csv_name}"
-    start_text, end_text = f.window_text
+# --------------------------------------------------------------------------- #
+# The report's data (report.json) and its two pages
+# --------------------------------------------------------------------------- #
+def report_json(f: Facts) -> dict:
+    """``data/<snapshot_id>/report.json``, what ``web/app/views/report.js`` draws the report from.
 
-    findings = "\n".join(
-        f'        <p class="finding" id="{ident}"><strong>{_t(lead)}</strong> {_t(rest)} '
-        f'<a class="anchor" href="#{ident}" aria-label="Link to this finding">#</a></p>'
-        for ident, lead, rest in finding_paragraphs(f)
-    )
-    band_rows = [
-        (f"{b.label} stars", fmt_int(b.judged), fmt_int(b.black_holes), f"{pct0(b.black_holes, b.judged)}%")
-        for b in f.bands
+    ``values`` holds every printed number and name as the display string formatted here (half-up rounding stays in
+    Python); the chart rows hold their own. Every sentence that carries a number, or a claim the numbers decide, is a
+    template with ``{slots}`` worded here, beside the guard that keeps it true (:func:`check_wording_guards`,
+    :func:`check_method`); the view fills the slots and never types a number or words a claim. Number-free words are
+    copy.js's. The database digest is not here: the view reads it from the export's manifest (``api.fetchManifest``,
+    the one source)."""
+    _latest, frozen_url, _csv = report_urls(f)
+    start_text, end_text = f.window_text
+    values = {
+        "snapshot_id": f.snapshot_id,
+        "snapshot_date": long_date(f.snapshot_date),
+        "year": str(f.snapshot_date.year),
+        "one_in": fmt_int(f.one_in),
+        "black_holes": fmt_int(f.black_holes),
+        "judged": fmt_int(f.judged),
+        "share": f.share_text,
+        "deadline_days": fmt_int(f.deadline_days),
+    }
+    for i, band in enumerate(f.bands, 1):
+        values[f"band{i}_share"] = pct0(band.black_holes, band.judged)
+        values[f"band{i}_label"] = band.label
+    values.update({
+        "top100_black_holes": fmt_int(f.top100_black_holes),
+        "top100_overlap": fmt_int(f.top100_overlap),
+        "ranked": fmt_int(f.ranked),
+        "rho": rho_text(f.rho),
+        "unanswered": fmt_int(f.unanswered),
+        "counted": fmt_int(f.counted),
+        "corpus_prs": fmt_int(f.corpus_prs),
+        "corpus_authors": fmt_int(f.corpus_authors),
+        "corpus_projects": fmt_int(f.corpus_projects),
+        "window_start": start_text,
+        "window_end": end_text,
+        "min_n": fmt_int(f.min_n),
+        "ci_percent": fmt_int(f.ci_percent),
+        "undecided_rule_inputs": fmt_int(f.undecided_rule_inputs),
+        "below_bands_judged": fmt_int(f.below_bands_judged),
+        "lowest_band": f.lowest_band_text,
+        "csv_name": f.csv_name,
+        "frozen_url": frozen_url,
+        "constants_hash": f.constants_hash,
+    })
+    # only what the page prints: the measurement bullet and the "not charted" note are left out when they have no number
+    if not f.undecided_rule_inputs:
+        del values["undecided_rule_inputs"]
+    if not f.below_bands_judged:
+        del values["below_bands_judged"], values["lowest_band"]
+    method = [
+        "We followed {corpus_prs} pull requests from {corpus_authors} outside contributors to {corpus_projects} GitHub "
+        "projects, from {window_start} to {window_end}.",
+        "A project is judged only when it is licensed, maintained software with at least {min_n} counted outside pull "
+        "requests.",
     ]
-    band_note = ""
+    if f.undecided_rule_inputs:
+        method.append(
+            "Another {undecided_rule_inputs} licensed, maintained projects with at least {min_n} outside pull requests on "
+            "record are not judged yet: those records were fetched before drafts and closes were recorded, and the "
+            "rules need both."
+        )
+    method.append(
+        "It is a black hole when, with {ci_percent}% confidence, more than half of those pull requests got no "
+        "substantive reply, review or merge within {deadline_days} days."
+    )
+    not_charted = None
     if f.below_bands_judged:
         noun = "project" if f.below_bands_judged == 1 else "projects"
-        band_note = (
-            f'<p class="note">Not charted: {fmt_int(f.below_bands_judged)} judged {noun} with fewer than '
-            f"{f.lowest_band_text} stars.</p>"
-        )
-    eco_rows = [
-        (e.name, fmt_int(e.judged), fmt_int(e.black_holes), f"{pct1(e.black_holes, e.judged)}%") for e in f.ecosystems
-    ]
-    band_chart = _bar_chart(
-        [
-            (f"{b.label} stars", f"{fmt_int(b.judged)} projects", Decimal(b.black_holes) / Decimal(b.judged),
-             f"{pct0(b.black_holes, b.judged)}%")
+        not_charted = f"Not charted: {{below_bands_judged}} judged {noun} with fewer than {{lowest_band}} stars."
+    sid = f.snapshot_id
+    return {
+        "snapshot_id": sid,
+        "title": report_title(f),
+        "urls": {
+            "latest": "/black-holes/",
+            "frozen": f"/black-holes/{sid}/",
+            "csv": f"/black-holes/{sid}/{f.csv_name}",
+        },
+        "counts": {"judged": f.judged, "black_holes": f.black_holes},
+        "values": values,
+        "findings": [
+            {
+                "id": "finding-share",
+                "lead": "More than 1 in {one_in}.",
+                "text": "In Porchlamp's {snapshot_id} snapshot, {black_holes} of {judged} active open-source projects "
+                "({share}%) left most outside pull requests with no human reply, review or merge within {deadline_days} "
+                "days.",
+            },
+            {
+                "id": "finding-stars",
+                "lead": "More stars, more silence.",
+                "text": "The share rises with stars: {band1_share}% of projects with {band1_label} stars, {band2_share}% at "
+                "{band2_label}, and {band3_share}% at {band3_label}.",
+            },
+            {
+                "id": "finding-top100",
+                "lead": "Fame is no guarantee.",
+                "text": "{top100_black_holes} of the 100 most-starred projects are black holes, and only {top100_overlap} "
+                "of them reach Porchlamp's top 100.",
+            },
+            {
+                "id": "finding-correlation",
+                "lead": "Stars barely predict an answer.",
+                "text": "Across {ranked} ranked projects, the rank correlation between stars and the Porchlamp score is "
+                "{rho}.",
+            },
+            {
+                "id": "finding-prs",
+                "lead": "Most of those pull requests waited.",
+                "text": "Inside the black-hole projects, {unanswered} of {counted} counted outside pull requests got no "
+                "human reply within {deadline_days} days.",
+            },
+        ],
+        "sentences": {
+            "lede": "The state of open-source black holes: how often a stranger's pull request goes unanswered, in the "
+            "Porchlamp snapshot of {snapshot_date}.",
+            "intro": "You send a small fix to a project you use every day. Two weeks later, nobody has replied.",
+            "stars_answer": "They answer less often, on average. The black-hole share climbs at every step up in stars.",
+            "stars_not_charted": not_charted,
+            "ecosystems_answer": ecosystems_answer(),
+            "method": method,
+            "download": "{csv_name}: the {ranked} ranked projects with rank, owner, name, ecosystem, score, tier, "
+            "coverage, quadrant and the rank in each lens. Released under CC BY 4.0.",
+            "cite": f"Porchlamp ({{year}}). {CITE_TITLE}. Snapshot {{snapshot_id}}. {{frozen_url}}",
+            "hashes": [
+                "Data licence: CC BY 4.0.",
+                "Snapshot database SHA-256: {source_db_sha256}.",
+                "Methodology constants hash: {constants_hash}.",
+            ],
+            "stars_chart_summary": "Black-hole share by stars: " + "; ".join(
+                f"{pct0(b.black_holes, b.judged)}% of {fmt_int(b.judged)} projects with {b.label} stars" for b in f.bands
+            ) + ".",
+            "ecosystems_chart_summary": "Black-hole share by package ecosystem, highest first: " + "; ".join(
+                f"{e.name} {pct1(e.black_holes, e.judged)}% of {fmt_int(e.judged)}" for e in f.ecosystems
+            ) + ".",
+        },
+        "bands": [
+            {
+                "key": b.key, "label": b.label, "judged": b.judged, "black_holes": b.black_holes,
+                "judged_text": fmt_int(b.judged), "black_holes_text": fmt_int(b.black_holes),
+                "share_text": pct0(b.black_holes, b.judged),
+            }
             for b in f.bands
         ],
-        band_chart_summary(f), "chart-stars",
-    )
-    eco_chart = _bar_chart(
-        [
-            (e.name, f"{fmt_int(e.judged)} projects", Decimal(e.black_holes) / Decimal(e.judged),
-             f"{pct1(e.black_holes, e.judged)}%")
+        "ecosystems": [
+            {
+                "key": e.key, "name": e.name, "path": f"/{ECOSYSTEM_SLUGS[e.key]}/", "judged": e.judged,
+                "black_holes": e.black_holes, "judged_text": fmt_int(e.judged), "black_holes_text": fmt_int(e.black_holes),
+                "share_text": pct1(e.black_holes, e.judged),
+            }
             for e in f.ecosystems
         ],
-        eco_chart_summary(f), "chart-ecosystems",
+    }
+
+
+def frozen_stylesheet_href(f: Facts) -> str:
+    """The frozen copy's one stylesheet, beside it (ENG-14)."""
+    return f"/black-holes/{f.snapshot_id}/styles.css"
+
+
+def frozen_stylesheet(template: Path = APP_PAGE) -> str:
+    """The frozen copy's ``styles.css``: every stylesheet the app's page links, in its order, joined. The copy links
+    only this file, so a later restyle of the app cannot alter a page that is never drawn again (ENG-14)."""
+    hrefs = re.findall(r'<link rel="stylesheet" href="([^"]*)">', template.read_text(encoding="utf-8"))
+    if not hrefs or any(not href.startswith("/styles/") for href in hrefs):
+        raise ReportError(f"web/app/404.html links stylesheets this copy cannot carry: {hrefs}")
+    return "".join(
+        f"/* {href} */\n" + (WEB_APP / href.lstrip("/")).read_text(encoding="utf-8").rstrip("\n") + "\n"
+        for href in hrefs
     )
 
-    body = f"""      <article class="seo-fallback report">
-        <h1>{_t(REPORT_H1)}</h1>
-        <p class="lede">The state of open-source black holes: how often a stranger's pull request goes unanswered, in the Porchlamp snapshot of {_t(long_date(f.snapshot_date))}.</p>
-        <p>You send a small fix to a project you use every day. Two weeks later, nobody has replied. At more than 1 in {f.one_in} active open-source projects, that is the normal experience.</p>
-        <h2 id="key-findings">Key findings</h2>
-{findings}
-        <h2 id="stars">Do popular projects answer fewer pull requests?</h2>
-        <p>They answer less often, on average. The black-hole share climbs at every step up in stars.</p>
-        {band_chart}
-        <details><summary>The numbers behind the chart</summary>
-        {_table(("Stars", "Projects judged", "Black holes", "Share"), band_rows)}
-        {band_note}
-        </details>
-        <p>One likely reason: review time stays roughly fixed while attention grows, so the queue grows faster than volunteers can clear it. The data shows the rise, not its cause.</p>
-        <h2 id="ecosystems">Which package ecosystems answer outside pull requests?</h2>
-        <p>PyPI and npm projects go quiet more often than Rust, Go, Java or systems projects. Each share is computed within its own ecosystem.</p>
-        {eco_chart}
-        <details><summary>The numbers behind the chart</summary>
-        {_table(("Ecosystem", "Projects judged", "Black holes", "Share"), eco_rows, first_links=[f"{rel}{ECOSYSTEM_SLUGS[e.key]}/" for e in f.ecosystems])}
-        </details>
-        <p>Size is not controlled for. Bigger projects go quiet more often in general, so part of a gap can come from size.</p>
-        <h2 id="how-we-measured">How we measured</h2>
-        <ul>
-          <li>We followed {fmt_int(f.corpus_prs)} pull requests from {fmt_int(f.corpus_authors)} outside contributors to {fmt_int(f.corpus_projects)} GitHub projects, from {_t(start_text)} to {_t(end_text)}.</li>
-          <li>A project is judged only when it is licensed, maintained software with at least {f.min_n} counted outside pull requests.</li>
-{undecided_bullet(f)}          <li>It is a black hole when, with {f.ci_percent}% confidence, more than half of those pull requests got no substantive reply, review or merge within {f.deadline_days} days.</li>
-          <li>Bots, drafts, pull requests their authors closed, brand-new accounts and the project's own members are not counted.</li>
-          <li>Every parameter, gate and weight: <a href="{rel}methodology/">Porchlamp methodology</a>.</li>
-        </ul>
-        <h2 id="what-this-is-not">What this is not</h2>
-        <ul>
-{"".join(f"          <li>{_t(item)}</li>{chr(10)}" for item in copy_js_list("LIMITS"))}          <li>This page names no project. Each project's record, with the pull requests behind it, is on <a href="{rel}">the Porchlamp rankings</a>.</li>
-        </ul>
-        <h2 id="download">Download the data</h2>
-        <p><a href="{_a(csv_href)}">{_t(f.csv_name)}</a>: the {fmt_int(f.ranked)} ranked projects with rank, owner, name, ecosystem, score, tier, coverage, quadrant and the rank in each lens. Released under CC BY 4.0.</p>
-        <p>The full records, including every project that was not ranked and why, are in the site's JSON data.</p>
-        <h2 id="cite">Cite this report</h2>
-        <p class="cite">Porchlamp ({f.snapshot_date.year}). {_t(CITE_TITLE)}. Snapshot {_t(f.snapshot_id)}. {_t(frozen_url)}</p>
-        <p class="hashes">Data licence: CC BY 4.0. Snapshot database SHA-256: <code>{_t(source_db_sha256)}</code>. Methodology constants hash: <code>{_t(f.constants_hash)}</code>.</p>
-      </article>"""
-    return page(
-        title=report_title(f, frozen=frozen), description=report_description(f), canonical=canonical, body=body,
-        ld=report_jsonld(f, canonical=canonical, exported_on=exported_on),
+
+def report_page(f: Facts, *, frozen: bool, exported_on: date) -> str:
+    """The report's page, for ``web/prerender.mjs`` to draw the header, nav, footer and the view into: the app's page
+    with the report's head (title, description, canonical address, link previews and structured data). The latest
+    (``frozen=False``) is the app's page at ``/black-holes/``, which the app takes over. The frozen copy loads no app
+    and one stylesheet of its own (:func:`frozen_stylesheet`)."""
+    latest, frozen_url, _ = report_urls(f)
+    canonical = frozen_url if frozen else latest
+    title = report_title(f, frozen=frozen)
+    description = report_description(f)
+    built = app_page(
+        title=title, description=description, head=_article_head(title=title, description=description, canonical=canonical),
+        stylesheets=(frozen_stylesheet_href(f),) if frozen else None, scripts=() if frozen else None,
     )
+    return _with_ld(built, report_jsonld(f, canonical=canonical, exported_on=exported_on))
