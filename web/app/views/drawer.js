@@ -124,12 +124,19 @@ export function projectRowForLens(found, persona) {
   };
 }
 
-function renderIdentity(kind, row, persona) {
+/**
+ * `pageHref` is the project's own page, for a project that has one (ranked under the balanced lens): a link under
+ * its name, so the side panel stays the quick view and the full page is one click away.
+ */
+function renderIdentity(kind, row, persona, pageHref = null) {
   const heading =
     `<div class="drawer-identity" aria-label="${escapeHtml(copy.DRAWER_SECTION_IDENTITY)}">` +
     `<p class="drawer-kicker">${escapeHtml(copy.DRAWER_TITLE)}</p>` +
     `<h1 id="drawer-title">${escapeHtml(row.owner)}/${escapeHtml(row.name)}</h1>` +
     `<p class="eco-chip">${escapeHtml(row.ecosystem)}</p>` +
+    (pageHref
+      ? `<a class="drawer-page-link" href="${escapeHtml(pageHref)}" data-drawer-page="true">${escapeHtml(copy.DRAWER_PAGE_LABEL)}</a>`
+      : "") +
     `</div>`;
   if (kind === "gated") {
     return (
@@ -678,14 +685,11 @@ export function renderDrawer(state, opts = {}) {
   const githubLink = `<a class="btn btn-secondary drawer-github-link" href="${escapeHtml(githubUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(copy.DRAWER_GITHUB_LABEL)}</a>`;
   const compareBtn = `<button type="button" class="btn btn-secondary drawer-compare-btn" data-drawer-compare="${escapeHtml(repoKey)}">${escapeHtml(copy.DRAWER_COMPARE_LABEL)}</button>`;
   const closeButton = `<button type="button" class="icon-button" data-drawer-close="true">${escapeHtml(copy.DRAWER_CLOSE_LABEL)}</button>`;
+  const headerActions = `<div class="drawer-actions">${githubLink}${compareBtn}${closeButton}</div>`;
   // A project ranked under the balanced lens has its own page at the panel's address (the export writes one per
   // ranked project); a plain link loads it. Any other project's address answers with this panel only.
-  const pageLink =
-    classifyKind(found) === "rated"
-      ? `<a class="btn btn-secondary drawer-page-link" href="${escapeHtml(projectPath(found.owner, found.name))}" data-drawer-page="true">${escapeHtml(copy.DRAWER_PAGE_LABEL)}</a>`
-      : "";
-  const headerActions = `<div class="drawer-actions">${pageLink}${githubLink}${compareBtn}${closeButton}</div>`;
-  const identity = renderIdentity(kind, row, activePersona);
+  const pageHref = classifyKind(found) === "rated" ? projectPath(found.owner, found.name) : null;
+  const identity = renderIdentity(kind, row, activePersona, pageHref);
 
   const evidenceRows = state.evidenceByRepo[state.repo];
   const evidenceError = evidenceRows ? null : state.evidenceError;

@@ -3217,7 +3217,9 @@ test("routes: a panel's history entry brings back the view under it; loaded dire
 
 test("routes: the side panel links a ranked project's own page, and only a ranked project's", () => {
   const ranked = renderDrawer(stateWithRepoDetail(FLAT_RATED_DETAIL));
-  assert.ok(ranked.includes(`<a class="btn btn-secondary drawer-page-link" href="/projects/riverline/httpkit/" data-drawer-page="true">${copy.DRAWER_PAGE_LABEL}</a>`), ranked);
+  assert.ok(ranked.includes(`<a class="drawer-page-link" href="/projects/riverline/httpkit/" data-drawer-page="true">${escapeHtml(copy.DRAWER_PAGE_LABEL)}</a>`), ranked);
+  const identity = ranked.match(/<div class="drawer-identity"[\s\S]*?<\/div>/)[0];
+  assert.ok(identity.includes("data-drawer-page"), "under the project's name, not among the buttons");
   for (const detail of [FLAT_GATED_DETAIL, FLAT_UNRATED_DETAIL]) {
     assert.ok(!renderDrawer(stateWithRepoDetail(detail)).includes("data-drawer-page"), `${detail.owner}: no page, no link`);
   }

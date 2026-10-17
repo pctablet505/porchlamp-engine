@@ -447,7 +447,7 @@ export const PLAYBOOK_STUB_TEXT =
 export const DRAWER_CLOSE_LABEL = "Close";
 export const DRAWER_COMPARE_LABEL = "Compare";
 /** The link from a ranked project's side panel to its own page (the same address, loaded as a page). */
-export const DRAWER_PAGE_LABEL = "Full page";
+export const DRAWER_PAGE_LABEL = "Full page →";
 export const DRAWER_NO_EVIDENCE_TEXT = "No detailed evidence telemetry recorded for this repository.";
 export const DRAWER_LOADING_TEXT = "Loading evidence…";
 export const DRAWER_NOT_FOUND_TEXT = "This repository could not be found in the current snapshot.";

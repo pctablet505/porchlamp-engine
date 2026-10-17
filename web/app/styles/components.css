@@ -927,16 +927,11 @@ input.control {
 
 .drawer-actions {
   display: flex;
-  /* Four actions on a ranked project: at most the header's width, so on a narrow phone they wrap instead of
-   * widening the panel. */
-  flex-wrap: wrap;
-  max-width: 100%;
   align-items: center;
   gap: var(--space-xs);
   flex-shrink: 0;
 }
 
-.drawer-page-link,
 .drawer-compare-btn,
 .drawer-github-link,
 .drawer [data-drawer-close] {
@@ -957,10 +952,21 @@ input.control {
   text-decoration: none;
 }
 
-.drawer-page-link:hover,
 .drawer-compare-btn:hover,
 .drawer-github-link:hover {
   background: var(--bg-surface-hover);
+}
+
+/* A ranked project's own page, under its name in the side panel (views/drawer.js renderIdentity). */
+.drawer-page-link {
+  font-size: var(--text-caption);
+  font-weight: 500;
+  color: var(--accent-cyan);
+  text-decoration: none;
+}
+
+.drawer-page-link:hover {
+  text-decoration: underline;
 }
 
 /* The not-in-snapshot drawer body and its opt-in live check (06 §3 C;
