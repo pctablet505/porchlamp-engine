@@ -34,8 +34,8 @@ names) must have a page in the site.
 ``verify_projects`` (also run by ``--stats``) proves the project pages and /check/: every ranked project has its page
 at ``projects/<owner>/<name>/`` and no other page exists; every value on each page (the two answer sentences, the tier,
 the five pillars and their coverage, each lens rank or reason, each parameter's value, count and window, the five similar
-projects, the record hash and links) is recomputed from the API and compared; ``sitemap-projects.xml`` lists the top 1,000
-by balanced rank; ``check/projects.json`` lists the ranked projects.
+projects, the record hash and links) is recomputed from the API and compared; ``sitemap-projects.xml`` lists every
+ranked project in balanced-rank order; ``check/projects.json`` lists the ranked projects.
 
 Whatever the flags, ``verify_chrome`` proves every page carries the one header, nav and footer
 (``web/app/components/chrome.js``, drawn at export by ``web/prerender.mjs``), one Content-Security-Policy and only the
@@ -1577,7 +1577,6 @@ def verify_hand_written(db: Path, stats_path: Path, site: Path, *, log=print) ->
 # --------------------------------------------------------------------------- #
 # The project pages, /check/ and the sitemaps
 # --------------------------------------------------------------------------- #
-PROJECT_PAGE_LIMIT_IN_SITEMAP = 1000
 _BAD_TEXT = re.compile(r"\b(?:null|None|NaN|undefined)\b")
 _MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
 
@@ -1881,8 +1880,8 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
     projects_sitemap = site / "sitemap-projects.xml"
     if projects_sitemap.is_file():
         locs = re.findall(r"<loc>([^<]+)</loc>", projects_sitemap.read_text(encoding="utf-8"))
-        ledger.equal("sitemap-projects.xml lists the top 1,000 by balanced rank", locs, [
-            f"{SITE_ORIGIN}/projects/{r['owner'].lower()}/{r['name'].lower()}/" for r in ranked[:PROJECT_PAGE_LIMIT_IN_SITEMAP]])
+        ledger.equal("sitemap-projects.xml lists every ranked project by balanced rank", locs, [
+            f"{SITE_ORIGIN}/projects/{r['owner'].lower()}/{r['name'].lower()}/" for r in ranked])
         lastmods = set(re.findall(r"<lastmod>([^<]+)</lastmod>", projects_sitemap.read_text(encoding="utf-8")))
         ledger.equal("sitemap-projects.xml lastmod is the snapshot's as_of date", lastmods, {as_of})
     else:
