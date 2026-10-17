@@ -13,6 +13,7 @@ from porchlamp.snapshot.stats import StatsError, compute_stats
 
 AS_OF = "2026-10-13T00:00:00+00:00"
 OLD, YOUNG = "2026-09-01T00:00:00Z", "2026-10-10T00:00:00Z"  # 42 and 3 days before AS_OF
+EARLY = "2026-04-01T00:00:00Z"  # before AS_OF's 180-day PR window opens (2026-04-16)
 
 #: name: (gate_reason, gate_undecided, rated, p_responsiveness, score, rank, ttfhr_p75, stars or None)
 PROJECTS = {
@@ -28,46 +29,60 @@ PROJECTS = {
 }
 
 
-def _event(login: str, created: str = OLD, *, external: bool = True, merged: str | None = None,
-           reviewed: str | None = None) -> dict:
-    return {"author_login": login, "is_external": external, "created_at": created,
-            "merged_at": merged, "first_human_review_at": reviewed}
+def _pr(login: str, created: str = OLD, *, association: str = "CONTRIBUTOR", typename: str = "User") -> dict:
+    """One recorded ``pr_window`` node, with the fields the corpus count reads."""
+    return {"createdAt": created, "authorAssociation": association,
+            "author": {"__typename": typename, "login": login}}
 
 
-def _snapshot(tmp_path: Path) -> tuple[Path, Path]:
+def _event(login: str) -> dict:
+    """One v1 ``pr_events`` entry: the 30-newest sample the corpus must not count."""
+    return {"author_login": login, "is_external": True, "created_at": OLD,
+            "merged_at": None, "first_human_review_at": None}
+
+
+def _snapshot(tmp_path: Path, *, h_population: int = 12) -> tuple[Path, Path]:
+    """The nine projects; ``h_population`` is the population of h's measured gate-5 share."""
     db = tmp_path / "snapshot.db"
     conn = sqlite3.connect(db)
     conn.execute("CREATE TABLE snapshots (id TEXT, as_of TEXT)")
     conn.execute("INSERT INTO snapshots VALUES ('S1', ?)", (AS_OF,))
     conn.execute(
-        "CREATE TABLE repositories (snapshot_id TEXT, owner TEXT, name TEXT, gate_reason TEXT, gate_undecided TEXT, "
-        "rated INTEGER, p_responsiveness REAL, porchlamp REAL, rank INTEGER, ttfhr_p75 REAL)"
+        "CREATE TABLE repositories (id INTEGER PRIMARY KEY, snapshot_id TEXT, owner TEXT, name TEXT, gate_reason TEXT, "
+        "gate_undecided TEXT, rated INTEGER, p_responsiveness REAL, porchlamp REAL, rank INTEGER, ttfhr_p75 REAL)"
     )
+    conn.execute("CREATE TABLE params (repo_id INTEGER, param_id TEXT, measured INTEGER, n INTEGER)")
     for name, (gate, undecided, rated, p, score, rank, ttfhr, _stars) in PROJECTS.items():
-        conn.execute("INSERT INTO repositories VALUES ('S1', 'Org', ?, ?, ?, ?, ?, ?, ?, ?)",
-                     (name, gate, undecided, rated, p, score, rank, ttfhr))
+        cur = conn.execute(
+            "INSERT INTO repositories (snapshot_id, owner, name, gate_reason, gate_undecided, rated, p_responsiveness, "
+            "porchlamp, rank, ttfhr_p75) VALUES ('S1', 'Org', ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, gate, undecided, rated, p, score, rank, ttfhr))
+        population = h_population if name == "h" else 20
+        conn.execute("INSERT INTO params VALUES (?, 'gr14_ghost_rate', 1, ?)", (cur.lastrowid, population))
     conn.commit()
     conn.close()
 
     data = tmp_path / "data"
-    meta, derived = data / "raw" / "github_meta", data / "derived"
+    meta, derived, window = data / "raw" / "github_meta", data / "derived", data / "raw" / "pr_window"
     meta.mkdir(parents=True)
     derived.mkdir()
+    window.mkdir()
     for name, row in PROJECTS.items():
         if row[-1] is not None:
             (meta / f"Org__{name}.json").write_text(json.dumps({"data": {"stars": row[-1]}}), encoding="utf-8")
-    # d: 10 outside human PRs old enough to judge, 6 unanswered (one answered after 15 days), 4 merged
-    # within 14 days; a bot's PR and a 3-day-old PR are not judged. A black hole once bots are removed.
-    d_events = [_event(f"u{k}") for k in range(5)]
-    d_events.append(_event("u5", reviewed="2026-09-16T00:00:00Z"))
-    d_events += [_event(f"u{k}", merged="2026-09-05T00:00:00Z") for k in range(6, 10)]
-    d_events += [_event("dependabot[bot]"), _event("U0", YOUNG)]
-    # a: 10 outside PRs, each reviewed after a day, plus a member's PR (not outside)
-    a_events = [_event(f"v{k}", reviewed="2026-09-02T00:00:00Z") for k in range(10)]
-    a_events.append(_event("maintainer", external=False))
-    (derived / "Org__d.json").write_text(json.dumps({"pr_events": d_events}), encoding="utf-8")
-    (derived / "Org__a.json").write_text(json.dumps({"pr_events": a_events}), encoding="utf-8")
-    (derived / "Org__zz.json").write_text("{not json", encoding="utf-8")  # unreadable: not counted
+    # d: 10 outside PRs by u0..u9 and one more by U0 (u0 again), all in the window; not counted: two bots
+    # (a Bot account, and renovate on the D-IN-1 login list), a member's PR, and one opened before the window.
+    d_prs = [_pr(f"u{k}") for k in range(10)] + [_pr("U0", YOUNG)]
+    d_prs += [_pr("dependabot", typename="Bot"), _pr("renovate"), _pr("lead", association="MEMBER"), _pr("early1", EARLY)]
+    # a: 10 outside PRs by v0..v9, plus the owner's
+    a_prs = [_pr(f"v{k}") for k in range(10)] + [_pr("maintainer", association="OWNER")]
+    for name, prs in (("d", d_prs), ("a", a_prs)):
+        (window / f"Org__{name}.json").write_text(json.dumps({"data": {"prs": prs}}), encoding="utf-8")
+    (window / "Org__b.json").write_text("{not json", encoding="utf-8")  # unreadable: no window recorded
+    # the derived bundles' 30-newest samples hold other PRs, which the corpus must not count
+    (derived / "Org__d.json").write_text(json.dumps({"pr_events": [_event("renovate"), _event("x1")]}), encoding="utf-8")
+    (derived / "Org__a.json").write_text(json.dumps({"pr_events": [_event("x2")]}), encoding="utf-8")
+    (derived / "Org__b.json").write_text(json.dumps({"pr_events": [_event("x3")]}), encoding="utf-8")
     return db, data
 
 
@@ -88,20 +103,59 @@ def test_every_field_matches_the_hand_worked_values(tmp_path):
         "spearman": {"p_responsiveness": {"n": 3, "rho": -1.0}, "porchlamp": {"n": 3, "rho": 1.0},
                      "ttfhr_p75": {"n": 3, "rho": -1.0}},
         "top100_overlap": 3, "top100_stars_min": -1,
-        "bots_excluded": {"n": 2, "black_holes": 1, "share": 0.5, "by_stars": {"[50000,inf)": {"n": 2, "share": 0.5}}},
-        "corpus": {"derived_repos": 2, "human_outside_prs": 21, "distinct_outside_authors": 20},
+        # d's and a's windows lack the rule inputs, but both are decided on gate 5
+        "gate5_undecided_rule_inputs": 0,
+        # 11 outside PRs to d (u0..u9, then U0 = u0) and 10 to a; b has no readable window
+        "corpus": {"derived_repos": 3, "pr_windows": 2, "human_outside_prs": 21, "distinct_outside_authors": 20},
     }
     # most first; ties keep the order of the most-starred project that has them
     assert list(stats["top100_stars_fate"].items()) == [
         ("rated", 3), ("black_hole", 2), ("unrated", 2), ("stale", 1), ("unrated: no_external_workflow", 1)]
 
 
-def test_as_of_moves_the_age_cut(tmp_path):
-    """At an as_of 10 days after the PRs opened, none of them is old enough to judge."""
+def test_as_of_moves_the_pr_window(tmp_path):
+    """At an as_of of 11 September the window runs from 15 March: early1's PR is in it, U0's (10 October) is not."""
     db, data = _snapshot(tmp_path)
     stats = compute_stats(db, data, as_of="2026-09-11T00:00:00+00:00")
     assert stats["as_of"] == "2026-09-11T00:00:00+00:00"
-    assert stats["bots_excluded"] == {"n": 0, "black_holes": 0, "share": None, "by_stars": {}}
+    assert stats["corpus"] == {"derived_repos": 3, "pr_windows": 2, "human_outside_prs": 21, "distinct_outside_authors": 21}
+
+
+def _h_window(data: Path, prs: list[dict]) -> None:
+    """h's derived bundle and its recorded PR window, with the collector's own classifications."""
+    from porchlamp.collect.github_graphql import derive_pr_window
+
+    (data / "derived" / "Org__h.json").write_text(json.dumps({"pr_events": []}), encoding="utf-8")
+    (data / "raw" / "pr_window" / "Org__h.json").write_text(
+        json.dumps({"data": {"prs": prs, "derived": derive_pr_window(prs)}}), encoding="utf-8")
+
+
+def test_a_gate_5_undecided_project_whose_window_lacks_the_rule_inputs_is_counted(tmp_path):
+    """h passed gates 1 to 4 and is undecided on gate 5 with a measured share over 12 PRs: counted while its
+    window's PRs lack isDraft and the timeline, not once they carry them."""
+    db, data = _snapshot(tmp_path)
+    _h_window(data, [_pr("w1")])
+    assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 1
+    _h_window(data, [{**_pr("w1"), "isDraft": False, "timelineItems": {"nodes": []}}])
+    assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 0
+
+
+def test_an_undecided_project_below_the_minimum_population_is_not_counted(tmp_path):
+    """Over 9 PRs gate 5 is undecided whatever the records hold, so the missing fields did not leave it out."""
+    db, data = _snapshot(tmp_path, h_population=9)
+    _h_window(data, [_pr("w1")])
+    assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 0
+
+
+def test_an_undecided_project_that_hands_review_off_is_not_counted(tmp_path):
+    """Five outside PRs, each with a Gerrit import notice: review is handed off, so gate 5 is undecided anyway."""
+    db, data = _snapshot(tmp_path)
+    notice = {"author": {"login": "gopherbot", "__typename": "User"}, "authorAssociation": "NONE",
+              "bodyText": "This change has been imported to Gerrit for code review.", "createdAt": OLD}
+    prs = [{**_pr(f"w{k}"), "number": k + 1, "comments": {"nodes": [notice]}, "reviews": {"nodes": []}}
+           for k in range(5)]
+    _h_window(data, prs)
+    assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 0
 
 
 def test_the_cli_prints_the_same_stats(tmp_path, capsys):

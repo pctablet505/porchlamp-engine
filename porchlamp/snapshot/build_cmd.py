@@ -194,6 +194,7 @@ def build_snapshot_dir(
                 "off_platform_marker": gate_evidence[repo_key(bundle)].off_platform_marker,
                 "review_handoff": gate_evidence[repo_key(bundle)].review_handoff,
                 "pr_rule_inputs_recorded": gate_evidence[repo_key(bundle)].pr_rule_inputs_recorded,
+                "decided_external_pr": gate_evidence[repo_key(bundle)].decided_external_pr,
             },
         }
         for bundle in sorted(bundles, key=lambda b: (b.repo.owner.lower(), b.repo.name.lower()))

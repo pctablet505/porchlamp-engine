@@ -324,3 +324,182 @@ def test_vitality_counts_only_commits_in_the_180_days_ending_at_as_of(tmp_path: 
         {"author_login": "dependabot[bot]", "date": at(1)},
     ], fetched_at=at(-2))
     assert _vitality_commit_count(tmp_path, KEY, as_of) == 2
+
+
+# --------------------------------------------------------------------------- #
+# D-GATE-6 from the recorded PR envelopes                                     #
+# --------------------------------------------------------------------------- #
+
+_AS_OF = "2026-10-17T05:35:00+00:00"
+
+
+def _days_before_as_of(days: float) -> str:
+    from datetime import datetime, timedelta
+
+    return (datetime.fromisoformat(_AS_OF) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+
+
+def _decided(number: int, *, opened: float, decided: float | None, association: str = "CONTRIBUTOR",
+             merged: bool = True) -> dict[str, Any]:
+    """A recorded PR node opened and (when ``decided`` is set) merged or closed so many days before as_of."""
+    when = None if decided is None else _days_before_as_of(decided)
+    return {"number": number, "createdAt": _days_before_as_of(opened), "authorAssociation": association,
+            "author": {"login": f"user{number}", "__typename": "User"},
+            "mergedAt": when if merged else None, "closedAt": when}
+
+
+def _sampled(pr: dict[str, Any]) -> dict[str, Any]:
+    """The same PR as the v1 ``pr_events`` sample records it (snake case)."""
+    return {"number": pr["number"], "created_at": pr["createdAt"], "merged_at": pr["mergedAt"],
+            "closed_at": pr["closedAt"], "author_login": pr["author"]["login"],
+            "author_association": pr["authorAssociation"]}
+
+
+def _decided_external_pr(tmp_path: Path, *, window: dict[str, Any] | None,
+                         history: dict[str, Any] | None = None,
+                         sample: list[dict[str, Any]] | None = None) -> bool | None:
+    from datetime import datetime
+
+    if window is not None:
+        write_envelope(tmp_path, "pr_window", KEY, window)
+    if history is not None:
+        write_envelope(tmp_path, "author_history", KEY, history)
+    if sample is not None:
+        write_envelope(tmp_path, "pr_events", KEY, sample)
+    return gate_evidence_for(tmp_path, KEY, as_of=datetime.fromisoformat(_AS_OF)).decided_external_pr
+
+
+#: No decided external PR among these: one still open, a member's merged PR, one decided after as_of.
+_UNDECIDED_PRS = [_decided(1, opened=3, decided=None), _decided(2, opened=50, decided=40, association="MEMBER"),
+                  _decided(3, opened=20, decided=-1)]
+
+
+def test_no_pr_record_gives_no_opinion_on_the_workflow_gate(tmp_path: Path) -> None:
+    assert _decided_external_pr(tmp_path, window=None) is None
+
+
+def test_a_merged_or_closed_external_pr_in_the_window_is_a_decided_external_pr(tmp_path: Path) -> None:
+    merged = {"prs": [_decided(1, opened=40, decided=30)], "truncated": False}
+    assert _decided_external_pr(tmp_path / "merged", window=merged) is True
+    closed = {"prs": [_decided(1, opened=40, decided=30, merged=False)], "truncated": False}
+    assert _decided_external_pr(tmp_path / "closed", window=closed) is True
+
+
+def test_the_whole_pr_history_without_one_says_no(tmp_path: Path) -> None:
+    """Three PRs in the sample of the newest 30: that is every PR the repository has, and none counts."""
+    window = {"prs": _UNDECIDED_PRS, "truncated": False}
+    assert _decided_external_pr(tmp_path, window=window, sample=[_sampled(pr) for pr in _UNDECIDED_PRS]) is False
+
+
+def test_records_of_newer_prs_alone_give_no_opinion(tmp_path: Path) -> None:
+    """Complete records of the PRs opened in 180 and 365 days, and a full sample of the newest 30: a PR
+    opened before all of them may have been decided inside the year, so their silence is no verdict."""
+    window = {"prs": _UNDECIDED_PRS, "truncated": False}
+    history = {"prs": _UNDECIDED_PRS, "truncated": False}
+    assert _decided_external_pr(tmp_path / "records", window=window, history=history) is None
+    full = [_sampled(_decided(100 + i, opened=2 + i, decided=None)) for i in range(30)]
+    assert _decided_external_pr(tmp_path / "full", window=window, history=history, sample=full) is None
+
+
+def test_a_pr_opened_before_the_records_but_decided_inside_the_horizon_counts(tmp_path: Path) -> None:
+    """Opened 800 days before as_of and closed 50 days before: neither window holds it; the sample does."""
+    window = {"prs": _UNDECIDED_PRS, "truncated": False}
+    old = _sampled(_decided(9, opened=800, decided=50, merged=False))
+    assert _decided_external_pr(tmp_path, window=window, sample=[old]) is True
+
+
+def test_a_truncated_record_beside_a_small_sample_gives_no_opinion(tmp_path: Path) -> None:
+    window = {"prs": _UNDECIDED_PRS, "truncated": True}
+    assert _decided_external_pr(tmp_path, window=window, sample=[_sampled(pr) for pr in _UNDECIDED_PRS]) is None
+
+
+def test_a_record_without_its_truncated_flag_beside_a_small_sample_gives_no_opinion(tmp_path: Path) -> None:
+    window = {"prs": _UNDECIDED_PRS}
+    assert _decided_external_pr(tmp_path, window=window, sample=[_sampled(pr) for pr in _UNDECIDED_PRS]) is None
+
+
+def test_the_365_day_history_finds_a_pr_the_180_day_window_cannot_hold(tmp_path: Path) -> None:
+    """Opened 200 days before as_of and merged 100 days before: in the decision horizon, outside the window."""
+    window = {"prs": [_decided(1, opened=3, decided=None)], "truncated": False}
+    history = {"prs": [_decided(1, opened=3, decided=None), _decided(2, opened=200, decided=100)],
+               "truncated": False}
+    assert _decided_external_pr(tmp_path, window=window, history=history) is True
+
+
+def test_a_decision_more_than_365_days_back_does_not_count(tmp_path: Path) -> None:
+    old = _decided(2, opened=380, decided=366)
+    assert _decided_external_pr(tmp_path, window={"prs": [], "truncated": False}, sample=[_sampled(old)]) is False
+
+
+def test_a_bots_decided_pr_counts_for_the_workflow_gate(tmp_path: Path) -> None:
+    """D-GATE-6 asks whether the repository works through GitHub pull requests; D-GATE-5 judges the humans."""
+    bot = {**_decided(1, opened=40, decided=30), "author": {"login": "dependabot", "__typename": "Bot"}}
+    assert _decided_external_pr(tmp_path, window={"prs": [bot], "truncated": False}) is True
+
+
+def test_the_sample_size_is_the_collectors() -> None:
+    import re
+
+    from porchlamp.derive.gate_evidence import PR_SAMPLE_SIZE
+
+    gather = (Path(__file__).resolve().parents[2] / "scripts" / "gather.py").read_text(encoding="utf-8")
+    assert int(re.search(r"^PR_SAMPLE = (\d+)$", gather, re.M).group(1)) == PR_SAMPLE_SIZE
+
+
+# --------------------------------------------------------------------------- #
+# The corpus's outside PRs                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_outside_pr_authors_keeps_external_human_prs_opened_in_the_window() -> None:
+    from datetime import datetime, timedelta
+
+    from porchlamp.derive.gate_evidence import outside_pr_authors
+
+    end = datetime.fromisoformat(_AS_OF)
+    prs = [
+        _decided(1, opened=10, decided=None),                       # counted: user1
+        _decided(2, opened=170, decided=None, association="NONE"),  # counted: user2
+        _decided(3, opened=10, decided=None, association="MEMBER"),  # a member
+        _decided(4, opened=190, decided=None),                      # opened before the window
+        _decided(5, opened=-1, decided=None),                       # opened after the window
+        {**_decided(6, opened=10, decided=None), "author": {"login": "renovate", "__typename": "User"}},
+        {**_decided(7, opened=10, decided=None), "author": {"login": "app", "__typename": "Bot"}},
+        {**_decided(8, opened=10, decided=None), "author": None},   # a deleted account: counted, no login
+        {**_decided(9, opened=10, decided=None), "author": {"login": "User1", "__typename": "User"}},
+    ]
+    assert outside_pr_authors(prs, start=end - timedelta(days=180), end=end) == ["user1", "user2", "", "user1"]
+
+
+# --------------------------------------------------------------------------- #
+# D-GATE-5: records without the rule inputs move the share both ways          #
+# --------------------------------------------------------------------------- #
+
+
+def test_records_without_the_draft_field_can_lower_the_share() -> None:
+    """Two outside PRs nobody answered, and a draft a maintainer reviewed on day 2. The rule excludes the
+    draft (1.0 unanswered); read from records without ``isDraft`` and the timeline, the draft counts as
+    answered and the share falls to 2/3. So a share from such records is no upper bound, and a pass read
+    from it is no verdict."""
+    from datetime import datetime
+
+    from porchlamp.core import gates
+    from porchlamp.derive.gate_evidence import _ghost_rate_prs_from_nodes
+
+    def node(number: int, *, draft: bool, reviewed: bool) -> dict[str, Any]:
+        review = {"author": {"login": "maint", "__typename": "User"}, "authorAssociation": "MEMBER",
+                  "createdAt": _days_before_as_of(28)}
+        return {"number": number, "createdAt": _days_before_as_of(30), "state": "OPEN", "mergedAt": None,
+                "closedAt": None, "isDraft": draft, "timelineItems": {"nodes": []},
+                "author": {"login": f"user{number}", "__typename": "User"}, "authorAssociation": "NONE",
+                "reviews": {"nodes": [review] if reviewed else []}, "comments": {"nodes": []}}
+
+    full = [node(1, draft=False, reviewed=False), node(2, draft=False, reviewed=False),
+            node(3, draft=True, reviewed=True)]
+    stripped = [{k: v for k, v in pr.items() if k not in ("isDraft", "timelineItems")} for pr in full]
+    now = datetime.fromisoformat(_AS_OF)
+    with_rules = gates.evaluate_gate5_window(_ghost_rate_prs_from_nodes(full), now)
+    without = gates.evaluate_gate5_window(_ghost_rate_prs_from_nodes(stripped), now)
+    assert (with_rules.unanswered, with_rules.population_n, with_rules.excluded_draft) == (2, 2, 1)
+    assert (without.unanswered, without.population_n) == (2, 3)
+    assert without.unanswered_share < with_rules.unanswered_share
