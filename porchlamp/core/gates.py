@@ -285,12 +285,12 @@ class GateEvidence:
     #: as answered and lowers it; an author's own close read as silence
     #: raises it), so neither a pass nor a failure can be read from it.
     pr_rule_inputs_recorded: bool | None = None
-    #: D-GATE-6 from the recorded PR envelopes (``pr_window`` and the 365-day
-    #: ``author_history``): ``True`` when one of them holds an external PR
-    #: merged or closed in the trailing :data:`GATE6_DECISION_WINDOW_DAYS`,
-    #: ``False`` when none does and the record is complete, ``None`` when
-    #: there is no complete record (no opinion). See
-    #: :func:`porchlamp.derive.gate_evidence.gate_evidence_for`.
+    #: D-GATE-6 from the recorded PR envelopes (``pr_window``, the 365-day
+    #: ``author_history`` and the v1 sample of the 30 newest PRs): ``True``
+    #: when one of them holds an external PR merged or closed in the trailing
+    #: :data:`GATE6_DECISION_WINDOW_DAYS`, ``False`` only when they hold the
+    #: repository's whole PR history and none does, ``None`` otherwise (no
+    #: opinion). See :func:`porchlamp.derive.gate_evidence._decided_external_pr_in`.
     decided_external_pr: bool | None = None
 
     def __post_init__(self) -> None:

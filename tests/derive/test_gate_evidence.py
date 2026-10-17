@@ -348,15 +348,30 @@ def _decided(number: int, *, opened: float, decided: float | None, association: 
             "mergedAt": when if merged else None, "closedAt": when}
 
 
+def _sampled(pr: dict[str, Any]) -> dict[str, Any]:
+    """The same PR as the v1 ``pr_events`` sample records it (snake case)."""
+    return {"number": pr["number"], "created_at": pr["createdAt"], "merged_at": pr["mergedAt"],
+            "closed_at": pr["closedAt"], "author_login": pr["author"]["login"],
+            "author_association": pr["authorAssociation"]}
+
+
 def _decided_external_pr(tmp_path: Path, *, window: dict[str, Any] | None,
-                         history: dict[str, Any] | None = None) -> bool | None:
+                         history: dict[str, Any] | None = None,
+                         sample: list[dict[str, Any]] | None = None) -> bool | None:
     from datetime import datetime
 
     if window is not None:
         write_envelope(tmp_path, "pr_window", KEY, window)
     if history is not None:
         write_envelope(tmp_path, "author_history", KEY, history)
+    if sample is not None:
+        write_envelope(tmp_path, "pr_events", KEY, sample)
     return gate_evidence_for(tmp_path, KEY, as_of=datetime.fromisoformat(_AS_OF)).decided_external_pr
+
+
+#: No decided external PR among these: one still open, a member's merged PR, one decided after as_of.
+_UNDECIDED_PRS = [_decided(1, opened=3, decided=None), _decided(2, opened=50, decided=40, association="MEMBER"),
+                  _decided(3, opened=20, decided=-1)]
 
 
 def test_no_pr_record_gives_no_opinion_on_the_workflow_gate(tmp_path: Path) -> None:
@@ -370,16 +385,32 @@ def test_a_merged_or_closed_external_pr_in_the_window_is_a_decided_external_pr(t
     assert _decided_external_pr(tmp_path / "closed", window=closed) is True
 
 
-def test_a_complete_window_without_one_says_no(tmp_path: Path) -> None:
-    """Open external PRs, a member's merged PR, and an external PR decided after as_of: none counts."""
-    prs = [_decided(1, opened=3, decided=None), _decided(2, opened=50, decided=40, association="MEMBER"),
-           _decided(3, opened=20, decided=-1)]
-    assert _decided_external_pr(tmp_path, window={"prs": prs, "truncated": False}) is False
+def test_the_whole_pr_history_without_one_says_no(tmp_path: Path) -> None:
+    """Three PRs in the sample of the newest 30: that is every PR the repository has, and none counts."""
+    window = {"prs": _UNDECIDED_PRS, "truncated": False}
+    assert _decided_external_pr(tmp_path, window=window, sample=[_sampled(pr) for pr in _UNDECIDED_PRS]) is False
 
 
-def test_a_truncated_window_without_one_gives_no_opinion(tmp_path: Path) -> None:
-    window = {"prs": [_decided(1, opened=3, decided=None)], "truncated": True}
-    assert _decided_external_pr(tmp_path, window=window) is None
+def test_records_of_newer_prs_alone_give_no_opinion(tmp_path: Path) -> None:
+    """Complete records of the PRs opened in 180 and 365 days, and a full sample of the newest 30: a PR
+    opened before all of them may have been decided inside the year, so their silence is no verdict."""
+    window = {"prs": _UNDECIDED_PRS, "truncated": False}
+    history = {"prs": _UNDECIDED_PRS, "truncated": False}
+    assert _decided_external_pr(tmp_path / "records", window=window, history=history) is None
+    full = [_sampled(_decided(100 + i, opened=2 + i, decided=None)) for i in range(30)]
+    assert _decided_external_pr(tmp_path / "full", window=window, history=history, sample=full) is None
+
+
+def test_a_pr_opened_before_the_records_but_decided_inside_the_horizon_counts(tmp_path: Path) -> None:
+    """Opened 800 days before as_of and closed 50 days before: neither window holds it; the sample does."""
+    window = {"prs": _UNDECIDED_PRS, "truncated": False}
+    old = _sampled(_decided(9, opened=800, decided=50, merged=False))
+    assert _decided_external_pr(tmp_path, window=window, sample=[old]) is True
+
+
+def test_a_truncated_record_beside_a_small_sample_gives_no_opinion(tmp_path: Path) -> None:
+    window = {"prs": _UNDECIDED_PRS, "truncated": True}
+    assert _decided_external_pr(tmp_path, window=window, sample=[_sampled(pr) for pr in _UNDECIDED_PRS]) is None
 
 
 def test_the_365_day_history_finds_a_pr_the_180_day_window_cannot_hold(tmp_path: Path) -> None:
@@ -391,23 +422,23 @@ def test_the_365_day_history_finds_a_pr_the_180_day_window_cannot_hold(tmp_path:
 
 
 def test_a_decision_more_than_365_days_back_does_not_count(tmp_path: Path) -> None:
-    history = {"prs": [_decided(2, opened=380, decided=366)], "truncated": False}
-    window = {"prs": [], "truncated": False}
-    assert _decided_external_pr(tmp_path, window=window, history=history) is False
+    old = _decided(2, opened=380, decided=366)
+    assert _decided_external_pr(tmp_path, window={"prs": [], "truncated": False}, sample=[_sampled(old)]) is False
 
 
-def test_the_history_decides_completeness_when_it_was_recorded(tmp_path: Path) -> None:
-    """A complete 180-day window says nothing about PRs opened 180 to 365 days back when the 365-day
-    history that covers them was truncated."""
-    window = {"prs": [_decided(1, opened=3, decided=None)], "truncated": False}
-    truncated_history = {"prs": [_decided(1, opened=3, decided=None)], "truncated": True}
-    assert _decided_external_pr(tmp_path / "t", window=window, history=truncated_history) is None
-    complete_history = {"prs": [_decided(1, opened=3, decided=None)], "truncated": False}
-    assert _decided_external_pr(tmp_path / "c", window=window, history=complete_history) is False
+def test_a_bots_decided_pr_counts_for_the_workflow_gate(tmp_path: Path) -> None:
+    """D-GATE-6 asks whether the repository works through GitHub pull requests; D-GATE-5 judges the humans."""
+    bot = {**_decided(1, opened=40, decided=30), "author": {"login": "dependabot", "__typename": "Bot"}}
+    assert _decided_external_pr(tmp_path, window={"prs": [bot], "truncated": False}) is True
 
 
-def test_a_window_without_a_truncated_flag_gives_no_opinion(tmp_path: Path) -> None:
-    assert _decided_external_pr(tmp_path, window={"prs": [_decided(1, opened=3, decided=None)]}) is None
+def test_the_sample_size_is_the_collectors() -> None:
+    import re
+
+    from porchlamp.derive.gate_evidence import PR_SAMPLE_SIZE
+
+    gather = (Path(__file__).resolve().parents[2] / "scripts" / "gather.py").read_text(encoding="utf-8")
+    assert int(re.search(r"^PR_SAMPLE = (\d+)$", gather, re.M).group(1)) == PR_SAMPLE_SIZE
 
 
 # --------------------------------------------------------------------------- #

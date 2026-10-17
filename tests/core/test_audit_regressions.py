@@ -13,7 +13,6 @@ duplicated here.
 from __future__ import annotations
 
 import dataclasses
-
 import datetime
 
 import pytest

@@ -126,12 +126,6 @@ def make_bundle(
     return bundle
 
 
-def dataclasses_replace(obj: Any, **changes: Any) -> Any:
-    import dataclasses
-
-    return dataclasses.replace(obj, **changes)
-
-
 def healthy_evidence() -> Any:
     from porchlamp.core import gates
 
@@ -755,11 +749,16 @@ def test_off_platform_marker_routes_the_repo() -> None:
     assert result.routed == "off_platform"
 
 
-def _no_decided_external_pr() -> Any:
-    """Healthy evidence whose complete PR record holds no decided external PR."""
+def _decided_external_pr(value: bool | None) -> Any:
+    """Healthy evidence whose PR records say ``value`` about a decided external PR."""
     import dataclasses
 
-    return dataclasses.replace(healthy_evidence(), decided_external_pr=False)
+    return dataclasses.replace(healthy_evidence(), decided_external_pr=value)
+
+
+def _no_decided_external_pr() -> Any:
+    """Healthy evidence whose records hold the whole PR history, with no decided external PR."""
+    return _decided_external_pr(False)
 
 
 def test_no_external_workflow_is_unrated() -> None:
@@ -800,7 +799,7 @@ def test_a_decided_external_pr_in_the_recorded_window_passes_when_the_newest_30_
     from porchlamp.core import gates
 
     newest_30_open = [make_event(100 + i, 2 + i * 0.1) for i in range(30)]
-    evidence = dataclasses_replace(healthy_evidence(), decided_external_pr=True)
+    evidence = _decided_external_pr(True)
     result = gates.evaluate_gates(make_bundle(newest_30_open, ghost=HEALTHY_GHOST), evidence, NOW)
     assert (result.eligible, result.reason, result.routed, result.undecided) == (True, None, None, ())
 

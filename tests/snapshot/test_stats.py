@@ -97,6 +97,8 @@ def test_every_field_matches_the_hand_worked_values(tmp_path):
         "spearman": {"p_responsiveness": {"n": 3, "rho": -1.0}, "porchlamp": {"n": 3, "rho": 1.0},
                      "ttfhr_p75": {"n": 3, "rho": -1.0}},
         "top100_overlap": 3, "top100_stars_min": -1,
+        # d's and a's windows lack the rule inputs, but both are decided on gate 5
+        "gate5_undecided_rule_inputs": 0,
         # 11 outside PRs to d (u0..u9, then U0 = u0) and 10 to a; b has no readable window
         "corpus": {"derived_repos": 3, "pr_windows": 2, "human_outside_prs": 21, "distinct_outside_authors": 20},
     }
@@ -111,6 +113,19 @@ def test_as_of_moves_the_pr_window(tmp_path):
     stats = compute_stats(db, data, as_of="2026-09-11T00:00:00+00:00")
     assert stats["as_of"] == "2026-09-11T00:00:00+00:00"
     assert stats["corpus"] == {"derived_repos": 3, "pr_windows": 2, "human_outside_prs": 21, "distinct_outside_authors": 21}
+
+
+def test_a_gate_5_undecided_project_whose_window_lacks_the_rule_inputs_is_counted(tmp_path):
+    """h passed gates 1 to 4 and is undecided on gate 5: counted while its window's PRs lack isDraft and the
+    timeline, not once they carry them."""
+    db, data = _snapshot(tmp_path)
+    (data / "derived" / "Org__h.json").write_text(json.dumps({"pr_events": []}), encoding="utf-8")
+    window = data / "raw" / "pr_window" / "Org__h.json"
+    window.write_text(json.dumps({"data": {"prs": [_pr("w1")]}}), encoding="utf-8")
+    assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 1
+    recorded = {**_pr("w1"), "isDraft": False, "timelineItems": {"nodes": []}}
+    window.write_text(json.dumps({"data": {"prs": [recorded]}}), encoding="utf-8")
+    assert compute_stats(db, data)["gate5_undecided_rule_inputs"] == 0
 
 
 def test_the_cli_prints_the_same_stats(tmp_path, capsys):

@@ -26,8 +26,12 @@ The definitions:
 ``top100_overlap``
     how many of the 100 most-starred projects are in the top 100 by rank; ``top100_stars_fate``
     is what happened to those 100 (rated, or their gate reason);
+``gate5_undecided_rule_inputs``
+    projects that passed gates 1 to 4 and are undecided on gate 5 because their recorded PR window
+    lacks the fields its rules read (:func:`porchlamp.derive.gate_evidence.pr_rule_inputs_recorded`):
+    left out of ``gate5_decided`` for when their data was fetched, not for what it shows;
 ``corpus``
-    derived bundles (``derived_repos``), how many of them have a recorded PR window
+    derived bundle files (``derived_repos``), how many of them have a recorded PR window
     (``pr_windows``), the outside PRs opened in the PR window ending at ``--as-of``
     (``human_outside_prs``: an external author association and a non-bot author, D-IN-1, the
     PRs D-GATE-5 starts from; :func:`porchlamp.derive.gate_evidence.outside_pr_authors`) and their
@@ -46,7 +50,7 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from porchlamp.core.constants import PR_WINDOW_DAYS
-from porchlamp.derive.gate_evidence import outside_pr_authors, pr_window_data
+from porchlamp.derive.gate_evidence import outside_pr_authors, pr_rule_inputs_recorded, pr_window_data
 
 __all__ = ["STAR_BUCKETS", "bucket_label", "compute_stats", "open_snapshot_db", "spearman"]
 
@@ -195,9 +199,14 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
         fate[k] = fate.get(k, 0) + 1
     out["top100_stars_fate"] = dict(sorted(fate.items(), key=lambda x: -x[1]))
 
-    # the corpus: outside PRs opened in the PR window, from the recorded pr_window envelopes
+    # the corpus: outside PRs opened in the PR window, from the recorded pr_window envelopes; and the
+    # gate-5 undecided projects whose window lacks the rules' inputs
+    gate5_undecided = {
+        key(r) for r in rows
+        if r[2] in (None, "black_hole", "unrated: no_external_workflow") and "D-GATE-5" in json.loads(r[3] or "[]")
+    }
     window_start = now - timedelta(days=PR_WINDOW_DAYS)
-    n_repo = n_window = n_pr = 0
+    n_repo = n_window = n_pr = n_rule_inputs = 0
     authors: set[str] = set()
     for path in derived.glob("*.json"):
         n_repo += 1
@@ -206,9 +215,13 @@ def compute_stats(db: Path, data_dir: Path, *, as_of: Optional[str] = None, db_l
         if not isinstance(prs, list):
             continue
         n_window += 1
+        owner, _, name = path.stem.partition("__")
+        if (owner.lower(), name.lower()) in gate5_undecided and not pr_rule_inputs_recorded(prs):
+            n_rule_inputs += 1
         logins = outside_pr_authors(prs, start=window_start, end=now)
         n_pr += len(logins)
         authors.update(login for login in logins if login)
+    out["gate5_undecided_rule_inputs"] = n_rule_inputs
     out["corpus"] = {
         "derived_repos": n_repo, "pr_windows": n_window,
         "human_outside_prs": n_pr, "distinct_outside_authors": len(authors),
