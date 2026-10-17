@@ -16,7 +16,7 @@ import { escapeHtml } from "./table.js";
 import { routeById, routePath } from "../routes.js";
 import { PERSONA_PRESET_WEIGHTS, hrefFor } from "../state.js";
 
-/** The primary nav's entries, in order: each view's own (routes.js ids), then the report, a page of its own. */
+/** The primary nav's entries, in order: each view's own (routes.js ids), the report last. */
 export const NAV = Object.freeze(
   [
     { id: "ranked", label: () => copy.PRIMARY_NAV_LEADERBOARD },
@@ -28,7 +28,7 @@ export const NAV = Object.freeze(
   ].map((entry) => Object.freeze(entry))
 );
 
-/** The nav entry of a page: a view's (`state.tab`; the leaderboard's two lists share one), "report", or none. */
+/** The nav entry of a page: a view's (`state.tab`; the leaderboard's two lists share one), or none. */
 export function navEntryFor(page) {
   if (page === "ranked" || page === "notranked") return "ranked";
   return NAV.some((entry) => entry.id === page) ? page : null;
@@ -37,7 +37,6 @@ export function navEntryFor(page) {
 /** Where an entry goes: from the reader's `state` (state.js hrefFor keeps what that view reads), or, on a page
  *  drawn without one, the view's own address. */
 export function navHref(id, state = null) {
-  if (id === "report") return copy.REPORT_PAGE_HREF;
   return state ? hrefFor(state, id) : routePath(id);
 }
 

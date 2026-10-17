@@ -221,3 +221,22 @@ class TestDarkIsTheDefault:
         bare_root_block = extract_block(css, ":root {")
         tokens = parse_tokens(bare_root_block)
         assert tokens["bg-base"].lower() == "#090d16"
+
+
+COMPONENTS_CSS = TOKENS_CSS.parent / "components.css"
+
+
+def test_a_controls_placeholder_text_passes_aa_on_the_controls_background() -> None:
+    """The search box's hint is text a reader must read. The browser's own grey placeholder is under AA on the control
+    (measured in Chrome: 4.21:1 light, 3.17:1 dark), so components.css gives it a token colour, unfaded, that clears
+    4.5:1 on the control's own background in every theme."""
+    css = COMPONENTS_CSS.read_text(encoding="utf-8")
+    rule = re.search(r"input\.control::placeholder\s*\{([^}]*)\}", css)
+    assert rule, "input.control has no placeholder colour: the browser's default grey fails AA"
+    color = re.search(r"(?<![-\w])color:\s*var\(--([a-z0-9-]+)\)", rule.group(1)).group(1)
+    assert re.search(r"opacity:\s*1\s*;", rule.group(1)), "a browser that fades a placeholder must not fade this one"
+    control = re.search(r"select\.control,\s*input\.control\s*\{([^}]*)\}", css).group(1)
+    background = re.search(r"background:\s*var\(--([a-z0-9-]+)\)", control).group(1)
+    for theme_name, theme in THEMES.items():
+        ratio = contrast_ratio(_get(theme, color), _get(theme, background))
+        assert ratio >= 4.5, f"{theme_name}: the placeholder's --{color} on --{background} = {ratio:.2f} (< 4.5)"

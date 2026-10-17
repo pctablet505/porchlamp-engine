@@ -1,19 +1,21 @@
 // prerender.mjs — draws the site's pages at export; scripts/export_static.py runs it once it has written them.
 //
 // Into every page it draws the one header, nav and footer (app/components/chrome.js). Into the page of a view the app
-// can draw without a browser it draws that view too: today the methodology (app/views/methodology.js). Its data comes
-// through the site's own api.js (web/static/api.js in the export), the same calls the app makes, fetchSnapshot,
-// fetchMethodology and fetchManifest, reading the exported files: the page holds what the app draws from them, and
-// the app takes it over on load without drawing it again (app.js, `data-prerendered`). A reader or a crawler without
-// JavaScript gets the whole page. The output depends on nothing but the files: no clock, no locale. This file lives
-// outside web/app, so the export never publishes it.
+// can draw without a browser it draws that view too: the methodology (app/views/methodology.js) and the report
+// (app/views/report.js). Their data comes through the site's own api.js (web/static/api.js in the export), the same
+// calls the app makes, fetchSnapshot, fetchMethodology, fetchManifest and fetchReport, reading the exported files: the
+// page holds what the app draws from them, and the app takes it over on load without drawing it again (app.js,
+// `data-prerendered`). The report's frozen copy is drawn the same way and loads no app, so nothing redraws it. A
+// reader or a crawler without JavaScript gets the whole page. The output depends on nothing but the files: no clock,
+// no locale. This file lives outside web/app, so the export never publishes it.
 //
 //   node web/prerender.mjs <site> <pages.json>   draw the pages pages.json names, in place
 //   node web/prerender.mjs --chrome <snapshot.json> <page.json>   print the header, nav and footer of one page
 //
 // pages.json is {"pages": [...]}. A page of the app names its view (routes.js id): {"path": "methodology/index.html",
-// "view": "methodology"}; any other page the nav entry it belongs to, or null: {"path": "black-holes/index.html",
-// "nav": "report"}. Each page must still have the empty frame of web/app/404.html.
+// "view": "methodology"}; the report's frozen copy is {"path": "black-holes/<sid>/index.html", "view": "report",
+// "frozen": true}; any other page the nav entry it belongs to, or null: {"path": "check/index.html", "nav": null}.
+// Each page must still have the empty frame of web/app/404.html.
 
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -25,6 +27,7 @@ import { navEntryFor, renderAppHeader, renderFooter, renderHeader, renderNav } f
 import { escapeHtml } from "./app/components/table.js";
 import { defaultState } from "./app/state.js";
 import { renderShell as renderMethodology } from "./app/views/methodology.js";
+import { renderShell as renderReport } from "./app/views/report.js";
 
 //: The frame every page has, empty, from web/app/404.html: what this fills.
 const FRAME = Object.freeze({
@@ -45,6 +48,10 @@ const VIEWS = Object.freeze({
       sourceDbSha256: data.sourceDbSha256,
       manifestLoad: "done",
     }),
+  report: (data) => {
+    if (!data.report) throw new Error("the site has no report.json for the report view (the export writes it with --stats)");
+    return renderReport({ ...defaultState(), tab: "report", report: data.report, sourceDbSha256: data.sourceDbSha256, manifestLoad: "done" });
+  },
 });
 
 /** The header, nav and footer of `page` ({view} or {nav}) as the export draws them from `snapshot`. */
@@ -78,7 +85,9 @@ export function drawPage(html, page, data) {
     const mains = [...out.matchAll(MAIN)];
     if (mains.length !== 1) throw new Error(`${page.path}: the page has no single <main> for the ${page.view} view`);
     const [whole, indent] = mains[0];
-    const drawn = `<main class="app-main" id="app-main" tabindex="-1" data-prerendered="${page.view}">\n${view(data)}\n${indent}</main>`;
+    // The app takes over a page it loads on (data-prerendered); the frozen copy loads no app.
+    const marker = page.frozen ? "" : ` data-prerendered="${page.view}"`;
+    const drawn = `<main class="app-main" id="app-main" tabindex="-1"${marker}>\n${view(data)}\n${indent}</main>`;
     out = out.slice(0, mains[0].index) + drawn + out.slice(mains[0].index + whole.length);
   }
   return out;
@@ -102,18 +111,22 @@ async function readSiteFile(input) {
 
 /**
  * The data the pages are drawn from, through the site's own api.js, as the app loads it: the snapshot, the
- * methodology and the database digest from the manifest (null where the site has none, as the app then has none).
+ * methodology, the report (null where the site has none: an export without the stats file) and the database digest
+ * from the manifest (null where the site has none, as the app then has none).
  */
 export async function loadData(site) {
   globalThis.fetch = readSiteFile;
   const api = await import(pathToFileURL(path.join(path.resolve(site), "api.js")).href);
-  const [snapshot, methodology, manifest] = await Promise.all([api.fetchSnapshot(), api.fetchMethodology(), api.fetchManifest()]);
+  const [snapshot, methodology, manifest, report] = await Promise.all([
+    api.fetchSnapshot(), api.fetchMethodology(), api.fetchManifest(), api.fetchReport(),
+  ]);
   for (const [what, answer] of [["snapshot", snapshot], ["methodology", methodology]]) {
     if (!answer.ok) throw new Error(`the site's api.js could not load the ${what}: ${answer.error && answer.error.message}`);
   }
   return {
     snapshot: snapshot.data,
     methodology: methodology.data,
+    report: report.ok ? report.data : null,
     sourceDbSha256: manifest.ok && manifest.data ? manifest.data.source_db_sha256 || null : null,
   };
 }

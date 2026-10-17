@@ -32,14 +32,27 @@ export function snapshotChipTitle(snapshotId, benchmarkVersion) {
 export const PERSONA_LABEL = "Persona";
 export const ECOSYSTEM_LABEL = "Ecosystem";
 export const ECOSYSTEM_ALL = "All ecosystems";
+/**
+ * Each ecosystem's name wherever the site names one, in plain language (owner, 2026-10-17): the app's filter
+ * (ECOSYSTEMS, below), and the report and the pages porchlamp/serve/ writes, whose Python reads this map
+ * (report_pages.ECOSYSTEM_NAMES). Ids, addresses and data keys keep the engine's codes (porchlamp.models.Ecosystem).
+ */
+const ECOSYSTEM_NAMES = Object.freeze({
+  npm: "JavaScript",
+  pypi: "Python",
+  crates: "Rust",
+  go: "Go",
+  maven: "Java",
+  systems: "C and C++",
+});
 /** The filter's options, in the engine's own vocabulary (porchlamp.models.Ecosystem); tests/test_ui_ecosystems.py pins the two together. */
 export const ECOSYSTEMS = Object.freeze([
-  ["npm", "npm (JavaScript)"],
-  ["pypi", "pypi (Python)"],
-  ["crates", "crates (Rust)"],
-  ["go", "go"],
-  ["maven", "maven (Java)"],
-  ["systems", "systems (no package registry)"],
+  ["npm", ECOSYSTEM_NAMES.npm],
+  ["pypi", ECOSYSTEM_NAMES.pypi],
+  ["crates", ECOSYSTEM_NAMES.crates],
+  ["go", ECOSYSTEM_NAMES.go],
+  ["maven", ECOSYSTEM_NAMES.maven],
+  ["systems", ECOSYSTEM_NAMES.systems],
 ]);
 
 export const PERSONA_NAMES = Object.freeze({
@@ -1102,6 +1115,44 @@ export const LIMITS = Object.freeze([
   "GitHub only. Projects that review on Gerrit or a mailing list are left undecided, not failed.",
   "One six-month window. The numbers will change at the next snapshot.",
 ]);
+
+// --- The report (/black-holes/, views/report.js) -----------------------------------------------------------------
+// The words that carry no number. A sentence with a number, or a claim the numbers decide, is a template in the
+// export's report.json, written by porchlamp/serve/report_pages.py next to the guard that keeps it true.
+export const REPORT_H1 = "Stars don't review pull requests";
+export const REPORT_FINDINGS_HEADING = "Key findings";
+export const REPORT_STARS_HEADING = "Do popular projects answer fewer pull requests?";
+export const REPORT_STARS_CAVEAT =
+  "One likely reason: review time stays roughly fixed while attention grows, so the queue grows faster than volunteers can clear it. The data shows the rise, not its cause.";
+export const REPORT_ECOSYSTEMS_HEADING = "Which package ecosystems answer outside pull requests?";
+export const REPORT_ECOSYSTEMS_WITHIN = "Each share is computed within its own ecosystem.";
+export const REPORT_ECOSYSTEMS_CAVEAT =
+  "Size is not controlled for. Bigger projects go quiet more often in general, so part of a gap can come from size.";
+export const REPORT_METHOD_HEADING = "How we measured";
+export const REPORT_METHOD_EXCLUSIONS =
+  "Bots, drafts, pull requests their authors closed, brand-new accounts and the project's own members are not counted.";
+export const REPORT_METHOD_LINK_LEAD = "Every parameter, gate and weight:";
+export const REPORT_METHOD_LINK_LABEL = "Porchlamp methodology";
+export const REPORT_LIMITS_HEADING = "What this is not";
+export const REPORT_NAMES_NO_PROJECT_LEAD =
+  "This page names no project. Each project's record, with the pull requests behind it, is on";
+export const REPORT_RANKINGS_LINK_LABEL = "the Porchlamp rankings";
+export const REPORT_DOWNLOAD_HEADING = "Download the data";
+export const REPORT_JSON_NOTE =
+  "The full records, including every project that was not ranked and why, are in the site's JSON data.";
+export const REPORT_CITE_HEADING = "Cite this report";
+// The two charts are tables: their column heads, and a star band's row name.
+export const REPORT_COL_STARS = "Stars";
+export const REPORT_COL_ECOSYSTEM = "Ecosystem";
+export const REPORT_COL_JUDGED = "Projects judged";
+export const REPORT_COL_BLACK_HOLES = "Black holes";
+export const REPORT_COL_SHARE = "Share";
+export const REPORT_BAND_ROW = "{band} stars";
+export const REPORT_LOADING_TEXT = "Loading the report…";
+export function reportErrorText(endpoint, status, detail) {
+  const base = `Could not load the report from ${endpoint} (status ${status}).`;
+  return detail ? `${base} ${appendSentence(detail)}` : base;
+}
 
 // --- Maintainer README badge (Screen C, inside the Composite section) -----
 // Offered when a repository's canonical (balanced) record is rated at tier A
