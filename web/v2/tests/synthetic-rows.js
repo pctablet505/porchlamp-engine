@@ -1,13 +1,10 @@
-// perf-fixtures.js — pure synthetic-row generator for the 10,000-row
+// synthetic-rows.js — pure synthetic-row generator for the 10,000-row
 // performance budget (06 §7). Deterministic (no Math.random) so a perf
-// run is reproducible; every row validates against the same shape as
-// `porchlamp/serve/contract.py`'s LeaderboardRow (checked by
-// tests/test_ui_fixtures.py, which loads this file's Node-runnable
-// twin logic only when Node is present).
+// run is reproducible; every row has the same shape as
+// `porchlamp/serve/contract.py`'s LeaderboardRow.
 //
-// Not wired into any production code path: only app.js's `#perf=<n>`
-// dev entry point calls this, to drive a real-browser windowing
-// measurement (console.log, never user-facing copy).
+// Test-only: it lives under tests/, which the static export skips, and
+// no production module imports it.
 
 const PILLARS = ["responsiveness", "criticality", "governance", "rigor", "accessibility"];
 const WEIGHTS = { responsiveness: 0.25, criticality: 0.25, governance: 0.2, rigor: 0.15, accessibility: 0.15 };

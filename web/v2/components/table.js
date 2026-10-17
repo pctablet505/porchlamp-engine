@@ -222,7 +222,7 @@ export function rowCells(row, opts) {
     { key: "rank", html: `${row.rank}${tieMark}`, numeric: true },
     {
       key: "repository",
-      html: `${repoLinkHtml(row)}<span class="eco-chip">${escapeHtml(row.ecosystem)}</span>`,
+      html: `${repoLinkHtml(row, showPersonaDelta)}<span class="eco-chip">${escapeHtml(row.ecosystem)}</span>`,
     },
     { key: "porchlamp", html: row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE, numeric: true },
     { key: "coverage", html: renderCoverageBadge(row.coverage) },
@@ -243,12 +243,16 @@ export function rowCells(row, opts) {
 /**
  * The repository name as a real link to the project's own page (D8), so a crawler, a middle click and "open in
  * a new tab" reach it. A plain click is taken over by `handleRepoLinkClick` and still opens the drawer.
+ *
+ * Project pages exist only for projects ranked under the balanced lens. Under another lens (`onLens` true) a
+ * row has such a page only when it carries a `balanced_rank`; any other row shows its name as plain text.
  */
-export function repoLinkHtml(row) {
-  return (
-    `<a class="repo-link" href="${escapeHtml(copy.projectPath(row.owner, row.name))}">` +
-    `<span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span></a>`
-  );
+export function repoLinkHtml(row, onLens = false) {
+  const name =
+    `<span class="repo-owner">${escapeHtml(row.owner)}/</span><span class="repo-name">${escapeHtml(row.name)}</span>`;
+  const hasProjectPage = !onLens || (row.balanced_rank !== null && row.balanced_rank !== undefined);
+  if (!hasProjectPage) return name;
+  return `<a class="repo-link" href="${escapeHtml(copy.projectPath(row.owner, row.name))}">${name}</a>`;
 }
 
 /** A click that is only "go here" in this tab: the left button, no modifier key. */
@@ -387,7 +391,7 @@ function cardInnerHtml(row, opts) {
     `<span class="cell-numeric">#${row.rank}${tieMark}</span>` +
     `<span>${renderCoverageBadge(row.coverage)}</span>` +
     `</div>` +
-    `<div>${repoLinkHtml(row)}<span class="eco-chip">${escapeHtml(row.ecosystem)}</span></div>` +
+    `<div>${repoLinkHtml(row, showPersonaDelta)}<span class="eco-chip">${escapeHtml(row.ecosystem)}</span></div>` +
     `<div class="cell-numeric">${copy.COLUMN_PORCHLAMP} ${row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderTierCell(row.tier, row.tier_ceiling)}</div>` +
     `<div class="leaderboard-card-line-4">${renderQuadrant(row.quadrant)} ${pillarBarsHtml(row)}${showPersonaDelta ? ` ${deltaHtml(row)}` : ""}</div>` +
     `<div>${renderSuspicionIcon(row.suspicion)}</div>`;

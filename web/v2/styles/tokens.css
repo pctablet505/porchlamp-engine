@@ -159,19 +159,22 @@
     --text-muted: #5b6472;
     --text-on-accent: #f8fafc;
 
-    --quad-sweet-spot: #059669;
+    --quad-sweet-spot: #065f46;
     --quad-crucible: #4f46e5;
-    --quad-nursery: #b45309;
-    --quad-graveyard: #dc2626;
-    --quad-sweet-spot-wash: rgba(5, 150, 105, 0.08);
+    --quad-nursery: #92400e;
+    --quad-graveyard: #b91c1c;
+    --quad-sweet-spot-wash: rgba(6, 95, 70, 0.08);
     --quad-crucible-wash: rgba(79, 70, 229, 0.08);
-    --quad-nursery-wash: rgba(180, 83, 9, 0.08);
-    --quad-graveyard-wash: rgba(220, 38, 38, 0.08);
+    --quad-nursery-wash: rgba(146, 64, 14, 0.08);
+    --quad-graveyard-wash: rgba(185, 28, 28, 0.08);
 
     --coverage-full: #16a34a;
     --coverage-a: #0891b2;
     --coverage-b: #b45309;
     --coverage-below: #dc2626;
+
+    /* Link and label text: 4.5:1 or better on every light surface, the hovered row's included. */
+    --accent-cyan: #155e75;
 
     --corpus-rated: #16a34a;
     --corpus-unrated: #475569;
@@ -201,19 +204,22 @@
   --text-muted: #5b6472;
   --text-on-accent: #f8fafc;
 
-  --quad-sweet-spot: #059669;
+  --quad-sweet-spot: #065f46;
   --quad-crucible: #4f46e5;
-  --quad-nursery: #b45309;
-  --quad-graveyard: #dc2626;
-  --quad-sweet-spot-wash: rgba(5, 150, 105, 0.08);
+  --quad-nursery: #92400e;
+  --quad-graveyard: #b91c1c;
+  --quad-sweet-spot-wash: rgba(6, 95, 70, 0.08);
   --quad-crucible-wash: rgba(79, 70, 229, 0.08);
-  --quad-nursery-wash: rgba(180, 83, 9, 0.08);
-  --quad-graveyard-wash: rgba(220, 38, 38, 0.08);
+  --quad-nursery-wash: rgba(146, 64, 14, 0.08);
+  --quad-graveyard-wash: rgba(185, 28, 28, 0.08);
 
   --coverage-full: #16a34a;
   --coverage-a: #0891b2;
   --coverage-b: #b45309;
   --coverage-below: #dc2626;
+
+  /* Link and label text: 4.5:1 or better on every light surface, the hovered row's included. */
+  --accent-cyan: #155e75;
 
   --corpus-rated: #16a34a;
   --corpus-unrated: #475569;
