@@ -2858,7 +2858,8 @@ test("lastPageWhenPastEnd: a page past the end of a non-empty result goes to the
   assert.equal(lastPageWhenPastEnd({ rows: [], total: undefined }, 2, 20), null);
 });
 
-/** The text of every string literal in JavaScript source, with comments skipped. */
+/** The text of every string literal in JavaScript source, with comments skipped, and object keys (a literal between
+ * `{` or `,` and `:`) skipped too: a key is looked up, never shown. */
 function stringLiterals(source) {
   const literals = [];
   let i = 0;
@@ -2876,7 +2877,12 @@ function stringLiterals(source) {
         if (source[j] === "\\") { text += source[j + 1]; j += 2; continue; }
         text += source[j++];
       }
-      literals.push(text);
+      let before = i - 1;
+      while (before >= 0 && /\s/.test(source[before])) before--;
+      let after = j + 1;
+      while (after < source.length && /\s/.test(source[after])) after++;
+      const isObjectKey = (source[before] === "{" || source[before] === ",") && source[after] === ":";
+      if (!isObjectKey) literals.push(text);
       i = j + 1;
     } else {
       i++;
@@ -2890,6 +2896,10 @@ const REGISTER_ID = /D-[A-Z]+-\d|RFC-\d/;
 test("copy.js: no visible string holds a register id such as D-GATE-5 or RFC-0008", () => {
   assert.ok(REGISTER_ID.test(stringLiterals('const x = "Rule (D-GATE-5, RFC-0008)"; // D-GATE-1')[0]), "the scan finds an id in a string");
   assert.deepEqual(stringLiterals('// "D-GATE-5"\nconst k = 1; /* RFC-0008 */'), [], "comments are skipped");
+  assert.deepEqual(stringLiterals('const m = { "D-GATE-1": "Software project",\n  "D-GATE-2": "Licensed" };'),
+    ["Software project", "Licensed"], "object keys are skipped, their values are not");
+  assert.deepEqual(stringLiterals('const s = ok ? "D-GATE-5 passed" : "D-GATE-5 failed";'),
+    ["D-GATE-5 passed", "D-GATE-5 failed"], "both branches of a ternary are values");
   const literals = stringLiterals(readFileSync(path.join(WEB_ROOT, "copy.js"), "utf8"));
   assert.ok(literals.length > 200, `the scan must cover the file (${literals.length} literals)`);
   assert.deepEqual(literals.filter((text) => REGISTER_ID.test(text)), []);
