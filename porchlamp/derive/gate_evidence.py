@@ -293,7 +293,8 @@ def _decided_external_pr_in(
 
     ``False`` only when the records hold the repository's whole PR history and none of them has one: the
     sample held fewer than :data:`PR_SAMPLE_SIZE` PRs (so it was every PR the repository had when it was
-    fetched), and no window or history read beside it is truncated (they add the PRs opened since).
+    fetched), and every window or history read beside it says it is complete (``truncated`` false; they
+    add the PRs opened since). Each record shows decisions up to its own fetch.
     ``None`` otherwise: a record of the newest PRs, or of the PRs opened in a window, can show that a
     decided external PR exists, but not that none does, because a PR opened before it may have been
     decided inside the horizon."""
@@ -306,8 +307,8 @@ def _decided_external_pr_in(
     if any(isinstance(pr, Mapping) and _is_decided_external(pr, horizon, as_of) for prs in records for pr in prs):
         return True
     whole_history = sample is not None and len(sample) < PR_SAMPLE_SIZE
-    truncated = any(d is not None and d.get("truncated") is True for d in (author_history, pr_window))
-    return False if whole_history and not truncated else None
+    complete = all(d.get("truncated") is False for d in (author_history, pr_window) if d is not None)
+    return False if whole_history and complete else None
 
 
 def outside_pr_authors(prs: Sequence[Any], *, start: datetime, end: datetime) -> list[str]:
