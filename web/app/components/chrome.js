@@ -1,7 +1,7 @@
 // components/chrome.js — the one header, primary nav and footer of every page Porchlamp serves (owner, 2026-10-17:
 // one view per thing, drawn once). app.js draws them on the app's pages and keeps them in step with the reader;
 // web/prerender.mjs draws them at export into every page the site serves, the app's views, the report, the project
-// and landing pages, /check/ and 404 alike. The render functions read nothing from the page, so the browser and Node
+// pages, /check/ and 404 alike. The render functions read nothing from the page, so the browser and Node
 // get the same bytes from the same data.
 //
 // The nav is real links (W-07): `aria-current="page"` on the entry of the page shown, never role=tab. A link to a

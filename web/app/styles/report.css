@@ -1,4 +1,4 @@
-/* The text of the pages the app does not draw: the report, the project and landing pages and /check/
+/* The text of the pages the app does not draw: the report, the project pages and /check/
  * (scripts/export_static.py --stats). Their header, nav and footer are the app's (components/chrome.js, styled in
  * components.css); tokens, the page shell and the article/table styles come from tokens.css and base.css. This file
  * sets the reading size, the findings and the two SVG charts. No external resources: system fonts, inline SVG.
@@ -269,21 +269,4 @@
   list-style: none;
   margin-left: calc(var(--space-lg) * -1);
   color: var(--text-secondary);
-}
-
-/* A landing page (porchlamp/serve/landing_pages.py): a four-column top-50 table that must fit a 390 px screen. */
-.report .landing-table {
-  width: 100%;
-}
-
-.report .landing-table td {
-  white-space: nowrap;
-}
-
-@media (max-width: 767px) {
-  .report .landing-table th,
-  .report .landing-table td {
-    padding-left: var(--space-xs);
-    padding-right: var(--space-xs);
-  }
 }

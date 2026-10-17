@@ -1,5 +1,5 @@
 // theme-init.js — the reader's theme choice, on every page Porchlamp serves: the app's views, the report, the project
-// and landing pages, /check/ and 404 (W-15: the static pages used to ignore it). Each page loads it in <head>, ahead
+// pages, /check/ and 404 (W-15: the static pages used to ignore it). Each page loads it in <head>, ahead
 // of the stylesheets, as a plain script: it runs before the first paint, so a stored choice never shows the other
 // theme first, and it is a file of its own because the pages' policy forbids inline script.
 //

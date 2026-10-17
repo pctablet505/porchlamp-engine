@@ -138,7 +138,7 @@ def _sentence_end(text: str) -> str:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class Copy:
-    """What the lens reasons and the landing pages take from ``web/app/copy.js``."""
+    """What the lens reasons and the home's generated texts take from ``web/app/copy.js``."""
 
     pillar_names: Mapping[str, str]
     persona_gate_reasons: Mapping[str, str]

@@ -4568,7 +4568,7 @@ test("lists: no digit is typed into any copy.js string the lists added: every nu
   assert.deepEqual(copy.LENS_PHRASES, {
     first_timer: "first-time contributors", career_capital: "building career capital",
     senior_systems: "senior systems engineers", ai_assisted: "AI-assisted contributors",
-  }, "the four phrases of the old landing pages, which home_pages.py reads");
+  }, "the four lens phrases, which home_pages.py reads");
 });
 
 /** A list's page as the prerender draws its state: the page of rows, the snapshot, the report and the methodology. */

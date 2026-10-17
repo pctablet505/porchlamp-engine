@@ -1382,7 +1382,7 @@ export const MONTHS = Object.freeze([
   "July", "August", "September", "October", "November", "December",
 ]);
 
-/** The path of each ecosystem's landing page (porchlamp/serve/report_pages.py ECOSYSTEM_SLUGS). */
+/** The path of each ecosystem's list page (routes.js; porchlamp/serve/report_pages.py ECOSYSTEM_SLUGS). */
 export const ECOSYSTEM_SLUGS = Object.freeze({
   pypi: "python",
   npm: "javascript",

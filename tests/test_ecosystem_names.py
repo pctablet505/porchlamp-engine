@@ -3,7 +3,7 @@
 Owner decision (2026-10-17): "One list of ecosystem names in copy.js, in plain language, used everywhere (report, app
 filters, Python pages): crates = Rust, pypi = Python, npm = JavaScript, go = Go, maven = Java, systems = C and C++."
 The list is ``ECOSYSTEM_NAMES`` in ``web/app/copy.js`` (``report_pages.ECOSYSTEM_NAMES`` for Python). Ids, addresses and
-data keys keep the engine's codes, so only the text a reader sees is scanned: the visible text of the landing pages, the
+data keys keep the engine's codes, so only the text a reader sees is scanned: the visible text of the list pages, the
 project pages and the report pages of the report tests' fixture export, and the app's ecosystem filter options.
 """
 # ruff: noqa: F811  (the pytest fixture is imported by name from the report tests and then used as an argument)
