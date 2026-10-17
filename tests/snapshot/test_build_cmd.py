@@ -173,6 +173,36 @@ def test_the_stored_snapshot_reads_back_whether_each_pr_window_recorded_the_rule
     assert read_back[key(absent)].pr_rule_inputs_recorded is None
 
 
+def test_commit_data_fetched_before_as_of_is_judged_at_its_fetch(tmp_path):
+    """The commits were fetched 10 days before ``as_of``; nothing after the fetch was seen. A commit 175 days
+    before the fetch (185 before ``as_of``) keeps the project out of ``stale``: the window ends where the data
+    does. With no commit in the 180 days before the fetch, the project is still stale."""
+    from datetime import timedelta
+
+    from porchlamp.snapshot.store_cmd import score_snapshot_dir
+
+    data_dir = _make_data_dir(tmp_path, count=2)
+    dead, alive = sorted((data_dir / "derived").glob("*.json"))
+    commits = data_dir / "raw" / "commits_180d"
+    commits.mkdir()
+    fetched = _AS_OF - timedelta(days=10)
+    for path, days_before_fetch in ((dead, 185), (alive, 175)):
+        when = (fetched - timedelta(days=days_before_fetch)).isoformat().replace("+00:00", "Z")
+        envelope = {"fetched_at": fetched.isoformat(), "data": [{"author_login": "maintainer", "date": when}]}
+        (commits / path.name).write_text(json.dumps(envelope), encoding="utf-8")
+
+    out_dir = tmp_path / "out"
+    frozen = build_snapshot_dir(data_dir, out_dir, snapshot_id="TEST-EARLY-FETCH", as_of=_AS_OF, code_commit_sha=_COMMIT)
+    alive_key, dead_key = (p.stem.replace("__", "/", 1) for p in (alive, dead))
+    assert frozen.gate_evidence[alive_key].vitality_commits_180d == 1
+    assert frozen.gate_evidence[dead_key].vitality_commits_180d == 0
+
+    scored, _ = score_snapshot_dir(out_dir)
+    reasons = {f"{r.repo.owner}/{r.repo.name}": r.gate.reason for r in scored.records}
+    assert reasons[alive_key] != "stale"
+    assert reasons[dead_key] == "stale"
+
+
 def test_a_project_whose_last_human_commit_is_181_days_before_as_of_fails_the_vitality_gate(tmp_path):
     """D-GATE-4 is judged on the 180 days ending at the snapshot's ``as_of``. The ``commits_180d`` envelope
     was fetched later than ``as_of`` here, so its own window still holds a commit 181 days before

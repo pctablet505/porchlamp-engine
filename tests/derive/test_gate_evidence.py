@@ -281,10 +281,29 @@ def test_handoff_reads_its_thresholds_and_phrases_from_the_constants(
     assert gate_evidence_for(tmp_path, KEY).review_handoff is True  # the relay login prefix
 
 
+def test_vitality_judges_commits_fetched_before_as_of_at_their_fetch(tmp_path: Path) -> None:
+    """Commits fetched ten days before the snapshot: nothing after the fetch was seen, so the window ends at
+    the fetch. A commit 175 days before the fetch counts, one 181 days before it does not."""
+    from datetime import datetime, timedelta, timezone
+
+    as_of = datetime(2026, 10, 17, 5, 35, tzinfo=timezone.utc)
+    fetched = as_of - timedelta(days=10)
+
+    def before_fetch(days: float) -> str:
+        return (fetched - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+
+    write_envelope(tmp_path, "commits_180d", KEY, [{"author_login": "alice", "date": before_fetch(175)}],
+                   fetched_at=fetched.isoformat())
+    assert _vitality_commit_count(tmp_path, KEY, as_of) == 1
+    write_envelope(tmp_path, "commits_180d", KEY, [{"author_login": "alice", "date": before_fetch(181)}],
+                   fetched_at=fetched.isoformat())
+    assert _vitality_commit_count(tmp_path, KEY, as_of) == 0
+
+
 def test_vitality_counts_only_commits_in_the_180_days_ending_at_as_of(tmp_path: Path) -> None:
-    """D-GATE-4's window ends at the snapshot's ``as_of``, not at the envelope's fetch time: a commit
-    181 days before ``as_of`` is outside it, one exactly 180 days before is inside, and one dated after
-    ``as_of`` (fetched later than the snapshot) is outside."""
+    """Commits fetched two days after the snapshot: D-GATE-4's window ends at ``as_of``, not at the
+    envelope's fetch time. A commit 181 days before ``as_of`` is outside it, one exactly 180 days before is
+    inside, and one dated after ``as_of`` is outside."""
     from datetime import datetime, timedelta, timezone
 
     as_of = datetime(2026, 10, 13, 4, 32, 26, tzinfo=timezone.utc)
@@ -292,7 +311,7 @@ def test_vitality_counts_only_commits_in_the_180_days_ending_at_as_of(tmp_path: 
     def at(days: float) -> str:
         return (as_of - timedelta(days=days)).isoformat().replace("+00:00", "Z")
 
-    write_envelope(tmp_path, "commits_180d", KEY, [{"author_login": "alice", "date": at(181)}])
+    write_envelope(tmp_path, "commits_180d", KEY, [{"author_login": "alice", "date": at(181)}], fetched_at=at(-2))
     assert _vitality_commit_count(tmp_path, KEY) == 1  # no as_of: every row counts
     assert _vitality_commit_count(tmp_path, KEY, as_of) == 0
     assert gate_evidence_for(tmp_path, KEY, as_of=as_of).vitality_commits_180d == 0
@@ -303,5 +322,5 @@ def test_vitality_counts_only_commits_in_the_180_days_ending_at_as_of(tmp_path: 
         {"author_login": "carol", "date": at(-1)},
         {"author_login": "dave"},
         {"author_login": "dependabot[bot]", "date": at(1)},
-    ])
+    ], fetched_at=at(-2))
     assert _vitality_commit_count(tmp_path, KEY, as_of) == 2
