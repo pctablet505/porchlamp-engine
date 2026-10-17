@@ -1085,10 +1085,53 @@ export const ONBOARDING_METHODOLOGY_LINK = "How scores & gates work →";
 //: Without a report the line is left out and only the link below it is drawn.
 export const FINDINGS_LINE = "More than 1 in {one_in} active projects leave most strangers' pull requests unanswered for {deadline_days} days.";
 export const FINDINGS_LINK_LABEL = "Read the findings";
-/** The home's links to the ten landing pages (views/leaderboard.js `renderBrowseLinks`): the nav's name and the two lines' labels. */
+/** The home's links to the lists (views/leaderboard.js `renderBrowseLinks`): the nav's name and its lines' labels. */
 export const HOME_BROWSE_LABEL = "Browse";
 export const HOME_BROWSE_ECOSYSTEMS_LABEL = "Browse by ecosystem:";
 export const HOME_BROWSE_LENSES_LABEL = "Browse by contributor lens:";
+/** The home's lines to the other lists (views/leaderboard.js `renderBrowseLinks`); the ranking line heads the page
+ *  links of every page of the ranking too. */
+export const HOME_BROWSE_RANKING_LABEL = "The whole ranking, {page_size} projects a page:";
+export const HOME_BROWSE_FIRST_TIMERS_LABEL = "First-time contributors by ecosystem:";
+export const HOME_BROWSE_FASTEST_LABEL = "Fastest first reply:";
+export const HOME_BROWSE_FASTEST_ALL = "All projects";
+
+// --- The lists of the leaderboard at their own addresses (routes.js presets; views/leaderboard.js `listHead`) -------
+// No digit in any of these: every number fills a slot, a hook of id `list.<slot>` (tests/unit.test.mjs checks).
+/** The phrase a title and an intro use after "projects for", per lens (porchlamp/serve/home_pages.py reads it). */
+export const LENS_PHRASES = Object.freeze({
+  first_timer: "first-time contributors",
+  career_capital: "building career capital",
+  senior_systems: "senior systems engineers",
+  ai_assisted: "AI-assisted contributors",
+});
+/** A count under ten as a word ("six ecosystems", "five pillars"), indexed by the count. */
+export const NUMBER_WORDS = Object.freeze(["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]);
+export const LIST_RANKINGS_HEADING = "The Porchlamp ranking, projects {first} to {last}";
+export const LIST_INTRO_RANKINGS =
+  "Open-source projects ranked {first} to {last} of {total} by what happens to a stranger's pull request, each with its median first reply.";
+export const LIST_INTRO_ECOSYSTEM = "Porchlamp ranks {total} {ecosystem} projects by what happens to a stranger's pull request.";
+export const LIST_INTRO_ECOSYSTEM_REPORT =
+  "Among the {judged} judged {ecosystem} projects, {eco_share}% left most outside pull requests unanswered for {deadline_days} days, against {share}% across all {ecosystems_word} ecosystems.";
+export const LIST_INTRO_LENS = "This view ranks {total} projects for {lens}.";
+export const LIST_INTRO_ECOSYSTEM_LENS = "This view ranks {total} {ecosystem} projects for {lens}.";
+export const LIST_INTRO_WEIGHS = "It weighs {weights}.";
+/** One pillar's weight in "It weighs {weights}.", largest first; the last two joined by LIST_AND. */
+export const LIST_WEIGHT_ITEM = "{pillar} {percent}";
+export const LIST_AND = "{items} and {last}";
+export const LIST_INTRO_FASTEST =
+  "{total} projects, ordered by the median time to a first human reply to outside pull requests, fastest first.";
+export const LIST_INTRO_FASTEST_ECOSYSTEM =
+  "{total} {ecosystem} projects, ordered by the median time to a first human reply to outside pull requests, fastest first.";
+export const LIST_INTRO_FASTEST_SAMPLE =
+  "A median is listed only when it comes from {min_n} or more pull requests; the sample is shown.";
+export const LIST_CAVEAT_FASTEST =
+  "This is one measure, not the Porchlamp score, which weighs {parameters} parameters across {pillars} pillars.";
+/** The leaderboard's two reply columns (components/table.js); without a report the second is PARAM_NAMES's name. */
+export const COLUMN_FIRST_REPLY = "First reply (median)";
+export const COLUMN_NO_REPLY = "No reply in {deadline_days} days";
+/** A median's sample: the first-reply cell's title, and a second line of it on the fastest-reply lists. */
+export const REPLY_SAMPLE_TEXT = "{n} pull requests";
 export const REPORT_PAGE_HREF = "/black-holes/";
 export const FOOTER_REPORT_LABEL = "Report";
 export const FOOTER_METHODOLOGY_LABEL = "Methodology";

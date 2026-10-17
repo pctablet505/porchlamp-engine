@@ -44,9 +44,7 @@ scripts its kind allows, and ``verify_methodology`` proves the methodology page 
 (a ``data-v`` hook) against the API, its headings and links, and byte for byte against a fresh draw from the API's
 own answers.
 
-``verify_landing`` (also run by ``--stats``) proves the ten landing pages (six ecosystems, four lenses): each intro sentence
-and number, each of the top-50 table rows (rank, owner/name, score, tier and link target), the method links, the titles, and
-that the sitemap and ``llms.txt`` list them. ``verify_home`` (also run by ``--stats``) proves the files generated from the
+``verify_home`` (also run by ``--stats``) proves the files generated from the
 snapshot's data (``porchlamp/serve/home_pages.py``): the home page's description and JSON-LD, ``llms.txt`` and ``feed.xml``
 are byte for byte what the generators write from facts worked out here (the API's snapshot, methodology and first page
 of the balanced leaderboard, and the report's values from the stats file); the prerendered home holds the findings line
@@ -77,7 +75,8 @@ from fractions import Fraction
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import quote
+from collections import deque
+from urllib.parse import quote, urljoin, urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PARITY_JS = REPO_ROOT / "scripts" / "static_parity.mjs"
@@ -779,26 +778,8 @@ def _check_stats_file(ledger: "_Ledger", db: Path, stats: dict, root: Path) -> N
             ledger.equal(f"stats file {key} (recomputed from the database and {root})", stats.get(key), recomputed.get(key))
 
 
-#: The ten landing pages, typed again here (double entry against ``porchlamp/serve/landing_pages.py``):
-#: slug -> (ecosystem key, name in the title, name in "the judged ... projects"). The names are copy.js's plain
-#: ``ECOSYSTEM_NAMES`` (owner, 2026-10-17), never a registry's.
-LANDING_ECOSYSTEMS = {
-    "rust": ("crates", "Rust", "Rust"),
-    "python": ("pypi", "Python", "Python"),
-    "javascript": ("npm", "JavaScript", "JavaScript"),
-    "go": ("go", "Go", "Go"),
-    "java": ("maven", "Java", "Java"),
-    "c-cpp": ("systems", "C and C++", "C and C++"),
-}
-#: slug -> (lens key, the phrase after "projects for").
-LANDING_LENSES = {
-    "first-timers": ("first_timer", "first-time contributors"),
-    "career": ("career_capital", "building career capital"),
-    "senior-systems": ("senior_systems", "senior systems engineers"),
-    "ai-assisted": ("ai_assisted", "AI-assisted contributors"),
-}
-ECOSYSTEM_PAGE_SLUGS = {key: slug for slug, (key, _n, _r) in LANDING_ECOSYSTEMS.items()}
-LANDING_TOP = 50
+#: Each ecosystem's page, typed again here (double entry against ``web/app/routes.js``'s ecosystem presets).
+ECOSYSTEM_PAGE_SLUGS = {"crates": "rust", "pypi": "python", "npm": "javascript", "go": "go", "maven": "java", "systems": "c-cpp"}
 
 
 def _judged_by_ecosystem(conn: sqlite3.Connection, sid: str) -> dict[str, tuple[int, int]]:
@@ -1374,6 +1355,12 @@ def _api_answers(db: Path, *paths: str) -> list[Any]:
     return answers
 
 
+def _chrome_key(page: dict) -> str:
+    """What a page's chrome depends on: its view or nav entry, and for a list view its route (the lens and ecosystem
+    its header marks)."""
+    return json.dumps({k: page[k] for k in ("view", "nav", "route") if k in page}, sort_keys=True)
+
+
 def _page_kinds(site: Path, snapshot_id: str) -> dict[str, dict]:
     """Each page of the site (every ``index.html``, and ``404.html``), with what the export drew it as: a page of the
     app (``view``), the report's frozen copy (the report view, on a page the app does not load), or another page
@@ -1382,6 +1369,11 @@ def _page_kinds(site: Path, snapshot_id: str) -> dict[str, dict]:
     export_static = _export_static()
     pages: dict[str, dict] = {"404.html": {"view": "notfound", "kind": "app"}}
     for route in export_static.app_routes():
+        if route["shell"] and route.get("fixed"):  # a list view: the leaderboard at each address the export wrote
+            for path in sorted(site.glob(route["path"].strip("/").replace("{page}", "*") + "/index.html")):
+                address = "/" + path.parent.relative_to(site).as_posix() + "/"
+                pages[path.relative_to(site).as_posix()] = {"view": route["view"], "address": address, "route": route["id"], "kind": "app"}
+            continue
         rel = f"{route['path'].strip('/')}/index.html".lstrip("/") if route["shell"] else None
         if rel and (route["id"] not in export_static.VIEWS_WRITTEN_ELSEWHERE or (site / rel).is_file()):
             pages[rel] = {"view": route["id"], "kind": "app"}
@@ -1426,10 +1418,12 @@ def verify_chrome(db: Path, site: Path, *, log=print) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "snapshot.json").write_text(json.dumps(snapshot), encoding="utf-8")
         for page in pages.values():
-            key = json.dumps({k: page[k] for k in ("view", "nav") if k in page}, sort_keys=True)
+            key = _chrome_key(page)
             if key in drawn:
                 continue
-            (Path(tmp) / "page.json").write_text(key, encoding="utf-8")
+            # a list's header marks its lens and ecosystem: drawn once per list route, from one of its addresses
+            spec = json.dumps({k: page[k] for k in ("view", "nav", "address") if k in page}, sort_keys=True)
+            (Path(tmp) / "page.json").write_text(spec, encoding="utf-8")
             ran = subprocess.run(
                 [node, str(REPO_ROOT / "web" / "prerender.mjs"), "--chrome", str(Path(tmp) / "snapshot.json"), str(Path(tmp) / "page.json")],
                 capture_output=True, text=True, timeout=120, check=False,
@@ -1445,7 +1439,7 @@ def verify_chrome(db: Path, site: Path, *, log=print) -> dict:
             continue
         text = path.read_text(encoding="utf-8")
         counts[page["kind"]] = counts.get(page["kind"], 0) + 1
-        want = drawn[json.dumps({k: page[k] for k in ("view", "nav") if k in page}, sort_keys=True)]
+        want = drawn[_chrome_key(page)]
         for name, opening, closing in _CHROME_ELEMENTS:
             opening = opening.format(nav_label=nav_label)
             ledger.equal(f"{rel} {name}", text.count(opening), 1)
@@ -2080,7 +2074,7 @@ def verify_projects(db: Path, site: Path, *, log=print) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# The ten landing pages and the home page
+# The list views and the home page
 # --------------------------------------------------------------------------- #
 _NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
 
@@ -2093,190 +2087,6 @@ def _weight_percent(weight: float) -> str:
 
 def _joined(items: list[str]) -> str:
     return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
-
-
-def _landing_table(text: str) -> list[tuple[list[str], Optional[str]]]:
-    """``(cells, link target or None)`` of each row of the page's top-50 table."""
-    table = re.search(r'<table class="landing-table">.*?</table>', text, re.S)
-    body = re.search(r"<tbody>(.*?)</tbody>", table.group(0), re.S) if table else None
-    out = []
-    for tr in re.findall(r"<tr>(.*?)</tr>", body.group(1), re.S) if body else []:
-        cells = [_plain(c) for c in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", tr, re.S)]
-        href = re.search(r'<a href="([^"]*)"', tr)
-        out.append((cells, html.unescape(href.group(1)) if href else None))
-    return out
-
-
-def verify_landing(db: Path, site: Path, *, log=print) -> dict:
-    """Recompute every number and every table row of the ten landing pages from the database and the API and compare.
-    ``{"checked": values, "rows": table rows, "pages": n, "errors": [...]}``."""
-    from fastapi.testclient import TestClient
-
-    from porchlamp.core import constants
-    from porchlamp.serve import report_pages as rp
-    from porchlamp.serve.app import create_app
-
-    ledger = _Ledger()
-    table_rows = 0
-    with tempfile.TemporaryDirectory() as tmp:
-        copy = Path(tmp) / "snapshot.db"
-        source, target = sqlite3.connect(f"file:{db}?mode=ro", uri=True), sqlite3.connect(copy)
-        source.backup(target)
-        source.close()
-        target.close()
-        client = TestClient(create_app(str(copy), web_dir=str(Path(tmp) / "__no_web__")))
-
-        def api(path: str, **params: Any) -> Any:
-            response = client.get(path, params=params)
-            if response.status_code != 200:
-                raise SystemExit(f"verify: GET {path} -> {response.status_code}")
-            return response.json()
-
-        snapshot, methodology = api("/v1/porchlamp/snapshot"), api("/v1/porchlamp/methodology")
-        sid = snapshot["snapshot_id"]
-        conn = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
-        per_eco = _judged_by_ecosystem(conn, sid)
-        conn.close()
-        boards = {}
-        for lens in sorted(constants.PERSONA_PRESETS):
-            collected, page_no = [], 1
-            while True:
-                body = api("/v1/porchlamp/leaderboard", persona=lens, page=page_no, page_size=1000)
-                collected.extend(body["rows"])
-                if len(collected) >= body["total"] or not body["rows"]:
-                    break
-                page_no += 1
-            boards[lens] = (collected, body["total"])
-
-    fmt, pct1 = rp.fmt_int, rp.pct1
-    month_year = f"{_MONTHS[int(sid[5:7]) - 1]} {sid[:4]}"
-    snapshot_day = f"{int(sid[8:10])} {month_year}"
-    overall = pct1(sum(b for _, b in per_eco.values()), sum(n for n, _ in per_eco.values()))
-    in_balanced = {(r["owner"], r["name"]) for r in boards["balanced"][0]}
-    pillar_names = rp.copy_js_map("PILLAR_NAMES")
-    pillar_order = [p["name"] for p in methodology["pillars"]]
-    csv_name = f"porchlamp-{sid}-ranked.csv"
-    ranked = boards["balanced"][1]
-
-    def tier_text(row: dict) -> str:
-        if not row["tier"]:
-            return "—"
-        return f"{row['tier']} (capped)" if row["tier_ceiling"] and row["tier"] == row["tier_ceiling"] else row["tier"]
-
-    expected: dict[str, dict] = {}
-    for slug, (key, name, judged_name) in LANDING_ECOSYSTEMS.items():
-        cut = [r for r in boards["balanced"][0] if r["ecosystem"] == key]
-        judged, holes = per_eco[key]
-        rows = [(i + 1, r) for i, r in enumerate(cut[:LANDING_TOP])]
-        intro = (
-            f"Porchlamp ranks {fmt(len(cut))} {name} projects by what happens to a stranger's pull request. "
-            f"Among the {fmt(judged)} judged {judged_name} projects, {pct1(holes, judged)}% left most outside pull requests "
-            f"unanswered for two weeks, against {overall}% across all {_NUMBER_WORDS[len(per_eco)]} ecosystems."
-        )
-        expected[slug] = {
-            "title": f"{name} open-source projects that answer outside pull requests ({month_year}) | Porchlamp",
-            "h1": f"{name} projects that answer outside pull requests", "intro": intro, "rows": rows, "scope": "by the balanced ranking",
-            "numbers": [fmt(len(cut)), fmt(judged), pct1(holes, judged) + "%", overall + "%"],
-        }
-    for slug, (lens, phrase) in LANDING_LENSES.items():
-        weights = methodology["personas"]["presets"][lens]
-        ordered = sorted((p for p in pillar_order if weights.get(p)), key=lambda p: (-weights[p], pillar_order.index(p)))
-        weights_text = _joined([f"{pillar_names[p].lower()} {_weight_percent(weights[p])}" for p in ordered])
-        rows_all, total = boards[lens]
-        intro = f"This view ranks {fmt(total)} projects for {phrase}. It weighs {weights_text}."
-        expected[slug] = {
-            "title": f"Open-source projects for {phrase}, ranked by who answers ({month_year}) | Porchlamp",
-            "h1": f"Open-source projects for {phrase}", "intro": intro, "scope": "in this view",
-            "rows": [(r["rank"], r) for r in rows_all[:LANDING_TOP]],
-            "numbers": [fmt(total)] + [_weight_percent(weights[p]) for p in ordered],
-        }
-
-    titles = []
-    for slug, want in expected.items():
-        rel = f"{slug}/index.html"
-        path = site / rel
-        if not path.is_file():
-            ledger.errors.append(f"{rel} is missing")
-            continue
-        text = path.read_text(encoding="utf-8")
-        ledger.checked += 1
-        canonical = re.search(r'<link rel="canonical" href="([^"]*)"', text).group(1)
-        ledger.equal(f"{rel} canonical", canonical, f"{SITE_ORIGIN}/{slug}/")
-        title = html.unescape(re.search(r"<title>(.*?)</title>", text, re.S).group(1))
-        titles.append(title)
-        ledger.equal(f"{rel} <title>", title, want["title"])
-        ledger.equal(f"{rel} <h1>", _plain(re.search(r"<h1>(.*?)</h1>", text, re.S).group(1)), want["h1"])
-        ledger.equal(f"{rel} lede", _plain(re.search(r'<p class="lede">(.*?)</p>', text, re.S).group(1)),
-                     f"In the Porchlamp snapshot of {snapshot_day}.")
-        intro = _by_id(text, "intro")
-        for number in want["numbers"]:
-            ledger.token(f"{rel} #intro", intro, number)
-        ledger.equal(f"{rel} #intro", intro, want["intro"])
-        ledger.equal(f"{rel} meta description", html.unescape(re.search(r'<meta name="description" content="([^"]*)"', text).group(1)), want["intro"])
-
-        # the table: every row, in order
-        rows = _landing_table(text)
-        ledger.equal(f"{rel} table row count", len(rows), len(want["rows"]))
-        names_without_page = []
-        for found, (rank, row) in zip(rows, want["rows"]):
-            cells, href = found
-            owner, name = row["owner"], row["name"]
-            linked = (owner, name) in in_balanced
-            if not linked:
-                names_without_page.append(f"{owner}/{name}")
-            who = f"{rel} row {rank} ({owner}/{name})"
-            ledger.equal(f"{who} cell count", len(cells), 4)
-            cells = (cells + [""] * 4)[:4]
-            for label, got, want_cell in (
-                ("rank", cells[0], fmt(rank)), ("owner/name", cells[1], f"{owner}/{name}"),
-                ("score", cells[2], _tofixed(row["porchlamp"], 2)), ("tier", cells[3], tier_text(row)),
-            ):
-                ledger.equal(f"{who} {label}", got, want_cell)
-            ledger.equal(f"{who} link target", href, f"../projects/{owner.lower()}/{name.lower()}/" if linked else None)
-            table_rows += 1
-        verb, cause = ("has", "it is") if len(names_without_page) == 1 else ("have", "they are")
-        note = f"The table lists the top {fmt(len(want['rows']))} {want['scope']}."
-        note += (
-            " Each name opens that project's page."
-            if not names_without_page
-            else f" Each name opens that project's page, except {_joined(names_without_page)}, which {verb} no page "
-                 f"because {cause} not in the balanced ranking."
-        )
-        ledger.equal(f"{rel} #table-note", _by_id(text, "table-note"), note)
-        # what the reader is told is also what the page shows
-        scanned = " ".join([intro, _by_id(text, "table-note")] + [c for cells, _h in rows for c in (cells[0], *cells[2:])])
-        found_bad = _BAD_TEXT.search(scanned)
-        if found_bad:
-            ledger.errors.append(f"{rel}: the page prints {found_bad.group(0)!r}")
-        # links to the method, the report and the ranked table; the scripts a page of its kind may load
-        method = _section_after(text, "method")
-        for target, label in (("../methodology/", "methodology"), ("../black-holes/", "report"),
-                              (f"../black-holes/{sid}/{csv_name}", "ranked CSV")):
-            ledger.contains(f"{rel} link to the {label}", method, f'href="{target}"')
-        ledger.token(f"{rel} ranked count", _plain(method), fmt(ranked))
-        ledger.equal(f"{rel} scripts", re.findall(r"<script[^>]*\ssrc=\"([^\"]*)\"", text), list(rp.PAGE_SCRIPTS["page"]))
-        ld = json.loads(re.search(r'<script type="application/ld\+json">\s*(.*?)\s*</script>', text, re.S).group(1))
-        ledger.equal(f"{rel} breadcrumb", ld, {
-            "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
-                {"@type": "ListItem", "position": 1, "name": "Porchlamp", "item": f"{SITE_ORIGIN}/"},
-                {"@type": "ListItem", "position": 2, "name": want["h1"], "item": canonical}]})
-    ledger.equal("the ten landing titles differ", len(set(titles)), len(expected))
-
-    # the sitemap and llms.txt list all ten
-    sitemap = site / "sitemap-pages.xml"
-    locs = re.findall(r"<loc>([^<]+)</loc>", sitemap.read_text(encoding="utf-8")) if sitemap.is_file() else []
-    llms = (site / "llms.txt").read_text(encoding="utf-8") if (site / "llms.txt").is_file() else ""
-    for slug in expected:
-        address = f"{SITE_ORIGIN}/{slug}/"
-        ledger.equal(f"sitemap-pages.xml lists {address}", locs.count(address), 1)
-        ledger.contains("llms.txt", llms, address)
-
-    log(f"verify: landing pages: checked {ledger.checked} values and {table_rows} table rows on {len(titles)} of {len(expected)} pages")
-    for error in ledger.errors[:50]:
-        log(f"LANDING MISMATCH {error}")
-    if len(ledger.errors) > 50:
-        log(f"LANDING MISMATCH ... and {len(ledger.errors) - 50} more")
-    return {"checked": ledger.checked, "rows": table_rows, "pages": len(titles), "errors": ledger.errors}
 
 
 def _section_after(page: str, ident: str) -> str:
@@ -2341,7 +2151,8 @@ def verify_home(db: Path, site: Path, *, report: Optional[dict], log=print) -> d
     page_size = hp.TOP_ROWS
     snapshot, methodology, board = _api_answers(
         db, "/v1/porchlamp/snapshot", "/v1/porchlamp/methodology", f"/v1/porchlamp/leaderboard?persona=balanced&page=1&page_size={page_size}")
-    facts = hp.home_facts(snapshot, methodology, report, board["rows"])
+    export_static = _export_static()
+    facts = hp.home_facts(snapshot, methodology, report, board["rows"], export_static.app_routes())
     sid = snapshot["snapshot_id"]
 
     # the generated files, re-generated here; every address they give is a file of this export
@@ -2354,7 +2165,6 @@ def verify_home(db: Path, site: Path, *, report: Optional[dict], log=print) -> d
             ledger.equal(f"{name} links https://porchlamp.org/{address}, a file of the export", target.is_file(), True)
 
     # the page again: the generated head, then the prerender's chrome and ranked view, from those facts
-    export_static = _export_static()
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         data = root / "data" / sid
@@ -2421,6 +2231,250 @@ def verify_home(db: Path, site: Path, *, report: Optional[dict], log=print) -> d
     return {"checked": ledger.checked, "rows": len(shown), "errors": ledger.errors}
 
 
+#: A list view's title and description, whole as a search result shows them (PLAN-search R11).
+TITLE_MAX, DESCRIPTION_MAX = 70, 155
+
+
+def _preset_request(route: dict, address: str) -> dict[str, Any]:
+    """The leaderboard request a preset's address names: its fixed fields over its defaults over the app's own
+    (balanced, every ecosystem, the ranking's order, page 1, 20 a page)."""
+    fixed, defaults = route.get("fixed") or {}, route.get("defaults") or {}
+    page = 1
+    if "{page}" in route["path"]:
+        found = re.fullmatch(re.escape(route["path"]).replace(r"\{page\}", r"(\d+)"), address)
+        page = int(found.group(1))
+    return {
+        "persona": fixed.get("persona") or "balanced", "eco": fixed.get("eco"),
+        "sort": None if fixed.get("sort") in (None, "rank") else fixed["sort"], "page": page,
+        "page_size": fixed.get("page_size") or defaults.get("page_size") or 20,
+    }
+
+
+def _leaderboard_path(request: dict[str, Any]) -> str:
+    query = {"persona": request["persona"], "page": request["page"], "page_size": request["page_size"]}
+    if request["eco"]:
+        query["eco"] = request["eco"]
+    if request["sort"]:
+        query["sort"] = request["sort"]
+    return "/v1/porchlamp/leaderboard?" + "&".join(f"{k}={v}" for k, v in query.items())
+
+
+def _listed_rows(route: dict, rows: list[dict], min_n: int) -> list[dict]:
+    """The rows a list view shows: all of the page, or, on a top view, those before the first row whose median first
+    reply is unmeasured or from fewer than the methodology's minimum sample."""
+    if not route.get("top"):
+        return rows
+    shown = []
+    for row in rows:
+        if row["first_reply_hours"] is None or (row["first_reply_n"] or 0) < min_n:
+            break
+        shown.append(row)
+    return shown
+
+
+def _expected_list_hooks(route: dict, request: dict, total: int, shown: list[dict], record: Optional[dict],
+                         methodology: dict, min_n: int) -> dict[str, str]:
+    """The values a list view prints in hooks (``list.*``), worked out here from the API's answers, the methodology and
+    the report's record."""
+    from porchlamp.serve import home_pages as hp
+    from porchlamp.serve import report_pages as rp
+
+    fixed = route.get("fixed") or {}
+    hooks: dict[str, str] = {}
+    if "{page}" in route["path"]:
+        first = (request["page"] - 1) * request["page_size"] + 1
+        hooks.update({"list.first": rp.fmt_int(first), "list.last": rp.fmt_int(first + len(shown) - 1), "list.total": rp.fmt_int(total)})
+    elif route.get("top"):
+        hooks.update({"list.total": rp.fmt_int(len(shown)), "list.min_n": rp.fmt_int(min_n),
+                      "list.parameters": rp.fmt_int(len(methodology["parameters"])),
+                      "list.pillars": _NUMBER_WORDS[len(methodology["pillars"])]})
+    else:
+        hooks["list.total"] = rp.fmt_int(total)
+        if "persona" in fixed:
+            hooks["list.weights"] = hp.lens_weights_text(methodology, fixed["persona"])
+        elif record is not None:
+            eco = next(e for e in record["ecosystems"] if e["key"] == fixed["eco"])
+            hooks.update({"list.judged": eco["judged_text"], "list.eco_share": eco["share_text"],
+                          "list.deadline_days": str(record["values"]["deadline_days"]), "list.share": str(record["values"]["share"]),
+                          "list.ecosystems_word": _NUMBER_WORDS[len(record["ecosystems"])]})
+    return hooks
+
+
+def _cell_texts(fragment: str, cell: str) -> list[str]:
+    return [_plain(m) for m in re.findall(rf'<td data-cell="{cell}"[^>]*>(.*?)</td>', fragment, re.S)]
+
+
+def verify_lists(db: Path, site: Path, *, report: Optional[dict], log=print) -> dict:
+    """Every list view (the presets of ``web/app/routes.js``: the ranking's pages, the ecosystem and lens pages, the
+    first-timer and the fastest-first-reply views), at every address the route table and the API's own counts give:
+
+    - the page exists and the sitemap lists it, and no page is drawn as a list at an address the table does not give;
+    - its rows, as a table and as cards, are the API's page for its state (a top view: cut at the methodology's minimum
+      sample), and the reply cells print the API's values with Python's own formatters;
+    - each value it prints in a hook (``list.*``) is the one worked out here;
+    - its title and description fit a search result whole, and no two titles are the same;
+    - a ranking page links every page of the ranking;
+    - each page is byte for byte what ``web/prerender.mjs`` draws from the API's answers.
+    Prints each view's hook count. ``{"pages", "hooks", "errors"}``."""
+    from porchlamp.serve import project_pages as pp
+
+    ledger = _Ledger()
+    export_static = _export_static()
+    snapshot, methodology = _api_answers(db, "/v1/porchlamp/snapshot", "/v1/porchlamp/methodology")
+    sid = snapshot["snapshot_id"]
+    min_n = next(q["min_n"] for q in methodology["parameters"] if q["input_id"] == "ttfhr_hours")
+    sitemap = site / "sitemap-pages.xml"
+    listed = set(re.findall(r"<loc>https://porchlamp\.org(/[^<]*)</loc>", sitemap.read_text(encoding="utf-8"))) if sitemap.is_file() else set()
+    jobs, pages, titles, hook_counts = [], {}, {}, {}
+    routes = [route for route in export_static.app_routes() if route.get("fixed") and route["shell"]]
+    given: set[str] = set()
+    for route in routes:
+        # the addresses: one, or one per page of what the route lists, counted by the API
+        first = _preset_request(route, route["path"].replace("{page}", "1"))
+        (probe,) = _api_answers(db, _leaderboard_path({**first, "page": 1, "page_size": 1}))
+        addresses = [route["path"]] if "{page}" not in route["path"] else [
+            route["path"].replace("{page}", str(n)) for n in range(1, max(1, -(-probe["total"] // first["page_size"])) + 1)]
+        given.update(addresses)
+        for address in addresses:
+            path = site / address.strip("/") / "index.html"
+            ledger.equal(f"{address} is a page of the export", path.is_file(), True)
+            ledger.equal(f"{address} is in sitemap-pages.xml", address in listed, True)
+            if not path.is_file():
+                continue
+            text = path.read_text(encoding="utf-8")
+            pages[address] = text
+            jobs.append({"path": path.relative_to(site).as_posix(), "view": route.get("view", route["id"]), "address": address,
+                         "route": route})
+            request = _preset_request(route, address)
+            (body,) = _api_answers(db, _leaderboard_path(request))
+            shown = _listed_rows(route, body["rows"], min_n)
+            want = [(r["owner"], r["name"]) for r in shown]
+            view = _home_view(text) or ""
+            table = re.search(r'<tbody data-leaderboard-tbody="true"[^>]*>(.*?)</tbody>', view, re.S)
+            ledger.equal(f"{address} table rows are the API's page", keyed_items(table.group(1) if table else "", "tr"), want)
+            ledger.equal(f"{address} cards are the same rows", keyed_items(view, "div", "leaderboard-card"), want)
+            replies = [pp.reply_time_text(r["first_reply_hours"]) if r["first_reply_hours"] is not None else "—" for r in shown]
+            shares = [pp.percent_text(r["no_reply_14d_share"]) if r["no_reply_14d_share"] is not None else "—" for r in shown]
+            got = _cell_texts(table.group(1) if table else "", "first_reply")
+            ledger.equal(f"{address} first reply cells", [g[: len(w)] for g, w in zip(got, replies)] if len(got) == len(replies) else got, replies)
+            if route.get("top"):
+                ledger.equal(f"{address} first reply cells show the sample",
+                             all(f"{r['first_reply_n']:,} pull requests" in g for g, r in zip(got, shown)), True)
+            ledger.equal(f"{address} no reply cells", _cell_texts(table.group(1) if table else "", "no_reply_14d"), shares)
+            # the values in hooks
+            hooks = [(i, v) for i, v in read_page(view).hooks if i.startswith("list.")]
+            hook_counts[route["id"]] = hook_counts.get(route["id"], 0) + len(hooks)
+            _compare_hooks(ledger, address, hooks, _expected_list_hooks(route, request, body["total"], shown, report, methodology, min_n))
+            # the head
+            title = html.unescape(re.search(r"<title>([^<]*)</title>", text).group(1))
+            description = html.unescape(re.search(r'<meta name="description" content="([^"]*)">', text).group(1))
+            ledger.equal(f"{address} title fits ({TITLE_MAX})", len(title) <= TITLE_MAX, True)
+            ledger.equal(f"{address} description fits ({DESCRIPTION_MAX})", len(description) <= DESCRIPTION_MAX, True)
+            ledger.equal(f"{address} title is its own", titles.setdefault(title, address), address)
+            if "{page}" in route["path"]:
+                links = set(read_page(view).links)
+                ledger.equal(f"{address} links every page of the ranking", [a for a in addresses if a not in links], [])
+    # the other way: a page drawn as a list (the leaderboard prerendered), or at a list route's address pattern, where
+    # the route table gives no address (a page past the ranking's last, a preset no longer in the table)
+    drawn = {path for path in site.rglob("index.html")
+             if not path.relative_to(site).as_posix().startswith("data/") and 'data-prerendered="ranked"' in path.read_text(encoding="utf-8")}
+    for route in routes:
+        drawn.update(site.glob(route["path"].strip("/").replace("{page}", "*") + "/index.html"))
+    found = {"/" + "".join(f"{part}/" for part in path.parent.relative_to(site).parts) for path in drawn}
+    ledger.equal("list pages at no address of the route table", sorted(found - given - {"/"}), [])
+    # the pages again, from the API's answers and the verifier's own digest, through the site's api.js
+    db_sha = hashlib.sha256(db.read_bytes()).hexdigest()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        data = root / "data" / sid
+        data.mkdir(parents=True)
+        shipped = json.loads((site / "data" / sid / "manifest.json").read_text(encoding="utf-8"))
+        payloads = [("snapshot", snapshot), ("methodology", methodology),
+                    ("manifest", {"source_db_sha256": db_sha, "sort_fields": shipped.get("sort_fields", [])})]
+        if report is not None:
+            payloads.append(("report", report))
+        for name, payload in payloads:
+            (data / f"{name}.json").write_text(json.dumps(payload), encoding="utf-8")
+        for board in (site / "data" / sid).glob("leaderboard-*.json"):  # the files the request grid proves equal to the API
+            shutil.copyfile(board, data / board.name)
+        (root / "api.js").write_bytes(export_static.STATIC_API.read_bytes())
+        (root / "data-version.js").write_text(export_static.data_version_js(sid), encoding="utf-8")
+        for job in jobs:
+            target = root / job["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(export_static.view_page({**job["route"], "path": job["address"]}), encoding="utf-8")
+        (root / "job.json").write_text(json.dumps({"pages": [{k: v for k, v in j.items() if k != "route"} for j in jobs]}), encoding="utf-8")
+        ran = subprocess.run([find_node(), str(REPO_ROOT / "web" / "prerender.mjs"), str(root), str(root / "job.json")],
+                             capture_output=True, text=True, timeout=600, check=False)
+        if ran.returncode != 0:
+            ledger.errors.append(f"the list views' prerender failed: {ran.stderr[-600:]}")
+        else:
+            for job in jobs:
+                again = (root / job["path"]).read_text(encoding="utf-8")
+                ledger.equal(f"{job['address']} is what the prerender draws from the API's answers (bytes)", again == pages[job["address"]], True)
+    log(f"verify: list views: {len(pages)} pages; hooks per view {dict(sorted(hook_counts.items()))}; "
+        f"re-drawn from the API's answers; checked {ledger.checked} values")
+    for error in ledger.errors[:40]:
+        log(f"LIST MISMATCH {error}")
+    return {"pages": len(pages), "hooks": hook_counts, "errors": ledger.errors}
+
+
+#: Every ranked project's page is at most this many plain-link clicks from ``/`` (owner, 2026-10-17).
+PROJECT_CLICKS_MAX = 2
+_A_HREF = re.compile(r"<a\b[^>]*\bhref=\"([^\"]*)\"", re.S)
+
+
+def _page_of(site: Path, address: str) -> Path:
+    return site / address.strip("/") / "index.html" if address.strip("/") else site / "index.html"
+
+
+def crawl_depths(site: Path) -> dict[str, int]:
+    """Breadth-first from ``/`` over the plain ``<a href>`` links between this export's pages, as a crawler without
+    JavaScript follows them: each address reached (a directory with an ``index.html``) and its depth in clicks. A
+    query or a fragment does not make another page (a static host serves the same file), and a link to anything but
+    a page (a data file, another site) is not followed."""
+    base = "https://porchlamp.org"
+    depths = {"/": 0}
+    queue = deque(["/"])
+    while queue:
+        address = queue.popleft()
+        text = _page_of(site, address).read_text(encoding="utf-8")
+        for href in _A_HREF.findall(text):
+            url = urlsplit(urljoin(base + address, html.unescape(href)))
+            if f"{url.scheme}://{url.netloc}" != base or not url.path.endswith("/"):
+                continue
+            if url.path not in depths and _page_of(site, url.path).is_file():
+                depths[url.path] = depths[address] + 1
+                queue.append(url.path)
+    return depths
+
+
+def verify_crawl(db: Path, site: Path, *, log=print) -> dict:
+    """Every ranked project's page is reached from ``/`` within :data:`PROJECT_CLICKS_MAX` plain-link clicks (the
+    list views link them all: ``/`` links each ranking page, which links its projects). The project pages are the
+    API's own ranked set. ``{"depths", "errors"}``."""
+    ledger = _Ledger()
+    (board,) = _api_answers(db, "/v1/porchlamp/leaderboard?persona=balanced&page=1&page_size=1")
+    total = board["total"]
+    depths = crawl_depths(site)
+    projects = {address: depth for address, depth in depths.items() if _PROJECT_PATH.fullmatch(address)}
+    by_depth: dict[int, int] = {}
+    for depth in depths.values():
+        by_depth[depth] = by_depth.get(depth, 0) + 1
+    near = sum(1 for depth in projects.values() if depth <= PROJECT_CLICKS_MAX)
+    ledger.equal(f"ranked project pages reached from / within {PROJECT_CLICKS_MAX} clicks", near, total)
+    ledger.equal("project pages reached at all", len(projects), total)
+    project_by_depth = {d: sum(1 for x in projects.values() if x == d) for d in sorted(set(projects.values()))}
+    log(f"verify: crawl from /: pages by depth {dict(sorted(by_depth.items()))}; project pages by depth {project_by_depth}; "
+        f"{near} of {total} ranked projects within {PROJECT_CLICKS_MAX} clicks")
+    for error in ledger.errors[:10]:
+        log(f"CRAWL MISMATCH {error}")
+    return {"depths": project_by_depth, "errors": ledger.errors}
+
+
+_PROJECT_PATH = re.compile(r"/projects/[a-z0-9._-]+/[a-z0-9._-]+/")
+
+
 def conn_names(db: Path, snapshot_id: str) -> list[tuple[str, str]]:
     """``(owner, name)`` of the snapshot's black-hole records."""
     conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
@@ -2471,10 +2525,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         result = verify_report(args.db.resolve(), args.stats.resolve(), site, evidence_files=evidence_files)
         ok, record = not result["errors"] and ok, result.get("record")
     ok = not verify_methodology(args.db.resolve(), site, report=record)["errors"] and ok
+    ok = not verify_lists(args.db.resolve(), site, report=record)["errors"] and ok
     if args.stats is not None:
         ok = not verify_projects(args.db.resolve(), site)["errors"] and ok
-        ok = not verify_landing(args.db.resolve(), site)["errors"] and ok
         ok = not verify_home(args.db.resolve(), site, report=record)["errors"] and ok
+        ok = not verify_crawl(args.db.resolve(), site)["errors"] and ok
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
 

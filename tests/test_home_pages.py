@@ -17,7 +17,7 @@ import pytest
 
 from porchlamp.serve import home_pages, report_pages
 from tests.test_ecosystem_names import visible_text
-from tests.test_report_pages import SNAPSHOT, built, report_record, verify_static_export  # noqa: F401  (fixtures)
+from tests.test_report_pages import SNAPSHOT, built, export_static, report_record, verify_static_export  # noqa: F401  (fixtures)
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "web" / "app" / "index.html"
@@ -189,7 +189,8 @@ def test_a_wrong_value_in_the_data_the_export_read_is_named(built, report_record
     report = json.loads((data / "report.json").read_text(encoding="utf-8"))
     report["values"]["share"] = f"{float(report['values']['share']) + 0.1:.1f}"
     load = lambda name: json.loads((data / name).read_text(encoding="utf-8"))  # noqa: E731
-    facts = home_pages.home_facts(load("snapshot.json"), load("methodology.json"), report, load("leaderboard-balanced.json")["rows"])
+    facts = home_pages.home_facts(load("snapshot.json"), load("methodology.json"), report, load("leaderboard-balanced.json")["rows"],
+                                  export_static.app_routes())
     (copy_dir / "llms.txt").write_text(home_pages.llms_txt(facts), encoding="utf-8")
     errors = _verify(db, copy_dir, report_record)["errors"]
     assert any("llms.txt" in e for e in errors), errors[:3]

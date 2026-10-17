@@ -66,7 +66,7 @@ CITE_TITLE = "Stars don't review pull requests: the state of open-source black h
 
 #: The star bands the report charts: the stats producer's bands from 1,000 stars up (their keys in the stats file).
 STAR_BANDS = tuple(bucket_label(lo, hi) for lo, hi in STAR_BUCKETS if lo >= 1000)
-#: Ecosystem key -> the address of its landing page (``porchlamp.serve.landing_pages``); lens key -> likewise.
+#: Ecosystem key -> the address of its page (an ecosystem preset of ``web/app/routes.js``); lens key -> likewise.
 ECOSYSTEM_SLUGS = {"pypi": "python", "npm": "javascript", "go": "go", "systems": "c-cpp", "crates": "rust", "maven": "java"}
 LENS_SLUGS = {"first_timer": "first-timers", "career_capital": "career", "senior_systems": "senior-systems", "ai_assisted": "ai-assisted"}
 #: Wording guard: Python and JavaScript are said to go quiet more often than these four.

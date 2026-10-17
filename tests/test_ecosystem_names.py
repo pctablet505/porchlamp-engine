@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from porchlamp.serve import landing_pages, report_pages
-from tests.test_report_pages import SNAPSHOT, built  # noqa: F401  (fixture)
+from porchlamp.serve import report_pages
+from tests.test_report_pages import SNAPSHOT, built, export_static  # noqa: F401  (fixture)
 from tests.test_ui_ecosystems import _listed_options
 
 #: The registries' names, as a reader would see them. ``npm`` is matched as a word: a path such as ``/npm/`` in an
@@ -63,8 +63,14 @@ def registry_hits(text: str) -> list[str]:
     return sorted(name for name, pattern in REGISTRY_NAMES.items() if pattern.search(text))
 
 
-def landing_paths(site: Path) -> list[Path]:
-    return [site / slug / "index.html" for slug in landing_pages.SLUGS]
+def list_paths(site: Path) -> list[Path]:
+    """Every list view's page the export wrote: each address of each preset in the route table (``web/app/routes.js``),
+    the ranking's pages included."""
+    paths = []
+    for route in export_static.app_routes():
+        if route.get("fixed"):
+            paths += sorted(site.glob(route["path"].strip("/").replace("{page}", "*") + "/index.html"))
+    return paths
 
 
 def project_paths(site: Path) -> list[Path]:
@@ -87,10 +93,11 @@ def pages_naming_a_registry(paths: list[Path], site: Path) -> dict[str, list[str
     return found
 
 
-def test_no_landing_page_names_a_registry(built):
+def test_no_list_page_names_a_registry(built):
     site = built[0]
-    assert len(landing_paths(site)) == 10
-    assert pages_naming_a_registry(landing_paths(site), site) == {}
+    presets = [route for route in export_static.app_routes() if route.get("fixed")]
+    assert len(list_paths(site)) >= len(presets)  # one page a preset at least, every ranking page beside them
+    assert pages_naming_a_registry(list_paths(site), site) == {}
 
 
 def test_no_project_page_names_a_registry(built):
@@ -121,12 +128,13 @@ def test_the_filter_offers_the_lists_names_and_no_registry():
     assert registry_hits(" ".join(label for _value, label in options)) == []
 
 
-def test_each_landing_page_says_its_ecosystem_with_the_lists_name(built):
+def test_each_ecosystem_page_says_its_ecosystem_with_the_lists_name(built):
     site = built[0]
-    for spec in landing_pages.ECOSYSTEM_PAGES:
-        text = visible_text((site / spec.slug / "index.html").read_text(encoding="utf-8"))
-        assert spec.name == report_pages.ECOSYSTEM_NAMES[spec.key]
-        assert f"judged {spec.name} projects" in text, spec.slug
+    pages = [route for route in export_static.app_routes() if list((route.get("fixed") or {}).keys()) == ["eco"]]
+    assert sorted(route["fixed"]["eco"] for route in pages) == sorted(report_pages.ECOSYSTEM_NAMES)
+    for route in pages:
+        text = visible_text((site / route["path"].strip("/") / "index.html").read_text(encoding="utf-8"))
+        assert f"judged {report_pages.ECOSYSTEM_NAMES[route['fixed']['eco']]} projects" in text, route["path"]
 
 
 @pytest.mark.parametrize("registry", sorted(REGISTRY_NAMES))

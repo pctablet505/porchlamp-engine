@@ -9,6 +9,7 @@ import * as copy from "../copy.js";
 import { renderCoverageBadge, renderQuadrant, renderSuspicionIcon, renderTierCell } from "./badge.js";
 import { renderSparkbarGroup } from "./sparkbar.js";
 import { projectPath } from "../routes.js";
+import { daysText, percentWhole, replyTimeText } from "../views/project.js";
 
 export const PILLAR_ORDER = ["responsiveness", "criticality", "governance", "rigor", "accessibility"];
 
@@ -41,7 +42,7 @@ export const SORTABLE_COLUMNS = new Set([
 export function sortDirectionLabel(sortField) {
   const field = sortField.startsWith("-") ? sortField.slice(1) : sortField;
   const reversed = sortField.startsWith("-");
-  const bestFirstAscending = field === "rank" || field === "tier";
+  const bestFirstAscending = field === "rank" || field === "tier" || field === "first_reply"; // the fastest reply first
   const effectiveDescending = bestFirstAscending ? reversed : !reversed;
   return effectiveDescending ? "descending" : "ascending";
 }
@@ -65,6 +66,8 @@ const COLUMNS = [
   { key: "porchlamp", label: copy.COLUMN_PORCHLAMP, sortable: true },
   { key: "coverage", label: copy.COLUMN_COVERAGE, sortable: true },
   { key: "tier", label: copy.COLUMN_TIER, sortable: true },
+  { key: "first_reply", label: copy.COLUMN_FIRST_REPLY, sortable: false },
+  { key: "no_reply_14d", label: copy.paramName("gr14_ghost_rate"), sortable: false },
   { key: "quadrant", label: copy.COLUMN_QUADRANT, sortable: false },
   { key: "pillars", label: copy.COLUMN_PILLARS, sortable: false },
   { key: "delta", label: copy.COLUMN_DELTA, sortable: false, personaOnly: true },
@@ -113,7 +116,17 @@ export function isTieMate(row, previousRow) {
   return !!previousRow && row.tie_group !== null && previousRow.tie_group === row.tie_group;
 }
 
-export function renderColumnHeader(sortField, showPersonaDelta) {
+/**
+ * The no-reply column's header: "No reply in {deadline_days} days", the deadline from the report (`report.values`);
+ * without a report (the dev API, an export without --stats) the parameter's own name.
+ */
+export function noReplyColumnLabel(report) {
+  const days = report && report.values ? report.values.deadline_days : null;
+  return days ? copy.COLUMN_NO_REPLY.replace("{deadline_days}", days) : copy.paramName("gr14_ghost_rate");
+}
+
+/** `labels.noReply` is the no-reply column's header (`noReplyColumnLabel`); without it, the parameter's name. */
+export function renderColumnHeader(sortField, showPersonaDelta, labels = {}) {
   const cells = COLUMNS.filter((c) => !c.personaOnly || showPersonaDelta)
     .map((col) => {
       // data-col pairs a <th> with its <td> (which already carries
@@ -139,7 +152,8 @@ export function renderColumnHeader(sortField, showPersonaDelta) {
       }
       if (!col.sortable) {
         const tooltip = col.vanity ? ` title="${escapeHtml(copy.VANITY_TOOLTIP)}"` : "";
-        return `<th data-col="${col.key}"${tooltip}>${escapeHtml(col.label)}</th>`;
+        const label = col.key === "no_reply_14d" && labels.noReply ? labels.noReply : col.label;
+        return `<th data-col="${col.key}"${tooltip}>${escapeHtml(label)}</th>`;
       }
       const isActive = sortField.replace(/^-/, "") === col.key;
       const dir = isActive ? sortDirectionLabel(sortField) : null;
@@ -211,6 +225,34 @@ export function groupThousands(n) {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
+/** The median first reply in short words (project.js `replyTimeText` under 48 hours: "3.9 hours", "under 0.1 hours";
+ *  else days: "6.2 days"), rounded half up as the project page rounds it. */
+export function replyTimeShort(hours) {
+  if (hours < 48) return replyTimeText(hours);
+  return copy.REPLY_TIME_WORDS.days.replace("{n}", daysText(hours));
+}
+
+/** "{n} pull requests": the sample a median comes from. */
+export function replySampleText(n) {
+  return copy.REPLY_SAMPLE_TEXT.replace("{n}", groupThousands(n));
+}
+
+/** The first-reply cell: the median (`—` when it is not measured), its sample as the title, and on a fastest-reply
+ *  list (`top`) the sample as a second line too. */
+export function firstReplyHtml(row, top = false) {
+  const measured = typeof row.first_reply_hours === "number";
+  const value = measured ? escapeHtml(replyTimeShort(row.first_reply_hours)) : copy.MISSING_VALUE;
+  if (typeof row.first_reply_n !== "number") return value;
+  const sample = escapeHtml(replySampleText(row.first_reply_n));
+  return `<span title="${sample}">${value}</span>` + (top && measured ? `<span class="reply-sample">${sample}</span>` : "");
+}
+
+/** The no-reply cell: the 14-day no-reply share as a whole percent (project.js `percentWhole`), `—` when it is not
+ *  measured. */
+export function noReplyHtml(row) {
+  return typeof row.no_reply_14d_share === "number" ? escapeHtml(percentWhole(row.no_reply_14d_share)) : copy.MISSING_VALUE;
+}
+
 /**
  * The single source of truth for a row's per-cell HTML, in column order
  * (respecting `showPersonaDelta`). Both `createRowElement` (new nodes) and
@@ -218,7 +260,7 @@ export function groupThousands(n) {
  * two paths cannot render different markup for the same data.
  */
 export function rowCells(row, opts) {
-  const { previousRow = null, showPersonaDelta = false } = opts || {};
+  const { previousRow = null, showPersonaDelta = false, top = false } = opts || {};
   const tied = isTieMate(row, previousRow);
   const tieMark = tied
     ? `<span class="tie-mark" tabindex="0" title="${escapeHtml(copy.tieTooltip(decidingTieLevel(row, previousRow)))}">${copy.TIE_MARK}</span>`
@@ -233,6 +275,8 @@ export function rowCells(row, opts) {
     { key: "porchlamp", html: row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE, numeric: true },
     { key: "coverage", html: renderCoverageBadge(row.coverage) },
     { key: "tier", html: renderTierCell(row.tier, row.tier_ceiling) },
+    { key: "first_reply", html: firstReplyHtml(row, top), numeric: true },
+    { key: "no_reply_14d", html: noReplyHtml(row), numeric: true },
     { key: "quadrant", html: renderQuadrant(row.quadrant) },
     { key: "pillars", html: pillarBarsHtml(row) },
   ];
@@ -378,7 +422,7 @@ export function computeVisibleRange(scrollTop, viewportHeight, totalRows, buffer
 }
 
 /** Estimated card height for the < 768px windowed card list (06 §5). */
-export const CARD_HEIGHT_PX = 168;
+export const CARD_HEIGHT_PX = 192;
 
 // --- The < 768px card list (06 §5). `renderCard`/`renderCardList` are the
 // pure string form (used by tests and any non-windowed caller);
@@ -387,7 +431,7 @@ export const CARD_HEIGHT_PX = 168;
 // table (the keyed-diff path applies at every breakpoint). ---
 
 function cardInnerHtml(row, opts) {
-  const { previousRow = null, showPersonaDelta = false } = opts || {};
+  const { previousRow = null, showPersonaDelta = false, top = false, noReplyLabel = null } = opts || {};
   const tied = isTieMate(row, previousRow);
   const tieMark = tied
     ? `<span class="tie-mark" title="${escapeHtml(copy.tieTooltip(decidingTieLevel(row, previousRow)))}">${copy.TIE_MARK}</span>`
@@ -399,6 +443,9 @@ function cardInnerHtml(row, opts) {
     `</div>` +
     `<div>${repoLinkHtml(row, showPersonaDelta)}<span class="eco-chip">${escapeHtml(copy.ecosystemName(row.ecosystem))}</span></div>` +
     `<div class="cell-numeric">${copy.COLUMN_PORCHLAMP} ${row.porchlamp != null ? row.porchlamp.toFixed(2) : copy.MISSING_VALUE} · ${renderTierCell(row.tier, row.tier_ceiling)}</div>` +
+    `<div class="leaderboard-card-replies">${escapeHtml(copy.COLUMN_FIRST_REPLY)} ` +
+    `<span data-card-field="first_reply">${firstReplyHtml(row, top)}</span> · ` +
+    `${escapeHtml(noReplyLabel || copy.paramName("gr14_ghost_rate"))} <span data-card-field="no_reply_14d">${noReplyHtml(row)}</span></div>` +
     `<div class="leaderboard-card-line-4">${renderQuadrant(row.quadrant)} ${pillarBarsHtml(row)}${showPersonaDelta ? ` ${deltaHtml(row)}` : ""}</div>` +
     `<div>${renderSuspicionIcon(row.suspicion)}</div>`;
   return { html, tied };

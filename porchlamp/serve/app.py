@@ -272,6 +272,10 @@ def _project_leaderboard_row(
         "snapshot_id": record["snapshot_id"],
         "benchmark_version": record["benchmark_version"],
         "raw_hash": record["raw_hash"],
+        "first_reply_hours": record["first_reply_hours"],
+        "first_reply_n": record["first_reply_n"],
+        "no_reply_14d_share": record["no_reply_14d_share"],
+        "no_reply_14d_n": record["no_reply_14d_n"],
         "balanced_rank": balanced_rank,
         "rank_delta": rank_delta,
     }
@@ -667,24 +671,27 @@ def _matrix_point(point: Mapping[str, Any]) -> Optional[MatrixPoint]:
 
 
 _SORT_BASE = ("rank", "porchlamp", "coverage", "tier")
+#: Sorts after the pillars, in the order the export lists them (`sort_keys`, the manifest's `sort_fields`): the
+#: static site's answer to a bad `sort` names the fields in that order, so this one must too.
+_SORT_AFTER_PILLARS = ("first_reply",)
 
 
 def _translate_sort(sort: Optional[str]) -> tuple:
     """Translate sort parameter from API representation to store query format.
     The store's `ALLOWED_SORT_FIELDS` are bare (`rank`/`porchlamp`/`coverage`/
-    `tier`/`<pillar>`); the API additionally accepts `p_<pillar>`
+    `tier`/`<pillar>`/`first_reply`); the API additionally accepts `p_<pillar>`
     (translated to `<pillar>`) and an optional leading `-` for direction.
     Returns `(field, descending)`."""
     if sort is None:
         return None, True
     descending = not sort.startswith("-")
     raw = sort[1:] if sort.startswith("-") else sort
-    if raw in _SORT_BASE:
+    if raw in _SORT_BASE or raw in _SORT_AFTER_PILLARS:
         return raw, descending
     if raw.startswith("p_") and raw[2:] in _PILLARS:
         return raw[2:], descending
     raise ValueError(
-        f"sort must be one of {_SORT_BASE + tuple(f'p_{p}' for p in _PILLARS)} "
+        f"sort must be one of {_SORT_BASE + tuple(f'p_{p}' for p in _PILLARS) + _SORT_AFTER_PILLARS} "
         f"(optionally prefixed with '-'); got {sort!r}"
     )
 

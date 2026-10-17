@@ -37,7 +37,7 @@ import {
 } from "../state.js";
 import * as copy from "../copy.js";
 import { renderShell as leaderboardRenderShell, syncPager, scrollDeltaToReveal, renderMobileSortBar, personaVisibleForState } from "../views/leaderboard.js";
-import { renderShell as notRankedRenderShell } from "../views/notranked.js";
+import { renderShell as notRankedRenderShell, flattenGroups as notRankedFlatten, renderPageRows as notRankedPageRows } from "../views/notranked.js";
 import { renderReport, renderShell as reportRenderShell, shellShape as reportShellShape, axisFor } from "../views/report.js";
 import { fill as fillTemplate } from "../components/fill.js";
 import { centeredScrollLeft, renderNav, navEntryFor, renderFooter, renderHeader, renderAppHeader, headerControlsFor } from "../components/chrome.js";
@@ -200,8 +200,9 @@ test("parseLocation / serializeLocation round-trip (incl. page/page_size), and n
     page: 3, pageSize: 100,
   };
   const address = serializeLocation(s1);
-  assert.equal(address, "/?persona=first_timer&eco=pypi&q=flask&sort=-porchlamp&page=3&page_size=100");
-  const parsed = parseLocation("/", address.slice(1));
+  // the lens and the ecosystem are the list's path (routes.js python-first-timers); the rest its query, in its order
+  assert.equal(address, "/python/first-timers/?sort=-porchlamp&page=3&page_size=100&q=flask");
+  const parsed = parseLocation("/python/first-timers/", address.slice(address.indexOf("?")));
   assert.equal(parsed.tab, "ranked");
   assert.equal(parsed.persona, "first_timer");
   assert.equal(parsed.ecosystem, "pypi");
@@ -1865,6 +1866,23 @@ test("pager: Not ranked puts a pager above and one below the list", () => {
   assert.ok(html.lastIndexOf("data-notranked-pager-next") > html.indexOf("data-notranked-rows"), "the second pager follows the rows");
 });
 
+test("the Not ranked rows and the compare picker print an ecosystem's plain name, never the engine's code", () => {
+  for (const [code, name] of copy.ECOSYSTEMS) {
+    const chip = `<span class="eco-chip">${escapeHtml(name)}</span>`;
+    const row = { owner: "a", name: "b", ecosystem: code, gate_reason: "archived" };
+    const groups = { gated: [row], unrated: [], persona_hidden: [], counts: PAGER_COUNTS, truncated: false };
+    assert.ok(notRankedPageRows(notRankedFlatten(groups), 1, 20).includes(chip), `not ranked: ${code}`);
+    const compare = renderCompareShell({
+      ...defaultState(),
+      tab: "compare",
+      compareRepos: [],
+      compareQuery: "a",
+      compareSearchResults: [{ owner: "a", name: "b", ecosystem: code }],
+    });
+    assert.ok(compare.includes(chip), `compare: ${code}`);
+  }
+});
+
 test("pager: syncPager updates every pager on the page", () => {
   const make = (extra = {}) => ({ textContent: "", disabled: false, value: "20", ...extra });
   const map = {
@@ -2968,6 +2986,16 @@ const EXPECTED_ROUTES = {
   project: ["/projects/{owner}/{name}/", ["persona"]],
   notfound: [null, []],
 };
+//: The lists of the leaderboard at their own addresses (list-views DESIGN, build contract B), in table order.
+const LIST_ECOSYSTEM_SLUGS = ["rust", "python", "javascript", "go", "java", "c-cpp"];
+const EXPECTED_LIST_ROUTES = {
+  rankings: ["/rankings/{page}/", []],
+  ...Object.fromEntries(LIST_ECOSYSTEM_SLUGS.map((slug) => [slug, [`/${slug}/`, ["persona", "sort", "page", "page_size", "q"]]])),
+  ...Object.fromEntries(LIST_ECOSYSTEM_SLUGS.map((slug) => [`${slug}-first-timers`, [`/${slug}/first-timers/`, ["sort", "page", "page_size", "q"]]])),
+  ...Object.fromEntries(["first-timers", "career", "senior-systems", "ai-assisted"].map((slug) => [slug, [`/${slug}/`, ["sort", "page", "page_size", "q"]]])),
+  "fastest-replies": ["/fastest-replies/", []],
+  ...Object.fromEntries(LIST_ECOSYSTEM_SLUGS.map((slug) => [`${slug}-fastest-replies`, [`/${slug}/fastest-replies/`, []]])),
+};
 //: For each query field: the state field it fills, a value that is not the default as it stands in an address,
 //: and that value as state.
 const FIELD_SAMPLES = {
@@ -2980,33 +3008,42 @@ const FIELD_SAMPLES = {
   w: ["weights", "0.3,0.2,0.2,0.2,0.1", { responsiveness: 0.3, criticality: 0.2, governance: 0.2, rigor: 0.2, accessibility: 0.1 }],
   cmp: ["compareRepos", "a/b,c/d", ["a/b", "c/d"]],
 };
-/** An address of the route itself: a project's for the project route, a missing page's for "notfound". */
+/** An address of the route itself: a project's for the project route, a missing page's for "notfound", a page of
+ *  the ranking's third. */
 function addressOf(route) {
   if (route.id === "project") return "/projects/acme/widget/";
   if (route.id === "notfound") return "/no/such/page/";
-  return route.path;
+  return route.path.replace("{page}", "3");
 }
 
 test("routes: the table holds every view at its address, with the query fields it keeps", () => {
-  assert.deepEqual(Object.fromEntries(ROUTES.map((route) => [route.id, [route.path, [...route.query]]])), EXPECTED_ROUTES);
-  assert.deepEqual(ROUTES.filter((route) => route.shell).map((route) => route.id), ["ranked", "notranked", "matrix", "compare", "configure", "methodology", "report"]);
+  const views = ROUTES.filter((route) => !route.view);
+  assert.deepEqual(Object.fromEntries(views.map((route) => [route.id, [route.path, [...route.query]]])), EXPECTED_ROUTES);
+  assert.deepEqual(views.filter((route) => route.shell).map((route) => route.id), ["ranked", "notranked", "matrix", "compare", "configure", "methodology", "report"]);
+  const lists = ROUTES.filter((route) => route.view);
+  assert.deepEqual(Object.fromEntries(lists.map((route) => [route.id, [route.path, [...route.query]]])), EXPECTED_LIST_ROUTES);
+  assert.ok(lists.every((route) => route.view === "ranked" && route.shell), "each list is the ranked view, drawn in place");
 });
 
 test("routes: every route round-trips through parseLocation and serializeLocation", () => {
+  // On an ecosystem's list the first-timer lens is a path of its own (/rust/first-timers/): its sample is another lens.
+  const sample = (route, key) => (route.view && key === "persona" ? ["persona", "career_capital", "career_capital"] : FIELD_SAMPLES[key]);
+  // At `/` a lens or an ecosystem is a list's own path (the list-routes tests): the root round-trips the rest.
+  const keysOf = (route) => (route.id === "ranked" ? route.query.filter((key) => key !== "persona" && key !== "eco") : route.query);
   for (const route of ROUTES) {
-    const qs = new URLSearchParams(route.query.map((key) => [key, FIELD_SAMPLES[key][1]]));
-    const search = route.query.length ? `?${qs}` : "";
+    const qs = new URLSearchParams(keysOf(route).map((key) => [key, sample(route, key)[1]]));
+    const search = keysOf(route).length ? `?${qs}` : "";
     const parsed = parseLocation(addressOf(route), search);
-    assert.equal(parsed.tab, route.id === "project" ? "ranked" : route.id, route.id);
+    assert.equal(parsed.tab, route.id === "project" ? "ranked" : route.view || route.id, route.id);
     if (route.id === "project") assert.equal(parsed.repo, "acme/widget");
     if (route.id === "notfound") assert.equal(parsed.missingPath, "/no/such/page/");
-    for (const key of route.query) assert.deepEqual(parsed[FIELD_SAMPLES[key][0]], FIELD_SAMPLES[key][2], `${route.id} reads ${key}`);
+    for (const key of keysOf(route)) assert.deepEqual(parsed[sample(route, key)[0]], sample(route, key)[2], `${route.id} reads ${key}`);
 
     const address = serializeLocation({ ...defaultState(), ...parsed });
     const back = new URL(address, SITE_BASE);
     assert.equal(back.pathname, addressOf(route), `${route.id} writes its own path`);
-    assert.deepEqual([...back.searchParams.keys()], route.query, `${route.id} writes exactly its fields, in order`);
-    for (const key of route.query) assert.equal(back.searchParams.get(key), FIELD_SAMPLES[key][1], `${route.id} writes ${key}`);
+    assert.deepEqual([...back.searchParams.keys()], keysOf(route), `${route.id} writes exactly its fields, in order`);
+    for (const key of keysOf(route)) assert.equal(back.searchParams.get(key), sample(route, key)[1], `${route.id} writes ${key}`);
     assert.equal(serializeLocation({ ...defaultState(), ...parseLocation(back.pathname, back.search) }), address, `${route.id} is stable`);
   }
 });
@@ -3014,7 +3051,7 @@ test("routes: every route round-trips through parseLocation and serializeLocatio
 test("routes: a query field the view does not read is neither read from its address nor written to it", () => {
   const every = Object.keys(FIELD_SAMPLES);
   const full = Object.fromEntries(every.map((key) => [FIELD_SAMPLES[key][0], FIELD_SAMPLES[key][2]]));
-  for (const route of ROUTES.filter((r) => r.id !== "notfound")) {
+  for (const route of ROUTES.filter((r) => r.id !== "notfound" && !r.view)) {
     const foreign = every.filter((key) => !route.query.includes(key));
     const parsed = parseLocation(addressOf(route), `?${new URLSearchParams(foreign.map((key) => [key, FIELD_SAMPLES[key][1]]))}`);
     for (const key of foreign) assert.equal(parsed[FIELD_SAMPLES[key][0]], undefined, `${route.id} ignores ${key}`);
@@ -3025,7 +3062,7 @@ test("routes: a query field the view does not read is neither read from its addr
 });
 
 test("routes: an address no route claims, or a project part that is not a GitHub name, is the not-found view", () => {
-  for (const path of ["/projects/acme/", "/projects/acme/widget/extra/", "/projects/%2e%2e/widget/", "/projects/a%2Fb/c/", "/PROJECTS/acme/widget/", "/rust/", "/nope"]) {
+  for (const path of ["/projects/acme/", "/projects/acme/widget/extra/", "/projects/%2e%2e/widget/", "/projects/a%2Fb/c/", "/PROJECTS/acme/widget/", "/rankings/0/", "/rankings/03/", "/rankings/x/", "/rust/nope/", "/nope"]) {
     assert.equal(matchRoute(path).route.id, "notfound", path);
   }
   assert.equal(matchRoute("/matrix").route.id, "matrix", "the closing slash is optional, as a static host's redirect makes it");
@@ -3078,9 +3115,9 @@ test("routes: every old link lands on its view's address, keeping every other fi
   }
   const panel = redirectTarget("/", "?repo=WordPress%2FGutenberg");
   assert.equal(panel.repo, "WordPress/Gutenberg", "the panel keeps the project as the link spelled it");
-  // A view's own address, the leaderboard's filters and its search stay where they are (?q= is the site's
-  // search address; ?eco= and ?persona= move with the ecosystem and lens pages, a later step).
-  for (const stays of ["/", "/?q=flask", "/?persona=first_timer&eco=pypi", "/matrix/?eco=npm", "/projects/acme/widget/", "/no/such/page/"]) {
+  // A view's own address, and a search, stay where they are (?q= is the site's search address; ?eco= and ?persona=
+  // alone load their list's path: "routes: an old form of a list's address loads its path").
+  for (const stays of ["/", "/?q=flask", "/?q=flask&sort=-porchlamp&page=2", "/matrix/?eco=npm", "/projects/acme/widget/", "/no/such/page/"]) {
     const url = new URL(stays, SITE_BASE);
     assert.equal(redirectTarget(url.pathname, url.search, url.hash), null, stays);
   }
@@ -3097,8 +3134,8 @@ test("routes: every primary nav link is a view's address, opened in place, with 
       const href = rawHref.replace(/&amp;/g, "&");
       const { route } = matchRoute(new URL(href, SITE_BASE).pathname);
       assert.ok(route.shell, `${tab}: ${href} is the address of a view the app draws`);
-      assert.equal(linkTab, route.id, `${tab}: ${href} opens its own view in place`);
-      assert.equal(href, hrefFor(state, route.id), `${tab}: ${href} is where a click goes from here`);
+      assert.equal(linkTab, route.view || route.id, `${tab}: ${href} opens its own view in place`);
+      assert.equal(href, hrefFor(state, route.view || route.id), `${tab}: ${href} is where a click goes from here`);
     }
     assert.equal(links[5][1], "/black-holes/", `${tab}: the report is the last entry`);
     const current = links.filter((link) => link[4]).map((link) => link[3]);
@@ -3110,9 +3147,9 @@ test("routes: every primary nav link is a view's address, opened in place, with 
     "the report's page marks it, on a page drawn without the reader's state too"
   );
   // The Leaderboard's Ranked and Not ranked links are addresses too, carrying the reader's lens and filters.
-  const lb = leaderboardRenderShell({ ...defaultState(), persona: "first_timer", ecosystem: "npm", leaderboardLoading: true });
-  assert.ok(lb.includes('<a class="tab" href="/?persona=first_timer&amp;eco=npm" data-route-tab="ranked" aria-current="page">'), lb);
-  assert.ok(lb.includes('<a class="tab" href="/not-ranked/?persona=first_timer&amp;eco=npm" data-route-tab="notranked">'), lb);
+  const lb = leaderboardRenderShell({ ...defaultState(), persona: "career_capital", ecosystem: "npm", leaderboardLoading: true });
+  assert.ok(lb.includes('<a class="tab" href="/javascript/?persona=career_capital&amp;page_size=20" data-route-tab="ranked" aria-current="page">'), lb);
+  assert.ok(lb.includes('<a class="tab" href="/not-ranked/?persona=career_capital&amp;eco=npm" data-route-tab="notranked">'), lb);
   assert.ok(!/role="tab"|aria-selected/.test(lb), "no tab roles left on links");
 });
 
@@ -3146,7 +3183,8 @@ test("routes: a view's link brings that view back with its own page and sort", (
 
 test("routes: every route sets its own document title, and the pages the export serves carry the same", () => {
   const titles = new Map();
-  for (const route of ROUTES) {
+  const VIEW_ROUTES = ROUTES.filter((route) => !route.view);
+  for (const route of VIEW_ROUTES) {
     const state = route.id === "project"
       ? { ...defaultState(), repo: "acme/widget" }
       : { ...defaultState(), tab: route.id, missingPath: route.id === "notfound" ? "/x/" : null };
@@ -3155,7 +3193,7 @@ test("routes: every route sets its own document title, and the pages the export 
     assert.equal(title, routeTitle(route.id, { owner: "acme", name: "widget" }), route.id);
     titles.set(route.id, title);
   }
-  assert.equal(new Set(titles.values()).size, ROUTES.length, "no two views share a title");
+  assert.equal(new Set(titles.values()).size, VIEW_ROUTES.length, "no two views share a title");
   const loaded = { ...defaultState(), repo: "acme/widget", repoDetailByKey: { "acme/widget": { owner: "Acme", name: "Widget" } } };
   assert.equal(titleForState(loaded), routeTitle("project", { owner: "Acme", name: "Widget" }), "the record's spelling once it has loaded");
   const report = { ...defaultState(), tab: "report", report: { title: "Open-source black holes (October 2026) | Porchlamp" } };
@@ -4185,13 +4223,18 @@ test("home: the browse block links the six ecosystem pages and the four lens pag
   assert.deepEqual(links, [
     ["/rust/", "Rust"], ["/python/", "Python"], ["/javascript/", "JavaScript"], ["/go/", "Go"], ["/java/", "Java"], ["/c-cpp/", "C and C++"],
     ["/first-timers/", "First-timer"], ["/career/", "Career capital"], ["/senior-systems/", "Senior systems"], ["/ai-assisted/", "AI-assisted"],
+    ["/rust/first-timers/", "Rust"], ["/python/first-timers/", "Python"], ["/javascript/first-timers/", "JavaScript"], ["/go/first-timers/", "Go"],
+    ["/java/first-timers/", "Java"], ["/c-cpp/first-timers/", "C and C++"],
+    ["/fastest-replies/", "All projects"], ["/rust/fastest-replies/", "Rust"], ["/python/fastest-replies/", "Python"],
+    ["/javascript/fastest-replies/", "JavaScript"], ["/go/fastest-replies/", "Go"], ["/java/fastest-replies/", "Java"], ["/c-cpp/fastest-replies/", "C and C++"],
   ]);
   assert.ok(html.includes(`<span>${copy.HOME_BROWSE_ECOSYSTEMS_LABEL}</span>`) && copy.HOME_BROWSE_ECOSYSTEMS_LABEL === "Browse by ecosystem:");
   assert.ok(html.includes(`<span>${copy.HOME_BROWSE_LENSES_LABEL}</span>`) && copy.HOME_BROWSE_LENSES_LABEL === "Browse by contributor lens:");
   assert.ok(html.indexOf(copy.HOME_BROWSE_ECOSYSTEMS_LABEL) < html.indexOf("/rust/") && html.indexOf("/c-cpp/") < html.indexOf(copy.HOME_BROWSE_LENSES_LABEL));
   const shell = renderShell(homeState({ leaderboardLoading: false }));
   assert.ok(shell.indexOf("data-findings-line") < shell.indexOf("data-home-browse") && shell.indexOf("data-home-browse") < shell.indexOf('class="tabs"'), "right after the findings line");
-  assert.equal(renderPrerenderedBoard(homeState()).split(html).length - 1, 1, "and on the prerendered page");
+  const onHome = renderBrowseLinks(HOME_COUNTS.rated);
+  assert.equal(renderPrerenderedBoard(homeState()).split(onHome).length - 1, 1, "and on the prerendered page, with the ranking's pages");
   assert.ok(html.includes('>Java</a> · <a href="/c-cpp/"') && html.includes('>Career capital</a> · <a href="/senior-systems/"'),
     "a middle dot between two names, so a name of several words reads as one");
 });
@@ -4227,4 +4270,417 @@ test("home: under the board's class the stylesheet shows the table from 768px an
   );
   const outside = compact.replace(/@media \([^)]*\) \{ (?:[^{}]*\{[^{}]*\} ?)+\}/g, "");
   assert.ok(!outside.includes("prerendered-board"), "no rule of the board's class applies at every width");
+});
+
+// ------------------------------------------------ the lists at their own addresses (list-views build contract B-D)
+import { routeForFields, routeForState, listSpan } from "../state.js";
+import { routesOfView } from "../routes.js";
+import {
+  listRows,
+  listHead,
+  listRowOpts,
+  renderListHead,
+  descriptionForState as listDescription,
+  replyMinN,
+  lensWeightsText,
+} from "../views/leaderboard.js";
+import { replyTimeShort, firstReplyHtml, noReplyHtml, noReplyColumnLabel } from "../components/table.js";
+import { stateForAddress, chromeFor } from "../../prerender.mjs";
+import { pageDescription } from "../views/leaderboard.js";
+
+/** The state a list's address names, from the defaults (as app.js and the prerender start). */
+const atAddress = (address, extra = {}) => ({ ...stateForAddress(address), ...extra });
+
+//: Every list of the leaderboard at its own address, and the state each one is (list-views build contract B).
+const LIST_ADDRESSES = [
+  ["/rankings/3/", { persona: "balanced", ecosystem: "", query: "", sort: "rank", page: 3, pageSize: 100 }],
+  ["/rust/", { ecosystem: "crates", pageSize: 50 }],
+  ["/python/", { ecosystem: "pypi", pageSize: 50 }],
+  ["/javascript/", { ecosystem: "npm", pageSize: 50 }],
+  ["/go/", { ecosystem: "go", pageSize: 50 }],
+  ["/java/", { ecosystem: "maven", pageSize: 50 }],
+  ["/c-cpp/", { ecosystem: "systems", pageSize: 50 }],
+  ["/rust/first-timers/", { ecosystem: "crates", persona: "first_timer", pageSize: 50 }],
+  ["/c-cpp/first-timers/", { ecosystem: "systems", persona: "first_timer", pageSize: 50 }],
+  ["/first-timers/", { persona: "first_timer", pageSize: 50 }],
+  ["/career/", { persona: "career_capital", pageSize: 50 }],
+  ["/senior-systems/", { persona: "senior_systems", pageSize: 50 }],
+  ["/ai-assisted/", { persona: "ai_assisted", pageSize: 50 }],
+  ["/fastest-replies/", { sort: "first_reply", persona: "balanced", ecosystem: "", pageSize: 50 }],
+  ["/go/fastest-replies/", { sort: "first_reply", persona: "balanced", ecosystem: "go", pageSize: 50 }],
+];
+
+test("lists: each list's address parses into its state, and that state writes the address back, at every one of them", () => {
+  for (const [address, fields] of LIST_ADDRESSES) {
+    const parsed = parseLocation(address, "");
+    assert.equal(parsed.tab, "ranked", address);
+    for (const [key, value] of Object.entries(fields)) assert.equal(parsed[key], value, `${address}: ${key}`);
+    assert.equal(serializeLocation({ ...defaultState(), ...parsed }), address, `${address} round-trips`);
+  }
+  // every route of the table, at every instance the export writes (each page of the ranking is its own)
+  for (const route of routesOfView("ranked").filter((r) => r.view)) {
+    for (const page of route.path.includes("{page}") ? [1, 2, 45] : [1]) {
+      const address = routePath(route.id, { page });
+      assert.equal(serializeLocation({ ...defaultState(), ...parseLocation(address, "") }), address, address);
+      assert.equal(matchRoute(address).route, route, address);
+    }
+  }
+  // the fields a list's query keeps are written off the list's own defaults, in its order
+  assert.equal(serializeLocation(atAddress("/rust/", { page: 2, sort: "-porchlamp" })), "/rust/?sort=-porchlamp&page=2");
+  assert.equal(serializeLocation(atAddress("/rust/", { pageSize: 20 })), "/rust/?page_size=20", "20 is off the list's default of 50");
+  assert.equal(serializeLocation(atAddress("/rust/", { persona: "career_capital" })), "/rust/?persona=career_capital");
+  assert.deepEqual(parseLocation("/rust/", "?eco=pypi&page_size=100"), { tab: "ranked", ecosystem: "crates", pageSize: 100 }, "the path's ecosystem, not the query's");
+  assert.deepEqual(parseLocation("/rankings/7/", "?page=2&page_size=20&q=x"), { tab: "ranked", persona: "balanced", ecosystem: "", query: "", sort: "rank", pageSize: 100, page: 7 }, "a page of the ranking reads no query");
+});
+
+test("lists: the most fixed fields win, an ecosystem's path beats a lens's, and a field no path holds falls back to /", () => {
+  const at = (fields) => serializeLocation({ ...defaultState(), ...fields });
+  // most fixed fields: the ecosystem and the lens together are the ecosystem's first-timer list, not the ecosystem's
+  assert.equal(at({ ecosystem: "crates", persona: "first_timer", pageSize: 50 }), "/rust/first-timers/");
+  assert.equal(at({ sort: "first_reply", ecosystem: "go", pageSize: 50 }), "/go/fastest-replies/", "three fixed beat the ecosystem's one");
+  assert.equal(at({ page: 3, pageSize: 100 }), "/rankings/3/", "five fixed beat the root");
+  // an ecosystem with another lens goes to the ecosystem's path, the lens in its query (the lens's path cannot hold it)
+  assert.equal(at({ ecosystem: "crates", persona: "career_capital", pageSize: 50 }), "/rust/?persona=career_capital");
+  // a tie in fixed fields goes to the first in table order (an ecosystem's routes come before a lens's)
+  const tie = [
+    { id: "home", path: "/", query: ["persona", "eco", "q", "sort", "page", "page_size"] },
+    { id: "eco", view: "home", path: "/e/", query: ["persona"], fixed: { eco: "crates" } },
+    { id: "lens", view: "home", path: "/l/", query: ["eco"], fixed: { persona: "first_timer" } },
+  ];
+  assert.equal(routeForFields("home", { eco: "crates", persona: "first_timer" }, tie).id, "eco");
+  assert.equal(routeForFields("home", { eco: "crates", persona: "first_timer" }, [tie[0], tie[2], tie[1]]).id, "lens", "table order decides");
+  // a field off the route's default that the route's query does not hold: the root
+  assert.equal(at({ sort: "first_reply", pageSize: 50, page: 2 }), "/?sort=first_reply&page=2&page_size=50", "a fastest list has no page 2");
+  assert.equal(at({ page: 3, pageSize: 100, query: "flask" }), "/?q=flask&page=3&page_size=100", "a search is no page of the ranking");
+  assert.equal(at({ persona: "first_timer", query: "flask", ecosystem: "" , pageSize: 20 }), "/first-timers/?page_size=20&q=flask");
+  assert.equal(at({ page: 3 }), "/?page=3", "page 3 of 20 rows is not a page of the ranking");
+  assert.equal(at({}), "/");
+  assert.equal(routeForState({ ...defaultState(), tab: "matrix", ecosystem: "crates" }).id, "matrix", "another view keeps its one route");
+});
+
+test("lists: an old form of a list's address loads its path, keeping the other fields and the fragment", () => {
+  const go = (address) => {
+    const url = new URL(address, SITE_BASE);
+    return redirectTarget(url.pathname, url.search, url.hash);
+  };
+  assert.deepEqual(go("/?eco=crates"), { href: "/rust/", load: true });
+  assert.deepEqual(go("/?persona=first_timer&eco=go"), { href: "/go/first-timers/", load: true });
+  assert.deepEqual(go("/?page=3&page_size=100"), { href: "/rankings/3/", load: true });
+  assert.deepEqual(go("/rust/?persona=first_timer"), { href: "/rust/first-timers/", load: true });
+  assert.deepEqual(go("/?eco=crates&sort=-porchlamp&page=2#rows"), { href: "/rust/?sort=-porchlamp&page=2#rows", load: true }, "the other fields and the fragment");
+  assert.deepEqual(go("/?eco=crates&page_size=20"), { href: "/rust/?page_size=20", load: true }, "a page size the old address named is kept");
+  assert.deepEqual(go("/?persona=career_capital"), { href: "/career/", load: true });
+  assert.deepEqual(go("/index.html?eco=npm"), { href: "/javascript/", load: true });
+  for (const stays of ["/rust/", "/rust/?page=2", "/rust/?eco=pypi", "/rankings/3/", "/rankings/3/?page=9", "/go/fastest-replies/", "/?page=3", "/?eco=crates&tab=matrix"]) {
+    const target = go(stays);
+    if (stays.includes("tab=")) assert.equal(target.href, "/matrix/?eco=crates", stays);
+    else assert.equal(target, null, stays);
+  }
+  assert.deepEqual(go("/?tab=ranked&eco=crates"), { href: "/rust/", load: true }, "an old ?tab= link to a list lands on its path");
+  const panel = go("/?eco=crates&repo=a/b");
+  assert.equal(panel.under, "/rust/", "a panel opened over a list keeps the list's path under it");
+});
+
+//: Rows for the lists: the synthetic rows, with the reply fields the API rows carry (list-views build contract A).
+const LIST_ROWS = synthesizeRows(50).map((row, i) => ({
+  ...row,
+  first_reply_hours: i < 30 ? 0.5 + i : null,
+  first_reply_n: i < 30 ? 10 + i : 4,
+  no_reply_14d_share: i % 7 === 0 ? null : (i % 10) / 10,
+  no_reply_14d_n: 12,
+}));
+const listBoard = (rows, extra = {}) => ({ rows, total: 474, counts: HOME_COUNTS, page: 1, page_size: 50, persona: "balanced", ...extra });
+
+test("lists: a fastest list stops before the first row without a median from at least min_n pull requests", () => {
+  assert.equal(replyMinN(METHODOLOGY_DOC), 10, "the methodology's min_n for ttfhr_hours");
+  const row = (name, hours, n) => ({ ...LIST_ROWS[0], name, first_reply_hours: hours, first_reply_n: n });
+  const at = (rows, methodology = METHODOLOGY_DOC) =>
+    listRows(atAddress("/fastest-replies/", { leaderboard: listBoard(rows), methodology })).map((r) => r.name);
+  assert.deepEqual(at([row("a", 1, 10), row("b", 2, 10), row("c", 3, 9), row("d", 4, 50)]), ["a", "b"], "n = 10 is listed, n = 9 is not, nor any after it");
+  assert.deepEqual(at([row("a", 1, 12), row("b", null, 40), row("c", 3, 40)]), ["a"], "a null median ends the list");
+  assert.deepEqual(at([row("a", 1, 12), row("b", 2, null)]), ["a"], "a median without its sample is not listed");
+  assert.deepEqual(at([row("a", 1, 3), row("b", null, 3)], null), ["a"], "without the methodology only the null median cuts");
+  const rust = listRows(atAddress("/rust/fastest-replies/", { leaderboard: listBoard(LIST_ROWS), methodology: METHODOLOGY_DOC }));
+  assert.equal(rust.length, 30, "the synthetic page: 30 measured medians, then nulls");
+  assert.equal(listRows(atAddress("/rust/", { leaderboard: listBoard(LIST_ROWS), methodology: METHODOLOGY_DOC })).length, 50, "any other list shows its whole page");
+});
+
+test("lists: the reply cells print the median in hours under 48 and in days above, its sample, and the whole percent", () => {
+  assert.equal(replyTimeShort(3.85), "3.9 hours", "half up from the printed decimal");
+  assert.equal(replyTimeShort(47.9), "47.9 hours");
+  assert.equal(replyTimeShort(1), "1 hour");
+  assert.equal(replyTimeShort(148.3), "6.2 days");
+  assert.equal(replyTimeShort(48), "2 days", "a whole day count has no .0");
+  assert.equal(replyTimeShort(0.04), "under 0.1 hours");
+  assert.equal(firstReplyHtml({ first_reply_hours: 148.3, first_reply_n: 1234 }), '<span title="1,234 pull requests">6.2 days</span>');
+  assert.equal(
+    firstReplyHtml({ first_reply_hours: 3.85, first_reply_n: 12 }, true),
+    '<span title="12 pull requests">3.9 hours</span><span class="reply-sample">12 pull requests</span>',
+    "a fastest list prints the sample as a second line"
+  );
+  assert.equal(firstReplyHtml({ first_reply_hours: null, first_reply_n: 4 }, true), '<span title="4 pull requests">—</span>', "not measured: a dash, its sample only in the title");
+  assert.equal(firstReplyHtml({ first_reply_hours: null, first_reply_n: null }), "—");
+  assert.equal(noReplyHtml({ no_reply_14d_share: 0.345 }), "35%");
+  assert.equal(noReplyHtml({ no_reply_14d_share: 0 }), "0%");
+  assert.equal(noReplyHtml({ no_reply_14d_share: null }), "—");
+  const { cells } = rowCells({ ...LIST_ROWS[2], first_reply_hours: 148.3, first_reply_n: 20, no_reply_14d_share: 0.5 }, {});
+  const keys = cells.map((c) => c.key);
+  assert.deepEqual(keys.slice(keys.indexOf("tier"), keys.indexOf("tier") + 3), ["tier", "first_reply", "no_reply_14d"], "after Tier");
+  assert.equal(cells.find((c) => c.key === "no_reply_14d").html, "50%");
+  const header = renderColumnHeader("rank", false, { noReply: noReplyColumnLabel(REPORT_EXAMPLE) });
+  assert.ok(header.includes('<th data-col="first_reply">First reply (median)</th><th data-col="no_reply_14d">No reply in 14 days</th>'), header);
+  assert.equal(noReplyColumnLabel(null), copy.paramName("gr14_ghost_rate"), "without a report, the parameter's name");
+  assert.ok(renderColumnHeader("rank", false).includes(`<th data-col="no_reply_14d">${escapeHtml(copy.paramName("gr14_ghost_rate"))}</th>`));
+  const card = renderCard({ ...LIST_ROWS[2], first_reply_hours: 148.3, first_reply_n: 20, no_reply_14d_share: 0.5 }, { noReplyLabel: "No reply in 14 days" });
+  assert.ok(card.includes('First reply (median) <span data-card-field="first_reply"><span title="20 pull requests">6.2 days</span></span> · No reply in 14 days <span data-card-field="no_reply_14d">50%</span>'), card);
+});
+
+test("lists: each page of the ranking links all its sibling pages, the current one marked, and the home links them all", () => {
+  const state = atAddress("/rankings/2/", { leaderboard: listBoard(LIST_ROWS, { total: 4402, page: 2, page_size: 100 }), report: REPORT_EXAMPLE });
+  const shell = renderShell(state, DESKTOP);
+  const lines = shell.match(/<div class="list-pages" data-list-pages="true">.*?<\/div>/g) || [];
+  assert.equal(lines.length, 2, "above and below the rows");
+  assert.ok(shell.indexOf(lines[0]) < shell.indexOf("<table") && shell.lastIndexOf(lines[1]) > shell.indexOf("</table>"));
+  const links = [...lines[0].matchAll(/<a href="([^"]+)" class="onboarding-link"( aria-current="page")?>(\d+)<\/a>/g)];
+  assert.equal(links.length, 45, "4,402 projects at 100 a page");
+  links.forEach(([, href, current, label], i) => {
+    assert.equal(href, `/rankings/${i + 1}/`);
+    assert.equal(label, String(i + 1));
+    assert.equal(Boolean(current), i === 1, `page ${i + 1} marked only when it is the page shown`);
+  });
+  assert.ok(lines[0].startsWith('<div class="list-pages" data-list-pages="true"><span>The whole ranking, 100 projects a page:</span> '));
+  assert.ok(!shell.includes('class="pager'), "no buttons pager: the links are the pager");
+  // the home's line, from the balanced ranking's size
+  const home = renderBrowseLinks(4402);
+  const homeLinks = [...home.matchAll(/<a href="\/rankings\/(\d+)\/" class="onboarding-link">(\d+)<\/a>/g)].map((m) => Number(m[1]));
+  assert.deepEqual(homeLinks, Array.from({ length: 45 }, (_, i) => i + 1));
+  assert.ok(home.includes('<div data-ranking-pages="true"><span>The whole ranking, 100 projects a page:</span> <a href="/rankings/1/"'));
+  assert.ok(!home.includes("aria-current"), "the home marks no page");
+  assert.ok(!renderBrowseLinks(null).includes("/rankings/"), "no line before the size is known");
+  assert.ok(renderShell(homeState(), DESKTOP).includes(renderBrowseLinks(HOME_COUNTS.rated)), "the home draws it from the snapshot's rated count");
+  assert.ok(!shell.includes("data-home-browse"), "a list's page has no home browse block");
+});
+
+/** The visible text of markup (tags dropped, entities read). */
+const listTextOf = (html) => decodeAttr(html.replace(/<[^>]+>/g, ""));
+const listHooksOf = (html) => Object.fromEntries([...html.matchAll(/<span data-v="([^"]+)">([^<]*)<\/span>/g)].map((m) => [m[1], decodeAttr(m[2])]));
+
+test("lists: each list's heading and intro, with every number a hook, and its description the intro's first sentence", () => {
+  const data = { report: REPORT_EXAMPLE, methodology: METHODOLOGY_DOC };
+  const cases = [
+    ["/rankings/2/", { total: 4402, page: 2, page_size: 100 },
+      "The Porchlamp ranking, projects 101 to 200",
+      "Open-source projects ranked 101 to 200 of 4,402 by what happens to a stranger's pull request, each with its median first reply.",
+      { "list.first": "101", "list.last": "200", "list.total": "4,402" }, null],
+    ["/rust/", { total: 474 },
+      "Rust projects that answer outside pull requests",
+      "Porchlamp ranks 474 Rust projects by what happens to a stranger's pull request. Among the 488 judged Rust projects, 16.6% left most outside pull requests unanswered for 14 days, against 19.9% across all six ecosystems.",
+      { "list.total": "474", "list.judged": "488", "list.eco_share": "16.6", "list.deadline_days": "14", "list.share": "19.9", "list.ecosystems_word": "six" }, null],
+    ["/first-timers/", { total: 1234 },
+      "Open-source projects for first-time contributors",
+      "This view ranks 1,234 projects for first-time contributors. It weighs responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%.",
+      { "list.total": "1,234", "list.weights": "responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%" }, null],
+    ["/go/first-timers/", { total: 300 },
+      "Go projects for first-time contributors",
+      "This view ranks 300 Go projects for first-time contributors. It weighs responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%.",
+      { "list.total": "300", "list.weights": "responsiveness 35%, accessibility 30%, governance 15%, criticality 10% and rigor 10%" }, null],
+    ["/fastest-replies/", { total: 4402 },
+      "Fastest first reply to pull requests",
+      "30 projects, ordered by the median time to a first human reply to outside pull requests, fastest first. A median is listed only when it comes from 10 or more pull requests; the sample is shown.",
+      { "list.total": "30", "list.min_n": "10" },
+      ["This is one measure, not the Porchlamp score, which weighs 18 parameters across five pillars.", { "list.parameters": "18", "list.pillars": "five" }]],
+    ["/java/fastest-replies/", { total: 222 },
+      "Fastest first reply to pull requests: Java projects",
+      "30 Java projects, ordered by the median time to a first human reply to outside pull requests, fastest first. A median is listed only when it comes from 10 or more pull requests; the sample is shown.",
+      { "list.total": "30", "list.min_n": "10" },
+      ["This is one measure, not the Porchlamp score, which weighs 18 parameters across five pillars.", { "list.parameters": "18", "list.pillars": "five" }]],
+  ];
+  for (const [address, board, heading, intro, hooks, caveat] of cases) {
+    const state = atAddress(address, { leaderboard: listBoard(LIST_ROWS, board), ...data });
+    const html = renderListHead(state);
+    const h1 = html.match(/<h1 id="leaderboard-heading" class="view-heading">(.*?)<\/h1>/);
+    assert.ok(h1, `${address}: a visible h1`);
+    assert.equal(listTextOf(h1[1]), heading, address);
+    const p = html.match(/<p class="list-intro" data-list-intro="true">(.*?)<\/p>/);
+    assert.equal(listTextOf(p[1]), intro, address);
+    assert.deepEqual(listHooksOf(p[1]), hooks, `${address}: every number in the intro is a hook`);
+    assert.doesNotMatch(listTextOf(p[1]), /\{/, `${address}: no slot left`);
+    assert.doesNotMatch(listTextOf(p[1].replace(/<span data-v="[^"]+">[^<]*<\/span>/g, "")), /\d/, `${address}: no number outside a hook`);
+    const firstSentence = listHead(state).sentences[0].text;
+    assert.equal(listDescription(state), firstSentence, address);
+    assert.ok(intro.startsWith(firstSentence), `${address}: the description is the intro's first sentence, verbatim`);
+    const c = html.match(/<p class="list-caveat" data-list-caveat="true">(.*?)<\/p>/);
+    if (caveat) {
+      assert.equal(listTextOf(c[1]), caveat[0], address);
+      assert.deepEqual(listHooksOf(c[1]), caveat[1], address);
+    } else assert.equal(c, null, `${address}: no caveat`);
+    assert.equal(titleForState(state), `${address.startsWith("/rankings/") ? "Open-source projects ranked 101 to 200 of 4,402" : heading} | Porchlamp`, `${address}: the title`);
+    assert.ok(titleForState(state).length <= 70, `${address}: the title fits 70 characters`);
+    assert.ok(listDescription(state).length <= 155, `${address}: the description fits 155 characters`);
+  }
+  // an ecosystem's list links its two other lists by their headings
+  const rust = renderListHead(atAddress("/rust/", { leaderboard: listBoard(LIST_ROWS), ...data }));
+  assert.ok(rust.includes('<p class="list-sublinks" data-list-sublinks="true"><a href="/rust/first-timers/" class="onboarding-link">Rust projects for first-time contributors</a> · <a href="/rust/fastest-replies/" class="onboarding-link">Fastest first reply to pull requests: Rust projects</a></p>'), rust);
+  // without the report or the methodology, the sentences that need them are left out; under a search, the counts
+  const bare = atAddress("/rust/", { leaderboard: listBoard(LIST_ROWS) });
+  assert.equal(listHead(bare).sentences.map((s) => s.text).join(" "), "Porchlamp ranks 474 Rust projects by what happens to a stranger's pull request.");
+  assert.deepEqual(listHead(atAddress("/career/", { leaderboard: listBoard(LIST_ROWS) })).sentences.length, 1, "no weights without the methodology");
+  assert.equal(listHead(atAddress("/fastest-replies/", { leaderboard: listBoard(LIST_ROWS) })).caveat, null);
+  assert.deepEqual(listHead(atAddress("/rust/", { query: "serde", leaderboard: listBoard(LIST_ROWS), ...data })).sentences, [], "a search keeps the heading and drops the counts");
+  assert.equal(listHead(atAddress("/", { leaderboard: HOME_LEADERBOARD })), null, "the home has no list head");
+  assert.equal(lensWeightsText(METHODOLOGY_DOC, "senior_systems"), "criticality 35%, governance 25%, rigor 20%, responsiveness 15% and accessibility 5%");
+  assert.deepEqual(listSpan(atAddress("/rankings/45/", { leaderboard: listBoard([], { total: 4402 }) })), { first: 4401, last: 4402, total: 4402 }, "the last page stops at the total");
+});
+
+//: Every copy.js string the lists added (list-views build contract C: "No digit in any new copy.js string").
+const LIST_COPY = [
+  "HOME_BROWSE_RANKING_LABEL", "HOME_BROWSE_FIRST_TIMERS_LABEL", "HOME_BROWSE_FASTEST_LABEL", "HOME_BROWSE_FASTEST_ALL",
+  "LIST_RANKINGS_HEADING", "LIST_INTRO_RANKINGS", "LIST_INTRO_ECOSYSTEM", "LIST_INTRO_ECOSYSTEM_REPORT", "LIST_INTRO_LENS",
+  "LIST_INTRO_ECOSYSTEM_LENS", "LIST_INTRO_WEIGHS", "LIST_WEIGHT_ITEM", "LIST_AND", "LIST_INTRO_FASTEST",
+  "LIST_INTRO_FASTEST_ECOSYSTEM", "LIST_INTRO_FASTEST_SAMPLE", "LIST_CAVEAT_FASTEST", "COLUMN_FIRST_REPLY", "COLUMN_NO_REPLY",
+  "REPLY_SAMPLE_TEXT", "LENS_PHRASES", "NUMBER_WORDS",
+];
+
+/** The strings of a copy.js value (a string, a list or a map of strings) that hold a digit. */
+function stringsWithDigits(value) {
+  const strings = typeof value === "string" ? [value] : Object.values(value);
+  return strings.filter((text) => typeof text !== "string" || /\d/.test(text));
+}
+
+/** The strings of a copy.js value that type a count as a word, two to nine ("six ecosystems"); "one measure" is wording,
+ *  not a count. A count fills a slot, from the data (`NUMBER_WORDS` turns it into a word). */
+function stringsWithCountWords(value) {
+  const strings = typeof value === "string" ? [value] : Object.values(value);
+  return strings.filter((text) => typeof text !== "string" || /\b(two|three|four|five|six|seven|eight|nine)\b/i.test(text));
+}
+
+test("lists: no digit is typed into any copy.js string the lists added: every number fills a slot", () => {
+  for (const name of LIST_COPY) {
+    assert.ok(copy[name] !== undefined, `copy.js has ${name}`);
+    assert.deepEqual(stringsWithDigits(copy[name]), [], name);
+  }
+  assert.deepEqual(stringsWithDigits("weighs 18 parameters"), ["weighs 18 parameters"], "the check finds a typed number");
+  assert.deepEqual(stringsWithDigits({ a: "fine", b: "in 14 days" }), ["in 14 days"]);
+  // a count is never typed as a word either ("six ecosystems", "five pillars"): it is the data's count, in words
+  for (const name of LIST_COPY.filter((n) => n !== "NUMBER_WORDS")) assert.deepEqual(stringsWithCountWords(copy[name]), [], name);
+  assert.deepEqual(stringsWithCountWords("against {share}% across all six ecosystems"), ["against {share}% across all six ecosystems"]);
+  assert.deepEqual(stringsWithCountWords("which weighs {parameters} parameters across {pillars} pillars"), []);
+  assert.deepEqual(copy.LENS_PHRASES, {
+    first_timer: "first-time contributors", career_capital: "building career capital",
+    senior_systems: "senior systems engineers", ai_assisted: "AI-assisted contributors",
+  }, "the four phrases of the old landing pages, which home_pages.py reads");
+});
+
+/** A list's page as the prerender draws its state: the page of rows, the snapshot, the report and the methodology. */
+const listPageState = (address, board) =>
+  atAddress(address, { leaderboard: listBoard(LIST_ROWS, board), snapshot: SNAPSHOT_DOC, report: REPORT_EXAMPLE, methodology: METHODOLOGY_DOC });
+
+test("lists: the app adopts a list's board for the list's state, drops it for another, and patches it into renderShell's DOM", () => {
+  for (const [address, board] of [["/rust/", { total: 474 }], ["/fastest-replies/", { total: 4402 }], ["/rankings/2/", { total: 4402, page: 2, page_size: 100 }]]) {
+    const state = listPageState(address, board);
+    for (const viewport of [DESKTOP, PHONE]) {
+      const doc = new FakeDocument();
+      const drawn = parseHtml(doc, renderPrerenderedBoard(state));
+      const root = { querySelector: (sel) => (sel === "[data-prerendered-board]" ? drawn : null) };
+      assert.equal(drawn.getAttribute("data-prerendered-board"), requestSignature(state), `${address}: keyed by its state`);
+      for (const other of [{ page: state.page + 1 }, { ecosystem: "pypi" }, { pageSize: 20 }, { persona: "ai_assisted" }, { sort: "-coverage" }]) {
+        assert.equal(adoptPrerenderedBoard(root, { ...state, ...other }, viewport), false, `${address}: not for ${JSON.stringify(other)}`);
+      }
+      assert.equal(adoptPrerenderedBoard(root, state, viewport), true, `${address} on ${viewport.isMobile ? "a phone" : "a desktop"}`);
+      const rows = listRows(state);
+      const opts = { ...listRowOpts(state), selectedRepoKey: null };
+      const patch = (el) => {
+        if (viewport.isMobile) {
+          patchCardBody(el.querySelector("[data-leaderboard-cards]"), doc, rows, computeVisibleRange(0, viewport.height, rows.length, 8, CARD_HEIGHT_PX), opts);
+        } else {
+          const tbody = el.querySelector("[data-leaderboard-tbody]");
+          tbody.parentNode.classList.toggle("stars-unaudited", !copy.hasAuditedStars(rows));
+          patchTableBody(tbody, doc, rows, computeVisibleRange(0, viewport.height, rows.length), opts);
+        }
+      };
+      const before = [...(viewport.isMobile ? drawn.querySelector("[data-leaderboard-cards]") : drawn.querySelector("[data-leaderboard-tbody]")).children];
+      patch(drawn);
+      patch(drawn);
+      const after = [...(viewport.isMobile ? drawn.querySelector("[data-leaderboard-cards]") : drawn.querySelector("[data-leaderboard-tbody]")).children];
+      assert.ok(after.every((node) => before.includes(node)), `${address}: no row replaced`);
+      const fresh = parseHtml(doc, renderShell(state, viewport));
+      patch(fresh);
+      patch(fresh);
+      assert.equal(dumpNode(drawn), dumpNode(fresh), `${address}: the adopted board is renderShell's DOM, patched`);
+    }
+  }
+  const fastest = renderPrerenderedBoard(listPageState("/fastest-replies/", { total: 4402 }));
+  assert.equal((fastest.match(/<tr data-owner=/g) || []).length, 30, "the fastest list draws the rows before its cut");
+  assert.ok(!fastest.includes("data-mobile-sort-bar") && !fastest.includes('class="pager'), "and no sort bar or pager");
+  assert.ok(fastest.includes('<span class="reply-sample">10 pull requests</span>'), "its samples as a second line");
+});
+
+test("lists: the prerender draws a page of the ranking and a preset from its address: board, heading, intro, title and description", () => {
+  const frame = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "404.html"), "utf8");
+  for (const [address, board, title, description, rowCount] of [
+    ["/rankings/3/", { total: 4402, page: 3, page_size: 100 }, "Open-source projects ranked 201 to 300 of 4,402 | Porchlamp",
+      "Open-source projects ranked 201 to 300 of 4,402 by what happens to a stranger's pull request, each with its median first reply.", 50],
+    ["/python/", { total: 696 }, "Python projects that answer outside pull requests | Porchlamp",
+      "Porchlamp ranks 696 Python projects by what happens to a stranger's pull request.", 50],
+  ]) {
+    const data = { snapshot: SNAPSHOT_DOC, report: REPORT_EXAMPLE, methodology: METHODOLOGY_DOC, leaderboard: listBoard(LIST_ROWS, board) };
+    const page = drawPage(frame, { path: `${address.slice(1)}index.html`, view: "ranked", address }, data);
+    const state = { ...stateForAddress(address), ...data };
+    assert.ok(page.includes('<main class="app-main" id="app-main" tabindex="-1" data-prerendered="ranked">'), address);
+    assert.ok(page.includes(renderPrerenderedBoard(state)), `${address}: the board of its state`);
+    assert.ok(page.includes(`data-prerendered-board="${requestSignature(state)}"`), address);
+    assert.equal((page.match(/<tr data-owner=/g) || []).length, rowCount, `${address}: its page of rows`);
+    assert.equal((page.match(/<div data-owner=/g) || []).length, rowCount, `${address}: and its cards`);
+    assert.ok(page.includes(renderListHead(state)), `${address}: the heading and the intro`);
+    assert.equal((page.match(/<title>([^<]*)<\/title>/g) || []).length, 1);
+    assert.equal(decodeAttr(page.match(/<title>([^<]*)<\/title>/)[1]), title, address);
+    assert.equal(decodeAttr(page.match(/<meta name="description" content="([^"]*)">/)[1]), description, address);
+    assert.equal((page.match(/<meta name="description"/g) || []).length, 1, `${address}: one description`);
+  }
+  const home = drawPage(frame, { path: "index.html", view: "ranked" }, { snapshot: SNAPSHOT_DOC, report: REPORT_EXAMPLE, leaderboard: HOME_LEADERBOARD });
+  assert.ok(home.includes("<title>Page not found | Porchlamp</title>"), "a page without an address keeps the head the export wrote");
+  assert.throws(() => stateForAddress("/matrix/"), /not the address of a list/);
+});
+
+test("lists: a fastest list's count is the rows it lists, not the projects in scope", () => {
+  const rows = LIST_ROWS.map((row, i) => ({ ...row, first_reply_hours: i < 7 ? 1 + i : null }));
+  const state = atAddress("/rust/fastest-replies/", { leaderboard: listBoard(rows, { total: 474 }), methodology: METHODOLOGY_DOC });
+  assert.equal(listRows(state).length, 7);
+  const intro = renderListHead(state).match(/<p class="list-intro" data-list-intro="true">(.*?)<\/p>/)[1];
+  assert.equal(listHooksOf(intro)["list.total"], "7", "the seven rows before the cut");
+  assert.ok(listDescription(state).startsWith("7 Rust projects, ordered by"), listDescription(state));
+  const full = atAddress("/fastest-replies/", { leaderboard: listBoard(LIST_ROWS.map((row) => ({ ...row, first_reply_hours: 2, first_reply_n: 12 })), { total: 4402 }), methodology: METHODOLOGY_DOC });
+  assert.equal(listHooksOf(renderListHead(full))["list.total"], "50", "at most the page: 50, never the 4,402 in scope");
+});
+
+test("lists: a list's page draws its header's lens and ecosystem selects as the app draws them for its state", () => {
+  for (const [address, persona, eco] of [["/rust/", null, "crates"], ["/career/", "career_capital", null], ["/go/first-timers/", "first_timer", "go"]]) {
+    const drawn = chromeFor({ path: `${address.slice(1)}index.html`, view: "ranked", address }, SNAPSHOT_DOC).header;
+    const app = { ...defaultState(), ...stateFromLocation(address, "", null) };
+    assert.equal(drawn, renderAppHeader(app.tab, SNAPSHOT_DOC, app), `${address}: the prerendered header is the app's, byte for byte`);
+    const selected = [...drawn.matchAll(/<option value="([^"]*)" selected>/g)].map((m) => m[1]);
+    assert.deepEqual(selected, [persona, eco].filter(Boolean), `${address}: the state's lens and ecosystem are selected`);
+    // app.js syncHeaderControls writes a select only when its value differs: these are the values it compares
+    assert.equal(persona || "balanced", app.persona, address);
+    assert.equal(eco || "", app.ecosystem, address);
+  }
+  const home = chromeFor({ path: "index.html", view: "ranked" }, SNAPSHOT_DOC).header;
+  assert.equal(home, renderAppHeader("ranked", SNAPSHOT_DOC), "the home's header is as before");
+  assert.ok(!home.includes(" selected"), "nothing marked at the defaults");
+  assert.equal(renderAppHeader("ranked", SNAPSHOT_DOC, defaultState()), home, "the default state marks nothing either");
+});
+
+test("lists: the description goes back to the home's own on /, only when the document first loaded at /", () => {
+  const home = { ...defaultState(), leaderboard: HOME_LEADERBOARD };
+  const rust = atAddress("/rust/", { leaderboard: listBoard(LIST_ROWS) });
+  assert.equal(pageDescription(rust, "the home's"), listDescription(rust), "a list writes its own");
+  assert.equal(pageDescription(home, "the home's"), "the home's", "back on / the home's comes back");
+  assert.equal(pageDescription({ ...home, query: "flask" }, "the home's"), "the home's", "any address at /");
+  assert.equal(pageDescription(home, null), null, "first loaded as a list: / leaves the description as it is");
+  assert.equal(pageDescription({ ...home, repo: "a/b" }, "the home's"), null, "an open panel leaves it");
+  assert.equal(pageDescription({ ...home, tab: "matrix" }, "the home's"), null, "another view leaves it");
+  const app = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "app.js"), "utf8");
+  assert.match(app, /const homeDescription =\s*descriptionMeta && matchRoute\(win\.location\.pathname\)\.route\.id === "ranked" \? descriptionMeta\.getAttribute\("content"\) : null;/,
+    "app.js keeps the description the document loaded with, when its first address was /");
+  assert.match(app, /pageDescription\(state, homeDescription\)/, "and writes what pageDescription says on every render");
 });
