@@ -707,8 +707,10 @@ def test_project_pages_have_a_self_canonical_a_unique_title_an_answer_and_no_pla
 
 def test_a_script_planted_in_a_project_page_turns_the_guard_red(built, monkeypatch):
     site = built[0]
-    clean = _project_files(site)[0].read_text(encoding="utf-8")
-    assert external_violations(clean) == []
+    page = _project_files(site)[0].read_text(encoding="utf-8")
+    own = '<script type="module" src="../../../back-forward.js"></script>'  # the page's one local script
+    clean = page.replace(own, "")
+    assert own in page and external_violations(clean) == []
     planted = clean.replace("</body>", '<script src="https://cdn.example.com/x.js"></script></body>')
     assert external_violations(planted), "the guard did not see the planted script"
 
