@@ -9,7 +9,7 @@ description = "Porchlamp ranking engine"
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
-# W4-1 packaging fix: `porchlamp.serve.app`/`porchlamp.api`/`porchlamp.serve.contract` import
+# W4-1 packaging fix: `porchlamp.serve.app`/`porchlamp.serve.contract` import
 # fastapi + pydantic directly, and `porchlamp.collect.ratelimit` (moved from
 # porchlamp/ingest.py, which had the same gap before it) imports httpx -- none
 # of the three were declared here, so `pip install .[server]` could not

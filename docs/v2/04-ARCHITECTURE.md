@@ -97,8 +97,7 @@ porchlamp/
                          reader.py and writer.py both reuse this (R-2)
   serve/
     app.py              FastAPI app (`porchlamp.serve.app.create_app`) -- v2 at
-                         `/`, v1 at `/legacy/` when a v1 shape exists,
-                         `/healthz` (named `api.py` in the original target;
+                         `/`, `/healthz` (named `api.py` in the original target;
                          built as `app.py` instead)
     contract.py         response/request pydantic models (leaderboard,
                          matrix, evidence, snapshot, methodology, ...)
@@ -129,15 +128,12 @@ tests/
                                     never importable from porchlamp/ OR scripts/,
                                     enforced by tests/core/test_import_graph.py)
   fixtures/snapshot_50/           (committed raw envelopes for reproduce-in-CI)
-  helpers/demo_app.py             (ex scripts/demo_app.py, moved W4-1)
 scripts/                real entry points (NOT thin shims -- see the cli.py
                          note above): gather.py, derive.py, verify.py,
                          promote.py, run_all.py, serve.py, build_universe.py,
                          backfill_downloads.py, render_methodology.py,
                          make_sample.py, plus the dev-only
-                         build_fixture_snapshot.py. demo_app.py is now a
-                         one-release deprecation shim (W4-1) over
-                         tests/helpers/demo_app.py; serve_ui_fixtures.py is
+                         build_fixture_snapshot.py. serve_ui_fixtures.py is
                          an explicit W4-4 stand-in scheduled for retirement
                          once the lead verifies v2 end-to-end on the real
                          API (in flight on a concurrent packet as of W4-1 --
@@ -157,10 +153,12 @@ Not deleted, still v1, per `04` §10 step 3 ("old engine keeps serving the
 v1 DB until W5-2"): `porchlamp/models.py`, `porchlamp/constants.py`, `porchlamp/stage0.py`,
 `porchlamp/starscout.py`, `porchlamp/normalize.py`, `porchlamp/openssf.py`, `porchlamp/pillars/*`,
 `porchlamp/matrix.py`, `porchlamp/persona.py`, `porchlamp/engine.py`, `porchlamp/lakehouse.py`,
-`porchlamp/api.py`, `porchlamp/deepdive.py`, `porchlamp/playbook.py`, `web/index.html` --
-these are the only live v1 scoring/serving path (`scripts/promote.py`,
-`scripts/serve.py` still import them) and retire together at W5-2, not
-piecemeal. `porchlamp/provenance.py`/`porchlamp/paths.py` are shared utilities used by
+`porchlamp/deepdive.py`, `porchlamp/playbook.py` -- the only live v1 scoring
+path (`scripts/promote.py` still imports them). The v1 serving path -- the v1
+API `porchlamp/api.py`, its UI `web/index.html`, the demo app
+`scripts/demo_app.py` and its mount in `porchlamp/serve/app.py` -- was removed
+on 2026-10-17 (owner decision: not worth keeping).
+`porchlamp/provenance.py`/`porchlamp/paths.py` are shared utilities used by
 both v1 and v2 code and are not v1-specific despite living at the `porchlamp/`
 top level.
 

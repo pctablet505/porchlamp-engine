@@ -1,11 +1,7 @@
 """Zero-external-request check for `web/v2/` (06 §8 checklist item 10).
 
-`tests/test_webapp.py::TestIndexServed::test_page_is_fully_offline` is the
-existing v1 check this packet was told to find and extend — it inspects
-`web/index.html` alone, which is a single-file v1 app. `web/v2/` is many
-files (styles/*.css, *.js, components/*.js, views/*.js), so this test
-extends the SAME rule to every file actually served, rather than editing the
-v1 test suite verification.
+`web/v2/` is many files (styles/*.css, *.js, components/*.js, views/*.js), so
+this test applies the rule to every file actually served.
 """
 
 from __future__ import annotations

@@ -1,15 +1,6 @@
 """Tests for the production serving entrypoint (scripts/serve.py).
 
-The load-bearing property: serve.py reads an ALREADY-PROMOTED store and does
-NOT seed synthetic benchmark_data. An empty DB must serve an empty dashboard
-(not the ~1,000 fabricated Gemini fixtures). This locks the "only verified
-data reaches the API" rule at the serving boundary.
-
-sqlite3 connections are thread-bound and starlette's TestClient dispatches on
-its portal thread, so the store is built inside ``client.portal.call`` (the
-same pattern as ``tests/test_api.py::open_client``).
-
-The second half of the file is the served-DB guard of packet (`03` §5,
+This file pins the served-DB guard of packet (`03` §5,
 F1). restores an independent rename-proof fixture check (:
 round 2 deleted it while adding the content-hash identity, so seeding the
 synthetic catalog and then promoting a real sample on top served fabricated
@@ -28,19 +19,16 @@ from __future__ import annotations
 import importlib.util
 import shutil
 import sqlite3
-from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
-from porchlamp.api import create_app
 from porchlamp.lakehouse import OperationalStore, apply_raw_metrics, repositories_dump_hash
 from porchlamp.models import PorchlampCompositeResult, Ecosystem, PillarScores, Quadrant, Tier
 from porchlamp.snapshot.manifest import build_manifest, envelope_entries, write_manifest
 from scripts import serve
-from scripts.serve import count_repos, create_serve_app
+from scripts.serve import count_repos
 from tests.fixtures.synthetic_catalog import BENCHMARK_NOW, get_benchmark_catalog, seed_benchmark_catalog
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -68,75 +56,9 @@ def _store_at(db_path: Path) -> OperationalStore:
     return OperationalStore(str(db_path))
 
 
-def _result(name: str) -> PorchlampCompositeResult:
-    return PorchlampCompositeResult(
-        owner="tokio-rs",
-        name=name,
-        ecosystem=Ecosystem.CRATES,
-        overall_porchlamp=70.31,
-        rank_tier=Tier.A,
-        matrix_quadrant=Quadrant.SWEET_SPOT,
-        leverage_score=72.0,
-        friction_score=30.0,
-        is_stage0_disqualified=False,
-        disqualification_reason=None,
-    )
-
-
-def open_serve_client(seed: Callable[[], OperationalStore]) -> TestClient:
-    """Enter a TestClient whose app store is built on the portal thread."""
-    app = create_serve_app(OperationalStore())
-    client = TestClient(app)
-    client.__enter__()
-    app.state.store = client.portal.call(seed)
-    return client
-
-
-def _empty() -> OperationalStore:
-    return OperationalStore()
-
-
-def _promoted() -> OperationalStore:
-    store = OperationalStore()
-    store.upsert_composite(
-        _result("tokio"),
-        pillar_scores=PillarScores(70, 80, 60, 65, 55),
-    )
-    return store
-
-
 def test_count_repos_empty_is_zero():
     # count_repos runs on the test thread (direct SQL, no portal needed).
     assert count_repos(OperationalStore()) == 0
-
-
-def test_empty_store_serves_no_repos():
-    # FAIL-BEFORE: if serve.py seeded benchmark_data, an empty store would
-    # report ~1000 repos here. It must report zero — no fabrication.
-    client = open_serve_client(_empty)
-    try:
-        lb = client.get("/v1/porchlamp/leaderboard?limit=1000").json()
-        assert lb["items"] == []
-        assert lb["total"] == 0
-    finally:
-        client.__exit__(None, None, None)
-
-
-def test_promoted_row_is_served():
-    client = open_serve_client(_promoted)
-    try:
-        lb = client.get("/v1/porchlamp/leaderboard?limit=1000").json()
-        assert lb["total"] == 1
-        assert lb["items"][0]["owner"] == "tokio-rs"
-        assert lb["items"][0]["name"] == "tokio"
-        assert lb["items"][0]["porchlamp"] == 70.31
-    finally:
-        client.__exit__(None, None, None)
-
-
-def test_healthz_ok():
-    client = TestClient(create_app(store=OperationalStore()))
-    assert client.get("/healthz").json() == {"status": "ok"}
 
 
 # --------------------------------------------------------------------------- #
@@ -179,7 +101,7 @@ def _promote_snapshot(data_dir: Path, db: Path) -> dict:
 
 
 def _fixture_rows(store: OperationalStore, count: int) -> list[dict]:
-    """Seed ``count`` synthetic benchmark rows, exactly as ``demo_app`` does."""
+    """Seed ``count`` synthetic benchmark rows from the fixture catalog."""
     rows = get_benchmark_catalog(count)
     seed_benchmark_catalog(store, rows, BENCHMARK_NOW)
     return rows
@@ -261,7 +183,9 @@ def test_renaming_fixture_owners_does_not_evade_the_marker(tmp_path, served):
     assert served.ports == []
 
 
-def test_database_without_snapshot_meta_is_refused(tmp_path, served):
+def test_database_without_snapshot_meta_is_refused(tmp_path):
+    # Refused by the promote-time check; the server serves no v1 rows, so
+    # it leaves this one to promote (tests/serve/test_guard.py).
     db = tmp_path / "porchlamp.db"
     store = _store_at(db)
     _promoted_row(store, "numpy", "numpy", stars=32721, forks=12769)
@@ -270,10 +194,6 @@ def test_database_without_snapshot_meta_is_refused(tmp_path, served):
     reasons = serve.refusal_reasons(OperationalStore(str(db)), str(db))
     assert len(reasons) == 1
     assert "no snapshot_meta row" in reasons[0]
-
-    with pytest.raises(SystemExit):
-        serve.main(["--db", str(db)])
-    assert served.ports == []
 
 
 def test_promoted_database_with_snapshot_identity_serves(tmp_path, served):

@@ -1,6 +1,6 @@
 """Security hardening regression and PoC verification suite.
 
-Verifies remediation of the 5 security findings across the Porchlamp repository:
+Verifies remediation of the 4 security findings across the Porchlamp repository:
 1. CWE-770 / CWE-400: Bounded request body size (64 KiB) and Content-Length
    validation on ``POST /v1/porchlamp/reproject`` in both ``scripts/serve_ui_fixtures.py``
    and ``porchlamp/serve/app.py``.
@@ -12,14 +12,11 @@ Verifies remediation of the 5 security findings across the Porchlamp repository:
    (``..``), and GraphQL string interpolation injection.
 4. CWE-918 / CWE-319: ``https://`` scheme and host allowlist enforcement before
    ``urllib.request.urlopen`` in collector and derivation modules.
-5. CWE-79: Removal of inline ``onclick`` handlers with dynamic interpolation
-   and escaping of dynamic fields in ``web/index.html``.
 """
 
 from __future__ import annotations
 
 import http.client
-import re
 import sys
 import threading
 from pathlib import Path
@@ -37,10 +34,8 @@ from scripts import serve_ui_fixtures
 from serve.helpers import build_snapshot, finalize, fresh_db
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 WEB_V2_DIR = serve_ui_fixtures.DEFAULT_WEB_DIR
 FIXTURES_DIR = serve_ui_fixtures.DEFAULT_FIXTURES_DIR
-LEGACY_INDEX_HTML = REPO_ROOT / "web" / "index.html"
 
 
 @pytest.fixture()
@@ -248,17 +243,3 @@ def test_derive_and_governance_file_fetchers_reject_path_traversal(tmp_path: Pat
         fetcher("../../etc/passwd")
     with pytest.raises(ValueError, match="invalid governance file name"):
         derive_script._body(tmp_path, "pallets", "flask", "../secret.txt", fetch=True)
-
-
-# --------------------------------------------------------------------------- #
-# 5. CWE-79: Legacy web/index.html DOM XSS Hardening                          #
-# --------------------------------------------------------------------------- #
-
-
-def test_legacy_web_index_html_has_no_inline_onclick_with_interpolated_data() -> None:
-    html = LEGACY_INDEX_HTML.read_text(encoding="utf-8")
-    # Ensure no inline onclick handler interpolates ${...} template expressions
-    inline_onclick_interpolations = re.findall(r'onclick="[^"]*\$\{[^"]*"', html)
-    assert inline_onclick_interpolations == [], (
-        f"Found unsafe inline onclick interpolation(s): {inline_onclick_interpolations}"
-    )
